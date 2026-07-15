@@ -123,10 +123,11 @@ func Distribute() func(c *gin.Context) {
 				}
 
 				routeMatch, routeErr := service.GetChannelByRoute(&service.RetryParam{
-					Ctx:        c,
-					ModelName:  modelRequest.Model,
-					TokenGroup: usingGroup,
-					Retry:      common.GetPointer(0),
+					Ctx:                          c,
+					ModelName:                    modelRequest.Model,
+					TokenGroup:                   usingGroup,
+					Retry:                        common.GetPointer(0),
+					FallbackOnlyForUnknownTokens: !routeWillEstimateTokens(c),
 				})
 				if routeErr != nil {
 					abortWithOpenAiMessage(c, http.StatusServiceUnavailable, i18n.T(c, i18n.MsgDistributorGetChannelFailed, map[string]any{"Group": usingGroup, "Model": modelRequest.Model, "Error": routeErr.Error()}), types.ErrorCodeModelNotFound)
@@ -211,6 +212,36 @@ func Distribute() func(c *gin.Context) {
 		if channel != nil && c.Writer != nil && c.Writer.Status() < http.StatusBadRequest {
 			service.RecordChannelAffinity(c, channel.Id)
 		}
+	}
+}
+
+func routeWillEstimateTokens(c *gin.Context) bool {
+	if c == nil || c.Request == nil || c.Request.URL == nil {
+		return false
+	}
+	relayMode := relayconstant.Path2RelayMode(c.Request.URL.Path)
+	if relayMode == relayconstant.RelayModeUnknown {
+		relayMode = c.GetInt("relay_mode")
+	}
+	switch relayMode {
+	case relayconstant.RelayModeChatCompletions,
+		relayconstant.RelayModeCompletions,
+		relayconstant.RelayModeEmbeddings,
+		relayconstant.RelayModeModerations,
+		relayconstant.RelayModeImagesGenerations,
+		relayconstant.RelayModeImagesEdits,
+		relayconstant.RelayModeEdits,
+		relayconstant.RelayModeAudioSpeech,
+		relayconstant.RelayModeAudioTranscription,
+		relayconstant.RelayModeAudioTranslation,
+		relayconstant.RelayModeRerank,
+		relayconstant.RelayModeResponses,
+		relayconstant.RelayModeRealtime,
+		relayconstant.RelayModeGemini,
+		relayconstant.RelayModeResponsesCompact:
+		return true
+	default:
+		return false
 	}
 }
 

@@ -83,13 +83,11 @@ func GetChannelByRoute(param *RetryParam) (*ChannelRouteMatch, error) {
 				// estimatedTokens unknown: either the Distribute phase (the
 				// Relay controller re-routes precisely once real tokens are
 				// known) or a relay path that never estimates tokens (task/
-				// Midjourney relays). Prefer catch-all tiers so those paths
-				// keep the legacy fallback-pool semantics; only fall back to
-				// the union of all tier channels when no catch-all exists.
-				channelIDs = collectTierChannelIDs(tiers, true)
-				if len(channelIDs) == 0 {
-					channelIDs = collectTierChannelIDs(tiers, false)
-				}
+				// Midjourney relays). Only the latter should prefer catch-all
+				// tiers. Standard relays need the union as a placeholder pool;
+				// otherwise a strict rule can reject the request before token
+				// estimation when its catch-all pool is temporarily exhausted.
+				channelIDs = collectUnknownTokenChannelIDs(tiers, param.FallbackOnlyForUnknownTokens)
 			}
 		}
 
@@ -152,6 +150,15 @@ func collectTierChannelIDs(tiers []operation_setting.RouteTier, catchAllOnly boo
 		}
 	}
 	return channelIDs
+}
+
+func collectUnknownTokenChannelIDs(tiers []operation_setting.RouteTier, fallbackOnly bool) []int {
+	if fallbackOnly {
+		if channelIDs := collectTierChannelIDs(tiers, true); len(channelIDs) > 0 {
+			return channelIDs
+		}
+	}
+	return collectTierChannelIDs(tiers, false)
 }
 
 func evaluateRouteTier(conditions []operation_setting.RouteTierCondition, estimatedTokens int) bool {

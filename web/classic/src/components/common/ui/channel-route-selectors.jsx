@@ -348,19 +348,21 @@ export function ChannelSelector({ value, onChange, compact = false, modelNames }
     // bound-channel query already refreshed the list.
     const keyAtRequest = modelKeyRef.current;
     setLoading(true);
+    let loaded = false;
     API.get('/api/channel/?p=0&page_size=500&id_sort=true')
       .then((res) => {
         if (modelKeyRef.current !== keyAtRequest) return;
         const { success, data } = res.data;
         if (success && data?.items) {
           setChannels(data.items.map((ch) => ({ id: ch.id, name: ch.name, type: ch.type, status: ch.status })));
+          loaded = true;
         }
       })
       .catch(() => {})
       .finally(() => {
         if (modelKeyRef.current !== keyAtRequest) return;
         setLoading(false);
-        setLoadedAll(true);
+        if (loaded) setLoadedAll(true);
       });
   }, [loadedAll]);
 

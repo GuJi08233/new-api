@@ -2,6 +2,7 @@ package service
 
 import (
 	"net/http/httptest"
+	"slices"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
@@ -26,6 +27,28 @@ func TestCollectRouteCandidatesForGroupDeduplicates(t *testing.T) {
 	candidates := collectRouteCandidatesForGroup("", "model", []int{1, 1, 2})
 	if len(candidates) != 0 {
 		t.Fatalf("expected no candidates for empty group")
+	}
+}
+
+func TestCollectUnknownTokenChannelIDs(t *testing.T) {
+	tiers := []operation_setting.RouteTier{
+		{
+			Conditions: []operation_setting.RouteTierCondition{{Var: "len", Op: "<", Value: 1000}},
+			ChannelIDs: []int{1, 2},
+		},
+		{ChannelIDs: []int{3}},
+	}
+
+	if got := collectUnknownTokenChannelIDs(tiers, false); !slices.Equal(got, []int{1, 2, 3}) {
+		t.Fatalf("standard relay placeholder IDs = %v, want all tier IDs", got)
+	}
+	if got := collectUnknownTokenChannelIDs(tiers, true); !slices.Equal(got, []int{3}) {
+		t.Fatalf("task fallback IDs = %v, want catch-all tier IDs", got)
+	}
+
+	withoutCatchAll := tiers[:1]
+	if got := collectUnknownTokenChannelIDs(withoutCatchAll, true); !slices.Equal(got, []int{1, 2}) {
+		t.Fatalf("task IDs without catch-all = %v, want union fallback", got)
 	}
 }
 
