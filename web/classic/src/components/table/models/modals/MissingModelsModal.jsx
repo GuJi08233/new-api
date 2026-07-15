@@ -83,9 +83,13 @@ const MissingModelsModal = ({ visible, onClose, onConfigureModel, t }) => {
     if (visible) {
       setSearchKeyword('');
       setCurrentPage(1);
-      setSelectedGroup(GLOBAL_GROUP);
       fetchGroups();
-      fetchMissing(GLOBAL_GROUP);
+      if (selectedGroup === GLOBAL_GROUP) {
+        fetchMissing(GLOBAL_GROUP);
+      } else {
+        // selectedGroup 变更后由下方 effect 发起请求，避免重复请求
+        setSelectedGroup(GLOBAL_GROUP);
+      }
     } else {
       setMissingModels([]);
     }

@@ -47,6 +47,7 @@ const MAINTENANCE_SECTIONS = [
     build: (settings: MaintenanceSettings) => (
       <LogSettingsSection
         defaultEnabled={Boolean(settings.LogConsumeEnabled)}
+        defaultIpEnabled={Boolean(settings.GlobalRecordIpLogEnabled)}
         defaultUaEnabled={Boolean(settings.GlobalRecordUaLogEnabled)}
       />
     ),

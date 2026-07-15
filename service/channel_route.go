@@ -80,18 +80,15 @@ func GetChannelByRoute(param *RetryParam) (*ChannelRouteMatch, error) {
 					}
 				}
 			} else {
-				// estimatedTokens unknown (Distribute phase): use union of all
-				// tier channels as placeholder candidates so Distribute can
-				// pick a channel; the Relay phase re-routes precisely with
-				// real tokens.
-				seen := make(map[int]struct{})
-				for _, tier := range tiers {
-					for _, id := range tier.ChannelIDs {
-						if _, ok := seen[id]; !ok {
-							seen[id] = struct{}{}
-							channelIDs = append(channelIDs, id)
-						}
-					}
+				// estimatedTokens unknown: either the Distribute phase (the
+				// Relay controller re-routes precisely once real tokens are
+				// known) or a relay path that never estimates tokens (task/
+				// Midjourney relays). Prefer catch-all tiers so those paths
+				// keep the legacy fallback-pool semantics; only fall back to
+				// the union of all tier channels when no catch-all exists.
+				channelIDs = collectTierChannelIDs(tiers, true)
+				if len(channelIDs) == 0 {
+					channelIDs = collectTierChannelIDs(tiers, false)
 				}
 			}
 		}
@@ -125,8 +122,8 @@ func resolveRouteTiers(rule operation_setting.ChannelRouteRule) []operation_sett
 		return rule.RouteTiers
 	}
 	for _, tier := range rule.RouteTiers {
-		if len(tier.Conditions) == 0 {
-			// already has a catch-all; ignore legacy ChannelIDs
+		if len(tier.Conditions) == 0 && len(tier.ChannelIDs) > 0 {
+			// already has a usable catch-all; ignore legacy ChannelIDs
 			return rule.RouteTiers
 		}
 	}
@@ -136,6 +133,25 @@ func resolveRouteTiers(rule operation_setting.ChannelRouteRule) []operation_sett
 		ChannelIDs: rule.ChannelIDs,
 	})
 	return tiers
+}
+
+// collectTierChannelIDs returns the de-duplicated channel IDs of the given
+// tiers, optionally restricted to catch-all tiers (empty Conditions).
+func collectTierChannelIDs(tiers []operation_setting.RouteTier, catchAllOnly bool) []int {
+	seen := make(map[int]struct{})
+	var channelIDs []int
+	for _, tier := range tiers {
+		if catchAllOnly && len(tier.Conditions) > 0 {
+			continue
+		}
+		for _, id := range tier.ChannelIDs {
+			if _, ok := seen[id]; !ok {
+				seen[id] = struct{}{}
+				channelIDs = append(channelIDs, id)
+			}
+		}
+	}
+	return channelIDs
 }
 
 func evaluateRouteTier(conditions []operation_setting.RouteTierCondition, estimatedTokens int) bool {

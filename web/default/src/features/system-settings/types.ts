@@ -267,6 +267,7 @@ export type MaintenanceSettings = {
   'theme.frontend': string
   Notice: string
   LogConsumeEnabled: boolean
+  GlobalRecordIpLogEnabled: boolean
   GlobalRecordUaLogEnabled: boolean
   HeaderNavModules: string
   SidebarModulesAdmin: string

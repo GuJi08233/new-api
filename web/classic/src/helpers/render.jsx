@@ -1260,6 +1260,16 @@ function shouldUseRatioBillingProcess(modelPrice = -1) {
   return modelPrice === -1 && getQuotaDisplayType() === 'TOKENS';
 }
 
+// 历史脏数据兜底：other.model_price 可能被污染为倍率值（同时 other.model_ratio > 0），
+// 导致按量计费日志被误判为按次。与 default 主题 isPerCallBilling 的联合判定保持一致：
+// model_ratio > 0 时视为按量计费，忽略 model_price（返回 -1）。
+function resolveEffectiveModelPrice(modelPrice = -1, modelRatio = 0) {
+  if ((modelRatio ?? 0) > 0) {
+    return -1;
+  }
+  return modelPrice;
+}
+
 function formatCompactDisplayPrice(usdAmount, digits = 6) {
   const { symbol, rate } = getCurrencyConfig();
   const amount = Number((usdAmount * rate).toFixed(digits));
@@ -1674,7 +1684,7 @@ export function renderModelPrice(opts) {
     prompt_tokens: inputTokens = 0,
     completion_tokens: completionTokens = 0,
     model_ratio: modelRatio = 0,
-    model_price: modelPrice = -1,
+    model_price: rawModelPrice = -1,
     completion_ratio: _completionRatio,
     group_ratio: _groupRatio,
     user_group_ratio,
@@ -1696,6 +1706,7 @@ export function renderModelPrice(opts) {
     image_generation_call_price: imageGenerationCallPrice = 0,
     displayMode = 'price',
   } = opts;
+  const modelPrice = resolveEffectiveModelPrice(rawModelPrice, modelRatio);
   const { ratio: effectiveGroupRatio, label: ratioLabel } = getEffectiveRatio(
       _groupRatio,
       user_group_ratio,
@@ -2126,7 +2137,7 @@ export function renderLogContent(opts) {
   const {
     model_ratio: modelRatio,
     completion_ratio: completionRatio,
-    model_price: modelPrice = -1,
+    model_price: rawModelPrice = -1,
     group_ratio: groupRatio,
     user_group_ratio,
     cache_ratio: cacheRatio = 1.0,
@@ -2138,6 +2149,7 @@ export function renderLogContent(opts) {
     file_search_call_count: fileSearchCallCount = 0,
     displayMode = 'price',
   } = opts;
+  const modelPrice = resolveEffectiveModelPrice(rawModelPrice, modelRatio);
   const {
     ratio,
     label: ratioLabel,
@@ -2450,7 +2462,7 @@ export function renderTieredModelPriceSimple(opts) {
 export function renderModelPriceSimple(opts) {
   const {
     model_ratio: modelRatio,
-    model_price: modelPrice = -1,
+    model_price: rawModelPrice = -1,
     group_ratio: groupRatio,
     user_group_ratio,
     cache_tokens: cacheTokens = 0,
@@ -2468,6 +2480,7 @@ export function renderModelPriceSimple(opts) {
     displayMode = 'price',
     outputMode = 'text',
   } = opts;
+  const modelPrice = resolveEffectiveModelPrice(rawModelPrice, modelRatio);
   return renderPriceSimpleCore({
     modelRatio,
     modelPrice,
@@ -2494,7 +2507,7 @@ export function renderAudioModelPrice(opts) {
     prompt_tokens: inputTokens = 0,
     completion_tokens: completionTokens = 0,
     model_ratio: modelRatio = 0,
-    model_price: modelPrice = -1,
+    model_price: rawModelPrice = -1,
     completion_ratio: _completionRatio,
     audio_input: audioInputTokens = 0,
     audio_output: audioCompletionTokens = 0,
@@ -2506,6 +2519,7 @@ export function renderAudioModelPrice(opts) {
     cache_ratio: cacheRatio = 1.0,
     displayMode = 'price',
   } = opts;
+  const modelPrice = resolveEffectiveModelPrice(rawModelPrice, modelRatio);
   const { ratio: effectiveGroupRatio, label: ratioLabel } = getEffectiveRatio(
       _groupRatio,
       user_group_ratio,
@@ -2776,7 +2790,7 @@ export function renderClaudeModelPrice(opts) {
     prompt_tokens: inputTokens = 0,
     completion_tokens: completionTokens = 0,
     model_ratio: modelRatio = 0,
-    model_price: modelPrice = -1,
+    model_price: rawModelPrice = -1,
     completion_ratio: _completionRatio,
     group_ratio: _groupRatio,
     user_group_ratio,
@@ -2790,6 +2804,7 @@ export function renderClaudeModelPrice(opts) {
     cache_creation_ratio_1h: cacheCreationRatio1h = 1.0,
     displayMode = 'price',
   } = opts;
+  const modelPrice = resolveEffectiveModelPrice(rawModelPrice, modelRatio);
   const { ratio: effectiveGroupRatio, label: ratioLabel } = getEffectiveRatio(
       _groupRatio,
       user_group_ratio,
@@ -3178,7 +3193,7 @@ export function renderClaudeLogContent(opts) {
   const {
     model_ratio: modelRatio,
     completion_ratio: completionRatio,
-    model_price: modelPrice = -1,
+    model_price: rawModelPrice = -1,
     group_ratio: _groupRatio,
     user_group_ratio,
     cache_ratio: cacheRatio = 1.0,
@@ -3189,6 +3204,7 @@ export function renderClaudeLogContent(opts) {
     cache_creation_ratio_1h: cacheCreationRatio1h = 1.0,
     displayMode = 'price',
   } = opts;
+  const modelPrice = resolveEffectiveModelPrice(rawModelPrice, modelRatio);
   const { ratio: effectiveGroupRatio, label: ratioLabel } = getEffectiveRatio(
       _groupRatio,
       user_group_ratio,

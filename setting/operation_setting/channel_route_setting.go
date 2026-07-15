@@ -1,6 +1,11 @@
 package operation_setting
 
-import "github.com/QuantumNous/new-api/setting/config"
+import (
+	"sync/atomic"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/setting/config"
+)
 
 type RouteTierCondition struct {
 	Var   string `json:"var"`   // "len" | "p" | "c"
@@ -29,15 +34,33 @@ type ChannelRouteSetting struct {
 	Rules   []ChannelRouteRule `json:"rules"`
 }
 
+// channelRouteSetting is only a staging area mutated in place by the config
+// framework (reflection-based, unsynchronized). Request goroutines must never
+// read it directly; they read the immutable snapshot published below.
 var channelRouteSetting = ChannelRouteSetting{
 	Enabled: false,
 	Rules:   []ChannelRouteRule{},
 }
 
+var channelRouteSnapshot atomic.Pointer[ChannelRouteSetting]
+
 func init() {
 	config.GlobalConfig.Register("channel_route_setting", &channelRouteSetting)
+	SyncChannelRouteSetting()
 }
 
 func GetChannelRouteSetting() *ChannelRouteSetting {
-	return &channelRouteSetting
+	return channelRouteSnapshot.Load()
+}
+
+// SyncChannelRouteSetting publishes a deep copy of the staging config as the
+// read-only snapshot. Must be called after every update to the staging struct
+// (see handleConfigUpdate in model/option.go).
+func SyncChannelRouteSetting() {
+	snapshot := &ChannelRouteSetting{}
+	data, err := common.Marshal(channelRouteSetting)
+	if err != nil || common.Unmarshal(data, snapshot) != nil {
+		snapshot = &ChannelRouteSetting{Enabled: channelRouteSetting.Enabled}
+	}
+	channelRouteSnapshot.Store(snapshot)
 }

@@ -3,7 +3,7 @@ Copyright (C) 2025 QuantumNous
 ...license header...
 */
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Checkbox, Col, Input, Row, Select, Space, Spin, Tag, Typography } from '@douyinfe/semi-ui';
 import { IconPlus, IconSearch } from '@douyinfe/semi-icons';
 import { useTranslation } from 'react-i18next';
@@ -67,7 +67,12 @@ export function extractExactModelNames(modelRegexText) {
     const trimmed = line.trim();
     if (!trimmed) continue;
     if (!(trimmed.startsWith('^') && trimmed.endsWith('$'))) continue;
-    const name = trimmed.slice(1, -1).replace(/\\([.*+?^${}()|[\]\\])/g, '$1');
+    const inner = trimmed.slice(1, -1);
+    // Skip entries that still contain unescaped regex metacharacters after
+    // stripping ^$ (e.g. `^gpt-(4o|4o-mini)$`) — they are real regexes, not
+    // literal model names, and would return nothing from the exact-match API.
+    if (/(?:^|[^\\])(?:\\\\)*[.*+?^${}()|[\]]/.test(inner)) continue;
+    const name = inner.replace(/\\([.*+?^${}()|[\]\\])/g, '$1');
     if (!name || seen.has(name)) continue;
     seen.add(name);
     out.push(name);
@@ -275,6 +280,8 @@ export function ChannelSelector({ value, onChange, compact = false, modelNames }
   const [showList, setShowList] = useState(false);
   const [loadedAll, setLoadedAll] = useState(false);
   const [boundLoaded, setBoundLoaded] = useState(false);
+  // true when the full list was loaded because the bound query came back empty
+  const [autoLoadedAll, setAutoLoadedAll] = useState(false);
 
   const selectedIds = useMemo(() => {
     const ids = [];
@@ -293,6 +300,8 @@ export function ChannelSelector({ value, onChange, compact = false, modelNames }
     return [...new Set(modelNames.map((s) => String(s || '').trim()).filter(Boolean))].sort();
   }, [modelNames]);
   const modelKey = normalizedModels.join(',');
+  const modelKeyRef = useRef(modelKey);
+  modelKeyRef.current = modelKey;
 
   // Auto-load channels bound to the upstream model names whenever they change.
   // Uses /api/channel/bound which already filters by abilities.enabled=true and
@@ -301,11 +310,14 @@ export function ChannelSelector({ value, onChange, compact = false, modelNames }
     if (!modelKey) {
       setChannels([]);
       setBoundLoaded(false);
+      setLoadedAll(false);
+      setAutoLoadedAll(false);
       return;
     }
     let cancelled = false;
     setLoading(true);
     setBoundLoaded(false);
+    setAutoLoadedAll(false);
     API.get(`/api/channel/bound?model=${encodeURIComponent(modelKey)}`)
       .then((res) => {
         if (cancelled) return;
@@ -326,22 +338,40 @@ export function ChannelSelector({ value, onChange, compact = false, modelNames }
     return () => { cancelled = true; };
   }, [modelKey, t]);
 
-  // Fallback: when there are no exact model names to query (e.g. user only
-  // configured prefix / contains / suffix matches), allow the user to load the
-  // full channel list on demand by expanding the picker.
+  // Fallback: load the full channel list — used when there are no exact model
+  // names to query (e.g. only prefix / contains / suffix matches), when the
+  // bound-channel query returns nothing, or on demand via the button below so
+  // the user can always pick channels not yet bound to the model.
   const loadAllChannels = useCallback(() => {
-    if (loadedAll || modelKey) return;
+    if (loadedAll) return;
+    // Guard against a stale response landing after modelKey changed and the
+    // bound-channel query already refreshed the list.
+    const keyAtRequest = modelKeyRef.current;
     setLoading(true);
     API.get('/api/channel/?p=0&page_size=500&id_sort=true')
       .then((res) => {
+        if (modelKeyRef.current !== keyAtRequest) return;
         const { success, data } = res.data;
         if (success && data?.items) {
           setChannels(data.items.map((ch) => ({ id: ch.id, name: ch.name, type: ch.type, status: ch.status })));
         }
       })
       .catch(() => {})
-      .finally(() => { setLoading(false); setLoadedAll(true); });
-  }, [loadedAll, modelKey]);
+      .finally(() => {
+        if (modelKeyRef.current !== keyAtRequest) return;
+        setLoading(false);
+        setLoadedAll(true);
+      });
+  }, [loadedAll]);
+
+  // Auto-fallback: if the bound-channel query came back empty, load the full
+  // channel list so the tier is still configurable.
+  useEffect(() => {
+    if (modelKey && boundLoaded && !loadedAll && channels.length === 0) {
+      setAutoLoadedAll(true);
+      loadAllChannels();
+    }
+  }, [modelKey, boundLoaded, loadedAll, channels.length, loadAllChannels]);
 
   const filteredChannels = useMemo(() => {
     if (!search) return channels;
@@ -357,9 +387,11 @@ export function ChannelSelector({ value, onChange, compact = false, modelNames }
   const selectedDisplay = useMemo(() => selectedIds.map((id) => { const ch = channelMap.get(id); return { id, name: ch?.name || `#${id}`, type: ch?.type }; }), [selectedIds, channelMap]);
 
   const hintText = modelKey
-    ? boundLoaded && channels.length === 0
-      ? t('未找到该模型的启用渠道')
-      : t(`匹配模型：${modelKey}`)
+    ? loadedAll && autoLoadedAll
+      ? t('未找到该模型的绑定渠道，已显示全部渠道')
+      : boundLoaded && !loadedAll && channels.length === 0
+        ? t('未找到该模型的启用渠道')
+        : t('匹配模型：{{model}}', { model: modelKey })
     : t('请先在上方"模型匹配"中添加精确匹配的模型名以自动筛选渠道');
 
   return (
@@ -367,14 +399,14 @@ export function ChannelSelector({ value, onChange, compact = false, modelNames }
       <Text size='small' strong style={{ display: 'block', marginBottom: 4 }}>{compact ? t('渠道池') : t('兜底渠道池')}</Text>
       <Text type='tertiary' size='small' style={{ display: 'block', marginBottom: 8 }}>{hintText}</Text>
       <div onClick={() => { setShowList(!showList); if (!modelKey) loadAllChannels(); }} style={{ border: '1px solid var(--semi-color-border)', borderRadius: 4, padding: '8px 12px', cursor: 'pointer', minHeight: 32 }}>
-        {selectedIds.length > 0 ? <Text>{t(`已选择 ${selectedIds.length} 个渠道`)}</Text> : <Text type='tertiary'>{t('点击选择渠道...')}</Text>}
+        {selectedIds.length > 0 ? <Text>{t('已选择 {{count}} 个渠道', { count: selectedIds.length })}</Text> : <Text type='tertiary'>{t('点击选择渠道...')}</Text>}
       </div>
       {showList && (
         <div style={{ marginTop: 8, border: '1px solid var(--semi-color-border)', borderRadius: 4, padding: 8 }}>
           <Input value={search} onChange={(v) => setSearch(v)} placeholder={t('搜索渠道...')} prefix={<IconSearch size='small' />} showClear style={{ marginBottom: 8 }} />
           <div style={{ maxHeight: 200, overflowY: 'auto' }}>
             {loading ? <div style={{ textAlign: 'center', padding: 16 }}><Spin size='small' /></div>
-            : filteredChannels.length === 0 ? <Text type='tertiary' size='small' style={{ display: 'block', textAlign: 'center', padding: 16 }}>{modelKey ? t('未找到该模型的启用渠道') : t('无匹配渠道')}</Text>
+            : filteredChannels.length === 0 ? <Text type='tertiary' size='small' style={{ display: 'block', textAlign: 'center', padding: 16 }}>{modelKey && !loadedAll ? t('未找到该模型的启用渠道') : t('无匹配渠道')}</Text>
             : filteredChannels.map((ch) => (
               <div key={ch.id} style={{ padding: '4px 0', display: 'flex', alignItems: 'center', gap: 8 }}>
                 <Checkbox checked={selectedIds.includes(ch.id)} onChange={() => handleToggle(ch.id)}><span>{ch.name}</span></Checkbox>
@@ -382,6 +414,9 @@ export function ChannelSelector({ value, onChange, compact = false, modelNames }
               </div>
             ))}
           </div>
+          {!loadedAll && !loading && (
+            <Button size='small' theme='borderless' onClick={loadAllChannels} style={{ marginTop: 8 }}>{t('加载全部渠道')}</Button>
+          )}
         </div>
       )}
       {selectedDisplay.length > 0 && (

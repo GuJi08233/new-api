@@ -315,29 +315,7 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 			AutoBan: &autoBanInt,
 		}, nil
 	}
-	savedAutoGroup, savedAutoGroupExists := common.GetContextKey(c, constant.ContextKeyAutoGroup)
-	savedAutoGroupIndex, savedAutoGroupIndexExists := common.GetContextKey(c, constant.ContextKeyAutoGroupIndex)
-	savedAutoGroupRetryIndex, savedAutoGroupRetryIndexExists := common.GetContextKey(c, constant.ContextKeyAutoGroupRetryIndex)
-	restoreAutoRouteContext := func() {
-		if c.Keys == nil {
-			return
-		}
-		if savedAutoGroupExists {
-			common.SetContextKey(c, constant.ContextKeyAutoGroup, savedAutoGroup)
-		} else {
-			delete(c.Keys, string(constant.ContextKeyAutoGroup))
-		}
-		if savedAutoGroupIndexExists {
-			common.SetContextKey(c, constant.ContextKeyAutoGroupIndex, savedAutoGroupIndex)
-		} else {
-			delete(c.Keys, string(constant.ContextKeyAutoGroupIndex))
-		}
-		if savedAutoGroupRetryIndexExists {
-			common.SetContextKey(c, constant.ContextKeyAutoGroupRetryIndex, savedAutoGroupRetryIndex)
-		} else {
-			delete(c.Keys, string(constant.ContextKeyAutoGroupRetryIndex))
-		}
-	}
+	restoreAutoRouteContext := snapshotAutoRouteContext(c)
 	routeRetryParam := &service.RetryParam{
 		Ctx:        retryParam.Ctx,
 		TokenGroup: retryParam.TokenGroup,
@@ -383,13 +361,48 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 	return channel, nil
 }
 
+// snapshotAutoRouteContext saves the auto-group routing cursor keys and returns
+// a function that restores them. GetChannelByRoute advances these keys while it
+// scans auto groups, so any caller that ends up not using its result must
+// restore them; otherwise later channel selection starts from a polluted
+// cursor and may skip groups that still have usable channels.
+func snapshotAutoRouteContext(c *gin.Context) func() {
+	savedAutoGroup, savedAutoGroupExists := common.GetContextKey(c, constant.ContextKeyAutoGroup)
+	savedAutoGroupIndex, savedAutoGroupIndexExists := common.GetContextKey(c, constant.ContextKeyAutoGroupIndex)
+	savedAutoGroupRetryIndex, savedAutoGroupRetryIndexExists := common.GetContextKey(c, constant.ContextKeyAutoGroupRetryIndex)
+	return func() {
+		if c.Keys == nil {
+			return
+		}
+		if savedAutoGroupExists {
+			common.SetContextKey(c, constant.ContextKeyAutoGroup, savedAutoGroup)
+		} else {
+			delete(c.Keys, string(constant.ContextKeyAutoGroup))
+		}
+		if savedAutoGroupIndexExists {
+			common.SetContextKey(c, constant.ContextKeyAutoGroupIndex, savedAutoGroupIndex)
+		} else {
+			delete(c.Keys, string(constant.ContextKeyAutoGroupIndex))
+		}
+		if savedAutoGroupRetryIndexExists {
+			common.SetContextKey(c, constant.ContextKeyAutoGroupRetryIndex, savedAutoGroupRetryIndex)
+		} else {
+			delete(c.Keys, string(constant.ContextKeyAutoGroupRetryIndex))
+		}
+	}
+}
+
 // rerouteByEstimatedTokens re-evaluates the channel route after the prompt-token
 // estimation step. During the Distribute middleware estimatedTokens is 0 so the
 // route never enters the tier loop. Calling GetChannelByRoute here gives the
 // tier logic the real token count and lets it pick the correct tier channel.
-// If the routing rule does not match, no channel is picked, or the picked
-// channel is the same as Distribute already chose, the context is left alone.
+// When the route does not adopt a new channel, the auto-group cursor keys are
+// restored so later retries start from the original state. When the rule
+// matched but no tier produced a channel (non-strict), the channel Distribute
+// picked came from the placeholder pool and may violate every tier condition,
+// so we fall back to normal (non-route) channel selection instead of keeping it.
 func rerouteByEstimatedTokens(c *gin.Context, info *relaycommon.RelayInfo) *types.NewAPIError {
+	restoreAutoRouteContext := snapshotAutoRouteContext(c)
 	routeMatch, err := service.GetChannelByRoute(&service.RetryParam{
 		Ctx:        c,
 		TokenGroup: info.TokenGroup,
@@ -404,6 +417,7 @@ func rerouteByEstimatedTokens(c *gin.Context, info *relaycommon.RelayInfo) *type
 		)
 	}
 	if !routeMatch.Matched {
+		restoreAutoRouteContext()
 		return nil
 	}
 	if routeMatch.Channel == nil {
@@ -414,9 +428,11 @@ func rerouteByEstimatedTokens(c *gin.Context, info *relaycommon.RelayInfo) *type
 				types.ErrOptionWithSkipRetry(),
 			)
 		}
-		return nil
+		restoreAutoRouteContext()
+		return rerouteFallbackToNormalSelection(c, info)
 	}
 	if routeMatch.Channel.Id == common.GetContextKeyInt(c, constant.ContextKeyChannelId) {
+		restoreAutoRouteContext()
 		return nil
 	}
 	if apiErr := middleware.SetupContextForSelectedChannel(c, routeMatch.Channel, info.OriginModelName); apiErr != nil {
@@ -426,6 +442,28 @@ func rerouteByEstimatedTokens(c *gin.Context, info *relaycommon.RelayInfo) *type
 		common.SetContextKey(c, constant.ContextKeyAutoGroup, routeMatch.SelectGroup)
 	}
 	return nil
+}
+
+// rerouteFallbackToNormalSelection replaces the placeholder channel chosen by
+// Distribute with one from normal (non-route) selection, mirroring the
+// non-strict fallback in the Distribute middleware.
+func rerouteFallbackToNormalSelection(c *gin.Context, info *relaycommon.RelayInfo) *types.NewAPIError {
+	channel, selectGroup, err := service.CacheGetRandomSatisfiedChannel(&service.RetryParam{
+		Ctx:        c,
+		TokenGroup: info.TokenGroup,
+		ModelName:  info.OriginModelName,
+		Retry:      common.GetPointer(0),
+	})
+	if err != nil {
+		return types.NewError(fmt.Errorf("获取分组 %s 下模型 %s 的可用渠道失败: %s", selectGroup, info.OriginModelName, err.Error()), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
+	}
+	if channel == nil {
+		return types.NewError(fmt.Errorf("分组 %s 下模型 %s 的可用渠道不存在", selectGroup, info.OriginModelName), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
+	}
+	if channel.Id == common.GetContextKeyInt(c, constant.ContextKeyChannelId) {
+		return nil
+	}
+	return middleware.SetupContextForSelectedChannel(c, channel, info.OriginModelName)
 }
 
 func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) bool {

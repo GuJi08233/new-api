@@ -19,7 +19,15 @@ import {
   EmptyTitle,
 } from '@/components/ui/empty'
 import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { StatusBadge } from '@/components/status-badge'
+import { getGroups } from '@/features/users/api'
 import { getMissingModels } from '../../api'
 import { DEFAULT_PAGE_SIZE } from '../../constants'
 import { modelsQueryKeys } from '../../lib'
@@ -40,12 +48,33 @@ export function MissingModelsDialog({
   const isMobile = useIsMobile()
   const [searchTerm, setSearchTerm] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
+  const GLOBAL_GROUP = 'global'
+  const [selectedGroup, setSelectedGroup] = useState(GLOBAL_GROUP)
 
   const { data, isLoading } = useQuery({
-    queryKey: modelsQueryKeys.missing(),
-    queryFn: getMissingModels,
+    queryKey: modelsQueryKeys.missing(
+      selectedGroup === GLOBAL_GROUP ? undefined : selectedGroup
+    ),
+    queryFn: () =>
+      getMissingModels(
+        selectedGroup === GLOBAL_GROUP ? undefined : selectedGroup
+      ),
     enabled: open,
   })
+
+  const { data: groupsData } = useQuery({
+    queryKey: ['groups'],
+    queryFn: getGroups,
+    enabled: open,
+  })
+
+  const groups = useMemo(
+    () =>
+      (groupsData?.data || []).filter(
+        (group) => group && group !== GLOBAL_GROUP
+      ),
+    [groupsData?.data]
+  )
 
   const missingModels = useMemo(() => data?.data || [], [data?.data])
   const pageSize = DEFAULT_PAGE_SIZE
@@ -61,6 +90,11 @@ export function MissingModelsDialog({
       setSearchTerm('')
 
       setCurrentPage(1)
+    } else {
+      // Reset while closed so reopening does not fire a request
+      // with a stale group before the reset takes effect.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setSelectedGroup(GLOBAL_GROUP)
     }
   }, [open])
 
@@ -112,6 +146,30 @@ export function MissingModelsDialog({
             {t('Models that are being used but not configured in the system')}
           </DialogDescription>
         </DialogHeader>
+
+        <div className='flex-shrink-0'>
+          <Select
+            value={selectedGroup}
+            onValueChange={(value) => {
+              setSelectedGroup(value)
+              setCurrentPage(1)
+            }}
+          >
+            <SelectTrigger className='w-56'>
+              <SelectValue placeholder={t('Select group')} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={GLOBAL_GROUP}>
+                {t('Global (all groups)')}
+              </SelectItem>
+              {groups.map((group) => (
+                <SelectItem key={group} value={group}>
+                  {group}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
 
         {isLoading ? (
           <div className='flex items-center justify-center py-12'>

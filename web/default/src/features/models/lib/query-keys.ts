@@ -9,7 +9,8 @@ export const modelsQueryKeys = {
   list: (filters: GetModelsParams | SearchModelsParams) =>
     [...modelsQueryKeys.lists(), filters] as const,
   detail: (id: number) => [...modelsQueryKeys.all, 'detail', id] as const,
-  missing: () => [...modelsQueryKeys.all, 'missing'] as const,
+  missing: (group?: string) =>
+    [...modelsQueryKeys.all, 'missing', group ?? ''] as const,
 }
 
 /**

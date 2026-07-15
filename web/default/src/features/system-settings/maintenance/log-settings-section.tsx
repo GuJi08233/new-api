@@ -33,6 +33,7 @@ import { useUpdateOption } from '../hooks/use-update-option'
 
 const logSettingsSchema = z.object({
   LogConsumeEnabled: z.boolean(),
+  GlobalRecordIpLogEnabled: z.boolean(),
   GlobalRecordUaLogEnabled: z.boolean(),
 })
 
@@ -40,6 +41,7 @@ type LogSettingsFormValues = z.infer<typeof logSettingsSchema>
 
 type LogSettingsSectionProps = {
   defaultEnabled: boolean
+  defaultIpEnabled: boolean
   defaultUaEnabled: boolean
 }
 
@@ -70,6 +72,7 @@ const quickSelectOptions = [
 
 export function LogSettingsSection({
   defaultEnabled,
+  defaultIpEnabled,
   defaultUaEnabled,
 }: LogSettingsSectionProps) {
   const { t } = useTranslation()
@@ -78,6 +81,7 @@ export function LogSettingsSection({
     resolver: zodResolver(logSettingsSchema),
     defaultValues: {
       LogConsumeEnabled: defaultEnabled,
+      GlobalRecordIpLogEnabled: defaultIpEnabled,
       GlobalRecordUaLogEnabled: defaultUaEnabled,
     },
   })
@@ -91,9 +95,10 @@ export function LogSettingsSection({
   useEffect(() => {
     form.reset({
       LogConsumeEnabled: defaultEnabled,
+      GlobalRecordIpLogEnabled: defaultIpEnabled,
       GlobalRecordUaLogEnabled: defaultUaEnabled,
     })
-  }, [defaultEnabled, defaultUaEnabled, form])
+  }, [defaultEnabled, defaultIpEnabled, defaultUaEnabled, form])
 
   const purgeTimestamp = useMemo(() => {
     if (!purgeDate) return null
@@ -110,6 +115,12 @@ export function LogSettingsSection({
       await updateOption.mutateAsync({
         key: 'LogConsumeEnabled',
         value: values.LogConsumeEnabled,
+      })
+    }
+    if (values.GlobalRecordIpLogEnabled !== defaultIpEnabled) {
+      await updateOption.mutateAsync({
+        key: 'GlobalRecordIpLogEnabled',
+        value: values.GlobalRecordIpLogEnabled,
       })
     }
     if (values.GlobalRecordUaLogEnabled !== defaultUaEnabled) {
@@ -175,6 +186,32 @@ export function LogSettingsSection({
                   <FormDescription>
                     {t(
                       'Track per-request consumption to power usage analytics. Keeping this on increases database writes.'
+                    )}
+                  </FormDescription>
+                </div>
+                <FormControl>
+                  <Switch
+                    checked={field.value}
+                    onCheckedChange={field.onChange}
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name='GlobalRecordIpLogEnabled'
+            render={({ field }) => (
+              <FormItem className='flex flex-row items-start justify-between rounded-lg border p-4'>
+                <div className='space-y-0.5 pe-4'>
+                  <FormLabel className='text-base'>
+                    {t('Globally record usage and error log IP')}
+                  </FormLabel>
+                  <FormDescription>
+                    {t(
+                      'When enabled, usage and error logs for all users record the client IP without requiring users to enable it individually.'
                     )}
                   </FormDescription>
                 </div>

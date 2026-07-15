@@ -215,8 +215,12 @@ export async function applyUpstreamOverwrite(params: {
 /**
  * Get missing models (used but not configured)
  */
-export async function getMissingModels(): Promise<MissingModelsResponse> {
-  const res = await api.get('/api/models/missing')
+export async function getMissingModels(
+  group?: string
+): Promise<MissingModelsResponse> {
+  const res = await api.get('/api/models/missing', {
+    params: group ? { group } : undefined,
+  })
   return res.data
 }
 
