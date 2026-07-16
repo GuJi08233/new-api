@@ -1161,6 +1161,8 @@ func FetchModels(c *gin.Context) {
 		Key          string `json:"key"`
 		OA2OpenAIURL string `json:"oa2_base_url_openai,omitempty"`
 		OA2ClaudeURL string `json:"oa2_base_url_claude,omitempty"`
+		OA2CodexURL  string `json:"oa2_base_url_codex,omitempty"`
+		OA2GeminiURL string `json:"oa2_base_url_gemini,omitempty"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -1171,11 +1173,19 @@ func FetchModels(c *gin.Context) {
 		return
 	}
 
-	// OA2 渠道：分别获取 OpenAI 和 Claude 的模型，然后合并去重
+	// OA2 渠道：分别获取各格式的模型，然后合并去重
 	if req.Type == constant.ChannelTypeOA2 {
 		allModels := make([]string, 0)
 		modelSet := make(map[string]bool)
 		errorMessages := make([]string, 0)
+		appendModels := func(models []string) {
+			for _, m := range models {
+				if !modelSet[m] {
+					modelSet[m] = true
+					allModels = append(allModels, m)
+				}
+			}
+		}
 
 		// 获取 OpenAI 格式的模型
 		if req.OA2OpenAIURL != "" {
@@ -1183,12 +1193,17 @@ func FetchModels(c *gin.Context) {
 			if err != nil {
 				errorMessages = append(errorMessages, fmt.Sprintf("OpenAI格式: %s", err.Error()))
 			} else {
-				for _, m := range openAIModels {
-					if !modelSet[m] {
-						modelSet[m] = true
-						allModels = append(allModels, m)
-					}
-				}
+				appendModels(openAIModels)
+			}
+		}
+
+		// 获取 Codex(Responses)格式的模型(上游通常也提供 OpenAI 兼容接口)
+		if req.OA2CodexURL != "" {
+			codexModels, err := fetchOpenAIStyleModels(req.OA2CodexURL, req.Key)
+			if err != nil {
+				errorMessages = append(errorMessages, fmt.Sprintf("Codex格式: %s", err.Error()))
+			} else {
+				appendModels(codexModels)
 			}
 		}
 
@@ -1198,12 +1213,17 @@ func FetchModels(c *gin.Context) {
 			if err != nil {
 				errorMessages = append(errorMessages, fmt.Sprintf("Claude格式: %s", err.Error()))
 			} else {
-				for _, m := range claudeModels {
-					if !modelSet[m] {
-						modelSet[m] = true
-						allModels = append(allModels, m)
-					}
-				}
+				appendModels(claudeModels)
+			}
+		}
+
+		// 获取 Gemini 格式的模型(Gemini 原生 /v1beta/models 接口)
+		if req.OA2GeminiURL != "" {
+			geminiModels, err := gemini.FetchGeminiModels(req.OA2GeminiURL, strings.TrimSpace(strings.Split(req.Key, "\n")[0]), "")
+			if err != nil {
+				errorMessages = append(errorMessages, fmt.Sprintf("Gemini格式: %s", err.Error()))
+			} else {
+				appendModels(geminiModels)
 			}
 		}
 

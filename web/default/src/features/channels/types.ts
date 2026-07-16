@@ -105,8 +105,12 @@ export interface ChannelOtherSettings {
   upstream_model_update_auto_sync_enabled?: boolean
   oa2_openai_enabled?: boolean
   oa2_claude_enabled?: boolean
+  oa2_codex_enabled?: boolean
+  oa2_gemini_enabled?: boolean
   oa2_base_url_openai?: string
   oa2_base_url_claude?: string
+  oa2_base_url_codex?: string
+  oa2_base_url_gemini?: string
 }
 
 export interface AdvancedCustomConfig {
@@ -365,6 +369,8 @@ export interface ChannelFormData {
   batch_add_set_key_prefix_2_name?: boolean
   oa2_base_url_openai?: string
   oa2_base_url_claude?: string
+  oa2_base_url_codex?: string
+  oa2_base_url_gemini?: string
 }
 
 // ============================================================================

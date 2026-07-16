@@ -236,11 +236,15 @@ func (info *RelayInfo) InitChannelMeta(c *gin.Context) {
 		channelMeta.ChannelOtherSettings = channelOtherSettings
 	}
 
-	// OA2 二合一渠道：根据请求格式动态选择适配器和 BaseURL
+	// OA2 多合一渠道：根据请求格式动态选择适配器和 BaseURL
+	// 支持四种原生格式:OpenAI(/v1/chat/completions)、Codex(/v1/responses)、
+	// Claude(/v1/messages)、Gemini(/v1beta/models)。
 	// 优先级: 1. ChannelOtherSettings 里的 oa2_base_url_xxx 字段
-	//         2. BaseURL 里用 | 分隔的格式（向后兼容）
+	//         2. BaseURL 里用 | 分隔的格式（向后兼容,仅 OpenAI/Claude）
+	// Codex/Gemini 未启用或未配置 URL 时,回退到 OpenAI 分支(与升级前行为一致)。
 	if channelType == constant.ChannelTypeOA2 {
-		if info.RelayFormat == types.RelayFormatClaude {
+		switch {
+		case info.RelayFormat == types.RelayFormatClaude:
 			// Claude 原生格式 -> 使用 Claude 适配器
 			channelMeta.ApiType = constant.APITypeAnthropic
 			// 优先从 Other 设置读取
@@ -255,7 +259,17 @@ func (info *RelayInfo) InitChannelMeta(c *gin.Context) {
 					channelMeta.ChannelBaseUrl = "https://api.anthropic.com"
 				}
 			}
-		} else {
+		case info.RelayFormat == types.RelayFormatGemini &&
+			channelOtherSettings.OA2GeminiEnabled && channelOtherSettings.OA2BaseURLGemini != "":
+			// Gemini 原生格式 -> 使用 Gemini 适配器
+			channelMeta.ApiType = constant.APITypeGemini
+			channelMeta.ChannelBaseUrl = channelOtherSettings.OA2BaseURLGemini
+		case (info.RelayFormat == types.RelayFormatOpenAIResponses || info.RelayFormat == types.RelayFormatOpenAIResponsesCompaction) &&
+			channelOtherSettings.OA2CodexEnabled && channelOtherSettings.OA2BaseURLCodex != "":
+			// Codex(Responses)格式 -> OpenAI 适配器 + 独立 BaseURL
+			channelMeta.ApiType = constant.APITypeOpenAI
+			channelMeta.ChannelBaseUrl = channelOtherSettings.OA2BaseURLCodex
+		default:
 			// OpenAI 格式 -> 使用 OpenAI 适配器
 			channelMeta.ApiType = constant.APITypeOpenAI
 			// 优先从 Other 设置读取

@@ -192,7 +192,7 @@ export const CHANNEL_OPTIONS = [
   {
     value: 58,
     color: 'orange',
-    label: 'OA2 二合一渠道 (OpenAI + Claude)',
+    label: 'OA2 多合一渠道 (OpenAI + Codex + Claude + Gemini)',
   },
 ];
 

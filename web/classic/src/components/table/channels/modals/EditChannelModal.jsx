@@ -212,8 +212,12 @@ const EditChannelModal = (props) => {
     // OA2 二合一渠道配置
     oa2_openai_enabled: false,
     oa2_claude_enabled: false,
+    oa2_codex_enabled: false,
+    oa2_gemini_enabled: false,
     oa2_base_url_openai: '',
     oa2_base_url_claude: '',
+    oa2_base_url_codex: '',
+    oa2_base_url_gemini: '',
   };
   const [batch, setBatch] = useState(false);
   const [multiToSingle, setMultiToSingle] = useState(false);
@@ -928,8 +932,12 @@ const EditChannelModal = (props) => {
           // 读取 OA2 二合一渠道配置
           data.oa2_openai_enabled = parsedSettings.oa2_openai_enabled === true;
           data.oa2_claude_enabled = parsedSettings.oa2_claude_enabled === true;
+          data.oa2_codex_enabled = parsedSettings.oa2_codex_enabled === true;
+          data.oa2_gemini_enabled = parsedSettings.oa2_gemini_enabled === true;
           data.oa2_base_url_openai = parsedSettings.oa2_base_url_openai || '';
           data.oa2_base_url_claude = parsedSettings.oa2_base_url_claude || '';
+          data.oa2_base_url_codex = parsedSettings.oa2_base_url_codex || '';
+          data.oa2_base_url_gemini = parsedSettings.oa2_base_url_gemini || '';
         } catch (error) {
           console.error('解析其他设置失败:', error);
           data.azure_responses_version = '';
@@ -952,8 +960,12 @@ const EditChannelModal = (props) => {
           // OA2 默认值
           data.oa2_openai_enabled = false;
           data.oa2_claude_enabled = false;
+          data.oa2_codex_enabled = false;
+          data.oa2_gemini_enabled = false;
           data.oa2_base_url_openai = '';
           data.oa2_base_url_claude = '';
+          data.oa2_base_url_codex = '';
+          data.oa2_base_url_gemini = '';
         }
       } else {
         // 兼容历史数据：老渠道没有 settings 时，默认按 json 展示
@@ -975,8 +987,12 @@ const EditChannelModal = (props) => {
         // OA2 默认值
         data.oa2_openai_enabled = false;
         data.oa2_claude_enabled = false;
+        data.oa2_codex_enabled = false;
+        data.oa2_gemini_enabled = false;
         data.oa2_base_url_openai = '';
         data.oa2_base_url_claude = '';
+        data.oa2_base_url_codex = '';
+        data.oa2_base_url_gemini = '';
       }
 
       if (
@@ -1089,10 +1105,12 @@ const EditChannelModal = (props) => {
             key: inputs['key'],
           };
 
-          // OA2 渠道：发送两个 URL
+          // OA2 渠道：发送各格式 URL
           if (inputs.type === 58) {
             payload.oa2_base_url_openai = inputs['oa2_base_url_openai'];
             payload.oa2_base_url_claude = inputs['oa2_base_url_claude'];
+            payload.oa2_base_url_codex = inputs['oa2_base_url_codex'];
+            payload.oa2_base_url_gemini = inputs['oa2_base_url_gemini'];
           }
 
           const res = await API.post(
@@ -1842,20 +1860,30 @@ const EditChannelModal = (props) => {
       settings.upstream_model_update_last_check_time = 0;
     }
 
-    // type === 58 (OA2): 保存 OA2 二合一渠道配置
+    // type === 58 (OA2): 保存 OA2 多合一渠道配置
     if (localInputs.type === 58) {
       settings.oa2_openai_enabled = localInputs.oa2_openai_enabled === true;
       settings.oa2_claude_enabled = localInputs.oa2_claude_enabled === true;
+      settings.oa2_codex_enabled = localInputs.oa2_codex_enabled === true;
+      settings.oa2_gemini_enabled = localInputs.oa2_gemini_enabled === true;
       settings.oa2_base_url_openai =
         (localInputs.oa2_base_url_openai || '').trim();
       settings.oa2_base_url_claude =
         (localInputs.oa2_base_url_claude || '').trim();
+      settings.oa2_base_url_codex =
+        (localInputs.oa2_base_url_codex || '').trim();
+      settings.oa2_base_url_gemini =
+        (localInputs.oa2_base_url_gemini || '').trim();
     } else {
       // 非 OA2 渠道，清理相关设置
       delete settings.oa2_openai_enabled;
       delete settings.oa2_claude_enabled;
+      delete settings.oa2_codex_enabled;
+      delete settings.oa2_gemini_enabled;
       delete settings.oa2_base_url_openai;
       delete settings.oa2_base_url_claude;
+      delete settings.oa2_base_url_codex;
+      delete settings.oa2_base_url_gemini;
     }
 
     localInputs.settings = JSON.stringify(settings);
@@ -3431,12 +3459,12 @@ const EditChannelModal = (props) => {
                         </div>
                       )}
 
-                      {/* OA2 二合一渠道：双 Base URL 带复选框 */}
+                      {/* OA2 多合一渠道：四组 Base URL 带开关 */}
                       {inputs.type === 58 && (
                         <div className='space-y-4'>
                           <div className='p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg mb-2'>
                             <Text className='text-sm font-medium text-blue-700 dark:text-blue-400'>
-                              OA2 二合一渠道支持 OpenAI 和 Claude 两种原生格式，可分别启用并配置独立的 Base URL
+                              OA2 多合一渠道支持 OpenAI、Codex、Claude、Gemini 四种原生格式，可分别启用并配置独立的 Base URL
                             </Text>
                           </div>
 
@@ -3478,6 +3506,44 @@ const EditChannelModal = (props) => {
                             </div>
                           </div>
 
+                          {/* Codex(Responses)格式 URL */}
+                          <div className='flex items-start gap-3'>
+                            <Form.Switch
+                              field='oa2_codex_enabled'
+                              label=''
+                              checkedText={t('开')}
+                              uncheckedText={t('关')}
+                              initValue={false}
+                              onChange={(value) =>
+                                handleChannelOtherSettingsChange(
+                                  'oa2_codex_enabled',
+                                  value,
+                                )
+                              }
+                              className='mt-1'
+                            />
+                            <div className='flex-1'>
+                              <Form.Input
+                                field='oa2_base_url_codex'
+                                label={t('Codex 格式 Base URL')}
+                                placeholder={t(
+                                  '例如：https://api.openai.com',
+                                )}
+                                disabled={!inputs.oa2_codex_enabled}
+                                onChange={(value) =>
+                                  handleChannelOtherSettingsChange(
+                                    'oa2_base_url_codex',
+                                    value,
+                                  )
+                                }
+                                showClear
+                                extraText={t(
+                                  '用于 /v1/responses 等 Responses 原生接口；未启用时回退到 OpenAI 格式 URL',
+                                )}
+                              />
+                            </div>
+                          </div>
+
                           {/* Claude 格式 URL */}
                           <div className='flex items-start gap-3'>
                             <Form.Switch
@@ -3511,6 +3577,44 @@ const EditChannelModal = (props) => {
                                 showClear
                                 extraText={t(
                                   '用于 /v1/messages 等 Claude 原生接口',
+                                )}
+                              />
+                            </div>
+                          </div>
+
+                          {/* Gemini 格式 URL */}
+                          <div className='flex items-start gap-3'>
+                            <Form.Switch
+                              field='oa2_gemini_enabled'
+                              label=''
+                              checkedText={t('开')}
+                              uncheckedText={t('关')}
+                              initValue={false}
+                              onChange={(value) =>
+                                handleChannelOtherSettingsChange(
+                                  'oa2_gemini_enabled',
+                                  value,
+                                )
+                              }
+                              className='mt-1'
+                            />
+                            <div className='flex-1'>
+                              <Form.Input
+                                field='oa2_base_url_gemini'
+                                label={t('Gemini 格式 Base URL')}
+                                placeholder={t(
+                                  '例如：https://generativelanguage.googleapis.com',
+                                )}
+                                disabled={!inputs.oa2_gemini_enabled}
+                                onChange={(value) =>
+                                  handleChannelOtherSettingsChange(
+                                    'oa2_base_url_gemini',
+                                    value,
+                                  )
+                                }
+                                showClear
+                                extraText={t(
+                                  '用于 /v1beta/models/{model}:generateContent 等 Gemini 原生接口',
                                 )}
                               />
                             </div>

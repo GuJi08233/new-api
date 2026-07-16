@@ -289,37 +289,49 @@ func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 		baseURL = channel.GetBaseURL()
 	}
 
-	// OA2 二合一渠道：分别获取 OpenAI 和 Claude 的模型，然后合并去重
+	// OA2 多合一渠道：分别获取各已启用格式的模型，然后合并去重
 	if channel.Type == constant.ChannelTypeOA2 {
 		otherSettings := channel.GetOtherSettings()
 		allModels := make([]string, 0)
 		modelSet := make(map[string]bool)
+		appendModels := func(models []string) {
+			for _, m := range models {
+				if !modelSet[m] {
+					modelSet[m] = true
+					allModels = append(allModels, m)
+				}
+			}
+		}
 
 		// 获取 OpenAI 格式的模型
 		if otherSettings.OA2OpenAIEnabled && otherSettings.OA2BaseURLOpenAI != "" {
 			openAIURL := fmt.Sprintf("%s/v1/models", otherSettings.OA2BaseURLOpenAI)
-			openAIModels, err := fetchOA2OpenAIModels(channel, openAIURL)
-			if err == nil {
-				for _, m := range openAIModels {
-					if !modelSet[m] {
-						modelSet[m] = true
-						allModels = append(allModels, m)
-					}
-				}
+			if openAIModels, err := fetchOA2OpenAIModels(channel, openAIURL); err == nil {
+				appendModels(openAIModels)
+			}
+		}
+
+		// 获取 Codex(Responses)格式的模型(上游通常也提供 OpenAI 兼容的 /v1/models)
+		if otherSettings.OA2CodexEnabled && otherSettings.OA2BaseURLCodex != "" {
+			codexURL := fmt.Sprintf("%s/v1/models", otherSettings.OA2BaseURLCodex)
+			if codexModels, err := fetchOA2OpenAIModels(channel, codexURL); err == nil {
+				appendModels(codexModels)
 			}
 		}
 
 		// 获取 Claude 格式的模型（大部分中转也用 OpenAI 兼容接口）
 		if otherSettings.OA2ClaudeEnabled && otherSettings.OA2BaseURLClaude != "" {
 			claudeURL := fmt.Sprintf("%s/v1/models", otherSettings.OA2BaseURLClaude)
-			claudeModels, err := fetchOA2OpenAIModels(channel, claudeURL)
-			if err == nil {
-				for _, m := range claudeModels {
-					if !modelSet[m] {
-						modelSet[m] = true
-						allModels = append(allModels, m)
-					}
-				}
+			if claudeModels, err := fetchOA2OpenAIModels(channel, claudeURL); err == nil {
+				appendModels(claudeModels)
+			}
+		}
+
+		// 获取 Gemini 格式的模型(Gemini 原生 /v1beta/models 接口)
+		if otherSettings.OA2GeminiEnabled && otherSettings.OA2BaseURLGemini != "" {
+			key := strings.TrimSpace(strings.Split(channel.Key, "\n")[0])
+			if geminiModels, err := gemini.FetchGeminiModels(otherSettings.OA2BaseURLGemini, key, channel.GetSetting().Proxy); err == nil {
+				appendModels(geminiModels)
 			}
 		}
 
@@ -332,27 +344,15 @@ func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 		urls := strings.Split(baseURL, "|")
 		if len(urls) >= 1 && strings.TrimSpace(urls[0]) != "" {
 			openAIURL := fmt.Sprintf("%s/v1/models", strings.TrimSpace(urls[0]))
-			openAIModels, err := fetchOA2OpenAIModels(channel, openAIURL)
-			if err == nil {
-				for _, m := range openAIModels {
-					if !modelSet[m] {
-						modelSet[m] = true
-						allModels = append(allModels, m)
-					}
-				}
+			if openAIModels, err := fetchOA2OpenAIModels(channel, openAIURL); err == nil {
+				appendModels(openAIModels)
 			}
 		}
 
-			if len(urls) >= 2 && strings.TrimSpace(urls[1]) != "" {
+		if len(urls) >= 2 && strings.TrimSpace(urls[1]) != "" {
 			claudeURL := fmt.Sprintf("%s/v1/models", strings.TrimSpace(urls[1]))
-			claudeModels, err := fetchOA2OpenAIModels(channel, claudeURL)
-			if err == nil {
-				for _, m := range claudeModels {
-					if !modelSet[m] {
-						modelSet[m] = true
-						allModels = append(allModels, m)
-					}
-				}
+			if claudeModels, err := fetchOA2OpenAIModels(channel, claudeURL); err == nil {
+				appendModels(claudeModels)
 			}
 		}
 

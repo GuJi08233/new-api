@@ -54,11 +54,15 @@ type ChannelOtherSettings struct {
 	UpstreamModelUpdateLastRemovedModels  []string              `json:"upstream_model_update_last_removed_models,omitempty"`  // 上次检测到的可删除模型
 	UpstreamModelUpdateIgnoredModels      []string              `json:"upstream_model_update_ignored_models,omitempty"`       // 手动忽略的模型
 
-	// OA2 二合一渠道专用配置
-	OA2OpenAIEnabled bool   `json:"oa2_openai_enabled,omitempty"`  // OpenAI 格式是否启用
-	OA2ClaudeEnabled bool   `json:"oa2_claude_enabled,omitempty"`  // Claude 格式是否启用
+	// OA2 多合一渠道专用配置(OpenAI / Codex / Claude / Gemini 四种原生格式)
+	OA2OpenAIEnabled bool   `json:"oa2_openai_enabled,omitempty"`  // OpenAI 格式是否启用(/v1/chat/completions)
+	OA2ClaudeEnabled bool   `json:"oa2_claude_enabled,omitempty"`  // Claude 格式是否启用(/v1/messages)
+	OA2CodexEnabled  bool   `json:"oa2_codex_enabled,omitempty"`   // Codex 格式是否启用(/v1/responses)
+	OA2GeminiEnabled bool   `json:"oa2_gemini_enabled,omitempty"`  // Gemini 格式是否启用(/v1beta/models)
 	OA2BaseURLOpenAI string `json:"oa2_base_url_openai,omitempty"` // OpenAI 格式 BaseURL
 	OA2BaseURLClaude string `json:"oa2_base_url_claude,omitempty"` // Claude 格式 BaseURL
+	OA2BaseURLCodex  string `json:"oa2_base_url_codex,omitempty"`  // Codex 格式 BaseURL
+	OA2BaseURLGemini string `json:"oa2_base_url_gemini,omitempty"` // Gemini 格式 BaseURL
 }
 
 func (s *ChannelOtherSettings) IsOpenRouterEnterprise() bool {

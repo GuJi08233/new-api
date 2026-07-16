@@ -76,7 +76,7 @@ export const CHANNEL_TYPES = {
   55: 'Sora',
   56: 'Replicate',
   57: 'Codex',
-  58: 'OA2 Combined Channel (OpenAI + Claude)',
+  58: 'OA2 Combined Channel (OpenAI + Codex + Claude + Gemini)',
   59: 'Advanced Custom',
 } as const
 
@@ -375,7 +375,7 @@ export const TYPE_TO_KEY_PROMPT: Record<number, string> = {
   50: 'Format: AccessKey|SecretKey (or just ApiKey if upstream is New API)',
   51: 'Format: Access Key ID|Secret Access Key',
   57: 'Paste Codex OAuth JSON credential (access_token / refresh_token / account_id)',
-  58: 'Shared API key for OA2 OpenAI + Claude upstreams',
+  58: 'Shared API key for OA2 OpenAI / Codex / Claude / Gemini upstreams',
 }
 
 export const CHANNEL_TYPE_WARNINGS: Record<number, string> = {

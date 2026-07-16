@@ -80,8 +80,12 @@ export const channelFormSchema = z.object({
   azure_responses_version: z.string().optional(), // Azure specific
   oa2_openai_enabled: z.boolean().optional(), // OA2 specific
   oa2_claude_enabled: z.boolean().optional(), // OA2 specific
+  oa2_codex_enabled: z.boolean().optional(), // OA2 specific
+  oa2_gemini_enabled: z.boolean().optional(), // OA2 specific
   oa2_base_url_openai: z.string().optional(), // OA2 specific
   oa2_base_url_claude: z.string().optional(), // OA2 specific
+  oa2_base_url_codex: z.string().optional(), // OA2 specific
+  oa2_base_url_gemini: z.string().optional(), // OA2 specific
   // Field passthrough controls (stored in settings JSON)
   allow_service_tier: z.boolean().optional(), // OpenAI/Anthropic
   disable_store: z.boolean().optional(), // OpenAI only
@@ -142,8 +146,12 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   azure_responses_version: '',
   oa2_openai_enabled: false,
   oa2_claude_enabled: false,
+  oa2_codex_enabled: false,
+  oa2_gemini_enabled: false,
   oa2_base_url_openai: '',
   oa2_base_url_claude: '',
+  oa2_base_url_codex: '',
+  oa2_base_url_gemini: '',
   // Field passthrough controls
   allow_service_tier: false,
   disable_store: false,
@@ -203,8 +211,12 @@ export function transformChannelToFormDefaults(
   let awsKeyType: 'ak_sk' | 'api_key' = 'ak_sk'
   let oa2OpenAIEnabled = false
   let oa2ClaudeEnabled = false
+  let oa2CodexEnabled = false
+  let oa2GeminiEnabled = false
   let oa2BaseUrlOpenAI = ''
   let oa2BaseUrlClaude = ''
+  let oa2BaseUrlCodex = ''
+  let oa2BaseUrlGemini = ''
   let allowServiceTier = false
   let disableStore = false
   let allowSafetyIdentifier = false
@@ -227,8 +239,12 @@ export function transformChannelToFormDefaults(
       awsKeyType = parsed.aws_key_type || 'ak_sk'
       oa2OpenAIEnabled = parsed.oa2_openai_enabled === true
       oa2ClaudeEnabled = parsed.oa2_claude_enabled === true
+      oa2CodexEnabled = parsed.oa2_codex_enabled === true
+      oa2GeminiEnabled = parsed.oa2_gemini_enabled === true
       oa2BaseUrlOpenAI = parsed.oa2_base_url_openai || ''
       oa2BaseUrlClaude = parsed.oa2_base_url_claude || ''
+      oa2BaseUrlCodex = parsed.oa2_base_url_codex || ''
+      oa2BaseUrlGemini = parsed.oa2_base_url_gemini || ''
       allowServiceTier = parsed.allow_service_tier === true
       disableStore = parsed.disable_store === true
       allowSafetyIdentifier = parsed.allow_safety_identifier === true
@@ -290,8 +306,12 @@ export function transformChannelToFormDefaults(
     aws_key_type: awsKeyType,
     oa2_openai_enabled: oa2OpenAIEnabled,
     oa2_claude_enabled: oa2ClaudeEnabled,
+    oa2_codex_enabled: oa2CodexEnabled,
+    oa2_gemini_enabled: oa2GeminiEnabled,
     oa2_base_url_openai: oa2BaseUrlOpenAI,
     oa2_base_url_claude: oa2BaseUrlClaude,
+    oa2_base_url_codex: oa2BaseUrlCodex,
+    oa2_base_url_gemini: oa2BaseUrlGemini,
     allow_service_tier: allowServiceTier,
     disable_store: disableStore,
     allow_include_obfuscation: allowIncludeObfuscation,
@@ -369,15 +389,24 @@ function buildSettingsJSON(formData: ChannelFormValues): string {
   if (formData.type === 58) {
     settingsObj.oa2_openai_enabled = formData.oa2_openai_enabled === true
     settingsObj.oa2_claude_enabled = formData.oa2_claude_enabled === true
+    settingsObj.oa2_codex_enabled = formData.oa2_codex_enabled === true
+    settingsObj.oa2_gemini_enabled = formData.oa2_gemini_enabled === true
     settingsObj.oa2_base_url_openai =
       (formData.oa2_base_url_openai || '').trim()
     settingsObj.oa2_base_url_claude =
       (formData.oa2_base_url_claude || '').trim()
+    settingsObj.oa2_base_url_codex = (formData.oa2_base_url_codex || '').trim()
+    settingsObj.oa2_base_url_gemini =
+      (formData.oa2_base_url_gemini || '').trim()
   } else {
     delete settingsObj.oa2_openai_enabled
     delete settingsObj.oa2_claude_enabled
+    delete settingsObj.oa2_codex_enabled
+    delete settingsObj.oa2_gemini_enabled
     delete settingsObj.oa2_base_url_openai
     delete settingsObj.oa2_base_url_claude
+    delete settingsObj.oa2_base_url_codex
+    delete settingsObj.oa2_base_url_gemini
   }
 
   // Field passthrough controls:
