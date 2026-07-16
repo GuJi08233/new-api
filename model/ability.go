@@ -148,7 +148,7 @@ func GetChannel(group string, model string, retry int, requestPath string) (*Cha
 
 // filterAbilitiesByRequestPathAndModel restricts candidates by request path and
 // model for the DB (non-memory-cache) selection path. Only Advanced Custom
-// (type 58) channels are path-checked: kept only when one of their routes matches
+// (type 59) channels are path-checked: kept only when one of their routes matches
 // requestPath and model; all other channel types always pass. When requestPath is
 // empty, filtering is skipped.
 func filterAbilitiesByRequestPathAndModel(abilities []Ability, requestPath string, model string) []Ability {

@@ -18,7 +18,7 @@ import (
 
 var group2model2channels map[string]map[string][]int // enabled channel
 var channelsIDM map[int]*Channel                     // all channels include disabled
-// channel2advancedCustomConfig caches parsed Advanced Custom (type 58) configs so
+// channel2advancedCustomConfig caches parsed Advanced Custom (type 59) configs so
 // path-aware selection avoids re-parsing JSON per request. Refreshed on full sync.
 var channel2advancedCustomConfig map[int]*dto.AdvancedCustomConfig
 var channelSyncLock sync.RWMutex
@@ -209,7 +209,7 @@ func GetRandomSatisfiedChannel(group string, model string, retry int, requestPat
 }
 
 // filterChannelsByRequestPathAndModel restricts candidates by request path and
-// model. Only Advanced Custom (type 58) channels are path-checked: they are kept
+// model. Only Advanced Custom (type 59) channels are path-checked: they are kept
 // only when one of their configured routes matches requestPath and model. All
 // other channel types always pass. When requestPath is empty, filtering is skipped.
 // Caller must hold channelSyncLock (read lock). The cached slice is never mutated.

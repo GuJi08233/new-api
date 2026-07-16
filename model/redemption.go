@@ -154,7 +154,7 @@ func Redeem(key string, userId int) (quota int, err error) {
 		if err != nil {
 			// 如果不是兑换码，尝试作为邀请码兑换
 			invitationCode := &InvitationCode{}
-			err = tx.Set("gorm:query_option", "FOR UPDATE").Where("code = ?", key).First(invitationCode).Error
+			err = lockForUpdate(tx).Where("code = ?", key).First(invitationCode).Error
 			if err != nil {
 				return errors.New("无效的兑换码或邀请码")
 			}
