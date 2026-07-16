@@ -15,6 +15,7 @@ import {
   CreditCard,
   ListTodo,
   Settings,
+  ShieldAlert,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { WORKSPACE_IDS } from '@/components/layout/lib/workspace-registry'
@@ -116,6 +117,11 @@ export function useSidebarData(): SidebarData {
             title: t('Users'),
             url: '/users',
             icon: Users,
+          },
+          {
+            title: t('Risk Control'),
+            url: '/risk-control',
+            icon: ShieldAlert,
           },
           {
             title: t('Redemption Codes'),

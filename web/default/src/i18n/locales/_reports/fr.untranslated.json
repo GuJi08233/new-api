@@ -1,0 +1,7 @@
+{
+  "When enabled, requests will be validated against the configured endpoints for each model. Models without endpoint configuration will not be affected.": "When enabled, requests will be validated against the configured endpoints for each model. Models without endpoint configuration will not be affected.",
+  "Route to specific channels by group, model, path, and optional token-based tiered conditions.": "Route to specific channels by group, model, path, and optional token-based tiered conditions.",
+  "Default pool used when no tier matches. Enter channel IDs separated by new lines or commas.": "Default pool used when no tier matches. Enter channel IDs separated by new lines or commas.",
+  "Configure routing rules with optional tiered conditions based on token count.": "Configure routing rules with optional tiered conditions based on token count.",
+  "Tiered routing conditions. Each tier can have 0-2 conditions on len/p/c (AND logic). Tiers are evaluated in order; first match wins. Last tier should have no conditions (catch-all).": "Tiered routing conditions. Each tier can have 0-2 conditions on len/p/c (AND logic). Tiers are evaluated in order; first match wins. Last tier should have no conditions (catch-all)."
+}

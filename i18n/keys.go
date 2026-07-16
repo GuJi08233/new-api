@@ -331,6 +331,11 @@ const (
 	MsgDistributorInvalidParseModel       = "distributor.invalid_request_parse_model"
 )
 
+// Risk control related messages
+const (
+	MsgRiskControlBlocked = "risk_control.blocked"
+)
+
 // Custom OAuth provider related messages
 const (
 	MsgCustomOAuthNotFound          = "custom_oauth.not_found"

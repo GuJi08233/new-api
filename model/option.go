@@ -677,6 +677,8 @@ func handleConfigUpdate(key, value string) bool {
 		ratio_setting.InvalidateExposedDataCache()
 	} else if configName == "channel_route_setting" {
 		operation_setting.SyncChannelRouteSetting()
+	} else if configName == "risk_control_setting" {
+		operation_setting.SyncRiskControlSetting()
 	} else if configName == "theme" {
 		system_setting.UpdateAndSyncTheme()
 	}

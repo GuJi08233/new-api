@@ -42,6 +42,7 @@ const routerMap = {
   log: '/console/log',
   midjourney: '/console/midjourney',
   setting: '/console/setting',
+  risk_control: '/console/risk_control',
   about: '/about',
   detail: '/console',
   pricing: '/pricing',
@@ -188,6 +189,12 @@ const SiderBar = ({ onNavigate = () => {} }) => {
         text: t('用户管理'),
         itemKey: 'user',
         to: '/user',
+        className: isAdmin() ? '' : 'tableHiddle',
+      },
+      {
+        text: t('风控管理'),
+        itemKey: 'risk_control',
+        to: '/risk_control',
         className: isAdmin() ? '' : 'tableHiddle',
       },
       {

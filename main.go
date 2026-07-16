@@ -112,6 +112,9 @@ func main() {
 
 	go controller.AutomaticallyTestChannels()
 
+	// 风控自动封禁后台扫描(仅 Master 节点,默认关闭,由设置开启)
+	go service.RiskControlDaemon()
+
 	// Codex credential auto-refresh check every 10 minutes, refresh when expires within 1 day
 	service.StartCodexCredentialAutoRefreshTask()
 
