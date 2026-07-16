@@ -36,6 +36,7 @@ type CustomOAuthProviderResponse struct {
 	AuthStyle             int    `json:"auth_style"`
 	AccessPolicy          string `json:"access_policy"`
 	AccessDeniedMessage   string `json:"access_denied_message"`
+	DisableUnbind         bool   `json:"disable_unbind"`
 }
 
 type UserOAuthBindingResponse struct {
@@ -44,6 +45,8 @@ type UserOAuthBindingResponse struct {
 	ProviderSlug   string `json:"provider_slug"`
 	ProviderIcon   string `json:"provider_icon"`
 	ProviderUserId string `json:"provider_user_id"`
+	IsRegistration bool   `json:"is_registration"` // 账号由此登录方式注册
+	CanUnbind      bool   `json:"can_unbind"`      // 用户是否可自行解绑
 }
 
 func toCustomOAuthProviderResponse(p *model.CustomOAuthProvider) *CustomOAuthProviderResponse {
@@ -66,6 +69,7 @@ func toCustomOAuthProviderResponse(p *model.CustomOAuthProvider) *CustomOAuthPro
 		AuthStyle:             p.AuthStyle,
 		AccessPolicy:          p.AccessPolicy,
 		AccessDeniedMessage:   p.AccessDeniedMessage,
+		DisableUnbind:         p.DisableUnbind,
 	}
 }
 
@@ -131,6 +135,7 @@ type CreateCustomOAuthProviderRequest struct {
 	AuthStyle             int    `json:"auth_style"`
 	AccessPolicy          string `json:"access_policy"`
 	AccessDeniedMessage   string `json:"access_denied_message"`
+	DisableUnbind         bool   `json:"disable_unbind"`
 }
 
 type FetchCustomOAuthDiscoveryRequest struct {
@@ -249,6 +254,7 @@ func CreateCustomOAuthProvider(c *gin.Context) {
 		AuthStyle:             req.AuthStyle,
 		AccessPolicy:          req.AccessPolicy,
 		AccessDeniedMessage:   req.AccessDeniedMessage,
+		DisableUnbind:         req.DisableUnbind,
 	}
 
 	if err := model.CreateCustomOAuthProvider(provider); err != nil {
@@ -286,6 +292,7 @@ type UpdateCustomOAuthProviderRequest struct {
 	AuthStyle             *int    `json:"auth_style"`            // Optional: if nil, keep existing
 	AccessPolicy          *string `json:"access_policy"`         // Optional: if nil, keep existing
 	AccessDeniedMessage   *string `json:"access_denied_message"` // Optional: if nil, keep existing
+	DisableUnbind         *bool   `json:"disable_unbind"`        // Optional: if nil, keep existing
 }
 
 // UpdateCustomOAuthProvider updates an existing custom OAuth provider
@@ -380,6 +387,9 @@ func UpdateCustomOAuthProvider(c *gin.Context) {
 	if req.AccessDeniedMessage != nil {
 		provider.AccessDeniedMessage = *req.AccessDeniedMessage
 	}
+	if req.DisableUnbind != nil {
+		provider.DisableUnbind = *req.DisableUnbind
+	}
 
 	if err := model.UpdateCustomOAuthProvider(provider); err != nil {
 		common.ApiError(c, err)
@@ -459,6 +469,8 @@ func buildUserOAuthBindingsResponse(userId int) ([]UserOAuthBindingResponse, err
 			ProviderSlug:   provider.Slug,
 			ProviderIcon:   provider.Icon,
 			ProviderUserId: binding.ProviderUserId,
+			IsRegistration: binding.IsRegistration,
+			CanUnbind:      !binding.IsRegistration && !provider.DisableUnbind,
 		})
 	}
 
@@ -531,6 +543,26 @@ func UnbindCustomOAuth(c *gin.Context) {
 	providerId, err := strconv.Atoi(providerIdStr)
 	if err != nil {
 		common.ApiErrorMsg(c, "无效的提供商 ID")
+		return
+	}
+
+	binding, err := model.GetUserOAuthBinding(userId, providerId)
+	if err != nil {
+		common.ApiErrorMsg(c, "未找到该绑定")
+		return
+	}
+	// 账号由此登录方式注册,解绑会导致账号失去根登录方式,禁止自行解绑
+	if binding.IsRegistration {
+		common.ApiErrorMsg(c, "该账号由此登录方式注册，无法解除绑定")
+		return
+	}
+	provider, err := model.GetCustomOAuthProviderById(providerId)
+	if err != nil {
+		common.ApiErrorMsg(c, "未找到该 OAuth 提供商")
+		return
+	}
+	if provider.DisableUnbind {
+		common.ApiErrorMsg(c, "管理员已禁止解除该登录方式的绑定")
 		return
 	}
 

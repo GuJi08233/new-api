@@ -271,6 +271,7 @@ const CustomOAuthSetting = ({ serverAddress }) => {
       auth_style: 0,
       access_policy: '',
       access_denied_message: '',
+      disable_unbind: false,
     });
     setSelectedPreset('');
     setBaseUrl('');
@@ -983,6 +984,26 @@ const CustomOAuthSetting = ({ serverAddress }) => {
                         { value: 2, label: t('Basic Auth 头') },
                       ]}
                     />
+                  </Col>
+                  <Col span={12}>
+                    <div style={{ paddingTop: 30 }}>
+                      <Space spacing={8} align='center'>
+                        <Switch
+                          checked={!!formValues.disable_unbind}
+                          onChange={(checked) =>
+                            mergeFormValues({ disable_unbind: !!checked })
+                          }
+                        />
+                        <Text>{t('禁止用户解除绑定')}</Text>
+                      </Space>
+                      <Text
+                        type='secondary'
+                        size='small'
+                        style={{ display: 'block', marginTop: 4 }}
+                      >
+                        {t('开启后用户无法自行解绑该登录方式（管理员仍可操作）；由该方式注册的账号始终不可自行解绑')}
+                      </Text>
+                    </div>
                   </Col>
                 </Row>
 

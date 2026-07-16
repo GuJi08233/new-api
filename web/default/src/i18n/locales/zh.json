@@ -2015,7 +2015,7 @@
     "footer.columns.related.links.oneApi": "One API",
     "footer.columns.related.title": "相关项目",
     "footer.defaultCopyright": "版权所有。",
-    "footer.new\u0061pi.projectAttributionSuffix": "版权所有，由项目贡献者设计与开发。",
+    "footer.newapi.projectAttributionSuffix": "版权所有，由项目贡献者设计与开发。",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "对于 2025 年 5 月 10 日之后添加的渠道，在部署时无需从模型名称中移除 \".\"",
     "For private deployments, format: https://fastgpt.run/api/openapi": "对于私有部署，格式为：https://fastgpt.run/api/openapi",
     "Force a syntactically valid JSON response": "强制返回语法合法的 JSON",
@@ -5340,6 +5340,10 @@
     "Auto-disable user": "自动禁用用户",
     "Save settings": "保存设置",
     "IP Blacklist": "IP 黑名单",
-    "One entry per line. Supports exact IPs or CIDR ranges (e.g. 1.2.3.4, 10.0.0.0/8). Matching requests are rejected directly.": "每行一条,支持精确 IP 或 CIDR 网段(如 1.2.3.4、10.0.0.0/8)。命中后直接拒绝调用。"
+    "One entry per line. Supports exact IPs or CIDR ranges (e.g. 1.2.3.4, 10.0.0.0/8). Matching requests are rejected directly.": "每行一条,支持精确 IP 或 CIDR 网段(如 1.2.3.4、10.0.0.0/8)。命中后直接拒绝调用。",
+    "Disallow Unbinding": "禁止用户解除绑定",
+    "When enabled, users cannot unbind this provider themselves (admins still can). Accounts registered via this provider can never unbind it themselves.": "开启后用户无法自行解绑该登录方式（管理员仍可操作）；由该方式注册的账号始终不可自行解绑。",
+    "This account was registered via this provider and cannot be unbound": "该账号由此登录方式注册，无法解除绑定",
+    "The administrator has disabled unbinding for this provider": "管理员已禁止解除该登录方式的绑定"
   }
 }

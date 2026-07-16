@@ -29,6 +29,7 @@ import {
   TabPane,
   Popover,
   Modal,
+  Tooltip,
 } from '@douyinfe/semi-ui';
 import {
   IconMail,
@@ -548,17 +549,36 @@ const AccountManagement = ({
                         </div>
                         <div className='flex-shrink-0'>
                           {bound ? (
-                            <Button
-                              type='danger'
-                              theme='outline'
-                              size='small'
-                              loading={customOAuthLoading[provider.id]}
-                              onClick={() =>
-                                handleUnbindCustomOAuth(provider.id, provider.name)
-                              }
-                            >
-                              {t('解绑')}
-                            </Button>
+                            binding?.can_unbind === false ? (
+                              <Tooltip
+                                content={
+                                  binding?.is_registration
+                                    ? t('该账号由此登录方式注册，无法解除绑定')
+                                    : t('管理员已禁止解除该登录方式的绑定')
+                                }
+                              >
+                                <Button
+                                  type='danger'
+                                  theme='outline'
+                                  size='small'
+                                  disabled
+                                >
+                                  {t('解绑')}
+                                </Button>
+                              </Tooltip>
+                            ) : (
+                              <Button
+                                type='danger'
+                                theme='outline'
+                                size='small'
+                                loading={customOAuthLoading[provider.id]}
+                                onClick={() =>
+                                  handleUnbindCustomOAuth(provider.id, provider.name)
+                                }
+                              >
+                                {t('解绑')}
+                              </Button>
+                            )
                           ) : (
                             <Button
                               type='primary'

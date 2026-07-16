@@ -2015,7 +2015,7 @@
     "footer.columns.related.links.oneApi": "Один API",
     "footer.columns.related.title": "Связанные проекты",
     "footer.defaultCopyright": "Все права защищены.",
-    "footer.new\u0061pi.projectAttributionSuffix": "Все права защищены. Разработано участниками проекта.",
+    "footer.newapi.projectAttributionSuffix": "Все права защищены. Разработано участниками проекта.",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "Для каналов, добавленных после 10 мая 2025 г., не нужно удалять \".\" из имён моделей при развёртывании",
     "For private deployments, format: https://fastgpt.run/api/openapi": "Для частных развертываний, формат: https://fastgpt.run/api/openapi",
     "Force a syntactically valid JSON response": "Принудительно возвращать синтаксически корректный JSON",
@@ -5340,6 +5340,10 @@
     "Auto-disable user": "Автоматически отключать пользователя",
     "Save settings": "Сохранить настройки",
     "IP Blacklist": "Чёрный список IP",
-    "One entry per line. Supports exact IPs or CIDR ranges (e.g. 1.2.3.4, 10.0.0.0/8). Matching requests are rejected directly.": "По одному значению в строке. Поддерживаются точные IP и диапазоны CIDR (например, 1.2.3.4, 10.0.0.0/8). Совпадающие запросы отклоняются напрямую."
+    "One entry per line. Supports exact IPs or CIDR ranges (e.g. 1.2.3.4, 10.0.0.0/8). Matching requests are rejected directly.": "По одному значению в строке. Поддерживаются точные IP и диапазоны CIDR (например, 1.2.3.4, 10.0.0.0/8). Совпадающие запросы отклоняются напрямую.",
+    "Disallow Unbinding": "Disallow Unbinding",
+    "When enabled, users cannot unbind this provider themselves (admins still can). Accounts registered via this provider can never unbind it themselves.": "When enabled, users cannot unbind this provider themselves (admins still can). Accounts registered via this provider can never unbind it themselves.",
+    "This account was registered via this provider and cannot be unbound": "This account was registered via this provider and cannot be unbound",
+    "The administrator has disabled unbinding for this provider": "The administrator has disabled unbinding for this provider"
   }
 }

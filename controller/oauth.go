@@ -322,6 +322,7 @@ func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *o
 				UserId:         user.Id,
 				ProviderId:     genericProvider.GetProviderId(),
 				ProviderUserId: oauthUser.ProviderUserID,
+				IsRegistration: true, // 账号由此登录方式注册,用户不可自行解绑
 			}
 			if err := model.CreateUserOAuthBindingWithTx(tx, binding); err != nil {
 				return err

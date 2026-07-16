@@ -27,6 +27,12 @@ import { ConfirmDialog } from '@/components/confirm-dialog'
 import { StatusBadge } from '@/components/status-badge'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import { OAUTH_BIND_STORAGE_KEY } from '@/features/auth/constants'
 import { useDialogs } from '@/hooks/use-dialog'
 import { useStatus } from '@/hooks/use-status'
@@ -349,15 +355,44 @@ export function AccountBindingsTab({
                     </div>
                   </div>
                   {isBound ? (
-                    <Button
-                      variant='ghost'
-                      size='sm'
-                      className='text-destructive hover:text-destructive h-7 shrink-0 px-2.5 text-xs'
-                      onClick={() => setUnbindTarget(binding)}
-                    >
-                      <Unlink className='mr-1 h-3 w-3' />
-                      {t('Unbind')}
-                    </Button>
+                    binding?.can_unbind === false ? (
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span>
+                              <Button
+                                variant='ghost'
+                                size='sm'
+                                className='text-destructive hover:text-destructive h-7 shrink-0 px-2.5 text-xs'
+                                disabled
+                              >
+                                <Unlink className='mr-1 h-3 w-3' />
+                                {t('Unbind')}
+                              </Button>
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            {binding?.is_registration
+                              ? t(
+                                  'This account was registered via this provider and cannot be unbound'
+                                )
+                              : t(
+                                  'The administrator has disabled unbinding for this provider'
+                                )}
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    ) : (
+                      <Button
+                        variant='ghost'
+                        size='sm'
+                        className='text-destructive hover:text-destructive h-7 shrink-0 px-2.5 text-xs'
+                        onClick={() => setUnbindTarget(binding)}
+                      >
+                        <Unlink className='mr-1 h-3 w-3' />
+                        {t('Unbind')}
+                      </Button>
+                    )
                   ) : (
                     <Button
                       variant='outline'

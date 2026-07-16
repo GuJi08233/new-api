@@ -135,6 +135,8 @@ export interface CustomOAuthBinding {
   provider_id: string
   provider_name: string
   external_id?: string
+  is_registration?: boolean
+  can_unbind?: boolean
 }
 
 /**

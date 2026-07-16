@@ -104,6 +104,7 @@ export function ProviderFormDialog(props: ProviderFormDialogProps) {
       auth_style: 0,
       access_policy: '',
       access_denied_message: '',
+      disable_unbind: false,
     },
   })
   const watchedSlug = useWatch({ control: form.control, name: 'slug' })
@@ -135,6 +136,7 @@ export function ProviderFormDialog(props: ProviderFormDialogProps) {
         auth_style: props.provider.auth_style ?? 0,
         access_policy: props.provider.access_policy || '',
         access_denied_message: props.provider.access_denied_message || '',
+        disable_unbind: props.provider.disable_unbind ?? false,
       })
     } else if (props.open && !props.provider) {
       form.reset({
@@ -156,6 +158,7 @@ export function ProviderFormDialog(props: ProviderFormDialogProps) {
         auth_style: 0,
         access_policy: '',
         access_denied_message: '',
+        disable_unbind: false,
       })
     }
   }, [props.open, props.provider, form])
@@ -265,6 +268,29 @@ export function ProviderFormDialog(props: ProviderFormDialogProps) {
                     <FormLabel>{t('Enabled')}</FormLabel>
                     <FormDescription>
                       {t('Allow users to sign in with this provider')}
+                    </FormDescription>
+                  </SettingsSwitchContent>
+                  <FormControl>
+                    <Switch
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                    />
+                  </FormControl>
+                </SettingsSwitchItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='disable_unbind'
+              render={({ field }) => (
+                <SettingsSwitchItem>
+                  <SettingsSwitchContent>
+                    <FormLabel>{t('Disallow Unbinding')}</FormLabel>
+                    <FormDescription>
+                      {t(
+                        'When enabled, users cannot unbind this provider themselves (admins still can). Accounts registered via this provider can never unbind it themselves.'
+                      )}
                     </FormDescription>
                   </SettingsSwitchContent>
                   <FormControl>

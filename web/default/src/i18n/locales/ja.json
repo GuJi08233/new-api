@@ -2015,7 +2015,7 @@
     "footer.columns.related.links.oneApi": "1つのAPI",
     "footer.columns.related.title": "関連プロジェクト",
     "footer.defaultCopyright": "すべての権利を留保します。",
-    "footer.new\u0061pi.projectAttributionSuffix": "すべての権利を留保します。プロジェクトコントリビューターにより設計・開発されています。",
+    "footer.newapi.projectAttributionSuffix": "すべての権利を留保します。プロジェクトコントリビューターにより設計・開発されています。",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "2025 年 5 月 10 日以降に追加されたチャネルの場合、デプロイ時にモデル名から「.」を削除する必要はありません",
     "For private deployments, format: https://fastgpt.run/api/openapi": "プライベートデプロイメントの場合、形式: https://fastgpt.run/api/openapi",
     "Force a syntactically valid JSON response": "構文的に有効な JSON 応答を強制",
@@ -5340,6 +5340,10 @@
     "Auto-disable user": "ユーザーを自動無効化",
     "Save settings": "設定を保存",
     "IP Blacklist": "IP ブラックリスト",
-    "One entry per line. Supports exact IPs or CIDR ranges (e.g. 1.2.3.4, 10.0.0.0/8). Matching requests are rejected directly.": "1行に1件。正確な IP または CIDR 範囲（例: 1.2.3.4、10.0.0.0/8）に対応。該当するリクエストは直接拒否されます。"
+    "One entry per line. Supports exact IPs or CIDR ranges (e.g. 1.2.3.4, 10.0.0.0/8). Matching requests are rejected directly.": "1行に1件。正確な IP または CIDR 範囲（例: 1.2.3.4、10.0.0.0/8）に対応。該当するリクエストは直接拒否されます。",
+    "Disallow Unbinding": "Disallow Unbinding",
+    "When enabled, users cannot unbind this provider themselves (admins still can). Accounts registered via this provider can never unbind it themselves.": "When enabled, users cannot unbind this provider themselves (admins still can). Accounts registered via this provider can never unbind it themselves.",
+    "This account was registered via this provider and cannot be unbound": "This account was registered via this provider and cannot be unbound",
+    "The administrator has disabled unbinding for this provider": "The administrator has disabled unbinding for this provider"
   }
 }

@@ -2015,7 +2015,7 @@
     "footer.columns.related.links.oneApi": "One API",
     "footer.columns.related.title": "Projets liés",
     "footer.defaultCopyright": "Tous droits réservés.",
-    "footer.new\u0061pi.projectAttributionSuffix": "Tous droits réservés. Conçu et développé par les contributeurs du projet.",
+    "footer.newapi.projectAttributionSuffix": "Tous droits réservés. Conçu et développé par les contributeurs du projet.",
     "For channels added after May 10, 2025, no need to remove \".\" from model names during deployment": "Pour les canaux ajoutés après le 10 mai 2025, pas besoin de supprimer \".\" des noms de modèles lors du déploiement",
     "For private deployments, format: https://fastgpt.run/api/openapi": "Pour les déploiements privés, format : https://fastgpt.run/api/openapi",
     "Force a syntactically valid JSON response": "Imposer une réponse JSON syntaxiquement valide",
@@ -5340,6 +5340,10 @@
     "Auto-disable user": "Désactiver automatiquement l'utilisateur",
     "Save settings": "Enregistrer les paramètres",
     "IP Blacklist": "Liste noire IP",
-    "One entry per line. Supports exact IPs or CIDR ranges (e.g. 1.2.3.4, 10.0.0.0/8). Matching requests are rejected directly.": "Une entrée par ligne. Prend en charge les adresses IP exactes ou les plages CIDR (p. ex. 1.2.3.4, 10.0.0.0/8). Les requêtes correspondantes sont rejetées directement."
+    "One entry per line. Supports exact IPs or CIDR ranges (e.g. 1.2.3.4, 10.0.0.0/8). Matching requests are rejected directly.": "Une entrée par ligne. Prend en charge les adresses IP exactes ou les plages CIDR (p. ex. 1.2.3.4, 10.0.0.0/8). Les requêtes correspondantes sont rejetées directement.",
+    "Disallow Unbinding": "Disallow Unbinding",
+    "When enabled, users cannot unbind this provider themselves (admins still can). Accounts registered via this provider can never unbind it themselves.": "When enabled, users cannot unbind this provider themselves (admins still can). Accounts registered via this provider can never unbind it themselves.",
+    "This account was registered via this provider and cannot be unbound": "This account was registered via this provider and cannot be unbound",
+    "The administrator has disabled unbinding for this provider": "The administrator has disabled unbinding for this provider"
   }
 }

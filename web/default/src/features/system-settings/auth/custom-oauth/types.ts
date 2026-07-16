@@ -42,6 +42,7 @@ export interface CustomOAuthProvider {
   auth_style: number // 0=auto, 1=params, 2=header
   access_policy: string
   access_denied_message: string
+  disable_unbind: boolean
 }
 
 // ============================================================================
@@ -75,6 +76,7 @@ export const customOAuthFormSchema = z.object({
   auth_style: z.number().int().min(0).max(2).default(0),
   access_policy: z.string().optional().default(''),
   access_denied_message: z.string().optional().default(''),
+  disable_unbind: z.boolean().default(false),
 })
 
 export type CustomOAuthFormValues = z.infer<typeof customOAuthFormSchema>
