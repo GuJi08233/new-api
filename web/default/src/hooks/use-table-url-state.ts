@@ -1,11 +1,50 @@
-import { useEffect, useMemo, useState } from 'react'
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
 import type {
   ColumnFiltersState,
   OnChangeFn,
   PaginationState,
 } from '@tanstack/react-table'
+import { useEffect, useMemo, useState } from 'react'
 
 type SearchRecord = Record<string, unknown>
+
+// Page size persists globally under the classic theme's key (raw number
+// string), so the choice is remembered and carries over from classic.
+const PAGE_SIZE_STORAGE_KEY = 'page-size'
+
+function getStoredPageSize(): number | undefined {
+  try {
+    const n = parseInt(localStorage.getItem(PAGE_SIZE_STORAGE_KEY) ?? '', 10)
+    return n > 0 ? n : undefined // n > 0 also rejects NaN
+  } catch {
+    return undefined
+  }
+}
+
+function setStoredPageSize(size: number) {
+  try {
+    localStorage.setItem(PAGE_SIZE_STORAGE_KEY, String(size))
+  } catch {
+    /* ignore */
+  }
+}
 
 export type NavigateFn = (opts: {
   search:
@@ -121,7 +160,9 @@ export function useTableUrlState(
     const rawPageSize = (search as SearchRecord)[pageSizeKey]
     const pageNum = typeof rawPage === 'number' ? rawPage : defaultPage
     const pageSizeNum =
-      typeof rawPageSize === 'number' ? rawPageSize : defaultPageSize
+      typeof rawPageSize === 'number'
+        ? rawPageSize
+        : (getStoredPageSize() ?? defaultPageSize)
     return { pageIndex: Math.max(0, pageNum - 1), pageSize: pageSizeNum }
   }, [search, pageKey, pageSizeKey, defaultPage, defaultPageSize])
 
@@ -129,12 +170,12 @@ export function useTableUrlState(
     const next = typeof updater === 'function' ? updater(pagination) : updater
     const nextPage = next.pageIndex + 1
     const nextPageSize = next.pageSize
+    if (nextPageSize !== pagination.pageSize) setStoredPageSize(nextPageSize)
     navigate({
       search: (prev) => ({
         ...(prev as SearchRecord),
         [pageKey]: nextPage <= defaultPage ? undefined : nextPage,
-        [pageSizeKey]:
-          nextPageSize === defaultPageSize ? undefined : nextPageSize,
+        [pageSizeKey]: nextPageSize,
       }),
     })
   }

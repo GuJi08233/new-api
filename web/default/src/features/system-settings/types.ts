@@ -1,3 +1,21 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
 export type SystemOption = {
   key: string
   value: string
@@ -21,13 +39,74 @@ export type UpdateOptionResponse = {
   message: string
 }
 
-export type DeleteLogsResponse = {
+export type ConfirmPaymentComplianceResponse = {
   success: boolean
   message: string
-  data?: number
+  data?: {
+    confirmed: boolean
+    terms_version: string
+    confirmed_at: number
+    confirmed_by: number
+  }
 }
 
-export type GeneralSettings = {
+export type SystemTaskStatus = 'pending' | 'running' | 'succeeded' | 'failed'
+
+export type SystemTask<
+  TPayload = Record<string, unknown>,
+  TState = Record<string, unknown>,
+  TResult = Record<string, unknown>,
+> = {
+  id: number
+  task_id: string
+  type: string
+  status: SystemTaskStatus
+  active_key?: string
+  payload?: TPayload
+  state?: TState
+  result?: TResult
+  error?: string
+  locked_by?: string
+  locked_until?: number
+  created_at: number
+  updated_at: number
+}
+
+export type LogCleanupTaskPayload = {
+  target_timestamp: number
+  batch_size: number
+}
+
+export type LogCleanupTaskState = {
+  total: number
+  processed: number
+  progress: number
+  remaining: number
+}
+
+export type LogCleanupTaskResult = {
+  deleted_count: number
+}
+
+export type LogCleanupTask = SystemTask<
+  LogCleanupTaskPayload,
+  LogCleanupTaskState,
+  LogCleanupTaskResult
+>
+
+export type SystemTaskResponse<TTask = SystemTask | null> = {
+  success: boolean
+  message: string
+  data?: TTask
+}
+
+export type SystemTaskListResponse = {
+  success: boolean
+  message: string
+  data?: SystemTask[]
+}
+
+export type SiteSettings = {
   'theme.frontend': string
   Notice: string
   SystemName: string
@@ -38,32 +117,8 @@ export type GeneralSettings = {
   ServerAddress: string
   'legal.user_agreement': string
   'legal.privacy_policy': string
-  QuotaForNewUser: number
-  PreConsumedQuota: number
-  QuotaForInviter: number
-  QuotaForInvitee: number
-  TopUpLink: string
-  'general_setting.docs_link': string
-  'quota_setting.enable_free_model_pre_consume': boolean
-  QuotaPerUnit: number
-  USDExchangeRate: number
-  'general_setting.quota_display_type': string
-  'general_setting.custom_currency_symbol': string
-  'general_setting.custom_currency_exchange_rate': number
-  RetryTimes: number
-  DisplayInCurrencyEnabled: boolean
-  DisplayTokenStatEnabled: boolean
-  DefaultCollapseSidebar: boolean
-  DemoSiteEnabled: boolean
-  SelfUseModeEnabled: boolean
-  'checkin_setting.enabled': boolean
-  'checkin_setting.min_quota': number
-  'checkin_setting.max_quota': number
-  'channel_affinity_setting.enabled': boolean
-  'channel_affinity_setting.switch_on_success': boolean
-  'channel_affinity_setting.max_entries': number
-  'channel_affinity_setting.default_ttl_seconds': number
-  'channel_affinity_setting.rules': string
+  HeaderNavModules: string
+  SidebarModulesAdmin: string
 }
 
 export type AuthSettings = {
@@ -77,6 +132,7 @@ export type AuthSettings = {
   EmailDomainRestrictionEnabled: boolean
   EmailAliasRestrictionEnabled: boolean
   EmailDomainWhitelist: string
+  ServerAddress: string
   GitHubOAuthEnabled: boolean
   GitHubClientId: string
   GitHubClientSecret: string
@@ -261,6 +317,24 @@ export type ModelSettings = {
   AutoGroups: string
   DefaultUseAutoGroup: boolean
   'group_ratio_setting.group_special_usable_group': string
+  RetryTimes: number
+  ChannelDisableThreshold: string
+  AutomaticDisableChannelEnabled: boolean
+  AutomaticEnableChannelEnabled: boolean
+  AutomaticDisableKeywords: string
+  AutomaticDisableStatusCodes: string
+  AutomaticRetryStatusCodes: string
+  'monitor_setting.auto_test_channel_enabled': boolean
+  'monitor_setting.auto_test_channel_minutes': number
+  'monitor_setting.channel_test_mode': 'scheduled_all' | 'passive_recovery'
+  'channel_affinity_setting.enabled': boolean
+  'channel_affinity_setting.switch_on_success': boolean
+  'channel_affinity_setting.keep_on_channel_disabled': boolean
+  'channel_affinity_setting.max_entries': number
+  'channel_affinity_setting.default_ttl_seconds': number
+  'channel_affinity_setting.rules': string
+  'model_deployment.ionet.api_key': string
+  'model_deployment.ionet.enabled': boolean
 }
 
 export type MaintenanceSettings = {
@@ -279,9 +353,13 @@ export type MaintenanceSettings = {
   'performance_setting.monitor_cpu_threshold': number
   'performance_setting.monitor_memory_threshold': number
   'performance_setting.monitor_disk_threshold': number
+  'perf_metrics_setting.enabled': boolean
+  'perf_metrics_setting.flush_interval': number
+  'perf_metrics_setting.bucket_time': 'hour' | 'minute' | '5min'
+  'perf_metrics_setting.retention_days': number
 }
 
-export type RequestLimitsSettings = {
+export type SecuritySettings = {
   ModelRequestRateLimitEnabled: boolean
   ModelRequestRateLimitCount: number
   ModelRequestRateLimitSuccessCount: number
@@ -298,6 +376,7 @@ export type RequestLimitsSettings = {
   'fetch_setting.ip_list': string[]
   'fetch_setting.allowed_ports': number[]
   'fetch_setting.apply_ip_filter_for_domain': boolean
+  'token_setting.max_user_tokens': number
 }
 
 export type UpstreamChannel = {

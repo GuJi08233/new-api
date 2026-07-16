@@ -1,7 +1,26 @@
-import { useState, useEffect, useRef } from 'react'
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
 import { Minus, Plus } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { useState, useEffect, useRef } from 'react'
+
 import { Label } from '@/components/ui/label'
+import { cn } from '@/lib/utils'
 
 interface NumericSpinnerInputProps {
   value: number | null | undefined
@@ -108,7 +127,7 @@ export function NumericSpinnerInput({
       )}
       <div
         className={cn(
-          'group/spinner inline-flex h-7 items-center gap-0 rounded-md transition-colors',
+          'group/spinner border-input inline-flex h-7 items-center gap-0 rounded-md border transition-colors',
           !disabled && 'hover:bg-muted/60',
           editing && 'bg-muted/60 ring-primary/30 ring-1'
         )}
@@ -146,8 +165,9 @@ export function NumericSpinnerInput({
             type='button'
             onClick={handleStartEdit}
             disabled={disabled}
+            title={localValue}
             className={cn(
-              'h-7 min-w-8 cursor-text px-1 text-center font-mono text-sm tabular-nums',
+              'h-7 min-w-8 max-w-16 cursor-text truncate px-1 text-center font-mono text-sm tabular-nums',
               disabled && 'cursor-default opacity-50'
             )}
           >

@@ -1,17 +1,36 @@
-import { useEffect, useState } from 'react'
-import type { AxiosRequestConfig } from 'axios'
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
 import {
   createFileRoute,
   useNavigate,
   useParams,
   useSearch,
 } from '@tanstack/react-router'
+import type { AxiosRequestConfig } from 'axios'
 import i18next from 'i18next'
+import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import { useAuthStore, type AuthUser } from '@/stores/auth-store'
-import { api, getSelf } from '@/lib/api'
+
 import { OAuthCallbackScreen } from '@/features/auth/components/oauth-callback-screen'
 import { OAUTH_BIND_STORAGE_KEY } from '@/features/auth/constants'
+import { api, getSelf } from '@/lib/api'
+import { useAuthStore, type AuthUser } from '@/stores/auth-store'
 
 type OAuthRequestConfig = AxiosRequestConfig & {
   skipBusinessError?: boolean

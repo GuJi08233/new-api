@@ -1,6 +1,22 @@
-import type { MaintenanceSettings } from '../types'
+/*
+Copyright (C) 2023-2026 QuantumNous
 
-export type HeaderNavPricingConfig = {
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+export type HeaderNavAccessConfig = {
   enabled: boolean
   requireAuth: boolean
 }
@@ -8,10 +24,11 @@ export type HeaderNavPricingConfig = {
 export type HeaderNavModulesConfig = {
   home: boolean
   console: boolean
-  pricing: HeaderNavPricingConfig
+  pricing: HeaderNavAccessConfig
+  rankings: HeaderNavAccessConfig
   docs: boolean
   about: boolean
-  [key: string]: boolean | HeaderNavPricingConfig
+  [key: string]: boolean | HeaderNavAccessConfig
 }
 
 export type SidebarSectionConfig = {
@@ -25,6 +42,10 @@ export const HEADER_NAV_DEFAULT: HeaderNavModulesConfig = {
   home: true,
   console: true,
   pricing: {
+    enabled: true,
+    requireAuth: false,
+  },
+  rankings: {
     enabled: true,
     requireAuth: false,
   },
@@ -94,7 +115,32 @@ const toBoolean = (value: unknown, fallback: boolean): boolean => {
 const cloneHeaderNavDefault = (): HeaderNavModulesConfig => ({
   ...HEADER_NAV_DEFAULT,
   pricing: { ...HEADER_NAV_DEFAULT.pricing },
+  rankings: { ...HEADER_NAV_DEFAULT.rankings },
 })
+
+const parseAccessModule = (
+  raw: unknown,
+  fallback: HeaderNavAccessConfig
+): HeaderNavAccessConfig => {
+  if (
+    typeof raw === 'boolean' ||
+    typeof raw === 'string' ||
+    typeof raw === 'number'
+  ) {
+    return {
+      enabled: toBoolean(raw, fallback.enabled),
+      requireAuth: fallback.requireAuth,
+    }
+  }
+  if (raw && typeof raw === 'object') {
+    const record = raw as Record<string, unknown>
+    return {
+      enabled: toBoolean(record.enabled, fallback.enabled),
+      requireAuth: toBoolean(record.requireAuth, fallback.requireAuth),
+    }
+  }
+  return { ...fallback }
+}
 
 const cloneSidebarDefault = (): SidebarModulesAdminConfig =>
   Object.entries(SIDEBAR_MODULES_DEFAULT).reduce<SidebarModulesAdminConfig>(
@@ -117,23 +163,16 @@ export function parseHeaderNavModules(
     const result: HeaderNavModulesConfig = {
       ...base,
       pricing: { ...base.pricing },
+      rankings: { ...base.rankings },
     }
 
     Object.entries(parsed).forEach(([key, raw]) => {
       if (key === 'pricing') {
-        if (raw && typeof raw === 'object') {
-          const rawPricing = raw as Record<string, unknown>
-          result.pricing = {
-            enabled: toBoolean(
-              rawPricing.enabled,
-              base.pricing?.enabled ?? true
-            ),
-            requireAuth: toBoolean(
-              rawPricing.requireAuth,
-              base.pricing?.requireAuth ?? false
-            ),
-          }
-        }
+        result.pricing = parseAccessModule(raw, base.pricing)
+        return
+      }
+      if (key === 'rankings') {
+        result.rankings = parseAccessModule(raw, base.rankings)
         return
       }
 

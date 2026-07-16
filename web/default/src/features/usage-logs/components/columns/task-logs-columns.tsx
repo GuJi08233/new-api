@@ -1,26 +1,42 @@
-/* eslint-disable react-refresh/only-export-components */
-import { useState, useMemo } from 'react'
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
 import type { ColumnDef } from '@tanstack/react-table'
 import { Music } from 'lucide-react'
+/* eslint-disable react-refresh/only-export-components */
+import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { formatTimestampToDate } from '@/lib/format'
-import { cn } from '@/lib/utils'
-import { DataTableColumnHeader } from '@/components/data-table'
+
 import { StatusBadge } from '@/components/status-badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { getUserAvatarFallback, getUserAvatarStyle } from '@/lib/avatar'
+import { formatTimestampToDate } from '@/lib/format'
+import { cn } from '@/lib/utils'
+
 import { TASK_ACTIONS, TASK_STATUS } from '../../constants'
-import {
-  taskActionMapper,
-  taskStatusMapper,
-} from '../../lib/mappers'
+import { taskActionMapper, taskStatusMapper } from '../../lib/mappers'
 import type { TaskLog } from '../../types'
-import { getLogAvatarStyle } from '../../lib/avatar-color'
-import { useUsageLogsContext } from '../usage-logs-provider'
 import {
   AudioPreviewDialog,
   type AudioClip,
 } from '../dialogs/audio-preview-dialog'
 import { FailReasonDialog } from '../dialogs/fail-reason-dialog'
+import { useUsageLogsContext } from '../usage-logs-provider'
 import {
   createDurationColumn,
   createChannelColumn,
@@ -60,7 +76,7 @@ function AudioPreviewCell({ log }: { log: TaskLog }) {
         className='group flex items-center gap-1 text-left text-xs'
         onClick={() => setOpen(true)}
       >
-        <Music className='size-3 text-muted-foreground' />
+        <Music className='text-muted-foreground size-3' />
         <span className='text-foreground leading-snug group-hover:underline'>
           {t('Click to preview audio')}
         </span>
@@ -79,20 +95,18 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
   const columns: ColumnDef<TaskLog>[] = [
     {
       accessorKey: 'submit_time',
-      header: ({ column }) => (
-        <DataTableColumnHeader column={column} title={t('Submit Time')} />
-      ),
+      header: t('Submit Time'),
       cell: ({ row }) => {
         const log = row.original
         const submitTime = row.getValue('submit_time') as number
 
         return (
-          <div className='flex flex-col gap-0.5'>
-            <span className='font-mono text-xs tabular-nums'>
+          <div className='flex min-w-0 flex-col gap-0.5'>
+            <span className='truncate font-mono text-xs tabular-nums'>
               {formatTimestampToDate(submitTime, 'seconds')}
             </span>
             {log.finish_time ? (
-              <span className='text-muted-foreground/60 font-mono text-[11px] tabular-nums'>
+              <span className='text-muted-foreground/60 truncate font-mono text-[11px] tabular-nums'>
                 {formatTimestampToDate(log.finish_time, 'seconds')}
               </span>
             ) : (
@@ -101,69 +115,57 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
           </div>
         )
       },
-      meta: { label: t('Submit Time') },
+      size: 180,
     },
   ]
 
   if (isAdmin) {
-    columns.push(
-      createChannelColumn<TaskLog>({ headerLabel: t('Channel') }),
-      {
-        id: 'user',
-        header: ({ column }) => (
-          <DataTableColumnHeader column={column} title={t('User')} />
-        ),
-        cell: function UserCell({ row }) {
-          const {
-            sensitiveVisible,
-            setSelectedUserId,
-            setUserInfoDialogOpen,
-          } = useUsageLogsContext()
-          const log = row.original
-          const displayName = log.username || String(log.user_id || '?')
+    columns.push(createChannelColumn<TaskLog>({ headerLabel: t('Channel') }), {
+      id: 'user',
+      header: t('User'),
+      accessorFn: (row) => row.username || row.user_id,
+      cell: function UserCell({ row }) {
+        const { sensitiveVisible, setSelectedUserId, setUserInfoDialogOpen } =
+          useUsageLogsContext()
+        const log = row.original
+        const displayName = log.username || String(log.user_id || '?')
 
-          return (
-            <button
-              type='button'
-              className='flex items-center gap-1.5 text-left'
-              onClick={(e) => {
-                e.stopPropagation()
-                setSelectedUserId(log.user_id)
-                setUserInfoDialogOpen(true)
-              }}
-            >
-              <Avatar className='size-6 ring-1 ring-border/60'>
-                <AvatarFallback
-                  className={cn(
-                    'text-[11px] font-semibold',
-                    !sensitiveVisible && 'bg-muted text-muted-foreground'
-                  )}
-                  style={
-                    sensitiveVisible ? getLogAvatarStyle(displayName) : undefined
-                  }
-                >
-                  {sensitiveVisible
-                    ? displayName.charAt(0).toUpperCase()
-                    : '•'}
-                </AvatarFallback>
-              </Avatar>
-              <span className='text-muted-foreground truncate text-sm hover:underline'>
-                {sensitiveVisible ? displayName : '••••'}
-              </span>
-            </button>
-          )
-        },
-        meta: { label: t('User'), mobileHidden: true },
-      }
-    )
+        return (
+          <button
+            type='button'
+            className='flex items-center gap-1.5 text-left'
+            onClick={(e) => {
+              e.stopPropagation()
+              setSelectedUserId(log.user_id)
+              setUserInfoDialogOpen(true)
+            }}
+          >
+            <Avatar className='ring-border/60 size-6 ring-1 max-sm:hidden'>
+              <AvatarFallback
+                className={cn(
+                  'text-[11px] font-semibold',
+                  !sensitiveVisible && 'bg-muted text-muted-foreground'
+                )}
+                style={
+                  sensitiveVisible ? getUserAvatarStyle(displayName) : undefined
+                }
+              >
+                {sensitiveVisible ? getUserAvatarFallback(displayName) : '•'}
+              </AvatarFallback>
+            </Avatar>
+            <span className='text-muted-foreground truncate text-sm hover:underline'>
+              {sensitiveVisible ? displayName : '••••'}
+            </span>
+          </button>
+        )
+      },
+    })
   }
 
   columns.push(
     {
       accessorKey: 'task_id',
-      header: ({ column }) => (
-        <DataTableColumnHeader column={column} title={t('Task ID')} />
-      ),
+      header: t('Task ID'),
       cell: ({ row }) => {
         const log = row.original
         const taskId = row.getValue('task_id') as string
@@ -174,10 +176,10 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
           <div className='flex max-w-[170px] flex-col gap-0.5'>
             <StatusBadge
               label={taskId}
-              autoColor={taskId}
+              copyText={taskId}
+              variant='neutral'
               size='sm'
-              showDot={false}
-              className='max-w-full truncate rounded-md border border-border/60 bg-muted/30 px-1.5 py-0.5 font-mono'
+              className='border-border/60 bg-muted/30 !text-foreground max-w-full truncate rounded-md border px-1.5 py-0.5 font-mono'
             />
             <span className='text-muted-foreground/60 truncate text-[11px]'>
               {t(log.platform)} · {t(taskActionMapper.getLabel(log.action))}
@@ -185,7 +187,7 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
           </div>
         )
       },
-      meta: { label: t('Task ID'), mobileTitle: true },
+      meta: { mobileTitle: true },
     },
     createDurationColumn<TaskLog>({
       submitTimeKey: 'submit_time',
@@ -196,9 +198,7 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
     }),
     {
       accessorKey: 'status',
-      header: ({ column }) => (
-        <DataTableColumnHeader column={column} title={t('Status')} />
-      ),
+      header: t('Status'),
       cell: ({ row }) => {
         const status = row.getValue('status') as string
         return (
@@ -207,18 +207,15 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
             variant={taskStatusMapper.getVariant(status)}
             size='sm'
             copyable={false}
-            showDot
+            className='-ml-1.5'
           />
         )
       },
-      meta: { label: t('Status') },
     },
     createProgressColumn<TaskLog>({ headerLabel: t('Progress') }),
     {
       accessorKey: 'fail_reason',
-      header: ({ column }) => (
-        <DataTableColumnHeader column={column} title={t('Details')} />
-      ),
+      header: t('Details'),
       cell: function DetailsCell({ row }) {
         const log = row.original
         const failReason = row.getValue('fail_reason') as string
@@ -257,7 +254,7 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
               href={videoUrl}
               target='_blank'
               rel='noopener noreferrer'
-              className='text-xs text-foreground hover:underline'
+              className='text-foreground text-xs hover:underline'
             >
               {t('Click to preview video')}
             </a>
@@ -288,7 +285,6 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
           </>
         )
       },
-      meta: { label: t('Details') },
       size: 200,
       maxSize: 220,
     }

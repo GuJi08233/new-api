@@ -1,6 +1,25 @@
-import type { ReactNode } from 'react'
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
 import { Outlet, useRouterState } from '@tanstack/react-router'
 import { motion, useReducedMotion, type Variants } from 'motion/react'
+import type { ReactNode } from 'react'
+
 import {
   CARD_ITEM_VARIANTS,
   CARD_STAGGER_VARIANTS,
@@ -38,8 +57,12 @@ export function PageTransition(props: PageTransitionProps) {
 
 export function AnimatedOutlet() {
   const shouldReduce = useReducedMotion()
+  // Key the page transition by the matched route id, not the resolved pathname.
+  // Navigating between params of the same route (e.g. dashboard tabs served by
+  // /dashboard/$section) then re-renders in place instead of remounting the
+  // route component and discarding its state (such as the selected time range).
   const routeKey = useRouterState({
-    select: (s) => s.location.pathname,
+    select: (s) => s.matches.at(-1)?.routeId ?? s.location.pathname,
   })
 
   if (shouldReduce) {

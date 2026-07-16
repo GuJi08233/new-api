@@ -1,3 +1,22 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+import type { Row, PaginationState } from '@tanstack/react-table'
 import { useState, useCallback } from 'react'
 import {
   flexRender,
@@ -7,16 +26,14 @@ import {
   type PaginationState,
 } from '@tanstack/react-table'
 import { useTranslation } from 'react-i18next'
+
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
-import { TableSkeleton, TableEmpty } from '@/components/data-table'
-import { DataTablePagination } from '@/components/data-table/pagination'
+  DataTablePagination,
+  DataTableRow,
+  DataTableView,
+  useDataTable,
+} from '@/components/data-table'
+
 import { DEFAULT_PRICING_PAGE_SIZE, DEFAULT_TOKEN_UNIT } from '../constants'
 import type { PricingModel, TokenUnit } from '../types'
 import { usePricingColumns } from './pricing-columns'
@@ -53,17 +70,19 @@ export function PricingTable(props: PricingTableProps) {
     priceRate,
     usdExchangeRate,
     showRechargePrice,
+    selectedGroup,
   })
 
-  const table = useReactTable({
+  const { table } = useDataTable({
     data: models,
     columns,
     pageCount: Math.ceil(models.length / pagination.pageSize),
-    state: { pagination },
+    pagination,
     onPaginationChange: setPagination,
-    getCoreRowModel: getCoreRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
     manualPagination: false,
+    withFilteredRowModel: false,
+    withSortedRowModel: false,
+    withFacetedRowModel: false,
   })
 
   const handleRowClick = useCallback(
@@ -75,58 +94,25 @@ export function PricingTable(props: PricingTableProps) {
 
   return (
     <div className='space-y-4'>
-      <div className='overflow-hidden rounded-lg border'>
-        <Table>
-          <TableHeader>
-            {table.getHeaderGroups().map((headerGroup) => (
-              <TableRow key={headerGroup.id}>
-                {headerGroup.headers.map((header) => (
-                  <TableHead
-                    key={header.id}
-                    style={{ width: header.getSize() }}
-                    className='text-muted-foreground text-[10px] font-medium tracking-wider uppercase'
-                  >
-                    {header.isPlaceholder
-                      ? null
-                      : flexRender(
-                          header.column.columnDef.header,
-                          header.getContext()
-                        )}
-                  </TableHead>
-                ))}
-              </TableRow>
-            ))}
-          </TableHeader>
-          <TableBody>
-            {isLoading ? (
-              <TableSkeleton table={table} keyPrefix='pricing-skeleton' />
-            ) : table.getRowModel().rows.length === 0 ? (
-              <TableEmpty
-                colSpan={columns.length}
-                title={t('No Models Found')}
-                description={t('No models match your current filters.')}
-              />
-            ) : (
-              table.getRowModel().rows.map((row) => (
-                <TableRow
-                  key={row.id}
-                  onClick={() => handleRowClick(row.original)}
-                  className='hover:bg-muted/30 cursor-pointer transition-colors'
-                >
-                  {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id}>
-                      {flexRender(
-                        cell.column.columnDef.cell,
-                        cell.getContext()
-                      )}
-                    </TableCell>
-                  ))}
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </div>
+      <DataTableView
+        table={table}
+        isLoading={isLoading}
+        emptyTitle={t('No Models Found')}
+        emptyDescription={t('No models match your current filters.')}
+        skeletonKeyPrefix='pricing-skeleton'
+        applyHeaderSize
+        getColumnClassName={(_columnId, kind) =>
+          kind === 'header' ? 'text-muted-foreground font-medium' : undefined
+        }
+        renderRow={(row: Row<PricingModel>) => (
+          <DataTableRow
+            key={row.id}
+            row={row}
+            className='hover:bg-muted/30 cursor-pointer transition-colors'
+            onClick={() => handleRowClick(row.original)}
+          />
+        )}
+      />
 
       {!isLoading && models.length > 0 && <DataTablePagination table={table} />}
     </div>

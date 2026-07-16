@@ -1,16 +1,30 @@
-import { useState, useMemo } from 'react'
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
 import { Pencil, Plus, Trash2 } from 'lucide-react'
+import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Button } from '@/components/ui/button'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
+
+import { StaticDataTable } from '@/components/data-table/static/static-data-table'
+import { StaticRowActions } from '@/components/data-table/static/static-row-actions'
 import { StatusBadge } from '@/components/status-badge'
+import { Button } from '@/components/ui/button'
+
 import { safeJsonParseWithValidation } from '../utils/json-parser'
 import { isObjectRecord } from '../utils/json-validators'
 import {
@@ -41,9 +55,9 @@ export function AmountDiscountVisualEditor({
 
     return Object.entries(parsed)
       .map(([amount, rate]) => ({
-        amount: parseInt(amount, 10),
+        amount: Number.parseInt(amount, 10),
         discountRate:
-          typeof rate === 'number' ? rate : parseFloat(String(rate)),
+          typeof rate === 'number' ? rate : Number.parseFloat(String(rate)),
       }))
       .filter((item) => !isNaN(item.amount) && !isNaN(item.discountRate))
       .sort((a, b) => a.amount - b.amount)
@@ -129,71 +143,57 @@ export function AmountDiscountVisualEditor({
       ) : (
         <div className='rounded-md border'>
           {/* Desktop table view */}
-          <div className='hidden sm:block'>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{t('Recharge Amount')}</TableHead>
-                  <TableHead>{t('Discount Rate')}</TableHead>
-                  <TableHead>{t('Discount')}</TableHead>
-                  <TableHead className='text-right'>{t('Actions')}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {discounts.map((discount) => (
-                  <TableRow key={discount.amount}>
-                    <TableCell>
-                      <span className='font-mono text-sm'>
-                        ${discount.amount}
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      <code className='bg-muted rounded px-1.5 py-0.5 text-xs'>
-                        {discount.discountRate.toFixed(2)}
-                      </code>
-                    </TableCell>
-                    <TableCell>
-                      <StatusBadge
-                        variant={discount.discountRate < 1 ? 'info' : 'neutral'}
-                        className='font-mono'
-                        copyable={false}
-                      >
-                        {formatPercentage(discount.discountRate)} {t('off')}
-                      </StatusBadge>
-                    </TableCell>
-                    <TableCell className='text-right'>
-                      <div className='flex justify-end gap-2'>
-                        <Button
-                          type='button'
-                          variant='ghost'
-                          size='sm'
-                          onClick={(e) => {
-                            e.preventDefault()
-                            e.stopPropagation()
-                            handleEdit(discount)
-                          }}
-                        >
-                          <Pencil className='h-4 w-4' />
-                        </Button>
-                        <Button
-                          type='button'
-                          variant='ghost'
-                          size='sm'
-                          onClick={(e) => {
-                            e.preventDefault()
-                            e.stopPropagation()
-                            handleDelete(discount.amount)
-                          }}
-                        >
-                          <Trash2 className='h-4 w-4' />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+          <StaticDataTable
+            className='hidden rounded-none border-0 sm:block'
+            data={discounts}
+            getRowKey={(discount) => discount.amount}
+            columns={[
+              {
+                id: 'amount',
+                header: t('Recharge Amount'),
+                cell: (discount) => (
+                  <span className='font-mono text-sm'>${discount.amount}</span>
+                ),
+              },
+              {
+                id: 'discount-rate',
+                header: t('Discount Rate'),
+                cell: (discount) => (
+                  <code className='bg-muted rounded px-1.5 py-0.5 text-sm'>
+                    {discount.discountRate.toFixed(2)}
+                  </code>
+                ),
+              },
+              {
+                id: 'discount',
+                header: t('Discount'),
+                cell: (discount) => (
+                  <StatusBadge
+                    variant={discount.discountRate < 1 ? 'info' : 'neutral'}
+                    className='font-mono'
+                    copyable={false}
+                  >
+                    {formatPercentage(discount.discountRate)} {t('off')}
+                  </StatusBadge>
+                ),
+              },
+              {
+                id: 'actions',
+                header: t('Actions'),
+                className: 'text-right',
+                cellClassName: 'text-right',
+                cell: (discount) => (
+                  <StaticRowActions
+                    editLabel={t('Edit')}
+                    deleteLabel={t('Delete')}
+                    menuLabel={t('Open menu')}
+                    onEdit={() => handleEdit(discount)}
+                    onDelete={() => handleDelete(discount.amount)}
+                  />
+                ),
+              },
+            ]}
+          />
 
           {/* Mobile card view */}
           <div className='divide-y sm:hidden'>

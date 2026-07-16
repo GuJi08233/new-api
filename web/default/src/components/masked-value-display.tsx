@@ -1,10 +1,28 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+import { CopyButton } from '@/components/copy-button'
 import { Button } from '@/components/ui/button'
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover'
-import { CopyButton } from '@/components/copy-button'
 
 interface MaskedValueDisplayProps {
   /** 弹层内标题，如 "Full API Key" / "Full Code" */
@@ -24,12 +42,18 @@ interface MaskedValueDisplayProps {
  */
 export function MaskedValueDisplay(props: MaskedValueDisplayProps) {
   return (
-    <div className='flex items-center'>
+    <div className='flex max-w-full min-w-0 items-center'>
       <Popover>
-        <PopoverTrigger asChild>
-          <Button variant='ghost' size='sm' className='h-7 font-mono'>
-            {props.maskedValue}
-          </Button>
+        <PopoverTrigger
+          render={
+            <Button
+              variant='ghost'
+              size='sm'
+              className='h-7 max-w-full min-w-0 justify-start truncate px-0 font-mono hover:bg-transparent aria-expanded:bg-transparent'
+            />
+          }
+        >
+          <span className='truncate'>{props.maskedValue}</span>
         </PopoverTrigger>
         <PopoverContent
           className='w-auto max-w-[min(90vw,28rem)]'

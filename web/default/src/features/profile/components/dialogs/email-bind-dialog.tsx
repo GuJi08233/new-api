@@ -1,19 +1,32 @@
-import { useState } from 'react'
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
 import { Loader2 } from 'lucide-react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { useCountdown } from '@/hooks/use-countdown'
+
+import { Dialog } from '@/components/dialog'
 import { Button } from '@/components/ui/button'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { useCountdown } from '@/hooks/use-countdown'
+
 import { sendEmailVerification, bindEmail } from '../../api'
 
 // ============================================================================
@@ -111,60 +124,22 @@ export function EmailBindDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className='sm:max-w-md'>
-        <DialogHeader>
-          <DialogTitle>{t('Bind Email')}</DialogTitle>
-          <DialogDescription>
-            {currentEmail
-              ? t('Current email: {{email}}. Enter a new email to change.', {
-                  email: currentEmail,
-                })
-              : t('Bind an email address to your account.')}
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className='space-y-4 py-4'>
-          <div className='space-y-2'>
-            <Label htmlFor='email'>{t('Email Address')}</Label>
-            <Input
-              id='email'
-              type='email'
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder={t('Enter your email')}
-              disabled={loading}
-            />
-          </div>
-
-          <div className='space-y-2'>
-            <Label htmlFor='code'>{t('Verification Code')}</Label>
-            <div className='flex gap-2'>
-              <Input
-                id='code'
-                value={code}
-                onChange={(e) => setCode(e.target.value)}
-                placeholder={t('Enter code')}
-                disabled={loading}
-                maxLength={6}
-              />
-              <Button
-                type='button'
-                variant='outline'
-                onClick={handleSendCode}
-                disabled={sendingCode || isActive || !email}
-              >
-                {isActive
-                  ? `${secondsLeft}s`
-                  : sendingCode
-                    ? t('Sending...')
-                    : t('Send')}
-              </Button>
-            </div>
-          </div>
-        </div>
-
-        <DialogFooter>
+    <Dialog
+      open={open}
+      onOpenChange={handleOpenChange}
+      title={t('Bind Email')}
+      description={
+        currentEmail
+          ? t('Current email: {{email}}. Enter a new email to change.', {
+              email: currentEmail,
+            })
+          : t('Bind an email address to your account.')
+      }
+      contentClassName='sm:max-w-md'
+      contentHeight='auto'
+      bodyClassName='space-y-4'
+      footer={
+        <>
           <Button
             type='button'
             variant='outline'
@@ -181,8 +156,48 @@ export function EmailBindDialog({
             {loading && <Loader2 className='mr-2 h-4 w-4 animate-spin' />}
             {loading ? t('Binding...') : t('Bind Email')}
           </Button>
-        </DialogFooter>
-      </DialogContent>
+        </>
+      }
+    >
+      <div className='space-y-4 py-4'>
+        <div className='space-y-2'>
+          <Label htmlFor='email'>{t('Email Address')}</Label>
+          <Input
+            id='email'
+            type='email'
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder={t('Enter your email')}
+            disabled={loading}
+          />
+        </div>
+
+        <div className='space-y-2'>
+          <Label htmlFor='code'>{t('Verification Code')}</Label>
+          <div className='flex gap-2'>
+            <Input
+              id='code'
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              placeholder={t('Enter code')}
+              disabled={loading}
+              maxLength={6}
+            />
+            <Button
+              type='button'
+              variant='outline'
+              onClick={handleSendCode}
+              disabled={sendingCode || isActive || !email}
+            >
+              {isActive
+                ? `${secondsLeft}s`
+                : sendingCode
+                  ? t('Sending...')
+                  : t('Send')}
+            </Button>
+          </div>
+        </div>
+      </div>
     </Dialog>
   )
 }

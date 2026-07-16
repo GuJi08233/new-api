@@ -1,33 +1,30 @@
-import { useState, useMemo, useEffect } from 'react'
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
 import { useQuery } from '@tanstack/react-query'
 import { getRouteApi } from '@tanstack/react-router'
-import {
-  flexRender,
-  getCoreRowModel,
-  useReactTable,
-  type SortingState,
-  type VisibilityState,
-} from '@tanstack/react-table'
-import { useMediaQuery } from '@/hooks'
+import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { cn } from '@/lib/utils'
+
+import { DataTablePage, useDataTable } from '@/components/data-table'
+import { useMediaQuery } from '@/hooks'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
-import {
-  DataTableToolbar,
-  TableSkeleton,
-  TableEmpty,
-  MobileCardList,
-} from '@/components/data-table'
-import { DataTablePagination } from '@/components/data-table/pagination'
-import { PageFooterPortal } from '@/components/layout'
+
 import { getModels, searchModels, getVendors } from '../api'
 import {
   DEFAULT_PAGE_SIZE,
@@ -45,15 +42,6 @@ export function ModelsTable() {
   const { t } = useTranslation()
   const { selectedVendor } = useModels()
   const isMobile = useMediaQuery('(max-width: 640px)')
-
-  // Table state
-  const [sorting, setSorting] = useState<SortingState>([])
-  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({
-    description: false,
-    bound_channels: false,
-    quota_types: false,
-  })
-  const [rowSelection, setRowSelection] = useState({})
 
   // URL state management
   const {
@@ -106,9 +94,6 @@ export function ModelsTable() {
     }))
   }, [vendors])
 
-  // Determine whether to use search or regular list API
-  const shouldSearch = Boolean(globalFilter?.trim())
-
   // Apply selected vendor from context or filter
   const activeVendorFilter =
     selectedVendor ||
@@ -116,55 +101,50 @@ export function ModelsTable() {
       ? vendorFilter[0]
       : undefined)
 
+  const statusFilterValue =
+    statusFilter.length > 0 && !statusFilter.includes('all')
+      ? statusFilter[0]
+      : undefined
+  const syncFilterValue =
+    syncFilter.length > 0 && !syncFilter.includes('all')
+      ? syncFilter[0]
+      : undefined
+
+  // Use search API whenever any filter is active so status/sync are applied server-side
+  const shouldSearch = Boolean(
+    globalFilter?.trim() ||
+      activeVendorFilter ||
+      statusFilterValue ||
+      syncFilterValue
+  )
+
   // Fetch models data
   // eslint-disable-next-line @tanstack/query/exhaustive-deps
   const { data, isLoading, isFetching } = useQuery({
     queryKey: modelsQueryKeys.list({
       keyword: globalFilter,
       vendor: activeVendorFilter,
-      status:
-        statusFilter.length > 0 && !statusFilter.includes('all')
-          ? statusFilter[0]
-          : undefined,
-      sync_official:
-        syncFilter.length > 0 && !syncFilter.includes('all')
-          ? syncFilter[0]
-          : undefined,
+      status: statusFilterValue,
+      sync_official: syncFilterValue,
       p: pagination.pageIndex + 1,
       page_size: pagination.pageSize,
     }),
     queryFn: async () => {
-      if (shouldSearch || activeVendorFilter) {
+      if (shouldSearch) {
         return searchModels({
           keyword: globalFilter,
           vendor: activeVendorFilter,
-          status:
-            statusFilter.length > 0 && !statusFilter.includes('all')
-              ? statusFilter[0]
-              : undefined,
-          sync_official:
-            syncFilter.length > 0 && !syncFilter.includes('all')
-              ? syncFilter[0]
-              : undefined,
-          p: pagination.pageIndex + 1,
-          page_size: pagination.pageSize,
-        })
-      } else {
-        return getModels({
-          status:
-            statusFilter.length > 0 && !statusFilter.includes('all')
-              ? statusFilter[0]
-              : undefined,
-          sync_official:
-            syncFilter.length > 0 && !syncFilter.includes('all')
-              ? syncFilter[0]
-              : undefined,
+          status: statusFilterValue,
+          sync_official: syncFilterValue,
           p: pagination.pageIndex + 1,
           page_size: pagination.pageSize,
         })
       }
+      return getModels({
+        p: pagination.pageIndex + 1,
+        page_size: pagination.pageSize,
+      })
     },
-    placeholderData: (previousData) => previousData,
   })
 
   const models = data?.data?.items || []
@@ -175,36 +155,27 @@ export function ModelsTable() {
   const columns = useModelsColumns(vendors)
 
   // React Table instance
-  const table = useReactTable({
+  const { table } = useDataTable({
     data: models,
     columns,
-    pageCount: Math.ceil(totalCount / pagination.pageSize),
-    state: {
-      sorting,
-      columnFilters,
-      columnVisibility,
-      rowSelection,
-      pagination,
-      globalFilter,
+    totalCount,
+    initialColumnVisibility: {
+      description: false,
+      bound_channels: false,
+      quota_types: false,
     },
+    columnFilters,
+    pagination,
+    globalFilter,
     enableRowSelection: true,
-    onRowSelectionChange: setRowSelection,
-    onSortingChange: setSorting,
     onColumnFiltersChange,
-    onColumnVisibilityChange: setColumnVisibility,
     onPaginationChange,
     onGlobalFilterChange,
-    getCoreRowModel: getCoreRowModel(),
     manualPagination: true,
     manualSorting: true,
     manualFiltering: true,
+    ensurePageInRange,
   })
-
-  // Ensure page is in range when total count changes
-  const pageCount = table.getPageCount()
-  useEffect(() => {
-    ensurePageInRange(pageCount)
-  }, [pageCount, ensurePageInRange])
 
   // Prepare filter options
   const vendorFilterOptions = [

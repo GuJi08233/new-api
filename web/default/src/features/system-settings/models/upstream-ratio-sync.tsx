@@ -1,9 +1,29 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { CheckSquare, RefreshCcw } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
+
 import { Button } from '@/components/ui/button'
+
 import {
   fetchUpstreamRatios,
   getUpstreamChannels,
@@ -32,7 +52,12 @@ import {
 import {
   NUMERIC_SYNC_FIELDS,
   RATIO_SYNC_FIELDS,
-  getPreferredSyncField,
+  applyResolutionRemovalPlan,
+  applyResolutionSelection,
+  applyResolutionSelections,
+  deleteResolutionField,
+  type ResolutionRemovalPlan,
+  type ResolutionSelection,
   type ResolutionsMap,
 } from './upstream-ratio-sync-helpers'
 import { UpstreamRatioSyncTable } from './upstream-ratio-sync-table'
@@ -70,13 +95,6 @@ function getDefaultEndpointForChannel(channel: UpstreamChannel): string {
   return DEFAULT_ENDPOINT
 }
 
-function getBillingCategory(ratioType: string): 'price' | 'ratio' | 'tiered' {
-  if (ratioType === 'model_price') return 'price'
-  if (ratioType === 'billing_mode' || ratioType === 'billing_expr')
-    return 'tiered'
-  return 'ratio'
-}
-
 function optionKeyBySyncField(ratioType: string): string {
   const explicit: Record<string, string> = {
     billing_mode: 'billing_setting.billing_mode',
@@ -95,25 +113,6 @@ function parseJsonRecord<T>(raw: string | undefined | null): Record<string, T> {
   } catch {
     return {}
   }
-}
-
-function deleteResolutionField(
-  res: ResolutionsMap,
-  model: string,
-  ratioType: string
-): ResolutionsMap {
-  if (!res[model]) return res
-  const newModelRes = { ...res[model] }
-  delete newModelRes[ratioType]
-  if (ratioType === 'billing_expr') delete newModelRes['billing_mode']
-  if (ratioType === 'billing_mode') delete newModelRes['billing_expr']
-  const next = { ...res }
-  if (Object.keys(newModelRes).length === 0) {
-    delete next[model]
-  } else {
-    next[model] = newModelRes
-  }
-  return next
 }
 
 // ---------------------------------------------------------------------------
@@ -256,53 +255,24 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
       value: number | string,
       sourceName: string
     ) => {
-      const modelDiffs = differences[model]
-
-      // Prefer billing_expr over individual ratio fields when available
-      const preferredType = sourceName
-        ? getPreferredSyncField(modelDiffs || {}, ratioType, sourceName)
-        : ratioType
-      const preferredValue =
-        preferredType === ratioType
-          ? value
-          : (modelDiffs?.[preferredType]?.upstreams?.[sourceName] ?? value)
-
-      const finalType = preferredType
-      const finalValue = preferredValue as number | string
-      const category = getBillingCategory(finalType)
-
-      setResolutions((prev) => {
-        const newModelRes = { ...(prev[model] || {}) }
-
-        // Clear conflicting categories
-        Object.keys(newModelRes).forEach((rt) => {
-          if (
-            category !== 'tiered' &&
-            getBillingCategory(rt) !== 'tiered' &&
-            getBillingCategory(rt) !== category
-          ) {
-            delete newModelRes[rt]
-          }
+      setResolutions((prev) =>
+        applyResolutionSelection(prev, differences, {
+          model,
+          ratioType,
+          value,
+          sourceName,
         })
+      )
+    },
+    [differences]
+  )
 
-        newModelRes[finalType] = finalValue
-
-        // When selecting a tiered field, auto-populate paired fields from the same source
-        if (category === 'tiered' && sourceName && modelDiffs) {
-          const modeVal = modelDiffs.billing_mode?.upstreams?.[sourceName]
-          const exprVal = modelDiffs.billing_expr?.upstreams?.[sourceName]
-          if (modeVal !== undefined && modeVal !== null && modeVal !== 'same') {
-            newModelRes['billing_mode'] = modeVal
-          } else if (finalType === 'billing_expr') {
-            newModelRes['billing_mode'] = 'tiered_expr'
-          }
-          if (exprVal !== undefined && exprVal !== null && exprVal !== 'same') {
-            newModelRes['billing_expr'] = exprVal
-          }
-        }
-
-        return { ...prev, [model]: newModelRes }
-      })
+  const handleSelectValues = useCallback(
+    (selections: ResolutionSelection[]) => {
+      if (selections.length === 0) return
+      setResolutions((prev) =>
+        applyResolutionSelections(prev, differences, selections)
+      )
     },
     [differences]
   )
@@ -313,6 +283,11 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
     },
     []
   )
+
+  const handleUnselectValues = useCallback((plan: ResolutionRemovalPlan) => {
+    if (plan.size === 0) return
+    setResolutions((prev) => applyResolutionRemovalPlan(prev, plan))
+  }, [])
 
   const parsedRatios = useMemo(() => {
     return {
@@ -350,8 +325,9 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
       currentRatios.ImageRatio[model] !== undefined ||
       currentRatios.AudioRatio[model] !== undefined ||
       currentRatios.AudioCompletionRatio[model] !== undefined
-    )
+    ) {
       return 'ratio'
+    }
     return null
   }
 
@@ -499,8 +475,8 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
   const isLoading = fetchMutation.isPending || isSyncPending || confirmLoading
 
   return (
-    <div className='space-y-4'>
-      <div className='flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between'>
+    <div className='flex h-full min-h-0 flex-col gap-4'>
+      <div className='flex shrink-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between'>
         <div className='flex flex-col gap-2 sm:flex-row'>
           <Button onClick={handleOpenChannelDialog} disabled={isLoading}>
             <RefreshCcw className='mr-2 h-4 w-4' />
@@ -520,14 +496,18 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
         </div>
       </div>
 
-      <UpstreamRatioSyncTable
-        differences={differences}
-        resolutions={resolutions}
-        isDisabled={isLoading}
-        isSyncing={fetchMutation.isPending}
-        onSelectValue={handleSelectValue}
-        onUnselectValue={handleUnselectValue}
-      />
+      <div className='min-h-0 flex-1'>
+        <UpstreamRatioSyncTable
+          differences={differences}
+          resolutions={resolutions}
+          isDisabled={isLoading}
+          isSyncing={fetchMutation.isPending}
+          onSelectValue={handleSelectValue}
+          onSelectValues={handleSelectValues}
+          onUnselectValue={handleUnselectValue}
+          onUnselectValues={handleUnselectValues}
+        />
+      </div>
 
       <ChannelSelectorDialog
         open={channelDialogOpen}

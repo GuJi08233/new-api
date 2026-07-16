@@ -15,6 +15,7 @@ import type {
   DashboardFilters,
   ModelAnalyticsChartTab,
 } from '@/features/dashboard/types'
+import { getRollingDateRange, type TimeGranularity } from '@/lib/time'
 
 function isTimeGranularity(value: unknown): value is TimeGranularity {
   return value === 'hour' || value === 'day' || value === 'week'
@@ -99,9 +100,7 @@ export function getSavedChartPreferences(): DashboardChartPreferences {
       defaultTimeRangeDays: isTimeRangePresetDays(parsed.defaultTimeRangeDays)
         ? parsed.defaultTimeRangeDays
         : fallbackPreferences.defaultTimeRangeDays,
-      defaultTimeGranularity: isTimeGranularity(
-        parsed.defaultTimeGranularity
-      )
+      defaultTimeGranularity: isTimeGranularity(parsed.defaultTimeGranularity)
         ? parsed.defaultTimeGranularity
         : fallbackPreferences.defaultTimeGranularity,
     }

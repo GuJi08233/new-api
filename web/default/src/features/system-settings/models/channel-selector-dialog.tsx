@@ -1,43 +1,45 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import {
-  flexRender,
-  getCoreRowModel,
-  getFilteredRowModel,
-  getPaginationRowModel,
-  useReactTable,
-  type ColumnDef,
-  type RowSelectionState,
-} from '@tanstack/react-table'
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+import type { ColumnDef, RowSelectionState } from '@tanstack/react-table'
 import { Search } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+
+import {
+  DataTablePagination,
+  DataTableView,
+  useDataTable,
+} from '@/components/data-table'
+import { Dialog } from '@/components/dialog'
+import { StatusBadge } from '@/components/status-badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
-import { DataTablePagination } from '@/components/data-table/pagination'
-import { StatusBadge } from '@/components/status-badge'
+
 import type { UpstreamChannel } from '../types'
 import {
   CHANNEL_STATUS_CONFIG,
@@ -117,12 +119,12 @@ export function ChannelSelectorDialog({
     () => [
       {
         id: 'select',
+        size: 44,
+        minSize: 44,
         header: ({ table }) => (
           <Checkbox
-            checked={
-              table.getIsAllPageRowsSelected() ||
-              (table.getIsSomePageRowsSelected() && 'indeterminate')
-            }
+            checked={table.getIsAllPageRowsSelected()}
+            indeterminate={table.getIsSomePageRowsSelected()}
             onCheckedChange={(value) =>
               table.toggleAllPageRowsSelected(!!value)
             }
@@ -142,6 +144,8 @@ export function ChannelSelectorDialog({
       {
         accessorKey: 'name',
         header: t('Name'),
+        size: 300,
+        minSize: 220,
         cell: ({ row }) => {
           const name = row.getValue('name') as string
           const channel = row.original
@@ -165,6 +169,8 @@ export function ChannelSelectorDialog({
       {
         accessorKey: 'base_url',
         header: t('Base URL'),
+        size: 340,
+        minSize: 260,
         cell: ({ row }) => {
           const url = row.getValue('base_url') as string
           return (
@@ -180,6 +186,8 @@ export function ChannelSelectorDialog({
       {
         accessorKey: 'status',
         header: t('Status'),
+        size: 140,
+        minSize: 120,
         cell: ({ row }) => {
           const status = row.getValue('status') as number
           const config =
@@ -198,7 +206,7 @@ export function ChannelSelectorDialog({
 
           return (
             <StatusBadge
-              label={config.label}
+              label={t(config.label)}
               variant={config.variant}
               size='sm'
               copyable={false}
@@ -209,6 +217,8 @@ export function ChannelSelectorDialog({
       {
         id: 'endpoint',
         header: t('Sync Endpoint'),
+        size: 460,
+        minSize: 360,
         cell: ({ row }) => {
           const channel = row.original
           const currentEndpoint =
@@ -224,17 +234,26 @@ export function ChannelSelectorDialog({
           }
 
           return (
-            <div className='flex items-center gap-2'>
-              <Select value={endpointType} onValueChange={handleTypeChange}>
+            <div className='flex min-w-0 items-center gap-2'>
+              <Select
+                items={ENDPOINT_OPTIONS.map((option) => ({
+                  value: option.value,
+                  label: option.label,
+                }))}
+                value={endpointType}
+                onValueChange={(v) => v !== null && handleTypeChange(v)}
+              >
                 <SelectTrigger className='h-8 w-32'>
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent>
-                  {ENDPOINT_OPTIONS.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
+                <SelectContent alignItemWithTrigger={false}>
+                  <SelectGroup>
+                    {ENDPOINT_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
                 </SelectContent>
               </Select>
               {endpointType === 'custom' && (
@@ -242,7 +261,7 @@ export function ChannelSelectorDialog({
                   value={currentEndpoint}
                   onChange={(e) => updateEndpoint(channel.id, e.target.value)}
                   placeholder={t('/your/endpoint')}
-                  className='h-8 w-40 font-mono text-xs'
+                  className='h-8 min-w-0 flex-1 font-mono text-xs'
                 />
               )}
             </div>
@@ -274,23 +293,16 @@ export function ChannelSelectorDialog({
     })
   }, [filteredChannels])
 
-  const table = useReactTable({
+  const { table } = useDataTable({
     data: sortedChannels,
     columns,
-    state: {
-      rowSelection,
-    },
+    rowSelection,
     getRowId: (row) => row.id.toString(),
     enableRowSelection: true,
     onRowSelectionChange: setRowSelection,
-    getCoreRowModel: getCoreRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
-    initialState: {
-      pagination: {
-        pageSize: 10,
-      },
-    },
+    initialPagination: { pageIndex: 0, pageSize: 10 },
+    withSortedRowModel: false,
+    withFacetedRowModel: false,
   })
 
   const handleConfirm = () => {
@@ -302,87 +314,61 @@ export function ChannelSelectorDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className='flex max-h-[90vh] max-w-[calc(100%-2rem)] flex-col sm:max-w-[90vw] xl:max-w-[1400px]'>
-        <DialogHeader>
-          <DialogTitle>{t('Select Sync Channels')}</DialogTitle>
-          <DialogDescription>
-            {t('Choose channels to sync upstream ratio configurations from')}
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className='flex flex-1 flex-col gap-4 overflow-hidden'>
-          <div className='flex items-center gap-2'>
-            <div className='relative flex-1'>
-              <Search className='text-muted-foreground absolute top-1/2 left-2 h-4 w-4 -translate-y-1/2' />
-              <Input
-                placeholder={t('Search by name or URL...')}
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className='ps-8'
-              />
-            </div>
-          </div>
-
-          <div className='flex-1 overflow-auto rounded-md border'>
-            <Table>
-              <TableHeader>
-                {table.getHeaderGroups().map((headerGroup) => (
-                  <TableRow key={headerGroup.id}>
-                    {headerGroup.headers.map((header) => (
-                      <TableHead key={header.id}>
-                        {header.isPlaceholder
-                          ? null
-                          : flexRender(
-                              header.column.columnDef.header,
-                              header.getContext()
-                            )}
-                      </TableHead>
-                    ))}
-                  </TableRow>
-                ))}
-              </TableHeader>
-              <TableBody>
-                {table.getRowModel().rows?.length ? (
-                  table.getRowModel().rows.map((row) => (
-                    <TableRow
-                      key={row.id}
-                      data-state={row.getIsSelected() && 'selected'}
-                    >
-                      {row.getVisibleCells().map((cell) => (
-                        <TableCell key={cell.id}>
-                          {flexRender(
-                            cell.column.columnDef.cell,
-                            cell.getContext()
-                          )}
-                        </TableCell>
-                      ))}
-                    </TableRow>
-                  ))
-                ) : (
-                  <TableRow>
-                    <TableCell
-                      colSpan={columns.length}
-                      className='h-24 text-center'
-                    >
-                      {t('No channels found')}
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </div>
-
-          <DataTablePagination table={table} />
-        </div>
-
-        <DialogFooter>
+    <Dialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title={t('Select Sync Channels')}
+      description={t(
+        'Choose channels to sync upstream ratio configurations from'
+      )}
+      contentClassName='flex max-h-[90vh] max-w-[calc(100%-2rem)] flex-col sm:max-w-[90vw] xl:max-w-[1400px]'
+      contentHeight='min(72vh, 720px)'
+      bodyClassName='flex h-full min-h-0 flex-col overflow-hidden'
+      footer={
+        <>
           <Button variant='outline' onClick={() => onOpenChange(false)}>
             {t('Cancel')}
           </Button>
           <Button onClick={handleConfirm}>{t('Confirm Selection')}</Button>
-        </DialogFooter>
-      </DialogContent>
+        </>
+      }
+    >
+      <div className='flex h-full min-h-0 flex-col gap-4 overflow-hidden'>
+        <div className='flex shrink-0 items-center gap-2'>
+          <div className='relative flex-1'>
+            <Search className='text-muted-foreground pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2' />
+            <Input
+              placeholder={t('Search by name or URL...')}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className='ps-9'
+            />
+          </div>
+        </div>
+
+        <DataTableView
+          table={table}
+          containerClassName='min-h-0 flex-1 rounded-md'
+          tableContainerClassName='h-full min-h-0'
+          tableHeaderClassName='[background-color:var(--table-header)]'
+          splitHeaderScrollClassName='h-full'
+          bodyContainerClassName='[scrollbar-gutter:stable]'
+          splitHeader
+          getColumnClassName={(columnId, part) => {
+            if (columnId === 'select') return 'w-11 text-center align-middle'
+            if (columnId === 'status') {
+              return part === 'header' ? 'h-11 align-middle' : 'align-middle'
+            }
+            return part === 'header' ? 'h-11 align-middle' : 'align-middle'
+          }}
+          emptyContent={t('No channels found')}
+          emptyCellClassName='h-24 text-center'
+        />
+
+        <div className='shrink-0'>
+          <DataTablePagination table={table} />
+        </div>
+      </div>
     </Dialog>
   )
 }

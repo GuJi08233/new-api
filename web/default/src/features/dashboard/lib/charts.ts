@@ -1,3 +1,21 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
 import { dataScheme as vchartDefaultDataScheme } from '@visactor/vchart/esm/theme/color-scheme/builtin/default'
 import { getCurrencyDisplay } from '@/lib/currency'
 import { formatTokenCount } from '@/lib/format'
@@ -8,6 +26,8 @@ import type {
   ProcessedChartData,
   ProcessedUserChartData,
 } from '@/features/dashboard/types'
+import { getCurrencyDisplay } from '@/lib/currency'
+import { formatChartTime, type TimeGranularity } from '@/lib/time'
 
 type TFunction = (key: string) => string
 type TooltipLineItem = {
@@ -21,13 +41,15 @@ type TooltipLineItem = {
   shapeSize?: number
 }
 
-function getVChartDefaultColors(domainLength: number) {
+export function getDashboardChartColors(domainLength: number): string[] {
   const scheme =
     vchartDefaultDataScheme.find(
       (item) => !item.maxDomainLength || domainLength <= item.maxDomainLength
     ) ?? vchartDefaultDataScheme[vchartDefaultDataScheme.length - 1]
 
-  return scheme.scheme
+  return scheme.scheme.filter(
+    (color): color is string => typeof color === 'string'
+  )
 }
 
 function renderQuotaCompat(rawQuota: number, digits = 4): string {
@@ -50,7 +72,8 @@ function renderQuotaCompat(rawQuota: number, digits = 4): string {
 export function processChartData(
   data: QuotaDataItem[],
   timeGranularity: TimeGranularity = 'day',
-  t?: TFunction
+  t?: TFunction,
+  chartCornerRadius?: number
 ): ProcessedChartData {
   const tt: TFunction = t ?? ((x) => x)
   const otherLabel = tt('Other')
@@ -74,9 +97,7 @@ export function processChartData(
     return (array: TooltipLineItem[]) => {
       const modelItems = array.filter((item) => !isOtherTooltipKey(item.key))
       const otherItems = array.filter((item) => isOtherTooltipKey(item.key))
-      modelItems.sort(
-        (a, b) => (Number(b.value) || 0) - (Number(a.value) || 0)
-      )
+      modelItems.sort((a, b) => (Number(b.value) || 0) - (Number(a.value) || 0))
       array = [...modelItems, ...otherItems]
 
       let sum = 0
@@ -94,13 +115,15 @@ export function processChartData(
 
       if (collapseOverflow && array.length > MAX_TOOLTIP_MODELS) {
         const visible = modelItems.slice(0, MAX_TOOLTIP_MODELS)
-        const otherSum = [...modelItems.slice(MAX_TOOLTIP_MODELS), ...otherItems]
-          .reduce((sum, item) => {
-            const raw = item.datum
-              ? Number((item.datum as Record<string, unknown>)?.rawQuota) || 0
-              : 0
-            return sum + raw
-          }, 0)
+        const otherSum = [
+          ...modelItems.slice(MAX_TOOLTIP_MODELS),
+          ...otherItems,
+        ].reduce((sum, item) => {
+          const raw = item.datum
+            ? Number((item.datum as Record<string, unknown>)?.rawQuota) || 0
+            : 0
+          return sum + raw
+        }, 0)
         array = [
           ...visible,
           {
@@ -165,7 +188,7 @@ export function processChartData(
         legends: { visible: true, selectMode: 'single' },
       },
       spec_model_line: {
-        type: 'line',
+        type: 'area',
         data: [{ id: 'lineData', values: [] }],
         xField: 'Time',
         yField: 'Count',
@@ -255,7 +278,7 @@ export function processChartData(
   const sortedTimes = Array.from(timeModelMap.keys()).sort()
   const sortedModels = [...allModels].sort()
   const modelColorDomain = Array.from(new Set([...sortedModels, otherLabel]))
-  const modelColorRange = getVChartDefaultColors(modelColorDomain.length)
+  const modelColorRange = getDashboardChartColors(modelColorDomain.length)
   const otherColor = modelColorRange[modelColorDomain.indexOf(otherLabel)]
   const otherTooltipColor =
     typeof otherColor === 'string' ? otherColor : '#FF8A00'
@@ -471,7 +494,8 @@ export function processChartData(
       valueField: 'value',
       categoryField: 'type',
       pie: {
-        style: { cornerRadius: 10 },
+        style:
+          chartCornerRadius == null ? {} : { cornerRadius: chartCornerRadius },
         state: {
           hover: { outerRadius: 0.85, stroke: '#000', lineWidth: 1 },
           selected: { outerRadius: 0.85, stroke: '#000', lineWidth: 1 },

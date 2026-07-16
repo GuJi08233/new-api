@@ -1,8 +1,27 @@
-import { useState } from 'react'
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
 import { ExternalLinkIcon, RefreshCcwIcon } from 'lucide-react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { formatTimestamp, formatTimestampToDate } from '@/lib/format'
+
+import { Dialog } from '@/components/dialog'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -20,6 +39,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Markdown } from '@/components/ui/markdown'
+import { formatTimestamp, formatTimestampToDate } from '@/lib/format'
+
 import { SettingsSection } from '../components/settings-section'
 import { useUpdateOption } from '../hooks/use-update-option'
 
@@ -131,10 +152,7 @@ export function UpdateCheckerSection({
 
   return (
     <>
-      <SettingsSection
-        title={t('System maintenance')}
-        description={t('Review current version and fetch release notes.')}
-      >
+      <SettingsSection title={t('System maintenance')}>
         <div className='space-y-6'>
           <div className='grid gap-4 md:grid-cols-2'>
             <div className='rounded-lg border p-4'>
@@ -205,38 +223,29 @@ export function UpdateCheckerSection({
         </div>
       </SettingsSection>
 
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className='max-h-[80vh] overflow-y-auto'>
-          <DialogHeader>
-            <DialogTitle>
-              {release?.tag_name
-                ? t('New version available: {{version}}', {
-                    version: release.tag_name,
-                  })
-                : t('Release details')}
-            </DialogTitle>
-            {release?.published_at && (
-              <DialogDescription>
-                {t('Published')}{' '}
-                {formatTimestampToDate(
-                  new Date(release.published_at).getTime(),
-                  'milliseconds'
-                )}
-              </DialogDescription>
-            )}
-          </DialogHeader>
-
-          <div className='space-y-4'>
-            {release?.body ? (
-              <Markdown>{release.body}</Markdown>
-            ) : (
-              <p className='text-muted-foreground text-sm'>
-                {t('No release notes provided.')}
-              </p>
-            )}
-          </div>
-
-          <DialogFooter>
+      <Dialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        title={
+          release?.tag_name
+            ? t('New version available: {{version}}', {
+                version: release.tag_name,
+              })
+            : t('Release details')
+        }
+        description={
+          release?.published_at
+            ? `${t('Published')} ${formatTimestampToDate(
+                new Date(release.published_at).getTime(),
+                'milliseconds'
+              )}`
+            : undefined
+        }
+        contentClassName='max-h-[80vh] overflow-y-auto'
+        contentHeight='auto'
+        bodyClassName='space-y-4'
+        footer={
+          <>
             <Button
               type='button'
               variant='secondary'
@@ -250,8 +259,18 @@ export function UpdateCheckerSection({
                 {t('Open release')}
               </Button>
             )}
-          </DialogFooter>
-        </DialogContent>
+          </>
+        }
+      >
+        <div className='space-y-4'>
+          {release?.body ? (
+            <Markdown>{release.body}</Markdown>
+          ) : (
+            <p className='text-muted-foreground text-sm'>
+              {t('No release notes provided.')}
+            </p>
+          )}
+        </div>
       </Dialog>
     </>
   )

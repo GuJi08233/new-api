@@ -1,3 +1,21 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
 import fs from 'node:fs/promises'
 import path from 'node:path'
 
@@ -132,7 +150,14 @@ function countLeafKeys(obj) {
   return count
 }
 
-function reorderLikeBase(base, target, fill, extras, missing, currentPath = []) {
+function reorderLikeBase(
+  base,
+  target,
+  fill,
+  extras,
+  missing,
+  currentPath = []
+) {
   // If base is an object, we keep base's key order and recurse.
   if (isPlainObject(base)) {
     const out = {}
@@ -142,10 +167,24 @@ function reorderLikeBase(base, target, fill, extras, missing, currentPath = []) 
     for (const key of Object.keys(base)) {
       const nextPath = [...currentPath, key]
       if (Object.prototype.hasOwnProperty.call(t, key)) {
-        out[key] = reorderLikeBase(base[key], t[key], f[key], extras, missing, nextPath)
+        out[key] = reorderLikeBase(
+          base[key],
+          t[key],
+          f[key],
+          extras,
+          missing,
+          nextPath
+        )
       } else {
         missing.push(nextPath.join('.'))
-        out[key] = reorderLikeBase(base[key], undefined, f[key], extras, missing, nextPath)
+        out[key] = reorderLikeBase(
+          base[key],
+          undefined,
+          f[key],
+          extras,
+          missing,
+          nextPath
+        )
       }
     }
 
@@ -188,6 +227,24 @@ function isLikelyUntranslated({ locale, baseValue, value }) {
 
   // Skip short tokens / acronyms / ids
   const s = baseValue.trim()
+  if (BRAND_AND_LITERAL_KEYS.has(s)) return false
+  if (
+    /^https?:\/\//.test(s) ||
+    /^\/[\w/-]+/.test(s) ||
+    /^[\w.-]+@[\w.-]+$/.test(s) ||
+    /^smtp\./i.test(s) ||
+    /^socks5:/i.test(s) ||
+    /^org-/.test(s) ||
+    /^gpt-/i.test(s) ||
+    /^checkout\./.test(s) ||
+    /^footer\./.test(s) ||
+    /^[A-Z0-9_ *./:-]+$/.test(s) ||
+    s.startsWith('{') ||
+    s.startsWith('[') ||
+    s.includes('&#10;')
+  ) {
+    return false
+  }
   if (s.length < 6) return false
   if (!/[A-Za-z]{3,}/.test(s)) return false
 
@@ -196,7 +253,8 @@ function isLikelyUntranslated({ locale, baseValue, value }) {
   if (locale === 'ru') return true
 
   // For fr/vi: still useful but noisier; keep it conservative.
-  if (locale === 'fr' || locale === 'vi') return /\b(the|and|or|to|with|please)\b/i.test(s)
+  if (locale === 'fr' || locale === 'vi')
+    return /\b(the|and|or|to|with|please)\b/i.test(s)
 
   return false
 }
@@ -289,7 +347,7 @@ async function main() {
       await fs.writeFile(
         path.join(reportsDir, `${locale}.untranslated.json`),
         stableStringify(untranslated),
-        'utf8',
+        'utf8'
       )
     } else {
       await fs.rm(path.join(reportsDir, `${locale}.untranslated.json`), { force: true })
@@ -299,15 +357,18 @@ async function main() {
     await fs.writeFile(full, stableStringify(fixed), 'utf8')
   }
 
-  await fs.writeFile(path.join(reportsDir, '_sync-report.json'), stableStringify(report), 'utf8')
-   
-  console.log(`i18n sync done. Report: ${path.join(reportsDir, '_sync-report.json')}`)
+  await fs.writeFile(
+    path.join(reportsDir, '_sync-report.json'),
+    stableStringify(report),
+    'utf8'
+  )
+
+  console.log(
+    `i18n sync done. Report: ${path.join(reportsDir, '_sync-report.json')}`
+  )
 }
 
 main().catch((err) => {
-   
   console.error(err)
   process.exitCode = 1
 })
-
-

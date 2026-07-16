@@ -1,3 +1,21 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
 import { z } from 'zod'
 
 // ============================================================================
@@ -82,6 +100,7 @@ export interface ChannelOtherSettings {
   allow_inference_geo?: boolean
   allow_speed?: boolean
   claude_beta_query?: boolean
+  disable_task_polling_sleep?: boolean
   upstream_model_update_check_enabled?: boolean
   upstream_model_update_auto_sync_enabled?: boolean
   oa2_openai_enabled?: boolean
@@ -89,6 +108,36 @@ export interface ChannelOtherSettings {
   oa2_base_url_openai?: string
   oa2_base_url_claude?: string
 }
+
+export interface AdvancedCustomConfig {
+  advanced_routes?: AdvancedCustomRoute[]
+}
+
+export interface AdvancedCustomRoute {
+  incoming_path?: string
+  upstream_path?: string
+  converter?: AdvancedCustomConverter
+  models?: string[]
+  auth?: AdvancedCustomRouteAuth
+}
+
+export interface AdvancedCustomRouteAuth {
+  type?: AdvancedCustomAuthType
+  name?: string
+  value?: string
+}
+
+export type AdvancedCustomConverter =
+  | 'none'
+  | 'anthropic_messages_to_openai_chat_completions'
+  | 'openai_chat_completions_to_anthropic_messages'
+  | 'openai_chat_completions_to_openai_responses'
+  | 'openai_responses_to_openai_chat_completions'
+  | 'openai_responses_to_gemini_generate_content'
+  | 'gemini_generate_content_to_openai_chat_completions'
+  | 'openai_chat_completions_to_gemini_generate_content'
+
+export type AdvancedCustomAuthType = 'none' | 'header' | 'query'
 
 // ============================================================================
 // API Response Types
@@ -122,10 +171,19 @@ export interface GetChannelResponse {
   data?: Channel
 }
 
+export interface ChannelOpsResponse {
+  success: boolean
+  message?: string
+  data?: {
+    retry_times: number
+  }
+}
+
 export interface ChannelTestResponse {
   success: boolean
   message?: string
   error_code?: string
+  time?: number
   data?: {
     response_time?: number
     error?: string
@@ -195,6 +253,16 @@ export interface MultiKeyStatusResponse {
 // API Request Parameters
 // ============================================================================
 
+export type ChannelSortBy =
+  | 'id'
+  | 'name'
+  | 'priority'
+  | 'balance'
+  | 'response_time'
+  | 'test_time'
+
+export type ChannelSortOrder = 'asc' | 'desc'
+
 export interface GetChannelsParams {
   p?: number
   page_size?: number
@@ -203,6 +271,8 @@ export interface GetChannelsParams {
   group?: string
   id_sort?: boolean
   tag_mode?: boolean
+  sort_by?: ChannelSortBy
+  sort_order?: ChannelSortOrder
 }
 
 export interface SearchChannelsParams {
@@ -213,6 +283,8 @@ export interface SearchChannelsParams {
   type?: number
   id_sort?: boolean
   tag_mode?: boolean
+  sort_by?: ChannelSortBy
+  sort_order?: ChannelSortOrder
   p?: number
   page_size?: number
 }

@@ -1,10 +1,37 @@
-import { useEffect, useMemo } from 'react'
-import { z } from 'zod'
-import { useForm } from 'react-hook-form'
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useEffect, useMemo } from 'react'
+import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
+import { z } from 'zod'
+
+import {
+  SideDrawerSection,
+  sideDrawerContentClassName,
+  sideDrawerFooterClassName,
+  sideDrawerFormClassName,
+  sideDrawerHeaderClassName,
+} from '@/components/drawer-layout'
+import { MultiSelect } from '@/components/multi-select'
 import { Button } from '@/components/ui/button'
 import {
   Form,
@@ -18,6 +45,7 @@ import { Input } from '@/components/ui/input'
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -32,7 +60,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { Textarea } from '@/components/ui/textarea'
-import { MultiSelect } from '@/components/multi-select'
+
 import {
   checkClusterNameAvailability,
   createDeployment,
@@ -356,8 +384,8 @@ export function CreateDeploymentDrawer({
         }
       }}
     >
-      <SheetContent className='flex w-full flex-col sm:max-w-[600px]'>
-        <SheetHeader className='text-start'>
+      <SheetContent className={sideDrawerContentClassName('sm:max-w-[600px]')}>
+        <SheetHeader className={sideDrawerHeaderClassName()}>
           <SheetTitle>{t('Create deployment')}</SheetTitle>
           <SheetDescription>
             {t('Configure and deploy a new container instance.')}
@@ -370,10 +398,10 @@ export function CreateDeploymentDrawer({
             onSubmit={form.handleSubmit((values) =>
               createMutation.mutate(values)
             )}
-            className='flex-1 space-y-6 overflow-y-auto px-4'
+            className={sideDrawerFormClassName()}
           >
             {/* Basic Configuration */}
-            <div className='space-y-4'>
+            <SideDrawerSection>
               <h3 className='text-sm font-medium'>
                 {t('Basic Configuration')}
               </h3>
@@ -416,10 +444,10 @@ export function CreateDeploymentDrawer({
                   </FormItem>
                 )}
               />
-            </div>
+            </SideDrawerSection>
 
             {/* Resource Configuration */}
-            <div className='space-y-4'>
+            <SideDrawerSection>
               <h3 className='text-sm font-medium'>
                 {t('Resource Configuration')}
               </h3>
@@ -432,6 +460,12 @@ export function CreateDeploymentDrawer({
                     <FormItem>
                       <FormLabel>{t('Hardware type')}</FormLabel>
                       <Select
+                        items={[
+                          ...hardwareOptions.map((opt) => ({
+                            value: opt.value,
+                            label: opt.label,
+                          })),
+                        ]}
                         value={field.value}
                         onValueChange={(v) => field.onChange(v)}
                         disabled={isLoadingHardware}
@@ -441,12 +475,14 @@ export function CreateDeploymentDrawer({
                             <SelectValue placeholder={t('Select')} />
                           </SelectTrigger>
                         </FormControl>
-                        <SelectContent>
-                          {hardwareOptions.map((opt) => (
-                            <SelectItem key={opt.value} value={opt.value}>
-                              {opt.label}
-                            </SelectItem>
-                          ))}
+                        <SelectContent alignItemWithTrigger={false}>
+                          <SelectGroup>
+                            {hardwareOptions.map((opt) => (
+                              <SelectItem key={opt.value} value={opt.value}>
+                                {opt.label}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
                         </SelectContent>
                       </Select>
                       <FormMessage />
@@ -577,10 +613,10 @@ export function CreateDeploymentDrawer({
                   )}
                 />
               </div>
-            </div>
+            </SideDrawerSection>
 
             {/* Price Estimation */}
-            <div className='space-y-4'>
+            <SideDrawerSection>
               <h3 className='text-sm font-medium'>{t('Price estimation')}</h3>
               <p className='text-muted-foreground text-xs'>
                 {t('Price estimation description')}
@@ -593,6 +629,10 @@ export function CreateDeploymentDrawer({
                   <FormItem>
                     <FormLabel>{t('Billing currency')}</FormLabel>
                     <Select
+                      items={[
+                        { value: 'usdc', label: 'USDC' },
+                        { value: 'iocoin', label: 'IOCOIN' },
+                      ]}
                       value={field.value || 'usdc'}
                       onValueChange={(v) => field.onChange(v)}
                     >
@@ -601,18 +641,20 @@ export function CreateDeploymentDrawer({
                           <SelectValue placeholder={t('Select')} />
                         </SelectTrigger>
                       </FormControl>
-                      <SelectContent>
-                        <SelectItem value='usdc'>USDC</SelectItem>
-                        <SelectItem value='iocoin'>IOCOIN</SelectItem>
+                      <SelectContent alignItemWithTrigger={false}>
+                        <SelectGroup>
+                          <SelectItem value='usdc'>USDC</SelectItem>
+                          <SelectItem value='iocoin'>IOCOIN</SelectItem>
+                        </SelectGroup>
                       </SelectContent>
                     </Select>
                   </FormItem>
                 )}
               />
-            </div>
+            </SideDrawerSection>
 
             {/* Advanced Configuration */}
-            <div className='space-y-4'>
+            <SideDrawerSection>
               <h3 className='text-sm font-medium'>
                 {t('Advanced Configuration')}
               </h3>
@@ -620,7 +662,7 @@ export function CreateDeploymentDrawer({
                 {t('Optional settings for advanced container configuration.')}
               </p>
 
-              <div className='space-y-4'>
+              <div className='flex flex-col gap-4'>
                 <div className='grid gap-4 sm:grid-cols-2'>
                   <FormField
                     control={form.control}
@@ -725,13 +767,13 @@ export function CreateDeploymentDrawer({
                   />
                 </div>
               </div>
-            </div>
+            </SideDrawerSection>
           </form>
         </Form>
 
-        <SheetFooter className='gap-2'>
-          <SheetClose asChild>
-            <Button variant='outline'>{t('Cancel')}</Button>
+        <SheetFooter className={sideDrawerFooterClassName()}>
+          <SheetClose render={<Button variant='outline' />}>
+            {t('Cancel')}
           </SheetClose>
           <Button
             form='deployment-form'

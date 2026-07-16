@@ -1,3 +1,21 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
 export function formatJsonForTextarea(value: string) {
   if (!value || !value.trim()) {
     return ''
@@ -29,6 +47,14 @@ type JsonValidationOptions = {
   allowEmpty?: boolean
   predicate?: (value: unknown) => boolean
   predicateMessage?: string
+}
+
+export type JsonValidationError = {
+  type: 'required' | 'structure' | 'syntax'
+  line?: number
+  column?: number
+  position?: number
+  missingCommaLine?: number
 }
 
 function extractErrorPosition(
@@ -63,8 +89,15 @@ function extractErrorPosition(
   return {}
 }
 
-function formatErrorMessage(error: unknown, jsonString: string): string {
-  if (!(error instanceof Error)) return 'Invalid JSON'
+function buildSyntaxError(
+  error: unknown,
+  jsonString: string
+): JsonValidationError {
+  if (!(error instanceof Error)) {
+    return {
+      type: 'syntax',
+    } satisfies JsonValidationError
+  }
 
   const position = extractErrorPosition(error, jsonString)
   const message = error.message
@@ -75,10 +108,29 @@ function formatErrorMessage(error: unknown, jsonString: string): string {
     message.includes('Expected property name') ||
     message.includes('Unexpected string')
 
+  const missingCommaLine =
+    isMissingCommaError && position.line && position.line > 1
+      ? position.line - 1
+      : undefined
+
+  return {
+    type: 'syntax',
+    ...position,
+    missingCommaLine,
+  } satisfies JsonValidationError
+}
+
+function formatErrorMessage(error: unknown, jsonString: string): string {
+  if (!(error instanceof Error)) return 'Invalid JSON'
+
+  const position = extractErrorPosition(error, jsonString)
+  const message = error.message
+  const syntaxError = buildSyntaxError(error, jsonString)
+
   if (position.line && position.column) {
     let hint = ''
-    if (isMissingCommaError && position.line > 1) {
-      hint = ` (check line ${position.line - 1} for missing comma)`
+    if (syntaxError.missingCommaLine) {
+      hint = ` (check line ${syntaxError.missingCommaLine} for missing comma)`
     }
     return `Error at line ${position.line}, column ${position.column}: ${message}${hint}`
   }
@@ -101,6 +153,11 @@ export function validateJsonString(
     return {
       valid: allowEmpty,
       message: allowEmpty ? undefined : 'Value is required',
+      error: allowEmpty
+        ? undefined
+        : ({
+            type: 'required',
+          } satisfies JsonValidationError),
     }
   }
 
@@ -110,6 +167,9 @@ export function validateJsonString(
       return {
         valid: false,
         message: predicateMessage || 'JSON structure is invalid',
+        error: {
+          type: 'structure',
+        } satisfies JsonValidationError,
       }
     }
 
@@ -118,6 +178,7 @@ export function validateJsonString(
     return {
       valid: false,
       message: formatErrorMessage(error, trimmed),
+      error: buildSyntaxError(error, trimmed),
     }
   }
 }

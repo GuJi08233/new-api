@@ -1,3 +1,21 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
 // ============================================================================
 // Channel Types (from constant/channel.go)
 // All label/name values are i18n keys; use t(value) when displaying.
@@ -6,18 +24,18 @@
 export const CHANNEL_TYPES = {
   0: 'Unknown',
   1: 'OpenAI',
-  2: 'Midjourney',
+  2: 'MjProxy',
   3: 'Azure',
   4: 'Ollama',
-  5: 'MidjourneyPlus',
-  6: 'OpenAIMax',
+  5: 'MjProxyPlus',
+  // 6: 'OpenAIMax',
   7: 'OhMyGPT',
   8: 'Custom',
-  9: 'AILS',
-  10: 'AI Proxy',
-  11: 'PaLM',
-  12: 'API2GPT',
-  13: 'AIGC2D',
+  // 9: 'AILS',
+  // 10: 'AI Proxy',
+  // 11: 'PaLM',
+  // 12: 'API2GPT',
+  // 13: 'AIGC2D',
   14: 'Anthropic',
   15: 'Baidu',
   16: 'Zhipu',
@@ -25,7 +43,7 @@ export const CHANNEL_TYPES = {
   18: 'Xunfei',
   19: '360',
   20: 'OpenRouter',
-  21: 'AI Proxy Library',
+  // 21: 'AI Proxy Library',
   22: 'FastGPT',
   23: 'Tencent',
   24: 'Gemini',
@@ -59,6 +77,7 @@ export const CHANNEL_TYPES = {
   56: 'Replicate',
   57: 'Codex',
   58: 'OA2 Combined Channel (OpenAI + Claude)',
+  59: 'Advanced Custom',
 } as const
 
 export const CHANNEL_TYPE_OPTIONS = Object.entries(CHANNEL_TYPES)
@@ -99,22 +118,18 @@ export const CHANNEL_STATUS_CONFIG = {
   [CHANNEL_STATUS.UNKNOWN]: {
     variant: 'neutral' as const,
     label: 'Unknown',
-    showDot: true,
   },
   [CHANNEL_STATUS.ENABLED]: {
     variant: 'success' as const,
     label: 'Enabled',
-    showDot: true,
   },
   [CHANNEL_STATUS.MANUAL_DISABLED]: {
-    variant: 'neutral' as const,
+    variant: 'danger' as const,
     label: 'Disabled',
-    showDot: true,
   },
   [CHANNEL_STATUS.AUTO_DISABLED]: {
-    variant: 'danger' as const,
+    variant: 'warning' as const,
     label: 'Auto Disabled',
-    showDot: true,
   },
 }
 
@@ -293,7 +308,7 @@ export const RESPONSE_TIME_THRESHOLDS = {
 
 export const RESPONSE_TIME_CONFIG = {
   EXCELLENT: { variant: 'success' as const, label: 'Excellent' },
-  GOOD: { variant: 'info' as const, label: 'Good' },
+  GOOD: { variant: 'success' as const, label: 'Good' },
   FAIR: { variant: 'warning' as const, label: 'Fair' },
   POOR: { variant: 'danger' as const, label: 'Poor' },
   UNKNOWN: { variant: 'neutral' as const, label: 'Not tested' },

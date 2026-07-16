@@ -1,13 +1,32 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
 import { Route } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { getLobeIcon } from '@/lib/lobe-icon'
-import { cn } from '@/lib/utils'
+
+import { StatusBadge } from '@/components/status-badge'
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover'
-import { StatusBadge } from '@/components/status-badge'
+import { getLobeIcon } from '@/lib/lobe-icon'
+import { cn } from '@/lib/utils'
 
 interface ModelBadgeProps {
   modelName: string
@@ -60,6 +79,36 @@ function resolveModelProvider(modelName: string): ModelProvider | null {
   if (hasAny(['moonshot-', 'kimi-'])) {
     return { icon: 'Moonshot.Color', label: 'Moonshot' }
   }
+  if (hasAny(['minimax', 'abab'])) {
+    return { icon: 'Minimax.Color', label: 'MiniMax' }
+  }
+  if (hasAny(['glm-', 'chatglm', 'cogview', 'cogvideo'])) {
+    return { icon: 'Zhipu.Color', label: 'Zhipu' }
+  }
+  if (hasAny(['mimo-'])) {
+    return { icon: 'XiaomiMiMo', label: 'MiMo' }
+  }
+  if (hasAny(['ernie'])) {
+    return { icon: 'Wenxin.Color', label: 'Baidu' }
+  }
+  if (hasAny(['spark'])) {
+    return { icon: 'Spark.Color', label: 'iFlyTek' }
+  }
+  if (hasAny(['hunyuan'])) {
+    return { icon: 'Hunyuan.Color', label: 'Tencent' }
+  }
+  if (hasAny(['baichuan'])) {
+    return { icon: 'Baichuan.Color', label: 'Baichuan' }
+  }
+  if (hasAny(['internlm'])) {
+    return { icon: 'InternLM.Color', label: 'InternLM' }
+  }
+  if (hasAny(['step-'])) {
+    return { icon: 'Stepfun.Color', label: 'StepFun' }
+  }
+  if (hasAny(['yi-'])) {
+    return { icon: 'Yi.Color', label: 'Yi' }
+  }
   if (hasAny(['mistral-', 'mixtral-'])) {
     return { icon: 'Mistral.Color', label: 'Mistral' }
   }
@@ -83,22 +132,22 @@ function ModelBadgeContent(props: ModelBadgeProps) {
       showDot={!provider}
       autoColor={provider ? undefined : props.modelName}
       className={cn(
-        'rounded-md border border-border/60 bg-muted/30 px-1.5 py-0.5 font-mono',
+        'border-border/60 bg-muted/30 h-6 max-w-none gap-1.5 rounded-md border px-2 [font-family:var(--font-body)]',
         provider && 'text-foreground',
         props.className
       )}
     >
-      <span className='flex items-center gap-1.5'>
+      <span className='flex max-w-none items-center gap-1.5'>
         {provider && (
           <span
-            className='flex size-3.5 shrink-0 items-center justify-center'
+            className='flex h-[18px] w-[18px] shrink-0 items-center justify-center'
             title={provider.label}
             aria-label={provider.label}
           >
-            {getLobeIcon(provider.icon, 14)}
+            {getLobeIcon(provider.icon, 18)}
           </span>
         )}
-        <span>{props.modelName}</span>
+        <span className='whitespace-nowrap'>{props.modelName}</span>
       </span>
     </StatusBadge>
   )
@@ -113,11 +162,13 @@ export function ModelBadge(props: ModelBadgeProps) {
 
   return (
     <Popover>
-      <PopoverTrigger asChild>
-        <button type='button' className='inline-flex items-center gap-1'>
-          <ModelBadgeContent {...props} />
-          <Route className='text-muted-foreground size-3 shrink-0' />
-        </button>
+      <PopoverTrigger
+        render={
+          <button type='button' className='inline-flex items-center gap-1' />
+        }
+      >
+        <ModelBadgeContent {...props} />
+        <Route className='text-muted-foreground size-3 shrink-0' />
       </PopoverTrigger>
       <PopoverContent className='w-72'>
         <div className='space-y-2'>

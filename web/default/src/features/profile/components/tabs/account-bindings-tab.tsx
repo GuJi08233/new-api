@@ -1,22 +1,42 @@
-import { useEffect, useMemo, useState, useCallback } from 'react'
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
 import { Mail, Shield, Send, Link2, Unlink } from 'lucide-react'
+import { useEffect, useMemo, useState, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { SiGithub, SiWechat, SiLinux } from 'react-icons/si'
 import { toast } from 'sonner'
+
 import { IconDiscord } from '@/assets/brand-icons'
+import { ConfirmDialog } from '@/components/confirm-dialog'
+import { StatusBadge } from '@/components/status-badge'
+import { Button } from '@/components/ui/button'
+import { Separator } from '@/components/ui/separator'
+import { OAUTH_BIND_STORAGE_KEY } from '@/features/auth/constants'
+import { useDialogs } from '@/hooks/use-dialog'
+import { useStatus } from '@/hooks/use-status'
 import {
   handleGitHubOAuth,
   handleOIDCOAuth,
   handleDiscordOAuth,
   handleLinuxDOOAuth,
 } from '@/lib/oauth'
-import { useDialogs } from '@/hooks/use-dialog'
-import { useStatus } from '@/hooks/use-status'
-import { Button } from '@/components/ui/button'
-import { Separator } from '@/components/ui/separator'
-import { ConfirmDialog } from '@/components/confirm-dialog'
-import { StatusBadge } from '@/components/status-badge'
-import { OAUTH_BIND_STORAGE_KEY } from '@/features/auth/constants'
+
 import {
   getSelfOAuthBindings,
   unbindCustomOAuth,

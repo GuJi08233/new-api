@@ -1,6 +1,36 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
 import { z } from 'zod'
-import { CHANNEL_STATUS, MODEL_FETCHABLE_TYPES } from '../constants'
+
+import {
+  CHANNEL_STATUS,
+  ERROR_MESSAGES,
+  MODEL_FETCHABLE_TYPES,
+} from '../constants'
 import type { Channel } from '../types'
+import {
+  CHANNEL_TYPE_ADVANCED_CUSTOM,
+  advancedCustomConfigUsesRelativeUpstreamPath,
+  parseAdvancedCustomConfig,
+  stringifyAdvancedCustomConfig,
+  validateAdvancedCustomConfig,
+} from './advanced-custom'
 
 // ============================================================================
 // Form Validation Schema
@@ -122,9 +152,11 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   allow_inference_geo: false,
   allow_speed: false,
   claude_beta_query: false,
+  disable_task_polling_sleep: false,
   upstream_model_update_check_enabled: false,
   upstream_model_update_auto_sync_enabled: false,
   upstream_model_update_ignored_models: '',
+  advanced_custom: '',
 }
 
 // ============================================================================
@@ -180,9 +212,11 @@ export function transformChannelToFormDefaults(
   let allowInferenceGeo = false
   let allowSpeed = false
   let claudeBetaQuery = false
+  let disableTaskPollingSleep = false
   let upstreamModelUpdateCheckEnabled = false
   let upstreamModelUpdateAutoSyncEnabled = false
   let upstreamModelUpdateIgnoredModels = ''
+  let advancedCustom = ''
 
   if (channel.settings) {
     try {
@@ -202,6 +236,7 @@ export function transformChannelToFormDefaults(
       allowInferenceGeo = parsed.allow_inference_geo === true
       allowSpeed = parsed.allow_speed === true
       claudeBetaQuery = parsed.claude_beta_query === true
+      disableTaskPollingSleep = parsed.disable_task_polling_sleep === true
       upstreamModelUpdateCheckEnabled =
         parsed.upstream_model_update_check_enabled === true
       upstreamModelUpdateAutoSyncEnabled =
@@ -211,6 +246,9 @@ export function transformChannelToFormDefaults(
       )
         ? parsed.upstream_model_update_ignored_models.join(',')
         : ''
+      if (parsed.advanced_custom) {
+        advancedCustom = stringifyAdvancedCustomConfig(parsed.advanced_custom)
+      }
     } catch (error) {
       // eslint-disable-next-line no-console
       console.error('Failed to parse channel settings:', error)
@@ -260,10 +298,12 @@ export function transformChannelToFormDefaults(
     allow_inference_geo: allowInferenceGeo,
     allow_speed: allowSpeed,
     claude_beta_query: claudeBetaQuery,
+    disable_task_polling_sleep: disableTaskPollingSleep,
     allow_safety_identifier: allowSafetyIdentifier,
     upstream_model_update_check_enabled: upstreamModelUpdateCheckEnabled,
     upstream_model_update_auto_sync_enabled: upstreamModelUpdateAutoSyncEnabled,
     upstream_model_update_ignored_models: upstreamModelUpdateIgnoredModels,
+    advanced_custom: advancedCustom,
   }
 }
 
@@ -343,13 +383,13 @@ function buildSettingsJSON(formData: ChannelFormValues): string {
   // Field passthrough controls:
   // - OpenAI (type 1) and Anthropic (type 14): allow_service_tier
   // - OpenAI only: disable_store, allow_safety_identifier
-  if (formData.type === 1 || formData.type === 14) {
+  if (formData.type === 1 || formData.type === 14 || formData.type === 57) {
     settingsObj.allow_service_tier = formData.allow_service_tier === true
   } else if ('allow_service_tier' in settingsObj) {
     delete settingsObj.allow_service_tier
   }
 
-  if (formData.type === 1) {
+  if (formData.type === 1 || formData.type === 57) {
     settingsObj.disable_store = formData.disable_store === true
     settingsObj.allow_safety_identifier =
       formData.allow_safety_identifier === true
@@ -375,6 +415,9 @@ function buildSettingsJSON(formData: ChannelFormValues): string {
     if ('allow_speed' in settingsObj) delete settingsObj.allow_speed
     if ('claude_beta_query' in settingsObj) delete settingsObj.claude_beta_query
   }
+
+  settingsObj.disable_task_polling_sleep =
+    formData.disable_task_polling_sleep === true
 
   // Upstream model update settings (for model-fetchable channel types)
   if (MODEL_FETCHABLE_TYPES.has(formData.type)) {
@@ -402,7 +445,24 @@ function buildSettingsJSON(formData: ChannelFormValues): string {
     }
   }
 
+  if (formData.type === CHANNEL_TYPE_ADVANCED_CUSTOM) {
+    const advancedCustomConfig = parseAdvancedCustomConfig(
+      formData.advanced_custom
+    )
+    if (advancedCustomConfig) {
+      settingsObj.advanced_custom = advancedCustomConfig
+    }
+  } else if ('advanced_custom' in settingsObj) {
+    delete settingsObj.advanced_custom
+  }
+
   return JSON.stringify(settingsObj)
+}
+
+function normalizeBaseUrl(value: string | undefined): string {
+  return String(value || '')
+    .trim()
+    .replace(/\/+$/, '')
 }
 
 /**
@@ -419,7 +479,7 @@ export function transformFormDataToCreatePayload(formData: ChannelFormValues): {
   const channel: Partial<Channel> = {
     name: formData.name,
     type: formData.type,
-    base_url: formData.base_url || null,
+    base_url: normalizeBaseUrl(formData.base_url) || null,
     key: formData.key,
     openai_organization: formData.openai_organization || null,
     models: formData.models,
@@ -468,16 +528,15 @@ export function transformFormDataToUpdatePayload(
     id: channelId,
     name: formData.name,
     type: formData.type,
-    base_url: formData.base_url || null,
+    base_url: normalizeBaseUrl(formData.base_url) || null,
     openai_organization: formData.openai_organization || null,
     models: formData.models,
     group: formatGroups(formData.group),
     model_mapping: formData.model_mapping || null,
-    priority: formData.priority || null,
-    weight: formData.weight || null,
+    priority: formData.priority ?? 0,
+    weight: formData.weight ?? 0,
     test_model: formData.test_model || null,
     auto_ban: formData.auto_ban ?? 1,
-    status: formData.status,
     status_code_mapping: formData.status_code_mapping || null,
     tag: formData.tag || null,
     remark: formData.remark || '',
@@ -499,6 +558,17 @@ export function transformFormDataToUpdatePayload(
       ;(payload as Record<string, unknown>)[key] = null
     }
   })
+
+  // Send explicit empty strings for nullable fields so GORM updates can clear them.
+  payload.base_url = normalizeBaseUrl(formData.base_url) || ''
+  payload.openai_organization = formData.openai_organization || ''
+  payload.test_model = formData.test_model || ''
+  payload.tag = formData.tag || ''
+  payload.remark = formData.remark || ''
+  payload.model_mapping = formData.model_mapping || ''
+  payload.status_code_mapping = formData.status_code_mapping || ''
+  payload.param_override = formData.param_override || ''
+  payload.header_override = formData.header_override || ''
 
   return payload
 }

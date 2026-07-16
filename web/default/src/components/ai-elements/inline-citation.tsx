@@ -1,5 +1,24 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
 'use client'
 
+import { ArrowLeftIcon, ArrowRightIcon } from 'lucide-react'
 import {
   type ComponentProps,
   createContext,
@@ -8,9 +27,8 @@ import {
   useEffect,
   useState,
 } from 'react'
-import { ArrowLeftIcon, ArrowRightIcon } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { cn } from '@/lib/utils'
+
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -24,6 +42,7 @@ import {
   HoverCardContent,
   HoverCardTrigger,
 } from '@/components/ui/hover-card'
+import { cn } from '@/lib/utils'
 
 export type InlineCitationProps = ComponentProps<'span'>
 
@@ -52,7 +71,7 @@ export const InlineCitationText = ({
 export type InlineCitationCardProps = ComponentProps<typeof HoverCard>
 
 export const InlineCitationCard = (props: InlineCitationCardProps) => (
-  <HoverCard closeDelay={0} openDelay={0} {...props} />
+  <HoverCard {...props} />
 )
 
 export type InlineCitationCardTriggerProps = ComponentProps<typeof Badge> & {
@@ -64,22 +83,22 @@ export const InlineCitationCardTrigger = ({
   className,
   ...props
 }: InlineCitationCardTriggerProps) => (
-  <HoverCardTrigger asChild>
-    <Badge
-      className={cn('ml-1 rounded-full', className)}
-      variant='secondary'
-      {...props}
-    >
-      {sources[0] ? (
-        <>
-          {new URL(sources[0]).hostname}{' '}
-          {sources.length > 1 && `+${sources.length - 1}`}
-        </>
-      ) : (
-        'unknown'
-      )}
-    </Badge>
-  </HoverCardTrigger>
+  <HoverCardTrigger
+    delay={0}
+    closeDelay={0}
+    render={
+      <Badge className={cn('ml-1', className)} variant='secondary' {...props}>
+        {sources[0] ? (
+          <>
+            {new URL(sources[0]).hostname}{' '}
+            {sources.length > 1 && `+${sources.length - 1}`}
+          </>
+        ) : (
+          'unknown'
+        )}
+      </Badge>
+    }
+  />
 )
 
 export type InlineCitationCardBodyProps = ComponentProps<'div'>

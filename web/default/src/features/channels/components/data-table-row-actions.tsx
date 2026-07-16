@@ -1,11 +1,28 @@
-import { useState } from 'react'
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
 import { useQueryClient } from '@tanstack/react-query'
-import { type Row } from '@tanstack/react-table'
+import type { Row } from '@tanstack/react-table'
 import {
   MoreHorizontal,
   Boxes,
   Pencil,
-  TestTube,
+  PlugZap,
   Gauge,
   DollarSign,
   Download,
@@ -17,7 +34,10 @@ import {
   RefreshCw,
   Loader2,
 } from 'lucide-react'
+import { useContext, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -32,7 +52,13 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import { ConfirmDialog } from '@/components/confirm-dialog'
+import {
+  ADMIN_PERMISSION_ACTIONS,
+  ADMIN_PERMISSION_RESOURCES,
+  hasPermission,
+} from '@/lib/admin-permissions'
+import { useAuthStore } from '@/stores/auth-store'
+
 import { MODEL_FETCHABLE_TYPES } from '../constants'
 import {
   channelsQueryKeys,
@@ -44,6 +70,7 @@ import {
 } from '../lib'
 import { parseUpstreamUpdateMeta } from '../lib/upstream-update-utils'
 import type { Channel } from '../types'
+import { ChannelRowActionsLayoutContext } from './channel-row-actions-context'
 import { useChannels } from './channels-provider'
 
 interface DataTableRowActionsProps {
@@ -52,15 +79,22 @@ interface DataTableRowActionsProps {
 
 export function DataTableRowActions({ row }: DataTableRowActionsProps) {
   const { t } = useTranslation()
+  const layout = useContext(ChannelRowActionsLayoutContext)
   const channel = row.original
   const { setOpen, setCurrentRow, upstream } = useChannels()
   const queryClient = useQueryClient()
+  const currentUser = useAuthStore((s) => s.auth.user)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [isTesting, setIsTesting] = useState(false)
   const [isTogglingStatus, setIsTogglingStatus] = useState(false)
 
   const isEnabled = isChannelEnabled(channel)
   const isMultiKey = isMultiKeyChannel(channel)
+  const canEditSensitive = hasPermission(
+    currentUser,
+    ADMIN_PERMISSION_RESOURCES.CHANNEL,
+    ADMIN_PERMISSION_ACTIONS.SENSITIVE_WRITE
+  )
 
   const handleEdit = () => {
     setCurrentRow(channel)
@@ -76,7 +110,7 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
     e.stopPropagation()
     setIsTesting(true)
     try {
-      await handleTestChannel(channel.id, undefined, () => {
+      await handleTestChannel(channel.id, { channelName: channel.name }, () => {
         queryClient.invalidateQueries({ queryKey: channelsQueryKeys.lists() })
       })
     } finally {
@@ -121,49 +155,96 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
     }
   }
 
+  let statusIcon = <Power className='size-4' />
+  if (isTogglingStatus) {
+    statusIcon = <Loader2 className='size-4 animate-spin' />
+  } else if (isEnabled) {
+    statusIcon = <PowerOff className='size-4' />
+  }
+
   return (
-    <div className='flex items-center justify-end gap-1'>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant='ghost'
-            size='icon-sm'
-            onClick={handleDirectTest}
-            disabled={isTesting}
-            aria-label={t('Test Connection')}
+    <div className='-ml-1.5 flex items-center gap-1'>
+      {layout !== 'card' && (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant='ghost'
+                size='icon-sm'
+                onClick={(e) => {
+                  e.stopPropagation()
+                  handleEdit()
+                }}
+                aria-label={t('Edit')}
+              />
+            }
           >
-            {isTesting ? (
-              <Loader2 className='size-4 animate-spin' />
-            ) : (
-              <Gauge className='size-4' />
-            )}
-          </Button>
+            <Pencil className='size-4' />
+          </TooltipTrigger>
+          <TooltipContent>{t('Edit')}</TooltipContent>
+        </Tooltip>
+      )}
+
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              variant='ghost'
+              size='icon-sm'
+              onClick={handleDirectTest}
+              disabled={isTesting}
+              aria-label={t('Test Connection')}
+            />
+          }
+        >
+          {isTesting ? (
+            <Loader2 className='size-4 animate-spin' />
+          ) : (
+            <Gauge className='size-4' />
+          )}
         </TooltipTrigger>
         <TooltipContent>{t('Test Connection')}</TooltipContent>
       </Tooltip>
 
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant='ghost'
-            size='icon-sm'
-            onClick={handleToggleStatus}
-            disabled={isTogglingStatus}
-            aria-label={isEnabled ? t('Disable') : t('Enable')}
-            className={
-              isEnabled
-                ? 'text-destructive hover:text-destructive'
-                : 'text-emerald-600 hover:text-emerald-600 dark:text-emerald-400 dark:hover:text-emerald-400'
+      {layout === 'card' && (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant='ghost'
+                size='icon-sm'
+                onClick={(e) => {
+                  e.stopPropagation()
+                  handleTest()
+                }}
+                aria-label={t('Test Channel Connection')}
+              />
             }
           >
-            {isTogglingStatus ? (
-              <Loader2 className='size-4 animate-spin' />
-            ) : isEnabled ? (
-              <PowerOff className='size-4' />
-            ) : (
-              <Power className='size-4' />
-            )}
-          </Button>
+            <PlugZap className='size-4' />
+          </TooltipTrigger>
+          <TooltipContent>{t('Test Channel Connection')}</TooltipContent>
+        </Tooltip>
+      )}
+
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              variant='ghost'
+              size='icon-sm'
+              onClick={handleToggleStatus}
+              disabled={isTogglingStatus}
+              aria-label={isEnabled ? t('Disable') : t('Enable')}
+              className={
+                isEnabled
+                  ? 'text-destructive hover:text-destructive'
+                  : 'text-success hover:text-success'
+              }
+            />
+          }
+        >
+          {statusIcon}
         </TooltipTrigger>
         <TooltipContent>
           {isEnabled ? t('Disable') : t('Enable')}
@@ -171,29 +252,32 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
       </Tooltip>
 
       <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant='ghost'
-            className='data-[state=open]:bg-muted flex h-8 w-8 p-0'
-          >
-            <MoreHorizontal className='h-4 w-4' />
-            <span className='sr-only'>{t('Open menu')}</span>
-          </Button>
+        <DropdownMenuTrigger
+          render={
+            <Button
+              variant='ghost'
+              className='data-popup-open:bg-muted flex h-8 w-8 p-0'
+            />
+          }
+        >
+          <MoreHorizontal className='h-4 w-4' />
+          <span className='sr-only'>{t('Open menu')}</span>
         </DropdownMenuTrigger>
         <DropdownMenuContent align='end' className='w-48'>
-          {/* Edit */}
-          <DropdownMenuItem onClick={handleEdit}>
-            {t('Edit')}
-            <DropdownMenuShortcut>
-              <Pencil size={16} />
-            </DropdownMenuShortcut>
-          </DropdownMenuItem>
+          {layout === 'card' && (
+            <DropdownMenuItem onClick={handleEdit}>
+              {t('Edit')}
+              <DropdownMenuShortcut>
+                <Pencil size={16} />
+              </DropdownMenuShortcut>
+            </DropdownMenuItem>
+          )}
 
           {/* Test Connection */}
           <DropdownMenuItem onClick={handleTest}>
             {t('Test Connection')}
             <DropdownMenuShortcut>
-              <TestTube size={16} />
+              <PlugZap size={16} />
             </DropdownMenuShortcut>
           </DropdownMenuItem>
 
@@ -253,12 +337,20 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
           <DropdownMenuSeparator />
 
           {/* Copy Channel */}
-          <DropdownMenuItem onClick={handleCopy}>
+          <DropdownMenuItem
+            disabled={!canEditSensitive}
+            onClick={canEditSensitive ? handleCopy : undefined}
+          >
             {t('Copy Channel')}
             <DropdownMenuShortcut>
               <Copy size={16} />
             </DropdownMenuShortcut>
           </DropdownMenuItem>
+          {!canEditSensitive && (
+            <DropdownMenuItem disabled className='text-xs normal-case'>
+              {t('No permission to perform this action')}
+            </DropdownMenuItem>
+          )}
 
           {/* Manage Keys (only for multi-key channels) */}
           {isMultiKey && (
@@ -274,8 +366,10 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
 
           {/* Delete */}
           <DropdownMenuItem
+            disabled={!canEditSensitive}
             onSelect={(e) => {
               e.preventDefault()
+              if (!canEditSensitive) return
               setDeleteConfirmOpen(true)
             }}
             className='text-destructive focus:text-destructive'
@@ -292,10 +386,14 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
         open={deleteConfirmOpen}
         onOpenChange={setDeleteConfirmOpen}
         title={t('Delete Channel')}
-        desc={`Are you sure you want to delete "${channel.name}"? This action cannot be undone.`}
-        confirmText='Delete'
+        desc={t(
+          'Are you sure you want to delete channel "{{name}}"? This action cannot be undone.',
+          { name: channel.name }
+        )}
+        confirmText={t('Delete')}
         destructive
         handleConfirm={() => {
+          if (!canEditSensitive) return
           handleDeleteChannel(channel.id, queryClient)
           setDeleteConfirmOpen(false)
         }}

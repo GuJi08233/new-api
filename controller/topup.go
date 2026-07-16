@@ -19,8 +19,13 @@ import (
 )
 
 func GetTopUpInfo(c *gin.Context) {
+	complianceConfirmed := operation_setting.IsPaymentComplianceConfirmed()
+
 	// 获取支付方式
 	payMethods := operation_setting.PayMethods
+	if !complianceConfirmed {
+		payMethods = []map[string]string{}
+	}
 
 	// 如果启用了 Stripe 支付，添加到支付方法列表
 	if setting.StripeApiSecret != "" && setting.StripeWebhookSecret != "" && setting.StripePriceId != "" {
@@ -41,6 +46,27 @@ func GetTopUpInfo(c *gin.Context) {
 				"min_topup": strconv.Itoa(setting.StripeMinTopUp),
 			}
 			payMethods = append(payMethods, stripeMethod)
+		}
+	}
+
+	// Waffo Pancake displayed above the legacy Waffo gateway.
+	enableWaffoPancake := isWaffoPancakeTopUpEnabled()
+	if enableWaffoPancake {
+		hasWaffoPancake := false
+		for _, method := range payMethods {
+			if method["type"] == model.PaymentMethodWaffoPancake {
+				hasWaffoPancake = true
+				break
+			}
+		}
+
+		if !hasWaffoPancake {
+			payMethods = append(payMethods, map[string]string{
+				"name":      "Waffo Pancake",
+				"type":      model.PaymentMethodWaffoPancake,
+				"color":     "rgba(var(--semi-orange-5), 1)",
+				"min_topup": strconv.Itoa(setting.WaffoPancakeMinTopUp),
+			})
 		}
 	}
 
@@ -74,29 +100,6 @@ func GetTopUpInfo(c *gin.Context) {
 		}
 	}
 
-	// 如果启用了 Waffo Pancake 支付，添加到支付方法列表
-	enableWaffoPancake := setting.WaffoPancakeEnabled &&
-		setting.WaffoPancakeMerchantID != "" &&
-		setting.WaffoPancakePrivateKey != ""
-	if enableWaffoPancake {
-		hasWaffoPancake := false
-		for _, method := range payMethods {
-			if method["type"] == model.PaymentMethodWaffoPancake {
-				hasWaffoPancake = true
-				break
-			}
-		}
-
-		if !hasWaffoPancake {
-			payMethods = append(payMethods, map[string]string{
-				"name":      "Waffo Pancake",
-				"type":      model.PaymentMethodWaffoPancake,
-				"color":     "rgba(var(--semi-orange-5), 1)",
-				"min_topup": strconv.Itoa(setting.WaffoPancakeMinTopUp),
-			})
-		}
-	}
-
 	data := gin.H{
 		"enable_online_topup":        operation_setting.PayAddress != "" && operation_setting.EpayId != "" && operation_setting.EpayKey != "",
 		"enable_stripe_topup":        setting.StripeApiSecret != "" && setting.StripeWebhookSecret != "" && setting.StripePriceId != "",
@@ -117,6 +120,7 @@ func GetTopUpInfo(c *gin.Context) {
 		"waffo_pancake_min_topup": setting.WaffoPancakeMinTopUp,
 		"amount_options":          operation_setting.GetPaymentSetting().AmountOptions,
 		"discount":                operation_setting.GetPaymentSetting().AmountDiscount,
+		"topup_link":              common.TopUpLink,
 	}
 
 	// ── Ethereum top-up info ──────────────────────────────────────────────

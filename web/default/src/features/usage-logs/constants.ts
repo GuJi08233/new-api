@@ -1,7 +1,26 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
 /**
  * Shared constants for usage logs feature
  */
 import type { StatusBadgeProps } from '@/components/status-badge'
+
 import type { LogStatistics, LogCategory } from './types'
 
 // ============================================================================
@@ -40,7 +59,14 @@ export const LOG_TYPE_ENUM = {
   SYSTEM: 4,
   ERROR: 5,
   REFUND: 6,
+  LOGIN: 7,
 } as const
+
+/**
+ * The log list/stat backend uses type=0 as the "all types" sentinel.
+ * Row rendering still displays records with type=0 as "Unknown".
+ */
+export const LOG_TYPE_ALL_VALUE = '0' as const
 
 // ============================================================================
 // Time Range Presets
@@ -71,22 +97,30 @@ export const LOG_TYPES = [
   { value: 4, label: 'System', color: 'purple' },
   { value: 5, label: 'Error', color: 'red' },
   { value: 6, label: 'Refund', color: 'blue' },
+  { value: 7, label: 'Login', color: 'teal' },
 ] as const
 
 /**
  * Log types for DataTableToolbar filters (single select mode)
+ * Backend treats type=0 as "all logs" in list/stat endpoints, so the filter
+ * must not expose the display-only "Unknown" label for that value.
  */
-export const LOG_TYPE_FILTERS = LOG_TYPES.map((type) => ({
-  label: type.label,
-  value: String(type.value),
-}))
+export const LOG_TYPE_FILTERS = [
+  { label: 'All Types', value: LOG_TYPE_ALL_VALUE },
+  ...LOG_TYPES.filter((type) => type.value !== LOG_TYPE_ENUM.UNKNOWN).map(
+    (type) => ({
+      label: type.label,
+      value: String(type.value),
+    })
+  ),
+] as const
 
 // ============================================================================
-// Drawing Logs (Midjourney) Constants
+// Drawing Logs (MjProxy) Constants
 // ============================================================================
 
 /**
- * Midjourney task types
+ * MjProxy task types
  * Must match backend constants in constant/midjourney.go
  */
 export const MJ_TASK_TYPES = {
@@ -111,7 +145,7 @@ export const MJ_TASK_TYPES = {
 } as const
 
 /**
- * Midjourney task status
+ * MjProxy task status
  */
 export const MJ_TASK_STATUS = {
   NOT_START: 'NOT_START', // 未启动
@@ -123,7 +157,7 @@ export const MJ_TASK_STATUS = {
 } as const
 
 /**
- * Midjourney submit result codes
+ * MjProxy submit result codes
  */
 export const MJ_SUBMIT_RESULT_CODES = {
   NOT_SUBMITTED: 0, // 未提交
@@ -190,7 +224,7 @@ export interface StatusMapping {
 }
 
 /**
- * Midjourney task type mappings
+ * MjProxy task type mappings
  */
 export const MJ_TASK_TYPE_MAPPINGS: Record<string, StatusMapping> = {
   [MJ_TASK_TYPES.IMAGINE]: { label: 'Draw', variant: 'blue' },
@@ -213,7 +247,7 @@ export const MJ_TASK_TYPE_MAPPINGS: Record<string, StatusMapping> = {
 }
 
 /**
- * Midjourney task status mappings
+ * MjProxy task status mappings
  */
 export const MJ_STATUS_MAPPINGS: Record<string, StatusMapping> = {
   [MJ_TASK_STATUS.SUCCESS]: { label: 'Success', variant: 'green' },
@@ -225,7 +259,7 @@ export const MJ_STATUS_MAPPINGS: Record<string, StatusMapping> = {
 }
 
 /**
- * Midjourney submit result mappings
+ * MjProxy submit result mappings
  */
 export const MJ_SUBMIT_RESULT_MAPPINGS: Record<string, StatusMapping> = {
   [String(MJ_SUBMIT_RESULT_CODES.SUBMITTED)]: {

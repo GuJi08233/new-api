@@ -1,13 +1,28 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
 import { useEffect, useMemo, useState, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
+
+import { Dialog } from '@/components/dialog'
 import { formatTimestampToDate } from '@/lib/format'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+
 import { getAffinityUsageCache } from './api'
 
 function formatRate(hit: number, total: number): string {
@@ -117,38 +132,42 @@ export function CacheStatsDialog(props: Props) {
   }, [stats, props.target, t])
 
   return (
-    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
-      <DialogContent className='sm:max-w-lg'>
-        <DialogHeader>
-          <DialogTitle>{t('Channel Affinity: Upstream Cache Hit')}</DialogTitle>
-        </DialogHeader>
-        <p className='text-muted-foreground text-xs'>
-          {t(
-            'Hit criteria: If cached tokens exist in usage, it counts as a hit.'
-          )}
-        </p>
-        {loading ? (
-          <div className='text-muted-foreground py-8 text-center text-sm'>
-            {t('Loading...')}
-          </div>
-        ) : rows.length > 0 ? (
-          <div className='space-y-2'>
-            {rows.map((row) => (
-              <div
-                key={row.key}
-                className='flex justify-between border-b pb-1 text-sm'
-              >
-                <span className='text-muted-foreground'>{row.key}</span>
-                <span className='font-medium'>{row.value}</span>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className='text-muted-foreground py-8 text-center text-sm'>
-            {t('No data available')}
-          </div>
+    <Dialog
+      open={props.open}
+      onOpenChange={props.onOpenChange}
+      title={t('Channel Affinity: Upstream Cache Hit')}
+      contentClassName='sm:max-w-lg'
+      contentHeight='auto'
+      bodyClassName='space-y-4'
+    >
+      <p className='text-muted-foreground text-xs'>
+        {t(
+          'Hit criteria: If cached tokens exist in usage, it counts as a hit.'
         )}
-      </DialogContent>
+      </p>
+      {loading ? (
+        <div className='text-muted-foreground py-8 text-center text-sm'>
+          {t('Loading...')}
+        </div>
+      ) : rows.length > 0 ? (
+        <div className='space-y-2'>
+          {rows.map((row) => (
+            <div
+              key={row.key}
+              className='flex justify-between gap-4 border-b pb-1 text-sm'
+            >
+              <span className='text-muted-foreground'>{row.key}</span>
+              <span className='text-right font-medium break-all'>
+                {row.value}
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className='text-muted-foreground py-8 text-center text-sm'>
+          {t('No data available')}
+        </div>
+      )}
     </Dialog>
   )
 }

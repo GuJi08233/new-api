@@ -1,11 +1,31 @@
-import { useCallback, useEffect, useState } from 'react'
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
 import { useQueryClient } from '@tanstack/react-query'
 import { getRouteApi, useNavigate } from '@tanstack/react-router'
 import { Plus } from 'lucide-react'
+import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+
+import { SectionPageLayout } from '@/components/layout'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { SectionPageLayout } from '@/components/layout'
+
 import { listDeployments } from './api'
 import { DeploymentAccessGuard } from './components/deployment-access-guard'
 import { DeploymentsTable } from './components/deployments-table'
@@ -24,24 +44,18 @@ import {
 
 const route = getRouteApi('/_authenticated/models/$section')
 
-const SECTION_META: Record<
-  ModelsSectionId,
-  { titleKey: string; descriptionKey: string }
-> = {
+const SECTION_META: Record<ModelsSectionId, { titleKey: string }> = {
   metadata: {
     titleKey: 'Metadata',
-    descriptionKey: 'Manage model metadata and configuration',
   },
   deployments: {
     titleKey: 'Deployments',
-    descriptionKey: 'Manage model deployments',
   },
 }
 
 function ModelsContent() {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const queryClient = useQueryClient()
   const { tabCategory, setTabCategory } = useModels()
   const params = route.useParams()
   const activeSection = (params.section ??
@@ -57,41 +71,6 @@ function ModelsContent() {
     }
   }, [activeSection, setTabCategory, tabCategory])
 
-  const {
-    loading: deploymentLoading,
-    loadingPhase,
-    isIoNetEnabled,
-    connectionLoading,
-    connectionOk,
-    connectionError,
-    testConnection,
-    refresh: refreshDeploymentSettings,
-  } = useModelDeploymentSettings()
-
-  // Ensure settings are fresh when switching to deployments section
-  useEffect(() => {
-    if (activeSection === 'deployments') {
-      refreshDeploymentSettings()
-    }
-  }, [activeSection, refreshDeploymentSettings])
-
-  // Prefetch deployments list while connection check is in progress
-  // This allows the data to be ready as soon as the guard passes
-  useEffect(() => {
-    if (
-      activeSection === 'deployments' &&
-      isIoNetEnabled &&
-      loadingPhase === 'connection'
-    ) {
-      const defaultParams = { p: 1, page_size: 10 }
-      queryClient.prefetchQuery({
-        queryKey: deploymentsQueryKeys.list(defaultParams),
-        queryFn: () => listDeployments(defaultParams),
-        staleTime: 30 * 1000, // 30 seconds
-      })
-    }
-  }, [activeSection, isIoNetEnabled, loadingPhase, queryClient])
-
   const handleSectionChange = useCallback(
     (section: string) => {
       void navigate({
@@ -106,13 +85,8 @@ function ModelsContent() {
 
   return (
     <>
-      <SectionPageLayout>
-        <SectionPageLayout.Title>
-          {t(meta.titleKey)}
-        </SectionPageLayout.Title>
-        <SectionPageLayout.Description>
-          {t(meta.descriptionKey)}
-        </SectionPageLayout.Description>
+      <SectionPageLayout fixedContent>
+        <SectionPageLayout.Title>{t(meta.titleKey)}</SectionPageLayout.Title>
         <SectionPageLayout.Actions>
           {activeSection === 'metadata' ? (
             <ModelsPrimaryButtons />
@@ -124,9 +98,9 @@ function ModelsContent() {
           )}
         </SectionPageLayout.Actions>
         <SectionPageLayout.Content>
-          <div className='space-y-4'>
+          <div className='flex h-full min-h-0 flex-col gap-4'>
             <Tabs value={activeSection} onValueChange={handleSectionChange}>
-              <TabsList className='h-auto max-w-full flex-wrap justify-start'>
+              <TabsList className='max-w-full flex-wrap justify-start group-data-horizontal/tabs:h-auto'>
                 {MODELS_SECTION_IDS.map((section) => (
                   <TabsTrigger key={section} value={section}>
                     {t(SECTION_META[section].titleKey)}
@@ -134,21 +108,13 @@ function ModelsContent() {
                 ))}
               </TabsList>
             </Tabs>
-            {activeSection === 'metadata' ? (
-              <ModelsTable />
-            ) : (
-              <DeploymentAccessGuard
-                loading={deploymentLoading}
-                loadingPhase={loadingPhase}
-                isEnabled={isIoNetEnabled}
-                connectionLoading={connectionLoading}
-                connectionOk={connectionOk}
-                connectionError={connectionError}
-                onRetry={testConnection}
-              >
-                <DeploymentsTable />
-              </DeploymentAccessGuard>
-            )}
+            <div className='min-h-0 flex-1'>
+              {activeSection === 'metadata' ? (
+                <ModelsTable />
+              ) : (
+                <DeploymentsSection />
+              )}
+            </div>
           </div>
         </SectionPageLayout.Content>
       </SectionPageLayout>
@@ -159,6 +125,45 @@ function ModelsContent() {
         onOpenChange={setCreateDeploymentOpen}
       />
     </>
+  )
+}
+
+function DeploymentsSection() {
+  const queryClient = useQueryClient()
+  const {
+    loading: deploymentLoading,
+    loadingPhase,
+    isIoNetEnabled,
+    connectionLoading,
+    connectionOk,
+    connectionError,
+    testConnection,
+  } = useModelDeploymentSettings()
+
+  // Prefetch deployments list while connection check is in progress.
+  useEffect(() => {
+    if (isIoNetEnabled && loadingPhase === 'connection') {
+      const defaultParams = { p: 1, page_size: 10 }
+      queryClient.prefetchQuery({
+        queryKey: deploymentsQueryKeys.list(defaultParams),
+        queryFn: () => listDeployments(defaultParams),
+        staleTime: 30 * 1000,
+      })
+    }
+  }, [isIoNetEnabled, loadingPhase, queryClient])
+
+  return (
+    <DeploymentAccessGuard
+      loading={deploymentLoading}
+      loadingPhase={loadingPhase}
+      isEnabled={isIoNetEnabled}
+      connectionLoading={connectionLoading}
+      connectionOk={connectionOk}
+      connectionError={connectionError}
+      onRetry={testConnection}
+    >
+      <DeploymentsTable />
+    </DeploymentAccessGuard>
   )
 }
 

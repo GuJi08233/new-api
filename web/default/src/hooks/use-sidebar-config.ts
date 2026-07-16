@@ -1,7 +1,26 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
 import { useMemo } from 'react'
-import { useAuthStore } from '@/stores/auth-store'
-import { useStatus } from '@/hooks/use-status'
+
 import type { NavGroup, NavItem } from '@/components/layout/types'
+import { useStatus } from '@/hooks/use-status'
+import { useAuthStore } from '@/stores/auth-store'
 
 type SidebarSectionConfig = {
   enabled: boolean
@@ -96,7 +115,7 @@ const URL_TO_CONFIG_MAP: Record<string, { section: string; module: string }> = {
   '/redemption-codes': { section: 'admin', module: 'redemption' },
   '/subscriptions': { section: 'admin', module: 'subscription' },
   '/system-settings': { section: 'admin', module: 'setting' },
-  '/system-settings/general': { section: 'admin', module: 'setting' },
+  '/system-settings/site': { section: 'admin', module: 'setting' },
 }
 
 /**
@@ -289,4 +308,24 @@ export function useSidebarConfig(navGroups: NavGroup[]): NavGroup[] {
   )
 
   return filteredNavGroups
+}
+
+/**
+ * Check whether a single route is visible under the current sidebar_modules
+ * config. Used by entries living outside the sidebar (e.g. the profile
+ * dropdown's wallet link) so they honour the same "wallet display" toggle.
+ */
+export function useIsSidebarModuleVisible(url: string): boolean {
+  const { status } = useStatus()
+  const { auth } = useAuthStore()
+
+  const adminConfig = parseSidebarConfig(
+    status?.SidebarModulesAdmin as string | null | undefined
+  )
+  const userConfig =
+    auth?.user?.permissions?.sidebar_settings === false
+      ? null
+      : parseUserSidebarConfig(auth?.user?.sidebar_modules)
+
+  return isModuleEnabled(url, adminConfig, userConfig)
 }

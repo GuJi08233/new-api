@@ -1,5 +1,23 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
 import { useEffect, useRef, useState } from 'react'
-import { cn } from '@/lib/utils'
+
 import {
   Popover,
   PopoverContent,
@@ -11,6 +29,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { cn } from '@/lib/utils'
 
 type LongTextProps = {
   children: React.ReactNode
@@ -28,7 +47,6 @@ export function LongText({
 
   useEffect(() => {
     if (checkOverflow(ref.current)) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setIsOverflown(true)
       return
     }
@@ -46,12 +64,12 @@ export function LongText({
   return (
     <>
       <div className='hidden sm:block'>
-        <TooltipProvider delayDuration={0}>
+        <TooltipProvider delay={0}>
           <Tooltip>
-            <TooltipTrigger asChild>
-              <div ref={ref} className={cn('truncate', className)}>
-                {children}
-              </div>
+            <TooltipTrigger
+              render={<div ref={ref} className={cn('truncate', className)} />}
+            >
+              {children}
             </TooltipTrigger>
             <TooltipContent>
               <p className={contentClassName}>{children}</p>
@@ -61,10 +79,10 @@ export function LongText({
       </div>
       <div className='sm:hidden'>
         <Popover>
-          <PopoverTrigger asChild>
-            <div ref={ref} className={cn('truncate', className)}>
-              {children}
-            </div>
+          <PopoverTrigger
+            render={<div ref={ref} className={cn('truncate', className)} />}
+          >
+            {children}
           </PopoverTrigger>
           <PopoverContent className={cn('w-fit', contentClassName)}>
             <p>{children}</p>

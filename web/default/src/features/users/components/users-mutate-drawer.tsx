@@ -1,13 +1,38 @@
-import { useEffect, useState } from 'react'
-import { useForm } from 'react-hook-form'
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useQuery } from '@tanstack/react-query'
 import { Pencil } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { getCurrencyDisplay, getCurrencyLabel } from '@/lib/currency'
-import { formatQuota, parseQuotaFromDollars } from '@/lib/format'
+
+import {
+  SideDrawerSection,
+  sideDrawerContentClassName,
+  sideDrawerFooterClassName,
+  sideDrawerFormClassName,
+  sideDrawerHeaderClassName,
+} from '@/components/drawer-layout'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Form,
   FormControl,
@@ -22,6 +47,7 @@ import { Label } from '@/components/ui/label'
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -36,7 +62,25 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { Textarea } from '@/components/ui/textarea'
-import { createUser, updateUser, getUser, getGroups } from '../api'
+import {
+  ADMIN_PERMISSION_ACTIONS,
+  ADMIN_PERMISSION_RESOURCES,
+  EMPTY_PERMISSION_CATALOG,
+  hasPermission,
+  normalizeAdminPermissions,
+} from '@/lib/admin-permissions'
+import { getCurrencyDisplay, getCurrencyLabel } from '@/lib/currency'
+import { formatQuota, parseQuotaFromDollars } from '@/lib/format'
+import { ROLE } from '@/lib/roles'
+import { useAuthStore } from '@/stores/auth-store'
+
+import {
+  createUser,
+  updateUser,
+  getUser,
+  getGroups,
+  getPermissionCatalog,
+} from '../api'
 import { BINDING_FIELDS, ERROR_MESSAGES, SUCCESS_MESSAGES } from '../constants'
 import {
   userFormSchema,
@@ -63,6 +107,7 @@ export function UsersMutateDrawer({
   const { t } = useTranslation()
   const isUpdate = !!currentRow
   const { triggerRefresh } = useUsers()
+  const currentUser = useAuthStore((s) => s.auth.user)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [quotaDialogOpen, setQuotaDialogOpen] = useState(false)
 
@@ -74,6 +119,13 @@ export function UsersMutateDrawer({
   })
 
   const groups = groupsData?.data || []
+
+  // Permission catalog is owned by the backend; fetched once and reused.
+  const { data: permissionCatalog = EMPTY_PERMISSION_CATALOG } = useQuery({
+    queryKey: ['admin-permission-catalog'],
+    queryFn: getPermissionCatalog,
+    staleTime: 5 * 60 * 1000,
+  })
 
   const form = useForm<UserFormValues>({
     resolver: zodResolver(userFormSchema),
@@ -100,11 +152,29 @@ export function UsersMutateDrawer({
   const tokensOnly = currencyMeta.kind === 'tokens'
 
   const currentQuotaRaw = form.watch('quota_dollars') || 0
+  const selectedRole = form.watch('role')
+  const canEditAdminPermissions = currentUser?.role === ROLE.SUPER_ADMIN
+  const targetIsAdmin = (selectedRole ?? currentRow?.role ?? 0) >= ROLE.ADMIN
 
   const onSubmit = async (data: UserFormValues) => {
+    if (!isUpdate) {
+      const passwordLength = data.password?.length || 0
+      if (passwordLength < 8 || passwordLength > 20) {
+        form.setError('password', {
+          type: 'manual',
+          message: t('Password must be between 8 and 20 characters'),
+        })
+        return
+      }
+    }
+
     setIsSubmitting(true)
     try {
-      const payload = transformFormDataToPayload(data, currentRow?.id)
+      const payload = transformFormDataToPayload(
+        data,
+        currentRow?.id,
+        permissionCatalog
+      )
       const result = isUpdate
         ? await updateUser(payload as typeof payload & { id: number })
         : await createUser(payload)
@@ -170,7 +240,7 @@ export function UsersMutateDrawer({
               className='flex-1 space-y-4 overflow-y-auto px-3 py-3 pb-4 sm:space-y-6 sm:px-4'
             >
               {/* Basic Information */}
-              <div className='space-y-4'>
+              <SideDrawerSection>
                 <h3 className='text-sm font-medium'>
                   {t('Basic Information')}
                 </h3>
@@ -201,8 +271,12 @@ export function UsersMutateDrawer({
                       <FormItem>
                         <FormLabel>{t('Role')}</FormLabel>
                         <Select
+                          items={[
+                            { value: '1', label: t('Common User') },
+                            { value: '10', label: t('Admin') },
+                          ]}
                           onValueChange={(value) =>
-                            field.onChange(parseInt(value))
+                            value !== null && field.onChange(parseInt(value))
                           }
                           value={String(field.value)}
                         >
@@ -211,11 +285,13 @@ export function UsersMutateDrawer({
                               <SelectValue placeholder={t('Select a role')} />
                             </SelectTrigger>
                           </FormControl>
-                          <SelectContent>
-                            <SelectItem value='1'>
-                              {t('Common User')}
-                            </SelectItem>
-                            <SelectItem value='10'>{t('Admin')}</SelectItem>
+                          <SelectContent alignItemWithTrigger={false}>
+                            <SelectGroup>
+                              <SelectItem value='1'>
+                                {t('Common User')}
+                              </SelectItem>
+                              <SelectItem value='10'>{t('Admin')}</SelectItem>
+                            </SelectGroup>
                           </SelectContent>
                         </Select>
                         <FormDescription>
@@ -260,7 +336,7 @@ export function UsersMutateDrawer({
                           placeholder={
                             isUpdate
                               ? t('Leave empty to keep unchanged')
-                              : t('Enter password (min 8 characters)')
+                              : t('Enter password (8-20 characters)')
                           }
                         />
                       </FormControl>
@@ -268,11 +344,11 @@ export function UsersMutateDrawer({
                     </FormItem>
                   )}
                 />
-              </div>
+              </SideDrawerSection>
 
               {/* Group & Quota Settings (Update only) */}
               {isUpdate && (
-                <div className='space-y-4'>
+                <SideDrawerSection>
                   <h3 className='text-sm font-medium'>{t('Group & Quota')}</h3>
 
                   <FormField
@@ -282,6 +358,12 @@ export function UsersMutateDrawer({
                       <FormItem>
                         <FormLabel>{t('Group')}</FormLabel>
                         <Select
+                          items={[
+                            ...groups.map((group) => ({
+                              value: group,
+                              label: group,
+                            })),
+                          ]}
                           onValueChange={field.onChange}
                           value={field.value}
                         >
@@ -290,12 +372,14 @@ export function UsersMutateDrawer({
                               <SelectValue placeholder={t('Select a group')} />
                             </SelectTrigger>
                           </FormControl>
-                          <SelectContent>
-                            {groups.map((group) => (
-                              <SelectItem key={group} value={group}>
-                                {group}
-                              </SelectItem>
-                            ))}
+                          <SelectContent alignItemWithTrigger={false}>
+                            <SelectGroup>
+                              {groups.map((group) => (
+                                <SelectItem key={group} value={group}>
+                                  {group}
+                                </SelectItem>
+                              ))}
+                            </SelectGroup>
                           </SelectContent>
                         </Select>
                         <FormMessage />
@@ -361,12 +445,103 @@ export function UsersMutateDrawer({
                       </FormItem>
                     )}
                   />
-                </div>
+                </SideDrawerSection>
               )}
+
+              {canEditAdminPermissions &&
+                targetIsAdmin &&
+                permissionCatalog.resources.length > 0 && (
+                  <SideDrawerSection>
+                    <h3 className='text-sm font-medium'>
+                      {t('Admin Permissions')}
+                    </h3>
+                    <p className='text-muted-foreground text-xs'>
+                      {t(
+                        'Default administrator permissions can be overridden for this user.'
+                      )}
+                    </p>
+                    <FormField
+                      control={form.control}
+                      name='admin_permissions'
+                      render={({ field }) => {
+                        const selected = normalizeAdminPermissions(
+                          field.value,
+                          permissionCatalog
+                        )
+                        return (
+                          <FormItem>
+                            <div className='space-y-3'>
+                              {permissionCatalog.resources.map((resource) => (
+                                <div
+                                  key={resource.resource}
+                                  className='space-y-2 rounded-md border p-3'
+                                >
+                                  <div className='text-sm font-medium'>
+                                    {t(resource.label_key)}
+                                  </div>
+                                  <div className='space-y-2'>
+                                    {resource.actions.map((option) => (
+                                      <label
+                                        key={option.action}
+                                        className='flex items-start gap-3'
+                                      >
+                                        <Checkbox
+                                          checked={
+                                            selected[resource.resource]?.[
+                                              option.action
+                                            ] === true
+                                          }
+                                          onCheckedChange={(checked) => {
+                                            field.onChange({
+                                              ...selected,
+                                              [resource.resource]: {
+                                                ...selected[resource.resource],
+                                                [option.action]:
+                                                  checked === true,
+                                              },
+                                            })
+                                          }}
+                                        />
+                                        <span className='flex flex-col gap-1'>
+                                          <span className='text-sm font-medium'>
+                                            {t(option.label_key)}
+                                          </span>
+                                          <span className='text-muted-foreground text-xs'>
+                                            {t(option.description_key)}
+                                          </span>
+                                        </span>
+                                      </label>
+                                    ))}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                            <FormMessage />
+                          </FormItem>
+                        )
+                      }}
+                    />
+                    {currentUser && (
+                      <p className='text-muted-foreground text-xs'>
+                        {hasPermission(
+                          currentUser,
+                          ADMIN_PERMISSION_RESOURCES.CHANNEL,
+                          ADMIN_PERMISSION_ACTIONS.SENSITIVE_WRITE
+                        )
+                          ? t(
+                              'Your account can edit sensitive channel settings.'
+                            )
+                          : t(
+                              'Your account cannot edit sensitive channel settings.'
+                            )}
+                      </p>
+                    )}
+                  </SideDrawerSection>
+                )}
 
               {/* Binding Information (Read-only) */}
               {isUpdate && (
-                <div className='space-y-4'>
+                <SideDrawerSection>
                   <h3 className='text-sm font-medium'>
                     {t('Binding Information')}
                   </h3>
@@ -376,7 +551,7 @@ export function UsersMutateDrawer({
                     )}
                   </p>
 
-                  <div className='space-y-3'>
+                  <div className='flex flex-col gap-3'>
                     {BINDING_FIELDS.map(({ key, label }) => (
                       <div key={key}>
                         <Label className='text-muted-foreground text-xs'>
@@ -392,7 +567,7 @@ export function UsersMutateDrawer({
                       </div>
                     ))}
                   </div>
-                </div>
+                </SideDrawerSection>
               )}
             </form>
           </Form>

@@ -1,5 +1,24 @@
-import { type TFunction } from 'i18next'
-import { type StatusBadgeProps } from '@/components/status-badge'
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+import type { TFunction } from 'i18next'
+
+import type { StatusBadgeProps } from '@/components/status-badge'
 
 // ============================================================================
 // Redemption Status Configuration
@@ -18,7 +37,7 @@ export const REDEMPTION_STATUS_VALUES = Object.values(REDEMPTION_STATUS).map(
 // labelKey values are i18n keys; use t(config.labelKey) in components
 export const REDEMPTION_STATUSES: Record<
   number,
-  Pick<StatusBadgeProps, 'variant' | 'showDot'> & {
+  Pick<StatusBadgeProps, 'variant'> & {
     labelKey: string
     value: number
   }
@@ -27,25 +46,29 @@ export const REDEMPTION_STATUSES: Record<
     labelKey: 'Unused',
     variant: 'success',
     value: REDEMPTION_STATUS.ENABLED,
-    showDot: true,
   },
   [REDEMPTION_STATUS.DISABLED]: {
     labelKey: 'Disabled',
     variant: 'neutral',
     value: REDEMPTION_STATUS.DISABLED,
-    showDot: true,
   },
   [REDEMPTION_STATUS.USED]: {
     labelKey: 'Used',
     variant: 'neutral',
     value: REDEMPTION_STATUS.USED,
-    showDot: true,
   },
 } as const
 
 // Virtual status filter value for expired redemption codes
 // Note: "Expired" is not a real DB status, it's computed from expired_time
 export const REDEMPTION_FILTER_EXPIRED = 'expired'
+
+export const REDEMPTION_FILTER_VALUES = [
+  String(REDEMPTION_STATUS.ENABLED),
+  String(REDEMPTION_STATUS.DISABLED),
+  String(REDEMPTION_STATUS.USED),
+  REDEMPTION_FILTER_EXPIRED,
+] as const
 
 export function getRedemptionStatusOptions(t: TFunction) {
   return [

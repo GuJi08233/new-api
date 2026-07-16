@@ -1,3 +1,21 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
 /**
  * Type definitions for usage logs
  */
@@ -34,6 +52,7 @@ export interface CommonLogFilters extends CommonFilters {
   group?: string
   username?: string
   requestId?: string
+  upstreamRequestId?: string
 }
 
 /**
@@ -73,12 +92,27 @@ export interface ChannelAffinityInfo {
   using_group?: string
 }
 
+export const USAGE_BILLING_PATH = {
+  LOCAL: 'local',
+  UPSTREAM: 'upstream',
+  OPENAI: 'billing-usage-openai',
+  OPENAI_ESTIMATED: 'billing-usage-openai-estimated',
+  ANTHROPIC: 'billing-usage-anthropic',
+  ANTHROPIC_ESTIMATED: 'billing-usage-anthropic-estimated',
+  GEMINI: 'billing-usage-gemini',
+  GEMINI_ESTIMATED: 'billing-usage-gemini-estimated',
+} as const
+
+export type UsageBillingPath =
+  (typeof USAGE_BILLING_PATH)[keyof typeof USAGE_BILLING_PATH]
+
 export interface LogOtherData {
   admin_info?: {
     is_multi_key?: boolean
     multi_key_index?: number
     use_channel?: number[]
     local_count_tokens?: boolean
+    usage_billing_path?: UsageBillingPath | string
     channel_affinity?: ChannelAffinityInfo
     // Top-up audit fields (type=1, admin only)
     payment_method?: string
@@ -87,10 +121,39 @@ export interface LogOtherData {
     server_ip?: string
     version?: string
     node_name?: string
-    // Manage audit fields (type=3, admin only)
+    // Operator identity for audit logs (type=3, admin only)
     admin_username?: string
     admin_id?: number | string
+    admin_role?: number
+    auth_method?: 'session' | 'access_token' | string
+    // Quota saturation marker: set when a quota conversion clamped at the
+    // int32 bound (overflow/underflow) or hit a NaN fallback while computing
+    // this request's charge. Admin-only (nested under admin_info).
+    quota_saturation?: {
+      op: string
+      kind: 'overflow' | 'underflow' | 'nan'
+      original: number
+      clamped: number
+    }
   }
+  // Language-independent operation descriptor (audit/login logs).
+  // Frontend renders localized content from action + params via i18n templates.
+  op?: {
+    action?: string
+    params?: Record<string, string | number | boolean | string[]>
+  }
+  // Operation audit details written by the admin-audit fallback in authHelper (type=3, admin only)
+  audit_info?: {
+    method?: string
+    route?: string
+    path?: string
+    status?: number
+    success?: boolean
+    params?: Record<string, string>
+  }
+  // Login audit fields (type=7); visible to the log owner
+  login_method?: string
+  user_agent?: string
   request_path?: string
   request_conversion?: string[]
   ws?: boolean
@@ -182,7 +245,7 @@ export interface LogStatistics {
 }
 
 // ============================================================================
-// Drawing Logs (Midjourney) Types
+// Drawing Logs (MjProxy) Types
 // ============================================================================
 
 export interface MidjourneyLog {
@@ -249,6 +312,7 @@ export interface GetLogsParams {
   channel?: number
   group?: string
   request_id?: string
+  upstream_request_id?: string
 }
 
 export interface GetLogsResponse {
@@ -272,6 +336,7 @@ export interface GetLogStatsParams {
   channel?: number
   group?: string
   request_id?: string
+  upstream_request_id?: string
 }
 
 export interface GetLogStatsResponse {

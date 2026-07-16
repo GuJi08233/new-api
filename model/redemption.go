@@ -60,7 +60,7 @@ func GetAllRedemptions(startIdx int, num int) (redemptions []*Redemption, total 
 	return redemptions, total, nil
 }
 
-func SearchRedemptions(keyword string, startIdx int, num int) (redemptions []*Redemption, total int64, err error) {
+func SearchRedemptions(keyword string, status string, startIdx int, num int) (redemptions []*Redemption, total int64, err error) {
 	tx := DB.Begin()
 	if tx.Error != nil {
 		return nil, 0, tx.Error
@@ -71,14 +71,36 @@ func SearchRedemptions(keyword string, startIdx int, num int) (redemptions []*Re
 		}
 	}()
 
-	// Build query based on keyword type
 	query := tx.Model(&Redemption{})
 
-	// Only try to convert to ID if the string represents a valid integer
-	if id, err := strconv.Atoi(keyword); err == nil {
-		query = query.Where("id = ? OR name LIKE ?", id, keyword+"%")
-	} else {
-		query = query.Where("name LIKE ?", keyword+"%")
+	if keyword != "" {
+		if id, err := strconv.Atoi(keyword); err == nil {
+			query = query.Where("id = ? OR name LIKE ?", id, keyword+"%")
+		} else {
+			query = query.Where("name LIKE ?", keyword+"%")
+		}
+	}
+
+	if status != "" {
+		now := common.GetTimestamp()
+		switch status {
+		case "expired":
+			query = query.Where(
+				"status = ? AND expired_time != 0 AND expired_time < ?",
+				common.RedemptionCodeStatusEnabled,
+				now,
+			)
+		case strconv.Itoa(common.RedemptionCodeStatusEnabled):
+			query = query.Where(
+				"status = ? AND (expired_time = 0 OR expired_time >= ?)",
+				common.RedemptionCodeStatusEnabled,
+				now,
+			)
+		case strconv.Itoa(common.RedemptionCodeStatusDisabled):
+			query = query.Where("status = ?", common.RedemptionCodeStatusDisabled)
+		case strconv.Itoa(common.RedemptionCodeStatusUsed):
+			query = query.Where("status = ?", common.RedemptionCodeStatusUsed)
+		}
 	}
 
 	// Get total count
@@ -120,14 +142,15 @@ func Redeem(key string, userId int) (quota int, err error) {
 		return 0, errors.New("无效的 user id")
 	}
 	redemption := &Redemption{}
+	logContent := ""
 
 	keyCol := "`key`"
-	if common.UsingPostgreSQL {
+	if common.UsingMainDatabase(common.DatabaseTypePostgreSQL) {
 		keyCol = `"key"`
 	}
 	common.RandomSleep()
 	err = DB.Transaction(func(tx *gorm.DB) error {
-		err := tx.Set("gorm:query_option", "FOR UPDATE").Where(keyCol+" = ?", key).First(redemption).Error
+		err := lockForUpdate(tx).Where(keyCol+" = ?", key).First(redemption).Error
 		if err != nil {
 			// 如果不是兑换码，尝试作为邀请码兑换
 			invitationCode := &InvitationCode{}
@@ -162,7 +185,7 @@ func Redeem(key string, userId int) (quota int, err error) {
 				return err
 			}
 			quota = rewardQuota
-			RecordLog(userId, LogTypeTopup, fmt.Sprintf("使用邀请码获得 %s，邀请码ID %d", logger.LogQuota(rewardQuota), invitationCode.Id))
+			logContent = fmt.Sprintf("使用邀请码获得 %s，邀请码ID %d", logger.LogQuota(rewardQuota), invitationCode.Id)
 			return nil
 		}
 		if redemption.Status != common.RedemptionCodeStatusEnabled {
@@ -171,8 +194,24 @@ func Redeem(key string, userId int) (quota int, err error) {
 		if redemption.ExpiredTime != 0 && redemption.ExpiredTime < common.GetTimestamp() {
 			return errors.New("该兑换码已过期")
 		}
-		err = tx.Model(&User{}).Where("id = ?", userId).Update("quota", gorm.Expr("quota + ?", redemption.Quota)).Error
-		if err != nil {
+		// Compare-and-swap on status: only the transaction that flips
+		// enabled -> used may credit quota, so a concurrent redeem of the
+		// same code loses here even without a row lock (e.g. on SQLite).
+		result := tx.Model(&Redemption{}).
+			Where("id = ? AND status = ?", redemption.Id, common.RedemptionCodeStatusEnabled).
+			Updates(map[string]interface{}{
+				"redeemed_time": common.GetTimestamp(),
+				"status":        common.RedemptionCodeStatusUsed,
+				"used_user_id":  userId,
+			})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return errors.New("该兑换码已被使用")
+		}
+		if err := tx.Model(&User{}).Where("id = ?", userId).
+			Update("quota", gorm.Expr("quota + ?", redemption.Quota)).Error; err != nil {
 			return err
 		}
 		redemption.RedeemedTime = common.GetTimestamp()
@@ -183,12 +222,15 @@ func Redeem(key string, userId int) (quota int, err error) {
 			return err
 		}
 		quota = redemption.Quota
-		RecordLog(userId, LogTypeTopup, fmt.Sprintf("通过兑换码充值 %s，兑换码ID %d", logger.LogQuota(redemption.Quota), redemption.Id))
+		logContent = fmt.Sprintf("通过兑换码充值 %s，兑换码ID %d", logger.LogQuota(redemption.Quota), redemption.Id)
 		return nil
 	})
 	if err != nil {
 		common.SysError("redemption failed: " + err.Error())
 		return 0, ErrRedeemFailed
+	}
+	if logContent != "" {
+		RecordLog(userId, LogTypeTopup, logContent)
 	}
 	return quota, nil
 }
