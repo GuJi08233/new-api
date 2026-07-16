@@ -1007,15 +1007,30 @@ func CreateUserSubscriptionFromPlanTx(tx *gorm.DB, userId int, plan *Subscriptio
 }
 
 // UserActiveSubscriptionsAllowWalletOverflow reports whether wallet balance may
-// be used after the user's subscription quota is exhausted.
+// be used after any of the user's active subscription quotas is exhausted.
 func UserActiveSubscriptionsAllowWalletOverflow(userId int) (bool, error) {
+	return userActiveSubscriptionsAllowWalletOverflowForGroup(userId, "")
+}
+
+// UserActiveSubscriptionsAllowWalletOverflowForUsingGroup applies wallet
+// fallback rules only to subscriptions usable by the current request group.
+// Legacy NULL values are treated as allowing wallet fallback.
+func UserActiveSubscriptionsAllowWalletOverflowForUsingGroup(userId int, usingGroup string) (bool, error) {
+	return userActiveSubscriptionsAllowWalletOverflowForGroup(userId, usingGroup)
+}
+
+func userActiveSubscriptionsAllowWalletOverflowForGroup(userId int, usingGroup string) (bool, error) {
 	if userId <= 0 {
 		return false, errors.New("invalid userId")
 	}
 	now := common.GetTimestamp()
 	var strictCount int64
-	if err := DB.Model(&UserSubscription{}).
-		Where("user_id = ? AND status = ? AND end_time > ? AND allow_wallet_overflow = ?", userId, SubscriptionStatusActive, now, false).
+	query := DB.Model(&UserSubscription{}).
+		Where("user_id = ? AND status = ? AND end_time > ? AND allow_wallet_overflow = ?", userId, SubscriptionStatusActive, now, false)
+	if strings.TrimSpace(usingGroup) != "" {
+		query = query.Where("(upgrade_group IS NULL OR upgrade_group = '' OR upgrade_group = ?)", strings.TrimSpace(usingGroup))
+	}
+	if err := query.
 		Count(&strictCount).Error; err != nil {
 		return false, err
 	}

@@ -457,7 +457,7 @@ func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preCons
 				}
 				// A subscription can independently disallow wallet fallback. Legacy NULL
 				// snapshots are treated as allowed by the model query.
-				allowWalletOverflow, allowErr := model.UserActiveSubscriptionsAllowWalletOverflow(relayInfo.UserId)
+				allowWalletOverflow, allowErr := model.UserActiveSubscriptionsAllowWalletOverflowForUsingGroup(relayInfo.UserId, usingGroup)
 				if allowErr != nil {
 					return nil, types.NewError(allowErr, types.ErrorCodeQueryDataError, types.ErrOptionWithSkipRetry())
 				}
