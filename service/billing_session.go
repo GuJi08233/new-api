@@ -451,9 +451,18 @@ func NewBillingSession(c *gin.Context, relayInfo *relaycommon.RelayInfo, preCons
 		session, apiErr := trySubscription()
 		if apiErr != nil {
 			if apiErr.GetErrorCode() == types.ErrorCodeInsufficientUserQuota {
-				// Check if user has a DisableBalanceDeduction subscription
+				// Preserve main's DisableBalanceDeduction guard before considering wallet fallback.
 				if noBalanceDeduction {
 					return nil, apiErr // Block wallet fallback
+				}
+				// A subscription can independently disallow wallet fallback. Legacy NULL
+				// snapshots are treated as allowed by the model query.
+				allowWalletOverflow, allowErr := model.UserActiveSubscriptionsAllowWalletOverflow(relayInfo.UserId)
+				if allowErr != nil {
+					return nil, types.NewError(allowErr, types.ErrorCodeQueryDataError, types.ErrOptionWithSkipRetry())
+				}
+				if !allowWalletOverflow {
+					return nil, apiErr
 				}
 				return tryWallet()
 			}

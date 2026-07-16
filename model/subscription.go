@@ -482,8 +482,9 @@ type UserSubscription struct {
 	// Downgrade target group on expiry (snapshot from plan; empty = revert to PrevUserGroup)
 	DowngradeGroup string `json:"downgrade_group" gorm:"type:varchar(64);default:''"`
 
-	// Whether wallet fallback is allowed after this subscription's quota is exhausted (snapshot from plan)
-	AllowWalletOverflow bool `json:"allow_wallet_overflow" gorm:"default:1"`
+	// Whether wallet fallback is allowed after this subscription's quota is exhausted (snapshot from plan).
+	// Pointer keeps legacy NULL values distinguishable and avoids database-specific boolean defaults.
+	AllowWalletOverflow *bool `json:"allow_wallet_overflow"`
 
 	CreatedAt int64 `json:"created_at" gorm:"bigint"`
 	UpdatedAt int64 `json:"updated_at" gorm:"bigint"`
@@ -957,6 +958,7 @@ func CreateUserSubscriptionFromPlanTx(tx *gorm.DB, userId int, plan *Subscriptio
 		lastReset = now.Unix()
 	}
 	upgradeGroup := strings.TrimSpace(plan.UpgradeGroup)
+	downgradeGroup := strings.TrimSpace(plan.DowngradeGroup)
 	status := SubscriptionStatusActive
 	hasActive, err := hasLiveActiveUserSubscriptionTx(tx, userId, nowUnix)
 	if err != nil {
@@ -982,7 +984,8 @@ func CreateUserSubscriptionFromPlanTx(tx *gorm.DB, userId int, plan *Subscriptio
 		NextResetTime:       nextReset,
 		UpgradeGroup:        upgradeGroup,
 		PrevUserGroup:       "",
-		AllowWalletOverflow: allowWalletOverflow,
+		DowngradeGroup:      downgradeGroup,
+		AllowWalletOverflow: common.GetPointer(allowWalletOverflow),
 		CreatedAt:           common.GetTimestamp(),
 		UpdatedAt:           common.GetTimestamp(),
 	}
