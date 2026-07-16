@@ -13,14 +13,14 @@ import (
 
 type InvitationCode struct {
 	Id          int            `json:"id"`
-	UserId      int            `json:"user_id" gorm:"index"`                          // 生成者 ID
-	Code        string         `json:"code" gorm:"type:varchar(32);uniqueIndex"`       // 邀请码
-	Quota       int            `json:"quota" gorm:"default:0"`                         // 生成时消耗的额度
-	Status      int            `json:"status" gorm:"default:1"`                        // 1=未使用, 2=已使用, 3=已禁用
-	UsedUserId  int            `json:"used_user_id"`                                   // 使用者 ID
-	UsedTime    int64          `json:"used_time" gorm:"bigint"`                        // 使用时间
-	CreatedTime int64          `json:"created_time" gorm:"bigint"`                     // 创建时间
-	Count       int            `json:"count" gorm:"-:all"`                             // 仅用于批量创建请求
+	UserId      int            `json:"user_id" gorm:"index"`                               // 生成者 ID
+	Code        string         `json:"code" gorm:"type:varchar(32);uniqueIndex"`           // 邀请码
+	Quota       int            `json:"quota" gorm:"default:0"`                             // 生成时消耗的额度
+	Status      int            `json:"status" gorm:"default:1"`                            // 1=未使用, 2=已使用, 3=已禁用
+	UsedUserId  int            `json:"used_user_id"`                                       // 使用者 ID
+	UsedTime    int64          `json:"used_time" gorm:"bigint"`                            // 使用时间
+	CreatedTime int64          `json:"created_time" gorm:"bigint"`                         // 创建时间
+	Count       int            `json:"count" gorm:"-:all"`                                 // 仅用于批量创建请求
 	Remark      string         `json:"remark" gorm:"type:varchar(255)" validate:"max=255"` // 备注
 	DeletedAt   gorm.DeletedAt `gorm:"index"`
 }
@@ -155,7 +155,7 @@ func UseInvitationCode(codeStr string, userId int) error {
 	common.RandomSleep()
 	return DB.Transaction(func(tx *gorm.DB) error {
 		var code InvitationCode
-		err := tx.Set("gorm:query_option", "FOR UPDATE").Where("code = ?", codeStr).First(&code).Error
+		err := lockForUpdate(tx).Where("code = ?", codeStr).First(&code).Error
 		if err != nil {
 			return errors.New("无效的邀请码")
 		}
