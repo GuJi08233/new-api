@@ -315,7 +315,9 @@ func migrateDB() error {
 		}
 	}
 	// Migrate existing single-tier plans to QuotaTiers format
-	MigrateExistingPlansToTiers()
+	if err := MigrateExistingPlansToTiers(); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -393,7 +395,9 @@ func migrateDBFast() error {
 		}
 	}
 	// Migrate existing single-tier plans to QuotaTiers format
-	MigrateExistingPlansToTiers()
+	if err := MigrateExistingPlansToTiers(); err != nil {
+		return err
+	}
 	common.SysLog("database migrated")
 	return nil
 }
@@ -408,6 +412,9 @@ func migrateLOGDB() error {
 func migrateClickHouseLogDB() error {
 	ttlDays := clickHouseLogTTLDays()
 	if err := LOG_DB.Exec(clickHouseLogCreateTableSQL(ttlDays)).Error; err != nil {
+		return err
+	}
+	if err := LOG_DB.Exec("ALTER TABLE logs ADD COLUMN IF NOT EXISTS ua String DEFAULT ''").Error; err != nil {
 		return err
 	}
 	return syncClickHouseLogTTL(ttlDays)
@@ -456,6 +463,7 @@ CREATE TABLE IF NOT EXISTS logs (
 	token_id Int32 DEFAULT 0,
 	`+"`group`"+` String DEFAULT '',
 	ip String DEFAULT '',
+	ua String DEFAULT '',
 	request_id String DEFAULT '',
 	upstream_request_id String DEFAULT '',
 	other String DEFAULT ''
@@ -530,6 +538,8 @@ func ensureSubscriptionPlanTableSQLite() error {
 ` + "`total_amount`" + ` bigint NOT NULL DEFAULT 0,
 ` + "`quota_reset_period`" + ` varchar(16) DEFAULT 'never',
 ` + "`quota_reset_custom_seconds`" + ` bigint DEFAULT 0,
+` + "`quota_tiers`" + ` text,
+` + "`disable_balance_deduction`" + ` numeric DEFAULT 0,
 ` + "`created_at`" + ` bigint,
 ` + "`updated_at`" + ` bigint,
 PRIMARY KEY (` + "`id`" + `)

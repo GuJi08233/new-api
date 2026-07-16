@@ -257,7 +257,7 @@ type SubscriptionPlan struct {
 	QuotaTiers string `json:"quota_tiers" gorm:"type:text"`
 
 	// When true, users on this plan cannot use wallet balance for deduction
-	DisableBalanceDeduction bool `json:"disable_balance_deduction" gorm:"default:false"`
+	DisableBalanceDeduction bool `json:"disable_balance_deduction"`
 
 	CreatedAt int64 `json:"created_at" gorm:"bigint"`
 	UpdatedAt int64 `json:"updated_at" gorm:"bigint"`
@@ -2762,10 +2762,10 @@ func GetUserSubscriptionTierUsages(subId int) ([]UserSubscriptionTierUsage, erro
 }
 
 // MigrateExistingPlansToTiers converts old single-tier plans to QuotaTiers format (one-time migration)
-func MigrateExistingPlansToTiers() {
+func MigrateExistingPlansToTiers() error {
 	var plans []SubscriptionPlan
 	if err := DB.Where("quota_tiers IS NULL OR quota_tiers = '' OR quota_tiers = '[]'").Find(&plans).Error; err != nil {
-		return
+		return err
 	}
 	for _, plan := range plans {
 		if plan.TotalAmount <= 0 {
@@ -2793,8 +2793,11 @@ func MigrateExistingPlansToTiers() {
 		}
 		data, err := common.Marshal([]QuotaTier{tier})
 		if err != nil {
-			continue
+			return err
 		}
-		DB.Model(&SubscriptionPlan{}).Where("id = ?", plan.Id).Update("quota_tiers", string(data))
+		if err := DB.Model(&SubscriptionPlan{}).Where("id = ?", plan.Id).Update("quota_tiers", string(data)).Error; err != nil {
+			return err
+		}
 	}
+	return nil
 }

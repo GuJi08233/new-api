@@ -123,6 +123,9 @@ func main() {
 		go controller.AutomaticallyUpdateChannels(frequency)
 	}
 
+	// 风控自动封禁后台扫描(仅 Master 节点,默认关闭,由设置开启)
+	go service.RiskControlDaemon()
+
 	// Codex credential auto-refresh check every 10 minutes, refresh when expires within 1 day
 	service.StartCodexCredentialAutoRefreshTask()
 
@@ -173,6 +176,10 @@ func main() {
 
 	// Initialize HTTP server
 	server := gin.New()
+	if err := configureTrustedProxies(server); err != nil {
+		common.FatalLog("failed to configure trusted proxies: " + err.Error())
+		return
+	}
 	server.Use(gin.CustomRecovery(func(c *gin.Context, err any) {
 		common.SysLog(fmt.Sprintf("panic detected: %v", err))
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -246,6 +253,29 @@ func main() {
 		model.SaveQuotaDataCache()
 	}
 	common.SysLog("server exited")
+}
+
+func configureTrustedProxies(server *gin.Engine) error {
+	if server == nil {
+		return errors.New("gin engine is nil")
+	}
+	raw := strings.TrimSpace(os.Getenv("TRUSTED_PROXIES"))
+	if raw == "" {
+		// Gin trusts all forwarding proxies by default. Disable that unsafe
+		// default so IP restrictions and risk-control data cannot be spoofed.
+		return server.SetTrustedProxies(nil)
+	}
+	parts := strings.Split(raw, ",")
+	proxies := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if proxy := strings.TrimSpace(part); proxy != "" {
+			proxies = append(proxies, proxy)
+		}
+	}
+	if len(proxies) == 0 {
+		return server.SetTrustedProxies(nil)
+	}
+	return server.SetTrustedProxies(proxies)
 }
 
 func InjectUmamiAnalytics() {

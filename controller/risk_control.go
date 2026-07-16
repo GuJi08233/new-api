@@ -1,0 +1,87 @@
+package controller
+
+import (
+	"strconv"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
+
+	"github.com/gin-gonic/gin"
+)
+
+// GetRiskRankings 返回风控排行榜。
+// query: metric=ip_multi_user|user_multi_ip|ua, hours, limit
+func GetRiskRankings(c *gin.Context) {
+	metric := c.Query("metric")
+	hours, _ := strconv.Atoi(c.Query("hours"))
+	limit, _ := strconv.Atoi(c.Query("limit"))
+
+	setting := operation_setting.GetRiskControlSetting()
+	meta := gin.H{
+		"ip_log_enabled":  common.IsGlobalRecordIpLogEnabled(),
+		"ua_log_enabled":  common.IsGlobalRecordUaLogEnabled(),
+		"setting_enabled": setting != nil && setting.Enabled,
+	}
+
+	var (
+		items interface{}
+		err   error
+	)
+	switch metric {
+	case model.RiskMetricUserMultiIp:
+		items, err = model.GetUserMultiIpRanking(hours, limit)
+	case model.RiskMetricUa:
+		items, err = model.GetUaRanking(hours, limit)
+	case model.RiskMetricIpMultiUser:
+		fallthrough
+	default:
+		items, err = model.GetIpMultiUserRanking(hours, limit)
+	}
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	common.ApiSuccess(c, gin.H{
+		"metric": metric,
+		"items":  items,
+		"meta":   meta,
+	})
+}
+
+// GetRiskDetail 下钻某 IP 关联的用户明细,或某用户使用的 IP 明细。
+// query: type=ip|user, value, hours
+func GetRiskDetail(c *gin.Context) {
+	detailType := c.Query("type")
+	value := c.Query("value")
+	hours, _ := strconv.Atoi(c.Query("hours"))
+
+	switch detailType {
+	case "ip":
+		if value == "" {
+			common.ApiErrorMsg(c, "ip is required")
+			return
+		}
+		items, err := model.GetIpUserDetail(value, hours)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		common.ApiSuccess(c, gin.H{"type": "ip", "value": value, "items": items})
+	case "user":
+		userId, convErr := strconv.Atoi(value)
+		if convErr != nil || userId <= 0 {
+			common.ApiErrorMsg(c, "invalid user id")
+			return
+		}
+		items, err := model.GetUserIpDetail(userId, hours)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		common.ApiSuccess(c, gin.H{"type": "user", "value": value, "items": items})
+	default:
+		common.ApiErrorMsg(c, "invalid detail type")
+	}
+}

@@ -31,6 +31,11 @@ type ModelRequest struct {
 
 func Distribute() func(c *gin.Context) {
 	return func(c *gin.Context) {
+		// 风控:UA 黑名单校验(总开关关闭或黑名单为空时零开销)
+		if riskErr := service.CheckRequestRisk(c); riskErr != nil {
+			abortWithOpenAiMessage(c, http.StatusForbidden, i18n.T(c, i18n.MsgRiskControlBlocked), types.ErrorCodeAccessDenied)
+			return
+		}
 		var channel *model.Channel
 		channelId, ok := common.GetContextKey(c, constant.ContextKeyTokenSpecificChannelId)
 		modelRequest, shouldSelectChannel, err := getModelRequest(c)

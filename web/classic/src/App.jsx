@@ -34,6 +34,7 @@ import PasswordResetConfirm from './components/auth/PasswordResetConfirm';
 import Channel from './pages/Channel';
 import Token from './pages/Token';
 import Redemption from './pages/Redemption';
+import RiskControl from './pages/RiskControl';
 import InvitationCode from './pages/InvitationCode';
 import TopUp from './pages/TopUp';
 import Log from './pages/Log';
@@ -177,6 +178,14 @@ function App() {
           element={
             <AdminRoute>
               <User />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path='/console/risk_control'
+          element={
+            <AdminRoute>
+              <RiskControl />
             </AdminRoute>
           }
         />

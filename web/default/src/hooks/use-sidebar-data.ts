@@ -29,6 +29,7 @@ import {
   Radio,
   ServerCog,
   Settings,
+  ShieldAlert,
   Ticket,
   User,
   Users,
@@ -133,6 +134,11 @@ export function useSidebarData(): SidebarData {
             title: t('Users'),
             url: '/users',
             icon: Users,
+          },
+          {
+            title: t('Risk Control'),
+            url: '/risk-control',
+            icon: ShieldAlert,
           },
           {
             title: t('Redemption Codes'),

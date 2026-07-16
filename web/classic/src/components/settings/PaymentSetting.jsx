@@ -287,55 +287,57 @@ const PaymentSetting = () => {
                 : { opacity: 0.4, pointerEvents: 'none' }
             }
           >
-            <Tabs.TabPane tab={t('通用设置')} itemKey='general'>
-              <SettingsGeneralPayment
-                options={inputs}
-                refresh={onRefresh}
-                hideSectionTitle
-              />
-            </Tabs.TabPane>
-            <Tabs.TabPane tab={t('易支付设置')} itemKey='epay'>
-              <SettingsPaymentGateway
-                options={inputs}
-                refresh={onRefresh}
-                hideSectionTitle
-              />
-            </Tabs.TabPane>
-            <Tabs.TabPane tab={t('Stripe 设置')} itemKey='stripe'>
-              <SettingsPaymentGatewayStripe
-                options={inputs}
-                refresh={onRefresh}
-                hideSectionTitle
-              />
-            </Tabs.TabPane>
-            <Tabs.TabPane tab={t('Creem 设置')} itemKey='creem'>
-              <SettingsPaymentGatewayCreem
-                options={inputs}
-                refresh={onRefresh}
-                hideSectionTitle
-              />
-            </Tabs.TabPane>
-            <Tabs.TabPane tab={t('Waffo 设置')} itemKey='waffo'>
-              <SettingsPaymentGatewayWaffo
-                options={inputs}
-                refresh={onRefresh}
-                hideSectionTitle
-              />
-            </Tabs.TabPane>
-            <Tabs.TabPane tab={t('Ethereum 设置')} itemKey='ethereum'>
-              <SettingsPaymentGatewayEthereum
-                options={inputs}
-                refresh={onRefresh}
-              />
-            </Tabs.TabPane>
-            {/*<Tabs.TabPane tab={t('Waffo Pancake 设置')} itemKey='waffo-pancake'>*/}
-            {/*  <SettingsPaymentGatewayWaffoPancake*/}
-            {/*    options={inputs}*/}
-            {/*    refresh={onRefresh}*/}
-            {/*    hideSectionTitle*/}
-            {/*  />*/}
-            {/*</Tabs.TabPane>*/}
-          </Tabs>
+            <Tabs type='card' defaultActiveKey='general'>
+              <Tabs.TabPane tab={t('通用设置')} itemKey='general'>
+                <SettingsGeneralPayment
+                  options={inputs}
+                  refresh={onRefresh}
+                  hideSectionTitle
+                />
+              </Tabs.TabPane>
+              <Tabs.TabPane tab={t('易支付设置')} itemKey='epay'>
+                <SettingsPaymentGateway
+                  options={inputs}
+                  refresh={onRefresh}
+                  hideSectionTitle
+                />
+              </Tabs.TabPane>
+              <Tabs.TabPane tab={t('Stripe 设置')} itemKey='stripe'>
+                <SettingsPaymentGatewayStripe
+                  options={inputs}
+                  refresh={onRefresh}
+                  hideSectionTitle
+                />
+              </Tabs.TabPane>
+              <Tabs.TabPane tab={t('Creem 设置')} itemKey='creem'>
+                <SettingsPaymentGatewayCreem
+                  options={inputs}
+                  refresh={onRefresh}
+                  hideSectionTitle
+                />
+              </Tabs.TabPane>
+              <Tabs.TabPane tab={t('Waffo 设置')} itemKey='waffo'>
+                <SettingsPaymentGatewayWaffo
+                  options={inputs}
+                  refresh={onRefresh}
+                  hideSectionTitle
+                />
+              </Tabs.TabPane>
+              <Tabs.TabPane tab={t('Ethereum 设置')} itemKey='ethereum'>
+                <SettingsPaymentGatewayEthereum
+                  options={inputs}
+                  refresh={onRefresh}
+                />
+              </Tabs.TabPane>
+              {/*<Tabs.TabPane tab={t('Waffo Pancake 设置')} itemKey='waffo-pancake'>*/}
+              {/*  <SettingsPaymentGatewayWaffoPancake*/}
+              {/*    options={inputs}*/}
+              {/*    refresh={onRefresh}*/}
+              {/*    hideSectionTitle*/}
+              {/*  />*/}
+              {/*</Tabs.TabPane>*/}
+            </Tabs>
+          </div>
         </Card>
         <RiskAcknowledgementModal
           visible={complianceVisible}

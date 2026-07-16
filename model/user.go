@@ -648,6 +648,21 @@ func (user *User) Update(updatePassword bool) error {
 	return updateUserCache(*user)
 }
 
+// DisableRegularUser atomically disables a non-admin user without overwriting
+// unrelated fields changed by concurrent requests.
+func DisableRegularUser(userId int) (bool, error) {
+	if userId <= 0 {
+		return false, nil
+	}
+	result := DB.Model(&User{}).
+		Where("id = ? AND role < ? AND status <> ?", userId, common.RoleAdminUser, common.UserStatusDisabled).
+		Update("status", common.UserStatusDisabled)
+	if result.Error != nil {
+		return false, result.Error
+	}
+	return result.RowsAffected > 0, nil
+}
+
 func (user *User) UpdateWithTx(tx *gorm.DB, updatePassword bool) error {
 	var err error
 	if updatePassword {

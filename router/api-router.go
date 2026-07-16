@@ -367,6 +367,13 @@ func SetApiRouter(router *gin.Engine) {
 		dataRoute.GET("/flow", middleware.AdminAuth(), controller.GetAllFlowQuotaDates)
 		dataRoute.GET("/flow/self", middleware.UserAuth(), controller.GetUserFlowQuotaDates)
 
+		riskRoute := apiRouter.Group("/risk")
+		riskRoute.Use(middleware.AdminAuth())
+		{
+			riskRoute.GET("/rankings", controller.GetRiskRankings)
+			riskRoute.GET("/detail", controller.GetRiskDetail)
+		}
+
 		logRoute.Use(middleware.CORS(), middleware.CriticalRateLimit())
 		{
 			logRoute.GET("/token", middleware.TokenAuthReadOnly(), controller.GetLogByKey)

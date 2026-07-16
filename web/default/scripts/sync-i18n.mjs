@@ -227,7 +227,7 @@ function isLikelyUntranslated({ locale, baseValue, value }) {
 
   // Skip short tokens / acronyms / ids
   const s = baseValue.trim()
-  if (BRAND_AND_LITERAL_KEYS.has(s)) return false
+  if (BRAND_NAMES.has(s)) return false
   if (
     /^https?:\/\//.test(s) ||
     /^\/[\w/-]+/.test(s) ||

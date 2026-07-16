@@ -154,6 +154,12 @@ export function SidebarModulesSection({
         title: t('Subscription Management'),
         description: t('Manage subscription plans and pricing.'),
       },
+      risk_control: {
+        title: t('Risk Control'),
+        description: t(
+          'Monitor abuse via IP / UA rankings and configure auto-ban rules'
+        ),
+      },
     },
   }
   const formDefaults = useMemo(() => config, [config])
@@ -192,8 +198,8 @@ export function SidebarModulesSection({
             onSave={form.handleSubmit(onSubmit)}
             onReset={resetToDefault}
             isSaving={updateOption.isPending}
-            resetLabel='Reset to default'
-            saveLabel='Save sidebar modules'
+            resetLabel="Reset to default"
+            saveLabel="Save sidebar modules"
           />
           {sections.map(([sectionKey, sectionConfig]) => {
             const sectionInfo = sectionMeta[sectionKey] ?? {
@@ -228,7 +234,7 @@ export function SidebarModulesSection({
                   )}
                 />
 
-                <SettingsControlChildren className='grid gap-3 md:grid-cols-2'>
+                <SettingsControlChildren className="grid gap-3 md:grid-cols-2">
                   {modules.map(([moduleKey]) => {
                     const moduleInfo = moduleMeta[sectionKey]?.[moduleKey] ?? {
                       title: toTitleCase(moduleKey),
@@ -241,7 +247,7 @@ export function SidebarModulesSection({
                         // eslint-disable-next-line @typescript-eslint/no-explicit-any
                         name={`${sectionKey}.${moduleKey}` as any}
                         render={({ field }) => (
-                          <SettingsSwitchItem className='py-2'>
+                          <SettingsSwitchItem className="py-2">
                             <SettingsSwitchContent>
                               <FormLabel>{moduleInfo.title}</FormLabel>
                               <FormDescription>

@@ -40,4 +40,6 @@ func TestMigrateDBCreatesUpstreamSupportTables(t *testing.T) {
 	} {
 		require.True(t, DB.Migrator().HasTable(table))
 	}
+	require.True(t, DB.Migrator().HasColumn(&SubscriptionPlan{}, "quota_tiers"))
+	require.True(t, DB.Migrator().HasColumn(&SubscriptionPlan{}, "disable_balance_deduction"))
 }

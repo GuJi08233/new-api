@@ -45,6 +45,11 @@ export const STATIC_I18N_KEYS = [
   'Routing Reliability',
   'Maintenance',
 
+  // Risk control time windows
+  'Last 1 day',
+  'Last 3 days',
+  'Last 7 days',
+
   // System info
   'online',
   'stale',
