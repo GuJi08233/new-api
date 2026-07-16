@@ -17,6 +17,7 @@ func TestRouteWillEstimateTokens(t *testing.T) {
 		want      bool
 	}{
 		{name: "chat relay", path: "/v1/chat/completions", want: true},
+		{name: "claude messages relay", path: "/v1/messages", want: true},
 		{name: "gemini relay", path: "/v1beta/models/gemini-2.5-pro:generateContent", want: true},
 		{name: "midjourney task", path: "/mj/submit/imagine", want: false},
 		{name: "suno task", path: "/suno/submit/music", relayMode: relayconstant.RelayModeSunoSubmit, want: false},

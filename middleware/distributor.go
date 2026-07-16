@@ -219,6 +219,12 @@ func routeWillEstimateTokens(c *gin.Context) bool {
 	if c == nil || c.Request == nil || c.Request.URL == nil {
 		return false
 	}
+	// Claude 原生 /v1/messages 走 Relay() 主流程，会估算 token 并精确重路由，
+	// 但 Path2RelayMode 不识别该路径（返回 Unknown），需显式判定为 true，
+	// 否则 strict 规则可能在 token 估算前误拒请求。
+	if strings.HasPrefix(c.Request.URL.Path, "/v1/messages") {
+		return true
+	}
 	relayMode := relayconstant.Path2RelayMode(c.Request.URL.Path)
 	if relayMode == relayconstant.RelayModeUnknown {
 		relayMode = c.GetInt("relay_mode")
