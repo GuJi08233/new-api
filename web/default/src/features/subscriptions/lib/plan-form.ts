@@ -17,7 +17,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import type { TFunction } from 'i18next'
-import type { SubscriptionPlan, PlanPayload, QuotaTier, TierPeriod } from '../types'
+import { z } from 'zod'
+
+import type {
+  SubscriptionPlan,
+  PlanPayload,
+  QuotaTier,
+  TierPeriod,
+} from '../types'
 
 const TIER_PERIOD_ORDER: Record<TierPeriod, number> = {
   hourly: 1,
@@ -36,7 +43,10 @@ function getCustomOrder(seconds: number): number {
   return 4
 }
 
-function getTierOrder(tier: { period: TierPeriod; custom_seconds: number }): number {
+function getTierOrder(tier: {
+  period: TierPeriod
+  custom_seconds: number
+}): number {
   if (tier.period === 'custom') return getCustomOrder(tier.custom_seconds)
   return TIER_PERIOD_ORDER[tier.period] ?? 1
 }
@@ -49,71 +59,83 @@ const quotaTierSchema = z.object({
 })
 
 export function getPlanFormSchema(t: TFunction) {
-  return z.object({
-    title: z.string().min(1, t('Please enter plan title')),
-    subtitle: z.string().optional(),
-    price_amount: z.coerce.number().min(0, t('Please enter amount')),
-    duration_unit: z.enum(['year', 'month', 'day', 'hour', 'custom']),
-    duration_value: z.coerce.number().min(1),
-    custom_seconds: z.coerce.number().min(0).optional(),
-    quota_reset_period: z.enum([
-      'never',
-      'daily',
-      'weekly',
-      'monthly',
-      'custom',
-    ]),
-    quota_reset_custom_seconds: z.coerce.number().min(0).optional(),
-    enabled: z.boolean(),
-    sort_order: z.coerce.number(),
-    allow_balance_pay: z.boolean(),
-    allow_wallet_overflow: z.boolean(),
-    max_purchase_per_user: z.coerce.number().min(0),
-    max_purchase_total: z.coerce.number().min(0),
-    max_purchase_reset_period: z.enum([
-      'never',
-      'daily',
-      'weekly',
-      'monthly',
-      'custom',
-      'active',
-    ]),
-    max_purchase_reset_custom_seconds: z.coerce.number().min(0),
-    total_amount: z.coerce.number().min(0),
-    upgrade_group: z.string().optional(),
-    downgrade_group: z.string().optional(),
-    stripe_price_id: z.string().optional(),
-    creem_product_id: z.string().optional(),
-    // Multi-tier quota
-    use_multi_tier: z.boolean(),
-    quota_tiers: z.array(quotaTierSchema).optional(),
-    disable_balance_deduction: z.boolean(),
-  }).superRefine((data, ctx) => {
-    if (data.use_multi_tier && data.quota_tiers && data.quota_tiers.length > 1) {
-      // Sort by period order for validation
-      const sorted = [...data.quota_tiers].sort((a, b) => getTierOrder(a) - getTierOrder(b))
-      for (let i = 1; i < sorted.length; i++) {
-        const prev = sorted[i - 1]
-        const curr = sorted[i]
-        const prevOrder = getTierOrder(prev)
-        const currOrder = getTierOrder(curr)
-        if (currOrder < prevOrder) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            message: t('Tier period must be longer than or equal to the previous tier'),
-            path: ['quota_tiers', i, 'period'],
-          })
-        }
-        if (curr.limit > 0 && prev.limit > 0 && curr.limit < prev.limit) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            message: t('Tier limit must be greater than or equal to the previous tier'),
-            path: ['quota_tiers', i, 'limit'],
-          })
+  return z
+    .object({
+      title: z.string().min(1, t('Please enter plan title')),
+      subtitle: z.string().optional(),
+      price_amount: z.coerce.number().min(0, t('Please enter amount')),
+      duration_unit: z.enum(['year', 'month', 'day', 'hour', 'custom']),
+      duration_value: z.coerce.number().min(1),
+      custom_seconds: z.coerce.number().min(0).optional(),
+      quota_reset_period: z.enum([
+        'never',
+        'daily',
+        'weekly',
+        'monthly',
+        'custom',
+      ]),
+      quota_reset_custom_seconds: z.coerce.number().min(0).optional(),
+      enabled: z.boolean(),
+      sort_order: z.coerce.number(),
+      allow_balance_pay: z.boolean(),
+      allow_wallet_overflow: z.boolean(),
+      max_purchase_per_user: z.coerce.number().min(0),
+      max_purchase_total: z.coerce.number().min(0),
+      max_purchase_reset_period: z.enum([
+        'never',
+        'daily',
+        'weekly',
+        'monthly',
+        'custom',
+        'active',
+      ]),
+      max_purchase_reset_custom_seconds: z.coerce.number().min(0),
+      total_amount: z.coerce.number().min(0),
+      upgrade_group: z.string().optional(),
+      downgrade_group: z.string().optional(),
+      stripe_price_id: z.string().optional(),
+      creem_product_id: z.string().optional(),
+      // Multi-tier quota
+      use_multi_tier: z.boolean(),
+      quota_tiers: z.array(quotaTierSchema).optional(),
+      disable_balance_deduction: z.boolean(),
+    })
+    .superRefine((data, ctx) => {
+      if (
+        data.use_multi_tier &&
+        data.quota_tiers &&
+        data.quota_tiers.length > 1
+      ) {
+        // Sort by period order for validation
+        const sorted = [...data.quota_tiers].sort(
+          (a, b) => getTierOrder(a) - getTierOrder(b)
+        )
+        for (let i = 1; i < sorted.length; i++) {
+          const prev = sorted[i - 1]
+          const curr = sorted[i]
+          const prevOrder = getTierOrder(prev)
+          const currOrder = getTierOrder(curr)
+          if (currOrder < prevOrder) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: t(
+                'Tier period must be longer than or equal to the previous tier'
+              ),
+              path: ['quota_tiers', i, 'period'],
+            })
+          }
+          if (curr.limit > 0 && prev.limit > 0 && curr.limit < prev.limit) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: t(
+                'Tier limit must be greater than or equal to the previous tier'
+              ),
+              path: ['quota_tiers', i, 'limit'],
+            })
+          }
         }
       }
-    }
-  })
+    })
 }
 
 export type PlanFormValues = z.infer<ReturnType<typeof getPlanFormSchema>>
@@ -187,7 +209,8 @@ export function planToFormValues(plan: SubscriptionPlan): PlanFormValues {
 }
 
 export function formValuesToPlanPayload(values: PlanFormValues): PlanPayload {
-  const useMultiTier = values.use_multi_tier && values.quota_tiers && values.quota_tiers.length > 0
+  const useMultiTier =
+    values.use_multi_tier && values.quota_tiers && values.quota_tiers.length > 0
   return {
     plan: {
       ...values,
@@ -195,7 +218,9 @@ export function formValuesToPlanPayload(values: PlanFormValues): PlanPayload {
       currency: 'USD',
       duration_value: Number(values.duration_value || 0),
       custom_seconds: Number(values.custom_seconds || 0),
-      quota_reset_period: useMultiTier ? 'never' : (values.quota_reset_period || 'never'),
+      quota_reset_period: useMultiTier
+        ? 'never'
+        : values.quota_reset_period || 'never',
       quota_reset_custom_seconds:
         !useMultiTier && values.quota_reset_period === 'custom'
           ? Number(values.quota_reset_custom_seconds || 0)

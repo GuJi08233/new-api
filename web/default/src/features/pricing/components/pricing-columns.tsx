@@ -36,10 +36,6 @@ import {
 import { parseTags } from '../lib/filters'
 import { isTokenBasedModel } from '../lib/model-helpers'
 import {
-  getDynamicDisplayGroupRatio,
-  getDynamicPricingSummary,
-} from '../lib/dynamic-price'
-import {
   formatPrice,
   formatRequestPrice,
   stripTrailingZeros,
@@ -102,15 +98,10 @@ export function usePricingColumns(
     {
       accessorKey: 'quota_type',
       header: t('Type'),
-      cell: ({ row }) => {
-        const isTokenBased = row.original.quota_type === QUOTA_TYPE_VALUES.TOKEN
-        return (
-          <span className='text-muted-foreground text-xs font-medium tracking-wider uppercase'>
-            {isTokenBased ? t('Token (billing unit)') : t('Request')}
-          </span>
-        )
-      },
-      size: 80,
+      cell: ({ row }) => (
+        <ModelBillingModeBadge model={row.original} className='-ml-1.5' />
+      ),
+      size: 110,
       enableSorting: false,
     },
 
@@ -128,20 +119,23 @@ export function usePricingColumns(
           showRechargePrice,
           priceRate,
           usdExchangeRate,
-          groupRatioMultiplier: getDynamicDisplayGroupRatio(model),
+          groupRatioMultiplier: getDynamicDisplayGroupRatio(
+            model,
+            selectedGroup
+          ),
         })
 
         if (dynamicSummary) {
           if (dynamicSummary.isSpecialExpression) {
             return (
-              <div className='min-w-[200px] max-w-[320px]'>
-                <div className='text-amber-700 text-xs font-medium dark:text-amber-300'>
+              <div className='max-w-full min-w-0'>
+                <div className='text-xs font-medium text-amber-700 dark:text-amber-300'>
                   {t('Special billing expression')}
                 </div>
                 <div className='text-muted-foreground text-[11px]'>
                   {t('Unable to parse structured pricing')}
                 </div>
-                <code className='text-muted-foreground/70 mt-1 line-clamp-2 block break-all font-mono text-[10px] leading-relaxed'>
+                <code className='text-muted-foreground/70 mt-1 line-clamp-2 block font-mono text-[10px] leading-relaxed break-all'>
                   {dynamicSummary.rawExpression}
                 </code>
               </div>
@@ -158,7 +152,7 @@ export function usePricingColumns(
           }
 
           return (
-            <div className='min-w-[180px]'>
+            <div className='max-w-full min-w-0'>
               <span className='font-mono text-sm tabular-nums'>
                 {primaryEntries.map((entry, index) => (
                   <span key={entry.key}>
@@ -254,7 +248,10 @@ export function usePricingColumns(
           showRechargePrice,
           priceRate,
           usdExchangeRate,
-          groupRatioMultiplier: getDynamicDisplayGroupRatio(model),
+          groupRatioMultiplier: getDynamicDisplayGroupRatio(
+            model,
+            selectedGroup
+          ),
         })
 
         if (dynamicSummary) {
@@ -274,7 +271,7 @@ export function usePricingColumns(
           }
 
           return (
-            <div className='min-w-[80px]'>
+            <div className='max-w-full min-w-0'>
               <span className='font-mono text-sm tabular-nums'>
                 {stripTrailingZeros(cacheEntry.formatted)}
               </span>

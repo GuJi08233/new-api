@@ -1175,6 +1175,18 @@ func FetchModels(c *gin.Context) {
 
 	// OA2 渠道：分别获取各格式的模型，然后合并去重
 	if req.Type == constant.ChannelTypeOA2 {
+		// v2.5.5 以前允许通过 base_url 的 "OpenAI|Claude" 形式保存 OA2
+		// 地址。只有新字段均为空时才回退，避免覆盖管理员明确配置的新地址。
+		if req.OA2OpenAIURL == "" && req.OA2ClaudeURL == "" && req.OA2CodexURL == "" && req.OA2GeminiURL == "" {
+			legacyURLs := strings.Split(req.BaseURL, "|")
+			if len(legacyURLs) > 0 {
+				req.OA2OpenAIURL = strings.TrimSpace(legacyURLs[0])
+			}
+			if len(legacyURLs) > 1 {
+				req.OA2ClaudeURL = strings.TrimSpace(legacyURLs[1])
+			}
+		}
+
 		allModels := make([]string, 0)
 		modelSet := make(map[string]bool)
 		errorMessages := make([]string, 0)
@@ -1237,6 +1249,9 @@ func FetchModels(c *gin.Context) {
 		}
 
 		// 如果都失败了，返回错误
+		if len(errorMessages) == 0 {
+			errorMessages = append(errorMessages, "未配置可用的上游地址")
+		}
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
 			"message": "获取模型失败: " + strings.Join(errorMessages, "; "),

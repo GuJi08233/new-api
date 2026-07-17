@@ -98,6 +98,8 @@ const OPERATIONS_SECTIONS = [
     build: (settings: OperationsSettings) => (
       <LogSettingsSection
         defaultEnabled={Boolean(settings.LogConsumeEnabled)}
+        defaultIpEnabled={Boolean(settings.GlobalRecordIpLogEnabled)}
+        defaultUaEnabled={Boolean(settings.GlobalRecordUaLogEnabled)}
       />
     ),
   },

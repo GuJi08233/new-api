@@ -21,7 +21,7 @@ import React, { lazy, Suspense, useContext, useMemo } from 'react';
 import { Route, Routes, useLocation, useParams } from 'react-router-dom';
 import Loading from './components/common/ui/Loading';
 import User from './pages/User';
-import { AuthRedirect, PrivateRoute, AdminRoute } from './helpers';
+import { AuthRedirect, PrivateRoute, AdminRoute, RootRoute } from './helpers';
 import RegisterForm from './components/auth/RegisterForm';
 import LoginForm from './components/auth/LoginForm';
 import NotFound from './pages/NotFound';
@@ -35,6 +35,7 @@ import Channel from './pages/Channel';
 import Token from './pages/Token';
 import Redemption from './pages/Redemption';
 import RiskControl from './pages/RiskControl';
+import SystemInfo from './pages/SystemInfo';
 import InvitationCode from './pages/InvitationCode';
 import TopUp from './pages/TopUp';
 import Log from './pages/Log';
@@ -187,6 +188,14 @@ function App() {
             <AdminRoute>
               <RiskControl />
             </AdminRoute>
+          }
+        />
+        <Route
+          path='/console/system_info'
+          element={
+            <RootRoute>
+              <SystemInfo />
+            </RootRoute>
           }
         />
         <Route

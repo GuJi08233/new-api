@@ -203,7 +203,7 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
                         },
                         {
                           value: 'classic',
-                          label: t('Classic (Legacy Frontend)'),
+                          label: t('Classic Frontend'),
                         },
                       ]}
                       onValueChange={field.onChange}
@@ -220,7 +220,7 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
                             {t('Default (New Frontend)')}
                           </SelectItem>
                           <SelectItem value='classic'>
-                            {t('Classic (Legacy Frontend)')}
+                            {t('Classic Frontend')}
                           </SelectItem>
                         </SelectGroup>
                       </SelectContent>

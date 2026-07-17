@@ -196,8 +196,8 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
         ) : (
           <div className='rounded-md border bg-card/50 p-2 shadow-xs sm:p-3'>
             <TaskLogsFilterBar
+              table={table}
               logCategory={logCategory}
-              viewOptions={<DataTableViewOptions table={table} />}
             />
           </div>
         )}

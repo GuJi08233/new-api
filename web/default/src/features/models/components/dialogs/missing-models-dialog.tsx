@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { ChevronLeft, ChevronRight, Loader2, Plus, Search } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { useIsMobile } from '@/hooks/use-mobile'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -45,7 +44,6 @@ export function MissingModelsDialog({
 }: MissingModelsDialogProps) {
   const { t } = useTranslation()
   const { setOpen, setCurrentRow } = useModels()
-  const isMobile = useIsMobile()
   const [searchTerm, setSearchTerm] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
   const GLOBAL_GROUP = 'global'
@@ -132,14 +130,7 @@ export function MissingModelsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        className='flex max-h-[85vh] max-w-2xl flex-col gap-3 p-4'
-        onOpenAutoFocus={(event) => {
-          if (isMobile) {
-            event.preventDefault()
-          }
-        }}
-      >
+      <DialogContent className='flex max-h-[85vh] max-w-2xl flex-col gap-3 p-4'>
         <DialogHeader className='flex-shrink-0 text-start'>
           <DialogTitle>{t('Missing Models')}</DialogTitle>
           <DialogDescription>
@@ -151,6 +142,7 @@ export function MissingModelsDialog({
           <Select
             value={selectedGroup}
             onValueChange={(value) => {
+              if (!value) return
               setSelectedGroup(value)
               setCurrentPage(1)
             }}

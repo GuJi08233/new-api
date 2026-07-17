@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Filter, RotateCcw, Calendar, Search } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useAuthStore } from '@/stores/auth-store'
@@ -40,8 +40,25 @@ import type {
 
 interface ModelsFilterProps {
   preferences: DashboardChartPreferences
+  currentFilters: DashboardFilters
   onFilterChange: (filters: DashboardFilters) => void
   onReset: () => void
+  titleKey?: string
+  descriptionKey?: string
+}
+
+function granularityForRangeDays(days: number): TimeGranularity {
+  if (days <= 1) return 'hour'
+  if (days >= 29) return 'week'
+  return 'day'
+}
+
+function detectQuickRangeDays(filters: DashboardFilters): number | null {
+  const start = filters.start_timestamp
+  const end = filters.end_timestamp
+  if (!start || !end) return null
+  const days = Math.round((end.getTime() - start.getTime()) / 86_400_000)
+  return TIME_RANGE_PRESETS.some((preset) => preset.days === days) ? days : null
 }
 
 /**
@@ -65,17 +82,20 @@ export function ModelsFilter(props: ModelsFilterProps) {
   const isAdmin = user?.role && user.role >= 10
 
   const [open, setOpen] = useState(false)
-  const [filters, setFilters] = useState<DashboardFilters>(() =>
-    buildDefaultDashboardFilters(props.preferences)
+  const [filters, setFilters] = useState<DashboardFilters>(
+    () => props.currentFilters
   )
   const [selectedRange, setSelectedRange] = useState<number | null>(() =>
-    props.preferences.defaultTimeRangeDays
+    detectQuickRangeDays(props.currentFilters)
   )
 
-  useEffect(() => {
-    setFilters(buildDefaultDashboardFilters(props.preferences))
-    setSelectedRange(props.preferences.defaultTimeRangeDays)
-  }, [props.preferences])
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (nextOpen) {
+      setFilters(props.currentFilters)
+      setSelectedRange(detectQuickRangeDays(props.currentFilters))
+    }
+    setOpen(nextOpen)
+  }
 
   const handleApply = () => {
     props.onFilterChange(
@@ -115,12 +135,13 @@ export function ModelsFilter(props: ModelsFilterProps) {
       ...prev,
       start_timestamp: start,
       end_timestamp: end,
+      time_granularity: granularityForRangeDays(days),
     }))
     setSelectedRange(days)
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
         <Button variant='outline' size='sm'>
           <Filter className='mr-2 h-4 w-4' />
@@ -129,10 +150,13 @@ export function ModelsFilter(props: ModelsFilterProps) {
       </DialogTrigger>
       <DialogContent className='flex max-h-[calc(100dvh-2rem)] flex-col max-sm:h-dvh max-sm:w-screen max-sm:max-w-none max-sm:rounded-none max-sm:p-4 sm:max-w-lg'>
         <DialogHeader>
-          <DialogTitle>{t('Filter Dashboard Models')}</DialogTitle>
+          <DialogTitle>
+            {t(props.titleKey ?? 'Model Analytics Filters')}
+          </DialogTitle>
           <DialogDescription>
             {t(
-              'Set filters to customize your dashboard statistics and charts.'
+              props.descriptionKey ??
+                'Filter the model analytics view by time range and user.'
             )}
           </DialogDescription>
         </DialogHeader>

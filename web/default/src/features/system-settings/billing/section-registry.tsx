@@ -51,6 +51,19 @@ const getGroupDefaults = (settings: BillingSettings) => ({
     settings['group_ratio_setting.group_special_usable_group'],
 })
 
+const getGroupModelDefaults = (settings: BillingSettings) => ({
+  GroupModelPrice: settings.GroupModelPrice,
+  GroupModelRatio: settings.GroupModelRatio,
+  GroupCompletionRatio: settings.GroupCompletionRatio,
+  GroupCacheRatio: settings.GroupCacheRatio,
+  GroupCreateCacheRatio: settings.GroupCreateCacheRatio,
+  GroupImageRatio: settings.GroupImageRatio,
+  GroupAudioRatio: settings.GroupAudioRatio,
+  GroupAudioCompletionRatio: settings.GroupAudioCompletionRatio,
+  GroupBillingMode: settings.GroupBillingMode,
+  GroupBillingExpr: settings.GroupBillingExpr,
+})
+
 const BILLING_SECTIONS = [
   {
     id: 'quota',
@@ -63,18 +76,10 @@ const BILLING_SECTIONS = [
           QuotaForInviter: settings.QuotaForInviter,
           QuotaForInvitee: settings.QuotaForInvitee,
           TopUpLink: settings.TopUpLink,
-          general_setting: {
-            docs_link: settings['general_setting.docs_link'],
-          },
-          quota_setting: {
-            enable_free_model_pre_consume:
-              settings['quota_setting.enable_free_model_pre_consume'],
-          },
+          'general_setting.docs_link': settings['general_setting.docs_link'],
+          'quota_setting.enable_free_model_pre_consume':
+            settings['quota_setting.enable_free_model_pre_consume'],
         }}
-        complianceConfirmed={
-          (settings['payment_setting.compliance_confirmed'] ?? false) &&
-          settings['payment_setting.compliance_terms_version'] === 'v1'
-        }
       />
     ),
   },
@@ -108,9 +113,15 @@ const BILLING_SECTIONS = [
       <RatioSettingsCard
         titleKey='Model Pricing'
         modelDefaults={getModelDefaults(settings)}
+        groupModelDefaults={getGroupModelDefaults(settings)}
         groupDefaults={getGroupDefaults(settings)}
         toolPricesDefault={settings['tool_price_setting.prices']}
-        visibleTabs={['models', 'unset-models', 'tool-prices', 'upstream-sync']}
+        visibleTabs={[
+          'models',
+          'unset-models',
+          'tool-prices',
+          'upstream-sync',
+        ]}
       />
     ),
   },
@@ -121,6 +132,7 @@ const BILLING_SECTIONS = [
       <RatioSettingsCard
         titleKey='Group Pricing'
         modelDefaults={getModelDefaults(settings)}
+        groupModelDefaults={getGroupModelDefaults(settings)}
         groupDefaults={getGroupDefaults(settings)}
         toolPricesDefault={settings['tool_price_setting.prices']}
         visibleTabs={['groups']}
@@ -153,6 +165,15 @@ const BILLING_SECTIONS = [
           CreemTestMode: settings.CreemTestMode,
           CreemProducts: settings.CreemProducts,
         }}
+        ethereumDefaultValues={{
+          EthereumEnabled: settings.EthereumEnabled ?? false,
+          EthereumChainId: settings.EthereumChainId ?? 11155111,
+          EthereumContractAddress: settings.EthereumContractAddress ?? '',
+          EthereumAlchemyWebhookSigningKey:
+            settings.EthereumAlchemyWebhookSigningKey ?? '',
+          EthereumMinTopUp: settings.EthereumMinTopUp ?? 1,
+          EthereumSupportedTokens: settings.EthereumSupportedTokens ?? '[]',
+        }}
         waffoDefaultValues={{
           WaffoEnabled: settings.WaffoEnabled ?? false,
           WaffoApiKey: settings.WaffoApiKey ?? '',
@@ -177,13 +198,6 @@ const BILLING_SECTIONS = [
         }}
         waffoPancakeProvisionedStoreID={settings.WaffoPancakeStoreID ?? ''}
         waffoPancakeProvisionedProductID={settings.WaffoPancakeProductID ?? ''}
-        complianceDefaults={{
-          confirmed: settings['payment_setting.compliance_confirmed'] ?? false,
-          termsVersion:
-            settings['payment_setting.compliance_terms_version'] ?? '',
-          confirmedAt: settings['payment_setting.compliance_confirmed_at'] ?? 0,
-          confirmedBy: settings['payment_setting.compliance_confirmed_by'] ?? 0,
-        }}
       />
     ),
   },

@@ -27,10 +27,6 @@ import * as z from 'zod'
 
 import {
   SideDrawerSection,
-  sideDrawerContentClassName,
-  sideDrawerFooterClassName,
-  sideDrawerFormClassName,
-  sideDrawerHeaderClassName,
   sideDrawerSwitchItemClassName,
 } from '@/components/drawer-layout'
 import { JsonEditor } from '@/components/json-editor'
@@ -837,7 +833,11 @@ export function ModelMutateDrawer({
                     <FormControl>
                       <RadioGroup
                         onValueChange={(value) =>
-                          field.onChange(Number.parseInt(value))
+                          field.onChange(
+                            typeof value === 'string'
+                              ? Number.parseInt(value)
+                              : field.value
+                          )
                         }
                         value={String(field.value)}
                         className='grid grid-cols-2 gap-4'

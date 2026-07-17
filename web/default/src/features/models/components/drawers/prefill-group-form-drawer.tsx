@@ -26,10 +26,6 @@ import { toast } from 'sonner'
 
 import {
   SideDrawerSection,
-  sideDrawerContentClassName,
-  sideDrawerFooterClassName,
-  sideDrawerFormClassName,
-  sideDrawerHeaderClassName,
 } from '@/components/drawer-layout'
 import { JsonEditor } from '@/components/json-editor'
 import { StatusBadge } from '@/components/status-badge'

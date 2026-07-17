@@ -74,11 +74,9 @@ export function PanelWrapper(props: PanelWrapperProps) {
 
   if (props.loading) {
     return (
-      <div className='overflow-hidden rounded-lg border'>
-        <div className='border-b px-3 py-2.5 sm:px-5 sm:py-3'>
-          <div className='text-sm font-semibold'>{props.title}</div>
-        </div>
-        <div className='p-3 sm:p-5'>
+      <div className={frameClassName}>
+        <PanelHeader title={props.title} description={props.description} />
+        <div className={cn('p-4 sm:p-5', props.contentClassName)}>
           <Skeleton className={`w-full ${height}`} />
         </div>
       </div>
@@ -87,10 +85,8 @@ export function PanelWrapper(props: PanelWrapperProps) {
 
   if (props.empty) {
     return (
-      <div className='overflow-hidden rounded-lg border'>
-        <div className='border-b px-3 py-2.5 sm:px-5 sm:py-3'>
-          <div className='text-sm font-semibold'>{props.title}</div>
-        </div>
+      <div className={frameClassName}>
+        <PanelHeader title={props.title} description={props.description} />
         <div
           className={cn(
             'text-muted-foreground flex items-center justify-center px-4 text-sm',
@@ -105,18 +101,15 @@ export function PanelWrapper(props: PanelWrapperProps) {
   }
 
   return (
-    <div className='overflow-hidden rounded-lg border'>
-      <div className='border-b px-3 py-2.5 sm:px-5 sm:py-3'>
-        {props.headerActions ? (
-          <div className='flex items-center justify-between gap-2'>
-            <div className='text-sm font-semibold'>{props.title}</div>
-            {props.headerActions}
-          </div>
-        ) : (
-          <div className='text-sm font-semibold'>{props.title}</div>
-        )}
+    <div className={frameClassName}>
+      <PanelHeader
+        title={props.title}
+        description={props.description}
+        actions={props.headerActions}
+      />
+      <div className={cn('p-4 sm:p-5', props.contentClassName)}>
+        {props.children}
       </div>
-      <div className='p-3 sm:p-5'>{props.children}</div>
     </div>
   )
 }

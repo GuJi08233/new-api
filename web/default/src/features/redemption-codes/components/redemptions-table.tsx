@@ -158,109 +158,34 @@ export function RedemptionsTable() {
   )
 
   return (
-    <>
-      <div className='space-y-3 sm:space-y-4'>
-        <DataTableToolbar
-          table={table}
-          searchPlaceholder={t('Filter by name or ID...')}
-          filters={[
-            {
-              columnId: 'status',
-              title: t('Status'),
-              options: redemptionStatusOptions,
-            },
-          ]}
-        />
-        {isMobile ? (
-          <MobileCardList
-            table={table}
-            isLoading={isLoading}
-            emptyTitle={t('No Redemption Codes Found')}
-            emptyDescription={t(
-              'No redemption codes available. Create your first redemption code to get started.'
-            )}
-            getRowClassName={(row) =>
-              isDisabledRedemptionRow(row.original)
-                ? DISABLED_ROW_MOBILE
-                : undefined
-            }
-          />
-        ) : (
-          <>
-            <div
-              className={cn(
-                'overflow-hidden rounded-md border transition-opacity duration-150',
-                isFetching && !isLoading && 'pointer-events-none opacity-50'
-              )}
-            >
-              <Table>
-                <TableHeader>
-                  {table.getHeaderGroups().map((headerGroup) => (
-                    <TableRow key={headerGroup.id}>
-                      {headerGroup.headers.map((header) => {
-                        return (
-                          <TableHead key={header.id} colSpan={header.colSpan}>
-                            {header.isPlaceholder
-                              ? null
-                              : flexRender(
-                                  header.column.columnDef.header,
-                                  header.getContext()
-                                )}
-                          </TableHead>
-                        )
-                      })}
-                    </TableRow>
-                  ))}
-                </TableHeader>
-                <TableBody>
-                  {isLoading ? (
-                    <TableSkeleton
-                      table={table}
-                      keyPrefix='redemptions-skeleton'
-                    />
-                  ) : table.getRowModel().rows.length === 0 ? (
-                    <TableEmpty
-                      colSpan={columns.length}
-                      title={t('No Redemption Codes Found')}
-                      description={t(
-                        'No redemption codes available. Create your first redemption code to get started.'
-                      )}
-                    />
-                  ) : (
-                    table.getRowModel().rows.map((row) => {
-                      const redemption = row.original
-
-                      return (
-                        <TableRow
-                          key={row.id}
-                          data-state={row.getIsSelected() && 'selected'}
-                          className={cn(
-                            isDisabledRedemptionRow(redemption) &&
-                              DISABLED_ROW_DESKTOP
-                          )}
-                        >
-                          {row.getVisibleCells().map((cell) => (
-                            <TableCell key={cell.id}>
-                              {flexRender(
-                                cell.column.columnDef.cell,
-                                cell.getContext()
-                              )}
-                            </TableCell>
-                          ))}
-                        </TableRow>
-                      )
-                    })
-                  )}
-                </TableBody>
-              </Table>
-            </div>
-            <DataTableBulkActions table={table} />
-          </>
-        )}
-      </div>
-      <PageFooterPortal>
-        <DataTablePagination table={table} />
-      </PageFooterPortal>
-    </>
+    <DataTablePage
+      table={table}
+      columns={columns}
+      isLoading={isLoading}
+      isFetching={isFetching}
+      emptyTitle={t('No Redemption Codes Found')}
+      emptyDescription={t(
+        'No redemption codes available. Create your first redemption code to get started.'
+      )}
+      skeletonKeyPrefix='redemptions-skeleton'
+      applyHeaderSize
+      toolbarProps={{
+        searchPlaceholder: t('Filter by name or ID...'),
+        filters: [
+          {
+            columnId: 'status',
+            title: t('Status'),
+            options: redemptionStatusOptions,
+            singleSelect: true,
+          },
+        ],
+      }}
+      mobile={<RedemptionsMobileList table={table} isLoading={isLoading} />}
+      getRowClassName={(row, { isMobile }) => {
+        if (!isDisabledRedemptionRow(row.original)) return undefined
+        return isMobile ? DISABLED_ROW_MOBILE : DISABLED_ROW_DESKTOP
+      }}
+      bulkActions={<DataTableBulkActions table={table} />}
+    />
   )
 }

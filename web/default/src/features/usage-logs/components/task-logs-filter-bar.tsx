@@ -200,60 +200,27 @@ export function TaskLogsFilterBar<TData>(props: TaskLogsFilterBarProps<TData>) {
   ) : null
 
   return (
-    <div className='space-y-2 sm:space-y-3'>
-      <div className='grid grid-cols-2 gap-1.5 sm:gap-2 lg:grid-cols-[minmax(280px,2fr)_minmax(180px,1fr)_minmax(120px,0.8fr)_auto]'>
-        <CompactDateTimeRangePicker
-          start={filters.startTime}
-          end={filters.endTime}
-          onChange={({ start, end }) => {
-            handleChange('startTime', start)
-            handleChange('endTime', end)
-          }}
-          className='col-span-2 lg:col-span-1'
-        />
-        <Input
-          aria-label={t('Task ID')}
-          placeholder={t(getFilterPlaceholder(props.logCategory))}
-          value={getFilterValue(filters, props.logCategory)}
-          onChange={(e) => handleFilterChange(e.target.value)}
-          onKeyDown={handleKeyDown}
-          className='h-9'
-        />
-        {isAdmin && (
-          <Input
-            placeholder={t('Channel ID')}
-            value={filters.channel || ''}
-            onChange={(e) => handleChange('channel', e.target.value)}
-            onKeyDown={handleKeyDown}
-            className='h-9'
-          />
-        )}
-        <div className='col-span-2 flex shrink-0 items-center justify-end gap-1.5 sm:gap-2 lg:col-span-1'>
-          <Button
-            variant='outline'
-            size='sm'
-            className='h-8'
-            onClick={handleReset}
-          >
-            <RotateCcw className='size-3.5' />
-            {t('Reset')}
-          </Button>
-          <Button
-            size='sm'
-            className='h-8'
-            onClick={handleApply}
-            disabled={fetchingLogs > 0}
-          >
-            {fetchingLogs > 0 ? (
-              <Loader2 className='size-3.5 animate-spin' />
-            ) : (
-              <Search className='size-3.5' />
-            )}
-            {t('Search')}
-          </Button>
-          {props.viewOptions}
-        </div>
-      </div>
-    </div>
+    <LogsFilterToolbar
+      table={props.table}
+      primaryFilters={
+        <>
+          {dateRangeFilter}
+          {taskIdFilter}
+          {channelFilter}
+        </>
+      }
+      mobilePinnedFilters={dateRangeFilter}
+      mobileFilters={
+        <>
+          {taskIdFilter}
+          {channelFilter}
+        </>
+      }
+      mobileFilterCount={[filterValue, filters.channel].filter(Boolean).length}
+      hasActiveFilters={hasAdditionalFilters}
+      onSearch={handleApply}
+      searchLoading={fetchingLogs > 0}
+      onReset={handleReset}
+    />
   )
 }

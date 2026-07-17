@@ -221,8 +221,9 @@ function buildTypeDetailSegments(
       })
     }
   } else {
-    const isPerCall = isPerCallBilling(other.model_price, other.model_ratio)
-    if (isPerCall) {
+    const modelPrice = other.model_price
+    const isPerCall = isPerCallBilling(modelPrice, other.model_ratio)
+    if (isPerCall && modelPrice != null) {
       segments.push({
         text: `${t('Per-call')} · ${formatBillingCurrencyFromUSD(modelPrice, priceOpts)}`,
       })

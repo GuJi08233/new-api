@@ -55,7 +55,7 @@ const (
 	ChannelTypeSora           = 55
 	ChannelTypeReplicate      = 56
 	ChannelTypeCodex          = 57
-	ChannelTypeOA2            = 58 // OA二合一渠道 (OpenAI + Anthropic)
+	ChannelTypeOA2            = 58 // OA2 四合一渠道 (OpenAI + Codex + Anthropic + Gemini)
 	ChannelTypeAdvancedCustom = 59
 	ChannelTypeDummy          // this one is only for count, do not add any channel after this
 

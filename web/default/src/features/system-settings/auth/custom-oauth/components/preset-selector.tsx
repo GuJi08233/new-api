@@ -115,15 +115,18 @@ export function PresetSelector(props: PresetSelectorProps) {
         <div className='space-y-1.5'>
           <Label>{t('Preset Template')}</Label>
           <Select
-            items={OAUTH_PRESETS.map((preset) => ({
-              value: preset.key,
-              label: preset.name,
-            }))}
-            value={selectedPreset}
+            items={[
+              { value: null, label: t('Select a preset...') },
+              ...OAUTH_PRESETS.map((preset) => ({
+                value: preset.key,
+                label: preset.name,
+              })),
+            ]}
+            value={selectedPreset || null}
             onValueChange={(v) => v !== null && handlePresetChange(v)}
           >
             <SelectTrigger className='w-full'>
-              <SelectValue placeholder={t('Select a preset...')} />
+              <SelectValue />
             </SelectTrigger>
             <SelectContent alignItemWithTrigger={false}>
               <SelectGroup>

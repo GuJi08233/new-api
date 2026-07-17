@@ -153,6 +153,8 @@ export function getLucideIcon(key, selected = false) {
       return <CalendarClock {...commonProps} color={iconColor} />;
     case 'risk_control':
       return <ShieldAlert {...commonProps} color={iconColor} />;
+    case 'system_info':
+      return <Server {...commonProps} color={iconColor} />;
     case 'setting':
       return <Settings {...commonProps} color={iconColor} />;
     default:

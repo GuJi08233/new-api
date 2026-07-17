@@ -278,15 +278,18 @@ export function PasskeySection(props: PasskeySectionProps) {
                 <FormControl>
                   <Select
                     items={[
+                      { value: null, label: t('Select requirement') },
                       { value: 'required', label: t('Required') },
                       { value: 'preferred', label: t('Recommended') },
                       { value: 'discouraged', label: t('Discouraged') },
                     ]}
-                    value={field.value}
-                    onValueChange={field.onChange}
+                    value={field.value || null}
+                    onValueChange={(value) => {
+                      if (value !== null) field.onChange(value)
+                    }}
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder={t('Select requirement')} />
+                      <SelectValue />
                     </SelectTrigger>
                     <SelectContent alignItemWithTrigger={false}>
                       <SelectGroup>
@@ -322,15 +325,18 @@ export function PasskeySection(props: PasskeySectionProps) {
                 <FormControl>
                   <Select
                     items={[
+                      { value: null, label: t('No preference') },
                       { value: 'none', label: t('Unlimited') },
                       { value: 'platform', label: t('Built-in Device') },
                       { value: 'cross-platform', label: t('External Device') },
                     ]}
-                    value={field.value}
-                    onValueChange={field.onChange}
+                    value={field.value || null}
+                    onValueChange={(value) => {
+                      if (value !== null) field.onChange(value)
+                    }}
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder={t('No preference')} />
+                      <SelectValue />
                     </SelectTrigger>
                     <SelectContent alignItemWithTrigger={false}>
                       <SelectGroup>

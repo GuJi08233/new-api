@@ -43,6 +43,7 @@ const routerMap = {
   midjourney: '/console/midjourney',
   setting: '/console/setting',
   risk_control: '/console/risk_control',
+  system_info: '/console/system_info',
   about: '/about',
   detail: '/console',
   pricing: '/pricing',
@@ -196,6 +197,12 @@ const SiderBar = ({ onNavigate = () => {} }) => {
         itemKey: 'risk_control',
         to: '/risk_control',
         className: isAdmin() ? '' : 'tableHiddle',
+      },
+      {
+        text: t('系统信息'),
+        itemKey: 'system_info',
+        to: '/system_info',
+        className: isRoot() ? '' : 'tableHiddle',
       },
       {
         text: t('系统设置'),

@@ -17,6 +17,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
+import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { DateTimePicker } from '@/components/datetime-picker'
 import { getApiKeys } from '@/features/keys/api'
@@ -30,7 +31,41 @@ import type {
   DrawingLogFilters,
   TaskLogFilters,
 } from '../../types'
-import { FilterInput, SectionDivider } from './filter-components'
+
+function FilterInput(props: {
+  id: string
+  label: string
+  placeholder: string
+  value: string
+  onChange: (value: string) => void
+}) {
+  return (
+    <div className='grid gap-2'>
+      <Label htmlFor={props.id}>{props.label}</Label>
+      <Input
+        id={props.id}
+        placeholder={props.placeholder}
+        value={props.value}
+        onChange={(event) => props.onChange(event.target.value)}
+      />
+    </div>
+  )
+}
+
+function SectionDivider(props: { label: string }) {
+  return (
+    <div className='relative py-1'>
+      <div className='absolute inset-0 flex items-center' aria-hidden='true'>
+        <div className='border-border w-full border-t' />
+      </div>
+      <div className='relative flex justify-start'>
+        <span className='bg-background text-muted-foreground pr-2 text-xs'>
+          {props.label}
+        </span>
+      </div>
+    </div>
+  )
+}
 
 const route = getRouteApi('/_authenticated/usage-logs/$section')
 

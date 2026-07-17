@@ -210,7 +210,7 @@ const EditChannelModal = (props) => {
     upstream_model_update_last_check_time: 0,
     upstream_model_update_last_detected_models: [],
     upstream_model_update_ignored_models: '',
-    // OA2 二合一渠道配置
+    // OA2 四合一渠道配置
     oa2_openai_enabled: false,
     oa2_claude_enabled: false,
     oa2_codex_enabled: false,
@@ -931,7 +931,7 @@ const EditChannelModal = (props) => {
           )
             ? parsedSettings.upstream_model_update_ignored_models.join(',')
             : '';
-          // 读取 OA2 二合一渠道配置
+          // 读取 OA2 四合一渠道配置
           data.oa2_openai_enabled = parsedSettings.oa2_openai_enabled === true;
           data.oa2_claude_enabled = parsedSettings.oa2_claude_enabled === true;
           data.oa2_codex_enabled = parsedSettings.oa2_codex_enabled === true;

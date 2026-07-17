@@ -469,23 +469,28 @@ export function ApiInfoSection({ enabled, data }: ApiInfoSectionProps) {
                 <FormItem>
                   <FormLabel>{t('Badge Color')}</FormLabel>
                   <Select
-                    items={colorOptions.map((option) => ({
-                      value: option.value,
-                      label: (
-                        <div className='flex items-center gap-2'>
-                          <div
-                            className={`h-4 w-4 rounded-full ${getBgColorClass(option.value)}`}
-                          />
-                          {option.label}
-                        </div>
-                      ),
-                    }))}
-                    onValueChange={field.onChange}
-                    value={field.value}
+                    items={[
+                      { value: null, label: t('Select a color') },
+                      ...colorOptions.map((option) => ({
+                        value: option.value,
+                        label: (
+                          <div className='flex items-center gap-2'>
+                            <div
+                              className={`h-4 w-4 rounded-full ${getBgColorClass(option.value)}`}
+                            />
+                            {option.label}
+                          </div>
+                        ),
+                      })),
+                    ]}
+                    onValueChange={(value) => {
+                      if (value !== null) field.onChange(value)
+                    }}
+                    value={field.value || null}
                   >
                     <FormControl>
                       <SelectTrigger>
-                        <SelectValue placeholder={t('Select a color')} />
+                        <SelectValue />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent alignItemWithTrigger={false}>

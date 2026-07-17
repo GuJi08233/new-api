@@ -278,7 +278,11 @@ const renderPaymentConfig = (text, record, t, enableEpay) => {
   );
 };
 
-const renderOperations = (text, record, { openEdit, setPlanEnabled, t }) => {
+const renderOperations = (
+  text,
+  record,
+  { openEdit, setPlanEnabled, openReset, t },
+) => {
   const isEnabled = record?.plan?.enabled;
 
   const handleToggle = () => {
@@ -309,6 +313,14 @@ const renderOperations = (text, record, { openEdit, setPlanEnabled, t }) => {
       >
         {t('编辑')}
       </Button>
+      <Button
+        theme='light'
+        type='warning'
+        size='small'
+        onClick={() => openReset(record)}
+      >
+        {t('重置额度')}
+      </Button>
       {isEnabled ? (
         <Button theme='light' type='danger' size='small' onClick={handleToggle}>
           {t('禁用')}
@@ -331,6 +343,7 @@ export const getSubscriptionsColumns = ({
   t,
   openEdit,
   setPlanEnabled,
+  openReset,
   enableEpay,
 }) => {
   return [
@@ -399,9 +412,14 @@ export const getSubscriptionsColumns = ({
       title: t('操作'),
       dataIndex: 'operate',
       fixed: 'right',
-      width: 160,
+      width: 250,
       render: (text, record) =>
-        renderOperations(text, record, { openEdit, setPlanEnabled, t }),
+        renderOperations(text, record, {
+          openEdit,
+          setPlanEnabled,
+          openReset,
+          t,
+        }),
     },
   ];
 };

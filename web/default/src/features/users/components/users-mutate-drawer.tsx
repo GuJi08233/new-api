@@ -24,13 +24,7 @@ import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
-import {
-  SideDrawerSection,
-  sideDrawerContentClassName,
-  sideDrawerFooterClassName,
-  sideDrawerFormClassName,
-  sideDrawerHeaderClassName,
-} from '@/components/drawer-layout'
+import { SideDrawerSection } from '@/components/drawer-layout'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
@@ -119,6 +113,15 @@ export function UsersMutateDrawer({
   })
 
   const groups = groupsData?.data || []
+  const roleItems = [
+    { value: null, label: t('Select a role') },
+    { value: '1', label: t('Common User') },
+    { value: '10', label: t('Admin') },
+  ]
+  const groupItems = [
+    { value: null, label: t('Select a group') },
+    ...groups.map((group) => ({ value: group, label: group })),
+  ]
 
   // Permission catalog is owned by the backend; fetched once and reused.
   const { data: permissionCatalog = EMPTY_PERMISSION_CATALOG } = useQuery({
@@ -271,18 +274,19 @@ export function UsersMutateDrawer({
                       <FormItem>
                         <FormLabel>{t('Role')}</FormLabel>
                         <Select
-                          items={[
-                            { value: '1', label: t('Common User') },
-                            { value: '10', label: t('Admin') },
-                          ]}
+                          items={roleItems}
                           onValueChange={(value) =>
                             value !== null && field.onChange(parseInt(value))
                           }
-                          value={String(field.value)}
+                          value={
+                            field.value === undefined
+                              ? null
+                              : String(field.value)
+                          }
                         >
                           <FormControl>
                             <SelectTrigger>
-                              <SelectValue placeholder={t('Select a role')} />
+                              <SelectValue />
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent alignItemWithTrigger={false}>
@@ -358,18 +362,15 @@ export function UsersMutateDrawer({
                       <FormItem>
                         <FormLabel>{t('Group')}</FormLabel>
                         <Select
-                          items={[
-                            ...groups.map((group) => ({
-                              value: group,
-                              label: group,
-                            })),
-                          ]}
-                          onValueChange={field.onChange}
-                          value={field.value}
+                          items={groupItems}
+                          onValueChange={(value) =>
+                            value !== null && field.onChange(value)
+                          }
+                          value={field.value || null}
                         >
                           <FormControl>
                             <SelectTrigger>
-                              <SelectValue placeholder={t('Select a group')} />
+                              <SelectValue />
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent alignItemWithTrigger={false}>
@@ -572,8 +573,8 @@ export function UsersMutateDrawer({
             </form>
           </Form>
           <SheetFooter className='grid grid-cols-2 gap-2 border-t px-4 py-3 sm:flex sm:px-6 sm:py-4'>
-            <SheetClose asChild>
-              <Button variant='outline'>{t('Close')}</Button>
+            <SheetClose render={<Button variant='outline' />}>
+              {t('Close')}
             </SheetClose>
             <Button form='user-form' type='submit' disabled={isSubmitting}>
               {isSubmitting ? t('Saving...') : t('Save changes')}

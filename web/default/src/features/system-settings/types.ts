@@ -39,17 +39,6 @@ export type UpdateOptionResponse = {
   message: string
 }
 
-export type ConfirmPaymentComplianceResponse = {
-  success: boolean
-  message: string
-  data?: {
-    confirmed: boolean
-    terms_version: string
-    confirmed_at: number
-    confirmed_by: number
-  }
-}
-
 export type SystemTaskStatus = 'pending' | 'running' | 'succeeded' | 'failed'
 
 export type SystemTask<
@@ -197,6 +186,8 @@ export type IntegrationSettings = {
   SMTPFrom: string
   SMTPToken: string
   SMTPSSLEnabled: boolean
+  SMTPStartTLSEnabled: boolean
+  SMTPInsecureSkipVerify: boolean
   SMTPForceAuthLogin: boolean
   WorkerUrl: string
   WorkerValidKey: string
@@ -210,6 +201,10 @@ export type IntegrationSettings = {
   AutomaticRetryStatusCodes: string
   'monitor_setting.auto_test_channel_enabled': boolean
   'monitor_setting.auto_test_channel_minutes': number
+  'perf_metrics_setting.enabled': boolean
+  'perf_metrics_setting.flush_interval': number
+  'perf_metrics_setting.bucket_time': 'hour' | 'minute' | '5min'
+  'perf_metrics_setting.retention_days': number
   'model_deployment.ionet.api_key': string
   'model_deployment.ionet.enabled': boolean
   PayAddress: string
@@ -264,6 +259,134 @@ export type IntegrationSettings = {
   WaffoPancakeCurrency: string
   WaffoPancakeUnitPrice: number
   WaffoPancakeMinTopUp: number
+}
+
+export type BillingSettings = {
+  QuotaForNewUser: number
+  PreConsumedQuota: number
+  QuotaForInviter: number
+  QuotaForInvitee: number
+  TopUpLink: string
+  'general_setting.docs_link': string
+  'quota_setting.enable_free_model_pre_consume': boolean
+  QuotaPerUnit: number
+  USDExchangeRate: number
+  'general_setting.quota_display_type': string
+  'general_setting.custom_currency_symbol': string
+  'general_setting.custom_currency_exchange_rate': number
+  DisplayInCurrencyEnabled: boolean
+  DisplayTokenStatEnabled: boolean
+  ModelPrice: string
+  ModelRatio: string
+  CacheRatio: string
+  CreateCacheRatio: string
+  CompletionRatio: string
+  ImageRatio: string
+  AudioRatio: string
+  AudioCompletionRatio: string
+  GroupModelPrice: string
+  GroupModelRatio: string
+  GroupCompletionRatio: string
+  GroupCacheRatio: string
+  GroupCreateCacheRatio: string
+  GroupImageRatio: string
+  GroupAudioRatio: string
+  GroupAudioCompletionRatio: string
+  GroupBillingMode: string
+  GroupBillingExpr: string
+  ExposeRatioEnabled: boolean
+  'billing_setting.billing_mode': string
+  'billing_setting.billing_expr': string
+  'tool_price_setting.prices': string
+  TopupGroupRatio: string
+  GroupRatio: string
+  UserUsableGroups: string
+  GroupGroupRatio: string
+  AutoGroups: string
+  DefaultUseAutoGroup: boolean
+  'group_ratio_setting.group_special_usable_group': string
+  PayAddress: string
+  EpayId: string
+  EpayKey: string
+  Price: number
+  MinTopUp: number
+  CustomCallbackAddress: string
+  PayMethods: string
+  'payment_setting.amount_options': string
+  'payment_setting.amount_discount': string
+  StripeApiSecret: string
+  StripeWebhookSecret: string
+  StripePriceId: string
+  StripeUnitPrice: number
+  StripeMinTopUp: number
+  StripePromotionCodesEnabled: boolean
+  CreemApiKey: string
+  CreemWebhookSecret: string
+  CreemTestMode: boolean
+  CreemProducts: string
+  EthereumEnabled: boolean
+  EthereumChainId: number
+  EthereumContractAddress: string
+  EthereumAlchemyWebhookSigningKey: string
+  EthereumMinTopUp: number
+  EthereumSupportedTokens: string
+  WaffoEnabled: boolean
+  WaffoApiKey: string
+  WaffoPrivateKey: string
+  WaffoPublicCert: string
+  WaffoSandboxPublicCert: string
+  WaffoSandboxApiKey: string
+  WaffoSandboxPrivateKey: string
+  WaffoSandbox: boolean
+  WaffoMerchantId: string
+  WaffoCurrency: string
+  WaffoUnitPrice: number
+  WaffoMinTopUp: number
+  WaffoNotifyUrl: string
+  WaffoReturnUrl: string
+  WaffoPayMethods: string
+  WaffoPancakeMerchantID: string
+  WaffoPancakePrivateKey: string
+  WaffoPancakeReturnURL: string
+  WaffoPancakeStoreID: string
+  WaffoPancakeProductID: string
+  'checkin_setting.enabled': boolean
+  'checkin_setting.min_quota': number
+  'checkin_setting.max_quota': number
+}
+
+export type OperationsSettings = {
+  DefaultCollapseSidebar: boolean
+  DemoSiteEnabled: boolean
+  SelfUseModeEnabled: boolean
+  QuotaRemindThreshold: string
+  SMTPServer: string
+  SMTPPort: string
+  SMTPAccount: string
+  SMTPFrom: string
+  SMTPToken: string
+  SMTPSSLEnabled: boolean
+  SMTPStartTLSEnabled: boolean
+  SMTPInsecureSkipVerify: boolean
+  SMTPForceAuthLogin: boolean
+  WorkerUrl: string
+  WorkerValidKey: string
+  WorkerAllowHttpImageRequestEnabled: boolean
+  LogConsumeEnabled: boolean
+  GlobalRecordIpLogEnabled: boolean
+  GlobalRecordUaLogEnabled: boolean
+  'performance_setting.disk_cache_enabled': boolean
+  'performance_setting.disk_cache_threshold_mb': number
+  'performance_setting.disk_cache_max_size_mb': number
+  'performance_setting.disk_cache_path': string
+  'performance_setting.monitor_enabled': boolean
+  'performance_setting.monitor_cpu_threshold': number
+  'performance_setting.monitor_memory_threshold': number
+  'performance_setting.monitor_disk_threshold': number
+  'perf_metrics_setting.enabled': boolean
+  'perf_metrics_setting.flush_interval': number
+  'perf_metrics_setting.bucket_time': 'hour' | 'minute' | '5min'
+  'perf_metrics_setting.retention_days': number
 }
 
 export type ModelSettings = {

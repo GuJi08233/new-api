@@ -282,7 +282,7 @@ export function UpstreamRatioSyncTable({
           disabled={isDisabled}
         >
           <SelectTrigger className='w-full sm:w-56'>
-            <SelectValue placeholder={t('Filter by price field')} />
+            <SelectValue />
           </SelectTrigger>
           <SelectContent alignItemWithTrigger={false}>
             <SelectGroup>

@@ -67,6 +67,7 @@ export default function SettingsSidebarModulesAdmin(props) {
       user: true,
       subscription: true,
       risk_control: true,
+      system_info: true,
       setting: true,
     },
   });
@@ -129,6 +130,7 @@ export default function SettingsSidebarModulesAdmin(props) {
         user: true,
         subscription: true,
         risk_control: true,
+        system_info: true,
         setting: true,
       },
     };
@@ -176,7 +178,14 @@ export default function SettingsSidebarModulesAdmin(props) {
     if (props.options && props.options.SidebarModulesAdmin) {
       try {
         const modules = JSON.parse(props.options.SidebarModulesAdmin);
-        setSidebarModulesAdmin(modules);
+        setSidebarModulesAdmin({
+          ...modules,
+          admin: {
+            risk_control: true,
+            system_info: true,
+            ...(modules.admin || {}),
+          },
+        });
       } catch (error) {
         // 使用默认配置
         const defaultModules = {
@@ -199,6 +208,7 @@ export default function SettingsSidebarModulesAdmin(props) {
             user: true,
             subscription: true,
             risk_control: true,
+            system_info: true,
             setting: true,
           },
         };
@@ -278,6 +288,11 @@ export default function SettingsSidebarModulesAdmin(props) {
           key: 'risk_control',
           title: t('风控管理'),
           description: t('滥用监控与自动封禁'),
+        },
+        {
+          key: 'system_info',
+          title: t('系统信息'),
+          description: t('实例状态与后台任务'),
         },
         {
           key: 'setting',

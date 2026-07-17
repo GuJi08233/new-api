@@ -167,41 +167,31 @@ const MODELS_SECTIONS = [
           'channel_affinity_setting.rules':
             settings['channel_affinity_setting.rules'],
         }}
-        groupModelDefaults={{
-          GroupModelPrice: settings.GroupModelPrice,
-          GroupModelRatio: settings.GroupModelRatio,
-          GroupCompletionRatio: settings.GroupCompletionRatio,
-          GroupCacheRatio: settings.GroupCacheRatio,
-          GroupCreateCacheRatio: settings.GroupCreateCacheRatio,
-          GroupImageRatio: settings.GroupImageRatio,
-          GroupAudioRatio: settings.GroupAudioRatio,
-          GroupAudioCompletionRatio: settings.GroupAudioCompletionRatio,
-          GroupBillingMode: settings.GroupBillingMode,
-          GroupBillingExpr: settings.GroupBillingExpr,
-        }}
-        toolPricesDefault={settings['tool_price_setting.prices']}
-        groupDefaults={{
-          TopupGroupRatio: settings.TopupGroupRatio,
-          GroupRatio: settings.GroupRatio,
-          UserUsableGroups: settings.UserUsableGroups,
-          GroupGroupRatio: settings.GroupGroupRatio,
-          AutoGroups: settings.AutoGroups,
-          DefaultUseAutoGroup: settings.DefaultUseAutoGroup,
-          GroupSpecialUsableGroup:
-            settings['group_ratio_setting.group_special_usable_group'],
-        }}
       />
     ),
   },
   {
     id: 'channel-route',
     titleKey: 'Static Channel Route',
-    descriptionKey: 'Restrict channel selection by model, group, and request path',
+    descriptionKey:
+      'Restrict channel selection by model, group, and request path',
     build: (settings: ModelSettings) => (
       <ChannelRouteSettingsCard
         defaultValues={{
           enabled: settings['channel_route_setting.enabled'] ?? false,
           rules: settings['channel_route_setting.rules'] ?? '[]',
+        }}
+      />
+    ),
+  },
+  {
+    id: 'model-deployment',
+    titleKey: 'Model Deployment',
+    build: (settings: ModelSettings) => (
+      <IoNetDeploymentSettingsSection
+        defaultValues={{
+          enabled: settings['model_deployment.ionet.enabled'],
+          apiKey: settings['model_deployment.ionet.api_key'],
         }}
       />
     ),

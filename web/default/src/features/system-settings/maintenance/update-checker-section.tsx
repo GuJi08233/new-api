@@ -30,14 +30,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
 import { Markdown } from '@/components/ui/markdown'
 import { formatTimestamp, formatTimestampToDate } from '@/lib/format'
 
@@ -205,7 +197,7 @@ export function UpdateCheckerSection({
                       {t('Default (New Frontend)')}
                     </SelectItem>
                     <SelectItem value='classic'>
-                      {t('Classic (Legacy Frontend)')}
+                      {t('Classic Frontend')}
                     </SelectItem>
                   </SelectContent>
                 </Select>

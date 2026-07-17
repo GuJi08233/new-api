@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -92,7 +93,7 @@ export function UserSubscriptionsDialog(props: Props) {
   const [creating, setCreating] = useState(false)
   const [plans, setPlans] = useState<PlanRecord[]>([])
   const [subs, setSubs] = useState<UserSubscriptionRecord[]>([])
-  const [selectedPlanId, setSelectedPlanId] = useState<string>('')
+  const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null)
   const [confirmAction, setConfirmAction] = useState<{
     type: 'invalidate' | 'delete'
     subId: number
@@ -105,6 +106,16 @@ export function UserSubscriptionsDialog(props: Props) {
     })
     return map
   }, [plans])
+  const planOptions = useMemo(
+    () => [
+      { value: null, label: t('Select subscription plan') },
+      ...plans.map((plan) => ({
+        value: String(plan.plan.id),
+        label: `${plan.plan.title} ($${Number(plan.plan.price_amount || 0).toFixed(2)})`,
+      })),
+    ],
+    [plans, t]
+  )
 
   const loadData = useCallback(async () => {
     if (!props.user?.id) return
@@ -125,7 +136,7 @@ export function UserSubscriptionsDialog(props: Props) {
 
   useEffect(() => {
     if (props.open && props.user?.id) {
-      setSelectedPlanId('')
+      setSelectedPlanId(null)
       loadData()
     }
   }, [props.open, props.user?.id, loadData])
@@ -142,7 +153,7 @@ export function UserSubscriptionsDialog(props: Props) {
       })
       if (res.success) {
         toast.success(res.data?.message || t('Added successfully'))
-        setSelectedPlanId('')
+        setSelectedPlanId(null)
         await loadData()
         props.onSuccess?.()
       }
@@ -191,17 +202,25 @@ export function UserSubscriptionsDialog(props: Props) {
 
           <div className='mt-4 space-y-4'>
             <div className='flex gap-2'>
-              <Select value={selectedPlanId} onValueChange={setSelectedPlanId}>
+              <Select
+                items={planOptions}
+                value={selectedPlanId}
+                onValueChange={setSelectedPlanId}
+              >
                 <SelectTrigger className='flex-1'>
-                  <SelectValue placeholder={t('Select subscription plan')} />
+                  <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {plans.map((p) => (
-                    <SelectItem key={p.plan.id} value={String(p.plan.id)}>
-                      {p.plan.title} ($
-                      {Number(p.plan.price_amount || 0).toFixed(2)})
-                    </SelectItem>
-                  ))}
+                  <SelectGroup>
+                    {planOptions.map((option) => (
+                      <SelectItem
+                        key={option.value ?? '__placeholder__'}
+                        value={option.value}
+                      >
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
                 </SelectContent>
               </Select>
               <Button

@@ -3,6 +3,7 @@ import type { IntegrationSettings as IntegrationSettingsType } from '../types'
 import {
   INTEGRATIONS_DEFAULT_SECTION,
   getIntegrationsSectionContent,
+  getIntegrationsSectionMeta,
 } from './section-registry.tsx'
 
 const defaultIntegrationSettings: IntegrationSettingsType = {
@@ -12,6 +13,8 @@ const defaultIntegrationSettings: IntegrationSettingsType = {
   SMTPFrom: '',
   SMTPToken: '',
   SMTPSSLEnabled: false,
+  SMTPStartTLSEnabled: false,
+  SMTPInsecureSkipVerify: false,
   SMTPForceAuthLogin: false,
   WorkerUrl: '',
   WorkerValidKey: '',
@@ -26,6 +29,10 @@ const defaultIntegrationSettings: IntegrationSettingsType = {
     '100-199,300-399,401-407,409-499,500-503,505-523,525-599',
   'monitor_setting.auto_test_channel_enabled': false,
   'monitor_setting.auto_test_channel_minutes': 10,
+  'perf_metrics_setting.enabled': true,
+  'perf_metrics_setting.flush_interval': 5,
+  'perf_metrics_setting.bucket_time': 'hour',
+  'perf_metrics_setting.retention_days': 0,
   'model_deployment.ionet.api_key': '',
   'model_deployment.ionet.enabled': false,
   PayAddress: '',
@@ -90,6 +97,7 @@ export function IntegrationSettings() {
       defaultSettings={defaultIntegrationSettings}
       defaultSection={INTEGRATIONS_DEFAULT_SECTION}
       getSectionContent={getIntegrationsSectionContent}
+      getSectionMeta={getIntegrationsSectionMeta}
     />
   )
 }

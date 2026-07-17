@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"net/http"
 	"strconv"
 
 	"github.com/QuantumNous/new-api/common"
@@ -13,7 +14,7 @@ import (
 // GetRiskRankings 返回风控排行榜。
 // query: metric=ip_multi_user|user_multi_ip|ua, hours, limit
 func GetRiskRankings(c *gin.Context) {
-	metric := c.Query("metric")
+	metric := c.DefaultQuery("metric", model.RiskMetricIpMultiUser)
 	hours, _ := strconv.Atoi(c.Query("hours"))
 	limit, _ := strconv.Atoi(c.Query("limit"))
 
@@ -34,9 +35,13 @@ func GetRiskRankings(c *gin.Context) {
 	case model.RiskMetricUa:
 		items, err = model.GetUaRanking(hours, limit)
 	case model.RiskMetricIpMultiUser:
-		fallthrough
-	default:
 		items, err = model.GetIpMultiUserRanking(hours, limit)
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "invalid risk metric",
+		})
+		return
 	}
 	if err != nil {
 		common.ApiError(c, err)

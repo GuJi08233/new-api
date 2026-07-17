@@ -192,15 +192,18 @@ export function CreemProductDialog({
                   <FormLabel>{t('Currency')}</FormLabel>
                   <Select
                     items={[
+                      { value: null, label: t('Select currency') },
                       { value: 'USD', label: 'USD ($)' },
                       { value: 'EUR', label: 'EUR (€)' },
                     ]}
-                    onValueChange={field.onChange}
-                    value={field.value}
+                    onValueChange={(value) => {
+                      if (value !== null) field.onChange(value)
+                    }}
+                    value={field.value || null}
                   >
                     <FormControl>
                       <SelectTrigger>
-                        <SelectValue placeholder={t('Select currency')} />
+                        <SelectValue />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent alignItemWithTrigger={false}>

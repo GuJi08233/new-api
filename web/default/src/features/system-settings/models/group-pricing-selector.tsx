@@ -1,9 +1,28 @@
-import { useState, useCallback } from 'react'
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+import { useCallback, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -39,6 +58,14 @@ export function GroupPricingSelector({
   const [syncMode, setSyncMode] = useState<'from_global' | 'to_groups'>('from_global')
   const [targetGroups, setTargetGroups] = useState<string[]>([])
   const [isSyncing, setIsSyncing] = useState(false)
+  const groupItems = useMemo(
+    () =>
+      availableGroups.map((group) => ({
+        label: group === 'global' ? t('Global') : group,
+        value: group,
+      })),
+    [availableGroups, t]
+  )
 
   const handleSync = useCallback(async () => {
     setIsSyncing(true)
@@ -62,7 +89,7 @@ export function GroupPricingSelector({
       } else {
         toast.error(res.data.message || t('Sync failed'))
       }
-    } catch (error) {
+    } catch {
       toast.error(t('Sync failed, please try again'))
     } finally {
       setIsSyncing(false)
@@ -71,19 +98,24 @@ export function GroupPricingSelector({
 
   return (
     <div className='flex flex-wrap items-center gap-2'>
-      <Select value={selectedGroup} onValueChange={onGroupChange}>
+      <Select
+        items={groupItems}
+        value={selectedGroup}
+        onValueChange={(group) => {
+          if (group) onGroupChange(group)
+        }}
+      >
         <SelectTrigger className='w-[180px]'>
-          <SelectValue placeholder={t('Select group')} />
+          <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value='global'>{t('Global')}</SelectItem>
-          {availableGroups
-            .filter((g) => g !== 'global')
-            .map((group) => (
-              <SelectItem key={group} value={group}>
-                {group}
+          <SelectGroup>
+            {groupItems.map((group) => (
+              <SelectItem key={group.value} value={group.value}>
+                {group.label}
               </SelectItem>
             ))}
+          </SelectGroup>
         </SelectContent>
       </Select>
 

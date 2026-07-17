@@ -24,6 +24,7 @@ import SubscriptionsTable from './SubscriptionsTable';
 import SubscriptionsActions from './SubscriptionsActions';
 import SubscriptionsDescription from './SubscriptionsDescription';
 import AddEditSubscriptionModal from './modals/AddEditSubscriptionModal';
+import ResetSubscriptionQuotaModal from './modals/ResetSubscriptionQuotaModal';
 import { useSubscriptionsData } from '../../../hooks/subscriptions/useSubscriptionsData';
 import { useIsMobile } from '../../../hooks/common/useIsMobile';
 import { createCardProPagination } from '../../../helpers/utils';
@@ -45,6 +46,9 @@ const SubscriptionsPage = () => {
     compactMode,
     setCompactMode,
     t,
+    showReset,
+    resettingPlan,
+    closeReset,
   } = subscriptionsData;
 
   return (
@@ -54,6 +58,13 @@ const SubscriptionsPage = () => {
         handleClose={closeEdit}
         editingPlan={editingPlan}
         placement={sheetPlacement}
+        refresh={refresh}
+        t={t}
+      />
+      <ResetSubscriptionQuotaModal
+        visible={showReset}
+        planRecord={resettingPlan}
+        handleClose={closeReset}
         refresh={refresh}
         t={t}
       />

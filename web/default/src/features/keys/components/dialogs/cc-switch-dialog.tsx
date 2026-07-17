@@ -169,7 +169,11 @@ export function CCSwitchDialog(props: Props) {
           <Label>{t('Application')}</Label>
           <RadioGroup
             value={app}
-            onValueChange={handleAppChange}
+            onValueChange={(value) => {
+              if (typeof value === 'string' && value in APP_CONFIGS) {
+                handleAppChange(value as AppType)
+              }
+            }}
             className='flex gap-4'
           >
             {(

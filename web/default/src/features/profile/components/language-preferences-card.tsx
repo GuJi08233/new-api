@@ -112,7 +112,9 @@ export function LanguagePreferencesCard(props: LanguagePreferencesCardProps) {
           <div className='flex items-center gap-2 sm:min-w-48'>
             <Select
               value={currentLanguage}
-              onValueChange={handleLanguageChange}
+              onValueChange={(value) => {
+                if (value) void handleLanguageChange(value)
+              }}
               disabled={saving}
             >
               <SelectTrigger className='w-full sm:w-48'>

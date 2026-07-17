@@ -18,17 +18,32 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
 import { getRouteApi } from '@tanstack/react-router'
+import { flexRender } from '@tanstack/react-table'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
 import {
   DISABLED_ROW_DESKTOP,
   DISABLED_ROW_MOBILE,
-  DataTablePage,
+  DataTablePagination,
+  DataTableToolbar,
+  MobileCardList,
+  TableEmpty,
+  TableSkeleton,
   useDataTable,
 } from '@/components/data-table'
+import { PageFooterPortal } from '@/components/layout'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
 import { useMediaQuery } from '@/hooks'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
+import { cn } from '@/lib/utils'
 
 import { getUsers, searchUsers } from '../api'
 import {

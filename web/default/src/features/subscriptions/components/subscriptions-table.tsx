@@ -17,10 +17,27 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
+import { flexRender } from '@tanstack/react-table'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { DataTablePage, useDataTable } from '@/components/data-table'
+import {
+  DataTablePagination,
+  MobileCardList,
+  TableEmpty,
+  TableSkeleton,
+  useDataTable,
+} from '@/components/data-table'
+import { PageFooterPortal } from '@/components/layout'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
+import { useIsMobile } from '@/hooks/use-mobile'
 
 import { getAdminPlans } from '../api'
 import { useSubscriptionsColumns } from './subscriptions-columns'
@@ -30,6 +47,7 @@ export function SubscriptionsTable() {
   const { t } = useTranslation()
   const columns = useSubscriptionsColumns()
   const { refreshTrigger } = useSubscriptions()
+  const isMobile = useIsMobile()
 
   const { data, isLoading } = useQuery({
     queryKey: ['admin-subscription-plans', refreshTrigger],

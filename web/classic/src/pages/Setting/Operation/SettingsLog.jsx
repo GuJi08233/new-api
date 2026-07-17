@@ -30,6 +30,7 @@ import {
 } from '@douyinfe/semi-ui';
 import dayjs from 'dayjs';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
 import {
   compareObjects,
   API,
@@ -42,6 +43,7 @@ const { Text } = Typography;
 
 export default function SettingsLog(props) {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [loadingCleanHistoryLog, setLoadingCleanHistoryLog] = useState(false);
   const [inputs, setInputs] = useState({
@@ -162,12 +164,17 @@ export default function SettingsLog(props) {
       onOk: async () => {
         try {
           setLoadingCleanHistoryLog(true);
-          const res = await API.delete(
-            `/api/log/?target_timestamp=${Date.parse(inputs.historyTimestamp) / 1000}`,
+          const res = await API.post(
+            `/api/system-task/log-cleanup?target_timestamp=${Date.parse(inputs.historyTimestamp) / 1000}`,
           );
           const { success, message, data } = res.data;
           if (success) {
-            showSuccess(`${data} ${t('条日志已清理！')}`);
+            showSuccess(t('日志清理任务已启动'));
+            if (data?.task_id) {
+              navigate(
+                `/console/system_info?task_id=${encodeURIComponent(data.task_id)}`,
+              );
+            }
             return;
           } else {
             throw new Error(t('日志清理失败：') + message);

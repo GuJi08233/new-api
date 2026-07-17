@@ -535,6 +535,9 @@ export const STATIC_I18N_KEYS = [
   'Batch detection failed',
   'Batch detection complete: {{channels}} channels, {{add}} to add, {{remove}} to remove, {{fails}} failed',
 
+  // OA2 combined channel label (assembled dynamically from channel metadata)
+  'OA2 Combined Channel (OpenAI + Codex + Claude + Gemini)',
+
   // Dashboard flow stages (labels/descriptions passed to t at runtime)
   'User',
   'Node',

@@ -29,7 +29,6 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
-import { IconBadge } from '@/components/ui/icon-badge'
 import { Switch } from '@/components/ui/switch'
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth-store'

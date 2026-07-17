@@ -50,6 +50,8 @@ import {
   getInvitationCode,
   saveInvitationCode,
 } from '@/features/auth/lib/storage'
+import { useStatus } from '@/hooks/use-status'
+import { cn } from '@/lib/utils'
 
 export function SignUpForm({
   className,
@@ -105,6 +107,7 @@ export function SignUpForm({
     true
   const hasWeChatLogin = Boolean(status?.wechat_login)
   const invitationCodeEnabled = Boolean(status?.invitation_code_enabled)
+  const turnstileReady = !isTurnstileEnabled || Boolean(turnstileToken)
 
   const wechatQrCodeUrl = useMemo(() => {
     return (
@@ -163,6 +166,8 @@ export function SignUpForm({
       toast.error(t('Please enter the invitation code'))
       return
     }
+
+    if (!validateTurnstile()) return
 
     setIsLoading(true)
     try {

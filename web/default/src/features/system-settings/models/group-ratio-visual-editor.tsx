@@ -227,19 +227,28 @@ function GroupNameSelect(props: GroupNameSelectProps) {
     }
     return props.options
   }, [props.options, props.value])
+  const items = useMemo(
+    () => [
+      { label: props.placeholder, value: null },
+      ...options.map((name) => ({ label: name, value: name })),
+    ],
+    [options, props.placeholder]
+  )
 
   return (
     <Select
+      items={items}
       value={props.value === '' ? null : props.value}
       onValueChange={(v) => {
         if (typeof v === 'string' && v !== '') props.onValueChange(v)
       }}
     >
       <SelectTrigger className={props.className ?? 'w-48'}>
-        <SelectValue placeholder={props.placeholder} />
+        <SelectValue />
       </SelectTrigger>
       <SelectContent alignItemWithTrigger={false}>
         <SelectGroup>
+          <SelectItem value={null}>{props.placeholder}</SelectItem>
           {options.map((name) => (
             <SelectItem key={name} value={name}>
               {name}

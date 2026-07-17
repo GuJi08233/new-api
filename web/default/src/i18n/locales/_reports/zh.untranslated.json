@@ -1,12 +1,12 @@
 {
   "CC Switch": "CC Switch",
   "ChatGPT Subscription (Codex)": "ChatGPT Subscription (Codex)",
+  "Claude Base URL": "Claude Base URL",
   "footer.columns.related.links.midjourney": "MjProxy",
   "footer.columns.related.links.newApiKeyTool": "new-api-key-tool",
-  "User-Agent": "User-Agent",
   "MjProxy": "MjProxy",
   "MjProxyPlus": "MjProxyPlus",
-  "Waffo Pancake MoR": "Waffo Pancake MoR",
-  "Claude Base URL": "Claude Base URL",
-  "OpenAI Base URL": "OpenAI Base URL"
+  "OpenAI Base URL": "OpenAI Base URL",
+  "User-Agent": "User-Agent",
+  "Waffo Pancake MoR": "Waffo Pancake MoR"
 }

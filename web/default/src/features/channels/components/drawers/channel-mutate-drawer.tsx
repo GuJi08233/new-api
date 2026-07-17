@@ -198,6 +198,36 @@ const MODEL_MAPPING_PREVIEW_FALLBACK: Array<{
 
 const ADVANCED_SETTINGS_EXPANDED_KEY = 'channel-advanced-settings-expanded'
 const UPSTREAM_DETECTED_MODEL_PREVIEW_LIMIT = 8
+const OA2_UPSTREAMS = [
+  {
+    id: 'openai',
+    label: 'OpenAI',
+    enabledField: 'oa2_openai_enabled',
+    baseUrlField: 'oa2_base_url_openai',
+    placeholder: 'https://oa2.example.com/openai',
+  },
+  {
+    id: 'codex',
+    label: 'Codex',
+    enabledField: 'oa2_codex_enabled',
+    baseUrlField: 'oa2_base_url_codex',
+    placeholder: 'https://oa2.example.com/codex',
+  },
+  {
+    id: 'claude',
+    label: 'Claude',
+    enabledField: 'oa2_claude_enabled',
+    baseUrlField: 'oa2_base_url_claude',
+    placeholder: 'https://oa2.example.com/claude',
+  },
+  {
+    id: 'gemini',
+    label: 'Gemini',
+    enabledField: 'oa2_gemini_enabled',
+    baseUrlField: 'oa2_base_url_gemini',
+    placeholder: 'https://oa2.example.com/gemini',
+  },
+] as const
 
 function readAdvancedSettingsPreference(): boolean {
   if (typeof window === 'undefined') return false
@@ -381,6 +411,12 @@ export function ChannelMutateDrawer({
     'upstream_model_update_check_enabled'
   )
   const currentSettings = form.watch('settings')
+  const oa2ProviderEnabled = {
+    openai: form.watch('oa2_openai_enabled'),
+    codex: form.watch('oa2_codex_enabled'),
+    claude: form.watch('oa2_claude_enabled'),
+    gemini: form.watch('oa2_gemini_enabled'),
+  }
   const {
     unlocked: doubaoApiEditUnlocked,
     handleClick: handleApiConfigSecretClick,
@@ -1221,6 +1257,109 @@ export function ChannelMutateDrawer({
                   </Alert>
                 )}
 
+                {/* OA2 combined channel (type 58) */}
+                {currentType === 58 && (
+                  <div className='space-y-3 rounded-xl border p-3 sm:p-4'>
+                    <div className='space-y-1'>
+                      <SubHeading
+                        title={t('OA2 Upstream Routing')}
+                        icon={<Route className='h-3.5 w-3.5' />}
+                      />
+                      <p className='text-muted-foreground text-xs'>
+                        {t(
+                          'Configure enabled upstreams and their Base URLs.'
+                        )}
+                      </p>
+                    </div>
+
+                    <FormField
+                      control={form.control}
+                      name='base_url'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Shared fallback Base URL')}</FormLabel>
+                          <FormControl>
+                            <Input
+                              placeholder='https://oa2.example.com'
+                              {...field}
+                            />
+                          </FormControl>
+                          <FormDescription className='text-xs'>
+                            {t(
+                              'Used when a provider-specific Base URL is empty; legacy openai and claude values remain supported.'
+                            )}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <div className='grid gap-3 sm:grid-cols-2'>
+                      {OA2_UPSTREAMS.map((upstream) => (
+                        <div
+                          key={upstream.id}
+                          className='space-y-3 rounded-lg border p-3'
+                        >
+                          <FormField
+                            control={form.control}
+                            name={upstream.enabledField}
+                            render={({ field }) => (
+                              <FormItem className='flex items-center justify-between gap-3'>
+                                <div className='space-y-0.5'>
+                                  <FormLabel>
+                                    {t('Enable {{provider}} upstream', {
+                                      provider: upstream.label,
+                                    })}
+                                  </FormLabel>
+                                  <FormDescription className='text-xs'>
+                                    {t(
+                                      'Route compatible requests to this provider.'
+                                    )}
+                                  </FormDescription>
+                                </div>
+                                <FormControl>
+                                  <Switch
+                                    checked={Boolean(field.value)}
+                                    onCheckedChange={field.onChange}
+                                  />
+                                </FormControl>
+                              </FormItem>
+                            )}
+                          />
+
+                          <FormField
+                            control={form.control}
+                            name={upstream.baseUrlField}
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>
+                                  {t('{{provider}} Base URL', {
+                                    provider: upstream.label,
+                                  })}
+                                </FormLabel>
+                                <FormControl>
+                                  <Input
+                                    type='url'
+                                    placeholder={upstream.placeholder}
+                                    disabled={!oa2ProviderEnabled[upstream.id]}
+                                    {...field}
+                                  />
+                                </FormControl>
+                                <FormDescription className='text-xs'>
+                                  {t(
+                                    'Leave empty to use the channel Base URL or built-in endpoint.'
+                                  )}
+                                </FormDescription>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Azure (type 3) */}
                 {currentType === 3 && (
                   <>
@@ -1752,7 +1891,7 @@ export function ChannelMutateDrawer({
                 )}
 
                 {/* General base_url for other types */}
-                {![3, 8, 22, 36, 45].includes(currentType) && (
+                {![3, 8, 22, 36, 45, 58].includes(currentType) && (
                   <FormField
                     control={form.control}
                     name='base_url'

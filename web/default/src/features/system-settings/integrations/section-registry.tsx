@@ -61,20 +61,14 @@ const INTEGRATIONS_SECTIONS = [
           WaffoPayMethods: settings.WaffoPayMethods ?? '[]',
         }}
         waffoPancakeDefaultValues={{
-          WaffoPancakeEnabled: settings.WaffoPancakeEnabled ?? false,
-          WaffoPancakeSandbox: settings.WaffoPancakeSandbox ?? false,
           WaffoPancakeMerchantID: settings.WaffoPancakeMerchantID ?? '',
           WaffoPancakePrivateKey: settings.WaffoPancakePrivateKey ?? '',
-          WaffoPancakeWebhookPublicKey:
-            settings.WaffoPancakeWebhookPublicKey ?? '',
-          WaffoPancakeWebhookTestKey: settings.WaffoPancakeWebhookTestKey ?? '',
-          WaffoPancakeStoreID: settings.WaffoPancakeStoreID ?? '',
-          WaffoPancakeProductID: settings.WaffoPancakeProductID ?? '',
           WaffoPancakeReturnURL: settings.WaffoPancakeReturnURL ?? '',
-          WaffoPancakeCurrency: settings.WaffoPancakeCurrency ?? 'USD',
-          WaffoPancakeUnitPrice: settings.WaffoPancakeUnitPrice ?? 1,
-          WaffoPancakeMinTopUp: settings.WaffoPancakeMinTopUp ?? 1,
         }}
+        waffoPancakeProvisionedStoreID={settings.WaffoPancakeStoreID ?? ''}
+        waffoPancakeProvisionedProductID={
+          settings.WaffoPancakeProductID ?? ''
+        }
       />
     ),
   },
@@ -91,6 +85,8 @@ const INTEGRATIONS_SECTIONS = [
           SMTPFrom: settings.SMTPFrom,
           SMTPToken: settings.SMTPToken,
           SMTPSSLEnabled: settings.SMTPSSLEnabled,
+          SMTPStartTLSEnabled: settings.SMTPStartTLSEnabled,
+          SMTPInsecureSkipVerify: settings.SMTPInsecureSkipVerify,
           SMTPForceAuthLogin: settings.SMTPForceAuthLogin,
         }}
       />
@@ -131,18 +127,15 @@ const INTEGRATIONS_SECTIONS = [
     build: (settings: IntegrationSettings) => (
       <MonitoringSettingsSection
         defaultValues={{
-          ChannelDisableThreshold: settings.ChannelDisableThreshold,
           QuotaRemindThreshold: settings.QuotaRemindThreshold,
-          AutomaticDisableChannelEnabled:
-            settings.AutomaticDisableChannelEnabled,
-          AutomaticEnableChannelEnabled: settings.AutomaticEnableChannelEnabled,
-          AutomaticDisableKeywords: settings.AutomaticDisableKeywords,
-          AutomaticDisableStatusCodes: settings.AutomaticDisableStatusCodes,
-          AutomaticRetryStatusCodes: settings.AutomaticRetryStatusCodes,
-          'monitor_setting.auto_test_channel_enabled':
-            settings['monitor_setting.auto_test_channel_enabled'],
-          'monitor_setting.auto_test_channel_minutes':
-            settings['monitor_setting.auto_test_channel_minutes'],
+          'perf_metrics_setting.enabled':
+            settings['perf_metrics_setting.enabled'] ?? true,
+          'perf_metrics_setting.flush_interval':
+            settings['perf_metrics_setting.flush_interval'] ?? 5,
+          'perf_metrics_setting.bucket_time':
+            settings['perf_metrics_setting.bucket_time'] ?? 'hour',
+          'perf_metrics_setting.retention_days':
+            settings['perf_metrics_setting.retention_days'] ?? 0,
         }}
       />
     ),
@@ -167,3 +160,4 @@ export const getIntegrationsSectionNavItems =
   integrationsRegistry.getSectionNavItems
 export const getIntegrationsSectionContent =
   integrationsRegistry.getSectionContent
+export const getIntegrationsSectionMeta = integrationsRegistry.getSectionMeta

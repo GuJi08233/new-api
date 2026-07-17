@@ -294,6 +294,9 @@ func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 		otherSettings := channel.GetOtherSettings()
 		allModels := make([]string, 0)
 		modelSet := make(map[string]bool)
+		attemptedSources := 0
+		succeededSources := 0
+		errorMessages := make([]string, 0, 4)
 		appendModels := func(models []string) {
 			for _, m := range models {
 				if !modelSet[m] {
@@ -305,57 +308,91 @@ func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 
 		// 获取 OpenAI 格式的模型
 		if otherSettings.OA2OpenAIEnabled && otherSettings.OA2BaseURLOpenAI != "" {
+			attemptedSources++
 			openAIURL := fmt.Sprintf("%s/v1/models", otherSettings.OA2BaseURLOpenAI)
-			if openAIModels, err := fetchOA2OpenAIModels(channel, openAIURL); err == nil {
+			if openAIModels, err := fetchOA2OpenAIModels(channel, openAIURL); err != nil {
+				errorMessages = append(errorMessages, fmt.Sprintf("OpenAI: %v", err))
+			} else {
+				succeededSources++
 				appendModels(openAIModels)
 			}
 		}
 
 		// 获取 Codex(Responses)格式的模型(上游通常也提供 OpenAI 兼容的 /v1/models)
 		if otherSettings.OA2CodexEnabled && otherSettings.OA2BaseURLCodex != "" {
+			attemptedSources++
 			codexURL := fmt.Sprintf("%s/v1/models", otherSettings.OA2BaseURLCodex)
-			if codexModels, err := fetchOA2OpenAIModels(channel, codexURL); err == nil {
+			if codexModels, err := fetchOA2OpenAIModels(channel, codexURL); err != nil {
+				errorMessages = append(errorMessages, fmt.Sprintf("Codex: %v", err))
+			} else {
+				succeededSources++
 				appendModels(codexModels)
 			}
 		}
 
 		// 获取 Claude 格式的模型（大部分中转也用 OpenAI 兼容接口）
 		if otherSettings.OA2ClaudeEnabled && otherSettings.OA2BaseURLClaude != "" {
+			attemptedSources++
 			claudeURL := fmt.Sprintf("%s/v1/models", otherSettings.OA2BaseURLClaude)
-			if claudeModels, err := fetchOA2OpenAIModels(channel, claudeURL); err == nil {
+			if claudeModels, err := fetchOA2OpenAIModels(channel, claudeURL); err != nil {
+				errorMessages = append(errorMessages, fmt.Sprintf("Claude: %v", err))
+			} else {
+				succeededSources++
 				appendModels(claudeModels)
 			}
 		}
 
 		// 获取 Gemini 格式的模型(Gemini 原生 /v1beta/models 接口)
 		if otherSettings.OA2GeminiEnabled && otherSettings.OA2BaseURLGemini != "" {
+			attemptedSources++
 			key := strings.TrimSpace(strings.Split(channel.Key, "\n")[0])
-			if geminiModels, err := gemini.FetchGeminiModels(otherSettings.OA2BaseURLGemini, key, channel.GetSetting().Proxy); err == nil {
+			if geminiModels, err := gemini.FetchGeminiModels(otherSettings.OA2BaseURLGemini, key, channel.GetSetting().Proxy); err != nil {
+				errorMessages = append(errorMessages, fmt.Sprintf("Gemini: %v", err))
+			} else {
+				succeededSources++
 				appendModels(geminiModels)
 			}
 		}
 
-		// 如果获取到模型，返回；否则尝试使用 BaseURL | 分隔符兼容模式
-		if len(allModels) > 0 {
+		// 新格式只要有一路成功就返回聚合结果；全部失败必须返回错误，
+		// 不能把空列表误判成“上游删除了全部模型”。
+		if attemptedSources > 0 {
+			if succeededSources == 0 {
+				return nil, fmt.Errorf("OA2 上游模型获取全部失败: %s", strings.Join(errorMessages, "; "))
+			}
 			return normalizeModelNames(allModels), nil
 		}
 
-		// 兼容模式：尝试解析 BaseURL 中的 | 分隔符
+		// v2.5.5 legacy 模式：BaseURL 使用 "OpenAI|Claude" 保存地址。
 		urls := strings.Split(baseURL, "|")
 		if len(urls) >= 1 && strings.TrimSpace(urls[0]) != "" {
+			attemptedSources++
 			openAIURL := fmt.Sprintf("%s/v1/models", strings.TrimSpace(urls[0]))
-			if openAIModels, err := fetchOA2OpenAIModels(channel, openAIURL); err == nil {
+			if openAIModels, err := fetchOA2OpenAIModels(channel, openAIURL); err != nil {
+				errorMessages = append(errorMessages, fmt.Sprintf("legacy OpenAI: %v", err))
+			} else {
+				succeededSources++
 				appendModels(openAIModels)
 			}
 		}
 
 		if len(urls) >= 2 && strings.TrimSpace(urls[1]) != "" {
+			attemptedSources++
 			claudeURL := fmt.Sprintf("%s/v1/models", strings.TrimSpace(urls[1]))
-			if claudeModels, err := fetchOA2OpenAIModels(channel, claudeURL); err == nil {
+			if claudeModels, err := fetchOA2OpenAIModels(channel, claudeURL); err != nil {
+				errorMessages = append(errorMessages, fmt.Sprintf("legacy Claude: %v", err))
+			} else {
+				succeededSources++
 				appendModels(claudeModels)
 			}
 		}
 
+		if attemptedSources == 0 {
+			return nil, fmt.Errorf("OA2 渠道未配置可用的模型列表地址")
+		}
+		if succeededSources == 0 {
+			return nil, fmt.Errorf("OA2 上游模型获取全部失败: %s", strings.Join(errorMessages, "; "))
+		}
 		return normalizeModelNames(allModels), nil
 	}
 

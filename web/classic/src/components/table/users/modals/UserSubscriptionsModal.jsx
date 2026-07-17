@@ -25,6 +25,7 @@ import {
   Select,
   SideSheet,
   Space,
+  Switch,
   Tag,
   Typography,
 } from '@douyinfe/semi-ui';
@@ -89,6 +90,9 @@ const UserSubscriptionsModal = ({ visible, onCancel, user, t, onSuccess }) => {
 
   const [plans, setPlans] = useState([]);
   const [selectedPlanId, setSelectedPlanId] = useState(null);
+  const [resetTarget, setResetTarget] = useState(null);
+  const [advanceResetTime, setAdvanceResetTime] = useState(true);
+  const [resetting, setResetting] = useState(false);
 
   const [subs, setSubs] = useState([]);
   const [currentPage, setCurrentPage] = useState(1);
@@ -158,7 +162,10 @@ const UserSubscriptionsModal = ({ visible, onCancel, user, t, onSuccess }) => {
   };
 
   useEffect(() => {
-    if (!visible) return;
+    if (!visible) {
+      setResetTarget(null);
+      return;
+    }
     setSelectedPlanId(null);
     setCurrentPage(1);
     loadPlans();
@@ -253,6 +260,42 @@ const UserSubscriptionsModal = ({ visible, onCancel, user, t, onSuccess }) => {
     });
   };
 
+  const openResetSubscription = (subscription) => {
+    setResetTarget(subscription);
+    setAdvanceResetTime(true);
+  };
+
+  const resetUserSubscriptions = async () => {
+    if (!user?.id || !resetTarget?.plan_id) return;
+    setResetting(true);
+    try {
+      const res = await API.post(
+        `/api/subscription/admin/users/${user.id}/subscriptions/reset`,
+        {
+          plan_id: resetTarget.plan_id,
+          advance_reset_time: advanceResetTime,
+        },
+      );
+      const { success, message, data } = res.data || {};
+      if (!success) {
+        showError(message || t('重置订阅额度失败'));
+        return;
+      }
+      showSuccess(
+        t('已重置 {{count}} 个有效订阅的额度', {
+          count: data?.reset_count || 0,
+        }),
+      );
+      setResetTarget(null);
+      await loadUserSubscriptions();
+      onSuccess?.();
+    } catch (error) {
+      showError(error?.message || t('重置订阅额度失败'));
+    } finally {
+      setResetting(false);
+    }
+  };
+
   const columns = useMemo(() => {
     return [
       {
@@ -322,7 +365,7 @@ const UserSubscriptionsModal = ({ visible, onCancel, user, t, onSuccess }) => {
       {
         title: '',
         key: 'operate',
-        width: 140,
+        width: 230,
         fixed: 'right',
         render: (_, record) => {
           const sub = record?.subscription;
@@ -333,6 +376,15 @@ const UserSubscriptionsModal = ({ visible, onCancel, user, t, onSuccess }) => {
           const isCancelled = sub?.status === 'cancelled';
           return (
             <Space>
+              <Button
+                size='small'
+                type='warning'
+                theme='light'
+                disabled={!isActive || isCancelled}
+                onClick={() => openResetSubscription(sub)}
+              >
+                {t('重置额度')}
+              </Button>
               <Button
                 size='small'
                 type='warning'
@@ -434,6 +486,35 @@ const UserSubscriptionsModal = ({ visible, onCancel, user, t, onSuccess }) => {
           size='middle'
         />
       </div>
+      <Modal
+        title={t('重置订阅额度')}
+        visible={!!resetTarget}
+        onCancel={() => setResetTarget(null)}
+        onOk={resetUserSubscriptions}
+        okText={t('确认重置')}
+        cancelText={t('取消')}
+        confirmLoading={resetting}
+        centered
+      >
+        <Space vertical align='start' style={{ width: '100%' }} spacing={16}>
+          <Text>
+            {t('确定重置该用户在套餐「{{plan}}」下的全部有效订阅额度吗？', {
+              plan:
+                planTitleMap.get(resetTarget?.plan_id) ||
+                (resetTarget?.plan_id ? `#${resetTarget.plan_id}` : '-'),
+            })}
+          </Text>
+          <Space>
+            <Switch checked={advanceResetTime} onChange={setAdvanceResetTime} />
+            <div>
+              <Text>{t('推进下次重置时间')}</Text>
+              <Text type='tertiary' size='small' style={{ display: 'block' }}>
+                {t('开启后会从本次手动重置时间重新计算下一次自动重置时间')}
+              </Text>
+            </div>
+          </Space>
+        </Space>
+      </Modal>
     </SideSheet>
   );
 };

@@ -3,13 +3,115 @@ package controller
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
+
+func newOA2ModelListServer(t *testing.T, status int, responseBody string) *httptest.Server {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/models" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte(responseBody))
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
+func newOA2Channel(t *testing.T, baseURL string, settings dto.ChannelOtherSettings) *model.Channel {
+	t.Helper()
+	settingsJSON, err := common.Marshal(settings)
+	require.NoError(t, err)
+	return &model.Channel{
+		Type:          constant.ChannelTypeOA2,
+		Key:           "test-key",
+		BaseURL:       common.GetPointer(baseURL),
+		OtherSettings: string(settingsJSON),
+	}
+}
+
+func TestFetchChannelUpstreamModelIDsOA2AggregatesPartialSuccess(t *testing.T) {
+	openAIServer := newOA2ModelListServer(t, http.StatusOK, `{"data":[{"id":"gpt-4.1"},{"id":"shared-model"}]}`)
+	codexServer := newOA2ModelListServer(t, http.StatusOK, `{"data":[{"id":"shared-model"},{"id":"codex-mini"}]}`)
+	claudeServer := newOA2ModelListServer(t, http.StatusBadGateway, `{"error":"unavailable"}`)
+
+	channel := newOA2Channel(t, "", dto.ChannelOtherSettings{
+		OA2OpenAIEnabled: true,
+		OA2BaseURLOpenAI: openAIServer.URL,
+		OA2CodexEnabled:  true,
+		OA2BaseURLCodex:  codexServer.URL,
+		OA2ClaudeEnabled: true,
+		OA2BaseURLClaude: claudeServer.URL,
+	})
+
+	models, err := fetchChannelUpstreamModelIDs(channel)
+	require.NoError(t, err)
+	require.Equal(t, []string{"gpt-4.1", "shared-model", "codex-mini"}, models)
+}
+
+func TestFetchChannelUpstreamModelIDsOA2ReturnsErrorWhenAllSourcesFail(t *testing.T) {
+	openAIServer := newOA2ModelListServer(t, http.StatusUnauthorized, `{"error":"bad key"}`)
+	claudeServer := newOA2ModelListServer(t, http.StatusBadGateway, `{"error":"unavailable"}`)
+
+	channel := newOA2Channel(t, "", dto.ChannelOtherSettings{
+		OA2OpenAIEnabled: true,
+		OA2BaseURLOpenAI: openAIServer.URL,
+		OA2ClaudeEnabled: true,
+		OA2BaseURLClaude: claudeServer.URL,
+	})
+
+	models, err := fetchChannelUpstreamModelIDs(channel)
+	require.Error(t, err)
+	require.Nil(t, models)
+	require.Contains(t, err.Error(), "OpenAI")
+	require.Contains(t, err.Error(), "Claude")
+}
+
+func TestFetchChannelUpstreamModelIDsOA2SupportsLegacyBaseURL(t *testing.T) {
+	openAIServer := newOA2ModelListServer(t, http.StatusOK, `{"data":[{"id":"legacy-model"}]}`)
+	claudeServer := newOA2ModelListServer(t, http.StatusServiceUnavailable, `{"error":"unavailable"}`)
+	channel := newOA2Channel(t, openAIServer.URL+"|"+claudeServer.URL, dto.ChannelOtherSettings{})
+
+	models, err := fetchChannelUpstreamModelIDs(channel)
+	require.NoError(t, err)
+	require.Equal(t, []string{"legacy-model"}, models)
+}
+
+func TestFetchModelsOA2SupportsLegacyBaseURL(t *testing.T) {
+	openAIServer := newOA2ModelListServer(t, http.StatusOK, `{"data":[{"id":"legacy-model"}]}`)
+	payload, err := common.Marshal(map[string]any{
+		"type":     constant.ChannelTypeOA2,
+		"key":      "test-key",
+		"base_url": openAIServer.URL,
+	})
+	require.NoError(t, err)
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/channel/fetch_models", strings.NewReader(string(payload)))
+	ctx.Request.Header.Set("Content-Type", "application/json")
+
+	FetchModels(ctx)
+
+	var response struct {
+		Success bool     `json:"success"`
+		Data    []string `json:"data"`
+	}
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+	require.True(t, response.Success)
+	require.Equal(t, []string{"legacy-model"}, response.Data)
+}
 
 func TestNormalizeModelNames(t *testing.T) {
 	result := normalizeModelNames([]string{

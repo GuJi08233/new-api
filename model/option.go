@@ -20,6 +20,10 @@ type Option struct {
 	Value string `json:"value"`
 }
 
+func isRemovedOptionKey(key string) bool {
+	return strings.HasPrefix(key, "payment_setting.compliance_")
+}
+
 func AllOption() ([]*Option, error) {
 	var options []*Option
 	var err error
@@ -233,6 +237,12 @@ func SyncOptions(frequency int) {
 }
 
 func UpdateOption(key string, value string) error {
+	if isRemovedOptionKey(key) {
+		return nil
+	}
+	if err := operation_setting.ValidateRiskControlOption(key, value); err != nil {
+		return err
+	}
 	// Save to database first
 	option := Option{
 		Key: key,
@@ -261,8 +271,21 @@ func UpdateOptionsBulk(values map[string]string) error {
 	if len(values) == 0 {
 		return nil
 	}
+	activeValues := make(map[string]string, len(values))
+	for key, value := range values {
+		if isRemovedOptionKey(key) {
+			continue
+		}
+		if err := operation_setting.ValidateRiskControlOption(key, value); err != nil {
+			return err
+		}
+		activeValues[key] = value
+	}
+	if len(activeValues) == 0 {
+		return nil
+	}
 	err := DB.Transaction(func(tx *gorm.DB) error {
-		for k, v := range values {
+		for k, v := range activeValues {
 			option := Option{Key: k}
 			if err := tx.FirstOrCreate(&option, Option{Key: k}).Error; err != nil {
 				return err
@@ -277,7 +300,7 @@ func UpdateOptionsBulk(values map[string]string) error {
 	if err != nil {
 		return err
 	}
-	for k, v := range values {
+	for k, v := range activeValues {
 		if err := updateOptionMap(k, v); err != nil {
 			return err
 		}
@@ -286,6 +309,12 @@ func UpdateOptionsBulk(values map[string]string) error {
 }
 
 func updateOptionMap(key string, value string) (err error) {
+	if isRemovedOptionKey(key) {
+		return nil
+	}
+	if err := operation_setting.ValidateRiskControlOption(key, value); err != nil {
+		return err
+	}
 	common.OptionMapRWMutex.Lock()
 	defer common.OptionMapRWMutex.Unlock()
 	common.OptionMap[key] = value

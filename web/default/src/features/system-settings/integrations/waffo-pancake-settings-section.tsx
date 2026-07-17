@@ -27,6 +27,7 @@ import { Label } from '@/components/ui/label'
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -542,8 +543,11 @@ export function WaffoPancakeSettingsSection({
                 <div className='grid gap-1.5'>
                   <Label>{t('Store')}</Label>
                   <Select
-                    items={storeSelectItems}
-                    value={chosenStoreID}
+                    items={[
+                      { value: null, label: t('Select a store') },
+                      ...storeSelectItems,
+                    ]}
+                    value={chosenStoreID || null}
                     onValueChange={(value) => {
                       // Base UI Select can deliver null on deselect.
                       onSelectedBindingChange({
@@ -553,14 +557,16 @@ export function WaffoPancakeSettingsSection({
                     }}
                   >
                     <SelectTrigger className='w-full'>
-                      <SelectValue placeholder={t('Select a store')} />
+                      <SelectValue />
                     </SelectTrigger>
-                    <SelectContent>
-                      {storeSelectItems.map((item) => (
-                        <SelectItem key={item.value} value={item.value}>
-                          {item.label}
-                        </SelectItem>
-                      ))}
+                    <SelectContent alignItemWithTrigger={false}>
+                      <SelectGroup>
+                        {storeSelectItems.map((item) => (
+                          <SelectItem key={item.value} value={item.value}>
+                            {item.label}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
                     </SelectContent>
                   </Select>
                 </div>
@@ -568,8 +574,11 @@ export function WaffoPancakeSettingsSection({
                 <div className='grid gap-1.5'>
                   <Label>{t('Product')}</Label>
                   <Select
-                    items={productSelectItems}
-                    value={chosenProductID}
+                    items={[
+                      { value: null, label: t('Select a product') },
+                      ...productSelectItems,
+                    ]}
+                    value={chosenProductID || null}
                     onValueChange={(value) =>
                       onSelectedBindingChange((previous) => ({
                         ...previous,
@@ -579,14 +588,16 @@ export function WaffoPancakeSettingsSection({
                     disabled={!chosenStoreID || productSelectItems.length === 0}
                   >
                     <SelectTrigger className='w-full'>
-                      <SelectValue placeholder={t('Select a product')} />
+                      <SelectValue />
                     </SelectTrigger>
-                    <SelectContent>
-                      {productSelectItems.map((item) => (
-                        <SelectItem key={item.value} value={item.value}>
-                          {item.label}
-                        </SelectItem>
-                      ))}
+                    <SelectContent alignItemWithTrigger={false}>
+                      <SelectGroup>
+                        {productSelectItems.map((item) => (
+                          <SelectItem key={item.value} value={item.value}>
+                            {item.label}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
                     </SelectContent>
                   </Select>
                 </div>

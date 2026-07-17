@@ -193,17 +193,22 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
                   <FormLabel>{t('Display Mode')}</FormLabel>
                   <Select
                     items={[
+                      { value: null, label: t('Select display mode') },
                       { value: 'USD', label: t('USD') },
                       { value: 'CNY', label: t('CNY') },
                       { value: 'CUSTOM', label: t('Custom Currency') },
-                      { value: 'TOKENS', label: t('Tokens Only') },
+                      ...(showTokensOnlyOption
+                        ? [{ value: 'TOKENS', label: t('Tokens Only') }]
+                        : []),
                     ]}
-                    value={field.value}
-                    onValueChange={field.onChange}
+                    value={field.value || null}
+                    onValueChange={(value) => {
+                      if (value !== null) field.onChange(value)
+                    }}
                   >
                     <FormControl>
                       <SelectTrigger>
-                        <SelectValue placeholder={t('Select display mode')} />
+                        <SelectValue />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent alignItemWithTrigger={false}>

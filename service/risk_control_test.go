@@ -6,6 +6,7 @@ import (
 
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/require"
 )
 
 func setRiskSetting(t *testing.T, setting *operation_setting.RiskControlSetting) {
@@ -105,6 +106,29 @@ func TestCheckRequestRiskDisabledZeroCost(t *testing.T) {
 	}
 }
 
+func TestCheckRequestRiskUsesProvidedSnapshot(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	setRiskSetting(t, &operation_setting.RiskControlSetting{
+		Enabled:     true,
+		UaBlacklist: []string{"new-rule"},
+	})
+
+	requestSnapshot := &operation_setting.RiskControlSetting{
+		Enabled:           true,
+		UaBlacklist:       []string{"old-rule"},
+		UaBlacklistAction: operation_setting.RiskUaActionBlock,
+	}
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = httptest.NewRequest("POST", "/v1/chat/completions", nil)
+	ctx.Request.Header.Set("User-Agent", "old-rule-client")
+
+	err := checkRequestRisk(ctx, requestSnapshot)
+	require.ErrorIs(t, err, ErrRiskBlocked)
+
+	ctx.Request.Header.Set("User-Agent", "new-rule-client")
+	require.NoError(t, checkRequestRisk(ctx, requestSnapshot))
+}
+
 func TestIsRiskWhitelisted(t *testing.T) {
 	setting := &operation_setting.RiskControlSetting{WhitelistUserIds: []int{7, 42}}
 	if !isRiskWhitelisted(setting, 42) {
@@ -128,14 +152,14 @@ func TestMatchIpBlacklist(t *testing.T) {
 		ip   string
 		want bool
 	}{
-		{ip: "1.2.3.4", want: true},        // 精确 IP
-		{ip: "1.2.3.5", want: false},       // 相邻 IP 不命中
-		{ip: "10.20.30.40", want: true},    // CIDR 命中
-		{ip: "11.0.0.1", want: false},      // CIDR 外
-		{ip: "2001:db8::1", want: true},    // IPv6 CIDR
-		{ip: "2001:db9::1", want: false},   // IPv6 CIDR 外
-		{ip: "", want: false},              // 空 IP
-		{ip: "garbage", want: false},       // 非法 IP
+		{ip: "1.2.3.4", want: true},      // 精确 IP
+		{ip: "1.2.3.5", want: false},     // 相邻 IP 不命中
+		{ip: "10.20.30.40", want: true},  // CIDR 命中
+		{ip: "11.0.0.1", want: false},    // CIDR 外
+		{ip: "2001:db8::1", want: true},  // IPv6 CIDR
+		{ip: "2001:db9::1", want: false}, // IPv6 CIDR 外
+		{ip: "", want: false},            // 空 IP
+		{ip: "garbage", want: false},     // 非法 IP
 	}
 	for _, tt := range tests {
 		if got, _ := MatchIpBlacklist(tt.ip); got != tt.want {

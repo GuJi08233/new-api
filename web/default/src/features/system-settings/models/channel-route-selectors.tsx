@@ -1,3 +1,21 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ChevronDown, Loader2, Plus, Search, Wand2, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -15,6 +33,7 @@ import {
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -98,13 +117,21 @@ export function GroupSelector({ value, onChange }: { value: string; onChange: (v
     <div className='space-y-2'>
       <Label className='text-xs'>{t('Match Groups')}</Label>
       <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger asChild>
-          <Button type='button' variant='outline' className='w-full justify-between font-normal'>
-            <span className='truncate'>
-              {selectedGroups.length > 0 ? selectedGroups.join(', ') : t('All groups (no filter)')}
-            </span>
-            <ChevronDown className='ml-2 h-4 w-4 shrink-0 opacity-50' />
-          </Button>
+        <PopoverTrigger
+          render={
+            <Button
+              type='button'
+              variant='outline'
+              className='w-full justify-between font-normal'
+            />
+          }
+        >
+          <span className='truncate'>
+            {selectedGroups.length > 0
+              ? selectedGroups.join(', ')
+              : t('All groups (no filter)')}
+          </span>
+          <ChevronDown className='ml-2 h-4 w-4 shrink-0 opacity-50' />
         </PopoverTrigger>
         <PopoverContent className='w-64 p-2' align='start'>
           {loading ? (
@@ -166,10 +193,25 @@ export function ModelNameMatcher({ value, onChange }: { value: string; onChange:
     <div className='space-y-2'>
       <Label className='text-xs'>{t('Model Match')} *</Label>
       <div className='flex gap-2'>
-        <Select value={String(matchMode)} onValueChange={(v) => setMatchMode(Number(v))}>
+        <Select
+          items={MATCH_MODES.map((mode) => ({
+            label: t(mode.label),
+            value: String(mode.value),
+          }))}
+          value={String(matchMode)}
+          onValueChange={(mode) => {
+            if (mode !== null) setMatchMode(Number(mode))
+          }}
+        >
           <SelectTrigger className='w-36 shrink-0'><SelectValue /></SelectTrigger>
           <SelectContent>
-            {MATCH_MODES.map((m) => <SelectItem key={m.value} value={String(m.value)}>{t(m.label)}</SelectItem>)}
+            <SelectGroup>
+              {MATCH_MODES.map((mode) => (
+                <SelectItem key={mode.value} value={String(mode.value)}>
+                  {t(mode.label)}
+                </SelectItem>
+              ))}
+            </SelectGroup>
           </SelectContent>
         </Select>
         <Input value={inputValue} onChange={(e) => setInputValue(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAdd() } }} placeholder={t('Enter model name')} className='flex-1' />
@@ -196,6 +238,13 @@ export function ModelNameMatcher({ value, onChange }: { value: string; onChange:
 export function PathSelector({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const { t } = useTranslation()
   const [customPath, setCustomPath] = useState('')
+  const endpointItems = [
+    { label: t('Select an endpoint...'), value: null },
+    ...ENDPOINT_TEMPLATES.map((endpoint) => ({
+      label: `${endpoint.label} — ${endpoint.path}`,
+      value: endpoint.path,
+    })),
+  ]
 
   const entries = useMemo(() => {
     return (value || '').split('\n').filter(Boolean).map((regex) => {
@@ -238,10 +287,23 @@ export function PathSelector({ value, onChange }: { value: string; onChange: (v:
   return (
     <div className='space-y-2'>
       <Label className='text-xs'>{t('Match Paths')}</Label>
-      <Select onValueChange={addPath}>
-        <SelectTrigger><SelectValue placeholder={t('Select an endpoint...')} /></SelectTrigger>
+      <Select
+        items={endpointItems}
+        value={null}
+        onValueChange={(path) => {
+          if (path) addPath(path)
+        }}
+      >
+        <SelectTrigger><SelectValue /></SelectTrigger>
         <SelectContent>
-          {ENDPOINT_TEMPLATES.map((ep) => <SelectItem key={ep.path} value={ep.path}>{ep.label} — {ep.path}</SelectItem>)}
+          <SelectGroup>
+            <SelectItem value={null}>{t('Select an endpoint...')}</SelectItem>
+            {ENDPOINT_TEMPLATES.map((endpoint) => (
+              <SelectItem key={endpoint.path} value={endpoint.path}>
+                {endpoint.label} — {endpoint.path}
+              </SelectItem>
+            ))}
+          </SelectGroup>
         </SelectContent>
       </Select>
       <div className='flex gap-2'>
@@ -339,11 +401,17 @@ export function ChannelSelector({ value, onChange, compact = false }: { value: s
         </Button>
       </div>
       <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger asChild>
-          <Button type='button' variant='outline' className='w-full justify-between font-normal'>
-            <span className='truncate'>{selectedIds.length > 0 ? t('{{count}} channels selected', { count: selectedIds.length }) : t('Select channels...')}</span>
-            <ChevronDown className='ml-2 h-4 w-4 shrink-0 opacity-50' />
-          </Button>
+        <PopoverTrigger
+          render={
+            <Button
+              type='button'
+              variant='outline'
+              className='w-full justify-between font-normal'
+            />
+          }
+        >
+          <span className='truncate'>{selectedIds.length > 0 ? t('{{count}} channels selected', { count: selectedIds.length }) : t('Select channels...')}</span>
+          <ChevronDown className='ml-2 h-4 w-4 shrink-0 opacity-50' />
         </PopoverTrigger>
         <PopoverContent className='w-80 p-0' align='start'>
           <div className='border-b p-2'>

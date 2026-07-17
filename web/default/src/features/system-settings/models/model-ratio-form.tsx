@@ -68,11 +68,101 @@ type ModelRatioFormProps = {
   onReset: () => void
   isSaving: boolean
   isResetting: boolean
-  // 分组定价相关 props
+  variant?: 'default' | 'unset'
   selectedGroup?: string
   onGroupChange?: (group: string) => void
   availableGroups?: string[]
   onSyncComplete?: () => void
+}
+
+type ModelJsonFieldName =
+  | 'ModelPrice'
+  | 'ModelRatio'
+  | 'CacheRatio'
+  | 'CreateCacheRatio'
+  | 'CompletionRatio'
+  | 'ImageRatio'
+  | 'AudioRatio'
+  | 'AudioCompletionRatio'
+
+const modelJsonFields: Array<{
+  name: ModelJsonFieldName
+  labelKey: string
+  descriptionKey: string
+}> = [
+  {
+    name: 'ModelPrice',
+    labelKey: 'Model fixed pricing',
+    descriptionKey:
+      'JSON map of model → USD cost per request. Takes precedence over ratio based billing.',
+  },
+  {
+    name: 'ModelRatio',
+    labelKey: 'Model ratio',
+    descriptionKey: 'JSON map of model → multiplier applied to quota billing.',
+  },
+  {
+    name: 'CacheRatio',
+    labelKey: 'Prompt cache ratio',
+    descriptionKey: 'Optional ratio used when upstream cache hits occur.',
+  },
+  {
+    name: 'CreateCacheRatio',
+    labelKey: 'Create cache ratio',
+    descriptionKey:
+      'Ratio applied when creating cache entries for supported models.',
+  },
+  {
+    name: 'CompletionRatio',
+    labelKey: 'Completion ratio',
+    descriptionKey:
+      'Applies to custom completion endpoints. JSON map of model → ratio.',
+  },
+  {
+    name: 'ImageRatio',
+    labelKey: 'Image ratio',
+    descriptionKey: 'Configure per-model ratio for image inputs or outputs.',
+  },
+  {
+    name: 'AudioRatio',
+    labelKey: 'Audio ratio',
+    descriptionKey:
+      'Ratio applied to audio inputs where supported by the upstream model.',
+  },
+  {
+    name: 'AudioCompletionRatio',
+    labelKey: 'Audio completion ratio',
+    descriptionKey: 'Ratio applied to audio completions for streaming models.',
+  },
+]
+
+function ModelJsonTextareaField(props: {
+  form: UseFormReturn<ModelFormValues>
+  name: ModelJsonFieldName
+  label: string
+  description: string
+}) {
+  return (
+    <FormField
+      control={props.form.control}
+      name={props.name}
+      render={({ field }) => (
+        <FormItem className='flex min-w-0 flex-col gap-2'>
+          <FormLabel>{props.label}</FormLabel>
+          <FormControl>
+            <JsonCodeEditor
+              value={field.value}
+              onChange={(value) => field.onChange(value)}
+            />
+          </FormControl>
+          <FormDescription className='text-xs leading-5'>
+            {props.description}
+          </FormDescription>
+          <FormMessage />
+        </FormItem>
+      )}
+    />
+  )
 }
 
 export const ModelRatioForm = memo(function ModelRatioForm({
@@ -82,6 +172,7 @@ export const ModelRatioForm = memo(function ModelRatioForm({
   onReset,
   isSaving,
   isResetting,
+  variant = 'default',
   selectedGroup = 'global',
   onGroupChange,
   availableGroups = [],
@@ -137,16 +228,18 @@ export const ModelRatioForm = memo(function ModelRatioForm({
     <div className='space-y-6'>
       {!isUnsetVariant && (
         <div className='flex flex-wrap justify-end gap-2'>
-          <Button
-            type='button'
-            variant='destructive'
-            size='sm'
-            onClick={onReset}
-            disabled={isResetting}
-          >
-            <RotateCcw data-icon='inline-start' />
-            {t('Reset prices')}
-          </Button>
+          {selectedGroup === 'global' && (
+            <Button
+              type='button'
+              variant='destructive'
+              size='sm'
+              onClick={onReset}
+              disabled={isResetting}
+            >
+              <RotateCcw data-icon='inline-start' />
+              {t('Reset prices')}
+            </Button>
+          )}
           {editMode === 'json' && (
             <Button
               type='button'
@@ -223,7 +316,7 @@ export const ModelRatioForm = memo(function ModelRatioForm({
               onSyncComplete={onSyncComplete}
             />
 
-            {!isUnsetVariant && (
+            {!isUnsetVariant && selectedGroup === 'global' && (
               <FormField
                 control={form.control}
                 name='ExposeRatioEnabled'
@@ -262,28 +355,30 @@ export const ModelRatioForm = memo(function ModelRatioForm({
               ))}
             </div>
 
-            <FormField
-              control={form.control}
-              name='ExposeRatioEnabled'
-              render={({ field }) => (
-                <SettingsSwitchItem>
-                  <SettingsSwitchContent>
-                    <FormLabel>{t('Expose ratio API')}</FormLabel>
-                    <FormDescription>
-                      {t(
-                        'Allow clients to query configured ratios via `/api/ratio`.'
-                      )}
-                    </FormDescription>
-                  </SettingsSwitchContent>
-                  <FormControl>
-                    <Switch
-                      checked={field.value}
-                      onCheckedChange={field.onChange}
-                    />
-                  </FormControl>
-                </SettingsSwitchItem>
-              )}
-            />
+            {selectedGroup === 'global' && (
+              <FormField
+                control={form.control}
+                name='ExposeRatioEnabled'
+                render={({ field }) => (
+                  <SettingsSwitchItem>
+                    <SettingsSwitchContent>
+                      <FormLabel>{t('Expose ratio API')}</FormLabel>
+                      <FormDescription>
+                        {t(
+                          'Allow clients to query configured ratios via `/api/ratio`.'
+                        )}
+                      </FormDescription>
+                    </SettingsSwitchContent>
+                    <FormControl>
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                  </SettingsSwitchItem>
+                )}
+              />
+            )}
           </SettingsForm>
         )}
       </Form>

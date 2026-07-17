@@ -1,3 +1,21 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
 import { useEffect, useMemo, useState } from 'react'
 import * as z from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -29,6 +47,7 @@ import { Label } from '@/components/ui/label'
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -185,8 +204,6 @@ function validateTiers(tiers: RouteTier[]): string[] {
 
   // Check for dead tiers and overlaps by building effective ranges per variable
   // For each variable (len, p, c), track the constraints imposed by earlier tiers
-  const vars: Array<'len' | 'p' | 'c'> = ['len', 'p', 'c']
-
   for (let i = 1; i < tiers.length; i++) {
     const tier = tiers[i]
     if (tier.conditions.length === 0) continue // catch-all, skip
@@ -392,37 +409,43 @@ function ConditionRow({
   return (
     <div className='flex items-center gap-2'>
       <Select
+        items={VAR_OPTIONS}
         value={condition.var}
-        onValueChange={(value) =>
-          onChange({ ...condition, var: value as RouteTierCondition['var'] })
-        }
+        onValueChange={(value) => {
+          if (value) onChange({ ...condition, var: value })
+        }}
       >
         <SelectTrigger className='w-32' size='sm'>
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          {VAR_OPTIONS.map((option) => (
-            <SelectItem key={option.value} value={option.value}>
-              {option.label}
-            </SelectItem>
-          ))}
+          <SelectGroup>
+            {VAR_OPTIONS.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectGroup>
         </SelectContent>
       </Select>
       <Select
+        items={OPS.map((op) => ({ label: op, value: op }))}
         value={condition.op}
-        onValueChange={(value) =>
-          onChange({ ...condition, op: value as RouteTierCondition['op'] })
-        }
+        onValueChange={(value) => {
+          if (value) onChange({ ...condition, op: value })
+        }}
       >
         <SelectTrigger className='w-20' size='sm'>
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          {OPS.map((op) => (
-            <SelectItem key={op} value={op}>
-              {op}
-            </SelectItem>
-          ))}
+          <SelectGroup>
+            {OPS.map((op) => (
+              <SelectItem key={op} value={op}>
+                {op}
+              </SelectItem>
+            ))}
+          </SelectGroup>
         </SelectContent>
       </Select>
       <Input
@@ -608,7 +631,10 @@ function RouteTierEditor({
       i === index
         ? {
             ...tier,
-            conditions: [...tier.conditions, { var: nextVar, op: '<', value: 200000 }],
+            conditions: [
+              ...tier.conditions,
+              { var: nextVar, op: '<' as const, value: 200000 },
+            ],
           }
         : tier
     )

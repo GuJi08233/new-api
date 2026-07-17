@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { dataScheme as vchartDefaultDataScheme } from '@visactor/vchart/esm/theme/color-scheme/builtin/default'
+
 import { getCurrencyDisplay } from '@/lib/currency'
 import { formatTokenCount } from '@/lib/format'
 import { formatChartTime, type TimeGranularity } from '@/lib/time'
@@ -26,8 +27,6 @@ import type {
   ProcessedChartData,
   ProcessedUserChartData,
 } from '@/features/dashboard/types'
-import { getCurrencyDisplay } from '@/lib/currency'
-import { formatChartTime, type TimeGranularity } from '@/lib/time'
 
 type TFunction = (key: string) => string
 type TooltipLineItem = {
@@ -793,8 +792,6 @@ export function processUserChartData(
   const quotaPerUnit = config.quotaPerUnit
 
   const formatVal = (raw: number) => renderQuotaCompat(raw, 2)
-  const formatInt = (value: number) =>
-    Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(value)
   const formatTokens = (value: number) =>
     formatTokenCount(value, { zeroAsDash: false })
 

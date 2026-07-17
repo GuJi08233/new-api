@@ -1,7 +1,14 @@
 import { useEffect, useState } from 'react'
 import { useForm, type Resolver, useFieldArray } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { CalendarClock, CreditCard, Plus, RefreshCw, Settings2, Trash2 } from 'lucide-react'
+import {
+  CalendarClock,
+  CreditCard,
+  Plus,
+  RefreshCw,
+  Settings2,
+  Trash2,
+} from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -18,6 +25,7 @@ import { Input } from '@/components/ui/input'
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -33,7 +41,11 @@ import {
 } from '@/components/ui/sheet'
 import { Switch } from '@/components/ui/switch'
 import { createPlan, updatePlan, getGroups } from '../api'
-import { getDurationUnitOptions, getResetPeriodOptions, getTierPeriodOptions } from '../constants'
+import {
+  getDurationUnitOptions,
+  getResetPeriodOptions,
+  getTierPeriodOptions,
+} from '../constants'
 import {
   getPlanFormSchema,
   PLAN_FORM_DEFAULTS,
@@ -67,7 +79,11 @@ export function SubscriptionsMutateDrawer({
     defaultValues: PLAN_FORM_DEFAULTS,
   })
 
-  const { fields: tierFields, append: appendTier, remove: removeTier } = useFieldArray({
+  const {
+    fields: tierFields,
+    append: appendTier,
+    remove: removeTier,
+  } = useFieldArray({
     control: form.control,
     name: 'quota_tiers',
   })
@@ -124,6 +140,10 @@ export function SubscriptionsMutateDrawer({
     { value: 'active', label: t('Release on subscription expiry') },
   ]
   const tierPeriodOpts = getTierPeriodOptions(t)
+  const upgradeGroupOptions = [
+    { value: null, label: t('No Upgrade') },
+    ...groupOptions.map((group) => ({ value: group, label: group })),
+  ]
 
   const handleAddTier = () => {
     const currentTiers = form.getValues('quota_tiers') || []
@@ -260,25 +280,26 @@ export function SubscriptionsMutateDrawer({
                     <FormItem>
                       <FormLabel>{t('Upgrade Group')}</FormLabel>
                       <Select
-                        onValueChange={(v) =>
-                          field.onChange(v === '__none__' ? '' : v)
-                        }
-                        value={field.value || ''}
+                        items={upgradeGroupOptions}
+                        onValueChange={(value) => field.onChange(value ?? '')}
+                        value={field.value || null}
                       >
                         <FormControl>
                           <SelectTrigger>
-                            <SelectValue placeholder={t('No Upgrade')} />
+                            <SelectValue />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          <SelectItem value='__none__'>
-                            {t('No Upgrade')}
-                          </SelectItem>
-                          {groupOptions.map((g) => (
-                            <SelectItem key={g} value={g}>
-                              {g}
-                            </SelectItem>
-                          ))}
+                          <SelectGroup>
+                            {upgradeGroupOptions.map((option) => (
+                              <SelectItem
+                                key={option.value ?? '__none__'}
+                                value={option.value}
+                              >
+                                {option.label}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
                         </SelectContent>
                       </Select>
                       <FormMessage />
@@ -343,9 +364,14 @@ export function SubscriptionsMutateDrawer({
                     <FormItem>
                       <FormLabel>{t('Global Purchase Reset Period')}</FormLabel>
                       <Select
-                        onValueChange={field.onChange}
+                        items={purchaseResetPeriodOpts}
+                        onValueChange={(value) => {
+                          if (value !== null) field.onChange(value)
+                        }}
                         value={field.value}
-                        disabled={Number(form.watch('max_purchase_total') || 0) <= 0}
+                        disabled={
+                          Number(form.watch('max_purchase_total') || 0) <= 0
+                        }
                       >
                         <FormControl>
                           <SelectTrigger>
@@ -353,11 +379,13 @@ export function SubscriptionsMutateDrawer({
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {purchaseResetPeriodOpts.map((o) => (
-                            <SelectItem key={o.value} value={o.value}>
-                              {o.label}
-                            </SelectItem>
-                          ))}
+                          <SelectGroup>
+                            {purchaseResetPeriodOpts.map((o) => (
+                              <SelectItem key={o.value} value={o.value}>
+                                {o.label}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
                         </SelectContent>
                       </Select>
                       <FormDescription>
@@ -375,14 +403,17 @@ export function SubscriptionsMutateDrawer({
                   name='max_purchase_reset_custom_seconds'
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>{t('Global Purchase Custom Seconds')}</FormLabel>
+                      <FormLabel>
+                        {t('Global Purchase Custom Seconds')}
+                      </FormLabel>
                       <FormControl>
                         <Input
                           {...field}
                           type='number'
                           min={0}
                           disabled={
-                            Number(form.watch('max_purchase_total') || 0) <= 0 ||
+                            Number(form.watch('max_purchase_total') || 0) <=
+                              0 ||
                             form.watch('max_purchase_reset_period') !== 'custom'
                           }
                           onChange={(e) =>
@@ -391,7 +422,9 @@ export function SubscriptionsMutateDrawer({
                         />
                       </FormControl>
                       <FormDescription>
-                        {t('Only used when global purchase reset period is custom')}
+                        {t(
+                          'Only used when global purchase reset period is custom'
+                        )}
                       </FormDescription>
                       <FormMessage />
                     </FormItem>
@@ -455,7 +488,10 @@ export function SubscriptionsMutateDrawer({
                     <FormItem>
                       <FormLabel>{t('Duration Unit')}</FormLabel>
                       <Select
-                        onValueChange={field.onChange}
+                        items={durationUnitOpts}
+                        onValueChange={(value) => {
+                          if (value !== null) field.onChange(value)
+                        }}
                         value={field.value}
                       >
                         <FormControl>
@@ -464,11 +500,13 @@ export function SubscriptionsMutateDrawer({
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {durationUnitOpts.map((o) => (
-                            <SelectItem key={o.value} value={o.value}>
-                              {o.label}
-                            </SelectItem>
-                          ))}
+                          <SelectGroup>
+                            {durationUnitOpts.map((o) => (
+                              <SelectItem key={o.value} value={o.value}>
+                                {o.label}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
                         </SelectContent>
                       </Select>
                       <FormMessage />
@@ -537,7 +575,9 @@ export function SubscriptionsMutateDrawer({
                     <div className='space-y-0.5'>
                       <FormLabel>{t('Multi-Tier Quota')}</FormLabel>
                       <FormDescription>
-                        {t('Configure multiple quota limits with different periods')}
+                        {t(
+                          'Configure multiple quota limits with different periods'
+                        )}
                       </FormDescription>
                     </div>
                     <FormControl>
@@ -553,7 +593,10 @@ export function SubscriptionsMutateDrawer({
               {useMultiTier ? (
                 <div className='space-y-3'>
                   {tierFields.map((field, index) => (
-                    <div key={field.id} className='rounded-lg border p-3 space-y-3'>
+                    <div
+                      key={field.id}
+                      className='rounded-lg border p-3 space-y-3'
+                    >
                       <div className='flex items-center justify-between'>
                         <span className='text-sm font-medium'>
                           {t('Tier')} #{index + 1}
@@ -573,19 +616,29 @@ export function SubscriptionsMutateDrawer({
                           name={`quota_tiers.${index}.period`}
                           render={({ field: f }) => (
                             <FormItem>
-                              <FormLabel className='text-xs'>{t('Period')}</FormLabel>
-                              <Select onValueChange={f.onChange} value={f.value}>
+                              <FormLabel className='text-xs'>
+                                {t('Period')}
+                              </FormLabel>
+                              <Select
+                                items={tierPeriodOpts}
+                                onValueChange={(value) => {
+                                  if (value !== null) f.onChange(value)
+                                }}
+                                value={f.value}
+                              >
                                 <FormControl>
                                   <SelectTrigger>
                                     <SelectValue />
                                   </SelectTrigger>
                                 </FormControl>
                                 <SelectContent>
-                                  {tierPeriodOpts.map((o) => (
-                                    <SelectItem key={o.value} value={o.value}>
-                                      {o.label}
-                                    </SelectItem>
-                                  ))}
+                                  <SelectGroup>
+                                    {tierPeriodOpts.map((o) => (
+                                      <SelectItem key={o.value} value={o.value}>
+                                        {o.label}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectGroup>
                                 </SelectContent>
                               </Select>
                               <FormMessage />
@@ -597,14 +650,18 @@ export function SubscriptionsMutateDrawer({
                           name={`quota_tiers.${index}.limit`}
                           render={({ field: f }) => (
                             <FormItem>
-                              <FormLabel className='text-xs'>{t('Limit')}</FormLabel>
+                              <FormLabel className='text-xs'>
+                                {t('Limit')}
+                              </FormLabel>
                               <FormControl>
                                 <Input
                                   {...f}
                                   type='number'
                                   min={0}
                                   onChange={(e) =>
-                                    f.onChange(parseInt(e.target.value, 10) || 0)
+                                    f.onChange(
+                                      parseInt(e.target.value, 10) || 0
+                                    )
                                   }
                                 />
                               </FormControl>
@@ -613,20 +670,25 @@ export function SubscriptionsMutateDrawer({
                           )}
                         />
                       </div>
-                      {form.watch(`quota_tiers.${index}.period`) === 'custom' && (
+                      {form.watch(`quota_tiers.${index}.period`) ===
+                        'custom' && (
                         <FormField
                           control={form.control}
                           name={`quota_tiers.${index}.custom_seconds`}
                           render={({ field: f }) => (
                             <FormItem>
-                              <FormLabel className='text-xs'>{t('Custom Seconds')}</FormLabel>
+                              <FormLabel className='text-xs'>
+                                {t('Custom Seconds')}
+                              </FormLabel>
                               <FormControl>
                                 <Input
                                   {...f}
                                   type='number'
                                   min={1}
                                   onChange={(e) =>
-                                    f.onChange(parseInt(e.target.value, 10) || 0)
+                                    f.onChange(
+                                      parseInt(e.target.value, 10) || 0
+                                    )
                                   }
                                 />
                               </FormControl>
@@ -668,7 +730,10 @@ export function SubscriptionsMutateDrawer({
                       <FormItem>
                         <FormLabel>{t('Reset Cycle')}</FormLabel>
                         <Select
-                          onValueChange={field.onChange}
+                          items={resetPeriodOpts}
+                          onValueChange={(value) => {
+                            if (value !== null) field.onChange(value)
+                          }}
                           value={field.value}
                         >
                           <FormControl>
@@ -677,11 +742,13 @@ export function SubscriptionsMutateDrawer({
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            {resetPeriodOpts.map((o) => (
-                              <SelectItem key={o.value} value={o.value}>
-                                {o.label}
-                              </SelectItem>
-                            ))}
+                            <SelectGroup>
+                              {resetPeriodOpts.map((o) => (
+                                <SelectItem key={o.value} value={o.value}>
+                                  {o.label}
+                                </SelectItem>
+                              ))}
+                            </SelectGroup>
                           </SelectContent>
                         </Select>
                         <FormMessage />
@@ -724,7 +791,9 @@ export function SubscriptionsMutateDrawer({
                     <div className='space-y-0.5'>
                       <FormLabel>{t('Disable Balance Deduction')}</FormLabel>
                       <FormDescription>
-                        {t('When enabled, users on this plan can only use subscription quota')}
+                        {t(
+                          'When enabled, users on this plan can only use subscription quota'
+                        )}
                       </FormDescription>
                     </div>
                     <FormControl>
@@ -776,8 +845,8 @@ export function SubscriptionsMutateDrawer({
           </form>
         </Form>
         <SheetFooter className='grid grid-cols-2 gap-2 border-t px-4 py-3 sm:flex sm:px-6 sm:py-4'>
-          <SheetClose asChild>
-            <Button variant='outline'>{t('Close')}</Button>
+          <SheetClose render={<Button variant='outline' />}>
+            {t('Close')}
           </SheetClose>
           <Button
             form='subscription-form'

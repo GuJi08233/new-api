@@ -18,6 +18,8 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import { useRef, useState } from 'react';
+import { Modal } from '@douyinfe/semi-ui';
+import { useNavigate } from 'react-router-dom';
 import { API, showError, showInfo, showSuccess } from '../../helpers';
 import { normalizeModelList } from './upstreamUpdateUtils';
 
@@ -39,6 +41,7 @@ const getManualIgnoredModelCountFromSettings = (settings) => {
 };
 
 export const useChannelUpstreamUpdates = ({ t, refresh }) => {
+  const navigate = useNavigate();
   const [showUpstreamUpdateModal, setShowUpstreamUpdateModal] = useState(false);
   const [upstreamUpdateChannel, setUpstreamUpdateChannel] = useState(null);
   const [upstreamUpdateAddModels, setUpstreamUpdateAddModels] = useState([]);
@@ -263,21 +266,24 @@ export const useChannelUpstreamUpdates = ({ t, refresh }) => {
         return;
       }
 
-      const channelCount = data?.processed_channels || 0;
-      const addCount = data?.detected_add_models || 0;
-      const removeCount = data?.detected_remove_models || 0;
-      const failedCount = (data?.failed_channel_ids || []).length;
-      showSuccess(
-        t(
-          '批量检测完成：渠道 {{channels}} 个，新增 {{add}} 个，删除 {{remove}} 个，失败 {{fails}} 个',
-          {
-            channels: channelCount,
-            add: addCount,
-            remove: removeCount,
-            fails: failedCount,
-          },
-        ),
-      );
+      const taskId = data?.task_id;
+      showSuccess(t('批量检测任务已启动'));
+      if (taskId) {
+        Modal.confirm({
+          title: t('批量检测任务已启动'),
+          content: t(
+            '任务正在后台执行，可前往系统信息查看进度。任务 ID：{{taskId}}',
+            { taskId },
+          ),
+          okText: t('查看系统任务'),
+          cancelText: t('稍后查看'),
+          centered: true,
+          onOk: () =>
+            navigate(
+              `/console/system_info?task_id=${encodeURIComponent(taskId)}`,
+            ),
+        });
+      }
       await refresh();
     } catch (error) {
       showError(

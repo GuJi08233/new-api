@@ -155,18 +155,21 @@ export function DashboardSection({ defaultValues }: DashboardSectionProps) {
                   <FormLabel>{t('Default time granularity')}</FormLabel>
                   <Select
                     items={[
+                      { value: null, label: t('Select granularity') },
                       ...granularityOptions.map((option) => ({
                         value: option.value,
                         label: t(option.label),
                       })),
                     ]}
-                    onValueChange={field.onChange}
-                    value={field.value}
+                    onValueChange={(value) => {
+                      if (value !== null) field.onChange(value)
+                    }}
+                    value={field.value || null}
                     disabled={!isEnabled}
                   >
                     <FormControl>
                       <SelectTrigger>
-                        <SelectValue placeholder={t('Select granularity')} />
+                        <SelectValue />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent alignItemWithTrigger={false}>

@@ -60,10 +60,13 @@ func matchUaEntry(entry string, ua string) bool {
 
 // MatchUaBlacklist 返回 UA 是否命中黑名单,以及命中的规则。
 func MatchUaBlacklist(ua string) (bool, string) {
+	return matchUaBlacklist(operation_setting.GetRiskControlSetting(), ua)
+}
+
+func matchUaBlacklist(setting *operation_setting.RiskControlSetting, ua string) (bool, string) {
 	if ua == "" {
 		return false, ""
 	}
-	setting := operation_setting.GetRiskControlSetting()
 	if setting == nil || !setting.Enabled || len(setting.UaBlacklist) == 0 {
 		return false, ""
 	}
@@ -105,10 +108,13 @@ func matchIpEntry(entry string, ip net.IP) bool {
 
 // MatchIpBlacklist 返回 IP 是否命中黑名单,以及命中的规则。
 func MatchIpBlacklist(ipStr string) (bool, string) {
+	return matchIpBlacklist(operation_setting.GetRiskControlSetting(), ipStr)
+}
+
+func matchIpBlacklist(setting *operation_setting.RiskControlSetting, ipStr string) (bool, string) {
 	if ipStr == "" {
 		return false, ""
 	}
-	setting := operation_setting.GetRiskControlSetting()
 	if setting == nil || !setting.Enabled || len(setting.IpBlacklist) == 0 {
 		return false, ""
 	}
@@ -141,7 +147,10 @@ func isRiskWhitelisted(setting *operation_setting.RiskControlSetting, userId int
 // 未命中返回 nil;UA 命中且动作为 disable_user 时会同时禁用当前用户;
 // IP 命中一律直接拒绝调用。总开关关闭或黑名单全空时零开销返回。
 func CheckRequestRisk(c *gin.Context) error {
-	setting := operation_setting.GetRiskControlSetting()
+	return checkRequestRisk(c, operation_setting.GetRiskControlSetting())
+}
+
+func checkRequestRisk(c *gin.Context, setting *operation_setting.RiskControlSetting) error {
 	if setting == nil || !setting.Enabled {
 		return nil
 	}
@@ -150,14 +159,14 @@ func CheckRequestRisk(c *gin.Context) error {
 	}
 
 	if ip := c.ClientIP(); ip != "" {
-		if matched, rule := MatchIpBlacklist(ip); matched {
+		if matched, rule := matchIpBlacklist(setting, ip); matched {
 			common.SysLog(fmt.Sprintf("risk control: blocked request, ip=%q hit rule=%q", ip, rule))
 			return ErrRiskBlocked
 		}
 	}
 
 	ua := c.Request.UserAgent()
-	matched, rule := MatchUaBlacklist(ua)
+	matched, rule := matchUaBlacklist(setting, ua)
 	if !matched {
 		return nil
 	}
@@ -166,7 +175,7 @@ func CheckRequestRisk(c *gin.Context) error {
 		userId := c.GetInt("id")
 		if userId > 0 && !isRiskWhitelisted(setting, userId) {
 			reason := fmt.Sprintf("UA 命中黑名单规则 [%s] 触发自动封禁", rule)
-			if err := DisableUserForRisk(userId, reason); err != nil {
+			if err := disableUserForRisk(setting, userId, reason); err != nil {
 				common.SysLog(fmt.Sprintf("risk control: failed to disable user %d: %s", userId, err.Error()))
 			}
 		}
@@ -179,10 +188,13 @@ func CheckRequestRisk(c *gin.Context) error {
 // 置 status=禁用 → 落库 → 失效用户缓存与其全部令牌缓存 → 记录管理日志。
 // 对 root/admin 角色、白名单用户、已禁用用户幂等跳过。
 func DisableUserForRisk(userId int, reason string) error {
+	return disableUserForRisk(operation_setting.GetRiskControlSetting(), userId, reason)
+}
+
+func disableUserForRisk(setting *operation_setting.RiskControlSetting, userId int, reason string) error {
 	if userId <= 0 {
 		return nil
 	}
-	setting := operation_setting.GetRiskControlSetting()
 	if isRiskWhitelisted(setting, userId) {
 		return nil
 	}

@@ -484,7 +484,7 @@ export function RechargeFormCard({
                           const loadingKey = `ethereum:${token.address}`
                           const ethereumMin =
                             topupInfo?.ethereum_min_topup ||
-                            ethereumInfo.min_topup ||
+                            ethereumInfo?.min_topup ||
                             0
                           const belowMin = ethereumMin > topupAmount
 

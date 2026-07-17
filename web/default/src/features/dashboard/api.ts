@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { api } from '@/lib/api'
 import type {
+  FlowQuotaDataItem,
   ModelAvailabilityItem,
   QuotaDataItem,
   UptimeGroupResult,

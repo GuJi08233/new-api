@@ -379,7 +379,7 @@ func (info *RelayInfo) ToString() string {
 var streamSupportedChannels = map[int]bool{
 	constant.ChannelTypeOpenAI:      true,
 	constant.ChannelTypeAnthropic:   true,
-	constant.ChannelTypeOA2:         true, // OA二合一渠道
+	constant.ChannelTypeOA2:         true, // OA2 四合一渠道
 	constant.ChannelTypeAws:         true,
 	constant.ChannelTypeGemini:      true,
 	constant.ChannelCloudflare:      true,

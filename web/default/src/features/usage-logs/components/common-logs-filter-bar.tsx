@@ -178,7 +178,7 @@ export function CommonLogsFilterBar({
         <Select
           value={logType}
           onValueChange={(value) => {
-            setLogType(isLogTypeValue(value) ? value : '')
+            setLogType(value && isLogTypeValue(value) ? value : '')
           }}
         >
           <SelectTrigger className='h-9'>

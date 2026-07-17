@@ -522,25 +522,31 @@ export function AnnouncementsSection({
                 <FormItem>
                   <FormLabel>{t('Type')}</FormLabel>
                   <Select
-                    items={typeOptions.map((option) => ({
-                      value: option.value,
-                      label: (
-                        <div className='flex items-center gap-2'>
-                          <div
-                            className={`h-3 w-3 rounded-full ${option.color}`}
-                          />
-                          {option.label}
-                        </div>
-                      ),
-                    }))}
-                    onValueChange={field.onChange}
-                    value={field.value}
+                    items={[
+                      {
+                        value: null,
+                        label: t('Select announcement type'),
+                      },
+                      ...typeOptions.map((option) => ({
+                        value: option.value,
+                        label: (
+                          <div className='flex items-center gap-2'>
+                            <div
+                              className={`h-3 w-3 rounded-full ${option.color}`}
+                            />
+                            {option.label}
+                          </div>
+                        ),
+                      })),
+                    ]}
+                    onValueChange={(value) => {
+                      if (value !== null) field.onChange(value)
+                    }}
+                    value={field.value || null}
                   >
                     <FormControl>
                       <SelectTrigger>
-                        <SelectValue
-                          placeholder={t('Select announcement type')}
-                        />
+                        <SelectValue />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent alignItemWithTrigger={false}>

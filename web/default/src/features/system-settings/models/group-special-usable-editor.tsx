@@ -144,19 +144,28 @@ function GroupSelect(props: GroupSelectProps) {
     }
     return props.options
   }, [props.options, props.value])
+  const items = useMemo(
+    () => [
+      { label: props.placeholder, value: null },
+      ...knownOptions.map((name) => ({ label: name, value: name })),
+    ],
+    [knownOptions, props.placeholder]
+  )
 
   return (
     <Select
+      items={items}
       value={props.value === '' ? null : props.value}
       onValueChange={(v) => {
         if (typeof v === 'string' && v !== '') props.onValueChange(v)
       }}
     >
       <SelectTrigger className={props.className}>
-        <SelectValue placeholder={props.placeholder} />
+        <SelectValue />
       </SelectTrigger>
       <SelectContent alignItemWithTrigger={false}>
         <SelectGroup>
+          <SelectItem value={null}>{props.placeholder}</SelectItem>
           {knownOptions.map((name) => (
             <SelectItem key={name} value={name}>
               {name}
