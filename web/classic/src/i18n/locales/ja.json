@@ -3802,6 +3802,7 @@
     "例如：https://api.anthropic.com": "例：https://api.anthropic.com",
     "用于 /v1/messages 等 Claude 原生接口": "/v1/messages などの Claude ネイティブ API に使用します",
     "例如：https://generativelanguage.googleapis.com": "例：https://generativelanguage.googleapis.com",
-    "内存": "メモリ"
+    "内存": "メモリ",
+    "每秒输出 Token 数": "毎秒の出力トークン数"
   }
 }

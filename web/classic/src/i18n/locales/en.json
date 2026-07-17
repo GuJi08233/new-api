@@ -3985,6 +3985,7 @@
     "例如：https://api.anthropic.com": "Example: https://api.anthropic.com",
     "用于 /v1/messages 等 Claude 原生接口": "Used for Claude-native endpoints such as /v1/messages",
     "例如：https://generativelanguage.googleapis.com": "Example: https://generativelanguage.googleapis.com",
-    "内存": "Memory"
+    "内存": "Memory",
+    "每秒输出 Token 数": "Output tokens per second"
   }
 }

@@ -250,6 +250,22 @@ function renderFirstUseTime(type, t) {
   }
 }
 
+function renderTps(record, t) {
+  const useTime = parseInt(record.use_time);
+  const completionTokens = record.completion_tokens;
+  if (!(useTime > 0) || !(completionTokens > 0)) {
+    return null;
+  }
+  const tps = Math.round(completionTokens / useTime);
+  return (
+    <Tooltip content={t('每秒输出 Token 数')}>
+      <Tag color='grey' shape='circle'>
+        {tps} t/s
+      </Tag>
+    </Tooltip>
+  );
+}
+
 function renderBillingTag(record, t) {
   const other = getLogOther(record.other);
   if (other?.billing_source === 'subscription') {
@@ -707,6 +723,7 @@ export const getLogsColumns = ({
                 {renderUseTime(text, t)}
                 {renderFirstUseTime(other?.frt, t)}
                 {renderIsStream(record.is_stream, t, other?.stream_status)}
+                {renderTps(record, t)}
               </Space>
             </>
           );
@@ -716,6 +733,7 @@ export const getLogsColumns = ({
               <Space>
                 {renderUseTime(text, t)}
                 {renderIsStream(record.is_stream, t)}
+                {renderTps(record, t)}
               </Space>
             </>
           );

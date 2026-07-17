@@ -3961,6 +3961,7 @@
     "例如：https://api.anthropic.com": "例如：https://api.anthropic.com",
     "用于 /v1/messages 等 Claude 原生接口": "用于 /v1/messages 等 Claude 原生接口",
     "例如：https://generativelanguage.googleapis.com": "例如：https://generativelanguage.googleapis.com",
-    "内存": "内存"
+    "内存": "内存",
+    "每秒输出 Token 数": "每秒输出 Token 数"
   }
 }
