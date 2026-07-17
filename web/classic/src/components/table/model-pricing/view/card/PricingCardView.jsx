@@ -215,25 +215,40 @@ const PricingCardView = ({
   // 渲染性能指标（近 24h TPS/首字延迟/成功率）；无数据显示"未知"
   const renderPerfStats = (record) => {
     const perf = perfMap?.[record.model_name];
+    const unknown = t('未知');
     const tpsText =
-      perf && perf.avg_tps > 0 ? `${perf.avg_tps.toFixed(2)} t/s` : t('未知');
+      perf && perf.avg_tps > 0 ? `${perf.avg_tps.toFixed(2)} t/s` : unknown;
     const ttftText =
       perf && perf.avg_ttft_ms > 0
         ? `${(perf.avg_ttft_ms / 1000).toFixed(2)}s`
-        : t('未知');
-    const successText =
-      perf && Number.isFinite(perf.success_rate)
-        ? `${perf.success_rate.toFixed(1)}%`
-        : t('未知');
+        : unknown;
+    const hasSuccess = perf && Number.isFinite(perf.success_rate);
+    const successText = hasSuccess
+      ? `${perf.success_rate.toFixed(1)}%`
+      : unknown;
+    // 成功率状态色：≥90 绿 / ≥70 橙 / <70 红（与 default 前端阈值一致）
+    let successColor = 'var(--semi-color-text-0)';
+    if (hasSuccess) {
+      if (perf.success_rate < 70) {
+        successColor = 'var(--semi-color-danger)';
+      } else if (perf.success_rate < 90) {
+        successColor = 'var(--semi-color-warning)';
+      } else {
+        successColor = 'var(--semi-color-success)';
+      }
+    }
 
-    const cell = (label, value) => (
-      <div className='flex flex-col items-center'>
-        <span className='text-gray-400' style={{ fontSize: 11 }}>
+    const cell = (label, value, valueColor) => (
+      <div className='flex min-w-[52px] flex-col items-end justify-end leading-none'>
+        <span
+          className='text-[10px] font-medium tracking-wider'
+          style={{ color: 'var(--semi-color-text-2)' }}
+        >
           {label}
         </span>
         <span
-          className='font-medium tabular-nums'
-          style={{ color: 'var(--semi-color-text-1)' }}
+          className='mt-1 text-xs font-mono font-semibold whitespace-nowrap'
+          style={{ color: valueColor || 'var(--semi-color-text-0)' }}
         >
           {value}
         </span>
@@ -241,10 +256,15 @@ const PricingCardView = ({
     );
 
     return (
-      <div className='grid grid-cols-3 gap-2 py-2 text-xs'>
-        {cell('TPS', tpsText)}
-        {cell(t('首字延迟'), ttftText)}
-        {cell(t('成功率'), successText)}
+      <div
+        className='flex items-end justify-end'
+        title={`TPS: ${tpsText} · ${t('首字延迟')}: ${ttftText} · ${t('成功率')}: ${successText}`}
+      >
+        <div className='flex items-end gap-3'>
+          {cell('TPS', tpsText)}
+          {cell(t('首字延迟'), ttftText)}
+          {cell(t('成功率'), successText, successColor)}
+        </div>
       </div>
     );
   };
@@ -357,11 +377,11 @@ const PricingCardView = ({
 
                 {/* 底部区域 */}
                 <div className='mt-auto'>
-                  {/* 性能指标区域 */}
-                  {renderPerfStats(model)}
-
-                  {/* 标签区域 */}
-                  {renderTags(model)}
+                  {/* 标签 + 性能指标同排：标签靠左，指标靠右 */}
+                  <div className='flex items-end justify-between gap-3'>
+                    <div className='min-w-0 flex-1'>{renderTags(model)}</div>
+                    <div className='shrink-0'>{renderPerfStats(model)}</div>
+                  </div>
 
                   {/* 倍率信息（可选） */}
                   {showRatio && (
