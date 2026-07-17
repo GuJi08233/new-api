@@ -21,7 +21,7 @@ build-web:
 
 build-web-classic:
 	@echo "Building classic web..."
-	@cd ./web && bun install --frozen-lockfile
+	@cd $(WEB_CLASSIC_DIR) && bun install --frozen-lockfile
 	@cd $(WEB_CLASSIC_DIR) && VITE_REACT_APP_VERSION=$(cat ../../VERSION) bun run build
 
 build-all-web: build-web build-web-classic
@@ -46,7 +46,7 @@ dev-web:
 
 dev-web-classic:
 	@echo "Starting classic web dev server..."
-	@cd ./web && bun install --filter ./classic
+	@cd $(WEB_CLASSIC_DIR) && bun install
 	@cd $(WEB_CLASSIC_DIR) && bun run dev -- --host 0.0.0.0 --port $(DEV_WEB_CLASSIC_PORT)
 
 dev: dev-api dev-web

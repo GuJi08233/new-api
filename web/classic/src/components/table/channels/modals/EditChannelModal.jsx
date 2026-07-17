@@ -60,6 +60,7 @@ import {
 import ModelSelectModal from './ModelSelectModal';
 import SingleModelSelectModal from './SingleModelSelectModal';
 import OllamaModelModal from './OllamaModelModal';
+import CodexOAuthModal from './CodexOAuthModal';
 import ParamOverrideEditorModal from './ParamOverrideEditorModal';
 import JSONEditor from '../../../common/ui/JSONEditor';
 import SecureVerificationModal from '../../../common/modals/SecureVerificationModal';
@@ -384,6 +385,7 @@ const EditChannelModal = (props) => {
   }, [inputs.param_override, t]);
   const [isIonetChannel, setIsIonetChannel] = useState(false);
   const [ionetMetadata, setIonetMetadata] = useState(null);
+  const [codexOAuthModalVisible, setCodexOAuthModalVisible] = useState(false);
   const [codexCredentialRefreshing, setCodexCredentialRefreshing] =
     useState(false);
   const [paramOverrideEditorVisible, setParamOverrideEditorVisible] =
@@ -1107,10 +1109,18 @@ const EditChannelModal = (props) => {
 
           // OA2 渠道：发送各格式 URL
           if (inputs.type === 58) {
-            payload.oa2_base_url_openai = inputs['oa2_base_url_openai'];
-            payload.oa2_base_url_claude = inputs['oa2_base_url_claude'];
-            payload.oa2_base_url_codex = inputs['oa2_base_url_codex'];
-            payload.oa2_base_url_gemini = inputs['oa2_base_url_gemini'];
+            payload.oa2_base_url_openai = inputs.oa2_openai_enabled
+              ? (inputs.oa2_base_url_openai || '').trim()
+              : '';
+            payload.oa2_base_url_claude = inputs.oa2_claude_enabled
+              ? (inputs.oa2_base_url_claude || '').trim()
+              : '';
+            payload.oa2_base_url_codex = inputs.oa2_codex_enabled
+              ? (inputs.oa2_base_url_codex || '').trim()
+              : '';
+            payload.oa2_base_url_gemini = inputs.oa2_gemini_enabled
+              ? (inputs.oa2_base_url_gemini || '').trim()
+              : '';
           }
 
           const res = await API.post(
@@ -1260,6 +1270,11 @@ const EditChannelModal = (props) => {
       console.error('Failed to view channel key:', error);
       showError(error.message || t('获取密钥失败'));
     }
+  };
+
+  const handleCodexOAuthGenerated = (key) => {
+    handleInputChange('key', key);
+    formatJsonField('key');
   };
 
   const handleRefreshCodexCredential = async () => {
@@ -1815,7 +1830,7 @@ const EditChannelModal = (props) => {
       delete settings.vertex_key_type;
     }
 
-    // type === 1 (OpenAI) 或 type === 14 (Claude): 设置字段透传控制（显式保存布尔值）
+    // OpenAI、Claude、Codex：设置字段透传控制（显式保存布尔值）
     if (
       localInputs.type === 1 ||
       localInputs.type === 14 ||
@@ -1867,13 +1882,13 @@ const EditChannelModal = (props) => {
       settings.oa2_codex_enabled = localInputs.oa2_codex_enabled === true;
       settings.oa2_gemini_enabled = localInputs.oa2_gemini_enabled === true;
       settings.oa2_base_url_openai =
-        (localInputs.oa2_base_url_openai || '').trim();
+        (localInputs.oa2_base_url_openai || '').trim().replace(/\/+$/, '');
       settings.oa2_base_url_claude =
-        (localInputs.oa2_base_url_claude || '').trim();
+        (localInputs.oa2_base_url_claude || '').trim().replace(/\/+$/, '');
       settings.oa2_base_url_codex =
-        (localInputs.oa2_base_url_codex || '').trim();
+        (localInputs.oa2_base_url_codex || '').trim().replace(/\/+$/, '');
       settings.oa2_base_url_gemini =
-        (localInputs.oa2_base_url_gemini || '').trim();
+        (localInputs.oa2_base_url_gemini || '').trim().replace(/\/+$/, '');
     } else {
       // 非 OA2 渠道，清理相关设置
       delete settings.oa2_openai_enabled;
@@ -2907,6 +2922,17 @@ const EditChannelModal = (props) => {
                                   </Text>
 
                                   <Space wrap spacing='tight'>
+                                    <Button
+                                      size='small'
+                                      type='primary'
+                                      theme='outline'
+                                      onClick={() =>
+                                        setCodexOAuthModalVisible(true)
+                                      }
+                                      disabled={isIonetLocked}
+                                    >
+                                      {t('Codex 授权')}
+                                    </Button>
                                     {isEdit && (
                                       <Button
                                         size='small'
@@ -2945,6 +2971,12 @@ const EditChannelModal = (props) => {
                               }
                               autosize
                               showClear
+                            />
+
+                            <CodexOAuthModal
+                              visible={codexOAuthModalVisible}
+                              onCancel={() => setCodexOAuthModalVisible(false)}
+                              onSuccess={handleCodexOAuthGenerated}
                             />
                           </>
                         ) : inputs.type === 41 &&
@@ -3464,7 +3496,9 @@ const EditChannelModal = (props) => {
                         <div className='space-y-4'>
                           <div className='p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg mb-2'>
                             <Text className='text-sm font-medium text-blue-700 dark:text-blue-400'>
-                              OA2 多合一渠道支持 OpenAI、Codex、Claude、Gemini 四种原生格式，可分别启用并配置独立的 Base URL
+                              {t(
+                                'OA2 多合一渠道支持 OpenAI、Codex、Claude、Gemini 四种原生格式，可分别启用并配置独立的 Base URL',
+                              )}
                             </Text>
                           </div>
 

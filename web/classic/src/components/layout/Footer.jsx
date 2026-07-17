@@ -140,15 +140,15 @@ const FooterBar = () => {
                     rel='noopener noreferrer'
                     className='!text-semi-color-text-1'
                   >
-                    MjProxy
+                    Midjourney-Proxy
                   </a>
                   <a
-                    href='https://github.com/Calcium-Ion/new-api-key-tool'
+                    href='https://github.com/Calcium-Ion/neko-api-key-tool'
                     target='_blank'
                     rel='noopener noreferrer'
                     className='!text-semi-color-text-1'
                   >
-                    new-api-key-tool
+                    neko-api-key-tool
                   </a>
                 </div>
               </div>

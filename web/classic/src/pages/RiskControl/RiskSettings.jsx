@@ -80,13 +80,9 @@ const RiskSettings = () => {
           optionMap[item.key] = item.value;
         });
         setEnabled(optionMap[KEY_ENABLED] === 'true');
-        setUaBlacklistText(
-          parseJsonArray(optionMap[KEY_UA_BLACKLIST]).join('\n'),
-        );
+        setUaBlacklistText(parseJsonArray(optionMap[KEY_UA_BLACKLIST]).join('\n'));
         setUaAction(optionMap[KEY_UA_ACTION] || 'block');
-        setIpBlacklistText(
-          parseJsonArray(optionMap[KEY_IP_BLACKLIST]).join('\n'),
-        );
+        setIpBlacklistText(parseJsonArray(optionMap[KEY_IP_BLACKLIST]).join('\n'));
         const scan = parseInt(optionMap[KEY_SCAN_MINUTES], 10);
         setScanMinutes(Number.isFinite(scan) && scan > 0 ? scan : 10);
         setWhitelistText(parseJsonArray(optionMap[KEY_WHITELIST]).join(','));
@@ -131,7 +127,8 @@ const RiskSettings = () => {
       action: rest.action || 'alert',
     }));
 
-    const settingUpdates = [
+    const updates = [
+      { key: KEY_ENABLED, value: String(enabled) },
       { key: KEY_UA_BLACKLIST, value: JSON.stringify(uaBlacklist) },
       { key: KEY_UA_ACTION, value: uaAction },
       { key: KEY_IP_BLACKLIST, value: JSON.stringify(ipBlacklist) },
@@ -139,22 +136,14 @@ const RiskSettings = () => {
       { key: KEY_WHITELIST, value: JSON.stringify(whitelistUserIds) },
       { key: KEY_RULES, value: JSON.stringify(cleanRules) },
     ];
-    const enabledUpdate = { key: KEY_ENABLED, value: String(enabled) };
-    const updates = enabled
-      ? [...settingUpdates, enabledUpdate]
-      : [enabledUpdate, ...settingUpdates];
 
     setSaving(true);
     try {
-      let failed = false;
-      for (const item of updates) {
-        const result = await API.put('/api/option/', item);
-        if (!result?.data?.success) {
-          failed = true;
-          break;
-        }
-      }
-      if (failed) {
+      const results = await Promise.all(
+        updates.map((item) => API.put('/api/option/', item)),
+      );
+      const failed = results.filter((res) => !res?.data?.success);
+      if (failed.length > 0) {
         showError(t('部分保存失败，请重试'));
       } else {
         showSuccess(t('保存成功'));
@@ -166,8 +155,8 @@ const RiskSettings = () => {
   };
 
   const addRule = () => {
-    setRules([
-      ...rules,
+    setRules((currentRules) => [
+      ...currentRules,
       {
         _id: Date.now(),
         enabled: false,
@@ -180,11 +169,13 @@ const RiskSettings = () => {
   };
 
   const updateRule = (id, patch) => {
-    setRules(rules.map((r) => (r._id === id ? { ...r, ...patch } : r)));
+    setRules((currentRules) =>
+      currentRules.map((r) => (r._id === id ? { ...r, ...patch } : r)),
+    );
   };
 
   const removeRule = (id) => {
-    setRules(rules.filter((r) => r._id !== id));
+    setRules((currentRules) => currentRules.filter((r) => r._id !== id));
   };
 
   const ruleColumns = [
@@ -252,9 +243,7 @@ const RiskSettings = () => {
           onChange={(val) => updateRule(record._id, { action: val })}
         >
           <Select.Option value='alert'>{t('仅告警')}</Select.Option>
-          <Select.Option value='disable_user'>
-            {t('自动禁用用户')}
-          </Select.Option>
+          <Select.Option value='disable_user'>{t('自动禁用用户')}</Select.Option>
         </Select>
       ),
     },
@@ -314,9 +303,7 @@ const RiskSettings = () => {
       <Card className='mb-4' title={t('UA 黑名单')}>
         <Space vertical align='start' style={{ width: '100%' }}>
           <Text type='tertiary'>
-            {t(
-              '每行一条。普通文本按子串匹配(不区分大小写),含正则元字符时按正则匹配。',
-            )}
+            {t('每行一条。普通文本按子串匹配(不区分大小写),含正则元字符时按正则匹配。')}
           </Text>
           <TextArea
             value={uaBlacklistText}
@@ -326,14 +313,8 @@ const RiskSettings = () => {
           />
           <Space>
             <Text>{t('命中后的动作')}</Text>
-            <Select
-              value={uaAction}
-              onChange={setUaAction}
-              style={{ width: 220 }}
-            >
-              <Select.Option value='block'>
-                {t('仅拒绝请求(403)')}
-              </Select.Option>
+            <Select value={uaAction} onChange={setUaAction} style={{ width: 220 }}>
+              <Select.Option value='block'>{t('仅拒绝请求(403)')}</Select.Option>
               <Select.Option value='disable_user'>
                 {t('拒绝请求并自动禁用用户')}
               </Select.Option>
@@ -345,9 +326,7 @@ const RiskSettings = () => {
       <Card className='mb-4' title={t('IP 黑名单')}>
         <Space vertical align='start' style={{ width: '100%' }}>
           <Text type='tertiary'>
-            {t(
-              '每行一条,支持精确 IP 或 CIDR 网段(如 1.2.3.4、10.0.0.0/8)。命中后直接拒绝调用。',
-            )}
+            {t('每行一条,支持精确 IP 或 CIDR 网段(如 1.2.3.4、10.0.0.0/8)。命中后直接拒绝调用。')}
           </Text>
           <TextArea
             value={ipBlacklistText}
@@ -376,12 +355,7 @@ const RiskSettings = () => {
         />
       </Card>
 
-      <Button
-        theme='solid'
-        type='primary'
-        loading={saving}
-        onClick={saveSettings}
-      >
+      <Button theme='solid' type='primary' loading={saving} onClick={saveSettings}>
         {t('保存设置')}
       </Button>
     </Spin>

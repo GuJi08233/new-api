@@ -22,7 +22,6 @@ import { Layout } from '@douyinfe/semi-ui';
 import SiderBar from './SiderBar';
 import App from '../../App';
 import FooterBar from './Footer';
-import ClassicFrontendDeprecationBanner from './ClassicFrontendDeprecationBanner';
 import { ToastContainer } from 'react-toastify';
 import ErrorBoundary from '../common/ErrorBoundary';
 import React, { useContext, useEffect, useState } from 'react';
@@ -73,7 +72,6 @@ const PageLayout = () => {
 
   const isConsoleRoute = location.pathname.startsWith('/console');
   const showSider = isConsoleRoute && (!isMobile || drawerOpen);
-  const isFixedLayout = isConsoleRoute || location.pathname === '/pricing';
 
   useEffect(() => {
     if (isMobile && drawerOpen && collapsed) {
@@ -149,11 +147,11 @@ const PageLayout = () => {
 
   return (
     <Layout
-      className={`app-layout${isFixedLayout ? ' app-layout-fixed' : ''}`}
+      className='app-layout'
       style={{
         display: 'flex',
         flexDirection: 'column',
-        overflow: isFixedLayout && !isMobile ? 'hidden' : 'visible',
+        overflow: isMobile ? 'visible' : 'hidden',
       }}
     >
       <Header
@@ -174,10 +172,9 @@ const PageLayout = () => {
       </Header>
       <Layout
         style={{
-          overflow: isFixedLayout && !isMobile ? 'auto' : 'visible',
+          overflow: isMobile ? 'visible' : 'auto',
           display: 'flex',
           flexDirection: 'column',
-          flex: '1 1 auto',
         }}
       >
         {showSider && (
@@ -210,19 +207,15 @@ const PageLayout = () => {
             flex: '1 1 auto',
             display: 'flex',
             flexDirection: 'column',
-            minHeight: 0,
           }}
         >
-          <ClassicFrontendDeprecationBanner />
           <Content
-            className={isFixedLayout ? undefined : 'public-page-content'}
             style={{
-              flex: isFixedLayout ? '1 0 auto' : '1 1 auto',
-              overflowY: isFixedLayout && !isMobile ? 'hidden' : 'visible',
+              flex: '1 0 auto',
+              overflowY: isMobile ? 'visible' : 'hidden',
               WebkitOverflowScrolling: 'touch',
               padding: shouldInnerPadding ? (isMobile ? '5px' : '24px') : '0',
               position: 'relative',
-              minHeight: 0,
             }}
           >
             <ErrorBoundary>

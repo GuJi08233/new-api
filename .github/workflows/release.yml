@@ -47,9 +47,8 @@ jobs:
           CI: ""
           NODE_OPTIONS: "--max-old-space-size=4096"
         run: |
-          cd web
-          bun install --filter ./classic --frozen-lockfile
-          cd classic
+          cd web/classic
+          bun install --frozen-lockfile
           VITE_REACT_APP_VERSION=$VERSION bun run build
           cd ../..
       - name: Set up Go
@@ -112,9 +111,8 @@ jobs:
           CI: ""
           NODE_OPTIONS: "--max-old-space-size=4096"
         run: |
-          cd web
-          bun install --filter ./classic --frozen-lockfile
-          cd classic
+          cd web/classic
+          bun install --frozen-lockfile
           VITE_REACT_APP_VERSION=$VERSION bun run build
           cd ../..
       - name: Set up Go
@@ -174,9 +172,8 @@ jobs:
           CI: ""
           NODE_OPTIONS: "--max-old-space-size=4096"
         run: |
-          cd web
-          bun install --filter ./classic --frozen-lockfile
-          cd classic
+          cd web/classic
+          bun install --frozen-lockfile
           VITE_REACT_APP_VERSION=$VERSION bun run build
           cd ../..
       - name: Set up Go

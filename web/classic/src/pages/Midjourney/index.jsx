@@ -20,10 +20,10 @@ For commercial licensing, please contact support@quantumnous.com
 import React from 'react';
 import MjLogsTable from '../../components/table/mj-logs';
 
-const MjProxy = () => (
+const Midjourney = () => (
   <div className='mt-[60px] px-2'>
     <MjLogsTable />
   </div>
 );
 
-export default MjProxy;
+export default Midjourney;

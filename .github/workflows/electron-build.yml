@@ -68,7 +68,7 @@ jobs:
           NODE_OPTIONS: "--max-old-space-size=4096"
         run: |
           cd web/classic
-          bun install
+          bun install --frozen-lockfile
           VITE_REACT_APP_VERSION=$VERSION bun run build
           cd ../..
 

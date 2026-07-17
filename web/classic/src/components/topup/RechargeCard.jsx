@@ -47,7 +47,6 @@ import {
 } from 'lucide-react';
 import { IconGift } from '@douyinfe/semi-icons';
 import { useMinimumLoadingTime } from '../../hooks/common/useMinimumLoadingTime';
-import { useActualTheme } from '../../context/Theme';
 import { getCurrencyConfig } from '../../helpers/render';
 import SubscriptionPlansCard from './SubscriptionPlansCard';
 
@@ -100,13 +99,11 @@ const RechargeCard = ({
   activeSubscriptions = [],
   allSubscriptions = [],
   reloadSubscriptionSelf,
-  enableRedemption = true,
 }) => {
   const onlineFormApiRef = useRef(null);
   const redeemFormApiRef = useRef(null);
   const initialTabSetRef = useRef(false);
   const showAmountSkeleton = useMinimumLoadingTime(amountLoading);
-  const actualTheme = useActualTheme();
   const [activeTab, setActiveTab] = useState('topup');
   const shouldShowSubscription =
     !subscriptionLoading && subscriptionPlans.length > 0;
@@ -388,18 +385,9 @@ const RechargeCard = ({
                                       }}
                                     />
                                   ) : payMethod.type === 'waffo_pancake' ? (
-                                    <img
-                                      src={
-                                        actualTheme === 'dark'
-                                          ? '/waffo-logo-dark.svg'
-                                          : '/waffo-logo-light.svg'
-                                      }
-                                      alt='Waffo'
-                                      style={{
-                                        width: 18,
-                                        height: 18,
-                                        objectFit: 'contain',
-                                      }}
+                                    <CreditCard
+                                      size={18}
+                                      color='var(--semi-color-primary)'
                                     />
                                   ) : isEthereum ? (
                                     <Wallet
@@ -663,66 +651,57 @@ const RechargeCard = ({
       </Card>
 
       {/* 兑换码充值 */}
-      {enableRedemption ? (
-        <Card
-          className='!rounded-xl w-full'
-          title={
-            <Text type='tertiary' strong>
-              {t('兑换码充值')}
-            </Text>
-          }
+      <Card
+        className='!rounded-xl w-full'
+        title={
+          <Text type='tertiary' strong>
+            {t('兑换码充值')}
+          </Text>
+        }
+      >
+        <Form
+          getFormApi={(api) => (redeemFormApiRef.current = api)}
+          initValues={{ redemptionCode: redemptionCode }}
         >
-          <Form
-            getFormApi={(api) => (redeemFormApiRef.current = api)}
-            initValues={{ redemptionCode: redemptionCode }}
-          >
-            <Form.Input
-              field='redemptionCode'
-              noLabel={true}
-              placeholder={t('请输入兑换码')}
-              value={redemptionCode}
-              onChange={(value) => setRedemptionCode(value)}
-              prefix={<IconGift />}
-              suffix={
-                <div className='flex items-center gap-2'>
-                  <Button
-                    type='primary'
-                    theme='solid'
-                    onClick={topUp}
-                    loading={isSubmitting}
+          <Form.Input
+            field='redemptionCode'
+            noLabel={true}
+            placeholder={t('请输入兑换码')}
+            value={redemptionCode}
+            onChange={(value) => setRedemptionCode(value)}
+            prefix={<IconGift />}
+            suffix={
+              <div className='flex items-center gap-2'>
+                <Button
+                  type='primary'
+                  theme='solid'
+                  onClick={topUp}
+                  loading={isSubmitting}
+                >
+                  {t('兑换额度')}
+                </Button>
+              </div>
+            }
+            showClear
+            style={{ width: '100%' }}
+            extraText={
+              topUpLink && (
+                <Text type='tertiary'>
+                  {t('在找兑换码？')}
+                  <Text
+                    type='secondary'
+                    underline
+                    className='cursor-pointer'
+                    onClick={openTopUpLink}
                   >
-                    {t('兑换额度')}
-                  </Button>
-                </div>
-              }
-              showClear
-              style={{ width: '100%' }}
-              extraText={
-                topUpLink && (
-                  <Text type='tertiary'>
-                    {t('在找兑换码？')}
-                    <Text
-                      type='secondary'
-                      underline
-                      className='cursor-pointer'
-                      onClick={openTopUpLink}
-                    >
-                      {t('购买兑换码')}
-                    </Text>
+                    {t('购买兑换码')}
                   </Text>
-                )
-              }
-            />
-          </Form>
-        </Card>
-      ) : (
-        <Banner
-          type='warning'
-          description={t('兑换码功能已禁用，管理员需先确认合规声明。')}
-          closeIcon={null}
-          className='!rounded-xl'
-        />
-      )}
+                </Text>
+              )
+            }
+          />
+        </Form>
+      </Card>
     </Space>
   );
 

@@ -61,6 +61,7 @@ const RiskRankings = () => {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailItems, setDetailItems] = useState([]);
   const [detailTitle, setDetailTitle] = useState('');
+  const [detailType, setDetailType] = useState('ip');
 
   const loadRankings = useCallback(async () => {
     setLoading(true);
@@ -103,6 +104,7 @@ const RiskRankings = () => {
   };
 
   const openIpDetail = async (ip) => {
+    setDetailType('ip');
     setDetailTitle(t('IP 关联用户明细') + `: ${ip}`);
     setDetailVisible(true);
     setDetailLoading(true);
@@ -123,6 +125,7 @@ const RiskRankings = () => {
   };
 
   const openUserDetail = async (userId, username) => {
+    setDetailType('user');
     setDetailTitle(t('用户使用 IP 明细') + `: ${username || userId}`);
     setDetailVisible(true);
     setDetailLoading(true);
@@ -213,7 +216,7 @@ const RiskRankings = () => {
   };
 
   const detailColumns =
-    detailTitle.startsWith(t('IP 关联用户明细'))
+    detailType === 'ip'
       ? [
           { title: t('用户 ID'), dataIndex: 'user_id' },
           { title: t('用户名'), dataIndex: 'username' },
@@ -301,7 +304,7 @@ const RiskRankings = () => {
         dataSource={items}
         loading={loading}
         rowKey={(record) =>
-          record.ip || record.user_id || record.ua || Math.random()
+          record.ip || record.user_id || record.ua || JSON.stringify(record)
         }
         pagination={{ pageSize: 20 }}
         empty={t('暂无数据')}
@@ -318,7 +321,9 @@ const RiskRankings = () => {
           columns={detailColumns}
           dataSource={detailItems}
           loading={detailLoading}
-          rowKey={(record) => record.ip || record.user_id || Math.random()}
+          rowKey={(record) =>
+            record.ip || record.user_id || JSON.stringify(record)
+          }
           pagination={false}
           empty={t('暂无数据')}
         />
