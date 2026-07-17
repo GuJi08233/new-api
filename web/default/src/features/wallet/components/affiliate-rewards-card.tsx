@@ -18,15 +18,10 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { Share2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { formatQuota } from '@/lib/format'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
-import { Skeleton } from '@/components/ui/skeleton'
+
 import { CopyButton } from '@/components/copy-button'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
-import { IconBadge } from '@/components/ui/icon-badge'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { formatQuota } from '@/lib/format'
@@ -37,7 +32,6 @@ interface AffiliateRewardsCardProps {
   user: UserWalletData | null
   affiliateLink: string
   onTransfer: () => void
-  complianceConfirmed?: boolean
   loading?: boolean
 }
 
@@ -45,7 +39,6 @@ export function AffiliateRewardsCard({
   user,
   affiliateLink,
   onTransfer,
-  complianceConfirmed = true,
   loading,
 }: AffiliateRewardsCardProps) {
   const { t } = useTranslation()
@@ -111,7 +104,7 @@ export function AffiliateRewardsCard({
           <CopyButton
             value={affiliateLink}
             variant='outline'
-            className='size-9 shrink-0 bg-background'
+            className='bg-background size-9 shrink-0'
             iconClassName='size-4'
             tooltip={t('Copy referral link')}
             aria-label={t('Copy referral link')}

@@ -30,6 +30,7 @@ import { cn } from '@/lib/utils'
 
 import { useOAuthLogin } from '../hooks/use-oauth-login'
 import type { SystemStatus } from '../types'
+import { OAuthProviderIcon } from './oauth-provider-icon'
 
 type OAuthProvidersProps = {
   status: SystemStatus | null
@@ -133,6 +134,9 @@ export function OAuthProviders({
         key: `custom-${provider.slug}`,
         label: t('Continue with {{name}}', { name: provider.name }),
         onClick: () => handleCustomOAuthLogin(provider),
+        icon: provider.icon ? (
+          <OAuthProviderIcon icon={provider.icon} />
+        ) : undefined,
       })
     }
   }

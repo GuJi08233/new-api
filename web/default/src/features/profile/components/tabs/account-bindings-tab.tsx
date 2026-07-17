@@ -33,6 +33,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { OAuthProviderIcon } from '@/features/auth/components/oauth-provider-icon'
 import { OAUTH_BIND_STORAGE_KEY } from '@/features/auth/constants'
 import { useDialogs } from '@/hooks/use-dialog'
 import { useStatus } from '@/hooks/use-status'
@@ -78,7 +79,7 @@ export function AccountBindingsTab({
   const [unbinding, setUnbinding] = useState(false)
 
   const customProviders = status?.custom_oauth_providers as
-    | Array<{ id: string; name: string }>
+    | Array<{ id: string; name: string; icon?: string }>
     | undefined
 
   const fetchCustomBindings = useCallback(async () => {
@@ -272,46 +273,49 @@ export function AccountBindingsTab({
   return (
     <>
       <div className='grid grid-cols-1 gap-2.5 sm:grid-cols-2 sm:gap-3'>
-        {bindings.map((binding) => (
-          <div
-            key={binding.id}
-            className='flex items-center justify-between gap-2.5 rounded-lg border p-2.5 sm:gap-3 sm:p-3'
-          >
-            <div className='flex min-w-0 items-center gap-2.5 sm:gap-3'>
-              <div className='bg-muted shrink-0 rounded-md p-1.5 sm:p-2'>
-                <binding.icon className='h-4 w-4' />
-              </div>
-              <div className='min-w-0'>
-                <div className='flex items-center gap-1.5'>
-                  <p className='text-sm font-medium'>{binding.label}</p>
-                  {binding.isBound && (
-                    <StatusBadge
-                      label={t('Bound')}
-                      variant='success'
-                      copyable={false}
-                    />
-                  )}
-                </div>
-                <p className='text-muted-foreground truncate text-xs'>
-                  {binding.value || t('Not bound')}
-                </p>
-              </div>
-            </div>
-            <Button
-              variant='outline'
-              size='sm'
-              className='h-7 shrink-0 px-2.5 text-xs'
-              onClick={binding.onBind}
-              disabled={binding.isBound && binding.id !== 'email'}
+        {bindings.map((binding) => {
+          let actionLabel = t('Bind')
+          if (binding.isBound) {
+            actionLabel = binding.id === 'email' ? t('Change') : t('Bound')
+          }
+
+          return (
+            <div
+              key={binding.id}
+              className='flex items-center justify-between gap-2.5 rounded-lg border p-2.5 sm:gap-3 sm:p-3'
             >
-              {binding.isBound
-                ? binding.id === 'email'
-                  ? t('Change')
-                  : t('Bound')
-                : t('Bind')}
-            </Button>
-          </div>
-        ))}
+              <div className='flex min-w-0 items-center gap-2.5 sm:gap-3'>
+                <div className='bg-muted shrink-0 rounded-md p-1.5 sm:p-2'>
+                  <binding.icon className='h-4 w-4' />
+                </div>
+                <div className='min-w-0'>
+                  <div className='flex items-center gap-1.5'>
+                    <p className='text-sm font-medium'>{binding.label}</p>
+                    {binding.isBound && (
+                      <StatusBadge
+                        label={t('Bound')}
+                        variant='success'
+                        copyable={false}
+                      />
+                    )}
+                  </div>
+                  <p className='text-muted-foreground truncate text-xs'>
+                    {binding.value || t('Not bound')}
+                  </p>
+                </div>
+              </div>
+              <Button
+                variant='outline'
+                size='sm'
+                className='h-7 shrink-0 px-2.5 text-xs'
+                onClick={binding.onBind}
+                disabled={binding.isBound && binding.id !== 'email'}
+              >
+                {actionLabel}
+              </Button>
+            </div>
+          )
+        })}
       </div>
 
       {/* Custom OAuth Bindings */}
@@ -327,6 +331,58 @@ export function AccountBindingsTab({
                 (b) => b.provider_id === provider.id
               )
               const isBound = !!binding
+              let bindingAction = (
+                <Button
+                  variant='outline'
+                  size='sm'
+                  className='h-7 shrink-0 px-2.5 text-xs'
+                  onClick={() => handleBindCustomOAuth(provider)}
+                >
+                  {t('Bind')}
+                </Button>
+              )
+
+              if (isBound && binding?.can_unbind === false) {
+                bindingAction = (
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger render={<span />}>
+                        <Button
+                          variant='ghost'
+                          size='sm'
+                          className='text-destructive hover:text-destructive h-7 shrink-0 px-2.5 text-xs'
+                          disabled
+                        >
+                          <Unlink className='mr-1 h-3 w-3' />
+                          {t('Unbind')}
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {binding.is_registration
+                          ? t(
+                              'This account was registered via this provider and cannot be unbound'
+                            )
+                          : t(
+                              'The administrator has disabled unbinding for this provider'
+                            )}
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                )
+              } else if (isBound && binding) {
+                bindingAction = (
+                  <Button
+                    variant='ghost'
+                    size='sm'
+                    className='text-destructive hover:text-destructive h-7 shrink-0 px-2.5 text-xs'
+                    onClick={() => setUnbindTarget(binding)}
+                  >
+                    <Unlink className='mr-1 h-3 w-3' />
+                    {t('Unbind')}
+                  </Button>
+                )
+              }
+
               return (
                 <div
                   key={provider.id}
@@ -334,7 +390,11 @@ export function AccountBindingsTab({
                 >
                   <div className='flex min-w-0 items-center gap-2.5 sm:gap-3'>
                     <div className='bg-muted shrink-0 rounded-md p-1.5 sm:p-2'>
-                      <Link2 className='h-4 w-4' />
+                      {provider.icon ? (
+                        <OAuthProviderIcon icon={provider.icon} />
+                      ) : (
+                        <Link2 className='h-4 w-4' />
+                      )}
                     </div>
                     <div className='min-w-0'>
                       <div className='flex items-center gap-1.5'>
@@ -354,55 +414,7 @@ export function AccountBindingsTab({
                       </p>
                     </div>
                   </div>
-                  {isBound ? (
-                    binding?.can_unbind === false ? (
-                      <TooltipProvider>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <span>
-                              <Button
-                                variant='ghost'
-                                size='sm'
-                                className='text-destructive hover:text-destructive h-7 shrink-0 px-2.5 text-xs'
-                                disabled
-                              >
-                                <Unlink className='mr-1 h-3 w-3' />
-                                {t('Unbind')}
-                              </Button>
-                            </span>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            {binding?.is_registration
-                              ? t(
-                                  'This account was registered via this provider and cannot be unbound'
-                                )
-                              : t(
-                                  'The administrator has disabled unbinding for this provider'
-                                )}
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    ) : (
-                      <Button
-                        variant='ghost'
-                        size='sm'
-                        className='text-destructive hover:text-destructive h-7 shrink-0 px-2.5 text-xs'
-                        onClick={() => setUnbindTarget(binding)}
-                      >
-                        <Unlink className='mr-1 h-3 w-3' />
-                        {t('Unbind')}
-                      </Button>
-                    )
-                  ) : (
-                    <Button
-                      variant='outline'
-                      size='sm'
-                      className='h-7 shrink-0 px-2.5 text-xs'
-                      onClick={() => handleBindCustomOAuth(provider)}
-                    >
-                      {t('Bind')}
-                    </Button>
-                  )}
+                  {bindingAction}
                 </div>
               )
             })}

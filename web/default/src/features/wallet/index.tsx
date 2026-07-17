@@ -330,29 +330,24 @@ export function Wallet(props: WalletProps) {
                 />
               </div>
 
-              <div className='xl:sticky xl:top-6'>
-                {invitationCodeEnabled ? (
-                  <InvitationCard />
-                ) : (
-                  <AffiliateRewardsCard
-                    user={user}
-                    affiliateLink={affiliateLink}
-                    onTransfer={() => setTransferDialogOpen(true)}
-                    loading={affiliateLoading}
-                  />
-                )}
-              </div>
+              <SubscriptionPlansCard
+                topupInfo={topupInfo}
+                onAvailabilityChange={handleSubscriptionAvailabilityChange}
+                userQuota={user?.quota}
+                onPurchaseSuccess={fetchUser}
+              />
             </div>
 
-            <AffiliateRewardsCard
-              user={user}
-              affiliateLink={affiliateLink}
-              onTransfer={() => setTransferDialogOpen(true)}
-              complianceConfirmed={
-                topupInfo?.payment_compliance_confirmed !== false
-              }
-              loading={affiliateLoading}
-            />
+            {invitationCodeEnabled ? (
+              <InvitationCard />
+            ) : (
+              <AffiliateRewardsCard
+                user={user}
+                affiliateLink={affiliateLink}
+                onTransfer={() => setTransferDialogOpen(true)}
+                loading={affiliateLoading}
+              />
+            )}
           </div>
         </SectionPageLayout.Content>
       </SectionPageLayout>

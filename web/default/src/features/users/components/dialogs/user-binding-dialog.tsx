@@ -44,6 +44,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { OAuthProviderIcon } from '@/features/auth/components/oauth-provider-icon'
 import { api } from '@/lib/api'
 
 import {
@@ -145,20 +146,6 @@ const BUILTIN_BINDINGS: ReadonlyArray<{
   },
 ]
 
-function CustomProviderIcon(props: { iconUrl?: string }) {
-  if (!props.iconUrl) return <Link2 className='h-4 w-4' />
-  return (
-    <img
-      src={props.iconUrl}
-      alt=''
-      className='h-4 w-4 rounded-sm object-contain'
-      onError={(e) => {
-        e.currentTarget.style.display = 'none'
-      }}
-    />
-  )
-}
-
 export function UserBindingDialog(props: Props) {
   const { t } = useTranslation()
   const [user, setUser] = useState<User | null>(null)
@@ -249,7 +236,11 @@ export function UserBindingDialog(props: Props) {
       items.push({
         key: `oauth_${provider.id}`,
         label: provider.name || provider.id,
-        icon: <CustomProviderIcon iconUrl={provider.icon} />,
+        icon: provider.icon ? (
+          <OAuthProviderIcon icon={provider.icon} />
+        ) : (
+          <Link2 className='h-4 w-4' />
+        ),
         value: binding?.external_id || '',
         type: 'custom',
         providerId: String(provider.id),
