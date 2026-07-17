@@ -524,7 +524,6 @@
     "Auto refresh": "自动刷新",
     "Auto Sync Upstream Models": "自动同步上游模型",
     "Auto-ban Rules": "自动封禁规则",
-    "Auto-ban rules run via periodic background scanning and only affect regular users (admins and whitelisted users are never auto-processed). The UA blacklist intercepts requests in real time.": "自动封禁规则由后台周期扫描执行，只影响普通用户（管理员与白名单用户不会被自动处置）。UA 黑名单在请求时实时拦截。",
     "Auto-ban scan interval (minutes)": "自动封禁扫描周期（分钟）",
     "Auto-disable rules": "自动禁用规则",
     "Auto-disable status codes": "自动禁用状态码",
@@ -5369,7 +5368,6 @@
     "Whitelist": "白名单",
     "Whitelist (Only allow listed domains)": "白名单（仅允许列出的域）",
     "Whitelist (Only allow listed IPs)": "白名单（仅允许列出的 IP）",
-    "Whitelist user IDs (comma-separated, never auto-processed)": "白名单用户 ID（逗号分隔，永不自动处置）",
     "whsec_xxx": "whsec_xxx",
     "Why only one store + product?": "为什么只需要一个店铺和产品？",
     "Window (hours)": "统计窗口（小时）",
@@ -5428,6 +5426,8 @@
     "Zero retention": "零数据保留",
     "Zhipu": "智谱",
     "Zhipu V4": "智谱 V4",
-    "Zoom": "缩放"
+    "Zoom": "缩放",
+    "Auto-ban rules run via periodic background scanning and only affect regular users (admins and whitelisted users are never auto-processed). The IP/UA blacklists intercept requests in real time; whitelisted users are fully exempt from interception but their traffic still counts toward risk statistics.": "自动封禁规则由后台周期扫描执行，只影响普通用户（管理员与白名单用户不会被自动处置）。IP/UA 黑名单在请求时实时拦截，白名单用户完全豁免拦截，但其流量仍计入风控统计。",
+    "Whitelist user IDs (comma-separated, fully exempt from risk control, still counted in statistics)": "白名单用户 ID（逗号分隔，完全豁免风控，仍计入统计）"
   }
 }

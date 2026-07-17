@@ -80,9 +80,13 @@ const RiskSettings = () => {
           optionMap[item.key] = item.value;
         });
         setEnabled(optionMap[KEY_ENABLED] === 'true');
-        setUaBlacklistText(parseJsonArray(optionMap[KEY_UA_BLACKLIST]).join('\n'));
+        setUaBlacklistText(
+          parseJsonArray(optionMap[KEY_UA_BLACKLIST]).join('\n'),
+        );
         setUaAction(optionMap[KEY_UA_ACTION] || 'block');
-        setIpBlacklistText(parseJsonArray(optionMap[KEY_IP_BLACKLIST]).join('\n'));
+        setIpBlacklistText(
+          parseJsonArray(optionMap[KEY_IP_BLACKLIST]).join('\n'),
+        );
         const scan = parseInt(optionMap[KEY_SCAN_MINUTES], 10);
         setScanMinutes(Number.isFinite(scan) && scan > 0 ? scan : 10);
         setWhitelistText(parseJsonArray(optionMap[KEY_WHITELIST]).join(','));
@@ -243,7 +247,9 @@ const RiskSettings = () => {
           onChange={(val) => updateRule(record._id, { action: val })}
         >
           <Select.Option value='alert'>{t('仅告警')}</Select.Option>
-          <Select.Option value='disable_user'>{t('自动禁用用户')}</Select.Option>
+          <Select.Option value='disable_user'>
+            {t('自动禁用用户')}
+          </Select.Option>
         </Select>
       ),
     },
@@ -267,7 +273,7 @@ const RiskSettings = () => {
         type='info'
         className='mb-4'
         description={t(
-          '自动封禁规则由后台周期扫描执行,只影响普通用户(管理员与白名单用户不会被自动处置)。UA 黑名单在请求时实时拦截。',
+          '自动封禁规则由后台周期扫描执行,只影响普通用户(管理员与白名单用户不会被自动处置)。IP/UA 黑名单在请求时实时拦截,白名单用户完全豁免拦截,但其请求仍计入风控统计。',
         )}
       />
 
@@ -288,7 +294,7 @@ const RiskSettings = () => {
             />
           </Space>
           <Space>
-            <Text>{t('白名单用户 ID(逗号分隔,永不自动处置)')}</Text>
+            <Text>{t('白名单用户 ID(逗号分隔,完全豁免风控,仍计入统计)')}</Text>
             <TextArea
               value={whitelistText}
               onChange={setWhitelistText}
@@ -303,7 +309,9 @@ const RiskSettings = () => {
       <Card className='mb-4' title={t('UA 黑名单')}>
         <Space vertical align='start' style={{ width: '100%' }}>
           <Text type='tertiary'>
-            {t('每行一条。普通文本按子串匹配(不区分大小写),含正则元字符时按正则匹配。')}
+            {t(
+              '每行一条。普通文本按子串匹配(不区分大小写),含正则元字符时按正则匹配。',
+            )}
           </Text>
           <TextArea
             value={uaBlacklistText}
@@ -313,8 +321,14 @@ const RiskSettings = () => {
           />
           <Space>
             <Text>{t('命中后的动作')}</Text>
-            <Select value={uaAction} onChange={setUaAction} style={{ width: 220 }}>
-              <Select.Option value='block'>{t('仅拒绝请求(403)')}</Select.Option>
+            <Select
+              value={uaAction}
+              onChange={setUaAction}
+              style={{ width: 220 }}
+            >
+              <Select.Option value='block'>
+                {t('仅拒绝请求(403)')}
+              </Select.Option>
               <Select.Option value='disable_user'>
                 {t('拒绝请求并自动禁用用户')}
               </Select.Option>
@@ -326,7 +340,9 @@ const RiskSettings = () => {
       <Card className='mb-4' title={t('IP 黑名单')}>
         <Space vertical align='start' style={{ width: '100%' }}>
           <Text type='tertiary'>
-            {t('每行一条,支持精确 IP 或 CIDR 网段(如 1.2.3.4、10.0.0.0/8)。命中后直接拒绝调用。')}
+            {t(
+              '每行一条,支持精确 IP 或 CIDR 网段(如 1.2.3.4、10.0.0.0/8)。命中后直接拒绝调用。',
+            )}
           </Text>
           <TextArea
             value={ipBlacklistText}
@@ -355,7 +371,12 @@ const RiskSettings = () => {
         />
       </Card>
 
-      <Button theme='solid' type='primary' loading={saving} onClick={saveSettings}>
+      <Button
+        theme='solid'
+        type='primary'
+        loading={saving}
+        onClick={saveSettings}
+      >
         {t('保存设置')}
       </Button>
     </Spin>

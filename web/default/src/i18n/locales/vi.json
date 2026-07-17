@@ -524,7 +524,6 @@
     "Auto refresh": "Tự động làm mới",
     "Auto Sync Upstream Models": "Tự động đồng bộ mô hình nguồn",
     "Auto-ban Rules": "Quy tắc tự động khóa",
-    "Auto-ban rules run via periodic background scanning and only affect regular users (admins and whitelisted users are never auto-processed). The UA blacklist intercepts requests in real time.": "Quy tắc tự động khóa chạy qua quét nền định kỳ và chỉ áp dụng cho người dùng thường (quản trị viên và người dùng trong danh sách trắng không bị tự động xử lý). Danh sách đen UA chặn yêu cầu theo thời gian thực.",
     "Auto-ban scan interval (minutes)": "Khoảng quét tự động khóa (phút)",
     "Auto-disable rules": "Quy tắc tự động tắt",
     "Auto-disable status codes": "Mã trạng thái tự tắt",
@@ -5369,7 +5368,6 @@
     "Whitelist": "Danh sách trắng",
     "Whitelist (Only allow listed domains)": "Danh sách trắng (Chỉ cho phép các tên miền được liệt kê)",
     "Whitelist (Only allow listed IPs)": "Danh sách trắng (Chỉ cho phép các IP đã liệt kê)",
-    "Whitelist user IDs (comma-separated, never auto-processed)": "ID người dùng trong danh sách trắng (cách nhau bằng dấu phẩy, không tự động xử lý)",
     "whsec_xxx": "whsec_xxx",
     "Why only one store + product?": "Tại sao chỉ một cửa hàng + sản phẩm?",
     "Window (hours)": "Cửa sổ (giờ)",
@@ -5428,6 +5426,8 @@
     "Zero retention": "Không lưu dữ liệu",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "Auto-ban rules run via periodic background scanning and only affect regular users (admins and whitelisted users are never auto-processed). The IP/UA blacklists intercept requests in real time; whitelisted users are fully exempt from interception but their traffic still counts toward risk statistics.": "Quy tắc tự động cấm chạy theo chu kỳ quét nền và chỉ ảnh hưởng đến người dùng thường (quản trị viên và người dùng trong danh sách trắng không bao giờ bị xử lý tự động). Danh sách đen IP/UA chặn yêu cầu theo thời gian thực; người dùng trong danh sách trắng được miễn hoàn toàn việc chặn nhưng lưu lượng của họ vẫn được tính vào thống kê rủi ro.",
+    "Whitelist user IDs (comma-separated, fully exempt from risk control, still counted in statistics)": "ID người dùng trong danh sách trắng (cách nhau bằng dấu phẩy, miễn hoàn toàn kiểm soát rủi ro, vẫn tính vào thống kê)"
   }
 }

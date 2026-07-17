@@ -3900,7 +3900,6 @@
     "用户使用 IP 明细": "IPs used by user",
     "用户已禁用": "User disabled",
     "用户数": "Users",
-    "白名单用户 ID(逗号分隔,永不自动处置)": "Whitelist user IDs (comma-separated, never auto-processed)",
     "确定禁用该用户？": "Disable this user?",
     "禁用用户": "Disable user",
     "统计窗口(小时)": "Window (hours)",
@@ -3910,7 +3909,6 @@
     "请求数": "Requests",
     "阈值(超过则触发)": "Threshold (triggers when exceeded)",
     "首次": "First seen",
-    "自动封禁规则由后台周期扫描执行,只影响普通用户(管理员与白名单用户不会被自动处置)。UA 黑名单在请求时实时拦截。": "Auto-ban rules run via periodic background scanning and only affect regular users (admins and whitelisted users are never auto-processed). The UA blacklist intercepts requests in real time.",
     "风控依赖 IP / User-Agent 日志记录。当前部分记录开关未开启，排行榜数据可能不完整。请前往「运营设置」开启全局 IP / UA 记录。": "Risk control relies on IP / User-Agent logging. Some logging switches are currently off, so ranking data may be incomplete. Please enable global IP / UA logging in Operation Settings.",
     "IP 黑名单": "IP Blacklist",
     "每行一条,支持精确 IP 或 CIDR 网段(如 1.2.3.4、10.0.0.0/8)。命中后直接拒绝调用。": "One entry per line. Supports exact IPs or CIDR ranges (e.g. 1.2.3.4, 10.0.0.0/8). Matching requests are rejected directly.",
@@ -3986,6 +3984,10 @@
     "用于 /v1/messages 等 Claude 原生接口": "Used for Claude-native endpoints such as /v1/messages",
     "例如：https://generativelanguage.googleapis.com": "Example: https://generativelanguage.googleapis.com",
     "内存": "Memory",
-    "每秒输出 Token 数": "Output tokens per second"
+    "每秒输出 Token 数": "Output tokens per second",
+    "首字延迟": "First token",
+    "成功率": "Success rate",
+    "自动封禁规则由后台周期扫描执行,只影响普通用户(管理员与白名单用户不会被自动处置)。IP/UA 黑名单在请求时实时拦截,白名单用户完全豁免拦截,但其请求仍计入风控统计。": "Auto-ban rules run via periodic background scanning and only affect regular users (admins and whitelisted users are never auto-processed). The IP/UA blacklists intercept requests in real time; whitelisted users are fully exempt from interception but their traffic still counts toward risk statistics.",
+    "白名单用户 ID(逗号分隔,完全豁免风控,仍计入统计)": "Whitelist user IDs (comma-separated, fully exempt from risk control, still counted in statistics)"
   }
 }

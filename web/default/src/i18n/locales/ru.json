@@ -524,7 +524,6 @@
     "Auto refresh": "Автообновление",
     "Auto Sync Upstream Models": "Автоматическая синхронизация моделей провайдера",
     "Auto-ban Rules": "Правила автоблокировки",
-    "Auto-ban rules run via periodic background scanning and only affect regular users (admins and whitelisted users are never auto-processed). The UA blacklist intercepts requests in real time.": "Правила автоблокировки выполняются периодическим сканированием в фоне и применяются только к обычным пользователям (администраторы и пользователи из белого списка не обрабатываются автоматически). Чёрный список UA блокирует запросы в реальном времени.",
     "Auto-ban scan interval (minutes)": "Интервал сканирования автоблокировки (минуты)",
     "Auto-disable rules": "Правила автоотключения",
     "Auto-disable status codes": "Коды автоотключения",
@@ -5369,7 +5368,6 @@
     "Whitelist": "Белый список",
     "Whitelist (Only allow listed domains)": "Белый список (Разрешить только указанные домены)",
     "Whitelist (Only allow listed IPs)": "Белый список (Разрешить только указанные IP-адреса)",
-    "Whitelist user IDs (comma-separated, never auto-processed)": "ID пользователей из белого списка (через запятую, без автоблокировки)",
     "whsec_xxx": "whsec_xxx",
     "Why only one store + product?": "Почему только один магазин и продукт?",
     "Window (hours)": "Окно (часы)",
@@ -5428,6 +5426,8 @@
     "Zero retention": "Без хранения данных",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "Auto-ban rules run via periodic background scanning and only affect regular users (admins and whitelisted users are never auto-processed). The IP/UA blacklists intercept requests in real time; whitelisted users are fully exempt from interception but their traffic still counts toward risk statistics.": "Правила автоблокировки выполняются периодическим фоновым сканированием и затрагивают только обычных пользователей (администраторы и пользователи из белого списка никогда не обрабатываются автоматически). Чёрные списки IP/UA перехватывают запросы в реальном времени; пользователи из белого списка полностью освобождены от перехвата, но их трафик по-прежнему учитывается в статистике рисков.",
+    "Whitelist user IDs (comma-separated, fully exempt from risk control, still counted in statistics)": "ID пользователей из белого списка (через запятую, полностью освобождены от контроля рисков, но учитываются в статистике)"
   }
 }

@@ -3749,7 +3749,6 @@
     "用户使用 IP 明细": "用户使用 IP 明细",
     "用户已禁用": "用户已禁用",
     "用户数": "用户数",
-    "白名单用户 ID(逗号分隔,永不自动处置)": "白名单用户 ID(逗号分隔,永不自动处置)",
     "确定禁用该用户？": "确定禁用该用户？",
     "禁用用户": "禁用用户",
     "统计窗口(小时)": "统计窗口(小时)",
@@ -3759,7 +3758,6 @@
     "请求数": "请求数",
     "阈值(超过则触发)": "阈值(超过则触发)",
     "首次": "首次",
-    "自动封禁规则由后台周期扫描执行,只影响普通用户(管理员与白名单用户不会被自动处置)。UA 黑名单在请求时实时拦截。": "自动封禁规则由后台周期扫描执行,只影响普通用户(管理员与白名单用户不会被自动处置)。UA 黑名单在请求时实时拦截。",
     "风控依赖 IP / User-Agent 日志记录。当前部分记录开关未开启，排行榜数据可能不完整。请前往「运营设置」开启全局 IP / UA 记录。": "风控依赖 IP / User-Agent 日志记录。当前部分记录开关未开启，排行榜数据可能不完整。请前往「运营设置」开启全局 IP / UA 记录。",
     "IP 黑名单": "IP 黑名单",
     "每行一条,支持精确 IP 或 CIDR 网段(如 1.2.3.4、10.0.0.0/8)。命中后直接拒绝调用。": "每行一条,支持精确 IP 或 CIDR 网段(如 1.2.3.4、10.0.0.0/8)。命中后直接拒绝调用。",
@@ -3835,6 +3833,10 @@
     "用于 /v1/messages 等 Claude 原生接口": "Utilisée pour les API Claude natives telles que /v1/messages",
     "例如：https://generativelanguage.googleapis.com": "Exemple : https://generativelanguage.googleapis.com",
     "内存": "Mémoire",
-    "每秒输出 Token 数": "Tokens de sortie par seconde"
+    "每秒输出 Token 数": "Tokens de sortie par seconde",
+    "首字延迟": "Premier token",
+    "成功率": "Taux de réussite",
+    "自动封禁规则由后台周期扫描执行,只影响普通用户(管理员与白名单用户不会被自动处置)。IP/UA 黑名单在请求时实时拦截,白名单用户完全豁免拦截,但其请求仍计入风控统计。": "Les règles de bannissement automatique s'exécutent par analyse périodique en arrière-plan et n'affectent que les utilisateurs ordinaires (les administrateurs et les utilisateurs en liste blanche ne sont jamais traités automatiquement). Les listes noires IP/UA interceptent les requêtes en temps réel ; les utilisateurs en liste blanche sont totalement exemptés de l'interception, mais leur trafic reste comptabilisé dans les statistiques de risque.",
+    "白名单用户 ID(逗号分隔,完全豁免风控,仍计入统计)": "ID utilisateur en liste blanche (séparés par des virgules, totalement exemptés du contrôle des risques, toujours comptés dans les statistiques)"
   }
 }

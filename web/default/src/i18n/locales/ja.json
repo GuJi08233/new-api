@@ -524,7 +524,6 @@
     "Auto refresh": "自動更新",
     "Auto Sync Upstream Models": "アップストリームモデルの自動同期",
     "Auto-ban Rules": "自動BANルール",
-    "Auto-ban rules run via periodic background scanning and only affect regular users (admins and whitelisted users are never auto-processed). The UA blacklist intercepts requests in real time.": "自動BANルールはバックグラウンドで定期実行され、一般ユーザーのみを対象とします（管理者とホワイトリスト登録ユーザーは自動処理されません）。UA ブラックリストはリクエストをリアルタイムで遮断します。",
     "Auto-ban scan interval (minutes)": "自動BANスキャン間隔（分）",
     "Auto-disable rules": "自動無効化ルール",
     "Auto-disable status codes": "自動無効化するステータスコード",
@@ -5369,7 +5368,6 @@
     "Whitelist": "ホワイトリスト",
     "Whitelist (Only allow listed domains)": "ホワイトリスト (リストされたドメインのみを許可)",
     "Whitelist (Only allow listed IPs)": "ホワイトリスト (リストされたIPのみを許可)",
-    "Whitelist user IDs (comma-separated, never auto-processed)": "ホワイトリストのユーザー ID（カンマ区切り、自動処理なし）",
     "whsec_xxx": "whsec_xxx",
     "Why only one store + product?": "なぜストア + 商品は 1 つだけなのか？",
     "Window (hours)": "ウィンドウ（時間）",
@@ -5428,6 +5426,8 @@
     "Zero retention": "データ保持なし",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V 4",
-    "Zoom": "ズーム"
+    "Zoom": "ズーム",
+    "Auto-ban rules run via periodic background scanning and only affect regular users (admins and whitelisted users are never auto-processed). The IP/UA blacklists intercept requests in real time; whitelisted users are fully exempt from interception but their traffic still counts toward risk statistics.": "自動BANルールはバックグラウンドの定期スキャンで実行され、一般ユーザーのみに適用されます（管理者とホワイトリストのユーザーは自動処理されません）。IP/UA ブラックリストはリクエストをリアルタイムで遮断します。ホワイトリストのユーザーは遮断を完全に免除されますが、そのトラフィックはリスク統計に引き続き計上されます。",
+    "Whitelist user IDs (comma-separated, fully exempt from risk control, still counted in statistics)": "ホワイトリストのユーザー ID（カンマ区切り、リスク管理を完全免除、統計には計上）"
   }
 }

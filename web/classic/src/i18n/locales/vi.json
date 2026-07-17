@@ -4280,7 +4280,6 @@
     "每行一条。普通文本按子串匹配(不区分大小写),含正则元字符时按正则匹配。": "每行一条。普通文本按子串匹配(不区分大小写),含正则元字符时按正则匹配。",
     "用户使用 IP 明细": "用户使用 IP 明细",
     "用户数": "用户数",
-    "白名单用户 ID(逗号分隔,永不自动处置)": "白名单用户 ID(逗号分隔,永不自动处置)",
     "确定禁用该用户？": "确定禁用该用户？",
     "统计窗口(小时)": "统计窗口(小时)",
     "自动封禁扫描周期(分钟)": "自动封禁扫描周期(分钟)",
@@ -4289,7 +4288,6 @@
     "请求数": "请求数",
     "阈值(超过则触发)": "阈值(超过则触发)",
     "首次": "首次",
-    "自动封禁规则由后台周期扫描执行,只影响普通用户(管理员与白名单用户不会被自动处置)。UA 黑名单在请求时实时拦截。": "自动封禁规则由后台周期扫描执行,只影响普通用户(管理员与白名单用户不会被自动处置)。UA 黑名单在请求时实时拦截。",
     "风控依赖 IP / User-Agent 日志记录。当前部分记录开关未开启，排行榜数据可能不完整。请前往「运营设置」开启全局 IP / UA 记录。": "风控依赖 IP / User-Agent 日志记录。当前部分记录开关未开启，排行榜数据可能不完整。请前往「运营设置」开启全局 IP / UA 记录。",
     "IP 黑名单": "IP 黑名单",
     "每行一条,支持精确 IP 或 CIDR 网段(如 1.2.3.4、10.0.0.0/8)。命中后直接拒绝调用。": "每行一条,支持精确 IP 或 CIDR 网段(如 1.2.3.4、10.0.0.0/8)。命中后直接拒绝调用。",
@@ -4363,6 +4361,10 @@
     "用于 /v1/messages 等 Claude 原生接口": "Dùng cho các API gốc Claude như /v1/messages",
     "例如：https://generativelanguage.googleapis.com": "Ví dụ: https://generativelanguage.googleapis.com",
     "内存": "Bộ nhớ",
-    "每秒输出 Token 数": "Số token đầu ra mỗi giây"
+    "每秒输出 Token 数": "Số token đầu ra mỗi giây",
+    "首字延迟": "Token đầu",
+    "成功率": "Tỷ lệ thành công",
+    "自动封禁规则由后台周期扫描执行,只影响普通用户(管理员与白名单用户不会被自动处置)。IP/UA 黑名单在请求时实时拦截,白名单用户完全豁免拦截,但其请求仍计入风控统计。": "Quy tắc tự động cấm chạy theo chu kỳ quét nền và chỉ ảnh hưởng đến người dùng thường (quản trị viên và người dùng trong danh sách trắng không bao giờ bị xử lý tự động). Danh sách đen IP/UA chặn yêu cầu theo thời gian thực; người dùng trong danh sách trắng được miễn hoàn toàn việc chặn nhưng lưu lượng của họ vẫn được tính vào thống kê rủi ro.",
+    "白名单用户 ID(逗号分隔,完全豁免风控,仍计入统计)": "ID người dùng trong danh sách trắng (cách nhau bằng dấu phẩy, miễn hoàn toàn kiểm soát rủi ro, vẫn tính vào thống kê)"
   }
 }

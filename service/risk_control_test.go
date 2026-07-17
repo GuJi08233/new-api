@@ -129,6 +129,37 @@ func TestCheckRequestRiskUsesProvidedSnapshot(t *testing.T) {
 	require.NoError(t, checkRequestRisk(ctx, requestSnapshot))
 }
 
+func TestCheckRequestRiskWhitelistBypass(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	setting := &operation_setting.RiskControlSetting{
+		Enabled:           true,
+		IpBlacklist:       []string{"203.0.113.0/24"},
+		UaBlacklist:       []string{"badbot"},
+		UaBlacklistAction: operation_setting.RiskUaActionBlock,
+		WhitelistUserIds:  []int{42},
+	}
+
+	newCtx := func(userId int) *gin.Context {
+		ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+		ctx.Request = httptest.NewRequest("POST", "/v1/chat/completions", nil)
+		ctx.Request.RemoteAddr = "203.0.113.7:12345"
+		ctx.Request.Header.Set("User-Agent", "BadBot/1.0")
+		if userId > 0 {
+			ctx.Set("id", userId)
+		}
+		return ctx
+	}
+
+	// 白名单用户完全豁免:IP 与 UA 均命中黑名单仍放行。
+	require.NoError(t, checkRequestRisk(newCtx(42), setting))
+
+	// 同一 IP/UA 下的非白名单用户照常被拦截。
+	require.ErrorIs(t, checkRequestRisk(newCtx(7), setting), ErrRiskBlocked)
+
+	// 匿名请求(无用户身份)不受白名单影响,照常被拦截。
+	require.ErrorIs(t, checkRequestRisk(newCtx(0), setting), ErrRiskBlocked)
+}
+
 func TestIsRiskWhitelisted(t *testing.T) {
 	setting := &operation_setting.RiskControlSetting{WhitelistUserIds: []int{7, 42}}
 	if !isRiskWhitelisted(setting, 42) {

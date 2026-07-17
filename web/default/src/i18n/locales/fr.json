@@ -524,7 +524,6 @@
     "Auto refresh": "Actualisation automatique",
     "Auto Sync Upstream Models": "Synchronisation automatique des modèles en amont",
     "Auto-ban Rules": "Règles de bannissement automatique",
-    "Auto-ban rules run via periodic background scanning and only affect regular users (admins and whitelisted users are never auto-processed). The UA blacklist intercepts requests in real time.": "Les règles de bannissement automatique sont exécutées périodiquement en arrière-plan et ne concernent que les utilisateurs ordinaires (les administrateurs et utilisateurs sur liste blanche ne sont jamais traités automatiquement). La liste noire UA intercepte les requêtes en temps réel.",
     "Auto-ban scan interval (minutes)": "Intervalle d’analyse des bannissements automatiques (minutes)",
     "Auto-disable rules": "Règles de désactivation automatique",
     "Auto-disable status codes": "Codes de statut de désactivation auto",
@@ -5369,7 +5368,6 @@
     "Whitelist": "Liste blanche",
     "Whitelist (Only allow listed domains)": "Liste blanche (Autoriser uniquement les domaines listés)",
     "Whitelist (Only allow listed IPs)": "Liste blanche (Autoriser uniquement les adresses IP listées)",
-    "Whitelist user IDs (comma-separated, never auto-processed)": "ID utilisateur en liste blanche (séparés par des virgules, jamais traités automatiquement)",
     "whsec_xxx": "whsec_xxx",
     "Why only one store + product?": "Pourquoi une seule boutique + un seul produit ?",
     "Window (hours)": "Fenêtre (heures)",
@@ -5428,6 +5426,8 @@
     "Zero retention": "Aucune rétention",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "Auto-ban rules run via periodic background scanning and only affect regular users (admins and whitelisted users are never auto-processed). The IP/UA blacklists intercept requests in real time; whitelisted users are fully exempt from interception but their traffic still counts toward risk statistics.": "Les règles de bannissement automatique s'exécutent par analyse périodique en arrière-plan et n'affectent que les utilisateurs ordinaires (les administrateurs et les utilisateurs en liste blanche ne sont jamais traités automatiquement). Les listes noires IP/UA interceptent les requêtes en temps réel ; les utilisateurs en liste blanche sont totalement exemptés de l'interception, mais leur trafic reste comptabilisé dans les statistiques de risque.",
+    "Whitelist user IDs (comma-separated, fully exempt from risk control, still counted in statistics)": "ID utilisateur en liste blanche (séparés par des virgules, totalement exemptés du contrôle des risques, toujours comptés dans les statistiques)"
   }
 }
