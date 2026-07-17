@@ -77,6 +77,7 @@ const PricingCardView = ({
   setSelectedRowKeys,
   openModelDetail,
   groupPricing = null, // 新增：分组定价数据
+  perfMap = {}, // 模型性能指标：key=model_name
 }) => {
   const showSkeleton = useMinimumLoadingTime(loading);
   const startIndex = (currentPage - 1) * pageSize;
@@ -211,6 +212,43 @@ const PricingCardView = ({
     );
   };
 
+  // 渲染性能指标（近 24h TPS/首字延迟/成功率）；无数据显示"未知"
+  const renderPerfStats = (record) => {
+    const perf = perfMap?.[record.model_name];
+    const tpsText =
+      perf && perf.avg_tps > 0 ? `${perf.avg_tps.toFixed(2)} t/s` : t('未知');
+    const ttftText =
+      perf && perf.avg_ttft_ms > 0
+        ? `${(perf.avg_ttft_ms / 1000).toFixed(2)}s`
+        : t('未知');
+    const successText =
+      perf && Number.isFinite(perf.success_rate)
+        ? `${perf.success_rate.toFixed(1)}%`
+        : t('未知');
+
+    const cell = (label, value) => (
+      <div className='flex flex-col items-center'>
+        <span className='text-gray-400' style={{ fontSize: 11 }}>
+          {label}
+        </span>
+        <span
+          className='font-medium tabular-nums'
+          style={{ color: 'var(--semi-color-text-1)' }}
+        >
+          {value}
+        </span>
+      </div>
+    );
+
+    return (
+      <div className='grid grid-cols-3 gap-2 py-2 text-xs'>
+        {cell('TPS', tpsText)}
+        {cell(t('首字延迟'), ttftText)}
+        {cell(t('成功率'), successText)}
+      </div>
+    );
+  };
+
   // 显示骨架屏
   if (showSkeleton) {
     return (
@@ -270,11 +308,13 @@ const PricingCardView = ({
                         {model.model_name}
                       </h3>
                       <div className='flex flex-col gap-1 text-xs mt-1'>
-                        {priceData.isDynamicPricing ? (
-                          formatDynamicPriceSummary(priceData.billingExpr, t, priceData.usedGroupRatio)
-                        ) : (
-                          formatPriceInfo(priceData, t, siteDisplayType)
-                        )}
+                        {priceData.isDynamicPricing
+                          ? formatDynamicPriceSummary(
+                              priceData.billingExpr,
+                              t,
+                              priceData.usedGroupRatio,
+                            )
+                          : formatPriceInfo(priceData, t, siteDisplayType)}
                       </div>
                     </div>
                   </div>
@@ -317,6 +357,9 @@ const PricingCardView = ({
 
                 {/* 底部区域 */}
                 <div className='mt-auto'>
+                  {/* 性能指标区域 */}
+                  {renderPerfStats(model)}
+
                   {/* 标签区域 */}
                   {renderTags(model)}
 

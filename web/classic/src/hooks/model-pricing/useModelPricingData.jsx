@@ -52,6 +52,7 @@ export const useModelPricingData = () => {
   const [endpointMap, setEndpointMap] = useState({});
   const [autoGroups, setAutoGroups] = useState([]);
   const [groupPricing, setGroupPricing] = useState(null); // 新增：分组定价数据
+  const [perfMap, setPerfMap] = useState({}); // 模型性能指标：key=model_name
 
   const [statusState] = useContext(StatusContext);
   const [userState] = useContext(UserContext);
@@ -266,6 +267,25 @@ export const useModelPricingData = () => {
         console.warn('Failed to load group pricing data:', e);
       }
 
+      // 加载模型性能指标（近 24h TPS/首字延迟/成功率），失败不影响主流程
+      try {
+        const perfRes = await API.get('/api/perf-metrics/summary?hours=24');
+        if (perfRes.data?.success && Array.isArray(perfRes.data.data?.models)) {
+          const map = {};
+          perfRes.data.data.models.forEach((m) => {
+            if (m?.model_name) {
+              map[m.model_name] = m;
+            }
+          });
+          setPerfMap(map);
+        } else {
+          setPerfMap({});
+        }
+      } catch (e) {
+        // 性能数据非关键路径，静默降级为空
+        setPerfMap({});
+      }
+
       setModelsFormat(data, group_ratio, vendorMap);
     } else {
       showError(message);
@@ -388,6 +408,7 @@ export const useModelPricingData = () => {
     endpointMap,
     autoGroups,
     groupPricing, // 新增：分组定价数据
+    perfMap, // 模型性能指标
 
     // 计算属性
     priceRate,
