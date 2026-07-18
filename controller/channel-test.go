@@ -919,7 +919,7 @@ func performChannelTests(ctx context.Context, channels []*model.Channel, testUse
 		if report != nil {
 			report(index, total) // channels completed before this one
 		}
-		if channel.Status == common.ChannelStatusManuallyDisabled {
+		if channel.Status == common.ChannelStatusManuallyDisabled || channel.Status == common.ChannelStatusArchived {
 			continue
 		}
 		isChannelEnabled := channel.Status == common.ChannelStatusEnabled
@@ -1018,7 +1018,7 @@ func runChannelTestTask(ctx context.Context, mode string, notify bool, report fu
 func selectChannelsForAutomaticTest(channels []*model.Channel, mode string) []*model.Channel {
 	selected := make([]*model.Channel, 0, len(channels))
 	for _, channel := range channels {
-		if channel.Status == common.ChannelStatusManuallyDisabled {
+		if channel.Status == common.ChannelStatusManuallyDisabled || channel.Status == common.ChannelStatusArchived {
 			continue
 		}
 		if mode == operation_setting.ChannelTestModePassiveRecovery && channel.Status != common.ChannelStatusAutoDisabled {

@@ -448,12 +448,17 @@ export const useChannelsData = () => {
         res = await API.delete(`/api/channel/${id}/`);
         break;
       case 'enable':
-        data.status = 1;
-        res = await API.put('/api/channel/', data);
+        res = await API.post(`/api/channel/${id}/status`, { status: 1 });
         break;
       case 'disable':
-        data.status = 2;
-        res = await API.put('/api/channel/', data);
+        res = await API.post(`/api/channel/${id}/status`, { status: 2 });
+        break;
+      case 'archive':
+        res = await API.post(`/api/channel/${id}/status`, { status: 4 });
+        break;
+      case 'restore':
+        // 恢复为手动禁用，确认渠道可用后再手动启用
+        res = await API.post(`/api/channel/${id}/status`, { status: 2 });
         break;
       case 'priority':
         if (value === '') return;
@@ -474,11 +479,32 @@ export const useChannelsData = () => {
     }
     const { success, message } = res.data;
     if (success) {
+      if (action === 'archive' || action === 'restore') {
+        showSuccess(
+          action === 'archive'
+            ? t('已归档，可在状态筛选“已归档”中查看')
+            : t('已恢复为手动禁用状态，请确认可用后再启用'),
+        );
+        // 当前页仅剩这一行时回退一页，避免刷新后停留在空页
+        const nextPage =
+          channels.length === 1 && activePage > 1 ? activePage - 1 : activePage;
+        if (nextPage !== activePage) {
+          setActivePage(nextPage);
+        }
+        await refresh(nextPage);
+        return;
+      }
       showSuccess(t('操作成功完成！'));
-      let channel = res.data.data;
       let newChannels = [...channels];
-      if (action !== 'delete') {
-        record.status = channel.status;
+      if (action === 'enable') {
+        record.status = 1;
+      } else if (action === 'disable') {
+        record.status = 2;
+      } else if (action !== 'delete') {
+        let channel = res.data.data;
+        if (channel && typeof channel === 'object') {
+          record.status = channel.status;
+        }
       }
       setChannels(newChannels);
     } else {
@@ -504,10 +530,17 @@ export const useChannelsData = () => {
       for (let i = 0; i < newChannels.length; i++) {
         if (newChannels[i].tag === tag) {
           let status = action === 'enable' ? 1 : 2;
+          let changed = false;
           newChannels[i]?.children?.forEach((channel) => {
-            channel.status = status;
+            // 已归档渠道不参与标签批量启停（后端同样排除）
+            if (channel.status !== 4) {
+              channel.status = status;
+              changed = true;
+            }
           });
-          newChannels[i].status = status;
+          if (changed) {
+            newChannels[i].status = status;
+          }
         }
       }
       setChannels(newChannels);
@@ -713,6 +746,70 @@ export const useChannelsData = () => {
           refresh(activePage - 1);
         }
       }, 100);
+    } else {
+      showError(message);
+    }
+    setLoading(false);
+  };
+
+  const batchArchiveChannels = async () => {
+    if (selectedChannels.length === 0) {
+      showError(t('请先选择要归档的通道！'));
+      return;
+    }
+    setLoading(true);
+    const ids = selectedChannels.map((channel) => channel.id);
+    const res = await API.post('/api/channel/status/batch', {
+      ids: ids,
+      status: 4,
+    });
+    const { success, message, data } = res.data;
+    if (success) {
+      showSuccess(t('已归档 ${data} 个通道！').replace('${data}', data));
+      setSelectedChannels([]);
+      // 当前页行被全部移除时回退一页，避免刷新后停留在空页
+      const idSet = new Set(ids);
+      const removedOnPage = channels.filter((c) => idSet.has(c.id)).length;
+      const nextPage =
+        removedOnPage >= channels.length && activePage > 1
+          ? activePage - 1
+          : activePage;
+      if (nextPage !== activePage) {
+        setActivePage(nextPage);
+      }
+      await refresh(nextPage);
+    } else {
+      showError(message);
+    }
+    setLoading(false);
+  };
+
+  const batchRestoreChannels = async () => {
+    if (selectedChannels.length === 0) {
+      showError(t('请先选择要恢复的通道！'));
+      return;
+    }
+    setLoading(true);
+    const ids = selectedChannels.map((channel) => channel.id);
+    // 恢复为手动禁用，确认渠道可用后再手动启用
+    const res = await API.post('/api/channel/status/batch', {
+      ids: ids,
+      status: 2,
+    });
+    const { success, message, data } = res.data;
+    if (success) {
+      showSuccess(t('已恢复 ${data} 个通道！').replace('${data}', data));
+      setSelectedChannels([]);
+      const idSet = new Set(ids);
+      const removedOnPage = channels.filter((c) => idSet.has(c.id)).length;
+      const nextPage =
+        removedOnPage >= channels.length && activePage > 1
+          ? activePage - 1
+          : activePage;
+      if (nextPage !== activePage) {
+        setActivePage(nextPage);
+      }
+      await refresh(nextPage);
     } else {
       showError(message);
     }
@@ -1229,6 +1326,8 @@ export const useChannelsData = () => {
     handleRow,
     batchSetChannelTag,
     batchDeleteChannels,
+    batchArchiveChannels,
+    batchRestoreChannels,
     testAllChannels,
     deleteAllDisabledChannels,
     updateAllChannelsBalance,

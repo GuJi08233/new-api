@@ -179,6 +179,12 @@ const renderStatus = (status, channelInfo = undefined, t) => {
           {t('自动禁用')}
         </Tag>
       );
+    case 4:
+      return (
+        <Tag color='grey' shape='circle'>
+          {t('已归档')}
+        </Tag>
+      );
     default:
       return (
         <Tag color='grey' shape='circle'>
@@ -206,6 +212,12 @@ const renderMultiKeyStatus = (status, keySize, enabledKeySize, t) => {
       return (
         <Tag color='yellow' shape='circle'>
           {t('自动禁用')} {enabledKeySize}/{keySize}
+        </Tag>
+      );
+    case 4:
+      return (
+        <Tag color='grey' shape='circle'>
+          {t('已归档')} {enabledKeySize}/{keySize}
         </Tag>
       );
     default:
@@ -691,6 +703,24 @@ export const getChannelsColumns = ({
         if (record.children === undefined) {
           const upstreamUpdateMeta = getUpstreamUpdateMeta(record);
           const moreMenuItems = [
+            ...(record.status !== 4
+              ? [
+                  {
+                    node: 'item',
+                    name: t('归档'),
+                    type: 'tertiary',
+                    onClick: () => {
+                      Modal.confirm({
+                        title: t('确定是否要归档此渠道？'),
+                        content: t(
+                          '归档后通道将从默认列表隐藏，可在状态筛选“已归档”中查看并恢复',
+                        ),
+                        onOk: () => manageChannel(record.id, 'archive', record),
+                      });
+                    },
+                  },
+                ]
+              : []),
             {
               node: 'item',
               name: t('删除'),
@@ -797,7 +827,14 @@ export const getChannelsColumns = ({
                 />
               </SplitButtonGroup>
 
-              {record.status === 1 ? (
+              {record.status === 4 ? (
+                <Button
+                  size='small'
+                  onClick={() => manageChannel(record.id, 'restore', record)}
+                >
+                  {t('恢复')}
+                </Button>
+              ) : record.status === 1 ? (
                 <Button
                   type='danger'
                   size='small'

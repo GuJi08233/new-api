@@ -315,7 +315,12 @@ func UpdateAbilityStatus(channelId int, status bool) error {
 }
 
 func UpdateAbilityStatusByTag(tag string, status bool) error {
-	return DB.Model(&Ability{}).Where("tag = ?", tag).Select("enabled").Update("enabled", status).Error
+	query := DB.Model(&Ability{}).Where("tag = ?", tag)
+	if status {
+		// 归档渠道的能力不允许经由标签操作被重新启用，否则数据库直查路由会把流量打到归档渠道
+		query = query.Where("channel_id not in (?)", DB.Model(&Channel{}).Select("id").Where("status = ?", common.ChannelStatusArchived))
+	}
+	return query.Select("enabled").Update("enabled", status).Error
 }
 
 func UpdateAbilityByTag(tag string, newTag *string, priority *int64, weight *uint) error {

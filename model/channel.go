@@ -679,12 +679,15 @@ func handlerMultiKeyUpdate(channel *Channel, usingKey string, status int, reason
 			channel.ChannelInfo.MultiKeyDisabledTime[keyIndex] = common.GetTimestamp()
 		}
 		if !hasEnabledMultiKey(keys, channel.ChannelInfo.MultiKeyStatusList) {
-			channel.Status = common.ChannelStatusAutoDisabled
-			info := channel.GetOtherInfo()
-			info["status_reason"] = "All keys are disabled"
-			info["status_time"] = common.GetTimestamp()
-			channel.SetOtherInfo(info)
-		} else if status == common.ChannelStatusEnabled {
+			// 归档渠道整体状态保持不变，仅记录 key 级状态
+			if channel.Status != common.ChannelStatusArchived {
+				channel.Status = common.ChannelStatusAutoDisabled
+				info := channel.GetOtherInfo()
+				info["status_reason"] = "All keys are disabled"
+				info["status_time"] = common.GetTimestamp()
+				channel.SetOtherInfo(info)
+			}
+		} else if status == common.ChannelStatusEnabled && channel.Status != common.ChannelStatusArchived {
 			channel.Status = common.ChannelStatusEnabled
 		}
 	}
@@ -703,13 +706,28 @@ func hasEnabledMultiKey(keys []string, statusList map[int]int) bool {
 	return false
 }
 
+// UpdateChannelStatus 供自动路径调用（请求错误自动禁用、测试通过自动启用、余额耗尽、MJ 自动封禁等）。
+// 归档渠道对自动路径完全冻结，任何状态改写都会被拒绝；归档/恢复只能走 UpdateChannelStatusManual。
 func UpdateChannelStatus(channelId int, usingKey string, status int, reason string) bool {
+	return updateChannelStatus(channelId, usingKey, status, reason, false)
+}
+
+// UpdateChannelStatusManual 供管理端状态接口调用，允许将渠道归档以及从归档恢复。
+func UpdateChannelStatusManual(channelId int, status int, reason string) bool {
+	return updateChannelStatus(channelId, "", status, reason, true)
+}
+
+func updateChannelStatus(channelId int, usingKey string, status int, reason string, manual bool) bool {
 	if common.MemoryCacheEnabled {
 		channelStatusLock.Lock()
 		defer channelStatusLock.Unlock()
 
 		channelCache, _ := CacheGetChannel(channelId)
 		if channelCache == nil {
+			return false
+		}
+		// 归档渠道冻结状态：自动路径不得改写归档状态
+		if channelCache.Status == common.ChannelStatusArchived && !manual {
 			return false
 		}
 		if channelCache.ChannelInfo.IsMultiKey {
@@ -750,6 +768,10 @@ func UpdateChannelStatus(channelId int, usingKey string, status int, reason stri
 		if channel.Status == status {
 			return false
 		}
+		// 归档渠道冻结状态：自动路径不得改写归档状态
+		if channel.Status == common.ChannelStatusArchived && !manual {
+			return false
+		}
 
 		if channel.ChannelInfo.IsMultiKey {
 			beforeStatus := channel.Status
@@ -779,7 +801,8 @@ func UpdateChannelStatus(channelId int, usingKey string, status int, reason stri
 }
 
 func EnableChannelByTag(tag string) error {
-	err := DB.Model(&Channel{}).Where("tag = ?", tag).Update("status", common.ChannelStatusEnabled).Error
+	// 归档渠道不参与标签批量启用/禁用，保持归档状态不被意外改动
+	err := DB.Model(&Channel{}).Where("tag = ? and status != ?", tag, common.ChannelStatusArchived).Update("status", common.ChannelStatusEnabled).Error
 	if err != nil {
 		return err
 	}
@@ -788,7 +811,7 @@ func EnableChannelByTag(tag string) error {
 }
 
 func DisableChannelByTag(tag string) error {
-	err := DB.Model(&Channel{}).Where("tag = ?", tag).Update("status", common.ChannelStatusManuallyDisabled).Error
+	err := DB.Model(&Channel{}).Where("tag = ? and status != ?", tag, common.ChannelStatusArchived).Update("status", common.ChannelStatusManuallyDisabled).Error
 	if err != nil {
 		return err
 	}

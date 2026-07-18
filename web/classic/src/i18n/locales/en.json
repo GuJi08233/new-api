@@ -3988,6 +3988,22 @@
     "首字延迟": "First token",
     "成功率": "Success rate",
     "自动封禁规则由后台周期扫描执行,只影响普通用户(管理员与白名单用户不会被自动处置)。IP/UA 黑名单在请求时实时拦截,白名单用户完全豁免拦截,但其请求仍计入风控统计。": "Auto-ban rules run via periodic background scanning and only affect regular users (admins and whitelisted users are never auto-processed). The IP/UA blacklists intercept requests in real time; whitelisted users are fully exempt from interception but their traffic still counts toward risk statistics.",
-    "白名单用户 ID(逗号分隔,完全豁免风控,仍计入统计)": "Whitelist user IDs (comma-separated, fully exempt from risk control, still counted in statistics)"
+    "白名单用户 ID(逗号分隔,完全豁免风控,仍计入统计)": "Whitelist user IDs (comma-separated, fully exempt from risk control, still counted in statistics)",
+    "已归档": "Archived",
+    "归档": "Archive",
+    "恢复": "Restore",
+    "确定是否要归档此渠道？": "Are you sure you want to archive this channel?",
+    "归档后通道将从默认列表隐藏，可在状态筛选“已归档”中查看并恢复": "Archived channels are hidden from the default list; view and restore them via the \"Archived\" status filter",
+    "已归档，可在状态筛选“已归档”中查看": "Archived. View it via the \"Archived\" status filter",
+    "已恢复为手动禁用状态，请确认可用后再启用": "Restored as manually disabled. Verify the channel works before enabling it",
+    "确定是否要归档所选通道？": "Are you sure you want to archive the selected channels?",
+    "确定是否要恢复所选通道？": "Are you sure you want to restore the selected channels?",
+    "归档所选通道": "Archive Selected",
+    "恢复所选通道": "Restore Selected",
+    "恢复后通道将处于手动禁用状态，确认可用后可再启用": "Restored channels will be in manually-disabled state; enable them after verifying they work",
+    "请先选择要归档的通道！": "Please select channels to archive first!",
+    "请先选择要恢复的通道！": "Please select channels to restore first!",
+    "已归档 ${data} 个通道！": "Archived ${data} channels!",
+    "已恢复 ${data} 个通道！": "Restored ${data} channels!"
   }
 }

@@ -595,7 +595,8 @@ func RelayMidjourneySubmit(c *gin.Context, relayInfo *relaycommon.RelayInfo) *dt
 		if err != nil {
 			common.SysLog("get_channel_null: " + err.Error())
 		}
-		if channel.GetAutoBan() && common.AutomaticDisableChannelEnabled {
+		// 归档渠道由 model.UpdateChannelStatus 冻结，自动禁用会被拒绝
+		if err == nil && channel != nil && channel.GetAutoBan() && common.AutomaticDisableChannelEnabled {
 			model.UpdateChannelStatus(midjourneyTask.ChannelId, "", 2, "No available account instance")
 		}
 	}

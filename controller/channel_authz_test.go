@@ -154,6 +154,7 @@ func TestUpdateChannelRejectsStatusField(t *testing.T) {
 func TestChannelStatusValidation(t *testing.T) {
 	assert.True(t, isManageableChannelStatus(common.ChannelStatusEnabled))
 	assert.True(t, isManageableChannelStatus(common.ChannelStatusManuallyDisabled))
+	assert.True(t, isManageableChannelStatus(common.ChannelStatusArchived))
 	assert.False(t, isManageableChannelStatus(common.ChannelStatusAutoDisabled))
 	assert.False(t, isManageableChannelStatus(0))
 }

@@ -308,6 +308,7 @@ const (
 	ChannelStatusEnabled          = 1 // don't use 0, 0 is the default value!
 	ChannelStatusManuallyDisabled = 2 // also don't use 0
 	ChannelStatusAutoDisabled     = 3
+	ChannelStatusArchived         = 4 // 归档：不参与路由与测试，默认列表不展示，可随时恢复
 )
 
 const (

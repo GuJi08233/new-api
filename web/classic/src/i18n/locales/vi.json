@@ -4365,6 +4365,22 @@
     "首字延迟": "Token đầu",
     "成功率": "Tỷ lệ thành công",
     "自动封禁规则由后台周期扫描执行,只影响普通用户(管理员与白名单用户不会被自动处置)。IP/UA 黑名单在请求时实时拦截,白名单用户完全豁免拦截,但其请求仍计入风控统计。": "Quy tắc tự động cấm chạy theo chu kỳ quét nền và chỉ ảnh hưởng đến người dùng thường (quản trị viên và người dùng trong danh sách trắng không bao giờ bị xử lý tự động). Danh sách đen IP/UA chặn yêu cầu theo thời gian thực; người dùng trong danh sách trắng được miễn hoàn toàn việc chặn nhưng lưu lượng của họ vẫn được tính vào thống kê rủi ro.",
-    "白名单用户 ID(逗号分隔,完全豁免风控,仍计入统计)": "ID người dùng trong danh sách trắng (cách nhau bằng dấu phẩy, miễn hoàn toàn kiểm soát rủi ro, vẫn tính vào thống kê)"
+    "白名单用户 ID(逗号分隔,完全豁免风控,仍计入统计)": "ID người dùng trong danh sách trắng (cách nhau bằng dấu phẩy, miễn hoàn toàn kiểm soát rủi ro, vẫn tính vào thống kê)",
+    "已归档": "Đã lưu trữ",
+    "归档": "Lưu trữ",
+    "恢复": "Khôi phục",
+    "确定是否要归档此渠道？": "Bạn có chắc chắn muốn lưu trữ kênh này không?",
+    "归档后通道将从默认列表隐藏，可在状态筛选“已归档”中查看并恢复": "Kênh đã lưu trữ sẽ bị ẩn khỏi danh sách mặc định; xem và khôi phục qua bộ lọc trạng thái \"Đã lưu trữ\"",
+    "已归档，可在状态筛选“已归档”中查看": "Đã lưu trữ. Xem qua bộ lọc trạng thái \"Đã lưu trữ\"",
+    "已恢复为手动禁用状态，请确认可用后再启用": "Đã khôi phục ở trạng thái tắt thủ công. Hãy kiểm tra kênh trước khi bật",
+    "确定是否要归档所选通道？": "Bạn có chắc chắn muốn lưu trữ các kênh đã chọn không?",
+    "确定是否要恢复所选通道？": "Bạn có chắc chắn muốn khôi phục các kênh đã chọn không?",
+    "归档所选通道": "Lưu trữ kênh đã chọn",
+    "恢复所选通道": "Khôi phục kênh đã chọn",
+    "恢复后通道将处于手动禁用状态，确认可用后可再启用": "Kênh sau khi khôi phục sẽ ở trạng thái tắt thủ công; bật lại sau khi kiểm tra",
+    "请先选择要归档的通道！": "Vui lòng chọn kênh cần lưu trữ trước!",
+    "请先选择要恢复的通道！": "Vui lòng chọn kênh cần khôi phục trước!",
+    "已归档 ${data} 个通道！": "Đã lưu trữ ${data} kênh!",
+    "已恢复 ${data} 个通道！": "Đã khôi phục ${data} kênh!"
   }
 }

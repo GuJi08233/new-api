@@ -31,6 +31,8 @@ import CompactModeToggle from '../../common/ui/CompactModeToggle';
 const ChannelsActions = ({
   enableBatchDelete,
   batchDeleteChannels,
+  batchArchiveChannels,
+  batchRestoreChannels,
   setShowBatchSetTag,
   testAllChannels,
   fixChannelsAbilities,
@@ -78,6 +80,32 @@ const ChannelsActions = ({
             }}
           >
             {t('删除所选通道')}
+          </Button>
+
+          <Button
+            size='small'
+            disabled={!enableBatchDelete}
+            type='tertiary'
+            className='w-full md:w-auto'
+            onClick={() => {
+              if (statusFilter === 'archived') {
+                Modal.confirm({
+                  title: t('确定是否要恢复所选通道？'),
+                  content: t('恢复后通道将处于手动禁用状态，确认可用后可再启用'),
+                  onOk: () => batchRestoreChannels(),
+                });
+              } else {
+                Modal.confirm({
+                  title: t('确定是否要归档所选通道？'),
+                  content: t(
+                    '归档后通道将从默认列表隐藏，可在状态筛选“已归档”中查看并恢复',
+                  ),
+                  onOk: () => batchArchiveChannels(),
+                });
+              }
+            }}
+          >
+            {statusFilter === 'archived' ? t('恢复所选通道') : t('归档所选通道')}
           </Button>
 
           <Button
@@ -318,6 +346,7 @@ const ChannelsActions = ({
               <Select.Option value='all'>{t('全部')}</Select.Option>
               <Select.Option value='enabled'>{t('已启用')}</Select.Option>
               <Select.Option value='disabled'>{t('已禁用')}</Select.Option>
+              <Select.Option value='archived'>{t('已归档')}</Select.Option>
             </Select>
           </div>
         </div>

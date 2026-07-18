@@ -3837,6 +3837,22 @@
     "首字延迟": "Premier token",
     "成功率": "Taux de réussite",
     "自动封禁规则由后台周期扫描执行,只影响普通用户(管理员与白名单用户不会被自动处置)。IP/UA 黑名单在请求时实时拦截,白名单用户完全豁免拦截,但其请求仍计入风控统计。": "Les règles de bannissement automatique s'exécutent par analyse périodique en arrière-plan et n'affectent que les utilisateurs ordinaires (les administrateurs et les utilisateurs en liste blanche ne sont jamais traités automatiquement). Les listes noires IP/UA interceptent les requêtes en temps réel ; les utilisateurs en liste blanche sont totalement exemptés de l'interception, mais leur trafic reste comptabilisé dans les statistiques de risque.",
-    "白名单用户 ID(逗号分隔,完全豁免风控,仍计入统计)": "ID utilisateur en liste blanche (séparés par des virgules, totalement exemptés du contrôle des risques, toujours comptés dans les statistiques)"
+    "白名单用户 ID(逗号分隔,完全豁免风控,仍计入统计)": "ID utilisateur en liste blanche (séparés par des virgules, totalement exemptés du contrôle des risques, toujours comptés dans les statistiques)",
+    "已归档": "Archivé",
+    "归档": "Archiver",
+    "恢复": "Restaurer",
+    "确定是否要归档此渠道？": "Êtes-vous sûr de vouloir archiver ce canal ?",
+    "归档后通道将从默认列表隐藏，可在状态筛选“已归档”中查看并恢复": "Les canaux archivés sont masqués de la liste par défaut ; consultez-les et restaurez-les via le filtre d'état « Archivé »",
+    "已归档，可在状态筛选“已归档”中查看": "Archivé. Consultez-le via le filtre d'état « Archivé »",
+    "已恢复为手动禁用状态，请确认可用后再启用": "Restauré en état désactivé manuellement. Vérifiez le canal avant de l'activer",
+    "确定是否要归档所选通道？": "Êtes-vous sûr de vouloir archiver les canaux sélectionnés ?",
+    "确定是否要恢复所选通道？": "Êtes-vous sûr de vouloir restaurer les canaux sélectionnés ?",
+    "归档所选通道": "Archiver la sélection",
+    "恢复所选通道": "Restaurer la sélection",
+    "恢复后通道将处于手动禁用状态，确认可用后可再启用": "Les canaux restaurés seront en état désactivé manuellement ; activez-les après vérification",
+    "请先选择要归档的通道！": "Veuillez d'abord sélectionner les canaux à archiver !",
+    "请先选择要恢复的通道！": "Veuillez d'abord sélectionner les canaux à restaurer !",
+    "已归档 ${data} 个通道！": "${data} canaux archivés !",
+    "已恢复 ${data} 个通道！": "${data} canaux restaurés !"
   }
 }

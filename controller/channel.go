@@ -60,6 +60,8 @@ func parseStatusFilter(statusParam string) int {
 		return common.ChannelStatusEnabled
 	case "disabled", "0":
 		return 0
+	case "archived", "4":
+		return common.ChannelStatusArchived
 	default:
 		return -1
 	}
@@ -77,9 +79,13 @@ func applyChannelStatusFilter(query *gorm.DB, statusFilter int) *gorm.DB {
 		return query.Where("status = ?", common.ChannelStatusEnabled)
 	}
 	if statusFilter == 0 {
-		return query.Where("status != ?", common.ChannelStatusEnabled)
+		return query.Where("status in (?)", []int{common.ChannelStatusManuallyDisabled, common.ChannelStatusAutoDisabled})
 	}
-	return query
+	if statusFilter == common.ChannelStatusArchived {
+		return query.Where("status = ?", common.ChannelStatusArchived)
+	}
+	// 默认视图（全部）不展示归档渠道
+	return query.Where("status != ?", common.ChannelStatusArchived)
 }
 
 func buildChannelListQuery(group string, statusFilter int, typeFilter int) *gorm.DB {
@@ -106,7 +112,7 @@ func GetAllChannels(c *gin.Context) {
 	enableTagMode, _ := strconv.ParseBool(c.Query("tag_mode"))
 	groupFilter := model.NormalizeChannelGroupFilter(c.Query("group"))
 	statusParam := c.Query("status")
-	// statusFilter: -1 all, 1 enabled, 0 disabled (include auto & manual)
+	// statusFilter: -1 all (excluding archived), 1 enabled, 0 disabled (auto & manual), 4 archived
 	statusFilter := parseStatusFilter(statusParam)
 	// type filter
 	typeStr := c.Query("type")
@@ -288,7 +294,7 @@ func SearchChannels(c *gin.Context) {
 		for _, tag := range tags {
 			if tag != nil && *tag != "" {
 				var tagChannels []*model.Channel
-				err := sortOptions.Apply(buildChannelListQuery(group, -1, -1).Where("tag = ?", *tag)).
+				err := sortOptions.Apply(buildChannelListQuery(group, statusFilter, -1).Where("tag = ?", *tag)).
 					Omit("key").
 					Find(&tagChannels).Error
 				if err != nil {
@@ -313,19 +319,30 @@ func SearchChannels(c *gin.Context) {
 		channelData = channels
 	}
 
-	if statusFilter == common.ChannelStatusEnabled || statusFilter == 0 {
-		filtered := make([]*model.Channel, 0, len(channelData))
-		for _, ch := range channelData {
-			if statusFilter == common.ChannelStatusEnabled && ch.Status != common.ChannelStatusEnabled {
+	filtered := make([]*model.Channel, 0, len(channelData))
+	for _, ch := range channelData {
+		switch statusFilter {
+		case common.ChannelStatusEnabled:
+			if ch.Status != common.ChannelStatusEnabled {
 				continue
 			}
-			if statusFilter == 0 && ch.Status == common.ChannelStatusEnabled {
+		case 0:
+			if ch.Status != common.ChannelStatusManuallyDisabled && ch.Status != common.ChannelStatusAutoDisabled {
 				continue
 			}
-			filtered = append(filtered, ch)
+		case common.ChannelStatusArchived:
+			if ch.Status != common.ChannelStatusArchived {
+				continue
+			}
+		default:
+			// 默认视图（全部）不展示归档渠道
+			if ch.Status == common.ChannelStatusArchived {
+				continue
+			}
 		}
-		channelData = filtered
+		filtered = append(filtered, ch)
 	}
+	channelData = filtered
 
 	// calculate type counts for search results
 	typeCounts := make(map[int64]int64)
@@ -2268,7 +2285,7 @@ func UpdateChannelStatus(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
-	changed := model.UpdateChannelStatus(id, "", req.Status, "manual operation")
+	changed := model.UpdateChannelStatusManual(id, req.Status, "manual operation")
 	if changed {
 		model.InitChannelCache()
 		service.ResetProxyClientCache()
@@ -2285,7 +2302,7 @@ func BatchUpdateChannelStatus(c *gin.Context) {
 	}
 	changedCount := 0
 	for _, id := range req.Ids {
-		if model.UpdateChannelStatus(id, "", req.Status, "manual batch operation") {
+		if model.UpdateChannelStatusManual(id, req.Status, "manual batch operation") {
 			changedCount++
 		}
 	}
@@ -2298,7 +2315,7 @@ func BatchUpdateChannelStatus(c *gin.Context) {
 }
 
 func isManageableChannelStatus(status int) bool {
-	return status == common.ChannelStatusEnabled || status == common.ChannelStatusManuallyDisabled
+	return status == common.ChannelStatusEnabled || status == common.ChannelStatusManuallyDisabled || status == common.ChannelStatusArchived
 }
 
 func equalStringPtr(a, b *string) bool {
