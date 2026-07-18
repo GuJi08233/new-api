@@ -41,6 +41,7 @@ const ModelSetting = () => {
     'claude.default_max_tokens': '',
     'claude.thinking_adapter_budget_tokens_percentage': 0.8,
     'global.pass_through_request_enabled': false,
+    'global.pass_through_headers_enabled': false,
     'global.thinking_model_blacklist': '[]',
     'global.chat_completions_to_responses_policy': '{}',
     'channel_route_setting.enabled': false,

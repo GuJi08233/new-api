@@ -188,6 +188,8 @@ const EditChannelModal = (props) => {
     thinking_to_content: false,
     proxy: '',
     pass_through_body_enabled: false,
+    pass_through_headers_enabled: false,
+    pass_through_rewrite_model_enabled: false,
     system_prompt: '',
     system_prompt_override: false,
     settings: '',
@@ -520,6 +522,8 @@ const EditChannelModal = (props) => {
     thinking_to_content: false,
     proxy: '',
     pass_through_body_enabled: false,
+    pass_through_headers_enabled: false,
+    pass_through_rewrite_model_enabled: false,
     system_prompt: '',
   });
   const showApiConfigCard = true; // 控制是否显示 API 配置卡片
@@ -542,6 +546,47 @@ const EditChannelModal = (props) => {
     const newSettings = { ...channelSettings, [key]: value };
     const settingsJson = JSON.stringify(newSettings);
     handleInputChange('setting', settingsJson);
+  };
+
+  // 全部透传:一键同时开关请求体透传与请求头透传
+  const handlePassThroughAllChange = (value) => {
+    setChannelSettings((prev) => ({
+      ...prev,
+      pass_through_body_enabled: value,
+      pass_through_headers_enabled: value,
+    }));
+    if (formApiRef.current) {
+      formApiRef.current.setValue('pass_through_body_enabled', value);
+      formApiRef.current.setValue('pass_through_headers_enabled', value);
+      formApiRef.current.setValue('pass_through_all_enabled', value);
+    }
+    setInputs((prev) => ({
+      ...prev,
+      pass_through_body_enabled: value,
+      pass_through_headers_enabled: value,
+    }));
+    const newSettings = {
+      ...channelSettings,
+      pass_through_body_enabled: value,
+      pass_through_headers_enabled: value,
+    };
+    handleInputChange('setting', JSON.stringify(newSettings));
+  };
+
+  // 单独切换请求体/请求头透传时,同步"全部透传"开关的显示状态
+  const handlePassThroughPartChange = (key, value) => {
+    handleChannelSettingsChange(key, value);
+    if (formApiRef.current) {
+      const otherKey =
+        key === 'pass_through_body_enabled'
+          ? 'pass_through_headers_enabled'
+          : 'pass_through_body_enabled';
+      const otherValue = formApiRef.current.getValue(otherKey) || false;
+      formApiRef.current.setValue(
+        'pass_through_all_enabled',
+        value && otherValue,
+      );
+    }
   };
 
   const handleChannelOtherSettingsChange = (key, value) => {
@@ -871,6 +916,10 @@ const EditChannelModal = (props) => {
           data.proxy = parsedSettings.proxy || '';
           data.pass_through_body_enabled =
             parsedSettings.pass_through_body_enabled || false;
+          data.pass_through_headers_enabled =
+            parsedSettings.pass_through_headers_enabled || false;
+          data.pass_through_rewrite_model_enabled =
+            parsedSettings.pass_through_rewrite_model_enabled || false;
           data.system_prompt = parsedSettings.system_prompt || '';
           data.system_prompt_override =
             parsedSettings.system_prompt_override || false;
@@ -880,6 +929,8 @@ const EditChannelModal = (props) => {
           data.thinking_to_content = false;
           data.proxy = '';
           data.pass_through_body_enabled = false;
+          data.pass_through_headers_enabled = false;
+          data.pass_through_rewrite_model_enabled = false;
           data.system_prompt = '';
           data.system_prompt_override = false;
         }
@@ -888,6 +939,8 @@ const EditChannelModal = (props) => {
         data.thinking_to_content = false;
         data.proxy = '';
         data.pass_through_body_enabled = false;
+        data.pass_through_headers_enabled = false;
+        data.pass_through_rewrite_model_enabled = false;
         data.system_prompt = '';
         data.system_prompt_override = false;
       }
@@ -1019,11 +1072,18 @@ const EditChannelModal = (props) => {
       setIsEnterpriseAccount(data.is_enterprise_account || false);
       setBasicModels(getChannelModels(data.type));
       // 同步更新channelSettings状态显示
+      data.pass_through_all_enabled =
+        (data.pass_through_body_enabled &&
+          data.pass_through_headers_enabled) ||
+        false;
       setChannelSettings({
         force_format: data.force_format,
         thinking_to_content: data.thinking_to_content,
         proxy: data.proxy,
         pass_through_body_enabled: data.pass_through_body_enabled,
+        pass_through_headers_enabled: data.pass_through_headers_enabled,
+        pass_through_rewrite_model_enabled:
+          data.pass_through_rewrite_model_enabled,
         system_prompt: data.system_prompt,
         system_prompt_override: data.system_prompt_override || false,
       });
@@ -1066,6 +1126,8 @@ const EditChannelModal = (props) => {
         (data.system_prompt && data.system_prompt.trim()) ||
         data.thinking_to_content ||
         data.pass_through_body_enabled ||
+        data.pass_through_headers_enabled ||
+        data.pass_through_rewrite_model_enabled ||
         data.force_format ||
         data.claude_beta_query ||
         data.system_prompt_override;
@@ -1427,6 +1489,8 @@ const EditChannelModal = (props) => {
       thinking_to_content: false,
       proxy: '',
       pass_through_body_enabled: false,
+      pass_through_headers_enabled: false,
+      pass_through_rewrite_model_enabled: false,
       system_prompt: '',
       system_prompt_override: false,
     });
@@ -1797,6 +1861,10 @@ const EditChannelModal = (props) => {
       thinking_to_content: localInputs.thinking_to_content || false,
       proxy: localInputs.proxy || '',
       pass_through_body_enabled: localInputs.pass_through_body_enabled || false,
+      pass_through_headers_enabled:
+        localInputs.pass_through_headers_enabled || false,
+      pass_through_rewrite_model_enabled:
+        localInputs.pass_through_rewrite_model_enabled || false,
       system_prompt: localInputs.system_prompt || '',
       system_prompt_override: localInputs.system_prompt_override || false,
     };
@@ -1908,6 +1976,9 @@ const EditChannelModal = (props) => {
     delete localInputs.thinking_to_content;
     delete localInputs.proxy;
     delete localInputs.pass_through_body_enabled;
+    delete localInputs.pass_through_headers_enabled;
+    delete localInputs.pass_through_rewrite_model_enabled;
+    delete localInputs.pass_through_all_enabled;
     delete localInputs.system_prompt;
     delete localInputs.system_prompt_override;
     delete localInputs.is_enterprise_account;
@@ -2599,7 +2670,10 @@ const EditChannelModal = (props) => {
                   )}
 
                   <Form.Switch field='thinking_to_content' label={t('思考内容转换')} checkedText={t('开')} uncheckedText={t('关')} onChange={(value) => handleChannelSettingsChange('thinking_to_content', value)} extraText={t('将 reasoning_content 转换为 <think> 标签拼接到内容中')} />
-                  <Form.Switch field='pass_through_body_enabled' label={t('透传请求体')} checkedText={t('开')} uncheckedText={t('关')} onChange={(value) => handleChannelSettingsChange('pass_through_body_enabled', value)} extraText={t('启用请求体透传功能')} />
+                  <Form.Switch field='pass_through_body_enabled' label={t('透传请求体')} checkedText={t('开')} uncheckedText={t('关')} onChange={(value) => handlePassThroughPartChange('pass_through_body_enabled', value)} extraText={t('启用请求体透传功能')} />
+                  <Form.Switch field='pass_through_headers_enabled' label={t('透传请求头')} checkedText={t('开')} uncheckedText={t('关')} onChange={(value) => handlePassThroughPartChange('pass_through_headers_enabled', value)} extraText={t('将客户端请求头（如 User-Agent）透传给上游，Authorization 等敏感头始终被过滤')} />
+                  <Form.Switch field='pass_through_all_enabled' label={t('全部透传')} checkedText={t('开')} uncheckedText={t('关')} onChange={(value) => handlePassThroughAllChange(value)} extraText={t('一键同时开启请求体与请求头透传')} />
+                  <Form.Switch field='pass_through_rewrite_model_enabled' label={t('透传时应用模型重定向')} checkedText={t('开')} uncheckedText={t('关')} onChange={(value) => handleChannelSettingsChange('pass_through_rewrite_model_enabled', value)} extraText={t('开启请求体透传时，按模型重定向仅改写请求体中的 model 字段')} />
 
                   <Form.Input field='proxy' label={t('代理地址')} placeholder={t('例如: socks5://user:pass@host:port')} onChange={(value) => handleChannelSettingsChange('proxy', value)} showClear extraText={t('用于配置网络代理，支持 socks5 协议')} />
 

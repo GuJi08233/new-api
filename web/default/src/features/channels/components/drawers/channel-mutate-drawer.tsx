@@ -249,6 +249,8 @@ function hasAdvancedSettingsValues(values: ChannelFormValues): boolean {
     values.force_format ||
     values.thinking_to_content ||
     values.pass_through_body_enabled ||
+    values.pass_through_headers_enabled ||
+    values.pass_through_rewrite_model_enabled ||
     values.system_prompt_override ||
     values.claude_beta_query ||
     values.upstream_model_update_check_enabled ||
@@ -3210,6 +3212,83 @@ export function ChannelMutateDrawer({
                               <FormLabel>{t('Pass Through Body')}</FormLabel>
                               <FormDescription>
                                 {t('Pass request body directly to upstream')}
+                              </FormDescription>
+                            </div>
+                            <FormControl>
+                              <Switch
+                                checked={field.value}
+                                onCheckedChange={field.onChange}
+                              />
+                            </FormControl>
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name='pass_through_headers_enabled'
+                        render={({ field }) => (
+                          <FormItem className='flex items-center justify-between px-4 py-3'>
+                            <div className='space-y-0.5'>
+                              <FormLabel>{t('Pass Through Headers')}</FormLabel>
+                              <FormDescription>
+                                {t(
+                                  'Forward client request headers (e.g. User-Agent) to upstream, sensitive headers like Authorization are always filtered'
+                                )}
+                              </FormDescription>
+                            </div>
+                            <FormControl>
+                              <Switch
+                                checked={field.value}
+                                onCheckedChange={field.onChange}
+                              />
+                            </FormControl>
+                          </FormItem>
+                        )}
+                      />
+
+                      <div className='flex items-center justify-between px-4 py-3'>
+                        <div className='space-y-0.5'>
+                          <span className='text-sm leading-none font-medium'>
+                            {t('Full Pass Through')}
+                          </span>
+                          <p className='text-muted-foreground text-[0.8rem]'>
+                            {t(
+                              'Enable both body and headers pass through at once'
+                            )}
+                          </p>
+                        </div>
+                        <Switch
+                          checked={
+                            !!form.watch('pass_through_body_enabled') &&
+                            !!form.watch('pass_through_headers_enabled')
+                          }
+                          onCheckedChange={(checked) => {
+                            form.setValue('pass_through_body_enabled', checked, {
+                              shouldDirty: true,
+                            })
+                            form.setValue(
+                              'pass_through_headers_enabled',
+                              checked,
+                              { shouldDirty: true }
+                            )
+                          }}
+                        />
+                      </div>
+
+                      <FormField
+                        control={form.control}
+                        name='pass_through_rewrite_model_enabled'
+                        render={({ field }) => (
+                          <FormItem className='flex items-center justify-between px-4 py-3'>
+                            <div className='space-y-0.5'>
+                              <FormLabel>
+                                {t('Rewrite Model on Pass Through')}
+                              </FormLabel>
+                              <FormDescription>
+                                {t(
+                                  'When body pass through is enabled, apply model mapping by rewriting only the model field in the request body'
+                                )}
                               </FormDescription>
                             </div>
                             <FormControl>

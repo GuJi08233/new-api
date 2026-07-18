@@ -391,6 +391,7 @@ export type OperationsSettings = {
 
 export type ModelSettings = {
   'global.pass_through_request_enabled': boolean
+  'global.pass_through_headers_enabled': boolean
   'global.thinking_model_blacklist': string
   'global.chat_completions_to_responses_policy': string
   'global.model_endpoint_protect_enabled': boolean

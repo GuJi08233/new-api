@@ -90,6 +90,7 @@ const jsonString = z.string().refine((value) => {
 const schema = z.object({
   global: z.object({
     pass_through_request_enabled: z.boolean(),
+    pass_through_headers_enabled: z.boolean(),
     thinking_model_blacklist: jsonString,
     chat_completions_to_responses_policy: jsonString,
     model_endpoint_protect_enabled: z.boolean(),
@@ -105,6 +106,7 @@ type GlobalModelSettingsFormInput = z.input<typeof schema>
 
 type FlatGlobalModelSettings = {
   'global.pass_through_request_enabled': boolean
+  'global.pass_through_headers_enabled': boolean
   'global.thinking_model_blacklist': string
   'global.chat_completions_to_responses_policy': string
   'global.model_endpoint_protect_enabled': boolean
@@ -117,6 +119,8 @@ const flattenGlobalValues = (
 ): FlatGlobalModelSettings => ({
   'global.pass_through_request_enabled':
     values.global.pass_through_request_enabled,
+  'global.pass_through_headers_enabled':
+    values.global.pass_through_headers_enabled,
   'global.thinking_model_blacklist': normalizeJsonText(
     values.global.thinking_model_blacklist,
     '[]'
@@ -215,6 +219,29 @@ export function GlobalSettingsCard({ defaultValues }: GlobalSettingsCardProps) {
                   <FormDescription>
                     {t(
                       'Forward requests directly to upstream providers without any post-processing.'
+                    )}
+                  </FormDescription>
+                </SettingsSwitchContent>
+                <FormControl>
+                  <Switch
+                    checked={field.value}
+                    onCheckedChange={field.onChange}
+                  />
+                </FormControl>
+              </SettingsSwitchItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name='global.pass_through_headers_enabled'
+            render={({ field }) => (
+              <SettingsSwitchItem>
+                <SettingsSwitchContent>
+                  <FormLabel>{t('Enable Headers Passthrough')}</FormLabel>
+                  <FormDescription>
+                    {t(
+                      'Forward client request headers (e.g. User-Agent) to all upstream channels, sensitive headers like Authorization are always filtered.'
                     )}
                   </FormDescription>
                 </SettingsSwitchContent>

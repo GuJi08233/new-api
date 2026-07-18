@@ -68,6 +68,7 @@ const chatCompletionsToResponsesPolicyAllChannelsExample = JSON.stringify(
 
 const defaultGlobalSettingInputs = {
   'global.pass_through_request_enabled': false,
+  'global.pass_through_headers_enabled': false,
   'global.thinking_model_blacklist': '[]',
   'global.chat_completions_to_responses_policy': '{}',
   'global.model_endpoint_protect_enabled': false,
@@ -202,6 +203,21 @@ export default function SettingGlobalModel(props) {
                   }
                   extraText={t(
                     '开启后，所有请求将直接透传给上游，不会进行任何处理（重定向和渠道适配也将失效）,请谨慎开启',
+                  )}
+                />
+              </Col>
+              <Col xs={24} sm={12} md={8} lg={8} xl={8}>
+                <Form.Switch
+                  label={t('启用请求头透传')}
+                  field={'global.pass_through_headers_enabled'}
+                  onChange={(value) =>
+                    setInputs({
+                      ...inputs,
+                      'global.pass_through_headers_enabled': value,
+                    })
+                  }
+                  extraText={t(
+                    '开启后，所有渠道都会把客户端请求头（如 User-Agent）透传给上游，Authorization 等敏感头始终被过滤',
                   )}
                 />
               </Col>

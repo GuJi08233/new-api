@@ -17,6 +17,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/types"
 
@@ -198,6 +199,11 @@ func processHeaderOverride(info *common.RelayInfo, c *gin.Context) (map[string]s
 	passAll := false
 	var passthroughRegex []*regexp.Regexp
 	if !info.IsChannelTest {
+		// 全局或渠道级"透传请求头"开关等价于配置了 "*" 透传规则,复用同一套敏感头过滤逻辑
+		if model_setting.GetGlobalSettings().PassThroughHeadersEnabled ||
+			(info.ChannelMeta != nil && info.ChannelSetting.PassThroughHeadersEnabled) {
+			passAll = true
+		}
 		for k := range headerOverrideSource {
 			key := strings.TrimSpace(strings.ToLower(k))
 			if key == "" {
