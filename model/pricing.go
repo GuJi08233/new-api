@@ -170,13 +170,6 @@ func loadPricingAdvancedCustomConfigs(enableAbilities []AbilityWithChannel) map[
 	return configs
 }
 
-func appendPricingEndpoint(endpoints []string, endpoint string) []string {
-	if endpoint == "" || common.StringsContains(endpoints, endpoint) {
-		return endpoints
-	}
-	return append(endpoints, endpoint)
-}
-
 func updatePricing() {
 	//modelRatios := common.GetModelRatios()
 	enableAbilities, err := GetAllEnableAbilityWithChannels()
@@ -285,18 +278,20 @@ func updatePricing() {
 		modelSupportEndpointsStr[ability.Model] = endpoints
 	}
 
-	// 再补充模型自定义端点：若配置有效则追加到已有推断，不再裁剪渠道真实能力
+	// 模型管理中的有效端点配置是展示层的显式覆盖；只有未配置时才使用渠道推断。
 	for modelName, meta := range metaMap {
 		if strings.TrimSpace(meta.Endpoints) == "" {
 			continue
 		}
 		var raw map[string]interface{}
 		if err := common.Unmarshal([]byte(meta.Endpoints), &raw); err == nil {
-			endpoints := modelSupportEndpointsStr[modelName]
+			endpoints := make([]string, 0, len(raw))
 			for k, v := range raw {
 				switch v.(type) {
 				case string, map[string]interface{}:
-					endpoints = appendPricingEndpoint(endpoints, k)
+					if !common.StringsContains(endpoints, k) {
+						endpoints = append(endpoints, k)
+					}
 				}
 			}
 			if len(endpoints) > 0 {

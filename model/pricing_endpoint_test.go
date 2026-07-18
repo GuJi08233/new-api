@@ -107,22 +107,18 @@ func TestPricingAdvancedCustomUsesConfiguredEndpointTypes(t *testing.T) {
 	}, byModel["gpt-4o"])
 }
 
-func TestPricingModelMetadataEndpointsMergeWithAdvancedCustomInference(t *testing.T) {
+func TestPricingModelMetadataEndpointsOverrideNativeChannelInference(t *testing.T) {
 	resetPricingEndpointTestTables(t)
 
-	insertPricingEndpointChannel(t, 103, constant.ChannelTypeAdvancedCustom, pricingEndpointAdvancedCustomConfig(
-		dto.AdvancedCustomRoute{
-			IncomingPath: "/v1/responses",
-			UpstreamPath: "/v1beta/models/{model}:generateContent",
-			Converter:    "openai_responses_to_gemini_generate_content",
-			Models:       []string{"re:^gemini-"},
-		},
-	))
-	insertPricingEndpointAbility(t, 103, "gemini-2.5-flash")
+	insertPricingEndpointChannel(t, 103, constant.ChannelTypeOpenAI, dto.ChannelOtherSettings{})
+	insertPricingEndpointAbility(t, 103, "gpt-4o")
 	require.NoError(t, DB.Create(&Model{
-		ModelName: "gemini-2.5-flash",
+		ModelName: "gpt-4o",
 		Endpoints: `{
-			"openai": "/v1/chat/completions"
+			"openai-response": {
+				"path": "/v1/responses",
+				"method": "POST"
+			}
 		}`,
 		Status:   1,
 		NameRule: NameRuleExact,
@@ -132,11 +128,14 @@ func TestPricingModelMetadataEndpointsMergeWithAdvancedCustomInference(t *testin
 
 	assert.Equal(t, []constant.EndpointType{
 		constant.EndpointTypeOpenAIResponse,
-		constant.EndpointTypeOpenAI,
-	}, byModel["gemini-2.5-flash"])
+	}, byModel["gpt-4o"])
+
+	endpointMap := GetSupportedEndpointMap()
+	assert.Equal(t, common.EndpointInfo{Path: "/v1/responses", Method: "POST"}, endpointMap["openai-response"])
+	assert.NotContains(t, endpointMap, string(constant.EndpointTypeOpenAI))
 }
 
-func TestPricingModelMetadataEndpointsCanProvideEndpointWithoutChannelInference(t *testing.T) {
+func TestPricingModelMetadataEndpointsOverrideAdvancedCustomInference(t *testing.T) {
 	resetPricingEndpointTestTables(t)
 
 	insertPricingEndpointChannel(t, 104, constant.ChannelTypeAdvancedCustom, pricingEndpointAdvancedCustomConfig(
@@ -147,7 +146,38 @@ func TestPricingModelMetadataEndpointsCanProvideEndpointWithoutChannelInference(
 			Models:       []string{"re:^gemini-"},
 		},
 	))
-	insertPricingEndpointAbility(t, 104, "metadata-only-model")
+	insertPricingEndpointAbility(t, 104, "gemini-2.5-flash")
+	require.NoError(t, DB.Create(&Model{
+		ModelName: "gemini-2.5-flash",
+		Endpoints: `{
+			"openai": {
+				"path": "/v1/chat/completions",
+				"method": "POST"
+			}
+		}`,
+		Status:   1,
+		NameRule: NameRuleExact,
+	}).Error)
+
+	byModel := pricingEndpointTypesByModel(t)
+
+	assert.Equal(t, []constant.EndpointType{
+		constant.EndpointTypeOpenAI,
+	}, byModel["gemini-2.5-flash"])
+}
+
+func TestPricingModelMetadataEndpointsCanProvideEndpointWithoutChannelInference(t *testing.T) {
+	resetPricingEndpointTestTables(t)
+
+	insertPricingEndpointChannel(t, 105, constant.ChannelTypeAdvancedCustom, pricingEndpointAdvancedCustomConfig(
+		dto.AdvancedCustomRoute{
+			IncomingPath: "/v1/responses",
+			UpstreamPath: "/v1beta/models/{model}:generateContent",
+			Converter:    "openai_responses_to_gemini_generate_content",
+			Models:       []string{"re:^gemini-"},
+		},
+	))
+	insertPricingEndpointAbility(t, 105, "metadata-only-model")
 	require.NoError(t, DB.Create(&Model{
 		ModelName: "metadata-only-model",
 		Endpoints: `{
