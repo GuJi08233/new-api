@@ -17,23 +17,24 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import {
-  Card,
   Tabs,
   TabPane,
-  Table,
   Tag,
-  RadioGroup,
-  Radio,
   Spin,
   Typography,
-  Row,
-  Col,
   Progress,
-  Space,
   Empty,
+  Avatar,
 } from '@douyinfe/semi-ui';
+import {
+  IconArrowUp,
+  IconArrowDown,
+  IconStar,
+  IconUser,
+  IconActivity,
+} from '@douyinfe/semi-icons';
 import { useTranslation } from 'react-i18next';
 import { API, showError } from '../../helpers';
 
@@ -62,28 +63,252 @@ function formatGrowth(value) {
   return sign + value.toFixed(1) + '%';
 }
 
+function formatLatency(ms) {
+  if (ms === undefined || ms === null) return '-';
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  return `${(ms / 1000).toFixed(2)}s`;
+}
+
 // ============================================================================
-// Stat Card
+// Rank Badge — gold/silver/bronze for top 3
 // ============================================================================
 
-function StatCard({ label, value, sub }) {
+const RANK_STYLES = {
+  1: {
+    background: 'linear-gradient(135deg, #ffd700 0%, #ffb800 100%)',
+    color: '#fff',
+    boxShadow: '0 2px 8px rgba(255, 184, 0, 0.4)',
+  },
+  2: {
+    background: 'linear-gradient(135deg, #c0c0c0 0%, #a8a8a8 100%)',
+    color: '#fff',
+    boxShadow: '0 2px 8px rgba(168, 168, 168, 0.4)',
+  },
+  3: {
+    background: 'linear-gradient(135deg, #cd7f32 0%, #b87333 100%)',
+    color: '#fff',
+    boxShadow: '0 2px 8px rgba(205, 127, 50, 0.4)',
+  },
+};
+
+function RankBadge({ rank }) {
+  const style = RANK_STYLES[rank];
   return (
-    <Card
-      bodyStyle={{ padding: '16px 20px' }}
-      style={{ borderRadius: 8, height: '100%' }}
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: 26,
+        height: 26,
+        borderRadius: '50%',
+        fontSize: 12,
+        fontWeight: 700,
+        fontFamily: 'monospace',
+        ...(style || {
+          background: 'var(--semi-color-fill-1)',
+          color: 'var(--semi-color-text-2)',
+        }),
+      }}
     >
-      <Text type='tertiary' size='small' style={{ display: 'block' }}>
-        {label}
-      </Text>
-      <Title heading={4} style={{ margin: '4px 0 0' }}>
-        {value}
-      </Title>
-      {sub && (
-        <Text type='tertiary' size='small'>
-          {sub}
+      {rank}
+    </span>
+  );
+}
+
+// ============================================================================
+// Stat Card with gradient accent
+// ============================================================================
+
+function StatCard({ icon, label, value, gradient }) {
+  return (
+    <div
+      style={{
+        position: 'relative',
+        overflow: 'hidden',
+        borderRadius: 12,
+        padding: '20px 24px',
+        background: 'var(--semi-color-bg-1)',
+        border: '1px solid var(--semi-color-border)',
+        flex: 1,
+        minWidth: 160,
+      }}
+    >
+      <div
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          height: 3,
+          background: gradient || 'var(--semi-color-primary)',
+        }}
+      />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+        {icon && (
+          <span style={{ fontSize: 16, opacity: 0.7 }}>{icon}</span>
+        )}
+        <Text type='tertiary' size='small' style={{ fontSize: 12, fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+          {label}
         </Text>
+      </div>
+      <div
+        style={{
+          fontSize: 28,
+          fontWeight: 700,
+          fontFamily: "'JetBrains Mono', 'SF Mono', 'Fira Code', monospace",
+          color: 'var(--semi-color-text-0)',
+          lineHeight: 1.2,
+        }}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// Section Card with icon header
+// ============================================================================
+
+function SectionCard({ icon, title, subtitle, children, style }) {
+  return (
+    <div
+      style={{
+        borderRadius: 12,
+        border: '1px solid var(--semi-color-border)',
+        background: 'var(--semi-color-bg-1)',
+        overflow: 'hidden',
+        ...style,
+      }}
+    >
+      <div
+        style={{
+          padding: '16px 20px',
+          borderBottom: '1px solid var(--semi-color-border)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+        }}
+      >
+        {icon && (
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: 32,
+              height: 32,
+              borderRadius: 8,
+              background: 'var(--semi-color-primary-light-default)',
+              color: 'var(--semi-color-primary)',
+              fontSize: 16,
+            }}
+          >
+            {icon}
+          </span>
+        )}
+        <div>
+          <div style={{ fontWeight: 600, fontSize: 15, color: 'var(--semi-color-text-0)' }}>
+            {title}
+          </div>
+          {subtitle && (
+            <div style={{ fontSize: 12, color: 'var(--semi-color-text-2)', marginTop: 2 }}>
+              {subtitle}
+            </div>
+          )}
+        </div>
+      </div>
+      <div style={{ padding: '12px 20px 16px' }}>{children}</div>
+    </div>
+  );
+}
+
+// ============================================================================
+// Leaderboard Row
+// ============================================================================
+
+function LeaderboardRow({ rank, name, sub, value, valueLabel, share, growth }) {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 12,
+        padding: '10px 4px',
+        borderBottom: '1px solid var(--semi-color-fill-0)',
+        transition: 'background 0.15s',
+      }}
+      onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--semi-color-fill-0)')}
+      onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+    >
+      <RankBadge rank={rank} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div
+          style={{
+            fontSize: 13,
+            fontWeight: 600,
+            color: 'var(--semi-color-text-0)',
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            fontFamily: "'JetBrains Mono', 'SF Mono', monospace",
+          }}
+        >
+          {name}
+        </div>
+        {sub && (
+          <div style={{ fontSize: 11, color: 'var(--semi-color-text-2)', marginTop: 2 }}>
+            {sub}
+          </div>
+        )}
+      </div>
+      {share !== undefined && (
+        <div style={{ width: 80, flexShrink: 0 }}>
+          <Progress
+            percent={Math.round(share * 100)}
+            size='small'
+            showInfo={false}
+            stroke='var(--semi-color-primary)'
+            trailColor='var(--semi-color-fill-1)'
+          />
+        </div>
       )}
-    </Card>
+      <div style={{ textAlign: 'right', flexShrink: 0, minWidth: 70 }}>
+        <div
+          style={{
+            fontSize: 13,
+            fontWeight: 700,
+            fontFamily: "'JetBrains Mono', 'SF Mono', monospace",
+            color: 'var(--semi-color-text-0)',
+          }}
+        >
+          {value}
+        </div>
+        {valueLabel && (
+          <div style={{ fontSize: 10, color: 'var(--semi-color-text-2)' }}>{valueLabel}</div>
+        )}
+      </div>
+      {growth !== undefined && (
+        <div style={{ flexShrink: 0, width: 60, textAlign: 'right' }}>
+          <span
+            style={{
+              fontSize: 12,
+              fontWeight: 600,
+              fontFamily: 'monospace',
+              color:
+                growth > 0
+                  ? 'var(--semi-color-success)'
+                  : growth < 0
+                    ? 'var(--semi-color-danger)'
+                    : 'var(--semi-color-text-2)',
+            }}
+          >
+            {formatGrowth(growth)}
+          </span>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -116,240 +341,179 @@ function LLMRankings({ period }) {
     fetchData();
   }, [fetchData]);
 
-  const totalTokens = data?.models?.reduce(
-    (sum, m) => sum + (m.total_tokens || 0),
-    0
+  const totalTokens = useMemo(
+    () => data?.models?.reduce((sum, m) => sum + (m.total_tokens || 0), 0) || 0,
+    [data]
   );
-
-  const modelColumns = [
-    {
-      title: t('排名'),
-      dataIndex: 'rank',
-      width: 60,
-      render: (text, record) => (
-        <Tag
-          color={text <= 3 ? 'blue' : 'grey'}
-          shape='circle'
-          size='small'
-        >
-          {text}
-        </Tag>
-      ),
-    },
-    {
-      title: t('模型'),
-      dataIndex: 'model_name',
-      ellipsis: true,
-      render: (text, record) => (
-        <div>
-          <Text strong style={{ fontSize: 13 }}>
-            {text}
-          </Text>
-          <br />
-          <Text type='tertiary' size='small'>
-            {record.vendor}
-          </Text>
-        </div>
-      ),
-    },
-    {
-      title: t('Token 用量'),
-      dataIndex: 'total_tokens',
-      width: 120,
-      sorter: (a, b) => a.total_tokens - b.total_tokens,
-      render: (v) => formatNumber(v),
-    },
-    {
-      title: t('份额'),
-      dataIndex: 'share',
-      width: 100,
-      render: (v) => formatPercent(v),
-    },
-    {
-      title: t('增长'),
-      dataIndex: 'growth_pct',
-      width: 100,
-      render: (v) => (
-        <Text type={v > 0 ? 'success' : v < 0 ? 'danger' : 'tertiary'}>
-          {formatGrowth(v)}
-        </Text>
-      ),
-    },
-  ];
-
-  const vendorColumns = [
-    {
-      title: t('排名'),
-      dataIndex: 'rank',
-      width: 60,
-      render: (text) => (
-        <Tag
-          color={text <= 3 ? 'blue' : 'grey'}
-          shape='circle'
-          size='small'
-        >
-          {text}
-        </Tag>
-      ),
-    },
-    {
-      title: t('厂商'),
-      dataIndex: 'vendor',
-      ellipsis: true,
-    },
-    {
-      title: t('Token 用量'),
-      dataIndex: 'total_tokens',
-      width: 120,
-      render: (v) => formatNumber(v),
-    },
-    {
-      title: t('份额'),
-      dataIndex: 'share',
-      width: 100,
-      render: (v) => formatPercent(v),
-    },
-    {
-      title: t('模型数'),
-      dataIndex: 'models_count',
-      width: 80,
-    },
-    {
-      title: t('热门模型'),
-      dataIndex: 'top_model',
-      ellipsis: true,
-    },
-  ];
 
   if (loading) {
     return (
-      <div style={{ textAlign: 'center', padding: 60 }}>
+      <div style={{ textAlign: 'center', padding: 80 }}>
         <Spin size='large' />
       </div>
     );
   }
 
   if (!data) {
-    return <Empty description={t('暂无数据')} />;
+    return <Empty description={t('暂无数据')} style={{ padding: 60 }} />;
   }
 
   return (
-    <div>
-      <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
-        <Col xs={24} sm={8}>
-          <StatCard label={t('总令牌用量')} value={formatNumber(totalTokens)} />
-        </Col>
-        <Col xs={24} sm={8}>
-          <StatCard
-            label={t('上榜模型')}
-            value={data.models?.length || 0}
-          />
-        </Col>
-        <Col xs={24} sm={8}>
-          <StatCard
-            label={t('活跃厂商')}
-            value={data.vendors?.length || 0}
-          />
-        </Col>
-      </Row>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      {/* Stats row */}
+      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+        <StatCard
+          label={t('总令牌用量')}
+          value={formatNumber(totalTokens)}
+          gradient='linear-gradient(90deg, #6366f1, #8b5cf6)'
+        />
+        <StatCard
+          label={t('上榜模型')}
+          value={data.models?.length || 0}
+          gradient='linear-gradient(90deg, #06b6d4, #22d3ee)'
+        />
+        <StatCard
+          label={t('活跃厂商')}
+          value={data.vendors?.length || 0}
+          gradient='linear-gradient(90deg, #f59e0b, #fbbf24)'
+        />
+      </div>
 
-      <Card
+      {/* Model Leaderboard */}
+      <SectionCard
+        icon={<IconStar />}
         title={t('模型排行')}
-        style={{ marginBottom: 16 }}
-        bodyStyle={{ padding: 0 }}
+        subtitle={t('按 Token 用量排名的热门模型')}
       >
-        <Table
-          columns={modelColumns}
-          dataSource={data.models || []}
-          rowKey='model_name'
-          pagination={false}
-          size='small'
-        />
-      </Card>
+        {(data.models || []).map((m) => (
+          <LeaderboardRow
+            key={m.model_name}
+            rank={m.rank}
+            name={m.model_name}
+            sub={m.vendor}
+            value={formatNumber(m.total_tokens)}
+            valueLabel='tokens'
+            share={m.share}
+            growth={m.growth_pct}
+          />
+        ))}
+      </SectionCard>
 
-      <Card
+      {/* Vendor Leaderboard */}
+      <SectionCard
+        icon={<IconActivity />}
         title={t('厂商排行')}
-        style={{ marginBottom: 16 }}
-        bodyStyle={{ padding: 0 }}
+        subtitle={t('按聚合 Token 用量排名的模型厂商')}
       >
-        <Table
-          columns={vendorColumns}
-          dataSource={data.vendors || []}
-          rowKey='vendor'
-          pagination={false}
-          size='small'
-        />
-      </Card>
+        {(data.vendors || []).map((v) => (
+          <LeaderboardRow
+            key={v.vendor}
+            rank={v.rank}
+            name={v.vendor}
+            sub={`${v.models_count || 0} ${t('个模型')} · ${v.top_model || ''}`}
+            value={formatNumber(v.total_tokens)}
+            valueLabel={formatPercent(v.share)}
+            share={v.share}
+          />
+        ))}
+      </SectionCard>
 
+      {/* Movers & Droppers */}
       {(data.top_movers?.length > 0 || data.top_droppers?.length > 0) && (
-        <Row gutter={[16, 16]}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16 }}>
           {data.top_movers?.length > 0 && (
-            <Col xs={24} md={12}>
-              <Card title={t('上升趋势')} bodyStyle={{ padding: '12px 16px' }}>
-                {data.top_movers.map((m, i) => (
-                  <div
-                    key={m.model_name}
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      padding: '6px 0',
-                      borderBottom:
-                        i < data.top_movers.length - 1
-                          ? '1px solid var(--semi-color-border)'
-                          : 'none',
-                    }}
-                  >
-                    <Text ellipsis style={{ maxWidth: '60%' }}>
+            <SectionCard
+              icon={<IconArrowUp style={{ color: 'var(--semi-color-success)' }} />}
+              title={t('上升趋势')}
+              subtitle={t('排名上升最快的模型')}
+            >
+              {data.top_movers.map((m) => (
+                <div
+                  key={m.model_name}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '8px 4px',
+                    borderBottom: '1px solid var(--semi-color-fill-0)',
+                  }}
+                >
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <Text
+                      ellipsis
+                      style={{ fontSize: 13, fontWeight: 500, fontFamily: 'monospace' }}
+                    >
                       {m.model_name}
                     </Text>
-                    <Space>
-                      <Tag color='green' size='small'>
-                        +{m.rank_delta}
-                      </Tag>
-                      <Text type='tertiary' size='small'>
-                        {formatGrowth(m.growth_pct)}
-                      </Text>
-                    </Space>
                   </div>
-                ))}
-              </Card>
-            </Col>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                    <Tag
+                      color='green'
+                      size='small'
+                      shape='circle'
+                      style={{ fontWeight: 600, fontFamily: 'monospace' }}
+                    >
+                      ↑ {Math.abs(m.rank_delta)}
+                    </Tag>
+                    <Text
+                      type='tertiary'
+                      size='small'
+                      style={{ fontFamily: 'monospace', fontSize: 11 }}
+                    >
+                      {formatGrowth(m.growth_pct)}
+                    </Text>
+                  </div>
+                </div>
+              ))}
+            </SectionCard>
           )}
           {data.top_droppers?.length > 0 && (
-            <Col xs={24} md={12}>
-              <Card title={t('下降趋势')} bodyStyle={{ padding: '12px 16px' }}>
-                {data.top_droppers.map((m, i) => (
-                  <div
-                    key={m.model_name}
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      padding: '6px 0',
-                      borderBottom:
-                        i < data.top_droppers.length - 1
-                          ? '1px solid var(--semi-color-border)'
-                          : 'none',
-                    }}
-                  >
-                    <Text ellipsis style={{ maxWidth: '60%' }}>
+            <SectionCard
+              icon={<IconArrowDown style={{ color: 'var(--semi-color-danger)' }} />}
+              title={t('下降趋势')}
+              subtitle={t('排名下降最快的模型')}
+            >
+              {data.top_droppers.map((m) => (
+                <div
+                  key={m.model_name}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '8px 4px',
+                    borderBottom: '1px solid var(--semi-color-fill-0)',
+                  }}
+                >
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <Text
+                      ellipsis
+                      style={{ fontSize: 13, fontWeight: 500, fontFamily: 'monospace' }}
+                    >
                       {m.model_name}
                     </Text>
-                    <Space>
-                      <Tag color='red' size='small'>
-                        {m.rank_delta}
-                      </Tag>
-                      <Text type='tertiary' size='small'>
-                        {formatGrowth(m.growth_pct)}
-                      </Text>
-                    </Space>
                   </div>
-                ))}
-              </Card>
-            </Col>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                    <Tag
+                      color='red'
+                      size='small'
+                      shape='circle'
+                      style={{ fontWeight: 600, fontFamily: 'monospace' }}
+                    >
+                      ↓ {Math.abs(m.rank_delta)}
+                    </Tag>
+                    <Text
+                      type='tertiary'
+                      size='small'
+                      style={{ fontFamily: 'monospace', fontSize: 11 }}
+                    >
+                      {formatGrowth(m.growth_pct)}
+                    </Text>
+                  </div>
+                </div>
+              ))}
+            </SectionCard>
           )}
-        </Row>
+        </div>
       )}
     </div>
   );
@@ -384,140 +548,79 @@ function UserRankings({ period }) {
     fetchData();
   }, [fetchData]);
 
-  const requestColumns = [
-    {
-      title: t('排名'),
-      key: 'rank',
-      width: 60,
-      render: (_, __, idx) => (
-        <Tag
-          color={idx < 3 ? 'blue' : 'grey'}
-          shape='circle'
-          size='small'
-        >
-          {idx + 1}
-        </Tag>
-      ),
-    },
-    {
-      title: t('用户'),
-      dataIndex: 'username',
-      ellipsis: true,
-    },
-    {
-      title: t('请求次数'),
-      dataIndex: 'request_count',
-      width: 120,
-      sorter: (a, b) => a.request_count - b.request_count,
-      render: (v) => formatNumber(v),
-    },
-    {
-      title: t('占比'),
-      key: 'percent',
-      width: 100,
-      render: (_, record) => {
-        const total = data?.summary?.total_requests || 1;
-        return formatPercent(record.request_count / total);
-      },
-    },
-  ];
-
-  const quotaColumns = [
-    {
-      title: t('排名'),
-      key: 'rank',
-      width: 60,
-      render: (_, __, idx) => (
-        <Tag
-          color={idx < 3 ? 'blue' : 'grey'}
-          shape='circle'
-          size='small'
-        >
-          {idx + 1}
-        </Tag>
-      ),
-    },
-    {
-      title: t('用户'),
-      dataIndex: 'username',
-      ellipsis: true,
-    },
-    {
-      title: t('额度消耗'),
-      dataIndex: 'total_quota',
-      width: 120,
-      sorter: (a, b) => a.total_quota - b.total_quota,
-      render: (v) => formatNumber(v),
-    },
-    {
-      title: t('占比'),
-      key: 'percent',
-      width: 100,
-      render: (_, record) => {
-        const total = data?.summary?.total_quota || 1;
-        return formatPercent(record.total_quota / total);
-      },
-    },
-  ];
-
   if (loading) {
     return (
-      <div style={{ textAlign: 'center', padding: 60 }}>
+      <div style={{ textAlign: 'center', padding: 80 }}>
         <Spin size='large' />
       </div>
     );
   }
 
   if (!data) {
-    return <Empty description={t('暂无数据')} />;
+    return <Empty description={t('暂无数据')} style={{ padding: 60 }} />;
   }
 
+  const totalRequests = data.summary?.total_requests || 1;
+  const totalQuota = data.summary?.total_quota || 1;
+
   return (
-    <div>
-      <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
-        <Col xs={24} sm={8}>
-          <StatCard
-            label={t('总请求次数')}
-            value={formatNumber(data.summary?.total_requests)}
-          />
-        </Col>
-        <Col xs={24} sm={8}>
-          <StatCard
-            label={t('总额度')}
-            value={formatNumber(data.summary?.total_quota)}
-          />
-        </Col>
-        <Col xs={24} sm={8}>
-          <StatCard
-            label={t('总 Tokens')}
-            value={formatNumber(data.summary?.total_tokens)}
-          />
-        </Col>
-      </Row>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      {/* Stats row */}
+      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+        <StatCard
+          icon={<IconActivity size='small' />}
+          label={t('总请求次数')}
+          value={formatNumber(data.summary?.total_requests)}
+          gradient='linear-gradient(90deg, #3b82f6, #60a5fa)'
+        />
+        <StatCard
+          icon={<IconStar size='small' />}
+          label={t('总额度')}
+          value={formatNumber(data.summary?.total_quota)}
+          gradient='linear-gradient(90deg, #8b5cf6, #a78bfa)'
+        />
+        <StatCard
+          label={t('总 Tokens')}
+          value={formatNumber(data.summary?.total_tokens)}
+          gradient='linear-gradient(90deg, #10b981, #34d399)'
+        />
+      </div>
 
-      <Card
+      {/* Request Rankings */}
+      <SectionCard
+        icon={<IconUser />}
         title={t('用户调用次数排行')}
-        style={{ marginBottom: 16 }}
-        bodyStyle={{ padding: 0 }}
+        subtitle={t('按 API 请求次数排名')}
       >
-        <Table
-          columns={requestColumns}
-          dataSource={data.request_rankings || []}
-          rowKey='user_id'
-          pagination={false}
-          size='small'
-        />
-      </Card>
+        {(data.request_rankings || []).map((u, idx) => (
+          <LeaderboardRow
+            key={u.user_id}
+            rank={idx + 1}
+            name={u.username}
+            value={formatNumber(u.request_count)}
+            valueLabel={t('次请求')}
+            share={u.request_count / totalRequests}
+          />
+        ))}
+      </SectionCard>
 
-      <Card title={t('用户用量排行')} bodyStyle={{ padding: 0 }}>
-        <Table
-          columns={quotaColumns}
-          dataSource={data.quota_rankings || []}
-          rowKey='user_id'
-          pagination={false}
-          size='small'
-        />
-      </Card>
+      {/* Quota Rankings */}
+      <SectionCard
+        icon={<IconStar />}
+        title={t('用户用量排行')}
+        subtitle={t('按额度消耗排名')}
+      >
+        {(data.quota_rankings || []).map((u, idx) => (
+          <LeaderboardRow
+            key={u.user_id}
+            rank={idx + 1}
+            name={u.username}
+            value={formatNumber(u.total_quota)}
+            valueLabel={t('额度')}
+            share={u.total_quota / totalQuota}
+          />
+        ))}
+      </SectionCard>
     </div>
   );
 }
@@ -551,155 +654,213 @@ function ModelRankings() {
     fetchData();
   }, [fetchData]);
 
-  const successSorted = [...models]
-    .filter((m) => m.success_rate !== undefined)
-    .sort((a, b) => b.success_rate - a.success_rate)
-    .slice(0, 50);
+  const successSorted = useMemo(
+    () =>
+      [...models]
+        .filter((m) => m.success_rate !== undefined)
+        .sort((a, b) => b.success_rate - a.success_rate)
+        .slice(0, 30),
+    [models]
+  );
 
-  const tpsSorted = [...models]
-    .filter((m) => m.avg_tps > 0)
-    .sort((a, b) => b.avg_tps - a.avg_tps)
-    .slice(0, 50);
+  const tpsSorted = useMemo(
+    () =>
+      [...models]
+        .filter((m) => m.avg_tps > 0)
+        .sort((a, b) => b.avg_tps - a.avg_tps)
+        .slice(0, 30),
+    [models]
+  );
 
-  const latencySorted = [...models]
-    .filter((m) => m.avg_ttft_ms > 0)
-    .sort((a, b) => a.avg_ttft_ms - b.avg_ttft_ms)
-    .slice(0, 50);
-
-  const successColumns = [
-    {
-      title: t('排名'),
-      key: 'rank',
-      width: 60,
-      render: (_, __, idx) => (
-        <Tag color={idx < 3 ? 'blue' : 'grey'} shape='circle' size='small'>
-          {idx + 1}
-        </Tag>
-      ),
-    },
-    {
-      title: t('模型'),
-      dataIndex: 'model_name',
-      ellipsis: true,
-    },
-    {
-      title: t('成功率'),
-      dataIndex: 'success_rate',
-      width: 120,
-      render: (v) => (
-        <Progress
-          percent={Math.round(v * 100)}
-          size='small'
-          stroke={v >= 0.95 ? 'var(--semi-color-success)' : v >= 0.8 ? 'var(--semi-color-warning)' : 'var(--semi-color-danger)'}
-          style={{ width: 80 }}
-        />
-      ),
-    },
-  ];
-
-  const tpsColumns = [
-    {
-      title: t('排名'),
-      key: 'rank',
-      width: 60,
-      render: (_, __, idx) => (
-        <Tag color={idx < 3 ? 'blue' : 'grey'} shape='circle' size='small'>
-          {idx + 1}
-        </Tag>
-      ),
-    },
-    {
-      title: t('模型'),
-      dataIndex: 'model_name',
-      ellipsis: true,
-    },
-    {
-      title: 'TPS (t/s)',
-      dataIndex: 'avg_tps',
-      width: 120,
-      render: (v) => v?.toFixed(1),
-    },
-  ];
-
-  const latencyColumns = [
-    {
-      title: t('排名'),
-      key: 'rank',
-      width: 60,
-      render: (_, __, idx) => (
-        <Tag color={idx < 3 ? 'blue' : 'grey'} shape='circle' size='small'>
-          {idx + 1}
-        </Tag>
-      ),
-    },
-    {
-      title: t('模型'),
-      dataIndex: 'model_name',
-      ellipsis: true,
-    },
-    {
-      title: t('首字延迟'),
-      dataIndex: 'avg_ttft_ms',
-      width: 120,
-      render: (v) => `${v}ms`,
-    },
-  ];
+  const latencySorted = useMemo(
+    () =>
+      [...models]
+        .filter((m) => m.avg_ttft_ms > 0)
+        .sort((a, b) => a.avg_ttft_ms - b.avg_ttft_ms)
+        .slice(0, 30),
+    [models]
+  );
 
   if (loading) {
     return (
-      <div style={{ textAlign: 'center', padding: 60 }}>
+      <div style={{ textAlign: 'center', padding: 80 }}>
         <Spin size='large' />
       </div>
     );
   }
 
   if (models.length === 0) {
-    return <Empty description={t('暂无性能数据')} />;
+    return <Empty description={t('暂无性能数据')} style={{ padding: 60 }} />;
   }
 
+  const maxTps = tpsSorted.length > 0 ? tpsSorted[0].avg_tps : 1;
+
   return (
-    <div>
-      <Text type='tertiary' style={{ display: 'block', marginBottom: 16 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <Text type='tertiary' style={{ fontSize: 13 }}>
         {t('最近 24 小时内的成功率、TPS 与延迟表现')}
       </Text>
-      <Row gutter={[16, 16]}>
-        <Col xs={24} lg={8}>
-          <Card title={t('成功率排名')} bodyStyle={{ padding: 0 }}>
-            <Table
-              columns={successColumns}
-              dataSource={successSorted}
-              rowKey='model_name'
-              pagination={false}
-              size='small'
-              scroll={{ y: 400 }}
-            />
-          </Card>
-        </Col>
-        <Col xs={24} lg={8}>
-          <Card title='TPS' bodyStyle={{ padding: 0 }}>
-            <Table
-              columns={tpsColumns}
-              dataSource={tpsSorted}
-              rowKey='model_name'
-              pagination={false}
-              size='small'
-              scroll={{ y: 400 }}
-            />
-          </Card>
-        </Col>
-        <Col xs={24} lg={8}>
-          <Card title={t('延迟排名')} bodyStyle={{ padding: 0 }}>
-            <Table
-              columns={latencyColumns}
-              dataSource={latencySorted}
-              rowKey='model_name'
-              pagination={false}
-              size='small'
-              scroll={{ y: 400 }}
-            />
-          </Card>
-        </Col>
-      </Row>
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+          gap: 16,
+        }}
+      >
+        {/* Success Rate */}
+        <SectionCard
+          icon={<IconActivity style={{ color: 'var(--semi-color-success)' }} />}
+          title={t('成功率排名')}
+          subtitle={t('按请求成功率排序')}
+        >
+          <div style={{ maxHeight: 480, overflowY: 'auto' }}>
+            {successSorted.map((m, idx) => (
+              <div
+                key={m.model_name}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  padding: '8px 4px',
+                  borderBottom: '1px solid var(--semi-color-fill-0)',
+                }}
+              >
+                <RankBadge rank={idx + 1} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <Text
+                    ellipsis
+                    style={{ fontSize: 12, fontWeight: 500, fontFamily: 'monospace' }}
+                  >
+                    {m.model_name}
+                  </Text>
+                </div>
+                <Text
+                  style={{
+                    width: 56,
+                    textAlign: 'right',
+                    fontSize: 13,
+                    fontWeight: 700,
+                    fontFamily: 'monospace',
+                    flexShrink: 0,
+                    color:
+                      m.success_rate >= 0.95
+                        ? 'var(--semi-color-success)'
+                        : m.success_rate >= 0.8
+                          ? 'var(--semi-color-warning)'
+                          : 'var(--semi-color-danger)',
+                  }}
+                >
+                  {(m.success_rate * 100).toFixed(1)}%
+                </Text>
+              </div>
+            ))}
+          </div>
+        </SectionCard>
+
+        {/* TPS */}
+        <SectionCard
+          icon={<IconArrowUp style={{ color: 'var(--semi-color-primary)' }} />}
+          title='TPS'
+          subtitle={t('按平均输出速度排序 (tokens/s)')}
+        >
+          <div style={{ maxHeight: 480, overflowY: 'auto' }}>
+            {tpsSorted.map((m, idx) => (
+              <div
+                key={m.model_name}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  padding: '8px 4px',
+                  borderBottom: '1px solid var(--semi-color-fill-0)',
+                }}
+              >
+                <RankBadge rank={idx + 1} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <Text
+                    ellipsis
+                    style={{ fontSize: 12, fontWeight: 500, fontFamily: 'monospace' }}
+                  >
+                    {m.model_name}
+                  </Text>
+                </div>
+                <div style={{ width: 80, flexShrink: 0 }}>
+                  <Progress
+                    percent={Math.round((m.avg_tps / maxTps) * 100)}
+                    size='small'
+                    showInfo={false}
+                    stroke='var(--semi-color-primary)'
+                    trailColor='var(--semi-color-fill-1)'
+                  />
+                </div>
+                <Text
+                  style={{
+                    width: 56,
+                    textAlign: 'right',
+                    fontSize: 12,
+                    fontWeight: 600,
+                    fontFamily: 'monospace',
+                    flexShrink: 0,
+                  }}
+                >
+                  {m.avg_tps?.toFixed(1)}
+                </Text>
+              </div>
+            ))}
+          </div>
+        </SectionCard>
+
+        {/* Latency */}
+        <SectionCard
+          icon={<IconArrowDown style={{ color: 'var(--semi-color-warning)' }} />}
+          title={t('延迟排名')}
+          subtitle={t('按首字延迟排序 (越低越好)')}
+        >
+          <div style={{ maxHeight: 480, overflowY: 'auto' }}>
+            {latencySorted.map((m, idx) => (
+              <div
+                key={m.model_name}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  padding: '8px 4px',
+                  borderBottom: '1px solid var(--semi-color-fill-0)',
+                }}
+              >
+                <RankBadge rank={idx + 1} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <Text
+                    ellipsis
+                    style={{ fontSize: 12, fontWeight: 500, fontFamily: 'monospace' }}
+                  >
+                    {m.model_name}
+                  </Text>
+                </div>
+                <Text
+                  style={{
+                    width: 64,
+                    textAlign: 'right',
+                    fontSize: 13,
+                    fontWeight: 700,
+                    fontFamily: 'monospace',
+                    flexShrink: 0,
+                    color:
+                      m.avg_ttft_ms <= 500
+                        ? 'var(--semi-color-success)'
+                        : m.avg_ttft_ms <= 2000
+                          ? 'var(--semi-color-warning)'
+                          : 'var(--semi-color-danger)',
+                  }}
+                >
+                  {formatLatency(m.avg_ttft_ms)}
+                </Text>
+              </div>
+            ))}
+          </div>
+        </SectionCard>
+      </div>
     </div>
   );
 }
@@ -720,45 +881,125 @@ const Rankings = () => {
   const [period, setPeriod] = useState('week');
 
   return (
-    <div style={{ padding: '16px 0' }}>
+    <div style={{ position: 'relative', minHeight: '100%' }}>
+      {/* Gradient background decoration */}
       <div
+        aria-hidden
         style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          marginBottom: 16,
-          flexWrap: 'wrap',
-          gap: 12,
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          height: 320,
+          pointerEvents: 'none',
+          opacity: 0.12,
+          background: [
+            'radial-gradient(ellipse 60% 50% at 20% 20%, rgba(99, 102, 241, 0.8) 0%, transparent 70%)',
+            'radial-gradient(ellipse 50% 40% at 80% 15%, rgba(6, 182, 212, 0.6) 0%, transparent 70%)',
+            'radial-gradient(ellipse 40% 35% at 50% 70%, rgba(139, 92, 246, 0.4) 0%, transparent 70%)',
+          ].join(', '),
+          maskImage: 'linear-gradient(to bottom, black 40%, transparent 100%)',
+          WebkitMaskImage: 'linear-gradient(to bottom, black 40%, transparent 100%)',
         }}
-      >
-        <Title heading={3} style={{ margin: 0 }}>
-          {t('排行榜')}
-        </Title>
-        <RadioGroup
-          type='button'
-          buttonSize='small'
-          value={period}
-          onChange={(e) => setPeriod(e.target.value)}
-        >
-          {PERIODS.map((p) => (
-            <Radio key={p.value} value={p.value}>
-              {t(p.label)}
-            </Radio>
-          ))}
-        </RadioGroup>
-      </div>
+      />
 
-      <Tabs type='line' defaultActiveKey='llm'>
-        <TabPane tab={t('排行榜')} itemKey='llm'>
-          <LLMRankings period={period} />
-        </TabPane>
-        <TabPane tab={t('用户排行榜')} itemKey='users'>
-          <UserRankings period={period} />
-        </TabPane>
-        <TabPane tab={t('模型排行榜')} itemKey='models'>
-          <ModelRankings />
-        </TabPane>
-      </Tabs>
+      <div style={{ position: 'relative', padding: '24px 24px 40px', maxWidth: 1200, margin: '0 auto' }}>
+        {/* Hero section */}
+        <div style={{ marginBottom: 28 }}>
+          <h1
+            style={{
+              fontSize: 'clamp(1.5rem, 4vw, 2.2rem)',
+              fontWeight: 800,
+              letterSpacing: '-0.02em',
+              color: 'var(--semi-color-text-0)',
+              margin: 0,
+              lineHeight: 1.2,
+            }}
+          >
+            {t('排行榜')}
+          </h1>
+          <p
+            style={{
+              fontSize: 14,
+              color: 'var(--semi-color-text-2)',
+              margin: '8px 0 0',
+              maxWidth: 560,
+            }}
+          >
+            {t('发现平台上最受欢迎的模型和上升最快的厂商，数据实时更新。')}
+          </p>
+
+          {/* Period selector */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4,
+              marginTop: 20,
+              borderBottom: '1px solid var(--semi-color-border)',
+              paddingBottom: 0,
+            }}
+          >
+            {PERIODS.map((p) => {
+              const isActive = period === p.value;
+              return (
+                <button
+                  key={p.value}
+                  onClick={() => setPeriod(p.value)}
+                  style={{
+                    position: 'relative',
+                    padding: '8px 16px',
+                    fontSize: 14,
+                    fontWeight: isActive ? 600 : 400,
+                    color: isActive
+                      ? 'var(--semi-color-text-0)'
+                      : 'var(--semi-color-text-2)',
+                    background: 'transparent',
+                    border: 'none',
+                    cursor: 'pointer',
+                    transition: 'color 0.2s',
+                    marginBottom: -1,
+                  }}
+                >
+                  {t(p.label)}
+                  <span
+                    style={{
+                      position: 'absolute',
+                      left: 12,
+                      right: 12,
+                      bottom: 0,
+                      height: 2,
+                      borderRadius: 1,
+                      background: 'var(--semi-color-text-0)',
+                      opacity: isActive ? 1 : 0,
+                      transition: 'opacity 0.2s',
+                    }}
+                  />
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Tabs */}
+        <Tabs type='button' defaultActiveKey='llm' size='large'>
+          <TabPane tab={t('排行榜')} itemKey='llm'>
+            <div style={{ paddingTop: 20 }}>
+              <LLMRankings period={period} />
+            </div>
+          </TabPane>
+          <TabPane tab={t('用户排行榜')} itemKey='users'>
+            <div style={{ paddingTop: 20 }}>
+              <UserRankings period={period} />
+            </div>
+          </TabPane>
+          <TabPane tab={t('模型排行榜')} itemKey='models'>
+            <div style={{ paddingTop: 20 }}>
+              <ModelRankings />
+            </div>
+          </TabPane>
+        </Tabs>
+      </div>
     </div>
   );
 };
