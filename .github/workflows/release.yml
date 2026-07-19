@@ -79,6 +79,7 @@ jobs:
 
   macos:
     name: macOS Release
+    needs: linux
     runs-on: macos-latest
     steps:
       - name: Checkout
@@ -138,6 +139,7 @@ jobs:
 
   windows:
     name: Windows Release
+    needs: linux
     runs-on: windows-latest
     defaults:
       run:
