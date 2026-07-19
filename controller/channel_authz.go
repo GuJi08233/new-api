@@ -33,6 +33,10 @@ func channelHasSensitiveChanges(channel *PatchChannel, origin *model.Channel, re
 	if _, ok := requestData["key_mode"]; ok && channel.KeyMode != nil {
 		return true
 	}
+	if _, ok := requestData["multi_key_enabled"]; ok && channel.MultiKeyEnabled != nil &&
+		*channel.MultiKeyEnabled != origin.ChannelInfo.IsMultiKey {
+		return true
+	}
 	// Fail closed: any field present in the request that is neither a known
 	// sensitive field (gated above) nor an explicitly classified non-sensitive
 	// field must be treated as sensitive. This keeps a newly added channel field
@@ -71,6 +75,7 @@ var channelSensitiveFields = map[string]struct{}{
 	"other":               {},
 	"settings":            {},
 	"key_mode":            {},
+	"multi_key_enabled":   {},
 }
 
 // channelOperationalFields lists fields managed by operation endpoints instead

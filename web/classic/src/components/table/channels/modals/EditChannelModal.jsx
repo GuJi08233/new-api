@@ -649,6 +649,16 @@ const EditChannelModal = (props) => {
   };
 
   const isIonetLocked = isIonetChannel && isEdit;
+  const canConvertToMultiKey =
+    isEdit &&
+    !isMultiKeyChannel &&
+    !isIonetLocked &&
+    inputs.type !== 57 &&
+    !(inputs.type === 41 && (inputs.vertex_key_type || 'json') === 'api_key');
+  const isConvertingToMultiKey =
+    canConvertToMultiKey && batch && multiToSingle;
+  const isMultiKeyEditMode =
+    isEdit && (isMultiKeyChannel || isConvertingToMultiKey);
 
   const handleInputChange = (name, value) => {
     if (
@@ -676,7 +686,25 @@ const EditChannelModal = (props) => {
       });
       return;
     }
-    setInputs((inputs) => ({ ...inputs, [name]: value }));
+    if (name === 'type' && isConvertingToMultiKey) {
+      setBatch(false);
+      setMultiToSingle(false);
+      setMultiKeyMode('random');
+      formApiRef.current?.setValue('key', '');
+      formApiRef.current?.setValue('multi_key_mode', undefined);
+      formApiRef.current?.setValue('vertex_files', []);
+      setVertexKeys([]);
+      setVertexFileList([]);
+    }
+    setInputs((inputs) => {
+      const nextInputs = { ...inputs, [name]: value };
+      if (name === 'type' && isConvertingToMultiKey) {
+        nextInputs.key = '';
+        nextInputs.vertex_files = [];
+        delete nextInputs.multi_key_mode;
+      }
+      return nextInputs;
+    });
     if (name === 'type') {
       let localModels = [];
       switch (value) {
@@ -870,6 +898,9 @@ const EditChannelModal = (props) => {
 
   const loadChannel = async () => {
     setLoading(true);
+    setVertexKeys([]);
+    setVertexFileList([]);
+    formApiRef.current?.setValue('vertex_files', []);
     let res = await API.get(`/api/channel/${channelId}`);
     if (res === undefined) {
       return;
@@ -905,6 +936,8 @@ const EditChannelModal = (props) => {
       } else {
         setBatch(false);
         setMultiToSingle(false);
+        setMultiKeyMode('random');
+        data.multi_key_mode = 'random';
       }
       // 解析渠道额外设置并合并到data中
       if (data.setting) {
@@ -1496,6 +1529,13 @@ const EditChannelModal = (props) => {
     });
     // 重置密钥模式状态
     setKeyMode('append');
+    setIsMultiKeyChannel(false);
+    setBatch(false);
+    setMultiToSingle(false);
+    setMultiKeyMode('random');
+    setVertexKeys([]);
+    setVertexFileList([]);
+    formApiRef.current?.setValue('vertex_files', []);
     // 重置企业账户状态
     setIsEnterpriseAccount(false);
     // 重置豆包隐藏入口状态
@@ -2014,7 +2054,16 @@ const EditChannelModal = (props) => {
       res = await API.put(`/api/channel/`, {
         ...localInputs,
         id: parseInt(channelId),
-        key_mode: isMultiKeyChannel ? keyMode : undefined, // 只在多key模式下传递
+        multi_key_enabled: isConvertingToMultiKey ? true : undefined,
+        multi_key_mode:
+          isMultiKeyChannel || isConvertingToMultiKey
+            ? multiKeyMode
+            : undefined,
+        key_mode: isMultiKeyChannel
+          ? keyMode
+          : isConvertingToMultiKey
+            ? 'append'
+            : undefined,
       });
     } else {
       res = await API.post(`/api/channel/`, {
@@ -2124,100 +2173,137 @@ const EditChannelModal = (props) => {
     }
   };
 
-  const batchAllowed = (!isEdit || isMultiKeyChannel) && inputs.type !== 57;
+  const applyBatchModeChange = (checked, enableAggregation = false) => {
+    setBatch(checked);
+
+    if (!checked) {
+      // Existing multi-key channels keep their strategy when a type-specific
+      // control temporarily hides batch key input (for example Vertex API key).
+      if (!isEdit || !isMultiKeyChannel) {
+        setMultiToSingle(false);
+        setMultiKeyMode('random');
+        formApiRef.current?.setValue('multi_key_mode', undefined);
+      }
+      if (isEdit && !isMultiKeyChannel) {
+        // 转换取消后丢弃临时输入，避免把多行密钥误写回单密钥渠道。
+        formApiRef.current?.setValue('key', '');
+        formApiRef.current?.setValue('vertex_files', []);
+        setVertexKeys([]);
+        setVertexFileList([]);
+      }
+      setInputs((prevInputs) => {
+        const newInputs = { ...prevInputs };
+        if (!isEdit || !isMultiKeyChannel) {
+          delete newInputs.multi_key_mode;
+        }
+        if (isEdit && !isMultiKeyChannel) {
+          newInputs.key = '';
+          newInputs.vertex_files = [];
+        }
+        return newInputs;
+      });
+      return;
+    }
+
+    if (enableAggregation) {
+      setMultiToSingle(true);
+      formApiRef.current?.setValue('multi_key_mode', multiKeyMode);
+      setInputs((prevInputs) => ({
+        ...prevInputs,
+        multi_key_mode: multiKeyMode,
+      }));
+    }
+
+    // Vertex 批量模式只使用文件上传；原渠道密钥仍由后端保留。
+    setUseManualInput(false);
+    if (inputs.type === 41) {
+      formApiRef.current?.setValue('key', '');
+      handleInputChange('key', '');
+    }
+  };
+
+  const handleBatchModeChange = (checked, enableAggregation = false) => {
+    const isCancellingConversion = isEdit && !isMultiKeyChannel;
+    if (!checked && !isCancellingConversion && vertexFileList.length > 1) {
+      Modal.confirm({
+        title: t('切换为单密钥模式'),
+        content: t(
+          '将仅保留第一个密钥文件，其余文件将被移除，是否继续？',
+        ),
+        onOk: () => {
+          const firstFile = vertexFileList[0];
+          const firstKey = vertexKeys[0] ? [vertexKeys[0]] : [];
+
+          setVertexFileList([firstFile]);
+          setVertexKeys(firstKey);
+          formApiRef.current?.setValue('vertex_files', [firstFile]);
+          setInputs((prev) => ({ ...prev, vertex_files: [firstFile] }));
+          applyBatchModeChange(checked, enableAggregation);
+        },
+        centered: true,
+      });
+      return;
+    }
+
+    applyBatchModeChange(checked, enableAggregation);
+  };
+
+  const batchAllowed =
+    inputs.type !== 57 &&
+    (!isEdit || isMultiKeyChannel || canConvertToMultiKey);
   const batchExtra = batchAllowed ? (
     <Space>
       {!isEdit && (
         <Checkbox
-          disabled={isEdit}
           checked={batch}
-          onChange={(e) => {
-            const checked = e.target.checked;
-
-            if (!checked && vertexFileList.length > 1) {
-              Modal.confirm({
-                title: t('切换为单密钥模式'),
-                content: t(
-                  '将仅保留第一个密钥文件，其余文件将被移除，是否继续？',
-                ),
-                onOk: () => {
-                  const firstFile = vertexFileList[0];
-                  const firstKey = vertexKeys[0] ? [vertexKeys[0]] : [];
-
-                  setVertexFileList([firstFile]);
-                  setVertexKeys(firstKey);
-
-                  formApiRef.current?.setValue('vertex_files', [firstFile]);
-                  setInputs((prev) => ({ ...prev, vertex_files: [firstFile] }));
-
-                  setBatch(false);
-                  setMultiToSingle(false);
-                  setMultiKeyMode('random');
-                },
-                onCancel: () => {
-                  setBatch(true);
-                },
-                centered: true,
-              });
-              return;
-            }
-
-            setBatch(checked);
-            if (!checked) {
-              setMultiToSingle(false);
-              setMultiKeyMode('random');
-            } else {
-              // 批量模式下禁用手动输入，并清空手动输入的内容
-              setUseManualInput(false);
-              if (inputs.type === 41) {
-                // 清空手动输入的密钥内容
-                if (formApiRef.current) {
-                  formApiRef.current.setValue('key', '');
-                }
-                handleInputChange('key', '');
-              }
-            }
-          }}
+          onChange={(e) => handleBatchModeChange(e.target.checked)}
         >
           {t('批量创建')}
         </Checkbox>
       )}
-      {batch && (
-        <>
-          <Checkbox
-            disabled={isEdit}
-            checked={multiToSingle}
-            onChange={() => {
-              setMultiToSingle((prev) => {
-                const nextValue = !prev;
-                setInputs((prevInputs) => {
-                  const newInputs = { ...prevInputs };
-                  if (nextValue) {
-                    newInputs.multi_key_mode = multiKeyMode;
-                  } else {
-                    delete newInputs.multi_key_mode;
-                  }
-                  return newInputs;
-                });
-                return nextValue;
+      {canConvertToMultiKey && (
+        <Checkbox
+          checked={isConvertingToMultiKey}
+          onChange={(e) =>
+            handleBatchModeChange(e.target.checked, e.target.checked)
+          }
+        >
+          {t('密钥聚合模式')}
+        </Checkbox>
+      )}
+      {batch && (!isEdit || isMultiKeyChannel) && (
+        <Checkbox
+          disabled={isEdit}
+          checked={multiToSingle}
+          onChange={() => {
+            setMultiToSingle((prev) => {
+              const nextValue = !prev;
+              setInputs((prevInputs) => {
+                const newInputs = { ...prevInputs };
+                if (nextValue) {
+                  newInputs.multi_key_mode = multiKeyMode;
+                } else {
+                  delete newInputs.multi_key_mode;
+                }
+                return newInputs;
               });
-            }}
-          >
-            {t('密钥聚合模式')}
-          </Checkbox>
-
-          {inputs.type !== 41 && (
-            <Button
-              size='small'
-              type='tertiary'
-              theme='outline'
-              onClick={deduplicateKeys}
-              style={{ textDecoration: 'underline' }}
-            >
-              {t('密钥去重')}
-            </Button>
-          )}
-        </>
+              return nextValue;
+            });
+          }}
+        >
+          {t('密钥聚合模式')}
+        </Checkbox>
+      )}
+      {batch && inputs.type !== 41 && (
+        <Button
+          size='small'
+          type='tertiary'
+          theme='outline'
+          onClick={deduplicateKeys}
+          style={{ textDecoration: 'underline' }}
+        >
+          {t('密钥去重')}
+        </Button>
       )}
     </Space>
   ) : null;
@@ -2862,7 +2948,7 @@ const EditChannelModal = (props) => {
                           );
                           // 切换为 api_key 时，关闭批量与手动/文件切换，并清理已选文件
                           if (value === 'api_key') {
-                            setBatch(false);
+                            applyBatchModeChange(false);
                             setUseManualInput(false);
                             setVertexKeys([]);
                             setVertexFileList([]);
@@ -2933,15 +3019,13 @@ const EditChannelModal = (props) => {
                           disabled={isIonetLocked}
                           extraText={
                             <div className='flex items-center gap-2 flex-wrap'>
-                              {isEdit &&
-                                isMultiKeyChannel &&
-                                keyMode === 'append' && (
-                                  <Text type='warning' size='small'>
-                                    {t(
-                                      '追加模式：新密钥将添加到现有密钥列表的末尾',
-                                    )}
-                                  </Text>
-                                )}
+                              {isMultiKeyEditMode && keyMode === 'append' && (
+                                <Text type='warning' size='small'>
+                                  {t(
+                                    '追加模式：新密钥将添加到现有密钥列表的末尾',
+                                  )}
+                                </Text>
+                              )}
                               {isEdit && (
                                 <Button
                                   size='small'
@@ -3148,8 +3232,7 @@ const EditChannelModal = (props) => {
                                     <Text type='tertiary' size='small'>
                                       {t('请输入完整的 JSON 格式密钥内容')}
                                     </Text>
-                                    {isEdit &&
-                                      isMultiKeyChannel &&
+                                    {isMultiKeyEditMode &&
                                       keyMode === 'append' && (
                                         <Text type='warning' size='small'>
                                           {t(
@@ -3229,15 +3312,13 @@ const EditChannelModal = (props) => {
                             }
                             extraText={
                               <div className='flex items-center gap-2'>
-                                {isEdit &&
-                                  isMultiKeyChannel &&
-                                  keyMode === 'append' && (
-                                    <Text type='warning' size='small'>
-                                      {t(
-                                        '追加模式：新密钥将添加到现有密钥列表的末尾',
-                                      )}
-                                    </Text>
-                                  )}
+                                {isMultiKeyEditMode && keyMode === 'append' && (
+                                  <Text type='warning' size='small'>
+                                    {t(
+                                      '追加模式：新密钥将添加到现有密钥列表的末尾',
+                                    )}
+                                  </Text>
+                                )}
                                 {isEdit && (
                                   <Button
                                     size='small'
