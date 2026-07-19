@@ -21,6 +21,14 @@ type ChannelSettings struct {
 	PassThroughRewriteModelEnabled bool `json:"pass_through_rewrite_model_enabled,omitempty"`
 	SystemPrompt           string `json:"system_prompt,omitempty"`
 	SystemPromptOverride   bool   `json:"system_prompt_override,omitempty"`
+	// RetryTimes 渠道级重试次数，0 表示使用全局 RetryTimes
+	RetryTimes int `json:"retry_times,omitempty"`
+	// RetryOnSameChannel 开启后失败时在同一渠道上重试，不切换到其他渠道
+	RetryOnSameChannel bool `json:"retry_on_same_channel,omitempty"`
+	// RetryStatusCodes 渠道级重试错误码（如 "429,500-503"），非空时覆盖全局 AutomaticRetryStatusCodes
+	RetryStatusCodes string `json:"retry_status_codes,omitempty"`
+	// RetryExhaustedTransfer 仅 RetryOnSameChannel 时有效：重试耗尽后是否转移到其他渠道（nil/true = 转移，false = 直接失败）
+	RetryExhaustedTransfer *bool `json:"retry_exhausted_transfer,omitempty"`
 }
 
 type VertexKeyType string

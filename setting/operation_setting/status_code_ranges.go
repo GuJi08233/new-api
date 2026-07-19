@@ -84,6 +84,12 @@ func ShouldRetryByStatusCode(code int) bool {
 	return shouldMatchStatusCodeRanges(AutomaticRetryStatusCodeRanges, code)
 }
 
+// MatchStatusCodeRanges checks whether code falls within any of the given ranges.
+// Exported wrapper for shouldMatchStatusCodeRanges, used by per-channel retry logic.
+func MatchStatusCodeRanges(ranges []StatusCodeRange, code int) bool {
+	return shouldMatchStatusCodeRanges(ranges, code)
+}
+
 func statusCodeRangesToString(ranges []StatusCodeRange) string {
 	if len(ranges) == 0 {
 		return ""

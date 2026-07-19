@@ -192,6 +192,11 @@ const EditChannelModal = (props) => {
     pass_through_rewrite_model_enabled: false,
     system_prompt: '',
     system_prompt_override: false,
+    // 渠道重试设置
+    retry_times: 0,
+    retry_on_same_channel: false,
+    retry_status_codes: '',
+    retry_exhausted_transfer: true,
     settings: '',
     // 仅 Vertex: 密钥格式（存入 settings.vertex_key_type）
     vertex_key_type: 'json',
@@ -525,6 +530,10 @@ const EditChannelModal = (props) => {
     pass_through_headers_enabled: false,
     pass_through_rewrite_model_enabled: false,
     system_prompt: '',
+    retry_times: 0,
+    retry_on_same_channel: false,
+    retry_status_codes: '',
+    retry_exhausted_transfer: true,
   });
   const showApiConfigCard = true; // 控制是否显示 API 配置卡片
   const getInitValues = () => ({ ...originInputs });
@@ -956,6 +965,12 @@ const EditChannelModal = (props) => {
           data.system_prompt = parsedSettings.system_prompt || '';
           data.system_prompt_override =
             parsedSettings.system_prompt_override || false;
+          data.retry_times = parsedSettings.retry_times || 0;
+          data.retry_on_same_channel =
+            parsedSettings.retry_on_same_channel || false;
+          data.retry_status_codes = parsedSettings.retry_status_codes || '';
+          data.retry_exhausted_transfer =
+            parsedSettings.retry_exhausted_transfer !== false;
         } catch (error) {
           console.error('解析渠道设置失败:', error);
           data.force_format = false;
@@ -966,6 +981,10 @@ const EditChannelModal = (props) => {
           data.pass_through_rewrite_model_enabled = false;
           data.system_prompt = '';
           data.system_prompt_override = false;
+          data.retry_times = 0;
+          data.retry_on_same_channel = false;
+          data.retry_status_codes = '';
+          data.retry_exhausted_transfer = true;
         }
       } else {
         data.force_format = false;
@@ -976,6 +995,10 @@ const EditChannelModal = (props) => {
         data.pass_through_rewrite_model_enabled = false;
         data.system_prompt = '';
         data.system_prompt_override = false;
+        data.retry_times = 0;
+        data.retry_on_same_channel = false;
+        data.retry_status_codes = '';
+        data.retry_exhausted_transfer = true;
       }
 
       if (data.settings) {
@@ -1119,6 +1142,10 @@ const EditChannelModal = (props) => {
           data.pass_through_rewrite_model_enabled,
         system_prompt: data.system_prompt,
         system_prompt_override: data.system_prompt_override || false,
+        retry_times: data.retry_times || 0,
+        retry_on_same_channel: data.retry_on_same_channel || false,
+        retry_status_codes: data.retry_status_codes || '',
+        retry_exhausted_transfer: data.retry_exhausted_transfer !== false,
       });
       initialModelsRef.current = (data.models || [])
         .map((model) => (model || '').trim())
@@ -1163,7 +1190,10 @@ const EditChannelModal = (props) => {
         data.pass_through_rewrite_model_enabled ||
         data.force_format ||
         data.claude_beta_query ||
-        data.system_prompt_override;
+        data.system_prompt_override ||
+        data.retry_on_same_channel ||
+        (data.retry_times && data.retry_times !== 0) ||
+        (data.retry_status_codes && data.retry_status_codes.trim());
       if (hasAdvancedValues) {
         setAdvancedSettingsOpen(true);
       }
@@ -1526,6 +1556,10 @@ const EditChannelModal = (props) => {
       pass_through_rewrite_model_enabled: false,
       system_prompt: '',
       system_prompt_override: false,
+      retry_times: 0,
+      retry_on_same_channel: false,
+      retry_status_codes: '',
+      retry_exhausted_transfer: true,
     });
     // 重置密钥模式状态
     setKeyMode('append');
@@ -1907,6 +1941,10 @@ const EditChannelModal = (props) => {
         localInputs.pass_through_rewrite_model_enabled || false,
       system_prompt: localInputs.system_prompt || '',
       system_prompt_override: localInputs.system_prompt_override || false,
+      retry_times: localInputs.retry_times || 0,
+      retry_on_same_channel: localInputs.retry_on_same_channel || false,
+      retry_status_codes: localInputs.retry_status_codes || '',
+      retry_exhausted_transfer: localInputs.retry_exhausted_transfer !== false,
     };
     localInputs.setting = JSON.stringify(channelExtraSettings);
 
@@ -2021,6 +2059,10 @@ const EditChannelModal = (props) => {
     delete localInputs.pass_through_all_enabled;
     delete localInputs.system_prompt;
     delete localInputs.system_prompt_override;
+    delete localInputs.retry_times;
+    delete localInputs.retry_on_same_channel;
+    delete localInputs.retry_status_codes;
+    delete localInputs.retry_exhausted_transfer;
     delete localInputs.is_enterprise_account;
     // 顶层的 vertex_key_type 不应发送给后端
     delete localInputs.vertex_key_type;
@@ -2765,6 +2807,16 @@ const EditChannelModal = (props) => {
 
                   <Form.TextArea field='system_prompt' label={t('系统提示词')} placeholder={t('输入系统提示词，用户的系统提示词将优先于此设置')} onChange={(value) => handleChannelSettingsChange('system_prompt', value)} autosize showClear extraText={t('用户优先：如果用户在请求中指定了系统提示词，将优先使用用户的设置')} />
                   <Form.Switch field='system_prompt_override' label={t('系统提示词拼接')} checkedText={t('开')} uncheckedText={t('关')} onChange={(value) => handleChannelSettingsChange('system_prompt_override', value)} extraText={t('如果用户请求中包含系统提示词，则使用此设置拼接到用户的系统提示词前面')} />
+
+                  <Text className='text-sm font-medium text-gray-500 mb-3 block mt-4'>
+                    {t('重试设置')}
+                  </Text>
+                  <Form.InputNumber field='retry_times' label={t('渠道重试次数')} placeholder={t('0 = 使用全局设置')} min={0} max={10} onChange={(value) => handleChannelSettingsChange('retry_times', value)} style={{ width: '100%' }} extraText={t('该渠道失败后的重试次数，0 表示使用全局重试次数')} />
+                  <Form.Switch field='retry_on_same_channel' label={t('同渠道重试')} checkedText={t('开')} uncheckedText={t('关')} onChange={(value) => handleChannelSettingsChange('retry_on_same_channel', value)} extraText={t('开启后失败时在同一渠道上重试，不切换到其他渠道')} />
+                  <Form.Input field='retry_status_codes' label={t('重试错误码')} placeholder={t('例如: 429,500-503')} onChange={(value) => handleChannelSettingsChange('retry_status_codes', value)} showClear extraText={t('指定哪些错误码触发重试，非空时覆盖全局设置，支持范围和逗号分隔')} />
+                  {inputs.retry_on_same_channel && (
+                    <Form.Switch field='retry_exhausted_transfer' label={t('重试耗尽后转移')} checkedText={t('开')} uncheckedText={t('关')} onChange={(value) => handleChannelSettingsChange('retry_exhausted_transfer', value)} extraText={t('同渠道重试耗尽后是否转移到其他渠道，关闭则直接返回错误')} />
+                  )}
                 </div>
               </div>
             );
