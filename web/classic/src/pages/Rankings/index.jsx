@@ -882,38 +882,17 @@ const Rankings = () => {
 
   return (
     <div style={{ position: 'relative', minHeight: '100%' }}>
-      {/* Gradient background decoration */}
-      <div
-        aria-hidden
-        style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          right: 0,
-          height: 320,
-          pointerEvents: 'none',
-          opacity: 0.12,
-          background: [
-            'radial-gradient(ellipse 60% 50% at 20% 20%, rgba(99, 102, 241, 0.8) 0%, transparent 70%)',
-            'radial-gradient(ellipse 50% 40% at 80% 15%, rgba(6, 182, 212, 0.6) 0%, transparent 70%)',
-            'radial-gradient(ellipse 40% 35% at 50% 70%, rgba(139, 92, 246, 0.4) 0%, transparent 70%)',
-          ].join(', '),
-          maskImage: 'linear-gradient(to bottom, black 40%, transparent 100%)',
-          WebkitMaskImage: 'linear-gradient(to bottom, black 40%, transparent 100%)',
-        }}
-      />
 
-      <div style={{ position: 'relative', padding: '24px 24px 40px', maxWidth: 1200, margin: '0 auto' }}>
+      <div style={{ position: 'relative', padding: '32px 24px 40px', maxWidth: 1200, margin: '0 auto' }}>
         {/* Hero section */}
-        <div style={{ marginBottom: 28 }}>
+        <div style={{ marginBottom: 24 }}>
           <h1
             style={{
-              fontSize: 'clamp(1.5rem, 4vw, 2.2rem)',
-              fontWeight: 800,
-              letterSpacing: '-0.02em',
+              fontSize: 20,
+              fontWeight: 600,
               color: 'var(--semi-color-text-0)',
               margin: 0,
-              lineHeight: 1.2,
+              lineHeight: 1.4,
             }}
           >
             {t('排行榜')}
@@ -983,17 +962,17 @@ const Rankings = () => {
 
         {/* Tabs */}
         <Tabs type='button' defaultActiveKey='llm' size='large'>
-          <TabPane tab={t('排行榜')} itemKey='llm'>
+          <TabPane tab={t('用量排行')} itemKey='llm'>
             <div style={{ paddingTop: 20 }}>
               <LLMRankings period={period} />
             </div>
           </TabPane>
-          <TabPane tab={t('用户排行榜')} itemKey='users'>
+          <TabPane tab={t('用户排行')} itemKey='users'>
             <div style={{ paddingTop: 20 }}>
               <UserRankings period={period} />
             </div>
           </TabPane>
-          <TabPane tab={t('模型排行榜')} itemKey='models'>
+          <TabPane tab={t('性能排行')} itemKey='models'>
             <div style={{ paddingTop: 20 }}>
               <ModelRankings />
             </div>
