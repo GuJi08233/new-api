@@ -2811,7 +2811,7 @@ const EditChannelModal = (props) => {
                   <Text className='text-sm font-medium text-gray-500 mb-3 block mt-4'>
                     {t('重试设置')}
                   </Text>
-                  <Form.InputNumber field='retry_times' label={t('渠道重试次数')} placeholder={t('0 = 使用全局设置')} min={0} max={10} onChange={(value) => handleChannelSettingsChange('retry_times', value)} style={{ width: '100%' }} extraText={t('该渠道失败后的重试次数，0 表示使用全局重试次数')} />
+                  <Form.InputNumber field='retry_times' label={t('渠道重试次数')} placeholder={t('0 = 使用全局设置')} min={0} onChange={(value) => handleChannelSettingsChange('retry_times', value)} style={{ width: '100%' }} extraText={t('该渠道失败后的重试次数，0 表示使用全局重试次数')} />
                   <Form.Switch field='retry_on_same_channel' label={t('同渠道重试')} checkedText={t('开')} uncheckedText={t('关')} onChange={(value) => handleChannelSettingsChange('retry_on_same_channel', value)} extraText={t('开启后失败时在同一渠道上重试，不切换到其他渠道')} />
                   <Form.Input field='retry_status_codes' label={t('重试错误码')} placeholder={t('例如: 429,500-503')} onChange={(value) => handleChannelSettingsChange('retry_status_codes', value)} showClear extraText={t('指定哪些错误码触发重试，非空时覆盖全局设置，支持范围和逗号分隔')} />
                   {inputs.retry_on_same_channel && (

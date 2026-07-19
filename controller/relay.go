@@ -222,6 +222,9 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		if channelSetting.RetryTimes > 0 {
 			effectiveRetryTimes = channelSetting.RetryTimes
 		}
+		// When retry_on_same_channel is enabled with explicit retry_times > 0,
+		// same-channel retries are independent of the global RetryTimes budget.
+		independentSameChannelRetry := channelSetting.RetryOnSameChannel && channelSetting.RetryTimes > 0
 
 		sameChannelRetry := 0
 		for {
@@ -258,16 +261,31 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 			processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
 
-			remainingGlobal := common.RetryTimes - retryParam.GetRetry()
-			if !shouldRetryWithChannelSetting(c, newAPIError, remainingGlobal, channelSetting) {
+			// Determine remaining retry budget for shouldRetry check
+			var remainingForCheck int
+			if independentSameChannelRetry {
+				remainingForCheck = effectiveRetryTimes - sameChannelRetry
+			} else {
+				remainingForCheck = common.RetryTimes - retryParam.GetRetry()
+			}
+			if !shouldRetryWithChannelSetting(c, newAPIError, remainingForCheck, channelSetting) {
 				break
 			}
 
 			// Same-channel retry logic
-			if channelSetting.RetryOnSameChannel && sameChannelRetry < effectiveRetryTimes && retryParam.GetRetry() < common.RetryTimes {
-				sameChannelRetry++
-				retryParam.IncreaseRetry()
-				relayInfo.RetryIndex = retryParam.GetRetry()
+			if channelSetting.RetryOnSameChannel && sameChannelRetry < effectiveRetryTimes {
+				if independentSameChannelRetry {
+					// Independent mode: don't consume global retry budget
+					sameChannelRetry++
+					relayInfo.RetryIndex++
+				} else if retryParam.GetRetry() < common.RetryTimes {
+					// Legacy mode: consume global retry budget
+					sameChannelRetry++
+					retryParam.IncreaseRetry()
+					relayInfo.RetryIndex = retryParam.GetRetry()
+				} else {
+					break
+				}
 				// Re-setup context for same channel (supports multi-key rotation)
 				if setupErr := middleware.SetupContextForSelectedChannel(c, channel, relayInfo.OriginModelName); setupErr != nil {
 					newAPIError = setupErr
@@ -285,6 +303,14 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		if channelSetting.RetryOnSameChannel && channelSetting.RetryExhaustedTransfer != nil && !*channelSetting.RetryExhaustedTransfer {
 			// Configured to fail directly after same-channel retries exhausted
 			break
+		}
+		if independentSameChannelRetry {
+			// Independent mode exhausted: if transfer allowed, try next channel with global budget
+			if retryParam.GetRetry() >= common.RetryTimes {
+				break
+			}
+			retryParam.IncreaseRetry()
+			continue
 		}
 		if !shouldRetryWithChannelSetting(c, newAPIError, common.RetryTimes-retryParam.GetRetry(), channelSetting) {
 			break
@@ -788,6 +814,7 @@ func RelayTask(c *gin.Context) {
 		if channelSetting.RetryTimes > 0 {
 			effectiveRetryTimes = channelSetting.RetryTimes
 		}
+		independentSameChannelRetry := channelSetting.RetryOnSameChannel && channelSetting.RetryTimes > 0
 
 		sameChannelRetry := 0
 		for {
@@ -814,14 +841,26 @@ func RelayTask(c *gin.Context) {
 					types.NewOpenAIError(taskErr.Error, types.ErrorCodeBadResponseStatusCode, taskErr.StatusCode))
 			}
 
-			if !shouldRetryTaskRelay(c, channel.Id, taskErr, common.RetryTimes-retryParam.GetRetry()) {
+			var remainingForCheck int
+			if independentSameChannelRetry {
+				remainingForCheck = effectiveRetryTimes - sameChannelRetry
+			} else {
+				remainingForCheck = common.RetryTimes - retryParam.GetRetry()
+			}
+			if !shouldRetryTaskRelay(c, channel.Id, taskErr, remainingForCheck) {
 				break
 			}
 
 			// Same-channel retry logic for task relay
-			if channelSetting.RetryOnSameChannel && sameChannelRetry < effectiveRetryTimes && retryParam.GetRetry() < common.RetryTimes {
-				sameChannelRetry++
-				retryParam.IncreaseRetry()
+			if channelSetting.RetryOnSameChannel && sameChannelRetry < effectiveRetryTimes {
+				if independentSameChannelRetry {
+					sameChannelRetry++
+				} else if retryParam.GetRetry() < common.RetryTimes {
+					sameChannelRetry++
+					retryParam.IncreaseRetry()
+				} else {
+					break
+				}
 				if setupErr := middleware.SetupContextForSelectedChannel(c, channel, relayInfo.OriginModelName); setupErr != nil {
 					taskErr = service.TaskErrorWrapperLocal(setupErr.Err, "setup_locked_channel_failed", http.StatusInternalServerError)
 					break
@@ -837,6 +876,13 @@ func RelayTask(c *gin.Context) {
 		}
 		if channelSetting.RetryOnSameChannel && channelSetting.RetryExhaustedTransfer != nil && !*channelSetting.RetryExhaustedTransfer {
 			break
+		}
+		if independentSameChannelRetry {
+			if retryParam.GetRetry() >= common.RetryTimes {
+				break
+			}
+			retryParam.IncreaseRetry()
+			continue
 		}
 		if !shouldRetryTaskRelay(c, channel.Id, taskErr, common.RetryTimes-retryParam.GetRetry()) {
 			break
