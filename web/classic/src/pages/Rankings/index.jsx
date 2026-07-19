@@ -744,14 +744,14 @@ function ModelRankings() {
                     fontFamily: 'monospace',
                     flexShrink: 0,
                     color:
-                      m.success_rate >= 0.95
+                      m.success_rate >= 95
                         ? 'var(--semi-color-success)'
-                        : m.success_rate >= 0.8
+                        : m.success_rate >= 80
                           ? 'var(--semi-color-warning)'
                           : 'var(--semi-color-danger)',
                   }}
                 >
-                  {(m.success_rate * 100).toFixed(1)}%
+                  {m.success_rate.toFixed(1)}%
                 </Text>
               </div>
             ))}
@@ -762,7 +762,7 @@ function ModelRankings() {
         <SectionCard
           icon={<IconArrowUp style={{ color: 'var(--semi-color-primary)' }} />}
           title='TPS'
-          subtitle={t('按平均输出速度排序 (tokens/s)')}
+          subtitle={t('按平均输出速度排序 (t/s)')}
         >
           <div style={{ maxHeight: 480, overflowY: 'auto' }}>
             {tpsSorted.map((m, idx) => (
@@ -804,7 +804,7 @@ function ModelRankings() {
                     flexShrink: 0,
                   }}
                 >
-                  {m.avg_tps?.toFixed(1)}
+                  {m.avg_tps?.toFixed(1)} t/s
                 </Text>
               </div>
             ))}
