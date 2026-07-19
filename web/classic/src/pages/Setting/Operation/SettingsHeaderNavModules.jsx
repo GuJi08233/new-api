@@ -46,6 +46,10 @@ export default function SettingsHeaderNavModules(props) {
       enabled: true,
       requireAuth: false, // 默认不需要登录鉴权
     },
+    rankings: {
+      enabled: true,
+      requireAuth: false, // 默认不需要登录鉴权
+    },
     docs: true,
     about: true,
   });
@@ -54,8 +58,8 @@ export default function SettingsHeaderNavModules(props) {
   function handleHeaderNavModuleChange(moduleKey) {
     return (checked) => {
       const newModules = { ...headerNavModules };
-      if (moduleKey === 'pricing') {
-        // 对于pricing模块，只更新enabled属性
+      if (moduleKey === 'pricing' || moduleKey === 'rankings') {
+        // 对于pricing/rankings模块，只更新enabled属性
         newModules[moduleKey] = {
           ...newModules[moduleKey],
           enabled: checked,
@@ -77,12 +81,26 @@ export default function SettingsHeaderNavModules(props) {
     setHeaderNavModules(newModules);
   }
 
+  // 处理排行榜权限控制变更
+  function handleRankingsAuthChange(checked) {
+    const newModules = { ...headerNavModules };
+    newModules.rankings = {
+      ...newModules.rankings,
+      requireAuth: checked,
+    };
+    setHeaderNavModules(newModules);
+  }
+
   // 重置顶栏模块为默认配置
   function resetHeaderNavModules() {
     const defaultModules = {
       home: true,
       console: true,
       pricing: {
+        enabled: true,
+        requireAuth: false,
+      },
+      rankings: {
         enabled: true,
         requireAuth: false,
       },
@@ -142,6 +160,22 @@ export default function SettingsHeaderNavModules(props) {
           };
         }
 
+        // 处理向后兼容性：如果rankings是boolean，转换为对象格式
+        if (typeof modules.rankings === 'boolean') {
+          modules.rankings = {
+            enabled: modules.rankings,
+            requireAuth: false,
+          };
+        }
+
+        // 如果没有rankings配置，添加默认值
+        if (!modules.rankings) {
+          modules.rankings = {
+            enabled: true,
+            requireAuth: false,
+          };
+        }
+
         setHeaderNavModules(modules);
       } catch (error) {
         // 使用默认配置
@@ -149,6 +183,10 @@ export default function SettingsHeaderNavModules(props) {
           home: true,
           console: true,
           pricing: {
+            enabled: true,
+            requireAuth: false,
+          },
+          rankings: {
             enabled: true,
             requireAuth: false,
           },
@@ -177,6 +215,12 @@ export default function SettingsHeaderNavModules(props) {
       title: t('模型广场'),
       description: t('模型定价，需要登录访问'),
       hasSubConfig: true, // 标识该模块有子配置
+    },
+    {
+      key: 'rankings',
+      title: t('排行榜'),
+      description: t('模型与用户使用排行'),
+      hasSubConfig: true,
     },
     {
       key: 'docs',
@@ -245,7 +289,7 @@ export default function SettingsHeaderNavModules(props) {
                   <div style={{ marginLeft: '16px' }}>
                     <Switch
                       checked={
-                        module.key === 'pricing'
+                        module.key === 'pricing' || module.key === 'rankings'
                           ? headerNavModules[module.key]?.enabled
                           : headerNavModules[module.key]
                       }
@@ -257,9 +301,7 @@ export default function SettingsHeaderNavModules(props) {
 
                 {/* 为模型广场添加权限控制子开关 */}
                 {module.key === 'pricing' &&
-                  (module.key === 'pricing'
-                    ? headerNavModules[module.key]?.enabled
-                    : headerNavModules[module.key]) && (
+                  headerNavModules[module.key]?.enabled && (
                     <div
                       style={{
                         borderTop: '1px solid var(--semi-color-border)',
@@ -304,6 +346,60 @@ export default function SettingsHeaderNavModules(props) {
                               headerNavModules.pricing?.requireAuth || false
                             }
                             onChange={handlePricingAuthChange}
+                            size='default'
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                {/* 为排行榜添加权限控制子开关 */}
+                {module.key === 'rankings' &&
+                  headerNavModules[module.key]?.enabled && (
+                    <div
+                      style={{
+                        borderTop: '1px solid var(--semi-color-border)',
+                        marginTop: '12px',
+                        paddingTop: '12px',
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <div style={{ flex: 1, textAlign: 'left' }}>
+                          <div
+                            style={{
+                              fontWeight: '500',
+                              fontSize: '12px',
+                              color: 'var(--semi-color-text-1)',
+                              marginBottom: '2px',
+                            }}
+                          >
+                            {t('需要登录访问')}
+                          </div>
+                          <Text
+                            type='secondary'
+                            size='small'
+                            style={{
+                              fontSize: '11px',
+                              color: 'var(--semi-color-text-2)',
+                              lineHeight: '1.4',
+                              display: 'block',
+                            }}
+                          >
+                            {t('开启后未登录用户无法访问排行榜')}
+                          </Text>
+                        </div>
+                        <div style={{ marginLeft: '16px' }}>
+                          <Switch
+                            checked={
+                              headerNavModules.rankings?.requireAuth || false
+                            }
+                            onChange={handleRankingsAuthChange}
                             size='default'
                           />
                         </div>

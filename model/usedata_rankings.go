@@ -64,3 +64,67 @@ func applyRankingQuotaTimeRange(query *gorm.DB, startTime int64, endTime int64) 
 	}
 	return query
 }
+
+// UserRequestRanking represents a user's request count ranking entry.
+type UserRequestRanking struct {
+	UserID       int    `json:"user_id"`
+	Username     string `json:"username"`
+	RequestCount int64  `json:"request_count"`
+}
+
+// UserQuotaRanking represents a user's quota consumption ranking entry.
+type UserQuotaRanking struct {
+	UserID     int    `json:"user_id"`
+	Username   string `json:"username"`
+	TotalQuota int64  `json:"total_quota"`
+}
+
+// UserRankingSummary represents aggregate stats for the user rankings page.
+type UserRankingSummary struct {
+	TotalRequests int64 `json:"total_requests"`
+	TotalQuota    int64 `json:"total_quota"`
+	TotalTokens   int64 `json:"total_tokens"`
+}
+
+func GetUserRequestRankings(startTime int64, endTime int64, limit int) ([]UserRequestRanking, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	var rows []UserRequestRanking
+	query := DB.Table("quota_data").
+		Select("user_id, username, sum(count) as request_count").
+		Where("username <> ''").
+		Group("user_id, username").
+		Having("sum(count) > 0").
+		Order("request_count DESC").
+		Limit(limit)
+	query = applyRankingQuotaTimeRange(query, startTime, endTime)
+	err := query.Find(&rows).Error
+	return rows, err
+}
+
+func GetUserQuotaRankings(startTime int64, endTime int64, limit int) ([]UserQuotaRanking, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	var rows []UserQuotaRanking
+	query := DB.Table("quota_data").
+		Select("user_id, username, sum(quota) as total_quota").
+		Where("username <> ''").
+		Group("user_id, username").
+		Having("sum(quota) > 0").
+		Order("total_quota DESC").
+		Limit(limit)
+	query = applyRankingQuotaTimeRange(query, startTime, endTime)
+	err := query.Find(&rows).Error
+	return rows, err
+}
+
+func GetUserRankingSummary(startTime int64, endTime int64) (*UserRankingSummary, error) {
+	var summary UserRankingSummary
+	query := DB.Table("quota_data").
+		Select("COALESCE(sum(count), 0) as total_requests, COALESCE(sum(quota), 0) as total_quota, COALESCE(sum(token_used), 0) as total_tokens")
+	query = applyRankingQuotaTimeRange(query, startTime, endTime)
+	err := query.Scan(&summary).Error
+	return &summary, err
+}
