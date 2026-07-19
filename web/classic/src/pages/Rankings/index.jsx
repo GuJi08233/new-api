@@ -881,9 +881,9 @@ const Rankings = () => {
   const [period, setPeriod] = useState('week');
 
   return (
-    <div style={{ position: 'relative', minHeight: '100%' }}>
+    <div style={{ position: 'relative', minHeight: '100%', paddingTop: 64 }}>
 
-      <div style={{ position: 'relative', padding: '32px 24px 40px', maxWidth: 1200, margin: '0 auto' }}>
+      <div style={{ position: 'relative', padding: '24px 24px 40px', maxWidth: 1200, margin: '0 auto' }}>
         {/* Hero section */}
         <div style={{ marginBottom: 24 }}>
           <h1
