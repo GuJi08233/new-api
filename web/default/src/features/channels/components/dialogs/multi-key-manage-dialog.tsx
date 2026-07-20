@@ -401,6 +401,13 @@ export function MultiKeyManageDialog({
                     cell: (key) => `#${key.index + 1}`,
                   },
                   {
+                    id: 'key-preview',
+                    header: t('Key'),
+                    className: 'min-w-[140px]',
+                    cellClassName: 'font-mono text-sm text-muted-foreground',
+                    cell: (key) => key.key_preview || '-',
+                  },
+                  {
                     id: 'status',
                     header: t('Status'),
                     className: 'w-32',

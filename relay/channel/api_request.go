@@ -94,6 +94,29 @@ var passthroughSkipHeaderNamesLower = map[string]struct{}{
 	"sec-websocket-extensions": {},
 }
 
+// fullPassthroughSkipHeaderNamesLower is the minimal skip list used when
+// channel-level PassThroughHeadersEnabled is active. Only credential headers
+// and true hop-by-hop headers (which would break the upstream connection) are
+// excluded; everything else is forwarded as-is, matching gpt-load behavior.
+var fullPassthroughSkipHeaderNamesLower = map[string]struct{}{
+	// Credential headers — must never leak client auth to upstream.
+	"authorization":  {},
+	"x-api-key":      {},
+	"x-goog-api-key": {},
+
+	// Hop-by-hop headers managed by Go's HTTP transport.
+	"connection":        {},
+	"keep-alive":        {},
+	"transfer-encoding": {},
+	"upgrade":           {},
+	"te":                {},
+	"trailer":           {},
+
+	// Managed by the transport / adaptor.
+	"host":           {},
+	"content-length": {},
+}
+
 var headerPassthroughRegexCache sync.Map // map[string]*regexp.Regexp
 
 func getHeaderPassthroughRegex(pattern string) (*regexp.Regexp, error) {
@@ -143,6 +166,16 @@ func shouldSkipPassthroughHeader(name string) bool {
 		return true
 	}
 	return false
+}
+
+func shouldSkipFullPassthroughHeader(name string) bool {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return true
+	}
+	lower := strings.ToLower(name)
+	_, ok := fullPassthroughSkipHeaderNamesLower[lower]
+	return ok
 }
 
 func applyHeaderOverridePlaceholders(template string, c *gin.Context, apiKey string) (string, bool, error) {
@@ -235,13 +268,24 @@ func processHeaderOverride(info *common.RelayInfo, c *gin.Context) (map[string]s
 		}
 	}
 
+	// Determine whether channel-level full passthrough is active.
+	channelFullPassthrough := info.ChannelMeta != nil && info.ChannelSetting.PassThroughHeadersEnabled
+
 	if passAll || len(passthroughRegex) > 0 {
 		if c == nil || c.Request == nil {
 			return nil, types.NewError(fmt.Errorf("missing request context for header passthrough"), types.ErrorCodeChannelHeaderOverrideInvalid)
 		}
 		for name := range c.Request.Header {
-			if shouldSkipPassthroughHeader(name) {
-				continue
+			// Channel-level full passthrough uses the minimal skip list;
+			// global or header_override "*"/regex rules use the standard list.
+			if channelFullPassthrough {
+				if shouldSkipFullPassthroughHeader(name) {
+					continue
+				}
+			} else {
+				if shouldSkipPassthroughHeader(name) {
+					continue
+				}
 			}
 			if !passAll {
 				matched := false

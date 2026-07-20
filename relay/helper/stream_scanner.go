@@ -71,6 +71,25 @@ func copyCodexSSEHeaders(c *gin.Context, resp *http.Response) {
 	}
 }
 
+// copyUpstreamResponseHeadersFull copies all upstream response headers to the
+// client when channel-level header passthrough is enabled. Only Content-Length
+// (managed separately) and the internal request-id header are excluded.
+func copyUpstreamResponseHeadersFull(c *gin.Context, resp *http.Response) {
+	if c == nil || c.Writer == nil || resp == nil {
+		return
+	}
+	for name, values := range resp.Header {
+		if !service.ShouldCopyUpstreamHeader(c, name, values) {
+			continue
+		}
+		for _, value := range values {
+			if value != "" {
+				c.Writer.Header().Add(name, value)
+			}
+		}
+	}
+}
+
 func ExtendWriteDeadline(c *gin.Context) {
 	if c == nil || c.Writer == nil {
 		return
@@ -144,7 +163,13 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 	defer cleanup()
 
 	scanner.Split(bufio.ScanLines)
-	copyCodexSSEHeaders(c, resp)
+	// When channel-level header passthrough is enabled, copy all upstream
+	// response headers to the client (matching gpt-load behavior).
+	if info.ChannelMeta != nil && info.ChannelSetting.PassThroughHeadersEnabled {
+		copyUpstreamResponseHeadersFull(c, resp)
+	} else {
+		copyCodexSSEHeaders(c, resp)
+	}
 	SetEventStreamHeaders(c)
 
 	ctx = context.WithValue(ctx, "stop_chan", stopChan)

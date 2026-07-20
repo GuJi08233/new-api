@@ -1780,10 +1780,12 @@ func ManageMultiKeys(c *gin.Context) {
 				}
 			}
 
-			// Create key preview (first 10 chars)
+			// Create key preview: show first 8 + last 4 chars for identification
 			keyPreview := key
-			if len(key) > 10 {
-				keyPreview = key[:10] + "..."
+			if len(key) > 16 {
+				keyPreview = key[:8] + "..." + key[len(key)-4:]
+			} else if len(key) > 10 {
+				keyPreview = key[:6] + "..." + key[len(key)-4:]
 			}
 
 			allKeyStatusList = append(allKeyStatusList, KeyStatus{
