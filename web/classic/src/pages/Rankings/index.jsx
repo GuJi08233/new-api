@@ -657,7 +657,7 @@ function ModelRankings() {
   const successSorted = useMemo(
     () =>
       [...models]
-        .filter((m) => m.success_rate !== undefined)
+        .filter((m) => m.success_rate !== undefined && (m.request_count || 0) >= 5)
         .sort((a, b) => b.success_rate - a.success_rate)
         .slice(0, 30),
     [models]
@@ -712,7 +712,7 @@ function ModelRankings() {
         <SectionCard
           icon={<IconActivity style={{ color: 'var(--semi-color-success)' }} />}
           title={t('成功率排名')}
-          subtitle={t('按请求成功率排序')}
+          subtitle={t('按请求成功率排序（≥5 次请求）')}
         >
           <div style={{ maxHeight: 480, overflowY: 'auto' }}>
             {successSorted.map((m, idx) => (
@@ -734,6 +734,9 @@ function ModelRankings() {
                   >
                     {m.model_name}
                   </Text>
+                  <div style={{ fontSize: 10, color: 'var(--semi-color-text-2)', marginTop: 1 }}>
+                    {m.request_count || 0} {t('次请求')}
+                  </div>
                 </div>
                 <Text
                   style={{

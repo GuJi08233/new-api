@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
@@ -13,9 +14,10 @@ import (
 func GetRankings(c *gin.Context) {
 	result, err := service.GetRankingsSnapshot(c.DefaultQuery("period", "week"))
 	if err != nil {
+		common.SysError("rankings snapshot error: " + err.Error())
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
-			"message": err.Error(),
+			"message": "invalid period",
 		})
 		return
 	}
@@ -32,7 +34,7 @@ func GetUserRankings(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
-			"message": err.Error(),
+			"message": "invalid period",
 		})
 		return
 	}
@@ -41,29 +43,47 @@ func GetUserRankings(c *gin.Context) {
 	endTime := now.Unix()
 	startTime := now.Add(-duration).Unix()
 
-	requestRankings, err := model.GetUserRequestRankings(startTime, endTime, 50)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"message": err.Error(),
-		})
-		return
+	type queryResult[T any] struct {
+		data T
+		err  error
 	}
 
-	quotaRankings, err := model.GetUserQuotaRankings(startTime, endTime, 50)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"message": err.Error(),
-		})
-		return
-	}
+	var (
+		reqCh  = make(chan queryResult[[]model.UserRequestRanking], 1)
+		quotaCh = make(chan queryResult[[]model.UserQuotaRanking], 1)
+		sumCh  = make(chan queryResult[*model.UserRankingSummary], 1)
+	)
 
-	summary, err := model.GetUserRankingSummary(startTime, endTime)
-	if err != nil {
+	go func() {
+		rows, err := model.GetUserRequestRankings(startTime, endTime, 50)
+		reqCh <- queryResult[[]model.UserRequestRanking]{rows, err}
+	}()
+	go func() {
+		rows, err := model.GetUserQuotaRankings(startTime, endTime, 50)
+		quotaCh <- queryResult[[]model.UserQuotaRanking]{rows, err}
+	}()
+	go func() {
+		summary, err := model.GetUserRankingSummary(startTime, endTime)
+		sumCh <- queryResult[*model.UserRankingSummary]{summary, err}
+	}()
+
+	reqRes := <-reqCh
+	quotaRes := <-quotaCh
+	sumRes := <-sumCh
+
+	if reqRes.err != nil || quotaRes.err != nil || sumRes.err != nil {
+		if reqRes.err != nil {
+			common.SysError("user request rankings error: " + reqRes.err.Error())
+		}
+		if quotaRes.err != nil {
+			common.SysError("user quota rankings error: " + quotaRes.err.Error())
+		}
+		if sumRes.err != nil {
+			common.SysError("user ranking summary error: " + sumRes.err.Error())
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
-			"message": err.Error(),
+			"message": "failed to load rankings",
 		})
 		return
 	}
@@ -71,9 +91,9 @@ func GetUserRankings(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"request_rankings": requestRankings,
-			"quota_rankings":   quotaRankings,
-			"summary":          summary,
+			"request_rankings": reqRes.data,
+			"quota_rankings":   quotaRes.data,
+			"summary":          sumRes.data,
 		},
 	})
 }
