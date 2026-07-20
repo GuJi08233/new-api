@@ -171,6 +171,65 @@ function TrendChart({
   );
 }
 
+// ============================================================================
+// Sparkline — tiny inline trend curve for each ranking row
+// ============================================================================
+
+function Sparkline({ series, metric, data, color = 'var(--semi-color-primary)' }) {
+  const values = useMemo(() => {
+    // Support plain number array (data prop) or object series + metric
+    if (data && data.length >= 2) {
+      return data.filter((v) => v > 0).map((v, i) => ({ x: i, y: v }));
+    }
+    if (!series || series.length < 2) return null;
+    return series
+      .filter((p) => p[metric] > 0)
+      .map((p, i) => ({ x: i, y: p[metric] }));
+  }, [series, metric, data]);
+
+  if (!values || values.length < 2) {
+    return <span className='rankings-sparkline rankings-sparkline-empty' />;
+  }
+
+  const spec = useMemo(
+    () => ({
+      type: 'line',
+      data: [{ id: 'spark', values }],
+      xField: 'x',
+      yField: 'y',
+      line: {
+        style: {
+          lineWidth: 1.5,
+          curveType: 'monotone',
+          stroke: color,
+        },
+      },
+      area: {
+        style: {
+          fill: color,
+          fillOpacity: 0.08,
+        },
+      },
+      point: { visible: false },
+      axes: [
+        { orient: 'left', visible: false },
+        { orient: 'bottom', visible: false },
+      ],
+      legends: { visible: false },
+      tooltip: { visible: false },
+      animation: false,
+      padding: { top: 2, bottom: 2, left: 0, right: 0 },
+    }),
+    [values, color],
+  );
+
+  return (
+    <span className='rankings-sparkline'>
+      <VChart spec={spec} />
+    </span>
+  );
+}
+
 const MONO_FONT = "'JetBrains Mono', 'SF Mono', 'Fira Code', monospace";
 
 // ============================================================================
@@ -285,7 +344,7 @@ function SectionCard({ icon, tone, title, subtitle, children, style }) {
 // Leaderboard Row — rank · icon · name/sub · value · growth
 // ============================================================================
 
-function LeaderboardRow({ rank, icon, name, sub, value, valueLabel, growth }) {
+function LeaderboardRow({ rank, icon, name, sub, value, valueLabel, growth, sparkline }) {
   return (
     <div className='rankings-row'>
       <RankBadge rank={rank} />
@@ -294,6 +353,7 @@ function LeaderboardRow({ rank, icon, name, sub, value, valueLabel, growth }) {
         <div className='rankings-row-name'>{name}</div>
         {sub && <div className='rankings-row-sub'>{sub}</div>}
       </div>
+      {sparkline}
       <div className='rankings-row-value'>
         <div className='rankings-row-value-num'>{value}</div>
         {valueLabel && (
@@ -389,6 +449,16 @@ function LLMRankings({ period }) {
     [data],
   );
 
+  // Per-model sparkline series extracted from models_history
+  const modelSparklines = useMemo(() => {
+    const map = new Map();
+    (data?.models_history?.points || []).forEach((point) => {
+      if (!map.has(point.model)) map.set(point.model, []);
+      map.get(point.model).push(point.tokens);
+    });
+    return map;
+  }, [data]);
+
   if (loading) {
     return <ListSkeleton />;
   }
@@ -474,6 +544,12 @@ function LLMRankings({ period }) {
               value={formatNumber(m.total_tokens)}
               valueLabel='tokens'
               growth={m.growth_pct}
+              sparkline={
+                <Sparkline
+                  data={modelSparklines.get(m.model_name)}
+                  color='var(--semi-color-primary)'
+                />
+              }
             />
           ))}
         </SectionCard>
@@ -753,21 +829,6 @@ function ModelRankings() {
     [models],
   );
 
-  const successTrendData = useMemo(
-    () => buildMetricTrendData(successSorted, 'success_rate', true),
-    [successSorted],
-  );
-
-  const tpsTrendData = useMemo(
-    () => buildMetricTrendData(tpsSorted, 'avg_tps'),
-    [tpsSorted],
-  );
-
-  const latencyTrendData = useMemo(
-    () => buildMetricTrendData(latencySorted, 'avg_ttft_ms'),
-    [latencySorted],
-  );
-
   if (loading) {
     return <ListSkeleton rows={8} />;
   }
@@ -790,15 +851,6 @@ function ModelRankings() {
           title={t('成功率排名')}
           subtitle={t('按请求成功率排序（≥5 次请求）')}
         >
-          {successTrendData.length > 1 && (
-            <TrendChart
-              data={successTrendData}
-              yField='Value'
-              seriesField='Model'
-              formatValue={formatPercentValue}
-              height={190}
-            />
-          )}
           <div className='rankings-scroll'>
             {successSorted.map((m, idx) => (
               <div className='rankings-row' key={m.model_name}>
@@ -811,9 +863,14 @@ function ModelRankings() {
                     {m.request_count || 0} {t('次请求')}
                   </div>
                 </div>
+                <Sparkline
+                  series={m.recent_series}
+                  metric='success_rate'
+                  color={successRateColor(m.success_rate)}
+                />
                 <span
                   className='rankings-perf-value'
-                  style={{ width: 56, color: successRateColor(m.success_rate) }}
+                  style={{ color: successRateColor(m.success_rate) }}
                 >
                   {m.success_rate.toFixed(1)}%
                 </span>
@@ -829,15 +886,6 @@ function ModelRankings() {
           title='TPS'
           subtitle={t('按平均输出速度排序 (t/s)')}
         >
-          {tpsTrendData.length > 1 && (
-            <TrendChart
-              data={tpsTrendData}
-              yField='Value'
-              seriesField='Model'
-              formatValue={(value) => `${Number(value || 0).toFixed(1)} t/s`}
-              height={190}
-            />
-          )}
           <div className='rankings-scroll'>
             {tpsSorted.map((m, idx) => (
               <div className='rankings-row' key={m.model_name}>
@@ -847,7 +895,12 @@ function ModelRankings() {
                     {m.model_name}
                   </div>
                 </div>
-                <span className='rankings-perf-value' style={{ width: 64 }}>
+                <Sparkline
+                  series={m.recent_series}
+                  metric='avg_tps'
+                  color='var(--semi-color-primary)'
+                />
+                <span className='rankings-perf-value'>
                   {m.avg_tps?.toFixed(1)} t/s
                 </span>
               </div>
@@ -862,15 +915,6 @@ function ModelRankings() {
           title={t('延迟排名')}
           subtitle={t('按首字延迟排序 (越低越好)')}
         >
-          {latencyTrendData.length > 1 && (
-            <TrendChart
-              data={latencyTrendData}
-              yField='Value'
-              seriesField='Model'
-              formatValue={formatLatency}
-              height={190}
-            />
-          )}
           <div className='rankings-scroll'>
             {latencySorted.map((m, idx) => (
               <div className='rankings-row' key={m.model_name}>
@@ -880,9 +924,14 @@ function ModelRankings() {
                     {m.model_name}
                   </div>
                 </div>
+                <Sparkline
+                  series={m.recent_series}
+                  metric='avg_ttft_ms'
+                  color={latencyColor(m.avg_ttft_ms)}
+                />
                 <span
                   className='rankings-perf-value'
-                  style={{ width: 64, color: latencyColor(m.avg_ttft_ms) }}
+                  style={{ color: latencyColor(m.avg_ttft_ms) }}
                 >
                   {formatLatency(m.avg_ttft_ms)}
                 </span>

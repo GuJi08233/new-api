@@ -452,6 +452,22 @@ For commercial licensing, please contact support@quantumnous.com
   font-family: 'JetBrains Mono', 'SF Mono', monospace;
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ---------- Inline sparkline ---------- */
+
+.rankings-sparkline {
+  display: inline-block;
+  width: 72px;
+  height: 26px;
+  flex-shrink: 0;
+}
+
+.rankings-sparkline-empty {
+  background: var(--semi-color-fill-0);
+  border-radius: 4px;
+  opacity: 0.4;
 }
 
 /* ---------- Misc ---------- */
