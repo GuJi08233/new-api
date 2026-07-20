@@ -92,29 +92,7 @@ var passthroughSkipHeaderNamesLower = map[string]struct{}{
 	"sec-websocket-key":        {},
 	"sec-websocket-version":    {},
 	"sec-websocket-extensions": {},
-}
-
-// fullPassthroughSkipHeaderNamesLower is the minimal skip list used when
-// channel-level PassThroughHeadersEnabled is active. Only credential headers
-// and true hop-by-hop headers (which would break the upstream connection) are
-// excluded; everything else is forwarded as-is, matching gpt-load behavior.
-var fullPassthroughSkipHeaderNamesLower = map[string]struct{}{
-	// Credential headers — must never leak client auth to upstream.
-	"authorization":  {},
-	"x-api-key":      {},
-	"x-goog-api-key": {},
-
-	// Hop-by-hop headers managed by Go's HTTP transport.
-	"connection":        {},
-	"keep-alive":        {},
-	"transfer-encoding": {},
-	"upgrade":           {},
-	"te":                {},
-	"trailer":           {},
-
-	// Managed by the transport / adaptor.
-	"host":           {},
-	"content-length": {},
+	"sec-websocket-protocol":   {},
 }
 
 var headerPassthroughRegexCache sync.Map // map[string]*regexp.Regexp
@@ -166,16 +144,6 @@ func shouldSkipPassthroughHeader(name string) bool {
 		return true
 	}
 	return false
-}
-
-func shouldSkipFullPassthroughHeader(name string) bool {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return true
-	}
-	lower := strings.ToLower(name)
-	_, ok := fullPassthroughSkipHeaderNamesLower[lower]
-	return ok
 }
 
 func applyHeaderOverridePlaceholders(template string, c *gin.Context, apiKey string) (string, bool, error) {
@@ -268,24 +236,13 @@ func processHeaderOverride(info *common.RelayInfo, c *gin.Context) (map[string]s
 		}
 	}
 
-	// Determine whether channel-level full passthrough is active.
-	channelFullPassthrough := info.ChannelMeta != nil && info.ChannelSetting.PassThroughHeadersEnabled
-
 	if passAll || len(passthroughRegex) > 0 {
 		if c == nil || c.Request == nil {
 			return nil, types.NewError(fmt.Errorf("missing request context for header passthrough"), types.ErrorCodeChannelHeaderOverrideInvalid)
 		}
 		for name := range c.Request.Header {
-			// Channel-level full passthrough uses the minimal skip list;
-			// global or header_override "*"/regex rules use the standard list.
-			if channelFullPassthrough {
-				if shouldSkipFullPassthroughHeader(name) {
-					continue
-				}
-			} else {
-				if shouldSkipPassthroughHeader(name) {
-					continue
-				}
+			if shouldSkipPassthroughHeader(name) {
+				continue
 			}
 			if !passAll {
 				matched := false
@@ -525,6 +482,10 @@ func DoRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 	return doRequest(c, req, info)
 }
 func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http.Response, error) {
+	// A retry reuses the Gin context; remove metadata from the previous
+	// upstream attempt before preparing the next response.
+	helper.ResetUpstreamResponseHeaders(c)
+
 	var client *http.Client
 	var err error
 	if info.ChannelSetting.Proxy != "" {
@@ -542,7 +503,12 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		helper.SetEventStreamHeaders(c)
 		// 处理流式请求的 ping 保活
 		generalSettings := operation_setting.GetGeneralSetting()
-		if generalSettings.PingIntervalEnabled && !info.DisablePing {
+		// A pre-response ping commits the downstream headers before upstream
+		// response metadata is available. Keep it disabled for channel-level
+		// response passthrough; StreamScannerHandler starts its own pinger after
+		// the safe upstream headers have been copied.
+		channelResponsePassthrough := info.ChannelMeta != nil && info.ChannelSetting.PassThroughHeadersEnabled
+		if generalSettings.PingIntervalEnabled && !info.DisablePing && !channelResponsePassthrough {
 			pingInterval := time.Duration(generalSettings.PingIntervalSeconds) * time.Second
 			stopPinger, pingerDone = startPingKeepAlive(c, pingInterval)
 			// 使用defer确保在任何情况下都能停止ping goroutine
@@ -567,6 +533,13 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 
 	if upID := resp.Header.Get(common2.RequestIdKey); upID != "" {
 		c.Set(common2.UpstreamRequestIdKey, upID)
+	}
+	// Register/copy response metadata before any stream adaptor can write or
+	// flush. This shared entry point also covers provider-specific stream
+	// handlers that do not use StreamScannerHandler.
+	isEventStreamResponse := strings.HasPrefix(strings.ToLower(strings.TrimSpace(resp.Header.Get("Content-Type"))), "text/event-stream")
+	if (info.IsStream || isEventStreamResponse) && info.ChannelMeta != nil && info.ChannelSetting.PassThroughHeadersEnabled {
+		helper.CopyUpstreamResponseHeaders(c, resp)
 	}
 
 	_ = req.Body.Close()

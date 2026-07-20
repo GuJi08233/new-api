@@ -3,6 +3,7 @@ package router
 import (
 	"github.com/QuantumNous/new-api/controller"
 	"github.com/QuantumNous/new-api/middleware"
+	"github.com/QuantumNous/new-api/service/authz"
 
 	// Import oauth package to register providers via init()
 	_ "github.com/QuantumNous/new-api/oauth"
@@ -293,7 +294,7 @@ func SetApiRouter(router *gin.Engine) {
 			channelRoute.POST("/batch/tag", controller.BatchSetChannelTag)
 			channelRoute.GET("/tag/models", controller.GetTagModels)
 			channelRoute.POST("/copy/:id", controller.CopyChannel)
-			channelRoute.POST("/multi_key/manage", controller.ManageMultiKeys)
+			channelRoute.POST("/multi_key/manage", middleware.RequirePermission(authz.ChannelOperate), controller.ManageMultiKeys)
 			channelRoute.POST("/upstream_updates/apply", controller.ApplyChannelUpstreamModelUpdates)
 			channelRoute.POST("/upstream_updates/apply_all", controller.ApplyAllChannelUpstreamModelUpdates)
 			channelRoute.POST("/upstream_updates/detect", controller.DetectChannelUpstreamModelUpdates)

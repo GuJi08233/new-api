@@ -31,8 +31,16 @@ const (
 	// unconditional wg.Wait() in cleanup can always finish. Without it, a slow
 	// but connected client (full TCP buffer, no server WriteTimeout) could hang
 	// the handler forever.
-	streamWriteTimeout = 30 * time.Second
+	streamWriteTimeout               = 30 * time.Second
+	upstreamResponseHeadersCopiedKey = "upstream_response_headers_copied"
+	upstreamResponseHeaderNamesKey   = "upstream_response_header_names"
 )
+
+var gatewayManagedResponseHeadersLower = map[string]struct{}{
+	"auth-version":      {},
+	"cache-version":     {},
+	"x-new-api-version": {},
+}
 
 func getScannerBufferSize() int {
 	if constant.StreamScannerMaxBufferMB > 0 {
@@ -71,23 +79,88 @@ func copyCodexSSEHeaders(c *gin.Context, resp *http.Response) {
 	}
 }
 
-// copyUpstreamResponseHeadersFull copies all upstream response headers to the
-// client when channel-level header passthrough is enabled. Only Content-Length
-// (managed separately) and the internal request-id header are excluded.
-func copyUpstreamResponseHeadersFull(c *gin.Context, resp *http.Response) {
+// CopyUpstreamResponseHeaders copies safe upstream metadata for a transformed
+// streaming response. Transport, compression, cookie, CORS, and SSE-managed
+// headers are intentionally kept under gateway control.
+func CopyUpstreamResponseHeaders(c *gin.Context, resp *http.Response) {
 	if c == nil || c.Writer == nil || resp == nil {
 		return
 	}
-	for name, values := range resp.Header {
-		if !service.ShouldCopyUpstreamHeader(c, name, values) {
-			continue
+	// Error responses are handled by the relay error path and may be followed
+	// by a retry on the same Gin context. Do not retain their headers or mark
+	// the context as copied, otherwise a later successful attempt is blocked.
+	if resp.StatusCode != 0 && (resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices) {
+		return
+	}
+	if value, exists := c.Get(upstreamResponseHeadersCopiedKey); exists {
+		if copied, ok := value.(bool); ok && copied {
+			return
 		}
-		for _, value := range values {
-			if value != "" {
-				c.Writer.Header().Add(name, value)
+	}
+
+	connectionHeaderNames := make(map[string]struct{})
+	for _, value := range resp.Header.Values("Connection") {
+		for _, name := range strings.Split(value, ",") {
+			name = strings.ToLower(strings.TrimSpace(name))
+			if name != "" {
+				connectionHeaderNames[name] = struct{}{}
 			}
 		}
 	}
+
+	for name, values := range resp.Header {
+		if !service.ShouldCopyUpstreamStreamHeader(c, name, values) {
+			continue
+		}
+		if _, hopByHop := connectionHeaderNames[strings.ToLower(name)]; hopByHop {
+			continue
+		}
+		if _, managed := gatewayManagedResponseHeadersLower[strings.ToLower(name)]; managed {
+			continue
+		}
+
+		copiedValues := make([]string, 0, len(values))
+		for _, value := range values {
+			if value != "" {
+				copiedValues = append(copiedValues, value)
+			}
+		}
+		if len(copiedValues) == 0 {
+			continue
+		}
+		canonicalName := http.CanonicalHeaderKey(name)
+		if len(c.Writer.Header().Values(canonicalName)) > 0 {
+			// Middleware/adaptors may have already supplied a local value. The
+			// upstream must not overwrite gateway-owned response metadata.
+			continue
+		}
+		c.Writer.Header()[canonicalName] = copiedValues
+		copiedNames, _ := c.Get(upstreamResponseHeaderNamesKey)
+		if names, ok := copiedNames.([]string); ok {
+			c.Set(upstreamResponseHeaderNamesKey, append(names, canonicalName))
+		} else {
+			c.Set(upstreamResponseHeaderNamesKey, []string{canonicalName})
+		}
+	}
+	c.Set(upstreamResponseHeadersCopiedKey, true)
+}
+
+// ResetUpstreamResponseHeaders removes metadata copied for a previous
+// upstream attempt. Relay retries reuse the same Gin context, so stale header
+// values must not survive into a different channel response.
+func ResetUpstreamResponseHeaders(c *gin.Context) {
+	if c == nil || c.Writer == nil {
+		return
+	}
+	if value, exists := c.Get(upstreamResponseHeaderNamesKey); exists {
+		if names, ok := value.([]string); ok {
+			for _, name := range names {
+				c.Writer.Header().Del(name)
+			}
+		}
+	}
+	c.Set(upstreamResponseHeadersCopiedKey, false)
+	c.Set(upstreamResponseHeaderNamesKey, nil)
 }
 
 func ExtendWriteDeadline(c *gin.Context) {
@@ -164,9 +237,9 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 
 	scanner.Split(bufio.ScanLines)
 	// When channel-level header passthrough is enabled, copy all upstream
-	// response headers to the client (matching gpt-load behavior).
+	// response metadata before any ping or stream payload can flush headers.
 	if info.ChannelMeta != nil && info.ChannelSetting.PassThroughHeadersEnabled {
-		copyUpstreamResponseHeadersFull(c, resp)
+		CopyUpstreamResponseHeaders(c, resp)
 	} else {
 		copyCodexSSEHeaders(c, resp)
 	}

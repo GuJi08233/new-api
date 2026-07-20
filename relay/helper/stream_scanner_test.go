@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -84,6 +85,72 @@ func TestNewStreamScanner_AllowsLargeStreamLine(t *testing.T) {
 	require.True(t, scanner.Scan())
 	assert.Equal(t, "data: "+payload, scanner.Text())
 	require.NoError(t, scanner.Err())
+}
+
+func TestCopyUpstreamResponseHeaders_FiltersTransportAndGatewayHeaders(t *testing.T) {
+	t.Parallel()
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	c.Writer.Header().Set("Content-Type", "text/event-stream")
+	c.Writer.Header().Set("X-Local-Header", "local")
+	c.Writer.Header().Set("X-New-Api-Version", "gateway-version")
+
+	resp := &http.Response{Header: http.Header{
+		"Connection":                  []string{"X-Upstream-Hop"},
+		"X-Upstream-Hop":              []string{"must-not-cross"},
+		"Keep-Alive":                  []string{"timeout=5"},
+		"Set-Cookie":                  []string{"session=upstream"},
+		"Clear-Site-Data":             []string{"\"cookies\""},
+		"Alt-Svc":                     []string{"h3=\":443\""},
+		"Report-To":                   []string{"upstream-reporting-group"},
+		"Access-Control-Allow-Origin": []string{"https://upstream.example"},
+		"Content-Encoding":            []string{"gzip"},
+		"Content-Type":                []string{"application/json"},
+		"Content-Range":               []string{"bytes 0-9/10"},
+		"Content-Disposition":         []string{"attachment; filename=upstream.bin"},
+		"Digest":                      []string{"sha-256=upstream-body"},
+		"Cache-Control":               []string{"max-age=60"},
+		"X-Local-Header":              []string{"upstream-value"},
+		"X-New-Api-Version":           []string{"upstream-version"},
+		"X-Upstream-Request":          []string{"request-value"},
+		"Link":                        []string{"<https://example.com/a>", "<https://example.com/b>"},
+		"X-Oneapi-Request-Id":         []string{"upstream-id"},
+	}}
+
+	CopyUpstreamResponseHeaders(c, resp)
+	CopyUpstreamResponseHeaders(c, resp)
+
+	header := recorder.Header()
+	assert.Equal(t, "text/event-stream", header.Get("Content-Type"))
+	assert.Equal(t, "local", header.Get("X-Local-Header"))
+	assert.Equal(t, "gateway-version", header.Get("X-New-Api-Version"))
+	assert.Equal(t, "request-value", header.Get("X-Upstream-Request"))
+	assert.Equal(t, []string{"<https://example.com/a>", "<https://example.com/b>"}, header.Values("Link"))
+	assert.Empty(t, header.Values("X-Upstream-Hop"))
+	assert.Empty(t, header.Values("Set-Cookie"))
+	assert.Empty(t, header.Values("Clear-Site-Data"))
+	assert.Empty(t, header.Values("Alt-Svc"))
+	assert.Empty(t, header.Values("Report-To"))
+	assert.Empty(t, header.Values("Access-Control-Allow-Origin"))
+	assert.Empty(t, header.Values("Content-Encoding"))
+	assert.Empty(t, header.Values("Content-Range"))
+	assert.Empty(t, header.Values("Content-Disposition"))
+	assert.Empty(t, header.Values("Digest"))
+	assert.Empty(t, header.Values("Cache-Control"))
+	assert.Equal(t, "upstream-id", c.GetString(common.UpstreamRequestIdKey))
+
+	ResetUpstreamResponseHeaders(c)
+	assert.Empty(t, header.Values("X-Upstream-Request"))
+	assert.Empty(t, header.Values("Link"))
+	assert.Equal(t, "local", header.Get("X-Local-Header"))
+
+	CopyUpstreamResponseHeaders(c, &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"X-Retry-Metadata": []string{"second-attempt"}},
+	})
+	assert.Equal(t, "second-attempt", header.Get("X-Retry-Metadata"))
 }
 
 func TestStreamScannerHandler_EmptyBody(t *testing.T) {

@@ -1683,7 +1683,25 @@ type KeyStatus struct {
 	Status       int    `json:"status"` // 1: enabled, 2: disabled
 	DisabledTime int64  `json:"disabled_time,omitempty"`
 	Reason       string `json:"reason,omitempty"`
-	KeyPreview   string `json:"key_preview"` // first 10 chars of key for identification
+	KeyPreview   string `json:"key_preview"` // masked preview for identification
+}
+
+// maskMultiKeyPreview keeps the status endpoint useful for identifying a key
+// without returning enough of a short credential to reconstruct it. Short
+// keys are fully masked; longer keys expose only a bounded prefix and suffix.
+func maskMultiKeyPreview(key string) string {
+	keyRunes := []rune(key)
+	keyLength := len(keyRunes)
+	if keyLength == 0 {
+		return ""
+	}
+	if keyLength <= 8 {
+		return strings.Repeat("*", keyLength)
+	}
+	if keyLength <= 16 {
+		return string(keyRunes[:2]) + "****" + string(keyRunes[keyLength-2:])
+	}
+	return string(keyRunes[:4]) + "********" + string(keyRunes[keyLength-4:])
 }
 
 // ManageMultiKeys handles multi-key management operations
@@ -1780,20 +1798,12 @@ func ManageMultiKeys(c *gin.Context) {
 				}
 			}
 
-			// Create key preview: show first 8 + last 4 chars for identification
-			keyPreview := key
-			if len(key) > 16 {
-				keyPreview = key[:8] + "..." + key[len(key)-4:]
-			} else if len(key) > 10 {
-				keyPreview = key[:6] + "..." + key[len(key)-4:]
-			}
-
 			allKeyStatusList = append(allKeyStatusList, KeyStatus{
 				Index:        i,
 				Status:       status,
 				DisabledTime: disabledTime,
 				Reason:       reason,
-				KeyPreview:   keyPreview,
+				KeyPreview:   maskMultiKeyPreview(key),
 			})
 		}
 
