@@ -24,7 +24,6 @@ import {
   Tag,
   Spin,
   Typography,
-  Progress,
   Empty,
   Avatar,
 } from '@douyinfe/semi-ui';
@@ -228,7 +227,7 @@ function SectionCard({ icon, title, subtitle, children, style }) {
 // Leaderboard Row
 // ============================================================================
 
-function LeaderboardRow({ rank, name, sub, value, valueLabel, share, growth }) {
+function LeaderboardRow({ rank, name, sub, value, valueLabel, growth }) {
   return (
     <div
       style={{
@@ -263,17 +262,6 @@ function LeaderboardRow({ rank, name, sub, value, valueLabel, share, growth }) {
           </div>
         )}
       </div>
-      {share !== undefined && (
-        <div style={{ width: 80, flexShrink: 0 }}>
-          <Progress
-            percent={Math.round(share * 100)}
-            size='small'
-            showInfo={false}
-            stroke='var(--semi-color-primary)'
-            trailColor='var(--semi-color-fill-1)'
-          />
-        </div>
-      )}
       <div style={{ textAlign: 'right', flexShrink: 0, minWidth: 70 }}>
         <div
           style={{
@@ -393,7 +381,6 @@ function LLMRankings({ period }) {
             sub={m.vendor}
             value={formatNumber(m.total_tokens)}
             valueLabel='tokens'
-            share={m.share}
             growth={m.growth_pct}
           />
         ))}
@@ -413,7 +400,6 @@ function LLMRankings({ period }) {
             sub={`${v.models_count || 0} ${t('个模型')} · ${v.top_model || ''}`}
             value={formatNumber(v.total_tokens)}
             valueLabel={formatPercent(v.share)}
-            share={v.share}
           />
         ))}
       </SectionCard>
@@ -560,9 +546,6 @@ function UserRankings({ period }) {
     return <Empty description={t('暂无数据')} style={{ padding: 60 }} />;
   }
 
-  const totalRequests = data.summary?.total_requests || 1;
-  const totalQuota = data.summary?.total_quota || 1;
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       {/* Stats row */}
@@ -599,7 +582,6 @@ function UserRankings({ period }) {
             name={u.username}
             value={formatNumber(u.request_count)}
             valueLabel={t('次请求')}
-            share={u.request_count / totalRequests}
           />
         ))}
       </SectionCard>
@@ -617,7 +599,6 @@ function UserRankings({ period }) {
             name={u.username}
             value={formatNumber(u.total_quota)}
             valueLabel={t('额度')}
-            share={u.total_quota / totalQuota}
           />
         ))}
       </SectionCard>
@@ -692,8 +673,6 @@ function ModelRankings() {
   if (models.length === 0) {
     return <Empty description={t('暂无性能数据')} style={{ padding: 60 }} />;
   }
-
-  const maxTps = tpsSorted.length > 0 ? tpsSorted[0].avg_tps : 1;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -787,15 +766,6 @@ function ModelRankings() {
                   >
                     {m.model_name}
                   </Text>
-                </div>
-                <div style={{ width: 80, flexShrink: 0 }}>
-                  <Progress
-                    percent={Math.round((m.avg_tps / maxTps) * 100)}
-                    size='small'
-                    showInfo={false}
-                    stroke='var(--semi-color-primary)'
-                    trailColor='var(--semi-color-fill-1)'
-                  />
                 </div>
                 <Text
                   style={{
