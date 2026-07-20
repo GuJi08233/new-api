@@ -37,6 +37,8 @@ import {
   IconCrown,
   IconHistogram,
 } from '@douyinfe/semi-icons';
+import { VChart } from '@visactor/react-vchart';
+import { initVChartSemiTheme } from '@visactor/vchart-semi-theme';
 import { useTranslation } from 'react-i18next';
 import { API, showError, getLobeHubIcon } from '../../helpers';
 import './rankings.css';
@@ -70,6 +72,103 @@ function formatLatency(ms) {
   if (ms === undefined || ms === null) return '-';
   if (ms < 1000) return `${Math.round(ms)}ms`;
   return `${(ms / 1000).toFixed(2)}s`;
+}
+
+function formatPercentValue(value) {
+  return `${Number(value || 0).toFixed(1)}%`;
+}
+
+function formatTrendTime(ts) {
+  return new Date(ts * 1000).toLocaleTimeString(undefined, {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function fillTrendSeries(points, seriesField, valueField, fillMissing = true) {
+  if (!fillMissing) return points;
+
+  const labels = [];
+  const series = [];
+  const values = new Map();
+
+  points.forEach((point) => {
+    const label = point.Time;
+    const seriesName = point[seriesField];
+    const key = `${label}\u0000${seriesName}`;
+    if (!labels.includes(label)) labels.push(label);
+    if (!series.includes(seriesName)) series.push(seriesName);
+    values.set(key, point[valueField] || 0);
+  });
+
+  return labels.flatMap((label) =>
+    series.map((seriesName) => ({
+      Time: label,
+      [seriesField]: seriesName,
+      [valueField]: values.get(`${label}\u0000${seriesName}`) || 0,
+    })),
+  );
+}
+
+function buildMetricTrendData(models, metric, allowZero = false) {
+  const points = models.slice(0, 6).flatMap((model) =>
+    (model.recent_series || [])
+      .filter((point) => allowZero || point[metric] > 0)
+      .map((point) => ({
+        Time: formatTrendTime(point.ts),
+        Model: model.model_name,
+        Value: point[metric],
+      })),
+  );
+  return fillTrendSeries(points, 'Model', 'Value', false);
+}
+
+function TrendChart({
+  data,
+  yField,
+  seriesField,
+  formatValue = formatNumber,
+  height = 240,
+}) {
+  const spec = useMemo(
+    () => ({
+      type: 'line',
+      data: [{ id: 'rankingsTrendData', values: data }],
+      xField: 'Time',
+      yField,
+      seriesField,
+      legends: {
+        visible: true,
+        orient: 'top',
+        selectMode: 'single',
+      },
+      line: { style: { lineWidth: 2, curveType: 'monotone' } },
+      point: { visible: false },
+      axes: [
+        {
+          orient: 'left',
+          label: { formatMethod: (value) => formatValue(value) },
+        },
+      ],
+      tooltip: {
+        dimension: {
+          content: [
+            {
+              key: (datum) => datum[seriesField],
+              value: (datum) => formatValue(datum[yField]),
+            },
+          ],
+        },
+      },
+    }),
+    [data, formatValue, seriesField, yField],
+  );
+
+  return (
+    <div className='rankings-trend-chart' style={{ height }}>
+      <VChart spec={spec} />
+    </div>
+  );
 }
 
 const MONO_FONT = "'JetBrains Mono', 'SF Mono', 'Fira Code', monospace";
@@ -183,22 +282,10 @@ function SectionCard({ icon, tone, title, subtitle, children, style }) {
 }
 
 // ============================================================================
-// Leaderboard Row — rank · icon · name/sub/share-bar · value · growth
+// Leaderboard Row — rank · icon · name/sub · value · growth
 // ============================================================================
 
-function LeaderboardRow({
-  rank,
-  icon,
-  name,
-  sub,
-  value,
-  valueLabel,
-  growth,
-  share,
-  barGradient,
-}) {
-  const sharePct =
-    share !== undefined && share !== null ? Math.min(share * 100, 100) : null;
+function LeaderboardRow({ rank, icon, name, sub, value, valueLabel, growth }) {
   return (
     <div className='rankings-row'>
       <RankBadge rank={rank} />
@@ -206,17 +293,6 @@ function LeaderboardRow({
       <div className='rankings-row-main'>
         <div className='rankings-row-name'>{name}</div>
         {sub && <div className='rankings-row-sub'>{sub}</div>}
-        {sharePct !== null && (
-          <div className='rankings-share-bar'>
-            <div
-              className='rankings-share-bar-fill'
-              style={{
-                width: `${Math.max(sharePct, 1.5)}%`,
-                background: barGradient || 'var(--semi-color-primary)',
-              }}
-            />
-          </div>
-        )}
       </div>
       <div className='rankings-row-value'>
         <div className='rankings-row-value-num'>{value}</div>
@@ -285,6 +361,34 @@ function LLMRankings({ period }) {
     [data],
   );
 
+  const modelTrendData = useMemo(
+    () =>
+      fillTrendSeries(
+        (data?.models_history?.points || []).map((point) => ({
+          Time: point.label,
+          Model: point.model,
+          Tokens: point.tokens,
+        })),
+        'Model',
+        'Tokens',
+      ),
+    [data],
+  );
+
+  const vendorTrendData = useMemo(
+    () =>
+      fillTrendSeries(
+        (data?.vendor_share_history?.points || []).map((point) => ({
+          Time: point.label,
+          Vendor: point.vendor,
+          Share: point.share * 100,
+        })),
+        'Vendor',
+        'Share',
+      ),
+    [data],
+  );
+
   if (loading) {
     return <ListSkeleton />;
   }
@@ -317,6 +421,41 @@ function LLMRankings({ period }) {
         />
       </div>
 
+      <div className='rankings-grid-2 rankings-fade-in delay-1'>
+        <SectionCard
+          icon={<IconHistogram />}
+          tone='tone-primary'
+          title={t('模型消耗趋势')}
+        >
+          {modelTrendData.length > 0 ? (
+            <TrendChart
+              data={modelTrendData}
+              yField='Tokens'
+              seriesField='Model'
+              formatValue={formatNumber}
+            />
+          ) : (
+            <Empty description={t('暂无数据')} />
+          )}
+        </SectionCard>
+        <SectionCard
+          icon={<IconActivity />}
+          tone='tone-primary'
+          title={t('消耗趋势')}
+        >
+          {vendorTrendData.length > 0 ? (
+            <TrendChart
+              data={vendorTrendData}
+              yField='Share'
+              seriesField='Vendor'
+              formatValue={formatPercentValue}
+            />
+          ) : (
+            <Empty description={t('暂无数据')} />
+          )}
+        </SectionCard>
+      </div>
+
       {/* Model Leaderboard */}
       <div className='rankings-fade-in delay-1'>
         <SectionCard
@@ -335,8 +474,6 @@ function LLMRankings({ period }) {
               value={formatNumber(m.total_tokens)}
               valueLabel='tokens'
               growth={m.growth_pct}
-              share={m.share}
-              barGradient='linear-gradient(90deg, #6366f1, #8b5cf6)'
             />
           ))}
         </SectionCard>
@@ -360,8 +497,6 @@ function LLMRankings({ period }) {
               value={formatNumber(v.total_tokens)}
               valueLabel={formatPercent(v.share)}
               growth={v.growth_pct}
-              share={v.share}
-              barGradient='linear-gradient(90deg, #06b6d4, #3b82f6)'
             />
           ))}
         </SectionCard>
@@ -618,13 +753,18 @@ function ModelRankings() {
     [models],
   );
 
-  const maxTps = useMemo(
-    () => Math.max(...tpsSorted.map((m) => m.avg_tps || 0), 0),
+  const successTrendData = useMemo(
+    () => buildMetricTrendData(successSorted, 'success_rate', true),
+    [successSorted],
+  );
+
+  const tpsTrendData = useMemo(
+    () => buildMetricTrendData(tpsSorted, 'avg_tps'),
     [tpsSorted],
   );
 
-  const maxLatency = useMemo(
-    () => Math.max(...latencySorted.map((m) => m.avg_ttft_ms || 0), 0),
+  const latencyTrendData = useMemo(
+    () => buildMetricTrendData(latencySorted, 'avg_ttft_ms'),
     [latencySorted],
   );
 
@@ -650,6 +790,15 @@ function ModelRankings() {
           title={t('成功率排名')}
           subtitle={t('按请求成功率排序（≥5 次请求）')}
         >
+          {successTrendData.length > 1 && (
+            <TrendChart
+              data={successTrendData}
+              yField='Value'
+              seriesField='Model'
+              formatValue={formatPercentValue}
+              height={190}
+            />
+          )}
           <div className='rankings-scroll'>
             {successSorted.map((m, idx) => (
               <div className='rankings-row' key={m.model_name}>
@@ -660,15 +809,6 @@ function ModelRankings() {
                   </div>
                   <div className='rankings-row-sub'>
                     {m.request_count || 0} {t('次请求')}
-                  </div>
-                  <div className='rankings-perf-bar'>
-                    <div
-                      className='rankings-perf-bar-fill'
-                      style={{
-                        width: `${Math.min(m.success_rate || 0, 100)}%`,
-                        background: successRateColor(m.success_rate),
-                      }}
-                    />
                   </div>
                 </div>
                 <span
@@ -689,6 +829,15 @@ function ModelRankings() {
           title='TPS'
           subtitle={t('按平均输出速度排序 (t/s)')}
         >
+          {tpsTrendData.length > 1 && (
+            <TrendChart
+              data={tpsTrendData}
+              yField='Value'
+              seriesField='Model'
+              formatValue={(value) => `${Number(value || 0).toFixed(1)} t/s`}
+              height={190}
+            />
+          )}
           <div className='rankings-scroll'>
             {tpsSorted.map((m, idx) => (
               <div className='rankings-row' key={m.model_name}>
@@ -696,15 +845,6 @@ function ModelRankings() {
                 <div className='rankings-row-main'>
                   <div className='rankings-row-name' style={{ fontSize: 12 }}>
                     {m.model_name}
-                  </div>
-                  <div className='rankings-perf-bar'>
-                    <div
-                      className='rankings-perf-bar-fill'
-                      style={{
-                        width: `${maxTps > 0 ? (m.avg_tps / maxTps) * 100 : 0}%`,
-                        background: 'linear-gradient(90deg, #6366f1, #8b5cf6)',
-                      }}
-                    />
                   </div>
                 </div>
                 <span className='rankings-perf-value' style={{ width: 64 }}>
@@ -722,6 +862,15 @@ function ModelRankings() {
           title={t('延迟排名')}
           subtitle={t('按首字延迟排序 (越低越好)')}
         >
+          {latencyTrendData.length > 1 && (
+            <TrendChart
+              data={latencyTrendData}
+              yField='Value'
+              seriesField='Model'
+              formatValue={formatLatency}
+              height={190}
+            />
+          )}
           <div className='rankings-scroll'>
             {latencySorted.map((m, idx) => (
               <div className='rankings-row' key={m.model_name}>
@@ -729,15 +878,6 @@ function ModelRankings() {
                 <div className='rankings-row-main'>
                   <div className='rankings-row-name' style={{ fontSize: 12 }}>
                     {m.model_name}
-                  </div>
-                  <div className='rankings-perf-bar'>
-                    <div
-                      className='rankings-perf-bar-fill'
-                      style={{
-                        width: `${maxLatency > 0 ? (m.avg_ttft_ms / maxLatency) * 100 : 0}%`,
-                        background: latencyColor(m.avg_ttft_ms),
-                      }}
-                    />
                   </div>
                 </div>
                 <span
@@ -769,6 +909,10 @@ const PERIODS = [
 const Rankings = () => {
   const { t } = useTranslation();
   const [period, setPeriod] = useState('week');
+
+  useEffect(() => {
+    initVChartSemiTheme({ isWatchingThemeSwitch: true });
+  }, []);
 
   return (
     <div className='rankings-page'>

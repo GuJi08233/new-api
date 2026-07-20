@@ -393,21 +393,6 @@ For commercial licensing, please contact support@quantumnous.com
   text-overflow: ellipsis;
 }
 
-.rankings-share-bar {
-  margin-top: 6px;
-  height: 4px;
-  border-radius: 2px;
-  background: var(--semi-color-fill-1);
-  overflow: hidden;
-  max-width: 220px;
-}
-
-.rankings-share-bar-fill {
-  height: 100%;
-  border-radius: 2px;
-  transition: width 0.4s ease;
-}
-
 .rankings-row-value {
   text-align: right;
   flex-shrink: 0;
@@ -469,21 +454,13 @@ For commercial licensing, please contact support@quantumnous.com
   font-variant-numeric: tabular-nums;
 }
 
-.rankings-perf-bar {
-  margin-top: 5px;
-  height: 4px;
-  border-radius: 2px;
-  background: var(--semi-color-fill-1);
-  overflow: hidden;
-  max-width: 180px;
-}
-
-.rankings-perf-bar-fill {
-  height: 100%;
-  border-radius: 2px;
-}
-
 /* ---------- Misc ---------- */
+
+.rankings-trend-chart {
+  width: 100%;
+  min-width: 0;
+  margin: 4px 0 12px;
+}
 
 .rankings-grid-2 {
   display: grid;
@@ -557,8 +534,7 @@ For commercial licensing, please contact support@quantumnous.com
     min-width: 60px;
   }
 
-  .rankings-share-bar,
-  .rankings-perf-bar {
-    max-width: none;
+  .rankings-trend-chart {
+    margin-bottom: 8px;
   }
 }

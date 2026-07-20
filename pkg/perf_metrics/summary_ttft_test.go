@@ -26,10 +26,9 @@ func setupPerfTestDB(t *testing.T) {
 	})
 }
 
-// TestQuerySummaryAllTtft verifies that the model summary reports average TTFT
-// from persisted rows for streaming traffic, and reports zero (rendered as
-// "unknown" by clients) when a model only served non-streaming requests.
-func TestQuerySummaryAllTtft(t *testing.T) {
+// TestQuerySummaryAllMetrics verifies the summary values and the historical
+// bucket series consumed by performance trend clients.
+func TestQuerySummaryAllMetrics(t *testing.T) {
 	setupPerfTestDB(t)
 
 	bucketTs := time.Now().Unix()
@@ -73,6 +72,11 @@ func TestQuerySummaryAllTtft(t *testing.T) {
 	stream, ok := byName["stream-model"]
 	require.True(t, ok, "streaming model should be present in summary")
 	assert.Equal(t, int64(1500), stream.AvgTtftMs, "avg TTFT should be ttft_sum_ms/ttft_count")
+	require.Len(t, stream.RecentSeries, 1)
+	assert.Equal(t, bucketTs, stream.RecentSeries[0].Ts)
+	assert.Equal(t, int64(1500), stream.RecentSeries[0].AvgTtftMs)
+	assert.InDelta(t, 75, stream.RecentSeries[0].SuccessRate, 0.001)
+	assert.InDelta(t, 100, stream.RecentSeries[0].AvgTps, 0.001)
 
 	nonStream, ok := byName["non-stream-model"]
 	require.True(t, ok, "non-streaming model should be present in summary")

@@ -195,6 +195,7 @@ func QuerySummaryAll(hours int, groups []string) (SummaryAllResult, error) {
 			SuccessRate:        math.Round(successRate*100) / 100,
 			AvgTps:             math.Round(avgTps*100) / 100,
 			RecentSuccessRates: recentSuccessRates(modelBuckets[name], 3),
+			RecentSeries:       recentModelSeries(modelBuckets[name], 12),
 			RequestCount:       total.requestCount,
 		})
 	}
@@ -239,6 +240,15 @@ func mergeModelBucket(modelBuckets map[string]map[int64]counters, modelName stri
 }
 
 func recentSuccessRates(buckets map[int64]counters, limit int) []float64 {
+	series := recentModelSeries(buckets, limit)
+	rates := make([]float64, 0, len(series))
+	for _, point := range series {
+		rates = append(rates, math.Round(point.SuccessRate*100)/100)
+	}
+	return rates
+}
+
+func recentModelSeries(buckets map[int64]counters, limit int) []BucketPoint {
 	if len(buckets) == 0 || limit <= 0 {
 		return nil
 	}
@@ -252,11 +262,12 @@ func recentSuccessRates(buckets map[int64]counters, limit int) []float64 {
 	if len(timestamps) > limit {
 		timestamps = timestamps[len(timestamps)-limit:]
 	}
-	rates := make([]float64, 0, len(timestamps))
+
+	series := make([]BucketPoint, 0, len(timestamps))
 	for _, ts := range timestamps {
-		rates = append(rates, math.Round(successRate(buckets[ts])*100)/100)
+		series = append(series, bucketPoint(ts, buckets[ts]))
 	}
-	return rates
+	return series
 }
 
 func allowedGroupSet(groups []string) map[string]struct{} {
