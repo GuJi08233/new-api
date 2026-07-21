@@ -265,5 +265,9 @@ func normalizeGeminiModelPath(path string) string {
 	if colonIdx == -1 {
 		return path
 	}
-	return path[:idx] + modelsPrefix + "{model}:" + afterModels[colonIdx+1:]
+	action := afterModels[colonIdx+1:]
+	if queryIdx := strings.Index(action, "?"); queryIdx != -1 {
+		action = action[:queryIdx]
+	}
+	return path[:idx] + modelsPrefix + "{model}:" + normalizeGeminiAction(action)
 }
