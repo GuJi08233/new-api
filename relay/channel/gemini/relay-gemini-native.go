@@ -42,7 +42,7 @@ func GeminiTextGenerationHandler(c *gin.Context, info *relaycommon.RelayInfo, re
 	// 计算使用量（优先上游 UsageMetadata，缺失时本地估算并保留 Gemini 计费语义）
 	usage := buildUsageFromGeminiResponse(c, info, &geminiResponse)
 
-	service.IOCopyBytesGracefully(c, resp, responseBody)
+	service.IOCopyRawBytesGracefully(c, resp, responseBody)
 
 	return &usage, nil
 }
@@ -73,7 +73,7 @@ func NativeGeminiEmbeddingHandler(c *gin.Context, resp *http.Response, info *rel
 		}
 	}
 
-	service.IOCopyBytesGracefully(c, resp, responseBody)
+	service.IOCopyRawBytesGracefully(c, resp, responseBody)
 
 	return usage, nil
 }
@@ -81,13 +81,13 @@ func NativeGeminiEmbeddingHandler(c *gin.Context, resp *http.Response, info *rel
 func GeminiTextGenerationStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
 	helper.SetEventStreamHeaders(c)
 
-	return geminiStreamHandler(c, info, resp, func(data string, geminiResponse *dto.GeminiChatResponse) bool {
+	return geminiStreamHandler(c, info, resp, func(data string, geminiResponse *dto.GeminiChatResponse) error {
 		err := helper.StringData(c, data)
 		if err != nil {
 			logger.LogError(c, "failed to write stream data: "+err.Error())
-			return false
+			return err
 		}
 		info.SendResponseCount++
-		return true
+		return nil
 	})
 }

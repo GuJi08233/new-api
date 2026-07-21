@@ -84,7 +84,9 @@ func sendStreamData(c *gin.Context, info *relaycommon.RelayInfo, data string, fo
 				response.Choices[j].Delta.Reasoning = nil
 			}
 			info.ThinkingContentInfo.SendLastThinkingContent = true
-			helper.ObjectData(c, response)
+			if err := helper.ObjectData(c, response); err != nil {
+				return err
+			}
 		}
 
 		// Convert reasoning content to regular content if any
@@ -120,17 +122,14 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	var usage = &dto.Usage{}
 	var lastStreamData string
 	var secondLastStreamData string // 存储倒数第二个stream data，用于音频模型
+	var streamErr *types.NewAPIError
+	writeFailed := false
 
 	// 检查是否为音频模型
 	isAudioModel := strings.Contains(strings.ToLower(model), "audio")
 
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
-		if lastStreamData != "" {
-			if err := HandleStreamFormat(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
-				common.SysLog("error handling stream format: " + err.Error())
-				sr.Error(err)
-			}
-		}
+		dataToSend := lastStreamData
 		if len(data) > 0 {
 			// 对音频模型，保存倒数第二个stream data
 			if isAudioModel && lastStreamData != "" {
@@ -143,7 +142,23 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 				sr.Error(err)
 			}
 		}
+		if dataToSend == "" {
+			return
+		}
+		if err := HandleStreamFormat(c, info, dataToSend, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
+			common.SysLog("error handling stream format: " + err.Error())
+			if helper.IsStreamWriteError(err) {
+				writeFailed = true
+				sr.Stop(err)
+				return
+			}
+			streamErr = types.NewError(err, types.ErrorCodeBadResponse)
+			sr.Stop(streamErr)
+		}
 	})
+	if streamErr != nil {
+		return nil, streamErr
+	}
 
 	// 对音频模型，从倒数第二个stream data中提取usage信息
 	if isAudioModel && secondLastStreamData != "" {
@@ -170,9 +185,15 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 		logger.LogError(c, fmt.Sprintf("error handling last response: %s, lastStreamData: [%s]", err.Error(), lastStreamData))
 	}
 
-	if info.RelayFormat == types.RelayFormatOpenAI {
+	if !writeFailed && info.RelayFormat == types.RelayFormatOpenAI {
 		if shouldSendLastResp {
-			_ = sendStreamData(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent)
+			if err := sendStreamData(c, info, lastStreamData, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
+				if helper.IsStreamWriteError(err) {
+					writeFailed = true
+				} else {
+					return nil, types.NewError(err, types.ErrorCodeBadResponse)
+				}
+			}
 		}
 	}
 
@@ -183,7 +204,9 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 
 	applyUsagePostProcessing(info, usage, common.StringToByteSlice(lastStreamData))
 
-	HandleFinalResponse(c, info, lastStreamData, responseId, createAt, model, systemFingerprint, usage, containStreamUsage)
+	if !writeFailed {
+		HandleFinalResponse(c, info, lastStreamData, responseId, createAt, model, systemFingerprint, usage, containStreamUsage)
+	}
 
 	return usage, nil
 }
@@ -197,6 +220,7 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 		return nil, types.NewOpenAIError(err, types.ErrorCodeReadResponseBodyFailed, http.StatusInternalServerError)
 	}
 	logger.LogDebug(c, "upstream response body: %s", responseBody)
+	responseTransformed := false
 	// Unmarshal to simpleResponse
 	if info.ChannelType == constant.ChannelTypeOpenRouter && info.ChannelOtherSettings.IsOpenRouterEnterprise() {
 		// 尝试解析为 openrouter enterprise
@@ -207,6 +231,10 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 		}
 		if enterpriseResponse.Success {
 			responseBody = enterpriseResponse.Data
+			// The enterprise envelope has been removed, so representation metadata
+			// from the original response (length, digest, etag, etc.) no longer
+			// describes the bytes sent below.
+			responseTransformed = true
 		} else {
 			logger.LogError(c, fmt.Sprintf("openrouter enterprise response success=false, data: %s", enterpriseResponse.Data))
 			return nil, types.NewOpenAIError(fmt.Errorf("openrouter response success=false"), types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
@@ -263,12 +291,14 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 			}
 			bodyMap["usage"] = simpleResponse.Usage
 			responseBody, _ = common.Marshal(bodyMap)
+			responseTransformed = true
 		}
 		if forceFormat {
 			responseBody, err = common.Marshal(simpleResponse)
 			if err != nil {
 				return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
 			}
+			responseTransformed = true
 		} else {
 			break
 		}
@@ -279,6 +309,7 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 			return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
 		}
 		responseBody = claudeRespStr
+		responseTransformed = true
 	case types.RelayFormatGemini:
 		convertResult, err := relayconvert.ConvertResponse(c, info, types.RelayFormatGemini, &simpleResponse)
 		if err != nil {
@@ -289,9 +320,14 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 			return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
 		}
 		responseBody = geminiRespStr
+		responseTransformed = true
 	}
 
-	service.IOCopyBytesGracefully(c, resp, responseBody)
+	if responseTransformed {
+		service.IOCopyBytesGracefully(c, resp, responseBody)
+	} else {
+		service.IOCopyRawBytesGracefully(c, resp, responseBody)
+	}
 
 	return &simpleResponse.Usage, nil
 }

@@ -1,7 +1,7 @@
 package palm
 
 import (
-	"encoding/json"
+	"context"
 	"io"
 	"net/http"
 
@@ -50,55 +50,86 @@ func streamResponsePaLM2OpenAI(palmResponse *PaLMChatResponse) *dto.ChatCompleti
 	return &response
 }
 
-func palmStreamHandler(c *gin.Context, resp *http.Response) (*types.NewAPIError, string) {
+func palmStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*types.NewAPIError, string) {
 	responseText := ""
 	responseId := helper.GetResponseID(c)
 	createdTime := common.GetTimestamp()
-	dataChan := make(chan string)
-	stopChan := make(chan bool)
+	stopStream := helper.StartStreamSession(c, info, resp)
+	type streamResult struct {
+		data         string
+		responseText string
+	}
+	dataChan := make(chan streamResult, 1)
+	requestCtx := context.Background()
+	if c.Request != nil {
+		requestCtx = c.Request.Context()
+	}
+	streamCtx, cancel := context.WithCancel(requestCtx)
+	workerDone := make(chan struct{})
+	var workerErr error
 	go func() {
+		defer close(workerDone)
+		defer close(dataChan)
 		responseBody, err := io.ReadAll(resp.Body)
 		if err != nil {
+			workerErr = err
 			common.SysLog("error reading stream response: " + err.Error())
-			stopChan <- true
 			return
 		}
-		service.CloseResponseBodyGracefully(resp)
 		var palmResponse PaLMChatResponse
-		err = json.Unmarshal(responseBody, &palmResponse)
+		err = common.Unmarshal(responseBody, &palmResponse)
 		if err != nil {
+			workerErr = err
 			common.SysLog("error unmarshalling stream response: " + err.Error())
-			stopChan <- true
 			return
 		}
 		fullTextResponse := streamResponsePaLM2OpenAI(&palmResponse)
 		fullTextResponse.Id = responseId
 		fullTextResponse.Created = createdTime
-		if len(palmResponse.Candidates) > 0 {
-			responseText = palmResponse.Candidates[0].Content
-		}
-		jsonResponse, err := json.Marshal(fullTextResponse)
+		jsonResponse, err := common.Marshal(fullTextResponse)
 		if err != nil {
+			workerErr = err
 			common.SysLog("error marshalling stream response: " + err.Error())
-			stopChan <- true
 			return
 		}
-		dataChan <- string(jsonResponse)
-		stopChan <- true
-	}()
-	helper.SetEventStreamHeaders(c)
-	c.Stream(func(w io.Writer) bool {
-		select {
-		case data := <-dataChan:
-			c.Render(-1, common.CustomEvent{Data: "data: " + data})
-			return true
-		case <-stopChan:
-			c.Render(-1, common.CustomEvent{Data: "data: [DONE]"})
-			return false
+		result := streamResult{data: string(jsonResponse)}
+		if len(palmResponse.Candidates) > 0 {
+			result.responseText = palmResponse.Candidates[0].Content
 		}
-	})
-	service.CloseResponseBodyGracefully(resp)
-	return nil, responseText
+		select {
+		case dataChan <- result:
+		case <-streamCtx.Done():
+		}
+	}()
+	defer func() {
+		cancel()
+		service.CloseResponseBodyGracefully(resp)
+		<-workerDone
+	}()
+	defer stopStream()
+	clientGone := c.Writer.CloseNotify()
+	responseWritten := false
+	for {
+		select {
+		case result, ok := <-dataChan:
+			if !ok {
+				if workerErr == nil && responseWritten {
+					stopStream()
+					helper.Done(c)
+				}
+				return nil, responseText
+			}
+			responseText = result.responseText
+			if err := helper.StringData(c, result.data); err != nil {
+				return nil, responseText
+			}
+			responseWritten = true
+		case <-streamCtx.Done():
+			return nil, responseText
+		case <-clientGone:
+			return nil, responseText
+		}
+	}
 }
 
 func palmHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
@@ -108,7 +139,7 @@ func palmHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respons
 	}
 	service.CloseResponseBodyGracefully(resp)
 	var palmResponse PaLMChatResponse
-	err = json.Unmarshal(responseBody, &palmResponse)
+	err = common.Unmarshal(responseBody, &palmResponse)
 	if err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 	}
@@ -127,8 +158,6 @@ func palmHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respons
 	if err != nil {
 		return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
 	}
-	c.Writer.Header().Set("Content-Type", "application/json")
-	c.Writer.WriteHeader(resp.StatusCode)
 	service.IOCopyBytesGracefully(c, resp, jsonResponse)
 	return usage, nil
 }

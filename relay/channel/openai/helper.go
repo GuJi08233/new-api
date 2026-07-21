@@ -52,7 +52,9 @@ func handleClaudeFormat(c *gin.Context, data string, info *relaycommon.RelayInfo
 		return fmt.Errorf("expected Claude stream responses, got %T", result.Value)
 	}
 	for _, resp := range claudeResponses {
-		helper.ClaudeData(c, *resp)
+		if err := helper.ClaudeData(c, *resp); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -85,9 +87,7 @@ func handleGeminiFormat(c *gin.Context, data string, info *relaycommon.RelayInfo
 	}
 
 	// send gemini format response
-	c.Render(-1, common.CustomEvent{Data: "data: " + string(geminiResponseStr)})
-	_ = helper.FlushWriter(c)
-	return nil
+	return helper.StringData(c, string(geminiResponseStr))
 }
 
 func ProcessStreamResponse(streamResponse dto.ChatCompletionsStreamResponse, responseTextBuilder *strings.Builder, toolCount *int) error {
@@ -168,7 +168,10 @@ func HandleFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, lastStream
 		if info.ShouldIncludeUsage && !containStreamUsage {
 			response := helper.GenerateFinalUsageResponse(responseId, createAt, model, *usage)
 			response.SetSystemFingerprint(systemFingerprint)
-			helper.ObjectData(c, response)
+			if err := helper.ObjectData(c, response); err != nil {
+				common.SysLog("send final usage response failed: " + err.Error())
+				return
+			}
 		}
 		helper.Done(c)
 
@@ -192,7 +195,10 @@ func HandleFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, lastStream
 			return
 		}
 		for _, resp := range claudeResponses {
-			_ = helper.ClaudeData(c, *resp)
+			if err := helper.ClaudeData(c, *resp); err != nil {
+				common.SysLog("send final Claude response failed: " + err.Error())
+				return
+			}
 		}
 		info.ClaudeConvertInfo.Done = true
 
@@ -231,14 +237,8 @@ func HandleFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, lastStream
 		}
 
 		// 发送最终的 Gemini 响应
-		c.Render(-1, common.CustomEvent{Data: "data: " + string(geminiResponseStr)})
-		_ = helper.FlushWriter(c)
+		if err := helper.StringData(c, string(geminiResponseStr)); err != nil {
+			common.SysLog("send final response failed: " + err.Error())
+		}
 	}
-}
-
-func sendResponsesStreamData(c *gin.Context, streamResponse dto.ResponsesStreamResponse, data string) {
-	if data == "" {
-		return
-	}
-	_ = helper.ResponseChunkData(c, streamResponse, data)
 }

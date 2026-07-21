@@ -1,17 +1,80 @@
 package claude
 
 import (
+	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/QuantumNous/new-api/dto"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/service/relayconvert"
+	"github.com/QuantumNous/new-api/types"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func commonPointer[T any](value T) *T {
 	return &value
+}
+
+type failingClaudeStreamWriter struct {
+	header http.Header
+	err    error
+}
+
+func (w *failingClaudeStreamWriter) Header() http.Header {
+	return w.header
+}
+
+func (w *failingClaudeStreamWriter) Write([]byte) (int, error) {
+	return 0, w.err
+}
+
+func (w *failingClaudeStreamWriter) WriteHeader(int) {}
+
+func (w *failingClaudeStreamWriter) FlushError() error {
+	return w.err
+}
+
+type closeTrackingClaudeBody struct {
+	io.Reader
+	closed bool
+}
+
+func (b *closeTrackingClaudeBody) Close() error {
+	b.closed = true
+	return nil
+}
+
+func TestClaudeStreamHandlerSettlesUsageAfterDownstreamWriteFailure(t *testing.T) {
+	writeErr := errors.New("downstream write failed")
+	writer := &failingClaudeStreamWriter{header: make(http.Header), err: writeErr}
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(writer)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	info := &relaycommon.RelayInfo{
+		IsStream:    true,
+		DisablePing: true,
+		RelayFormat: types.RelayFormatOpenAI,
+		ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: "claude-test"},
+	}
+	info.SetEstimatePromptTokens(7)
+	body := &closeTrackingClaudeBody{Reader: strings.NewReader("data: {\"type\":\"content_block_delta\",\"delta\":{\"text\":\"hello\"}}\n\n")}
+	resp := &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: body}
+
+	usage, relayErr := ClaudeStreamHandler(c, resp, info)
+
+	require.Nil(t, relayErr)
+	require.NotNil(t, usage)
+	assert.Equal(t, 7, usage.PromptTokens)
+	assert.Positive(t, usage.CompletionTokens)
+	assert.Equal(t, "anthropic", usage.UsageSemantic)
+	assert.NotNil(t, usage.BillingUsage)
+	assert.True(t, body.closed)
 }
 
 func TestResponseOpenAI2ClaudeToolUseInputIsObject(t *testing.T) {

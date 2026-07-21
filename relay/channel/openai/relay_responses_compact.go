@@ -28,7 +28,7 @@ func OaiResponsesCompactionHandler(c *gin.Context, resp *http.Response) (*dto.Us
 		return nil, types.WithOpenAIError(*oaiError, resp.StatusCode)
 	}
 
-	service.IOCopyBytesGracefully(c, resp, responseBody)
+	service.IOCopyRawBytesGracefully(c, resp, responseBody)
 
 	usage := dto.Usage{}
 	if compactResp.Usage != nil {

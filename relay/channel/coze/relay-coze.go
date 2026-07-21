@@ -11,6 +11,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/relay/channel"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
@@ -98,15 +99,18 @@ func cozeChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Res
 }
 
 func cozeChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
+	defer service.CloseResponseBodyGracefully(resp)
 	scanner := helper.NewStreamScanner(resp.Body)
 	scanner.Split(bufio.ScanLines)
-	helper.SetEventStreamHeaders(c)
+	stopStream := helper.StartStreamSession(c, info, resp)
+	defer stopStream()
 	id := helper.GetResponseID(c)
 	var responseText string
 
 	var currentEvent string
 	var currentData string
 	var usage = &dto.Usage{}
+	writeFailed := false
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -114,7 +118,10 @@ func cozeChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *ht
 		if line == "" {
 			if currentEvent != "" && currentData != "" {
 				// handle last event
-				handleCozeEvent(c, currentEvent, currentData, &responseText, usage, id, info)
+				if err := handleCozeEvent(c, currentEvent, currentData, &responseText, usage, id, info); err != nil {
+					writeFailed = true
+					break
+				}
 				currentEvent = ""
 				currentData = ""
 			}
@@ -133,14 +140,19 @@ func cozeChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *ht
 	}
 
 	// Last event
-	if currentEvent != "" && currentData != "" {
-		handleCozeEvent(c, currentEvent, currentData, &responseText, usage, id, info)
+	if !writeFailed && currentEvent != "" && currentData != "" {
+		if err := handleCozeEvent(c, currentEvent, currentData, &responseText, usage, id, info); err != nil {
+			writeFailed = true
+		}
 	}
 
 	if err := scanner.Err(); err != nil {
 		return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
 	}
-	helper.Done(c)
+	if !writeFailed {
+		stopStream()
+		helper.Done(c)
+	}
 
 	if usage.TotalTokens == 0 {
 		usage = service.ResponseText2Usage(c, responseText, info.UpstreamModelName, c.GetInt("coze_input_count"))
@@ -149,7 +161,7 @@ func cozeChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *ht
 	return usage, nil
 }
 
-func handleCozeEvent(c *gin.Context, event string, data string, responseText *string, usage *dto.Usage, id string, info *relaycommon.RelayInfo) {
+func handleCozeEvent(c *gin.Context, event string, data string, responseText *string, usage *dto.Usage, id string, info *relaycommon.RelayInfo) error {
 	switch event {
 	case "conversation.chat.completed":
 		// 将 data 解析为 CozeChatResponseData
@@ -157,7 +169,7 @@ func handleCozeEvent(c *gin.Context, event string, data string, responseText *st
 		err := json.Unmarshal([]byte(data), &chatData)
 		if err != nil {
 			common.SysLog("error_unmarshalling_stream_response: " + err.Error())
-			return
+			return nil
 		}
 
 		usage.PromptTokens = chatData.Usage.InputCount
@@ -166,7 +178,7 @@ func handleCozeEvent(c *gin.Context, event string, data string, responseText *st
 
 		finishReason := "stop"
 		stopResponse := helper.GenerateStopResponse(id, common.GetTimestamp(), info.UpstreamModelName, finishReason)
-		helper.ObjectData(c, stopResponse)
+		return helper.ObjectData(c, stopResponse)
 
 	case "conversation.message.delta":
 		// 将 data 解析为 CozeChatV3MessageDetail
@@ -174,14 +186,14 @@ func handleCozeEvent(c *gin.Context, event string, data string, responseText *st
 		err := json.Unmarshal([]byte(data), &messageData)
 		if err != nil {
 			common.SysLog("error_unmarshalling_stream_response: " + err.Error())
-			return
+			return nil
 		}
 
 		var content string
 		err = json.Unmarshal(messageData.Content, &content)
 		if err != nil {
 			common.SysLog("error_unmarshalling_stream_response: " + err.Error())
-			return
+			return nil
 		}
 
 		*responseText += content
@@ -199,18 +211,19 @@ func handleCozeEvent(c *gin.Context, event string, data string, responseText *st
 		choice.Delta.SetContentString(content)
 		openaiResponse.Choices = append(openaiResponse.Choices, choice)
 
-		helper.ObjectData(c, openaiResponse)
+		return helper.ObjectData(c, openaiResponse)
 
 	case "error":
 		var errorData CozeError
 		err := json.Unmarshal([]byte(data), &errorData)
 		if err != nil {
 			common.SysLog("error_unmarshalling_stream_response: " + err.Error())
-			return
+			return nil
 		}
 
 		common.SysLog(fmt.Sprintf("stream event error: %v %v", errorData.Code, errorData.Message))
 	}
+	return nil
 }
 
 func checkIfChatComplete(a *Adaptor, c *gin.Context, info *relaycommon.RelayInfo) (error, bool) {
@@ -218,12 +231,15 @@ func checkIfChatComplete(a *Adaptor, c *gin.Context, info *relaycommon.RelayInfo
 
 	requestURL = requestURL + "?conversation_id=" + c.GetString("coze_conversation_id") + "&chat_id=" + c.GetString("coze_chat_id")
 	// 将 conversationId和chatId作为参数发送get请求
-	req, err := http.NewRequest("GET", requestURL, nil)
+	req, err := http.NewRequestWithContext(c.Request.Context(), "GET", requestURL, nil)
 	if err != nil {
 		return err, false
 	}
 	err = a.SetupRequestHeader(c, &req.Header, info)
 	if err != nil {
+		return err, false
+	}
+	if err = channel.ApplyHeaderOverrideToRequest(info, c, req); err != nil {
 		return err, false
 	}
 
@@ -263,13 +279,16 @@ func getChatDetail(a *Adaptor, c *gin.Context, info *relaycommon.RelayInfo) (*ht
 	requestURL := fmt.Sprintf("%s/v3/chat/message/list", info.ChannelBaseUrl)
 
 	requestURL = requestURL + "?conversation_id=" + c.GetString("coze_conversation_id") + "&chat_id=" + c.GetString("coze_chat_id")
-	req, err := http.NewRequest("GET", requestURL, nil)
+	req, err := http.NewRequestWithContext(c.Request.Context(), "GET", requestURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("new request failed: %w", err)
 	}
 	err = a.SetupRequestHeader(c, &req.Header, info)
 	if err != nil {
 		return nil, fmt.Errorf("setup request header failed: %w", err)
+	}
+	if err = channel.ApplyHeaderOverrideToRequest(info, c, req); err != nil {
+		return nil, fmt.Errorf("apply header override failed: %w", err)
 	}
 	resp, err := doRequest(req, info)
 	if err != nil {

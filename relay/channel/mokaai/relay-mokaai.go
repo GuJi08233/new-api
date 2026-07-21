@@ -77,8 +77,6 @@ func mokaEmbeddingHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *htt
 	if err != nil {
 		return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
 	}
-	c.Writer.Header().Set("Content-Type", "application/json")
-	c.Writer.WriteHeader(resp.StatusCode)
 	service.IOCopyBytesGracefully(c, resp, jsonResponse)
 	return &fullTextResponse.Usage, nil
 }

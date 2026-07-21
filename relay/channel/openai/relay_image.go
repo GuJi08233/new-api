@@ -52,7 +52,7 @@ func OpenaiImageHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.
 	updateOpenAIImageCount(info, gjson.GetBytes(responseBody, "data.#").Int())
 
 	// 写入新的 response body
-	service.IOCopyBytesGracefully(c, resp, responseBody)
+	service.IOCopyRawBytesGracefully(c, resp, responseBody)
 
 	normalizeOpenAIUsage(&usageResp.Usage)
 	applyUsagePostProcessing(info, &usageResp.Usage, responseBody)
@@ -231,11 +231,27 @@ func extractOpenAIImageStreamErrorMessage(data []byte) string {
 	return "upstream image stream returned error event"
 }
 
-func openaiImageJSONAsStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
+func openaiImageJSONAsStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (usage *dto.Usage, apiErr *types.NewAPIError) {
 	defer service.CloseResponseBodyGracefully(resp)
+	defer func() {
+		if apiErr != nil {
+			helper.ResetEventStreamHeaders(c)
+		}
+	}()
+	if info != nil {
+		info.StreamStatus = relaycommon.NewStreamStatus()
+	}
+	stopStream := helper.StartStreamSession(c, info, resp)
+	defer stopStream()
 
 	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
+		if writeErr := helper.StreamSessionWriteError(c); writeErr != nil {
+			if info != nil {
+				info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonClientGone, writeErr)
+			}
+			return &dto.Usage{}, nil
+		}
 		return nil, types.NewOpenAIError(err, types.ErrorCodeReadResponseBodyFailed, http.StatusInternalServerError)
 	}
 
@@ -255,7 +271,6 @@ func openaiImageJSONAsStreamHandler(c *gin.Context, info *relaycommon.RelayInfo,
 	imageCount := gjson.GetBytes(responseBody, "data.#").Int()
 	updateOpenAIImageCount(info, imageCount)
 
-	helper.SetEventStreamHeaders(c)
 	c.Status(http.StatusOK)
 
 	created := gjson.GetBytes(responseBody, "created").Int()
@@ -312,6 +327,7 @@ func openaiImageJSONAsStreamHandler(c *gin.Context, info *relaycommon.RelayInfo,
 			return &usageResp.Usage, nil
 		}
 	}
+	stopStream()
 	if err := writeOpenaiImageStreamDone(c); err != nil {
 		if info != nil && info.StreamStatus != nil {
 			info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonClientGone, err)
@@ -320,9 +336,6 @@ func openaiImageJSONAsStreamHandler(c *gin.Context, info *relaycommon.RelayInfo,
 	}
 	if info != nil {
 		info.ReceivedResponseCount += int(imageCount)
-		if info.StreamStatus == nil {
-			info.StreamStatus = relaycommon.NewStreamStatus()
-		}
 		info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonDone, nil)
 	}
 	return &usageResp.Usage, nil

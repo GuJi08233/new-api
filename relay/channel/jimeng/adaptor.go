@@ -108,15 +108,21 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 	if err != nil {
 		return nil, fmt.Errorf("get request url failed: %w", err)
 	}
-	req, err := http.NewRequest(c.Request.Method, fullRequestURL, requestBody)
+	req, err := http.NewRequestWithContext(c.Request.Context(), c.Request.Method, fullRequestURL, requestBody)
 	if err != nil {
 		return nil, fmt.Errorf("new request failed: %w", err)
+	}
+	// Signed requests must include configured/client passthrough headers in the
+	// canonical request. The prepared transport path then preserves the exact
+	// signed headers without applying the overrides a second time.
+	if err := channel.ApplyHeaderOverrideToRequest(info, c, req); err != nil {
+		return nil, err
 	}
 	err = Sign(c, req, info.ApiKey)
 	if err != nil {
 		return nil, fmt.Errorf("setup request header failed: %w", err)
 	}
-	resp, err := channel.DoRequest(c, req, info)
+	resp, err := channel.DoPreparedRequest(c, req, info)
 	if err != nil {
 		return nil, fmt.Errorf("do request failed: %w", err)
 	}

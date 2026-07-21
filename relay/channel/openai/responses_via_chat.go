@@ -77,6 +77,8 @@ func OaiChatToResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
 	}
 	streamErr := (*types.NewAPIError)(nil)
+	var streamWriteErr error
+	writeFailed := false
 
 	sendEvent := func(event relayconvert.ChatToResponsesStreamEvent) bool {
 		data, err := common.Marshal(event.Payload)
@@ -84,7 +86,11 @@ func OaiChatToResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 			streamErr = types.NewOpenAIError(err, types.ErrorCodeJsonMarshalFailed, http.StatusInternalServerError)
 			return false
 		}
-		helper.ResponseChunkData(c, dto.ResponsesStreamResponse{Type: event.Type}, string(data))
+		if err := helper.ResponseChunkData(c, dto.ResponsesStreamResponse{Type: event.Type}, string(data)); err != nil {
+			streamWriteErr = err
+			writeFailed = true
+			return false
+		}
 		return true
 	}
 
@@ -124,7 +130,11 @@ func OaiChatToResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 				return
 			}
 			if !sendEvent(event) {
-				sr.Stop(streamErr)
+				if streamErr != nil {
+					sr.Stop(streamErr)
+				} else {
+					sr.Stop(streamWriteErr)
+				}
 				return
 			}
 		}
@@ -139,6 +149,9 @@ func OaiChatToResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 		usage = service.ResponseText2Usage(c, state.UsageText(), info.UpstreamModelName, info.GetEstimatePromptTokens())
 		state.SetUsage(usage)
 	}
+	if writeFailed {
+		return usage, nil
+	}
 
 	finalResults, err := relayconvert.FinalizeStreamResponse(c, info, state)
 	if err != nil {
@@ -150,7 +163,10 @@ func OaiChatToResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 			return nil, types.NewOpenAIError(fmt.Errorf("expected OAI responses stream event, got %T", result.Value), types.ErrorCodeBadResponse, http.StatusInternalServerError)
 		}
 		if !sendEvent(event) {
-			return nil, streamErr
+			if streamErr != nil {
+				return nil, streamErr
+			}
+			return usage, nil
 		}
 	}
 

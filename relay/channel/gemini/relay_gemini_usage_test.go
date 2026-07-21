@@ -113,8 +113,8 @@ func TestGeminiStreamHandlerCompletionTokensExcludeToolUsePromptTokens(t *testin
 		Body: io.NopCloser(bytes.NewReader(streamBody)),
 	}
 
-	usage, newAPIError := geminiStreamHandler(c, info, resp, func(_ string, _ *dto.GeminiChatResponse) bool {
-		return true
+	usage, newAPIError := geminiStreamHandler(c, info, resp, func(_ string, _ *dto.GeminiChatResponse) error {
+		return nil
 	})
 	require.Nil(t, newAPIError)
 	require.NotNil(t, usage)
@@ -272,8 +272,8 @@ func TestGeminiStreamHandlerUsesEstimatedPromptTokensWhenUsagePromptMissing(t *t
 		Body: io.NopCloser(bytes.NewReader(streamBody)),
 	}
 
-	usage, newAPIError := geminiStreamHandler(c, info, resp, func(_ string, _ *dto.GeminiChatResponse) bool {
-		return true
+	usage, newAPIError := geminiStreamHandler(c, info, resp, func(_ string, _ *dto.GeminiChatResponse) error {
+		return nil
 	})
 	require.Nil(t, newAPIError)
 	require.NotNil(t, usage)
@@ -413,8 +413,8 @@ func TestGeminiStreamHandlerPromptOnlyUsageMetadataEstimatesCompletionTokens(t *
 		Body: io.NopCloser(bytes.NewReader(streamBody)),
 	}
 
-	usage, newAPIError := geminiStreamHandler(c, info, resp, func(_ string, _ *dto.GeminiChatResponse) bool {
-		return true
+	usage, newAPIError := geminiStreamHandler(c, info, resp, func(_ string, _ *dto.GeminiChatResponse) error {
+		return nil
 	})
 	require.Nil(t, newAPIError)
 	require.NotNil(t, usage)
@@ -500,8 +500,8 @@ func TestGeminiStreamHandlerEmptyUsageMetadataBuildsEstimatedBillingUsage(t *tes
 		Body: io.NopCloser(bytes.NewReader(streamBody)),
 	}
 
-	usage, newAPIError := geminiStreamHandler(c, info, resp, func(_ string, _ *dto.GeminiChatResponse) bool {
-		return true
+	usage, newAPIError := geminiStreamHandler(c, info, resp, func(_ string, _ *dto.GeminiChatResponse) error {
+		return nil
 	})
 	require.Nil(t, newAPIError)
 	require.NotNil(t, usage)

@@ -40,6 +40,7 @@ func xAIStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	var responseTextBuilder strings.Builder
 	var toolCount int
 	var containStreamUsage bool
+	streamFailed := false
 
 	helper.SetEventStreamHeaders(c)
 
@@ -63,7 +64,9 @@ func xAIStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 		_ = openai.ProcessStreamResponse(*openaiResponse, &responseTextBuilder, &toolCount)
 		if err := helper.ObjectData(c, openaiResponse); err != nil {
 			common.SysLog(err.Error())
-			sr.Error(err)
+			streamFailed = true
+			sr.Stop(err)
+			return
 		}
 	})
 
@@ -72,7 +75,10 @@ func xAIStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 		usage.CompletionTokens += toolCount * 7
 	}
 
-	helper.Done(c)
+	if !streamFailed && info.StreamStatus != nil &&
+		(info.StreamStatus.EndReason == relaycommon.StreamEndReasonDone || info.StreamStatus.EndReason == relaycommon.StreamEndReasonEOF) {
+		helper.Done(c)
+	}
 	service.CloseResponseBodyGracefully(resp)
 	return usage, nil
 }

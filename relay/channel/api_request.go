@@ -69,6 +69,7 @@ var passthroughSkipHeaderNamesLower = map[string]struct{}{
 	// RFC 7230 hop-by-hop headers.
 	"connection":          {},
 	"keep-alive":          {},
+	"proxy-connection":    {},
 	"proxy-authenticate":  {},
 	"proxy-authorization": {},
 	"te":                  {},
@@ -76,15 +77,22 @@ var passthroughSkipHeaderNamesLower = map[string]struct{}{
 	"transfer-encoding":   {},
 	"upgrade":             {},
 
-	"cookie": {},
+	"cookie":  {},
+	"cookie2": {},
 
 	// Additional headers that should not be forwarded by name-matching passthrough rules.
-	"host":            {},
-	"content-length":  {},
-	"accept-encoding": {},
+	"host":             {},
+	"content-length":   {},
+	"content-type":     {},
+	"content-encoding": {},
+	"accept":           {},
+	"accept-encoding":  {},
+	"expect":           {},
 
 	// Do not passthrough credentials by wildcard/regex.
 	"authorization":  {},
+	"mj-api-secret":  {},
+	"new-api-user":   {},
 	"x-api-key":      {},
 	"x-goog-api-key": {},
 
@@ -102,17 +110,21 @@ func getHeaderPassthroughRegex(pattern string) (*regexp.Regexp, error) {
 	if pattern == "" {
 		return nil, errors.New("empty regex pattern")
 	}
-	if v, ok := headerPassthroughRegexCache.Load(pattern); ok {
+	// HTTP field names are case-insensitive. Preserve the configured pattern
+	// verbatim (notably escapes such as \Q...\E) and apply case-insensitive
+	// matching at compile time instead of lowercasing the regex source.
+	cacheKey := "(?i)" + pattern
+	if v, ok := headerPassthroughRegexCache.Load(cacheKey); ok {
 		if re, ok := v.(*regexp.Regexp); ok {
 			return re, nil
 		}
-		headerPassthroughRegexCache.Delete(pattern)
+		headerPassthroughRegexCache.Delete(cacheKey)
 	}
-	compiled, err := regexp.Compile(pattern)
+	compiled, err := regexp.Compile(cacheKey)
 	if err != nil {
 		return nil, err
 	}
-	actual, _ := headerPassthroughRegexCache.LoadOrStore(pattern, compiled)
+	actual, _ := headerPassthroughRegexCache.LoadOrStore(cacheKey, compiled)
 	if re, ok := actual.(*regexp.Regexp); ok {
 		return re, nil
 	}
@@ -141,6 +153,11 @@ func shouldSkipPassthroughHeader(name string) bool {
 	}
 	lower := strings.ToLower(name)
 	if _, ok := passthroughSkipHeaderNamesLower[lower]; ok {
+		return true
+	}
+	// All Sec-WebSocket-* fields are owned by the WebSocket client/server
+	// handshake. Forwarding an unfamiliar field can still alter that handshake.
+	if strings.HasPrefix(lower, "sec-websocket-") {
 		return true
 	}
 	return false
@@ -206,7 +223,8 @@ func processHeaderOverride(info *common.RelayInfo, c *gin.Context) (map[string]s
 			passAll = true
 		}
 		for k := range headerOverrideSource {
-			key := strings.TrimSpace(strings.ToLower(k))
+			rawKey := strings.TrimSpace(k)
+			key := strings.ToLower(rawKey)
 			if key == "" {
 				continue
 			}
@@ -218,9 +236,9 @@ func processHeaderOverride(info *common.RelayInfo, c *gin.Context) (map[string]s
 			var pattern string
 			switch {
 			case strings.HasPrefix(key, headerPassthroughRegexPrefix):
-				pattern = strings.TrimSpace(key[len(headerPassthroughRegexPrefix):])
+				pattern = strings.TrimSpace(rawKey[len(headerPassthroughRegexPrefix):])
 			case strings.HasPrefix(key, headerPassthroughRegexPrefixV2):
-				pattern = strings.TrimSpace(key[len(headerPassthroughRegexPrefixV2):])
+				pattern = strings.TrimSpace(rawKey[len(headerPassthroughRegexPrefixV2):])
 			default:
 				continue
 			}
@@ -240,8 +258,20 @@ func processHeaderOverride(info *common.RelayInfo, c *gin.Context) (map[string]s
 		if c == nil || c.Request == nil {
 			return nil, types.NewError(fmt.Errorf("missing request context for header passthrough"), types.ErrorCodeChannelHeaderOverrideInvalid)
 		}
+		connectionHeaderNames := make(map[string]struct{})
+		for _, value := range c.Request.Header.Values("Connection") {
+			for _, name := range strings.Split(value, ",") {
+				name = strings.ToLower(strings.TrimSpace(name))
+				if name != "" {
+					connectionHeaderNames[name] = struct{}{}
+				}
+			}
+		}
 		for name := range c.Request.Header {
 			if shouldSkipPassthroughHeader(name) {
+				continue
+			}
+			if _, declaredHopByHop := connectionHeaderNames[strings.ToLower(strings.TrimSpace(name))]; declaredHopByHop {
 				continue
 			}
 			if !passAll {
@@ -311,13 +341,22 @@ func applyHeaderOverrideToRequest(req *http.Request, headerOverride map[string]s
 	}
 }
 
+func ApplyHeaderOverrideToRequest(info *common.RelayInfo, c *gin.Context, req *http.Request) error {
+	headerOverride, err := processHeaderOverride(info, c)
+	if err != nil {
+		return err
+	}
+	applyHeaderOverrideToRequest(req, headerOverride)
+	return nil
+}
+
 func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody io.Reader) (*http.Response, error) {
 	fullRequestURL, err := a.GetRequestURL(info)
 	if err != nil {
 		return nil, fmt.Errorf("get request url failed: %w", err)
 	}
 	logger.LogDebug(c, "fullRequestURL: %s", common.SanitizeURLForLog(fullRequestURL))
-	req, err := http.NewRequest(c.Request.Method, fullRequestURL, requestBody)
+	req, err := http.NewRequestWithContext(c.Request.Context(), c.Request.Method, fullRequestURL, requestBody)
 	if err != nil {
 		return nil, fmt.Errorf("new request failed: %w", err)
 	}
@@ -327,13 +366,6 @@ func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 	if err != nil {
 		return nil, fmt.Errorf("setup request header failed: %w", err)
 	}
-	// 在 SetupRequestHeader 之后应用 Header Override，确保用户设置优先级最高
-	// 这样可以覆盖默认的 Authorization header 设置
-	headerOverride, err := processHeaderOverride(info, c)
-	if err != nil {
-		return nil, err
-	}
-	applyHeaderOverrideToRequest(req, headerOverride)
 	resp, err := doRequest(c, req, info)
 	if err != nil {
 		return nil, fmt.Errorf("do request failed: %w", err)
@@ -347,7 +379,7 @@ func DoFormRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBod
 		return nil, fmt.Errorf("get request url failed: %w", err)
 	}
 	logger.LogDebug(c, "fullRequestURL: %s", common.SanitizeURLForLog(fullRequestURL))
-	req, err := http.NewRequest(c.Request.Method, fullRequestURL, requestBody)
+	req, err := http.NewRequestWithContext(c.Request.Context(), c.Request.Method, fullRequestURL, requestBody)
 	if err != nil {
 		return nil, fmt.Errorf("new request failed: %w", err)
 	}
@@ -359,13 +391,6 @@ func DoFormRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBod
 	if err != nil {
 		return nil, fmt.Errorf("setup request header failed: %w", err)
 	}
-	// 在 SetupRequestHeader 之后应用 Header Override，确保用户设置优先级最高
-	// 这样可以覆盖默认的 Authorization header 设置
-	headerOverride, err := processHeaderOverride(info, c)
-	if err != nil {
-		return nil, err
-	}
-	applyHeaderOverrideToRequest(req, headerOverride)
 	resp, err := doRequest(c, req, info)
 	if err != nil {
 		return nil, fmt.Errorf("do request failed: %w", err)
@@ -374,6 +399,7 @@ func DoFormRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBod
 }
 
 func DoWssRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody io.Reader) (*websocket.Conn, error) {
+	helper.ResetUpstreamResponseHeaders(c)
 	fullRequestURL, err := a.GetRequestURL(info)
 	if err != nil {
 		return nil, fmt.Errorf("get request url failed: %w", err)
@@ -392,8 +418,17 @@ func DoWssRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 	for key, value := range headerOverride {
 		targetHeader.Set(key, value)
 	}
-	targetHeader.Set("Content-Type", c.Request.Header.Get("Content-Type"))
-	targetConn, _, err := websocket.DefaultDialer.Dial(fullRequestURL, targetHeader)
+	requestCtx := context.Background()
+	if c != nil && c.Request != nil {
+		requestCtx = c.Request.Context()
+	}
+	targetConn, handshakeResp, err := websocket.DefaultDialer.DialContext(requestCtx, fullRequestURL, targetHeader)
+	if handshakeResp != nil && info != nil && info.ChannelMeta != nil && info.ChannelSetting.PassThroughHeadersEnabled {
+		helper.CopyUpstreamResponseHeaders(c, handshakeResp)
+	}
+	if handshakeResp != nil && handshakeResp.Body != nil {
+		_ = handshakeResp.Body.Close()
+	}
 	if err != nil {
 		return nil, fmt.Errorf("dial failed to %s: %w", common.SanitizeURLForLog(fullRequestURL), err)
 	}
@@ -403,7 +438,7 @@ func DoWssRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 	return targetConn, nil
 }
 
-func startPingKeepAlive(c *gin.Context, pingInterval time.Duration) (context.CancelFunc, <-chan struct{}) {
+func startPingKeepAlive(c *gin.Context, pingInterval time.Duration, abort func()) (context.CancelFunc, <-chan struct{}) {
 	pingerCtx, stopPinger := context.WithCancel(context.Background())
 	done := make(chan struct{})
 
@@ -442,6 +477,9 @@ func startPingKeepAlive(c *gin.Context, pingInterval time.Duration) (context.Can
 			case <-ticker.C:
 				if err := sendPingData(c, &pingMutex); err != nil {
 					logger.LogDebug(c, "SSE ping error, stopping goroutine: %s", err.Error())
+					if abort != nil {
+						abort()
+					}
 					return
 				}
 			// 收到退出信号
@@ -481,10 +519,34 @@ func sendPingData(c *gin.Context, mutex *sync.Mutex) error {
 func DoRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http.Response, error) {
 	return doRequest(c, req, info)
 }
+
+// DoPreparedRequest sends a request whose final headers (and any signature)
+// have already been prepared. It intentionally does not resolve or reapply
+// channel header overrides at the transport boundary.
+func DoPreparedRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http.Response, error) {
+	return doPreparedRequest(c, req, info)
+}
+
 func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http.Response, error) {
+	return doRequestWithPreparedHeaders(c, req, info, false)
+}
+
+func doPreparedRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http.Response, error) {
+	return doRequestWithPreparedHeaders(c, req, info, true)
+}
+
+func doRequestWithPreparedHeaders(c *gin.Context, req *http.Request, info *common.RelayInfo, headersPrepared bool) (*http.Response, error) {
 	// A retry reuses the Gin context; remove metadata from the previous
 	// upstream attempt before preparing the next response.
 	helper.ResetUpstreamResponseHeaders(c)
+
+	if !headersPrepared {
+		// Apply overrides at the shared HTTP boundary so custom adaptors and task
+		// adaptors receive the same passthrough behavior as DoApiRequest/DoFormRequest.
+		if err := ApplyHeaderOverrideToRequest(info, c, req); err != nil {
+			return nil, err
+		}
+	}
 
 	var client *http.Client
 	var err error
@@ -510,9 +572,12 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		channelResponsePassthrough := info.ChannelMeta != nil && info.ChannelSetting.PassThroughHeadersEnabled
 		if generalSettings.PingIntervalEnabled && !info.DisablePing && !channelResponsePassthrough {
 			pingInterval := time.Duration(generalSettings.PingIntervalSeconds) * time.Second
-			stopPinger, pingerDone = startPingKeepAlive(c, pingInterval)
+			upstreamCtx, cancelUpstream := context.WithCancel(req.Context())
+			req = req.WithContext(upstreamCtx)
+			stopPinger, pingerDone = startPingKeepAlive(c, pingInterval, cancelUpstream)
 			// 使用defer确保在任何情况下都能停止ping goroutine
 			defer func() {
+				cancelUpstream()
 				if stopPinger != nil {
 					stopPinger()
 					<-pingerDone
@@ -534,25 +599,38 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 	if upID := resp.Header.Get(common2.RequestIdKey); upID != "" {
 		c.Set(common2.UpstreamRequestIdKey, upID)
 	}
-	// Register/copy response metadata before any stream adaptor can write or
-	// flush. This shared entry point also covers provider-specific stream
-	// handlers that do not use StreamScannerHandler.
-	isEventStreamResponse := strings.HasPrefix(strings.ToLower(strings.TrimSpace(resp.Header.Get("Content-Type"))), "text/event-stream")
-	if (info.IsStream || isEventStreamResponse) && info.ChannelMeta != nil && info.ChannelSetting.PassThroughHeadersEnabled {
+	// Copy body-independent metadata at the shared boundary. Representation
+	// headers are deliberately left for the response handler, which knows
+	// whether it forwards the original entity or writes a transformed one.
+	// Doing this before returning also covers custom handlers that write their
+	// response directly instead of using the shared body copier.
+	if info.ChannelMeta != nil && info.ChannelSetting.PassThroughHeadersEnabled {
 		helper.CopyUpstreamResponseHeaders(c, resp)
 	}
 
-	_ = req.Body.Close()
-	_ = c.Request.Body.Close()
+	if req.Body != nil {
+		_ = req.Body.Close()
+	}
+	if c != nil && c.Request != nil && c.Request.Body != nil {
+		_ = c.Request.Body.Close()
+	}
 	return resp, nil
 }
 
 func DoTaskApiRequest(a TaskAdaptor, c *gin.Context, info *common.RelayInfo, requestBody io.Reader) (*http.Response, error) {
+	return doTaskApiRequest(a, c, info, requestBody, false)
+}
+
+func DoPreparedTaskApiRequest(a TaskAdaptor, c *gin.Context, info *common.RelayInfo, requestBody io.Reader) (*http.Response, error) {
+	return doTaskApiRequest(a, c, info, requestBody, true)
+}
+
+func doTaskApiRequest(a TaskAdaptor, c *gin.Context, info *common.RelayInfo, requestBody io.Reader, headersPrepared bool) (*http.Response, error) {
 	fullRequestURL, err := a.BuildRequestURL(info)
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequest(c.Request.Method, fullRequestURL, requestBody)
+	req, err := http.NewRequestWithContext(c.Request.Context(), c.Request.Method, fullRequestURL, requestBody)
 	if err != nil {
 		return nil, fmt.Errorf("new request failed: %w", err)
 	}
@@ -565,7 +643,12 @@ func DoTaskApiRequest(a TaskAdaptor, c *gin.Context, info *common.RelayInfo, req
 	if err != nil {
 		return nil, fmt.Errorf("setup request header failed: %w", err)
 	}
-	resp, err := doRequest(c, req, info)
+	var resp *http.Response
+	if headersPrepared {
+		resp, err = doPreparedRequest(c, req, info)
+	} else {
+		resp, err = doRequest(c, req, info)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("do request failed: %w", err)
 	}

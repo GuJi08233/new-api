@@ -401,7 +401,7 @@ func sanitizeHeaderOverrideMap(source map[string]interface{}) map[string]interfa
 	}
 	target := make(map[string]interface{}, len(source))
 	for key, value := range source {
-		normalizedKey := normalizeHeaderContextKey(key)
+		normalizedKey := normalizeHeaderOverrideKey(key)
 		if normalizedKey == "" {
 			continue
 		}
@@ -415,6 +415,19 @@ func sanitizeHeaderOverrideMap(source map[string]interface{}) map[string]interfa
 		target[normalizedKey] = normalizedValue
 	}
 	return target
+}
+
+func normalizeHeaderOverrideKey(key string) string {
+	trimmed := strings.TrimSpace(key)
+	lower := strings.ToLower(trimmed)
+	switch {
+	case strings.HasPrefix(lower, "regex:"):
+		return "regex:" + strings.TrimSpace(trimmed[len("regex:"):])
+	case strings.HasPrefix(lower, "re:"):
+		return "re:" + strings.TrimSpace(trimmed[len("re:"):])
+	default:
+		return lower
+	}
 }
 
 func isHeaderPassthroughRuleKeyForOverride(key string) bool {

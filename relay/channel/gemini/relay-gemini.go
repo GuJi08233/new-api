@@ -132,7 +132,7 @@ func handleFinalStream(c *gin.Context, info *relaycommon.RelayInfo, resp *dto.Ch
 	return nil
 }
 
-func geminiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response, callback func(data string, geminiResponse *dto.GeminiChatResponse) bool) (*dto.Usage, *types.NewAPIError) {
+func geminiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response, callback func(data string, geminiResponse *dto.GeminiChatResponse) error) (*dto.Usage, *types.NewAPIError) {
 	var usage = &dto.Usage{}
 	var imageCount int
 	var hasBillableUsageMetadata bool
@@ -168,8 +168,8 @@ func geminiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 			hasBillableUsageMetadata = true
 		}
 
-		if !callback(data, &geminiResponse) {
-			sr.Stop(fmt.Errorf("gemini callback stopped"))
+		if err := callback(data, &geminiResponse); err != nil {
+			sr.Stop(err)
 		}
 	})
 
@@ -198,8 +198,10 @@ func GeminiChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *
 	finishReason := constant.FinishReasonStop
 	toolCallIndexByChoice := make(map[int]map[string]int)
 	nextToolCallIndexByChoice := make(map[int]int)
+	var streamErr *types.NewAPIError
+	writeFailed := false
 
-	usage, err := geminiStreamHandler(c, info, resp, func(data string, geminiResponse *dto.GeminiChatResponse) bool {
+	usage, err := geminiStreamHandler(c, info, resp, func(data string, geminiResponse *dto.GeminiChatResponse) error {
 		response, isStop := streamResponseGeminiChat2OpenAI(geminiResponse)
 
 		response.Id = id
@@ -254,6 +256,12 @@ func GeminiChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *
 				err := handleStream(c, info, emptyResponse)
 				if err != nil {
 					logger.LogError(c, err.Error())
+					if helper.IsStreamWriteError(err) {
+						writeFailed = true
+					} else {
+						streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
+					}
+					return err
 				}
 
 				response.ClearToolCalls()
@@ -264,6 +272,12 @@ func GeminiChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *
 				err := handleStream(c, info, emptyResponse)
 				if err != nil {
 					logger.LogError(c, err.Error())
+					if helper.IsStreamWriteError(err) {
+						writeFailed = true
+					} else {
+						streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
+					}
+					return err
 				}
 			}
 		}
@@ -271,17 +285,37 @@ func GeminiChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *
 		err := handleStream(c, info, response)
 		if err != nil {
 			logger.LogError(c, err.Error())
+			if helper.IsStreamWriteError(err) {
+				writeFailed = true
+			} else {
+				streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
+			}
+			return err
 		}
 		if isStop {
 			if info.RelayFormat != types.RelayFormatClaude {
-				_ = handleStream(c, info, helper.GenerateStopResponse(id, createAt, info.UpstreamModelName, finishReason))
+				if err := handleStream(c, info, helper.GenerateStopResponse(id, createAt, info.UpstreamModelName, finishReason)); err != nil {
+					logger.LogError(c, err.Error())
+					if helper.IsStreamWriteError(err) {
+						writeFailed = true
+					} else {
+						streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
+					}
+					return err
+				}
 			}
 		}
-		return true
+		return nil
 	})
 
 	if err != nil {
 		return usage, err
+	}
+	if streamErr != nil {
+		return usage, streamErr
+	}
+	if writeFailed {
+		return usage, nil
 	}
 
 	response := helper.GenerateFinalUsageResponse(id, createAt, info.UpstreamModelName, *usage)
@@ -369,7 +403,11 @@ func GeminiChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.R
 		break
 	}
 
-	service.IOCopyBytesGracefully(c, resp, responseBody)
+	if info.RelayFormat == types.RelayFormatGemini {
+		service.IOCopyRawBytesGracefully(c, resp, responseBody)
+	} else {
+		service.IOCopyBytesGracefully(c, resp, responseBody)
+	}
 
 	return &usage, nil
 }

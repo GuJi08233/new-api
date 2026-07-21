@@ -114,7 +114,9 @@ func HandleStreamResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 				data = patchClaudeMessageDeltaUsageData(data, buildMessageDeltaPatchUsage(&claudeResponse, claudeInfo))
 			}
 		}
-		helper.ClaudeChunkData(c, claudeResponse, data)
+		if err := helper.ClaudeChunkData(c, claudeResponse, data); err != nil {
+			return types.NewError(err, types.ErrorCodeBadResponse)
+		}
 	} else if info.RelayFormat == types.RelayFormatOpenAI {
 		response := StreamResponseClaude2OpenAI(&claudeResponse)
 
@@ -125,12 +127,15 @@ func HandleStreamResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 		err = helper.ObjectData(c, response)
 		if err != nil {
 			logger.LogError(c, "send_stream_response_failed: "+err.Error())
+			return types.NewError(err, types.ErrorCodeBadResponse)
 		}
 	}
 	return nil
 }
 
-func HandleStreamFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, claudeInfo *ClaudeResponseInfo) {
+// FinalizeStreamUsage completes the billable usage without writing any final
+// downstream frames. It is used when the client stream is no longer writable.
+func FinalizeStreamUsage(c *gin.Context, info *relaycommon.RelayInfo, claudeInfo *ClaudeResponseInfo) {
 	if claudeInfo.Usage.PromptTokens == 0 {
 		//上游出错
 	}
@@ -155,6 +160,10 @@ func HandleStreamFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, clau
 	if claudeInfo.Usage != nil && claudeInfo.Usage.BillingUsage == nil {
 		claudeInfo.Usage.BillingUsage = dto.NewClaudeMessagesBillingUsage(buildMessageDeltaPatchUsage(nil, claudeInfo))
 	}
+}
+
+func HandleStreamFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, claudeInfo *ClaudeResponseInfo) {
+	FinalizeStreamUsage(c, info, claudeInfo)
 
 	if info.RelayFormat == types.RelayFormatClaude {
 		//
@@ -165,6 +174,7 @@ func HandleStreamFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, clau
 			err := helper.ObjectData(c, response)
 			if err != nil {
 				common.SysLog("send final response failed: " + err.Error())
+				return
 			}
 		}
 		helper.Done(c)
@@ -180,12 +190,20 @@ func ClaudeStreamHandler(c *gin.Context, resp *http.Response, info *relaycommon.
 		Usage:        &dto.Usage{},
 	}
 	var err *types.NewAPIError
+	downstreamWriteFailed := false
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
 		err = HandleStreamResponseData(c, info, claudeInfo, data)
 		if err != nil {
+			if helper.IsStreamWriteError(err) {
+				downstreamWriteFailed = true
+			}
 			sr.Stop(err)
 		}
 	})
+	if downstreamWriteFailed {
+		FinalizeStreamUsage(c, info, claudeInfo)
+		return claudeInfo.Usage, nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -235,7 +253,11 @@ func HandleClaudeResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 		c.Set("claude_web_search_requests", claudeResponse.Usage.ServerToolUse.WebSearchRequests)
 	}
 
-	service.IOCopyBytesGracefully(c, httpResp, responseData)
+	if info.RelayFormat == types.RelayFormatClaude {
+		service.IOCopyRawBytesGracefully(c, httpResp, responseData)
+	} else {
+		service.IOCopyBytesGracefully(c, httpResp, responseData)
+	}
 	return nil
 }
 

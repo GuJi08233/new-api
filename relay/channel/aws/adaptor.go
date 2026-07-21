@@ -31,6 +31,11 @@ type Adaptor struct {
 	AwsModelId string
 	AwsReq     any
 	IsNova     bool
+	// RequestHeaders contains the resolved safe headers for the SDK request.
+	// The Bedrock SDK path does not build an *http.Request in the adaptor, so
+	// these are applied through per-operation APIOptions immediately before the
+	// SDK signs and sends the request.
+	RequestHeaders http.Header
 }
 
 func (a *Adaptor) ConvertGeminiRequest(*gin.Context, *relaycommon.RelayInfo, *dto.GeminiChatRequest) (any, error) {

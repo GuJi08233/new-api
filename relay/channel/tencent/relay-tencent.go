@@ -91,11 +91,14 @@ func streamResponseTencent2OpenAI(TencentResponse *TencentChatResponse) *dto.Cha
 }
 
 func tencentStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
+	defer service.CloseResponseBodyGracefully(resp)
 	var responseText string
 	scanner := helper.NewStreamScanner(resp.Body)
 	scanner.Split(bufio.ScanLines)
 
-	helper.SetEventStreamHeaders(c)
+	stopStream := helper.StartStreamSession(c, info, resp)
+	defer stopStream()
+	writeFailed := false
 
 	for scanner.Scan() {
 		data := scanner.Text()
@@ -119,16 +122,20 @@ func tencentStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *htt
 		err = helper.ObjectData(c, response)
 		if err != nil {
 			common.SysLog(err.Error())
+			writeFailed = true
+			break
 		}
 	}
 
 	if err := scanner.Err(); err != nil {
 		common.SysLog("error reading stream: " + err.Error())
+		writeFailed = true
 	}
 
-	helper.Done(c)
-
-	service.CloseResponseBodyGracefully(resp)
+	if !writeFailed {
+		stopStream()
+		helper.Done(c)
+	}
 
 	return service.ResponseText2Usage(c, responseText, info.UpstreamModelName, info.GetEstimatePromptTokens()), nil
 }
@@ -155,8 +162,6 @@ func tencentHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Resp
 	if err != nil {
 		return nil, types.NewError(err, types.ErrorCodeBadResponseBody)
 	}
-	c.Writer.Header().Set("Content-Type", "application/json")
-	c.Writer.WriteHeader(resp.StatusCode)
 	service.IOCopyBytesGracefully(c, resp, jsonResponse)
 	return &fullTextResponse.Usage, nil
 }
@@ -173,8 +178,8 @@ func parseTencentConfig(config string) (appId int64, secretId string, secretKey 
 	return
 }
 
-func sha256hex(s string) string {
-	b := sha256.Sum256([]byte(s))
+func sha256hex(data []byte) string {
+	b := sha256.Sum256(data)
 	return hex.EncodeToString(b[:])
 }
 
@@ -184,33 +189,41 @@ func hmacSha256(s, key string) string {
 	return string(hashed.Sum(nil))
 }
 
-func getTencentSign(req TencentChatRequest, adaptor *Adaptor, secId, secKey string) string {
+func getTencentSign(req *http.Request, payload []byte, secId, secKey string) (string, error) {
 	// build canonical request string
-	host := "hunyuan.tencentcloudapi.com"
-	httpRequestMethod := "POST"
-	canonicalURI := "/"
-	canonicalQueryString := ""
+	canonicalURI := req.URL.EscapedPath()
+	if canonicalURI == "" {
+		canonicalURI = "/"
+	}
+	host := strings.TrimSpace(req.Host)
+	if host == "" {
+		host = req.URL.Host
+	}
+	contentType := strings.TrimSpace(req.Header.Get("Content-Type"))
+	action := strings.ToLower(strings.TrimSpace(req.Header.Get("X-TC-Action")))
 	canonicalHeaders := fmt.Sprintf("content-type:%s\nhost:%s\nx-tc-action:%s\n",
-		"application/json", host, strings.ToLower(adaptor.Action))
+		contentType, host, action)
 	signedHeaders := "content-type;host;x-tc-action"
-	payload, _ := json.Marshal(req)
-	hashedRequestPayload := sha256hex(string(payload))
+	hashedRequestPayload := sha256hex(payload)
 	canonicalRequest := fmt.Sprintf("%s\n%s\n%s\n%s\n%s\n%s",
-		httpRequestMethod,
+		req.Method,
 		canonicalURI,
-		canonicalQueryString,
+		req.URL.Query().Encode(),
 		canonicalHeaders,
 		signedHeaders,
 		hashedRequestPayload)
 	// build string to sign
 	algorithm := "TC3-HMAC-SHA256"
-	requestTimestamp := strconv.FormatInt(adaptor.Timestamp, 10)
-	timestamp, _ := strconv.ParseInt(requestTimestamp, 10, 64)
+	requestTimestamp := strings.TrimSpace(req.Header.Get("X-TC-Timestamp"))
+	timestamp, err := strconv.ParseInt(requestTimestamp, 10, 64)
+	if err != nil {
+		return "", fmt.Errorf("invalid X-TC-Timestamp: %w", err)
+	}
 	t := time.Unix(timestamp, 0).UTC()
 	// must be the format 2006-01-02, ref to package time for more info
 	date := t.Format("2006-01-02")
 	credentialScope := fmt.Sprintf("%s/%s/tc3_request", date, "hunyuan")
-	hashedCanonicalRequest := sha256hex(canonicalRequest)
+	hashedCanonicalRequest := sha256hex([]byte(canonicalRequest))
 	string2sign := fmt.Sprintf("%s\n%s\n%s\n%s",
 		algorithm,
 		requestTimestamp,
@@ -230,5 +243,5 @@ func getTencentSign(req TencentChatRequest, adaptor *Adaptor, secId, secKey stri
 		credentialScope,
 		signedHeaders,
 		signature)
-	return authorization
+	return authorization, nil
 }

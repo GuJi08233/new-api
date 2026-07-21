@@ -1,20 +1,50 @@
 package channel
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/dto"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestDoRequest_CopiesSafeStreamHeadersBeforeAdaptor(t *testing.T) {
+type websocketHeaderTestAdaptor struct {
+	Adaptor
+	url string
+}
+
+type failingPreResponsePingWriter struct {
+	gin.ResponseWriter
+	err error
+}
+
+func (w *failingPreResponsePingWriter) Write([]byte) (int, error) {
+	return 0, w.err
+}
+
+func (w *failingPreResponsePingWriter) WriteString(string) (int, error) {
+	return 0, w.err
+}
+
+func (a websocketHeaderTestAdaptor) GetRequestURL(*relaycommon.RelayInfo) (string, error) {
+	return a.url, nil
+}
+
+func (websocketHeaderTestAdaptor) SetupRequestHeader(*gin.Context, *http.Header, *relaycommon.RelayInfo) error {
+	return nil
+}
+
+func TestDoRequest_CopiesSafeHeadersBeforeAdaptor(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	service.InitHttpClient()
 
@@ -25,6 +55,7 @@ func TestDoRequest_CopiesSafeStreamHeadersBeforeAdaptor(t *testing.T) {
 	}{
 		{name: "declared stream", isStream: true, upstream: "application/json"},
 		{name: "detected event stream", isStream: false, upstream: "text/event-stream"},
+		{name: "non-stream response", isStream: false, upstream: "application/json"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -59,6 +90,130 @@ func TestDoRequest_CopiesSafeStreamHeadersBeforeAdaptor(t *testing.T) {
 			assert.NotEqual(t, testCase.upstream, recorder.Header().Get("Content-Type"))
 		})
 	}
+}
+
+func TestDoRequest_AppliesPassthroughAtSharedHTTPBoundary(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	service.InitHttpClient()
+	received := make(chan http.Header, 1)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		received <- r.Header.Clone()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer upstream.Close()
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader("{}"))
+	c.Request.Header.Set("X-Trace-Id", "trace-123")
+	c.Request.Header.Set("Connection", "X-Client-Hop")
+	c.Request.Header.Set("X-Client-Hop", "must-not-forward")
+	request, err := http.NewRequest(http.MethodPost, upstream.URL, strings.NewReader("{}"))
+	require.NoError(t, err)
+
+	info := &relaycommon.RelayInfo{
+		ChannelMeta: &relaycommon.ChannelMeta{
+			ChannelSetting: dto.ChannelSettings{PassThroughHeadersEnabled: true},
+		},
+	}
+	resp, err := doRequest(c, request, info)
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	defer resp.Body.Close()
+
+	headers := <-received
+	assert.Equal(t, "trace-123", headers.Get("X-Trace-Id"))
+	assert.Empty(t, headers.Get("X-Client-Hop"))
+}
+
+func TestDoRequestPreResponsePingFailureCancelsUpstream(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	service.InitHttpClient()
+	setting := operation_setting.GetGeneralSetting()
+	oldEnabled := setting.PingIntervalEnabled
+	oldSeconds := setting.PingIntervalSeconds
+	setting.PingIntervalEnabled = true
+	setting.PingIntervalSeconds = 1
+	t.Cleanup(func() {
+		setting.PingIntervalEnabled = oldEnabled
+		setting.PingIntervalSeconds = oldSeconds
+	})
+
+	requestStarted := make(chan struct{})
+	upstreamCanceled := make(chan struct{})
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(requestStarted)
+		select {
+		case <-r.Context().Done():
+			close(upstreamCanceled)
+		case <-time.After(3 * time.Second):
+			w.WriteHeader(http.StatusGatewayTimeout)
+		}
+	}))
+	defer upstream.Close()
+
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	c.Writer = &failingPreResponsePingWriter{
+		ResponseWriter: c.Writer,
+		err:            errors.New("downstream write failed"),
+	}
+	request, err := http.NewRequest(http.MethodPost, upstream.URL, nil)
+	require.NoError(t, err)
+	info := &relaycommon.RelayInfo{
+		IsStream:    true,
+		ChannelMeta: &relaycommon.ChannelMeta{},
+	}
+
+	_, err = doRequest(c, request, info)
+
+	require.Error(t, err)
+	select {
+	case <-requestStarted:
+	default:
+		t.Fatal("upstream request did not start")
+	}
+	select {
+	case <-upstreamCanceled:
+	case <-time.After(time.Second):
+		t.Fatal("upstream request was not canceled after the downstream ping failed")
+	}
+}
+
+func TestDoWssRequestCopiesSafeHandshakeHeaders(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		responseHeaders := http.Header{
+			"X-Upstream-Trace": {"trace-websocket"},
+			"Set-Cookie":       {"session=must-not-forward"},
+		}
+		conn, err := upgrader.Upgrade(w, r, responseHeaders)
+		if err == nil {
+			_ = conn.Close()
+		}
+	}))
+	defer server.Close()
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/realtime", nil)
+	info := &relaycommon.RelayInfo{
+		ChannelMeta: &relaycommon.ChannelMeta{
+			ChannelSetting: dto.ChannelSettings{PassThroughHeadersEnabled: true},
+		},
+	}
+	adaptor := websocketHeaderTestAdaptor{url: "ws" + strings.TrimPrefix(server.URL, "http")}
+
+	conn, err := DoWssRequest(adaptor, c, info, nil)
+	require.NoError(t, err)
+	require.NotNil(t, conn)
+	defer conn.Close()
+
+	assert.Equal(t, "trace-websocket", recorder.Header().Get("X-Upstream-Trace"))
+	assert.Empty(t, recorder.Header().Values("Set-Cookie"))
+	assert.Empty(t, recorder.Header().Values("Sec-Websocket-Accept"))
 }
 
 func TestDoRequest_ResponseHeaderCopyDoesNotLatchErrorResponse(t *testing.T) {
@@ -153,8 +308,6 @@ func TestDoRequest_ResponseHeaderCopyReplacesPreviousSuccess(t *testing.T) {
 }
 
 func TestProcessHeaderOverride_ChannelTestSkipsPassthroughRules(t *testing.T) {
-	t.Parallel()
-
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
@@ -176,8 +329,6 @@ func TestProcessHeaderOverride_ChannelTestSkipsPassthroughRules(t *testing.T) {
 }
 
 func TestProcessHeaderOverride_ChannelTestSkipsClientHeaderPlaceholder(t *testing.T) {
-	t.Parallel()
-
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
@@ -200,8 +351,6 @@ func TestProcessHeaderOverride_ChannelTestSkipsClientHeaderPlaceholder(t *testin
 }
 
 func TestProcessHeaderOverride_NonTestKeepsClientHeaderPlaceholder(t *testing.T) {
-	t.Parallel()
-
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
@@ -223,8 +372,6 @@ func TestProcessHeaderOverride_NonTestKeepsClientHeaderPlaceholder(t *testing.T)
 }
 
 func TestProcessHeaderOverride_RuntimeOverrideIsFinalHeaderMap(t *testing.T) {
-	t.Parallel()
-
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
@@ -254,8 +401,6 @@ func TestProcessHeaderOverride_RuntimeOverrideIsFinalHeaderMap(t *testing.T) {
 }
 
 func TestProcessHeaderOverride_PassthroughSkipsAcceptEncoding(t *testing.T) {
-	t.Parallel()
-
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
@@ -281,8 +426,6 @@ func TestProcessHeaderOverride_PassthroughSkipsAcceptEncoding(t *testing.T) {
 }
 
 func TestProcessHeaderOverride_ChannelPassthroughSkipsUnsafeHeaders(t *testing.T) {
-	t.Parallel()
-
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
@@ -291,11 +434,20 @@ func TestProcessHeaderOverride_ChannelPassthroughSkipsUnsafeHeaders(t *testing.T
 
 	unsafeHeaders := map[string]string{
 		"Authorization":            "Bearer client-secret",
+		"Mj-Api-Secret":            "gateway-user-token",
+		"New-Api-User":             "42",
 		"X-Api-Key":                "client-api-key",
 		"X-Goog-Api-Key":           "client-google-key",
 		"Cookie":                   "session=gateway-session",
+		"Cookie2":                  "legacy-session=gateway-session",
 		"Proxy-Authorization":      "Basic client-proxy-credential",
+		"Proxy-Connection":         "keep-alive",
+		"Content-Type":             "multipart/form-data; boundary=client-boundary",
+		"Content-Encoding":         "gzip",
+		"Accept":                   "application/problem+json",
 		"Accept-Encoding":          "gzip, br",
+		"Expect":                   "100-continue",
+		"Sec-WebSocket-Accept":     "client-handshake-value",
 		"Sec-WebSocket-Key":        "client-websocket-key",
 		"Sec-WebSocket-Version":    "13",
 		"Sec-WebSocket-Extensions": "permessage-deflate",
@@ -321,9 +473,50 @@ func TestProcessHeaderOverride_ChannelPassthroughSkipsUnsafeHeaders(t *testing.T
 	}
 }
 
-func TestProcessHeaderOverride_PassHeadersTemplateSetsRuntimeHeaders(t *testing.T) {
-	t.Parallel()
+func TestProcessHeaderOverride_RegexMatchesCanonicalHeaderNamesCaseInsensitively(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	ctx.Request.Header.Set("X-Trace-Id", "trace-123")
+	ctx.Request.Header.Set("Other-Header", "must-not-forward")
 
+	info := &relaycommon.RelayInfo{
+		ChannelMeta: &relaycommon.ChannelMeta{
+			HeadersOverride: map[string]any{
+				`re:^\Qx-trace-id\E$`: "",
+			},
+		},
+	}
+
+	headers, err := processHeaderOverride(info, ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "trace-123", headers["x-trace-id"])
+	assert.NotContains(t, headers, "other-header")
+}
+
+func TestProcessHeaderOverride_ExplicitEntityHeaderStillWins(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	ctx.Request.Header.Set("Content-Type", "multipart/form-data; boundary=client")
+
+	info := &relaycommon.RelayInfo{
+		ChannelMeta: &relaycommon.ChannelMeta{
+			ChannelSetting: dto.ChannelSettings{PassThroughHeadersEnabled: true},
+			HeadersOverride: map[string]any{
+				"Content-Type": "application/custom+json",
+			},
+		},
+	}
+
+	headers, err := processHeaderOverride(info, ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "application/custom+json", headers["content-type"])
+}
+
+func TestProcessHeaderOverride_PassHeadersTemplateSetsRuntimeHeaders(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)

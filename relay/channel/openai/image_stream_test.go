@@ -2,16 +2,19 @@ package openai
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/constant"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
@@ -147,6 +150,45 @@ type blockingBody struct {
 	sent   bool
 	chunk  []byte
 	closed chan struct{}
+}
+
+type blockingImageJSONBody struct {
+	closeOnce sync.Once
+	closed    chan struct{}
+	err       error
+}
+
+func (b *blockingImageJSONBody) Read([]byte) (int, error) {
+	<-b.closed
+	return 0, b.err
+}
+
+func (b *blockingImageJSONBody) Close() error {
+	b.closeOnce.Do(func() { close(b.closed) })
+	return nil
+}
+
+type failingImagePingWriter struct {
+	gin.ResponseWriter
+	err    error
+	failOn string
+	failed bool
+}
+
+func (w *failingImagePingWriter) Write(p []byte) (int, error) {
+	if w.failOn == "" || strings.Contains(string(p), w.failOn) {
+		w.failed = true
+		return 0, w.err
+	}
+	return w.ResponseWriter.Write(p)
+}
+
+func (w *failingImagePingWriter) WriteString(s string) (int, error) {
+	if w.failOn == "" || strings.Contains(s, w.failOn) {
+		w.failed = true
+		return 0, w.err
+	}
+	return w.ResponseWriter.WriteString(s)
 }
 
 func (b *blockingBody) Read(p []byte) (int, error) {
@@ -314,6 +356,91 @@ func TestOpenaiImageStreamHandlerWrapsJSONResponse(t *testing.T) {
 	require.Equal(t, 2.0, info.PriceData.OtherRatios()["n"])
 }
 
+func TestOpenaiImageJSONStreamReturnsUsageAfterPingWriteFailure(t *testing.T) {
+	oldMode := gin.Mode()
+	gin.SetMode(gin.TestMode)
+	t.Cleanup(func() { gin.SetMode(oldMode) })
+	setting := operation_setting.GetGeneralSetting()
+	oldEnabled := setting.PingIntervalEnabled
+	oldSeconds := setting.PingIntervalSeconds
+	setting.PingIntervalEnabled = true
+	setting.PingIntervalSeconds = 1
+	t.Cleanup(func() {
+		setting.PingIntervalEnabled = oldEnabled
+		setting.PingIntervalSeconds = oldSeconds
+	})
+
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/generations", nil)
+	writeErr := errors.New("downstream write failed")
+	c.Writer = &failingImagePingWriter{ResponseWriter: c.Writer, err: writeErr}
+	body := &blockingImageJSONBody{
+		closed: make(chan struct{}),
+		err:    errors.New("upstream body closed"),
+	}
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       body,
+	}
+	info := &relaycommon.RelayInfo{
+		IsStream: true,
+		ChannelMeta: &relaycommon.ChannelMeta{
+			UpstreamModelName: "image-test",
+		},
+	}
+
+	usage, apiErr := OpenaiImageStreamHandler(c, info, resp)
+
+	require.Nil(t, apiErr)
+	require.NotNil(t, usage)
+	require.Equal(t, 0, usage.TotalTokens)
+	require.NotNil(t, info.StreamStatus)
+	require.Equal(t, relaycommon.StreamEndReasonClientGone, info.StreamStatus.EndReason)
+	require.ErrorIs(t, info.StreamStatus.EndError, writeErr)
+	select {
+	case <-body.closed:
+	case <-time.After(time.Second):
+		t.Fatal("upstream body was not closed after the ping write failure")
+	}
+}
+
+func TestOpenaiImageJSONStreamRecordsFrameWriteFailures(t *testing.T) {
+	oldMode := gin.Mode()
+	gin.SetMode(gin.TestMode)
+	t.Cleanup(func() { gin.SetMode(oldMode) })
+
+	for _, test := range []struct {
+		name   string
+		failOn string
+	}{
+		{name: "completed event", failOn: "event: image_generation.completed"},
+		{name: "done event", failOn: "data: [DONE]"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			body := `{"created":1710000000,"data":[{"b64_json":"image"}],"usage":{"total_tokens":7}}`
+			c, _, resp, info := newImageTestContext(t, body, "application/json", true)
+			info.DisablePing = true
+			writeErr := errors.New("downstream write failed")
+			writer := &failingImagePingWriter{
+				ResponseWriter: c.Writer,
+				err:            writeErr,
+				failOn:         test.failOn,
+			}
+			c.Writer = writer
+
+			usage, apiErr := OpenaiImageStreamHandler(c, info, resp)
+
+			require.Nil(t, apiErr)
+			require.NotNil(t, usage)
+			require.NotNil(t, info.StreamStatus)
+			require.Equal(t, relaycommon.StreamEndReasonClientGone, info.StreamStatus.EndReason)
+			require.ErrorIs(t, info.StreamStatus.EndError, writeErr)
+			require.True(t, writer.failed)
+		})
+	}
+}
+
 func TestOpenaiImageHandlerUsesPositiveActualCountForFixedPrice(t *testing.T) {
 	oldMode := gin.Mode()
 	gin.SetMode(gin.TestMode)
@@ -394,6 +521,7 @@ func TestOpenaiImageHandlersReturnJSONError(t *testing.T) {
 		require.Equal(t, http.StatusOK, err.StatusCode)
 		require.Equal(t, "content moderation failed", err.ToOpenAIError().Message)
 		require.Empty(t, recorder.Body.String())
+		require.NotContains(t, recorder.Header().Get("Content-Type"), "text/event-stream")
 	})
 
 	t.Run("stream handler non-2xx stays JSON error", func(t *testing.T) {

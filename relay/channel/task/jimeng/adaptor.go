@@ -113,6 +113,9 @@ func (a *TaskAdaptor) BuildRequestURL(info *relaycommon.RelayInfo) (string, erro
 func (a *TaskAdaptor) BuildRequestHeader(c *gin.Context, req *http.Request, info *relaycommon.RelayInfo) error {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
+	if err := channel.ApplyHeaderOverrideToRequest(info, c, req); err != nil {
+		return err
+	}
 	if isNewAPIRelay(info.ApiKey) {
 		req.Header.Set("Authorization", "Bearer "+info.ApiKey)
 	} else {
@@ -178,7 +181,13 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 
 // DoRequest delegates to common helper.
 func (a *TaskAdaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (*http.Response, error) {
-	return channel.DoTaskApiRequest(a, c, info, requestBody)
+	if isNewAPIRelay(info.ApiKey) {
+		// This branch uses bearer authentication rather than request signing.
+		// Keep the shared boundary application so an explicit Authorization
+		// override retains its normal highest priority.
+		return channel.DoTaskApiRequest(a, c, info, requestBody)
+	}
+	return channel.DoPreparedTaskApiRequest(a, c, info, requestBody)
 }
 
 // DoResponse handles upstream response, returns taskID etc.
@@ -290,7 +299,12 @@ func (a *TaskAdaptor) signRequest(req *http.Request, accessKey, secretKey string
 	xDate := t.Format("20060102T150405Z")
 	shortDate := t.Format("20060102")
 
-	req.Header.Set("Host", req.URL.Host)
+	host := strings.TrimSpace(req.Host)
+	if host == "" {
+		host = req.URL.Host
+	}
+	req.Host = host
+	req.Header.Set("Host", host)
 	req.Header.Set("X-Date", xDate)
 	req.Header.Set("X-Content-Sha256", hexPayloadHash)
 
@@ -312,7 +326,7 @@ func (a *TaskAdaptor) signRequest(req *http.Request, accessKey, secretKey string
 	canonicalQueryString := strings.Join(queryParts, "&")
 
 	headersToSign := map[string]string{
-		"host":             req.URL.Host,
+		"host":             host,
 		"x-date":           xDate,
 		"x-content-sha256": hexPayloadHash,
 	}

@@ -97,7 +97,8 @@ func ollamaStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 	}
 	defer service.CloseResponseBodyGracefully(resp)
 
-	helper.SetEventStreamHeaders(c)
+	stopStream := helper.StartStreamSession(c, info, resp)
+	defer stopStream()
 	scanner := helper.NewStreamScanner(resp.Body)
 	usage := &dto.Usage{}
 	var model = info.UpstreamModelName
@@ -106,7 +107,9 @@ func ollamaStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 	var toolCallIndex int
 	start := helper.GenerateStartEmptyResponse(responseId, created, model, nil)
 	if data, err := common.Marshal(start); err == nil {
-		_ = helper.StringData(c, string(data))
+		if err := helper.StringData(c, string(data)); err != nil {
+			return usage, nil
+		}
 	}
 
 	for scanner.Scan() {
@@ -164,7 +167,9 @@ func ollamaStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 				delta.Choices[0].Delta.ToolCalls, toolCallIndex = ollamaToolCallsToOpenAI(chunk.Message.ToolCalls, toolCallIndex, true)
 			}
 			if data, err := common.Marshal(delta); err == nil {
-				_ = helper.StringData(c, string(data))
+				if err := helper.StringData(c, string(data)); err != nil {
+					return usage, nil
+				}
 			}
 			continue
 		}
@@ -180,16 +185,21 @@ func ollamaStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 		if toolCallIndex > 0 {
 			finishReason = constant.FinishReasonToolCalls
 		}
+		stopStream()
 		// emit stop delta
 		if stop := helper.GenerateStopResponse(responseId, created, model, finishReason); stop != nil {
 			if data, err := common.Marshal(stop); err == nil {
-				_ = helper.StringData(c, string(data))
+				if err := helper.StringData(c, string(data)); err != nil {
+					return usage, nil
+				}
 			}
 		}
 		// emit usage frame
 		if final := helper.GenerateFinalUsageResponse(responseId, created, model, *usage); final != nil {
 			if data, err := common.Marshal(final); err == nil {
-				_ = helper.StringData(c, string(data))
+				if err := helper.StringData(c, string(data)); err != nil {
+					return usage, nil
+				}
 			}
 		}
 		// send [DONE]

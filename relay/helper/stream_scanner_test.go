@@ -3,6 +3,7 @@ package helper
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -101,6 +102,8 @@ func TestCopyUpstreamResponseHeaders_FiltersTransportAndGatewayHeaders(t *testin
 		"Connection":                  []string{"X-Upstream-Hop"},
 		"X-Upstream-Hop":              []string{"must-not-cross"},
 		"Keep-Alive":                  []string{"timeout=5"},
+		"Proxy-Connection":            []string{"keep-alive"},
+		"Sec-WebSocket-Accept":        []string{"upstream-handshake-value"},
 		"Set-Cookie":                  []string{"session=upstream"},
 		"Clear-Site-Data":             []string{"\"cookies\""},
 		"Alt-Svc":                     []string{"h3=\":443\""},
@@ -129,6 +132,8 @@ func TestCopyUpstreamResponseHeaders_FiltersTransportAndGatewayHeaders(t *testin
 	assert.Equal(t, "request-value", header.Get("X-Upstream-Request"))
 	assert.Equal(t, []string{"<https://example.com/a>", "<https://example.com/b>"}, header.Values("Link"))
 	assert.Empty(t, header.Values("X-Upstream-Hop"))
+	assert.Empty(t, header.Values("Proxy-Connection"))
+	assert.Empty(t, header.Values("Sec-WebSocket-Accept"))
 	assert.Empty(t, header.Values("Set-Cookie"))
 	assert.Empty(t, header.Values("Clear-Site-Data"))
 	assert.Empty(t, header.Values("Alt-Svc"))
@@ -151,6 +156,30 @@ func TestCopyUpstreamResponseHeaders_FiltersTransportAndGatewayHeaders(t *testin
 		Header:     http.Header{"X-Retry-Metadata": []string{"second-attempt"}},
 	})
 	assert.Equal(t, "second-attempt", header.Get("X-Retry-Metadata"))
+}
+
+func TestCopyUpstreamResponseHeaders_AllowsSafeWebSocketHandshakeMetadata(t *testing.T) {
+	t.Parallel()
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	resp := &http.Response{
+		StatusCode: http.StatusSwitchingProtocols,
+		Header: http.Header{
+			"X-Upstream-Trace":     {"trace-ws"},
+			"Sec-WebSocket-Accept": {"handshake-value"},
+			"Connection":           {"Upgrade"},
+			"Upgrade":              {"websocket"},
+		},
+	}
+
+	CopyUpstreamResponseHeaders(c, resp)
+
+	assert.Equal(t, "trace-ws", recorder.Header().Get("X-Upstream-Trace"))
+	assert.Empty(t, recorder.Header().Get("Sec-WebSocket-Accept"))
+	assert.Empty(t, recorder.Header().Get("Connection"))
+	assert.Empty(t, recorder.Header().Get("Upgrade"))
 }
 
 func TestStreamScannerHandler_EmptyBody(t *testing.T) {
@@ -444,6 +473,49 @@ func TestStreamScannerHandler_PingDisabledByRelayInfo(t *testing.T) {
 	body := recorder.Body.String()
 	pingCount := strings.Count(body, ": PING")
 	assert.Equal(t, 0, pingCount, "pings should be disabled when DisablePing=true")
+}
+
+func TestStreamScannerHandler_PingFailureStopsAndClosesUpstream(t *testing.T) {
+	setting := operation_setting.GetGeneralSetting()
+	oldEnabled := setting.PingIntervalEnabled
+	oldSeconds := setting.PingIntervalSeconds
+	setting.PingIntervalEnabled = true
+	setting.PingIntervalSeconds = 1
+	t.Cleanup(func() {
+		setting.PingIntervalEnabled = oldEnabled
+		setting.PingIntervalSeconds = oldSeconds
+	})
+
+	pr, pw := io.Pipe()
+	t.Cleanup(func() {
+		_ = pr.Close()
+		_ = pw.Close()
+	})
+	writeErr := errors.New("downstream ping write failed")
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(&errorAwareHTTPWriter{
+		header:   recorder.Header(),
+		writeErr: writeErr,
+	})
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	resp := &http.Response{Body: pr}
+	info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{}}
+	done := make(chan struct{})
+	go func() {
+		StreamScannerHandler(c, resp, info, func(string, *StreamResult) {})
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("stream did not stop after a ping write failure")
+	}
+	require.NotNil(t, info.StreamStatus)
+	assert.Equal(t, relaycommon.StreamEndReasonPingFail, info.StreamStatus.EndReason)
+	assert.ErrorIs(t, info.StreamStatus.EndError, writeErr)
+	_, err := pw.Write([]byte("data: after-failure\n"))
+	assert.ErrorIs(t, err, io.ErrClosedPipe)
 }
 
 // ---------- StreamStatus integration ----------

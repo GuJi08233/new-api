@@ -471,14 +471,24 @@ func uploadFileFromForm(c *gin.Context, info *relaycommon.RelayInfo, fieldCandid
 	}
 	uploadURL := relaycommon.GetFullRequestURL(baseURL, "/v1/files", info.ChannelType)
 
-	req, err := http.NewRequest(http.MethodPost, uploadURL, &body)
+	req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodPost, uploadURL, &body)
 	if err != nil {
 		return "", fmt.Errorf("replicate adaptor: create upload request failed: %w", err)
 	}
 	req.Header.Set("Content-Type", formContentType)
 	req.Header.Set("Authorization", "Bearer "+info.ApiKey)
+	if err := channel.ApplyHeaderOverrideToRequest(info, c, req); err != nil {
+		return "", fmt.Errorf("replicate adaptor: apply upload header override failed: %w", err)
+	}
+	// Preserve the boundary generated for this internal upload request even if
+	// the channel has a general Content-Type override for its main API calls.
+	req.Header.Set("Content-Type", formContentType)
 
-	resp, err := service.GetHttpClient().Do(req)
+	client, err := service.GetHttpClientWithProxy(info.ChannelSetting.Proxy)
+	if err != nil {
+		return "", fmt.Errorf("replicate adaptor: create upload client failed: %w", err)
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("replicate adaptor: upload image failed: %w", err)
 	}

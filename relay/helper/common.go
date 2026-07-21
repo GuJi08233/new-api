@@ -14,7 +14,45 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-func FlushWriter(c *gin.Context) (err error) {
+const eventStreamHeadersSetKey = "event_stream_headers_set"
+
+type streamWriteError struct {
+	err error
+}
+
+func (e *streamWriteError) Error() string {
+	return e.err.Error()
+}
+
+func (e *streamWriteError) Unwrap() error {
+	return e.err
+}
+
+func wrapStreamWriteError(err error) error {
+	if err == nil {
+		return nil
+	}
+	var writeErr *streamWriteError
+	if errors.As(err, &writeErr) {
+		return err
+	}
+	return &streamWriteError{err: err}
+}
+
+// IsStreamWriteError reports whether an error came from sending a stream
+// frame to the downstream client rather than preparing the frame itself.
+func IsStreamWriteError(err error) bool {
+	var writeErr *streamWriteError
+	return errors.As(err, &writeErr)
+}
+
+func FlushWriter(c *gin.Context) error {
+	return wrapStreamWriteError(withStreamWrite(c, func() error {
+		return flushWriter(c)
+	}))
+}
+
+func flushWriter(c *gin.Context) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("flush panic recovered: %v", r)
@@ -29,13 +67,39 @@ func FlushWriter(c *gin.Context) (err error) {
 		return fmt.Errorf("request context done: %w", c.Request.Context().Err())
 	}
 
-	flusher, ok := c.Writer.(http.Flusher)
-	if !ok {
-		return errors.New("streaming error: flusher not found")
+	// Gin's response writer exposes Flush() without an error, but its wrapped
+	// net/http writer may expose FlushError(). Walk the unwrap chain first so a
+	// downstream write failure is not silently lost at the Gin boundary.
+	c.Writer.WriteHeaderNow()
+	writers := []http.ResponseWriter{c.Writer}
+	current := http.ResponseWriter(c.Writer)
+	for range 16 {
+		unwrapper, ok := current.(interface{ Unwrap() http.ResponseWriter })
+		if !ok {
+			break
+		}
+		next := unwrapper.Unwrap()
+		if next == nil || next == current {
+			break
+		}
+		writers = append(writers, next)
+		current = next
 	}
-
-	flusher.Flush()
-	return nil
+	for i := len(writers) - 1; i >= 0; i-- {
+		if flusher, ok := writers[i].(interface{ FlushError() error }); ok {
+			if err := flusher.FlushError(); err != nil {
+				return fmt.Errorf("flush stream response failed: %w", err)
+			}
+			return nil
+		}
+	}
+	for i := len(writers) - 1; i >= 0; i-- {
+		if flusher, ok := writers[i].(http.Flusher); ok {
+			flusher.Flush()
+			return nil
+		}
+	}
+	return errors.New("streaming error: flusher not found")
 }
 
 func requestContextDone(c *gin.Context) bool {
@@ -43,13 +107,11 @@ func requestContextDone(c *gin.Context) bool {
 }
 
 func SetEventStreamHeaders(c *gin.Context) {
-	// 检查是否已经设置过头部
-	if _, exists := c.Get("event_stream_headers_set"); exists {
+	if c.GetBool(eventStreamHeadersSetKey) {
 		return
 	}
 
-	// 设置标志，表示头部已经设置过
-	c.Set("event_stream_headers_set", true)
+	c.Set(eventStreamHeadersSetKey, true)
 
 	c.Writer.Header().Set("Content-Type", "text/event-stream")
 	c.Writer.Header().Set("Cache-Control", "no-cache")
@@ -58,43 +120,87 @@ func SetEventStreamHeaders(c *gin.Context) {
 	c.Writer.Header().Set("X-Accel-Buffering", "no")
 }
 
-func ClaudeData(c *gin.Context, resp dto.ClaudeResponse) error {
-	if requestContextDone(c) {
-		return nil
-	}
-
-	jsonData, err := common.Marshal(resp)
-	if err != nil {
-		common.SysError("error marshalling stream response: " + err.Error())
-	} else {
-		c.Render(-1, common.CustomEvent{Data: fmt.Sprintf("event: %s\n", resp.Type)})
-		c.Render(-1, common.CustomEvent{Data: "data: " + string(jsonData)})
-	}
-	_ = FlushWriter(c)
-	return nil
-}
-
-func ClaudeChunkData(c *gin.Context, resp dto.ClaudeResponse, data string) {
-	if requestContextDone(c) {
+// ResetEventStreamHeaders restores an uncommitted response so a handler can
+// return a regular JSON error and a retry can prepare stream headers again.
+func ResetEventStreamHeaders(c *gin.Context) {
+	if c == nil || c.Writer == nil || c.Writer.Written() {
 		return
 	}
 
-	c.Render(-1, common.CustomEvent{Data: fmt.Sprintf("event: %s\n", resp.Type)})
-	c.Render(-1, common.CustomEvent{Data: fmt.Sprintf("data: %s\n", data)})
-	_ = FlushWriter(c)
+	header := c.Writer.Header()
+	for name, value := range map[string]string{
+		"Content-Type":      "text/event-stream",
+		"Cache-Control":     "no-cache",
+		"Connection":        "keep-alive",
+		"Transfer-Encoding": "chunked",
+		"X-Accel-Buffering": "no",
+	} {
+		if header.Get(name) == value {
+			header.Del(name)
+		}
+	}
+	c.Set(eventStreamHeadersSetKey, false)
+}
+
+func ClaudeData(c *gin.Context, resp dto.ClaudeResponse) error {
+	jsonData, err := common.Marshal(resp)
+	if err != nil {
+		return fmt.Errorf("error marshalling stream response: %w", err)
+	}
+	return wrapStreamWriteError(withStreamWrite(c, func() error {
+		if requestContextDone(c) {
+			return fmt.Errorf("request context done: %w", c.Request.Context().Err())
+		}
+
+		if err := (common.CustomEvent{Data: fmt.Sprintf("event: %s\n", resp.Type)}).Render(c.Writer); err != nil {
+			return fmt.Errorf("write stream event failed: %w", err)
+		}
+		if err := (common.CustomEvent{Data: "data: " + string(jsonData)}).Render(c.Writer); err != nil {
+			return fmt.Errorf("write stream data failed: %w", err)
+		}
+		return flushWriter(c)
+	}))
+}
+
+func ClaudeChunkData(c *gin.Context, resp dto.ClaudeResponse, data string) error {
+	return wrapStreamWriteError(withStreamWrite(c, func() error {
+		if requestContextDone(c) {
+			return fmt.Errorf("request context done: %w", c.Request.Context().Err())
+		}
+
+		if err := (common.CustomEvent{Data: fmt.Sprintf("event: %s\n", resp.Type)}).Render(c.Writer); err != nil {
+			return fmt.Errorf("write stream event failed: %w", err)
+		}
+		if err := (common.CustomEvent{Data: fmt.Sprintf("data: %s\n", data)}).Render(c.Writer); err != nil {
+			return fmt.Errorf("write stream data failed: %w", err)
+		}
+		return flushWriter(c)
+	}))
 }
 
 func ResponseChunkData(c *gin.Context, resp dto.ResponsesStreamResponse, data string) error {
-	if requestContextDone(c) {
-		return fmt.Errorf("request context done: %w", c.Request.Context().Err())
-	}
+	return wrapStreamWriteError(withStreamWrite(c, func() error {
+		if requestContextDone(c) {
+			return fmt.Errorf("request context done: %w", c.Request.Context().Err())
+		}
 
-	c.Render(-1, common.CustomEvent{Data: fmt.Sprintf("event: %s\n", resp.Type)})
-	c.Render(-1, common.CustomEvent{Data: fmt.Sprintf("data: %s", data)})
-	return FlushWriter(c)
+		if err := (common.CustomEvent{Data: fmt.Sprintf("event: %s\n", resp.Type)}).Render(c.Writer); err != nil {
+			return fmt.Errorf("write stream event failed: %w", err)
+		}
+		if err := (common.CustomEvent{Data: fmt.Sprintf("data: %s", data)}).Render(c.Writer); err != nil {
+			return fmt.Errorf("write stream data failed: %w", err)
+		}
+		return flushWriter(c)
+	}))
 }
 
 func StringData(c *gin.Context, str string) error {
+	return wrapStreamWriteError(withStreamWrite(c, func() error {
+		return stringData(c, str)
+	}))
+}
+
+func stringData(c *gin.Context, str string) error {
 	if c == nil || c.Writer == nil {
 		return errors.New("context or writer is nil")
 	}
@@ -103,23 +209,27 @@ func StringData(c *gin.Context, str string) error {
 		return fmt.Errorf("request context done: %w", c.Request.Context().Err())
 	}
 
-	c.Render(-1, common.CustomEvent{Data: "data: " + str})
-	return FlushWriter(c)
+	if err := (common.CustomEvent{Data: "data: " + str}).Render(c.Writer); err != nil {
+		return fmt.Errorf("write stream data failed: %w", err)
+	}
+	return flushWriter(c)
 }
 
 func PingData(c *gin.Context) error {
-	if c == nil || c.Writer == nil {
-		return errors.New("context or writer is nil")
-	}
+	return wrapStreamWriteError(withStreamWrite(c, func() error {
+		if c == nil || c.Writer == nil {
+			return errors.New("context or writer is nil")
+		}
 
-	if requestContextDone(c) {
-		return fmt.Errorf("request context done: %w", c.Request.Context().Err())
-	}
+		if requestContextDone(c) {
+			return fmt.Errorf("request context done: %w", c.Request.Context().Err())
+		}
 
-	if _, err := c.Writer.Write([]byte(": PING\n\n")); err != nil {
-		return fmt.Errorf("write ping data failed: %w", err)
-	}
-	return FlushWriter(c)
+		if _, err := c.Writer.Write([]byte(": PING\n\n")); err != nil {
+			return fmt.Errorf("write ping data failed: %w", err)
+		}
+		return flushWriter(c)
+	}))
 }
 
 func ObjectData(c *gin.Context, object interface{}) error {
@@ -134,7 +244,9 @@ func ObjectData(c *gin.Context, object interface{}) error {
 }
 
 func Done(c *gin.Context) {
-	_ = StringData(c, "[DONE]")
+	_ = withFinalStreamWrite(c, func() error {
+		return stringData(c, "[DONE]")
+	})
 }
 
 func WssString(c *gin.Context, ws *websocket.Conn, str string) error {

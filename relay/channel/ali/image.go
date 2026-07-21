@@ -13,6 +13,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/relay/channel"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/types"
@@ -192,19 +193,25 @@ func oaiFormEdit2AliImageEdit(c *gin.Context, info *relaycommon.RelayInfo, reque
 	return &imageRequest, nil
 }
 
-func updateTask(info *relaycommon.RelayInfo, taskID string) (*AliResponse, error, []byte) {
+func updateTask(c *gin.Context, info *relaycommon.RelayInfo, taskID string) (*AliResponse, error, []byte) {
 	url := fmt.Sprintf("%s/api/v1/tasks/%s", info.ChannelBaseUrl, taskID)
 
 	var aliResponse AliResponse
 
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequestWithContext(c.Request.Context(), "GET", url, nil)
 	if err != nil {
 		return &aliResponse, err, nil
 	}
 
 	req.Header.Set("Authorization", "Bearer "+info.ApiKey)
+	if err = channel.ApplyHeaderOverrideToRequest(info, c, req); err != nil {
+		return &aliResponse, err, nil
+	}
 
-	client := &http.Client{}
+	client, err := service.GetHttpClientWithProxy(info.ChannelSetting.Proxy)
+	if err != nil {
+		return &aliResponse, fmt.Errorf("get task http client failed: %w", err), nil
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		common.SysLog("updateTask client.Do err: " + err.Error())
@@ -225,23 +232,41 @@ func updateTask(info *relaycommon.RelayInfo, taskID string) (*AliResponse, error
 }
 
 func asyncTaskWait(c *gin.Context, info *relaycommon.RelayInfo, taskID string) (*AliResponse, []byte, error) {
-	waitSeconds := 10
-	step := 0
-	maxStep := 20
+	return pollAliTask(c, info, taskID, 5*time.Second, 10*time.Second, 20)
+}
 
+func pollAliTask(c *gin.Context, info *relaycommon.RelayInfo, taskID string, initialDelay time.Duration, pollInterval time.Duration, maxAttempts int) (*AliResponse, []byte, error) {
 	var taskResponse AliResponse
 	var responseBody []byte
+	ctx := c.Request.Context()
+	delay := initialDelay
 
-	time.Sleep(time.Duration(5) * time.Second)
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return nil, responseBody, fmt.Errorf("aliAsyncTaskWait canceled: %w", err)
+		}
+		if delay > 0 {
+			timer := time.NewTimer(delay)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return nil, responseBody, fmt.Errorf("aliAsyncTaskWait canceled: %w", ctx.Err())
+			case <-timer.C:
+			}
+		}
 
-	for {
-		logger.LogDebug(c, "asyncTaskWait step %d/%d, wait %d seconds", step, maxStep, waitSeconds)
-		step++
-		rsp, err, body := updateTask(info, taskID)
+		logger.LogDebug(c, "asyncTaskWait attempt %d/%d", attempt, maxAttempts)
+		rsp, err, body := updateTask(c, info, taskID)
 		responseBody = body
 		if err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return nil, responseBody, fmt.Errorf("aliAsyncTaskWait canceled: %w", ctxErr)
+			}
 			logger.LogWarn(c, "asyncTaskWait UpdateTask err: "+err.Error())
-			time.Sleep(time.Duration(waitSeconds) * time.Second)
+			if attempt == maxAttempts {
+				return nil, responseBody, fmt.Errorf("aliAsyncTaskWait failed after %d attempts: %w", maxAttempts, err)
+			}
+			delay = pollInterval
 			continue
 		}
 
@@ -250,19 +275,10 @@ func asyncTaskWait(c *gin.Context, info *relaycommon.RelayInfo, taskID string) (
 		}
 
 		switch rsp.Output.TaskStatus {
-		case "FAILED":
-			fallthrough
-		case "CANCELED":
-			fallthrough
-		case "SUCCEEDED":
-			fallthrough
-		case "UNKNOWN":
+		case "FAILED", "CANCELED", "SUCCEEDED", "UNKNOWN":
 			return rsp, responseBody, nil
 		}
-		if step >= maxStep {
-			break
-		}
-		time.Sleep(time.Duration(waitSeconds) * time.Second)
+		delay = pollInterval
 	}
 
 	return nil, nil, fmt.Errorf("aliAsyncTaskWait timeout")

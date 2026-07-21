@@ -3,15 +3,17 @@ package volcengine
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/relay/channel"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -154,7 +156,7 @@ func handleTTSResponse(c *gin.Context, resp *http.Response, info *relaycommon.Re
 	defer resp.Body.Close()
 
 	var volcResp VolcengineTTSResponse
-	if unmarshalErr := json.Unmarshal(body, &volcResp); unmarshalErr != nil {
+	if unmarshalErr := common.Unmarshal(body, &volcResp); unmarshalErr != nil {
 		return nil, types.NewErrorWithStatusCode(
 			errors.New("failed to parse volcengine response"),
 			types.ErrorCodeBadResponseBody,
@@ -197,6 +199,7 @@ func generateRequestID() string {
 }
 
 func handleTTSWebSocketResponse(c *gin.Context, requestURL string, volcRequest VolcengineTTSRequest, info *relaycommon.RelayInfo, encoding string) (usage any, err *types.NewAPIError) {
+	helper.ResetUpstreamResponseHeaders(c)
 	_, token, parseErr := parseVolcengineAuth(info.ApiKey)
 	if parseErr != nil {
 		return nil, types.NewErrorWithStatusCode(
@@ -206,14 +209,24 @@ func handleTTSWebSocketResponse(c *gin.Context, requestURL string, volcRequest V
 		)
 	}
 
-	header := http.Header{}
-	header.Set("Authorization", fmt.Sprintf("Bearer;%s", token))
+	header, headerErr := buildTTSWebSocketHeaders(c, info, token)
+	if headerErr != nil {
+		return nil, types.NewError(headerErr, types.ErrorCodeChannelHeaderOverrideInvalid)
+	}
 
-	conn, resp, dialErr := websocket.DefaultDialer.DialContext(context.Background(), requestURL, header)
+	requestCtx := context.Background()
+	if c != nil && c.Request != nil {
+		requestCtx = c.Request.Context()
+	}
+	conn, resp, dialErr := websocket.DefaultDialer.DialContext(requestCtx, requestURL, header)
 	if dialErr != nil {
 		if resp != nil {
+			statusCode := resp.StatusCode
+			if resp.Body != nil {
+				_ = resp.Body.Close()
+			}
 			return nil, types.NewErrorWithStatusCode(
-				fmt.Errorf("failed to connect to websocket: %w, status: %d", dialErr, resp.StatusCode),
+				fmt.Errorf("failed to connect to websocket: %w, status: %d", dialErr, statusCode),
 				types.ErrorCodeBadResponseStatusCode,
 				http.StatusBadGateway,
 			)
@@ -225,8 +238,23 @@ func handleTTSWebSocketResponse(c *gin.Context, requestURL string, volcRequest V
 		)
 	}
 	defer conn.Close()
+	if info.ChannelMeta != nil && info.ChannelSetting.PassThroughHeadersEnabled {
+		helper.CopyUpstreamResponseHeaders(c, resp)
+	}
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
+	}
+	requestDone := make(chan struct{})
+	go func() {
+		select {
+		case <-requestCtx.Done():
+			_ = conn.Close()
+		case <-requestDone:
+		}
+	}()
+	defer close(requestDone)
 
-	payload, marshalErr := json.Marshal(volcRequest)
+	payload, marshalErr := common.Marshal(volcRequest)
 	if marshalErr != nil {
 		return nil, types.NewErrorWithStatusCode(
 			fmt.Errorf("failed to marshal request: %w", marshalErr),
@@ -246,10 +274,17 @@ func handleTTSWebSocketResponse(c *gin.Context, requestURL string, volcRequest V
 	contentType := getContentTypeByEncoding(encoding)
 	c.Header("Content-Type", contentType)
 	c.Header("Transfer-Encoding", "chunked")
+	usage = &dto.Usage{
+		PromptTokens: info.GetEstimatePromptTokens(),
+		TotalTokens:  info.GetEstimatePromptTokens(),
+	}
 
 	for {
 		msg, recvErr := ReceiveMessage(conn)
 		if recvErr != nil {
+			if requestCtx.Err() != nil {
+				return usage, nil
+			}
 			if websocket.IsCloseError(recvErr, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
 				break
 			}
@@ -272,22 +307,15 @@ func handleTTSWebSocketResponse(c *gin.Context, requestURL string, volcRequest V
 		case MsgTypeAudioOnlyServer:
 			if len(msg.Payload) > 0 {
 				if _, writeErr := c.Writer.Write(msg.Payload); writeErr != nil {
-					return nil, types.NewErrorWithStatusCode(
-						fmt.Errorf("failed to write audio data: %w", writeErr),
-						types.ErrorCodeBadResponse,
-						http.StatusInternalServerError,
-					)
+					return usage, nil
 				}
-				c.Writer.Flush()
+				if flushErr := helper.FlushWriter(c); flushErr != nil {
+					return usage, nil
+				}
 			}
 
 			if msg.Sequence < 0 {
 				c.Status(http.StatusOK)
-				usage = &dto.Usage{
-					PromptTokens:     info.GetEstimatePromptTokens(),
-					CompletionTokens: 0,
-					TotalTokens:      info.GetEstimatePromptTokens(),
-				}
 				return usage, nil
 			}
 		default:
@@ -296,10 +324,21 @@ func handleTTSWebSocketResponse(c *gin.Context, requestURL string, volcRequest V
 	}
 
 	c.Status(http.StatusOK)
-	usage = &dto.Usage{
-		PromptTokens:     info.GetEstimatePromptTokens(),
-		CompletionTokens: 0,
-		TotalTokens:      info.GetEstimatePromptTokens(),
-	}
 	return usage, nil
+}
+
+// buildTTSWebSocketHeaders keeps the provider credential while applying the
+// channel's regular override and client-header passthrough policy. The native
+// Volcengine TTS stream opens a WebSocket directly and bypasses DoApiRequest.
+func buildTTSWebSocketHeaders(c *gin.Context, info *relaycommon.RelayInfo, token string) (http.Header, error) {
+	headers := make(http.Header)
+	headers.Set("Authorization", fmt.Sprintf("Bearer;%s", token))
+	headerOverride, err := channel.ResolveHeaderOverride(info, c)
+	if err != nil {
+		return nil, err
+	}
+	for key, value := range headerOverride {
+		headers.Set(key, value)
+	}
+	return headers, nil
 }

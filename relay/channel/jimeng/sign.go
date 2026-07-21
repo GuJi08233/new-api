@@ -85,7 +85,11 @@ func Sign(c *gin.Context, req *http.Request, apiKey string) error {
 	xDate := t.Format("20060102T150405Z")
 	shortDate := t.Format("20060102")
 
-	host := u.Host
+	host := strings.TrimSpace(req.Host)
+	if host == "" {
+		host = u.Host
+	}
+	req.Host = host
 	header.Set("Host", host)
 	header.Set("X-Date", xDate)
 	header.Set("X-Content-Sha256", hexPayloadHash)

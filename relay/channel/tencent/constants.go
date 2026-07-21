@@ -1,5 +1,7 @@
 package tencent
 
+const tencentAPIHost = "hunyuan.tencentcloudapi.com"
+
 var ModelList = []string{
 	"hunyuan-lite",
 	"hunyuan-standard",

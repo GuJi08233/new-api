@@ -29,13 +29,6 @@ func OpenaiTTSHandler(c *gin.Context, resp *http.Response, info *relaycommon.Rel
 	usage := &dto.Usage{}
 	usage.PromptTokens = info.GetEstimatePromptTokens()
 	usage.TotalTokens = info.GetEstimatePromptTokens()
-	for k, v := range resp.Header {
-		if !service.ShouldCopyUpstreamHeader(c, k, v) {
-			continue
-		}
-		c.Writer.Header().Set(k, v[0])
-	}
-	c.Writer.WriteHeader(resp.StatusCode)
 
 	if info.IsStream {
 		helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
@@ -51,7 +44,8 @@ func OpenaiTTSHandler(c *gin.Context, resp *http.Response, info *relaycommon.Rel
 				}
 			}
 			if err := helper.StringData(c, data); err != nil {
-				sr.Error(err)
+				sr.Stop(err)
+				return
 			}
 		})
 	} else {
@@ -60,16 +54,13 @@ func OpenaiTTSHandler(c *gin.Context, resp *http.Response, info *relaycommon.Rel
 		bodyBytes, err := io.ReadAll(resp.Body)
 		if err != nil {
 			logger.LogError(c, fmt.Sprintf("failed to read TTS response body: %v", err))
-			c.Writer.WriteHeaderNow()
+			service.CopyUpstreamHeaders(c, c.Writer.Header(), resp.Header, false)
+			c.Writer.WriteHeader(resp.StatusCode)
 			return usage
 		}
 
 		// 写入响应到客户端
-		c.Writer.WriteHeaderNow()
-		_, err = c.Writer.Write(bodyBytes)
-		if err != nil {
-			logger.LogError(c, fmt.Sprintf("failed to write TTS response: %v", err))
-		}
+		service.IOCopyRawBytesGracefully(c, resp, bodyBytes)
 
 		// 计算音频时长并更新 usage
 		audioFormat := "mp3" // 默认格式
@@ -123,7 +114,7 @@ func OpenaiSTTHandler(c *gin.Context, resp *http.Response, info *relaycommon.Rel
 		return types.NewOpenAIError(err, types.ErrorCodeReadResponseBodyFailed, http.StatusInternalServerError), nil
 	}
 	// 写入新的 response body
-	service.IOCopyBytesGracefully(c, resp, responseBody)
+	service.IOCopyRawBytesGracefully(c, resp, responseBody)
 
 	var responseData struct {
 		Usage *dto.Usage `json:"usage"`

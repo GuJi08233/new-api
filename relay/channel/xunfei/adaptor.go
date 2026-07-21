@@ -9,6 +9,7 @@ import (
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/relay/channel"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
@@ -88,12 +89,33 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 	if a.request == nil {
 		return nil, types.NewError(errors.New("request is nil"), types.ErrorCodeInvalidRequest)
 	}
+	helper.ResetUpstreamResponseHeaders(c)
+	requestHeaders, resolveErr := resolveXunfeiWebSocketHeaders(c, info)
+	if resolveErr != nil {
+		return nil, types.NewError(resolveErr, types.ErrorCodeChannelHeaderOverrideInvalid)
+	}
 	if info.IsStream {
-		usage, err = xunfeiStreamHandler(c, *a.request, splits[0], splits[1], splits[2])
+		usage, err = xunfeiStreamHandler(c, *a.request, splits[0], splits[1], splits[2], requestHeaders, info)
 	} else {
-		usage, err = xunfeiHandler(c, *a.request, splits[0], splits[1], splits[2])
+		usage, err = xunfeiHandler(c, *a.request, splits[0], splits[1], splits[2], requestHeaders, info)
 	}
 	return
+}
+
+// resolveXunfeiWebSocketHeaders applies the same channel header override and
+// client-header passthrough policy as the regular HTTP relay path. Xunfei
+// opens its provider connection from the response handler, so it cannot rely
+// on channel.DoApiRequest to prepare these headers.
+func resolveXunfeiWebSocketHeaders(c *gin.Context, info *relaycommon.RelayInfo) (http.Header, error) {
+	headerOverride, err := channel.ResolveHeaderOverride(info, c)
+	if err != nil {
+		return nil, err
+	}
+	headers := make(http.Header, len(headerOverride))
+	for key, value := range headerOverride {
+		headers.Set(key, value)
+	}
+	return headers, nil
 }
 
 func (a *Adaptor) GetModelList() []string {

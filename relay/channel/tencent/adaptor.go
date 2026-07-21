@@ -1,6 +1,7 @@
 package tencent
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -9,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/relay/channel"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -59,6 +59,10 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 
 func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *relaycommon.RelayInfo) error {
 	channel.SetupApiRequestHeader(info, c, req)
+	// TC3 owns these signed fields; DoRequest excludes them from channel header
+	// overrides so the transmitted request always matches the signature.
+	req.Set("Content-Type", "application/json")
+	req.Set("Host", tencentAPIHost)
 	req.Set("Authorization", a.Sign)
 	req.Set("X-TC-Action", a.Action)
 	req.Set("X-TC-Version", a.Version)
@@ -70,17 +74,7 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 	if request == nil {
 		return nil, errors.New("request is nil")
 	}
-	apiKey := common.GetContextKeyString(c, constant.ContextKeyChannelKey)
-	apiKey = strings.TrimPrefix(apiKey, "Bearer ")
-	appId, secretId, secretKey, err := parseTencentConfig(apiKey)
-	a.AppID = appId
-	if err != nil {
-		return nil, err
-	}
-	tencentRequest := requestOpenAI2Tencent(a, *request)
-	// we have to calculate the sign here
-	a.Sign = getTencentSign(*tencentRequest, a, secretId, secretKey)
-	return tencentRequest, nil
+	return requestOpenAI2Tencent(a, *request), nil
 }
 
 func (a *Adaptor) ConvertRerankRequest(c *gin.Context, relayMode int, request dto.RerankRequest) (any, error) {
@@ -98,7 +92,69 @@ func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommo
 }
 
 func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (any, error) {
-	return channel.DoApiRequest(a, c, info, requestBody)
+	fullRequestURL, err := a.GetRequestURL(info)
+	if err != nil {
+		return nil, fmt.Errorf("get request url failed: %w", err)
+	}
+	req, err := http.NewRequestWithContext(c.Request.Context(), c.Request.Method, fullRequestURL, requestBody)
+	if err != nil {
+		return nil, fmt.Errorf("new request failed: %w", err)
+	}
+	if info.UpstreamRequestBodySize > 0 && req.ContentLength <= 0 {
+		req.ContentLength = info.UpstreamRequestBodySize
+	}
+
+	headers := req.Header
+	if err := a.SetupRequestHeader(c, &headers, info); err != nil {
+		return nil, fmt.Errorf("setup request header failed: %w", err)
+	}
+	headerOverride, err := channel.ResolveHeaderOverride(info, c)
+	if err != nil {
+		return nil, err
+	}
+	for key, value := range headerOverride {
+		normalizedKey := strings.ToLower(strings.TrimSpace(key))
+		if normalizedKey == "host" || normalizedKey == "content-type" || normalizedKey == "authorization" ||
+			strings.HasPrefix(normalizedKey, "x-tc-") {
+			continue
+		}
+		req.Header.Set(key, value)
+	}
+	// Request.Host, rather than Header["Host"], controls the actual HTTP Host
+	// field emitted by net/http.
+	req.Host = tencentAPIHost
+
+	var bodyBytes []byte
+	if req.Body != nil {
+		bodyBytes, err = io.ReadAll(req.Body)
+		_ = req.Body.Close()
+		if err != nil {
+			return nil, fmt.Errorf("read request body failed: %w", err)
+		}
+	}
+	req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+	req.ContentLength = int64(len(bodyBytes))
+	req.GetBody = func() (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader(bodyBytes)), nil
+	}
+
+	apiKey := strings.TrimPrefix(info.ApiKey, "Bearer ")
+	appID, secretID, secretKey, err := parseTencentConfig(apiKey)
+	if err != nil {
+		return nil, err
+	}
+	a.AppID = appID
+	a.Sign, err = getTencentSign(req, bodyBytes, secretID, secretKey)
+	if err != nil {
+		return nil, fmt.Errorf("sign request failed: %w", err)
+	}
+	req.Header.Set("Authorization", a.Sign)
+
+	resp, err := channel.DoPreparedRequest(c, req, info)
+	if err != nil {
+		return nil, fmt.Errorf("do request failed: %w", err)
+	}
+	return resp, nil
 }
 
 func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (usage any, err *types.NewAPIError) {

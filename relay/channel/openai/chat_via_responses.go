@@ -203,6 +203,8 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
 	}
 	streamErr := (*types.NewAPIError)(nil)
+	var streamWriteErr error
+	writeFailed := false
 
 	if info.RelayFormat == types.RelayFormatClaude && info.ClaudeConvertInfo == nil {
 		info.ClaudeConvertInfo = &relaycommon.ClaudeConvertInfo{LastMessagesType: relaycommon.LastMessageTypeNone}
@@ -217,8 +219,11 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 			streamErr = types.NewOpenAIError(err, types.ErrorCodeJsonMarshalFailed, http.StatusInternalServerError)
 			return false
 		}
-		c.Render(-1, common.CustomEvent{Data: "data: " + string(geminiResponseStr)})
-		_ = helper.FlushWriter(c)
+		if err := helper.StringData(c, string(geminiResponseStr)); err != nil {
+			streamWriteErr = err
+			writeFailed = true
+			return false
+		}
 		return true
 	}
 
@@ -229,7 +234,8 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 				return true
 			}
 			if err := helper.ObjectData(c, &value); err != nil {
-				streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
+				streamWriteErr = err
+				writeFailed = true
 				return false
 			}
 			return true
@@ -238,13 +244,15 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 				return true
 			}
 			if err := helper.ObjectData(c, value); err != nil {
-				streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
+				streamWriteErr = err
+				writeFailed = true
 				return false
 			}
 			return true
 		case dto.ClaudeResponse:
 			if err := helper.ClaudeData(c, value); err != nil {
-				streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
+				streamWriteErr = err
+				writeFailed = true
 				return false
 			}
 			return true
@@ -253,7 +261,8 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 				return true
 			}
 			if err := helper.ClaudeData(c, *value); err != nil {
-				streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
+				streamWriteErr = err
+				writeFailed = true
 				return false
 			}
 			return true
@@ -301,7 +310,11 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 		}
 		for _, result := range results {
 			if !sendStreamResult(result) {
-				sr.Stop(streamErr)
+				if streamErr != nil {
+					sr.Stop(streamErr)
+				} else {
+					sr.Stop(streamWriteErr)
+				}
 				return
 			}
 		}
@@ -320,18 +333,24 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 	if info.RelayFormat == types.RelayFormatClaude && info.ClaudeConvertInfo != nil {
 		info.ClaudeConvertInfo.Usage = usage
 	}
+	if writeFailed {
+		return usage, nil
+	}
 	finalResults, err := relayconvert.FinalizeStreamResponse(c, info, state)
 	if err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
 	}
 	for _, result := range finalResults {
 		if !sendStreamResult(result) {
-			return nil, streamErr
+			if streamErr != nil {
+				return nil, streamErr
+			}
+			return usage, nil
 		}
 	}
 	if info.RelayFormat == types.RelayFormatOpenAI && info.ShouldIncludeUsage && usage != nil {
 		if err := helper.ObjectData(c, helper.GenerateFinalUsageResponse(responseId, createAt, info.UpstreamModelName, *usage)); err != nil {
-			return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
+			return usage, nil
 		}
 	}
 

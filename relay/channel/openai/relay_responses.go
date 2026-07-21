@@ -41,7 +41,7 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 	}
 
 	// 写入新的 response body
-	service.IOCopyBytesGracefully(c, resp, responseBody)
+	service.IOCopyRawBytesGracefully(c, resp, responseBody)
 
 	// compute usage
 	usage := dto.Usage{}
@@ -89,7 +89,6 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 			sr.Error(err)
 			return
 		}
-		sendResponsesStreamData(c, streamResponse, data)
 		switch streamResponse.Type {
 		case "response.completed":
 			if streamResponse.Response != nil {
@@ -129,6 +128,9 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 					}
 				}
 			}
+		}
+		if err := helper.ResponseChunkData(c, streamResponse, data); err != nil {
+			sr.Stop(err)
 		}
 	})
 

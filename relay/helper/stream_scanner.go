@@ -36,12 +36,6 @@ const (
 	upstreamResponseHeaderNamesKey   = "upstream_response_header_names"
 )
 
-var gatewayManagedResponseHeadersLower = map[string]struct{}{
-	"auth-version":      {},
-	"cache-version":     {},
-	"x-new-api-version": {},
-}
-
 func getScannerBufferSize() int {
 	if constant.StreamScannerMaxBufferMB > 0 {
 		return constant.StreamScannerMaxBufferMB << 20
@@ -66,17 +60,13 @@ func copyCodexSSEHeaders(c *gin.Context, resp *http.Response) {
 	if c == nil || c.Writer == nil || resp == nil {
 		return
 	}
-	for _, name := range []string{"X-Reasoning-Included", "X-Codex-Turn-State"} {
-		values := resp.Header.Values(name)
-		if !service.ShouldCopyUpstreamHeader(c, name, values) {
-			continue
-		}
-		for _, value := range values {
-			if value != "" {
-				c.Writer.Header().Add(name, value)
-			}
-		}
+	selectedHeaders := http.Header{
+		"Connection": resp.Header.Values("Connection"),
 	}
+	for _, name := range []string{"X-Reasoning-Included", "X-Codex-Turn-State"} {
+		selectedHeaders[name] = resp.Header.Values(name)
+	}
+	service.CopyUpstreamHeaders(c, c.Writer.Header(), selectedHeaders, true)
 }
 
 // CopyUpstreamResponseHeaders copies safe upstream metadata for a transformed
@@ -89,7 +79,8 @@ func CopyUpstreamResponseHeaders(c *gin.Context, resp *http.Response) {
 	// Error responses are handled by the relay error path and may be followed
 	// by a retry on the same Gin context. Do not retain their headers or mark
 	// the context as copied, otherwise a later successful attempt is blocked.
-	if resp.StatusCode != 0 && (resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices) {
+	if resp.StatusCode != 0 && resp.StatusCode != http.StatusSwitchingProtocols &&
+		(resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices) {
 		return
 	}
 	if value, exists := c.Get(upstreamResponseHeadersCopiedKey); exists {
@@ -98,43 +89,7 @@ func CopyUpstreamResponseHeaders(c *gin.Context, resp *http.Response) {
 		}
 	}
 
-	connectionHeaderNames := make(map[string]struct{})
-	for _, value := range resp.Header.Values("Connection") {
-		for _, name := range strings.Split(value, ",") {
-			name = strings.ToLower(strings.TrimSpace(name))
-			if name != "" {
-				connectionHeaderNames[name] = struct{}{}
-			}
-		}
-	}
-
-	for name, values := range resp.Header {
-		if !service.ShouldCopyUpstreamStreamHeader(c, name, values) {
-			continue
-		}
-		if _, hopByHop := connectionHeaderNames[strings.ToLower(name)]; hopByHop {
-			continue
-		}
-		if _, managed := gatewayManagedResponseHeadersLower[strings.ToLower(name)]; managed {
-			continue
-		}
-
-		copiedValues := make([]string, 0, len(values))
-		for _, value := range values {
-			if value != "" {
-				copiedValues = append(copiedValues, value)
-			}
-		}
-		if len(copiedValues) == 0 {
-			continue
-		}
-		canonicalName := http.CanonicalHeaderKey(name)
-		if len(c.Writer.Header().Values(canonicalName)) > 0 {
-			// Middleware/adaptors may have already supplied a local value. The
-			// upstream must not overwrite gateway-owned response metadata.
-			continue
-		}
-		c.Writer.Header()[canonicalName] = copiedValues
+	for _, canonicalName := range service.CopyUpstreamHeaders(c, c.Writer.Header(), resp.Header, true) {
 		copiedNames, _ := c.Get(upstreamResponseHeaderNamesKey)
 		if names, ok := copiedNames.([]string); ok {
 			c.Set(upstreamResponseHeaderNamesKey, append(names, canonicalName))
@@ -279,6 +234,7 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 					if err != nil {
 						logger.LogError(c, "ping data error: "+err.Error())
 						info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonPingFail, err)
+						stop()
 						return
 					}
 					logger.LogDebug(c, "ping data sent")

@@ -28,6 +28,7 @@ var unsafeUpstreamResponseHeadersLower = map[string]struct{}{
 	// not be replayed on the downstream connection.
 	"connection":          {},
 	"keep-alive":          {},
+	"proxy-connection":    {},
 	"proxy-authenticate":  {},
 	"proxy-authorization": {},
 	"te":                  {},
@@ -35,10 +36,24 @@ var unsafeUpstreamResponseHeadersLower = map[string]struct{}{
 	"transfer-encoding":   {},
 	"upgrade":             {},
 
+	// Credential headers are request-scoped secrets. They are not meaningful
+	// response metadata and must not be reflected back to gateway clients by a
+	// misconfigured or debugging upstream.
+	"authorization":  {},
+	"mj-api-secret":  {},
+	"new-api-user":   {},
+	"x-api-key":      {},
+	"x-goog-api-key": {},
+
 	// An upstream provider must not be able to create or clear cookies scoped
 	// to the gateway's domain.
 	"set-cookie":  {},
 	"set-cookie2": {},
+
+	// Reverse proxies can interpret these response headers as commands to
+	// serve local files instead of forwarding the gateway response.
+	"x-lighttpd-send-file": {},
+	"x-sendfile":           {},
 
 	// Origin-wide browser policies belong to the gateway. Forwarding these
 	// would let an upstream mutate persistent connection, storage, reporting,
@@ -62,6 +77,12 @@ var unsafeUpstreamResponseHeadersLower = map[string]struct{}{
 	"x-frame-options":                     {},
 }
 
+var gatewayManagedResponseHeadersLower = map[string]struct{}{
+	"auth-version":      {},
+	"cache-version":     {},
+	"x-new-api-version": {},
+}
+
 // ShouldCopyUpstreamHeader checks whether a given upstream response header
 // should be copied to the client response. Transport-level, cookie, CORS, and
 // locally managed headers are excluded. When the upstream header is
@@ -80,23 +101,35 @@ func ShouldCopyUpstreamHeader(c *gin.Context, k string, v []string) bool {
 	if _, unsafe := unsafeUpstreamResponseHeadersLower[headerName]; unsafe {
 		return false
 	}
+	if _, managed := gatewayManagedResponseHeadersLower[headerName]; managed {
+		return false
+	}
 	// The gateway's CORS middleware owns this policy. Copying an upstream value
 	// can produce duplicate or contradictory Access-Control headers.
 	if strings.HasPrefix(headerName, "access-control-") {
+		return false
+	}
+	// Nginx treats X-Accel-* response fields as control instructions (for
+	// example, X-Accel-Redirect can trigger an internal redirect). Keep all of
+	// them gateway-owned rather than accepting commands from an AI upstream.
+	if strings.HasPrefix(headerName, "x-accel-") {
+		return false
+	}
+	if strings.HasPrefix(headerName, "sec-websocket-") {
 		return false
 	}
 	return true
 }
 
 // ShouldCopyUpstreamStreamHeader applies the additional exclusions required
-// when an adaptor parses and re-encodes an upstream response as SSE.
+// whenever an adaptor parses and re-encodes an upstream response entity.
 func ShouldCopyUpstreamStreamHeader(c *gin.Context, k string, v []string) bool {
 	if !ShouldCopyUpstreamHeader(c, k, v) {
 		return false
 	}
 	switch strings.ToLower(strings.TrimSpace(k)) {
 	case "accept-ranges", "age", "cache-control", "content-digest",
-		"content-disposition", "content-encoding", "content-location",
+		"content-disposition", "content-encoding", "content-language", "content-location",
 		"content-md5", "content-range", "content-type", "digest", "etag",
 		"expires", "last-modified", "repr-digest", "vary", "x-accel-buffering":
 		return false
@@ -105,7 +138,72 @@ func ShouldCopyUpstreamStreamHeader(c *gin.Context, k string, v []string) bool {
 	}
 }
 
+// CopyUpstreamHeaders copies safe upstream response metadata into dst. When
+// transformed is true, representation metadata tied to the original upstream
+// body is excluded because the gateway is writing a different entity.
+func CopyUpstreamHeaders(c *gin.Context, dst, src http.Header, transformed bool) []string {
+	if dst == nil || src == nil {
+		return nil
+	}
+
+	connectionHeaderNames := make(map[string]struct{})
+	for _, value := range src.Values("Connection") {
+		for _, name := range strings.Split(value, ",") {
+			name = strings.ToLower(strings.TrimSpace(name))
+			if name != "" {
+				connectionHeaderNames[name] = struct{}{}
+			}
+		}
+	}
+
+	copiedNames := make([]string, 0, len(src))
+	for name, values := range src {
+		headerNameLower := strings.ToLower(strings.TrimSpace(name))
+		if _, declaredHopByHop := connectionHeaderNames[headerNameLower]; declaredHopByHop {
+			continue
+		}
+
+		var shouldCopy bool
+		if transformed {
+			shouldCopy = ShouldCopyUpstreamStreamHeader(c, name, values)
+		} else {
+			shouldCopy = ShouldCopyUpstreamHeader(c, name, values)
+		}
+		if !shouldCopy {
+			continue
+		}
+
+		copiedValues := make([]string, 0, len(values))
+		for _, value := range values {
+			if value != "" {
+				copiedValues = append(copiedValues, value)
+			}
+		}
+		if len(copiedValues) == 0 {
+			continue
+		}
+
+		canonicalName := http.CanonicalHeaderKey(name)
+		if len(dst.Values(canonicalName)) > 0 {
+			continue
+		}
+		dst[canonicalName] = copiedValues
+		copiedNames = append(copiedNames, canonicalName)
+	}
+	return copiedNames
+}
+
 func IOCopyBytesGracefully(c *gin.Context, src *http.Response, data []byte) {
+	ioCopyBytesGracefully(c, src, data, true)
+}
+
+// IOCopyRawBytesGracefully writes an unmodified upstream entity while
+// retaining safe representation metadata such as Content-Type and ETag.
+func IOCopyRawBytesGracefully(c *gin.Context, src *http.Response, data []byte) {
+	ioCopyBytesGracefully(c, src, data, false)
+}
+
+func ioCopyBytesGracefully(c *gin.Context, src *http.Response, data []byte, transformed bool) {
 	if c.Writer == nil {
 		return
 	}
@@ -117,12 +215,10 @@ func IOCopyBytesGracefully(c *gin.Context, src *http.Response, data []byte) {
 	// So the httpClient will be confused by the response.
 	// For example, Postman will report error, and we cannot check the response at all.
 	if src != nil {
-		for k, v := range src.Header {
-			if !ShouldCopyUpstreamHeader(c, k, v) {
-				continue
-			}
-			c.Writer.Header().Set(k, v[0])
-		}
+		CopyUpstreamHeaders(c, c.Writer.Header(), src.Header, transformed)
+	}
+	if transformed && c.Writer.Header().Get("Content-Type") == "" {
+		c.Writer.Header().Set("Content-Type", "application/json")
 	}
 
 	// set Content-Length header manually BEFORE calling WriteHeader

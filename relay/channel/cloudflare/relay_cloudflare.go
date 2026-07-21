@@ -30,13 +30,16 @@ func convertCf2CompletionsRequest(textRequest dto.GeneralOpenAIRequest) *CfReque
 }
 
 func cfStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*types.NewAPIError, *dto.Usage) {
+	defer service.CloseResponseBodyGracefully(resp)
 	scanner := helper.NewStreamScanner(resp.Body)
 	scanner.Split(bufio.ScanLines)
 
-	helper.SetEventStreamHeaders(c)
+	stopStream := helper.StartStreamSession(c, info, resp)
+	defer stopStream()
 	id := helper.GetResponseID(c)
 	var responseText string
 	isFirst := true
+	writeFailed := false
 
 	for scanner.Scan() {
 		data := scanner.Text()
@@ -69,23 +72,29 @@ func cfStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Res
 		}
 		if err != nil {
 			logger.LogError(c, "error_rendering_stream_response: "+err.Error())
+			writeFailed = true
+			break
 		}
 	}
 
 	if err := scanner.Err(); err != nil {
 		logger.LogError(c, "error_scanning_stream_response: "+err.Error())
+		writeFailed = true
 	}
 	usage := service.ResponseText2Usage(c, responseText, info.UpstreamModelName, info.GetEstimatePromptTokens())
+	if writeFailed {
+		return nil, usage
+	}
+	stopStream()
 	if info.ShouldIncludeUsage {
 		response := helper.GenerateFinalUsageResponse(id, info.StartTime.Unix(), info.UpstreamModelName, *usage)
 		err := helper.ObjectData(c, response)
 		if err != nil {
 			logger.LogError(c, "error_rendering_final_usage_response: "+err.Error())
+			return nil, usage
 		}
 	}
 	helper.Done(c)
-
-	service.CloseResponseBodyGracefully(resp)
 
 	return nil, usage
 }

@@ -2,7 +2,6 @@ package aws
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -23,11 +22,89 @@ import (
 
 	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/aws/aws-sdk-go-v2/aws"
+	awsmiddleware "github.com/aws/aws-sdk-go-v2/aws/middleware"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	bedrockruntimeTypes "github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
 	"github.com/aws/smithy-go/auth/bearer"
+	smithymiddleware "github.com/aws/smithy-go/middleware"
+	smithyhttp "github.com/aws/smithy-go/transport/http"
 )
+
+var awsSDKManagedHeadersLower = map[string]struct{}{
+	"authorization":       {},
+	"host":                {},
+	"content-length":      {},
+	"transfer-encoding":   {},
+	"connection":          {},
+	"keep-alive":          {},
+	"proxy-authenticate":  {},
+	"proxy-authorization": {},
+	"te":                  {},
+	"trailer":             {},
+	"upgrade":             {},
+	"expect":              {},
+	"cookie":              {},
+	"accept-encoding":     {},
+	"content-encoding":    {},
+	"content-type":        {},
+	"accept":              {},
+}
+
+// awsSDKOperationOptions converts resolved channel headers into SDK build
+// middleware. Build middleware runs before the Bedrock SDK's SigV4 signer, so
+// custom headers are included in the canonical request and cannot invalidate
+// the signature. Headers owned by the HTTP transport or signer are omitted.
+func awsSDKOperationOptions(headers http.Header) []func(*bedrockruntime.Options) {
+	if len(headers) == 0 {
+		return nil
+	}
+
+	apiOptions := make([]func(*smithymiddleware.Stack) error, 0, len(headers))
+	for name, values := range headers {
+		lowerName := strings.ToLower(strings.TrimSpace(name))
+		if lowerName == "" {
+			continue
+		}
+		if _, managed := awsSDKManagedHeadersLower[lowerName]; managed || strings.HasPrefix(lowerName, "x-amz-") {
+			continue
+		}
+		for index, value := range values {
+			if strings.TrimSpace(value) == "" {
+				continue
+			}
+			if index == 0 {
+				apiOptions = append(apiOptions, smithyhttp.SetHeaderValue(name, value))
+			} else {
+				apiOptions = append(apiOptions, smithyhttp.AddHeaderValue(name, value))
+			}
+		}
+	}
+	if len(apiOptions) == 0 {
+		return nil
+	}
+	return []func(*bedrockruntime.Options){bedrockruntime.WithAPIOptions(apiOptions...)}
+}
+
+func copyAwsResponseHeaders(c *gin.Context, info *relaycommon.RelayInfo, metadata smithymiddleware.Metadata) {
+	if c == nil || info == nil || info.ChannelMeta == nil || !info.ChannelSetting.PassThroughHeadersEnabled {
+		return
+	}
+
+	var response *http.Response
+	switch raw := awsmiddleware.GetRawResponse(metadata).(type) {
+	case *smithyhttp.Response:
+		if raw != nil {
+			response = raw.Response
+		}
+	case *http.Response:
+		response = raw
+	}
+	if response == nil {
+		return
+	}
+	helper.CopyUpstreamResponseHeaders(c, response)
+}
 
 // getAwsErrorStatusCode extracts HTTP status code from AWS SDK error
 func getAwsErrorStatusCode(err error) int {
@@ -40,11 +117,15 @@ func getAwsErrorStatusCode(err error) int {
 	return http.StatusInternalServerError
 }
 
-func newAwsInvokeContext() (context.Context, context.CancelFunc) {
-	if common.RelayTimeout <= 0 {
-		return context.Background(), func() {}
+func newAwsInvokeContextFor(c *gin.Context) (context.Context, context.CancelFunc) {
+	parent := context.Background()
+	if c != nil && c.Request != nil {
+		parent = c.Request.Context()
 	}
-	return context.WithTimeout(context.Background(), time.Duration(common.RelayTimeout)*time.Second)
+	if common.RelayTimeout <= 0 {
+		return context.WithCancel(parent)
+	}
+	return context.WithTimeout(parent, time.Duration(common.RelayTimeout)*time.Second)
 }
 
 func newAwsClient(c *gin.Context, info *relaycommon.RelayInfo) (*bedrockruntime.Client, error) {
@@ -89,6 +170,7 @@ func newAwsClient(c *gin.Context, info *relaycommon.RelayInfo) (*bedrockruntime.
 }
 
 func doAwsClientRequest(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor, requestBody io.Reader) (any, error) {
+	helper.ResetUpstreamResponseHeaders(c)
 	awsCli, err := newAwsClient(c, info)
 	if err != nil {
 		return nil, types.NewError(err, types.ErrorCodeChannelAwsClientError)
@@ -114,6 +196,7 @@ func doAwsClientRequest(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor,
 	for key, value := range headerOverride {
 		requestHeader.Set(key, value)
 	}
+	a.RequestHeaders = requestHeader.Clone()
 
 	if isNovaModel(awsModelId) {
 		var novaReq *NovaRequest
@@ -223,14 +306,19 @@ func getAwsModelID(requestModel string) string {
 
 func awsHandler(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor) (*types.NewAPIError, *dto.Usage) {
 
-	ctx, cancel := newAwsInvokeContext()
+	ctx, cancel := newAwsInvokeContextFor(c)
 	defer cancel()
 
-	awsResp, err := a.AwsClient.InvokeModel(ctx, a.AwsReq.(*bedrockruntime.InvokeModelInput))
+	awsResp, err := a.AwsClient.InvokeModel(
+		ctx,
+		a.AwsReq.(*bedrockruntime.InvokeModelInput),
+		awsSDKOperationOptions(a.RequestHeaders)...,
+	)
 	if err != nil {
 		statusCode := getAwsErrorStatusCode(err)
 		return types.NewOpenAIError(errors.Wrap(err, "InvokeModel"), types.ErrorCodeAwsInvokeError, statusCode), nil
 	}
+	copyAwsResponseHeaders(c, info, awsResp.ResultMetadata)
 
 	claudeInfo := &claude.ClaudeResponseInfo{
 		ResponseId:   helper.GetResponseID(c),
@@ -253,16 +341,27 @@ func awsHandler(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor) (*types
 }
 
 func awsStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor) (*types.NewAPIError, *dto.Usage) {
-	ctx, cancel := newAwsInvokeContext()
+	ctx, cancel := newAwsInvokeContextFor(c)
 	defer cancel()
 
-	awsResp, err := a.AwsClient.InvokeModelWithResponseStream(ctx, a.AwsReq.(*bedrockruntime.InvokeModelWithResponseStreamInput))
+	awsResp, err := a.AwsClient.InvokeModelWithResponseStream(
+		ctx,
+		a.AwsReq.(*bedrockruntime.InvokeModelWithResponseStreamInput),
+		awsSDKOperationOptions(a.RequestHeaders)...,
+	)
 	if err != nil {
 		statusCode := getAwsErrorStatusCode(err)
 		return types.NewOpenAIError(errors.Wrap(err, "InvokeModelWithResponseStream"), types.ErrorCodeAwsInvokeError, statusCode), nil
 	}
+	copyAwsResponseHeaders(c, info, awsResp.ResultMetadata)
 	stream := awsResp.GetStream()
 	defer stream.Close()
+	downstreamAborted := make(chan struct{})
+	stopStream := helper.StartStreamSessionWithAbort(c, info, nil, func() {
+		close(downstreamAborted)
+		cancel()
+	})
+	defer stopStream()
 
 	claudeInfo := &claude.ClaudeResponseInfo{
 		ResponseId:   helper.GetResponseID(c),
@@ -278,6 +377,11 @@ func awsStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor) (
 			info.SetFirstResponseTime()
 			respErr := claude.HandleStreamResponseData(c, info, claudeInfo, string(v.Value.Bytes))
 			if respErr != nil {
+				if helper.IsStreamWriteError(respErr) {
+					stopStream()
+					claude.FinalizeStreamUsage(c, info, claudeInfo)
+					return nil, claudeInfo.Usage
+				}
 				return respErr, nil
 			}
 		case *bedrockruntimeTypes.UnknownUnionMember:
@@ -289,6 +393,24 @@ func awsStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor) (
 		}
 	}
 
+	downstreamGone := c != nil && c.Request != nil && c.Request.Context().Err() != nil
+	select {
+	case <-downstreamAborted:
+		downstreamGone = true
+	default:
+	}
+	if downstreamGone {
+		stopStream()
+		claude.FinalizeStreamUsage(c, info, claudeInfo)
+		return nil, claudeInfo.Usage
+	}
+	if err := stream.Err(); err != nil {
+		stopStream()
+		statusCode := getAwsErrorStatusCode(err)
+		return types.NewOpenAIError(errors.Wrap(err, "InvokeModelWithResponseStream"), types.ErrorCodeAwsInvokeError, statusCode), nil
+	}
+
+	stopStream()
 	claude.HandleStreamFinalResponse(c, info, claudeInfo)
 	return nil, claudeInfo.Usage
 }
@@ -296,14 +418,19 @@ func awsStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor) (
 // Nova模型处理函数
 func handleNovaRequest(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor) (*types.NewAPIError, *dto.Usage) {
 
-	ctx, cancel := newAwsInvokeContext()
+	ctx, cancel := newAwsInvokeContextFor(c)
 	defer cancel()
 
-	awsResp, err := a.AwsClient.InvokeModel(ctx, a.AwsReq.(*bedrockruntime.InvokeModelInput))
+	awsResp, err := a.AwsClient.InvokeModel(
+		ctx,
+		a.AwsReq.(*bedrockruntime.InvokeModelInput),
+		awsSDKOperationOptions(a.RequestHeaders)...,
+	)
 	if err != nil {
 		statusCode := getAwsErrorStatusCode(err)
 		return types.NewOpenAIError(errors.Wrap(err, "InvokeModel"), types.ErrorCodeAwsInvokeError, statusCode), nil
 	}
+	copyAwsResponseHeaders(c, info, awsResp.ResultMetadata)
 
 	// 解析Nova响应
 	var novaResp struct {
@@ -321,7 +448,7 @@ func handleNovaRequest(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor) 
 		} `json:"usage"`
 	}
 
-	if err := json.Unmarshal(awsResp.Body, &novaResp); err != nil {
+	if err := common.Unmarshal(awsResp.Body, &novaResp); err != nil {
 		return types.NewError(errors.Wrap(err, "unmarshal nova response"), types.ErrorCodeBadResponseBody), nil
 	}
 

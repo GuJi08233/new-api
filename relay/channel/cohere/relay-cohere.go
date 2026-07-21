@@ -1,6 +1,7 @@
 package cohere
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -98,23 +99,49 @@ func cohereStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 		}
 		return 0, nil, nil
 	})
+	stopStream := helper.StartStreamSession(c, info, resp)
 	dataChan := make(chan string)
-	stopChan := make(chan bool)
+	requestCtx := context.Background()
+	if c.Request != nil {
+		requestCtx = c.Request.Context()
+	}
+	streamCtx, cancel := context.WithCancel(requestCtx)
+	workerDone := make(chan struct{})
+	var streamReadErr error
 	go func() {
+		defer close(workerDone)
+		defer close(dataChan)
 		for scanner.Scan() {
 			data := scanner.Text()
-			dataChan <- data
+			select {
+			case dataChan <- data:
+			case <-streamCtx.Done():
+				return
+			}
 		}
 		if err := scanner.Err(); err != nil {
+			streamReadErr = err
 			common.SysLog("error reading stream: " + err.Error())
 		}
-		stopChan <- true
 	}()
-	helper.SetEventStreamHeaders(c)
+	defer func() {
+		cancel()
+		service.CloseResponseBodyGracefully(resp)
+		<-workerDone
+	}()
+	defer stopStream()
+	clientGone := c.Writer.CloseNotify()
 	isFirst := true
-	c.Stream(func(w io.Writer) bool {
+	streamCompleted := false
+
+streamLoop:
+	for {
 		select {
-		case data := <-dataChan:
+		case data, ok := <-dataChan:
+			if !ok {
+				streamCompleted = true
+				break streamLoop
+			}
 			if isFirst {
 				isFirst = false
 				info.FirstResponseTime = time.Now()
@@ -124,7 +151,7 @@ func cohereStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 			err := json.Unmarshal([]byte(data), &cohereResp)
 			if err != nil {
 				common.SysLog("error unmarshalling stream response: " + err.Error())
-				return true
+				continue
 			}
 			var openaiResp dto.ChatCompletionsStreamResponse
 			openaiResp.Id = responseId
@@ -159,17 +186,23 @@ func cohereStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 			jsonStr, err := json.Marshal(openaiResp)
 			if err != nil {
 				common.SysLog("error marshalling stream response: " + err.Error())
-				return true
+				continue
 			}
-			c.Render(-1, common.CustomEvent{Data: "data: " + string(jsonStr)})
-			return true
-		case <-stopChan:
-			c.Render(-1, common.CustomEvent{Data: "data: [DONE]"})
-			return false
+			if err := helper.StringData(c, string(jsonStr)); err != nil {
+				break streamLoop
+			}
+		case <-streamCtx.Done():
+			break streamLoop
+		case <-clientGone:
+			break streamLoop
 		}
-	})
+	}
 	if usage.PromptTokens == 0 {
 		usage = service.ResponseText2Usage(c, responseText, info.UpstreamModelName, info.GetEstimatePromptTokens())
+	}
+	if streamCompleted && streamReadErr == nil {
+		stopStream()
+		helper.Done(c)
 	}
 	return usage, nil
 }

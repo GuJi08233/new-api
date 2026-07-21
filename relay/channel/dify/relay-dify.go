@@ -14,6 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/relay/channel"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
@@ -88,17 +89,29 @@ func uploadDifyFile(c *gin.Context, info *relaycommon.RelayInfo, user string, me
 		writer.Close()
 
 		// Create HTTP request
-		req, err := http.NewRequest("POST", uploadUrl, body)
+		req, err := http.NewRequestWithContext(c.Request.Context(), "POST", uploadUrl, body)
 		if err != nil {
 			common.SysLog("failed to create request: " + err.Error())
 			return nil
 		}
 
-		req.Header.Set("Content-Type", writer.FormDataContentType())
+		formContentType := writer.FormDataContentType()
+		req.Header.Set("Content-Type", formContentType)
 		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", info.ApiKey))
+		if err := channel.ApplyHeaderOverrideToRequest(info, c, req); err != nil {
+			common.SysLog("failed to apply upload header override: " + err.Error())
+			return nil
+		}
+		// The upload body owns its multipart boundary. Header overrides may add
+		// custom authentication/metadata, but cannot change the entity framing.
+		req.Header.Set("Content-Type", formContentType)
 
 		// Send request
-		client := service.GetHttpClient()
+		client, err := service.GetHttpClientWithProxy(info.ChannelSetting.Proxy)
+		if err != nil {
+			common.SysLog("failed to create upload client: " + err.Error())
+			return nil
+		}
 		resp, err := client.Do(req)
 		if err != nil {
 			common.SysLog("failed to send request: " + err.Error())
@@ -227,6 +240,7 @@ func difyStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.R
 	var responseText string
 	usage := &dto.Usage{}
 	var nodeToken int
+	streamFailed := false
 	helper.SetEventStreamHeaders(c)
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
 		var difyResponse DifyChunkChatCompletionResponse
@@ -240,6 +254,7 @@ func difyStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.R
 			sr.Done()
 			return
 		} else if difyResponse.Event == "error" {
+			streamFailed = true
 			sr.Stop(fmt.Errorf("dify error event"))
 			return
 		}
@@ -252,10 +267,15 @@ func difyStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.R
 		}
 		if err := helper.ObjectData(c, openaiResponse); err != nil {
 			common.SysLog(err.Error())
-			sr.Error(err)
+			streamFailed = true
+			sr.Stop(err)
+			return
 		}
 	})
-	helper.Done(c)
+	if !streamFailed && info.StreamStatus != nil &&
+		(info.StreamStatus.EndReason == relaycommon.StreamEndReasonDone || info.StreamStatus.EndReason == relaycommon.StreamEndReasonEOF) {
+		helper.Done(c)
+	}
 	if usage.TotalTokens == 0 {
 		usage = service.ResponseText2Usage(c, responseText, info.UpstreamModelName, info.GetEstimatePromptTokens())
 	}
