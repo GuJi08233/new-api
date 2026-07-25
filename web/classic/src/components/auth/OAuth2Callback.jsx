@@ -90,15 +90,18 @@ const OAuth2Callback = (props) => {
 
     const code = searchParams.get('code');
     const state = searchParams.get('state');
+    const isOpenID = searchParams.get('openid.mode');
 
-    // 参数缺失直接返回
-    if (!code) {
+    if (isOpenID) {
+      // Steam OpenID: 整个 query string 作为 code，state 从 URL 中提取
+      const rawQuery = window.location.search.substring(1);
+      sendCode(rawQuery, state);
+    } else if (code) {
+      sendCode(code, state);
+    } else {
       showError(t('未获取到授权码'));
       navigate('/console/personal');
-      return;
     }
-
-    sendCode(code, state);
   }, []);
 
   return <Loading />;

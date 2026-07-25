@@ -109,6 +109,8 @@ const SystemSetting = () => {
     LinuxDOClientId: '',
     LinuxDOClientSecret: '',
     LinuxDOMinimumTrustLevel: '',
+    SteamOAuthEnabled: '',
+    SteamWebApiKey: '',
     ServerAddress: '',
     // SSRF防护配置
     'fetch_setting.enable_ssrf_protection': true,
@@ -653,6 +655,24 @@ const SystemSetting = () => {
     }
   };
 
+  const submitSteamOAuth = async () => {
+    const options = [];
+
+    if (
+      originInputs['SteamWebApiKey'] !== inputs.SteamWebApiKey &&
+      inputs.SteamWebApiKey !== ''
+    ) {
+      options.push({
+        key: 'SteamWebApiKey',
+        value: inputs.SteamWebApiKey,
+      });
+    }
+
+    if (options.length > 0) {
+      await updateOptions(options);
+    }
+  };
+
   const submitPasskeySettings = async () => {
     // 使用formApi直接获取当前表单值
     const formValues = formApiRef.current?.getValues() || {};
@@ -1086,6 +1106,15 @@ const SystemSetting = () => {
                         }
                       >
                         {t('允许通过 Linux DO 账户登录 & 注册')}
+                      </Form.Checkbox>
+                      <Form.Checkbox
+                        field='SteamOAuthEnabled'
+                        noLabel
+                        onChange={(e) =>
+                          handleCheckboxChange('SteamOAuthEnabled', e)
+                        }
+                      >
+                        {t('允许通过 Steam 账户登录 & 注册')}
                       </Form.Checkbox>
                       <Form.Checkbox
                         field='WeChatAuthEnabled'
@@ -1648,6 +1677,46 @@ const SystemSetting = () => {
                   </Row>
                   <Button onClick={submitLinuxDOOAuth}>
                     {t('保存 Linux DO OAuth 设置')}
+                  </Button>
+                </Form.Section>
+              </Card>
+              <Card>
+                <Form.Section text={t('配置 Steam OpenID')}>
+                  <Text>
+                    {t('用以支持通过 Steam 进行登录注册')}
+                    <a
+                      href='https://steamcommunity.com/dev/apikey'
+                      target='_blank'
+                      rel='noreferrer'
+                      style={{
+                        display: 'inline-block',
+                        marginLeft: 4,
+                        marginRight: 4,
+                      }}
+                    >
+                      {t('点击此处')}
+                    </a>
+                    {t('获取你的 Steam Web API Key')}
+                  </Text>
+                  <Banner
+                    type='info'
+                    description={`${t('回调 URL 填')} ${inputs.ServerAddress ? inputs.ServerAddress : t('网站地址')}/oauth/steam`}
+                    style={{ marginBottom: 20, marginTop: 16 }}
+                  />
+                  <Row
+                    gutter={{ xs: 8, sm: 16, md: 24, lg: 24, xl: 24, xxl: 24 }}
+                  >
+                    <Col xs={24} sm={24} md={24} lg={24} xl={24}>
+                      <Form.Input
+                        field='SteamWebApiKey'
+                        label={t('Steam Web API Key')}
+                        type='password'
+                        placeholder={t('敏感信息不会发送到前端显示')}
+                      />
+                    </Col>
+                  </Row>
+                  <Button onClick={submitSteamOAuth}>
+                    {t('保存 Steam 设置')}
                   </Button>
                 </Form.Section>
               </Card>

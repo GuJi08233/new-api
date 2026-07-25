@@ -47,6 +47,7 @@ type User struct {
 	InviterId        int                        `json:"inviter_id" gorm:"type:int;column:inviter_id;index"`
 	DeletedAt        gorm.DeletedAt             `gorm:"index"`
 	LinuxDOId        string                     `json:"linux_do_id" gorm:"column:linux_do_id;index"`
+	SteamOpenId      string                     `json:"steam_openid" gorm:"column:steam_openid;index"`
 	Setting          string                     `json:"setting" gorm:"type:text;column:setting"`
 	Remark           string                     `json:"remark,omitempty" gorm:"type:varchar(255)" validate:"max=255"`
 	StripeCustomer   string                     `json:"stripe_customer" gorm:"type:varchar(64);column:stripe_customer;index"`
@@ -731,6 +732,7 @@ func (user *User) ClearBinding(bindingType string) error {
 		"wechat":   "wechat_id",
 		"telegram": "telegram_id",
 		"linuxdo":  "linux_do_id",
+		"steam":    "steam_openid",
 	}
 
 	column, ok := bindingColumnMap[bindingType]
@@ -1269,6 +1271,20 @@ func (user *User) FillUserByLinuxDOId() error {
 		return errors.New("linux do id is empty")
 	}
 	err := DB.Where("linux_do_id = ?", user.LinuxDOId).First(user).Error
+	return err
+}
+
+func IsSteamOpenIdAlreadyTaken(steamOpenId string) bool {
+	var user User
+	err := DB.Unscoped().Where("steam_openid = ?", steamOpenId).First(&user).Error
+	return !errors.Is(err, gorm.ErrRecordNotFound)
+}
+
+func (user *User) FillUserBySteamOpenId() error {
+	if user.SteamOpenId == "" {
+		return errors.New("steam openid is empty")
+	}
+	err := DB.Where("steam_openid = ?", user.SteamOpenId).First(user).Error
 	return err
 }
 

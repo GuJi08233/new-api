@@ -322,6 +322,23 @@ export async function onLinuxDOOAuthClicked(
   );
 }
 
+export async function onSteamOAuthClicked(options = { shouldLogout: false }) {
+  const state = await prepareOAuthState(options);
+  if (!state) return;
+  const returnTo = `${window.location.origin}/oauth/steam?state=${state}`;
+  const params = new URLSearchParams({
+    'openid.claimed_id': 'http://specs.openid.net/auth/2.0/identifier_select',
+    'openid.identity': 'http://specs.openid.net/auth/2.0/identifier_select',
+    'openid.mode': 'checkid_setup',
+    'openid.ns': 'http://specs.openid.net/auth/2.0',
+    'openid.realm': window.location.origin,
+    'openid.return_to': returnTo,
+  });
+  redirectToOAuthUrl(
+    `https://steamcommunity.com/openid/login?${params.toString()}`,
+  );
+}
+
 /**
  * Initiate custom OAuth login
  * @param {Object} provider - Custom OAuth provider config from status API
