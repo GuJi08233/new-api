@@ -39,7 +39,7 @@ import {
   IconLock,
   IconDelete,
 } from '@douyinfe/semi-icons';
-import { SiTelegram, SiWechat, SiLinux, SiDiscord } from 'react-icons/si';
+import { SiTelegram, SiWechat, SiLinux, SiDiscord, SiSteam } from 'react-icons/si';
 import { UserPlus, ShieldCheck } from 'lucide-react';
 import TelegramLoginButton from 'react-telegram-login';
 import {
@@ -49,6 +49,7 @@ import {
   onGitHubOAuthClicked,
   onOIDCClicked,
   onLinuxDOOAuthClicked,
+  onSteamOAuthClicked,
   onDiscordOAuthClicked,
   onCustomOAuthClicked,
   getOAuthProviderIcon,
@@ -513,6 +514,45 @@ const AccountManagement = ({
                       }
                     >
                       {status.linuxdo_oauth ? t('绑定') : t('未启用')}
+                    </Button>
+                  </div>
+                </div>
+              </Card>
+
+              {/* Steam绑定 */}
+              <Card className='!rounded-xl'>
+                <div className='flex items-center justify-between gap-3'>
+                  <div className='flex items-center flex-1 min-w-0'>
+                    <div className='w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-700 flex items-center justify-center mr-3 flex-shrink-0'>
+                      <SiSteam
+                        size={20}
+                        className='text-slate-600 dark:text-slate-300'
+                      />
+                    </div>
+                    <div className='flex-1 min-w-0'>
+                      <div className='font-medium text-gray-900'>
+                        {t('Steam')}
+                      </div>
+                      <div className='text-sm text-gray-500 truncate'>
+                        {renderAccountInfo(
+                          userState.user?.steam_openid,
+                          t('Steam ID'),
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  <div className='flex-shrink-0'>
+                    <Button
+                      type='primary'
+                      theme='outline'
+                      size='small'
+                      onClick={() => onSteamOAuthClicked()}
+                      disabled={
+                        isBound(userState.user?.steam_openid) ||
+                        !status.steam_oauth
+                      }
+                    >
+                      {status.steam_oauth ? t('绑定') : t('未启用')}
                     </Button>
                   </div>
                 </div>

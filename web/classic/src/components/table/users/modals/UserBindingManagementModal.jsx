@@ -40,7 +40,7 @@ import {
   IconDelete,
   IconGithubLogo,
 } from '@douyinfe/semi-icons';
-import { SiDiscord, SiTelegram, SiWechat, SiLinux } from 'react-icons/si';
+import { SiDiscord, SiTelegram, SiWechat, SiLinux, SiSteam } from 'react-icons/si';
 
 const { Text } = Typography;
 
@@ -92,6 +92,7 @@ const UserBindingManagementModal = ({
           wechat_id: userData.wechat_id || '',
           telegram_id: userData.telegram_id || '',
           linux_do_id: userData.linux_do_id || '',
+          steam_openid: userData.steam_openid || '',
         });
       } else {
         showError(userRes.data?.message || t('操作失败'));
@@ -270,6 +271,16 @@ const UserBindingManagementModal = ({
       value: getBuiltInBindingValue('linux_do_id'),
       icon: (
         <SiLinux size={20} className='text-slate-600 dark:text-slate-300' />
+      ),
+    },
+    {
+      key: 'steam',
+      field: 'steam_openid',
+      name: 'Steam',
+      enabled: Boolean(statusInfo.steam_oauth),
+      value: getBuiltInBindingValue('steam_openid'),
+      icon: (
+        <SiSteam size={20} className='text-slate-600 dark:text-slate-300' />
       ),
     },
   ];
