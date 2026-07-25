@@ -68,6 +68,8 @@ func HandleOAuth(c *gin.Context) {
 		})
 		return
 	}
+	session.Delete("oauth_state")
+	session.Save()
 
 	// 2. Check if user is already logged in (bind flow)
 	username := session.Get("username")
