@@ -18,9 +18,9 @@ import (
 )
 
 const (
-	steamOpenIDEndpoint       = "https://steamcommunity.com/openid/login"
-	steamPlayerSummaryAPI     = "http://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/"
-	steamClaimedIDPattern     = `^https?://steamcommunity\.com/openid/id/(\d{15,25})$`
+	steamOpenIDEndpoint   = "https://steamcommunity.com/openid/login"
+	steamPlayerSummaryAPI = "https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/"
+	steamClaimedIDPattern = `^https?://steamcommunity\.com/openid/id/(\d{15,25})$`
 )
 
 func init() {
@@ -37,10 +37,10 @@ type steamPlayerSummaryResponse struct {
 }
 
 type steamPlayer struct {
-	SteamID      string `json:"steamid"`
-	PersonaName  string `json:"personaname"`
-	RealName     string `json:"realname"`
-	AvatarFull   string `json:"avatarfull"`
+	SteamID        string `json:"steamid"`
+	PersonaName    string `json:"personaname"`
+	RealName       string `json:"realname"`
+	AvatarFull     string `json:"avatarfull"`
 	LocCountryCode string `json:"loccountrycode"`
 }
 
@@ -75,9 +75,10 @@ func (p *SteamProvider) ExchangeToken(ctx context.Context, code string, c *gin.C
 		return nil, NewOAuthError(i18n.MsgOAuthInvalidCode, map[string]any{"Provider": "Steam"})
 	}
 
-	// Verify openid.return_to contains our callback path
+	// Verify openid.return_to points at our Steam callback path exactly.
+	// A substring check would accept crafted hosts like https://evil.com/x/oauth/steam.
 	returnTo := params.Get("openid.return_to")
-	if returnTo == "" || !strings.Contains(returnTo, "/oauth/steam") {
+	if parsedReturnTo, perr := url.Parse(returnTo); returnTo == "" || perr != nil || parsedReturnTo.Path != "/oauth/steam" {
 		logger.LogError(ctx, "[OAuth-Steam] ExchangeToken: invalid or missing openid.return_to")
 		return nil, NewOAuthError(i18n.MsgOAuthInvalidCode, map[string]any{"Provider": "Steam"})
 	}
@@ -127,7 +128,20 @@ func (p *SteamProvider) ExchangeToken(ctx context.Context, code string, c *gin.C
 		return nil, NewOAuthError(i18n.MsgOAuthTokenFailed, map[string]any{"Provider": "Steam"})
 	}
 
-	// Extract Steam ID from openid.claimed_id
+	// Extract Steam ID from openid.claimed_id. It must be one of the signed
+	// fields, otherwise Steam's signature does not cover it and it could be forged.
+	claimedIDSigned := false
+	for _, field := range signedFields {
+		if strings.TrimSpace(field) == "claimed_id" {
+			claimedIDSigned = true
+			break
+		}
+	}
+	if !claimedIDSigned {
+		logger.LogError(ctx, "[OAuth-Steam] ExchangeToken: claimed_id not covered by signature")
+		return nil, NewOAuthError(i18n.MsgOAuthInvalidCode, map[string]any{"Provider": "Steam"})
+	}
+
 	claimedID := params.Get("openid.claimed_id")
 	re := regexp.MustCompile(steamClaimedIDPattern)
 	matches := re.FindStringSubmatch(claimedID)
@@ -200,8 +214,8 @@ func (p *SteamProvider) GetUserInfo(ctx context.Context, token *OAuthToken) (*OA
 		Username:       "",
 		DisplayName:    player.PersonaName,
 		Extra: map[string]any{
-			"avatar":      player.AvatarFull,
-			"persona":     player.PersonaName,
+			"avatar":  player.AvatarFull,
+			"persona": player.PersonaName,
 		},
 	}, nil
 }

@@ -45,7 +45,7 @@ const OAuth2Callback = (props) => {
   const sendCode = async (code, state, retry = 0) => {
     try {
       const { data: resData } = await API.get(
-        `/api/oauth/${props.type}?code=${code}&state=${state}`,
+        `/api/oauth/${props.type}?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}`,
       );
 
       const { success, message, data } = resData;
