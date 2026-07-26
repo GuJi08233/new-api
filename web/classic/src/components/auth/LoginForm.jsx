@@ -193,7 +193,7 @@ const LoginForm = () => {
     setWechatCodeSubmitLoading(true);
     try {
       const res = await API.get(
-        `/api/oauth/wechat?code=${inputs.wechat_verification_code}`,
+        `/api/oauth/wechat?code=${encodeURIComponent(inputs.wechat_verification_code)}`,
       );
       const { success, message, data } = res.data;
       if (success) {
@@ -232,7 +232,7 @@ const LoginForm = () => {
     try {
       if (username && password) {
         const res = await API.post(
-          `/api/user/login?turnstile=${turnstileToken}`,
+          `/api/user/login?turnstile=${encodeURIComponent(turnstileToken)}`,
           {
             username,
             password,

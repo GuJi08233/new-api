@@ -23,13 +23,20 @@ import { history } from './history';
 
 export function authHeader() {
   // return authorization header with jwt token
-  let user = JSON.parse(localStorage.getItem('user'));
+  const raw = localStorage.getItem('user');
+  if (!raw) return {};
 
-  if (user && user.token) {
-    return { Authorization: 'Bearer ' + user.token };
-  } else {
-    return {};
+  try {
+    const user = JSON.parse(raw);
+    if (user && user.token) {
+      return { Authorization: 'Bearer ' + user.token };
+    }
+  } catch (e) {
+    console.error('[localStorage] corrupted user entry, clearing:', e);
+    localStorage.removeItem('user');
   }
+
+  return {};
 }
 
 export const AuthRedirect = ({ children }) => {

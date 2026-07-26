@@ -20,7 +20,12 @@ For commercial licensing, please contact support@quantumnous.com
 import React, { useEffect, useState, useMemo, useContext } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Typography } from '@douyinfe/semi-ui';
-import { getFooterHTML, getLogo, getSystemName } from '../../helpers';
+import {
+  getFooterHTML,
+  getLogo,
+  getSystemName,
+  sanitizeRichHTML,
+} from '../../helpers';
 import { StatusContext } from '../../context/Status';
 
 const FooterBar = () => {
@@ -225,7 +230,7 @@ const FooterBar = () => {
           <div className='flex flex-col md:flex-row items-center justify-between w-full max-w-[1110px] gap-4'>
             <div
               className='custom-footer na-cb6feafeb3990c78 text-sm !text-semi-color-text-1'
-              dangerouslySetInnerHTML={{ __html: footer }}
+              dangerouslySetInnerHTML={{ __html: sanitizeRichHTML(footer) }}
             ></div>
             <div className='text-sm flex-shrink-0'>
               <span className='!text-semi-color-text-1'>

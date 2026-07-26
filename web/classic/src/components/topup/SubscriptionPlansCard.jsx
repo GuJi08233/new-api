@@ -36,6 +36,7 @@ import {
   showSuccess,
   showInfo,
   renderQuota,
+  openExternal,
 } from '../../helpers';
 import { getCurrencyConfig } from '../../helpers/render';
 import { RefreshCw, Sparkles } from 'lucide-react';
@@ -197,7 +198,7 @@ const SubscriptionPlansCard = ({
         plan_id: selectedPlan.plan.id,
       });
       if (res.data?.message === 'success') {
-        window.open(res.data.data?.pay_link, '_blank');
+        openExternal(res.data.data?.pay_link);
         showSuccess(t('已创建订单并打开支付页面，可在账单继续支付'));
         closeBuy();
       } else {
@@ -225,7 +226,7 @@ const SubscriptionPlansCard = ({
         plan_id: selectedPlan.plan.id,
       });
       if (res.data?.message === 'success') {
-        window.open(res.data.data?.checkout_url, '_blank');
+        openExternal(res.data.data?.checkout_url);
         showSuccess(t('已创建订单并打开支付页面，可在账单继续支付'));
         closeBuy();
       } else {

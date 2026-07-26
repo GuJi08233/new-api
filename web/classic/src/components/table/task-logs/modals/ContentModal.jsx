@@ -21,6 +21,7 @@ import React, { useState, useEffect } from 'react';
 import { Modal, Button, Typography, Spin } from '@douyinfe/semi-ui';
 import { IconExternalOpen, IconCopy } from '@douyinfe/semi-icons';
 import { useTranslation } from 'react-i18next';
+import { openExternal } from '../../../../helpers';
 
 const { Text } = Typography;
 
@@ -55,7 +56,8 @@ const ContentModal = ({
   };
 
   const handleOpenInNewTab = () => {
-    window.open(modalContent, '_blank');
+    // modalContent 来自任务日志（上游返回），需要做协议白名单校验并阻断反向 tabnabbing。
+    openExternal(modalContent);
   };
 
   const renderVideoContent = () => {

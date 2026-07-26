@@ -27,23 +27,38 @@ import {
 } from '../constants/playground.constants';
 import { TABLE_COMPACT_MODES_KEY } from '../constants';
 import { MOBILE_BREAKPOINT } from '../hooks/common/useIsMobile';
+import { sanitizeRichHTML } from './sanitize';
 
 const HTMLToastContent = ({ htmlContent }) => {
-  return <div dangerouslySetInnerHTML={{ __html: htmlContent }} />;
+  return <div dangerouslySetInnerHTML={{ __html: sanitizeRichHTML(htmlContent) }} />;
 };
 export default HTMLToastContent;
+
+// 读取并解析 localStorage 中的 user。
+// 内容损坏时必须自愈：该函数在 helpers/api.js 的模块顶层被调用，
+// 一旦抛错整个模块初始化失败，页面直接白屏且用户没有任何恢复入口。
+function readStoredUser() {
+  const raw = localStorage.getItem('user');
+  if (!raw) return null;
+
+  try {
+    const user = JSON.parse(raw);
+    return user && typeof user === 'object' ? user : null;
+  } catch (e) {
+    console.error('[localStorage] corrupted user entry, clearing:', e);
+    localStorage.removeItem('user');
+    return null;
+  }
+}
+
 export function isAdmin() {
-  let user = localStorage.getItem('user');
-  if (!user) return false;
-  user = JSON.parse(user);
-  return user.role >= 10;
+  const user = readStoredUser();
+  return user ? user.role >= 10 : false;
 }
 
 export function isRoot() {
-  let user = localStorage.getItem('user');
-  if (!user) return false;
-  user = JSON.parse(user);
-  return user.role >= 100;
+  const user = readStoredUser();
+  return user ? user.role >= 100 : false;
 }
 
 export function getSystemName() {
@@ -59,10 +74,8 @@ export function getLogo() {
 }
 
 export function getUserIdFromLocalStorage() {
-  let user = localStorage.getItem('user');
-  if (!user) return -1;
-  user = JSON.parse(user);
-  return user.id;
+  const user = readStoredUser();
+  return user?.id ?? -1;
 }
 
 export function getFooterHTML() {
@@ -122,7 +135,9 @@ if (isMobileScreen) {
 export function showError(error) {
   console.error(error);
   if (error.message) {
-    if (error.name === 'AxiosError') {
+    // 网络中断 / 请求被取消时 error.response 为 undefined，
+    // 直接读 .status 会在全局错误处理里再抛一次错。
+    if (error.name === 'AxiosError' && error.response) {
       switch (error.response.status) {
         case 401:
           // 清除用户状态
@@ -171,7 +186,7 @@ export function showNotice(message, isHTML = false) {
 }
 
 export function openPage(url) {
-  window.open(url);
+  window.open(url, '_blank', 'noopener,noreferrer');
 }
 
 export function removeTrailingSlash(url) {

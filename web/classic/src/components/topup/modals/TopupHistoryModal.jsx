@@ -35,7 +35,7 @@ import {
 } from '@douyinfe/semi-illustrations';
 import { Coins } from 'lucide-react';
 import { IconSearch } from '@douyinfe/semi-icons';
-import { API, timestamp2string } from '../../../helpers';
+import { API, openExternal, timestamp2string } from '../../../helpers';
 import { isAdmin } from '../../../helpers/utils';
 import { useIsMobile } from '../../../hooks/common/useIsMobile';
 const { Text } = Typography;
@@ -264,7 +264,7 @@ const TopupHistoryModal = ({ visible, onCancel, t }) => {
   const handleContinueSubscriptionOrder = (record) => {
     if (!record) return;
     if (record.resume_type === 'url' && record.resume_url) {
-      window.open(record.resume_url, '_blank');
+      openExternal(record.resume_url);
       return;
     }
     if (record.resume_type === 'form' && record.resume_url) {

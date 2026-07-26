@@ -27,6 +27,7 @@ import {
   IllustrationConstructionDark,
 } from '@douyinfe/semi-illustrations';
 import ScrollableContainer from '../common/ui/ScrollableContainer';
+import { sanitizeRichHTML } from '../../helpers';
 
 const FaqPanel = ({
   faqData,
@@ -62,7 +63,7 @@ const FaqPanel = ({
               >
                 <div
                   dangerouslySetInnerHTML={{
-                    __html: marked.parse(item.answer || ''),
+                    __html: sanitizeRichHTML(marked.parse(item.answer || '')),
                   }}
                 />
               </Collapse.Panel>

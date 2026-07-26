@@ -17,23 +17,28 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useTokenKeys } from '../../hooks/chat/useTokenKeys';
 
 const chat2page = () => {
-  const { keys, chatLink, serverAddress, isLoading } = useTokenKeys();
+  const { tokenKey, serverAddress, isLoading } = useTokenKeys();
 
-  const comLink = (key) => {
-    if (!chatLink || !serverAddress || !key) return '';
-    return `${chatLink}/#/?settings={"key":"sk-${key}","url":"${encodeURIComponent(serverAddress)}"}`;
-  };
+  // 跳转是副作用，必须放进 useEffect：
+  // 直接写在渲染函数体里会在 React 严格模式的重复渲染中被执行多次。
+  useEffect(() => {
+    if (isLoading || !tokenKey || !serverAddress) return;
 
-  if (keys.length > 0) {
-    const redirectLink = comLink(keys[0]);
-    if (redirectLink) {
-      window.location.href = redirectLink;
+    let chatLink = '';
+    try {
+      const status = JSON.parse(localStorage.getItem('status') || '{}');
+      chatLink = status?.chat_link || '';
+    } catch (e) {
+      console.error('Failed to parse status from localStorage:', e);
     }
-  }
+    if (!chatLink) return;
+
+    window.location.href = `${chatLink}/#/?settings={"key":"sk-${tokenKey}","url":"${encodeURIComponent(serverAddress)}"}`;
+  }, [isLoading, tokenKey, serverAddress]);
 
   return (
     <div className='mt-[60px] px-2'>

@@ -1132,6 +1132,10 @@ export function renderQuotaWithAmount(amount) {
   return '$' + formattedAmount;
 }
 
+// 与后端 setting/operation_setting.USDExchangeRate 的默认值保持一致。
+// 该常量必须被所有货币换算入口共用，否则同一笔额度在不同组件里会显示出不同金额。
+const DEFAULT_USD_EXCHANGE_RATE = 7.3;
+
 /**
  * 获取当前货币配置信息
  * @returns {Object} - { symbol, rate, type }
@@ -1145,10 +1149,11 @@ export function getCurrencyConfig() {
 
   if (quotaDisplayType === 'CNY') {
     symbol = '¥';
+    rate = DEFAULT_USD_EXCHANGE_RATE;
     try {
       if (statusStr) {
         const s = JSON.parse(statusStr);
-        rate = s?.usd_exchange_rate || 7;
+        rate = s?.usd_exchange_rate || DEFAULT_USD_EXCHANGE_RATE;
       }
     } catch (e) {}
   } else if (quotaDisplayType === 'CUSTOM') {
@@ -1184,33 +1189,9 @@ export function renderQuota(quota, digits = 2) {
     return renderNumber(quota);
   }
   const resultUSD = quota / quotaPerUnit;
-  let symbol = '$';
-  let value = resultUSD;
-  if (quotaDisplayType === 'CNY') {
-    const statusStr = localStorage.getItem('status');
-    let usdRate = 1;
-    try {
-      if (statusStr) {
-        const s = JSON.parse(statusStr);
-        usdRate = s?.usd_exchange_rate || 1;
-      }
-    } catch (e) {}
-    value = resultUSD * usdRate;
-    symbol = '¥';
-  } else if (quotaDisplayType === 'CUSTOM') {
-    const statusStr = localStorage.getItem('status');
-    let symbolCustom = '¤';
-    let rate = 1;
-    try {
-      if (statusStr) {
-        const s = JSON.parse(statusStr);
-        symbolCustom = s?.custom_currency_symbol || symbolCustom;
-        rate = s?.custom_currency_exchange_rate || rate;
-      }
-    } catch (e) {}
-    value = resultUSD * rate;
-    symbol = symbolCustom;
-  }
+  // 复用 getCurrencyConfig，避免这里和它各自维护一套默认汇率而算出不同金额。
+  const { symbol, rate } = getCurrencyConfig();
+  const value = resultUSD * rate;
   const fixedResult = value.toFixed(digits);
   if (parseFloat(fixedResult) === 0 && quota > 0 && value > 0) {
     const minValue = Math.pow(10, -digits);
@@ -3346,6 +3327,19 @@ export function renderClaudeLogContent(opts) {
  * rehype 插件：将段落等文本节点拆分为逐词 <span>，并添加淡入动画 class。
  * 仅在流式渲染阶段使用，避免已渲染文字重复动画。
  */
+// Segmenter 构造开销较大，流式渲染下每个文本节点每帧都会走到这里，
+// 必须复用同一个实例，否则长回复时会明显掉帧。
+let wordSegmenter;
+function getWordSegmenter() {
+  if (wordSegmenter === undefined) {
+    wordSegmenter =
+      typeof Intl !== 'undefined' && typeof Intl.Segmenter === 'function'
+        ? new Intl.Segmenter('zh', { granularity: 'word' })
+        : null;
+  }
+  return wordSegmenter;
+}
+
 export function rehypeSplitWordsIntoSpans(options = {}) {
   const { previousContentLength = 0 } = options;
 
@@ -3364,9 +3358,8 @@ export function rehypeSplitWordsIntoSpans(options = {}) {
           if (child.type === 'text') {
             try {
               // 使用 Intl.Segmenter 精准拆分中英文及标点
-              const segmenter = new Intl.Segmenter('zh', {
-                granularity: 'word',
-              });
+              const segmenter = getWordSegmenter();
+              if (!segmenter) throw new Error('Intl.Segmenter unavailable');
               const segments = segmenter.segment(child.value);
 
               Array.from(segments)

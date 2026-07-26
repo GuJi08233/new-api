@@ -295,7 +295,9 @@ const EditTagModal = (props) => {
       if (!tag) return;
       setLoading(true);
       try {
-        const res = await API.get(`/api/channel/tag/models?tag=${tag}`);
+        const res = await API.get(
+          `/api/channel/tag/models?tag=${encodeURIComponent(tag)}`,
+        );
         if (res?.data?.success) {
           const models = res.data.data ? res.data.data.split(',') : [];
           handleInputChange('models', models);

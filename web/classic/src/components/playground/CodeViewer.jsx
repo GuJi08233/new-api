@@ -21,7 +21,7 @@ import React, { useState, useMemo, useCallback } from 'react';
 import { Button, Tooltip, Toast } from '@douyinfe/semi-ui';
 import { Copy, ChevronDown, ChevronUp } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { copy } from '../../helpers';
+import { copy, sanitizeHTML } from '../../helpers';
 
 const PERFORMANCE_CONFIG = {
   MAX_DISPLAY_LENGTH: 50000, // 最大显示字符数
@@ -218,7 +218,9 @@ const CodeViewer = ({ content, title, language = 'json' }) => {
   }, [displayContent, language, contentMetrics.isVeryLarge, isExpanded]);
 
   const renderedContent = useMemo(() => {
-    return linkifyHtml(highlightedContent);
+    // 内容已经过 escapeHtml，这里再净化一次兜底：
+    // 展示的是上游返回的原始请求/响应体，不应假设高亮与 linkify 的正则永远严密。
+    return sanitizeHTML(linkifyHtml(highlightedContent));
   }, [highlightedContent]);
 
   const handleCopy = useCallback(async () => {

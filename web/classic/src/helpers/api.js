@@ -26,41 +26,44 @@ import {
 import axios from 'axios';
 import { MESSAGE_ROLES } from '../constants/playground.constants';
 
-export let API = axios.create({
+export const API = axios.create({
   baseURL: import.meta.env.VITE_REACT_APP_SERVER_URL
     ? import.meta.env.VITE_REACT_APP_SERVER_URL
     : '',
   headers: {
-    'New-API-User': getUserIdFromLocalStorage(),
     'Cache-Control': 'no-store',
   },
 });
-
 
 function redirectToOAuthUrl(url, options = {}) {
   const { openInNewTab = false } = options;
   const targetUrl = typeof url === 'string' ? url : url.toString();
 
   if (openInNewTab) {
-    window.open(targetUrl, '_blank');
+    window.open(targetUrl, '_blank', 'noopener,noreferrer');
     return;
   }
 
   window.location.assign(targetUrl);
 }
 
-
 function patchAPIInstance(instance) {
   const originalGet = instance.get.bind(instance);
   const inFlightGetRequests = new Map();
 
+  // 去重键必须覆盖所有会改变请求语义或错误处理的配置，
+  // 否则并发的不同配置请求会共用同一个 promise：一方 abort 会连累另一方，
+  // skipErrorHandler 也可能被对方的设置覆盖掉。
   const genKey = (url, config = {}) => {
     const params = config.params ? JSON.stringify(config.params) : '{}';
-    return `${url}?${params}`;
+    const headers = config.headers ? JSON.stringify(config.headers) : '{}';
+    const skipErrorHandler = config.skipErrorHandler ? '1' : '0';
+    return `${url}?${params}|${headers}|${skipErrorHandler}`;
   };
 
   instance.get = (url, config = {}) => {
-    if (config?.disableDuplicate) {
+    // 带 AbortSignal 的请求不参与去重：取消一方会连带取消共享该 promise 的另一方。
+    if (config?.disableDuplicate || config?.signal) {
       return originalGet(url, config);
     }
 
@@ -80,19 +83,20 @@ function patchAPIInstance(instance) {
 
 patchAPIInstance(API);
 
-export function updateAPI() {
-  API = axios.create({
-    baseURL: import.meta.env.VITE_REACT_APP_SERVER_URL
-      ? import.meta.env.VITE_REACT_APP_SERVER_URL
-      : '',
-    headers: {
-      'New-API-User': getUserIdFromLocalStorage(),
-      'Cache-Control': 'no-store',
-    },
-  });
+// 用户标识通过 request 拦截器动态注入，实例本身永不重建。
+// 早期实现在每次登录后用 axios.create() 换掉整个实例，
+// 导致只在模块加载时注册过的 response 拦截器随旧实例一起丢失
+// （401 不再清理会话、429/500 全局提示失效）。
+API.interceptors.request.use((config) => {
+  const uid = getUserIdFromLocalStorage();
+  if (uid && uid !== -1) {
+    config.headers['New-API-User'] = uid;
+  }
+  return config;
+});
 
-  patchAPIInstance(API);
-}
+// 保留导出以兼容既有调用点：登录/登出后无需再重建实例，请求头会自动跟随 localStorage。
+export function updateAPI() {}
 
 API.interceptors.response.use(
   (response) => response,

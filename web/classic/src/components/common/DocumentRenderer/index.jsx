@@ -18,7 +18,13 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { API, showError } from '../../../helpers';
+import {
+  API,
+  showError,
+  isSafeExternalUrl,
+  sanitizeCSS,
+  sanitizeRichHTML,
+} from '../../../helpers';
 import { Empty, Card, Spin, Typography } from '@douyinfe/semi-ui';
 const { Title } = Typography;
 import {
@@ -28,15 +34,10 @@ import {
 import { useTranslation } from 'react-i18next';
 import MarkdownRenderer from '../markdown/MarkdownRenderer';
 
-// Check whether content is a URL.
-const isUrl = (content) => {
-  try {
-    new URL(content.trim());
-    return true;
-  } catch {
-    return false;
-  }
-};
+// Check whether content is a safe external URL.
+// 只有协议白名单内的 URL 才会被渲染成可点击链接卡片，
+// 否则 javascript: 之类的伪协议会被当成合法 URL 写进 href。
+const isUrl = (content) => isSafeExternalUrl(content?.trim?.());
 
 // Check whether content contains HTML.
 const isHtmlContent = (content) => {
@@ -46,17 +47,21 @@ const isHtmlContent = (content) => {
   return htmlTagRegex.test(content);
 };
 
-// Parse HTML content and extract inline styles.
-const sanitizeHtml = (html) => {
+// 净化 HTML 文档并抽取其中的内联样式。
+// 正文与样式都会被 DOMPurify 处理，因为文档内容来自 /api/option，
+// 一旦出现越权写入或低权限管理员角色，这里就是存储型 XSS 的落点。
+const parseHtmlDocument = (html) => {
   const tempDiv = document.createElement('div');
-  tempDiv.innerHTML = html;
+  tempDiv.innerHTML = sanitizeRichHTML(html);
 
-  const styles = Array.from(tempDiv.querySelectorAll('style'))
-    .map((style) => style.innerHTML)
-    .join('\n');
+  const styles = sanitizeCSS(
+    Array.from(tempDiv.querySelectorAll('style'))
+      .map((style) => style.textContent || '')
+      .join('\n'),
+  );
 
   const bodyContent = tempDiv.querySelector('body');
-  const content = bodyContent ? bodyContent.innerHTML : html;
+  const content = bodyContent ? bodyContent.innerHTML : tempDiv.innerHTML;
 
   return { content, styles };
 };
@@ -106,7 +111,7 @@ const DocumentRenderer = ({ apiEndpoint, title, cacheKey, emptyMessage }) => {
     if (!isHtmlContent(content)) {
       return { content: '', styles: '' };
     }
-    return sanitizeHtml(content);
+    return parseHtmlDocument(content);
   }, [content]);
 
   useEffect(() => {
@@ -126,7 +131,7 @@ const DocumentRenderer = ({ apiEndpoint, title, cacheKey, emptyMessage }) => {
         styleEl.type = 'text/css';
         document.head.appendChild(styleEl);
       }
-      styleEl.innerHTML = styles;
+      styleEl.textContent = styles;
     } else {
       const el = document.getElementById(styleId);
       if (el) el.remove();

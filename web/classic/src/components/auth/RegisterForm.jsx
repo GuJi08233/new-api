@@ -205,7 +205,7 @@ const RegisterForm = () => {
     setWechatCodeSubmitLoading(true);
     try {
       const res = await API.get(
-        `/api/oauth/wechat?code=${inputs.wechat_verification_code}`,
+        `/api/oauth/wechat?code=${encodeURIComponent(inputs.wechat_verification_code)}`,
       );
       const { success, message, data } = res.data;
       if (success) {
@@ -254,7 +254,7 @@ const RegisterForm = () => {
           inputs.invitation_code = invitationCodeInput;
         }
         const res = await API.post(
-          `/api/user/register?turnstile=${turnstileToken}`,
+          `/api/user/register?turnstile=${encodeURIComponent(turnstileToken)}`,
           inputs,
         );
         const { success, message } = res.data;
@@ -281,7 +281,7 @@ const RegisterForm = () => {
     setVerificationCodeLoading(true);
     try {
       const res = await API.get(
-        `/api/verification?email=${encodeURIComponent(inputs.email)}&turnstile=${turnstileToken}`,
+        `/api/verification?email=${encodeURIComponent(inputs.email)}&turnstile=${encodeURIComponent(turnstileToken)}`,
       );
       const { success, message } = res.data;
       if (success) {

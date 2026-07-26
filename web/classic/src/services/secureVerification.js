@@ -56,20 +56,6 @@ export class SecureVerificationService {
         passkeyResponse.data?.success &&
         passkeyResponse.data?.data?.enabled === true;
 
-      console.log('has2FA calculation:', {
-        success: twoFAResponse.data?.success,
-        dataExists: !!twoFAResponse.data?.data,
-        enabled: twoFAResponse.data?.data?.enabled,
-        result: has2FA,
-      });
-
-      console.log('hasPasskey calculation:', {
-        success: passkeyResponse.data?.success,
-        dataExists: !!passkeyResponse.data?.data,
-        enabled: passkeyResponse.data?.data?.enabled,
-        result: hasPasskey,
-      });
-
       const result = {
         has2FA,
         hasPasskey,

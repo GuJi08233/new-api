@@ -21,6 +21,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Modal, Typography, Tag, Button } from '@douyinfe/semi-ui';
 import { IconExternalOpen, IconCopy } from '@douyinfe/semi-icons';
 import { useTranslation } from 'react-i18next';
+import { openExternal } from '../../../../helpers';
 
 const { Text, Title } = Typography;
 
@@ -119,7 +120,7 @@ const AudioClipCard = ({ clip }) => {
             <Button
               size='small'
               icon={<IconExternalOpen />}
-              onClick={() => window.open(audioUrl, '_blank')}
+              onClick={() => openExternal(audioUrl)}
             >
               {t('在新标签页中打开')}
             </Button>

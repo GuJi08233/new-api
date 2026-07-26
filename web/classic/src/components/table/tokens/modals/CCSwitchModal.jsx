@@ -117,7 +117,8 @@ export default function CCSwitchModal({
       return;
     }
     const url = buildCCSwitchURL(app, name, models, 'sk-' + tokenKey);
-    window.open(url, '_blank');
+    // URL 由本地拼装且使用 ccswitch:// 自定义协议唤起桌面端，不走 openExternal 的 http(s) 白名单。
+    window.open(url, '_blank', 'noopener,noreferrer');
     onClose();
   };
 

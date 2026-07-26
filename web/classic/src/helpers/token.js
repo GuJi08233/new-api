@@ -48,26 +48,26 @@ export async function fetchTokenKeysBatch(tokenIds) {
 }
 
 /**
- * 获取可用的 token keys
- * @returns {Promise<string[]>} 返回 active 状态的不带 sk- 前缀的真实 token key 数组
+ * 获取第一个可用令牌的真实 key
+ *
+ * 只解密一个 key：调用方（聊天跳转）只需要一个凭据，
+ * 批量拉取会把用户所有令牌的明文 key 暴露在前端内存里，并随后拼进第三方站点 URL。
+ * @returns {Promise<string>} 不带 sk- 前缀的真实 token key，无可用令牌时返回空字符串
  */
-export async function fetchTokenKeys() {
+export async function fetchFirstActiveTokenKey() {
   try {
     const response = await API.get('/api/token/?p=1&size=10');
     const { success, data } = response.data;
     if (!success) throw new Error('Failed to fetch token keys');
 
     const tokenItems = Array.isArray(data) ? data : data.items || [];
-    const activeTokens = tokenItems.filter((token) => token.status === 1);
-    const keyResults = await Promise.allSettled(
-      activeTokens.map((token) => fetchTokenKey(token.id)),
-    );
-    return keyResults
-      .filter((result) => result.status === 'fulfilled' && result.value)
-      .map((result) => result.value);
+    const firstActive = tokenItems.find((token) => token.status === 1);
+    if (!firstActive) return '';
+
+    return await fetchTokenKey(firstActive.id);
   } catch (error) {
-    console.error('Error fetching token keys:', error);
-    return [];
+    console.error('Error fetching token key:', error);
+    return '';
   }
 }
 

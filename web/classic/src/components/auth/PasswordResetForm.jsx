@@ -91,7 +91,7 @@ const PasswordResetForm = () => {
     setDisableButton(true);
     setLoading(true);
     const res = await API.get(
-      `/api/reset_password?email=${email}&turnstile=${turnstileToken}`,
+      `/api/reset_password?email=${encodeURIComponent(email)}&turnstile=${encodeURIComponent(turnstileToken)}`,
     );
     const { success, message } = res.data;
     if (success) {

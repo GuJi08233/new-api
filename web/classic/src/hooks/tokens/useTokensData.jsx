@@ -257,7 +257,9 @@ export const useTokensData = (openFluentNotification, openCCSwitchModal) => {
       url = url.replaceAll('{key}', `sk-${fullKey}`);
     }
 
-    window.open(url, '_blank');
+    // 聊天客户端链接可能使用 cherrystudio:// / aionui:// 等自定义协议唤起桌面端，
+    // 不能套用 openExternal 的 http(s) 白名单，这里只补 noopener。
+    window.open(url, '_blank', 'noopener,noreferrer');
   };
 
   // Manage token function (delete, enable, disable)

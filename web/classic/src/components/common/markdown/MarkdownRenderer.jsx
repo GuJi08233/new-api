@@ -36,10 +36,12 @@ import { copy, rehypeSplitWordsIntoSpans } from '../../../helpers';
 import { IconCopy } from '@douyinfe/semi-icons';
 import { useTranslation } from 'react-i18next';
 
+// securityLevel 必须保持 'strict'：图表内容可能来自上游模型返回或提示词注入，
+// 'loose' 会跳过 URL 净化并允许 click 指令绑定全局函数，从而形成可点击 XSS。
 mermaid.initialize({
   startOnLoad: false,
   theme: 'default',
-  securityLevel: 'loose',
+  securityLevel: 'strict',
 });
 
 export function Mermaid(props) {

@@ -49,6 +49,7 @@ import {
   showError,
   showSuccess,
   copy,
+  openExternal,
   timestamp2string,
 } from '../../../../helpers';
 
@@ -573,7 +574,7 @@ const ViewLogsModal = ({ visible, onCancel, deployment, t }) => {
                           size='small'
                           theme='borderless'
                           onClick={() =>
-                            window.open(containerDetails.public_url, '_blank')
+                            openExternal(containerDetails.public_url)
                           }
                         />
                       </Tooltip>

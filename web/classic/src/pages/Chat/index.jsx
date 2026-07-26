@@ -26,7 +26,7 @@ import { useTranslation } from 'react-i18next';
 const ChatPage = () => {
   const { t } = useTranslation();
   const { id } = useParams();
-  const { keys, serverAddress, isLoading } = useTokenKeys(id);
+  const { tokenKey, serverAddress, isLoading } = useTokenKeys(id);
 
   const comLink = (key) => {
     // console.log('chatLink:', chatLink);
@@ -51,7 +51,7 @@ const ChatPage = () => {
     return link;
   };
 
-  const iframeSrc = keys.length > 0 ? comLink(keys[0]) : '';
+  const iframeSrc = tokenKey ? comLink(tokenKey) : '';
 
   return !isLoading && iframeSrc ? (
     <iframe
