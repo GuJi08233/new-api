@@ -287,9 +287,9 @@ func Register(c *gin.Context) {
 		return
 	}
 
-	// 获取插入后的用户ID
+	// 获取插入后的用户ID（读主库：刚插入的行可能尚未同步到只读副本）
 	var insertedUser model.User
-	if err := model.ReadDB().Where("username = ?", cleanUser.Username).First(&insertedUser).Error; err != nil {
+	if err := model.DB.Where("username = ?", cleanUser.Username).First(&insertedUser).Error; err != nil {
 		common.ApiErrorI18n(c, i18n.MsgUserRegisterFailed)
 		return
 	}

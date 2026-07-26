@@ -100,10 +100,13 @@ func GetTopUpById(id int) *TopUp {
 	return topUp
 }
 
+// GetTopUpByTradeNo must read the primary: payment callbacks (epay/stripe/
+// creem/waffo) use this lookup for idempotency decisions before crediting
+// quota, and a stale replica read widens the duplicate-credit window.
 func GetTopUpByTradeNo(tradeNo string) *TopUp {
 	var topUp *TopUp
 	var err error
-	err = ReadDB().Where("trade_no = ?", tradeNo).First(&topUp).Error
+	err = DB.Where("trade_no = ?", tradeNo).First(&topUp).Error
 	if err != nil {
 		return nil
 	}
