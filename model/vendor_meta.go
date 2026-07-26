@@ -37,7 +37,7 @@ func IsVendorNameDuplicated(id int, name string) (bool, error) {
 		return false, nil
 	}
 	var cnt int64
-	err := DB.Model(&Vendor{}).Where("name = ? AND id <> ?", name, id).Count(&cnt).Error
+	err := ReadDB().Model(&Vendor{}).Where("name = ? AND id <> ?", name, id).Count(&cnt).Error
 	return cnt > 0, err
 }
 
@@ -55,7 +55,7 @@ func (v *Vendor) Delete() error {
 // GetVendorByID 根据 ID 获取供应商
 func GetVendorByID(id int) (*Vendor, error) {
 	var v Vendor
-	err := DB.First(&v, id).Error
+	err := ReadDB().First(&v, id).Error
 	if err != nil {
 		return nil, err
 	}
@@ -65,13 +65,13 @@ func GetVendorByID(id int) (*Vendor, error) {
 // GetAllVendors 获取全部供应商（分页）
 func GetAllVendors(offset int, limit int) ([]*Vendor, error) {
 	var vendors []*Vendor
-	err := DB.Offset(offset).Limit(limit).Find(&vendors).Error
+	err := ReadDB().Offset(offset).Limit(limit).Find(&vendors).Error
 	return vendors, err
 }
 
 // SearchVendors 按关键字搜索供应商
 func SearchVendors(keyword string, offset int, limit int) ([]*Vendor, int64, error) {
-	db := DB.Model(&Vendor{})
+	db := ReadDB().Model(&Vendor{})
 	if keyword != "" {
 		like := "%" + keyword + "%"
 		db = db.Where("name LIKE ? OR description LIKE ?", like, like)

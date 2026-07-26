@@ -44,7 +44,7 @@ func IsChannelEnabledForAnyGroupModel(groups []string, modelName string, channel
 
 func isChannelEnabledForGroupModelDB(group string, modelName string, channelID int) bool {
 	var count int64
-	err := DB.Model(&Ability{}).
+	err := ReadDB().Model(&Ability{}).
 		Where(commonGroupCol+" = ? and model = ? and channel_id = ? and enabled = ?", group, modelName, channelID, true).
 		Count(&count).Error
 	if err == nil && count > 0 {
@@ -55,7 +55,7 @@ func isChannelEnabledForGroupModelDB(group string, modelName string, channelID i
 		return false
 	}
 	count = 0
-	err = DB.Model(&Ability{}).
+	err = ReadDB().Model(&Ability{}).
 		Where(commonGroupCol+" = ? and model = ? and channel_id = ? and enabled = ?", group, normalized, channelID, true).
 		Count(&count).Error
 	return err == nil && count > 0

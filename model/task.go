@@ -214,7 +214,7 @@ func TaskGetAllUserTask(userId int, startIdx int, num int, queryParams SyncTaskQ
 	var err error
 
 	// 初始化查询构建器
-	query := DB.Where("user_id = ?", userId)
+	query := ReadDB().Where("user_id = ?", userId)
 
 	if queryParams.TaskID != "" {
 		query = query.Where("task_id = ?", queryParams.TaskID)
@@ -250,7 +250,7 @@ func TaskGetAllTasks(startIdx int, num int, queryParams SyncTaskQueryParams) []*
 	var err error
 
 	// 初始化查询构建器
-	query := DB
+	query := ReadDB()
 
 	// 添加过滤条件
 	if queryParams.ChannelID != "" {
@@ -292,7 +292,7 @@ func TaskGetAllTasks(startIdx int, num int, queryParams SyncTaskQueryParams) []*
 
 func GetTimedOutUnfinishedTasks(cutoffUnix int64, limit int) []*Task {
 	var tasks []*Task
-	err := DB.Where("progress != ?", "100%").
+	err := ReadDB().Where("progress != ?", "100%").
 		Where("status NOT IN ?", []string{TaskStatusFailure, TaskStatusSuccess}).
 		Where("submit_time < ?", cutoffUnix).
 		Order("submit_time").
@@ -308,7 +308,7 @@ func GetAllUnFinishSyncTasks(limit int) []*Task {
 	var tasks []*Task
 	var err error
 	// get all tasks progress is not 100%
-	err = DB.Where("progress != ?", "100%").Where("status != ?", TaskStatusFailure).Where("status != ?", TaskStatusSuccess).Limit(limit).Order("id").Find(&tasks).Error
+	err = ReadDB().Where("progress != ?", "100%").Where("status != ?", TaskStatusFailure).Where("status != ?", TaskStatusSuccess).Limit(limit).Order("id").Find(&tasks).Error
 	if err != nil {
 		return nil
 	}
@@ -321,7 +321,7 @@ func GetAllUnFinishSyncTasks(limit int) []*Task {
 // the scheduler skips creating a row entirely.
 func HasUnfinishedSyncTasks() bool {
 	var id int64
-	err := DB.Model(&Task{}).
+	err := ReadDB().Model(&Task{}).
 		Where("progress != ?", "100%").
 		Where("status != ?", TaskStatusFailure).
 		Where("status != ?", TaskStatusSuccess).
@@ -336,7 +336,7 @@ func GetByOnlyTaskId(taskId string) (*Task, bool, error) {
 	}
 	var task *Task
 	var err error
-	err = DB.Where("task_id = ?", taskId).First(&task).Error
+	err = ReadDB().Where("task_id = ?", taskId).First(&task).Error
 	exist, err := RecordExist(err)
 	if err != nil {
 		return nil, false, err
@@ -350,7 +350,7 @@ func GetByTaskId(userId int, taskId string) (*Task, bool, error) {
 	}
 	var task *Task
 	var err error
-	err = DB.Where("user_id = ? and task_id = ?", userId, taskId).
+	err = ReadDB().Where("user_id = ? and task_id = ?", userId, taskId).
 		First(&task).Error
 	exist, err := RecordExist(err)
 	if err != nil {
@@ -365,7 +365,7 @@ func GetByTaskIds(userId int, taskIds []any) ([]*Task, error) {
 	}
 	var task []*Task
 	var err error
-	err = DB.Where("user_id = ? and task_id in (?)", userId, taskIds).
+	err = ReadDB().Where("user_id = ? and task_id in (?)", userId, taskIds).
 		Find(&task).Error
 	if err != nil {
 		return nil, err
@@ -469,7 +469,7 @@ type TaskQuotaUsage struct {
 // TaskCountAllTasks returns total tasks that match the given query params (admin usage)
 func TaskCountAllTasks(queryParams SyncTaskQueryParams) int64 {
 	var total int64
-	query := DB.Model(&Task{})
+	query := ReadDB().Model(&Task{})
 	if queryParams.ChannelID != "" {
 		query = query.Where("channel_id = ?", queryParams.ChannelID)
 	}
@@ -504,7 +504,7 @@ func TaskCountAllTasks(queryParams SyncTaskQueryParams) int64 {
 // TaskCountAllUserTask returns total tasks for given user
 func TaskCountAllUserTask(userId int, queryParams SyncTaskQueryParams) int64 {
 	var total int64
-	query := DB.Model(&Task{}).Where("user_id = ?", userId)
+	query := ReadDB().Model(&Task{}).Where("user_id = ?", userId)
 	if queryParams.TaskID != "" {
 		query = query.Where("task_id = ?", queryParams.TaskID)
 	}

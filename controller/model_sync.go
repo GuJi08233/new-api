@@ -242,7 +242,7 @@ func ensureVendorID(vendorName string, vendorByName map[string]upstreamVendor, v
 		return id
 	}
 	var existing model.Vendor
-	if err := model.DB.Where("name = ?", vendorName).First(&existing).Error; err == nil {
+	if err := model.ReadDB().Where("name = ?", vendorName).First(&existing).Error; err == nil {
 		vendorIDCache[vendorName] = existing.Id
 		return existing.Id
 	}
@@ -361,7 +361,7 @@ func SyncUpstreamModels(c *gin.Context) {
 
 		// 若本地已存在且设置为不同步，则跳过（极端情况：缺失列表与本地状态不同步时）
 		var existing model.Model
-		if err := model.DB.Where("model_name = ?", name).First(&existing).Error; err == nil {
+		if err := model.ReadDB().Where("model_name = ?", name).First(&existing).Error; err == nil {
 			if existing.SyncOfficial == 0 {
 				skipped = append(skipped, name)
 				continue
@@ -398,7 +398,7 @@ func SyncUpstreamModels(c *gin.Context) {
 				continue
 			}
 			var local model.Model
-			if err := model.DB.Where("model_name = ?", ow.ModelName).First(&local).Error; err != nil {
+			if err := model.ReadDB().Where("model_name = ?", ow.ModelName).First(&local).Error; err != nil {
 				continue
 			}
 
@@ -544,7 +544,7 @@ func SyncUpstreamPreview(c *gin.Context) {
 	// 2) 本地已有模型
 	var locals []model.Model
 	if len(upstreamNames) > 0 {
-		_ = model.DB.Where("model_name IN ? AND sync_official <> 0", upstreamNames).Find(&locals).Error
+		_ = model.ReadDB().Where("model_name IN ? AND sync_official <> 0", upstreamNames).Find(&locals).Error
 	}
 
 	// 本地 vendor 名称映射
@@ -561,7 +561,7 @@ func SyncUpstreamPreview(c *gin.Context) {
 	idToVendorName := make(map[int]string)
 	if len(vendorIDs) > 0 {
 		var dbVendors []model.Vendor
-		_ = model.DB.Where("id IN ?", vendorIDs).Find(&dbVendors).Error
+		_ = model.ReadDB().Where("id IN ?", vendorIDs).Find(&dbVendors).Error
 		for _, v := range dbVendors {
 			idToVendorName[v.Id] = v.Name
 		}

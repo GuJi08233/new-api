@@ -20,7 +20,7 @@ type RankingQuotaBucket struct {
 
 func GetRankingQuotaTotals(startTime int64, endTime int64) ([]RankingQuotaTotal, error) {
 	var rows []RankingQuotaTotal
-	query := DB.Table("quota_data").
+	query := ReadDB().Table("quota_data").
 		Select("model_name, sum(token_used) as total_tokens").
 		Where("model_name <> ''").
 		Group("model_name").
@@ -37,7 +37,7 @@ func GetRankingQuotaBuckets(startTime int64, endTime int64, bucketSize int64) ([
 	}
 	bucketExpr := rankingBucketExpr(bucketSize)
 	var rows []RankingQuotaBucket
-	query := DB.Table("quota_data").
+	query := ReadDB().Table("quota_data").
 		Select(fmt.Sprintf("model_name, %s as bucket, sum(token_used) as tokens", bucketExpr)).
 		Where("model_name <> ''").
 		Group(fmt.Sprintf("model_name, %s", bucketExpr)).
@@ -91,7 +91,7 @@ func GetUserRequestRankings(startTime int64, endTime int64, limit int) ([]UserRe
 		limit = 50
 	}
 	var rows []UserRequestRanking
-	query := DB.Table("quota_data").
+	query := ReadDB().Table("quota_data").
 		Select("user_id, username, sum(count) as request_count").
 		Where("username <> ''").
 		Group("user_id, username").
@@ -108,7 +108,7 @@ func GetUserQuotaRankings(startTime int64, endTime int64, limit int) ([]UserQuot
 		limit = 50
 	}
 	var rows []UserQuotaRanking
-	query := DB.Table("quota_data").
+	query := ReadDB().Table("quota_data").
 		Select("user_id, username, sum(quota) as total_quota").
 		Where("username <> ''").
 		Group("user_id, username").
@@ -122,7 +122,7 @@ func GetUserQuotaRankings(startTime int64, endTime int64, limit int) ([]UserQuot
 
 func GetUserRankingSummary(startTime int64, endTime int64) (*UserRankingSummary, error) {
 	var summary UserRankingSummary
-	query := DB.Table("quota_data").
+	query := ReadDB().Table("quota_data").
 		Select("COALESCE(sum(count), 0) as total_requests, COALESCE(sum(quota), 0) as total_quota, COALESCE(sum(token_used), 0) as total_tokens")
 	query = applyRankingQuotaTimeRange(query, startTime, endTime)
 	err := query.Scan(&summary).Error

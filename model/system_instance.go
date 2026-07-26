@@ -71,7 +71,7 @@ func UpsertSystemInstance(nodeName string, info any, startedAt int64, lastSeenAt
 
 func ListSystemInstances() ([]*SystemInstance, error) {
 	var instances []*SystemInstance
-	err := DB.Order("last_seen_at desc").Find(&instances).Error
+	err := ReadDB().Order("last_seen_at desc").Find(&instances).Error
 	return instances, err
 }
 

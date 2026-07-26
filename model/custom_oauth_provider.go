@@ -74,21 +74,21 @@ func (CustomOAuthProvider) TableName() string {
 // GetAllCustomOAuthProviders returns all custom OAuth providers
 func GetAllCustomOAuthProviders() ([]*CustomOAuthProvider, error) {
 	var providers []*CustomOAuthProvider
-	err := DB.Order("id asc").Find(&providers).Error
+	err := ReadDB().Order("id asc").Find(&providers).Error
 	return providers, err
 }
 
 // GetEnabledCustomOAuthProviders returns all enabled custom OAuth providers
 func GetEnabledCustomOAuthProviders() ([]*CustomOAuthProvider, error) {
 	var providers []*CustomOAuthProvider
-	err := DB.Where("enabled = ?", true).Order("id asc").Find(&providers).Error
+	err := ReadDB().Where("enabled = ?", true).Order("id asc").Find(&providers).Error
 	return providers, err
 }
 
 // GetCustomOAuthProviderById returns a custom OAuth provider by ID
 func GetCustomOAuthProviderById(id int) (*CustomOAuthProvider, error) {
 	var provider CustomOAuthProvider
-	err := DB.First(&provider, id).Error
+	err := ReadDB().First(&provider, id).Error
 	if err != nil {
 		return nil, err
 	}
@@ -98,7 +98,7 @@ func GetCustomOAuthProviderById(id int) (*CustomOAuthProvider, error) {
 // GetCustomOAuthProviderBySlug returns a custom OAuth provider by slug
 func GetCustomOAuthProviderBySlug(slug string) (*CustomOAuthProvider, error) {
 	var provider CustomOAuthProvider
-	err := DB.Where("slug = ?", slug).First(&provider).Error
+	err := ReadDB().Where("slug = ?", slug).First(&provider).Error
 	if err != nil {
 		return nil, err
 	}
@@ -134,7 +134,7 @@ func DeleteCustomOAuthProvider(id int) error {
 // Returns true on DB errors (fail-closed) to prevent slug conflicts
 func IsSlugTaken(slug string, excludeId int) bool {
 	var count int64
-	query := DB.Model(&CustomOAuthProvider{}).Where("slug = ?", slug)
+	query := ReadDB().Model(&CustomOAuthProvider{}).Where("slug = ?", slug)
 	if excludeId > 0 {
 		query = query.Where("id != ?", excludeId)
 	}

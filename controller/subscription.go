@@ -150,7 +150,7 @@ func validateQuotaTiers(quotaTiers string) (string, string) {
 
 func GetSubscriptionPlans(c *gin.Context) {
 	var plans []model.SubscriptionPlan
-	if err := model.DB.Where("enabled = ?", true).Order("sort_order desc, id desc").Find(&plans).Error; err != nil {
+	if err := model.ReadDB().Where("enabled = ?", true).Order("sort_order desc, id desc").Find(&plans).Error; err != nil {
 		common.ApiError(c, err)
 		return
 	}
@@ -331,7 +331,7 @@ func CancelSubscriptionOrderSelf(c *gin.Context) {
 
 func AdminListSubscriptionPlans(c *gin.Context) {
 	var plans []model.SubscriptionPlan
-	if err := model.DB.Order("sort_order desc, id desc").Find(&plans).Error; err != nil {
+	if err := model.ReadDB().Order("sort_order desc, id desc").Find(&plans).Error; err != nil {
 		common.ApiError(c, err)
 		return
 	}

@@ -130,7 +130,7 @@ func GetRedemptionById(id int) (*Redemption, error) {
 	}
 	redemption := Redemption{Id: id}
 	var err error = nil
-	err = DB.First(&redemption, "id = ?", id).Error
+	err = ReadDB().First(&redemption, "id = ?", id).Error
 	return &redemption, err
 }
 

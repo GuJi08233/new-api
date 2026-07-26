@@ -120,7 +120,7 @@ func CreateSystemTask(taskType string, payload any, state any) (*SystemTask, err
 
 func GetSystemTaskByTaskID(taskID string) (*SystemTask, error) {
 	var task SystemTask
-	if err := DB.Where("task_id = ?", taskID).First(&task).Error; err != nil {
+	if err := ReadDB().Where("task_id = ?", taskID).First(&task).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}
@@ -131,7 +131,7 @@ func GetSystemTaskByTaskID(taskID string) (*SystemTask, error) {
 
 func GetActiveSystemTask(taskType string) (*SystemTask, error) {
 	var task SystemTask
-	err := DB.Where("type = ? AND status IN ?", taskType, activeSystemTaskStatuses()).
+	err := ReadDB().Where("type = ? AND status IN ?", taskType, activeSystemTaskStatuses()).
 		Order("id desc").
 		First(&task).Error
 	if err != nil {
@@ -148,7 +148,7 @@ func FindPendingSystemTasks(taskType string, limit int) ([]*SystemTask, error) {
 	if limit <= 0 {
 		limit = 1
 	}
-	err := DB.Where("type = ? AND status = ?", taskType, SystemTaskStatusPending).
+	err := ReadDB().Where("type = ? AND status = ?", taskType, SystemTaskStatusPending).
 		Order("id asc").
 		Limit(limit).
 		Find(&tasks).Error
@@ -161,12 +161,12 @@ func FindEarliestPendingSystemTasks(taskTypes []string) (map[string]*SystemTask,
 		return tasksByType, nil
 	}
 
-	subQuery := DB.Model(&SystemTask{}).
+	subQuery := ReadDB().Model(&SystemTask{}).
 		Select("MIN(id)").
 		Where("type IN ? AND status = ?", taskTypes, SystemTaskStatusPending).
 		Group("type")
 	var tasks []*SystemTask
-	if err := DB.Where("id IN (?)", subQuery).Find(&tasks).Error; err != nil {
+	if err := ReadDB().Where("id IN (?)", subQuery).Find(&tasks).Error; err != nil {
 		return nil, err
 	}
 	for _, task := range tasks {
@@ -183,7 +183,7 @@ func ListSystemTasks(limit int) ([]*SystemTask, error) {
 		limit = 100
 	}
 	var tasks []*SystemTask
-	err := DB.Order("id desc").Limit(limit).Find(&tasks).Error
+	err := ReadDB().Order("id desc").Limit(limit).Find(&tasks).Error
 	return tasks, err
 }
 
@@ -192,7 +192,7 @@ func ListSystemTasks(limit int) ([]*SystemTask, error) {
 // since the last run. Returns (nil, nil) when no row exists.
 func GetLatestSystemTask(taskType string) (*SystemTask, error) {
 	var task SystemTask
-	err := DB.Where("type = ?", taskType).Order("id desc").First(&task).Error
+	err := ReadDB().Where("type = ?", taskType).Order("id desc").First(&task).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
@@ -208,12 +208,12 @@ func GetLatestSystemTasks(taskTypes []string) (map[string]*SystemTask, error) {
 		return tasksByType, nil
 	}
 
-	subQuery := DB.Model(&SystemTask{}).
+	subQuery := ReadDB().Model(&SystemTask{}).
 		Select("MAX(id)").
 		Where("type IN ?", taskTypes).
 		Group("type")
 	var tasks []*SystemTask
-	if err := DB.Where("id IN (?)", subQuery).Find(&tasks).Error; err != nil {
+	if err := ReadDB().Where("id IN (?)", subQuery).Find(&tasks).Error; err != nil {
 		return nil, err
 	}
 	for _, task := range tasks {
@@ -359,7 +359,7 @@ func MarkSystemTaskLeaseExpired(taskID string) error {
 
 func ExpireStaleSystemTaskLocks(now int64) error {
 	var locks []*SystemTaskLock
-	if err := DB.Where("locked_until < ?", now).Find(&locks).Error; err != nil {
+	if err := ReadDB().Where("locked_until < ?", now).Find(&locks).Error; err != nil {
 		return err
 	}
 	for _, lock := range locks {

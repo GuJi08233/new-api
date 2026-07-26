@@ -128,7 +128,7 @@ func GetInvitationCodeById(id int) (*InvitationCode, error) {
 		return nil, errors.New("id 为空！")
 	}
 	code := InvitationCode{Id: id}
-	err := DB.First(&code, "id = ?", id).Error
+	err := ReadDB().First(&code, "id = ?", id).Error
 	return &code, err
 }
 
@@ -137,7 +137,7 @@ func GetInvitationCodeByCode(codeStr string) (*InvitationCode, error) {
 		return nil, errors.New("邀请码为空")
 	}
 	var code InvitationCode
-	err := DB.Where("code = ?", codeStr).First(&code).Error
+	err := ReadDB().Where("code = ?", codeStr).First(&code).Error
 	if err != nil {
 		return nil, err
 	}

@@ -32,7 +32,7 @@ type AbilityWithChannel struct {
 
 func GetAllEnableAbilityWithChannels() ([]AbilityWithChannel, error) {
 	var abilities []AbilityWithChannel
-	err := DB.Table("abilities").
+	err := ReadDB().Table("abilities").
 		Select("abilities.*, channels.type as channel_type").
 		Joins("left join channels on abilities.channel_id = channels.id").
 		Where("abilities.enabled = ?", true).
@@ -43,27 +43,27 @@ func GetAllEnableAbilityWithChannels() ([]AbilityWithChannel, error) {
 func GetGroupEnabledModels(group string) []string {
 	var models []string
 	// Find distinct models
-	DB.Table("abilities").Where(commonGroupCol+" = ? and enabled = ?", group, true).Distinct("model").Pluck("model", &models)
+	ReadDB().Table("abilities").Where(commonGroupCol+" = ? and enabled = ?", group, true).Distinct("model").Pluck("model", &models)
 	return models
 }
 
 func GetEnabledModels() []string {
 	var models []string
 	// Find distinct models
-	DB.Table("abilities").Where("enabled = ?", true).Distinct("model").Pluck("model", &models)
+	ReadDB().Table("abilities").Where("enabled = ?", true).Distinct("model").Pluck("model", &models)
 	return models
 }
 
 func GetAllEnableAbilities() []Ability {
 	var abilities []Ability
-	DB.Find(&abilities, "enabled = ?", true)
+	ReadDB().Find(&abilities, "enabled = ?", true)
 	return abilities
 }
 
 func getPriority(group string, model string, retry int) (int, error) {
 
 	var priorities []int
-	err := DB.Model(&Ability{}).
+	err := ReadDB().Model(&Ability{}).
 		Select("DISTINCT(priority)").
 		Where(commonGroupCol+" = ? and model = ? and enabled = ?", group, model, true).
 		Order("priority DESC").              // 按优先级降序排序
@@ -91,14 +91,14 @@ func getPriority(group string, model string, retry int) (int, error) {
 }
 
 func getChannelQuery(group string, model string, retry int) (*gorm.DB, error) {
-	maxPrioritySubQuery := DB.Model(&Ability{}).Select("MAX(priority)").Where(commonGroupCol+" = ? and model = ? and enabled = ?", group, model, true)
-	channelQuery := DB.Where(commonGroupCol+" = ? and model = ? and enabled = ? and priority = (?)", group, model, true, maxPrioritySubQuery)
+	maxPrioritySubQuery := ReadDB().Model(&Ability{}).Select("MAX(priority)").Where(commonGroupCol+" = ? and model = ? and enabled = ?", group, model, true)
+	channelQuery := ReadDB().Where(commonGroupCol+" = ? and model = ? and enabled = ? and priority = (?)", group, model, true, maxPrioritySubQuery)
 	if retry != 0 {
 		priority, err := getPriority(group, model, retry)
 		if err != nil {
 			return nil, err
 		} else {
-			channelQuery = DB.Where(commonGroupCol+" = ? and model = ? and enabled = ? and priority = ?", group, model, true, priority)
+			channelQuery = ReadDB().Where(commonGroupCol+" = ? and model = ? and enabled = ? and priority = ?", group, model, true, priority)
 		}
 	}
 
@@ -142,7 +142,7 @@ func GetChannel(group string, model string, retry int, requestPath string) (*Cha
 	} else {
 		return nil, nil
 	}
-	err = DB.First(&channel, "id = ?", channel.Id).Error
+	err = ReadDB().First(&channel, "id = ?", channel.Id).Error
 	return &channel, err
 }
 
@@ -167,7 +167,7 @@ func filterAbilitiesByRequestPathAndModel(abilities []Ability, requestPath strin
 	}
 
 	var channels []*Channel
-	if err := DB.Where("id IN ?", channelIds).Find(&channels).Error; err != nil {
+	if err := ReadDB().Where("id IN ?", channelIds).Find(&channels).Error; err != nil {
 		// On error, fall back to unfiltered candidates to avoid blocking selection
 		return abilities
 	}

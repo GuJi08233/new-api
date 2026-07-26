@@ -42,7 +42,7 @@ func GetTwoFAByUserId(userId int) (*TwoFA, error) {
 	}
 
 	var twoFA TwoFA
-	err := DB.Where("user_id = ?", userId).First(&twoFA).Error
+	err := ReadDB().Where("user_id = ?", userId).First(&twoFA).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil // 返回nil表示未设置2FA
@@ -241,7 +241,7 @@ func ValidateBackupCode(userId int, code string) (bool, error) {
 // GetUnusedBackupCodeCount 获取未使用的备用码数量
 func GetUnusedBackupCodeCount(userId int) (int, error) {
 	var count int64
-	err := DB.Model(&TwoFABackupCode{}).Where("user_id = ? AND is_used = false", userId).Count(&count).Error
+	err := ReadDB().Model(&TwoFABackupCode{}).Where("user_id = ? AND is_used = false", userId).Count(&count).Error
 	return int(count), err
 }
 
@@ -335,12 +335,12 @@ func GetTwoFAStats() (map[string]interface{}, error) {
 	var totalUsers, enabledUsers int64
 
 	// 总用户数
-	if err := DB.Model(&User{}).Count(&totalUsers).Error; err != nil {
+	if err := ReadDB().Model(&User{}).Count(&totalUsers).Error; err != nil {
 		return nil, err
 	}
 
 	// 启用2FA的用户数
-	if err := DB.Model(&TwoFA{}).Where("is_enabled = true").Count(&enabledUsers).Error; err != nil {
+	if err := ReadDB().Model(&TwoFA{}).Where("is_enabled = true").Count(&enabledUsers).Error; err != nil {
 		return nil, err
 	}
 

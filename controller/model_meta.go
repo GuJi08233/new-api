@@ -78,7 +78,7 @@ func GetModelMeta(c *gin.Context) {
 		return
 	}
 	var m model.Model
-	if err := model.DB.First(&m, id).Error; err != nil {
+	if err := model.ReadDB().First(&m, id).Error; err != nil {
 		common.ApiError(c, err)
 		return
 	}

@@ -8,7 +8,7 @@ type Setup struct {
 
 func GetSetup() *Setup {
 	var setup Setup
-	err := DB.First(&setup).Error
+	err := ReadDB().First(&setup).Error
 	if err != nil {
 		return nil
 	}

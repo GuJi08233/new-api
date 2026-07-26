@@ -683,7 +683,7 @@ func runChannelUpstreamModelUpdateTaskOnce(ctx context.Context, force bool, allo
 	// Count the enabled channels up front so progress can be reported as a
 	// percentage; a count error is non-fatal (progress just won't show a %).
 	var totalChannels int64
-	if err := model.DB.Model(&model.Channel{}).Where("status = ?", common.ChannelStatusEnabled).Count(&totalChannels).Error; err != nil {
+	if err := model.ReadDB().Model(&model.Channel{}).Where("status = ?", common.ChannelStatusEnabled).Count(&totalChannels).Error; err != nil {
 		totalChannels = 0
 	}
 	processed := 0
@@ -695,7 +695,7 @@ scanLoop:
 			break
 		}
 		var channels []*model.Channel
-		query := model.DB.
+		query := model.ReadDB().
 			Select(channelUpstreamModelUpdateSelectFields).
 			Where("status = ?", common.ChannelStatusEnabled).
 			Order("id asc").
@@ -990,7 +990,7 @@ func collectPendingApplyUpstreamModelChanges(settings dto.ChannelOtherSettings) 
 
 func findEnabledChannelsAfterID(lastID int, batchSize int) ([]*model.Channel, error) {
 	var channels []*model.Channel
-	query := model.DB.
+	query := model.ReadDB().
 		Select(channelUpstreamModelUpdateSelectFields).
 		Where("status = ?", common.ChannelStatusEnabled).
 		Order("id asc").

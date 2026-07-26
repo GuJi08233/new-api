@@ -93,7 +93,7 @@ func (topUp *TopUp) Update() error {
 func GetTopUpById(id int) *TopUp {
 	var topUp *TopUp
 	var err error
-	err = DB.Where("id = ?", id).First(&topUp).Error
+	err = ReadDB().Where("id = ?", id).First(&topUp).Error
 	if err != nil {
 		return nil
 	}
@@ -103,7 +103,7 @@ func GetTopUpById(id int) *TopUp {
 func GetTopUpByTradeNo(tradeNo string) *TopUp {
 	var topUp *TopUp
 	var err error
-	err = DB.Where("trade_no = ?", tradeNo).First(&topUp).Error
+	err = ReadDB().Where("trade_no = ?", tradeNo).First(&topUp).Error
 	if err != nil {
 		return nil
 	}

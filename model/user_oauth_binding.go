@@ -24,14 +24,14 @@ func (UserOAuthBinding) TableName() string {
 // GetUserOAuthBindingsByUserId returns all OAuth bindings for a user
 func GetUserOAuthBindingsByUserId(userId int) ([]*UserOAuthBinding, error) {
 	var bindings []*UserOAuthBinding
-	err := DB.Where("user_id = ?", userId).Find(&bindings).Error
+	err := ReadDB().Where("user_id = ?", userId).Find(&bindings).Error
 	return bindings, err
 }
 
 // GetUserOAuthBinding returns a specific binding for a user and provider
 func GetUserOAuthBinding(userId, providerId int) (*UserOAuthBinding, error) {
 	var binding UserOAuthBinding
-	err := DB.Where("user_id = ? AND provider_id = ?", userId, providerId).First(&binding).Error
+	err := ReadDB().Where("user_id = ? AND provider_id = ?", userId, providerId).First(&binding).Error
 	if err != nil {
 		return nil, err
 	}
@@ -41,13 +41,13 @@ func GetUserOAuthBinding(userId, providerId int) (*UserOAuthBinding, error) {
 // GetUserByOAuthBinding finds a user by provider ID and provider user ID
 func GetUserByOAuthBinding(providerId int, providerUserId string) (*User, error) {
 	var binding UserOAuthBinding
-	err := DB.Where("provider_id = ? AND provider_user_id = ?", providerId, providerUserId).First(&binding).Error
+	err := ReadDB().Where("provider_id = ? AND provider_user_id = ?", providerId, providerUserId).First(&binding).Error
 	if err != nil {
 		return nil, err
 	}
 
 	var user User
-	err = DB.First(&user, binding.UserId).Error
+	err = ReadDB().First(&user, binding.UserId).Error
 	if err != nil {
 		return nil, err
 	}
@@ -57,7 +57,7 @@ func GetUserByOAuthBinding(providerId int, providerUserId string) (*User, error)
 // IsProviderUserIdTaken checks if a provider user ID is already bound to any user
 func IsProviderUserIdTaken(providerId int, providerUserId string) bool {
 	var count int64
-	DB.Model(&UserOAuthBinding{}).Where("provider_id = ? AND provider_user_id = ?", providerId, providerUserId).Count(&count)
+	ReadDB().Model(&UserOAuthBinding{}).Where("provider_id = ? AND provider_user_id = ?", providerId, providerUserId).Count(&count)
 	return count > 0
 }
 
@@ -241,6 +241,6 @@ func migrateLegacyOAuthRegistrationBindings() error {
 // GetBindingCountByProviderId returns the number of bindings for a provider
 func GetBindingCountByProviderId(providerId int) (int64, error) {
 	var count int64
-	err := DB.Model(&UserOAuthBinding{}).Where("provider_id = ?", providerId).Count(&count).Error
+	err := ReadDB().Model(&UserOAuthBinding{}).Where("provider_id = ?", providerId).Count(&count).Error
 	return count, err
 }

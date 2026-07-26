@@ -34,7 +34,7 @@ func GetFlowQuotaData(startTime int64, endTime int64, username string, userID in
 }
 
 func flowQuotaBaseQuery(startTime int64, endTime int64) *gorm.DB {
-	query := DB.Table("quota_data").
+	query := ReadDB().Table("quota_data").
 		Where("use_group <> ''").
 		Where("created_at >= ? and created_at <= ?", startTime, endTime)
 	return query
@@ -112,7 +112,7 @@ func fillFlowTokenNames(rows []*FlowQuotaData) error {
 		Id   int    `gorm:"column:id"`
 		Name string `gorm:"column:name"`
 	}
-	if err := DB.Model(&Token{}).Select("id, name").Where("id IN ?", tokenIDs).Find(&tokens).Error; err != nil {
+	if err := ReadDB().Model(&Token{}).Select("id, name").Where("id IN ?", tokenIDs).Find(&tokens).Error; err != nil {
 		return err
 	}
 	tokenNameByID := make(map[int]string, len(tokens))
@@ -158,7 +158,7 @@ func fillFlowChannelNames(rows []*FlowQuotaData) error {
 			Id   int    `gorm:"column:id"`
 			Name string `gorm:"column:name"`
 		}
-		if err := DB.Table("channels").Select("id, name").Where("id IN ?", channelIDs).Find(&channels).Error; err != nil {
+		if err := ReadDB().Table("channels").Select("id, name").Where("id IN ?", channelIDs).Find(&channels).Error; err != nil {
 			return err
 		}
 		for _, channel := range channels {

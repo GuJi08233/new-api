@@ -77,7 +77,7 @@ func IsModelNameDuplicated(id int, name string) (bool, error) {
 		return false, nil
 	}
 	var cnt int64
-	err := DB.Model(&Model{}).Where("model_name = ? AND id <> ?", name, id).Count(&cnt).Error
+	err := ReadDB().Model(&Model{}).Where("model_name = ? AND id <> ?", name, id).Count(&cnt).Error
 	return cnt > 0, err
 }
 
@@ -98,7 +98,7 @@ func GetVendorModelCounts() (map[int64]int64, error) {
 		VendorID int64
 		Count    int64
 	}
-	if err := DB.Model(&Model{}).
+	if err := ReadDB().Model(&Model{}).
 		Select("vendor_id as vendor_id, count(*) as count").
 		Group("vendor_id").
 		Scan(&stats).Error; err != nil {
@@ -127,7 +127,7 @@ func GetBoundChannelsByModelsMap(modelNames []string) (map[string][]BoundChannel
 		Type  int
 	}
 	var rows []row
-	err := DB.Table("channels").
+	err := ReadDB().Table("channels").
 		Select("abilities.model as model, channels.name as name, channels.type as type").
 		Joins("JOIN abilities ON abilities.channel_id = channels.id").
 		Where("abilities.model IN ? AND abilities.enabled = ?", modelNames, true).
@@ -155,7 +155,7 @@ func GetBoundChannelsByModels(modelNames []string) ([]BoundChannelWithID, error)
 		Models    string
 	}
 	var rows []row
-	err := DB.Table("channels").
+	err := ReadDB().Table("channels").
 		Select("channels.id as channel_id, channels.name as name, channels.type as type, channels.models as models").
 		Joins("JOIN abilities ON abilities.channel_id = channels.id").
 		Where("abilities.model IN ? AND abilities.enabled = ? AND channels.status = ?", modelNames, true, 1).
@@ -212,7 +212,7 @@ func GetPreferredModelOwnerChannelTypes(modelNames []string, groups []string) (m
 	}
 	var rows []row
 
-	query := DB.Table("abilities").
+	query := ReadDB().Table("abilities").
 		Select("abilities.model as model, channels.type as channel_type").
 		Joins("JOIN channels ON abilities.channel_id = channels.id").
 		Where("abilities.model IN ? AND abilities.enabled = ? AND channels.status = ?", modelNames, true, common.ChannelStatusEnabled).
@@ -240,7 +240,7 @@ func GetPreferredModelOwnerChannelTypes(modelNames []string, groups []string) (m
 
 func SearchModels(keyword string, vendor string, status string, syncOfficial string, offset int, limit int) ([]*Model, int64, error) {
 	var models []*Model
-	db := DB.Model(&Model{})
+	db := ReadDB().Model(&Model{})
 	if keyword != "" {
 		like := "%" + keyword + "%"
 		db = db.Where("model_name LIKE ? OR description LIKE ? OR tags LIKE ?", like, like, like)

@@ -32,7 +32,7 @@ func (Checkin) TableName() string {
 // GetUserCheckinRecords 获取用户在指定日期范围内的签到记录
 func GetUserCheckinRecords(userId int, startDate, endDate string) ([]Checkin, error) {
 	var records []Checkin
-	err := DB.Where("user_id = ? AND checkin_date >= ? AND checkin_date <= ?",
+	err := ReadDB().Where("user_id = ? AND checkin_date >= ? AND checkin_date <= ?",
 		userId, startDate, endDate).
 		Order("checkin_date DESC").
 		Find(&records).Error
@@ -43,7 +43,7 @@ func GetUserCheckinRecords(userId int, startDate, endDate string) ([]Checkin, er
 func HasCheckedInToday(userId int) (bool, error) {
 	today := time.Now().Format("2006-01-02")
 	var count int64
-	err := DB.Model(&Checkin{}).
+	err := ReadDB().Model(&Checkin{}).
 		Where("user_id = ? AND checkin_date = ?", userId, today).
 		Count(&count).Error
 	return count > 0, err
@@ -166,8 +166,8 @@ func GetUserCheckinStats(userId int, month string) (map[string]interface{}, erro
 	// 获取用户所有时间的签到统计
 	var totalCheckins int64
 	var totalQuota int64
-	DB.Model(&Checkin{}).Where("user_id = ?", userId).Count(&totalCheckins)
-	DB.Model(&Checkin{}).Where("user_id = ?", userId).Select("COALESCE(SUM(quota_awarded), 0)").Scan(&totalQuota)
+	ReadDB().Model(&Checkin{}).Where("user_id = ?", userId).Count(&totalCheckins)
+	ReadDB().Model(&Checkin{}).Where("user_id = ?", userId).Select("COALESCE(SUM(quota_awarded), 0)").Scan(&totalQuota)
 
 	return map[string]interface{}{
 		"total_quota":      totalQuota,      // 所有时间累计获得的额度

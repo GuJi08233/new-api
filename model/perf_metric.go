@@ -50,7 +50,7 @@ func UpsertPerfMetric(metric *PerfMetric) error {
 
 func GetPerfMetrics(modelName string, group string, startTs int64, endTs int64) ([]PerfMetric, error) {
 	var metrics []PerfMetric
-	query := DB.Model(&PerfMetric{}).
+	query := ReadDB().Model(&PerfMetric{}).
 		Where("model_name = ? AND bucket_ts >= ? AND bucket_ts <= ?", modelName, startTs, endTs)
 	if group != "" {
 		query = query.Where(commonGroupCol+" = ?", group)
@@ -82,7 +82,7 @@ type PerfMetricSummaryBucket struct {
 
 func GetPerfMetricsSummaryAll(startTs int64, endTs int64, groups []string) ([]PerfMetricSummary, error) {
 	var summaries []PerfMetricSummary
-	query := DB.Model(&PerfMetric{}).
+	query := ReadDB().Model(&PerfMetric{}).
 		Select("model_name, SUM(request_count) as request_count, SUM(success_count) as success_count, SUM(total_latency_ms) as total_latency_ms, SUM(output_tokens) as output_tokens, SUM(generation_ms) as generation_ms").
 		Where("bucket_ts >= ? AND bucket_ts <= ?", startTs, endTs)
 	if groups != nil {
@@ -100,7 +100,7 @@ func GetPerfMetricsSummaryAll(startTs int64, endTs int64, groups []string) ([]Pe
 
 func GetPerfMetricsSummaryBucketsAll(startTs int64, endTs int64, groups []string) ([]PerfMetricSummaryBucket, error) {
 	var summaries []PerfMetricSummaryBucket
-	query := DB.Model(&PerfMetric{}).
+	query := ReadDB().Model(&PerfMetric{}).
 		Select("model_name, bucket_ts, SUM(request_count) as request_count, SUM(success_count) as success_count, SUM(total_latency_ms) as total_latency_ms, SUM(ttft_sum_ms) as ttft_sum_ms, SUM(ttft_count) as ttft_count, SUM(output_tokens) as output_tokens, SUM(generation_ms) as generation_ms").
 		Where("bucket_ts >= ? AND bucket_ts <= ?", startTs, endTs)
 	if groups != nil {

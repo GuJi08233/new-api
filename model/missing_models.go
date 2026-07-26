@@ -19,7 +19,7 @@ func GetMissingModels(group string) ([]string, error) {
 	}
 
 	var existing []string
-	if err := DB.Model(&Model{}).Where("model_name IN ?", models).Pluck("model_name", &existing).Error; err != nil {
+	if err := ReadDB().Model(&Model{}).Where("model_name IN ?", models).Pluck("model_name", &existing).Error; err != nil {
 		return nil, err
 	}
 

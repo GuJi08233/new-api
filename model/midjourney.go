@@ -38,7 +38,7 @@ func GetAllUserTask(userId int, startIdx int, num int, queryParams TaskQueryPara
 	var err error
 
 	// 初始化查询构建器
-	query := DB.Where("user_id = ?", userId)
+	query := ReadDB().Where("user_id = ?", userId)
 
 	if queryParams.MjID != "" {
 		query = query.Where("mj_id = ?", queryParams.MjID)
@@ -65,7 +65,7 @@ func GetAllTasks(startIdx int, num int, queryParams TaskQueryParams) []*Midjourn
 	var err error
 
 	// 初始化查询构建器
-	query := DB
+	query := ReadDB()
 
 	// 添加过滤条件
 	if queryParams.ChannelID != "" {
@@ -94,7 +94,7 @@ func GetAllUnFinishTasks() []*Midjourney {
 	var tasks []*Midjourney
 	var err error
 	// get all tasks progress is not 100%
-	err = DB.Where("progress != ?", "100%").Find(&tasks).Error
+	err = ReadDB().Where("progress != ?", "100%").Find(&tasks).Error
 	if err != nil {
 		return nil
 	}
@@ -107,7 +107,7 @@ func GetAllUnFinishTasks() []*Midjourney {
 // the scheduler skips creating a row entirely.
 func HasUnfinishedMidjourneyTasks() bool {
 	var id int
-	err := DB.Model(&Midjourney{}).
+	err := ReadDB().Model(&Midjourney{}).
 		Where("progress != ?", "100%").
 		Limit(1).
 		Pluck("id", &id).Error
@@ -117,7 +117,7 @@ func HasUnfinishedMidjourneyTasks() bool {
 func GetByOnlyMJId(mjId string) *Midjourney {
 	var mj *Midjourney
 	var err error
-	err = DB.Where("mj_id = ?", mjId).First(&mj).Error
+	err = ReadDB().Where("mj_id = ?", mjId).First(&mj).Error
 	if err != nil {
 		return nil
 	}
@@ -127,7 +127,7 @@ func GetByOnlyMJId(mjId string) *Midjourney {
 func GetByMJId(userId int, mjId string) *Midjourney {
 	var mj *Midjourney
 	var err error
-	err = DB.Where("user_id = ? and mj_id = ?", userId, mjId).First(&mj).Error
+	err = ReadDB().Where("user_id = ? and mj_id = ?", userId, mjId).First(&mj).Error
 	if err != nil {
 		return nil
 	}
@@ -137,7 +137,7 @@ func GetByMJId(userId int, mjId string) *Midjourney {
 func GetByMJIds(userId int, mjIds []string) []*Midjourney {
 	var mj []*Midjourney
 	var err error
-	err = DB.Where("user_id = ? and mj_id in (?)", userId, mjIds).Find(&mj).Error
+	err = ReadDB().Where("user_id = ? and mj_id in (?)", userId, mjIds).Find(&mj).Error
 	if err != nil {
 		return nil
 	}
@@ -147,7 +147,7 @@ func GetByMJIds(userId int, mjIds []string) []*Midjourney {
 func GetMjByuId(id int) *Midjourney {
 	var mj *Midjourney
 	var err error
-	err = DB.Where("id = ?", id).First(&mj).Error
+	err = ReadDB().Where("id = ?", id).First(&mj).Error
 	if err != nil {
 		return nil
 	}
@@ -198,7 +198,7 @@ func MjBulkUpdateByTaskIds(taskIDs []int, params map[string]any) error {
 // CountAllTasks returns total midjourney tasks for admin query
 func CountAllTasks(queryParams TaskQueryParams) int64 {
 	var total int64
-	query := DB.Model(&Midjourney{})
+	query := ReadDB().Model(&Midjourney{})
 	if queryParams.ChannelID != "" {
 		query = query.Where("channel_id = ?", queryParams.ChannelID)
 	}
@@ -218,7 +218,7 @@ func CountAllTasks(queryParams TaskQueryParams) int64 {
 // CountAllUserTask returns total midjourney tasks for user
 func CountAllUserTask(userId int, queryParams TaskQueryParams) int64 {
 	var total int64
-	query := DB.Model(&Midjourney{}).Where("user_id = ?", userId)
+	query := ReadDB().Model(&Midjourney{}).Where("user_id = ?", userId)
 	if queryParams.MjID != "" {
 		query = query.Where("mj_id = ?", queryParams.MjID)
 	}

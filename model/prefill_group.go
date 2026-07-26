@@ -98,7 +98,7 @@ func IsPrefillGroupNameDuplicated(id int, name string) (bool, error) {
 		return false, nil
 	}
 	var cnt int64
-	err := DB.Model(&PrefillGroup{}).Where("name = ? AND id <> ?", name, id).Count(&cnt).Error
+	err := ReadDB().Model(&PrefillGroup{}).Where("name = ? AND id <> ?", name, id).Count(&cnt).Error
 	return cnt > 0, err
 }
 
@@ -116,7 +116,7 @@ func DeletePrefillGroupByID(id int) error {
 // GetAllPrefillGroups 获取全部组，可按类型过滤（为空则返回全部）
 func GetAllPrefillGroups(groupType string) ([]*PrefillGroup, error) {
 	var groups []*PrefillGroup
-	query := DB.Model(&PrefillGroup{})
+	query := ReadDB().Model(&PrefillGroup{})
 	if groupType != "" {
 		query = query.Where("type = ?", groupType)
 	}

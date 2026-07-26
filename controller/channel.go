@@ -89,7 +89,7 @@ func applyChannelStatusFilter(query *gorm.DB, statusFilter int) *gorm.DB {
 }
 
 func buildChannelListQuery(group string, statusFilter int, typeFilter int) *gorm.DB {
-	query := model.DB.Model(&model.Channel{})
+	query := model.ReadDB().Model(&model.Channel{})
 	query = model.ApplyChannelGroupFilter(query, group)
 	query = applyChannelStatusFilter(query, statusFilter)
 	if typeFilter >= 0 {

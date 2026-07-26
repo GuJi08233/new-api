@@ -63,7 +63,7 @@ func resolveChannelTestUserID(c *gin.Context) (int, error) {
 	}
 
 	var rootUser model.User
-	if err := model.DB.Select("id").Where("role = ?", common.RoleRootUser).First(&rootUser).Error; err != nil {
+	if err := model.ReadDB().Select("id").Where("role = ?", common.RoleRootUser).First(&rootUser).Error; err != nil {
 		return 0, fmt.Errorf("failed to resolve channel test user: %w", err)
 	}
 	if rootUser.Id == 0 {

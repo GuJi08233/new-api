@@ -27,7 +27,7 @@ func isRemovedOptionKey(key string) bool {
 func AllOption() ([]*Option, error) {
 	var options []*Option
 	var err error
-	err = DB.Find(&options).Error
+	err = ReadDB().Find(&options).Error
 	return options, err
 }
 

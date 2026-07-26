@@ -145,7 +145,7 @@ func GetPasskeyByUserID(userID int) (*PasskeyCredential, error) {
 		return nil, ErrFriendlyPasskeyNotFound
 	}
 	var credential PasskeyCredential
-	if err := DB.Where("user_id = ?", userID).First(&credential).Error; err != nil {
+	if err := ReadDB().Where("user_id = ?", userID).First(&credential).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			// 未找到记录是正常情况（用户未绑定），返回 ErrPasskeyNotFound 而不记录日志
 			return nil, ErrPasskeyNotFound
@@ -165,7 +165,7 @@ func GetPasskeyByCredentialID(credentialID []byte) (*PasskeyCredential, error) {
 
 	credIDStr := base64.StdEncoding.EncodeToString(credentialID)
 	var credential PasskeyCredential
-	if err := DB.Where("credential_id = ?", credIDStr).First(&credential).Error; err != nil {
+	if err := ReadDB().Where("credential_id = ?", credIDStr).First(&credential).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			common.SysLog(fmt.Sprintf("GetPasskeyByCredentialID: passkey not found for credential ID length %d", len(credentialID)))
 			return nil, ErrFriendlyPasskeyNotFound

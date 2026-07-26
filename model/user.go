@@ -186,9 +186,9 @@ func CheckUserExistOrDeleted(username string, email string) (bool, error) {
 	var err error
 	email = NormalizeEmail(email)
 	if email == "" {
-		err = DB.Unscoped().First(&user, "username = ?", username).Error
+		err = ReadDB().Unscoped().First(&user, "username = ?", username).Error
 	} else {
-		err = DB.Unscoped().First(&user, "username = ? or LOWER(email) = ?", username, email).Error
+		err = ReadDB().Unscoped().First(&user, "username = ? or LOWER(email) = ?", username, email).Error
 	}
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -283,7 +283,7 @@ func withNormalizedEmailLock(tx *gorm.DB, email string, fn func(tx *gorm.DB) err
 
 func GetMaxUserId() int {
 	var user User
-	DB.Unscoped().Last(&user)
+	ReadDB().Unscoped().Last(&user)
 	return user.Id
 }
 
@@ -396,9 +396,9 @@ func GetUserById(id int, selectAll bool) (*User, error) {
 	user := User{Id: id}
 	var err error = nil
 	if selectAll {
-		err = DB.First(&user, "id = ?", id).Error
+		err = ReadDB().First(&user, "id = ?", id).Error
 	} else {
-		err = DB.Omit("password", "access_token").First(&user, "id = ?", id).Error
+		err = ReadDB().Omit("password", "access_token").First(&user, "id = ?", id).Error
 	}
 	return &user, err
 }
@@ -408,7 +408,7 @@ func GetUserIdByAffCode(affCode string) (int, error) {
 		return 0, errors.New("affCode 为空！")
 	}
 	var user User
-	err := DB.Select("id").First(&user, "aff_code = ?", affCode).Error
+	err := ReadDB().Select("id").First(&user, "aff_code = ?", affCode).Error
 	return user.Id, err
 }
 
@@ -816,7 +816,7 @@ func (user *User) ValidateAndFill() (err error) {
 		return ErrUserEmptyCredentials
 	}
 	// find by username or email
-	err = DB.Where("username = ? OR email = ?", username, username).First(user).Error
+	err = ReadDB().Where("username = ? OR email = ?", username, username).First(user).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ErrInvalidCredentials
@@ -837,7 +837,7 @@ func (user *User) FillUserById() error {
 	if user.Id == 0 {
 		return errors.New("id 为空！")
 	}
-	DB.Where(User{Id: user.Id}).First(user)
+	ReadDB().Where(User{Id: user.Id}).First(user)
 	return nil
 }
 
@@ -845,7 +845,7 @@ func (user *User) FillUserByEmail() error {
 	if user.Email == "" {
 		return errors.New("email 为空！")
 	}
-	DB.Where(User{Email: user.Email}).First(user)
+	ReadDB().Where(User{Email: user.Email}).First(user)
 	return nil
 }
 
@@ -853,7 +853,7 @@ func (user *User) FillUserByGitHubId() error {
 	if user.GitHubId == "" {
 		return errors.New("GitHub id 为空！")
 	}
-	DB.Where(User{GitHubId: user.GitHubId}).First(user)
+	ReadDB().Where(User{GitHubId: user.GitHubId}).First(user)
 	return nil
 }
 
@@ -869,7 +869,7 @@ func (user *User) FillUserByDiscordId() error {
 	if user.DiscordId == "" {
 		return errors.New("discord id 为空！")
 	}
-	DB.Where(User{DiscordId: user.DiscordId}).First(user)
+	ReadDB().Where(User{DiscordId: user.DiscordId}).First(user)
 	return nil
 }
 
@@ -877,7 +877,7 @@ func (user *User) FillUserByOidcId() error {
 	if user.OidcId == "" {
 		return errors.New("oidc id 为空！")
 	}
-	DB.Where(User{OidcId: user.OidcId}).First(user)
+	ReadDB().Where(User{OidcId: user.OidcId}).First(user)
 	return nil
 }
 
@@ -885,7 +885,7 @@ func (user *User) FillUserByWeChatId() error {
 	if user.WeChatId == "" {
 		return errors.New("WeChat id 为空！")
 	}
-	DB.Where(User{WeChatId: user.WeChatId}).First(user)
+	ReadDB().Where(User{WeChatId: user.WeChatId}).First(user)
 	return nil
 }
 
@@ -893,7 +893,7 @@ func (user *User) FillUserByTelegramId() error {
 	if user.TelegramId == "" {
 		return errors.New("Telegram id 为空！")
 	}
-	err := DB.Where(User{TelegramId: user.TelegramId}).First(user).Error
+	err := ReadDB().Where(User{TelegramId: user.TelegramId}).First(user).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return errors.New("该 Telegram 账户未绑定")
 	}
@@ -911,7 +911,7 @@ func GetUniqueUserByEmail(email string) (*User, error) {
 		return nil, ErrEmailNotFound
 	}
 	var users []User
-	if err := DB.Where("LOWER(email) = ?", email).Limit(2).Find(&users).Error; err != nil {
+	if err := ReadDB().Where("LOWER(email) = ?", email).Limit(2).Find(&users).Error; err != nil {
 		return nil, err
 	}
 	switch len(users) {
@@ -925,23 +925,23 @@ func GetUniqueUserByEmail(email string) (*User, error) {
 }
 
 func IsWeChatIdAlreadyTaken(wechatId string) bool {
-	return DB.Unscoped().Where("wechat_id = ?", wechatId).Find(&User{}).RowsAffected == 1
+	return ReadDB().Unscoped().Where("wechat_id = ?", wechatId).Find(&User{}).RowsAffected == 1
 }
 
 func IsGitHubIdAlreadyTaken(githubId string) bool {
-	return DB.Unscoped().Where("github_id = ?", githubId).Find(&User{}).RowsAffected == 1
+	return ReadDB().Unscoped().Where("github_id = ?", githubId).Find(&User{}).RowsAffected == 1
 }
 
 func IsDiscordIdAlreadyTaken(discordId string) bool {
-	return DB.Unscoped().Where("discord_id = ?", discordId).Find(&User{}).RowsAffected == 1
+	return ReadDB().Unscoped().Where("discord_id = ?", discordId).Find(&User{}).RowsAffected == 1
 }
 
 func IsOidcIdAlreadyTaken(oidcId string) bool {
-	return DB.Where("oidc_id = ?", oidcId).Find(&User{}).RowsAffected == 1
+	return ReadDB().Where("oidc_id = ?", oidcId).Find(&User{}).RowsAffected == 1
 }
 
 func IsTelegramIdAlreadyTaken(telegramId string) bool {
-	return DB.Unscoped().Where("telegram_id = ?", telegramId).Find(&User{}).RowsAffected == 1
+	return ReadDB().Unscoped().Where("telegram_id = ?", telegramId).Find(&User{}).RowsAffected == 1
 }
 
 func ResetUserPasswordByEmail(email string, password string) error {
@@ -965,7 +965,7 @@ func IsAdmin(userId int) bool {
 		return false
 	}
 	var user User
-	err := DB.Where("id = ?", userId).Select("role").Find(&user).Error
+	err := ReadDB().Where("id = ?", userId).Select("role").Find(&user).Error
 	if err != nil {
 		common.SysLog("no such user " + err.Error())
 		return false
@@ -979,7 +979,7 @@ func ValidateAccessToken(token string) (*User, error) {
 	}
 	token = strings.Replace(token, "Bearer ", "", 1)
 	user := &User{}
-	err := DB.Where("access_token = ?", token).First(user).Error
+	err := ReadDB().Where("access_token = ?", token).First(user).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
@@ -1009,7 +1009,7 @@ func GetUserQuota(id int, fromDB bool) (quota int, err error) {
 		// Don't return error - fall through to DB
 	}
 	fromDB = true
-	err = DB.Model(&User{}).Where("id = ?", id).Select("quota").Find(&quota).Error
+	err = ReadDB().Model(&User{}).Where("id = ?", id).Select("quota").Find(&quota).Error
 	if err != nil {
 		return 0, err
 	}
@@ -1018,12 +1018,12 @@ func GetUserQuota(id int, fromDB bool) (quota int, err error) {
 }
 
 func GetUserUsedQuota(id int) (quota int, err error) {
-	err = DB.Model(&User{}).Where("id = ?", id).Select("used_quota").Find(&quota).Error
+	err = ReadDB().Model(&User{}).Where("id = ?", id).Select("used_quota").Find(&quota).Error
 	return quota, err
 }
 
 func GetUserEmail(id int) (email string, err error) {
-	err = DB.Model(&User{}).Where("id = ?", id).Select("email").Find(&email).Error
+	err = ReadDB().Model(&User{}).Where("id = ?", id).Select("email").Find(&email).Error
 	return email, err
 }
 
@@ -1047,7 +1047,7 @@ func GetUserGroup(id int, fromDB bool) (group string, err error) {
 		// Don't return error - fall through to DB
 	}
 	fromDB = true
-	err = DB.Model(&User{}).Where("id = ?", id).Select(commonGroupCol).Find(&group).Error
+	err = ReadDB().Model(&User{}).Where("id = ?", id).Select(commonGroupCol).Find(&group).Error
 	if err != nil {
 		return "", err
 	}
@@ -1078,7 +1078,7 @@ func GetUserSetting(id int, fromDB bool) (settingMap dto.UserSetting, err error)
 	fromDB = true
 	// can be nil setting
 	var safeSetting sql.NullString
-	err = DB.Model(&User{}).Where("id = ?", id).Select("setting").Find(&safeSetting).Error
+	err = ReadDB().Model(&User{}).Where("id = ?", id).Select("setting").Find(&safeSetting).Error
 	if err != nil {
 		return settingMap, err
 	}
@@ -1160,7 +1160,7 @@ func DeltaUpdateUserQuota(id int, delta int) (err error) {
 //}
 
 func GetRootUser() (user *User) {
-	DB.Where("role = ?", common.RoleRootUser).First(&user)
+	ReadDB().Where("role = ?", common.RoleRootUser).First(&user)
 	return user
 }
 
@@ -1252,7 +1252,7 @@ func GetUsernameById(id int, fromDB bool) (username string, err error) {
 		// Don't return error - fall through to DB
 	}
 	fromDB = true
-	err = DB.Model(&User{}).Where("id = ?", id).Select("username").Find(&username).Error
+	err = ReadDB().Model(&User{}).Where("id = ?", id).Select("username").Find(&username).Error
 	if err != nil {
 		return "", err
 	}
@@ -1262,7 +1262,7 @@ func GetUsernameById(id int, fromDB bool) (username string, err error) {
 
 func IsLinuxDOIdAlreadyTaken(linuxDOId string) bool {
 	var user User
-	err := DB.Unscoped().Where("linux_do_id = ?", linuxDOId).First(&user).Error
+	err := ReadDB().Unscoped().Where("linux_do_id = ?", linuxDOId).First(&user).Error
 	return !errors.Is(err, gorm.ErrRecordNotFound)
 }
 
@@ -1270,13 +1270,13 @@ func (user *User) FillUserByLinuxDOId() error {
 	if user.LinuxDOId == "" {
 		return errors.New("linux do id is empty")
 	}
-	err := DB.Where("linux_do_id = ?", user.LinuxDOId).First(user).Error
+	err := ReadDB().Where("linux_do_id = ?", user.LinuxDOId).First(user).Error
 	return err
 }
 
 func IsSteamOpenIdAlreadyTaken(steamOpenId string) bool {
 	var user User
-	err := DB.Unscoped().Where("steam_openid = ?", steamOpenId).First(&user).Error
+	err := ReadDB().Unscoped().Where("steam_openid = ?", steamOpenId).First(&user).Error
 	return !errors.Is(err, gorm.ErrRecordNotFound)
 }
 
@@ -1284,13 +1284,13 @@ func (user *User) FillUserBySteamOpenId() error {
 	if user.SteamOpenId == "" {
 		return errors.New("steam openid is empty")
 	}
-	err := DB.Where("steam_openid = ?", user.SteamOpenId).First(user).Error
+	err := ReadDB().Where("steam_openid = ?", user.SteamOpenId).First(user).Error
 	return err
 }
 
 func RootUserExists() bool {
 	var user User
-	err := DB.Where("role = ?", common.RoleRootUser).First(&user).Error
+	err := ReadDB().Where("role = ?", common.RoleRootUser).First(&user).Error
 	if err != nil {
 		return false
 	}

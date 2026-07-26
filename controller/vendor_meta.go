@@ -18,7 +18,7 @@ func GetAllVendors(c *gin.Context) {
 		return
 	}
 	var total int64
-	model.DB.Model(&model.Vendor{}).Count(&total)
+	model.ReadDB().Model(&model.Vendor{}).Count(&total)
 	pageInfo.SetTotal(int(total))
 	pageInfo.SetItems(vendors)
 	common.ApiSuccess(c, pageInfo)

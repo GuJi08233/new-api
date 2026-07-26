@@ -289,7 +289,7 @@ func Register(c *gin.Context) {
 
 	// 获取插入后的用户ID
 	var insertedUser model.User
-	if err := model.DB.Where("username = ?", cleanUser.Username).First(&insertedUser).Error; err != nil {
+	if err := model.ReadDB().Where("username = ?", cleanUser.Username).First(&insertedUser).Error; err != nil {
 		common.ApiErrorI18n(c, i18n.MsgUserRegisterFailed)
 		return
 	}
@@ -423,7 +423,7 @@ func GenerateAccessToken(c *gin.Context) {
 	}
 	user.SetAccessToken(key)
 
-	if model.DB.Where("access_token = ?", user.AccessToken).First(user).RowsAffected != 0 {
+	if model.ReadDB().Where("access_token = ?", user.AccessToken).First(user).RowsAffected != 0 {
 		common.ApiErrorI18n(c, i18n.MsgUuidDuplicate)
 		return
 	}
@@ -1077,7 +1077,7 @@ func ManageUser(c *gin.Context) {
 		Id: req.Id,
 	}
 	// Fill attributes
-	model.DB.Unscoped().Where(&user).First(&user)
+	model.ReadDB().Unscoped().Where(&user).First(&user)
 	if user.Id == 0 {
 		common.ApiErrorI18n(c, i18n.MsgUserNotExists)
 		return

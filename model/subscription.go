@@ -329,7 +329,7 @@ func GetSubscriptionOrderByTradeNo(tradeNo string) *SubscriptionOrder {
 		return nil
 	}
 	var order SubscriptionOrder
-	if err := DB.Where("trade_no = ?", tradeNo).First(&order).Error; err != nil {
+	if err := ReadDB().Where("trade_no = ?", tradeNo).First(&order).Error; err != nil {
 		return nil
 	}
 	return &order
@@ -651,7 +651,7 @@ func getSubscriptionPlanByIdTx(tx *gorm.DB, id int) (*SubscriptionPlan, error) {
 		}
 	}
 	var plan SubscriptionPlan
-	query := DB
+	query := ReadDB()
 	if tx != nil {
 		query = tx
 	}
@@ -668,7 +668,7 @@ func CountUserSubscriptionsByPlan(userId int, planId int) (int64, error) {
 		return 0, errors.New("invalid userId or planId")
 	}
 	var count int64
-	if err := DB.Model(&UserSubscription{}).
+	if err := ReadDB().Model(&UserSubscription{}).
 		Where("user_id = ? AND plan_id = ?", userId, planId).
 		Count(&count).Error; err != nil {
 		return 0, err
@@ -1025,7 +1025,7 @@ func userActiveSubscriptionsAllowWalletOverflowForGroup(userId int, usingGroup s
 	}
 	now := common.GetTimestamp()
 	var strictCount int64
-	query := DB.Model(&UserSubscription{}).
+	query := ReadDB().Model(&UserSubscription{}).
 		Where("user_id = ? AND status = ? AND end_time > ? AND allow_wallet_overflow = ?", userId, SubscriptionStatusActive, now, false)
 	if strings.TrimSpace(usingGroup) != "" {
 		query = query.Where("(upgrade_group IS NULL OR upgrade_group = '' OR upgrade_group = ?)", strings.TrimSpace(usingGroup))
@@ -1208,7 +1208,7 @@ func ExpireStalePendingSubscriptionOrders(limit int) (int, error) {
 		return 0, nil
 	}
 	var ids []int
-	if err := DB.Model(&SubscriptionOrder{}).
+	if err := ReadDB().Model(&SubscriptionOrder{}).
 		Where("status = ? AND create_time <= ?", common.TopUpStatusPending, cutoff).
 		Order("create_time asc").
 		Limit(limit).
@@ -1468,7 +1468,7 @@ func GetAllActiveUserSubscriptions(userId int) ([]SubscriptionSummary, error) {
 	}
 	now := common.GetTimestamp()
 	var subs []UserSubscription
-	err := DB.Where("user_id = ? AND status = ? AND end_time > ?", userId, SubscriptionStatusActive, now).
+	err := ReadDB().Where("user_id = ? AND status = ? AND end_time > ?", userId, SubscriptionStatusActive, now).
 		Order("end_time desc, id desc").
 		Find(&subs).Error
 	if err != nil {
@@ -1485,7 +1485,7 @@ func HasActiveUserSubscription(userId int) (bool, error) {
 	}
 	now := common.GetTimestamp()
 	var count int64
-	if err := DB.Model(&UserSubscription{}).
+	if err := ReadDB().Model(&UserSubscription{}).
 		Where("user_id = ? AND status = ? AND end_time > ?", userId, SubscriptionStatusActive, now).
 		Count(&count).Error; err != nil {
 		return false, err
@@ -1499,7 +1499,7 @@ func GetAllUserSubscriptions(userId int) ([]SubscriptionSummary, error) {
 		return nil, errors.New("invalid userId")
 	}
 	var subs []UserSubscription
-	err := DB.Where("user_id = ?", userId).
+	err := ReadDB().Where("user_id = ?", userId).
 		Order("end_time desc, id desc").
 		Find(&subs).Error
 	if err != nil {
@@ -2673,7 +2673,7 @@ func HasDisableBalanceDeductionSubscription(userId int) (bool, error) {
 	}
 	now := GetDBTimestamp()
 	var count int64
-	err := DB.Model(&UserSubscription{}).
+	err := ReadDB().Model(&UserSubscription{}).
 		Joins("JOIN subscription_plans ON subscription_plans.id = user_subscriptions.plan_id").
 		Where("user_subscriptions.user_id = ? AND user_subscriptions.status = ? AND user_subscriptions.end_time > ? AND subscription_plans.disable_balance_deduction = ?",
 			userId, "active", now, true).
@@ -2696,7 +2696,7 @@ func HasActiveUserSubscriptionForUsingGroup(userId int, usingGroup string) (bool
 	}
 	now := GetDBTimestamp()
 	var count int64
-	err := DB.Model(&UserSubscription{}).
+	err := ReadDB().Model(&UserSubscription{}).
 		Where("user_id = ? AND status = ? AND end_time > ? AND (upgrade_group = '' OR upgrade_group = ?)",
 			userId, "active", now, usingGroup).
 		Count(&count).Error
@@ -2719,7 +2719,7 @@ func HasDisableBalanceDeductionSubscriptionForUsingGroup(userId int, usingGroup 
 	}
 	now := GetDBTimestamp()
 	var count int64
-	err := DB.Model(&UserSubscription{}).
+	err := ReadDB().Model(&UserSubscription{}).
 		Joins("JOIN subscription_plans ON subscription_plans.id = user_subscriptions.plan_id").
 		Where("user_subscriptions.user_id = ? AND user_subscriptions.status = ? AND user_subscriptions.end_time > ? AND subscription_plans.disable_balance_deduction = ? AND (user_subscriptions.upgrade_group = '' OR user_subscriptions.upgrade_group = ?)",
 			userId, "active", now, true, usingGroup).
@@ -2738,7 +2738,7 @@ func HasGlobalDisableBalanceDeductionSubscription(userId int) (bool, error) {
 	}
 	now := GetDBTimestamp()
 	var count int64
-	err := DB.Model(&UserSubscription{}).
+	err := ReadDB().Model(&UserSubscription{}).
 		Joins("JOIN subscription_plans ON subscription_plans.id = user_subscriptions.plan_id").
 		Where("user_subscriptions.user_id = ? AND user_subscriptions.status = ? AND user_subscriptions.end_time > ? AND subscription_plans.disable_balance_deduction = ? AND user_subscriptions.upgrade_group = ''",
 			userId, "active", now, true).
@@ -2755,7 +2755,7 @@ func GetUserSubscriptionTierUsages(subId int) ([]UserSubscriptionTierUsage, erro
 		return nil, nil
 	}
 	var usages []UserSubscriptionTierUsage
-	if err := DB.Where("user_subscription_id = ?", subId).Order("tier_index asc").Find(&usages).Error; err != nil {
+	if err := ReadDB().Where("user_subscription_id = ?", subId).Order("tier_index asc").Find(&usages).Error; err != nil {
 		return nil, err
 	}
 	return usages, nil

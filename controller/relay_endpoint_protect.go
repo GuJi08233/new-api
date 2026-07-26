@@ -64,14 +64,14 @@ func getModelMeta(modelName string) *model.Model {
 
 	// 先尝试精确匹配
 	var modelMeta model.Model
-	err := model.DB.Where("model_name = ?", modelName).First(&modelMeta).Error
+	err := model.ReadDB().Where("model_name = ?", modelName).First(&modelMeta).Error
 	if err == nil {
 		return &modelMeta
 	}
 
 	// 尝试前缀匹配（支持通配符）
 	var allModels []model.Model
-	model.DB.Find(&allModels)
+	model.ReadDB().Find(&allModels)
 
 	for _, m := range allModels {
 		switch m.NameRule {

@@ -81,7 +81,7 @@ func (token *Token) GetIpLimits() []string {
 func GetAllUserTokens(userId int, startIdx int, num int) ([]*Token, error) {
 	var tokens []*Token
 	var err error
-	err = DB.Where("user_id = ?", userId).Order("id desc").Limit(num).Offset(startIdx).Find(&tokens).Error
+	err = ReadDB().Where("user_id = ?", userId).Order("id desc").Limit(num).Offset(startIdx).Find(&tokens).Error
 	return tokens, err
 }
 
@@ -158,7 +158,7 @@ func SearchUserTokens(userId int, keyword string, token string, offset int, limi
 		}
 	}
 
-	baseQuery := DB.Model(&Token{}).Where("user_id = ?", userId)
+	baseQuery := ReadDB().Model(&Token{}).Where("user_id = ?", userId)
 
 	// 非空才加 LIKE 条件，空则跳过（不过滤该字段）
 	if keyword != "" {
@@ -238,7 +238,7 @@ func GetTokenByIds(id int, userId int) (*Token, error) {
 	}
 	token := Token{Id: id, UserId: userId}
 	var err error = nil
-	err = DB.First(&token, "id = ? and user_id = ?", id, userId).Error
+	err = ReadDB().First(&token, "id = ? and user_id = ?", id, userId).Error
 	return &token, err
 }
 
@@ -248,7 +248,7 @@ func GetTokenById(id int) (*Token, error) {
 	}
 	token := Token{Id: id}
 	var err error = nil
-	err = DB.First(&token, "id = ?", id).Error
+	err = ReadDB().First(&token, "id = ?", id).Error
 	if shouldUpdateRedis(true, err) {
 		gopool.Go(func() {
 			if err := cacheSetToken(token); err != nil {
@@ -279,7 +279,7 @@ func GetTokenByKey(key string, fromDB bool) (token *Token, err error) {
 		// Don't return error - fall through to DB
 	}
 	fromDB = true
-	err = DB.Where(commonKeyCol+" = ?", key).First(&token).Error
+	err = ReadDB().Where(commonKeyCol+" = ?", key).First(&token).Error
 	return token, err
 }
 
@@ -442,7 +442,7 @@ func decreaseTokenQuota(id int, quota int) (err error) {
 // CountUserTokens returns total number of tokens for the given user, used for pagination
 func CountUserTokens(userId int) (int64, error) {
 	var total int64
-	err := DB.Model(&Token{}).Where("user_id = ?", userId).Count(&total).Error
+	err := ReadDB().Model(&Token{}).Where("user_id = ?", userId).Count(&total).Error
 	return total, err
 }
 
@@ -482,7 +482,7 @@ func BatchDeleteTokens(ids []int, userId int) (int, error) {
 
 func GetTokenKeysByIds(ids []int, userId int) ([]Token, error) {
 	var tokens []Token
-	err := DB.Select("id", commonKeyCol).
+	err := ReadDB().Select("id", commonKeyCol).
 		Where("user_id = ? AND id IN (?)", userId, ids).
 		Find(&tokens).Error
 	return tokens, err
@@ -499,7 +499,7 @@ func InvalidateUserTokensCache(userId int) error {
 		return errors.New("userId 无效")
 	}
 	var tokens []Token
-	if err := DB.Unscoped().
+	if err := ReadDB().Unscoped().
 		Select("id", commonKeyCol).
 		Where("user_id = ?", userId).
 		Find(&tokens).Error; err != nil {

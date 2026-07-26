@@ -54,6 +54,22 @@ var DB *gorm.DB
 
 var LOG_DB *gorm.DB
 
+// RO_DB is the read-only replica connection. nil when read-write splitting is
+// not enabled (master node or SQL_DSN_READONLY not set).
+var RO_DB *gorm.DB
+
+// ReadDB returns the database connection for read-only queries.
+// On slave nodes with SQL_DSN_READONLY configured, this returns the read
+// replica connection to reduce cross-region latency.
+// On master nodes or when SQL_DSN_READONLY is not set, this returns DB,
+// making it a zero-cost identity function with no behavior change.
+func ReadDB() *gorm.DB {
+	if RO_DB != nil {
+		return RO_DB
+	}
+	return DB
+}
+
 func createRootAccountIfNeed() error {
 	var user User
 	//if user.Status != common.UserStatusEnabled {
@@ -205,6 +221,7 @@ func InitDB() (err error) {
 		sqlDB.SetConnMaxLifetime(time.Second * time.Duration(common.GetEnvOrDefault("SQL_MAX_LIFETIME", 60)))
 
 		if !common.IsMasterNode {
+			initReadOnlyDB()
 			return nil
 		}
 		if common.UsingMainDatabase(common.DatabaseTypeMySQL) {
@@ -258,6 +275,60 @@ func InitLogDB() (err error) {
 		common.FatalLog(err)
 	}
 	return err
+}
+
+// initReadOnlyDB initializes a read-only database connection for slave nodes.
+// It reads SQL_DSN_READONLY and connects to the replica. On failure it logs
+// a warning and falls back to the primary (RO_DB stays nil).
+func initReadOnlyDB() {
+	dsn := os.Getenv("SQL_DSN_READONLY")
+	if dsn == "" {
+		return
+	}
+	dbType := common.MainDatabaseType()
+	var db *gorm.DB
+	var err error
+	switch dbType {
+	case common.DatabaseTypePostgreSQL:
+		common.SysLog("connecting to read-only PostgreSQL replica")
+		db, err = gorm.Open(postgres.New(postgres.Config{
+			DSN:                  dsn,
+			PreferSimpleProtocol: true,
+		}), &gorm.Config{PrepareStmt: true})
+	case common.DatabaseTypeMySQL:
+		common.SysLog("connecting to read-only MySQL replica")
+		if !strings.Contains(dsn, "parseTime") {
+			if strings.Contains(dsn, "?") {
+				dsn += "&parseTime=true"
+			} else {
+				dsn += "?parseTime=true"
+			}
+		}
+		db, err = gorm.Open(mysql.Open(dsn), &gorm.Config{PrepareStmt: true})
+	case common.DatabaseTypeSQLite:
+		common.SysLog("SQL_DSN_READONLY is ignored for SQLite")
+		return
+	default:
+		common.SysLog("SQL_DSN_READONLY: unsupported database type, ignoring")
+		return
+	}
+	if err != nil {
+		common.SysError(fmt.Sprintf("failed to connect to read-only database: %v, falling back to primary", err))
+		return
+	}
+	if common.DebugEnabled {
+		db = db.Debug()
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		common.SysError(fmt.Sprintf("failed to get read-only sql.DB: %v, falling back to primary", err))
+		return
+	}
+	sqlDB.SetMaxIdleConns(common.GetEnvOrDefault("SQL_RO_MAX_IDLE_CONNS", 50))
+	sqlDB.SetMaxOpenConns(common.GetEnvOrDefault("SQL_RO_MAX_OPEN_CONNS", 500))
+	sqlDB.SetConnMaxLifetime(time.Second * time.Duration(common.GetEnvOrDefault("SQL_RO_MAX_LIFETIME", 60)))
+	RO_DB = db
+	common.SysLog("read-only database connected (slave node, SQL_DSN_READONLY)")
 }
 
 func migrateDB() error {
@@ -725,6 +796,11 @@ func closeDB(db *gorm.DB) error {
 }
 
 func CloseDB() error {
+	if RO_DB != nil {
+		if err := closeDB(RO_DB); err != nil {
+			common.SysError(fmt.Sprintf("failed to close read-only DB: %v", err))
+		}
+	}
 	if LOG_DB != DB {
 		err := closeDB(LOG_DB)
 		if err != nil {
@@ -853,5 +929,14 @@ func PingDB() error {
 
 	lastPingTime = time.Now()
 	common.SysLog("Database pinged successfully")
+
+	if RO_DB != nil {
+		if roSqlDB, err := RO_DB.DB(); err == nil {
+			if err := roSqlDB.Ping(); err != nil {
+				common.SysLog("WARNING: read-only database ping failed: " + err.Error())
+			}
+		}
+	}
+
 	return nil
 }
