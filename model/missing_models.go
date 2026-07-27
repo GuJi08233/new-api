@@ -1,5 +1,7 @@
 package model
 
+import "strings"
+
 // GetMissingModels returns model names that are referenced in the system but
 // do not yet have a corresponding entry in the models meta table.
 //
@@ -18,19 +20,44 @@ func GetMissingModels(group string) ([]string, error) {
 		return []string{}, nil
 	}
 
-	var existing []string
-	if err := ReadDB().Model(&Model{}).Where("model_name IN ?", models).Pluck("model_name", &existing).Error; err != nil {
+	var configurations []Model
+	if err := ReadDB().Model(&Model{}).
+		Select("model_name", "name_rule").
+		Where("model_name IN ? OR name_rule <> ?", models, NameRuleExact).
+		Find(&configurations).Error; err != nil {
 		return nil, err
 	}
 
-	existingSet := make(map[string]struct{}, len(existing))
-	for _, e := range existing {
-		existingSet[e] = struct{}{}
+	exactNames := make(map[string]struct{}, len(configurations))
+	ruleConfigurations := make([]Model, 0, len(configurations))
+	for _, configuration := range configurations {
+		exactNames[configuration.ModelName] = struct{}{}
+		if configuration.NameRule != NameRuleExact {
+			ruleConfigurations = append(ruleConfigurations, configuration)
+		}
 	}
 
 	missing := make([]string, 0)
 	for _, name := range models {
-		if _, ok := existingSet[name]; !ok {
+		if _, ok := exactNames[name]; ok {
+			continue
+		}
+
+		configured := false
+		for _, configuration := range ruleConfigurations {
+			switch configuration.NameRule {
+			case NameRulePrefix:
+				configured = strings.HasPrefix(name, configuration.ModelName)
+			case NameRuleContains:
+				configured = strings.Contains(name, configuration.ModelName)
+			case NameRuleSuffix:
+				configured = strings.HasSuffix(name, configuration.ModelName)
+			}
+			if configured {
+				break
+			}
+		}
+		if !configured {
 			missing = append(missing, name)
 		}
 	}
