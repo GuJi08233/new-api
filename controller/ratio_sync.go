@@ -104,17 +104,6 @@ func valueMap(value any) map[string]any {
 	}
 }
 
-func hasAnyLocalValue(localData map[string]any, modelName string) bool {
-	for _, field := range pricingSyncFields {
-		if m := valueMap(localData[field]); m != nil {
-			if _, ok := m[modelName]; ok {
-				return true
-			}
-		}
-	}
-	return false
-}
-
 func asFloat64(value any) (float64, bool) {
 	switch typed := value.(type) {
 	case float64:
@@ -580,13 +569,12 @@ func buildDifferences(localData map[string]any, successfulChannels []struct {
 		}
 	}
 
-	// 当传入 enabledModelsSet 时，只保留本地已有配置或在启用渠道中的模型
+	// 当传入 enabledModelsSet 时，严格只保留启用渠道中的模型。
+	// 本地残留的定价配置不应让禁用或归档模型重新出现在同步列表中。
 	if enabledModelsSet != nil {
 		filtered := make(map[string]struct{})
 		for modelName := range allModels {
 			if _, inEnabled := enabledModelsSet[modelName]; inEnabled {
-				filtered[modelName] = struct{}{}
-			} else if hasAnyLocalValue(localData, modelName) {
 				filtered[modelName] = struct{}{}
 			}
 		}
