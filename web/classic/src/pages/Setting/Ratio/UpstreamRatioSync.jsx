@@ -40,6 +40,7 @@ import {
   showSuccess,
   showWarning,
   stringToColor,
+  convertUSDToCurrency,
 } from '../../../helpers';
 import { useIsMobile } from '../../../hooks/common/useIsMobile';
 import { DEFAULT_ENDPOINT } from '../../../constants';
@@ -59,6 +60,165 @@ const MODELS_DEV_PRESET_ID = -101;
 const MODELS_DEV_PRESET_NAME = 'models.dev 价格预设';
 const MODELS_DEV_PRESET_BASE_URL = 'https://models.dev';
 const MODELS_DEV_PRESET_ENDPOINT = 'https://models.dev/api.json';
+
+const PRICE_OPTION_KEY_BY_FIELD = {
+  model_ratio: 'ModelRatio',
+  completion_ratio: 'CompletionRatio',
+  cache_ratio: 'CacheRatio',
+  create_cache_ratio: 'CreateCacheRatio',
+  image_ratio: 'ImageRatio',
+  audio_ratio: 'AudioRatio',
+  audio_completion_ratio: 'AudioCompletionRatio',
+  model_price: 'ModelPrice',
+};
+
+const PRICE_LABEL_BY_FIELD = {
+  model_ratio: '输入价格',
+  completion_ratio: '补全价格',
+  cache_ratio: '缓存读取价格',
+  create_cache_ratio: '缓存创建价格',
+  image_ratio: '图片输入价格',
+  audio_ratio: '音频输入价格',
+  audio_completion_ratio: '音频补全价格',
+  model_price: '固定价格',
+};
+
+function parseRatioOption(raw) {
+  try {
+    return JSON.parse(raw || '{}');
+  } catch {
+    return {};
+  }
+}
+
+function parsePricingOptions(options = {}) {
+  return {
+    ModelRatio: parseRatioOption(options.ModelRatio),
+    CompletionRatio: parseRatioOption(options.CompletionRatio),
+    CacheRatio: parseRatioOption(options.CacheRatio),
+    CreateCacheRatio: parseRatioOption(options.CreateCacheRatio),
+    ImageRatio: parseRatioOption(options.ImageRatio),
+    AudioRatio: parseRatioOption(options.AudioRatio),
+    AudioCompletionRatio: parseRatioOption(options.AudioCompletionRatio),
+    ModelPrice: parseRatioOption(options.ModelPrice),
+    'billing_setting.billing_mode': parseRatioOption(
+      options['billing_setting.billing_mode'],
+    ),
+    'billing_setting.billing_expr': parseRatioOption(
+      options['billing_setting.billing_expr'],
+    ),
+  };
+}
+
+function toFiniteNumber(value) {
+  if (
+    value === null ||
+    value === undefined ||
+    value === '' ||
+    value === 'same'
+  ) {
+    return null;
+  }
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function getPricingValue(model, field, ratioTypes, localPricing, sourceName) {
+  if (sourceName) {
+    const upstreamNumber = toFiniteNumber(
+      ratioTypes[field]?.upstreams?.[sourceName],
+    );
+    if (upstreamNumber !== null) return upstreamNumber;
+  }
+
+  const currentNumber = toFiniteNumber(ratioTypes[field]?.current);
+  if (currentNumber !== null) return currentNumber;
+
+  const optionKey = PRICE_OPTION_KEY_BY_FIELD[field];
+  return toFiniteNumber(localPricing[optionKey]?.[model]);
+}
+
+function getSyncPricePreview(
+  model,
+  ratioType,
+  ratioTypes,
+  localPricing,
+  sourceName,
+) {
+  if (!PRICE_LABEL_BY_FIELD[ratioType]) return null;
+
+  const fieldValue = getPricingValue(
+    model,
+    ratioType,
+    ratioTypes,
+    localPricing,
+    sourceName,
+  );
+  if (fieldValue === null) return null;
+
+  if (ratioType === 'model_price') {
+    return {
+      labelKey: PRICE_LABEL_BY_FIELD[ratioType],
+      amountUSD: fieldValue,
+      unit: 'request',
+    };
+  }
+
+  const modelRatio = getPricingValue(
+    model,
+    'model_ratio',
+    ratioTypes,
+    localPricing,
+    sourceName,
+  );
+  if (modelRatio === null) return null;
+
+  const inputPrice = modelRatio * 2;
+  let amountUSD = inputPrice;
+
+  if (
+    ratioType === 'completion_ratio' ||
+    ratioType === 'cache_ratio' ||
+    ratioType === 'create_cache_ratio' ||
+    ratioType === 'image_ratio' ||
+    ratioType === 'audio_ratio'
+  ) {
+    amountUSD = inputPrice * fieldValue;
+  } else if (ratioType === 'audio_completion_ratio') {
+    const audioRatio = getPricingValue(
+      model,
+      'audio_ratio',
+      ratioTypes,
+      localPricing,
+      sourceName,
+    );
+    if (audioRatio === null) return null;
+    amountUSD = inputPrice * audioRatio * fieldValue;
+  }
+
+  if (!Number.isFinite(amountUSD)) return null;
+  return {
+    labelKey: PRICE_LABEL_BY_FIELD[ratioType],
+    amountUSD,
+    unit: 'million_tokens',
+  };
+}
+
+function SyncPricePreview({ preview, t }) {
+  if (!preview) return null;
+
+  const price = convertUSDToCurrency(preview.amountUSD, 4);
+  const unit = preview.unit === 'request' ? t('次') : `1M Tokens`;
+
+  return (
+    <span
+      className='truncate text-xs tabular-nums'
+      style={{ color: 'var(--semi-color-text-2)' }}
+    >
+      {t(preview.labelKey)} {price} / {unit}
+    </span>
+  );
+}
 
 function ConflictConfirmModal({ t, visible, items, loading, onOk, onCancel }) {
   const isMobile = useIsMobile();
@@ -138,6 +298,8 @@ export default function UpstreamRatioSync(props) {
   const [conflictItems, setConflictItems] = useState([]); // {channel, model, current, newVal, ratioType}
 
   const channelSelectorRef = React.useRef(null);
+
+  const parsedRatios = parsePricingOptions(props.options);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -700,7 +862,13 @@ export default function UpstreamRatioSync(props) {
 
             <Checkbox
               checked={onlyEnabledModels}
-              onChange={(e) => setOnlyEnabledModels(e.target.checked)}
+              onChange={(e) => {
+                setOnlyEnabledModels(e.target.checked);
+                setDifferences({});
+                setResolutions({});
+                setHasSynced(false);
+                setCurrentPage(1);
+              }}
               disabled={loading || syncLoading || confirmLoading}
               style={{ marginLeft: 4, whiteSpace: 'nowrap' }}
             >
@@ -781,17 +949,31 @@ export default function UpstreamRatioSync(props) {
       const fields = getOrderedRatioTypes(record.ratioTypes);
       return (
         <div className='flex min-w-[260px] flex-col gap-2'>
-          {fields.map((ratioType) => (
-            <div
-              key={ratioType}
-              className='flex min-w-0 flex-wrap items-center gap-2'
-            >
-              <Tag color={stringToColor(ratioType)} shape='circle'>
-                {getSyncFieldLabel(ratioType)}
-              </Tag>
-              {renderValueTag(record.ratioTypes[ratioType]?.current, 'blue')}
-            </div>
-          ))}
+          {fields.map((ratioType) => {
+            const preview = getSyncPricePreview(
+              record.model,
+              ratioType,
+              record.ratioTypes,
+              parsedRatios,
+            );
+            return (
+              <div
+                key={ratioType}
+                className='flex min-w-0 flex-wrap items-start gap-2'
+              >
+                <Tag color={stringToColor(ratioType)} shape='circle'>
+                  {getSyncFieldLabel(ratioType)}
+                </Tag>
+                <div className='flex min-w-0 flex-col gap-1'>
+                  {renderValueTag(
+                    record.ratioTypes[ratioType]?.current,
+                    'blue',
+                  )}
+                  <SyncPricePreview preview={preview} t={t} />
+                </div>
+              </div>
+            );
+          })}
         </div>
       );
     };
@@ -802,6 +984,13 @@ export default function UpstreamRatioSync(props) {
       const isConfident = diff.confidence?.[upName] !== false;
       const isPreferredField =
         getPreferredSyncField(record.model, ratioType, upName) === ratioType;
+      const preview = getSyncPricePreview(
+        record.model,
+        ratioType,
+        record.ratioTypes,
+        parsedRatios,
+        upName,
+      );
 
       if (upstreamVal === null || upstreamVal === undefined) {
         return renderValueTag(undefined);
@@ -809,9 +998,12 @@ export default function UpstreamRatioSync(props) {
 
       if (upstreamVal === 'same') {
         return (
-          <Tag color='blue' shape='circle'>
-            {t('与本地相同')}
-          </Tag>
+          <div className='flex min-w-0 flex-col gap-1'>
+            <Tag color='blue' shape='circle'>
+              {t('与本地相同')}
+            </Tag>
+            <SyncPricePreview preview={preview} t={t} />
+          </div>
         );
       }
 
@@ -836,20 +1028,26 @@ export default function UpstreamRatioSync(props) {
             }
           }}
         >
-          <Tooltip content={text}>
-            <span className='inline-block max-w-[360px] truncate align-bottom'>
-              {text}
-            </span>
-          </Tooltip>
+          <div className='flex min-w-0 flex-col gap-1'>
+            <Tooltip content={text}>
+              <span className='inline-block max-w-[360px] truncate align-bottom'>
+                {text}
+              </span>
+            </Tooltip>
+            <SyncPricePreview preview={preview} t={t} />
+          </div>
         </Checkbox>
       ) : (
-        <Tooltip content={text}>
-          <Tag color='default' shape='circle' type='light'>
-            <span className='inline-block max-w-[360px] truncate align-bottom'>
-              {text}
-            </span>
-          </Tag>
-        </Tooltip>
+        <div className='flex min-w-0 flex-col gap-1'>
+          <Tooltip content={text}>
+            <Tag color='default' shape='circle' type='light'>
+              <span className='inline-block max-w-[360px] truncate align-bottom'>
+                {text}
+              </span>
+            </Tag>
+          </Tooltip>
+          <SyncPricePreview preview={preview} t={t} />
+        </div>
       );
 
       return (
@@ -872,7 +1070,7 @@ export default function UpstreamRatioSync(props) {
         (ratioType) => shouldShowSyncField(record.model, ratioType, upName),
       );
       return (
-        <div className='flex min-w-[280px] flex-col gap-2'>
+        <div className='flex min-w-[340px] flex-col gap-2'>
           {fields.map((ratioType) => (
             <div key={ratioType} className='flex min-w-0 items-start gap-2'>
               <Tag

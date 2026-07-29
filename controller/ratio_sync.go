@@ -535,7 +535,12 @@ func FetchUpstreamRatios(c *gin.Context) {
 
 	var enabledModelsSet map[string]struct{}
 	if req.OnlyEnabledModels {
-		enabledModels := model.GetEnabledModels()
+		enabledModels, err := model.GetEnabledModelsWithError()
+		if err != nil {
+			logger.LogError(c.Request.Context(), "failed to query enabled models: "+err.Error())
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "查询已启用模型失败"})
+			return
+		}
 		enabledModelsSet = make(map[string]struct{}, len(enabledModels))
 		for _, m := range enabledModels {
 			enabledModelsSet[m] = struct{}{}

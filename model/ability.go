@@ -48,10 +48,15 @@ func GetGroupEnabledModels(group string) []string {
 }
 
 func GetEnabledModels() []string {
+	models, _ := GetEnabledModelsWithError()
+	return models
+}
+
+func GetEnabledModelsWithError() ([]string, error) {
 	var models []string
 	// Find distinct models
-	ReadDB().Table("abilities").Where("enabled = ?", true).Distinct("model").Pluck("model", &models)
-	return models
+	err := ReadDB().Table("abilities").Where("enabled = ?", true).Distinct("model").Pluck("model", &models).Error
+	return models, err
 }
 
 func GetAllEnableAbilities() []Ability {
