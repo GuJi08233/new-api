@@ -2,7 +2,9 @@ package billing_setting
 
 import (
 	"fmt"
+	"strings"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/samber/lo"
@@ -13,6 +15,7 @@ const (
 	BillingModeTieredExpr = "tiered_expr"
 	BillingModeField      = "billing_mode"
 	BillingExprField      = "billing_expr"
+	BillingExprOptionKey  = "billing_setting.billing_expr"
 )
 
 // BillingSetting is managed by config.GlobalConfig.Register.
@@ -74,6 +77,22 @@ func SmokeTestExpr(exprStr string) error {
 	return smokeTestExpr(exprStr)
 }
 
+func ValidateExprMapJSONString(jsonStr string) error {
+	expressions := make(map[string]string)
+	if err := common.UnmarshalJsonStr(jsonStr, &expressions); err != nil {
+		return fmt.Errorf("invalid tiered billing expression map: %w", err)
+	}
+	for modelName, exprStr := range expressions {
+		if strings.TrimSpace(exprStr) == "" {
+			return fmt.Errorf("model %s has an empty tiered billing expression", modelName)
+		}
+		if err := smokeTestExpr(exprStr); err != nil {
+			return fmt.Errorf("model %s has an invalid tiered billing expression: %w", modelName, err)
+		}
+	}
+	return nil
+}
+
 func smokeTestExpr(exprStr string) error {
 	vectors := []billingexpr.TokenParams{
 		{P: 0, C: 0, Len: 0},
@@ -97,8 +116,8 @@ func smokeTestExpr(exprStr string) error {
 			if err != nil {
 				return fmt.Errorf("vector {p=%g, c=%g}: run failed: %w", v.P, v.C, err)
 			}
-			if result < 0 {
-				return fmt.Errorf("vector {p=%g, c=%g}: result %f < 0", v.P, v.C, result)
+			if err := billingexpr.ValidateCost(result); err != nil {
+				return fmt.Errorf("vector {p=%g, c=%g}: %w", v.P, v.C, err)
 			}
 		}
 	}

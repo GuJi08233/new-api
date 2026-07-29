@@ -9,6 +9,8 @@ import (
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/shopspring/decimal"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Claude Sonnet-style tiered expression: standard vs long-context
@@ -107,6 +109,39 @@ func TestTryTieredSettleFallsBackToFrozenPreConsumeOnExprError(t *testing.T) {
 	if result != nil {
 		t.Fatalf("result = %#v, want nil", result)
 	}
+}
+
+func TestTryTieredSettleFallsBackToFrozenPreConsumeOnNegativeCharge(t *testing.T) {
+	exprStr := `c < 100 ? tier("invalid", -100) : tier("normal", c * 10)`
+	relayInfo := &relaycommon.RelayInfo{
+		FinalPreConsumedQuota: 321,
+		TieredBillingSnapshot: &billingexpr.BillingSnapshot{
+			BillingMode:              "tiered_expr",
+			ExprString:               exprStr,
+			ExprHash:                 billingexpr.ExprHashString(exprStr),
+			GroupRatio:               1,
+			EstimatedQuotaAfterGroup: 321,
+			QuotaPerUnit:             testQuotaPerUnit,
+		},
+	}
+
+	ok, quota, result := TryTieredSettle(relayInfo, billingexpr.TokenParams{C: 50})
+	require.True(t, ok)
+	assert.Equal(t, 321, quota)
+	assert.Nil(t, result)
+}
+
+func TestBillingSettlementRejectsNegativeActualQuota(t *testing.T) {
+	relayInfo := &relaycommon.RelayInfo{}
+
+	err := SettleBilling(nil, relayInfo, -1)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot be negative")
+
+	session := &BillingSession{}
+	err = session.Settle(-1)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot be negative")
 }
 
 // ---------------------------------------------------------------------------

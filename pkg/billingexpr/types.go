@@ -3,13 +3,33 @@ package billingexpr
 import (
 	"crypto/sha256"
 	"fmt"
+	"math"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 )
 
 type RequestInput struct {
-	Headers map[string]string
-	Body    []byte
+	Headers     map[string]string
+	Body        []byte
+	EvaluatedAt time.Time
+}
+
+// ValidateCost rejects expression outputs that cannot represent a charge.
+// Billing expressions may be request-dependent, so this guard is required at
+// both pre-consume and settlement time even when expressions were validated
+// before being saved.
+func ValidateCost(cost float64) error {
+	switch {
+	case math.IsNaN(cost):
+		return fmt.Errorf("billing expression result is NaN")
+	case math.IsInf(cost, 0):
+		return fmt.Errorf("billing expression result is infinite")
+	case cost < 0:
+		return fmt.Errorf("billing expression result cannot be negative: %g", cost)
+	default:
+		return nil
+	}
 }
 
 // TokenParams holds all token dimensions passed into an Expr evaluation.

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
+	"github.com/stretchr/testify/require"
 )
 
 // ---------------------------------------------------------------------------
@@ -420,6 +421,13 @@ func TestExprHashString_Deterministic(t *testing.T) {
 	if h1 == h3 {
 		t.Error("different expressions should have different hashes")
 	}
+}
+
+func TestUsedVarsPreservesExplicitZeroPricedVariable(t *testing.T) {
+	usedVars := billingexpr.UsedVars(`tier("base", p * 2 + cr * 0 + ao * 0)`)
+
+	require.True(t, usedVars["cr"], "explicitly free cache tokens must be excluded from p")
+	require.True(t, usedVars["ao"], "explicitly free audio output tokens must be excluded from c")
 }
 
 // ---------------------------------------------------------------------------

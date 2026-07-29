@@ -79,11 +79,11 @@ Powered by [expr-lang/expr](https://github.com/expr-lang/expr). Expressions are 
 | `param` | `param(path) → any` | Reads a JSON path from the request body (uses gjson) |
 | `header` | `header(key) → string` | Reads a request header value |
 | `has` | `has(source, substr) → bool` | Substring check |
-| `hour` | `hour(tz) → int` | Current hour in timezone (0-23) |
-| `minute` | `minute(tz) → int` | Current minute (0-59) |
-| `weekday` | `weekday(tz) → int` | Day of week (0=Sunday, 6=Saturday) |
-| `month` | `month(tz) → int` | Month (1-12) |
-| `day` | `day(tz) → int` | Day of month (1-31) |
+| `hour` | `hour(tz) → int` | Request-start hour in timezone (0-23) |
+| `minute` | `minute(tz) → int` | Request-start minute (0-59) |
+| `weekday` | `weekday(tz) → int` | Request-start day of week (0=Sunday, 6=Saturday) |
+| `month` | `month(tz) → int` | Request-start month (1-12) |
+| `day` | `day(tz) → int` | Request-start day of month (1-31) |
 | `max` | `max(a, b) → float64` | Math max |
 | `min` | `min(a, b) → float64` | Math min |
 | `abs` | `abs(x) → float64` | Absolute value |
@@ -108,15 +108,14 @@ tier("base", p * 2 + c * 8 + img * 2.5)
 tier("base", p * 0.43 + c * 3.06 + img * 0.78 + ai * 3.81 + ao * 15.11)
 ```
 
-### Request Rules (appended after `|||`)
+### Request Rules
 
-Request-conditional multipliers are appended to the expression after a `|||` separator:
+Request-conditional multipliers are combined into the normal expression so the
+stored expression remains the single billing contract:
 
 ```
-tier("base", p * 5 + c * 25)|||when(header("anthropic-beta") has "fast-mode") * 6
+(tier("base", p * 5 + c * 25)) * (has(header("anthropic-beta"), "fast-mode") ? 6 : 1)
 ```
-
-These are parsed and applied separately by the request rule system.
 
 ---
 
@@ -130,7 +129,7 @@ Frontend Editor → Storage → Pre-consume → Settlement → Log Display
 
 ### 1. Frontend Editor
 
-**File**: `web/src/pages/Setting/Ratio/components/TieredPricingEditor.jsx`
+**File**: `web/classic/src/pages/Setting/Ratio/components/TieredPricingEditor.jsx`
 
 Two editing modes:
 - **Visual mode**: Fill in prices per variable, conditions per tier. Generates expression via `generateExprFromVisualConfig()`.
@@ -143,12 +142,16 @@ The editor outputs a billing expression string and an optional request rule expr
 **File**: `setting/billing_setting/tiered_billing.go`
 
 Two option maps stored in the `options` DB table:
-- `ModelBillingMode`: `{ "model-name": "tiered_expr" }` — activates tiered billing for a model
-- `ModelBillingExpr`: `{ "model-name": "tier(\"base\", p * 2.5 + c * 15)" }` — the expression
+- `billing_setting.billing_mode`: `{ "model-name": "tiered_expr" }` — activates global tiered billing for a model
+- `billing_setting.billing_expr`: `{ "model-name": "tier(\"base\", p * 2.5 + c * 15)" }` — the global expression
+- `GroupBillingMode` / `GroupBillingExpr` — optional group-specific overrides
 
 On save, the expression is validated:
 1. Compiled via `billingexpr.CompileFromCache()` — syntax check
 2. Smoke-tested with sample token vectors — ensures non-negative results
+
+Runtime evaluation repeats the non-negative/finite check because request-aware
+conditions can reach branches that save-time smoke vectors do not cover.
 
 ### 3. Pre-consume (Quota Estimation)
 
@@ -156,7 +159,7 @@ On save, the expression is validated:
 
 When a request arrives and the model uses `tiered_expr` billing:
 1. Loads expression from `billing_setting.GetBillingExpr()`
-2. Builds `RequestInput` (headers + body) for `param()` / `header()` functions
+2. Builds `RequestInput` (headers + body + request-start timestamp) for request/time functions
 3. Runs expression with estimated tokens: `RunExprWithRequest(expr, {P, C}, requestInput)`
 4. Converts output to quota: `rawCost / 1,000,000 * QuotaPerUnit`
 5. Creates `BillingSnapshot` (frozen state for settlement) and stores on `RelayInfo`
@@ -173,14 +176,14 @@ After the upstream response returns with actual token usage:
    - For Claude-format APIs (input_tokens is text-only): no adjustment needed
 
 2. `TryTieredSettle(relayInfo, params)`:
-   - Uses the frozen `BillingSnapshot` from pre-consume
+   - Uses the frozen `BillingSnapshot` and `RequestInput` from pre-consume
    - Re-runs the expression with actual token counts
    - Converts via `quotaConversion()` (version-dispatched)
    - Returns actual quota
 
 ### 5. Log Display
 
-**Files**: `service/log_info_generate.go`, `web/src/helpers/render.jsx`
+**Files**: `service/log_info_generate.go`, `web/classic/src/helpers/render.jsx`
 
 Backend: `InjectTieredBillingInfo()` adds `billing_mode`, `expr_b64` (base64 expression), and `matched_tier` to the log's `other` JSON.
 
@@ -244,7 +247,7 @@ This enables future evolution without breaking existing expressions.
 | Pre-consume | `relay/helper/price.go`, `relay/helper/billing_expr_request.go` |
 | Settlement | `service/tiered_settle.go`, `service/quota.go` |
 | Log injection | `service/log_info_generate.go` |
-| Frontend editor | `web/src/pages/Setting/Ratio/components/TieredPricingEditor.jsx` |
-| Frontend display | `web/src/helpers/render.jsx`, `web/src/helpers/utils.jsx` |
-| Model detail | `web/src/components/table/model-pricing/modal/components/DynamicPricingBreakdown.jsx` |
-| Log display | `web/src/hooks/usage-logs/useUsageLogsData.jsx`, `web/src/components/table/usage-logs/UsageLogsColumnDefs.jsx` |
+| Frontend editor | `web/classic/src/pages/Setting/Ratio/components/TieredPricingEditor.jsx` |
+| Frontend display | `web/classic/src/helpers/render.jsx`, `web/classic/src/helpers/utils.jsx` |
+| Model detail | `web/classic/src/components/table/model-pricing/modal/components/ModelPricingTable.jsx` |
+| Log display | `web/classic/src/hooks/usage-logs/useUsageLogsData.jsx`, `web/classic/src/components/table/usage-logs/UsageLogsColumnDefs.jsx` |

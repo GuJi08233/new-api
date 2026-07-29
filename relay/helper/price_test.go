@@ -13,6 +13,7 @@ import (
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -179,6 +180,65 @@ func TestModelPriceHelperTieredRejectsPreConsumeOverflow(t *testing.T) {
 	require.ErrorAs(t, err, &clamp)
 	require.Equal(t, "QuotaRound", clamp.Op)
 	require.Equal(t, common.QuotaClampOverflow, clamp.Kind)
+}
+
+func TestModelPriceHelperGroupTieredMatchesGlobalPreConsumeSafety(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	savedConfig := map[string]string{}
+	require.NoError(t, config.GlobalConfig.SaveToDB(func(key, value string) error {
+		savedConfig[key] = value
+		return nil
+	}))
+	savedModes := ratio_setting.GroupBillingMode2JSONString()
+	savedExpressions := ratio_setting.GroupBillingExpr2JSONString()
+	t.Cleanup(func() {
+		require.NoError(t, config.GlobalConfig.LoadFromDB(savedConfig))
+		require.NoError(t, ratio_setting.UpdateGroupBillingModeByJSONString(savedModes))
+		require.NoError(t, ratio_setting.UpdateGroupBillingExprByJSONString(savedExpressions))
+	})
+
+	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
+		"group_ratio_setting.group_ratio": `{"default":1}`,
+	}))
+	require.NoError(t, ratio_setting.UpdateGroupBillingModeByJSONString(
+		`{"default":{"group-tiered-fallback":"tiered_expr","group-tiered-overflow":"tiered_expr"}}`,
+	))
+	require.NoError(t, ratio_setting.UpdateGroupBillingExprByJSONString(
+		`{"default":{"group-tiered-fallback":"tier(\"base\", p * 3 + c * 15)","group-tiered-overflow":"tier(\"overflow\", p * 1000000000000000)"}}`,
+	))
+
+	newContext := func(modelName string) (*gin.Context, *relaycommon.RelayInfo) {
+		recorder := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(recorder)
+		ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+		ctx.Set("group", "default")
+		return ctx, &relaycommon.RelayInfo{
+			OriginModelName: modelName,
+			UserGroup:       "default",
+			UsingGroup:      "default",
+			BillingRequestInput: &billingexpr.RequestInput{
+				Body: []byte(`{}`),
+			},
+		}
+	}
+
+	t.Run("omitted max tokens uses the same fallback", func(t *testing.T) {
+		ctx, info := newContext("group-tiered-fallback")
+		priceData, err := ModelPriceHelper(ctx, info, 1000, &types.TokenCountMeta{})
+		require.NoError(t, err)
+		assert.Equal(t, 62940, priceData.QuotaToPreConsume)
+		assert.Equal(t, defaultTieredPreConsumeMaxTokens, info.TieredBillingSnapshot.EstimatedCompletionTokens)
+	})
+
+	t.Run("overflow is rejected before pre-consume", func(t *testing.T) {
+		ctx, info := newContext("group-tiered-overflow")
+		_, err := ModelPriceHelper(ctx, info, 1000, &types.TokenCountMeta{})
+
+		var clamp *common.QuotaClamp
+		require.ErrorAs(t, err, &clamp)
+		assert.Equal(t, common.QuotaClampOverflow, clamp.Kind)
+	})
 }
 
 func TestModelPriceHelperRequestBillingRatiosOnlyApplyToFixedPrice(t *testing.T) {

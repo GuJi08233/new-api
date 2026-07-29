@@ -7,6 +7,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/setting"
+	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/performance_setting"
@@ -243,6 +244,9 @@ func UpdateOption(key string, value string) error {
 	if err := operation_setting.ValidateRiskControlOption(key, value); err != nil {
 		return err
 	}
+	if err := validateTieredBillingOption(key, value); err != nil {
+		return err
+	}
 	// Save to database first
 	option := Option{
 		Key: key,
@@ -279,6 +283,9 @@ func UpdateOptionsBulk(values map[string]string) error {
 		if err := operation_setting.ValidateRiskControlOption(key, value); err != nil {
 			return err
 		}
+		if err := validateTieredBillingOption(key, value); err != nil {
+			return err
+		}
 		activeValues[key] = value
 	}
 	if len(activeValues) == 0 {
@@ -313,6 +320,9 @@ func updateOptionMap(key string, value string) (err error) {
 		return nil
 	}
 	if err := operation_setting.ValidateRiskControlOption(key, value); err != nil {
+		return err
+	}
+	if err := validateTieredBillingOption(key, value); err != nil {
 		return err
 	}
 	common.OptionMapRWMutex.Lock()
@@ -701,6 +711,17 @@ func updateOptionMap(key string, value string) (err error) {
 		// No additional in-memory variable to update.
 	}
 	return err
+}
+
+func validateTieredBillingOption(key, value string) error {
+	switch key {
+	case billing_setting.BillingExprOptionKey:
+		return billing_setting.ValidateExprMapJSONString(value)
+	case "GroupBillingExpr":
+		return ratio_setting.ValidateGroupBillingExprJSONString(value)
+	default:
+		return nil
+	}
 }
 
 // handleConfigUpdate 处理分层配置更新，返回是否已处理

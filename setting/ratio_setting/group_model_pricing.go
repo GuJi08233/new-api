@@ -1,6 +1,9 @@
 package ratio_setting
 
 import (
+	"fmt"
+	"strings"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/types"
@@ -252,7 +255,28 @@ func GroupBillingExpr2JSONString() string {
 }
 
 func UpdateGroupBillingExprByJSONString(jsonStr string) error {
+	if err := ValidateGroupBillingExprJSONString(jsonStr); err != nil {
+		return err
+	}
 	return types.LoadFromJsonStringWithCallback(groupBillingExprMap, jsonStr, InvalidateExposedDataCache)
+}
+
+func ValidateGroupBillingExprJSONString(jsonStr string) error {
+	expressions := make(map[string]map[string]string)
+	if err := common.UnmarshalJsonStr(jsonStr, &expressions); err != nil {
+		return fmt.Errorf("invalid group tiered billing expression map: %w", err)
+	}
+	for groupName, groupExpressions := range expressions {
+		for modelName, exprStr := range groupExpressions {
+			if strings.TrimSpace(exprStr) == "" {
+				return fmt.Errorf("group %s model %s has an empty tiered billing expression", groupName, modelName)
+			}
+			if err := billing_setting.SmokeTestExpr(exprStr); err != nil {
+				return fmt.Errorf("group %s model %s has an invalid tiered billing expression: %w", groupName, modelName, err)
+			}
+		}
+	}
+	return nil
 }
 
 // ===== Helper Functions =====

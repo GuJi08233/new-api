@@ -3,6 +3,7 @@ package billingexpr_test
 import (
 	"math"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
@@ -50,4 +51,33 @@ func TestComputeTieredQuota_NoClampInRange(t *testing.T) {
 	result, err := billingexpr.ComputeTieredQuota(snap, billingexpr.TokenParams{P: 1000, C: 500})
 	require.NoError(t, err)
 	assert.Nil(t, result.Clamp, "in-range settlement must not report a clamp")
+}
+
+func TestComputeTieredQuotaRejectsNegativeCharge(t *testing.T) {
+	exprStr := `c < 100 ? tier("invalid", -100) : tier("normal", c * 10)`
+	snap := &billingexpr.BillingSnapshot{
+		BillingMode:  "tiered_expr",
+		ExprString:   exprStr,
+		ExprHash:     billingexpr.ExprHashString(exprStr),
+		GroupRatio:   1,
+		QuotaPerUnit: 500_000,
+	}
+
+	_, err := billingexpr.ComputeTieredQuota(snap, billingexpr.TokenParams{C: 50})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot be negative")
+}
+
+func TestRunExprWithRequestUsesFrozenEvaluationTime(t *testing.T) {
+	evaluatedAt := time.Date(2026, time.July, 29, 15, 4, 0, 0, time.UTC)
+	exprStr := `hour("UTC") == 15 && minute("UTC") == 4 && weekday("UTC") == 3 && month("UTC") == 7 && day("UTC") == 29 ? tier("frozen", p) : tier("other", 0)`
+
+	cost, trace, err := billingexpr.RunExprWithRequest(
+		exprStr,
+		billingexpr.TokenParams{P: 123},
+		billingexpr.RequestInput{EvaluatedAt: evaluatedAt},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, 123.0, cost)
+	assert.Equal(t, "frozen", trace.MatchedTier)
 }

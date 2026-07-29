@@ -109,7 +109,7 @@ function getTierCacheMode(tier) {
   if (tier?.cache_mode === CACHE_MODE_GENERIC) {
     return CACHE_MODE_GENERIC;
   }
-  return Number(tier?.cache_create_1h_unit_cost) > 0
+  return tier?.cache_create_1h_unit_cost != null
     ? CACHE_MODE_TIMED
     : CACHE_MODE_GENERIC;
 }
@@ -153,8 +153,9 @@ function buildTierBodyExpr(tier) {
   parts.push(`p * ${ic}`);
   parts.push(`c * ${oc}`);
   for (const cv of CACHE_VAR_MAP) {
+    if (tier[cv.field] == null) continue;
     const v = Number(tier[cv.field]) || 0;
-    if (v !== 0) parts.push(`${cv.exprVar} * ${v}`);
+    parts.push(`${cv.exprVar} * ${v}`);
   }
   return parts.join(' + ');
 }
@@ -338,21 +339,27 @@ function ConditionRow({ cond, onChange, onRemove, t }) {
 // Price input that preserves intermediate text like "7." or "0.5"
 // ---------------------------------------------------------------------------
 
-function PriceInput({ unitCost, field, index, onUpdate, placeholder }) {
+function PriceInput({ unitCost, field, index, onUpdate, placeholder, allowUnset = false }) {
+  const isUnset = allowUnset && unitCost == null;
   const priceFromModel = unitCostToPrice(unitCost);
-  const [text, setText] = useState(priceFromModel === 0 ? '' : String(priceFromModel));
+  const [text, setText] = useState(
+    isUnset || (!allowUnset && priceFromModel === 0) ? '' : String(priceFromModel),
+  );
 
   useEffect(() => {
-    const current = Number(text);
-    if (text === '' && priceFromModel === 0) return;
-    if (!Number.isNaN(current) && current === priceFromModel) return;
-    setText(priceFromModel === 0 ? '' : String(priceFromModel));
-  }, [priceFromModel]);
+    setText((currentText) => {
+      if (isUnset) return '';
+      const current = Number(currentText);
+      if (!allowUnset && currentText === '' && priceFromModel === 0) return currentText;
+      if (!Number.isNaN(current) && current === priceFromModel) return currentText;
+      return allowUnset || priceFromModel !== 0 ? String(priceFromModel) : '';
+    });
+  }, [allowUnset, isUnset, priceFromModel]);
 
   const handleChange = (val) => {
     setText(val);
     if (val === '') {
-      onUpdate(index, field, 0);
+      onUpdate(index, field, allowUnset ? null : 0);
       return;
     }
     const num = Number(val);
@@ -390,7 +397,7 @@ const CACHE_FIELDS_GENERIC = [
 function ExtendedPriceBlock({ tier, index, onUpdate, t }) {
   const mediaFields = BILLING_EXTRA_VARS.filter((v) => v.group === 'media');
   const hasAny = [...CACHE_FIELDS_TIMED, ...mediaFields.map((v) => v.tierField)].some(
-    (f) => Number(tier[typeof f === 'string' ? f : f.field]) > 0,
+    (f) => tier[typeof f === 'string' ? f : f.field] != null,
   );
   const [expanded, setExpanded] = useState(hasAny);
   const cacheMode = getTierCacheMode(tier);
@@ -399,7 +406,7 @@ function ExtendedPriceBlock({ tier, index, onUpdate, t }) {
     const mode = e.target.value;
     const patch = { cache_mode: mode };
     if (mode === CACHE_MODE_GENERIC) {
-      patch.cache_create_1h_unit_cost = 0;
+      patch.cache_create_1h_unit_cost = null;
     }
     onUpdate(index, patch);
   };
@@ -458,6 +465,7 @@ function ExtendedPriceBlock({ tier, index, onUpdate, t }) {
                   field={cf.field}
                   index={index}
                   onUpdate={onUpdate}
+                  allowUnset
                 />
               </div>
             ))}
@@ -485,6 +493,7 @@ function ExtendedPriceBlock({ tier, index, onUpdate, t }) {
                   field={cf.field}
                   index={index}
                   onUpdate={onUpdate}
+                  allowUnset
                 />
               </div>
             ))}
