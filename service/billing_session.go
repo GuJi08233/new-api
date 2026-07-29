@@ -41,11 +41,12 @@ type BillingSession struct {
 func (s *BillingSession) Settle(actualQuota int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if actualQuota < 0 {
-		return fmt.Errorf("actual quota cannot be negative: %d", actualQuota)
-	}
+	// 幂等检查必须先于额度校验：已结算的会话无论传入什么都应无副作用返回。
 	if s.settled {
 		return nil
+	}
+	if actualQuota < 0 {
+		return fmt.Errorf("actual quota cannot be negative: %d", actualQuota)
 	}
 	delta := actualQuota - s.preConsumedQuota
 	if delta == 0 {

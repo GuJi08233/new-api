@@ -498,7 +498,13 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
           <label className='flex items-center gap-2 text-sm whitespace-nowrap'>
             <Checkbox
               checked={onlyEnabledModels}
-              onCheckedChange={(checked) => setOnlyEnabledModels(checked === true)}
+              onCheckedChange={(checked) => {
+                setOnlyEnabledModels(checked === true)
+                // 已展示的差异是按旧过滤条件拉取的，切换后必须清空，
+                // 否则会把过期结果连同用户的选择一起带到下一次同步。
+                setDifferences({})
+                setResolutions({})
+              }}
               disabled={isLoading}
             />
             {t('Only show my models')}

@@ -322,9 +322,11 @@ func updateOptionMap(key string, value string) (err error) {
 	if err := operation_setting.ValidateRiskControlOption(key, value); err != nil {
 		return err
 	}
-	if err := validateTieredBillingOption(key, value); err != nil {
-		return err
-	}
+	// 注意：此处不做阶梯计费表达式校验。updateOptionMap 同时服务于写入路径
+	// （UpdateOption / UpdateOptionsBulk，二者已在入口校验）和 loadOptionsFromDatabase
+	// 的加载回放路径。在加载路径上拒绝一个已存在于库中的值，只会让整张表达式 map
+	// 静默不载入内存，导致所有 tiered_expr 模型退化为"无表达式"而全部请求失败。
+	// 运行期已有 billingexpr.ValidateCost 在预扣费与结算两端兜底，不依赖加载期校验。
 	common.OptionMapRWMutex.Lock()
 	defer common.OptionMapRWMutex.Unlock()
 	common.OptionMap[key] = value

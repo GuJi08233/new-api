@@ -299,7 +299,11 @@ export default function UpstreamRatioSync(props) {
 
   const channelSelectorRef = React.useRef(null);
 
-  const parsedRatios = parsePricingOptions(props.options);
+  // 定价选项串在生产环境常有数百 KB，搜索/翻页每次 render 都重解析代价过高。
+  const parsedRatios = useMemo(
+    () => parsePricingOptions(props.options),
+    [props.options],
+  );
 
   useEffect(() => {
     setCurrentPage(1);
