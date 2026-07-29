@@ -3231,6 +3231,7 @@
     "Only enabled parameters are sent with the request.": "只有啟用的參數會隨請求傳送。",
     "Only enter the site origin, for example https://api.example.com. Do not include any path such as /api/user/epay/notify. Leave blank to use the server address.": "只填寫站點根域名，例如 https://api.example.com。不要填寫 /api/user/epay/notify 這類路徑。留空則使用伺服器地址。",
     "Only Mine": "僅自己",
+    "Only show my models": "只顯示我的模型",
     "Only one catch-all route is allowed for the same incoming path": "同一入口路徑只允許一個兜底路由",
     "Only selected fields will be overwritten. You can re-run the sync wizard if new conflicts appear.": "僅選定的欄位將會被覆蓋。如果出現新的衝突，您可以重新執行同步精靈。",
     "Only successful requests": "僅成功的請求",

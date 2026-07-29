@@ -120,6 +120,9 @@ export default function UpstreamRatioSync(props) {
   // 是否已经执行过同步
   const [hasSynced, setHasSynced] = useState(false);
 
+  // 只显示已启用模型
+  const [onlyEnabledModels, setOnlyEnabledModels] = useState(true);
+
   // 分页相关状态
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
@@ -226,6 +229,7 @@ export default function UpstreamRatioSync(props) {
     const payload = {
       upstreams: upstreams,
       timeout: 10,
+      only_enabled_models: onlyEnabledModels,
     };
 
     try {
@@ -693,6 +697,15 @@ export default function UpstreamRatioSync(props) {
                 {t('表达式计费')}
               </Select.Option>
             </Select>
+
+            <Checkbox
+              checked={onlyEnabledModels}
+              onChange={(e) => setOnlyEnabledModels(e.target.checked)}
+              disabled={loading || syncLoading || confirmLoading}
+              style={{ marginLeft: 4, whiteSpace: 'nowrap' }}
+            >
+              {t('只显示我的模型')}
+            </Checkbox>
           </div>
         </div>
       </div>

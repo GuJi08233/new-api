@@ -550,6 +550,7 @@ export type UpstreamConfig = {
 export type FetchUpstreamRatiosRequest = {
   upstreams: UpstreamConfig[]
   timeout: number
+  only_enabled_models?: boolean
 }
 
 export type TestResult = {

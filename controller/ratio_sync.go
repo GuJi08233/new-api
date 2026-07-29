@@ -104,6 +104,17 @@ func valueMap(value any) map[string]any {
 	}
 }
 
+func hasAnyLocalValue(localData map[string]any, modelName string) bool {
+	for _, field := range pricingSyncFields {
+		if m := valueMap(localData[field]); m != nil {
+			if _, ok := m[modelName]; ok {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func asFloat64(value any) (float64, bool) {
 	switch typed := value.(type) {
 	case float64:
@@ -522,7 +533,16 @@ func FetchUpstreamRatios(c *gin.Context) {
 		}
 	}
 
-	differences := buildDifferences(localData, successfulChannels)
+	var enabledModelsSet map[string]struct{}
+	if req.OnlyEnabledModels {
+		enabledModels := model.GetEnabledModels()
+		enabledModelsSet = make(map[string]struct{}, len(enabledModels))
+		for _, m := range enabledModels {
+			enabledModelsSet[m] = struct{}{}
+		}
+	}
+
+	differences := buildDifferences(localData, successfulChannels, enabledModelsSet)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -536,7 +556,7 @@ func FetchUpstreamRatios(c *gin.Context) {
 func buildDifferences(localData map[string]any, successfulChannels []struct {
 	name string
 	data map[string]any
-}) map[string]map[string]dto.DifferenceItem {
+}, enabledModelsSet map[string]struct{}) map[string]map[string]dto.DifferenceItem {
 	differences := make(map[string]map[string]dto.DifferenceItem)
 
 	allModels := make(map[string]struct{})
@@ -553,6 +573,19 @@ func buildDifferences(localData map[string]any, successfulChannels []struct {
 				allModels[modelName] = struct{}{}
 			}
 		}
+	}
+
+	// 当传入 enabledModelsSet 时，只保留本地已有配置或在启用渠道中的模型
+	if enabledModelsSet != nil {
+		filtered := make(map[string]struct{})
+		for modelName := range allModels {
+			if _, inEnabled := enabledModelsSet[modelName]; inEnabled {
+				filtered[modelName] = struct{}{}
+			} else if hasAnyLocalValue(localData, modelName) {
+				filtered[modelName] = struct{}{}
+			}
+		}
+		allModels = filtered
 	}
 
 	confidenceMap := make(map[string]map[string]bool)

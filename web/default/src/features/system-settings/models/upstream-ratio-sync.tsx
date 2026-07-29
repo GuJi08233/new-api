@@ -23,6 +23,7 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 
 import {
   fetchUpstreamRatios,
@@ -133,6 +134,7 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
   const [resolutions, setResolutions] = useState<ResolutionsMap>({})
   const [conflictItems, setConflictItems] = useState<ConflictItem[]>([])
   const [confirmLoading, setConfirmLoading] = useState(false)
+  const [onlyEnabledModels, setOnlyEnabledModels] = useState(true)
 
   const { data: channelsData } = useQuery({
     queryKey: ['upstream-channels'],
@@ -245,7 +247,7 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
       endpoint: channelEndpoints[ch.id] || DEFAULT_ENDPOINT,
     }))
 
-    fetchMutation.mutate({ upstreams, timeout: 10 })
+    fetchMutation.mutate({ upstreams, timeout: 10, only_enabled_models: onlyEnabledModels })
   }
 
   const handleSelectValue = useCallback(
@@ -493,6 +495,14 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
             <CheckSquare className='mr-2 h-4 w-4' />
             {t('Apply Sync')}
           </Button>
+          <label className='flex items-center gap-2 text-sm whitespace-nowrap'>
+            <Checkbox
+              checked={onlyEnabledModels}
+              onCheckedChange={(checked) => setOnlyEnabledModels(checked === true)}
+              disabled={isLoading}
+            />
+            {t('Only show my models')}
+          </label>
         </div>
       </div>
 
