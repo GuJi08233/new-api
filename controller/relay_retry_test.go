@@ -5,9 +5,13 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
@@ -183,6 +187,52 @@ func TestGetChannelRetrySettings_FromChannelObject(t *testing.T) {
 	assert.Equal(t, 3, result.RetryTimes)
 	assert.True(t, result.RetryOnSameChannel)
 	assert.Equal(t, "500-503", result.RetryStatusCodes)
+}
+
+func TestGetChannelLoadsFullPollingChannelForSameChannelRetry(t *testing.T) {
+	db := setupChannelMultiKeyConversionTestDB(t)
+	channel := model.Channel{
+		Name:   "polling-retry",
+		Type:   constant.ChannelTypeOpenAI,
+		Key:    "sk-first\nsk-second",
+		Status: common.ChannelStatusEnabled,
+		Group:  "default",
+		Models: "gpt-test",
+		ChannelInfo: model.ChannelInfo{
+			IsMultiKey:           true,
+			MultiKeySize:         2,
+			MultiKeyStatusList:   map[int]int{},
+			MultiKeyPollingIndex: 0,
+			MultiKeyMode:         constant.MultiKeyModePolling,
+		},
+	}
+	channel.SetSetting(dto.ChannelSettings{
+		RetryTimes:         1,
+		RetryOnSameChannel: true,
+	})
+	require.NoError(t, db.Create(&channel).Error)
+
+	c := newTestContext()
+	require.Nil(t, middleware.SetupContextForSelectedChannel(c, &channel, "gpt-test"))
+	assert.Equal(t, "sk-first", common.GetContextKeyString(c, constant.ContextKeyChannelKey))
+	assert.Equal(t, 0, common.GetContextKeyInt(c, constant.ContextKeyChannelMultiKeyIndex))
+
+	retryChannel, channelErr := getChannel(c, &relaycommon.RelayInfo{
+		OriginModelName: "gpt-test",
+		TokenGroup:      "default",
+	}, &service.RetryParam{
+		Ctx:         c,
+		TokenGroup:  "default",
+		ModelName:   "gpt-test",
+		RequestPath: "/v1/chat/completions",
+		Retry:       common.GetPointer(0),
+	})
+	require.Nil(t, channelErr)
+	require.True(t, retryChannel.ChannelInfo.IsMultiKey)
+
+	require.Nil(t, middleware.SetupContextForSelectedChannel(c, retryChannel, "gpt-test"))
+	assert.Equal(t, "sk-second", common.GetContextKeyString(c, constant.ContextKeyChannelKey))
+	assert.Equal(t, 1, common.GetContextKeyInt(c, constant.ContextKeyChannelMultiKeyIndex))
 }
 
 func TestShouldRetryWithChannelSetting_ExhaustedTransferConfig(t *testing.T) {

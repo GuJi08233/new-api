@@ -377,13 +377,21 @@ func fastTokenCountMetaForPricing(request dto.Request) *types.TokenCountMeta {
 
 func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service.RetryParam) (*model.Channel, *types.NewAPIError) {
 	if info.ChannelMeta == nil {
+		channelId := common.GetContextKeyInt(c, constant.ContextKeyChannelId)
+		if setting, ok := common.GetContextKeyType[dto.ChannelSettings](c, constant.ContextKeyChannelSetting); ok && setting.RetryOnSameChannel {
+			channel, err := model.CacheGetChannel(channelId)
+			if err != nil {
+				return nil, types.NewError(fmt.Errorf("重新加载同渠道重试渠道 #%d 失败: %w", channelId, err), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
+			}
+			return channel, nil
+		}
 		autoBan := c.GetBool("auto_ban")
 		autoBanInt := 1
 		if !autoBan {
 			autoBanInt = 0
 		}
 		return &model.Channel{
-			Id:      c.GetInt("channel_id"),
+			Id:      channelId,
 			Type:    c.GetInt("channel_type"),
 			Name:    c.GetString("channel_name"),
 			AutoBan: &autoBanInt,
