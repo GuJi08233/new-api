@@ -205,7 +205,11 @@ const RegisterForm = () => {
     setWechatCodeSubmitLoading(true);
     try {
       const res = await API.get(
-        `/api/oauth/wechat?code=${encodeURIComponent(inputs.wechat_verification_code)}`,
+        `/api/oauth/wechat?code=${encodeURIComponent(inputs.wechat_verification_code)}${
+          invitationCodeInput
+            ? `&invitation_code=${encodeURIComponent(invitationCodeInput)}`
+            : ''
+        }`,
       );
       const { success, message, data } = res.data;
       if (success) {
@@ -443,7 +447,7 @@ const RegisterForm = () => {
                       field='invitation_code_oauth'
                       label={t('邀请码')}
                       placeholder={t('请输入邀请码')}
-                      value={invitationCodeInput}
+                      initValue={invitationCodeInput}
                       onChange={(value) => setInvitationCodeInput(value)}
                       prefix={<IconKey />}
                     />
@@ -705,7 +709,7 @@ const RegisterForm = () => {
                     label={t('邀请码')}
                     placeholder={t('请输入邀请码')}
                     name='invitation_code'
-                    value={invitationCodeInput}
+                    initValue={invitationCodeInput}
                     onChange={(value) => setInvitationCodeInput(value)}
                     prefix={<IconKey />}
                   />

@@ -223,7 +223,7 @@ export function SignUpForm({
 
     setIsWeChatSubmitting(true)
     try {
-      const res = await wechatLoginByCode(wechatCode)
+      const res = await wechatLoginByCode(wechatCode, invitationCodeInput)
       if (res?.success) {
         await handleLoginSuccess(res.data as { id?: number } | null)
         toast.success(t('Signed in via WeChat'))

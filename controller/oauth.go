@@ -302,6 +302,12 @@ func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *o
 	// Handle inviter: 优先使用邀请码生成者，否则使用 aff_code
 	inviterId := 0
 	if common.InvitationCodeEnabled && invitationCodeRecord != nil {
+		// 原子占用邀请码，防止并发注册用同一个码同时通过校验
+		reserved, reserveErr := model.ReserveInvitationCode(invitationCodeRecord.Code)
+		if reserveErr != nil {
+			return nil, reserveErr
+		}
+		invitationCodeRecord = reserved
 		inviterId = invitationCodeRecord.UserId
 	} else {
 		affCode := session.Get("aff")
@@ -333,14 +339,15 @@ func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *o
 			return nil
 		})
 		if err != nil {
+			model.ReleaseInvitationCode(invitationCodeRecord)
 			return nil, err
 		}
 
 		// Perform post-transaction tasks (logs, sidebar config, inviter rewards)
 		user.FinalizeOAuthUserCreation(inviterId)
-		// 标记邀请码已使用
+		// 将邀请码归属到新用户并发放奖励
 		if common.InvitationCodeEnabled && invitationCodeRecord != nil {
-			_ = model.UseInvitationCode(invitationCodeRecord.Code, user.Id)
+			_ = model.FinalizeInvitationCodeUsage(invitationCodeRecord, user.Id)
 		}
 	} else {
 		// Built-in provider: create user and update provider ID in a transaction
@@ -367,14 +374,15 @@ func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *o
 			return nil
 		})
 		if err != nil {
+			model.ReleaseInvitationCode(invitationCodeRecord)
 			return nil, err
 		}
 
 		// Perform post-transaction tasks
 		user.FinalizeOAuthUserCreation(inviterId)
-		// 标记邀请码已使用
+		// 将邀请码归属到新用户并发放奖励
 		if common.InvitationCodeEnabled && invitationCodeRecord != nil {
-			_ = model.UseInvitationCode(invitationCodeRecord.Code, user.Id)
+			_ = model.FinalizeInvitationCodeUsage(invitationCodeRecord, user.Id)
 		}
 	}
 

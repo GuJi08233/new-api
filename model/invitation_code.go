@@ -144,45 +144,91 @@ func GetInvitationCodeByCode(codeStr string) (*InvitationCode, error) {
 	return &code, nil
 }
 
-func UseInvitationCode(codeStr string, userId int) error {
+var (
+	ErrInvitationCodeNotFound  = errors.New("无效的邀请码")
+	ErrInvitationCodeNotUsable = errors.New("该邀请码已被使用或已禁用")
+)
+
+// ReserveInvitationCode 在创建用户之前原子占用邀请码（状态置为已使用），
+// 防止并发注册用同一个码同时通过校验。占用成功后必须调用
+// FinalizeInvitationCodeUsage 归属到新用户；建号失败时调用 ReleaseInvitationCode 释放。
+func ReserveInvitationCode(codeStr string) (*InvitationCode, error) {
 	if codeStr == "" {
-		return errors.New("邀请码为空")
+		return nil, ErrInvitationCodeNotFound
+	}
+	common.RandomSleep()
+	var code InvitationCode
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		if err := lockForUpdate(tx).Where("code = ?", codeStr).First(&code).Error; err != nil {
+			return ErrInvitationCodeNotFound
+		}
+		if code.Status != common.InvitationCodeStatusEnabled {
+			return ErrInvitationCodeNotUsable
+		}
+		code.Status = common.InvitationCodeStatusUsed
+		code.UsedTime = common.GetTimestamp()
+		return tx.Save(&code).Error
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &code, nil
+}
+
+// FinalizeInvitationCodeUsage 将已占用的邀请码归属到注册成功的用户，并发放奖励额度
+func FinalizeInvitationCodeUsage(code *InvitationCode, userId int) error {
+	if code == nil {
+		return nil
 	}
 	if userId == 0 {
 		return errors.New("无效的 user id")
 	}
-
-	common.RandomSleep()
-	return DB.Transaction(func(tx *gorm.DB) error {
-		var code InvitationCode
-		err := lockForUpdate(tx).Where("code = ?", codeStr).First(&code).Error
+	rewardQuota := 0
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		err := tx.Model(&InvitationCode{}).Where("id = ?", code.Id).
+			Updates(map[string]interface{}{
+				"used_user_id": userId,
+				"used_time":    common.GetTimestamp(),
+			}).Error
 		if err != nil {
-			return errors.New("无效的邀请码")
-		}
-		if code.Status != common.InvitationCodeStatusEnabled {
-			return errors.New("该邀请码已被使用或已禁用")
-		}
-		// 不能使用自己生成的邀请码
-		if code.UserId == userId {
-			return errors.New("不能使用自己生成的邀请码")
+			return err
 		}
 		// 按比例给使用者增加余额
 		if code.Quota > 0 && common.InvitationCodeRewardRatio > 0 {
-			rewardQuota := code.Quota * common.InvitationCodeRewardRatio / 100
+			rewardQuota = code.Quota * common.InvitationCodeRewardRatio / 100
 			if rewardQuota > 0 {
 				err := tx.Model(&User{}).Where("id = ?", userId).
 					Update("quota", gorm.Expr("quota + ?", rewardQuota)).Error
 				if err != nil {
 					return err
 				}
-				RecordLog(userId, LogTypeTopup, fmt.Sprintf("使用邀请码获得 %s", logger.LogQuota(rewardQuota)))
 			}
 		}
-		code.Status = common.InvitationCodeStatusUsed
-		code.UsedUserId = userId
-		code.UsedTime = common.GetTimestamp()
-		return tx.Save(&code).Error
+		return nil
 	})
+	if err != nil {
+		return err
+	}
+	if rewardQuota > 0 {
+		RecordLog(userId, LogTypeTopup, fmt.Sprintf("使用邀请码获得 %s", logger.LogQuota(rewardQuota)))
+	}
+	return nil
+}
+
+// ReleaseInvitationCode 释放已占用但尚未归属用户的邀请码（建号失败时回滚）
+func ReleaseInvitationCode(code *InvitationCode) {
+	if code == nil {
+		return
+	}
+	err := DB.Model(&InvitationCode{}).
+		Where("id = ? AND status = ? AND used_user_id = 0", code.Id, common.InvitationCodeStatusUsed).
+		Updates(map[string]interface{}{
+			"status":    common.InvitationCodeStatusEnabled,
+			"used_time": 0,
+		}).Error
+	if err != nil {
+		common.SysError("failed to release invitation code: " + err.Error())
+	}
 }
 
 func (code *InvitationCode) Insert() error {
@@ -277,6 +323,45 @@ func GenerateInvitationCodesForUser(userId int, count int, remark string) ([]*In
 		RecordLog(userId, LogTypeSystem, fmt.Sprintf("生成邀请码消耗 %s", logger.LogQuota(totalPrice)))
 	}
 	return codes, nil
+}
+
+// AttachInvitationInfo 为用户列表填充邀请人用户名与注册时使用的邀请码（管理端展示用）
+func AttachInvitationInfo(users []*User) {
+	if len(users) == 0 {
+		return
+	}
+	userIds := make([]int, 0, len(users))
+	inviterIds := make([]int, 0)
+	for _, u := range users {
+		userIds = append(userIds, u.Id)
+		if u.InviterId != 0 {
+			inviterIds = append(inviterIds, u.InviterId)
+		}
+	}
+	if len(inviterIds) > 0 {
+		var inviters []User
+		if err := ReadDB().Unscoped().Select("id", "username").Where("id IN ?", inviterIds).Find(&inviters).Error; err == nil {
+			nameById := make(map[int]string, len(inviters))
+			for _, inviter := range inviters {
+				nameById[inviter.Id] = inviter.Username
+			}
+			for _, u := range users {
+				if u.InviterId != 0 {
+					u.InviterName = nameById[u.InviterId]
+				}
+			}
+		}
+	}
+	var codes []InvitationCode
+	if err := ReadDB().Select("code", "used_user_id").Where("used_user_id IN ?", userIds).Find(&codes).Error; err == nil {
+		codeByUser := make(map[int]string, len(codes))
+		for _, code := range codes {
+			codeByUser[code.UsedUserId] = code.Code
+		}
+		for _, u := range users {
+			u.UsedInvitationCode = codeByUser[u.Id]
+		}
+	}
 }
 
 // GenerateInvitationCodeForUser 为用户生成单个邀请码，扣减额度

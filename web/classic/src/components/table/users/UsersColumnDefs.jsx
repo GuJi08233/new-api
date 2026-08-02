@@ -193,8 +193,17 @@ const renderInviteInfo = (text, record, t) => {
         <Tag color='white' shape='circle' className='!text-xs'>
           {record.inviter_id === 0
             ? t('无邀请人')
-            : `${t('邀请人')}: ${record.inviter_id}`}
+            : `${t('邀请人')}: ${
+                record.inviter_name
+                  ? `${record.inviter_name} (${record.inviter_id})`
+                  : record.inviter_id
+              }`}
         </Tag>
+        {record.used_invitation_code && (
+          <Tag color='white' shape='circle' className='!text-xs'>
+            {t('邀请码')}: {record.used_invitation_code}
+          </Tag>
+        )}
       </Space>
     </div>
   );

@@ -262,6 +262,17 @@ func Register(c *gin.Context) {
 	// 确定邀请人：优先使用邀请码生成者，否则使用 aff_code
 	inviterId := 0
 	if common.InvitationCodeEnabled && invitationCodeRecord != nil {
+		// 原子占用邀请码，防止并发注册用同一个码同时通过校验
+		reserved, reserveErr := model.ReserveInvitationCode(invitationCodeRecord.Code)
+		if reserveErr != nil {
+			if errors.Is(reserveErr, model.ErrInvitationCodeNotUsable) {
+				common.ApiErrorI18n(c, i18n.MsgInvitationCodeUsed)
+			} else {
+				common.ApiErrorI18n(c, i18n.MsgInvitationCodeInvalid)
+			}
+			return
+		}
+		invitationCodeRecord = reserved
 		inviterId = invitationCodeRecord.UserId
 	} else {
 		affCode := user.AffCode // this code is the inviter's code, not the user's own code
@@ -279,6 +290,7 @@ func Register(c *gin.Context) {
 		cleanUser.Email = user.Email
 	}
 	if err := cleanUser.Insert(inviterId); err != nil {
+		model.ReleaseInvitationCode(invitationCodeRecord)
 		if errors.Is(err, model.ErrEmailAlreadyTaken) {
 			common.ApiErrorI18n(c, i18n.MsgUserEmailAlreadyTaken)
 			return
@@ -294,9 +306,9 @@ func Register(c *gin.Context) {
 		return
 	}
 
-	// 标记邀请码已使用
+	// 将邀请码归属到新用户并发放奖励
 	if common.InvitationCodeEnabled && invitationCodeRecord != nil {
-		_ = model.UseInvitationCode(invitationCodeRecord.Code, insertedUser.Id)
+		_ = model.FinalizeInvitationCodeUsage(invitationCodeRecord, insertedUser.Id)
 	}
 	// 生成默认令牌
 	if constant.GenerateDefaultToken {
@@ -341,6 +353,7 @@ func GetAllUsers(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	model.AttachInvitationInfo(users)
 
 	pageInfo.SetTotal(int(total))
 	pageInfo.SetItems(users)
@@ -370,6 +383,7 @@ func SearchUsers(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	model.AttachInvitationInfo(users)
 
 	pageInfo.SetTotal(int(total))
 	pageInfo.SetItems(users)

@@ -91,17 +91,53 @@ func WeChatAuth(c *gin.Context) {
 		}
 	} else {
 		if common.RegisterEnabled {
+			// 邀请码验证（微信注册与其他注册方式保持一致）
+			var invitationCodeRecord *model.InvitationCode
+			inviterId := 0
+			if common.InvitationCodeEnabled {
+				invCode := c.Query("invitation_code")
+				if invCode == "" {
+					session := sessions.Default(c)
+					if v, ok := session.Get("invitation_code").(string); ok {
+						invCode = v
+					}
+				}
+				if invCode == "" {
+					c.JSON(http.StatusOK, gin.H{
+						"success": false,
+						"message": "注册需要邀请码",
+					})
+					return
+				}
+				record, err := model.ReserveInvitationCode(invCode)
+				if err != nil {
+					c.JSON(http.StatusOK, gin.H{
+						"success": false,
+						"message": err.Error(),
+					})
+					return
+				}
+				invitationCodeRecord = record
+				inviterId = record.UserId
+			}
+
 			user.Username = "wechat_" + strconv.Itoa(model.GetMaxUserId()+1)
 			user.DisplayName = "WeChat User"
 			user.Role = common.RoleCommonUser
 			user.Status = common.UserStatusEnabled
+			user.InviterId = inviterId
 
-			if err := user.Insert(0); err != nil {
+			if err := user.Insert(inviterId); err != nil {
+				model.ReleaseInvitationCode(invitationCodeRecord)
 				c.JSON(http.StatusOK, gin.H{
 					"success": false,
 					"message": err.Error(),
 				})
 				return
+			}
+			// 将邀请码归属到新用户并发放奖励
+			if invitationCodeRecord != nil {
+				_ = model.FinalizeInvitationCodeUsage(invitationCodeRecord, user.Id)
 			}
 		} else {
 			c.JSON(http.StatusOK, gin.H{

@@ -226,6 +226,8 @@ export function useUsersColumns(): ColumnDef<User>[] {
         const affCount = user.aff_count || 0
         const affHistoryQuota = user.aff_history_quota || 0
         const inviterId = user.inviter_id || 0
+        const inviterName = user.inviter_name || ''
+        const usedInvitationCode = user.used_invitation_code || ''
 
         return (
           <div className='flex max-w-full min-w-0 flex-wrap items-center gap-1 overflow-hidden'>
@@ -264,7 +266,7 @@ export function useUsersColumns(): ColumnDef<User>[] {
                 <TooltipTrigger
                   render={
                     <StatusBadge
-                      label={`${t('Inviter')}: ${inviterId}`}
+                      label={`${t('Inviter')}: ${inviterName ? `${inviterName} (${inviterId})` : inviterId}`}
                       variant='neutral'
                       copyable={false}
                       className='cursor-help'
@@ -274,6 +276,25 @@ export function useUsersColumns(): ColumnDef<User>[] {
                 <TooltipContent>
                   <p className='text-xs'>
                     {t('Invited by user ID')} {inviterId}
+                  </p>
+                </TooltipContent>
+              </Tooltip>
+            )}
+            {usedInvitationCode && (
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <StatusBadge
+                      label={`${t('Invitation Code')}: ${usedInvitationCode}`}
+                      variant='neutral'
+                      copyable={false}
+                      className='cursor-help'
+                    />
+                  }
+                />
+                <TooltipContent>
+                  <p className='text-xs'>
+                    {t('Invitation code used at registration')}
                   </p>
                 </TooltipContent>
               </Tooltip>
