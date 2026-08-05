@@ -31,11 +31,15 @@ func GetRankingQuotaTotals(startTime int64, endTime int64) ([]RankingQuotaTotal,
 	return rows, err
 }
 
-func GetRankingQuotaBuckets(startTime int64, endTime int64, bucketSize int64) ([]RankingQuotaBucket, error) {
+// GetRankingQuotaBuckets aggregates token usage into fixed-size buckets.
+// bucketShift moves bucket boundaries off the Unix epoch so they line up with
+// local calendar units (timezone offset, plus a weekday anchor for week-sized
+// buckets); the returned bucket value is still a UTC epoch second.
+func GetRankingQuotaBuckets(startTime int64, endTime int64, bucketSize int64, bucketShift int64) ([]RankingQuotaBucket, error) {
 	if bucketSize <= 0 {
 		bucketSize = 3600
 	}
-	bucketExpr := rankingBucketExpr(bucketSize)
+	bucketExpr := rankingBucketExpr(bucketSize, bucketShift)
 	var rows []RankingQuotaBucket
 	query := ReadDB().Table("quota_data").
 		Select(fmt.Sprintf("model_name, %s as bucket, sum(token_used) as tokens", bucketExpr)).
@@ -48,11 +52,14 @@ func GetRankingQuotaBuckets(startTime int64, endTime int64, bucketSize int64) ([
 	return rows, err
 }
 
-func rankingBucketExpr(bucketSize int64) string {
+func rankingBucketExpr(bucketSize int64, bucketShift int64) string {
+	// created_at is always a positive recent epoch second, so integer division
+	// truncation and FLOOR agree here; MySQL still needs FLOOR because "/"
+	// yields a decimal there.
 	if common.UsingMainDatabase(common.DatabaseTypeMySQL) {
-		return fmt.Sprintf("FLOOR(created_at / %d) * %d", bucketSize, bucketSize)
+		return fmt.Sprintf("FLOOR((created_at + %d) / %d) * %d - %d", bucketShift, bucketSize, bucketSize, bucketShift)
 	}
-	return fmt.Sprintf("(created_at / %d) * %d", bucketSize, bucketSize)
+	return fmt.Sprintf("((created_at + %d) / %d) * %d - %d", bucketShift, bucketSize, bucketSize, bucketShift)
 }
 
 func applyRankingQuotaTimeRange(query *gorm.DB, startTime int64, endTime int64) *gorm.DB {

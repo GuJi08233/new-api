@@ -23,7 +23,8 @@ func insertRiskLog(t *testing.T, userId int, username string, ip string, ua stri
 func TestGetIpMultiUserRanking(t *testing.T) {
 	truncateTables(t)
 
-	// ip-a 关联 3 个用户,ip-b 关联 1 个用户(不应出现),ip-c 关联 2 个用户但在窗口外
+	// ip-a 关联 3 个用户,ip-b 关联 1 个用户(也应出现,按用户数排在后面),
+	// ip-c 关联 2 个用户但在窗口外
 	insertRiskLog(t, 1, "u1", "ip-a", "", LogTypeConsume, 1)
 	insertRiskLog(t, 2, "u2", "ip-a", "", LogTypeConsume, 1)
 	insertRiskLog(t, 3, "u3", "ip-a", "", LogTypeError, 2)
@@ -38,11 +39,14 @@ func TestGetIpMultiUserRanking(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetIpMultiUserRanking: %v", err)
 	}
-	if len(items) != 1 {
-		t.Fatalf("items = %d, want 1 (only ip-a)", len(items))
+	if len(items) != 2 {
+		t.Fatalf("items = %d, want 2 (all in-window ips, ranked by user count)", len(items))
 	}
 	if items[0].Ip != "ip-a" || items[0].UserCount != 3 || items[0].RequestCount != 4 {
 		t.Fatalf("got %+v, want ip-a user_count=3 request_count=4", items[0])
+	}
+	if items[1].Ip != "ip-b" || items[1].UserCount != 1 || items[1].RequestCount != 1 {
+		t.Fatalf("got %+v, want ip-b user_count=1 request_count=1", items[1])
 	}
 }
 

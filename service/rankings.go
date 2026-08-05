@@ -12,6 +12,7 @@ import (
 
 const (
 	rankingCacheTTL         = 5 * time.Minute
+	rankingCacheMaxEntries  = 32
 	rankingLeaderboardLimit = 20
 	rankingHistoryLimit     = 10
 	rankingVendorLimit      = 5
@@ -21,6 +22,11 @@ const (
 )
 
 type RankingsResponse struct {
+	Period             string             `json:"period"`
+	StartTime          int64              `json:"start_time"`
+	EndTime            int64              `json:"end_time"`
+	PreviousStartTime  int64              `json:"previous_start_time"`
+	PreviousEndTime    int64              `json:"previous_end_time"`
 	Models             []RankedModel      `json:"models"`
 	Vendors            []RankedVendor     `json:"vendors"`
 	TopMovers          []RankingMover     `json:"top_movers"`
@@ -101,12 +107,24 @@ type VendorShareSeries struct {
 	Buckets int                 `json:"buckets"`
 }
 
+// rankingPeriodConfig describes how a calendar period is bucketed for charts.
+// bucketAnchor shifts bucket boundaries so that they line up with a calendar
+// unit rather than with the Unix epoch (epoch day 0 is a Thursday, so weekly
+// buckets need a 4-day anchor to start on Monday).
 type rankingPeriodConfig struct {
-	id          string
-	duration    time.Duration
-	bucketSize  int64
-	labelLayout string
-	hasPrevious bool
+	id           string
+	bucketSize   int64
+	bucketAnchor int64
+	labelLayout  string
+}
+
+// RankingPeriodRange is the resolved calendar window for a ranking period,
+// together with the immediately preceding window used for growth comparison.
+type RankingPeriodRange struct {
+	Start         int64 `json:"start"`
+	End           int64 `json:"end"`
+	PreviousStart int64 `json:"previous_start"`
+	PreviousEnd   int64 `json:"previous_end"`
 }
 
 type rankingCacheItem struct {
@@ -141,20 +159,32 @@ func GetRankingsSnapshot(period string) (*RankingsResponse, error) {
 	}
 
 	now := time.Now()
+	window, err := ResolveRankingPeriod(period, now)
+	if err != nil {
+		return nil, err
+	}
+
+	// The cache key carries the window start so that crossing a calendar
+	// boundary (midnight, Monday, the 1st) invalidates the entry immediately
+	// instead of serving the previous period until the TTL expires.
+	cacheKey := fmt.Sprintf("%s:%d", config.id, window.Start)
 	rankingCacheMu.Lock()
-	if item, ok := rankingCache[config.id]; ok && now.Before(item.expiresAt) {
+	if item, ok := rankingCache[cacheKey]; ok && now.Before(item.expiresAt) {
 		rankingCacheMu.Unlock()
 		return item.data, nil
 	}
 	rankingCacheMu.Unlock()
 
-	data, err := buildRankingsSnapshot(config, now)
+	data, err := buildRankingsSnapshot(config, window, now)
 	if err != nil {
 		return nil, err
 	}
 
 	rankingCacheMu.Lock()
-	rankingCache[config.id] = rankingCacheItem{
+	if len(rankingCache) > rankingCacheMaxEntries {
+		rankingCache = map[string]rankingCacheItem{}
+	}
+	rankingCache[cacheKey] = rankingCacheItem{
 		expiresAt: now.Add(rankingCacheTTL),
 		data:      data,
 	}
@@ -166,36 +196,69 @@ func GetRankingsSnapshot(period string) (*RankingsResponse, error) {
 func rankingConfig(period string) (rankingPeriodConfig, error) {
 	switch period {
 	case "", "week":
-		return rankingPeriodConfig{id: "week", duration: 7 * 24 * time.Hour, bucketSize: 24 * 3600, labelLayout: "Jan 2", hasPrevious: true}, nil
+		return rankingPeriodConfig{id: "week", bucketSize: 24 * 3600, labelLayout: "01-02"}, nil
 	case "today":
-		return rankingPeriodConfig{id: "today", duration: 24 * time.Hour, bucketSize: 3600, labelLayout: "15:04", hasPrevious: true}, nil
+		return rankingPeriodConfig{id: "today", bucketSize: 3600, labelLayout: "15:04"}, nil
 	case "month":
-		return rankingPeriodConfig{id: "month", duration: 30 * 24 * time.Hour, bucketSize: 24 * 3600, labelLayout: "Jan 2", hasPrevious: true}, nil
+		return rankingPeriodConfig{id: "month", bucketSize: 24 * 3600, labelLayout: "01-02"}, nil
 	case "year":
-		return rankingPeriodConfig{id: "year", duration: 365 * 24 * time.Hour, bucketSize: 7 * 24 * 3600, labelLayout: "Jan 2", hasPrevious: true}, nil
+		return rankingPeriodConfig{id: "year", bucketSize: 7 * 24 * 3600, bucketAnchor: 4 * 24 * 3600, labelLayout: "01-02"}, nil
 	default:
 		return rankingPeriodConfig{}, fmt.Errorf("invalid ranking period: %s", period)
 	}
 }
 
-func buildRankingsSnapshot(config rankingPeriodConfig, now time.Time) (*RankingsResponse, error) {
-	startTime, endTime := rankingTimeRange(config, now)
-	currentTotals, err := model.GetRankingQuotaTotals(startTime, endTime)
+// ResolveRankingPeriod maps a period id onto real calendar boundaries in the
+// server's local timezone: "today" starts at midnight today, "week" at Monday
+// 00:00, "month" on the 1st, "year" on January 1st. The previous window is the
+// same calendar unit immediately before it, so month-over-month comparisons
+// stay correct even though months have different lengths.
+func ResolveRankingPeriod(period string, now time.Time) (RankingPeriodRange, error) {
+	loc := now.Location()
+	var start, previousStart time.Time
+
+	switch period {
+	case "today":
+		start = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
+		previousStart = start.AddDate(0, 0, -1)
+	case "", "week":
+		// Go's Weekday() puts Sunday at 0; shift so the week starts on Monday.
+		daysSinceMonday := (int(now.Weekday()) + 6) % 7
+		start = time.Date(now.Year(), now.Month(), now.Day()-daysSinceMonday, 0, 0, 0, 0, loc)
+		previousStart = start.AddDate(0, 0, -7)
+	case "month":
+		start = time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, loc)
+		previousStart = start.AddDate(0, -1, 0)
+	case "year":
+		start = time.Date(now.Year(), 1, 1, 0, 0, 0, 0, loc)
+		previousStart = start.AddDate(-1, 0, 0)
+	default:
+		return RankingPeriodRange{}, fmt.Errorf("invalid ranking period: %s", period)
+	}
+
+	return RankingPeriodRange{
+		Start:         start.Unix(),
+		End:           now.Unix(),
+		PreviousStart: previousStart.Unix(),
+		PreviousEnd:   start.Unix() - 1,
+	}, nil
+}
+
+func buildRankingsSnapshot(config rankingPeriodConfig, window RankingPeriodRange, now time.Time) (*RankingsResponse, error) {
+	currentTotals, err := model.GetRankingQuotaTotals(window.Start, window.End)
 	if err != nil {
 		return nil, err
 	}
-	currentBuckets, err := model.GetRankingQuotaBuckets(startTime, endTime, config.bucketSize)
+	_, tzOffset := now.Zone()
+	bucketShift := int64(tzOffset) - config.bucketAnchor
+	currentBuckets, err := model.GetRankingQuotaBuckets(window.Start, window.End, config.bucketSize, bucketShift)
 	if err != nil {
 		return nil, err
 	}
 
-	var previousTotals []model.RankingQuotaTotal
-	if config.hasPrevious {
-		previousStart, previousEnd := previousRankingTimeRange(config, startTime)
-		previousTotals, err = model.GetRankingQuotaTotals(previousStart, previousEnd)
-		if err != nil {
-			return nil, err
-		}
+	previousTotals, err := model.GetRankingQuotaTotals(window.PreviousStart, window.PreviousEnd)
+	if err != nil {
+		return nil, err
 	}
 
 	meta := buildRankingModelMeta()
@@ -203,13 +266,18 @@ func buildRankingsSnapshot(config rankingPeriodConfig, now time.Time) (*Rankings
 	previousRankByModel := rankingRankMap(previousTotals)
 	previousTokensByModel := rankingTokenMap(previousTotals)
 
-	rankedModels := buildRankedModels(currentTotals, totalTokens, previousRankByModel, previousTokensByModel, meta, config.hasPrevious)
-	vendors := buildRankedVendors(currentTotals, previousTotals, totalTokens, meta, config.hasPrevious)
+	rankedModels := buildRankedModels(currentTotals, totalTokens, previousRankByModel, previousTokensByModel, meta, true)
+	vendors := buildRankedVendors(currentTotals, previousTotals, totalTokens, meta, true)
 	modelHistory := buildModelHistory(currentBuckets, currentTotals, meta, config)
 	vendorHistory := buildVendorShareHistory(currentBuckets, vendors, totalTokens, meta, config)
 	movers, droppers := buildRankingMovers(rankedModels)
 
 	return &RankingsResponse{
+		Period:             config.id,
+		StartTime:          window.Start,
+		EndTime:            window.End,
+		PreviousStartTime:  window.PreviousStart,
+		PreviousEndTime:    window.PreviousEnd,
 		Models:             limitRankedModels(rankedModels, rankingLeaderboardLimit),
 		Vendors:            vendors,
 		TopMovers:          movers,
@@ -217,20 +285,6 @@ func buildRankingsSnapshot(config rankingPeriodConfig, now time.Time) (*Rankings
 		ModelsHistory:      modelHistory,
 		VendorShareHistory: vendorHistory,
 	}, nil
-}
-
-func rankingTimeRange(config rankingPeriodConfig, now time.Time) (int64, int64) {
-	endTime := now.Unix()
-	if config.duration <= 0 {
-		return 0, endTime
-	}
-	return now.Add(-config.duration).Unix(), endTime
-}
-
-func previousRankingTimeRange(config rankingPeriodConfig, currentStart int64) (int64, int64) {
-	previousEnd := currentStart - 1
-	previousStart := time.Unix(currentStart, 0).Add(-config.duration).Unix()
-	return previousStart, previousEnd
 }
 
 func buildRankingModelMeta() map[string]rankingModelMeta {

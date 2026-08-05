@@ -1,7 +1,6 @@
 package controller
 
 import (
-	"fmt"
 	"net/http"
 	"time"
 
@@ -29,8 +28,7 @@ func GetRankings(c *gin.Context) {
 }
 
 func GetUserRankings(c *gin.Context) {
-	period := c.DefaultQuery("period", "week")
-	duration, err := userRankingDuration(period)
+	window, err := service.ResolveRankingPeriod(c.DefaultQuery("period", "week"), time.Now())
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
@@ -38,10 +36,7 @@ func GetUserRankings(c *gin.Context) {
 		})
 		return
 	}
-
-	now := time.Now()
-	endTime := now.Unix()
-	startTime := now.Add(-duration).Unix()
+	startTime, endTime := window.Start, window.End
 
 	type queryResult[T any] struct {
 		data T
@@ -49,9 +44,9 @@ func GetUserRankings(c *gin.Context) {
 	}
 
 	var (
-		reqCh  = make(chan queryResult[[]model.UserRequestRanking], 1)
+		reqCh   = make(chan queryResult[[]model.UserRequestRanking], 1)
 		quotaCh = make(chan queryResult[[]model.UserQuotaRanking], 1)
-		sumCh  = make(chan queryResult[*model.UserRankingSummary], 1)
+		sumCh   = make(chan queryResult[*model.UserRankingSummary], 1)
 	)
 
 	go func() {
@@ -91,24 +86,11 @@ func GetUserRankings(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
+			"start_time":       startTime,
+			"end_time":         endTime,
 			"request_rankings": reqRes.data,
 			"quota_rankings":   quotaRes.data,
 			"summary":          sumRes.data,
 		},
 	})
-}
-
-func userRankingDuration(period string) (time.Duration, error) {
-	switch period {
-	case "today":
-		return 24 * time.Hour, nil
-	case "", "week":
-		return 7 * 24 * time.Hour, nil
-	case "month":
-		return 30 * 24 * time.Hour, nil
-	case "year":
-		return 365 * 24 * time.Hour, nil
-	default:
-		return 0, fmt.Errorf("invalid period: %s", period)
-	}
 }

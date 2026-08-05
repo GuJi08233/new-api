@@ -13,7 +13,9 @@ var perfMetricsSetting = PerfMetricsSetting{
 	Enabled:       true,
 	FlushInterval: 5,
 	BucketTime:    "hour",
-	RetentionDays: 0,
+	// perf_metrics grows with every model/group/bucket combination, so keep a
+	// bounded default instead of retaining rows forever.
+	RetentionDays: 30,
 }
 
 func init() {

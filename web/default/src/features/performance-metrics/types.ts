@@ -22,6 +22,7 @@ export type PerformanceSeriesPoint = {
   avg_latency_ms: number
   success_rate: number
   avg_tps: number
+  request_count?: number
 }
 
 export type PerformanceGroup = {
@@ -46,16 +47,24 @@ export type PerformanceMetricsData = {
 export type PerfModelSummary = {
   model_name: string
   avg_latency_ms: number
+  avg_ttft_ms?: number
   success_rate: number
   avg_tps: number
   recent_success_rates?: number[]
+  recent_series?: PerformanceSeriesPoint[]
   request_count?: number
+  /** Number of streaming samples behind avg_ttft_ms; 0 means TTFT is unobserved. */
+  ttft_sample_count?: number
+  /** Whether avg_tps came from streaming-only samples. */
+  tps_from_stream?: boolean
 }
 
 export type PerfSummaryAllData = {
   success: boolean
   message?: string
   data: {
+    start_time?: number
+    end_time?: number
     models: PerfModelSummary[]
   }
 }

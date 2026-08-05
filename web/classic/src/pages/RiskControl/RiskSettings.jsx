@@ -22,6 +22,7 @@ import {
   Banner,
   Button,
   Card,
+  Input,
   InputNumber,
   Select,
   Space,
@@ -46,6 +47,20 @@ const KEY_SCAN_MINUTES = `${KEY_PREFIX}scan_minutes`;
 const KEY_WHITELIST = `${KEY_PREFIX}whitelist_user_ids`;
 const KEY_RULES = `${KEY_PREFIX}auto_ban_rules`;
 
+const IP_LOCATION_PREFIX = 'ip_location_setting.';
+const KEY_GITEE_API_KEY = `${IP_LOCATION_PREFIX}gitee_api_key`;
+const KEY_IPV4_ORDER = `${IP_LOCATION_PREFIX}ipv4_order`;
+const KEY_IPV6_ORDER = `${IP_LOCATION_PREFIX}ipv6_order`;
+
+const IP_PROVIDER_OPTIONS = [
+  { value: 'gitee', label: 'Gitee AI（中文，仅 IPv4，需密钥）' },
+  { value: 'ipwhois', label: 'ipwho.is（英文，IPv4/IPv6）' },
+  { value: 'ip9', label: 'ip9.com.cn（中文，IPv4/IPv6）' },
+];
+
+const DEFAULT_IPV4_ORDER = ['gitee', 'ipwhois', 'ip9'];
+const DEFAULT_IPV6_ORDER = ['ipwhois', 'ip9'];
+
 const parseJsonArray = (value, fallback = []) => {
   if (!value) return fallback;
   try {
@@ -68,6 +83,9 @@ const RiskSettings = () => {
   const [scanMinutes, setScanMinutes] = useState(10);
   const [whitelistText, setWhitelistText] = useState('');
   const [rules, setRules] = useState([]);
+  const [giteeApiKey, setGiteeApiKey] = useState('');
+  const [ipv4Order, setIpv4Order] = useState(DEFAULT_IPV4_ORDER);
+  const [ipv6Order, setIpv6Order] = useState(DEFAULT_IPV6_ORDER);
 
   const loadSettings = async () => {
     setLoading(true);
@@ -95,6 +113,13 @@ const RiskSettings = () => {
             ...r,
             _id: idx,
           })),
+        );
+        setGiteeApiKey(optionMap[KEY_GITEE_API_KEY] || '');
+        setIpv4Order(
+          parseJsonArray(optionMap[KEY_IPV4_ORDER], DEFAULT_IPV4_ORDER),
+        );
+        setIpv6Order(
+          parseJsonArray(optionMap[KEY_IPV6_ORDER], DEFAULT_IPV6_ORDER),
         );
       } else {
         showError(message);
@@ -139,7 +164,13 @@ const RiskSettings = () => {
       { key: KEY_SCAN_MINUTES, value: String(scanMinutes) },
       { key: KEY_WHITELIST, value: JSON.stringify(whitelistUserIds) },
       { key: KEY_RULES, value: JSON.stringify(cleanRules) },
+      { key: KEY_IPV4_ORDER, value: JSON.stringify(ipv4Order) },
+      { key: KEY_IPV6_ORDER, value: JSON.stringify(ipv6Order) },
     ];
+    // 密钥字段被通用配置接口脱敏，不会回显；留空表示不修改已保存的密钥。
+    if (giteeApiKey.trim() !== '') {
+      updates.push({ key: KEY_GITEE_API_KEY, value: giteeApiKey.trim() });
+    }
 
     setSaving(true);
     try {
@@ -350,6 +381,48 @@ const RiskSettings = () => {
             placeholder={'1.2.3.4\n10.0.0.0/8\n2001:db8::/32'}
             rows={6}
           />
+        </Space>
+      </Card>
+
+      <Card className='mb-4' title={t('IP 归属地查询')}>
+        <Space vertical align='start' style={{ width: '100%' }}>
+          <Text type='tertiary'>
+            {t(
+              '用于使用日志与风控页面的 IP 归属地展示。按顺序依次尝试提供方，失败自动切换下一个；结果会缓存到数据库，同一 IP 只查询一次。多选框的选择顺序即查询顺序。',
+            )}
+          </Text>
+          <Space>
+            <Text>{t('Gitee AI 密钥')}</Text>
+            <Input
+              value={giteeApiKey}
+              onChange={setGiteeApiKey}
+              mode='password'
+              placeholder={t('已保存的密钥不会回显；留空表示不修改')}
+              style={{ width: 360 }}
+            />
+          </Space>
+          <Space>
+            <Text>{t('IPv4 查询顺序')}</Text>
+            <Select
+              multiple
+              value={ipv4Order}
+              onChange={setIpv4Order}
+              optionList={IP_PROVIDER_OPTIONS}
+              style={{ minWidth: 420 }}
+            />
+          </Space>
+          <Space>
+            <Text>{t('IPv6 查询顺序')}</Text>
+            <Select
+              multiple
+              value={ipv6Order}
+              onChange={setIpv6Order}
+              optionList={IP_PROVIDER_OPTIONS.filter(
+                (o) => o.value !== 'gitee',
+              )}
+              style={{ minWidth: 420 }}
+            />
+          </Space>
         </Space>
       </Card>
 

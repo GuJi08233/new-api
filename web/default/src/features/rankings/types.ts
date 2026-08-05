@@ -124,6 +124,13 @@ export type VendorShareSeries = {
 }
 
 export type RankingsSnapshot = {
+  period?: RankingPeriod
+  /** Calendar window the snapshot covers, as Unix seconds. */
+  start_time?: number
+  end_time?: number
+  /** Preceding calendar window used for growth and rank deltas. */
+  previous_start_time?: number
+  previous_end_time?: number
   // Overall (all categories) ------------------------------------------------
   models: ModelRanking[]
   vendors: VendorRanking[]

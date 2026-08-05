@@ -20,6 +20,22 @@ var hotBuckets sync.Map
 // hiding fields or making response-only privacy hardening changes.
 const seriesSchema = "dbcd0a3c01b55203"
 
+const (
+	summaryCacheTTL        = time.Minute
+	summaryCacheMaxEntries = 32
+	maxSeriesPoints        = 180
+)
+
+type summaryCacheItem struct {
+	expiresAt time.Time
+	data      SummaryAllResult
+}
+
+var (
+	summaryCacheMu sync.RWMutex
+	summaryCache   = map[string]summaryCacheItem{}
+)
+
 func Init() {
 	go flushLoop()
 }
@@ -97,13 +113,15 @@ func Query(params QueryParams) (QueryResult, error) {
 			group:    row.Group,
 			bucketTs: row.BucketTs,
 		}, counters{
-			requestCount:   row.RequestCount,
-			successCount:   row.SuccessCount,
-			totalLatencyMs: row.TotalLatencyMs,
-			ttftSumMs:      row.TtftSumMs,
-			ttftCount:      row.TtftCount,
-			outputTokens:   row.OutputTokens,
-			generationMs:   row.GenerationMs,
+			requestCount:       row.RequestCount,
+			successCount:       row.SuccessCount,
+			totalLatencyMs:     row.TotalLatencyMs,
+			ttftSumMs:          row.TtftSumMs,
+			ttftCount:          row.TtftCount,
+			outputTokens:       row.OutputTokens,
+			generationMs:       row.GenerationMs,
+			streamOutputTokens: row.StreamOutputTokens,
+			streamGenerationMs: row.StreamGenerationMs,
 		})
 	}
 
@@ -122,18 +140,23 @@ func Query(params QueryParams) (QueryResult, error) {
 	return buildQueryResult(params.Model, merged), nil
 }
 
-func QuerySummaryAll(hours int, groups []string) (SummaryAllResult, error) {
-	if hours <= 0 {
-		hours = 24
+func QuerySummaryAll(params SummaryParams) (SummaryAllResult, error) {
+	if params.EndTs <= 0 {
+		params.EndTs = time.Now().Unix()
 	}
-	if hours > 24*30 {
-		hours = 24 * 30
+	if params.StartTs <= 0 || params.StartTs > params.EndTs {
+		params.StartTs = params.EndTs - 24*3600
 	}
-	endTs := time.Now().Unix()
-	startTs := endTs - int64(hours)*3600
-	allowedGroups := allowedGroupSet(groups)
 
-	rows, err := model.GetPerfMetricsSummaryBucketsAll(startTs, endTs, groups)
+	cacheKey := summaryCacheKey(params)
+	if cached, ok := loadSummaryCache(cacheKey); ok {
+		return cached, nil
+	}
+
+	startTs, endTs := params.StartTs, params.EndTs
+	allowedGroups := allowedGroupSet(params.Groups)
+
+	rows, err := model.GetPerfMetricsSummaryBucketsAll(startTs, endTs, params.Groups)
 	if err != nil {
 		return SummaryAllResult{}, err
 	}
@@ -142,13 +165,15 @@ func QuerySummaryAll(hours int, groups []string) (SummaryAllResult, error) {
 	modelBuckets := map[string]map[int64]counters{}
 	for _, row := range rows {
 		value := counters{
-			requestCount:   row.RequestCount,
-			successCount:   row.SuccessCount,
-			totalLatencyMs: row.TotalLatencyMs,
-			ttftSumMs:      row.TtftSumMs,
-			ttftCount:      row.TtftCount,
-			outputTokens:   row.OutputTokens,
-			generationMs:   row.GenerationMs,
+			requestCount:       row.RequestCount,
+			successCount:       row.SuccessCount,
+			totalLatencyMs:     row.TotalLatencyMs,
+			ttftSumMs:          row.TtftSumMs,
+			ttftCount:          row.TtftCount,
+			outputTokens:       row.OutputTokens,
+			generationMs:       row.GenerationMs,
+			streamOutputTokens: row.StreamOutputTokens,
+			streamGenerationMs: row.StreamGenerationMs,
 		}
 		mergeModelTotals(totals, row.ModelName, value)
 		mergeModelBucket(modelBuckets, row.ModelName, row.BucketTs, value)
@@ -173,37 +198,85 @@ func QuerySummaryAll(hours int, groups []string) (SummaryAllResult, error) {
 		return true
 	})
 
+	seriesPoints := seriesPointLimit(startTs, endTs)
 	models := make([]ModelSummary, 0, len(totals))
 	for name, total := range totals {
 		if total.requestCount == 0 {
 			continue
 		}
-		avgLatency := total.totalLatencyMs / total.requestCount
-		successRate := float64(total.successCount) / float64(total.requestCount) * 100
-		avgTps := 0.0
-		if total.generationMs > 0 {
-			avgTps = float64(total.outputTokens) / (float64(total.generationMs) / 1000.0)
-		}
-		var avgTtft int64
-		if total.ttftCount > 0 {
-			avgTtft = total.ttftSumMs / total.ttftCount
-		}
+		tps, fromStream := throughput(total)
 		models = append(models, ModelSummary{
 			ModelName:          name,
-			AvgLatencyMs:       avgLatency,
-			AvgTtftMs:          avgTtft,
-			SuccessRate:        math.Round(successRate*100) / 100,
-			AvgTps:             math.Round(avgTps*100) / 100,
-			RecentSuccessRates: recentSuccessRates(modelBuckets[name], 3),
-			RecentSeries:       recentModelSeries(modelBuckets[name], 12),
+			AvgLatencyMs:       avg(total.totalLatencyMs, total.requestCount),
+			AvgTtftMs:          avg(total.ttftSumMs, total.ttftCount),
+			SuccessRate:        successRate(total),
+			AvgTps:             tps,
+			TpsFromStream:      fromStream,
+			TtftSampleCount:    total.ttftCount,
+			RecentSuccessRates: recentSuccessRates(modelBuckets[name], seriesPoints),
+			RecentSeries:       recentModelSeries(modelBuckets[name], seriesPoints),
 			RequestCount:       total.requestCount,
 		})
 	}
 	sort.Slice(models, func(i, j int) bool {
+		if models[i].RequestCount == models[j].RequestCount {
+			return models[i].ModelName < models[j].ModelName
+		}
 		return models[i].RequestCount > models[j].RequestCount
 	})
+	if params.Limit > 0 && len(models) > params.Limit {
+		models = models[:params.Limit]
+	}
 
-	return SummaryAllResult{Models: models}, nil
+	result := SummaryAllResult{StartTime: startTs, EndTime: endTs, Models: models}
+	storeSummaryCache(cacheKey, result)
+	return result, nil
+}
+
+// seriesPointLimit keeps the inline sparkline series covering the whole
+// requested window instead of a fixed bucket count, which would silently show
+// only the last hour when the bucket size is configured below one hour.
+func seriesPointLimit(startTs int64, endTs int64) int {
+	bucketSeconds := perf_metrics_setting.GetBucketSeconds()
+	if bucketSeconds <= 0 {
+		bucketSeconds = 3600
+	}
+	points := int((endTs-startTs)/bucketSeconds) + 1
+	if points < 2 {
+		points = 2
+	}
+	if points > maxSeriesPoints {
+		points = maxSeriesPoints
+	}
+	return points
+}
+
+func summaryCacheKey(params SummaryParams) string {
+	groups := append([]string(nil), params.Groups...)
+	sort.Strings(groups)
+	return fmt.Sprintf("%d:%d:%d:%v", params.StartTs, params.EndTs, params.Limit, groups)
+}
+
+func loadSummaryCache(key string) (SummaryAllResult, bool) {
+	summaryCacheMu.RLock()
+	defer summaryCacheMu.RUnlock()
+	item, ok := summaryCache[key]
+	if !ok || time.Now().After(item.expiresAt) {
+		return SummaryAllResult{}, false
+	}
+	return item.data, true
+}
+
+func storeSummaryCache(key string, data SummaryAllResult) {
+	summaryCacheMu.Lock()
+	defer summaryCacheMu.Unlock()
+	if len(summaryCache) > summaryCacheMaxEntries {
+		summaryCache = map[string]summaryCacheItem{}
+	}
+	summaryCache[key] = summaryCacheItem{
+		expiresAt: time.Now().Add(summaryCacheTTL),
+		data:      data,
+	}
 }
 
 func mergeModelTotals(totals map[string]counters, modelName string, value counters) {
@@ -211,13 +284,7 @@ func mergeModelTotals(totals map[string]counters, modelName string, value counte
 		return
 	}
 	current := totals[modelName]
-	current.requestCount += value.requestCount
-	current.successCount += value.successCount
-	current.totalLatencyMs += value.totalLatencyMs
-	current.ttftSumMs += value.ttftSumMs
-	current.ttftCount += value.ttftCount
-	current.outputTokens += value.outputTokens
-	current.generationMs += value.generationMs
+	current.merge(value)
 	totals[modelName] = current
 }
 
@@ -229,13 +296,7 @@ func mergeModelBucket(modelBuckets map[string]map[int64]counters, modelName stri
 		modelBuckets[modelName] = map[int64]counters{}
 	}
 	current := modelBuckets[modelName][bucketTs]
-	current.requestCount += value.requestCount
-	current.successCount += value.successCount
-	current.totalLatencyMs += value.totalLatencyMs
-	current.ttftSumMs += value.ttftSumMs
-	current.ttftCount += value.ttftCount
-	current.outputTokens += value.outputTokens
-	current.generationMs += value.generationMs
+	current.merge(value)
 	modelBuckets[modelName][bucketTs] = current
 }
 
@@ -243,7 +304,7 @@ func recentSuccessRates(buckets map[int64]counters, limit int) []float64 {
 	series := recentModelSeries(buckets, limit)
 	rates := make([]float64, 0, len(series))
 	for _, point := range series {
-		rates = append(rates, math.Round(point.SuccessRate*100)/100)
+		rates = append(rates, point.SuccessRate)
 	}
 	return rates
 }
@@ -294,13 +355,7 @@ func mergeCounters(merged map[bucketKey]counters, key bucketKey, value counters)
 		return
 	}
 	current := merged[key]
-	current.requestCount += value.requestCount
-	current.successCount += value.successCount
-	current.totalLatencyMs += value.totalLatencyMs
-	current.ttftSumMs += value.ttftSumMs
-	current.ttftCount += value.ttftCount
-	current.outputTokens += value.outputTokens
-	current.generationMs += value.generationMs
+	current.merge(value)
 	merged[key] = current
 }
 
@@ -337,22 +392,17 @@ func buildQueryResult(modelName string, merged map[bucketKey]counters) QueryResu
 		series := make([]BucketPoint, 0, len(timestamps))
 		for _, ts := range timestamps {
 			value := buckets[ts]
-			total.requestCount += value.requestCount
-			total.successCount += value.successCount
-			total.totalLatencyMs += value.totalLatencyMs
-			total.ttftSumMs += value.ttftSumMs
-			total.ttftCount += value.ttftCount
-			total.outputTokens += value.outputTokens
-			total.generationMs += value.generationMs
+			total.merge(value)
 			series = append(series, bucketPoint(ts, value))
 		}
 
+		tps, _ := throughput(total)
 		results = append(results, GroupResult{
 			Group:        group,
 			AvgTtftMs:    avg(total.ttftSumMs, total.ttftCount),
 			AvgLatencyMs: avg(total.totalLatencyMs, total.requestCount),
 			SuccessRate:  successRate(total),
-			AvgTps:       avgTps(total),
+			AvgTps:       tps,
 			Series:       series,
 		})
 	}
@@ -365,34 +415,48 @@ func buildQueryResult(modelName string, merged map[bucketKey]counters) QueryResu
 }
 
 func bucketPoint(ts int64, value counters) BucketPoint {
+	tps, _ := throughput(value)
 	return BucketPoint{
 		Ts:           ts,
 		AvgTtftMs:    avg(value.ttftSumMs, value.ttftCount),
 		AvgLatencyMs: avg(value.totalLatencyMs, value.requestCount),
 		SuccessRate:  successRate(value),
-		AvgTps:       avgTps(value),
+		AvgTps:       tps,
+		RequestCount: value.requestCount,
 	}
 }
 
-func avg(sum int64, count int64) int64 {
+func avg(sum int64, count int64) float64 {
 	if count <= 0 {
 		return 0
 	}
-	return sum / count
+	return roundPerfFloat(float64(sum) / float64(count))
 }
 
 func successRate(value counters) float64 {
 	if value.requestCount <= 0 {
 		return 0
 	}
-	return float64(value.successCount) / float64(value.requestCount) * 100
+	return roundPerfFloat(float64(value.successCount) / float64(value.requestCount) * 100)
 }
 
-func avgTps(value counters) float64 {
-	if value.outputTokens <= 0 || value.generationMs <= 0 {
-		return 0
+// throughput prefers streaming-only samples, where the generation phase is
+// measured from the first token onward and is therefore comparable across
+// models. Non-streaming requests fold the whole upstream wait into the
+// generation window, so they are only used when a model has no streaming
+// traffic at all; the returned flag says which basis was used.
+func throughput(value counters) (float64, bool) {
+	if value.streamOutputTokens > 0 && value.streamGenerationMs > 0 {
+		return roundPerfFloat(float64(value.streamOutputTokens) / (float64(value.streamGenerationMs) / 1000)), true
 	}
-	return float64(value.outputTokens) / (float64(value.generationMs) / 1000)
+	if value.outputTokens > 0 && value.generationMs > 0 {
+		return roundPerfFloat(float64(value.outputTokens) / (float64(value.generationMs) / 1000)), false
+	}
+	return 0, false
+}
+
+func roundPerfFloat(value float64) float64 {
+	return math.Round(value*100) / 100
 }
 
 func recordRedis(key bucketKey, sample Sample) {
@@ -418,6 +482,10 @@ func recordRedis(key bucketKey, sample Sample) {
 	if sample.OutputTokens > 0 && sample.GenerationMs > 0 {
 		pipe.HIncrBy(ctx, redisKey, "out", sample.OutputTokens)
 		pipe.HIncrBy(ctx, redisKey, "gen_ms", sample.GenerationMs)
+		if sample.HasTtft {
+			pipe.HIncrBy(ctx, redisKey, "s_out", sample.OutputTokens)
+			pipe.HIncrBy(ctx, redisKey, "s_gen_ms", sample.GenerationMs)
+		}
 	}
 	pipe.Expire(ctx, redisKey, time.Hour)
 	_, _ = pipe.Exec(ctx)

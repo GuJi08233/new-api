@@ -103,6 +103,14 @@ For commercial licensing, please contact support@quantumnous.com
   max-width: 560px;
 }
 
+/* Resolved statistics window for the selected period */
+.rankings-range {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--semi-color-text-2);
+  font-variant-numeric: tabular-nums;
+}
+
 /* Period segmented control */
 .rankings-period {
   display: inline-flex;

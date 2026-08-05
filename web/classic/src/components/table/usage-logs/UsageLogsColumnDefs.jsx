@@ -37,6 +37,7 @@ import {
 } from '../../../helpers';
 import { IconHelpCircle } from '@douyinfe/semi-icons';
 import { CircleAlert, Route, Sparkles } from 'lucide-react';
+import IpTag from '../../common/ui/IpTag';
 
 const colors = [
   'amber',
@@ -865,23 +866,7 @@ export const getLogsColumns = ({
             record.type === 5 ||
             (isAdminUser && record.type === 1)) &&
           text;
-        return showIp ? (
-          <Tooltip content={text}>
-            <span>
-              <Tag
-                color='orange'
-                shape='circle'
-                onClick={(event) => {
-                  copyText(event, text);
-                }}
-              >
-                {text}
-              </Tag>
-            </span>
-          </Tooltip>
-        ) : (
-          <></>
-        );
+        return showIp ? <IpTag ip={text} /> : <></>;
       },
     },
     {

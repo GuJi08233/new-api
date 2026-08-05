@@ -244,6 +244,9 @@ func UpdateOption(key string, value string) error {
 	if err := operation_setting.ValidateRiskControlOption(key, value); err != nil {
 		return err
 	}
+	if err := operation_setting.ValidateIpLocationOption(key, value); err != nil {
+		return err
+	}
 	if err := validateTieredBillingOption(key, value); err != nil {
 		return err
 	}
@@ -283,6 +286,9 @@ func UpdateOptionsBulk(values map[string]string) error {
 		if err := operation_setting.ValidateRiskControlOption(key, value); err != nil {
 			return err
 		}
+		if err := operation_setting.ValidateIpLocationOption(key, value); err != nil {
+			return err
+		}
 		if err := validateTieredBillingOption(key, value); err != nil {
 			return err
 		}
@@ -320,6 +326,9 @@ func updateOptionMap(key string, value string) (err error) {
 		return nil
 	}
 	if err := operation_setting.ValidateRiskControlOption(key, value); err != nil {
+		return err
+	}
+	if err := operation_setting.ValidateIpLocationOption(key, value); err != nil {
 		return err
 	}
 	// 注意：此处不做阶梯计费表达式校验。updateOptionMap 同时服务于写入路径
@@ -762,6 +771,8 @@ func handleConfigUpdate(key, value string) bool {
 		operation_setting.SyncChannelRouteSetting()
 	} else if configName == "risk_control_setting" {
 		operation_setting.SyncRiskControlSetting()
+	} else if configName == "ip_location_setting" {
+		operation_setting.SyncIpLocationSetting()
 	} else if configName == "theme" {
 		system_setting.UpdateAndSyncTheme()
 	}

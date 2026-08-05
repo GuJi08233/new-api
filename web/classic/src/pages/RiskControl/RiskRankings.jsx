@@ -33,12 +33,8 @@ import {
 } from '@douyinfe/semi-ui';
 import { IconRefresh } from '@douyinfe/semi-icons';
 import { useTranslation } from 'react-i18next';
-import {
-  API,
-  showError,
-  showSuccess,
-  timestamp2string,
-} from '../../helpers';
+import { API, showError, showSuccess, timestamp2string } from '../../helpers';
+import IpTag from '../../components/common/ui/IpTag';
 
 const { Text } = Typography;
 
@@ -146,18 +142,28 @@ const RiskRankings = () => {
   };
 
   const ipColumns = [
-    { title: 'IP', dataIndex: 'ip' },
+    {
+      title: 'IP',
+      dataIndex: 'ip',
+      render: (v) => <IpTag ip={v} />,
+    },
     {
       title: t('关联用户数'),
       dataIndex: 'user_count',
-      render: (v) => <Tag color={v > 5 ? 'red' : 'blue'}>{v}</Tag>,
+      render: (v) => (
+        <Tag color={v > 5 ? 'red' : v > 1 ? 'orange' : 'blue'}>{v}</Tag>
+      ),
       sorter: (a, b) => a.user_count - b.user_count,
     },
     { title: t('请求数'), dataIndex: 'request_count' },
     {
       title: t('操作'),
       render: (_, record) => (
-        <Button theme='light' size='small' onClick={() => openIpDetail(record.ip)}>
+        <Button
+          theme='light'
+          size='small'
+          onClick={() => openIpDetail(record.ip)}
+        >
           {t('查看用户')}
         </Button>
       ),
@@ -247,7 +253,11 @@ const RiskRankings = () => {
           },
         ]
       : [
-          { title: 'IP', dataIndex: 'ip' },
+          {
+            title: 'IP',
+            dataIndex: 'ip',
+            render: (v) => <IpTag ip={v} />,
+          },
           { title: t('请求数'), dataIndex: 'request_count' },
           {
             title: t('首次'),
@@ -289,12 +299,8 @@ const RiskRankings = () => {
         </Button>
       </Space>
 
-      <Tabs
-        type='button'
-        activeKey={metric}
-        onChange={(k) => setMetric(k)}
-      >
-        <TabPane tab={t('单 IP 多用户')} itemKey='ip_multi_user' />
+      <Tabs type='button' activeKey={metric} onChange={(k) => setMetric(k)}>
+        <TabPane tab={t('IP 排行')} itemKey='ip_multi_user' />
         <TabPane tab={t('单用户多 IP')} itemKey='user_multi_ip' />
         <TabPane tab={t('UA 排行')} itemKey='ua' />
       </Tabs>

@@ -90,7 +90,7 @@ func riskLogTypes() []int {
 	return []int{LogTypeConsume, LogTypeError}
 }
 
-// GetIpMultiUserRanking 返回窗口内关联用户数最多的 IP(仅含关联 >1 用户的 IP)。
+// GetIpMultiUserRanking 返回窗口内的全部 IP，按关联用户数排行。
 func GetIpMultiUserRanking(hours int, limit int) ([]IpRankItem, error) {
 	start := normalizeRiskWindow(hours)
 	limit = normalizeRiskLimit(limit)
@@ -102,7 +102,6 @@ func GetIpMultiUserRanking(hours int, limit int) ([]IpRankItem, error) {
 		Where("type IN ?", riskLogTypes()).
 		Where("ip <> ''").
 		Group("ip").
-		Having("count(distinct user_id) > ?", 1).
 		Order("user_count desc, request_count desc").
 		Limit(limit).
 		Find(&items).Error

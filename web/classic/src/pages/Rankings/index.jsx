@@ -74,6 +74,17 @@ function formatLatency(ms) {
   return `${(ms / 1000).toFixed(2)}s`;
 }
 
+function formatRangeStamp(ts) {
+  const date = new Date(ts * 1000);
+  const pad = (value) => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function formatRange(range) {
+  if (!range || !range.start || !range.end) return '';
+  return `${formatRangeStamp(range.start)} — ${formatRangeStamp(range.end)}`;
+}
+
 function formatPercentValue(value) {
   return `${Number(value || 0).toFixed(1)}%`;
 }
@@ -175,21 +186,34 @@ function TrendChart({
 // Sparkline — tiny inline trend curve for each ranking row
 // ============================================================================
 
-function Sparkline({ series, metric, data, color = 'var(--semi-color-primary)' }) {
+/**
+ * Tiny inline trend curve. `allowZero` keeps legitimate zero readings (an hour
+ * where every request failed) on the curve — dropping them would hide exactly
+ * the incidents this chart exists to surface. Values are still dropped when the
+ * metric is simply not collected (negative/undefined).
+ */
+function Sparkline({
+  series,
+  metric,
+  data,
+  allowZero = false,
+  color = 'var(--semi-color-primary)',
+}) {
   const values = useMemo(() => {
-    // Support plain number array (data prop) or object series + metric
-    if (data && data.length >= 2) {
-      return data.filter((v) => v > 0).map((v, i) => ({ x: i, y: v }));
-    }
-    if (!series || series.length < 2) return null;
-    return series
-      .filter((p) => p[metric] > 0)
-      .map((p, i) => ({ x: i, y: p[metric] }));
-  }, [series, metric, data]);
+    const keep = (value) =>
+      typeof value === 'number' &&
+      Number.isFinite(value) &&
+      (allowZero ? value >= 0 : value > 0);
 
-  if (!values || values.length < 2) {
-    return <span className='rankings-sparkline rankings-sparkline-empty' />;
-  }
+    // Support a plain number array (data prop) or object series + metric.
+    const source = data
+      ? data.filter(keep)
+      : (series || [])
+          .filter((point) => keep(point[metric]))
+          .map((point) => point[metric]);
+
+    return source.map((value, index) => ({ x: index, y: value }));
+  }, [series, metric, data, allowZero]);
 
   const spec = useMemo(
     () => ({
@@ -222,6 +246,12 @@ function Sparkline({ series, metric, data, color = 'var(--semi-color-primary)' }
     }),
     [values, color],
   );
+
+  // Every hook above runs unconditionally: bailing out earlier changed the hook
+  // count between renders and crashed the page when a row gained or lost data.
+  if (values.length < 2) {
+    return <span className='rankings-sparkline rankings-sparkline-empty' />;
+  }
 
   return (
     <span className='rankings-sparkline'>
@@ -344,7 +374,16 @@ function SectionCard({ icon, tone, title, subtitle, children, style }) {
 // Leaderboard Row — rank · icon · name/sub · value · growth
 // ============================================================================
 
-function LeaderboardRow({ rank, icon, name, sub, value, valueLabel, growth, sparkline }) {
+function LeaderboardRow({
+  rank,
+  icon,
+  name,
+  sub,
+  value,
+  valueLabel,
+  growth,
+  sparkline,
+}) {
   return (
     <div className='rankings-row'>
       <RankBadge rank={rank} />
@@ -391,7 +430,7 @@ function ListSkeleton({ rows = 6 }) {
 // Tab 1: LLM Rankings
 // ============================================================================
 
-function LLMRankings({ period }) {
+function LLMRankings({ period, onRange }) {
   const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState(null);
@@ -402,6 +441,10 @@ function LLMRankings({ period }) {
       const res = await API.get(`/api/rankings?period=${period}`);
       if (res.data?.success) {
         setData(res.data.data);
+        onRange?.({
+          start: res.data.data?.start_time,
+          end: res.data.data?.end_time,
+        });
       } else {
         showError(res.data?.message || t('加载失败'));
       }
@@ -410,7 +453,7 @@ function LLMRankings({ period }) {
     } finally {
       setLoading(false);
     }
-  }, [period, t]);
+  }, [period, t, onRange]);
 
   useEffect(() => {
     fetchData();
@@ -657,7 +700,7 @@ function LLMRankings({ period }) {
 // Tab 2: User Rankings
 // ============================================================================
 
-function UserRankings({ period }) {
+function UserRankings({ period, onRange }) {
   const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState(null);
@@ -668,6 +711,10 @@ function UserRankings({ period }) {
       const res = await API.get(`/api/user-rankings?period=${period}`);
       if (res.data?.success) {
         setData(res.data.data);
+        onRange?.({
+          start: res.data.data?.start_time,
+          end: res.data.data?.end_time,
+        });
       } else {
         showError(res.data?.message || t('加载失败'));
       }
@@ -676,7 +723,7 @@ function UserRankings({ period }) {
     } finally {
       setLoading(false);
     }
-  }, [period, t]);
+  }, [period, t, onRange]);
 
   useEffect(() => {
     fetchData();
@@ -775,7 +822,27 @@ function latencyColor(ms) {
   return 'var(--semi-color-danger)';
 }
 
-function ModelRankings() {
+// A single lucky request must not outrank a model with thousands of them, so
+// every performance board requires a minimum sample size.
+const MIN_PERF_SAMPLES = 5;
+const PERF_BOARD_LIMIT = 30;
+
+/**
+ * Time-to-first-token is only observable on streaming requests. Models that are
+ * only ever called non-streaming have no TTFT at all, so fall back to overall
+ * latency and label it, instead of dropping those models from the board.
+ */
+function latencyMetric(row) {
+  if ((row.ttft_sample_count || 0) > 0 && row.avg_ttft_ms > 0) {
+    return { value: row.avg_ttft_ms, isTtft: true };
+  }
+  if (row.avg_latency_ms > 0) {
+    return { value: row.avg_latency_ms, isTtft: false };
+  }
+  return null;
+}
+
+function ModelRankings({ period, onRange }) {
   const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
   const [models, setModels] = useState([]);
@@ -783,9 +850,13 @@ function ModelRankings() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await API.get('/api/perf-metrics/summary?hours=24');
+      const res = await API.get(`/api/perf-metrics/summary?period=${period}`);
       if (res.data?.success && Array.isArray(res.data.data?.models)) {
         setModels(res.data.data.models);
+        onRange?.({
+          start: res.data.data?.start_time,
+          end: res.data.data?.end_time,
+        });
       } else {
         showError(res.data?.message || t('加载失败'));
       }
@@ -794,53 +865,66 @@ function ModelRankings() {
     } finally {
       setLoading(false);
     }
-  }, [t]);
+  }, [period, t, onRange]);
 
   useEffect(() => {
     fetchData();
   }, [fetchData]);
 
+  const sampled = useMemo(
+    () => models.filter((m) => (m.request_count || 0) >= MIN_PERF_SAMPLES),
+    [models],
+  );
+
   const successSorted = useMemo(
     () =>
-      [...models]
-        .filter(
-          (m) => m.success_rate !== undefined && (m.request_count || 0) >= 5,
-        )
+      sampled
+        .filter((m) => typeof m.success_rate === 'number')
         .sort((a, b) => b.success_rate - a.success_rate)
-        .slice(0, 30),
-    [models],
+        .slice(0, PERF_BOARD_LIMIT),
+    [sampled],
   );
 
   const tpsSorted = useMemo(
     () =>
-      [...models]
+      sampled
         .filter((m) => m.avg_tps > 0)
         .sort((a, b) => b.avg_tps - a.avg_tps)
-        .slice(0, 30),
-    [models],
+        .slice(0, PERF_BOARD_LIMIT),
+    [sampled],
   );
 
   const latencySorted = useMemo(
     () =>
-      [...models]
-        .filter((m) => m.avg_ttft_ms > 0)
-        .sort((a, b) => a.avg_ttft_ms - b.avg_ttft_ms)
-        .slice(0, 30),
-    [models],
+      sampled
+        .map((m) => ({ row: m, latency: latencyMetric(m) }))
+        .filter((entry) => entry.latency !== null)
+        .sort((a, b) => a.latency.value - b.latency.value)
+        .slice(0, PERF_BOARD_LIMIT),
+    [sampled],
   );
 
   if (loading) {
     return <ListSkeleton rows={8} />;
   }
 
-  if (models.length === 0) {
-    return <Empty description={t('暂无性能数据')} style={{ padding: 60 }} />;
+  if (sampled.length === 0) {
+    return (
+      <Empty
+        description={
+          models.length > 0 ? t('暂无满足最小样本量的模型') : t('暂无性能数据')
+        }
+        style={{ padding: 60 }}
+      />
+    );
   }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <Text type='tertiary' style={{ fontSize: 13 }}>
-        {t('最近 24 小时内的成功率、TPS 与延迟表现')}
+        {t('仅统计请求数不少于 {{count}} 次的模型', {
+          count: MIN_PERF_SAMPLES,
+        })}
       </Text>
 
       <div className='rankings-grid-3 rankings-fade-in'>
@@ -849,7 +933,7 @@ function ModelRankings() {
           icon={<IconActivity />}
           tone='tone-green'
           title={t('成功率排名')}
-          subtitle={t('按请求成功率排序（≥5 次请求）')}
+          subtitle={t('按请求成功率排序')}
         >
           <div className='rankings-scroll'>
             {successSorted.map((m, idx) => (
@@ -866,6 +950,7 @@ function ModelRankings() {
                 <Sparkline
                   series={m.recent_series}
                   metric='success_rate'
+                  allowZero
                   color={successRateColor(m.success_rate)}
                 />
                 <span
@@ -894,6 +979,10 @@ function ModelRankings() {
                   <div className='rankings-row-name' style={{ fontSize: 12 }}>
                     {m.model_name}
                   </div>
+                  <div className='rankings-row-sub'>
+                    {m.request_count || 0} {t('次请求')}
+                    {m.tps_from_stream === false && ` · ${t('非流式')}`}
+                  </div>
                 </div>
                 <Sparkline
                   series={m.recent_series}
@@ -916,24 +1005,29 @@ function ModelRankings() {
           subtitle={t('按首字延迟排序 (越低越好)')}
         >
           <div className='rankings-scroll'>
-            {latencySorted.map((m, idx) => (
-              <div className='rankings-row' key={m.model_name}>
+            {latencySorted.map((entry, idx) => (
+              <div className='rankings-row' key={entry.row.model_name}>
                 <RankBadge rank={idx + 1} />
                 <div className='rankings-row-main'>
                   <div className='rankings-row-name' style={{ fontSize: 12 }}>
-                    {m.model_name}
+                    {entry.row.model_name}
+                  </div>
+                  <div className='rankings-row-sub'>
+                    {entry.latency.isTtft ? t('首字延迟') : t('总延迟')}
                   </div>
                 </div>
                 <Sparkline
-                  series={m.recent_series}
-                  metric='avg_ttft_ms'
-                  color={latencyColor(m.avg_ttft_ms)}
+                  series={entry.row.recent_series}
+                  metric={
+                    entry.latency.isTtft ? 'avg_ttft_ms' : 'avg_latency_ms'
+                  }
+                  color={latencyColor(entry.latency.value)}
                 />
                 <span
                   className='rankings-perf-value'
-                  style={{ color: latencyColor(m.avg_ttft_ms) }}
+                  style={{ color: latencyColor(entry.latency.value) }}
                 >
-                  {formatLatency(m.avg_ttft_ms)}
+                  {formatLatency(entry.latency.value)}
                 </span>
               </div>
             ))}
@@ -958,9 +1052,23 @@ const PERIODS = [
 const Rankings = () => {
   const { t } = useTranslation();
   const [period, setPeriod] = useState('week');
+  const [range, setRange] = useState(null);
 
   useEffect(() => {
     initVChartSemiTheme({ isWatchingThemeSwitch: true });
+  }, []);
+
+  // Every tab resolves the same calendar window server-side, so whichever one
+  // is active can report it; clear it first so a stale range is never shown
+  // next to a freshly picked period.
+  const handlePeriodChange = useCallback((next) => {
+    setRange(null);
+    setPeriod(next);
+  }, []);
+
+  const handleRange = useCallback((next) => {
+    if (!next?.start || !next?.end) return;
+    setRange(next);
   }, []);
 
   return (
@@ -991,13 +1099,19 @@ const Rankings = () => {
                 key={p.value}
                 role='tab'
                 aria-selected={period === p.value}
-                onClick={() => setPeriod(p.value)}
+                onClick={() => handlePeriodChange(p.value)}
                 className={`rankings-period-btn${period === p.value ? ' active' : ''}`}
               >
                 {t(p.label)}
               </button>
             ))}
           </div>
+
+          {range && (
+            <div className='rankings-range'>
+              {t('统计区间')}：{formatRange(range)}
+            </div>
+          )}
         </div>
 
         {/* Tabs */}
@@ -1009,17 +1123,17 @@ const Rankings = () => {
         >
           <TabPane tab={t('用量排行')} itemKey='llm'>
             <div style={{ paddingTop: 20 }}>
-              <LLMRankings period={period} />
+              <LLMRankings period={period} onRange={handleRange} />
             </div>
           </TabPane>
           <TabPane tab={t('用户排行')} itemKey='users'>
             <div style={{ paddingTop: 20 }}>
-              <UserRankings period={period} />
+              <UserRankings period={period} onRange={handleRange} />
             </div>
           </TabPane>
           <TabPane tab={t('性能排行')} itemKey='models'>
             <div style={{ paddingTop: 20 }}>
-              <ModelRankings />
+              <ModelRankings period={period} onRange={handleRange} />
             </div>
           </TabPane>
         </Tabs>
