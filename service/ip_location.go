@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -151,7 +152,10 @@ func queryGiteeIpLocation(ip string, apiKey string) (*model.IpInfo, error) {
 		Country   string `json:"country"`
 		Province  string `json:"province"`
 		City      string `json:"city"`
+		District  string `json:"district"`
 		Isp       string `json:"isp"`
+		Lat       float64 `json:"lat"`
+		Lon       float64 `json:"lon"`
 		Error     *struct {
 			Message string `json:"message"`
 		} `json:"error"`
@@ -171,6 +175,9 @@ func queryGiteeIpLocation(ip string, apiKey string) (*model.IpInfo, error) {
 		Country:   parsed.Country,
 		Province:  parsed.Province,
 		City:      parsed.City,
+		District:  parsed.District,
+		Latitude:  formatGeoCoord(parsed.Lat),
+		Longitude: formatGeoCoord(parsed.Lon),
 		Isp:       parsed.Isp,
 	}, nil
 }
@@ -188,15 +195,19 @@ func queryIpwhoisLocation(ip string) (*model.IpInfo, error) {
 	}
 
 	var parsed struct {
-		Success    bool   `json:"success"`
-		Message    string `json:"message"`
-		Continent  string `json:"continent"`
-		Country    string `json:"country"`
-		Region     string `json:"region"`
-		City       string `json:"city"`
+		Success    bool    `json:"success"`
+		Message    string  `json:"message"`
+		Continent  string  `json:"continent"`
+		Country    string  `json:"country"`
+		Region     string  `json:"region"`
+		City       string  `json:"city"`
+		Postal     string  `json:"postal"`
+		Latitude   float64 `json:"latitude"`
+		Longitude  float64 `json:"longitude"`
 		Connection struct {
-			Isp string `json:"isp"`
+			Asn int    `json:"asn"`
 			Org string `json:"org"`
+			Isp string `json:"isp"`
 		} `json:"connection"`
 	}
 	if err := common.Unmarshal(body, &parsed); err != nil {
@@ -220,6 +231,11 @@ func queryIpwhoisLocation(ip string) (*model.IpInfo, error) {
 		Country:   parsed.Country,
 		Province:  parsed.Region,
 		City:      parsed.City,
+		Postal:    parsed.Postal,
+		Latitude:  formatGeoCoord(parsed.Latitude),
+		Longitude: formatGeoCoord(parsed.Longitude),
+		Asn:       strconvItoa(parsed.Connection.Asn),
+		Org:       parsed.Connection.Org,
 		Isp:       isp,
 	}, nil
 }
@@ -260,4 +276,18 @@ func queryIp9Location(ip string) (*model.IpInfo, error) {
 		City:      parsed.Data.City,
 		Isp:       parsed.Data.Isp,
 	}, nil
+}
+
+// formatGeoCoord 把经纬度 float64 转为紧凑字符串（至多 5 位小数），避免落库 float
+// 精度差异与 GORM 跨库类型不一致；0 也返回 "0" 以区分缺失与真实零度。
+func formatGeoCoord(v float64) string {
+	return strconv.FormatFloat(v, 'f', 5, 64)
+}
+
+// strconvItoa 把 ASN 整数转字符串；0 返回空以表示缺失，与 IpInfo.Asn 空值语义一致。
+func strconvItoa(asn int) string {
+	if asn == 0 {
+		return ""
+	}
+	return strconv.Itoa(asn)
 }

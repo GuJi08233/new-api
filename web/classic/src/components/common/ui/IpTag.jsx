@@ -112,7 +112,14 @@ function IpInfoContent({ ip }) {
           <InfoRow label={t('国家')} value={info.country} />
           <InfoRow label={t('省份')} value={info.province} />
           <InfoRow label={t('城市')} value={info.city} />
+          {info.district ? <InfoRow label={t('区/县')} value={info.district} /> : null}
+          {info.latitude && info.longitude ? (
+            <InfoRow label={t('经纬度')} value={`${info.latitude}, ${info.longitude}`} />
+          ) : null}
           <InfoRow label={t('运营商')} value={info.isp} />
+          {info.org ? <InfoRow label={t('组织')} value={info.org} /> : null}
+          {info.asn ? <InfoRow label={t('ASN')} value={info.asn} /> : null}
+          {info.postal ? <InfoRow label={t('邮编')} value={info.postal} /> : null}
         </>
       ) : null}
     </div>

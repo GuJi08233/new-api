@@ -24,6 +24,7 @@ import {
   Card,
   Input,
   InputNumber,
+  Modal,
   Select,
   Space,
   Spin,
@@ -32,7 +33,7 @@ import {
   TextArea,
   Typography,
 } from '@douyinfe/semi-ui';
-import { IconDelete, IconPlus } from '@douyinfe/semi-icons';
+import { IconDelete, IconPlus, IconRefresh } from '@douyinfe/semi-icons';
 import { useTranslation } from 'react-i18next';
 import { API, showError, showSuccess } from '../../helpers';
 
@@ -86,6 +87,8 @@ const RiskSettings = () => {
   const [giteeApiKey, setGiteeApiKey] = useState('');
   const [ipv4Order, setIpv4Order] = useState(DEFAULT_IPV4_ORDER);
   const [ipv6Order, setIpv6Order] = useState(DEFAULT_IPV6_ORDER);
+  const [clearingCache, setClearingCache] = useState(false);
+  const [confirmClear, setConfirmClear] = useState(false);
 
   const loadSettings = async () => {
     setLoading(true);
@@ -211,6 +214,24 @@ const RiskSettings = () => {
 
   const removeRule = (id) => {
     setRules((currentRules) => currentRules.filter((r) => r._id !== id));
+  };
+
+  const confirmClearCache = async () => {
+    setConfirmClear(false);
+    setClearingCache(true);
+    try {
+      const res = await API.post('/api/ip_info/reset');
+      const { success, message, data } = res.data;
+      if (success) {
+        const count = typeof data?.deleted === 'number' ? data.deleted : 0;
+        showSuccess(t('已清空 {{count}} 条缓存', { count }));
+      } else {
+        showError(message || t('清空失败'));
+      }
+    } catch (e) {
+      showError(e.message);
+    }
+    setClearingCache(false);
   };
 
   const ruleColumns = [
@@ -423,8 +444,34 @@ const RiskSettings = () => {
               style={{ minWidth: 420 }}
             />
           </Space>
+          <Space>
+            <Button
+              type='danger'
+              theme='borderless'
+              icon={<IconRefresh />}
+              loading={clearingCache}
+              onClick={() => setConfirmClear(true)}
+            >
+              {t('清空归属地缓存')}
+            </Button>
+            <Text type='tertiary' size='small'>
+              {t('清空后下次查询会重新拉取外部接口，可切换数据源或升级后刷新。')}
+            </Text>
+          </Space>
         </Space>
       </Card>
+
+      <Modal
+        title={t('确认清空归属地缓存')}
+        visible={confirmClear}
+        onOk={confirmClearCache}
+        onCancel={() => setConfirmClear(false)}
+        okType='danger'
+        okText={t('确认清空')}
+        cancelText={t('取消')}
+      >
+        <Text>{t('确认清空所有 IP 归属地缓存？下次查询将重新拉取外部接口。')}</Text>
+      </Modal>
 
       <Card
         className='mb-4'
