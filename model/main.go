@@ -368,6 +368,7 @@ func migrateDB() error {
 		&InvitationCode{},
 		&PerfMetric{},
 		&IpInfo{},
+		&IpInfoCacheState{},
 		&SystemInstance{},
 		&SystemTask{},
 		&SystemTaskLock{},
@@ -375,6 +376,9 @@ func migrateDB() error {
 		&AuthzRole{},
 	)
 	if err != nil {
+		return err
+	}
+	if err := initializeIpInfoCacheState(); err != nil {
 		return err
 	}
 	if err := migrateLegacyOAuthRegistrationBindings(); err != nil {
@@ -432,6 +436,7 @@ func migrateDBFast() error {
 		{&UserSubscriptionTierUsage{}, "UserSubscriptionTierUsage"},
 		{&PerfMetric{}, "PerfMetric"},
 		{&IpInfo{}, "IpInfo"},
+		{&IpInfoCacheState{}, "IpInfoCacheState"},
 		{&SystemInstance{}, "SystemInstance"},
 		{&SystemTask{}, "SystemTask"},
 		{&SystemTaskLock{}, "SystemTaskLock"},
@@ -460,6 +465,9 @@ func migrateDBFast() error {
 		if err != nil {
 			return err
 		}
+	}
+	if err := initializeIpInfoCacheState(); err != nil {
+		return err
 	}
 	if err := migrateLegacyOAuthRegistrationBindings(); err != nil {
 		return err

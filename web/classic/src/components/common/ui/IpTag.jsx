@@ -89,37 +89,18 @@ function IpInfoContent({ ip }) {
     getIpInfoCacheVersion,
     getIpInfoCacheVersion,
   );
+  const [requestState, setRequestState] = useState(null);
   const cachedInfo = ipInfoCache.get(ip) || null;
-  const [requestState, setRequestState] = useState(() => ({
-    ip,
-    version: cacheVersion,
-    status: cachedInfo ? 'success' : 'loading',
-    info: cachedInfo,
-  }));
-  const currentState =
-    requestState.ip === ip && requestState.version === cacheVersion
+  const currentState = cachedInfo
+    ? { status: 'success', info: cachedInfo }
+    : requestState?.ip === ip && requestState.version === cacheVersion
       ? requestState
       : { status: 'loading', info: null };
 
   useEffect(() => {
-    const cached = ipInfoCache.get(ip) || null;
-    if (cached) {
-      setRequestState({
-        ip,
-        version: cacheVersion,
-        status: 'success',
-        info: cached,
-      });
-      return;
-    }
+    if (ipInfoCache.has(ip)) return;
 
     let cancelled = false;
-    setRequestState({
-      ip,
-      version: cacheVersion,
-      status: 'loading',
-      info: null,
-    });
     (async () => {
       try {
         const data = await fetchIpInfo(ip, cacheVersion);

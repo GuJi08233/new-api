@@ -56,8 +56,12 @@ func TestMain(m *testing.M) {
 		&SystemTaskLock{},
 		&InvitationCode{},
 		&IpInfo{},
+		&IpInfoCacheState{},
 	); err != nil {
 		panic("failed to migrate: " + err.Error())
+	}
+	if err := initializeIpInfoCacheState(); err != nil {
+		panic("failed to initialize IP info cache state: " + err.Error())
 	}
 
 	os.Exit(m.Run())

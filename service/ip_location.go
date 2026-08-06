@@ -63,9 +63,12 @@ func LookupIpInfo(ip string) (*model.IpInfo, error) {
 	if cached, err := model.GetIpInfo(ip); err == nil {
 		return cached, nil
 	}
-	generation, generationErr := model.GetIpInfoCacheGeneration()
+	cacheGenerationValue, generationErr := model.GetIpInfoCacheGeneration()
+	var cacheGeneration *int64
 	if generationErr != nil {
 		common.SysError("failed to read ip info cache generation: " + generationErr.Error())
+	} else {
+		cacheGeneration = &cacheGenerationValue
 	}
 
 	setting := operation_setting.GetIpLocationSetting()
@@ -85,10 +88,8 @@ func LookupIpInfo(ip string) (*model.IpInfo, error) {
 			continue
 		}
 		info.Provider = provider
-		if generationErr == nil {
-			if _, err := model.SaveIpInfo(info, generation); err != nil {
-				common.SysError("failed to cache ip info for " + ip + ": " + err.Error())
-			}
+		if err := model.SaveIpInfo(info, cacheGeneration); err != nil {
+			common.SysError("failed to cache ip info for " + ip + ": " + err.Error())
 		}
 		return info, nil
 	}
