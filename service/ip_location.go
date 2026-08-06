@@ -63,6 +63,10 @@ func LookupIpInfo(ip string) (*model.IpInfo, error) {
 	if cached, err := model.GetIpInfo(ip); err == nil {
 		return cached, nil
 	}
+	generation, generationErr := model.GetIpInfoCacheGeneration()
+	if generationErr != nil {
+		common.SysError("failed to read ip info cache generation: " + generationErr.Error())
+	}
 
 	setting := operation_setting.GetIpLocationSetting()
 	var order []string
@@ -81,8 +85,10 @@ func LookupIpInfo(ip string) (*model.IpInfo, error) {
 			continue
 		}
 		info.Provider = provider
-		if err := model.SaveIpInfo(info); err != nil {
-			common.SysError("failed to cache ip info for " + ip + ": " + err.Error())
+		if generationErr == nil {
+			if _, err := model.SaveIpInfo(info, generation); err != nil {
+				common.SysError("failed to cache ip info for " + ip + ": " + err.Error())
+			}
 		}
 		return info, nil
 	}
@@ -147,15 +153,15 @@ func queryGiteeIpLocation(ip string, apiKey string) (*model.IpInfo, error) {
 	}
 
 	var parsed struct {
-		Ip        string `json:"ip"`
-		Continent string `json:"continent"`
-		Country   string `json:"country"`
-		Province  string `json:"province"`
-		City      string `json:"city"`
-		District  string `json:"district"`
-		Isp       string `json:"isp"`
-		Lat       float64 `json:"lat"`
-		Lon       float64 `json:"lon"`
+		Ip        string   `json:"ip"`
+		Continent string   `json:"continent"`
+		Country   string   `json:"country"`
+		Province  string   `json:"province"`
+		City      string   `json:"city"`
+		District  string   `json:"district"`
+		Isp       string   `json:"isp"`
+		Lat       *float64 `json:"lat"`
+		Lon       *float64 `json:"lon"`
 		Error     *struct {
 			Message string `json:"message"`
 		} `json:"error"`
@@ -195,15 +201,15 @@ func queryIpwhoisLocation(ip string) (*model.IpInfo, error) {
 	}
 
 	var parsed struct {
-		Success    bool    `json:"success"`
-		Message    string  `json:"message"`
-		Continent  string  `json:"continent"`
-		Country    string  `json:"country"`
-		Region     string  `json:"region"`
-		City       string  `json:"city"`
-		Postal     string  `json:"postal"`
-		Latitude   float64 `json:"latitude"`
-		Longitude  float64 `json:"longitude"`
+		Success    bool     `json:"success"`
+		Message    string   `json:"message"`
+		Continent  string   `json:"continent"`
+		Country    string   `json:"country"`
+		Region     string   `json:"region"`
+		City       string   `json:"city"`
+		Postal     string   `json:"postal"`
+		Latitude   *float64 `json:"latitude"`
+		Longitude  *float64 `json:"longitude"`
 		Connection struct {
 			Asn int    `json:"asn"`
 			Org string `json:"org"`
@@ -275,14 +281,13 @@ func queryIp9Location(ip string) (*model.IpInfo, error) {
 	if parsed.Ret != 200 || parsed.Data.Country == "" {
 		return nil, fmt.Errorf("ip9: ret %d", parsed.Ret)
 	}
-	// ip9 的经纬度是字符串（如 "113.28"），解析失败视为缺失，与 formatGeoCoord
-	// 的 0 值语义一致。
+	// ip9 的经纬度是字符串（如 "113.28"），空值或解析失败视为缺失。
 	latitude, longitude := "", ""
 	if f, err := strconv.ParseFloat(parsed.Data.Lat, 64); err == nil {
-		latitude = formatGeoCoord(f)
+		latitude = formatGeoCoord(&f)
 	}
 	if f, err := strconv.ParseFloat(parsed.Data.Lng, 64); err == nil {
-		longitude = formatGeoCoord(f)
+		longitude = formatGeoCoord(&f)
 	}
 	return &model.IpInfo{
 		Ip:        ip,
@@ -297,12 +302,11 @@ func queryIp9Location(ip string) (*model.IpInfo, error) {
 	}, nil
 }
 
-// formatGeoCoord 把经纬度 float64 转为紧凑字符串（至多 5 位小数），避免落库 float
-// 精度差异与 GORM 跨库类型不一致；0 视为缺失返回空，与 Asn 的空值语义一致，
-// 前端据此隐藏坐标行，避免展示 "0.00000" 假坐标。
-func formatGeoCoord(v float64) string {
-	if v == 0 {
+// formatGeoCoord 把可选经纬度转为保留 5 位小数的字符串，避免落库 float
+// 精度差异与 GORM 跨库类型不一致。nil 表示上游未返回，合法的 0 坐标会保留。
+func formatGeoCoord(v *float64) string {
+	if v == nil {
 		return ""
 	}
-	return strconv.FormatFloat(v, 'f', 5, 64)
+	return strconv.FormatFloat(*v, 'f', 5, 64)
 }

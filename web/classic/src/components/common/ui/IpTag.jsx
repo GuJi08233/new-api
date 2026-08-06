@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState, useSyncExternalStore } from 'react';
 import { Button, Popover, Spin, Tag, Typography } from '@douyinfe/semi-ui';
 import { IconCopy } from '@douyinfe/semi-icons';
 import { useTranslation } from 'react-i18next';
@@ -28,12 +28,45 @@ const { Text } = Typography;
 // Module-level cache: the backend already persists lookups per IP, this only
 // avoids re-fetching within the same page session.
 const ipInfoCache = new Map();
+const ipInfoRequests = new Map();
+const ipInfoCacheListeners = new Set();
+let ipInfoCacheVersion = 0;
 
-// Clears the per-session cache. Called by the risk-control settings page after
-// the admin resets the backend IP location cache, so stale popovers that were
-// already opened in this session are not shown until a page reload.
+const subscribeIpInfoCache = (listener) => {
+  ipInfoCacheListeners.add(listener);
+  return () => ipInfoCacheListeners.delete(listener);
+};
+
+const getIpInfoCacheVersion = () => ipInfoCacheVersion;
+
+const fetchIpInfo = (ip, version) => {
+  const pending = ipInfoRequests.get(ip);
+  if (pending?.version === version) return pending.request;
+
+  const request = API.get(`/api/ip_info?ip=${encodeURIComponent(ip)}`)
+    .then((res) => {
+      if (version !== ipInfoCacheVersion) return null;
+      const { success, data } = res.data;
+      if (!success || !data) return null;
+      ipInfoCache.set(ip, data);
+      return data;
+    })
+    .finally(() => {
+      if (ipInfoRequests.get(ip)?.request === request) {
+        ipInfoRequests.delete(ip);
+      }
+    });
+
+  ipInfoRequests.set(ip, { version, request });
+  return request;
+};
+
+// Clears cached and in-flight results, then notifies mounted popovers to refetch.
 export const clearIpInfoCache = () => {
   ipInfoCache.clear();
+  ipInfoRequests.clear();
+  ipInfoCacheVersion += 1;
+  ipInfoCacheListeners.forEach((listener) => listener());
 };
 
 function InfoRow({ label, value }) {
@@ -51,34 +84,67 @@ function InfoRow({ label, value }) {
 
 function IpInfoContent({ ip }) {
   const { t } = useTranslation();
-  const [loading, setLoading] = useState(!ipInfoCache.has(ip));
-  const [info, setInfo] = useState(ipInfoCache.get(ip) || null);
-  const [failed, setFailed] = useState(false);
+  const cacheVersion = useSyncExternalStore(
+    subscribeIpInfoCache,
+    getIpInfoCacheVersion,
+    getIpInfoCacheVersion,
+  );
+  const cachedInfo = ipInfoCache.get(ip) || null;
+  const [requestState, setRequestState] = useState(() => ({
+    ip,
+    version: cacheVersion,
+    status: cachedInfo ? 'success' : 'loading',
+    info: cachedInfo,
+  }));
+  const currentState =
+    requestState.ip === ip && requestState.version === cacheVersion
+      ? requestState
+      : { status: 'loading', info: null };
 
-  React.useEffect(() => {
-    if (ipInfoCache.has(ip)) return;
+  useEffect(() => {
+    const cached = ipInfoCache.get(ip) || null;
+    if (cached) {
+      setRequestState({
+        ip,
+        version: cacheVersion,
+        status: 'success',
+        info: cached,
+      });
+      return;
+    }
+
     let cancelled = false;
+    setRequestState({
+      ip,
+      version: cacheVersion,
+      status: 'loading',
+      info: null,
+    });
     (async () => {
       try {
-        const res = await API.get(`/api/ip_info?ip=${encodeURIComponent(ip)}`);
-        const { success, data } = res.data;
-        if (cancelled) return;
-        if (success && data) {
-          ipInfoCache.set(ip, data);
-          setInfo(data);
-        } else {
-          setFailed(true);
-        }
+        const data = await fetchIpInfo(ip, cacheVersion);
+        if (cancelled || cacheVersion !== ipInfoCacheVersion) return;
+        setRequestState({
+          ip,
+          version: cacheVersion,
+          status: data ? 'success' : 'failed',
+          info: data,
+        });
       } catch (e) {
-        if (!cancelled) setFailed(true);
-      } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled && cacheVersion === ipInfoCacheVersion) {
+          setRequestState({
+            ip,
+            version: cacheVersion,
+            status: 'failed',
+            info: null,
+          });
+        }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [ip]);
+  }, [cacheVersion, ip]);
 
   const handleCopy = async () => {
     if (await copy(ip)) {
@@ -105,28 +171,39 @@ function IpInfoContent({ ip }) {
           aria-label={t('复制')}
         />
       </div>
-      {loading ? (
+      {currentState.status === 'loading' ? (
         <div className='flex justify-center py-3'>
           <Spin size='small' />
         </div>
-      ) : failed ? (
+      ) : currentState.status === 'failed' ? (
         <Text type='tertiary' size='small'>
           {t('归属地查询失败')}
         </Text>
-      ) : info ? (
+      ) : currentState.info ? (
         <>
-          <InfoRow label={t('大洲')} value={info.continent} />
-          <InfoRow label={t('国家')} value={info.country} />
-          <InfoRow label={t('省份')} value={info.province} />
-          <InfoRow label={t('城市')} value={info.city} />
-          {info.district ? <InfoRow label={t('区/县')} value={info.district} /> : null}
-          {info.latitude && info.longitude ? (
-            <InfoRow label={t('经纬度')} value={`${info.latitude}, ${info.longitude}`} />
+          <InfoRow label={t('大洲')} value={currentState.info.continent} />
+          <InfoRow label={t('国家')} value={currentState.info.country} />
+          <InfoRow label={t('省份')} value={currentState.info.province} />
+          <InfoRow label={t('城市')} value={currentState.info.city} />
+          {currentState.info.district ? (
+            <InfoRow label={t('区/县')} value={currentState.info.district} />
           ) : null}
-          <InfoRow label={t('运营商')} value={info.isp} />
-          {info.org ? <InfoRow label={t('组织')} value={info.org} /> : null}
-          {info.asn ? <InfoRow label={t('ASN')} value={info.asn} /> : null}
-          {info.postal ? <InfoRow label={t('邮编')} value={info.postal} /> : null}
+          {currentState.info.latitude && currentState.info.longitude ? (
+            <InfoRow
+              label={t('经纬度')}
+              value={`${currentState.info.latitude}, ${currentState.info.longitude}`}
+            />
+          ) : null}
+          <InfoRow label={t('运营商')} value={currentState.info.isp} />
+          {currentState.info.org ? (
+            <InfoRow label={t('组织')} value={currentState.info.org} />
+          ) : null}
+          {currentState.info.asn ? (
+            <InfoRow label={t('ASN')} value={currentState.info.asn} />
+          ) : null}
+          {currentState.info.postal ? (
+            <InfoRow label={t('邮编')} value={currentState.info.postal} />
+          ) : null}
         </>
       ) : null}
     </div>

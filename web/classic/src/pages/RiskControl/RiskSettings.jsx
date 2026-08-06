@@ -457,7 +457,9 @@ const RiskSettings = () => {
               {t('清空归属地缓存')}
             </Button>
             <Text type='tertiary' size='small'>
-              {t('清空后下次查询会重新拉取外部接口，可切换数据源或升级后刷新。')}
+              {t(
+                '清空后下次查询会重新拉取外部接口，可切换数据源或升级后刷新。',
+              )}
             </Text>
           </Space>
         </Space>
@@ -472,7 +474,9 @@ const RiskSettings = () => {
         okText={t('确认清空')}
         cancelText={t('取消')}
       >
-        <Text>{t('确认清空所有 IP 归属地缓存？下次查询将重新拉取外部接口。')}</Text>
+        <Text>
+          {t('确认清空所有 IP 归属地缓存？下次查询将重新拉取外部接口。')}
+        </Text>
       </Modal>
 
       <Card
