@@ -29,6 +29,13 @@ const { Text } = Typography;
 // avoids re-fetching within the same page session.
 const ipInfoCache = new Map();
 
+// Clears the per-session cache. Called by the risk-control settings page after
+// the admin resets the backend IP location cache, so stale popovers that were
+// already opened in this session are not shown until a page reload.
+export const clearIpInfoCache = () => {
+  ipInfoCache.clear();
+};
+
 function InfoRow({ label, value }) {
   return (
     <div className='flex justify-between gap-4 py-0.5'>

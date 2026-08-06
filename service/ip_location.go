@@ -17,8 +17,8 @@ import (
 )
 
 // IP 归属地查询：按配置顺序依次尝试 gitee / ipwho.is / ip9，结果统一为
-// {continent, country, province, city, isp} 并写入 ip_infos 表缓存，
-// 同一个 IP 只查询一次外部接口。
+// {continent, country, province, city, district, latitude, longitude, postal, asn, org, isp}
+// 并写入 ip_infos 表缓存，同一个 IP 只查询一次外部接口。
 
 var ipLocationHTTPClient = &http.Client{Timeout: 8 * time.Second}
 
@@ -225,6 +225,10 @@ func queryIpwhoisLocation(ip string) (*model.IpInfo, error) {
 	if isp == "" {
 		isp = parsed.Connection.Org
 	}
+	asn := ""
+	if parsed.Connection.Asn != 0 {
+		asn = strconv.Itoa(parsed.Connection.Asn)
+	}
 	return &model.IpInfo{
 		Ip:        ip,
 		Continent: continent,
@@ -234,7 +238,7 @@ func queryIpwhoisLocation(ip string) (*model.IpInfo, error) {
 		Postal:    parsed.Postal,
 		Latitude:  formatGeoCoord(parsed.Latitude),
 		Longitude: formatGeoCoord(parsed.Longitude),
-		Asn:       strconvItoa(parsed.Connection.Asn),
+		Asn:       asn,
 		Org:       parsed.Connection.Org,
 		Isp:       isp,
 	}, nil
@@ -260,6 +264,9 @@ func queryIp9Location(ip string) (*model.IpInfo, error) {
 			Prov        string `json:"prov"`
 			City        string `json:"city"`
 			Isp         string `json:"isp"`
+			Lat         string `json:"lat"`
+			Lng         string `json:"lng"`
+			PostCode    string `json:"post_code"`
 		} `json:"data"`
 	}
 	if err := common.Unmarshal(body, &parsed); err != nil {
@@ -268,26 +275,34 @@ func queryIp9Location(ip string) (*model.IpInfo, error) {
 	if parsed.Ret != 200 || parsed.Data.Country == "" {
 		return nil, fmt.Errorf("ip9: ret %d", parsed.Ret)
 	}
+	// ip9 的经纬度是字符串（如 "113.28"），解析失败视为缺失，与 formatGeoCoord
+	// 的 0 值语义一致。
+	latitude, longitude := "", ""
+	if f, err := strconv.ParseFloat(parsed.Data.Lat, 64); err == nil {
+		latitude = formatGeoCoord(f)
+	}
+	if f, err := strconv.ParseFloat(parsed.Data.Lng, 64); err == nil {
+		longitude = formatGeoCoord(f)
+	}
 	return &model.IpInfo{
 		Ip:        ip,
 		Continent: countryCodeContinentZh[strings.ToLower(parsed.Data.CountryCode)],
 		Country:   parsed.Data.Country,
 		Province:  parsed.Data.Prov,
 		City:      parsed.Data.City,
+		Postal:    parsed.Data.PostCode,
+		Latitude:  latitude,
+		Longitude: longitude,
 		Isp:       parsed.Data.Isp,
 	}, nil
 }
 
 // formatGeoCoord 把经纬度 float64 转为紧凑字符串（至多 5 位小数），避免落库 float
-// 精度差异与 GORM 跨库类型不一致；0 也返回 "0" 以区分缺失与真实零度。
+// 精度差异与 GORM 跨库类型不一致；0 视为缺失返回空，与 Asn 的空值语义一致，
+// 前端据此隐藏坐标行，避免展示 "0.00000" 假坐标。
 func formatGeoCoord(v float64) string {
-	return strconv.FormatFloat(v, 'f', 5, 64)
-}
-
-// strconvItoa 把 ASN 整数转字符串；0 返回空以表示缺失，与 IpInfo.Asn 空值语义一致。
-func strconvItoa(asn int) string {
-	if asn == 0 {
+	if v == 0 {
 		return ""
 	}
-	return strconv.Itoa(asn)
+	return strconv.FormatFloat(v, 'f', 5, 64)
 }

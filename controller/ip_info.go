@@ -23,7 +23,7 @@ func GetIpInfo(c *gin.Context) {
 	common.ApiSuccess(c, info)
 }
 
-// ResetIpInfo 清空所有 IP 彆属地缓存，下次查询会重新拉取外部接口。
+// ResetIpInfo 清空所有 IP 归属地缓存，下次查询会重新拉取外部接口。
 // 仅超级管理员可调用（路由注册在 RootAuth 下）。
 func ResetIpInfo(c *gin.Context) {
 	deleted, err := model.ClearAllIpInfo()

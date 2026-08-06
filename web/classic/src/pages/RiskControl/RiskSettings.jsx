@@ -36,6 +36,7 @@ import {
 import { IconDelete, IconPlus, IconRefresh } from '@douyinfe/semi-icons';
 import { useTranslation } from 'react-i18next';
 import { API, showError, showSuccess } from '../../helpers';
+import { clearIpInfoCache } from '../../components/common/ui/IpTag';
 
 const { Text, Title } = Typography;
 
@@ -224,6 +225,7 @@ const RiskSettings = () => {
       const { success, message, data } = res.data;
       if (success) {
         const count = typeof data?.deleted === 'number' ? data.deleted : 0;
+        clearIpInfoCache();
         showSuccess(t('已清空 {{count}} 条缓存', { count }));
       } else {
         showError(message || t('清空失败'));
