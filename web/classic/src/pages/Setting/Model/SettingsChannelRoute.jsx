@@ -143,7 +143,15 @@ const validateTiers = (tiers) => {
   return warnings;
 };
 
+let routeTierEditorSequence = 0;
+
+const createRouteTierEditorKey = () => {
+  routeTierEditorSequence += 1;
+  return `route-tier-${routeTierEditorSequence}`;
+};
+
 const emptyTier = () => ({
+  editor_key: createRouteTierEditorKey(),
   label: '',
   conditions: [],
   channel_ids: [],
@@ -540,7 +548,7 @@ function RouteTierEditor({ tiers, onChange, modelNames }) {
     <div>
       {tiers.map((tier, index) => (
         <RouteTierCard
-          key={index}
+          key={tier.editor_key}
           tier={tier}
           index={index}
           total={tiers.length}
@@ -592,6 +600,7 @@ export default function SettingsChannelRoute(props) {
 
   const applyDocumentRoutePreset = useCallback((mode) => {
     const smallTier = {
+      editor_key: createRouteTierEditorKey(),
       label: t('小批量'),
       conditions: [{ var: 'docs', op: '<=', value: 25 }],
       channel_ids: [],
@@ -602,6 +611,7 @@ export default function SettingsChannelRoute(props) {
       setEditingTiers([
         smallTier,
         {
+          editor_key: createRouteTierEditorKey(),
           label: t('超限拒绝'),
           conditions: [{ var: 'docs', op: '>', value: 25 }],
           channel_ids: [],
@@ -613,6 +623,7 @@ export default function SettingsChannelRoute(props) {
       setEditingTiers([
         smallTier,
         {
+          editor_key: createRouteTierEditorKey(),
           label: t('大批量'),
           conditions: [
             { var: 'docs', op: '>', value: 25 },
@@ -623,6 +634,7 @@ export default function SettingsChannelRoute(props) {
           reject_message: '',
         },
         {
+          editor_key: createRouteTierEditorKey(),
           label: t('超限拒绝'),
           conditions: [{ var: 'docs', op: '>', value: 200 }],
           channel_ids: [],
@@ -789,6 +801,7 @@ export default function SettingsChannelRoute(props) {
       nextRule.route_tiers?.length
         ? nextRule.route_tiers.map((t) => ({
             ...t,
+            editor_key: createRouteTierEditorKey(),
             conditions: t.conditions || [],
             channel_ids: t.channel_ids || [],
             reject: !!t.reject,

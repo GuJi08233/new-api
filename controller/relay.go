@@ -58,12 +58,16 @@ func relayHandler(c *gin.Context, info *relaycommon.RelayInfo) *types.NewAPIErro
 
 func geminiRelayHandler(c *gin.Context, info *relaycommon.RelayInfo) *types.NewAPIError {
 	var err *types.NewAPIError
-	if strings.Contains(c.Request.URL.Path, "embed") {
+	if isGeminiEmbeddingRequestPath(c.Request.URL.Path) {
 		err = relay.GeminiEmbeddingHandler(c, info)
 	} else {
 		err = relay.GeminiHelper(c, info)
 	}
 	return err
+}
+
+func isGeminiEmbeddingRequestPath(path string) bool {
+	return strings.Contains(path, ":embedContent") || strings.Contains(path, ":batchEmbedContents")
 }
 
 func Relay(c *gin.Context, relayFormat types.RelayFormat) {

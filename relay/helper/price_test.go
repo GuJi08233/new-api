@@ -1,15 +1,18 @@
 package helper
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/config"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
@@ -139,6 +142,42 @@ func TestModelPriceHelperTieredPreConsumeMaxTokensFallback(t *testing.T) {
 			priceData, err := ModelPriceHelper(ctx, info, promptTokens, &types.TokenCountMeta{MaxTokens: tc.maxTokens})
 			require.NoError(t, err)
 			require.Equal(t, tc.expected, priceData.QuotaToPreConsume)
+		})
+	}
+}
+
+func TestModelPriceHelperZeroModelRatioStaysFreeAcrossRoutedChannels(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	savedModelRatios := ratio_setting.ModelRatio2JSONString()
+	quotaSetting := operation_setting.GetQuotaSetting()
+	originalFreeModelPreConsume := quotaSetting.EnableFreeModelPreConsume
+	t.Cleanup(func() {
+		require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(savedModelRatios))
+		quotaSetting.EnableFreeModelPreConsume = originalFreeModelPreConsume
+	})
+
+	modelRatios, err := common.Marshal(map[string]float64{"free-routed-model": 0})
+	require.NoError(t, err)
+	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(string(modelRatios)))
+	quotaSetting.EnableFreeModelPreConsume = false
+
+	for _, channelID := range []int{910001, 910002} {
+		t.Run(fmt.Sprintf("channel %d", channelID), func(t *testing.T) {
+			ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+			ctx.Set("group", "default")
+			common.SetContextKey(ctx, constant.ContextKeyChannelId, channelID)
+			info := &relaycommon.RelayInfo{
+				OriginModelName: "free-routed-model",
+				UserGroup:       "default",
+				UsingGroup:      "default",
+			}
+
+			priceData, err := ModelPriceHelper(ctx, info, 1000, &types.TokenCountMeta{})
+
+			require.NoError(t, err)
+			assert.True(t, priceData.FreeModel)
+			assert.Zero(t, priceData.QuotaToPreConsume)
+			assert.Zero(t, priceData.ModelRatio)
 		})
 	}
 }

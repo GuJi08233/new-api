@@ -2,10 +2,12 @@ package service
 
 import (
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -594,6 +596,154 @@ func TestGetChannelByRouteEmbeddingBatchUsesDocumentTiers(t *testing.T) {
 			assert.Equal(t, tt.wantTier, logInfo["matched_tier"])
 			assert.Equal(t, tt.wantPool, logInfo["channel_ids"])
 		})
+	}
+}
+
+func seedDocumentRouteChannels(t *testing.T, modelNames []string, channelIDs []int) {
+	t.Helper()
+	require.NoError(t, model.DB.AutoMigrate(&model.Ability{}))
+	require.NoError(t, model.DB.Where("channel_id IN ?", channelIDs).Delete(&model.Ability{}).Error)
+	require.NoError(t, model.DB.Where("id IN ?", channelIDs).Delete(&model.Channel{}).Error)
+
+	priorities := []int64{100, 0}
+	for index, channelID := range channelIDs {
+		channel := &model.Channel{
+			Id:       channelID,
+			Type:     constant.ChannelTypeOpenAI,
+			Key:      "route-test-key",
+			Status:   common.ChannelStatusEnabled,
+			Name:     "document-route-test",
+			Group:    "default",
+			Models:   strings.Join(modelNames, ","),
+			Priority: common.GetPointer(priorities[index]),
+			Weight:   common.GetPointer(uint(100)),
+		}
+		require.NoError(t, model.DB.Create(channel).Error)
+		for _, modelName := range modelNames {
+			require.NoError(t, model.DB.Create(&model.Ability{
+				Group:     "default",
+				Model:     modelName,
+				ChannelId: channelID,
+				Enabled:   true,
+			}).Error)
+		}
+	}
+
+	t.Cleanup(func() {
+		require.NoError(t, model.DB.Where("channel_id IN ?", channelIDs).Delete(&model.Ability{}).Error)
+		require.NoError(t, model.DB.Where("id IN ?", channelIDs).Delete(&model.Channel{}).Error)
+	})
+}
+
+func TestGetChannelByRouteDocumentTiersSelectOnlyEligibleChannelsAcrossRetries(t *testing.T) {
+	const (
+		smallOnlyChannel = 910001
+		fullBatchChannel = 910002
+	)
+	modelNames := []string{"rerank-route-test", "embedding-route-test"}
+	channelIDs := []int{smallOnlyChannel, fullBatchChannel}
+
+	originalMemoryCacheEnabled := common.MemoryCacheEnabled
+	common.MemoryCacheEnabled = true
+	t.Cleanup(func() {
+		model.InitChannelCache()
+		common.MemoryCacheEnabled = originalMemoryCacheEnabled
+	})
+	seedDocumentRouteChannels(t, modelNames, channelIDs)
+	model.InitChannelCache()
+
+	cfg := operation_setting.GetChannelRouteSetting()
+	originalEnabled := cfg.Enabled
+	originalRules := cfg.Rules
+	t.Cleanup(func() {
+		cfg.Enabled = originalEnabled
+		cfg.Rules = originalRules
+	})
+	cfg.Enabled = true
+	cfg.Rules = []operation_setting.ChannelRouteRule{
+		{
+			Name:       "rerank-document-capacity",
+			ModelRegex: []string{"^rerank-route-test$"},
+			PathRegex:  []string{"^/v1/rerank$"},
+			Strict:     true,
+			RouteTiers: documentCapacityRouteTiers(channelIDs),
+		},
+		{
+			Name:       "embedding-document-capacity",
+			ModelRegex: []string{"^embedding-route-test$"},
+			PathRegex:  []string{"^/v1/embeddings$"},
+			Strict:     true,
+			RouteTiers: documentCapacityRouteTiers(channelIDs),
+		},
+	}
+
+	tests := []struct {
+		name          string
+		path          string
+		modelName     string
+		docs          int
+		retry         int
+		wantChannelID int
+		wantRejected  bool
+	}{
+		{name: "rerank small batch first priority", path: "/v1/rerank", modelName: "rerank-route-test", docs: 25, retry: 0, wantChannelID: smallOnlyChannel},
+		{name: "rerank small batch retry reaches second eligible channel", path: "/v1/rerank", modelName: "rerank-route-test", docs: 25, retry: 1, wantChannelID: fullBatchChannel},
+		{name: "rerank large batch excludes small-only channel", path: "/v1/rerank", modelName: "rerank-route-test", docs: 26, retry: 0, wantChannelID: fullBatchChannel},
+		{name: "rerank large batch retry cannot escape tier", path: "/v1/rerank", modelName: "rerank-route-test", docs: 200, retry: 99, wantChannelID: fullBatchChannel},
+		{name: "rerank over limit rejects before channel selection", path: "/v1/rerank", modelName: "rerank-route-test", docs: 201, retry: 0, wantRejected: true},
+		{name: "embedding small batch uses small pool", path: "/v1/embeddings", modelName: "embedding-route-test", docs: 25, retry: 0, wantChannelID: smallOnlyChannel},
+		{name: "embedding large batch uses full-capacity channel", path: "/v1/embeddings", modelName: "embedding-route-test", docs: 26, retry: 0, wantChannelID: fullBatchChannel},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+			ctx.Request = httptest.NewRequest("POST", tt.path, nil)
+			common.SetContextKey(ctx, constant.ContextKeyUsingGroup, "default")
+			common.SetContextKey(ctx, constant.ContextKeyEstimatedDocs, tt.docs)
+
+			result, err := GetChannelByRoute(&RetryParam{
+				Ctx:        ctx,
+				TokenGroup: "default",
+				ModelName:  tt.modelName,
+				Retry:      common.GetPointer(tt.retry),
+			})
+			require.NoError(t, err)
+			require.True(t, result.Matched)
+			assert.Equal(t, tt.wantRejected, result.Rejected)
+			if tt.wantRejected {
+				assert.Nil(t, result.Channel)
+				assert.Equal(t, "Candidate documents cannot exceed 200", result.RejectMessage)
+				return
+			}
+			require.NotNil(t, result.Channel)
+			assert.Equal(t, tt.wantChannelID, result.Channel.Id)
+		})
+	}
+}
+
+func documentCapacityRouteTiers(channelIDs []int) []operation_setting.RouteTier {
+	return []operation_setting.RouteTier{
+		{
+			Label:      "small",
+			Conditions: []operation_setting.RouteTierCondition{{Var: "docs", Op: "<=", Value: 25}},
+			ChannelIDs: channelIDs,
+		},
+		{
+			Label: "large",
+			Conditions: []operation_setting.RouteTierCondition{
+				{Var: "docs", Op: ">", Value: 25},
+				{Var: "docs", Op: "<=", Value: 200},
+			},
+			ChannelIDs: []int{channelIDs[1]},
+		},
+		{
+			Label:         "over-limit",
+			Conditions:    []operation_setting.RouteTierCondition{{Var: "docs", Op: ">", Value: 200}},
+			Reject:        true,
+			RejectMessage: "Candidate documents cannot exceed 200",
+		},
 	}
 }
 
