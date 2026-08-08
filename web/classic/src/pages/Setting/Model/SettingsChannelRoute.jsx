@@ -32,6 +32,7 @@ import {
   Select,
   Space,
   Spin,
+  Switch,
   Table,
   Tag,
   Typography,
@@ -69,10 +70,12 @@ const CONDITION_VARS = [
   { value: 'len', label: 'len (输入长度)' },
   { value: 'p', label: 'p (prompt)' },
   { value: 'c', label: 'c (completion)' },
+  { value: 'docs', label: 'docs (文档数量)' },
 ];
 const CONDITION_OPS = ['<', '<=', '>', '>='];
 
-const formatTokenHint = (value) => {
+const formatTokenHint = (value, variable) => {
+  if (variable === 'docs') return '';
   if (!value || value <= 0) return '';
   if (value >= 1_000_000) return `= ${(value / 1_000_000).toFixed(1)}M tokens`;
   if (value >= 1_000) return `= ${(value / 1_000).toFixed(0)}K tokens`;
@@ -87,7 +90,9 @@ const formatTokenShort = (value) => {
 
 const autoTierLabel = (conditions) => {
   if (!conditions || conditions.length === 0) return '';
-  return conditions.map((c) => `${c.var} ${c.op} ${formatTokenShort(c.value)}`).join(' AND ');
+  return conditions
+    .map((condition) => `${condition.var} ${condition.op} ${condition.var === 'docs' ? String(condition.value) : formatTokenShort(condition.value)}`)
+    .join(' AND ');
 };
 
 const validateTiers = (tiers) => {
@@ -138,7 +143,13 @@ const validateTiers = (tiers) => {
   return warnings;
 };
 
-const emptyTier = () => ({ label: '', conditions: [], channel_ids: [] });
+const emptyTier = () => ({
+  label: '',
+  conditions: [],
+  channel_ids: [],
+  reject: false,
+  reject_message: '',
+});
 
 const rulesExample = JSON.stringify(
   [
@@ -162,6 +173,34 @@ const rulesExample = JSON.stringify(
         { label: '长请求', conditions: [], channel_ids: [7, 8] },
       ],
       strict: false,
+    },
+    {
+      name: 'Rerank 文档数量路由',
+      path_regex: ['^/v1/rerank$'],
+      model_regex: ['^rerank-model$'],
+      route_tiers: [
+        {
+          label: '小批量',
+          conditions: [{ var: 'docs', op: '<=', value: 25 }],
+          channel_ids: [1, 2],
+        },
+        {
+          label: '大批量',
+          conditions: [
+            { var: 'docs', op: '>', value: 25 },
+            { var: 'docs', op: '<=', value: 200 },
+          ],
+          channel_ids: [2],
+        },
+        {
+          label: '超限',
+          conditions: [{ var: 'docs', op: '>', value: 200 }],
+          channel_ids: [],
+          reject: true,
+          reject_message: '候选文档数量不能超过 200 条',
+        },
+      ],
+      strict: true,
     },
   ],
   null,
@@ -311,12 +350,13 @@ function ConditionRow({ condition, onChange, onRemove }) {
         value={condition.value}
         onChange={(value) => onChange({ ...condition, value: value || 0 })}
         min={0}
-        placeholder='tokens'
+        precision={0}
+        placeholder={condition.var === 'docs' ? 'docs' : 'tokens'}
         style={{ width: 120 }}
         size='small'
       />
       <Text type='tertiary' size='small'>
-        {formatTokenHint(condition.value)}
+        {formatTokenHint(condition.value, condition.var)}
       </Text>
       <Button
         icon={<IconDelete />}
@@ -350,6 +390,10 @@ function RouteTierCard({ tier, index, total, onChange, onRemove, onAddCondition,
   const handleChannelIdsChange = (text) => {
     const ids = normalizeChannelIds(text);
     onChange({ ...tier, channel_ids: ids || [] });
+  };
+
+  const handleRejectChange = (reject) => {
+    onChange(reject ? { ...tier, reject, channel_ids: [] } : { ...tier, reject });
   };
 
   return (
@@ -412,12 +456,38 @@ function RouteTierCard({ tier, index, total, onChange, onRemove, onAddCondition,
       )}
 
       <div>
-        <ChannelSelector
-          value={channelIdsToText(tier.channel_ids)}
-          onChange={(text) => handleChannelIdsChange(text)}
-          compact
-          modelNames={modelNames}
-        />
+        <Space style={{ marginBottom: 8 }}>
+          <Switch
+            checked={!!tier.reject}
+            onChange={handleRejectChange}
+            size='small'
+          />
+          <Text size='small'>{t('命中该档位返回报错（不路由）')}</Text>
+        </Space>
+        {tier.reject ? (
+          <div>
+            <Banner
+              type='danger'
+              size='small'
+              title={t('该档位命中时直接返回报错，不选择任何渠道')}
+              style={{ marginBottom: 8 }}
+            />
+            <Input
+              value={tier.reject_message || ''}
+              onChange={(value) => onChange({ ...tier, reject_message: value })}
+              placeholder={t('自定义报错信息（可选，留空使用默认）')}
+              size='small'
+              style={{ width: '100%' }}
+            />
+          </div>
+        ) : (
+          <ChannelSelector
+            value={channelIdsToText(tier.channel_ids)}
+            onChange={(text) => handleChannelIdsChange(text)}
+            compact
+            modelNames={modelNames}
+          />
+        )}
       </div>
     </Card>
   );
@@ -520,6 +590,51 @@ export default function SettingsChannelRoute(props) {
     [selectorModelRegex],
   );
 
+  const applyDocumentRoutePreset = useCallback((mode) => {
+    const smallTier = {
+      label: t('小批量'),
+      conditions: [{ var: 'docs', op: '<=', value: 25 }],
+      channel_ids: [],
+      reject: false,
+      reject_message: '',
+    };
+    if (mode === 'small-only') {
+      setEditingTiers([
+        smallTier,
+        {
+          label: t('超限拒绝'),
+          conditions: [{ var: 'docs', op: '>', value: 25 }],
+          channel_ids: [],
+          reject: true,
+          reject_message: t('每个请求最多允许 25 条候选文档'),
+        },
+      ]);
+    } else {
+      setEditingTiers([
+        smallTier,
+        {
+          label: t('大批量'),
+          conditions: [
+            { var: 'docs', op: '>', value: 25 },
+            { var: 'docs', op: '<=', value: 200 },
+          ],
+          channel_ids: [],
+          reject: false,
+          reject_message: '',
+        },
+        {
+          label: t('超限拒绝'),
+          conditions: [{ var: 'docs', op: '>', value: 200 }],
+          channel_ids: [],
+          reject: true,
+          reject_message: t('候选文档数量不能超过 200 条'),
+        },
+      ]);
+    }
+    modalFormRef.current?.setValue('strict', true);
+    showSuccess(t('已应用文档数量预设，请为每个非报错档位选择渠道'));
+  }, [t]);
+
   const ruleColumns = useMemo(
     () => [
       {
@@ -591,9 +706,22 @@ export default function SettingsChannelRoute(props) {
                     <Text size='small' type='tertiary' style={{ fontStyle: 'italic' }}>{t('兜底')}</Text>
                   )}
                   <Text size='small'>→</Text>
-                  <Text size='small'>
-                    {(tier.channel_ids || []).map((id) => getChannelName(id)).join(', ')}
-                  </Text>
+                  {tier.reject ? (
+                    <Space spacing={4}>
+                      <Tag color='red' size='small'>
+                        {t('返回报错')}
+                      </Tag>
+                      {tier.reject_message && (
+                        <Text size='small' type='tertiary'>
+                          “{tier.reject_message}”
+                        </Text>
+                      )}
+                    </Space>
+                  ) : (
+                    <Text size='small'>
+                      {(tier.channel_ids || []).map((id) => getChannelName(id)).join(', ')}
+                    </Text>
+                  )}
                 </Space>
               ))}
             </Space>
@@ -663,6 +791,8 @@ export default function SettingsChannelRoute(props) {
             ...t,
             conditions: t.conditions || [],
             channel_ids: t.channel_ids || [],
+            reject: !!t.reject,
+            reject_message: t.reject_message || '',
             label: t.label || '',
           }))
         : [emptyTier()],
@@ -684,10 +814,24 @@ export default function SettingsChannelRoute(props) {
         return showError(t('模型正则不能为空'));
       }
 
-      // Validate tiers: must have at least one tier with channel IDs
-      const validTiers = editingTiers.filter((tier) => tier.channel_ids.length > 0);
+      const validTiers = editingTiers.filter((tier) =>
+        tier.reject ||
+        tier.channel_ids.length > 0 ||
+        tier.conditions.length > 0 ||
+        (tier.label || '').trim() ||
+        (tier.reject_message || '').trim(),
+      );
       if (validTiers.length === 0) {
-        return showError(t('至少一个档位必须填写渠道 ID'));
+        return showError(t('至少一个档位必须填写渠道 ID 或开启返回报错'));
+      }
+
+      const incompleteTierIndex = validTiers.findIndex(
+        (tier) => !tier.reject && tier.channel_ids.length === 0,
+      );
+      if (incompleteTierIndex >= 0) {
+        return showError(t('档位 {{index}} 已配置条件或名称，但未选择渠道，也未开启返回报错', {
+          index: incompleteTierIndex + 1,
+        }));
       }
 
       // Validate tier configuration (overlaps, dead tiers, catch-all position)
@@ -700,9 +844,11 @@ export default function SettingsChannelRoute(props) {
 
       // Auto-generate labels for tiers without labels
       const tiersWithLabels = validTiers.map((tier) => ({
-        label: tier.label || autoTierLabel(tier.conditions) || (tier.conditions.length === 0 ? '兜底' : ''),
+        label: (tier.label || '').trim() || autoTierLabel(tier.conditions) || (tier.conditions.length === 0 ? '兜底' : ''),
         conditions: tier.conditions,
-        channel_ids: tier.channel_ids,
+        channel_ids: tier.reject ? [] : tier.channel_ids,
+        reject: !!tier.reject,
+        reject_message: tier.reject ? (tier.reject_message || '').trim() : '',
       }));
 
       const rulePayload = {
@@ -822,9 +968,27 @@ export default function SettingsChannelRoute(props) {
               type='info'
               fullMode={false}
               description={t(
-                '根据分组、模型、请求路径和 Token 条件智能选择渠道池。支持多档位条件匹配，未配置时对现有行为无影响。',
+                '根据分组、模型、请求路径和 Token/docs 条件智能选择渠道池。支持多档位条件匹配和超限拒绝；未配置时对现有行为无影响。',
               )}
             />
+            <Text
+              type='tertiary'
+              size='small'
+              style={{ display: 'block', marginTop: 8 }}
+            >
+              {t(
+                'docs ≤ 25 表示小批量，docs > 25 且 ≤ 200 表示大批量，docs > 200 可配置拒绝档位；路由只决定渠道，不改变计费，免费需在模型或分组定价中将价格/倍率设为 0。',
+              )}
+            </Text>
+            <Text
+              type='tertiary'
+              size='small'
+              style={{ display: 'block', marginTop: 4 }}
+            >
+              {t(
+                '嵌入请求中，字符串计为 1 条，字符串数组按元素数量计数，单个 Token 数组计为 1 条，嵌套 Token 数组按外层数量计数；Gemini embedContent 为 1 条，batchEmbedContents 按 requests 数量计数。',
+              )}
+            </Text>
             <Divider style={{ marginTop: 12, marginBottom: 12 }} />
             <Row gutter={16}>
               <Col xs={24} sm={12} md={8} lg={8} xl={8}>
@@ -834,7 +998,7 @@ export default function SettingsChannelRoute(props) {
                   checkedText='|'
                   uncheckedText='O'
                   onChange={(value) => setInputs({ ...inputs, [KEY_ENABLED]: value })}
-                  extraText={t('按分组、模型、路径和 Token 条件将请求路由到指定渠道池。')}
+                  extraText={t('按分组、模型、路径和 Token/docs 条件将请求路由到指定渠道池。')}
                 />
               </Col>
             </Row>
@@ -948,8 +1112,28 @@ export default function SettingsChannelRoute(props) {
           <div style={{ marginBottom: 12 }}>
             <Text strong style={{ display: 'block', marginBottom: 4 }}>{t('渠道路由档位')}</Text>
             <Text type='tertiary' size='small' style={{ display: 'block', marginBottom: 8 }}>
-              {t('每个档位可设置 0~2 个条件（对 len/p/c，AND 关系）。不加条件的档位即为兜底，档位按顺序评估，首个匹配生效。')}
+              {t('每个档位可设置 0~2 个条件（对 len/p/c/docs，AND 关系）。不加条件的档位即为兜底；开启返回报错后命中该档位不会路由。档位按顺序评估，首个匹配生效。')}
             </Text>
+            <Card bodyStyle={{ padding: 12 }} style={{ marginBottom: 12 }}>
+              <Text strong style={{ display: 'block', marginBottom: 8 }}>{t('文档数量预设')}</Text>
+              <Space wrap style={{ marginBottom: 8 }}>
+                <Button size='small' onClick={() => applyDocumentRoutePreset('split')}>
+                  {t('小批量双渠道 / 大批量单渠道')}
+                </Button>
+                <Button size='small' onClick={() => applyDocumentRoutePreset('small-only')}>
+                  {t('仅允许小批量')}
+                </Button>
+              </Space>
+              <Text type='tertiary' size='small' style={{ display: 'block' }}>
+                {t('预设同时适用于重排和嵌入。请在“匹配路径”中选择 Rerank、Embeddings、Gemini Embed 或 Gemini Batch Embed。')}
+              </Text>
+            </Card>
+            <Banner
+              type='warning'
+              size='small'
+              description={t('小批量档位可同时选择两个渠道；若希望两个渠道共同分流，请将它们设为相同优先级并配置权重。此类容量限制规则必须保持严格模式，避免渠道不可用时回退到不支持大批量的渠道。')}
+              style={{ marginBottom: 12 }}
+            />
             <RouteTierEditor tiers={editingTiers} onChange={setEditingTiers} modelNames={editingModelNames} />
           </div>
 
@@ -958,7 +1142,7 @@ export default function SettingsChannelRoute(props) {
             label={t('严格模式')}
             checkedText='|'
             uncheckedText='O'
-            extraText={t('开启后，规则命中但渠道池无可用渠道时直接拒绝；关闭则回退到原始选路。')}
+            extraText={t('开启后，规则命中但渠道池无可用渠道时直接拒绝；关闭则回退到原始选路。拒绝档位始终直接返回错误。')}
           />
         </Form>
       </Modal>

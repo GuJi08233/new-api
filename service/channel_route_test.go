@@ -2,13 +2,14 @@ package service
 
 import (
 	"net/http/httptest"
-	"slices"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestChannelRouteMatchAnyRegex(t *testing.T) {
@@ -23,6 +24,11 @@ func TestChannelRouteMatchAnyRegex(t *testing.T) {
 	}
 }
 
+func TestChannelRouteMatchPathRegexAcceptsTrailingSlash(t *testing.T) {
+	assert.True(t, channelRouteMatchPathRegex([]string{"^/v1/rerank$"}, "/v1/rerank/"))
+	assert.True(t, channelRouteMatchPathRegex([]string{"^/v1/rerank/$"}, "/v1/rerank"))
+}
+
 func TestCollectRouteCandidatesForGroupDeduplicates(t *testing.T) {
 	candidates := collectRouteCandidatesForGroup("", "model", []int{1, 1, 2})
 	if len(candidates) != 0 {
@@ -30,26 +36,18 @@ func TestCollectRouteCandidatesForGroupDeduplicates(t *testing.T) {
 	}
 }
 
-func TestCollectUnknownTokenChannelIDs(t *testing.T) {
+func TestCollectTierChannelIDsSkipsRejectTiers(t *testing.T) {
 	tiers := []operation_setting.RouteTier{
 		{
 			Conditions: []operation_setting.RouteTierCondition{{Var: "len", Op: "<", Value: 1000}},
 			ChannelIDs: []int{1, 2},
 		},
-		{ChannelIDs: []int{3}},
+		{ChannelIDs: []int{2, 3}},
+		{Reject: true, ChannelIDs: []int{4}},
 	}
 
-	if got := collectUnknownTokenChannelIDs(tiers, false); !slices.Equal(got, []int{1, 2, 3}) {
-		t.Fatalf("standard relay placeholder IDs = %v, want all tier IDs", got)
-	}
-	if got := collectUnknownTokenChannelIDs(tiers, true); !slices.Equal(got, []int{3}) {
-		t.Fatalf("task fallback IDs = %v, want catch-all tier IDs", got)
-	}
-
-	withoutCatchAll := tiers[:1]
-	if got := collectUnknownTokenChannelIDs(withoutCatchAll, true); !slices.Equal(got, []int{1, 2}) {
-		t.Fatalf("task IDs without catch-all = %v, want union fallback", got)
-	}
+	assert.Equal(t, []int{1, 2, 3}, collectTierChannelIDs(tiers, false))
+	assert.Equal(t, []int{2, 3}, collectTierChannelIDs(tiers, true))
 }
 
 func TestGetChannelRouteMatchGroupPrefersUsingGroup(t *testing.T) {
@@ -106,7 +104,7 @@ func TestEvaluateRouteCondition(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := evaluateRouteCondition(tt.cond, tt.tokens)
+			got := evaluateRouteCondition(tt.cond, tt.tokens, 0)
 			if got != tt.expected {
 				t.Fatalf("evaluateRouteCondition(%v, %d) = %v, want %v", tt.cond, tt.tokens, got, tt.expected)
 			}
@@ -115,10 +113,10 @@ func TestEvaluateRouteCondition(t *testing.T) {
 }
 
 func TestEvaluateRouteTier_EmptyConditions(t *testing.T) {
-	if !evaluateRouteTier(nil, 500) {
+	if !evaluateRouteTier(nil, 500, 0) {
 		t.Fatalf("empty conditions should match")
 	}
-	if !evaluateRouteTier([]operation_setting.RouteTierCondition{}, 500) {
+	if !evaluateRouteTier([]operation_setting.RouteTierCondition{}, 500, 0) {
 		t.Fatalf("empty conditions should match")
 	}
 }
@@ -128,15 +126,43 @@ func TestEvaluateRouteTier_ANDLogic(t *testing.T) {
 		{Var: "len", Op: ">=", Value: 100},
 		{Var: "len", Op: "<", Value: 1000},
 	}
-	if !evaluateRouteTier(conditions, 500) {
+	if !evaluateRouteTier(conditions, 500, 0) {
 		t.Fatalf("expected 500 to match 100 <= len < 1000")
 	}
-	if evaluateRouteTier(conditions, 50) {
+	if evaluateRouteTier(conditions, 50, 0) {
 		t.Fatalf("expected 50 to not match 100 <= len < 1000")
 	}
-	if evaluateRouteTier(conditions, 1000) {
+	if evaluateRouteTier(conditions, 1000, 0) {
 		t.Fatalf("expected 1000 to not match 100 <= len < 1000")
 	}
+}
+
+func TestEvaluateRouteConditionSupportsDocumentCounts(t *testing.T) {
+	tests := []struct {
+		name      string
+		condition operation_setting.RouteTierCondition
+		docs      int
+		want      bool
+	}{
+		{name: "small boundary", condition: operation_setting.RouteTierCondition{Var: "docs", Op: "<=", Value: 25}, docs: 25, want: true},
+		{name: "small overflow", condition: operation_setting.RouteTierCondition{Var: "docs", Op: "<=", Value: 25}, docs: 26, want: false},
+		{name: "large lower boundary", condition: operation_setting.RouteTierCondition{Var: "docs", Op: ">", Value: 25}, docs: 26, want: true},
+		{name: "large upper boundary", condition: operation_setting.RouteTierCondition{Var: "docs", Op: "<=", Value: 200}, docs: 200, want: true},
+		{name: "over limit", condition: operation_setting.RouteTierCondition{Var: "docs", Op: ">", Value: 200}, docs: 201, want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, evaluateRouteCondition(tt.condition, 0, tt.docs))
+		})
+	}
+}
+
+func TestRouteTierConditionsKnownPreservesUnknownAndExplicitZero(t *testing.T) {
+	docsCondition := []operation_setting.RouteTierCondition{{Var: "docs", Op: "<=", Value: 0}}
+	assert.False(t, routeTierConditionsKnown(docsCondition, true, false))
+	assert.True(t, routeTierConditionsKnown(docsCondition, false, true))
+	assert.False(t, routeTierConditionsKnown([]operation_setting.RouteTierCondition{{Var: "len", Op: "<", Value: 10}}, false, true))
 }
 
 func TestGetChannelByRoute_TieredRouting_MatchesFirstTier(t *testing.T) {
@@ -417,4 +443,280 @@ func TestGetChannelByRoute_TieredRouting_SkipsEmptyPoolTier(t *testing.T) {
 	if info["matched_tier"] != "has-pool" {
 		t.Fatalf("expected matched_tier=has-pool, got %v", info["matched_tier"])
 	}
+}
+
+func TestGetChannelByRouteDocumentBatchBoundariesAndReject(t *testing.T) {
+	cfg := operation_setting.GetChannelRouteSetting()
+	originalEnabled := cfg.Enabled
+	originalRules := cfg.Rules
+	t.Cleanup(func() {
+		cfg.Enabled = originalEnabled
+		cfg.Rules = originalRules
+	})
+	cfg.Enabled = true
+	cfg.Rules = []operation_setting.ChannelRouteRule{{
+		Name:       "rerank-docs",
+		ModelRegex: []string{"^rerank-model$"},
+		PathRegex:  []string{"^/v1/rerank$"},
+		Strict:     true,
+		RouteTiers: []operation_setting.RouteTier{
+			{
+				Label:      "small",
+				Conditions: []operation_setting.RouteTierCondition{{Var: "docs", Op: "<=", Value: 25}},
+				ChannelIDs: []int{1, 2},
+			},
+			{
+				Label: "large",
+				Conditions: []operation_setting.RouteTierCondition{
+					{Var: "docs", Op: ">", Value: 25},
+					{Var: "docs", Op: "<=", Value: 200},
+				},
+				ChannelIDs: []int{2},
+			},
+			{
+				Label:         "over-limit",
+				Conditions:    []operation_setting.RouteTierCondition{{Var: "docs", Op: ">", Value: 200}},
+				Reject:        true,
+				RejectMessage: "Candidate documents cannot exceed 200",
+			},
+		},
+	}}
+
+	tests := []struct {
+		name       string
+		docs       int
+		wantTier   string
+		wantPool   []int
+		wantReject bool
+	}{
+		{name: "explicit zero is small", docs: 0, wantTier: "small", wantPool: []int{1, 2}},
+		{name: "25 is small", docs: 25, wantTier: "small", wantPool: []int{1, 2}},
+		{name: "26 is large", docs: 26, wantTier: "large", wantPool: []int{2}},
+		{name: "200 is large", docs: 200, wantTier: "large", wantPool: []int{2}},
+		{name: "201 is rejected", docs: 201, wantTier: "over-limit", wantReject: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+			ctx.Request = httptest.NewRequest("POST", "/v1/rerank/", nil)
+			common.SetContextKey(ctx, constant.ContextKeyUsingGroup, "default")
+			common.SetContextKey(ctx, constant.ContextKeyEstimatedDocs, tt.docs)
+
+			result, err := GetChannelByRoute(&RetryParam{
+				Ctx:        ctx,
+				TokenGroup: "default",
+				ModelName:  "rerank-model",
+				Retry:      common.GetPointer(0),
+			})
+			require.NoError(t, err)
+			require.True(t, result.Matched)
+			assert.Equal(t, tt.wantReject, result.Rejected)
+			assert.False(t, result.Deferred)
+			assert.False(t, result.NeedsReroute)
+			if tt.wantReject {
+				assert.Equal(t, "Candidate documents cannot exceed 200", result.RejectMessage)
+			}
+
+			logValue, found := ctx.Get(ginKeyChannelRouteLogInfo)
+			require.True(t, found)
+			logInfo, ok := logValue.(gin.H)
+			require.True(t, ok)
+			assert.Equal(t, tt.wantTier, logInfo["matched_tier"])
+			assert.Equal(t, tt.docs, logInfo["estimated_docs"])
+			assert.Equal(t, tt.wantPool, logInfo["channel_ids"])
+		})
+	}
+}
+
+func TestGetChannelByRouteEmbeddingBatchUsesDocumentTiers(t *testing.T) {
+	cfg := operation_setting.GetChannelRouteSetting()
+	originalEnabled := cfg.Enabled
+	originalRules := cfg.Rules
+	t.Cleanup(func() {
+		cfg.Enabled = originalEnabled
+		cfg.Rules = originalRules
+	})
+	cfg.Enabled = true
+	cfg.Rules = []operation_setting.ChannelRouteRule{{
+		Name:       "embedding-docs",
+		ModelRegex: []string{"^embedding-model$"},
+		PathRegex:  []string{"^/v1/embeddings$"},
+		Strict:     true,
+		RouteTiers: []operation_setting.RouteTier{
+			{
+				Label:      "small",
+				Conditions: []operation_setting.RouteTierCondition{{Var: "docs", Op: "<=", Value: 25}},
+				ChannelIDs: []int{11, 12},
+			},
+			{
+				Label:      "large",
+				Conditions: []operation_setting.RouteTierCondition{{Var: "docs", Op: ">", Value: 25}},
+				ChannelIDs: []int{12},
+			},
+		},
+	}}
+
+	tests := []struct {
+		name     string
+		docs     int
+		wantTier string
+		wantPool []int
+	}{
+		{name: "25 inputs use both eligible channels", docs: 25, wantTier: "small", wantPool: []int{11, 12}},
+		{name: "26 inputs use only full batch channel", docs: 26, wantTier: "large", wantPool: []int{12}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+			ctx.Request = httptest.NewRequest("POST", "/v1/embeddings/", nil)
+			common.SetContextKey(ctx, constant.ContextKeyUsingGroup, "default")
+			common.SetContextKey(ctx, constant.ContextKeyEstimatedDocs, tt.docs)
+
+			result, err := GetChannelByRoute(&RetryParam{
+				Ctx:        ctx,
+				TokenGroup: "default",
+				ModelName:  "embedding-model",
+				Retry:      common.GetPointer(0),
+			})
+			require.NoError(t, err)
+			require.True(t, result.Matched)
+			assert.True(t, result.Strict)
+			assert.False(t, result.Rejected)
+
+			logValue, found := ctx.Get(ginKeyChannelRouteLogInfo)
+			require.True(t, found)
+			logInfo, ok := logValue.(gin.H)
+			require.True(t, ok)
+			assert.Equal(t, tt.wantTier, logInfo["matched_tier"])
+			assert.Equal(t, tt.wantPool, logInfo["channel_ids"])
+		})
+	}
+}
+
+func TestGetChannelByRouteCanRejectEveryBatchAboveTwentyFive(t *testing.T) {
+	cfg := operation_setting.GetChannelRouteSetting()
+	originalEnabled := cfg.Enabled
+	originalRules := cfg.Rules
+	t.Cleanup(func() {
+		cfg.Enabled = originalEnabled
+		cfg.Rules = originalRules
+	})
+	cfg.Enabled = true
+	cfg.Rules = []operation_setting.ChannelRouteRule{{
+		Name:       "small-only-rerank",
+		ModelRegex: []string{"^rerank-model$"},
+		PathRegex:  []string{"^/v1/rerank$"},
+		Strict:     true,
+		RouteTiers: []operation_setting.RouteTier{
+			{
+				Label:      "small",
+				Conditions: []operation_setting.RouteTierCondition{{Var: "docs", Op: "<=", Value: 25}},
+				ChannelIDs: []int{1, 2},
+			},
+			{
+				Label:         "reject-large",
+				Conditions:    []operation_setting.RouteTierCondition{{Var: "docs", Op: ">", Value: 25}},
+				Reject:        true,
+				RejectMessage: "This rerank endpoint accepts at most 25 documents",
+			},
+		},
+	}}
+
+	gin.SetMode(gin.TestMode)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = httptest.NewRequest("POST", "/v1/rerank", nil)
+	common.SetContextKey(ctx, constant.ContextKeyUsingGroup, "default")
+	common.SetContextKey(ctx, constant.ContextKeyEstimatedDocs, 26)
+
+	result, err := GetChannelByRoute(&RetryParam{
+		Ctx:        ctx,
+		TokenGroup: "default",
+		ModelName:  "rerank-model",
+		Retry:      common.GetPointer(0),
+	})
+	require.NoError(t, err)
+	require.True(t, result.Matched)
+	assert.True(t, result.Rejected)
+	assert.Equal(t, "This rerank endpoint accepts at most 25 documents", result.RejectMessage)
+}
+
+func TestGetChannelByRouteDefersConditionalRejectUntilMetricKnown(t *testing.T) {
+	cfg := operation_setting.GetChannelRouteSetting()
+	originalEnabled := cfg.Enabled
+	originalRules := cfg.Rules
+	t.Cleanup(func() {
+		cfg.Enabled = originalEnabled
+		cfg.Rules = originalRules
+	})
+	cfg.Enabled = true
+	cfg.Rules = []operation_setting.ChannelRouteRule{{
+		Name:       "docs-limit",
+		ModelRegex: []string{"^rerank-model$"},
+		Strict:     true,
+		RouteTiers: []operation_setting.RouteTier{{
+			Conditions: []operation_setting.RouteTierCondition{{Var: "docs", Op: ">", Value: 200}},
+			Reject:     true,
+		}},
+	}}
+
+	gin.SetMode(gin.TestMode)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = httptest.NewRequest("POST", "/v1/rerank", nil)
+	common.SetContextKey(ctx, constant.ContextKeyUsingGroup, "default")
+
+	result, err := GetChannelByRoute(&RetryParam{
+		Ctx:        ctx,
+		TokenGroup: "default",
+		ModelName:  "rerank-model",
+		Retry:      common.GetPointer(0),
+	})
+	require.NoError(t, err)
+	assert.True(t, result.Matched)
+	assert.False(t, result.Rejected)
+	assert.True(t, result.Deferred)
+	assert.True(t, result.NeedsReroute)
+	assert.True(t, result.Tiered)
+}
+
+func TestGetChannelByRouteCatchAllRejectWaitsForEarlierUnknownTier(t *testing.T) {
+	cfg := operation_setting.GetChannelRouteSetting()
+	originalEnabled := cfg.Enabled
+	originalRules := cfg.Rules
+	t.Cleanup(func() {
+		cfg.Enabled = originalEnabled
+		cfg.Rules = originalRules
+	})
+	cfg.Enabled = true
+	cfg.Rules = []operation_setting.ChannelRouteRule{{
+		Name:       "mixed-metrics",
+		ModelRegex: []string{"^model$"},
+		Strict:     true,
+		RouteTiers: []operation_setting.RouteTier{
+			{
+				Conditions: []operation_setting.RouteTierCondition{{Var: "len", Op: "<", Value: 100}},
+				ChannelIDs: []int{1},
+			},
+			{Reject: true, RejectMessage: "request too large"},
+		},
+	}}
+
+	gin.SetMode(gin.TestMode)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = httptest.NewRequest("POST", "/v1/chat/completions", nil)
+	common.SetContextKey(ctx, constant.ContextKeyUsingGroup, "default")
+
+	result, err := GetChannelByRoute(&RetryParam{
+		Ctx:        ctx,
+		TokenGroup: "default",
+		ModelName:  "model",
+		Retry:      common.GetPointer(0),
+	})
+	require.NoError(t, err)
+	assert.False(t, result.Rejected)
+	assert.True(t, result.Deferred)
+	assert.True(t, result.NeedsReroute)
 }

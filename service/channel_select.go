@@ -12,13 +12,12 @@ import (
 )
 
 type RetryParam struct {
-	Ctx                          *gin.Context
-	TokenGroup                   string
-	ModelName                    string
-	RequestPath                  string
-	Retry                        *int
-	FallbackOnlyForUnknownTokens bool
-	resetNextTry                 bool
+	Ctx          *gin.Context
+	TokenGroup   string
+	ModelName    string
+	RequestPath  string
+	Retry        *int
+	resetNextTry bool
 }
 
 func (p *RetryParam) GetRetry() int {

@@ -1,6 +1,7 @@
 package dto
 
 import (
+	"reflect"
 	"strings"
 
 	"github.com/QuantumNous/new-api/types"
@@ -63,6 +64,8 @@ func (r *EmbeddingRequest) ParseInput() []string {
 	switch r.Input.(type) {
 	case string:
 		input = []string{r.Input.(string)}
+	case []string:
+		input = append([]string(nil), r.Input.([]string)...)
 	case []any:
 		input = make([]string, 0, len(r.Input.([]any)))
 		for _, item := range r.Input.([]any) {
@@ -72,6 +75,56 @@ func (r *EmbeddingRequest) ParseInput() []string {
 		}
 	}
 	return input
+}
+
+// GetInputCount returns the number of top-level embedding inputs. A flat
+// numeric array is one tokenized input, while a nested array is a batch whose
+// outer length is the document count used by channel routing.
+func (r *EmbeddingRequest) GetInputCount() int {
+	if r == nil || r.Input == nil {
+		return 0
+	}
+
+	value := reflect.ValueOf(r.Input)
+	for value.IsValid() && (value.Kind() == reflect.Interface || value.Kind() == reflect.Pointer) {
+		if value.IsNil() {
+			return 0
+		}
+		value = value.Elem()
+	}
+	if !value.IsValid() {
+		return 0
+	}
+	if value.Kind() == reflect.String {
+		return 1
+	}
+	if value.Kind() != reflect.Array && value.Kind() != reflect.Slice {
+		return 0
+	}
+	if value.Len() == 0 {
+		return 0
+	}
+
+	for i := 0; i < value.Len(); i++ {
+		item := value.Index(i)
+		for item.IsValid() && (item.Kind() == reflect.Interface || item.Kind() == reflect.Pointer) {
+			if item.IsNil() {
+				return value.Len()
+			}
+			item = item.Elem()
+		}
+		if !item.IsValid() {
+			return value.Len()
+		}
+		switch item.Kind() {
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+			reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
+			reflect.Float32, reflect.Float64:
+		default:
+			return value.Len()
+		}
+	}
+	return 1
 }
 
 type EmbeddingResponseItem struct {

@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { ChevronDown, Loader2, Plus, Search, Wand2, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -49,6 +49,11 @@ const ENDPOINT_TEMPLATES = [
   { label: 'OpenAI Responses Compact', path: '/v1/responses/compact' },
   { label: 'Anthropic Messages', path: '/v1/messages' },
   { label: 'Gemini Generate', path: '/v1beta/models/{model}:generateContent' },
+  { label: 'Gemini Embed', path: '/v1beta/models/{model}:embedContent' },
+  {
+    label: 'Gemini Batch Embed',
+    path: '/v1beta/models/{model}:batchEmbedContents',
+  },
   { label: 'Embeddings', path: '/v1/embeddings' },
   { label: 'Rerank', path: '/v1/rerank' },
   { label: 'Image Generation', path: '/v1/images/generations' },
@@ -66,7 +71,7 @@ const MATCH_MODES = [
 ]
 
 function nameRuleToRegex(name: string, rule: number): string {
-  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const escaped = name.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&')
   switch (rule) {
     case 0: return `^${escaped}$`
     case 1: return `^${escaped}`
@@ -102,8 +107,8 @@ export function GroupSelector({ value, onChange }: { value: string; onChange: (v
       fetch('/api/group/')
         .then((r) => r.json())
         .then((data) => { if (data.success && Array.isArray(data.data)) setGroups(data.data) })
-        .catch(() => {})
         .finally(() => setLoading(false))
+        .catch(() => {})
     }
   }, [open, groups.length])
 
@@ -134,11 +139,13 @@ export function GroupSelector({ value, onChange }: { value: string; onChange: (v
           <ChevronDown className='ml-2 h-4 w-4 shrink-0 opacity-50' />
         </PopoverTrigger>
         <PopoverContent className='w-64 p-2' align='start'>
-          {loading ? (
+          {loading && (
             <div className='flex items-center justify-center py-4'><Loader2 className='h-4 w-4 animate-spin' /></div>
-          ) : groups.length === 0 ? (
+          )}
+          {!loading && groups.length === 0 && (
             <p className='text-muted-foreground py-2 text-center text-xs'>{t('No groups available')}</p>
-          ) : (
+          )}
+          {!loading && groups.length > 0 && (
             <div className='space-y-1'>
               {groups.map((group) => (
                 <label key={group} className='flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 hover:bg-accent'>
@@ -167,10 +174,10 @@ export function ModelNameMatcher({ value, onChange }: { value: string; onChange:
   const entries = useMemo(() => {
     return (value || '').split('\n').filter(Boolean).map((regex) => {
       try {
-        if (regex.startsWith('^') && regex.endsWith('$')) return { name: regex.slice(1, -1).replace(/\\./g, '.'), mode: 0 }
-        if (regex.startsWith('^')) return { name: regex.slice(1).replace(/\\./g, '.'), mode: 1 }
-        if (regex.endsWith('$')) return { name: regex.slice(0, -1).replace(/\\./g, '.'), mode: 3 }
-        return { name: regex.replace(/\\./g, '.'), mode: 2 }
+        if (regex.startsWith('^') && regex.endsWith('$')) return { name: regex.slice(1, -1).replaceAll(/\\./g, '.'), mode: 0 }
+        if (regex.startsWith('^')) return { name: regex.slice(1).replaceAll(/\\./g, '.'), mode: 1 }
+        if (regex.endsWith('$')) return { name: regex.slice(0, -1).replaceAll(/\\./g, '.'), mode: 3 }
+        return { name: regex.replaceAll(/\\./g, '.'), mode: 2 }
       } catch { return { name: regex, mode: 2 } }
     })
   }, [value])
@@ -220,7 +227,7 @@ export function ModelNameMatcher({ value, onChange }: { value: string; onChange:
       {entries.length > 0 && (
         <div className='flex flex-wrap gap-1.5'>
           {entries.map((entry, i) => (
-            <Badge key={i} variant='secondary' className='flex items-center gap-1 pr-1'>
+            <Badge key={`${entry.mode}:${entry.name}`} variant='secondary' className='flex items-center gap-1 pr-1'>
               <span className='text-xs'>{entry.name}<span className='text-muted-foreground ml-1'>({MATCH_MODES[entry.mode]?.label || '?'})</span></span>
               <button type='button' onClick={() => handleRemove(i)} className='hover:bg-destructive/20 ml-0.5 rounded-full p-0.5'><X className='h-3 w-3' /></button>
             </Badge>
@@ -250,11 +257,16 @@ export function PathSelector({ value, onChange }: { value: string; onChange: (v:
     return (value || '').split('\n').filter(Boolean).map((regex) => {
       try {
         // Gemini 风格正则：还原为可读的模板路径
-        if (regex.includes('generateContent')) {
-          return { path: `/v1beta/models/{model}:generateContent`, gemini: true }
+        const geminiAction = [
+          'batchEmbedContents',
+          'embedContent',
+          'generateContent',
+        ].find((action) => regex.includes(action))
+        if (geminiAction) {
+          return { path: `/v1beta/models/{model}:${geminiAction}`, gemini: true }
         }
         const m = regex.match(/^\^(.+?)\$$/)
-        return { path: m ? m[1].replace(/\\\./g, '.') : regex, gemini: false }
+        return { path: m ? m[1].replaceAll('\\.', '.') : regex, gemini: false }
       } catch { return { path: regex, gemini: false } }
     })
   }, [value])
@@ -266,14 +278,14 @@ export function PathSelector({ value, onChange }: { value: string; onChange: (v:
       // /v1beta/models/{model}:generateContent → ^\/(v1|v1beta|v1alpha)\/models\/[^\/:]+:(stream)?generateContent(\?.*)?$
       const afterVersion = path.replace(/^\/v1(alpha|beta)?\//, '')
       const versionGroup = '(v1|v1beta|v1alpha)'
-      let body = afterVersion.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      let body = afterVersion.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&')
       // {model} → 匹配任意模型名
       body = body.replace(/\\\{model\\\}/, '[^/:]+')
       // generateContent → 同时匹配 streamGenerateContent
       body = body.replace(/generateContent/, '(stream)?generateContent')
       regex = `^\\/${versionGroup}\\/${body}(\\?.*)?$`
     } else {
-      regex = `^${path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`
+      regex = `^${path.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`
     }
     const current = (value || '').split('\n').filter(Boolean)
     if (current.includes(regex)) { toast.warning(t('Already added')); return }
@@ -313,7 +325,7 @@ export function PathSelector({ value, onChange }: { value: string; onChange: (v:
       {entries.length > 0 && (
         <div className='flex flex-wrap gap-1.5'>
           {entries.map((entry, i) => (
-            <Badge key={i} variant='secondary' className='flex items-center gap-1 pr-1'>
+            <Badge key={entry.path} variant='secondary' className='flex items-center gap-1 pr-1'>
               <span className='font-mono text-xs'>{entry.path}</span>
               <button type='button' onClick={() => handleRemove(i)} className='hover:bg-destructive/20 ml-0.5 rounded-full p-0.5'><X className='h-3 w-3' /></button>
             </Badge>
@@ -354,8 +366,8 @@ export function ChannelSelector({ value, onChange, compact = false }: { value: s
       fetch('/api/channel/?p=0&page_size=500&id_sort=true')
         .then((r) => r.json())
         .then((data) => { if (data.success && data.data?.items) setChannels(data.data.items.map((ch: Record<string, unknown>) => ({ id: ch.id as number, name: ch.name as string, type: ch.type as number, status: ch.status as number }))) })
-        .catch(() => {})
         .finally(() => { setLoading(false); setLoaded(true) })
+        .catch(() => {})
     }
   }, [open, loaded])
 
@@ -418,9 +430,9 @@ export function ChannelSelector({ value, onChange, compact = false }: { value: s
             <div className='relative'><Search className='text-muted-foreground absolute top-2.5 left-2.5 h-4 w-4' /><Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t('Search channels...')} className='pl-8' /></div>
           </div>
           <div className='max-h-60 overflow-y-auto p-1'>
-            {loading ? <div className='flex items-center justify-center py-8'><Loader2 className='h-4 w-4 animate-spin' /></div>
-            : filteredChannels.length === 0 ? <p className='text-muted-foreground py-4 text-center text-xs'>{t('No channels found')}</p>
-            : filteredChannels.map((ch) => (
+            {loading && <div className='flex items-center justify-center py-8'><Loader2 className='h-4 w-4 animate-spin' /></div>}
+            {!loading && filteredChannels.length === 0 && <p className='text-muted-foreground py-4 text-center text-xs'>{t('No channels found')}</p>}
+            {!loading && filteredChannels.map((ch) => (
               <label key={ch.id} className='flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 hover:bg-accent'>
                 <Checkbox checked={selectedIds.includes(ch.id)} onCheckedChange={() => handleToggle(ch.id)} />
                 <span className='flex-1 truncate text-sm'>{ch.name}</span>
@@ -442,19 +454,4 @@ export function ChannelSelector({ value, onChange, compact = false }: { value: s
       )}
     </div>
   )
-}
-
-// ---------------------------------------------------------------------------
-// useChannelNameMap
-// ---------------------------------------------------------------------------
-
-export function useChannelNameMap() {
-  const [map, setMap] = useState<Map<number, string>>(new Map())
-  useEffect(() => {
-    fetch('/api/channel/?p=0&page_size=500&id_sort=true')
-      .then((r) => r.json())
-      .then((data) => { if (data.success && data.data?.items) { const m = new Map<number, string>(); for (const ch of data.data.items) m.set(ch.id, ch.name); setMap(m) } })
-      .catch(() => {})
-  }, [])
-  return useCallback((id: number) => map.get(id) || `#${id}`, [map])
 }

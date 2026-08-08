@@ -12,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
@@ -122,6 +123,9 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		newAPIError = types.NewError(err, types.ErrorCodeGenRelayInfoFailed)
 		return
 	}
+	if documentCount, known := dto.GetRequestDocumentCount(request); known {
+		common.SetContextKey(c, constant.ContextKeyEstimatedDocs, documentCount)
+	}
 
 	// 模型端点保护校验
 	if endpointErr := checkModelEndpointProtection(c, relayInfo.OriginModelName, c.Request.URL.Path); endpointErr != nil {
@@ -155,7 +159,13 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	}
 
 	relayInfo.SetEstimatePromptTokens(tokens)
-	common.SetContextKey(c, constant.ContextKeyEstimatedTokens, tokens)
+	// Zero is a valid estimate, but only when token counting actually ran.
+	// Otherwise token-based tiers must remain unknown instead of matching zero.
+	if constant.CountToken && relayInfo.RelayFormat != types.RelayFormatOpenAIRealtime {
+		common.SetContextKey(c, constant.ContextKeyEstimatedTokens, tokens)
+	} else if c.Keys != nil {
+		delete(c.Keys, string(constant.ContextKeyEstimatedTokens))
+	}
 
 	// Re-route after estimating tokens. During the Distribute middleware phase,
 	// estimatedTokens is 0 so tier routing cannot evaluate and only the Fallback
@@ -163,7 +173,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	// the precise tier is picked. The first getChannel() in the retry loop will
 	// short-circuit on info.ChannelMeta==nil and return whatever channel_id sits
 	// in the context, so updating the context here is enough.
-	if reRouteErr := rerouteByEstimatedTokens(c, relayInfo); reRouteErr != nil {
+	if reRouteErr := rerouteByRequestMetrics(c, relayInfo); reRouteErr != nil {
 		newAPIError = reRouteErr
 		return
 	}
@@ -399,28 +409,36 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 	}
 	restoreAutoRouteContext := snapshotAutoRouteContext(c)
 	routeRetryParam := &service.RetryParam{
-		Ctx:        retryParam.Ctx,
-		TokenGroup: retryParam.TokenGroup,
-		ModelName:  retryParam.ModelName,
-		Retry:      common.GetPointer(retryParam.GetRetry()),
+		Ctx:         retryParam.Ctx,
+		TokenGroup:  retryParam.TokenGroup,
+		ModelName:   retryParam.ModelName,
+		RequestPath: retryParam.RequestPath,
+		Retry:       common.GetPointer(retryParam.GetRetry()),
 	}
 	routeMatch, routeErr := service.GetChannelByRoute(routeRetryParam)
 	if routeErr != nil {
+		restoreAutoRouteContext()
 		return nil, types.NewError(fmt.Errorf("获取模型 %s 的静态渠道路由失败: %s", info.OriginModelName, routeErr.Error()), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
 	}
 	if routeMatch.Matched {
+		if routeMatch.Rejected {
+			restoreAutoRouteContext()
+			return nil, newChannelRouteRejectedError(c, info.OriginModelName, routeMatch)
+		}
 		if routeMatch.Channel != nil {
 			if retryParam.TokenGroup == "auto" && routeMatch.SelectGroup != "" {
 				common.SetContextKey(c, constant.ContextKeyAutoGroup, routeMatch.SelectGroup)
 			}
 			newAPIError := middleware.SetupContextForSelectedChannel(c, routeMatch.Channel, info.OriginModelName)
 			if newAPIError != nil {
+				restoreAutoRouteContext()
 				return nil, newAPIError
 			}
 			info.PriceData.GroupRatioInfo = helper.HandleGroupRatio(c, info)
 			return routeMatch.Channel, nil
 		}
-		if routeMatch.Strict && routeMatch.Exhausted {
+		if routeMatch.Strict && routeMatch.Exhausted && !routeMatch.Deferred {
+			restoreAutoRouteContext()
 			return nil, types.NewError(fmt.Errorf("静态渠道路由规则 %s 命中，但未找到可用渠道", routeMatch.RuleName), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
 		}
 		restoreAutoRouteContext()
@@ -449,11 +467,14 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 // restore them; otherwise later channel selection starts from a polluted
 // cursor and may skip groups that still have usable channels.
 func snapshotAutoRouteContext(c *gin.Context) func() {
+	if c == nil {
+		return func() {}
+	}
 	savedAutoGroup, savedAutoGroupExists := common.GetContextKey(c, constant.ContextKeyAutoGroup)
 	savedAutoGroupIndex, savedAutoGroupIndexExists := common.GetContextKey(c, constant.ContextKeyAutoGroupIndex)
 	savedAutoGroupRetryIndex, savedAutoGroupRetryIndexExists := common.GetContextKey(c, constant.ContextKeyAutoGroupRetryIndex)
 	return func() {
-		if c.Keys == nil {
+		if c == nil || c.Keys == nil {
 			return
 		}
 		if savedAutoGroupExists {
@@ -474,24 +495,30 @@ func snapshotAutoRouteContext(c *gin.Context) func() {
 	}
 }
 
-// rerouteByEstimatedTokens re-evaluates the channel route after the prompt-token
-// estimation step. During the Distribute middleware estimatedTokens is 0 so the
-// route never enters the tier loop. Calling GetChannelByRoute here gives the
-// tier logic the real token count and lets it pick the correct tier channel.
-// When the route does not adopt a new channel, the auto-group cursor keys are
-// restored so later retries start from the original state. When the rule
-// matched but no tier produced a channel (non-strict), the channel Distribute
-// picked came from the placeholder pool and may violate every tier condition,
-// so we fall back to normal (non-route) channel selection instead of keeping it.
-func rerouteByEstimatedTokens(c *gin.Context, info *relaycommon.RelayInfo) *types.NewAPIError {
+// rerouteByRequestMetrics finalizes a provisional channel route after validated
+// document counts and token estimates are available. Explicit channel selection
+// remains pinned, and unused auto-group cursor mutations are restored.
+func rerouteByRequestMetrics(c *gin.Context, info *relaycommon.RelayInfo) *types.NewAPIError {
+	if _, specified := c.Get("specific_channel_id"); specified {
+		return nil
+	}
+	if _, exists := common.GetContextKey(c, constant.ContextKeyChannelRouteNeedsReroute); exists &&
+		!common.GetContextKeyBool(c, constant.ContextKeyChannelRouteNeedsReroute) {
+		return nil
+	}
+	if c.Keys != nil {
+		defer delete(c.Keys, string(constant.ContextKeyChannelRouteNeedsReroute))
+	}
 	restoreAutoRouteContext := snapshotAutoRouteContext(c)
 	routeMatch, err := service.GetChannelByRoute(&service.RetryParam{
-		Ctx:        c,
-		TokenGroup: info.TokenGroup,
-		ModelName:  info.OriginModelName,
-		Retry:      common.GetPointer(0),
+		Ctx:         c,
+		TokenGroup:  info.TokenGroup,
+		ModelName:   info.OriginModelName,
+		RequestPath: c.Request.URL.Path,
+		Retry:       common.GetPointer(0),
 	})
 	if err != nil {
+		restoreAutoRouteContext()
 		return types.NewError(
 			fmt.Errorf("重新路由失败: %s", err.Error()),
 			types.ErrorCodeGetChannelFailed,
@@ -502,8 +529,13 @@ func rerouteByEstimatedTokens(c *gin.Context, info *relaycommon.RelayInfo) *type
 		restoreAutoRouteContext()
 		return nil
 	}
+	if routeMatch.Rejected {
+		restoreAutoRouteContext()
+		return newChannelRouteRejectedError(c, info.OriginModelName, routeMatch)
+	}
 	if routeMatch.Channel == nil {
-		if routeMatch.Strict && routeMatch.Exhausted {
+		if routeMatch.Strict && routeMatch.Exhausted && !routeMatch.Deferred {
+			restoreAutoRouteContext()
 			return types.NewError(
 				fmt.Errorf("静态渠道路由规则 %s 命中，但未找到可用渠道", routeMatch.RuleName),
 				types.ErrorCodeGetChannelFailed,
@@ -511,6 +543,9 @@ func rerouteByEstimatedTokens(c *gin.Context, info *relaycommon.RelayInfo) *type
 			)
 		}
 		restoreAutoRouteContext()
+		if !routeMatch.Tiered {
+			return nil
+		}
 		return rerouteFallbackToNormalSelection(c, info)
 	}
 	if routeMatch.Channel.Id == common.GetContextKeyInt(c, constant.ContextKeyChannelId) {
@@ -518,6 +553,7 @@ func rerouteByEstimatedTokens(c *gin.Context, info *relaycommon.RelayInfo) *type
 		return nil
 	}
 	if apiErr := middleware.SetupContextForSelectedChannel(c, routeMatch.Channel, info.OriginModelName); apiErr != nil {
+		restoreAutoRouteContext()
 		return apiErr
 	}
 	if info.TokenGroup == "auto" && routeMatch.SelectGroup != "" {
@@ -526,15 +562,29 @@ func rerouteByEstimatedTokens(c *gin.Context, info *relaycommon.RelayInfo) *type
 	return nil
 }
 
+func newChannelRouteRejectedError(c *gin.Context, modelName string, routeMatch *service.ChannelRouteMatch) *types.NewAPIError {
+	rejectMessage := strings.TrimSpace(routeMatch.RejectMessage)
+	if rejectMessage == "" {
+		rejectMessage = i18n.T(c, i18n.MsgDistributorRuleRejected, map[string]any{"Rule": routeMatch.RuleName, "Model": modelName})
+	}
+	return types.NewErrorWithStatusCode(
+		errors.New(rejectMessage),
+		types.ErrorCodeInvalidRequest,
+		http.StatusBadRequest,
+		types.ErrOptionWithSkipRetry(),
+	)
+}
+
 // rerouteFallbackToNormalSelection replaces the placeholder channel chosen by
 // Distribute with one from normal (non-route) selection, mirroring the
 // non-strict fallback in the Distribute middleware.
 func rerouteFallbackToNormalSelection(c *gin.Context, info *relaycommon.RelayInfo) *types.NewAPIError {
 	channel, selectGroup, err := service.CacheGetRandomSatisfiedChannel(&service.RetryParam{
-		Ctx:        c,
-		TokenGroup: info.TokenGroup,
-		ModelName:  info.OriginModelName,
-		Retry:      common.GetPointer(0),
+		Ctx:         c,
+		TokenGroup:  info.TokenGroup,
+		ModelName:   info.OriginModelName,
+		RequestPath: c.Request.URL.Path,
+		Retry:       common.GetPointer(0),
 	})
 	if err != nil {
 		return types.NewError(fmt.Errorf("获取分组 %s 下模型 %s 的可用渠道失败: %s", selectGroup, info.OriginModelName, err.Error()), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())

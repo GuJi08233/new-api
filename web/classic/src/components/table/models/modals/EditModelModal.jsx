@@ -48,6 +48,14 @@ const ENDPOINT_TEMPLATE = {
   'openai-response-compact': { path: '/v1/responses/compact', method: 'POST' },
   anthropic: { path: '/v1/messages', method: 'POST' },
   gemini: { path: '/v1beta/models/{model}:generateContent', method: 'POST' },
+  'gemini-embed': {
+    path: '/v1beta/models/{model}:embedContent',
+    method: 'POST',
+  },
+  'gemini-batch-embed': {
+    path: '/v1beta/models/{model}:batchEmbedContents',
+    method: 'POST',
+  },
   'jina-rerank': { path: '/v1/rerank', method: 'POST' },
   'image-generation': { path: '/v1/images/generations', method: 'POST' },
   embeddings: { path: '/v1/embeddings', method: 'POST' },
@@ -462,7 +470,7 @@ const EditModelModal = (props) => {
                         />
                       }
                       description={t(
-                        '提示：此处配置仅用于控制「模型广场」对用户的展示效果，不会影响模型的实际调用与路由。若需配置真实调用行为，请前往「渠道管理」进行设置。',
+                        '提示：此处配置用于模型广场展示；开启模型端点保护后，也会作为允许访问的端点依据。实际渠道路由仍由渠道能力与渠道路由规则决定。',
                       )}
                       style={{ marginBottom: 12 }}
                     />
@@ -480,7 +488,7 @@ const EditModelModal = (props) => {
                       editorType='object'
                       template={ENDPOINT_TEMPLATE}
                       templateLabel={t('填入模板')}
-                      extraText={t('留空则使用默认端点；支持 {path, method}')}
+                      extraText={t('开启模型端点保护时，留空或 * 表示不限制；嵌入模型请选择 Embeddings/Gemini Embed，重排模型请选择 Rerank。支持 {path, method}')}
                       extraFooter={
                         endpointGroups.length > 0 && (
                           <Space wrap>

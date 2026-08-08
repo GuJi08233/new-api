@@ -61,6 +61,9 @@ func (cm *ConfigManager) LoadFromDB(options map[string]string) error {
 				common.SysError("failed to update config " + name + ": " + err.Error())
 				continue
 			}
+			if syncer, ok := config.(interface{ SyncConfig() }); ok {
+				syncer.SyncConfig()
+			}
 		}
 	}
 

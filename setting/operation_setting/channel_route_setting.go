@@ -8,15 +8,19 @@ import (
 )
 
 type RouteTierCondition struct {
-	Var   string `json:"var"`   // "len" | "p" | "c"
+	Var   string `json:"var"`   // "len" | "p" | "c" | "docs"
 	Op    string `json:"op"`    // "<" | "<=" | ">" | ">="
-	Value int    `json:"value"` // token count
+	Value int    `json:"value"` // token count / document count
 }
 
 type RouteTier struct {
 	Conditions []RouteTierCondition `json:"conditions,omitempty"` // 0~2, AND
-	ChannelIDs []int                `json:"channel_ids"`
-	Label      string               `json:"label,omitempty"`
+	ChannelIDs []int                `json:"channel_ids,omitempty"`
+	Reject     bool                 `json:"reject,omitempty"`
+	// RejectMessage is returned when a reject tier matches. An empty value uses
+	// the localized default rule-rejected message.
+	RejectMessage string `json:"reject_message,omitempty"`
+	Label         string `json:"label,omitempty"`
 }
 
 type ChannelRouteRule struct {
@@ -63,4 +67,12 @@ func SyncChannelRouteSetting() {
 		snapshot = &ChannelRouteSetting{Enabled: channelRouteSetting.Enabled}
 	}
 	channelRouteSnapshot.Store(snapshot)
+}
+
+// SyncConfig lets ConfigManager publish a fresh immutable snapshot after a
+// complete configuration load (startup and tests).
+func (s *ChannelRouteSetting) SyncConfig() {
+	if s == &channelRouteSetting {
+		SyncChannelRouteSetting()
+	}
 }

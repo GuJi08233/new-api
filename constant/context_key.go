@@ -6,6 +6,12 @@ const (
 	ContextKeyTokenCountMeta  ContextKey = "token_count_meta"
 	ContextKeyPromptTokens    ContextKey = "prompt_tokens"
 	ContextKeyEstimatedTokens ContextKey = "estimated_tokens"
+	// ContextKeyEstimatedDocs records the top-level document/input count for
+	// rerank and embedding requests so channel routes can split batch sizes.
+	ContextKeyEstimatedDocs ContextKey = "estimated_docs"
+	// ContextKeyChannelRouteNeedsReroute marks a provisional route selected
+	// before every tier metric was available.
+	ContextKeyChannelRouteNeedsReroute ContextKey = "channel_route_needs_reroute"
 
 	ContextKeyOriginalModel    ContextKey = "original_model"
 	ContextKeyRequestStartTime ContextKey = "request_start_time"

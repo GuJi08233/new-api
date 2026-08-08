@@ -16,13 +16,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import * as z from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useForm } from 'react-hook-form'
 import { Check, Code, Pencil, Plus, Table2, Trash2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -42,6 +43,13 @@ import {
   FormLabel,
   FormMessage,
 } from '@/components/ui/form'
+import {
+  Field,
+  FieldContent,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+} from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
@@ -62,15 +70,15 @@ import {
   ModelNameMatcher,
   PathSelector,
   ChannelSelector,
-  useChannelNameMap,
 } from './channel-route-selectors'
+import { useChannelNameMap } from './channel-route-hooks'
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
 type RouteTierCondition = {
-  var: 'len' | 'p' | 'c'
+  var: 'len' | 'p' | 'c' | 'docs'
   op: '<' | '<=' | '>' | '>='
   value: number
 }
@@ -78,7 +86,18 @@ type RouteTierCondition = {
 type RouteTier = {
   conditions: RouteTierCondition[]
   channel_ids: number[]
+  reject?: boolean
+  reject_message?: string
   label: string
+}
+
+type EditableRouteTier = RouteTier & { editorId: number }
+
+let routeTierEditorId = 0
+
+function nextRouteTierEditorId(): number {
+  routeTierEditorId += 1
+  return routeTierEditorId
 }
 
 type ChannelRouteRule = {
@@ -106,6 +125,7 @@ const VAR_OPTIONS: { value: RouteTierCondition['var']; label: string }[] = [
   { value: 'len', label: 'len (input length)' },
   { value: 'p', label: 'p (prompt tokens)' },
   { value: 'c', label: 'c (completion)' },
+  { value: 'docs', label: 'docs (document count)' },
 ]
 const OPS: RouteTierCondition['op'][] = ['<', '<=', '>', '>=']
 
@@ -158,6 +178,34 @@ const rulesExample = JSON.stringify(
       ],
       strict: false,
     },
+    {
+      name: 'Rerank document-count routing',
+      path_regex: ['^/v1/rerank$'],
+      model_regex: ['^rerank-model$'],
+      route_tiers: [
+        {
+          label: 'small batch',
+          conditions: [{ var: 'docs', op: '<=', value: 25 }],
+          channel_ids: [1, 2],
+        },
+        {
+          label: 'large batch',
+          conditions: [
+            { var: 'docs', op: '>', value: 25 },
+            { var: 'docs', op: '<=', value: 200 },
+          ],
+          channel_ids: [3],
+        },
+        {
+          label: 'over limit',
+          conditions: [{ var: 'docs', op: '>', value: 200 }],
+          channel_ids: [],
+          reject: true,
+          reject_message: 'Candidate documents cannot exceed 200',
+        },
+      ],
+      strict: true,
+    },
   ],
   null,
   2
@@ -167,7 +215,11 @@ const rulesExample = JSON.stringify(
 // Helpers
 // ---------------------------------------------------------------------------
 
-function formatTokenHint(value: number): string {
+function formatTokenHint(
+  value: number,
+  variable?: RouteTierCondition['var']
+): string {
+  if (variable === 'docs') return ''
   if (!value || value <= 0) return ''
   if (value >= 1_000_000) return `= ${(value / 1_000_000).toFixed(1)}M tokens`
   if (value >= 1_000) return `= ${(value / 1_000).toFixed(0)}K tokens`
@@ -184,7 +236,10 @@ function formatTokenShort(value: number): string {
 function autoTierLabel(conditions: RouteTierCondition[]): string {
   if (!conditions || conditions.length === 0) return ''
   return conditions
-    .map((c) => `${c.var} ${c.op} ${formatTokenShort(c.value)}`)
+    .map(
+      (condition) =>
+        `${condition.var} ${condition.op} ${condition.var === 'docs' ? String(condition.value) : formatTokenShort(condition.value)}`
+    )
     .join(' AND ')
 }
 
@@ -389,8 +444,15 @@ function rulesToJson(rules: ChannelRouteRule[]) {
   )
 }
 
-function emptyTier(): RouteTier {
-  return { label: '', conditions: [], channel_ids: [] }
+function emptyTier(): EditableRouteTier {
+  return {
+    editorId: nextRouteTierEditorId(),
+    label: '',
+    conditions: [],
+    channel_ids: [],
+    reject: false,
+    reject_message: '',
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -451,15 +513,20 @@ function ConditionRow({
       <Input
         type='number'
         min={0}
+        step={1}
         value={condition.value || ''}
-        onChange={(e) =>
-          onChange({ ...condition, value: Number(e.target.value) || 0 })
-        }
-        placeholder='tokens'
+        onChange={(e) => {
+          const value = Number(e.target.value)
+          onChange({
+            ...condition,
+            value: Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0,
+          })
+        }}
+        placeholder={condition.var === 'docs' ? 'docs' : 'tokens'}
         className='h-8 w-32'
       />
       <span className='text-muted-foreground text-xs'>
-        {formatTokenHint(condition.value)}
+        {formatTokenHint(condition.value, condition.var)}
       </span>
       <Button
         variant='ghost'
@@ -486,10 +553,10 @@ function RouteTierCard({
   onRemove,
   onAddCondition,
 }: {
-  tier: RouteTier
+  tier: EditableRouteTier
   index: number
   total: number
-  onChange: (next: RouteTier) => void
+  onChange: (next: EditableRouteTier) => void
   onRemove: () => void
   onAddCondition: () => void
 }) {
@@ -504,6 +571,10 @@ function RouteTierCard({
 
   const handleConditionRemove = (ci: number) => {
     onChange({ ...tier, conditions: tier.conditions.filter((_, i) => i !== ci) })
+  }
+
+  const handleRejectChange = (reject: boolean) => {
+    onChange(reject ? { ...tier, reject, channel_ids: [] } : { ...tier, reject })
   }
 
   return (
@@ -563,7 +634,7 @@ function RouteTierCard({
           ) : (
             tier.conditions.map((cond, ci) => (
               <ConditionRow
-                key={ci}
+                key={`${cond.var}:${cond.op}:${cond.value}`}
                 condition={cond}
                 onChange={(next) => handleConditionChange(ci, next)}
                 onRemove={() => handleConditionRemove(ci)}
@@ -573,14 +644,49 @@ function RouteTierCard({
         </div>
       )}
 
-      <ChannelSelector
-        value={(tier.channel_ids || []).join('\n')}
-        onChange={(text) => {
-          const ids = normalizeChannelIds(text)
-          onChange({ ...tier, channel_ids: ids || [] })
-        }}
-        compact
-      />
+      <FieldGroup className='gap-3'>
+        <Field orientation='horizontal'>
+          <FieldContent>
+            <FieldLabel htmlFor={`tier-reject-${index}`}>
+              {t('Reject requests matching this tier (no routing)')}
+            </FieldLabel>
+            <FieldDescription>
+              {t(
+                'Requests matching this tier will be rejected with an error instead of being routed.'
+              )}
+            </FieldDescription>
+          </FieldContent>
+          <Switch
+            id={`tier-reject-${index}`}
+            checked={!!tier.reject}
+            onCheckedChange={handleRejectChange}
+          />
+        </Field>
+
+        {tier.reject ? (
+          <Field>
+            <FieldLabel htmlFor={`tier-reject-message-${index}`}>
+              {t('Custom reject message (optional, default used when empty)')}
+            </FieldLabel>
+            <Input
+              id={`tier-reject-message-${index}`}
+              value={tier.reject_message || ''}
+              onChange={(event) =>
+                onChange({ ...tier, reject_message: event.target.value })
+              }
+            />
+          </Field>
+        ) : (
+          <ChannelSelector
+            value={(tier.channel_ids || []).join('\n')}
+            onChange={(text) => {
+              const ids = normalizeChannelIds(text)
+              onChange({ ...tier, channel_ids: ids || [] })
+            }}
+            compact
+          />
+        )}
+      </FieldGroup>
     </div>
   )
 }
@@ -593,12 +699,12 @@ function RouteTierEditor({
   tiers,
   onChange,
 }: {
-  tiers: RouteTier[]
-  onChange: (next: RouteTier[]) => void
+  tiers: EditableRouteTier[]
+  onChange: (next: EditableRouteTier[]) => void
 }) {
   const { t } = useTranslation()
 
-  const handleTierChange = (index: number, next: RouteTier) => {
+  const handleTierChange = (index: number, next: EditableRouteTier) => {
     const nextTiers = [...tiers]
     nextTiers[index] = next
     onChange(nextTiers)
@@ -645,7 +751,7 @@ function RouteTierEditor({
     <div className='space-y-3'>
       {tiers.map((tier, index) => (
         <RouteTierCard
-          key={index}
+          key={tier.editorId}
           tier={tier}
           index={index}
           total={tiers.length}
@@ -679,7 +785,7 @@ export function ChannelRouteSettingsCard({
   const [editingRule, setEditingRule] = useState<ChannelRouteRule | null>(null)
 
   // Tier editor state (managed separately from the form)
-  const [editingTiers, setEditingTiers] = useState<RouteTier[]>([])
+  const [editingTiers, setEditingTiers] = useState<EditableRouteTier[]>([])
 
   // Channel name resolver for displaying names in rule list
   const getChannelName = useChannelNameMap()
@@ -763,8 +869,11 @@ export function ChannelRouteSettingsCard({
       rule.route_tiers?.length
         ? rule.route_tiers.map((t) => ({
             ...t,
+            editorId: nextRouteTierEditorId(),
             conditions: t.conditions || [],
             channel_ids: t.channel_ids || [],
+            reject: !!t.reject,
+            reject_message: t.reject_message || '',
             label: t.label || '',
           }))
         : [emptyTier()]
@@ -790,12 +899,20 @@ export function ChannelRouteSettingsCard({
       return
     }
 
-    // Validate tiers: must have at least one tier with channel IDs
     const validTiers = editingTiers.filter(
-      (tier) => tier.channel_ids.length > 0
+      (tier) =>
+        tier.reject ||
+        tier.channel_ids.length > 0 ||
+        tier.conditions.length > 0 ||
+        tier.label.trim() ||
+        tier.reject_message?.trim()
     )
     if (validTiers.length === 0) {
-      toast.error(t('At least one tier must have channel IDs'))
+      toast.error(t('At least one tier must have channel IDs or enable reject'))
+      return
+    }
+    if (validTiers.some((tier) => !tier.reject && tier.channel_ids.length === 0)) {
+      toast.error(t('At least one tier must have channel IDs or enable reject'))
       return
     }
 
@@ -811,11 +928,13 @@ export function ChannelRouteSettingsCard({
     // Auto-generate labels for tiers without labels
     const tiersWithLabels = validTiers.map((tier) => ({
       label:
-        tier.label ||
+        tier.label.trim() ||
         autoTierLabel(tier.conditions) ||
         (tier.conditions.length === 0 ? 'catch-all' : ''),
       conditions: tier.conditions,
-      channel_ids: tier.channel_ids,
+      channel_ids: tier.reject ? [] : tier.channel_ids,
+      reject: !!tier.reject,
+      reject_message: tier.reject ? tier.reject_message?.trim() || '' : '',
     }))
 
     const nextRule: ChannelRouteRule = {
@@ -870,14 +989,14 @@ export function ChannelRouteSettingsCard({
     }
   }
 
-  const tableRows = useMemo(() => rules, [rules])
+  const tableRows = rules
 
   return (
     <>
       <SettingsSection
         title={t('Channel Route')}
         description={t(
-          'Route requests to specific channel pools based on group, model, path, and token conditions.'
+          'Route requests by group, model, path, token count, or document count, with optional reject tiers.'
         )}
       >
         <Form {...form}>
@@ -896,7 +1015,7 @@ export function ChannelRouteSettingsCard({
                     </FormLabel>
                     <FormDescription>
                       {t(
-                        'Route to specific channels by group, model, path, and optional token-based tiered conditions.'
+                        'Route to specific channels by group, model, path, token count, or document count.'
                       )}
                     </FormDescription>
                   </div>
@@ -909,6 +1028,14 @@ export function ChannelRouteSettingsCard({
                 </FormItem>
               )}
             />
+
+            <Alert>
+              <AlertDescription>
+                {t(
+                  'Suggested rerank ranges: docs ≤ 25 for small batches, 25 < docs ≤ 200 for large batches, and docs > 200 for an optional reject tier. Routing only selects a channel; pricing remains configured separately.'
+                )}
+              </AlertDescription>
+            </Alert>
 
             <div className='flex flex-wrap items-center gap-2'>
               <Button
@@ -991,7 +1118,7 @@ export function ChannelRouteSettingsCard({
                                 </div>
                                 {rule.route_tiers.map((tier, i) => (
                                   <div
-                                    key={i}
+                                    key={JSON.stringify(tier)}
                                     className='flex items-center gap-2 text-sm text-muted-foreground'
                                   >
                                     <span className='rounded bg-muted px-1.5 py-0.5 text-xs font-medium'>
@@ -1008,7 +1135,7 @@ export function ChannelRouteSettingsCard({
                                       </span>
                                     )}
                                     {!tier.conditions?.length &&
-                                      i === rule.route_tiers!.length - 1 && (
+                                      i === (rule.route_tiers?.length ?? 0) - 1 && (
                                         <span className='text-xs italic'>
                                           {t('catch-all')}
                                         </span>
@@ -1016,11 +1143,24 @@ export function ChannelRouteSettingsCard({
                                     <span className='text-muted-foreground'>
                                       →
                                     </span>
-                                    <span>
-                                      {tier.channel_ids
-                                        .map((id) => getChannelName(id))
-                                        .join(', ')}
-                                    </span>
+                                    {tier.reject ? (
+                                      <span className='flex items-center gap-2'>
+                                        <Badge variant='destructive'>
+                                          {t('Reject')}
+                                        </Badge>
+                                        {tier.reject_message && (
+                                          <span className='text-muted-foreground text-xs'>
+                                            “{tier.reject_message}”
+                                          </span>
+                                        )}
+                                      </span>
+                                    ) : (
+                                      <span>
+                                        {(tier.channel_ids || [])
+                                          .map((id) => getChannelName(id))
+                                          .join(', ')}
+                                      </span>
+                                    )}
                                   </div>
                                 ))}
                               </div>
@@ -1098,7 +1238,7 @@ export function ChannelRouteSettingsCard({
             </DialogTitle>
             <DialogDescription>
               {t(
-                'Configure routing rules with optional tiered conditions based on token count.'
+                'Configure ordered routing tiers based on token or document count, including tiers that reject matching requests.'
               )}
             </DialogDescription>
           </DialogHeader>
@@ -1135,7 +1275,7 @@ export function ChannelRouteSettingsCard({
               </Label>
               <p className='text-muted-foreground text-xs'>
                 {t(
-                  'Each tier supports 0~2 conditions on len/p/c (AND logic). A tier with no conditions acts as the catch-all (fallback).'
+                  'Each tier supports 0~2 conditions on len/p/c/docs (AND logic). A tier with no conditions is the catch-all; reject tiers return an error without routing.'
                 )}
               </p>
               <RouteTierEditor
@@ -1149,7 +1289,7 @@ export function ChannelRouteSettingsCard({
                 <Label className='text-base'>{t('Strict Mode')}</Label>
                 <p className='text-muted-foreground text-sm'>
                   {t(
-                    'When enabled, if a rule matches but all channels in the pool are unavailable, the request fails directly instead of falling back.'
+                    'When enabled, a matching rule with no available channel fails instead of falling back. Reject tiers always return an error.'
                   )}
                 </p>
               </div>

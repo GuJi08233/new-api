@@ -130,24 +130,33 @@ func Distribute() func(c *gin.Context) {
 				}
 
 				routeMatch, routeErr := service.GetChannelByRoute(&service.RetryParam{
-					Ctx:                          c,
-					ModelName:                    modelRequest.Model,
-					TokenGroup:                   usingGroup,
-					Retry:                        common.GetPointer(0),
-					FallbackOnlyForUnknownTokens: !routeWillEstimateTokens(c),
+					Ctx:         c,
+					ModelName:   modelRequest.Model,
+					TokenGroup:  usingGroup,
+					RequestPath: c.Request.URL.Path,
+					Retry:       common.GetPointer(0),
 				})
 				if routeErr != nil {
 					abortWithOpenAiMessage(c, http.StatusServiceUnavailable, i18n.T(c, i18n.MsgDistributorGetChannelFailed, map[string]any{"Group": usingGroup, "Model": modelRequest.Model, "Error": routeErr.Error()}), types.ErrorCodeModelNotFound)
 					return
 				}
 				if routeMatch.Matched {
+					common.SetContextKey(c, constant.ContextKeyChannelRouteNeedsReroute, routeMatch.NeedsReroute && routeWillEstimateTokens(c))
+					if routeMatch.Rejected {
+						rejectMessage := strings.TrimSpace(routeMatch.RejectMessage)
+						if rejectMessage == "" {
+							rejectMessage = i18n.T(c, i18n.MsgDistributorRuleRejected, map[string]any{"Rule": routeMatch.RuleName, "Model": modelRequest.Model})
+						}
+						abortWithOpenAiMessage(c, http.StatusBadRequest, rejectMessage, types.ErrorCodeInvalidRequest)
+						return
+					}
 					if routeMatch.Channel != nil {
 						channel = routeMatch.Channel
 						selectGroup = routeMatch.SelectGroup
 						if usingGroup == "auto" && selectGroup != "" {
 							common.SetContextKey(c, constant.ContextKeyAutoGroup, selectGroup)
 						}
-					} else if routeMatch.Strict && routeMatch.Exhausted {
+					} else if routeMatch.Strict && routeMatch.Exhausted && !routeMatch.Deferred {
 						abortWithOpenAiMessage(c, http.StatusServiceUnavailable, i18n.T(c, i18n.MsgDistributorNoAvailableChannel, map[string]any{"Group": usingGroup, "Model": modelRequest.Model}), types.ErrorCodeModelNotFound)
 						return
 					} else {
@@ -493,6 +502,31 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 
 	if strings.HasPrefix(c.Request.URL.Path, "/v1/responses/compact") && modelRequest.Model != "" {
 		modelRequest.Model = ratio_setting.WithCompactModelSuffix(modelRequest.Model)
+	}
+
+	// Capture top-level document/input counts before initial channel selection.
+	// Trim a trailing slash so canonical and slash-suffixed endpoints behave the same.
+	requestPath := strings.TrimRight(c.Request.URL.Path, "/")
+	if strings.HasSuffix(requestPath, "/rerank") {
+		var request dto.RerankRequest
+		if err := common.UnmarshalBodyReusable(c, &request); err == nil {
+			common.SetContextKey(c, constant.ContextKeyEstimatedDocs, len(request.Documents))
+		}
+	} else if strings.HasSuffix(requestPath, "/embeddings") {
+		var request dto.EmbeddingRequest
+		if err := common.UnmarshalBodyReusable(c, &request); err == nil {
+			common.SetContextKey(c, constant.ContextKeyEstimatedDocs, request.GetInputCount())
+		}
+	} else if strings.HasSuffix(requestPath, ":batchEmbedContents") {
+		var request dto.GeminiBatchEmbeddingRequest
+		if err := common.UnmarshalBodyReusable(c, &request); err == nil {
+			common.SetContextKey(c, constant.ContextKeyEstimatedDocs, len(request.Requests))
+		}
+	} else if strings.HasSuffix(requestPath, ":embedContent") {
+		var request dto.GeminiEmbeddingRequest
+		if err := common.UnmarshalBodyReusable(c, &request); err == nil {
+			common.SetContextKey(c, constant.ContextKeyEstimatedDocs, 1)
+		}
 	}
 	return &modelRequest, shouldSelectChannel, nil
 }

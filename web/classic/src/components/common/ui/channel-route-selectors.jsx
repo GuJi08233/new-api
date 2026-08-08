@@ -31,6 +31,11 @@ const ENDPOINT_TEMPLATES = [
   { label: 'OpenAI Responses Compact', path: '/v1/responses/compact' },
   { label: 'Anthropic Messages', path: '/v1/messages' },
   { label: 'Gemini Generate', path: '/v1beta/models/{model}:generateContent' },
+  { label: 'Gemini Embed', path: '/v1beta/models/{model}:embedContent' },
+  {
+    label: 'Gemini Batch Embed',
+    path: '/v1beta/models/{model}:batchEmbedContents',
+  },
   { label: 'Embeddings', path: '/v1/embeddings' },
   { label: 'Rerank', path: '/v1/rerank' },
   { label: 'Image Generation', path: '/v1/images/generations' },
@@ -225,8 +230,16 @@ export function PathSelector({ value, onChange }) {
   const entries = useMemo(() => {
     return (value || '').split('\n').filter(Boolean).map((regex) => {
       try {
-        if (regex.includes('generateContent')) {
-          return { path: '/v1beta/models/{model}:generateContent', gemini: true };
+        const geminiAction = [
+          'batchEmbedContents',
+          'embedContent',
+          'generateContent',
+        ].find((action) => regex.includes(action));
+        if (geminiAction) {
+          return {
+            path: `/v1beta/models/{model}:${geminiAction}`,
+            gemini: true,
+          };
         }
         const m = regex.match(/^\^(.+?)\$$/);
         return { path: m ? m[1].replace(/\\\./g, '.') : regex, gemini: false };
@@ -323,6 +336,7 @@ export function ChannelSelector({ value, onChange, compact = false, modelNames }
   useEffect(() => {
     if (!modelKey) {
       setChannels([]);
+      setLoading(false);
       setBoundLoaded(false);
       setLoadedAll(false);
       setAutoLoadedAll(false);
@@ -330,7 +344,9 @@ export function ChannelSelector({ value, onChange, compact = false, modelNames }
     }
     let cancelled = false;
     setLoading(true);
+    setChannels([]);
     setBoundLoaded(false);
+    setLoadedAll(false);
     setAutoLoadedAll(false);
     API.get(`/api/channel/bound?model=${encodeURIComponent(modelKey)}`)
       .then((res) => {

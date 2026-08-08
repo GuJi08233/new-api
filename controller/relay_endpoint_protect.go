@@ -4,9 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/model_setting"
@@ -35,12 +37,18 @@ func checkModelEndpointProtection(c *gin.Context, modelName string, requestPath 
 	endpoints := strings.TrimSpace(modelMeta.Endpoints)
 
 	// Endpoints 为空或 "*"，放行
-	if endpoints == "" || endpoints == "*" {
+	if endpoints == "" || endpoints == "*" || endpoints == "null" {
 		return nil
 	}
 
-	// 解析 Endpoints
-	allowedEndpoints := parseEndpoints(endpoints)
+	// A malformed non-empty configuration must fail closed instead of silently
+	// becoming an unrestricted model.
+	allowedEndpoints, valid := parseEndpointsWithStatus(endpoints)
+	if !valid {
+		logger.LogWarn(c.Request.Context(), fmt.Sprintf("Model endpoint protection: invalid endpoint config for model=%s", modelName))
+		errMsg := fmt.Sprintf("模型 %s 的端点配置无效，请联系管理员", modelName)
+		return types.NewError(errors.New(errMsg), types.ErrorCodeInvalidRequest, types.ErrOptionWithStatusCode(http.StatusForbidden))
+	}
 
 	// 检查请求路径是否匹配
 	if isEndpointAllowed(requestPath, allowedEndpoints) {
@@ -100,54 +108,160 @@ func getModelMeta(modelName string) *model.Model {
 // parseEndpoints 解析 Endpoints 配置
 // 支持逗号分隔格式和 JSON 格式
 func parseEndpoints(endpoints string) []string {
-	// 尝试作为 JSON 解析
-	if strings.HasPrefix(endpoints, "{") {
-		return parseJSONEndpoints(endpoints)
-	}
-
-	// 逗号分隔格式
-	parts := strings.Split(endpoints, ",")
-	result := make([]string, 0, len(parts))
-	for _, part := range parts {
-		part = strings.TrimSpace(part)
-		if part != "" && part != "*" {
-			result = append(result, part)
-		}
-	}
+	result, _ := parseEndpointsWithStatus(endpoints)
 	return result
 }
 
-// parseJSONEndpoints 解析 JSON 格式的 Endpoints
-// 支持两种格式：
-// 1. 简单格式: {"/v1/chat/completions": {...}}
-// 2. 嵌套格式: {"chat": {"path": "/v1/chat/completions", "method": "POST"}}
-func parseJSONEndpoints(endpoints string) []string {
-	var raw map[string]interface{}
-	if err := common.Unmarshal([]byte(endpoints), &raw); err != nil {
-		// JSON 解析失败，返回空
-		return nil
+// parseEndpointsWithStatus accepts the model editor's object format, legacy
+// arrays/strings, and comma-separated endpoint names. The boolean reports
+// whether a non-empty configuration was syntactically and structurally valid.
+func parseEndpointsWithStatus(endpoints string) ([]string, bool) {
+	endpoints = strings.TrimSpace(endpoints)
+	if endpoints == "" || endpoints == "*" || endpoints == "null" {
+		return nil, true
+	}
+	if strings.HasPrefix(endpoints, "{") || strings.HasPrefix(endpoints, "[") || strings.HasPrefix(endpoints, "\"") {
+		return parseJSONEndpointsWithStatus(endpoints)
 	}
 
-	result := make([]string, 0, len(raw))
-	for key, value := range raw {
-		// 尝试从嵌套对象中提取 path 字段
-		if obj, ok := value.(map[string]interface{}); ok {
-			if path, exists := obj["path"]; exists {
-				if pathStr, ok := path.(string); ok {
-					pathStr = strings.TrimSpace(pathStr)
-					if pathStr != "" {
-						result = append(result, pathStr)
-						continue
-					}
-				}
-			}
-		}
-		// 否则使用顶层 key 作为端点
-		key = strings.TrimSpace(key)
-		if key != "" {
-			result = append(result, key)
+	parts := strings.Split(endpoints, ",")
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if endpoint := normalizeEndpointToken(part); endpoint != "" {
+			result = append(result, endpoint)
 		}
 	}
+	return deduplicateEndpoints(result), true
+}
+
+func parseJSONEndpointsWithStatus(endpoints string) ([]string, bool) {
+	var raw any
+	if err := common.Unmarshal([]byte(endpoints), &raw); err != nil {
+		return nil, false
+	}
+
+	result := make([]string, 0)
+	switch value := raw.(type) {
+	case map[string]any:
+		if _, hasPath := value["path"]; hasPath {
+			path, ok := endpointPathFromEntry("", value)
+			if !ok {
+				return nil, false
+			}
+			if path != "" {
+				result = append(result, path)
+			}
+			break
+		}
+		result = make([]string, 0, len(value))
+		for key, entry := range value {
+			path, ok := endpointPathFromEntry(key, entry)
+			if !ok {
+				return nil, false
+			}
+			if path != "" {
+				result = append(result, path)
+			}
+		}
+	case []any:
+		result = make([]string, 0, len(value))
+		for _, entry := range value {
+			switch item := entry.(type) {
+			case string:
+				if path := normalizeEndpointToken(item); path != "" {
+					result = append(result, path)
+				}
+			case map[string]any:
+				path, ok := endpointPathFromEntry("", item)
+				if !ok {
+					return nil, false
+				}
+				if path != "" {
+					result = append(result, path)
+				}
+			default:
+				return nil, false
+			}
+		}
+	case string:
+		if path := normalizeEndpointToken(value); path != "" {
+			result = append(result, path)
+		}
+	default:
+		return nil, false
+	}
+	return deduplicateEndpoints(result), true
+}
+
+func endpointPathFromEntry(key string, entry any) (string, bool) {
+	key = strings.TrimSpace(key)
+	if object, ok := entry.(map[string]any); ok {
+		if rawPath, exists := object["path"]; exists {
+			path, ok := rawPath.(string)
+			if !ok || strings.TrimSpace(path) == "" {
+				return "", false
+			}
+			return normalizeEndpointToken(path), true
+		}
+	}
+	if path, ok := entry.(string); ok {
+		path = normalizeEndpointToken(path)
+		if path != "" {
+			return path, true
+		}
+	}
+	if key == "" {
+		return "", false
+	}
+	return normalizeEndpointToken(key), true
+}
+
+func normalizeEndpointToken(endpoint string) string {
+	endpoint = strings.TrimSpace(endpoint)
+	if endpoint == "" || endpoint == "*" {
+		return ""
+	}
+	switch endpoint {
+	case "embedding":
+		return "/v1/embeddings"
+	case "rerank":
+		return "/v1/rerank"
+	case "gemini-embed", "gemini_embed":
+		return "/v1beta/models/{model}:embedContent"
+	case "gemini-batch-embed", "gemini_batch_embed":
+		return "/v1beta/models/{model}:batchEmbedContents"
+	case "audio-transcriptions":
+		return "/v1/audio/transcriptions"
+	case "audio-speech":
+		return "/v1/audio/speech"
+	case "moderations":
+		return "/v1/moderations"
+	case "files":
+		return "/v1/files"
+	case "openai-video":
+		return "/v1/videos"
+	}
+	if info, ok := common.GetDefaultEndpointInfo(constant.EndpointType(endpoint)); ok {
+		return info.Path
+	}
+	return endpoint
+}
+
+func deduplicateEndpoints(endpoints []string) []string {
+	seen := make(map[string]struct{}, len(endpoints))
+	result := make([]string, 0, len(endpoints))
+	for _, endpoint := range endpoints {
+		endpoint = strings.TrimSpace(endpoint)
+		if endpoint == "" || endpoint == "*" {
+			continue
+		}
+		if _, exists := seen[endpoint]; exists {
+			continue
+		}
+		seen[endpoint] = struct{}{}
+		result = append(result, endpoint)
+	}
+	sort.Strings(result)
 	return result
 }
 
