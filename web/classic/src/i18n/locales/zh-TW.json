@@ -3910,6 +3910,7 @@
     "仅允许小批量": "僅允許小批量",
     "预设同时适用于重排和嵌入。请在“匹配路径”中选择 Rerank、Embeddings、Gemini Embed 或 Gemini Batch Embed。": "預設同時適用於重排和嵌入。請在「匹配路徑」中選擇 Rerank、Embeddings、Gemini Embed 或 Gemini Batch Embed。",
     "小批量档位可同时选择两个渠道；若希望两个渠道共同分流，请将它们设为相同优先级并配置权重。此类容量限制规则必须保持严格模式，避免渠道不可用时回退到不支持大批量的渠道。": "小批量檔位可同時選擇兩個渠道；若希望兩個渠道共同分流，請將它們設為相同優先級並配置權重。此類容量限制規則必須保持嚴格模式，避免渠道不可用時回退到不支援大批量的渠道。",
-    "开启模型端点保护时，留空或 * 表示不限制；嵌入模型请选择 Embeddings/Gemini Embed，重排模型请选择 Rerank。支持 {path, method}": "開啟模型端點保護時，留空或 * 表示不限制；嵌入模型請選擇 Embeddings/Gemini Embed，重排模型請選擇 Rerank。支援 {path, method}"
+    "开启模型端点保护时，留空或 * 表示不限制；嵌入模型请选择 Embeddings/Gemini Embed，重排模型请选择 Rerank。支持 {path, method}": "開啟模型端點保護時，留空或 * 表示不限制；嵌入模型請選擇 Embeddings/Gemini Embed，重排模型請選擇 Rerank。支援 {path, method}",
+    "文档数量": "文件數量"
   }
 }

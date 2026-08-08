@@ -3919,6 +3919,7 @@
     "仅允许小批量": "Autoriser uniquement les petits lots",
     "预设同时适用于重排和嵌入。请在“匹配路径”中选择 Rerank、Embeddings、Gemini Embed 或 Gemini Batch Embed。": "Les préréglages s'appliquent au rerank et aux embeddings. Dans Chemin correspondant, sélectionnez Rerank, Embeddings, Gemini Embed ou Gemini Batch Embed.",
     "小批量档位可同时选择两个渠道；若希望两个渠道共同分流，请将它们设为相同优先级并配置权重。此类容量限制规则必须保持严格模式，避免渠道不可用时回退到不支持大批量的渠道。": "Un palier de petit lot peut sélectionner deux canaux. Pour répartir la charge entre eux, attribuez-leur la même priorité et configurez leurs poids. Gardez le mode strict pour ces limites afin d'éviter un repli vers un canal incompatible avec les grands lots.",
-    "开启模型端点保护时，留空或 * 表示不限制；嵌入模型请选择 Embeddings/Gemini Embed，重排模型请选择 Rerank。支持 {path, method}": "Avec la protection des endpoints activée, vide ou * signifie sans restriction. Choisissez Embeddings/Gemini Embed pour les modèles d'embedding et Rerank pour les modèles de rerank. Prend en charge {path, method}"
+    "开启模型端点保护时，留空或 * 表示不限制；嵌入模型请选择 Embeddings/Gemini Embed，重排模型请选择 Rerank。支持 {path, method}": "Avec la protection des endpoints activée, vide ou * signifie sans restriction. Choisissez Embeddings/Gemini Embed pour les modèles d'embedding et Rerank pour les modèles de rerank. Prend en charge {path, method}",
+    "文档数量": "Nombre de documents"
   }
 }

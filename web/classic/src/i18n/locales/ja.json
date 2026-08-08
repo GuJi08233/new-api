@@ -3887,6 +3887,7 @@
     "仅允许小批量": "小規模バッチのみ許可",
     "预设同时适用于重排和嵌入。请在“匹配路径”中选择 Rerank、Embeddings、Gemini Embed 或 Gemini Batch Embed。": "プリセットは rerank と embeddings の両方に使用できます。「パスマッチ」で Rerank、Embeddings、Gemini Embed、Gemini Batch Embed のいずれかを選択してください。",
     "小批量档位可同时选择两个渠道；若希望两个渠道共同分流，请将它们设为相同优先级并配置权重。此类容量限制规则必须保持严格模式，避免渠道不可用时回退到不支持大批量的渠道。": "小規模ティアでは 2 つのチャネルを選択できます。両方へ分散するには、同じ優先度にして重みを設定してください。この種の容量制限では厳格モードを維持し、大規模バッチ非対応チャネルへのフォールバックを防いでください。",
-    "开启模型端点保护时，留空或 * 表示不限制；嵌入模型请选择 Embeddings/Gemini Embed，重排模型请选择 Rerank。支持 {path, method}": "モデルエンドポイント保護が有効な場合、空欄または * は無制限です。Embedding モデルは Embeddings/Gemini Embed、rerank モデルは Rerank を選択してください。{path, method} に対応"
+    "开启模型端点保护时，留空或 * 表示不限制；嵌入模型请选择 Embeddings/Gemini Embed，重排模型请选择 Rerank。支持 {path, method}": "モデルエンドポイント保護が有効な場合、空欄または * は無制限です。Embedding モデルは Embeddings/Gemini Embed、rerank モデルは Rerank を選択してください。{path, method} に対応",
+    "文档数量": "ドキュメント数"
   }
 }

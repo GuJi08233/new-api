@@ -550,6 +550,12 @@ export const useLogsData = () => {
           value: other.request_path,
         });
       }
+      if (Number.isInteger(other?.document_count)) {
+        expandDataLocal.push({
+          key: t('文档数量'),
+          value: other.document_count,
+        });
+      }
       if (isAdminUser && other?.stream_status) {
         const ss = other.stream_status;
         const isOk = ss.status === 'ok';

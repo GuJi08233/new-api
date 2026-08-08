@@ -4447,6 +4447,7 @@
     "仅允许小批量": "Chỉ cho phép lô nhỏ",
     "预设同时适用于重排和嵌入。请在“匹配路径”中选择 Rerank、Embeddings、Gemini Embed 或 Gemini Batch Embed。": "Mẫu dùng cho cả rerank và embeddings. Trong phần khớp đường dẫn, hãy chọn Rerank, Embeddings, Gemini Embed hoặc Gemini Batch Embed.",
     "小批量档位可同时选择两个渠道；若希望两个渠道共同分流，请将它们设为相同优先级并配置权重。此类容量限制规则必须保持严格模式，避免渠道不可用时回退到不支持大批量的渠道。": "Bậc lô nhỏ có thể chọn hai kênh. Để chia tải giữa cả hai, hãy đặt cùng mức ưu tiên và cấu hình trọng số. Giữ chế độ nghiêm ngặt cho quy tắc giới hạn dung lượng để tránh chuyển sang kênh không hỗ trợ lô lớn.",
-    "开启模型端点保护时，留空或 * 表示不限制；嵌入模型请选择 Embeddings/Gemini Embed，重排模型请选择 Rerank。支持 {path, method}": "Khi bật bảo vệ endpoint mô hình, để trống hoặc * nghĩa là không giới hạn. Chọn Embeddings/Gemini Embed cho mô hình embedding và Rerank cho mô hình rerank. Hỗ trợ {path, method}"
+    "开启模型端点保护时，留空或 * 表示不限制；嵌入模型请选择 Embeddings/Gemini Embed，重排模型请选择 Rerank。支持 {path, method}": "Khi bật bảo vệ endpoint mô hình, để trống hoặc * nghĩa là không giới hạn. Chọn Embeddings/Gemini Embed cho mô hình embedding và Rerank cho mô hình rerank. Hỗ trợ {path, method}",
+    "文档数量": "Số lượng tài liệu"
   }
 }
