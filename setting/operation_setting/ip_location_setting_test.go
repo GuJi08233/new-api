@@ -15,10 +15,13 @@ func TestValidateIpLocationOption(t *testing.T) {
 	assert.NoError(t, ValidateIpLocationOption(IpLocationSettingPrefix+"ipv4_order", `["gitee","ipwhois","ip9"]`))
 	assert.NoError(t, ValidateIpLocationOption(IpLocationSettingPrefix+"ipv6_order", `["ipwhois"]`))
 	assert.NoError(t, ValidateIpLocationOption(IpLocationSettingPrefix+"ipv6_order", `[]`))
+	assert.NoError(t, ValidateIpLocationOption(IpLocationSettingPrefix+"auto_lookup", "true"))
+	assert.NoError(t, ValidateIpLocationOption(IpLocationSettingPrefix+"auto_lookup", "false"))
 
 	assert.Error(t, ValidateIpLocationOption(IpLocationSettingPrefix+"ipv4_order", `["bogus"]`))
 	assert.Error(t, ValidateIpLocationOption(IpLocationSettingPrefix+"ipv4_order", `["gitee","gitee"]`))
 	assert.Error(t, ValidateIpLocationOption(IpLocationSettingPrefix+"ipv4_order", `"gitee"`))
+	assert.Error(t, ValidateIpLocationOption(IpLocationSettingPrefix+"auto_lookup", "yes"))
 	assert.Error(t, ValidateIpLocationOption(IpLocationSettingPrefix+"unknown_field", "x"))
 }
 

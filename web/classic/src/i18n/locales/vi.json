@@ -4417,6 +4417,8 @@
     "ASN": "ASN",
     "邮编": "Mã bưu",
     "清空归属地缓存": "Xóa bộ nhớ địa lý",
+    "自动预取新 IP 归属地": "Tự động tìm nạp trước vị trí của IP mới",
+    "relay 请求的新客户端 IP 会在后台自动查询并缓存到数据库，日志展示无需等待。": "Các IP khách hàng mới trong yêu cầu relay sẽ được tra cứu và lưu vào cơ sở dữ liệu ở chế độ nền, giúp hiển thị nhật ký không cần chờ đợi.",
     "清空后下次查询会重新拉取外部接口，可切换数据源或升级后刷新。": "Sau khi xóa, lần tra cứu tiếp theo sẽ gọi lại các nhà cung cấp bên ngoài. Hữu ích khi chuyển nguồn dữ liệu hoặc nâng cấp.",
     "确认清空归属地缓存": "Xác nhận xóa bộ nhớ địa lý",
     "确认清空所有 IP 归属地缓存？下次查询将重新拉取外部接口。": "Xóa toàn bộ bộ nhớ địa lý IP? Lần tra cứu tiếp theo sẽ gọi lại các nhà cung cấp bên ngoài.",

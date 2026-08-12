@@ -3889,6 +3889,8 @@
     "ASN": "ASN",
     "邮编": "Code postal",
     "清空归属地缓存": "Vider le cache de localisation",
+    "自动预取新 IP 归属地": "Précharger automatiquement la localisation des nouvelles IP",
+    "relay 请求的新客户端 IP 会在后台自动查询并缓存到数据库，日志展示无需等待。": "Les nouvelles IP clientes des requêtes relay sont recherchées et mises en cache en base en arrière-plan, sans attente lors de l'affichage des journaux.",
     "清空后下次查询会重新拉取外部接口，可切换数据源或升级后刷新。": "Après vidage, la prochaine recherche interroge à nouveau les fournisseurs externes. Utile après un changement de source ou une mise à niveau.",
     "确认清空归属地缓存": "Confirmer le vidage du cache de localisation",
     "确认清空所有 IP 归属地缓存？下次查询将重新拉取外部接口。": "Vider tout le cache de localisation IP ? La prochaine recherche interroge à nouveau les fournisseurs externes.",

@@ -2,6 +2,7 @@ package operation_setting
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"sync/atomic"
 
@@ -9,12 +10,14 @@ import (
 	"github.com/QuantumNous/new-api/setting/config"
 )
 
-// IpLocationSetting 配置 IP 归属地查询：gitee 密钥与 v4/v6 各自的提供方顺序。
+// IpLocationSetting 配置 IP 归属地查询：gitee 密钥、v4/v6 各自的提供方顺序，
+// 以及 relay 请求是否自动预取新客户端 IP 的归属地。
 // 查询按顺序逐个尝试，前一个失败(网络错误/非成功响应)时回退到下一个。
 type IpLocationSetting struct {
 	GiteeApiKey string   `json:"gitee_api_key"`
 	Ipv4Order   []string `json:"ipv4_order"`
 	Ipv6Order   []string `json:"ipv6_order"`
+	AutoLookup  bool     `json:"auto_lookup"`
 }
 
 const (
@@ -50,6 +53,10 @@ func ValidateIpLocationOption(key string, value string) error {
 	case "gitee_api_key":
 		// 允许为空(未配置时跳过 gitee 提供方)。
 		return nil
+	case "auto_lookup":
+		if _, err := strconv.ParseBool(value); err != nil {
+			return fmt.Errorf("auto_lookup 必须是 true 或 false")
+		}
 	case "ipv4_order", "ipv6_order":
 		var providers []string
 		if err := common.UnmarshalJsonStr(value, &providers); err != nil || providers == nil {
@@ -75,6 +82,7 @@ var ipLocationSetting = IpLocationSetting{
 	GiteeApiKey: "",
 	Ipv4Order:   append([]string(nil), defaultIpv4Order...),
 	Ipv6Order:   append([]string(nil), defaultIpv6Order...),
+	AutoLookup:  true,
 }
 
 var ipLocationSnapshot atomic.Pointer[IpLocationSetting]

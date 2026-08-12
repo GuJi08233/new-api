@@ -4040,6 +4040,8 @@
     "ASN": "ASN",
     "邮编": "Postal",
     "清空归属地缓存": "Clear location cache",
+    "自动预取新 IP 归属地": "Auto-prefetch new IP geolocation",
+    "relay 请求的新客户端 IP 会在后台自动查询并缓存到数据库，日志展示无需等待。": "New client IPs on relay requests are looked up and cached in the database in the background, so log display needs no waiting.",
     "清空后下次查询会重新拉取外部接口，可切换数据源或升级后刷新。": "After clearing, the next lookup re-fetches from external providers. Useful after switching data sources or upgrades.",
     "确认清空归属地缓存": "Confirm clearing location cache",
     "确认清空所有 IP 归属地缓存？下次查询将重新拉取外部接口。": "Clear all cached IP location info? The next lookup will re-fetch from external providers.",

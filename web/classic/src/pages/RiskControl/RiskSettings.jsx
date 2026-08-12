@@ -53,6 +53,7 @@ const IP_LOCATION_PREFIX = 'ip_location_setting.';
 const KEY_GITEE_API_KEY = `${IP_LOCATION_PREFIX}gitee_api_key`;
 const KEY_IPV4_ORDER = `${IP_LOCATION_PREFIX}ipv4_order`;
 const KEY_IPV6_ORDER = `${IP_LOCATION_PREFIX}ipv6_order`;
+const KEY_AUTO_LOOKUP = `${IP_LOCATION_PREFIX}auto_lookup`;
 
 const IP_PROVIDER_OPTIONS = [
   { value: 'gitee', label: 'Gitee AI（中文，仅 IPv4，需密钥）' },
@@ -88,6 +89,7 @@ const RiskSettings = () => {
   const [giteeApiKey, setGiteeApiKey] = useState('');
   const [ipv4Order, setIpv4Order] = useState(DEFAULT_IPV4_ORDER);
   const [ipv6Order, setIpv6Order] = useState(DEFAULT_IPV6_ORDER);
+  const [autoLookup, setAutoLookup] = useState(true);
   const [clearingCache, setClearingCache] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
 
@@ -125,6 +127,8 @@ const RiskSettings = () => {
         setIpv6Order(
           parseJsonArray(optionMap[KEY_IPV6_ORDER], DEFAULT_IPV6_ORDER),
         );
+        // 未配置时跟随后端默认值(true)，因此只在显式为 false 时关闭。
+        setAutoLookup(optionMap[KEY_AUTO_LOOKUP] !== 'false');
       } else {
         showError(message);
       }
@@ -170,6 +174,7 @@ const RiskSettings = () => {
       { key: KEY_RULES, value: JSON.stringify(cleanRules) },
       { key: KEY_IPV4_ORDER, value: JSON.stringify(ipv4Order) },
       { key: KEY_IPV6_ORDER, value: JSON.stringify(ipv6Order) },
+      { key: KEY_AUTO_LOOKUP, value: String(autoLookup) },
     ];
     // 密钥字段被通用配置接口脱敏，不会回显；留空表示不修改已保存的密钥。
     if (giteeApiKey.trim() !== '') {
@@ -446,6 +451,15 @@ const RiskSettings = () => {
               style={{ minWidth: 420 }}
             />
           </Space>
+          <Space>
+            <Text>{t('自动预取新 IP 归属地')}</Text>
+            <Switch checked={autoLookup} onChange={setAutoLookup} />
+          </Space>
+          <Text type='tertiary' size='small'>
+            {t(
+              'relay 请求的新客户端 IP 会在后台自动查询并缓存到数据库，日志展示无需等待。',
+            )}
+          </Text>
           <Space>
             <Button
               type='danger'
