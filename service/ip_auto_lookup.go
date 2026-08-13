@@ -44,8 +44,9 @@ func startIpAutoLookupCleanup() {
 func ScheduleIpInfoLookup(ip string) bool {
 	ip = strings.TrimSpace(ip)
 	parsed := net.ParseIP(ip)
-	if parsed == nil || parsed.IsUnspecified() || parsed.IsPrivate() ||
-		parsed.IsLoopback() || parsed.IsLinkLocalUnicast() || parsed.IsLinkLocalMulticast() {
+	// IsGlobalUnicast 排除未指定、环回、链路本地、组播与 IPv4 广播地址；
+	// RFC1918/ULA 私网段属于 global unicast，需单独用 IsPrivate 排除。
+	if parsed == nil || !parsed.IsGlobalUnicast() || parsed.IsPrivate() {
 		return false
 	}
 	ip = parsed.String()
@@ -55,14 +56,16 @@ func ScheduleIpInfoLookup(ip string) bool {
 		if now-last.(int64) < int64(ipAutoLookupDedupeWindow.Seconds()) {
 			return false
 		}
-		// 条目已过期，更新时间戳后重新触发。
-		ipAutoLookupStore.Store(ip, now)
+		// 条目已过期：CAS 抢占更新时间戳，输掉的并发请求放弃触发，避免重复查询。
+		if !ipAutoLookupStore.CompareAndSwap(ip, last, now) {
+			return false
+		}
 	}
 
 	ipAutoLookupCleanup.Do(startIpAutoLookupCleanup)
 	gopool.Go(func() {
 		if _, err := lookupIpInfoFn(ip); err != nil {
-			common.SysLog("auto ip info lookup failed for " + ip + ": " + err.Error())
+			common.SysError("auto ip info lookup failed for " + ip + ": " + err.Error())
 		}
 	})
 	return true

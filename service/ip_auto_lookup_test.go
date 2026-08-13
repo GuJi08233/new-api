@@ -10,15 +10,26 @@ import (
 )
 
 // replaceLookupFn 用记录调用的假实现替换后台查询入口，返回已调用 IP 的通道。
+// 进入和退出时都清空全局去重表，保证测试可重复运行(-count>1)且互不影响。
 func replaceLookupFn(t *testing.T) chan string {
 	t.Helper()
+	resetIpAutoLookupStore := func() {
+		ipAutoLookupStore.Range(func(key, _ interface{}) bool {
+			ipAutoLookupStore.Delete(key)
+			return true
+		})
+	}
+	resetIpAutoLookupStore()
 	calls := make(chan string, 16)
 	original := lookupIpInfoFn
 	lookupIpInfoFn = func(ip string) (*model.IpInfo, error) {
 		calls <- ip
 		return &model.IpInfo{Ip: ip}, nil
 	}
-	t.Cleanup(func() { lookupIpInfoFn = original })
+	t.Cleanup(func() {
+		lookupIpInfoFn = original
+		resetIpAutoLookupStore()
+	})
 	return calls
 }
 
@@ -47,7 +58,10 @@ func TestScheduleIpInfoLookupSkipsInvalidAndPrivate(t *testing.T) {
 		"192.168.1.100",
 		"::1",
 		"fe80::1",
-		"fc00::1", // IPv6 ULA
+		"fc00::1",         // IPv6 ULA
+		"255.255.255.255", // IPv4 广播
+		"224.0.1.1",       // 非链路本地组播
+		"ff05::1",         // IPv6 站点本地组播
 	}
 	for _, ip := range skipped {
 		assert.False(t, ScheduleIpInfoLookup(ip), "should skip %q", ip)
