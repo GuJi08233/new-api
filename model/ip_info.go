@@ -130,21 +130,23 @@ func SaveIpInfo(info *IpInfo, generation *int64) error {
 	info.UpdatedAt = time.Now().Unix()
 	return DB.Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "ip"}},
+		// 列名必须带表名限定：PostgreSQL 的 ON CONFLICT DO UPDATE 中裸列名在
+		// 目标表与 excluded 伪表间有歧义(42702)；限定写法三库通用。
 		DoUpdates: clause.Assignments(map[string]interface{}{
-			"continent":  gorm.Expr("CASE WHEN generation <= ? THEN ? ELSE continent END", cacheGeneration, info.Continent),
-			"country":    gorm.Expr("CASE WHEN generation <= ? THEN ? ELSE country END", cacheGeneration, info.Country),
-			"province":   gorm.Expr("CASE WHEN generation <= ? THEN ? ELSE province END", cacheGeneration, info.Province),
-			"city":       gorm.Expr("CASE WHEN generation <= ? THEN ? ELSE city END", cacheGeneration, info.City),
-			"district":   gorm.Expr("CASE WHEN generation <= ? THEN ? ELSE district END", cacheGeneration, info.District),
-			"latitude":   gorm.Expr("CASE WHEN generation <= ? THEN ? ELSE latitude END", cacheGeneration, info.Latitude),
-			"longitude":  gorm.Expr("CASE WHEN generation <= ? THEN ? ELSE longitude END", cacheGeneration, info.Longitude),
-			"postal":     gorm.Expr("CASE WHEN generation <= ? THEN ? ELSE postal END", cacheGeneration, info.Postal),
-			"asn":        gorm.Expr("CASE WHEN generation <= ? THEN ? ELSE asn END", cacheGeneration, info.Asn),
-			"org":        gorm.Expr("CASE WHEN generation <= ? THEN ? ELSE org END", cacheGeneration, info.Org),
-			"isp":        gorm.Expr("CASE WHEN generation <= ? THEN ? ELSE isp END", cacheGeneration, info.Isp),
-			"provider":   gorm.Expr("CASE WHEN generation <= ? THEN ? ELSE provider END", cacheGeneration, info.Provider),
-			"generation": gorm.Expr("CASE WHEN generation <= ? THEN ? ELSE generation END", cacheGeneration, cacheGeneration),
-			"updated_at": gorm.Expr("CASE WHEN generation <= ? THEN ? ELSE updated_at END", cacheGeneration, info.UpdatedAt),
+			"continent":  gorm.Expr("CASE WHEN ip_infos.generation <= ? THEN ? ELSE ip_infos.continent END", cacheGeneration, info.Continent),
+			"country":    gorm.Expr("CASE WHEN ip_infos.generation <= ? THEN ? ELSE ip_infos.country END", cacheGeneration, info.Country),
+			"province":   gorm.Expr("CASE WHEN ip_infos.generation <= ? THEN ? ELSE ip_infos.province END", cacheGeneration, info.Province),
+			"city":       gorm.Expr("CASE WHEN ip_infos.generation <= ? THEN ? ELSE ip_infos.city END", cacheGeneration, info.City),
+			"district":   gorm.Expr("CASE WHEN ip_infos.generation <= ? THEN ? ELSE ip_infos.district END", cacheGeneration, info.District),
+			"latitude":   gorm.Expr("CASE WHEN ip_infos.generation <= ? THEN ? ELSE ip_infos.latitude END", cacheGeneration, info.Latitude),
+			"longitude":  gorm.Expr("CASE WHEN ip_infos.generation <= ? THEN ? ELSE ip_infos.longitude END", cacheGeneration, info.Longitude),
+			"postal":     gorm.Expr("CASE WHEN ip_infos.generation <= ? THEN ? ELSE ip_infos.postal END", cacheGeneration, info.Postal),
+			"asn":        gorm.Expr("CASE WHEN ip_infos.generation <= ? THEN ? ELSE ip_infos.asn END", cacheGeneration, info.Asn),
+			"org":        gorm.Expr("CASE WHEN ip_infos.generation <= ? THEN ? ELSE ip_infos.org END", cacheGeneration, info.Org),
+			"isp":        gorm.Expr("CASE WHEN ip_infos.generation <= ? THEN ? ELSE ip_infos.isp END", cacheGeneration, info.Isp),
+			"provider":   gorm.Expr("CASE WHEN ip_infos.generation <= ? THEN ? ELSE ip_infos.provider END", cacheGeneration, info.Provider),
+			"generation": gorm.Expr("CASE WHEN ip_infos.generation <= ? THEN ? ELSE ip_infos.generation END", cacheGeneration, cacheGeneration),
+			"updated_at": gorm.Expr("CASE WHEN ip_infos.generation <= ? THEN ? ELSE ip_infos.updated_at END", cacheGeneration, info.UpdatedAt),
 		}),
 	}).Create(info).Error
 }
