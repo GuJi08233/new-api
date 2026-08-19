@@ -3245,6 +3245,8 @@
     "调用次数": "Nombre d'appels",
     "调用次数分布": "Distribution des appels de modèles",
     "调用次数排行": "Classement des appels de modèles",
+    "总调用次数": "Nombre total d'appels",
+    "按请求次数排名的热门模型": "Modèles populaires classés par nombre de requêtes",
     "调用趋势": "Tendance des appels",
     "调试信息": "Informations de débogage",
     "谨慎": "Prudent",

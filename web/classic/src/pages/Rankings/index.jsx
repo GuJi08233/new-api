@@ -464,6 +464,15 @@ function LLMRankings({ period, onRange }) {
     [data],
   );
 
+  const totalRequests = useMemo(
+    () =>
+      data?.models_by_requests?.reduce(
+        (sum, m) => sum + (m.total_requests || 0),
+        0,
+      ) || 0,
+    [data],
+  );
+
   const modelTrendData = useMemo(
     () =>
       fillTrendSeries(
@@ -528,8 +537,8 @@ function LLMRankings({ period, onRange }) {
         />
         <StatCard
           icon={<IconBolt size='small' />}
-          label={t('活跃厂商')}
-          value={data.vendors?.length || 0}
+          label={t('总调用次数')}
+          value={formatNumber(totalRequests)}
           gradient='linear-gradient(135deg, #f59e0b, #f97316)'
         />
       </div>
@@ -598,24 +607,24 @@ function LLMRankings({ period, onRange }) {
         </SectionCard>
       </div>
 
-      {/* Vendor Leaderboard */}
+      {/* Request Count Leaderboard */}
       <div className='rankings-fade-in delay-2'>
         <SectionCard
           icon={<IconActivity />}
           tone='tone-primary'
-          title={t('厂商排行')}
-          subtitle={t('按聚合 Token 用量排名的模型厂商')}
+          title={t('调用次数排行')}
+          subtitle={t('按请求次数排名的热门模型')}
         >
-          {(data.vendors || []).map((v) => (
+          {(data.models_by_requests || []).map((m) => (
             <LeaderboardRow
-              key={v.vendor}
-              rank={v.rank}
-              icon={<VendorIcon icon={v.vendor_icon} />}
-              name={v.vendor}
-              sub={`${v.models_count || 0} ${t('个模型')} · ${v.top_model || ''}`}
-              value={formatNumber(v.total_tokens)}
-              valueLabel={formatPercent(v.share)}
-              growth={v.growth_pct}
+              key={m.model_name}
+              rank={m.rank}
+              icon={<VendorIcon icon={m.vendor_icon} />}
+              name={m.model_name}
+              sub={m.vendor}
+              value={formatNumber(m.total_requests)}
+              valueLabel={formatPercent(m.share)}
+              growth={m.growth_pct}
             />
           ))}
         </SectionCard>

@@ -28,6 +28,7 @@ type RankingsResponse struct {
 	PreviousStartTime  int64              `json:"previous_start_time"`
 	PreviousEndTime    int64              `json:"previous_end_time"`
 	Models             []RankedModel      `json:"models"`
+	ModelsByRequests   []RankedModel      `json:"models_by_requests"`
 	Vendors            []RankedVendor     `json:"vendors"`
 	TopMovers          []RankingMover     `json:"top_movers"`
 	TopDroppers        []RankingMover     `json:"top_droppers"`
@@ -36,15 +37,16 @@ type RankingsResponse struct {
 }
 
 type RankedModel struct {
-	Rank         int     `json:"rank"`
-	PreviousRank *int    `json:"previous_rank,omitempty"`
-	ModelName    string  `json:"model_name"`
-	Vendor       string  `json:"vendor"`
-	VendorIcon   string  `json:"vendor_icon,omitempty"`
-	Category     string  `json:"category"`
-	TotalTokens  int64   `json:"total_tokens"`
-	Share        float64 `json:"share"`
-	GrowthPct    float64 `json:"growth_pct"`
+	Rank          int     `json:"rank"`
+	PreviousRank  *int    `json:"previous_rank,omitempty"`
+	ModelName     string  `json:"model_name"`
+	Vendor        string  `json:"vendor"`
+	VendorIcon    string  `json:"vendor_icon,omitempty"`
+	Category      string  `json:"category"`
+	TotalTokens   int64   `json:"total_tokens"`
+	TotalRequests int64   `json:"total_requests"`
+	Share         float64 `json:"share"`
+	GrowthPct     float64 `json:"growth_pct"`
 }
 
 type RankedVendor struct {
@@ -267,6 +269,7 @@ func buildRankingsSnapshot(config rankingPeriodConfig, window RankingPeriodRange
 	previousTokensByModel := rankingTokenMap(previousTotals)
 
 	rankedModels := buildRankedModels(currentTotals, totalTokens, previousRankByModel, previousTokensByModel, meta, true)
+	rankedByRequests := buildRankedModelsByRequests(currentTotals, previousTotals, meta)
 	vendors := buildRankedVendors(currentTotals, previousTotals, totalTokens, meta, true)
 	modelHistory := buildModelHistory(currentBuckets, currentTotals, meta, config)
 	vendorHistory := buildVendorShareHistory(currentBuckets, vendors, totalTokens, meta, config)
@@ -279,6 +282,7 @@ func buildRankingsSnapshot(config rankingPeriodConfig, window RankingPeriodRange
 		PreviousStartTime:  window.PreviousStart,
 		PreviousEndTime:    window.PreviousEnd,
 		Models:             limitRankedModels(rankedModels, rankingLeaderboardLimit),
+		ModelsByRequests:   limitRankedModels(rankedByRequests, rankingLeaderboardLimit),
 		Vendors:            vendors,
 		TopMovers:          movers,
 		TopDroppers:        droppers,
@@ -316,7 +320,12 @@ func modelMeta(modelName string, meta map[string]rankingModelMeta) rankingModelM
 
 func buildRankedModels(totals []model.RankingQuotaTotal, totalTokens int64, previousRanks map[string]int, previousTokens map[string]int64, meta map[string]rankingModelMeta, showGrowth bool) []RankedModel {
 	rows := make([]RankedModel, 0, len(totals))
-	for idx, item := range totals {
+	for _, item := range totals {
+		// Totals also carry request-only models (zero tokens) for the request
+		// leaderboard; keep the token board tokens-only.
+		if item.TotalTokens <= 0 {
+			continue
+		}
 		modelMeta := modelMeta(item.ModelName, meta)
 		var previousRank *int
 		if rank, ok := previousRanks[item.ModelName]; ok {
@@ -328,15 +337,59 @@ func buildRankedModels(totals []model.RankingQuotaTotal, totalTokens int64, prev
 			growth = rankingGrowthPct(item.TotalTokens, previousTokens[item.ModelName])
 		}
 		rows = append(rows, RankedModel{
-			Rank:         idx + 1,
-			PreviousRank: previousRank,
-			ModelName:    item.ModelName,
-			Vendor:       modelMeta.vendor,
-			VendorIcon:   modelMeta.vendorIcon,
-			Category:     "all",
-			TotalTokens:  item.TotalTokens,
-			Share:        rankingShare(item.TotalTokens, totalTokens),
-			GrowthPct:    growth,
+			Rank:          len(rows) + 1,
+			PreviousRank:  previousRank,
+			ModelName:     item.ModelName,
+			Vendor:        modelMeta.vendor,
+			VendorIcon:    modelMeta.vendorIcon,
+			Category:      "all",
+			TotalTokens:   item.TotalTokens,
+			TotalRequests: item.TotalRequests,
+			Share:         rankingShare(item.TotalTokens, totalTokens),
+			GrowthPct:     growth,
+		})
+	}
+	return rows
+}
+
+// buildRankedModelsByRequests ranks the same window by request count instead
+// of token usage, so request-heavy but token-light models (images, audio) get
+// a fair board of their own.
+func buildRankedModelsByRequests(totals []model.RankingQuotaTotal, previousTotals []model.RankingQuotaTotal, meta map[string]rankingModelMeta) []RankedModel {
+	filtered := make([]model.RankingQuotaTotal, 0, len(totals))
+	totalRequests := int64(0)
+	for _, item := range totals {
+		if item.TotalRequests <= 0 {
+			continue
+		}
+		filtered = append(filtered, item)
+		totalRequests += item.TotalRequests
+	}
+	sort.Slice(filtered, func(i, j int) bool {
+		if filtered[i].TotalRequests == filtered[j].TotalRequests {
+			return filtered[i].ModelName < filtered[j].ModelName
+		}
+		return filtered[i].TotalRequests > filtered[j].TotalRequests
+	})
+
+	previousRequests := make(map[string]int64, len(previousTotals))
+	for _, item := range previousTotals {
+		previousRequests[item.ModelName] = item.TotalRequests
+	}
+
+	rows := make([]RankedModel, 0, len(filtered))
+	for idx, item := range filtered {
+		modelMeta := modelMeta(item.ModelName, meta)
+		rows = append(rows, RankedModel{
+			Rank:          idx + 1,
+			ModelName:     item.ModelName,
+			Vendor:        modelMeta.vendor,
+			VendorIcon:    modelMeta.vendorIcon,
+			Category:      "all",
+			TotalTokens:   item.TotalTokens,
+			TotalRequests: item.TotalRequests,
+			Share:         rankingShare(item.TotalRequests, totalRequests),
+			GrowthPct:     rankingGrowthPct(item.TotalRequests, previousRequests[item.ModelName]),
 		})
 	}
 	return rows

@@ -3664,6 +3664,8 @@
     "调用次数": "Số lần gọi",
     "调用次数分布": "Phân phối số lần gọi",
     "调用次数排行": "Xếp hạng số lần gọi",
+    "总调用次数": "Tổng số lần gọi",
+    "按请求次数排名的热门模型": "Các mô hình hàng đầu xếp theo số lượng yêu cầu",
     "调用趋势": "Xu hướng cuộc gọi",
     "调试信息": "Thông tin gỡ lỗi",
     "谨慎": "Thận trọng",

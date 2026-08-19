@@ -8,8 +8,9 @@ import (
 )
 
 type RankingQuotaTotal struct {
-	ModelName   string `json:"model_name"`
-	TotalTokens int64  `json:"total_tokens"`
+	ModelName     string `json:"model_name"`
+	TotalTokens   int64  `json:"total_tokens"`
+	TotalRequests int64  `json:"total_requests"`
 }
 
 type RankingQuotaBucket struct {
@@ -21,10 +22,12 @@ type RankingQuotaBucket struct {
 func GetRankingQuotaTotals(startTime int64, endTime int64) ([]RankingQuotaTotal, error) {
 	var rows []RankingQuotaTotal
 	query := ReadDB().Table("quota_data").
-		Select("model_name, sum(token_used) as total_tokens").
+		Select("model_name, sum(token_used) as total_tokens, sum(count) as total_requests").
 		Where("model_name <> ''").
 		Group("model_name").
-		Having("sum(token_used) > 0").
+		// Request-only models (e.g. image generation with zero token_used) must
+		// still reach the request-count leaderboard.
+		Having("sum(token_used) > 0 OR sum(count) > 0").
 		Order("total_tokens DESC")
 	query = applyRankingQuotaTimeRange(query, startTime, endTime)
 	err := query.Find(&rows).Error

@@ -3268,6 +3268,8 @@
     "调用次数": "Call Count",
     "调用次数分布": "Models call distribution",
     "调用次数排行": "Models call ranking",
+    "总调用次数": "Total calls",
+    "按请求次数排名的热门模型": "Top models ranked by request count",
     "调用趋势": "Call trend",
     "调试信息": "Debug information",
     "谨慎": "Cautious",
