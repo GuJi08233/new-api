@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import React from 'react';
-import { Progress, Divider, Empty } from '@douyinfe/semi-ui';
+import { Progress, Divider, Empty, Tooltip } from '@douyinfe/semi-ui';
 import {
   IllustrationConstruction,
   IllustrationConstructionDark,
@@ -195,6 +195,44 @@ export const renderModelAvailabilityList = (
     );
   }
 
+  // 每小时一格的状态条：格子颜色按该小时成功率分档，与整体状态图例一致
+  const renderHourlyBar = (model) => (
+    <div className='flex flex-1 items-center gap-0.5 min-w-0'>
+      {model.hourly.map((bucket, i) => {
+        const success = bucket.success_count || 0;
+        const failure = bucket.error_count || 0;
+        const total = success + failure;
+        let status = 'no_data';
+        if (total > 0) {
+          const rate = (success / total) * 100;
+          status = rate >= 95 ? 'normal' : rate >= 80 ? 'warning' : 'error';
+        }
+        const startHour = String(
+          new Date(bucket.timestamp * 1000).getHours(),
+        ).padStart(2, '0');
+        const endHour = String(
+          new Date((bucket.timestamp + 3600) * 1000).getHours(),
+        ).padStart(2, '0');
+        const rangeLabel = `${startHour}:00 - ${endHour}:00`;
+        const tip =
+          total > 0
+            ? `${rangeLabel} · ${t('成功')} ${success} / ${t('失败')} ${failure} · ${((success / total) * 100).toFixed(1)}%`
+            : `${rangeLabel} · ${t('暂无调用记录')}`;
+        return (
+          <Tooltip key={bucket.timestamp || i} content={tip}>
+            <div
+              className='flex-1 h-3 rounded-sm min-w-0'
+              style={{
+                backgroundColor: getStatusColor(status),
+                opacity: total > 0 ? 1 : 0.3,
+              }}
+            />
+          </Tooltip>
+        );
+      })}
+    </div>
+  );
+
   const renderItem = (model, idx) => (
     <div key={idx} className='p-2 hover:bg-white rounded-lg transition-colors'>
       <div className='flex items-center justify-between mb-1'>
@@ -216,14 +254,18 @@ export const renderModelAvailabilityList = (
           {getStatusText(model.status)}
         </span>
         {model.total_count > 0 ? (
-          <div className='flex-1'>
-            <Progress
-              percent={model.success_rate}
-              showInfo={false}
-              aria-label={`${model.model_name} success rate`}
-              stroke={getStatusColor(model.status)}
-            />
-          </div>
+          Array.isArray(model.hourly) && model.hourly.length > 0 ? (
+            renderHourlyBar(model)
+          ) : (
+            <div className='flex-1'>
+              <Progress
+                percent={model.success_rate}
+                showInfo={false}
+                aria-label={`${model.model_name} success rate`}
+                stroke={getStatusColor(model.status)}
+              />
+            </div>
+          )
         ) : (
           <div className='flex-1 text-xs text-gray-400'>
             {t('过去24小时无调用记录')}
@@ -235,6 +277,9 @@ export const renderModelAvailabilityList = (
           <span>{t('总计')}: {model.total_count}{t('次')}</span>
           <span>{t('成功')}: {model.success_count}{t('次')}</span>
           <span>{t('失败')}: {model.error_count}{t('次')}</span>
+          {typeof model.reliability === 'number' && (
+            <span>{t('可靠度')}: {model.reliability.toFixed(2)}%</span>
+          )}
         </div>
       )}
     </div>

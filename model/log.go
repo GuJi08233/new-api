@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"time"
@@ -792,35 +793,80 @@ const (
 	ModelAvailabilityStatusNoData  = "no_data" // 无请求数据
 )
 
-type ModelAvailability struct {
-	ModelName    string  `json:"model_name"`
-	TotalCount   int     `json:"total_count"`
-	SuccessCount int     `json:"success_count"`
-	ErrorCount   int     `json:"error_count"`
-	SuccessRate  float64 `json:"success_rate"`
-	Status       string  `json:"status"`
+// 可用性统计的最大小时数，防止 hours 参数过大导致每个模型分配超大桶数组
+const maxAvailabilityHours = 168
+
+// ModelHourlyAvailability 单个小时桶的调用统计，Timestamp 为桶起始时间（unix 秒，整点对齐）
+type ModelHourlyAvailability struct {
+	Timestamp    int64 `json:"timestamp"`
+	SuccessCount int   `json:"success_count"`
+	ErrorCount   int   `json:"error_count"`
 }
 
-// GetModelAvailabilityByGroup 统计指定分组在指定小时内的模型可用性
+type ModelAvailability struct {
+	ModelName    string                    `json:"model_name"`
+	TotalCount   int                       `json:"total_count"`
+	SuccessCount int                       `json:"success_count"`
+	ErrorCount   int                       `json:"error_count"`
+	SuccessRate  float64                   `json:"success_rate"`
+	Reliability  float64                   `json:"reliability"`
+	Status       string                    `json:"status"`
+	Hourly       []ModelHourlyAvailability `json:"hourly,omitempty"`
+}
+
+// wilsonLowerBound 计算二项成功率的 Wilson 置信区间下界（95% 置信度），
+// 用于综合成功率与样本量的可靠性排序：样本越少下界越低，
+// 大样本的高成功率会排在小样本的 100% 之前
+func wilsonLowerBound(success, total int) float64 {
+	if total <= 0 {
+		return 0
+	}
+	const z = 1.96
+	n := float64(total)
+	p := float64(success) / n
+	z2 := z * z
+	center := p + z2/(2*n)
+	margin := z * math.Sqrt(p*(1-p)/n+z2/(4*n*n))
+	return (center - margin) / (1 + z2/n)
+}
+
+// GetModelAvailabilityByGroup 统计指定分组最近 hours 个整点小时桶内的模型可用性，
+// 每个模型附带逐小时的成功/失败计数（最后一个桶为当前进行中的小时）。
 // 如果 group 为空，则统计所有分组；如果 hours <= 0，默认统计 24 小时
 func GetModelAvailabilityByGroup(group string, hours int) ([]ModelAvailability, error) {
 	if hours <= 0 {
 		hours = 24
 	}
-	startTimestamp := time.Now().Add(-time.Duration(hours) * time.Hour).Unix()
+	if hours > maxAvailabilityHours {
+		hours = maxAvailabilityHours
+	}
+	endBucket := time.Now().Unix() / 3600
+	startBucket := endBucket - int64(hours) + 1
+	startTimestamp := startBucket * 3600
+
+	// created_at 为正的 unix 秒，整数除法即向下取整；SQLite/PostgreSQL 的 / 对整数即整除，
+	// MySQL 的 / 返回小数需用 DIV，ClickHouse 需用 intDiv
+	hourBucketExpr := "created_at / 3600"
+	switch {
+	case common.UsingLogDatabase(common.DatabaseTypeMySQL):
+		hourBucketExpr = "created_at DIV 3600"
+	case common.UsingLogDatabase(common.DatabaseTypeClickHouse):
+		hourBucketExpr = "intDiv(created_at, 3600)"
+	}
 
 	type ModelStat struct {
-		ModelName string `gorm:"column:model_name"`
-		Type      int    `gorm:"column:type"`
-		Count     int    `gorm:"column:count"`
+		ModelName  string `gorm:"column:model_name"`
+		Type       int    `gorm:"column:type"`
+		HourBucket int64  `gorm:"column:hour_bucket"`
+		Count      int    `gorm:"column:count"`
 	}
 
 	var stats []ModelStat
 	query := LOG_DB.Table("logs").
-		Select("model_name, type, count(*) as count").
+		Select("model_name, type, "+hourBucketExpr+" as hour_bucket, count(*) as count").
 		Where("created_at >= ?", startTimestamp).
 		Where("type IN ?", []int{LogTypeConsume, LogTypeError}).
-		Group("model_name, type")
+		Group("model_name, type, " + hourBucketExpr)
 
 	if group != "" {
 		query = query.Where(logGroupCol+" = ?", group)
@@ -831,27 +877,40 @@ func GetModelAvailabilityByGroup(group string, hours int) ([]ModelAvailability, 
 		return nil, err
 	}
 
-	// 合并统计结果
+	// 合并统计结果，并把计数落入对应的小时桶
 	modelStatsMap := make(map[string]*ModelAvailability)
 	for _, stat := range stats {
 		if stat.ModelName == "" {
 			continue
 		}
-		if _, exists := modelStatsMap[stat.ModelName]; !exists {
-			modelStatsMap[stat.ModelName] = &ModelAvailability{
+		bucketIdx := int(stat.HourBucket - startBucket)
+		if bucketIdx < 0 || bucketIdx >= hours {
+			// 查询期间跨过整点时可能出现窗口外的新桶，直接丢弃
+			continue
+		}
+		entry, exists := modelStatsMap[stat.ModelName]
+		if !exists {
+			entry = &ModelAvailability{
 				ModelName: stat.ModelName,
+				Hourly:    make([]ModelHourlyAvailability, hours),
 			}
+			for i := range entry.Hourly {
+				entry.Hourly[i].Timestamp = (startBucket + int64(i)) * 3600
+			}
+			modelStatsMap[stat.ModelName] = entry
 		}
 		if stat.Type == LogTypeConsume {
-			modelStatsMap[stat.ModelName].SuccessCount = stat.Count
-			modelStatsMap[stat.ModelName].TotalCount += stat.Count
+			entry.Hourly[bucketIdx].SuccessCount += stat.Count
+			entry.SuccessCount += stat.Count
+			entry.TotalCount += stat.Count
 		} else if stat.Type == LogTypeError {
-			modelStatsMap[stat.ModelName].ErrorCount = stat.Count
-			modelStatsMap[stat.ModelName].TotalCount += stat.Count
+			entry.Hourly[bucketIdx].ErrorCount += stat.Count
+			entry.ErrorCount += stat.Count
+			entry.TotalCount += stat.Count
 		}
 	}
 
-	// 计算成功率和状态
+	// 计算成功率、可靠度和状态
 	result := make([]ModelAvailability, 0, len(modelStatsMap))
 	for _, stat := range modelStatsMap {
 		if stat.TotalCount > 0 {
@@ -859,6 +918,7 @@ func GetModelAvailabilityByGroup(group string, hours int) ([]ModelAvailability, 
 		} else {
 			stat.SuccessRate = 0
 		}
+		stat.Reliability = wilsonLowerBound(stat.SuccessCount, stat.TotalCount) * 100
 
 		switch {
 		case stat.TotalCount == 0:
@@ -917,30 +977,23 @@ func GetUserModelAvailability(userId int, hours int) ([]ModelAvailability, error
 		}
 	}
 
-	// 按状态优先级排序：异常 → 警告 → 正常 → 无数据；相同状态按调用量降序
+	// 可靠性榜单排序：有调用的模型按 Wilson 下界降序（成功率高且样本量大的在前），
+	// 可靠度相同时按调用量降序；无数据的模型沉底；同档再按模型名升序保证稳定输出
 	sort.Slice(result, func(i, j int) bool {
-		priorityI := getStatusPriority(result[i].Status)
-		priorityJ := getStatusPriority(result[j].Status)
-		if priorityI != priorityJ {
-			return priorityI < priorityJ
+		a, b := result[i], result[j]
+		aHasData := a.TotalCount > 0
+		bHasData := b.TotalCount > 0
+		if aHasData != bHasData {
+			return aHasData
 		}
-		// 相同状态按调用量降序
-		return result[i].TotalCount > result[j].TotalCount
+		if a.Reliability != b.Reliability {
+			return a.Reliability > b.Reliability
+		}
+		if a.TotalCount != b.TotalCount {
+			return a.TotalCount > b.TotalCount
+		}
+		return a.ModelName < b.ModelName
 	})
 
 	return result, nil
-}
-
-// getStatusPriority 获取状态优先级，数字越小优先级越高
-func getStatusPriority(status string) int {
-	switch status {
-	case ModelAvailabilityStatusError:
-		return 0
-	case ModelAvailabilityStatusWarning:
-		return 1
-	case ModelAvailabilityStatusNormal:
-		return 2
-	default: // ModelAvailabilityStatusNoData
-		return 3
-	}
 }

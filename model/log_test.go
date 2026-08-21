@@ -5,10 +5,13 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func newLogTestContext(userAgent string) *gin.Context {
@@ -97,4 +100,153 @@ func TestRecordRequestLogsPersistSanitizedUa(t *testing.T) {
 	if !LOG_DB.Migrator().HasColumn(&Log{}, "ua") {
 		t.Fatal("logs table is missing the ua column after AutoMigrate")
 	}
+}
+
+func TestGetModelAvailabilityByGroupHourlyBuckets(t *testing.T) {
+	truncateTables(t)
+
+	nowBucket := time.Now().Unix() / 3600
+	bucketStart := func(hoursAgo int64) int64 { return (nowBucket - hoursAgo) * 3600 }
+	// 取桶内中点写入，避免测试执行期间跨过整点导致数据滑出统计窗口
+	bucketMid := func(hoursAgo int64) int64 { return bucketStart(hoursAgo) + 1800 }
+
+	logs := []*Log{
+		// alpha：1 小时前 3 成功 1 失败，3 小时前 1 失败
+		{ModelName: "alpha", Type: LogTypeConsume, CreatedAt: bucketMid(1), Group: "default"},
+		{ModelName: "alpha", Type: LogTypeConsume, CreatedAt: bucketMid(1), Group: "default"},
+		{ModelName: "alpha", Type: LogTypeConsume, CreatedAt: bucketMid(1), Group: "default"},
+		{ModelName: "alpha", Type: LogTypeError, CreatedAt: bucketMid(1), Group: "default"},
+		{ModelName: "alpha", Type: LogTypeError, CreatedAt: bucketMid(3), Group: "default"},
+		// beta：另一分组，全部成功
+		{ModelName: "beta", Type: LogTypeConsume, CreatedAt: bucketMid(1), Group: "vip"},
+		// 窗口外（25 小时前）不计入
+		{ModelName: "alpha", Type: LogTypeError, CreatedAt: bucketMid(25), Group: "default"},
+		// 空模型名与非 consume/error 类型不计入
+		{ModelName: "", Type: LogTypeConsume, CreatedAt: bucketMid(1), Group: "default"},
+		{ModelName: "alpha", Type: LogTypeTopup, CreatedAt: bucketMid(1), Group: "default"},
+	}
+	require.NoError(t, LOG_DB.Create(&logs).Error)
+
+	result, err := GetModelAvailabilityByGroup("", 24)
+	require.NoError(t, err)
+
+	byName := make(map[string]ModelAvailability, len(result))
+	for _, item := range result {
+		byName[item.ModelName] = item
+	}
+	require.Contains(t, byName, "alpha")
+	require.Contains(t, byName, "beta")
+	require.NotContains(t, byName, "")
+
+	alpha := byName["alpha"]
+	assert.Equal(t, 5, alpha.TotalCount)
+	assert.Equal(t, 3, alpha.SuccessCount)
+	assert.Equal(t, 2, alpha.ErrorCount)
+	assert.InDelta(t, 60.0, alpha.SuccessRate, 0.001)
+	assert.Equal(t, ModelAvailabilityStatusError, alpha.Status)
+
+	// 时间轴必须是连续整点小时桶，前端按顺序渲染依赖该契约
+	require.Len(t, alpha.Hourly, 24)
+	start := alpha.Hourly[0].Timestamp
+	require.Zero(t, start%3600)
+	for i, bucket := range alpha.Hourly {
+		require.Equal(t, start+int64(i)*3600, bucket.Timestamp)
+	}
+
+	hourlySuccess, hourlyError := 0, 0
+	for _, bucket := range alpha.Hourly {
+		hourlySuccess += bucket.SuccessCount
+		hourlyError += bucket.ErrorCount
+	}
+	assert.Equal(t, alpha.SuccessCount, hourlySuccess)
+	assert.Equal(t, alpha.ErrorCount, hourlyError)
+
+	idxOf := func(ts int64) int {
+		idx := int((ts - start) / 3600)
+		require.GreaterOrEqual(t, idx, 0)
+		require.Less(t, idx, len(alpha.Hourly))
+		return idx
+	}
+	recentBucket := alpha.Hourly[idxOf(bucketStart(1))]
+	assert.Equal(t, 3, recentBucket.SuccessCount)
+	assert.Equal(t, 1, recentBucket.ErrorCount)
+	olderBucket := alpha.Hourly[idxOf(bucketStart(3))]
+	assert.Equal(t, 0, olderBucket.SuccessCount)
+	assert.Equal(t, 1, olderBucket.ErrorCount)
+
+	beta := byName["beta"]
+	assert.Equal(t, 1, beta.TotalCount)
+	assert.Equal(t, ModelAvailabilityStatusNormal, beta.Status)
+	assert.InDelta(t, 100.0, beta.SuccessRate, 0.001)
+
+	// 分组过滤只统计该分组的日志
+	vipResult, err := GetModelAvailabilityByGroup("vip", 24)
+	require.NoError(t, err)
+	require.Len(t, vipResult, 1)
+	assert.Equal(t, "beta", vipResult[0].ModelName)
+
+	// hours 超上限被钳制，桶数不会无限膨胀
+	clampedResult, err := GetModelAvailabilityByGroup("", 100000)
+	require.NoError(t, err)
+	for _, item := range clampedResult {
+		assert.Len(t, item.Hourly, maxAvailabilityHours)
+	}
+}
+
+func TestWilsonLowerBound(t *testing.T) {
+	assert.Zero(t, wilsonLowerBound(0, 0))
+	assert.Zero(t, wilsonLowerBound(5, 0))
+	assert.InDelta(t, 0.0, wilsonLowerBound(0, 5), 1e-9)
+	// 已知参考值（z=1.96）
+	assert.InDelta(t, 0.2307, wilsonLowerBound(3, 5), 0.0005)
+	assert.InDelta(t, 0.9287, wilsonLowerBound(50, 50), 0.0005)
+	assert.InDelta(t, 0.0260, wilsonLowerBound(5, 83), 0.0005)
+	assert.InDelta(t, 0.2065, wilsonLowerBound(1, 1), 0.0005)
+	// 同成功率下样本量越大，下界越高
+	assert.Greater(t, wilsonLowerBound(950, 1000), wilsonLowerBound(95, 100))
+	// 大样本的高成功率优于小样本的 100%
+	assert.Greater(t, wilsonLowerBound(3050, 3099), wilsonLowerBound(50, 50))
+}
+
+func TestGetUserModelAvailabilityRanking(t *testing.T) {
+	truncateTables(t)
+
+	user := &User{Username: "avail-user", Password: "password", Status: common.UserStatusEnabled, Group: "default"}
+	require.NoError(t, DB.Create(user).Error)
+
+	modelNames := []string{"big-good", "small-perfect", "big-bad", "all-fail", "never-called"}
+	for i, name := range modelNames {
+		require.NoError(t, DB.Create(&Ability{Group: "default", Model: name, ChannelId: i + 1, Enabled: true}).Error)
+	}
+
+	createdAt := (time.Now().Unix()/3600-1)*3600 + 1800
+	var logs []*Log
+	appendLogs := func(modelName string, success, failure int) {
+		for i := 0; i < success; i++ {
+			logs = append(logs, &Log{ModelName: modelName, Type: LogTypeConsume, CreatedAt: createdAt, Group: "default"})
+		}
+		for i := 0; i < failure; i++ {
+			logs = append(logs, &Log{ModelName: modelName, Type: LogTypeError, CreatedAt: createdAt, Group: "default"})
+		}
+	}
+	appendLogs("big-good", 48, 2)      // 96%，n=50 → 可靠度约 86.5%
+	appendLogs("small-perfect", 20, 0) // 100%，n=20 → 可靠度约 83.9%
+	appendLogs("big-bad", 6, 4)        // 60%，n=10 → 可靠度约 31.3%
+	appendLogs("all-fail", 0, 3)       // 0% → 可靠度 0，但有数据，排在无数据之前
+	require.NoError(t, LOG_DB.Create(&logs).Error)
+
+	result, err := GetUserModelAvailability(user.Id, 24)
+	require.NoError(t, err)
+	require.Len(t, result, len(modelNames))
+
+	gotOrder := make([]string, 0, len(result))
+	for _, item := range result {
+		gotOrder = append(gotOrder, item.ModelName)
+	}
+	// 大样本高成功率 > 小样本 100% > 低成功率 > 全失败 > 无调用记录
+	assert.Equal(t, []string{"big-good", "small-perfect", "big-bad", "all-fail", "never-called"}, gotOrder)
+
+	assert.Greater(t, result[0].Reliability, result[1].Reliability)
+	assert.InDelta(t, 100.0, result[1].SuccessRate, 0.001)
+	assert.Equal(t, ModelAvailabilityStatusNoData, result[4].Status)
 }
