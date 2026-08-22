@@ -17,7 +17,8 @@ type InvitationCode struct {
 	Code         string         `json:"code" gorm:"type:varchar(32);uniqueIndex"`           // 邀请码
 	Quota        int            `json:"quota" gorm:"default:0"`                             // 生成时消耗的额度
 	Status       int            `json:"status" gorm:"default:1"`                            // 1=未使用, 2=已使用, 3=已禁用
-	UsedUserId   int            `json:"used_user_id"`                                       // 注册使用者 ID；作兑换码核销时不记录
+	UsedUserId   int            `json:"used_user_id"`                                       // 使用者 ID
+	UsedType     int            `json:"used_type" gorm:"default:0"`                         // 使用用途：1=注册，2=兑换；0=未使用或历史数据
 	UsedTime     int64          `json:"used_time" gorm:"bigint"`                            // 使用时间
 	CreatedTime  int64          `json:"created_time" gorm:"bigint"`                         // 创建时间
 	Count        int            `json:"count" gorm:"-:all"`                                 // 仅用于批量创建请求
@@ -190,6 +191,7 @@ func FinalizeInvitationCodeUsage(code *InvitationCode, userId int) error {
 		err := tx.Model(&InvitationCode{}).Where("id = ?", code.Id).
 			Updates(map[string]interface{}{
 				"used_user_id": userId,
+				"used_type":    common.InvitationCodeUsedTypeRegister,
 				"used_time":    common.GetTimestamp(),
 			}).Error
 		if err != nil {
@@ -391,8 +393,12 @@ func AttachInvitationInfo(users []*User) {
 			}
 		}
 	}
+	// 只按注册使用反查：兑换核销（used_type=2）不产生邀请关系；
+	// 历史数据（used_type=0）按"之前的不管"约定同样排除
 	var codes []InvitationCode
-	if err := ReadDB().Select("code", "used_user_id").Where("used_user_id IN ?", userIds).Find(&codes).Error; err == nil {
+	if err := ReadDB().Select("code", "used_user_id").
+		Where("used_user_id IN ? AND used_type = ?", userIds, common.InvitationCodeUsedTypeRegister).
+		Find(&codes).Error; err == nil {
 		codeByUser := make(map[int]string, len(codes))
 		for _, code := range codes {
 			codeByUser[code.UsedUserId] = code.Code

@@ -212,7 +212,7 @@ const InvitationCode = () => {
         record.user_name ? `${record.user_name} (${value})` : value,
     },
     {
-      title: t('注册使用者'),
+      title: t('使用者'),
       dataIndex: 'used_user_id',
       width: 130,
       render: (value, record) => {
@@ -220,6 +220,17 @@ const InvitationCode = () => {
         return record.used_user_name
           ? `${record.used_user_name} (${value})`
           : value;
+      },
+    },
+    {
+      title: t('用途'),
+      dataIndex: 'used_type',
+      width: 80,
+      render: (value, record) => {
+        if (record.status !== 2) return '-';
+        if (value === 1) return <Tag color='green'>{t('注册')}</Tag>;
+        if (value === 2) return <Tag color='blue'>{t('兑换')}</Tag>;
+        return <Tag color='grey'>{t('已使用')}</Tag>;
       },
     },
     {

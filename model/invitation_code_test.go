@@ -51,6 +51,7 @@ func TestInvitationCodeReserveFinalizeRelease(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, common.InvitationCodeStatusUsed, used.Status)
 	assert.Equal(t, newUser.Id, used.UsedUserId)
+	assert.Equal(t, common.InvitationCodeUsedTypeRegister, used.UsedType)
 
 	var rewarded User
 	require.NoError(t, DB.First(&rewarded, "id = ?", newUser.Id).Error)
@@ -64,9 +65,9 @@ func TestInvitationCodeReserveFinalizeRelease(t *testing.T) {
 	assert.Equal(t, newUser.Id, final.UsedUserId)
 }
 
-// 邀请码作兑换码核销：仅改状态与时间，不得写 UsedUserId——该字段专表"注册使用者"，
-// 管理端用户列表的邀请关系按 used_user_id 反查，兑换不产生邀请关系。
-func TestInvitationCodeRedeemDoesNotRecordUser(t *testing.T) {
+// 邀请码作兑换码核销：记录使用者与用途（UsedType=兑换），但不得进入用户列表的
+// 邀请关系——AttachInvitationInfo 只按 used_type=注册 反查 used_invitation_code。
+func TestInvitationCodeRedeemRecordsUsageWithoutInviteRelation(t *testing.T) {
 	truncateTables(t)
 
 	oldRatio := common.InvitationCodeRewardRatio
@@ -95,15 +96,22 @@ func TestInvitationCodeRedeemDoesNotRecordUser(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 500, quota)
 
+	// 生成者可追溯去向：记录使用者与兑换用途
 	used, err := GetInvitationCodeByCode("redeem-code")
 	require.NoError(t, err)
 	assert.Equal(t, common.InvitationCodeStatusUsed, used.Status)
-	assert.Zero(t, used.UsedUserId)
+	assert.Equal(t, redeemer.Id, used.UsedUserId)
+	assert.Equal(t, common.InvitationCodeUsedTypeRedeem, used.UsedType)
 	assert.NotZero(t, used.UsedTime)
 
 	var after User
 	require.NoError(t, DB.First(&after, "id = ?", redeemer.Id).Error)
 	assert.Equal(t, 500, after.Quota)
+
+	// 兑换不产生邀请关系：用户列表反查不得把兑换的码当成注册使用的邀请码
+	users := []*User{&redeemer}
+	AttachInvitationInfo(users)
+	assert.Empty(t, redeemer.UsedInvitationCode)
 
 	// 已核销的码不可再次兑换
 	_, err = Redeem("redeem-code", redeemer.Id)

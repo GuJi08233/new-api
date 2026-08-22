@@ -352,6 +352,31 @@ const InvitationCard = ({ t }) => {
       },
     },
     {
+      title: t('去向'),
+      dataIndex: 'used_user_id',
+      width: 170,
+      render: (value, record) => {
+        if (record.status !== 2) return '-';
+        const typeTag =
+          record.used_type === 1 ? (
+            <Tag color='green'>{t('注册')}</Tag>
+          ) : record.used_type === 2 ? (
+            <Tag color='blue'>{t('兑换')}</Tag>
+          ) : (
+            <Tag color='grey'>{t('已使用')}</Tag>
+          );
+        const who = record.used_user_name
+          ? `${record.used_user_name}${value ? ` (${value})` : ''}`
+          : value || '';
+        return (
+          <Space size='small'>
+            {typeTag}
+            {who ? <Text size='small'>{who}</Text> : null}
+          </Space>
+        );
+      },
+    },
+    {
       title: t('创建时间'),
       dataIndex: 'created_time',
       width: 180,

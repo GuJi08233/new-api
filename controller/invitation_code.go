@@ -61,6 +61,8 @@ func GetMyInvitationCodes(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	// 让生成者能看到自己邀请码的去向（使用者与用途）
+	model.AttachInvitationCodeUsers(codes)
 	pageInfo.SetTotal(int(total))
 	pageInfo.SetItems(codes)
 	common.ApiSuccess(c, pageInfo)

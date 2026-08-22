@@ -305,6 +305,11 @@ const (
 )
 
 const (
+	InvitationCodeUsedTypeRegister = 1 // 注册使用（产生邀请关系）
+	InvitationCodeUsedTypeRedeem   = 2 // 兑换使用（仅核销，不产生邀请关系）
+)
+
+const (
 	ChannelStatusUnknown          = 0
 	ChannelStatusEnabled          = 1 // don't use 0, 0 is the default value!
 	ChannelStatusManuallyDisabled = 2 // also don't use 0
