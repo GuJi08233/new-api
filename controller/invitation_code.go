@@ -107,6 +107,7 @@ func GetAllInvitationCodes(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	model.AttachInvitationCodeUsers(codes)
 	pageInfo.SetTotal(int(total))
 	pageInfo.SetItems(codes)
 	common.ApiSuccess(c, pageInfo)
@@ -121,6 +122,7 @@ func SearchInvitationCodes(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	model.AttachInvitationCodeUsers(codes)
 	pageInfo.SetTotal(int(total))
 	pageInfo.SetItems(codes)
 	common.ApiSuccess(c, pageInfo)

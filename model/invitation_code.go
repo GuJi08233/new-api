@@ -12,17 +12,19 @@ import (
 )
 
 type InvitationCode struct {
-	Id          int            `json:"id"`
-	UserId      int            `json:"user_id" gorm:"index"`                               // 生成者 ID
-	Code        string         `json:"code" gorm:"type:varchar(32);uniqueIndex"`           // 邀请码
-	Quota       int            `json:"quota" gorm:"default:0"`                             // 生成时消耗的额度
-	Status      int            `json:"status" gorm:"default:1"`                            // 1=未使用, 2=已使用, 3=已禁用
-	UsedUserId  int            `json:"used_user_id"`                                       // 使用者 ID
-	UsedTime    int64          `json:"used_time" gorm:"bigint"`                            // 使用时间
-	CreatedTime int64          `json:"created_time" gorm:"bigint"`                         // 创建时间
-	Count       int            `json:"count" gorm:"-:all"`                                 // 仅用于批量创建请求
-	Remark      string         `json:"remark" gorm:"type:varchar(255)" validate:"max=255"` // 备注
-	DeletedAt   gorm.DeletedAt `gorm:"index"`
+	Id           int            `json:"id"`
+	UserId       int            `json:"user_id" gorm:"index"`                               // 生成者 ID
+	Code         string         `json:"code" gorm:"type:varchar(32);uniqueIndex"`           // 邀请码
+	Quota        int            `json:"quota" gorm:"default:0"`                             // 生成时消耗的额度
+	Status       int            `json:"status" gorm:"default:1"`                            // 1=未使用, 2=已使用, 3=已禁用
+	UsedUserId   int            `json:"used_user_id"`                                       // 注册使用者 ID；作兑换码核销时不记录
+	UsedTime     int64          `json:"used_time" gorm:"bigint"`                            // 使用时间
+	CreatedTime  int64          `json:"created_time" gorm:"bigint"`                         // 创建时间
+	Count        int            `json:"count" gorm:"-:all"`                                 // 仅用于批量创建请求
+	Remark       string         `json:"remark" gorm:"type:varchar(255)" validate:"max=255"` // 备注
+	UserName     string         `json:"user_name,omitempty" gorm:"-:all"`                   // 生成者用户名，仅管理端列表展示
+	UsedUserName string         `json:"used_user_name,omitempty" gorm:"-:all"`              // 使用者用户名，仅管理端列表展示
+	DeletedAt    gorm.DeletedAt `gorm:"index"`
 }
 
 func GetAllInvitationCodes(startIdx int, num int) (codes []*InvitationCode, total int64, err error) {
@@ -323,6 +325,43 @@ func GenerateInvitationCodesForUser(userId int, count int, remark string) ([]*In
 		RecordLog(userId, LogTypeSystem, fmt.Sprintf("生成邀请码消耗 %s", logger.LogQuota(totalPrice)))
 	}
 	return codes, nil
+}
+
+// AttachInvitationCodeUsers 为邀请码列表填充生成者与使用者用户名（管理端展示用）
+func AttachInvitationCodeUsers(codes []*InvitationCode) {
+	if len(codes) == 0 {
+		return
+	}
+	idSet := make(map[int]struct{})
+	for _, c := range codes {
+		if c.UserId != 0 {
+			idSet[c.UserId] = struct{}{}
+		}
+		if c.UsedUserId != 0 {
+			idSet[c.UsedUserId] = struct{}{}
+		}
+	}
+	if len(idSet) == 0 {
+		return
+	}
+	ids := make([]int, 0, len(idSet))
+	for id := range idSet {
+		ids = append(ids, id)
+	}
+	var users []User
+	if err := ReadDB().Unscoped().Select("id", "username").Where("id IN ?", ids).Find(&users).Error; err != nil {
+		return
+	}
+	nameById := make(map[int]string, len(users))
+	for _, u := range users {
+		nameById[u.Id] = u.Username
+	}
+	for _, c := range codes {
+		c.UserName = nameById[c.UserId]
+		if c.UsedUserId != 0 {
+			c.UsedUserName = nameById[c.UsedUserId]
+		}
+	}
 }
 
 // AttachInvitationInfo 为用户列表填充邀请人用户名与注册时使用的邀请码（管理端展示用）

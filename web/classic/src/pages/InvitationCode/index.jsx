@@ -205,15 +205,22 @@ const InvitationCode = () => {
       },
     },
     {
-      title: t('生成者 ID'),
+      title: t('生成者'),
       dataIndex: 'user_id',
-      width: 90,
+      width: 130,
+      render: (value, record) =>
+        record.user_name ? `${record.user_name} (${value})` : value,
     },
     {
-      title: t('使用者 ID'),
+      title: t('注册使用者'),
       dataIndex: 'used_user_id',
-      width: 90,
-      render: (value) => value || '-',
+      width: 130,
+      render: (value, record) => {
+        if (!value) return '-';
+        return record.used_user_name
+          ? `${record.used_user_name} (${value})`
+          : value;
+      },
     },
     {
       title: t('备注'),

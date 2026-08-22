@@ -177,8 +177,9 @@ func Redeem(key string, userId int) (quota int, err error) {
 					return err
 				}
 			}
+			// 兑换核销只改状态，不写 UsedUserId：该字段专表"注册使用者"，
+			// 用户列表的邀请关系（AttachInvitationInfo）按它反查，兑换不产生邀请关系
 			invitationCode.Status = common.InvitationCodeStatusUsed
-			invitationCode.UsedUserId = userId
 			invitationCode.UsedTime = common.GetTimestamp()
 			err = tx.Save(invitationCode).Error
 			if err != nil {
