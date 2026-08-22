@@ -259,7 +259,7 @@ func Register(c *gin.Context) {
 		return
 	}
 
-	// 确定邀请人：优先使用邀请码生成者，否则使用 aff_code
+	// 确定邀请人：仅支持邀请码生成者
 	inviterId := 0
 	if common.InvitationCodeEnabled && invitationCodeRecord != nil {
 		// 原子占用邀请码，防止并发注册用同一个码同时通过校验
@@ -274,9 +274,6 @@ func Register(c *gin.Context) {
 		}
 		invitationCodeRecord = reserved
 		inviterId = invitationCodeRecord.UserId
-	} else {
-		affCode := user.AffCode // this code is the inviter's code, not the user's own code
-		inviterId, _ = model.GetUserIdByAffCode(affCode)
 	}
 
 	cleanUser := model.User{
@@ -455,55 +452,6 @@ func GenerateAccessToken(c *gin.Context) {
 	return
 }
 
-type TransferAffQuotaRequest struct {
-	Quota int `json:"quota" binding:"required"`
-}
-
-func TransferAffQuota(c *gin.Context) {
-	id := c.GetInt("id")
-	user, err := model.GetUserById(id, true)
-	if err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	tran := TransferAffQuotaRequest{}
-	if err := c.ShouldBindJSON(&tran); err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	err = user.TransferAffQuotaToQuota(tran.Quota)
-	if err != nil {
-		common.ApiErrorI18n(c, i18n.MsgUserTransferFailed, map[string]any{"Error": err.Error()})
-		return
-	}
-	common.ApiSuccessI18n(c, i18n.MsgUserTransferSuccess, nil)
-}
-
-func GetAffCode(c *gin.Context) {
-	id := c.GetInt("id")
-	user, err := model.GetUserById(id, true)
-	if err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	if user.AffCode == "" {
-		user.AffCode = common.GetRandomString(4)
-		if err := user.Update(false); err != nil {
-			c.JSON(http.StatusOK, gin.H{
-				"success": false,
-				"message": err.Error(),
-			})
-			return
-		}
-	}
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
-		"data":    user.AffCode,
-	})
-	return
-}
-
 func GetSelf(c *gin.Context) {
 	id := c.GetInt("id")
 	userRole := c.GetInt("role")
@@ -539,10 +487,6 @@ func GetSelf(c *gin.Context) {
 		"quota":             user.Quota,
 		"used_quota":        user.UsedQuota,
 		"request_count":     user.RequestCount,
-		"aff_code":          user.AffCode,
-		"aff_count":         user.AffCount,
-		"aff_quota":         user.AffQuota,
-		"aff_history_quota": user.AffHistoryQuota,
 		"inviter_id":        user.InviterId,
 		"linux_do_id":       user.LinuxDOId,
 		"steam_openid":      user.SteamOpenId,

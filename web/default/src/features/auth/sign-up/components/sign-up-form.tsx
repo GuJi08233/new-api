@@ -46,7 +46,6 @@ import { useAuthRedirect } from '@/features/auth/hooks/use-auth-redirect'
 import { useEmailVerification } from '@/features/auth/hooks/use-email-verification'
 import { useTurnstile } from '@/features/auth/hooks/use-turnstile'
 import {
-  getAffiliateCode,
   getInvitationCode,
   saveInvitationCode,
 } from '@/features/auth/lib/storage'
@@ -176,7 +175,6 @@ export function SignUpForm({
         password: data.password,
         email: data.email || undefined,
         verification_code: verificationCode || undefined,
-        aff: getAffiliateCode(),
         invitation_code: invitationCodeInput.trim() || undefined,
         turnstile: turnstileToken,
       })

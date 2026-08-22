@@ -246,10 +246,6 @@ export const processGroupsData = (data, userGroup) => {
 
 export async function getOAuthState(invitationCode) {
   let params = new URLSearchParams();
-  let affCode = localStorage.getItem('aff');
-  if (affCode && affCode.length > 0) {
-    params.set('aff', affCode);
-  }
   if (invitationCode) {
     params.set('invitation_code', invitationCode);
   }

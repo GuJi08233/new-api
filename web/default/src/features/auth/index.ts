@@ -84,13 +84,7 @@ export {
   hasOAuthProviders,
 } from './lib/oauth'
 
-export {
-  saveUserId,
-  getUserId,
-  removeUserId,
-  getAffiliateCode,
-  saveAffiliateCode,
-} from './lib/storage'
+export { saveUserId, getUserId, removeUserId } from './lib/storage'
 
 export {
   isValidOTP,

@@ -24,10 +24,6 @@ func providerParams(name string) map[string]any {
 func GenerateOAuthCode(c *gin.Context) {
 	session := sessions.Default(c)
 	state := common.GetRandomString(12)
-	affCode := c.Query("aff")
-	if affCode != "" {
-		session.Set("aff", affCode)
-	}
 	invitationCode := c.Query("invitation_code")
 	if invitationCode != "" {
 		session.Set("invitation_code", invitationCode)
@@ -299,7 +295,7 @@ func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *o
 	user.Role = common.RoleCommonUser
 	user.Status = common.UserStatusEnabled
 
-	// Handle inviter: 优先使用邀请码生成者，否则使用 aff_code
+	// Handle inviter: 仅支持邀请码生成者
 	inviterId := 0
 	if common.InvitationCodeEnabled && invitationCodeRecord != nil {
 		// 原子占用邀请码，防止并发注册用同一个码同时通过校验
@@ -309,11 +305,6 @@ func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *o
 		}
 		invitationCodeRecord = reserved
 		inviterId = invitationCodeRecord.UserId
-	} else {
-		affCode := session.Get("aff")
-		if affCode != nil {
-			inviterId, _ = model.GetUserIdByAffCode(affCode.(string))
-		}
 	}
 
 	// Use transaction to ensure user creation and OAuth binding are atomic

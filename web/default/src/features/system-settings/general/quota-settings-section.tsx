@@ -27,8 +27,6 @@ const quotaSchema = z.object({
   QuotaForNewUserAmount: z.coerce.number().min(0),
   PreConsumedQuota: z.coerce.number().min(0),
   PreConsumedQuotaAmount: z.coerce.number().min(0),
-  QuotaForInviter: z.coerce.number().min(0),
-  QuotaForInviterAmount: z.coerce.number().min(0),
   QuotaForInvitee: z.coerce.number().min(0),
   QuotaForInviteeAmount: z.coerce.number().min(0),
   TopUpLink: z.string().url().optional().or(z.literal('')),
@@ -40,10 +38,7 @@ type QuotaFormValues = z.infer<typeof quotaSchema>
 
 type QuotaSettingsDefaults = Omit<
   QuotaFormValues,
-  | 'QuotaForNewUserAmount'
-  | 'PreConsumedQuotaAmount'
-  | 'QuotaForInviterAmount'
-  | 'QuotaForInviteeAmount'
+  'QuotaForNewUserAmount' | 'PreConsumedQuotaAmount' | 'QuotaForInviteeAmount'
 >
 
 type QuotaSettingsSectionProps = {
@@ -62,9 +57,6 @@ export function QuotaSettingsSection({
     ),
     PreConsumedQuotaAmount: Number(
       quotaUnitsToDollars(defaultValues.PreConsumedQuota).toFixed(6)
-    ),
-    QuotaForInviterAmount: Number(
-      quotaUnitsToDollars(defaultValues.QuotaForInviter).toFixed(6)
     ),
     QuotaForInviteeAmount: Number(
       quotaUnitsToDollars(defaultValues.QuotaForInvitee).toFixed(6)
@@ -122,18 +114,6 @@ export function QuotaSettingsSection({
             quotaLabel={t('Pre-Consumed Quota')}
             amountDescription={t('Pre-consumed balance before final settlement')}
             quotaDescription={t('Raw quota consumed before charging users')}
-            amountPlaceholder='0'
-            quotaPlaceholder='0'
-          />
-
-          <QuotaAmountFieldPair
-            form={form}
-            amountName='QuotaForInviterAmount'
-            quotaName='QuotaForInviter'
-            amountLabel={t('Inviter Reward Amount')}
-            quotaLabel={t('Inviter Reward')}
-            amountDescription={t('Balance reward granted to inviters')}
-            quotaDescription={t('Quota reward given to users who invite others')}
             amountPlaceholder='0'
             quotaPlaceholder='0'
           />

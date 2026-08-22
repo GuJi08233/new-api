@@ -37,7 +37,6 @@ export interface RegisterPayload {
   password: string
   email?: string
   verification_code?: string
-  aff?: string
   invitation_code?: string
   turnstile?: string
 }

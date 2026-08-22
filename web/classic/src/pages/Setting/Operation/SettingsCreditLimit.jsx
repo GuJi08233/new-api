@@ -41,8 +41,6 @@ export default function SettingsCreditLimit(props) {
     QuotaForNewUserAmount: '',
     PreConsumedQuota: '',
     PreConsumedQuotaAmount: '',
-    QuotaForInviter: '',
-    QuotaForInviterAmount: '',
     QuotaForInvitee: '',
     QuotaForInviteeAmount: '',
     'quota_setting.enable_free_model_pre_consume': true,
@@ -98,9 +96,6 @@ export default function SettingsCreditLimit(props) {
     );
     currentInputs.PreConsumedQuotaAmount = Number(
       quotaToDisplayAmount(currentInputs.PreConsumedQuota || 0).toFixed(6),
-    );
-    currentInputs.QuotaForInviterAmount = Number(
-      quotaToDisplayAmount(currentInputs.QuotaForInviter || 0).toFixed(6),
     );
     currentInputs.QuotaForInviteeAmount = Number(
       quotaToDisplayAmount(currentInputs.QuotaForInvitee || 0).toFixed(6),
@@ -201,47 +196,6 @@ export default function SettingsCreditLimit(props) {
                       ...inputs,
                       PreConsumedQuota: String(quota),
                       PreConsumedQuotaAmount: amount,
-                    });
-                  }}
-                />
-              </Col>
-              <Col xs={24} sm={12} md={8} lg={8} xl={8}>
-                <Form.InputNumber
-                  label={t('邀请新用户奖励金额')}
-                  field={'QuotaForInviterAmount'}
-                  step={0.000001}
-                  min={0}
-                  precision={6}
-                  prefix={getCurrencyConfig().symbol}
-                  placeholder={t('例如：0.01')}
-                  onChange={(value) => {
-                    const amount = value === '' || value == null ? '' : value;
-                    const quota = amount === '' ? '' : displayAmountToQuota(amount);
-                    setInputs({
-                      ...inputs,
-                      QuotaForInviterAmount: amount,
-                      QuotaForInviter: String(quota),
-                    });
-                  }}
-                />
-              </Col>
-              <Col xs={24} sm={12} md={8} lg={8} xl={8}>
-                <Form.InputNumber
-                  label={t('邀请新用户奖励额度')}
-                  field={'QuotaForInviter'}
-                  step={500000}
-                  min={0}
-                  suffix={'Token'}
-                  placeholder={t('例如：5000000')}
-                  onChange={(value) => {
-                    const quota = value === '' || value == null ? '' : value;
-                    const amount = quota === ''
-                      ? ''
-                      : Number(quotaToDisplayAmount(quota).toFixed(6));
-                    setInputs({
-                      ...inputs,
-                      QuotaForInviter: String(quota),
-                      QuotaForInviterAmount: amount,
                     });
                   }}
                 />

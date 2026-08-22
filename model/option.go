@@ -22,7 +22,9 @@ type Option struct {
 }
 
 func isRemovedOptionKey(key string) bool {
-	return strings.HasPrefix(key, "payment_setting.compliance_")
+	// QuotaForInviter: aff 推广返利已下线，仅保留邀请码体系
+	return strings.HasPrefix(key, "payment_setting.compliance_") ||
+		key == "QuotaForInviter"
 }
 
 func AllOption() ([]*Option, error) {
@@ -150,7 +152,6 @@ func InitOptionMap() {
 	common.OptionMap["TurnstileSiteKey"] = ""
 	common.OptionMap["TurnstileSecretKey"] = ""
 	common.OptionMap["QuotaForNewUser"] = strconv.Itoa(common.QuotaForNewUser)
-	common.OptionMap["QuotaForInviter"] = strconv.Itoa(common.QuotaForInviter)
 	common.OptionMap["QuotaForInvitee"] = strconv.Itoa(common.QuotaForInvitee)
 	common.OptionMap["InvitationCodeEnabled"] = strconv.FormatBool(common.InvitationCodeEnabled)
 	common.OptionMap["InvitationCodePrice"] = strconv.Itoa(common.InvitationCodePrice)
@@ -624,8 +625,6 @@ func updateOptionMap(key string, value string) (err error) {
 		common.TurnstileSecretKey = value
 	case "QuotaForNewUser":
 		common.QuotaForNewUser, _ = strconv.Atoi(value)
-	case "QuotaForInviter":
-		common.QuotaForInviter, _ = strconv.Atoi(value)
 	case "QuotaForInvitee":
 		common.QuotaForInvitee, _ = strconv.Atoi(value)
 	case "InvitationCodeEnabled":

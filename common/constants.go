@@ -178,7 +178,6 @@ var TelegramBotToken = ""
 var TelegramBotName = ""
 
 var QuotaForNewUser = 0
-var QuotaForInviter = 0
 var QuotaForInvitee = 0
 var InvitationCodeEnabled = false  // 是否启用邀请码注册
 var InvitationCodePrice = 0        // 生成邀请码消耗的额度

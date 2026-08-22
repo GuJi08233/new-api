@@ -116,11 +116,6 @@ const RegisterForm = () => {
   const logo = getLogo();
   const systemName = getSystemName();
 
-  let affCode = new URLSearchParams(window.location.search).get('aff');
-  if (affCode) {
-    localStorage.setItem('aff', affCode);
-  }
-
   // 邀请码：从 URL 参数或 localStorage 读取
   const urlInvitationCode = new URLSearchParams(window.location.search).get('invitation_code');
   const [invitationCodeInput, setInvitationCodeInput] = useState(urlInvitationCode || localStorage.getItem('invitation_code') || '');
@@ -250,10 +245,6 @@ const RegisterForm = () => {
       }
       setRegisterLoading(true);
       try {
-        if (!affCode) {
-          affCode = localStorage.getItem('aff');
-        }
-        inputs.aff_code = affCode;
         if (invitationCodeEnabled) {
           inputs.invitation_code = invitationCodeInput;
         }
