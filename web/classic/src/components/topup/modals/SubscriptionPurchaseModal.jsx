@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import {
   Banner,
   Modal,
@@ -29,8 +29,6 @@ import {
   Tooltip,
 } from '@douyinfe/semi-ui';
 import { Crown, CalendarClock, Package } from 'lucide-react';
-import { SiStripe } from 'react-icons/si';
-import { IconCreditCard } from '@douyinfe/semi-icons';
 import { renderQuota } from '../../../helpers';
 import { getCurrencyConfig } from '../../../helpers/render';
 import {
@@ -46,8 +44,8 @@ const SubscriptionPurchaseModal = ({
   onCancel,
   selectedPlan,
   paying,
-  selectedEpayMethod,
-  setSelectedEpayMethod,
+  selectedPayMethod,
+  setSelectedPayMethod,
   epayMethods = [],
   payMethods = [],
   enableOnlineTopUp = false,
@@ -60,6 +58,7 @@ const SubscriptionPurchaseModal = ({
   onPayCreem,
   onPayEpay,
   onPayEthereum,
+  onPayBalance,
 }) => {
   const plan = selectedPlan?.plan;
   const totalAmount = Number(plan?.total_amount || 0);
@@ -80,20 +79,65 @@ const SubscriptionPurchaseModal = ({
   const dedupedAutoTokens = autoTokens.filter(
     (t) => !payMethodAddresses.includes(t.address.toLowerCase()),
   );
-  const ethereumTokenButtons = [
+  const ethereumTokens = [
     ...ethereumPayMethodEntries.map((m) => ({
       symbol: m.name || 'ETH',
       address: m.address || '0x0000000000000000000000000000000000000000',
-      isPayMethod: true,
     })),
-    ...dedupedAutoTokens.map((t) => ({
-      symbol: t.symbol,
-      address: t.address,
-      isPayMethod: false,
+    ...dedupedAutoTokens.map((token) => ({
+      symbol: token.symbol,
+      address: token.address,
     })),
   ];
-  const hasEthereum = (enableEthereumTopUp && ethereumTokenButtons.length > 0) || ethereumPayMethodEntries.length > 0;
-  const hasAnyPayment = hasStripe || hasCreem || hasEpay || hasEthereum;
+  const hasEthereum =
+    (enableEthereumTopUp && ethereumTokens.length > 0) ||
+    ethereumPayMethodEntries.length > 0;
+  const allowBalancePay = !!plan && plan.allow_balance_pay !== false;
+  // 统一支付方式下拉框：易支付通道 + Stripe/Creem + 加密货币 + 余额支付
+  const payOptions = [
+    ...(hasEpay
+      ? epayMethods.map((m) => ({ value: m.type, label: m.name || m.type }))
+      : []),
+    ...(hasStripe ? [{ value: 'stripe', label: 'Stripe' }] : []),
+    ...(hasCreem ? [{ value: 'creem', label: 'Creem' }] : []),
+    ...(hasEthereum
+      ? ethereumTokens.map((token) => ({
+          value: `ethereum:${token.address}`,
+          label: token.symbol,
+        }))
+      : []),
+    ...(allowBalancePay ? [{ value: 'balance', label: t('余额支付') }] : []),
+  ];
+  const hasAnyPayment = payOptions.length > 0;
+
+  useEffect(() => {
+    if (!visible || payOptions.length === 0) return;
+    if (!payOptions.some((option) => option.value === selectedPayMethod)) {
+      setSelectedPayMethod(payOptions[0].value);
+    }
+  });
+
+  const handleUnifiedPay = () => {
+    if (!selectedPayMethod) return;
+    if (selectedPayMethod === 'stripe') {
+      onPayStripe?.();
+      return;
+    }
+    if (selectedPayMethod === 'creem') {
+      onPayCreem?.();
+      return;
+    }
+    if (selectedPayMethod === 'balance') {
+      onPayBalance?.();
+      return;
+    }
+    if (selectedPayMethod.startsWith('ethereum:')) {
+      onPayEthereum?.(selectedPayMethod.slice('ethereum:'.length));
+      return;
+    }
+    onPayEpay?.(selectedPayMethod);
+  };
+
   const purchaseLimit = Number(purchaseLimitInfo?.limit || 0);
   const purchaseCount = Number(purchaseLimitInfo?.count || 0);
   const globalPurchaseLimit = Number(purchaseLimitInfo?.global_limit || 0);
@@ -221,84 +265,26 @@ const SubscriptionPurchaseModal = ({
                 {t('选择支付方式')}：
               </Text>
 
-              {/* Stripe / Creem */}
-              {(hasStripe || hasCreem) && (
-                <div className='flex gap-2'>
-                  {hasStripe && (
-                    <Button
-                      theme='light'
-                      className='flex-1'
-                      icon={<SiStripe size={14} color='#635BFF' />}
-                      onClick={onPayStripe}
-                      loading={paying}
-                      disabled={anyLimitReached}
-                    >
-                      Stripe
-                    </Button>
-                  )}
-                  {hasCreem && (
-                    <Button
-                      theme='light'
-                      className='flex-1'
-                      icon={<IconCreditCard />}
-                      onClick={onPayCreem}
-                      loading={paying}
-                      disabled={anyLimitReached}
-                    >
-                      Creem
-                    </Button>
-                  )}
-                </div>
-              )}
-
-              {/* 易支付 */}
-              {hasEpay && (
-                <div className='flex gap-2'>
-                  <Select
-                    value={selectedEpayMethod}
-                    onChange={setSelectedEpayMethod}
-                    style={{ flex: 1 }}
-                    size='default'
-                    placeholder={t('选择支付方式')}
-                    optionList={epayMethods.map((m) => ({
-                      value: m.type,
-                      label: m.name || m.type,
-                    }))}
-                    disabled={anyLimitReached}
-                  />
-                  <Button
-                    theme='solid'
-                    type='primary'
-                    onClick={onPayEpay}
-                    loading={paying}
-                    disabled={!selectedEpayMethod || anyLimitReached}
-                  >
-                    {t('支付')}
-                  </Button>
-                </div>
-              )}
-
-              {/* Ethereum */}
-              {hasEthereum && (
-                <div className='flex gap-2 flex-wrap'>
-                  {ethereumTokenButtons.map((token, index) => (
-                    <Button
-                      key={index}
-                      loading={paying}
-                      onClick={() => onPayEthereum?.(token.address)}
-                      disabled={anyLimitReached}
-                      style={{
-                        background:
-                          'linear-gradient(135deg, #627EEA, #8FA3F5)',
-                        color: '#fff',
-                        border: 'none',
-                      }}
-                    >
-                      {t('用')} {token.symbol} {t('支付')}
-                    </Button>
-                  ))}
-                </div>
-              )}
+              <div className='flex gap-2'>
+                <Select
+                  value={selectedPayMethod}
+                  onChange={setSelectedPayMethod}
+                  style={{ flex: 1 }}
+                  size='default'
+                  placeholder={t('选择支付方式')}
+                  optionList={payOptions}
+                  disabled={anyLimitReached}
+                />
+                <Button
+                  theme='solid'
+                  type='primary'
+                  onClick={handleUnifiedPay}
+                  loading={paying}
+                  disabled={!selectedPayMethod || anyLimitReached}
+                >
+                  {t('支付')}
+                </Button>
+              </div>
             </div>
           ) : (
             <Banner

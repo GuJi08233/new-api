@@ -23,6 +23,7 @@ import {
   Button,
   Card,
   Divider,
+  Modal,
   Select,
   Skeleton,
   Space,
@@ -132,12 +133,13 @@ const SubscriptionPlansCard = ({
   activeSubscriptions = [],
   allSubscriptions = [],
   reloadSubscriptionSelf,
+  reloadUserQuota,
   withCard = true,
 }) => {
   const [open, setOpen] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState(null);
   const [paying, setPaying] = useState(false);
-  const [selectedEpayMethod, setSelectedEpayMethod] = useState('');
+  const [selectedPayMethod, setSelectedPayMethod] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const [switchingSubscriptionId, setSwitchingSubscriptionId] = useState(null);
   const [walletConnectUri, setWalletConnectUri] = useState('');
@@ -148,7 +150,7 @@ const SubscriptionPlansCard = ({
 
   const openBuy = (p) => {
     setSelectedPlan(p);
-    setSelectedEpayMethod(epayMethods?.[0]?.type || '');
+    setSelectedPayMethod(epayMethods?.[0]?.type || '');
     setOpen(true);
   };
 
@@ -243,8 +245,8 @@ const SubscriptionPlansCard = ({
     }
   };
 
-  const payEpay = async () => {
-    if (!selectedEpayMethod) {
+  const payEpay = async (method) => {
+    if (!method) {
       showError(t('请选择支付方式'));
       return;
     }
@@ -252,7 +254,7 @@ const SubscriptionPlansCard = ({
     try {
       const res = await API.post('/api/subscription/epay/pay', {
         plan_id: selectedPlan.plan.id,
-        payment_method: selectedEpayMethod,
+        payment_method: method,
       });
       if (res.data?.message === 'success') {
         submitEpayForm({ url: res.data.url, params: res.data.data });
@@ -270,6 +272,41 @@ const SubscriptionPlansCard = ({
     } finally {
       setPaying(false);
     }
+  };
+
+  const payBalance = () => {
+    const plan = selectedPlan?.plan;
+    if (!plan?.id) return;
+    const { symbol, rate } = getCurrencyConfig();
+    const convertedPrice = Number(plan.price_amount || 0) * rate;
+    const displayPrice = convertedPrice.toFixed(
+      Number.isInteger(convertedPrice) ? 0 : 2,
+    );
+    Modal.confirm({
+      title: t('确认使用余额购买'),
+      content: `${t('将从钱包余额扣除')} ${symbol}${displayPrice}`,
+      centered: true,
+      onOk: async () => {
+        setPaying(true);
+        try {
+          const res = await API.post('/api/subscription/balance/pay', {
+            plan_id: plan.id,
+          });
+          if (res.data?.success) {
+            showSuccess(t('购买成功'));
+            closeBuy();
+            reloadSubscriptionSelf?.();
+            reloadUserQuota?.();
+          } else {
+            showError(res.data?.message || t('支付失败'));
+          }
+        } catch (e) {
+          showError(t('支付请求失败'));
+        } finally {
+          setPaying(false);
+        }
+      },
+    });
   };
 
   const payEthereum = async (tokenAddress) => {
@@ -916,8 +953,8 @@ const SubscriptionPlansCard = ({
         onCancel={closeBuy}
         selectedPlan={selectedPlan}
         paying={paying}
-        selectedEpayMethod={selectedEpayMethod}
-        setSelectedEpayMethod={setSelectedEpayMethod}
+        selectedPayMethod={selectedPayMethod}
+        setSelectedPayMethod={setSelectedPayMethod}
         epayMethods={epayMethods}
         payMethods={payMethods}
         enableOnlineTopUp={enableOnlineTopUp}
@@ -947,6 +984,7 @@ const SubscriptionPlansCard = ({
         onPayCreem={payCreem}
         onPayEpay={payEpay}
         onPayEthereum={payEthereum}
+        onPayBalance={payBalance}
       />
       <WalletConnectQrModal
         t={t}
