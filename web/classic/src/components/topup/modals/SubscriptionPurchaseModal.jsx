@@ -44,6 +44,7 @@ const SubscriptionPurchaseModal = ({
   onCancel,
   selectedPlan,
   paying,
+  isRenewal = false,
   selectedPayMethod,
   setSelectedPayMethod,
   epayMethods = [],
@@ -147,7 +148,9 @@ const SubscriptionPurchaseModal = ({
     purchaseLimit > 0 && purchaseCount >= purchaseLimit;
   const globalLimitReached =
     globalPurchaseLimit > 0 && globalPurchaseCount >= globalPurchaseLimit;
-  const anyLimitReached = purchaseLimitReached || globalLimitReached;
+  // 续期不新建订阅、不占名额，限购不阻拦
+  const anyLimitReached =
+    !isRenewal && (purchaseLimitReached || globalLimitReached);
 
   return (
     <Modal
@@ -223,7 +226,10 @@ const SubscriptionPurchaseModal = ({
               {plan?.upgrade_group ? (
                 <div className='flex justify-between items-center'>
                   <Text strong className='text-slate-700 dark:text-slate-200'>
-                    {t('升级分组')}：
+                    {plan.group_mode === 'attach'
+                      ? t('附加分组')
+                      : t('升级分组')}
+                    ：
                   </Text>
                   <Text className='text-slate-900 dark:text-slate-100'>
                     {plan.upgrade_group}
@@ -242,6 +248,16 @@ const SubscriptionPurchaseModal = ({
               </div>
             </div>
           </Card>
+
+          {/* 续期提示 */}
+          {isRenewal && (
+            <Banner
+              type='info'
+              description={`${t('已持有该套餐，本次支付将为现有订阅续期')}，${t('到期时间顺延')} ${formatSubscriptionDuration(plan, t)}`}
+              className='!rounded-xl'
+              closeIcon={null}
+            />
+          )}
 
           {/* 支付方式 */}
           {anyLimitReached && (

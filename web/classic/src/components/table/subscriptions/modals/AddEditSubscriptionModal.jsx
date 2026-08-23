@@ -172,6 +172,7 @@ const AddEditSubscriptionModal = ({
     max_purchase_reset_custom_seconds: 0,
     total_amount: 0,
     upgrade_group: '',
+    group_mode: 'upgrade',
     stripe_price_id: '',
     creem_product_id: '',
   });
@@ -203,6 +204,7 @@ const AddEditSubscriptionModal = ({
         quotaToDisplayAmount(p.total_amount || 0).toFixed(2),
       ),
       upgrade_group: p.upgrade_group || '',
+      group_mode: p.group_mode === 'attach' ? 'attach' : 'upgrade',
       stripe_price_id: p.stripe_price_id || '',
       creem_product_id: p.creem_product_id || '',
     };
@@ -320,6 +322,7 @@ const AddEditSubscriptionModal = ({
               : 0,
           total_amount: useMultiTier ? 0 : displayAmountToQuota(values.total_amount),
           upgrade_group: values.upgrade_group || '',
+          group_mode: values.group_mode === 'attach' ? 'attach' : '',
           quota_tiers: effectiveTiers.length > 0 ? JSON.stringify(effectiveTiers) : '[]',
           disable_balance_deduction: disableBalanceDeduction,
         },
@@ -482,14 +485,55 @@ const AddEditSubscriptionModal = ({
 
                     <Col span={12}>
                       <Form.Select
+                        field='group_mode'
+                        label={t('分组模式')}
+                        extraText={t(
+                          '提升：购买后替换用户分组；追加：仅授予该分组使用权，不改变用户分组',
+                        )}
+                      >
+                        <Select.Option value='upgrade'>
+                          {t('提升分组')}
+                        </Select.Option>
+                        <Select.Option value='attach'>
+                          {t('追加分组')}
+                        </Select.Option>
+                      </Form.Select>
+                    </Col>
+
+                    <Col span={12}>
+                      <Form.Select
                         field='upgrade_group'
-                        label={t('升级分组')}
+                        label={
+                          values.group_mode === 'attach'
+                            ? t('附加分组')
+                            : t('升级分组')
+                        }
                         showClear
                         loading={groupLoading}
-                        placeholder={t('不升级')}
-                        extraText={t(
-                          '购买或手动新增订阅会升级到该分组；当套餐失效/过期或手动作废/删除后，将回退到升级前分组。回退不会立即生效，通常会有几分钟延迟。',
-                        )}
+                        placeholder={
+                          values.group_mode === 'attach'
+                            ? t('请选择分组')
+                            : t('不升级')
+                        }
+                        rules={
+                          values.group_mode === 'attach'
+                            ? [
+                                {
+                                  required: true,
+                                  message: t('请选择分组'),
+                                },
+                              ]
+                            : []
+                        }
+                        extraText={
+                          values.group_mode === 'attach'
+                            ? t(
+                                '订阅生效期间为用户追加该分组的使用权，不改变用户分组，到期自动回收',
+                              )
+                            : t(
+                                '购买或手动新增订阅会升级到该分组；当套餐失效/过期或手动作废/删除后，将回退到升级前分组。回退不会立即生效，通常会有几分钟延迟。',
+                              )
+                        }
                       >
                         <Select.Option value=''>{t('不升级')}</Select.Option>
                         {(groupOptions || []).map((g) => (

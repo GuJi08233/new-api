@@ -1,5 +1,7 @@
 {
   "translation": {
+    "Renew": "更新",
+    "You already own this plan; this payment renews it and extends the expiry by one period": "このプランは既に保有しています。今回の支払いで更新され、有効期限が1周期延長されます",
     "360": "360",
     "1000": "1000",
     "10000": "10000",

@@ -428,6 +428,24 @@ func AdminCreateSubscriptionPlan(c *gin.Context) {
 			return
 		}
 	}
+	req.Plan.GroupMode = strings.TrimSpace(req.Plan.GroupMode)
+	if req.Plan.GroupMode == model.SubscriptionGroupModeUpgrade {
+		req.Plan.GroupMode = ""
+	}
+	if req.Plan.GroupMode != "" && req.Plan.GroupMode != model.SubscriptionGroupModeAttach {
+		common.ApiErrorMsg(c, "分组模式无效")
+		return
+	}
+	if req.Plan.GroupMode == model.SubscriptionGroupModeAttach {
+		if req.Plan.UpgradeGroup == "" {
+			common.ApiErrorMsg(c, "追加分组模式必须配置分组")
+			return
+		}
+		if req.Plan.DowngradeGroup != "" {
+			common.ApiErrorMsg(c, "追加分组模式不支持降级分组")
+			return
+		}
+	}
 	req.Plan.QuotaResetPeriod = model.NormalizeResetPeriod(req.Plan.QuotaResetPeriod)
 	if req.Plan.QuotaResetPeriod == model.SubscriptionResetCustom && req.Plan.QuotaResetCustomSeconds <= 0 {
 		common.ApiErrorMsg(c, "自定义重置周期需大于0秒")
@@ -522,6 +540,24 @@ func AdminUpdateSubscriptionPlan(c *gin.Context) {
 			return
 		}
 	}
+	req.Plan.GroupMode = strings.TrimSpace(req.Plan.GroupMode)
+	if req.Plan.GroupMode == model.SubscriptionGroupModeUpgrade {
+		req.Plan.GroupMode = ""
+	}
+	if req.Plan.GroupMode != "" && req.Plan.GroupMode != model.SubscriptionGroupModeAttach {
+		common.ApiErrorMsg(c, "分组模式无效")
+		return
+	}
+	if req.Plan.GroupMode == model.SubscriptionGroupModeAttach {
+		if req.Plan.UpgradeGroup == "" {
+			common.ApiErrorMsg(c, "追加分组模式必须配置分组")
+			return
+		}
+		if req.Plan.DowngradeGroup != "" {
+			common.ApiErrorMsg(c, "追加分组模式不支持降级分组")
+			return
+		}
+	}
 	req.Plan.QuotaResetPeriod = model.NormalizeResetPeriod(req.Plan.QuotaResetPeriod)
 	if req.Plan.QuotaResetPeriod == model.SubscriptionResetCustom && req.Plan.QuotaResetCustomSeconds <= 0 {
 		common.ApiErrorMsg(c, "自定义重置周期需大于0秒")
@@ -555,6 +591,7 @@ func AdminUpdateSubscriptionPlan(c *gin.Context) {
 			"max_purchase_reset_custom_seconds": req.Plan.MaxPurchaseResetCustomSeconds,
 			"total_amount":                      req.Plan.TotalAmount,
 			"upgrade_group":                     req.Plan.UpgradeGroup,
+			"group_mode":                        req.Plan.GroupMode,
 			"quota_reset_period":                req.Plan.QuotaResetPeriod,
 			"quota_reset_custom_seconds":        req.Plan.QuotaResetCustomSeconds,
 			"quota_tiers":                       req.Plan.QuotaTiers,

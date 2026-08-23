@@ -426,6 +426,24 @@ const SubscriptionPlansCard = ({
     return map;
   }, [plans]);
 
+  // 持有未过期订阅的套餐：再次购买为续期（顺延到期时间），不受限购约束
+  const livePlanIdSet = useMemo(() => {
+    const now = Date.now() / 1000;
+    const set = new Set();
+    (allSubscriptions || []).forEach((sub) => {
+      const subscription = sub?.subscription;
+      if (!subscription?.plan_id) return;
+      const isLive =
+        (subscription.status === 'active' ||
+          subscription.status === 'inactive') &&
+        (subscription.end_time || 0) > now;
+      if (isLive) {
+        set.add(subscription.plan_id);
+      }
+    });
+    return set;
+  }, [allSubscriptions]);
+
   const subscriptionStatusCounts = useMemo(() => {
     const now = Date.now() / 1000;
     let inactive = 0;
@@ -768,7 +786,7 @@ const SubscriptionPlansCard = ({
                     ? `${t('总额度')}: ${renderQuota(totalAmount)}`
                     : `${t('总额度')}: ${t('不限')}`;
                 const upgradeLabel = plan?.upgrade_group
-                  ? `${t('升级分组')}: ${plan.upgrade_group}`
+                  ? `${plan.group_mode === 'attach' ? t('附加分组') : t('升级分组')}: ${plan.upgrade_group}`
                   : null;
                 const tierSummary = formatTiersSummary(plan?.quota_tiers, t);
                 const resetLabel = tierSummary
@@ -885,18 +903,25 @@ const SubscriptionPlansCard = ({
                         {/* 购买按钮 */}
                         {(() => {
                           const count = getPlanPurchaseCount(p?.plan?.id);
+                          // 全局限购套餐不提供持有期续期，名额到期释放后重新购买
+                          const renewable =
+                            globalLimit <= 0 && livePlanIdSet.has(p?.plan?.id);
                           const reachedPerUser = limit > 0 && count >= limit;
                           const soldOut =
                             globalLimit > 0 &&
                             globalPurchaseCount >= globalLimit;
-                          const reached = reachedPerUser || soldOut;
-                          const tip = soldOut
-                            ? globalResetLabel
-                              ? `${t('该套餐已售罄')} · ${globalResetLabel}`
-                              : t('该套餐已售罄')
-                            : reachedPerUser
-                              ? t('已达到购买上限') + ` (${count}/${limit})`
-                              : '';
+                          // 持有者续期不新建订阅、不占名额，限购不禁用按钮
+                          const reached =
+                            !renewable && (reachedPerUser || soldOut);
+                          const tip = renewable
+                            ? t('已持有该套餐，购买将顺延到期时间')
+                            : soldOut
+                              ? globalResetLabel
+                                ? `${t('该套餐已售罄')} · ${globalResetLabel}`
+                                : t('该套餐已售罄')
+                              : reachedPerUser
+                                ? t('已达到购买上限') + ` (${count}/${limit})`
+                                : '';
                           const buttonEl = (
                             <Button
                               theme='outline'
@@ -907,14 +932,16 @@ const SubscriptionPlansCard = ({
                                 if (!reached) openBuy(p);
                               }}
                             >
-                              {reached
-                                ? soldOut
-                                  ? t('已售罄')
-                                  : t('已达上限')
-                                : t('立即订阅')}
+                              {renewable
+                                ? t('续期')
+                                : reached
+                                  ? soldOut
+                                    ? t('已售罄')
+                                    : t('已达上限')
+                                  : t('立即订阅')}
                             </Button>
                           );
-                          return reached ? (
+                          return tip ? (
                             <Tooltip content={tip} position='top'>
                               {buttonEl}
                             </Tooltip>
@@ -953,6 +980,10 @@ const SubscriptionPlansCard = ({
         onCancel={closeBuy}
         selectedPlan={selectedPlan}
         paying={paying}
+        isRenewal={
+          Number(selectedPlan?.plan?.max_purchase_total || 0) <= 0 &&
+          livePlanIdSet.has(selectedPlan?.plan?.id)
+        }
         selectedPayMethod={selectedPayMethod}
         setSelectedPayMethod={setSelectedPayMethod}
         epayMethods={epayMethods}

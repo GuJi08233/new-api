@@ -1,5 +1,7 @@
 {
   "translation": {
+    "Renew": "Продлить",
+    "You already own this plan; this payment renews it and extends the expiry by one period": "У вас уже есть этот план; этот платёж продлит его и перенесёт срок действия на один период",
     "360": "360",
     "1000": "1000",
     "10000": "10000",

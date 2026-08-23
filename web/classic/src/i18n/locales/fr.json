@@ -1,5 +1,15 @@
 {
   "translation": {
+    "分组模式": "Mode de groupe",
+    "提升分组": "Groupe de promotion",
+    "追加分组": "Groupe additionnel",
+    "附加分组": "Groupe attaché",
+    "提升：购买后替换用户分组；追加：仅授予该分组使用权，不改变用户分组": "Promotion : remplace le groupe de l'utilisateur après l'achat ; Ajout : accorde uniquement l'accès au groupe sans changer le groupe de l'utilisateur",
+    "订阅生效期间为用户追加该分组的使用权，不改变用户分组，到期自动回收": "Accorde à l'utilisateur l'accès à ce groupe pendant la durée de l'abonnement, sans changer son groupe ; révoqué automatiquement à l'expiration",
+    "续期": "Renouveler",
+    "已持有该套餐，本次支付将为现有订阅续期": "Vous possédez déjà ce forfait ; ce paiement renouvellera votre abonnement existant",
+    "到期时间顺延": "échéance prolongée de",
+    "已持有该套餐，购买将顺延到期时间": "Vous possédez ce forfait ; un achat prolongera son échéance",
     "余额支付": "Paiement par solde",
     "确认使用余额购买": "Confirmer l'achat avec le solde",
     "将从钱包余额扣除": "Le solde de votre portefeuille sera débité de",

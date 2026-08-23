@@ -3,6 +3,7 @@ package model
 import (
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"sync"
@@ -41,6 +42,14 @@ const (
 	SubscriptionStatusInactive  = "inactive"
 	SubscriptionStatusExpired   = "expired"
 	SubscriptionStatusCancelled = "cancelled"
+)
+
+// Subscription group modes: upgrade replaces the user's group on activation
+// (legacy behavior, stored as ''), attach grants the bound group as an extra
+// usable group for the holder without touching the user's own group.
+const (
+	SubscriptionGroupModeUpgrade = "upgrade"
+	SubscriptionGroupModeAttach  = "attach"
 )
 
 // Quota tier period types
@@ -247,6 +256,10 @@ type SubscriptionPlan struct {
 	// Downgrade user group on expiry (empty = revert to the group held before purchase)
 	DowngradeGroup string `json:"downgrade_group" gorm:"type:varchar(64);default:''"`
 
+	// Group mode: ''/'upgrade' replaces the user's group on activation;
+	// 'attach' grants UpgradeGroup as an extra usable group instead.
+	GroupMode string `json:"group_mode" gorm:"type:varchar(16);default:''"`
+
 	// Total quota (amount in quota units, 0 = unlimited)
 	TotalAmount int64 `json:"total_amount" gorm:"type:bigint;not null;default:0"`
 
@@ -286,6 +299,10 @@ func (p *SubscriptionPlan) NormalizeDefaults() {
 	if p.AllowWalletOverflow == nil {
 		p.AllowWalletOverflow = common.GetPointer(true)
 	}
+}
+
+func (p *SubscriptionPlan) IsAttachGroupMode() bool {
+	return strings.TrimSpace(p.GroupMode) == SubscriptionGroupModeAttach
 }
 
 // Subscription order (payment -> webhook -> create UserSubscription)
@@ -483,6 +500,9 @@ type UserSubscription struct {
 	// Downgrade target group on expiry (snapshot from plan; empty = revert to PrevUserGroup)
 	DowngradeGroup string `json:"downgrade_group" gorm:"type:varchar(64);default:''"`
 
+	// Snapshot of the plan's group mode at purchase ('' = legacy upgrade)
+	GroupMode string `json:"group_mode" gorm:"type:varchar(16);default:''"`
+
 	// Whether wallet fallback is allowed after this subscription's quota is exhausted (snapshot from plan).
 	// Pointer keeps legacy NULL values distinguishable and avoids database-specific boolean defaults.
 	AllowWalletOverflow *bool `json:"allow_wallet_overflow"`
@@ -501,6 +521,10 @@ func (s *UserSubscription) BeforeCreate(tx *gorm.DB) error {
 func (s *UserSubscription) BeforeUpdate(tx *gorm.DB) error {
 	s.UpdatedAt = common.GetTimestamp()
 	return nil
+}
+
+func (s *UserSubscription) IsAttachGroupMode() bool {
+	return strings.TrimSpace(s.GroupMode) == SubscriptionGroupModeAttach
 }
 
 type SubscriptionSummary struct {
@@ -754,6 +778,15 @@ func CheckSubscriptionPlanPurchaseAllowed(userId int, plan *SubscriptionPlan, in
 	if userId <= 0 {
 		return errors.New("invalid userId")
 	}
+	// 已持有该套餐的未过期订阅且套餐无全局限购时，本次购买是续期：
+	// 不新建订阅、不占新名额，限购不阻拦。全局限购套餐不提供续期，走正常限购判定。
+	if plan.MaxPurchaseTotal <= 0 {
+		if hasLive, err := hasLiveUserSubscriptionOfPlan(nil, userId, plan.Id); err != nil {
+			return err
+		} else if hasLive {
+			return nil
+		}
+	}
 	if plan.MaxPurchasePerUser > 0 {
 		count, err := CountUserSubscriptionsByPlan(userId, plan.Id)
 		if err != nil {
@@ -842,6 +875,10 @@ func downgradeUserGroupForSubscriptionTx(tx *gorm.DB, sub *UserSubscription, now
 	if tx == nil || sub == nil {
 		return "", errors.New("invalid downgrade args")
 	}
+	// 追加分组模式从不改动用户分组，到期/作废无需任何降级处理
+	if sub.IsAttachGroupMode() {
+		return "", nil
+	}
 	downgradeGroup := strings.TrimSpace(sub.DowngradeGroup)
 	upgradeGroup := strings.TrimSpace(sub.UpgradeGroup)
 	// Nothing to do if neither an explicit downgrade target nor an upgrade snapshot exists.
@@ -859,9 +896,10 @@ func downgradeUserGroupForSubscriptionTx(tx *gorm.DB, sub *UserSubscription, now
 		return "", nil
 	}
 	// If another active upgraded subscription exists, keep the current group.
+	// 追加分组订阅不改动用户分组，不算作"其他生效升级订阅"。
 	var activeSub UserSubscription
-	activeQuery := tx.Where("user_id = ? AND status = ? AND end_time > ? AND id <> ? AND upgrade_group <> ''",
-		sub.UserId, SubscriptionStatusActive, now, sub.Id).
+	activeQuery := tx.Where("user_id = ? AND status = ? AND end_time > ? AND id <> ? AND upgrade_group <> '' AND (group_mode IS NULL OR group_mode <> ?)",
+		sub.UserId, SubscriptionStatusActive, now, sub.Id, SubscriptionGroupModeAttach).
 		Order("end_time desc, id desc").
 		Limit(1).
 		Find(&activeSub)
@@ -897,7 +935,8 @@ func hasLiveActiveUserSubscriptionTx(tx *gorm.DB, userId int, now int64) (bool, 
 	}
 	var count int64
 	if err := tx.Model(&UserSubscription{}).
-		Where("user_id = ? AND status = ? AND end_time > ?", userId, SubscriptionStatusActive, now).
+		Where("user_id = ? AND status = ? AND end_time > ? AND (group_mode IS NULL OR group_mode <> ?)",
+			userId, SubscriptionStatusActive, now, SubscriptionGroupModeAttach).
 		Count(&count).Error; err != nil {
 		return false, err
 	}
@@ -910,7 +949,8 @@ func activateUserSubscriptionTx(tx *gorm.DB, sub *UserSubscription) (string, err
 	}
 	prevGroup := ""
 	upgradeGroup := strings.TrimSpace(sub.UpgradeGroup)
-	if upgradeGroup != "" {
+	// 追加分组模式只授予分组使用权，不覆盖用户分组
+	if upgradeGroup != "" && !sub.IsAttachGroupMode() {
 		currentGroup, err := getUserGroupByIdTx(tx, sub.UserId)
 		if err != nil {
 			return "", err
@@ -941,24 +981,104 @@ func activateUserSubscriptionTx(tx *gorm.DB, sub *UserSubscription) (string, err
 	return "", nil
 }
 
-func CreateUserSubscriptionFromPlanTx(tx *gorm.DB, userId int, plan *SubscriptionPlan, source string) (*UserSubscription, error) {
+// hasLiveUserSubscriptionOfPlan reports whether the user holds an unexpired
+// (active or inactive) subscription of the plan, i.e. a repurchase would renew
+// it instead of creating a new subscription.
+func hasLiveUserSubscriptionOfPlan(db *gorm.DB, userId int, planId int) (bool, error) {
+	if db == nil {
+		db = ReadDB()
+	}
+	var count int64
+	if err := db.Model(&UserSubscription{}).
+		Where("user_id = ? AND plan_id = ? AND status IN ? AND end_time > ?",
+			userId, planId, []string{SubscriptionStatusActive, SubscriptionStatusInactive}, GetDBTimestamp()).
+		Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+// renewUserSubscriptionForPlanTx extends the user's live subscription of the
+// same plan by one plan period instead of creating a duplicate row. Returns
+// nil when the user holds no live subscription of the plan.
+func renewUserSubscriptionForPlanTx(tx *gorm.DB, userId int, plan *SubscriptionPlan) (*UserSubscription, error) {
+	// 配置了全局限购的套餐不提供持有期续期：名额必须等到期释放后重新购买，
+	// 否则持有者可以无限顺延、永久占用稀缺名额。
+	if plan.MaxPurchaseTotal > 0 {
+		return nil, nil
+	}
+	now := getDBTimestampTx(tx)
+	var sub UserSubscription
+	query := lockForUpdate(tx).
+		Where("user_id = ? AND plan_id = ? AND status IN ? AND end_time > ?",
+			userId, plan.Id, []string{SubscriptionStatusActive, SubscriptionStatusInactive}, now).
+		Order("end_time desc, id desc").
+		Limit(1).
+		Find(&sub)
+	if query.Error != nil {
+		return nil, query.Error
+	}
+	if query.RowsAffected == 0 {
+		return nil, nil
+	}
+	// 从现有到期时间顺延一个周期，提前续期不损失剩余时长
+	newEnd, err := calcPlanEndTime(time.Unix(sub.EndTime, 0), plan)
+	if err != nil {
+		return nil, err
+	}
+	sub.EndTime = newEnd
+	// 无重置周期时 TotalAmount 是整个订阅期的额度池，续期一个周期就追加一份；
+	// 有重置周期时它是每周期上限，随重置自动刷新，不追加。
+	if plan.TotalAmount > 0 && NormalizeResetPeriod(plan.QuotaResetPeriod) == SubscriptionResetNever {
+		if sub.AmountTotal > math.MaxInt64-plan.TotalAmount {
+			sub.AmountTotal = math.MaxInt64
+		} else {
+			sub.AmountTotal += plan.TotalAmount
+		}
+	}
+	// 原到期时间临近时重置排程可能已终止（NextResetTime=0），续期后按新到期时间重排
+	if NormalizeResetPeriod(plan.QuotaResetPeriod) != SubscriptionResetNever && sub.NextResetTime == 0 {
+		next := calcNextResetTime(time.Unix(now, 0), plan, newEnd)
+		sub.NextResetTime = next
+		if next > 0 {
+			sub.LastResetTime = now
+		}
+	}
+	if err := tx.Save(&sub).Error; err != nil {
+		return nil, err
+	}
+	return &sub, nil
+}
+
+// CreateUserSubscriptionFromPlanTx creates a subscription from the plan, or —
+// when the user already holds a live subscription of the same plan — renews it
+// by one period. The second return value reports whether a renewal happened.
+func CreateUserSubscriptionFromPlanTx(tx *gorm.DB, userId int, plan *SubscriptionPlan, source string) (*UserSubscription, bool, error) {
 	if tx == nil {
-		return nil, errors.New("tx is nil")
+		return nil, false, errors.New("tx is nil")
 	}
 	if plan == nil || plan.Id == 0 {
-		return nil, errors.New("invalid plan")
+		return nil, false, errors.New("invalid plan")
 	}
 	if userId <= 0 {
-		return nil, errors.New("invalid user id")
+		return nil, false, errors.New("invalid user id")
+	}
+	// 同套餐续期不占新名额，先于限购检查
+	renewed, err := renewUserSubscriptionForPlanTx(tx, userId, plan)
+	if err != nil {
+		return nil, false, err
+	}
+	if renewed != nil {
+		return renewed, true, nil
 	}
 	if err := checkSubscriptionPlanPurchaseAllowedTx(tx, userId, plan); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	nowUnix := getDBTimestampTx(tx)
 	now := time.Unix(nowUnix, 0)
 	endUnix, err := calcPlanEndTime(now, plan)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	resetBase := now
 	nextReset := calcNextResetTime(resetBase, plan, endUnix)
@@ -968,13 +1088,22 @@ func CreateUserSubscriptionFromPlanTx(tx *gorm.DB, userId int, plan *Subscriptio
 	}
 	upgradeGroup := strings.TrimSpace(plan.UpgradeGroup)
 	downgradeGroup := strings.TrimSpace(plan.DowngradeGroup)
-	status := SubscriptionStatusActive
-	hasActive, err := hasLiveActiveUserSubscriptionTx(tx, userId, nowUnix)
-	if err != nil {
-		return nil, err
+	groupMode := ""
+	if plan.IsAttachGroupMode() && upgradeGroup != "" {
+		groupMode = SubscriptionGroupModeAttach
+		// 追加分组模式不改动用户分组，也就没有降级目标
+		downgradeGroup = ""
 	}
-	if hasActive {
-		status = SubscriptionStatusInactive
+	status := SubscriptionStatusActive
+	// 追加分组订阅与其他订阅并存生效，不参与"同时只有一个生效"的排队
+	if groupMode != SubscriptionGroupModeAttach {
+		hasActive, err := hasLiveActiveUserSubscriptionTx(tx, userId, nowUnix)
+		if err != nil {
+			return nil, false, err
+		}
+		if hasActive {
+			status = SubscriptionStatusInactive
+		}
 	}
 	allowWalletOverflow := true
 	if plan.AllowWalletOverflow != nil {
@@ -994,25 +1123,26 @@ func CreateUserSubscriptionFromPlanTx(tx *gorm.DB, userId int, plan *Subscriptio
 		UpgradeGroup:        upgradeGroup,
 		PrevUserGroup:       "",
 		DowngradeGroup:      downgradeGroup,
+		GroupMode:           groupMode,
 		AllowWalletOverflow: common.GetPointer(allowWalletOverflow),
 		CreatedAt:           common.GetTimestamp(),
 		UpdatedAt:           common.GetTimestamp(),
 	}
 	if err := tx.Create(sub).Error; err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	// Initialize tier usage rows if multi-tier
 	if tiers := plan.GetQuotaTiers(); len(tiers) > 0 {
 		if err := initTierUsage(tx, sub.Id, tiers, nowUnix); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 	}
 	if sub.Status == SubscriptionStatusActive {
 		if _, err := activateUserSubscriptionTx(tx, sub); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 	}
-	return sub, nil
+	return sub, false, nil
 }
 
 // UserActiveSubscriptionsAllowWalletOverflow reports whether wallet balance may
@@ -1066,6 +1196,7 @@ func CompleteSubscriptionOrderWithPaymentCheck(tradeNo string, providerPayload s
 	var logMoney float64
 	var logPaymentMethod string
 	var cacheGroup string
+	logRenewed := false
 	orderExpired := false
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		var order SubscriptionOrder
@@ -1103,13 +1234,14 @@ func CompleteSubscriptionOrderWithPaymentCheck(tradeNo string, providerPayload s
 		if !plan.Enabled {
 			// still allow completion for already purchased orders
 		}
-		sub, err := CreateUserSubscriptionFromPlanTx(tx, order.UserId, plan, "order")
+		sub, renewed, err := CreateUserSubscriptionFromPlanTx(tx, order.UserId, plan, "order")
 		if err != nil {
 			return err
 		}
+		logRenewed = renewed
 		// 仅在激活确实覆盖了用户分组时刷新分组缓存（PrevUserGroup 非空），
-		// 分组未变更（已包含升级目标）时刷新会造成缓存与数据库不一致。
-		if sub.Status == SubscriptionStatusActive && sub.PrevUserGroup != "" {
+		// 续期或分组未变更（已包含升级目标）时刷新会造成缓存与数据库不一致。
+		if !renewed && sub.Status == SubscriptionStatusActive && sub.PrevUserGroup != "" {
 			cacheGroup = strings.TrimSpace(sub.UpgradeGroup)
 		}
 		if err := upsertSubscriptionTopUpTx(tx, &order); err != nil {
@@ -1142,7 +1274,11 @@ func CompleteSubscriptionOrderWithPaymentCheck(tradeNo string, providerPayload s
 		_ = UpdateUserGroupCache(logUserId, cacheGroup)
 	}
 	if logUserId > 0 {
-		msg := fmt.Sprintf("订阅购买成功，套餐: %s，支付金额: %.2f，支付方式: %s", logPlanTitle, logMoney, logPaymentMethod)
+		action := "购买"
+		if logRenewed {
+			action = "续期"
+		}
+		msg := fmt.Sprintf("订阅%s成功，套餐: %s，支付金额: %.2f，支付方式: %s", action, logPlanTitle, logMoney, logPaymentMethod)
 		RecordLog(logUserId, LogTypeTopup, msg)
 	}
 	return nil
@@ -1265,17 +1401,24 @@ func AdminBindSubscription(userId int, planId int, sourceNote string) (string, e
 	}
 	createdStatus := ""
 	groupApplied := false
+	wasRenewed := false
+	renewedEndTime := int64(0)
 	err = DB.Transaction(func(tx *gorm.DB) error {
-		sub, err := CreateUserSubscriptionFromPlanTx(tx, userId, plan, "admin")
+		sub, renewed, err := CreateUserSubscriptionFromPlanTx(tx, userId, plan, "admin")
 		if err != nil {
 			return err
 		}
 		createdStatus = sub.Status
-		groupApplied = sub.PrevUserGroup != ""
+		groupApplied = !renewed && sub.PrevUserGroup != ""
+		wasRenewed = renewed
+		renewedEndTime = sub.EndTime
 		return nil
 	})
 	if err != nil {
 		return "", err
+	}
+	if wasRenewed {
+		return fmt.Sprintf("用户已持有该套餐，已续期至 %s", time.Unix(renewedEndTime, 0).Format("2006-01-02 15:04")), nil
 	}
 	if createdStatus == SubscriptionStatusActive && strings.TrimSpace(plan.UpgradeGroup) != "" {
 		// 分组未被覆盖（用户已在升级分组中，或当前分组已包含升级目标）时
@@ -1315,6 +1458,16 @@ func SwitchUserActiveSubscription(userId int, targetSubscriptionId int) (string,
 			return errors.New("subscription is not switchable")
 		}
 
+		// 追加分组订阅与其他订阅并存生效，切换到它只需激活自身，不停用任何订阅
+		if target.IsAttachGroupMode() {
+			if target.Status != SubscriptionStatusActive {
+				if _, err := activateUserSubscriptionTx(tx, &target); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+
 		var activeSubs []UserSubscription
 		if err := lockForUpdate(tx).
 			Where("user_id = ? AND status = ? AND end_time > ?", userId, SubscriptionStatusActive, now).
@@ -1325,6 +1478,10 @@ func SwitchUserActiveSubscription(userId int, targetSubscriptionId int) (string,
 
 		for _, activeSub := range activeSubs {
 			if activeSub.Id == target.Id {
+				continue
+			}
+			// 追加分组订阅并存生效，切换普通订阅时不停用它们
+			if activeSub.IsAttachGroupMode() {
 				continue
 			}
 			if err := tx.Model(&UserSubscription{}).
@@ -1401,6 +1558,7 @@ func PurchaseSubscriptionWithBalance(userId int, planId int) error {
 	var chargedQuota int
 	var upgradeGroup string
 	groupApplied := false
+	wasRenewed := false
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		plan, err := getSubscriptionPlanByIdTx(tx, planId)
 		if err != nil {
@@ -1435,13 +1593,14 @@ func PurchaseSubscriptionWithBalance(userId int, planId int) error {
 			}
 		}
 
-		createdSub, err := CreateUserSubscriptionFromPlanTx(tx, userId, plan, PaymentMethodBalance)
+		createdSub, renewed, err := CreateUserSubscriptionFromPlanTx(tx, userId, plan, PaymentMethodBalance)
 		if err != nil {
 			return err
 		}
-		// 仅在激活确实覆盖了用户分组时刷新分组缓存：订阅可能被创建为未激活
-		// （已有生效订阅），或当前分组已包含升级目标而未变更分组。
-		groupApplied = createdSub.Status == SubscriptionStatusActive && createdSub.PrevUserGroup != ""
+		// 仅在激活确实覆盖了用户分组时刷新分组缓存：订阅可能是续期、被创建为
+		// 未激活（已有生效订阅），或当前分组已包含升级目标而未变更分组。
+		groupApplied = !renewed && createdSub.Status == SubscriptionStatusActive && createdSub.PrevUserGroup != ""
+		wasRenewed = renewed
 
 		now := common.GetTimestamp()
 		tradeNo := fmt.Sprintf("SUBBALUSR%dNO%s%d", userId, common.GetRandomString(6), time.Now().UnixNano())
@@ -1479,7 +1638,11 @@ func PurchaseSubscriptionWithBalance(userId int, planId int) error {
 	if upgradeGroup != "" && groupApplied {
 		_ = UpdateUserGroupCache(userId, upgradeGroup)
 	}
-	msg := fmt.Sprintf("使用余额购买订阅成功，套餐: %s，支付金额: %.2f，扣除额度: %d", logPlanTitle, logMoney, chargedQuota)
+	action := "购买订阅"
+	if wasRenewed {
+		action = "续期订阅"
+	}
+	msg := fmt.Sprintf("使用余额%s成功，套餐: %s，支付金额: %.2f，扣除额度: %d", action, logPlanTitle, logMoney, chargedQuota)
 	RecordLog(userId, LogTypeTopup, msg)
 	return nil
 }
@@ -2725,6 +2888,43 @@ func HasDisableBalanceDeductionSubscription(userId int) (bool, error) {
 		return false, err
 	}
 	return count > 0, nil
+}
+
+// GetUserAttachedGroups returns the extra groups granted to the user by live
+// attach-mode subscriptions (追加分组).
+func GetUserAttachedGroups(userId int) ([]string, error) {
+	if userId <= 0 {
+		return nil, nil
+	}
+	now := GetDBTimestamp()
+	var groups []string
+	if err := ReadDB().Model(&UserSubscription{}).
+		Distinct("upgrade_group").
+		Where("user_id = ? AND status = ? AND end_time > ? AND group_mode = ? AND upgrade_group <> ''",
+			userId, SubscriptionStatusActive, now, SubscriptionGroupModeAttach).
+		Pluck("upgrade_group", &groups).Error; err != nil {
+		return nil, err
+	}
+	return groups, nil
+}
+
+// UserHasAttachedGroup reports whether a live attach-mode subscription grants
+// the group to the user. Query errors deny access and are logged.
+func UserHasAttachedGroup(userId int, group string) bool {
+	group = strings.TrimSpace(group)
+	if userId <= 0 || group == "" {
+		return false
+	}
+	now := GetDBTimestamp()
+	var count int64
+	if err := ReadDB().Model(&UserSubscription{}).
+		Where("user_id = ? AND status = ? AND end_time > ? AND group_mode = ? AND upgrade_group = ?",
+			userId, SubscriptionStatusActive, now, SubscriptionGroupModeAttach, group).
+		Count(&count).Error; err != nil {
+		common.SysError("failed to check attached group: " + err.Error())
+		return false
+	}
+	return count > 0
 }
 
 // HasActiveUserSubscriptionForUsingGroup checks whether the user has any active

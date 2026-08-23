@@ -41,11 +41,11 @@ func TestCreateUserSubscription_KeepsGroupWhenCurrentGroupCoversUpgrade(t *testi
 	var defaultSub *UserSubscription
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		var err error
-		svipSub, err = CreateUserSubscriptionFromPlanTx(tx, 3101, plan, "order")
+		svipSub, _, err = CreateUserSubscriptionFromPlanTx(tx, 3101, plan, "order")
 		if err != nil {
 			return err
 		}
-		defaultSub, err = CreateUserSubscriptionFromPlanTx(tx, 3102, plan, "order")
+		defaultSub, _, err = CreateUserSubscriptionFromPlanTx(tx, 3102, plan, "order")
 		return err
 	})
 	require.NoError(t, err)
@@ -80,11 +80,11 @@ func TestExpireDueSubscriptions_KeepsGroupThatWasNeverOverwritten(t *testing.T) 
 	var defaultSub *UserSubscription
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		var err error
-		svipSub, err = CreateUserSubscriptionFromPlanTx(tx, 3103, plan, "order")
+		svipSub, _, err = CreateUserSubscriptionFromPlanTx(tx, 3103, plan, "order")
 		if err != nil {
 			return err
 		}
-		defaultSub, err = CreateUserSubscriptionFromPlanTx(tx, 3104, plan, "order")
+		defaultSub, _, err = CreateUserSubscriptionFromPlanTx(tx, 3104, plan, "order")
 		return err
 	})
 	require.NoError(t, err)
@@ -184,11 +184,11 @@ func TestSwitchUserActiveSubscription_HierarchyKeepsCoveredGroup(t *testing.T) {
 	var secondSub *UserSubscription
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		var err error
-		firstSub, err = CreateUserSubscriptionFromPlanTx(tx, 3108, firstPlan, "order")
+		firstSub, _, err = CreateUserSubscriptionFromPlanTx(tx, 3108, firstPlan, "order")
 		if err != nil {
 			return err
 		}
-		secondSub, err = CreateUserSubscriptionFromPlanTx(tx, 3108, secondPlan, "order")
+		secondSub, _, err = CreateUserSubscriptionFromPlanTx(tx, 3108, secondPlan, "order")
 		return err
 	})
 	require.NoError(t, err)

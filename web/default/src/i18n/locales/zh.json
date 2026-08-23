@@ -1,5 +1,7 @@
 {
   "translation": {
+    "Renew": "续期",
+    "You already own this plan; this payment renews it and extends the expiry by one period": "已持有该套餐，本次支付将为其续期，到期时间顺延一个周期",
     "360": "360",
     "1000": "1000",
     "10000": "10000",

@@ -76,6 +76,7 @@ interface Props {
   purchaseLimit?: number
   purchaseCount?: number
   userQuota?: number
+  isRenewal?: boolean
   onPurchaseSuccess?: () => void | Promise<void>
 }
 
@@ -126,7 +127,9 @@ export function SubscriptionPurchaseDialog(props: Props) {
   const userQuota = Math.max(0, Number(props.userQuota || 0))
   const allowBalancePay = plan.allow_balance_pay !== false
   const insufficientBalance = userQuota < balanceCost
+  // Renewing an owned plan extends it without taking a new purchase slot
   const limitReached =
+    !props.isRenewal &&
     (props.purchaseLimit || 0) > 0 &&
     (props.purchaseCount || 0) >= (props.purchaseLimit || 0)
 
@@ -370,6 +373,16 @@ export function SubscriptionPurchaseDialog(props: Props) {
             <span className='text-primary text-lg font-bold'>${price}</span>
           </div>
         </div>
+
+        {props.isRenewal && (
+          <Alert>
+            <AlertDescription>
+              {t(
+                'You already own this plan; this payment renews it and extends the expiry by one period'
+              )}
+            </AlertDescription>
+          </Alert>
+        )}
 
         {limitReached && (
           <Alert variant='destructive'>

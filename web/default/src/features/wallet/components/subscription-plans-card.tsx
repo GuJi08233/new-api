@@ -237,6 +237,24 @@ export function SubscriptionPlansCard({
     return map
   }, [allSubscriptions])
 
+  // Plans with a live (unexpired active/inactive) subscription: repurchase
+  // renews it instead of creating a new one and skips purchase limits.
+  const livePlanIds = useMemo(() => {
+    const now = Date.now() / 1000
+    const set = new Set<number>()
+    for (const sub of allSubscriptions) {
+      const record = sub?.subscription
+      if (!record?.plan_id) continue
+      const isLive =
+        (record.status === 'active' || record.status === 'inactive') &&
+        (record.end_time || 0) > now
+      if (isLive) {
+        set.add(record.plan_id)
+      }
+    }
+    return set
+  }, [allSubscriptions])
+
   useEffect(() => {
     onAvailabilityChange?.(isAvailable)
   }, [isAvailable, onAvailabilityChange])
@@ -629,7 +647,9 @@ export function SubscriptionPlansCard({
               const purchaseCount = Number(plan.purchase_count || 0)
               const reachedPerUser = limit > 0 && count >= limit
               const soldOut = globalLimit > 0 && purchaseCount >= globalLimit
-              const reached = reachedPerUser || soldOut
+              // Globally-limited plans do not renew; seats free up on expiry
+              const renewable = globalLimit <= 0 && livePlanIds.has(plan.id)
+              const reached = !renewable && (reachedPerUser || soldOut)
 
               const tierSummary = formatTiersSummary(plan.quota_tiers, t)
               let quotaResetBenefit: string | null = null
@@ -734,7 +754,7 @@ export function SubscriptionPlansCard({
                           setPurchaseOpen(true)
                         }}
                       >
-                        {t('Subscribe Now')}
+                        {renewable ? t('Renew') : t('Subscribe Now')}
                       </Button>
                     )}
                   </CardContent>
@@ -776,6 +796,12 @@ export function SubscriptionPlansCard({
           selectedPlan?.plan?.id
             ? planPurchaseCountMap.get(selectedPlan.plan.id)
             : undefined
+        }
+        isRenewal={
+          selectedPlan?.plan?.id
+            ? Number(selectedPlan.plan.max_purchase_total || 0) <= 0 &&
+              livePlanIds.has(selectedPlan.plan.id)
+            : false
         }
       />
     </>

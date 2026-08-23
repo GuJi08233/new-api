@@ -305,7 +305,7 @@ func TestCreateUserSubscriptionFromPlanTx_GlobalLimitBlocksFurtherCreation(t *te
 	insertUserSubscriptionForGroupBillingTest(t, 2004, 3006, plan.Id, "", 1000)
 
 	err := DB.Transaction(func(tx *gorm.DB) error {
-		_, err := CreateUserSubscriptionFromPlanTx(tx, 3007, plan, "order")
+		_, _, err := CreateUserSubscriptionFromPlanTx(tx, 3007, plan, "order")
 		return err
 	})
 	require.Error(t, err)
@@ -327,11 +327,11 @@ func TestCreateUserSubscriptionFromPlanTx_SecondSubscriptionBecomesInactive(t *t
 	var secondSub *UserSubscription
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		var err error
-		firstSub, err = CreateUserSubscriptionFromPlanTx(tx, 3010, firstPlan, "order")
+		firstSub, _, err = CreateUserSubscriptionFromPlanTx(tx, 3010, firstPlan, "order")
 		if err != nil {
 			return err
 		}
-		secondSub, err = CreateUserSubscriptionFromPlanTx(tx, 3010, secondPlan, "order")
+		secondSub, _, err = CreateUserSubscriptionFromPlanTx(tx, 3010, secondPlan, "order")
 		return err
 	})
 	require.NoError(t, err)
@@ -365,11 +365,11 @@ func TestSwitchUserActiveSubscription_ChangesActiveAndGroup(t *testing.T) {
 	var svipSub *UserSubscription
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		var err error
-		vipSub, err = CreateUserSubscriptionFromPlanTx(tx, 3011, vipPlan, "order")
+		vipSub, _, err = CreateUserSubscriptionFromPlanTx(tx, 3011, vipPlan, "order")
 		if err != nil {
 			return err
 		}
-		svipSub, err = CreateUserSubscriptionFromPlanTx(tx, 3011, svipPlan, "order")
+		svipSub, _, err = CreateUserSubscriptionFromPlanTx(tx, 3011, svipPlan, "order")
 		return err
 	})
 	require.NoError(t, err)

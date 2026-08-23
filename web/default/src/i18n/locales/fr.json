@@ -1,5 +1,7 @@
 {
   "translation": {
+    "Renew": "Renouveler",
+    "You already own this plan; this payment renews it and extends the expiry by one period": "Vous possédez déjà ce forfait ; ce paiement le renouvelle et prolonge l'échéance d'une période",
     "360": "360",
     "1000": "1000",
     "10000": "10000",
