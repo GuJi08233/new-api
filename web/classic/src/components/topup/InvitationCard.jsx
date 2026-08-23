@@ -328,9 +328,12 @@ const InvitationCard = ({ t }) => {
     {
       title: t('邀请码'),
       dataIndex: 'code',
+      width: 300,
       render: (text, record) => (
         <div className='flex flex-col gap-1'>
-          <Text copyable={{ content: text }}>{text}</Text>
+          <Text copyable={{ content: text }} className='break-all'>
+            {text}
+          </Text>
           {record.remark ? (
             <Text type='tertiary' size='small'>
               {record.remark}
@@ -385,7 +388,7 @@ const InvitationCard = ({ t }) => {
     },
     {
       title: t('操作'),
-      width: 160,
+      width: 190,
       render: (_, record) => (
         <Space wrap size='small'>
           <Button
@@ -515,7 +518,7 @@ const InvitationCard = ({ t }) => {
               size='small'
               rowSelection={rowSelection}
               columns={columns}
-              scroll={{ y: 520 }}
+              scroll={{ x: 1000, y: 520 }}
               pagination={{
                 currentPage: activePage,
                 pageSize,
