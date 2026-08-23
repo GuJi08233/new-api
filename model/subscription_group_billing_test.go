@@ -38,6 +38,7 @@ func insertUserForSubscriptionTest(t *testing.T, id int, group string) *User {
 		Group:    group,
 		Status:   common.UserStatusEnabled,
 		Role:     common.RoleCommonUser,
+		AffCode:  "aff-" + strconv.Itoa(id),
 	}
 	require.NoError(t, DB.Create(user).Error)
 	return user

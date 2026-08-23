@@ -10,6 +10,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/pkg/cachex"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/samber/hot"
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
@@ -851,6 +852,12 @@ func downgradeUserGroupForSubscriptionTx(tx *gorm.DB, sub *UserSubscription, now
 	if err != nil {
 		return "", err
 	}
+	// PrevUserGroup 为空且用户不在升级分组中，说明激活时并未覆盖分组
+	// （当前分组已包含升级目标，或激活后被人工改组）。到期/作废时不做
+	// 任何分组变更，防止显式降级分组误降用户原有的高级分组。
+	if upgradeGroup != "" && strings.TrimSpace(sub.PrevUserGroup) == "" && currentGroup != upgradeGroup {
+		return "", nil
+	}
 	// If another active upgraded subscription exists, keep the current group.
 	var activeSub UserSubscription
 	activeQuery := tx.Where("user_id = ? AND status = ? AND end_time > ? AND id <> ? AND upgrade_group <> ''",
@@ -908,7 +915,9 @@ func activateUserSubscriptionTx(tx *gorm.DB, sub *UserSubscription) (string, err
 		if err != nil {
 			return "", err
 		}
-		if currentGroup != upgradeGroup {
+		// 当前分组已通过特殊可选分组配置包含升级目标（例如 svip 已含 vip）时不覆盖分组，
+		// 避免高级分组用户购买低级分组订阅后丢失原分组。
+		if currentGroup != upgradeGroup && !ratio_setting.GroupSpecialGrantsGroup(currentGroup, upgradeGroup) {
 			prevGroup = currentGroup
 			if err := tx.Model(&User{}).Where("id = ?", sub.UserId).
 				Update("group", upgradeGroup).Error; err != nil {
@@ -1028,7 +1037,7 @@ func userActiveSubscriptionsAllowWalletOverflowForGroup(userId int, usingGroup s
 	query := ReadDB().Model(&UserSubscription{}).
 		Where("user_id = ? AND status = ? AND end_time > ? AND allow_wallet_overflow = ?", userId, SubscriptionStatusActive, now, false)
 	if strings.TrimSpace(usingGroup) != "" {
-		query = query.Where("(upgrade_group IS NULL OR upgrade_group = '' OR upgrade_group = ?)", strings.TrimSpace(usingGroup))
+		query = query.Where("(upgrade_group IS NULL OR upgrade_group = '' OR upgrade_group IN ?)", subscriptionUpgradeGroupsForUsingGroup(usingGroup))
 	}
 	if err := query.
 		Count(&strictCount).Error; err != nil {
@@ -1098,7 +1107,9 @@ func CompleteSubscriptionOrderWithPaymentCheck(tradeNo string, providerPayload s
 		if err != nil {
 			return err
 		}
-		if sub.Status == SubscriptionStatusActive {
+		// 仅在激活确实覆盖了用户分组时刷新分组缓存（PrevUserGroup 非空），
+		// 分组未变更（已包含升级目标）时刷新会造成缓存与数据库不一致。
+		if sub.Status == SubscriptionStatusActive && sub.PrevUserGroup != "" {
 			cacheGroup = strings.TrimSpace(sub.UpgradeGroup)
 		}
 		if err := upsertSubscriptionTopUpTx(tx, &order); err != nil {
@@ -1253,18 +1264,25 @@ func AdminBindSubscription(userId int, planId int, sourceNote string) (string, e
 		return "", err
 	}
 	createdStatus := ""
+	groupApplied := false
 	err = DB.Transaction(func(tx *gorm.DB) error {
 		sub, err := CreateUserSubscriptionFromPlanTx(tx, userId, plan, "admin")
 		if err != nil {
 			return err
 		}
 		createdStatus = sub.Status
+		groupApplied = sub.PrevUserGroup != ""
 		return nil
 	})
 	if err != nil {
 		return "", err
 	}
 	if createdStatus == SubscriptionStatusActive && strings.TrimSpace(plan.UpgradeGroup) != "" {
+		// 分组未被覆盖（用户已在升级分组中，或当前分组已包含升级目标）时
+		// 不刷新缓存也不提示升级。
+		if !groupApplied {
+			return "", nil
+		}
 		_ = UpdateUserGroupCache(userId, plan.UpgradeGroup)
 		return fmt.Sprintf("用户分组将升级到 %s", plan.UpgradeGroup), nil
 	}
@@ -1382,6 +1400,7 @@ func PurchaseSubscriptionWithBalance(userId int, planId int) error {
 	var logMoney float64
 	var chargedQuota int
 	var upgradeGroup string
+	groupApplied := false
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		plan, err := getSubscriptionPlanByIdTx(tx, planId)
 		if err != nil {
@@ -1416,9 +1435,13 @@ func PurchaseSubscriptionWithBalance(userId int, planId int) error {
 			}
 		}
 
-		if _, err := CreateUserSubscriptionFromPlanTx(tx, userId, plan, PaymentMethodBalance); err != nil {
+		createdSub, err := CreateUserSubscriptionFromPlanTx(tx, userId, plan, PaymentMethodBalance)
+		if err != nil {
 			return err
 		}
+		// 仅在激活确实覆盖了用户分组时刷新分组缓存：订阅可能被创建为未激活
+		// （已有生效订阅），或当前分组已包含升级目标而未变更分组。
+		groupApplied = createdSub.Status == SubscriptionStatusActive && createdSub.PrevUserGroup != ""
 
 		now := common.GetTimestamp()
 		tradeNo := fmt.Sprintf("SUBBALUSR%dNO%s%d", userId, common.GetRandomString(6), time.Now().UnixNano())
@@ -1453,7 +1476,7 @@ func PurchaseSubscriptionWithBalance(userId int, planId int) error {
 			common.SysLog("failed to decrease user quota cache after subscription balance purchase: " + err.Error())
 		}
 	}
-	if upgradeGroup != "" {
+	if upgradeGroup != "" && groupApplied {
 		_ = UpdateUserGroupCache(userId, upgradeGroup)
 	}
 	msg := fmt.Sprintf("使用余额购买订阅成功，套餐: %s，支付金额: %.2f，扣除额度: %d", logPlanTitle, logMoney, chargedQuota)
@@ -1921,7 +1944,27 @@ func subscriptionMatchesUsingGroup(upgradeGroup string, usingGroup string) bool 
 	if usingGroup == "" {
 		return false
 	}
-	return upgradeGroup == usingGroup
+	if upgradeGroup == usingGroup {
+		return true
+	}
+	// 分组层级：请求分组已包含订阅绑定的分组时（例如 svip 请求消耗 vip 订阅），
+	// 高级分组可以使用为其覆盖范围内低级分组购买的订阅额度；反向不成立。
+	return ratio_setting.GroupSpecialGrantsGroup(usingGroup, upgradeGroup)
+}
+
+// subscriptionUpgradeGroupsForUsingGroup returns the upgrade_group values a
+// request in usingGroup may consume: the group itself plus every group its
+// special usable-group configuration covers. SQL filters using this list stay
+// consistent with subscriptionMatchesUsingGroup.
+func subscriptionUpgradeGroupsForUsingGroup(usingGroup string) []string {
+	usingGroup = strings.TrimSpace(usingGroup)
+	groups := []string{usingGroup}
+	for _, granted := range ratio_setting.GroupSpecialGrantedGroups(usingGroup) {
+		if granted != usingGroup {
+			groups = append(groups, granted)
+		}
+	}
+	return groups
 }
 
 // PreConsumeUserSubscription pre-consumes from an active subscription that matches
@@ -2697,8 +2740,8 @@ func HasActiveUserSubscriptionForUsingGroup(userId int, usingGroup string) (bool
 	now := GetDBTimestamp()
 	var count int64
 	err := ReadDB().Model(&UserSubscription{}).
-		Where("user_id = ? AND status = ? AND end_time > ? AND (upgrade_group = '' OR upgrade_group = ?)",
-			userId, "active", now, usingGroup).
+		Where("user_id = ? AND status = ? AND end_time > ? AND (upgrade_group = '' OR upgrade_group IN ?)",
+			userId, "active", now, subscriptionUpgradeGroupsForUsingGroup(usingGroup)).
 		Count(&count).Error
 	if err != nil {
 		return false, err
@@ -2721,8 +2764,8 @@ func HasDisableBalanceDeductionSubscriptionForUsingGroup(userId int, usingGroup 
 	var count int64
 	err := ReadDB().Model(&UserSubscription{}).
 		Joins("JOIN subscription_plans ON subscription_plans.id = user_subscriptions.plan_id").
-		Where("user_subscriptions.user_id = ? AND user_subscriptions.status = ? AND user_subscriptions.end_time > ? AND subscription_plans.disable_balance_deduction = ? AND (user_subscriptions.upgrade_group = '' OR user_subscriptions.upgrade_group = ?)",
-			userId, "active", now, true, usingGroup).
+		Where("user_subscriptions.user_id = ? AND user_subscriptions.status = ? AND user_subscriptions.end_time > ? AND subscription_plans.disable_balance_deduction = ? AND (user_subscriptions.upgrade_group = '' OR user_subscriptions.upgrade_group IN ?)",
+			userId, "active", now, true, subscriptionUpgradeGroupsForUsingGroup(usingGroup)).
 		Count(&count).Error
 	if err != nil {
 		return false, err
