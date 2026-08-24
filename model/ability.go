@@ -127,6 +127,13 @@ func GetChannel(group string, model string, retry int, requestPath string) (*Cha
 		return nil, err
 	}
 	abilities = filterAbilitiesByRequestPathAndModel(abilities, requestPath, model)
+	if len(abilities) > 0 {
+		available := filterAbilitiesByDailyLimit(abilities)
+		if len(available) == 0 {
+			return nil, errors.New("候选渠道均已达每日请求上限")
+		}
+		abilities = available
+	}
 	channel := Channel{}
 	if len(abilities) > 0 {
 		// Randomly choose one
@@ -194,6 +201,50 @@ func filterAbilitiesByRequestPathAndModel(abilities []Ability, requestPath strin
 		if config != nil && config.SupportsPathForModel(requestPath, model) {
 			filtered = append(filtered, ability)
 		}
+	}
+	return filtered
+}
+
+// filterAbilitiesByDailyLimit 剔除已达每日请求上限的渠道，用于未开启内存缓存的
+// DB 选路。批量加载候选渠道的 setting 判定上限；查询失败时放行以免阻断选路。
+func filterAbilitiesByDailyLimit(abilities []Ability) []Ability {
+	if len(abilities) == 0 {
+		return abilities
+	}
+
+	channelIds := make([]int, 0, len(abilities))
+	seen := make(map[int]struct{}, len(abilities))
+	for _, ability := range abilities {
+		if _, ok := seen[ability.ChannelId]; ok {
+			continue
+		}
+		seen[ability.ChannelId] = struct{}{}
+		channelIds = append(channelIds, ability.ChannelId)
+	}
+
+	var channels []*Channel
+	if err := ReadDB().Select("id", "setting").Where("id IN ?", channelIds).Find(&channels).Error; err != nil {
+		return abilities
+	}
+
+	limitReached := make(map[int]bool)
+	for _, channel := range channels {
+		// GetDailyLimitConfig 不带 GetSetting 的错误回写副作用，
+		// 对这里只加载了 id/setting 的部分对象是安全的
+		if config := channel.GetDailyLimitConfig(); config.Enabled() && IsChannelDailyLimitReached(channel.Id, config) {
+			limitReached[channel.Id] = true
+		}
+	}
+	if len(limitReached) == 0 {
+		return abilities
+	}
+
+	filtered := make([]Ability, 0, len(abilities))
+	for _, ability := range abilities {
+		if limitReached[ability.ChannelId] {
+			continue
+		}
+		filtered = append(filtered, ability)
 	}
 	return filtered
 }

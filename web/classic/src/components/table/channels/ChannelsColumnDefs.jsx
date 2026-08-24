@@ -540,6 +540,15 @@ export const getChannelsColumns = ({
       dataIndex: 'expired_time',
       render: (text, record, index) => {
         if (record.children === undefined) {
+          let dailyLimit = 0;
+          if (record.setting) {
+            try {
+              dailyLimit = JSON.parse(record.setting).daily_request_limit || 0;
+            } catch (error) {
+              dailyLimit = 0;
+            }
+          }
+          const todayCount = record.today_request_count || 0;
           return (
             <div>
               <Space spacing={1}>
@@ -548,6 +557,17 @@ export const getChannelsColumns = ({
                     {renderQuota(record.used_quota)}
                   </Tag>
                 </Tooltip>
+                {dailyLimit > 0 && (
+                  <Tooltip content={t('今日请求数 / 每日请求上限')}>
+                    <Tag
+                      color={todayCount >= dailyLimit ? 'red' : 'white'}
+                      type={todayCount >= dailyLimit ? 'light' : 'ghost'}
+                      shape='circle'
+                    >
+                      {todayCount}/{dailyLimit}
+                    </Tag>
+                  </Tooltip>
+                )}
                 <Tooltip
                   content={
                     record.type === 57

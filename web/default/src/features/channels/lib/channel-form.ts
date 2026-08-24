@@ -535,10 +535,24 @@ export function transformChannelToFormDefaults(
 }
 
 /**
- * Build the setting JSON string from form extra settings
+ * Build the setting JSON string from form extra settings.
+ * Starts from the original setting JSON so keys this form does not manage
+ * (e.g. retry_* / daily_request_limit written by the classic theme) survive edits.
  */
 function buildSettingJSON(formData: ChannelFormValues): string {
-  const settingObj = {
+  let settingObj: Record<string, unknown> = {}
+  if (formData.setting) {
+    try {
+      const parsed = JSON.parse(formData.setting)
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        settingObj = parsed
+      }
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error('Failed to parse existing setting:', error)
+    }
+  }
+  Object.assign(settingObj, {
     force_format: formData.force_format || false,
     thinking_to_content: formData.thinking_to_content || false,
     proxy: formData.proxy || '',
@@ -549,7 +563,7 @@ function buildSettingJSON(formData: ChannelFormValues): string {
       formData.pass_through_rewrite_model_enabled || false,
     system_prompt: formData.system_prompt || '',
     system_prompt_override: formData.system_prompt_override || false,
-  }
+  })
   return JSON.stringify(settingObj)
 }
 

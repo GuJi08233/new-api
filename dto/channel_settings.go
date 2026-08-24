@@ -29,6 +29,13 @@ type ChannelSettings struct {
 	RetryStatusCodes string `json:"retry_status_codes,omitempty"`
 	// RetryExhaustedTransfer 仅 RetryOnSameChannel 时有效：重试耗尽后是否转移到其他渠道（nil/true = 转移，false = 直接失败）
 	RetryExhaustedTransfer *bool `json:"retry_exhausted_transfer,omitempty"`
+	// DailyRequestLimit 渠道每日请求次数上限（所有模型合计，含重试与渠道测试），0 表示不限制。
+	// 达到上限后当天该渠道不再参与选路，次日自动恢复。
+	DailyRequestLimit int64 `json:"daily_request_limit,omitempty"`
+	// DailyRequestLimitUTCOffset 每日计数的日切时区，为相对 UTC 的分钟偏移
+	// （如 480 = UTC+8，0 = UTC）；nil 表示跟随服务器本地时区。
+	// 用于对齐上游免费额度的重置时间。
+	DailyRequestLimitUTCOffset *int `json:"daily_request_limit_utc_offset,omitempty"`
 }
 
 type VertexKeyType string

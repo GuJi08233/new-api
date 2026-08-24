@@ -93,6 +93,8 @@ var channelReadOnlyFields = map[string]struct{}{
 	"balance":              {},
 	"balance_updated_time": {},
 	"used_quota":           {},
+	// 运行时统计（gorm:"-:all" 不入库），提交值无处落地，仅防守卫测试漏分类
+	"today_request_count": {},
 }
 
 func clearChannelReadOnlyFields(channel *PatchChannel, requestData map[string]any) {

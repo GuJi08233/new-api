@@ -176,6 +176,8 @@ func Distribute() func(c *gin.Context) {
 									abortWithOpenAiMessage(c, http.StatusForbidden, i18n.T(c, i18n.MsgDistributorAffinityChannelDisabled))
 									return
 								}
+							} else if model.IsChannelDailyLimitReached(preferred.Id, preferred.GetDailyLimitConfig()) {
+								// 亲和渠道已达每日请求上限，放弃亲和，交给正常选路
 							} else if usingGroup == "auto" {
 								userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
 								autoGroups := service.GetUserAutoGroup(userGroup)
@@ -567,7 +569,8 @@ func SetupContextForSelectedChannel(c *gin.Context, channel *model.Channel, mode
 	common.SetContextKey(c, constant.ContextKeyChannelName, channel.Name)
 	common.SetContextKey(c, constant.ContextKeyChannelType, channel.Type)
 	common.SetContextKey(c, constant.ContextKeyChannelCreateTime, channel.CreatedTime)
-	common.SetContextKey(c, constant.ContextKeyChannelSetting, channel.GetSetting())
+	channelSetting := channel.GetSetting()
+	common.SetContextKey(c, constant.ContextKeyChannelSetting, channelSetting)
 	common.SetContextKey(c, constant.ContextKeyChannelOtherSetting, channel.GetOtherSettings())
 	paramOverride := channel.GetParamOverride()
 	headerOverride := channel.GetHeaderOverride()
@@ -619,6 +622,11 @@ func SetupContextForSelectedChannel(c *gin.Context, channel *model.Channel, mode
 	case constant.ChannelTypeCoze:
 		c.Set("bot_id", channel.Other)
 	}
+
+	// 渠道每日请求计数：本函数是所有"渠道承接一次上游调用"路径的汇聚点
+	// （初次选路、跨渠道重试、同渠道重试、任务重试、渠道测试），在此统一递增，
+	// 与渠道每日请求上限（daily_request_limit）共用同一口径与日切时区。
+	model.IncrChannelDailyRequestCount(channel.Id, channelSetting.DailyRequestLimitUTCOffset)
 	return nil
 }
 

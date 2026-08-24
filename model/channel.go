@@ -55,6 +55,9 @@ type Channel struct {
 
 	OtherSettings string `json:"settings" gorm:"column:settings"` // 其他设置，存储azure版本等不需要检索的信息，详见dto.ChannelOtherSettings
 
+	// 运行时统计，不入库：当日已承接请求数，配合每日请求上限（daily_request_limit）在管理端展示
+	TodayRequestCount int64 `json:"today_request_count,omitempty" gorm:"-:all"`
+
 	// cache info
 	Keys []string `json:"-" gorm:"-"`
 }

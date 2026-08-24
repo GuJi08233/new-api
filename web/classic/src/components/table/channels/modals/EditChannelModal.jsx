@@ -155,6 +155,21 @@ function type2secretPrompt(type) {
   }
 }
 
+// 每日限额可选的日切时区（相对 UTC 的分钟偏移），覆盖 UTC-12 ~ UTC+14 的标准偏移
+const DAILY_LIMIT_UTC_OFFSETS = [
+  -720, -660, -600, -570, -540, -480, -420, -360, -300, -240, -210, -180,
+  -120, -60, 0, 60, 120, 180, 210, 240, 270, 300, 330, 345, 360, 390, 420,
+  480, 525, 540, 570, 600, 630, 660, 690, 720, 765, 780, 840,
+];
+
+function formatUtcOffsetLabel(minutes) {
+  const sign = minutes < 0 ? '-' : '+';
+  const abs = Math.abs(minutes);
+  const hours = Math.floor(abs / 60);
+  const mins = abs % 60;
+  return `UTC${sign}${hours}${mins ? ':' + String(mins).padStart(2, '0') : ''}`;
+}
+
 const EditChannelModal = (props) => {
   const { t } = useTranslation();
   const channelId = props.editingChannel.id;
@@ -197,6 +212,10 @@ const EditChannelModal = (props) => {
     retry_on_same_channel: false,
     retry_status_codes: '',
     retry_exhausted_transfer: true,
+    // 渠道每日请求上限（0 = 不限制）
+    daily_request_limit: 0,
+    // 每日限额日切时区（相对 UTC 的分钟偏移，'' = 跟随服务器时区）
+    daily_request_limit_utc_offset: '',
     settings: '',
     // 仅 Vertex: 密钥格式（存入 settings.vertex_key_type）
     vertex_key_type: 'json',
@@ -534,7 +553,21 @@ const EditChannelModal = (props) => {
     retry_on_same_channel: false,
     retry_status_codes: '',
     retry_exhausted_transfer: true,
+    daily_request_limit: 0,
+    daily_request_limit_utc_offset: '',
   });
+  // 当日已承接请求数（编辑时由后端返回，仅用于展示）
+  const [todayRequestCount, setTodayRequestCount] = useState(0);
+  const dailyLimitUtcOffsetOptions = useMemo(
+    () => [
+      { value: '', label: t('跟随服务器时区') },
+      ...DAILY_LIMIT_UTC_OFFSETS.map((minutes) => ({
+        value: minutes,
+        label: formatUtcOffsetLabel(minutes),
+      })),
+    ],
+    [t],
+  );
   const showApiConfigCard = true; // 控制是否显示 API 配置卡片
   const getInitValues = () => ({ ...originInputs });
 
@@ -971,6 +1004,12 @@ const EditChannelModal = (props) => {
           data.retry_status_codes = parsedSettings.retry_status_codes || '';
           data.retry_exhausted_transfer =
             parsedSettings.retry_exhausted_transfer !== false;
+          data.daily_request_limit = parsedSettings.daily_request_limit || 0;
+          data.daily_request_limit_utc_offset = Number.isInteger(
+            parsedSettings.daily_request_limit_utc_offset,
+          )
+            ? parsedSettings.daily_request_limit_utc_offset
+            : '';
         } catch (error) {
           console.error('解析渠道设置失败:', error);
           data.force_format = false;
@@ -985,6 +1024,8 @@ const EditChannelModal = (props) => {
           data.retry_on_same_channel = false;
           data.retry_status_codes = '';
           data.retry_exhausted_transfer = true;
+          data.daily_request_limit = 0;
+          data.daily_request_limit_utc_offset = '';
         }
       } else {
         data.force_format = false;
@@ -999,6 +1040,8 @@ const EditChannelModal = (props) => {
         data.retry_on_same_channel = false;
         data.retry_status_codes = '';
         data.retry_exhausted_transfer = true;
+        data.daily_request_limit = 0;
+        data.daily_request_limit_utc_offset = '';
       }
 
       if (data.settings) {
@@ -1146,7 +1189,14 @@ const EditChannelModal = (props) => {
         retry_on_same_channel: data.retry_on_same_channel || false,
         retry_status_codes: data.retry_status_codes || '',
         retry_exhausted_transfer: data.retry_exhausted_transfer !== false,
+        daily_request_limit: data.daily_request_limit || 0,
+        daily_request_limit_utc_offset: Number.isInteger(
+          data.daily_request_limit_utc_offset,
+        )
+          ? data.daily_request_limit_utc_offset
+          : '',
       });
+      setTodayRequestCount(data.today_request_count || 0);
       initialModelsRef.current = (data.models || [])
         .map((model) => (model || '').trim())
         .filter(Boolean);
@@ -1193,7 +1243,8 @@ const EditChannelModal = (props) => {
         data.system_prompt_override ||
         data.retry_on_same_channel ||
         (data.retry_times && data.retry_times !== 0) ||
-        (data.retry_status_codes && data.retry_status_codes.trim());
+        (data.retry_status_codes && data.retry_status_codes.trim()) ||
+        (data.daily_request_limit && data.daily_request_limit !== 0);
       if (hasAdvancedValues) {
         setAdvancedSettingsOpen(true);
       }
@@ -1560,7 +1611,10 @@ const EditChannelModal = (props) => {
       retry_on_same_channel: false,
       retry_status_codes: '',
       retry_exhausted_transfer: true,
+      daily_request_limit: 0,
+      daily_request_limit_utc_offset: '',
     });
+    setTodayRequestCount(0);
     // 重置密钥模式状态
     setKeyMode('append');
     setIsMultiKeyChannel(false);
@@ -1945,6 +1999,14 @@ const EditChannelModal = (props) => {
       retry_on_same_channel: localInputs.retry_on_same_channel || false,
       retry_status_codes: localInputs.retry_status_codes || '',
       retry_exhausted_transfer: localInputs.retry_exhausted_transfer !== false,
+      daily_request_limit: localInputs.daily_request_limit || 0,
+      // 0（UTC）是合法偏移，只有非整数（'' = 跟随服务器时区）才省略该字段
+      ...(Number.isInteger(localInputs.daily_request_limit_utc_offset)
+        ? {
+            daily_request_limit_utc_offset:
+              localInputs.daily_request_limit_utc_offset,
+          }
+        : {}),
     };
     localInputs.setting = JSON.stringify(channelExtraSettings);
 
@@ -2063,6 +2125,8 @@ const EditChannelModal = (props) => {
     delete localInputs.retry_on_same_channel;
     delete localInputs.retry_status_codes;
     delete localInputs.retry_exhausted_transfer;
+    delete localInputs.daily_request_limit;
+    delete localInputs.daily_request_limit_utc_offset;
     delete localInputs.is_enterprise_account;
     // 顶层的 vertex_key_type 不应发送给后端
     delete localInputs.vertex_key_type;
@@ -2817,6 +2881,30 @@ const EditChannelModal = (props) => {
                   {inputs.retry_on_same_channel && (
                     <Form.Switch field='retry_exhausted_transfer' label={t('重试耗尽后转移')} checkedText={t('开')} uncheckedText={t('关')} onChange={(value) => handleChannelSettingsChange('retry_exhausted_transfer', value)} extraText={t('同渠道重试耗尽后是否转移到其他渠道，关闭则直接返回错误')} />
                   )}
+
+                  <Text className='text-sm font-medium text-gray-500 mb-3 block mt-4'>
+                    {t('每日限额')}
+                  </Text>
+                  <Form.InputNumber
+                    field='daily_request_limit'
+                    label={t('每日请求上限')}
+                    placeholder={t('0 = 不限制')}
+                    min={0}
+                    onChange={(value) => handleChannelSettingsChange('daily_request_limit', value)}
+                    style={{ width: '100%' }}
+                    extraText={
+                      t('该渠道每天最多承接的请求次数（所有模型合计，含重试与渠道测试）。达到上限后当天自动跳过该渠道，次日恢复') +
+                      (isEdit ? '，' + t('今日已用') + ': ' + todayRequestCount : '')
+                    }
+                  />
+                  <Form.Select
+                    field='daily_request_limit_utc_offset'
+                    label={t('每日限额重置时区')}
+                    optionList={dailyLimitUtcOffsetOptions}
+                    onChange={(value) => handleChannelSettingsChange('daily_request_limit_utc_offset', value)}
+                    style={{ width: '100%' }}
+                    extraText={t('每日计数在该时区的 0 点重置。上游免费额度按哪个时区重置就选哪个（如 UTC+8 = 北京时间），默认跟随服务器时区')}
+                  />
                 </div>
               </div>
             );

@@ -438,6 +438,9 @@ func collectRouteCandidatesForGroup(group string, modelName string, channelIDs [
 		if err != nil || channelModel == nil || channelModel.Status != common.ChannelStatusEnabled {
 			continue
 		}
+		if model.IsChannelDailyLimitReached(channelID, channelModel.GetDailyLimitConfig()) {
+			continue
+		}
 		if model.IsChannelEnabledForGroupModel(group, modelName, channelID) {
 			candidates = append(candidates, channelModel)
 		}
