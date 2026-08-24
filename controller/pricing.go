@@ -56,6 +56,17 @@ func GetPricing(c *gin.Context) {
 	}
 
 	usableGroup = service.GetUserUsableGroups(group)
+	// 追加分组订阅授予的分组只对持有者本人可见：并入可用分组，
+	// 否则仅在附加分组上架的模型会被过滤出模型广场
+	if exists {
+		if attachedGroups, err := model.GetUserAttachedGroups(userId.(int)); err == nil {
+			for _, attachedGroup := range attachedGroups {
+				if _, ok := usableGroup[attachedGroup]; !ok {
+					usableGroup[attachedGroup] = "订阅附加分组"
+				}
+			}
+		}
+	}
 	pricing = filterPricingByUsableGroups(pricing, usableGroup)
 	// check groupRatio contains usableGroup
 	for group := range ratio_setting.GetGroupRatioCopy() {
