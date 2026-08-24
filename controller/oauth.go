@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
@@ -109,20 +110,17 @@ func HandleOAuth(c *gin.Context) {
 	// 7. Find or create user
 	user, err := findOrCreateOAuthUser(c, provider, oauthUser, session)
 	if err != nil {
-		if errors.Is(err, model.ErrEmailAlreadyTaken) {
-			common.ApiErrorI18n(c, i18n.MsgUserEmailAlreadyTaken)
-			return
+		// 邀请码缺失/无效时暂存已验证的 OAuth 身份，前端补填邀请码后经
+		// CompleteOAuthRegistration 免二次授权完成注册
+		var invitationErr *OAuthInvitationCodeError
+		if errors.As(err, &invitationErr) {
+			if pendingUser, mErr := common.Marshal(oauthUser); mErr == nil {
+				session.Set(sessionKeyPendingOAuthProvider, providerName)
+				session.Set(sessionKeyPendingOAuthUser, string(pendingUser))
+				_ = session.Save()
+			}
 		}
-		switch err.(type) {
-		case *OAuthUserDeletedError:
-			common.ApiErrorI18n(c, i18n.MsgOAuthUserDeleted)
-		case *OAuthRegistrationDisabledError:
-			common.ApiErrorI18n(c, i18n.MsgUserRegisterDisabled)
-		case *OAuthEmailAlreadyTakenError:
-			common.ApiErrorI18n(c, i18n.MsgUserEmailAlreadyTaken)
-		default:
-			common.ApiError(c, err)
-		}
+		respondOAuthUserError(c, err)
 		return
 	}
 
@@ -249,18 +247,17 @@ func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *o
 	// 邀请码验证（OAuth 注册也需要邀请码）
 	var invitationCodeRecord *model.InvitationCode
 	if common.InvitationCodeEnabled {
-		invCodeVal := session.Get("invitation_code")
-		if invCodeVal == nil || invCodeVal.(string) == "" {
-			return nil, fmt.Errorf("注册需要邀请码")
+		invCode, _ := session.Get("invitation_code").(string)
+		if invCode == "" {
+			return nil, &OAuthInvitationCodeError{MsgKey: i18n.MsgInvitationCodeRequired}
 		}
-		invCode := invCodeVal.(string)
 		var icErr error
 		invitationCodeRecord, icErr = model.GetInvitationCodeByCode(invCode)
 		if icErr != nil || invitationCodeRecord == nil {
-			return nil, fmt.Errorf("无效的邀请码")
+			return nil, &OAuthInvitationCodeError{MsgKey: i18n.MsgInvitationCodeInvalid}
 		}
 		if invitationCodeRecord.Status != common.InvitationCodeStatusEnabled {
-			return nil, fmt.Errorf("该邀请码已被使用或已禁用")
+			return nil, &OAuthInvitationCodeError{MsgKey: i18n.MsgInvitationCodeUsed}
 		}
 	}
 
@@ -301,7 +298,10 @@ func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *o
 		// 原子占用邀请码，防止并发注册用同一个码同时通过校验
 		reserved, reserveErr := model.ReserveInvitationCode(invitationCodeRecord.Code)
 		if reserveErr != nil {
-			return nil, reserveErr
+			if errors.Is(reserveErr, model.ErrInvitationCodeNotUsable) {
+				return nil, &OAuthInvitationCodeError{MsgKey: i18n.MsgInvitationCodeUsed}
+			}
+			return nil, &OAuthInvitationCodeError{MsgKey: i18n.MsgInvitationCodeInvalid}
 		}
 		invitationCodeRecord = reserved
 		inviterId = invitationCodeRecord.UserId
@@ -399,6 +399,132 @@ type OAuthEmailAlreadyTakenError struct{}
 
 func (e *OAuthEmailAlreadyTakenError) Error() string {
 	return "email is already in use"
+}
+
+// OAuthInvitationCodeError 表示注册被邀请码问题（缺失/无效/已使用）阻断。
+// 响应会附带 reason=invitation_code_required，前端据此引导补填邀请码而不是终止流程。
+type OAuthInvitationCodeError struct {
+	MsgKey string
+}
+
+func (e *OAuthInvitationCodeError) Error() string {
+	return e.MsgKey
+}
+
+// 前端识别的失败原因标记：账号未注册且需要补填邀请码
+const oauthReasonInvitationCodeRequired = "invitation_code_required"
+
+// 因邀请码问题中断注册时，暂存已通过身份验证的第三方身份；
+// 补填邀请码后经 CompleteOAuthRegistration 免二次授权完成注册
+const (
+	sessionKeyPendingOAuthProvider = "pending_oauth_provider"
+	sessionKeyPendingOAuthUser     = "pending_oauth_user"
+	sessionKeyPendingWeChatId      = "pending_wechat_id"
+)
+
+// respondOAuthUserError 统一输出第三方注册/登录失败响应（findOrCreateOAuthUser、
+// registerWeChatUser 共用）。邀请码类失败附带 reason，供前端进入补填邀请码流程。
+func respondOAuthUserError(c *gin.Context, err error) {
+	if errors.Is(err, model.ErrEmailAlreadyTaken) {
+		common.ApiErrorI18n(c, i18n.MsgUserEmailAlreadyTaken)
+		return
+	}
+	switch e := err.(type) {
+	case *OAuthUserDeletedError:
+		common.ApiErrorI18n(c, i18n.MsgOAuthUserDeleted)
+	case *OAuthRegistrationDisabledError:
+		common.ApiErrorI18n(c, i18n.MsgUserRegisterDisabled)
+	case *OAuthEmailAlreadyTakenError:
+		common.ApiErrorI18n(c, i18n.MsgUserEmailAlreadyTaken)
+	case *OAuthInvitationCodeError:
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": i18n.T(c, e.MsgKey),
+			"data":    gin.H{"reason": oauthReasonInvitationCodeRequired},
+		})
+	default:
+		common.ApiError(c, err)
+	}
+}
+
+// CompleteOAuthRegistration 用邀请码完成此前因邀请码问题中断的第三方注册。
+// 身份信息来自回调阶段暂存的 session，无需再次跳转授权/重新获取验证码。
+func CompleteOAuthRegistration(c *gin.Context) {
+	var req struct {
+		InvitationCode string `json:"invitation_code"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
+	req.InvitationCode = strings.TrimSpace(req.InvitationCode)
+	if req.InvitationCode == "" {
+		common.ApiErrorI18n(c, i18n.MsgInvitationCodeRequired)
+		return
+	}
+	session := sessions.Default(c)
+	// 已登录会话不允许消费残留的暂存身份建新号
+	if session.Get("username") != nil {
+		common.ApiErrorI18n(c, i18n.MsgOAuthPendingNotFound)
+		return
+	}
+
+	// 微信注册的待完成身份（验证码已在回调阶段核销，直接用暂存的 wechatId）
+	if wechatId, _ := session.Get(sessionKeyPendingWeChatId).(string); wechatId != "" {
+		user, err := registerWeChatUser(wechatId, req.InvitationCode)
+		if err != nil {
+			// 邀请码错误时保留暂存身份，允许换码重试
+			respondOAuthUserError(c, err)
+			return
+		}
+		if user.Status != common.UserStatusEnabled {
+			common.ApiErrorI18n(c, i18n.MsgOAuthUserBanned)
+			return
+		}
+		session.Delete(sessionKeyPendingWeChatId)
+		session.Delete("invitation_code")
+		setupLogin(user, c)
+		return
+	}
+
+	providerName, _ := session.Get(sessionKeyPendingOAuthProvider).(string)
+	pendingUserJson, _ := session.Get(sessionKeyPendingOAuthUser).(string)
+	if providerName == "" || pendingUserJson == "" {
+		common.ApiErrorI18n(c, i18n.MsgOAuthPendingNotFound)
+		return
+	}
+	provider := oauth.GetProvider(providerName)
+	if provider == nil {
+		common.ApiErrorI18n(c, i18n.MsgOAuthUnknownProvider)
+		return
+	}
+	if !provider.IsEnabled() {
+		common.ApiErrorI18n(c, i18n.MsgOAuthNotEnabled, providerParams(provider.GetName()))
+		return
+	}
+	var oauthUser oauth.OAuthUser
+	if err := common.UnmarshalJsonStr(pendingUserJson, &oauthUser); err != nil {
+		session.Delete(sessionKeyPendingOAuthProvider)
+		session.Delete(sessionKeyPendingOAuthUser)
+		_ = session.Save()
+		common.ApiErrorI18n(c, i18n.MsgOAuthPendingNotFound)
+		return
+	}
+	session.Set("invitation_code", req.InvitationCode)
+	user, err := findOrCreateOAuthUser(c, provider, &oauthUser, session)
+	if err != nil {
+		// 邀请码错误时保留暂存身份，允许换码重试
+		respondOAuthUserError(c, err)
+		return
+	}
+	if user.Status != common.UserStatusEnabled {
+		common.ApiErrorI18n(c, i18n.MsgOAuthUserBanned)
+		return
+	}
+	session.Delete(sessionKeyPendingOAuthProvider)
+	session.Delete(sessionKeyPendingOAuthUser)
+	session.Delete("invitation_code")
+	setupLogin(user, c)
 }
 
 // handleOAuthError handles OAuth errors and returns translated message

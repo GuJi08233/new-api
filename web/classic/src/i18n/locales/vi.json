@@ -4472,6 +4472,13 @@
     "成功率 < 80%": "Tỷ lệ thành công < 80%",
     "暂无调用记录": "Chưa có lượt gọi nào",
     "过去24小时无调用记录": "Không có lượt gọi nào trong 24 giờ qua",
-    "可靠度": "Độ tin cậy"
+    "可靠度": "Độ tin cậy",
+    "该账号尚未注册，填写邀请码即可完成注册": "Tài khoản này chưa được đăng ký. Nhập mã mời để hoàn tất đăng ký.",
+    "该微信号尚未注册，填写邀请码即可完成注册": "Tài khoản WeChat này chưa được đăng ký. Nhập mã mời để hoàn tất đăng ký.",
+    "完成注册": "Hoàn tất đăng ký",
+    "请输入邀请码": "Vui lòng nhập mã mời",
+    "邀请码无效": "Mã mời không hợp lệ",
+    "注册失败，请重试": "Đăng ký thất bại, vui lòng thử lại",
+    "注册成功！": "Đăng ký thành công!"
   }
 }

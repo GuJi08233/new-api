@@ -117,8 +117,12 @@ const RegisterForm = () => {
   const systemName = getSystemName();
 
   // 邀请码：从 URL 参数或 localStorage 读取
-  const urlInvitationCode = new URLSearchParams(window.location.search).get('invitation_code');
-  const [invitationCodeInput, setInvitationCodeInput] = useState(urlInvitationCode || localStorage.getItem('invitation_code') || '');
+  const urlInvitationCode = new URLSearchParams(window.location.search).get(
+    'invitation_code',
+  );
+  const [invitationCodeInput, setInvitationCodeInput] = useState(
+    urlInvitationCode || localStorage.getItem('invitation_code') || '',
+  );
   const [invitationCodeEnabled, setInvitationCodeEnabled] = useState(false);
 
   useEffect(() => {
@@ -187,6 +191,12 @@ const RegisterForm = () => {
   }, []);
 
   const onWeChatLoginClicked = () => {
+    // Turnstile 组件挂在主页面、会被弹窗遮罩挡住，未通过人机验证前不打开微信弹窗，
+    // 否则用户在弹窗内无法完成校验、提交时被拦而不知所措
+    if (turnstileEnabled && turnstileToken === '') {
+      showInfo(t('请稍后几秒重试，Turnstile 正在检查用户环境！'));
+      return;
+    }
     setWechatLoading(true);
     setShowWeChatLoginModal(true);
     setWechatLoading(false);
@@ -308,7 +318,10 @@ const RegisterForm = () => {
       setGithubButtonDisabled(true);
     }, 20000);
     try {
-      onGitHubOAuthClicked(status.github_client_id, { shouldLogout: true, invitationCode: invitationCodeInput });
+      onGitHubOAuthClicked(status.github_client_id, {
+        shouldLogout: true,
+        invitationCode: invitationCodeInput,
+      });
     } finally {
       setTimeout(() => setGithubLoading(false), 3000);
     }
@@ -317,7 +330,10 @@ const RegisterForm = () => {
   const handleDiscordClick = () => {
     setDiscordLoading(true);
     try {
-      onDiscordOAuthClicked(status.discord_client_id, { shouldLogout: true, invitationCode: invitationCodeInput });
+      onDiscordOAuthClicked(status.discord_client_id, {
+        shouldLogout: true,
+        invitationCode: invitationCodeInput,
+      });
     } finally {
       setTimeout(() => setDiscordLoading(false), 3000);
     }
@@ -340,7 +356,10 @@ const RegisterForm = () => {
   const handleLinuxDOClick = () => {
     setLinuxdoLoading(true);
     try {
-      onLinuxDOOAuthClicked(status.linuxdo_client_id, { shouldLogout: true, invitationCode: invitationCodeInput });
+      onLinuxDOOAuthClicked(status.linuxdo_client_id, {
+        shouldLogout: true,
+        invitationCode: invitationCodeInput,
+      });
     } finally {
       setTimeout(() => setLinuxdoLoading(false), 3000);
     }
@@ -349,7 +368,10 @@ const RegisterForm = () => {
   const handleSteamClick = () => {
     setSteamLoading(true);
     try {
-      onSteamOAuthClicked({ shouldLogout: true, invitationCode: invitationCodeInput });
+      onSteamOAuthClicked({
+        shouldLogout: true,
+        invitationCode: invitationCodeInput,
+      });
     } finally {
       setTimeout(() => setSteamLoading(false), 3000);
     }
@@ -358,7 +380,10 @@ const RegisterForm = () => {
   const handleCustomOAuthClick = (provider) => {
     setCustomOAuthLoading((prev) => ({ ...prev, [provider.slug]: true }));
     try {
-      onCustomOAuthClicked(provider, { shouldLogout: true, invitationCode: invitationCodeInput });
+      onCustomOAuthClicked(provider, {
+        shouldLogout: true,
+        invitationCode: invitationCodeInput,
+      });
     } finally {
       setTimeout(() => {
         setCustomOAuthLoading((prev) => ({ ...prev, [provider.slug]: false }));
@@ -850,8 +875,7 @@ const RegisterForm = () => {
         style={{ top: '50%', left: '-120px' }}
       />
       <div className='w-full max-w-sm mt-[60px]'>
-        {showEmailRegister ||
-        !hasOAuthRegisterOptions
+        {showEmailRegister || !hasOAuthRegisterOptions
           ? renderEmailRegisterForm()
           : renderOAuthOptions()}
         {renderWeChatLoginModal()}

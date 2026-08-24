@@ -302,6 +302,7 @@ const (
 	MsgOAuthTokenFailed     = "oauth.token_failed"
 	MsgOAuthUserInfoEmpty   = "oauth.user_info_empty"
 	MsgOAuthTrustLevelLow   = "oauth.trust_level_low"
+	MsgOAuthPendingNotFound = "oauth.pending_registration_not_found"
 )
 
 // Model layer error messages (for translation in controller)

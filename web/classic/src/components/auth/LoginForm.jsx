@@ -49,6 +49,7 @@ import {
   Divider,
   Form,
   Icon,
+  Input,
   Modal,
 } from '@douyinfe/semi-ui';
 import Title from '@douyinfe/semi-ui/lib/es/typography/title';
@@ -80,6 +81,7 @@ const LoginForm = () => {
     username: '',
     password: '',
     wechat_verification_code: '',
+    wechat_invitation_code: '',
   });
   const { username, password } = inputs;
   const [searchParams, setSearchParams] = useSearchParams();
@@ -90,6 +92,8 @@ const LoginForm = () => {
   const [turnstileSiteKey, setTurnstileSiteKey] = useState('');
   const [turnstileToken, setTurnstileToken] = useState('');
   const [showWeChatLoginModal, setShowWeChatLoginModal] = useState(false);
+  // 该微信号未注册且系统要求邀请码时，弹窗切换为补填邀请码完成注册
+  const [wechatNeedInvitation, setWechatNeedInvitation] = useState(false);
   const [showEmailLogin, setShowEmailLogin] = useState(false);
   const [wechatLoading, setWechatLoading] = useState(false);
   const [githubLoading, setGithubLoading] = useState(false);
@@ -117,6 +121,10 @@ const LoginForm = () => {
 
   const logo = getLogo();
   const systemName = getSystemName();
+  // 邀请链接进站时注册页会把邀请码写入 localStorage：登录路径的第三方授权也随身携带，
+  // 让"从邀请链接进站但直接点登录"的未注册用户一次完成注册（已注册用户不消费邀请码）
+  const storedInvitationCode =
+    localStorage.getItem('invitation_code') || undefined;
 
   const status = useMemo(() => {
     if (statusState?.status) return statusState.status;
@@ -175,9 +183,26 @@ const LoginForm = () => {
       showInfo(t('请先阅读并同意用户协议和隐私政策'));
       return;
     }
+    // Turnstile 组件挂在主页面、会被弹窗遮罩挡住，未通过人机验证前不打开微信弹窗，
+    // 否则用户在弹窗内无法完成校验、提交时被拦而不知所措
+    if (turnstileEnabled && turnstileToken === '') {
+      showInfo(t('请稍后几秒重试，Turnstile 正在检查用户环境！'));
+      return;
+    }
     setWechatLoading(true);
     setShowWeChatLoginModal(true);
     setWechatLoading(false);
+  };
+
+  const handleWeChatLoginSuccess = (data, message) => {
+    userDispatch({ type: 'login', payload: data });
+    localStorage.setItem('user', JSON.stringify(data));
+    setUserData(data);
+    updateAPI();
+    navigate('/');
+    showSuccess(message);
+    setShowWeChatLoginModal(false);
+    setWechatNeedInvitation(false);
   };
 
   const onSubmitWeChatVerificationCode = async () => {
@@ -187,23 +212,58 @@ const LoginForm = () => {
     }
     setWechatCodeSubmitLoading(true);
     try {
-      const res = await API.get(
-        `/api/oauth/wechat?code=${encodeURIComponent(inputs.wechat_verification_code)}`,
-      );
+      const query = new URLSearchParams({
+        code: inputs.wechat_verification_code,
+      });
+      if (storedInvitationCode) {
+        query.set('invitation_code', storedInvitationCode);
+      }
+      const res = await API.get(`/api/oauth/wechat?${query.toString()}`);
       const { success, message, data } = res.data;
       if (success) {
-        userDispatch({ type: 'login', payload: data });
-        localStorage.setItem('user', JSON.stringify(data));
-        setUserData(data);
-        updateAPI();
-        navigate('/');
-        showSuccess('登录成功！');
-        setShowWeChatLoginModal(false);
+        handleWeChatLoginSuccess(data, t('登录成功！'));
+      } else if (data?.reason === 'invitation_code_required') {
+        // 该微信号未注册：身份已由后端暂存，弹窗内补填邀请码即可完成注册
+        setInputs((inputs) => ({
+          ...inputs,
+          wechat_invitation_code: localStorage.getItem('invitation_code') || '',
+        }));
+        setWechatNeedInvitation(true);
+        showError(message);
       } else {
         showError(message);
       }
     } catch (error) {
       showError('登录失败，请重试');
+    } finally {
+      setWechatCodeSubmitLoading(false);
+    }
+  };
+
+  const onSubmitWeChatInvitationCode = async () => {
+    const code = (inputs.wechat_invitation_code || '').trim();
+    if (!code) {
+      showError(t('请输入邀请码'));
+      return;
+    }
+    setWechatCodeSubmitLoading(true);
+    try {
+      const res = await API.post('/api/oauth/complete_registration', {
+        invitation_code: code,
+      });
+      const { success, message, data } = res.data;
+      if (success) {
+        // 邀请码已被消费，避免残留给同浏览器的下一位注册者
+        localStorage.removeItem('invitation_code');
+        handleWeChatLoginSuccess(data, t('注册成功！'));
+      } else if (data?.reason === 'invitation_code_required') {
+        // 邀请码无效/已被使用：留在弹窗允许换码重试
+        showError(message || t('邀请码无效'));
+      } else {
+        showError(message);
+      }
+    } catch (error) {
+      showError(t('注册失败，请重试'));
     } finally {
       setWechatCodeSubmitLoading(false);
     }
@@ -328,7 +388,10 @@ const LoginForm = () => {
       setGithubButtonDisabled(true);
     }, 20000);
     try {
-      onGitHubOAuthClicked(status.github_client_id, { shouldLogout: true });
+      onGitHubOAuthClicked(status.github_client_id, {
+        shouldLogout: true,
+        invitationCode: storedInvitationCode,
+      });
     } finally {
       // 由于重定向，这里不会执行到，但为了完整性添加
       setTimeout(() => setGithubLoading(false), 3000);
@@ -343,7 +406,10 @@ const LoginForm = () => {
     }
     setDiscordLoading(true);
     try {
-      onDiscordOAuthClicked(status.discord_client_id, { shouldLogout: true });
+      onDiscordOAuthClicked(status.discord_client_id, {
+        shouldLogout: true,
+        invitationCode: storedInvitationCode,
+      });
     } finally {
       // 由于重定向，这里不会执行到，但为了完整性添加
       setTimeout(() => setDiscordLoading(false), 3000);
@@ -362,7 +428,7 @@ const LoginForm = () => {
         status.oidc_authorization_endpoint,
         status.oidc_client_id,
         false,
-        { shouldLogout: true },
+        { shouldLogout: true, invitationCode: storedInvitationCode },
       );
     } finally {
       // 由于重定向，这里不会执行到，但为了完整性添加
@@ -378,7 +444,10 @@ const LoginForm = () => {
     }
     setLinuxdoLoading(true);
     try {
-      onLinuxDOOAuthClicked(status.linuxdo_client_id, { shouldLogout: true });
+      onLinuxDOOAuthClicked(status.linuxdo_client_id, {
+        shouldLogout: true,
+        invitationCode: storedInvitationCode,
+      });
     } finally {
       // 由于重定向，这里不会执行到，但为了完整性添加
       setTimeout(() => setLinuxdoLoading(false), 3000);
@@ -393,7 +462,10 @@ const LoginForm = () => {
     }
     setSteamLoading(true);
     try {
-      onSteamOAuthClicked({ shouldLogout: true });
+      onSteamOAuthClicked({
+        shouldLogout: true,
+        invitationCode: storedInvitationCode,
+      });
     } finally {
       setTimeout(() => setSteamLoading(false), 3000);
     }
@@ -407,7 +479,10 @@ const LoginForm = () => {
     }
     setCustomOAuthLoading((prev) => ({ ...prev, [provider.slug]: true }));
     try {
-      onCustomOAuthClicked(provider, { shouldLogout: true });
+      onCustomOAuthClicked(provider, {
+        shouldLogout: true,
+        invitationCode: storedInvitationCode,
+      });
     } finally {
       // 由于重定向，这里不会执行到，但为了完整性添加
       setTimeout(() => {
@@ -909,35 +984,67 @@ const LoginForm = () => {
         title={t('微信扫码登录')}
         visible={showWeChatLoginModal}
         maskClosable={true}
-        onOk={onSubmitWeChatVerificationCode}
-        onCancel={() => setShowWeChatLoginModal(false)}
-        okText={t('登录')}
+        onOk={
+          wechatNeedInvitation
+            ? onSubmitWeChatInvitationCode
+            : onSubmitWeChatVerificationCode
+        }
+        onCancel={() => {
+          setShowWeChatLoginModal(false);
+          setWechatNeedInvitation(false);
+        }}
+        okText={wechatNeedInvitation ? t('完成注册') : t('登录')}
         centered={true}
         okButtonProps={{
           loading: wechatCodeSubmitLoading,
         }}
       >
-        <div className='flex flex-col items-center'>
-          <img src={status.wechat_qrcode} alt='微信二维码' className='mb-4' />
-        </div>
+        {wechatNeedInvitation ? (
+          <>
+            <div className='text-center mb-4'>
+              <p>{t('该微信号尚未注册，填写邀请码即可完成注册')}</p>
+            </div>
+            <Input
+              value={inputs.wechat_invitation_code}
+              onChange={(value) =>
+                handleChange('wechat_invitation_code', value)
+              }
+              placeholder={t('请输入邀请码')}
+              prefix={<IconKey />}
+              onEnterPress={onSubmitWeChatInvitationCode}
+            />
+          </>
+        ) : (
+          <>
+            <div className='flex flex-col items-center'>
+              <img
+                src={status.wechat_qrcode}
+                alt='微信二维码'
+                className='mb-4'
+              />
+            </div>
 
-        <div className='text-center mb-4'>
-          <p>
-            {t('微信扫码关注公众号，输入「验证码」获取验证码（三分钟内有效）')}
-          </p>
-        </div>
+            <div className='text-center mb-4'>
+              <p>
+                {t(
+                  '微信扫码关注公众号，输入「验证码」获取验证码（三分钟内有效）',
+                )}
+              </p>
+            </div>
 
-        <Form>
-          <Form.Input
-            field='wechat_verification_code'
-            placeholder={t('验证码')}
-            label={t('验证码')}
-            value={inputs.wechat_verification_code}
-            onChange={(value) =>
-              handleChange('wechat_verification_code', value)
-            }
-          />
-        </Form>
+            <Form>
+              <Form.Input
+                field='wechat_verification_code'
+                placeholder={t('验证码')}
+                label={t('验证码')}
+                value={inputs.wechat_verification_code}
+                onChange={(value) =>
+                  handleChange('wechat_verification_code', value)
+                }
+              />
+            </Form>
+          </>
+        )}
       </Modal>
     );
   };
@@ -991,8 +1098,7 @@ const LoginForm = () => {
         style={{ top: '50%', left: '-120px' }}
       />
       <div className='w-full max-w-sm mt-[60px]'>
-        {showEmailLogin ||
-        !hasOAuthLoginOptions
+        {showEmailLogin || !hasOAuthLoginOptions
           ? renderEmailLoginForm()
           : renderOAuthOptions()}
         {renderWeChatLoginModal()}

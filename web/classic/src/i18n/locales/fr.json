@@ -3944,6 +3944,13 @@
     "成功率 < 80%": "Taux de réussite < 80 %",
     "暂无调用记录": "Aucun appel enregistré",
     "过去24小时无调用记录": "Aucun appel au cours des dernières 24 heures",
-    "可靠度": "Fiabilité"
+    "可靠度": "Fiabilité",
+    "该账号尚未注册，填写邀请码即可完成注册": "Ce compte n'est pas encore inscrit. Saisissez un code d'invitation pour terminer l'inscription.",
+    "该微信号尚未注册，填写邀请码即可完成注册": "Ce compte WeChat n'est pas encore inscrit. Saisissez un code d'invitation pour terminer l'inscription.",
+    "完成注册": "Terminer l'inscription",
+    "请输入邀请码": "Veuillez saisir le code d'invitation",
+    "邀请码无效": "Code d'invitation invalide",
+    "注册失败，请重试": "Échec de l'inscription, veuillez réessayer",
+    "注册成功！": "Inscription réussie !"
   }
 }

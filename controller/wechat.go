@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 
 	"github.com/gin-contrib/sessions"
@@ -90,62 +91,27 @@ func WeChatAuth(c *gin.Context) {
 			return
 		}
 	} else {
-		if common.RegisterEnabled {
-			// 邀请码验证（微信注册与其他注册方式保持一致）
-			var invitationCodeRecord *model.InvitationCode
-			inviterId := 0
-			if common.InvitationCodeEnabled {
-				invCode := c.Query("invitation_code")
-				if invCode == "" {
-					session := sessions.Default(c)
-					if v, ok := session.Get("invitation_code").(string); ok {
-						invCode = v
-					}
-				}
-				if invCode == "" {
-					c.JSON(http.StatusOK, gin.H{
-						"success": false,
-						"message": "注册需要邀请码",
-					})
-					return
-				}
-				record, err := model.ReserveInvitationCode(invCode)
-				if err != nil {
-					c.JSON(http.StatusOK, gin.H{
-						"success": false,
-						"message": err.Error(),
-					})
-					return
-				}
-				invitationCodeRecord = record
-				inviterId = record.UserId
+		invCode := c.Query("invitation_code")
+		if invCode == "" {
+			session := sessions.Default(c)
+			if v, ok := session.Get("invitation_code").(string); ok {
+				invCode = v
 			}
-
-			user.Username = "wechat_" + strconv.Itoa(model.GetMaxUserId()+1)
-			user.DisplayName = "WeChat User"
-			user.Role = common.RoleCommonUser
-			user.Status = common.UserStatusEnabled
-			user.InviterId = inviterId
-
-			if err := user.Insert(inviterId); err != nil {
-				model.ReleaseInvitationCode(invitationCodeRecord)
-				c.JSON(http.StatusOK, gin.H{
-					"success": false,
-					"message": err.Error(),
-				})
-				return
+		}
+		registered, err := registerWeChatUser(wechatId, invCode)
+		if err != nil {
+			// 邀请码缺失/无效时暂存已验证的微信身份，前端补填邀请码后经
+			// CompleteOAuthRegistration 免二次验证码完成注册
+			var invitationErr *OAuthInvitationCodeError
+			if errors.As(err, &invitationErr) {
+				session := sessions.Default(c)
+				session.Set(sessionKeyPendingWeChatId, wechatId)
+				_ = session.Save()
 			}
-			// 将邀请码归属到新用户并发放奖励
-			if invitationCodeRecord != nil {
-				_ = model.FinalizeInvitationCodeUsage(invitationCodeRecord, user.Id)
-			}
-		} else {
-			c.JSON(http.StatusOK, gin.H{
-				"success": false,
-				"message": "管理员关闭了新用户注册",
-			})
+			respondOAuthUserError(c, err)
 			return
 		}
+		user = *registered
 	}
 
 	if user.Status != common.UserStatusEnabled {
@@ -156,6 +122,58 @@ func WeChatAuth(c *gin.Context) {
 		return
 	}
 	setupLogin(&user, c)
+}
+
+// registerWeChatUser 用已通过验证码换取的微信身份完成注册，遵循邀请码
+// 「占用 → 建号 → 归属/失败释放」两阶段协议。若该微信号已注册（重复或
+// 并发提交），幂等返回已有用户。
+func registerWeChatUser(wechatId string, invCode string) (*model.User, error) {
+	if model.IsWeChatIdAlreadyTaken(wechatId) {
+		existing := &model.User{WeChatId: wechatId}
+		if err := existing.FillUserByWeChatId(); err != nil {
+			return nil, err
+		}
+		if existing.Id == 0 {
+			return nil, &OAuthUserDeletedError{}
+		}
+		return existing, nil
+	}
+	if !common.RegisterEnabled {
+		return nil, &OAuthRegistrationDisabledError{}
+	}
+	var invitationCodeRecord *model.InvitationCode
+	inviterId := 0
+	if common.InvitationCodeEnabled {
+		if invCode == "" {
+			return nil, &OAuthInvitationCodeError{MsgKey: i18n.MsgInvitationCodeRequired}
+		}
+		record, err := model.ReserveInvitationCode(invCode)
+		if err != nil {
+			if errors.Is(err, model.ErrInvitationCodeNotUsable) {
+				return nil, &OAuthInvitationCodeError{MsgKey: i18n.MsgInvitationCodeUsed}
+			}
+			return nil, &OAuthInvitationCodeError{MsgKey: i18n.MsgInvitationCodeInvalid}
+		}
+		invitationCodeRecord = record
+		inviterId = record.UserId
+	}
+	user := &model.User{
+		WeChatId:    wechatId,
+		Username:    "wechat_" + strconv.Itoa(model.GetMaxUserId()+1),
+		DisplayName: "WeChat User",
+		Role:        common.RoleCommonUser,
+		Status:      common.UserStatusEnabled,
+		InviterId:   inviterId,
+	}
+	if err := user.Insert(inviterId); err != nil {
+		model.ReleaseInvitationCode(invitationCodeRecord)
+		return nil, err
+	}
+	// 将邀请码归属到新用户并发放奖励
+	if invitationCodeRecord != nil {
+		_ = model.FinalizeInvitationCodeUsage(invitationCodeRecord, user.Id)
+	}
+	return user, nil
 }
 
 type wechatBindRequest struct {

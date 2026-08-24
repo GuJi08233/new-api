@@ -4095,6 +4095,13 @@
     "成功率 < 80%": "Success rate < 80%",
     "暂无调用记录": "No calls recorded",
     "过去24小时无调用记录": "No calls in the last 24 hours",
-    "可靠度": "Reliability"
+    "可靠度": "Reliability",
+    "该账号尚未注册，填写邀请码即可完成注册": "This account is not registered yet. Enter an invitation code to complete registration.",
+    "该微信号尚未注册，填写邀请码即可完成注册": "This WeChat account is not registered yet. Enter an invitation code to complete registration.",
+    "完成注册": "Complete Registration",
+    "请输入邀请码": "Please enter the invitation code",
+    "邀请码无效": "Invalid invitation code",
+    "注册失败，请重试": "Registration failed, please try again",
+    "注册成功！": "Registration successful!"
   }
 }
