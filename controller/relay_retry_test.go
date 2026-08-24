@@ -1,7 +1,9 @@
 package controller
 
 import (
+	"context"
 	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -157,6 +159,25 @@ func TestShouldRetryWithChannelSetting_AlwaysSkipRetryCode(t *testing.T) {
 		500,
 	)
 	require.False(t, shouldRetryWithChannelSetting(c, err, 3, setting))
+}
+
+func TestShouldRetry_ClientDisconnected(t *testing.T) {
+	c := newTestContext()
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+
+	retryErr := newRetryError(500)
+	taskErr := &dto.TaskError{StatusCode: 500}
+	require.True(t, shouldRetry(c, retryErr, 3))
+	require.True(t, shouldRetryWithChannelSetting(c, retryErr, 3, dto.ChannelSettings{}))
+	require.True(t, shouldRetryTaskRelay(c, 1, taskErr, 3))
+
+	cancelledCtx, cancel := context.WithCancel(c.Request.Context())
+	cancel()
+	c.Request = c.Request.WithContext(cancelledCtx)
+
+	assert.False(t, shouldRetry(c, retryErr, 3), "client gone: no cross-channel retry")
+	assert.False(t, shouldRetryWithChannelSetting(c, retryErr, 3, dto.ChannelSettings{}), "client gone: no channel-setting retry")
+	assert.False(t, shouldRetryTaskRelay(c, 1, taskErr, 3), "client gone: no task retry")
 }
 
 func TestGetChannelRetrySettings_FromContext(t *testing.T) {

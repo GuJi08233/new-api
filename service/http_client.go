@@ -53,11 +53,30 @@ func ValidateSSRFProtectedFetchURL(urlStr string) error {
 	return validateURLWithCurrentFetchSetting(urlStr, true)
 }
 
+// relayDialer 统一出站建连参数。RELAY_CONNECT_TIMEOUT 只约束 TCP 建连阶段：
+// 上游 SYN 被丢弃（黑洞）时若不设超时，请求会挂满内核重传周期（Linux 默认约 127 秒）
+// 才失败，期间无法换渠道重试。0 表示保持不限制的旧行为。
+func relayDialer() *net.Dialer {
+	return &net.Dialer{
+		Timeout:   time.Duration(common.RelayConnectTimeout) * time.Second,
+		KeepAlive: 30 * time.Second,
+	}
+}
+
+func relayTLSHandshakeTimeout() time.Duration {
+	if common.RelayConnectTimeout <= 0 {
+		return 0
+	}
+	return 10 * time.Second
+}
+
 func InitHttpClient() {
 	transport := &http.Transport{
+		DialContext:         relayDialer().DialContext,
 		MaxIdleConns:        common.RelayMaxIdleConns,
 		MaxIdleConnsPerHost: common.RelayMaxIdleConnsPerHost,
 		IdleConnTimeout:     time.Duration(common.RelayIdleConnTimeout) * time.Second,
+		TLSHandshakeTimeout: relayTLSHandshakeTimeout(),
 		ForceAttemptHTTP2:   true,
 		Proxy:               http.ProxyFromEnvironment, // Support HTTP_PROXY, HTTPS_PROXY, NO_PROXY env vars
 	}
@@ -144,9 +163,11 @@ func NewProxyHttpClient(proxyURL string) (*http.Client, error) {
 	switch parsedURL.Scheme {
 	case "http", "https":
 		transport := &http.Transport{
+			DialContext:         relayDialer().DialContext,
 			MaxIdleConns:        common.RelayMaxIdleConns,
 			MaxIdleConnsPerHost: common.RelayMaxIdleConnsPerHost,
 			IdleConnTimeout:     time.Duration(common.RelayIdleConnTimeout) * time.Second,
+			TLSHandshakeTimeout: relayTLSHandshakeTimeout(),
 			ForceAttemptHTTP2:   true,
 			Proxy:               http.ProxyURL(parsedURL),
 		}
@@ -178,17 +199,24 @@ func NewProxyHttpClient(proxyURL string) (*http.Client, error) {
 
 		// 创建 SOCKS5 代理拨号器
 		// proxy.SOCKS5 使用 tcp 参数，所有 TCP 连接包括 DNS 查询都将通过代理进行。行为与 socks5h 相同
-		dialer, err := proxy.SOCKS5("tcp", parsedURL.Host, auth, proxy.Direct)
+		dialer, err := proxy.SOCKS5("tcp", parsedURL.Host, auth, relayDialer())
 		if err != nil {
 			return nil, err
 		}
+		// x/net 的 SOCKS5 拨号器实现了 ContextDialer；走 DialContext 才能在
+		// 请求取消时中断代理建连与握手，而不是无限等待
+		contextDialer, _ := dialer.(proxy.ContextDialer)
 
 		transport := &http.Transport{
 			MaxIdleConns:        common.RelayMaxIdleConns,
 			MaxIdleConnsPerHost: common.RelayMaxIdleConnsPerHost,
 			IdleConnTimeout:     time.Duration(common.RelayIdleConnTimeout) * time.Second,
+			TLSHandshakeTimeout: relayTLSHandshakeTimeout(),
 			ForceAttemptHTTP2:   true,
 			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				if contextDialer != nil {
+					return contextDialer.DialContext(ctx, network, addr)
+				}
 				return dialer.Dial(network, addr)
 			},
 		}
