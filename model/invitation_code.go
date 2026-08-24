@@ -372,9 +372,33 @@ func AttachInvitationInfo(users []*User) {
 		return
 	}
 	userIds := make([]int, 0, len(users))
-	inviterIds := make([]int, 0)
 	for _, u := range users {
 		userIds = append(userIds, u.Id)
+	}
+	// 只按注册使用反查：兑换核销（used_type=2）不产生邀请关系；
+	// 历史数据（used_type=0）按"之前的不管"约定同样排除
+	var codes []InvitationCode
+	if err := ReadDB().Select("code", "user_id", "used_user_id").
+		Where("used_user_id IN ? AND used_type = ?", userIds, common.InvitationCodeUsedTypeRegister).
+		Find(&codes).Error; err == nil {
+		codeByUser := make(map[int]*InvitationCode, len(codes))
+		for i := range codes {
+			codeByUser[codes[i].UsedUserId] = &codes[i]
+		}
+		for _, u := range users {
+			code, ok := codeByUser[u.Id]
+			if !ok {
+				continue
+			}
+			u.UsedInvitationCode = code.Code
+			// 历史 OAuth 注册未落库 inviter_id 时，按邀请码归属补出邀请人
+			if u.InviterId == 0 {
+				u.InviterId = code.UserId
+			}
+		}
+	}
+	inviterIds := make([]int, 0)
+	for _, u := range users {
 		if u.InviterId != 0 {
 			inviterIds = append(inviterIds, u.InviterId)
 		}
@@ -391,20 +415,6 @@ func AttachInvitationInfo(users []*User) {
 					u.InviterName = nameById[u.InviterId]
 				}
 			}
-		}
-	}
-	// 只按注册使用反查：兑换核销（used_type=2）不产生邀请关系；
-	// 历史数据（used_type=0）按"之前的不管"约定同样排除
-	var codes []InvitationCode
-	if err := ReadDB().Select("code", "used_user_id").
-		Where("used_user_id IN ? AND used_type = ?", userIds, common.InvitationCodeUsedTypeRegister).
-		Find(&codes).Error; err == nil {
-		codeByUser := make(map[int]string, len(codes))
-		for _, code := range codes {
-			codeByUser[code.UsedUserId] = code.Code
-		}
-		for _, u := range users {
-			u.UsedInvitationCode = codeByUser[u.Id]
 		}
 	}
 }

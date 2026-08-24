@@ -117,3 +117,42 @@ func TestInvitationCodeRedeemRecordsUsageWithoutInviteRelation(t *testing.T) {
 	_, err = Redeem("redeem-code", redeemer.Id)
 	require.Error(t, err)
 }
+
+// 管理端邀请信息展示：inviter_id 未落库的历史注册（OAuth 路径旧数据）
+// 必须能按注册邀请码的归属补出邀请人；兑换核销不产生邀请关系。
+func TestAttachInvitationInfo_DerivesInviterFromRegisterCode(t *testing.T) {
+	truncateTables(t)
+
+	inviter := User{Id: 11, Username: "inviter-user", Password: "password", Status: common.UserStatusEnabled, AffCode: "aff-11"}
+	require.NoError(t, DB.Create(&inviter).Error)
+	// inviter_id 为 0 的被邀请用户（模拟 OAuth 注册旧数据）
+	invited := User{Id: 12, Username: "invited-oauth", Password: "password", Status: common.UserStatusEnabled, AffCode: "aff-12"}
+	require.NoError(t, DB.Create(&invited).Error)
+	// 只是兑换过码的用户，不应被当成被邀请人
+	redeemer := User{Id: 13, Username: "redeemer-user", Password: "password", Status: common.UserStatusEnabled, AffCode: "aff-13"}
+	require.NoError(t, DB.Create(&redeemer).Error)
+
+	registerCode := InvitationCode{
+		UserId: inviter.Id, Code: "reg-code", Quota: 100,
+		Status: common.InvitationCodeStatusUsed, UsedUserId: invited.Id,
+		UsedType: common.InvitationCodeUsedTypeRegister, CreatedTime: common.GetTimestamp(),
+	}
+	require.NoError(t, DB.Create(&registerCode).Error)
+	redeemCode := InvitationCode{
+		UserId: inviter.Id, Code: "redeem-code", Quota: 100,
+		Status: common.InvitationCodeStatusUsed, UsedUserId: redeemer.Id,
+		UsedType: common.InvitationCodeUsedTypeRedeem, CreatedTime: common.GetTimestamp(),
+	}
+	require.NoError(t, DB.Create(&redeemCode).Error)
+
+	users := []*User{{Id: invited.Id, InviterId: 0}, {Id: redeemer.Id, InviterId: 0}}
+	AttachInvitationInfo(users)
+
+	assert.Equal(t, inviter.Id, users[0].InviterId)
+	assert.Equal(t, "inviter-user", users[0].InviterName)
+	assert.Equal(t, "reg-code", users[0].UsedInvitationCode)
+
+	assert.Zero(t, users[1].InviterId)
+	assert.Empty(t, users[1].InviterName)
+	assert.Empty(t, users[1].UsedInvitationCode)
+}

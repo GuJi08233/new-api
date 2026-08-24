@@ -306,6 +306,8 @@ func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *o
 		invitationCodeRecord = reserved
 		inviterId = invitationCodeRecord.UserId
 	}
+	// Insert 的 inviterId 参数只负责发放邀请奖励，邀请人字段必须显式落库
+	user.InviterId = inviterId
 
 	// Use transaction to ensure user creation and OAuth binding are atomic
 	if genericProvider, ok := provider.(*oauth.GenericOAuthProvider); ok {
