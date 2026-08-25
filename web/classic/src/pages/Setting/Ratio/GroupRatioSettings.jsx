@@ -194,7 +194,7 @@ export default function GroupRatioSettings(props) {
 
       <Form.Section text={t('自动分组')}>
         <Text type='tertiary' size='small' style={{ display: 'block', marginBottom: 12 }}>
-          {t('令牌分组设为 auto 时，按以下顺序依次尝试选择可用分组，排在前面的优先级更高')}
+          {t('令牌分组设为 auto 时，按以下顺序依次尝试选择可用分组，排在前面的优先级更高。列表自动包含全部分组（新增分组自动排在末尾），只需调整顺序；每个用户实际只会用到自己有权使用的分组')}
         </Text>
         <Row gutter={16}>
           <Col xs={24} sm={12} md={8} lg={8} xl={8}>
@@ -371,7 +371,7 @@ export default function GroupRatioSettings(props) {
         <Row gutter={16}>
           <Col xs={24} sm={16}>
             <Form.TextArea
-              label={t('自动分组auto，从第一个开始选择')}
+              label={t('自动分组auto优先级顺序（自动包含全部分组，此处只决定顺序）')}
               placeholder={t('为一个 JSON 文本')}
               field={'AutoGroups'}
               autosize={{ minRows: 6, maxRows: 12 }}
@@ -599,6 +599,9 @@ export default function GroupRatioSettings(props) {
             <Title heading={5}>{t('自动分组选择')}</Title>
             <Paragraph style={{ marginTop: 12, lineHeight: 1.8 }}>
               {t('当令牌分组设为 auto 时，系统按列表顺序依次选择可用分组。排在前面的优先级更高。')}
+            </Paragraph>
+            <Paragraph style={{ marginTop: 8, lineHeight: 1.8 }}>
+              {t('列表自动包含分组倍率中的全部分组，新增分组自动排在末尾，无需手动添加；配置只决定顺序。每个用户的 auto 序列会自动过滤为其有权使用的分组（含订阅附加分组，订阅过期自动移除）。')}
             </Paragraph>
 
             <GuideSection title={t('查看示例')}>

@@ -342,10 +342,12 @@ func resolveBillingUsingGroup(relayInfo *relaycommon.RelayInfo) string {
 	if relayInfo == nil {
 		return ""
 	}
-	if group := strings.TrimSpace(relayInfo.UsingGroup); group != "" {
+	// 多分组令牌在选中渠道前 UsingGroup 是逗号分隔的候选串，选中后被
+	// HandleGroupRatio 覆盖为实际分组；未覆盖时回退用户分组做订阅匹配
+	if group := strings.TrimSpace(relayInfo.UsingGroup); group != "" && !strings.Contains(group, ",") {
 		return group
 	}
-	if group := strings.TrimSpace(relayInfo.TokenGroup); group != "" && group != "auto" {
+	if group := strings.TrimSpace(relayInfo.TokenGroup); group != "" && group != "auto" && !strings.Contains(group, ",") {
 		return group
 	}
 	return strings.TrimSpace(relayInfo.UserGroup)

@@ -15,7 +15,6 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/service/authz"
-	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-contrib/sessions"
@@ -420,23 +419,18 @@ func TokenAuth() func(c *gin.Context) {
 		userGroup := userCache.Group
 		tokenGroup := token.Group
 		if tokenGroup != "" {
-			// check common.UserUsableGroups[userGroup]
-			if _, ok := service.GetUserUsableGroups(userGroup)[tokenGroup]; !ok {
-				// 常规可用分组未命中时，再检查追加分组订阅授予的分组（惰性查询，
-				// 只有依赖订阅附加分组的请求才产生这次查库）
-				if !model.UserHasAttachedGroup(token.UserId, tokenGroup) {
-					abortWithOpenAiMessage(c, http.StatusForbidden, fmt.Sprintf("无权访问 %s 分组", tokenGroup))
-					return
+			// 多分组令牌过滤出当前有效的分组子集（失效分组自动跳过），
+			// 单分组令牌在子集为空时直接拒绝，语义与旧逻辑一致
+			effectiveGroup, rejectReason := service.FilterUsableTokenGroups(token.UserId, userGroup, tokenGroup)
+			if effectiveGroup == "" {
+				if rejectReason == "" {
+					rejectReason = fmt.Sprintf("无权访问 %s 分组", tokenGroup)
 				}
+				abortWithOpenAiMessage(c, http.StatusForbidden, rejectReason)
+				return
 			}
-			// check group in common.GroupRatio
-			if !ratio_setting.ContainsGroupRatio(tokenGroup) {
-				if tokenGroup != "auto" {
-					abortWithOpenAiMessage(c, http.StatusForbidden, fmt.Sprintf("分组 %s 已被弃用", tokenGroup))
-					return
-				}
-			}
-			userGroup = tokenGroup
+			tokenGroup = effectiveGroup
+			userGroup = effectiveGroup
 		}
 		common.SetContextKey(c, constant.ContextKeyUsingGroup, userGroup)
 
@@ -444,6 +438,9 @@ func TokenAuth() func(c *gin.Context) {
 		if err != nil {
 			return
 		}
+		// 覆盖为过滤后的有效分组：多分组令牌中已失效的分组（如订阅过期的
+		// 附加分组）对下游渠道选择和模型列表不可见
+		common.SetContextKey(c, constant.ContextKeyTokenGroup, tokenGroup)
 		c.Next()
 	}
 }

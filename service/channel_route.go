@@ -10,7 +10,6 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
 )
@@ -276,7 +275,8 @@ func getChannelRouteMatchGroup(param *RetryParam) string {
 		return ""
 	}
 	usingGroup := common.GetContextKeyString(param.Ctx, constant.ContextKeyUsingGroup)
-	if usingGroup != "" && usingGroup != "auto" {
+	// auto/多分组令牌没有单一分组可供规则匹配，回退到用户分组维度
+	if usingGroup != "" && !IsMultiCandidateGroup(usingGroup) {
 		return usingGroup
 	}
 	userGroup := common.GetContextKeyString(param.Ctx, constant.ContextKeyUserGroup)
@@ -295,14 +295,14 @@ func getRouteSatisfiedChannel(param *RetryParam, channelIDs []int) (*model.Chann
 	}
 
 	selectGroup := param.TokenGroup
-	userGroup := common.GetContextKeyString(param.Ctx, constant.ContextKeyUserGroup)
 
-	if param.TokenGroup == "auto" {
-		if len(setting.GetAutoGroups()) == 0 {
-			return nil, selectGroup, false, errors.New("auto groups is not enabled")
+	// 多候选模式：auto（用户可用全部分组按全局优先级）或令牌多分组（按令牌内顺序）
+	if candidateGroups := ResolveCandidateGroups(param.Ctx, param.TokenGroup); candidateGroups != nil {
+		if len(candidateGroups) == 0 {
+			return nil, selectGroup, false, errors.New("当前令牌没有可用的分组")
 		}
 
-		autoGroups := GetUserAutoGroup(userGroup)
+		autoGroups := candidateGroups
 		startGroupIndex := 0
 		crossGroupRetry := common.GetContextKeyBool(param.Ctx, constant.ContextKeyTokenCrossGroupRetry)
 

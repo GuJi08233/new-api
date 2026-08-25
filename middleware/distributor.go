@@ -155,7 +155,7 @@ func Distribute() func(c *gin.Context) {
 					if routeMatch.Channel != nil {
 						channel = routeMatch.Channel
 						selectGroup = routeMatch.SelectGroup
-						if usingGroup == "auto" && selectGroup != "" {
+						if service.IsMultiCandidateGroup(usingGroup) && selectGroup != "" {
 							common.SetContextKey(c, constant.ContextKeyAutoGroup, selectGroup)
 						}
 					} else if routeMatch.Strict && routeMatch.Exhausted && !routeMatch.Deferred {
@@ -178,9 +178,8 @@ func Distribute() func(c *gin.Context) {
 								}
 							} else if model.IsChannelDailyLimitReached(preferred.Id, preferred.GetDailyLimitConfig()) {
 								// 亲和渠道已达每日请求上限，放弃亲和，交给正常选路
-							} else if usingGroup == "auto" {
-								userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
-								autoGroups := service.GetUserAutoGroup(userGroup)
+							} else if service.IsMultiCandidateGroup(usingGroup) {
+								autoGroups := service.ResolveCandidateGroups(c, usingGroup)
 								for _, g := range autoGroups {
 									if model.IsChannelEnabledForGroupModel(g, modelRequest.Model, preferred.Id) {
 										selectGroup = g

@@ -4102,6 +4102,12 @@
     "请输入邀请码": "Please enter the invitation code",
     "邀请码无效": "Invalid invitation code",
     "注册失败，请重试": "Registration failed, please try again",
-    "注册成功！": "Registration successful!"
+    "注册成功！": "Registration successful!",
+    "可多选：请求按所选顺序依次尝试分组，失效分组（如订阅过期）会自动跳过；选择 auto 则自动使用全部可用分组": "Multiple selection: requests try the selected groups in order, and unavailable groups (e.g. expired subscriptions) are skipped automatically; selecting auto uses all available groups automatically",
+    "多分组令牌：按顺序依次尝试，失效分组（如订阅过期）自动跳过": "Multi-group token: groups are tried in order, unavailable groups (e.g. expired subscriptions) are skipped automatically",
+    "暂无分组，请先在分组倍率中配置分组": "No groups yet. Please configure groups in group ratio first",
+    "令牌分组设为 auto 时，按以下顺序依次尝试选择可用分组，排在前面的优先级更高。列表自动包含全部分组（新增分组自动排在末尾），只需调整顺序；每个用户实际只会用到自己有权使用的分组": "When a token group is set to auto, available groups are tried in the order below, with earlier entries having higher priority. The list automatically includes all groups (new groups are appended at the end), so you only need to adjust the order; each user only ever uses the groups they are entitled to",
+    "列表自动包含分组倍率中的全部分组，新增分组自动排在末尾，无需手动添加；配置只决定顺序。每个用户的 auto 序列会自动过滤为其有权使用的分组（含订阅附加分组，订阅过期自动移除）。": "The list automatically includes every group from group ratio; new groups are appended at the end without manual work, and the configuration only determines the order. Each user's auto sequence is filtered down to the groups they are entitled to (including subscription-attached groups, which are removed automatically when the subscription expires).",
+    "自动分组auto优先级顺序（自动包含全部分组，此处只决定顺序）": "Auto group priority order (all groups are included automatically; this only determines the order)"
   }
 }

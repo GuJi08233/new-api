@@ -7,7 +7,6 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/setting"
 	"github.com/gin-gonic/gin"
 )
 
@@ -85,13 +84,13 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 	var channel *model.Channel
 	var err error
 	selectGroup := param.TokenGroup
-	userGroup := common.GetContextKeyString(param.Ctx, constant.ContextKeyUserGroup)
 
-	if param.TokenGroup == "auto" {
-		if len(setting.GetAutoGroups()) == 0 {
-			return nil, selectGroup, errors.New("auto groups is not enabled")
+	// 多候选模式：auto（用户可用全部分组按全局优先级）或令牌多分组（按令牌内顺序）
+	if candidateGroups := ResolveCandidateGroups(param.Ctx, param.TokenGroup); candidateGroups != nil {
+		if len(candidateGroups) == 0 {
+			return nil, selectGroup, errors.New("当前令牌没有可用的分组")
 		}
-		autoGroups := GetUserAutoGroup(userGroup)
+		autoGroups := candidateGroups
 
 		// startGroupIndex: the group index to start searching from
 		// startGroupIndex: 开始搜索的分组索引

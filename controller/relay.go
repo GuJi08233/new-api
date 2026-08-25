@@ -434,7 +434,7 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 			return nil, newChannelRouteRejectedError(c, info.OriginModelName, routeMatch)
 		}
 		if routeMatch.Channel != nil {
-			if retryParam.TokenGroup == "auto" && routeMatch.SelectGroup != "" {
+			if service.IsMultiCandidateGroup(retryParam.TokenGroup) && routeMatch.SelectGroup != "" {
 				common.SetContextKey(c, constant.ContextKeyAutoGroup, routeMatch.SelectGroup)
 			}
 			newAPIError := middleware.SetupContextForSelectedChannel(c, routeMatch.Channel, info.OriginModelName)
@@ -564,7 +564,7 @@ func rerouteByRequestMetrics(c *gin.Context, info *relaycommon.RelayInfo) *types
 		restoreAutoRouteContext()
 		return apiErr
 	}
-	if info.TokenGroup == "auto" && routeMatch.SelectGroup != "" {
+	if service.IsMultiCandidateGroup(info.TokenGroup) && routeMatch.SelectGroup != "" {
 		common.SetContextKey(c, constant.ContextKeyAutoGroup, routeMatch.SelectGroup)
 	}
 	return nil

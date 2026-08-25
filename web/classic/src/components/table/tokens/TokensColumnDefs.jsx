@@ -104,6 +104,33 @@ const renderGroupColumn = (text, record, t, groupRatios = {}) => {
       </Tooltip>
     );
   }
+  const groups = (text || '')
+    .split(',')
+    .map((g) => g.trim())
+    .filter(Boolean);
+  if (groups.length > 1) {
+    return (
+      <Tooltip
+        content={t(
+          '多分组令牌：按顺序依次尝试，失效分组（如订阅过期）自动跳过',
+        )}
+        position='top'
+      >
+        <span className='flex items-center gap-1 flex-wrap'>
+          {groups.map((group) => (
+            <span key={group} className='flex items-center gap-1'>
+              {renderGroup(group)}
+              {groupRatios[group] !== undefined && (
+                <Tag size='small' color='green' shape='circle'>
+                  {groupRatios[group]}x
+                </Tag>
+              )}
+            </span>
+          ))}
+        </span>
+      </Tooltip>
+    );
+  }
   const ratio = groupRatios[text];
   return (
     <span className='flex items-center gap-1'>

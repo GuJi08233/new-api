@@ -79,10 +79,22 @@ const EditTokenModal = (props) => {
     model_limits_enabled: false,
     model_limits: [],
     allow_ips: '',
-    group: '',
+    group: [],
     cross_group_retry: false,
     tokenCount: 1,
   });
+
+  // 分组多选：选中 auto 时独占（auto 本身就是全部可用分组的自动序列）
+  const normalizeGroupSelection = (val) => {
+    let groups = Array.isArray(val) ? val : val ? [val] : [];
+    if (groups.includes('auto') && groups.length > 1) {
+      groups =
+        groups[groups.length - 1] === 'auto'
+          ? ['auto']
+          : groups.filter((g) => g !== 'auto');
+    }
+    return groups;
+  };
 
   const handleCancel = () => {
     props.handleClose();
@@ -169,6 +181,12 @@ const EditTokenModal = (props) => {
       } else {
         data.model_limits = [];
       }
+      data.group = data.group
+        ? data.group
+            .split(',')
+            .map((g) => g.trim())
+            .filter(Boolean)
+        : [];
       data.remain_amount = Number(
         quotaToDisplayAmount(data.remain_quota || 0).toFixed(6),
       );
@@ -238,6 +256,7 @@ const EditTokenModal = (props) => {
       }
       localInputs.model_limits = localInputs.model_limits.join(',');
       localInputs.model_limits_enabled = localInputs.model_limits.length > 0;
+      localInputs.group = normalizeGroupSelection(localInputs.group).join(',');
       let res = await API.put(`/api/token/`, {
         ...localInputs,
         id: parseInt(props.editingToken.id),
@@ -282,6 +301,9 @@ const EditTokenModal = (props) => {
         }
         localInputs.model_limits = localInputs.model_limits.join(',');
         localInputs.model_limits_enabled = localInputs.model_limits.length > 0;
+        localInputs.group = normalizeGroupSelection(localInputs.group).join(
+          ',',
+        );
         let res = await API.post(`/api/token/`, localInputs);
         const { success, message } = res.data;
         if (success) {
@@ -389,7 +411,18 @@ const EditTokenModal = (props) => {
                         label={t('令牌分组')}
                         placeholder={t('令牌分组，默认为用户的分组')}
                         optionList={groups}
+                        multiple
+                        maxTagCount={3}
                         renderOptionItem={renderGroupOption}
+                        extraText={t(
+                          '可多选：请求按所选顺序依次尝试分组，失效分组（如订阅过期）会自动跳过；选择 auto 则自动使用全部可用分组',
+                        )}
+                        onChange={(val) => {
+                          formApiRef.current?.setValue(
+                            'group',
+                            normalizeGroupSelection(val),
+                          );
+                        }}
                         filter={(input, option) => {
                           const q = input.toLowerCase();
                           return (
@@ -413,7 +446,12 @@ const EditTokenModal = (props) => {
                   <Col
                     span={24}
                     style={{
-                      display: values.group === 'auto' ? 'block' : 'none',
+                      display:
+                        Array.isArray(values.group) &&
+                        (values.group.includes('auto') ||
+                          values.group.length > 1)
+                          ? 'block'
+                          : 'none',
                     }}
                   >
                     <Form.Switch
@@ -552,7 +590,10 @@ const EditTokenModal = (props) => {
                         ? `▾ ${t('收起原生额度输入')}`
                         : `▸ ${t('使用原生额度输入')}`}
                     </div>
-                    <div style={{ display: showQuotaInput ? 'block' : 'none' }} className='mt-2'>
+                    <div
+                      style={{ display: showQuotaInput ? 'block' : 'none' }}
+                      className='mt-2'
+                    >
                       <Form.InputNumber
                         field='remain_quota'
                         label={t('额度')}

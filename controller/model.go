@@ -191,7 +191,16 @@ func getModelListGroups(c *gin.Context) (modelListGroups, error) {
 		return modelListGroups{
 			userGroup:   userGroup,
 			tokenGroup:  tokenGroup,
-			ownerGroups: service.GetUserAutoGroup(userGroup),
+			ownerGroups: service.GetUserAutoGroup(c.GetInt("id"), userGroup),
+		}, nil
+	}
+
+	// 多分组令牌：TokenAuth 已过滤为有效子集，模型列表为各分组模型的并集
+	if candidateGroups := service.SplitTokenGroups(tokenGroup); len(candidateGroups) > 1 {
+		return modelListGroups{
+			userGroup:   userGroup,
+			tokenGroup:  tokenGroup,
+			ownerGroups: candidateGroups,
 		}, nil
 	}
 
@@ -247,9 +256,10 @@ func ListModels(c *gin.Context, modelType int) {
 		}
 	} else {
 		var models []string
-		if groups.tokenGroup == "auto" {
-			for _, autoGroup := range ownerGroups {
-				groupModels := model.GetGroupEnabledModels(autoGroup)
+		if len(ownerGroups) != 1 {
+			// auto 或多分组令牌：模型列表为各候选分组的并集
+			for _, ownerGroup := range ownerGroups {
+				groupModels := model.GetGroupEnabledModels(ownerGroup)
 				for _, g := range groupModels {
 					if !common.StringsContains(models, g) {
 						models = append(models, g)
