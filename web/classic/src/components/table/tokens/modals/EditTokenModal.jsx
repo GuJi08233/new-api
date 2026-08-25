@@ -149,9 +149,12 @@ const EditTokenModal = (props) => {
     let res = await API.get(`/api/user/self/groups`);
     const { success, message, data } = res.data;
     if (success) {
+      // label 必须用唯一的分组名：Semi Select 以 label 作为选中判定 key，
+      // 多个订阅附加分组共用同一描述时会被误判为同一项（选一个全高亮）
       let localGroupOptions = Object.entries(data).map(([group, info]) => ({
-        label: info.desc,
+        label: group,
         value: group,
+        desc: info.desc,
         ratio: info.ratio,
       }));
       if (statusState?.status?.default_use_auto_group) {
@@ -427,8 +430,8 @@ const EditTokenModal = (props) => {
                           const q = input.toLowerCase();
                           return (
                             option.value?.toLowerCase().includes(q) ||
-                            (typeof option.label === 'string' &&
-                              option.label.toLowerCase().includes(q))
+                            (typeof option.desc === 'string' &&
+                              option.desc.toLowerCase().includes(q))
                           );
                         }}
                         showClear

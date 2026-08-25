@@ -969,6 +969,11 @@ export const renderGroupOption = (item) => {
     }
   };
 
+  // label 必须保持唯一（Semi Select 以 label 作为选中判定 key），
+  // 因此分组名作 label，人类可读描述放在 desc 字段展示
+  const title = value === undefined || value === '' ? label : value;
+  const description = item.desc !== undefined ? item.desc : label;
+
   return (
       <div
           style={baseStyle}
@@ -977,11 +982,13 @@ export const renderGroupOption = (item) => {
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
           <Typography.Text strong type={disabled ? 'tertiary' : undefined}>
-            {value}
+            {title}
           </Typography.Text>
-          <Typography.Text type='secondary' size='small'>
-            {label}
-          </Typography.Text>
+          {description && description !== title && (
+            <Typography.Text type='secondary' size='small'>
+              {description}
+            </Typography.Text>
+          )}
         </div>
         {item.ratio && renderRatio(item.ratio)}
       </div>

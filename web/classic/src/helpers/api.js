@@ -215,12 +215,14 @@ export const processModelsData = (data, currentModel) => {
 
 // 处理分组数据
 export const processGroupsData = (data, userGroup) => {
+  // label 必须用唯一的分组名：Semi Select 以 label 作为选中判定 key，
+  // 多个分组共用同一描述时会被误判为同一项；描述放 desc 供选项渲染展示
   let groupOptions = Object.entries(data).map(([group, info]) => ({
-    label:
-      info.desc.length > 20 ? info.desc.substring(0, 20) + '...' : info.desc,
+    label: group,
     value: group,
+    desc:
+      info.desc.length > 20 ? info.desc.substring(0, 20) + '...' : info.desc,
     ratio: info.ratio,
-    fullLabel: info.desc,
   }));
 
   if (groupOptions.length === 0) {
