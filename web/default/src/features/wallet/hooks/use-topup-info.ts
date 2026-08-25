@@ -177,12 +177,18 @@ function parseEthereumInfo(data: unknown): EthereumTopupInfo | undefined {
       (item): item is Record<string, unknown> =>
         !!item && typeof item === 'object'
     )
-    .map<EthereumTokenConfig>((item) => ({
-      symbol: typeof item.symbol === 'string' ? item.symbol : '',
-      address: typeof item.address === 'string' ? item.address : '',
-      decimals: Number(item.decimals) || 18,
-      price: typeof item.price === 'string' ? item.price : '0',
-    }))
+    .map<EthereumTokenConfig>((item) => {
+      const parsedDecimals = Number(item.decimals)
+      return {
+        symbol: typeof item.symbol === 'string' ? item.symbol : '',
+        address: typeof item.address === 'string' ? item.address : '',
+        decimals:
+          Number.isInteger(parsedDecimals) && parsedDecimals >= 0
+            ? parsedDecimals
+            : 18,
+        price: typeof item.price === 'string' ? item.price : '0',
+      }
+    })
     .filter((item) => item.symbol && item.address)
 
   return {

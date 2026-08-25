@@ -210,10 +210,14 @@ export default function SettingsPaymentGatewayEthereum({ options, refresh }) {
       showError(t('代币符号不能为空'));
       return;
     }
+    const parsedDecimals = Number(tokenForm.decimals);
     const newToken = {
       symbol: tokenForm.symbol.trim(),
       address: tokenForm.address.trim(),
-      decimals: Number(tokenForm.decimals) || 18,
+      decimals:
+        Number.isInteger(parsedDecimals) && parsedDecimals >= 0
+          ? parsedDecimals
+          : 18,
       price: tokenForm.price.trim() || '1.0',
     };
     if (editingTokenIndex === -1) {
