@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import React, { useEffect, useState } from 'react';
 import { Button, Typography, Tag } from '@douyinfe/semi-ui';
 import { IconChevronUp, IconChevronDown } from '@douyinfe/semi-icons';
+import { GripVertical } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 const { Text } = Typography;
@@ -56,6 +57,8 @@ export default function AutoGroupList({ value, groupNames = [], onChange }) {
   const [items, setItems] = useState(() =>
     buildOrderedGroups(parseConfiguredOrder(value), groupNames),
   );
+  const [dragIndex, setDragIndex] = useState(null);
+  const [overIndex, setOverIndex] = useState(null);
 
   // GroupRatio 中新增/删除分组时同步列表，保留已调整的顺序
   useEffect(() => {
@@ -68,13 +71,34 @@ export default function AutoGroupList({ value, groupNames = [], onChange }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groupNames]);
 
+  const commit = (next) => {
+    setItems(next);
+    onChange?.(next.length === 0 ? '' : JSON.stringify(next));
+  };
+
   const move = (index, offset) => {
     const target = index + offset;
     if (target < 0 || target >= items.length) return;
     const next = [...items];
     [next[index], next[target]] = [next[target], next[index]];
-    setItems(next);
-    onChange?.(next.length === 0 ? '' : JSON.stringify(next));
+    commit(next);
+  };
+
+  const resetDragState = () => {
+    setDragIndex(null);
+    setOverIndex(null);
+  };
+
+  const handleDrop = (targetIndex) => {
+    if (dragIndex === null || dragIndex === targetIndex) {
+      resetDragState();
+      return;
+    }
+    const next = [...items];
+    const [moved] = next.splice(dragIndex, 1);
+    next.splice(targetIndex, 0, moved);
+    commit(next);
+    resetDragState();
   };
 
   if (items.length === 0) {
@@ -86,29 +110,73 @@ export default function AutoGroupList({ value, groupNames = [], onChange }) {
   }
 
   return (
-    <div className='space-y-2'>
-      {items.map((name, index) => (
-        <div key={name} className='flex items-center gap-2'>
-          <Tag size='small' color='blue' className='shrink-0'>
-            {index + 1}
-          </Tag>
-          <Text className='flex-1'>{name}</Text>
-          <Button
-            icon={<IconChevronUp />}
-            theme='borderless'
-            size='small'
-            disabled={index === 0}
-            onClick={() => move(index, -1)}
-          />
-          <Button
-            icon={<IconChevronDown />}
-            theme='borderless'
-            size='small'
-            disabled={index === items.length - 1}
-            onClick={() => move(index, 1)}
-          />
-        </div>
-      ))}
+    <div className='space-y-1'>
+      {items.map((name, index) => {
+        const isDragging = dragIndex === index;
+        const isDropTarget =
+          dragIndex !== null && dragIndex !== index && overIndex === index;
+        // 指示线跟随实际插入位置：向下拖时元素落在目标行之后，向上拖时落在之前
+        const indicator = isDropTarget
+          ? dragIndex < index
+            ? { borderBottom: '2px solid var(--semi-color-primary)' }
+            : { borderTop: '2px solid var(--semi-color-primary)' }
+          : {};
+        return (
+          <div
+            key={name}
+            draggable
+            onDragStart={(e) => {
+              setDragIndex(index);
+              e.dataTransfer.effectAllowed = 'move';
+            }}
+            onDragOver={(e) => {
+              e.preventDefault();
+              e.dataTransfer.dropEffect = 'move';
+              if (overIndex !== index) setOverIndex(index);
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              handleDrop(index);
+            }}
+            onDragEnd={resetDragState}
+            className='flex items-center gap-2 rounded-md px-1 py-0.5'
+            style={{
+              cursor: 'grab',
+              opacity: isDragging ? 0.4 : 1,
+              borderTop: '2px solid transparent',
+              borderBottom: '2px solid transparent',
+              ...indicator,
+            }}
+          >
+            <GripVertical
+              size={14}
+              className='shrink-0'
+              style={{ color: 'var(--semi-color-text-2)' }}
+            />
+            <Tag size='small' color='blue' className='shrink-0'>
+              {index + 1}
+            </Tag>
+            <Text className='flex-1 select-none'>{name}</Text>
+            <Button
+              icon={<IconChevronUp />}
+              theme='borderless'
+              size='small'
+              disabled={index === 0}
+              onClick={() => move(index, -1)}
+            />
+            <Button
+              icon={<IconChevronDown />}
+              theme='borderless'
+              size='small'
+              disabled={index === items.length - 1}
+              onClick={() => move(index, 1)}
+            />
+          </div>
+        );
+      })}
+      <Text type='tertiary' size='small' className='block mt-2'>
+        {t('拖拽行即可调整优先级顺序')}
+      </Text>
     </div>
   );
 }
