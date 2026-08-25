@@ -93,6 +93,10 @@ func TestFilterUsableTokenGroupsKeepsOnlyLiveGroups(t *testing.T) {
 	effective, reason = FilterUsableTokenGroups(4001, "default", "vip,default")
 	assert.Equal(t, "default", effective)
 	assert.Equal(t, "分组 vip 已被弃用", reason)
+
+	// auto 是内建虚拟分组，无需出现在用户可选分组中即始终有效
+	effective, _ = FilterUsableTokenGroups(4001, "default", "auto")
+	assert.Equal(t, "auto", effective)
 }
 
 func TestGetUserAutoGroupIncludesLiveAttachedGroups(t *testing.T) {

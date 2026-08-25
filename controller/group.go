@@ -5,7 +5,6 @@ import (
 
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
-	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/gin-gonic/gin"
@@ -46,11 +45,15 @@ func GetUserGroups(c *gin.Context) {
 			}
 		}
 	}
-	if _, ok := userUsableGroups["auto"]; ok {
-		usableGroups["auto"] = map[string]interface{}{
-			"ratio": "自动",
-			"desc":  setting.GetUsableGroupDescription("auto"),
-		}
+	// auto 为系统内建虚拟分组，始终可选：候选为该用户有权使用的全部分组，
+	// 不产生额外权限，因此无需管理员手动配置；配置了描述时优先使用
+	autoDesc := "自动选择最优分组"
+	if desc, ok := userUsableGroups["auto"]; ok && desc != "" {
+		autoDesc = desc
+	}
+	usableGroups["auto"] = map[string]interface{}{
+		"ratio": "自动",
+		"desc":  autoDesc,
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,

@@ -98,6 +98,12 @@ func FilterUsableTokenGroups(userId int, userGroup string, tokenGroup string) (s
 	validGroups := make([]string, 0, len(groups))
 	rejectReason := ""
 	for _, group := range groups {
+		// auto 为系统内建虚拟分组，始终可用（不产生额外权限，
+		// 实际候选在渠道选择时按用户可用分组过滤）
+		if group == "auto" {
+			validGroups = append(validGroups, group)
+			continue
+		}
 		if _, ok := usableGroups[group]; !ok {
 			// 常规可用分组未命中时，再检查追加分组订阅授予的分组（惰性查询，
 			// 只有依赖订阅附加分组的请求才产生这次查库）；订阅过期后该分组
@@ -107,7 +113,7 @@ func FilterUsableTokenGroups(userId int, userGroup string, tokenGroup string) (s
 				continue
 			}
 		}
-		if group != "auto" && !ratio_setting.ContainsGroupRatio(group) {
+		if !ratio_setting.ContainsGroupRatio(group) {
 			rejectReason = fmt.Sprintf("分组 %s 已被弃用", group)
 			continue
 		}
