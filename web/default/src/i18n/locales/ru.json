@@ -4431,6 +4431,8 @@
     "socks5://user:pass@host:port": "socks5://user:pass@host:port",
     "Soft Errors": "Мягкие ошибки",
     "Sold Out": "Распродано",
+    "Owned": "Уже есть",
+    "You own this plan; you can buy it again after it expires": "У вас есть этот план; купить снова можно после окончания срока действия",
     "Some channels failed: {{errorMsg}}": "Некоторые каналы не удались: {{errorMsg}}",
     "Some settings failed to save, please retry": "Не все настройки сохранены, повторите попытку",
     "Something went wrong!": "Что-то пошло не так!",

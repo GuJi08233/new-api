@@ -131,16 +131,17 @@ func TestRenewal_GlobalLimitedPlanDoesNotRenewUntilSeatReleased(t *testing.T) {
 	first, renewed := createSubscriptionFromPlanForRenewalTest(t, 3208, plan)
 	require.False(t, renewed)
 
-	// 全局限购套餐不提供持有期续期：持有者再次购买走正常限购判定，名额被自己占用
+	// 全局限购套餐不提供持有期续期，重复购买也被拒绝：否则只会新建一条排队订阅，
+	// 对持有者毫无价值却多占一个名额
 	err := CheckSubscriptionPlanPurchaseAllowed(3208, plan, true)
 	require.Error(t, err)
-	assert.Equal(t, "该套餐已售罄", err.Error())
+	assert.Equal(t, "已持有该套餐，到期后可重新购买", err.Error())
 	err = DB.Transaction(func(tx *gorm.DB) error {
 		_, _, err := CreateUserSubscriptionFromPlanTx(tx, 3208, plan, "order")
 		return err
 	})
 	require.Error(t, err)
-	assert.Equal(t, "该套餐已售罄", err.Error())
+	assert.Equal(t, "已持有该套餐，到期后可重新购买", err.Error())
 
 	// 订阅到期释放名额后可以重新购买，且是新建订阅而非续期
 	require.NoError(t, DB.Model(&UserSubscription{}).

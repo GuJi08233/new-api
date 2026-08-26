@@ -4431,6 +4431,8 @@
     "socks5://user:pass@host:port": "socks5://user:pass@host:port",
     "Soft Errors": "ソフトエラー",
     "Sold Out": "完売",
+    "Owned": "保有中",
+    "You own this plan; you can buy it again after it expires": "このプランを保有中です。有効期限が切れた後に再購入できます",
     "Some channels failed: {{errorMsg}}": "一部のチャネルが失敗しました：{{errorMsg}}",
     "Some settings failed to save, please retry": "一部の設定を保存できませんでした。再試行してください",
     "Something went wrong!": "問題が発生しました！",

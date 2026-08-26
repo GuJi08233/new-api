@@ -4432,6 +4432,8 @@
     "socks5://user:pass@host:port": "socks5://user:pass@host:port",
     "Soft Errors": "软错误",
     "Sold Out": "已售罄",
+    "Owned": "已持有",
+    "You own this plan; you can buy it again after it expires": "已持有该套餐，到期后可重新购买",
     "Some channels failed: {{errorMsg}}": "部分渠道失败：{{errorMsg}}",
     "Some settings failed to save, please retry": "部分设置保存失败，请重试",
     "Something went wrong!": "出现错误！",

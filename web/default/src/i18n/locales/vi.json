@@ -4431,6 +4431,8 @@
     "socks5://user:pass@host:port": "socks5://user:pass@host:port",
     "Soft Errors": "Lỗi mềm",
     "Sold Out": "Đã bán hết",
+    "Owned": "Đang sở hữu",
+    "You own this plan; you can buy it again after it expires": "Bạn đang sở hữu gói này; có thể mua lại sau khi hết hạn",
     "Some channels failed: {{errorMsg}}": "Một số kênh thất bại: {{errorMsg}}",
     "Some settings failed to save, please retry": "Một số cài đặt chưa được lưu, vui lòng thử lại",
     "Something went wrong!": "Có gì đó không ổn!",

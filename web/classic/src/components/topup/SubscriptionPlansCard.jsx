@@ -426,7 +426,8 @@ const SubscriptionPlansCard = ({
     return map;
   }, [plans]);
 
-  // 持有未过期订阅的套餐：再次购买为续期（顺延到期时间），不受限购约束
+  // 持有未过期订阅的套餐：无全局限购时再次购买为续期（顺延到期时间、不占名额），
+  // 有全局限购时不提供续期也不允许重复购买
   const livePlanIdSet = useMemo(() => {
     const now = Date.now() / 1000;
     const set = new Set();
@@ -902,26 +903,38 @@ const SubscriptionPlansCard = ({
 
                         {/* 购买按钮 */}
                         {(() => {
-                          const count = getPlanPurchaseCount(p?.plan?.id);
+                          const planId = plan?.id;
+                          const count = getPlanPurchaseCount(planId);
+                          const holdsLive = livePlanIdSet.has(planId);
                           // 全局限购套餐不提供持有期续期，名额到期释放后重新购买
-                          const renewable =
-                            globalLimit <= 0 && livePlanIdSet.has(p?.plan?.id);
+                          const renewable = globalLimit <= 0 && holdsLive;
+                          // 追加分组订阅并存生效、额度叠加，多份有意义
+                          const stacksAttached =
+                            plan?.group_mode === 'attach' &&
+                            !!plan?.upgrade_group;
+                          // 全局限购套餐既不续期也不重复购买：重复购买只会新建排队订阅，
+                          // 不自动接棒却多占一个名额
+                          const holdingSeat =
+                            globalLimit > 0 && holdsLive && !stacksAttached;
                           const reachedPerUser = limit > 0 && count >= limit;
                           const soldOut =
                             globalLimit > 0 &&
                             globalPurchaseCount >= globalLimit;
                           // 持有者续期不新建订阅、不占名额，限购不禁用按钮
                           const reached =
-                            !renewable && (reachedPerUser || soldOut);
+                            !renewable &&
+                            (holdingSeat || reachedPerUser || soldOut);
                           const tip = renewable
                             ? t('已持有该套餐，购买将顺延到期时间')
-                            : soldOut
-                              ? globalResetLabel
-                                ? `${t('该套餐已售罄')} · ${globalResetLabel}`
-                                : t('该套餐已售罄')
-                              : reachedPerUser
-                                ? t('已达到购买上限') + ` (${count}/${limit})`
-                                : '';
+                            : holdingSeat
+                              ? t('已持有该套餐，到期后可重新购买')
+                              : soldOut
+                                ? globalResetLabel
+                                  ? `${t('该套餐已售罄')} · ${globalResetLabel}`
+                                  : t('该套餐已售罄')
+                                : reachedPerUser
+                                  ? t('已达到购买上限') + ` (${count}/${limit})`
+                                  : '';
                           const buttonEl = (
                             <Button
                               theme='outline'
@@ -935,9 +948,11 @@ const SubscriptionPlansCard = ({
                               {renewable
                                 ? t('续期')
                                 : reached
-                                  ? soldOut
-                                    ? t('已售罄')
-                                    : t('已达上限')
+                                  ? holdingSeat
+                                    ? t('已持有')
+                                    : soldOut
+                                      ? t('已售罄')
+                                      : t('已达上限')
                                   : t('立即订阅')}
                             </Button>
                           );

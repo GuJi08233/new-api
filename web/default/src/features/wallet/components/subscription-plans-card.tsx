@@ -647,9 +647,19 @@ export function SubscriptionPlansCard({
               const purchaseCount = Number(plan.purchase_count || 0)
               const reachedPerUser = limit > 0 && count >= limit
               const soldOut = globalLimit > 0 && purchaseCount >= globalLimit
+              const holdsLive = livePlanIds.has(plan.id)
               // Globally-limited plans do not renew; seats free up on expiry
-              const renewable = globalLimit <= 0 && livePlanIds.has(plan.id)
-              const reached = !renewable && (reachedPerUser || soldOut)
+              const renewable = globalLimit <= 0 && holdsLive
+              // Attach-mode subscriptions coexist and stack quota, so owning
+              // several is meaningful — the per-user limit governs how many.
+              const stacksAttached =
+                plan.group_mode === 'attach' && !!plan.upgrade_group
+              // A globally-limited plan neither renews nor repurchases: a second
+              // purchase only queues a subscription that never takes over on its
+              // own, while occupying another scarce seat.
+              const holdingSeat = globalLimit > 0 && holdsLive && !stacksAttached
+              const reached =
+                !renewable && (holdingSeat || reachedPerUser || soldOut)
 
               const tierSummary = formatTiersSummary(plan.quota_tiers, t)
               let quotaResetBenefit: string | null = null
@@ -736,13 +746,21 @@ export function SubscriptionPlansCard({
                       <Tooltip>
                         <TooltipTrigger render={<div />}>
                           <Button variant='outline' className='w-full' disabled>
-                            {soldOut ? t('Sold Out') : t('Limit Reached')}
+                            {holdingSeat
+                              ? t('Owned')
+                              : soldOut
+                                ? t('Sold Out')
+                                : t('Limit Reached')}
                           </Button>
                         </TooltipTrigger>
                         <TooltipContent>
-                          {soldOut
-                            ? t('Global purchase limit reached')
-                            : `${t('Purchase limit reached')} (${count}/${limit})`}
+                          {holdingSeat
+                            ? t(
+                                'You own this plan; you can buy it again after it expires'
+                              )
+                            : soldOut
+                              ? t('Global purchase limit reached')
+                              : `${t('Purchase limit reached')} (${count}/${limit})`}
                         </TooltipContent>
                       </Tooltip>
                     ) : (

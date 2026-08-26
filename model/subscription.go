@@ -305,6 +305,14 @@ func (p *SubscriptionPlan) IsAttachGroupMode() bool {
 	return strings.TrimSpace(p.GroupMode) == SubscriptionGroupModeAttach
 }
 
+// GrantsAttachedGroup reports whether this plan's subscriptions coexist with the
+// holder's other live subscriptions instead of queueing behind them. Attach mode
+// only takes effect when a group is bound; without one it degrades to upgrade
+// semantics.
+func (p *SubscriptionPlan) GrantsAttachedGroup() bool {
+	return p.IsAttachGroupMode() && strings.TrimSpace(p.UpgradeGroup) != ""
+}
+
 // Subscription order (payment -> webhook -> create UserSubscription)
 type SubscriptionOrder struct {
 	Id     int     `json:"id"`
@@ -609,8 +617,13 @@ func calcResetWindowStart(now time.Time, period string, customSeconds int64) int
 	}
 }
 
+// getPlanPurchaseWindowStart returns the start of the plan's current purchase
+// window. Both the global and the per-user purchase limit count inside this
+// window so they agree on how a purchase slot is released. Returns 0 when
+// purchases accumulate over the plan's whole lifetime, or when the window is
+// defined by liveness (SubscriptionResetActive) instead of a start time.
 func getPlanPurchaseWindowStart(plan *SubscriptionPlan, now int64) int64 {
-	if plan == nil || plan.MaxPurchaseTotal <= 0 {
+	if plan == nil {
 		return 0
 	}
 	if NormalizePurchaseResetPeriod(plan.MaxPurchaseResetPeriod) == SubscriptionResetActive {
@@ -688,14 +701,29 @@ func getSubscriptionPlanByIdTx(tx *gorm.DB, id int) (*SubscriptionPlan, error) {
 	return &plan, nil
 }
 
-func CountUserSubscriptionsByPlan(userId int, planId int) (int64, error) {
-	if userId <= 0 || planId <= 0 {
-		return 0, errors.New("invalid userId or planId")
+// countUserSubscriptionsByPlanWithWindow counts one user's subscriptions of the
+// plan inside the plan's purchase window, mirroring
+// countTotalSubscriptionsByPlanWithWindow so the per-user and global limits
+// release slots the same way. Reads the main database: a replica lag here would
+// let a user exceed the limit.
+func countUserSubscriptionsByPlanWithWindow(tx *gorm.DB, userId int, plan *SubscriptionPlan, now int64) (int64, error) {
+	if plan == nil || plan.Id <= 0 {
+		return 0, errors.New("invalid plan")
+	}
+	if userId <= 0 {
+		return 0, errors.New("invalid userId")
+	}
+	if tx == nil {
+		tx = DB
+	}
+	query := tx.Model(&UserSubscription{}).Where("user_id = ? AND plan_id = ?", userId, plan.Id)
+	if NormalizePurchaseResetPeriod(plan.MaxPurchaseResetPeriod) == SubscriptionResetActive {
+		query = query.Where("end_time > ? AND status IN ?", now, []string{SubscriptionStatusActive, SubscriptionStatusInactive})
+	} else if windowStart := getPlanPurchaseWindowStart(plan, now); windowStart > 0 {
+		query = query.Where("start_time >= ?", windowStart)
 	}
 	var count int64
-	if err := ReadDB().Model(&UserSubscription{}).
-		Where("user_id = ? AND plan_id = ?", userId, planId).
-		Count(&count).Error; err != nil {
+	if err := query.Count(&count).Error; err != nil {
 		return 0, err
 	}
 	return count, nil
@@ -778,17 +806,26 @@ func CheckSubscriptionPlanPurchaseAllowed(userId int, plan *SubscriptionPlan, in
 	if userId <= 0 {
 		return errors.New("invalid userId")
 	}
-	// 已持有该套餐的未过期订阅且套餐无全局限购时，本次购买是续期：
-	// 不新建订阅、不占新名额，限购不阻拦。全局限购套餐不提供续期，走正常限购判定。
-	if plan.MaxPurchaseTotal <= 0 {
-		if hasLive, err := hasLiveUserSubscriptionOfPlan(nil, userId, plan.Id); err != nil {
-			return err
-		} else if hasLive {
+	now := GetDBTimestamp()
+	hasLive, err := hasLiveUserSubscriptionOfPlan(nil, userId, plan.Id, now)
+	if err != nil {
+		return err
+	}
+	if hasLive {
+		// 已持有该套餐的未过期订阅且套餐无全局限购时，本次购买是续期：
+		// 不新建订阅、不占新名额，限购不阻拦。
+		if plan.MaxPurchaseTotal <= 0 {
 			return nil
+		}
+		// 全局限购套餐不提供续期（见 renewUserSubscriptionForPlanTx），重复购买只会新建
+		// 一条排队订阅：有效期从购买时刻起算、到期时不会自动接棒，却额外占用一个稀缺名额。
+		// 追加分组订阅并存生效、额度可叠加，多份有实际意义，交由购买上限约束。
+		if !plan.GrantsAttachedGroup() {
+			return errors.New("已持有该套餐，到期后可重新购买")
 		}
 	}
 	if plan.MaxPurchasePerUser > 0 {
-		count, err := CountUserSubscriptionsByPlan(userId, plan.Id)
+		count, err := countUserSubscriptionsByPlanWithWindow(nil, userId, plan, now)
 		if err != nil {
 			return err
 		}
@@ -797,7 +834,6 @@ func CheckSubscriptionPlanPurchaseAllowed(userId int, plan *SubscriptionPlan, in
 		}
 	}
 	if plan.MaxPurchaseTotal > 0 {
-		now := GetDBTimestamp()
 		totalCount, err := countTotalSubscriptionsByPlanWithWindow(nil, plan, now)
 		if err != nil {
 			return err
@@ -826,11 +862,30 @@ func checkSubscriptionPlanPurchaseAllowedTx(tx *gorm.DB, userId int, plan *Subsc
 	if userId <= 0 {
 		return errors.New("invalid userId")
 	}
+	if plan.MaxPurchasePerUser <= 0 && plan.MaxPurchaseTotal <= 0 {
+		return nil
+	}
+	// 锁住套餐行，让同一套餐的名额判定串行执行，避免并发下单越过上限。
+	var lockedPlan SubscriptionPlan
+	if err := lockForUpdate(tx).Select("id").Where("id = ?", plan.Id).First(&lockedPlan).Error; err != nil {
+		return err
+	}
+	now := getDBTimestampTx(tx)
+	// 调用方已先尝试续期，走到这里仍持有未过期订阅的只可能是不提供续期的全局限购套餐。
+	// 重复购买对排队订阅毫无价值却多占一个名额，直接拒绝（理由见
+	// CheckSubscriptionPlanPurchaseAllowed）。
+	if plan.MaxPurchaseTotal > 0 && !plan.GrantsAttachedGroup() {
+		hasLive, err := hasLiveUserSubscriptionOfPlan(tx, userId, plan.Id, now)
+		if err != nil {
+			return err
+		}
+		if hasLive {
+			return errors.New("已持有该套餐，到期后可重新购买")
+		}
+	}
 	if plan.MaxPurchasePerUser > 0 {
-		var count int64
-		if err := tx.Model(&UserSubscription{}).
-			Where("user_id = ? AND plan_id = ?", userId, plan.Id).
-			Count(&count).Error; err != nil {
+		count, err := countUserSubscriptionsByPlanWithWindow(tx, userId, plan, now)
+		if err != nil {
 			return err
 		}
 		if count >= int64(plan.MaxPurchasePerUser) {
@@ -838,11 +893,7 @@ func checkSubscriptionPlanPurchaseAllowedTx(tx *gorm.DB, userId int, plan *Subsc
 		}
 	}
 	if plan.MaxPurchaseTotal > 0 {
-		var lockedPlan SubscriptionPlan
-		if err := lockForUpdate(tx).Select("id").Where("id = ?", plan.Id).First(&lockedPlan).Error; err != nil {
-			return err
-		}
-		count, err := countTotalSubscriptionsByPlanWithWindow(tx, plan, getDBTimestampTx(tx))
+		count, err := countTotalSubscriptionsByPlanWithWindow(tx, plan, now)
 		if err != nil {
 			return err
 		}
@@ -984,14 +1035,14 @@ func activateUserSubscriptionTx(tx *gorm.DB, sub *UserSubscription) (string, err
 // hasLiveUserSubscriptionOfPlan reports whether the user holds an unexpired
 // (active or inactive) subscription of the plan, i.e. a repurchase would renew
 // it instead of creating a new subscription.
-func hasLiveUserSubscriptionOfPlan(db *gorm.DB, userId int, planId int) (bool, error) {
+func hasLiveUserSubscriptionOfPlan(db *gorm.DB, userId int, planId int, now int64) (bool, error) {
 	if db == nil {
-		db = ReadDB()
+		db = DB
 	}
 	var count int64
 	if err := db.Model(&UserSubscription{}).
 		Where("user_id = ? AND plan_id = ? AND status IN ? AND end_time > ?",
-			userId, planId, []string{SubscriptionStatusActive, SubscriptionStatusInactive}, GetDBTimestamp()).
+			userId, planId, []string{SubscriptionStatusActive, SubscriptionStatusInactive}, now).
 		Count(&count).Error; err != nil {
 		return false, err
 	}
@@ -1089,7 +1140,7 @@ func CreateUserSubscriptionFromPlanTx(tx *gorm.DB, userId int, plan *Subscriptio
 	upgradeGroup := strings.TrimSpace(plan.UpgradeGroup)
 	downgradeGroup := strings.TrimSpace(plan.DowngradeGroup)
 	groupMode := ""
-	if plan.IsAttachGroupMode() && upgradeGroup != "" {
+	if plan.GrantsAttachedGroup() {
 		groupMode = SubscriptionGroupModeAttach
 		// 追加分组模式不改动用户分组，也就没有降级目标
 		downgradeGroup = ""

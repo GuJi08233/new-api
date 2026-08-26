@@ -4431,6 +4431,8 @@
     "socks5://user:pass@host:port": "socks5://user:pass@host:port",
     "Soft Errors": "Soft Errors",
     "Sold Out": "Sold Out",
+    "Owned": "Owned",
+    "You own this plan; you can buy it again after it expires": "You own this plan; you can buy it again after it expires",
     "Some channels failed: {{errorMsg}}": "Some channels failed: {{errorMsg}}",
     "Some settings failed to save, please retry": "Some settings failed to save, please retry",
     "Something went wrong!": "Something went wrong!",
