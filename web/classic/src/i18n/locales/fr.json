@@ -3955,6 +3955,20 @@
     "请输入邀请码": "Veuillez saisir le code d'invitation",
     "邀请码无效": "Code d'invitation invalide",
     "注册失败，请重试": "Échec de l'inscription, veuillez réessayer",
-    "注册成功！": "Inscription réussie !"
+    "注册成功！": "Inscription réussie !",
+    "你在钱包中取消了本次交易": "Vous avez annulé cette transaction dans votre portefeuille",
+    "钱包原生币不足，无法支付本次交易与网络手续费（gas）": "Solde de jeton natif insuffisant pour payer cette transaction et les frais de réseau (gas)",
+    "网络连接异常，请检查网络后重试": "Erreur de connexion réseau, veuillez vérifier votre connexion et réessayer",
+    "钱包余额不足：当前持有 {{balance}}，本次支付需要 {{needed}}": "Solde du portefeuille insuffisant : vous détenez {{balance}}, ce paiement nécessite {{needed}}",
+    "代币授权额度不足：已授权 {{allowance}}，本次支付需要 {{needed}}，请重新授权后重试": "Autorisation de jeton insuffisante : {{allowance}} autorisé, ce paiement nécessite {{needed}}, veuillez autoriser à nouveau puis réessayer",
+    "合约拒绝了这笔交易：{{reason}}": "Le contrat a rejeté cette transaction : {{reason}}",
+    "合约内部执行出错（Panic {{code}}），请联系管理员处理": "Erreur d'exécution interne du contrat (Panic {{code}}), veuillez contacter l'administrateur",
+    "合约拒绝了这笔交易（{{name}}），请联系管理员处理": "Le contrat a rejeté cette transaction ({{name}}), veuillez contacter l'administrateur",
+    "合约拒绝了这笔交易（错误码 {{selector}}），请联系管理员处理": "Le contrat a rejeté cette transaction (code d'erreur {{selector}}), veuillez contacter l'administrateur",
+    "合约拒绝了这笔交易，请确认代币余额与订单状态后重试": "Le contrat a rejeté cette transaction, veuillez vérifier votre solde de jetons et l'état de la commande, puis réessayer",
+    "支付失败：{{message}}": "Échec du paiement : {{message}}",
+    "支付失败，请稍后重试": "Échec du paiement, veuillez réessayer plus tard",
+    "该订单已在链上完成支付，无需再次付款；若额度未到账，请稍候回调或联系管理员": "Cette commande a déjà été payée sur la chaîne, aucun paiement supplémentaire n'est nécessaire ; si votre quota n'est pas arrivé, veuillez attendre le rappel ou contacter l'administrateur",
+    "该代币暂不被支付合约接受，请刷新页面后重试或联系管理员": "Ce jeton n'est actuellement pas accepté par le contrat de paiement, veuillez actualiser la page et réessayer ou contacter l'administrateur"
   }
 }

@@ -39,8 +39,8 @@ import PaymentConfirmModal from './modals/PaymentConfirmModal';
 import TopupHistoryModal from './modals/TopupHistoryModal';
 import WalletConnectQrModal from './modals/WalletConnectQrModal';
 import {
+  describeEthereumError,
   executeEthereumOrderWithAutoWallet,
-  isEthereumUserRejected,
 } from '../../helpers/ethereumWallet';
 
 const TopUp = () => {
@@ -517,6 +517,7 @@ const TopUp = () => {
         token_address: respTokenAddr,
         pay_amount,
         symbol,
+        decimals,
       } = res.data.data;
 
       setPaymentLoading(false);
@@ -530,6 +531,8 @@ const TopUp = () => {
           chain_id,
           token_address: respTokenAddr,
           pay_amount,
+          symbol,
+          decimals,
         },
         getWalletConnectConfig(),
         {
@@ -581,13 +584,8 @@ const TopUp = () => {
       setOpen(false);
     } catch (e) {
       console.error('Ethereum payment error:', e);
-      let msg = e.message || t('支付失败');
-      if (isEthereumUserRejected(e)) {
-        msg = t('用户拒绝了签名');
-      } else if (e.code === 'INSUFFICIENT_FUNDS') {
-        msg = t('钱包余额不足');
-      }
-      showError(msg);
+      const { key, params } = describeEthereumError(e);
+      showError(t(key, params));
     } finally {
       setPaymentLoading(false);
     }

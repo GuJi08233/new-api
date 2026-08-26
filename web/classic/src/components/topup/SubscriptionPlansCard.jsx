@@ -49,8 +49,8 @@ import {
   formatTiersSummary,
 } from '../../helpers/subscriptionFormat';
 import {
+  describeEthereumError,
   executeEthereumOrderWithAutoWallet,
-  isEthereumUserRejected,
 } from '../../helpers/ethereumWallet';
 
 const { Text } = Typography;
@@ -328,6 +328,8 @@ const SubscriptionPlansCard = ({
         chain_id,
         token_address: respTokenAddr,
         pay_amount,
+        symbol,
+        decimals,
       } = res.data.data;
       showInfo(
         t('正在连接钱包，如未检测到浏览器钱包将显示 WalletConnect 连接信息...'),
@@ -339,6 +341,8 @@ const SubscriptionPlansCard = ({
           chain_id,
           token_address: respTokenAddr,
           pay_amount,
+          symbol,
+          decimals,
         },
         getWalletConnectConfig(ethereumInfo),
         {
@@ -382,11 +386,9 @@ const SubscriptionPlansCard = ({
       );
       closeBuy();
     } catch (e) {
-      if (isEthereumUserRejected(e)) {
-        showError(t('用户取消了交易'));
-      } else {
-        showError(e?.reason || e?.message || t('交易失败'));
-      }
+      console.error('Ethereum subscription payment error:', e);
+      const { key, params } = describeEthereumError(e);
+      showError(t(key, params));
     } finally {
       setPaying(false);
     }

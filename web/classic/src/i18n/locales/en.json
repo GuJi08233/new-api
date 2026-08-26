@@ -4113,6 +4113,20 @@
     "令牌分组设为 auto 时，按以下顺序依次尝试选择可用分组，排在前面的优先级更高。列表自动包含全部分组（新增分组自动排在末尾），只需调整顺序；每个用户实际只会用到自己有权使用的分组": "When a token group is set to auto, available groups are tried in the order below, with earlier entries having higher priority. The list automatically includes all groups (new groups are appended at the end), so you only need to adjust the order; each user only ever uses the groups they are entitled to",
     "列表自动包含分组倍率中的全部分组，新增分组自动排在末尾，无需手动添加；配置只决定顺序。每个用户的 auto 序列会自动过滤为其有权使用的分组（含订阅附加分组，订阅过期自动移除）。": "The list automatically includes every group from group ratio; new groups are appended at the end without manual work, and the configuration only determines the order. Each user's auto sequence is filtered down to the groups they are entitled to (including subscription-attached groups, which are removed automatically when the subscription expires).",
     "自动分组auto优先级顺序（自动包含全部分组，此处只决定顺序）": "Auto group priority order (all groups are included automatically; this only determines the order)",
-    "拖拽行即可调整优先级顺序": "Drag rows to adjust the priority order"
+    "拖拽行即可调整优先级顺序": "Drag rows to adjust the priority order",
+    "你在钱包中取消了本次交易": "You cancelled this transaction in your wallet",
+    "钱包原生币不足，无法支付本次交易与网络手续费（gas）": "Insufficient native coin balance to cover this transaction and the network fee (gas)",
+    "网络连接异常，请检查网络后重试": "Network connection error, please check your connection and retry",
+    "钱包余额不足：当前持有 {{balance}}，本次支付需要 {{needed}}": "Insufficient wallet balance: you hold {{balance}}, this payment requires {{needed}}",
+    "代币授权额度不足：已授权 {{allowance}}，本次支付需要 {{needed}}，请重新授权后重试": "Insufficient token allowance: {{allowance}} approved, this payment requires {{needed}}, please approve again and retry",
+    "合约拒绝了这笔交易：{{reason}}": "The contract rejected this transaction: {{reason}}",
+    "合约内部执行出错（Panic {{code}}），请联系管理员处理": "Contract internal execution error (Panic {{code}}), please contact the administrator",
+    "合约拒绝了这笔交易（{{name}}），请联系管理员处理": "The contract rejected this transaction ({{name}}), please contact the administrator",
+    "合约拒绝了这笔交易（错误码 {{selector}}），请联系管理员处理": "The contract rejected this transaction (error code {{selector}}), please contact the administrator",
+    "合约拒绝了这笔交易，请确认代币余额与订单状态后重试": "The contract rejected this transaction, please check your token balance and order status, then retry",
+    "支付失败：{{message}}": "Payment failed: {{message}}",
+    "支付失败，请稍后重试": "Payment failed, please try again later",
+    "该订单已在链上完成支付，无需再次付款；若额度未到账，请稍候回调或联系管理员": "This order has already been paid on-chain, no further payment is needed; if your quota has not arrived, please wait for the callback or contact the administrator",
+    "该代币暂不被支付合约接受，请刷新页面后重试或联系管理员": "This token is currently not accepted by the payment contract, please refresh the page and retry or contact the administrator"
   }
 }

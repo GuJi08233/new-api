@@ -4483,6 +4483,20 @@
     "请输入邀请码": "Vui lòng nhập mã mời",
     "邀请码无效": "Mã mời không hợp lệ",
     "注册失败，请重试": "Đăng ký thất bại, vui lòng thử lại",
-    "注册成功！": "Đăng ký thành công!"
+    "注册成功！": "Đăng ký thành công!",
+    "你在钱包中取消了本次交易": "Bạn đã hủy giao dịch này trong ví",
+    "钱包原生币不足，无法支付本次交易与网络手续费（gas）": "Số dư coin gốc không đủ để trả cho giao dịch này và phí mạng (gas)",
+    "网络连接异常，请检查网络后重试": "Lỗi kết nối mạng, vui lòng kiểm tra mạng và thử lại",
+    "钱包余额不足：当前持有 {{balance}}，本次支付需要 {{needed}}": "Số dư ví không đủ: bạn đang có {{balance}}, thanh toán này cần {{needed}}",
+    "代币授权额度不足：已授权 {{allowance}}，本次支付需要 {{needed}}，请重新授权后重试": "Hạn mức phê duyệt token không đủ: đã phê duyệt {{allowance}}, thanh toán này cần {{needed}}, vui lòng phê duyệt lại và thử lại",
+    "合约拒绝了这笔交易：{{reason}}": "Hợp đồng đã từ chối giao dịch này: {{reason}}",
+    "合约内部执行出错（Panic {{code}}），请联系管理员处理": "Lỗi thực thi nội bộ của hợp đồng (Panic {{code}}), vui lòng liên hệ quản trị viên",
+    "合约拒绝了这笔交易（{{name}}），请联系管理员处理": "Hợp đồng đã từ chối giao dịch này ({{name}}), vui lòng liên hệ quản trị viên",
+    "合约拒绝了这笔交易（错误码 {{selector}}），请联系管理员处理": "Hợp đồng đã từ chối giao dịch này (mã lỗi {{selector}}), vui lòng liên hệ quản trị viên",
+    "合约拒绝了这笔交易，请确认代币余额与订单状态后重试": "Hợp đồng đã từ chối giao dịch này, vui lòng kiểm tra số dư token và trạng thái đơn hàng rồi thử lại",
+    "支付失败：{{message}}": "Thanh toán thất bại: {{message}}",
+    "支付失败，请稍后重试": "Thanh toán thất bại, vui lòng thử lại sau",
+    "该订单已在链上完成支付，无需再次付款；若额度未到账，请稍候回调或联系管理员": "Đơn hàng này đã được thanh toán trên chuỗi, không cần thanh toán lại; nếu hạn mức chưa về, vui lòng chờ callback hoặc liên hệ quản trị viên",
+    "该代币暂不被支付合约接受，请刷新页面后重试或联系管理员": "Token này hiện không được hợp đồng thanh toán chấp nhận, vui lòng tải lại trang và thử lại hoặc liên hệ quản trị viên"
   }
 }
