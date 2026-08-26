@@ -650,14 +650,10 @@ export function SubscriptionPlansCard({
               const holdsLive = livePlanIds.has(plan.id)
               // Globally-limited plans do not renew; seats free up on expiry
               const renewable = globalLimit <= 0 && holdsLive
-              // Attach-mode subscriptions coexist and stack quota, so owning
-              // several is meaningful — the per-user limit governs how many.
-              const stacksAttached =
-                plan.group_mode === 'attach' && !!plan.upgrade_group
-              // A globally-limited plan neither renews nor repurchases: a second
-              // purchase only queues a subscription that never takes over on its
-              // own, while occupying another scarce seat.
-              const holdingSeat = globalLimit > 0 && holdsLive && !stacksAttached
+              // A globally-limited plan neither renews nor repurchases: one
+              // live subscription per plan per user, a second purchase would
+              // only occupy another scarce seat.
+              const holdingSeat = globalLimit > 0 && holdsLive
               const reached =
                 !renewable && (holdingSeat || reachedPerUser || soldOut)
 

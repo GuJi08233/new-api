@@ -908,14 +908,9 @@ const SubscriptionPlansCard = ({
                           const holdsLive = livePlanIdSet.has(planId);
                           // 全局限购套餐不提供持有期续期，名额到期释放后重新购买
                           const renewable = globalLimit <= 0 && holdsLive;
-                          // 追加分组订阅并存生效、额度叠加，多份有意义
-                          const stacksAttached =
-                            plan?.group_mode === 'attach' &&
-                            !!plan?.upgrade_group;
-                          // 全局限购套餐既不续期也不重复购买：重复购买只会新建排队订阅，
-                          // 不自动接棒却多占一个名额
-                          const holdingSeat =
-                            globalLimit > 0 && holdsLive && !stacksAttached;
+                          // 全局限购套餐既不续期也不重复购买：同一套餐一人同时只允许
+                          // 一条订阅，重复购买只会多占一个名额
+                          const holdingSeat = globalLimit > 0 && holdsLive;
                           const reachedPerUser = limit > 0 && count >= limit;
                           const soldOut =
                             globalLimit > 0 &&

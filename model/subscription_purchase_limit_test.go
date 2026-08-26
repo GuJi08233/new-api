@@ -51,32 +51,59 @@ func TestPurchaseLimit_GlobalLimitedPlanRejectsRepurchaseWhileHoldingSeat(t *tes
 	require.NoError(t, CheckSubscriptionPlanPurchaseAllowed(3401, plan, true))
 }
 
-func TestPurchaseLimit_AttachPlanStacksUpToPerUserLimit(t *testing.T) {
+// 同一套餐一人同时只允许一条订阅，attach 模式也不例外：无全局限购时再买是续期，
+// 有全局限购时持有期内直接拒绝，避免重复追加同一分组。
+func TestPurchaseLimit_AttachPlanRenewsInsteadOfStacking(t *testing.T) {
 	truncateTables(t)
 
 	insertUserForSubscriptionTest(t, 3403, "default")
-	// 追加分组订阅并存生效、额度可叠加，多份有实际意义：全局限购不阻止加购，
-	// 份数由购买上限约束。
-	plan := insertPlanForGroupBillingTest(t, 1402, "Attach Seat Plan", false, 10)
-	plan.GroupMode = SubscriptionGroupModeAttach
-	plan.UpgradeGroup = "embedding"
-	plan.MaxPurchaseResetPeriod = SubscriptionResetActive
-	plan.MaxPurchasePerUser = 2
-	require.NoError(t, DB.Save(plan).Error)
+	plan := insertAttachPlanForTest(t, 1402, "embedding")
 
 	first, renewed := createSubscriptionFromPlanForRenewalTest(t, 3403, plan)
 	require.False(t, renewed)
 	assert.Equal(t, SubscriptionStatusActive, first.Status)
+	assert.Equal(t, SubscriptionGroupModeAttach, first.GroupMode)
+	firstEnd := first.EndTime
 
 	require.NoError(t, CheckSubscriptionPlanPurchaseAllowed(3403, plan, true))
 	second, renewed := createSubscriptionFromPlanForRenewalTest(t, 3403, plan)
-	require.False(t, renewed)
-	assert.NotEqual(t, first.Id, second.Id)
-	assert.Equal(t, SubscriptionStatusActive, second.Status)
+	require.True(t, renewed)
+	assert.Equal(t, first.Id, second.Id)
+	assert.Equal(t, time.Unix(firstEnd, 0).AddDate(0, 1, 0).Unix(), second.EndTime)
 
-	err := CheckSubscriptionPlanPurchaseAllowed(3403, plan, true)
+	var count int64
+	require.NoError(t, DB.Model(&UserSubscription{}).
+		Where("user_id = ? AND plan_id = ?", 3403, plan.Id).
+		Count(&count).Error)
+	assert.EqualValues(t, 1, count)
+	saved := getUserSubscriptionForGroupBillingTest(t, first.Id)
+	assert.Equal(t, SubscriptionGroupModeAttach, saved.GroupMode)
+}
+
+func TestPurchaseLimit_GlobalLimitedAttachPlanRejectsRepurchase(t *testing.T) {
+	truncateTables(t)
+
+	insertUserForSubscriptionTest(t, 3404, "default")
+	plan := insertPlanForGroupBillingTest(t, 1403, "Attach Seat Plan", false, 10)
+	plan.GroupMode = SubscriptionGroupModeAttach
+	plan.UpgradeGroup = "embedding"
+	plan.MaxPurchaseResetPeriod = SubscriptionResetActive
+	require.NoError(t, DB.Save(plan).Error)
+
+	first, renewed := createSubscriptionFromPlanForRenewalTest(t, 3404, plan)
+	require.False(t, renewed)
+	assert.Equal(t, SubscriptionGroupModeAttach, first.GroupMode)
+
+	err := CheckSubscriptionPlanPurchaseAllowed(3404, plan, true)
 	require.Error(t, err)
-	assert.Equal(t, "已达到该套餐购买上限", err.Error())
+	assert.Equal(t, "已持有该套餐，到期后可重新购买", err.Error())
+
+	err = DB.Transaction(func(tx *gorm.DB) error {
+		_, _, err := CreateUserSubscriptionFromPlanTx(tx, 3404, plan, "order")
+		return err
+	})
+	require.Error(t, err)
+	assert.Equal(t, "已持有该套餐，到期后可重新购买", err.Error())
 }
 
 // 人均上限与全局上限共用套餐的名额窗口：名额怎么释放，两个维度口径一致。

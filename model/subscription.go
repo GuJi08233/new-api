@@ -818,11 +818,9 @@ func CheckSubscriptionPlanPurchaseAllowed(userId int, plan *SubscriptionPlan, in
 			return nil
 		}
 		// 全局限购套餐不提供续期（见 renewUserSubscriptionForPlanTx），重复购买只会新建
-		// 一条排队订阅：有效期从购买时刻起算、到期时不会自动接棒，却额外占用一个稀缺名额。
-		// 追加分组订阅并存生效、额度可叠加，多份有实际意义，交由购买上限约束。
-		if !plan.GrantsAttachedGroup() {
-			return errors.New("已持有该套餐，到期后可重新购买")
-		}
+		// 一条对持有者毫无价值的订阅，却额外占用一个稀缺名额：非 attach 时排队且不自动
+		// 接棒，attach 时重复追加同一分组。同一套餐一人同时只允许一条订阅。
+		return errors.New("已持有该套餐，到期后可重新购买")
 	}
 	if plan.MaxPurchasePerUser > 0 {
 		count, err := countUserSubscriptionsByPlanWithWindow(nil, userId, plan, now)
@@ -872,9 +870,8 @@ func checkSubscriptionPlanPurchaseAllowedTx(tx *gorm.DB, userId int, plan *Subsc
 	}
 	now := getDBTimestampTx(tx)
 	// 调用方已先尝试续期，走到这里仍持有未过期订阅的只可能是不提供续期的全局限购套餐。
-	// 重复购买对排队订阅毫无价值却多占一个名额，直接拒绝（理由见
-	// CheckSubscriptionPlanPurchaseAllowed）。
-	if plan.MaxPurchaseTotal > 0 && !plan.GrantsAttachedGroup() {
+	// 同一套餐一人同时只允许一条订阅，直接拒绝（理由见 CheckSubscriptionPlanPurchaseAllowed）。
+	if plan.MaxPurchaseTotal > 0 {
 		hasLive, err := hasLiveUserSubscriptionOfPlan(tx, userId, plan.Id, now)
 		if err != nil {
 			return err
