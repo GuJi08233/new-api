@@ -2806,7 +2806,6 @@ const EditChannelModal = (props) => {
                         field='priority'
                         label={t('渠道优先级')}
                         placeholder={t('渠道优先级')}
-                        min={0}
                         onNumberChange={(value) => handleInputChange('priority', value)}
                         style={{ width: '100%' }}
                       />
