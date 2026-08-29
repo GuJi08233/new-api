@@ -46,6 +46,8 @@ import {
   Row,
   Col,
   InputNumber,
+  Radio,
+  RadioGroup,
 } from '@douyinfe/semi-ui';
 import {
   IconCreditCard,
@@ -63,6 +65,8 @@ const EditRedemptionModal = (props) => {
   const isMobile = useIsMobile();
   const formApiRef = useRef(null);
   const [showQuotaInput, setShowQuotaInput] = useState(false);
+  // 生成方式二选一:codes=多个单次码,uses=一个码多次兑换
+  const [createMode, setCreateMode] = useState('codes');
 
   const getInitValues = () => ({
     name: '',
@@ -100,6 +104,7 @@ const EditRedemptionModal = (props) => {
       if (isEdit) {
         loadRedemption();
       } else {
+        setCreateMode('codes');
         formApiRef.current.setValues(getInitValues());
       }
     }
@@ -114,6 +119,14 @@ const EditRedemptionModal = (props) => {
     let localInputs = { ...values };
     localInputs.count = parseInt(localInputs.count) || 0;
     localInputs.max_uses = parseInt(localInputs.max_uses) || 1;
+    // 生成方式二选一:多个码固定每码一次,一码多用固定单码
+    if (!isEdit) {
+      if (createMode === 'codes') {
+        localInputs.max_uses = 1;
+      } else {
+        localInputs.count = 1;
+      }
+    }
     localInputs.quota = displayAmountToQuota(localInputs.amount);
     if (localInputs.quota <= 0) {
       showError(t('请输入金额'));
@@ -146,12 +159,16 @@ const EditRedemptionModal = (props) => {
           <p>
             {t('单个面额')}：<strong>{renderQuota(payload.quota)}</strong>
           </p>
-          <p>
-            {t('生成数量')}：<strong>{payload.count}</strong>
-          </p>
-          <p>
-            {t('每个可用次数')}：<strong>{payload.max_uses}</strong>
-          </p>
+          {payload.count > 1 && (
+            <p>
+              {t('生成数量')}：<strong>{payload.count}</strong>
+            </p>
+          )}
+          {payload.max_uses > 1 && (
+            <p>
+              {t('每个可用次数')}：<strong>{payload.max_uses}</strong>
+            </p>
+          )}
           <p style={{ color: 'var(--semi-color-danger)' }}>
             {t('全部兑换后将发放总额度')}：
             <strong>{renderQuota(totalQuota)}</strong>
@@ -405,6 +422,28 @@ const EditRedemptionModal = (props) => {
                       </div>
                     </Col>
                     {!isEdit && (
+                      <Col span={24}>
+                        <Form.Slot label={t('生成方式')}>
+                          <RadioGroup
+                            type='button'
+                            value={createMode}
+                            onChange={(e) => setCreateMode(e.target.value)}
+                          >
+                            <Radio value='codes'>{t('多个码')}</Radio>
+                            <Radio value='uses'>{t('一码多用')}</Radio>
+                          </RadioGroup>
+                          <div
+                            className='text-xs mt-1'
+                            style={{ color: 'var(--semi-color-text-2)' }}
+                          >
+                            {createMode === 'codes'
+                              ? t('生成多个码,每个码可用一次')
+                              : t('生成一个码,可被多个不同用户各兑换一次')}
+                          </div>
+                        </Form.Slot>
+                      </Col>
+                    )}
+                    {!isEdit && createMode === 'codes' && (
                       <Col span={12}>
                         <Form.InputNumber
                           field='count'
@@ -426,38 +465,45 @@ const EditRedemptionModal = (props) => {
                         />
                       </Col>
                     )}
-                    <Col span={12}>
-                      <Form.InputNumber
-                        field='max_uses'
-                        label={t('可用次数')}
-                        min={1}
-                        max={1000}
-                        rules={[
-                          {
-                            validator: (rule, v) => {
-                              if (v === '' || v == null)
-                                return Promise.resolve();
-                              const num = parseInt(v, 10);
-                              return num >= 1 && num <= 1000
-                                ? Promise.resolve()
-                                : Promise.reject(t('可用次数需在 1-1000 之间'));
+                    {(isEdit || createMode === 'uses') && (
+                      <Col span={12}>
+                        <Form.InputNumber
+                          field='max_uses'
+                          label={t('可用次数')}
+                          min={1}
+                          max={1000}
+                          rules={[
+                            {
+                              validator: (rule, v) => {
+                                if (v === '' || v == null)
+                                  return Promise.resolve();
+                                const num = parseInt(v, 10);
+                                return num >= 1 && num <= 1000
+                                  ? Promise.resolve()
+                                  : Promise.reject(
+                                      t('可用次数需在 1-1000 之间'),
+                                    );
+                              },
                             },
-                          },
-                        ]}
-                        style={{ width: '100%' }}
-                        showClear
-                      />
-                      <div
-                        className='text-xs mt-1'
-                        style={{ color: 'var(--semi-color-text-2)' }}
-                      >
-                        {values.max_uses > 1
-                          ? t('一码多用:可被 {{count}} 个不同用户各兑换一次', {
-                              count: values.max_uses,
-                            })
-                          : t('填写大于 1 的次数可实现一码多用')}
-                      </div>
-                    </Col>
+                          ]}
+                          style={{ width: '100%' }}
+                          showClear
+                        />
+                        <div
+                          className='text-xs mt-1'
+                          style={{ color: 'var(--semi-color-text-2)' }}
+                        >
+                          {values.max_uses > 1
+                            ? t(
+                                '一码多用:可被 {{count}} 个不同用户各兑换一次',
+                                {
+                                  count: values.max_uses,
+                                },
+                              )
+                            : t('填写大于 1 的次数可实现一码多用')}
+                        </div>
+                      </Col>
+                    )}
                   </Row>
                 </Card>
               </div>

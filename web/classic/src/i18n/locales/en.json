@@ -4203,7 +4203,6 @@
     "填写大于 1 的次数可实现一码多用": "Set a value greater than 1 to make the code multi-use",
     "一码多用:可被 {{count}} 个不同用户各兑换一次": "Multi-use: can be redeemed once each by {{count}} different users",
     "一码多用:同一用户对同一个码只能兑换一次。": "Multi-use: each user can redeem the same code only once.",
-    "大于 1 即一码多用:同一个码可被多个不同用户各使用一次,按次数计价。": "Greater than 1 makes it multi-use: the same code can be used once each by multiple users; priced per use.",
     "确认创建兑换码": "Confirm Redemption Code Creation",
     "确认创建": "Confirm",
     "单个面额": "Value per code",
@@ -4211,7 +4210,6 @@
     "确认生成邀请码": "Confirm Invitation Code Generation",
     "确认生成": "Confirm",
     "本次将从您的额度中扣除": "This will deduct from your quota",
-    "每次被使用后,使用者可获得": "Each time it is used, the user receives",
     "生成邀请码": "Generate Invitation Code",
     "批量生成邀请码": "Batch Generate Invitation Codes",
     "批量生成": "Batch Generate",
@@ -4240,6 +4238,14 @@
     "暂无可复制的未使用邀请码": "No unused invitation codes to copy",
     "暂无可复制的邀请码": "No invitation codes to copy",
     "暂无邀请码，点击上方按钮生成": "No invitation codes yet. Click the button above to generate.",
-    "生成邀请码，可用于邀请好友注册或作为兑换码兑换额度": "Generate invitation codes for friend registration or quota redemption"
+    "生成邀请码，可用于邀请好友注册或作为兑换码兑换额度": "Generate invitation codes for friend registration or quota redemption",
+    "生成方式": "Generation mode",
+    "多个码": "Multiple codes",
+    "一码多用": "Multi-use code",
+    "生成多个码,每个码可用一次": "Generate multiple codes, each usable once",
+    "生成一个码,可被多个不同用户各兑换一次": "Generate one code that multiple different users can each redeem once",
+    "生成一个码,可被多个不同用户各使用一次(注册或兑换均消耗一次)": "Generate one code that multiple different users can each use once (registration and redemption both consume one use)",
+    "用于兑换时,使用者每次可获得": "When used for redemption, the user receives each time",
+    "用于注册仅建立邀请关系,不发放兑换奖励": "When used for registration, it only records the invitation relationship; no redemption reward is granted"
   }
 }

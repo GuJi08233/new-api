@@ -4572,7 +4572,6 @@
     "填写大于 1 的次数可实现一码多用": "Đặt giá trị lớn hơn 1 để mã dùng được nhiều lần",
     "一码多用:可被 {{count}} 个不同用户各兑换一次": "Dùng nhiều lần: {{count}} người dùng khác nhau, mỗi người một lần",
     "一码多用:同一用户对同一个码只能兑换一次。": "Dùng nhiều lần: mỗi người dùng chỉ đổi được cùng một mã một lần.",
-    "大于 1 即一码多用:同一个码可被多个不同用户各使用一次,按次数计价。": "Lớn hơn 1 là dùng nhiều lần: cùng một mã cho nhiều người dùng, mỗi người một lần; tính phí theo số lần.",
     "确认创建兑换码": "Xác nhận tạo mã đổi",
     "确认创建": "Xác nhận tạo",
     "单个面额": "Mệnh giá mỗi mã",
@@ -4580,7 +4579,6 @@
     "确认生成邀请码": "Xác nhận tạo mã mời",
     "确认生成": "Xác nhận tạo",
     "本次将从您的额度中扣除": "Sẽ trừ vào hạn mức của bạn",
-    "每次被使用后,使用者可获得": "Mỗi lần được dùng, người dùng nhận được",
     "生成邀请码": "Tạo mã mời",
     "批量生成邀请码": "Tạo hàng loạt mã mời",
     "批量生成": "Tạo hàng loạt",
@@ -4605,6 +4603,14 @@
     "暂无可复制的未使用邀请码": "Không có mã mời chưa dùng để sao chép",
     "暂无可复制的邀请码": "Không có mã mời để sao chép",
     "暂无邀请码，点击上方按钮生成": "Chưa có mã mời, nhấn nút phía trên để tạo.",
-    "生成邀请码，可用于邀请好友注册或作为兑换码兑换额度": "Tạo mã mời để mời bạn bè đăng ký hoặc đổi lấy hạn mức"
+    "生成邀请码，可用于邀请好友注册或作为兑换码兑换额度": "Tạo mã mời để mời bạn bè đăng ký hoặc đổi lấy hạn mức",
+    "生成方式": "Cách tạo",
+    "多个码": "Nhiều mã",
+    "一码多用": "Mã dùng nhiều lần",
+    "生成多个码,每个码可用一次": "Tạo nhiều mã, mỗi mã dùng được một lần",
+    "生成一个码,可被多个不同用户各兑换一次": "Tạo một mã mà nhiều người dùng khác nhau mỗi người đổi được một lần",
+    "生成一个码,可被多个不同用户各使用一次(注册或兑换均消耗一次)": "Tạo một mã mà nhiều người dùng khác nhau mỗi người dùng được một lần (đăng ký hoặc đổi đều tốn một lượt)",
+    "用于兑换时,使用者每次可获得": "Khi dùng để đổi, người dùng nhận được mỗi lần",
+    "用于注册仅建立邀请关系,不发放兑换奖励": "Khi dùng để đăng ký chỉ ghi nhận quan hệ mời; không phát thưởng đổi mã"
   }
 }

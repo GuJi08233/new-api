@@ -36,6 +36,8 @@ import {
   Form,
   InputNumber,
   Input,
+  Radio,
+  RadioGroup,
 } from '@douyinfe/semi-ui';
 import { Copy, Plus, RefreshCcw, Ticket, Trash2 } from 'lucide-react';
 import {
@@ -106,7 +108,10 @@ const InvitationCard = ({ t }) => {
             <strong>{renderQuota(totalCost)}</strong>
           </p>
           <p style={{ color: 'var(--semi-color-text-2)' }}>
-            {t('每次被使用后,使用者可获得')} {renderQuota(rewardPerUse)}
+            {t('用于兑换时,使用者每次可获得')} {renderQuota(rewardPerUse)}
+          </p>
+          <p style={{ color: 'var(--semi-color-text-2)' }}>
+            {t('用于注册仅建立邀请关系,不发放兑换奖励')}
           </p>
         </div>
       ),
@@ -126,8 +131,10 @@ const InvitationCard = ({ t }) => {
   const [total, setTotal] = useState(0);
   const [selectedRowKeys, setSelectedRowKeys] = useState([]);
   const [showBatchModal, setShowBatchModal] = useState(false);
+  // 批量方式二选一:codes=多个单次码,uses=一个码多次使用
+  const [batchMode, setBatchMode] = useState('codes');
   const [batchCount, setBatchCount] = useState(DEFAULT_BATCH_COUNT);
-  const [batchMaxUses, setBatchMaxUses] = useState(1);
+  const [batchMaxUses, setBatchMaxUses] = useState(2);
   const [batchRemark, setBatchRemark] = useState('');
 
   const loadMyCodes = useCallback(
@@ -269,17 +276,18 @@ const InvitationCard = ({ t }) => {
   };
 
   const handleBatchGenerate = () => {
-    if (batchCount <= 0 || batchCount > 100) {
-      showError(t('数量必须在 1-100 之间'));
-      return;
-    }
-    if (batchMaxUses <= 0 || batchMaxUses > 1000) {
+    if (batchMode === 'codes') {
+      if (batchCount <= 0 || batchCount > 100) {
+        showError(t('数量必须在 1-100 之间'));
+        return;
+      }
+    } else if (batchMaxUses <= 0 || batchMaxUses > 1000) {
       showError(t('可用次数需在 1-1000 之间'));
       return;
     }
     confirmGenerate({
-      count: batchCount,
-      maxUses: batchMaxUses,
+      count: batchMode === 'codes' ? batchCount : 1,
+      maxUses: batchMode === 'uses' ? batchMaxUses : 1,
       onConfirm: doBatchGenerate,
     });
   };
@@ -288,8 +296,8 @@ const InvitationCard = ({ t }) => {
     setBatchGenerateLoading(true);
     try {
       const res = await API.post('/api/invitation_code/generate', {
-        count: batchCount,
-        max_uses: batchMaxUses,
+        count: batchMode === 'codes' ? batchCount : 1,
+        max_uses: batchMode === 'uses' ? batchMaxUses : 1,
         remark: batchRemark,
       });
       const { success, message } = res.data;
@@ -299,8 +307,9 @@ const InvitationCard = ({ t }) => {
       }
       showSuccess(t('创建成功'));
       setShowBatchModal(false);
+      setBatchMode('codes');
       setBatchCount(DEFAULT_BATCH_COUNT);
-      setBatchMaxUses(1);
+      setBatchMaxUses(2);
       setBatchRemark('');
       setSelectedRowKeys([]);
       if (activePage === 1) {
@@ -630,32 +639,47 @@ const InvitationCard = ({ t }) => {
         centered
       >
         <Form layout='vertical'>
-          <Form.Slot label={t('生成数量')}>
-            <InputNumber
-              value={batchCount}
-              onChange={setBatchCount}
-              min={1}
-              max={100}
-              style={{ width: '100%' }}
-            />
-          </Form.Slot>
-          <Form.Slot label={t('每个可用次数')}>
-            <InputNumber
-              value={batchMaxUses}
-              onChange={(v) => setBatchMaxUses(v > 0 ? v : 1)}
-              min={1}
-              max={1000}
-              style={{ width: '100%' }}
-            />
+          <Form.Slot label={t('生成方式')}>
+            <RadioGroup
+              type='button'
+              value={batchMode}
+              onChange={(e) => setBatchMode(e.target.value)}
+            >
+              <Radio value='codes'>{t('多个码')}</Radio>
+              <Radio value='uses'>{t('一码多用')}</Radio>
+            </RadioGroup>
             <div
               className='text-xs mt-1'
               style={{ color: 'var(--semi-color-text-2)' }}
             >
-              {t(
-                '大于 1 即一码多用:同一个码可被多个不同用户各使用一次,按次数计价。',
-              )}
+              {batchMode === 'codes'
+                ? t('生成多个码,每个码可用一次')
+                : t(
+                    '生成一个码,可被多个不同用户各使用一次(注册或兑换均消耗一次)',
+                  )}
             </div>
           </Form.Slot>
+          {batchMode === 'codes' ? (
+            <Form.Slot label={t('生成数量')}>
+              <InputNumber
+                value={batchCount}
+                onChange={setBatchCount}
+                min={1}
+                max={100}
+                style={{ width: '100%' }}
+              />
+            </Form.Slot>
+          ) : (
+            <Form.Slot label={t('可用次数')}>
+              <InputNumber
+                value={batchMaxUses}
+                onChange={(v) => setBatchMaxUses(v > 0 ? v : 1)}
+                min={1}
+                max={1000}
+                style={{ width: '100%' }}
+              />
+            </Form.Slot>
+          )}
           <Form.Slot label={t('备注')}>
             <Input
               value={batchRemark}

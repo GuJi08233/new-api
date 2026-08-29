@@ -10,7 +10,8 @@ import (
 )
 
 // 邀请码核销必须是"占用 → 归属/释放"两阶段：并发注册不能让同一个码被重复占用，
-// 建号失败要能释放，归属后要发放奖励且不可再被释放。
+// 建号失败要能释放，归属后不可再被释放。注册使用只建立邀请关系,
+// 不发放兑换奖励(奖励只在兑换路径发放,见 Redeem 相关测试)。
 func TestInvitationCodeReserveFinalizeRelease(t *testing.T) {
 	truncateTables(t)
 
@@ -42,7 +43,7 @@ func TestInvitationCodeReserveFinalizeRelease(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, common.InvitationCodeStatusEnabled, restored.Status)
 
-	// 重新占用并归属到新用户：记录使用者并按比例发放奖励
+	// 重新占用并归属到新用户：只记录使用者与注册用途,不发放奖励
 	reserved, err = ReserveInvitationCode("test-code")
 	require.NoError(t, err)
 	require.NoError(t, FinalizeInvitationCodeUsage(reserved, newUser.Id))
@@ -53,9 +54,10 @@ func TestInvitationCodeReserveFinalizeRelease(t *testing.T) {
 	assert.Equal(t, newUser.Id, used.UsedUserId)
 	assert.Equal(t, common.InvitationCodeUsedTypeRegister, used.UsedType)
 
-	var rewarded User
-	require.NoError(t, DB.First(&rewarded, "id = ?", newUser.Id).Error)
-	assert.Equal(t, 500, rewarded.Quota)
+	// 注册使用不得触发兑换奖励:即便奖励比例已配置,新用户额度保持不变
+	var registered User
+	require.NoError(t, DB.First(&registered, "id = ?", newUser.Id).Error)
+	assert.Equal(t, 0, registered.Quota, "注册使用邀请码不应发放兑换奖励")
 
 	// 已归属的码不可再被释放
 	ReleaseInvitationCode(used)

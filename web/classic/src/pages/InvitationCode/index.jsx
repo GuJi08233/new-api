@@ -26,6 +26,8 @@ import {
   InputNumber,
   Modal,
   Popconfirm,
+  Radio,
+  RadioGroup,
   Space,
   Table,
   Tag,
@@ -58,8 +60,10 @@ const InvitationCode = () => {
   const [total, setTotal] = useState(0);
   const [searchKeyword, setSearchKeyword] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
+  // 生成方式二选一:codes=多个单次码,uses=一个码多次使用
+  const [addMode, setAddMode] = useState('codes');
   const [addCount, setAddCount] = useState(10);
-  const [addMaxUses, setAddMaxUses] = useState(1);
+  const [addMaxUses, setAddMaxUses] = useState(2);
   const [addRemark, setAddRemark] = useState('');
   const [addLoading, setAddLoading] = useState(false);
 
@@ -99,15 +103,18 @@ const InvitationCode = () => {
   }, [loadCodes]);
 
   const handleAdd = () => {
-    if (addCount <= 0 || addCount > 100) {
-      showError(t('数量必须在 1-100 之间'));
-      return;
-    }
-    if (addMaxUses <= 0 || addMaxUses > 1000) {
+    if (addMode === 'codes') {
+      if (addCount <= 0 || addCount > 100) {
+        showError(t('数量必须在 1-100 之间'));
+        return;
+      }
+    } else if (addMaxUses <= 0 || addMaxUses > 1000) {
       showError(t('可用次数需在 1-1000 之间'));
       return;
     }
-    const totalCost = invitationCodePrice * addCount * addMaxUses;
+    const count = addMode === 'codes' ? addCount : 1;
+    const maxUses = addMode === 'uses' ? addMaxUses : 1;
+    const totalCost = invitationCodePrice * count * maxUses;
     if (totalCost <= 0) {
       doAdd();
       return;
@@ -118,11 +125,11 @@ const InvitationCode = () => {
       content: (
         <div className='text-sm'>
           <p>
-            {t('生成数量')}：<strong>{addCount}</strong>
+            {t('生成数量')}：<strong>{count}</strong>
           </p>
-          {addMaxUses > 1 && (
+          {maxUses > 1 && (
             <p>
-              {t('每个可用次数')}：<strong>{addMaxUses}</strong>
+              {t('每个可用次数')}：<strong>{maxUses}</strong>
             </p>
           )}
           <p style={{ color: 'var(--semi-color-danger)' }}>
@@ -141,8 +148,8 @@ const InvitationCode = () => {
     setAddLoading(true);
     try {
       const res = await API.post('/api/invitation_code/', {
-        count: addCount,
-        max_uses: addMaxUses,
+        count: addMode === 'codes' ? addCount : 1,
+        max_uses: addMode === 'uses' ? addMaxUses : 1,
         remark: addRemark,
       });
       const { success, message } = res.data;
@@ -152,8 +159,9 @@ const InvitationCode = () => {
       }
       showSuccess(t('创建成功'));
       setShowAddModal(false);
+      setAddMode('codes');
       setAddCount(10);
-      setAddMaxUses(1);
+      setAddMaxUses(2);
       setAddRemark('');
       loadCodes();
     } catch {
@@ -423,32 +431,47 @@ const InvitationCode = () => {
         confirmLoading={addLoading}
       >
         <Form layout='vertical'>
-          <Form.Slot label={t('生成数量')}>
-            <InputNumber
-              value={addCount}
-              onChange={setAddCount}
-              min={1}
-              max={100}
-              style={{ width: '100%' }}
-            />
-          </Form.Slot>
-          <Form.Slot label={t('每个可用次数')}>
-            <InputNumber
-              value={addMaxUses}
-              onChange={(v) => setAddMaxUses(v > 0 ? v : 1)}
-              min={1}
-              max={1000}
-              style={{ width: '100%' }}
-            />
+          <Form.Slot label={t('生成方式')}>
+            <RadioGroup
+              type='button'
+              value={addMode}
+              onChange={(e) => setAddMode(e.target.value)}
+            >
+              <Radio value='codes'>{t('多个码')}</Radio>
+              <Radio value='uses'>{t('一码多用')}</Radio>
+            </RadioGroup>
             <div
               className='text-xs mt-1'
               style={{ color: 'var(--semi-color-text-2)' }}
             >
-              {t(
-                '大于 1 即一码多用:同一个码可被多个不同用户各使用一次,按次数计价。',
-              )}
+              {addMode === 'codes'
+                ? t('生成多个码,每个码可用一次')
+                : t(
+                    '生成一个码,可被多个不同用户各使用一次(注册或兑换均消耗一次)',
+                  )}
             </div>
           </Form.Slot>
+          {addMode === 'codes' ? (
+            <Form.Slot label={t('生成数量')}>
+              <InputNumber
+                value={addCount}
+                onChange={setAddCount}
+                min={1}
+                max={100}
+                style={{ width: '100%' }}
+              />
+            </Form.Slot>
+          ) : (
+            <Form.Slot label={t('可用次数')}>
+              <InputNumber
+                value={addMaxUses}
+                onChange={(v) => setAddMaxUses(v > 0 ? v : 1)}
+                min={1}
+                max={1000}
+                style={{ width: '100%' }}
+              />
+            </Form.Slot>
+          )}
           <Form.Slot label={t('备注')}>
             <Input
               value={addRemark}

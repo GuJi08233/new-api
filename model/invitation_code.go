@@ -196,7 +196,8 @@ func ReserveInvitationCode(codeStr string) (*InvitationCode, error) {
 	return &code, nil
 }
 
-// FinalizeInvitationCodeUsage 将已占用的邀请码归属到注册成功的用户，并发放奖励额度
+// FinalizeInvitationCodeUsage 将已占用的邀请码归属到注册成功的用户。
+// 注册使用只建立邀请关系,不发放兑换奖励;按比例的奖励额度只在兑换路径(Redeem)发放。
 func FinalizeInvitationCodeUsage(code *InvitationCode, userId int) error {
 	if code == nil {
 		return nil
@@ -204,37 +205,12 @@ func FinalizeInvitationCodeUsage(code *InvitationCode, userId int) error {
 	if userId == 0 {
 		return errors.New("无效的 user id")
 	}
-	rewardQuota := 0
-	err := DB.Transaction(func(tx *gorm.DB) error {
-		err := tx.Model(&InvitationCode{}).Where("id = ?", code.Id).
-			Updates(map[string]interface{}{
-				"used_user_id": userId,
-				"used_type":    common.InvitationCodeUsedTypeRegister,
-				"used_time":    common.GetTimestamp(),
-			}).Error
-		if err != nil {
-			return err
-		}
-		// 按比例给使用者增加余额
-		if code.Quota > 0 && common.InvitationCodeRewardRatio > 0 {
-			rewardQuota = code.Quota * common.InvitationCodeRewardRatio / 100
-			if rewardQuota > 0 {
-				err := tx.Model(&User{}).Where("id = ?", userId).
-					Update("quota", gorm.Expr("quota + ?", rewardQuota)).Error
-				if err != nil {
-					return err
-				}
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		return err
-	}
-	if rewardQuota > 0 {
-		RecordLog(userId, LogTypeTopup, fmt.Sprintf("使用邀请码获得 %s", logger.LogQuota(rewardQuota)))
-	}
-	return nil
+	return DB.Model(&InvitationCode{}).Where("id = ?", code.Id).
+		Updates(map[string]interface{}{
+			"used_user_id": userId,
+			"used_type":    common.InvitationCodeUsedTypeRegister,
+			"used_time":    common.GetTimestamp(),
+		}).Error
 }
 
 // ReleaseInvitationCode 释放已占用但尚未归属用户的名额（建号失败时回滚）:
