@@ -437,7 +437,15 @@ const RiskRankings = () => {
         </Button>
       </Space>
 
-      <Tabs type='button' activeKey={metric} onChange={(k) => setMetric(k)}>
+      <Tabs
+        type='button'
+        activeKey={metric}
+        onChange={(k) => {
+          // 切换维度时立即清空数据,避免旧维度的行用新维度的列渲染出错位空白行
+          setItems([]);
+          setMetric(k);
+        }}
+      >
         <TabPane tab={t('IP 排行')} itemKey='ip_multi_user' />
         <TabPane tab={t('单用户多 IP')} itemKey='user_multi_ip' />
         <TabPane tab={t('单 IP 多令牌')} itemKey='ip_multi_token' />
@@ -474,7 +482,11 @@ const RiskRankings = () => {
         dataSource={items}
         loading={loading}
         rowKey={(record) =>
-          record.ip || record.user_id || record.ua || JSON.stringify(record)
+          // token 行优先用 token_id:同一用户的多个令牌不能共用 user_id 作 key
+          record.ip ||
+          (record.token_id ? `token-${record.token_id}` : record.user_id) ||
+          record.ua ||
+          JSON.stringify(record)
         }
         pagination={{ pageSize: 20 }}
         empty={t('暂无数据')}
