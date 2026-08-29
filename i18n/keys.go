@@ -333,7 +333,9 @@ const (
 
 // Risk control related messages
 const (
-	MsgRiskControlBlocked = "risk_control.blocked"
+	MsgRiskControlBlocked    = "risk_control.blocked"
+	MsgRiskProbeGuardBlocked = "risk_control.probe_guard_blocked"
+	MsgAuthUserBannedReason  = "auth.user_banned_reason"
 )
 
 // Custom OAuth provider related messages

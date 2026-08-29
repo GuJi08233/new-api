@@ -65,6 +65,14 @@ func Login(c *gin.Context) {
 			common.ApiErrorI18n(c, i18n.MsgDatabaseError)
 		case errors.Is(err, model.ErrUserEmptyCredentials):
 			common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		case errors.Is(err, model.ErrUserBanned):
+			// 密码正确但账号被封:明确告知封禁及原因,便于用户申诉。
+			// 密码错误时仍统一报凭证错误,不泄露账号状态。
+			if reason := strings.TrimSpace(user.DisableReason); reason != "" {
+				common.ApiErrorMsg(c, common.TranslateMessage(c, i18n.MsgAuthUserBannedReason, map[string]any{"Reason": reason}))
+			} else {
+				common.ApiErrorI18n(c, i18n.MsgAuthUserBanned)
+			}
 		default:
 			common.ApiErrorI18n(c, i18n.MsgUserUsernameOrPasswordError)
 		}
@@ -472,28 +480,28 @@ func GetSelf(c *gin.Context) {
 
 	// 构建响应数据，包含用户信息和权限
 	responseData := map[string]interface{}{
-		"id":                user.Id,
-		"username":          user.Username,
-		"display_name":      user.DisplayName,
-		"role":              user.Role,
-		"status":            user.Status,
-		"email":             user.Email,
-		"github_id":         user.GitHubId,
-		"discord_id":        user.DiscordId,
-		"oidc_id":           user.OidcId,
-		"wechat_id":         user.WeChatId,
-		"telegram_id":       user.TelegramId,
-		"group":             user.Group,
-		"quota":             user.Quota,
-		"used_quota":        user.UsedQuota,
-		"request_count":     user.RequestCount,
-		"inviter_id":        user.InviterId,
-		"linux_do_id":       user.LinuxDOId,
-		"steam_openid":      user.SteamOpenId,
-		"setting":           user.Setting,
-		"stripe_customer":   user.StripeCustomer,
-		"sidebar_modules":   userSetting.SidebarModules, // 正确提取sidebar_modules字段
-		"permissions":       permissions,                // 新增权限字段
+		"id":              user.Id,
+		"username":        user.Username,
+		"display_name":    user.DisplayName,
+		"role":            user.Role,
+		"status":          user.Status,
+		"email":           user.Email,
+		"github_id":       user.GitHubId,
+		"discord_id":      user.DiscordId,
+		"oidc_id":         user.OidcId,
+		"wechat_id":       user.WeChatId,
+		"telegram_id":     user.TelegramId,
+		"group":           user.Group,
+		"quota":           user.Quota,
+		"used_quota":      user.UsedQuota,
+		"request_count":   user.RequestCount,
+		"inviter_id":      user.InviterId,
+		"linux_do_id":     user.LinuxDOId,
+		"steam_openid":    user.SteamOpenId,
+		"setting":         user.Setting,
+		"stripe_customer": user.StripeCustomer,
+		"sidebar_modules": userSetting.SidebarModules, // 正确提取sidebar_modules字段
+		"permissions":     permissions,                // 新增权限字段
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -1020,12 +1028,13 @@ type ManageRequest struct {
 	Action string `json:"action"`
 	Value  int    `json:"value"`
 	Mode   string `json:"mode"`
+	Reason string `json:"reason"` // 封禁/解禁原因,写入风控事件供审计
 }
 
 // ManageUser Only admin user can do this
 func ManageUser(c *gin.Context) {
 	var req ManageRequest
-	err := json.NewDecoder(c.Request.Body).Decode(&req)
+	err := common.DecodeJson(c.Request.Body, &req)
 
 	if err != nil {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
@@ -1174,11 +1183,37 @@ func ManageUser(c *gin.Context) {
 			common.SysLog(fmt.Sprintf("failed to invalidate tokens cache for user %d: %s", user.Id, err.Error()))
 		}
 	}
-	recordManageAuditFor(c, user.Id, "user.manage", map[string]interface{}{
+	// 手动封禁/解禁写入风控事件,连同操作人与原因一起留档;
+	// 同时维护用户行上的 disable_reason(封禁写入,解禁清空),供被封用户在登录/调用被拒时看到。
+	if req.Action == "disable" || req.Action == "enable" {
+		eventType := model.RiskEventBanManual
+		reasonForUser := strings.TrimSpace(req.Reason)
+		if req.Action == "enable" {
+			eventType = model.RiskEventUnban
+			reasonForUser = ""
+		}
+		if err := model.SetUserDisableReason(user.Id, reasonForUser); err != nil {
+			common.SysLog(fmt.Sprintf("failed to update disable reason for user %d: %s", user.Id, err.Error()))
+		}
+		if err := model.InsertRiskEvent(&model.RiskEvent{
+			EventType:  eventType,
+			UserId:     user.Id,
+			Username:   user.Username,
+			Reason:     strings.TrimSpace(req.Reason),
+			OperatorId: c.GetInt("id"),
+		}); err != nil {
+			common.SysLog(fmt.Sprintf("failed to record risk event for user %d: %s", user.Id, err.Error()))
+		}
+	}
+	auditParams := map[string]interface{}{
 		"action":   req.Action,
 		"username": user.Username,
 		"id":       user.Id,
-	})
+	}
+	if reason := strings.TrimSpace(req.Reason); reason != "" {
+		auditParams["reason"] = reason
+	}
+	recordManageAuditFor(c, user.Id, "user.manage", auditParams)
 	clearUser := model.User{
 		Role:   user.Role,
 		Status: user.Status,

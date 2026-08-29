@@ -20,9 +20,10 @@ func GetRiskRankings(c *gin.Context) {
 
 	setting := operation_setting.GetRiskControlSetting()
 	meta := gin.H{
-		"ip_log_enabled":  common.IsGlobalRecordIpLogEnabled(),
-		"ua_log_enabled":  common.IsGlobalRecordUaLogEnabled(),
-		"setting_enabled": setting != nil && setting.Enabled,
+		"ip_log_enabled":          common.IsGlobalRecordIpLogEnabled(),
+		"ua_log_enabled":          common.IsGlobalRecordUaLogEnabled(),
+		"setting_enabled":         setting != nil && setting.Enabled,
+		"tiny_request_max_tokens": setting.ResolvedTinyRequestMaxTokens(),
 	}
 
 	var (
@@ -36,6 +37,14 @@ func GetRiskRankings(c *gin.Context) {
 		items, err = model.GetUaRanking(hours, limit)
 	case model.RiskMetricIpMultiUser:
 		items, err = model.GetIpMultiUserRanking(hours, limit)
+	case model.RiskMetricIpMultiToken:
+		items, err = model.GetIpMultiTokenRanking(hours, limit)
+	case model.RiskMetricUserTinyRequest:
+		items, err = model.GetUserTinyRequestRanking(hours, limit, setting.ResolvedTinyRequestMaxTokens())
+	case model.RiskMetricUserErrorBurst:
+		items, err = model.GetUserErrorRanking(hours, limit)
+	case model.RiskMetricTokenMultiIp:
+		items, err = model.GetTokenMultiIpRanking(hours, limit)
 	default:
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
@@ -53,6 +62,28 @@ func GetRiskRankings(c *gin.Context) {
 		"items":  items,
 		"meta":   meta,
 	})
+}
+
+// GetRiskEvents 分页查询风控事件(拦截记录、封禁/解禁记录、告警)。
+// query: event_type, user_id, ip, p, page_size
+func GetRiskEvents(c *gin.Context) {
+	pageInfo := common.GetPageQuery(c)
+	eventType := c.Query("event_type")
+	if eventType != "" && !model.IsValidRiskEventType(eventType) {
+		common.ApiErrorMsg(c, "invalid event type")
+		return
+	}
+	userId, _ := strconv.Atoi(c.Query("user_id"))
+	ip := c.Query("ip")
+
+	events, total, err := model.GetRiskEvents(eventType, userId, ip, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	pageInfo.SetTotal(int(total))
+	pageInfo.SetItems(events)
+	common.ApiSuccess(c, pageInfo)
 }
 
 // GetRiskDetail 下钻某 IP 关联的用户明细,或某用户使用的 IP 明细。

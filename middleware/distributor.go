@@ -31,7 +31,7 @@ type ModelRequest struct {
 
 func Distribute() func(c *gin.Context) {
 	return func(c *gin.Context) {
-		// 风控:UA 黑名单校验(总开关关闭或黑名单为空时零开销)
+		// 风控:IP / UA 黑名单校验,命中会记录拦截事件(总开关关闭或黑名单为空时零开销)
 		if riskErr := service.CheckRequestRisk(c); riskErr != nil {
 			abortWithOpenAiMessage(c, http.StatusForbidden, i18n.T(c, i18n.MsgRiskControlBlocked), types.ErrorCodeAccessDenied)
 			return
@@ -41,6 +41,11 @@ func Distribute() func(c *gin.Context) {
 		modelRequest, shouldSelectChannel, err := getModelRequest(c)
 		if err != nil {
 			abortWithOpenAiMessage(c, http.StatusBadRequest, i18n.T(c, i18n.MsgDistributorInvalidRequest, map[string]any{"Error": err.Error()}))
+			return
+		}
+		// Probe Guard:实时检测单 IP 短窗口遍历多模型的批量测活行为,命中即拒绝并封禁来源 IP
+		if probeErr := service.CheckProbeGuard(c, modelRequest.Model); probeErr != nil {
+			abortWithOpenAiMessage(c, http.StatusTooManyRequests, i18n.T(c, i18n.MsgRiskProbeGuardBlocked), types.ErrorCodeAccessDenied)
 			return
 		}
 		if ok {

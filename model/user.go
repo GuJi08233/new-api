@@ -20,26 +20,26 @@ const UserNameMaxLength = 20
 // User if you add sensitive fields, don't forget to clean them in setupLogin function.
 // Otherwise, the sensitive information will be saved on local storage in plain text!
 type User struct {
-	Id                 int                        `json:"id"`
-	Username           string                     `json:"username" gorm:"unique;index" validate:"max=20"`
-	Password           string                     `json:"password" gorm:"not null;" validate:"min=8,max=20"`
-	OriginalPassword   string                     `json:"original_password" gorm:"-:all"` // this field is only for Password change verification, don't save it to database!
-	DisplayName        string                     `json:"display_name" gorm:"index" validate:"max=20"`
-	Role               int                        `json:"role" gorm:"type:int;default:1"`   // admin, common
-	Status             int                        `json:"status" gorm:"type:int;default:1"` // enabled, disabled
-	Email              string                     `json:"email" gorm:"index" validate:"max=50"`
-	GitHubId           string                     `json:"github_id" gorm:"column:github_id;index"`
-	DiscordId          string                     `json:"discord_id" gorm:"column:discord_id;index"`
-	OidcId             string                     `json:"oidc_id" gorm:"column:oidc_id;index"`
-	WeChatId           string                     `json:"wechat_id" gorm:"column:wechat_id;index"`
-	TelegramId         string                     `json:"telegram_id" gorm:"column:telegram_id;index"`
-	VerificationCode   string                     `json:"verification_code" gorm:"-:all"`                                    // this field is only for Email verification, don't save it to database!
-	InvitationCode     string                     `json:"invitation_code" gorm:"-:all"`                                      // this field is only for registration invitation code, don't save it to database!
-	AccessToken        *string                    `json:"access_token" gorm:"type:char(32);column:access_token;uniqueIndex"` // this token is for system management
-	Quota              int                        `json:"quota" gorm:"type:int;default:0"`
-	UsedQuota          int                        `json:"used_quota" gorm:"type:int;default:0;column:used_quota"` // used quota
-	RequestCount       int                        `json:"request_count" gorm:"type:int;default:0;"`               // request number
-	Group              string                     `json:"group" gorm:"type:varchar(64);default:'default'"`
+	Id               int     `json:"id"`
+	Username         string  `json:"username" gorm:"unique;index" validate:"max=20"`
+	Password         string  `json:"password" gorm:"not null;" validate:"min=8,max=20"`
+	OriginalPassword string  `json:"original_password" gorm:"-:all"` // this field is only for Password change verification, don't save it to database!
+	DisplayName      string  `json:"display_name" gorm:"index" validate:"max=20"`
+	Role             int     `json:"role" gorm:"type:int;default:1"`   // admin, common
+	Status           int     `json:"status" gorm:"type:int;default:1"` // enabled, disabled
+	Email            string  `json:"email" gorm:"index" validate:"max=50"`
+	GitHubId         string  `json:"github_id" gorm:"column:github_id;index"`
+	DiscordId        string  `json:"discord_id" gorm:"column:discord_id;index"`
+	OidcId           string  `json:"oidc_id" gorm:"column:oidc_id;index"`
+	WeChatId         string  `json:"wechat_id" gorm:"column:wechat_id;index"`
+	TelegramId       string  `json:"telegram_id" gorm:"column:telegram_id;index"`
+	VerificationCode string  `json:"verification_code" gorm:"-:all"`                                    // this field is only for Email verification, don't save it to database!
+	InvitationCode   string  `json:"invitation_code" gorm:"-:all"`                                      // this field is only for registration invitation code, don't save it to database!
+	AccessToken      *string `json:"access_token" gorm:"type:char(32);column:access_token;uniqueIndex"` // this token is for system management
+	Quota            int     `json:"quota" gorm:"type:int;default:0"`
+	UsedQuota        int     `json:"used_quota" gorm:"type:int;default:0;column:used_quota"` // used quota
+	RequestCount     int     `json:"request_count" gorm:"type:int;default:0;"`               // request number
+	Group            string  `json:"group" gorm:"type:varchar(64);default:'default'"`
 	// aff 推广返利已下线，仅保留邀请码体系。以下字段保留历史数据；
 	// AffCode 仍在建号时生成，因为空字符串会触碰 uniqueIndex 冲突。
 	AffCode            string                     `json:"aff_code" gorm:"type:varchar(32);column:aff_code;uniqueIndex"`
@@ -54,6 +54,7 @@ type User struct {
 	SteamOpenId        string                     `json:"steam_openid" gorm:"column:steam_openid;index"`
 	Setting            string                     `json:"setting" gorm:"type:text;column:setting"`
 	Remark             string                     `json:"remark,omitempty" gorm:"type:varchar(255)" validate:"max=255"`
+	DisableReason      string                     `json:"disable_reason,omitempty" gorm:"type:varchar(255);column:disable_reason" validate:"max=255"` // 封禁原因,解禁时清空;登录与 relay 被拒时展示给用户
 	StripeCustomer     string                     `json:"stripe_customer" gorm:"type:varchar(64);column:stripe_customer;index"`
 	CreatedAt          int64                      `json:"created_at" gorm:"autoCreateTime;column:created_at"`
 	LastLoginAt        int64                      `json:"last_login_at" gorm:"default:0;column:last_login_at"`
@@ -587,18 +588,44 @@ func (user *User) Update(updatePassword bool) error {
 }
 
 // DisableRegularUser atomically disables a non-admin user without overwriting
-// unrelated fields changed by concurrent requests.
-func DisableRegularUser(userId int) (bool, error) {
+// unrelated fields changed by concurrent requests. reason 同步写入 disable_reason,
+// 供登录与 relay 拒绝时展示给被封用户。
+func DisableRegularUser(userId int, reason string) (bool, error) {
 	if userId <= 0 {
 		return false, nil
 	}
 	result := DB.Model(&User{}).
 		Where("id = ? AND role < ? AND status <> ?", userId, common.RoleAdminUser, common.UserStatusDisabled).
-		Update("status", common.UserStatusDisabled)
+		Updates(map[string]interface{}{
+			"status":         common.UserStatusDisabled,
+			"disable_reason": truncateRiskField(strings.TrimSpace(reason), 255),
+		})
 	if result.Error != nil {
 		return false, result.Error
 	}
 	return result.RowsAffected > 0, nil
+}
+
+// SetUserDisableReason 直接更新用户的封禁原因列。
+// 手动封禁时写入原因,手动解禁时传空串清除。
+func SetUserDisableReason(userId int, reason string) error {
+	if userId <= 0 {
+		return nil
+	}
+	return DB.Model(&User{}).Where("id = ?", userId).
+		Update("disable_reason", truncateRiskField(strings.TrimSpace(reason), 255)).Error
+}
+
+// GetUserDisableReason 查询用户的封禁原因,仅用于拒绝路径展示,查不到时返回空串。
+func GetUserDisableReason(userId int) string {
+	if userId <= 0 {
+		return ""
+	}
+	var reason string
+	if err := ReadDB().Model(&User{}).Where("id = ?", userId).Pluck("disable_reason", &reason).Error; err != nil {
+		return ""
+	}
+	return strings.TrimSpace(reason)
 }
 
 func (user *User) UpdateWithTx(tx *gorm.DB, updatePassword bool) error {
@@ -765,8 +792,13 @@ func (user *User) ValidateAndFill() (err error) {
 		return ErrInvalidCredentials
 	}
 	okay := common.ValidatePasswordAndHash(password, user.Password)
-	if !okay || user.Status != common.UserStatusEnabled {
+	if !okay {
 		return ErrInvalidCredentials
+	}
+	// 密码正确但账号被封:单独返回封禁错误,登录层向用户展示封禁原因。
+	// 密码错误时不区分账号状态,避免泄露账号是否存在/是否被封。
+	if user.Status != common.UserStatusEnabled {
+		return ErrUserBanned
 	}
 	return nil
 }

@@ -31,6 +31,7 @@ auth.user_id_not_provided: "Unauthorized, New-Api-User header not provided"
 auth.user_id_format_error: "Unauthorized, New-Api-User header format error"
 auth.user_id_mismatch: "Unauthorized, New-Api-User does not match logged in user"
 auth.user_banned: "User has been banned"
+auth.user_banned_reason: "User has been banned, reason: {{.Reason}}"
 auth.insufficient_privilege: "Unauthorized, insufficient privileges"
 
 # Token messages
@@ -280,6 +281,7 @@ distributor.invalid_request_parse_model: "Invalid request, unable to parse model
 
 # Risk control messages
 risk_control.blocked: "Request blocked by risk control, please contact the administrator"
+risk_control.probe_guard_blocked: "Request blocked: bulk model probing detected from your IP"
 
 # Custom OAuth provider messages
 custom_oauth.not_found: "Custom OAuth provider not found"

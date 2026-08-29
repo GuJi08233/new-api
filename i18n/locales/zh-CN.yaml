@@ -32,6 +32,7 @@ auth.user_id_not_provided: "无权进行此操作，未提供 New-Api-User"
 auth.user_id_format_error: "无权进行此操作，New-Api-User 格式错误"
 auth.user_id_mismatch: "无权进行此操作，New-Api-User 与登录用户不匹配"
 auth.user_banned: "用户已被封禁"
+auth.user_banned_reason: "用户已被封禁，原因：{{.Reason}}"
 auth.insufficient_privilege: "无权进行此操作，权限不足"
 
 # Token messages
@@ -281,6 +282,7 @@ distributor.invalid_request_parse_model: "无效的请求，无法解析模型"
 
 # Risk control messages
 risk_control.blocked: "请求被风控拦截，请联系管理员"
+risk_control.probe_guard_blocked: "请求被拦截：检测到您的 IP 存在批量测活行为"
 
 # Custom OAuth provider messages
 custom_oauth.not_found: "自定义 OAuth 提供商不存在"

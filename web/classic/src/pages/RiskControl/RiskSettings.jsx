@@ -48,6 +48,18 @@ const KEY_IP_BLACKLIST = `${KEY_PREFIX}ip_blacklist`;
 const KEY_SCAN_MINUTES = `${KEY_PREFIX}scan_minutes`;
 const KEY_WHITELIST = `${KEY_PREFIX}whitelist_user_ids`;
 const KEY_RULES = `${KEY_PREFIX}auto_ban_rules`;
+const KEY_TINY_MAX_TOKENS = `${KEY_PREFIX}tiny_request_max_tokens`;
+const KEY_EVENT_RETENTION = `${KEY_PREFIX}event_retention_days`;
+const KEY_IP_BAN_FIRST = `${KEY_PREFIX}ip_ban_first_minutes`;
+const KEY_IP_BAN_SECOND = `${KEY_PREFIX}ip_ban_second_minutes`;
+const KEY_IP_BAN_PERMANENT = `${KEY_PREFIX}ip_ban_permanent_offense`;
+const KEY_PG_ENABLED = `${KEY_PREFIX}probe_guard_enabled`;
+const KEY_PG_DRY_RUN = `${KEY_PREFIX}probe_guard_dry_run`;
+const KEY_PG_WINDOW = `${KEY_PREFIX}probe_guard_window_seconds`;
+const KEY_PG_MODEL_COUNT = `${KEY_PREFIX}probe_guard_model_count`;
+
+// IP 维度指标才允许「封禁 IP」处置动作,与后端校验保持一致。
+const IP_DIMENSION_METRICS = ['ip_multi_user', 'ip_multi_token'];
 
 const IP_LOCATION_PREFIX = 'ip_location_setting.';
 const KEY_GITEE_API_KEY = `${IP_LOCATION_PREFIX}gitee_api_key`;
@@ -86,6 +98,15 @@ const RiskSettings = () => {
   const [scanMinutes, setScanMinutes] = useState(10);
   const [whitelistText, setWhitelistText] = useState('');
   const [rules, setRules] = useState([]);
+  const [tinyMaxTokens, setTinyMaxTokens] = useState(16);
+  const [retentionDays, setRetentionDays] = useState(30);
+  const [ipBanFirst, setIpBanFirst] = useState(10);
+  const [ipBanSecond, setIpBanSecond] = useState(60);
+  const [ipBanPermanent, setIpBanPermanent] = useState(3);
+  const [pgEnabled, setPgEnabled] = useState(false);
+  const [pgDryRun, setPgDryRun] = useState(true);
+  const [pgWindow, setPgWindow] = useState(60);
+  const [pgModelCount, setPgModelCount] = useState(5);
   const [giteeApiKey, setGiteeApiKey] = useState('');
   const [ipv4Order, setIpv4Order] = useState(DEFAULT_IPV4_ORDER);
   const [ipv6Order, setIpv6Order] = useState(DEFAULT_IPV6_ORDER);
@@ -113,6 +134,31 @@ const RiskSettings = () => {
         );
         const scan = parseInt(optionMap[KEY_SCAN_MINUTES], 10);
         setScanMinutes(Number.isFinite(scan) && scan > 0 ? scan : 10);
+        const tiny = parseInt(optionMap[KEY_TINY_MAX_TOKENS], 10);
+        setTinyMaxTokens(Number.isFinite(tiny) && tiny > 0 ? tiny : 16);
+        const retention = parseInt(optionMap[KEY_EVENT_RETENTION], 10);
+        setRetentionDays(
+          Number.isFinite(retention) && retention > 0 ? retention : 30,
+        );
+        const banFirst = parseInt(optionMap[KEY_IP_BAN_FIRST], 10);
+        setIpBanFirst(
+          Number.isFinite(banFirst) && banFirst > 0 ? banFirst : 10,
+        );
+        const banSecond = parseInt(optionMap[KEY_IP_BAN_SECOND], 10);
+        setIpBanSecond(
+          Number.isFinite(banSecond) && banSecond > 0 ? banSecond : 60,
+        );
+        const banPermanent = parseInt(optionMap[KEY_IP_BAN_PERMANENT], 10);
+        setIpBanPermanent(
+          Number.isFinite(banPermanent) && banPermanent > 0 ? banPermanent : 3,
+        );
+        setPgEnabled(optionMap[KEY_PG_ENABLED] === 'true');
+        // 未配置时跟随后端默认值(true),仅显式 false 时关闭
+        setPgDryRun(optionMap[KEY_PG_DRY_RUN] !== 'false');
+        const pgWin = parseInt(optionMap[KEY_PG_WINDOW], 10);
+        setPgWindow(Number.isFinite(pgWin) && pgWin > 0 ? pgWin : 60);
+        const pgCount = parseInt(optionMap[KEY_PG_MODEL_COUNT], 10);
+        setPgModelCount(Number.isFinite(pgCount) && pgCount > 0 ? pgCount : 5);
         setWhitelistText(parseJsonArray(optionMap[KEY_WHITELIST]).join(','));
         setRules(
           parseJsonArray(optionMap[KEY_RULES]).map((r, idx) => ({
@@ -156,13 +202,21 @@ const RiskSettings = () => {
       .split(/[,，\s]+/)
       .map((s) => parseInt(s, 10))
       .filter((n) => Number.isFinite(n) && n > 0);
-    const cleanRules = rules.map(({ _id, ...rest }) => ({
-      enabled: !!rest.enabled,
-      metric: rest.metric || 'ip_multi_user',
-      window_hours: rest.window_hours > 0 ? rest.window_hours : 24,
-      threshold: rest.threshold > 0 ? rest.threshold : 1,
-      action: rest.action || 'alert',
-    }));
+    const cleanRules = rules.map(({ _id, ...rest }) => {
+      const metric = rest.metric || 'ip_multi_user';
+      let action = rest.action || 'alert';
+      // ban_ip 只对 IP 维度指标有效,指标被改为用户维度后回退为仅告警
+      if (action === 'ban_ip' && !IP_DIMENSION_METRICS.includes(metric)) {
+        action = 'alert';
+      }
+      return {
+        enabled: !!rest.enabled,
+        metric,
+        window_hours: rest.window_hours > 0 ? rest.window_hours : 24,
+        threshold: rest.threshold > 0 ? rest.threshold : 1,
+        action,
+      };
+    });
 
     const updates = [
       { key: KEY_ENABLED, value: String(enabled) },
@@ -170,6 +224,15 @@ const RiskSettings = () => {
       { key: KEY_UA_ACTION, value: uaAction },
       { key: KEY_IP_BLACKLIST, value: JSON.stringify(ipBlacklist) },
       { key: KEY_SCAN_MINUTES, value: String(scanMinutes) },
+      { key: KEY_TINY_MAX_TOKENS, value: String(tinyMaxTokens) },
+      { key: KEY_EVENT_RETENTION, value: String(retentionDays) },
+      { key: KEY_IP_BAN_FIRST, value: String(ipBanFirst) },
+      { key: KEY_IP_BAN_SECOND, value: String(ipBanSecond) },
+      { key: KEY_IP_BAN_PERMANENT, value: String(ipBanPermanent) },
+      { key: KEY_PG_ENABLED, value: String(pgEnabled) },
+      { key: KEY_PG_DRY_RUN, value: String(pgDryRun) },
+      { key: KEY_PG_WINDOW, value: String(pgWindow) },
+      { key: KEY_PG_MODEL_COUNT, value: String(pgModelCount) },
       { key: KEY_WHITELIST, value: JSON.stringify(whitelistUserIds) },
       { key: KEY_RULES, value: JSON.stringify(cleanRules) },
       { key: KEY_IPV4_ORDER, value: JSON.stringify(ipv4Order) },
@@ -259,14 +322,33 @@ const RiskSettings = () => {
       render: (v, record) => (
         <Select
           value={v}
-          style={{ width: 180 }}
-          onChange={(val) => updateRule(record._id, { metric: val })}
+          style={{ width: 200 }}
+          onChange={(val) => {
+            const patch = { metric: val };
+            // ban_ip 只对 IP 维度指标有效,切到用户维度时回退为仅告警
+            if (
+              record.action === 'ban_ip' &&
+              !IP_DIMENSION_METRICS.includes(val)
+            ) {
+              patch.action = 'alert';
+            }
+            updateRule(record._id, patch);
+          }}
         >
           <Select.Option value='ip_multi_user'>
             {t('单 IP 关联用户数')}
           </Select.Option>
           <Select.Option value='user_multi_ip'>
             {t('单用户使用 IP 数')}
+          </Select.Option>
+          <Select.Option value='ip_multi_token'>
+            {t('单 IP 使用令牌数(批量测活)')}
+          </Select.Option>
+          <Select.Option value='user_tiny_request'>
+            {t('用户微量请求数(自动测活)')}
+          </Select.Option>
+          <Select.Option value='user_error_burst'>
+            {t('用户错误请求数')}
           </Select.Option>
         </Select>
       ),
@@ -302,13 +384,18 @@ const RiskSettings = () => {
       render: (v, record) => (
         <Select
           value={v}
-          style={{ width: 140 }}
+          style={{ width: 170 }}
           onChange={(val) => updateRule(record._id, { action: val })}
         >
           <Select.Option value='alert'>{t('仅告警')}</Select.Option>
           <Select.Option value='disable_user'>
             {t('自动禁用用户')}
           </Select.Option>
+          {IP_DIMENSION_METRICS.includes(record.metric) && (
+            <Select.Option value='ban_ip'>
+              {t('封禁 IP(升级阶梯)')}
+            </Select.Option>
+          )}
         </Select>
       ),
     },
@@ -350,6 +437,16 @@ const RiskSettings = () => {
               max={1440}
               style={{ width: 120 }}
               onChange={(v) => setScanMinutes(v > 0 ? v : 10)}
+            />
+          </Space>
+          <Space>
+            <Text>{t('拦截/告警事件保留天数(封禁与解禁记录永久保留)')}</Text>
+            <InputNumber
+              value={retentionDays}
+              min={1}
+              max={365}
+              style={{ width: 120 }}
+              onChange={(v) => setRetentionDays(v > 0 ? v : 30)}
             />
           </Space>
           <Space>
@@ -493,6 +590,42 @@ const RiskSettings = () => {
         </Text>
       </Modal>
 
+      <Card className='mb-4' title={t('Probe Guard(实时测活防护)')}>
+        <Space vertical align='start' style={{ width: '100%' }}>
+          <Text type='tertiary'>
+            {t(
+              '在请求处理链路中实时检测「单 IP 短时间遍历多个不同模型」的批量测活行为,命中即拒绝请求并按升级阶梯封禁来源 IP(不封用户,避免误伤被盗密钥的主人)。私网 IP、白名单用户与管理员豁免。建议先以演练模式观察告警,再关闭演练正式启用。',
+            )}
+          </Text>
+          <Space>
+            <Switch checked={pgEnabled} onChange={setPgEnabled} />
+            <Text>{t('启用 Probe Guard')}</Text>
+          </Space>
+          <Space>
+            <Switch checked={pgDryRun} onChange={setPgDryRun} />
+            <Text>{t('演练模式(只记告警事件,不实际封禁)')}</Text>
+          </Space>
+          <Space>
+            <Text>{t('滑动窗口(秒)')}</Text>
+            <InputNumber
+              value={pgWindow}
+              min={10}
+              max={3600}
+              style={{ width: 120 }}
+              onChange={(v) => setPgWindow(v > 0 ? v : 60)}
+            />
+            <Text>{t('不同模型数阈值')}</Text>
+            <InputNumber
+              value={pgModelCount}
+              min={2}
+              max={1000}
+              style={{ width: 120 }}
+              onChange={(v) => setPgModelCount(v > 0 ? v : 5)}
+            />
+          </Space>
+        </Space>
+      </Card>
+
       <Card
         className='mb-4'
         title={t('自动封禁规则')}
@@ -502,13 +635,61 @@ const RiskSettings = () => {
           </Button>
         }
       >
-        <Table
-          columns={ruleColumns}
-          dataSource={rules}
-          rowKey='_id'
-          pagination={false}
-          empty={t('暂无规则')}
-        />
+        <Space vertical align='start' style={{ width: '100%' }}>
+          <Text type='tertiary'>
+            {t(
+              'IP 维度规则(单 IP 关联用户数 / 单 IP 使用令牌数)触发「自动禁用用户」时,会处置该 IP 在窗口内关联的全部用户;「封禁 IP」按升级阶梯只封来源 IP,误伤更小。用户维度规则只处置命中用户。建议新规则先用「仅告警」观察一段时间再切换为自动处置。',
+            )}
+          </Text>
+          <Space>
+            <Text>{t('微量请求判定阈值(输入与输出 tokens 均不超过该值)')}</Text>
+            <InputNumber
+              value={tinyMaxTokens}
+              min={1}
+              max={1024}
+              style={{ width: 120 }}
+              onChange={(v) => setTinyMaxTokens(v > 0 ? v : 16)}
+            />
+          </Space>
+          <Space wrap>
+            <Text>{t('IP 封禁升级阶梯:首次(分钟)')}</Text>
+            <InputNumber
+              value={ipBanFirst}
+              min={1}
+              max={43200}
+              style={{ width: 110 }}
+              onChange={(v) => setIpBanFirst(v > 0 ? v : 10)}
+            />
+            <Text>{t('再犯(分钟)')}</Text>
+            <InputNumber
+              value={ipBanSecond}
+              min={1}
+              max={43200}
+              style={{ width: 110 }}
+              onChange={(v) => setIpBanSecond(v > 0 ? v : 60)}
+            />
+            <Text>{t('第 N 次起永久')}</Text>
+            <InputNumber
+              value={ipBanPermanent}
+              min={1}
+              max={100}
+              style={{ width: 90 }}
+              onChange={(v) => setIpBanPermanent(v > 0 ? v : 3)}
+            />
+          </Space>
+          <Text type='tertiary' size='small'>
+            {t(
+              '升级阶梯对「封禁 IP」动作与 Probe Guard 共同生效,违规次数按该 IP 近 90 天内的封禁事件累计。',
+            )}
+          </Text>
+          <Table
+            columns={ruleColumns}
+            dataSource={rules}
+            rowKey='_id'
+            pagination={false}
+            empty={t('暂无规则')}
+          />
+        </Space>
       </Card>
 
       <Button

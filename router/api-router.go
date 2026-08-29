@@ -378,6 +378,10 @@ func SetApiRouter(router *gin.Engine) {
 		{
 			riskRoute.GET("/rankings", controller.GetRiskRankings)
 			riskRoute.GET("/detail", controller.GetRiskDetail)
+			riskRoute.GET("/events", controller.GetRiskEvents)
+			riskRoute.GET("/ip_bans", controller.GetIpBans)
+			riskRoute.POST("/ip_bans", controller.AddIpBan)
+			riskRoute.DELETE("/ip_bans/:id", controller.DeleteIpBan)
 		}
 
 		logRoute.Use(middleware.CORS(), middleware.CriticalRateLimit())

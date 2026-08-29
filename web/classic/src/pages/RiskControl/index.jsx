@@ -22,6 +22,8 @@ import { Tabs, TabPane } from '@douyinfe/semi-ui';
 import { useTranslation } from 'react-i18next';
 import { isRoot } from '../../helpers';
 import RiskRankings from './RiskRankings';
+import RiskEvents from './RiskEvents';
+import IpBans from './IpBans';
 import RiskSettings from './RiskSettings';
 
 const RiskControl = () => {
@@ -33,6 +35,16 @@ const RiskControl = () => {
         <TabPane tab={t('滥用排行榜')} itemKey='rankings'>
           <div className='mt-4'>
             <RiskRankings />
+          </div>
+        </TabPane>
+        <TabPane tab={t('风控事件')} itemKey='events'>
+          <div className='mt-4'>
+            <RiskEvents />
+          </div>
+        </TabPane>
+        <TabPane tab={t('IP 封禁')} itemKey='ip_bans'>
+          <div className='mt-4'>
+            <IpBans />
           </div>
         </TabPane>
         {isRoot() && (

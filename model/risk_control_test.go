@@ -3,6 +3,11 @@ package model
 import (
 	"testing"
 	"time"
+
+	"github.com/QuantumNous/new-api/common"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func insertRiskLog(t *testing.T, userId int, username string, ip string, ua string, logType int, ageHours int) {
@@ -149,4 +154,131 @@ func TestRiskWindowAndLimitNormalization(t *testing.T) {
 	if len(items) != 0 {
 		t.Fatalf("items = %d, want 0 (out of max window)", len(items))
 	}
+}
+
+// insertProbeLog 插入带令牌与 token 计数的日志,供测活检测排行测试使用。
+func insertProbeLog(t *testing.T, userId int, username string, ip string, tokenId int, logType int, promptTokens int, completionTokens int, ageHours int) {
+	t.Helper()
+	log := &Log{
+		UserId:           userId,
+		Username:         username,
+		CreatedAt:        time.Now().Add(-time.Duration(ageHours) * time.Hour).Unix(),
+		Type:             logType,
+		Ip:               ip,
+		TokenId:          tokenId,
+		PromptTokens:     promptTokens,
+		CompletionTokens: completionTokens,
+	}
+	if err := LOG_DB.Create(log).Error; err != nil {
+		t.Fatalf("insert probe log: %v", err)
+	}
+}
+
+func TestGetIpMultiTokenRanking(t *testing.T) {
+	truncateTables(t)
+
+	// ip-a 使用 3 个令牌(其中一次是错误日志,也应计入);
+	// ip-b 使用 1 个令牌;token_id=0 与空 IP 的日志不计入。
+	insertProbeLog(t, 1, "u1", "ip-a", 101, LogTypeConsume, 100, 100, 1)
+	insertProbeLog(t, 1, "u1", "ip-a", 102, LogTypeConsume, 100, 100, 1)
+	insertProbeLog(t, 2, "u2", "ip-a", 103, LogTypeError, 0, 0, 2)
+	insertProbeLog(t, 3, "u3", "ip-b", 201, LogTypeConsume, 100, 100, 1)
+	insertProbeLog(t, 3, "u3", "ip-b", 0, LogTypeConsume, 100, 100, 1)
+	insertProbeLog(t, 3, "u3", "", 202, LogTypeConsume, 100, 100, 1)
+
+	items, err := GetIpMultiTokenRanking(24, 50)
+	require.NoError(t, err)
+	require.Len(t, items, 2)
+	assert.Equal(t, "ip-a", items[0].Ip)
+	assert.Equal(t, 3, items[0].TokenCount)
+	assert.Equal(t, 2, items[0].UserCount)
+	assert.Equal(t, 3, items[0].RequestCount)
+	assert.Equal(t, "ip-b", items[1].Ip)
+	assert.Equal(t, 1, items[1].TokenCount)
+}
+
+func TestGetUserTinyRequestRanking(t *testing.T) {
+	truncateTables(t)
+
+	// 用户 1:3 次微量请求 + 1 次正常请求;用户 2:1 次微量请求;
+	// 错误日志与超阈值请求不计入。
+	insertProbeLog(t, 1, "u1", "ip-a", 101, LogTypeConsume, 5, 1, 1)
+	insertProbeLog(t, 1, "u1", "ip-a", 101, LogTypeConsume, 8, 0, 1)
+	insertProbeLog(t, 1, "u1", "ip-a", 102, LogTypeConsume, 16, 16, 2)
+	insertProbeLog(t, 1, "u1", "ip-a", 101, LogTypeConsume, 500, 300, 1)
+	insertProbeLog(t, 2, "u2", "ip-b", 201, LogTypeConsume, 1, 1, 1)
+	insertProbeLog(t, 2, "u2", "ip-b", 201, LogTypeError, 1, 1, 1)
+	insertProbeLog(t, 3, "u3", "ip-c", 301, LogTypeConsume, 17, 1, 1)
+
+	items, err := GetUserTinyRequestRanking(24, 50, 16)
+	require.NoError(t, err)
+	require.Len(t, items, 2)
+	assert.Equal(t, 1, items[0].UserId)
+	assert.Equal(t, "u1", items[0].Username)
+	assert.Equal(t, 3, items[0].RequestCount)
+	assert.Equal(t, 2, items[0].TokenCount)
+	assert.Equal(t, 2, items[1].UserId)
+	assert.Equal(t, 1, items[1].RequestCount)
+}
+
+func TestGetUserErrorRanking(t *testing.T) {
+	truncateTables(t)
+
+	// 用户 1:2 次错误;用户 2:1 次错误;消费日志与窗口外错误不计入。
+	insertRiskLog(t, 1, "u1", "ip-a", "", LogTypeError, 1)
+	insertRiskLog(t, 1, "u1", "ip-b", "", LogTypeError, 2)
+	insertRiskLog(t, 1, "u1", "ip-a", "", LogTypeConsume, 1)
+	insertRiskLog(t, 2, "u2", "ip-a", "", LogTypeError, 1)
+	insertRiskLog(t, 2, "u2", "ip-a", "", LogTypeError, 48)
+
+	items, err := GetUserErrorRanking(24, 50)
+	require.NoError(t, err)
+	require.Len(t, items, 2)
+	assert.Equal(t, 1, items[0].UserId)
+	assert.Equal(t, 2, items[0].RequestCount)
+	assert.Equal(t, 2, items[1].UserId)
+	assert.Equal(t, 1, items[1].RequestCount)
+}
+
+func TestGetTokenMultiIpRanking(t *testing.T) {
+	truncateTables(t)
+
+	// 令牌 101 被 3 个 IP 使用(含错误日志);令牌 201 只有 1 个 IP(不出现);
+	// token_id=0 与空 IP 不计入。
+	insertProbeLog(t, 1, "u1", "ip-a", 101, LogTypeConsume, 100, 100, 1)
+	insertProbeLog(t, 1, "u1", "ip-b", 101, LogTypeConsume, 100, 100, 1)
+	insertProbeLog(t, 1, "u1", "ip-c", 101, LogTypeError, 0, 0, 2)
+	insertProbeLog(t, 2, "u2", "ip-a", 201, LogTypeConsume, 100, 100, 1)
+	insertProbeLog(t, 2, "u2", "", 201, LogTypeConsume, 100, 100, 1)
+	insertProbeLog(t, 3, "u3", "ip-a", 0, LogTypeConsume, 100, 100, 1)
+
+	items, err := GetTokenMultiIpRanking(24, 50)
+	require.NoError(t, err)
+	require.Len(t, items, 1, "只有使用 >1 IP 的令牌上榜")
+	assert.Equal(t, 101, items[0].TokenId)
+	assert.Equal(t, 1, items[0].UserId)
+	assert.Equal(t, "u1", items[0].Username)
+	assert.Equal(t, 3, items[0].IpCount)
+	assert.Equal(t, 3, items[0].RequestCount)
+}
+
+func TestDisableRegularUserWritesReason(t *testing.T) {
+	truncateTables(t)
+
+	user := &User{Username: "victim", Password: "12345678", Role: common.RoleCommonUser, Status: common.UserStatusEnabled}
+	require.NoError(t, DB.Create(user).Error)
+
+	changed, err := DisableRegularUser(user.Id, "触发风控规则")
+	require.NoError(t, err)
+	require.True(t, changed)
+
+	var saved User
+	require.NoError(t, DB.First(&saved, user.Id).Error)
+	assert.Equal(t, common.UserStatusDisabled, saved.Status)
+	assert.Equal(t, "触发风控规则", saved.DisableReason)
+
+	// 已禁用用户重复处置幂等
+	changed, err = DisableRegularUser(user.Id, "再次")
+	require.NoError(t, err)
+	assert.False(t, changed)
 }

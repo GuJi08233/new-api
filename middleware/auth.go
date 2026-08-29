@@ -33,6 +33,15 @@ func validUserInfo(username string, role int) bool {
 	return true
 }
 
+// userBannedMessage 生成被封禁用户的拒绝提示。设置过封禁原因时一并展示,
+// 便于用户知悉与申诉。拒绝是低频路径,按需查库,不进用户缓存。
+func userBannedMessage(c *gin.Context, userId int) string {
+	if reason := model.GetUserDisableReason(userId); reason != "" {
+		return common.TranslateMessage(c, i18n.MsgAuthUserBannedReason, map[string]any{"Reason": reason})
+	}
+	return common.TranslateMessage(c, i18n.MsgAuthUserBanned)
+}
+
 func authHelper(c *gin.Context, minRole int) {
 	session := sessions.Default(c)
 	username := session.Get("username")
@@ -121,9 +130,13 @@ func authHelper(c *gin.Context, minRole int) {
 		return
 	}
 	if status.(int) == common.UserStatusDisabled {
+		bannedUserId := 0
+		if v, ok := id.(int); ok {
+			bannedUserId = v
+		}
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": common.TranslateMessage(c, i18n.MsgAuthUserBanned),
+			"message": userBannedMessage(c, bannedUserId),
 		})
 		c.Abort()
 		return
@@ -297,7 +310,7 @@ func TokenAuthReadOnly() func(c *gin.Context) {
 		if userCache.Status != common.UserStatusEnabled {
 			c.JSON(http.StatusForbidden, gin.H{
 				"success": false,
-				"message": common.TranslateMessage(c, i18n.MsgAuthUserBanned),
+				"message": userBannedMessage(c, token.UserId),
 			})
 			c.Abort()
 			return
@@ -410,7 +423,7 @@ func TokenAuth() func(c *gin.Context) {
 		}
 		userEnabled := userCache.Status == common.UserStatusEnabled
 		if !userEnabled {
-			abortWithOpenAiMessage(c, http.StatusForbidden, common.TranslateMessage(c, i18n.MsgAuthUserBanned))
+			abortWithOpenAiMessage(c, http.StatusForbidden, userBannedMessage(c, token.UserId))
 			return
 		}
 

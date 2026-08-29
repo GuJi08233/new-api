@@ -121,13 +121,15 @@ export const useUsersData = () => {
   };
 
   // Manage user operations (promote, demote, enable, disable, delete)
-  const manageUser = async (userId, action, record) => {
+  // reason 仅在启用/禁用时使用,写入后端风控事件记录。
+  const manageUser = async (userId, action, record, reason = '') => {
     // Trigger loading state to force table re-render
     setLoading(true);
 
     const res = await API.post('/api/user/manage', {
       id: userId,
       action,
+      reason,
     });
 
     const { success, message } = res.data;
