@@ -156,3 +156,86 @@ func TestAttachInvitationInfo_DerivesInviterFromRegisterCode(t *testing.T) {
 	assert.Empty(t, users[1].InviterName)
 	assert.Empty(t, users[1].UsedInvitationCode)
 }
+
+// 一码多用的邀请码在注册占用路径下:名额内可被多个用户占用,用满即关闭,
+// 释放要回退名额而不是把已用满的码永久锁死。
+func TestInvitationCodeMultiUseReserveAndRelease(t *testing.T) {
+	truncateTables(t)
+
+	code := InvitationCode{
+		UserId:      1,
+		Code:        "multi-use-code",
+		Quota:       500,
+		Status:      common.InvitationCodeStatusEnabled,
+		MaxUses:     2,
+		CreatedTime: common.GetTimestamp(),
+	}
+	require.NoError(t, DB.Create(&code).Error)
+
+	// 名额内连续占用两次
+	first, err := ReserveInvitationCode("multi-use-code")
+	require.NoError(t, err)
+	require.NotNil(t, first)
+
+	var afterFirst InvitationCode
+	require.NoError(t, DB.First(&afterFirst, code.Id).Error)
+	assert.Equal(t, 1, afterFirst.UsedCount)
+	assert.Equal(t, common.InvitationCodeStatusEnabled, afterFirst.Status, "名额未用满时保持可用")
+
+	second, err := ReserveInvitationCode("multi-use-code")
+	require.NoError(t, err)
+	require.NotNil(t, second)
+
+	var afterSecond InvitationCode
+	require.NoError(t, DB.First(&afterSecond, code.Id).Error)
+	assert.Equal(t, 2, afterSecond.UsedCount)
+	assert.Equal(t, common.InvitationCodeStatusUsed, afterSecond.Status, "名额用满后自动关闭")
+
+	// 用满后不能再占用
+	_, err = ReserveInvitationCode("multi-use-code")
+	require.ErrorIs(t, err, ErrInvitationCodeNotUsable)
+
+	// 建号失败释放:回退一个名额并重新开放
+	ReleaseInvitationCode(second)
+	var afterRelease InvitationCode
+	require.NoError(t, DB.First(&afterRelease, code.Id).Error)
+	assert.Equal(t, 1, afterRelease.UsedCount)
+	assert.Equal(t, common.InvitationCodeStatusEnabled, afterRelease.Status)
+
+	// 释放后名额可被重新占用
+	third, err := ReserveInvitationCode("multi-use-code")
+	require.NoError(t, err)
+	require.NotNil(t, third)
+}
+
+// 一码多用邀请码按次数计价:总消耗 = 单价 × 数量 × 次数。
+func TestGenerateInvitationCodesChargesPerUse(t *testing.T) {
+	truncateTables(t)
+
+	oldPrice := common.InvitationCodePrice
+	common.InvitationCodePrice = 100
+	t.Cleanup(func() { common.InvitationCodePrice = oldPrice })
+
+	user := User{Username: "code-buyer", Password: "password", Status: common.UserStatusEnabled, Quota: 1000, AffCode: "aff-code-buyer"}
+	require.NoError(t, DB.Create(&user).Error)
+
+	// 2 个码 × 每码 3 次 × 单价 100 = 600
+	codes, err := GenerateInvitationCodesForUser(user.Id, 2, 3, "batch")
+	require.NoError(t, err)
+	require.Len(t, codes, 2)
+	for _, c := range codes {
+		assert.Equal(t, 3, c.MaxUses)
+		assert.Equal(t, 100, c.Quota, "Quota 记录单次基数,不随次数放大")
+	}
+
+	var afterCharge User
+	require.NoError(t, DB.First(&afterCharge, user.Id).Error)
+	assert.Equal(t, 400, afterCharge.Quota, "总消耗应为 单价 × 数量 × 次数")
+
+	// 额度不足时整体失败,不产生码也不扣费
+	_, err = GenerateInvitationCodesForUser(user.Id, 1, 10, "too-expensive")
+	require.Error(t, err)
+	var afterReject User
+	require.NoError(t, DB.First(&afterReject, user.Id).Error)
+	assert.Equal(t, 400, afterReject.Quota, "失败不应扣费")
+}

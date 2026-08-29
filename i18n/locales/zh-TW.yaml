@@ -61,6 +61,8 @@ redemption.expired: "該兌換碼已過期"
 redemption.failed: "兌換失敗，請稍後重試"
 redemption.not_provided: "未提供兌換碼"
 redemption.expire_time_invalid: "過期時間不能早於當前時間"
+code.max_uses_invalid: "可用次數無效，必須在 1 到 1000 之間"
+code.max_uses_below_used: "可用次數不能小於已使用次數"
 
 # Invitation code messages
 invitation_code.required: "註冊需要邀請碼"

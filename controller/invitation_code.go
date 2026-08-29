@@ -23,8 +23,9 @@ func GenerateInvitationCode(c *gin.Context) {
 	userId := c.GetInt("id")
 
 	type GenerateRequest struct {
-		Remark string `json:"remark"`
-		Count  int    `json:"count"`
+		Remark  string `json:"remark"`
+		Count   int    `json:"count"`
+		MaxUses int    `json:"max_uses"`
 	}
 	var req GenerateRequest
 	_ = c.ShouldBindJSON(&req)
@@ -35,8 +36,15 @@ func GenerateInvitationCode(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgInvitationCodeCountMax)
 		return
 	}
+	if req.MaxUses <= 0 {
+		req.MaxUses = 1
+	}
+	if req.MaxUses > model.MaxCodeUses {
+		common.ApiErrorI18n(c, i18n.MsgCodeMaxUsesInvalid)
+		return
+	}
 
-	codes, err := model.GenerateInvitationCodesForUser(userId, req.Count, req.Remark)
+	codes, err := model.GenerateInvitationCodesForUser(userId, req.Count, req.MaxUses, req.Remark)
 	if err != nil {
 		if err.Error() == "额度不足" {
 			common.ApiErrorI18n(c, i18n.MsgInvitationCodeQuotaInsufficient)
@@ -146,9 +154,17 @@ func AddInvitationCode(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgInvitationCodeCountMax)
 		return
 	}
+	if invitationCode.MaxUses <= 0 {
+		invitationCode.MaxUses = 1
+	}
+	if invitationCode.MaxUses > model.MaxCodeUses {
+		common.ApiErrorI18n(c, i18n.MsgCodeMaxUsesInvalid)
+		return
+	}
 
 	userId := c.GetInt("id")
-	totalPrice := common.InvitationCodePrice * invitationCode.Count
+	// 一码多用按次数计价:总价 = 单价 × 数量 × 每码次数
+	totalPrice := common.InvitationCodePrice * invitationCode.Count * invitationCode.MaxUses
 
 	// 检查并扣减额度
 	if totalPrice > 0 {
@@ -174,9 +190,10 @@ func AddInvitationCode(c *gin.Context) {
 		cleanCode := model.InvitationCode{
 			UserId:      userId,
 			Code:        code,
-			Quota:       common.InvitationCodePrice, // 记录每个邀请码消耗的额度
+			Quota:       common.InvitationCodePrice, // 记录单次使用的额度基数
 			Status:      common.InvitationCodeStatusEnabled,
 			CreatedTime: common.GetTimestamp(),
+			MaxUses:     invitationCode.MaxUses,
 			Remark:      invitationCode.Remark,
 		}
 		err = cleanCode.Insert()
@@ -184,7 +201,7 @@ func AddInvitationCode(c *gin.Context) {
 			common.SysError("failed to insert invitation code: " + err.Error())
 			// 退还未成功生成的部分额度
 			if common.InvitationCodePrice > 0 {
-				refund := common.InvitationCodePrice * (invitationCode.Count - j)
+				refund := common.InvitationCodePrice * (invitationCode.Count - j) * invitationCode.MaxUses
 				_ = model.IncreaseUserQuota(userId, refund, true)
 			}
 			c.JSON(http.StatusOK, gin.H{

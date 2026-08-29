@@ -118,6 +118,20 @@ export const getRedemptionsColumns = ({
       },
     },
     {
+      title: t('使用次数'),
+      dataIndex: 'used_count',
+      render: (text, record) => {
+        // max_uses 为 0 的历史数据按单次码显示
+        const maxUses = record.max_uses > 0 ? record.max_uses : 1;
+        const used = text || 0;
+        return (
+          <Tag color={maxUses > 1 ? 'blue' : 'grey'} shape='circle'>
+            {`${used} / ${maxUses}`}
+          </Tag>
+        );
+      },
+    },
+    {
       title: t('创建时间'),
       dataIndex: 'created_time',
       render: (text) => {

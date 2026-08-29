@@ -79,6 +79,13 @@ func AddRedemption(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgRedemptionCountMax)
 		return
 	}
+	if redemption.MaxUses <= 0 {
+		redemption.MaxUses = 1
+	}
+	if redemption.MaxUses > model.MaxCodeUses {
+		common.ApiErrorI18n(c, i18n.MsgCodeMaxUsesInvalid)
+		return
+	}
 	if valid, msg := validateExpiredTime(c, redemption.ExpiredTime); !valid {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": msg})
 		return
@@ -92,6 +99,7 @@ func AddRedemption(c *gin.Context) {
 			Key:         key,
 			CreatedTime: common.GetTimestamp(),
 			Quota:       redemption.Quota,
+			MaxUses:     redemption.MaxUses,
 			ExpiredTime: redemption.ExpiredTime,
 		}
 		err = cleanRedemption.Insert()
@@ -107,9 +115,10 @@ func AddRedemption(c *gin.Context) {
 		keys = append(keys, key)
 	}
 	recordManageAudit(c, "redemption.create", map[string]interface{}{
-		"name":  redemption.Name,
-		"count": redemption.Count,
-		"quota": logger.LogQuota(redemption.Quota),
+		"name":     redemption.Name,
+		"count":    redemption.Count,
+		"quota":    logger.LogQuota(redemption.Quota),
+		"max_uses": redemption.MaxUses,
 	})
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -151,10 +160,22 @@ func UpdateRedemption(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{"success": false, "message": msg})
 			return
 		}
+		if redemption.MaxUses > model.MaxCodeUses {
+			common.ApiErrorI18n(c, i18n.MsgCodeMaxUsesInvalid)
+			return
+		}
+		// 可核销次数只允许上调到不小于已核销次数,避免把已超额的码改成无效状态
+		if redemption.MaxUses > 0 && redemption.MaxUses < cleanRedemption.UsedCount {
+			common.ApiErrorI18n(c, i18n.MsgCodeMaxUsesBelowUsed)
+			return
+		}
 		// If you add more fields, please also update redemption.Update()
 		cleanRedemption.Name = redemption.Name
 		cleanRedemption.Quota = redemption.Quota
 		cleanRedemption.ExpiredTime = redemption.ExpiredTime
+		if redemption.MaxUses > 0 {
+			cleanRedemption.MaxUses = redemption.MaxUses
+		}
 	}
 	if statusOnly != "" {
 		cleanRedemption.Status = redemption.Status

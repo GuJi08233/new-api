@@ -59,6 +59,7 @@ func TestMain(m *testing.M) {
 		&IpInfoCacheState{},
 		&RiskEvent{},
 		&IpBan{},
+		&CodeUse{},
 	); err != nil {
 		panic("failed to migrate: " + err.Error())
 	}
@@ -95,6 +96,7 @@ func truncateTables(t *testing.T) {
 		DB.Exec("DELETE FROM ip_infos")
 		DB.Exec("DELETE FROM risk_events")
 		DB.Exec("DELETE FROM ip_bans")
+		DB.Exec("DELETE FROM code_uses")
 	})
 }
 

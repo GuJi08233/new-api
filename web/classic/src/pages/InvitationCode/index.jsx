@@ -39,7 +39,7 @@ import {
   IconSearch,
 } from '@douyinfe/semi-icons';
 import { useTranslation } from 'react-i18next';
-import { API, showError, showSuccess } from '../../helpers';
+import { API, showError, showSuccess, renderQuota } from '../../helpers';
 
 const { Text } = Typography;
 
@@ -59,8 +59,19 @@ const InvitationCode = () => {
   const [searchKeyword, setSearchKeyword] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
   const [addCount, setAddCount] = useState(10);
+  const [addMaxUses, setAddMaxUses] = useState(1);
   const [addRemark, setAddRemark] = useState('');
   const [addLoading, setAddLoading] = useState(false);
+
+  // 生成邀请码会扣减当前账号额度,单价来自系统状态
+  const invitationCodePrice = (() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('status') || '{}');
+      return Number(saved?.invitation_code_price) || 0;
+    } catch {
+      return 0;
+    }
+  })();
 
   const loadCodes = useCallback(async () => {
     setLoading(true);
@@ -87,16 +98,51 @@ const InvitationCode = () => {
     loadCodes();
   }, [loadCodes]);
 
-  const handleAdd = async () => {
+  const handleAdd = () => {
     if (addCount <= 0 || addCount > 100) {
       showError(t('数量必须在 1-100 之间'));
       return;
     }
+    if (addMaxUses <= 0 || addMaxUses > 1000) {
+      showError(t('可用次数需在 1-1000 之间'));
+      return;
+    }
+    const totalCost = invitationCodePrice * addCount * addMaxUses;
+    if (totalCost <= 0) {
+      doAdd();
+      return;
+    }
+    // 生成前确认总消耗:一码多用按次数计价
+    Modal.confirm({
+      title: t('确认生成邀请码'),
+      content: (
+        <div className='text-sm'>
+          <p>
+            {t('生成数量')}：<strong>{addCount}</strong>
+          </p>
+          {addMaxUses > 1 && (
+            <p>
+              {t('每个可用次数')}：<strong>{addMaxUses}</strong>
+            </p>
+          )}
+          <p style={{ color: 'var(--semi-color-danger)' }}>
+            {t('本次将从您的额度中扣除')}：
+            <strong>{renderQuota(totalCost)}</strong>
+          </p>
+        </div>
+      ),
+      okText: t('确认生成'),
+      cancelText: t('取消'),
+      onOk: doAdd,
+    });
+  };
 
+  const doAdd = async () => {
     setAddLoading(true);
     try {
       const res = await API.post('/api/invitation_code/', {
         count: addCount,
+        max_uses: addMaxUses,
         remark: addRemark,
       });
       const { success, message } = res.data;
@@ -107,6 +153,7 @@ const InvitationCode = () => {
       showSuccess(t('创建成功'));
       setShowAddModal(false);
       setAddCount(10);
+      setAddMaxUses(1);
       setAddRemark('');
       loadCodes();
     } catch {
@@ -202,6 +249,19 @@ const InvitationCode = () => {
       render: (status) => {
         const info = STATUS_MAP[status] || { text: t('未知'), color: 'grey' };
         return <Tag color={info.color}>{t(info.text)}</Tag>;
+      },
+    },
+    {
+      title: t('使用次数'),
+      dataIndex: 'used_count',
+      width: 90,
+      render: (value, record) => {
+        const maxUses = record.max_uses > 0 ? record.max_uses : 1;
+        return (
+          <Tag color={maxUses > 1 ? 'blue' : 'grey'}>
+            {`${value || 0} / ${maxUses}`}
+          </Tag>
+        );
       },
     },
     {
@@ -371,6 +431,23 @@ const InvitationCode = () => {
               max={100}
               style={{ width: '100%' }}
             />
+          </Form.Slot>
+          <Form.Slot label={t('每个可用次数')}>
+            <InputNumber
+              value={addMaxUses}
+              onChange={(v) => setAddMaxUses(v > 0 ? v : 1)}
+              min={1}
+              max={1000}
+              style={{ width: '100%' }}
+            />
+            <div
+              className='text-xs mt-1'
+              style={{ color: 'var(--semi-color-text-2)' }}
+            >
+              {t(
+                '大于 1 即一码多用:同一个码可被多个不同用户各使用一次,按次数计价。',
+              )}
+            </div>
           </Form.Slot>
           <Form.Slot label={t('备注')}>
             <Input

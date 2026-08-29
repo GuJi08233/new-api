@@ -21,9 +21,22 @@ type Redemption struct {
 	CreatedTime  int64          `json:"created_time" gorm:"bigint"`
 	RedeemedTime int64          `json:"redeemed_time" gorm:"bigint"`
 	Count        int            `json:"count" gorm:"-:all"` // only for api request
-	UsedUserId   int            `json:"used_user_id"`
+	UsedUserId   int            `json:"used_user_id"`       // 最后一次核销的用户
+	MaxUses      int            `json:"max_uses"`           // 可核销次数,0/1 均为单次(兼容旧数据)
+	UsedCount    int            `json:"used_count"`         // 已核销次数
 	DeletedAt    gorm.DeletedAt `gorm:"index"`
 	ExpiredTime  int64          `json:"expired_time" gorm:"bigint"` // 过期时间，0 表示不过期
+}
+
+// MaxCodeUses 单个兑换码/邀请码可设置的最大核销次数。
+const MaxCodeUses = 1000
+
+// resolveMaxUses 归一化可核销次数:旧数据与未设置(0)按单次处理。
+func resolveMaxUses(maxUses int) int {
+	if maxUses < 1 {
+		return 1
+	}
+	return maxUses
 }
 
 func GetAllRedemptions(startIdx int, num int) (redemptions []*Redemption, total int64, err error) {
@@ -165,7 +178,45 @@ func Redeem(key string, userId int) (quota int, err error) {
 			if invitationCode.UserId == userId {
 				return errors.New("不能使用自己生成的邀请码")
 			}
-			// 按比例给使用者增加余额
+			maxUses := resolveMaxUses(invitationCode.MaxUses)
+			// 多用码限制每用户核销一次,防止单个用户独占全部次数刷奖励
+			if maxUses > 1 {
+				used, err := hasCodeUseInTx(tx, CodeUseTypeInvitation, invitationCode.Id, userId)
+				if err != nil {
+					return err
+				}
+				if used {
+					return errors.New("已使用过该邀请码")
+				}
+			}
+			// CAS 递增核销次数:只有把 used_count 推进一格(且未超上限)的事务
+			// 才能发放奖励,SQLite 等无行锁场景下并发兑换同样不会超发。
+			result := tx.Model(&InvitationCode{}).
+				Where("id = ? AND status = ? AND used_count < ?", invitationCode.Id, common.InvitationCodeStatusEnabled, maxUses).
+				Updates(map[string]interface{}{
+					"used_count":   gorm.Expr("used_count + 1"),
+					"used_user_id": userId,
+					"used_type":    common.InvitationCodeUsedTypeRedeem,
+					"used_time":    common.GetTimestamp(),
+				})
+			if result.Error != nil {
+				return result.Error
+			}
+			if result.RowsAffected == 0 {
+				return errors.New("该邀请码已被使用或已禁用")
+			}
+			// 核销次数用满后关闭该码(幂等)
+			if err := tx.Model(&InvitationCode{}).
+				Where("id = ? AND status = ? AND used_count >= ?", invitationCode.Id, common.InvitationCodeStatusEnabled, maxUses).
+				Update("status", common.InvitationCodeStatusUsed).Error; err != nil {
+				return err
+			}
+			if maxUses > 1 {
+				if err := insertCodeUseInTx(tx, CodeUseTypeInvitation, invitationCode.Id, userId); err != nil {
+					return errors.New("已使用过该邀请码")
+				}
+			}
+			// 按比例给使用者增加余额;Quota 为单次奖励基数,不随次数变化
 			rewardQuota := invitationCode.Quota
 			if common.InvitationCodeRewardRatio > 0 {
 				rewardQuota = invitationCode.Quota * common.InvitationCodeRewardRatio / 100
@@ -177,16 +228,6 @@ func Redeem(key string, userId int) (quota int, err error) {
 					return err
 				}
 			}
-			// 兑换核销记录使用者与用途；UsedType=兑换 使其不进入邀请关系
-			//（AttachInvitationInfo 只按 used_type=注册 反查）
-			invitationCode.Status = common.InvitationCodeStatusUsed
-			invitationCode.UsedUserId = userId
-			invitationCode.UsedType = common.InvitationCodeUsedTypeRedeem
-			invitationCode.UsedTime = common.GetTimestamp()
-			err = tx.Save(invitationCode).Error
-			if err != nil {
-				return err
-			}
 			quota = rewardQuota
 			logContent = fmt.Sprintf("使用邀请码获得 %s，邀请码ID %d", logger.LogQuota(rewardQuota), invitationCode.Id)
 			return nil
@@ -197,14 +238,25 @@ func Redeem(key string, userId int) (quota int, err error) {
 		if redemption.ExpiredTime != 0 && redemption.ExpiredTime < common.GetTimestamp() {
 			return errors.New("该兑换码已过期")
 		}
-		// Compare-and-swap on status: only the transaction that flips
-		// enabled -> used may credit quota, so a concurrent redeem of the
-		// same code loses here even without a row lock (e.g. on SQLite).
+		maxUses := resolveMaxUses(redemption.MaxUses)
+		// 多用码限制每用户核销一次,防止单个用户独占全部次数
+		if maxUses > 1 {
+			used, err := hasCodeUseInTx(tx, CodeUseTypeRedemption, redemption.Id, userId)
+			if err != nil {
+				return err
+			}
+			if used {
+				return errors.New("已使用过该兑换码")
+			}
+		}
+		// Compare-and-swap on used_count: only the transaction that advances
+		// the counter (while below the cap) may credit quota, so concurrent
+		// redeems never over-issue even without a row lock (e.g. on SQLite).
 		result := tx.Model(&Redemption{}).
-			Where("id = ? AND status = ?", redemption.Id, common.RedemptionCodeStatusEnabled).
+			Where("id = ? AND status = ? AND used_count < ?", redemption.Id, common.RedemptionCodeStatusEnabled, maxUses).
 			Updates(map[string]interface{}{
+				"used_count":    gorm.Expr("used_count + 1"),
 				"redeemed_time": common.GetTimestamp(),
-				"status":        common.RedemptionCodeStatusUsed,
 				"used_user_id":  userId,
 			})
 		if result.Error != nil {
@@ -213,15 +265,19 @@ func Redeem(key string, userId int) (quota int, err error) {
 		if result.RowsAffected == 0 {
 			return errors.New("该兑换码已被使用")
 		}
-		if err := tx.Model(&User{}).Where("id = ?", userId).
-			Update("quota", gorm.Expr("quota + ?", redemption.Quota)).Error; err != nil {
+		// 核销次数用满后关闭该码(幂等)
+		if err := tx.Model(&Redemption{}).
+			Where("id = ? AND status = ? AND used_count >= ?", redemption.Id, common.RedemptionCodeStatusEnabled, maxUses).
+			Update("status", common.RedemptionCodeStatusUsed).Error; err != nil {
 			return err
 		}
-		redemption.RedeemedTime = common.GetTimestamp()
-		redemption.Status = common.RedemptionCodeStatusUsed
-		redemption.UsedUserId = userId
-		err = tx.Save(redemption).Error
-		if err != nil {
+		if maxUses > 1 {
+			if err := insertCodeUseInTx(tx, CodeUseTypeRedemption, redemption.Id, userId); err != nil {
+				return errors.New("已使用过该兑换码")
+			}
+		}
+		if err := tx.Model(&User{}).Where("id = ?", userId).
+			Update("quota", gorm.Expr("quota + ?", redemption.Quota)).Error; err != nil {
 			return err
 		}
 		quota = redemption.Quota
@@ -252,7 +308,7 @@ func (redemption *Redemption) SelectUpdate() error {
 // Update Make sure your token's fields is completed, because this will update non-zero values
 func (redemption *Redemption) Update() error {
 	var err error
-	err = DB.Model(redemption).Select("name", "status", "quota", "redeemed_time", "expired_time").Updates(redemption).Error
+	err = DB.Model(redemption).Select("name", "status", "quota", "redeemed_time", "expired_time", "max_uses").Updates(redemption).Error
 	return err
 }
 

@@ -15,13 +15,15 @@ type InvitationCode struct {
 	Id           int            `json:"id"`
 	UserId       int            `json:"user_id" gorm:"index"`                               // 生成者 ID
 	Code         string         `json:"code" gorm:"type:varchar(32);uniqueIndex"`           // 邀请码
-	Quota        int            `json:"quota" gorm:"default:0"`                             // 生成时消耗的额度
+	Quota        int            `json:"quota" gorm:"default:0"`                             // 单次使用消耗的额度基数(奖励按此计算)
 	Status       int            `json:"status" gorm:"default:1"`                            // 1=未使用, 2=已使用, 3=已禁用
-	UsedUserId   int            `json:"used_user_id"`                                       // 使用者 ID
+	UsedUserId   int            `json:"used_user_id"`                                       // 最后一次使用者 ID
 	UsedType     int            `json:"used_type" gorm:"default:0"`                         // 使用用途：1=注册，2=兑换；0=未使用或历史数据
-	UsedTime     int64          `json:"used_time" gorm:"bigint"`                            // 使用时间
+	UsedTime     int64          `json:"used_time" gorm:"bigint"`                            // 最后一次使用时间
 	CreatedTime  int64          `json:"created_time" gorm:"bigint"`                         // 创建时间
 	Count        int            `json:"count" gorm:"-:all"`                                 // 仅用于批量创建请求
+	MaxUses      int            `json:"max_uses"`                                           // 可使用次数,0/1 均为单次(兼容旧数据)
+	UsedCount    int            `json:"used_count"`                                         // 已使用次数
 	Remark       string         `json:"remark" gorm:"type:varchar(255)" validate:"max=255"` // 备注
 	UserName     string         `json:"user_name,omitempty" gorm:"-:all"`                   // 生成者用户名，仅管理端列表展示
 	UsedUserName string         `json:"used_user_name,omitempty" gorm:"-:all"`              // 使用者用户名，仅管理端列表展示
@@ -152,8 +154,9 @@ var (
 	ErrInvitationCodeNotUsable = errors.New("该邀请码已被使用或已禁用")
 )
 
-// ReserveInvitationCode 在创建用户之前原子占用邀请码（状态置为已使用），
-// 防止并发注册用同一个码同时通过校验。占用成功后必须调用
+// ReserveInvitationCode 在创建用户之前原子占用邀请码的一次使用名额,
+// 防止并发注册用同一个码同时通过校验。单次码占用后状态直接置为已使用,
+// 多用码递增 used_count、用满才关闭。占用成功后必须调用
 // FinalizeInvitationCodeUsage 归属到新用户；建号失败时调用 ReleaseInvitationCode 释放。
 func ReserveInvitationCode(codeStr string) (*InvitationCode, error) {
 	if codeStr == "" {
@@ -168,9 +171,24 @@ func ReserveInvitationCode(codeStr string) (*InvitationCode, error) {
 		if code.Status != common.InvitationCodeStatusEnabled {
 			return ErrInvitationCodeNotUsable
 		}
-		code.Status = common.InvitationCodeStatusUsed
-		code.UsedTime = common.GetTimestamp()
-		return tx.Save(&code).Error
+		maxUses := resolveMaxUses(code.MaxUses)
+		// CAS 递增占用次数,SQLite 等无行锁场景下并发注册同样不会超占
+		result := tx.Model(&InvitationCode{}).
+			Where("id = ? AND status = ? AND used_count < ?", code.Id, common.InvitationCodeStatusEnabled, maxUses).
+			Updates(map[string]interface{}{
+				"used_count": gorm.Expr("used_count + 1"),
+				"used_time":  common.GetTimestamp(),
+			})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return ErrInvitationCodeNotUsable
+		}
+		// 名额用满后关闭该码(幂等)
+		return tx.Model(&InvitationCode{}).
+			Where("id = ? AND status = ? AND used_count >= ?", code.Id, common.InvitationCodeStatusEnabled, maxUses).
+			Update("status", common.InvitationCodeStatusUsed).Error
 	})
 	if err != nil {
 		return nil, err
@@ -219,16 +237,19 @@ func FinalizeInvitationCodeUsage(code *InvitationCode, userId int) error {
 	return nil
 }
 
-// ReleaseInvitationCode 释放已占用但尚未归属用户的邀请码（建号失败时回滚）
+// ReleaseInvitationCode 释放已占用但尚未归属用户的名额（建号失败时回滚）:
+// 回退 used_count 并重新打开该码。与占用时相同,以 used_user_id 未归属为前提,
+// 多用码在并发注册且他人已归属时可能少回退一个名额,属可接受的边缘情况。
 func ReleaseInvitationCode(code *InvitationCode) {
 	if code == nil {
 		return
 	}
 	err := DB.Model(&InvitationCode{}).
-		Where("id = ? AND status = ? AND used_user_id = 0", code.Id, common.InvitationCodeStatusUsed).
+		Where("id = ? AND used_user_id = 0 AND used_count > 0", code.Id).
 		Updates(map[string]interface{}{
-			"status":    common.InvitationCodeStatusEnabled,
-			"used_time": 0,
+			"used_count": gorm.Expr("used_count - 1"),
+			"status":     common.InvitationCodeStatusEnabled,
+			"used_time":  0,
 		}).Error
 	if err != nil {
 		common.SysError("failed to release invitation code: " + err.Error())
@@ -277,13 +298,16 @@ func DeleteInvitationCodesByUser(userId int, ids []int) (int64, error) {
 	return result.RowsAffected, result.Error
 }
 
-// GenerateInvitationCodesForUser 为用户批量生成邀请码，扣减额度
-func GenerateInvitationCodesForUser(userId int, count int, remark string) ([]*InvitationCode, error) {
+// GenerateInvitationCodesForUser 为用户批量生成邀请码，扣减额度。
+// maxUses 为每个码的可使用次数,一码多用按次数计价(总价 = 单价 × 数量 × 次数),
+// Quota 字段仍记录单次基数,使用者每次按该基数领取奖励。
+func GenerateInvitationCodesForUser(userId int, count int, maxUses int, remark string) ([]*InvitationCode, error) {
 	if count <= 0 {
 		count = 1
 	}
+	maxUses = resolveMaxUses(maxUses)
 	price := common.InvitationCodePrice
-	totalPrice := price * count
+	totalPrice := price * count * maxUses
 	if totalPrice > 0 {
 		userQuota, err := GetUserQuota(userId, true)
 		if err != nil {
@@ -304,9 +328,10 @@ func GenerateInvitationCodesForUser(userId int, count int, remark string) ([]*In
 		code := &InvitationCode{
 			UserId:      userId,
 			Code:        common.GetUUID(),
-			Quota:       price, // 记录每个邀请码消耗的额度
+			Quota:       price, // 记录单次使用的额度基数
 			Status:      common.InvitationCodeStatusEnabled,
 			CreatedTime: common.GetTimestamp(),
+			MaxUses:     maxUses,
 			Remark:      remark,
 		}
 		err := code.Insert()
@@ -419,9 +444,9 @@ func AttachInvitationInfo(users []*User) {
 	}
 }
 
-// GenerateInvitationCodeForUser 为用户生成单个邀请码，扣减额度
+// GenerateInvitationCodeForUser 为用户生成单个单次可用的邀请码，扣减额度
 func GenerateInvitationCodeForUser(userId int, remark string) (*InvitationCode, error) {
-	codes, err := GenerateInvitationCodesForUser(userId, 1, remark)
+	codes, err := GenerateInvitationCodesForUser(userId, 1, 1, remark)
 	if err != nil {
 		return nil, err
 	}

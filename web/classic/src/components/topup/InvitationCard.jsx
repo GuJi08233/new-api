@@ -38,7 +38,13 @@ import {
   Input,
 } from '@douyinfe/semi-ui';
 import { Copy, Plus, RefreshCcw, Ticket, Trash2 } from 'lucide-react';
-import { API, showError, showInfo, showSuccess } from '../../helpers';
+import {
+  API,
+  showError,
+  showInfo,
+  showSuccess,
+  renderQuota,
+} from '../../helpers';
 import { StatusContext } from '../../context/Status';
 
 const { Text } = Typography;
@@ -66,6 +72,49 @@ const InvitationCard = ({ t }) => {
   }, [statusState?.status]);
 
   const invitationCodeEnabled = !!status?.invitation_code_enabled;
+  // 生成邀请码的单价与使用者奖励比例,用于生成前的消耗确认
+  const invitationCodePrice = Number(status?.invitation_code_price) || 0;
+  const invitationRewardRatio =
+    Number(status?.invitation_code_reward_ratio) || 0;
+
+  // 生成确认弹窗:展示本次消耗与使用者可得,避免用户在不知情下被扣费
+  const confirmGenerate = ({ count, maxUses, onConfirm }) => {
+    const uses = maxUses > 0 ? maxUses : 1;
+    const totalCost = invitationCodePrice * count * uses;
+    if (totalCost <= 0) {
+      onConfirm();
+      return;
+    }
+    const rewardPerUse =
+      invitationRewardRatio > 0
+        ? Math.floor((invitationCodePrice * invitationRewardRatio) / 100)
+        : invitationCodePrice;
+    Modal.confirm({
+      title: t('确认生成邀请码'),
+      content: (
+        <div className='text-sm'>
+          <p>
+            {t('生成数量')}：<strong>{count}</strong>
+          </p>
+          {uses > 1 && (
+            <p>
+              {t('每个可用次数')}：<strong>{uses}</strong>
+            </p>
+          )}
+          <p style={{ color: 'var(--semi-color-danger)' }}>
+            {t('本次将从您的额度中扣除')}：
+            <strong>{renderQuota(totalCost)}</strong>
+          </p>
+          <p style={{ color: 'var(--semi-color-text-2)' }}>
+            {t('每次被使用后,使用者可获得')} {renderQuota(rewardPerUse)}
+          </p>
+        </div>
+      ),
+      okText: t('确认生成'),
+      cancelText: t('取消'),
+      onOk: onConfirm,
+    });
+  };
 
   const [myCodes, setMyCodes] = useState([]);
   const [myCodesLoading, setMyCodesLoading] = useState(false);
@@ -78,6 +127,7 @@ const InvitationCard = ({ t }) => {
   const [selectedRowKeys, setSelectedRowKeys] = useState([]);
   const [showBatchModal, setShowBatchModal] = useState(false);
   const [batchCount, setBatchCount] = useState(DEFAULT_BATCH_COUNT);
+  const [batchMaxUses, setBatchMaxUses] = useState(1);
   const [batchRemark, setBatchRemark] = useState('');
 
   const loadMyCodes = useCallback(
@@ -153,9 +203,7 @@ const InvitationCard = ({ t }) => {
       .join('\n');
     try {
       await navigator.clipboard.writeText(text);
-      showSuccess(
-        usableCodes.length > 1 ? t('复制成功') : t('已复制到剪贴板'),
-      );
+      showSuccess(usableCodes.length > 1 ? t('复制成功') : t('已复制到剪贴板'));
     } catch (e) {
       showError(t('复制失败'));
     }
@@ -192,7 +240,11 @@ const InvitationCard = ({ t }) => {
     loadMyCodes(activePage, pageSize);
   }, [activePage, loadMyCodes, pageSize]);
 
-  const handleGenerate = async () => {
+  const handleGenerate = () => {
+    confirmGenerate({ count: 1, maxUses: 1, onConfirm: doGenerate });
+  };
+
+  const doGenerate = async () => {
     setGenerateLoading(true);
     try {
       const res = await API.post('/api/invitation_code/generate', {
@@ -216,15 +268,28 @@ const InvitationCard = ({ t }) => {
     }
   };
 
-  const handleBatchGenerate = async () => {
+  const handleBatchGenerate = () => {
     if (batchCount <= 0 || batchCount > 100) {
       showError(t('数量必须在 1-100 之间'));
       return;
     }
+    if (batchMaxUses <= 0 || batchMaxUses > 1000) {
+      showError(t('可用次数需在 1-1000 之间'));
+      return;
+    }
+    confirmGenerate({
+      count: batchCount,
+      maxUses: batchMaxUses,
+      onConfirm: doBatchGenerate,
+    });
+  };
+
+  const doBatchGenerate = async () => {
     setBatchGenerateLoading(true);
     try {
       const res = await API.post('/api/invitation_code/generate', {
         count: batchCount,
+        max_uses: batchMaxUses,
         remark: batchRemark,
       });
       const { success, message } = res.data;
@@ -235,6 +300,7 @@ const InvitationCard = ({ t }) => {
       showSuccess(t('创建成功'));
       setShowBatchModal(false);
       setBatchCount(DEFAULT_BATCH_COUNT);
+      setBatchMaxUses(1);
       setBatchRemark('');
       setSelectedRowKeys([]);
       if (activePage === 1) {
@@ -355,6 +421,19 @@ const InvitationCard = ({ t }) => {
       },
     },
     {
+      title: t('使用次数'),
+      dataIndex: 'used_count',
+      width: 90,
+      render: (value, record) => {
+        const maxUses = record.max_uses > 0 ? record.max_uses : 1;
+        return (
+          <Tag color={maxUses > 1 ? 'blue' : 'grey'}>
+            {`${value || 0} / ${maxUses}`}
+          </Tag>
+        );
+      },
+    },
+    {
       title: t('去向'),
       dataIndex: 'used_user_id',
       width: 170,
@@ -426,7 +505,9 @@ const InvitationCard = ({ t }) => {
           <Typography.Text className='text-lg font-medium'>
             {t('我的邀请码')}
           </Typography.Text>
-          <div className='text-xs'>{t('生成邀请码，可用于邀请好友注册或作为兑换码兑换额度')}</div>
+          <div className='text-xs'>
+            {t('生成邀请码，可用于邀请好友注册或作为兑换码兑换额度')}
+          </div>
         </div>
       </div>
 
@@ -492,14 +573,14 @@ const InvitationCard = ({ t }) => {
                   }
                 >
                   {t('批量删除')}
-                  {selectedRowKeys.length > 0 ? ` (${selectedRowKeys.length})` : ''}
+                  {selectedRowKeys.length > 0
+                    ? ` (${selectedRowKeys.length})`
+                    : ''}
                 </Button>
               </div>
 
               <div className='flex flex-wrap items-center gap-2 text-xs text-[var(--semi-color-text-2)]'>
-                <Text type='tertiary'>
-                  {`共 ${total} 个邀请码`}
-                </Text>
+                <Text type='tertiary'>{`共 ${total} 个邀请码`}</Text>
                 <Button
                   size='small'
                   theme='borderless'
@@ -532,9 +613,7 @@ const InvitationCard = ({ t }) => {
                 },
               }}
               empty={
-                <Text type='tertiary'>
-                  {t('暂无邀请码，点击上方按钮生成')}
-                </Text>
+                <Text type='tertiary'>{t('暂无邀请码，点击上方按钮生成')}</Text>
               }
             />
           </div>
@@ -559,6 +638,23 @@ const InvitationCard = ({ t }) => {
               max={100}
               style={{ width: '100%' }}
             />
+          </Form.Slot>
+          <Form.Slot label={t('每个可用次数')}>
+            <InputNumber
+              value={batchMaxUses}
+              onChange={(v) => setBatchMaxUses(v > 0 ? v : 1)}
+              min={1}
+              max={1000}
+              style={{ width: '100%' }}
+            />
+            <div
+              className='text-xs mt-1'
+              style={{ color: 'var(--semi-color-text-2)' }}
+            >
+              {t(
+                '大于 1 即一码多用:同一个码可被多个不同用户各使用一次,按次数计价。',
+              )}
+            </div>
           </Form.Slot>
           <Form.Slot label={t('备注')}>
             <Input

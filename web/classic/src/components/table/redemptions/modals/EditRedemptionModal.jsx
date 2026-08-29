@@ -69,6 +69,7 @@ const EditRedemptionModal = (props) => {
     quota: 100000,
     amount: Number(quotaToDisplayAmount(100000).toFixed(6)),
     count: 1,
+    max_uses: 1,
     expired_time: null,
   });
 
@@ -104,19 +105,19 @@ const EditRedemptionModal = (props) => {
     }
   }, [props.editingRedemption.id]);
 
-  const submit = async (values) => {
+  // 收集并校验表单值,返回可直接提交的载荷;校验不通过返回 null。
+  const buildPayload = (values) => {
     let name = values.name;
     if (!isEdit && (!name || name === '')) {
       name = renderQuota(values.quota);
     }
-    setLoading(true);
     let localInputs = { ...values };
     localInputs.count = parseInt(localInputs.count) || 0;
+    localInputs.max_uses = parseInt(localInputs.max_uses) || 1;
     localInputs.quota = displayAmountToQuota(localInputs.amount);
     if (localInputs.quota <= 0) {
       showError(t('请输入金额'));
-      setLoading(false);
-      return;
+      return null;
     }
     localInputs.name = name;
     if (!localInputs.expired_time) {
@@ -126,6 +127,50 @@ const EditRedemptionModal = (props) => {
         localInputs.expired_time.getTime() / 1000,
       );
     }
+    return localInputs;
+  };
+
+  // 新建前先确认:展示单个面额、生成数量、每码可用次数与发放总额度
+  const confirmAndSubmit = (values) => {
+    const payload = buildPayload(values);
+    if (!payload) return;
+    if (isEdit) {
+      doSubmit(payload);
+      return;
+    }
+    const totalQuota = payload.quota * payload.count * payload.max_uses;
+    Modal.confirm({
+      title: t('确认创建兑换码'),
+      content: (
+        <div className='text-sm'>
+          <p>
+            {t('单个面额')}：<strong>{renderQuota(payload.quota)}</strong>
+          </p>
+          <p>
+            {t('生成数量')}：<strong>{payload.count}</strong>
+          </p>
+          <p>
+            {t('每个可用次数')}：<strong>{payload.max_uses}</strong>
+          </p>
+          <p style={{ color: 'var(--semi-color-danger)' }}>
+            {t('全部兑换后将发放总额度')}：
+            <strong>{renderQuota(totalQuota)}</strong>
+          </p>
+          {payload.max_uses > 1 && (
+            <p style={{ color: 'var(--semi-color-text-2)' }}>
+              {t('一码多用:同一用户对同一个码只能兑换一次。')}
+            </p>
+          )}
+        </div>
+      ),
+      okText: t('确认创建'),
+      cancelText: t('取消'),
+      onOk: () => doSubmit(payload),
+    });
+  };
+
+  const doSubmit = async (localInputs) => {
+    setLoading(true);
     let res;
     if (isEdit) {
       res = await API.put(`/api/redemption/`, {
@@ -225,7 +270,7 @@ const EditRedemptionModal = (props) => {
           <Form
             initValues={getInitValues()}
             getFormApi={(api) => (formApiRef.current = api)}
-            onSubmit={submit}
+            onSubmit={confirmAndSubmit}
           >
             {({ values }) => (
               <div className='p-2'>
@@ -327,7 +372,10 @@ const EditRedemptionModal = (props) => {
                           ? `▾ ${t('收起原生额度输入')}`
                           : `▸ ${t('使用原生额度输入')}`}
                       </div>
-                      <div style={{ display: showQuotaInput ? 'block' : 'none' }} className='mt-2'>
+                      <div
+                        style={{ display: showQuotaInput ? 'block' : 'none' }}
+                        className='mt-2'
+                      >
                         <Form.InputNumber
                           field='quota'
                           label={t('额度')}
@@ -378,6 +426,38 @@ const EditRedemptionModal = (props) => {
                         />
                       </Col>
                     )}
+                    <Col span={12}>
+                      <Form.InputNumber
+                        field='max_uses'
+                        label={t('可用次数')}
+                        min={1}
+                        max={1000}
+                        rules={[
+                          {
+                            validator: (rule, v) => {
+                              if (v === '' || v == null)
+                                return Promise.resolve();
+                              const num = parseInt(v, 10);
+                              return num >= 1 && num <= 1000
+                                ? Promise.resolve()
+                                : Promise.reject(t('可用次数需在 1-1000 之间'));
+                            },
+                          },
+                        ]}
+                        style={{ width: '100%' }}
+                        showClear
+                      />
+                      <div
+                        className='text-xs mt-1'
+                        style={{ color: 'var(--semi-color-text-2)' }}
+                      >
+                        {values.max_uses > 1
+                          ? t('一码多用:可被 {{count}} 个不同用户各兑换一次', {
+                              count: values.max_uses,
+                            })
+                          : t('填写大于 1 的次数可实现一码多用')}
+                      </div>
+                    </Col>
                   </Row>
                 </Card>
               </div>
