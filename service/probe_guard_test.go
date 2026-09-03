@@ -46,6 +46,15 @@ func resetRealtimeGuardState() {
 	riskEventMu.Unlock()
 }
 
+// expireIpBanForTest 把某目标的临时封禁改为已到期并重载缓存,模拟封禁到期后再犯。
+func expireIpBanForTest(t *testing.T, target string) {
+	t.Helper()
+	result := model.DB.Model(&model.IpBan{}).Where("target = ?", target).Update("expires_at", time.Now().Unix()-1)
+	require.NoError(t, result.Error)
+	require.EqualValues(t, 1, result.RowsAffected)
+	require.NoError(t, model.ReloadIpBanCache())
+}
+
 func probeGuardTestSetting() *operation_setting.RiskControlSetting {
 	return &operation_setting.RiskControlSetting{
 		Enabled:                 true,
@@ -165,43 +174,57 @@ func TestCheckProbeGuardSkipsPrivateIpAndDisabled(t *testing.T) {
 	require.NoError(t, CheckProbeGuard(c2, "model-c"))
 }
 
+// TestEscalateIpBanLadder 覆盖累犯阶梯:封禁到期后再犯才升一级;仍在封禁中的再次命中
+// 不算累犯、不延长、不记事件,否则一次滥用会在几轮重复命中后被推到永久。
 func TestEscalateIpBanLadder(t *testing.T) {
 	setupRealtimeGuardTest(t)
 	operation_setting.SetRiskControlSettingForTest(probeGuardTestSetting())
 
+	const target = "198.51.100.7"
+
 	// 首次违规:临时封禁 first_minutes
-	action, err := EscalateIpBan("198.51.100.7", "违规一", model.IpBanSourceAutoRule, 0)
+	action, err := EscalateIpBan(target, "违规一", model.IpBanSourceProbeGuard, 0)
 	require.NoError(t, err)
 	assert.Contains(t, action, "首次")
-	ban, matched := model.MatchActiveIpBan("198.51.100.7")
+	ban, matched := model.MatchActiveIpBan(target)
 	require.True(t, matched)
 	firstExpiry := ban.ExpiresAt
 	assert.Greater(t, firstExpiry, time.Now().Unix())
 
-	// 第二次违规:加时至 second_minutes
-	action, err = EscalateIpBan("198.51.100.7", "违规二", model.IpBanSourceProbeGuard, 0)
+	// 封禁仍在生效:再次命中不升级、不延长、不记事件
+	action, err = EscalateIpBan(target, "违规一再报", model.IpBanSourceErrorGuard, 0)
+	require.NoError(t, err)
+	assert.Empty(t, action)
+	ban, matched = model.MatchActiveIpBan(target)
+	require.True(t, matched)
+	assert.Equal(t, firstExpiry, ban.ExpiresAt)
+
+	// 到期后再犯:加时至 second_minutes
+	expireIpBanForTest(t, target)
+	action, err = EscalateIpBan(target, "违规二", model.IpBanSourceProbeGuard, 0)
 	require.NoError(t, err)
 	assert.Contains(t, action, "第 2 次")
-	ban, matched = model.MatchActiveIpBan("198.51.100.7")
+	ban, matched = model.MatchActiveIpBan(target)
 	require.True(t, matched)
 	assert.Greater(t, ban.ExpiresAt, firstExpiry)
 
-	// 第三次违规:永久
-	action, err = EscalateIpBan("198.51.100.7", "违规三", model.IpBanSourceAutoRule, 0)
+	// 再次到期后第三次违规:永久
+	expireIpBanForTest(t, target)
+	action, err = EscalateIpBan(target, "违规三", model.IpBanSourceErrorGuard, 0)
 	require.NoError(t, err)
 	assert.Contains(t, action, "永久")
-	ban, matched = model.MatchActiveIpBan("198.51.100.7")
+	ban, matched = model.MatchActiveIpBan(target)
 	require.True(t, matched)
 	assert.EqualValues(t, 0, ban.ExpiresAt)
 
 	// 永久封禁后再触发:幂等,不再写新事件
-	action, err = EscalateIpBan("198.51.100.7", "违规四", model.IpBanSourceAutoRule, 0)
+	action, err = EscalateIpBan(target, "违规四", model.IpBanSourceProbeGuard, 0)
 	require.NoError(t, err)
 	assert.Empty(t, action)
 
-	_, total, err := model.GetRiskEvents(model.RiskEventBanIp, 0, "198.51.100.7", 0, 10)
+	_, total, err := model.GetRiskEvents(model.RiskEventBanIp, 0, target, 0, 10)
 	require.NoError(t, err)
-	assert.EqualValues(t, 3, total, "三次升级各写一条 ban_ip 事件,幂等触发不追加")
+	assert.EqualValues(t, 3, total, "三次升级各写一条 ban_ip 事件,封禁中与永久后的命中不追加")
 }
 
 // TestEscalateIpBanSkipsWhitelistedIp 覆盖全局白名单的兜底:该地址近期有白名单账号

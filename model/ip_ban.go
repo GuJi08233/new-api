@@ -300,3 +300,19 @@ func CountRecentIpBanEvents(ip string, since int64) (int64, error) {
 		Count(&count).Error
 	return count, err
 }
+
+// LastIpBanEventAt 返回某封禁目标最近一次 ban_ip 事件的时间,从未被封禁过时为 0。
+// 扫描规则用它判断窗口内的证据是否早于上次封禁。
+func LastIpBanEventAt(ip string) (int64, error) {
+	var latest []int64
+	err := DB.Model(&RiskEvent{}).
+		Where("event_type = ?", RiskEventBanIp).
+		Where("ip = ?", ip).
+		Order("created_at desc").
+		Limit(1).
+		Pluck("created_at", &latest).Error
+	if err != nil || len(latest) == 0 {
+		return 0, err
+	}
+	return latest[0], nil
+}

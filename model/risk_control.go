@@ -665,6 +665,20 @@ func GetRecentIpsByUsers(hours int, userIds []int) ([]string, bool, error) {
 	return ips, len(ips) >= riskWhitelistIpSampleLimit, err
 }
 
+// HasIpLogsSince 判断某 IP 在 since 之后是否还有风控统计口径内的日志行,
+// excludeUserIds 与排行统计一样剔除全局白名单账号的行。
+// 扫描规则用它区分「上次封禁之后仍在活动」与「同一批旧证据被再次扫到」。
+func HasIpLogsSince(ip string, since int64, excludeUserIds []int) (bool, error) {
+	tx := LOG_DB.Table("logs").
+		Where("ip = ?", ip).
+		Where("created_at > ?", since).
+		Where("type IN ?", riskLogTypes())
+
+	var ids []int
+	err := riskExcludeUsers(tx, excludeUserIds).Limit(1).Pluck("id", &ids).Error
+	return len(ids) > 0, err
+}
+
 // GetIpAssociatedUserIds 返回某 IP 在窗口内关联的全部用户 ID(供自动封禁使用)。
 func GetIpAssociatedUserIds(ip string, hours int) ([]int, error) {
 	start := normalizeRiskWindow(hours)

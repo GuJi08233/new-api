@@ -109,3 +109,27 @@ func TestCleanupRiskEventsKeepsBanRecords(t *testing.T) {
 		}
 	}
 }
+
+func TestLastIpBanEventAt(t *testing.T) {
+	truncateTables(t)
+
+	// 从未封禁过:0
+	last, err := LastIpBanEventAt("198.51.100.80")
+	require.NoError(t, err)
+	assert.EqualValues(t, 0, last)
+
+	base := time.Now().Unix()
+	seed := []*RiskEvent{
+		{EventType: RiskEventBanIp, Ip: "198.51.100.80", CreatedAt: base - 600},
+		{EventType: RiskEventBanIp, Ip: "198.51.100.80", CreatedAt: base - 60},
+		{EventType: RiskEventBanIp, Ip: "198.51.100.81", CreatedAt: base},   // 别的目标
+		{EventType: RiskEventUnbanIp, Ip: "198.51.100.80", CreatedAt: base}, // 解封不算封禁
+	}
+	for _, e := range seed {
+		require.NoError(t, InsertRiskEvent(e))
+	}
+
+	last, err = LastIpBanEventAt("198.51.100.80")
+	require.NoError(t, err)
+	assert.EqualValues(t, base-60, last, "取最近一次 ban_ip 事件,忽略其他目标与解封记录")
+}

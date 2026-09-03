@@ -200,6 +200,10 @@ func TestEscalateIpBanCustomLadder(t *testing.T) {
 		{minutes: 1440, wantText: "1440 分钟"},
 	}
 	for offense, step := range steps {
+		if offense > 0 {
+			// 阶梯只在上一次封禁到期后再犯时才升级
+			expireIpBanForTest(t, target)
+		}
 		action, err := EscalateIpBan(target, "违规", model.IpBanSourceErrorGuard, 0)
 		require.NoError(t, err, "第 %d 次升级", offense+1)
 		assert.Contains(t, action, step.wantText, "第 %d 次应落在对应阶梯", offense+1)
@@ -315,25 +319,32 @@ func TestEscalateIpBanFixedMinutesSkipsLadder(t *testing.T) {
 	operation_setting.SetRiskControlSettingForTest(errorGuardTestSetting())
 
 	const target = "198.51.100.50"
-	for offense := 1; offense <= 2; offense++ {
-		// 每次都预置一条历史事件,制造"累犯"
+	// 预置两条历史封禁事件:本次已是第 3 次违规,按阶梯本该落到 1440 分钟档
+	for i := 0; i < 2; i++ {
 		require.NoError(t, model.InsertRiskEvent(&model.RiskEvent{
 			EventType: model.RiskEventBanIp,
 			Ip:        target,
 		}))
-		action, err := EscalateIpBan(target, "违规", model.IpBanSourceErrorGuard, 7)
-		require.NoError(t, err)
-		if action == "" {
-			continue // 同一时长的重复处置是幂等的
-		}
-		assert.Contains(t, action, "7 分钟", "固定时长不参与累犯升级")
 	}
-
+	action, err := EscalateIpBan(target, "违规", model.IpBanSourceErrorGuard, 7)
+	require.NoError(t, err)
+	assert.Contains(t, action, "7 分钟", "固定时长不参与累犯升级")
+	assert.Contains(t, action, "第 3 次")
 	ban, matched := model.MatchActiveIpBan(target)
 	require.True(t, matched)
 	remaining := ban.ExpiresAt - time.Now().Unix()
 	assert.Greater(t, remaining, int64(0))
-	assert.LessOrEqual(t, remaining, int64(7*60), "始终是固定的 7 分钟档")
+	assert.LessOrEqual(t, remaining, int64(7*60))
+
+	// 到期后再犯:仍是固定 7 分钟,不递增
+	expireIpBanForTest(t, target)
+	action, err = EscalateIpBan(target, "违规", model.IpBanSourceErrorGuard, 7)
+	require.NoError(t, err)
+	assert.Contains(t, action, "7 分钟")
+	assert.Contains(t, action, "第 4 次")
+	ban, matched = model.MatchActiveIpBan(target)
+	require.True(t, matched)
+	assert.LessOrEqual(t, ban.ExpiresAt-time.Now().Unix(), int64(7*60), "始终是固定的 7 分钟档")
 }
 
 func TestAccountBanExemptionMatrix(t *testing.T) {

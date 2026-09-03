@@ -507,11 +507,38 @@ func isWhitelistedBanTarget(setting *operation_setting.RiskControlSetting, targe
 	return false
 }
 
+// hasIpActivitySinceLastBan 判断某地址在其封禁目标上次被封之后是否还有新的日志活动。
+// 扫描规则的证据是窗口内的日志行,同一批行会在之后的每轮扫描里反复命中;只有上次封禁
+// 之后仍有流量才算累犯,否则一次滥用会被同一批旧证据在每次到期后再推一级,直到永久。
+// 实时防护的证据是当前请求,天然是新的,不走这里。从未被封过的地址视为有活动;
+// exemptUserIds 与排行统计一样剔除全局白名单账号的行,免得它们的流量替别人"续"上累犯。
+// 查询失败按有活动处理让封禁照常执行,与白名单查询失败时的取向一致。
+func hasIpActivitySinceLastBan(target string, ip string, exemptUserIds []int) bool {
+	lastBanAt, err := model.LastIpBanEventAt(target)
+	if err != nil {
+		common.SysLog(fmt.Sprintf("risk control: failed to load last ban time of %s: %s", target, err.Error()))
+		return true
+	}
+	if lastBanAt == 0 {
+		return true
+	}
+	active, err := model.HasIpLogsSince(ip, lastBanAt, exemptUserIds)
+	if err != nil {
+		common.SysLog(fmt.Sprintf("risk control: failed to check activity of %s since last ban: %s", ip, err.Error()))
+		return true
+	}
+	return active
+}
+
 // EscalateIpBan 封禁某 IP。fixedMinutes > 0 时使用该固定时长,不参与累犯升级
 // (规则级时长覆盖);为 0 时按累犯次数走全局阶梯:首次 → 再犯加时 → 达到配置次数后永久。
 // 累犯次数以 ban_ip 风控事件为准,临时封禁过期删除后历史仍可追溯。
-// 实际发生新建/延长时写入 ban_ip 事件并返回动作描述;
-// 已有更长效封禁覆盖时返回空串(幂等,不重复记事件)。
+// 实际发生新建/延长时写入 ban_ip 事件并返回动作描述;以下情况返回空串且不记事件:
+//   - 该地址仍在生效中的封禁之下。被封期间的请求进不了统计,此刻的再次命中只能是
+//     同一批旧证据或豁免用户的流量,算作累犯会把一次滥用推到永久;
+//   - 来源是扫描规则,且该地址在上次封禁之后没有新的日志活动;
+//   - 已有更长效的封禁覆盖(幂等兜底)。
+//
 // IPv6 目标按配置的前缀长度归并(默认 /64),否则客户端换个地址就绕过。
 // 全局白名单账号近期使用过的地址一律跳过,只记告警——这条兜底覆盖实时防护
 // 与扫描规则的全部自动封禁路径;管理员手动封禁不经过本函数,不受影响。
@@ -520,6 +547,12 @@ func EscalateIpBan(ip string, reason string, source string, fixedMinutes int) (s
 	target, err := model.NormalizeAutoBanTarget(ip, setting.ResolvedIpBanIpv6PrefixLength())
 	if err != nil {
 		return "", err
+	}
+	if _, banned := model.MatchActiveIpBan(ip); banned {
+		return "", nil
+	}
+	if source == model.IpBanSourceAutoRule && !hasIpActivitySinceLastBan(target, ip, setting.WhitelistUserIds) {
+		return "", nil
 	}
 	if isWhitelistedBanTarget(setting, target) {
 		recordRuleAlert(source, 0, "", target, fmt.Sprintf(

@@ -632,3 +632,30 @@ func TestDisableRegularUserWritesReason(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, changed)
 }
+
+func TestHasIpLogsSince(t *testing.T) {
+	truncateTables(t)
+
+	since := time.Now().Add(-2 * time.Hour).Unix()
+	insertRiskLog(t, 1, "u1", "198.51.100.70", "", LogTypeConsume, 3)    // since 之前
+	insertRiskLog(t, 9, "owner", "198.51.100.70", "", LogTypeConsume, 1) // since 之后,但属于白名单账号
+	insertRiskLog(t, 2, "u2", "198.51.100.71", "", LogTypeConsume, 1)    // 别的地址
+
+	active, err := HasIpLogsSince("198.51.100.70", since, nil)
+	require.NoError(t, err)
+	assert.True(t, active, "不排除任何用户时,since 之后的行算活动")
+
+	active, err = HasIpLogsSince("198.51.100.70", since, []int{9})
+	require.NoError(t, err)
+	assert.False(t, active, "白名单账号的行不算,与排行统计口径一致")
+
+	insertRiskLog(t, 3, "u3", "198.51.100.70", "", LogTypeManage, 1) // 非风控日志类型
+	active, err = HasIpLogsSince("198.51.100.70", since, []int{9})
+	require.NoError(t, err)
+	assert.False(t, active)
+
+	insertRiskLog(t, 3, "u3", "198.51.100.70", "", LogTypeError, 1)
+	active, err = HasIpLogsSince("198.51.100.70", since, []int{9})
+	require.NoError(t, err)
+	assert.True(t, active, "错误日志同样是活动")
+}
