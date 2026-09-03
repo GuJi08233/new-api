@@ -255,10 +255,13 @@ func markRiskBlocked(c *gin.Context) {
 	}
 }
 
-// recordBlockEvent 记录一条黑名单拦截事件,按 (类型+用户+IP+UA+规则) 聚合限流,
+// recordBlockEvent 记录一条黑名单拦截事件,按 (类型+用户+IP+规则) 聚合限流,
 // 同一来源的重试风暴在窗口内合并为一条带累计次数的记录。
+// 聚合键有意不含 UA:UA 由客户端任意填写、基数无界,注册与验证码这类未认证入口上
+// 被封禁的地址只要每个请求换一个 UA,就能让每次拦截都单独落库并各占一个聚合桶。
+// UA 只作为样本写入事件,取窗口内最近一次命中的值。
 func recordBlockEvent(eventType string, userId int, ip string, ua string, rule string) {
-	key := eventType + "\x00" + strconv.Itoa(userId) + "\x00" + ip + "\x00" + ua + "\x00" + rule
+	key := eventType + "\x00" + strconv.Itoa(userId) + "\x00" + ip + "\x00" + rule
 	recordRiskEventThrottled(key, riskBlockEventWindow, model.RiskEvent{
 		EventType: eventType,
 		UserId:    userId,

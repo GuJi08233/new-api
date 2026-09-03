@@ -1,6 +1,7 @@
 package service
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -88,4 +89,31 @@ func TestFlushStaleRiskEventsWritesPendingCounts(t *testing.T) {
 	// 无挂起计数时重复冲刷不写库
 	flushStaleRiskEvents(base.Add(3 * time.Minute))
 	assert.Len(t, riskEventRows(t), 2)
+}
+
+// TestRecordBlockEventAggregatesAcrossUserAgents 钉住拦截事件的聚合键不含 UA:
+// 注册、验证码这类未认证入口上,被封禁的地址轮换 UA 不能让每次拦截都单独落库、
+// 各占一个聚合桶;UA 只是样本,被抑制的命中数也不能因此丢失。
+func TestRecordBlockEventAggregatesAcrossUserAgents(t *testing.T) {
+	setupRiskEventTest(t)
+
+	for i := 0; i < 5; i++ {
+		recordBlockEvent(model.RiskEventBlockIp, 0, "203.0.113.66", fmt.Sprintf("probe-%d", i), "ban:203.0.113.66")
+	}
+	rows := riskEventRows(t)
+	require.Len(t, rows, 1, "同一来源换 UA 仍聚合为一条")
+	assert.Equal(t, 1, rows[0].Count)
+	assert.Equal(t, "probe-0", rows[0].Ua, "窗口内首次命中立即落库,带当时的 UA")
+
+	// 窗口到期后被抑制的 4 次合并落库,UA 取最近一次命中的样本
+	flushStaleRiskEvents(time.Now().Add(2 * riskBlockEventWindow))
+	rows = riskEventRows(t)
+	require.Len(t, rows, 2)
+	assert.Equal(t, 4, rows[1].Count)
+	assert.Equal(t, "probe-4", rows[1].Ua)
+
+	// 用户与规则仍参与分桶:同一 IP 的其他用户、其他规则各自成条
+	recordBlockEvent(model.RiskEventBlockIp, 7, "203.0.113.66", "probe-0", "ban:203.0.113.66")
+	recordBlockEvent(model.RiskEventBlockIp, 0, "203.0.113.66", "probe-0", "203.0.113.0/24")
+	assert.Len(t, riskEventRows(t), 4)
 }
