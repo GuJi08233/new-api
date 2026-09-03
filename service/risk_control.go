@@ -477,6 +477,7 @@ const whitelistIpLookbackHours = 24
 // 全局白名单的语义是「这个账号的任何流量都不该触发处置」,而封掉它的出口地址
 // 会连带拦下同出口的其他正常用户,因此这类目标不参与自动封禁。
 // 目标可能是 IPv6 归并后的整段前缀,所以判定必须按网段包含而不是地址相等。
+// 判定依据 logs.ip,该列只在开启 IP 日志(全局或该用户自己的设置)时才有值。
 // 查询失败时返回 false 让封禁照常执行:保护机制不该让一次日志库抖动等于风控整体停摆,
 // 而白名单账号自身始终豁免封禁检查,不会被自己触发的封禁锁在门外。
 func isWhitelistedBanTarget(setting *operation_setting.RiskControlSetting, target string) bool {
@@ -490,6 +491,13 @@ func isWhitelistedBanTarget(setting *operation_setting.RiskControlSetting, targe
 	}
 	if truncated {
 		common.SysLog(fmt.Sprintf("risk control: whitelist ip sample hit the cap while evaluating %s, exemption may be incomplete", target))
+	}
+	// 全局 IP 日志关闭、白名单账号又没有单独开启时,这里必然查不到地址,豁免形同虚设;
+	// 实时防护直接用连接地址封禁、不依赖日志,照样会封掉白名单账号的出口。
+	// 设置页在同样条件下显示警告,这里留一条日志给只看后台的人。
+	if len(ips) == 0 && !common.IsGlobalRecordIpLogEnabled() {
+		common.SysLog(fmt.Sprintf("risk control: whitelist ip exemption is inactive while evaluating %s: ip logging is disabled and no whitelist ip has been recorded", target))
+		return false
 	}
 	for _, ip := range ips {
 		if model.IpBanTargetCovers(target, ip) {

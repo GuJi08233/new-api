@@ -70,6 +70,9 @@ const KEY_PG_BAN_MINUTES = `${KEY_PREFIX}probe_guard_ban_minutes`;
 const KEY_EG_ACTION = `${KEY_PREFIX}error_guard_action`;
 const KEY_EG_BAN_MINUTES = `${KEY_PREFIX}error_guard_ban_minutes`;
 
+// 系统设置里的 IP 日志开关。白名单账号的 IP 豁免依据日志中的地址,关闭时豁免不生效。
+const KEY_GLOBAL_IP_LOG = 'GlobalRecordIpLogEnabled';
+
 // 封禁升级阶梯的级数上限与默认值,与后端校验保持一致。
 const MAX_BAN_LADDER_STEPS = 10;
 const DEFAULT_BAN_LADDER = [10, 60];
@@ -116,6 +119,7 @@ const RiskSettings = () => {
   const [scanMinutes, setScanMinutes] = useState(10);
   const [whitelistText, setWhitelistText] = useState('');
   const [publicKeyUsersText, setPublicKeyUsersText] = useState('');
+  const [ipLogEnabled, setIpLogEnabled] = useState(true);
   const [rules, setRules] = useState([]);
   const [tinyMaxTokens, setTinyMaxTokens] = useState(16);
   const [retentionDays, setRetentionDays] = useState(30);
@@ -218,6 +222,8 @@ const RiskSettings = () => {
           parseJsonArray(optionMap[KEY_PUBLIC_KEY_USERS]).join(','),
         );
         setWhitelistText(parseJsonArray(optionMap[KEY_WHITELIST]).join(','));
+        // 只有明确为 false 才提示;取不到时按开启处理,避免误报
+        setIpLogEnabled(optionMap[KEY_GLOBAL_IP_LOG] !== 'false');
         setRules(
           parseJsonArray(optionMap[KEY_RULES]).map((r, idx) => ({
             ...r,
@@ -572,7 +578,18 @@ const RiskSettings = () => {
             {t(
               '全局白名单账号完全不受风控:请求不被拦截、账号不被自动禁用,且它近 24 小时内使用过的 IP 不会被自动封禁(这些账号的流量也不进入自动封禁扫描的排行统计)。把运营者自己和内部账号填在这里,避免自己的出口地址被自己的规则封掉后连带拦下同出口的其他用户。手动添加的 IP 封禁不受此豁免影响。',
             )}
+            {t(
+              'IP 豁免依据日志中记录的地址,需要开启 IP 日志(全局或白名单账号自己的设置)才能生效。',
+            )}
           </Text>
+          {whitelistText.trim() !== '' && !ipLogEnabled && (
+            <Banner
+              type='warning'
+              description={t(
+                '全局 IP 日志已关闭:白名单账号的 IP 豁免依赖日志中的 IP 字段,除非这些账号单独开启了 IP 记录,否则实时防护仍会封禁它们使用的出口地址。',
+              )}
+            />
+          )}
           <Space>
             <Text>{t('用户级白名单账号 ID(逗号分隔,仅保护账号)')}</Text>
             <TextArea
