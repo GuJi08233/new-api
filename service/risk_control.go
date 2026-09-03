@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 
@@ -131,12 +132,30 @@ func matchIpBlacklist(setting *operation_setting.RiskControlSetting, ipStr strin
 	return false, ""
 }
 
-// isRiskWhitelisted 判断用户是否在风控白名单内(永不自动处置)。
+// isRiskWhitelisted 判断用户是否在风控白名单内:完全豁免,既不拦截也不处置。
 func isRiskWhitelisted(setting *operation_setting.RiskControlSetting, userId int) bool {
 	if setting == nil {
 		return false
 	}
 	for _, id := range setting.WhitelistUserIds {
+		if id == userId {
+			return true
+		}
+	}
+	return false
+}
+
+// isAccountBanExempt 判断用户的账号是否豁免自动禁用。
+// 除完全白名单外,持有公开/共享密钥的账号也豁免:滥用者不是账号主人,
+// 禁用账号会连带打死所有正常使用者,这类场景只应封禁来源 IP。
+func isAccountBanExempt(setting *operation_setting.RiskControlSetting, userId int) bool {
+	if setting == nil {
+		return false
+	}
+	if isRiskWhitelisted(setting, userId) {
+		return true
+	}
+	for _, id := range setting.PublicKeyUserIds {
 		if id == userId {
 			return true
 		}
@@ -166,6 +185,7 @@ func checkRequestRisk(c *gin.Context, setting *operation_setting.RiskControlSett
 		if ban, matched := model.MatchActiveIpBan(ip); matched {
 			common.SysLog(fmt.Sprintf("risk control: blocked request, ip=%q hit active ban target=%q", ip, ban.Target))
 			recordBlockEvent(model.RiskEventBlockIp, userId, ip, ua, "ban:"+ban.Target)
+			markRiskBlocked(c)
 			return ErrRiskBlocked
 		}
 	}
@@ -184,6 +204,7 @@ func checkRequestRisk(c *gin.Context, setting *operation_setting.RiskControlSett
 		if matched, rule := matchIpBlacklist(setting, ip); matched {
 			common.SysLog(fmt.Sprintf("risk control: blocked request, ip=%q hit rule=%q", ip, rule))
 			recordBlockEvent(model.RiskEventBlockIp, userId, ip, ua, rule)
+			markRiskBlocked(c)
 			return ErrRiskBlocked
 		}
 	}
@@ -201,7 +222,15 @@ func checkRequestRisk(c *gin.Context, setting *operation_setting.RiskControlSett
 	}
 	common.SysLog(fmt.Sprintf("risk control: blocked request, ua=%q hit rule=%q", ua, rule))
 	recordBlockEvent(model.RiskEventBlockUa, userId, ip, ua, rule)
+	markRiskBlocked(c)
 	return ErrRiskBlocked
+}
+
+// markRiskBlocked 标记本次请求是被风控主动拒绝的,供 Error Guard 排除自身产生的错误响应。
+func markRiskBlocked(c *gin.Context) {
+	if c != nil {
+		c.Set(string(constant.ContextKeyRiskBlocked), true)
+	}
 }
 
 // recordBlockEvent 记录一条黑名单拦截事件,按 (类型+用户+IP+UA+规则) 聚合限流,
@@ -229,7 +258,7 @@ func disableUserForRisk(setting *operation_setting.RiskControlSetting, userId in
 	if userId <= 0 {
 		return nil
 	}
-	if isRiskWhitelisted(setting, userId) {
+	if isAccountBanExempt(setting, userId) {
 		return nil
 	}
 
@@ -401,11 +430,12 @@ func disableIpAssociatedUsers(ip string, window int, reason string) {
 // ipBanOffenseLookback 累犯计数的回溯窗口:统计该 IP 近 90 天内的封禁事件次数。
 const ipBanOffenseLookback = 90 * 24 * time.Hour
 
-// EscalateIpBan 按累犯次数升级封禁某 IP:
-// 首次临时封禁 → 再犯加时 → 达到配置次数后永久。累犯次数以 ban_ip 风控事件为准,
-// 临时封禁过期删除后历史仍可追溯。实际发生新建/延长时写入 ban_ip 事件并返回动作描述;
+// EscalateIpBan 封禁某 IP。fixedMinutes > 0 时使用该固定时长,不参与累犯升级
+// (规则级时长覆盖);为 0 时按累犯次数走全局阶梯:首次 → 再犯加时 → 达到配置次数后永久。
+// 累犯次数以 ban_ip 风控事件为准,临时封禁过期删除后历史仍可追溯。
+// 实际发生新建/延长时写入 ban_ip 事件并返回动作描述;
 // 已有更长效封禁覆盖时返回空串(幂等,不重复记事件)。
-func EscalateIpBan(ip string, reason string, source string) (string, error) {
+func EscalateIpBan(ip string, reason string, source string, fixedMinutes int) (string, error) {
 	target, err := model.NormalizeIpBanTarget(ip)
 	if err != nil {
 		return "", err
@@ -421,18 +451,28 @@ func EscalateIpBan(ip string, reason string, source string) (string, error) {
 
 	var expiresAt int64
 	var action string
+	permanentOffense := setting.ResolvedIpBanPermanentOffense()
 	switch {
-	case offense >= setting.ResolvedIpBanPermanentOffense():
+	case fixedMinutes > 0:
+		expiresAt = now.Add(time.Duration(fixedMinutes) * time.Minute).Unix()
+		action = fmt.Sprintf("临时封禁 %d 分钟(第 %d 次违规,规则固定时长)", fixedMinutes, offense)
+	case permanentOffense > 0 && offense >= permanentOffense:
 		expiresAt = 0
 		action = fmt.Sprintf("永久封禁(第 %d 次违规)", offense)
-	case offense == 1:
-		minutes := setting.ResolvedIpBanFirstMinutes()
-		expiresAt = now.Add(time.Duration(minutes) * time.Minute).Unix()
-		action = fmt.Sprintf("临时封禁 %d 分钟(首次违规)", minutes)
 	default:
-		minutes := setting.ResolvedIpBanSecondMinutes()
+		// 违规次数超出阶梯长度时停在最后一档
+		ladder := setting.ResolvedIpBanEscalationMinutes()
+		step := offense - 1
+		if step >= len(ladder) {
+			step = len(ladder) - 1
+		}
+		minutes := ladder[step]
 		expiresAt = now.Add(time.Duration(minutes) * time.Minute).Unix()
-		action = fmt.Sprintf("临时封禁 %d 分钟(第 %d 次违规)", minutes, offense)
+		if offense == 1 {
+			action = fmt.Sprintf("临时封禁 %d 分钟(首次违规)", minutes)
+		} else {
+			action = fmt.Sprintf("临时封禁 %d 分钟(第 %d 次违规)", minutes, offense)
+		}
 	}
 
 	ban, changed, err := model.UpsertIpBan(target, reason, expiresAt, source, 0)
@@ -453,16 +493,37 @@ func EscalateIpBan(ip string, reason string, source string) (string, error) {
 }
 
 // applyIpRuleAction 执行 IP 维度规则命中后的处置动作。
+// ban_both 会同时封禁来源 IP 与该 IP 在窗口内关联的账号;公开密钥账号只会被跳过账号处置,
+// IP 封禁照常生效。
 func applyIpRuleAction(rule operation_setting.RiskAutoBanRule, ip string, window int, reason string) {
-	switch rule.Action {
-	case operation_setting.RiskRuleActionDisableUser:
-		disableIpAssociatedUsers(ip, window, reason)
-	case operation_setting.RiskRuleActionBanIp:
-		if _, err := EscalateIpBan(ip, reason, model.IpBanSourceAutoRule); err != nil {
+	if rule.Action == operation_setting.RiskRuleActionAlert || rule.Action == "" {
+		recordRuleAlert(rule.Metric, 0, "", ip, reason)
+		return
+	}
+	if operation_setting.RiskActionBansIp(rule.Action) {
+		if _, err := EscalateIpBan(ip, reason, model.IpBanSourceAutoRule, rule.BanMinutes); err != nil {
 			common.SysLog(fmt.Sprintf("risk control: failed to ban ip %s: %s", ip, err.Error()))
 		}
-	default:
-		recordRuleAlert(rule.Metric, 0, "", ip, reason)
+	}
+	if operation_setting.RiskActionDisablesUser(rule.Action) {
+		disableIpAssociatedUsers(ip, window, reason)
+	}
+}
+
+// applyRealtimeGuardAction 执行实时防护(Probe / Error Guard)命中后的处置:
+// 按动作封禁来源 IP、禁用账号或两者都做。账号处置会跳过完全白名单与公开密钥账号,
+// 因此对共享密钥的场景可以配 ban_both —— IP 被封,账号主人不受影响。
+func applyRealtimeGuardAction(setting *operation_setting.RiskControlSetting, source string,
+	action string, banMinutes int, userId int, ip string, ua string, reason string) {
+	if operation_setting.RiskActionBansIp(action) {
+		if _, err := EscalateIpBan(ip, reason, source, banMinutes); err != nil {
+			common.SysLog(fmt.Sprintf("%s: failed to ban ip %s: %s", source, ip, err.Error()))
+		}
+	}
+	if operation_setting.RiskActionDisablesUser(action) && userId > 0 {
+		if err := disableUserForRisk(setting, userId, reason, ip, ua); err != nil {
+			common.SysLog(fmt.Sprintf("%s: failed to disable user %d: %s", source, userId, err.Error()))
+		}
 	}
 }
 
@@ -494,7 +555,7 @@ func scanUserMultiIp(rule operation_setting.RiskAutoBanRule, window int) {
 			continue
 		}
 		reason := fmt.Sprintf("用户 %s(#%d)在 %d 小时内使用 %d 个 IP(阈值 %d)", item.Username, item.UserId, window, item.IpCount, rule.Threshold)
-		if rule.Action != operation_setting.RiskRuleActionDisableUser {
+		if !operation_setting.RiskActionDisablesUser(rule.Action) {
 			recordRuleAlert(rule.Metric, item.UserId, item.Username, "", reason)
 			continue
 		}
@@ -532,7 +593,7 @@ func scanUserTinyRequest(rule operation_setting.RiskAutoBanRule, window int, max
 			continue
 		}
 		reason := fmt.Sprintf("用户 %s(#%d)在 %d 小时内发起 %d 次微量请求(输入输出均 ≤ %d tokens,阈值 %d),疑似自动测活", item.Username, item.UserId, window, item.RequestCount, maxTokens, rule.Threshold)
-		if rule.Action != operation_setting.RiskRuleActionDisableUser {
+		if !operation_setting.RiskActionDisablesUser(rule.Action) {
 			recordRuleAlert(rule.Metric, item.UserId, item.Username, "", reason)
 			continue
 		}
@@ -554,7 +615,7 @@ func scanUserErrorBurst(rule operation_setting.RiskAutoBanRule, window int) {
 			continue
 		}
 		reason := fmt.Sprintf("用户 %s(#%d)在 %d 小时内产生 %d 次错误请求(阈值 %d)", item.Username, item.UserId, window, item.RequestCount, rule.Threshold)
-		if rule.Action != operation_setting.RiskRuleActionDisableUser {
+		if !operation_setting.RiskActionDisablesUser(rule.Action) {
 			recordRuleAlert(rule.Metric, item.UserId, item.Username, "", reason)
 			continue
 		}

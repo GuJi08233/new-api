@@ -78,7 +78,7 @@ func TestGetUserMultiIpRanking(t *testing.T) {
 	}
 }
 
-func TestGetUaRanking(t *testing.T) {
+func TestGetUaOverviewRanking(t *testing.T) {
 	truncateTables(t)
 
 	insertRiskLog(t, 1, "u1", "ip-a", "curl/8.0", LogTypeConsume, 1)
@@ -86,16 +86,22 @@ func TestGetUaRanking(t *testing.T) {
 	insertRiskLog(t, 1, "u1", "ip-a", "python-requests/2.31", LogTypeConsume, 1)
 	insertRiskLog(t, 1, "u1", "ip-a", "", LogTypeConsume, 1) // 空 UA 不参与
 
-	items, err := GetUaRanking(24, 50)
-	if err != nil {
-		t.Fatalf("GetUaRanking: %v", err)
-	}
-	if len(items) != 2 {
-		t.Fatalf("items = %d, want 2", len(items))
-	}
-	if items[0].Ua != "curl/8.0" || items[0].UserCount != 2 || items[0].RequestCount != 2 {
-		t.Fatalf("top item = %+v, want curl/8.0 user_count=2 request_count=2", items[0])
-	}
+	items, err := GetUaOverviewRanking(RiskOverviewQuery{Hours: 24, Limit: 50, TinyMaxTokens: 16})
+	require.NoError(t, err)
+	require.Len(t, items, 2)
+	assert.Equal(t, "curl/8.0", items[0].Ua)
+	assert.Equal(t, 2, items[0].UserCount, "同一 UA 被两个用户使用")
+	assert.Equal(t, 2, items[0].IpCount)
+	assert.Equal(t, 2, items[0].RequestCount)
+
+	// 白名单用户(1)的日志被排除后,python-requests 完全消失,curl 只剩用户 2 的一次
+	filtered, err := GetUaOverviewRanking(RiskOverviewQuery{Hours: 24, Limit: 50, TinyMaxTokens: 16, ExcludeUserIds: []int{1}})
+	require.NoError(t, err)
+	require.Len(t, filtered, 1)
+	assert.Equal(t, "curl/8.0", filtered[0].Ua)
+	assert.Equal(t, 1, filtered[0].UserCount)
+	assert.Equal(t, 1, filtered[0].IpCount)
+	assert.Equal(t, 1, filtered[0].RequestCount)
 }
 
 func TestRiskDetailQueries(t *testing.T) {
@@ -106,30 +112,25 @@ func TestRiskDetailQueries(t *testing.T) {
 	insertRiskLog(t, 2, "u2", "ip-a", "", LogTypeConsume, 1)
 	insertRiskLog(t, 1, "u1", "ip-b", "", LogTypeConsume, 1)
 
-	users, err := GetIpUserDetail("ip-a", 24)
-	if err != nil {
-		t.Fatalf("GetIpUserDetail: %v", err)
-	}
-	if len(users) != 2 {
-		t.Fatalf("ip-a users = %d, want 2", len(users))
-	}
-	if users[0].UserId != 1 || users[0].RequestCount != 2 {
-		t.Fatalf("top user = %+v, want user 1 request_count=2", users[0])
-	}
-	if users[0].FirstSeen <= 0 || users[0].LastSeen < users[0].FirstSeen {
-		t.Fatalf("first/last seen invalid: %+v", users[0])
-	}
+	users, err := GetRiskDetailUsers(RiskDetailTarget{Type: RiskDetailTypeIp, Value: "ip-a", Hours: 24})
+	require.NoError(t, err)
+	require.Len(t, users, 2, "ip-a 关联两个用户")
+	assert.Equal(t, 1, users[0].UserId)
+	assert.Equal(t, 2, users[0].RequestCount)
+	assert.Positive(t, users[0].FirstSeen)
+	assert.GreaterOrEqual(t, users[0].LastSeen, users[0].FirstSeen)
 
-	ips, err := GetUserIpDetail(1, 24)
-	if err != nil {
-		t.Fatalf("GetUserIpDetail: %v", err)
-	}
-	if len(ips) != 2 {
-		t.Fatalf("user 1 ips = %d, want 2", len(ips))
-	}
-	if ips[0].Ip != "ip-a" || ips[0].RequestCount != 2 {
-		t.Fatalf("top ip = %+v, want ip-a request_count=2", ips[0])
-	}
+	ips, err := GetRiskDetailIps(RiskDetailTarget{Type: RiskDetailTypeUser, Value: "1", Hours: 24})
+	require.NoError(t, err)
+	require.Len(t, ips, 2, "用户 1 使用两个 IP")
+	assert.Equal(t, "ip-a", ips[0].Ip)
+	assert.Equal(t, 2, ips[0].RequestCount)
+
+	// 详情与排行榜口径一致:排除白名单用户后关联列表随之收敛
+	filtered, err := GetRiskDetailUsers(RiskDetailTarget{Type: RiskDetailTypeIp, Value: "ip-a", Hours: 24, ExcludeUserIds: []int{1}})
+	require.NoError(t, err)
+	require.Len(t, filtered, 1)
+	assert.Equal(t, 2, filtered[0].UserId)
 
 	userIds, err := GetIpAssociatedUserIds("ip-a", 24)
 	if err != nil {
@@ -260,6 +261,220 @@ func TestGetTokenMultiIpRanking(t *testing.T) {
 	assert.Equal(t, "u1", items[0].Username)
 	assert.Equal(t, 3, items[0].IpCount)
 	assert.Equal(t, 3, items[0].RequestCount)
+}
+
+// insertOverviewLog 插入一条指定字段的日志,ageHours 为距今小时数。
+func insertOverviewLog(t *testing.T, ageHours int, log Log) {
+	t.Helper()
+	log.CreatedAt = time.Now().Add(-time.Duration(ageHours) * time.Hour).Unix()
+	require.NoError(t, LOG_DB.Create(&log).Error)
+}
+
+// seedOverviewLogs 构造合并排行测试用的日志:
+// 用户 1 有 5 条(3 次微量消费、1 次普通消费、1 次错误),覆盖空 IP / 空 UA / token_id=0;
+// 用户 2 有 2 条错误;用户 3 的日志在窗口外;管理日志不参与统计。
+func seedOverviewLogs(t *testing.T) {
+	t.Helper()
+	insertOverviewLog(t, 1, Log{UserId: 1, Username: "u1", Type: LogTypeConsume, Ip: "ip-a", Ua: "ua-x", TokenId: 101, PromptTokens: 5, CompletionTokens: 1})
+	insertOverviewLog(t, 1, Log{UserId: 1, Username: "u1", Type: LogTypeConsume, Ip: "ip-b", Ua: "ua-x", TokenId: 101, PromptTokens: 200, CompletionTokens: 100})
+	insertOverviewLog(t, 2, Log{UserId: 1, Username: "u1", Type: LogTypeConsume, Ip: "ip-a", Ua: "ua-y", TokenId: 102, PromptTokens: 16, CompletionTokens: 16})
+	insertOverviewLog(t, 3, Log{UserId: 1, Username: "u1", Type: LogTypeError, Ip: "ip-c"})
+	insertOverviewLog(t, 1, Log{UserId: 1, Username: "u1", Type: LogTypeConsume, PromptTokens: 1, CompletionTokens: 1})
+	insertOverviewLog(t, 1, Log{UserId: 2, Username: "u2", Type: LogTypeError, Ip: "ip-a", Ua: "ua-z", TokenId: 201})
+	insertOverviewLog(t, 1, Log{UserId: 2, Username: "u2", Type: LogTypeError, Ip: "ip-a", Ua: "ua-z", TokenId: 201})
+	insertOverviewLog(t, 30, Log{UserId: 3, Username: "u3", Type: LogTypeConsume, Ip: "ip-d", Ua: "ua-w", TokenId: 301})
+	insertOverviewLog(t, 1, Log{UserId: 4, Username: "u4", Type: LogTypeManage, Ip: "ip-a", Ua: "ua-x"})
+}
+
+func TestGetUserOverviewRanking(t *testing.T) {
+	truncateTables(t)
+	seedOverviewLogs(t)
+
+	items, err := GetUserOverviewRanking(RiskOverviewQuery{Hours: 24, Limit: 50, TinyMaxTokens: 16})
+	require.NoError(t, err)
+	require.Len(t, items, 2, "窗口外用户与管理日志不上榜")
+
+	top := items[0]
+	assert.Equal(t, 1, top.UserId)
+	assert.Equal(t, "u1", top.Username)
+	assert.Equal(t, 5, top.RequestCount)
+	assert.Equal(t, 3, top.IpCount, "空 IP 不计入去重计数")
+	assert.Equal(t, 2, top.TokenCount, "token_id=0 不计入去重计数")
+	assert.Equal(t, 3, top.TinyRequestCount, "阈值取等号仍算微量,错误日志不算")
+	assert.Equal(t, 1, top.ErrorCount)
+	assert.Greater(t, top.LastSeen, top.FirstSeen)
+
+	second := items[1]
+	assert.Equal(t, 2, second.UserId)
+	assert.Equal(t, 2, second.RequestCount)
+	assert.Equal(t, 2, second.ErrorCount)
+	assert.Equal(t, 0, second.TinyRequestCount, "错误日志的零 token 不算微量请求")
+}
+
+func TestGetIpOverviewRanking(t *testing.T) {
+	truncateTables(t)
+	seedOverviewLogs(t)
+
+	items, err := GetIpOverviewRanking(RiskOverviewQuery{Hours: 24, Limit: 50, TinyMaxTokens: 16})
+	require.NoError(t, err)
+	require.Len(t, items, 3, "空 IP 的日志不上榜")
+
+	byIp := map[string]IpOverviewItem{}
+	for _, item := range items {
+		byIp[item.Ip] = item
+	}
+
+	assert.Equal(t, "ip-a", items[0].Ip, "按请求数排序 ip-a 居首")
+	ipA := byIp["ip-a"]
+	assert.Equal(t, 4, ipA.RequestCount)
+	assert.Equal(t, 2, ipA.UserCount)
+	assert.Equal(t, 3, ipA.TokenCount)
+	assert.Equal(t, 2, ipA.TinyRequestCount)
+	assert.Equal(t, 2, ipA.ErrorCount)
+
+	ipC := byIp["ip-c"]
+	assert.Equal(t, 1, ipC.RequestCount)
+	assert.Equal(t, 0, ipC.TokenCount)
+	assert.Equal(t, 1, ipC.ErrorCount)
+}
+
+func TestRiskOverviewExcludesWhitelistUsers(t *testing.T) {
+	truncateTables(t)
+	seedOverviewLogs(t)
+
+	users, err := GetUserOverviewRanking(RiskOverviewQuery{Hours: 24, Limit: 50, TinyMaxTokens: 16, ExcludeUserIds: []int{1}})
+	require.NoError(t, err)
+	require.Len(t, users, 1, "白名单用户整行消失")
+	assert.Equal(t, 2, users[0].UserId)
+
+	// 混合使用的 IP 只统计非白名单部分,纯由白名单用户使用的 IP 完全不上榜
+	ips, err := GetIpOverviewRanking(RiskOverviewQuery{Hours: 24, Limit: 50, TinyMaxTokens: 16, ExcludeUserIds: []int{1}})
+	require.NoError(t, err)
+	require.Len(t, ips, 1)
+	assert.Equal(t, "ip-a", ips[0].Ip)
+	assert.Equal(t, 2, ips[0].RequestCount)
+	assert.Equal(t, 1, ips[0].UserCount)
+	assert.Equal(t, 0, ips[0].TinyRequestCount)
+	assert.Equal(t, 2, ips[0].ErrorCount)
+}
+
+func TestGetRiskDetailUasAndErrorStatuses(t *testing.T) {
+	truncateTables(t)
+
+	insertOverviewLog(t, 1, Log{UserId: 1, Username: "u1", Type: LogTypeConsume, Ip: "ip-a", Ua: "curl/8.0"})
+	insertOverviewLog(t, 2, Log{UserId: 1, Username: "u1", Type: LogTypeConsume, Ip: "ip-a", Ua: "curl/8.0"})
+	insertOverviewLog(t, 1, Log{UserId: 1, Username: "u1", Type: LogTypeConsume, Ip: "ip-b", Ua: "python-requests/2.31"})
+	insertOverviewLog(t, 1, Log{UserId: 1, Username: "u1", Type: LogTypeError, Ip: "ip-a", Ua: "curl/8.0", Other: `{"status_code":429,"error_code":"rate_limit"}`})
+	insertOverviewLog(t, 2, Log{UserId: 1, Username: "u1", Type: LogTypeError, Ip: "ip-a", Ua: "curl/8.0", Other: `{"status_code":429,"error_code":"rate_limit"}`})
+	insertOverviewLog(t, 3, Log{UserId: 1, Username: "u1", Type: LogTypeError, Ip: "ip-a", Ua: "curl/8.0", Other: `{"status_code":401,"error_code":"invalid_api_key"}`})
+	insertOverviewLog(t, 1, Log{UserId: 1, Username: "u1", Type: LogTypeError, Ip: "ip-a"})                               // 无 other
+	insertOverviewLog(t, 1, Log{UserId: 1, Username: "u1", Type: LogTypeError, Ip: "ip-a", Other: "not-json"})            // 解析失败
+	insertOverviewLog(t, 1, Log{UserId: 2, Username: "u2", Type: LogTypeError, Ip: "ip-a", Other: `{"status_code":500}`}) // 他人的错误
+
+	target := RiskDetailTarget{Type: RiskDetailTypeUser, Value: "1", Hours: 24}
+
+	uas, err := GetRiskDetailUas(target)
+	require.NoError(t, err)
+	require.Len(t, uas, 2, "空 UA 的行不上榜")
+	assert.Equal(t, "curl/8.0", uas[0].Ua)
+	assert.Equal(t, 5, uas[0].RequestCount, "消费与错误请求都计入 UA 明细")
+	assert.Equal(t, "python-requests/2.31", uas[1].Ua)
+	assert.Equal(t, 1, uas[1].RequestCount)
+
+	statuses, sampled, err := GetRiskDetailErrorStatuses(target)
+	require.NoError(t, err)
+	assert.False(t, sampled, "样本量远低于采样上限")
+	require.Len(t, statuses, 2, "无法解析的 other 与他人的错误都不计入")
+	assert.Equal(t, 429, statuses[0].StatusCode)
+	assert.Equal(t, "rate_limit", statuses[0].ErrorCode)
+	assert.Equal(t, 2, statuses[0].Count)
+	assert.Equal(t, 401, statuses[1].StatusCode)
+	assert.Equal(t, "invalid_api_key", statuses[1].ErrorCode)
+	assert.Equal(t, 1, statuses[1].Count)
+}
+
+func TestGetRiskDetailByUa(t *testing.T) {
+	truncateTables(t)
+
+	insertOverviewLog(t, 1, Log{UserId: 1, Username: "u1", Type: LogTypeConsume, Ip: "ip-a", Ua: "curl/8.0"})
+	insertOverviewLog(t, 1, Log{UserId: 2, Username: "u2", Type: LogTypeConsume, Ip: "ip-b", Ua: "curl/8.0"})
+	insertOverviewLog(t, 1, Log{UserId: 3, Username: "u3", Type: LogTypeConsume, Ip: "ip-c", Ua: "other/1.0"})
+
+	target := RiskDetailTarget{Type: RiskDetailTypeUa, Value: "curl/8.0", Hours: 24}
+
+	users, err := GetRiskDetailUsers(target)
+	require.NoError(t, err)
+	require.Len(t, users, 2, "UA 维度下钻出使用它的用户")
+
+	ips, err := GetRiskDetailIps(target)
+	require.NoError(t, err)
+	require.Len(t, ips, 2, "UA 维度下钻出使用它的 IP")
+}
+
+func TestRiskDetailTargetValidation(t *testing.T) {
+	cases := []struct {
+		name   string
+		target RiskDetailTarget
+	}{
+		{name: "未知类型", target: RiskDetailTarget{Type: "token", Value: "1"}},
+		{name: "用户 ID 非数字", target: RiskDetailTarget{Type: RiskDetailTypeUser, Value: "abc"}},
+		{name: "用户 ID 非正数", target: RiskDetailTarget{Type: RiskDetailTypeUser, Value: "0"}},
+		{name: "IP 为空白", target: RiskDetailTarget{Type: RiskDetailTypeIp, Value: "  "}},
+		{name: "UA 为空", target: RiskDetailTarget{Type: RiskDetailTypeUa, Value: ""}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := GetRiskDetailUsers(tc.target)
+			assert.Error(t, err)
+			_, _, err = GetRiskDetailErrorStatuses(tc.target)
+			assert.Error(t, err)
+		})
+	}
+}
+
+func TestRiskOverviewSorting(t *testing.T) {
+	truncateTables(t)
+	seedOverviewLogs(t)
+
+	// 用户 1 请求数最多(5)但错误数少(1);用户 2 反之(2 请求 / 2 错误)。
+	// 排序字段决定 top N 取自哪个维度,这是合并视图正确性的关键。
+	cases := []struct {
+		name       string
+		sortBy     string
+		sortOrder  string
+		wantTopUid int
+	}{
+		{name: "默认按请求数降序", wantTopUid: 1},
+		{name: "按错误数降序", sortBy: "error_count", wantTopUid: 2},
+		{name: "按错误数升序", sortBy: "error_count", sortOrder: "asc", wantTopUid: 1},
+		{name: "按 IP 数降序", sortBy: "ip_count", wantTopUid: 1},
+		{name: "未知字段回退请求数", sortBy: "quota); drop table logs;--", wantTopUid: 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			items, err := GetUserOverviewRanking(RiskOverviewQuery{
+				Hours: 24, Limit: 50, TinyMaxTokens: 16,
+				SortBy: tc.sortBy, SortOrder: tc.sortOrder,
+			})
+			require.NoError(t, err)
+			require.NotEmpty(t, items)
+			assert.Equal(t, tc.wantTopUid, items[0].UserId)
+		})
+	}
+}
+
+func TestRiskOverviewTinyThresholdFallback(t *testing.T) {
+	truncateTables(t)
+	seedOverviewLogs(t)
+
+	// 阈值为 0 或越界时回退默认值,不能让 SQL 里出现 <= 0 而把微量请求全部算成 0
+	for _, maxTokens := range []int{0, -1, 1 << 20} {
+		items, err := GetUserOverviewRanking(RiskOverviewQuery{Hours: 24, Limit: 50, TinyMaxTokens: maxTokens})
+		require.NoError(t, err)
+		require.NotEmpty(t, items)
+		assert.Equal(t, 1, items[0].UserId)
+		assert.Positive(t, items[0].TinyRequestCount, "maxTokens=%d 时应回退到合法阈值", maxTokens)
+	}
 }
 
 func TestDisableRegularUserWritesReason(t *testing.T) {

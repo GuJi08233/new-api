@@ -22,13 +22,29 @@ func TestValidateRiskControlOptionAcceptsValidValues(t *testing.T) {
 		RiskControlSettingPrefix + "event_retention_days":       "30",
 		RiskControlSettingPrefix + "ip_ban_first_minutes":       "10",
 		RiskControlSettingPrefix + "ip_ban_second_minutes":      "60",
+		RiskControlSettingPrefix + "ip_ban_escalation_minutes":  `[5,30,1440]`,
 		RiskControlSettingPrefix + "ip_ban_permanent_offense":   "3",
 		RiskControlSettingPrefix + "probe_guard_enabled":        "true",
 		RiskControlSettingPrefix + "probe_guard_dry_run":        "false",
 		RiskControlSettingPrefix + "probe_guard_window_seconds": "60",
 		RiskControlSettingPrefix + "probe_guard_model_count":    "5",
+		RiskControlSettingPrefix + "error_guard_enabled":        "true",
+		RiskControlSettingPrefix + "error_guard_dry_run":        "false",
+		RiskControlSettingPrefix + "error_guard_window_seconds": "60",
+		RiskControlSettingPrefix + "error_guard_threshold":      "5",
+		RiskControlSettingPrefix + "error_guard_status_codes":   `[400,401,429]`,
+		RiskControlSettingPrefix + "public_key_user_ids":        `[7,8]`,
+		RiskControlSettingPrefix + "probe_guard_action":         RiskRuleActionBanBoth,
+		RiskControlSettingPrefix + "error_guard_action":         RiskRuleActionDisableUser,
+		RiskControlSettingPrefix + "probe_guard_ban_minutes":    "5",
+		RiskControlSettingPrefix + "error_guard_ban_minutes":    "0",
 		"unrelated_setting.enabled":                             "not-a-bool",
 	}
+
+	// 0 表示永不升级为永久封禁,是合法配置
+	require.NoError(t, ValidateRiskControlOption(RiskControlSettingPrefix+"ip_ban_permanent_offense", "0"))
+	// 空阶梯合法:回退到旧的首次/再犯两档
+	require.NoError(t, ValidateRiskControlOption(RiskControlSettingPrefix+"ip_ban_escalation_minutes", `[]`))
 
 	for key, value := range validOptions {
 		key, value := key, value
@@ -73,10 +89,28 @@ func TestValidateRiskControlOptionRejectsInvalidValues(t *testing.T) {
 		{name: "ban_ip rejected for user metric", key: "auto_ban_rules", value: `[{"metric":"user_multi_ip","window_hours":24,"threshold":3,"action":"ban_ip"}]`, message: "仅支持 IP 维度指标"},
 		{name: "ip ban minutes below minimum", key: "ip_ban_first_minutes", value: "0", message: "临时封禁时长"},
 		{name: "ip ban minutes above maximum", key: "ip_ban_second_minutes", value: "43201", message: "临时封禁时长"},
-		{name: "permanent offense below minimum", key: "ip_ban_permanent_offense", value: "0", message: "永久封禁触发次数"},
+		{name: "permanent offense negative", key: "ip_ban_permanent_offense", value: "-1", message: "永久封禁触发次数"},
+		{name: "permanent offense above maximum", key: "ip_ban_permanent_offense", value: "101", message: "永久封禁触发次数"},
+		{name: "escalation ladder must be array", key: "ip_ban_escalation_minutes", value: `"5"`, message: "分钟数数组"},
+		{name: "escalation ladder step below minimum", key: "ip_ban_escalation_minutes", value: `[5,0]`, message: "第 2 级"},
+		{name: "escalation ladder step above maximum", key: "ip_ban_escalation_minutes", value: `[43201]`, message: "第 1 级"},
+		{name: "escalation ladder too many steps", key: "ip_ban_escalation_minutes", value: `[1,2,3,4,5,6,7,8,9,10,11]`, message: "最多 10 级"},
 		{name: "probe guard switch invalid", key: "probe_guard_enabled", value: "yes", message: "true 或 false"},
 		{name: "probe guard window below minimum", key: "probe_guard_window_seconds", value: "9", message: "10 到 3600"},
 		{name: "probe guard model count below minimum", key: "probe_guard_model_count", value: "1", message: "2 到 1000"},
+		{name: "error guard switch invalid", key: "error_guard_enabled", value: "yes", message: "true 或 false"},
+		{name: "error guard window below minimum", key: "error_guard_window_seconds", value: "9", message: "10 到 3600"},
+		{name: "error guard threshold below minimum", key: "error_guard_threshold", value: "1", message: "错误次数阈值"},
+		{name: "error guard status codes must be array", key: "error_guard_status_codes", value: `"400"`, message: "数字数组"},
+		{name: "error guard status code out of range", key: "error_guard_status_codes", value: `[200]`, message: "400 到 599"},
+		{name: "error guard too many status codes", key: "error_guard_status_codes", value: `[400,401,402,403,404,405,406,407,408,409,410,411,412,413,414,415,416,417,418,419,420]`, message: "最多 20 个"},
+		{name: "public key list must be array", key: "public_key_user_ids", value: `null`, message: "用户 ID 数组"},
+		{name: "invalid public key user", key: "public_key_user_ids", value: `[0]`, message: "正整数"},
+		{name: "invalid guard action", key: "probe_guard_action", value: "ban", message: "处置动作"},
+		{name: "guard ban minutes negative", key: "error_guard_ban_minutes", value: "-1", message: "固定封禁时长"},
+		{name: "guard ban minutes above maximum", key: "probe_guard_ban_minutes", value: "43201", message: "固定封禁时长"},
+		{name: "rule ban minutes negative", key: "auto_ban_rules", value: `[{"metric":"ip_multi_user","window_hours":24,"threshold":3,"action":"ban_ip","ban_minutes":-1}]`, message: "封禁时长"},
+		{name: "ban_both rejected for user metric", key: "auto_ban_rules", value: `[{"metric":"user_error_burst","window_hours":24,"threshold":3,"action":"ban_both"}]`, message: "仅支持 IP 维度指标"},
 		{name: "unknown risk setting", key: "unknown", value: "value", message: "未知的风控配置项"},
 	}
 
@@ -133,4 +167,96 @@ func TestRiskControlIpBanAndProbeGuardFallbacks(t *testing.T) {
 	assert.Equal(t, 5, configured.ResolvedIpBanPermanentOffense())
 	assert.Equal(t, 120, configured.ResolvedProbeGuardWindowSeconds())
 	assert.Equal(t, 8, configured.ResolvedProbeGuardModelCount())
+
+	// 0 表示永不升级为永久封禁,不能被当作"未配置"而回退默认值
+	neverPermanent := &RiskControlSetting{IpBanPermanentOffense: 0}
+	assert.Equal(t, 0, neverPermanent.ResolvedIpBanPermanentOffense())
+	assert.Equal(t, RiskDefaultIpBanPermanentOffense,
+		(&RiskControlSetting{IpBanPermanentOffense: -1}).ResolvedIpBanPermanentOffense())
+}
+
+func TestRiskControlErrorGuardFallbacks(t *testing.T) {
+	t.Parallel()
+
+	var nilSetting *RiskControlSetting
+	assert.Equal(t, RiskDefaultErrorGuardWindowSeconds, nilSetting.ResolvedErrorGuardWindowSeconds())
+	assert.Equal(t, RiskDefaultErrorGuardThreshold, nilSetting.ResolvedErrorGuardThreshold())
+	assert.Equal(t, RiskDefaultErrorGuardStatusCodes, nilSetting.ResolvedErrorGuardStatusCodes())
+
+	outOfRange := &RiskControlSetting{
+		ErrorGuardWindowSeconds: RiskMaxErrorGuardWindowSeconds + 1,
+		ErrorGuardThreshold:     1,
+		ErrorGuardStatusCodes:   []int{200, 600},
+	}
+	assert.Equal(t, RiskDefaultErrorGuardWindowSeconds, outOfRange.ResolvedErrorGuardWindowSeconds())
+	assert.Equal(t, RiskDefaultErrorGuardThreshold, outOfRange.ResolvedErrorGuardThreshold())
+	assert.Equal(t, RiskDefaultErrorGuardStatusCodes, outOfRange.ResolvedErrorGuardStatusCodes(),
+		"状态码全部非法时回退默认集合,避免意外统计 2xx")
+
+	configured := &RiskControlSetting{
+		ErrorGuardWindowSeconds: 30,
+		ErrorGuardThreshold:     10,
+		ErrorGuardStatusCodes:   []int{400, 429},
+	}
+	assert.Equal(t, 30, configured.ResolvedErrorGuardWindowSeconds())
+	assert.Equal(t, 10, configured.ResolvedErrorGuardThreshold())
+	assert.Equal(t, []int{400, 429}, configured.ResolvedErrorGuardStatusCodes())
+}
+
+func TestRiskGuardActionFallbacks(t *testing.T) {
+	t.Parallel()
+
+	// 默认封禁来源 IP:测活者常持他人密钥,封账号会误伤密钥主人
+	var nilSetting *RiskControlSetting
+	assert.Equal(t, RiskRuleActionBanIp, nilSetting.ResolvedProbeGuardAction())
+	assert.Equal(t, RiskRuleActionBanIp, nilSetting.ResolvedErrorGuardAction())
+	assert.Equal(t, 0, nilSetting.ResolvedProbeGuardBanMinutes())
+	assert.Equal(t, 0, nilSetting.ResolvedErrorGuardBanMinutes())
+
+	invalid := &RiskControlSetting{
+		ProbeGuardAction:     "ban",
+		ErrorGuardAction:     "",
+		ProbeGuardBanMinutes: -5,
+		ErrorGuardBanMinutes: RiskMaxIpBanMinutes + 1,
+	}
+	assert.Equal(t, RiskRuleActionBanIp, invalid.ResolvedProbeGuardAction())
+	assert.Equal(t, RiskRuleActionBanIp, invalid.ResolvedErrorGuardAction())
+	assert.Equal(t, 0, invalid.ResolvedProbeGuardBanMinutes(), "越界时长回退到走升级阶梯")
+	assert.Equal(t, 0, invalid.ResolvedErrorGuardBanMinutes())
+
+	configured := &RiskControlSetting{
+		ProbeGuardAction:     RiskRuleActionBanBoth,
+		ErrorGuardAction:     RiskRuleActionAlert,
+		ProbeGuardBanMinutes: 5,
+		ErrorGuardBanMinutes: 30,
+	}
+	assert.Equal(t, RiskRuleActionBanBoth, configured.ResolvedProbeGuardAction())
+	assert.Equal(t, RiskRuleActionAlert, configured.ResolvedErrorGuardAction())
+	assert.Equal(t, 5, configured.ResolvedProbeGuardBanMinutes())
+	assert.Equal(t, 30, configured.ResolvedErrorGuardBanMinutes())
+}
+
+func TestRiskActionPredicates(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		action          string
+		valid           bool
+		bansIp          bool
+		disablesAccount bool
+	}{
+		{action: RiskRuleActionAlert, valid: true},
+		{action: RiskRuleActionBanIp, valid: true, bansIp: true},
+		{action: RiskRuleActionDisableUser, valid: true, disablesAccount: true},
+		{action: RiskRuleActionBanBoth, valid: true, bansIp: true, disablesAccount: true},
+		{action: "block", valid: false},
+		{action: "", valid: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.action, func(t *testing.T) {
+			assert.Equal(t, tc.valid, IsValidRiskRuleAction(tc.action))
+			assert.Equal(t, tc.bansIp, RiskActionBansIp(tc.action))
+			assert.Equal(t, tc.disablesAccount, RiskActionDisablesUser(tc.action))
+		})
+	}
 }

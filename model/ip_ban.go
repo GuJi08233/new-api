@@ -22,6 +22,7 @@ const (
 	IpBanSourceManual     = "manual"      // 管理员手动添加
 	IpBanSourceAutoRule   = "auto_rule"   // 自动封禁规则(周期扫描)
 	IpBanSourceProbeGuard = "probe_guard" // Probe Guard 实时检测
+	IpBanSourceErrorGuard = "error_guard" // Error Guard 实时错误率检测
 )
 
 type IpBan struct {

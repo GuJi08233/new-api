@@ -15,6 +15,9 @@ const (
 
 	ContextKeyOriginalModel    ContextKey = "original_model"
 	ContextKeyRequestStartTime ContextKey = "request_start_time"
+	// ContextKeyRiskBlocked marks a request rejected by risk control itself, so the
+	// error-rate guard does not count its own rejections and extend the ban forever.
+	ContextKeyRiskBlocked ContextKey = "risk_blocked"
 
 	/* token related keys */
 	ContextKeyTokenUnlimited         ContextKey = "token_unlimited_quota"
