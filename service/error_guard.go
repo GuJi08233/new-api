@@ -48,13 +48,16 @@ func RecordErrorGuardResponse(c *gin.Context, statusCode int) {
 		return
 	}
 
-	userId := c.GetInt("id")
-	if userId > 0 && (isRiskWhitelisted(setting, userId) || model.IsAdmin(userId)) {
+	// 豁免判定放在计数之后:与 Probe Guard 语义一致(白名单与管理员的请求计入窗口
+	// 但不触发处置),同时把 model.IsAdmin 的查库挪出热路径 —— 否则一个卡在
+	// 重试循环里的客户端会让每条错误响应都读一次库。
+	count, triggered := recordErrorGuardEvent(setting, ip, statusCode, time.Now())
+	if !triggered {
 		return
 	}
 
-	count, triggered := recordErrorGuardEvent(setting, ip, statusCode, time.Now())
-	if !triggered {
+	userId := c.GetInt("id")
+	if userId > 0 && (isRiskWhitelisted(setting, userId) || model.IsAdmin(userId)) {
 		return
 	}
 

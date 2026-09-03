@@ -179,15 +179,8 @@ func checkRequestRisk(c *gin.Context, setting *operation_setting.RiskControlSett
 	ip := c.ClientIP()
 	ua := c.Request.UserAgent()
 
-	// 动态 IP 封禁独立于风控总开关:它是显式处置记录(手动添加或自动升级产生),
-	// 关闭检测开关不应让已生效的封禁失效。白名单用户仍豁免。
-	if ip != "" && !whitelisted {
-		if ban, matched := model.MatchActiveIpBan(ip); matched {
-			common.SysLog(fmt.Sprintf("risk control: blocked request, ip=%q hit active ban target=%q", ip, ban.Target))
-			recordBlockEvent(model.RiskEventBlockIp, userId, ip, ua, "ban:"+ban.Target)
-			markRiskBlocked(c)
-			return ErrRiskBlocked
-		}
+	if !whitelisted && blockedByIpBan(c, ip, userId, ua) {
+		return ErrRiskBlocked
 	}
 
 	if setting == nil || !setting.Enabled {
@@ -226,6 +219,35 @@ func checkRequestRisk(c *gin.Context, setting *operation_setting.RiskControlSett
 	return ErrRiskBlocked
 }
 
+// blockedByIpBan 判断来源地址是否命中生效中的动态封禁,命中时记录拦截事件并打标。
+// 动态封禁独立于风控总开关:它是显式处置记录(手动添加或自动升级产生),
+// 关闭检测开关不应让已生效的封禁失效。
+func blockedByIpBan(c *gin.Context, ip string, userId int, ua string) bool {
+	if ip == "" {
+		return false
+	}
+	ban, matched := model.MatchActiveIpBan(ip)
+	if !matched {
+		return false
+	}
+	common.SysLog(fmt.Sprintf("risk control: blocked request, ip=%q hit active ban target=%q", ip, ban.Target))
+	recordBlockEvent(model.RiskEventBlockIp, userId, ip, ua, "ban:"+ban.Target)
+	markRiskBlocked(c)
+	return true
+}
+
+// CheckIpBan 只做动态 IP 封禁校验,供中转链路以外的入口(模型列表、注册、验证码)复用。
+// 全局白名单账号豁免;未认证的请求没有账号身份,一律按封禁处理。
+// 纯内存匹配,未命中时零开销。
+func CheckIpBan(c *gin.Context) bool {
+	setting := operation_setting.GetRiskControlSetting()
+	userId := c.GetInt("id")
+	if userId > 0 && isRiskWhitelisted(setting, userId) {
+		return false
+	}
+	return blockedByIpBan(c, c.ClientIP(), userId, c.Request.UserAgent())
+}
+
 // markRiskBlocked 标记本次请求是被风控主动拒绝的,供 Error Guard 排除自身产生的错误响应。
 func markRiskBlocked(c *gin.Context) {
 	if c != nil {
@@ -259,6 +281,8 @@ func disableUserForRisk(setting *operation_setting.RiskControlSetting, userId in
 		return nil
 	}
 	if isAccountBanExempt(setting, userId) {
+		// 豁免不能是静默的:否则规则对着一个永远处置不了的账号空转,你无从发现
+		recordExemptSkipAlert(userId, sourceIp, reason)
 		return nil
 	}
 
@@ -416,6 +440,15 @@ func recordRuleAlert(metric string, userId int, username string, ip string, reas
 	}, time.Now())
 }
 
+// recordExemptSkipAlert 记录一条「命中规则但因白名单跳过账号处置」的告警。
+// 与其他告警共用聚合窗口,同一账号的反复命中不会刷屏。
+// 有意不查用户名:本函数可能被重试循环反复触发(例如用户级白名单账号命中 UA 黑名单),
+// 而事件已带 user_id,列表页据此展示即可。
+func recordExemptSkipAlert(userId int, sourceIp string, reason string) {
+	recordRuleAlert("exempt:disable_user", userId, "", sourceIp,
+		fmt.Sprintf("用户 #%d 命中处置但已跳过:该账号在白名单内。命中原因:%s", userId, reason))
+}
+
 // disableIpAssociatedUsers 处置某 IP 在窗口内关联的全部用户(IP 维度规则共用)。
 func disableIpAssociatedUsers(ip string, window int, reason string) {
 	userIds, err := model.GetIpAssociatedUserIds(ip, window)
@@ -437,21 +470,30 @@ const ipBanOffenseLookback = 90 * 24 * time.Hour
 // 取得太长会让一个曾被白名单账号用过的动态 IP 长期免疫,太短会在账号闲置时失效。
 const whitelistIpLookbackHours = 24
 
-// isWhitelistedIp 判断某地址近期是否有全局白名单账号在使用。
+// isWhitelistedBanTarget 判断封禁目标是否覆盖近期有全局白名单账号在用的地址。
 // 全局白名单的语义是「这个账号的任何流量都不该触发处置」,而封掉它的出口地址
-// 会连带拦下同出口的其他正常用户,因此这类地址不参与自动封禁。
+// 会连带拦下同出口的其他正常用户,因此这类目标不参与自动封禁。
+// 目标可能是 IPv6 归并后的整段前缀,所以判定必须按网段包含而不是地址相等。
 // 查询失败时返回 false 让封禁照常执行:保护机制不该让一次日志库抖动等于风控整体停摆,
 // 而白名单账号自身始终豁免封禁检查,不会被自己触发的封禁锁在门外。
-func isWhitelistedIp(setting *operation_setting.RiskControlSetting, target string) bool {
+func isWhitelistedBanTarget(setting *operation_setting.RiskControlSetting, target string) bool {
 	if setting == nil || len(setting.WhitelistUserIds) == 0 {
 		return false
 	}
-	used, err := model.HasIpUsageByUsers(target, whitelistIpLookbackHours, setting.WhitelistUserIds)
+	ips, truncated, err := model.GetRecentIpsByUsers(whitelistIpLookbackHours, setting.WhitelistUserIds)
 	if err != nil {
-		common.SysLog(fmt.Sprintf("risk control: failed to check whitelist usage for ip %s: %s", target, err.Error()))
+		common.SysLog(fmt.Sprintf("risk control: failed to load whitelist ips while evaluating %s: %s", target, err.Error()))
 		return false
 	}
-	return used
+	if truncated {
+		common.SysLog(fmt.Sprintf("risk control: whitelist ip sample hit the cap while evaluating %s, exemption may be incomplete", target))
+	}
+	for _, ip := range ips {
+		if model.IpBanTargetCovers(target, ip) {
+			return true
+		}
+	}
+	return false
 }
 
 // EscalateIpBan 封禁某 IP。fixedMinutes > 0 时使用该固定时长,不参与累犯升级
@@ -459,15 +501,16 @@ func isWhitelistedIp(setting *operation_setting.RiskControlSetting, target strin
 // 累犯次数以 ban_ip 风控事件为准,临时封禁过期删除后历史仍可追溯。
 // 实际发生新建/延长时写入 ban_ip 事件并返回动作描述;
 // 已有更长效封禁覆盖时返回空串(幂等,不重复记事件)。
+// IPv6 目标按配置的前缀长度归并(默认 /64),否则客户端换个地址就绕过。
 // 全局白名单账号近期使用过的地址一律跳过,只记告警——这条兜底覆盖实时防护
 // 与扫描规则的全部自动封禁路径;管理员手动封禁不经过本函数,不受影响。
 func EscalateIpBan(ip string, reason string, source string, fixedMinutes int) (string, error) {
-	target, err := model.NormalizeIpBanTarget(ip)
+	setting := operation_setting.GetRiskControlSetting()
+	target, err := model.NormalizeAutoBanTarget(ip, setting.ResolvedIpBanIpv6PrefixLength())
 	if err != nil {
 		return "", err
 	}
-	setting := operation_setting.GetRiskControlSetting()
-	if isWhitelistedIp(setting, target) {
+	if isWhitelistedBanTarget(setting, target) {
 		recordRuleAlert(source, 0, "", target, fmt.Sprintf(
 			"IP %s 命中处置但已跳过封禁:近 %d 小时内有全局白名单账号在使用该地址。命中原因:%s",
 			target, whitelistIpLookbackHours, reason))

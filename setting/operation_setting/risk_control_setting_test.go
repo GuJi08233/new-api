@@ -24,6 +24,7 @@ func TestValidateRiskControlOptionAcceptsValidValues(t *testing.T) {
 		RiskControlSettingPrefix + "ip_ban_second_minutes":      "60",
 		RiskControlSettingPrefix + "ip_ban_escalation_minutes":  `[5,30,1440]`,
 		RiskControlSettingPrefix + "ip_ban_permanent_offense":   "3",
+		RiskControlSettingPrefix + "ip_ban_ipv6_prefix_length":  "64",
 		RiskControlSettingPrefix + "probe_guard_enabled":        "true",
 		RiskControlSettingPrefix + "probe_guard_dry_run":        "false",
 		RiskControlSettingPrefix + "probe_guard_window_seconds": "60",
@@ -111,6 +112,13 @@ func TestValidateRiskControlOptionRejectsInvalidValues(t *testing.T) {
 		{name: "guard ban minutes above maximum", key: "probe_guard_ban_minutes", value: "43201", message: "固定封禁时长"},
 		{name: "rule ban minutes negative", key: "auto_ban_rules", value: `[{"metric":"ip_multi_user","window_hours":24,"threshold":3,"action":"ban_ip","ban_minutes":-1}]`, message: "封禁时长"},
 		{name: "ban_both rejected for user metric", key: "auto_ban_rules", value: `[{"metric":"user_error_burst","window_hours":24,"threshold":3,"action":"ban_both"}]`, message: "仅支持 IP 维度指标"},
+		// 风控只处置账号与 IP,密钥维度既不是规则指标也不是处置动作
+		{name: "token metric rejected as rule", key: "auto_ban_rules", value: `[{"metric":"token_multi_ip","window_hours":24,"threshold":3,"action":"alert"}]`, message: "指标无效"},
+		{name: "disable_token rejected as rule action", key: "auto_ban_rules", value: `[{"metric":"ip_multi_token","window_hours":24,"threshold":3,"action":"disable_token"}]`, message: "动作无效"},
+		{name: "disable_token rejected as guard action", key: "probe_guard_action", value: "disable_token", message: "处置动作"},
+		{name: "ipv6 prefix below minimum", key: "ip_ban_ipv6_prefix_length", value: "31", message: "IPv6 封禁前缀长度"},
+		{name: "ipv6 prefix above maximum", key: "ip_ban_ipv6_prefix_length", value: "129", message: "IPv6 封禁前缀长度"},
+		{name: "ipv6 prefix not integer", key: "ip_ban_ipv6_prefix_length", value: "64.5", message: "IPv6 封禁前缀长度"},
 		{name: "unknown risk setting", key: "unknown", value: "value", message: "未知的风控配置项"},
 	}
 
@@ -249,6 +257,8 @@ func TestRiskActionPredicates(t *testing.T) {
 		{action: RiskRuleActionBanIp, valid: true, bansIp: true},
 		{action: RiskRuleActionDisableUser, valid: true, disablesAccount: true},
 		{action: RiskRuleActionBanBoth, valid: true, bansIp: true, disablesAccount: true},
+		// 风控只处置账号与 IP,不涉及单个密钥
+		{action: "disable_token", valid: false},
 		{action: "block", valid: false},
 		{action: "", valid: false},
 	}
@@ -259,4 +269,48 @@ func TestRiskActionPredicates(t *testing.T) {
 			assert.Equal(t, tc.disablesAccount, RiskActionDisablesUser(tc.action))
 		})
 	}
+}
+
+// TestRiskMetricDimensions 钉住 ban_ip 的可用范围:只有 IP 维度指标有单一来源 IP,
+// 用户维度指标封 IP 会牵连窗口内的无关地址。
+func TestRiskMetricDimensions(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		metric string
+		valid  bool
+		ipDim  bool
+	}{
+		{metric: RiskMetricIpMultiUser, valid: true, ipDim: true},
+		{metric: RiskMetricIpMultiToken, valid: true, ipDim: true},
+		{metric: RiskMetricUserMultiIp, valid: true},
+		{metric: RiskMetricUserTinyRequest, valid: true},
+		{metric: RiskMetricUserErrorBurst, valid: true},
+		// 排行榜里有这两个维度,但都不能作为自动处置的依据
+		{metric: "token_multi_ip", valid: false},
+		{metric: "ua", valid: false},
+		{metric: "", valid: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.metric, func(t *testing.T) {
+			assert.Equal(t, tc.valid, IsValidRiskMetric(tc.metric))
+			assert.Equal(t, tc.ipDim, IsIpDimensionRiskMetric(tc.metric))
+		})
+	}
+}
+
+func TestResolvedIpBanIpv6PrefixLength(t *testing.T) {
+	t.Parallel()
+
+	var nilSetting *RiskControlSetting
+	assert.Equal(t, RiskDefaultIpBanIpv6PrefixLength, nilSetting.ResolvedIpBanIpv6PrefixLength())
+	assert.Equal(t, RiskDefaultIpBanIpv6PrefixLength, (&RiskControlSetting{}).ResolvedIpBanIpv6PrefixLength())
+	assert.Equal(t, RiskDefaultIpBanIpv6PrefixLength,
+		(&RiskControlSetting{IpBanIpv6PrefixLength: RiskMinIpBanIpv6PrefixLength - 1}).ResolvedIpBanIpv6PrefixLength())
+	assert.Equal(t, RiskDefaultIpBanIpv6PrefixLength,
+		(&RiskControlSetting{IpBanIpv6PrefixLength: RiskMaxIpBanIpv6PrefixLength + 1}).ResolvedIpBanIpv6PrefixLength())
+	assert.Equal(t, 48, (&RiskControlSetting{IpBanIpv6PrefixLength: 48}).ResolvedIpBanIpv6PrefixLength())
+	assert.Equal(t, RiskMaxIpBanIpv6PrefixLength,
+		(&RiskControlSetting{IpBanIpv6PrefixLength: RiskMaxIpBanIpv6PrefixLength}).ResolvedIpBanIpv6PrefixLength(),
+		"128 是合法配置:表示按单地址封禁")
 }

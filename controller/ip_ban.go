@@ -1,7 +1,6 @@
 package controller
 
 import (
-	"net/netip"
 	"strconv"
 	"strings"
 	"time"
@@ -50,7 +49,7 @@ func AddIpBan(c *gin.Context) {
 		return
 	}
 	// 防呆:禁止封禁当前请求来源 IP,避免管理员把自己锁在门外。
-	if ipBanTargetMatchesClient(target, c.ClientIP()) {
+	if model.IpBanTargetCovers(target, c.ClientIP()) {
 		common.ApiErrorMsg(c, "不能封禁当前请求来源的 IP")
 		return
 	}
@@ -107,25 +106,4 @@ func DeleteIpBan(c *gin.Context) {
 		common.SysLog("failed to record ip unban event: " + err.Error())
 	}
 	common.ApiSuccess(c, nil)
-}
-
-// ipBanTargetMatchesClient 判断封禁目标(已归一化的 IP 或 CIDR)是否覆盖客户端 IP。
-func ipBanTargetMatchesClient(target string, clientIP string) bool {
-	addr, err := netip.ParseAddr(strings.TrimSpace(clientIP))
-	if err != nil {
-		return false
-	}
-	addr = addr.Unmap()
-	if strings.Contains(target, "/") {
-		prefix, err := netip.ParsePrefix(target)
-		if err != nil {
-			return false
-		}
-		return prefix.Contains(addr)
-	}
-	targetAddr, err := netip.ParseAddr(target)
-	if err != nil {
-		return false
-	}
-	return targetAddr.Unmap() == addr
 }

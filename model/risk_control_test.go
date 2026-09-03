@@ -319,35 +319,81 @@ func TestScanRankingsExcludeWhitelistUsers(t *testing.T) {
 	}
 }
 
-func TestHasIpUsageByUsers(t *testing.T) {
+func TestGetRecentIpsByUsers(t *testing.T) {
 	truncateTables(t)
 
-	insertRiskLog(t, 9, "owner", "ip-own", "", LogTypeConsume, 1)
-	insertRiskLog(t, 1, "u1", "ip-bad", "", LogTypeError, 1)
-	insertRiskLog(t, 9, "owner", "ip-stale", "", LogTypeConsume, 48)
-	insertRiskLog(t, 9, "owner", "ip-manage", "", LogTypeManage, 1)
+	insertRiskLog(t, 9, "owner", "198.51.100.7", "", LogTypeConsume, 1)
+	insertRiskLog(t, 9, "owner", "198.51.100.7", "", LogTypeError, 2) // 去重
+	insertRiskLog(t, 9, "owner", "2001:db8:1:2::5", "", LogTypeConsume, 1)
+	insertRiskLog(t, 1, "u1", "203.0.113.9", "", LogTypeError, 1)        // 他人的地址
+	insertRiskLog(t, 9, "owner", "198.51.100.8", "", LogTypeConsume, 48) // 窗口外
+	insertRiskLog(t, 9, "owner", "198.51.100.9", "", LogTypeManage, 1)   // 非风控日志类型
+	insertRiskLog(t, 9, "owner", "", "", LogTypeConsume, 1)              // 空 IP
 
+	ips, truncated, err := GetRecentIpsByUsers(24, []int{9})
+	require.NoError(t, err)
+	assert.False(t, truncated)
+	assert.ElementsMatch(t, []string{"198.51.100.7", "2001:db8:1:2::5"}, ips)
+
+	// 放宽窗口后窗口外的地址进入结果
+	wide, _, err := GetRecentIpsByUsers(72, []int{9})
+	require.NoError(t, err)
+	assert.Contains(t, wide, "198.51.100.8")
+
+	// 候选为空时不查库
+	empty, truncated, err := GetRecentIpsByUsers(24, nil)
+	require.NoError(t, err)
+	assert.False(t, truncated)
+	assert.Empty(t, empty)
+}
+
+func TestNormalizeAutoBanTarget(t *testing.T) {
 	cases := []struct {
-		name    string
-		ip      string
-		hours   int
-		userIds []int
-		want    bool
+		name         string
+		target       string
+		prefixLength int
+		want         string
 	}{
-		{name: "候选账号在用", ip: "ip-own", hours: 24, userIds: []int{9}, want: true},
-		{name: "多个候选命中其一", ip: "ip-own", hours: 24, userIds: []int{7, 9}, want: true},
-		{name: "该地址只有他人", ip: "ip-bad", hours: 24, userIds: []int{9}, want: false},
-		{name: "窗口外不算在用", ip: "ip-stale", hours: 24, userIds: []int{9}, want: false},
-		{name: "放宽窗口后命中", ip: "ip-stale", hours: 72, userIds: []int{9}, want: true},
-		{name: "非风控日志类型不算", ip: "ip-manage", hours: 24, userIds: []int{9}, want: false},
-		{name: "候选为空", ip: "ip-own", hours: 24, userIds: nil, want: false},
-		{name: "IP 为空白", ip: "  ", hours: 24, userIds: []int{9}, want: false},
+		{name: "IPv4 不归并", target: "203.0.113.7", prefixLength: 64, want: "203.0.113.7"},
+		{name: "IPv6 归并到 /64", target: "2001:db8:1:2:3:4:5:6", prefixLength: 64, want: "2001:db8:1:2::/64"},
+		{name: "IPv6 归并到 /48", target: "2001:db8:1:2:3:4:5:6", prefixLength: 48, want: "2001:db8:1::/48"},
+		{name: "前缀 128 表示按单地址封禁", target: "2001:db8:1:2:3:4:5:6", prefixLength: 128, want: "2001:db8:1:2:3:4:5:6"},
+		{name: "前缀为 0 时不归并", target: "2001:db8::1", prefixLength: 0, want: "2001:db8::1"},
+		{name: "已是 CIDR 的目标原样返回", target: "2001:db8:1:2::/64", prefixLength: 48, want: "2001:db8:1:2::/64"},
+		{name: "IPv4 映射地址按 IPv4 处理", target: "::ffff:203.0.113.7", prefixLength: 64, want: "203.0.113.7"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			used, err := HasIpUsageByUsers(tc.ip, tc.hours, tc.userIds)
+			got, err := NormalizeAutoBanTarget(tc.target, tc.prefixLength)
 			require.NoError(t, err)
-			assert.Equal(t, tc.want, used)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+
+	_, err := NormalizeAutoBanTarget("not-an-ip", 64)
+	assert.Error(t, err)
+}
+
+func TestIpBanTargetCovers(t *testing.T) {
+	cases := []struct {
+		name   string
+		target string
+		ip     string
+		want   bool
+	}{
+		{name: "单地址相等", target: "203.0.113.7", ip: "203.0.113.7", want: true},
+		{name: "单地址不等", target: "203.0.113.7", ip: "203.0.113.8", want: false},
+		{name: "CIDR 覆盖", target: "203.0.113.0/24", ip: "203.0.113.99", want: true},
+		{name: "CIDR 之外", target: "203.0.113.0/24", ip: "203.0.114.1", want: false},
+		{name: "IPv6 /64 覆盖同段其他地址", target: "2001:db8:1:2::/64", ip: "2001:db8:1:2:aaaa::9", want: true},
+		{name: "IPv6 /64 不覆盖邻段", target: "2001:db8:1:2::/64", ip: "2001:db8:1:3::1", want: false},
+		{name: "IPv4 映射地址按 IPv4 比对", target: "203.0.113.7", ip: "::ffff:203.0.113.7", want: true},
+		{name: "非法地址", target: "203.0.113.7", ip: "garbage", want: false},
+		{name: "非法目标", target: "garbage", ip: "203.0.113.7", want: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, IpBanTargetCovers(tc.target, tc.ip))
 		})
 	}
 }

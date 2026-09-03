@@ -55,6 +55,7 @@ const KEY_IP_BAN_FIRST = `${KEY_PREFIX}ip_ban_first_minutes`;
 const KEY_IP_BAN_SECOND = `${KEY_PREFIX}ip_ban_second_minutes`;
 const KEY_IP_BAN_LADDER = `${KEY_PREFIX}ip_ban_escalation_minutes`;
 const KEY_IP_BAN_PERMANENT = `${KEY_PREFIX}ip_ban_permanent_offense`;
+const KEY_IP_BAN_IPV6_PREFIX = `${KEY_PREFIX}ip_ban_ipv6_prefix_length`;
 const KEY_PG_ENABLED = `${KEY_PREFIX}probe_guard_enabled`;
 const KEY_PG_DRY_RUN = `${KEY_PREFIX}probe_guard_dry_run`;
 const KEY_PG_WINDOW = `${KEY_PREFIX}probe_guard_window_seconds`;
@@ -120,6 +121,7 @@ const RiskSettings = () => {
   const [retentionDays, setRetentionDays] = useState(30);
   const [banLadder, setBanLadder] = useState(DEFAULT_BAN_LADDER);
   const [ipBanPermanent, setIpBanPermanent] = useState(3);
+  const [ipv6PrefixLength, setIpv6PrefixLength] = useState(64);
   const [pgEnabled, setPgEnabled] = useState(false);
   const [pgDryRun, setPgDryRun] = useState(true);
   const [pgWindow, setPgWindow] = useState(60);
@@ -180,6 +182,12 @@ const RiskSettings = () => {
             Number.isFinite(banSecond) && banSecond > 0 ? banSecond : 60,
           ]);
         }
+        const ipv6Prefix = parseInt(optionMap[KEY_IP_BAN_IPV6_PREFIX], 10);
+        setIpv6PrefixLength(
+          Number.isFinite(ipv6Prefix) && ipv6Prefix >= 32 && ipv6Prefix <= 128
+            ? ipv6Prefix
+            : 64,
+        );
         const banPermanent = parseInt(optionMap[KEY_IP_BAN_PERMANENT], 10);
         setIpBanPermanent(
           Number.isFinite(banPermanent) && banPermanent >= 0 ? banPermanent : 3,
@@ -294,6 +302,7 @@ const RiskSettings = () => {
         value: JSON.stringify(ladder.length > 0 ? ladder : DEFAULT_BAN_LADDER),
       },
       { key: KEY_IP_BAN_PERMANENT, value: String(ipBanPermanent) },
+      { key: KEY_IP_BAN_IPV6_PREFIX, value: String(ipv6PrefixLength) },
       { key: KEY_PG_ENABLED, value: String(pgEnabled) },
       { key: KEY_PG_DRY_RUN, value: String(pgDryRun) },
       { key: KEY_PG_WINDOW, value: String(pgWindow) },
@@ -400,9 +409,9 @@ const RiskSettings = () => {
           style={{ width: 200 }}
           onChange={(val) => {
             const patch = { metric: val };
-            // ban_ip 只对 IP 维度指标有效,切到用户维度时回退为仅告警
+            // 封禁 IP 只对 IP 维度指标有效,切到用户维度时回退为仅告警
             if (
-              record.action === 'ban_ip' &&
+              BAN_IP_ACTIONS.includes(record.action) &&
               !IP_DIMENSION_METRICS.includes(val)
             ) {
               patch.action = 'alert';
@@ -920,7 +929,7 @@ const RiskSettings = () => {
               </Button>
             )}
           </Space>
-          <Space>
+          <Space wrap>
             <Text>{t('第 N 次起永久封禁(0 表示永不永久)')}</Text>
             <InputNumber
               value={ipBanPermanent}
@@ -929,10 +938,23 @@ const RiskSettings = () => {
               style={{ width: 90 }}
               onChange={(v) => setIpBanPermanent(v >= 0 ? v : 3)}
             />
+            <Text>{t('IPv6 封禁前缀长度')}</Text>
+            <InputNumber
+              value={ipv6PrefixLength}
+              min={32}
+              max={128}
+              style={{ width: 90 }}
+              onChange={(v) => setIpv6PrefixLength(v > 0 ? v : 64)}
+            />
           </Space>
           <Text type='tertiary' size='small'>
             {t(
               '升级阶梯对「封禁 IP」动作、Probe Guard 与 Error Guard 共同生效:第 N 次违规用第 N 级时长,超出阶梯级数则停在最后一级。违规次数按该 IP 近 90 天内的封禁事件累计。',
+            )}
+          </Text>
+          <Text type='tertiary' size='small'>
+            {t(
+              '自动封禁 IPv6 地址时归并到该长度的前缀(默认 64)。运营商给客户端的是一整段前缀,客户端可在段内随意换地址,只封单个地址等于没封。128 表示按单地址封禁。IPv4 与手动添加的封禁不受影响。',
             )}
           </Text>
           <Table

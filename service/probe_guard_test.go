@@ -40,6 +40,10 @@ func setupRealtimeGuardTest(t *testing.T) {
 func resetRealtimeGuardState() {
 	probeGuardWindow.reset()
 	errorGuardWindow.reset()
+	// 告警按 (类型+指标+用户+IP) 聚合限流,残留的桶会让后续用例的告警被静默抑制
+	riskEventMu.Lock()
+	riskEventBuckets = map[string]*riskEventBucket{}
+	riskEventMu.Unlock()
 }
 
 func probeGuardTestSetting() *operation_setting.RiskControlSetting {
@@ -242,6 +246,67 @@ func TestEscalateIpBanSkipsWhitelistedIp(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, action)
 	_, matched = model.MatchActiveIpBan("198.51.100.10")
+	assert.True(t, matched)
+}
+
+// TestEscalateIpBanMergesIpv6ToPrefix 覆盖 IPv6 归并:只封 /128 时客户端换个
+// 隐私扩展地址就绕过,归并到 /64 才真正拦住那条线路。
+func TestEscalateIpBanMergesIpv6ToPrefix(t *testing.T) {
+	setupRealtimeGuardTest(t)
+	operation_setting.SetRiskControlSettingForTest(probeGuardTestSetting())
+
+	action, err := EscalateIpBan("2001:db8:1:2:3:4:5:6", "疑似批量测活", model.IpBanSourceProbeGuard, 0)
+	require.NoError(t, err)
+	assert.Contains(t, action, "首次")
+
+	ban, matched := model.MatchActiveIpBan("2001:db8:1:2:3:4:5:6")
+	require.True(t, matched)
+	assert.Equal(t, "2001:db8:1:2::/64", ban.Target)
+
+	// 同段换地址照样被拦 —— 这正是按单地址封禁时漏掉的
+	_, matched = model.MatchActiveIpBan("2001:db8:1:2:aaaa:bbbb:cccc:dddd")
+	assert.True(t, matched)
+
+	// 邻段不受牵连
+	_, matched = model.MatchActiveIpBan("2001:db8:1:3::1")
+	assert.False(t, matched)
+
+	// IPv4 不归并,仍按单地址封禁
+	_, err = EscalateIpBan("198.51.100.20", "疑似批量测活", model.IpBanSourceProbeGuard, 0)
+	require.NoError(t, err)
+	ban, matched = model.MatchActiveIpBan("198.51.100.20")
+	require.True(t, matched)
+	assert.Equal(t, "198.51.100.20", ban.Target)
+}
+
+// TestEscalateIpBanWhitelistCoversIpv6Prefix 验证白名单豁免按网段包含判定:
+// 归并后的封禁目标会覆盖白名单账号所在的其他地址,此时必须整段放弃封禁。
+func TestEscalateIpBanWhitelistCoversIpv6Prefix(t *testing.T) {
+	setupRealtimeGuardTest(t)
+
+	setting := probeGuardTestSetting()
+	setting.WhitelistUserIds = []int{9}
+	operation_setting.SetRiskControlSettingForTest(setting)
+
+	require.NoError(t, model.LOG_DB.Create(&model.Log{
+		UserId:    9,
+		Username:  "owner",
+		CreatedAt: time.Now().Add(-time.Hour).Unix(),
+		Type:      model.LogTypeConsume,
+		Ip:        "2001:db8:1:2:aaaa::1",
+	}).Error)
+
+	action, err := EscalateIpBan("2001:db8:1:2:3:4:5:6", "疑似批量测活", model.IpBanSourceProbeGuard, 0)
+	require.NoError(t, err)
+	assert.Empty(t, action, "同一 /64 内有白名单账号在用,整段不封")
+	_, matched := model.MatchActiveIpBan("2001:db8:1:2:3:4:5:6")
+	assert.False(t, matched)
+
+	// 邻段没有白名单账号,照常封禁
+	action, err = EscalateIpBan("2001:db8:1:3::9", "疑似批量测活", model.IpBanSourceProbeGuard, 0)
+	require.NoError(t, err)
+	assert.NotEmpty(t, action)
+	_, matched = model.MatchActiveIpBan("2001:db8:1:3::9")
 	assert.True(t, matched)
 }
 

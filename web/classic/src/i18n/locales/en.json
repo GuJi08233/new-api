@@ -4274,6 +4274,8 @@
     "删除该级": "Remove this step",
     "添加一级": "Add step",
     "第 N 次起永久封禁(0 表示永不永久)": "Permanent ban from offense N (0 = never permanent)",
+    "IPv6 封禁前缀长度": "IPv6 ban prefix length",
+    "自动封禁 IPv6 地址时归并到该长度的前缀(默认 64)。运营商给客户端的是一整段前缀,客户端可在段内随意换地址,只封单个地址等于没封。128 表示按单地址封禁。IPv4 与手动添加的封禁不受影响。": "Auto-bans on an IPv6 address are widened to a prefix of this length (default 64). Providers hand each client a whole prefix and the client can pick any address inside it, so banning a single address bans nothing. Set 128 to ban the exact address instead. IPv4 and manually added bans are unaffected.",
     "Error Guard(实时错误率防护)": "Error Guard (real-time error-rate guard)",
     "启用 Error Guard": "Enable Error Guard",
     "错误次数阈值": "Error count threshold",

@@ -44,6 +44,11 @@ type RiskControlSetting struct {
 	IpBanSecondMinutes     int   `json:"ip_ban_second_minutes"`    // 旧配置:第二次及以后的临时封禁时长(分钟)
 	IpBanPermanentOffense  int   `json:"ip_ban_permanent_offense"` // 第 N 次违规起永久封禁,0 表示永不升级为永久
 
+	// IpBanIpv6PrefixLength 是自动封禁 IPv6 地址时归并到的前缀长度。
+	// 运营商通常给客户端一整段前缀,客户端可在段内自由更换地址(隐私扩展地址甚至每小时一换),
+	// 只封 /128 等于没封。128 表示不归并、按单地址封禁。手动封禁不受此设置影响。
+	IpBanIpv6PrefixLength int `json:"ip_ban_ipv6_prefix_length"`
+
 	// Probe Guard:请求内实时检测「单 IP 短窗口遍历多个不同模型」的批量测活行为。
 	ProbeGuardEnabled       bool   `json:"probe_guard_enabled"`
 	ProbeGuardDryRun        bool   `json:"probe_guard_dry_run"`        // 只记告警事件,不实际封禁
@@ -75,6 +80,7 @@ const (
 	RiskMetricUserTinyRequest = "user_tiny_request"
 	RiskMetricUserErrorBurst  = "user_error_burst"
 
+	// 风控只处置账号与 IP 两个层次,不涉及单个密钥
 	RiskRuleActionAlert       = "alert"        // 仅记录告警事件
 	RiskRuleActionDisableUser = "disable_user" // 禁用命中的账号
 	RiskRuleActionBanIp       = "ban_ip"       // 封禁来源 IP
@@ -96,6 +102,12 @@ const (
 	RiskDefaultIpBanPermanentOffense = 3
 	RiskMaxIpBanPermanentOffense     = 100
 	RiskMaxIpBanEscalationSteps      = 10
+
+	// IPv6 归并前缀长度:默认 /64,即运营商分配给单个客户端的最小整段。
+	// 下限 32 防止一次封掉整个运营商,128 表示按单地址封禁。
+	RiskDefaultIpBanIpv6PrefixLength = 64
+	RiskMinIpBanIpv6PrefixLength     = 32
+	RiskMaxIpBanIpv6PrefixLength     = 128
 
 	RiskDefaultProbeGuardWindowSeconds = 60
 	RiskMinProbeGuardWindowSeconds     = 10
@@ -256,6 +268,12 @@ func ValidateRiskControlOption(key string, value string) error {
 		if err != nil || count < 0 || count > RiskMaxIpBanPermanentOffense {
 			return fmt.Errorf("永久封禁触发次数必须为 0 到 %d(0 表示永不永久封禁)", RiskMaxIpBanPermanentOffense)
 		}
+	case "ip_ban_ipv6_prefix_length":
+		length, err := strconv.Atoi(value)
+		if err != nil || length < RiskMinIpBanIpv6PrefixLength || length > RiskMaxIpBanIpv6PrefixLength {
+			return fmt.Errorf("IPv6 封禁前缀长度必须为 %d 到 %d(%d 表示按单地址封禁)",
+				RiskMinIpBanIpv6PrefixLength, RiskMaxIpBanIpv6PrefixLength, RiskMaxIpBanIpv6PrefixLength)
+		}
 	case "probe_guard_enabled", "probe_guard_dry_run":
 		if value != "true" && value != "false" {
 			return fmt.Errorf("Probe Guard 开关必须为 true 或 false")
@@ -356,6 +374,7 @@ var riskControlSetting = RiskControlSetting{
 	IpBanFirstMinutes:      RiskDefaultIpBanFirstMinutes,
 	IpBanSecondMinutes:     RiskDefaultIpBanSecondMinutes,
 	IpBanPermanentOffense:  RiskDefaultIpBanPermanentOffense,
+	IpBanIpv6PrefixLength:  RiskDefaultIpBanIpv6PrefixLength,
 
 	ProbeGuardEnabled:       false,
 	ProbeGuardDryRun:        true,
@@ -414,6 +433,14 @@ func (s *RiskControlSetting) ResolvedIpBanEscalationMinutes() []int {
 		}
 	}
 	return []int{s.ResolvedIpBanFirstMinutes(), s.ResolvedIpBanSecondMinutes()}
+}
+
+// ResolvedIpBanIpv6PrefixLength 返回自动封禁 IPv6 地址时归并到的前缀长度。
+func (s *RiskControlSetting) ResolvedIpBanIpv6PrefixLength() int {
+	if s == nil || s.IpBanIpv6PrefixLength < RiskMinIpBanIpv6PrefixLength || s.IpBanIpv6PrefixLength > RiskMaxIpBanIpv6PrefixLength {
+		return RiskDefaultIpBanIpv6PrefixLength
+	}
+	return s.IpBanIpv6PrefixLength
 }
 
 // ResolvedErrorGuardWindowSeconds 返回生效的 Error Guard 滑动窗口(秒)。

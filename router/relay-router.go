@@ -21,6 +21,8 @@ func SetRelayRouter(router *gin.Engine) {
 	modelsRouter.Use(middleware.RouteTag("relay"))
 	modelsRouter.Use(middleware.ErrorGuard())
 	modelsRouter.Use(middleware.TokenAuth())
+	// 模型列表不经过 Distribute,动态封禁在这里单独校验
+	modelsRouter.Use(middleware.IpBanGuard())
 	{
 		modelsRouter.GET("", func(c *gin.Context) {
 			switch {
@@ -47,6 +49,7 @@ func SetRelayRouter(router *gin.Engine) {
 	geminiRouter.Use(middleware.RouteTag("relay"))
 	geminiRouter.Use(middleware.ErrorGuard())
 	geminiRouter.Use(middleware.TokenAuth())
+	geminiRouter.Use(middleware.IpBanGuard())
 	{
 		geminiRouter.GET("", func(c *gin.Context) {
 			controller.ListModels(c, constant.ChannelTypeGemini)
@@ -57,6 +60,7 @@ func SetRelayRouter(router *gin.Engine) {
 	geminiCompatibleRouter.Use(middleware.RouteTag("relay"))
 	geminiCompatibleRouter.Use(middleware.ErrorGuard())
 	geminiCompatibleRouter.Use(middleware.TokenAuth())
+	geminiCompatibleRouter.Use(middleware.IpBanGuard())
 	{
 		geminiCompatibleRouter.GET("", func(c *gin.Context) {
 			controller.ListModels(c, constant.ChannelTypeOpenAI)

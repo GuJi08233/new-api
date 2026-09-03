@@ -639,24 +639,30 @@ func GetRiskDetailErrorStatuses(target RiskDetailTarget) ([]RiskErrorStatusItem,
 	return items, len(payloads) >= riskErrorSampleLimit, nil
 }
 
-// HasIpUsageByUsers 判断某 IP 在窗口内是否有指定用户发出的请求。
-// 自动封禁用它确认目标地址是否仍被全局白名单账号使用,命中则放弃封禁。
-// 只取一行即可判定,不做计数。
-func HasIpUsageByUsers(ip string, hours int, userIds []int) (bool, error) {
-	ip = strings.TrimSpace(ip)
-	if ip == "" || len(userIds) == 0 {
-		return false, nil
+// riskWhitelistIpSampleLimit 拉取白名单账号近期地址的条数上限。
+// 白名单是运营者自用的少数账号,正常情况远达不到上限;触顶说明白名单里放了
+// 高流量账号,此时豁免判定可能不完整,调用方会记录日志。
+const riskWhitelistIpSampleLimit = 1000
+
+// GetRecentIpsByUsers 返回窗口内这些用户使用过的去重 IP。
+// 自动封禁用它判断封禁目标(单地址或 IPv6 归并后的前缀)是否覆盖全局白名单账号。
+// 之所以取回地址在应用层比对而不是用 SQL 判定:封禁目标可能是 CIDR,
+// 而三库都没有可移植的网段包含运算。第二个返回值表示已达采样上限。
+func GetRecentIpsByUsers(hours int, userIds []int) ([]string, bool, error) {
+	if len(userIds) == 0 {
+		return nil, false, nil
 	}
 
-	var ids []int
+	var ips []string
 	err := LOG_DB.Table("logs").
 		Where("created_at >= ?", normalizeRiskWindow(hours)).
 		Where("type IN ?", riskLogTypes()).
-		Where("ip = ?", ip).
+		Where("ip <> ''").
 		Where("user_id IN ?", userIds).
-		Limit(1).
-		Pluck("id", &ids).Error
-	return len(ids) > 0, err
+		Distinct().
+		Limit(riskWhitelistIpSampleLimit).
+		Pluck("ip", &ips).Error
+	return ips, len(ips) >= riskWhitelistIpSampleLimit, err
 }
 
 // GetIpAssociatedUserIds 返回某 IP 在窗口内关联的全部用户 ID(供自动封禁使用)。

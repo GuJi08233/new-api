@@ -57,6 +57,54 @@ func NormalizeIpBanTarget(target string) (string, error) {
 	return addr.Unmap().String(), nil
 }
 
+// NormalizeAutoBanTarget 归一化自动封禁目标。
+// IPv6 客户端通常能在运营商分配的整段前缀内自由更换地址(隐私扩展地址甚至每小时一换),
+// 只封 /128 等于没封,因此按 ipv6PrefixLength 归并到前缀。
+// IPv4 与本身已是 CIDR 的目标原样处理;ipv6PrefixLength 为 128 时不归并。
+// 管理员手动封禁不走本函数,填什么封什么。
+func NormalizeAutoBanTarget(target string, ipv6PrefixLength int) (string, error) {
+	normalized, err := NormalizeIpBanTarget(target)
+	if err != nil {
+		return "", err
+	}
+	if strings.Contains(normalized, "/") {
+		return normalized, nil
+	}
+	addr, err := netip.ParseAddr(normalized)
+	if err != nil {
+		return "", err
+	}
+	if addr.Is4() || ipv6PrefixLength <= 0 || ipv6PrefixLength >= addr.BitLen() {
+		return normalized, nil
+	}
+	prefix, err := addr.Prefix(ipv6PrefixLength)
+	if err != nil {
+		return "", err
+	}
+	return prefix.Masked().String(), nil
+}
+
+// IpBanTargetCovers 判断封禁目标(已归一化的 IP 或 CIDR)是否覆盖给定地址。
+func IpBanTargetCovers(target string, ip string) bool {
+	addr, err := netip.ParseAddr(strings.TrimSpace(ip))
+	if err != nil {
+		return false
+	}
+	addr = addr.Unmap()
+	if strings.Contains(target, "/") {
+		prefix, err := netip.ParsePrefix(target)
+		if err != nil {
+			return false
+		}
+		return prefix.Contains(addr)
+	}
+	targetAddr, err := netip.ParseAddr(target)
+	if err != nil {
+		return false
+	}
+	return targetAddr.Unmap() == addr
+}
+
 type ipBanCacheEntry struct {
 	id        int
 	target    string
