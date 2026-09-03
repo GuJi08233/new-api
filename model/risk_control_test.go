@@ -40,7 +40,7 @@ func TestGetIpMultiUserRanking(t *testing.T) {
 	// 管理/充值日志不参与统计
 	insertRiskLog(t, 7, "u7", "ip-a", "", LogTypeManage, 1)
 
-	items, err := GetIpMultiUserRanking(24, 50)
+	items, err := GetIpMultiUserRanking(24, 50, nil)
 	if err != nil {
 		t.Fatalf("GetIpMultiUserRanking: %v", err)
 	}
@@ -66,7 +66,7 @@ func TestGetUserMultiIpRanking(t *testing.T) {
 	// 空 IP 不参与统计
 	insertRiskLog(t, 1, "u1", "", "", LogTypeConsume, 1)
 
-	items, err := GetUserMultiIpRanking(24, 50)
+	items, err := GetUserMultiIpRanking(24, 50, nil)
 	if err != nil {
 		t.Fatalf("GetUserMultiIpRanking: %v", err)
 	}
@@ -148,7 +148,7 @@ func TestRiskWindowAndLimitNormalization(t *testing.T) {
 	insertRiskLog(t, 1, "u1", "ip-a", "", LogTypeConsume, 24*8)
 	insertRiskLog(t, 2, "u2", "ip-a", "", LogTypeConsume, 24*8)
 
-	items, err := GetIpMultiUserRanking(10000, 50)
+	items, err := GetIpMultiUserRanking(10000, 50, nil)
 	if err != nil {
 		t.Fatalf("GetIpMultiUserRanking: %v", err)
 	}
@@ -187,7 +187,7 @@ func TestGetIpMultiTokenRanking(t *testing.T) {
 	insertProbeLog(t, 3, "u3", "ip-b", 0, LogTypeConsume, 100, 100, 1)
 	insertProbeLog(t, 3, "u3", "", 202, LogTypeConsume, 100, 100, 1)
 
-	items, err := GetIpMultiTokenRanking(24, 50)
+	items, err := GetIpMultiTokenRanking(24, 50, nil)
 	require.NoError(t, err)
 	require.Len(t, items, 2)
 	assert.Equal(t, "ip-a", items[0].Ip)
@@ -211,7 +211,7 @@ func TestGetUserTinyRequestRanking(t *testing.T) {
 	insertProbeLog(t, 2, "u2", "ip-b", 201, LogTypeError, 1, 1, 1)
 	insertProbeLog(t, 3, "u3", "ip-c", 301, LogTypeConsume, 17, 1, 1)
 
-	items, err := GetUserTinyRequestRanking(24, 50, 16)
+	items, err := GetUserTinyRequestRanking(24, 50, 16, nil)
 	require.NoError(t, err)
 	require.Len(t, items, 2)
 	assert.Equal(t, 1, items[0].UserId)
@@ -232,7 +232,7 @@ func TestGetUserErrorRanking(t *testing.T) {
 	insertRiskLog(t, 2, "u2", "ip-a", "", LogTypeError, 1)
 	insertRiskLog(t, 2, "u2", "ip-a", "", LogTypeError, 48)
 
-	items, err := GetUserErrorRanking(24, 50)
+	items, err := GetUserErrorRanking(24, 50, nil)
 	require.NoError(t, err)
 	require.Len(t, items, 2)
 	assert.Equal(t, 1, items[0].UserId)
@@ -253,7 +253,7 @@ func TestGetTokenMultiIpRanking(t *testing.T) {
 	insertProbeLog(t, 2, "u2", "", 201, LogTypeConsume, 100, 100, 1)
 	insertProbeLog(t, 3, "u3", "ip-a", 0, LogTypeConsume, 100, 100, 1)
 
-	items, err := GetTokenMultiIpRanking(24, 50)
+	items, err := GetTokenMultiIpRanking(24, 50, nil)
 	require.NoError(t, err)
 	require.Len(t, items, 1, "只有使用 >1 IP 的令牌上榜")
 	assert.Equal(t, 101, items[0].TokenId)
@@ -261,6 +261,95 @@ func TestGetTokenMultiIpRanking(t *testing.T) {
 	assert.Equal(t, "u1", items[0].Username)
 	assert.Equal(t, 3, items[0].IpCount)
 	assert.Equal(t, 3, items[0].RequestCount)
+}
+
+// TestScanRankingsExcludeWhitelistUsers 覆盖全局白名单的核心契约:白名单账号的流量
+// 不进入自动封禁扫描所读的排行,因此它独占的出口地址永不上榜、永不被自动封禁,
+// 混合出口只统计非白名单部分。
+func TestScanRankingsExcludeWhitelistUsers(t *testing.T) {
+	truncateTables(t)
+
+	// 账号 9 是全局白名单(运营者自己):独占 ip-own 且使用 3 个令牌,
+	// 正是 ip_multi_token 规则最容易命中的形态。
+	insertProbeLog(t, 9, "owner", "ip-own", 901, LogTypeConsume, 1, 1, 1)
+	insertProbeLog(t, 9, "owner", "ip-own", 902, LogTypeConsume, 1, 1, 1)
+	insertProbeLog(t, 9, "owner", "ip-own", 903, LogTypeError, 0, 0, 1)
+	// ip-mixed 是白名单账号与普通账号共用的出口
+	insertProbeLog(t, 9, "owner", "ip-mixed", 901, LogTypeConsume, 1, 1, 1)
+	insertProbeLog(t, 3, "u3", "ip-mixed", 301, LogTypeError, 0, 0, 1)
+	// ip-bad 只有普通账号
+	insertProbeLog(t, 1, "u1", "ip-bad", 101, LogTypeConsume, 1, 1, 1)
+	insertProbeLog(t, 2, "u2", "ip-bad", 102, LogTypeError, 0, 0, 1)
+
+	whitelist := []int{9}
+
+	// 不排除时白名单账号自己就是榜首 —— 这正是会误封运营者出口地址的路径
+	unfiltered, err := GetIpMultiTokenRanking(24, 50, nil)
+	require.NoError(t, err)
+	require.Len(t, unfiltered, 3)
+	assert.Equal(t, "ip-own", unfiltered[0].Ip)
+	assert.Equal(t, 3, unfiltered[0].TokenCount)
+
+	tokens, err := GetIpMultiTokenRanking(24, 50, whitelist)
+	require.NoError(t, err)
+	require.Len(t, tokens, 2, "白名单账号独占的出口完全不上榜")
+	assert.Equal(t, "ip-bad", tokens[0].Ip)
+	assert.Equal(t, 2, tokens[0].TokenCount)
+	assert.Equal(t, "ip-mixed", tokens[1].Ip)
+	assert.Equal(t, 1, tokens[1].TokenCount, "混合出口只统计非白名单部分")
+
+	ips, err := GetIpMultiUserRanking(24, 50, whitelist)
+	require.NoError(t, err)
+	require.Len(t, ips, 2)
+	assert.Equal(t, "ip-bad", ips[0].Ip)
+	assert.Equal(t, 2, ips[0].UserCount)
+	assert.Equal(t, "ip-mixed", ips[1].Ip)
+	assert.Equal(t, 1, ips[1].UserCount, "白名单账号不计入该出口的关联用户数")
+
+	// 用户维度同样剔除:白名单账号跨 2 个 IP 本会上榜,排除后只剩单 IP 账号(不满足 >1)
+	multiIp, err := GetUserMultiIpRanking(24, 50, whitelist)
+	require.NoError(t, err)
+	assert.Empty(t, multiIp)
+
+	errorItems, err := GetUserErrorRanking(24, 50, whitelist)
+	require.NoError(t, err)
+	require.Len(t, errorItems, 2)
+	for _, item := range errorItems {
+		assert.NotEqual(t, 9, item.UserId, "白名单账号不出现在错误排行")
+	}
+}
+
+func TestHasIpUsageByUsers(t *testing.T) {
+	truncateTables(t)
+
+	insertRiskLog(t, 9, "owner", "ip-own", "", LogTypeConsume, 1)
+	insertRiskLog(t, 1, "u1", "ip-bad", "", LogTypeError, 1)
+	insertRiskLog(t, 9, "owner", "ip-stale", "", LogTypeConsume, 48)
+	insertRiskLog(t, 9, "owner", "ip-manage", "", LogTypeManage, 1)
+
+	cases := []struct {
+		name    string
+		ip      string
+		hours   int
+		userIds []int
+		want    bool
+	}{
+		{name: "候选账号在用", ip: "ip-own", hours: 24, userIds: []int{9}, want: true},
+		{name: "多个候选命中其一", ip: "ip-own", hours: 24, userIds: []int{7, 9}, want: true},
+		{name: "该地址只有他人", ip: "ip-bad", hours: 24, userIds: []int{9}, want: false},
+		{name: "窗口外不算在用", ip: "ip-stale", hours: 24, userIds: []int{9}, want: false},
+		{name: "放宽窗口后命中", ip: "ip-stale", hours: 72, userIds: []int{9}, want: true},
+		{name: "非风控日志类型不算", ip: "ip-manage", hours: 24, userIds: []int{9}, want: false},
+		{name: "候选为空", ip: "ip-own", hours: 24, userIds: nil, want: false},
+		{name: "IP 为空白", ip: "  ", hours: 24, userIds: []int{9}, want: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			used, err := HasIpUsageByUsers(tc.ip, tc.hours, tc.userIds)
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, used)
+		})
+	}
 }
 
 // insertOverviewLog 插入一条指定字段的日志,ageHours 为距今小时数。

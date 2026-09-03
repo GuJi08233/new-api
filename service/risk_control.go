@@ -374,7 +374,10 @@ func hasEnabledAutoBanRule(setting *operation_setting.RiskControlSetting) bool {
 }
 
 // runRiskScan 执行一轮自动封禁扫描:逐条评估启用的规则。
+// 全局白名单账号的日志行在查询阶段就被剔除,因此它们既不会自己上榜被禁用,
+// 也不会把自己使用的 IP 顶上 IP 维度排行后连带封掉整个出口地址。
 func runRiskScan(setting *operation_setting.RiskControlSetting) {
+	exempt := setting.WhitelistUserIds
 	for _, rule := range setting.AutoBanRules {
 		if !rule.Enabled {
 			continue
@@ -385,15 +388,15 @@ func runRiskScan(setting *operation_setting.RiskControlSetting) {
 		}
 		switch rule.Metric {
 		case operation_setting.RiskMetricIpMultiUser:
-			scanIpMultiUser(rule, window)
+			scanIpMultiUser(rule, window, exempt)
 		case operation_setting.RiskMetricUserMultiIp:
-			scanUserMultiIp(rule, window)
+			scanUserMultiIp(rule, window, exempt)
 		case operation_setting.RiskMetricIpMultiToken:
-			scanIpMultiToken(rule, window)
+			scanIpMultiToken(rule, window, exempt)
 		case operation_setting.RiskMetricUserTinyRequest:
-			scanUserTinyRequest(rule, window, setting.ResolvedTinyRequestMaxTokens())
+			scanUserTinyRequest(rule, window, setting.ResolvedTinyRequestMaxTokens(), exempt)
 		case operation_setting.RiskMetricUserErrorBurst:
-			scanUserErrorBurst(rule, window)
+			scanUserErrorBurst(rule, window, exempt)
 		}
 	}
 }
@@ -430,17 +433,46 @@ func disableIpAssociatedUsers(ip string, window int, reason string) {
 // ipBanOffenseLookback 累犯计数的回溯窗口:统计该 IP 近 90 天内的封禁事件次数。
 const ipBanOffenseLookback = 90 * 24 * time.Hour
 
+// whitelistIpLookbackHours 判定「该地址是否仍有全局白名单账号在用」的回溯窗口(小时)。
+// 取得太长会让一个曾被白名单账号用过的动态 IP 长期免疫,太短会在账号闲置时失效。
+const whitelistIpLookbackHours = 24
+
+// isWhitelistedIp 判断某地址近期是否有全局白名单账号在使用。
+// 全局白名单的语义是「这个账号的任何流量都不该触发处置」,而封掉它的出口地址
+// 会连带拦下同出口的其他正常用户,因此这类地址不参与自动封禁。
+// 查询失败时返回 false 让封禁照常执行:保护机制不该让一次日志库抖动等于风控整体停摆,
+// 而白名单账号自身始终豁免封禁检查,不会被自己触发的封禁锁在门外。
+func isWhitelistedIp(setting *operation_setting.RiskControlSetting, target string) bool {
+	if setting == nil || len(setting.WhitelistUserIds) == 0 {
+		return false
+	}
+	used, err := model.HasIpUsageByUsers(target, whitelistIpLookbackHours, setting.WhitelistUserIds)
+	if err != nil {
+		common.SysLog(fmt.Sprintf("risk control: failed to check whitelist usage for ip %s: %s", target, err.Error()))
+		return false
+	}
+	return used
+}
+
 // EscalateIpBan 封禁某 IP。fixedMinutes > 0 时使用该固定时长,不参与累犯升级
 // (规则级时长覆盖);为 0 时按累犯次数走全局阶梯:首次 → 再犯加时 → 达到配置次数后永久。
 // 累犯次数以 ban_ip 风控事件为准,临时封禁过期删除后历史仍可追溯。
 // 实际发生新建/延长时写入 ban_ip 事件并返回动作描述;
 // 已有更长效封禁覆盖时返回空串(幂等,不重复记事件)。
+// 全局白名单账号近期使用过的地址一律跳过,只记告警——这条兜底覆盖实时防护
+// 与扫描规则的全部自动封禁路径;管理员手动封禁不经过本函数,不受影响。
 func EscalateIpBan(ip string, reason string, source string, fixedMinutes int) (string, error) {
 	target, err := model.NormalizeIpBanTarget(ip)
 	if err != nil {
 		return "", err
 	}
 	setting := operation_setting.GetRiskControlSetting()
+	if isWhitelistedIp(setting, target) {
+		recordRuleAlert(source, 0, "", target, fmt.Sprintf(
+			"IP %s 命中处置但已跳过封禁:近 %d 小时内有全局白名单账号在使用该地址。命中原因:%s",
+			target, whitelistIpLookbackHours, reason))
+		return "", nil
+	}
 	now := time.Now()
 
 	offenses, err := model.CountRecentIpBanEvents(target, now.Add(-ipBanOffenseLookback).Unix())
@@ -528,8 +560,8 @@ func applyRealtimeGuardAction(setting *operation_setting.RiskControlSetting, sou
 }
 
 // scanIpMultiUser 处理「单 IP 关联多用户」规则。
-func scanIpMultiUser(rule operation_setting.RiskAutoBanRule, window int) {
-	items, err := model.GetIpMultiUserRanking(window, riskScanLimit)
+func scanIpMultiUser(rule operation_setting.RiskAutoBanRule, window int, exemptUserIds []int) {
+	items, err := model.GetIpMultiUserRanking(window, riskScanLimit, exemptUserIds)
 	if err != nil {
 		common.SysLog("risk control scan (ip_multi_user) failed: " + err.Error())
 		return
@@ -544,8 +576,8 @@ func scanIpMultiUser(rule operation_setting.RiskAutoBanRule, window int) {
 }
 
 // scanUserMultiIp 处理「单用户使用多 IP」规则:命中的用户被处置。
-func scanUserMultiIp(rule operation_setting.RiskAutoBanRule, window int) {
-	items, err := model.GetUserMultiIpRanking(window, riskScanLimit)
+func scanUserMultiIp(rule operation_setting.RiskAutoBanRule, window int, exemptUserIds []int) {
+	items, err := model.GetUserMultiIpRanking(window, riskScanLimit, exemptUserIds)
 	if err != nil {
 		common.SysLog("risk control scan (user_multi_ip) failed: " + err.Error())
 		return
@@ -566,8 +598,8 @@ func scanUserMultiIp(rule operation_setting.RiskAutoBanRule, window int) {
 }
 
 // scanIpMultiToken 处理「单 IP 使用多令牌」规则(批量测活)。
-func scanIpMultiToken(rule operation_setting.RiskAutoBanRule, window int) {
-	items, err := model.GetIpMultiTokenRanking(window, riskScanLimit)
+func scanIpMultiToken(rule operation_setting.RiskAutoBanRule, window int, exemptUserIds []int) {
+	items, err := model.GetIpMultiTokenRanking(window, riskScanLimit, exemptUserIds)
 	if err != nil {
 		common.SysLog("risk control scan (ip_multi_token) failed: " + err.Error())
 		return
@@ -582,8 +614,8 @@ func scanIpMultiToken(rule operation_setting.RiskAutoBanRule, window int) {
 }
 
 // scanUserTinyRequest 处理「用户微量请求」规则(自动测活):命中的用户被处置。
-func scanUserTinyRequest(rule operation_setting.RiskAutoBanRule, window int, maxTokens int) {
-	items, err := model.GetUserTinyRequestRanking(window, riskScanLimit, maxTokens)
+func scanUserTinyRequest(rule operation_setting.RiskAutoBanRule, window int, maxTokens int, exemptUserIds []int) {
+	items, err := model.GetUserTinyRequestRanking(window, riskScanLimit, maxTokens, exemptUserIds)
 	if err != nil {
 		common.SysLog("risk control scan (user_tiny_request) failed: " + err.Error())
 		return
@@ -604,8 +636,8 @@ func scanUserTinyRequest(rule operation_setting.RiskAutoBanRule, window int, max
 }
 
 // scanUserErrorBurst 处理「用户错误请求爆发」规则:命中的用户被处置。
-func scanUserErrorBurst(rule operation_setting.RiskAutoBanRule, window int) {
-	items, err := model.GetUserErrorRanking(window, riskScanLimit)
+func scanUserErrorBurst(rule operation_setting.RiskAutoBanRule, window int, exemptUserIds []int) {
+	items, err := model.GetUserErrorRanking(window, riskScanLimit, exemptUserIds)
 	if err != nil {
 		common.SysLog("risk control scan (user_error_burst) failed: " + err.Error())
 		return

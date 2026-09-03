@@ -56,19 +56,19 @@ func GetRiskRankings(c *gin.Context) {
 	case model.RiskMetricIpOverview:
 		items, err = model.GetIpOverviewRanking(overviewQuery)
 	case model.RiskMetricUserMultiIp:
-		items, err = model.GetUserMultiIpRanking(hours, limit)
+		items, err = model.GetUserMultiIpRanking(hours, limit, overviewQuery.ExcludeUserIds)
 	case model.RiskMetricUa:
 		items, err = model.GetUaOverviewRanking(overviewQuery)
 	case model.RiskMetricIpMultiUser:
-		items, err = model.GetIpMultiUserRanking(hours, limit)
+		items, err = model.GetIpMultiUserRanking(hours, limit, overviewQuery.ExcludeUserIds)
 	case model.RiskMetricIpMultiToken:
-		items, err = model.GetIpMultiTokenRanking(hours, limit)
+		items, err = model.GetIpMultiTokenRanking(hours, limit, overviewQuery.ExcludeUserIds)
 	case model.RiskMetricUserTinyRequest:
-		items, err = model.GetUserTinyRequestRanking(hours, limit, setting.ResolvedTinyRequestMaxTokens())
+		items, err = model.GetUserTinyRequestRanking(hours, limit, setting.ResolvedTinyRequestMaxTokens(), overviewQuery.ExcludeUserIds)
 	case model.RiskMetricUserErrorBurst:
-		items, err = model.GetUserErrorRanking(hours, limit)
+		items, err = model.GetUserErrorRanking(hours, limit, overviewQuery.ExcludeUserIds)
 	case model.RiskMetricTokenMultiIp:
-		items, err = model.GetTokenMultiIpRanking(hours, limit)
+		items, err = model.GetTokenMultiIpRanking(hours, limit, overviewQuery.ExcludeUserIds)
 	default:
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,

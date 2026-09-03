@@ -488,19 +488,19 @@ const RiskRankings = () => {
             </Select.Option>
           ))}
         </Select>
-        <Text>{t('过滤白名单')}</Text>
+        <Text>{t('过滤全局白名单')}</Text>
         <Switch
           checked={excludeWhitelist}
           onChange={setExcludeWhitelist}
           size='small'
-          aria-label={t('过滤白名单')}
+          aria-label={t('过滤全局白名单')}
         />
         <Text type='tertiary' size='small'>
           {meta.whitelist_count
-            ? t('已配置 {{count}} 个白名单用户', {
+            ? t('已配置 {{count}} 个全局白名单账号', {
                 count: meta.whitelist_count,
               })
-            : t('风控设置中尚未配置白名单用户')}
+            : t('风控设置中尚未配置全局白名单账号')}
         </Text>
         <Button icon={<IconRefresh />} onClick={loadRankings}>
           {t('刷新')}

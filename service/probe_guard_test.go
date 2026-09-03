@@ -22,12 +22,15 @@ func setupRealtimeGuardTest(t *testing.T) {
 	require.NoError(t, model.DB.Exec("DELETE FROM ip_bans").Error)
 	// 账号处置用例会写 users;不清理会与按固定主键建用户的其它测试冲突
 	require.NoError(t, model.DB.Exec("DELETE FROM users").Error)
+	// 白名单地址豁免用例靠 logs 判定该地址是否有白名单账号在用
+	require.NoError(t, model.LOG_DB.Exec("DELETE FROM logs").Error)
 	require.NoError(t, model.ReloadIpBanCache())
 	resetRealtimeGuardState()
 	t.Cleanup(func() {
 		model.DB.Exec("DELETE FROM risk_events")
 		model.DB.Exec("DELETE FROM ip_bans")
 		model.DB.Exec("DELETE FROM users")
+		model.LOG_DB.Exec("DELETE FROM logs")
 		_ = model.ReloadIpBanCache()
 		resetRealtimeGuardState()
 		operation_setting.SetRiskControlSettingForTest(&operation_setting.RiskControlSetting{})
@@ -195,6 +198,51 @@ func TestEscalateIpBanLadder(t *testing.T) {
 	_, total, err := model.GetRiskEvents(model.RiskEventBanIp, 0, "198.51.100.7", 0, 10)
 	require.NoError(t, err)
 	assert.EqualValues(t, 3, total, "三次升级各写一条 ban_ip 事件,幂等触发不追加")
+}
+
+// TestEscalateIpBanSkipsWhitelistedIp 覆盖全局白名单的兜底:该地址近期有白名单账号
+// 在用时,所有自动封禁路径都放弃封禁并留下告警,避免封掉运营者自己的出口地址后
+// 连带拦下同出口的其他正常用户。
+func TestEscalateIpBanSkipsWhitelistedIp(t *testing.T) {
+	setupRealtimeGuardTest(t)
+
+	setting := probeGuardTestSetting()
+	setting.WhitelistUserIds = []int{9}
+	operation_setting.SetRiskControlSettingForTest(setting)
+
+	require.NoError(t, model.LOG_DB.Create(&model.Log{
+		UserId:    9,
+		Username:  "owner",
+		CreatedAt: time.Now().Add(-time.Hour).Unix(),
+		Type:      model.LogTypeConsume,
+		Ip:        "198.51.100.9",
+	}).Error)
+
+	action, err := EscalateIpBan("198.51.100.9", "疑似批量测活", model.IpBanSourceProbeGuard, 0)
+	require.NoError(t, err)
+	assert.Empty(t, action, "白名单账号在用的地址不产生封禁动作")
+	_, matched := model.MatchActiveIpBan("198.51.100.9")
+	assert.False(t, matched)
+
+	// 跳过不是静默的:记一条告警,便于发现规则在空转
+	events, total, err := model.GetRiskEvents(model.RiskEventAlert, 0, "198.51.100.9", 0, 10)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, total)
+	assert.Contains(t, events[0].Reason, "跳过封禁")
+
+	// 规则固定时长同样受豁免约束,不能绕过
+	action, err = EscalateIpBan("198.51.100.9", "疑似批量测活", model.IpBanSourceAutoRule, 30)
+	require.NoError(t, err)
+	assert.Empty(t, action)
+	_, matched = model.MatchActiveIpBan("198.51.100.9")
+	assert.False(t, matched)
+
+	// 没有白名单账号在用的地址照常封禁
+	action, err = EscalateIpBan("198.51.100.10", "疑似批量测活", model.IpBanSourceProbeGuard, 0)
+	require.NoError(t, err)
+	assert.NotEmpty(t, action)
+	_, matched = model.MatchActiveIpBan("198.51.100.10")
+	assert.True(t, matched)
 }
 
 func TestCheckRequestRiskBlocksActiveBanRegardlessOfSwitch(t *testing.T) {

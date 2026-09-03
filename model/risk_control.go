@@ -134,39 +134,48 @@ func riskLogTypes() []int {
 	return []int{LogTypeConsume, LogTypeError}
 }
 
+// riskExcludeUsers 把全局白名单账号产生的日志行从风控统计中剔除。
+// 这些账号的流量既不该让自己上榜被处置,也不该把自己使用的 IP 顶上 IP 维度排行,
+// 否则运营者自己的出口地址会被自动封禁,连带拦下同出口的其他正常用户。
+// 空切片必须短路:GORM 会把空切片渲染成 NOT IN (NULL),那会过滤掉全部行。
+func riskExcludeUsers(tx *gorm.DB, userIds []int) *gorm.DB {
+	if len(userIds) == 0 {
+		return tx
+	}
+	return tx.Where("user_id NOT IN ?", userIds)
+}
+
 // GetIpMultiUserRanking 返回窗口内的全部 IP，按关联用户数排行。
-func GetIpMultiUserRanking(hours int, limit int) ([]IpRankItem, error) {
-	start := normalizeRiskWindow(hours)
-	limit = normalizeRiskLimit(limit)
+func GetIpMultiUserRanking(hours int, limit int, excludeUserIds []int) ([]IpRankItem, error) {
+	tx := LOG_DB.Table("logs").
+		Select("ip, count(distinct user_id) as user_count, count(*) as request_count").
+		Where("created_at >= ?", normalizeRiskWindow(hours)).
+		Where("type IN ?", riskLogTypes()).
+		Where("ip <> ''")
 
 	var items []IpRankItem
-	err := LOG_DB.Table("logs").
-		Select("ip, count(distinct user_id) as user_count, count(*) as request_count").
-		Where("created_at >= ?", start).
-		Where("type IN ?", riskLogTypes()).
-		Where("ip <> ''").
+	err := riskExcludeUsers(tx, excludeUserIds).
 		Group("ip").
 		Order("user_count desc, request_count desc").
-		Limit(limit).
+		Limit(normalizeRiskLimit(limit)).
 		Find(&items).Error
 	return items, err
 }
 
 // GetUserMultiIpRanking 返回窗口内使用 IP 数最多的用户(仅含使用 >1 IP 的用户)。
-func GetUserMultiIpRanking(hours int, limit int) ([]UserRankItem, error) {
-	start := normalizeRiskWindow(hours)
-	limit = normalizeRiskLimit(limit)
+func GetUserMultiIpRanking(hours int, limit int, excludeUserIds []int) ([]UserRankItem, error) {
+	tx := LOG_DB.Table("logs").
+		Select("user_id, max(username) as username, count(distinct ip) as ip_count, count(*) as request_count").
+		Where("created_at >= ?", normalizeRiskWindow(hours)).
+		Where("type IN ?", riskLogTypes()).
+		Where("ip <> ''")
 
 	var items []UserRankItem
-	err := LOG_DB.Table("logs").
-		Select("user_id, max(username) as username, count(distinct ip) as ip_count, count(*) as request_count").
-		Where("created_at >= ?", start).
-		Where("type IN ?", riskLogTypes()).
-		Where("ip <> ''").
+	err := riskExcludeUsers(tx, excludeUserIds).
 		Group("user_id").
 		Having("count(distinct ip) > ?", 1).
 		Order("ip_count desc, request_count desc").
-		Limit(limit).
+		Limit(normalizeRiskLimit(limit)).
 		Find(&items).Error
 	return items, err
 }
@@ -174,20 +183,19 @@ func GetUserMultiIpRanking(hours int, limit int) ([]UserRankItem, error) {
 // GetIpMultiTokenRanking 返回窗口内使用令牌数最多的 IP(批量测活检测)。
 // 只统计带令牌的请求(token_id > 0),消费与错误日志均计入,
 // 保证测活失败(密钥无效)的请求同样被观测到。
-func GetIpMultiTokenRanking(hours int, limit int) ([]IpTokenRankItem, error) {
-	start := normalizeRiskWindow(hours)
-	limit = normalizeRiskLimit(limit)
-
-	var items []IpTokenRankItem
-	err := LOG_DB.Table("logs").
+func GetIpMultiTokenRanking(hours int, limit int, excludeUserIds []int) ([]IpTokenRankItem, error) {
+	tx := LOG_DB.Table("logs").
 		Select("ip, count(distinct token_id) as token_count, count(distinct user_id) as user_count, count(*) as request_count").
-		Where("created_at >= ?", start).
+		Where("created_at >= ?", normalizeRiskWindow(hours)).
 		Where("type IN ?", riskLogTypes()).
 		Where("ip <> ''").
-		Where("token_id > 0").
+		Where("token_id > 0")
+
+	var items []IpTokenRankItem
+	err := riskExcludeUsers(tx, excludeUserIds).
 		Group("ip").
 		Order("token_count desc, request_count desc").
-		Limit(limit).
+		Limit(normalizeRiskLimit(limit)).
 		Find(&items).Error
 	return items, err
 }
@@ -195,60 +203,57 @@ func GetIpMultiTokenRanking(hours int, limit int) ([]IpTokenRankItem, error) {
 // GetUserTinyRequestRanking 返回窗口内微量请求数最多的用户(自动测活检测)。
 // 微量请求指 prompt 与 completion tokens 均不超过 maxTokens 的成功消费请求;
 // 该统计不依赖 IP/UA 日志开关,token 数始终入库。
-func GetUserTinyRequestRanking(hours int, limit int, maxTokens int) ([]UserTinyRequestRankItem, error) {
-	start := normalizeRiskWindow(hours)
-	limit = normalizeRiskLimit(limit)
-
-	var items []UserTinyRequestRankItem
-	err := LOG_DB.Table("logs").
+func GetUserTinyRequestRanking(hours int, limit int, maxTokens int, excludeUserIds []int) ([]UserTinyRequestRankItem, error) {
+	tx := LOG_DB.Table("logs").
 		Select("user_id, max(username) as username, count(*) as request_count, count(distinct token_id) as token_count").
-		Where("created_at >= ?", start).
+		Where("created_at >= ?", normalizeRiskWindow(hours)).
 		Where("type = ?", LogTypeConsume).
 		Where("user_id > 0").
 		Where("prompt_tokens <= ?", maxTokens).
-		Where("completion_tokens <= ?", maxTokens).
+		Where("completion_tokens <= ?", maxTokens)
+
+	var items []UserTinyRequestRankItem
+	err := riskExcludeUsers(tx, excludeUserIds).
 		Group("user_id").
 		Order("request_count desc").
-		Limit(limit).
+		Limit(normalizeRiskLimit(limit)).
 		Find(&items).Error
 	return items, err
 }
 
 // GetUserErrorRanking 返回窗口内错误请求数最多的用户。
-func GetUserErrorRanking(hours int, limit int) ([]UserErrorRankItem, error) {
-	start := normalizeRiskWindow(hours)
-	limit = normalizeRiskLimit(limit)
+func GetUserErrorRanking(hours int, limit int, excludeUserIds []int) ([]UserErrorRankItem, error) {
+	tx := LOG_DB.Table("logs").
+		Select("user_id, max(username) as username, count(*) as request_count").
+		Where("created_at >= ?", normalizeRiskWindow(hours)).
+		Where("type = ?", LogTypeError).
+		Where("user_id > 0")
 
 	var items []UserErrorRankItem
-	err := LOG_DB.Table("logs").
-		Select("user_id, max(username) as username, count(*) as request_count").
-		Where("created_at >= ?", start).
-		Where("type = ?", LogTypeError).
-		Where("user_id > 0").
+	err := riskExcludeUsers(tx, excludeUserIds).
 		Group("user_id").
 		Order("request_count desc").
-		Limit(limit).
+		Limit(normalizeRiskLimit(limit)).
 		Find(&items).Error
 	return items, err
 }
 
 // GetTokenMultiIpRanking 返回窗口内被最多不同 IP 使用的令牌(仅含 >1 IP 的令牌)。
 // 单令牌短期被大量 IP 使用是密钥泄露或倒卖的典型特征。
-func GetTokenMultiIpRanking(hours int, limit int) ([]TokenIpRankItem, error) {
-	start := normalizeRiskWindow(hours)
-	limit = normalizeRiskLimit(limit)
-
-	var items []TokenIpRankItem
-	err := LOG_DB.Table("logs").
+func GetTokenMultiIpRanking(hours int, limit int, excludeUserIds []int) ([]TokenIpRankItem, error) {
+	tx := LOG_DB.Table("logs").
 		Select("token_id, max(token_name) as token_name, max(user_id) as user_id, max(username) as username, count(distinct ip) as ip_count, count(*) as request_count").
-		Where("created_at >= ?", start).
+		Where("created_at >= ?", normalizeRiskWindow(hours)).
 		Where("type IN ?", riskLogTypes()).
 		Where("ip <> ''").
-		Where("token_id > 0").
+		Where("token_id > 0")
+
+	var items []TokenIpRankItem
+	err := riskExcludeUsers(tx, excludeUserIds).
 		Group("token_id").
 		Having("count(distinct ip) > ?", 1).
 		Order("ip_count desc, request_count desc").
-		Limit(limit).
+		Limit(normalizeRiskLimit(limit)).
 		Find(&items).Error
 	return items, err
 }
@@ -389,12 +394,10 @@ func GetUserOverviewRanking(query RiskOverviewQuery) ([]UserOverviewItem, error)
 		Where("created_at >= ?", normalizeRiskWindow(query.Hours)).
 		Where("type IN ?", riskLogTypes()).
 		Where("user_id > 0")
-	if len(query.ExcludeUserIds) > 0 {
-		tx = tx.Where("user_id NOT IN ?", query.ExcludeUserIds)
-	}
 
 	var items []UserOverviewItem
-	err := tx.Group("user_id").
+	err := riskExcludeUsers(tx, query.ExcludeUserIds).
+		Group("user_id").
 		Order(riskOverviewOrderBy(sortExprs, query.SortBy, query.SortOrder, "user_id")).
 		Limit(normalizeRiskLimit(query.Limit)).
 		Find(&items).Error
@@ -419,12 +422,10 @@ func GetIpOverviewRanking(query RiskOverviewQuery) ([]IpOverviewItem, error) {
 		Where("created_at >= ?", normalizeRiskWindow(query.Hours)).
 		Where("type IN ?", riskLogTypes()).
 		Where("ip <> ''")
-	if len(query.ExcludeUserIds) > 0 {
-		tx = tx.Where("user_id NOT IN ?", query.ExcludeUserIds)
-	}
 
 	var items []IpOverviewItem
-	err := tx.Group("ip").
+	err := riskExcludeUsers(tx, query.ExcludeUserIds).
+		Group("ip").
 		Order(riskOverviewOrderBy(sortExprs, query.SortBy, query.SortOrder, "ip")).
 		Limit(normalizeRiskLimit(query.Limit)).
 		Find(&items).Error
@@ -450,12 +451,10 @@ func GetUaOverviewRanking(query RiskOverviewQuery) ([]UaOverviewItem, error) {
 		Where("created_at >= ?", normalizeRiskWindow(query.Hours)).
 		Where("type IN ?", riskLogTypes()).
 		Where("ua <> ''")
-	if len(query.ExcludeUserIds) > 0 {
-		tx = tx.Where("user_id NOT IN ?", query.ExcludeUserIds)
-	}
 
 	var items []UaOverviewItem
-	err := tx.Group("ua").
+	err := riskExcludeUsers(tx, query.ExcludeUserIds).
+		Group("ua").
 		Order(riskOverviewOrderBy(sortExprs, query.SortBy, query.SortOrder, "ua")).
 		Limit(normalizeRiskLimit(query.Limit)).
 		Find(&items).Error
@@ -522,10 +521,7 @@ func riskDetailQuery(target RiskDetailTarget) (*gorm.DB, error) {
 		return nil, errors.New("无效的下钻类型")
 	}
 
-	if len(target.ExcludeUserIds) > 0 {
-		tx = tx.Where("user_id NOT IN ?", target.ExcludeUserIds)
-	}
-	return tx, nil
+	return riskExcludeUsers(tx, target.ExcludeUserIds), nil
 }
 
 // GetRiskDetailUsers 下钻:目标关联的用户明细。
@@ -641,6 +637,26 @@ func GetRiskDetailErrorStatuses(target RiskDetailTarget) ([]RiskErrorStatusItem,
 		return items[i].ErrorCode < items[j].ErrorCode
 	})
 	return items, len(payloads) >= riskErrorSampleLimit, nil
+}
+
+// HasIpUsageByUsers 判断某 IP 在窗口内是否有指定用户发出的请求。
+// 自动封禁用它确认目标地址是否仍被全局白名单账号使用,命中则放弃封禁。
+// 只取一行即可判定,不做计数。
+func HasIpUsageByUsers(ip string, hours int, userIds []int) (bool, error) {
+	ip = strings.TrimSpace(ip)
+	if ip == "" || len(userIds) == 0 {
+		return false, nil
+	}
+
+	var ids []int
+	err := LOG_DB.Table("logs").
+		Where("created_at >= ?", normalizeRiskWindow(hours)).
+		Where("type IN ?", riskLogTypes()).
+		Where("ip = ?", ip).
+		Where("user_id IN ?", userIds).
+		Limit(1).
+		Pluck("id", &ids).Error
+	return len(ids) > 0, err
 }
 
 // GetIpAssociatedUserIds 返回某 IP 在窗口内关联的全部用户 ID(供自动封禁使用)。
