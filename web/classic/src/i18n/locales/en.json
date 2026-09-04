@@ -4313,6 +4313,17 @@
     "当前口径：注册、登录、签到、安全操作 + 调用与错误记录。调用日志量大，窗口最长 7 天。": "Current scope: registration, login, check-in, security operations + API call and error records. Call logs are large, so the window is capped at 7 days.",
     "当前口径：注册、登录、签到、安全操作。这类记录每个账号只有寥寥数行，可回溯 90 天；打开「计入调用记录」可加入调用证据，但窗口会收窄到 7 天。": "Current scope: registration, login, check-in, security operations. These leave only a handful of rows per account, so the window can reach 90 days. Enable \"Include API Calls\" to add call evidence, but the window narrows to 7 days.",
     "关联账号": "Linked Accounts",
-    "「在此注册」为「是」表示该账号是在这个地址上注册的，是同一人多号最强的证据。": "\"Registered Here\" = Yes means the account was created from this address — the strongest evidence of one person holding multiple accounts."
+    "「在此注册」为「是」表示该账号是在这个地址上注册的，是同一人多号最强的证据。": "\"Registered Here\" = Yes means the account was created from this address — the strongest evidence of one person holding multiple accounts.",
+    "账号绑定": "Account bindings",
+    "无权查看": "No permission to view",
+    "无绑定": "No bindings",
+    "自定义 OAuth": "Custom OAuth",
+    "密码注册": "Password sign-up",
+    "注册来源": "Sign-up source",
+    "+{{count}} 查看全部": "+{{count}} view all",
+    "绑定方式": "Binding type",
+    "标识": "Identifier",
+    "注册方式": "Sign-up method",
+    "「账号绑定」展示该账号的第三方身份，标红的是注册来源；绑定多条时只显示注册来源，点「查看全部」看其余绑定。同一身份来源（同邮箱域名、同一提供商下相邻的账号 ID）比共用出口地址更能说明是同一人。": "\"Account bindings\" shows the third-party identities of each account; the red one is the sign-up source. When an account has several bindings only the sign-up source is listed — click \"view all\" for the rest. A shared identity source (same email domain, adjacent account IDs at the same provider) is stronger evidence of one person than a shared egress address."
   }
 }

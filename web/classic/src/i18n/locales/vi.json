@@ -4677,6 +4677,17 @@
     "当前口径：注册、登录、签到、安全操作 + 调用与错误记录。调用日志量大，窗口最长 7 天。": "Phạm vi hiện tại: đăng ký, đăng nhập, điểm danh, thao tác bảo mật + bản ghi lệnh gọi và lỗi. Nhật ký lệnh gọi rất lớn nên cửa sổ tối đa là 7 ngày.",
     "当前口径：注册、登录、签到、安全操作。这类记录每个账号只有寥寥数行，可回溯 90 天；打开「计入调用记录」可加入调用证据，但窗口会收窄到 7 天。": "Phạm vi hiện tại: đăng ký, đăng nhập, điểm danh, thao tác bảo mật. Những bản ghi này chỉ để lại vài dòng cho mỗi tài khoản nên cửa sổ có thể lên tới 90 ngày; bật \"Tính cả lệnh gọi API\" để thêm bằng chứng lệnh gọi, nhưng cửa sổ sẽ thu hẹp còn 7 ngày.",
     "关联账号": "Tài khoản liên kết",
-    "「在此注册」为「是」表示该账号是在这个地址上注册的，是同一人多号最强的证据。": "\"Đăng ký tại đây\" là \"Có\" nghĩa là tài khoản được tạo từ địa chỉ này — bằng chứng mạnh nhất cho việc một người giữ nhiều tài khoản."
+    "「在此注册」为「是」表示该账号是在这个地址上注册的，是同一人多号最强的证据。": "\"Đăng ký tại đây\" là \"Có\" nghĩa là tài khoản được tạo từ địa chỉ này — bằng chứng mạnh nhất cho việc một người giữ nhiều tài khoản.",
+    "账号绑定": "Liên kết tài khoản",
+    "无权查看": "Không có quyền xem",
+    "无绑定": "Không có liên kết",
+    "自定义 OAuth": "OAuth tùy chỉnh",
+    "密码注册": "Đăng ký bằng mật khẩu",
+    "注册来源": "Nguồn đăng ký",
+    "+{{count}} 查看全部": "+{{count}} xem tất cả",
+    "绑定方式": "Loại liên kết",
+    "标识": "Định danh",
+    "注册方式": "Phương thức đăng ký",
+    "「账号绑定」展示该账号的第三方身份，标红的是注册来源；绑定多条时只显示注册来源，点「查看全部」看其余绑定。同一身份来源（同邮箱域名、同一提供商下相邻的账号 ID）比共用出口地址更能说明是同一人。": "\"Liên kết tài khoản\" hiển thị danh tính bên thứ ba của từng tài khoản; mục màu đỏ là nguồn đăng ký. Khi một tài khoản có nhiều liên kết, chỉ nguồn đăng ký được hiển thị — bấm \"xem tất cả\" để xem phần còn lại. Cùng một nguồn danh tính (cùng tên miền email, ID tài khoản liền kề ở cùng nhà cung cấp) là bằng chứng mạnh hơn về cùng một người so với việc dùng chung địa chỉ ra ngoài."
   }
 }

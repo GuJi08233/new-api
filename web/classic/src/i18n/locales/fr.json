@@ -4155,6 +4155,17 @@
     "当前口径：注册、登录、签到、安全操作 + 调用与错误记录。调用日志量大，窗口最长 7 天。": "Portée actuelle : inscription, connexion, présence, opérations de sécurité + enregistrements d'appels et d'erreurs. Les journaux d'appels sont volumineux, la fenêtre est donc limitée à 7 jours.",
     "当前口径：注册、登录、签到、安全操作。这类记录每个账号只有寥寥数行，可回溯 90 天；打开「计入调用记录」可加入调用证据，但窗口会收窄到 7 天。": "Portée actuelle : inscription, connexion, présence, opérations de sécurité. Ces enregistrements ne laissent que quelques lignes par compte, la fenêtre peut donc atteindre 90 jours. Activez « Inclure les appels API » pour ajouter les preuves d'appel, mais la fenêtre se réduit à 7 jours.",
     "关联账号": "Comptes liés",
-    "「在此注册」为「是」表示该账号是在这个地址上注册的，是同一人多号最强的证据。": "« Inscrit ici » = Oui signifie que le compte a été créé depuis cette adresse — la preuve la plus forte qu'une même personne détient plusieurs comptes."
+    "「在此注册」为「是」表示该账号是在这个地址上注册的，是同一人多号最强的证据。": "« Inscrit ici » = Oui signifie que le compte a été créé depuis cette adresse — la preuve la plus forte qu'une même personne détient plusieurs comptes.",
+    "账号绑定": "Liaisons du compte",
+    "无权查看": "Consultation non autorisée",
+    "无绑定": "Aucune liaison",
+    "自定义 OAuth": "OAuth personnalisé",
+    "密码注册": "Inscription par mot de passe",
+    "注册来源": "Source d'inscription",
+    "+{{count}} 查看全部": "+{{count}} tout voir",
+    "绑定方式": "Type de liaison",
+    "标识": "Identifiant",
+    "注册方式": "Méthode d'inscription",
+    "「账号绑定」展示该账号的第三方身份，标红的是注册来源；绑定多条时只显示注册来源，点「查看全部」看其余绑定。同一身份来源（同邮箱域名、同一提供商下相邻的账号 ID）比共用出口地址更能说明是同一人。": "« Liaisons du compte » affiche les identités tierces de chaque compte ; celle en rouge est la source d'inscription. Lorsqu'un compte a plusieurs liaisons, seule la source d'inscription est affichée — cliquez sur « tout voir » pour les autres. Une source d'identité commune (même domaine de messagerie, identifiants voisins chez le même fournisseur) prouve mieux qu'il s'agit d'une même personne qu'une adresse de sortie partagée."
   }
 }

@@ -112,8 +112,11 @@ func GetMultiAccountRanking(c *gin.Context) {
 	})
 }
 
-// GetMultiAccountDetail 下钻某个地址,列出它关联的账号及各自的证据构成。
+// GetMultiAccountDetail 下钻某个地址,列出它关联的账号、各自的证据构成与第三方绑定。
 // query: ip, hours, include_requests, exclude_whitelist
+//
+// 绑定明细沿用用户管理的越权保护:管理不到的角色只出统计,不出身份信息,
+// 否则普通管理员能从研判页读到 root 的绑定,绕开 /api/user/:id 上的同一道检查。
 func GetMultiAccountDetail(c *gin.Context) {
 	ip := c.Query("ip")
 	if ip == "" {
@@ -125,7 +128,14 @@ func GetMultiAccountDetail(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	model.AttachMultiAccountUserStatus(items)
+	model.AttachMultiAccountUserProfiles(items)
+	myRole := c.GetInt("role")
+	for i := range items {
+		items[i].CanManage = canManageTargetRole(myRole, items[i].Role)
+		if !items[i].CanManage {
+			items[i].Bindings = nil
+		}
+	}
 
 	common.ApiSuccess(c, gin.H{"ip": ip, "items": items})
 }

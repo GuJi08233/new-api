@@ -29,6 +29,7 @@ import {
   Table,
   Tag,
   TextArea,
+  Tooltip,
   Typography,
 } from '@douyinfe/semi-ui';
 import { IconRefresh } from '@douyinfe/semi-icons';
@@ -65,6 +66,16 @@ const countCell = (value, highlight) => {
   return <Tag color={highlight ? 'red' : 'blue'}>{value}</Tag>;
 };
 
+// 注册来源最能说明账号是谁开的，其余绑定可能是事后补绑的；没有标记时退回第一条。
+const primaryBinding = (bindings) =>
+  bindings.find((item) => item.is_registration) || bindings[0];
+
+// OAuth 的用户标识可以很长，列表里截断展示，完整值放在悬浮提示里。
+const shortIdentifier = (value) => {
+  if (!value) return '';
+  return value.length > 22 ? `${value.slice(0, 22)}…` : value;
+};
+
 const MultiAccount = () => {
   const { t } = useTranslation();
   const [hours, setHours] = useState(168);
@@ -78,6 +89,7 @@ const MultiAccount = () => {
   const [detailIp, setDetailIp] = useState('');
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailItems, setDetailItems] = useState([]);
+  const [bindingUser, setBindingUser] = useState(null); // 查看某个账号的全部绑定
 
   const [banTarget, setBanTarget] = useState(null); // {user_id, username}
   const [banReason, setBanReason] = useState('');
@@ -198,6 +210,89 @@ const MultiAccount = () => {
     setBanningIp(false);
   };
 
+  // 内置绑定的展示名。专有名词不进翻译表，其余显式调用 t 以便提取。
+  const bindingTypeNames = {
+    email: t('邮箱'),
+    github: 'GitHub',
+    discord: 'Discord',
+    oidc: 'OIDC',
+    wechat: t('微信'),
+    telegram: 'Telegram',
+    linuxdo: 'LinuxDO',
+    steam: 'Steam',
+  };
+
+  const bindingName = (binding) =>
+    binding.type === 'custom'
+      ? binding.name || t('自定义 OAuth')
+      : bindingTypeNames[binding.type] || binding.type;
+
+  // 注册渠道取自注册日志：密码注册不对应任何绑定，其余复用绑定名。
+  const registerMethodName = (method) => {
+    if (!method) return '';
+    if (method === 'password') return t('密码注册');
+    return bindingTypeNames[method] || method;
+  };
+
+  const renderBindings = (bindings, record) => {
+    if (record.can_manage === false) {
+      return <Text type='tertiary'>{t('无权查看')}</Text>;
+    }
+    const list = bindings || [];
+    if (list.length === 0) {
+      const method = registerMethodName(record.register_method);
+      return (
+        <Text type='tertiary'>
+          {method ? `${t('无绑定')}（${method}）` : t('无绑定')}
+        </Text>
+      );
+    }
+    const primary = primaryBinding(list);
+    const label = bindingName(primary);
+    return (
+      <Space spacing={4} wrap>
+        <Tooltip
+          content={`${label}: ${primary.identifier || '-'}${
+            primary.is_registration ? `（${t('注册来源')}）` : ''
+          }`}
+        >
+          <Tag color={primary.is_registration ? 'red' : 'blue'}>
+            {`${label} · ${shortIdentifier(primary.identifier) || '-'}`}
+          </Tag>
+        </Tooltip>
+        {list.length > 1 && (
+          <Button
+            theme='borderless'
+            size='small'
+            onClick={() => setBindingUser(record)}
+          >
+            {t('+{{count}} 查看全部', { count: list.length - 1 })}
+          </Button>
+        )}
+      </Space>
+    );
+  };
+
+  const bindingColumns = [
+    {
+      title: t('绑定方式'),
+      dataIndex: 'type',
+      width: 160,
+      render: (_, record) => (
+        <Space spacing={4}>
+          <Text>{bindingName(record)}</Text>
+          {record.is_registration && <Tag color='red'>{t('注册来源')}</Tag>}
+        </Space>
+      ),
+    },
+    {
+      title: t('标识'),
+      dataIndex: 'identifier',
+      ellipsis: { showTitle: true },
+      render: (v) => (v ? <Text code>{v}</Text> : '-'),
+    },
+  ];
+
   const columns = [
     {
       title: 'IP',
@@ -272,6 +367,12 @@ const MultiAccount = () => {
           {record.status === 2 && <Tag color='red'>{t('已禁用')}</Tag>}
         </Space>
       ),
+    },
+    {
+      title: t('账号绑定'),
+      dataIndex: 'bindings',
+      width: 260,
+      render: renderBindings,
     },
     {
       title: t('在此注册'),
@@ -401,7 +502,10 @@ const MultiAccount = () => {
       <Modal
         title={`${t('关联账号')}: ${detailIp}`}
         visible={!!detailIp}
-        onCancel={() => setDetailIp('')}
+        onCancel={() => {
+          setDetailIp('');
+          setBindingUser(null);
+        }}
         footer={null}
         width={900}
       >
@@ -410,12 +514,42 @@ const MultiAccount = () => {
             '「在此注册」为「是」表示该账号是在这个地址上注册的，是同一人多号最强的证据。',
           )}
         </Text>
+        <Text type='tertiary' size='small' className='block mb-2'>
+          {t(
+            '「账号绑定」展示该账号的第三方身份，标红的是注册来源；绑定多条时只显示注册来源，点「查看全部」看其余绑定。同一身份来源（同邮箱域名、同一提供商下相邻的账号 ID）比共用出口地址更能说明是同一人。',
+          )}
+        </Text>
         <Table
           columns={detailColumns}
           dataSource={detailItems}
           loading={detailLoading}
           rowKey='user_id'
+          scroll={{ x: 1080 }}
           pagination={{ pageSize: 10 }}
+          empty={t('暂无数据')}
+        />
+      </Modal>
+
+      <Modal
+        title={
+          bindingUser
+            ? `${t('账号绑定')}: ${bindingUser.username || '-'} (#${bindingUser.user_id})`
+            : t('账号绑定')
+        }
+        visible={!!bindingUser}
+        onCancel={() => setBindingUser(null)}
+        footer={null}
+        width={640}
+      >
+        <Text type='tertiary' size='small' className='block mb-2'>
+          {t('注册方式')}:{' '}
+          {registerMethodName(bindingUser?.register_method) || t('未知')}
+        </Text>
+        <Table
+          columns={bindingColumns}
+          dataSource={bindingUser?.bindings || []}
+          rowKey={(record) => `${record.type}:${record.identifier}`}
+          pagination={false}
           empty={t('暂无数据')}
         />
       </Modal>

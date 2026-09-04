@@ -743,6 +743,65 @@ func TestGetMultiAccountUsers(t *testing.T) {
 	assert.Error(t, err, "缺少地址时应当报错而不是全表聚合")
 }
 
+// 下钻页据以研判"是不是同一人"的身份信息:每个账号绑了什么、哪条绑定是注册来源。
+// 注册来源要么由绑定表直接标记(自定义 OAuth),要么靠注册日志回填(内置身份),
+// 两条路径都断了的账号只出绑定、不出注册标记,不能瞎猜一个。
+func TestAttachMultiAccountUserProfilesResolvesBindings(t *testing.T) {
+	truncateTables(t)
+
+	provider := &CustomOAuthProvider{Name: "Corp SSO", Slug: "corp-sso"}
+	require.NoError(t, DB.Create(provider).Error)
+
+	github := &User{Username: "gh-user", Password: "12345678", AffCode: "aff-gh", DisplayName: "GH",
+		Role: common.RoleCommonUser, Status: common.UserStatusEnabled,
+		Email: "gh@example.com", GitHubId: "gh-123"}
+	plain := &User{Username: "plain-user", Password: "12345678", AffCode: "aff-plain",
+		Role: common.RoleCommonUser, Status: common.UserStatusDisabled}
+	sso := &User{Username: "sso-user", Password: "12345678", AffCode: "aff-sso",
+		Role: common.RoleAdminUser, Status: common.UserStatusEnabled, Email: "sso@example.com"}
+	for _, user := range []*User{github, plain, sso} {
+		require.NoError(t, DB.Create(user).Error)
+	}
+
+	require.NoError(t, DB.Create(&UserOAuthBinding{UserId: sso.Id, ProviderId: provider.Id,
+		ProviderUserId: "sso-9", IsRegistration: true}).Error)
+	// 提供商被删掉后绑定仍在,不能因为查不到名字就把这条证据丢了
+	require.NoError(t, DB.Create(&UserOAuthBinding{UserId: sso.Id, ProviderId: 4242,
+		ProviderUserId: "ghost-1"}).Error)
+
+	require.NoError(t, LOG_DB.Create(&Log{UserId: github.Id, Type: LogTypeRegister,
+		CreatedAt: time.Now().Add(-time.Hour).Unix(),
+		Other:     `{"register_method":"github"}`}).Error)
+	require.NoError(t, LOG_DB.Create(&Log{UserId: plain.Id, Type: LogTypeRegister,
+		CreatedAt: time.Now().Add(-time.Hour).Unix(),
+		Other:     `{"register_method":"password"}`}).Error)
+
+	items := []MultiAccountUserItem{{UserId: github.Id}, {UserId: plain.Id}, {UserId: sso.Id}}
+	AttachMultiAccountUserProfiles(items)
+
+	assert.Equal(t, common.UserStatusEnabled, items[0].Status)
+	assert.Equal(t, "GH", items[0].DisplayName)
+	assert.Equal(t, common.RoleCommonUser, items[0].Role)
+	assert.Equal(t, "github", items[0].RegisterMethod)
+	require.Len(t, items[0].Bindings, 2)
+	assert.Equal(t, MultiAccountBinding{Type: "email", Identifier: "gh@example.com"}, items[0].Bindings[0])
+	assert.Equal(t, MultiAccountBinding{Type: "github", Identifier: "gh-123", IsRegistration: true},
+		items[0].Bindings[1], "注册日志指向 GitHub,该条绑定才是注册来源")
+
+	assert.Equal(t, common.UserStatusDisabled, items[1].Status)
+	assert.Equal(t, "password", items[1].RegisterMethod)
+	assert.Empty(t, items[1].Bindings, "密码注册且未绑定任何身份的账号没有绑定可展示")
+
+	assert.Equal(t, common.RoleAdminUser, items[2].Role)
+	assert.Empty(t, items[2].RegisterMethod, "没有注册日志时不臆造注册渠道")
+	require.Len(t, items[2].Bindings, 3)
+	assert.Equal(t, MultiAccountBinding{Type: "email", Identifier: "sso@example.com"}, items[2].Bindings[0])
+	assert.Equal(t, MultiAccountBinding{Type: "custom", Name: "Corp SSO", Identifier: "sso-9",
+		IsRegistration: true}, items[2].Bindings[1], "自定义 OAuth 的注册标记来自绑定表,不依赖日志")
+	assert.Equal(t, MultiAccountBinding{Type: "custom", Name: "OAuth #4242", Identifier: "ghost-1"},
+		items[2].Bindings[2])
+}
+
 // 白名单账号的行不参与统计,与其他风控榜单口径一致:
 // 运营者自己的出口地址不该因为自己多个账号在用就被列为可疑。
 func TestGetMultiAccountRankingExcludesWhitelist(t *testing.T) {

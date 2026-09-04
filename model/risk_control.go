@@ -181,9 +181,30 @@ type MultiAccountUserItem struct {
 	EventCount    int    `json:"event_count" gorm:"column:event_count"`
 	FirstSeen     int64  `json:"first_seen" gorm:"column:first_seen"`
 	LastSeen      int64  `json:"last_seen" gorm:"column:last_seen"`
-	// Status / DisplayName 不在日志库里,由 controller 从主库补齐后返回
-	Status      int    `json:"status" gorm:"-"`
-	DisplayName string `json:"display_name" gorm:"-"`
+	// 以下字段不在日志库里,由 AttachMultiAccountUserProfiles 补齐
+	Status      int                   `json:"status" gorm:"-"`
+	DisplayName string                `json:"display_name" gorm:"-"`
+	Bindings    []MultiAccountBinding `json:"bindings" gorm:"-"`
+	// RegisterMethod 是注册渠道(password / github / wechat / 自定义 OAuth 的 slug 等),
+	// 取自注册日志;日志被清理或早于该字段上线时为空。
+	RegisterMethod string `json:"register_method,omitempty" gorm:"-"`
+	// Role 只用于服务端的越权判定,不返回给前端;能否操作该账号由 CanManage 表达。
+	Role      int  `json:"-" gorm:"-"`
+	CanManage bool `json:"can_manage" gorm:"-"`
+}
+
+// MultiAccountBinding 是账号的一条第三方身份绑定。
+// 同一人的多个小号往往共用一个身份来源(同一邮箱域名、同一 OAuth 提供商),
+// 或干脆只有密码没有任何绑定,这些都是比"同出口地址"更硬的研判证据。
+type MultiAccountBinding struct {
+	Type string `json:"type"` // email | github | discord | oidc | wechat | telegram | linuxdo | steam | custom
+	// Name 只在自定义 OAuth 时有值:提供商名称由管理员配置,前端无从映射。
+	// 内置类型的展示名由前端按 Type 本地化。
+	Name       string `json:"name,omitempty"`
+	Identifier string `json:"identifier"`
+	// IsRegistration 标记账号是用这条绑定注册的。绑定多了以后,注册来源才是
+	// 追同一人的那条线——其余绑定可能是事后补绑的。
+	IsRegistration bool `json:"is_registration,omitempty"`
 }
 
 // EffectiveLimits 返回本次查询实际生效的边界，供前端回显：用户填的值可能被钳制，
@@ -291,10 +312,11 @@ func GetMultiAccountUsers(ip string, q MultiAccountQuery) ([]MultiAccountUserIte
 	return items, err
 }
 
-// AttachMultiAccountUserStatus 从主库补齐账号的当前状态与昵称。
+// AttachMultiAccountUserProfiles 从主库补齐账号的当前状态、昵称、角色与第三方绑定。
 // 日志库可以独立部署，不能与 users 表 join，因此分两步查；补齐失败只记日志，
 // 统计结果照常返回——少一列展示信息不该让整个研判页面打不开。
-func AttachMultiAccountUserStatus(items []MultiAccountUserItem) {
+// 本函数只取数,不做越权判定:绑定明细是否返回给调用者由 controller 按角色决定。
+func AttachMultiAccountUserProfiles(items []MultiAccountUserItem) {
 	if len(items) == 0 {
 		return
 	}
@@ -303,7 +325,9 @@ func AttachMultiAccountUserStatus(items []MultiAccountUserItem) {
 		ids = append(ids, item.UserId)
 	}
 	var users []User
-	if err := DB.Model(&User{}).Select("id", "status", "display_name").
+	if err := DB.Model(&User{}).
+		Select("id", "status", "role", "display_name", "email", "github_id", "discord_id",
+			"oidc_id", "wechat_id", "telegram_id", "linux_do_id", "steam_openid").
 		Where("id IN ?", ids).Find(&users).Error; err != nil {
 		common.SysLog("risk control: failed to load user status for multi-account detail: " + err.Error())
 		return
@@ -312,12 +336,148 @@ func AttachMultiAccountUserStatus(items []MultiAccountUserItem) {
 	for _, user := range users {
 		byId[user.Id] = user
 	}
+	customBindings := customOAuthBindingsByUser(ids)
+	registerMethods := registerMethodsByUser(ids)
 	for i := range items {
-		if user, ok := byId[items[i].UserId]; ok {
-			items[i].Status = user.Status
-			items[i].DisplayName = user.DisplayName
+		user, ok := byId[items[i].UserId]
+		if !ok {
+			continue
+		}
+		items[i].Status = user.Status
+		items[i].Role = user.Role
+		items[i].DisplayName = user.DisplayName
+		items[i].RegisterMethod = registerMethods[user.Id]
+		bindings := append(builtInAccountBindings(user), customBindings[user.Id]...)
+		markRegistrationBinding(bindings, items[i].RegisterMethod)
+		items[i].Bindings = bindings
+	}
+}
+
+// markRegistrationBinding 用注册日志里的渠道标出账号的注册来源绑定。
+// 自定义 OAuth 的注册标记来自绑定表本身,更权威,已有标记时不再覆盖;
+// 内置身份没有这样的字段,只能靠注册日志回填。
+// 密码注册不对应任何绑定,注册渠道单独随账号返回。
+func markRegistrationBinding(bindings []MultiAccountBinding, registerMethod string) {
+	if registerMethod == "" {
+		return
+	}
+	for _, binding := range bindings {
+		if binding.IsRegistration {
+			return
 		}
 	}
+	for i := range bindings {
+		if bindings[i].Type == registerMethod {
+			bindings[i].IsRegistration = true
+			return
+		}
+	}
+}
+
+// registerMethodsByUser 从注册日志取这些账号的注册渠道。
+// 渠道写在 logs.other 的 JSON 里,三库的 JSON 函数互不兼容,因此取回后在应用层解析
+// (与错误状态码分布的处理一致)。一个账号只会留下一条注册日志,取最早的那条。
+func registerMethodsByUser(userIds []int) map[int]string {
+	var rows []struct {
+		UserId int    `gorm:"column:user_id"`
+		Other  string `gorm:"column:other"`
+	}
+	if err := LOG_DB.Table("logs").
+		Select("user_id", "other").
+		Where("type = ?", LogTypeRegister).
+		Where("user_id IN ?", userIds).
+		Order("created_at asc, id asc").
+		Find(&rows).Error; err != nil {
+		common.SysLog("risk control: failed to load register methods for multi-account detail: " + err.Error())
+		return nil
+	}
+
+	methods := make(map[int]string, len(rows))
+	for _, row := range rows {
+		if _, ok := methods[row.UserId]; ok || row.Other == "" {
+			continue
+		}
+		var parsed struct {
+			RegisterMethod string `json:"register_method"`
+		}
+		if common.UnmarshalJsonStr(row.Other, &parsed) != nil {
+			continue
+		}
+		if parsed.RegisterMethod != "" {
+			methods[row.UserId] = parsed.RegisterMethod
+		}
+	}
+	return methods
+}
+
+// builtInAccountBindings 返回账号已填写的内置身份绑定,顺序与用户管理的绑定弹窗一致。
+func builtInAccountBindings(user User) []MultiAccountBinding {
+	candidates := []MultiAccountBinding{
+		{Type: "email", Identifier: user.Email},
+		{Type: "github", Identifier: user.GitHubId},
+		{Type: "discord", Identifier: user.DiscordId},
+		{Type: "oidc", Identifier: user.OidcId},
+		{Type: "wechat", Identifier: user.WeChatId},
+		{Type: "telegram", Identifier: user.TelegramId},
+		{Type: "linuxdo", Identifier: user.LinuxDOId},
+		{Type: "steam", Identifier: user.SteamOpenId},
+	}
+	bindings := make([]MultiAccountBinding, 0, len(candidates))
+	for _, binding := range candidates {
+		binding.Identifier = strings.TrimSpace(binding.Identifier)
+		if binding.Identifier != "" {
+			bindings = append(bindings, binding)
+		}
+	}
+	return bindings
+}
+
+// customOAuthBindingsByUser 批量取这些账号的自定义 OAuth 绑定,按账号分组。
+// 提供商名称查不到时回退为编号:一条绑定的存在本身就是证据,不该因为提供商被删掉就消失。
+func customOAuthBindingsByUser(userIds []int) map[int][]MultiAccountBinding {
+	var bindings []UserOAuthBinding
+	if err := ReadDB().Where("user_id IN ?", userIds).Order("provider_id asc").
+		Find(&bindings).Error; err != nil {
+		common.SysLog("risk control: failed to load custom oauth bindings for multi-account detail: " + err.Error())
+		return nil
+	}
+	if len(bindings) == 0 {
+		return nil
+	}
+
+	providerIds := make([]int, 0, len(bindings))
+	seen := make(map[int]struct{}, len(bindings))
+	for _, binding := range bindings {
+		if _, ok := seen[binding.ProviderId]; ok {
+			continue
+		}
+		seen[binding.ProviderId] = struct{}{}
+		providerIds = append(providerIds, binding.ProviderId)
+	}
+	var providers []CustomOAuthProvider
+	if err := ReadDB().Model(&CustomOAuthProvider{}).Select("id", "name").
+		Where("id IN ?", providerIds).Find(&providers).Error; err != nil {
+		common.SysLog("risk control: failed to load custom oauth providers for multi-account detail: " + err.Error())
+	}
+	names := make(map[int]string, len(providers))
+	for _, provider := range providers {
+		names[provider.Id] = provider.Name
+	}
+
+	grouped := make(map[int][]MultiAccountBinding, len(userIds))
+	for _, binding := range bindings {
+		name := names[binding.ProviderId]
+		if strings.TrimSpace(name) == "" {
+			name = fmt.Sprintf("OAuth #%d", binding.ProviderId)
+		}
+		grouped[binding.UserId] = append(grouped[binding.UserId], MultiAccountBinding{
+			Type:           "custom",
+			Name:           name,
+			Identifier:     binding.ProviderUserId,
+			IsRegistration: binding.IsRegistration,
+		})
+	}
+	return grouped
 }
 
 // riskExcludeUsers 把全局白名单账号产生的日志行从风控统计中剔除。
