@@ -18,7 +18,9 @@ type RiskAutoBanRule struct {
 	WindowHours int    `json:"window_hours"` // 统计窗口(小时),<=0 时回退默认 24
 	Threshold   int    `json:"threshold"`    // 指标严格大于该值时触发
 	Action      string `json:"action"`       // alert | disable_user | ban_ip | ban_both
-	BanMinutes  int    `json:"ban_minutes"`  // 该规则的固定封禁时长(分钟),0 表示走全局累犯阶梯
+	// BanMinutes 是该规则的固定处置时长(分钟),对封禁 IP 与禁用账号一视同仁,
+	// 0 表示走全局累犯阶梯。
+	BanMinutes int `json:"ban_minutes"`
 }
 
 // RiskControlSetting 是风控管理的全部可配置项,通过独立 config 快照热更新。
@@ -36,13 +38,15 @@ type RiskControlSetting struct {
 	TinyRequestMaxTokens int               `json:"tiny_request_max_tokens"` // 微量请求(测活)判定:prompt 与 completion tokens 均不超过该值
 	EventRetentionDays   int               `json:"event_retention_days"`    // 拦截/告警事件保留天数(封禁与解禁记录永久保留)
 
-	// 自动 IP 封禁的累犯升级阶梯。IpBanEscalationMinutes 为逐次递增的封禁时长
-	// (例如 [5, 30, 1440] 表示首次 5 分钟、再犯 30 分钟、第三次起 1 天);
+	// 自动封禁的累犯升级阶梯,IP 封禁与账号禁用共用。IpBanEscalationMinutes 为逐次
+	// 递增的处置时长(例如 [5, 30, 1440] 表示首次 5 分钟、再犯 30 分钟、第三次起 1 天);
 	// 为空时回退到 IpBanFirstMinutes / IpBanSecondMinutes 两档,保持旧配置可用。
+	// 字段名与配置键沿用 ip_ban_ 前缀:阶梯先只用于 IP,扩展到账号后改键会让
+	// 升级前配好的阶梯静默失效,不值得为命名整洁付这个代价。
 	IpBanEscalationMinutes []int `json:"ip_ban_escalation_minutes"`
 	IpBanFirstMinutes      int   `json:"ip_ban_first_minutes"`     // 旧配置:首次临时封禁时长(分钟)
 	IpBanSecondMinutes     int   `json:"ip_ban_second_minutes"`    // 旧配置:第二次及以后的临时封禁时长(分钟)
-	IpBanPermanentOffense  int   `json:"ip_ban_permanent_offense"` // 第 N 次违规起永久封禁,0 表示永不升级为永久
+	IpBanPermanentOffense  int   `json:"ip_ban_permanent_offense"` // 第 N 次违规起永久,0 表示永不升级为永久
 
 	// IpBanIpv6PrefixLength 是自动封禁 IPv6 地址时归并到的前缀长度。
 	// 运营商通常给客户端一整段前缀,客户端可在段内自由更换地址(隐私扩展地址甚至每小时一换),
@@ -408,19 +412,20 @@ func (s *RiskControlSetting) ResolvedIpBanSecondMinutes() int {
 	return s.IpBanSecondMinutes
 }
 
-// ResolvedIpBanPermanentOffense 返回生效的永久封禁触发次数,0 表示永不升级为永久。
-func (s *RiskControlSetting) ResolvedIpBanPermanentOffense() int {
+// ResolvedBanPermanentOffense 返回生效的永久封禁触发次数,0 表示永不升级为永久。
+// 对 IP 封禁与账号禁用同样生效。
+func (s *RiskControlSetting) ResolvedBanPermanentOffense() int {
 	if s == nil || s.IpBanPermanentOffense < 0 || s.IpBanPermanentOffense > RiskMaxIpBanPermanentOffense {
 		return RiskDefaultIpBanPermanentOffense
 	}
 	return s.IpBanPermanentOffense
 }
 
-// ResolvedIpBanEscalationMinutes 返回生效的累犯封禁阶梯(分钟)。
+// ResolvedBanEscalationMinutes 返回生效的累犯处置阶梯(分钟),IP 封禁与账号禁用共用。
 // 优先使用显式配置的阶梯;未配置时回退到旧的首次/再犯两档,
 // 因此升级前配置好的 ip_ban_first_minutes / ip_ban_second_minutes 继续有效。
 // 违规次数超出阶梯长度时停在最后一档(除非达到永久封禁次数)。
-func (s *RiskControlSetting) ResolvedIpBanEscalationMinutes() []int {
+func (s *RiskControlSetting) ResolvedBanEscalationMinutes() []int {
 	if s != nil && len(s.IpBanEscalationMinutes) > 0 {
 		steps := make([]int, 0, len(s.IpBanEscalationMinutes))
 		for _, minutes := range s.IpBanEscalationMinutes {

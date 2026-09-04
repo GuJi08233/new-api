@@ -61,7 +61,7 @@ func AddIpBan(c *gin.Context) {
 	reason := strings.TrimSpace(req.Reason)
 	operatorId := c.GetInt("id")
 
-	ban, changed, err := model.UpsertIpBan(target, reason, expiresAt, model.IpBanSourceManual, operatorId)
+	ban, changed, err := model.UpsertIpBan(target, reason, expiresAt, model.RiskBanSourceManual, operatorId)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -70,7 +70,7 @@ func AddIpBan(c *gin.Context) {
 		if err := model.InsertRiskEvent(&model.RiskEvent{
 			EventType:  model.RiskEventBanIp,
 			Ip:         target,
-			Rule:       model.IpBanSourceManual,
+			Rule:       model.RiskBanSourceManual,
 			Reason:     reason,
 			OperatorId: operatorId,
 		}); err != nil {

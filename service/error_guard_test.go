@@ -104,7 +104,7 @@ func TestRecordErrorGuardResponseBansIp(t *testing.T) {
 	events, total, err := model.GetRiskEvents(model.RiskEventBanIp, 0, "203.0.113.20", 0, 10)
 	require.NoError(t, err)
 	require.EqualValues(t, 1, total)
-	assert.Equal(t, model.IpBanSourceErrorGuard, events[0].Rule)
+	assert.Equal(t, model.RiskBanSourceErrorGuard, events[0].Rule)
 }
 
 func TestRecordErrorGuardResponseDryRunOnlyAlerts(t *testing.T) {
@@ -204,7 +204,7 @@ func TestEscalateIpBanCustomLadder(t *testing.T) {
 			// 阶梯只在上一次封禁到期后再犯时才升级
 			expireIpBanForTest(t, target)
 		}
-		action, err := EscalateIpBan(target, "违规", model.IpBanSourceErrorGuard, 0)
+		action, err := EscalateIpBan(target, "违规", model.RiskBanSourceErrorGuard, 0)
 		require.NoError(t, err, "第 %d 次升级", offense+1)
 		assert.Contains(t, action, step.wantText, "第 %d 次应落在对应阶梯", offense+1)
 
@@ -224,7 +224,7 @@ func TestEscalateIpBanCustomLadder(t *testing.T) {
 			Ip:        repeat,
 		}))
 	}
-	action, err := EscalateIpBan(repeat, "违规", model.IpBanSourceErrorGuard, 0)
+	action, err := EscalateIpBan(repeat, "违规", model.RiskBanSourceErrorGuard, 0)
 	require.NoError(t, err)
 	assert.Contains(t, action, "1440 分钟")
 	assert.Contains(t, action, "第 5 次")
@@ -326,7 +326,7 @@ func TestEscalateIpBanFixedMinutesSkipsLadder(t *testing.T) {
 			Ip:        target,
 		}))
 	}
-	action, err := EscalateIpBan(target, "违规", model.IpBanSourceErrorGuard, 7)
+	action, err := EscalateIpBan(target, "违规", model.RiskBanSourceErrorGuard, 7)
 	require.NoError(t, err)
 	assert.Contains(t, action, "7 分钟", "固定时长不参与累犯升级")
 	assert.Contains(t, action, "第 3 次")
@@ -338,7 +338,7 @@ func TestEscalateIpBanFixedMinutesSkipsLadder(t *testing.T) {
 
 	// 到期后再犯:仍是固定 7 分钟,不递增
 	expireIpBanForTest(t, target)
-	action, err = EscalateIpBan(target, "违规", model.IpBanSourceErrorGuard, 7)
+	action, err = EscalateIpBan(target, "违规", model.RiskBanSourceErrorGuard, 7)
 	require.NoError(t, err)
 	assert.Contains(t, action, "7 分钟")
 	assert.Contains(t, action, "第 4 次")
@@ -371,7 +371,7 @@ func TestAccountBanExemptionMatrix(t *testing.T) {
 	}
 }
 
-func TestResolvedIpBanEscalationMinutesFallback(t *testing.T) {
+func TestResolvedBanEscalationMinutesFallback(t *testing.T) {
 	cases := []struct {
 		name    string
 		setting *operation_setting.RiskControlSetting
@@ -403,7 +403,7 @@ func TestResolvedIpBanEscalationMinutesFallback(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, tc.setting.ResolvedIpBanEscalationMinutes())
+			assert.Equal(t, tc.want, tc.setting.ResolvedBanEscalationMinutes())
 		})
 	}
 }

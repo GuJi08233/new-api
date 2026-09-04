@@ -134,7 +134,7 @@ func TestCheckProbeGuardBansIpAndBlocks(t *testing.T) {
 	events, total, err := model.GetRiskEvents(model.RiskEventBanIp, 0, "203.0.113.9", 0, 10)
 	require.NoError(t, err)
 	require.EqualValues(t, 1, total)
-	assert.Equal(t, model.IpBanSourceProbeGuard, events[0].Rule)
+	assert.Equal(t, model.RiskBanSourceProbeGuard, events[0].Rule)
 }
 
 func TestCheckProbeGuardDryRunOnlyAlerts(t *testing.T) {
@@ -183,7 +183,7 @@ func TestEscalateIpBanLadder(t *testing.T) {
 	const target = "198.51.100.7"
 
 	// 首次违规:临时封禁 first_minutes
-	action, err := EscalateIpBan(target, "违规一", model.IpBanSourceProbeGuard, 0)
+	action, err := EscalateIpBan(target, "违规一", model.RiskBanSourceProbeGuard, 0)
 	require.NoError(t, err)
 	assert.Contains(t, action, "首次")
 	ban, matched := model.MatchActiveIpBan(target)
@@ -192,7 +192,7 @@ func TestEscalateIpBanLadder(t *testing.T) {
 	assert.Greater(t, firstExpiry, time.Now().Unix())
 
 	// 封禁仍在生效:再次命中不升级、不延长、不记事件
-	action, err = EscalateIpBan(target, "违规一再报", model.IpBanSourceErrorGuard, 0)
+	action, err = EscalateIpBan(target, "违规一再报", model.RiskBanSourceErrorGuard, 0)
 	require.NoError(t, err)
 	assert.Empty(t, action)
 	ban, matched = model.MatchActiveIpBan(target)
@@ -201,7 +201,7 @@ func TestEscalateIpBanLadder(t *testing.T) {
 
 	// 到期后再犯:加时至 second_minutes
 	expireIpBanForTest(t, target)
-	action, err = EscalateIpBan(target, "违规二", model.IpBanSourceProbeGuard, 0)
+	action, err = EscalateIpBan(target, "违规二", model.RiskBanSourceProbeGuard, 0)
 	require.NoError(t, err)
 	assert.Contains(t, action, "第 2 次")
 	ban, matched = model.MatchActiveIpBan(target)
@@ -210,7 +210,7 @@ func TestEscalateIpBanLadder(t *testing.T) {
 
 	// 再次到期后第三次违规:永久
 	expireIpBanForTest(t, target)
-	action, err = EscalateIpBan(target, "违规三", model.IpBanSourceErrorGuard, 0)
+	action, err = EscalateIpBan(target, "违规三", model.RiskBanSourceErrorGuard, 0)
 	require.NoError(t, err)
 	assert.Contains(t, action, "永久")
 	ban, matched = model.MatchActiveIpBan(target)
@@ -218,7 +218,7 @@ func TestEscalateIpBanLadder(t *testing.T) {
 	assert.EqualValues(t, 0, ban.ExpiresAt)
 
 	// 永久封禁后再触发:幂等,不再写新事件
-	action, err = EscalateIpBan(target, "违规四", model.IpBanSourceProbeGuard, 0)
+	action, err = EscalateIpBan(target, "违规四", model.RiskBanSourceProbeGuard, 0)
 	require.NoError(t, err)
 	assert.Empty(t, action)
 
@@ -245,7 +245,7 @@ func TestEscalateIpBanSkipsWhitelistedIp(t *testing.T) {
 		Ip:        "198.51.100.9",
 	}).Error)
 
-	action, err := EscalateIpBan("198.51.100.9", "疑似批量测活", model.IpBanSourceProbeGuard, 0)
+	action, err := EscalateIpBan("198.51.100.9", "疑似批量测活", model.RiskBanSourceProbeGuard, 0)
 	require.NoError(t, err)
 	assert.Empty(t, action, "白名单账号在用的地址不产生封禁动作")
 	_, matched := model.MatchActiveIpBan("198.51.100.9")
@@ -258,14 +258,14 @@ func TestEscalateIpBanSkipsWhitelistedIp(t *testing.T) {
 	assert.Contains(t, events[0].Reason, "跳过封禁")
 
 	// 规则固定时长同样受豁免约束,不能绕过
-	action, err = EscalateIpBan("198.51.100.9", "疑似批量测活", model.IpBanSourceAutoRule, 30)
+	action, err = EscalateIpBan("198.51.100.9", "疑似批量测活", model.RiskBanSourceAutoRule, 30)
 	require.NoError(t, err)
 	assert.Empty(t, action)
 	_, matched = model.MatchActiveIpBan("198.51.100.9")
 	assert.False(t, matched)
 
 	// 没有白名单账号在用的地址照常封禁
-	action, err = EscalateIpBan("198.51.100.10", "疑似批量测活", model.IpBanSourceProbeGuard, 0)
+	action, err = EscalateIpBan("198.51.100.10", "疑似批量测活", model.RiskBanSourceProbeGuard, 0)
 	require.NoError(t, err)
 	assert.NotEmpty(t, action)
 	_, matched = model.MatchActiveIpBan("198.51.100.10")
@@ -278,7 +278,7 @@ func TestEscalateIpBanMergesIpv6ToPrefix(t *testing.T) {
 	setupRealtimeGuardTest(t)
 	operation_setting.SetRiskControlSettingForTest(probeGuardTestSetting())
 
-	action, err := EscalateIpBan("2001:db8:1:2:3:4:5:6", "疑似批量测活", model.IpBanSourceProbeGuard, 0)
+	action, err := EscalateIpBan("2001:db8:1:2:3:4:5:6", "疑似批量测活", model.RiskBanSourceProbeGuard, 0)
 	require.NoError(t, err)
 	assert.Contains(t, action, "首次")
 
@@ -295,7 +295,7 @@ func TestEscalateIpBanMergesIpv6ToPrefix(t *testing.T) {
 	assert.False(t, matched)
 
 	// IPv4 不归并,仍按单地址封禁
-	_, err = EscalateIpBan("198.51.100.20", "疑似批量测活", model.IpBanSourceProbeGuard, 0)
+	_, err = EscalateIpBan("198.51.100.20", "疑似批量测活", model.RiskBanSourceProbeGuard, 0)
 	require.NoError(t, err)
 	ban, matched = model.MatchActiveIpBan("198.51.100.20")
 	require.True(t, matched)
@@ -319,14 +319,14 @@ func TestEscalateIpBanWhitelistCoversIpv6Prefix(t *testing.T) {
 		Ip:        "2001:db8:1:2:aaaa::1",
 	}).Error)
 
-	action, err := EscalateIpBan("2001:db8:1:2:3:4:5:6", "疑似批量测活", model.IpBanSourceProbeGuard, 0)
+	action, err := EscalateIpBan("2001:db8:1:2:3:4:5:6", "疑似批量测活", model.RiskBanSourceProbeGuard, 0)
 	require.NoError(t, err)
 	assert.Empty(t, action, "同一 /64 内有白名单账号在用,整段不封")
 	_, matched := model.MatchActiveIpBan("2001:db8:1:2:3:4:5:6")
 	assert.False(t, matched)
 
 	// 邻段没有白名单账号,照常封禁
-	action, err = EscalateIpBan("2001:db8:1:3::9", "疑似批量测活", model.IpBanSourceProbeGuard, 0)
+	action, err = EscalateIpBan("2001:db8:1:3::9", "疑似批量测活", model.RiskBanSourceProbeGuard, 0)
 	require.NoError(t, err)
 	assert.NotEmpty(t, action)
 	_, matched = model.MatchActiveIpBan("2001:db8:1:3::9")
@@ -336,7 +336,7 @@ func TestEscalateIpBanWhitelistCoversIpv6Prefix(t *testing.T) {
 func TestCheckRequestRiskBlocksActiveBanRegardlessOfSwitch(t *testing.T) {
 	setupRealtimeGuardTest(t)
 
-	_, _, err := model.UpsertIpBan("203.0.113.77", "动态封禁", 0, model.IpBanSourceManual, 1)
+	_, _, err := model.UpsertIpBan("203.0.113.77", "动态封禁", 0, model.RiskBanSourceManual, 1)
 	require.NoError(t, err)
 
 	// 风控总开关关闭:动态封禁仍生效

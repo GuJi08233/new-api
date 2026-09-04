@@ -865,6 +865,20 @@ func HasIpLogsSince(ip string, since int64, excludeUserIds []int) (bool, error) 
 	return len(ids) > 0, err
 }
 
+// HasUserLogsSince 判断某账号在 since 之后是否还有风控统计口径内的日志行。
+// 与 HasIpLogsSince 同理:账号的临时禁用到期恢复后,扫描窗口里的旧证据仍然存在,
+// 只有恢复之后仍在活动才算新的违规,否则同一批日志会把账号一级级推到永久禁用。
+func HasUserLogsSince(userId int, since int64) (bool, error) {
+	var ids []int
+	err := LOG_DB.Table("logs").
+		Where("user_id = ?", userId).
+		Where("created_at > ?", since).
+		Where("type IN ?", riskLogTypes()).
+		Limit(1).
+		Pluck("id", &ids).Error
+	return len(ids) > 0, err
+}
+
 // GetIpAssociatedUserIds 返回某 IP 在窗口内关联的全部用户 ID(供自动封禁使用)。
 func GetIpAssociatedUserIds(ip string, hours int) ([]int, error) {
 	start := normalizeRiskWindow(hours)

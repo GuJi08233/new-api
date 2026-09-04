@@ -57,10 +57,10 @@ func TestUpsertIpBanAndMatch(t *testing.T) {
 	future := common.GetTimestamp() + 600
 
 	// 新建临时封禁:精确 IP 命中,其他 IP 不命中
-	ban, changed, err := UpsertIpBan("1.2.3.4", "测试", future, IpBanSourceManual, 9)
+	ban, changed, err := UpsertIpBan("1.2.3.4", "测试", future, RiskBanSourceManual, 9)
 	require.NoError(t, err)
 	assert.True(t, changed)
-	assert.Equal(t, IpBanSourceManual, ban.Source)
+	assert.Equal(t, RiskBanSourceManual, ban.Source)
 
 	matched, ok := MatchActiveIpBan("1.2.3.4")
 	require.True(t, ok)
@@ -69,7 +69,7 @@ func TestUpsertIpBanAndMatch(t *testing.T) {
 	assert.False(t, ok)
 
 	// CIDR 封禁:网段内命中,网段外不命中
-	_, changed, err = UpsertIpBan("10.0.0.0/8", "网段", 0, IpBanSourceAutoRule, 0)
+	_, changed, err = UpsertIpBan("10.0.0.0/8", "网段", 0, RiskBanSourceAutoRule, 0)
 	require.NoError(t, err)
 	assert.True(t, changed)
 	matched, ok = MatchActiveIpBan("10.20.30.40")
@@ -93,38 +93,38 @@ func TestUpsertIpBanExtendSemantics(t *testing.T) {
 	now := common.GetTimestamp()
 
 	// 临时封禁只能延长,不能缩短
-	_, changed, err := UpsertIpBan("5.6.7.8", "first", now+600, IpBanSourceProbeGuard, 0)
+	_, changed, err := UpsertIpBan("5.6.7.8", "first", now+600, RiskBanSourceProbeGuard, 0)
 	require.NoError(t, err)
 	require.True(t, changed)
 
-	_, changed, err = UpsertIpBan("5.6.7.8", "shorter", now+60, IpBanSourceProbeGuard, 0)
+	_, changed, err = UpsertIpBan("5.6.7.8", "shorter", now+60, RiskBanSourceProbeGuard, 0)
 	require.NoError(t, err)
 	assert.False(t, changed, "更短的期限不应覆盖现有封禁")
 
-	ban, changed, err := UpsertIpBan("5.6.7.8", "longer", now+7200, IpBanSourceProbeGuard, 0)
+	ban, changed, err := UpsertIpBan("5.6.7.8", "longer", now+7200, RiskBanSourceProbeGuard, 0)
 	require.NoError(t, err)
 	assert.True(t, changed)
 	assert.EqualValues(t, now+7200, ban.ExpiresAt)
 
 	// 升级为永久
-	ban, changed, err = UpsertIpBan("5.6.7.8", "permanent", 0, IpBanSourceAutoRule, 0)
+	ban, changed, err = UpsertIpBan("5.6.7.8", "permanent", 0, RiskBanSourceAutoRule, 0)
 	require.NoError(t, err)
 	assert.True(t, changed)
 	assert.EqualValues(t, 0, ban.ExpiresAt)
 
 	// 永久封禁不可被降级,重复永久也不视为变更
-	_, changed, err = UpsertIpBan("5.6.7.8", "downgrade", now+600, IpBanSourceManual, 0)
+	_, changed, err = UpsertIpBan("5.6.7.8", "downgrade", now+600, RiskBanSourceManual, 0)
 	require.NoError(t, err)
 	assert.False(t, changed, "永久封禁不应被降级为临时")
-	_, changed, err = UpsertIpBan("5.6.7.8", "again", 0, IpBanSourceManual, 0)
+	_, changed, err = UpsertIpBan("5.6.7.8", "again", 0, RiskBanSourceManual, 0)
 	require.NoError(t, err)
 	assert.False(t, changed, "重复永久封禁不应视为变更")
 
 	// 已过期的临时封禁被新封禁重新生效
 	require.NoError(t, DB.Exec("DELETE FROM ip_bans").Error)
-	_, _, err = UpsertIpBan("9.9.9.9", "old", now-100, IpBanSourceProbeGuard, 0)
+	_, _, err = UpsertIpBan("9.9.9.9", "old", now-100, RiskBanSourceProbeGuard, 0)
 	require.NoError(t, err)
-	ban, changed, err = UpsertIpBan("9.9.9.9", "rearmed", now+600, IpBanSourceProbeGuard, 0)
+	ban, changed, err = UpsertIpBan("9.9.9.9", "rearmed", now+600, RiskBanSourceProbeGuard, 0)
 	require.NoError(t, err)
 	assert.True(t, changed)
 	assert.EqualValues(t, now+600, ban.ExpiresAt)

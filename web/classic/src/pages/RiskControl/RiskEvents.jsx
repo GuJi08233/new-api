@@ -43,6 +43,7 @@ const EVENT_TYPE_META = {
   ban_auto: { labelKey: '自动封禁', color: 'red' },
   ban_manual: { labelKey: '手动封禁', color: 'purple' },
   unban: { labelKey: '解除封禁', color: 'green' },
+  unban_auto: { labelKey: '到期解封', color: 'green' },
   ban_ip: { labelKey: 'IP 封禁', color: 'red' },
   unban_ip: { labelKey: 'IP 解封', color: 'green' },
   alert: { labelKey: '规则告警', color: 'amber' },

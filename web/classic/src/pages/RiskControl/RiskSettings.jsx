@@ -79,8 +79,10 @@ const DEFAULT_BAN_LADDER = [10, 60];
 
 // IP 维度指标才允许封禁 IP 的处置动作,与后端校验保持一致。
 const IP_DIMENSION_METRICS = ['ip_multi_user', 'ip_multi_token'];
-// 包含封禁 IP 的动作,只有它们需要配置封禁时长。
+// 包含封禁 IP 的动作,切换到用户维度指标时要回退。
 const BAN_IP_ACTIONS = ['ban_ip', 'ban_both'];
+// 真正产生封禁的动作。封禁时长对 IP 与账号一视同仁,仅告警的规则无时长可言。
+const DISPOSITION_ACTIONS = ['disable_user', 'ban_ip', 'ban_both'];
 
 const IP_LOCATION_PREFIX = 'ip_location_setting.';
 const KEY_GITEE_API_KEY = `${IP_LOCATION_PREFIX}gitee_api_key`;
@@ -496,8 +498,7 @@ const RiskSettings = () => {
       title: t('封禁时长(分钟)'),
       dataIndex: 'ban_minutes',
       render: (v, record) =>
-        IP_DIMENSION_METRICS.includes(record.metric) &&
-        BAN_IP_ACTIONS.includes(record.action) ? (
+        DISPOSITION_ACTIONS.includes(record.action) ? (
           <InputNumber
             value={v || 0}
             min={0}
@@ -882,7 +883,7 @@ const RiskSettings = () => {
         <Space vertical align='start' style={{ width: '100%' }}>
           <Text type='tertiary'>
             {t(
-              'IP 维度规则(单 IP 关联用户数 / 单 IP 使用令牌数)触发「自动禁用用户」时,会处置该 IP 在窗口内关联的全部用户;「封禁 IP」按升级阶梯只封来源 IP,误伤更小。用户维度规则只处置命中用户。建议新规则先用「仅告警」观察一段时间再切换为自动处置。',
+              'IP 维度规则(单 IP 关联用户数 / 单 IP 使用令牌数)触发「自动禁用用户」时,会处置该 IP 在窗口内关联的全部用户;「封禁 IP」按升级阶梯只封来源 IP,误伤更小。用户维度规则只处置命中用户。每条规则的封禁时长对 IP 与账号同样生效,留 0 表示走下方的升级阶梯。建议新规则先用「仅告警」观察一段时间再切换为自动处置。',
             )}
           </Text>
           <Space>
@@ -895,7 +896,7 @@ const RiskSettings = () => {
               onChange={(v) => setTinyMaxTokens(v > 0 ? v : 16)}
             />
           </Space>
-          <Text>{t('IP 封禁升级阶梯(分钟)')}</Text>
+          <Text>{t('封禁升级阶梯(分钟)')}</Text>
           <Space wrap align='center'>
             {banLadder.map((minutes, index) => (
               <Space key={index} spacing={4} align='center'>
@@ -966,7 +967,7 @@ const RiskSettings = () => {
           </Space>
           <Text type='tertiary' size='small'>
             {t(
-              '升级阶梯对「封禁 IP」动作、Probe Guard 与 Error Guard 共同生效:第 N 次违规用第 N 级时长,超出阶梯级数则停在最后一级。违规次数按该 IP 近 90 天内的封禁事件累计。',
+              '升级阶梯对 IP 封禁与账号禁用共同生效,自动封禁规则、Probe Guard 与 Error Guard 都用它:第 N 次违规用第 N 级时长,超出阶梯级数则停在最后一级,规则里填了固定时长则用固定值。违规次数分别按该 IP、该账号近 90 天内的封禁事件累计。账号的临时禁用到期后由后台每分钟检查并自动恢复,期间管理员手动封禁的账号不受影响。',
             )}
           </Text>
           <Text type='tertiary' size='small'>

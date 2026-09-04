@@ -55,6 +55,7 @@ type User struct {
 	Setting            string                     `json:"setting" gorm:"type:text;column:setting"`
 	Remark             string                     `json:"remark,omitempty" gorm:"type:varchar(255)" validate:"max=255"`
 	DisableReason      string                     `json:"disable_reason,omitempty" gorm:"type:varchar(255);column:disable_reason" validate:"max=255"` // 封禁原因,解禁时清空;登录与 relay 被拒时展示给用户
+	DisableExpiresAt   int64                      `json:"disable_expires_at,omitempty" gorm:"type:bigint;default:0;column:disable_expires_at;index"`  // 风控临时禁用的到期时间,0 表示永久或未被风控禁用;到期由后台任务恢复
 	StripeCustomer     string                     `json:"stripe_customer" gorm:"type:varchar(64);column:stripe_customer;index"`
 	CreatedAt          int64                      `json:"created_at" gorm:"autoCreateTime;column:created_at"`
 	LastLoginAt        int64                      `json:"last_login_at" gorm:"default:0;column:last_login_at"`
@@ -589,16 +590,18 @@ func (user *User) Update(updatePassword bool) error {
 
 // DisableRegularUser atomically disables a non-admin user without overwriting
 // unrelated fields changed by concurrent requests. reason 同步写入 disable_reason,
-// 供登录与 relay 拒绝时展示给被封用户。
-func DisableRegularUser(userId int, reason string) (bool, error) {
+// 供登录与 relay 拒绝时展示给被封用户。expiresAt 为临时禁用的到期时间,
+// 0 表示不自动恢复。
+func DisableRegularUser(userId int, reason string, expiresAt int64) (bool, error) {
 	if userId <= 0 {
 		return false, nil
 	}
 	result := DB.Model(&User{}).
 		Where("id = ? AND role < ? AND status <> ?", userId, common.RoleAdminUser, common.UserStatusDisabled).
 		Updates(map[string]interface{}{
-			"status":         common.UserStatusDisabled,
-			"disable_reason": truncateRiskField(strings.TrimSpace(reason), 255),
+			"status":             common.UserStatusDisabled,
+			"disable_reason":     truncateRiskField(strings.TrimSpace(reason), 255),
+			"disable_expires_at": expiresAt,
 		})
 	if result.Error != nil {
 		return false, result.Error
@@ -606,14 +609,18 @@ func DisableRegularUser(userId int, reason string) (bool, error) {
 	return result.RowsAffected > 0, nil
 }
 
-// SetUserDisableReason 直接更新用户的封禁原因列。
-// 手动封禁时写入原因,手动解禁时传空串清除。
-func SetUserDisableReason(userId int, reason string) error {
+// SetUserManualBanState 落盘管理员手动处置后的封禁状态:封禁时写入原因,解禁时传空串清除,
+// 两种情况都清掉风控设置的自动解禁时间——手动封禁一律为永久,而手动解禁后留着残余的
+// 到期时间,会让账号在下一次被手动封禁时被后台任务当作到期的临时禁用放出来。
+func SetUserManualBanState(userId int, reason string) error {
 	if userId <= 0 {
 		return nil
 	}
 	return DB.Model(&User{}).Where("id = ?", userId).
-		Update("disable_reason", truncateRiskField(strings.TrimSpace(reason), 255)).Error
+		Updates(map[string]interface{}{
+			"disable_reason":     truncateRiskField(strings.TrimSpace(reason), 255),
+			"disable_expires_at": 0,
+		}).Error
 }
 
 // GetUserDisableReason 查询用户的封禁原因,仅用于拒绝路径展示,查不到时返回空串。

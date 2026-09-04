@@ -1190,6 +1190,7 @@ func ManageUser(c *gin.Context) {
 	}
 	// 手动封禁/解禁写入风控事件,连同操作人与原因一起留档;
 	// 同时维护用户行上的 disable_reason(封禁写入,解禁清空),供被封用户在登录/调用被拒时看到。
+	// 手动处置一律不带到期时间:管理员封禁就是永久,解禁也要顺手清掉风控留下的到期时间。
 	if req.Action == "disable" || req.Action == "enable" {
 		eventType := model.RiskEventBanManual
 		reasonForUser := strings.TrimSpace(req.Reason)
@@ -1197,7 +1198,7 @@ func ManageUser(c *gin.Context) {
 			eventType = model.RiskEventUnban
 			reasonForUser = ""
 		}
-		if err := model.SetUserDisableReason(user.Id, reasonForUser); err != nil {
+		if err := model.SetUserManualBanState(user.Id, reasonForUser); err != nil {
 			common.SysLog(fmt.Sprintf("failed to update disable reason for user %d: %s", user.Id, err.Error()))
 		}
 		if err := model.InsertRiskEvent(&model.RiskEvent{

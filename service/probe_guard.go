@@ -68,7 +68,7 @@ func CheckProbeGuard(c *gin.Context, modelName string) error {
 	}
 
 	// 处置失败不放行请求:检测已确认,拒绝当前请求仍是安全侧
-	applyRealtimeGuardAction(setting, model.IpBanSourceProbeGuard, action,
+	applyRealtimeGuardAction(setting, model.RiskBanSourceProbeGuard, action,
 		setting.ResolvedProbeGuardBanMinutes(), userId, ip, c.Request.UserAgent(), reason)
 	common.SysLog(fmt.Sprintf("probe guard: blocked request, %s, user=%d, action=%s", reason, userId, action))
 	markRiskBlocked(c)

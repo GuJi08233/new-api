@@ -30,7 +30,7 @@ func TestDisableUserForRiskRecordsExemptSkip(t *testing.T) {
 		PublicKeyUserIds: []int{user.Id},
 	})
 
-	require.NoError(t, DisableUserForRisk(user.Id, "微量请求超阈值", "203.0.113.5"))
+	require.NoError(t, DisableUserForRisk(user.Id, "微量请求超阈值", model.RiskBanSourceAutoRule, 0, "203.0.113.5"))
 
 	var saved model.User
 	require.NoError(t, model.DB.First(&saved, user.Id).Error)

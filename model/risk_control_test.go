@@ -618,7 +618,8 @@ func TestDisableRegularUserWritesReason(t *testing.T) {
 	user := &User{Username: "victim", Password: "12345678", Role: common.RoleCommonUser, Status: common.UserStatusEnabled}
 	require.NoError(t, DB.Create(user).Error)
 
-	changed, err := DisableRegularUser(user.Id, "触发风控规则")
+	expiresAt := time.Now().Add(10 * time.Minute).Unix()
+	changed, err := DisableRegularUser(user.Id, "触发风控规则", expiresAt)
 	require.NoError(t, err)
 	require.True(t, changed)
 
@@ -626,9 +627,10 @@ func TestDisableRegularUserWritesReason(t *testing.T) {
 	require.NoError(t, DB.First(&saved, user.Id).Error)
 	assert.Equal(t, common.UserStatusDisabled, saved.Status)
 	assert.Equal(t, "触发风控规则", saved.DisableReason)
+	assert.Equal(t, expiresAt, saved.DisableExpiresAt)
 
 	// 已禁用用户重复处置幂等
-	changed, err = DisableRegularUser(user.Id, "再次")
+	changed, err = DisableRegularUser(user.Id, "再次", 0)
 	require.NoError(t, err)
 	assert.False(t, changed)
 }

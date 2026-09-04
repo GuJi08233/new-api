@@ -17,6 +17,7 @@ const (
 	RiskEventBanAuto   = "ban_auto"   // 风控自动封禁用户
 	RiskEventBanManual = "ban_manual" // 管理员手动封禁用户
 	RiskEventUnban     = "unban"      // 管理员解除用户封禁
+	RiskEventUnbanAuto = "unban_auto" // 账号的临时禁用到期,后台自动恢复
 	RiskEventBanIp     = "ban_ip"     // IP 被封禁(自动升级或手动添加)
 	RiskEventUnbanIp   = "unban_ip"   // IP 封禁被解除
 	RiskEventAlert     = "alert"      // 自动规则命中告警(动作为仅告警)
@@ -26,8 +27,8 @@ const (
 func IsValidRiskEventType(eventType string) bool {
 	switch eventType {
 	case RiskEventBlockUa, RiskEventBlockIp, RiskEventBanAuto,
-		RiskEventBanManual, RiskEventUnban, RiskEventBanIp,
-		RiskEventUnbanIp, RiskEventAlert:
+		RiskEventBanManual, RiskEventUnban, RiskEventUnbanAuto,
+		RiskEventBanIp, RiskEventUnbanIp, RiskEventAlert:
 		return true
 	}
 	return false
@@ -106,7 +107,8 @@ func GetRiskEvents(eventType string, userId int, ip string, startIdx int, num in
 }
 
 // CleanupRiskEvents 清理 before 之前的拦截与告警事件。
-// 封禁(ban_auto/ban_manual)与解禁(unban)记录是处置审计,不参与清理。
+// 封禁(ban_auto/ban_manual)与解禁(unban/unban_auto)记录是处置审计,不参与清理;
+// ban_auto 还是账号累犯升级的计数依据,清掉会让累犯次数凭空归零。
 func CleanupRiskEvents(before int64) (int64, error) {
 	result := DB.Where("created_at < ?", before).
 		Where("event_type IN ?", []string{RiskEventBlockUa, RiskEventBlockIp, RiskEventAlert}).

@@ -75,7 +75,7 @@ func RecordErrorGuardResponse(c *gin.Context, statusCode int) {
 		return
 	}
 
-	applyRealtimeGuardAction(setting, model.IpBanSourceErrorGuard, action,
+	applyRealtimeGuardAction(setting, model.RiskBanSourceErrorGuard, action,
 		setting.ResolvedErrorGuardBanMinutes(), userId, ip, c.Request.UserAgent(), reason)
 	common.SysLog(fmt.Sprintf("error guard: %s, user=%d, action=%s", reason, userId, action))
 }

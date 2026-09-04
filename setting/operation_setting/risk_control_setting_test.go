@@ -159,7 +159,7 @@ func TestRiskControlIpBanAndProbeGuardFallbacks(t *testing.T) {
 	var nilSetting *RiskControlSetting
 	assert.Equal(t, RiskDefaultIpBanFirstMinutes, nilSetting.ResolvedIpBanFirstMinutes())
 	assert.Equal(t, RiskDefaultIpBanSecondMinutes, nilSetting.ResolvedIpBanSecondMinutes())
-	assert.Equal(t, RiskDefaultIpBanPermanentOffense, nilSetting.ResolvedIpBanPermanentOffense())
+	assert.Equal(t, RiskDefaultIpBanPermanentOffense, nilSetting.ResolvedBanPermanentOffense())
 	assert.Equal(t, RiskDefaultProbeGuardWindowSeconds, nilSetting.ResolvedProbeGuardWindowSeconds())
 	assert.Equal(t, RiskDefaultProbeGuardModelCount, nilSetting.ResolvedProbeGuardModelCount())
 
@@ -172,15 +172,15 @@ func TestRiskControlIpBanAndProbeGuardFallbacks(t *testing.T) {
 	}
 	assert.Equal(t, 30, configured.ResolvedIpBanFirstMinutes())
 	assert.Equal(t, 360, configured.ResolvedIpBanSecondMinutes())
-	assert.Equal(t, 5, configured.ResolvedIpBanPermanentOffense())
+	assert.Equal(t, 5, configured.ResolvedBanPermanentOffense())
 	assert.Equal(t, 120, configured.ResolvedProbeGuardWindowSeconds())
 	assert.Equal(t, 8, configured.ResolvedProbeGuardModelCount())
 
 	// 0 表示永不升级为永久封禁,不能被当作"未配置"而回退默认值
 	neverPermanent := &RiskControlSetting{IpBanPermanentOffense: 0}
-	assert.Equal(t, 0, neverPermanent.ResolvedIpBanPermanentOffense())
+	assert.Equal(t, 0, neverPermanent.ResolvedBanPermanentOffense())
 	assert.Equal(t, RiskDefaultIpBanPermanentOffense,
-		(&RiskControlSetting{IpBanPermanentOffense: -1}).ResolvedIpBanPermanentOffense())
+		(&RiskControlSetting{IpBanPermanentOffense: -1}).ResolvedBanPermanentOffense())
 }
 
 func TestRiskControlErrorGuardFallbacks(t *testing.T) {

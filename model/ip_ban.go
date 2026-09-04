@@ -17,12 +17,15 @@ import (
 // 匹配走全量内存缓存:请求路径零查库,缓存在本节点变更后立即重载,
 // 其他节点由后台周期同步兜底。
 
-// IP 封禁来源。
+// 封禁来源。IP 封禁与账号禁用共用同一组标识:两者由同一批检测链路触发,
+// 事件表里也用同一个字段记录,分开定义只会让「同一条规则封了 IP 又禁了账号」
+// 在审计时对不上号。
 const (
-	IpBanSourceManual     = "manual"      // 管理员手动添加
-	IpBanSourceAutoRule   = "auto_rule"   // 自动封禁规则(周期扫描)
-	IpBanSourceProbeGuard = "probe_guard" // Probe Guard 实时检测
-	IpBanSourceErrorGuard = "error_guard" // Error Guard 实时错误率检测
+	RiskBanSourceManual      = "manual"       // 管理员手动添加
+	RiskBanSourceAutoRule    = "auto_rule"    // 自动封禁规则(周期扫描)
+	RiskBanSourceProbeGuard  = "probe_guard"  // Probe Guard 实时检测
+	RiskBanSourceErrorGuard  = "error_guard"  // Error Guard 实时错误率检测
+	RiskBanSourceUaBlacklist = "ua_blacklist" // UA 黑名单实时拦截(仅账号处置)
 )
 
 type IpBan struct {

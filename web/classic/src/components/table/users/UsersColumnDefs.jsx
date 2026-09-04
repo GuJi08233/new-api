@@ -125,11 +125,22 @@ const renderStatistics = (text, record, showEnableDisableModal, t) => {
     </Tag>
   );
 
+  // 风控的临时禁用会自己到期恢复,管理员得能看出这个账号是被关到什么时候
   const tooltipContent = (
     <div className='text-xs'>
       <div>
         {t('调用次数')}: {renderNumber(record.request_count)}
       </div>
+      {record.status === 2 && record.disable_reason ? (
+        <div>
+          {t('封禁原因')}: {record.disable_reason}
+        </div>
+      ) : null}
+      {record.status === 2 && record.disable_expires_at > 0 ? (
+        <div>
+          {t('自动解封时间')}: {timestamp2string(record.disable_expires_at)}
+        </div>
+      ) : null}
     </div>
   );
 
