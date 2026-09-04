@@ -106,6 +106,9 @@ type TaskPrivateData struct {
 	TokenId        int                 `json:"token_id,omitempty"`        // 令牌 ID，用于令牌额度退款
 	NodeName       string              `json:"node_name,omitempty"`       // 发起任务的节点名，轮询结算阶段据此归属日志而非最后查询节点
 	BillingContext *TaskBillingContext `json:"billing_context,omitempty"` // 计费参数快照（用于轮询阶段重新计算）
+	// Source 是提交任务的用户来源。结算与退款发生在轮询/回调阶段，那时的请求上下文
+	// 属于上游而不是用户，因此来源必须在提交时快照下来，日志才指向真正的发起者。
+	Source LogSource `json:"source,omitempty"`
 }
 
 // TaskBillingContext 记录任务提交时的计费参数，以便轮询阶段可以重新计算额度。

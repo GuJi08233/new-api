@@ -94,6 +94,10 @@ const (
 	LogTypeError   = 5
 	LogTypeRefund  = 6
 	LogTypeLogin   = 7
+	// LogTypeRegister 是账号注册。与登录一样从 system 里独立出来：注册是多账号
+	// 关联最强的一条证据（同一地址注册出的号几乎必然同属一人），混在 system 里
+	// 就没法和签到、两步验证分开统计。
+	LogTypeRegister = 8
 )
 
 func ensureLogRequestId(log *Log) {
@@ -104,6 +108,9 @@ func ensureLogRequestId(log *Log) {
 
 func createLog(log *Log) error {
 	ensureLogRequestId(log)
+	// 所有日志写入都收敛到这里，统一兜底 UA 的列宽与编码：来源可能来自请求头、
+	// 任务快照或历史数据，任何一条都不该因为超长或非法 UTF-8 让整条日志写不进去。
+	log.Ua = truncateLogUa(log.Ua)
 	return LOG_DB.Create(log).Error
 }
 
@@ -145,7 +152,34 @@ func GetLogByTokenId(tokenId int) (logs []*Log, err error) {
 	return logs, err
 }
 
-func RecordLog(userId int, logType int, content string) {
+// LogSource 是一条日志的请求来源（IP / User-Agent）。
+// 后台任务、定时扫描这类没有请求上下文的写入方传零值 LogSource{}。
+//
+// 来源有意不受 RecordIpLog / RecordUaLog 开关控制：那两个开关约束的是中转调用日志的
+// 隐私口径（用户可自行关闭），而注册、签到、兑换、充值、安全设置这些是账号审计事件，
+// 来源必须始终可溯源，否则一人多号与账号盗用都无从追查。
+type LogSource struct {
+	Ip string `json:"ip,omitempty"`
+	Ua string `json:"ua,omitempty"`
+}
+
+// ClientLogSource 从请求上下文提取日志来源。c 为 nil 时返回零值，
+// 因此后台路径可以安全地把可选的上下文直接透传进来。
+func ClientLogSource(c *gin.Context) LogSource {
+	if c == nil || c.Request == nil {
+		return LogSource{}
+	}
+	return NewLogSource(c.ClientIP(), c.Request.UserAgent())
+}
+
+// NewLogSource 由已知的地址与 User-Agent 构造来源，UA 按 Log.Ua 的列宽截断。
+// 供持有来源、但手上没有请求上下文的写入方使用（例如风控扫描规则处置账号时，
+// 来源是命中的日志行而不是当前请求）。
+func NewLogSource(ip string, ua string) LogSource {
+	return LogSource{Ip: ip, Ua: truncateLogUa(ua)}
+}
+
+func RecordLog(source LogSource, userId int, logType int, content string) {
 	if logType == LogTypeConsume && !common.LogConsumeEnabled {
 		return
 	}
@@ -156,6 +190,8 @@ func RecordLog(userId int, logType int, content string) {
 		CreatedAt: common.GetTimestamp(),
 		Type:      logType,
 		Content:   content,
+		Ip:        source.Ip,
+		Ua:        source.Ua,
 	}
 	err := createLog(log)
 	if err != nil {
@@ -164,7 +200,7 @@ func RecordLog(userId int, logType int, content string) {
 }
 
 // RecordLogWithAdminInfo 记录操作日志，并将管理员相关信息存入 Other.admin_info，
-func RecordLogWithAdminInfo(userId int, logType int, content string, adminInfo map[string]interface{}) {
+func RecordLogWithAdminInfo(source LogSource, userId int, logType int, content string, adminInfo map[string]interface{}) {
 	if logType == LogTypeConsume && !common.LogConsumeEnabled {
 		return
 	}
@@ -175,6 +211,8 @@ func RecordLogWithAdminInfo(userId int, logType int, content string, adminInfo m
 		CreatedAt: common.GetTimestamp(),
 		Type:      logType,
 		Content:   content,
+		Ip:        source.Ip,
+		Ua:        source.Ua,
 	}
 	if len(adminInfo) > 0 {
 		other := map[string]interface{}{
@@ -203,8 +241,9 @@ func buildOpField(action string, params map[string]interface{}) map[string]inter
 // RecordLoginLog 记录用户登录成功的审计日志（type=LogTypeLogin）。
 // username 由调用方传入（登录流程已持有用户对象），避免额外的数据库查询。
 // content 为英文兜底文本（用于导出/经典前端）；action+params 供前端本地化渲染。
-// extra 可携带 login_method、user_agent 等附加信息（普通用户可见）。
-func RecordLoginLog(userId int, username string, content string, ip string, action string, params map[string]interface{}, extra map[string]interface{}) {
+// extra 可携带 login_method 等附加信息（普通用户可见）；来源 IP / UA 走 LogSource
+// 落到 Log 的独立列，便于按来源聚合排查异地登录与撞库。
+func RecordLoginLog(source LogSource, userId int, username string, content string, action string, params map[string]interface{}, extra map[string]interface{}) {
 	other := map[string]interface{}{}
 	for k, v := range extra {
 		other[k] = v
@@ -216,7 +255,8 @@ func RecordLoginLog(userId int, username string, content string, ip string, acti
 		CreatedAt: common.GetTimestamp(),
 		Type:      LogTypeLogin,
 		Content:   content,
-		Ip:        ip,
+		Ip:        source.Ip,
+		Ua:        source.Ua,
 		Other:     common.MapToJsonStr(other),
 	}
 	if err := createLog(log); err != nil {
@@ -230,7 +270,7 @@ func RecordLoginLog(userId int, username string, content string, ip string, acti
 // action+params 写入 Other.op，供前端本地化渲染（普通用户可见，不含敏感信息）。
 // adminInfo 存放操作者身份（写入 Other.admin_info，普通用户查询时剥离）；
 // auditInfo 存放路由/方法/结果等中间件兜底信息（写入 Other.audit_info，普通用户查询时剥离）。
-func RecordOperationAuditLog(logUserId int, content string, ip string, action string, params map[string]interface{}, adminInfo map[string]interface{}, auditInfo map[string]interface{}) {
+func RecordOperationAuditLog(source LogSource, logUserId int, content string, action string, params map[string]interface{}, adminInfo map[string]interface{}, auditInfo map[string]interface{}) {
 	username, _ := GetUsernameById(logUserId, false)
 	other := map[string]interface{}{
 		"op": buildOpField(action, params),
@@ -247,7 +287,8 @@ func RecordOperationAuditLog(logUserId int, content string, ip string, action st
 		CreatedAt: common.GetTimestamp(),
 		Type:      LogTypeManage,
 		Content:   content,
-		Ip:        ip,
+		Ip:        source.Ip,
+		Ua:        source.Ua,
 		Other:     common.MapToJsonStr(other),
 	}
 	if err := createLog(log); err != nil {
@@ -255,12 +296,15 @@ func RecordOperationAuditLog(logUserId int, content string, ip string, action st
 	}
 }
 
-func RecordTopupLog(userId int, content string, callerIp string, paymentMethod string, callbackPaymentMethod string) {
+// RecordTopupLog 记录充值到账日志。source 是发起方来源：在线支付回调时是支付网关的
+// 地址与 UA，管理员手工加额度时是管理员本人的。caller_ip 同时留在 admin_info 里，
+// 保持既有的管理端展示不变。
+func RecordTopupLog(source LogSource, userId int, content string, paymentMethod string, callbackPaymentMethod string) {
 	username, _ := GetUsernameById(userId, false)
 	adminInfo := map[string]interface{}{
 		"server_ip":               common.GetIp(),
 		"node_name":               common.NodeName,
-		"caller_ip":               callerIp,
+		"caller_ip":               source.Ip,
 		"payment_method":          paymentMethod,
 		"callback_payment_method": callbackPaymentMethod,
 		"version":                 common.Version,
@@ -274,7 +318,8 @@ func RecordTopupLog(userId int, content string, callerIp string, paymentMethod s
 		CreatedAt: common.GetTimestamp(),
 		Type:      LogTypeTopup,
 		Content:   content,
-		Ip:        callerIp,
+		Ip:        source.Ip,
+		Ua:        source.Ua,
 		Other:     common.MapToJsonStr(other),
 	}
 	err := createLog(log)
@@ -294,11 +339,8 @@ func shouldRecordRequestLogIp(userId int) bool {
 // maxLogUaLength 限制入库的 User-Agent 长度，与 Log.Ua 列宽保持一致
 const maxLogUaLength = 512
 
-func getRequestLogUa(c *gin.Context) string {
-	if !common.IsGlobalRecordUaLogEnabled() {
-		return ""
-	}
-	ua := c.Request.UserAgent()
+// truncateLogUa 把 User-Agent 截断到 Log.Ua 的列宽，并保证入库内容是合法 UTF-8。
+func truncateLogUa(ua string) string {
 	end := 0
 	for count := 0; count < maxLogUaLength && end < len(ua); count++ {
 		_, size := utf8.DecodeRuneInString(ua[end:])
@@ -309,6 +351,37 @@ func getRequestLogUa(c *gin.Context) string {
 		ua = strings.ToValidUTF8(ua, string(utf8.RuneError))
 	}
 	return ua
+}
+
+func getRequestLogUa(c *gin.Context) string {
+	if !common.IsGlobalRecordUaLogEnabled() {
+		return ""
+	}
+	return truncateLogUa(c.Request.UserAgent())
+}
+
+// RecordAuditLog 记录一条账号审计日志（注册、签到等），比 RecordLog 多带
+// 结构化的 other 字段。username 为空时按 userId 反查——注册流程已持有用户对象，
+// 直接传入可省掉一次查询。other 写入 Other 字段，普通用户可见。
+func RecordAuditLog(source LogSource, userId int, username string, logType int, content string, other map[string]interface{}) {
+	if username == "" {
+		username, _ = GetUsernameById(userId, false)
+	}
+	log := &Log{
+		UserId:    userId,
+		Username:  username,
+		CreatedAt: common.GetTimestamp(),
+		Type:      logType,
+		Content:   content,
+		Ip:        source.Ip,
+		Ua:        source.Ua,
+	}
+	if len(other) > 0 {
+		log.Other = common.MapToJsonStr(other)
+	}
+	if err := createLog(log); err != nil {
+		common.SysLog("failed to record audit log: " + err.Error())
+	}
 }
 
 func RecordErrorLog(c *gin.Context, userId int, channelId int, modelName string, tokenName string, content string, tokenId int, useTimeSeconds int,
@@ -435,7 +508,8 @@ type RecordTaskBillingLogParams struct {
 	TokenId   int
 	Group     string
 	Other     map[string]interface{}
-	NodeName  string // 任务发起节点；为空时回退当前节点
+	NodeName  string    // 任务发起节点；为空时回退当前节点
+	Source    LogSource // 提交任务的来源；异步回调结算时为提交请求留下的来源
 }
 
 func RecordTaskBillingLog(params RecordTaskBillingLogParams) {
@@ -462,6 +536,8 @@ func RecordTaskBillingLog(params RecordTaskBillingLogParams) {
 		ChannelId: params.ChannelId,
 		TokenId:   params.TokenId,
 		Group:     params.Group,
+		Ip:        params.Source.Ip,
+		Ua:        params.Source.Ua,
 		Other:     common.MapToJsonStr(params.Other),
 	}
 	err := createLog(log)

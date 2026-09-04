@@ -147,7 +147,7 @@ func GetRedemptionById(id int) (*Redemption, error) {
 	return &redemption, err
 }
 
-func Redeem(key string, userId int) (quota int, err error) {
+func Redeem(source LogSource, key string, userId int) (quota int, err error) {
 	if key == "" {
 		return 0, errors.New("未提供兑换码")
 	}
@@ -289,7 +289,7 @@ func Redeem(key string, userId int) (quota int, err error) {
 		return 0, ErrRedeemFailed
 	}
 	if logContent != "" {
-		RecordLog(userId, LogTypeTopup, logContent)
+		RecordLog(source, userId, LogTypeTopup, logContent)
 	}
 	return quota, nil
 }

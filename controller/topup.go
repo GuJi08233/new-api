@@ -404,7 +404,7 @@ func AdminCompleteTopUp(c *gin.Context) {
 	LockOrder(req.TradeNo)
 	defer UnlockOrder(req.TradeNo)
 
-	if err := model.ManualCompleteTopUp(req.TradeNo, c.ClientIP()); err != nil {
+	if err := model.ManualCompleteTopUp(model.ClientLogSource(c), req.TradeNo); err != nil {
 		common.ApiError(c, err)
 		return
 	}

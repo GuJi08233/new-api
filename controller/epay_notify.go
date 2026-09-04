@@ -58,7 +58,7 @@ func writeEpayNotifyResult(c *gin.Context, success bool) {
 	}
 }
 
-func completeTopUpEpayOrder(verifyInfo *epay.VerifyRes) error {
+func completeTopUpEpayOrder(source model.LogSource, verifyInfo *epay.VerifyRes) error {
 	LockOrder(verifyInfo.ServiceTradeNo)
 	defer UnlockOrder(verifyInfo.ServiceTradeNo)
 
@@ -86,6 +86,7 @@ func completeTopUpEpayOrder(verifyInfo *epay.VerifyRes) error {
 	}
 
 	model.RecordLog(
+		source,
 		topUp.UserId,
 		model.LogTypeTopup,
 		fmt.Sprintf("使用在线充值成功，充值金额: %v，支付金额：%f", logger.LogQuota(quotaToAdd), topUp.Money),
@@ -94,10 +95,10 @@ func completeTopUpEpayOrder(verifyInfo *epay.VerifyRes) error {
 	return nil
 }
 
-func completeSubscriptionEpayOrder(verifyInfo *epay.VerifyRes) error {
+func completeSubscriptionEpayOrder(source model.LogSource, verifyInfo *epay.VerifyRes) error {
 	LockOrder(verifyInfo.ServiceTradeNo)
 	defer UnlockOrder(verifyInfo.ServiceTradeNo)
-	return model.CompleteSubscriptionOrder(verifyInfo.ServiceTradeNo, common.GetJsonString(verifyInfo), model.PaymentProviderEpay, verifyInfo.Type)
+	return model.CompleteSubscriptionOrder(source, verifyInfo.ServiceTradeNo, common.GetJsonString(verifyInfo), model.PaymentProviderEpay, verifyInfo.Type)
 }
 
 func EpayUnifiedNotify(c *gin.Context) {
@@ -128,11 +129,13 @@ func EpayUnifiedNotify(c *gin.Context) {
 		return
 	}
 
+	// 回调由支付网关发起，来源即网关的地址与 UA，据此可核对回调来路是否可疑
+	source := model.ClientLogSource(c)
 	switch {
 	case strings.HasPrefix(verifyInfo.ServiceTradeNo, "SUBUSR"):
-		err = completeSubscriptionEpayOrder(verifyInfo)
+		err = completeSubscriptionEpayOrder(source, verifyInfo)
 	case strings.HasPrefix(verifyInfo.ServiceTradeNo, "USR"):
-		err = completeTopUpEpayOrder(verifyInfo)
+		err = completeTopUpEpayOrder(source, verifyInfo)
 	default:
 		err = fmt.Errorf("unknown epay trade prefix: %s", verifyInfo.ServiceTradeNo)
 	}

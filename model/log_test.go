@@ -102,6 +102,114 @@ func TestRecordRequestLogsPersistSanitizedUa(t *testing.T) {
 	}
 }
 
+// 注册、签到这类账号审计日志的来源必须始终可溯源：IP / UA 不随中转调用日志的隐私
+// 开关一起关掉，否则运营者一关调用日志的 IP 记录，一人多号就再也追不回注册来源。
+func TestRecordAuditLogKeepsSourceWhenRequestLogsDisabled(t *testing.T) {
+	truncateTables(t)
+	originalIp := common.IsGlobalRecordIpLogEnabled()
+	originalUa := common.IsGlobalRecordUaLogEnabled()
+	t.Cleanup(func() {
+		common.SetGlobalRecordIpLogEnvEnabled(false)
+		common.SetGlobalRecordIpLogEnabled(originalIp)
+		common.SetGlobalRecordUaLogEnvEnabled(false)
+		common.SetGlobalRecordUaLogEnabled(originalUa)
+	})
+	common.SetGlobalRecordIpLogEnvEnabled(false)
+	common.SetGlobalRecordIpLogEnabled(false)
+	common.SetGlobalRecordUaLogEnvEnabled(false)
+	common.SetGlobalRecordUaLogEnabled(false)
+
+	context, _ := gin.CreateTestContext(httptest.NewRecorder())
+	context.Request = httptest.NewRequest(http.MethodPost, "/api/user/register", nil)
+	context.Request.Header.Set("User-Agent", strings.Repeat("界", maxLogUaLength+1))
+	context.Request.RemoteAddr = "203.0.113.7:1234"
+
+	RecordAuditLog(ClientLogSource(context), 2001, "new-user", LogTypeSystem, "用户注册（密码注册）",
+		map[string]interface{}{"register_method": "password"})
+
+	var log Log
+	require.NoError(t, LOG_DB.Where("user_id = ?", 2001).First(&log).Error)
+	assert.Equal(t, "203.0.113.7", log.Ip)
+	assert.Equal(t, strings.Repeat("界", maxLogUaLength), log.Ua)
+	assert.Equal(t, "new-user", log.Username)
+
+	other, err := common.StrToMap(log.Other)
+	require.NoError(t, err)
+	assert.Equal(t, "password", other["register_method"])
+}
+
+// 账号相关的日志写入口都必须把来源落到 Ip / Ua 列。新增一类日志时若忘了接上
+// LogSource，这里会直接失败——来源缺一类，追查滥用时就断一环。
+func TestAccountLogWritersPersistSource(t *testing.T) {
+	truncateTables(t)
+	source := NewLogSource("198.51.100.9", "audit-agent/2.0")
+
+	tests := []struct {
+		name   string
+		userId int
+		write  func(userId int)
+	}{
+		{
+			name:   "RecordLog",
+			userId: 3001,
+			write:  func(userId int) { RecordLog(source, userId, LogTypeSystem, "签到") },
+		},
+		{
+			name:   "RecordLogWithAdminInfo",
+			userId: 3002,
+			write: func(userId int) {
+				RecordLogWithAdminInfo(source, userId, LogTypeManage, "[风控] 自动禁用", map[string]interface{}{"source": "risk_control"})
+			},
+		},
+		{
+			name:   "RecordAuditLog",
+			userId: 3003,
+			write: func(userId int) {
+				RecordAuditLog(source, userId, "u", LogTypeSystem, "用户注册", map[string]interface{}{"register_method": "password"})
+			},
+		},
+		{
+			name:   "RecordLoginLog",
+			userId: 3004,
+			write: func(userId int) {
+				RecordLoginLog(source, userId, "u", "Logged in", "login", nil, nil)
+			},
+		},
+		{
+			name:   "RecordOperationAuditLog",
+			userId: 3005,
+			write: func(userId int) {
+				RecordOperationAuditLog(source, userId, "POST /api/channel", "channel.create", nil, nil, nil)
+			},
+		},
+		{
+			name:   "RecordTopupLog",
+			userId: 3006,
+			write:  func(userId int) { RecordTopupLog(source, userId, "充值成功", "epay", "alipay") },
+		},
+		{
+			name:   "RecordTaskBillingLog",
+			userId: 3007,
+			write: func(userId int) {
+				RecordTaskBillingLog(RecordTaskBillingLogParams{
+					UserId: userId, LogType: LogTypeRefund, Content: "退款", Source: source,
+				})
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.write(tt.userId)
+
+			var log Log
+			require.NoError(t, LOG_DB.Where("user_id = ?", tt.userId).First(&log).Error)
+			assert.Equal(t, source.Ip, log.Ip)
+			assert.Equal(t, source.Ua, log.Ua)
+		})
+	}
+}
+
 func TestGetModelAvailabilityByGroupHourlyBuckets(t *testing.T) {
 	truncateTables(t)
 

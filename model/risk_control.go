@@ -134,6 +134,192 @@ func riskLogTypes() []int {
 	return []int{LogTypeConsume, LogTypeError}
 }
 
+// 多账号关联(一人多号)统计的口径与自动封禁扫描不同:认定同一人持有多个账号,
+// 靠的是这些账号在同一来源地址上留下的任何痕迹——注册、登录、签到、安全操作、
+// 调用都算证据,而不只是调用。
+//
+// 有意排除充值日志(LogTypeTopup):它的来源是支付网关回调的地址,凡是充过值的
+// 用户都会挂在同一个网关 IP 上,纳入统计会把整站付费用户关联成一伙。
+// 同样排除 LogTypeUnknown:没有明确语义的行不构成证据。
+const (
+	// 账号事件口径每个账号只留寥寥数行,可以回溯很久;一旦并入调用日志,
+	// 行数会涨几个数量级,窗口必须收回到与其他榜单相同的量级。
+	multiAccountMaxWindowHours        = 24 * 90
+	multiAccountRequestMaxWindowHours = 24 * 7
+	multiAccountDefaultWindowHours    = 24 * 7
+	multiAccountDefaultMinUsers       = 2
+	multiAccountMaxMinUsers           = 1000
+)
+
+// MultiAccountQuery 是多账号关联统计的查询参数。
+type MultiAccountQuery struct {
+	Hours           int
+	Limit           int
+	MinUsers        int   // 关联账号数下限,低于该值的地址不进榜
+	IncludeRequests bool  // 是否把调用与错误日志也算作证据
+	ExcludeUserIds  []int // 全局白名单账号
+}
+
+// MultiAccountIpItem 单个来源地址上的多账号关联项。
+type MultiAccountIpItem struct {
+	Ip            string `json:"ip" gorm:"column:ip"`
+	UserCount     int    `json:"user_count" gorm:"column:user_count"`
+	RegisterCount int    `json:"register_count" gorm:"column:register_count"`
+	LoginCount    int    `json:"login_count" gorm:"column:login_count"`
+	EventCount    int    `json:"event_count" gorm:"column:event_count"`
+	FirstSeen     int64  `json:"first_seen" gorm:"column:first_seen"`
+	LastSeen      int64  `json:"last_seen" gorm:"column:last_seen"`
+}
+
+// MultiAccountUserItem 某地址下关联到的单个账号明细。
+type MultiAccountUserItem struct {
+	UserId        int    `json:"user_id" gorm:"column:user_id"`
+	Username      string `json:"username" gorm:"column:username"`
+	RegisterCount int    `json:"register_count" gorm:"column:register_count"`
+	LoginCount    int    `json:"login_count" gorm:"column:login_count"`
+	RequestCount  int    `json:"request_count" gorm:"column:request_count"`
+	EventCount    int    `json:"event_count" gorm:"column:event_count"`
+	FirstSeen     int64  `json:"first_seen" gorm:"column:first_seen"`
+	LastSeen      int64  `json:"last_seen" gorm:"column:last_seen"`
+	// Status / DisplayName 不在日志库里,由 controller 从主库补齐后返回
+	Status      int    `json:"status" gorm:"-"`
+	DisplayName string `json:"display_name" gorm:"-"`
+}
+
+// EffectiveLimits 返回本次查询实际生效的边界，供前端回显：用户填的值可能被钳制，
+// 页面上显示的必须是真正用于查询的那个。
+func (q MultiAccountQuery) EffectiveLimits() (minUsers int, maxWindowHours int) {
+	maxWindowHours = multiAccountMaxWindowHours
+	if q.IncludeRequests {
+		maxWindowHours = multiAccountRequestMaxWindowHours
+	}
+	return normalizeMultiAccountMinUsers(q.MinUsers), maxWindowHours
+}
+
+func multiAccountLogTypes(includeRequests bool) []int {
+	types := []int{LogTypeRegister, LogTypeLogin, LogTypeSystem, LogTypeManage}
+	if includeRequests {
+		types = append(types, LogTypeConsume, LogTypeError, LogTypeRefund)
+	}
+	return types
+}
+
+// normalizeMultiAccountWindow 归一化窗口起点,上限随是否包含调用日志而变。
+func normalizeMultiAccountWindow(hours int, includeRequests bool) int64 {
+	max := multiAccountMaxWindowHours
+	if includeRequests {
+		max = multiAccountRequestMaxWindowHours
+	}
+	if hours <= 0 {
+		hours = multiAccountDefaultWindowHours
+	}
+	if hours > max {
+		hours = max
+	}
+	return time.Now().Add(-time.Duration(hours) * time.Hour).Unix()
+}
+
+func normalizeMultiAccountMinUsers(minUsers int) int {
+	if minUsers < multiAccountDefaultMinUsers {
+		return multiAccountDefaultMinUsers
+	}
+	if minUsers > multiAccountMaxMinUsers {
+		return multiAccountMaxMinUsers
+	}
+	return minUsers
+}
+
+// riskTypeCountExpr 统计某类日志的行数。logType 是包内常量,不会引入注入面。
+func riskTypeCountExpr(logType int) string {
+	return fmt.Sprintf("count(case when type = %d then 1 end)", logType)
+}
+
+// multiAccountBaseQuery 是排行与下钻共用的过滤条件。
+func multiAccountBaseQuery(q MultiAccountQuery) *gorm.DB {
+	tx := LOG_DB.Table("logs").
+		Where("created_at >= ?", normalizeMultiAccountWindow(q.Hours, q.IncludeRequests)).
+		Where("type IN ?", multiAccountLogTypes(q.IncludeRequests)).
+		Where("ip <> ''").
+		Where("user_id > 0")
+	return riskExcludeUsers(tx, q.ExcludeUserIds)
+}
+
+// GetMultiAccountRanking 返回关联账号数达到阈值的来源地址,按关联账号数排行。
+// 这是纯统计接口:只负责把可疑地址摆出来供人工研判,不触发任何自动处置。
+func GetMultiAccountRanking(q MultiAccountQuery) ([]MultiAccountIpItem, error) {
+	var items []MultiAccountIpItem
+	err := multiAccountBaseQuery(q).
+		Select(strings.Join([]string{
+			"ip",
+			"count(distinct user_id) as user_count",
+			riskTypeCountExpr(LogTypeRegister) + " as register_count",
+			riskTypeCountExpr(LogTypeLogin) + " as login_count",
+			"count(*) as event_count",
+			"min(created_at) as first_seen",
+			"max(created_at) as last_seen",
+		}, ", ")).
+		Group("ip").
+		Having("count(distinct user_id) >= ?", normalizeMultiAccountMinUsers(q.MinUsers)).
+		Order("user_count desc, register_count desc, event_count desc").
+		Limit(normalizeRiskLimit(q.Limit)).
+		Find(&items).Error
+	return items, err
+}
+
+// GetMultiAccountUsers 下钻某个地址,返回它关联的全部账号及各自的证据构成。
+func GetMultiAccountUsers(ip string, q MultiAccountQuery) ([]MultiAccountUserItem, error) {
+	if ip == "" {
+		return nil, errors.New("ip is required")
+	}
+	var items []MultiAccountUserItem
+	err := multiAccountBaseQuery(q).
+		Where("ip = ?", ip).
+		Select(strings.Join([]string{
+			"user_id",
+			"max(username) as username",
+			riskTypeCountExpr(LogTypeRegister) + " as register_count",
+			riskTypeCountExpr(LogTypeLogin) + " as login_count",
+			riskTypeCountExpr(LogTypeConsume) + " as request_count",
+			"count(*) as event_count",
+			"min(created_at) as first_seen",
+			"max(created_at) as last_seen",
+		}, ", ")).
+		Group("user_id").
+		Order("register_count desc, event_count desc").
+		Limit(normalizeRiskLimit(q.Limit)).
+		Find(&items).Error
+	return items, err
+}
+
+// AttachMultiAccountUserStatus 从主库补齐账号的当前状态与昵称。
+// 日志库可以独立部署，不能与 users 表 join，因此分两步查；补齐失败只记日志，
+// 统计结果照常返回——少一列展示信息不该让整个研判页面打不开。
+func AttachMultiAccountUserStatus(items []MultiAccountUserItem) {
+	if len(items) == 0 {
+		return
+	}
+	ids := make([]int, 0, len(items))
+	for _, item := range items {
+		ids = append(ids, item.UserId)
+	}
+	var users []User
+	if err := DB.Model(&User{}).Select("id", "status", "display_name").
+		Where("id IN ?", ids).Find(&users).Error; err != nil {
+		common.SysLog("risk control: failed to load user status for multi-account detail: " + err.Error())
+		return
+	}
+	byId := make(map[int]User, len(users))
+	for _, user := range users {
+		byId[user.Id] = user
+	}
+	for i := range items {
+		if user, ok := byId[items[i].UserId]; ok {
+			items[i].Status = user.Status
+			items[i].DisplayName = user.DisplayName
+		}
+	}
+}
+
 // riskExcludeUsers 把全局白名单账号产生的日志行从风控统计中剔除。
 // 这些账号的流量既不该让自己上榜被处置,也不该把自己使用的 IP 顶上 IP 维度排行,
 // 否则运营者自己的出口地址会被自动封禁,连带拦下同出口的其他正常用户。

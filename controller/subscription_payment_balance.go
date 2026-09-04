@@ -31,7 +31,7 @@ func SubscriptionRequestBalancePay(c *gin.Context) {
 		return
 	}
 
-	if err := model.PurchaseSubscriptionWithBalance(userId, req.PlanId); err != nil {
+	if err := model.PurchaseSubscriptionWithBalance(model.ClientLogSource(c), userId, req.PlanId); err != nil {
 		common.ApiErrorMsg(c, err.Error())
 		return
 	}

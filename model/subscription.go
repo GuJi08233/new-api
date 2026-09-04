@@ -1227,11 +1227,11 @@ func userActiveSubscriptionsAllowWalletOverflowForGroup(userId int, usingGroup s
 // Complete a subscription order (idempotent). Creates a UserSubscription snapshot from the plan.
 // expectedPaymentProvider guards against cross-gateway callback attacks (empty skips the check).
 // actualPaymentMethod updates the order's PaymentMethod to reflect the real payment type used (empty skips update).
-func CompleteSubscriptionOrder(tradeNo string, providerPayload string, expectedPaymentProvider string, actualPaymentMethod string) error {
-	return CompleteSubscriptionOrderWithPaymentCheck(tradeNo, providerPayload, expectedPaymentProvider, actualPaymentMethod, "", "")
+func CompleteSubscriptionOrder(source LogSource, tradeNo string, providerPayload string, expectedPaymentProvider string, actualPaymentMethod string) error {
+	return CompleteSubscriptionOrderWithPaymentCheck(source, tradeNo, providerPayload, expectedPaymentProvider, actualPaymentMethod, "", "")
 }
 
-func CompleteSubscriptionOrderWithPaymentCheck(tradeNo string, providerPayload string, expectedPaymentProvider string, actualPaymentMethod string, paidToken string, paidAmount string) error {
+func CompleteSubscriptionOrderWithPaymentCheck(source LogSource, tradeNo string, providerPayload string, expectedPaymentProvider string, actualPaymentMethod string, paidToken string, paidAmount string) error {
 	if tradeNo == "" {
 		return errors.New("tradeNo is empty")
 	}
@@ -1327,7 +1327,7 @@ func CompleteSubscriptionOrderWithPaymentCheck(tradeNo string, providerPayload s
 			action = "续期"
 		}
 		msg := fmt.Sprintf("订阅%s成功，套餐: %s，支付金额: %.2f，支付方式: %s", action, logPlanTitle, logMoney, logPaymentMethod)
-		RecordLog(logUserId, LogTypeTopup, msg)
+		RecordLog(source, logUserId, LogTypeTopup, msg)
 	}
 	return nil
 }
@@ -1596,7 +1596,7 @@ func calcSubscriptionBalanceQuota(priceAmount float64) (int, error) {
 }
 
 // PurchaseSubscriptionWithBalance creates a subscription by deducting the user's wallet quota.
-func PurchaseSubscriptionWithBalance(userId int, planId int) error {
+func PurchaseSubscriptionWithBalance(source LogSource, userId int, planId int) error {
 	if userId <= 0 || planId <= 0 {
 		return errors.New("invalid userId or planId")
 	}
@@ -1691,7 +1691,7 @@ func PurchaseSubscriptionWithBalance(userId int, planId int) error {
 		action = "续期订阅"
 	}
 	msg := fmt.Sprintf("使用余额%s成功，套餐: %s，支付金额: %.2f，扣除额度: %d", action, logPlanTitle, logMoney, chargedQuota)
-	RecordLog(userId, LogTypeTopup, msg)
+	RecordLog(source, userId, LogTypeTopup, msg)
 	return nil
 }
 

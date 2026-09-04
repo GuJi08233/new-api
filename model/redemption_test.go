@@ -129,7 +129,7 @@ func setupRedeemFixture(t *testing.T, quota int) (userId int, key string) {
 func TestRedeemCreditsQuotaExactlyOnce(t *testing.T) {
 	userId, key := setupRedeemFixture(t, 500)
 
-	quota, err := Redeem(key, userId)
+	quota, err := Redeem(LogSource{}, key, userId)
 	require.NoError(t, err)
 	assert.Equal(t, 500, quota)
 
@@ -143,7 +143,7 @@ func TestRedeemCreditsQuotaExactlyOnce(t *testing.T) {
 	assert.Equal(t, userId, redemption.UsedUserId)
 
 	// Redeeming the same code again must fail and must not credit quota.
-	_, err = Redeem(key, userId)
+	_, err = Redeem(LogSource{}, key, userId)
 	require.Error(t, err)
 	require.NoError(t, DB.First(&user, "id = ?", userId).Error)
 	assert.Equal(t, 500, user.Quota)
@@ -161,7 +161,7 @@ func TestRedeemConcurrentSingleSuccess(t *testing.T) {
 	for i := 0; i < goroutines; i++ {
 		go func(idx int) {
 			defer wg.Done()
-			if _, err := Redeem(key, userId); err == nil {
+			if _, err := Redeem(LogSource{}, key, userId); err == nil {
 				successes[idx] = true
 			}
 		}(i)
@@ -223,17 +223,17 @@ func TestRedeemMultiUseCreditsEachUserOnce(t *testing.T) {
 
 	// 前 3 个用户各成功一次,每人得到全额 quota
 	for i := 0; i < 3; i++ {
-		quota, err := Redeem(key, userIds[i])
+		quota, err := Redeem(LogSource{}, key, userIds[i])
 		require.NoError(t, err, "user %d should redeem successfully", i)
 		assert.Equal(t, 100, quota)
 	}
 
 	// 同一用户重复兑换被拒,额度不变
-	_, err := Redeem(key, userIds[0])
+	_, err := Redeem(LogSource{}, key, userIds[0])
 	require.Error(t, err, "same user must not redeem a multi-use code twice")
 
 	// 次数用满后第 4 个用户失败
-	_, err = Redeem(key, userIds[3])
+	_, err = Redeem(LogSource{}, key, userIds[3])
 	require.Error(t, err, "code should be exhausted after max uses")
 
 	var redemption Redemption
@@ -263,7 +263,7 @@ func TestRedeemMultiUseConcurrentRespectsCap(t *testing.T) {
 	for i := 0; i < goroutines; i++ {
 		go func(idx int) {
 			defer wg.Done()
-			if _, err := Redeem(key, userIds[idx]); err == nil {
+			if _, err := Redeem(LogSource{}, key, userIds[idx]); err == nil {
 				successes[idx] = true
 			}
 		}(i)
@@ -295,11 +295,11 @@ func TestRedeemMultiUseConcurrentRespectsCap(t *testing.T) {
 func TestRedeemLegacyZeroMaxUsesBehavesAsSingleUse(t *testing.T) {
 	userIds, key := setupMultiUseRedeemFixture(t, 80, 0, 2)
 
-	quota, err := Redeem(key, userIds[0])
+	quota, err := Redeem(LogSource{}, key, userIds[0])
 	require.NoError(t, err)
 	assert.Equal(t, 80, quota)
 
-	_, err = Redeem(key, userIds[1])
+	_, err = Redeem(LogSource{}, key, userIds[1])
 	require.Error(t, err, "legacy code with max_uses=0 must be single use")
 
 	var redemption Redemption

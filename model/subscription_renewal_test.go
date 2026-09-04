@@ -201,12 +201,12 @@ func TestPurchaseSubscriptionWithBalance_SecondPurchaseRenews(t *testing.T) {
 
 	plan := insertPlanForGroupBillingTest(t, 1207, "Balance Renewable Plan", false, 0)
 
-	require.NoError(t, PurchaseSubscriptionWithBalance(3207, plan.Id))
+	require.NoError(t, PurchaseSubscriptionWithBalance(LogSource{}, 3207, plan.Id))
 	var first UserSubscription
 	require.NoError(t, DB.Where("user_id = ? AND plan_id = ?", 3207, plan.Id).First(&first).Error)
 	firstEnd := first.EndTime
 
-	require.NoError(t, PurchaseSubscriptionWithBalance(3207, plan.Id))
+	require.NoError(t, PurchaseSubscriptionWithBalance(LogSource{}, 3207, plan.Id))
 
 	var count int64
 	require.NoError(t, DB.Model(&UserSubscription{}).

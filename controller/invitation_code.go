@@ -44,7 +44,7 @@ func GenerateInvitationCode(c *gin.Context) {
 		return
 	}
 
-	codes, err := model.GenerateInvitationCodesForUser(userId, req.Count, req.MaxUses, req.Remark)
+	codes, err := model.GenerateInvitationCodesForUser(model.ClientLogSource(c), userId, req.Count, req.MaxUses, req.Remark)
 	if err != nil {
 		if err.Error() == "额度不足" {
 			common.ApiErrorI18n(c, i18n.MsgInvitationCodeQuotaInsufficient)

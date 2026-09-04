@@ -136,13 +136,11 @@ func loginMethodFromContext(c *gin.Context) string {
 // recordLoginAudit 记录登录成功审计日志（对所有用户启用，仅记录成功，不记录失败）。
 func recordLoginAudit(user *model.User, c *gin.Context) {
 	method := loginMethodFromContext(c)
-	ip := c.ClientIP()
 	extra := map[string]interface{}{
 		"login_method": method,
-		"user_agent":   c.Request.UserAgent(),
 	}
 	content := fmt.Sprintf("Logged in successfully via %s", method)
-	model.RecordLoginLog(user.Id, user.Username, content, ip, "login", map[string]interface{}{
+	model.RecordLoginLog(model.ClientLogSource(c), user.Id, user.Username, content, "login", map[string]interface{}{
 		"method": method,
 	}, extra)
 }
@@ -294,7 +292,7 @@ func Register(c *gin.Context) {
 	if common.EmailVerificationEnabled {
 		cleanUser.Email = user.Email
 	}
-	if err := cleanUser.Insert(inviterId); err != nil {
+	if err := cleanUser.Insert(model.ClientLogSource(c), inviterId); err != nil {
 		model.ReleaseInvitationCode(invitationCodeRecord)
 		if errors.Is(err, model.ErrEmailAlreadyTaken) {
 			common.ApiErrorI18n(c, i18n.MsgUserEmailAlreadyTaken)
@@ -315,6 +313,13 @@ func Register(c *gin.Context) {
 	if common.InvitationCodeEnabled && invitationCodeRecord != nil {
 		_ = model.FinalizeInvitationCodeUsage(invitationCodeRecord, insertedUser.Id)
 	}
+	// 账号已确实建成，先落注册审计日志再发令牌：后续步骤失败也不该让注册来源无从追查
+	registerInfo := map[string]interface{}{"register_method": "password"}
+	if common.InvitationCodeEnabled && invitationCodeRecord != nil {
+		registerInfo["invitation_code"] = invitationCodeRecord.Code
+	}
+	model.RecordAuditLog(model.ClientLogSource(c), insertedUser.Id, insertedUser.Username, model.LogTypeRegister,
+		"用户注册（密码注册）", registerInfo)
 	// 生成默认令牌
 	if constant.GenerateDefaultToken {
 		key, err := common.GenerateKey()
@@ -994,7 +999,7 @@ func CreateUser(c *gin.Context) {
 			return
 		}
 	}
-	cleanUser.FinishInsert(0)
+	cleanUser.FinishInsert(model.ClientLogSource(c), 0)
 
 	recordManageAuditFor(c, cleanUser.Id, "user.create", map[string]interface{}{
 		"username": cleanUser.Username,
@@ -1328,7 +1333,7 @@ func TopUp(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	quota, err := model.Redeem(req.Key, id)
+	quota, err := model.Redeem(model.ClientLogSource(c), req.Key, id)
 	if err != nil {
 		// 不向用户暴露兑换失败的细分原因，避免攻击者根据错误类型判断兑换码状态。
 		common.ApiErrorI18n(c, i18n.MsgRedeemFailed)

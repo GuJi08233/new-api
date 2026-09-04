@@ -22,6 +22,7 @@ import { Tabs, TabPane } from '@douyinfe/semi-ui';
 import { useTranslation } from 'react-i18next';
 import { isRoot } from '../../helpers';
 import RiskRankings from './RiskRankings';
+import MultiAccount from './MultiAccount';
 import RiskEvents from './RiskEvents';
 import IpBans from './IpBans';
 import RiskSettings from './RiskSettings';
@@ -35,6 +36,11 @@ const RiskControl = () => {
         <TabPane tab={t('滥用排行榜')} itemKey='rankings'>
           <div className='mt-4'>
             <RiskRankings />
+          </div>
+        </TabPane>
+        <TabPane tab={t('多账号关联')} itemKey='multi_account'>
+          <div className='mt-4'>
+            <MultiAccount />
           </div>
         </TabPane>
         <TabPane tab={t('风控事件')} itemKey='events'>

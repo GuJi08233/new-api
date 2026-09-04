@@ -302,7 +302,7 @@ func disableUserForRisk(setting *operation_setting.RiskControlSetting, userId in
 	if err := model.InvalidateUserTokensCache(userId); err != nil {
 		common.SysLog(fmt.Sprintf("risk control: failed to invalidate tokens cache for %d: %s", userId, err.Error()))
 	}
-	model.RecordLogWithAdminInfo(userId, model.LogTypeManage, "[风控] "+reason, map[string]interface{}{
+	model.RecordLogWithAdminInfo(model.NewLogSource(sourceIp, sourceUa), userId, model.LogTypeManage, "[风控] "+reason, map[string]interface{}{
 		"source": "risk_control",
 		"reason": reason,
 	})

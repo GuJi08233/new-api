@@ -337,7 +337,7 @@ func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *o
 		}
 
 		// Perform post-transaction tasks (logs, sidebar config, inviter rewards)
-		user.FinalizeOAuthUserCreation(inviterId)
+		user.FinalizeOAuthUserCreation(model.ClientLogSource(c), inviterId)
 		// 将邀请码归属到新用户并发放奖励
 		if common.InvitationCodeEnabled && invitationCodeRecord != nil {
 			_ = model.FinalizeInvitationCodeUsage(invitationCodeRecord, user.Id)
@@ -372,12 +372,22 @@ func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *o
 		}
 
 		// Perform post-transaction tasks
-		user.FinalizeOAuthUserCreation(inviterId)
+		user.FinalizeOAuthUserCreation(model.ClientLogSource(c), inviterId)
 		// 将邀请码归属到新用户并发放奖励
 		if common.InvitationCodeEnabled && invitationCodeRecord != nil {
 			_ = model.FinalizeInvitationCodeUsage(invitationCodeRecord, user.Id)
 		}
 	}
+
+	// 只有走到这里才是真正建了新号；上面命中已有身份的分支是登录，不记注册日志
+	registerInfo := map[string]interface{}{
+		"register_method": strings.TrimSuffix(provider.GetProviderPrefix(), "_"),
+	}
+	if common.InvitationCodeEnabled && invitationCodeRecord != nil {
+		registerInfo["invitation_code"] = invitationCodeRecord.Code
+	}
+	model.RecordAuditLog(model.ClientLogSource(c), user.Id, user.Username, model.LogTypeRegister,
+		fmt.Sprintf("用户注册（%s）", provider.GetName()), registerInfo)
 
 	return user, nil
 }
@@ -471,7 +481,7 @@ func CompleteOAuthRegistration(c *gin.Context) {
 
 	// 微信注册的待完成身份（验证码已在回调阶段核销，直接用暂存的 wechatId）
 	if wechatId, _ := session.Get(sessionKeyPendingWeChatId).(string); wechatId != "" {
-		user, err := registerWeChatUser(wechatId, req.InvitationCode)
+		user, err := registerWeChatUser(c, wechatId, req.InvitationCode)
 		if err != nil {
 			// 邀请码错误时保留暂存身份，允许换码重试
 			respondOAuthUserError(c, err)

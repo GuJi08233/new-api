@@ -134,6 +134,18 @@ function renderType(type, t) {
           {t('退款')}
         </Tag>
       );
+    case 7:
+      return (
+        <Tag color='blue' shape='circle'>
+          {t('登录')}
+        </Tag>
+      );
+    case 8:
+      return (
+        <Tag color='violet' shape='circle'>
+          {t('注册')}
+        </Tag>
+      );
     default:
       return (
         <Tag color='grey' shape='circle'>
@@ -851,9 +863,20 @@ export const getLogsColumns = ({
         <div className='flex items-center gap-1'>
           {t('IP')}
           <Tooltip
-            content={t(
-              '当用户个人设置或站点全局设置开启IP记录时，才会记录消费和错误类型日志的IP',
-            )}
+            content={
+              <>
+                <div>
+                  {t(
+                    '当用户个人设置或站点全局设置开启IP记录时，才会记录消费和错误类型日志的IP',
+                  )}
+                </div>
+                <div>
+                  {t(
+                    '其他类型日志（注册、登录、充值、管理操作等）始终记录来源IP，不受该开关影响',
+                  )}
+                </div>
+              </>
+            }
           >
             <IconHelpCircle className='text-gray-400 cursor-help' />
           </Tooltip>
@@ -861,11 +884,9 @@ export const getLogsColumns = ({
       ),
       dataIndex: 'ip',
       render: (text, record, index) => {
-        const showIp =
-          (record.type === 2 ||
-            record.type === 5 ||
-            (isAdminUser && record.type === 1)) &&
-          text;
+        // 后端决定哪些日志留了来源，前端不再重复维护类型白名单；充值日志的来源是
+        // 支付网关或补单管理员的地址，仍只对管理员展示。
+        const showIp = !!text && (record.type !== 1 || isAdminUser);
         return showIp ? <IpTag ip={text} /> : <></>;
       },
     },
@@ -875,9 +896,20 @@ export const getLogsColumns = ({
         <div className='flex items-center gap-1'>
           {t('UA')}
           <Tooltip
-            content={t(
-              '当站点全局设置开启UA记录时，才会记录消费和错误类型日志的User-Agent',
-            )}
+            content={
+              <>
+                <div>
+                  {t(
+                    '当站点全局设置开启UA记录时，才会记录消费和错误类型日志的User-Agent',
+                  )}
+                </div>
+                <div>
+                  {t(
+                    '其他类型日志（注册、登录、充值、管理操作等）始终记录来源User-Agent，不受该开关影响',
+                  )}
+                </div>
+              </>
+            }
           >
             <IconHelpCircle className='text-gray-400 cursor-help' />
           </Tooltip>
@@ -885,7 +917,7 @@ export const getLogsColumns = ({
       ),
       dataIndex: 'ua',
       render: (text, record, index) => {
-        const showUa = (record.type === 2 || record.type === 5) && text;
+        const showUa = !!text && (record.type !== 1 || isAdminUser);
         return showUa ? (
           <Tooltip content={text}>
             <span>

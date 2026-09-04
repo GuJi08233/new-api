@@ -400,9 +400,11 @@ export function DetailsDialog(props: DetailsDialogProps) {
     !!other?.expr_b64
   const hasAudioTokens = other?.ws || other?.audio
   const showTiming = isTimingLogType(props.log.type)
-  const showAdminIp =
-    !!props.log.ip && (showTiming || (props.isAdmin && isTopup))
-  const showUa = !!props.log.ua && showTiming
+  // The backend decides which logs carry a source, so don't mirror a log-type list
+  // here. Top-up sources are the payment gateway's or the admin's, so they stay
+  // admin-only; everything else shows whatever was recorded.
+  const showAdminIp = !!props.log.ip && (!isTopup || props.isAdmin)
+  const showUa = !!props.log.ua && (!isTopup || props.isAdmin)
   const adminInfo = other?.admin_info
   const topupAuditFields =
     isTopup && props.isAdmin && adminInfo

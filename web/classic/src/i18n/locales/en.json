@@ -965,6 +965,8 @@
     "只有当用户设置开启IP记录时，才会进行请求和错误类型日志的IP记录": "Only when the user sets IP recording, the IP recording of request and error type logs will be performed",
     "当用户个人设置或站点全局设置开启IP记录时，才会记录消费和错误类型日志的IP": "Usage and error log IPs are recorded only when either the user's personal setting or the site-wide setting enables IP recording",
     "当站点全局设置开启UA记录时，才会记录消费和错误类型日志的User-Agent": "Usage and error log User-Agent is recorded only when the site-wide UA recording setting is enabled",
+    "其他类型日志（注册、登录、充值、管理操作等）始终记录来源IP，不受该开关影响": "Other log types (registration, login, top-up, admin operations, etc.) always record the source IP, regardless of this setting",
+    "其他类型日志（注册、登录、充值、管理操作等）始终记录来源User-Agent，不受该开关影响": "Other log types (registration, login, top-up, admin operations, etc.) always record the source User-Agent, regardless of this setting",
     "只有配置了规则的组合才会覆盖，未配置的组合仍使用令牌分组的基础倍率。": "Only configured combinations are overridden. Unconfigured combinations still use the token group's base ratio.",
     "可以根据用户分组增减令牌可选的分组范围。例如 vip 用户额外开放 premium 分组，或移除某个分组的选择权。": "Adjust the selectable group range based on user group. E.g., grant vip users access to premium, or remove access to a group.",
     "可以根据用户分组设置不同的计费倍率。例如 vip 用户使用 standard 令牌时倍率从 1.0 降为 0.8。": "Set different billing ratios based on user group. E.g., vip users using standard tokens get ratio 0.8 instead of 1.0.",
@@ -4293,6 +4295,21 @@
     "用户级白名单只保证账号永不被自动禁用,来源 IP 的封禁与请求拦截照常生效。适用于对外分享的公开/共享密钥:滥用者不是账号主人,禁用账号会打死所有正常使用者。想封住滥用者又不影响密钥主人时,把账号填在这里,并把处置动作设为「封禁 IP」或「封禁 IP + 禁用账号」。": "An account-level whitelist entry only guarantees the account is never auto-disabled; source-IP bans and request blocking still apply. Use it for public or shared keys: the abuser is not the account owner, so disabling the account would cut off every legitimate user. To stop the abuser without hurting the key owner, list the account here and set the disposition to \"Ban IP\" or \"Ban IP + disable account\".",
     "自动封禁规则由后台周期扫描执行,只影响普通用户(管理员与全局白名单账号不会被自动处置)。IP/UA 黑名单在请求时实时拦截。全局白名单账号的流量既不被拦截,也不进入自动封禁的排行统计,因此不会连带封掉它使用的 IP;这些请求仍照常出现在滥用排行榜(可用排行榜上的开关过滤)。每条规则可单独选择处置对象(IP / 账号 / 两者)与封禁时长。": "Auto-ban rules run in a background periodic scan and only affect regular users (admins and global whitelist accounts are never auto-dispositioned). IP/UA blacklists block in real time at request time. Traffic from global whitelist accounts is neither blocked nor counted in the rankings the auto-ban scan reads, so it can never get their IP banned; those requests still show up in the abuse rankings (use the toggle there to filter them). Each rule picks its own target (IP / account / both) and ban duration.",
     "IP 豁免依据日志中记录的地址,需要开启 IP 日志(全局或白名单账号自己的设置)才能生效。": "The IP exemption is based on addresses recorded in the logs, so IP logging must be enabled (globally, or in the whitelisted account's own settings) before it takes effect.",
-    "全局 IP 日志已关闭:白名单账号的 IP 豁免依赖日志中的 IP 字段,除非这些账号单独开启了 IP 记录,否则实时防护仍会封禁它们使用的出口地址。": "Global IP logging is disabled: the IP exemption for whitelisted accounts relies on the IP field in the logs. Unless those accounts enable IP recording individually, the realtime guards can still ban the egress addresses they use."
+    "全局 IP 日志已关闭:白名单账号的 IP 豁免依赖日志中的 IP 字段,除非这些账号单独开启了 IP 记录,否则实时防护仍会封禁它们使用的出口地址。": "Global IP logging is disabled: the IP exemption for whitelisted accounts relies on the IP field in the logs. Unless those accounts enable IP recording individually, the realtime guards can still ban the egress addresses they use.",
+    "多账号关联": "Multi-Account Links",
+    "关联账号数": "Linked Accounts",
+    "注册数": "Registrations",
+    "登录数": "Logins",
+    "证据行数": "Evidence Rows",
+    "查看账号": "View Accounts",
+    "在此注册": "Registered Here",
+    "全局 IP 日志未开启，调用记录不会留下 IP，含调用证据的统计会偏少。注册、登录、签到的来源始终记录，不受该开关影响。": "Global IP logging is off, so API call records carry no IP and statistics including call evidence will be incomplete. Registration, login and check-in sources are always recorded, regardless of that setting.",
+    "本页只做统计，不会自动封禁。同一出口地址下出现多个账号并不一定是同一人：家庭宽带、公司网络、校园网、机房出口都会造成多个正常账号共用地址。请结合「在此注册」与注册时间集中度判断后再决定处置。": "This page only gathers statistics and never bans automatically. Multiple accounts behind one address are not necessarily the same person: home broadband, office networks, campus networks and datacenter egress all put legitimate accounts on a shared address. Weigh \"Registered Here\" and how tightly the registration times cluster before taking action.",
+    "最少关联账号数": "Min Linked Accounts",
+    "计入调用记录": "Include API Calls",
+    "当前口径：注册、登录、签到、安全操作 + 调用与错误记录。调用日志量大，窗口最长 7 天。": "Current scope: registration, login, check-in, security operations + API call and error records. Call logs are large, so the window is capped at 7 days.",
+    "当前口径：注册、登录、签到、安全操作。这类记录每个账号只有寥寥数行，可回溯 90 天；打开「计入调用记录」可加入调用证据，但窗口会收窄到 7 天。": "Current scope: registration, login, check-in, security operations. These leave only a handful of rows per account, so the window can reach 90 days. Enable \"Include API Calls\" to add call evidence, but the window narrows to 7 days.",
+    "关联账号": "Linked Accounts",
+    "「在此注册」为「是」表示该账号是在这个地址上注册的，是同一人多号最强的证据。": "\"Registered Here\" = Yes means the account was created from this address — the strongest evidence of one person holding multiple accounts."
   }
 }

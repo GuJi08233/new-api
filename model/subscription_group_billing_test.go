@@ -223,7 +223,7 @@ func TestCompleteSubscriptionOrder_ExpiresStalePendingOrder(t *testing.T) {
 		CreateTime:      time.Now().Add(-31 * time.Minute).Unix(),
 	}).Error)
 
-	err := CompleteSubscriptionOrder("pending-timeout-complete", "{}", PaymentProviderStripe, PaymentMethodStripe)
+	err := CompleteSubscriptionOrder(LogSource{}, "pending-timeout-complete", "{}", PaymentProviderStripe, PaymentMethodStripe)
 	require.ErrorIs(t, err, ErrSubscriptionOrderExpired)
 
 	order := GetSubscriptionOrderByTradeNo("pending-timeout-complete")

@@ -91,10 +91,10 @@ func TestInvitationCodeRedeemRecordsUsageWithoutInviteRelation(t *testing.T) {
 	require.NoError(t, code.Insert())
 
 	// 不能兑换自己生成的码
-	_, err := Redeem("redeem-code", creator.Id)
+	_, err := Redeem(LogSource{}, "redeem-code", creator.Id)
 	require.Error(t, err)
 
-	quota, err := Redeem("redeem-code", redeemer.Id)
+	quota, err := Redeem(LogSource{}, "redeem-code", redeemer.Id)
 	require.NoError(t, err)
 	assert.Equal(t, 500, quota)
 
@@ -116,7 +116,7 @@ func TestInvitationCodeRedeemRecordsUsageWithoutInviteRelation(t *testing.T) {
 	assert.Empty(t, redeemer.UsedInvitationCode)
 
 	// 已核销的码不可再次兑换
-	_, err = Redeem("redeem-code", redeemer.Id)
+	_, err = Redeem(LogSource{}, "redeem-code", redeemer.Id)
 	require.Error(t, err)
 }
 
@@ -222,7 +222,7 @@ func TestGenerateInvitationCodesChargesPerUse(t *testing.T) {
 	require.NoError(t, DB.Create(&user).Error)
 
 	// 2 个码 × 每码 3 次 × 单价 100 = 600
-	codes, err := GenerateInvitationCodesForUser(user.Id, 2, 3, "batch")
+	codes, err := GenerateInvitationCodesForUser(LogSource{}, user.Id, 2, 3, "batch")
 	require.NoError(t, err)
 	require.Len(t, codes, 2)
 	for _, c := range codes {
@@ -235,7 +235,7 @@ func TestGenerateInvitationCodesChargesPerUse(t *testing.T) {
 	assert.Equal(t, 400, afterCharge.Quota, "总消耗应为 单价 × 数量 × 次数")
 
 	// 额度不足时整体失败,不产生码也不扣费
-	_, err = GenerateInvitationCodesForUser(user.Id, 1, 10, "too-expensive")
+	_, err = GenerateInvitationCodesForUser(LogSource{}, user.Id, 1, 10, "too-expensive")
 	require.Error(t, err)
 	var afterReject User
 	require.NoError(t, DB.First(&afterReject, user.Id).Error)

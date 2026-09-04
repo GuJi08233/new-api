@@ -659,3 +659,103 @@ func TestHasIpLogsSince(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, active, "错误日志同样是活动")
 }
+
+// 多账号关联统计的取证口径:注册/登录/签到这类账号事件构成证据,
+// 充值日志必须排除——它的 IP 是支付网关回调地址,纳入统计会把所有付费用户串成一伙。
+func TestGetMultiAccountRankingExcludesTopupSource(t *testing.T) {
+	truncateTables(t)
+
+	// gateway-ip 上有 3 个用户的充值回调,但那只是支付网关的地址
+	insertRiskLog(t, 1, "u1", "gateway-ip", "", LogTypeTopup, 1)
+	insertRiskLog(t, 2, "u2", "gateway-ip", "", LogTypeTopup, 1)
+	insertRiskLog(t, 3, "u3", "gateway-ip", "", LogTypeTopup, 1)
+
+	// home-ip 上 2 个账号注册 + 1 个账号登录,是真正的多号证据
+	insertRiskLog(t, 11, "m1", "home-ip", "", LogTypeRegister, 10)
+	insertRiskLog(t, 12, "m2", "home-ip", "", LogTypeRegister, 10)
+	insertRiskLog(t, 11, "m1", "home-ip", "", LogTypeLogin, 1)
+
+	// single-ip 只有 1 个账号,达不到阈值
+	insertRiskLog(t, 21, "s1", "single-ip", "", LogTypeRegister, 5)
+
+	items, err := GetMultiAccountRanking(MultiAccountQuery{Hours: 24 * 7})
+	require.NoError(t, err)
+	require.Len(t, items, 1, "只有 home-ip 应当上榜")
+
+	assert.Equal(t, "home-ip", items[0].Ip)
+	assert.Equal(t, 2, items[0].UserCount)
+	assert.Equal(t, 2, items[0].RegisterCount)
+	assert.Equal(t, 1, items[0].LoginCount)
+	assert.Equal(t, 3, items[0].EventCount)
+}
+
+// 调用日志默认不算证据,打开 IncludeRequests 才计入——两种口径的窗口上限不同,
+// 混淆会让默认口径悄悄退化成 7 天。
+func TestGetMultiAccountRankingIncludeRequests(t *testing.T) {
+	truncateTables(t)
+
+	insertRiskLog(t, 31, "c1", "call-ip", "", LogTypeConsume, 1)
+	insertRiskLog(t, 32, "c2", "call-ip", "", LogTypeError, 1)
+
+	items, err := GetMultiAccountRanking(MultiAccountQuery{Hours: 24})
+	require.NoError(t, err)
+	assert.Empty(t, items, "默认口径不看调用与错误日志")
+
+	items, err = GetMultiAccountRanking(MultiAccountQuery{Hours: 24, IncludeRequests: true})
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	assert.Equal(t, 2, items[0].UserCount)
+
+	minUsers, maxWindow := MultiAccountQuery{IncludeRequests: true}.EffectiveLimits()
+	assert.Equal(t, 2, minUsers, "阈值下限是 2:单账号地址不构成关联")
+	assert.Equal(t, multiAccountRequestMaxWindowHours, maxWindow)
+
+	_, accountWindow := MultiAccountQuery{}.EffectiveLimits()
+	assert.Equal(t, multiAccountMaxWindowHours, accountWindow)
+	assert.Greater(t, accountWindow, maxWindow, "账号事件口径行数少,窗口应当更长")
+}
+
+// 下钻要能分清每个账号的证据构成:哪个号是在这个地址上注册的,是研判的关键。
+func TestGetMultiAccountUsers(t *testing.T) {
+	truncateTables(t)
+
+	insertRiskLog(t, 41, "a1", "shared-ip", "", LogTypeRegister, 20)
+	insertRiskLog(t, 41, "a1", "shared-ip", "", LogTypeLogin, 2)
+	insertRiskLog(t, 42, "a2", "shared-ip", "", LogTypeLogin, 1)
+	insertRiskLog(t, 43, "a3", "other-ip", "", LogTypeRegister, 1)
+
+	items, err := GetMultiAccountUsers("shared-ip", MultiAccountQuery{Hours: 24 * 7})
+	require.NoError(t, err)
+	require.Len(t, items, 2)
+
+	// 在此注册的账号排在前面
+	assert.Equal(t, 41, items[0].UserId)
+	assert.Equal(t, 1, items[0].RegisterCount)
+	assert.Equal(t, 1, items[0].LoginCount)
+	assert.Equal(t, 2, items[0].EventCount)
+
+	assert.Equal(t, 42, items[1].UserId)
+	assert.Zero(t, items[1].RegisterCount, "该账号只在此登录,不是在此注册")
+
+	_, err = GetMultiAccountUsers("", MultiAccountQuery{})
+	assert.Error(t, err, "缺少地址时应当报错而不是全表聚合")
+}
+
+// 白名单账号的行不参与统计,与其他风控榜单口径一致:
+// 运营者自己的出口地址不该因为自己多个账号在用就被列为可疑。
+func TestGetMultiAccountRankingExcludesWhitelist(t *testing.T) {
+	truncateTables(t)
+
+	insertRiskLog(t, 51, "w1", "office-ip", "", LogTypeLogin, 1)
+	insertRiskLog(t, 52, "w2", "office-ip", "", LogTypeLogin, 1)
+	insertRiskLog(t, 53, "w3", "office-ip", "", LogTypeLogin, 1)
+
+	items, err := GetMultiAccountRanking(MultiAccountQuery{Hours: 24})
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	assert.Equal(t, 3, items[0].UserCount)
+
+	items, err = GetMultiAccountRanking(MultiAccountQuery{Hours: 24, ExcludeUserIds: []int{51, 52}})
+	require.NoError(t, err)
+	assert.Empty(t, items, "剔除白名单后只剩 1 个账号,达不到阈值")
+}

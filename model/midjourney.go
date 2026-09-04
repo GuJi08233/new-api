@@ -23,6 +23,16 @@ type Midjourney struct {
 	Quota       int    `json:"quota"`
 	Buttons     string `json:"buttons"`
 	Properties  string `json:"properties"`
+	// 提交任务的用户来源。构图失败退款发生在回调/轮询阶段，那时的请求来自上游而非用户，
+	// 因此来源必须在提交时快照下来，退款日志才指向真正的发起者。
+	// 不对外序列化：与任务本身无关，只供内部日志归属使用。
+	SubmitIp string `json:"-" gorm:"type:varchar(64);default:''"`
+	SubmitUa string `json:"-" gorm:"type:varchar(512);default:''"`
+}
+
+// LogSource 返回提交任务时快照下来的来源，供异步退款日志使用。
+func (midjourney *Midjourney) LogSource() LogSource {
+	return LogSource{Ip: midjourney.SubmitIp, Ua: midjourney.SubmitUa}
 }
 
 // TaskQueryParams 用于包含所有搜索条件的结构体，可以根据需求添加更多字段

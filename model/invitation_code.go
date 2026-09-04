@@ -277,7 +277,7 @@ func DeleteInvitationCodesByUser(userId int, ids []int) (int64, error) {
 // GenerateInvitationCodesForUser 为用户批量生成邀请码，扣减额度。
 // maxUses 为每个码的可使用次数,一码多用按次数计价(总价 = 单价 × 数量 × 次数),
 // Quota 字段仍记录单次基数,使用者每次按该基数领取奖励。
-func GenerateInvitationCodesForUser(userId int, count int, maxUses int, remark string) ([]*InvitationCode, error) {
+func GenerateInvitationCodesForUser(source LogSource, userId int, count int, maxUses int, remark string) ([]*InvitationCode, error) {
 	if count <= 0 {
 		count = 1
 	}
@@ -325,7 +325,7 @@ func GenerateInvitationCodesForUser(userId int, count int, maxUses int, remark s
 	}
 
 	if totalPrice > 0 {
-		RecordLog(userId, LogTypeSystem, fmt.Sprintf("生成邀请码消耗 %s", logger.LogQuota(totalPrice)))
+		RecordLog(source, userId, LogTypeSystem, fmt.Sprintf("生成邀请码消耗 %s", logger.LogQuota(totalPrice)))
 	}
 	return codes, nil
 }
@@ -421,8 +421,8 @@ func AttachInvitationInfo(users []*User) {
 }
 
 // GenerateInvitationCodeForUser 为用户生成单个单次可用的邀请码，扣减额度
-func GenerateInvitationCodeForUser(userId int, remark string) (*InvitationCode, error) {
-	codes, err := GenerateInvitationCodesForUser(userId, 1, 1, remark)
+func GenerateInvitationCodeForUser(source LogSource, userId int, remark string) (*InvitationCode, error) {
+	codes, err := GenerateInvitationCodesForUser(source, userId, 1, 1, remark)
 	if err != nil {
 		return nil, err
 	}

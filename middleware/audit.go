@@ -132,7 +132,8 @@ func finishAdminAudit(c *gin.Context, writer *auditResponseWriter) {
 	operatorId := c.GetInt("id")
 	operatorName := c.GetString("username")
 	operatorRole := c.GetInt("role")
-	ip := c.ClientIP()
+	// 在异步记录之前取好来源：goroutine 跑起来时请求可能已经结束，c 不再安全。
+	source := model.ClientLogSource(c)
 	status := writer.Status()
 	success := auditResponseSuccess(status, writer.body.Bytes())
 
@@ -175,7 +176,7 @@ func finishAdminAudit(c *gin.Context, writer *auditResponseWriter) {
 	}
 
 	gopool.Go(func() {
-		model.RecordOperationAuditLog(operatorId, content, ip, action, opParams, adminInfo, auditInfo)
+		model.RecordOperationAuditLog(source, operatorId, content, action, opParams, adminInfo, auditInfo)
 	})
 }
 

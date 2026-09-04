@@ -98,7 +98,7 @@ func WeChatAuth(c *gin.Context) {
 				invCode = v
 			}
 		}
-		registered, err := registerWeChatUser(wechatId, invCode)
+		registered, err := registerWeChatUser(c, wechatId, invCode)
 		if err != nil {
 			// 邀请码缺失/无效时暂存已验证的微信身份，前端补填邀请码后经
 			// CompleteOAuthRegistration 免二次验证码完成注册
@@ -127,7 +127,7 @@ func WeChatAuth(c *gin.Context) {
 // registerWeChatUser 用已通过验证码换取的微信身份完成注册，遵循邀请码
 // 「占用 → 建号 → 归属/失败释放」两阶段协议。若该微信号已注册（重复或
 // 并发提交），幂等返回已有用户。
-func registerWeChatUser(wechatId string, invCode string) (*model.User, error) {
+func registerWeChatUser(c *gin.Context, wechatId string, invCode string) (*model.User, error) {
 	if model.IsWeChatIdAlreadyTaken(wechatId) {
 		existing := &model.User{WeChatId: wechatId}
 		if err := existing.FillUserByWeChatId(); err != nil {
@@ -165,7 +165,7 @@ func registerWeChatUser(wechatId string, invCode string) (*model.User, error) {
 		Status:      common.UserStatusEnabled,
 		InviterId:   inviterId,
 	}
-	if err := user.Insert(inviterId); err != nil {
+	if err := user.Insert(model.ClientLogSource(c), inviterId); err != nil {
 		model.ReleaseInvitationCode(invitationCodeRecord)
 		return nil, err
 	}
@@ -173,6 +173,12 @@ func registerWeChatUser(wechatId string, invCode string) (*model.User, error) {
 	if invitationCodeRecord != nil {
 		_ = model.FinalizeInvitationCodeUsage(invitationCodeRecord, user.Id)
 	}
+	registerInfo := map[string]interface{}{"register_method": "wechat"}
+	if invitationCodeRecord != nil {
+		registerInfo["invitation_code"] = invitationCodeRecord.Code
+	}
+	model.RecordAuditLog(model.ClientLogSource(c), user.Id, user.Username, model.LogTypeRegister,
+		"用户注册（微信）", registerInfo)
 	return user, nil
 }
 

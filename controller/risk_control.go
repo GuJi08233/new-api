@@ -88,6 +88,67 @@ func GetRiskRankings(c *gin.Context) {
 	})
 }
 
+// GetMultiAccountRanking 返回多账号关联(一人多号)统计:关联账号数达到阈值的来源地址。
+// query: hours, limit, min_users, include_requests, exclude_whitelist
+//
+// 纯统计接口,不触发任何处置——研判结果由管理员在页面上人工决定封禁与否。
+func GetMultiAccountRanking(c *gin.Context) {
+	query := buildMultiAccountQuery(c)
+	items, err := model.GetMultiAccountRanking(query)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	minUsers, maxWindowHours := query.EffectiveLimits()
+	common.ApiSuccess(c, gin.H{
+		"items": items,
+		"meta": gin.H{
+			"ip_log_enabled":   common.IsGlobalRecordIpLogEnabled(),
+			"include_requests": query.IncludeRequests,
+			"min_users":        minUsers,
+			"max_window_hours": maxWindowHours,
+		},
+	})
+}
+
+// GetMultiAccountDetail 下钻某个地址,列出它关联的账号及各自的证据构成。
+// query: ip, hours, include_requests, exclude_whitelist
+func GetMultiAccountDetail(c *gin.Context) {
+	ip := c.Query("ip")
+	if ip == "" {
+		common.ApiErrorMsg(c, "ip is required")
+		return
+	}
+	items, err := model.GetMultiAccountUsers(ip, buildMultiAccountQuery(c))
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	model.AttachMultiAccountUserStatus(items)
+
+	common.ApiSuccess(c, gin.H{"ip": ip, "items": items})
+}
+
+func buildMultiAccountQuery(c *gin.Context) model.MultiAccountQuery {
+	hours, _ := strconv.Atoi(c.Query("hours"))
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	minUsers, _ := strconv.Atoi(c.Query("min_users"))
+	includeRequests, _ := strconv.ParseBool(c.Query("include_requests"))
+	excludeWhitelist, _ := strconv.ParseBool(c.Query("exclude_whitelist"))
+
+	query := model.MultiAccountQuery{
+		Hours:           hours,
+		Limit:           limit,
+		MinUsers:        minUsers,
+		IncludeRequests: includeRequests,
+	}
+	if setting := operation_setting.GetRiskControlSetting(); excludeWhitelist && setting != nil {
+		query.ExcludeUserIds = setting.WhitelistUserIds
+	}
+	return query
+}
+
 // GetRiskEvents 分页查询风控事件(拦截记录、封禁/解禁记录、告警)。
 // query: event_type, user_id, ip, p, page_size
 func GetRiskEvents(c *gin.Context) {
