@@ -25,6 +25,7 @@ import {
   IllustrationNoResultDark,
 } from '@douyinfe/semi-illustrations';
 import { getLogsColumns } from './UsageLogsColumnDefs';
+import { useModelIcons } from '../../../hooks/common/useModelIcons';
 
 const LogsTable = (logsData) => {
   const {
@@ -48,6 +49,9 @@ const LogsTable = (logsData) => {
     COLUMN_KEYS,
   } = logsData;
 
+  // 模型图标规则异步加载，版本号变化时需要重建列定义以补上图标
+  const modelIconsVersion = useModelIcons();
+
   // Get all columns
   const allColumns = useMemo(() => {
     return getLogsColumns({
@@ -67,6 +71,7 @@ const LogsTable = (logsData) => {
     openChannelAffinityUsageCacheModal,
     isAdminUser,
     billingDisplayMode,
+    modelIconsVersion,
   ]);
 
   // Filter columns based on visibility settings

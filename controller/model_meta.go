@@ -86,6 +86,16 @@ func GetModelMeta(c *gin.Context) {
 	common.ApiSuccess(c, &m)
 }
 
+// GetModelIcons 返回模型管理中配置的图标规则，供前端按模型名渲染厂商图标
+func GetModelIcons(c *gin.Context) {
+	rules, err := model.GetModelIconRules()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, rules)
+}
+
 // CreateModelMeta 新建模型
 func CreateModelMeta(c *gin.Context) {
 	var m model.Model

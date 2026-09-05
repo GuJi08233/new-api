@@ -20,6 +20,7 @@ For commercial licensing, please contact support@quantumnous.com
 import i18next from 'i18next';
 import { Modal, Tag, Typography, Avatar } from '@douyinfe/semi-ui';
 import { copy, showSuccess } from './utils';
+import { getConfiguredModelIcon } from './modelIcons';
 import { MOBILE_BREAKPOINT } from '../hooks/common/useIsMobile';
 import {
   BILLING_PRICING_VARS,
@@ -742,6 +743,8 @@ export function stringToColor(str) {
 }
 
 // 渲染带有模型图标的标签
+// 图标只来自模型管理中的显式配置（options.icon 优先，其次按模型名解析配置规则）；
+// 未配置图标的模型不显示图标，避免按名称关键字猜测出错误的厂商（如把 muse-spark-* 认成讯飞）
 export function renderModelTag(modelName, options = {}) {
   const {
     color,
@@ -749,17 +752,11 @@ export function renderModelTag(modelName, options = {}) {
     shape = 'circle',
     onClick,
     suffixIcon,
+    icon: iconName,
   } = options;
 
-  const categories = getModelCategories(i18next.t);
-  let icon = null;
-
-  for (const [key, category] of Object.entries(categories)) {
-    if (key !== 'all' && category.filter({ model_name: modelName })) {
-      icon = category.icon;
-      break;
-    }
-  }
+  const configuredIcon = iconName || getConfiguredModelIcon(modelName);
+  const icon = configuredIcon ? getLobeHubIcon(configuredIcon, 14) : null;
 
   return (
       <Tag

@@ -17,18 +17,22 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-export * from './history';
-export * from './auth';
-export * from './sanitize';
-export * from './utils';
-export * from './base64';
-export * from './api';
-export * from './modelIcons';
-export * from './render';
-export * from './log';
-export * from './data';
-export * from './token';
-export * from './boolean';
-export * from './dashboard';
-export * from './passkey';
-export * from './statusCodeRules';
+import { useEffect, useSyncExternalStore } from 'react';
+import {
+  ensureModelIconsLoaded,
+  getModelIconsVersion,
+  subscribeModelIcons,
+} from '../../helpers';
+
+/**
+ * 自定义 Hook：加载并订阅模型管理中配置的图标规则。
+ * 返回的版本号仅用于驱动重渲染（例如作为列定义 useMemo 的依赖），
+ * 使异步加载完成后 renderModelTag 能补上此前缺失的图标。
+ */
+export function useModelIcons() {
+  useEffect(() => {
+    ensureModelIconsLoaded();
+  }, []);
+
+  return useSyncExternalStore(subscribeModelIcons, getModelIconsVersion);
+}

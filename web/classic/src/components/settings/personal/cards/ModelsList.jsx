@@ -36,8 +36,12 @@ import {
 import { IconChevronDown, IconChevronUp } from '@douyinfe/semi-icons';
 import { Settings } from 'lucide-react';
 import { renderModelTag, getModelCategories } from '../../../../helpers';
+import { useModelIcons } from '../../../../hooks/common/useModelIcons';
 
 const ModelsList = ({ t, models, modelsLoading, copyText }) => {
+  // 订阅模型管理中配置的图标规则，加载完成后标签会补上图标
+  useModelIcons();
+
   const [isModelsExpanded, setIsModelsExpanded] = useState(() => {
     // Initialize from localStorage if available
     const savedState = localStorage.getItem('modelsExpanded');

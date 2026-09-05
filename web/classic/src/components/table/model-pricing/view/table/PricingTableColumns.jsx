@@ -149,6 +149,7 @@ export const getPricingTableColumns = ({
     dataIndex: 'model_name',
     render: (text, record, index) => {
       return renderModelTag(text, {
+        icon: record.icon || record.vendor_icon,
         onClick: () => {
           copyText(text);
         },
