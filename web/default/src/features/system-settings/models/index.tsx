@@ -30,6 +30,7 @@ const defaultModelSettings: ModelSettings = {
   'global.thinking_model_blacklist': '[]',
   'global.chat_completions_to_responses_policy': '{}',
   'global.model_endpoint_protect_enabled': false,
+  'global.rewrite_response_model_enabled': false,
   'general_setting.ping_interval_enabled': false,
   'general_setting.ping_interval_seconds': 60,
   'channel_route_setting.enabled': false,

@@ -50,6 +50,7 @@ export default function SettingsLog(props) {
     LogConsumeEnabled: false,
     GlobalRecordIpLogEnabled: false,
     GlobalRecordUaLogEnabled: false,
+    HideModelMappingForUser: false,
     historyTimestamp: dayjs().subtract(1, 'month').toDate(),
   });
   const refForm = useRef();
@@ -257,6 +258,24 @@ export default function SettingsLog(props) {
                     setInputs({
                       ...inputs,
                       GlobalRecordUaLogEnabled: value,
+                    });
+                  }}
+                />
+              </Col>
+              <Col xs={24} sm={12} md={8} lg={8} xl={8}>
+                <Form.Switch
+                  field={'HideModelMappingForUser'}
+                  label={t('对普通用户隐藏模型重定向信息')}
+                  size='default'
+                  checkedText='｜'
+                  uncheckedText='〇'
+                  extraText={t(
+                    '开启后，普通用户的日志与错误信息中不再出现重定向后的实际上游模型，管理员视角不受影响',
+                  )}
+                  onChange={(value) => {
+                    setInputs({
+                      ...inputs,
+                      HideModelMappingForUser: value,
                     });
                   }}
                 />

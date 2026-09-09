@@ -49,6 +49,9 @@ const MAINTENANCE_SECTIONS = [
         defaultEnabled={Boolean(settings.LogConsumeEnabled)}
         defaultIpEnabled={Boolean(settings.GlobalRecordIpLogEnabled)}
         defaultUaEnabled={Boolean(settings.GlobalRecordUaLogEnabled)}
+        defaultHideModelMappingEnabled={Boolean(
+          settings.HideModelMappingForUser
+        )}
       />
     ),
   },

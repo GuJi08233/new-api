@@ -38,6 +38,8 @@ type GlobalSettings struct {
 	ThinkingModelBlacklist           []string                         `json:"thinking_model_blacklist"`
 	ChatCompletionsToResponsesPolicy ChatCompletionsToResponsesPolicy `json:"chat_completions_to_responses_policy"`
 	ModelEndpointProtectEnabled      bool                             `json:"model_endpoint_protect_enabled"`
+	// RewriteResponseModelEnabled 发生模型重定向时，把响应体中的模型名改回客户端请求的模型名
+	RewriteResponseModelEnabled bool `json:"rewrite_response_model_enabled"`
 }
 
 // 默认配置

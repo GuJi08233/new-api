@@ -4324,6 +4324,10 @@
     "绑定方式": "Binding type",
     "标识": "Identifier",
     "注册方式": "Sign-up method",
-    "「账号绑定」展示该账号的第三方身份，标红的是注册来源；绑定多条时只显示注册来源，点「查看全部」看其余绑定。同一身份来源（同邮箱域名、同一提供商下相邻的账号 ID）比共用出口地址更能说明是同一人。": "\"Account bindings\" shows the third-party identities of each account; the red one is the sign-up source. When an account has several bindings only the sign-up source is listed — click \"view all\" for the rest. A shared identity source (same email domain, adjacent account IDs at the same provider) is stronger evidence of one person than a shared egress address."
+    "「账号绑定」展示该账号的第三方身份，标红的是注册来源；绑定多条时只显示注册来源，点「查看全部」看其余绑定。同一身份来源（同邮箱域名、同一提供商下相邻的账号 ID）比共用出口地址更能说明是同一人。": "\"Account bindings\" shows the third-party identities of each account; the red one is the sign-up source. When an account has several bindings only the sign-up source is listed — click \"view all\" for the rest. A shared identity source (same email domain, adjacent account IDs at the same provider) is stronger evidence of one person than a shared egress address.",
+    "对普通用户隐藏模型重定向信息": "Hide model redirect details from regular users",
+    "开启后，普通用户的日志与错误信息中不再出现重定向后的实际上游模型，管理员视角不受影响": "When enabled, the actual upstream model behind a redirect no longer appears in regular users' logs or error messages; the admin view is unaffected",
+    "响应体模型名回写": "Rewrite model name in response body",
+    "开启后，发生模型重定向时把响应体中的模型名改回用户请求的模型名，客户端不会看到实际的上游模型": "When enabled, the model name in the response body is changed back to the model the user requested whenever a redirect happens, so clients never see the actual upstream model"
   }
 }

@@ -92,6 +92,7 @@ export const DEFAULT_MAINTENANCE_SETTINGS: MaintenanceSettings = {
   LogConsumeEnabled: false,
   GlobalRecordIpLogEnabled: false,
   GlobalRecordUaLogEnabled: false,
+  HideModelMappingForUser: false,
   HeaderNavModules: JSON.stringify(HEADER_NAV_DEFAULT),
   SidebarModulesAdmin: JSON.stringify(SIDEBAR_MODULES_DEFAULT),
   'performance_setting.disk_cache_enabled': false,

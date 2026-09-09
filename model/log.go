@@ -125,6 +125,7 @@ func assignDisplayLogIds(logs []*Log, startIdx int) {
 }
 
 func formatUserLogs(logs []*Log, startIdx int) {
+	hideModelMapping := common.IsHideModelMappingForUserEnabled()
 	for i := range logs {
 		logs[i].ChannelName = ""
 		var otherMap map[string]interface{}
@@ -136,10 +137,26 @@ func formatUserLogs(logs []*Log, startIdx int) {
 			delete(otherMap, "audit_info")
 			// delete(otherMap, "reject_reason")
 			delete(otherMap, "stream_status")
+			if hideModelMapping {
+				hideLogModelMapping(logs[i], otherMap)
+			}
 		}
 		logs[i].Other = common.MapToJsonStr(otherMap)
 	}
 	assignDisplayLogIds(logs, startIdx)
+}
+
+// hideLogModelMapping 抹掉一条日志里的模型重定向痕迹：other 中的重定向标记，
+// 以及正文里出现的上游模型名（错误日志会把上游报错原样带进 Content）。
+// 只作用于普通用户视角，管理员查询不经过 formatUserLogs。
+func hideLogModelMapping(log *Log, otherMap map[string]interface{}) {
+	upstreamModelName, _ := otherMap["upstream_model_name"].(string)
+	delete(otherMap, "is_model_mapped")
+	delete(otherMap, "upstream_model_name")
+	if upstreamModelName == "" || log.ModelName == "" || upstreamModelName == log.ModelName {
+		return
+	}
+	log.Content = strings.ReplaceAll(log.Content, upstreamModelName, log.ModelName)
 }
 
 func GetLogByTokenId(tokenId int) (logs []*Log, err error) {

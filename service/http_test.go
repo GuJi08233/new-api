@@ -3,7 +3,10 @@ package service
 import (
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
+
+	"github.com/QuantumNous/new-api/setting/model_setting"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -148,4 +151,65 @@ func TestIOCopyRawBytesGracefullyKeepsSafeEntityMetadata(t *testing.T) {
 	assert.Equal(t, `"audio-entity"`, result.Header.Get("Etag"))
 	assert.Empty(t, result.Header.Get("X-Upstream-Hop"))
 	assert.Equal(t, body, recorder.Body.Bytes())
+}
+
+// TestIOCopyRawBytesGracefullyRewritesModelName covers the non-streaming
+// response path end to end: the client must receive the requested model name,
+// a Content-Length matching the rewritten bytes, and no ETag from the original
+// upstream entity, which no longer describes what we send.
+func TestIOCopyRawBytesGracefullyRewritesModelName(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+
+	settings := model_setting.GetGlobalSettings()
+	originalSetting := settings.RewriteResponseModelEnabled
+	t.Cleanup(func() { settings.RewriteResponseModelEnabled = originalSetting })
+	settings.RewriteResponseModelEnabled = true
+	SetModelRewrite(c, "gpt-4o", "gpt-4")
+
+	src := &http.Response{
+		StatusCode: http.StatusOK,
+		Header: http.Header{
+			"Content-Type": []string{"application/json"},
+			"Etag":         []string{`"upstream-entity"`},
+		},
+	}
+	body := []byte(`{"id":"chatcmpl-1","model":"gpt-4o","choices":[]}`)
+
+	IOCopyRawBytesGracefully(c, src, body)
+
+	result := recorder.Result()
+	defer result.Body.Close()
+	rewritten := `{"id":"chatcmpl-1","model":"gpt-4","choices":[]}`
+	assert.JSONEq(t, rewritten, recorder.Body.String())
+	assert.Equal(t, strconv.Itoa(len(rewritten)), result.Header.Get("Content-Length"))
+	assert.Empty(t, result.Header.Get("Etag"))
+}
+
+// TestCopyUpstreamHeadersRewritesModelHeaders closes the gap where the body
+// says the requested model but an upstream header still names the real one.
+// OpenAI's openai-model carries its own dated variant, so it is replaced whole.
+func TestCopyUpstreamHeadersRewritesModelHeaders(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+
+	settings := model_setting.GetGlobalSettings()
+	originalSetting := settings.RewriteResponseModelEnabled
+	t.Cleanup(func() { settings.RewriteResponseModelEnabled = originalSetting })
+	settings.RewriteResponseModelEnabled = true
+	SetModelRewrite(c, "gpt-4o", "gpt-4")
+
+	src := http.Header{
+		"Openai-Model":        []string{"gpt-4o-2024-08-06"},
+		"X-Upstream-Model":    []string{"gpt-4o"},
+		"Openai-Organization": []string{"org-abc"},
+	}
+
+	CopyUpstreamHeaders(c, c.Writer.Header(), src, false)
+
+	assert.Equal(t, "gpt-4", c.Writer.Header().Get("Openai-Model"))
+	assert.Equal(t, "gpt-4", c.Writer.Header().Get("X-Upstream-Model"))
+	assert.Equal(t, "org-abc", c.Writer.Header().Get("Openai-Organization"))
 }

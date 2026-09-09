@@ -64,6 +64,7 @@ const OperationSetting = () => {
     LogConsumeEnabled: false,
     GlobalRecordIpLogEnabled: false,
     GlobalRecordUaLogEnabled: false,
+    HideModelMappingForUser: false,
 
     /* 监控设置 */
     ChannelDisableThreshold: 0,

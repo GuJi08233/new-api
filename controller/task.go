@@ -2,6 +2,7 @@ package controller
 
 import (
 	"strconv"
+	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -83,6 +84,25 @@ func tasksToDto(tasks []*model.Task, fillUser bool) []*dto.TaskDto {
 			}
 		}
 		result[i] = relay.TaskModel2Dto(task)
+		if !fillUser {
+			hideTaskModelMapping(result[i], task)
+		}
 	}
 	return result
+}
+
+// hideTaskModelMapping 抹掉用户侧任务里的模型重定向痕迹：properties 中的上游模型名，
+// 以及失败原因里出现的同一名字。管理员列表（fillUser）不做处理。
+func hideTaskModelMapping(taskDto *dto.TaskDto, task *model.Task) {
+	if !common.IsHideModelMappingForUserEnabled() {
+		return
+	}
+	properties := task.Properties
+	upstreamModelName := properties.UpstreamModelName
+	properties.UpstreamModelName = ""
+	taskDto.Properties = properties
+	if upstreamModelName == "" || properties.OriginModelName == "" || upstreamModelName == properties.OriginModelName {
+		return
+	}
+	taskDto.FailReason = strings.ReplaceAll(taskDto.FailReason, upstreamModelName, properties.OriginModelName)
 }

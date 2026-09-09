@@ -187,6 +187,7 @@ func CopyUpstreamHeaders(c *gin.Context, dst, src http.Header, transformed bool)
 		if len(dst.Values(canonicalName)) > 0 {
 			continue
 		}
+		rewriteUpstreamModelHeaderValues(c, headerNameLower, copiedValues)
 		dst[canonicalName] = copiedValues
 		copiedNames = append(copiedNames, canonicalName)
 	}
@@ -206,6 +207,13 @@ func IOCopyRawBytesGracefully(c *gin.Context, src *http.Response, data []byte) {
 func ioCopyBytesGracefully(c *gin.Context, src *http.Response, data []byte, transformed bool) {
 	if c.Writer == nil {
 		return
+	}
+
+	if rewritten, changed := RewriteResponseModelName(c, data); changed {
+		// 改写后 ETag / Content-Digest 之类的表示元数据已不描述当前字节，
+		// 按 transformed 处理让 CopyUpstreamHeaders 丢弃它们。
+		data = rewritten
+		transformed = true
 	}
 
 	body := io.NopCloser(bytes.NewBuffer(data))

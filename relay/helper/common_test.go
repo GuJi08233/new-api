@@ -6,6 +6,10 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/model_setting"
+
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
@@ -122,4 +126,65 @@ func TestResetEventStreamHeadersAllowsJSONErrorAndRetry(t *testing.T) {
 
 	SetEventStreamHeaders(c)
 	require.Equal(t, "text/event-stream", recorder.Header().Get("Content-Type"))
+}
+
+// TestStreamExitsRewriteModelName pins that every SSE writer applies the
+// response model rewrite, so a redirected request never leaks the upstream
+// model name through a stream frame while the option is on.
+func TestStreamExitsRewriteModelName(t *testing.T) {
+	settings := model_setting.GetGlobalSettings()
+	original := settings.RewriteResponseModelEnabled
+	t.Cleanup(func() { settings.RewriteResponseModelEnabled = original })
+	settings.RewriteResponseModelEnabled = true
+
+	tests := []struct {
+		name  string
+		write func(c *gin.Context) error
+		want  string
+	}{
+		{
+			name: "openai chunk",
+			write: func(c *gin.Context) error {
+				return StringData(c, `{"object":"chat.completion.chunk","model":"gpt-4o"}`)
+			},
+			want: `{"object":"chat.completion.chunk","model":"gpt-4"}`,
+		},
+		{
+			name: "claude message_start",
+			write: func(c *gin.Context) error {
+				return ClaudeChunkData(c, dto.ClaudeResponse{Type: "message_start"},
+					`{"type":"message_start","message":{"model":"gpt-4o"}}`)
+			},
+			want: `{"type":"message_start","message":{"model":"gpt-4"}}`,
+		},
+		{
+			name: "responses event",
+			write: func(c *gin.Context) error {
+				return ResponseChunkData(c, dto.ResponsesStreamResponse{Type: "response.created"},
+					`{"type":"response.created","response":{"model":"gpt-4o"}}`)
+			},
+			want: `{"type":"response.created","response":{"model":"gpt-4"}}`,
+		},
+		{
+			name: "claude object",
+			write: func(c *gin.Context) error {
+				return ClaudeData(c, dto.ClaudeResponse{Type: "message_delta", Model: "gpt-4o"})
+			},
+			want: `"model":"gpt-4"`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			c := newErrorAwareStreamContext(recorder)
+			service.SetModelRewrite(c, "gpt-4o", "gpt-4")
+
+			require.NoError(t, tt.write(c))
+
+			body := recorder.Body.String()
+			require.Contains(t, body, tt.want)
+			require.NotContains(t, body, "gpt-4o")
+		})
+	}
 }

@@ -8,6 +8,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
@@ -147,6 +148,7 @@ func ClaudeData(c *gin.Context, resp dto.ClaudeResponse) error {
 	if err != nil {
 		return fmt.Errorf("error marshalling stream response: %w", err)
 	}
+	jsonData, _ = service.RewriteResponseModelName(c, jsonData)
 	return wrapStreamWriteError(withStreamWrite(c, func() error {
 		if requestContextDone(c) {
 			return fmt.Errorf("request context done: %w", c.Request.Context().Err())
@@ -163,6 +165,7 @@ func ClaudeData(c *gin.Context, resp dto.ClaudeResponse) error {
 }
 
 func ClaudeChunkData(c *gin.Context, resp dto.ClaudeResponse, data string) error {
+	data = service.RewriteResponseModelNameString(c, data)
 	return wrapStreamWriteError(withStreamWrite(c, func() error {
 		if requestContextDone(c) {
 			return fmt.Errorf("request context done: %w", c.Request.Context().Err())
@@ -179,6 +182,7 @@ func ClaudeChunkData(c *gin.Context, resp dto.ClaudeResponse, data string) error
 }
 
 func ResponseChunkData(c *gin.Context, resp dto.ResponsesStreamResponse, data string) error {
+	data = service.RewriteResponseModelNameString(c, data)
 	return wrapStreamWriteError(withStreamWrite(c, func() error {
 		if requestContextDone(c) {
 			return fmt.Errorf("request context done: %w", c.Request.Context().Err())
@@ -209,6 +213,7 @@ func stringData(c *gin.Context, str string) error {
 		return fmt.Errorf("request context done: %w", c.Request.Context().Err())
 	}
 
+	str = service.RewriteResponseModelNameString(c, str)
 	if err := (common.CustomEvent{Data: "data: " + str}).Render(c.Writer); err != nil {
 		return fmt.Errorf("write stream data failed: %w", err)
 	}

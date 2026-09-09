@@ -147,6 +147,19 @@ func IsGlobalRecordUaLogEnabled() bool {
 	return globalRecordUaLogEnvEnabled.Load() || globalRecordUaLogEnabled.Load()
 }
 
+var hideModelMappingForUser atomic.Bool
+
+func SetHideModelMappingForUser(enabled bool) {
+	hideModelMappingForUser.Store(enabled)
+}
+
+// IsHideModelMappingForUserEnabled 是否对普通用户隐藏模型重定向痕迹：
+// 用户侧日志中的上游模型名、返回给客户端的错误文案里的上游模型名。
+// 管理员视角不受影响。
+func IsHideModelMappingForUserEnabled() bool {
+	return hideModelMappingForUser.Load()
+}
+
 var TLSInsecureSkipVerify bool
 var InsecureTLSConfig = &tls.Config{InsecureSkipVerify: true}
 

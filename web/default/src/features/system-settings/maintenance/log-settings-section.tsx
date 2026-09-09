@@ -35,6 +35,7 @@ const logSettingsSchema = z.object({
   LogConsumeEnabled: z.boolean(),
   GlobalRecordIpLogEnabled: z.boolean(),
   GlobalRecordUaLogEnabled: z.boolean(),
+  HideModelMappingForUser: z.boolean(),
 })
 
 type LogSettingsFormValues = z.infer<typeof logSettingsSchema>
@@ -43,6 +44,7 @@ type LogSettingsSectionProps = {
   defaultEnabled: boolean
   defaultIpEnabled: boolean
   defaultUaEnabled: boolean
+  defaultHideModelMappingEnabled: boolean
 }
 
 const HOURS_IN_DAY = 24
@@ -74,6 +76,7 @@ export function LogSettingsSection({
   defaultEnabled,
   defaultIpEnabled,
   defaultUaEnabled,
+  defaultHideModelMappingEnabled,
 }: LogSettingsSectionProps) {
   const { t } = useTranslation()
   const updateOption = useUpdateOption()
@@ -83,6 +86,7 @@ export function LogSettingsSection({
       LogConsumeEnabled: defaultEnabled,
       GlobalRecordIpLogEnabled: defaultIpEnabled,
       GlobalRecordUaLogEnabled: defaultUaEnabled,
+      HideModelMappingForUser: defaultHideModelMappingEnabled,
     },
   })
 
@@ -98,7 +102,13 @@ export function LogSettingsSection({
       GlobalRecordIpLogEnabled: defaultIpEnabled,
       GlobalRecordUaLogEnabled: defaultUaEnabled,
     })
-  }, [defaultEnabled, defaultIpEnabled, defaultUaEnabled, form])
+  }, [
+    defaultEnabled,
+    defaultIpEnabled,
+    defaultUaEnabled,
+    defaultHideModelMappingEnabled,
+    form,
+  ])
 
   const purgeTimestamp = useMemo(() => {
     if (!purgeDate) return null
@@ -127,6 +137,12 @@ export function LogSettingsSection({
       await updateOption.mutateAsync({
         key: 'GlobalRecordUaLogEnabled',
         value: values.GlobalRecordUaLogEnabled,
+      })
+    }
+    if (values.HideModelMappingForUser !== defaultHideModelMappingEnabled) {
+      await updateOption.mutateAsync({
+        key: 'HideModelMappingForUser',
+        value: values.HideModelMappingForUser,
       })
     }
   }
@@ -238,6 +254,32 @@ export function LogSettingsSection({
                   <FormDescription>
                     {t(
                       'When enabled, request-based usage and error logs for all users record the client User-Agent header.'
+                    )}
+                  </FormDescription>
+                </div>
+                <FormControl>
+                  <Switch
+                    checked={field.value}
+                    onCheckedChange={field.onChange}
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name='HideModelMappingForUser'
+            render={({ field }) => (
+              <FormItem className='flex flex-row items-start justify-between rounded-lg border p-4'>
+                <div className='space-y-0.5 pe-4'>
+                  <FormLabel className='text-base'>
+                    {t('Hide model redirect details from regular users')}
+                  </FormLabel>
+                  <FormDescription>
+                    {t(
+                      'When enabled, the actual upstream model behind a redirect no longer appears in regular users’ logs or error messages; the admin view is unaffected.'
                     )}
                   </FormDescription>
                 </div>

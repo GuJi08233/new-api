@@ -59,6 +59,8 @@ const MODELS_SECTIONS = [
             ),
             model_endpoint_protect_enabled:
               settings['global.model_endpoint_protect_enabled'],
+            rewrite_response_model_enabled:
+              settings['global.rewrite_response_model_enabled'],
           },
           general_setting: {
             ping_interval_enabled:

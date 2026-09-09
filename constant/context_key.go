@@ -15,6 +15,10 @@ const (
 
 	ContextKeyOriginalModel    ContextKey = "original_model"
 	ContextKeyRequestStartTime ContextKey = "request_start_time"
+	// ContextKeyModelRewrite records the model redirect that actually took effect
+	// for the selected channel, so response bodies and user-facing error messages
+	// can be mapped back to the model name the client asked for.
+	ContextKeyModelRewrite ContextKey = "model_rewrite"
 	// ContextKeyRiskBlocked marks a request rejected by risk control itself, so the
 	// error-rate guard does not count its own rejections and extend the ban forever.
 	ContextKeyRiskBlocked ContextKey = "risk_blocked"

@@ -94,7 +94,9 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	defer func() {
 		if newAPIError != nil {
 			logger.LogError(c, fmt.Sprintf("relay error: %s", common.LocalLogPreview(newAPIError.Error())))
-			newAPIError.SetMessage(common.MessageWithRequestId(newAPIError.Error(), requestId))
+			// 后端日志与错误日志（processChannelError）都已在此之前落库，保留上游原文；
+			// 只有发给客户端的这一份把上游模型名换回用户请求的模型名。
+			newAPIError.SetMessage(common.MessageWithRequestId(service.MaskUpstreamModelInText(c, newAPIError.Error()), requestId))
 			switch relayFormat {
 			case types.RelayFormatOpenAIRealtime:
 				helper.WssError(c, ws, newAPIError.ToOpenAIError())
@@ -727,6 +729,11 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 		other["channel_id"] = channelId
 		other["channel_name"] = c.GetString("channel_name")
 		other["channel_type"] = c.GetInt("channel_type")
+		if rewrite, ok := service.GetModelRewrite(c); ok {
+			// 记录本次实际请求的上游模型，管理员据此排错；用户侧查询时
+			// formatUserLogs 会用它把正文里的上游模型名替换掉再删除该字段。
+			other["upstream_model_name"] = rewrite.Upstream
+		}
 		adminInfo := make(map[string]interface{})
 		adminInfo["use_channel"] = c.GetStringSlice("use_channel")
 		isMultiKey := common.GetContextKeyBool(c, constant.ContextKeyChannelIsMultiKey)
@@ -1017,6 +1024,7 @@ func respondTaskError(c *gin.Context, taskErr *dto.TaskError) {
 	if taskErr.StatusCode == http.StatusTooManyRequests {
 		taskErr.Message = "当前分组上游负载已饱和，请稍后再试"
 	}
+	taskErr.Message = service.MaskUpstreamModelInText(c, taskErr.Message)
 	c.JSON(taskErr.StatusCode, taskErr)
 }
 

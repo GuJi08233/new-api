@@ -374,6 +374,7 @@ export type OperationsSettings = {
   LogConsumeEnabled: boolean
   GlobalRecordIpLogEnabled: boolean
   GlobalRecordUaLogEnabled: boolean
+  HideModelMappingForUser: boolean
   'performance_setting.disk_cache_enabled': boolean
   'performance_setting.disk_cache_threshold_mb': number
   'performance_setting.disk_cache_max_size_mb': number
@@ -394,6 +395,7 @@ export type ModelSettings = {
   'global.thinking_model_blacklist': string
   'global.chat_completions_to_responses_policy': string
   'global.model_endpoint_protect_enabled': boolean
+  'global.rewrite_response_model_enabled': boolean
   'general_setting.ping_interval_enabled': boolean
   'general_setting.ping_interval_seconds': number
   'channel_route_setting.enabled': boolean
@@ -466,6 +468,7 @@ export type MaintenanceSettings = {
   LogConsumeEnabled: boolean
   GlobalRecordIpLogEnabled: boolean
   GlobalRecordUaLogEnabled: boolean
+  HideModelMappingForUser: boolean
   HeaderNavModules: string
   SidebarModulesAdmin: string
   'performance_setting.disk_cache_enabled': boolean

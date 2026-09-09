@@ -6,16 +6,19 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
-	"github.com/QuantumNous/new-api/relay/common"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
 )
 
-func ModelMappedHelper(c *gin.Context, info *common.RelayInfo, request dto.Request) error {
+func ModelMappedHelper(c *gin.Context, info *relaycommon.RelayInfo, request dto.Request) error {
 	if info.ChannelMeta == nil {
-		info.ChannelMeta = &common.ChannelMeta{}
+		info.ChannelMeta = &relaycommon.ChannelMeta{}
 	}
 
 	isResponsesCompact := info.RelayMode == relayconstant.RelayModeResponsesCompact
@@ -74,6 +77,15 @@ func ModelMappedHelper(c *gin.Context, info *common.RelayInfo, request dto.Reque
 		info.UpstreamModelName = finalUpstreamModelName
 		info.OriginModelName = ratio_setting.WithCompactModelSuffix(finalUpstreamModelName)
 	}
+	// 记录生效的重定向，供响应体模型名回写与错误文案脱敏使用。目标名取客户端请求里的
+	// 模型名而不是 info.OriginModelName：Responses Compact 分支上面刚把后者改写成带
+	// CompactModelSuffix 的名字。重试换到不做重定向的渠道时要清掉上一个渠道的记录。
+	if info.IsModelMapped {
+		service.SetModelRewrite(c, info.UpstreamModelName, common.GetContextKeyString(c, constant.ContextKeyOriginalModel))
+	} else {
+		service.ClearModelRewrite(c)
+	}
+
 	if request != nil {
 		request.SetModelName(info.UpstreamModelName)
 	}

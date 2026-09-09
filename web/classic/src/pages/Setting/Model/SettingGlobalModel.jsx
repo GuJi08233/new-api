@@ -72,6 +72,7 @@ const defaultGlobalSettingInputs = {
   'global.thinking_model_blacklist': '[]',
   'global.chat_completions_to_responses_policy': '{}',
   'global.model_endpoint_protect_enabled': false,
+  'global.rewrite_response_model_enabled': false,
   'general_setting.ping_interval_enabled': false,
   'general_setting.ping_interval_seconds': 60,
 };
@@ -233,6 +234,21 @@ export default function SettingGlobalModel(props) {
                   }
                   extraText={t(
                     '开启后，请求将根据模型配置的端点进行校验，未配置端点的模型不受影响',
+                  )}
+                />
+              </Col>
+              <Col xs={24} sm={12} md={8} lg={8} xl={8}>
+                <Form.Switch
+                  label={t('响应体模型名回写')}
+                  field={'global.rewrite_response_model_enabled'}
+                  onChange={(value) =>
+                    setInputs({
+                      ...inputs,
+                      'global.rewrite_response_model_enabled': value,
+                    })
+                  }
+                  extraText={t(
+                    '开启后，发生模型重定向时把响应体中的模型名改回用户请求的模型名，客户端不会看到实际的上游模型',
                   )}
                 />
               </Col>

@@ -44,6 +44,7 @@ const ModelSetting = () => {
     'global.pass_through_headers_enabled': false,
     'global.thinking_model_blacklist': '[]',
     'global.chat_completions_to_responses_policy': '{}',
+    'global.rewrite_response_model_enabled': false,
     'channel_route_setting.enabled': false,
     'channel_route_setting.rules': '[]',
     'general_setting.ping_interval_enabled': false,

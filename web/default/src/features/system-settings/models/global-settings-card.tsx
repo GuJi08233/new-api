@@ -94,6 +94,7 @@ const schema = z.object({
     thinking_model_blacklist: jsonString,
     chat_completions_to_responses_policy: jsonString,
     model_endpoint_protect_enabled: z.boolean(),
+    rewrite_response_model_enabled: z.boolean(),
   }),
   general_setting: z.object({
     ping_interval_enabled: z.boolean(),
@@ -110,6 +111,7 @@ type FlatGlobalModelSettings = {
   'global.thinking_model_blacklist': string
   'global.chat_completions_to_responses_policy': string
   'global.model_endpoint_protect_enabled': boolean
+  'global.rewrite_response_model_enabled': boolean
   'general_setting.ping_interval_enabled': boolean
   'general_setting.ping_interval_seconds': number
 }
@@ -131,6 +133,8 @@ const flattenGlobalValues = (
   ),
   'global.model_endpoint_protect_enabled':
     values.global.model_endpoint_protect_enabled,
+  'global.rewrite_response_model_enabled':
+    values.global.rewrite_response_model_enabled,
   'general_setting.ping_interval_enabled':
     values.general_setting.ping_interval_enabled,
   'general_setting.ping_interval_seconds':
@@ -277,6 +281,31 @@ export function GlobalSettingsCard({ defaultValues }: GlobalSettingsCardProps) {
                   />
                 </FormControl>
               </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name='global.rewrite_response_model_enabled'
+            render={({ field }) => (
+              <SettingsSwitchItem>
+                <SettingsSwitchContent>
+                  <FormLabel>
+                    {t('Rewrite model name in response body')}
+                  </FormLabel>
+                  <FormDescription>
+                    {t(
+                      'When a model redirect happens, change the model name in the response body back to the one the client requested, so clients never see the actual upstream model.'
+                    )}
+                  </FormDescription>
+                </SettingsSwitchContent>
+                <FormControl>
+                  <Switch
+                    checked={field.value}
+                    onCheckedChange={field.onChange}
+                  />
+                </FormControl>
+              </SettingsSwitchItem>
             )}
           />
 
