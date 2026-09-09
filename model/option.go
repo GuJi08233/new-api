@@ -361,7 +361,9 @@ func updateOptionMap(key string, value string) (err error) {
 			common.ImageDownloadPermission = intValue
 		}
 	}
-	if strings.HasSuffix(key, "Enabled") || key == "DefaultCollapseSidebar" || key == "DefaultUseAutoGroup" || key == "SMTPForceAuthLogin" || key == "SMTPInsecureSkipVerify" {
+	// 注意：不以 Enabled 结尾的布尔开关必须在这里列出，否则下面的 case 永远不会执行，
+	// 值只会存进数据库而内存标志保持默认值。
+	if strings.HasSuffix(key, "Enabled") || key == "DefaultCollapseSidebar" || key == "DefaultUseAutoGroup" || key == "SMTPForceAuthLogin" || key == "SMTPInsecureSkipVerify" || key == "HideModelMappingForUser" {
 		boolValue := value == "true"
 		switch key {
 		case "PasswordRegisterEnabled":
