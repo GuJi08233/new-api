@@ -173,8 +173,19 @@ func (e *NewAPIError) MaskSensitiveErrorWithStatusCode() string {
 	return fmt.Sprintf("status_code=%d, %s", e.StatusCode, msg)
 }
 
+// SetMessage 覆盖面向客户端的错误文案。上游错误（ErrorTypeOpenAIError /
+// ErrorTypeClaudeError）由 To*Error 原样透传 RelayError 结构体，所以必须同步改写
+// 里面的 Message，否则这里设置的内容（请求 id 后缀、模型名脱敏）根本到不了客户端。
 func (e *NewAPIError) SetMessage(message string) {
 	e.Err = errors.New(message)
+	switch relayError := e.RelayError.(type) {
+	case OpenAIError:
+		relayError.Message = message
+		e.RelayError = relayError
+	case ClaudeError:
+		relayError.Message = message
+		e.RelayError = relayError
+	}
 }
 
 func (e *NewAPIError) ToOpenAIError() OpenAIError {

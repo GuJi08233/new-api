@@ -457,7 +457,8 @@ func handleNovaRequest(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor) 
 		Id:      helper.GetResponseID(c),
 		Object:  "chat.completion",
 		Created: common.GetTimestamp(),
-		Model:   info.UpstreamModelName,
+		// 这条响应走 c.JSON，不经过统一的响应体改写出口，模型名在此处解析。
+		Model: service.ResponseModelName(c, info.UpstreamModelName),
 		Choices: []dto.OpenAITextResponseChoice{{
 			Index: 0,
 			Message: dto.Message{

@@ -111,6 +111,13 @@ func TestRewriteResponseModelNameLeavesPayloadAlone(t *testing.T) {
 			body:           `{"object":"list","data":[{"text":"I am gpt-4o"}]}`,
 		},
 		{
+			name:           "no model path in payload",
+			upstreamModel:  "gpt-4o",
+			requestModel:   "gpt-4",
+			rewriteEnabled: true,
+			body:           `{"type":"content_block_delta","delta":{"text":"hi"}}`,
+		},
+		{
 			name:           "binary payload",
 			upstreamModel:  "gpt-4o",
 			requestModel:   "gpt-4",
@@ -135,6 +142,43 @@ func TestRewriteResponseModelNameLeavesPayloadAlone(t *testing.T) {
 			assert.False(t, changed)
 			assert.Equal(t, tt.body, string(got))
 			assert.Equal(t, tt.body, RewriteResponseModelNameString(c, tt.body))
+		})
+	}
+}
+
+// TestRewriteResponseModelNameIgnoresUpstreamNameDrift is the regression for the
+// case the rewrite exists for: adaptors keep normalizing info.UpstreamModelName
+// after ModelMappedHelper snapshots it (stripping -thinking, reasoning-effort
+// suffixes, Claude overwriting it from message_start), and upstreams answer with
+// their own dated variant. The response name therefore rarely equals the
+// snapshot, and matching on it would silently skip exactly these requests.
+func TestRewriteResponseModelNameIgnoresUpstreamNameDrift(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{
+			name: "adaptor stripped the thinking suffix",
+			body: `{"model":"gemini-2.5-pro","choices":[]}`,
+			want: `{"model":"gpt-4","choices":[]}`,
+		},
+		{
+			name: "upstream answered with its dated variant",
+			body: `{"model":"gpt-4o-2024-08-06","choices":[]}`,
+			want: `{"model":"gpt-4","choices":[]}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Snapshot taken at mapping time; neither response carries it.
+			c := newRewriteContext(t, "gemini-2.5-pro-thinking", "gpt-4", true)
+
+			got, changed := RewriteResponseModelName(c, []byte(tt.body))
+
+			assert.True(t, changed)
+			assert.JSONEq(t, tt.want, string(got))
 		})
 	}
 }
@@ -185,11 +229,12 @@ func TestModelRewriteDoesNotSurviveChannelRetry(t *testing.T) {
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 
 	SetModelRewrite(c, "gpt-4o", "gpt-4")
-	require.True(t, func() bool { _, ok := GetModelRewrite(c); return ok }())
+	_, ok := GetModelRewrite(c)
+	require.True(t, ok)
 
 	// Second channel serves the requested model directly.
 	SetModelRewrite(c, "gpt-4", "gpt-4")
 
-	_, ok := GetModelRewrite(c)
+	_, ok = GetModelRewrite(c)
 	assert.False(t, ok)
 }

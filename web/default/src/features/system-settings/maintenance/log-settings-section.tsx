@@ -101,6 +101,7 @@ export function LogSettingsSection({
       LogConsumeEnabled: defaultEnabled,
       GlobalRecordIpLogEnabled: defaultIpEnabled,
       GlobalRecordUaLogEnabled: defaultUaEnabled,
+      HideModelMappingForUser: defaultHideModelMappingEnabled,
     })
   }, [
     defaultEnabled,

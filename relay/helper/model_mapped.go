@@ -48,8 +48,10 @@ func ModelMappedHelper(c *gin.Context, info *relaycommon.RelayInfo, request dto.
 				if visitedModels[mappedModel] {
 					if mappedModel == currentModel {
 						if currentModel == info.OriginModelName {
+							// 恒等映射等于没有重定向。这里不能提前 return：下面还要清掉
+							// 上一个渠道留在上下文里的重定向记录。
 							info.IsModelMapped = false
-							return nil
+							break
 						} else {
 							info.IsModelMapped = true
 							break
@@ -77,11 +79,18 @@ func ModelMappedHelper(c *gin.Context, info *relaycommon.RelayInfo, request dto.
 		info.UpstreamModelName = finalUpstreamModelName
 		info.OriginModelName = ratio_setting.WithCompactModelSuffix(finalUpstreamModelName)
 	}
-	// 记录生效的重定向，供响应体模型名回写与错误文案脱敏使用。目标名取客户端请求里的
-	// 模型名而不是 info.OriginModelName：Responses Compact 分支上面刚把后者改写成带
-	// CompactModelSuffix 的名字。重试换到不做重定向的渠道时要清掉上一个渠道的记录。
+	// 记录生效的重定向，供响应体模型名回写与错误文案脱敏使用。重试换到不做重定向的
+	// 渠道时要清掉上一个渠道的记录。
 	if info.IsModelMapped {
-		service.SetModelRewrite(c, info.UpstreamModelName, common.GetContextKeyString(c, constant.ContextKeyOriginalModel))
+		// 目标名取客户端请求里的模型名，而不是 info.OriginModelName：Responses Compact
+		// 分支上面刚把后者改写成带 CompactModelSuffix 的名字。CompactModelSuffix 本身
+		// 也是网关内部约定（distributor 在写入 original_model 之前就补上了它），客户端
+		// 从未发过带后缀的名字，所以这里要去掉。
+		requestModelName := common.GetContextKeyString(c, constant.ContextKeyOriginalModel)
+		if isResponsesCompact {
+			requestModelName = strings.TrimSuffix(requestModelName, ratio_setting.CompactModelSuffix)
+		}
+		service.SetModelRewrite(c, info.UpstreamModelName, requestModelName)
 	} else {
 		service.ClearModelRewrite(c)
 	}

@@ -335,7 +335,7 @@ func sunoFetchRespBodyBuilder(c *gin.Context) (respBody []byte, taskResp *dto.Ta
 			return
 		}
 		for _, task := range taskModels {
-			tasks = append(tasks, TaskModel2Dto(task))
+			tasks = append(tasks, userTaskModel2Dto(task))
 		}
 	} else {
 		tasks = make([]any, 0)
@@ -363,7 +363,7 @@ func sunoFetchByIDRespBodyBuilder(c *gin.Context) (respBody []byte, taskResp *dt
 
 	respBody, err = common.Marshal(dto.TaskResponse[any]{
 		Code: "success",
-		Data: TaskModel2Dto(originTask),
+		Data: userTaskModel2Dto(originTask),
 	})
 	return
 }
@@ -416,7 +416,7 @@ func videoFetchByIDRespBodyBuilder(c *gin.Context) (respBody []byte, taskResp *d
 	// 通用 TaskDto 格式
 	respBody, err = common.Marshal(dto.TaskResponse[any]{
 		Code: "success",
-		Data: TaskModel2Dto(originTask),
+		Data: userTaskModel2Dto(originTask),
 	})
 	if err != nil {
 		taskResp = service.TaskErrorWrapper(err, "marshal_response_failed", http.StatusInternalServerError)
@@ -570,4 +570,12 @@ func TaskModel2Dto(task *model.Task) *dto.TaskDto {
 		Username:   task.Username,
 		Data:       task.Data,
 	}
+}
+
+// userTaskModel2Dto 是 TaskModel2Dto 的用户侧形态：任务查询接口面向的是发起请求的
+// 用户，所以要按站点设置抹掉模型重定向痕迹。管理端列表走 TaskModel2Dto。
+func userTaskModel2Dto(task *model.Task) *dto.TaskDto {
+	taskDto := TaskModel2Dto(task)
+	service.HideTaskModelMapping(taskDto, task)
+	return taskDto
 }

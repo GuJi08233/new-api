@@ -153,10 +153,7 @@ func hideLogModelMapping(log *Log, otherMap map[string]interface{}) {
 	upstreamModelName, _ := otherMap["upstream_model_name"].(string)
 	delete(otherMap, "is_model_mapped")
 	delete(otherMap, "upstream_model_name")
-	if upstreamModelName == "" || log.ModelName == "" || upstreamModelName == log.ModelName {
-		return
-	}
-	log.Content = strings.ReplaceAll(log.Content, upstreamModelName, log.ModelName)
+	log.Content = common.MaskModelNameInText(log.Content, upstreamModelName, log.ModelName)
 }
 
 func GetLogByTokenId(tokenId int) (logs []*Log, err error) {

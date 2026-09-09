@@ -6,6 +6,8 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/model_setting"
 
 	"github.com/gin-gonic/gin"
@@ -60,25 +62,40 @@ func GetModelRewrite(c *gin.Context) (ModelRewrite, bool) {
 	return common.GetContextKeyType[ModelRewrite](c, constant.ContextKeyModelRewrite)
 }
 
-// RewriteResponseModelName 把响应体里的上游模型名改回客户端请求的模型名，
-// 返回改写后的数据以及是否真的改动过。仅在渠道发生了模型重定向、且全局开启
-// “响应体模型名回写”时生效；其余情况原样返回，调用方可以无条件套用。
+// modelKeyMarker 是四条改写路径共有的键名片段，用来在真正解析前挡掉不含模型名的
+// 分片（Claude 的 content_block_delta、OpenAI 的纯 usage 帧等）。
+//
+// 这里刻意不按上游模型名过滤：适配器在 ModelMappedHelper 之后还会继续归一化
+// info.UpstreamModelName（去 -thinking/-nothinking/推理力度后缀、Claude 用
+// message_start 里的真实名覆盖等），上游返回的模型名也常带自己的版本后缀，按快照
+// 值匹配会让回写在这些场景静默失效。四条固定路径本身已经限制了改写范围。
+var modelKeyMarker = []byte("model")
+
+// RewriteResponseModelName 把响应体里的模型名改成客户端请求的模型名，返回改写后的
+// 数据以及是否真的改动过。仅在渠道发生了模型重定向、且全局开启“响应体模型名回写”
+// 时生效；其余情况原样返回，调用方可以无条件套用。
 func RewriteResponseModelName(c *gin.Context, data []byte) ([]byte, bool) {
 	rewrite, ok := responseModelRewrite(c)
-	if !ok {
-		return data, false
-	}
-	// 绝大多数流式分片不含模型名，字节包含判断先把它们挡掉。
-	if !bytes.Contains(data, []byte(rewrite.Upstream)) {
+	if !ok || !bytes.Contains(data, modelKeyMarker) {
 		return data, false
 	}
 	return rewriteResponseModelPaths(data, rewrite.Request)
 }
 
+// ResponseModelName 返回该写进响应的模型名：回写生效时是客户端请求的模型名，
+// 否则原样返回传入的上游模型名。供自己构造响应结构体、不经过字节改写出口的
+// 适配器使用（例如 AWS Nova 直接 c.JSON 输出）。
+func ResponseModelName(c *gin.Context, upstreamModelName string) string {
+	if rewrite, ok := responseModelRewrite(c); ok {
+		return rewrite.Request
+	}
+	return upstreamModelName
+}
+
 // RewriteResponseModelNameString 是 RewriteResponseModelName 的字符串形态，供 SSE 出口使用。
 func RewriteResponseModelNameString(c *gin.Context, data string) string {
 	rewrite, ok := responseModelRewrite(c)
-	if !ok || !strings.Contains(data, rewrite.Upstream) {
+	if !ok || !strings.Contains(data, string(modelKeyMarker)) {
 		return data
 	}
 	rewritten, changed := rewriteResponseModelPaths([]byte(data), rewrite.Request)
@@ -122,7 +139,29 @@ func MaskUpstreamModelInText(c *gin.Context, text string) string {
 	if !ok {
 		return text
 	}
-	return strings.ReplaceAll(text, rewrite.Upstream, rewrite.Request)
+	return common.MaskModelNameInText(text, rewrite.Upstream, rewrite.Request)
+}
+
+// HideTaskModelMapping 抹掉用户侧任务里的模型重定向痕迹：properties 中的上游模型名、
+// 上游原始提交响应（Data）里的模型名，以及失败原因里出现的同一名字。管理端查询不调用它。
+func HideTaskModelMapping(taskDto *dto.TaskDto, task *model.Task) {
+	if taskDto == nil || task == nil || !common.IsHideModelMappingForUserEnabled() {
+		return
+	}
+	properties := task.Properties
+	upstreamModelName := properties.UpstreamModelName
+	properties.UpstreamModelName = ""
+	taskDto.Properties = properties
+	if upstreamModelName == "" || properties.OriginModelName == "" {
+		return
+	}
+	taskDto.FailReason = common.MaskModelNameInText(taskDto.FailReason, upstreamModelName, properties.OriginModelName)
+	// Data 是上游提交接口的原始响应，同样可能带模型名。
+	if len(taskDto.Data) > 0 {
+		if rewritten, changed := rewriteResponseModelPaths(taskDto.Data, properties.OriginModelName); changed {
+			taskDto.Data = rewritten
+		}
+	}
 }
 
 func responseModelRewrite(c *gin.Context) (ModelRewrite, bool) {

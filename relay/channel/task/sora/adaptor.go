@@ -252,6 +252,8 @@ func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rela
 	// 使用公开 task_xxxx ID 返回给客户端
 	dResp.ID = info.PublicTaskID
 	dResp.TaskID = info.PublicTaskID
+	// 这条响应是上游结构体原样回吐，走 c.JSON 而不经过统一的响应体改写出口。
+	dResp.Model = service.ResponseModelName(c, dResp.Model)
 	c.JSON(http.StatusOK, dResp)
 	return upstreamID, responseBody, nil
 }
