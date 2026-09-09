@@ -5451,6 +5451,10 @@
     "Zero retention": "Không lưu dữ liệu",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "Hide model redirect details from regular users": "Ẩn thông tin chuyển hướng mô hình với người dùng thường",
+    "When enabled, the actual upstream model behind a redirect no longer appears in regular users’ logs or error messages; the admin view is unaffected.": "Khi bật, mô hình upstream thực tế phía sau một chuyển hướng sẽ không còn xuất hiện trong nhật ký hoặc thông báo lỗi của người dùng thường; giao diện quản trị không bị ảnh hưởng.",
+    "Rewrite model name in response body": "Ghi lại tên mô hình trong nội dung phản hồi",
+    "When a model redirect happens, change the model name in the response body back to the one the client requested, so clients never see the actual upstream model.": "Khi xảy ra chuyển hướng mô hình, đổi tên mô hình trong nội dung phản hồi về tên mà client đã yêu cầu, để client không bao giờ thấy mô hình upstream thực tế."
   }
 }

@@ -734,8 +734,9 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 			// formatUserLogs 会用它把正文里的上游模型名替换掉再删除该字段。
 			// 两个前端都要求 is_model_mapped 与 upstream_model_name 同时存在
 			// 才渲染「实际模型」，所以标记必须一起写。
+			// 取归一化后的实时上游名，与消费日志里的 relayInfo.UpstreamModelName 一致。
 			other["is_model_mapped"] = true
-			other["upstream_model_name"] = rewrite.Upstream
+			other["upstream_model_name"] = rewrite.UpstreamModelName()
 		}
 		adminInfo := make(map[string]interface{})
 		adminInfo["use_channel"] = c.GetStringSlice("use_channel")

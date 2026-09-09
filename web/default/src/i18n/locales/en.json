@@ -5451,6 +5451,10 @@
     "Zero retention": "Zero retention",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "Hide model redirect details from regular users": "Hide model redirect details from regular users",
+    "When enabled, the actual upstream model behind a redirect no longer appears in regular users’ logs or error messages; the admin view is unaffected.": "When enabled, the actual upstream model behind a redirect no longer appears in regular users’ logs or error messages; the admin view is unaffected.",
+    "Rewrite model name in response body": "Rewrite model name in response body",
+    "When a model redirect happens, change the model name in the response body back to the one the client requested, so clients never see the actual upstream model.": "When a model redirect happens, change the model name in the response body back to the one the client requested, so clients never see the actual upstream model."
   }
 }

@@ -4688,6 +4688,10 @@
     "绑定方式": "Loại liên kết",
     "标识": "Định danh",
     "注册方式": "Phương thức đăng ký",
-    "「账号绑定」展示该账号的第三方身份，标红的是注册来源；绑定多条时只显示注册来源，点「查看全部」看其余绑定。同一身份来源（同邮箱域名、同一提供商下相邻的账号 ID）比共用出口地址更能说明是同一人。": "\"Liên kết tài khoản\" hiển thị danh tính bên thứ ba của từng tài khoản; mục màu đỏ là nguồn đăng ký. Khi một tài khoản có nhiều liên kết, chỉ nguồn đăng ký được hiển thị — bấm \"xem tất cả\" để xem phần còn lại. Cùng một nguồn danh tính (cùng tên miền email, ID tài khoản liền kề ở cùng nhà cung cấp) là bằng chứng mạnh hơn về cùng một người so với việc dùng chung địa chỉ ra ngoài."
+    "「账号绑定」展示该账号的第三方身份，标红的是注册来源；绑定多条时只显示注册来源，点「查看全部」看其余绑定。同一身份来源（同邮箱域名、同一提供商下相邻的账号 ID）比共用出口地址更能说明是同一人。": "\"Liên kết tài khoản\" hiển thị danh tính bên thứ ba của từng tài khoản; mục màu đỏ là nguồn đăng ký. Khi một tài khoản có nhiều liên kết, chỉ nguồn đăng ký được hiển thị — bấm \"xem tất cả\" để xem phần còn lại. Cùng một nguồn danh tính (cùng tên miền email, ID tài khoản liền kề ở cùng nhà cung cấp) là bằng chứng mạnh hơn về cùng một người so với việc dùng chung địa chỉ ra ngoài.",
+    "对普通用户隐藏模型重定向信息": "Ẩn thông tin chuyển hướng mô hình với người dùng thường",
+    "开启后，普通用户的日志与错误信息中不再出现重定向后的实际上游模型，管理员视角不受影响": "Khi bật, mô hình upstream thực tế sau chuyển hướng sẽ không còn xuất hiện trong nhật ký và thông báo lỗi của người dùng thường; giao diện quản trị viên không bị ảnh hưởng",
+    "响应体模型名回写": "Ghi lại tên mô hình trong nội dung phản hồi",
+    "开启后，发生模型重定向时把响应体中的模型名改回用户请求的模型名，客户端不会看到实际的上游模型": "Khi bật, lúc xảy ra chuyển hướng mô hình sẽ đổi tên mô hình trong nội dung phản hồi về tên mà người dùng đã yêu cầu, client sẽ không thấy mô hình upstream thực tế"
   }
 }

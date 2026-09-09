@@ -178,7 +178,7 @@ func TestStreamExitsRewriteModelName(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			c := newErrorAwareStreamContext(recorder)
-			service.SetModelRewrite(c, "gpt-4o", "gpt-4")
+			service.SetModelRewrite(c, nil, "gpt-4o", "gpt-4")
 
 			require.NoError(t, tt.write(c))
 

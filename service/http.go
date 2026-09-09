@@ -156,6 +156,9 @@ func CopyUpstreamHeaders(c *gin.Context, dst, src http.Header, transformed bool)
 		}
 	}
 
+	// 响应体模型名回写生效时，响应头里的上游模型名也要一起改；记录只解析一次。
+	rewrite, rewriteModelHeaders := responseModelRewrite(c)
+
 	copiedNames := make([]string, 0, len(src))
 	for name, values := range src {
 		headerNameLower := strings.ToLower(strings.TrimSpace(name))
@@ -187,7 +190,9 @@ func CopyUpstreamHeaders(c *gin.Context, dst, src http.Header, transformed bool)
 		if len(dst.Values(canonicalName)) > 0 {
 			continue
 		}
-		rewriteUpstreamModelHeaderValues(c, headerNameLower, copiedValues)
+		if rewriteModelHeaders {
+			rewriteUpstreamModelHeaderValues(rewrite, headerNameLower, copiedValues)
+		}
 		dst[canonicalName] = copiedValues
 		copiedNames = append(copiedNames, canonicalName)
 	}

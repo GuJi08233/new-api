@@ -5451,6 +5451,10 @@
     "Zero retention": "データ保持なし",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V 4",
-    "Zoom": "ズーム"
+    "Zoom": "ズーム",
+    "Hide model redirect details from regular users": "一般ユーザーにモデルリダイレクトの情報を隠す",
+    "When enabled, the actual upstream model behind a redirect no longer appears in regular users’ logs or error messages; the admin view is unaffected.": "有効にすると、リダイレクト先の実際の上流モデルが一般ユーザーのログやエラーメッセージに表示されなくなります。管理者の表示には影響しません。",
+    "Rewrite model name in response body": "レスポンス本文のモデル名を書き換える",
+    "When a model redirect happens, change the model name in the response body back to the one the client requested, so clients never see the actual upstream model.": "モデルリダイレクトが発生した際、レスポンス本文のモデル名をクライアントが要求したものに戻し、クライアントに実際の上流モデルを見せないようにします。"
   }
 }

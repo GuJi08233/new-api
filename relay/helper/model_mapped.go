@@ -1,7 +1,6 @@
 package helper
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -32,7 +31,7 @@ func ModelMappedHelper(c *gin.Context, info *relaycommon.RelayInfo, request dto.
 	modelMapping := c.GetString("model_mapping")
 	if modelMapping != "" && modelMapping != "{}" {
 		modelMap := make(map[string]string)
-		err := json.Unmarshal([]byte(modelMapping), &modelMap)
+		err := common.Unmarshal([]byte(modelMapping), &modelMap)
 		if err != nil {
 			return fmt.Errorf("unmarshal_model_mapping_failed")
 		}
@@ -90,7 +89,7 @@ func ModelMappedHelper(c *gin.Context, info *relaycommon.RelayInfo, request dto.
 		if isResponsesCompact {
 			requestModelName = strings.TrimSuffix(requestModelName, ratio_setting.CompactModelSuffix)
 		}
-		service.SetModelRewrite(c, info.UpstreamModelName, requestModelName)
+		service.SetModelRewrite(c, info, info.UpstreamModelName, requestModelName)
 	} else {
 		service.ClearModelRewrite(c)
 	}

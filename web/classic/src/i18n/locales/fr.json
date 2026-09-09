@@ -4166,6 +4166,10 @@
     "绑定方式": "Type de liaison",
     "标识": "Identifiant",
     "注册方式": "Méthode d'inscription",
-    "「账号绑定」展示该账号的第三方身份，标红的是注册来源；绑定多条时只显示注册来源，点「查看全部」看其余绑定。同一身份来源（同邮箱域名、同一提供商下相邻的账号 ID）比共用出口地址更能说明是同一人。": "« Liaisons du compte » affiche les identités tierces de chaque compte ; celle en rouge est la source d'inscription. Lorsqu'un compte a plusieurs liaisons, seule la source d'inscription est affichée — cliquez sur « tout voir » pour les autres. Une source d'identité commune (même domaine de messagerie, identifiants voisins chez le même fournisseur) prouve mieux qu'il s'agit d'une même personne qu'une adresse de sortie partagée."
+    "「账号绑定」展示该账号的第三方身份，标红的是注册来源；绑定多条时只显示注册来源，点「查看全部」看其余绑定。同一身份来源（同邮箱域名、同一提供商下相邻的账号 ID）比共用出口地址更能说明是同一人。": "« Liaisons du compte » affiche les identités tierces de chaque compte ; celle en rouge est la source d'inscription. Lorsqu'un compte a plusieurs liaisons, seule la source d'inscription est affichée — cliquez sur « tout voir » pour les autres. Une source d'identité commune (même domaine de messagerie, identifiants voisins chez le même fournisseur) prouve mieux qu'il s'agit d'une même personne qu'une adresse de sortie partagée.",
+    "对普通用户隐藏模型重定向信息": "Masquer les détails de redirection de modèle aux utilisateurs ordinaires",
+    "开启后，普通用户的日志与错误信息中不再出现重定向后的实际上游模型，管理员视角不受影响": "Une fois activé, le modèle amont réel derrière une redirection n'apparaît plus dans les journaux ni dans les messages d'erreur des utilisateurs ordinaires ; la vue administrateur n'est pas affectée",
+    "响应体模型名回写": "Réécrire le nom du modèle dans le corps de la réponse",
+    "开启后，发生模型重定向时把响应体中的模型名改回用户请求的模型名，客户端不会看到实际的上游模型": "Une fois activé, lors d'une redirection de modèle le nom du modèle dans le corps de la réponse est remplacé par celui demandé par l'utilisateur, afin que le client ne voie jamais le modèle amont réel"
   }
 }

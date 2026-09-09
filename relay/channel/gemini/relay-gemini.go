@@ -493,7 +493,6 @@ func GeminiImageHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.
 		return nil, types.NewError(jsonErr, types.ErrorCodeBadResponseBody)
 	}
 
-	jsonResponse, _ = service.RewriteResponseModelName(c, jsonResponse)
 	c.Writer.Header().Set("Content-Type", "application/json")
 	c.Writer.WriteHeader(resp.StatusCode)
 	_, _ = c.Writer.Write(jsonResponse)

@@ -5452,6 +5452,10 @@
     "Zero retention": "零数据保留",
     "Zhipu": "智谱",
     "Zhipu V4": "智谱 V4",
-    "Zoom": "缩放"
+    "Zoom": "缩放",
+    "Hide model redirect details from regular users": "对普通用户隐藏模型重定向信息",
+    "When enabled, the actual upstream model behind a redirect no longer appears in regular users’ logs or error messages; the admin view is unaffected.": "开启后，普通用户的日志与错误信息中不再出现重定向后的实际上游模型；管理员视角不受影响。",
+    "Rewrite model name in response body": "响应体模型名回写",
+    "When a model redirect happens, change the model name in the response body back to the one the client requested, so clients never see the actual upstream model.": "发生模型重定向时，把响应体中的模型名改回客户端请求的模型名，客户端不会看到实际的上游模型。"
   }
 }

@@ -199,6 +199,9 @@ func ResponseChunkData(c *gin.Context, resp dto.ResponsesStreamResponse, data st
 }
 
 func StringData(c *gin.Context, str string) error {
+	// 与 ClaudeChunkData / ResponseChunkData 一致，模型名改写放在写锁之外；
+	// Done 直接走 stringData，[DONE] 不是 JSON，无需经过改写。
+	str = service.RewriteResponseModelNameString(c, str)
 	return wrapStreamWriteError(withStreamWrite(c, func() error {
 		return stringData(c, str)
 	}))
@@ -213,7 +216,6 @@ func stringData(c *gin.Context, str string) error {
 		return fmt.Errorf("request context done: %w", c.Request.Context().Err())
 	}
 
-	str = service.RewriteResponseModelNameString(c, str)
 	if err := (common.CustomEvent{Data: "data: " + str}).Render(c.Writer); err != nil {
 		return fmt.Errorf("write stream data failed: %w", err)
 	}

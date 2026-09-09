@@ -5,6 +5,9 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/model"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/setting/model_setting"
 
 	"github.com/gin-gonic/gin"
@@ -22,7 +25,7 @@ func newRewriteContext(t *testing.T, upstreamModel string, requestModel string, 
 	settings.RewriteResponseModelEnabled = rewriteEnabled
 
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
-	SetModelRewrite(c, upstreamModel, requestModel)
+	SetModelRewrite(c, nil, upstreamModel, requestModel)
 	return c
 }
 
@@ -206,15 +209,15 @@ func TestSetModelRewriteIgnoresNonRedirects(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 
-	SetModelRewrite(c, "gpt-4", "gpt-4")
+	SetModelRewrite(c, nil, "gpt-4", "gpt-4")
 	_, ok := GetModelRewrite(c)
 	require.False(t, ok)
 
-	SetModelRewrite(c, "gpt-4o", "")
+	SetModelRewrite(c, nil, "gpt-4o", "")
 	_, ok = GetModelRewrite(c)
 	require.False(t, ok)
 
-	SetModelRewrite(c, "gpt-4o", "gpt-4")
+	SetModelRewrite(c, nil, "gpt-4o", "gpt-4")
 	rewrite, ok := GetModelRewrite(c)
 	require.True(t, ok)
 	assert.Equal(t, ModelRewrite{Upstream: "gpt-4o", Request: "gpt-4"}, rewrite)
@@ -228,13 +231,89 @@ func TestModelRewriteDoesNotSurviveChannelRetry(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 
-	SetModelRewrite(c, "gpt-4o", "gpt-4")
+	SetModelRewrite(c, nil, "gpt-4o", "gpt-4")
 	_, ok := GetModelRewrite(c)
 	require.True(t, ok)
 
 	// Second channel serves the requested model directly.
-	SetModelRewrite(c, "gpt-4", "gpt-4")
+	SetModelRewrite(c, nil, "gpt-4", "gpt-4")
 
 	_, ok = GetModelRewrite(c)
 	assert.False(t, ok)
+}
+
+// TestMaskUpstreamModelInTextCoversNormalizedUpstreamName guards the drift between
+// the name recorded at mapping time and the name actually sent upstream: adaptors
+// strip -thinking/-nothinking or reasoning-effort suffixes afterwards, and upstream
+// error text names the stripped form. Both spellings must be masked, and the error
+// log must record the same upstream name the consume log does.
+func TestMaskUpstreamModelInTextCoversNormalizedUpstreamName(t *testing.T) {
+	original := common.IsHideModelMappingForUserEnabled()
+	t.Cleanup(func() { common.SetHideModelMappingForUser(original) })
+	common.SetHideModelMappingForUser(true)
+
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: "gemini-2.5-flash-nothinking"}}
+	SetModelRewrite(c, info, info.UpstreamModelName, "my-flash")
+	// The Gemini adaptor strips the suffix after the mapping was recorded.
+	info.UpstreamModelName = "gemini-2.5-flash"
+
+	text := "models/gemini-2.5-flash is not found; channel target gemini-2.5-flash-nothinking rejected"
+	assert.Equal(t, "models/my-flash is not found; channel target my-flash rejected", MaskUpstreamModelInText(c, text))
+
+	rewrite, ok := GetModelRewrite(c)
+	require.True(t, ok)
+	assert.Equal(t, "gemini-2.5-flash", rewrite.UpstreamModelName())
+}
+
+// TestHideTaskModelMappingScrubsUserFacingTask covers every field of a user-side
+// task DTO that can carry the redirect: the properties marker, the failure reason
+// and the raw upstream submit response, while the stored task keeps the real name
+// for admins.
+func TestHideTaskModelMappingScrubsUserFacingTask(t *testing.T) {
+	original := common.IsHideModelMappingForUserEnabled()
+	t.Cleanup(func() { common.SetHideModelMappingForUser(original) })
+	common.SetHideModelMappingForUser(true)
+
+	task := &model.Task{
+		FailReason: "upstream sora-2-pro rejected the prompt",
+		Data:       []byte(`{"id":"video_1","model":"sora-2-pro","status":"failed"}`),
+	}
+	task.Properties.UpstreamModelName = "sora-2-pro"
+	task.Properties.OriginModelName = "my-video"
+	taskDto := &dto.TaskDto{FailReason: task.FailReason, Properties: task.Properties, Data: task.Data}
+
+	HideTaskModelMapping(taskDto, task)
+
+	properties, ok := taskDto.Properties.(model.Properties)
+	require.True(t, ok)
+	assert.Empty(t, properties.UpstreamModelName)
+	assert.Equal(t, "my-video", properties.OriginModelName)
+	assert.Equal(t, "upstream my-video rejected the prompt", taskDto.FailReason)
+	assert.JSONEq(t, `{"id":"video_1","model":"my-video","status":"failed"}`, string(taskDto.Data))
+	assert.Equal(t, "sora-2-pro", task.Properties.UpstreamModelName)
+	assert.Contains(t, string(task.Data), "sora-2-pro")
+}
+
+// TestHideModelMappingInTaskBodyLeavesBodyAlone pins when the OpenAI-video fetch
+// body must pass through untouched: option off, or no redirect recorded on the task.
+func TestHideModelMappingInTaskBodyLeavesBodyAlone(t *testing.T) {
+	original := common.IsHideModelMappingForUserEnabled()
+	t.Cleanup(func() { common.SetHideModelMappingForUser(original) })
+
+	const body = `{"id":"video_1","model":"sora-2-pro"}`
+	redirected := &model.Task{}
+	redirected.Properties.UpstreamModelName = "sora-2-pro"
+	redirected.Properties.OriginModelName = "my-video"
+	direct := &model.Task{}
+	direct.Properties.UpstreamModelName = "sora-2-pro"
+	direct.Properties.OriginModelName = "sora-2-pro"
+
+	common.SetHideModelMappingForUser(false)
+	assert.Equal(t, body, string(HideModelMappingInTaskBody(redirected, []byte(body))))
+
+	common.SetHideModelMappingForUser(true)
+	assert.Equal(t, body, string(HideModelMappingInTaskBody(direct, []byte(body))))
+	assert.JSONEq(t, `{"id":"video_1","model":"my-video"}`, string(HideModelMappingInTaskBody(redirected, []byte(body))))
 }

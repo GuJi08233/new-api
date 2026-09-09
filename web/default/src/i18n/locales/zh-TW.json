@@ -5451,6 +5451,10 @@
     "Zhipu V4": "智譜 V4",
     "Zoom": "縮放",
     "Auto-ban rules run via periodic background scanning and only affect regular users (admins and whitelisted users are never auto-processed). The IP/UA blacklists intercept requests in real time; whitelisted users are fully exempt from interception but their traffic still counts toward risk statistics.": "自動封禁規則由後台週期掃描執行，只影響普通用戶（管理員與白名單用戶不會被自動處置）。IP/UA 黑名單在請求時即時攔截，白名單用戶完全豁免攔截，但其流量仍計入風控統計。",
-    "Whitelist user IDs (comma-separated, fully exempt from risk control, still counted in statistics)": "白名單用戶 ID（逗號分隔，完全豁免風控，仍計入統計）"
+    "Whitelist user IDs (comma-separated, fully exempt from risk control, still counted in statistics)": "白名單用戶 ID（逗號分隔，完全豁免風控，仍計入統計）",
+    "Hide model redirect details from regular users": "對一般使用者隱藏模型重新導向資訊",
+    "When enabled, the actual upstream model behind a redirect no longer appears in regular users’ logs or error messages; the admin view is unaffected.": "開啟後，一般使用者的日誌與錯誤訊息中不再出現重新導向後的實際上游模型；管理員檢視不受影響。",
+    "Rewrite model name in response body": "回寫回應內容中的模型名稱",
+    "When a model redirect happens, change the model name in the response body back to the one the client requested, so clients never see the actual upstream model.": "發生模型重新導向時，把回應內容中的模型名稱改回用戶端請求的模型名稱，用戶端不會看到實際的上游模型。"
   }
 }

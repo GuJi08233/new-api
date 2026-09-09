@@ -166,7 +166,7 @@ func TestIOCopyRawBytesGracefullyRewritesModelName(t *testing.T) {
 	originalSetting := settings.RewriteResponseModelEnabled
 	t.Cleanup(func() { settings.RewriteResponseModelEnabled = originalSetting })
 	settings.RewriteResponseModelEnabled = true
-	SetModelRewrite(c, "gpt-4o", "gpt-4")
+	SetModelRewrite(c, nil, "gpt-4o", "gpt-4")
 
 	src := &http.Response{
 		StatusCode: http.StatusOK,
@@ -199,7 +199,7 @@ func TestCopyUpstreamHeadersRewritesModelHeaders(t *testing.T) {
 	originalSetting := settings.RewriteResponseModelEnabled
 	t.Cleanup(func() { settings.RewriteResponseModelEnabled = originalSetting })
 	settings.RewriteResponseModelEnabled = true
-	SetModelRewrite(c, "gpt-4o", "gpt-4")
+	SetModelRewrite(c, nil, "gpt-4o", "gpt-4")
 
 	src := http.Header{
 		"Openai-Model":        []string{"gpt-4o-2024-08-06"},

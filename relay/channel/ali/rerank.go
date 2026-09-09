@@ -68,7 +68,6 @@ func RerankHandler(c *gin.Context, resp *http.Response, info *relaycommon.RelayI
 	if err != nil {
 		return types.NewError(err, types.ErrorCodeBadResponseBody), nil
 	}
-	jsonResponse, _ = service.RewriteResponseModelName(c, jsonResponse)
 	c.Writer.Header().Set("Content-Type", "application/json")
 	c.Writer.WriteHeader(resp.StatusCode)
 	c.Writer.Write(jsonResponse)
