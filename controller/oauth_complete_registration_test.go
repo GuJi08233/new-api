@@ -140,8 +140,8 @@ func TestCompleteOAuthRegistrationWeChatPending(t *testing.T) {
 	var created model.User
 	require.NoError(t, db.Where("wechat_id = ?", "wx-pending-1").First(&created).Error)
 	assert.Equal(t, inviter.Id, created.InviterId)
-	// 被邀请者奖励 = QuotaForInvitee(100) + 码额度 1000 × 50%
-	assert.Equal(t, 600, created.Quota)
+	// 注册使用只建立邀请关系并获得 QuotaForInvitee(100)；码面额奖励只在兑换路径发放
+	assert.Equal(t, 100, created.Quota)
 
 	used, err := model.GetInvitationCodeByCode("invite-code-1")
 	require.NoError(t, err)
