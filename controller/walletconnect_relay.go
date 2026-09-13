@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -14,7 +15,20 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-const walletConnectOfficialRelayURL = "wss://relay.walletconnect.com/"
+const (
+	walletConnectOfficialRelayURL = "wss://relay.walletconnect.com/"
+
+	// Each bridged session pins two goroutines and two sockets for as long as it
+	// stays open, so the proxy needs its own ceiling and liveness checks: without
+	// them a handful of idle connections can hold those resources indefinitely.
+	walletConnectRelayMaxConnections = 256
+	walletConnectRelayMaxMessageSize = 1 << 20 // 1 MiB, well above any relay frame
+	walletConnectRelayIdleTimeout    = 90 * time.Second
+	walletConnectRelayPingInterval   = 30 * time.Second
+	walletConnectRelayWriteTimeout   = 15 * time.Second
+)
+
+var walletConnectRelayConnections atomic.Int64
 
 // WalletConnectRelayProxy proxies WalletConnect v2 Relay WebSocket traffic.
 // It is intentionally pinned to the official relay to avoid open-proxy abuse
@@ -46,6 +60,17 @@ func WalletConnectRelayProxy(c *gin.Context) {
 		})
 		return
 	}
+
+	if walletConnectRelayConnections.Add(1) > walletConnectRelayMaxConnections {
+		walletConnectRelayConnections.Add(-1)
+		common.SysLog("WalletConnect Relay 代理连接数已达上限，拒绝新连接")
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"success": false,
+			"message": "WalletConnect relay proxy is busy",
+		})
+		return
+	}
+	defer walletConnectRelayConnections.Add(-1)
 
 	requestedSubprotocols := websocket.Subprotocols(c.Request)
 	dialer := websocket.Dialer{
@@ -119,11 +144,55 @@ func bridgeWalletConnectRelay(client, upstream *websocket.Conn) {
 		})
 	}
 
+	configureWalletConnectRelayConn(client)
+	configureWalletConnectRelayConn(upstream)
+
 	var wg sync.WaitGroup
 	wg.Add(2)
 	go proxyWalletConnectMessages(client, upstream, closeBoth, &wg)
 	go proxyWalletConnectMessages(upstream, client, closeBoth, &wg)
+
+	done := make(chan struct{})
+	go keepAliveWalletConnectRelay(done, client, upstream)
 	wg.Wait()
+	close(done)
+}
+
+// configureWalletConnectRelayConn bounds a bridged connection so a peer that
+// stops reading or never speaks again cannot hold the socket pair open.
+func configureWalletConnectRelayConn(conn *websocket.Conn) {
+	conn.SetReadLimit(walletConnectRelayMaxMessageSize)
+	_ = conn.SetReadDeadline(time.Now().Add(walletConnectRelayIdleTimeout))
+	conn.SetPongHandler(func(string) error {
+		return conn.SetReadDeadline(time.Now().Add(walletConnectRelayIdleTimeout))
+	})
+	conn.SetPingHandler(func(appData string) error {
+		_ = conn.SetReadDeadline(time.Now().Add(walletConnectRelayIdleTimeout))
+		// WriteControl is the only write method safe to call while the
+		// forwarding goroutine may be inside WriteMessage.
+		err := conn.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(walletConnectRelayWriteTimeout))
+		if err == websocket.ErrCloseSent {
+			return nil
+		}
+		return err
+	})
+}
+
+func keepAliveWalletConnectRelay(done <-chan struct{}, conns ...*websocket.Conn) {
+	ticker := time.NewTicker(walletConnectRelayPingInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-done:
+			return
+		case <-ticker.C:
+			for _, conn := range conns {
+				if err := conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(walletConnectRelayWriteTimeout)); err != nil {
+					return
+				}
+			}
+		}
+	}
 }
 
 func proxyWalletConnectMessages(src, dst *websocket.Conn, closeBoth func(), wg *sync.WaitGroup) {
@@ -132,6 +201,11 @@ func proxyWalletConnectMessages(src, dst *websocket.Conn, closeBoth func(), wg *
 	for {
 		messageType, payload, err := src.ReadMessage()
 		if err != nil {
+			return
+		}
+		// Traffic in either direction proves the peer is still alive.
+		_ = src.SetReadDeadline(time.Now().Add(walletConnectRelayIdleTimeout))
+		if err := dst.SetWriteDeadline(time.Now().Add(walletConnectRelayWriteTimeout)); err != nil {
 			return
 		}
 		if err := dst.WriteMessage(messageType, payload); err != nil {

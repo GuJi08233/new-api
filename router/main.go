@@ -14,8 +14,11 @@ import (
 )
 
 func SetRouter(router *gin.Engine, assets ThemeAssets) {
-	// WebSocket relay must not pass through gzip middleware.
-	router.GET("/api/walletconnect/relay", middleware.RouteTag("api"), middleware.GlobalAPIRateLimit(), controller.WalletConnectRelayProxy)
+	// WebSocket relay must not pass through gzip middleware. UserAuth keeps the
+	// proxy from being an open relay: it is only reachable by logged-in users
+	// paying on-chain, and the browser sends the session cookie on the same-origin
+	// WebSocket handshake.
+	router.GET("/api/walletconnect/relay", middleware.RouteTag("api"), middleware.GlobalAPIRateLimit(), middleware.UserAuth(), controller.WalletConnectRelayProxy)
 	SetApiRouter(router)
 	SetDashboardRouter(router)
 	SetRelayRouter(router)
