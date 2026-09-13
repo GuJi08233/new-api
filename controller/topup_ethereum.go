@@ -58,7 +58,8 @@ type alchemyWebhookPayload struct {
 	WebhookID string `json:"webhookId"`
 	ID        string `json:"id"`
 	Event     struct {
-		Data struct {
+		Network string `json:"network"`
+		Data    struct {
 			Block struct {
 				Logs []alchemyLog `json:"logs"`
 			} `json:"block"`
@@ -75,6 +76,63 @@ type alchemyLog struct {
 	Transaction struct {
 		Hash string `json:"hash"`
 	} `json:"transaction"`
+}
+
+// alchemyNetworkChainIds maps Alchemy's network identifiers to their EVM chain id.
+//
+// A contract address alone does not identify a chain: CREATE derives it from
+// keccak(deployer, nonce), so the same deploying wallet reaches the same address
+// on every EVM chain. Without this check, a webhook for a testnet deployment is
+// indistinguishable from the mainnet one and free testnet funds would settle
+// real orders.
+var alchemyNetworkChainIds = map[string]int64{
+	"ETH_MAINNET":    1,
+	"ETH_SEPOLIA":    11155111,
+	"ETH_HOLESKY":    17000,
+	"ETH_HOODI":      560048,
+	"MATIC_MAINNET":  137,
+	"MATIC_AMOY":     80002,
+	"ARB_MAINNET":    42161,
+	"ARB_SEPOLIA":    421614,
+	"OPT_MAINNET":    10,
+	"OPT_SEPOLIA":    11155420,
+	"BASE_MAINNET":   8453,
+	"BASE_SEPOLIA":   84532,
+	"BNB_MAINNET":    56,
+	"BNB_TESTNET":    97,
+	"AVAX_MAINNET":   43114,
+	"AVAX_FUJI":      43113,
+	"LINEA_MAINNET":  59144,
+	"LINEA_SEPOLIA":  59141,
+	"SCROLL_MAINNET": 534352,
+	"SCROLL_SEPOLIA": 534351,
+	"GNOSIS_MAINNET": 100,
+	"ZKSYNC_MAINNET": 324,
+	"ZKSYNC_SEPOLIA": 300,
+}
+
+// isConfiguredChainNetwork reports whether a webhook's network matches the
+// configured chain. An unrecognised network fails closed; an absent one is
+// allowed through with a warning, because older webhook versions omit the field
+// and rejecting it would silently break every payment.
+func isConfiguredChainNetwork(network string) bool {
+	network = strings.ToUpper(strings.TrimSpace(network))
+	if network == "" {
+		common.SysLog(fmt.Sprintf("Ethereum Webhook: payload 未携带 network 字段，跳过链校验（期望 chainId=%d）",
+			setting.EthereumChainId))
+		return true
+	}
+	chainId, known := alchemyNetworkChainIds[network]
+	if !known {
+		common.SysLog(fmt.Sprintf("Ethereum Webhook: 未知网络 %s，拒绝处理（如需支持请补充 alchemyNetworkChainIds 映射）", network))
+		return false
+	}
+	if chainId != setting.EthereumChainId {
+		common.SysLog(fmt.Sprintf("Ethereum Webhook: 网络不匹配，拒绝处理 - payload=%s(chainId=%d), 配置 chainId=%d",
+			network, chainId, setting.EthereumChainId))
+		return false
+	}
+	return true
 }
 
 // ── RequestEthereumPay ─────────────────────────────────────────────────────
@@ -95,7 +153,25 @@ func RequestEthereumPay(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "参数错误"})
 		return
 	}
-	if req.Amount < int64(setting.EthereumMinTopUp) {
+	if req.Amount <= 0 {
+		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "参数错误"})
+		return
+	}
+
+	// req.Amount arrives in whatever unit the frontend displays: top-up units in
+	// currency mode, raw tokens in token mode. Token prices and TopUp.Amount are
+	// both denominated in top-up units, so normalise once here and derive both
+	// the charge and the credited amount from the same value — pricing the raw
+	// token count would overcharge the payer by a factor of QuotaPerUnit.
+	units := decimal.NewFromInt(req.Amount)
+	if operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeTokens {
+		units = units.Div(decimal.NewFromFloat(common.QuotaPerUnit))
+	}
+	// Settlement re-multiplies the stored whole-unit amount by QuotaPerUnit, so a
+	// fractional remainder can never be credited. Truncate before pricing rather
+	// than rounding a sub-unit request up to a full unit.
+	amount := units.Truncate(0).IntPart()
+	if amount < int64(setting.EthereumMinTopUp) {
 		c.JSON(http.StatusOK, gin.H{
 			"message": "error",
 			"data":    fmt.Sprintf("充值数量不能小于 %d", setting.EthereumMinTopUp),
@@ -118,7 +194,7 @@ func RequestEthereumPay(c *gin.Context) {
 	}
 
 	// Calculate pay amount in smallest unit
-	payAmountStr, err := calcPayAmountDecimal(decimal.NewFromInt(req.Amount), tokenCfg.Price, tokenCfg.Decimals)
+	payAmountStr, err := calcPayAmountDecimal(decimal.NewFromInt(amount), tokenCfg.Price, tokenCfg.Decimals)
 	if err != nil || payAmountStr == "0" {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "金额计算失败"})
 		return
@@ -131,15 +207,6 @@ func RequestEthereumPay(c *gin.Context) {
 		return
 	}
 
-	// Normalise amount for token quota display mode
-	amount := req.Amount
-	if operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeTokens {
-		amount = int64(float64(req.Amount) / common.QuotaPerUnit)
-		if amount < 1 {
-			amount = 1
-		}
-	}
-
 	// Generate trade number and derive the on-chain orderId (bytes32).
 	// TradeNo format: ETH-{userId}-{unixMilli}-{6randChars} (always < 32 bytes)
 	tradeNo := fmt.Sprintf("ETH-%d-%d-%s", userId, time.Now().UnixMilli(), randstr.String(6))
@@ -147,7 +214,7 @@ func RequestEthereumPay(c *gin.Context) {
 
 	// Parse pay amount as float for Money field
 	payMoneyFloat, _ := strconv.ParseFloat(tokenCfg.Price, 64)
-	payMoney := payMoneyFloat * float64(req.Amount)
+	payMoney := payMoneyFloat * float64(amount)
 
 	// Persist pending order
 	topUp := &model.TopUp{
@@ -196,16 +263,15 @@ func EthereumWebhook(c *gin.Context) {
 		return
 	}
 
-	// Verify Alchemy HMAC-SHA256 signature
+	// Verify Alchemy HMAC-SHA256 signature.
+	// This endpoint is unauthenticated by design, so the failure log must never
+	// echo the signing key or the expected digest: anyone could otherwise POST a
+	// bad signature and harvest the credentials needed to forge paid orders.
 	sigHex := c.GetHeader("X-Alchemy-Signature")
 	signingKey := strings.TrimSpace(setting.EthereumAlchemyWebhookSigningKey)
 	if !verifyAlchemySignature(bodyBytes, sigHex, signingKey) {
-		// Compute expected for debug (same logic as verifyAlchemySignature)
-		debugMac := hmac.New(sha256.New, []byte(signingKey))
-		debugMac.Write(bodyBytes)
-		debugExpected := hex.EncodeToString(debugMac.Sum(nil))
-		common.SysLog(fmt.Sprintf("Ethereum Webhook: 签名验证失败 - received_sig=%q, expected_sig=%q, key=%q, body_len=%d",
-			sigHex, debugExpected, signingKey, len(bodyBytes)))
+		common.SysLog(fmt.Sprintf("Ethereum Webhook: 签名验证失败 - has_signature=%t, key_configured=%t, body_len=%d",
+			strings.TrimSpace(sigHex) != "", signingKey != "", len(bodyBytes)))
 		c.AbortWithStatus(http.StatusUnauthorized)
 		return
 	}
@@ -219,8 +285,14 @@ func EthereumWebhook(c *gin.Context) {
 		return
 	}
 
+	if !isConfiguredChainNetwork(payload.Event.Network) {
+		c.AbortWithStatus(http.StatusBadRequest)
+		return
+	}
+
 	logs := payload.Event.Data.Block.Logs
-	common.SysLog(fmt.Sprintf("Ethereum Webhook: webhookId=%s, log_count=%d", payload.WebhookID, len(logs)))
+	common.SysLog(fmt.Sprintf("Ethereum Webhook: webhookId=%s, network=%s, log_count=%d",
+		payload.WebhookID, payload.Event.Network, len(logs)))
 
 	contractAddrLower := strings.ToLower(setting.EthereumContractAddress)
 	matched := 0
@@ -505,55 +577,6 @@ func calcPayAmountDecimal(units decimal.Decimal, pricePerUnit string, decimals i
 		return "0", nil
 	}
 	return resultInt.StringFixed(0), nil
-}
-
-// calcPayAmount computes amount_in_smallest_unit = topUpUnits * pricePerUnit * 10^decimals
-// Returns the result as a decimal string (no 0x prefix).
-func calcPayAmount(units int64, pricePerUnit string, decimals int) (string, error) {
-	priceF, _, err := big.ParseFloat(pricePerUnit, 10, 256, big.ToZero)
-	if err != nil || priceF.Sign() <= 0 {
-		return "", fmt.Errorf("invalid pricePerUnit: %s", pricePerUnit)
-	}
-
-	// multiplier = 10^decimals
-	multiplier := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(decimals)), nil)
-
-	// result = units * priceF * multiplier
-	unitsF := new(big.Float).SetInt64(units)
-	multF := new(big.Float).SetInt(multiplier)
-
-	result := new(big.Float).Mul(unitsF, priceF)
-	result.Mul(result, multF)
-
-	// Truncate to integer
-	resultInt, _ := result.Int(nil)
-	if resultInt.Sign() <= 0 {
-		return "0", nil
-	}
-	return resultInt.String(), nil
-}
-
-// calcPayAmountFloat is like calcPayAmount but accepts a float64 for fractional unit counts
-// (e.g. subscription plan PriceAmount = 9.99).
-func calcPayAmountFloat(units float64, pricePerUnit string, decimals int) (string, error) {
-	priceF, _, err := big.ParseFloat(pricePerUnit, 10, 256, big.ToZero)
-	if err != nil || priceF.Sign() <= 0 {
-		return "", fmt.Errorf("invalid pricePerUnit: %s", pricePerUnit)
-	}
-
-	multiplier := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(decimals)), nil)
-
-	unitsF := new(big.Float).SetFloat64(units)
-	multF := new(big.Float).SetInt(multiplier)
-
-	result := new(big.Float).Mul(unitsF, priceF)
-	result.Mul(result, multF)
-
-	resultInt, _ := result.Int(nil)
-	if resultInt.Sign() <= 0 {
-		return "0", nil
-	}
-	return resultInt.String(), nil
 }
 
 // getEthereumTopUpInfo returns the fields added to GetTopUpInfo response.
