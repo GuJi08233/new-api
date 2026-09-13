@@ -30,17 +30,17 @@ import {
   IconArrowUp,
   IconArrowDown,
   IconStar,
-  IconUser,
   IconActivity,
   IconBolt,
   IconClock,
+  IconCreditCard,
   IconCrown,
   IconHistogram,
 } from '@douyinfe/semi-icons';
 import { VChart } from '@visactor/react-vchart';
 import { initVChartSemiTheme } from '@visactor/vchart-semi-theme';
 import { useTranslation } from 'react-i18next';
-import { API, showError, getLobeHubIcon } from '../../helpers';
+import { API, showError, getLobeHubIcon, renderQuota } from '../../helpers';
 import './rankings.css';
 
 const { Text } = Typography;
@@ -709,6 +709,40 @@ function LLMRankings({ period, onRange }) {
 // Tab 2: User Rankings
 // ============================================================================
 
+// Three boards, three columns, same shape as the performance tab. Each board
+// shows only its own metric — Token usage, request count, quota spent — so a
+// column reads as one ranking instead of a mix of numbers. Keeping them in one
+// table avoids three near-identical blocks of JSX drifting apart.
+const USER_BOARDS = [
+  {
+    key: 'token_rankings',
+    icon: <IconHistogram />,
+    tone: 'tone-green',
+    title: '用户用量排行',
+    subtitle: '按 Token 消耗量排名',
+    value: (row) => formatNumber(row.total_tokens),
+    valueLabel: () => 'tokens',
+  },
+  {
+    key: 'request_rankings',
+    icon: <IconActivity />,
+    tone: 'tone-primary',
+    title: '用户调用次数排行',
+    subtitle: '按 API 请求次数排名',
+    value: (row) => formatNumber(row.request_count),
+    valueLabel: (t) => t('次请求'),
+  },
+  {
+    key: 'quota_rankings',
+    icon: <IconCreditCard />,
+    tone: 'tone-violet',
+    title: '用户消费排行',
+    subtitle: '按额度消耗排名',
+    value: (row) => renderQuota(row.total_quota),
+    valueLabel: (t) => t('额度'),
+  },
+];
+
 function UserRankings({ period, onRange }) {
   const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
@@ -748,8 +782,14 @@ function UserRankings({ period, onRange }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      {/* Stats row */}
+      {/* Stats row — mirrors the three boards below */}
       <div className='rankings-stats rankings-fade-in'>
+        <StatCard
+          icon={<IconHistogram size='small' />}
+          label={t('总 Tokens')}
+          value={formatNumber(data.summary?.total_tokens)}
+          gradient='linear-gradient(135deg, #10b981, #34d399)'
+        />
         <StatCard
           icon={<IconActivity size='small' />}
           label={t('总请求次数')}
@@ -757,59 +797,42 @@ function UserRankings({ period, onRange }) {
           gradient='linear-gradient(135deg, #3b82f6, #60a5fa)'
         />
         <StatCard
-          icon={<IconStar size='small' />}
-          label={t('总额度')}
-          value={formatNumber(data.summary?.total_quota)}
+          icon={<IconCreditCard size='small' />}
+          label={t('总消费额度')}
+          value={renderQuota(data.summary?.total_quota || 0)}
           gradient='linear-gradient(135deg, #8b5cf6, #a78bfa)'
         />
-        <StatCard
-          icon={<IconHistogram size='small' />}
-          label={t('总 Tokens')}
-          value={formatNumber(data.summary?.total_tokens)}
-          gradient='linear-gradient(135deg, #10b981, #34d399)'
-        />
       </div>
 
-      {/* Request Rankings */}
-      <div className='rankings-fade-in delay-1'>
-        <SectionCard
-          icon={<IconUser />}
-          tone='tone-primary'
-          title={t('用户调用次数排行')}
-          subtitle={t('按 API 请求次数排名')}
-        >
-          {(data.request_rankings || []).map((u, idx) => (
-            <LeaderboardRow
-              key={u.user_id}
-              rank={idx + 1}
-              icon={<UserAvatar name={u.username} />}
-              name={u.username}
-              value={formatNumber(u.request_count)}
-              valueLabel={t('次请求')}
-            />
-          ))}
-        </SectionCard>
-      </div>
-
-      {/* Quota Rankings */}
-      <div className='rankings-fade-in delay-2'>
-        <SectionCard
-          icon={<IconStar />}
-          tone='tone-violet'
-          title={t('用户用量排行')}
-          subtitle={t('按额度消耗排名')}
-        >
-          {(data.quota_rankings || []).map((u, idx) => (
-            <LeaderboardRow
-              key={u.user_id}
-              rank={idx + 1}
-              icon={<UserAvatar name={u.username} />}
-              name={u.username}
-              value={formatNumber(u.total_quota)}
-              valueLabel={t('额度')}
-            />
-          ))}
-        </SectionCard>
+      <div className='rankings-grid-3 rankings-fade-in delay-1'>
+        {USER_BOARDS.map((board) => (
+          <SectionCard
+            key={board.key}
+            icon={board.icon}
+            tone={board.tone}
+            title={t(board.title)}
+            subtitle={t(board.subtitle)}
+          >
+            <div className='rankings-scroll'>
+              {(data[board.key] || []).length === 0 ? (
+                <Empty description={t('暂无数据')} style={{ padding: 24 }} />
+              ) : (
+                data[board.key].map((u, idx) => (
+                  // Rows are grouped by (user_id, username), so a user who
+                  // renamed inside the window appears twice — key on both.
+                  <LeaderboardRow
+                    key={`${u.user_id}-${u.username}`}
+                    rank={idx + 1}
+                    icon={<UserAvatar name={u.username} />}
+                    name={u.username}
+                    value={board.value(u)}
+                    valueLabel={board.valueLabel(t)}
+                  />
+                ))
+              )}
+            </div>
+          </SectionCard>
+        ))}
       </div>
     </div>
   );

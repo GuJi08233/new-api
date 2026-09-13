@@ -2,6 +2,7 @@ package controller
 
 import (
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -27,6 +28,23 @@ func GetRankings(c *gin.Context) {
 	})
 }
 
+// userRankingLimit caps each user leaderboard. The page renders one scrollable
+// column per board, so a deeper list would only grow the payload.
+const userRankingLimit = 50
+
+// userRankingBoards are the three user leaderboards the rankings page shows:
+// how many tokens were consumed, how many requests were made, and how much
+// quota was spent. Each one is the same aggregation ordered by a different
+// metric, so they only differ by the response key.
+var userRankingBoards = []struct {
+	key    string
+	metric model.UserRankingMetric
+}{
+	{"token_rankings", model.UserRankingByTokens},
+	{"request_rankings", model.UserRankingByRequests},
+	{"quota_rankings", model.UserRankingByQuota},
+}
+
 func GetUserRankings(c *gin.Context) {
 	window, err := service.ResolveRankingPeriod(c.DefaultQuery("period", "week"), time.Now())
 	if err != nil {
@@ -38,44 +56,41 @@ func GetUserRankings(c *gin.Context) {
 	}
 	startTime, endTime := window.Start, window.End
 
-	type queryResult[T any] struct {
-		data T
-		err  error
-	}
-
+	// Each board carries its own ORDER BY and LIMIT, so they stay separate
+	// queries and run in parallel rather than serialising three aggregations.
+	// Every goroutine owns one slice index, so no extra synchronisation is needed.
+	rankings := make([][]model.UserRanking, len(userRankingBoards))
+	errs := make([]error, len(userRankingBoards))
 	var (
-		reqCh   = make(chan queryResult[[]model.UserRequestRanking], 1)
-		quotaCh = make(chan queryResult[[]model.UserQuotaRanking], 1)
-		sumCh   = make(chan queryResult[*model.UserRankingSummary], 1)
+		summary    *model.UserRankingSummary
+		summaryErr error
+		wg         sync.WaitGroup
 	)
 
+	wg.Add(len(userRankingBoards) + 1)
+	for i, board := range userRankingBoards {
+		go func() {
+			defer wg.Done()
+			rankings[i], errs[i] = model.GetUserRankings(startTime, endTime, board.metric, userRankingLimit)
+		}()
+	}
 	go func() {
-		rows, err := model.GetUserRequestRankings(startTime, endTime, 50)
-		reqCh <- queryResult[[]model.UserRequestRanking]{rows, err}
+		defer wg.Done()
+		summary, summaryErr = model.GetUserRankingSummary(startTime, endTime)
 	}()
-	go func() {
-		rows, err := model.GetUserQuotaRankings(startTime, endTime, 50)
-		quotaCh <- queryResult[[]model.UserQuotaRanking]{rows, err}
-	}()
-	go func() {
-		summary, err := model.GetUserRankingSummary(startTime, endTime)
-		sumCh <- queryResult[*model.UserRankingSummary]{summary, err}
-	}()
+	wg.Wait()
 
-	reqRes := <-reqCh
-	quotaRes := <-quotaCh
-	sumRes := <-sumCh
-
-	if reqRes.err != nil || quotaRes.err != nil || sumRes.err != nil {
-		if reqRes.err != nil {
-			common.SysError("user request rankings error: " + reqRes.err.Error())
+	failed := summaryErr != nil
+	if summaryErr != nil {
+		common.SysError("user ranking summary error: " + summaryErr.Error())
+	}
+	for i, err := range errs {
+		if err != nil {
+			common.SysError("user " + userRankingBoards[i].key + " error: " + err.Error())
+			failed = true
 		}
-		if quotaRes.err != nil {
-			common.SysError("user quota rankings error: " + quotaRes.err.Error())
-		}
-		if sumRes.err != nil {
-			common.SysError("user ranking summary error: " + sumRes.err.Error())
-		}
+	}
+	if failed {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
 			"message": "failed to load rankings",
@@ -83,14 +98,17 @@ func GetUserRankings(c *gin.Context) {
 		return
 	}
 
+	data := gin.H{
+		"start_time": startTime,
+		"end_time":   endTime,
+		"summary":    summary,
+	}
+	for i, board := range userRankingBoards {
+		data[board.key] = rankings[i]
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"data": gin.H{
-			"start_time":       startTime,
-			"end_time":         endTime,
-			"request_rankings": reqRes.data,
-			"quota_rankings":   quotaRes.data,
-			"summary":          sumRes.data,
-		},
+		"data":    data,
 	})
 }
