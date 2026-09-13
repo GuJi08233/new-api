@@ -585,6 +585,11 @@ func updateOptionMap(key string, value string) (err error) {
 		if setting.EthereumConfirmations < 0 {
 			setting.EthereumConfirmations = 0
 		}
+		// Beyond finality depth a bigger number only delays crediting; a typo
+		// here would make every callback answer 503 until Alchemy gives up.
+		if setting.EthereumConfirmations > setting.EthereumMaxConfirmations {
+			setting.EthereumConfirmations = setting.EthereumMaxConfirmations
+		}
 	case "EthereumWalletConnectProjectID":
 		setting.EthereumWalletConnectProjectID = value
 	case "EthereumWalletConnectAppName":

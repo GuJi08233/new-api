@@ -163,8 +163,7 @@ func TestRechargeEthereumWithPaymentCheck_RejectsUnderpaidPayment(t *testing.T) 
 
 // ExpectedPaymentAmount is frozen from a manually configured token price. Once
 // the quote has lapsed, a payment that no longer covers the order at today's
-// price must not settle at the stale rate, and the stranded funds must leave an
-// admin-visible trail because the chain cannot refund them.
+// price must not settle at the stale rate.
 func TestRechargeEthereumWithPaymentCheck_ExpiredOrderUnderCurrentPriceIsClosed(t *testing.T) {
 	truncateTables(t)
 	// 2 units now cost 2 * 1 * 10^3 = 2000, above the 1000 that was quoted.
@@ -177,12 +176,54 @@ func TestRechargeEthereumWithPaymentCheck_ExpiredOrderUnderCurrentPriceIsClosed(
 	require.ErrorIs(t, err, ErrTopUpExpired)
 	assert.Equal(t, common.TopUpStatusExpired, getTopUpStatusForPaymentGuardTest(t, "eth-expired-guard"))
 	assert.Equal(t, 0, getUserQuotaForPaymentGuardTest(t, 606))
+}
+
+// A sweeper or the user may have closed the order as expired before the
+// webhook arrives. The money moved regardless, so such a payment is judged
+// exactly like a late one: credited when it covers the current price.
+func TestRechargeEthereumWithPaymentCheck_AlreadyExpiredOrderIsCreditedWhenCoveringCurrentPrice(t *testing.T) {
+	truncateTables(t)
+	withEthereumTokensForPaymentGuardTest(t, `[{"symbol":"ETH","address":"0x0000000000000000000000000000000000000000","decimals":3,"price":"0.5"}]`)
+
+	insertUserForPaymentGuardTest(t, 609, 0)
+	insertEthereumTopUpForPaymentGuardTest(t, 609, "eth-closed-guard", time.Now().Unix()-ChainOrderTTLSeconds()-1)
+	require.NoError(t, DB.Model(&TopUp{}).Where("trade_no = ?", "eth-closed-guard").Update("status", common.TopUpStatusExpired).Error)
+
+	err := RechargeEthereumWithPaymentCheck(NewLogSource("127.0.0.1", ""), "eth-closed-guard", ethereumPaymentForGuardTest("1000"))
+	require.NoError(t, err)
+	assert.Equal(t, common.TopUpStatusSuccess, getTopUpStatusForPaymentGuardTest(t, "eth-closed-guard"))
+	assert.Equal(t, 2*int(common.QuotaPerUnit), getUserQuotaForPaymentGuardTest(t, 609))
+
+	// A failed order is not a quote that merely lapsed; it stays closed.
+	insertEthereumTopUpForPaymentGuardTest(t, 609, "eth-failed-guard", time.Now().Unix())
+	require.NoError(t, DB.Model(&TopUp{}).Where("trade_no = ?", "eth-failed-guard").Update("status", common.TopUpStatusFailed).Error)
+	err = RechargeEthereumWithPaymentCheck(NewLogSource("127.0.0.1", ""), "eth-failed-guard", ethereumPaymentForGuardTest("1000"))
+	require.ErrorIs(t, err, ErrTopUpStatusInvalid)
+}
+
+// The stranded-payment trail must land on the payer's account and must not
+// grow on every redelivery of the same transaction.
+func TestRecordStrandedChainPayment_ResolvesPayerAndDedupes(t *testing.T) {
+	truncateTables(t)
+
+	insertUserForPaymentGuardTest(t, 611, 0)
+	insertEthereumTopUpForPaymentGuardTest(t, 611, "eth-stranded-guard", time.Now().Unix())
+
+	RecordStrandedChainPayment(NewLogSource("127.0.0.1", ""), "eth-stranded-guard", ethereumPaymentForGuardTest("1000"), "payment amount mismatch")
+	RecordStrandedChainPayment(NewLogSource("127.0.0.1", ""), "eth-stranded-guard", ethereumPaymentForGuardTest("1000"), "payment amount mismatch")
 
 	var logs []Log
-	require.NoError(t, DB.Where("user_id = ? AND type = ?", 606, LogTypeTopup).Find(&logs).Error)
+	require.NoError(t, DB.Where("user_id = ? AND type = ?", 611, LogTypeTopup).Find(&logs).Error)
 	require.Len(t, logs, 1)
 	assert.Contains(t, logs[0].Content, "需人工核对")
 	assert.Contains(t, logs[0].Content, "0xabc")
+	assert.Contains(t, logs[0].Content, "payment amount mismatch")
+
+	// An orderId nobody issued still moved money; it is filed against user 0.
+	RecordStrandedChainPayment(NewLogSource("127.0.0.1", ""), "ETH-unknown", &ChainPayment{Token: "0x0", Amount: "1", TxHash: "0xdef"}, "订单不存在")
+	require.NoError(t, DB.Where("user_id = ? AND type = ?", 0, LogTypeTopup).Find(&logs).Error)
+	require.Len(t, logs, 1)
+	assert.Contains(t, logs[0].Content, "0xdef")
 }
 
 // A payment whose block confirmation merely crossed the deadline is still
@@ -380,9 +421,8 @@ func TestCheckSubscriptionPlanPurchaseAllowed_PendingEthereumOrderHoldsSeatForQu
 }
 
 // When the seat is gone by the time an on-chain payment settles, the refusal is
-// final and must not be reported as retryable, but the stranded money still
-// needs an admin-visible trail.
-func TestCompleteSubscriptionOrderWithPaymentCheck_SoldOutPaymentIsFinalAndLogged(t *testing.T) {
+// a sentinel the webhook can recognise as final.
+func TestCompleteSubscriptionOrderWithPaymentCheck_SoldOutPaymentIsFinal(t *testing.T) {
 	truncateTables(t)
 
 	insertUserForPaymentGuardTest(t, 535, 0)
@@ -408,10 +448,4 @@ func TestCompleteSubscriptionOrderWithPaymentCheck_SoldOutPaymentIsFinalAndLogge
 	err := CompleteSubscriptionOrderWithPaymentCheck(LogSource{}, "eth-sub-soldout-guard", "", PaymentProviderEthereum, "ethereum", ethereumPaymentForGuardTest("1000"))
 	require.ErrorIs(t, err, ErrSubscriptionPlanSoldOut)
 	assert.Zero(t, countUserSubscriptionsForPaymentGuardTest(t, 535))
-
-	var logs []Log
-	require.NoError(t, DB.Where("user_id = ? AND type = ?", 535, LogTypeTopup).Find(&logs).Error)
-	require.Len(t, logs, 1)
-	assert.Contains(t, logs[0].Content, "需人工核对")
-	assert.Contains(t, logs[0].Content, "0xabc")
 }

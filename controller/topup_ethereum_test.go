@@ -3,11 +3,14 @@ package controller
 import (
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
+	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -52,8 +55,21 @@ func TestIsRetryablePaymentSettlementError(t *testing.T) {
 	}
 }
 
+// Whether the webhook should be retried and whether a human must look at the
+// money are independent: a final refusal still leaves the payer out of pocket
+// unless the chain itself says nothing was paid.
+func TestIsStrandedChainPaymentError(t *testing.T) {
+	assert.False(t, isStrandedChainPaymentError(nil))
+	assert.False(t, isStrandedChainPaymentError(fmt.Errorf("%w: db", model.ErrPaymentSettlementRetryable)))
+	assert.False(t, isStrandedChainPaymentError(fmt.Errorf("%w: reverted", service.ErrEthereumPaymentInvalid)))
+	assert.True(t, isStrandedChainPaymentError(model.ErrPaymentAmountMismatch))
+	assert.True(t, isStrandedChainPaymentError(model.ErrTopUpStatusInvalid))
+	assert.True(t, isStrandedChainPaymentError(model.ErrSubscriptionPlanSoldOut))
+}
+
 // The relay exists for this site's checkout only: once a project is configured,
-// a handshake for any other WalletConnect project must be refused.
+// every projectId value must be that project, and the query is re-encoded so
+// the upstream cannot see a value the check did not.
 func TestBuildWalletConnectUpstreamURLPinsConfiguredProject(t *testing.T) {
 	original := setting.EthereumWalletConnectProjectID
 	t.Cleanup(func() { setting.EthereumWalletConnectProjectID = original })
@@ -61,15 +77,45 @@ func TestBuildWalletConnectUpstreamURLPinsConfiguredProject(t *testing.T) {
 	setting.EthereumWalletConnectProjectID = ""
 	upstream, err := buildWalletConnectUpstreamURL("projectId=anything&auth=tok")
 	require.NoError(t, err)
-	assert.Equal(t, walletConnectOfficialRelayURL+"?projectId=anything&auth=tok", upstream)
+	assert.Equal(t, walletConnectOfficialRelayURL+"?auth=tok&projectId=anything", upstream)
 
 	setting.EthereumWalletConnectProjectID = "site-project"
 	_, err = buildWalletConnectUpstreamURL("projectId=anything&auth=tok")
 	require.ErrorIs(t, err, errWalletConnectProjectMismatch)
 
+	_, err = buildWalletConnectUpstreamURL("projectId=site-project&projectId=attacker&auth=tok")
+	require.ErrorIs(t, err, errWalletConnectProjectMismatch)
+
 	upstream, err = buildWalletConnectUpstreamURL("projectId=site-project&auth=tok")
 	require.NoError(t, err)
-	assert.Equal(t, walletConnectOfficialRelayURL+"?projectId=site-project&auth=tok", upstream)
+	assert.Equal(t, walletConnectOfficialRelayURL+"?auth=tok&projectId=site-project", upstream)
+}
+
+// The relay is authenticated by the session cookie, so only this site's pages
+// may open it; behind a reverse proxy "this site" is also the forwarded host
+// and the configured server address, not just whatever Host the proxy sends.
+func TestIsWalletConnectOriginAllowed(t *testing.T) {
+	original := system_setting.ServerAddress
+	t.Cleanup(func() { system_setting.ServerAddress = original })
+	system_setting.ServerAddress = "https://api.example.com"
+
+	newRequest := func(host, forwardedHost, origin string) *http.Request {
+		r := httptest.NewRequest(http.MethodGet, "/api/walletconnect/relay", nil)
+		r.Host = host
+		if forwardedHost != "" {
+			r.Header.Set("X-Forwarded-Host", forwardedHost)
+		}
+		if origin != "" {
+			r.Header.Set("Origin", origin)
+		}
+		return r
+	}
+
+	assert.True(t, isWalletConnectOriginAllowed(newRequest("api.example.com", "", "https://api.example.com")))
+	assert.True(t, isWalletConnectOriginAllowed(newRequest("127.0.0.1:3000", "api.example.com", "https://api.example.com")))
+	assert.True(t, isWalletConnectOriginAllowed(newRequest("127.0.0.1:3000", "", "https://api.example.com")))
+	assert.True(t, isWalletConnectOriginAllowed(newRequest("127.0.0.1:3000", "", "")))
+	assert.False(t, isWalletConnectOriginAllowed(newRequest("api.example.com", "", "https://evil.example.net")))
 }
 
 // A contract address does not identify a chain, so a payment event is only

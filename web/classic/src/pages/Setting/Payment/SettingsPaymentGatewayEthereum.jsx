@@ -364,6 +364,7 @@ export default function SettingsPaymentGatewayEthereum({ options, refresh }) {
                 field='EthereumConfirmations'
                 label={t('入账所需区块确认数')}
                 min={0}
+                max={64}
                 step={1}
                 placeholder='0'
                 extraText={t(

@@ -1338,7 +1338,6 @@ func CompleteSubscriptionOrderWithPaymentCheck(source LogSource, tradeNo string,
 	logRenewed := false
 	logLatePayment := false
 	orderExpired := false
-	var orderUserId int
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		var order SubscriptionOrder
 		if err := lockForUpdate(tx).Where(refCol+" = ?", tradeNo).First(&order).Error; err != nil {
@@ -1359,30 +1358,37 @@ func CompleteSubscriptionOrderWithPaymentCheck(source LogSource, tradeNo string,
 				return err
 			}
 		}
-		if order.Status != common.TopUpStatusPending {
+		// An order already closed as expired (by the user or the sweeper) is
+		// still a valid target for a payment that meets the current price: the
+		// money moved regardless of what the status row says.
+		alreadyExpired := order.Status == common.TopUpStatusExpired && payment.present()
+		if order.Status != common.TopUpStatusPending && !alreadyExpired {
 			return ErrSubscriptionOrderStatusInvalid
 		}
 		plan, err := getSubscriptionPlanByIdTx(tx, order.PlanId)
 		if err != nil {
 			return err
 		}
-		if isSubscriptionOrderExpiredByTime(&order, now) {
+		// CreateTime and the expires_at handed to the wallet come from the app
+		// clock, so the expiry decision must use the same clock.
+		if alreadyExpired || isSubscriptionOrderExpiredByTime(&order, common.GetTimestamp()) {
 			// An on-chain payment that lands after the quote lapsed is still
 			// honoured when it covers the plan at today's price; see
 			// chainPaymentCoversCurrentPrice. Anything else is closed as expired.
 			if !chainPaymentCoversCurrentPrice(payment, decimal.NewFromFloat(plan.PriceAmount)) {
+				if alreadyExpired {
+					return ErrSubscriptionOrderExpired
+				}
 				order.Status = common.TopUpStatusExpired
 				order.CompleteTime = now
 				if err := tx.Save(&order).Error; err != nil {
 					return err
 				}
 				orderExpired = true
-				orderUserId = order.UserId
 				return nil
 			}
 			logLatePayment = true
 		}
-		orderUserId = order.UserId
 		sub, renewed, err := CreateUserSubscriptionFromPlanTx(tx, order.UserId, plan, "order")
 		if err != nil {
 			return err
@@ -1414,21 +1420,9 @@ func CompleteSubscriptionOrderWithPaymentCheck(source LogSource, tradeNo string,
 		return nil
 	})
 	if err != nil {
-		if payment.present() && isSubscriptionPurchaseRefused(err) {
-			// The seat is gone for good but the money is already at the recipient
-			// wallet, so leave an admin-visible trail for manual reconciliation.
-			RecordLog(source, orderUserId, LogTypeTopup, fmt.Sprintf("Ethereum 付款已到账但订阅无法开通（%s），需人工核对：单号 %s，token %s，实付 %s，交易 %s",
-				err.Error(), tradeNo, payment.Token, payment.Amount, payment.TxHash))
-		}
 		return err
 	}
 	if orderExpired {
-		if payment.present() {
-			// The money is already at the recipient wallet and cannot be refunded
-			// from here, so leave an admin-visible trail for manual reconciliation.
-			RecordLog(source, orderUserId, LogTypeTopup, fmt.Sprintf("Ethereum 付款已到账但订阅订单已过期且不满足当前价格，需人工核对：单号 %s，token %s，实付 %s，交易 %s",
-				tradeNo, payment.Token, payment.Amount, payment.TxHash))
-		}
 		return ErrSubscriptionOrderExpired
 	}
 	if cacheGroup != "" && logUserId > 0 {
@@ -1447,14 +1441,6 @@ func CompleteSubscriptionOrderWithPaymentCheck(source LogSource, tradeNo string,
 		RecordLog(source, logUserId, LogTypeTopup, msg)
 	}
 	return nil
-}
-
-// isSubscriptionPurchaseRefused reports whether settlement failed on a purchase
-// rule that no retry can satisfy.
-func isSubscriptionPurchaseRefused(err error) bool {
-	return errors.Is(err, ErrSubscriptionAlreadyHeld) ||
-		errors.Is(err, ErrSubscriptionPurchaseLimitReached) ||
-		errors.Is(err, ErrSubscriptionPlanSoldOut)
 }
 
 func upsertSubscriptionTopUpTx(tx *gorm.DB, order *SubscriptionOrder) error {
@@ -1528,8 +1514,14 @@ func ExpireStalePendingSubscriptionOrders(limit int) (int, error) {
 		return 0, nil
 	}
 	var ids []int
+	// Select with the same provider-aware window the re-check applies, otherwise
+	// on-chain orders inside their longer quote window are fetched, locked and
+	// skipped on every run and, being the oldest, crowd out the rows that are
+	// actually due.
 	if err := ReadDB().Model(&SubscriptionOrder{}).
-		Where("status = ? AND create_time <= ?", common.TopUpStatusPending, cutoff).
+		Where("status = ?", common.TopUpStatusPending).
+		Where("(payment_provider = ? AND create_time <= ?) OR (payment_provider <> ? AND create_time <= ?)",
+			PaymentProviderEthereum, now-ChainOrderTTLSeconds(), PaymentProviderEthereum, cutoff).
 		Order("create_time asc").
 		Limit(limit).
 		Pluck("id", &ids).Error; err != nil {

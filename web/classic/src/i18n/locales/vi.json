@@ -4692,6 +4692,11 @@
     "对普通用户隐藏模型重定向信息": "Ẩn thông tin chuyển hướng mô hình với người dùng thường",
     "开启后，普通用户的日志与错误信息中不再出现重定向后的实际上游模型，管理员视角不受影响": "Khi bật, mô hình upstream thực tế sau chuyển hướng sẽ không còn xuất hiện trong nhật ký và thông báo lỗi của người dùng thường; giao diện quản trị viên không bị ảnh hưởng",
     "响应体模型名回写": "Ghi lại tên mô hình trong nội dung phản hồi",
-    "开启后，发生模型重定向时把响应体中的模型名改回用户请求的模型名，客户端不会看到实际的上游模型": "Khi bật, lúc xảy ra chuyển hướng mô hình sẽ đổi tên mô hình trong nội dung phản hồi về tên mà người dùng đã yêu cầu, client sẽ không thấy mô hình upstream thực tế"
+    "开启后，发生模型重定向时把响应体中的模型名改回用户请求的模型名，客户端不会看到实际的上游模型": "Khi bật, lúc xảy ra chuyển hướng mô hình sẽ đổi tên mô hình trong nội dung phản hồi về tên mà người dùng đã yêu cầu, client sẽ không thấy mô hình upstream thực tế",
+    "订单报价已过期，请重新发起支付": "Báo giá thanh toán đã hết hạn, vui lòng bắt đầu lại thanh toán",
+    "链上回执校验 RPC 地址": "URL RPC để xác minh biên nhận on-chain",
+    "配置后每笔回调都会向该节点核对交易回执与链 ID 后才入账，强烈建议填写；留空则仅依赖 webhook 签名": "Khi được cấu hình, mỗi callback sẽ được đối chiếu với node này (biên nhận giao dịch và chain ID) trước khi ghi có; rất nên điền. Để trống sẽ chỉ dựa vào chữ ký webhook",
+    "入账所需区块确认数": "Số xác nhận khối cần có trước khi ghi có",
+    "0 表示有回执即入账；未达到确认数时回调会返回 503 等待 Alchemy 重投": "0 nghĩa là ghi có ngay khi có biên nhận; chưa đủ độ sâu thì callback trả 503 để Alchemy gửi lại"
   }
 }

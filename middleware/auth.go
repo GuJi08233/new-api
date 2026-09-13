@@ -243,6 +243,21 @@ func WebSocketUserAuth() gin.HandlerFunc {
 			c.Abort()
 			return
 		}
+		// The cookie's status is a month-old snapshot; a ban only touches the
+		// database. Re-read the live status so a banned account cannot keep the
+		// tunnel for the rest of the cookie's life.
+		if status != common.UserStatusDisabled {
+			user, err := model.GetUserCache(id)
+			if err != nil {
+				c.JSON(http.StatusUnauthorized, gin.H{
+					"success": false,
+					"message": common.TranslateMessage(c, i18n.MsgAuthNotLoggedIn),
+				})
+				c.Abort()
+				return
+			}
+			status = user.Status
+		}
 		if status == common.UserStatusDisabled {
 			c.JSON(http.StatusForbidden, gin.H{
 				"success": false,

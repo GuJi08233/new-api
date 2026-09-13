@@ -11,6 +11,7 @@ import (
 	"math/big"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -77,6 +78,27 @@ type ethereumRpcReceipt struct {
 	Logs        []ethereumRpcLog `json:"logs"`
 }
 
+// ethereumRpcChainIds remembers which chain each RPC endpoint serves. A node's
+// chain id never changes, so it is fetched once per endpoint instead of on
+// every payment.
+var ethereumRpcChainIds sync.Map
+
+func ethereumRpcChainId(ctx context.Context, rpcURL string) (int64, error) {
+	if cached, ok := ethereumRpcChainIds.Load(rpcURL); ok {
+		return cached.(int64), nil
+	}
+	var chainIdHex string
+	if err := callEthereumRpc(ctx, rpcURL, "eth_chainId", nil, &chainIdHex); err != nil {
+		return 0, err
+	}
+	chainId, ok := new(big.Int).SetString(strings.TrimPrefix(chainIdHex, "0x"), 16)
+	if !ok || !chainId.IsInt64() {
+		return 0, fmt.Errorf("malformed chainId %q", chainIdHex)
+	}
+	ethereumRpcChainIds.Store(rpcURL, chainId.Int64())
+	return chainId.Int64(), nil
+}
+
 // VerifyEthereumPaymentReceipt re-reads a payment from a JSON-RPC node the
 // operator trusts and requires the PaymentReceived log to really be there.
 //
@@ -92,15 +114,14 @@ func VerifyEthereumPaymentReceipt(ctx context.Context, rpcURL string, chainId in
 		return fmt.Errorf("%w: malformed transaction hash %q", ErrEthereumPaymentInvalid, proof.TxHash)
 	}
 
-	var chainIdHex string
-	if err := callEthereumRpc(ctx, rpcURL, "eth_chainId", nil, &chainIdHex); err != nil {
+	rpcChainId, err := ethereumRpcChainId(ctx, rpcURL)
+	if err != nil {
 		return fmt.Errorf("%w: eth_chainId: %v", ErrEthereumPaymentUnconfirmed, err)
 	}
-	rpcChainId, ok := new(big.Int).SetString(strings.TrimPrefix(chainIdHex, "0x"), 16)
-	if !ok || rpcChainId.Int64() != chainId {
+	if rpcChainId != chainId {
 		// A node on the wrong chain is an operator mistake, not a bad payment:
 		// keep the webhook retryable so the payment settles once it is fixed.
-		return fmt.Errorf("%w: rpc node reports chainId %s, configured %d", ErrEthereumPaymentUnconfirmed, chainIdHex, chainId)
+		return fmt.Errorf("%w: rpc node reports chainId %d, configured %d", ErrEthereumPaymentUnconfirmed, rpcChainId, chainId)
 	}
 
 	var receipt *ethereumRpcReceipt
@@ -110,7 +131,13 @@ func VerifyEthereumPaymentReceipt(ctx context.Context, rpcURL string, chainId in
 	if receipt == nil {
 		return fmt.Errorf("%w: no receipt for %s", ErrEthereumPaymentUnconfirmed, txHash)
 	}
-	if !strings.EqualFold(receipt.Status, "0x1") {
+	// Status is a QUANTITY; tolerate nodes that pad it ("0x01") like every other
+	// hex field here instead of treating a formatting difference as a revert.
+	status, ok := new(big.Int).SetString(strings.TrimPrefix(receipt.Status, "0x"), 16)
+	if !ok {
+		return fmt.Errorf("%w: malformed receipt status %q", ErrEthereumPaymentUnconfirmed, receipt.Status)
+	}
+	if status.Cmp(big.NewInt(1)) != 0 {
 		return fmt.Errorf("%w: transaction %s reverted (status %s)", ErrEthereumPaymentInvalid, txHash, receipt.Status)
 	}
 
@@ -167,7 +194,7 @@ func callEthereumRpc(ctx context.Context, rpcURL string, method string, params [
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, rpcURL, bytes.NewReader(body))
 	if err != nil {

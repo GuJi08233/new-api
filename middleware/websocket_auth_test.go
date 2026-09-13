@@ -1,17 +1,41 @@
 package middleware
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-contrib/sessions/cookie"
 	"github.com/gin-gonic/gin"
+	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
+
+func setupWebSocketAuthUser(t *testing.T, status int) {
+	t.Helper()
+	common.SetDatabaseTypes(common.DatabaseTypeSQLite, common.DatabaseTypeSQLite)
+	common.RedisEnabled = false
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", strings.ReplaceAll(t.Name(), "/", "_"))
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&model.User{}))
+	require.NoError(t, db.Create(&model.User{Id: 7, Username: "tester", Role: common.RoleCommonUser, Status: status}).Error)
+	originalDB, originalLogDB := model.DB, model.LOG_DB
+	model.DB, model.LOG_DB = db, db
+	t.Cleanup(func() {
+		model.DB, model.LOG_DB = originalDB, originalLogDB
+		if sqlDB, err := db.DB(); err == nil {
+			_ = sqlDB.Close()
+		}
+	})
+}
 
 func performWebSocketAuthRequest(t *testing.T, loggedIn bool) *httptest.ResponseRecorder {
 	t.Helper()
@@ -49,12 +73,22 @@ func performWebSocketAuthRequest(t *testing.T, loggedIn bool) *httptest.Response
 }
 
 func TestWebSocketUserAuthAcceptsSessionWithoutUserIdHeader(t *testing.T) {
+	setupWebSocketAuthUser(t, common.UserStatusEnabled)
 	recorder := performWebSocketAuthRequest(t, true)
 	require.Equal(t, http.StatusOK, recorder.Code)
 	assert.Contains(t, recorder.Body.String(), `"id":7`)
 }
 
 func TestWebSocketUserAuthRejectsAnonymousHandshake(t *testing.T) {
+	setupWebSocketAuthUser(t, common.UserStatusEnabled)
 	recorder := performWebSocketAuthRequest(t, false)
 	require.Equal(t, http.StatusUnauthorized, recorder.Code)
+}
+
+// The session cookie still says "enabled" for a month after a ban; the live
+// status must win.
+func TestWebSocketUserAuthRejectsUserBannedAfterLogin(t *testing.T) {
+	setupWebSocketAuthUser(t, common.UserStatusDisabled)
+	recorder := performWebSocketAuthRequest(t, true)
+	require.Equal(t, http.StatusForbidden, recorder.Code)
 }

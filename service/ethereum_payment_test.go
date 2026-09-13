@@ -96,6 +96,7 @@ func TestVerifyEthereumPaymentReceipt(t *testing.T) {
 		wantErr       error
 	}{
 		{name: "matching log settles", node: receiptTestNode{chainId: "0x1", latestBlock: "0x64", receipt: paidReceipt("0x1", "a")}},
+		{name: "padded status is still success", node: receiptTestNode{chainId: "0x1", latestBlock: "0x64", receipt: paidReceipt("0x01", "a")}},
 		{name: "enough confirmations", node: receiptTestNode{chainId: "0x1", latestBlock: "0x66", receipt: paidReceipt("0x1", "a")}, confirmations: 3},
 		{name: "too few confirmations is retryable", node: receiptTestNode{chainId: "0x1", latestBlock: "0x65", receipt: paidReceipt("0x1", "a")}, confirmations: 3, wantErr: ErrEthereumPaymentUnconfirmed},
 		{name: "not mined yet is retryable", node: receiptTestNode{chainId: "0x1", latestBlock: "0x64"}, wantErr: ErrEthereumPaymentUnconfirmed},

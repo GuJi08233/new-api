@@ -99,6 +99,34 @@ func isChainTopUpExpired(topUp *TopUp, now int64) bool {
 	return expiresAt > 0 && now > expiresAt
 }
 
+// RecordStrandedChainPayment leaves an admin-visible trail for an on-chain
+// payment that reached the recipient wallet but could not be credited: the
+// gateway cannot refund on-chain money, so every such case needs a human. The
+// order is resolved by trade number so the entry lands on the payer's account;
+// an order that does not exist at all is recorded against user 0. A repeated
+// delivery of the same transaction does not add a second entry.
+func RecordStrandedChainPayment(source LogSource, tradeNo string, payment *ChainPayment, reason string) {
+	if !payment.present() {
+		return
+	}
+	userId := 0
+	if topUp := GetTopUpByTradeNo(tradeNo); topUp != nil {
+		userId = topUp.UserId
+	} else if order := GetSubscriptionOrderByTradeNo(tradeNo); order != nil {
+		userId = order.UserId
+	}
+	txHash := strings.TrimSpace(payment.TxHash)
+	if txHash != "" {
+		var existing int64
+		if err := LOG_DB.Model(&Log{}).Where("user_id = ? AND type = ? AND content LIKE ?", userId, LogTypeTopup, "%"+txHash+"%").
+			Count(&existing).Error; err == nil && existing > 0 {
+			return
+		}
+	}
+	RecordLog(source, userId, LogTypeTopup, fmt.Sprintf("Ethereum 付款已到账但未能入账（%s），需人工核对：单号 %s，token %s，实付 %s，交易 %s",
+		reason, tradeNo, payment.Token, payment.Amount, txHash))
+}
+
 // chainPaymentCoversCurrentPrice reports whether a payment that landed after
 // its quote expired still buys the order's units at today's token price.
 //
@@ -566,10 +594,6 @@ func RechargeCreem(source LogSource, referenceId string, customerEmail string, c
 	return nil
 }
 
-func RechargeEthereum(source LogSource, tradeNo string) (err error) {
-	return RechargeEthereumWithPaymentCheck(source, tradeNo, nil)
-}
-
 func RechargeEthereumWithPaymentCheck(source LogSource, tradeNo string, payment *ChainPayment) (err error) {
 	if tradeNo == "" {
 		return errors.New("未提供支付单号")
@@ -599,7 +623,10 @@ func RechargeEthereumWithPaymentCheck(source LogSource, tradeNo string, payment 
 		if topUp.Status == common.TopUpStatusSuccess {
 			return nil
 		}
-		if topUp.Status != common.TopUpStatusPending {
+		// An order already closed as expired (by the user or a sweeper) is still
+		// a valid target for a payment that meets the current price: the money
+		// moved regardless of what the status row says.
+		if topUp.Status != common.TopUpStatusPending && !(topUp.Status == common.TopUpStatusExpired && payment.present()) {
 			return ErrTopUpStatusInvalid
 		}
 		if payment.present() {
@@ -608,9 +635,14 @@ func RechargeEthereumWithPaymentCheck(source LogSource, tradeNo string, payment 
 			}
 		}
 
-		now := getDBTimestampTx(tx)
-		if isChainTopUpExpired(topUp, now) {
+		// CreateTime and the expires_at handed to the wallet come from the app
+		// clock, so the expiry decision must use the same clock.
+		now := common.GetTimestamp()
+		if topUp.Status == common.TopUpStatusExpired || isChainTopUpExpired(topUp, now) {
 			if !chainPaymentCoversCurrentPrice(payment, decimal.NewFromInt(topUp.Amount)) {
+				if topUp.Status == common.TopUpStatusExpired {
+					return ErrTopUpExpired
+				}
 				topUp.Status = common.TopUpStatusExpired
 				topUp.CompleteTime = now
 				if err := tx.Save(topUp).Error; err != nil {
@@ -646,7 +678,7 @@ func RechargeEthereumWithPaymentCheck(source LogSource, tradeNo string, payment 
 
 	if err != nil {
 		common.SysError("ethereum topup failed: " + err.Error())
-		if errors.Is(err, ErrTopUpNotFound) || errors.Is(err, ErrTopUpStatusInvalid) ||
+		if errors.Is(err, ErrTopUpNotFound) || errors.Is(err, ErrTopUpStatusInvalid) || errors.Is(err, ErrTopUpExpired) ||
 			errors.Is(err, ErrPaymentAmountMismatch) || errors.Is(err, ErrPaymentMethodMismatch) {
 			return err
 		}
@@ -654,12 +686,6 @@ func RechargeEthereumWithPaymentCheck(source LogSource, tradeNo string, payment 
 	}
 
 	if orderExpired {
-		if payment.present() {
-			// The money is already at the recipient wallet and cannot be refunded
-			// from here, so leave an admin-visible trail for manual reconciliation.
-			RecordTopupLog(source, topUp.UserId, fmt.Sprintf("Ethereum 付款已到账但订单已过期且不满足当前价格，需人工核对：单号 %s，token %s，实付 %s，交易 %s",
-				tradeNo, payment.Token, payment.Amount, payment.TxHash), "ethereum", "ethereum")
-		}
 		return ErrTopUpExpired
 	}
 

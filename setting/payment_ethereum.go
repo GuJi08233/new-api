@@ -19,6 +19,10 @@ type EthereumToken struct {
 	Price string `json:"price"`
 }
 
+// EthereumMaxConfirmations caps EthereumConfirmations. Ethereum finalises after
+// two epochs (64 slots); waiting longer buys nothing.
+const EthereumMaxConfirmations = 64
+
 var (
 	EthereumEnabled                        bool
 	EthereumChainId                        int64  = 11155111 // Sepolia testnet default

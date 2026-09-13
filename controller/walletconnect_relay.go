@@ -12,6 +12,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/setting"
+	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 )
@@ -60,6 +61,17 @@ func WalletConnectRelayProxy(c *gin.Context) {
 			"service": "WalletConnect Relay proxy",
 			"target":  walletConnectOfficialRelayURL,
 			"usage":   "Use this endpoint as a WebSocket relayUrl from the dApp frontend.",
+		})
+		return
+	}
+
+	// Reject a foreign Origin before anything is dialled: the relay is
+	// authenticated by the session cookie, so a cross-site page must not be able
+	// to ride on it, and a rejected handshake should not cost an upstream socket.
+	if !isWalletConnectOriginAllowed(c.Request) {
+		c.JSON(http.StatusForbidden, gin.H{
+			"success": false,
+			"message": "WalletConnect relay origin not allowed",
 		})
 		return
 	}
@@ -127,11 +139,9 @@ func WalletConnectRelayProxy(c *gin.Context) {
 	if upstream.Subprotocol() != "" {
 		acceptedSubprotocols = []string{upstream.Subprotocol()}
 	}
-	// No CheckOrigin override: gorilla's default only accepts handshakes whose
-	// Origin matches the request host. The relay is authenticated by the session
-	// cookie, so a cross-site page must not be able to ride on it.
 	upgrader := websocket.Upgrader{
 		Subprotocols: acceptedSubprotocols,
+		CheckOrigin:  isWalletConnectOriginAllowed,
 	}
 	client, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
@@ -142,6 +152,31 @@ func WalletConnectRelayProxy(c *gin.Context) {
 
 	common.SysLog(fmt.Sprintf("WalletConnect Relay 代理连接已建立: query=%s", safeWalletConnectRelayQuery(c.Request.URL.Query())))
 	bridgeWalletConnectRelay(client, upstream)
+}
+
+// isWalletConnectOriginAllowed accepts a handshake whose Origin is this site.
+// gorilla's default compares Origin with r.Host only, which breaks behind a
+// reverse proxy that does not forward the Host header; the forwarded host and
+// the configured server address are therefore accepted as well.
+func isWalletConnectOriginAllowed(r *http.Request) bool {
+	origin := strings.TrimSpace(r.Header.Get("Origin"))
+	if origin == "" {
+		return true
+	}
+	originURL, err := url.Parse(origin)
+	if err != nil || originURL.Host == "" {
+		return false
+	}
+	candidates := []string{r.Host, r.Header.Get("X-Forwarded-Host")}
+	if serverURL, err := url.Parse(strings.TrimSpace(system_setting.ServerAddress)); err == nil {
+		candidates = append(candidates, serverURL.Host)
+	}
+	for _, candidate := range candidates {
+		if candidate != "" && strings.EqualFold(originURL.Host, candidate) {
+			return true
+		}
+	}
+	return false
 }
 
 func releaseWalletConnectRelayUserSlot(userId int) {
@@ -167,10 +202,16 @@ func buildWalletConnectUpstreamURL(rawQuery string) (string, error) {
 		return "", err
 	}
 	configuredProjectID := strings.TrimSpace(setting.EthereumWalletConnectProjectID)
-	if configuredProjectID != "" && query.Get("projectId") != configuredProjectID {
-		return "", errWalletConnectProjectMismatch
+	if configuredProjectID != "" {
+		// Every projectId value must match, not just the first: the upstream may
+		// honour a later duplicate, so the query is re-encoded from the parsed
+		// values rather than forwarded verbatim.
+		projectIDs := query["projectId"]
+		if len(projectIDs) != 1 || projectIDs[0] != configuredProjectID {
+			return "", errWalletConnectProjectMismatch
+		}
 	}
-	target.RawQuery = rawQuery
+	target.RawQuery = query.Encode()
 	return target.String(), nil
 }
 

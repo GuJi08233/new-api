@@ -339,7 +339,7 @@ func EthereumWebhook(c *gin.Context) {
 			continue
 		}
 		matched++
-		if err := handlePaymentReceivedLog(logEntry, model.ClientLogSource(c)); isRetryablePaymentSettlementError(err) {
+		if err := handlePaymentReceivedLog(c.Request.Context(), logEntry, model.ClientLogSource(c)); isRetryablePaymentSettlementError(err) {
 			retry = true
 		}
 	}
@@ -377,11 +377,20 @@ func isRetryablePaymentSettlementError(err error) bool {
 	return true
 }
 
+// isStrandedChainPaymentError reports whether a final settlement failure left
+// real money at the recipient wallet. Whether the webhook should be retried and
+// whether a human must look at the payment are independent questions: a wrong
+// amount or a closed order is final for Alchemy but the payer is still out of
+// pocket. Only a receipt that contradicts the event means nothing was paid.
+func isStrandedChainPaymentError(err error) bool {
+	return err != nil && !isRetryablePaymentSettlementError(err) && !errors.Is(err, service.ErrEthereumPaymentInvalid)
+}
+
 // handlePaymentReceivedLog processes a single matched log entry.
 // It dispatches to the correct completion logic based on the tradeNo prefix:
 //   - "ETHSUB-" → subscription order → CompleteSubscriptionOrder
 //   - "ETH-"    → top-up order       → RechargeEthereum
-func handlePaymentReceivedLog(entry alchemyLog, source model.LogSource) error {
+func handlePaymentReceivedLog(ctx context.Context, entry alchemyLog, source model.LogSource) error {
 	// PaymentReceived(bytes32 indexed orderId, address indexed payer, address token, uint256 amount)
 	//
 	// Indexed params appear in topics:
@@ -409,15 +418,41 @@ func handlePaymentReceivedLog(entry alchemyLog, source model.LogSource) error {
 		common.SysLog(fmt.Sprintf("Ethereum Webhook: 支付事件解析失败 - tradeNo=%s, err=%v", tradeNo, err))
 		return nil
 	}
+	payment := &model.ChainPayment{Token: paidToken, Amount: paidAmount, TxHash: entry.Transaction.Hash}
+
+	LockOrder(tradeNo)
+	defer UnlockOrder(tradeNo)
+
+	// Look the order up before spending RPC calls on it: anyone can send the
+	// contract a payment with a made-up orderId, and a redelivered batch
+	// re-announces orders that already settled.
+	isSubscription := strings.HasPrefix(tradeNo, "ETHSUB-")
+	var orderStatus string
+	if isSubscription {
+		if order := model.GetSubscriptionOrderByTradeNo(tradeNo); order != nil {
+			orderStatus = order.Status
+		}
+	} else if topUp := model.GetTopUpByTradeNo(tradeNo); topUp != nil {
+		orderStatus = topUp.Status
+	}
+	switch orderStatus {
+	case "":
+		common.SysLog(fmt.Sprintf("Ethereum Webhook: 订单不存在 - tradeNo=%s, txHash=%s", tradeNo, entry.Transaction.Hash))
+		model.RecordStrandedChainPayment(source, tradeNo, payment, "订单不存在")
+		return nil
+	case common.TopUpStatusSuccess:
+		return nil
+	}
 
 	if rpcURL := strings.TrimSpace(setting.EthereumRpcUrl); rpcURL != "" {
 		if strings.TrimSpace(entry.Transaction.Hash) == "" {
 			// Without the hash nothing can be verified; fail closed and tell the
 			// operator exactly which field the webhook's GraphQL query must select.
 			common.SysError(fmt.Sprintf("Ethereum Webhook: payload 缺少 transaction.hash，无法做链上回执校验，已拒绝 tradeNo=%s；请在 Alchemy webhook 查询中加入 transaction { hash }", tradeNo))
+			model.RecordStrandedChainPayment(source, tradeNo, payment, "webhook 缺少 transaction.hash，无法校验回执")
 			return fmt.Errorf("%w: webhook payload has no transaction hash", service.ErrEthereumPaymentInvalid)
 		}
-		err = service.VerifyEthereumPaymentReceipt(context.Background(), rpcURL, setting.EthereumChainId, int64(setting.EthereumConfirmations), service.EthereumPaymentProof{
+		err = service.VerifyEthereumPaymentReceipt(ctx, rpcURL, setting.EthereumChainId, int64(setting.EthereumConfirmations), service.EthereumPaymentProof{
 			TxHash:   entry.Transaction.Hash,
 			Contract: setting.EthereumContractAddress,
 			OrderId:  orderIdHex,
@@ -428,29 +463,23 @@ func handlePaymentReceivedLog(entry alchemyLog, source model.LogSource) error {
 			common.SysLog(fmt.Sprintf("Ethereum Webhook: 链上回执校验未通过 - tradeNo=%s, txHash=%s, err=%v", tradeNo, entry.Transaction.Hash, err))
 			return err
 		}
+	} else {
+		common.SysLog(fmt.Sprintf("Ethereum Webhook: 未配置 EthereumRpcUrl，跳过链上回执校验 - tradeNo=%s", tradeNo))
 	}
 
-	LockOrder(tradeNo)
-	defer UnlockOrder(tradeNo)
-
-	payment := &model.ChainPayment{Token: paidToken, Amount: paidAmount, TxHash: entry.Transaction.Hash}
-	if strings.HasPrefix(tradeNo, "ETHSUB-") {
-		// Subscription purchase order
+	if isSubscription {
 		err = model.CompleteSubscriptionOrderWithPaymentCheck(source, tradeNo, "", model.PaymentProviderEthereum, "ethereum", payment)
-		if err != nil {
-			common.SysLog(fmt.Sprintf("Ethereum Webhook: 订阅订单完成失败 - tradeNo=%s, err=%v", tradeNo, err))
-			return err
-		}
-		common.SysLog(fmt.Sprintf("Ethereum Webhook: 订阅订单完成成功 - tradeNo=%s", tradeNo))
-		return nil
+	} else {
+		err = model.RechargeEthereumWithPaymentCheck(source, tradeNo, payment)
 	}
-	// Top-up (balance recharge) order
-	err = model.RechargeEthereumWithPaymentCheck(source, tradeNo, payment)
 	if err != nil {
-		common.SysLog(fmt.Sprintf("Ethereum Webhook: 充值失败 - tradeNo=%s, err=%v", tradeNo, err))
+		common.SysLog(fmt.Sprintf("Ethereum Webhook: 结算失败 - tradeNo=%s, subscription=%t, err=%v", tradeNo, isSubscription, err))
+		if isStrandedChainPaymentError(err) {
+			model.RecordStrandedChainPayment(source, tradeNo, payment, err.Error())
+		}
 		return err
 	}
-	common.SysLog(fmt.Sprintf("Ethereum Webhook: 充值成功 - tradeNo=%s", tradeNo))
+	common.SysLog(fmt.Sprintf("Ethereum Webhook: 结算成功 - tradeNo=%s, subscription=%t", tradeNo, isSubscription))
 	return nil
 }
 
@@ -653,7 +682,7 @@ func getEthereumTopUpInfo() (enabled bool, info map[string]interface{}) {
 	// as tokens. Convert here, as the other gateways do.
 	minTopUp := setting.EthereumMinTopUp
 	if operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeTokens {
-		minTopUp = int(decimal.NewFromInt(int64(minTopUp)).Mul(decimal.NewFromFloat(common.QuotaPerUnit)).IntPart())
+		minTopUp = common.QuotaFromDecimal(decimal.NewFromInt(int64(minTopUp)).Mul(decimal.NewFromFloat(common.QuotaPerUnit)))
 	}
 	info = map[string]interface{}{
 		"chain_id":         setting.EthereumChainId,
