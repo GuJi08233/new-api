@@ -233,6 +233,13 @@ type SubscriptionPlan struct {
 
 	AllowBalancePay *bool `json:"allow_balance_pay"`
 
+	// Comma-separated whitelist of payment method keys this plan accepts, using
+	// the same keys the purchase dialog offers ("balance", "stripe", "creem",
+	// an epay channel type, or "ethereum:<address>"). Empty means no
+	// restriction, so plans created before this field existed keep accepting
+	// every method and newly configured channels are available by default.
+	AllowedPaymentMethods string `json:"allowed_payment_methods" gorm:"type:text"`
+
 	// Allow falling back to wallet balance after subscription quota is exhausted (empty = true)
 	AllowWalletOverflow *bool `json:"allow_wallet_overflow"`
 
@@ -303,6 +310,67 @@ func (p *SubscriptionPlan) NormalizeDefaults() {
 
 func (p *SubscriptionPlan) IsAttachGroupMode() bool {
 	return strings.TrimSpace(p.GroupMode) == SubscriptionGroupModeAttach
+}
+
+// SubscriptionPayMethodBalance is the payment method key for paying with wallet
+// balance. Every other key comes from the admin's payment configuration.
+const SubscriptionPayMethodBalance = "balance"
+
+// NormalizeSubscriptionPayMethod canonicalises a payment method key so the
+// whitelist matches regardless of how the caller cased it. Ethereum keys carry
+// a wallet address that clients send in mixed case, so the whole key is lowered;
+// every other key is already an ASCII identifier.
+func NormalizeSubscriptionPayMethod(method string) string {
+	return strings.ToLower(strings.TrimSpace(method))
+}
+
+// NormalizeSubscriptionPayMethods cleans a whitelist for storage: trims, lowers,
+// drops blanks and removes duplicates while keeping the admin's ordering.
+func NormalizeSubscriptionPayMethods(methods string) string {
+	seen := make(map[string]struct{})
+	kept := make([]string, 0)
+	for _, raw := range strings.Split(methods, ",") {
+		method := NormalizeSubscriptionPayMethod(raw)
+		if method == "" {
+			continue
+		}
+		if _, ok := seen[method]; ok {
+			continue
+		}
+		seen[method] = struct{}{}
+		kept = append(kept, method)
+	}
+	return strings.Join(kept, ",")
+}
+
+// AllowsPaymentMethod reports whether this plan may be bought with the given
+// payment method. An empty whitelist means every method is allowed. Balance is
+// additionally gated by the older AllowBalancePay switch, so a plan that already
+// disallowed balance is never widened by leaving the whitelist empty.
+func (p *SubscriptionPlan) AllowsPaymentMethod(method string) bool {
+	method = NormalizeSubscriptionPayMethod(method)
+	if method == "" {
+		return false
+	}
+	if method == SubscriptionPayMethodBalance && p.AllowBalancePay != nil && !*p.AllowBalancePay {
+		return false
+	}
+	whitelist := strings.TrimSpace(p.AllowedPaymentMethods)
+	if whitelist == "" {
+		return true
+	}
+	for _, raw := range strings.Split(whitelist, ",") {
+		if NormalizeSubscriptionPayMethod(raw) == method {
+			return true
+		}
+	}
+	return false
+}
+
+// SubscriptionEthereumPayMethod builds the payment method key for an Ethereum
+// token, keeping the address form the purchase dialog and the whitelist agree on.
+func SubscriptionEthereumPayMethod(tokenAddress string) string {
+	return NormalizeSubscriptionPayMethod("ethereum:" + strings.TrimSpace(tokenAddress))
 }
 
 // GrantsAttachedGroup reports whether this plan's subscriptions coexist with the

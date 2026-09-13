@@ -22,6 +22,8 @@ import {
   Avatar,
   Button,
   Card,
+  Checkbox,
+  CheckboxGroup,
   Col,
   Form,
   InputNumber,
@@ -48,6 +50,11 @@ import {
   quotaToDisplayAmount,
   displayAmountToQuota,
 } from '../../../../helpers/quota';
+import {
+  SUBSCRIPTION_BALANCE_PAY_METHOD,
+  buildSubscriptionPayOptions,
+  parseAllowedPaymentMethods,
+} from '../../../../helpers/subscriptionPayment';
 import { useIsMobile } from '../../../../hooks/common/useIsMobile';
 
 const { Text, Title } = Typography;
@@ -100,6 +107,9 @@ const AddEditSubscriptionModal = ({
   const [useMultiTier, setUseMultiTier] = useState(false);
   const [quotaTiers, setQuotaTiers] = useState([]);
   const [disableBalanceDeduction, setDisableBalanceDeduction] = useState(false);
+  // 站点当前开放的支付方式；为空表示还没拉到，提交时不去动套餐的支付配置
+  const [payMethodOptions, setPayMethodOptions] = useState([]);
+  const [allowedPayMethods, setAllowedPayMethods] = useState([]);
   const isMobile = useIsMobile();
   const formApiRef = useRef(null);
   const isEdit = editingPlan?.plan?.id !== undefined;
@@ -244,7 +254,39 @@ const AddEditSubscriptionModal = ({
       setQuotaTiers([]);
     }
     setDisableBalanceDeduction(plan?.disable_balance_deduction || false);
-  }, [visible, editingPlan, mapQuotaTiersToForm]);
+
+    // 勾选项来自“额度充值”里已配置的支付方式，再加上余额支付
+    API.get('/api/user/self/topup/info')
+      .then((res) => {
+        if (!res.data?.success) return;
+        const info = res.data.data || {};
+        const options = buildSubscriptionPayOptions({
+          payMethods: info.pay_methods || [],
+          enableOnlineTopUp: info.enable_online_topup,
+          enableStripeTopUp: info.enable_stripe_topup,
+          enableCreemTopUp: info.enable_creem_topup,
+          enableEthereumTopUp: info.enable_ethereum_topup,
+          ethereumInfo: info.ethereum_info,
+          balanceLabel: t('余额支付'),
+        });
+        setPayMethodOptions(options);
+
+        // 白名单为空 = 不限制，回显成全选；老套餐可能只关了 allow_balance_pay
+        const stored = parseAllowedPaymentMethods(plan?.allowed_payment_methods);
+        setAllowedPayMethods(
+          stored.length > 0
+            ? stored
+            : options
+                .map((option) => option.value)
+                .filter(
+                  (value) =>
+                    value !== SUBSCRIPTION_BALANCE_PAY_METHOD ||
+                    plan?.allow_balance_pay !== false,
+                ),
+        );
+      })
+      .catch(() => setPayMethodOptions([]));
+  }, [visible, editingPlan, mapQuotaTiersToForm, t]);
 
   const TIER_PERIOD_ORDER = { hourly: 1, daily: 2, weekly: 3, monthly: 4, none: 5, custom: 1 };
 
@@ -293,12 +335,35 @@ const AddEditSubscriptionModal = ({
         return;
       }
     }
+    // 支付方式：全选时存空串表示不限制，以后新接的支付渠道自动可用；
+    // 选项没拉到时整块跳过，避免把套餐现有的支付配置清成不可买
+    const allPayMethods = payMethodOptions.map((option) => option.value);
+    const selectedPayMethods = allowedPayMethods.filter((value) =>
+      allPayMethods.includes(value),
+    );
+    if (allPayMethods.length > 0 && selectedPayMethods.length === 0) {
+      showError(t('请至少选择一种支付方式'));
+      return;
+    }
+    const payMethodPatch =
+      allPayMethods.length > 0
+        ? {
+            allowed_payment_methods:
+              selectedPayMethods.length === allPayMethods.length
+                ? ''
+                : selectedPayMethods.join(','),
+            allow_balance_pay: selectedPayMethods.includes(
+              SUBSCRIPTION_BALANCE_PAY_METHOD,
+            ),
+          }
+        : {};
     setLoading(true);
     try {
       const effectiveTiers = useMultiTier ? mapQuotaTiersToPayload(quotaTiers) : [];
       const payload = {
         plan: {
           ...values,
+          ...payMethodPatch,
           price_amount: Number(values.price_amount || 0),
           currency: 'USD',
           duration_value: Number(values.duration_value || 0),
@@ -354,7 +419,7 @@ const AddEditSubscriptionModal = ({
     } finally {
       setLoading(false);
     }
-  }, [disableBalanceDeduction, editingPlan, handleClose, mapQuotaTiersToPayload, quotaTiers, refresh, t, useMultiTier]);
+  }, [allowedPayMethods, disableBalanceDeduction, editingPlan, handleClose, mapQuotaTiersToPayload, payMethodOptions, quotaTiers, refresh, t, useMultiTier]);
 
   return (
     <>
@@ -847,12 +912,35 @@ const AddEditSubscriptionModal = ({
                     </Avatar>
                     <div>
                       <Text className='text-lg font-medium'>
-                        {t('第三方支付配置')}
+                        {t('支付配置')}
                       </Text>
                       <div className='text-xs text-gray-600'>
-                        {t('Stripe/Creem 商品ID（可选）')}
+                        {t('可用支付方式与 Stripe/Creem 商品ID（可选）')}
                       </div>
                     </div>
+                  </div>
+
+                  <div className='mb-4'>
+                    <Text>{t('可用支付方式')}</Text>
+                    <div className='text-xs text-gray-500 mb-2'>
+                      {t('全选表示不限制，以后新增的支付方式也会自动开放')}
+                    </div>
+                    {payMethodOptions.length > 0 ? (
+                      <CheckboxGroup
+                        value={allowedPayMethods}
+                        onChange={setAllowedPayMethods}
+                      >
+                        {payMethodOptions.map((option) => (
+                          <Checkbox key={option.value} value={option.value}>
+                            {option.label}
+                          </Checkbox>
+                        ))}
+                      </CheckboxGroup>
+                    ) : (
+                      <div className='text-xs text-gray-500'>
+                        {t('尚未配置任何支付方式')}
+                      </div>
+                    )}
                   </div>
 
                   <Row gutter={12}>

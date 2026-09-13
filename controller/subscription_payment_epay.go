@@ -45,6 +45,10 @@ func SubscriptionRequestEpay(c *gin.Context) {
 		common.ApiErrorMsg(c, "支付方式不存在")
 		return
 	}
+	if !plan.AllowsPaymentMethod(req.PaymentMethod) {
+		common.ApiErrorMsg(c, "该套餐不支持此支付方式")
+		return
+	}
 
 	userId := c.GetInt("id")
 	if err := model.CheckSubscriptionPlanPurchaseAllowed(userId, plan, true); err != nil {

@@ -22,6 +22,10 @@ func SubscriptionRequestBalancePay(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	if !plan.AllowsPaymentMethod(model.SubscriptionPayMethodBalance) {
+		common.ApiErrorMsg(c, "该套餐不支持此支付方式")
+		return
+	}
 
 	userId := c.GetInt("id")
 	// 与网关支付一致：全局限购需要把未完成的挂起订单也计入，

@@ -52,20 +52,11 @@ import {
   describeEthereumError,
   executeEthereumOrderWithAutoWallet,
 } from '../../helpers/ethereumWallet';
+import { getSubscriptionEpayMethods } from '../../helpers/subscriptionPayment';
 
 const { Text } = Typography;
 
 // 过滤易支付方式
-function getEpayMethods(payMethods = []) {
-  return (payMethods || []).filter(
-    (m) =>
-      m?.type &&
-      m.type !== 'stripe' &&
-      m.type !== 'creem' &&
-      m.type !== 'ethereum',
-  );
-}
-
 // 提交易支付表单
 function submitEpayForm({ url, params }) {
   const form = document.createElement('form');
@@ -146,7 +137,10 @@ const SubscriptionPlansCard = ({
   const [walletConnectModalVisible, setWalletConnectModalVisible] =
     useState(false);
 
-  const epayMethods = useMemo(() => getEpayMethods(payMethods), [payMethods]);
+  const epayMethods = useMemo(
+    () => getSubscriptionEpayMethods(payMethods),
+    [payMethods],
+  );
 
   const openBuy = (p) => {
     setSelectedPlan(p);
@@ -998,7 +992,6 @@ const SubscriptionPlansCard = ({
         }
         selectedPayMethod={selectedPayMethod}
         setSelectedPayMethod={setSelectedPayMethod}
-        epayMethods={epayMethods}
         payMethods={payMethods}
         enableOnlineTopUp={enableOnlineTopUp}
         enableStripeTopUp={enableStripeTopUp}

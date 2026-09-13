@@ -35,6 +35,12 @@ import {
   formatSubscriptionDuration,
   formatSubscriptionResetPeriod,
 } from '../../../helpers/subscriptionFormat';
+import {
+  SUBSCRIPTION_BALANCE_PAY_METHOD,
+  buildSubscriptionPayOptions,
+  normalizeSubscriptionPayMethod,
+  parseAllowedPaymentMethods,
+} from '../../../helpers/subscriptionPayment';
 
 const { Text } = Typography;
 
@@ -47,7 +53,6 @@ const SubscriptionPurchaseModal = ({
   isRenewal = false,
   selectedPayMethod,
   setSelectedPayMethod,
-  epayMethods = [],
   payMethods = [],
   enableOnlineTopUp = false,
   enableStripeTopUp = false,
@@ -69,46 +74,34 @@ const SubscriptionPurchaseModal = ({
   const displayPrice = convertedPrice.toFixed(
     Number.isInteger(convertedPrice) ? 0 : 2,
   );
-  // 只有当管理员开启支付网关 AND 套餐配置了对应的支付ID时才显示
-  const hasStripe = enableStripeTopUp && !!plan?.stripe_price_id;
-  const hasCreem = enableCreemTopUp && !!plan?.creem_product_id;
-  const hasEpay = enableOnlineTopUp && epayMethods.length > 0;
-  // Ethereum: include tokens from ethereumInfo AND manual entries in payMethods (deduplicated)
-  const ethereumPayMethodEntries = payMethods.filter((m) => m.type === 'ethereum');
-  const autoTokens = ethereumInfo?.tokens || [];
-  const payMethodAddresses = ethereumPayMethodEntries.map((m) => (m.address || '').toLowerCase());
-  const dedupedAutoTokens = autoTokens.filter(
-    (t) => !payMethodAddresses.includes(t.address.toLowerCase()),
-  );
-  const ethereumTokens = [
-    ...ethereumPayMethodEntries.map((m) => ({
-      symbol: m.name || 'ETH',
-      address: m.address || '0x0000000000000000000000000000000000000000',
-    })),
-    ...dedupedAutoTokens.map((token) => ({
-      symbol: token.symbol,
-      address: token.address,
-    })),
-  ];
-  const hasEthereum =
-    (enableEthereumTopUp && ethereumTokens.length > 0) ||
-    ethereumPayMethodEntries.length > 0;
-  const allowBalancePay = !!plan && plan.allow_balance_pay !== false;
   // 统一支付方式下拉框：易支付通道 + Stripe/Creem + 加密货币 + 余额支付
-  const payOptions = [
-    ...(hasEpay
-      ? epayMethods.map((m) => ({ value: m.type, label: m.name || m.type }))
-      : []),
-    ...(hasStripe ? [{ value: 'stripe', label: 'Stripe' }] : []),
-    ...(hasCreem ? [{ value: 'creem', label: 'Creem' }] : []),
-    ...(hasEthereum
-      ? ethereumTokens.map((token) => ({
-          value: `ethereum:${token.address}`,
-          label: token.symbol,
-        }))
-      : []),
-    ...(allowBalancePay ? [{ value: 'balance', label: t('余额支付') }] : []),
-  ];
+  const allowedPayMethods = parseAllowedPaymentMethods(
+    plan?.allowed_payment_methods,
+  );
+  const payOptions = buildSubscriptionPayOptions({
+    payMethods,
+    enableOnlineTopUp,
+    enableStripeTopUp,
+    enableCreemTopUp,
+    enableEthereumTopUp,
+    ethereumInfo,
+    balanceLabel: t('余额支付'),
+  }).filter((option) => {
+    // 站点开了网关还不够，套餐得配了对应商品 ID 才买得成
+    if (option.value === 'stripe' && !plan?.stripe_price_id) return false;
+    if (option.value === 'creem' && !plan?.creem_product_id) return false;
+    if (
+      option.value === SUBSCRIPTION_BALANCE_PAY_METHOD &&
+      plan?.allow_balance_pay === false
+    ) {
+      return false;
+    }
+    // 套餐自己的支付方式白名单，为空表示不限制
+    return (
+      allowedPayMethods.length === 0 ||
+      allowedPayMethods.includes(normalizeSubscriptionPayMethod(option.value))
+    );
+  });
   const hasAnyPayment = payOptions.length > 0;
 
   useEffect(() => {

@@ -458,6 +458,7 @@ func AdminCreateSubscriptionPlan(c *gin.Context) {
 		return
 	}
 	req.Plan.QuotaTiers = normalizedTiers
+	req.Plan.AllowedPaymentMethods = model.NormalizeSubscriptionPayMethods(req.Plan.AllowedPaymentMethods)
 	err := model.DB.Create(&req.Plan).Error
 	if err != nil {
 		common.ApiError(c, err)
@@ -570,6 +571,7 @@ func AdminUpdateSubscriptionPlan(c *gin.Context) {
 		return
 	}
 	req.Plan.QuotaTiers = normalizedTiers
+	req.Plan.AllowedPaymentMethods = model.NormalizeSubscriptionPayMethods(req.Plan.AllowedPaymentMethods)
 
 	err := model.DB.Transaction(func(tx *gorm.DB) error {
 		// update plan (allow zero values updates with map)
@@ -596,6 +598,7 @@ func AdminUpdateSubscriptionPlan(c *gin.Context) {
 			"quota_reset_custom_seconds":        req.Plan.QuotaResetCustomSeconds,
 			"quota_tiers":                       req.Plan.QuotaTiers,
 			"disable_balance_deduction":         req.Plan.DisableBalanceDeduction,
+			"allowed_payment_methods":           req.Plan.AllowedPaymentMethods,
 			"updated_at":                        common.GetTimestamp(),
 		}
 		if req.Plan.AllowBalancePay != nil {

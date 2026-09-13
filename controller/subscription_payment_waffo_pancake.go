@@ -40,6 +40,10 @@ func SubscriptionRequestWaffoPancakePay(c *gin.Context) {
 		common.ApiErrorMsg(c, "该套餐未配置 WaffoPancakeProductId")
 		return
 	}
+	if !plan.AllowsPaymentMethod(model.PaymentMethodWaffoPancake) {
+		common.ApiErrorMsg(c, "该套餐不支持此支付方式")
+		return
+	}
 	// Plan targets its own Pancake product, so we only require credentials
 	// here — not the gateway-level WaffoPancakeProductID.
 	if strings.TrimSpace(setting.WaffoPancakeMerchantID) == "" ||

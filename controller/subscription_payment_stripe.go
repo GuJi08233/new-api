@@ -40,6 +40,10 @@ func SubscriptionRequestStripePay(c *gin.Context) {
 		common.ApiErrorMsg(c, "该套餐未配置 StripePriceId")
 		return
 	}
+	if !plan.AllowsPaymentMethod("stripe") {
+		common.ApiErrorMsg(c, "该套餐不支持此支付方式")
+		return
+	}
 	if !strings.HasPrefix(setting.StripeApiSecret, "sk_") && !strings.HasPrefix(setting.StripeApiSecret, "rk_") {
 		common.ApiErrorMsg(c, "Stripe 未配置或密钥无效")
 		return

@@ -337,6 +337,12 @@ func RequestEthereumSubscriptionPay(c *gin.Context) {
 		common.ApiErrorMsg(c, "套餐金额过低")
 		return
 	}
+	// Each token is its own entry in the purchase dialog, so the whitelist is
+	// keyed per token address rather than by "ethereum" as a whole.
+	if !plan.AllowsPaymentMethod(model.SubscriptionEthereumPayMethod(req.TokenAddress)) {
+		common.ApiErrorMsg(c, "该套餐不支持此支付方式")
+		return
+	}
 
 	userId := c.GetInt("id")
 
