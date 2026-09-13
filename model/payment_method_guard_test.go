@@ -131,6 +131,67 @@ func TestRechargeEthereumWithPaymentCheck_RejectsUnderpaidPayment(t *testing.T) 
 	assert.Equal(t, 0, getUserQuotaForPaymentGuardTest(t, 404))
 }
 
+// ExpectedPaymentAmount is frozen from a manually configured token price, so an
+// order that outlives its quote must not settle at that stale rate even when the
+// callback reports full payment.
+func TestRechargeEthereumWithPaymentCheck_RejectsExpiredOrder(t *testing.T) {
+	truncateTables(t)
+
+	insertUserForPaymentGuardTest(t, 606, 0)
+	topUp := &TopUp{
+		UserId:                606,
+		Amount:                2,
+		Money:                 9.99,
+		TradeNo:               "eth-expired-guard",
+		PaymentMethod:         "ethereum",
+		PaymentProvider:       PaymentProviderEthereum,
+		ExpectedPaymentToken:  "0x0000000000000000000000000000000000000000",
+		ExpectedPaymentAmount: "1000",
+		Status:                common.TopUpStatusPending,
+		CreateTime:            time.Now().Unix() - chainOrderTTLSeconds() - 1,
+	}
+	require.NoError(t, topUp.Insert())
+
+	err := RechargeEthereumWithPaymentCheck(
+		NewLogSource("127.0.0.1", ""),
+		"eth-expired-guard",
+		"0x0000000000000000000000000000000000000000",
+		"1000",
+	)
+	require.ErrorIs(t, err, ErrTopUpExpired)
+	assert.Equal(t, common.TopUpStatusExpired, getTopUpStatusForPaymentGuardTest(t, "eth-expired-guard"))
+	assert.Equal(t, 0, getUserQuotaForPaymentGuardTest(t, 606))
+}
+
+func TestRechargeEthereumWithPaymentCheck_CreditsPaidOrderWithinTTL(t *testing.T) {
+	truncateTables(t)
+
+	insertUserForPaymentGuardTest(t, 707, 0)
+	topUp := &TopUp{
+		UserId:                707,
+		Amount:                2,
+		Money:                 9.99,
+		TradeNo:               "eth-fresh-guard",
+		PaymentMethod:         "ethereum",
+		PaymentProvider:       PaymentProviderEthereum,
+		ExpectedPaymentToken:  "0x0000000000000000000000000000000000000000",
+		ExpectedPaymentAmount: "1000",
+		Status:                common.TopUpStatusPending,
+		CreateTime:            time.Now().Unix(),
+	}
+	require.NoError(t, topUp.Insert())
+
+	err := RechargeEthereumWithPaymentCheck(
+		NewLogSource("127.0.0.1", ""),
+		"eth-fresh-guard",
+		"0x0000000000000000000000000000000000000000",
+		"1000",
+	)
+	require.NoError(t, err)
+	assert.Equal(t, common.TopUpStatusSuccess, getTopUpStatusForPaymentGuardTest(t, "eth-fresh-guard"))
+	assert.Equal(t, 2*int(common.QuotaPerUnit), getUserQuotaForPaymentGuardTest(t, 707))
+}
+
 func TestCompleteSubscriptionOrderWithPaymentCheck_RejectsUnderpaidPayment(t *testing.T) {
 	truncateTables(t)
 

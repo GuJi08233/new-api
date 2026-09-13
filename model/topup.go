@@ -51,7 +51,30 @@ var (
 	ErrTopUpNotFound         = errors.New("topup not found")
 	ErrTopUpStatusInvalid    = errors.New("topup status invalid")
 	ErrPaymentAmountMismatch = errors.New("payment amount mismatch")
+	ErrTopUpExpired          = errors.New("topup order expired")
 )
+
+// chainOrderTTLSeconds bounds how long an on-chain top-up order stays payable.
+//
+// ExpectedPaymentAmount is frozen at order creation from the operator's manually
+// configured token price. Without an expiry, a payer can stockpile unpaid orders
+// at a favourable rate and settle them after the operator repricing, buying the
+// same quota for a fraction of its current value. The window must still cover a
+// realistic wallet round trip: signature, block inclusion, and webhook delivery.
+func chainOrderTTLSeconds() int64 {
+	seconds := int64(common.GetEnvOrDefault("ETHEREUM_ORDER_TTL_SECONDS", 1800))
+	if seconds <= 0 {
+		seconds = 1800
+	}
+	return seconds
+}
+
+func isChainTopUpExpired(topUp *TopUp, now int64) bool {
+	if topUp == nil || topUp.CreateTime <= 0 {
+		return false
+	}
+	return now-topUp.CreateTime > chainOrderTTLSeconds()
+}
 
 func validateExpectedChainPayment(expectedToken, expectedAmount, paidToken, paidAmount string) error {
 	expectedToken = strings.TrimSpace(expectedToken)
@@ -508,6 +531,7 @@ func RechargeEthereumWithPaymentCheck(source LogSource, tradeNo string, paidToke
 	}
 
 	var quotaToAdd int
+	orderExpired := false
 	topUp := &TopUp{}
 
 	refCol := "`trade_no`"
@@ -524,6 +548,17 @@ func RechargeEthereumWithPaymentCheck(source LogSource, tradeNo string, paidToke
 			return ErrPaymentMethodMismatch
 		}
 		if topUp.Status == common.TopUpStatusSuccess {
+			return nil
+		}
+		if topUp.Status == common.TopUpStatusPending && isChainTopUpExpired(topUp, common.GetTimestamp()) {
+			topUp.Status = common.TopUpStatusExpired
+			topUp.CompleteTime = common.GetTimestamp()
+			if err := tx.Save(topUp).Error; err != nil {
+				return err
+			}
+			// Commit the expiry, then surface it to the caller: returning the
+			// error here would roll the status write back.
+			orderExpired = true
 			return nil
 		}
 		if paidToken != "" || paidAmount != "" {
@@ -562,6 +597,10 @@ func RechargeEthereumWithPaymentCheck(source LogSource, tradeNo string, paidToke
 			return err
 		}
 		return errors.New("充值失败，请稍后重试")
+	}
+
+	if orderExpired {
+		return ErrTopUpExpired
 	}
 
 	if quotaToAdd > 0 {
