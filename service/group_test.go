@@ -1,12 +1,16 @@
 package service
 
 import (
+	"net/http/httptest"
 	"testing"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -97,6 +101,49 @@ func TestFilterUsableTokenGroupsKeepsOnlyLiveGroups(t *testing.T) {
 	// auto 是内建虚拟分组，无需出现在用户可选分组中即始终有效
 	effective, _ = FilterUsableTokenGroups(4001, "default", "auto")
 	assert.Equal(t, "auto", effective)
+}
+
+func TestResolveEffectiveGroupCollapsesMultiCandidateGroups(t *testing.T) {
+	truncate(t)
+	setupGroupSettings(t,
+		`{"default":1,"vip":0.8,"embedding":0.2}`,
+		`{"default":"默认分组","vip":"VIP"}`,
+		`["vip","default"]`)
+	seedUser(t, 4003, 1000)
+
+	newCtx := func(selected string) *gin.Context {
+		gin.SetMode(gin.TestMode)
+		ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+		ctx.Set("id", 4003)
+		common.SetContextKey(ctx, constant.ContextKeyUserGroup, "default")
+		if selected != "" {
+			common.SetContextKey(ctx, constant.ContextKeyAutoGroup, selected)
+		}
+		return ctx
+	}
+
+	tests := []struct {
+		name     string
+		selected string
+		group    string
+		expected string
+	}{
+		{"单分组原样返回", "", "vip", "vip"},
+		{"auto 选中后记录实际分组", "default", "auto", "default"},
+		{"多分组选中后只记录实际分组", "vip", "vip,default", "vip"},
+		// 管理员用 sk-xxx-<channelId> 指定渠道时不经过分组选路，
+		// 没有实际命中分组，回退到候选序列首个而不是写下 "auto"
+		{"auto 未选路回退候选首个", "", "auto", "vip"},
+		{"多分组未选路回退令牌内首个", "", "default,vip", "default"},
+		{"空分组保持为空", "", "", ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expected, ResolveEffectiveGroup(newCtx(tc.selected), tc.group))
+		})
+	}
+
+	assert.Equal(t, "auto", ResolveEffectiveGroup(nil, "auto"))
 }
 
 func TestGetUserAutoGroupIncludesLiveAttachedGroups(t *testing.T) {

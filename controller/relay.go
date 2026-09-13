@@ -717,7 +717,8 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 		tokenName := c.GetString("token_name")
 		modelName := c.GetString("original_model")
 		tokenId := c.GetInt("token_id")
-		userGroup := c.GetString("group")
+		// 错误日志与消费日志用同一口径：auto/多分组令牌记录本次实际命中的分组
+		userGroup := service.ResolveEffectiveGroup(c, common.GetContextKeyString(c, constant.ContextKeyUsingGroup))
 		channelId := c.GetInt("channel_id")
 		other := make(map[string]interface{})
 		if c.Request != nil && c.Request.URL != nil {

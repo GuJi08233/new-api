@@ -7,6 +7,7 @@ import (
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
@@ -45,9 +46,11 @@ func Playground(c *gin.Context) {
 	}
 	userCache.WriteContext(c)
 
+	// Distribute 已完成选路，令牌名按实际命中的分组命名，日志里不会出现
+	// playground-auto；Group 仍保留候选串，跨分组重试才能继续向后降级
 	tempToken := &model.Token{
 		UserId: userId,
-		Name:   fmt.Sprintf("playground-%s", relayInfo.UsingGroup),
+		Name:   fmt.Sprintf("playground-%s", service.ResolveEffectiveGroup(c, relayInfo.UsingGroup)),
 		Group:  relayInfo.UsingGroup,
 	}
 	_ = middleware.SetupContextForToken(c, tempToken)

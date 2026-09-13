@@ -122,6 +122,27 @@ func FilterUsableTokenGroups(userId int, userGroup string, tokenGroup string) (s
 	return strings.Join(validGroups, ","), rejectReason
 }
 
+// ResolveEffectiveGroup 把多候选分组（auto 或逗号分隔的多分组）收敛为本次请求真正
+// 生效的那一个分组，计费倍率、订阅匹配与日志记录都应以它为准。
+// 渠道选定时实际命中的分组写在 ContextKeyAutoGroup 上，优先取它；未经过分组选路时
+// （例如管理员用 sk-xxx-<channelId> 指定渠道）回退到候选序列首个，避免把 "auto"
+// 或整串候选分组当作真实分组去查倍率、写进使用日志。
+func ResolveEffectiveGroup(ctx *gin.Context, group string) string {
+	if ctx == nil {
+		return group
+	}
+	if selected := common.GetContextKeyString(ctx, constant.ContextKeyAutoGroup); selected != "" {
+		return selected
+	}
+	if !IsMultiCandidateGroup(group) {
+		return group
+	}
+	if candidates := ResolveCandidateGroups(ctx, group); len(candidates) > 0 {
+		return candidates[0]
+	}
+	return group
+}
+
 // GetUserAutoGroup 获取自动分组候选序列（按全局优先级顺序），包含订阅追加分组
 // 授予的分组；订阅过期后对应分组自动从序列中消失。
 func GetUserAutoGroup(userId int, userGroup string) []string {

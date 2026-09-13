@@ -371,3 +371,45 @@ func TestModelPriceHelperRequestBillingRatiosOnlyApplyToFixedPrice(t *testing.T)
 	require.Equal(t, common.QuotaClampOverflow, clamp.Kind)
 	require.Nil(t, info.Billing)
 }
+
+// 消费日志与错误日志的分组字段都来自 relayInfo.UsingGroup，HandleGroupRatio 是它
+// 在计费前的唯一收敛点：auto 与多分组令牌都必须落到本次实际命中的那一个分组，
+// 日志里不能再出现 "auto" 或整串候选分组。
+func TestHandleGroupRatioRecordsSelectedGroup(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	savedGroupRatio := ratio_setting.GroupRatio2JSONString()
+	t.Cleanup(func() {
+		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(savedGroupRatio))
+	})
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1,"vip":0.5}`))
+
+	tests := []struct {
+		name       string
+		tokenGroup string
+		selected   string
+		wantGroup  string
+		wantRatio  float64
+	}{
+		{"auto 令牌记录降级后的分组", "auto", "default", "default", 1},
+		{"auto 令牌记录高优先级分组", "auto", "vip", "vip", 0.5},
+		{"多分组令牌只记录命中的分组", "vip,default", "vip", "vip", 0.5},
+		{"多分组令牌降级后记录第二个分组", "vip,default", "default", "default", 1},
+		{"单分组令牌保持原分组", "vip", "", "vip", 0.5},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+			common.SetContextKey(ctx, constant.ContextKeyUserGroup, "default")
+			if tc.selected != "" {
+				// 渠道选定时 distributor / channel_select 写入实际命中的分组
+				common.SetContextKey(ctx, constant.ContextKeyAutoGroup, tc.selected)
+			}
+			info := &relaycommon.RelayInfo{UserGroup: "default", UsingGroup: tc.tokenGroup}
+
+			groupRatioInfo := HandleGroupRatio(ctx, info)
+
+			assert.Equal(t, tc.wantGroup, info.UsingGroup)
+			assert.Equal(t, tc.wantRatio, groupRatioInfo.GroupRatio)
+		})
+	}
+}
