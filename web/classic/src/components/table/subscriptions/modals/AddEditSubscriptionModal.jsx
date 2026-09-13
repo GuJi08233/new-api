@@ -256,7 +256,7 @@ const AddEditSubscriptionModal = ({
     setDisableBalanceDeduction(plan?.disable_balance_deduction || false);
 
     // 勾选项来自“额度充值”里已配置的支付方式，再加上余额支付
-    API.get('/api/user/self/topup/info')
+    API.get('/api/user/topup/info')
       .then((res) => {
         if (!res.data?.success) return;
         const info = res.data.data || {};
