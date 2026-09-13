@@ -45,7 +45,7 @@ const (
 )
 
 // Subscription group modes: upgrade replaces the user's group on activation
-// (legacy behavior, stored as ''), attach grants the bound group as an extra
+// (legacy behavior, stored as ”), attach grants the bound group as an extra
 // usable group for the holder without touching the user's own group.
 const (
 	SubscriptionGroupModeUpgrade = "upgrade"
@@ -140,18 +140,30 @@ func pendingSubscriptionOrderCutoff(now int64) int64 {
 	return now - subscriptionPendingHoldSeconds()
 }
 
-func subscriptionOrderExpiresAt(createTime int64) int64 {
-	if createTime <= 0 {
+// subscriptionOrderHoldSeconds is how long a pending order stays payable. Hosted
+// checkouts (Stripe, epay, ...) keep the short hold because the provider session
+// itself expires quickly; an on-chain order needs the chain quote window, which
+// has to cover wallet signing, block inclusion and webhook delivery.
+func subscriptionOrderHoldSeconds(paymentProvider string) int64 {
+	if paymentProvider == PaymentProviderEthereum {
+		return ChainOrderTTLSeconds()
+	}
+	return subscriptionPendingHoldSeconds()
+}
+
+func subscriptionOrderExpiresAt(order *SubscriptionOrder) int64 {
+	if order == nil || order.CreateTime <= 0 {
 		return 0
 	}
-	return createTime + subscriptionPendingHoldSeconds()
+	return order.CreateTime + subscriptionOrderHoldSeconds(order.PaymentProvider)
 }
 
 func isSubscriptionOrderExpiredByTime(order *SubscriptionOrder, now int64) bool {
 	if order == nil || order.Status != common.TopUpStatusPending {
 		return false
 	}
-	return order.CreateTime > 0 && order.CreateTime <= pendingSubscriptionOrderCutoff(now)
+	expiresAt := subscriptionOrderExpiresAt(order)
+	return expiresAt > 0 && now >= expiresAt
 }
 
 func getSubscriptionPlanCache() *cachex.HybridCache[SubscriptionPlan] {
@@ -433,7 +445,7 @@ func (o *SubscriptionOrder) ExpiresAt() int64 {
 	if o == nil {
 		return 0
 	}
-	return subscriptionOrderExpiresAt(o.CreateTime)
+	return subscriptionOrderExpiresAt(o)
 }
 
 func (o *SubscriptionOrder) RemainingSeconds(now int64) int64 {
@@ -1296,10 +1308,10 @@ func userActiveSubscriptionsAllowWalletOverflowForGroup(userId int, usingGroup s
 // expectedPaymentProvider guards against cross-gateway callback attacks (empty skips the check).
 // actualPaymentMethod updates the order's PaymentMethod to reflect the real payment type used (empty skips update).
 func CompleteSubscriptionOrder(source LogSource, tradeNo string, providerPayload string, expectedPaymentProvider string, actualPaymentMethod string) error {
-	return CompleteSubscriptionOrderWithPaymentCheck(source, tradeNo, providerPayload, expectedPaymentProvider, actualPaymentMethod, "", "")
+	return CompleteSubscriptionOrderWithPaymentCheck(source, tradeNo, providerPayload, expectedPaymentProvider, actualPaymentMethod, nil)
 }
 
-func CompleteSubscriptionOrderWithPaymentCheck(source LogSource, tradeNo string, providerPayload string, expectedPaymentProvider string, actualPaymentMethod string, paidToken string, paidAmount string) error {
+func CompleteSubscriptionOrderWithPaymentCheck(source LogSource, tradeNo string, providerPayload string, expectedPaymentProvider string, actualPaymentMethod string, payment *ChainPayment) error {
 	if tradeNo == "" {
 		return errors.New("tradeNo is empty")
 	}
@@ -1313,11 +1325,16 @@ func CompleteSubscriptionOrderWithPaymentCheck(source LogSource, tradeNo string,
 	var logPaymentMethod string
 	var cacheGroup string
 	logRenewed := false
+	logLatePayment := false
 	orderExpired := false
+	var expiredOrderUserId int
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		var order SubscriptionOrder
 		if err := lockForUpdate(tx).Where(refCol+" = ?", tradeNo).First(&order).Error; err != nil {
-			return ErrSubscriptionOrderNotFound
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrSubscriptionOrderNotFound
+			}
+			return err
 		}
 		if expectedPaymentProvider != "" && order.PaymentProvider != expectedPaymentProvider {
 			return ErrPaymentMethodMismatch
@@ -1326,29 +1343,33 @@ func CompleteSubscriptionOrderWithPaymentCheck(source LogSource, tradeNo string,
 		if order.Status == common.TopUpStatusSuccess {
 			return nil
 		}
-		if isSubscriptionOrderExpiredByTime(&order, now) {
-			order.Status = common.TopUpStatusExpired
-			order.CompleteTime = now
-			if err := tx.Save(&order).Error; err != nil {
-				return err
-			}
-			orderExpired = true
-			return nil
-		}
-		if paidToken != "" || paidAmount != "" {
-			if err := validateExpectedChainPayment(order.ExpectedPaymentToken, order.ExpectedPaymentAmount, paidToken, paidAmount); err != nil {
+		if payment.present() {
+			if err := validateExpectedChainPayment(order.ExpectedPaymentToken, order.ExpectedPaymentAmount, payment.Token, payment.Amount); err != nil {
 				return err
 			}
 		}
 		if order.Status != common.TopUpStatusPending {
 			return ErrSubscriptionOrderStatusInvalid
 		}
-		plan, err := GetSubscriptionPlanById(order.PlanId)
+		plan, err := getSubscriptionPlanByIdTx(tx, order.PlanId)
 		if err != nil {
 			return err
 		}
-		if !plan.Enabled {
-			// still allow completion for already purchased orders
+		if isSubscriptionOrderExpiredByTime(&order, now) {
+			// An on-chain payment that lands after the quote lapsed is still
+			// honoured when it covers the plan at today's price; see
+			// chainPaymentCoversCurrentPrice. Anything else is closed as expired.
+			if !chainPaymentCoversCurrentPrice(payment, decimal.NewFromFloat(plan.PriceAmount)) {
+				order.Status = common.TopUpStatusExpired
+				order.CompleteTime = now
+				if err := tx.Save(&order).Error; err != nil {
+					return err
+				}
+				orderExpired = true
+				expiredOrderUserId = order.UserId
+				return nil
+			}
+			logLatePayment = true
 		}
 		sub, renewed, err := CreateUserSubscriptionFromPlanTx(tx, order.UserId, plan, "order")
 		if err != nil {
@@ -1384,6 +1405,12 @@ func CompleteSubscriptionOrderWithPaymentCheck(source LogSource, tradeNo string,
 		return err
 	}
 	if orderExpired {
+		if payment.present() {
+			// The money is already at the recipient wallet and cannot be refunded
+			// from here, so leave an admin-visible trail for manual reconciliation.
+			RecordLog(source, expiredOrderUserId, LogTypeTopup, fmt.Sprintf("Ethereum 付款已到账但订阅订单已过期且不满足当前价格，需人工核对：单号 %s，token %s，实付 %s，交易 %s",
+				tradeNo, payment.Token, payment.Amount, payment.TxHash))
+		}
 		return ErrSubscriptionOrderExpired
 	}
 	if cacheGroup != "" && logUserId > 0 {
@@ -1394,7 +1421,11 @@ func CompleteSubscriptionOrderWithPaymentCheck(source LogSource, tradeNo string,
 		if logRenewed {
 			action = "续期"
 		}
-		msg := fmt.Sprintf("订阅%s成功，套餐: %s，支付金额: %.2f，支付方式: %s", action, logPlanTitle, logMoney, logPaymentMethod)
+		note := ""
+		if logLatePayment {
+			note = "（报价过期后按当前价格入账）"
+		}
+		msg := fmt.Sprintf("订阅%s成功%s，套餐: %s，支付金额: %.2f，支付方式: %s", action, note, logPlanTitle, logMoney, logPaymentMethod)
 		RecordLog(source, logUserId, LogTypeTopup, msg)
 	}
 	return nil

@@ -407,6 +407,18 @@ function makeFriendlyEthereumError(fallbackMessage, key, params = {}) {
   return error;
 }
 
+// 后端只在报价有效期内按原价结算，链上付款又无法退回，所以过期后绝不能再把
+// 交易广播出去。钱包连接、切链、授权都可能耗时，因此每次真正发交易前都再看一次。
+function assertEthereumOrderNotExpired(order) {
+  const expiresAt = Number(order?.expires_at || 0);
+  if (expiresAt > 0 && Date.now() / 1000 > expiresAt) {
+    throw makeFriendlyEthereumError(
+      '订单报价已过期',
+      '订单报价已过期，请重新发起支付',
+    );
+  }
+}
+
 // 支付前的余额预检失败：直接给出可读原因，避免让用户签下注定回滚的交易。
 function makeInsufficientBalanceError(balance, needed, order) {
   const symbol = String(order?.symbol || '').trim();
@@ -769,6 +781,7 @@ export async function executeEthereumOrderWithAutoWallet(
   );
   const orderChainId = Number(order?.chain_id || 0);
   try {
+    assertEthereumOrderNotExpired(order);
     let connection = await connectEthereumWallet(
       orderChainId,
       walletConnectConfig,
@@ -867,6 +880,7 @@ export async function executeEthereumOrderWithAutoWallet(
       if (nativeBalance < payAmount) {
         throw makeInsufficientBalanceError(nativeBalance, payAmount, order);
       }
+      assertEthereumOrderNotExpired(order);
       lifecycle?.onWalletConnectTransactionPending?.();
       tx = await contract.payWithETH(order.order_id, { value: payAmount });
     } else {
@@ -894,6 +908,7 @@ export async function executeEthereumOrderWithAutoWallet(
         await approveTx.wait();
       }
 
+      assertEthereumOrderNotExpired(order);
       lifecycle?.onWalletConnectTransactionPending?.();
       tx = await contract.payWithToken(
         order.order_id,
@@ -950,6 +965,7 @@ async function executeWalletConnectTransaction({
     if (nativeBalance < payAmount) {
       throw makeInsufficientBalanceError(nativeBalance, payAmount, order);
     }
+    assertEthereumOrderNotExpired(order);
     lifecycle?.onWalletConnectTransactionPending?.();
     txHash = await rawProvider.request({
       method: 'eth_sendTransaction',
@@ -1019,6 +1035,7 @@ async function executeWalletConnectTransaction({
       }
     }
 
+    assertEthereumOrderNotExpired(order);
     lifecycle?.onWalletConnectTransactionPending?.();
     txHash = await rawProvider.request({
       method: 'eth_sendTransaction',

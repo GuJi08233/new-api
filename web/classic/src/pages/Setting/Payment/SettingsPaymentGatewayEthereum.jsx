@@ -27,6 +27,8 @@ export default function SettingsPaymentGatewayEthereum({ options, refresh }) {
     EthereumContractAddress: '',
     EthereumAlchemyWebhookSigningKey: '',
     EthereumMinTopUp: 1,
+    EthereumRpcUrl: '',
+    EthereumConfirmations: 0,
     EthereumWalletConnectProjectID: '',
     EthereumWalletConnectAppName: '',
     EthereumWalletConnectAppDescription: '',
@@ -67,6 +69,8 @@ export default function SettingsPaymentGatewayEthereum({ options, refresh }) {
       EthereumAlchemyWebhookSigningKey:
         options.EthereumAlchemyWebhookSigningKey || '',
       EthereumMinTopUp: parseInt(options.EthereumMinTopUp) || 1,
+      EthereumRpcUrl: options.EthereumRpcUrl || '',
+      EthereumConfirmations: parseInt(options.EthereumConfirmations) || 0,
       EthereumWalletConnectProjectID:
         options.EthereumWalletConnectProjectID || '',
       EthereumWalletConnectAppName: options.EthereumWalletConnectAppName || '',
@@ -124,6 +128,14 @@ export default function SettingsPaymentGatewayEthereum({ options, refresh }) {
         {
           key: 'EthereumMinTopUp',
           value: String(formValues.EthereumMinTopUp || 1),
+        },
+        {
+          key: 'EthereumRpcUrl',
+          value: (formValues.EthereumRpcUrl || '').trim(),
+        },
+        {
+          key: 'EthereumConfirmations',
+          value: String(formValues.EthereumConfirmations || 0),
         },
         {
           key: 'EthereumWalletConnectProjectID',
@@ -332,6 +344,31 @@ export default function SettingsPaymentGatewayEthereum({ options, refresh }) {
                 label={t('合约地址')}
                 placeholder='0x...'
                 extraText={t('部署的 NewApiPayment 合约地址')}
+              />
+            </Col>
+          </Row>
+
+          <Row gutter={24}>
+            <Col xs={24} md={16}>
+              <Form.Input
+                field='EthereumRpcUrl'
+                label={t('链上回执校验 RPC 地址')}
+                placeholder='https://eth-sepolia.g.alchemy.com/v2/...'
+                extraText={t(
+                  '配置后每笔回调都会向该节点核对交易回执与链 ID 后才入账，强烈建议填写；留空则仅依赖 webhook 签名',
+                )}
+              />
+            </Col>
+            <Col xs={24} md={8}>
+              <Form.InputNumber
+                field='EthereumConfirmations'
+                label={t('入账所需区块确认数')}
+                min={0}
+                step={1}
+                placeholder='0'
+                extraText={t(
+                  '0 表示有回执即入账；未达到确认数时回调会返回 503 等待 Alchemy 重投',
+                )}
               />
             </Col>
           </Row>

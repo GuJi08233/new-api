@@ -8,6 +8,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/setting"
 
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
@@ -52,16 +53,32 @@ var (
 	ErrTopUpStatusInvalid    = errors.New("topup status invalid")
 	ErrPaymentAmountMismatch = errors.New("payment amount mismatch")
 	ErrTopUpExpired          = errors.New("topup order expired")
+	// ErrPaymentSettlementRetryable wraps failures that a later redelivery of the
+	// same payment callback may resolve, such as a database outage. Callers use
+	// it to fail the webhook so the provider retries instead of dropping a
+	// payment that already happened.
+	ErrPaymentSettlementRetryable = errors.New("payment settlement failed, retry later")
 )
 
-// chainOrderTTLSeconds bounds how long an on-chain top-up order stays payable.
+// ChainPayment is what an on-chain PaymentReceived event proved was paid.
+type ChainPayment struct {
+	Token  string
+	Amount string
+	TxHash string
+}
+
+func (p *ChainPayment) present() bool {
+	return p != nil && (strings.TrimSpace(p.Token) != "" || strings.TrimSpace(p.Amount) != "")
+}
+
+// ChainOrderTTLSeconds bounds how long an on-chain order's quote stays valid.
 //
 // ExpectedPaymentAmount is frozen at order creation from the operator's manually
 // configured token price. Without an expiry, a payer can stockpile unpaid orders
 // at a favourable rate and settle them after the operator repricing, buying the
 // same quota for a fraction of its current value. The window must still cover a
 // realistic wallet round trip: signature, block inclusion, and webhook delivery.
-func chainOrderTTLSeconds() int64 {
+func ChainOrderTTLSeconds() int64 {
 	seconds := int64(common.GetEnvOrDefault("ETHEREUM_ORDER_TTL_SECONDS", 1800))
 	if seconds <= 0 {
 		seconds = 1800
@@ -69,11 +86,39 @@ func chainOrderTTLSeconds() int64 {
 	return seconds
 }
 
+// ExpiresAt is when the order's quote lapses; zero for orders without a quote.
+func (topUp *TopUp) ExpiresAt() int64 {
+	if topUp == nil || topUp.CreateTime <= 0 || topUp.PaymentProvider != PaymentProviderEthereum {
+		return 0
+	}
+	return topUp.CreateTime + ChainOrderTTLSeconds()
+}
+
 func isChainTopUpExpired(topUp *TopUp, now int64) bool {
-	if topUp == nil || topUp.CreateTime <= 0 {
+	expiresAt := topUp.ExpiresAt()
+	return expiresAt > 0 && now > expiresAt
+}
+
+// chainPaymentCoversCurrentPrice reports whether a payment that landed after
+// its quote expired still buys the order's units at today's token price.
+//
+// On-chain money cannot be sent back by the gateway, so a late payment is not
+// simply discarded. Honouring it at the current price removes the repricing
+// arbitrage the expiry exists for while sparing an honest payer whose block
+// confirmation merely crossed the deadline.
+func chainPaymentCoversCurrentPrice(payment *ChainPayment, units decimal.Decimal) bool {
+	if !payment.present() {
 		return false
 	}
-	return now-topUp.CreateTime > chainOrderTTLSeconds()
+	token, ok := setting.GetEthereumToken(payment.Token)
+	if !ok {
+		return false
+	}
+	expected, err := token.PayAmount(units)
+	if err != nil {
+		return false
+	}
+	return validateExpectedChainPayment(token.Address, expected, payment.Token, payment.Amount) == nil
 }
 
 func validateExpectedChainPayment(expectedToken, expectedAmount, paidToken, paidAmount string) error {
@@ -522,16 +567,17 @@ func RechargeCreem(source LogSource, referenceId string, customerEmail string, c
 }
 
 func RechargeEthereum(source LogSource, tradeNo string) (err error) {
-	return RechargeEthereumWithPaymentCheck(source, tradeNo, "", "")
+	return RechargeEthereumWithPaymentCheck(source, tradeNo, nil)
 }
 
-func RechargeEthereumWithPaymentCheck(source LogSource, tradeNo string, paidToken string, paidAmount string) (err error) {
+func RechargeEthereumWithPaymentCheck(source LogSource, tradeNo string, payment *ChainPayment) (err error) {
 	if tradeNo == "" {
 		return errors.New("未提供支付单号")
 	}
 
 	var quotaToAdd int
 	orderExpired := false
+	latePayment := false
 	topUp := &TopUp{}
 
 	refCol := "`trade_no`"
@@ -542,7 +588,10 @@ func RechargeEthereumWithPaymentCheck(source LogSource, tradeNo string, paidToke
 	err = DB.Transaction(func(tx *gorm.DB) error {
 		err := lockForUpdate(tx).Where(refCol+" = ?", tradeNo).First(topUp).Error
 		if err != nil {
-			return errors.New("充值订单不存在")
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrTopUpNotFound
+			}
+			return err
 		}
 		if topUp.PaymentProvider != PaymentProviderEthereum {
 			return ErrPaymentMethodMismatch
@@ -550,35 +599,39 @@ func RechargeEthereumWithPaymentCheck(source LogSource, tradeNo string, paidToke
 		if topUp.Status == common.TopUpStatusSuccess {
 			return nil
 		}
-		if topUp.Status == common.TopUpStatusPending && isChainTopUpExpired(topUp, common.GetTimestamp()) {
-			topUp.Status = common.TopUpStatusExpired
-			topUp.CompleteTime = common.GetTimestamp()
-			if err := tx.Save(topUp).Error; err != nil {
-				return err
-			}
-			// Commit the expiry, then surface it to the caller: returning the
-			// error here would roll the status write back.
-			orderExpired = true
-			return nil
+		if topUp.Status != common.TopUpStatusPending {
+			return ErrTopUpStatusInvalid
 		}
-		if paidToken != "" || paidAmount != "" {
-			if err := validateExpectedChainPayment(topUp.ExpectedPaymentToken, topUp.ExpectedPaymentAmount, paidToken, paidAmount); err != nil {
+		if payment.present() {
+			if err := validateExpectedChainPayment(topUp.ExpectedPaymentToken, topUp.ExpectedPaymentAmount, payment.Token, payment.Amount); err != nil {
 				return err
 			}
 		}
 
-		if topUp.Status != common.TopUpStatusPending {
-			return errors.New("充值订单状态错误")
+		now := getDBTimestampTx(tx)
+		if isChainTopUpExpired(topUp, now) {
+			if !chainPaymentCoversCurrentPrice(payment, decimal.NewFromInt(topUp.Amount)) {
+				topUp.Status = common.TopUpStatusExpired
+				topUp.CompleteTime = now
+				if err := tx.Save(topUp).Error; err != nil {
+					return err
+				}
+				// Commit the expiry, then surface it to the caller: returning the
+				// error here would roll the status write back.
+				orderExpired = true
+				return nil
+			}
+			latePayment = true
 		}
 
 		dAmount := decimal.NewFromInt(topUp.Amount)
 		dQuotaPerUnit := decimal.NewFromFloat(common.QuotaPerUnit)
 		quotaToAdd = int(dAmount.Mul(dQuotaPerUnit).IntPart())
 		if quotaToAdd <= 0 {
-			return errors.New("无效的充值额度")
+			return ErrTopUpStatusInvalid
 		}
 
-		topUp.CompleteTime = common.GetTimestamp()
+		topUp.CompleteTime = now
 		topUp.Status = common.TopUpStatusSuccess
 		if err := tx.Save(topUp).Error; err != nil {
 			return err
@@ -593,18 +646,29 @@ func RechargeEthereumWithPaymentCheck(source LogSource, tradeNo string, paidToke
 
 	if err != nil {
 		common.SysError("ethereum topup failed: " + err.Error())
-		if errors.Is(err, ErrPaymentAmountMismatch) || errors.Is(err, ErrPaymentMethodMismatch) {
+		if errors.Is(err, ErrTopUpNotFound) || errors.Is(err, ErrTopUpStatusInvalid) ||
+			errors.Is(err, ErrPaymentAmountMismatch) || errors.Is(err, ErrPaymentMethodMismatch) {
 			return err
 		}
-		return errors.New("充值失败，请稍后重试")
+		return fmt.Errorf("%w: %v", ErrPaymentSettlementRetryable, err)
 	}
 
 	if orderExpired {
+		if payment.present() {
+			// The money is already at the recipient wallet and cannot be refunded
+			// from here, so leave an admin-visible trail for manual reconciliation.
+			RecordTopupLog(source, topUp.UserId, fmt.Sprintf("Ethereum 付款已到账但订单已过期且不满足当前价格，需人工核对：单号 %s，token %s，实付 %s，交易 %s",
+				tradeNo, payment.Token, payment.Amount, payment.TxHash), "ethereum", "ethereum")
+		}
 		return ErrTopUpExpired
 	}
 
 	if quotaToAdd > 0 {
-		RecordTopupLog(source, topUp.UserId, fmt.Sprintf("Ethereum充值成功，充值额度: %v，支付金额: %.6f", logger.FormatQuota(quotaToAdd), topUp.Money), "ethereum", "ethereum")
+		note := ""
+		if latePayment {
+			note = "（报价过期后按当前价格入账）"
+		}
+		RecordTopupLog(source, topUp.UserId, fmt.Sprintf("Ethereum充值成功%s，充值额度: %v，支付金额: %.6f", note, logger.FormatQuota(quotaToAdd), topUp.Money), "ethereum", "ethereum")
 	}
 
 	return nil

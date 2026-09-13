@@ -1,29 +1,74 @@
 package controller
 
 import (
-	"strings"
+	"errors"
+	"fmt"
 	"testing"
 
+	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
-	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestParsePaymentReceivedData(t *testing.T) {
-	tokenWord := strings.Repeat("0", 24) + "1111111111111111111111111111111111111111"
-	amountWord := strings.Repeat("0", 63) + "a"
-
-	token, amount, err := parsePaymentReceivedData("0x" + tokenWord + amountWord)
-	require.NoError(t, err)
-	require.Equal(t, "0x1111111111111111111111111111111111111111", token)
-	require.Equal(t, "10", amount)
+// The contract carries orderIds as raw bytes32, so a trade number must fit in
+// 32 bytes for every user id and survive the encode/decode round trip.
+func TestNewEthereumTradeNoFitsBytes32ForLargestUserId(t *testing.T) {
+	// Same prefix/random-length pairs as RequestEthereumPay and RequestEthereumSubscriptionPay.
+	for prefix, randomLen := range map[string]int{"ETH-": 6, "ETHSUB-": 4} {
+		t.Run(prefix, func(t *testing.T) {
+			tradeNo, err := newEthereumTradeNo(prefix, 2147483647, randomLen)
+			require.NoError(t, err)
+			assert.LessOrEqual(t, len(tradeNo), ethereumOrderIdBytes)
+			assert.Equal(t, tradeNo, orderIdToTradeNo(tradeNoToOrderId(tradeNo)))
+		})
+	}
 }
 
-func TestCalcPayAmountDecimalKeepsFractionalSubscriptionPrice(t *testing.T) {
-	amount, err := calcPayAmountDecimal(decimal.NewFromFloat(9.99), "1", 6)
+// Only outcomes a redelivery might change may fail the webhook; everything the
+// chain or the ledger has already decided must be acknowledged so Alchemy stops
+// retrying it.
+func TestIsRetryablePaymentSettlementError(t *testing.T) {
+	testCases := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "settled", err: nil, want: false},
+		{name: "amount mismatch", err: model.ErrPaymentAmountMismatch, want: false},
+		{name: "order expired", err: model.ErrTopUpExpired, want: false},
+		{name: "subscription order missing", err: model.ErrSubscriptionOrderNotFound, want: false},
+		{name: "receipt contradicts event", err: fmt.Errorf("%w: reverted", service.ErrEthereumPaymentInvalid), want: false},
+		{name: "receipt not indexed yet", err: fmt.Errorf("%w: no receipt", service.ErrEthereumPaymentUnconfirmed), want: true},
+		{name: "database outage", err: fmt.Errorf("%w: %v", model.ErrPaymentSettlementRetryable, errors.New("db down")), want: true},
+		{name: "unknown failure", err: errors.New("boom"), want: true},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, isRetryablePaymentSettlementError(tc.err))
+		})
+	}
+}
+
+// The relay exists for this site's checkout only: once a project is configured,
+// a handshake for any other WalletConnect project must be refused.
+func TestBuildWalletConnectUpstreamURLPinsConfiguredProject(t *testing.T) {
+	original := setting.EthereumWalletConnectProjectID
+	t.Cleanup(func() { setting.EthereumWalletConnectProjectID = original })
+
+	setting.EthereumWalletConnectProjectID = ""
+	upstream, err := buildWalletConnectUpstreamURL("projectId=anything&auth=tok")
 	require.NoError(t, err)
-	require.Equal(t, "9990000", amount)
+	assert.Equal(t, walletConnectOfficialRelayURL+"?projectId=anything&auth=tok", upstream)
+
+	setting.EthereumWalletConnectProjectID = "site-project"
+	_, err = buildWalletConnectUpstreamURL("projectId=anything&auth=tok")
+	require.ErrorIs(t, err, errWalletConnectProjectMismatch)
+
+	upstream, err = buildWalletConnectUpstreamURL("projectId=site-project&auth=tok")
+	require.NoError(t, err)
+	assert.Equal(t, walletConnectOfficialRelayURL+"?projectId=site-project&auth=tok", upstream)
 }
 
 // A contract address does not identify a chain, so a payment event is only

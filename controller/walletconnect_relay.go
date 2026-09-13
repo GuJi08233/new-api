@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -22,13 +23,24 @@ const (
 	// stays open, so the proxy needs its own ceiling and liveness checks: without
 	// them a handful of idle connections can hold those resources indefinitely.
 	walletConnectRelayMaxConnections = 256
-	walletConnectRelayMaxMessageSize = 1 << 20 // 1 MiB, well above any relay frame
-	walletConnectRelayIdleTimeout    = 90 * time.Second
-	walletConnectRelayPingInterval   = 30 * time.Second
-	walletConnectRelayWriteTimeout   = 15 * time.Second
+	// One wallet session needs a single relay socket; a few more cover
+	// reconnects. Without a per-user ceiling one account could take the whole
+	// global budget and lock every other payer out.
+	walletConnectRelayMaxConnectionsPerUser = 4
+	walletConnectRelayMaxMessageSize        = 1 << 20 // 1 MiB, well above any relay frame
+	walletConnectRelayIdleTimeout           = 90 * time.Second
+	walletConnectRelayPingInterval          = 30 * time.Second
+	walletConnectRelayWriteTimeout          = 15 * time.Second
 )
 
-var walletConnectRelayConnections atomic.Int64
+var (
+	walletConnectRelayConnections     atomic.Int64
+	walletConnectRelayUserConnections = struct {
+		sync.Mutex
+		counts map[int]int
+	}{counts: map[int]int{}}
+	errWalletConnectProjectMismatch = errors.New("walletconnect projectId does not match the configured project")
+)
 
 // WalletConnectRelayProxy proxies WalletConnect v2 Relay WebSocket traffic.
 // It is intentionally pinned to the official relay to avoid open-proxy abuse
@@ -53,6 +65,13 @@ func WalletConnectRelayProxy(c *gin.Context) {
 	}
 
 	upstreamURL, err := buildWalletConnectUpstreamURL(c.Request.URL.RawQuery)
+	if errors.Is(err, errWalletConnectProjectMismatch) {
+		c.JSON(http.StatusForbidden, gin.H{
+			"success": false,
+			"message": "WalletConnect projectId is not allowed on this relay",
+		})
+		return
+	}
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
@@ -61,9 +80,19 @@ func WalletConnectRelayProxy(c *gin.Context) {
 		return
 	}
 
-	if walletConnectRelayConnections.Add(1) > walletConnectRelayMaxConnections {
-		walletConnectRelayConnections.Add(-1)
-		common.SysLog("WalletConnect Relay 代理连接数已达上限，拒绝新连接")
+	userId := c.GetInt("id")
+	walletConnectRelayUserConnections.Lock()
+	userBusy := walletConnectRelayUserConnections.counts[userId] >= walletConnectRelayMaxConnectionsPerUser
+	if !userBusy {
+		walletConnectRelayUserConnections.counts[userId]++
+	}
+	walletConnectRelayUserConnections.Unlock()
+	if userBusy || walletConnectRelayConnections.Add(1) > walletConnectRelayMaxConnections {
+		if !userBusy {
+			walletConnectRelayConnections.Add(-1)
+			releaseWalletConnectRelayUserSlot(userId)
+		}
+		common.SysLog(fmt.Sprintf("WalletConnect Relay 代理连接数已达上限，拒绝新连接: userId=%d perUserLimit=%t", userId, userBusy))
 		c.JSON(http.StatusServiceUnavailable, gin.H{
 			"success": false,
 			"message": "WalletConnect relay proxy is busy",
@@ -71,6 +100,7 @@ func WalletConnectRelayProxy(c *gin.Context) {
 		return
 	}
 	defer walletConnectRelayConnections.Add(-1)
+	defer releaseWalletConnectRelayUserSlot(userId)
 
 	requestedSubprotocols := websocket.Subprotocols(c.Request)
 	dialer := websocket.Dialer{
@@ -97,11 +127,11 @@ func WalletConnectRelayProxy(c *gin.Context) {
 	if upstream.Subprotocol() != "" {
 		acceptedSubprotocols = []string{upstream.Subprotocol()}
 	}
+	// No CheckOrigin override: gorilla's default only accepts handshakes whose
+	// Origin matches the request host. The relay is authenticated by the session
+	// cookie, so a cross-site page must not be able to ride on it.
 	upgrader := websocket.Upgrader{
 		Subprotocols: acceptedSubprotocols,
-		CheckOrigin: func(r *http.Request) bool {
-			return true
-		},
 	}
 	client, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
@@ -114,10 +144,31 @@ func WalletConnectRelayProxy(c *gin.Context) {
 	bridgeWalletConnectRelay(client, upstream)
 }
 
+func releaseWalletConnectRelayUserSlot(userId int) {
+	walletConnectRelayUserConnections.Lock()
+	defer walletConnectRelayUserConnections.Unlock()
+	if walletConnectRelayUserConnections.counts[userId] <= 1 {
+		delete(walletConnectRelayUserConnections.counts, userId)
+		return
+	}
+	walletConnectRelayUserConnections.counts[userId]--
+}
+
+// buildWalletConnectUpstreamURL pins the upstream to the official relay and,
+// when a project is configured, to that project: the proxy exists for this
+// site's checkout, not as a general egress for anyone's WalletConnect app.
 func buildWalletConnectUpstreamURL(rawQuery string) (string, error) {
 	target, err := url.Parse(walletConnectOfficialRelayURL)
 	if err != nil {
 		return "", err
+	}
+	query, err := url.ParseQuery(rawQuery)
+	if err != nil {
+		return "", err
+	}
+	configuredProjectID := strings.TrimSpace(setting.EthereumWalletConnectProjectID)
+	if configuredProjectID != "" && query.Get("projectId") != configuredProjectID {
+		return "", errWalletConnectProjectMismatch
 	}
 	target.RawQuery = rawQuery
 	return target.String(), nil

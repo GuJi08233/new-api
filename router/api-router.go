@@ -61,12 +61,15 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.GET("/oauth/:provider", middleware.CriticalRateLimit(), controller.HandleOAuth)
 		apiRouter.GET("/ratio_config", middleware.CriticalRateLimit(), controller.GetRatioConfig)
 
-		apiRouter.POST("/stripe/webhook", controller.StripeWebhook)
-		apiRouter.POST("/creem/webhook", controller.CreemWebhook)
-		apiRouter.POST("/waffo/webhook", controller.WaffoWebhook)
+		// Payment callbacks are unauthenticated by design and read the whole body
+		// to verify its signature, so they get the same size cap as every other
+		// anonymous POST.
+		apiRouter.POST("/stripe/webhook", anonymousRequestBodyLimit, controller.StripeWebhook)
+		apiRouter.POST("/creem/webhook", anonymousRequestBodyLimit, controller.CreemWebhook)
+		apiRouter.POST("/waffo/webhook", anonymousRequestBodyLimit, controller.WaffoWebhook)
 		//apiRouter.POST("/waffo-pancake/webhook", controller.WaffoPancakeWebhook)
-		apiRouter.POST("/ethereum/webhook", controller.EthereumWebhook)
-		apiRouter.POST("/epay/notify", controller.EpayUnifiedNotify)
+		apiRouter.POST("/ethereum/webhook", anonymousRequestBodyLimit, controller.EthereumWebhook)
+		apiRouter.POST("/epay/notify", anonymousRequestBodyLimit, controller.EpayUnifiedNotify)
 		apiRouter.GET("/epay/notify", controller.EpayUnifiedNotify)
 
 		// Universal secure verification routes

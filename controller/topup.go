@@ -123,7 +123,7 @@ func GetTopUpInfo(c *gin.Context) {
 	data["enable_ethereum_topup"] = enableEthereumTopUp
 	if enableEthereumTopUp {
 		data["ethereum_info"] = ethereumInfo
-		data["ethereum_min_topup"] = setting.EthereumMinTopUp
+		data["ethereum_min_topup"] = ethereumInfo["min_topup"]
 	}
 
 	common.ApiSuccess(c, data)

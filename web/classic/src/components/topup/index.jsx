@@ -518,6 +518,7 @@ const TopUp = () => {
         pay_amount,
         symbol,
         decimals,
+        expires_at,
       } = res.data.data;
 
       setPaymentLoading(false);
@@ -533,6 +534,7 @@ const TopUp = () => {
           pay_amount,
           symbol,
           decimals,
+          expires_at,
         },
         getWalletConnectConfig(),
         {

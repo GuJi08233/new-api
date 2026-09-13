@@ -224,8 +224,38 @@ func RequirePermission(permission authz.Permission) func(c *gin.Context) {
 	}
 }
 
-func WssAuth(c *gin.Context) {
-
+// WebSocketUserAuth authenticates a browser WebSocket handshake from the login
+// session alone. The native WebSocket API cannot attach request headers, so the
+// New-Api-User header that UserAuth insists on can never be present here; the
+// session cookie the browser sends on a same-origin upgrade is the credential.
+func WebSocketUserAuth() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		session := sessions.Default(c)
+		id, idOk := session.Get("id").(int)
+		username, usernameOk := session.Get("username").(string)
+		role, roleOk := session.Get("role").(int)
+		status, statusOk := session.Get("status").(int)
+		if !idOk || !usernameOk || !roleOk || !statusOk || id <= 0 || !validUserInfo(username, role) {
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"success": false,
+				"message": common.TranslateMessage(c, i18n.MsgAuthNotLoggedIn),
+			})
+			c.Abort()
+			return
+		}
+		if status == common.UserStatusDisabled {
+			c.JSON(http.StatusForbidden, gin.H{
+				"success": false,
+				"message": userBannedMessage(c, id),
+			})
+			c.Abort()
+			return
+		}
+		c.Set("username", username)
+		c.Set("role", role)
+		c.Set("id", id)
+		c.Next()
+	}
 }
 
 // TokenOrUserAuth allows either session-based user auth or API token auth.

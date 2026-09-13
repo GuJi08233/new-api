@@ -129,6 +129,8 @@ func InitOptionMap() {
 	common.OptionMap["EthereumContractAddress"] = setting.EthereumContractAddress
 	common.OptionMap["EthereumAlchemyWebhookSigningKey"] = setting.EthereumAlchemyWebhookSigningKey
 	common.OptionMap["EthereumMinTopUp"] = strconv.Itoa(setting.EthereumMinTopUp)
+	common.OptionMap["EthereumRpcUrl"] = setting.EthereumRpcUrl
+	common.OptionMap["EthereumConfirmations"] = strconv.Itoa(setting.EthereumConfirmations)
 	common.OptionMap["EthereumWalletConnectProjectID"] = setting.EthereumWalletConnectProjectID
 	common.OptionMap["EthereumWalletConnectAppName"] = setting.EthereumWalletConnectAppName
 	common.OptionMap["EthereumWalletConnectAppDescription"] = setting.EthereumWalletConnectAppDescription
@@ -576,6 +578,13 @@ func updateOptionMap(key string, value string) (err error) {
 		setting.EthereumAlchemyWebhookSigningKey = value
 	case "EthereumMinTopUp":
 		setting.EthereumMinTopUp, _ = strconv.Atoi(value)
+	case "EthereumRpcUrl":
+		setting.EthereumRpcUrl = strings.TrimSpace(value)
+	case "EthereumConfirmations":
+		setting.EthereumConfirmations, _ = strconv.Atoi(value)
+		if setting.EthereumConfirmations < 0 {
+			setting.EthereumConfirmations = 0
+		}
 	case "EthereumWalletConnectProjectID":
 		setting.EthereumWalletConnectProjectID = value
 	case "EthereumWalletConnectAppName":

@@ -1,7 +1,11 @@
 package setting
 
 import (
+	"fmt"
+	"strings"
+
 	"github.com/QuantumNous/new-api/common"
+	"github.com/shopspring/decimal"
 )
 
 // EthereumToken represents a single accepted token configuration.
@@ -21,6 +25,8 @@ var (
 	EthereumContractAddress                string            // deployed contract checksummed address
 	EthereumAlchemyWebhookSigningKey       string            // signing key from Alchemy dashboard
 	EthereumMinTopUp                       int    = 1
+	EthereumRpcUrl                         string // JSON-RPC endpoint used to re-verify payment receipts; empty skips on-chain verification
+	EthereumConfirmations                  int    // block confirmations a payment needs before it settles (0 = as soon as the receipt exists)
 	EthereumWalletConnectProjectID         string
 	EthereumWalletConnectAppName           string
 	EthereumWalletConnectAppDescription    string
@@ -55,6 +61,35 @@ func GetEthereumTokens() []EthereumToken {
 		return copyDefaultEthereumTokens()
 	}
 	return tokens
+}
+
+// GetEthereumToken looks up the configured token for an address, case-insensitively.
+func GetEthereumToken(address string) (EthereumToken, bool) {
+	for _, token := range GetEthereumTokens() {
+		if strings.EqualFold(token.Address, address) {
+			return token, true
+		}
+	}
+	return EthereumToken{}, false
+}
+
+// PayAmount prices a number of top-up units in the token's smallest unit (wei
+// for ETH) and returns it as a decimal string. Order creation and late-payment
+// settlement both go through here so a payment is always judged against the
+// same rule that quoted it.
+func (t EthereumToken) PayAmount(units decimal.Decimal) (string, error) {
+	price, err := decimal.NewFromString(t.Price)
+	if err != nil || price.Sign() <= 0 {
+		return "", fmt.Errorf("invalid pricePerUnit: %s", t.Price)
+	}
+	if units.Sign() <= 0 || t.Decimals < 0 {
+		return "0", nil
+	}
+	resultInt := units.Mul(price).Mul(decimal.New(1, int32(t.Decimals))).Truncate(0)
+	if resultInt.Sign() <= 0 {
+		return "0", nil
+	}
+	return resultInt.StringFixed(0), nil
 }
 
 func copyDefaultEthereumTokens() []EthereumToken {

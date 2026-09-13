@@ -1,12 +1,13 @@
 package controller
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
-	"math/big"
 	"net/http"
 	"strconv"
 	"strings"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
@@ -21,10 +23,10 @@ import (
 	"github.com/thanhpk/randstr"
 )
 
-// ── Keccak256 topic hash for PaymentReceived event ─────────────────────────
-// PaymentReceived(bytes32 indexed orderId, address indexed payer, address token, uint256 amount)
-// Pre-computed with: cast keccak "PaymentReceived(bytes32,address,address,uint256)"
-const paymentReceivedTopicHex = "0x1c517e85acdede9b6dbdaab4925d20d3551f2961e9a860e72658e1769f150322"
+// ethereumOrderIdBytes is the width of the contract's bytes32 orderId. A trade
+// number longer than this is silently truncated on-chain and can no longer be
+// mapped back to its order.
+const ethereumOrderIdBytes = 32
 
 // ── Request / response types ───────────────────────────────────────────────
 
@@ -49,6 +51,9 @@ type EthereumPayResponse struct {
 	PayAmount       string `json:"pay_amount"`    // in smallest unit (wei / token decimals) as decimal string
 	Symbol          string `json:"symbol"`
 	Decimals        int    `json:"decimals"`
+	// ExpiresAt is the unix time after which the quote is no longer honoured.
+	// Wallets must not broadcast a payment past it: the chain cannot refund one.
+	ExpiresAt int64 `json:"expires_at"`
 }
 
 // ── Alchemy webhook types ──────────────────────────────────────────────────
@@ -113,13 +118,17 @@ var alchemyNetworkChainIds = map[string]int64{
 
 // isConfiguredChainNetwork reports whether a webhook's network matches the
 // configured chain. An unrecognised network fails closed; an absent one is
-// allowed through with a warning, because older webhook versions omit the field
-// and rejecting it would silently break every payment.
+// allowed through, because Alchemy's Custom Webhook payload does not always
+// carry the field. This is only a cheap first filter: the receipt check in
+// service.VerifyEthereumPaymentReceipt is what actually binds a payment to the
+// configured chain, so operators are expected to set EthereumRpcUrl.
 func isConfiguredChainNetwork(network string) bool {
 	network = strings.ToUpper(strings.TrimSpace(network))
 	if network == "" {
-		common.SysLog(fmt.Sprintf("Ethereum Webhook: payload 未携带 network 字段，跳过链校验（期望 chainId=%d）",
-			setting.EthereumChainId))
+		if setting.EthereumRpcUrl == "" {
+			common.SysLog(fmt.Sprintf("Ethereum Webhook: payload 未携带 network 字段且未配置 EthereumRpcUrl，无法校验链（期望 chainId=%d）",
+				setting.EthereumChainId))
+		}
 		return true
 	}
 	chainId, known := alchemyNetworkChainIds[network]
@@ -194,7 +203,7 @@ func RequestEthereumPay(c *gin.Context) {
 	}
 
 	// Calculate pay amount in smallest unit
-	payAmountStr, err := calcPayAmountDecimal(decimal.NewFromInt(amount), tokenCfg.Price, tokenCfg.Decimals)
+	payAmountStr, err := tokenCfg.PayAmount(decimal.NewFromInt(amount))
 	if err != nil || payAmountStr == "0" {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "金额计算失败"})
 		return
@@ -207,9 +216,12 @@ func RequestEthereumPay(c *gin.Context) {
 		return
 	}
 
-	// Generate trade number and derive the on-chain orderId (bytes32).
-	// TradeNo format: ETH-{userId}-{unixMilli}-{6randChars} (always < 32 bytes)
-	tradeNo := fmt.Sprintf("ETH-%d-%d-%s", userId, time.Now().UnixMilli(), randstr.String(6))
+	tradeNo, err := newEthereumTradeNo("ETH-", userId, 6)
+	if err != nil {
+		common.SysError(fmt.Sprintf("Ethereum: 生成订单号失败: %v", err))
+		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "创建订单失败"})
+		return
+	}
 	orderId := tradeNoToOrderId(tradeNo)
 
 	// Parse pay amount as float for Money field
@@ -248,8 +260,21 @@ func RequestEthereumPay(c *gin.Context) {
 			PayAmount:       payAmountStr,
 			Symbol:          tokenCfg.Symbol,
 			Decimals:        tokenCfg.Decimals,
+			ExpiresAt:       topUp.ExpiresAt(),
 		},
 	})
+}
+
+// newEthereumTradeNo builds a trade number that survives the bytes32 round trip.
+// The millisecond timestamp is base36 so the number stays under 32 bytes for
+// every user id an int can hold; the fixed-width decimal form overflowed once
+// ids reached eight digits and those users' payments could never be matched.
+func newEthereumTradeNo(prefix string, userId int, randomLen int) (string, error) {
+	tradeNo := fmt.Sprintf("%s%d-%s-%s", prefix, userId, strconv.FormatInt(time.Now().UnixMilli(), 36), randstr.String(randomLen))
+	if len(tradeNo) > ethereumOrderIdBytes {
+		return "", fmt.Errorf("trade number %q exceeds %d bytes", tradeNo, ethereumOrderIdBytes)
+	}
+	return tradeNo, nil
 }
 
 // ── EthereumWebhook ────────────────────────────────────────────────────────
@@ -296,6 +321,7 @@ func EthereumWebhook(c *gin.Context) {
 
 	contractAddrLower := strings.ToLower(setting.EthereumContractAddress)
 	matched := 0
+	retry := false
 	for _, logEntry := range logs {
 		if strings.ToLower(logEntry.Account.Address) != contractAddrLower {
 			common.SysLog(fmt.Sprintf("Ethereum Webhook: 跳过不匹配合约 - log_addr=%s, expect=%s",
@@ -307,24 +333,54 @@ func EthereumWebhook(c *gin.Context) {
 			continue
 		}
 		// topics[0] = event signature hash
-		if !strings.EqualFold(logEntry.Topics[0], paymentReceivedTopicHex) {
+		if !strings.EqualFold(logEntry.Topics[0], service.EthereumPaymentReceivedTopic) {
 			common.SysLog(fmt.Sprintf("Ethereum Webhook: 跳过不匹配事件 - topic0=%s, expect=%s",
-				logEntry.Topics[0], paymentReceivedTopicHex))
+				logEntry.Topics[0], service.EthereumPaymentReceivedTopic))
 			continue
 		}
 		matched++
-		handlePaymentReceivedLog(logEntry, model.ClientLogSource(c))
+		if err := handlePaymentReceivedLog(logEntry, model.ClientLogSource(c)); isRetryablePaymentSettlementError(err) {
+			retry = true
+		}
 	}
 
-	common.SysLog(fmt.Sprintf("Ethereum Webhook: 处理完成 - matched=%d/%d", matched, len(logs)))
+	common.SysLog(fmt.Sprintf("Ethereum Webhook: 处理完成 - matched=%d/%d, retry=%t", matched, len(logs), retry))
+	if retry {
+		// A non-2xx makes Alchemy redeliver. The money already moved on-chain, so
+		// a transient failure here must never be acknowledged as handled.
+		c.JSON(http.StatusServiceUnavailable, gin.H{"message": "retry"})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"message": "ok"})
+}
+
+// isRetryablePaymentSettlementError separates outcomes a webhook redelivery
+// cannot change (wrong amount, wrong provider, order already closed, receipt
+// contradicting the event) from transient ones such as a database outage or a
+// receipt the node has not indexed yet. Only the latter should fail the webhook.
+func isRetryablePaymentSettlementError(err error) bool {
+	if err == nil {
+		return false
+	}
+	permanent := []error{
+		model.ErrTopUpNotFound, model.ErrTopUpStatusInvalid, model.ErrTopUpExpired,
+		model.ErrSubscriptionOrderNotFound, model.ErrSubscriptionOrderStatusInvalid, model.ErrSubscriptionOrderExpired,
+		model.ErrPaymentAmountMismatch, model.ErrPaymentMethodMismatch,
+		service.ErrEthereumPaymentInvalid,
+	}
+	for _, target := range permanent {
+		if errors.Is(err, target) {
+			return false
+		}
+	}
+	return true
 }
 
 // handlePaymentReceivedLog processes a single matched log entry.
 // It dispatches to the correct completion logic based on the tradeNo prefix:
 //   - "ETHSUB-" → subscription order → CompleteSubscriptionOrder
 //   - "ETH-"    → top-up order       → RechargeEthereum
-func handlePaymentReceivedLog(entry alchemyLog, source model.LogSource) {
+func handlePaymentReceivedLog(entry alchemyLog, source model.LogSource) error {
 	// PaymentReceived(bytes32 indexed orderId, address indexed payer, address token, uint256 amount)
 	//
 	// Indexed params appear in topics:
@@ -336,43 +392,59 @@ func handlePaymentReceivedLog(entry alchemyLog, source model.LogSource) {
 	//   data[32:64] = amount (uint256)
 
 	if len(entry.Topics) < 2 {
-		return
+		return nil
 	}
 
 	orderIdHex := entry.Topics[1] // 0x + 64 hex chars
 	tradeNo := orderIdToTradeNo(orderIdHex)
 	if tradeNo == "" {
 		common.SysLog(fmt.Sprintf("Ethereum Webhook: 无法从 orderId 还原 tradeNo: %s", orderIdHex))
-		return
+		return nil
 	}
 
 	common.SysLog(fmt.Sprintf("Ethereum Webhook: 收到支付事件 - tradeNo=%s, txHash=%s", tradeNo, entry.Transaction.Hash))
-	paidToken, paidAmount, err := parsePaymentReceivedData(entry.Data)
+	paidToken, paidAmount, err := service.ParsePaymentReceivedData(entry.Data)
 	if err != nil {
 		common.SysLog(fmt.Sprintf("Ethereum Webhook: 支付事件解析失败 - tradeNo=%s, err=%v", tradeNo, err))
-		return
+		return nil
+	}
+
+	if rpcURL := strings.TrimSpace(setting.EthereumRpcUrl); rpcURL != "" {
+		err = service.VerifyEthereumPaymentReceipt(context.Background(), rpcURL, setting.EthereumChainId, int64(setting.EthereumConfirmations), service.EthereumPaymentProof{
+			TxHash:   entry.Transaction.Hash,
+			Contract: setting.EthereumContractAddress,
+			OrderId:  orderIdHex,
+			Token:    paidToken,
+			Amount:   paidAmount,
+		})
+		if err != nil {
+			common.SysLog(fmt.Sprintf("Ethereum Webhook: 链上回执校验未通过 - tradeNo=%s, txHash=%s, err=%v", tradeNo, entry.Transaction.Hash, err))
+			return err
+		}
 	}
 
 	LockOrder(tradeNo)
 	defer UnlockOrder(tradeNo)
 
+	payment := &model.ChainPayment{Token: paidToken, Amount: paidAmount, TxHash: entry.Transaction.Hash}
 	if strings.HasPrefix(tradeNo, "ETHSUB-") {
 		// Subscription purchase order
-		err = model.CompleteSubscriptionOrderWithPaymentCheck(source, tradeNo, "", model.PaymentProviderEthereum, "ethereum", paidToken, paidAmount)
+		err = model.CompleteSubscriptionOrderWithPaymentCheck(source, tradeNo, "", model.PaymentProviderEthereum, "ethereum", payment)
 		if err != nil {
 			common.SysLog(fmt.Sprintf("Ethereum Webhook: 订阅订单完成失败 - tradeNo=%s, err=%v", tradeNo, err))
-		} else {
-			common.SysLog(fmt.Sprintf("Ethereum Webhook: 订阅订单完成成功 - tradeNo=%s", tradeNo))
+			return err
 		}
-	} else {
-		// Top-up (balance recharge) order
-		err = model.RechargeEthereumWithPaymentCheck(source, tradeNo, paidToken, paidAmount)
-		if err != nil {
-			common.SysLog(fmt.Sprintf("Ethereum Webhook: 充值失败 - tradeNo=%s, err=%v", tradeNo, err))
-		} else {
-			common.SysLog(fmt.Sprintf("Ethereum Webhook: 充值成功 - tradeNo=%s", tradeNo))
-		}
+		common.SysLog(fmt.Sprintf("Ethereum Webhook: 订阅订单完成成功 - tradeNo=%s", tradeNo))
+		return nil
 	}
+	// Top-up (balance recharge) order
+	err = model.RechargeEthereumWithPaymentCheck(source, tradeNo, payment)
+	if err != nil {
+		common.SysLog(fmt.Sprintf("Ethereum Webhook: 充值失败 - tradeNo=%s, err=%v", tradeNo, err))
+		return err
+	}
+	common.SysLog(fmt.Sprintf("Ethereum Webhook: 充值成功 - tradeNo=%s", tradeNo))
+	return nil
 }
 
 // ── RequestEthereumSubscriptionPay ──────────────────────────────────────────
@@ -440,15 +512,18 @@ func RequestEthereumSubscriptionPay(c *gin.Context) {
 
 	// Calculate pay amount: PriceAmount is the fiat price of the plan.
 	// Token price is "how many tokens per 1 top-up unit".
-	payAmountStr, err := calcPayAmountDecimal(decimal.NewFromFloat(plan.PriceAmount), tokenCfg.Price, tokenCfg.Decimals)
+	payAmountStr, err := tokenCfg.PayAmount(decimal.NewFromFloat(plan.PriceAmount))
 	if err != nil || payAmountStr == "0" {
 		common.ApiErrorMsg(c, "金额计算失败")
 		return
 	}
 
-	// Generate trade number with ETHSUB- prefix (must fit in 32 bytes)
-	// Format: ETHSUB-{userId}-{unixMilli}-{4rand} (always < 32 bytes for reasonable userId)
-	tradeNo := fmt.Sprintf("ETHSUB-%d-%d-%s", userId, time.Now().UnixMilli(), randstr.String(4))
+	tradeNo, err := newEthereumTradeNo("ETHSUB-", userId, 4)
+	if err != nil {
+		common.SysError(fmt.Sprintf("Ethereum: 生成订阅订单号失败: %v", err))
+		common.ApiErrorMsg(c, "创建订单失败")
+		return
+	}
 	orderId := tradeNoToOrderId(tradeNo)
 
 	// Create pending subscription order
@@ -491,6 +566,7 @@ func RequestEthereumSubscriptionPay(c *gin.Context) {
 			PayAmount:       payAmountStr,
 			Symbol:          tokenCfg.Symbol,
 			Decimals:        tokenCfg.Decimals,
+			ExpiresAt:       order.ExpiresAt(),
 		},
 	})
 }
@@ -517,10 +593,10 @@ func verifyAlchemySignature(body []byte, sigHex, signingKey string) bool {
 // Frontend equivalent: ethers.zeroPadBytes(ethers.toUtf8Bytes(tradeNo), 32)
 func tradeNoToOrderId(tradeNo string) string {
 	b := []byte(tradeNo)
-	if len(b) > 32 {
-		b = b[:32]
+	if len(b) > ethereumOrderIdBytes {
+		b = b[:ethereumOrderIdBytes]
 	}
-	var padded [32]byte
+	var padded [ethereumOrderIdBytes]byte
 	copy(padded[:], b) // left-aligned, zero-padded on the right
 	return "0x" + hex.EncodeToString(padded[:])
 }
@@ -538,45 +614,6 @@ func orderIdToTradeNo(orderIdHex string) string {
 		end--
 	}
 	return string(b[:end])
-}
-
-func parsePaymentReceivedData(data string) (token string, amount string, err error) {
-	clean := strings.TrimPrefix(strings.TrimSpace(data), "0x")
-	if len(clean) < 128 {
-		return "", "", fmt.Errorf("invalid event data length: %d", len(clean))
-	}
-	tokenWord := clean[:64]
-	amountWord := clean[64:128]
-	tokenBytes, err := hex.DecodeString(tokenWord)
-	if err != nil || len(tokenBytes) != 32 {
-		return "", "", fmt.Errorf("invalid token word")
-	}
-	amountBytes, err := hex.DecodeString(amountWord)
-	if err != nil || len(amountBytes) != 32 {
-		return "", "", fmt.Errorf("invalid amount word")
-	}
-	token = "0x" + strings.ToLower(hex.EncodeToString(tokenBytes[12:]))
-	amountInt := new(big.Int).SetBytes(amountBytes)
-	if amountInt.Sign() <= 0 {
-		return "", "", fmt.Errorf("invalid paid amount")
-	}
-	return token, amountInt.String(), nil
-}
-
-func calcPayAmountDecimal(units decimal.Decimal, pricePerUnit string, decimals int) (string, error) {
-	price, err := decimal.NewFromString(pricePerUnit)
-	if err != nil || price.Sign() <= 0 {
-		return "", fmt.Errorf("invalid pricePerUnit: %s", pricePerUnit)
-	}
-	if units.Sign() <= 0 || decimals < 0 {
-		return "0", nil
-	}
-	result := units.Mul(price).Mul(decimal.New(1, int32(decimals)))
-	resultInt := result.Truncate(0)
-	if resultInt.Sign() <= 0 {
-		return "0", nil
-	}
-	return resultInt.StringFixed(0), nil
 }
 
 // getEthereumTopUpInfo returns the fields added to GetTopUpInfo response.
@@ -604,10 +641,17 @@ func getEthereumTopUpInfo() (enabled bool, info map[string]interface{}) {
 		"primary_relay_url":   primaryRelayURL,
 		"backup_relay_url":    backupRelayURL,
 	}
+	// EthereumMinTopUp is stored in top-up units; the frontend compares it with
+	// the amount the user types, which is a token count when quota is displayed
+	// as tokens. Convert here, as the other gateways do.
+	minTopUp := setting.EthereumMinTopUp
+	if operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeTokens {
+		minTopUp = int(decimal.NewFromInt(int64(minTopUp)).Mul(decimal.NewFromFloat(common.QuotaPerUnit)).IntPart())
+	}
 	info = map[string]interface{}{
 		"chain_id":         setting.EthereumChainId,
 		"contract_address": setting.EthereumContractAddress,
-		"min_topup":        setting.EthereumMinTopUp,
+		"min_topup":        minTopUp,
 		"tokens":           setting.GetEthereumTokens(),
 		"wallet_connect":   walletConnect,
 	}

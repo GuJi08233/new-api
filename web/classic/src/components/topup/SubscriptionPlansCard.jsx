@@ -324,6 +324,7 @@ const SubscriptionPlansCard = ({
         pay_amount,
         symbol,
         decimals,
+        expires_at,
       } = res.data.data;
       showInfo(
         t('正在连接钱包，如未检测到浏览器钱包将显示 WalletConnect 连接信息...'),
@@ -337,6 +338,7 @@ const SubscriptionPlansCard = ({
           pay_amount,
           symbol,
           decimals,
+          expires_at,
         },
         getWalletConnectConfig(ethereumInfo),
         {
