@@ -39,6 +39,7 @@ func TestIsRetryablePaymentSettlementError(t *testing.T) {
 		{name: "amount mismatch", err: model.ErrPaymentAmountMismatch, want: false},
 		{name: "order expired", err: model.ErrTopUpExpired, want: false},
 		{name: "subscription order missing", err: model.ErrSubscriptionOrderNotFound, want: false},
+		{name: "plan sold out", err: model.ErrSubscriptionPlanSoldOut, want: false},
 		{name: "receipt contradicts event", err: fmt.Errorf("%w: reverted", service.ErrEthereumPaymentInvalid), want: false},
 		{name: "receipt not indexed yet", err: fmt.Errorf("%w: no receipt", service.ErrEthereumPaymentUnconfirmed), want: true},
 		{name: "database outage", err: fmt.Errorf("%w: %v", model.ErrPaymentSettlementRetryable, errors.New("db down")), want: true},

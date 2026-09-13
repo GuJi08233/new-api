@@ -356,3 +356,62 @@ func TestExpireSubscriptionOrder_RejectsMismatchedPaymentProvider(t *testing.T) 
 	require.NotNil(t, order)
 	assert.Equal(t, common.TopUpStatusPending, order.Status)
 }
+
+// A pending on-chain order reserves its seat for the whole chain quote window.
+// With the short hosted-checkout hold, a second order could be created while
+// the first was still payable, and paying both would strand the second.
+func TestCheckSubscriptionPlanPurchaseAllowed_PendingEthereumOrderHoldsSeatForQuoteWindow(t *testing.T) {
+	truncateTables(t)
+
+	insertUserForPaymentGuardTest(t, 525, 0)
+	plan := insertSubscriptionPlanForPaymentGuardTest(t, 525)
+	plan.MaxPurchaseTotal = 1
+	require.NoError(t, DB.Save(plan).Error)
+	staleForHostedCheckout := time.Now().Unix() - subscriptionPendingHoldSeconds() - 60
+
+	insertSubscriptionOrderForPaymentGuardTest(t, "eth-sub-seat-guard", 525, plan.Id, PaymentProviderEthereum)
+	require.NoError(t, DB.Model(&SubscriptionOrder{}).Where("trade_no = ?", "eth-sub-seat-guard").
+		Update("create_time", staleForHostedCheckout).Error)
+	require.ErrorIs(t, CheckSubscriptionPlanPurchaseAllowed(525, plan, true), ErrSubscriptionPlanSoldOut)
+
+	require.NoError(t, DB.Model(&SubscriptionOrder{}).Where("trade_no = ?", "eth-sub-seat-guard").
+		Update("payment_provider", PaymentProviderStripe).Error)
+	require.NoError(t, CheckSubscriptionPlanPurchaseAllowed(525, plan, true))
+}
+
+// When the seat is gone by the time an on-chain payment settles, the refusal is
+// final and must not be reported as retryable, but the stranded money still
+// needs an admin-visible trail.
+func TestCompleteSubscriptionOrderWithPaymentCheck_SoldOutPaymentIsFinalAndLogged(t *testing.T) {
+	truncateTables(t)
+
+	insertUserForPaymentGuardTest(t, 535, 0)
+	plan := insertSubscriptionPlanForPaymentGuardTest(t, 535)
+	plan.MaxPurchaseTotal = 1
+	require.NoError(t, DB.Save(plan).Error)
+	require.NoError(t, DB.Create(&UserSubscription{
+		UserId:      536,
+		PlanId:      plan.Id,
+		AmountTotal: 1000,
+		StartTime:   time.Now().Unix(),
+		EndTime:     time.Now().Add(24 * time.Hour).Unix(),
+		Status:      SubscriptionStatusActive,
+	}).Error)
+
+	insertSubscriptionOrderForPaymentGuardTest(t, "eth-sub-soldout-guard", 535, plan.Id, PaymentProviderEthereum)
+	require.NoError(t, DB.Model(&SubscriptionOrder{}).Where("trade_no = ?", "eth-sub-soldout-guard").
+		Updates(map[string]interface{}{
+			"expected_payment_token":  "0x0000000000000000000000000000000000000000",
+			"expected_payment_amount": "1000",
+		}).Error)
+
+	err := CompleteSubscriptionOrderWithPaymentCheck(LogSource{}, "eth-sub-soldout-guard", "", PaymentProviderEthereum, "ethereum", ethereumPaymentForGuardTest("1000"))
+	require.ErrorIs(t, err, ErrSubscriptionPlanSoldOut)
+	assert.Zero(t, countUserSubscriptionsForPaymentGuardTest(t, 535))
+
+	var logs []Log
+	require.NoError(t, DB.Where("user_id = ? AND type = ?", 535, LogTypeTopup).Find(&logs).Error)
+	require.Len(t, logs, 1)
+	assert.Contains(t, logs[0].Content, "需人工核对")
+	assert.Contains(t, logs[0].Content, "0xabc")
+}

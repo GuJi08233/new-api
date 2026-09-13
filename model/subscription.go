@@ -80,6 +80,11 @@ var (
 	ErrSubscriptionOrderNotFound      = errors.New("subscription order not found")
 	ErrSubscriptionOrderStatusInvalid = errors.New("subscription order status invalid")
 	ErrSubscriptionOrderExpired       = errors.New("subscription order expired")
+	// Purchase-limit outcomes are sentinels so a payment callback can tell a
+	// final refusal (no redelivery will free a seat) from a transient failure.
+	ErrSubscriptionAlreadyHeld          = errors.New("已持有该套餐，到期后可重新购买")
+	ErrSubscriptionPurchaseLimitReached = errors.New("已达到该套餐购买上限")
+	ErrSubscriptionPlanSoldOut          = errors.New("该套餐已售罄")
 )
 
 const (
@@ -837,7 +842,13 @@ func countPendingSubscriptionOrdersByPlanWithWindow(tx *gorm.DB, plan *Subscript
 		tx = DB
 	}
 	query := tx.Model(&SubscriptionOrder{}).Where("plan_id = ? AND status = ?", plan.Id, common.TopUpStatusPending)
-	query = query.Where("create_time > ?", pendingSubscriptionOrderCutoff(now))
+	// A pending order reserves a seat for as long as it can still be paid, and
+	// that window depends on the provider (see subscriptionOrderHoldSeconds).
+	// Counting on-chain orders with the short hosted-checkout hold would let a
+	// second order be created while the first is still payable, and the later
+	// settlement would then fail the sold-out check with the money already sent.
+	query = query.Where("(payment_provider = ? AND create_time > ?) OR (payment_provider <> ? AND create_time > ?)",
+		PaymentProviderEthereum, now-ChainOrderTTLSeconds(), PaymentProviderEthereum, pendingSubscriptionOrderCutoff(now))
 	if windowStart := getPlanPurchaseWindowStart(plan, now); windowStart > 0 {
 		query = query.Where("create_time >= ?", windowStart)
 	}
@@ -900,7 +911,7 @@ func CheckSubscriptionPlanPurchaseAllowed(userId int, plan *SubscriptionPlan, in
 		// 全局限购套餐不提供续期（见 renewUserSubscriptionForPlanTx），重复购买只会新建
 		// 一条对持有者毫无价值的订阅，却额外占用一个稀缺名额：非 attach 时排队且不自动
 		// 接棒，attach 时重复追加同一分组。同一套餐一人同时只允许一条订阅。
-		return errors.New("已持有该套餐，到期后可重新购买")
+		return ErrSubscriptionAlreadyHeld
 	}
 	if plan.MaxPurchasePerUser > 0 {
 		count, err := countUserSubscriptionsByPlanWithWindow(nil, userId, plan, now)
@@ -908,7 +919,7 @@ func CheckSubscriptionPlanPurchaseAllowed(userId int, plan *SubscriptionPlan, in
 			return err
 		}
 		if count >= int64(plan.MaxPurchasePerUser) {
-			return errors.New("已达到该套餐购买上限")
+			return ErrSubscriptionPurchaseLimitReached
 		}
 	}
 	if plan.MaxPurchaseTotal > 0 {
@@ -924,7 +935,7 @@ func CheckSubscriptionPlanPurchaseAllowed(userId int, plan *SubscriptionPlan, in
 			totalCount += pendingCount
 		}
 		if totalCount >= int64(plan.MaxPurchaseTotal) {
-			return errors.New("该套餐已售罄")
+			return ErrSubscriptionPlanSoldOut
 		}
 	}
 	return nil
@@ -957,7 +968,7 @@ func checkSubscriptionPlanPurchaseAllowedTx(tx *gorm.DB, userId int, plan *Subsc
 			return err
 		}
 		if hasLive {
-			return errors.New("已持有该套餐，到期后可重新购买")
+			return ErrSubscriptionAlreadyHeld
 		}
 	}
 	if plan.MaxPurchasePerUser > 0 {
@@ -966,7 +977,7 @@ func checkSubscriptionPlanPurchaseAllowedTx(tx *gorm.DB, userId int, plan *Subsc
 			return err
 		}
 		if count >= int64(plan.MaxPurchasePerUser) {
-			return errors.New("已达到该套餐购买上限")
+			return ErrSubscriptionPurchaseLimitReached
 		}
 	}
 	if plan.MaxPurchaseTotal > 0 {
@@ -975,7 +986,7 @@ func checkSubscriptionPlanPurchaseAllowedTx(tx *gorm.DB, userId int, plan *Subsc
 			return err
 		}
 		if count >= int64(plan.MaxPurchaseTotal) {
-			return errors.New("该套餐已售罄")
+			return ErrSubscriptionPlanSoldOut
 		}
 	}
 	return nil
@@ -1327,7 +1338,7 @@ func CompleteSubscriptionOrderWithPaymentCheck(source LogSource, tradeNo string,
 	logRenewed := false
 	logLatePayment := false
 	orderExpired := false
-	var expiredOrderUserId int
+	var orderUserId int
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		var order SubscriptionOrder
 		if err := lockForUpdate(tx).Where(refCol+" = ?", tradeNo).First(&order).Error; err != nil {
@@ -1366,11 +1377,12 @@ func CompleteSubscriptionOrderWithPaymentCheck(source LogSource, tradeNo string,
 					return err
 				}
 				orderExpired = true
-				expiredOrderUserId = order.UserId
+				orderUserId = order.UserId
 				return nil
 			}
 			logLatePayment = true
 		}
+		orderUserId = order.UserId
 		sub, renewed, err := CreateUserSubscriptionFromPlanTx(tx, order.UserId, plan, "order")
 		if err != nil {
 			return err
@@ -1402,13 +1414,19 @@ func CompleteSubscriptionOrderWithPaymentCheck(source LogSource, tradeNo string,
 		return nil
 	})
 	if err != nil {
+		if payment.present() && isSubscriptionPurchaseRefused(err) {
+			// The seat is gone for good but the money is already at the recipient
+			// wallet, so leave an admin-visible trail for manual reconciliation.
+			RecordLog(source, orderUserId, LogTypeTopup, fmt.Sprintf("Ethereum 付款已到账但订阅无法开通（%s），需人工核对：单号 %s，token %s，实付 %s，交易 %s",
+				err.Error(), tradeNo, payment.Token, payment.Amount, payment.TxHash))
+		}
 		return err
 	}
 	if orderExpired {
 		if payment.present() {
 			// The money is already at the recipient wallet and cannot be refunded
 			// from here, so leave an admin-visible trail for manual reconciliation.
-			RecordLog(source, expiredOrderUserId, LogTypeTopup, fmt.Sprintf("Ethereum 付款已到账但订阅订单已过期且不满足当前价格，需人工核对：单号 %s，token %s，实付 %s，交易 %s",
+			RecordLog(source, orderUserId, LogTypeTopup, fmt.Sprintf("Ethereum 付款已到账但订阅订单已过期且不满足当前价格，需人工核对：单号 %s，token %s，实付 %s，交易 %s",
 				tradeNo, payment.Token, payment.Amount, payment.TxHash))
 		}
 		return ErrSubscriptionOrderExpired
@@ -1429,6 +1447,14 @@ func CompleteSubscriptionOrderWithPaymentCheck(source LogSource, tradeNo string,
 		RecordLog(source, logUserId, LogTypeTopup, msg)
 	}
 	return nil
+}
+
+// isSubscriptionPurchaseRefused reports whether settlement failed on a purchase
+// rule that no retry can satisfy.
+func isSubscriptionPurchaseRefused(err error) bool {
+	return errors.Is(err, ErrSubscriptionAlreadyHeld) ||
+		errors.Is(err, ErrSubscriptionPurchaseLimitReached) ||
+		errors.Is(err, ErrSubscriptionPlanSoldOut)
 }
 
 func upsertSubscriptionTopUpTx(tx *gorm.DB, order *SubscriptionOrder) error {

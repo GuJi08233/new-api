@@ -365,6 +365,7 @@ func isRetryablePaymentSettlementError(err error) bool {
 	permanent := []error{
 		model.ErrTopUpNotFound, model.ErrTopUpStatusInvalid, model.ErrTopUpExpired,
 		model.ErrSubscriptionOrderNotFound, model.ErrSubscriptionOrderStatusInvalid, model.ErrSubscriptionOrderExpired,
+		model.ErrSubscriptionAlreadyHeld, model.ErrSubscriptionPurchaseLimitReached, model.ErrSubscriptionPlanSoldOut,
 		model.ErrPaymentAmountMismatch, model.ErrPaymentMethodMismatch,
 		service.ErrEthereumPaymentInvalid,
 	}
@@ -410,6 +411,12 @@ func handlePaymentReceivedLog(entry alchemyLog, source model.LogSource) error {
 	}
 
 	if rpcURL := strings.TrimSpace(setting.EthereumRpcUrl); rpcURL != "" {
+		if strings.TrimSpace(entry.Transaction.Hash) == "" {
+			// Without the hash nothing can be verified; fail closed and tell the
+			// operator exactly which field the webhook's GraphQL query must select.
+			common.SysError(fmt.Sprintf("Ethereum Webhook: payload 缺少 transaction.hash，无法做链上回执校验，已拒绝 tradeNo=%s；请在 Alchemy webhook 查询中加入 transaction { hash }", tradeNo))
+			return fmt.Errorf("%w: webhook payload has no transaction hash", service.ErrEthereumPaymentInvalid)
+		}
 		err = service.VerifyEthereumPaymentReceipt(context.Background(), rpcURL, setting.EthereumChainId, int64(setting.EthereumConfirmations), service.EthereumPaymentProof{
 			TxHash:   entry.Transaction.Hash,
 			Contract: setting.EthereumContractAddress,
