@@ -663,12 +663,12 @@ export default function ModelPricingEditor({
                                     candidate.completion_ratio,
                                 )}`
                               : ''
-                          } /1M${candidate.billing_expr ? ` · ${t('有阶梯价')}` : ''}`,
+                          } /1M${candidate.billing_expr ? ` · ${t('有阶梯/时段价')}` : ''}`,
                         }))}
                       />
                       <div className='mt-1 text-xs text-gray-500'>
                         {t(
-                          '选择后会把该模型切到按量计费并填入价格，仍需点击保存才会生效；第三方来源的报价请自行核对',
+                          '计费方式跟随所选来源：带阶梯或时段价的用表达式计费，其余用按量计费。仍需点击保存才会生效；第三方来源的报价请自行核对',
                         )}
                       </div>
                       {pickedUpstreamCandidate?.billing_expr ? (
@@ -679,15 +679,15 @@ export default function ModelPricingEditor({
                               applyUpstreamCandidate(
                                 selectedModel.name,
                                 pickedUpstreamProvider,
-                                { lookupName, useTiered: true },
+                                { lookupName, useTiered: false },
                               )
                             }
                           >
-                            {t('改用该来源的上下文阶梯价')}
+                            {t('改用该来源的按量倍率')}
                           </Button>
                           <div className='mt-1 text-xs text-gray-500'>
                             {t(
-                              '该来源按上下文长度分档计价，套用后模型会切换为表达式计费',
+                              '该来源带阶梯或时段计价，已按表达式计费填入；只想用基础倍率可切回按量计费',
                             )}
                           </div>
                         </div>

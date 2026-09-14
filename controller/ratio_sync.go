@@ -967,9 +967,16 @@ func selectUpstreamPricing(catalog *upstreamCatalog, selector modelsDevSelector)
 		if len(reported) > maxUpstreamCandidates {
 			reported = reported[:maxUpstreamCandidates]
 		}
+		overrideExpr := catalog.exprOverrides[modelName]
 		dtoCandidates := make([]dto.UpstreamCandidate, 0, len(reported))
 		for _, candidate := range reported {
-			dtoCandidates = append(dtoCandidates, toUpstreamCandidate(candidate))
+			dtoCandidate := toUpstreamCandidate(candidate)
+			// 成品表达式是按上游选定的来源定价的，只挂给价格对得上的候选，
+			// 否则逐模型切换来源时会拿到别家价格写成的表达式
+			if overrideExpr != "" && exprUsesInputPrice(overrideExpr, candidate.Input) {
+				dtoCandidate.BillingExpr = overrideExpr
+			}
+			dtoCandidates = append(dtoCandidates, dtoCandidate)
 		}
 		candidates[modelName] = dtoCandidates
 

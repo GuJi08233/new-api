@@ -4192,9 +4192,6 @@
     "选择提供商，价格将填入下方表单": "Choisissez un fournisseur pour remplir le formulaire",
     "已填入 {{provider}} 的价格，确认后点击保存生效": "Prix de {{provider}} inséré ; enregistrez pour appliquer",
     "已填入第三方来源 {{provider}} 的价格，请自行核对后保存": "Prix tiers de {{provider}} inséré ; vérifiez avant d’enregistrer",
-    "有阶梯价": "paliers de contexte",
-    "改用该来源的上下文阶梯价": "Utiliser les paliers de contexte de cette source",
-    "该来源按上下文长度分档计价，套用后模型会切换为表达式计费": "Cette source facture par longueur de contexte ; l’appliquer bascule le modèle en facturation par expression",
     "已填入 {{provider}} 的上下文阶梯价，确认后点击保存生效": "Paliers de contexte de {{provider}} insérés ; enregistrez pour appliquer",
     "其中 {{count}} 个模型上游有上下文阶梯价，已填充为表达式计费": "{{count}} d’entre eux ont des paliers de contexte en amont et ont été remplis en facturation par expression",
     "从 {{upstream}} 获取价格": "Récupérer les prix depuis {{upstream}}",
@@ -4209,7 +4206,6 @@
     "官方精选（llm-metadata）": "Sélection officielle (llm-metadata)",
     "全量（models.dev）": "Catalogue complet (models.dev)",
     "官方精选只收录厂商自营入口，并支持 1 小时缓存写、思考模式、错峰计费；全量覆盖长尾模型，但可能只有转售商报价": "La sélection officielle ne référence que les points d'accès propres aux fournisseurs et prend en charge l'écriture de cache d'1 h, le mode réflexion et la tarification heures creuses ; le catalogue complet couvre les modèles de longue traîne mais peut ne contenir que des tarifs de revendeurs",
-    "选择后会把该模型切到按量计费并填入价格，仍需点击保存才会生效；第三方来源的报价请自行核对": "Choisir une source bascule ce modèle en facturation au token et remplit ses prix ; il faut encore enregistrer. Vérifiez vous-même les tarifs tiers",
     "时段函数": "Fonctions temporelles",
     "0=周日": "0=dimanche",
     "tz 为时区名，如": "tz est un nom de fuseau horaire, par ex.",
@@ -4217,6 +4213,10 @@
     "{{upstream}} 上没有收录 {{model}}": "{{upstream}} ne référence pas {{model}}",
     "点击获取，查看上面这个模型在 {{upstream}} 上各家提供商的报价并直接填入": "Cliquez sur Récupérer pour voir les tarifs de chaque fournisseur pour le modèle ci-dessus sur {{upstream}} et les remplir directement",
     "将把 {{source}} 的价格填给 {{target}}": "Les tarifs de {{source}} seront appliqués à {{target}}",
-    "可改成别的模型名，借用那个模型的价格（适合重定向的模型）": "Indiquez un autre nom de modèle pour emprunter ses tarifs (pratique pour les modèles redirigés)"
+    "可改成别的模型名，借用那个模型的价格（适合重定向的模型）": "Indiquez un autre nom de modèle pour emprunter ses tarifs (pratique pour les modèles redirigés)",
+    "计费方式跟随所选来源：带阶梯或时段价的用表达式计费，其余用按量计费。仍需点击保存才会生效；第三方来源的报价请自行核对": "Le mode de facturation suit la source choisie : facturation par expression si elle a des tarifs par paliers ou horaires, au token sinon. Il faut encore enregistrer. Vérifiez vous-même les tarifs tiers",
+    "改用该来源的按量倍率": "Utiliser plutôt les tarifs au token de cette source",
+    "该来源带阶梯或时段计价，已按表达式计费填入；只想用基础倍率可切回按量计费": "Cette source applique des tarifs par paliers ou horaires et a été remplie en facturation par expression ; revenez au token si vous ne voulez que les tarifs de base",
+    "有阶梯/时段价": "paliers/horaires"
   }
 }

@@ -373,6 +373,16 @@ func TestSelectUpstreamPricingKeepsRatioAndExprFromSameProvider(t *testing.T) {
 		exprs, ok := pricing.Data[billing_setting.BillingExprField].(map[string]any)
 		require.True(t, ok)
 		assert.Equal(t, upstreamExpr, exprs["qwen-x"])
+
+		// 候选也要带上成品表达式，否则逐模型切换来源时拿不到时段/阶梯价；
+		// 价格对不上的那个来源必须留空，免得套用别家价格写成的表达式
+		byProvider := make(map[string]dto.UpstreamCandidate)
+		for _, candidate := range pricing.Candidates["qwen-x"] {
+			byProvider[candidate.Provider] = candidate
+		}
+		require.Len(t, byProvider, 2)
+		assert.Equal(t, upstreamExpr, byProvider["alibaba"].BillingExpr)
+		assert.Empty(t, byProvider["alibaba-cn"].BillingExpr)
 	})
 
 	t.Run("preferred provider wins and the upstream expression is dropped", func(t *testing.T) {

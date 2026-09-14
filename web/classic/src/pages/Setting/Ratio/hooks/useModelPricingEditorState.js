@@ -1319,9 +1319,8 @@ export function useModelPricingEditorState({
 
   // 把选中提供商的报价填入 modelName 的表单。lookupName 是上游那边的模型名，
   // 与 modelName 不同时相当于"借用另一个模型的价格"，用于重定向过的模型。
-  // useTiered 时改用该来源的上下文阶梯价。
   function applyUpstreamCandidate(modelName, provider, options = {}) {
-    const { useTiered = false, lookupName = modelName } = options;
+    const { lookupName = modelName } = options;
     const candidate = (upstreamCandidates[lookupName] || []).find(
       (item) => item.provider === provider,
     );
@@ -1329,6 +1328,10 @@ export function useModelPricingEditorState({
 
     const model = models.find((item) => item.name === modelName);
     if (!model) return false;
+
+    // 计费方式跟随上游：来源带阶梯/时段表达式就用表达式计费，否则按量计费。
+    // 传入 useTiered 可显式覆盖这个判断。
+    const useTiered = options.useTiered ?? Boolean(candidate.billing_expr);
 
     if (useTiered) {
       if (!candidate.billing_expr) return false;
