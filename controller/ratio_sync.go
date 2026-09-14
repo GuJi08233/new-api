@@ -7,6 +7,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -32,18 +33,31 @@ const (
 	floatEpsilon                = 1e-9
 	modelsDevAPIURL             = "https://models.dev/api.json"
 	modelsDevInputCostRatioBase = 1000.0
+	// llm-metadata 的两份产物：all.json 与 models.dev 结构一致但只保留厂商自营入口，
+	// ratio_config 是上游预生成的 new-api 计费表达式。两者都挂在 SYNC_UPSTREAM_BASE 下，
+	// 换镜像时和模型元数据同步一起生效。
+	llmMetadataAllModelsPath   = "/api/all.json"
+	llmMetadataRatioConfigPath = "/api/newapi/ratio_config-v1-base.json"
 	// modelsDevThirdPartyRank 是转售/聚合商所在的档位，低于它的都算官方来源
 	modelsDevThirdPartyRank = 3
 	// maxUpstreamCandidates 限制下发给前端的可切换来源数量
 	maxUpstreamCandidates = 8
-	// modelsDevCacheTTL 缓存解析后的候选，避免逐个模型查询时反复下载整份 api.json
-	modelsDevCacheTTL = 10 * time.Minute
+	// upstreamCatalogTTL 缓存解析后的候选，避免逐个模型查询时反复下载整份上游数据
+	upstreamCatalogTTL = 10 * time.Minute
 )
 
+// upstreamCatalog 是某个上游解析后的全量报价，按上游种类缓存复用。
+// candidates 为共享只读数据，使用方排序前必须复制。
+type upstreamCatalog struct {
+	candidates map[string][]modelsDevCandidate
+	// exprOverrides 是上游直接给出的成品计费表达式，用于本地无法从 cost 推导的计费形态
+	exprOverrides map[string]string
+	fetchedAt     time.Time
+}
+
 var (
-	modelsDevCacheMutex sync.RWMutex
-	modelsDevCache      map[string][]modelsDevCandidate
-	modelsDevCachedAt   time.Time
+	upstreamCatalogMutex sync.RWMutex
+	upstreamCatalogs     = make(map[string]*upstreamCatalog)
 )
 
 func nearlyEqual(a, b float64) bool {
@@ -134,7 +148,7 @@ func getLocalPricingSyncData() map[string]any {
 	return data
 }
 
-// FetchUpstreamRatios 从 models.dev 拉取价格并与本地定价比对，返回可同步的差异项。
+// FetchUpstreamRatios 从所选上游拉取价格并与本地定价比对，返回可同步的差异项。
 func FetchUpstreamRatios(c *gin.Context) {
 	var req dto.UpstreamRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -147,11 +161,16 @@ func FetchUpstreamRatios(c *gin.Context) {
 		req.Timeout = defaultTimeoutSeconds
 	}
 
+	upstreamKind := dto.UpstreamKindModelsDev
+	if req.Upstream == dto.UpstreamKindLLMMetadata {
+		upstreamKind = dto.UpstreamKindLLMMetadata
+	}
+
 	selector := newModelsDevSelector(req.SourceMode, req.PreferredProviders)
-	pricing, err := fetchModelsDevPricing(c.Request.Context(), req.Timeout, selector)
+	pricing, err := fetchUpstreamPricing(c.Request.Context(), upstreamKind, req.Timeout, selector)
 	if err != nil {
-		logger.LogWarn(c.Request.Context(), "failed to fetch models.dev pricing: "+err.Error())
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "获取 models.dev 价格失败：" + err.Error()})
+		logger.LogWarn(c.Request.Context(), "failed to fetch "+upstreamKind+" pricing: "+err.Error())
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "获取 " + upstreamKind + " 价格失败：" + err.Error()})
 		return
 	}
 
@@ -178,7 +197,7 @@ func FetchUpstreamRatios(c *gin.Context) {
 	differences := buildDifferences(getLocalPricingSyncData(), pricing.Data, modelFilter)
 
 	// 显式按模型名查询时，即使价格和本地一致也要回传来源与候选，
-	// 这样可视化编辑器能展示"这个模型在 models.dev 上有哪些报价"。
+	// 这样可视化编辑器能展示"这个模型在上游有哪些报价"。
 	reportedModels := make(map[string]struct{}, len(differences))
 	if len(req.ModelNames) > 0 {
 		for _, modelName := range req.ModelNames {
@@ -212,11 +231,36 @@ func FetchUpstreamRatios(c *gin.Context) {
 	})
 }
 
-func fetchModelsDevPricing(ctx context.Context, timeoutSeconds int, selector modelsDevSelector) (*modelsDevPricing, error) {
-	if cached := cachedModelsDevCandidates(); cached != nil {
-		return selectModelsDevPricing(cached, selector), nil
+func fetchUpstreamPricing(ctx context.Context, kind string, timeoutSeconds int, selector modelsDevSelector) (*upstreamPricing, error) {
+	upstreamCatalogMutex.RLock()
+	cached, ok := upstreamCatalogs[kind]
+	upstreamCatalogMutex.RUnlock()
+	if ok && time.Since(cached.fetchedAt) <= upstreamCatalogTTL {
+		return selectUpstreamPricing(cached, selector), nil
 	}
 
+	var catalog *upstreamCatalog
+	var err error
+	if kind == dto.UpstreamKindLLMMetadata {
+		catalog, err = fetchLLMMetadataCatalog(ctx, timeoutSeconds)
+	} else {
+		catalog, err = fetchModelsDevCatalog(ctx, timeoutSeconds)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	catalog.fetchedAt = time.Now()
+	upstreamCatalogMutex.Lock()
+	upstreamCatalogs[kind] = catalog
+	upstreamCatalogMutex.Unlock()
+
+	return selectUpstreamPricing(catalog, selector), nil
+}
+
+// fetchUpstreamJSON 下载一个上游 JSON 文件并交给 decode 解析，
+// 连接失败时最多重试 3 次，指数退避。
+func fetchUpstreamJSON(ctx context.Context, url string, timeoutSeconds int, decode func(io.Reader) error) error {
 	transport := &http.Transport{
 		MaxIdleConns:          100,
 		IdleConnTimeout:       90 * time.Second,
@@ -232,13 +276,12 @@ func fetchModelsDevPricing(ctx context.Context, timeoutSeconds int, selector mod
 	requestCtx, cancel := context.WithTimeout(ctx, time.Duration(timeoutSeconds)*time.Second)
 	defer cancel()
 
-	// 简单重试：最多 3 次，指数退避
 	var resp *http.Response
 	var lastErr error
 	for attempt := 0; attempt < 3; attempt++ {
-		httpReq, err := http.NewRequestWithContext(requestCtx, http.MethodGet, modelsDevAPIURL, nil)
+		httpReq, err := http.NewRequestWithContext(requestCtx, http.MethodGet, url, nil)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		resp, lastErr = client.Do(httpReq)
 		if lastErr == nil {
@@ -247,34 +290,111 @@ func fetchModelsDevPricing(ctx context.Context, timeoutSeconds int, selector mod
 		time.Sleep(time.Duration(200*(1<<attempt)) * time.Millisecond)
 	}
 	if lastErr != nil {
-		return nil, lastErr
+		return lastErr
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("upstream returned %s", resp.Status)
+		return fmt.Errorf("%s returned %s", url, resp.Status)
 	}
+	return decode(io.LimitReader(resp.Body, maxRatioConfigBytes))
+}
 
-	candidatesByModel, err := parseModelsDevCandidates(io.LimitReader(resp.Body, maxRatioConfigBytes))
+func fetchModelsDevCatalog(ctx context.Context, timeoutSeconds int) (*upstreamCatalog, error) {
+	var candidates map[string][]modelsDevCandidate
+	err := fetchUpstreamJSON(ctx, modelsDevAPIURL, timeoutSeconds, func(body io.Reader) error {
+		parsed, parseErr := parseModelsDevCandidates(body)
+		candidates = parsed
+		return parseErr
+	})
 	if err != nil {
 		return nil, err
 	}
-
-	modelsDevCacheMutex.Lock()
-	modelsDevCache = candidatesByModel
-	modelsDevCachedAt = time.Now()
-	modelsDevCacheMutex.Unlock()
-
-	return selectModelsDevPricing(candidatesByModel, selector), nil
+	return &upstreamCatalog{candidates: candidates}, nil
 }
 
-func cachedModelsDevCandidates() map[string][]modelsDevCandidate {
-	modelsDevCacheMutex.RLock()
-	defer modelsDevCacheMutex.RUnlock()
-	if modelsDevCache == nil || time.Since(modelsDevCachedAt) > modelsDevCacheTTL {
-		return nil
+// fetchLLMMetadataCatalog 取 basellm/llm-metadata 的两份产物：all.json 提供
+// 与 models.dev 同构的成本数据（已过滤掉聚合商与转售商），ratio_config 提供
+// 上游预生成的计费表达式，只用于本地推导不出来的那几类计费。
+func fetchLLMMetadataCatalog(ctx context.Context, timeoutSeconds int) (*upstreamCatalog, error) {
+	base := strings.TrimRight(getUpstreamBase(), "/")
+
+	var candidates map[string][]modelsDevCandidate
+	var config struct {
+		Data struct {
+			BillingExpr map[string]string `json:"billing_expr"`
+		} `json:"data"`
 	}
-	return modelsDevCache
+	var candidatesErr, configErr error
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		candidatesErr = fetchUpstreamJSON(ctx, base+llmMetadataAllModelsPath, timeoutSeconds, func(body io.Reader) error {
+			parsed, parseErr := parseModelsDevCandidates(body)
+			candidates = parsed
+			return parseErr
+		})
+	}()
+	go func() {
+		defer wg.Done()
+		// 表达式缺失不致命，本地仍能从 all.json 的 cost 推导出倍率与阶梯价
+		configErr = fetchUpstreamJSON(ctx, base+llmMetadataRatioConfigPath, timeoutSeconds, func(body io.Reader) error {
+			return common.DecodeJson(body, &config)
+		})
+	}()
+	wg.Wait()
+
+	if candidatesErr != nil {
+		return nil, candidatesErr
+	}
+	if configErr != nil {
+		logger.LogWarn(ctx, "llm-metadata ratio config unavailable, falling back to cost-derived pricing: "+configErr.Error())
+	}
+
+	// 上游只收录厂商自营入口，但套餐类 id（alibaba-token-plan 等）不在本地的
+	// 一方名单里。统一按官方看待，免得被当成转售价排到最后。
+	for _, modelCandidates := range candidates {
+		for index := range modelCandidates {
+			if modelCandidates[index].Rank >= modelsDevThirdPartyRank {
+				modelCandidates[index].Rank = modelsDevThirdPartyRank - 1
+			}
+		}
+	}
+
+	return &upstreamCatalog{
+		candidates:    candidates,
+		exprOverrides: irreducibleBillingExprs(config.Data.BillingExpr),
+	}, nil
+}
+
+// exprInputCoefficient 匹配计费表达式里的输入单价项，例如 "p * 0.4"
+var exprInputCoefficient = regexp.MustCompile(`\bp \* ([0-9.]+)`)
+
+// exprUsesInputPrice 判断表达式是否按给定的输入单价计费。上游成品表达式与本地
+// 候选来自同一提供商时，其中必有一档的输入系数等于该候选的 input 价。
+func exprUsesInputPrice(expr string, input float64) bool {
+	for _, match := range exprInputCoefficient.FindAllStringSubmatch(expr, -1) {
+		if value, err := strconv.ParseFloat(match[1], 64); err == nil && nearlyEqual(value, input) {
+			return true
+		}
+	}
+	return false
+}
+
+// irreducibleBillingExprs 挑出本地无法从 cost 字段推导的计费形态：Anthropic 的
+// 1 小时缓存写（cc1h）、思考模式开关（param）和错峰定价（weekday/hour）。其余
+// 模型仍走本地转换，档位命名才能统一成 272K / 1M。
+func irreducibleBillingExprs(exprs map[string]string) map[string]string {
+	overrides := make(map[string]string)
+	for modelName, expr := range exprs {
+		if strings.Contains(expr, "cc1h") || strings.Contains(expr, "param(") ||
+			strings.Contains(expr, "weekday(") || strings.Contains(expr, "hour(") {
+			overrides[modelName] = expr
+		}
+	}
+	return overrides
 }
 
 func buildDifferences(localData, upstreamData map[string]any, modelFilter map[string]struct{}) map[string]map[string]dto.DifferenceItem {
@@ -334,9 +454,9 @@ func roundRatioValue(value float64) float64 {
 	return math.Round(value*1e6) / 1e6
 }
 
-// modelsDevPricing 是一次 models.dev 拉取的结果：选中的价格、来源，以及
+// upstreamPricing 是一次上游拉取的结果：选中的价格、来源，以及
 // 每个模型可切换的其它来源和全部提供商清单。
-type modelsDevPricing struct {
+type upstreamPricing struct {
 	Data       map[string]any
 	Sources    map[string]dto.UpstreamSource
 	Candidates map[string][]dto.UpstreamCandidate
@@ -348,7 +468,10 @@ type modelsDevProvider struct {
 }
 
 type modelsDevModel struct {
-	Cost modelsDevCost `json:"cost"`
+	Cost  modelsDevCost `json:"cost"`
+	Limit struct {
+		Context float64 `json:"context"`
+	} `json:"limit"`
 }
 
 type modelsDevCost struct {
@@ -383,6 +506,8 @@ type modelsDevCandidate struct {
 	InputAudio  *float64
 	OutputAudio *float64
 	Tiers       []modelsDevTier
+	// ContextLimit 是模型的上下文上限，用于给最后一档阶梯命名
+	ContextLimit float64
 }
 
 // models.dev 上同一个模型 id 常被几十家提供商收录，价格能差好几倍。
@@ -505,7 +630,8 @@ func isValidNonNegativeCost(v float64) bool {
 	return v >= 0
 }
 
-func buildModelsDevCandidate(provider, modelID string, cost modelsDevCost) (modelsDevCandidate, bool) {
+func buildModelsDevCandidate(provider, modelID string, upstream modelsDevModel) (modelsDevCandidate, bool) {
+	cost := upstream.Cost
 	if cost.Input == nil {
 		return modelsDevCandidate{}, false
 	}
@@ -537,15 +663,16 @@ func buildModelsDevCandidate(provider, modelID string, cost modelsDevCost) (mode
 	}
 
 	return modelsDevCandidate{
-		Provider:    provider,
-		Rank:        modelsDevProviderRank(provider, modelID),
-		Input:       input,
-		Output:      output,
-		CacheRead:   optionalCost(cost.CacheRead),
-		CacheWrite:  optionalCost(cost.CacheWrite),
-		InputAudio:  optionalCost(cost.InputAudio),
-		OutputAudio: optionalCost(cost.OutputAudio),
-		Tiers:       validModelsDevTiers(cost.Tiers),
+		Provider:     provider,
+		Rank:         modelsDevProviderRank(provider, modelID),
+		Input:        input,
+		Output:       output,
+		CacheRead:    optionalCost(cost.CacheRead),
+		CacheWrite:   optionalCost(cost.CacheWrite),
+		InputAudio:   optionalCost(cost.InputAudio),
+		OutputAudio:  optionalCost(cost.OutputAudio),
+		Tiers:        validModelsDevTiers(cost.Tiers),
+		ContextLimit: upstream.Limit.Context,
 	}, true
 }
 
@@ -567,7 +694,35 @@ func validModelsDevTiers(tiers []modelsDevTier) []modelsDevTier {
 	sort.Slice(valid, func(i, j int) bool {
 		return valid[i].Tier.Size < valid[j].Tier.Size
 	})
-	return valid
+
+	// 同阈值的重复档位只留第一条：后面那条的分支永远不可达，档位名还会撞车
+	deduped := valid[:1]
+	for _, tier := range valid[1:] {
+		if tier.Tier.Size != deduped[len(deduped)-1].Tier.Size {
+			deduped = append(deduped, tier)
+		}
+	}
+	return deduped
+}
+
+// formatContextTierName 把上下文 token 数写成人读的档位名（272000 -> 272K，
+// 1048576 -> 1M），这个名字会出现在计费日志里。十进制和二进制整除都认，
+// 其余按 5% 容差取整，免得 1050000 这类近似上限显示成 1.1M。
+func formatContextTierName(tokens float64) string {
+	unit, binary, suffix := 1000.0, 1024.0, "K"
+	if tokens >= 1000000 {
+		unit, binary, suffix = 1000000, 1048576, "M"
+	}
+	for _, base := range []float64{unit, binary} {
+		if math.Mod(tokens, base) == 0 {
+			return formatExprNumber(tokens/base) + suffix
+		}
+	}
+	value := tokens / unit
+	if rounded := math.Round(value); rounded > 0 && math.Abs(value-rounded)/value < 0.05 {
+		return formatExprNumber(rounded) + suffix
+	}
+	return formatExprNumber(math.Round(value*10)/10) + suffix
 }
 
 // modelsDevSelector 决定同一个模型的多个报价里用哪一个作为默认值。
@@ -648,16 +803,17 @@ func buildModelsDevTierCost(input float64, output, cacheRead, cacheWrite *float6
 
 // buildModelsDevTieredExpr 把 models.dev 的上下文档位翻译成本地的阶梯计费表达式。
 // models.dev 的 tier.size 表示"上下文超过该长度后改用这一档价格"，因此用 len
-// 逐级判断；表达式系数是真实的 $/1M 价格，不做倍率换算。
+// 逐级判断；表达式系数是真实的 $/1M 价格，不做倍率换算。档位数不限，多档会展开
+// 成右结合的嵌套三元式（256K / 512K / 1M）。
 func buildModelsDevTieredExpr(candidate modelsDevCandidate) string {
 	if len(candidate.Tiers) == 0 {
 		return ""
 	}
 
 	segments := []string{
-		fmt.Sprintf("len <= %s ? tier(\"ctx<=%s\", %s)",
+		fmt.Sprintf("len <= %s ? tier(%q, %s)",
 			formatExprNumber(candidate.Tiers[0].Tier.Size),
-			formatExprNumber(candidate.Tiers[0].Tier.Size),
+			formatContextTierName(candidate.Tiers[0].Tier.Size),
 			buildModelsDevTierCost(candidate.Input, candidate.Output, candidate.CacheRead, candidate.CacheWrite),
 		),
 	}
@@ -666,12 +822,21 @@ func buildModelsDevTieredExpr(candidate modelsDevCandidate) string {
 		cost := buildModelsDevTierCost(*tier.Input, tier.Output, tier.CacheRead, tier.CacheWrite)
 		if index+1 < len(candidate.Tiers) {
 			next := candidate.Tiers[index+1].Tier.Size
-			segments = append(segments, fmt.Sprintf("len <= %s ? tier(\"ctx<=%s\", %s)",
-				formatExprNumber(next), formatExprNumber(next), cost))
+			segments = append(segments, fmt.Sprintf("len <= %s ? tier(%q, %s)",
+				formatExprNumber(next), formatContextTierName(next), cost))
 			continue
 		}
-		segments = append(segments, fmt.Sprintf("tier(\"ctx>%s\", %s)",
-			formatExprNumber(tier.Tier.Size), cost))
+
+		// 末档按模型的上下文上限命名（272K 档之后就是 1M）。上游偶尔给出小于
+		// 档位阈值的上限，或上限与阈值同名，这时退回 "272K+"，避免两档重名。
+		thresholdName := formatContextTierName(tier.Tier.Size)
+		finalName := thresholdName + "+"
+		if candidate.ContextLimit > tier.Tier.Size {
+			if limitName := formatContextTierName(candidate.ContextLimit); limitName != thresholdName {
+				finalName = limitName
+			}
+		}
+		segments = append(segments, fmt.Sprintf("tier(%q, %s)", finalName, cost))
 	}
 
 	return strings.Join(segments, " : ")
@@ -720,12 +885,12 @@ func ratioAgainst(value *float64, base float64) *float64 {
 // finally resellers, and within the same rank the cheapest non-zero input cost
 // wins. The remaining candidates are returned too, so the caller can offer them
 // as alternative sources.
-func convertModelsDevToRatioData(reader io.Reader, selector modelsDevSelector) (*modelsDevPricing, error) {
+func convertModelsDevToRatioData(reader io.Reader, selector modelsDevSelector) (*upstreamPricing, error) {
 	candidatesByModel, err := parseModelsDevCandidates(reader)
 	if err != nil {
 		return nil, err
 	}
-	return selectModelsDevPricing(candidatesByModel, selector), nil
+	return selectUpstreamPricing(&upstreamCatalog{candidates: candidatesByModel}, selector), nil
 }
 
 // parseModelsDevCandidates 把 api.json 解析成 模型 -> 全部可用报价。
@@ -759,7 +924,7 @@ func parseModelsDevCandidates(reader io.Reader) (map[string][]modelsDevCandidate
 		sort.Strings(modelNames)
 
 		for _, modelName := range modelNames {
-			candidate, ok := buildModelsDevCandidate(provider, modelName, providerData.Models[modelName].Cost)
+			candidate, ok := buildModelsDevCandidate(provider, modelName, providerData.Models[modelName])
 			if !ok {
 				continue
 			}
@@ -774,8 +939,9 @@ func parseModelsDevCandidates(reader io.Reader) (map[string][]modelsDevCandidate
 	return candidatesByModel, nil
 }
 
-// selectModelsDevPricing 按来源偏好为每个模型挑一份默认报价，并保留其它候选。
-func selectModelsDevPricing(candidatesByModel map[string][]modelsDevCandidate, selector modelsDevSelector) *modelsDevPricing {
+// selectUpstreamPricing 按来源偏好为每个模型挑一份默认报价，并保留其它候选。
+func selectUpstreamPricing(catalog *upstreamCatalog, selector modelsDevSelector) *upstreamPricing {
+	candidatesByModel := catalog.candidates
 	modelRatioMap := make(map[string]any)
 	completionRatioMap := make(map[string]any)
 	cacheRatioMap := make(map[string]any)
@@ -820,12 +986,31 @@ func selectModelsDevPricing(candidatesByModel map[string][]modelsDevCandidate, s
 			continue
 		}
 
+		// 上游成品表达式里有本地推导不出的 cc1h / 思考模式 / 错峰，但它是按上游
+		// 自己选定的来源写的。倍率必须取自同一来源，否则会出现输入价 0.115 配
+		// p * 0.4 这种自相矛盾的配置（阿里国内站与国际站的报价差）。用户没有指定
+		// 首选提供商时改选价格一致的来源，否则尊重用户选择，放弃成品表达式。
+		expr, useUpstreamExpr := catalog.exprOverrides[modelName]
+		if useUpstreamExpr && !exprUsesInputPrice(expr, selected.Input) {
+			matched, found := lo.Find(modelCandidates, func(candidate modelsDevCandidate) bool {
+				return selector.allows(candidate) && exprUsesInputPrice(expr, candidate.Input)
+			})
+			if found && len(selector.preferredRank) == 0 {
+				selected = matched
+			} else {
+				useUpstreamExpr = false
+			}
+		}
+		if !useUpstreamExpr {
+			expr = buildModelsDevTieredExpr(selected)
+		}
+
 		sources[modelName] = dto.UpstreamSource{
 			Provider: selected.Provider,
 			Official: selected.Rank < modelsDevThirdPartyRank,
 		}
 
-		if expr := buildModelsDevTieredExpr(selected); expr != "" {
+		if expr != "" {
 			billingModeMap[modelName] = billing_setting.BillingModeTieredExpr
 			billingExprMap[modelName] = expr
 		}
@@ -886,7 +1071,7 @@ func selectModelsDevPricing(candidatesByModel map[string][]modelsDevCandidate, s
 		return providerList[i].Provider < providerList[j].Provider
 	})
 
-	return &modelsDevPricing{
+	return &upstreamPricing{
 		Data:       converted,
 		Sources:    sources,
 		Candidates: candidates,

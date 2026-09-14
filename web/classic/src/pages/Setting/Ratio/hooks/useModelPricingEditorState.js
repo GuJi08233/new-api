@@ -654,9 +654,11 @@ export function useModelPricingEditorState({
   const [loading, setLoading] = useState(false);
   const [conflictOnly, setConflictOnly] = useState(false);
   const [optionalFieldToggles, setOptionalFieldToggles] = useState({});
-  // 单个模型在 models.dev 上的全部报价，按模型名缓存
+  // 单个模型在上游的全部报价，按模型名缓存
   const [upstreamCandidates, setUpstreamCandidates] = useState({});
   const [upstreamLoading, setUpstreamLoading] = useState(false);
+  // 价格来源：llm-metadata 官方精选，models.dev 全量
+  const [pricingUpstream, setPricingUpstream] = useState('llm-metadata');
 
   // 根据选中的分组确定数据源
   const getSourceMaps = useCallback(() => {
@@ -1260,9 +1262,17 @@ export function useModelPricingEditorState({
     upstreamLoading,
     loadUpstreamCandidates,
     applyUpstreamCandidate,
+    pricingUpstream,
+    changePricingUpstream,
   };
 
-  // 拉取单个模型在 models.dev 上的全部报价，供用户挑提供商
+  // 切换上游后，已缓存的候选来自另一个数据源，不能继续用
+  function changePricingUpstream(nextUpstream) {
+    setPricingUpstream(nextUpstream);
+    setUpstreamCandidates({});
+  }
+
+  // 拉取单个模型在上游的全部报价，供用户挑提供商
   async function loadUpstreamCandidates(modelName) {
     if (!modelName) return false;
 
@@ -1271,9 +1281,13 @@ export function useModelPricingEditorState({
       const res = await API.post('/api/ratio_sync/fetch', {
         timeout: 15,
         model_names: [modelName],
+        upstream: pricingUpstream,
       });
       if (!res.data.success) {
-        showError(res.data.message || t('获取 models.dev 价格失败'));
+        showError(
+          res.data.message ||
+            t('获取 {{upstream}} 价格失败', { upstream: pricingUpstream }),
+        );
         return false;
       }
 
@@ -1283,12 +1297,17 @@ export function useModelPricingEditorState({
         [modelName]: candidates,
       }));
       if (candidates.length === 0) {
-        showWarning(t('models.dev 上没有收录该模型'));
+        showWarning(
+          t('{{upstream}} 上没有收录该模型', { upstream: pricingUpstream }),
+        );
       }
       return true;
     } catch (error) {
-      console.error('获取 models.dev 价格失败:', error);
-      showError(error.message || t('获取 models.dev 价格失败'));
+      console.error('获取上游价格失败:', error);
+      showError(
+        error.message ||
+          t('获取 {{upstream}} 价格失败', { upstream: pricingUpstream }),
+      );
       return false;
     } finally {
       setUpstreamLoading(false);
@@ -1433,7 +1452,7 @@ export function useModelPricingEditorState({
     }
   }
 
-  // 用 models.dev 的价格填充编辑器，填充后仍需用户点击保存才会写入
+  // 用上游价格填充编辑器，填充后仍需用户点击保存才会写入
   async function fillPricingFromUpstream(targetModelNames) {
     const names =
       targetModelNames && targetModelNames.length > 0
@@ -1449,9 +1468,13 @@ export function useModelPricingEditorState({
       const res = await API.post('/api/ratio_sync/fetch', {
         timeout: 15,
         model_names: names,
+        upstream: pricingUpstream,
       });
       if (!res.data.success) {
-        showError(res.data.message || t('获取 models.dev 价格失败'));
+        showError(
+          res.data.message ||
+            t('获取 {{upstream}} 价格失败', { upstream: pricingUpstream }),
+        );
         return false;
       }
 
@@ -1578,10 +1601,13 @@ export function useModelPricingEditorState({
       if (filledNames.length === 0) {
         showSuccess(
           skippedTieredCount > 0
-            ? t('models.dev 没有可填充的新价格（已跳过 {{count}} 个表达式计费模型）', {
-                count: skippedTieredCount,
-              })
-            : t('models.dev 没有这些模型的新价格'),
+            ? t(
+                '{{upstream}} 没有可填充的新价格（已跳过 {{count}} 个表达式计费模型）',
+                { upstream: pricingUpstream, count: skippedTieredCount },
+              )
+            : t('{{upstream}} 没有这些模型的新价格', {
+                upstream: pricingUpstream,
+              }),
         );
         return true;
       }
@@ -1611,15 +1637,18 @@ export function useModelPricingEditorState({
       if (thirdPartyCount > 0) {
         showWarning(
           t(
-            '其中 {{count}} 个模型 models.dev 上没有官方条目，价格取自第三方转售商，请自行核对',
-            { count: thirdPartyCount },
+            '其中 {{count}} 个模型 {{upstream}} 上没有官方条目，价格取自第三方转售商，请自行核对',
+            { count: thirdPartyCount, upstream: pricingUpstream },
           ),
         );
       }
       return true;
     } catch (error) {
-      console.error('同步 models.dev 价格失败:', error);
-      showError(error.message || t('获取 models.dev 价格失败'));
+      console.error('同步上游价格失败:', error);
+      showError(
+        error.message ||
+          t('获取 {{upstream}} 价格失败', { upstream: pricingUpstream }),
+      );
       return false;
     } finally {
       setLoading(false);

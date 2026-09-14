@@ -6,6 +6,7 @@ import (
 
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
+	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -220,14 +221,17 @@ func TestConvertModelsDevToRatioDataMapsCacheWriteAndAudioCosts(t *testing.T) {
 
 func TestConvertModelsDevToRatioDataBuildsTieredExpressionFromContextTiers(t *testing.T) {
 	payload := `{
-		"openai": {"models": {"gpt-x-tiered": {"cost": {
-			"input": 10, "output": 50, "cache_read": 1, "cache_write": 12.5,
-			"tiers": [
-				{"input": 30, "output": 90, "tier": {"type": "context", "size": 500000}},
-				{"input": 20, "output": 75, "cache_read": 2, "cache_write": 25, "tier": {"type": "context", "size": 272000}},
-				{"input": 99, "output": 99, "tier": {"type": "output", "size": 1000}}
-			]
-		}}}}
+		"openai": {"models": {"gpt-x-tiered": {
+			"limit": {"context": 1050000},
+			"cost": {
+				"input": 10, "output": 50, "cache_read": 1, "cache_write": 12.5,
+				"tiers": [
+					{"input": 30, "output": 90, "tier": {"type": "context", "size": 500000}},
+					{"input": 20, "output": 75, "cache_read": 2, "cache_write": 25, "tier": {"type": "context", "size": 272000}},
+					{"input": 99, "output": 99, "tier": {"type": "output", "size": 1000}}
+				]
+			}
+		}}}
 	}`
 
 	pricing, err := convertModelsDevToRatioData(
@@ -245,16 +249,144 @@ func TestConvertModelsDevToRatioDataBuildsTieredExpressionFromContextTiers(t *te
 	expr, ok := exprs["gpt-x-tiered"].(string)
 	require.True(t, ok)
 
-	// 档位按上下文阈值升序展开，非 context 档位被忽略
+	// 档位按上下文阈值升序展开，非 context 档位被忽略，末档用上下文上限命名
 	assert.Equal(t,
-		`len <= 272000 ? tier("ctx<=272000", p * 10 + c * 50 + cr * 1 + cc * 12.5) : `+
-			`len <= 500000 ? tier("ctx<=500000", p * 20 + c * 75 + cr * 2 + cc * 25) : `+
-			`tier("ctx>500000", p * 30 + c * 90)`,
+		`len <= 272000 ? tier("272K", p * 10 + c * 50 + cr * 1 + cc * 12.5) : `+
+			`len <= 500000 ? tier("500K", p * 20 + c * 75 + cr * 2 + cc * 25) : `+
+			`tier("1M", p * 30 + c * 90)`,
 		expr)
 
 	// 生成的表达式必须能被计费引擎编译，否则保存时会被拒绝
 	require.NoError(t, billing_setting.SmokeTestExpr(expr))
 	assert.Equal(t, expr, pricing.Candidates["gpt-x-tiered"][0].BillingExpr)
+}
+
+func TestFormatContextTierNameMatchesAdvertisedContextSizes(t *testing.T) {
+	tests := map[float64]string{
+		32768:   "32K",  // 二进制整除
+		128000:  "128K", // 十进制整除优先，不能写成 125K
+		131072:  "128K", // 十进制除不尽时才按 1024 折算
+		272000:  "272K",
+		1000000: "1M",
+		1048576: "1M",
+		1050000: "1M",   // gpt-6-astra 的上限，5% 容差内取整
+		1047576: "1M",   // gpt-4.1 的上限
+		1500000: "1.5M", // 超出容差时保留一位小数
+		991000:  "991K",
+	}
+	for tokens, expected := range tests {
+		assert.Equal(t, expected, formatContextTierName(tokens), "tokens=%v", tokens)
+	}
+}
+
+func TestBuildTieredExpressionFallsBackWhenContextLimitCannotNameFinalTier(t *testing.T) {
+	// 上游偶尔给出不大于档位阈值的上下文上限，或上限与阈值折算后同名，
+	// 这时末档必须退回 "200K+"，否则表达式里会出现两个同名档位
+	tests := map[string]string{
+		"limit equals threshold": `{"limit": {"context": 200000}, "cost": {"input": 3, "output": 15,
+			"tiers": [{"input": 6, "output": 22.5, "tier": {"type": "context", "size": 200000}}]}}`,
+		"limit below threshold": `{"limit": {"context": 20000}, "cost": {"input": 3, "output": 15,
+			"tiers": [{"input": 6, "output": 22.5, "tier": {"type": "context", "size": 200000}}]}}`,
+		"limit missing": `{"cost": {"input": 3, "output": 15,
+			"tiers": [{"input": 6, "output": 22.5, "tier": {"type": "context", "size": 200000}}]}}`,
+	}
+
+	for name, modelJSON := range tests {
+		t.Run(name, func(t *testing.T) {
+			pricing, err := convertModelsDevToRatioData(
+				strings.NewReader(`{"anthropic": {"models": {"claude-x": `+modelJSON+`}}}`),
+				newModelsDevSelector(dto.UpstreamSourceModeAuto, nil),
+			)
+			require.NoError(t, err)
+
+			exprs, ok := pricing.Data[billing_setting.BillingExprField].(map[string]any)
+			require.True(t, ok)
+			assert.Equal(t,
+				`len <= 200000 ? tier("200K", p * 3 + c * 15) : tier("200K+", p * 6 + c * 22.5)`,
+				exprs["claude-x"])
+		})
+	}
+}
+
+func TestIrreducibleBillingExprsKeepsOnlyLocallyUnreproducibleShapes(t *testing.T) {
+	overrides := irreducibleBillingExprs(map[string]string{
+		"flat":     `tier("standard", p * 1 + c * 3)`,
+		"tiered":   `len <= 272000 ? tier("272K", p * 10 + c * 50) : tier("1M", p * 20 + c * 75)`,
+		"cache-1h": `tier("standard", p * 5 + cc1h * 10 + c * 25)`,
+		"thinking": `param("enable_thinking") == true ? tier("thinking", p * 0.4 + c * 4) : tier("standard", p * 0.4 + c * 1.2)`,
+		"off-peak": `weekday("UTC") >= 1 ? tier("peak", p * 0.3 + c * 1.2) : tier("off_peak", p * 0.15 + c * 0.6)`,
+	})
+
+	// 平价和上下文阶梯本地都能从 cost 推出来，交给本地转换才能统一档位命名；
+	// 1 小时缓存写、思考模式、错峰这三类 cost 字段里没有，只能用上游成品
+	assert.ElementsMatch(t, []string{"cache-1h", "thinking", "off-peak"}, lo.Keys(overrides))
+}
+
+func TestSelectUpstreamPricingPrefersUpstreamExprOverLocallyDerivedOne(t *testing.T) {
+	candidates, err := parseModelsDevCandidates(strings.NewReader(`{
+		"anthropic": {"models": {"claude-x": {"limit": {"context": 200000},
+			"cost": {"input": 5, "output": 25, "cache_read": 0.5, "cache_write": 6.25}}}},
+		"deepseek": {"models": {"deepseek-x": {"cost": {"input": 0.15, "output": 0.6}}}}
+	}`))
+	require.NoError(t, err)
+
+	upstreamExpr := `tier("standard", p * 5 + cr * 0.5 + cc * 6.25 + cc1h * 10 + c * 25)`
+	pricing := selectUpstreamPricing(
+		&upstreamCatalog{candidates: candidates, exprOverrides: map[string]string{"claude-x": upstreamExpr}},
+		newModelsDevSelector(dto.UpstreamSourceModeAuto, nil),
+	)
+
+	exprs, ok := pricing.Data[billing_setting.BillingExprField].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, upstreamExpr, exprs["claude-x"])
+	// 既没有上游表达式也没有阶梯价的模型不应被切到表达式计费
+	assert.NotContains(t, exprs, "deepseek-x")
+
+	// 倍率照常下发，用户仍可把该模型改回按量计费
+	modelRatio, ok := pricing.Data["model_ratio"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, 2.5, modelRatio["claude-x"])
+}
+
+func TestSelectUpstreamPricingKeepsRatioAndExprFromSameProvider(t *testing.T) {
+	// 阿里国内站报价低于国际站，但上游成品表达式是按国际站价写的。若倍率取国内站、
+	// 表达式取上游，同一个模型就会出现输入价 0.115 配 p * 0.4 的矛盾配置。
+	candidates, err := parseModelsDevCandidates(strings.NewReader(`{
+		"alibaba-cn": {"models": {"qwen-x": {"cost": {"input": 0.115, "output": 0.345}}}},
+		"alibaba": {"models": {"qwen-x": {"cost": {"input": 0.4, "output": 1.2}}}}
+	}`))
+	require.NoError(t, err)
+
+	upstreamExpr := `param("enable_thinking") == true ? tier("thinking", p * 0.4 + c * 4) : tier("standard", p * 0.4 + c * 1.2)`
+	catalog := &upstreamCatalog{
+		candidates:    candidates,
+		exprOverrides: map[string]string{"qwen-x": upstreamExpr},
+	}
+
+	t.Run("auto switches to the source the expression was priced from", func(t *testing.T) {
+		pricing := selectUpstreamPricing(catalog, newModelsDevSelector(dto.UpstreamSourceModeAuto, nil))
+
+		assert.Equal(t, "alibaba", pricing.Sources["qwen-x"].Provider)
+		modelRatio, ok := pricing.Data["model_ratio"].(map[string]any)
+		require.True(t, ok)
+		assert.Equal(t, 0.2, modelRatio["qwen-x"])
+		exprs, ok := pricing.Data[billing_setting.BillingExprField].(map[string]any)
+		require.True(t, ok)
+		assert.Equal(t, upstreamExpr, exprs["qwen-x"])
+	})
+
+	t.Run("preferred provider wins and the upstream expression is dropped", func(t *testing.T) {
+		pricing := selectUpstreamPricing(catalog,
+			newModelsDevSelector(dto.UpstreamSourceModePrefer, []string{"alibaba-cn"}))
+
+		assert.Equal(t, "alibaba-cn", pricing.Sources["qwen-x"].Provider)
+		modelRatio, ok := pricing.Data["model_ratio"].(map[string]any)
+		require.True(t, ok)
+		assert.Equal(t, 0.0575, modelRatio["qwen-x"])
+		// 该来源既没有阶梯价也用不了上游表达式，不应被切到表达式计费
+		exprs, _ := pricing.Data[billing_setting.BillingExprField].(map[string]any)
+		assert.NotContains(t, exprs, "qwen-x")
+	})
 }
 
 const multiSourcePayload = `{

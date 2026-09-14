@@ -48,8 +48,12 @@ import {
   IllustrationNoResultDark,
 } from '@douyinfe/semi-illustrations';
 
-// 上游价格同步仅支持 models.dev 一个来源
-const UPSTREAM_NAME = 'models.dev';
+// 两个上游价格来源：
+// llm-metadata 只收录厂商自营入口，是官方定价，并补齐了 1 小时缓存写、
+// 思考模式、错峰这几类本地从成本字段推导不出来的计费；
+// models.dev 是全量原始数据，覆盖长尾模型和转售商报价。
+const UPSTREAM_LLM_METADATA = 'llm-metadata';
+const UPSTREAM_MODELS_DEV = 'models.dev';
 
 const PRICE_OPTION_KEY_BY_FIELD = {
   model_ratio: 'ModelRatio',
@@ -249,10 +253,13 @@ export default function UpstreamRatioSync(props) {
   // 差异数据和用户选择
   const [differences, setDifferences] = useState({});
   const [resolutions, setResolutions] = useState({});
-  // 每个模型的价格来自 models.dev 的哪个提供商，以及可切换的其它来源
+  // 每个模型的价格来自上游的哪个提供商，以及可切换的其它来源
   const [sources, setSources] = useState({});
   const [candidates, setCandidates] = useState({});
   const [providers, setProviders] = useState([]);
+
+  // 上游来源，默认用官方精选
+  const [upstream, setUpstream] = useState(UPSTREAM_LLM_METADATA);
 
   // 来源偏好：auto 官方优先 / official_only 仅官方 / prefer 指定提供商优先
   const [sourceMode, setSourceMode] = useState('auto');
@@ -304,6 +311,7 @@ export default function UpstreamRatioSync(props) {
       const payload = {
         timeout: 10,
         only_enabled_models: onlyEnabledModels,
+        upstream,
         source_mode: sourceMode,
       };
       if (sourceMode === 'prefer') {
@@ -700,7 +708,7 @@ export default function UpstreamRatioSync(props) {
             disabled={loading || syncLoading || confirmLoading}
             onClick={fetchUpstreamRatios}
           >
-            {t('从 models.dev 获取价格')}
+            {t('从 {{upstream}} 获取价格', { upstream })}
           </Button>
 
           {(() => {
@@ -723,6 +731,32 @@ export default function UpstreamRatioSync(props) {
           })()}
 
           <div className='flex flex-col sm:flex-row gap-2 w-full md:w-auto mt-2'>
+            <Tooltip
+              content={t(
+                '官方精选只收录厂商自营入口，并支持 1 小时缓存写、思考模式、错峰计费；全量覆盖长尾模型，但可能只有转售商报价',
+              )}
+            >
+              <Select
+                value={upstream}
+                onChange={(value) => {
+                  setUpstream(value);
+                  // 两个上游的提供商清单不同，之前选的首选提供商带不过去
+                  setProviders([]);
+                  setPreferredProviders([]);
+                  resetFetchedData();
+                }}
+                className='w-full sm:w-56'
+                disabled={loading || syncLoading || confirmLoading}
+              >
+                <Select.Option value={UPSTREAM_LLM_METADATA}>
+                  {t('官方精选（llm-metadata）')}
+                </Select.Option>
+                <Select.Option value={UPSTREAM_MODELS_DEV}>
+                  {t('全量（models.dev）')}
+                </Select.Option>
+              </Select>
+            </Tooltip>
+
             <Select
               value={sourceMode}
               onChange={(value) => {
@@ -991,7 +1025,8 @@ export default function UpstreamRatioSync(props) {
               source.official
                 ? t('价格来自模型厂商或其官方云托管入口')
                 : t(
-                    'models.dev 上没有该模型的官方条目，价格来自第三方转售/聚合商，仅供参考',
+                    '{{upstream}} 上没有该模型的官方条目，价格来自第三方转售/聚合商，仅供参考',
+                    { upstream },
                   )
             }
           >
@@ -1046,7 +1081,7 @@ export default function UpstreamRatioSync(props) {
               ? t('未找到匹配的模型')
               : hasSynced
                 ? t('暂无差异化价格显示')
-                : t('请先从 models.dev 获取价格')
+                : t('请先从 {{upstream}} 获取价格', { upstream })
           }
           style={{ padding: 30 }}
         />
@@ -1140,10 +1175,10 @@ export default function UpstreamRatioSync(props) {
             disabled={loading || syncLoading || confirmLoading}
             onChange={(e) => handleBulkSelect(e.target.checked)}
           >
-            {UPSTREAM_NAME}
+            {upstream}
           </Checkbox>
         ) : (
-          <span>{UPSTREAM_NAME}</span>
+          <span>{upstream}</span>
         ),
         dataIndex: 'upstream',
         render: (_, record) => renderUpstreamFields(record),

@@ -165,6 +165,8 @@ export default function ModelPricingEditor({
     upstreamLoading,
     loadUpstreamCandidates,
     applyUpstreamCandidate,
+    pricingUpstream,
+    changePricingUpstream,
   } = useModelPricingEditorState({
     options,
     refresh,
@@ -405,6 +407,24 @@ export default function ModelPricingEditor({
           </Button>
           <Tooltip
             content={t(
+              '官方精选只收录厂商自营入口，并支持 1 小时缓存写、思考模式、错峰计费；全量覆盖长尾模型，但可能只有转售商报价',
+            )}
+          >
+            <Select
+              value={pricingUpstream}
+              onChange={changePricingUpstream}
+              style={isMobile ? { width: '100%' } : { width: 200 }}
+              optionList={[
+                {
+                  value: 'llm-metadata',
+                  label: t('官方精选（llm-metadata）'),
+                },
+                { value: 'models.dev', label: t('全量（models.dev）') },
+              ]}
+            />
+          </Tooltip>
+          <Tooltip
+            content={t(
               '勾选模型后只同步所选模型，未勾选时同步当前列表的全部模型；价格填入表单后仍需保存才会生效',
             )}
           >
@@ -413,7 +433,7 @@ export default function ModelPricingEditor({
               onClick={() => fillPricingFromUpstream(selectedModelNames)}
               style={isMobile ? { width: '100%' } : undefined}
             >
-              {t('从 models.dev 同步价格')}
+              {t('从 {{upstream}} 同步价格', { upstream: pricingUpstream })}
               {selectedModelNames.length > 0 ? ` (${selectedModelNames.length})` : ''}
             </Button>
           </Tooltip>
@@ -570,7 +590,9 @@ export default function ModelPricingEditor({
                   >
                     <div className='flex items-center justify-between mb-2'>
                       <span className='font-medium'>
-                        {t('models.dev 参考价格')}
+                        {t('{{upstream}} 参考价格', {
+                          upstream: pricingUpstream,
+                        })}
                       </span>
                       <Button
                         size='small'
@@ -646,7 +668,8 @@ export default function ModelPricingEditor({
                     ) : (
                       <div className='text-xs text-gray-500'>
                         {t(
-                          '点击获取，查看该模型在 models.dev 上各家提供商的报价并直接填入',
+                          '点击获取，查看该模型在 {{upstream}} 上各家提供商的报价并直接填入',
+                          { upstream: pricingUpstream },
                         )}
                       </div>
                     )}

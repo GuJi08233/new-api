@@ -9,12 +9,22 @@ const (
 	UpstreamSourceModePrefer = "prefer"
 )
 
+const (
+	// UpstreamKindModelsDev 直连 models.dev/api.json，覆盖全量模型，含转售商报价
+	UpstreamKindModelsDev = "models.dev"
+	// UpstreamKindLLMMetadata 使用 basellm/llm-metadata 预生成的官方定价，
+	// 只收录厂商自营入口，并补全 1 小时缓存写、思考模式、错峰这几类计费
+	UpstreamKindLLMMetadata = "llm-metadata"
+)
+
 type UpstreamRequest struct {
 	Timeout int `json:"timeout"`
 	// OnlyEnabledModels 只比对当前启用渠道中的模型
 	OnlyEnabledModels bool `json:"only_enabled_models"`
 	// ModelNames 只比对指定模型，优先于 OnlyEnabledModels
 	ModelNames []string `json:"model_names"`
+	// Upstream 取值见 UpstreamKind* 常量，留空按 models.dev 处理
+	Upstream string `json:"upstream"`
 	// SourceMode 取值见 UpstreamSourceMode* 常量，留空按 auto 处理
 	SourceMode string `json:"source_mode"`
 	// PreferredProviders 仅在 SourceMode 为 prefer 时生效，按给定顺序优先
