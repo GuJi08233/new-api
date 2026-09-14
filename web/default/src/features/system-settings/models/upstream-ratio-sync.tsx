@@ -16,40 +16,21 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { CheckSquare, RefreshCcw } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 
-import {
-  fetchUpstreamRatios,
-  getUpstreamChannels,
-  updateSystemOption,
-} from '../api'
-import type {
-  DifferencesMap,
-  RatioType,
-  UpstreamChannel,
-  UpstreamConfig,
-} from '../types'
-import { ChannelSelectorDialog } from './channel-selector-dialog'
+import { fetchUpstreamRatios, updateSystemOption } from '../api'
+import type { DifferencesMap, RatioType } from '../types'
 import {
   ConflictConfirmDialog,
   type ConflictItem,
 } from './conflict-confirm-dialog'
-import {
-  DEFAULT_ENDPOINT,
-  MODELS_DEV_PRESET_ENDPOINT,
-  MODELS_DEV_PRESET_ID,
-  OFFICIAL_CHANNEL_ENDPOINT,
-  OFFICIAL_CHANNEL_ID,
-  OPENROUTER_CHANNEL_TYPE,
-  OPENROUTER_ENDPOINT,
-} from './constants'
 import {
   NUMERIC_SYNC_FIELDS,
   RATIO_SYNC_FIELDS,
@@ -86,16 +67,6 @@ type UpstreamRatioSyncProps = {
 // Helpers
 // ---------------------------------------------------------------------------
 
-// The two synthesized presets always carry stable negative IDs assigned by
-// `controller/ratio_sync.go`; matching by ID alone is sufficient and avoids
-// fragile name/base_url comparisons.
-function getDefaultEndpointForChannel(channel: UpstreamChannel): string {
-  if (channel.id === MODELS_DEV_PRESET_ID) return MODELS_DEV_PRESET_ENDPOINT
-  if (channel.id === OFFICIAL_CHANNEL_ID) return OFFICIAL_CHANNEL_ENDPOINT
-  if (channel.type === OPENROUTER_CHANNEL_TYPE) return OPENROUTER_ENDPOINT
-  return DEFAULT_ENDPOINT
-}
-
 function optionKeyBySyncField(ratioType: string): string {
   const explicit: Record<string, string> = {
     billing_mode: 'billing_setting.billing_mode',
@@ -124,43 +95,12 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
 
-  const [channelDialogOpen, setChannelDialogOpen] = useState(false)
   const [conflictDialogOpen, setConflictDialogOpen] = useState(false)
-  const [selectedChannelIds, setSelectedChannelIds] = useState<number[]>([])
-  const [channelEndpoints, setChannelEndpoints] = useState<
-    Record<number, string>
-  >({})
   const [differences, setDifferences] = useState<DifferencesMap>({})
   const [resolutions, setResolutions] = useState<ResolutionsMap>({})
   const [conflictItems, setConflictItems] = useState<ConflictItem[]>([])
   const [confirmLoading, setConfirmLoading] = useState(false)
   const [onlyEnabledModels, setOnlyEnabledModels] = useState(true)
-
-  const { data: channelsData } = useQuery({
-    queryKey: ['upstream-channels'],
-    queryFn: getUpstreamChannels,
-    enabled: channelDialogOpen,
-  })
-
-  // Memoize the channels list so the effect below only re-runs when the query
-  // data actually changes, instead of on every render (the `|| []` fallback
-  // would otherwise produce a new array reference each render).
-  const channels = useMemo(() => channelsData?.data ?? [], [channelsData?.data])
-
-  useEffect(() => {
-    if (channels.length === 0) return
-    setChannelEndpoints((prev) => {
-      let mutated = false
-      const next = { ...prev }
-      for (const channel of channels) {
-        if (!next[channel.id]) {
-          next[channel.id] = getDefaultEndpointForChannel(channel)
-          mutated = true
-        }
-      }
-      return mutated ? next : prev
-    })
-  }, [channels])
 
   const fetchMutation = useMutation({
     mutationFn: fetchUpstreamRatios,
@@ -170,15 +110,7 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
         return
       }
 
-      const { differences: diffs, test_results } = data.data
-
-      const errorResults = test_results.filter((r) => r.status === 'error')
-      if (errorResults.length > 0) {
-        const errorMsg = errorResults
-          .map((r) => `${r.name}: ${r.error}`)
-          .join(', ')
-        toast.warning(t('Some channels failed: {{errorMsg}}', { errorMsg }))
-      }
+      const { differences: diffs } = data.data
 
       setDifferences(diffs)
       setResolutions({})
@@ -226,43 +158,17 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
     },
   })
 
-  const handleOpenChannelDialog = () => {
-    setChannelDialogOpen(true)
-  }
-
-  const handleConfirmChannelSelection = (selectedIds: number[]) => {
-    const selectedChannels = channels.filter((ch) =>
-      selectedIds.includes(ch.id)
-    )
-
-    if (selectedChannels.length === 0) {
-      toast.warning(t('Please select at least one channel'))
-      return
-    }
-
-    const upstreams: UpstreamConfig[] = selectedChannels.map((ch) => ({
-      id: ch.id,
-      name: ch.name,
-      base_url: ch.base_url,
-      endpoint: channelEndpoints[ch.id] || DEFAULT_ENDPOINT,
-    }))
-
-    fetchMutation.mutate({ upstreams, timeout: 10, only_enabled_models: onlyEnabledModels })
+  const handleFetchUpstreamRatios = () => {
+    fetchMutation.mutate({ timeout: 10, only_enabled_models: onlyEnabledModels })
   }
 
   const handleSelectValue = useCallback(
-    (
-      model: string,
-      ratioType: RatioType,
-      value: number | string,
-      sourceName: string
-    ) => {
+    (model: string, ratioType: RatioType, value: number | string) => {
       setResolutions((prev) =>
         applyResolutionSelection(prev, differences, {
           model,
           ratioType,
           value,
-          sourceName,
         })
       )
     },
@@ -395,17 +301,6 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
     [resolutions, syncMutate]
   )
 
-  const findSourceChannel = (
-    model: string,
-    ratioType: RatioType,
-    value: number | string
-  ): string => {
-    const upMap = differences[model]?.[ratioType]?.upstreams
-    if (!upMap) return 'Unknown'
-    const entry = Object.entries(upMap).find(([, v]) => v === value)
-    return entry ? entry[0] : 'Unknown'
-  }
-
   const handleApplySync = () => {
     const currentRatios = parsedRatios
     const conflicts: ConflictItem[] = []
@@ -437,13 +332,7 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
             ? `${fixedPriceLabel}: ${ratios.model_price}`
             : `${modelRatioLabel}: ${ratios.model_ratio ?? '-'}\n${completionRatioLabel}: ${ratios.completion_ratio ?? '-'}`
 
-        const channelNames = selectedTypes
-          .map((rt) => findSourceChannel(model, rt as RatioType, ratios[rt]))
-          .filter((v, idx, arr) => arr.indexOf(v) === idx)
-          .join(', ')
-
         conflicts.push({
-          channel: channelNames,
           model,
           current: currentDesc,
           newVal: newDesc,
@@ -480,9 +369,13 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
     <div className='flex h-full min-h-0 flex-col gap-4'>
       <div className='flex shrink-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between'>
         <div className='flex flex-col gap-2 sm:flex-row'>
-          <Button onClick={handleOpenChannelDialog} disabled={isLoading}>
-            <RefreshCcw className='mr-2 h-4 w-4' />
-            {t('Select Sync Channels')}
+          <Button onClick={handleFetchUpstreamRatios} disabled={isLoading}>
+            {fetchMutation.isPending ? (
+              <span className='mr-2 h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent' />
+            ) : (
+              <RefreshCcw className='mr-2 h-4 w-4' />
+            )}
+            {t('Fetch prices from models.dev')}
           </Button>
           <Button
             variant='secondary'
@@ -524,17 +417,6 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
           onUnselectValues={handleUnselectValues}
         />
       </div>
-
-      <ChannelSelectorDialog
-        open={channelDialogOpen}
-        onOpenChange={setChannelDialogOpen}
-        channels={channels}
-        selectedChannelIds={selectedChannelIds}
-        onSelectedChannelIdsChange={setSelectedChannelIds}
-        channelEndpoints={channelEndpoints}
-        onChannelEndpointsChange={setChannelEndpoints}
-        onConfirm={handleConfirmChannelSelection}
-      />
 
       <ConflictConfirmDialog
         open={conflictDialogOpen}

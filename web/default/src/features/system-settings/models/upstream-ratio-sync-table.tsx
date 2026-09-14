@@ -39,10 +39,8 @@ import type { DifferencesMap, RatioType } from '../types'
 import { RATIO_TYPE_OPTIONS } from './constants'
 import { useUpstreamRatioSyncColumns } from './upstream-ratio-sync-columns'
 import {
-  getAlignedRatioTypes,
   getEffectiveResolutionSelections,
   getOrderedRatioTypes,
-  getUpstreamDisplayName,
   isSelectedResolutionValue,
   isSelectableUpstreamValue,
   RATIO_SYNC_FIELDS,
@@ -60,8 +58,7 @@ type UpstreamRatioSyncTableProps = {
   onSelectValue: (
     model: string,
     ratioType: RatioType,
-    value: number | string,
-    sourceName: string
+    value: number | string
   ) => void
   onSelectValues: (selections: ResolutionSelection[]) => void
   onUnselectValue: (model: string, ratioType: RatioType) => void
@@ -69,7 +66,6 @@ type UpstreamRatioSyncTableProps = {
 }
 
 export type UpstreamBulkSelectState = {
-  displayName: string
   selections: ResolutionSelection[]
   removalPlan: ResolutionRemovalPlan
   selectableCount: number
@@ -118,99 +114,59 @@ export function UpstreamRatioSyncTable({
     return data
   }, [dataSource, search, ratioTypeFilter])
 
-  const upstreamNames = useMemo(() => {
-    const set = new Set<string>()
+  const bulkSelectState = useMemo<UpstreamBulkSelectState>(() => {
+    const selections: ResolutionSelection[] = []
+    const removalPlan: ResolutionRemovalPlan = new Map()
+
     filteredData.forEach((row) => {
       getOrderedRatioTypes(row.ratioTypes, ratioTypeFilter).forEach(
         (ratioType) => {
-          Object.keys(row.ratioTypes[ratioType]?.upstreams || {}).forEach(
-            (name) => set.add(name)
-          )
+          const upstreamVal = row.ratioTypes[ratioType]?.upstream
+          if (!isSelectableUpstreamValue(upstreamVal)) return
+
+          selections.push({
+            model: row.model,
+            ratioType,
+            value: upstreamVal as number | string,
+          })
+          const removalRatioTypes = removalPlan.get(row.model)
+          if (removalRatioTypes) {
+            removalRatioTypes.add(ratioType)
+          } else {
+            removalPlan.set(row.model, new Set([ratioType]))
+          }
         }
       )
     })
-    return [...set]
-  }, [filteredData, ratioTypeFilter])
 
-  const bulkSelectStateByUpstream = useMemo<
-    Record<string, UpstreamBulkSelectState>
-  >(() => {
-    return upstreamNames.reduce<Record<string, UpstreamBulkSelectState>>(
-      (states, upstreamName) => {
-        const selections: ResolutionSelection[] = []
-        const removalPlan: ResolutionRemovalPlan = new Map()
+    const effectiveSelections = getEffectiveResolutionSelections(selections)
+    const selectedCount = effectiveSelections.filter((selection) =>
+      isSelectedResolutionValue(
+        resolutions,
+        selection.model,
+        selection.ratioType,
+        selection.value
+      )
+    ).length
 
-        filteredData.forEach((row) => {
-          getAlignedRatioTypes(
-            row.ratioTypes,
-            [upstreamName],
-            ratioTypeFilter
-          ).forEach((ratioType) => {
-            const upstreamVal =
-              row.ratioTypes[ratioType]?.upstreams?.[upstreamName]
-            if (isSelectableUpstreamValue(upstreamVal)) {
-              selections.push({
-                model: row.model,
-                ratioType,
-                value: upstreamVal as number | string,
-                sourceName: upstreamName,
-              })
-              const removalRatioTypes = removalPlan.get(row.model)
-              if (removalRatioTypes) {
-                removalRatioTypes.add(ratioType)
-              } else {
-                removalPlan.set(row.model, new Set([ratioType]))
-              }
-            }
-          })
-        })
+    return {
+      selections: effectiveSelections,
+      removalPlan,
+      selectableCount: effectiveSelections.length,
+      selectedCount,
+    }
+  }, [filteredData, ratioTypeFilter, resolutions])
 
-        const effectiveSelections = getEffectiveResolutionSelections(
-          differences,
-          selections
-        )
-        const selectedCount = effectiveSelections.filter((selection) =>
-          isSelectedResolutionValue(
-            resolutions,
-            selection.model,
-            selection.ratioType,
-            selection.value
-          )
-        ).length
+  const handleBulkSelect = useCallback(() => {
+    onSelectValues(bulkSelectState.selections)
+  }, [bulkSelectState, onSelectValues])
 
-        states[upstreamName] = {
-          displayName: getUpstreamDisplayName(upstreamName),
-          selections: effectiveSelections,
-          removalPlan,
-          selectableCount: effectiveSelections.length,
-          selectedCount,
-        }
-        return states
-      },
-      {}
-    )
-  }, [differences, filteredData, ratioTypeFilter, resolutions, upstreamNames])
-
-  const handleBulkSelect = useCallback(
-    (upstream: string) => {
-      const selections = bulkSelectStateByUpstream[upstream]?.selections ?? []
-      onSelectValues(selections)
-    },
-    [bulkSelectStateByUpstream, onSelectValues]
-  )
-
-  const handleBulkUnselect = useCallback(
-    (upstream: string) => {
-      const removalPlan =
-        bulkSelectStateByUpstream[upstream]?.removalPlan ?? new Map()
-      onUnselectValues(removalPlan)
-    },
-    [bulkSelectStateByUpstream, onUnselectValues]
-  )
+  const handleBulkUnselect = useCallback(() => {
+    onUnselectValues(bulkSelectState.removalPlan)
+  }, [bulkSelectState, onUnselectValues])
 
   const columns = useUpstreamRatioSyncColumns(
-    upstreamNames,
-    bulkSelectStateByUpstream,
+    bulkSelectState,
     resolutions,
     ratioTypeFilter,
     isDisabled,
@@ -249,7 +205,7 @@ export function UpstreamRatioSyncTable({
             {t('No upstream price differences found')}
           </p>
           <p className='text-muted-foreground mt-1 text-xs'>
-            {t('Select sync channels to compare prices')}
+            {t('Fetch prices from models.dev to compare')}
           </p>
         </div>
       </div>

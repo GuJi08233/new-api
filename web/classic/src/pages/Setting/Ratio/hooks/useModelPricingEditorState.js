@@ -17,7 +17,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { API, showError, showSuccess } from '../../../../helpers';
+import {
+  API,
+  showError,
+  showSuccess,
+  showWarning,
+} from '../../../../helpers';
 import {
   combineBillingExpr,
   splitBillingExprAndRequestRules,
@@ -26,6 +31,20 @@ import {
 export const PAGE_SIZE = 10;
 export const PRICE_SUFFIX = '$/1M tokens';
 const EMPTY_CANDIDATE_MODEL_NAMES = [];
+
+// 分组级定价的全部 option，清空分组配置时需要逐个移除该分组的键
+const GROUP_PRICING_OPTION_KEYS = [
+  'GroupModelPrice',
+  'GroupModelRatio',
+  'GroupCompletionRatio',
+  'GroupCacheRatio',
+  'GroupCreateCacheRatio',
+  'GroupImageRatio',
+  'GroupAudioRatio',
+  'GroupAudioCompletionRatio',
+  'GroupBillingMode',
+  'GroupBillingExpr',
+];
 
 const EMPTY_MODEL = {
   name: '',
@@ -635,6 +654,9 @@ export function useModelPricingEditorState({
   const [loading, setLoading] = useState(false);
   const [conflictOnly, setConflictOnly] = useState(false);
   const [optionalFieldToggles, setOptionalFieldToggles] = useState({});
+  // 单个模型在 models.dev 上的全部报价，按模型名缓存
+  const [upstreamCandidates, setUpstreamCandidates] = useState({});
+  const [upstreamLoading, setUpstreamLoading] = useState(false);
 
   // 根据选中的分组确定数据源
   const getSourceMaps = useCallback(() => {
@@ -1232,7 +1254,377 @@ export function useModelPricingEditorState({
     deleteModel,
     applySelectedModelPricing,
     syncGroupPricing,
+    clearGroupPricing,
+    fillPricingFromUpstream,
+    upstreamCandidates,
+    upstreamLoading,
+    loadUpstreamCandidates,
+    applyUpstreamCandidate,
   };
+
+  // 拉取单个模型在 models.dev 上的全部报价，供用户挑提供商
+  async function loadUpstreamCandidates(modelName) {
+    if (!modelName) return false;
+
+    setUpstreamLoading(true);
+    try {
+      const res = await API.post('/api/ratio_sync/fetch', {
+        timeout: 15,
+        model_names: [modelName],
+      });
+      if (!res.data.success) {
+        showError(res.data.message || t('获取 models.dev 价格失败'));
+        return false;
+      }
+
+      const candidates = res.data.data?.candidates?.[modelName] || [];
+      setUpstreamCandidates((previous) => ({
+        ...previous,
+        [modelName]: candidates,
+      }));
+      if (candidates.length === 0) {
+        showWarning(t('models.dev 上没有收录该模型'));
+      }
+      return true;
+    } catch (error) {
+      console.error('获取 models.dev 价格失败:', error);
+      showError(error.message || t('获取 models.dev 价格失败'));
+      return false;
+    } finally {
+      setUpstreamLoading(false);
+    }
+  }
+
+  // 把选中提供商的报价填入该模型的表单，useTiered 时改用该来源的上下文阶梯价
+  function applyUpstreamCandidate(modelName, provider, useTiered = false) {
+    const candidate = (upstreamCandidates[modelName] || []).find(
+      (item) => item.provider === provider,
+    );
+    if (!candidate) return false;
+
+    const model = models.find((item) => item.name === modelName);
+    if (!model) return false;
+
+    if (useTiered) {
+      if (!candidate.billing_expr) return false;
+      upsertModel(modelName, (previous) => ({
+        ...previous,
+        billingMode: 'tiered_expr',
+        billingExpr: candidate.billing_expr,
+        requestRuleExpr: '',
+        fixedPrice: '',
+      }));
+      showSuccess(
+        t('已填入 {{provider}} 的上下文阶梯价，确认后点击保存生效', {
+          provider,
+        }),
+      );
+      return true;
+    }
+
+    const inputPriceNumber = Number(candidate.model_ratio) * 2;
+    if (!Number.isFinite(inputPriceNumber)) return false;
+
+    const completionRatio =
+      model.completionRatioLocked && hasValue(model.lockedCompletionRatio)
+        ? Number(model.lockedCompletionRatio)
+        : toNumberOrNull(candidate.completion_ratio);
+    const cacheRatio = toNumberOrNull(candidate.cache_ratio);
+    const createCacheRatio = toNumberOrNull(candidate.create_cache_ratio);
+    const audioRatio = toNumberOrNull(candidate.audio_ratio);
+    const audioCompletionRatio = toNumberOrNull(
+      candidate.audio_completion_ratio,
+    );
+    const audioInputPriceNumber =
+      audioRatio !== null ? inputPriceNumber * audioRatio : null;
+
+    upsertModel(modelName, (previous) => ({
+      ...previous,
+      billingMode: 'per-token',
+      fixedPrice: '',
+      inputPrice: formatNumber(inputPriceNumber),
+      completionPrice:
+        completionRatio !== null
+          ? formatNumber(inputPriceNumber * completionRatio)
+          : previous.completionPrice,
+      cachePrice:
+        cacheRatio !== null
+          ? formatNumber(inputPriceNumber * cacheRatio)
+          : previous.cachePrice,
+      createCachePrice:
+        createCacheRatio !== null
+          ? formatNumber(inputPriceNumber * createCacheRatio)
+          : previous.createCachePrice,
+      audioInputPrice:
+        audioInputPriceNumber !== null
+          ? formatNumber(audioInputPriceNumber)
+          : previous.audioInputPrice,
+      audioOutputPrice:
+        audioInputPriceNumber !== null && audioCompletionRatio !== null
+          ? formatNumber(audioInputPriceNumber * audioCompletionRatio)
+          : previous.audioOutputPrice,
+    }));
+
+    setOptionalFieldToggles((previous) => {
+      const current = previous[modelName] || {};
+      return {
+        ...previous,
+        [modelName]: {
+          ...current,
+          completionPrice:
+            completionRatio !== null || Boolean(current.completionPrice),
+          cachePrice: cacheRatio !== null || Boolean(current.cachePrice),
+          createCachePrice:
+            createCacheRatio !== null || Boolean(current.createCachePrice),
+          audioInputPrice:
+            audioRatio !== null || Boolean(current.audioInputPrice),
+          audioOutputPrice:
+            (audioRatio !== null && audioCompletionRatio !== null) ||
+            Boolean(current.audioOutputPrice),
+        },
+      };
+    });
+
+    showSuccess(
+      candidate.official
+        ? t('已填入 {{provider}} 的价格，确认后点击保存生效', { provider })
+        : t('已填入第三方来源 {{provider}} 的价格，请自行核对后保存', {
+            provider,
+          }),
+    );
+    return true;
+  }
+
+  // 清空当前分组的全部定价配置，清空后该分组回落到全局定价
+  async function clearGroupPricing() {
+    if (selectedGroup === 'global') {
+      showError(t('全局配置不支持清空'));
+      return false;
+    }
+
+    setLoading(true);
+    try {
+      const results = await Promise.all(
+        GROUP_PRICING_OPTION_KEYS.map((key) => {
+          const existing = parseOptionJSON(options[key]);
+          delete existing[selectedGroup];
+          return API.put('/api/option/', {
+            key,
+            value: JSON.stringify(existing, null, 2),
+          });
+        }),
+      );
+      for (const res of results) {
+        if (!res?.data?.success) {
+          throw new Error(res?.data?.message || t('清空失败，请重试'));
+        }
+      }
+
+      setSelectedModelNames([]);
+      showSuccess(t('已清空该分组的定价配置，该分组将回落到全局定价'));
+      await refresh();
+      return true;
+    } catch (error) {
+      console.error('清空分组配置失败:', error);
+      showError(error.message || t('清空失败，请重试'));
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // 用 models.dev 的价格填充编辑器，填充后仍需用户点击保存才会写入
+  async function fillPricingFromUpstream(targetModelNames) {
+    const names =
+      targetModelNames && targetModelNames.length > 0
+        ? targetModelNames
+        : filteredModels.map((model) => model.name);
+    if (names.length === 0) {
+      showError(t('当前没有可同步的模型'));
+      return false;
+    }
+
+    setLoading(true);
+    try {
+      const res = await API.post('/api/ratio_sync/fetch', {
+        timeout: 15,
+        model_names: names,
+      });
+      if (!res.data.success) {
+        showError(res.data.message || t('获取 models.dev 价格失败'));
+        return false;
+      }
+
+      const differences = res.data.data?.differences || {};
+      const upstreamSources = res.data.data?.sources || {};
+      const targetNameSet = new Set(names);
+      const pricePatches = new Map();
+      let skippedTieredCount = 0;
+      let tieredCount = 0;
+
+      for (const model of models) {
+        if (!targetNameSet.has(model.name)) continue;
+        const diff = differences[model.name];
+        if (!diff) continue;
+
+        // 上游给了上下文阶梯价时按表达式计费填充，倍率不再适用
+        const upstreamExpr = diff.billing_expr?.upstream;
+        if (typeof upstreamExpr === 'string' && upstreamExpr !== '') {
+          tieredCount += 1;
+          pricePatches.set(model.name, {
+            billingMode: 'tiered_expr',
+            billingExpr: upstreamExpr,
+            requestRuleExpr: '',
+            fixedPrice: '',
+          });
+          continue;
+        }
+
+        if (model.billingMode === 'tiered_expr') {
+          skippedTieredCount += 1;
+          continue;
+        }
+
+        const upstreamModelRatio = toNumberOrNull(diff.model_ratio?.upstream);
+        const inputPriceNumber =
+          upstreamModelRatio !== null
+            ? upstreamModelRatio * 2
+            : toNumberOrNull(model.inputPrice);
+        if (inputPriceNumber === null) continue;
+
+        const ratioOf = (field, localRatio) =>
+          toNumberOrNull(diff[field]?.upstream) ?? toNumberOrNull(localRatio);
+        const completionRatio = ratioOf(
+          'completion_ratio',
+          model.rawRatios.completionRatio,
+        );
+        const cacheRatio = ratioOf('cache_ratio', model.rawRatios.cacheRatio);
+        const createCacheRatio = ratioOf(
+          'create_cache_ratio',
+          model.rawRatios.createCacheRatio,
+        );
+        const audioRatio = ratioOf('audio_ratio', model.rawRatios.audioRatio);
+        const audioCompletionRatio = ratioOf(
+          'audio_completion_ratio',
+          model.rawRatios.audioCompletionRatio,
+        );
+        const audioInputPriceNumber =
+          audioRatio !== null ? inputPriceNumber * audioRatio : null;
+
+        pricePatches.set(model.name, {
+          billingMode: 'per-token',
+          fixedPrice: '',
+          inputPrice: formatNumber(inputPriceNumber),
+          completionPrice:
+            model.completionRatioLocked && hasValue(model.lockedCompletionRatio)
+              ? formatNumber(
+                  inputPriceNumber * Number(model.lockedCompletionRatio),
+                )
+              : completionRatio !== null
+                ? formatNumber(inputPriceNumber * completionRatio)
+                : model.completionPrice,
+          cachePrice:
+            cacheRatio !== null
+              ? formatNumber(inputPriceNumber * cacheRatio)
+              : model.cachePrice,
+          createCachePrice:
+            createCacheRatio !== null
+              ? formatNumber(inputPriceNumber * createCacheRatio)
+              : model.createCachePrice,
+          audioInputPrice:
+            audioInputPriceNumber !== null
+              ? formatNumber(audioInputPriceNumber)
+              : model.audioInputPrice,
+          audioOutputPrice:
+            audioInputPriceNumber !== null && audioCompletionRatio !== null
+              ? formatNumber(audioInputPriceNumber * audioCompletionRatio)
+              : model.audioOutputPrice,
+        });
+      }
+
+      const filledNames = [...pricePatches.keys()];
+
+      if (filledNames.length > 0) {
+        setModels((previous) =>
+          previous.map((model) => {
+            const patch = pricePatches.get(model.name);
+            return patch ? { ...model, ...patch } : model;
+          }),
+        );
+        setOptionalFieldToggles((previous) => {
+          const next = { ...previous };
+          filledNames.forEach((name) => {
+            const diff = differences[name] || {};
+            const current = next[name] || {};
+            const filled = (field) => diff[field]?.upstream !== undefined;
+            next[name] = {
+              ...current,
+              completionPrice:
+                current.completionPrice || filled('completion_ratio'),
+              cachePrice: current.cachePrice || filled('cache_ratio'),
+              createCachePrice:
+                current.createCachePrice || filled('create_cache_ratio'),
+              audioInputPrice:
+                current.audioInputPrice || filled('audio_ratio'),
+              audioOutputPrice:
+                current.audioOutputPrice ||
+                (filled('audio_ratio') && filled('audio_completion_ratio')),
+            };
+          });
+          return next;
+        });
+      }
+
+      if (filledNames.length === 0) {
+        showSuccess(
+          skippedTieredCount > 0
+            ? t('models.dev 没有可填充的新价格（已跳过 {{count}} 个表达式计费模型）', {
+                count: skippedTieredCount,
+              })
+            : t('models.dev 没有这些模型的新价格'),
+        );
+        return true;
+      }
+
+      showSuccess(
+        skippedTieredCount > 0
+          ? t(
+              '已填充 {{count}} 个模型的价格（跳过 {{skipped}} 个表达式计费模型），确认后点击保存生效',
+              { count: filledNames.length, skipped: skippedTieredCount },
+            )
+          : t('已填充 {{count}} 个模型的价格，确认后点击保存生效', {
+              count: filledNames.length,
+            }),
+      );
+
+      if (tieredCount > 0) {
+        showWarning(
+          t('其中 {{count}} 个模型上游有上下文阶梯价，已填充为表达式计费', {
+            count: tieredCount,
+          }),
+        );
+      }
+
+      const thirdPartyCount = filledNames.filter(
+        (name) => upstreamSources[name] && !upstreamSources[name].official,
+      ).length;
+      if (thirdPartyCount > 0) {
+        showWarning(
+          t(
+            '其中 {{count}} 个模型 models.dev 上没有官方条目，价格取自第三方转售商，请自行核对',
+            { count: thirdPartyCount },
+          ),
+        );
+      }
+      return true;
+    } catch (error) {
+      console.error('同步 models.dev 价格失败:', error);
+      showError(error.message || t('获取 models.dev 价格失败'));
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  }
 
   // 一键同步分组定价
   async function syncGroupPricing(targetGroups, modelNames = null, fromGlobal = false) {

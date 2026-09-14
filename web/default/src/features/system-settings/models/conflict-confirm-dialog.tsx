@@ -31,7 +31,6 @@ import {
 } from '@/components/ui/alert-dialog'
 
 export type ConflictItem = {
-  channel: string
   model: string
   current: string
   newVal: string
@@ -69,12 +68,6 @@ export function ConflictConfirmDialog({
           className='max-h-96 overflow-y-auto'
           data={conflicts}
           columns={[
-            {
-              id: 'channel',
-              header: t('Channel'),
-              cellClassName: 'font-medium',
-              cell: (conflict) => conflict.channel,
-            },
             {
               id: 'model',
               header: t('Model'),

@@ -38,28 +38,18 @@ import {
   showError,
   showInfo,
   showSuccess,
-  showWarning,
   stringToColor,
   convertUSDToCurrency,
 } from '../../../helpers';
 import { useIsMobile } from '../../../hooks/common/useIsMobile';
-import { DEFAULT_ENDPOINT } from '../../../constants';
 import { useTranslation } from 'react-i18next';
 import {
   IllustrationNoResult,
   IllustrationNoResultDark,
 } from '@douyinfe/semi-illustrations';
-import ChannelSelectorModal from '../../../components/settings/ChannelSelectorModal';
 
-const OFFICIAL_RATIO_PRESET_ID = -100;
-const OFFICIAL_RATIO_PRESET_NAME = '官方倍率预设';
-const OFFICIAL_RATIO_PRESET_BASE_URL = 'https://basellm.github.io';
-const OFFICIAL_RATIO_PRESET_ENDPOINT =
-  '/llm-metadata/api/newapi/ratio_config-v1-base.json';
-const MODELS_DEV_PRESET_ID = -101;
-const MODELS_DEV_PRESET_NAME = 'models.dev 价格预设';
-const MODELS_DEV_PRESET_BASE_URL = 'https://models.dev';
-const MODELS_DEV_PRESET_ENDPOINT = 'https://models.dev/api.json';
+// 上游价格同步仅支持 models.dev 一个来源
+const UPSTREAM_NAME = 'models.dev';
 
 const PRICE_OPTION_KEY_BY_FIELD = {
   model_ratio: 'ModelRatio',
@@ -111,23 +101,16 @@ function parsePricingOptions(options = {}) {
 }
 
 function toFiniteNumber(value) {
-  if (
-    value === null ||
-    value === undefined ||
-    value === '' ||
-    value === 'same'
-  ) {
+  if (value === null || value === undefined || value === '') {
     return null;
   }
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
 }
 
-function getPricingValue(model, field, ratioTypes, localPricing, sourceName) {
-  if (sourceName) {
-    const upstreamNumber = toFiniteNumber(
-      ratioTypes[field]?.upstreams?.[sourceName],
-    );
+function getPricingValue(model, field, ratioTypes, localPricing, useUpstream) {
+  if (useUpstream) {
+    const upstreamNumber = toFiniteNumber(ratioTypes[field]?.upstream);
     if (upstreamNumber !== null) return upstreamNumber;
   }
 
@@ -143,7 +126,7 @@ function getSyncPricePreview(
   ratioType,
   ratioTypes,
   localPricing,
-  sourceName,
+  useUpstream,
 ) {
   if (!PRICE_LABEL_BY_FIELD[ratioType]) return null;
 
@@ -152,7 +135,7 @@ function getSyncPricePreview(
     ratioType,
     ratioTypes,
     localPricing,
-    sourceName,
+    useUpstream,
   );
   if (fieldValue === null) return null;
 
@@ -169,7 +152,7 @@ function getSyncPricePreview(
     'model_ratio',
     ratioTypes,
     localPricing,
-    sourceName,
+    useUpstream,
   );
   if (modelRatio === null) return null;
 
@@ -190,7 +173,7 @@ function getSyncPricePreview(
       'audio_ratio',
       ratioTypes,
       localPricing,
-      sourceName,
+      useUpstream,
     );
     if (audioRatio === null) return null;
     amountUSD = inputPrice * audioRatio * fieldValue;
@@ -223,7 +206,6 @@ function SyncPricePreview({ preview, t }) {
 function ConflictConfirmModal({ t, visible, items, loading, onOk, onCancel }) {
   const isMobile = useIsMobile();
   const columns = [
-    { title: t('渠道'), dataIndex: 'channel' },
     { title: t('模型'), dataIndex: 'model' },
     {
       title: t('当前计费'),
@@ -260,24 +242,23 @@ function ConflictConfirmModal({ t, visible, items, loading, onOk, onCancel }) {
 
 export default function UpstreamRatioSync(props) {
   const { t } = useTranslation();
-  const [modalVisible, setModalVisible] = useState(false);
   const [loading, setLoading] = useState(false);
   const [syncLoading, setSyncLoading] = useState(false);
   const [confirmLoading, setConfirmLoading] = useState(false);
-  const isMobile = useIsMobile();
 
-  // 渠道选择相关
-  const [allChannels, setAllChannels] = useState([]);
-  const [selectedChannelIds, setSelectedChannelIds] = useState([]);
-
-  // 渠道端点配置
-  const [channelEndpoints, setChannelEndpoints] = useState({}); // { channelId: endpoint }
-
-  // 差异数据和测试结果
+  // 差异数据和用户选择
   const [differences, setDifferences] = useState({});
   const [resolutions, setResolutions] = useState({});
+  // 每个模型的价格来自 models.dev 的哪个提供商，以及可切换的其它来源
+  const [sources, setSources] = useState({});
+  const [candidates, setCandidates] = useState({});
+  const [providers, setProviders] = useState([]);
 
-  // 是否已经执行过同步
+  // 来源偏好：auto 官方优先 / official_only 仅官方 / prefer 指定提供商优先
+  const [sourceMode, setSourceMode] = useState('auto');
+  const [preferredProviders, setPreferredProviders] = useState([]);
+
+  // 是否已经执行过拉取
   const [hasSynced, setHasSynced] = useState(false);
 
   // 只显示已启用模型
@@ -295,9 +276,7 @@ export default function UpstreamRatioSync(props) {
 
   // 冲突确认弹窗相关
   const [confirmVisible, setConfirmVisible] = useState(false);
-  const [conflictItems, setConflictItems] = useState([]); // {channel, model, current, newVal, ratioType}
-
-  const channelSelectorRef = React.useRef(null);
+  const [conflictItems, setConflictItems] = useState([]); // {model, current, newVal}
 
   // 定价选项串在生产环境常有数百 KB，搜索/翻页每次 render 都重解析代价过高。
   const parsedRatios = useMemo(
@@ -309,115 +288,45 @@ export default function UpstreamRatioSync(props) {
     setCurrentPage(1);
   }, [ratioTypeFilter, searchKeyword]);
 
-  const fetchAllChannels = async () => {
-    setLoading(true);
-    try {
-      const res = await API.get('/api/ratio_sync/channels');
-
-      if (res.data.success) {
-        const channels = res.data.data || [];
-
-        const transferData = channels.map((channel) => ({
-          key: channel.id,
-          label: channel.name,
-          value: channel.id,
-          disabled: false,
-          _originalData: channel,
-        }));
-
-        setAllChannels(transferData);
-
-        // 合并已有 endpoints，避免每次打开弹窗都重置
-        setChannelEndpoints((prev) => {
-          const merged = { ...prev };
-          transferData.forEach((channel) => {
-            const id = channel.key;
-            const base = channel._originalData?.base_url || '';
-            const name = channel.label || '';
-            const channelType = channel._originalData?.type;
-            const isOfficialRatioPreset =
-              id === OFFICIAL_RATIO_PRESET_ID ||
-              base === OFFICIAL_RATIO_PRESET_BASE_URL ||
-              name === OFFICIAL_RATIO_PRESET_NAME;
-            const isModelsDevPreset =
-              id === MODELS_DEV_PRESET_ID ||
-              base === MODELS_DEV_PRESET_BASE_URL ||
-              name === MODELS_DEV_PRESET_NAME;
-            const isOpenRouter = channelType === 20;
-            if (!merged[id]) {
-              if (isModelsDevPreset) {
-                merged[id] = MODELS_DEV_PRESET_ENDPOINT;
-              } else if (isOfficialRatioPreset) {
-                merged[id] = OFFICIAL_RATIO_PRESET_ENDPOINT;
-              } else if (isOpenRouter) {
-                merged[id] = 'openrouter';
-              } else {
-                merged[id] = DEFAULT_ENDPOINT;
-              }
-            }
-          });
-          return merged;
-        });
-      } else {
-        showError(res.data.message);
-      }
-    } catch (error) {
-      showError(t('获取渠道失败：') + error.message);
-    } finally {
-      setLoading(false);
-    }
+  const resetFetchedData = () => {
+    setDifferences({});
+    setSources({});
+    setCandidates({});
+    setResolutions({});
+    setHasSynced(false);
+    setCurrentPage(1);
   };
 
-  const confirmChannelSelection = () => {
-    const selected = allChannels
-      .filter((ch) => selectedChannelIds.includes(ch.value))
-      .map((ch) => ch._originalData);
-
-    if (selected.length === 0) {
-      showWarning(t('请至少选择一个渠道'));
-      return;
-    }
-
-    setModalVisible(false);
-    fetchRatiosFromChannels(selected);
-  };
-
-  const fetchRatiosFromChannels = async (channelList) => {
+  const fetchUpstreamRatios = async () => {
     setSyncLoading(true);
 
-    const upstreams = channelList.map((ch) => ({
-      id: ch.id,
-      name: ch.name,
-      base_url: ch.base_url,
-      endpoint: channelEndpoints[ch.id] || DEFAULT_ENDPOINT,
-    }));
-
-    const payload = {
-      upstreams: upstreams,
-      timeout: 10,
-      only_enabled_models: onlyEnabledModels,
-    };
-
     try {
+      const payload = {
+        timeout: 10,
+        only_enabled_models: onlyEnabledModels,
+        source_mode: sourceMode,
+      };
+      if (sourceMode === 'prefer') {
+        payload.preferred_providers = preferredProviders;
+      }
       const res = await API.post('/api/ratio_sync/fetch', payload);
 
       if (!res.data.success) {
         showError(res.data.message || t('后端请求失败'));
-        setSyncLoading(false);
         return;
       }
 
-      const { differences = {}, test_results = [] } = res.data.data;
-
-      const errorResults = test_results.filter((r) => r.status === 'error');
-      if (errorResults.length > 0) {
-        showWarning(
-          t('部分渠道测试失败：') +
-            errorResults.map((r) => `${r.name}: ${r.error}`).join(', '),
-        );
-      }
+      const {
+        differences = {},
+        sources = {},
+        candidates = {},
+        providers = [],
+      } = res.data.data;
 
       setDifferences(differences);
+      setSources(sources);
+      setCandidates(candidates);
+      setProviders(providers);
       setResolutions({});
       setHasSynced(true);
 
@@ -428,6 +337,81 @@ export default function UpstreamRatioSync(props) {
       showError(t('请求后端接口失败：') + e.message);
     } finally {
       setSyncLoading(false);
+    }
+  };
+
+  // 把某个模型的上游价格切换到另一个提供商的报价
+  const applyCandidateSource = (model, provider) => {
+    const candidate = (candidates[model] || []).find(
+      (item) => item.provider === provider,
+    );
+    if (!candidate) return;
+
+    const localValueOf = (field) => {
+      const optionKey = PRICE_OPTION_KEY_BY_FIELD[field];
+      return toFiniteNumber(parsedRatios[optionKey]?.[model]);
+    };
+
+    const upstreamByField = {
+      model_ratio: candidate.model_ratio,
+      completion_ratio: candidate.completion_ratio,
+      cache_ratio: candidate.cache_ratio,
+      create_cache_ratio: candidate.create_cache_ratio,
+      audio_ratio: candidate.audio_ratio,
+      audio_completion_ratio: candidate.audio_completion_ratio,
+    };
+
+    const nextRow = {};
+    Object.entries(upstreamByField).forEach(([field, value]) => {
+      if (value === null || value === undefined) return;
+      const current = localValueOf(field);
+      if (current !== null && Math.abs(current - value) < 1e-9) return;
+      nextRow[field] = { current, upstream: value };
+    });
+
+    // 该来源带上下文阶梯价时，额外给出改用表达式计费的选项
+    if (candidate.billing_expr) {
+      const currentExpr =
+        parsedRatios['billing_setting.billing_expr']?.[model] ?? null;
+      if (currentExpr !== candidate.billing_expr) {
+        nextRow.billing_expr = {
+          current: currentExpr,
+          upstream: candidate.billing_expr,
+        };
+        const currentMode =
+          parsedRatios['billing_setting.billing_mode']?.[model] ?? null;
+        if (currentMode !== 'tiered_expr') {
+          nextRow.billing_mode = {
+            current: currentMode,
+            upstream: 'tiered_expr',
+          };
+        }
+      }
+    }
+
+    setDifferences((prev) => {
+      const next = { ...prev };
+      if (Object.keys(nextRow).length === 0) {
+        delete next[model];
+      } else {
+        next[model] = nextRow;
+      }
+      return next;
+    });
+    setSources((prev) => ({
+      ...prev,
+      [model]: { provider: candidate.provider, official: candidate.official },
+    }));
+    // 旧来源上的勾选不能带到新来源
+    setResolutions((prev) => {
+      if (!prev[model]) return prev;
+      const next = { ...prev };
+      delete next[model];
+      return next;
+    });
+
+    if (Object.keys(nextRow).length === 0) {
+      showInfo(t('该来源与本地价格一致，已从列表中移除'));
     }
   };
 
@@ -510,107 +494,38 @@ export default function UpstreamRatioSync(props) {
       .join('');
   }
 
-  function getUpstreamValue(model, ratioType, sourceName) {
-    return differences[model]?.[ratioType]?.upstreams?.[sourceName];
-  }
+  const selectValue = useCallback((model, ratioType, value) => {
+    const category = getBillingCategory(ratioType);
 
-  function isSelectableUpstreamValue(value) {
-    return value !== null && value !== undefined && value !== 'same';
-  }
+    setResolutions((prev) => {
+      const newModelRes = { ...(prev[model] || {}) };
 
-  function getPreferredSyncField(model, ratioType, sourceName) {
-    const exprValue = getUpstreamValue(model, 'billing_expr', sourceName);
-    if (ratioType !== 'billing_expr' && isSelectableUpstreamValue(exprValue)) {
-      return 'billing_expr';
-    }
-    return ratioType;
-  }
-
-  function shouldShowSyncField(model, ratioType, sourceName) {
-    if (!sourceName) return true;
-    return getPreferredSyncField(model, ratioType, sourceName) === ratioType;
-  }
-
-  const selectValue = useCallback(
-    (model, ratioType, value, sourceName) => {
-      const preferredRatioType = sourceName
-        ? getPreferredSyncField(model, ratioType, sourceName)
-        : ratioType;
-      const preferredValue =
-        preferredRatioType === ratioType
-          ? value
-          : getUpstreamValue(model, preferredRatioType, sourceName);
-      ratioType = preferredRatioType;
-      value = preferredValue;
-
-      const category = getBillingCategory(ratioType);
-
-      setResolutions((prev) => {
-        const newModelRes = { ...(prev[model] || {}) };
-
-        Object.keys(newModelRes).forEach((rt) => {
-          if (
-            category !== 'tiered' &&
-            getBillingCategory(rt) !== 'tiered' &&
-            getBillingCategory(rt) !== category
-          ) {
-            delete newModelRes[rt];
-          }
-        });
-
-        newModelRes[ratioType] = value;
-
-        if (category === 'tiered' && sourceName) {
-          const modeValue =
-            differences[model]?.billing_mode?.upstreams?.[sourceName];
-          const exprValue =
-            differences[model]?.billing_expr?.upstreams?.[sourceName];
-          if (
-            modeValue !== undefined &&
-            modeValue !== null &&
-            modeValue !== 'same'
-          ) {
-            newModelRes.billing_mode = modeValue;
-          } else if (ratioType === 'billing_expr') {
-            newModelRes.billing_mode = 'tiered_expr';
-          }
-          if (
-            exprValue !== undefined &&
-            exprValue !== null &&
-            exprValue !== 'same'
-          ) {
-            newModelRes.billing_expr = exprValue;
-          }
+      // 固定价格与倍率互斥，同一模型只能同步其中一类
+      Object.keys(newModelRes).forEach((rt) => {
+        if (
+          category !== 'tiered' &&
+          getBillingCategory(rt) !== 'tiered' &&
+          getBillingCategory(rt) !== category
+        ) {
+          delete newModelRes[rt];
         }
-
-        return {
-          ...prev,
-          [model]: newModelRes,
-        };
       });
-    },
-    [setResolutions, differences],
-  );
+
+      newModelRes[ratioType] = value;
+
+      if (ratioType === 'billing_expr' && !newModelRes.billing_mode) {
+        newModelRes.billing_mode = 'tiered_expr';
+      }
+
+      return {
+        ...prev,
+        [model]: newModelRes,
+      };
+    });
+  }, []);
 
   const applySync = async () => {
-    const currentRatios = {
-      ModelRatio: JSON.parse(props.options.ModelRatio || '{}'),
-      CompletionRatio: JSON.parse(props.options.CompletionRatio || '{}'),
-      CacheRatio: JSON.parse(props.options.CacheRatio || '{}'),
-      CreateCacheRatio: JSON.parse(props.options.CreateCacheRatio || '{}'),
-      ImageRatio: JSON.parse(props.options.ImageRatio || '{}'),
-      AudioRatio: JSON.parse(props.options.AudioRatio || '{}'),
-      AudioCompletionRatio: JSON.parse(
-        props.options.AudioCompletionRatio || '{}',
-      ),
-      ModelPrice: JSON.parse(props.options.ModelPrice || '{}'),
-      'billing_setting.billing_mode': JSON.parse(
-        props.options['billing_setting.billing_mode'] || '{}',
-      ),
-      'billing_setting.billing_expr': JSON.parse(
-        props.options['billing_setting.billing_expr'] || '{}',
-      ),
-    };
+    const currentRatios = parsePricingOptions(props.options);
 
     const conflicts = [];
 
@@ -627,15 +542,6 @@ export default function UpstreamRatioSync(props) {
       )
         return 'ratio';
       return null;
-    };
-
-    const findSourceChannel = (model, ratioType, value) => {
-      if (differences[model] && differences[model][ratioType]) {
-        const upMap = differences[model][ratioType].upstreams || {};
-        const entry = Object.entries(upMap).find(([_, v]) => v === value);
-        if (entry) return entry[0];
-      }
-      return t('未知');
     };
 
     Object.entries(resolutions).forEach(([model, ratios]) => {
@@ -662,13 +568,8 @@ export default function UpstreamRatioSync(props) {
           newDesc = `${t('模型倍率')} : ${newModelRatio}\n${t('补全倍率')} : ${newCompRatio}`;
         }
 
-        const channels = Object.entries(ratios)
-          .map(([rt, val]) => findSourceChannel(model, rt, val))
-          .filter((v, idx, arr) => arr.indexOf(v) === idx)
-          .join(', ');
-
         conflicts.push({
-          channel: channels,
+          key: model,
           model,
           current: currentDesc,
           newVal: newDesc,
@@ -795,15 +696,11 @@ export default function UpstreamRatioSync(props) {
           <Button
             icon={<RefreshCcw size={14} />}
             className='w-full md:w-auto mt-2'
+            loading={syncLoading}
             disabled={loading || syncLoading || confirmLoading}
-            onClick={() => {
-              setModalVisible(true);
-              if (allChannels.length === 0) {
-                fetchAllChannels();
-              }
-            }}
+            onClick={fetchUpstreamRatios}
           >
-            {t('选择同步渠道')}
+            {t('从 models.dev 获取价格')}
           </Button>
 
           {(() => {
@@ -826,6 +723,57 @@ export default function UpstreamRatioSync(props) {
           })()}
 
           <div className='flex flex-col sm:flex-row gap-2 w-full md:w-auto mt-2'>
+            <Select
+              value={sourceMode}
+              onChange={(value) => {
+                setSourceMode(value);
+                resetFetchedData();
+              }}
+              className='w-full sm:w-48'
+              disabled={loading || syncLoading || confirmLoading}
+            >
+              <Select.Option value='auto'>
+                {t('自动（官方优先）')}
+              </Select.Option>
+              <Select.Option value='official_only'>
+                {t('仅官方来源')}
+              </Select.Option>
+              <Select.Option value='prefer'>
+                {t('优先指定提供商')}
+              </Select.Option>
+            </Select>
+
+            {sourceMode === 'prefer' ? (
+              <Select
+                multiple
+                filter
+                maxTagCount={2}
+                placeholder={
+                  providers.length === 0
+                    ? t('先获取一次价格后可选择提供商')
+                    : t('选择优先使用的提供商')
+                }
+                value={preferredProviders}
+                onChange={(value) => {
+                  setPreferredProviders(value);
+                  resetFetchedData();
+                }}
+                className='w-full sm:w-64'
+                disabled={loading || syncLoading || confirmLoading}
+              >
+                {providers.map((provider) => (
+                  <Select.Option
+                    key={provider.provider}
+                    value={provider.provider}
+                  >
+                    {provider.provider} ·{' '}
+                    {provider.official ? t('官方') : t('第三方')} ·{' '}
+                    {provider.model_count}
+                  </Select.Option>
+                ))}
+              </Select>
+            ) : null}
+
             <Input
               prefix={<IconSearch size={14} />}
               placeholder={t('搜索模型名称')}
@@ -859,19 +807,13 @@ export default function UpstreamRatioSync(props) {
                 {t('音频补全倍率')}
               </Select.Option>
               <Select.Option value='model_price'>{t('固定价格')}</Select.Option>
-              <Select.Option value='billing_expr'>
-                {t('表达式计费')}
-              </Select.Option>
             </Select>
 
             <Checkbox
               checked={onlyEnabledModels}
               onChange={(e) => {
                 setOnlyEnabledModels(e.target.checked);
-                setDifferences({});
-                setResolutions({});
-                setHasSynced(false);
-                setCurrentPage(1);
+                resetFetchedData();
               }}
               disabled={loading || syncLoading || confirmLoading}
               style={{ marginLeft: 4, whiteSpace: 'nowrap' }}
@@ -916,18 +858,6 @@ export default function UpstreamRatioSync(props) {
       });
     }, [dataSource, searchKeyword, ratioTypeFilter]);
 
-    const upstreamNames = useMemo(() => {
-      const set = new Set();
-      filteredDataSource.forEach((row) => {
-        getOrderedRatioTypes(row.ratioTypes).forEach((ratioType) => {
-          Object.keys(row.ratioTypes[ratioType]?.upstreams || {}).forEach(
-            (name) => set.add(name),
-          );
-        });
-      });
-      return Array.from(set);
-    }, [filteredDataSource, ratioTypeFilter]);
-
     const renderValueTag = (value, color = 'default') => {
       if (value === null || value === undefined) {
         return (
@@ -959,6 +889,7 @@ export default function UpstreamRatioSync(props) {
               ratioType,
               record.ratioTypes,
               parsedRatios,
+              false,
             );
             return (
               <div
@@ -982,47 +913,30 @@ export default function UpstreamRatioSync(props) {
       );
     };
 
-    const renderUpstreamField = (record, ratioType, upName) => {
-      const diff = record.ratioTypes[ratioType] || {};
-      const upstreamVal = diff.upstreams?.[upName];
-      const isConfident = diff.confidence?.[upName] !== false;
-      const isPreferredField =
-        getPreferredSyncField(record.model, ratioType, upName) === ratioType;
+    const renderUpstreamField = (record, ratioType) => {
+      const upstreamVal = record.ratioTypes[ratioType]?.upstream;
       const preview = getSyncPricePreview(
         record.model,
         ratioType,
         record.ratioTypes,
         parsedRatios,
-        upName,
+        true,
       );
 
       if (upstreamVal === null || upstreamVal === undefined) {
         return renderValueTag(undefined);
       }
 
-      if (upstreamVal === 'same') {
-        return (
-          <div className='flex min-w-0 flex-col gap-1'>
-            <Tag color='blue' shape='circle'>
-              {t('与本地相同')}
-            </Tag>
-            <SyncPricePreview preview={preview} t={t} />
-          </div>
-        );
-      }
-
       const text = String(upstreamVal);
-      const isSelected =
-        isPreferredField &&
-        resolutions[record.model]?.[ratioType] === upstreamVal;
-      const valueNode = isPreferredField ? (
+      const isSelected = resolutions[record.model]?.[ratioType] === upstreamVal;
+
+      return (
         <Checkbox
           checked={isSelected}
           disabled={loading || syncLoading || confirmLoading}
           onChange={(e) => {
-            const isChecked = e.target.checked;
-            if (isChecked) {
-              selectValue(record.model, ratioType, upstreamVal, upName);
+            if (e.target.checked) {
+              selectValue(record.model, ratioType, upstreamVal);
             } else {
               setResolutions((prev) => {
                 const newRes = { ...prev };
@@ -1041,38 +955,11 @@ export default function UpstreamRatioSync(props) {
             <SyncPricePreview preview={preview} t={t} />
           </div>
         </Checkbox>
-      ) : (
-        <div className='flex min-w-0 flex-col gap-1'>
-          <Tooltip content={text}>
-            <Tag color='default' shape='circle' type='light'>
-              <span className='inline-block max-w-[360px] truncate align-bottom'>
-                {text}
-              </span>
-            </Tag>
-          </Tooltip>
-          <SyncPricePreview preview={preview} t={t} />
-        </div>
-      );
-
-      return (
-        <div className='flex min-w-0 items-center gap-2'>
-          {valueNode}
-          {!isConfident && (
-            <Tooltip
-              position='left'
-              content={t('该数据可能不可信，请谨慎使用')}
-            >
-              <AlertTriangle size={16} className='shrink-0 text-yellow-500' />
-            </Tooltip>
-          )}
-        </div>
       );
     };
 
-    const renderUpstreamFields = (record, upName) => {
-      const fields = getOrderedRatioTypes(record.ratioTypes).filter(
-        (ratioType) => shouldShowSyncField(record.model, ratioType, upName),
-      );
+    const renderUpstreamFields = (record) => {
+      const fields = getOrderedRatioTypes(record.ratioTypes);
       return (
         <div className='flex min-w-[340px] flex-col gap-2'>
           {fields.map((ratioType) => (
@@ -1085,11 +972,54 @@ export default function UpstreamRatioSync(props) {
                 {getSyncFieldLabel(ratioType)}
               </Tag>
               <div className='min-w-0 flex-1'>
-                {renderUpstreamField(record, ratioType, upName)}
+                {renderUpstreamField(record, ratioType)}
               </div>
             </div>
           ))}
         </div>
+      );
+    };
+
+    const renderSourcePicker = (model, source) => {
+      const modelCandidates = candidates[model] || [];
+
+      if (modelCandidates.length <= 1) {
+        if (!source) return null;
+        return (
+          <Tooltip
+            content={
+              source.official
+                ? t('价格来自模型厂商或其官方云托管入口')
+                : t(
+                    'models.dev 上没有该模型的官方条目，价格来自第三方转售/聚合商，仅供参考',
+                  )
+            }
+          >
+            <Tag
+              size='small'
+              shape='circle'
+              color={source.official ? 'green' : 'orange'}
+            >
+              {source.provider} · {source.official ? t('官方') : t('第三方')}
+            </Tag>
+          </Tooltip>
+        );
+      }
+
+      return (
+        <Select
+          size='small'
+          value={source?.provider}
+          onChange={(value) => applyCandidateSource(model, value)}
+          disabled={loading || syncLoading || confirmLoading}
+          style={{ width: 240 }}
+          optionList={modelCandidates.map((candidate) => ({
+            value: candidate.provider,
+            label: `${candidate.provider} · ${
+              candidate.official ? t('官方') : t('第三方')
+            } · ${convertUSDToCurrency(candidate.model_ratio * 2, 2)}/1M`,
+          }))}
+        />
       );
     };
 
@@ -1114,123 +1044,110 @@ export default function UpstreamRatioSync(props) {
           description={
             searchKeyword.trim()
               ? t('未找到匹配的模型')
-              : Object.keys(differences).length === 0
-                ? hasSynced
-                  ? t('暂无差异化价格显示')
-                  : t('请先选择同步渠道')
-                : t('请先选择同步渠道')
+              : hasSynced
+                ? t('暂无差异化价格显示')
+                : t('请先从 models.dev 获取价格')
           }
           style={{ padding: 30 }}
         />
       );
     }
 
+    const upstreamStats = (() => {
+      let selectableCount = 0;
+      let selectedCount = 0;
+
+      filteredDataSource.forEach((row) => {
+        getOrderedRatioTypes(row.ratioTypes).forEach((ratioType) => {
+          const upstreamVal = row.ratioTypes[ratioType]?.upstream;
+          if (upstreamVal === null || upstreamVal === undefined) return;
+          selectableCount++;
+          if (resolutions[row.model]?.[ratioType] === upstreamVal) {
+            selectedCount++;
+          }
+        });
+      });
+
+      return {
+        allSelected: selectableCount > 0 && selectedCount === selectableCount,
+        partiallySelected: selectedCount > 0 && selectedCount < selectableCount,
+        hasSelectableItems: selectableCount > 0,
+      };
+    })();
+
+    const handleBulkSelect = (checked) => {
+      if (checked) {
+        filteredDataSource.forEach((row) => {
+          getOrderedRatioTypes(row.ratioTypes).forEach((ratioType) => {
+            const upstreamVal = row.ratioTypes[ratioType]?.upstream;
+            if (upstreamVal === null || upstreamVal === undefined) return;
+            selectValue(row.model, ratioType, upstreamVal);
+          });
+        });
+      } else {
+        setResolutions((prev) => {
+          const newRes = { ...prev };
+          filteredDataSource.forEach((row) => {
+            getOrderedRatioTypes(row.ratioTypes).forEach((ratioType) => {
+              deleteResolutionField(newRes, row.model, ratioType);
+            });
+          });
+          return newRes;
+        });
+      }
+    };
+
     const columns = [
       {
         title: t('模型'),
         dataIndex: 'model',
         fixed: 'left',
-        render: (text, record) => (
-          <div className='flex min-w-[180px] items-center gap-2'>
-            <span className='font-medium'>{text}</span>
-            {record.billingConflict && (
-              <Tooltip
-                position='top'
-                content={t('该模型存在固定价格与倍率计费方式冲突，请确认选择')}
-              >
-                <AlertTriangle size={14} className='shrink-0 text-yellow-500' />
-              </Tooltip>
-            )}
-          </div>
-        ),
+        render: (text, record) => {
+          const source = sources[record.model];
+          return (
+            <div className='flex min-w-[180px] flex-col gap-1'>
+              <div className='flex items-center gap-2'>
+                <span className='font-medium'>{text}</span>
+                {record.billingConflict && (
+                  <Tooltip
+                    position='top'
+                    content={t(
+                      '该模型存在固定价格与倍率计费方式冲突，请确认选择',
+                    )}
+                  >
+                    <AlertTriangle
+                      size={14}
+                      className='shrink-0 text-yellow-500'
+                    />
+                  </Tooltip>
+                )}
+              </div>
+              {renderSourcePicker(record.model, source)}
+            </div>
+          );
+        },
       },
       {
         title: t('当前价格'),
         dataIndex: 'current',
         render: (_, record) => renderCurrentFields(record),
       },
-      ...upstreamNames.map((upName) => {
-        const channelStats = (() => {
-          let selectableCount = 0;
-          let selectedCount = 0;
-
-          filteredDataSource.forEach((row) => {
-            getOrderedRatioTypes(row.ratioTypes).forEach((ratioType) => {
-              const upstreamVal =
-                row.ratioTypes[ratioType]?.upstreams?.[upName];
-              if (
-                getPreferredSyncField(row.model, ratioType, upName) ===
-                  ratioType &&
-                isSelectableUpstreamValue(upstreamVal)
-              ) {
-                selectableCount++;
-                if (resolutions[row.model]?.[ratioType] === upstreamVal) {
-                  selectedCount++;
-                }
-              }
-            });
-          });
-
-          return {
-            selectableCount,
-            selectedCount,
-            allSelected:
-              selectableCount > 0 && selectedCount === selectableCount,
-            partiallySelected:
-              selectedCount > 0 && selectedCount < selectableCount,
-            hasSelectableItems: selectableCount > 0,
-          };
-        })();
-
-        const handleBulkSelect = (checked) => {
-          if (checked) {
-            filteredDataSource.forEach((row) => {
-              getOrderedRatioTypes(row.ratioTypes).forEach((ratioType) => {
-                const upstreamVal =
-                  row.ratioTypes[ratioType]?.upstreams?.[upName];
-                if (
-                  getPreferredSyncField(row.model, ratioType, upName) ===
-                    ratioType &&
-                  isSelectableUpstreamValue(upstreamVal)
-                ) {
-                  selectValue(row.model, ratioType, upstreamVal, upName);
-                }
-              });
-            });
-          } else {
-            setResolutions((prev) => {
-              const newRes = { ...prev };
-              filteredDataSource.forEach((row) => {
-                getOrderedRatioTypes(row.ratioTypes).forEach((ratioType) => {
-                  if (
-                    row.ratioTypes[ratioType]?.upstreams?.[upName] !== undefined
-                  ) {
-                    deleteResolutionField(newRes, row.model, ratioType);
-                  }
-                });
-              });
-              return newRes;
-            });
-          }
-        };
-
-        return {
-          title: channelStats.hasSelectableItems ? (
-            <Checkbox
-              checked={channelStats.allSelected}
-              indeterminate={channelStats.partiallySelected}
-              disabled={loading || syncLoading || confirmLoading}
-              onChange={(e) => handleBulkSelect(e.target.checked)}
-            >
-              {upName}
-            </Checkbox>
-          ) : (
-            <span>{upName}</span>
-          ),
-          dataIndex: upName,
-          render: (_, record) => renderUpstreamFields(record, upName),
-        };
-      }),
+      {
+        title: upstreamStats.hasSelectableItems ? (
+          <Checkbox
+            checked={upstreamStats.allSelected}
+            indeterminate={upstreamStats.partiallySelected}
+            disabled={loading || syncLoading || confirmLoading}
+            onChange={(e) => handleBulkSelect(e.target.checked)}
+          >
+            {UPSTREAM_NAME}
+          </Checkbox>
+        ) : (
+          <span>{UPSTREAM_NAME}</span>
+        ),
+        dataIndex: 'upstream',
+        render: (_, record) => renderUpstreamFields(record),
+      },
     ];
 
     return (
@@ -1260,35 +1177,11 @@ export default function UpstreamRatioSync(props) {
     );
   };
 
-  const updateChannelEndpoint = useCallback((channelId, endpoint) => {
-    setChannelEndpoints((prev) => ({ ...prev, [channelId]: endpoint }));
-  }, []);
-
-  const handleModalClose = () => {
-    setModalVisible(false);
-    if (channelSelectorRef.current) {
-      channelSelectorRef.current.resetPagination();
-    }
-  };
-
   return (
     <>
       <Form.Section text={renderHeader()}>
         {renderDifferenceTable()}
       </Form.Section>
-
-      <ChannelSelectorModal
-        ref={channelSelectorRef}
-        t={t}
-        visible={modalVisible}
-        onCancel={handleModalClose}
-        onOk={confirmChannelSelection}
-        allChannels={allChannels}
-        selectedChannelIds={selectedChannelIds}
-        setSelectedChannelIds={setSelectedChannelIds}
-        channelEndpoints={channelEndpoints}
-        updateChannelEndpoint={updateChannelEndpoint}
-      />
 
       <ConflictConfirmModal
         t={t}
@@ -1297,28 +1190,10 @@ export default function UpstreamRatioSync(props) {
         loading={confirmLoading}
         onOk={async () => {
           setConfirmLoading(true);
-          const curRatios = {
-            ModelRatio: JSON.parse(props.options.ModelRatio || '{}'),
-            CompletionRatio: JSON.parse(props.options.CompletionRatio || '{}'),
-            CacheRatio: JSON.parse(props.options.CacheRatio || '{}'),
-            CreateCacheRatio: JSON.parse(
-              props.options.CreateCacheRatio || '{}',
-            ),
-            ImageRatio: JSON.parse(props.options.ImageRatio || '{}'),
-            AudioRatio: JSON.parse(props.options.AudioRatio || '{}'),
-            AudioCompletionRatio: JSON.parse(
-              props.options.AudioCompletionRatio || '{}',
-            ),
-            ModelPrice: JSON.parse(props.options.ModelPrice || '{}'),
-            'billing_setting.billing_mode': JSON.parse(
-              props.options['billing_setting.billing_mode'] || '{}',
-            ),
-            'billing_setting.billing_expr': JSON.parse(
-              props.options['billing_setting.billing_expr'] || '{}',
-            ),
-          };
           try {
-            const success = await performSync(curRatios);
+            const success = await performSync(
+              parsePricingOptions(props.options),
+            );
             if (success) {
               setConfirmVisible(false);
             }

@@ -1,40 +1,60 @@
 package dto
 
-type UpstreamDTO struct {
-	ID       int    `json:"id,omitempty"`
-	Name     string `json:"name" binding:"required"`
-	BaseURL  string `json:"base_url" binding:"required"`
-	Endpoint string `json:"endpoint"`
-}
+const (
+	// UpstreamSourceModeAuto 官方优先，同档内取最便宜的非零报价
+	UpstreamSourceModeAuto = "auto"
+	// UpstreamSourceModeOfficialOnly 只用官方来源，没有官方条目的模型不参与同步
+	UpstreamSourceModeOfficialOnly = "official_only"
+	// UpstreamSourceModePrefer 按 PreferredProviders 的顺序优先，其余回落到 auto 规则
+	UpstreamSourceModePrefer = "prefer"
+)
 
 type UpstreamRequest struct {
-	ChannelIDs        []int64       `json:"channel_ids"`
-	Upstreams         []UpstreamDTO `json:"upstreams"`
-	Timeout           int           `json:"timeout"`
-	OnlyEnabledModels bool          `json:"only_enabled_models"`
-}
-
-// TestResult 上游测试连通性结果
-type TestResult struct {
-	Name   string `json:"name"`
-	Status string `json:"status"`
-	Error  string `json:"error,omitempty"`
+	Timeout int `json:"timeout"`
+	// OnlyEnabledModels 只比对当前启用渠道中的模型
+	OnlyEnabledModels bool `json:"only_enabled_models"`
+	// ModelNames 只比对指定模型，优先于 OnlyEnabledModels
+	ModelNames []string `json:"model_names"`
+	// SourceMode 取值见 UpstreamSourceMode* 常量，留空按 auto 处理
+	SourceMode string `json:"source_mode"`
+	// PreferredProviders 仅在 SourceMode 为 prefer 时生效，按给定顺序优先
+	PreferredProviders []string `json:"preferred_providers"`
 }
 
 // DifferenceItem 差异项
-// Current 为本地值，可能为 nil
-// Upstreams 为各渠道的上游值，具体数值 / "same" / nil
+// Current 为本地值，未配置时为 nil
+// Upstream 为 models.dev 的值
 
 type DifferenceItem struct {
-	Current    interface{}            `json:"current"`
-	Upstreams  map[string]interface{} `json:"upstreams"`
-	Confidence map[string]bool        `json:"confidence"`
+	Current  interface{} `json:"current"`
+	Upstream interface{} `json:"upstream"`
 }
 
-type SyncableChannel struct {
-	ID      int    `json:"id"`
-	Name    string `json:"name"`
-	BaseURL string `json:"base_url"`
-	Status  int    `json:"status"`
-	Type    int    `json:"type"`
+// UpstreamSource 说明某个模型的上游价格取自 models.dev 的哪个提供商，
+// Official 为 true 表示模型厂商自营或其官方云托管入口，而非转售/聚合商。
+type UpstreamSource struct {
+	Provider string `json:"provider"`
+	Official bool   `json:"official"`
+}
+
+// UpstreamCandidate 是某个模型在 models.dev 上的一个可选报价来源，
+// 倍率已换算为本地口径，前端切换来源时直接使用。
+type UpstreamCandidate struct {
+	Provider             string   `json:"provider"`
+	Official             bool     `json:"official"`
+	ModelRatio           float64  `json:"model_ratio"`
+	CompletionRatio      *float64 `json:"completion_ratio,omitempty"`
+	CacheRatio           *float64 `json:"cache_ratio,omitempty"`
+	CreateCacheRatio     *float64 `json:"create_cache_ratio,omitempty"`
+	AudioRatio           *float64 `json:"audio_ratio,omitempty"`
+	AudioCompletionRatio *float64 `json:"audio_completion_ratio,omitempty"`
+	// BillingExpr 非空表示该来源有上下文阶梯价，可整体改用表达式计费
+	BillingExpr string `json:"billing_expr,omitempty"`
+}
+
+// UpstreamProvider 用于前端选择首选提供商
+type UpstreamProvider struct {
+	Provider   string `json:"provider"`
+	Official   bool   `json:"official"`
+	ModelCount int    `json:"model_count"`
 }

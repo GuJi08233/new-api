@@ -16,25 +16,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type { RatioType } from '../types'
-import {
-  MODELS_DEV_PRESET_ID,
-  MODELS_DEV_PRESET_NAME,
-  OFFICIAL_CHANNEL_ID,
-  OFFICIAL_CHANNEL_NAME,
-  RATIO_TYPE_OPTIONS,
-} from './constants'
-
-export type RatioDifferenceEntry = {
-  current: number | string | null
-  upstreams: Record<string, number | string | 'same'>
-  confidence: Record<string, boolean>
-}
+import type { RatioDifference, RatioType } from '../types'
+import { RATIO_TYPE_OPTIONS } from './constants'
 
 export type ModelRow = {
   key: string
   model: string
-  ratioTypes: Partial<Record<RatioType, RatioDifferenceEntry>>
+  ratioTypes: Partial<Record<RatioType, RatioDifference>>
   billingConflict: boolean
 }
 
@@ -44,11 +32,6 @@ export type ResolutionSelection = {
   model: string
   ratioType: RatioType
   value: number | string
-  sourceName: string
-}
-
-export type ResolvedResolutionSelection = ResolutionSelection & {
-  ratioType: RatioType
 }
 
 export type ResolutionRemoval = {
@@ -90,7 +73,7 @@ export function getSyncFieldLabel(
 }
 
 export function getOrderedRatioTypes(
-  ratioTypes: Partial<Record<RatioType, RatioDifferenceEntry>>,
+  ratioTypes: Partial<Record<RatioType, RatioDifference>>,
   filter?: string
 ): RatioType[] {
   const keys = Object.keys(ratioTypes) as RatioType[]
@@ -100,52 +83,6 @@ export function getOrderedRatioTypes(
   ]
   if (!filter || filter === '__all__') return ordered
   return ordered.filter((f) => f === filter)
-}
-
-export function getPreferredSyncField(
-  ratioTypes: Partial<Record<RatioType, RatioDifferenceEntry>>,
-  ratioType: RatioType,
-  sourceName: string
-): RatioType {
-  const exprValue = ratioTypes.billing_expr?.upstreams?.[sourceName]
-  if (
-    ratioType !== 'billing_expr' &&
-    exprValue !== null &&
-    exprValue !== undefined &&
-    exprValue !== 'same'
-  ) {
-    return 'billing_expr'
-  }
-  return ratioType
-}
-
-export function getVisibleRatioTypesForSource(
-  ratioTypes: Partial<Record<RatioType, RatioDifferenceEntry>>,
-  sourceName: string,
-  filter?: string
-): RatioType[] {
-  return getOrderedRatioTypes(ratioTypes, filter).filter(
-    (ratioType) =>
-      getPreferredSyncField(ratioTypes, ratioType, sourceName) === ratioType
-  )
-}
-
-export function getAlignedRatioTypes(
-  ratioTypes: Partial<Record<RatioType, RatioDifferenceEntry>>,
-  sourceNames: string[],
-  filter?: string
-): RatioType[] {
-  const ordered = getOrderedRatioTypes(ratioTypes, filter)
-  if (sourceNames.length === 0) return ordered
-
-  const visible = new Set<RatioType>()
-  sourceNames.forEach((sourceName) => {
-    getVisibleRatioTypesForSource(ratioTypes, sourceName, filter).forEach(
-      (ratioType) => visible.add(ratioType)
-    )
-  })
-
-  return ordered.filter((ratioType) => visible.has(ratioType))
 }
 
 export function getBillingCategory(
@@ -159,31 +96,16 @@ export function getBillingCategory(
 }
 
 export function isSelectableUpstreamValue(
-  value: number | string | 'same' | null | undefined
+  value: number | string | null | undefined
 ): boolean {
-  return value !== null && value !== undefined && value !== 'same'
-}
-
-export function getUpstreamDisplayName(sourceName: string): string {
-  const synthesizedPresets = [
-    { name: OFFICIAL_CHANNEL_NAME, id: OFFICIAL_CHANNEL_ID },
-    { name: MODELS_DEV_PRESET_NAME, id: MODELS_DEV_PRESET_ID },
-  ]
-
-  for (const preset of synthesizedPresets) {
-    if (sourceName === `${preset.name}(${preset.id})`) {
-      return preset.name
-    }
-  }
-
-  return sourceName
+  return value !== null && value !== undefined
 }
 
 export function isSelectedResolutionValue(
   resolutions: ResolutionsMap,
   model: string,
   ratioType: RatioType,
-  upstreamValue: number | string | 'same' | null | undefined
+  upstreamValue: number | string | null | undefined
 ): boolean {
   if (!isSelectableUpstreamValue(upstreamValue)) return false
 
@@ -227,30 +149,17 @@ function getDraftModelResolution(
 function applyResolutionSelectionToDraft(
   drafts: Map<string, Record<string, number | string>>,
   resolutions: ResolutionsMap,
-  differences: Record<string, Partial<Record<RatioType, RatioDifferenceEntry>>>,
+  differences: Record<string, Partial<Record<RatioType, RatioDifference>>>,
   selection: ResolutionSelection
 ) {
-  const modelDiffs = differences[selection.model]
-  const preferredType = getPreferredSyncField(
-    modelDiffs || {},
-    selection.ratioType,
-    selection.sourceName
-  )
-  const preferredValue =
-    preferredType === selection.ratioType
-      ? selection.value
-      : (modelDiffs?.[preferredType]?.upstreams?.[selection.sourceName] ??
-        selection.value)
-
-  const finalType = preferredType
-  const finalValue = preferredValue as number | string
-  const category = getBillingCategory(finalType)
+  const category = getBillingCategory(selection.ratioType)
   const newModelRes = getDraftModelResolution(
     drafts,
     resolutions,
     selection.model
   )
 
+  // 固定价格与倍率互斥，同一模型只能同步其中一类
   Object.keys(newModelRes).forEach((rt) => {
     if (
       category !== 'tiered' &&
@@ -261,59 +170,30 @@ function applyResolutionSelectionToDraft(
     }
   })
 
-  newModelRes[finalType] = finalValue
+  newModelRes[selection.ratioType] = selection.value
 
-  if (category === 'tiered' && modelDiffs) {
-    const modeVal = modelDiffs.billing_mode?.upstreams?.[selection.sourceName]
-    const exprVal = modelDiffs.billing_expr?.upstreams?.[selection.sourceName]
-    if (modeVal !== undefined && modeVal !== null && modeVal !== 'same') {
+  if (category === 'tiered') {
+    const modeVal = differences[selection.model]?.billing_mode?.upstream
+    if (modeVal !== undefined && modeVal !== null) {
       newModelRes['billing_mode'] = modeVal
-    } else if (finalType === 'billing_expr') {
+    } else if (selection.ratioType === 'billing_expr') {
       newModelRes['billing_mode'] = 'tiered_expr'
     }
-    if (exprVal !== undefined && exprVal !== null && exprVal !== 'same') {
-      newModelRes['billing_expr'] = exprVal
-    }
-  }
-}
-
-export function resolveResolutionSelection(
-  differences: Record<string, Partial<Record<RatioType, RatioDifferenceEntry>>>,
-  selection: ResolutionSelection
-): ResolvedResolutionSelection {
-  const modelDiffs = differences[selection.model]
-  const preferredType = getPreferredSyncField(
-    modelDiffs || {},
-    selection.ratioType,
-    selection.sourceName
-  )
-  const preferredValue =
-    preferredType === selection.ratioType
-      ? selection.value
-      : (modelDiffs?.[preferredType]?.upstreams?.[selection.sourceName] ??
-        selection.value)
-
-  return {
-    ...selection,
-    ratioType: preferredType,
-    value: preferredValue as number | string,
   }
 }
 
 export function getEffectiveResolutionSelections(
-  differences: Record<string, Partial<Record<RatioType, RatioDifferenceEntry>>>,
   selections: ResolutionSelection[]
-): ResolvedResolutionSelection[] {
-  const effectiveByKey = new Map<string, ResolvedResolutionSelection>()
+): ResolutionSelection[] {
+  const effectiveByKey = new Map<string, ResolutionSelection>()
 
   selections.forEach((selection) => {
-    const resolved = resolveResolutionSelection(differences, selection)
-    const category = getBillingCategory(resolved.ratioType)
+    const category = getBillingCategory(selection.ratioType)
 
     if (category !== 'tiered') {
       for (const [key, existing] of effectiveByKey) {
         if (
-          existing.model === resolved.model &&
+          existing.model === selection.model &&
           getBillingCategory(existing.ratioType) !== 'tiered' &&
           getBillingCategory(existing.ratioType) !== category
         ) {
@@ -322,7 +202,10 @@ export function getEffectiveResolutionSelections(
       }
     }
 
-    effectiveByKey.set(`${resolved.model}\u0000${resolved.ratioType}`, resolved)
+    effectiveByKey.set(
+      JSON.stringify([selection.model, selection.ratioType]),
+      selection
+    )
   })
 
   return [...effectiveByKey.values()]
@@ -330,7 +213,7 @@ export function getEffectiveResolutionSelections(
 
 export function applyResolutionSelections(
   resolutions: ResolutionsMap,
-  differences: Record<string, Partial<Record<RatioType, RatioDifferenceEntry>>>,
+  differences: Record<string, Partial<Record<RatioType, RatioDifference>>>,
   selections: ResolutionSelection[]
 ): ResolutionsMap {
   if (selections.length === 0) return resolutions
@@ -355,7 +238,7 @@ export function applyResolutionSelections(
 
 export function applyResolutionSelection(
   resolutions: ResolutionsMap,
-  differences: Record<string, Partial<Record<RatioType, RatioDifferenceEntry>>>,
+  differences: Record<string, Partial<Record<RatioType, RatioDifference>>>,
   selection: ResolutionSelection
 ): ResolutionsMap {
   return applyResolutionSelections(resolutions, differences, [selection])

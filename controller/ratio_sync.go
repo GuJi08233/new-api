@@ -1,15 +1,12 @@
 package controller
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"math"
-	"net"
 	"net/http"
-	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -30,19 +27,23 @@ import (
 
 const (
 	defaultTimeoutSeconds       = 10
-	defaultEndpoint             = "/api/pricing"
-	maxConcurrentFetches        = 8
+	maxTimeoutSeconds           = 60
 	maxRatioConfigBytes         = 10 << 20 // 10MB
 	floatEpsilon                = 1e-9
-	officialRatioPresetID       = -100
-	officialRatioPresetName     = "官方倍率预设"
-	officialRatioPresetBaseURL  = "https://basellm.github.io"
-	modelsDevPresetID           = -101
-	modelsDevPresetName         = "models.dev 价格预设"
-	modelsDevPresetBaseURL      = "https://models.dev"
-	modelsDevHost               = "models.dev"
-	modelsDevPath               = "/api.json"
+	modelsDevAPIURL             = "https://models.dev/api.json"
 	modelsDevInputCostRatioBase = 1000.0
+	// modelsDevThirdPartyRank 是转售/聚合商所在的档位，低于它的都算官方来源
+	modelsDevThirdPartyRank = 3
+	// maxUpstreamCandidates 限制下发给前端的可切换来源数量
+	maxUpstreamCandidates = 8
+	// modelsDevCacheTTL 缓存解析后的候选，避免逐个模型查询时反复下载整份 api.json
+	modelsDevCacheTTL = 10 * time.Minute
+)
+
+var (
+	modelsDevCacheMutex sync.RWMutex
+	modelsDevCache      map[string][]modelsDevCandidate
+	modelsDevCachedAt   time.Time
 )
 
 func nearlyEqual(a, b float64) bool {
@@ -83,12 +84,6 @@ var numericPricingSyncFields = map[string]bool{
 	"audio_ratio":            true,
 	"audio_completion_ratio": true,
 	"model_price":            true,
-}
-
-type upstreamResult struct {
-	Name string         `json:"name"`
-	Data map[string]any `json:"data,omitempty"`
-	Err  string         `json:"err,omitempty"`
 }
 
 func valueMap(value any) map[string]any {
@@ -139,6 +134,7 @@ func getLocalPricingSyncData() map[string]any {
 	return data
 }
 
+// FetchUpstreamRatios 从 models.dev 拉取价格并与本地定价比对，返回可同步的差异项。
 func FetchUpstreamRatios(c *gin.Context) {
 	var req dto.UpstreamRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -147,574 +143,187 @@ func FetchUpstreamRatios(c *gin.Context) {
 		return
 	}
 
-	if req.Timeout <= 0 {
+	if req.Timeout <= 0 || req.Timeout > maxTimeoutSeconds {
 		req.Timeout = defaultTimeoutSeconds
 	}
 
-	var upstreams []dto.UpstreamDTO
-
-	if len(req.Upstreams) > 0 {
-		for _, u := range req.Upstreams {
-			if strings.HasPrefix(u.BaseURL, "http") {
-				if u.Endpoint == "" {
-					u.Endpoint = defaultEndpoint
-				}
-				u.BaseURL = strings.TrimRight(u.BaseURL, "/")
-				upstreams = append(upstreams, u)
-			}
-		}
-	} else if len(req.ChannelIDs) > 0 {
-		intIds := make([]int, 0, len(req.ChannelIDs))
-		for _, id64 := range req.ChannelIDs {
-			intIds = append(intIds, int(id64))
-		}
-		dbChannels, err := model.GetChannelsByIds(intIds)
-		if err != nil {
-			logger.LogError(c.Request.Context(), "failed to query channels: "+err.Error())
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "查询渠道失败"})
-			return
-		}
-		for _, ch := range dbChannels {
-			if base := ch.GetBaseURL(); strings.HasPrefix(base, "http") {
-				upstreams = append(upstreams, dto.UpstreamDTO{
-					ID:       ch.Id,
-					Name:     ch.Name,
-					BaseURL:  strings.TrimRight(base, "/"),
-					Endpoint: "",
-				})
-			}
-		}
-	}
-
-	if len(upstreams) == 0 {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "无有效上游渠道"})
+	selector := newModelsDevSelector(req.SourceMode, req.PreferredProviders)
+	pricing, err := fetchModelsDevPricing(c.Request.Context(), req.Timeout, selector)
+	if err != nil {
+		logger.LogWarn(c.Request.Context(), "failed to fetch models.dev pricing: "+err.Error())
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "获取 models.dev 价格失败：" + err.Error()})
 		return
 	}
 
-	var wg sync.WaitGroup
-	ch := make(chan upstreamResult, len(upstreams))
-
-	sem := make(chan struct{}, maxConcurrentFetches)
-
-	dialer := &net.Dialer{Timeout: 10 * time.Second}
-	transport := &http.Transport{MaxIdleConns: 100, IdleConnTimeout: 90 * time.Second, TLSHandshakeTimeout: 10 * time.Second, ExpectContinueTimeout: 1 * time.Second, ResponseHeaderTimeout: 10 * time.Second}
-	if common.TLSInsecureSkipVerify {
-		transport.TLSClientConfig = common.InsecureTLSConfig
-	}
-	transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
-		host, _, err := net.SplitHostPort(addr)
-		if err != nil {
-			host = addr
+	var modelFilter map[string]struct{}
+	switch {
+	case len(req.ModelNames) > 0:
+		modelFilter = make(map[string]struct{}, len(req.ModelNames))
+		for _, m := range req.ModelNames {
+			modelFilter[m] = struct{}{}
 		}
-		// 对 github.io 优先尝试 IPv4，失败则回退 IPv6
-		if strings.HasSuffix(host, "github.io") {
-			if conn, err := dialer.DialContext(ctx, "tcp4", addr); err == nil {
-				return conn, nil
-			}
-			return dialer.DialContext(ctx, "tcp6", addr)
-		}
-		return dialer.DialContext(ctx, network, addr)
-	}
-	client := &http.Client{Transport: transport}
-
-	for _, chn := range upstreams {
-		wg.Add(1)
-		go func(chItem dto.UpstreamDTO) {
-			defer wg.Done()
-
-			sem <- struct{}{}
-			defer func() { <-sem }()
-
-			isOpenRouter := chItem.Endpoint == "openrouter"
-
-			endpoint := chItem.Endpoint
-			var fullURL string
-			if isOpenRouter {
-				fullURL = chItem.BaseURL + "/v1/models"
-			} else if strings.HasPrefix(endpoint, "http://") || strings.HasPrefix(endpoint, "https://") {
-				fullURL = endpoint
-			} else {
-				if endpoint == "" {
-					endpoint = defaultEndpoint
-				} else if !strings.HasPrefix(endpoint, "/") {
-					endpoint = "/" + endpoint
-				}
-				fullURL = chItem.BaseURL + endpoint
-			}
-			isModelsDev := isModelsDevAPIEndpoint(fullURL)
-
-			uniqueName := chItem.Name
-			if chItem.ID != 0 {
-				uniqueName = fmt.Sprintf("%s(%d)", chItem.Name, chItem.ID)
-			}
-
-			ctx, cancel := context.WithTimeout(c.Request.Context(), time.Duration(req.Timeout)*time.Second)
-			defer cancel()
-
-			httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, fullURL, nil)
-			if err != nil {
-				logger.LogWarn(c.Request.Context(), "build request failed: "+err.Error())
-				ch <- upstreamResult{Name: uniqueName, Err: err.Error()}
-				return
-			}
-
-			// OpenRouter requires Bearer token auth
-			if isOpenRouter && chItem.ID != 0 {
-				dbCh, err := model.GetChannelById(chItem.ID, true)
-				if err != nil {
-					ch <- upstreamResult{Name: uniqueName, Err: "failed to get channel key: " + err.Error()}
-					return
-				}
-				key, _, apiErr := dbCh.GetNextEnabledKey()
-				if apiErr != nil {
-					ch <- upstreamResult{Name: uniqueName, Err: "failed to get enabled channel key: " + apiErr.Error()}
-					return
-				}
-				if strings.TrimSpace(key) == "" {
-					ch <- upstreamResult{Name: uniqueName, Err: "no API key configured for this channel"}
-					return
-				}
-				httpReq.Header.Set("Authorization", "Bearer "+strings.TrimSpace(key))
-			} else if isOpenRouter {
-				ch <- upstreamResult{Name: uniqueName, Err: "OpenRouter requires a valid channel with API key"}
-				return
-			}
-
-			// 简单重试：最多 3 次，指数退避
-			var resp *http.Response
-			var lastErr error
-			for attempt := 0; attempt < 3; attempt++ {
-				resp, lastErr = client.Do(httpReq)
-				if lastErr == nil {
-					break
-				}
-				time.Sleep(time.Duration(200*(1<<attempt)) * time.Millisecond)
-			}
-			if lastErr != nil {
-				logger.LogWarn(c.Request.Context(), "http error on "+chItem.Name+": "+lastErr.Error())
-				ch <- upstreamResult{Name: uniqueName, Err: lastErr.Error()}
-				return
-			}
-			defer resp.Body.Close()
-			if resp.StatusCode != http.StatusOK {
-				logger.LogWarn(c.Request.Context(), "non-200 from "+chItem.Name+": "+resp.Status)
-				ch <- upstreamResult{Name: uniqueName, Err: resp.Status}
-				return
-			}
-
-			// Content-Type 和响应体大小校验
-			if ct := resp.Header.Get("Content-Type"); ct != "" && !strings.Contains(strings.ToLower(ct), "application/json") {
-				logger.LogWarn(c.Request.Context(), "unexpected content-type from "+chItem.Name+": "+ct)
-			}
-			limited := io.LimitReader(resp.Body, maxRatioConfigBytes)
-			bodyBytes, err := io.ReadAll(limited)
-			if err != nil {
-				logger.LogWarn(c.Request.Context(), "read response failed from "+chItem.Name+": "+err.Error())
-				ch <- upstreamResult{Name: uniqueName, Err: err.Error()}
-				return
-			}
-
-			// type3: OpenRouter /v1/models -> convert per-token pricing to ratios
-			if isOpenRouter {
-				converted, err := convertOpenRouterToRatioData(bytes.NewReader(bodyBytes))
-				if err != nil {
-					logger.LogWarn(c.Request.Context(), "OpenRouter parse failed from "+chItem.Name+": "+err.Error())
-					ch <- upstreamResult{Name: uniqueName, Err: err.Error()}
-					return
-				}
-				ch <- upstreamResult{Name: uniqueName, Data: converted}
-				return
-			}
-
-			// type4: models.dev /api.json -> convert provider model pricing to ratios
-			if isModelsDev {
-				converted, err := convertModelsDevToRatioData(bytes.NewReader(bodyBytes))
-				if err != nil {
-					logger.LogWarn(c.Request.Context(), "models.dev parse failed from "+chItem.Name+": "+err.Error())
-					ch <- upstreamResult{Name: uniqueName, Err: err.Error()}
-					return
-				}
-				ch <- upstreamResult{Name: uniqueName, Data: converted}
-				return
-			}
-
-			// 兼容两种上游接口格式：
-			//  type1: /api/ratio_config -> data 为 map[string]any，包含 model_ratio/completion_ratio/cache_ratio/model_price
-			//  type2: /api/pricing      -> data 为 []Pricing 列表，需要转换为与 type1 相同的 map 格式
-			var body struct {
-				Success bool            `json:"success"`
-				Data    json.RawMessage `json:"data"`
-				Message string          `json:"message"`
-			}
-
-			if err := common.DecodeJson(bytes.NewReader(bodyBytes), &body); err != nil {
-				logger.LogWarn(c.Request.Context(), "json decode failed from "+chItem.Name+": "+err.Error())
-				ch <- upstreamResult{Name: uniqueName, Err: err.Error()}
-				return
-			}
-
-			if !body.Success {
-				ch <- upstreamResult{Name: uniqueName, Err: body.Message}
-				return
-			}
-
-			// 若 Data 为空，将继续按 type1 尝试解析（与多数静态 ratio_config 兼容）
-
-			// 尝试按 type1 解析
-			var type1Data map[string]any
-			if err := common.Unmarshal(body.Data, &type1Data); err == nil {
-				// 如果包含至少一个 ratioTypes 字段，则认为是 type1
-				isType1 := false
-				for _, rt := range pricingSyncFields {
-					if _, ok := type1Data[rt]; ok {
-						isType1 = true
-						break
-					}
-				}
-				if isType1 {
-					ch <- upstreamResult{Name: uniqueName, Data: type1Data}
-					return
-				}
-			}
-
-			// 如果不是 type1，则尝试按 type2 (/api/pricing) 解析
-			var pricingItems []struct {
-				ModelName            string   `json:"model_name"`
-				QuotaType            int      `json:"quota_type"`
-				ModelRatio           float64  `json:"model_ratio"`
-				ModelPrice           float64  `json:"model_price"`
-				CompletionRatio      float64  `json:"completion_ratio"`
-				CacheRatio           *float64 `json:"cache_ratio"`
-				CreateCacheRatio     *float64 `json:"create_cache_ratio"`
-				ImageRatio           *float64 `json:"image_ratio"`
-				AudioRatio           *float64 `json:"audio_ratio"`
-				AudioCompletionRatio *float64 `json:"audio_completion_ratio"`
-				BillingMode          string   `json:"billing_mode"`
-				BillingExpr          string   `json:"billing_expr"`
-			}
-			if err := common.Unmarshal(body.Data, &pricingItems); err != nil {
-				logger.LogWarn(c.Request.Context(), "unrecognized data format from "+chItem.Name+": "+err.Error())
-				ch <- upstreamResult{Name: uniqueName, Err: "无法解析上游返回数据"}
-				return
-			}
-
-			modelRatioMap := make(map[string]float64)
-			completionRatioMap := make(map[string]float64)
-			cacheRatioMap := make(map[string]float64)
-			createCacheRatioMap := make(map[string]float64)
-			imageRatioMap := make(map[string]float64)
-			audioRatioMap := make(map[string]float64)
-			audioCompletionRatioMap := make(map[string]float64)
-			modelPriceMap := make(map[string]float64)
-			billingModeMap := make(map[string]string)
-			billingExprMap := make(map[string]string)
-
-			for _, item := range pricingItems {
-				if item.ModelName == "" {
-					continue
-				}
-				if item.BillingMode == billing_setting.BillingModeTieredExpr && strings.TrimSpace(item.BillingExpr) != "" {
-					billingModeMap[item.ModelName] = billing_setting.BillingModeTieredExpr
-					billingExprMap[item.ModelName] = item.BillingExpr
-				}
-				if item.QuotaType == 1 {
-					modelPriceMap[item.ModelName] = item.ModelPrice
-				} else {
-					modelRatioMap[item.ModelName] = item.ModelRatio
-					// completionRatio 可能为 0，此时也直接赋值，保持与上游一致
-					completionRatioMap[item.ModelName] = item.CompletionRatio
-				}
-				if item.CacheRatio != nil {
-					cacheRatioMap[item.ModelName] = *item.CacheRatio
-				}
-				if item.CreateCacheRatio != nil {
-					createCacheRatioMap[item.ModelName] = *item.CreateCacheRatio
-				}
-				if item.ImageRatio != nil {
-					imageRatioMap[item.ModelName] = *item.ImageRatio
-				}
-				if item.AudioRatio != nil {
-					audioRatioMap[item.ModelName] = *item.AudioRatio
-				}
-				if item.AudioCompletionRatio != nil {
-					audioCompletionRatioMap[item.ModelName] = *item.AudioCompletionRatio
-				}
-			}
-
-			converted := make(map[string]any)
-
-			if len(modelRatioMap) > 0 {
-				ratioAny := make(map[string]any, len(modelRatioMap))
-				for k, v := range modelRatioMap {
-					ratioAny[k] = v
-				}
-				converted["model_ratio"] = ratioAny
-			}
-
-			if len(completionRatioMap) > 0 {
-				compAny := make(map[string]any, len(completionRatioMap))
-				for k, v := range completionRatioMap {
-					compAny[k] = v
-				}
-				converted["completion_ratio"] = compAny
-			}
-			if len(cacheRatioMap) > 0 {
-				converted["cache_ratio"] = valueMap(cacheRatioMap)
-			}
-			if len(createCacheRatioMap) > 0 {
-				converted["create_cache_ratio"] = valueMap(createCacheRatioMap)
-			}
-			if len(imageRatioMap) > 0 {
-				converted["image_ratio"] = valueMap(imageRatioMap)
-			}
-			if len(audioRatioMap) > 0 {
-				converted["audio_ratio"] = valueMap(audioRatioMap)
-			}
-			if len(audioCompletionRatioMap) > 0 {
-				converted["audio_completion_ratio"] = valueMap(audioCompletionRatioMap)
-			}
-
-			if len(modelPriceMap) > 0 {
-				priceAny := make(map[string]any, len(modelPriceMap))
-				for k, v := range modelPriceMap {
-					priceAny[k] = v
-				}
-				converted["model_price"] = priceAny
-			}
-			if len(billingModeMap) > 0 {
-				converted[billing_setting.BillingModeField] = valueMap(billingModeMap)
-			}
-			if len(billingExprMap) > 0 {
-				converted[billing_setting.BillingExprField] = valueMap(billingExprMap)
-			}
-
-			ch <- upstreamResult{Name: uniqueName, Data: converted}
-		}(chn)
-	}
-
-	wg.Wait()
-	close(ch)
-
-	localData := getLocalPricingSyncData()
-
-	var testResults []dto.TestResult
-	var successfulChannels []struct {
-		name string
-		data map[string]any
-	}
-
-	for r := range ch {
-		if r.Err != "" {
-			testResults = append(testResults, dto.TestResult{
-				Name:   r.Name,
-				Status: "error",
-				Error:  r.Err,
-			})
-		} else {
-			testResults = append(testResults, dto.TestResult{
-				Name:   r.Name,
-				Status: "success",
-			})
-			successfulChannels = append(successfulChannels, struct {
-				name string
-				data map[string]any
-			}{name: r.Name, data: r.Data})
-		}
-	}
-
-	var enabledModelsSet map[string]struct{}
-	if req.OnlyEnabledModels {
+	case req.OnlyEnabledModels:
 		enabledModels, err := model.GetEnabledModelsWithError()
 		if err != nil {
 			logger.LogError(c.Request.Context(), "failed to query enabled models: "+err.Error())
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "查询已启用模型失败"})
 			return
 		}
-		enabledModelsSet = make(map[string]struct{}, len(enabledModels))
+		modelFilter = make(map[string]struct{}, len(enabledModels))
 		for _, m := range enabledModels {
-			enabledModelsSet[m] = struct{}{}
+			modelFilter[m] = struct{}{}
 		}
 	}
 
-	differences := buildDifferences(localData, successfulChannels, enabledModelsSet)
+	differences := buildDifferences(getLocalPricingSyncData(), pricing.Data, modelFilter)
+
+	// 显式按模型名查询时，即使价格和本地一致也要回传来源与候选，
+	// 这样可视化编辑器能展示"这个模型在 models.dev 上有哪些报价"。
+	reportedModels := make(map[string]struct{}, len(differences))
+	if len(req.ModelNames) > 0 {
+		for _, modelName := range req.ModelNames {
+			reportedModels[modelName] = struct{}{}
+		}
+	} else {
+		for modelName := range differences {
+			reportedModels[modelName] = struct{}{}
+		}
+	}
+
+	reportedSources := make(map[string]dto.UpstreamSource, len(reportedModels))
+	reportedCandidates := make(map[string][]dto.UpstreamCandidate, len(reportedModels))
+	for modelName := range reportedModels {
+		if source, ok := pricing.Sources[modelName]; ok {
+			reportedSources[modelName] = source
+		}
+		if candidates, ok := pricing.Candidates[modelName]; ok {
+			reportedCandidates[modelName] = candidates
+		}
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"differences":  differences,
-			"test_results": testResults,
+			"differences": differences,
+			"sources":     reportedSources,
+			"candidates":  reportedCandidates,
+			"providers":   pricing.Providers,
 		},
 	})
 }
 
-func buildDifferences(localData map[string]any, successfulChannels []struct {
-	name string
-	data map[string]any
-}, enabledModelsSet map[string]struct{}) map[string]map[string]dto.DifferenceItem {
-	differences := make(map[string]map[string]dto.DifferenceItem)
+func fetchModelsDevPricing(ctx context.Context, timeoutSeconds int, selector modelsDevSelector) (*modelsDevPricing, error) {
+	if cached := cachedModelsDevCandidates(); cached != nil {
+		return selectModelsDevPricing(cached, selector), nil
+	}
 
+	transport := &http.Transport{
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+		ResponseHeaderTimeout: 10 * time.Second,
+	}
+	if common.TLSInsecureSkipVerify {
+		transport.TLSClientConfig = common.InsecureTLSConfig
+	}
+	client := &http.Client{Transport: transport}
+
+	requestCtx, cancel := context.WithTimeout(ctx, time.Duration(timeoutSeconds)*time.Second)
+	defer cancel()
+
+	// 简单重试：最多 3 次，指数退避
+	var resp *http.Response
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		httpReq, err := http.NewRequestWithContext(requestCtx, http.MethodGet, modelsDevAPIURL, nil)
+		if err != nil {
+			return nil, err
+		}
+		resp, lastErr = client.Do(httpReq)
+		if lastErr == nil {
+			break
+		}
+		time.Sleep(time.Duration(200*(1<<attempt)) * time.Millisecond)
+	}
+	if lastErr != nil {
+		return nil, lastErr
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("upstream returned %s", resp.Status)
+	}
+
+	candidatesByModel, err := parseModelsDevCandidates(io.LimitReader(resp.Body, maxRatioConfigBytes))
+	if err != nil {
+		return nil, err
+	}
+
+	modelsDevCacheMutex.Lock()
+	modelsDevCache = candidatesByModel
+	modelsDevCachedAt = time.Now()
+	modelsDevCacheMutex.Unlock()
+
+	return selectModelsDevPricing(candidatesByModel, selector), nil
+}
+
+func cachedModelsDevCandidates() map[string][]modelsDevCandidate {
+	modelsDevCacheMutex.RLock()
+	defer modelsDevCacheMutex.RUnlock()
+	if modelsDevCache == nil || time.Since(modelsDevCachedAt) > modelsDevCacheTTL {
+		return nil
+	}
+	return modelsDevCache
+}
+
+func buildDifferences(localData, upstreamData map[string]any, modelFilter map[string]struct{}) map[string]map[string]dto.DifferenceItem {
 	allModels := make(map[string]struct{})
-
 	for _, field := range pricingSyncFields {
 		for modelName := range valueMap(localData[field]) {
 			allModels[modelName] = struct{}{}
 		}
-	}
-
-	for _, channel := range successfulChannels {
-		for _, field := range pricingSyncFields {
-			for modelName := range valueMap(channel.data[field]) {
-				allModels[modelName] = struct{}{}
-			}
+		for modelName := range valueMap(upstreamData[field]) {
+			allModels[modelName] = struct{}{}
 		}
 	}
 
-	// 当传入 enabledModelsSet 时，严格只保留启用渠道中的模型。
-	// 本地残留的定价配置不应让禁用或归档模型重新出现在同步列表中。
-	if enabledModelsSet != nil {
+	// 当传入 modelFilter 时，严格只保留其中的模型。本地残留的定价配置不应
+	// 让禁用或归档模型重新出现在同步列表中。
+	if modelFilter != nil {
 		filtered := make(map[string]struct{})
 		for modelName := range allModels {
-			if _, inEnabled := enabledModelsSet[modelName]; inEnabled {
+			if _, wanted := modelFilter[modelName]; wanted {
 				filtered[modelName] = struct{}{}
 			}
 		}
 		allModels = filtered
 	}
 
-	confidenceMap := make(map[string]map[string]bool)
-
-	// 预处理阶段：检查pricing接口的可信度
-	for _, channel := range successfulChannels {
-		confidenceMap[channel.name] = make(map[string]bool)
-
-		modelRatios := valueMap(channel.data["model_ratio"])
-		completionRatios := valueMap(channel.data["completion_ratio"])
-
-		if len(modelRatios) > 0 && len(completionRatios) > 0 {
-			// 遍历所有模型，检查是否满足不可信条件
-			for modelName := range allModels {
-				// 默认为可信
-				confidenceMap[channel.name][modelName] = true
-
-				// 检查是否满足不可信条件：model_ratio为37.5且completion_ratio为1
-				if modelRatioVal, ok := modelRatios[modelName]; ok {
-					if completionRatioVal, ok := completionRatios[modelName]; ok {
-						// 转换为float64进行比较
-						modelRatioFloat, modelRatioOK := asFloat64(modelRatioVal)
-						completionRatioFloat, completionRatioOK := asFloat64(completionRatioVal)
-						if modelRatioOK && completionRatioOK && nearlyEqual(modelRatioFloat, 37.5) && nearlyEqual(completionRatioFloat, 1.0) {
-							confidenceMap[channel.name][modelName] = false
-						}
-					}
-				}
-			}
-		} else {
-			// 如果不是从pricing接口获取的数据，则全部标记为可信
-			for modelName := range allModels {
-				confidenceMap[channel.name][modelName] = true
-			}
-		}
-	}
-
+	differences := make(map[string]map[string]dto.DifferenceItem)
 	for modelName := range allModels {
-		for _, ratioType := range pricingSyncFields {
-			var localValue interface{} = nil
-			if val, exists := valueMap(localData[ratioType])[modelName]; exists {
-				localValue = normalizeSyncValue(ratioType, val)
+		for _, field := range pricingSyncFields {
+			upstreamRaw, hasUpstream := valueMap(upstreamData[field])[modelName]
+			if !hasUpstream {
+				continue
 			}
+			upstreamValue := normalizeSyncValue(field, upstreamRaw)
 
-			upstreamValues := make(map[string]interface{})
-			confidenceValues := make(map[string]bool)
-			hasUpstreamValue := false
-			hasDifference := false
-
-			for _, channel := range successfulChannels {
-				var upstreamValue interface{} = nil
-
-				if val, exists := valueMap(channel.data[ratioType])[modelName]; exists {
-					upstreamValue = normalizeSyncValue(ratioType, val)
-					hasUpstreamValue = true
-
-					if localValue != nil && !valuesEqual(localValue, upstreamValue) {
-						hasDifference = true
-					} else if valuesEqual(localValue, upstreamValue) {
-						upstreamValue = "same"
-					}
-				}
-				if upstreamValue == nil && localValue == nil {
-					upstreamValue = "same"
-				}
-
-				if localValue == nil && upstreamValue != nil && upstreamValue != "same" {
-					hasDifference = true
-				}
-
-				upstreamValues[channel.name] = upstreamValue
-
-				confidenceValues[channel.name] = confidenceMap[channel.name][modelName]
-			}
-
-			shouldInclude := false
-
-			if localValue != nil {
-				if hasDifference {
-					shouldInclude = true
-				}
-			} else {
-				if hasUpstreamValue {
-					shouldInclude = true
+			var localValue interface{}
+			if localRaw, hasLocal := valueMap(localData[field])[modelName]; hasLocal {
+				localValue = normalizeSyncValue(field, localRaw)
+				if valuesEqual(localValue, upstreamValue) {
+					continue
 				}
 			}
 
-			if shouldInclude {
-				if differences[modelName] == nil {
-					differences[modelName] = make(map[string]dto.DifferenceItem)
-				}
-				differences[modelName][ratioType] = dto.DifferenceItem{
-					Current:    localValue,
-					Upstreams:  upstreamValues,
-					Confidence: confidenceValues,
-				}
+			if differences[modelName] == nil {
+				differences[modelName] = make(map[string]dto.DifferenceItem)
 			}
-		}
-	}
-
-	channelHasDiff := make(map[string]bool)
-	for _, ratioMap := range differences {
-		for _, item := range ratioMap {
-			for chName, val := range item.Upstreams {
-				if val != nil && val != "same" {
-					channelHasDiff[chName] = true
-				}
+			differences[modelName][field] = dto.DifferenceItem{
+				Current:  localValue,
+				Upstream: upstreamValue,
 			}
-		}
-	}
-
-	for modelName, ratioMap := range differences {
-		for ratioType, item := range ratioMap {
-			for chName := range item.Upstreams {
-				if !channelHasDiff[chName] {
-					delete(item.Upstreams, chName)
-					delete(item.Confidence, chName)
-				}
-			}
-
-			allSame := true
-			for _, v := range item.Upstreams {
-				if v != "same" {
-					allSame = false
-					break
-				}
-			}
-			if len(item.Upstreams) == 0 || allSame {
-				delete(ratioMap, ratioType)
-			} else {
-				differences[modelName][ratioType] = item
-			}
-		}
-
-		if len(ratioMap) == 0 {
-			delete(differences, modelName)
 		}
 	}
 
@@ -725,111 +334,13 @@ func roundRatioValue(value float64) float64 {
 	return math.Round(value*1e6) / 1e6
 }
 
-func isModelsDevAPIEndpoint(rawURL string) bool {
-	parsedURL, err := url.Parse(rawURL)
-	if err != nil {
-		return false
-	}
-	if strings.ToLower(parsedURL.Hostname()) != modelsDevHost {
-		return false
-	}
-	path := strings.TrimSuffix(parsedURL.Path, "/")
-	if path == "" {
-		path = "/"
-	}
-	return path == modelsDevPath
-}
-
-// convertOpenRouterToRatioData parses OpenRouter's /v1/models response and converts
-// per-token USD pricing into the local ratio format.
-// model_ratio = prompt_price_per_token * 1_000_000 * (USD / 1000)
-//
-//	since 1 ratio unit = $0.002/1K tokens and USD=500, the factor is 500_000
-//
-// completion_ratio = completion_price / prompt_price (output/input multiplier)
-func convertOpenRouterToRatioData(reader io.Reader) (map[string]any, error) {
-	var orResp struct {
-		Data []struct {
-			ID      string `json:"id"`
-			Pricing struct {
-				Prompt         string `json:"prompt"`
-				Completion     string `json:"completion"`
-				InputCacheRead string `json:"input_cache_read"`
-			} `json:"pricing"`
-		} `json:"data"`
-	}
-
-	if err := common.DecodeJson(reader, &orResp); err != nil {
-		return nil, fmt.Errorf("failed to decode OpenRouter response: %w", err)
-	}
-
-	modelRatioMap := make(map[string]any)
-	completionRatioMap := make(map[string]any)
-	cacheRatioMap := make(map[string]any)
-
-	for _, m := range orResp.Data {
-		promptPrice, promptErr := strconv.ParseFloat(m.Pricing.Prompt, 64)
-		completionPrice, compErr := strconv.ParseFloat(m.Pricing.Completion, 64)
-
-		if promptErr != nil && compErr != nil {
-			// Both unparseable — skip this model
-			continue
-		}
-
-		// Treat parse errors as 0
-		if promptErr != nil {
-			promptPrice = 0
-		}
-		if compErr != nil {
-			completionPrice = 0
-		}
-
-		// Negative values are sentinel values (e.g., -1 for dynamic/variable pricing) — skip
-		if promptPrice < 0 || completionPrice < 0 {
-			continue
-		}
-
-		if promptPrice == 0 && completionPrice == 0 {
-			// Free model
-			modelRatioMap[m.ID] = 0.0
-			continue
-		}
-		if promptPrice <= 0 {
-			// No meaningful prompt baseline, cannot derive ratios safely.
-			continue
-		}
-
-		// Normal case: promptPrice > 0
-		ratio := promptPrice * 1000 * ratio_setting.USD
-		ratio = roundRatioValue(ratio)
-		modelRatioMap[m.ID] = ratio
-
-		compRatio := completionPrice / promptPrice
-		compRatio = roundRatioValue(compRatio)
-		completionRatioMap[m.ID] = compRatio
-
-		// Convert input_cache_read to cache_ratio (= cache_read_price / prompt_price)
-		if m.Pricing.InputCacheRead != "" {
-			if cachePrice, err := strconv.ParseFloat(m.Pricing.InputCacheRead, 64); err == nil && cachePrice >= 0 {
-				cacheRatio := cachePrice / promptPrice
-				cacheRatio = roundRatioValue(cacheRatio)
-				cacheRatioMap[m.ID] = cacheRatio
-			}
-		}
-	}
-
-	converted := make(map[string]any)
-	if len(modelRatioMap) > 0 {
-		converted["model_ratio"] = modelRatioMap
-	}
-	if len(completionRatioMap) > 0 {
-		converted["completion_ratio"] = completionRatioMap
-	}
-	if len(cacheRatioMap) > 0 {
-		converted["cache_ratio"] = cacheRatioMap
-	}
-
-	return converted, nil
+// modelsDevPricing 是一次 models.dev 拉取的结果：选中的价格、来源，以及
+// 每个模型可切换的其它来源和全部提供商清单。
+type modelsDevPricing struct {
+	Data       map[string]any
+	Sources    map[string]dto.UpstreamSource
+	Candidates map[string][]dto.UpstreamCandidate
+	Providers  []dto.UpstreamProvider
 }
 
 type modelsDevProvider struct {
@@ -841,16 +352,142 @@ type modelsDevModel struct {
 }
 
 type modelsDevCost struct {
-	Input     *float64 `json:"input"`
-	Output    *float64 `json:"output"`
-	CacheRead *float64 `json:"cache_read"`
+	Input       *float64        `json:"input"`
+	Output      *float64        `json:"output"`
+	CacheRead   *float64        `json:"cache_read"`
+	CacheWrite  *float64        `json:"cache_write"`
+	InputAudio  *float64        `json:"input_audio"`
+	OutputAudio *float64        `json:"output_audio"`
+	Tiers       []modelsDevTier `json:"tiers"`
+}
+
+// modelsDevTier 是上下文超过 Tier.Size 之后适用的一档价格
+type modelsDevTier struct {
+	Input      *float64 `json:"input"`
+	Output     *float64 `json:"output"`
+	CacheRead  *float64 `json:"cache_read"`
+	CacheWrite *float64 `json:"cache_write"`
+	Tier       struct {
+		Type string  `json:"type"`
+		Size float64 `json:"size"`
+	} `json:"tier"`
 }
 
 type modelsDevCandidate struct {
-	Provider  string
-	Input     float64
-	Output    *float64
-	CacheRead *float64
+	Provider    string
+	Rank        int
+	Input       float64
+	Output      *float64
+	CacheRead   *float64
+	CacheWrite  *float64
+	InputAudio  *float64
+	OutputAudio *float64
+	Tiers       []modelsDevTier
+}
+
+// models.dev 上同一个模型 id 常被几十家提供商收录，价格能差好几倍。
+// 这里按来源可信度分档，取第一个有条目的档位：
+//
+//	0 原厂：模型自己的厂商（deepseek-* 取 deepseek，而不是托管它的 alibaba-cn）
+//	1 其它模型厂商自营入口
+//	2 厂商官方云托管
+//	3 转售/聚合商
+//
+// modelsDevVendorPrefixes 把模型 id 的家族前缀映射到原厂 provider。
+var modelsDevVendorPrefixes = []struct {
+	Prefix    string
+	Providers []string
+}{
+	{"gpt-", []string{"openai"}},
+	{"chatgpt", []string{"openai"}},
+	{"codex", []string{"openai"}},
+	{"o1", []string{"openai"}},
+	{"o3", []string{"openai"}},
+	{"o4", []string{"openai"}},
+	{"claude-", []string{"anthropic"}},
+	{"gemini-", []string{"google"}},
+	{"gemma-", []string{"google"}},
+	{"deepseek", []string{"deepseek"}},
+	{"grok-", []string{"xai"}},
+	{"qwen", []string{"alibaba", "alibaba-cn"}},
+	{"qwq", []string{"alibaba", "alibaba-cn"}},
+	{"qvq", []string{"alibaba", "alibaba-cn"}},
+	{"kimi-", []string{"moonshotai", "moonshotai-cn"}},
+	{"moonshot", []string{"moonshotai", "moonshotai-cn"}},
+	{"glm-", []string{"zhipuai", "zai"}},
+	{"minimax", []string{"minimax", "minimax-cn"}},
+	{"abab", []string{"minimax", "minimax-cn"}},
+	{"step-", []string{"stepfun", "stepfun-ai"}},
+	{"doubao-", []string{"volcengine"}},
+	{"llama-", []string{"meta", "llama"}},
+	{"mistral", []string{"mistral"}},
+	{"mixtral", []string{"mistral"}},
+	{"magistral", []string{"mistral"}},
+	{"codestral", []string{"mistral"}},
+	{"devstral", []string{"mistral"}},
+	{"ministral", []string{"mistral"}},
+	{"pixtral", []string{"mistral"}},
+	{"voxtral", []string{"mistral"}},
+	{"command-", []string{"cohere"}},
+	{"sonar", []string{"perplexity"}},
+	{"solar-", []string{"upstage"}},
+	{"nemotron", []string{"nvidia"}},
+	{"sensechat", []string{"sensenova"}},
+	{"sensenova", []string{"sensenova"}},
+	{"mimo-", []string{"xiaomi"}},
+	{"longcat", []string{"longcat"}},
+	{"morph-", []string{"morph"}},
+	{"mercury", []string{"inception"}},
+	{"sarvam", []string{"sarvam"}},
+}
+
+var modelsDevFirstPartyProviders = map[string]struct{}{
+	"openai": {}, "anthropic": {}, "google": {}, "deepseek": {}, "xai": {},
+	"mistral": {}, "meta": {}, "llama": {}, "cohere": {}, "perplexity": {},
+	"alibaba": {}, "alibaba-cn": {}, "moonshotai": {}, "moonshotai-cn": {},
+	"zhipuai": {}, "zai": {}, "minimax": {}, "minimax-cn": {}, "stepfun": {},
+	"stepfun-ai": {}, "volcengine": {}, "sensenova": {}, "upstage": {},
+	"nvidia": {}, "inception": {}, "longcat": {}, "xiaomi": {}, "sarvam": {},
+	"morph": {}, "bailing": {}, "thinkingmachines": {},
+}
+
+// 厂商官方云托管：价格通常与官方一致，仅在没有厂商自营条目时使用。
+var modelsDevCloudProviders = map[string]struct{}{
+	"azure": {}, "azure-cognitive-services": {}, "amazon-bedrock": {},
+	"google-vertex": {}, "google-vertex-anthropic": {},
+}
+
+func isModelsDevVendorOfModel(provider, modelID string) bool {
+	// 聚合商常用 "vendor/model" 形式的 id，比较家族前缀前先去掉这一段
+	if idx := strings.LastIndex(modelID, "/"); idx >= 0 {
+		modelID = modelID[idx+1:]
+	}
+	modelID = strings.ToLower(modelID)
+
+	for _, entry := range modelsDevVendorPrefixes {
+		if !strings.HasPrefix(modelID, entry.Prefix) {
+			continue
+		}
+		for _, vendor := range entry.Providers {
+			if provider == vendor {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func modelsDevProviderRank(provider, modelID string) int {
+	if isModelsDevVendorOfModel(provider, modelID) {
+		return 0
+	}
+	if _, ok := modelsDevFirstPartyProviders[provider]; ok {
+		return 1
+	}
+	if _, ok := modelsDevCloudProviders[provider]; ok {
+		return 2
+	}
+	return modelsDevThirdPartyRank
 }
 
 func cloneFloatPtr(v *float64) *float64 {
@@ -868,7 +505,7 @@ func isValidNonNegativeCost(v float64) bool {
 	return v >= 0
 }
 
-func buildModelsDevCandidate(provider string, cost modelsDevCost) (modelsDevCandidate, bool) {
+func buildModelsDevCandidate(provider, modelID string, cost modelsDevCost) (modelsDevCandidate, bool) {
 	if cost.Input == nil {
 		return modelsDevCandidate{}, false
 	}
@@ -891,31 +528,183 @@ func buildModelsDevCandidate(provider string, cost modelsDevCost) (modelsDevCand
 		return modelsDevCandidate{}, false
 	}
 
-	var cacheRead *float64
-	if cost.CacheRead != nil && isValidNonNegativeCost(*cost.CacheRead) {
-		cacheRead = cloneFloatPtr(cost.CacheRead)
+	// 这些是可选的补充计价项，单项无效时只忽略该项，不影响整条报价
+	optionalCost := func(value *float64) *float64 {
+		if value != nil && isValidNonNegativeCost(*value) {
+			return cloneFloatPtr(value)
+		}
+		return nil
 	}
 
 	return modelsDevCandidate{
-		Provider:  provider,
-		Input:     input,
-		Output:    output,
-		CacheRead: cacheRead,
+		Provider:    provider,
+		Rank:        modelsDevProviderRank(provider, modelID),
+		Input:       input,
+		Output:      output,
+		CacheRead:   optionalCost(cost.CacheRead),
+		CacheWrite:  optionalCost(cost.CacheWrite),
+		InputAudio:  optionalCost(cost.InputAudio),
+		OutputAudio: optionalCost(cost.OutputAudio),
+		Tiers:       validModelsDevTiers(cost.Tiers),
 	}, true
 }
 
-func shouldReplaceModelsDevCandidate(current, next modelsDevCandidate) bool {
-	currentNonZero := current.Input > 0
-	nextNonZero := next.Input > 0
-	if currentNonZero != nextNonZero {
-		// Prefer non-zero pricing data; this matches "cheapest non-zero" conflict policy.
-		return nextNonZero
+// validModelsDevTiers 只保留有阈值和输入价的上下文档位，并按阈值升序排列
+func validModelsDevTiers(tiers []modelsDevTier) []modelsDevTier {
+	valid := make([]modelsDevTier, 0, len(tiers))
+	for _, tier := range tiers {
+		if tier.Tier.Type != "context" || tier.Tier.Size <= 0 {
+			continue
+		}
+		if tier.Input == nil || !isValidNonNegativeCost(*tier.Input) {
+			continue
+		}
+		valid = append(valid, tier)
 	}
-	if nextNonZero && !nearlyEqual(next.Input, current.Input) {
-		return next.Input < current.Input
+	if len(valid) == 0 {
+		return nil
+	}
+	sort.Slice(valid, func(i, j int) bool {
+		return valid[i].Tier.Size < valid[j].Tier.Size
+	})
+	return valid
+}
+
+// modelsDevSelector 决定同一个模型的多个报价里用哪一个作为默认值。
+type modelsDevSelector struct {
+	officialOnly  bool
+	preferredRank map[string]int
+}
+
+func newModelsDevSelector(mode string, preferredProviders []string) modelsDevSelector {
+	switch mode {
+	case dto.UpstreamSourceModeOfficialOnly:
+		return modelsDevSelector{officialOnly: true}
+	case dto.UpstreamSourceModePrefer:
+		preferredRank := make(map[string]int, len(preferredProviders))
+		for index, provider := range preferredProviders {
+			if _, exists := preferredRank[provider]; !exists {
+				preferredRank[provider] = index
+			}
+		}
+		return modelsDevSelector{preferredRank: preferredRank}
+	default:
+		return modelsDevSelector{}
+	}
+}
+
+func (s modelsDevSelector) allows(candidate modelsDevCandidate) bool {
+	return !s.officialOnly || candidate.Rank < modelsDevThirdPartyRank
+}
+
+// betterThan 返回 a 是否应该排在 b 前面
+func (s modelsDevSelector) betterThan(a, b modelsDevCandidate) bool {
+	if len(s.preferredRank) > 0 {
+		aIndex, aPreferred := s.preferredRank[a.Provider]
+		bIndex, bPreferred := s.preferredRank[b.Provider]
+		if aPreferred != bPreferred {
+			return aPreferred
+		}
+		if aPreferred && aIndex != bIndex {
+			return aIndex < bIndex
+		}
+	}
+	if a.Rank != b.Rank {
+		// Official pricing wins even when a reseller quotes less.
+		return a.Rank < b.Rank
+	}
+	aNonZero := a.Input > 0
+	bNonZero := b.Input > 0
+	if aNonZero != bNonZero {
+		// Prefer non-zero pricing data; this matches "cheapest non-zero" conflict policy.
+		return aNonZero
+	}
+	if aNonZero && !nearlyEqual(a.Input, b.Input) {
+		return a.Input < b.Input
 	}
 	// Stable tie-breaker for deterministic result.
-	return next.Provider < current.Provider
+	return a.Provider < b.Provider
+}
+
+func formatExprNumber(value float64) string {
+	return strconv.FormatFloat(value, 'f', -1, 64)
+}
+
+// buildModelsDevTierCost 拼出一档的计费表达式。缺失的子类别不写成独立项，
+// 对应的 token 会落回 p/c 按基础价计费（见 pkg/billingexpr/expr.md 的自动排除机制）。
+func buildModelsDevTierCost(input float64, output, cacheRead, cacheWrite *float64) string {
+	parts := []string{"p * " + formatExprNumber(input)}
+	if output != nil {
+		parts = append(parts, "c * "+formatExprNumber(*output))
+	}
+	if cacheRead != nil {
+		parts = append(parts, "cr * "+formatExprNumber(*cacheRead))
+	}
+	if cacheWrite != nil {
+		parts = append(parts, "cc * "+formatExprNumber(*cacheWrite))
+	}
+	return strings.Join(parts, " + ")
+}
+
+// buildModelsDevTieredExpr 把 models.dev 的上下文档位翻译成本地的阶梯计费表达式。
+// models.dev 的 tier.size 表示"上下文超过该长度后改用这一档价格"，因此用 len
+// 逐级判断；表达式系数是真实的 $/1M 价格，不做倍率换算。
+func buildModelsDevTieredExpr(candidate modelsDevCandidate) string {
+	if len(candidate.Tiers) == 0 {
+		return ""
+	}
+
+	segments := []string{
+		fmt.Sprintf("len <= %s ? tier(\"ctx<=%s\", %s)",
+			formatExprNumber(candidate.Tiers[0].Tier.Size),
+			formatExprNumber(candidate.Tiers[0].Tier.Size),
+			buildModelsDevTierCost(candidate.Input, candidate.Output, candidate.CacheRead, candidate.CacheWrite),
+		),
+	}
+
+	for index, tier := range candidate.Tiers {
+		cost := buildModelsDevTierCost(*tier.Input, tier.Output, tier.CacheRead, tier.CacheWrite)
+		if index+1 < len(candidate.Tiers) {
+			next := candidate.Tiers[index+1].Tier.Size
+			segments = append(segments, fmt.Sprintf("len <= %s ? tier(\"ctx<=%s\", %s)",
+				formatExprNumber(next), formatExprNumber(next), cost))
+			continue
+		}
+		segments = append(segments, fmt.Sprintf("tier(\"ctx>%s\", %s)",
+			formatExprNumber(tier.Tier.Size), cost))
+	}
+
+	return strings.Join(segments, " : ")
+}
+
+func toUpstreamCandidate(candidate modelsDevCandidate) dto.UpstreamCandidate {
+	out := dto.UpstreamCandidate{
+		Provider:    candidate.Provider,
+		Official:    candidate.Rank < modelsDevThirdPartyRank,
+		BillingExpr: buildModelsDevTieredExpr(candidate),
+	}
+	if candidate.Input == 0 {
+		return out
+	}
+
+	out.ModelRatio = roundRatioValue(candidate.Input * float64(ratio_setting.USD) / modelsDevInputCostRatioBase)
+	out.CompletionRatio = ratioAgainst(candidate.Output, candidate.Input)
+	out.CacheRatio = ratioAgainst(candidate.CacheRead, candidate.Input)
+	out.CreateCacheRatio = ratioAgainst(candidate.CacheWrite, candidate.Input)
+	out.AudioRatio = ratioAgainst(candidate.InputAudio, candidate.Input)
+	if candidate.InputAudio != nil && *candidate.InputAudio > 0 {
+		// 本地的音频补全倍率是相对音频输入价，而不是文本输入价
+		out.AudioCompletionRatio = ratioAgainst(candidate.OutputAudio, *candidate.InputAudio)
+	}
+	return out
+}
+
+func ratioAgainst(value *float64, base float64) *float64 {
+	if value == nil || base <= 0 {
+		return nil
+	}
+	ratio := roundRatioValue(*value / base)
+	return &ratio
 }
 
 // convertModelsDevToRatioData parses models.dev /api.json and converts
@@ -926,10 +715,22 @@ func shouldReplaceModelsDevCandidate(current, next modelsDevCandidate) bool {
 //	completion_ratio = output_cost / input_cost
 //	cache_ratio = cache_read_cost / input_cost
 //
-// Duplicate model keys across providers are resolved by selecting the
-// cheapest non-zero input cost. If only zero-priced candidates exist,
-// a zero ratio is kept.
-func convertModelsDevToRatioData(reader io.Reader) (map[string]any, error) {
+// Duplicate model keys across providers are ordered by the selector: by default
+// the model's own vendor wins over other vendors, their official clouds and
+// finally resellers, and within the same rank the cheapest non-zero input cost
+// wins. The remaining candidates are returned too, so the caller can offer them
+// as alternative sources.
+func convertModelsDevToRatioData(reader io.Reader, selector modelsDevSelector) (*modelsDevPricing, error) {
+	candidatesByModel, err := parseModelsDevCandidates(reader)
+	if err != nil {
+		return nil, err
+	}
+	return selectModelsDevPricing(candidatesByModel, selector), nil
+}
+
+// parseModelsDevCandidates 把 api.json 解析成 模型 -> 全部可用报价。
+// 结果会被缓存复用，调用方不得原地修改。
+func parseModelsDevCandidates(reader io.Reader) (map[string][]modelsDevCandidate, error) {
 	var upstreamData map[string]modelsDevProvider
 	if err := common.DecodeJson(reader, &upstreamData); err != nil {
 		return nil, fmt.Errorf("failed to decode models.dev response: %w", err)
@@ -944,7 +745,7 @@ func convertModelsDevToRatioData(reader io.Reader) (map[string]any, error) {
 	}
 	sort.Strings(providers)
 
-	selectedCandidates := make(map[string]modelsDevCandidate)
+	candidatesByModel := make(map[string][]modelsDevCandidate)
 	for _, provider := range providers {
 		providerData := upstreamData[provider]
 		if len(providerData.Models) == 0 {
@@ -958,98 +759,137 @@ func convertModelsDevToRatioData(reader io.Reader) (map[string]any, error) {
 		sort.Strings(modelNames)
 
 		for _, modelName := range modelNames {
-			candidate, ok := buildModelsDevCandidate(provider, providerData.Models[modelName].Cost)
+			candidate, ok := buildModelsDevCandidate(provider, modelName, providerData.Models[modelName].Cost)
 			if !ok {
 				continue
 			}
-			current, exists := selectedCandidates[modelName]
-			if !exists || shouldReplaceModelsDevCandidate(current, candidate) {
-				selectedCandidates[modelName] = candidate
-			}
+			candidatesByModel[modelName] = append(candidatesByModel[modelName], candidate)
 		}
 	}
 
-	if len(selectedCandidates) == 0 {
+	if len(candidatesByModel) == 0 {
 		return nil, fmt.Errorf("no valid models.dev pricing entries found")
 	}
 
+	return candidatesByModel, nil
+}
+
+// selectModelsDevPricing 按来源偏好为每个模型挑一份默认报价，并保留其它候选。
+func selectModelsDevPricing(candidatesByModel map[string][]modelsDevCandidate, selector modelsDevSelector) *modelsDevPricing {
 	modelRatioMap := make(map[string]any)
 	completionRatioMap := make(map[string]any)
 	cacheRatioMap := make(map[string]any)
+	createCacheRatioMap := make(map[string]any)
+	audioRatioMap := make(map[string]any)
+	audioCompletionRatioMap := make(map[string]any)
+	billingModeMap := make(map[string]any)
+	billingExprMap := make(map[string]any)
+	sources := make(map[string]dto.UpstreamSource, len(candidatesByModel))
+	candidates := make(map[string][]dto.UpstreamCandidate, len(candidatesByModel))
+	providerModelCount := make(map[string]int)
+	providerOfficial := make(map[string]bool)
 
-	for modelName, candidate := range selectedCandidates {
-		if candidate.Input == 0 {
+	for modelName, cachedCandidates := range candidatesByModel {
+		// 缓存的候选是共享只读数据，排序前必须复制
+		modelCandidates := make([]modelsDevCandidate, len(cachedCandidates))
+		copy(modelCandidates, cachedCandidates)
+		sort.SliceStable(modelCandidates, func(i, j int) bool {
+			return selector.betterThan(modelCandidates[i], modelCandidates[j])
+		})
+
+		reported := modelCandidates
+		if len(reported) > maxUpstreamCandidates {
+			reported = reported[:maxUpstreamCandidates]
+		}
+		dtoCandidates := make([]dto.UpstreamCandidate, 0, len(reported))
+		for _, candidate := range reported {
+			dtoCandidates = append(dtoCandidates, toUpstreamCandidate(candidate))
+		}
+		candidates[modelName] = dtoCandidates
+
+		for _, candidate := range modelCandidates {
+			providerModelCount[candidate.Provider]++
+			if candidate.Rank < modelsDevThirdPartyRank {
+				providerOfficial[candidate.Provider] = true
+			}
+		}
+
+		selected, ok := lo.Find(modelCandidates, selector.allows)
+		if !ok {
+			// official_only 下没有官方报价的模型不参与同步
+			continue
+		}
+
+		sources[modelName] = dto.UpstreamSource{
+			Provider: selected.Provider,
+			Official: selected.Rank < modelsDevThirdPartyRank,
+		}
+
+		if expr := buildModelsDevTieredExpr(selected); expr != "" {
+			billingModeMap[modelName] = billing_setting.BillingModeTieredExpr
+			billingExprMap[modelName] = expr
+		}
+
+		if selected.Input == 0 {
 			modelRatioMap[modelName] = 0.0
 			continue
 		}
 
-		modelRatio := candidate.Input * float64(ratio_setting.USD) / modelsDevInputCostRatioBase
+		modelRatio := selected.Input * float64(ratio_setting.USD) / modelsDevInputCostRatioBase
 		modelRatioMap[modelName] = roundRatioValue(modelRatio)
 
-		if candidate.Output != nil {
-			completionRatio := *candidate.Output / candidate.Input
-			completionRatioMap[modelName] = roundRatioValue(completionRatio)
+		putRatio := func(target map[string]any, value *float64, base float64) {
+			if ratio := ratioAgainst(value, base); ratio != nil {
+				target[modelName] = *ratio
+			}
 		}
-
-		if candidate.CacheRead != nil {
-			cacheRatio := *candidate.CacheRead / candidate.Input
-			cacheRatioMap[modelName] = roundRatioValue(cacheRatio)
+		putRatio(completionRatioMap, selected.Output, selected.Input)
+		putRatio(cacheRatioMap, selected.CacheRead, selected.Input)
+		putRatio(createCacheRatioMap, selected.CacheWrite, selected.Input)
+		putRatio(audioRatioMap, selected.InputAudio, selected.Input)
+		if selected.InputAudio != nil {
+			putRatio(audioCompletionRatioMap, selected.OutputAudio, *selected.InputAudio)
 		}
 	}
 
 	converted := make(map[string]any)
-	if len(modelRatioMap) > 0 {
-		converted["model_ratio"] = modelRatioMap
-	}
-	if len(completionRatioMap) > 0 {
-		converted["completion_ratio"] = completionRatioMap
-	}
-	if len(cacheRatioMap) > 0 {
-		converted["cache_ratio"] = cacheRatioMap
-	}
-	return converted, nil
-}
-
-func GetSyncableChannels(c *gin.Context) {
-	channels, err := model.GetAllChannels(0, 0, true, false)
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": err.Error(),
-		})
-		return
-	}
-
-	var syncableChannels []dto.SyncableChannel
-	for _, channel := range channels {
-		if channel.GetBaseURL() != "" {
-			syncableChannels = append(syncableChannels, dto.SyncableChannel{
-				ID:      channel.Id,
-				Name:    channel.Name,
-				BaseURL: channel.GetBaseURL(),
-				Status:  channel.Status,
-				Type:    channel.Type,
-			})
+	for field, values := range map[string]map[string]any{
+		"model_ratio":                    modelRatioMap,
+		"completion_ratio":               completionRatioMap,
+		"cache_ratio":                    cacheRatioMap,
+		"create_cache_ratio":             createCacheRatioMap,
+		"audio_ratio":                    audioRatioMap,
+		"audio_completion_ratio":         audioCompletionRatioMap,
+		billing_setting.BillingModeField: billingModeMap,
+		billing_setting.BillingExprField: billingExprMap,
+	} {
+		if len(values) > 0 {
+			converted[field] = values
 		}
 	}
 
-	syncableChannels = append(syncableChannels, dto.SyncableChannel{
-		ID:      officialRatioPresetID,
-		Name:    officialRatioPresetName,
-		BaseURL: officialRatioPresetBaseURL,
-		Status:  1,
+	providerList := make([]dto.UpstreamProvider, 0, len(providerModelCount))
+	for provider, count := range providerModelCount {
+		providerList = append(providerList, dto.UpstreamProvider{
+			Provider:   provider,
+			Official:   providerOfficial[provider],
+			ModelCount: count,
+		})
+	}
+	sort.Slice(providerList, func(i, j int) bool {
+		if providerList[i].Official != providerList[j].Official {
+			return providerList[i].Official
+		}
+		if providerList[i].ModelCount != providerList[j].ModelCount {
+			return providerList[i].ModelCount > providerList[j].ModelCount
+		}
+		return providerList[i].Provider < providerList[j].Provider
 	})
 
-	syncableChannels = append(syncableChannels, dto.SyncableChannel{
-		ID:      modelsDevPresetID,
-		Name:    modelsDevPresetName,
-		BaseURL: modelsDevPresetBaseURL,
-		Status:  1,
-	})
-
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
-		"data":    syncableChannels,
-	})
+	return &modelsDevPricing{
+		Data:       converted,
+		Sources:    sources,
+		Candidates: candidates,
+		Providers:  providerList,
+	}
 }

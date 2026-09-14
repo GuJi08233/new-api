@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Banner,
   Button,
@@ -33,6 +33,7 @@ import {
   Switch,
   Table,
   Tag,
+  Tooltip,
   Typography,
 } from '@douyinfe/semi-ui';
 import {
@@ -55,6 +56,12 @@ import TieredPricingEditor from './TieredPricingEditor';
 
 const { Text } = Typography;
 const EMPTY_CANDIDATE_MODEL_NAMES = [];
+
+const formatUpstreamPrice = (value) => {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return '-';
+  return String(parseFloat(number.toFixed(6)));
+};
 
 const PriceInput = ({
   label,
@@ -106,6 +113,7 @@ export default function ModelPricingEditor({
   const [batchVisible, setBatchVisible] = useState(false);
   const [syncVisible, setSyncVisible] = useState(false);
   const [newModelName, setNewModelName] = useState('');
+  const [pickedUpstreamProvider, setPickedUpstreamProvider] = useState('');
   const [selectedGroup, setSelectedGroupState] = useState('global');
   const setSelectedGroup = useCallback(
     (next) => {
@@ -151,6 +159,12 @@ export default function ModelPricingEditor({
     deleteModel,
     applySelectedModelPricing,
     syncGroupPricing,
+    clearGroupPricing,
+    fillPricingFromUpstream,
+    upstreamCandidates,
+    upstreamLoading,
+    loadUpstreamCandidates,
+    applyUpstreamCandidate,
   } = useModelPricingEditorState({
     options,
     refresh,
@@ -159,6 +173,20 @@ export default function ModelPricingEditor({
     filterMode,
     selectedGroup,
   });
+
+  // 切换模型时清掉上一个模型选中的上游提供商
+  useEffect(() => {
+    setPickedUpstreamProvider('');
+  }, [selectedModelName]);
+
+  const pickedUpstreamCandidate = useMemo(() => {
+    if (!selectedModelName || !pickedUpstreamProvider) return null;
+    return (
+      (upstreamCandidates[selectedModelName] || []).find(
+        (candidate) => candidate.provider === pickedUpstreamProvider,
+      ) || null
+    );
+  }, [selectedModelName, pickedUpstreamProvider, upstreamCandidates]);
 
   const getExprModeLabel = useCallback((model) => {
     if (model?.billingMode !== 'tiered_expr') {
@@ -325,6 +353,25 @@ export default function ModelPricingEditor({
                 {t('同步所选模型到分组')}
                 {selectedModelNames.length > 0 ? ` (${selectedModelNames.length})` : ''}
               </Button>
+              <Button
+                type='danger'
+                onClick={() =>
+                  Modal.confirm({
+                    title: t('清空分组配置'),
+                    content: t(
+                      '将删除分组 {{group}} 的全部模型定价配置，之后该分组按全局定价计费。此操作不可撤销。',
+                      { group: selectedGroup },
+                    ),
+                    okText: t('清空'),
+                    cancelText: t('取消'),
+                    okButtonProps: { type: 'danger' },
+                    onOk: clearGroupPricing,
+                  })
+                }
+                style={isMobile ? { width: '100%' } : undefined}
+              >
+                {t('清空当前分组配置')}
+              </Button>
             </>
           )}
         </Space>
@@ -356,6 +403,20 @@ export default function ModelPricingEditor({
             {t('批量应用当前模型价格')}
             {selectedModelNames.length > 0 ? ` (${selectedModelNames.length})` : ''}
           </Button>
+          <Tooltip
+            content={t(
+              '勾选模型后只同步所选模型，未勾选时同步当前列表的全部模型；价格填入表单后仍需保存才会生效',
+            )}
+          >
+            <Button
+              loading={loading}
+              onClick={() => fillPricingFromUpstream(selectedModelNames)}
+              style={isMobile ? { width: '100%' } : undefined}
+            >
+              {t('从 models.dev 同步价格')}
+              {selectedModelNames.length > 0 ? ` (${selectedModelNames.length})` : ''}
+            </Button>
+          </Tooltip>
           <Input
             prefix={<IconSearch />}
             placeholder={t('搜索模型名称')}
@@ -498,6 +559,99 @@ export default function ModelPricingEditor({
                     )}
                   </div>
                 </div>
+
+                {selectedModel.billingMode === 'per-token' ? (
+                  <Card
+                    bodyStyle={{ padding: 12 }}
+                    style={{
+                      marginBottom: 16,
+                      background: 'var(--semi-color-fill-0)',
+                    }}
+                  >
+                    <div className='flex items-center justify-between mb-2'>
+                      <span className='font-medium'>
+                        {t('models.dev 参考价格')}
+                      </span>
+                      <Button
+                        size='small'
+                        loading={upstreamLoading}
+                        onClick={() =>
+                          loadUpstreamCandidates(selectedModel.name)
+                        }
+                      >
+                        {upstreamCandidates[selectedModel.name]
+                          ? t('重新获取')
+                          : t('获取')}
+                      </Button>
+                    </div>
+                    {(upstreamCandidates[selectedModel.name] || []).length >
+                    0 ? (
+                      <>
+                        <Select
+                          key={selectedModel.name}
+                          style={{ width: '100%' }}
+                          value={pickedUpstreamProvider || undefined}
+                          placeholder={t('选择提供商，价格将填入下方表单')}
+                          onChange={(value) => {
+                            setPickedUpstreamProvider(value);
+                            applyUpstreamCandidate(selectedModel.name, value);
+                          }}
+                          optionList={upstreamCandidates[
+                            selectedModel.name
+                          ].map((candidate) => ({
+                            value: candidate.provider,
+                            label: `${candidate.provider} · ${
+                              candidate.official ? t('官方') : t('第三方')
+                            } · ${t('输入')} $${formatUpstreamPrice(
+                              candidate.model_ratio * 2,
+                            )}${
+                              candidate.completion_ratio !== undefined &&
+                              candidate.completion_ratio !== null
+                                ? ` · ${t('输出')} $${formatUpstreamPrice(
+                                    candidate.model_ratio *
+                                      2 *
+                                      candidate.completion_ratio,
+                                  )}`
+                                : ''
+                            } /1M${candidate.billing_expr ? ` · ${t('有阶梯价')}` : ''}`,
+                          }))}
+                        />
+                        <div className='mt-1 text-xs text-gray-500'>
+                          {t(
+                            '选择后价格会填入下方表单，仍需点击保存才会生效；第三方来源的报价请自行核对',
+                          )}
+                        </div>
+                        {pickedUpstreamCandidate?.billing_expr ? (
+                          <div className='mt-2'>
+                            <Button
+                              size='small'
+                              onClick={() =>
+                                applyUpstreamCandidate(
+                                  selectedModel.name,
+                                  pickedUpstreamProvider,
+                                  true,
+                                )
+                              }
+                            >
+                              {t('改用该来源的上下文阶梯价')}
+                            </Button>
+                            <div className='mt-1 text-xs text-gray-500'>
+                              {t(
+                                '该来源按上下文长度分档计价，套用后模型会切换为表达式计费',
+                              )}
+                            </div>
+                          </div>
+                        ) : null}
+                      </>
+                    ) : (
+                      <div className='text-xs text-gray-500'>
+                        {t(
+                          '点击获取，查看该模型在 models.dev 上各家提供商的报价并直接填入',
+                        )}
+                      </div>
+                    )}
+                  </Card>
+                ) : null}
 
                 {selectedWarnings.length > 0 ? (
                   <Card

@@ -505,14 +505,6 @@ export type SecuritySettings = {
   'token_setting.max_user_tokens': number
 }
 
-export type UpstreamChannel = {
-  id: number
-  name: string
-  base_url: string
-  status: number
-  type?: number
-}
-
 export type RatioType =
   | 'model_ratio'
   | 'completion_ratio'
@@ -527,8 +519,7 @@ export type RatioType =
 
 export type RatioDifference = {
   current: number | string | null
-  upstreams: Record<string, number | string | 'same'>
-  confidence: Record<string, boolean>
+  upstream: number | string
 }
 
 export type DifferencesMap = Record<
@@ -536,29 +527,9 @@ export type DifferencesMap = Record<
   Partial<Record<RatioType, RatioDifference>>
 >
 
-export type UpstreamChannelsResponse = {
-  success: boolean
-  message: string
-  data: UpstreamChannel[]
-}
-
-export type UpstreamConfig = {
-  id: number
-  name: string
-  base_url: string
-  endpoint: string
-}
-
 export type FetchUpstreamRatiosRequest = {
-  upstreams: UpstreamConfig[]
   timeout: number
   only_enabled_models?: boolean
-}
-
-export type TestResult = {
-  name: string
-  status: 'success' | 'error'
-  error?: string
 }
 
 export type UpstreamRatiosResponse = {
@@ -566,6 +537,5 @@ export type UpstreamRatiosResponse = {
   message: string
   data: {
     differences: DifferencesMap
-    test_results: TestResult[]
   }
 }

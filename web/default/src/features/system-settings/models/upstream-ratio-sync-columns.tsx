@@ -32,9 +32,9 @@ import {
 } from '@/components/ui/tooltip'
 
 import type { RatioType } from '../types'
+import { UPSTREAM_PRICING_SOURCE } from './constants'
 import {
-  getAlignedRatioTypes,
-  getPreferredSyncField,
+  getOrderedRatioTypes,
   getSyncFieldLabel,
   isSelectedResolutionValue,
   type ModelRow,
@@ -48,25 +48,23 @@ const syncFieldRowClassName =
 const syncFieldLabelClassName = 'min-w-[4.5rem] shrink-0'
 
 export function useUpstreamRatioSyncColumns(
-  upstreamNames: string[],
-  bulkSelectStateByUpstream: Record<string, UpstreamBulkSelectState>,
+  bulkSelectState: UpstreamBulkSelectState,
   resolutions: ResolutionsMap,
   ratioTypeFilter: string,
   isDisabled: boolean,
   onSelectValue: (
     model: string,
     ratioType: RatioType,
-    value: number | string,
-    sourceName: string
+    value: number | string
   ) => void,
   onUnselectValue: (model: string, ratioType: RatioType) => void,
-  onBulkSelect: (upstreamName: string) => void,
-  onBulkUnselect: (upstreamName: string) => void
+  onBulkSelect: () => void,
+  onBulkUnselect: () => void
 ): ColumnDef<ModelRow>[] {
   const { t } = useTranslation()
 
   return useMemo<ColumnDef<ModelRow>[]>(() => {
-    const baseColumns: ColumnDef<ModelRow>[] = [
+    return [
       {
         accessorKey: 'model',
         header: ({ column }) => (
@@ -107,9 +105,8 @@ export function useUpstreamRatioSyncColumns(
         size: 260,
         minSize: 220,
         cell: ({ row }) => {
-          const fields = getAlignedRatioTypes(
+          const fields = getOrderedRatioTypes(
             row.original.ratioTypes,
-            upstreamNames,
             ratioTypeFilter
           )
           return (
@@ -160,18 +157,12 @@ export function useUpstreamRatioSyncColumns(
           )
         },
       },
-    ]
-
-    const upstreamColumns: ColumnDef<ModelRow>[] = upstreamNames.map(
-      (upstreamName) => ({
-        id: `upstream_${upstreamName}`,
+      {
+        id: 'upstream',
         size: 280,
         minSize: 240,
         header: () => {
-          const bulkSelectState = bulkSelectStateByUpstream[upstreamName]
-          const displayName = bulkSelectState?.displayName ?? upstreamName
-          const selectableCount = bulkSelectState?.selectableCount ?? 0
-          const selectedCount = bulkSelectState?.selectedCount ?? 0
+          const { selectableCount, selectedCount } = bulkSelectState
           const allSelected =
             selectableCount > 0 && selectedCount === selectableCount
           const someSelected =
@@ -185,9 +176,9 @@ export function useUpstreamRatioSyncColumns(
                   disabled={isDisabled}
                   onCheckedChange={(checked) => {
                     if (checked) {
-                      onBulkSelect(upstreamName)
+                      onBulkSelect()
                     } else {
-                      onBulkUnselect(upstreamName)
+                      onBulkUnselect()
                     }
                   }}
                   aria-label={t('Select all (filtered)')}
@@ -196,7 +187,7 @@ export function useUpstreamRatioSyncColumns(
               )}
               <div className='flex min-w-0 flex-1 items-center gap-1.5'>
                 <span className='min-w-0 truncate font-medium'>
-                  {displayName}
+                  {UPSTREAM_PRICING_SOURCE}
                 </span>
                 {selectableCount > 0 && (
                   <span className='bg-muted text-muted-foreground shrink-0 rounded px-1.5 py-0.5 text-[11px] leading-none font-normal tabular-nums'>
@@ -208,24 +199,15 @@ export function useUpstreamRatioSyncColumns(
           )
         },
         cell: ({ row }) => {
-          const fields = getAlignedRatioTypes(
+          const fields = getOrderedRatioTypes(
             row.original.ratioTypes,
-            upstreamNames,
             ratioTypeFilter
           )
 
           return (
             <div className={syncFieldListClassName}>
               {fields.map((ratioType) => {
-                const diff = row.original.ratioTypes[ratioType]
-                const upstreamVal = diff?.upstreams?.[upstreamName]
-                const isConfident = diff?.confidence?.[upstreamName] !== false
-                const isVisibleForSource =
-                  getPreferredSyncField(
-                    row.original.ratioTypes,
-                    ratioType,
-                    upstreamName
-                  ) === ratioType
+                const upstreamVal = row.original.ratioTypes[ratioType]?.upstream
 
                 return (
                   <div key={ratioType} className={syncFieldRowClassName}>
@@ -239,8 +221,6 @@ export function useUpstreamRatioSyncColumns(
                     <div className='min-w-0 flex-1'>
                       {renderUpstreamValue({
                         upstreamVal,
-                        isAvailable: isVisibleForSource,
-                        isConfident,
                         isSelected: isSelectedResolutionValue(
                           resolutions,
                           row.original.model,
@@ -253,8 +233,7 @@ export function useUpstreamRatioSyncColumns(
                           onSelectValue(
                             row.original.model,
                             ratioType,
-                            upstreamVal as number | string,
-                            upstreamName
+                            upstreamVal as number | string
                           ),
                         onUnselect: () =>
                           onUnselectValue(row.original.model, ratioType),
@@ -266,13 +245,10 @@ export function useUpstreamRatioSyncColumns(
             </div>
           )
         },
-      })
-    )
-
-    return [...baseColumns, ...upstreamColumns]
+      },
+    ]
   }, [
-    upstreamNames,
-    bulkSelectStateByUpstream,
+    bulkSelectState,
     resolutions,
     ratioTypeFilter,
     isDisabled,
@@ -285,9 +261,7 @@ export function useUpstreamRatioSyncColumns(
 }
 
 type RenderUpstreamValueArgs = {
-  upstreamVal: number | string | 'same' | null | undefined
-  isAvailable: boolean
-  isConfident: boolean
+  upstreamVal: number | string | null | undefined
   isSelected: boolean
   isDisabled: boolean
   t: (key: string) => string
@@ -296,31 +270,13 @@ type RenderUpstreamValueArgs = {
 }
 
 function renderUpstreamValue(args: RenderUpstreamValueArgs) {
-  const { upstreamVal, isAvailable, isConfident, isSelected, isDisabled, t } =
-    args
-
-  if (!isAvailable) {
-    return (
-      <StatusBadge label='—' variant='neutral' size='sm' copyable={false} />
-    )
-  }
+  const { upstreamVal, isSelected, isDisabled, t } = args
 
   if (upstreamVal === null || upstreamVal === undefined) {
     return (
       <StatusBadge
         label={t('Not Set')}
         variant='neutral'
-        size='sm'
-        copyable={false}
-      />
-    )
-  }
-
-  if (upstreamVal === 'same') {
-    return (
-      <StatusBadge
-        label={t('Same as Local')}
-        variant='info'
         size='sm'
         copyable={false}
       />
@@ -357,18 +313,6 @@ function renderUpstreamValue(args: RenderUpstreamValueArgs) {
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>
-      {!isConfident && (
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger>
-              <AlertTriangle className='h-3.5 w-3.5 shrink-0 text-amber-500' />
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>{t('This data may be unreliable, use with caution')}</p>
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-      )}
     </div>
   )
 }

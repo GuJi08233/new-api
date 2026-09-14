@@ -26,7 +26,6 @@ import type {
   SystemTaskResponse,
   UpdateOptionRequest,
   UpdateOptionResponse,
-  UpstreamChannelsResponse,
   UpstreamRatiosResponse,
 } from './types'
 
@@ -85,13 +84,6 @@ export async function listSystemTasks(limit = 20) {
 export async function resetModelRatios() {
   const res = await api.post<UpdateOptionResponse>(
     '/api/option/rest_model_ratio'
-  )
-  return res.data
-}
-
-export async function getUpstreamChannels() {
-  const res = await api.get<UpstreamChannelsResponse>(
-    '/api/ratio_sync/channels'
   )
   return res.data
 }
