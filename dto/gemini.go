@@ -2,6 +2,7 @@ package dto
 
 import (
 	"encoding/json"
+	"strconv"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -164,6 +165,28 @@ type GeminiThinkingConfig struct {
 	ThinkingBudget  *int `json:"thinkingBudget,omitempty"`
 	// TODO Conflict with thinkingbudget.
 	ThinkingLevel string `json:"thinkingLevel,omitempty"`
+}
+
+// ThinkingSummary describes the thinking parameters carried by the request, for the
+// consume log. thinkingLevel wins; otherwise the budget, where -1 is Gemini's
+// dynamic budget and 0 turns thinking off. Empty when the client sent nothing.
+func (c *GeminiThinkingConfig) ThinkingSummary() string {
+	if c == nil {
+		return ""
+	}
+	if c.ThinkingLevel != "" {
+		return c.ThinkingLevel
+	}
+	if c.ThinkingBudget == nil {
+		return ""
+	}
+	switch *c.ThinkingBudget {
+	case -1:
+		return "dynamic"
+	case 0:
+		return "disabled"
+	}
+	return "budget " + strconv.Itoa(*c.ThinkingBudget)
 }
 
 // UnmarshalJSON allows GeminiThinkingConfig to accept both snake_case and camelCase fields.

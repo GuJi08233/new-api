@@ -421,6 +421,22 @@ func (c *ClaudeRequest) GetEfforts() string {
 	return ""
 }
 
+// ThinkingSummary describes the thinking parameters carried by the request, for the
+// consume log. output_config.effort wins; otherwise the thinking type, with the
+// token budget when one is set. Empty when the client sent nothing.
+func (c *ClaudeRequest) ThinkingSummary() string {
+	if effort := c.GetEfforts(); effort != "" {
+		return effort
+	}
+	if c.Thinking == nil || c.Thinking.Type == "" {
+		return ""
+	}
+	if c.Thinking.Type == "enabled" && c.Thinking.BudgetTokens != nil {
+		return fmt.Sprintf("enabled (budget %d)", *c.Thinking.BudgetTokens)
+	}
+	return c.Thinking.Type
+}
+
 // ProcessTools 处理工具列表，支持类型断言
 func ProcessTools(tools []any) ([]*Tool, []*ClaudeWebSearchTool) {
 	var normalTools []*Tool
