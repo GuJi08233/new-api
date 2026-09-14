@@ -1,4 +1,18 @@
-# 前端开发规范
+> # ⛔ 本主题已弃用（DEPRECATED / FROZEN）
+>
+> `web/default/` 是**已冻结**的旧主题，本项目实际只使用 `web/classic/`。
+>
+> **禁止修改 `web/default/` 下的任何文件** —— 包括新功能、Bug 修复、重构、依赖升级、i18n 补全、格式化。
+> 所有前端工作一律在 `web/classic/` 进行，规范见根目录 `AGENTS.md` 的 Frontend Rules。
+>
+> 本目录保留仅为保持 `go:embed` 与 Docker 构建可编译。若确需改动，必须由用户显式点名
+> “修改 web/default”，否则视为走错目录，应立刻改去 `web/classic/`。
+>
+> 以下内容仅作历史存档，**不代表当前项目规范**。
+
+---
+
+# 前端开发规范（已弃用主题 web/default 的历史存档）
 
 本文档定义前端项目的开发规范与最佳实践，供开发与 AI 助手共同遵循。具体依赖与脚本以 `package.json` 为准。
 

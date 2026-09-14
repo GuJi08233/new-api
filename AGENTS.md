@@ -9,7 +9,7 @@ This is an AI API gateway/proxy built with Go. It aggregates 40+ upstream AI pro
 ## Tech Stack
 
 - **Backend**: Go 1.22+, Gin web framework, GORM v2 ORM
-- **Frontend**: React 19, TypeScript, Rsbuild, Base UI, Tailwind CSS
+- **Frontend**: React 18, Vite, Semi Design, Tailwind CSS (`web/classic/` — the only maintained theme)
 - **Databases**: SQLite, MySQL, PostgreSQL (all three must be supported)
 - **Cache**: Redis (go-redis) + in-memory cache
 - **Auth**: JWT, WebAuthn/Passkeys, OAuth (GitHub, Discord, OIDC, etc.)
@@ -35,10 +35,10 @@ types/         — Type definitions (relay formats, file sources, errors)
 i18n/          — Backend internationalization (go-i18n, en/zh)
 oauth/         — OAuth provider implementations
 pkg/           — Internal packages (cachex, ionet)
-web/             — Frontend themes container
- web/default/   — Default frontend (React 19, Rsbuild, Base UI, Tailwind)
-  web/classic/   — Classic frontend (React 18, Vite, Semi Design)
-  web/default/src/i18n/ — Frontend internationalization (i18next, zh/en/fr/ru/ja/vi)
+web/           — Frontend themes container
+  web/classic/          — THE frontend (React 18, Vite, Semi Design, Tailwind) — all frontend work happens here
+  web/classic/src/i18n/ — Frontend internationalization (i18next, zh-CN/zh-TW/en/fr/ru/ja/vi)
+  web/default/          — DEPRECATED, FROZEN. Kept only so go:embed and the Docker build still compile. Do not touch.
 ```
 
 ## Internationalization (i18n)
@@ -47,12 +47,12 @@ web/             — Frontend themes container
 - Library: `nicksnyder/go-i18n/v2`
 - Languages: en, zh
 
-### Frontend (`web/default/src/i18n/`)
+### Frontend (`web/classic/src/i18n/`)
 - Library: `i18next` + `react-i18next` + `i18next-browser-languagedetector`
-- Languages: en (base), zh (fallback), fr, ru, ja, vi
-- Translation files: `web/default/src/i18n/locales/{lang}.json` — flat JSON, keys are English source strings
-- Usage: `useTranslation()` hook, call `t('English key')` in components
-- CLI tools: `bun run i18n:sync` (from `web/default/`)
+- Languages: zh-CN, zh-TW, en, fr, ru, ja, vi
+- Translation files: `web/classic/src/i18n/locales/{lang}.json` — keys live under the `translation` namespace and are **Chinese source strings**
+- Usage: `useTranslation()` hook, call `t('中文原文')` in components
+- CLI tools: `bun run i18n:extract` / `i18n:sync` / `i18n:status` / `i18n:lint` (from `web/classic/`), driven by `web/classic/i18next.config.js`
 
 ## Rules
 
@@ -126,14 +126,22 @@ Do NOT directly import or call `encoding/json` in business code. `json.RawMessag
 
 ### Frontend Rules
 
-- Use `bun` as the preferred package manager and script runner for the frontend (`web/default/`):
+**`web/classic/` is the only maintained frontend. `web/default/` is deprecated and frozen.**
+
+- Every frontend change — features, bug fixes, refactors, dependency bumps, i18n, formatting — goes into `web/classic/` and nowhere else.
+- Do NOT read `web/default/` for conventions, do NOT mirror a `web/classic/` change into it, and do NOT "keep the two themes in sync". They have diverged on purpose: different React major, different bundler, different UI library, different i18n key style.
+- `web/default/` stays in the tree only because `main.go` embeds `web/default/dist` and the Dockerfile builds it. Touch it only when the user explicitly names `web/default` in their request.
+- If a task seems to require editing `web/default/`, stop and ask instead of editing.
+
+- Use `bun` as the package manager and script runner, run from `web/classic/`:
   - `bun install` for dependency installation
-  - `bun run dev` for development server
+  - `bun run dev` for the Vite dev server
   - `bun run build` for production build
-  - `bun run i18n:*` for i18n tooling
-- Frontend UI text must support i18n with `i18next`/`react-i18next`. Use flat JSON locale files in `web/default/src/i18n/locales/{lang}.json`, with English source strings as keys.
-- In React components, use `useTranslation()` and call `t('English key')` for user-facing text.
-- Follow `web/default/AGENTS.md` for detailed frontend conventions, including TypeScript, component structure, styling, accessibility, testing, and build checks.
+  - `bun run lint` / `lint:fix` (Prettier) and `bun run eslint` / `eslint:fix`
+  - `bun run i18n:extract` / `i18n:sync` / `i18n:status` / `i18n:lint` for i18n tooling
+- Frontend UI text must support i18n with `i18next`/`react-i18next`. Locale files live in `web/classic/src/i18n/locales/{lang}.json`, keyed by Chinese source strings under the `translation` namespace.
+- In React components, use `useTranslation()` and call `t('中文原文')` for user-facing text.
+- The frontend is JavaScript/JSX (`.jsx`) with Semi Design components and Tailwind utility classes; follow the patterns of neighbouring files in `web/classic/src/`.
 
 ### Project Governance
 
