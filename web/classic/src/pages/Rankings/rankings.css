@@ -533,31 +533,67 @@ For commercial licensing, please contact support@quantumnous.com
 
 .rankings-scroll {
   max-height: 480px;
+  /* Bleed 10px into the section padding on both sides and add matching
+     horizontal padding, so a row's hover background (.rankings-row uses
+     margin: 0 -10px) stays fully painted inside the scroll box — same look
+     as the boards that have no scroll container. */
+  padding: 0 10px;
+  margin: 0 -10px;
   overflow-y: auto;
-  /* Firefox: thin track with a transparent thumb until hovered */
+  /* Safety net against residual horizontal overflow: clip, never show a
+     phantom horizontal scrollbar. */
+  overflow-x: hidden;
+  /* Narrow the scrollbar on every device. Engines that understand this
+     standard property (Firefox, Chrome 121+, Safari 18.2+) then ignore all
+     ::-webkit-scrollbar rules below; older WebKit/Blink use those instead. */
   scrollbar-width: thin;
-  scrollbar-color: transparent transparent;
 }
 
-.rankings-scroll:hover {
-  scrollbar-color: var(--semi-color-fill-2) transparent;
-}
-
+/* Old WebKit/Blink branch (Chrome <121, Safari <18.2) */
 .rankings-scroll::-webkit-scrollbar {
   width: 6px;
 }
 
-.rankings-scroll::-webkit-scrollbar-track {
-  background: transparent;
-}
+/*
+ * Hide the thumb until the board is hovered or focused within. Thumb colors
+ * use the theme-aware fill tokens (light in dark mode, dark in light mode);
+ * the static grey palette would nearly vanish in dark mode. scrollbar-color
+ * takes thumb and track colors in that order.
+ * Gated by any-hover/any-pointer, which describe whether the device HAS a
+ * mouse-like input; plain hover/pointer only describe the primary input and
+ * would exclude e.g. an iPad with a mouse attached. Touch-only devices keep
+ * their platform default (transient overlay) scrollbar rather than a
+ * permanently transparent thumb. Safari 18.2–26.1 has scrollbar-width but
+ * not scrollbar-color, so there it shows a default always-visible thin
+ * scrollbar — acceptable degradation.
+ */
+@media (any-hover: hover) and (any-pointer: fine) {
+  .rankings-scroll {
+    scrollbar-color: transparent transparent;
+  }
 
-.rankings-scroll::-webkit-scrollbar-thumb {
-  background: transparent;
-  border-radius: 3px;
-}
+  .rankings-scroll:hover,
+  .rankings-scroll:focus-within {
+    scrollbar-color: var(--semi-color-fill-2) transparent;
+  }
 
-.rankings-scroll:hover::-webkit-scrollbar-thumb {
-  background: var(--semi-color-fill-2);
+  .rankings-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .rankings-scroll::-webkit-scrollbar-thumb {
+    background: transparent;
+    border-radius: 2px;
+  }
+
+  .rankings-scroll:hover::-webkit-scrollbar-thumb,
+  .rankings-scroll:focus-within::-webkit-scrollbar-thumb {
+    background: var(--semi-color-fill-2);
+  }
+
+  .rankings-scroll::-webkit-scrollbar-thumb:hover {
+    background: var(--semi-color-text-2);
+  }
 }
 
 .rankings-skeleton-row {
