@@ -95,7 +95,9 @@ export function buildSubscriptionPayOptions({
     ...(enableCreemTopUp ? [{ value: 'creem', label: 'Creem' }] : []),
     ...(hasEthereum
       ? ethereumTokens.map((token) => ({
-          value: `ethereum:${token.address}`,
+          // 键必须与后端存储的白名单形式一致：代币地址是 EIP-55 混合大小写，
+          // 而后端按小写存，不归一化的话管理端回显和提交都匹配不上。
+          value: normalizeSubscriptionPayMethod(`ethereum:${token.address}`),
           label: token.symbol,
         }))
       : []),
