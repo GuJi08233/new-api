@@ -9,7 +9,7 @@ This is an AI API gateway/proxy built with Go. It aggregates 40+ upstream AI pro
 ## Tech Stack
 
 - **Backend**: Go 1.22+, Gin web framework, GORM v2 ORM
-- **Frontend**: React 18, Vite, Semi Design, Tailwind CSS (`web/classic/` — the only maintained theme)
+- **Frontend**: React 18, Vite, Semi Design, Tailwind CSS (`web/classic/` — the only frontend)
 - **Databases**: SQLite, MySQL, PostgreSQL (all three must be supported)
 - **Cache**: Redis (go-redis) + in-memory cache
 - **Auth**: JWT, WebAuthn/Passkeys, OAuth (GitHub, Discord, OIDC, etc.)
@@ -35,10 +35,8 @@ types/         — Type definitions (relay formats, file sources, errors)
 i18n/          — Backend internationalization (go-i18n, en/zh)
 oauth/         — OAuth provider implementations
 pkg/           — Internal packages (cachex, ionet)
-web/           — Frontend themes container
-  web/classic/          — THE frontend (React 18, Vite, Semi Design, Tailwind) — all frontend work happens here
+web/classic/          — THE frontend (React 18, Vite, Semi Design, Tailwind) — the only frontend
   web/classic/src/i18n/ — Frontend internationalization (i18next, zh-CN/zh-TW/en/fr/ru/ja/vi)
-  web/default/          — DEPRECATED, FROZEN. Kept only so go:embed and the Docker build still compile. Do not touch.
 ```
 
 ## Internationalization (i18n)
@@ -126,12 +124,7 @@ Do NOT directly import or call `encoding/json` in business code. `json.RawMessag
 
 ### Frontend Rules
 
-**`web/classic/` is the only maintained frontend. `web/default/` is deprecated and frozen.**
-
-- Every frontend change — features, bug fixes, refactors, dependency bumps, i18n, formatting — goes into `web/classic/` and nowhere else.
-- Do NOT read `web/default/` for conventions, do NOT mirror a `web/classic/` change into it, and do NOT "keep the two themes in sync". They have diverged on purpose: different React major, different bundler, different UI library, different i18n key style.
-- `web/default/` stays in the tree only because `main.go` embeds `web/default/dist` and the Dockerfile builds it. Touch it only when the user explicitly names `web/default` in their request.
-- If a task seems to require editing `web/default/`, stop and ask instead of editing.
+**`web/classic/` is the only frontend.** The former `web/default/` theme was deleted; there is no theme switching, no `THEME` setting, and no second frontend to keep in sync. Do not recreate it, and do not restore it from git history or from another branch.
 
 - Use `bun` as the package manager and script runner, run from `web/classic/`:
   - `bun install` for dependency installation

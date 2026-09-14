@@ -20,7 +20,7 @@ For commercial licensing, please contact support@quantumnous.com
 import DOMPurify from 'dompurify';
 
 // 富文本文档（公告 / 关于 / 首页 / 页脚等）允许的扩展标签与属性。
-// 与 web/default 的 html-content.tsx 保持一致：允许排版与媒体，禁止脚本与外部资源劫持。
+// 原则：允许排版与媒体，禁止脚本与外部资源劫持。
 const RICH_CONTENT_OPTIONS = {
   ADD_ATTR: [
     'allowfullscreen',

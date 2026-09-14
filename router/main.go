@@ -13,7 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func SetRouter(router *gin.Engine, assets ThemeAssets) {
+func SetRouter(router *gin.Engine, assets WebAssets) {
 	// WebSocket relay must not pass through gzip middleware. Session auth keeps
 	// the proxy from being an open relay: it is only reachable by logged-in users
 	// paying on-chain. UserAuth cannot be used here because a browser WebSocket

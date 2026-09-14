@@ -52,16 +52,6 @@ jobs:
         with:
           go-version: '>=1.25.1'
 
-      - name: Build frontend (default)
-        env:
-          CI: ""
-          NODE_OPTIONS: "--max-old-space-size=4096"
-        run: |
-          cd web/default
-          bun install
-          DISABLE_ESLINT_PLUGIN='true' VITE_REACT_APP_VERSION=$VERSION bun run build
-          cd ../..
-
       - name: Build frontend (classic)
         env:
           CI: ""

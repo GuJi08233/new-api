@@ -49,7 +49,6 @@ const OtherSetting = () => {
     Notice: '',
     [LEGAL_USER_AGREEMENT_KEY]: '',
     [LEGAL_PRIVACY_POLICY_KEY]: '',
-    'theme.frontend': 'default',
     SystemName: '',
     Logo: '',
     Footer: '',
@@ -83,7 +82,6 @@ const OtherSetting = () => {
     Notice: false,
     [LEGAL_USER_AGREEMENT_KEY]: false,
     [LEGAL_PRIVACY_POLICY_KEY]: false,
-    'theme.frontend': false,
     SystemName: false,
     Logo: false,
     HomePageContent: false,
@@ -233,28 +231,6 @@ const OtherSetting = () => {
       showError('页脚内容更新失败');
     } finally {
       setLoadingInput((loadingInput) => ({ ...loadingInput, Footer: false }));
-    }
-  };
-
-  const submitFrontendTheme = async () => {
-    try {
-      setLoadingInput((loadingInput) => ({
-        ...loadingInput,
-        'theme.frontend': true,
-      }));
-      await updateOption('theme.frontend', inputs['theme.frontend']);
-      showSuccess(t('前端主题已更新，正在跳转到首页'));
-      setTimeout(() => {
-        window.location.assign('/');
-      }, 300);
-    } catch (error) {
-      console.error(t('前端主题更新失败'), error);
-      showError(t('前端主题更新失败'));
-    } finally {
-      setLoadingInput((loadingInput) => ({
-        ...loadingInput,
-        'theme.frontend': false,
-      }));
     }
   };
 
@@ -410,35 +386,6 @@ const OtherSetting = () => {
                   <Text>
                     {t('启动时间')}：{getStartTimeString()}
                   </Text>
-                </Col>
-              </Row>
-              <Row style={{ marginTop: 16 }}>
-                <Col span={16}>
-                  <Form.Select
-                    field="['theme.frontend']"
-                    label={t('前端主题')}
-                    placeholder={t('选择要使用的前端界面')}
-                    optionList={[
-                      { label: t('新版前端'), value: 'default' },
-                      { label: t('经典前端'), value: 'classic' },
-                    ]}
-                    extraText={t(
-                      '切换前端界面后将跳转到首页，刷新后即可进入对应界面',
-                    )}
-                    onChange={(value) =>
-                      setInputs((prev) => ({
-                        ...prev,
-                        'theme.frontend': value,
-                      }))
-                    }
-                  />
-                  <Button
-                    type='primary'
-                    onClick={submitFrontendTheme}
-                    loading={loadingInput['theme.frontend']}
-                  >
-                    {t('设置前端主题')}
-                  </Button>
                 </Col>
               </Row>
             </Form.Section>

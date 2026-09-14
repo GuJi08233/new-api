@@ -23,8 +23,10 @@ type Option struct {
 
 func isRemovedOptionKey(key string) bool {
 	// QuotaForInviter: aff 推广返利已下线，仅保留邀请码体系
+	// theme.frontend: default 主题已删除，classic 是唯一前端，不再有主题切换
 	return strings.HasPrefix(key, "payment_setting.compliance_") ||
-		key == "QuotaForInviter"
+		key == "QuotaForInviter" ||
+		key == "theme.frontend"
 }
 
 func AllOption() ([]*Option, error) {
@@ -778,8 +780,6 @@ func handleConfigUpdate(key, value string) bool {
 	// 特定配置的后处理
 	if configName == "performance_setting" {
 		performance_setting.UpdateAndSync()
-	} else if configName == "theme" {
-		system_setting.UpdateAndSyncTheme()
 	} else if configName == "tool_price_setting" {
 		operation_setting.RebuildToolPriceIndex()
 	} else if configName == "billing_setting" {
@@ -791,8 +791,6 @@ func handleConfigUpdate(key, value string) bool {
 		operation_setting.SyncRiskControlSetting()
 	} else if configName == "ip_location_setting" {
 		operation_setting.SyncIpLocationSetting()
-	} else if configName == "theme" {
-		system_setting.UpdateAndSyncTheme()
 	}
 
 	return true // 已处理
