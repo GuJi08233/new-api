@@ -501,15 +501,30 @@ For commercial licensing, please contact support@quantumnous.com
 .rankings-scroll {
   max-height: 480px;
   overflow-y: auto;
+  /* Firefox: thin track with a transparent thumb until hovered */
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+.rankings-scroll:hover {
+  scrollbar-color: var(--semi-color-fill-2) transparent;
 }
 
 .rankings-scroll::-webkit-scrollbar {
   width: 6px;
 }
 
+.rankings-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
 .rankings-scroll::-webkit-scrollbar-thumb {
-  background: var(--semi-color-fill-2);
+  background: transparent;
   border-radius: 3px;
+}
+
+.rankings-scroll:hover::-webkit-scrollbar-thumb {
+  background: var(--semi-color-fill-2);
 }
 
 .rankings-skeleton-row {
