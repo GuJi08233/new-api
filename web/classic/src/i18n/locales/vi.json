@@ -4738,6 +4738,12 @@
     "计费方式跟随所选来源：带阶梯或时段价的用表达式计费，其余用按量计费。仍需点击保存才会生效；第三方来源的报价请自行核对": "Cách tính phí theo nguồn đã chọn: có giá bậc thang hoặc theo khung giờ thì dùng biểu thức, còn lại tính theo token. Vẫn cần bấm lưu. Giá từ bên thứ ba xin tự kiểm chứng",
     "改用该来源的按量倍率": "Dùng đơn giá theo token của nguồn này",
     "该来源带阶梯或时段计价，已按表达式计费填入；只想用基础倍率可切回按量计费": "Nguồn này có giá bậc thang hoặc theo khung giờ nên đã điền dạng biểu thức; chuyển về tính theo token nếu chỉ cần đơn giá cơ bản",
-    "有阶梯/时段价": "bậc thang/khung giờ"
+    "有阶梯/时段价": "bậc thang/khung giờ",
+    "厂商份额趋势": "Xu hướng thị phần nhà cung cấp",
+    "各厂商 Token 消耗占比随时间的变化": "Thay đổi tỷ lệ tiêu thụ token của từng nhà cung cấp theo thời gian",
+    "Top 3 厂商占比 {{percent}}%": "Top 3 nhà cung cấp chiếm {{percent}}%",
+    "Top 3 模型占 Token {{percent}}%": "Top 3 mô hình chiếm {{percent}}% token",
+    "Top 3 模型占调用 {{percent}}%": "Top 3 mô hình chiếm {{percent}}% lượt gọi",
+    "Top 3 用户占全站 {{percent}}%": "Top 3 người dùng chiếm {{percent}}% toàn hệ thống"
   }
 }

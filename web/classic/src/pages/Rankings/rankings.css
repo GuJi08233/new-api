@@ -229,6 +229,13 @@ For commercial licensing, please contact support@quantumnous.com
   font-variant-numeric: tabular-nums;
 }
 
+.rankings-stat-hint {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--semi-color-text-2);
+  font-variant-numeric: tabular-nums;
+}
+
 /* ---------- Section cards ---------- */
 
 .rankings-section {
@@ -399,6 +406,32 @@ For commercial licensing, please contact support@quantumnous.com
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Relative share bar — one glance tells how far a row is behind the leader.
+   fill-1 (not fill-0) so the track stays visible on .rankings-row:hover. */
+.rankings-row-bar {
+  margin-top: 6px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--semi-color-fill-1);
+  overflow: hidden;
+}
+
+.rankings-row-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--semi-color-primary);
+  opacity: 0.75;
+  transition: width 0.3s ease;
+}
+
+.rankings-row-bar-fill.tone-amber {
+  background: var(--semi-color-warning);
+}
+
+.rankings-row-bar-fill.tone-green {
+  background: var(--semi-color-success);
 }
 
 .rankings-row-value {

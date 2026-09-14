@@ -89,6 +89,12 @@ function formatPercentValue(value) {
   return `${Number(value || 0).toFixed(1)}%`;
 }
 
+// Stat-card concentration hints round to a whole percent; below 1% a rounded
+// "0%" would misstate a non-zero concentration.
+function formatSharePct(pct) {
+  return pct >= 1 ? Math.round(pct) : '<1';
+}
+
 function formatTrendTime(ts) {
   return new Date(ts * 1000).toLocaleTimeString(undefined, {
     hour: '2-digit',
@@ -328,7 +334,7 @@ function UserAvatar({ name }) {
 // Stat Card with gradient icon chip
 // ============================================================================
 
-function StatCard({ icon, label, value, gradient }) {
+function StatCard({ icon, label, value, gradient, hint }) {
   return (
     <div className='rankings-stat-card'>
       <div className='rankings-stat-glow' style={{ background: gradient }} />
@@ -341,6 +347,7 @@ function StatCard({ icon, label, value, gradient }) {
         <span className='rankings-stat-label'>{label}</span>
       </div>
       <div className='rankings-stat-value'>{value}</div>
+      {hint && <div className='rankings-stat-hint'>{hint}</div>}
     </div>
   );
 }
@@ -383,6 +390,8 @@ function LeaderboardRow({
   valueLabel,
   growth,
   sparkline,
+  percent,
+  barTone,
 }) {
   return (
     <div className='rankings-row'>
@@ -391,6 +400,14 @@ function LeaderboardRow({
       <div className='rankings-row-main'>
         <div className='rankings-row-name'>{name}</div>
         {sub && <div className='rankings-row-sub'>{sub}</div>}
+        {percent !== undefined && percent !== null && (
+          <div className='rankings-row-bar'>
+            <div
+              className={`rankings-row-bar-fill${barTone ? ` tone-${barTone}` : ''}`}
+              style={{ width: `${Math.max(percent, 2)}%` }}
+            />
+          </div>
+        )}
       </div>
       {sparkline}
       <div className='rankings-row-value'>
@@ -511,6 +528,45 @@ function LLMRankings({ period, onRange }) {
     return map;
   }, [data]);
 
+  const maxModelTokens = useMemo(
+    () => Math.max(...(data?.models || []).map((m) => m.total_tokens || 0), 0),
+    [data],
+  );
+
+  const maxModelRequests = useMemo(
+    () =>
+      Math.max(
+        ...(data?.models_by_requests || []).map((m) => m.total_requests || 0),
+        0,
+      ),
+    [data],
+  );
+
+  // Top-3 concentration hints. The share fields are computed server-side
+  // against the FULL window total, while data.models / data.models_by_requests
+  // are truncated to the leaderboard size — summing raw values here would
+  // overstate the share, so sum the per-row shares instead. Hidden when the
+  // whole board has 3 rows or fewer ("top 3 of 3" is always 100%).
+  const topTokenShare = useMemo(() => {
+    const rows = data?.models || [];
+    if (rows.length <= 3) return null;
+    return rows.slice(0, 3).reduce((sum, m) => sum + (m.share || 0), 0) * 100;
+  }, [data]);
+
+  const topRequestShare = useMemo(() => {
+    const rows = data?.models_by_requests || [];
+    if (rows.length <= 3) return null;
+    return rows.slice(0, 3).reduce((sum, m) => sum + (m.share || 0), 0) * 100;
+  }, [data]);
+
+  const topVendorShare = useMemo(() => {
+    const vendors = data?.vendors || [];
+    if (vendors.length <= 3) return null;
+    return (
+      vendors.slice(0, 3).reduce((sum, v) => sum + (v.share || 0), 0) * 100
+    );
+  }, [data]);
+
   if (loading) {
     return <ListSkeleton />;
   }
@@ -528,6 +584,13 @@ function LLMRankings({ period, onRange }) {
           label={t('总令牌用量')}
           value={formatNumber(totalTokens)}
           gradient='linear-gradient(135deg, #6366f1, #8b5cf6)'
+          hint={
+            topTokenShare !== null
+              ? t('Top 3 模型占 Token {{percent}}%', {
+                  percent: formatSharePct(topTokenShare),
+                })
+              : undefined
+          }
         />
         <StatCard
           icon={<IconStar size='small' />}
@@ -540,6 +603,13 @@ function LLMRankings({ period, onRange }) {
           label={t('总调用次数')}
           value={formatNumber(totalRequests)}
           gradient='linear-gradient(135deg, #f59e0b, #f97316)'
+          hint={
+            topRequestShare !== null
+              ? t('Top 3 模型占调用 {{percent}}%', {
+                  percent: formatSharePct(topRequestShare),
+                })
+              : undefined
+          }
         />
       </div>
 
@@ -563,7 +633,12 @@ function LLMRankings({ period, onRange }) {
         <SectionCard
           icon={<IconActivity />}
           tone='tone-primary'
-          title={t('消耗趋势')}
+          title={t('厂商份额趋势')}
+          subtitle={
+            topVendorShare !== null
+              ? `${t('各厂商 Token 消耗占比随时间的变化')} · ${t('Top 3 厂商占比 {{percent}}%', { percent: formatSharePct(topVendorShare) })}`
+              : t('各厂商 Token 消耗占比随时间的变化')
+          }
         >
           {vendorTrendData.length > 0 ? (
             <TrendChart
@@ -596,6 +671,12 @@ function LLMRankings({ period, onRange }) {
               value={formatNumber(m.total_tokens)}
               valueLabel='tokens'
               growth={m.growth_pct}
+              percent={
+                maxModelTokens > 0
+                  ? (m.total_tokens / maxModelTokens) * 100
+                  : null
+              }
+              barTone='amber'
               sparkline={
                 <Sparkline
                   data={modelSparklines.get(m.model_name)}
@@ -625,6 +706,11 @@ function LLMRankings({ period, onRange }) {
               value={formatNumber(m.total_requests)}
               valueLabel={formatPercent(m.share)}
               growth={m.growth_pct}
+              percent={
+                maxModelRequests > 0
+                  ? (m.total_requests / maxModelRequests) * 100
+                  : null
+              }
             />
           ))}
         </SectionCard>
@@ -718,10 +804,12 @@ const USER_BOARDS = [
     key: 'token_rankings',
     icon: <IconHistogram />,
     tone: 'tone-green',
+    barTone: 'green',
     title: '用户用量排行',
     subtitle: '按 Token 消耗量排名',
     value: (row) => formatNumber(row.total_tokens),
     valueLabel: () => 'tokens',
+    metricOf: (row) => row.total_tokens || 0,
   },
   {
     key: 'request_rankings',
@@ -731,6 +819,7 @@ const USER_BOARDS = [
     subtitle: '按 API 请求次数排名',
     value: (row) => formatNumber(row.request_count),
     valueLabel: (t) => t('次请求'),
+    metricOf: (row) => row.request_count || 0,
   },
   {
     key: 'quota_rankings',
@@ -740,6 +829,7 @@ const USER_BOARDS = [
     subtitle: '按额度消耗排名',
     value: (row) => renderQuota(row.total_quota),
     valueLabel: (t) => t('额度'),
+    metricOf: (row) => row.total_quota || 0,
   },
 ];
 
@@ -772,6 +862,40 @@ function UserRankings({ period, onRange }) {
     fetchData();
   }, [fetchData]);
 
+  // Top-3 concentration hints. The denominator is the summary total over ALL
+  // quota_data rows, while the boards only list named users — so this reads
+  // "share of the whole site", and the label says so. Hidden when the board
+  // has 3 rows or fewer ("top 3 of 3" carries no information).
+  const topTokenShare = useMemo(() => {
+    const rows = data?.token_rankings || [];
+    const total = data?.summary?.total_tokens || 0;
+    if (rows.length <= 3 || total <= 0) return null;
+    const top = rows
+      .slice(0, 3)
+      .reduce((sum, r) => sum + (r.total_tokens || 0), 0);
+    return (top / total) * 100;
+  }, [data]);
+
+  const topRequestShare = useMemo(() => {
+    const rows = data?.request_rankings || [];
+    const total = data?.summary?.total_requests || 0;
+    if (rows.length <= 3 || total <= 0) return null;
+    const top = rows
+      .slice(0, 3)
+      .reduce((sum, r) => sum + (r.request_count || 0), 0);
+    return (top / total) * 100;
+  }, [data]);
+
+  const topQuotaShare = useMemo(() => {
+    const rows = data?.quota_rankings || [];
+    const total = data?.summary?.total_quota || 0;
+    if (rows.length <= 3 || total <= 0) return null;
+    const top = rows
+      .slice(0, 3)
+      .reduce((sum, r) => sum + (r.total_quota || 0), 0);
+    return (top / total) * 100;
+  }, [data]);
+
   if (loading) {
     return <ListSkeleton />;
   }
@@ -789,50 +913,81 @@ function UserRankings({ period, onRange }) {
           label={t('总 Tokens')}
           value={formatNumber(data.summary?.total_tokens)}
           gradient='linear-gradient(135deg, #10b981, #34d399)'
+          hint={
+            topTokenShare !== null
+              ? t('Top 3 用户占全站 {{percent}}%', {
+                  percent: formatSharePct(topTokenShare),
+                })
+              : undefined
+          }
         />
         <StatCard
           icon={<IconActivity size='small' />}
           label={t('总请求次数')}
           value={formatNumber(data.summary?.total_requests)}
           gradient='linear-gradient(135deg, #3b82f6, #60a5fa)'
+          hint={
+            topRequestShare !== null
+              ? t('Top 3 用户占全站 {{percent}}%', {
+                  percent: formatSharePct(topRequestShare),
+                })
+              : undefined
+          }
         />
         <StatCard
           icon={<IconCreditCard size='small' />}
           label={t('总消费额度')}
           value={renderQuota(data.summary?.total_quota || 0)}
           gradient='linear-gradient(135deg, #8b5cf6, #a78bfa)'
+          hint={
+            topQuotaShare !== null
+              ? t('Top 3 用户占全站 {{percent}}%', {
+                  percent: formatSharePct(topQuotaShare),
+                })
+              : undefined
+          }
         />
       </div>
 
       <div className='rankings-grid-3 rankings-fade-in delay-1'>
-        {USER_BOARDS.map((board) => (
-          <SectionCard
-            key={board.key}
-            icon={board.icon}
-            tone={board.tone}
-            title={t(board.title)}
-            subtitle={t(board.subtitle)}
-          >
-            <div className='rankings-scroll'>
-              {(data[board.key] || []).length === 0 ? (
-                <Empty description={t('暂无数据')} style={{ padding: 24 }} />
-              ) : (
-                data[board.key].map((u, idx) => (
-                  // Rows are grouped by (user_id, username), so a user who
-                  // renamed inside the window appears twice — key on both.
-                  <LeaderboardRow
-                    key={`${u.user_id}-${u.username}`}
-                    rank={idx + 1}
-                    icon={<UserAvatar name={u.username} />}
-                    name={u.username}
-                    value={board.value(u)}
-                    valueLabel={board.valueLabel(t)}
-                  />
-                ))
-              )}
-            </div>
-          </SectionCard>
-        ))}
+        {USER_BOARDS.map((board) => {
+          const rows = data[board.key] || [];
+          const maxValue = Math.max(...rows.map(board.metricOf), 0);
+          return (
+            <SectionCard
+              key={board.key}
+              icon={board.icon}
+              tone={board.tone}
+              title={t(board.title)}
+              subtitle={t(board.subtitle)}
+            >
+              <div className='rankings-scroll'>
+                {rows.length === 0 ? (
+                  <Empty description={t('暂无数据')} style={{ padding: 24 }} />
+                ) : (
+                  rows.map((u, idx) => (
+                    // Rows are grouped by (user_id, username), so a user who
+                    // renamed inside the window appears twice — key on both.
+                    <LeaderboardRow
+                      key={`${u.user_id}-${u.username}`}
+                      rank={idx + 1}
+                      icon={<UserAvatar name={u.username} />}
+                      name={u.username}
+                      value={board.value(u)}
+                      valueLabel={board.valueLabel(t)}
+                      percent={
+                        maxValue > 0
+                          ? (board.metricOf(u) / maxValue) * 100
+                          : null
+                      }
+                      barTone={board.barTone}
+                    />
+                  ))
+                )}
+              </div>
+            </SectionCard>
+          );
+        })}
       </div>
     </div>
   );

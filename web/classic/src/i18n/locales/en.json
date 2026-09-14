@@ -4375,6 +4375,12 @@
     "计费方式跟随所选来源：带阶梯或时段价的用表达式计费，其余用按量计费。仍需点击保存才会生效；第三方来源的报价请自行核对": "Billing mode follows the chosen source: expression billing when it has tiered or time-based pricing, per-token otherwise. You still need to save. Verify third-party quotes yourself",
     "改用该来源的按量倍率": "Use this source’s per-token rates instead",
     "该来源带阶梯或时段计价，已按表达式计费填入；只想用基础倍率可切回按量计费": "This source has tiered or time-based pricing and was filled in as expression billing; switch back to per-token if you only want the base rates",
-    "有阶梯/时段价": "tiered/time-based"
+    "有阶梯/时段价": "tiered/time-based",
+    "厂商份额趋势": "Vendor share trend",
+    "各厂商 Token 消耗占比随时间的变化": "How each vendor's share of token consumption changes over time",
+    "Top 3 厂商占比 {{percent}}%": "Top 3 vendors account for {{percent}}%",
+    "Top 3 模型占 Token {{percent}}%": "Top 3 models: {{percent}}% of tokens",
+    "Top 3 模型占调用 {{percent}}%": "Top 3 models: {{percent}}% of requests",
+    "Top 3 用户占全站 {{percent}}%": "Top 3 users account for {{percent}}% of all usage"
   }
 }
