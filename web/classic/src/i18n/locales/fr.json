@@ -4201,16 +4201,22 @@
     "请先从 {{upstream}} 获取价格": "Veuillez d'abord récupérer les prix depuis {{upstream}}",
     "{{upstream}} 上没有该模型的官方条目，价格来自第三方转售/聚合商，仅供参考": "{{upstream}} n'a aucune entrée officielle pour ce modèle ; le prix provient d'un revendeur/agrégateur tiers et n'est donné qu'à titre indicatif",
     "获取 {{upstream}} 价格失败": "Échec de la récupération des prix depuis {{upstream}}",
-    "{{upstream}} 上没有收录该模型": "{{upstream}} ne référence pas ce modèle",
     "{{upstream}} 没有可填充的新价格（已跳过 {{count}} 个表达式计费模型）": "{{upstream}} n'a aucun nouveau prix à appliquer ({{count}} modèles à facturation par expression ignorés)",
     "{{upstream}} 没有这些模型的新价格": "{{upstream}} n'a aucun nouveau prix pour ces modèles",
     "其中 {{count}} 个模型 {{upstream}} 上没有官方条目，价格取自第三方转售商，请自行核对": "{{count}} d'entre eux n'ont pas d'entrée officielle sur {{upstream}} ; leurs prix proviennent de revendeurs tiers, veuillez vérifier",
     "从 {{upstream}} 同步价格": "Synchroniser les prix depuis {{upstream}}",
     "{{upstream}} 参考价格": "Prix de référence {{upstream}}",
-    "点击获取，查看该模型在 {{upstream}} 上各家提供商的报价并直接填入": "Chargez pour voir les tarifs de chaque fournisseur pour ce modèle sur {{upstream}} et les insérer directement",
     "官方精选（llm-metadata）": "Sélection officielle (llm-metadata)",
     "全量（models.dev）": "Catalogue complet (models.dev)",
     "官方精选只收录厂商自营入口，并支持 1 小时缓存写、思考模式、错峰计费；全量覆盖长尾模型，但可能只有转售商报价": "La sélection officielle ne référence que les points d'accès propres aux fournisseurs et prend en charge l'écriture de cache d'1 h, le mode réflexion et la tarification heures creuses ; le catalogue complet couvre les modèles de longue traîne mais peut ne contenir que des tarifs de revendeurs",
-    "选择后会把该模型切到按量计费并填入价格，仍需点击保存才会生效；第三方来源的报价请自行核对": "Choisir une source bascule ce modèle en facturation au token et remplit ses prix ; il faut encore enregistrer. Vérifiez vous-même les tarifs tiers"
+    "选择后会把该模型切到按量计费并填入价格，仍需点击保存才会生效；第三方来源的报价请自行核对": "Choisir une source bascule ce modèle en facturation au token et remplit ses prix ; il faut encore enregistrer. Vérifiez vous-même les tarifs tiers",
+    "时段函数": "Fonctions temporelles",
+    "0=周日": "0=dimanche",
+    "tz 为时区名，如": "tz est un nom de fuseau horaire, par ex.",
+    "时段函数按当前时刻求值，header/param 在估算器里取空值，实际计费以请求发生时为准。": " Les fonctions temporelles sont évaluées à l'instant présent et header/param renvoient des valeurs vides ici ; la facturation réelle utilise l'heure de la requête.",
+    "{{upstream}} 上没有收录 {{model}}": "{{upstream}} ne référence pas {{model}}",
+    "点击获取，查看上面这个模型在 {{upstream}} 上各家提供商的报价并直接填入": "Cliquez sur Récupérer pour voir les tarifs de chaque fournisseur pour le modèle ci-dessus sur {{upstream}} et les remplir directement",
+    "将把 {{source}} 的价格填给 {{target}}": "Les tarifs de {{source}} seront appliqués à {{target}}",
+    "可改成别的模型名，借用那个模型的价格（适合重定向的模型）": "Indiquez un autre nom de modèle pour emprunter ses tarifs (pratique pour les modèles redirigés)"
   }
 }

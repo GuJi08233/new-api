@@ -903,6 +903,12 @@ function RawExprEditor({ exprString, onChange, t }) {
               <code>abs(x)</code>, <code>header(name)</code>,{' '}
               <code>param(path)</code>, <code>has(source, text)</code>
             </div>
+            <div>
+              {t('时段函数')}: <code>hour(tz)</code>, <code>minute(tz)</code>,{' '}
+              <code>weekday(tz)</code> ({t('0=周日')}), <code>month(tz)</code>,{' '}
+              <code>day(tz)</code> — {t('tz 为时区名，如')}{' '}
+              <code>&quot;UTC&quot;</code>、<code>&quot;Asia/Shanghai&quot;</code>
+            </div>
           </div>
         }
         style={{ marginBottom: 12 }}
@@ -973,6 +979,43 @@ function CacheTokenEstimatorInputs({
 // Cost estimator (works with any Expr string)
 // ---------------------------------------------------------------------------
 
+const WEEKDAY_INDEX = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+
+// 估算器按当前时刻求值（实际计费用的是请求开始时刻）。时区无法识别时退回 UTC，
+// 与后端 pkg/billingexpr 的 timeInZone 行为一致。
+function zonedNowParts(tz) {
+  const options = {
+    hour12: false,
+    weekday: 'short',
+    month: 'numeric',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: 'numeric',
+  };
+  let parts;
+  try {
+    parts = new Intl.DateTimeFormat('en-US', {
+      ...options,
+      timeZone: tz || 'UTC',
+    }).formatToParts(new Date());
+  } catch {
+    parts = new Intl.DateTimeFormat('en-US', {
+      ...options,
+      timeZone: 'UTC',
+    }).formatToParts(new Date());
+  }
+  const valueOf = (type) =>
+    Number(parts.find((part) => part.type === type)?.value ?? 0);
+  return {
+    // hour12:false 在部分实现里把午夜记成 24
+    hour: valueOf('hour') % 24,
+    minute: valueOf('minute'),
+    weekday: WEEKDAY_INDEX[parts.find((part) => part.type === 'weekday')?.value] ?? 0,
+    month: valueOf('month'),
+    day: valueOf('day'),
+  };
+}
+
 function evalExprLocally(exprStr, p, c, extraTokenValues) {
   try {
     let matchedTier = '';
@@ -984,7 +1027,27 @@ function evalExprLocally(exprStr, p, c, extraTokenValues) {
     const cacheCreateTokens = extraTokenValues.cacheCreateTokens || 0;
     const cacheCreate1hTokens = extraTokenValues.cacheCreate1hTokens || 0;
     const len = p + cacheReadTokens + cacheCreateTokens + cacheCreate1hTokens;
-    const env = { p, c, len, tier: tierFn, max: Math.max, min: Math.min, abs: Math.abs, ceil: Math.ceil, floor: Math.floor };
+    const env = {
+      p,
+      c,
+      len,
+      tier: tierFn,
+      max: Math.max,
+      min: Math.min,
+      abs: Math.abs,
+      ceil: Math.ceil,
+      floor: Math.floor,
+      hour: (tz) => zonedNowParts(tz).hour,
+      minute: (tz) => zonedNowParts(tz).minute,
+      weekday: (tz) => zonedNowParts(tz).weekday,
+      month: (tz) => zonedNowParts(tz).month,
+      day: (tz) => zonedNowParts(tz).day,
+      // 估算器没有真实请求，这两个只能返回空值，与后端编译期的占位实现一致
+      header: () => '',
+      param: () => undefined,
+      has: (source, text) =>
+        String(source ?? '').includes(String(text ?? '')),
+    };
     for (const field of EXTRA_ESTIMATOR_FIELDS) {
       env[field.var] = extraTokenValues[field.stateKey] || 0;
     }
@@ -1619,6 +1682,9 @@ export default function TieredPricingEditor({ model, onExprChange, requestRuleEx
         <div className='font-medium mb-2'>{t('Token 估算器')}</div>
         <div className='text-xs text-gray-500 mb-3'>
           {t('输入 Token 数量，查看按当前配置的预计费用（不含分组倍率）。')}
+          {t(
+            '时段函数按当前时刻求值，header/param 在估算器里取空值，实际计费以请求发生时为准。',
+          )}
         </div>
         <div
           style={{

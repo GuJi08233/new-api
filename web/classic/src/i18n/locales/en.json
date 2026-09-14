@@ -4359,16 +4359,22 @@
     "请先从 {{upstream}} 获取价格": "Fetch prices from {{upstream}} first",
     "{{upstream}} 上没有该模型的官方条目，价格来自第三方转售/聚合商，仅供参考": "{{upstream}} has no official entry for this model; the price comes from a third-party reseller/aggregator and is indicative only",
     "获取 {{upstream}} 价格失败": "Failed to fetch prices from {{upstream}}",
-    "{{upstream}} 上没有收录该模型": "{{upstream}} does not list this model",
     "{{upstream}} 没有可填充的新价格（已跳过 {{count}} 个表达式计费模型）": "{{upstream}} has no new prices to fill in ({{count}} expression-billing models skipped)",
     "{{upstream}} 没有这些模型的新价格": "{{upstream}} has no new prices for these models",
     "其中 {{count}} 个模型 {{upstream}} 上没有官方条目，价格取自第三方转售商，请自行核对": "{{count}} of them have no official entry on {{upstream}}; their prices come from third-party resellers, please verify",
     "从 {{upstream}} 同步价格": "Sync prices from {{upstream}}",
     "{{upstream}} 参考价格": "{{upstream}} reference prices",
-    "点击获取，查看该模型在 {{upstream}} 上各家提供商的报价并直接填入": "Fetch to see every provider's quote for this model on {{upstream}} and fill it in directly",
     "官方精选（llm-metadata）": "Curated official (llm-metadata)",
     "全量（models.dev）": "Full catalog (models.dev)",
     "官方精选只收录厂商自营入口，并支持 1 小时缓存写、思考模式、错峰计费；全量覆盖长尾模型，但可能只有转售商报价": "The curated source lists only first-party vendor endpoints and supports 1-hour cache writes, thinking mode and off-peak pricing; the full catalog covers long-tail models but may only carry reseller quotes",
-    "选择后会把该模型切到按量计费并填入价格，仍需点击保存才会生效；第三方来源的报价请自行核对": "Selecting a source switches this model to per-token billing and fills in its prices; you still need to save. Verify third-party quotes yourself"
+    "选择后会把该模型切到按量计费并填入价格，仍需点击保存才会生效；第三方来源的报价请自行核对": "Selecting a source switches this model to per-token billing and fills in its prices; you still need to save. Verify third-party quotes yourself",
+    "时段函数": "Time functions",
+    "0=周日": "0=Sunday",
+    "tz 为时区名，如": "tz is a timezone name, e.g.",
+    "时段函数按当前时刻求值，header/param 在估算器里取空值，实际计费以请求发生时为准。": " Time functions evaluate against the current moment, and header/param resolve to empty values here; actual billing uses the time the request is made.",
+    "{{upstream}} 上没有收录 {{model}}": "{{upstream}} does not list {{model}}",
+    "点击获取，查看上面这个模型在 {{upstream}} 上各家提供商的报价并直接填入": "Click Fetch to see what each provider charges for the model above on {{upstream}}, and fill it in directly",
+    "将把 {{source}} 的价格填给 {{target}}": "{{source}}'s prices will be filled into {{target}}",
+    "可改成别的模型名，借用那个模型的价格（适合重定向的模型）": "Change this to another model name to borrow that model's prices (handy for redirected models)"
   }
 }

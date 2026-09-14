@@ -176,19 +176,29 @@ export default function ModelPricingEditor({
     selectedGroup,
   });
 
-  // 切换模型时清掉上一个模型选中的上游提供商
+  // 去上游查价用的模型名，默认跟当前模型一致；改成别的名字就是借用那个模型的价格
+  const [upstreamLookupName, setUpstreamLookupName] = useState('');
+
+  // 切换模型时清掉上一个模型选中的上游提供商和查询名
   useEffect(() => {
     setPickedUpstreamProvider('');
+    setUpstreamLookupName(selectedModelName || '');
   }, [selectedModelName]);
 
+  const lookupName = upstreamLookupName.trim() || selectedModelName;
+  const lookupCandidates = upstreamCandidates[lookupName] || [];
+  const isBorrowedPricing = Boolean(
+    lookupName && selectedModelName && lookupName !== selectedModelName,
+  );
+
   const pickedUpstreamCandidate = useMemo(() => {
-    if (!selectedModelName || !pickedUpstreamProvider) return null;
+    if (!lookupName || !pickedUpstreamProvider) return null;
     return (
-      (upstreamCandidates[selectedModelName] || []).find(
+      (upstreamCandidates[lookupName] || []).find(
         (candidate) => candidate.provider === pickedUpstreamProvider,
       ) || null
     );
-  }, [selectedModelName, pickedUpstreamProvider, upstreamCandidates]);
+  }, [lookupName, pickedUpstreamProvider, upstreamCandidates]);
 
   const getExprModeLabel = useCallback((model) => {
     if (model?.billingMode !== 'tiered_expr') {
@@ -594,33 +604,51 @@ export default function ModelPricingEditor({
                         upstream: pricingUpstream,
                       })}
                     </span>
+                  </div>
+                  <div className='flex items-center gap-2 mb-2'>
+                    <Input
+                      size='small'
+                      value={upstreamLookupName}
+                      onChange={(value) => {
+                        setUpstreamLookupName(value);
+                        setPickedUpstreamProvider('');
+                      }}
+                      placeholder={selectedModel.name}
+                      style={{ flex: 1 }}
+                    />
                     <Button
                       size='small'
                       loading={upstreamLoading}
-                      onClick={() =>
-                        loadUpstreamCandidates(selectedModel.name)
-                      }
+                      disabled={!lookupName}
+                      onClick={() => loadUpstreamCandidates(lookupName)}
                     >
-                      {upstreamCandidates[selectedModel.name]
+                      {upstreamCandidates[lookupName]
                         ? t('重新获取')
                         : t('获取')}
                     </Button>
                   </div>
-                  {(upstreamCandidates[selectedModel.name] || []).length >
-                  0 ? (
+                  <div className='mb-2 text-xs text-gray-500'>
+                    {isBorrowedPricing
+                      ? t('将把 {{source}} 的价格填给 {{target}}', {
+                          source: lookupName,
+                          target: selectedModel.name,
+                        })
+                      : t('可改成别的模型名，借用那个模型的价格（适合重定向的模型）')}
+                  </div>
+                  {lookupCandidates.length > 0 ? (
                     <>
                       <Select
-                        key={selectedModel.name}
+                        key={lookupName}
                         style={{ width: '100%' }}
                         value={pickedUpstreamProvider || undefined}
                         placeholder={t('选择提供商，价格将填入下方表单')}
                         onChange={(value) => {
                           setPickedUpstreamProvider(value);
-                          applyUpstreamCandidate(selectedModel.name, value);
+                          applyUpstreamCandidate(selectedModel.name, value, {
+                            lookupName,
+                          });
                         }}
-                        optionList={upstreamCandidates[
-                          selectedModel.name
-                        ].map((candidate) => ({
+                        optionList={lookupCandidates.map((candidate) => ({
                           value: candidate.provider,
                           label: `${candidate.provider} · ${
                             candidate.official ? t('官方') : t('第三方')
@@ -651,7 +679,7 @@ export default function ModelPricingEditor({
                               applyUpstreamCandidate(
                                 selectedModel.name,
                                 pickedUpstreamProvider,
-                                true,
+                                { lookupName, useTiered: true },
                               )
                             }
                           >
@@ -668,7 +696,7 @@ export default function ModelPricingEditor({
                   ) : (
                     <div className='text-xs text-gray-500'>
                       {t(
-                        '点击获取，查看该模型在 {{upstream}} 上各家提供商的报价并直接填入',
+                        '点击获取，查看上面这个模型在 {{upstream}} 上各家提供商的报价并直接填入',
                         { upstream: pricingUpstream },
                       )}
                     </div>

@@ -1298,7 +1298,10 @@ export function useModelPricingEditorState({
       }));
       if (candidates.length === 0) {
         showWarning(
-          t('{{upstream}} 上没有收录该模型', { upstream: pricingUpstream }),
+          t('{{upstream}} 上没有收录 {{model}}', {
+            upstream: pricingUpstream,
+            model: modelName,
+          }),
         );
       }
       return true;
@@ -1314,9 +1317,12 @@ export function useModelPricingEditorState({
     }
   }
 
-  // 把选中提供商的报价填入该模型的表单，useTiered 时改用该来源的上下文阶梯价
-  function applyUpstreamCandidate(modelName, provider, useTiered = false) {
-    const candidate = (upstreamCandidates[modelName] || []).find(
+  // 把选中提供商的报价填入 modelName 的表单。lookupName 是上游那边的模型名，
+  // 与 modelName 不同时相当于"借用另一个模型的价格"，用于重定向过的模型。
+  // useTiered 时改用该来源的上下文阶梯价。
+  function applyUpstreamCandidate(modelName, provider, options = {}) {
+    const { useTiered = false, lookupName = modelName } = options;
+    const candidate = (upstreamCandidates[lookupName] || []).find(
       (item) => item.provider === provider,
     );
     if (!candidate) return false;

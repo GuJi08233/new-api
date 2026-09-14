@@ -4722,16 +4722,22 @@
     "请先从 {{upstream}} 获取价格": "Vui lòng lấy giá từ {{upstream}} trước",
     "{{upstream}} 上没有该模型的官方条目，价格来自第三方转售/聚合商，仅供参考": "{{upstream}} không có mục chính thức cho mô hình này; giá lấy từ đại lý/cổng tổng hợp bên thứ ba, chỉ mang tính tham khảo",
     "获取 {{upstream}} 价格失败": "Lấy giá từ {{upstream}} thất bại",
-    "{{upstream}} 上没有收录该模型": "{{upstream}} không có mô hình này",
     "{{upstream}} 没有可填充的新价格（已跳过 {{count}} 个表达式计费模型）": "{{upstream}} không có giá mới để điền (đã bỏ qua {{count}} mô hình tính phí bằng biểu thức)",
     "{{upstream}} 没有这些模型的新价格": "{{upstream}} không có giá mới cho các mô hình này",
     "其中 {{count}} 个模型 {{upstream}} 上没有官方条目，价格取自第三方转售商，请自行核对": "Trong đó {{count}} mô hình không có mục chính thức trên {{upstream}}; giá lấy từ đại lý bên thứ ba, vui lòng tự kiểm tra",
     "从 {{upstream}} 同步价格": "Đồng bộ giá từ {{upstream}}",
     "{{upstream}} 参考价格": "Giá tham khảo {{upstream}}",
-    "点击获取，查看该模型在 {{upstream}} 上各家提供商的报价并直接填入": "Nhấn lấy để xem báo giá của từng nhà cung cấp cho mô hình này trên {{upstream}} và điền trực tiếp",
     "官方精选（llm-metadata）": "Tuyển chọn chính thức (llm-metadata)",
     "全量（models.dev）": "Toàn bộ (models.dev)",
     "官方精选只收录厂商自营入口，并支持 1 小时缓存写、思考模式、错峰计费；全量覆盖长尾模型，但可能只有转售商报价": "Tuyển chọn chính thức chỉ gồm điểm truy cập của chính nhà cung cấp và hỗ trợ ghi cache 1 giờ, chế độ suy luận và giá theo khung giờ; toàn bộ bao phủ cả mô hình ít dùng nhưng có thể chỉ có giá từ đại lý",
-    "选择后会把该模型切到按量计费并填入价格，仍需点击保存才会生效；第三方来源的报价请自行核对": "Chọn nguồn sẽ chuyển mô hình này sang tính phí theo token và điền giá; vẫn cần bấm lưu. Giá từ bên thứ ba xin tự kiểm chứng"
+    "选择后会把该模型切到按量计费并填入价格，仍需点击保存才会生效；第三方来源的报价请自行核对": "Chọn nguồn sẽ chuyển mô hình này sang tính phí theo token và điền giá; vẫn cần bấm lưu. Giá từ bên thứ ba xin tự kiểm chứng",
+    "时段函数": "Hàm thời gian",
+    "0=周日": "0=Chủ nhật",
+    "tz 为时区名，如": "tz là tên múi giờ, ví dụ",
+    "时段函数按当前时刻求值，header/param 在估算器里取空值，实际计费以请求发生时为准。": " Hàm thời gian được tính theo thời điểm hiện tại và header/param trả về giá trị rỗng ở đây; tính phí thực tế dùng thời điểm gửi yêu cầu.",
+    "{{upstream}} 上没有收录 {{model}}": "{{upstream}} không có {{model}}",
+    "点击获取，查看上面这个模型在 {{upstream}} 上各家提供商的报价并直接填入": "Bấm Lấy để xem giá của từng nhà cung cấp trên {{upstream}} cho mô hình ở trên và điền trực tiếp",
+    "将把 {{source}} 的价格填给 {{target}}": "Giá của {{source}} sẽ được điền cho {{target}}",
+    "可改成别的模型名，借用那个模型的价格（适合重定向的模型）": "Đổi sang tên mô hình khác để mượn giá của mô hình đó (tiện cho mô hình đã chuyển hướng)"
   }
 }
