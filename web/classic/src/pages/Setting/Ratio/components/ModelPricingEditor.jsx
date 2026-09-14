@@ -580,101 +580,100 @@ export default function ModelPricingEditor({
                   </div>
                 </div>
 
-                {selectedModel.billingMode === 'per-token' ? (
-                  <Card
-                    bodyStyle={{ padding: 12 }}
-                    style={{
-                      marginBottom: 16,
-                      background: 'var(--semi-color-fill-0)',
-                    }}
-                  >
-                    <div className='flex items-center justify-between mb-2'>
-                      <span className='font-medium'>
-                        {t('{{upstream}} 参考价格', {
-                          upstream: pricingUpstream,
-                        })}
-                      </span>
-                      <Button
-                        size='small'
-                        loading={upstreamLoading}
-                        onClick={() =>
-                          loadUpstreamCandidates(selectedModel.name)
-                        }
-                      >
-                        {upstreamCandidates[selectedModel.name]
-                          ? t('重新获取')
-                          : t('获取')}
-                      </Button>
-                    </div>
-                    {(upstreamCandidates[selectedModel.name] || []).length >
-                    0 ? (
-                      <>
-                        <Select
-                          key={selectedModel.name}
-                          style={{ width: '100%' }}
-                          value={pickedUpstreamProvider || undefined}
-                          placeholder={t('选择提供商，价格将填入下方表单')}
-                          onChange={(value) => {
-                            setPickedUpstreamProvider(value);
-                            applyUpstreamCandidate(selectedModel.name, value);
-                          }}
-                          optionList={upstreamCandidates[
-                            selectedModel.name
-                          ].map((candidate) => ({
-                            value: candidate.provider,
-                            label: `${candidate.provider} · ${
-                              candidate.official ? t('官方') : t('第三方')
-                            } · ${t('输入')} $${formatUpstreamPrice(
-                              candidate.model_ratio * 2,
-                            )}${
-                              candidate.completion_ratio !== undefined &&
-                              candidate.completion_ratio !== null
-                                ? ` · ${t('输出')} $${formatUpstreamPrice(
-                                    candidate.model_ratio *
-                                      2 *
-                                      candidate.completion_ratio,
-                                  )}`
-                                : ''
-                            } /1M${candidate.billing_expr ? ` · ${t('有阶梯价')}` : ''}`,
-                          }))}
-                        />
-                        <div className='mt-1 text-xs text-gray-500'>
-                          {t(
-                            '选择后价格会填入下方表单，仍需点击保存才会生效；第三方来源的报价请自行核对',
-                          )}
-                        </div>
-                        {pickedUpstreamCandidate?.billing_expr ? (
-                          <div className='mt-2'>
-                            <Button
-                              size='small'
-                              onClick={() =>
-                                applyUpstreamCandidate(
-                                  selectedModel.name,
-                                  pickedUpstreamProvider,
-                                  true,
-                                )
-                              }
-                            >
-                              {t('改用该来源的上下文阶梯价')}
-                            </Button>
-                            <div className='mt-1 text-xs text-gray-500'>
-                              {t(
-                                '该来源按上下文长度分档计价，套用后模型会切换为表达式计费',
-                              )}
-                            </div>
-                          </div>
-                        ) : null}
-                      </>
-                    ) : (
-                      <div className='text-xs text-gray-500'>
+                {/* 选中来源会自动把该模型切到对应的计费模式，所以任何模式下都能用 */}
+                <Card
+                  bodyStyle={{ padding: 12 }}
+                  style={{
+                    marginBottom: 16,
+                    background: 'var(--semi-color-fill-0)',
+                  }}
+                >
+                  <div className='flex items-center justify-between mb-2'>
+                    <span className='font-medium'>
+                      {t('{{upstream}} 参考价格', {
+                        upstream: pricingUpstream,
+                      })}
+                    </span>
+                    <Button
+                      size='small'
+                      loading={upstreamLoading}
+                      onClick={() =>
+                        loadUpstreamCandidates(selectedModel.name)
+                      }
+                    >
+                      {upstreamCandidates[selectedModel.name]
+                        ? t('重新获取')
+                        : t('获取')}
+                    </Button>
+                  </div>
+                  {(upstreamCandidates[selectedModel.name] || []).length >
+                  0 ? (
+                    <>
+                      <Select
+                        key={selectedModel.name}
+                        style={{ width: '100%' }}
+                        value={pickedUpstreamProvider || undefined}
+                        placeholder={t('选择提供商，价格将填入下方表单')}
+                        onChange={(value) => {
+                          setPickedUpstreamProvider(value);
+                          applyUpstreamCandidate(selectedModel.name, value);
+                        }}
+                        optionList={upstreamCandidates[
+                          selectedModel.name
+                        ].map((candidate) => ({
+                          value: candidate.provider,
+                          label: `${candidate.provider} · ${
+                            candidate.official ? t('官方') : t('第三方')
+                          } · ${t('输入')} $${formatUpstreamPrice(
+                            candidate.model_ratio * 2,
+                          )}${
+                            candidate.completion_ratio !== undefined &&
+                            candidate.completion_ratio !== null
+                              ? ` · ${t('输出')} $${formatUpstreamPrice(
+                                  candidate.model_ratio *
+                                    2 *
+                                    candidate.completion_ratio,
+                                )}`
+                              : ''
+                          } /1M${candidate.billing_expr ? ` · ${t('有阶梯价')}` : ''}`,
+                        }))}
+                      />
+                      <div className='mt-1 text-xs text-gray-500'>
                         {t(
-                          '点击获取，查看该模型在 {{upstream}} 上各家提供商的报价并直接填入',
-                          { upstream: pricingUpstream },
+                          '选择后会把该模型切到按量计费并填入价格，仍需点击保存才会生效；第三方来源的报价请自行核对',
                         )}
                       </div>
-                    )}
-                  </Card>
-                ) : null}
+                      {pickedUpstreamCandidate?.billing_expr ? (
+                        <div className='mt-2'>
+                          <Button
+                            size='small'
+                            onClick={() =>
+                              applyUpstreamCandidate(
+                                selectedModel.name,
+                                pickedUpstreamProvider,
+                                true,
+                              )
+                            }
+                          >
+                            {t('改用该来源的上下文阶梯价')}
+                          </Button>
+                          <div className='mt-1 text-xs text-gray-500'>
+                            {t(
+                              '该来源按上下文长度分档计价，套用后模型会切换为表达式计费',
+                            )}
+                          </div>
+                        </div>
+                      ) : null}
+                    </>
+                  ) : (
+                    <div className='text-xs text-gray-500'>
+                      {t(
+                        '点击获取，查看该模型在 {{upstream}} 上各家提供商的报价并直接填入',
+                        { upstream: pricingUpstream },
+                      )}
+                    </div>
+                  )}
+                </Card>
 
                 {selectedWarnings.length > 0 ? (
                   <Card
