@@ -656,10 +656,11 @@ func RechargeEthereumWithPaymentCheck(source LogSource, tradeNo string, payment 
 			latePayment = true
 		}
 
-		dAmount := decimal.NewFromInt(topUp.Amount)
-		dQuotaPerUnit := decimal.NewFromFloat(common.QuotaPerUnit)
-		quotaToAdd = int(dAmount.Mul(dQuotaPerUnit).IntPart())
-		if quotaToAdd <= 0 {
+		// A saturated conversion would credit a different amount than was paid
+		// for; refuse it rather than write a clamped number to the ledger.
+		var clamp *common.QuotaClamp
+		quotaToAdd, clamp = common.QuotaFromDecimalChecked(decimal.NewFromInt(topUp.Amount).Mul(decimal.NewFromFloat(common.QuotaPerUnit)))
+		if quotaToAdd <= 0 || clamp != nil {
 			return ErrTopUpStatusInvalid
 		}
 

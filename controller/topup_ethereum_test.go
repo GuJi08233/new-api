@@ -5,15 +5,42 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/system_setting"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// The credited quota is amount * QuotaPerUnit on a 32-bit column, so an amount
+// that cannot be credited must be refused at the request boundary instead of
+// being stored, priced and only then saturated at settlement.
+func TestRequestEthereumPayRejectsAmountBeyondQuotaRange(t *testing.T) {
+	originalEnabled, originalContract := setting.EthereumEnabled, setting.EthereumContractAddress
+	t.Cleanup(func() {
+		setting.EthereumEnabled, setting.EthereumContractAddress = originalEnabled, originalContract
+	})
+	setting.EthereumEnabled = true
+	setting.EthereumContractAddress = "0x00000000000000000000000000000000000000c0"
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.POST("/pay", RequestEthereumPay)
+
+	body := strings.NewReader(fmt.Sprintf(`{"amount": %d, "token_address": "0x0000000000000000000000000000000000000000"}`, int64(9223372036854775807)))
+	request := httptest.NewRequest(http.MethodPost, "/pay", body)
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	assert.Contains(t, recorder.Body.String(), "充值数量超过上限")
+}
 
 // The contract carries orderIds as raw bytes32, so a trade number must fit in
 // 32 bytes for every user id and survive the encode/decode round trip.

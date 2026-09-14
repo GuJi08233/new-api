@@ -847,7 +847,9 @@ func countPendingSubscriptionOrdersByPlanWithWindow(tx *gorm.DB, plan *Subscript
 	// Counting on-chain orders with the short hosted-checkout hold would let a
 	// second order be created while the first is still payable, and the later
 	// settlement would then fail the sold-out check with the money already sent.
-	query = query.Where("(payment_provider = ? AND create_time > ?) OR (payment_provider <> ? AND create_time > ?)",
+	// COALESCE: a NULL provider must fall into the generic branch, not vanish
+	// under three-valued logic.
+	query = query.Where("(COALESCE(payment_provider, '') = ? AND create_time > ?) OR (COALESCE(payment_provider, '') <> ? AND create_time > ?)",
 		PaymentProviderEthereum, now-ChainOrderTTLSeconds(), PaymentProviderEthereum, pendingSubscriptionOrderCutoff(now))
 	if windowStart := getPlanPurchaseWindowStart(plan, now); windowStart > 0 {
 		query = query.Where("create_time >= ?", windowStart)
@@ -1520,7 +1522,7 @@ func ExpireStalePendingSubscriptionOrders(limit int) (int, error) {
 	// actually due.
 	if err := ReadDB().Model(&SubscriptionOrder{}).
 		Where("status = ?", common.TopUpStatusPending).
-		Where("(payment_provider = ? AND create_time <= ?) OR (payment_provider <> ? AND create_time <= ?)",
+		Where("(COALESCE(payment_provider, '') = ? AND create_time <= ?) OR (COALESCE(payment_provider, '') <> ? AND create_time <= ?)",
 			PaymentProviderEthereum, now-ChainOrderTTLSeconds(), PaymentProviderEthereum, cutoff).
 		Order("create_time asc").
 		Limit(limit).
