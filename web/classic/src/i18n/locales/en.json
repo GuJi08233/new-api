@@ -4418,6 +4418,9 @@
     "请允许浏览器打开验证窗口": "Allow the browser to open the verification window.",
     "请先完成当前安全验证": "Complete the current security verification first.",
     "请验证当前账户身份以继续操作": "Verify your account identity to continue.",
-    "验证失败": "Verification failed"
+    "验证失败": "Verification failed",
+    "重新生成系统访问令牌？": "Regenerate the system access token?",
+    "这会立即使已有的系统访问令牌失效，正在使用它的应用或脚本将停止工作。新令牌只显示一次，请复制并妥善保存。": "This immediately invalidates the existing system access token, and any application or script using it will stop working. The new token is shown only once, so copy it and store it securely.",
+    "出于安全考虑，已有的访问令牌不会再次显示；仅在需要新令牌时重新生成": "For security, an existing access token is never shown again; regenerate only when you need a new one"
   }
 }

@@ -80,6 +80,20 @@ const AccountManagement = ({
   onPasskeyRegister,
   onPasskeyDelete,
 }) => {
+  // 服务端已有的访问令牌不会再次显示，重新生成会立刻让它失效，因此先确认再请求。
+  const confirmAccessTokenRotation = () => {
+    Modal.confirm({
+      title: t('重新生成系统访问令牌？'),
+      content: t(
+        '这会立即使已有的系统访问令牌失效，正在使用它的应用或脚本将停止工作。新令牌只显示一次，请复制并妥善保存。',
+      ),
+      okText: systemToken ? t('重新生成') : t('生成令牌'),
+      cancelText: t('取消'),
+      okButtonProps: { type: 'danger' },
+      onOk: () => generateAccessToken(),
+    });
+  };
+
   const renderAccountInfo = (accountId, label) => {
     if (!accountId || accountId === '') {
       return <span className='text-gray-500'>{t('未绑定')}</span>;
@@ -693,6 +707,14 @@ const AccountManagement = ({
                         <Typography.Text type='tertiary' className='text-sm'>
                           {t('用于API调用的身份验证令牌，请妥善保管')}
                         </Typography.Text>
+                        <Typography.Text
+                          type='tertiary'
+                          className='text-sm block mt-1'
+                        >
+                          {t(
+                            '出于安全考虑，已有的访问令牌不会再次显示；仅在需要新令牌时重新生成',
+                          )}
+                        </Typography.Text>
                         {systemToken && (
                           <div className='mt-3'>
                             <Input
@@ -709,7 +731,7 @@ const AccountManagement = ({
                     <Button
                       type='primary'
                       theme='solid'
-                      onClick={generateAccessToken}
+                      onClick={confirmAccessTokenRotation}
                       className='!bg-slate-600 hover:!bg-slate-700 w-full sm:w-auto'
                       icon={<IconKey />}
                     >
