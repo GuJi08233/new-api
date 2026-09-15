@@ -290,12 +290,10 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 	// 适配器以 InitChannelMeta 解析出的 ApiType 为准：普通渠道等价于按渠道类型映射，
 	// OA2 多合一渠道则随测试端点的格式（OpenAI/Claude/Gemini/Codex）切换，与正常中继一致。
 	apiType := info.ApiType
-	if info.RelayMode == relayconstant.RelayModeResponsesCompact &&
-		apiType != constant.APITypeOpenAI &&
-		apiType != constant.APITypeCodex {
+	if info.RelayMode == relayconstant.RelayModeResponsesCompact && !common.IsResponsesCompactAPIType(apiType) {
 		return testResult{
 			context:     c,
-			localErr:    fmt.Errorf("responses compaction test only supports openai/codex channels, got api type %d", apiType),
+			localErr:    fmt.Errorf("responses compaction test only supports openai/codex/advanced custom channels, got api type %d", apiType),
 			newAPIError: types.NewError(fmt.Errorf("unsupported api type: %d", apiType), types.ErrorCodeInvalidApiType),
 		}
 	}

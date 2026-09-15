@@ -83,3 +83,13 @@ func ChannelType2APIType(channelType int) (int, bool) {
 	}
 	return apiType, true
 }
+
+// IsResponsesCompactAPIType 判定渠道类型能否承接 /v1/responses/compact：
+// 高级自定义渠道按路由原样转发压缩请求，与 OpenAI、Codex 一样返回原生压缩响应。
+func IsResponsesCompactAPIType(apiType int) bool {
+	switch apiType {
+	case constant.APITypeOpenAI, constant.APITypeCodex, constant.APITypeAdvancedCustom:
+		return true
+	}
+	return false
+}

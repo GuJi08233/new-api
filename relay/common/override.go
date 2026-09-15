@@ -1,6 +1,7 @@
 package common
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/samber/lo"
 	"github.com/tidwall/gjson"
@@ -30,6 +32,12 @@ var paramOverrideSensitivePathPrefixes = []string{
 	"model",
 	"original_model",
 	"upstream_model",
+	"reasoning",
+	"reasoning_effort",
+	"thinking",
+	"output_config",
+	"generationConfig.thinkingConfig",
+	"generation_config.thinking_config",
 	"service_tier",
 	"inference_geo",
 	"speed",
@@ -191,6 +199,7 @@ func ApplyParamOverrideWithRelayInfo(jsonData []byte, info *RelayInfo) ([]byte, 
 	if err != nil {
 		return nil, err
 	}
+	syncReasoningEffortAfterParamOverride(info, jsonData, result)
 	syncRuntimeHeaderOverrideFromContext(info, overrideCtx)
 	if info != nil {
 		if recorder != nil {
@@ -200,6 +209,78 @@ func ApplyParamOverrideWithRelayInfo(jsonData []byte, info *RelayInfo) ([]byte, 
 		}
 	}
 	return result, nil
+}
+
+// syncReasoningEffortAfterParamOverride 让日志里的 reasoning_effort 跟随实际发往上游的请求体：
+// 覆盖改写了推理参数就采用改写后的值，删除了就清空；没有触及推理参数时保留处理器或转换器
+// 记录的原值（例如 Chat 转 Claude 时保留客户端的 reasoning_effort）。
+func syncReasoningEffortAfterParamOverride(info *RelayInfo, before, after []byte) {
+	if info == nil {
+		return
+	}
+	format := info.GetFinalRequestRelayFormat()
+	previous, existedBefore := reasoningSummaryFromJSON(format, before)
+	current, existsAfter := reasoningSummaryFromJSON(format, after)
+	if existedBefore == existsAfter && previous == current {
+		return
+	}
+	info.ReasoningEffort = current
+}
+
+// reasoningSummaryFromJSON 按最终请求格式从请求体提取推理参数摘要，与各处理器记录日志时的口径一致。
+// 第二个返回值表示请求体里是否存在相关字段；字段存在但不是合法字符串时返回空摘要。
+func reasoningSummaryFromJSON(format types.RelayFormat, data []byte) (string, bool) {
+	stringValue := func(value gjson.Result) string {
+		if value.Type != gjson.String {
+			return ""
+		}
+		return strings.TrimSpace(value.String())
+	}
+	switch format {
+	case types.RelayFormatOpenAI:
+		for _, path := range []string{"reasoning_effort", "reasoning.effort"} {
+			if value := gjson.GetBytes(data, path); value.Exists() {
+				return stringValue(value), true
+			}
+		}
+	case types.RelayFormatOpenAIResponses, types.RelayFormatOpenAIResponsesCompaction:
+		if value := gjson.GetBytes(data, "reasoning.effort"); value.Exists() {
+			return stringValue(value), true
+		}
+	case types.RelayFormatClaude:
+		request := dto.ClaudeRequest{}
+		found := false
+		if value := gjson.GetBytes(data, "output_config"); value.Exists() {
+			found = true
+			if value.IsObject() {
+				request.OutputConfig = json.RawMessage(value.Raw)
+			}
+		}
+		if value := gjson.GetBytes(data, "thinking"); value.Exists() {
+			found = true
+			var thinking dto.Thinking
+			if value.IsObject() && common.Unmarshal([]byte(value.Raw), &thinking) == nil {
+				request.Thinking = &thinking
+			}
+		}
+		if !found {
+			return "", false
+		}
+		return request.ThinkingSummary(), true
+	case types.RelayFormatGemini:
+		for _, path := range []string{"generationConfig.thinkingConfig", "generation_config.thinking_config"} {
+			value := gjson.GetBytes(data, path)
+			if !value.Exists() {
+				continue
+			}
+			var config dto.GeminiThinkingConfig
+			if !value.IsObject() || common.Unmarshal([]byte(value.Raw), &config) != nil {
+				return "", true
+			}
+			return config.ThinkingSummary(), true
+		}
+	}
+	return "", false
 }
 
 func shouldEnableParamOverrideAudit(paramOverride map[string]interface{}) bool {

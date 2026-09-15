@@ -255,6 +255,8 @@ func (info *RelayInfo) InitChannelMeta(c *gin.Context) {
 			}
 		}
 	}
+	// 每次尝试都从客户端原始请求重新记录推理参数，上一个渠道的模型后缀或参数覆盖结果不会带进下一次重试的日志。
+	info.ReasoningEffort = reasoningEffortFromRequest(info.Request)
 	channelType := common.GetContextKeyInt(c, constant.ContextKeyChannelType)
 	paramOverride := common.GetContextKeyStringMap(c, constant.ContextKeyChannelParamOverride)
 	headerOverride := common.GetContextKeyStringMap(c, constant.ContextKeyChannelHeaderOverride)
@@ -550,6 +552,36 @@ func GenRelayInfoOpenAI(c *gin.Context, request dto.Request) *RelayInfo {
 	return info
 }
 
+// reasoningEffortFromRequest 按各处理器写日志的口径提取客户端请求里的推理参数摘要。
+func reasoningEffortFromRequest(request dto.Request) string {
+	var effort string
+	switch req := request.(type) {
+	case *dto.GeneralOpenAIRequest:
+		if req == nil {
+			return ""
+		}
+		effort = req.ReasoningEffort
+		if strings.TrimSpace(effort) == "" && len(req.Reasoning) > 0 {
+			if value := gjson.GetBytes(req.Reasoning, "effort"); value.Type == gjson.String {
+				effort = value.String()
+			}
+		}
+	case *dto.OpenAIResponsesRequest:
+		if req != nil && req.Reasoning != nil {
+			effort = req.Reasoning.Effort
+		}
+	case *dto.ClaudeRequest:
+		if req != nil {
+			effort = req.ThinkingSummary()
+		}
+	case *dto.GeminiChatRequest:
+		if req != nil {
+			effort = req.GenerationConfig.ThinkingConfig.ThinkingSummary()
+		}
+	}
+	return strings.TrimSpace(effort)
+}
+
 func genBaseRelayInfo(c *gin.Context, request dto.Request) *RelayInfo {
 
 	//channelType := common.GetContextKeyInt(c, constant.ContextKeyChannelType)
@@ -581,7 +613,8 @@ func genBaseRelayInfo(c *gin.Context, request dto.Request) *RelayInfo {
 		reqId = common.NewRequestId()
 	}
 	info := &RelayInfo{
-		Request: request,
+		Request:         request,
+		ReasoningEffort: reasoningEffortFromRequest(request),
 
 		RequestId:  reqId,
 		UserId:     common.GetContextKeyInt(c, constant.ContextKeyUserId),
