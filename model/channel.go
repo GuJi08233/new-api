@@ -8,11 +8,13 @@ import (
 	"math/rand"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/types"
 
 	"github.com/samber/lo"
@@ -709,6 +711,104 @@ func hasEnabledMultiKey(keys []string, statusList map[int]int) bool {
 	return false
 }
 
+// GetStatusTime 返回渠道最近一次状态变更的时间戳（other_info.status_time），未记录时为 0。
+func (channel *Channel) GetStatusTime() int64 {
+	switch value := channel.GetOtherInfo()["status_time"].(type) {
+	case float64:
+		return int64(value)
+	case int64:
+		return value
+	case int:
+		return int64(value)
+	}
+	return 0
+}
+
+// EnableChannelKey 将多密钥渠道中被禁用的一把密钥恢复为启用（清除其状态、原因与时间记录）。
+// 与 updateChannelStatus 共用同一把状态锁，并在锁内重新加载渠道后只改写这把密钥的记录，
+// 避免覆盖在途请求对其它密钥的自动禁用。渠道若因"所有密钥被禁"处于自动禁用，
+// 恢复任一密钥后整体回到启用并同步 abilities；归档渠道冻结不参与。
+// 返回：密钥状态是否发生变化、渠道整体是否由自动禁用恢复为启用。
+func EnableChannelKey(channelId int, keyIndex int) (bool, bool, error) {
+	channelStatusLock.Lock()
+	defer channelStatusLock.Unlock()
+
+	channel, err := GetChannelById(channelId, true)
+	if err != nil {
+		return false, false, err
+	}
+	if !channel.ChannelInfo.IsMultiKey {
+		return false, false, fmt.Errorf("channel %d is not in multi-key mode", channelId)
+	}
+	if channel.Status == common.ChannelStatusArchived {
+		return false, false, nil
+	}
+	if keyIndex < 0 || keyIndex >= len(channel.GetKeys()) {
+		return false, false, fmt.Errorf("channel %d key index %d out of range", channelId, keyIndex)
+	}
+	if _, disabled := channel.ChannelInfo.MultiKeyStatusList[keyIndex]; !disabled {
+		return false, false, nil
+	}
+
+	pollingLock := GetChannelPollingLock(channelId)
+	pollingLock.Lock()
+	delete(channel.ChannelInfo.MultiKeyStatusList, keyIndex)
+	delete(channel.ChannelInfo.MultiKeyDisabledReason, keyIndex)
+	delete(channel.ChannelInfo.MultiKeyDisabledTime, keyIndex)
+	pollingLock.Unlock()
+
+	channelRecovered := channel.Status == common.ChannelStatusAutoDisabled
+	if channelRecovered {
+		channel.Status = common.ChannelStatusEnabled
+		info := channel.GetOtherInfo()
+		info["status_reason"] = ""
+		info["status_time"] = common.GetTimestamp()
+		channel.SetOtherInfo(info)
+	}
+	if err := channel.SaveWithoutKey(); err != nil {
+		return false, false, err
+	}
+	if channelRecovered {
+		if err := UpdateAbilityStatus(channelId, true); err != nil {
+			common.SysLog(fmt.Sprintf("failed to update ability status: channel_id=%d, error=%v", channelId, err))
+		}
+	}
+	// 重建缓存：密钥状态与路由表一并刷新，恢复的渠道立即重新参与选路
+	InitChannelCache()
+	return true, channelRecovered, nil
+}
+
+// ChannelAutoRecoverySetting 是开启了渠道级自动恢复的渠道的调度信息。
+type ChannelAutoRecoverySetting struct {
+	ChannelId int
+	Interval  time.Duration
+}
+
+// GetChannelAutoRecoverySettings 返回所有开启了渠道级自动恢复且未被手动禁用/归档的渠道，
+// 只读取 id/status/setting 三列并就地解析，供系统任务调度器低成本计算运行间隔。
+// 不能用 GetSetting：它在解析失败时会回写数据库，对只加载了部分列的对象是破坏性的。
+func GetChannelAutoRecoverySettings() ([]ChannelAutoRecoverySetting, error) {
+	var channels []*Channel
+	err := ReadDB().Select("id", "status", "setting").
+		Where("status in (?)", []int{common.ChannelStatusEnabled, common.ChannelStatusAutoDisabled}).
+		Find(&channels).Error
+	if err != nil {
+		return nil, err
+	}
+	result := make([]ChannelAutoRecoverySetting, 0)
+	for _, channel := range channels {
+		if channel.Setting == nil || *channel.Setting == "" {
+			continue
+		}
+		setting := dto.ChannelSettings{}
+		if err := common.Unmarshal([]byte(*channel.Setting), &setting); err != nil || !setting.AutoRecoveryEnabled {
+			continue
+		}
+		result = append(result, ChannelAutoRecoverySetting{ChannelId: channel.Id, Interval: setting.AutoRecoveryInterval()})
+	}
+	return result, nil
+}
+
 // UpdateChannelStatus 供自动路径调用（请求错误自动禁用、测试通过自动启用、余额耗尽、MJ 自动封禁等）。
 // 归档渠道对自动路径完全冻结，任何状态改写都会被拒绝；归档/恢复只能走 UpdateChannelStatusManual。
 func UpdateChannelStatus(channelId int, usingKey string, status int, reason string) bool {
@@ -969,6 +1069,28 @@ func (channel *Channel) ValidateSettings() error {
 		err := common.Unmarshal([]byte(*channel.Setting), channelParams)
 		if err != nil {
 			return err
+		}
+	}
+	if codes := strings.TrimSpace(channelParams.AutoDisableStatusCodes); codes != "" {
+		if _, err := operation_setting.ParseHTTPStatusCodeRanges(codes); err != nil {
+			return fmt.Errorf("auto_disable_status_codes: %w", err)
+		}
+	}
+	if channelParams.AutoRecoveryIntervalMinutes < 0 || channelParams.AutoRecoveryIntervalMinutes > dto.MaxAutoRecoveryIntervalMinutes {
+		return fmt.Errorf("auto_recovery_interval_minutes must be between 0 and %d", dto.MaxAutoRecoveryIntervalMinutes)
+	}
+	if channelParams.RateLimitPeriodMinutes < 0 || channelParams.RateLimitPeriodMinutes > dto.MaxRateLimitPeriodMinutes {
+		return fmt.Errorf("rate_limit_period_minutes must be between 0 and %d", dto.MaxRateLimitPeriodMinutes)
+	}
+	if channelParams.RateLimitMaxRequests < 0 || channelParams.RateLimitMaxSuccess < 0 {
+		return fmt.Errorf("rate_limit_max_requests and rate_limit_max_success must not be negative")
+	}
+	if channelParams.DailyRequestLimit < 0 {
+		return fmt.Errorf("daily_request_limit must not be negative")
+	}
+	if timezone := strings.TrimSpace(channelParams.DailyRequestLimitTimezone); timezone != "" {
+		if _, err := loadChannelDailyLimitLocation(timezone); err != nil {
+			return fmt.Errorf("daily_request_limit_timezone is not a valid IANA time zone: %s", timezone)
 		}
 	}
 	channelOtherSettings := &dto.ChannelOtherSettings{}

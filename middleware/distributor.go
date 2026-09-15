@@ -183,8 +183,8 @@ func Distribute() func(c *gin.Context) {
 									abortWithOpenAiMessage(c, http.StatusForbidden, i18n.T(c, i18n.MsgDistributorAffinityChannelDisabled))
 									return
 								}
-							} else if model.IsChannelDailyLimitReached(preferred.Id, preferred.GetDailyLimitConfig()) {
-								// 亲和渠道已达每日请求上限，放弃亲和，交给正常选路
+							} else if model.IsChannelRequestLimitReached(preferred.Id, preferred.GetRequestLimitConfig()) {
+								// 亲和渠道已达请求上限（每日或每分钟），放弃亲和，交给正常选路
 							} else if service.IsMultiCandidateGroup(usingGroup) {
 								autoGroups := service.ResolveCandidateGroups(c, usingGroup)
 								for _, g := range autoGroups {
@@ -632,7 +632,7 @@ func SetupContextForSelectedChannel(c *gin.Context, channel *model.Channel, mode
 	// 渠道每日请求计数：本函数是所有"渠道承接一次上游调用"路径的汇聚点
 	// （初次选路、跨渠道重试、同渠道重试、任务重试、渠道测试），在此统一递增，
 	// 与渠道每日请求上限（daily_request_limit）共用同一口径与日切时区。
-	model.IncrChannelDailyRequestCount(channel.Id, channelSetting.DailyRequestLimitUTCOffset)
+	model.IncrChannelRequestCount(channel.Id, model.NewChannelRequestLimitConfig(channelSetting))
 	return nil
 }
 

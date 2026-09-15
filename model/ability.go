@@ -128,7 +128,7 @@ func GetChannel(group string, model string, retry int, requestPath string) (*Cha
 	}
 	abilities = filterAbilitiesByRequestPathAndModel(abilities, requestPath, model)
 	if len(abilities) > 0 {
-		available := filterAbilitiesByDailyLimit(abilities)
+		available := filterAbilitiesByRequestLimit(abilities)
 		if len(available) == 0 {
 			return nil, errors.New("候选渠道均已达每日请求上限")
 		}
@@ -205,9 +205,9 @@ func filterAbilitiesByRequestPathAndModel(abilities []Ability, requestPath strin
 	return filtered
 }
 
-// filterAbilitiesByDailyLimit 剔除已达每日请求上限的渠道，用于未开启内存缓存的
+// filterAbilitiesByRequestLimit 剔除已达请求上限（每日或每分钟）的渠道，用于未开启内存缓存的
 // DB 选路。批量加载候选渠道的 setting 判定上限；查询失败时放行以免阻断选路。
-func filterAbilitiesByDailyLimit(abilities []Ability) []Ability {
+func filterAbilitiesByRequestLimit(abilities []Ability) []Ability {
 	if len(abilities) == 0 {
 		return abilities
 	}
@@ -229,9 +229,9 @@ func filterAbilitiesByDailyLimit(abilities []Ability) []Ability {
 
 	limitReached := make(map[int]bool)
 	for _, channel := range channels {
-		// GetDailyLimitConfig 不带 GetSetting 的错误回写副作用，
+		// GetRequestLimitConfig 不带 GetSetting 的错误回写副作用，
 		// 对这里只加载了 id/setting 的部分对象是安全的
-		if config := channel.GetDailyLimitConfig(); config.Enabled() && IsChannelDailyLimitReached(channel.Id, config) {
+		if config := channel.GetRequestLimitConfig(); config.Enabled() && IsChannelRequestLimitReached(channel.Id, config) {
 			limitReached[channel.Id] = true
 		}
 	}

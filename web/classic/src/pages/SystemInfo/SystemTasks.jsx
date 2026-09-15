@@ -41,6 +41,7 @@ const { Text } = Typography;
 const TASK_TYPE_KEYS = {
   log_cleanup: '日志清理',
   channel_test: '批量渠道测试',
+  channel_recovery: '渠道自动恢复测试',
   model_update: '批量上游模型更新',
   midjourney_poll: '绘图任务轮询',
   async_task_poll: '异步任务轮询',

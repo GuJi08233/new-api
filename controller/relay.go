@@ -273,6 +273,8 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 			if newAPIError == nil {
 				relayInfo.LastError = nil
+				// 渠道级请求频率限制的成功计数：只有在该渠道上成功完成的调用才计入
+				model.IncrChannelSuccessCount(channel.Id, model.NewChannelRequestLimitConfig(channelSetting))
 				return
 			}
 
@@ -705,7 +707,9 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 	logger.LogError(c, fmt.Sprintf("channel error (channel #%d, status code: %d): %s", channelError.ChannelId, err.StatusCode, common.LocalLogPreview(err.Error())))
 	// 不要使用context获取渠道信息，异步处理时可能会出现渠道信息不一致的情况
 	// do not use context to get channel info, there may be inconsistent channel info when processing asynchronously
-	if service.ShouldDisableChannel(err) && channelError.AutoBan {
+	// 渠道级自动禁用状态码取自本次请求命中渠道的上下文：判定在此同步完成，只有禁用动作异步执行。
+	channelSetting, _ := common.GetContextKeyType[dto.ChannelSettings](c, constant.ContextKeyChannelSetting)
+	if service.ShouldDisableChannelWithSetting(err, channelSetting) && channelError.AutoBan {
 		gopool.Go(func() {
 			service.DisableChannel(channelError, err.ErrorWithStatusCode())
 		})
@@ -921,6 +925,7 @@ func RelayTask(c *gin.Context) {
 
 			result, taskErr = relay.RelayTaskSubmit(c, relayInfo)
 			if taskErr == nil {
+				model.IncrChannelSuccessCount(channel.Id, model.NewChannelRequestLimitConfig(channelSetting))
 				break
 			}
 

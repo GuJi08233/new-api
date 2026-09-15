@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/QuantumNous/new-api/constant"
 )
@@ -18,9 +19,9 @@ type ChannelSettings struct {
 	// PassThroughHeadersEnabled 透传客户端请求头(等价于 header override 的 "*" 规则,敏感头仍被过滤)
 	PassThroughHeadersEnabled bool `json:"pass_through_headers_enabled,omitempty"`
 	// PassThroughRewriteModelEnabled 透传请求体时按模型重定向仅改写 body 中的 model 字段
-	PassThroughRewriteModelEnabled bool `json:"pass_through_rewrite_model_enabled,omitempty"`
-	SystemPrompt           string `json:"system_prompt,omitempty"`
-	SystemPromptOverride   bool   `json:"system_prompt_override,omitempty"`
+	PassThroughRewriteModelEnabled bool   `json:"pass_through_rewrite_model_enabled,omitempty"`
+	SystemPrompt                   string `json:"system_prompt,omitempty"`
+	SystemPromptOverride           bool   `json:"system_prompt_override,omitempty"`
 	// RetryTimes 渠道级重试次数，0 表示使用全局 RetryTimes
 	RetryTimes int `json:"retry_times,omitempty"`
 	// RetryOnSameChannel 开启后失败时在同一渠道上重试，不切换到其他渠道
@@ -36,6 +37,46 @@ type ChannelSettings struct {
 	// （如 480 = UTC+8，0 = UTC）；nil 表示跟随服务器本地时区。
 	// 用于对齐上游免费额度的重置时间。
 	DailyRequestLimitUTCOffset *int `json:"daily_request_limit_utc_offset,omitempty"`
+	// DailyRequestLimitTimezone 每日计数日切的 IANA 时区名（如 "America/Los_Angeles"），
+	// 由时区数据库自动处理夏令时；非空且可加载时优先于 DailyRequestLimitUTCOffset。
+	// 用于对齐按当地午夜重置的上游免费额度（如 Google AI Studio 的 RPD 按太平洋时间午夜重置）。
+	DailyRequestLimitTimezone string `json:"daily_request_limit_timezone,omitempty"`
+	// RateLimitPeriodMinutes 渠道级请求频率限制的周期（分钟），0 表示 1 分钟。与用户/分组级的
+	// 模型请求限速同构，但作用于渠道：达到上限后该渠道在本周期内不再参与选路，下一周期自动恢复。
+	RateLimitPeriodMinutes int `json:"rate_limit_period_minutes,omitempty"`
+	// RateLimitMaxRequests 每周期最多承接的请求次数（含失败、重试与渠道测试），0 表示不限制。
+	RateLimitMaxRequests int64 `json:"rate_limit_max_requests,omitempty"`
+	// RateLimitMaxSuccess 每周期最多在该渠道上成功完成的请求次数，0 表示不限制。
+	RateLimitMaxSuccess int64 `json:"rate_limit_max_success,omitempty"`
+	// AutoDisableStatusCodes 渠道级自动禁用状态码（如 "401,429"）。非空时替换全局
+	// AutomaticDisableStatusCodes 用于本渠道的状态码判定，并视为该渠道显式开启了自动禁用
+	// （不再要求全局"失败时自动禁用"开关）；关键词与 channel: 类错误仍按全局规则处理。
+	// 渠道自身的 auto_ban 关闭时依然不会禁用。多密钥渠道命中时只禁用当前密钥。
+	AutoDisableStatusCodes string `json:"auto_disable_status_codes,omitempty"`
+	// AutoRecoveryEnabled 渠道级自动恢复：由系统任务按渠道自己的间隔定时测试被自动禁用的密钥
+	// （多密钥渠道逐把测试）或被自动禁用的渠道本身，测试通过即恢复。
+	// 与全局定时测试、全局"成功时自动启用"开关相互独立。
+	AutoRecoveryEnabled bool `json:"auto_recovery_enabled,omitempty"`
+	// AutoRecoveryIntervalMinutes 自动恢复的测试间隔（分钟），0 表示使用 DefaultAutoRecoveryIntervalMinutes。
+	AutoRecoveryIntervalMinutes int `json:"auto_recovery_interval_minutes,omitempty"`
+}
+
+const (
+	// DefaultAutoRecoveryIntervalMinutes 渠道级自动恢复测试的默认间隔。
+	DefaultAutoRecoveryIntervalMinutes = 10
+	// MaxAutoRecoveryIntervalMinutes 自动恢复测试间隔的上限（一天）。
+	MaxAutoRecoveryIntervalMinutes = 24 * 60
+	// MaxRateLimitPeriodMinutes 渠道级请求频率限制周期的上限（一天），更长的周期请改用每日请求上限。
+	MaxRateLimitPeriodMinutes = 24 * 60
+)
+
+// AutoRecoveryInterval 返回渠道级自动恢复的测试间隔，未配置（0）时回退到默认值。
+func (s ChannelSettings) AutoRecoveryInterval() time.Duration {
+	minutes := s.AutoRecoveryIntervalMinutes
+	if minutes <= 0 {
+		minutes = DefaultAutoRecoveryIntervalMinutes
+	}
+	return time.Duration(minutes) * time.Minute
 }
 
 type VertexKeyType string

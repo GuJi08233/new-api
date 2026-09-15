@@ -174,7 +174,7 @@ func GetAllChannels(c *gin.Context) {
 
 	for _, datum := range channelData {
 		clearChannelInfo(datum)
-		datum.TodayRequestCount = model.GetChannelDailyRequestCount(datum.Id, datum.GetDailyLimitConfig().UTCOffsetMinutes)
+		datum.TodayRequestCount = model.GetChannelDailyRequestCount(datum.Id, datum.GetRequestLimitConfig())
 	}
 
 	countQuery := buildChannelListQuery(groupFilter, statusFilter, -1)
@@ -392,7 +392,7 @@ func SearchChannels(c *gin.Context) {
 
 	for _, datum := range pagedData {
 		clearChannelInfo(datum)
-		datum.TodayRequestCount = model.GetChannelDailyRequestCount(datum.Id, datum.GetDailyLimitConfig().UTCOffsetMinutes)
+		datum.TodayRequestCount = model.GetChannelDailyRequestCount(datum.Id, datum.GetRequestLimitConfig())
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -446,7 +446,7 @@ func GetChannel(c *gin.Context) {
 	}
 	if channel != nil {
 		clearChannelInfo(channel)
-		channel.TodayRequestCount = model.GetChannelDailyRequestCount(channel.Id, channel.GetDailyLimitConfig().UTCOffsetMinutes)
+		channel.TodayRequestCount = model.GetChannelDailyRequestCount(channel.Id, channel.GetRequestLimitConfig())
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,

@@ -216,6 +216,17 @@ const EditChannelModal = (props) => {
     daily_request_limit: 0,
     // 每日限额日切时区（相对 UTC 的分钟偏移，'' = 跟随服务器时区）
     daily_request_limit_utc_offset: '',
+    // 每日限额日切 IANA 时区（'' = 不使用；非空时优先于固定 UTC 偏移，自动处理夏令时）
+    daily_request_limit_timezone: '',
+    // 渠道级自动禁用错误码（'' = 跟随全局设置）
+    auto_disable_status_codes: '',
+    // 渠道级自动恢复：定时测试被自动禁用的密钥/渠道，通过即恢复
+    auto_recovery_enabled: false,
+    auto_recovery_interval_minutes: 0,
+    // 渠道级请求频率限制（周期分钟 / 每周期最多请求 / 每周期最多成功），0 = 不限制或默认 1 分钟
+    rate_limit_period_minutes: 0,
+    rate_limit_max_requests: 0,
+    rate_limit_max_success: 0,
     settings: '',
     // 仅 Vertex: 密钥格式（存入 settings.vertex_key_type）
     vertex_key_type: 'json',
@@ -555,6 +566,13 @@ const EditChannelModal = (props) => {
     retry_exhausted_transfer: true,
     daily_request_limit: 0,
     daily_request_limit_utc_offset: '',
+    daily_request_limit_timezone: '',
+    auto_disable_status_codes: '',
+    auto_recovery_enabled: false,
+    auto_recovery_interval_minutes: 0,
+    rate_limit_period_minutes: 0,
+    rate_limit_max_requests: 0,
+    rate_limit_max_success: 0,
   });
   // 当日已承接请求数（编辑时由后端返回，仅用于展示）
   const [todayRequestCount, setTodayRequestCount] = useState(0);
@@ -566,6 +584,24 @@ const EditChannelModal = (props) => {
         label: formatUtcOffsetLabel(minutes),
       })),
     ],
+    [t],
+  );
+  // 每日限额可选的 IANA 日切时区（自动处理夏令时），也允许手动输入其它 IANA 时区名
+  const dailyLimitTimezoneOptions = useMemo(
+    () =>
+      [
+        { value: 'America/Los_Angeles', label: t('美国太平洋时间') },
+        { value: 'America/New_York', label: t('美国东部时间') },
+        { value: 'Europe/London', label: t('英国时间') },
+        { value: 'Europe/Paris', label: t('中欧时间') },
+        { value: 'Asia/Shanghai', label: t('北京时间') },
+        { value: 'Asia/Tokyo', label: t('日本时间') },
+        { value: 'Asia/Singapore', label: t('新加坡时间') },
+        { value: 'UTC', label: 'UTC' },
+      ].map(({ value, label }) => ({
+        value,
+        label: value === label ? value : `${label} (${value})`,
+      })),
     [t],
   );
   const showApiConfigCard = true; // 控制是否显示 API 配置卡片
@@ -1010,6 +1046,20 @@ const EditChannelModal = (props) => {
           )
             ? parsedSettings.daily_request_limit_utc_offset
             : '';
+          data.daily_request_limit_timezone =
+            parsedSettings.daily_request_limit_timezone || '';
+          data.auto_disable_status_codes =
+            parsedSettings.auto_disable_status_codes || '';
+          data.auto_recovery_enabled =
+            parsedSettings.auto_recovery_enabled === true;
+          data.auto_recovery_interval_minutes =
+            parsedSettings.auto_recovery_interval_minutes || 0;
+          data.rate_limit_period_minutes =
+            parsedSettings.rate_limit_period_minutes || 0;
+          data.rate_limit_max_requests =
+            parsedSettings.rate_limit_max_requests || 0;
+          data.rate_limit_max_success =
+            parsedSettings.rate_limit_max_success || 0;
         } catch (error) {
           console.error('解析渠道设置失败:', error);
           data.force_format = false;
@@ -1026,6 +1076,13 @@ const EditChannelModal = (props) => {
           data.retry_exhausted_transfer = true;
           data.daily_request_limit = 0;
           data.daily_request_limit_utc_offset = '';
+          data.daily_request_limit_timezone = '';
+          data.auto_disable_status_codes = '';
+          data.auto_recovery_enabled = false;
+          data.auto_recovery_interval_minutes = 0;
+          data.rate_limit_period_minutes = 0;
+          data.rate_limit_max_requests = 0;
+          data.rate_limit_max_success = 0;
         }
       } else {
         data.force_format = false;
@@ -1042,6 +1099,13 @@ const EditChannelModal = (props) => {
         data.retry_exhausted_transfer = true;
         data.daily_request_limit = 0;
         data.daily_request_limit_utc_offset = '';
+        data.daily_request_limit_timezone = '';
+        data.auto_disable_status_codes = '';
+        data.auto_recovery_enabled = false;
+        data.auto_recovery_interval_minutes = 0;
+        data.rate_limit_period_minutes = 0;
+        data.rate_limit_max_requests = 0;
+        data.rate_limit_max_success = 0;
       }
 
       if (data.settings) {
@@ -1195,6 +1259,14 @@ const EditChannelModal = (props) => {
         )
           ? data.daily_request_limit_utc_offset
           : '',
+        daily_request_limit_timezone: data.daily_request_limit_timezone || '',
+        auto_disable_status_codes: data.auto_disable_status_codes || '',
+        auto_recovery_enabled: data.auto_recovery_enabled === true,
+        auto_recovery_interval_minutes:
+          data.auto_recovery_interval_minutes || 0,
+        rate_limit_period_minutes: data.rate_limit_period_minutes || 0,
+        rate_limit_max_requests: data.rate_limit_max_requests || 0,
+        rate_limit_max_success: data.rate_limit_max_success || 0,
       });
       setTodayRequestCount(data.today_request_count || 0);
       initialModelsRef.current = (data.models || [])
@@ -1244,7 +1316,14 @@ const EditChannelModal = (props) => {
         data.retry_on_same_channel ||
         (data.retry_times && data.retry_times !== 0) ||
         (data.retry_status_codes && data.retry_status_codes.trim()) ||
-        (data.daily_request_limit && data.daily_request_limit !== 0);
+        (data.daily_request_limit && data.daily_request_limit !== 0) ||
+        (data.daily_request_limit_timezone &&
+          data.daily_request_limit_timezone.trim()) ||
+        (data.auto_disable_status_codes &&
+          data.auto_disable_status_codes.trim()) ||
+        data.auto_recovery_enabled ||
+        (data.rate_limit_max_requests && data.rate_limit_max_requests !== 0) ||
+        (data.rate_limit_max_success && data.rate_limit_max_success !== 0);
       if (hasAdvancedValues) {
         setAdvancedSettingsOpen(true);
       }
@@ -1613,6 +1692,13 @@ const EditChannelModal = (props) => {
       retry_exhausted_transfer: true,
       daily_request_limit: 0,
       daily_request_limit_utc_offset: '',
+      daily_request_limit_timezone: '',
+      auto_disable_status_codes: '',
+      auto_recovery_enabled: false,
+      auto_recovery_interval_minutes: 0,
+      rate_limit_period_minutes: 0,
+      rate_limit_max_requests: 0,
+      rate_limit_max_success: 0,
     });
     setTodayRequestCount(0);
     // 重置密钥模式状态
@@ -2007,6 +2093,21 @@ const EditChannelModal = (props) => {
               localInputs.daily_request_limit_utc_offset,
           }
         : {}),
+      // IANA 时区为空时省略，避免后端把空串当作时区名校验
+      ...(localInputs.daily_request_limit_timezone &&
+      localInputs.daily_request_limit_timezone.trim()
+        ? {
+            daily_request_limit_timezone:
+              localInputs.daily_request_limit_timezone.trim(),
+          }
+        : {}),
+      auto_disable_status_codes: localInputs.auto_disable_status_codes || '',
+      auto_recovery_enabled: localInputs.auto_recovery_enabled || false,
+      auto_recovery_interval_minutes:
+        localInputs.auto_recovery_interval_minutes || 0,
+      rate_limit_period_minutes: localInputs.rate_limit_period_minutes || 0,
+      rate_limit_max_requests: localInputs.rate_limit_max_requests || 0,
+      rate_limit_max_success: localInputs.rate_limit_max_success || 0,
     };
     localInputs.setting = JSON.stringify(channelExtraSettings);
 
@@ -2127,6 +2228,13 @@ const EditChannelModal = (props) => {
     delete localInputs.retry_exhausted_transfer;
     delete localInputs.daily_request_limit;
     delete localInputs.daily_request_limit_utc_offset;
+    delete localInputs.daily_request_limit_timezone;
+    delete localInputs.auto_disable_status_codes;
+    delete localInputs.auto_recovery_enabled;
+    delete localInputs.auto_recovery_interval_minutes;
+    delete localInputs.rate_limit_period_minutes;
+    delete localInputs.rate_limit_max_requests;
+    delete localInputs.rate_limit_max_success;
     delete localInputs.is_enterprise_account;
     // 顶层的 vertex_key_type 不应发送给后端
     delete localInputs.vertex_key_type;
@@ -2882,6 +2990,15 @@ const EditChannelModal = (props) => {
                   )}
 
                   <Text className='text-sm font-medium text-gray-500 mb-3 block mt-4'>
+                    {t('自动禁用与恢复')}
+                  </Text>
+                  <Form.Input field='auto_disable_status_codes' label={t('自动禁用错误码')} placeholder={t('例如: 401,429')} onChange={(value) => handleChannelSettingsChange('auto_disable_status_codes', value)} showClear extraText={t('命中这些错误码时自动禁用（多密钥渠道只禁用当前密钥）。非空时替换全局自动禁用状态码，且不依赖全局「失败时自动禁用」开关，但仍需开启上方「是否自动禁用」。支持范围和逗号分隔')} />
+                  <Form.Switch field='auto_recovery_enabled' label={t('定时测试并自动恢复')} checkedText={t('开')} uncheckedText={t('关')} onChange={(value) => handleChannelSettingsChange('auto_recovery_enabled', value)} extraText={t('按下方间隔定时测试被自动禁用的密钥（多密钥渠道逐把测试）或被自动禁用的渠道本身，测试通过即自动恢复；不依赖全局定时测试与「成功时自动启用」开关')} />
+                  {inputs.auto_recovery_enabled && (
+                    <Form.InputNumber field='auto_recovery_interval_minutes' label={t('自动恢复测试间隔（分钟）')} placeholder={t('0 = 10 分钟')} min={0} max={1440} onChange={(value) => handleChannelSettingsChange('auto_recovery_interval_minutes', value)} style={{ width: '100%' }} extraText={t('每把被禁用的密钥（或渠道本身）至少间隔这么久才重测一次，0 表示 10 分钟，最大 1440')} />
+                  )}
+
+                  <Text className='text-sm font-medium text-gray-500 mb-3 block mt-4'>
                     {t('每日限额')}
                   </Text>
                   <Form.InputNumber
@@ -2897,13 +3014,34 @@ const EditChannelModal = (props) => {
                     }
                   />
                   <Form.Select
-                    field='daily_request_limit_utc_offset'
-                    label={t('每日限额重置时区')}
-                    optionList={dailyLimitUtcOffsetOptions}
-                    onChange={(value) => handleChannelSettingsChange('daily_request_limit_utc_offset', value)}
+                    field='daily_request_limit_timezone'
+                    label={t('每日限额重置时区（按地区，自动夏令时）')}
+                    placeholder={t('不设置，使用下方固定 UTC 偏移')}
+                    optionList={dailyLimitTimezoneOptions}
+                    filter
+                    allowCreate
+                    showClear
+                    onChange={(value) => handleChannelSettingsChange('daily_request_limit_timezone', value || '')}
                     style={{ width: '100%' }}
-                    extraText={t('每日计数在该时区的 0 点重置。上游免费额度按哪个时区重置就选哪个（如 UTC+8 = 北京时间），默认跟随服务器时区')}
+                    extraText={t('按所选地区的当地 0 点重置并自动处理夏令时，也可直接输入其它 IANA 时区名。Google AI Studio 免费层级的 RPD 在太平洋时间午夜重置，请选「美国太平洋时间」。设置后下方固定 UTC 偏移不再生效')}
                   />
+                  {!inputs.daily_request_limit_timezone && (
+                    <Form.Select
+                      field='daily_request_limit_utc_offset'
+                      label={t('每日限额重置时区')}
+                      optionList={dailyLimitUtcOffsetOptions}
+                      onChange={(value) => handleChannelSettingsChange('daily_request_limit_utc_offset', value)}
+                      style={{ width: '100%' }}
+                      extraText={t('每日计数在该时区的 0 点重置。上游免费额度按哪个时区重置就选哪个（如 UTC+8 = 北京时间），默认跟随服务器时区')}
+                    />
+                  )}
+
+                  <Text className='text-sm font-medium text-gray-500 mb-3 block mt-4'>
+                    {t('请求频率限制')}
+                  </Text>
+                  <Form.InputNumber field='rate_limit_period_minutes' label={t('限制周期（分钟）')} placeholder={t('0 = 1 分钟')} min={0} max={1440} onChange={(value) => handleChannelSettingsChange('rate_limit_period_minutes', value)} style={{ width: '100%' }} extraText={t('按自然周期计数，如 1 分钟即每个整分钟重置。这是渠道级限制，与用户/分组级的模型请求限速相互独立')} />
+                  <Form.InputNumber field='rate_limit_max_requests' label={t('每周期最多请求次数')} placeholder={t('0 = 不限制')} min={0} onChange={(value) => handleChannelSettingsChange('rate_limit_max_requests', value)} style={{ width: '100%' }} extraText={t('该渠道每周期最多承接的请求次数，包括失败、重试与渠道测试，0 代表不限制。达到后本周期内自动跳过该渠道')} />
+                  <Form.InputNumber field='rate_limit_max_success' label={t('每周期最多请求完成次数')} placeholder={t('0 = 不限制')} min={0} onChange={(value) => handleChannelSettingsChange('rate_limit_max_success', value)} style={{ width: '100%' }} extraText={t('只包括在该渠道上成功完成的次数，0 代表不限制。达到后本周期内自动跳过该渠道')} />
                 </div>
               </div>
             );

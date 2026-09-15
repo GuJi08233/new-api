@@ -38,6 +38,9 @@ import (
 	"github.com/joho/godotenv"
 
 	_ "net/http/pprof"
+	// 内嵌 IANA 时区数据库：渠道每日限额按 IANA 时区（如 America/Los_Angeles）日切，
+	// 不依赖运行环境是否安装了 tzdata。
+	_ "time/tzdata"
 )
 
 //go:embed web/classic/dist

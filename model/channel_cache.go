@@ -22,9 +22,9 @@ var channelsIDM map[int]*Channel                     // all channels include dis
 // path-aware selection avoids re-parsing JSON per request. Refreshed on full sync.
 var channel2advancedCustomConfig map[int]*dto.AdvancedCustomConfig
 
-// channel2dailyLimit caches per-channel daily request limit configs (only enabled
+// channel2requestLimit caches per-channel request limit configs (daily / per-minute, only enabled
 // entries) so selection filtering avoids re-parsing the channel setting JSON per request.
-var channel2dailyLimit map[int]ChannelDailyLimitConfig
+var channel2requestLimit map[int]ChannelRequestLimitConfig
 var channelSyncLock sync.RWMutex
 
 func InitChannelCache() {
@@ -34,7 +34,7 @@ func InitChannelCache() {
 	}
 	newChannelId2channel := make(map[int]*Channel)
 	newChannel2advancedCustomConfig := make(map[int]*dto.AdvancedCustomConfig)
-	newChannel2dailyLimit := make(map[int]ChannelDailyLimitConfig)
+	newChannel2requestLimit := make(map[int]ChannelRequestLimitConfig)
 	var channels []*Channel
 	ReadDB().Find(&channels)
 	for _, channel := range channels {
@@ -44,8 +44,8 @@ func InitChannelCache() {
 				newChannel2advancedCustomConfig[channel.Id] = config
 			}
 		}
-		if config := channel.GetDailyLimitConfig(); config.Enabled() {
-			newChannel2dailyLimit[channel.Id] = config
+		if config := channel.GetRequestLimitConfig(); config.Enabled() {
+			newChannel2requestLimit[channel.Id] = config
 		}
 	}
 	var abilities []*Ability
@@ -102,7 +102,7 @@ func InitChannelCache() {
 	}
 	channelsIDM = newChannelId2channel
 	channel2advancedCustomConfig = newChannel2advancedCustomConfig
-	channel2dailyLimit = newChannel2dailyLimit
+	channel2requestLimit = newChannel2requestLimit
 	channelSyncLock.Unlock()
 	// Lock ordering: InvalidatePricingCache acquires updatePricingLock, and
 	// GetPricing (holding updatePricingLock) nests channelSyncLock.RLock via
@@ -143,7 +143,7 @@ func GetRandomSatisfiedChannel(group string, model string, retry int, requestPat
 	}
 
 	// 剔除已达每日请求上限的渠道；全部超限时返回明确错误而不是笼统的"无可用渠道"
-	available := filterChannelsByDailyLimit(channels)
+	available := filterChannelsByRequestLimit(channels)
 	if len(available) == 0 {
 		return nil, errors.New("候选渠道均已达每日请求上限")
 	}
@@ -252,15 +252,15 @@ func filterChannelsByRequestPathAndModel(channels []int, requestPath string, mod
 	return filtered
 }
 
-// filterChannelsByDailyLimit 剔除已达每日请求上限的渠道。
+// filterChannelsByRequestLimit 剔除已达请求上限（每日或每分钟）的渠道。
 // Caller must hold channelSyncLock (read lock). The cached slice is never mutated.
-func filterChannelsByDailyLimit(channels []int) []int {
-	if len(channels) == 0 || len(channel2dailyLimit) == 0 {
+func filterChannelsByRequestLimit(channels []int) []int {
+	if len(channels) == 0 || len(channel2requestLimit) == 0 {
 		return channels
 	}
 	filtered := make([]int, 0, len(channels))
 	for _, channelId := range channels {
-		if config, ok := channel2dailyLimit[channelId]; ok && IsChannelDailyLimitReached(channelId, config) {
+		if config, ok := channel2requestLimit[channelId]; ok && IsChannelRequestLimitReached(channelId, config) {
 			continue
 		}
 		filtered = append(filtered, channelId)
@@ -351,12 +351,12 @@ func CacheUpdateChannel(channel *Channel) {
 			channel2advancedCustomConfig[channel.Id] = config
 		}
 	}
-	if channel2dailyLimit == nil {
-		channel2dailyLimit = make(map[int]ChannelDailyLimitConfig)
+	if channel2requestLimit == nil {
+		channel2requestLimit = make(map[int]ChannelRequestLimitConfig)
 	}
-	delete(channel2dailyLimit, channel.Id)
-	if config := channel.GetDailyLimitConfig(); config.Enabled() {
-		channel2dailyLimit[channel.Id] = config
+	delete(channel2requestLimit, channel.Id)
+	if config := channel.GetRequestLimitConfig(); config.Enabled() {
+		channel2requestLimit[channel.Id] = config
 	}
 	logger.LogDebug(nil, "CacheUpdateChannel after: id=%d, name=%s, status=%d, polling_index=%d", channel.Id, channel.Name, channel.Status, channel.ChannelInfo.MultiKeyPollingIndex)
 	// Lock ordering: do NOT hold channelSyncLock while calling

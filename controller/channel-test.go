@@ -52,6 +52,21 @@ func normalizeChannelTestEndpoint(channel *model.Channel, modelName, endpointTyp
 	if channel != nil && channel.Type == constant.ChannelTypeCodex {
 		return string(constant.EndpointTypeOpenAIResponse)
 	}
+	if channel != nil && channel.Type == constant.ChannelTypeOA2 {
+		// OA2 多合一渠道自动检测时按已配置的格式挑测试端点：OpenAI 优先，其次 Gemini、Claude、Codex。
+		// 只配置了 Gemini 原生格式的渠道（如聚合 AI Studio 密钥）否则会以 OpenAI 格式打到默认的 api.openai.com。
+		other := channel.GetOtherSettings()
+		switch {
+		case other.OA2OpenAIEnabled && other.OA2BaseURLOpenAI != "":
+			return normalized
+		case other.OA2GeminiEnabled && other.OA2BaseURLGemini != "":
+			return string(constant.EndpointTypeGemini)
+		case other.OA2ClaudeEnabled && other.OA2BaseURLClaude != "":
+			return string(constant.EndpointTypeAnthropic)
+		case other.OA2CodexEnabled && other.OA2BaseURLCodex != "":
+			return string(constant.EndpointTypeOpenAIResponse)
+		}
+	}
 	return normalized
 }
 
@@ -269,7 +284,9 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 	// 更新请求中的模型名称
 	request.SetModelName(testModel)
 
-	apiType, _ := common.ChannelType2APIType(channel.Type)
+	// 适配器以 InitChannelMeta 解析出的 ApiType 为准：普通渠道等价于按渠道类型映射，
+	// OA2 多合一渠道则随测试端点的格式（OpenAI/Claude/Gemini/Codex）切换，与正常中继一致。
+	apiType := info.ApiType
 	if info.RelayMode == relayconstant.RelayModeResponsesCompact &&
 		apiType != constant.APITypeOpenAI &&
 		apiType != constant.APITypeCodex {
@@ -511,6 +528,8 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 		Other:            other,
 	})
 	common.SysLog(fmt.Sprintf("testing channel #%d, response: \n%s", channel.Id, string(respBody)))
+	// 渠道测试与正常请求同口径：测试成功也计入渠道级频率限制的成功次数
+	model.IncrChannelSuccessCount(channel.Id, model.NewChannelRequestLimitConfig(info.ChannelSetting))
 	return testResult{
 		context:     c,
 		localErr:    nil,
@@ -937,7 +956,7 @@ func performChannelTests(ctx context.Context, channels []*model.Channel, testUse
 		newAPIError := result.newAPIError
 		// request error disables the channel
 		if newAPIError != nil {
-			shouldBanChannel = service.ShouldDisableChannel(result.newAPIError)
+			shouldBanChannel = service.ShouldDisableChannelWithSetting(result.newAPIError, channel.GetSetting())
 		}
 
 		// 当错误检查通过，才检查响应时间
