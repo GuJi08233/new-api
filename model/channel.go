@@ -724,60 +724,6 @@ func (channel *Channel) GetStatusTime() int64 {
 	return 0
 }
 
-// EnableChannelKey 将多密钥渠道中被禁用的一把密钥恢复为启用（清除其状态、原因与时间记录）。
-// 与 updateChannelStatus 共用同一把状态锁，并在锁内重新加载渠道后只改写这把密钥的记录，
-// 避免覆盖在途请求对其它密钥的自动禁用。渠道若因"所有密钥被禁"处于自动禁用，
-// 恢复任一密钥后整体回到启用并同步 abilities；归档渠道冻结不参与。
-// 返回：密钥状态是否发生变化、渠道整体是否由自动禁用恢复为启用。
-func EnableChannelKey(channelId int, keyIndex int) (bool, bool, error) {
-	channelStatusLock.Lock()
-	defer channelStatusLock.Unlock()
-
-	channel, err := GetChannelById(channelId, true)
-	if err != nil {
-		return false, false, err
-	}
-	if !channel.ChannelInfo.IsMultiKey {
-		return false, false, fmt.Errorf("channel %d is not in multi-key mode", channelId)
-	}
-	if channel.Status == common.ChannelStatusArchived {
-		return false, false, nil
-	}
-	if keyIndex < 0 || keyIndex >= len(channel.GetKeys()) {
-		return false, false, fmt.Errorf("channel %d key index %d out of range", channelId, keyIndex)
-	}
-	if _, disabled := channel.ChannelInfo.MultiKeyStatusList[keyIndex]; !disabled {
-		return false, false, nil
-	}
-
-	pollingLock := GetChannelPollingLock(channelId)
-	pollingLock.Lock()
-	delete(channel.ChannelInfo.MultiKeyStatusList, keyIndex)
-	delete(channel.ChannelInfo.MultiKeyDisabledReason, keyIndex)
-	delete(channel.ChannelInfo.MultiKeyDisabledTime, keyIndex)
-	pollingLock.Unlock()
-
-	channelRecovered := channel.Status == common.ChannelStatusAutoDisabled
-	if channelRecovered {
-		channel.Status = common.ChannelStatusEnabled
-		info := channel.GetOtherInfo()
-		info["status_reason"] = ""
-		info["status_time"] = common.GetTimestamp()
-		channel.SetOtherInfo(info)
-	}
-	if err := channel.SaveWithoutKey(); err != nil {
-		return false, false, err
-	}
-	if channelRecovered {
-		if err := UpdateAbilityStatus(channelId, true); err != nil {
-			common.SysLog(fmt.Sprintf("failed to update ability status: channel_id=%d, error=%v", channelId, err))
-		}
-	}
-	// 重建缓存：密钥状态与路由表一并刷新，恢复的渠道立即重新参与选路
-	InitChannelCache()
-	return true, channelRecovered, nil
-}
-
 // ChannelAutoRecoverySetting 是开启了渠道级自动恢复的渠道的调度信息。
 type ChannelAutoRecoverySetting struct {
 	ChannelId int

@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
@@ -22,7 +21,7 @@ const (
 	// 系统任务调度器每 15 秒询问一次 Enabled/Interval，不必每次都查库。
 	channelRecoveryScheduleCacheTTL = 30 * time.Second
 	// channelRecoveryChannelTarget 表示测试渠道本身（使用其可用密钥），而非某把具体密钥。
-	channelRecoveryChannelTarget = -1
+	channelRecoveryChannelTarget = model.ChannelRecoveryChannelTarget
 )
 
 type channelRecoveryHandler struct{}
@@ -93,14 +92,6 @@ type channelRecoverySummary struct {
 	Failed    int `json:"failed"`
 }
 
-// channelRecoveryLastTest 记录每个恢复目标（渠道或密钥）上次测试的时间。进程内即可：
-// 系统任务只在持有租约的主节点上执行，进程重启后至多提前一次重测。
-var channelRecoveryLastTest sync.Map // "channelId:keyIndex" -> int64 unix seconds
-
-func channelRecoveryTargetKey(channelId int, keyIndex int) string {
-	return fmt.Sprintf("%d:%d", channelId, keyIndex)
-}
-
 // selectChannelRecoveryTargets 返回渠道本轮到期的恢复目标：多密钥渠道中被自动禁用的密钥索引，
 // 以及（渠道整体处于自动禁用且仍有可用密钥时）代表渠道本身的 channelRecoveryChannelTarget。
 // 到期以"被禁用时间"与"上次测试时间"中较晚者为基准，保证禁用后至少等待一个间隔再重测；
@@ -164,21 +155,38 @@ func runChannelRecoveryTask(ctx context.Context, report func(processed, total in
 	if err != nil {
 		return summary, err
 	}
+	// 记录超过最长恢复间隔后已不影响调度，定期清理已删除渠道和旧密钥的记录。
+	now := common.GetTimestamp()
+	retentionSeconds := int64(2 * dto.MaxAutoRecoveryIntervalMinutes * 60)
+	if err := model.DeleteExpiredChannelRecoveryStates(now - retentionSeconds); err != nil {
+		return summary, err
+	}
+	lastTests, err := model.GetChannelRecoveryLastTests()
+	if err != nil {
+		return summary, err
+	}
 
 	type recoveryJob struct {
 		channel *model.Channel
-		targets []int
+		targets []model.ChannelRecoveryTarget
 	}
-	now := common.GetTimestamp()
 	jobs := make([]recoveryJob, 0)
 	total := 0
 	for _, channel := range channels {
-		targets := selectChannelRecoveryTargets(channel, channel.GetSetting(), now, func(keyIndex int) int64 {
-			if value, ok := channelRecoveryLastTest.Load(channelRecoveryTargetKey(channel.Id, keyIndex)); ok {
-				return value.(int64)
+		channel.Keys = channel.GetKeys()
+		indices := selectChannelRecoveryTargets(channel, channel.GetSetting(), now, func(keyIndex int) int64 {
+			key := channel.Key
+			if keyIndex != channelRecoveryChannelTarget {
+				key = channel.Keys[keyIndex]
 			}
-			return 0
+			return lastTests[channel.Id][model.ChannelRecoveryTargetID(key, keyIndex == channelRecoveryChannelTarget)]
 		})
+		targets := make([]model.ChannelRecoveryTarget, 0, len(indices))
+		for _, keyIndex := range indices {
+			if target, ok := model.NewChannelRecoveryTarget(channel, keyIndex); ok {
+				targets = append(targets, target)
+			}
+		}
 		if len(targets) == 0 {
 			continue
 		}
@@ -189,7 +197,6 @@ func runChannelRecoveryTask(ctx context.Context, report func(processed, total in
 
 	processed := 0
 	for _, job := range jobs {
-		keys := job.channel.GetKeys()
 		for _, target := range job.targets {
 			if ctx.Err() != nil {
 				return summary, nil
@@ -197,31 +204,37 @@ func runChannelRecoveryTask(ctx context.Context, report func(processed, total in
 			if report != nil {
 				report(processed, total)
 			}
-			testTarget := job.channel
-			if target != channelRecoveryChannelTarget {
-				// GetNextEnabledKey 只会选出可用密钥；测试指定密钥时改用把 Key 固定为该密钥的
-				// 单密钥视图，从而复用完整的测试链路（含每日计数与测试日志）。
-				pinned := *job.channel
-				pinned.Key = keys[target]
-				pinned.Keys = nil
-				pinned.ChannelInfo.IsMultiKey = false
-				testTarget = &pinned
+			key := target.TestedKey
+			if target.KeyIndex == channelRecoveryChannelTarget {
+				key = target.KeyList
 			}
-			result := testChannel(ctx, testTarget, testUserID, "", "", shouldUseStreamForAutomaticChannelTest(job.channel))
-			channelRecoveryLastTest.Store(channelRecoveryTargetKey(job.channel.Id, target), common.GetTimestamp())
+			targetID := model.ChannelRecoveryTargetID(key, target.KeyIndex == channelRecoveryChannelTarget)
+			// 先落库再发请求，进程中断或任务换节点执行时也不能跳过已开始探测的冷却期。
+			if err := model.RecordChannelRecoveryTest(target.ChannelID, targetID, common.GetTimestamp()); err != nil {
+				return summary, err
+			}
+			// 渠道和密钥目标都固定到探测快照中的实际密钥，恢复时核对同一份身份与禁用记录。
+			pinned := *job.channel
+			pinned.Key = target.TestedKey
+			pinned.Keys = nil
+			pinned.ChannelInfo.IsMultiKey = false
+			result := testChannel(ctx, &pinned, testUserID, "", "", shouldUseStreamForAutomaticChannelTest(job.channel))
 			summary.Tested++
 			processed++
+			if err := model.RecordChannelRecoveryTest(target.ChannelID, targetID, common.GetTimestamp()); err != nil {
+				return summary, err
+			}
+			if ctx.Err() != nil {
+				return summary, nil
+			}
 			if result.localErr != nil || result.newAPIError != nil {
 				summary.Failed++
 				var failure error = result.newAPIError
 				if result.localErr != nil {
 					failure = result.localErr
 				}
-				common.SysLog(fmt.Sprintf("channel recovery test failed: channel_id=%d key_index=%d error=%s", job.channel.Id, target, common.LocalLogPreview(failure.Error())))
-			} else if target == channelRecoveryChannelTarget {
-				service.EnableChannel(job.channel.Id, common.GetContextKeyString(result.context, constant.ContextKeyChannelKey), job.channel.Name)
-				summary.Recovered++
-			} else if service.EnableChannelKey(job.channel.Id, target, job.channel.Name) {
+				common.SysLog(fmt.Sprintf("channel recovery test failed: channel_id=%d key_index=%d error=%s", job.channel.Id, target.KeyIndex, common.LocalLogPreview(failure.Error())))
+			} else if service.RecoverChannel(target, job.channel.Name) {
 				summary.Recovered++
 			}
 			if common.RequestInterval > 0 {

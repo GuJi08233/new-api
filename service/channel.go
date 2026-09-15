@@ -42,24 +42,25 @@ func EnableChannel(channelId int, usingKey string, channelName string) {
 	}
 }
 
-// EnableChannelKey 恢复多密钥渠道中被自动禁用的一把密钥并通知 root；
-// 渠道整体因此由自动禁用回到启用时，通知内容一并说明。返回密钥状态是否发生变化。
-func EnableChannelKey(channelId int, keyIndex int, channelName string) bool {
-	keyChanged, channelRecovered, err := model.EnableChannelKey(channelId, keyIndex)
+// RecoverChannel 仅在探测快照仍有效且恢复已落库时通知 root。
+func RecoverChannel(target model.ChannelRecoveryTarget, channelName string) bool {
+	changed, channelRecovered, err := model.RecoverChannel(target)
 	if err != nil {
-		common.SysError(fmt.Sprintf("通道「%s」（#%d）密钥 #%d 恢复失败：%v", channelName, channelId, keyIndex+1, err))
+		common.SysError(fmt.Sprintf("通道「%s」（#%d）自动恢复失败：%v", channelName, target.ChannelID, err))
 		return false
 	}
-	if !keyChanged {
+	if !changed {
 		return false
 	}
-	subject := fmt.Sprintf("通道「%s」（#%d）密钥 #%d 已自动恢复", channelName, channelId, keyIndex+1)
-	content := fmt.Sprintf("通道「%s」（#%d）密钥 #%d 测试通过，已自动恢复启用", channelName, channelId, keyIndex+1)
-	if channelRecovered {
-		subject = fmt.Sprintf("通道「%s」（#%d）已被启用", channelName, channelId)
-		content = fmt.Sprintf("通道「%s」（#%d）密钥 #%d 测试通过，通道已恢复启用", channelName, channelId, keyIndex+1)
+	subject := fmt.Sprintf("通道「%s」（#%d）已被启用", channelName, target.ChannelID)
+	content := fmt.Sprintf("通道「%s」（#%d）测试通过，已自动恢复启用", channelName, target.ChannelID)
+	if target.KeyIndex != model.ChannelRecoveryChannelTarget {
+		content = fmt.Sprintf("通道「%s」（#%d）密钥 #%d 测试通过，已自动恢复启用", channelName, target.ChannelID, target.KeyIndex+1)
+		if !channelRecovered {
+			subject = fmt.Sprintf("通道「%s」（#%d）密钥 #%d 已自动恢复", channelName, target.ChannelID, target.KeyIndex+1)
+		}
 	}
-	NotifyRootUser(formatNotifyType(channelId, common.ChannelStatusEnabled), subject, content)
+	NotifyRootUser(formatNotifyType(target.ChannelID, common.ChannelStatusEnabled), subject, content)
 	return true
 }
 

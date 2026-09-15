@@ -341,6 +341,7 @@ func migrateDB() error {
 
 	err := DB.AutoMigrate(
 		&Channel{},
+		&ChannelRecoveryState{},
 		&Token{},
 		&User{},
 		&PasskeyCredential{},
@@ -412,6 +413,7 @@ func migrateDBFast() error {
 		name  string
 	}{
 		{&Channel{}, "Channel"},
+		{&ChannelRecoveryState{}, "ChannelRecoveryState"},
 		{&Token{}, "Token"},
 		{&User{}, "User"},
 		{&PasskeyCredential{}, "PasskeyCredential"},

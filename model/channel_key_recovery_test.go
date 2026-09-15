@@ -1,6 +1,7 @@
 package model
 
 import (
+	"errors"
 	"testing"
 	_ "time/tzdata"
 
@@ -9,11 +10,11 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
-// 密钥级自动恢复契约：只清除目标密钥的禁用记录并持久化；渠道因"所有密钥被禁"处于自动禁用时
-// 随之恢复启用并同步 abilities；渠道已启用时密钥恢复同样落库；越界索引报错。
-func TestEnableChannelKey(t *testing.T) {
+func newChannelRecoveryTestChannel(t *testing.T, multiKey bool) *Channel {
+	t.Helper()
 	truncateTables(t)
 	require.NoError(t, DB.Exec("DELETE FROM channels").Error)
 	require.NoError(t, DB.Exec("DELETE FROM abilities").Error)
@@ -22,14 +23,20 @@ func TestEnableChannelKey(t *testing.T) {
 	common.MemoryCacheEnabled = false
 	t.Cleanup(func() { common.MemoryCacheEnabled = oldMemoryCache })
 
+	setting := `{"auto_recovery_enabled":true}`
 	channel := &Channel{
-		Id:     1,
-		Name:   "multi-key",
-		Key:    "k1\nk2\nk3",
-		Status: common.ChannelStatusAutoDisabled,
-		Models: "gpt-4o",
-		Group:  "default",
-		ChannelInfo: ChannelInfo{
+		Id:        1,
+		Name:      "recovery-channel",
+		Key:       "k1",
+		Status:    common.ChannelStatusAutoDisabled,
+		Models:    "gpt-4o",
+		Group:     "default",
+		Setting:   &setting,
+		OtherInfo: `{"status_reason":"429","status_time":100,"operator_note":"keep"}`,
+	}
+	if multiKey {
+		channel.Key = "k1\nk2\nk3"
+		channel.ChannelInfo = ChannelInfo{
 			IsMultiKey:   true,
 			MultiKeySize: 3,
 			MultiKeyMode: constant.MultiKeyModeRandom,
@@ -40,13 +47,23 @@ func TestEnableChannelKey(t *testing.T) {
 			},
 			MultiKeyDisabledReason: map[int]string{0: "429", 1: "429", 2: "manual"},
 			MultiKeyDisabledTime:   map[int]int64{0: 100, 1: 200, 2: 300},
-		},
+		}
 	}
 	require.NoError(t, DB.Create(channel).Error)
 	require.NoError(t, channel.AddAbilities(nil))
 	require.NoError(t, UpdateAbilityStatus(1, false))
+	return channel
+}
 
-	keyChanged, channelRecovered, err := EnableChannelKey(1, 0)
+// 同一轮创建的多个目标分别恢复：首把密钥恢复渠道后，其他目标仍能正常恢复。
+func TestRecoverChannelKeys(t *testing.T) {
+	channel := newChannelRecoveryTestChannel(t, true)
+	first, ok := NewChannelRecoveryTarget(channel, 0)
+	require.True(t, ok)
+	second, ok := NewChannelRecoveryTarget(channel, 1)
+	require.True(t, ok)
+
+	keyChanged, channelRecovered, err := RecoverChannel(first)
 	require.NoError(t, err)
 	assert.True(t, keyChanged)
 	assert.True(t, channelRecovered, "first recovered key must bring an auto-disabled channel back")
@@ -61,8 +78,9 @@ func TestEnableChannelKey(t *testing.T) {
 	var ability Ability
 	require.NoError(t, DB.Where("channel_id = ?", 1).First(&ability).Error)
 	assert.True(t, ability.Enabled)
+	assert.Equal(t, "keep", got.GetOtherInfo()["operator_note"])
 
-	keyChanged, channelRecovered, err = EnableChannelKey(1, 1)
+	keyChanged, channelRecovered, err = RecoverChannel(second)
 	require.NoError(t, err)
 	assert.True(t, keyChanged, "key recovery on an already enabled channel must still persist")
 	assert.False(t, channelRecovered)
@@ -70,50 +88,318 @@ func TestEnableChannelKey(t *testing.T) {
 	assert.Equal(t, common.ChannelStatusEnabled, got.Status)
 	assert.Equal(t, map[int]int{2: common.ChannelStatusManuallyDisabled}, got.ChannelInfo.MultiKeyStatusList)
 
-	keyChanged, _, err = EnableChannelKey(1, 0)
+	keyChanged, channelRecovered, err = RecoverChannel(first)
 	require.NoError(t, err)
 	assert.False(t, keyChanged, "already enabled key reports no change")
-
-	_, _, err = EnableChannelKey(1, 3)
-	require.Error(t, err, "out of range key index must be rejected")
+	assert.False(t, channelRecovered)
 }
 
-// 归档渠道对自动恢复冻结：密钥记录与渠道状态都不得改写；单密钥渠道不存在密钥级恢复。
-func TestEnableChannelKeyFrozenAndUnsupported(t *testing.T) {
-	truncateTables(t)
-	require.NoError(t, DB.Exec("DELETE FROM channels").Error)
-
-	oldMemoryCache := common.MemoryCacheEnabled
-	common.MemoryCacheEnabled = false
-	t.Cleanup(func() { common.MemoryCacheEnabled = oldMemoryCache })
-
-	archived := &Channel{
+func TestNewChannelRecoveryTargetSelectsTestedKey(t *testing.T) {
+	channel := &Channel{
 		Id:     1,
-		Name:   "archived",
-		Key:    "k1\nk2",
-		Status: common.ChannelStatusArchived,
-		Models: "gpt-4o",
-		Group:  "default",
+		Status: common.ChannelStatusAutoDisabled,
+		Key:    "k1\nk2\nk3",
 		ChannelInfo: ChannelInfo{
-			IsMultiKey:         true,
-			MultiKeySize:       2,
-			MultiKeyStatusList: map[int]int{0: common.ChannelStatusAutoDisabled},
+			IsMultiKey:           true,
+			MultiKeyStatusList:   map[int]int{0: common.ChannelStatusAutoDisabled, 2: common.ChannelStatusManuallyDisabled},
+			MultiKeyDisabledTime: map[int]int64{0: 100},
 		},
 	}
-	require.NoError(t, DB.Create(archived).Error)
-	keyChanged, channelRecovered, err := EnableChannelKey(1, 0)
-	require.NoError(t, err)
-	assert.False(t, keyChanged)
-	assert.False(t, channelRecovered)
-	var got Channel
-	require.NoError(t, DB.First(&got, 1).Error)
-	assert.Equal(t, common.ChannelStatusArchived, got.Status)
-	assert.Equal(t, map[int]int{0: common.ChannelStatusAutoDisabled}, got.ChannelInfo.MultiKeyStatusList)
+	target, ok := NewChannelRecoveryTarget(channel, ChannelRecoveryChannelTarget)
+	require.True(t, ok)
+	assert.Equal(t, "k2", target.TestedKey, "channel probes use the first enabled key from the snapshot")
 
-	single := &Channel{Id: 2, Name: "single", Key: "k1", Status: common.ChannelStatusAutoDisabled, Models: "gpt-4o", Group: "default"}
-	require.NoError(t, DB.Create(single).Error)
-	_, _, err = EnableChannelKey(2, 0)
-	require.Error(t, err)
+	target, ok = NewChannelRecoveryTarget(channel, 0)
+	require.True(t, ok)
+	assert.Equal(t, "k1", target.TestedKey)
+
+	for _, index := range []int{-2, 1, 2, 3} {
+		_, ok = NewChannelRecoveryTarget(channel, index)
+		assert.False(t, ok, "index %d is not an automatically disabled key", index)
+	}
+	channel.ChannelInfo.MultiKeyStatusList[1] = common.ChannelStatusAutoDisabled
+	_, ok = NewChannelRecoveryTarget(channel, ChannelRecoveryChannelTarget)
+	assert.False(t, ok, "a channel probe needs an enabled key")
+
+	channel.ChannelInfo.IsMultiKey = false
+	channel.Key = "single-key"
+	target, ok = NewChannelRecoveryTarget(channel, ChannelRecoveryChannelTarget)
+	require.True(t, ok)
+	assert.Equal(t, "single-key", target.TestedKey)
+	_, ok = NewChannelRecoveryTarget(channel, 0)
+	assert.False(t, ok)
+}
+
+// 探测后发生的人工操作、密钥身份变更及重新禁用，必须使旧成功结果失效。
+func TestRecoverChannelRejectsStaleKeyProbe(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*Channel)
+	}{
+		{name: "key manually disabled", mutate: func(channel *Channel) {
+			channel.ChannelInfo.MultiKeyStatusList[1] = common.ChannelStatusManuallyDisabled
+		}},
+		{name: "channel manually disabled", mutate: func(channel *Channel) {
+			channel.Status = common.ChannelStatusManuallyDisabled
+		}},
+		{name: "channel archived", mutate: func(channel *Channel) {
+			channel.Status = common.ChannelStatusArchived
+		}},
+		{name: "key disabled again", mutate: func(channel *Channel) {
+			channel.ChannelInfo.MultiKeyDisabledTime[1]++
+		}},
+		{name: "channel disabled again during key probe", mutate: func(channel *Channel) {
+			channel.OtherInfo = `{"status_reason":"balance exhausted","status_time":500}`
+		}},
+		{name: "disable reason changed", mutate: func(channel *Channel) {
+			channel.ChannelInfo.MultiKeyDisabledReason[1] = "401"
+		}},
+		{name: "key replaced", mutate: func(channel *Channel) {
+			channel.Key = "k1\nK2\nk3"
+		}},
+		{name: "previous key deleted", mutate: func(channel *Channel) {
+			channel.Key = "k2\nk3"
+			channel.ChannelInfo.MultiKeySize = 2
+			channel.ChannelInfo.MultiKeyStatusList = map[int]int{0: common.ChannelStatusAutoDisabled, 1: common.ChannelStatusAutoDisabled}
+			channel.ChannelInfo.MultiKeyDisabledTime = map[int]int64{0: 200, 1: 200}
+			channel.ChannelInfo.MultiKeyDisabledReason = map[int]string{0: "429", 1: "429"}
+		}},
+		{name: "keys reordered", mutate: func(channel *Channel) {
+			channel.Key = "k2\nk1\nk3"
+			channel.ChannelInfo.MultiKeyDisabledTime[0] = 200
+			channel.ChannelInfo.MultiKeyDisabledTime[1] = 200
+		}},
+		{name: "multi key mode removed", mutate: func(channel *Channel) {
+			channel.ChannelInfo.IsMultiKey = false
+		}},
+		{name: "automatic recovery turned off", mutate: func(channel *Channel) {
+			setting := `{"auto_recovery_enabled":false}`
+			channel.Setting = &setting
+		}},
+		{name: "automatic recovery setting removed", mutate: func(channel *Channel) {
+			channel.Setting = nil
+		}},
+		{name: "invalid setting must not be rewritten", mutate: func(channel *Channel) {
+			setting := `{broken`
+			channel.Setting = &setting
+		}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			channel := newChannelRecoveryTestChannel(t, true)
+			target, ok := NewChannelRecoveryTarget(channel, 1)
+			require.True(t, ok)
+			tc.mutate(channel)
+			require.NoError(t, DB.Save(channel).Error)
+
+			changed, recovered, err := RecoverChannel(target)
+			require.NoError(t, err)
+			assert.False(t, changed)
+			assert.False(t, recovered)
+			var got Channel
+			require.NoError(t, DB.First(&got, channel.Id).Error)
+			assert.Equal(t, channel.Status, got.Status)
+			assert.Equal(t, channel.Key, got.Key)
+			assert.Equal(t, channel.ChannelInfo, got.ChannelInfo)
+			assert.Equal(t, channel.Setting, got.Setting)
+			assert.Equal(t, channel.OtherInfo, got.OtherInfo)
+			var ability Ability
+			require.NoError(t, DB.Where("channel_id = ?", channel.Id).First(&ability).Error)
+			assert.False(t, ability.Enabled)
+		})
+	}
+}
+
+// 整渠道恢复同样使用探测前的状态时间；新禁用不能被旧探测结果覆盖。
+func TestRecoverChannelRejectsStaleChannelProbe(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*Channel)
+	}{
+		{name: "manually disabled", mutate: func(channel *Channel) {
+			channel.Status = common.ChannelStatusManuallyDisabled
+		}},
+		{name: "archived", mutate: func(channel *Channel) {
+			channel.Status = common.ChannelStatusArchived
+		}},
+		{name: "disabled again", mutate: func(channel *Channel) {
+			channel.OtherInfo = `{"status_reason":"429","status_time":200}`
+		}},
+		{name: "key replaced", mutate: func(channel *Channel) {
+			channel.Key = "replacement"
+		}},
+		{name: "automatic recovery turned off", mutate: func(channel *Channel) {
+			setting := `{"auto_recovery_enabled":false}`
+			channel.Setting = &setting
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			channel := newChannelRecoveryTestChannel(t, false)
+			target, ok := NewChannelRecoveryTarget(channel, ChannelRecoveryChannelTarget)
+			require.True(t, ok)
+			tc.mutate(channel)
+			require.NoError(t, DB.Save(channel).Error)
+
+			changed, recovered, err := RecoverChannel(target)
+			require.NoError(t, err)
+			assert.False(t, changed)
+			assert.False(t, recovered)
+			var got Channel
+			require.NoError(t, DB.First(&got, channel.Id).Error)
+			assert.Equal(t, channel.Status, got.Status)
+			assert.Equal(t, channel.Key, got.Key)
+			assert.Equal(t, channel.OtherInfo, got.OtherInfo)
+			var ability Ability
+			require.NoError(t, DB.Where("channel_id = ?", channel.Id).First(&ability).Error)
+			assert.False(t, ability.Enabled)
+		})
+	}
+}
+
+func TestRecoverChannelPreservesOtherKeyChanges(t *testing.T) {
+	channel := newChannelRecoveryTestChannel(t, true)
+	target, ok := NewChannelRecoveryTarget(channel, 0)
+	require.True(t, ok)
+	channel.ChannelInfo.MultiKeyStatusList[1] = common.ChannelStatusManuallyDisabled
+	channel.ChannelInfo.MultiKeyDisabledReason[1] = "manual after probe started"
+	channel.ChannelInfo.MultiKeyDisabledTime[1] = 500
+	require.NoError(t, DB.Save(channel).Error)
+
+	changed, recovered, err := RecoverChannel(target)
+	require.NoError(t, err)
+	assert.True(t, changed)
+	assert.True(t, recovered)
+	var got Channel
+	require.NoError(t, DB.First(&got, channel.Id).Error)
+	assert.Equal(t, map[int]int{1: common.ChannelStatusManuallyDisabled, 2: common.ChannelStatusManuallyDisabled}, got.ChannelInfo.MultiKeyStatusList)
+	assert.Equal(t, "manual after probe started", got.ChannelInfo.MultiKeyDisabledReason[1])
+	assert.Equal(t, int64(500), got.ChannelInfo.MultiKeyDisabledTime[1])
+}
+
+func TestRecoverChannelWholeChannel(t *testing.T) {
+	for _, multiKey := range []bool{false, true} {
+		name := "single key"
+		if multiKey {
+			name = "multi key"
+		}
+		t.Run(name, func(t *testing.T) {
+			channel := newChannelRecoveryTestChannel(t, multiKey)
+			if multiKey {
+				delete(channel.ChannelInfo.MultiKeyStatusList, 1)
+				require.NoError(t, DB.Save(channel).Error)
+			}
+			target, ok := NewChannelRecoveryTarget(channel, ChannelRecoveryChannelTarget)
+			require.True(t, ok)
+			common.MemoryCacheEnabled = true
+			InitChannelCache()
+
+			changed, recovered, err := RecoverChannel(target)
+			require.NoError(t, err)
+			assert.True(t, changed)
+			assert.True(t, recovered)
+			var got Channel
+			require.NoError(t, DB.First(&got, channel.Id).Error)
+			assert.Equal(t, common.ChannelStatusEnabled, got.Status)
+			assert.Equal(t, channel.ChannelInfo, got.ChannelInfo, "a channel probe preserves every key status")
+			assert.Equal(t, "keep", got.GetOtherInfo()["operator_note"])
+			var ability Ability
+			require.NoError(t, DB.Where("channel_id = ?", channel.Id).First(&ability).Error)
+			assert.True(t, ability.Enabled)
+			routed, err := GetRandomSatisfiedChannel("default", "gpt-4o", 0, "")
+			require.NoError(t, err)
+			require.NotNil(t, routed, "a recovered channel must immediately rejoin cached routing")
+			assert.Equal(t, channel.Id, routed.Id)
+
+			changed, recovered, err = RecoverChannel(target)
+			require.NoError(t, err)
+			assert.False(t, changed)
+			assert.False(t, recovered)
+		})
+	}
+}
+
+func TestRecoverChannelRejectsDisabledChannelProbeKey(t *testing.T) {
+	for _, status := range []int{common.ChannelStatusManuallyDisabled, common.ChannelStatusAutoDisabled} {
+		channel := newChannelRecoveryTestChannel(t, true)
+		delete(channel.ChannelInfo.MultiKeyStatusList, 1)
+		require.NoError(t, DB.Save(channel).Error)
+		target, ok := NewChannelRecoveryTarget(channel, ChannelRecoveryChannelTarget)
+		require.True(t, ok)
+		channel.ChannelInfo.MultiKeyStatusList[1] = status
+		require.NoError(t, DB.Save(channel).Error)
+
+		changed, recovered, err := RecoverChannel(target)
+		require.NoError(t, err)
+		assert.False(t, changed)
+		assert.False(t, recovered)
+		var got Channel
+		require.NoError(t, DB.First(&got, channel.Id).Error)
+		assert.Equal(t, common.ChannelStatusAutoDisabled, got.Status)
+		assert.Equal(t, channel.ChannelInfo, got.ChannelInfo)
+	}
+}
+
+func TestRecoverChannelDoesNotOverwriteUnrelatedFields(t *testing.T) {
+	channel := newChannelRecoveryTestChannel(t, true)
+	target, ok := NewChannelRecoveryTarget(channel, 0)
+	require.True(t, ok)
+	const callbackName = "test:channel_recovery_concurrent_metadata"
+	injected := false
+	require.NoError(t, DB.Callback().Update().Before("gorm:update").Register(callbackName, func(tx *gorm.DB) {
+		if injected || tx.Statement.Schema == nil || tx.Statement.Schema.Table != "channels" {
+			return
+		}
+		injected = true
+		// 固定发生在恢复读取与写入之间，验证恢复仅写必要字段。
+		err := tx.Session(&gorm.Session{NewDB: true}).Model(&Channel{}).Where("id = ?", channel.Id).Updates(map[string]interface{}{
+			"used_quota":    1234,
+			"balance":       12.5,
+			"response_time": 42,
+			"name":          "edited during recovery",
+		}).Error
+		tx.AddError(err)
+	}))
+	t.Cleanup(func() { require.NoError(t, DB.Callback().Update().Remove(callbackName)) })
+
+	changed, recovered, err := RecoverChannel(target)
+	require.NoError(t, err)
+	assert.True(t, injected)
+	assert.True(t, changed)
+	assert.True(t, recovered)
+	var got Channel
+	require.NoError(t, DB.First(&got, channel.Id).Error)
+	assert.Equal(t, int64(1234), got.UsedQuota)
+	assert.Equal(t, 12.5, got.Balance)
+	assert.Equal(t, 42, got.ResponseTime)
+	assert.Equal(t, "edited during recovery", got.Name)
+}
+
+func TestRecoverChannelRollsBackWhenAbilityUpdateFails(t *testing.T) {
+	channel := newChannelRecoveryTestChannel(t, true)
+	target, ok := NewChannelRecoveryTarget(channel, 0)
+	require.True(t, ok)
+	const callbackName = "test:channel_recovery_ability_failure"
+	require.NoError(t, DB.Callback().Update().Before("gorm:update").Register(callbackName, func(tx *gorm.DB) {
+		if tx.Statement.Schema != nil && tx.Statement.Schema.Table == "abilities" {
+			tx.AddError(errors.New("injected ability update failure"))
+		}
+	}))
+	t.Cleanup(func() { require.NoError(t, DB.Callback().Update().Remove(callbackName)) })
+
+	changed, recovered, err := RecoverChannel(target)
+	require.ErrorContains(t, err, "injected ability update failure")
+	assert.False(t, changed)
+	assert.False(t, recovered)
+	var got Channel
+	require.NoError(t, DB.First(&got, channel.Id).Error)
+	assert.Equal(t, common.ChannelStatusAutoDisabled, got.Status)
+	assert.Equal(t, channel.ChannelInfo, got.ChannelInfo)
+	assert.Equal(t, channel.OtherInfo, got.OtherInfo)
+	var ability Ability
+	require.NoError(t, DB.Where("channel_id = ?", channel.Id).First(&ability).Error)
+	assert.False(t, ability.Enabled)
 }
 
 // 渠道设置保存时的校验契约：自动禁用状态码、自动恢复间隔与每日限额 IANA 时区非法即拒绝。
