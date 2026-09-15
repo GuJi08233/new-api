@@ -26,6 +26,8 @@ func SetUpLogger(server *gin.Engine) {
 		if tag == "" {
 			tag = "web"
 		}
+		// 查询串可能包含一次性OAuth code/state、登录签名等，不写入访问日志。
+		path := param.Request.URL.Path
 		return fmt.Sprintf("[GIN] %s | %s | %s | %3d | %13v | %15s | %7s %s\n",
 			param.TimeStamp.Format("2006/01/02 - 15:04:05"),
 			tag,
@@ -34,7 +36,7 @@ func SetUpLogger(server *gin.Engine) {
 			param.Latency,
 			param.ClientIP,
 			param.Method,
-			param.Path,
+			path,
 		)
 	}))
 }

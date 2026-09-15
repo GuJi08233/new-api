@@ -11,6 +11,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 
 	"github.com/gin-contrib/sessions"
@@ -203,6 +204,9 @@ func WeChatBind(c *gin.Context) {
 		return
 	}
 	code := req.Code
+	if !middleware.RequireSecurityProof(c, "account.bind.wechat", code) {
+		return
+	}
 	wechatId, err := getWeChatIdByCode(code)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
@@ -218,19 +222,17 @@ func WeChatBind(c *gin.Context) {
 		})
 		return
 	}
-	session := sessions.Default(c)
-	id := session.Get("id")
-	user := model.User{
-		Id: id.(int),
-	}
-	err = user.FillUserById()
+	identity, err := middleware.CookieSecurityIdentity(c)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	user.WeChatId = wechatId
-	err = user.Update(false)
+	version, err := model.BindAccountColumn(identity, "wechat_id", wechatId)
 	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if err := saveSecurityVersion(c, version); err != nil {
 		common.ApiError(c, err)
 		return
 	}

@@ -44,7 +44,7 @@ func setupCompleteRegistrationTest(t *testing.T) (*gorm.DB, *gin.Engine) {
 	require.NoError(t, err)
 	model.DB = db
 	model.LOG_DB = db
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.InvitationCode{}, &model.Log{}))
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.InvitationCode{}, &model.Log{}, &model.SecurityFlow{}, &model.TwoFA{}))
 	t.Cleanup(func() {
 		sqlDB, err := db.DB()
 		if err == nil {

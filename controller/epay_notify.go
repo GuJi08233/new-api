@@ -8,12 +8,10 @@ import (
 
 	"github.com/Calcium-Ion/go-epay/epay"
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 	"github.com/samber/lo"
-	"github.com/shopspring/decimal"
 )
 
 const unifiedEpayNotifyPath = "/api/epay/notify"
@@ -59,40 +57,7 @@ func writeEpayNotifyResult(c *gin.Context, success bool) {
 }
 
 func completeTopUpEpayOrder(source model.LogSource, verifyInfo *epay.VerifyRes) error {
-	LockOrder(verifyInfo.ServiceTradeNo)
-	defer UnlockOrder(verifyInfo.ServiceTradeNo)
-
-	topUp := model.GetTopUpByTradeNo(verifyInfo.ServiceTradeNo)
-	if topUp == nil {
-		return fmt.Errorf("topup order not found: %s", verifyInfo.ServiceTradeNo)
-	}
-	if topUp.PaymentMethod == "stripe" || topUp.PaymentMethod == "creem" || topUp.PaymentMethod == "waffo" {
-		return fmt.Errorf("payment method mismatch: %s", topUp.PaymentMethod)
-	}
-	if topUp.Status != common.TopUpStatusPending {
-		return nil
-	}
-
-	topUp.Status = common.TopUpStatusSuccess
-	if err := topUp.Update(); err != nil {
-		return err
-	}
-
-	dAmount := decimal.NewFromInt(topUp.Amount)
-	dQuotaPerUnit := decimal.NewFromFloat(common.QuotaPerUnit)
-	quotaToAdd := int(dAmount.Mul(dQuotaPerUnit).IntPart())
-	if err := model.IncreaseUserQuota(topUp.UserId, quotaToAdd, true); err != nil {
-		return err
-	}
-
-	model.RecordLog(
-		source,
-		topUp.UserId,
-		model.LogTypeTopup,
-		fmt.Sprintf("使用在线充值成功，充值金额: %v，支付金额：%f", logger.LogQuota(quotaToAdd), topUp.Money),
-	)
-	log.Printf("易支付统一回调更新余额成功 %v", topUp)
-	return nil
+	return model.RechargeEpay(source, verifyInfo.ServiceTradeNo, verifyInfo.Type)
 }
 
 func completeSubscriptionEpayOrder(source model.LogSource, verifyInfo *epay.VerifyRes) error {

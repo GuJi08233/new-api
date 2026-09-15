@@ -162,20 +162,21 @@ func taskModelName(task *model.Task) string {
 
 // RefundTaskQuota 统一的任务失败退款逻辑。
 // 当异步任务失败时，将预扣的 quota 退还给用户（支持钱包和订阅），并退还令牌额度。
-func RefundTaskQuota(ctx context.Context, task *model.Task, reason string) {
-	quota := task.Quota
+func RefundTaskQuota(ctx context.Context, task *model.Task, reason string) bool {
+	if task.Quota == 0 {
+		return true
+	}
+	refunded, quota, err := model.RefundTaskBilling(task.ID)
+	if err != nil {
+		logger.LogWarn(ctx, fmt.Sprintf("退还任务额度失败 task %s: %v", task.TaskID, err))
+		return false
+	}
+	task.Quota, task.RefundPending = 0, false
 	if quota == 0 {
-		return
+		return true
 	}
-
-	// 1. 退还资金来源（钱包或订阅）
-	if err := taskAdjustFunding(task, -quota); err != nil {
-		logger.LogWarn(ctx, fmt.Sprintf("退还资金来源失败 task %s: %s", task.TaskID, err.Error()))
-		return
-	}
-
-	// 2. 退还令牌额度
-	taskAdjustTokenQuota(ctx, task, -quota)
+	taskForLog := *refunded
+	task = &taskForLog
 
 	// 3. 记录日志
 	other := taskBillingOther(task)
@@ -193,6 +194,7 @@ func RefundTaskQuota(ctx context.Context, task *model.Task, reason string) {
 		Other:     other,
 		Source:    task.PrivateData.Source,
 	})
+	return true
 }
 
 // RecalculateTaskQuota 通用的异步差额结算。
@@ -203,44 +205,21 @@ func RecalculateTaskQuota(ctx context.Context, task *model.Task, actualQuota int
 	if actualQuota <= 0 {
 		return
 	}
-	preConsumedQuota := task.Quota
-	quotaDelta := actualQuota - preConsumedQuota
-
-	if quotaDelta == 0 {
-		logger.LogInfo(ctx, fmt.Sprintf("任务 %s 预扣费准确（%s，%s）",
-			task.TaskID, logger.LogQuota(actualQuota), reason))
+	settled, quotaDelta, err := model.SettleTaskBilling(task.ID, actualQuota)
+	if err != nil {
+		logger.LogError(ctx, fmt.Sprintf("任务差额结算失败 task %s: %v", task.TaskID, err))
 		return
 	}
-
-	logger.LogInfo(ctx, fmt.Sprintf("任务 %s 差额结算：delta=%s（实际：%s，预扣：%s，%s）",
-		task.TaskID,
-		logger.LogQuota(quotaDelta),
-		logger.LogQuota(actualQuota),
-		logger.LogQuota(preConsumedQuota),
-		reason,
-	))
-
-	// 调整资金来源
-	if err := taskAdjustFunding(task, quotaDelta); err != nil {
-		logger.LogError(ctx, fmt.Sprintf("差额结算资金调整失败 task %s: %s", task.TaskID, err.Error()))
-		return
-	}
-
-	// 调整令牌额度
-	taskAdjustTokenQuota(ctx, task, quotaDelta)
-
+	preConsumedQuota := settled.Quota
 	task.Quota = actualQuota
-	if err := task.UpdateQuota(); err != nil {
-		logger.LogError(ctx, fmt.Sprintf("差额结算回写 quota 失败 task %s: %s", task.TaskID, err.Error()))
+	if quotaDelta == 0 {
+		return
 	}
-
 	var logType int
 	var logQuota int
 	if quotaDelta > 0 {
 		logType = model.LogTypeConsume
 		logQuota = quotaDelta
-		model.UpdateUserUsedQuotaAndRequestCount(task.UserId, quotaDelta)
-		model.UpdateChannelUsedQuota(task.ChannelId, quotaDelta)
 	} else {
 		logType = model.LogTypeRefund
 		logQuota = -quotaDelta

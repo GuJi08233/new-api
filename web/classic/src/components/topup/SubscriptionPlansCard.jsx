@@ -397,10 +397,6 @@ const SubscriptionPlansCard = ({
   const isSubscriptionPreference =
     billingPreference === 'subscription_first' ||
     billingPreference === 'subscription_only';
-  const displayBillingPreference =
-    disableSubscriptionPreference && isSubscriptionPreference
-      ? 'wallet_first'
-      : billingPreference;
   const subscriptionPreferenceLabel =
     billingPreference === 'subscription_only' ? t('仅用订阅') : t('优先订阅');
 
@@ -574,7 +570,7 @@ const SubscriptionPlansCard = ({
               </div>
               <div className='flex items-center gap-2'>
                 <Select
-                  value={displayBillingPreference}
+                  value={billingPreference}
                   onChange={onChangeBillingPreference}
                   size='small'
                   optionList={[
@@ -615,7 +611,9 @@ const SubscriptionPlansCard = ({
               <Text type='tertiary' size='small'>
                 {t('已保存偏好为')}
                 {subscriptionPreferenceLabel}
-                {t('，当前无生效订阅，将自动使用钱包')}
+                {billingPreference === 'subscription_only'
+                  ? t('，当前无生效订阅，请求将被拒绝')
+                  : t('，当前无生效订阅，将自动使用钱包')}
               </Text>
             )}
 

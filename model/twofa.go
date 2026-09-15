@@ -90,7 +90,24 @@ func (t *TwoFA) Update() error {
 	if t.Id == 0 {
 		return errors.New("2FA记录ID不能为空")
 	}
-	return DB.Save(t).Error
+	// 验证过程只更新使用/锁定状态，绝不把旧快照中的 secret、user_id 或启用状态写回。
+	result := DB.Model(&TwoFA{}).
+		Where("id = ? AND user_id = ? AND secret = ? AND is_enabled = ?", t.Id, t.UserId, t.Secret, t.IsEnabled).
+		Updates(map[string]interface{}{
+			"failed_attempts": t.FailedAttempts,
+			"locked_until":    t.LockedUntil,
+			"last_used_at":    t.LastUsedAt,
+		})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		var current TwoFA
+		if err := DB.Select("id").Where("id = ? AND user_id = ? AND secret = ? AND is_enabled = ?", t.Id, t.UserId, t.Secret, t.IsEnabled).First(&current).Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Delete 删除2FA设置

@@ -1,5 +1,7 @@
 package dto
 
+import "strings"
+
 const (
 	BillingUsageSourceClaudeMessages = "claude_messages"
 	BillingUsageSourceGeminiChat     = "gemini_chat"
@@ -171,12 +173,108 @@ func cloneClaudeUsage(usage *ClaudeUsage) *ClaudeUsage {
 	if usage.CacheCreation != nil {
 		cacheCreation := *usage.CacheCreation
 		clone.CacheCreation = &cacheCreation
+		clone.ClaudeCacheCreation5mTokens = cacheCreation.Ephemeral5mInputTokens
+		clone.ClaudeCacheCreation1hTokens = cacheCreation.Ephemeral1hInputTokens
 	}
 	if usage.ServerToolUse != nil {
 		serverToolUse := *usage.ServerToolUse
 		clone.ServerToolUse = &serverToolUse
 	}
 	return &clone
+}
+
+// MergeInputTokenDetails 按字段保留最后一个非零快照，不让缺失项擦掉前帧统计。
+func MergeInputTokenDetails(previous, incoming InputTokenDetails) InputTokenDetails {
+	if incoming.CachedTokens != 0 {
+		previous.CachedTokens = incoming.CachedTokens
+	}
+	if incoming.CachedCreationTokens != 0 {
+		previous.CachedCreationTokens = incoming.CachedCreationTokens
+	}
+	if incoming.CacheWriteTokens != 0 {
+		previous.CacheWriteTokens = incoming.CacheWriteTokens
+	}
+	if incoming.TextTokens != 0 {
+		previous.TextTokens = incoming.TextTokens
+	}
+	if incoming.AudioTokens != 0 {
+		previous.AudioTokens = incoming.AudioTokens
+	}
+	if incoming.ImageTokens != 0 {
+		previous.ImageTokens = incoming.ImageTokens
+	}
+	return previous
+}
+
+// MergeGeminiUsageMetadataNonZero 合并累计快照，分模态重复条目先求和再覆盖。
+func MergeGeminiUsageMetadataNonZero(previous, incoming *GeminiUsageMetadata) *GeminiUsageMetadata {
+	if incoming == nil {
+		if previous == nil {
+			return nil
+		}
+		clone := cloneGeminiUsageMetadata(*previous)
+		return &clone
+	}
+	var merged GeminiUsageMetadata
+	if previous != nil {
+		merged = cloneGeminiUsageMetadata(*previous)
+	}
+	if incoming.PromptTokenCount != 0 {
+		merged.PromptTokenCount = incoming.PromptTokenCount
+	}
+	if incoming.ToolUsePromptTokenCount != 0 {
+		merged.ToolUsePromptTokenCount = incoming.ToolUsePromptTokenCount
+	}
+	if incoming.CandidatesTokenCount != 0 {
+		merged.CandidatesTokenCount = incoming.CandidatesTokenCount
+	}
+	if incoming.TotalTokenCount != 0 {
+		merged.TotalTokenCount = incoming.TotalTokenCount
+	}
+	if incoming.ThoughtsTokenCount != 0 {
+		merged.ThoughtsTokenCount = incoming.ThoughtsTokenCount
+	}
+	if incoming.CachedContentTokenCount != 0 {
+		merged.CachedContentTokenCount = incoming.CachedContentTokenCount
+	}
+	merged.PromptTokensDetails = mergeGeminiModalityDetails(merged.PromptTokensDetails, incoming.PromptTokensDetails)
+	merged.ToolUsePromptTokensDetails = mergeGeminiModalityDetails(merged.ToolUsePromptTokensDetails, incoming.ToolUsePromptTokensDetails)
+	merged.CandidatesTokensDetails = mergeGeminiModalityDetails(merged.CandidatesTokensDetails, incoming.CandidatesTokensDetails)
+	if incoming.BillingUsage != nil {
+		merged.BillingUsage = CloneBillingUsage(incoming.BillingUsage)
+		if previous != nil && previous.BillingUsage != nil {
+			merged.BillingUsage.Estimated = merged.BillingUsage.Estimated || previous.BillingUsage.Estimated
+		}
+	} else if previous != nil {
+		merged.BillingUsage = CloneBillingUsage(previous.BillingUsage)
+	}
+	return &merged
+}
+
+func mergeGeminiModalityDetails(previous, incoming []GeminiPromptTokensDetails) []GeminiPromptTokensDetails {
+	counts := make(map[string]int)
+	order := make([]string, 0)
+	for _, snapshot := range [][]GeminiPromptTokensDetails{previous, incoming} {
+		current := make(map[string]int)
+		for _, detail := range snapshot {
+			key := strings.ToUpper(strings.TrimSpace(detail.Modality))
+			if _, exists := counts[key]; !exists {
+				counts[key] = 0
+				order = append(order, key)
+			}
+			current[key] += detail.TokenCount
+		}
+		for key, count := range current {
+			if count != 0 {
+				counts[key] = count
+			}
+		}
+	}
+	result := make([]GeminiPromptTokensDetails, 0, len(order))
+	for _, key := range order {
+		result = append(result, GeminiPromptTokensDetails{Modality: key, TokenCount: counts[key]})
+	}
+	return result
 }
 
 func cloneGeminiUsageMetadata(metadata GeminiUsageMetadata) GeminiUsageMetadata {

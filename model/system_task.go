@@ -324,7 +324,18 @@ func UpdateSystemTaskState(taskID string, lockedBy string, state any) error {
 		return result.Error
 	}
 	if result.RowsAffected == 0 {
-		return ErrSystemTaskLockLost
+		// MySQL返回实际变更数，同秒同状态写入可能匹配但没有变更。
+		var held int64
+		err = DB.Model(&SystemTask{}).
+			Where("task_id = ? AND status = ? AND locked_by = ?", taskID, SystemTaskStatusRunning, lockedBy).
+			Where("EXISTS (SELECT 1 FROM system_task_locks WHERE system_task_locks.task_id = system_tasks.task_id AND system_task_locks.locked_by = ? AND system_task_locks.locked_until >= ?)", lockedBy, now).
+			Count(&held).Error
+		if err != nil {
+			return err
+		}
+		if held == 0 {
+			return ErrSystemTaskLockLost
+		}
 	}
 	return nil
 }

@@ -48,6 +48,29 @@ func TestResponsesResponseToChatCompletionsPreservesTextAndToolCalls(t *testing.
 	assert.Equal(t, 7, usage.TotalTokens)
 }
 
+func TestResponsesTerminalDoesNotDuplicateEarlierTool(t *testing.T) {
+	state := newTestResponsesStreamState()
+	index := 0
+	item := &dto.ResponsesOutput{Type: "function_call", ID: "fc1", CallId: "call1", Name: "lookup"}
+	chunks := mustStreamChunks(t, state, &dto.ResponsesStreamResponse{Type: responsesEventOutputItemAdded, OutputIndex: &index, Item: item})
+	chunks = append(chunks, mustStreamChunks(t, state, &dto.ResponsesStreamResponse{Type: responsesEventFunctionArgsDelta, OutputIndex: &index, Delta: `{"q":"x"}`})...)
+	item.Arguments = []byte(`{"q":"x"}`)
+	chunks = append(chunks, mustStreamChunks(t, state, &dto.ResponsesStreamResponse{Type: responsesEventCompleted, Response: &dto.OpenAIResponsesResponse{Output: []dto.ResponsesOutput{*item}}})...)
+	args := ""
+	indexes := map[int]bool{}
+	for _, chunk := range chunks {
+		for _, choice := range chunk.Choices {
+			for _, call := range choice.Delta.ToolCalls {
+				require.NotNil(t, call.Index)
+				indexes[*call.Index] = true
+				args += call.Function.Arguments
+			}
+		}
+	}
+	assert.Equal(t, map[int]bool{0: true}, indexes)
+	assert.Equal(t, `{"q":"x"}`, args)
+}
+
 func TestResponsesResponseToChatCompletionsPreservesReasoningSummary(t *testing.T) {
 	resp := &dto.OpenAIResponsesResponse{
 		ID:     "resp_1",

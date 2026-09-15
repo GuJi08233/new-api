@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/types"
@@ -90,6 +91,7 @@ type GeneralOpenAIRequest struct {
 	// Ali Qwen Params
 	VlHighResolutionImages json.RawMessage `json:"vl_high_resolution_images,omitempty"`
 	EnableThinking         json.RawMessage `json:"enable_thinking,omitempty"`
+	ThinkingBudget         json.RawMessage `json:"thinking_budget,omitempty"`
 	ChatTemplateKwargs     json.RawMessage `json:"chat_template_kwargs,omitempty"`
 	EnableSearch           json.RawMessage `json:"enable_search,omitempty"`
 	// ollama Params
@@ -142,6 +144,9 @@ func (r *GeneralOpenAIRequest) GetTokenCountMeta() *types.TokenCountMeta {
 	}
 
 	for _, message := range r.Messages {
+		if len(message.Tools) > 0 {
+			texts = append(texts, string(message.Tools))
+		}
 		tokenCountMeta.MessagesCount++
 		texts = append(texts, message.Role)
 		if message.Content != nil {
@@ -220,15 +225,63 @@ func IsOpenAIReasoningOModel(modelName string) bool {
 }
 
 func IsOpenAIGPT5Model(modelName string) bool {
-	return strings.HasPrefix(modelName, "gpt-5")
+	return modelName == "gpt-5" || strings.HasPrefix(modelName, "gpt-5-") || strings.HasPrefix(modelName, "gpt-5.")
+}
+
+func IsQwenThinkingBudgetModel(model string) bool {
+	model = strings.ToLower(strings.TrimSpace(model))
+	return strings.HasPrefix(model, "qwen") || strings.HasPrefix(model, "qwq") || strings.Contains(model, "/qwen") || strings.Contains(model, "/qwq")
+}
+
+type OpenAIChatCapabilities struct {
+	UseMaxCompletionTokens bool
+	UseDeveloperRole       bool
+	SupportsTemperature    bool
+	SupportsTopP           bool
+	SupportsLogProbs       bool
+}
+
+// GetOpenAIChatCapabilities 只为已知模型应用兼容规则，未知型号保留调用方参数。
+func GetOpenAIChatCapabilities(model, effort string) OpenAIChatCapabilities {
+	caps := OpenAIChatCapabilities{SupportsTemperature: true, SupportsTopP: true, SupportsLogProbs: true}
+	if IsOpenAIReasoningOModel(model) {
+		caps.UseMaxCompletionTokens = true
+		caps.UseDeveloperRole = !strings.HasPrefix(model, "o1-mini") && !strings.HasPrefix(model, "o1-preview")
+		caps.SupportsTemperature = false
+		return caps
+	}
+	if !IsOpenAIGPT5Model(model) && !isOpenAIModelSnapshot(model, "gpt-6-astra") {
+		return caps
+	}
+	caps.UseMaxCompletionTokens = true
+	caps.UseDeveloperRole = true
+	sampling := false
+	if effort == "" || effort == "none" {
+		for _, base := range []string{"gpt-5.1", "gpt-5.2", "gpt-5.4"} {
+			if isOpenAIModelSnapshot(model, base) {
+				sampling = true
+				break
+			}
+		}
+	}
+	caps.SupportsTemperature, caps.SupportsTopP, caps.SupportsLogProbs = sampling, sampling, sampling
+	return caps
+}
+
+func isOpenAIModelSnapshot(model, base string) bool {
+	if model == base {
+		return true
+	}
+	snapshot, ok := strings.CutPrefix(model, base+"-")
+	if !ok {
+		return false
+	}
+	_, err := time.Parse(time.DateOnly, snapshot)
+	return err == nil
 }
 
 func (r *GeneralOpenAIRequest) GetSystemRoleName() string {
-	if IsOpenAIReasoningOModel(r.Model) {
-		if !strings.HasPrefix(r.Model, "o1-mini") && !strings.HasPrefix(r.Model, "o1-preview") {
-			return "developer"
-		}
-	} else if IsOpenAIGPT5Model(r.Model) {
+	if GetOpenAIChatCapabilities(r.Model, r.ReasoningEffort).UseDeveloperRole {
 		return "developer"
 	}
 	return "system"
@@ -293,8 +346,46 @@ type Message struct {
 	Reasoning        *string         `json:"reasoning,omitempty"`
 	ToolCalls        json.RawMessage `json:"tool_calls,omitempty"`
 	ToolCallId       string          `json:"tool_call_id,omitempty"`
+	Tools            json.RawMessage `json:"tools,omitempty"`
 	parsedContent    []MediaContent
 	//parsedStringContent *string
+}
+
+// MarshalJSON 只在请求层省略 Kimi 工具加载消息的 content，避免 Message 匿名嵌入
+// 响应 Choice 后提升 MarshalJSON，破坏响应的 index/message/finish_reason 包装。
+func (r GeneralOpenAIRequest) MarshalJSON() ([]byte, error) {
+	type alias GeneralOpenAIRequest
+	hasToolLoading := false
+	for _, message := range r.Messages {
+		if len(message.Tools) > 0 && message.Content == nil {
+			hasToolLoading = true
+			break
+		}
+	}
+	if !hasToolLoading {
+		return common.Marshal(alias(r))
+	}
+	var messages []json.RawMessage
+	for _, message := range r.Messages {
+		var data []byte
+		var err error
+		if len(message.Tools) > 0 && message.Content == nil {
+			data, err = common.Marshal(struct {
+				Message
+				Content any `json:"content,omitempty"`
+			}{Message: message})
+		} else {
+			data, err = common.Marshal(message)
+		}
+		if err != nil {
+			return nil, err
+		}
+		messages = append(messages, data)
+	}
+	return common.Marshal(struct {
+		alias
+		Messages []json.RawMessage `json:"messages,omitempty"`
+	}{alias: alias(r), Messages: messages})
 }
 
 type MediaContent struct {
@@ -843,16 +934,19 @@ type OpenAIResponsesRequest struct {
 	Include json.RawMessage `json:"include,omitempty"`
 	// 在后台运行推理，暂时还不支持依赖的接口
 	// Background         json.RawMessage `json:"background,omitempty"`
-	Conversation       json.RawMessage `json:"conversation,omitempty"`
-	ContextManagement  json.RawMessage `json:"context_management,omitempty"`
-	Instructions       json.RawMessage `json:"instructions,omitempty"`
-	MaxOutputTokens    *uint           `json:"max_output_tokens,omitempty"`
-	TopLogProbs        *int            `json:"top_logprobs,omitempty"`
-	Metadata           json.RawMessage `json:"metadata,omitempty"`
-	Moderation         json.RawMessage `json:"moderation,omitempty"`
-	ParallelToolCalls  json.RawMessage `json:"parallel_tool_calls,omitempty"`
-	PreviousResponseID string          `json:"previous_response_id,omitempty"`
-	Reasoning          *Reasoning      `json:"reasoning,omitempty"`
+	Conversation      json.RawMessage `json:"conversation,omitempty"`
+	ContextManagement json.RawMessage `json:"context_management,omitempty"`
+	Instructions      json.RawMessage `json:"instructions,omitempty"`
+	MaxOutputTokens   *uint           `json:"max_output_tokens,omitempty"`
+	TopLogProbs       *int            `json:"top_logprobs,omitempty"`
+	Metadata          json.RawMessage `json:"metadata,omitempty"`
+	Moderation        json.RawMessage `json:"moderation,omitempty"`
+	ParallelToolCalls json.RawMessage `json:"parallel_tool_calls,omitempty"`
+	// 部分兼容 Responses 上游支持的扩展；Codex 适配器需过滤。
+	FrequencyPenalty   *float64   `json:"frequency_penalty,omitempty"`
+	PresencePenalty    *float64   `json:"presence_penalty,omitempty"`
+	PreviousResponseID string     `json:"previous_response_id,omitempty"`
+	Reasoning          *Reasoning `json:"reasoning,omitempty"`
 	// ServiceTier specifies upstream service level and may affect billing.
 	// This field is filtered by default and can be enabled via channel setting allow_service_tier.
 	ServiceTier string `json:"service_tier,omitempty"`
@@ -881,6 +975,7 @@ type OpenAIResponsesRequest struct {
 	ClientMetadata json.RawMessage `json:"client_metadata,omitempty"`
 	// qwen
 	EnableThinking json.RawMessage `json:"enable_thinking,omitempty"`
+	ThinkingBudget json.RawMessage `json:"thinking_budget,omitempty"`
 	// perplexity
 	Preset json.RawMessage `json:"preset,omitempty"`
 }

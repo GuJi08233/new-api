@@ -595,6 +595,8 @@ func TestAdaptorConvertsClaudeRequestToOpenAIChatUpstream(t *testing.T) {
 		},
 	})
 	info.RelayFormat = types.RelayFormatClaude
+	info.IsStream = true
+	info.SupportStreamOptions = true
 	info.RequestURLPath = "/v1/messages"
 	c := advancedCustomGinContext("/v1/messages")
 
@@ -608,6 +610,8 @@ func TestAdaptorConvertsClaudeRequestToOpenAIChatUpstream(t *testing.T) {
 
 	chatReq, ok := converted.(*dto.GeneralOpenAIRequest)
 	require.True(t, ok)
+	require.NotNil(t, chatReq.StreamOptions)
+	assert.True(t, chatReq.StreamOptions.IncludeUsage)
 	assert.Equal(t, "gpt-test", chatReq.Model)
 	require.Len(t, chatReq.Messages, 1)
 	assert.Equal(t, "user", chatReq.Messages[0].Role)
@@ -625,6 +629,8 @@ func TestAdaptorConvertsGeminiRequestToOpenAIChatUpstream(t *testing.T) {
 		},
 	})
 	info.RelayFormat = types.RelayFormatGemini
+	info.IsStream = true
+	info.SupportStreamOptions = true
 	info.RequestURLPath = "/v1beta/models/gemini-2.5-flash:generateContent"
 	info.UpstreamModelName = "gpt-test"
 	c := advancedCustomGinContext("/v1beta/models/gemini-2.5-flash:generateContent")
@@ -643,6 +649,8 @@ func TestAdaptorConvertsGeminiRequestToOpenAIChatUpstream(t *testing.T) {
 
 	chatReq, ok := converted.(*dto.GeneralOpenAIRequest)
 	require.True(t, ok)
+	require.NotNil(t, chatReq.StreamOptions)
+	assert.True(t, chatReq.StreamOptions.IncludeUsage)
 	assert.Equal(t, "gpt-test", chatReq.Model)
 	require.Len(t, chatReq.Messages, 1)
 	assert.Equal(t, "user", chatReq.Messages[0].Role)

@@ -48,6 +48,10 @@ func runMidjourneyTaskUpdateOnce(ctx context.Context, report func(processed, tot
 	taskM := make(map[string]*model.Midjourney)
 	nullTaskIds := make([]int, 0)
 	for _, task := range tasks {
+		if task.RefundPending && task.Status == "FAILURE" {
+			service.RefundMidjourneyQuota(ctx, task, task.FailReason)
+			continue
+		}
 		if task.MjId == "" {
 			// 统计失败的未完成任务
 			nullTaskIds = append(nullTaskIds, task.Id)
@@ -205,31 +209,19 @@ func runMidjourneyTaskUpdateOnce(ctx context.Context, report func(processed, tot
 			if (task.Progress != "100%" && responseItem.FailReason != "") || (task.Progress == "100%" && task.Status == "FAILURE") {
 				logger.LogInfo(ctx, task.MjId+" 构建失败，"+task.FailReason)
 				task.Progress = "100%"
-				if task.Quota != 0 {
-					shouldReturnQuota = true
-				}
+				shouldReturnQuota = true
+				task.Status = "FAILURE"
+				task.RefundPending = true
 			}
 			won, err := task.UpdateWithStatus(preStatus)
 			if err != nil {
 				logger.LogError(ctx, "UpdateMidjourneyTask task error: "+err.Error())
 			} else if won && shouldReturnQuota {
-				err = model.IncreaseUserQuota(task.UserId, task.Quota, false)
-				if err != nil {
-					logger.LogError(ctx, "fail to increase user quota: "+err.Error())
+				if err := task.LoadBillingState(); err != nil {
+					logger.LogError(ctx, "读取 Midjourney 退款标记失败: "+err.Error())
+				} else {
+					service.RefundMidjourneyQuota(ctx, task, "构图失败")
 				}
-				model.RecordTaskBillingLog(model.RecordTaskBillingLogParams{
-					UserId:    task.UserId,
-					LogType:   model.LogTypeRefund,
-					Content:   "",
-					ChannelId: task.ChannelId,
-					ModelName: service.CovertMjpActionToModelName(task.Action),
-					Quota:     task.Quota,
-					Other: map[string]interface{}{
-						"task_id": task.MjId,
-						"reason":  "构图失败",
-					},
-					Source: task.LogSource(),
-				})
 			}
 		}
 	}

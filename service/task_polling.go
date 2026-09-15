@@ -67,6 +67,7 @@ func sweepTimedOutTasks(ctx context.Context) {
 			task.FailReason = legacyReason
 		} else {
 			task.FailReason = reason
+			task.RefundPending = task.Quota > 0
 		}
 
 		won, err := task.UpdateWithStatus(oldStatus)
@@ -117,6 +118,10 @@ func RunTaskPollingOnce(ctx context.Context, report func(processed, total int)) 
 	summary.UnfinishedTasks = len(allTasks)
 	platformTask := make(map[constant.TaskPlatform][]*model.Task)
 	for _, t := range allTasks {
+		if t.RefundPending && t.Status == model.TaskStatusFailure {
+			RefundTaskQuota(ctx, t, t.FailReason)
+			continue
+		}
 		platformTask[t.Platform] = append(platformTask[t.Platform], t)
 	}
 
@@ -277,24 +282,29 @@ func updateSunoTasks(ctx context.Context, channelId int, taskIds []string, taskM
 			continue
 		}
 
+		prevStatus := task.Status
 		task.Status = lo.If(model.TaskStatus(responseItem.Status) != "", model.TaskStatus(responseItem.Status)).Else(task.Status)
 		task.FailReason = lo.If(responseItem.FailReason != "", responseItem.FailReason).Else(task.FailReason)
 		task.SubmitTime = lo.If(responseItem.SubmitTime != 0, responseItem.SubmitTime).Else(task.SubmitTime)
 		task.StartTime = lo.If(responseItem.StartTime != 0, responseItem.StartTime).Else(task.StartTime)
 		task.FinishTime = lo.If(responseItem.FinishTime != 0, responseItem.FinishTime).Else(task.FinishTime)
-		if responseItem.FailReason != "" || task.Status == model.TaskStatusFailure {
+		isFailure := responseItem.FailReason != "" || task.Status == model.TaskStatusFailure
+		if isFailure {
+			task.Status = model.TaskStatusFailure
+			task.RefundPending = task.Quota > 0
 			logger.LogInfo(ctx, task.TaskID+" 构建失败，"+task.FailReason)
 			task.Progress = "100%"
-			RefundTaskQuota(ctx, task, task.FailReason)
 		}
 		if responseItem.Status == model.TaskStatusSuccess {
 			task.Progress = "100%"
 		}
 		task.Data = responseItem.Data
 
-		err = task.Update()
+		won, err := task.UpdateWithStatus(prevStatus)
 		if err != nil {
 			common.SysLog("UpdateSunoTask task error: " + err.Error())
+		} else if won && isFailure && prevStatus != model.TaskStatusFailure {
+			RefundTaskQuota(ctx, task, task.FailReason)
 		}
 	}
 	return nil
@@ -552,6 +562,7 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 		taskResult.Progress = taskcommon.ProgressComplete
 		if quota != 0 {
 			shouldRefund = true
+			task.RefundPending = true
 		}
 	default:
 		return fmt.Errorf("unknown task status %s for task %s", taskResult.Status, task.TaskID)

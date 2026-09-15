@@ -18,10 +18,7 @@ import (
 // The caller MUST invoke closer.Close() once the upstream call has finished
 // (typically via defer) to release the disk file / memory accounting.
 //
-// The returned reader is wrapped with common.ReaderOnly to prevent the HTTP
-// transport from prematurely closing the underlying BodyStorage. The returned
-// size is meant to be propagated to http.Request.ContentLength because the
-// type-erased io.Reader prevents net/http from auto-detecting it.
+// ReaderOnly 隐藏关闭操作并保留长度和独立重放能力，HTTP/2重试不会消费同一游标。
 func NewOutboundJSONBody(data []byte) (body io.Reader, size int64, closer io.Closer, err error) {
 	storage, err := common.CreateBodyStorage(data)
 	if err != nil {

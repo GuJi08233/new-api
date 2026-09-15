@@ -102,6 +102,9 @@ func usageFromBillingUsage(usage *dto.Usage) (*dto.Usage, bool) {
 
 func usageFromOpenAIBillingUsage(billingUsage *dto.BillingUsage) *dto.Usage {
 	usage := *billingUsage.OpenAIUsage
+	if details := usage.InputTokensDetails; details != nil {
+		usage.PromptTokensDetails = dto.MergeInputTokenDetails(*details, usage.PromptTokensDetails)
+	}
 	if usage.PromptTokens == 0 && usage.InputTokens > 0 {
 		usage.PromptTokens = usage.InputTokens
 	}
@@ -125,12 +128,12 @@ func usageFromOpenAIBillingUsage(billingUsage *dto.BillingUsage) *dto.Usage {
 
 func usageFromClaudeBillingUsage(billingUsage *dto.BillingUsage) *dto.Usage {
 	claudeUsage := billingUsage.ClaudeUsage
-	cacheCreation5m := claudeUsage.GetCacheCreation5mTokens()
-	if cacheCreation5m == 0 {
+	var cacheCreation5m, cacheCreation1h int
+	if claudeUsage.CacheCreation != nil {
+		cacheCreation5m = claudeUsage.GetCacheCreation5mTokens()
+		cacheCreation1h = claudeUsage.GetCacheCreation1hTokens()
+	} else {
 		cacheCreation5m = claudeUsage.ClaudeCacheCreation5mTokens
-	}
-	cacheCreation1h := claudeUsage.GetCacheCreation1hTokens()
-	if cacheCreation1h == 0 {
 		cacheCreation1h = claudeUsage.ClaudeCacheCreation1hTokens
 	}
 
@@ -172,7 +175,7 @@ func usageFromGeminiBillingUsage(billingUsage *dto.BillingUsage) *dto.Usage {
 		addGeminiInputTokenDetail(&usage.PromptTokensDetails, detail)
 	}
 	for _, detail := range metadata.CandidatesTokensDetails {
-		switch detail.Modality {
+		switch strings.ToUpper(strings.TrimSpace(detail.Modality)) {
 		case "IMAGE":
 			usage.CompletionTokenDetails.ImageTokens += detail.TokenCount
 		case "AUDIO":
@@ -185,7 +188,7 @@ func usageFromGeminiBillingUsage(billingUsage *dto.BillingUsage) *dto.Usage {
 	if usage.TotalTokens == 0 {
 		usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
 	} else if usage.CompletionTokens <= 0 {
-		usage.CompletionTokens = usage.TotalTokens - usage.PromptTokens
+		usage.CompletionTokens = max(0, usage.TotalTokens-usage.PromptTokens)
 	}
 	if usage.PromptTokens > 0 && usage.PromptTokensDetails.TextTokens == 0 && usage.PromptTokensDetails.AudioTokens == 0 {
 		usage.PromptTokensDetails.TextTokens = usage.PromptTokens
@@ -194,7 +197,7 @@ func usageFromGeminiBillingUsage(billingUsage *dto.BillingUsage) *dto.Usage {
 }
 
 func addGeminiInputTokenDetail(details *dto.InputTokenDetails, detail dto.GeminiPromptTokensDetails) {
-	switch detail.Modality {
+	switch strings.ToUpper(strings.TrimSpace(detail.Modality)) {
 	case "AUDIO":
 		details.AudioTokens += detail.TokenCount
 	case "IMAGE":

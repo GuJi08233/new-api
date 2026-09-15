@@ -24,7 +24,7 @@ func (j JSONValue) Value() (driver.Value, error) {
 	if j == nil {
 		return nil, nil
 	}
-	return []byte(j), nil
+	return string(j), nil
 }
 
 // Scan 实现 sql.Scanner 接口，兼容不同驱动返回的类型
@@ -44,7 +44,7 @@ func (j *JSONValue) Scan(value interface{}) error {
 		return nil
 	default:
 		// 其他类型尝试序列化为 JSON
-		b, err := json.Marshal(v)
+		b, err := common.Marshal(v)
 		if err != nil {
 			return err
 		}

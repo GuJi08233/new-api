@@ -187,10 +187,11 @@ func RequestEthereumPay(c *gin.Context) {
 		})
 		return
 	}
-	// The credited quota is amount * QuotaPerUnit and quota columns are 32-bit,
-	// so the order must be refused here rather than saturated at settlement.
-	if decimal.NewFromInt(amount).Mul(decimal.NewFromFloat(common.QuotaPerUnit)).GreaterThan(decimal.NewFromInt(common.MaxQuota)) {
+	if quota, err := common.QuotaFromDecimalStrict(decimal.NewFromInt(amount).Mul(decimal.NewFromFloat(common.QuotaPerUnit))); err != nil || quota <= 0 {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "充值数量超过上限"})
+		return
+	}
+	if rejectInvalidCreditedQuota(c, c.GetInt("id"), decimal.NewFromInt(amount).Mul(decimal.NewFromFloat(common.QuotaPerUnit))) {
 		return
 	}
 

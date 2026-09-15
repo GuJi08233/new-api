@@ -22,7 +22,33 @@ func GeminiGenerateContentRequestToOpenAIChat(geminiRequest *dto.GeminiChatReque
 		Model:  modelName,
 		Stream: common.GetPointer(isStream),
 	}
+	if thinking := geminiRequest.GenerationConfig.ThinkingConfig; thinking != nil {
+		openaiRequest.ReasoningEffort = strings.ToLower(strings.TrimSpace(thinking.ThinkingLevel))
+		if openaiRequest.ReasoningEffort == "" && thinking.ThinkingBudget != nil && *thinking.ThinkingBudget == 0 {
+			openaiRequest.ReasoningEffort = "none"
+		}
+		if dto.IsQwenThinkingBudgetModel(modelName) && thinking.ThinkingBudget != nil {
+			openaiRequest.ThinkingBudget, _ = common.Marshal(*thinking.ThinkingBudget)
+		}
+	}
 
+	type pendingCall struct {
+		id   string
+		name string
+	}
+	var pendingCalls []pendingCall
+	reservedIDs := make(map[string]bool)
+	for _, content := range geminiRequest.Contents {
+		for _, part := range content.Parts {
+			if part.FunctionCall != nil && part.FunctionCall.ID != "" {
+				reservedIDs[part.FunctionCall.ID] = true
+			}
+			if part.FunctionResponse != nil {
+				reservedIDs[common.JsonRawMessageToString(part.FunctionResponse.ID)] = true
+			}
+		}
+	}
+	nextCallID := 1
 	var messages []dto.Message
 	for _, content := range geminiRequest.Contents {
 		message := dto.Message{
@@ -31,8 +57,13 @@ func GeminiGenerateContentRequestToOpenAIChat(geminiRequest *dto.GeminiChatReque
 
 		var mediaContents []dto.MediaContent
 		var toolCalls []dto.ToolCallRequest
+		var reasoningTexts []string
 		for _, part := range content.Parts {
 			if part.Text != "" {
+				if part.Thought {
+					reasoningTexts = append(reasoningTexts, part.Text)
+					continue
+				}
 				mediaContent := dto.MediaContent{
 					Type: "text",
 					Text: part.Text,
@@ -59,8 +90,20 @@ func GeminiGenerateContentRequestToOpenAIChat(geminiRequest *dto.GeminiChatReque
 				}
 				mediaContents = append(mediaContents, mediaContent)
 			} else if part.FunctionCall != nil {
+				callID := part.FunctionCall.ID
+				if callID == "" {
+					for {
+						callID = fmt.Sprintf("call_%d", nextCallID)
+						nextCallID++
+						if !reservedIDs[callID] {
+							break
+						}
+					}
+				}
+				reservedIDs[callID] = true
+				pendingCalls = append(pendingCalls, pendingCall{id: callID, name: part.FunctionCall.FunctionName})
 				toolCall := dto.ToolCallRequest{
-					ID:   fmt.Sprintf("call_%d", len(toolCalls)+1),
+					ID:   callID,
 					Type: "function",
 					Function: dto.FunctionRequest{
 						Name:      part.FunctionCall.FunctionName,
@@ -69,9 +112,21 @@ func GeminiGenerateContentRequestToOpenAIChat(geminiRequest *dto.GeminiChatReque
 				}
 				toolCalls = append(toolCalls, toolCall)
 			} else if part.FunctionResponse != nil {
+				callID := common.JsonRawMessageToString(part.FunctionResponse.ID)
+				for index, call := range pendingCalls {
+					if callID != "" && call.id != callID || callID == "" && part.FunctionResponse.Name != "" && call.name != part.FunctionResponse.Name {
+						continue
+					}
+					callID = call.id
+					pendingCalls = append(pendingCalls[:index], pendingCalls[index+1:]...)
+					break
+				}
+				if callID == "" {
+					return nil, fmt.Errorf("function response %q has no matching function call", part.FunctionResponse.Name)
+				}
 				toolMessage := dto.Message{
 					Role:       "tool",
-					ToolCallId: fmt.Sprintf("call_%d", len(toolCalls)),
+					ToolCallId: callID,
 				}
 				toolMessage.SetStringContent(jsonutil.ToJSONString(part.FunctionResponse.Response))
 				messages = append(messages, toolMessage)
@@ -86,7 +141,10 @@ func GeminiGenerateContentRequestToOpenAIChat(geminiRequest *dto.GeminiChatReque
 			message.SetMediaContent(mediaContents)
 		}
 
-		if len(message.ParseContent()) > 0 || len(message.ToolCalls) > 0 {
+		if len(reasoningTexts) > 0 {
+			message.ReasoningContent = common.GetPointer(strings.Join(reasoningTexts, "\n"))
+		}
+		if len(message.ParseContent()) > 0 || len(message.ToolCalls) > 0 || message.ReasoningContent != nil {
 			messages = append(messages, message)
 		}
 	}
@@ -96,19 +154,19 @@ func GeminiGenerateContentRequestToOpenAIChat(geminiRequest *dto.GeminiChatReque
 	if geminiRequest.GenerationConfig.Temperature != nil {
 		openaiRequest.Temperature = geminiRequest.GenerationConfig.Temperature
 	}
-	if geminiRequest.GenerationConfig.TopP != nil && *geminiRequest.GenerationConfig.TopP > 0 {
+	if geminiRequest.GenerationConfig.TopP != nil {
 		openaiRequest.TopP = common.GetPointer(*geminiRequest.GenerationConfig.TopP)
 	}
-	if geminiRequest.GenerationConfig.TopK != nil && *geminiRequest.GenerationConfig.TopK > 0 {
+	if geminiRequest.GenerationConfig.TopK != nil {
 		openaiRequest.TopK = common.GetPointer(int(*geminiRequest.GenerationConfig.TopK))
 	}
-	if geminiRequest.GenerationConfig.MaxOutputTokens != nil && *geminiRequest.GenerationConfig.MaxOutputTokens > 0 {
+	if geminiRequest.GenerationConfig.MaxOutputTokens != nil {
 		openaiRequest.MaxTokens = common.GetPointer(*geminiRequest.GenerationConfig.MaxOutputTokens)
 	}
 	if len(geminiRequest.GenerationConfig.StopSequences) > 0 {
 		openaiRequest.Stop = geminiRequest.GenerationConfig.StopSequences[:min(len(geminiRequest.GenerationConfig.StopSequences), 4)]
 	}
-	if geminiRequest.GenerationConfig.CandidateCount != nil && *geminiRequest.GenerationConfig.CandidateCount > 0 {
+	if geminiRequest.GenerationConfig.CandidateCount != nil {
 		openaiRequest.N = common.GetPointer(*geminiRequest.GenerationConfig.CandidateCount)
 	}
 

@@ -158,3 +158,13 @@ func TestGetAndValidOpenAIImageRequestNBounds(t *testing.T) {
 		require.Contains(t, err.Error(), boundErr)
 	})
 }
+
+func TestImageProviderCountValidationBeforeBilling(t *testing.T) {
+	for _, parameters := range []string{`{"n":129}`, `{"n":-1}`, `{"n":1.5}`, `{"n":"3"}`} {
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/generations", bytes.NewBufferString(`{"model":"qwen-image","prompt":"cat","parameters":`+parameters+`}`))
+		c.Request.Header.Set("Content-Type", "application/json")
+		_, err := GetAndValidOpenAIImageRequest(c, relayconstant.RelayModeImagesGenerations)
+		require.Error(t, err)
+	}
+}

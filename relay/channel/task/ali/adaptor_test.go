@@ -30,7 +30,7 @@ func TestConvertToAliRequestWan27I2VBuildsMediaFromImage(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "wan2.7-i2v", aliReq.Model)
 	require.Equal(t, "720P", aliReq.Parameters.Resolution)
-	require.Equal(t, 10, aliReq.Parameters.Duration)
+	require.Equal(t, 10, *aliReq.Parameters.Duration)
 	require.Equal(t, []AliVideoMedia{
 		{Type: "first_frame", URL: "https://example.com/first.png"},
 	}, aliReq.Input.Media)

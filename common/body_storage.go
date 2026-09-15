@@ -20,6 +20,15 @@ type BodyStorage interface {
 	Size() int64
 	// IsDisk 是否是磁盘存储
 	IsDisk() bool
+	// NewReader 返回游标独立的完整请求体；关闭副本不会关闭存储本身。
+	NewReader() (io.ReadCloser, error)
+}
+
+// ReplayableBody 让出站请求携带重放能力，避免把上一轮请求体信息放在共享上下文。
+type ReplayableBody interface {
+	io.Reader
+	Size() int64
+	NewReader() (io.ReadCloser, error)
 }
 
 // ErrStorageClosed 存储已关闭错误
@@ -82,6 +91,15 @@ func (m *memoryStorage) Bytes() ([]byte, error) {
 
 func (m *memoryStorage) Size() int64 {
 	return m.size
+}
+
+func (m *memoryStorage) NewReader() (io.ReadCloser, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if atomic.LoadInt32(&m.closed) == 1 {
+		return nil, ErrStorageClosed
+	}
+	return io.NopCloser(bytes.NewReader(m.data)), nil
 }
 
 func (m *memoryStorage) IsDisk() bool {
@@ -233,6 +251,20 @@ func (d *diskStorage) Size() int64 {
 	return d.size
 }
 
+func (d *diskStorage) NewReader() (io.ReadCloser, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if atomic.LoadInt32(&d.closed) == 1 {
+		return nil, ErrStorageClosed
+	}
+	// 独立文件句柄避免HTTP/2重试与前一轮尚未结束的读取争用游标。
+	file, err := os.Open(d.filePath)
+	if err != nil {
+		return nil, fmt.Errorf("open request body for replay: %w", err)
+	}
+	return file, nil
+}
+
 func (d *diskStorage) IsDisk() bool {
 	return true
 }
@@ -302,9 +334,11 @@ func CreateBodyStorageFromReader(reader io.Reader, contentLength int64, maxBytes
 	return storage, nil
 }
 
-// ReaderOnly wraps an io.Reader to hide io.Closer, preventing http.NewRequest
-// from type-asserting io.ReadCloser and closing the underlying BodyStorage.
+// ReaderOnly 隐藏 Close，使存储仍由调用方清理；保留长度与重放能力供传输层使用。
 func ReaderOnly(r io.Reader) io.Reader {
+	if body, ok := r.(ReplayableBody); ok {
+		return struct{ ReplayableBody }{body}
+	}
 	return struct{ io.Reader }{r}
 }
 

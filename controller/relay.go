@@ -119,7 +119,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		if common.IsRequestBodyTooLargeError(err) || errors.Is(err, common.ErrRequestBodyTooLarge) {
 			newAPIError = types.NewErrorWithStatusCode(err, types.ErrorCodeReadRequestBodyFailed, http.StatusRequestEntityTooLarge, types.ErrOptionWithSkipRetry())
 		} else {
-			newAPIError = types.NewError(err, types.ErrorCodeInvalidRequest)
+			newAPIError = types.NewErrorWithStatusCode(err, types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 		}
 		return
 	}
@@ -191,6 +191,9 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	}
 
 	// common.SetContextKey(c, constant.ContextKeyTokenCountMeta, meta)
+	if _, isImage := request.(*dto.ImageRequest); isImage {
+		relayInfo.ForcePreConsume = true
+	}
 
 	if priceData.FreeModel {
 		logger.LogInfo(c, fmt.Sprintf("模型 %s 免费，跳过预扣费", relayInfo.OriginModelName))
@@ -236,6 +239,10 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		}
 
 		addUsedChannel(c, channel.Id)
+		if billingErr := helper.PrepareBillingForSelectedGroup(c, relayInfo, tokens, meta); billingErr != nil {
+			newAPIError = billingErr
+			break
+		}
 
 		channelSetting := getChannelRetrySettings(c, channel)
 		effectiveRetryTimes := common.RetryTimes
@@ -457,8 +464,6 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 	}
 	channel, selectGroup, err := service.CacheGetRandomSatisfiedChannel(retryParam)
 
-	info.PriceData.GroupRatioInfo = helper.HandleGroupRatio(c, info)
-
 	if err != nil {
 		return nil, types.NewError(fmt.Errorf("获取分组 %s 下模型 %s 的可用渠道失败（retry）: %s", selectGroup, info.OriginModelName, err.Error()), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
 	}
@@ -470,6 +475,7 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 	if newAPIError != nil {
 		return nil, newAPIError
 	}
+	info.PriceData.GroupRatioInfo = helper.HandleGroupRatio(c, info)
 	return channel, nil
 }
 
@@ -731,9 +737,6 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 		other["error_type"] = err.GetErrorType()
 		other["error_code"] = err.GetErrorCode()
 		other["status_code"] = err.StatusCode
-		other["channel_id"] = channelId
-		other["channel_name"] = c.GetString("channel_name")
-		other["channel_type"] = c.GetInt("channel_type")
 		if rewrite, ok := service.GetModelRewrite(c); ok {
 			// 记录本次实际请求的上游模型，管理员据此排错；用户侧查询时
 			// formatUserLogs 会用它把正文里的上游模型名替换掉再删除该字段。
@@ -744,6 +747,9 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 			other["upstream_model_name"] = rewrite.UpstreamModelName()
 		}
 		adminInfo := make(map[string]interface{})
+		adminInfo["channel_id"] = channelId
+		adminInfo["channel_name"] = c.GetString("channel_name")
+		adminInfo["channel_type"] = c.GetInt("channel_type")
 		adminInfo["use_channel"] = c.GetStringSlice("use_channel")
 		isMultiKey := common.GetContextKeyBool(c, constant.ContextKeyChannelIsMultiKey)
 		if isMultiKey {

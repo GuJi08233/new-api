@@ -2,10 +2,13 @@ package controller
 
 import (
 	"errors"
+	"gorm.io/gorm"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 
 	"github.com/gin-contrib/sessions"
@@ -31,173 +34,133 @@ type Setup2FAResponse struct {
 
 // Setup2FA 初始化2FA设置
 func Setup2FA(c *gin.Context) {
-	userId := c.GetInt("id")
-
-	// 检查用户是否已经启用2FA
-	existing, err := model.GetTwoFAByUserId(userId)
+	if !middleware.RequireSecurityProof(c, "2fa.setup", "") {
+		return
+	}
+	user, identity, err := verificationAccount(c)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	if existing != nil && existing.IsEnabled {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "用户已启用2FA，请先禁用后重新设置",
-		})
+	var existing int64
+	if err := model.DB.Model(&model.TwoFA{}).Where("user_id = ? AND is_enabled = ?", user.Id, true).Count(&existing).Error; err != nil {
+		common.ApiError(c, err)
 		return
 	}
-
-	// 如果存在已禁用的2FA记录，先删除它
-	if existing != nil && !existing.IsEnabled {
-		if err := existing.Delete(); err != nil {
+	if existing > 0 {
+		common.ApiErrorMsg(c, "用户已启用2FA")
+		return
+	}
+	key, err := common.GenerateTOTPSecret(user.Username)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	codes, err := common.GenerateBackupCodes()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	// 数据库中只暂存哈希后的恢复码，初始化不会更改任何现有认证因子。
+	hashes := make([]string, len(codes))
+	for i, code := range codes {
+		hash, err := common.HashBackupCode(code)
+		if err != nil {
 			common.ApiError(c, err)
 			return
 		}
-		existing = nil // 重置为nil，后续将创建新记录
+		hashes[i] = hash
 	}
-
-	// 获取用户信息
-	user, err := model.GetUserById(userId, false)
+	payload, err := common.Marshal(twoFAEnrollment{Secret: key.Secret(), CodeHashes: hashes})
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
-
-	// 生成TOTP密钥
-	key, err := common.GenerateTOTPSecret(user.Username)
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "生成2FA密钥失败",
-		})
-		common.SysLog("生成TOTP密钥失败: " + err.Error())
-		return
-	}
-
-	// 生成备用码
-	backupCodes, err := common.GenerateBackupCodes()
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "生成备用码失败",
-		})
-		common.SysLog("生成备用码失败: " + err.Error())
-		return
-	}
-
-	// 生成二维码数据
-	qrCodeData := common.GenerateQRCodeData(key.Secret(), user.Username)
-
-	// 创建或更新2FA记录（暂未启用）
-	twoFA := &model.TwoFA{
-		UserId:    userId,
-		Secret:    key.Secret(),
-		IsEnabled: false,
-	}
-
-	if existing != nil {
-		// 更新现有记录
-		twoFA.Id = existing.Id
-		err = twoFA.Update()
-	} else {
-		// 创建新记录
-		err = twoFA.Create()
-	}
-
+	token, err := model.CreateSecurityFlow(model.SecurityFlow{UserID: user.Id, Version: identity.Version, SessionID: identity.SessionID, Kind: "2fa-enroll", Payload: string(payload), ExpiresAt: time.Now().Add(5 * time.Minute).Unix()})
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
-
-	// 创建备用码记录
-	if err := model.CreateBackupCodes(userId, backupCodes); err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "保存备用码失败",
-		})
-		common.SysLog("保存备用码失败: " + err.Error())
+	session := sessions.Default(c)
+	session.Set("pending_2fa_enrollment", token)
+	if err := session.Save(); err != nil {
+		common.ApiError(c, err)
 		return
 	}
-
-	// 记录操作日志
-	model.RecordLog(model.ClientLogSource(c), userId, model.LogTypeSystem, "开始设置两步验证")
-
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "2FA设置初始化成功，请使用认证器扫描二维码并输入验证码完成设置",
-		"data": Setup2FAResponse{
-			Secret:      key.Secret(),
-			QRCodeData:  qrCodeData,
-			BackupCodes: backupCodes,
-		},
-	})
+	common.ApiSuccess(c, Setup2FAResponse{Secret: key.Secret(), QRCodeData: common.GenerateQRCodeData(key.Secret(), user.Username), BackupCodes: codes})
 }
 
-// Enable2FA 启用2FA
+type twoFAEnrollment struct {
+	Secret     string   `json:"secret"`
+	CodeHashes []string `json:"code_hashes"`
+}
+
 func Enable2FA(c *gin.Context) {
 	var req Setup2FARequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "参数错误",
-		})
+	if err := common.DecodeJson(c.Request.Body, &req); err != nil {
+		common.ApiError(c, err)
 		return
 	}
-
-	userId := c.GetInt("id")
-
-	// 获取2FA记录
-	twoFA, err := model.GetTwoFAByUserId(userId)
+	identity, err := middleware.CookieSecurityIdentity(c)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	if twoFA == nil {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "请先完成2FA初始化设置",
-		})
-		return
-	}
-	if twoFA.IsEnabled {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "2FA已经启用",
-		})
-		return
-	}
-
-	// 验证TOTP验证码
-	cleanCode, err := common.ValidateNumericCode(req.Code)
+	session := sessions.Default(c)
+	token, _ := session.Get("pending_2fa_enrollment").(string)
+	flow, err := model.GetSecurityFlow(token, "2fa-enroll")
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": err.Error(),
-		})
-		return
-	}
-
-	if !common.ValidateTOTPCode(twoFA.Secret, cleanCode) {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "验证码或备用码错误，请重试",
-		})
-		return
-	}
-
-	// 启用2FA
-	if err := twoFA.Enable(); err != nil {
 		common.ApiError(c, err)
 		return
 	}
-
-	// 记录操作日志
-	model.RecordLog(model.ClientLogSource(c), userId, model.LogTypeSystem, "成功启用两步验证")
-
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "两步验证启用成功",
+	var payload twoFAEnrollment
+	if err := common.UnmarshalJsonStr(flow.Payload, &payload); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if !common.ValidateTOTPCode(payload.Secret, req.Code) {
+		common.ApiErrorMsg(c, "验证码或备用码错误，请重试")
+		return
+	}
+	if _, err := model.ConsumeSecurityFlow(token, "2fa-enroll", identity, "", ""); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	version, err := model.CommitAccountSecurity(identity, func(tx *gorm.DB, user *model.User) error {
+		var count int64
+		if err := tx.Model(&model.TwoFA{}).Where("user_id = ? AND is_enabled = ?", user.Id, true).Count(&count).Error; err != nil {
+			return err
+		}
+		if count > 0 {
+			return errors.New("用户已启用2FA")
+		}
+		if err := tx.Unscoped().Where("user_id = ?", user.Id).Delete(&model.TwoFA{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Unscoped().Where("user_id = ?", user.Id).Delete(&model.TwoFABackupCode{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Create(&model.TwoFA{UserId: user.Id, Secret: payload.Secret, IsEnabled: true}).Error; err != nil {
+			return err
+		}
+		for _, hash := range payload.CodeHashes {
+			if err := tx.Create(&model.TwoFABackupCode{UserId: user.Id, CodeHash: hash}).Error; err != nil {
+				return err
+			}
+		}
+		return nil
 	})
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	session.Delete("pending_2fa_enrollment")
+	if err := saveSecurityVersion(c, version); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	model.RecordLog(model.ClientLogSource(c), identity.UserID, model.LogTypeSystem, "成功启用两步验证")
+	common.ApiSuccess(c, nil)
 }
 
 // Disable2FA 禁用2FA
@@ -214,7 +177,7 @@ func Disable2FA(c *gin.Context) {
 	userId := c.GetInt("id")
 
 	// 获取2FA记录
-	twoFA, err := model.GetTwoFAByUserId(userId)
+	twoFA, err := getCurrentTwoFA(userId)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -257,8 +220,22 @@ func Disable2FA(c *gin.Context) {
 		return
 	}
 
-	// 禁用2FA
-	if err := model.DisableTwoFA(userId); err != nil {
+	identity, err := middleware.CookieSecurityIdentity(c)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	version, err := model.CommitAccountSecurity(identity, func(tx *gorm.DB, user *model.User) error {
+		if err := tx.Unscoped().Where("user_id = ?", user.Id).Delete(&model.TwoFABackupCode{}).Error; err != nil {
+			return err
+		}
+		return tx.Unscoped().Where("user_id = ?", user.Id).Delete(&model.TwoFA{}).Error
+	})
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if err := saveSecurityVersion(c, version); err != nil {
 		common.ApiError(c, err)
 		return
 	}
@@ -276,7 +253,7 @@ func Disable2FA(c *gin.Context) {
 func Get2FAStatus(c *gin.Context) {
 	userId := c.GetInt("id")
 
-	twoFA, err := model.GetTwoFAByUserId(userId)
+	twoFA, err := getCurrentTwoFA(userId)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -322,7 +299,7 @@ func RegenerateBackupCodes(c *gin.Context) {
 	userId := c.GetInt("id")
 
 	// 获取2FA记录
-	twoFA, err := model.GetTwoFAByUserId(userId)
+	twoFA, err := getCurrentTwoFA(userId)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -372,13 +349,37 @@ func RegenerateBackupCodes(c *gin.Context) {
 		return
 	}
 
-	// 保存新的备用码
-	if err := model.CreateBackupCodes(userId, backupCodes); err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "保存备用码失败",
-		})
-		common.SysLog("保存备用码失败: " + err.Error())
+	hashes := make([]string, len(backupCodes))
+	for i, code := range backupCodes {
+		hash, err := common.HashBackupCode(code)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		hashes[i] = hash
+	}
+	identity, err := middleware.CookieSecurityIdentity(c)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	version, err := model.CommitAccountSecurity(identity, func(tx *gorm.DB, user *model.User) error {
+		if err := tx.Unscoped().Where("user_id = ?", user.Id).Delete(&model.TwoFABackupCode{}).Error; err != nil {
+			return err
+		}
+		for _, hash := range hashes {
+			if err := tx.Create(&model.TwoFABackupCode{UserId: user.Id, CodeHash: hash}).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if err := saveSecurityVersion(c, version); err != nil {
+		common.ApiError(c, err)
 		return
 	}
 
@@ -405,36 +406,20 @@ func Verify2FALogin(c *gin.Context) {
 		return
 	}
 
-	// 从会话中获取pending用户信息
 	session := sessions.Default(c)
-	pendingUserId := session.Get("pending_user_id")
-	if pendingUserId == nil {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "会话已过期，请重新登录",
-		})
-		return
-	}
-	userId, ok := pendingUserId.(int)
-	if !ok {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "会话数据无效，请重新登录",
-		})
-		return
-	}
-	// 获取用户信息
-	user, err := model.GetUserById(userId, false)
+	token, _ := session.Get("pending_login").(string)
+	flow, err := model.GetSecurityFlow(token, "login")
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "用户不存在",
-		})
+		common.ApiError(c, err)
 		return
 	}
-
+	user, err := model.GetUserById(flow.UserID, false)
+	if err != nil || user.AuthVersion != flow.Version || user.Status != common.UserStatusEnabled {
+		common.ApiErrorMsg(c, "登录状态已失效，请重新登录")
+		return
+	}
 	// 获取2FA记录
-	twoFA, err := model.GetTwoFAByUserId(user.Id)
+	twoFA, err := getCurrentTwoFA(user.Id)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -477,11 +462,11 @@ func Verify2FALogin(c *gin.Context) {
 		return
 	}
 
-	// 2FA验证成功，清理pending会话信息并完成登录
-	session.Delete("pending_username")
-	session.Delete("pending_user_id")
-	session.Save()
-
+	if _, err := model.ConsumeSecurityFlow(token, "login", model.SecurityIdentity{UserID: flow.UserID, Version: flow.Version}, "", ""); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	c.Set("login_factor_verified", true)
 	setupLogin(user, c)
 }
 
@@ -529,7 +514,7 @@ func AdminDisable2FA(c *gin.Context) {
 	}
 
 	// 禁用2FA
-	if err := model.DisableTwoFA(userId); err != nil {
+	if err := model.RevokeAccountAuthentication(userId, "2fa", 0); err != nil {
 		if errors.Is(err, model.ErrTwoFANotEnabled) {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,

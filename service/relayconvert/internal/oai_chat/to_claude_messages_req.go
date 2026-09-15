@@ -31,22 +31,20 @@ func OpenAIChatRequestToClaudeMessages(c *gin.Context, textRequest dto.GeneralOp
 	claudeTools := make([]any, 0, len(textRequest.Tools))
 
 	for _, tool := range textRequest.Tools {
-		if params, ok := tool.Function.Parameters.(map[string]any); ok {
+		if params, ok := tool.Function.Parameters.(map[string]any); ok || tool.Type == "function" {
 			claudeTool := dto.Tool{
 				Name:        tool.Function.Name,
 				Description: tool.Function.Description,
 			}
 			claudeTool.InputSchema = make(map[string]interface{})
-			if params["type"] != nil {
-				claudeTool.InputSchema["type"] = params["type"].(string)
-			}
-			claudeTool.InputSchema["properties"] = params["properties"]
-			claudeTool.InputSchema["required"] = params["required"]
 			for key, value := range params {
-				if key == "type" || key == "properties" || key == "required" {
-					continue
-				}
 				claudeTool.InputSchema[key] = value
+			}
+			if claudeTool.InputSchema["type"] == nil {
+				claudeTool.InputSchema["type"] = "object"
+			}
+			if claudeTool.InputSchema["properties"] == nil {
+				claudeTool.InputSchema["properties"] = map[string]any{}
 			}
 			claudeTools = append(claudeTools, &claudeTool)
 		}
@@ -100,7 +98,9 @@ func OpenAIChatRequestToClaudeMessages(c *gin.Context, textRequest dto.GeneralOp
 		Model:         textRequest.Model,
 		StopSequences: nil,
 		Temperature:   textRequest.Temperature,
-		Tools:         claudeTools,
+	}
+	if len(claudeTools) > 0 {
+		claudeRequest.Tools = claudeTools
 	}
 	if maxTokens := textRequest.GetMaxTokens(); maxTokens > 0 {
 		claudeRequest.MaxTokens = common.GetPointer(maxTokens)

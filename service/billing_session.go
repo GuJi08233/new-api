@@ -1,7 +1,9 @@
 package service
 
 import (
+	"errors"
 	"fmt"
+	"github.com/QuantumNous/new-api/dto"
 	"net/http"
 	"strings"
 	"sync"
@@ -157,7 +159,16 @@ func (s *BillingSession) Reserve(targetQuota int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if s.settled || s.refunded || s.trusted || targetQuota <= s.preConsumedQuota {
+	_, imageRequest := s.relayInfo.Request.(*dto.ImageRequest)
+	strictReserve := imageRequest || s.relayInfo.ForcePreConsume
+	if !s.settled && !s.refunded && strictReserve {
+		if funding, ok := s.funding.(*SubscriptionFunding); ok {
+			if err := model.ValidateSubscriptionFundingGroup(funding.subscriptionId, funding.userId, s.relayInfo.UsingGroup); err != nil {
+				return types.NewErrorWithStatusCode(err, types.ErrorCodeInsufficientUserQuota, http.StatusForbidden, types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
+			}
+		}
+	}
+	if s.settled || s.refunded || s.trusted && !strictReserve || targetQuota <= s.preConsumedQuota {
 		return nil
 	}
 
@@ -166,7 +177,7 @@ func (s *BillingSession) Reserve(targetQuota int) error {
 		return nil
 	}
 
-	if err := s.reserveFunding(delta); err != nil {
+	if err := s.reserveFunding(delta, strictReserve); err != nil {
 		return err
 	}
 	if err := s.reserveToken(delta); err != nil {
@@ -174,6 +185,9 @@ func (s *BillingSession) Reserve(targetQuota int) error {
 		return err
 	}
 
+	if strictReserve {
+		s.trusted = false
+	}
 	s.preConsumedQuota += delta
 	s.tokenConsumed += delta
 	s.extraReserved += delta
@@ -218,6 +232,9 @@ func (s *BillingSession) preConsume(c *gin.Context, quota int) *types.NewAPIErro
 			s.tokenConsumed = 0
 		}
 		// TODO: model 层应定义哨兵错误（如 ErrNoActiveSubscription），用 errors.Is 替代字符串匹配
+		if errors.Is(err, ErrInsufficientWalletQuota) {
+			return types.NewErrorWithStatusCode(err, types.ErrorCodeInsufficientUserQuota, http.StatusForbidden, types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
+		}
 		errMsg := err.Error()
 		if strings.Contains(errMsg, "no active subscription") || strings.Contains(errMsg, "subscription quota insufficient") {
 			return types.NewErrorWithStatusCode(fmt.Errorf("订阅额度不足或未配置订阅: %s", errMsg), types.ErrorCodeInsufficientUserQuota, http.StatusForbidden, types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
@@ -233,9 +250,18 @@ func (s *BillingSession) preConsume(c *gin.Context, quota int) *types.NewAPIErro
 	return nil
 }
 
-func (s *BillingSession) reserveFunding(delta int) error {
+func (s *BillingSession) reserveFunding(delta int, strict bool) error {
 	switch funding := s.funding.(type) {
 	case *WalletFunding:
+		if strict {
+			if err := funding.PreConsume(delta); err != nil {
+				if errors.Is(err, ErrInsufficientWalletQuota) {
+					return types.NewErrorWithStatusCode(err, types.ErrorCodeInsufficientUserQuota, http.StatusForbidden, types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
+				}
+				return err
+			}
+			return nil
+		}
 		if err := model.DecreaseUserQuota(funding.userId, delta, false); err != nil {
 			return types.NewError(err, types.ErrorCodeUpdateDataError, types.ErrOptionWithSkipRetry())
 		}
@@ -295,10 +321,13 @@ func (s *BillingSession) shouldTrust(c *gin.Context) bool {
 	}
 
 	// 检查令牌是否充足
-	tokenTrusted := s.relayInfo.TokenUnlimited
+	tokenTrusted := s.relayInfo.IsPlayground
 	if !tokenTrusted {
-		tokenQuota := c.GetInt("token_quota")
-		tokenTrusted = tokenQuota > trustQuota
+		token, err := model.GetTokenByKey(s.relayInfo.TokenKey, true)
+		if err != nil || token.UserId != s.relayInfo.UserId || token.Status != common.TokenStatusEnabled {
+			return false
+		}
+		tokenTrusted = token.UnlimitedQuota || token.RemainQuota > trustQuota
 	}
 	if !tokenTrusted {
 		return false

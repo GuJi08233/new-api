@@ -168,13 +168,21 @@ func ApplyChannelGroupFilter(query *gorm.DB, group string) *gorm.DB {
 
 // Value implements driver.Valuer interface
 func (c ChannelInfo) Value() (driver.Value, error) {
-	return common.Marshal(&c)
+	data, err := common.Marshal(&c)
+	if err != nil {
+		return nil, err
+	}
+	return string(data), nil
 }
 
 // Scan implements sql.Scanner interface
 func (c *ChannelInfo) Scan(value interface{}) error {
-	bytesValue, _ := value.([]byte)
-	return common.Unmarshal(bytesValue, c)
+	data := jsonScanBytes(value)
+	if len(data) == 0 {
+		*c = ChannelInfo{}
+		return nil
+	}
+	return common.Unmarshal(data, c)
 }
 
 func (channel *Channel) GetKeys() []string {
@@ -351,11 +359,16 @@ func (channel *Channel) Save() error {
 	return DB.Save(channel).Error
 }
 
-func (channel *Channel) SaveWithoutKey() error {
+// saveStatusState 仅保存状态流拥有的字段，避免旧快照覆盖凭据、配置和计费计数。
+func (channel *Channel) saveStatusState() error {
 	if channel.Id == 0 {
 		return errors.New("channel ID is 0")
 	}
-	return DB.Omit("key").Save(channel).Error
+	updates := map[string]any{"status": channel.Status, "other_info": channel.OtherInfo}
+	if channel.ChannelInfo.IsMultiKey {
+		updates["channel_info"] = channel.ChannelInfo
+	}
+	return DB.Model(&Channel{}).Where("id = ?", channel.Id).Updates(updates).Error
 }
 
 func GetAllChannels(startIdx int, num int, selectAll bool, idSort bool, sortOptions ...ChannelSortOptions) ([]*Channel, error) {
@@ -770,7 +783,13 @@ func updateChannelStatus(channelId int, usingKey string, status int, reason stri
 	if common.MemoryCacheEnabled {
 		channelStatusLock.Lock()
 		defer channelStatusLock.Unlock()
+	}
+	// ChannelInfo同时包含key状态与轮询游标，整个读改写期间持有同一把锁。
+	pollingLock := GetChannelPollingLock(channelId)
+	pollingLock.Lock()
+	defer pollingLock.Unlock()
 
+	if common.MemoryCacheEnabled {
 		channelCache, _ := CacheGetChannel(channelId)
 		if channelCache == nil {
 			return false
@@ -782,11 +801,8 @@ func updateChannelStatus(channelId int, usingKey string, status int, reason stri
 		if channelCache.ChannelInfo.IsMultiKey {
 			// Use per-channel lock to prevent concurrent map read/write with GetNextEnabledKey
 			beforeStatus := channelCache.Status
-			pollingLock := GetChannelPollingLock(channelId)
-			pollingLock.Lock()
 			// 如果是多Key模式，更新缓存中的状态
 			handlerMultiKeyUpdate(channelCache, usingKey, status, reason)
-			pollingLock.Unlock()
 			if beforeStatus != channelCache.Status {
 				CacheUpdateChannelStatus(channelId, channelCache.Status)
 			}
@@ -810,7 +826,8 @@ func updateChannelStatus(channelId int, usingKey string, status int, reason stri
 			}
 		}
 	}()
-	channel, err := GetChannelById(channelId, true)
+	channel := &Channel{}
+	err := DB.First(channel, channelId).Error
 	if err != nil {
 		return false
 	} else {
@@ -825,10 +842,7 @@ func updateChannelStatus(channelId int, usingKey string, status int, reason stri
 		if channel.ChannelInfo.IsMultiKey {
 			beforeStatus := channel.Status
 			// Protect map writes with the same per-channel lock used by readers
-			pollingLock := GetChannelPollingLock(channelId)
-			pollingLock.Lock()
 			handlerMultiKeyUpdate(channel, usingKey, status, reason)
-			pollingLock.Unlock()
 			if beforeStatus != channel.Status {
 				shouldUpdateAbilities = true
 			}
@@ -840,7 +854,7 @@ func updateChannelStatus(channelId int, usingKey string, status int, reason stri
 			channel.Status = status
 			shouldUpdateAbilities = true
 		}
-		err = channel.SaveWithoutKey()
+		err = channel.saveStatusState()
 		if err != nil {
 			common.SysLog(fmt.Sprintf("failed to update channel status: channel_id=%d, status=%d, error=%v", channel.Id, status, err))
 			return false
@@ -1038,6 +1052,9 @@ func (channel *Channel) ValidateSettings() error {
 		if _, err := loadChannelDailyLimitLocation(timezone); err != nil {
 			return fmt.Errorf("daily_request_limit_timezone is not a valid IANA time zone: %s", timezone)
 		}
+	}
+	if _, err := common.ParseProxyURLStrict(channelParams.Proxy); err != nil {
+		return fmt.Errorf("invalid channel proxy: %w", err)
 	}
 	channelOtherSettings := &dto.ChannelOtherSettings{}
 	if channel.OtherSettings != "" {

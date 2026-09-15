@@ -37,25 +37,27 @@ func UsageFromGeminiMetadata(metadata *dto.GeminiUsageMetadata, fallbackPromptTo
 	usage.PromptTokensDetails.CachedTokens = metadata.CachedContentTokenCount
 
 	for _, detail := range metadata.PromptTokensDetails {
-		if detail.Modality == "AUDIO" {
+		modality := strings.ToUpper(strings.TrimSpace(detail.Modality))
+		if modality == "AUDIO" {
 			usage.PromptTokensDetails.AudioTokens += detail.TokenCount
-		} else if detail.Modality == "IMAGE" {
+		} else if modality == "IMAGE" {
 			usage.PromptTokensDetails.ImageTokens += detail.TokenCount
-		} else if detail.Modality == "TEXT" {
+		} else if modality == "TEXT" {
 			usage.PromptTokensDetails.TextTokens += detail.TokenCount
 		}
 	}
 	for _, detail := range metadata.ToolUsePromptTokensDetails {
-		if detail.Modality == "AUDIO" {
+		modality := strings.ToUpper(strings.TrimSpace(detail.Modality))
+		if modality == "AUDIO" {
 			usage.PromptTokensDetails.AudioTokens += detail.TokenCount
-		} else if detail.Modality == "IMAGE" {
+		} else if modality == "IMAGE" {
 			usage.PromptTokensDetails.ImageTokens += detail.TokenCount
-		} else if detail.Modality == "TEXT" {
+		} else if modality == "TEXT" {
 			usage.PromptTokensDetails.TextTokens += detail.TokenCount
 		}
 	}
 	for _, detail := range metadata.CandidatesTokensDetails {
-		switch detail.Modality {
+		switch strings.ToUpper(strings.TrimSpace(detail.Modality)) {
 		case "IMAGE":
 			usage.CompletionTokenDetails.ImageTokens += detail.TokenCount
 		case "AUDIO":
@@ -66,7 +68,7 @@ func UsageFromGeminiMetadata(metadata *dto.GeminiUsageMetadata, fallbackPromptTo
 	}
 
 	if usage.TotalTokens > 0 && usage.CompletionTokens <= 0 {
-		usage.CompletionTokens = usage.TotalTokens - usage.PromptTokens
+		usage.CompletionTokens = max(0, usage.TotalTokens-usage.PromptTokens)
 	}
 
 	if usage.PromptTokens > 0 && usage.PromptTokensDetails.TextTokens == 0 && usage.PromptTokensDetails.AudioTokens == 0 {

@@ -1,12 +1,14 @@
 package controller
 
 import (
-	"encoding/json"
 	"fmt"
+	"github.com/gin-contrib/sessions"
+	"github.com/gin-contrib/sessions/cookie"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
@@ -30,7 +32,7 @@ func setupCustomOAuthUnbindTestDB(t *testing.T) *gorm.DB {
 	model.DB = db
 	model.LOG_DB = db
 
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Token{}, &model.CustomOAuthProvider{}, &model.UserOAuthBinding{}))
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Token{}, &model.CustomOAuthProvider{}, &model.UserOAuthBinding{}, &model.SecurityFlow{}))
 
 	t.Cleanup(func() {
 		sqlDB, err := db.DB()
@@ -71,13 +73,27 @@ func insertUnbindFixture(t *testing.T, db *gorm.DB, disableUnbind bool, isRegist
 	return user, provider
 }
 
-func performSelfUnbind(userId int, providerId int) *httptest.ResponseRecorder {
+func performSelfUnbind(t *testing.T, userId int, providerId int) *httptest.ResponseRecorder {
+	t.Helper()
+	sid, err := model.CreateSecurityFlow(model.SecurityFlow{UserID: userId, Kind: "session", ExpiresAt: time.Now().Add(time.Hour).Unix()})
+	require.NoError(t, err)
+	identity := model.SecurityIdentity{UserID: userId, SessionID: model.SecurityTokenHash(sid)}
+	proof, err := model.CreateSecurityFlow(model.SecurityFlow{UserID: userId, SessionID: identity.SessionID, Kind: "proof", Scope: "account.unbind.oauth", ContextHash: model.SecurityTokenHash(fmt.Sprint(providerId)), ExpiresAt: time.Now().Add(time.Minute).Unix()})
+	require.NoError(t, err)
+	router := gin.New()
+	router.Use(sessions.Sessions("session", cookie.NewStore([]byte("unbind-test"))))
+	router.Use(func(c *gin.Context) {
+		session := sessions.Default(c)
+		session.Set("id", userId)
+		session.Set("auth_version", int64(0))
+		session.Set("security_session", identity.SessionID)
+		c.Set("id", userId)
+	})
+	router.DELETE("/api/user/oauth/bindings/:provider_id", UnbindCustomOAuth)
+	request := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/user/oauth/bindings/%d", providerId), nil)
+	request.Header.Set("X-Security-Proof", proof)
 	recorder := httptest.NewRecorder()
-	ctx, _ := gin.CreateTestContext(recorder)
-	ctx.Request = httptest.NewRequest(http.MethodDelete, "/api/user/self/oauth/bindings/0", nil)
-	ctx.Set("id", userId)
-	ctx.Params = gin.Params{{Key: "provider_id", Value: fmt.Sprintf("%d", providerId)}}
-	UnbindCustomOAuth(ctx)
+	router.ServeHTTP(recorder, request)
 	return recorder
 }
 
@@ -87,7 +103,7 @@ func decodeApiResponse(t *testing.T, recorder *httptest.ResponseRecorder) (bool,
 		Success bool   `json:"success"`
 		Message string `json:"message"`
 	}
-	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &body))
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &body))
 	return body.Success, body.Message
 }
 
@@ -102,7 +118,7 @@ func TestUnbindCustomOAuthRejectsRegistrationBinding(t *testing.T) {
 	db := setupCustomOAuthUnbindTestDB(t)
 	user, provider := insertUnbindFixture(t, db, false, true)
 
-	recorder := performSelfUnbind(user.Id, provider.Id)
+	recorder := performSelfUnbind(t, user.Id, provider.Id)
 	success, message := decodeApiResponse(t, recorder)
 
 	assert.False(t, success)
@@ -114,7 +130,7 @@ func TestUnbindCustomOAuthRejectsWhenProviderDisallows(t *testing.T) {
 	db := setupCustomOAuthUnbindTestDB(t)
 	user, provider := insertUnbindFixture(t, db, true, false)
 
-	recorder := performSelfUnbind(user.Id, provider.Id)
+	recorder := performSelfUnbind(t, user.Id, provider.Id)
 	success, message := decodeApiResponse(t, recorder)
 
 	assert.False(t, success)
@@ -126,7 +142,7 @@ func TestUnbindCustomOAuthAllowsRegularBinding(t *testing.T) {
 	db := setupCustomOAuthUnbindTestDB(t)
 	user, provider := insertUnbindFixture(t, db, false, false)
 
-	recorder := performSelfUnbind(user.Id, provider.Id)
+	recorder := performSelfUnbind(t, user.Id, provider.Id)
 	success, _ := decodeApiResponse(t, recorder)
 
 	assert.True(t, success)

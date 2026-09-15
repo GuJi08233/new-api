@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
@@ -25,7 +26,7 @@ func setupWebSocketAuthUser(t *testing.T, status int) {
 	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", strings.ReplaceAll(t.Name(), "/", "_"))
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&model.User{}))
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.SecurityFlow{}))
 	require.NoError(t, db.Create(&model.User{Id: 7, Username: "tester", Role: common.RoleCommonUser, Status: status}).Error)
 	originalDB, originalLogDB := model.DB, model.LOG_DB
 	model.DB, model.LOG_DB = db, db
@@ -49,6 +50,10 @@ func performWebSocketAuthRequest(t *testing.T, loggedIn bool) *httptest.Response
 		session.Set("role", common.RoleCommonUser)
 		session.Set("id", 7)
 		session.Set("status", common.UserStatusEnabled)
+		sid, err := model.CreateSecurityFlow(model.SecurityFlow{UserID: 7, Kind: "session", ExpiresAt: time.Now().Add(time.Hour).Unix()})
+		require.NoError(t, err)
+		session.Set("security_session", model.SecurityTokenHash(sid))
+		session.Set("auth_version", int64(0))
 		require.NoError(t, session.Save())
 		c.Status(http.StatusNoContent)
 	})
@@ -90,5 +95,5 @@ func TestWebSocketUserAuthRejectsAnonymousHandshake(t *testing.T) {
 func TestWebSocketUserAuthRejectsUserBannedAfterLogin(t *testing.T) {
 	setupWebSocketAuthUser(t, common.UserStatusDisabled)
 	recorder := performWebSocketAuthRequest(t, true)
-	require.Equal(t, http.StatusForbidden, recorder.Code)
+	require.Equal(t, http.StatusUnauthorized, recorder.Code)
 }

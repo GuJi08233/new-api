@@ -124,16 +124,17 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
 		}
 		info.ClaudeConvertInfo.LastMessagesType = relaycommon.LastMessageTypeNone
 	}
-	if info.SendResponseCount == 1 {
+	if !info.ClaudeConvertInfo.MessageStartSent {
+		info.ClaudeConvertInfo.MessageStartSent = true
 		msg := &dto.ClaudeMediaMessage{
 			Id:    openAIResponse.Id,
 			Model: openAIResponse.Model,
 			Type:  "message",
 			Role:  "assistant",
-			Usage: &dto.ClaudeUsage{
-				InputTokens:  info.GetEstimatePromptTokens(),
-				OutputTokens: 0,
-			},
+			Usage: &dto.ClaudeUsage{InputTokens: info.GetEstimatePromptTokens()},
+		}
+		if openAIResponse.Usage != nil {
+			msg.Usage = buildClaudeUsageFromOpenAIUsage(openAIResponse.Usage)
 		}
 		msg.SetContent(make([]any, 0))
 		claudeResponses = append(claudeResponses, &dto.ClaudeResponse{
@@ -241,11 +242,14 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
 		// 如果首块就带 finish_reason，需要立即发送停止块
 		if len(openAIResponse.Choices) > 0 && openAIResponse.Choices[0].FinishReason != nil && *openAIResponse.Choices[0].FinishReason != "" {
 			info.FinishReason = *openAIResponse.Choices[0].FinishReason
-			stopOpenBlocks()
 			oaiUsage := openAIResponse.Usage
 			if oaiUsage == nil {
 				oaiUsage = info.ClaudeConvertInfo.Usage
 			}
+			if oaiUsage == nil {
+				return claudeResponses
+			}
+			stopOpenBlocks()
 			if oaiUsage != nil {
 				claudeResponses = append(claudeResponses, &dto.ClaudeResponse{
 					Type:  "message_delta",

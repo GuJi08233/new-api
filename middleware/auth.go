@@ -101,6 +101,16 @@ func authHelper(c *gin.Context, minRole int) {
 			return
 		}
 	}
+	if !useAccessToken {
+		user, err := CurrentCookieUser(c)
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"success": false, "message": "登录状态已失效，请重新登录"})
+			return
+		}
+		username, role, id, status = user.Username, user.Role, user.Id, user.Status
+		c.Set("group", user.Group)
+		c.Set("user_group", user.Group)
+	}
 	// get header New-Api-User
 	apiUserIdStr := c.Request.Header.Get("New-Api-User")
 	if apiUserIdStr == "" {
@@ -162,8 +172,7 @@ func authHelper(c *gin.Context, minRole int) {
 	c.Set("username", username)
 	c.Set("role", role)
 	c.Set("id", id)
-	c.Set("group", session.Get("group"))
-	c.Set("user_group", session.Get("group"))
+
 	c.Set("use_access_token", useAccessToken)
 
 	// 管理/root 写操作审计兜底：内聚在鉴权链路里，保证任何经过 AdminAuth/RootAuth
@@ -181,10 +190,8 @@ func authHelper(c *gin.Context, minRole int) {
 
 func TryUserAuth() func(c *gin.Context) {
 	return func(c *gin.Context) {
-		session := sessions.Default(c)
-		id := session.Get("id")
-		if id != nil {
-			c.Set("id", id)
+		if user, err := CurrentCookieUser(c); err == nil {
+			c.Set("id", user.Id)
 		}
 		c.Next()
 	}
@@ -230,45 +237,14 @@ func RequirePermission(permission authz.Permission) func(c *gin.Context) {
 // session cookie the browser sends on a same-origin upgrade is the credential.
 func WebSocketUserAuth() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		session := sessions.Default(c)
-		id, idOk := session.Get("id").(int)
-		username, usernameOk := session.Get("username").(string)
-		role, roleOk := session.Get("role").(int)
-		status, statusOk := session.Get("status").(int)
-		if !idOk || !usernameOk || !roleOk || !statusOk || id <= 0 || !validUserInfo(username, role) {
-			c.JSON(http.StatusUnauthorized, gin.H{
-				"success": false,
-				"message": common.TranslateMessage(c, i18n.MsgAuthNotLoggedIn),
-			})
-			c.Abort()
+		user, err := CurrentCookieUser(c)
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"success": false, "message": "登录状态已失效，请重新登录"})
 			return
 		}
-		// The cookie's status is a month-old snapshot; a ban only touches the
-		// database. Re-read the live status so a banned account cannot keep the
-		// tunnel for the rest of the cookie's life.
-		if status != common.UserStatusDisabled {
-			user, err := model.GetUserCache(id)
-			if err != nil {
-				c.JSON(http.StatusUnauthorized, gin.H{
-					"success": false,
-					"message": common.TranslateMessage(c, i18n.MsgAuthNotLoggedIn),
-				})
-				c.Abort()
-				return
-			}
-			status = user.Status
-		}
-		if status == common.UserStatusDisabled {
-			c.JSON(http.StatusForbidden, gin.H{
-				"success": false,
-				"message": userBannedMessage(c, id),
-			})
-			c.Abort()
-			return
-		}
-		c.Set("username", username)
-		c.Set("role", role)
-		c.Set("id", id)
+		c.Set("id", user.Id)
+		c.Set("username", user.Username)
+		c.Set("role", user.Role)
 		c.Next()
 	}
 }
@@ -277,14 +253,10 @@ func WebSocketUserAuth() gin.HandlerFunc {
 // Used for endpoints that need to be accessible from both the dashboard and API clients.
 func TokenOrUserAuth() func(c *gin.Context) {
 	return func(c *gin.Context) {
-		// Try session auth first (dashboard users)
-		session := sessions.Default(c)
-		if id := session.Get("id"); id != nil {
-			if status, ok := session.Get("status").(int); ok && status == common.UserStatusEnabled {
-				c.Set("id", id)
-				c.Next()
-				return
-			}
+		if user, err := CurrentCookieUser(c); err == nil {
+			c.Set("id", user.Id)
+			c.Next()
+			return
 		}
 		// Fall back to token auth (API clients)
 		TokenAuth()(c)
@@ -395,7 +367,7 @@ func TokenAuth() func(c *gin.Context) {
 		// gemini api 从query中获取key
 		if strings.HasPrefix(c.Request.URL.Path, "/v1beta/models") ||
 			strings.HasPrefix(c.Request.URL.Path, "/v1beta/openai/models") ||
-			strings.HasPrefix(c.Request.URL.Path, "/v1/models/") {
+			(c.Request.URL.Path == "/v1/models" || strings.HasPrefix(c.Request.URL.Path, "/v1/models/")) {
 			skKey := c.Query("key")
 			if skKey != "" {
 				c.Request.Header.Set("Authorization", "Bearer "+skKey)

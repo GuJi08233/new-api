@@ -73,6 +73,9 @@ func ResponsesRequestToChatCompletionsRequest(req *dto.OpenAIResponsesRequest) (
 		SafetyIdentifier:     req.SafetyIdentifier,
 		PromptCacheRetention: req.PromptCacheRetention,
 		EnableThinking:       req.EnableThinking,
+		ThinkingBudget:       req.ThinkingBudget,
+		FrequencyPenalty:     req.FrequencyPenalty,
+		PresencePenalty:      req.PresencePenalty,
 	}
 
 	if req.Reasoning != nil {

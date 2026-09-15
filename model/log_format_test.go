@@ -35,6 +35,19 @@ func TestFormatUserLogsStripsQuotaSaturation(t *testing.T) {
 	require.Contains(t, parsed, "model_price")
 }
 
+func TestFormatUserLogsStripsLegacyChannelMetadata(t *testing.T) {
+	logs := []*Log{{ChannelName: "private-provider", Other: common.MapToJsonStr(map[string]any{
+		"channel_id": 42, "channel_name": "private-provider", "channel_type": 1,
+		"reject_reason": "internal policy", "admin_info": map[string]any{"route": "secret"},
+		"model_ratio": 2.0,
+	})}}
+	formatUserLogs(logs, 0)
+	other, err := common.StrToMap(logs[0].Other)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]any{"model_ratio": float64(2)}, other)
+	assert.Empty(t, logs[0].ChannelName)
+}
+
 // TestFormatUserLogsHidesModelMapping locks the user-facing contract of the
 // "hide model mapping" option: with it on, neither the redirect markers in
 // other nor the upstream model name inside the log content may reach a

@@ -26,20 +26,19 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// applyUpstreamContentLength populates req.ContentLength when the upstream
-// body is wrapped in a BodyStorage (see relay/common/outbound_body.go).
-//
-// net/http.NewRequest only auto-detects ContentLength for *bytes.Reader,
-// *bytes.Buffer and *strings.Reader. When the body is a type-erased io.Reader
-// (which is the case for ReaderOnly(BodyStorage)), the Content-Length header
-// would otherwise be omitted, forcing chunked transfer encoding and breaking
-// some upstreams that require an explicit Content-Length.
-func applyUpstreamContentLength(req *http.Request, info *common.RelayInfo) {
-	if info == nil {
+// ApplyUpstreamBodyMetadata 补齐包装请求体的长度和独立重放能力。
+// 元数据来自当前 body，不能沿用共享 RelayInfo 中上一轮请求体的长度。
+func ApplyUpstreamBodyMetadata(req *http.Request, body io.Reader) {
+	replayable, ok := body.(common2.ReplayableBody)
+	if !ok {
 		return
 	}
-	if info.UpstreamRequestBodySize > 0 && req.ContentLength <= 0 {
-		req.ContentLength = info.UpstreamRequestBodySize
+	if _, rawStorage := body.(common2.BodyStorage); rawStorage {
+		req.Body = io.NopCloser(body)
+	}
+	req.ContentLength = replayable.Size()
+	if req.GetBody == nil {
+		req.GetBody = replayable.NewReader
 	}
 }
 
@@ -360,7 +359,7 @@ func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 	if err != nil {
 		return nil, fmt.Errorf("new request failed: %w", err)
 	}
-	applyUpstreamContentLength(req, info)
+	ApplyUpstreamBodyMetadata(req, requestBody)
 	headers := req.Header
 	err = a.SetupRequestHeader(c, &headers, info)
 	if err != nil {
@@ -383,7 +382,7 @@ func DoFormRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBod
 	if err != nil {
 		return nil, fmt.Errorf("new request failed: %w", err)
 	}
-	applyUpstreamContentLength(req, info)
+	ApplyUpstreamBodyMetadata(req, requestBody)
 	// set form data
 	req.Header.Set("Content-Type", c.Request.Header.Get("Content-Type"))
 	headers := req.Header
@@ -535,6 +534,10 @@ func doPreparedRequest(c *gin.Context, req *http.Request, info *common.RelayInfo
 	return doRequestWithPreparedHeaders(c, req, info, true)
 }
 
+func keepUpstreamRedirectResponse(_ *http.Request, _ []*http.Request) error {
+	return http.ErrUseLastResponse
+}
+
 func doRequestWithPreparedHeaders(c *gin.Context, req *http.Request, info *common.RelayInfo, headersPrepared bool) (*http.Response, error) {
 	// A retry reuses the Gin context; remove metadata from the previous
 	// upstream attempt before preparing the next response.
@@ -558,6 +561,9 @@ func doRequestWithPreparedHeaders(c *gin.Context, req *http.Request, info *commo
 	} else {
 		client = service.GetHttpClient()
 	}
+	// 客户端和连接池是共享的，只在本次relay副本上禁止3xx自动重发凭据/请求体。
+	relayClient := *client
+	relayClient.CheckRedirect = keepUpstreamRedirectResponse
 
 	var stopPinger context.CancelFunc
 	var pingerDone <-chan struct{}
@@ -587,7 +593,7 @@ func doRequestWithPreparedHeaders(c *gin.Context, req *http.Request, info *commo
 		}
 	}
 
-	resp, err := client.Do(req)
+	resp, err := relayClient.Do(req)
 	if err != nil {
 		logger.LogError(c, "do request failed: "+err.Error())
 		return nil, types.NewError(err, types.ErrorCodeDoRequestFailed, types.ErrOptionWithHideErrMsg("upstream error: do request failed"))
@@ -634,10 +640,7 @@ func doTaskApiRequest(a TaskAdaptor, c *gin.Context, info *common.RelayInfo, req
 	if err != nil {
 		return nil, fmt.Errorf("new request failed: %w", err)
 	}
-	applyUpstreamContentLength(req, info)
-	req.GetBody = func() (io.ReadCloser, error) {
-		return io.NopCloser(requestBody), nil
-	}
+	ApplyUpstreamBodyMetadata(req, requestBody)
 
 	err = a.BuildRequestHeader(c, req, info)
 	if err != nil {

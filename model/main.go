@@ -148,27 +148,21 @@ func chooseDB(envName string, isLog bool) (*gorm.DB, common.DatabaseType, error)
 				return nil, "", fmt.Errorf("%s does not support ClickHouse; use SQLite, MySQL, or PostgreSQL for the primary database and LOG_SQL_DSN for ClickHouse logs", envName)
 			}
 			common.SysLog("using ClickHouse as log database")
-			db, err := gorm.Open(clickhouse.Open(normalizeClickHouseDSN(dsn)), &gorm.Config{
-				PrepareStmt: false,
-			})
+			db, err := gorm.Open(clickhouse.Open(normalizeClickHouseDSN(dsn)), newGormConfig(false))
 			return db, common.DatabaseTypeClickHouse, err
 		}
 		if strings.HasPrefix(dsn, "postgres://") || strings.HasPrefix(dsn, "postgresql://") {
 			// Use PostgreSQL
 			common.SysLog("using PostgreSQL as database")
-			db, err := gorm.Open(postgres.New(postgres.Config{
+			db, err := gorm.Open(postgresMigrationDialector{postgres.Dialector{Config: &postgres.Config{
 				DSN:                  dsn,
-				PreferSimpleProtocol: true, // disables implicit prepared statement usage
-			}), &gorm.Config{
-				PrepareStmt: true, // precompile SQL
-			})
+				PreferSimpleProtocol: true,
+			}}}, newGormConfig(false))
 			return db, common.DatabaseTypePostgreSQL, err
 		}
 		if strings.HasPrefix(dsn, "local") {
 			common.SysLog("SQL_DSN not set, using SQLite as database")
-			db, err := gorm.Open(sqlite.Open(common.SQLitePath), &gorm.Config{
-				PrepareStmt: true, // precompile SQL
-			})
+			db, err := gorm.Open(sqlite.Open(common.SQLitePath), newGormConfig(true))
 			return db, common.DatabaseTypeSQLite, err
 		}
 		// Use MySQL
@@ -181,16 +175,12 @@ func chooseDB(envName string, isLog bool) (*gorm.DB, common.DatabaseType, error)
 				dsn += "?parseTime=true"
 			}
 		}
-		db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{
-			PrepareStmt: true, // precompile SQL
-		})
+		db, err := gorm.Open(mysqlMigrationDialector{mysql.Dialector{Config: &mysql.Config{DSN: dsn}}}, newGormConfig(true))
 		return db, common.DatabaseTypeMySQL, err
 	}
 	// Use SQLite
 	common.SysLog("SQL_DSN not set, using SQLite as database")
-	db, err := gorm.Open(sqlite.Open(common.SQLitePath), &gorm.Config{
-		PrepareStmt: true, // precompile SQL
-	})
+	db, err := gorm.Open(sqlite.Open(common.SQLitePath), newGormConfig(true))
 	return db, common.DatabaseTypeSQLite, err
 }
 
@@ -291,10 +281,10 @@ func initReadOnlyDB() {
 	switch dbType {
 	case common.DatabaseTypePostgreSQL:
 		common.SysLog("connecting to read-only PostgreSQL replica")
-		db, err = gorm.Open(postgres.New(postgres.Config{
+		db, err = gorm.Open(postgresMigrationDialector{postgres.Dialector{Config: &postgres.Config{
 			DSN:                  dsn,
 			PreferSimpleProtocol: true,
-		}), &gorm.Config{PrepareStmt: true})
+		}}}, newGormConfig(false))
 	case common.DatabaseTypeMySQL:
 		common.SysLog("connecting to read-only MySQL replica")
 		if !strings.Contains(dsn, "parseTime") {
@@ -304,7 +294,7 @@ func initReadOnlyDB() {
 				dsn += "?parseTime=true"
 			}
 		}
-		db, err = gorm.Open(mysql.Open(dsn), &gorm.Config{PrepareStmt: true})
+		db, err = gorm.Open(mysqlMigrationDialector{mysql.Dialector{Config: &mysql.Config{DSN: dsn}}}, newGormConfig(true))
 	case common.DatabaseTypeSQLite:
 		common.SysLog("SQL_DSN_READONLY is ignored for SQLite")
 		return
@@ -332,6 +322,14 @@ func initReadOnlyDB() {
 }
 
 func migrateDB() error {
+	// 在GORM检查列之前处理旧库唯一约束，避免按新命名误删不存在的约束。
+	if err := migrateTokenKeyUniqueness(DB); err != nil {
+		return err
+	}
+	if err := migratePrefillGroupUniqueness(DB); err != nil {
+		return err
+	}
+
 	// Migrate price_amount column from float/double to decimal for existing tables
 	migrateSubscriptionPlanPriceAmount()
 	// Migrate model_limits column from varchar to text for existing tables
@@ -345,6 +343,7 @@ func migrateDB() error {
 		&Token{},
 		&User{},
 		&PasskeyCredential{},
+		&SecurityFlow{},
 		&Option{},
 		&Redemption{},
 		&Ability{},
@@ -405,6 +404,13 @@ func migrateDB() error {
 }
 
 func migrateDBFast() error {
+	// 在GORM检查列之前处理旧库唯一约束，避免按新命名误删不存在的约束。
+	if err := migrateTokenKeyUniqueness(DB); err != nil {
+		return err
+	}
+	if err := migratePrefillGroupUniqueness(DB); err != nil {
+		return err
+	}
 
 	var wg sync.WaitGroup
 
@@ -417,6 +423,7 @@ func migrateDBFast() error {
 		{&Token{}, "Token"},
 		{&User{}, "User"},
 		{&PasskeyCredential{}, "PasskeyCredential"},
+		{&SecurityFlow{}, "SecurityFlow"},
 		{&Option{}, "Option"},
 		{&Redemption{}, "Redemption"},
 		{&Ability{}, "Ability"},

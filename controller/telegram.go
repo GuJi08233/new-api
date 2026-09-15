@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"net/http"
 	"net/url"
 	"sort"
 	"strconv"
@@ -13,9 +12,9 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 
-	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
 )
 
@@ -52,32 +51,23 @@ func TelegramBind(c *gin.Context) {
 		return
 	}
 
-	session := sessions.Default(c)
-	id := session.Get("id")
-	user := model.User{Id: id.(int)}
-	if err := user.FillUserById(); err != nil {
-		c.JSON(200, gin.H{
-			"message": err.Error(),
-			"success": false,
-		})
+	if !middleware.RequireSecurityProof(c, "account.bind.telegram", telegramId) {
 		return
 	}
-	if user.Id == 0 {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "用户已注销",
-		})
+	identity, err := middleware.CookieSecurityIdentity(c)
+	if err != nil {
+		common.ApiError(c, err)
 		return
 	}
-	user.TelegramId = telegramId
-	if err := user.Update(false); err != nil {
-		c.JSON(200, gin.H{
-			"message": err.Error(),
-			"success": false,
-		})
+	version, err := model.BindAccountColumn(identity, "telegram_id", telegramId)
+	if err != nil {
+		common.ApiError(c, err)
 		return
 	}
-
+	if err := saveSecurityVersion(c, version); err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	c.Redirect(302, "/console/personal")
 }
 

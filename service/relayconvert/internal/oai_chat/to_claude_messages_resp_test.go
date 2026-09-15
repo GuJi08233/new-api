@@ -9,6 +9,23 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestClaudeStreamWaitsForUsageAfterFirstFrameFinish(t *testing.T) {
+	finish := "stop"
+	info := &relaycommon.RelayInfo{SendResponseCount: 1}
+	first := StreamResponseOpenAI2Claude(&dto.ChatCompletionsStreamResponse{Choices: []dto.ChatCompletionsStreamResponseChoice{{FinishReason: &finish}}}, info)
+	require.NotEmpty(t, first)
+	assert.Equal(t, "message_start", first[0].Type)
+	assert.False(t, info.ClaudeConvertInfo.Done)
+	info.SendResponseCount++
+	last := StreamResponseOpenAI2Claude(&dto.ChatCompletionsStreamResponse{Usage: &dto.Usage{PromptTokens: 9, CompletionTokens: 1, TotalTokens: 10}}, info)
+	require.Len(t, last, 2)
+	assert.Equal(t, "message_delta", last[0].Type)
+	require.NotNil(t, last[0].Usage)
+	assert.Equal(t, 9, last[0].Usage.InputTokens)
+	assert.Equal(t, "message_stop", last[1].Type)
+	assert.True(t, info.ClaudeConvertInfo.Done)
+}
+
 func TestResponseOpenAI2ClaudeToolUseInputIsObject(t *testing.T) {
 	tests := []struct {
 		name string

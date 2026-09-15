@@ -20,9 +20,7 @@ For commercial licensing, please contact support@quantumnous.com
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button, Modal } from '@douyinfe/semi-ui';
-import { useSecureVerification } from '../../../hooks/common/useSecureVerification';
 import { createApiCalls } from '../../../services/secureVerification';
-import SecureVerificationModal from '../modals/SecureVerificationModal';
 import ChannelKeyDisplay from '../ui/ChannelKeyDisplay';
 
 /**
@@ -34,36 +32,12 @@ const ChannelKeyViewExample = ({ channelId }) => {
   const [keyData, setKeyData] = useState('');
   const [showKeyModal, setShowKeyModal] = useState(false);
 
-  // 使用通用安全验证 Hook
-  const {
-    isModalVisible,
-    verificationMethods,
-    verificationState,
-    startVerification,
-    executeVerification,
-    cancelVerification,
-    setVerificationCode,
-    switchVerificationMethod,
-  } = useSecureVerification({
-    onSuccess: (result) => {
-      // 验证成功后处理结果
-      if (result.success && result.data?.key) {
-        setKeyData(result.data.key);
-        setShowKeyModal(true);
-      }
-    },
-    successMessage: t('密钥获取成功'),
-  });
-
-  // 开始查看密钥流程
   const handleViewKey = async () => {
-    const apiCall = createApiCalls.viewChannelKey(channelId);
-
-    await startVerification(apiCall, {
-      title: t('查看渠道密钥'),
-      description: t('为了保护账户安全，请验证您的身份。'),
-      preferredMethod: 'passkey', // 可以指定首选验证方式
-    });
+    const result = await createApiCalls.viewChannelKey(channelId)();
+    if (result.success && result.data?.key) {
+      setKeyData(result.data.key);
+      setShowKeyModal(true);
+    }
   };
 
   return (
@@ -72,19 +46,6 @@ const ChannelKeyViewExample = ({ channelId }) => {
       <Button type='primary' theme='outline' onClick={handleViewKey}>
         {t('查看密钥')}
       </Button>
-
-      {/* 安全验证模态框 */}
-      <SecureVerificationModal
-        visible={isModalVisible}
-        verificationMethods={verificationMethods}
-        verificationState={verificationState}
-        onVerify={executeVerification}
-        onCancel={cancelVerification}
-        onCodeChange={setVerificationCode}
-        onMethodSwitch={switchVerificationMethod}
-        title={verificationState.title}
-        description={verificationState.description}
-      />
 
       {/* 密钥显示模态框 */}
       <Modal

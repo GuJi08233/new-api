@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -13,6 +14,8 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/model"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/setting"
 
@@ -254,4 +257,43 @@ func DoMidjourneyHttpRequest(c *gin.Context, timeout time.Duration, fullRequestU
 		StatusCode: statusCode,
 		Response:   midjResponse,
 	}, responseBody, nil
+}
+
+// SettleMidjourneyTaskBilling 仅记录已提交的扣费阶段，失败任务不会退还从未扣过的额度。
+func SettleMidjourneyTaskBilling(info *relaycommon.RelayInfo, task *model.Midjourney, quota int, shouldBill bool) (bool, error) {
+	if !shouldBill || quota == 0 {
+		return false, nil
+	}
+	if info.BillingSource == BillingSourceSubscription {
+		return false, fmt.Errorf("Midjourney does not support subscription billing")
+	}
+	tokenID := info.TokenId
+	if info.IsPlayground {
+		tokenID = 0
+	}
+	if err := model.ChargeMidjourneyTask(task, quota, tokenID, info.ChannelId, info.TokenKey); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func RefundMidjourneyQuota(ctx context.Context, task *model.Midjourney, reason string) bool {
+	if task.Quota == 0 {
+		return true
+	}
+	refunded, quota, err := model.RefundMidjourneyBilling(task.Id)
+	if err != nil {
+		logger.LogError(ctx, fmt.Sprintf("Midjourney 退款失败: %v", err))
+		return false
+	}
+	task.Quota, task.RefundPending = 0, false
+	if quota == 0 {
+		return true
+	}
+	channelID := refunded.BillingChannelId
+	if channelID == 0 {
+		channelID = refunded.ChannelId
+	}
+	model.RecordTaskBillingLog(model.RecordTaskBillingLogParams{UserId: refunded.UserId, LogType: model.LogTypeRefund, ChannelId: channelID, ModelName: CovertMjpActionToModelName(refunded.Action), Quota: quota, TokenId: refunded.TokenId, Source: refunded.LogSource(), Other: map[string]interface{}{"task_id": refunded.MjId, "reason": reason}})
+	return true
 }

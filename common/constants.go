@@ -195,6 +195,9 @@ var RelayTimeout int // unit is second
 
 var RelayConnectTimeout int // unit is second, 0 means no limit
 
+// 只限制等待上游响应头，不限制收到响应头后的流式输出；0 表示关闭。
+var RelayResponseHeaderTimeout = 1800 // unit is second
+
 var RelayIdleConnTimeout int // unit is second
 var RelayMaxIdleConns int
 var RelayMaxIdleConnsPerHost int

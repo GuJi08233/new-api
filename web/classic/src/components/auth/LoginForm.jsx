@@ -195,6 +195,11 @@ const LoginForm = () => {
   };
 
   const handleWeChatLoginSuccess = (data, message) => {
+    if (data?.require_2fa) {
+      setShowWeChatLoginModal(false);
+      setShowTwoFA(true);
+      return;
+    }
     userDispatch({ type: 'login', payload: data });
     localStorage.setItem('user', JSON.stringify(data));
     setUserData(data);
@@ -353,6 +358,10 @@ const LoginForm = () => {
       const res = await API.get(`/api/oauth/telegram/login`, { params });
       const { success, message, data } = res.data;
       if (success) {
+        if (data?.require_2fa) {
+          setShowTwoFA(true);
+          return;
+        }
         userDispatch({ type: 'login', payload: data });
         localStorage.setItem('user', JSON.stringify(data));
         showSuccess('登录成功！');

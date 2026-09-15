@@ -469,6 +469,9 @@ func isJSONRequest(c *gin.Context) bool {
 }
 
 func (a *Adaptor) convertOpenAICompatibleRequest(c *gin.Context, info *relaycommon.RelayInfo, request *dto.GeneralOpenAIRequest) (any, error) {
+	if info.IsStream && info.SupportStreamOptions && (a.converter == relayconvert.ConverterClaudeMessagesToOpenAIChat || a.converter == relayconvert.ConverterGeminiContentToOpenAIChat || a.converter == relayconvert.ConverterOpenAIResponsesToOpenAIChat) {
+		request.StreamOptions = &dto.StreamOptions{IncludeUsage: true}
+	}
 	old := info.ChannelType
 	info.ChannelType = constant.ChannelTypeOpenAI
 	converted, err := a.openaiAdaptor.ConvertOpenAIRequest(c, info, request)

@@ -1,179 +1,183 @@
 package controller
 
 import (
-	"fmt"
-	"net/http"
-	"time"
-
+	"errors"
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/oauth"
+	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
-)
-
-const (
-	// SecureVerificationSessionKey means the user has fully passed secure verification.
-	SecureVerificationSessionKey       = "secure_verified_at"
-	secureVerificationMethodSessionKey = "secure_verified_method"
-	secureVerificationMethod2FA        = "2fa"
-	secureVerificationMethodPasskey    = "passkey"
-	// PasskeyReadySessionKey means WebAuthn finished and /api/verify can finalize step-up verification.
-	PasskeyReadySessionKey = "secure_passkey_ready_at"
-	// SecureVerificationTimeout 验证有效期（秒）
-	SecureVerificationTimeout = 300 // 5分钟
-	// PasskeyReadyTimeout passkey ready 标记有效期（秒）
-	PasskeyReadyTimeout = 60
+	"gorm.io/gorm"
+	"net/http"
+	"net/url"
+	"strings"
+	"time"
 )
 
 type UniversalVerifyRequest struct {
-	Method string `json:"method"` // "2fa" 或 "passkey"
-	Code   string `json:"code,omitempty"`
+	Method      string `json:"method"`
+	Code        string `json:"code"`
+	Password    string `json:"password"`
+	Scope       string `json:"scope"`
+	ContextHash string `json:"context_hash"`
 }
 
-type VerificationStatusResponse struct {
-	Verified  bool  `json:"verified"`
-	ExpiresAt int64 `json:"expires_at,omitempty"`
+func validVerificationScope(scope, digest string) bool {
+	if len(digest) != 64 {
+		return false
+	}
+	switch scope {
+	case "channel.key.read", "account.delete", "access_token.generate", "password.change", "passkey.register", "passkey.delete", "2fa.setup", "account.bind.email", "account.bind.wechat", "account.bind.telegram", "account.bind.oauth", "account.unbind.oauth":
+		return true
+	}
+	return false
 }
 
-// UniversalVerify 通用验证接口
-// 支持 2FA 和 Passkey 验证，验证成功后在 session 中记录时间戳
+func verificationAccount(c *gin.Context) (*model.User, model.SecurityIdentity, error) {
+	identity, err := middleware.CookieSecurityIdentity(c)
+	if err != nil {
+		return nil, identity, err
+	}
+	if _, err := model.ReadSecurityIdentity(identity); err != nil {
+		return nil, identity, err
+	}
+	var user model.User
+	err = model.DB.First(&user, identity.UserID).Error
+	return &user, identity, err
+}
+
+func SecurityVerificationRequirements(c *gin.Context) {
+	user, _, err := verificationAccount(c)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	var factor model.TwoFA
+	err = model.DB.Where("user_id = ? AND is_enabled = ?", user.Id, true).First(&factor).Error
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		common.ApiError(c, err)
+		return
+	}
+	var passkeys int64
+	if err := model.DB.Model(&model.PasskeyCredential{}).Where("user_id = ?", user.Id).Count(&passkeys).Error; err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	providers := []gin.H{}
+	for slug, provider := range oauth.GetAllProviders() {
+		if !provider.IsEnabled() {
+			continue
+		}
+		bound := false
+		if generic, ok := provider.(*oauth.GenericOAuthProvider); ok {
+			var count int64
+			if err := model.DB.Model(&model.UserOAuthBinding{}).Where("user_id = ? AND provider_id = ?", user.Id, generic.GetProviderId()).Count(&count).Error; err != nil {
+				common.ApiError(c, err)
+				return
+			}
+			bound = count > 0
+		} else {
+			column := oauthBindingColumn(slug)
+			values := map[string]string{"github_id": user.GitHubId, "discord_id": user.DiscordId, "oidc_id": user.OidcId, "linux_do_id": user.LinuxDOId, "steam_openid": user.SteamOpenId}
+			bound = values[column] != ""
+		}
+		if bound {
+			providers = append(providers, gin.H{"slug": slug, "name": provider.GetName()})
+		}
+	}
+	has2FA := factor.Id > 0
+	hasPasskey := passkeys > 0 && system_setting.GetPasskeySettings().Enabled
+	common.ApiSuccess(c, gin.H{"has2FA": has2FA, "hasPasskey": hasPasskey, "hasPassword": !has2FA && !hasPasskey && user.Password != "", "hasWeChat": !has2FA && !hasPasskey && user.WeChatId != "" && common.WeChatAuthEnabled, "hasTelegram": !has2FA && !hasPasskey && user.TelegramId != "" && common.TelegramOAuthEnabled, "telegramBotName": common.TelegramBotName, "oauthProviders": providers})
+}
+
 func UniversalVerify(c *gin.Context) {
-	userId := c.GetInt("id")
-	if userId == 0 {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"success": false,
-			"message": "未登录",
-		})
-		return
-	}
-
 	var req UniversalVerifyRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		common.ApiError(c, fmt.Errorf("参数错误: %v", err))
+	if err := common.DecodeJson(c.Request.Body, &req); err != nil || !validVerificationScope(req.Scope, req.ContextHash) {
+		common.ApiErrorMsg(c, "无效的安全验证操作")
 		return
 	}
-
-	// 获取用户信息
-	user := &model.User{Id: userId}
-	if err := user.FillUserById(); err != nil {
-		common.ApiError(c, fmt.Errorf("获取用户信息失败: %v", err))
+	user, identity, err := verificationAccount(c)
+	if err != nil {
+		common.ApiError(c, err)
 		return
 	}
-
-	if user.Status != common.UserStatusEnabled {
-		common.ApiError(c, fmt.Errorf("该用户已被禁用"))
+	var twoFA model.TwoFA
+	err = model.DB.Where("user_id = ? AND is_enabled = ?", user.Id, true).First(&twoFA).Error
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		common.ApiError(c, err)
 		return
 	}
-
-	// 检查用户的验证方式
-	twoFA, _ := model.GetTwoFAByUserId(userId)
-	has2FA := twoFA != nil && twoFA.IsEnabled
-
-	passkey, passkeyErr := model.GetPasskeyByUserID(userId)
-	hasPasskey := passkeyErr == nil && passkey != nil
-
-	if !has2FA && !hasPasskey {
-		common.ApiError(c, fmt.Errorf("用户未启用2FA或Passkey"))
+	var passkeys int64
+	if err := model.DB.Model(&model.PasskeyCredential{}).Where("user_id = ?", user.Id).Count(&passkeys).Error; err != nil {
+		common.ApiError(c, err)
 		return
 	}
-
-	// 根据验证方式进行验证
-	var verified bool
-	var verifyMethod string
-	var err error
-
+	if !system_setting.GetPasskeySettings().Enabled {
+		passkeys = 0
+	}
+	verified := false
 	switch req.Method {
 	case "2fa":
-		if !has2FA {
-			common.ApiError(c, fmt.Errorf("用户未启用2FA"))
-			return
+		verified = twoFA.Id > 0 && validateTwoFactorAuth(&twoFA, req.Code)
+	case "password":
+		verified = twoFA.Id == 0 && passkeys == 0 && user.Password != "" && common.ValidatePasswordAndHash(req.Password, user.Password)
+	case "telegram":
+		if twoFA.Id == 0 && passkeys == 0 && user.TelegramId != "" && common.TelegramOAuthEnabled {
+			params, err := url.ParseQuery(req.Code)
+			if err == nil {
+				id, err := verifyTelegramAuthorization(params, common.TelegramBotToken, time.Now())
+				verified = err == nil && id == user.TelegramId
+			}
 		}
-		if req.Code == "" {
-			common.ApiError(c, fmt.Errorf("验证码不能为空"))
-			return
+	case "wechat":
+		if twoFA.Id == 0 && passkeys == 0 && user.WeChatId != "" && common.WeChatAuthEnabled {
+			id, err := getWeChatIdByCode(strings.TrimSpace(req.Code))
+			verified = err == nil && id == user.WeChatId
 		}
-		verified = validateTwoFactorAuth(twoFA, req.Code)
-		verifyMethod = "2FA"
-
-	case "passkey":
-		if !hasPasskey {
-			common.ApiError(c, fmt.Errorf("用户未启用Passkey"))
-			return
-		}
-		// Passkey branch only trusts the short-lived marker written by PasskeyVerifyFinish.
-		verified, err = consumePasskeyReady(c)
-		if err != nil {
-			common.ApiError(c, fmt.Errorf("Passkey 验证状态异常: %v", err))
-			return
-		}
-		if !verified {
-			common.ApiError(c, fmt.Errorf("请先完成 Passkey 验证"))
-			return
-		}
-		verifyMethod = "Passkey"
-
-	default:
-		common.ApiError(c, fmt.Errorf("不支持的验证方式: %s", req.Method))
-		return
 	}
-
 	if !verified {
-		common.ApiError(c, fmt.Errorf("验证失败，请检查验证码"))
+		common.ApiErrorMsg(c, "验证失败，请检查凭据")
 		return
 	}
+	writeSecurityProof(c, identity, req.Scope, req.ContextHash)
+}
 
-	// 验证成功，在 session 中记录时间戳
-	now, err := setSecureVerificationSession(c, req.Method)
+func writeSecurityProof(c *gin.Context, identity model.SecurityIdentity, scope, digest string) {
+	if !validVerificationScope(scope, digest) {
+		common.ApiErrorMsg(c, "无效的安全验证操作")
+		return
+	}
+	if _, err := model.ReadSecurityIdentity(identity); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	expires := time.Now().Add(5 * time.Minute).Unix()
+	token, err := model.CreateSecurityFlow(model.SecurityFlow{UserID: identity.UserID, Version: identity.Version, SessionID: identity.SessionID, Kind: "proof", Scope: scope, ContextHash: digest, ExpiresAt: expires})
 	if err != nil {
-		common.ApiError(c, fmt.Errorf("保存验证状态失败: %v", err))
+		common.ApiError(c, err)
 		return
 	}
-
-	// 记录日志
-	model.RecordLog(model.ClientLogSource(c), userId, model.LogTypeSystem, fmt.Sprintf("通用安全验证成功 (验证方式: %s)", verifyMethod))
-
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "验证成功",
-		"data": gin.H{
-			"verified":   true,
-			"expires_at": now + SecureVerificationTimeout,
-		},
-	})
+	c.Header("Cache-Control", "no-store")
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"proof_token": token, "expires_at": expires, "action": "verification"}})
 }
 
-func setSecureVerificationSession(c *gin.Context, method string) (int64, error) {
-	session := sessions.Default(c)
-	session.Delete(PasskeyReadySessionKey)
-	now := time.Now().Unix()
-	session.Set(SecureVerificationSessionKey, now)
-	session.Set(secureVerificationMethodSessionKey, method)
-	if err := session.Save(); err != nil {
-		return 0, err
-	}
-	return now, nil
+func oauthBindingColumn(slug string) string {
+	return map[string]string{"github": "github_id", "discord": "discord_id", "oidc": "oidc_id", "linuxdo": "linux_do_id", "steam": "steam_openid"}[slug]
 }
 
-func consumePasskeyReady(c *gin.Context) (bool, error) {
+func saveSecurityVersion(c *gin.Context, version int64) error {
 	session := sessions.Default(c)
-	readyAtRaw := session.Get(PasskeyReadySessionKey)
-	if readyAtRaw == nil {
-		return false, nil
-	}
+	session.Set("auth_version", version)
+	return session.Save()
+}
 
-	readyAt, ok := readyAtRaw.(int64)
-	if !ok {
-		session.Delete(PasskeyReadySessionKey)
-		_ = session.Save()
-		return false, fmt.Errorf("无效的 Passkey 验证状态")
+func getCurrentTwoFA(id int) (*model.TwoFA, error) {
+	var factor model.TwoFA
+	err := model.DB.Where("user_id = ?", id).First(&factor).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
 	}
-	session.Delete(PasskeyReadySessionKey)
-	if err := session.Save(); err != nil {
-		return false, err
-	}
-	// Expired ready markers cannot be reused.
-	if time.Now().Unix()-readyAt >= PasskeyReadyTimeout {
-		return false, nil
-	}
-	return true, nil
+	return &factor, err
 }

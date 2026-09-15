@@ -41,7 +41,8 @@ type AliVideoMedia struct {
 
 // AliVideoInput 视频输入参数
 type AliVideoInput struct {
-	Prompt         string          `json:"prompt,omitempty"`          // 文本提示词
+	Prompt         string          `json:"prompt,omitempty"` // 文本提示词
+	ImageURL       string          `json:"image_url,omitempty"`
 	ImgURL         string          `json:"img_url,omitempty"`         // 首帧图像URL或Base64（图生视频）
 	FirstFrameURL  string          `json:"first_frame_url,omitempty"` // 首帧图片URL（首尾帧生视频）
 	LastFrameURL   string          `json:"last_frame_url,omitempty"`  // 尾帧图片URL（首尾帧生视频）
@@ -53,13 +54,14 @@ type AliVideoInput struct {
 
 // AliVideoParameters 视频参数
 type AliVideoParameters struct {
-	Resolution   string `json:"resolution,omitempty"`    // 分辨率: 480P/720P/1080P（图生视频、首尾帧生视频）
+	Resolution   string `json:"resolution,omitempty"` // 分辨率: 480P/720P/1080P（图生视频、首尾帧生视频）
+	Ratio        string `json:"ratio,omitempty"`
 	Size         string `json:"size,omitempty"`          // 尺寸: 如 "832*480"（文生视频）
-	Duration     int    `json:"duration,omitempty"`      // 时长: 3-10秒
-	PromptExtend bool   `json:"prompt_extend,omitempty"` // 是否开启prompt智能改写
-	Watermark    bool   `json:"watermark,omitempty"`     // 是否添加水印
+	Duration     *int   `json:"duration,omitempty"`      // 时长: 3-10秒
+	PromptExtend *bool  `json:"prompt_extend,omitempty"` // 是否开启prompt智能改写
+	Watermark    *bool  `json:"watermark,omitempty"`     // 是否添加水印
 	Audio        *bool  `json:"audio,omitempty"`         // 是否添加音频（wan2.5）
-	Seed         int    `json:"seed,omitempty"`          // 随机数种子
+	Seed         *int   `json:"seed,omitempty"`          // 随机数种子
 }
 
 // AliVideoResponse 阿里通义万相响应
@@ -135,7 +137,11 @@ func (a *TaskAdaptor) ValidateRequestAndSetAction(c *gin.Context, info *relaycom
 }
 
 func (a *TaskAdaptor) BuildRequestURL(info *relaycommon.RelayInfo) (string, error) {
-	return fmt.Sprintf("%s/api/v1/services/aigc/video-generation/video-synthesis", a.baseURL), nil
+	family := "video-generation"
+	if strings.HasPrefix(info.UpstreamModelName, "wan2.2-kf2v-flash") || strings.HasPrefix(info.UpstreamModelName, "wan2.2-s2v") {
+		family = "image2video"
+	}
+	return fmt.Sprintf("%s/api/v1/services/aigc/%s/video-synthesis", a.baseURL, family), nil
 }
 
 // BuildRequestHeader sets required headers for Ali API
@@ -177,6 +183,8 @@ var (
 		"960*960",
 		"1088*832",
 		"832*1088",
+		"1104*832",
+		"832*1104",
 	}
 	size1080p = []string{
 		"1920*1080",
@@ -184,6 +192,8 @@ var (
 		"1440*1440",
 		"1632*1248",
 		"1248*1632",
+		"1648*1248",
+		"1248*1648",
 	}
 )
 
@@ -359,15 +369,14 @@ func (a *TaskAdaptor) convertToAliRequest(info *relaycommon.RelayInfo, req relay
 			ImgURL: firstTaskImage(req),
 		},
 		Parameters: &AliVideoParameters{
-			PromptExtend: true, // 默认开启智能改写
-			Watermark:    false,
+			PromptExtend: common.GetPointer(true), // 默认开启智能改写
 		},
 	}
 
 	// 处理分辨率映射
 	if req.Size != "" {
 		// text to video size must be contained *
-		if strings.Contains(req.Model, "t2v") && !strings.Contains(req.Size, "*") {
+		if strings.Contains(upstreamModel, "t2v") && !strings.HasPrefix(upstreamModel, "wan2.7-t2v") && !strings.Contains(req.Size, "*") {
 			return nil, fmt.Errorf("invalid size: %s, example: %s", req.Size, "1920*1080")
 		}
 		if strings.Contains(req.Size, "*") {
@@ -382,22 +391,24 @@ func (a *TaskAdaptor) convertToAliRequest(info *relaycommon.RelayInfo, req relay
 		}
 	} else {
 		// 根据模型设置默认分辨率
-		if strings.Contains(req.Model, "t2v") { // image to video
-			if strings.HasPrefix(req.Model, "wan2.5") {
+		if strings.Contains(upstreamModel, "t2v") { // image to video
+			if strings.HasPrefix(upstreamModel, "wan2.7-t2v") {
+				aliReq.Parameters.Resolution = "720P"
+			} else if strings.HasPrefix(upstreamModel, "wan2.5") {
 				aliReq.Parameters.Size = "1920*1080"
-			} else if strings.HasPrefix(req.Model, "wan2.2") {
+			} else if strings.HasPrefix(upstreamModel, "wan2.2") {
 				aliReq.Parameters.Size = "1920*1080"
 			} else {
 				aliReq.Parameters.Size = "1280*720"
 			}
 		} else {
-			if strings.HasPrefix(req.Model, "wan2.6") {
+			if strings.HasPrefix(upstreamModel, "wan2.6") {
 				aliReq.Parameters.Resolution = "1080P"
-			} else if strings.HasPrefix(req.Model, "wan2.5") {
+			} else if strings.HasPrefix(upstreamModel, "wan2.5") {
 				aliReq.Parameters.Resolution = "1080P"
-			} else if strings.HasPrefix(req.Model, "wan2.2-i2v-flash") {
+			} else if strings.HasPrefix(upstreamModel, "wan2.2-i2v-flash") {
 				aliReq.Parameters.Resolution = "720P"
-			} else if strings.HasPrefix(req.Model, "wan2.2-i2v-plus") {
+			} else if strings.HasPrefix(upstreamModel, "wan2.2-i2v-plus") {
 				aliReq.Parameters.Resolution = "1080P"
 			} else {
 				aliReq.Parameters.Resolution = "720P"
@@ -407,17 +418,17 @@ func (a *TaskAdaptor) convertToAliRequest(info *relaycommon.RelayInfo, req relay
 
 	// 处理时长
 	if req.Duration > 0 {
-		aliReq.Parameters.Duration = req.Duration
+		aliReq.Parameters.Duration = common.GetPointer(req.Duration)
 	} else if req.Seconds != "" {
 		seconds, err := strconv.Atoi(req.Seconds)
 		if err != nil {
 			return nil, errors.Wrap(err, "convert seconds to int failed")
 		} else {
-			aliReq.Parameters.Duration = seconds
+			aliReq.Parameters.Duration = common.GetPointer(seconds)
 		}
 	}
-	if aliReq.Parameters.Duration <= 0 {
-		aliReq.Parameters.Duration = 5 // 默认5秒
+	if aliReq.Parameters.Duration == nil {
+		aliReq.Parameters.Duration = common.GetPointer(5) // 默认5秒
 	}
 
 	// 从 metadata 中提取额外参数
@@ -436,6 +447,68 @@ func (a *TaskAdaptor) convertToAliRequest(info *relaycommon.RelayInfo, req relay
 		return nil, errors.New("can't change model with metadata")
 	}
 
+	if aliReq.Parameters == nil {
+		return nil, errors.New("parameters must not be null")
+	}
+	if aliReq.Parameters.Duration == nil {
+		aliReq.Parameters.Duration = common.GetPointer(5)
+	}
+	if *aliReq.Parameters.Duration <= 0 || *aliReq.Parameters.Duration > relaycommon.MaxTaskDurationSeconds {
+		return nil, fmt.Errorf("duration must be between 1 and %d", relaycommon.MaxTaskDurationSeconds)
+	}
+	if strings.HasPrefix(upstreamModel, "wan2.7-t2v") {
+		params := aliReq.Parameters
+		if params.Size != "" {
+			resolution, err := sizeToResolution(params.Size)
+			if err != nil {
+				return nil, err
+			}
+			params.Resolution = resolution
+			if params.Ratio == "" {
+				ratios := map[string]string{
+					"1280*720": "16:9", "720*1280": "9:16", "960*960": "1:1",
+					"1088*832": "4:3", "1104*832": "4:3", "832*1088": "3:4", "832*1104": "3:4",
+					"1920*1080": "16:9", "1080*1920": "9:16", "1440*1440": "1:1",
+					"1632*1248": "4:3", "1648*1248": "4:3", "1248*1632": "3:4", "1248*1648": "3:4",
+				}
+				params.Ratio = ratios[params.Size]
+			}
+		}
+		if params.Resolution == "" {
+			params.Resolution = "720P"
+		}
+		params.Resolution = strings.ToUpper(params.Resolution)
+		if params.Resolution != "720P" && params.Resolution != "1080P" {
+			return nil, errors.New("wan2.7-t2v resolution must be 720P or 1080P")
+		}
+		if params.Ratio == "" {
+			params.Ratio = "16:9"
+		}
+		switch params.Ratio {
+		case "16:9", "9:16", "1:1", "4:3", "3:4":
+		default:
+			return nil, errors.New("invalid wan2.7-t2v ratio")
+		}
+		params.Size = ""
+	}
+	if strings.HasPrefix(upstreamModel, "wan2.2-kf2v-flash") {
+		aliReq.Input.FirstFrameURL = firstNonEmpty(aliReq.Input.FirstFrameURL, aliReq.Input.ImgURL)
+		aliReq.Input.LastFrameURL = firstNonEmpty(aliReq.Input.LastFrameURL, secondTaskImage(req))
+		aliReq.Input.ImgURL = ""
+		if aliReq.Input.FirstFrameURL == "" {
+			return nil, errors.New("wan2.2-kf2v-flash requires first_frame_url or image")
+		}
+	}
+	if strings.HasPrefix(upstreamModel, "wan2.2-s2v") {
+		aliReq.Input.ImageURL = firstNonEmpty(aliReq.Input.ImageURL, aliReq.Input.ImgURL)
+		aliReq.Input.ImgURL = ""
+		if aliReq.Input.ImageURL == "" || aliReq.Input.AudioURL == "" {
+			return nil, errors.New("wan2.2-s2v requires image_url and audio_url")
+		}
+		// 音频驱动时长由上游决定，不能强制默认5秒；预扣单独采取保守上界。
+		aliReq.Parameters.Duration = nil
+		aliReq.Parameters.PromptExtend = nil
+	}
 	if err := normalizeWan27I2VInput(aliReq, req); err != nil {
 		return nil, err
 	}
@@ -459,7 +532,7 @@ func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInf
 	// metadata can override Duration past standard request validation;
 	// cap it because it is used as a billing multiplier.
 	otherRatios := map[string]float64{
-		"seconds": float64(min(aliReq.Parameters.Duration, relaycommon.MaxTaskDurationSeconds)),
+		"seconds": float64(min(lo.FromPtrOr(aliReq.Parameters.Duration, 20), relaycommon.MaxTaskDurationSeconds)),
 	}
 	ratios, err := ProcessAliOtherRatios(aliReq)
 	if err != nil {
@@ -469,6 +542,23 @@ func (a *TaskAdaptor) EstimateBilling(c *gin.Context, info *relaycommon.RelayInf
 		otherRatios[k] = v
 	}
 	return otherRatios
+}
+
+// 音频驱动输出长度由上游决定；提交按20秒上界预扣，成功后按真实用量退差额。
+func (a *TaskAdaptor) AdjustBillingOnComplete(task *model.Task, _ *relaycommon.TaskInfo) int {
+	if !strings.HasPrefix(task.Properties.UpstreamModelName, "wan2.2-s2v") || task.Quota <= 0 || task.Quota >= common.MaxQuota {
+		return 0
+	}
+	var response AliVideoResponse
+	if err := common.Unmarshal(task.Data, &response); err != nil || response.Usage == nil {
+		return 0
+	}
+	seconds := int(response.Usage.Duration)
+	if seconds <= 0 || seconds >= 20 {
+		return 0
+	}
+	// 比例在(0,1)内且预扣已限幅，不会产生额外收费或算术溢出。
+	return max(1, common.QuotaRound(float64(task.Quota)*float64(seconds)/20))
 }
 
 // DoRequest delegates to common helper

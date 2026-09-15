@@ -45,8 +45,6 @@ import EmailBindModal from './personal/modals/EmailBindModal';
 import WeChatBindModal from './personal/modals/WeChatBindModal';
 import AccountDeleteModal from './personal/modals/AccountDeleteModal';
 import ChangePasswordModal from './personal/modals/ChangePasswordModal';
-import SecureVerificationModal from '../common/modals/SecureVerificationModal';
-import { useSecureVerification } from '../../hooks/common/useSecureVerification';
 
 const PersonalSetting = () => {
   const [userState, userDispatch] = useContext(UserContext);
@@ -78,10 +76,7 @@ const PersonalSetting = () => {
   const [passkeyRegisterLoading, setPasskeyRegisterLoading] = useState(false);
   const [passkeyDeleteLoading, setPasskeyDeleteLoading] = useState(false);
   const [passkeySupported, setPasskeySupported] = useState(false);
-  const [
-    passkeyRequiredVerificationMethod,
-    setPasskeyRequiredVerificationMethod,
-  ] = useState(null);
+
   const [notificationSettings, setNotificationSettings] = useState({
     warningType: 'email',
     warningThreshold: 100000,
@@ -96,34 +91,6 @@ const PersonalSetting = () => {
     acceptUnsetModelRatioModel: false,
     recordIpLog: false,
   });
-
-  const {
-    isModalVisible: isPasskeyVerificationModalVisible,
-    verificationMethods: passkeyVerificationMethods,
-    verificationState: passkeyVerificationState,
-    startVerification: startPasskeyVerification,
-    executeVerification: executePasskeyVerification,
-    cancelVerification: cancelPasskeyVerification,
-    setVerificationCode: setPasskeyVerificationCode,
-    switchVerificationMethod: switchPasskeyVerificationMethod,
-    checkVerificationMethods: checkPasskeyVerificationMethods,
-  } = useSecureVerification({
-    onSuccess: () => {
-      setPasskeyRequiredVerificationMethod(null);
-    },
-  });
-
-  const visiblePasskeyVerificationMethods = passkeyRequiredVerificationMethod
-    ? {
-        ...passkeyVerificationMethods,
-        has2FA:
-          passkeyRequiredVerificationMethod === '2fa' &&
-          passkeyVerificationMethods.has2FA,
-        hasPasskey:
-          passkeyRequiredVerificationMethod === 'passkey' &&
-          passkeyVerificationMethods.hasPasskey,
-      }
-    : passkeyVerificationMethods;
 
   useEffect(() => {
     let saved = localStorage.getItem('status');
@@ -237,48 +204,20 @@ const PersonalSetting = () => {
     }
   };
 
-  const startPasskeyManagementVerification = async (apiCall, options = {}) => {
-    const methods = await checkPasskeyVerificationMethods();
-    const requiredMethod = methods.has2FA
-      ? '2fa'
-      : methods.hasPasskey
-        ? 'passkey'
-        : null;
-
-    if (!requiredMethod) {
-      showError(t('您需要先启用两步验证或 Passkey 才能执行此操作'));
-      return;
+  const startPasskeyManagementVerification = async (apiCall) => {
+    try {
+      return await apiCall();
+    } catch (error) {
+      showError(error.message || t('验证失败'));
     }
-
-    if (requiredMethod === 'passkey' && !methods.passkeySupported) {
-      showInfo(t('当前设备不支持 Passkey'));
-      return;
-    }
-
-    setPasskeyRequiredVerificationMethod(requiredMethod);
-    await startPasskeyVerification(apiCall, {
-      preferredMethod: requiredMethod,
-      title: t('安全验证'),
-      ...options,
-    });
   };
 
   const startPasskeyRegistration = async () => {
-    const methods = await checkPasskeyVerificationMethods();
-    if (!methods.has2FA) {
-      try {
-        await registerPasskey();
-      } catch (error) {
-        showError(error.message || t('Passkey 注册失败，请重试'));
-      }
-      return;
+    try {
+      await registerPasskey();
+    } catch (error) {
+      showError(error.message || t('Passkey 注册失败，请重试'));
     }
-
-    setPasskeyRequiredVerificationMethod('2fa');
-    await startPasskeyVerification(registerPasskey, {
-      preferredMethod: '2fa',
-      title: t('安全验证'),
-    });
   };
 
   const registerPasskey = async () => {
@@ -352,11 +291,6 @@ const PersonalSetting = () => {
 
   const handleRemovePasskey = async () => {
     await startPasskeyManagementVerification(removePasskey);
-  };
-
-  const handlePasskeyVerificationCancel = () => {
-    setPasskeyRequiredVerificationMethod(null);
-    cancelPasskeyVerification();
   };
 
   const getUserData = async () => {
@@ -648,18 +582,6 @@ const PersonalSetting = () => {
         turnstileEnabled={turnstileEnabled}
         turnstileSiteKey={turnstileSiteKey}
         setTurnstileToken={setTurnstileToken}
-      />
-
-      <SecureVerificationModal
-        visible={isPasskeyVerificationModalVisible}
-        verificationMethods={visiblePasskeyVerificationMethods}
-        verificationState={passkeyVerificationState}
-        onVerify={executePasskeyVerification}
-        onCancel={handlePasskeyVerificationCancel}
-        onCodeChange={setPasskeyVerificationCode}
-        onMethodSwitch={switchPasskeyVerificationMethod}
-        title={passkeyVerificationState.title}
-        description={passkeyVerificationState.description}
       />
     </div>
   );

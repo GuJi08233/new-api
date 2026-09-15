@@ -1,9 +1,11 @@
 package middleware
 
 import (
+	"github.com/QuantumNous/new-api/model"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/gin-contrib/sessions"
@@ -38,13 +40,20 @@ func performHeaderNavRequest(t *testing.T, handler gin.HandlerFunc, authenticate
 	t.Helper()
 
 	gin.SetMode(gin.TestMode)
+	if authenticated {
+		setupWebSocketAuthUser(t, common.UserStatusEnabled)
+	}
 	router := gin.New()
 	router.Use(sessions.Sessions("session", cookie.NewStore([]byte("header-nav-test"))))
 	router.GET("/login", func(c *gin.Context) {
 		session := sessions.Default(c)
 		session.Set("username", "tester")
 		session.Set("role", common.RoleCommonUser)
-		session.Set("id", 1)
+		session.Set("id", 7)
+		sid, err := model.CreateSecurityFlow(model.SecurityFlow{UserID: 7, Kind: "session", ExpiresAt: time.Now().Add(time.Hour).Unix()})
+		require.NoError(t, err)
+		session.Set("security_session", model.SecurityTokenHash(sid))
+		session.Set("auth_version", int64(0))
 		session.Set("status", common.UserStatusEnabled)
 		session.Set("group", "default")
 		if err := session.Save(); err != nil {
@@ -69,7 +78,7 @@ func performHeaderNavRequest(t *testing.T, handler gin.HandlerFunc, authenticate
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/api/test", nil)
 	if authenticated {
-		request.Header.Set("New-Api-User", "1")
+		request.Header.Set("New-Api-User", "7")
 		for _, cookie := range cookies {
 			request.AddCookie(cookie)
 		}

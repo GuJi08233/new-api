@@ -42,24 +42,25 @@ const (
 )
 
 type Task struct {
-	ID         int64                 `json:"id" gorm:"primary_key;AUTO_INCREMENT"`
-	CreatedAt  int64                 `json:"created_at" gorm:"index"`
-	UpdatedAt  int64                 `json:"updated_at"`
-	TaskID     string                `json:"task_id" gorm:"type:varchar(191);index"` // 第三方id，不一定有/ song id\ Task id
-	Platform   constant.TaskPlatform `json:"platform" gorm:"type:varchar(30);index"` // 平台
-	UserId     int                   `json:"user_id" gorm:"index"`
-	Group      string                `json:"group" gorm:"type:varchar(50)"` // 修正计费用
-	ChannelId  int                   `json:"channel_id" gorm:"index"`
-	Quota      int                   `json:"quota"`
-	Action     string                `json:"action" gorm:"type:varchar(40);index"` // 任务类型, song, lyrics, description-mode
-	Status     TaskStatus            `json:"status" gorm:"type:varchar(20);index"` // 任务状态
-	FailReason string                `json:"fail_reason"`
-	SubmitTime int64                 `json:"submit_time" gorm:"index"`
-	StartTime  int64                 `json:"start_time" gorm:"index"`
-	FinishTime int64                 `json:"finish_time" gorm:"index"`
-	Progress   string                `json:"progress" gorm:"type:varchar(20);index"`
-	Properties Properties            `json:"properties" gorm:"type:json"`
-	Username   string                `json:"username,omitempty" gorm:"-"`
+	RefundPending bool                  `json:"-"`
+	ID            int64                 `json:"id" gorm:"primary_key;AUTO_INCREMENT"`
+	CreatedAt     int64                 `json:"created_at" gorm:"index"`
+	UpdatedAt     int64                 `json:"updated_at"`
+	TaskID        string                `json:"task_id" gorm:"type:varchar(191);index"` // 第三方id，不一定有/ song id\ Task id
+	Platform      constant.TaskPlatform `json:"platform" gorm:"type:varchar(30);index"` // 平台
+	UserId        int                   `json:"user_id" gorm:"index"`
+	Group         string                `json:"group" gorm:"type:varchar(50)"` // 修正计费用
+	ChannelId     int                   `json:"channel_id" gorm:"index"`
+	Quota         int                   `json:"quota"`
+	Action        string                `json:"action" gorm:"type:varchar(40);index"` // 任务类型, song, lyrics, description-mode
+	Status        TaskStatus            `json:"status" gorm:"type:varchar(20);index"` // 任务状态
+	FailReason    string                `json:"fail_reason"`
+	SubmitTime    int64                 `json:"submit_time" gorm:"index"`
+	StartTime     int64                 `json:"start_time" gorm:"index"`
+	FinishTime    int64                 `json:"finish_time" gorm:"index"`
+	Progress      string                `json:"progress" gorm:"type:varchar(20);index"`
+	Properties    Properties            `json:"properties" gorm:"type:json"`
+	Username      string                `json:"username,omitempty" gorm:"-"`
 	// 禁止返回给用户，内部可能包含key等隐私信息
 	PrivateData TaskPrivateData `json:"-" gorm:"column:private_data;type:json"`
 	Data        json.RawMessage `json:"data" gorm:"type:json"`
@@ -81,7 +82,7 @@ type Properties struct {
 }
 
 func (m *Properties) Scan(val interface{}) error {
-	bytesValue, _ := val.([]byte)
+	bytesValue := jsonScanBytes(val)
 	if len(bytesValue) == 0 {
 		*m = Properties{}
 		return nil
@@ -93,7 +94,11 @@ func (m Properties) Value() (driver.Value, error) {
 	if m == (Properties{}) {
 		return nil, nil
 	}
-	return common.Marshal(m)
+	data, err := common.Marshal(m)
+	if err != nil {
+		return nil, err
+	}
+	return string(data), nil
 }
 
 type TaskPrivateData struct {
@@ -146,8 +151,9 @@ func GenerateTaskID() string {
 }
 
 func (p *TaskPrivateData) Scan(val interface{}) error {
-	bytesValue, _ := val.([]byte)
+	bytesValue := jsonScanBytes(val)
 	if len(bytesValue) == 0 {
+		*p = TaskPrivateData{}
 		return nil
 	}
 	return common.Unmarshal(bytesValue, p)
@@ -157,7 +163,11 @@ func (p TaskPrivateData) Value() (driver.Value, error) {
 	if (p == TaskPrivateData{}) {
 		return nil, nil
 	}
-	return common.Marshal(p)
+	data, err := common.Marshal(p)
+	if err != nil {
+		return nil, err
+	}
+	return string(data), nil
 }
 
 // SyncTaskQueryParams 用于包含所有搜索条件的结构体，可以根据需求添加更多字段
@@ -308,14 +318,18 @@ func GetTimedOutUnfinishedTasks(cutoffUnix int64, limit int) []*Task {
 }
 
 func GetAllUnFinishSyncTasks(limit int) []*Task {
-	var tasks []*Task
-	var err error
-	// get all tasks progress is not 100%
-	err = ReadDB().Where("progress != ?", "100%").Where("status != ?", TaskStatusFailure).Where("status != ?", TaskStatusSuccess).Limit(limit).Order("id").Find(&tasks).Error
-	if err != nil {
+	if limit <= 0 {
 		return nil
 	}
-	return tasks
+	var tasks []*Task
+	if err := DB.Where("progress != ? AND status NOT IN ?", "100%", []string{TaskStatusFailure, TaskStatusSuccess}).Limit(limit).Order("id").Find(&tasks).Error; err != nil {
+		return nil
+	}
+	var pending []*Task
+	if err := DB.Where("refund_pending = ? AND status = ?", true, TaskStatusFailure).Order("updated_at, id").Limit(limit).Find(&pending).Error; err != nil {
+		return tasks
+	}
+	return append(tasks, pending...)
 }
 
 // HasUnfinishedSyncTasks reports whether at least one async (Suno/video) task is
@@ -324,10 +338,8 @@ func GetAllUnFinishSyncTasks(limit int) []*Task {
 // the scheduler skips creating a row entirely.
 func HasUnfinishedSyncTasks() bool {
 	var id int64
-	err := ReadDB().Model(&Task{}).
-		Where("progress != ?", "100%").
-		Where("status != ?", TaskStatusFailure).
-		Where("status != ?", TaskStatusSuccess).
+	err := DB.Model(&Task{}).
+		Where("(progress != ? AND status NOT IN ?) OR refund_pending = ?", "100%", []string{TaskStatusFailure, TaskStatusSuccess}, true).
 		Limit(1).
 		Pluck("id", &id).Error
 	return err == nil && id != 0
@@ -420,10 +432,6 @@ func (Task *Task) Update() error {
 	return err
 }
 
-func (t *Task) UpdateQuota() error {
-	return DB.Model(t).Update("quota", t.Quota).Error
-}
-
 // UpdateWithStatus performs a conditional UPDATE guarded by fromStatus (CAS).
 // Returns (true, nil) if this caller won the update, (false, nil) if
 // another process already moved the task out of fromStatus.
@@ -432,7 +440,7 @@ func (t *Task) UpdateQuota() error {
 // falls back to INSERT ON CONFLICT when the WHERE-guarded UPDATE matches
 // zero rows, which silently bypasses the CAS guard.
 func (t *Task) UpdateWithStatus(fromStatus TaskStatus) (bool, error) {
-	result := DB.Model(t).Where("status = ?", fromStatus).Select("*").Updates(t)
+	result := DB.Model(t).Where("status = ?", fromStatus).Select("*").Omit("quota").Updates(t)
 	if result.Error != nil {
 		return false, result.Error
 	}

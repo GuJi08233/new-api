@@ -29,6 +29,7 @@ import {
 } from '../../helpers';
 import { UserContext } from '../../context/User';
 import Loading from '../common/ui/Loading';
+import TwoFAVerification from './TwoFAVerification';
 import { Button, Card, Input } from '@douyinfe/semi-ui';
 import { IconKey } from '@douyinfe/semi-icons';
 import Title from '@douyinfe/semi-ui/lib/es/typography/title';
@@ -43,6 +44,7 @@ const OAuth2Callback = (props) => {
   const [needInvitationCode, setNeedInvitationCode] = useState(false);
   const [invitationCode, setInvitationCode] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [require2FA, setRequire2FA] = useState(false);
 
   // 防止 React 18 Strict Mode 下重复执行
   const hasExecuted = useRef(false);
@@ -78,6 +80,18 @@ const OAuth2Callback = (props) => {
         return;
       }
 
+      if (data?.action === 'verification') {
+        window.opener?.postMessage(
+          { type: 'security-verification', state, proof: data.proof_token },
+          window.location.origin,
+        );
+        window.close();
+        return;
+      }
+      if (data?.require_2fa) {
+        setRequire2FA(true);
+        return;
+      }
       if (data?.action === 'bind') {
         showSuccess(t('绑定成功！'));
         navigate('/console/personal');
@@ -115,6 +129,11 @@ const OAuth2Callback = (props) => {
       if (success) {
         // 邀请码已被消费，避免残留给同浏览器的下一位注册者
         localStorage.removeItem('invitation_code');
+        if (data?.require_2fa) {
+          setNeedInvitationCode(false);
+          setRequire2FA(true);
+          return;
+        }
         loginSuccess(data);
         showSuccess(t('注册成功！'));
         navigate('/console/token');
@@ -157,6 +176,17 @@ const OAuth2Callback = (props) => {
     }
   }, []);
 
+  if (require2FA) {
+    return (
+      <TwoFAVerification
+        onSuccess={(data) => {
+          loginSuccess(data);
+          navigate('/console');
+        }}
+        onBack={() => navigate('/login')}
+      />
+    );
+  }
   if (needInvitationCode) {
     return (
       <div className='relative overflow-hidden bg-gray-100 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8'>

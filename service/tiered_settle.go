@@ -1,13 +1,39 @@
 package service
 
 import (
+	"errors"
+	"net/http"
+
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/types"
+	"github.com/gin-gonic/gin"
 )
 
 // TieredResultWrapper wraps billingexpr.TieredResult for use at the service layer.
 type TieredResultWrapper = billingexpr.TieredResult
+
+// ReserveBillingForRequest 将发送前估算补足，免费转付费时创建会话。
+// 已经预扣的请求即使切到免费组，也保留会话用于结算退款。
+func ReserveBillingForRequest(c *gin.Context, info *relaycommon.RelayInfo, quota int) *types.NewAPIError {
+	if quota == 0 && info.Billing == nil {
+		return nil
+	}
+	info.PriceData.FreeModel = false
+	if info.Billing == nil {
+		return PreConsumeBilling(c, quota, info)
+	}
+	if err := info.Billing.Reserve(quota); err != nil {
+		var apiErr *types.NewAPIError
+		if errors.As(err, &apiErr) {
+			return apiErr
+		}
+		return types.NewErrorWithStatusCode(err, types.ErrorCodeInsufficientUserQuota, http.StatusForbidden, types.ErrOptionWithSkipRetry())
+	}
+	info.FinalPreConsumedQuota = info.Billing.GetPreConsumedQuota()
+	return nil
+}
 
 // BuildTieredTokenParams constructs billingexpr.TokenParams from a dto.Usage,
 // normalizing P and C so they mean "tokens not separately priced by the

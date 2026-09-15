@@ -2,6 +2,7 @@ package dto
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"strings"
 
@@ -14,6 +15,11 @@ import (
 // MaxImageN caps the image generation count. Without this bound a huge or
 // wrapped-negative n overflows quota calculation into a negative charge.
 const MaxImageN = 128
+
+type ImageBillingParameters struct {
+	N            *uint `json:"n,omitempty"`
+	PromptExtend *bool `json:"prompt_extend,omitempty"`
+}
 
 type ImageRequest struct {
 	Model             string          `json:"model"`
@@ -40,7 +46,28 @@ type ImageRequest struct {
 	UserId           json.RawMessage `json:"user_id,omitempty"`
 	Image            json.RawMessage `json:"image,omitempty"`
 	// 用匿名参数接收额外参数
-	Extra map[string]json.RawMessage `json:"-"`
+	Extra             map[string]json.RawMessage `json:"-"`
+	BillingParameters *ImageBillingParameters    `json:"-"`
+}
+
+// ImageCount 同时校验标准和供应商数量，避免 parameters 绕过入口限制。
+func (i *ImageRequest) ImageCount(useProviderParameters bool) (int, error) {
+	n := uint(1)
+	if i.N != nil && *i.N != 0 {
+		n = *i.N
+	}
+	if n > MaxImageN {
+		return 0, fmt.Errorf("n must be an integer between 1 and %d", MaxImageN)
+	}
+	if parameters := i.BillingParameters; parameters != nil && parameters.N != nil {
+		if *parameters.N > MaxImageN || useProviderParameters && *parameters.N == 0 {
+			return 0, fmt.Errorf("parameters.n must be an integer between 1 and %d", MaxImageN)
+		}
+		if useProviderParameters {
+			n = *parameters.N
+		}
+	}
+	return int(n), nil
 }
 
 func (i *ImageRequest) UnmarshalJSON(data []byte) error {
@@ -66,6 +93,11 @@ func (i *ImageRequest) UnmarshalJSON(data []byte) error {
 	for k, v := range rawMap {
 		if _, ok := knownFields[k]; !ok {
 			i.Extra[k] = v
+		}
+	}
+	if parameters, ok := rawMap["parameters"]; ok {
+		if err := common.Unmarshal(parameters, &i.BillingParameters); err != nil {
+			return fmt.Errorf("invalid image parameters: %w", err)
 		}
 	}
 	return nil

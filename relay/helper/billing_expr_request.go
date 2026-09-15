@@ -28,6 +28,9 @@ func ResolveIncomingBillingExprRequestInput(c *gin.Context, info *relaycommon.Re
 	input := billingexpr.RequestInput{EvaluatedAt: time.Now().UTC()}
 	if info != nil {
 		input.Headers = cloneStringMap(info.RequestHeaders)
+		if !info.StartTime.IsZero() {
+			input.EvaluatedAt = info.StartTime
+		}
 	}
 
 	bodyBytes, err := readIncomingBillingExprBody(c)

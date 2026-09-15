@@ -4771,6 +4771,15 @@
     "每周期最多请求次数": "Số yêu cầu tối đa mỗi chu kỳ",
     "该渠道每周期最多承接的请求次数，包括失败、重试与渠道测试，0 代表不限制。达到后本周期内自动跳过该渠道": "Số yêu cầu tối đa kênh này tiếp nhận mỗi chu kỳ, bao gồm thất bại, thử lại và kiểm tra kênh; 0 là không giới hạn. Khi đạt tới, kênh sẽ bị bỏ qua trong phần còn lại của chu kỳ",
     "每周期最多请求完成次数": "Số yêu cầu thành công tối đa mỗi chu kỳ",
-    "只包括在该渠道上成功完成的次数，0 代表不限制。达到后本周期内自动跳过该渠道": "Chỉ tính các yêu cầu hoàn thành thành công trên kênh này; 0 là không giới hạn. Khi đạt tới, kênh sẽ bị bỏ qua trong phần còn lại của chu kỳ"
+    "只包括在该渠道上成功完成的次数，0 代表不限制。达到后本周期内自动跳过该渠道": "Chỉ tính các yêu cầu hoàn thành thành công trên kênh này; 0 là không giới hạn. Khi đạt tới, kênh sẽ bị bỏ qua trong phần còn lại của chu kỳ",
+    "开始小于结束为当日区间，开始大于结束为跨夜区间；相等时不生效": "Bắt đầu trước kết thúc: trong ngày; sau kết thúc: qua đêm. Hai mốc bằng nhau thì quy tắc không áp dụng.",
+    "，当前无生效订阅，请求将被拒绝": ", nhưng không có gói đăng ký đang hoạt động. Yêu cầu sẽ bị từ chối.",
+    "安全验证已取消": "Đã hủy xác minh bảo mật.",
+    "微信验证码": "Mã xác minh WeChat",
+    "没有可用的验证方式，请联系管理员": "Không có phương thức xác minh khả dụng. Hãy liên hệ quản trị viên.",
+    "请允许浏览器打开验证窗口": "Cho phép trình duyệt mở cửa sổ xác minh.",
+    "请先完成当前安全验证": "Hãy hoàn tất xác minh bảo mật hiện tại trước.",
+    "请验证当前账户身份以继续操作": "Xác minh danh tính tài khoản để tiếp tục.",
+    "验证失败": "Xác minh thất bại"
   }
 }

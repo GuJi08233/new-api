@@ -2,6 +2,7 @@ package controller
 
 import (
 	"fmt"
+	"net/http"
 	"net/url"
 	"strconv"
 	"sync"
@@ -192,6 +193,31 @@ func getMinTopup() int64 {
 	return int64(minTopup)
 }
 
+// 下单和结算使用相同的单位换算，避免用户付款后额度无法入账。
+func rejectInvalidCreditedQuota(c *gin.Context, userId int, amount decimal.Decimal) bool {
+	quota, err := common.QuotaFromDecimalStrict(amount)
+	if err == nil {
+		err = model.ValidateTopUpQuotaCapacity(userId, quota)
+	}
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "充值额度超过钱包可用容量"})
+		return true
+	}
+	return false
+}
+
+func rejectInvalidTopUpQuota(c *gin.Context, userId int, amount int64) bool {
+	units := decimal.NewFromInt(amount)
+	if operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeTokens {
+		if common.QuotaPerUnit <= 0 {
+			c.JSON(http.StatusOK, gin.H{"message": "error", "data": "额度单位配置错误"})
+			return true
+		}
+		units = units.Div(decimal.NewFromFloat(common.QuotaPerUnit)).Truncate(0)
+	}
+	return rejectInvalidCreditedQuota(c, userId, units.Mul(decimal.NewFromFloat(common.QuotaPerUnit)))
+}
+
 func RequestEpay(c *gin.Context) {
 	var req EpayRequest
 	err := c.ShouldBindJSON(&req)
@@ -205,6 +231,9 @@ func RequestEpay(c *gin.Context) {
 	}
 
 	id := c.GetInt("id")
+	if rejectInvalidTopUpQuota(c, id, req.Amount) {
+		return
+	}
 	group, err := model.GetUserGroup(id, true)
 	if err != nil {
 		c.JSON(200, gin.H{"message": "error", "data": "获取用户分组失败"})
@@ -254,13 +283,14 @@ func RequestEpay(c *gin.Context) {
 		amount = dAmount.Div(dQuotaPerUnit).IntPart()
 	}
 	topUp := &model.TopUp{
-		UserId:        id,
-		Amount:        amount,
-		Money:         payMoney,
-		TradeNo:       tradeNo,
-		PaymentMethod: req.PaymentMethod,
-		CreateTime:    time.Now().Unix(),
-		Status:        "pending",
+		UserId:          id,
+		Amount:          amount,
+		Money:           payMoney,
+		TradeNo:         tradeNo,
+		PaymentMethod:   req.PaymentMethod,
+		PaymentProvider: model.PaymentProviderEpay,
+		CreateTime:      time.Now().Unix(),
+		Status:          "pending",
 	}
 	err = topUp.Insert()
 	if err != nil {
@@ -325,6 +355,9 @@ func RequestAmount(c *gin.Context) {
 		return
 	}
 	id := c.GetInt("id")
+	if rejectInvalidTopUpQuota(c, id, req.Amount) {
+		return
+	}
 	group, err := model.GetUserGroup(id, true)
 	if err != nil {
 		c.JSON(200, gin.H{"message": "error", "data": "获取用户分组失败"})

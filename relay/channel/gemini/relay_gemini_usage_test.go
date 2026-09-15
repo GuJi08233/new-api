@@ -13,8 +13,24 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestGeminiEstimatedCompletionKeepsCacheAndModality(t *testing.T) {
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: "gemini-test"}}
+	metadata := &dto.GeminiUsageMetadata{PromptTokenCount: 100, CachedContentTokenCount: 70, PromptTokensDetails: []dto.GeminiPromptTokensDetails{{Modality: "IMAGE", TokenCount: 20}}}
+	usage := buildUsageFromGeminiMetadata(metadata, 0)
+	patchGeminiZeroCompletionUsage(c, info, &usage, "", 1)
+	require.NotNil(t, usage.BillingUsage)
+	require.NotNil(t, usage.BillingUsage.GeminiUsageMetadata)
+	assert.Equal(t, 70, usage.BillingUsage.GeminiUsageMetadata.CachedContentTokenCount)
+	assert.Equal(t, metadata.PromptTokensDetails, usage.BillingUsage.GeminiUsageMetadata.PromptTokensDetails)
+	assert.Equal(t, 1400, usage.BillingUsage.GeminiUsageMetadata.CandidatesTokenCount)
+	assert.True(t, usage.BillingUsage.Estimated)
+}
 
 func TestGeminiChatHandlerCompletionTokensExcludeToolUsePromptTokens(t *testing.T) {
 	t.Parallel()

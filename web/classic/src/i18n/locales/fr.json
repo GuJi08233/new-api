@@ -4251,6 +4251,15 @@
     "每周期最多请求次数": "Requêtes max par période",
     "该渠道每周期最多承接的请求次数，包括失败、重试与渠道测试，0 代表不限制。达到后本周期内自动跳过该渠道": "Nombre maximal de requêtes acceptées par ce canal par période, y compris les échecs, les nouvelles tentatives et les tests de canal ; 0 = illimité. Une fois atteint, le canal est ignoré jusqu'à la fin de la période",
     "每周期最多请求完成次数": "Requêtes réussies max par période",
-    "只包括在该渠道上成功完成的次数，0 代表不限制。达到后本周期内自动跳过该渠道": "Ne compte que les requêtes terminées avec succès sur ce canal ; 0 = illimité. Une fois atteint, le canal est ignoré jusqu'à la fin de la période"
+    "只包括在该渠道上成功完成的次数，0 代表不限制。达到后本周期内自动跳过该渠道": "Ne compte que les requêtes terminées avec succès sur ce canal ; 0 = illimité. Une fois atteint, le canal est ignoré jusqu'à la fin de la période",
+    "开始小于结束为当日区间，开始大于结束为跨夜区间；相等时不生效": "Début avant la fin : plage du même jour. Début après la fin : plage nocturne. Des bornes égales désactivent la règle.",
+    "，当前无生效订阅，请求将被拒绝": ", mais aucun abonnement n’est actif. Les requêtes seront refusées.",
+    "安全验证已取消": "Vérification de sécurité annulée.",
+    "微信验证码": "Code de vérification WeChat",
+    "没有可用的验证方式，请联系管理员": "Aucune méthode de vérification disponible. Contactez l’administrateur.",
+    "请允许浏览器打开验证窗口": "Autorisez le navigateur à ouvrir la fenêtre de vérification.",
+    "请先完成当前安全验证": "Terminez d’abord la vérification de sécurité en cours.",
+    "请验证当前账户身份以继续操作": "Vérifiez votre identité pour continuer.",
+    "验证失败": "Échec de la vérification"
   }
 }

@@ -47,7 +47,7 @@ func BuildWebAuthn(r *http.Request) (*webauthn.WebAuthn, error) {
 	selection := protocol.AuthenticatorSelection{
 		ResidentKey:        protocol.ResidentKeyRequirementRequired,
 		RequireResidentKey: protocol.ResidentKeyRequired(),
-		UserVerification:   protocol.UserVerificationRequirement(settings.UserVerification),
+		UserVerification:   protocol.VerificationRequired,
 	}
 	if selection.UserVerification == "" {
 		selection.UserVerification = protocol.VerificationPreferred

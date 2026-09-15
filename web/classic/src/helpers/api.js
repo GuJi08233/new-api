@@ -24,6 +24,7 @@ import {
   isValidMessage,
 } from './utils';
 import axios from 'axios';
+import { requestSecurityVerification } from '../services/securityChallenge';
 import { MESSAGE_ROLES } from '../constants/playground.constants';
 
 export const API = axios.create({
@@ -101,6 +102,19 @@ export function updateAPI() {}
 API.interceptors.response.use(
   (response) => response,
   (error) => {
+    if (
+      error.response?.status === 403 &&
+      error.response.data?.code === 'VERIFICATION_REQUIRED' &&
+      !error.config?._securityRetried
+    ) {
+      return requestSecurityVerification(error.response.data).then((proof) =>
+        API.request({
+          ...error.config,
+          _securityRetried: true,
+          headers: { ...error.config.headers, 'X-Security-Proof': proof },
+        }),
+      );
+    }
     // 如果请求配置中显式要求跳过全局错误处理，则不弹出默认错误提示
     if (error.config && error.config.skipErrorHandler) {
       return Promise.reject(error);
@@ -246,8 +260,9 @@ export const processGroupsData = (data, userGroup) => {
 
 // 原来components中的utils.js
 
-export async function getOAuthState(invitationCode) {
+export async function getOAuthState(invitationCode, provider) {
   let params = new URLSearchParams();
+  if (provider) params.set('provider', provider);
   if (invitationCode) {
     params.set('invitation_code', invitationCode);
   }
@@ -266,7 +281,7 @@ export async function getOAuthState(invitationCode) {
 }
 
 async function prepareOAuthState(options = {}) {
-  const { shouldLogout = false, invitationCode } = options;
+  const { shouldLogout = false, invitationCode, provider } = options;
   if (shouldLogout) {
     try {
       await API.get('/api/user/logout', { skipErrorHandler: true });
@@ -274,11 +289,11 @@ async function prepareOAuthState(options = {}) {
     localStorage.removeItem('user');
     updateAPI();
   }
-  return await getOAuthState(invitationCode);
+  return await getOAuthState(invitationCode, provider);
 }
 
 export async function onDiscordOAuthClicked(client_id, options = {}) {
-  const state = await prepareOAuthState(options);
+  const state = await prepareOAuthState({ ...options, provider: 'discord' });
   if (!state) return;
   const redirect_uri = `${window.location.origin}/oauth/discord`;
   const response_type = 'code';
@@ -294,7 +309,7 @@ export async function onOIDCClicked(
   openInNewTab = false,
   options = {},
 ) {
-  const state = await prepareOAuthState(options);
+  const state = await prepareOAuthState({ ...options, provider: 'oidc' });
   if (!state) return;
   const url = new URL(auth_url);
   url.searchParams.set('client_id', client_id);
@@ -306,7 +321,7 @@ export async function onOIDCClicked(
 }
 
 export async function onGitHubOAuthClicked(github_client_id, options = {}) {
-  const state = await prepareOAuthState(options);
+  const state = await prepareOAuthState({ ...options, provider: 'github' });
   if (!state) return;
   redirectToOAuthUrl(
     `https://github.com/login/oauth/authorize?client_id=${github_client_id}&state=${state}&scope=user:email`,
@@ -317,7 +332,7 @@ export async function onLinuxDOOAuthClicked(
   linuxdo_client_id,
   options = { shouldLogout: false },
 ) {
-  const state = await prepareOAuthState(options);
+  const state = await prepareOAuthState({ ...options, provider: 'linuxdo' });
   if (!state) return;
   redirectToOAuthUrl(
     `https://connect.linux.do/oauth2/authorize?response_type=code&client_id=${linuxdo_client_id}&state=${state}`,
@@ -325,7 +340,7 @@ export async function onLinuxDOOAuthClicked(
 }
 
 export async function onSteamOAuthClicked(options = { shouldLogout: false }) {
-  const state = await prepareOAuthState(options);
+  const state = await prepareOAuthState({ ...options, provider: 'steam' });
   if (!state) return;
   const returnTo = `${window.location.origin}/oauth/steam?state=${state}`;
   const params = new URLSearchParams({
@@ -352,7 +367,10 @@ export async function onSteamOAuthClicked(options = { shouldLogout: false }) {
  * @param {boolean} options.shouldLogout - Whether to logout first
  */
 export async function onCustomOAuthClicked(provider, options = {}) {
-  const state = await prepareOAuthState(options);
+  const state = await prepareOAuthState({
+    ...options,
+    provider: provider.slug,
+  });
   if (!state) return;
 
   try {

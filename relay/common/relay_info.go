@@ -59,7 +59,48 @@ type BuildInToolInfo struct {
 }
 
 type ResponsesUsageInfo struct {
-	BuiltInTools map[string]*BuildInToolInfo
+	BuiltInTools         map[string]*BuildInToolInfo
+	ImageGenerationCalls []ImageGenerationCall
+}
+
+type ImageGenerationCall struct {
+	Quality string
+	Size    string
+}
+
+// CountResponsesToolCall 只根据实际输出计数，不把工具声明当调用。
+func (info *RelayInfo) CountResponsesToolCall(output *dto.ResponsesOutput) {
+	if info == nil || output == nil {
+		return
+	}
+	toolType := ""
+	switch output.Type {
+	case "web_search_call":
+		toolType = dto.BuildInToolWebSearchPreview
+	case "file_search_call":
+		toolType = dto.BuildInToolFileSearch
+	case dto.ResponsesOutputTypeImageGenerationCall:
+		if output.Status != "" && output.Status != "completed" {
+			return
+		}
+		if info.ResponsesUsageInfo == nil {
+			info.ResponsesUsageInfo = &ResponsesUsageInfo{}
+		}
+		info.ImageGenerationCalls = append(info.ImageGenerationCalls, ImageGenerationCall{Quality: output.Quality, Size: output.Size})
+		return
+	default:
+		return
+	}
+	if info.ResponsesUsageInfo == nil {
+		info.ResponsesUsageInfo = &ResponsesUsageInfo{}
+	}
+	if info.BuiltInTools == nil {
+		info.BuiltInTools = make(map[string]*BuildInToolInfo)
+	}
+	if info.BuiltInTools[toolType] == nil {
+		info.BuiltInTools[toolType] = &BuildInToolInfo{ToolName: toolType}
+	}
+	info.BuiltInTools[toolType].CallCount++
 }
 
 type ChannelMeta struct {
@@ -174,6 +215,11 @@ type RelayInfo struct {
 	// captured at pre-consume time. Non-nil only when billing mode is "tiered_expr".
 	TieredBillingSnapshot *billingexpr.BillingSnapshot
 	BillingRequestInput   *billingexpr.RequestInput
+	// BillingGroup 记录当前价格快照所属的实际分组，切组后必须重新选价。
+	BillingGroup string
+	// ImageRequestCount 是参数覆盖后实际发送的数量；基础额度不包含数量和分组倍率。
+	ImageRequestCount     int
+	ImageQuotaBeforeGroup float64
 
 	Request dto.Request
 
@@ -196,6 +242,19 @@ type RelayInfo struct {
 }
 
 func (info *RelayInfo) InitChannelMeta(c *gin.Context) {
+	info.SendResponseCount = 0
+	info.ReceivedResponseCount = 0
+	if info.ClaudeConvertInfo != nil {
+		info.ClaudeConvertInfo = &ClaudeConvertInfo{LastMessagesType: LastMessageTypeNone}
+	}
+	if info.ResponsesUsageInfo != nil {
+		info.ImageGenerationCalls = nil
+		for _, tool := range info.ResponsesUsageInfo.BuiltInTools {
+			if tool != nil {
+				tool.CallCount = 0
+			}
+		}
+	}
 	channelType := common.GetContextKeyInt(c, constant.ContextKeyChannelType)
 	paramOverride := common.GetContextKeyStringMap(c, constant.ContextKeyChannelParamOverride)
 	headerOverride := common.GetContextKeyStringMap(c, constant.ContextKeyChannelHeaderOverride)
@@ -377,25 +436,26 @@ func (info *RelayInfo) ToString() string {
 
 // 定义支持流式选项的通道类型
 var streamSupportedChannels = map[int]bool{
-	constant.ChannelTypeOpenAI:      true,
-	constant.ChannelTypeAnthropic:   true,
-	constant.ChannelTypeOA2:         true, // OA2 四合一渠道
-	constant.ChannelTypeAws:         true,
-	constant.ChannelTypeGemini:      true,
-	constant.ChannelCloudflare:      true,
-	constant.ChannelTypeAzure:       true,
-	constant.ChannelTypeVolcEngine:  true,
-	constant.ChannelTypeOllama:      true,
-	constant.ChannelTypeXai:         true,
-	constant.ChannelTypeDeepSeek:    true,
-	constant.ChannelTypeBaiduV2:     true,
-	constant.ChannelTypeZhipu_v4:    true,
-	constant.ChannelTypeAli:         true,
-	constant.ChannelTypeSubmodel:    true,
-	constant.ChannelTypeCodex:       true,
-	constant.ChannelTypeMoonshot:    true,
-	constant.ChannelTypeMiniMax:     true,
-	constant.ChannelTypeSiliconFlow: true,
+	constant.ChannelTypeAdvancedCustom: true,
+	constant.ChannelTypeOpenAI:         true,
+	constant.ChannelTypeAnthropic:      true,
+	constant.ChannelTypeOA2:            true, // OA2 四合一渠道
+	constant.ChannelTypeAws:            true,
+	constant.ChannelTypeGemini:         true,
+	constant.ChannelCloudflare:         true,
+	constant.ChannelTypeAzure:          true,
+	constant.ChannelTypeVolcEngine:     true,
+	constant.ChannelTypeOllama:         true,
+	constant.ChannelTypeXai:            true,
+	constant.ChannelTypeDeepSeek:       true,
+	constant.ChannelTypeBaiduV2:        true,
+	constant.ChannelTypeZhipu_v4:       true,
+	constant.ChannelTypeAli:            true,
+	constant.ChannelTypeSubmodel:       true,
+	constant.ChannelTypeCodex:          true,
+	constant.ChannelTypeMoonshot:       true,
+	constant.ChannelTypeMiniMax:        true,
+	constant.ChannelTypeSiliconFlow:    true,
 }
 
 func GenRelayInfoWs(c *gin.Context, ws *websocket.Conn) *RelayInfo {

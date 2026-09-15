@@ -26,18 +26,16 @@ func oaiImage2AliImageRequest(info *relaycommon.RelayInfo, request dto.ImageRequ
 	var imageRequest AliImageRequest
 	imageRequest.Model = request.Model
 	imageRequest.ResponseFormat = request.ResponseFormat
+	imageRequest.Parameters = AliImageParameters{
+		Size:      strings.ReplaceAll(request.Size, "x", "*"),
+		N:         int(lo.FromPtrOr(request.N, uint(1))),
+		Watermark: request.Watermark,
+	}
 	if request.Extra != nil {
 		if val, ok := request.Extra["parameters"]; ok {
 			err := common.Unmarshal(val, &imageRequest.Parameters)
 			if err != nil {
 				return nil, fmt.Errorf("invalid parameters field: %w", err)
-			}
-		} else {
-			// 兼容没有parameters字段的情况，从openai标准字段中提取参数
-			imageRequest.Parameters = AliImageParameters{
-				Size:      strings.Replace(request.Size, "x", "*", -1),
-				N:         int(lo.FromPtrOr(request.N, uint(1))),
-				Watermark: request.Watermark,
 			}
 		}
 		if val, ok := request.Extra["input"]; ok {
@@ -58,7 +56,7 @@ func oaiImage2AliImageRequest(info *relaycommon.RelayInfo, request dto.ImageRequ
 	// Parameters may come from Extra["parameters"], bypassing the standard
 	// top-level n validation; enforce the same bound before it becomes a
 	// billing multiplier.
-	if imageRequest.Parameters.N < 0 || imageRequest.Parameters.N > dto.MaxImageN {
+	if imageRequest.Parameters.N < 1 || imageRequest.Parameters.N > dto.MaxImageN {
 		return nil, fmt.Errorf("parameters.n must be an integer between 1 and %d", dto.MaxImageN)
 	}
 	if imageRequest.Parameters.N != 0 {
@@ -300,7 +298,10 @@ func responseAli2OpenAIImage(c *gin.Context, response *AliResponse, originBody [
 }
 
 func aliImageHandler(a *Adaptor, c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (*types.NewAPIError, *dto.Usage) {
-	responseFormat := c.GetString("response_format")
+	responseFormat := ""
+	if request, ok := info.Request.(*dto.ImageRequest); ok {
+		responseFormat = request.ResponseFormat
+	}
 
 	var aliTaskResponse AliResponse
 	responseBody, err := io.ReadAll(resp.Body)
@@ -349,10 +350,15 @@ func aliImageHandler(a *Adaptor, c *gin.Context, resp *http.Response, info *rela
 	}
 
 	imageResponses := responseAli2OpenAIImage(c, aliResponse, originRespBody, info, responseFormat)
-	if aliResponse.Usage.ImageCount != 0 {
-		info.PriceData.AddOtherRatio("n", float64(aliResponse.Usage.ImageCount))
-	} else if len(imageResponses.Data) != 0 {
-		info.PriceData.AddOtherRatio("n", float64(len(imageResponses.Data)))
+	count := aliResponse.Usage.ImageCount
+	if count <= 0 || count > dto.MaxImageN {
+		count = len(imageResponses.Data)
+	}
+	if count <= 0 || count > dto.MaxImageN {
+		count = info.ImageRequestCount
+	}
+	if count > 0 && count <= dto.MaxImageN {
+		info.PriceData.AddOtherRatio("n", float64(count))
 	}
 	jsonResponse, err := common.Marshal(imageResponses)
 	if err != nil {

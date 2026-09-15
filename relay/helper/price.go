@@ -2,9 +2,11 @@ package helper
 
 import (
 	"fmt"
+	"net/http"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
@@ -50,7 +52,11 @@ func HandleGroupRatio(ctx *gin.Context, relayInfo *relaycommon.RelayInfo) types.
 		GroupSpecialRatio: -1,
 	}
 
-	relayInfo.UsingGroup = service.ResolveEffectiveGroup(ctx, relayInfo.UsingGroup)
+	usingGroup := relayInfo.UsingGroup
+	if usingGroup == "" {
+		usingGroup = relayInfo.UserGroup
+	}
+	relayInfo.UsingGroup = service.ResolveEffectiveGroup(ctx, usingGroup)
 	logger.LogDebug(ctx, "final group: %s", relayInfo.UsingGroup)
 
 	// check user group special ratio
@@ -69,11 +75,8 @@ func HandleGroupRatio(ctx *gin.Context, relayInfo *relaycommon.RelayInfo) types.
 }
 
 func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens int, meta *types.TokenCountMeta) (types.PriceData, error) {
-	// 获取用户分组，优先使用分组级别配置
-	userGroup := info.UserGroup
-	if autoGroup, exists := c.Get("auto_group"); exists {
-		userGroup = autoGroup.(string)
-	}
+	groupRatioInfo := HandleGroupRatio(c, info)
+	userGroup := info.UsingGroup
 
 	// 先尝试获取分组级别的计费模式和价格
 	groupBillingMode := ratio_setting.GetGroupBillingMode(userGroup, info.OriginModelName)
@@ -113,8 +116,6 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 		modelPrice, usePrice = ratio_setting.GetModelPrice(info.OriginModelName, false)
 		billingMode = billing_setting.GetBillingMode(info.OriginModelName)
 	}
-
-	groupRatioInfo := HandleGroupRatio(c, info)
 
 	// Check if this model uses tiered_expr billing
 	if billingMode == billing_setting.BillingModeTieredExpr || billingMode == "tiered_expr" {
@@ -267,7 +268,26 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 		logger.LogDebug(c, "model_price_helper result: %s", priceData.ToSetting())
 	}
 	info.PriceData = priceData
+	info.TieredBillingSnapshot = nil
+	info.BillingGroup = info.UsingGroup
+	if _, ok := info.Request.(*dto.ImageRequest); ok && !usePrice {
+		info.ImageQuotaBeforeGroup = float64(common.Max(promptTokens, common.PreConsumedQuota)+meta.MaxTokens) * modelRatio
+	}
 	return priceData, nil
+}
+
+// PrepareBillingForSelectedGroup 在重试发送前重新选择实际分组的完整价格规则。
+// 分组不仅能改变倍率，还能切换按次、按量和独立表达式；同组重试保持原快照。
+func PrepareBillingForSelectedGroup(c *gin.Context, info *relaycommon.RelayInfo, promptTokens int, meta *types.TokenCountMeta) *types.NewAPIError {
+	selectedGroup := service.ResolveEffectiveGroup(c, info.UsingGroup)
+	if selectedGroup == info.BillingGroup {
+		return nil
+	}
+	if _, err := ModelPriceHelper(c, info, promptTokens, meta); err != nil {
+		return types.NewErrorWithStatusCode(err, types.ErrorCodeModelPriceError, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+	}
+	info.ForcePreConsume = true
+	return service.ReserveBillingForRequest(c, info, info.PriceData.QuotaToPreConsume)
 }
 
 // ModelPriceHelperPerCall 按次/按量计费的 PriceHelper (MJ、Task)
@@ -462,5 +482,6 @@ func modelPriceHelperTieredWithExpr(c *gin.Context, info *relaycommon.RelayInfo,
 	logger.LogDebug(c, "model_price_helper_tiered result: model=%s preConsume=%d quotaBeforeGroup=%.2f groupRatio=%.2f tier=%s", info.OriginModelName, preConsumedQuota, quotaBeforeGroup, groupRatioInfo.GroupRatio, trace.MatchedTier)
 
 	info.PriceData = priceData
+	info.BillingGroup = info.UsingGroup
 	return priceData, nil
 }

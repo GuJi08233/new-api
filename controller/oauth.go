@@ -6,11 +6,14 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/oauth"
+	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -24,22 +27,70 @@ func providerParams(name string) map[string]any {
 // GenerateOAuthCode generates a state code for OAuth CSRF protection
 func GenerateOAuthCode(c *gin.Context) {
 	session := sessions.Default(c)
-	state := common.GetRandomString(12)
-	invitationCode := c.Query("invitation_code")
-	if invitationCode != "" {
-		session.Set("invitation_code", invitationCode)
+	slug := c.Query("provider")
+	mode := "login"
+	identity := model.SecurityIdentity{}
+	if session.Get("id") != nil {
+		current, err := middleware.CurrentCookieUser(c)
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"success": false, "message": err.Error()})
+			return
+		}
+		identity, err = middleware.CookieSecurityIdentity(c)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		if c.Query("verification") == "true" {
+			mode = "verify"
+			if !validVerificationScope(c.Query("scope"), c.Query("context_hash")) {
+				common.ApiErrorMsg(c, "无效的安全验证操作")
+				return
+			}
+			var factors int64
+			if err := model.DB.Model(&model.TwoFA{}).Where("user_id = ? AND is_enabled = ?", current.Id, true).Count(&factors).Error; err != nil {
+				common.ApiError(c, err)
+				return
+			}
+			var passkeys int64
+			if err := model.DB.Model(&model.PasskeyCredential{}).Where("user_id = ?", current.Id).Count(&passkeys).Error; err != nil {
+				common.ApiError(c, err)
+				return
+			}
+			if factors > 0 || (passkeys > 0 && system_setting.GetPasskeySettings().Enabled) {
+				common.ApiErrorMsg(c, "请使用已绑定的安全验证方式")
+				return
+			}
+		} else {
+			mode = "bind"
+			if !middleware.RequireSecurityProof(c, "account.bind.oauth", slug) {
+				return
+			}
+		}
 	}
-	session.Set("oauth_state", state)
-	err := session.Save()
+	if slug == "" || oauth.GetProvider(slug) == nil {
+		common.ApiErrorMsg(c, "无效的 OAuth 提供商")
+		return
+	}
+	payload, err := common.Marshal(UniversalVerifyRequest{Scope: c.Query("scope"), ContextHash: c.Query("context_hash")})
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
-		"data":    state,
-	})
+	state, err := model.CreateSecurityFlow(model.SecurityFlow{UserID: identity.UserID, Version: identity.Version, SessionID: identity.SessionID, Kind: "oauth", Scope: mode, ContextHash: slug, Payload: string(payload), ExpiresAt: time.Now().Add(5 * time.Minute).Unix()})
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if code := c.Query("invitation_code"); code != "" {
+		session.Set("invitation_code", code)
+	}
+	session.Set("oauth_state", state)
+	if err := session.Save(); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, state)
 }
 
 // HandleOAuth handles OAuth callback for all standard OAuth providers
@@ -56,25 +107,41 @@ func HandleOAuth(c *gin.Context) {
 
 	session := sessions.Default(c)
 
-	// 1. Validate state (CSRF protection)
 	state := c.Query("state")
-	if state == "" || session.Get("oauth_state") == nil || state != session.Get("oauth_state").(string) {
-		c.JSON(http.StatusForbidden, gin.H{
-			"success": false,
-			"message": i18n.T(c, i18n.MsgOAuthStateInvalid),
-		})
+	if state == "" || state != session.Get("oauth_state") {
+		common.ApiErrorMsg(c, "OAuth 状态无效，请重试")
+		return
+	}
+	flow, err := model.GetSecurityFlow(state, "oauth")
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	identity := model.SecurityIdentity{}
+	if flow.UserID > 0 {
+		identity, err = middleware.CookieSecurityIdentity(c)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		if _, err := model.ReadSecurityIdentity(identity); err != nil {
+			common.ApiError(c, err)
+			return
+		}
+	}
+	if _, err := model.ConsumeSecurityFlow(state, "oauth", identity, flow.Scope, providerName); err != nil {
+		common.ApiError(c, err)
 		return
 	}
 	session.Delete("oauth_state")
-	session.Save()
-
-	// 2. Check if user is already logged in (bind flow)
-	username := session.Get("username")
-	if username != nil {
+	if err := session.Save(); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if flow.Scope == "bind" {
 		handleOAuthBind(c, provider)
 		return
 	}
-
 	// 3. Check if provider is enabled
 	if !provider.IsEnabled() {
 		common.ApiErrorI18n(c, i18n.MsgOAuthNotEnabled, providerParams(provider.GetName()))
@@ -107,6 +174,30 @@ func HandleOAuth(c *gin.Context) {
 		return
 	}
 
+	if flow.Scope == "verify" {
+		var bound int64
+		var bindErr error
+		if generic, ok := provider.(*oauth.GenericOAuthProvider); ok {
+			bindErr = model.DB.Model(&model.UserOAuthBinding{}).Where("user_id = ? AND provider_id = ? AND provider_user_id = ?", identity.UserID, generic.GetProviderId(), oauthUser.ProviderUserID).Count(&bound).Error
+		} else if column := oauthBindingColumn(providerName); column != "" {
+			bindErr = model.DB.Model(&model.User{}).Where("id = ? AND "+column+" = ?", identity.UserID, oauthUser.ProviderUserID).Count(&bound).Error
+		}
+		if bindErr != nil {
+			common.ApiError(c, bindErr)
+			return
+		}
+		if bound != 1 {
+			common.ApiErrorMsg(c, "请验证当前账户已绑定的登录方式")
+			return
+		}
+		var request UniversalVerifyRequest
+		if err := common.UnmarshalJsonStr(flow.Payload, &request); err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		writeSecurityProof(c, identity, request.Scope, request.ContextHash)
+		return
+	}
 	// 7. Find or create user
 	user, err := findOrCreateOAuthUser(c, provider, oauthUser, session)
 	if err != nil {
@@ -169,32 +260,29 @@ func handleOAuthBind(c *gin.Context, provider oauth.Provider) {
 		}
 	}
 
-	// Get current user from session
-	session := sessions.Default(c)
-	id := session.Get("id")
-	user := model.User{Id: id.(int)}
-	err = user.FillUserById()
+	_, err = middleware.CurrentCookieUser(c)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
-
-	// Handle binding based on provider type
-	if genericProvider, ok := provider.(*oauth.GenericOAuthProvider); ok {
-		// Custom provider: use user_oauth_bindings table
-		err = model.UpdateUserOAuthBinding(user.Id, genericProvider.GetProviderId(), oauthUser.ProviderUserID)
-		if err != nil {
-			common.ApiError(c, err)
-			return
-		}
+	identity, err := middleware.CookieSecurityIdentity(c)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	var version int64
+	if generic, ok := provider.(*oauth.GenericOAuthProvider); ok {
+		version, err = model.BindAccountOAuth(identity, generic.GetProviderId(), oauthUser.ProviderUserID)
 	} else {
-		// Built-in provider: update user record directly
-		provider.SetProviderUserID(&user, oauthUser.ProviderUserID)
-		err = user.Update(false)
-		if err != nil {
-			common.ApiError(c, err)
-			return
-		}
+		version, err = model.BindAccountColumn(identity, oauthBindingColumn(c.Param("provider")), oauthUser.ProviderUserID)
+	}
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if err := saveSecurityVersion(c, version); err != nil {
+		common.ApiError(c, err)
+		return
 	}
 
 	common.ApiSuccessI18n(c, i18n.MsgOAuthBindSuccess, gin.H{

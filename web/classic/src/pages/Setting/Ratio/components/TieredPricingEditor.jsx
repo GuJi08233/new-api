@@ -1178,6 +1178,11 @@ function RuleConditionRow({ cond, onChange, onRemove, t }) {
             <Input size='small' value={normalized.value} placeholder={ph} style={{ flex: 1 }} onChange={(value) => onChange({ ...normalized, value })} />
           )}
         </div>
+        {isRange && (
+          <Text size='small' style={{ color: 'var(--semi-color-text-3)' }}>
+            {t('开始小于结束为当日区间，开始大于结束为跨夜区间；相等时不生效')}
+          </Text>
+        )}
         {hint && (
           <Text size='small' style={{ color: 'var(--semi-color-text-3)' }}>
             {t(hint)}

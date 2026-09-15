@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
@@ -168,6 +169,9 @@ func GetAndValidOpenAIImageRequest(c *gin.Context, relayMode int) (*dto.ImageReq
 				return nil, fmt.Errorf("failed to parse image edit form request: %w", err)
 			}
 			formData := url.Values(form.Value)
+			if len(formData["n"]) > 1 || len(formData["parameters"]) > 1 {
+				return nil, errors.New("image quantity fields must not be repeated")
+			}
 			c.Request.MultipartForm = form
 			c.Request.PostForm = formData
 			imageRequest.Prompt = formData.Get("prompt")
@@ -180,6 +184,12 @@ func GetAndValidOpenAIImageRequest(c *gin.Context, relayMode int) (*dto.ImageReq
 				imageRequest.N = common.GetPointer(uint(n))
 			}
 			imageRequest.Quality = formData.Get("quality")
+			imageRequest.ResponseFormat = formData.Get("response_format")
+			if parameters := formData.Get("parameters"); parameters != "" {
+				if err := common.UnmarshalJsonStr(parameters, &imageRequest.BillingParameters); err != nil {
+					return nil, fmt.Errorf("invalid image parameters: %w", err)
+				}
+			}
 			imageRequest.Size = formData.Get("size")
 			if streamValue := strings.TrimSpace(formData.Get("stream")); streamValue != "" {
 				stream, err := strconv.ParseBool(streamValue)
@@ -261,6 +271,9 @@ func GetAndValidOpenAIImageRequest(c *gin.Context, relayMode int) (*dto.ImageReq
 		}
 	}
 
+	if _, err := imageRequest.ImageCount(c.GetInt("channel_type") == constant.ChannelTypeAli); err != nil {
+		return nil, err
+	}
 	return imageRequest, nil
 }
 

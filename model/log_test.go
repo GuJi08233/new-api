@@ -20,6 +20,21 @@ func newLogTestContext(userAgent string) *gin.Context {
 	return &gin.Context{Request: request}
 }
 
+func TestSumUsedQuotaPreservesTotalWhenLoadingRates(t *testing.T) {
+	truncateTables(t)
+	now := time.Now().Unix()
+	logs := []Log{
+		{Username: "quota-stat", Type: LogTypeConsume, CreatedAt: now - 3600, Quota: 70, PromptTokens: 2, CompletionTokens: 3},
+		{Username: "quota-stat", Type: LogTypeConsume, CreatedAt: now, Quota: 30, PromptTokens: 4, CompletionTokens: 6},
+	}
+	require.NoError(t, LOG_DB.Create(&logs).Error)
+	stat, err := SumUsedQuota(LogTypeConsume, 0, 0, "", "quota-stat", "", 0, "")
+	require.NoError(t, err)
+	assert.Equal(t, 100, stat.Quota)
+	assert.Equal(t, 1, stat.Rpm)
+	assert.Equal(t, 10, stat.Tpm)
+}
+
 func TestGetRequestLogUaDisabled(t *testing.T) {
 	original := common.IsGlobalRecordUaLogEnabled()
 	t.Cleanup(func() {

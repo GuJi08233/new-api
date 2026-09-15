@@ -270,6 +270,17 @@ func (s *ResponsesToChatStreamState) ensureToolForEvent(event *dto.ResponsesStre
 
 	tool := s.toolByKey[key]
 	if tool == nil {
+		if itemID := responseStreamEventItemID(event); itemID != "" {
+			tool = s.toolByKey[s.itemIDToKey[itemID]]
+		}
+		if tool == nil {
+			tool = s.toolByKey[s.callIDToKey[strings.TrimSpace(event.Item.CallId)]]
+		}
+		if tool != nil {
+			s.toolByKey[key] = tool
+		}
+	}
+	if tool == nil {
 		tool = &responsesStreamTool{Key: key, Index: s.nextToolIndex}
 		s.nextToolIndex++
 		s.toolByKey[key] = tool

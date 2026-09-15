@@ -128,7 +128,12 @@ func calculateTextToolCallSurcharge(ctx *gin.Context, relayInfo *relaycommon.Rel
 		}
 	}
 
-	if ctx.GetBool("image_generation_call") {
+	if relayInfo.ResponsesUsageInfo != nil && len(relayInfo.ImageGenerationCalls) > 0 {
+		for _, image := range relayInfo.ImageGenerationCalls {
+			summary.ImageGenerationCallPrice += operation_setting.GetGPTImage1PriceOnceCall(image.Quality, image.Size)
+		}
+		surcharge = surcharge.Add(decimal.NewFromFloat(summary.ImageGenerationCallPrice).Mul(dGroupRatio).Mul(dQuotaPerUnit))
+	} else if ctx.GetBool("image_generation_call") {
 		summary.ImageGenerationCallPrice = operation_setting.GetGPTImage1PriceOnceCall(ctx.GetString("image_generation_call_quality"), ctx.GetString("image_generation_call_size"))
 		surcharge = surcharge.Add(decimal.NewFromFloat(summary.ImageGenerationCallPrice).
 			Mul(dGroupRatio).
@@ -426,7 +431,12 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	}
 	appendUsageBillingPathForLog(other, common.GetContextKeyBool(ctx, constant.ContextKeyLocalCountTokens), originUsage)
 	if adminRejectReason != "" {
-		other["reject_reason"] = adminRejectReason
+		adminInfo, _ := other["admin_info"].(map[string]interface{})
+		if adminInfo == nil {
+			adminInfo = make(map[string]interface{})
+			other["admin_info"] = adminInfo
+		}
+		adminInfo["reject_reason"] = adminRejectReason
 	}
 	if summary.ImageTokens != 0 {
 		other["image"] = true

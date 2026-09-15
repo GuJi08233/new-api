@@ -112,6 +112,7 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 	if err != nil {
 		return nil, fmt.Errorf("new request failed: %w", err)
 	}
+	channel.ApplyUpstreamBodyMetadata(req, requestBody)
 	// Signed requests must include configured/client passthrough headers in the
 	// canonical request. The prepared transport path then preserves the exact
 	// signed headers without applying the overrides a second time.

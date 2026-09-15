@@ -4,11 +4,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/QuantumNous/new-api/middleware"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
@@ -30,11 +32,6 @@ type LoginRequest struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
 }
-
-var (
-	errUserPasswordUnset    = errors.New("user password is not set")
-	errOriginalPasswordFail = errors.New("original password is incorrect")
-)
 
 func Login(c *gin.Context) {
 	if !common.PasswordLoginEnabled {
@@ -79,34 +76,6 @@ func Login(c *gin.Context) {
 		return
 	}
 
-	// 检查是否启用2FA
-	twoFAEnabled, err := model.IsTwoFAEnabled(user.Id)
-	if err != nil {
-		common.SysLog(fmt.Sprintf("Login failed to load 2FA status for user %d: %v", user.Id, err))
-		common.ApiErrorI18n(c, i18n.MsgDatabaseError)
-		return
-	}
-	if twoFAEnabled {
-		// 设置pending session，等待2FA验证
-		session := sessions.Default(c)
-		session.Set("pending_username", user.Username)
-		session.Set("pending_user_id", user.Id)
-		err := session.Save()
-		if err != nil {
-			common.ApiErrorI18n(c, i18n.MsgUserSessionSaveFailed)
-			return
-		}
-
-		c.JSON(http.StatusOK, gin.H{
-			"message": i18n.T(c, i18n.MsgUserRequire2FA),
-			"success": true,
-			"data": map[string]interface{}{
-				"require_2fa": true,
-			},
-		})
-		return
-	}
-
 	setupLogin(&user, c)
 }
 
@@ -147,14 +116,56 @@ func recordLoginAudit(user *model.User, c *gin.Context) {
 
 // setup session & cookies and then return user info
 func setupLogin(user *model.User, c *gin.Context) {
+	var current model.User
+	if err := model.DB.First(&current, user.Id).Error; err != nil || current.Status != common.UserStatusEnabled {
+		common.ApiErrorMsg(c, "登录状态已失效，请重新登录")
+		return
+	}
+	if user.AuthVersion != current.AuthVersion || (user.Password != "" && user.Password != current.Password) {
+		common.ApiErrorMsg(c, "登录状态已失效，请重新登录")
+		return
+	}
+	if !c.GetBool("login_factor_verified") {
+		twoFA, err := getCurrentTwoFA(current.Id)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		if twoFA != nil && twoFA.IsEnabled {
+			token, err := model.CreateSecurityFlow(model.SecurityFlow{UserID: current.Id, Version: current.AuthVersion, Kind: "login", ExpiresAt: time.Now().Add(5 * time.Minute).Unix()})
+			if err != nil {
+				common.ApiError(c, err)
+				return
+			}
+			session := sessions.Default(c)
+			session.Clear()
+			session.Set("pending_login", token)
+			if err = session.Save(); err != nil {
+				common.ApiError(c, err)
+				return
+			}
+			common.ApiSuccess(c, gin.H{"require_2fa": true})
+			return
+		}
+	}
+	user = &current
+	sid, err := model.CreateSecurityFlow(model.SecurityFlow{UserID: user.Id, Version: user.AuthVersion, Kind: "session", ExpiresAt: time.Now().Add(30 * 24 * time.Hour).Unix()})
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
 	model.UpdateUserLastLoginAt(user.Id)
 	session := sessions.Default(c)
+	session.Clear()
+	session.Set("auth_version", user.AuthVersion)
+	session.Set("security_session", model.SecurityTokenHash(sid))
 	session.Set("id", user.Id)
 	session.Set("username", user.Username)
 	session.Set("role", user.Role)
 	session.Set("status", user.Status)
 	session.Set("group", user.Group)
-	err := session.Save()
+	err = session.Save()
 	if err != nil {
 		common.ApiErrorI18n(c, i18n.MsgUserSessionSaveFailed)
 		return
@@ -175,6 +186,12 @@ func setupLogin(user *model.User, c *gin.Context) {
 }
 
 func Logout(c *gin.Context) {
+	if identity, err := middleware.CookieSecurityIdentity(c); err == nil {
+		if err := model.RevokeSecuritySession(identity.SessionID); err != nil {
+			common.ApiError(c, err)
+			return
+		}
+	}
 	session := sessions.Default(c)
 	session.Clear()
 	err := session.Save()
@@ -431,38 +448,28 @@ func GetUser(c *gin.Context) {
 }
 
 func GenerateAccessToken(c *gin.Context) {
-	id := c.GetInt("id")
-	user, err := model.GetUserById(id, true)
+	if !middleware.RequireSecurityProof(c, "access_token.generate", "") {
+		return
+	}
+	key, err := common.GenerateRandomKey(32)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	// get rand int 28-32
-	randI := common.GetRandomInt(4)
-	key, err := common.GenerateRandomKey(29 + randI)
+	identity, err := middleware.CookieSecurityIdentity(c)
 	if err != nil {
-		common.ApiErrorI18n(c, i18n.MsgGenerateFailed)
-		common.SysLog("failed to generate key: " + err.Error())
-		return
-	}
-	user.SetAccessToken(key)
-
-	if model.ReadDB().Where("access_token = ?", user.AccessToken).First(user).RowsAffected != 0 {
-		common.ApiErrorI18n(c, i18n.MsgUuidDuplicate)
-		return
-	}
-
-	if err := user.Update(false); err != nil {
 		common.ApiError(c, err)
 		return
 	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
-		"data":    user.AccessToken,
+	err = model.MutateAccountSecurity(identity, func(tx *gorm.DB, user *model.User) error {
+		return tx.Model(&model.User{}).Where("id = ?", user.Id).Update("access_token", key).Error
 	})
-	return
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	c.Header("Cache-Control", "no-store")
+	common.ApiSuccess(c, key)
 }
 
 func GetSelf(c *gin.Context) {
@@ -853,20 +860,25 @@ func UpdateSelf(c *gin.Context) {
 		user.Password = "" // rollback to what it should be
 		cleanUser.Password = ""
 	}
-	updatePassword, err := checkUpdatePassword(user.OriginalPassword, user.Password, cleanUser.Id)
-	if err != nil {
-		if errors.Is(err, errUserPasswordUnset) {
-			common.ApiErrorI18n(c, i18n.MsgUserPasswordUnset)
-			return
-		}
-		if errors.Is(err, errOriginalPasswordFail) {
-			common.ApiErrorI18n(c, i18n.MsgUserOriginalPasswordError)
-			return
-		}
-		common.ApiError(c, err)
+	if user.Password != "" && !middleware.RequireSecurityProof(c, "password.change", "") {
 		return
 	}
-	if err := cleanUser.Update(updatePassword); err != nil {
+	if user.Password != "" {
+		identity, err := middleware.CookieSecurityIdentity(c)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		version, err := model.ChangeAccountPassword(identity, user.OriginalPassword, &cleanUser)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		if err := saveSecurityVersion(c, version); err != nil {
+			common.ApiError(c, err)
+			return
+		}
+	} else if err := cleanUser.Update(false); err != nil {
 		common.ApiError(c, err)
 		return
 	}
@@ -875,29 +887,6 @@ func UpdateSelf(c *gin.Context) {
 		"success": true,
 		"message": "",
 	})
-	return
-}
-
-func checkUpdatePassword(originalPassword string, newPassword string, userId int) (updatePassword bool, err error) {
-	if newPassword == "" {
-		return
-	}
-	var currentUser *model.User
-	currentUser, err = model.GetUserById(userId, true)
-	if err != nil {
-		return
-	}
-
-	// 密码不为空,需要验证原密码
-	if currentUser.Password == "" {
-		err = errUserPasswordUnset
-		return
-	}
-	if !common.ValidatePasswordAndHash(originalPassword, currentUser.Password) {
-		err = errOriginalPasswordFail
-		return
-	}
-	updatePassword = true
 	return
 }
 
@@ -934,24 +923,31 @@ func DeleteUser(c *gin.Context) {
 }
 
 func DeleteSelf(c *gin.Context) {
-	id := c.GetInt("id")
-	user, _ := model.GetUserById(id, false)
-
-	if user.Role == common.RoleRootUser {
-		common.ApiErrorI18n(c, i18n.MsgUserCannotDeleteRootUser)
+	if !middleware.RequireSecurityProof(c, "account.delete", "") {
 		return
 	}
-
-	err := model.DeleteUserById(id)
+	identity, err := middleware.CookieSecurityIdentity(c)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
+	err = model.MutateAccountSecurity(identity, func(tx *gorm.DB, user *model.User) error {
+		if user.Role == common.RoleRootUser {
+			return errors.New("无法删除超级管理员账户")
+		}
+		return tx.Delete(user).Error
 	})
-	return
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	session := sessions.Default(c)
+	session.Clear()
+	if err := session.Save(); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, nil)
 }
 
 func CreateUser(c *gin.Context) {
@@ -1245,29 +1241,29 @@ func EmailBind(c *gin.Context) {
 	}
 	email := req.Email
 	email = model.NormalizeEmail(email)
+	if !middleware.RequireSecurityProof(c, "account.bind.email", email) {
+		return
+	}
 	code := req.Code
 	if !common.VerifyCodeWithKey(email, code, common.EmailVerificationPurpose) {
 		common.ApiErrorI18n(c, i18n.MsgUserVerificationCodeError)
 		return
 	}
-	session := sessions.Default(c)
-	id := session.Get("id")
-	user := model.User{
-		Id: id.(int),
-	}
-	err := user.FillUserById()
+	identity, err := middleware.CookieSecurityIdentity(c)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	if err := model.BindEmailToUser(&user, email); err != nil {
-		if errors.Is(err, model.ErrEmailAlreadyTaken) {
-			common.ApiErrorI18n(c, i18n.MsgUserEmailAlreadyTaken)
-			return
-		}
+	version, err := model.BindAccountEmail(identity, email)
+	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
+	if err := saveSecurityVersion(c, version); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",

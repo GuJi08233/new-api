@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/oauth"
 	"github.com/gin-gonic/gin"
@@ -533,6 +534,9 @@ func GetUserOAuthBindingsByAdmin(c *gin.Context) {
 
 // UnbindCustomOAuth unbinds a custom OAuth provider from the current user
 func UnbindCustomOAuth(c *gin.Context) {
+	if !middleware.RequireSecurityProof(c, "account.unbind.oauth", c.Param("provider_id")) {
+		return
+	}
 	userId := c.GetInt("id")
 	if userId == 0 {
 		common.ApiErrorMsg(c, "未登录")
@@ -566,7 +570,17 @@ func UnbindCustomOAuth(c *gin.Context) {
 		return
 	}
 
-	if err := model.DeleteUserOAuthBinding(userId, providerId); err != nil {
+	identity, err := middleware.CookieSecurityIdentity(c)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	version, err := model.UnbindAccountOAuth(identity, providerId)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if err := saveSecurityVersion(c, version); err != nil {
 		common.ApiError(c, err)
 		return
 	}
@@ -604,7 +618,7 @@ func UnbindCustomOAuthByAdmin(c *gin.Context) {
 		return
 	}
 
-	if err := model.DeleteUserOAuthBinding(userId, providerId); err != nil {
+	if err := model.RevokeAccountAuthentication(userId, "oauth", providerId); err != nil {
 		common.ApiError(c, err)
 		return
 	}

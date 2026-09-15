@@ -21,6 +21,7 @@ const UserNameMaxLength = 20
 // Otherwise, the sensitive information will be saved on local storage in plain text!
 type User struct {
 	Id               int     `json:"id"`
+	AuthVersion      int64   `json:"-" gorm:"type:bigint;not null;default:0"`
 	Username         string  `json:"username" gorm:"unique;index" validate:"max=20"`
 	Password         string  `json:"password" gorm:"not null;" validate:"min=8,max=20"`
 	OriginalPassword string  `json:"original_password" gorm:"-:all"` // this field is only for Password change verification, don't save it to database!
@@ -448,13 +449,12 @@ func BindEmailToUser(user *User, email string) error {
 			if err := ensureEmailAvailableWithTx(tx, email, user.Id); err != nil {
 				return err
 			}
-			user.Email = email
-			return user.UpdateWithTx(tx, false)
+			return tx.Model(&User{}).Where("id = ?", user.Id).Update("email", email).Error
 		})
 	}); err != nil {
 		return err
 	}
-	return updateUserCache(*user)
+	return invalidateUserCache(user.Id)
 }
 
 func ensureEmailAvailableWithTx(tx *gorm.DB, email string, excludeUserID int) error {
@@ -582,7 +582,7 @@ func (user *User) FinalizeOAuthUserCreation(source LogSource, inviterId int) {
 }
 
 func (user *User) Update(updatePassword bool) error {
-	if err := user.UpdateWithTx(DB, updatePassword); err != nil {
+	if err := DB.Transaction(func(tx *gorm.DB) error { return user.UpdateWithTx(tx, updatePassword) }); err != nil {
 		return err
 	}
 	return updateUserCache(*user)
@@ -648,7 +648,12 @@ func (user *User) UpdateWithTx(tx *gorm.DB, updatePassword bool) error {
 	if err = tx.First(&current, user.Id).Error; err != nil {
 		return err
 	}
-	if err = tx.Model(&current).Omit("quota", "used_quota", "request_count").Updates(newUser).Error; err != nil {
+	if updatePassword {
+		if err = tx.Model(&User{}).Where("id = ?", user.Id).Updates(map[string]any{"auth_version": gorm.Expr("auth_version + 1"), "password": newUser.Password}).Error; err != nil {
+			return err
+		}
+	}
+	if err = tx.Model(&current).Omit("quota", "used_quota", "request_count", "access_token", "auth_version", "password").Updates(newUser).Error; err != nil {
 		return err
 	}
 	return tx.First(user, user.Id).Error
@@ -679,6 +684,7 @@ func (user *User) EditWithTx(tx *gorm.DB, updatePassword bool) error {
 	}
 	if updatePassword {
 		updates["password"] = newUser.Password
+		updates["auth_version"] = gorm.Expr("auth_version + 1")
 	}
 
 	current := User{}
@@ -712,7 +718,7 @@ func (user *User) ClearBinding(bindingType string) error {
 		return errors.New("invalid binding type")
 	}
 
-	if err := DB.Model(&User{}).Where("id = ?", user.Id).Update(column, "").Error; err != nil {
+	if err := DB.Model(&User{}).Where("id = ?", user.Id).Updates(map[string]any{column: "", "auth_version": gorm.Expr("auth_version + 1")}).Error; err != nil {
 		return err
 	}
 
@@ -814,8 +820,7 @@ func (user *User) FillUserById() error {
 	if user.Id == 0 {
 		return errors.New("id 为空！")
 	}
-	ReadDB().Where(User{Id: user.Id}).First(user)
-	return nil
+	return DB.Where(User{Id: user.Id}).First(user).Error
 }
 
 func (user *User) FillUserByEmail() error {
@@ -933,7 +938,7 @@ func ResetUserPasswordByEmail(email string, password string) error {
 	if err != nil {
 		return err
 	}
-	err = DB.Model(&User{}).Where("id = ?", user.Id).Update("password", hashedPassword).Error
+	err = DB.Model(&User{}).Where("id = ?", user.Id).Updates(map[string]any{"password": hashedPassword, "auth_version": gorm.Expr("auth_version + 1")}).Error
 	return err
 }
 
@@ -968,30 +973,7 @@ func ValidateAccessToken(token string) (*User, error) {
 
 // GetUserQuota gets quota from Redis first, falls back to DB if needed
 func GetUserQuota(id int, fromDB bool) (quota int, err error) {
-	defer func() {
-		// Update Redis cache asynchronously on successful DB read
-		if shouldUpdateRedis(fromDB, err) {
-			gopool.Go(func() {
-				if err := updateUserQuotaCache(id, quota); err != nil {
-					common.SysLog("failed to update user quota cache: " + err.Error())
-				}
-			})
-		}
-	}()
-	if !fromDB && common.RedisEnabled {
-		quota, err := getUserQuotaCache(id)
-		if err == nil {
-			return quota, nil
-		}
-		// Don't return error - fall through to DB
-	}
-	fromDB = true
-	err = ReadDB().Model(&User{}).Where("id = ?", id).Select("quota").Find(&quota).Error
-	if err != nil {
-		return 0, err
-	}
-
-	return quota, nil
+	return getUserQuotaForRead(id, fromDB)
 }
 
 func GetUserUsedQuota(id int) (quota int, err error) {
@@ -1074,50 +1056,14 @@ func IncreaseUserQuota(id int, quota int, db bool) (err error) {
 	if quota < 0 {
 		return errors.New("quota 不能为负数！")
 	}
-	gopool.Go(func() {
-		err := cacheIncrUserQuota(id, int64(quota))
-		if err != nil {
-			common.SysLog("failed to increase user quota: " + err.Error())
-		}
-	})
-	if !db && common.BatchUpdateEnabled {
-		addNewRecord(BatchUpdateTypeUserQuota, id, quota)
-		return nil
-	}
-	return increaseUserQuota(id, quota)
-}
-
-func increaseUserQuota(id int, quota int) (err error) {
-	err = DB.Model(&User{}).Where("id = ?", id).Update("quota", gorm.Expr("quota + ?", quota)).Error
-	if err != nil {
-		return err
-	}
-	return err
+	return applyUserQuotaDelta(id, quota, db)
 }
 
 func DecreaseUserQuota(id int, quota int, db bool) (err error) {
 	if quota < 0 {
 		return errors.New("quota 不能为负数！")
 	}
-	gopool.Go(func() {
-		err := cacheDecrUserQuota(id, int64(quota))
-		if err != nil {
-			common.SysLog("failed to decrease user quota: " + err.Error())
-		}
-	})
-	if !db && common.BatchUpdateEnabled {
-		addNewRecord(BatchUpdateTypeUserQuota, id, -quota)
-		return nil
-	}
-	return decreaseUserQuota(id, quota)
-}
-
-func decreaseUserQuota(id int, quota int) (err error) {
-	err = DB.Model(&User{}).Where("id = ?", id).Update("quota", gorm.Expr("quota - ?", quota)).Error
-	if err != nil {
-		return err
-	}
-	return err
+	return applyUserQuotaDelta(id, -quota, db)
 }
 
 func DeltaUpdateUserQuota(id int, delta int) (err error) {

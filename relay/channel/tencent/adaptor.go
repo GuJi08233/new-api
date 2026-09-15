@@ -100,9 +100,7 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 	if err != nil {
 		return nil, fmt.Errorf("new request failed: %w", err)
 	}
-	if info.UpstreamRequestBodySize > 0 && req.ContentLength <= 0 {
-		req.ContentLength = info.UpstreamRequestBodySize
-	}
+	channel.ApplyUpstreamBodyMetadata(req, requestBody)
 
 	headers := req.Header
 	if err := a.SetupRequestHeader(c, &headers, info); err != nil {
