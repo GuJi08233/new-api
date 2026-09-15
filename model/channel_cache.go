@@ -3,7 +3,9 @@ package model
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"math/rand"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -300,29 +302,63 @@ func CacheGetChannelInfo(id int) (*ChannelInfo, error) {
 	return &c.ChannelInfo, nil
 }
 
-func CacheUpdateChannelStatus(id int, status int) {
-	if !common.MemoryCacheEnabled {
-		return
-	}
+// cacheApplyChannelStatus 把已提交到数据库的状态转换镜像到内存缓存和路由表；返回 false 表示渠道尚未进入缓存。
+// 只覆盖状态流拥有的字段，轮询游标等缓存独有的运行时状态保持不变。
+func cacheApplyChannelStatus(saved *Channel, statusChanged bool) bool {
 	channelSyncLock.Lock()
 	defer channelSyncLock.Unlock()
-	if channel, ok := channelsIDM[id]; ok {
-		channel.Status = status
+	channel, ok := channelsIDM[saved.Id]
+	if !ok {
+		return false
 	}
-	if status != common.ChannelStatusEnabled {
-		// delete the channel from group2model2channels
+	channel.Status = saved.Status
+	channel.OtherInfo = saved.OtherInfo
+	if saved.ChannelInfo.IsMultiKey {
+		channel.ChannelInfo.MultiKeyStatusList = maps.Clone(saved.ChannelInfo.MultiKeyStatusList)
+		channel.ChannelInfo.MultiKeyDisabledReason = maps.Clone(saved.ChannelInfo.MultiKeyDisabledReason)
+		channel.ChannelInfo.MultiKeyDisabledTime = maps.Clone(saved.ChannelInfo.MultiKeyDisabledTime)
+	}
+	if !statusChanged {
+		return true
+	}
+	if group2model2channels == nil {
+		group2model2channels = make(map[string]map[string][]int)
+	}
+	if saved.Status != common.ChannelStatusEnabled {
 		for group, model2channels := range group2model2channels {
 			for model, channels := range model2channels {
-				for i, channelId := range channels {
-					if channelId == id {
-						// remove the channel from the slice
-						group2model2channels[group][model] = append(channels[:i], channels[i+1:]...)
-						break
-					}
+				if index := slices.Index(channels, saved.Id); index >= 0 {
+					group2model2channels[group][model] = slices.Delete(slices.Clone(channels), index, index+1)
 				}
 			}
 		}
+		return true
 	}
+	// 重新启用后立即回到路由表并按优先级排序，不必等待下一次全量同步。
+	for _, group := range strings.Split(channel.Group, ",") {
+		if group2model2channels[group] == nil {
+			group2model2channels[group] = make(map[string][]int)
+		}
+		for _, model := range strings.Split(channel.Models, ",") {
+			channels := group2model2channels[group][model]
+			if slices.Contains(channels, saved.Id) {
+				continue
+			}
+			channels = append(slices.Clone(channels), saved.Id)
+			sort.SliceStable(channels, func(i, j int) bool {
+				var left, right int64
+				if cached, ok := channelsIDM[channels[i]]; ok {
+					left = cached.GetPriority()
+				}
+				if cached, ok := channelsIDM[channels[j]]; ok {
+					right = cached.GetPriority()
+				}
+				return left > right
+			})
+			group2model2channels[group][model] = channels
+		}
+	}
+	return true
 }
 
 func CacheUpdateChannel(channel *Channel) {

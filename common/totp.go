@@ -6,6 +6,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/pquerna/otp"
 	"github.com/pquerna/otp/totp"
@@ -19,6 +20,9 @@ const (
 	// 限制配置
 	MaxFailAttempts = 5   // 最大失败尝试次数
 	LockoutDuration = 300 // 锁定时间（秒）
+
+	// TOTPPeriod 是 TOTP 时间步长度（秒），生成与校验必须使用同一值。
+	TOTPPeriod = 30
 )
 
 // GenerateTOTPSecret 生成TOTP密钥和配置
@@ -27,22 +31,38 @@ func GenerateTOTPSecret(accountName string) (*otp.Key, error) {
 	return totp.Generate(totp.GenerateOpts{
 		Issuer:      issuer,
 		AccountName: accountName,
-		Period:      30,
+		Period:      TOTPPeriod,
 		Digits:      otp.DigitsSix,
 		Algorithm:   otp.AlgorithmSHA1,
 	})
 }
 
-// ValidateTOTPCode 验证TOTP验证码
-func ValidateTOTPCode(secret, code string) bool {
-	// 清理验证码格式
+// MatchTOTPStep 返回验证码命中的 TOTP 时间步（Unix 秒 / 周期）。与 totp.Validate 一样允许
+// 当前步前后各一步的时钟偏移。调用方用返回的时间步做防重放栅栏：同一时间步只接受一次。
+func MatchTOTPStep(secret, code string, now time.Time) (int64, bool) {
 	cleanCode := strings.ReplaceAll(code, " ", "")
 	if len(cleanCode) != 6 {
-		return false
+		return 0, false
 	}
+	for _, offset := range []int64{0, -1, 1} {
+		at := now.UTC().Add(time.Duration(offset*TOTPPeriod) * time.Second)
+		matched, err := totp.ValidateCustom(cleanCode, secret, at, totp.ValidateOpts{
+			Period:    TOTPPeriod,
+			Skew:      0,
+			Digits:    otp.DigitsSix,
+			Algorithm: otp.AlgorithmSHA1,
+		})
+		if err == nil && matched {
+			return at.Unix() / TOTPPeriod, true
+		}
+	}
+	return 0, false
+}
 
-	// 验证验证码
-	return totp.Validate(cleanCode, secret)
+// ValidateTOTPCode 验证TOTP验证码
+func ValidateTOTPCode(secret, code string) bool {
+	_, matched := MatchTOTPStep(secret, code, time.Now())
+	return matched
 }
 
 // GenerateBackupCodes 生成备用恢复码
@@ -145,6 +165,6 @@ func ValidateNumericCode(code string) (string, error) {
 func GenerateQRCodeData(secret, username string) string {
 	issuer := Get2FAIssuer()
 	accountName := fmt.Sprintf("%s (%s)", username, issuer)
-	return fmt.Sprintf("otpauth://totp/%s:%s?secret=%s&issuer=%s&digits=6&period=30",
-		issuer, accountName, secret, issuer)
+	return fmt.Sprintf("otpauth://totp/%s:%s?secret=%s&issuer=%s&digits=6&period=%d",
+		issuer, accountName, secret, issuer, TOTPPeriod)
 }

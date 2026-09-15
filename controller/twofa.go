@@ -118,7 +118,9 @@ func Enable2FA(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	if !common.ValidateTOTPCode(payload.Secret, req.Code) {
+	// 启用时使用的验证码所在时间步立即计入已使用，同一验证码不能再用于签发安全证明。
+	step, matched := common.MatchTOTPStep(payload.Secret, req.Code, time.Now())
+	if !matched {
 		common.ApiErrorMsg(c, "验证码或备用码错误，请重试")
 		return
 	}
@@ -140,7 +142,7 @@ func Enable2FA(c *gin.Context) {
 		if err := tx.Unscoped().Where("user_id = ?", user.Id).Delete(&model.TwoFABackupCode{}).Error; err != nil {
 			return err
 		}
-		if err := tx.Create(&model.TwoFA{UserId: user.Id, Secret: payload.Secret, IsEnabled: true}).Error; err != nil {
+		if err := tx.Create(&model.TwoFA{UserId: user.Id, Secret: payload.Secret, IsEnabled: true, LastUsedStep: step}).Error; err != nil {
 			return err
 		}
 		for _, hash := range payload.CodeHashes {
@@ -175,48 +177,7 @@ func Disable2FA(c *gin.Context) {
 	}
 
 	userId := c.GetInt("id")
-
-	// 获取2FA记录
-	twoFA, err := getCurrentTwoFA(userId)
-	if err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	if twoFA == nil || !twoFA.IsEnabled {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "用户未启用2FA",
-		})
-		return
-	}
-
-	// 验证TOTP验证码或备用码
-	cleanCode, err := common.ValidateNumericCode(req.Code)
-	isValidTOTP := false
-	isValidBackup := false
-
-	if err == nil {
-		// 尝试验证TOTP
-		isValidTOTP, _ = twoFA.ValidateTOTPAndUpdateUsage(cleanCode)
-	}
-
-	if !isValidTOTP {
-		// 尝试验证备用码
-		isValidBackup, err = twoFA.ValidateBackupCodeAndUpdateUsage(req.Code)
-		if err != nil {
-			c.JSON(http.StatusOK, gin.H{
-				"success": false,
-				"message": err.Error(),
-			})
-			return
-		}
-	}
-
-	if !isValidTOTP && !isValidBackup {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "验证码或备用码错误，请重试",
-		})
+	if !verifySecondFactorForRequest(c, userId, req.Code, true) {
 		return
 	}
 
@@ -247,6 +208,30 @@ func Disable2FA(c *gin.Context) {
 		"success": true,
 		"message": "两步验证已禁用",
 	})
+}
+
+// verifySecondFactorForRequest 用数据库中的当前因子校验验证码或备用码；失败时已写出响应。
+func verifySecondFactorForRequest(c *gin.Context, userId int, code string, allowBackupCode bool) bool {
+	verified, err := model.VerifyTwoFactorCode(userId, code, allowBackupCode)
+	if err != nil {
+		message := err.Error()
+		if errors.Is(err, model.ErrTwoFANotEnabled) {
+			message = "用户未启用2FA"
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": message,
+		})
+		return false
+	}
+	if !verified {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": "验证码或备用码错误，请重试",
+		})
+		return false
+	}
+	return true
 }
 
 // Get2FAStatus 获取用户2FA状态
@@ -298,21 +283,7 @@ func RegenerateBackupCodes(c *gin.Context) {
 
 	userId := c.GetInt("id")
 
-	// 获取2FA记录
-	twoFA, err := getCurrentTwoFA(userId)
-	if err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	if twoFA == nil || !twoFA.IsEnabled {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "用户未启用2FA",
-		})
-		return
-	}
-
-	// 验证TOTP验证码
+	// 重新生成备用码只接受认证器验证码，不能用旧备用码换新备用码
 	cleanCode, err := common.ValidateNumericCode(req.Code)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
@@ -321,20 +292,7 @@ func RegenerateBackupCodes(c *gin.Context) {
 		})
 		return
 	}
-
-	valid, err := twoFA.ValidateTOTPAndUpdateUsage(cleanCode)
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": err.Error(),
-		})
-		return
-	}
-	if !valid {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "验证码或备用码错误，请重试",
-		})
+	if !verifySecondFactorForRequest(c, userId, cleanCode, false) {
 		return
 	}
 
@@ -418,47 +376,9 @@ func Verify2FALogin(c *gin.Context) {
 		common.ApiErrorMsg(c, "登录状态已失效，请重新登录")
 		return
 	}
-	// 获取2FA记录
-	twoFA, err := getCurrentTwoFA(user.Id)
-	if err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	if twoFA == nil || !twoFA.IsEnabled {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "用户未启用2FA",
-		})
-		return
-	}
-
-	// 验证TOTP验证码或备用码
-	cleanCode, err := common.ValidateNumericCode(req.Code)
-	isValidTOTP := false
-	isValidBackup := false
-
-	if err == nil {
-		// 尝试验证TOTP
-		isValidTOTP, _ = twoFA.ValidateTOTPAndUpdateUsage(cleanCode)
-	}
-
-	if !isValidTOTP {
-		// 尝试验证备用码
-		isValidBackup, err = twoFA.ValidateBackupCodeAndUpdateUsage(req.Code)
-		if err != nil {
-			c.JSON(http.StatusOK, gin.H{
-				"success": false,
-				"message": err.Error(),
-			})
-			return
-		}
-	}
-
-	if !isValidTOTP && !isValidBackup {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": "验证码或备用码错误，请重试",
-		})
+	// 直接对数据库中的当前因子校验并记录使用：因子在此期间被更换或禁用时校验不会通过，
+	// 校验之后再被更换则由 auth_version 使登录挑战和会话失效。
+	if !verifySecondFactorForRequest(c, user.Id, req.Code, true) {
 		return
 	}
 

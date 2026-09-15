@@ -1,6 +1,7 @@
 package model
 
 import (
+	"bytes"
 	"database/sql/driver"
 	"encoding/json"
 	"errors"
@@ -359,18 +360,6 @@ func (channel *Channel) Save() error {
 	return DB.Save(channel).Error
 }
 
-// saveStatusState 仅保存状态流拥有的字段，避免旧快照覆盖凭据、配置和计费计数。
-func (channel *Channel) saveStatusState() error {
-	if channel.Id == 0 {
-		return errors.New("channel ID is 0")
-	}
-	updates := map[string]any{"status": channel.Status, "other_info": channel.OtherInfo}
-	if channel.ChannelInfo.IsMultiKey {
-		updates["channel_info"] = channel.ChannelInfo
-	}
-	return DB.Model(&Channel{}).Where("id = ?", channel.Id).Updates(updates).Error
-}
-
 func GetAllChannels(startIdx int, num int, selectAll bool, idSort bool, sortOptions ...ChannelSortOptions) ([]*Channel, error) {
 	var channels []*Channel
 	var err error
@@ -685,7 +674,8 @@ func handlerMultiKeyUpdate(channel *Channel, usingKey string, status int, reason
 		}
 		if status == common.ChannelStatusEnabled {
 			delete(channel.ChannelInfo.MultiKeyStatusList, keyIndex)
-		} else {
+		} else if channel.ChannelInfo.MultiKeyStatusList[keyIndex] != status {
+			// 同一密钥重复收到相同状态不刷新禁用时间，避免推迟自动恢复或重复通知
 			channel.ChannelInfo.MultiKeyStatusList[keyIndex] = status
 			if channel.ChannelInfo.MultiKeyDisabledReason == nil {
 				channel.ChannelInfo.MultiKeyDisabledReason = make(map[int]string)
@@ -780,85 +770,83 @@ func UpdateChannelStatusManual(channelId int, status int, reason string) bool {
 }
 
 func updateChannelStatus(channelId int, usingKey string, status int, reason string, manual bool) bool {
-	if common.MemoryCacheEnabled {
-		channelStatusLock.Lock()
-		defer channelStatusLock.Unlock()
-	}
-	// ChannelInfo同时包含key状态与轮询游标，整个读改写期间持有同一把锁。
+	// 与自动恢复共用同一把进程锁：同一时刻只允许一个状态转换在进行。
+	channelStatusLock.Lock()
+	defer channelStatusLock.Unlock()
+	// ChannelInfo 同时包含 key 状态与轮询游标，整个读改写期间持有同一把锁。
 	pollingLock := GetChannelPollingLock(channelId)
 	pollingLock.Lock()
 	defer pollingLock.Unlock()
 
-	if common.MemoryCacheEnabled {
-		channelCache, _ := CacheGetChannel(channelId)
-		if channelCache == nil {
-			return false
-		}
-		// 归档渠道冻结状态：自动路径不得改写归档状态
-		if channelCache.Status == common.ChannelStatusArchived && !manual {
-			return false
-		}
-		if channelCache.ChannelInfo.IsMultiKey {
-			// Use per-channel lock to prevent concurrent map read/write with GetNextEnabledKey
-			beforeStatus := channelCache.Status
-			// 如果是多Key模式，更新缓存中的状态
-			handlerMultiKeyUpdate(channelCache, usingKey, status, reason)
-			if beforeStatus != channelCache.Status {
-				CacheUpdateChannelStatus(channelId, channelCache.Status)
-			}
-			//CacheUpdateChannel(channelCache)
-			//return true
-		} else {
-			// 如果缓存渠道存在，且状态已是目标状态，直接返回
-			if channelCache.Status == status {
-				return false
-			}
-			CacheUpdateChannelStatus(channelId, status)
-		}
-	}
-
-	shouldUpdateAbilities := false
-	defer func() {
-		if shouldUpdateAbilities {
-			err := UpdateAbilityStatus(channelId, status == common.ChannelStatusEnabled)
-			if err != nil {
-				common.SysLog(fmt.Sprintf("failed to update ability status: channel_id=%d, error=%v", channelId, err))
-			}
-		}
-	}()
-	channel := &Channel{}
-	err := DB.First(channel, channelId).Error
-	if err != nil {
-		return false
-	} else {
-		if channel.Status == status {
-			return false
+	// 数据库是唯一事实来源：转换在事务内基于当前行完成并连同 abilities 一起提交，缓存只镜像已提交的结果。
+	// 事务失败或没有变化时缓存原样不动，不会出现缓存已禁用而数据库仍启用的分叉。
+	var saved Channel
+	changed, statusChanged := false, false
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		var channel Channel
+		if err := lockForUpdate(tx).First(&channel, channelId).Error; err != nil {
+			return err
 		}
 		// 归档渠道冻结状态：自动路径不得改写归档状态
 		if channel.Status == common.ChannelStatusArchived && !manual {
-			return false
+			return nil
 		}
-
+		// 整渠道操作在目标状态已生效时直接跳过；多 key 的单 key 操作由 key 级状态决定
+		if (!channel.ChannelInfo.IsMultiKey || usingKey == "") && channel.Status == status {
+			return nil
+		}
+		beforeStatus := channel.Status
+		beforeInfo, err := common.Marshal(channel.ChannelInfo)
+		if err != nil {
+			return err
+		}
 		if channel.ChannelInfo.IsMultiKey {
-			beforeStatus := channel.Status
-			// Protect map writes with the same per-channel lock used by readers
-			handlerMultiKeyUpdate(channel, usingKey, status, reason)
-			if beforeStatus != channel.Status {
-				shouldUpdateAbilities = true
-			}
+			handlerMultiKeyUpdate(&channel, usingKey, status, reason)
 		} else {
 			info := channel.GetOtherInfo()
 			info["status_reason"] = reason
 			info["status_time"] = common.GetTimestamp()
 			channel.SetOtherInfo(info)
 			channel.Status = status
-			shouldUpdateAbilities = true
 		}
-		err = channel.saveStatusState()
+		afterInfo, err := common.Marshal(channel.ChannelInfo)
 		if err != nil {
-			common.SysLog(fmt.Sprintf("failed to update channel status: channel_id=%d, status=%d, error=%v", channel.Id, status, err))
-			return false
+			return err
 		}
+		statusChanged = channel.Status != beforeStatus
+		if !statusChanged && bytes.Equal(beforeInfo, afterInfo) {
+			return nil
+		}
+		// 只写状态流拥有的列，并以读取时的状态作为条件；凭据、配置和计费计数不会被旧快照覆盖。
+		updates := map[string]any{"status": channel.Status, "other_info": channel.OtherInfo}
+		if channel.ChannelInfo.IsMultiKey {
+			updates["channel_info"] = channel.ChannelInfo
+		}
+		result := tx.Model(&Channel{}).Where("id = ? AND status = ?", channel.Id, beforeStatus).Updates(updates)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return errors.New("channel status changed concurrently")
+		}
+		if statusChanged {
+			if err := tx.Model(&Ability{}).Where("channel_id = ?", channel.Id).Update("enabled", channel.Status == common.ChannelStatusEnabled).Error; err != nil {
+				return err
+			}
+		}
+		saved, changed = channel, true
+		return nil
+	})
+	if err != nil {
+		common.SysLog(fmt.Sprintf("failed to update channel status: channel_id=%d, status=%d, error=%v", channelId, status, err))
+		return false
+	}
+	if !changed {
+		return false
+	}
+	if common.MemoryCacheEnabled && !cacheApplyChannelStatus(&saved, statusChanged) {
+		// 缓存中还没有这个渠道（例如刚由其他节点创建），整体重建以保持路由与数据库一致。
+		InitChannelCache()
 	}
 	return true
 }

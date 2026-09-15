@@ -120,7 +120,13 @@ func UniversalVerify(c *gin.Context) {
 	verified := false
 	switch req.Method {
 	case "2fa":
-		verified = twoFA.Id > 0 && validateTwoFactorAuth(&twoFA, req.Code)
+		if twoFA.Id > 0 {
+			verified, err = model.VerifyTwoFactorCode(user.Id, req.Code, true)
+			if err != nil {
+				common.ApiError(c, err)
+				return
+			}
+		}
 	case "password":
 		verified = twoFA.Id == 0 && passkeys == 0 && user.Password != "" && common.ValidatePasswordAndHash(req.Password, user.Password)
 	case "telegram":
