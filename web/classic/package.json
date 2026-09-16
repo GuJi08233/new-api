@@ -16,7 +16,7 @@
     "@visactor/vchart-semi-theme": "~1.8.8",
     "@walletconnect/ethereum-provider": "^2.23.9",
     "antd": "^5.29.3",
-    "axios": "1.15.0",
+    "axios": "1.20.0",
     "clsx": "^2.1.1",
     "dayjs": "^1.11.11",
     "dompurify": "3.4.13",
