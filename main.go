@@ -28,6 +28,7 @@ import (
 	"github.com/QuantumNous/new-api/router"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/service/authz"
+	"github.com/QuantumNous/new-api/setting/billing_setting"
 	_ "github.com/QuantumNous/new-api/setting/performance_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
@@ -353,6 +354,9 @@ func InitResources() error {
 
 	// Initialize options, should after model.InitDB()
 	model.InitOptionMap()
+
+	// 存量配置可能带有旧生成器产出的恒真时间规则，只审计并提示，不改写管理员配置
+	billing_setting.WarnLegacyAlwaysTrueTimeRules()
 
 	// 清理旧的磁盘缓存文件
 	common.CleanupOldCacheFiles()
