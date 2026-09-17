@@ -306,3 +306,68 @@ func TestRedeemLegacyZeroMaxUsesBehavesAsSingleUse(t *testing.T) {
 	require.NoError(t, DB.First(&redemption, "name = ?", "multi-use-test").Error)
 	assert.Equal(t, common.RedemptionCodeStatusUsed, redemption.Status)
 }
+
+// 入账越界时整笔兑换必须回滚：兑换码不能被标记核销却没有发放额度，否则用户
+// 既丢了码又没拿到钱。入账走 creditTopUpQuota 的 CAS 守卫，与充值同一条边界。
+func TestRedeemRollsBackWhenCreditExceedsWalletCapacity(t *testing.T) {
+	truncateTables(t)
+	require.NoError(t, DB.AutoMigrate(&Redemption{}))
+	require.NoError(t, DB.Session(&gorm.Session{AllowGlobalUpdate: true}).Unscoped().Delete(&Redemption{}).Error)
+	t.Cleanup(func() {
+		require.NoError(t, DB.Session(&gorm.Session{AllowGlobalUpdate: true}).Unscoped().Delete(&Redemption{}).Error)
+	})
+
+	require.NoError(t, DB.Create(&User{Id: 901, Username: "redeem-capacity", Quota: common.MaxQuota - 10}).Error)
+	const key = "00000000000000000000000000000901"
+	require.NoError(t, DB.Create(&Redemption{
+		Id:     901,
+		Name:   "capacity",
+		Key:    key,
+		Status: common.RedemptionCodeStatusEnabled,
+		Quota:  100,
+	}).Error)
+
+	_, err := Redeem(LogSource{}, key, 901)
+	require.ErrorIs(t, err, ErrRedeemFailed)
+
+	var redemption Redemption
+	require.NoError(t, DB.First(&redemption, "id = ?", 901).Error)
+	assert.Equal(t, common.RedemptionCodeStatusEnabled, redemption.Status, "入账失败后兑换码必须仍可用")
+	assert.Zero(t, redemption.UsedCount)
+
+	quota, err := GetUserQuota(901, true)
+	require.NoError(t, err)
+	assert.Equal(t, common.MaxQuota-10, quota, "回滚后余额不得变动")
+}
+
+// 邀请码奖励与兑换码共用同一条入账边界，越界同样整笔回滚。
+func TestRedeemInvitationCodeRollsBackWhenCreditExceedsWalletCapacity(t *testing.T) {
+	truncateTables(t)
+	oldRatio := common.InvitationCodeRewardRatio
+	common.InvitationCodeRewardRatio = 0
+	t.Cleanup(func() { common.InvitationCodeRewardRatio = oldRatio })
+
+	// aff_code 有唯一索引，两个 fixture 用户不能都留空字符串。
+	require.NoError(t, DB.Create(&User{Id: 902, Username: "invite-owner", AffCode: "aff-902", Quota: 0}).Error)
+	require.NoError(t, DB.Create(&User{Id: 903, Username: "invite-capacity", AffCode: "aff-903", Quota: common.MaxQuota - 10}).Error)
+	const code = "invite-capacity-code"
+	require.NoError(t, DB.Create(&InvitationCode{
+		Id:     902,
+		UserId: 902,
+		Code:   code,
+		Quota:  100,
+		Status: common.InvitationCodeStatusEnabled,
+	}).Error)
+
+	_, err := Redeem(LogSource{}, code, 903)
+	require.ErrorIs(t, err, ErrRedeemFailed)
+
+	var invitation InvitationCode
+	require.NoError(t, DB.First(&invitation, "id = ?", 902).Error)
+	assert.Equal(t, common.InvitationCodeStatusEnabled, invitation.Status, "入账失败后邀请码必须仍可用")
+	assert.Zero(t, invitation.UsedCount)
+
+	quota, err := GetUserQuota(903, true)
+	require.NoError(t, err)
+	assert.Equal(t, common.MaxQuota-10, quota, "回滚后余额不得变动")
+}

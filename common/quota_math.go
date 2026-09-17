@@ -8,12 +8,20 @@ import (
 )
 
 // Quota conversions are centralized here so every billing path shares one
-// saturation + logging policy. Quota columns (user/token/log) are 32-bit
-// integers in the database, so an oversized product must clamp to the int32
-// range instead of wrapping around and turning a charge into a credit.
+// saturation + logging policy. An oversized product must clamp instead of
+// wrapping around and turning a charge into a credit.
+//
+// The bound is 2^53 rather than the int64 range of the underlying bigint
+// quota columns, because two links in the chain are narrower than bigint:
+// saturation compares and converts through float64, and quota travels to the
+// frontend as a JSON number. 2^53 is both the largest exactly representable
+// float64 integer and JavaScript's Number.MAX_SAFE_INTEGER, so it is the
+// widest bound that stays lossless end to end. math.MaxInt64 would not work:
+// float64(math.MaxInt64) rounds up past the int64 range, making the
+// comparison and the subsequent int conversion unreliable at the boundary.
 const (
-	MaxQuota = math.MaxInt32
-	MinQuota = math.MinInt32
+	MaxQuota = 1 << 53  // 9,007,199,254,740,992
+	MinQuota = -1 << 53 // -9,007,199,254,740,992
 )
 
 // QuotaClampKind identifies why a quota conversion had to be saturated.
@@ -27,7 +35,7 @@ const (
 )
 
 // QuotaClamp describes a single saturation event: a quota conversion whose
-// input fell outside the representable int32 range (or was NaN) and was
+// input fell outside the representable quota range (or was NaN) and was
 // therefore clamped. It is surfaced to billing callers so the event can be
 // recorded on the related consume/task log for admin auditing.
 type QuotaClamp struct {
@@ -62,7 +70,7 @@ func (c *QuotaClamp) AuditMap() map[string]interface{} {
 }
 
 // saturateQuota converts an already-rounded quota value to int, clamping to
-// the int32 range. Whenever clamping (what would otherwise be an integer
+// [MinQuota, MaxQuota]. Whenever clamping (what would otherwise be an integer
 // wraparound) or a NaN fallback is triggered it logs a warning, because in
 // normal operation a single request never approaches these bounds — hitting
 // them signals a bug or an abusive request. `op` names the caller. When a

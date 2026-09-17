@@ -1707,11 +1707,14 @@ func calcSubscriptionBalanceQuota(priceAmount float64) (int, error) {
 	if common.QuotaPerUnit <= 0 {
 		return 0, errors.New("额度单位配置错误")
 	}
-	quota := decimal.NewFromFloat(priceAmount).
-		Mul(decimal.NewFromFloat(common.QuotaPerUnit)).
-		Ceil().
-		IntPart()
-	return int(quota), nil
+	// 保留 Ceil（向上取整）的计费语义，但转换必须走集中的饱和入口：裸
+	// int(decimal.IntPart()) 溢出后会得到负数，调用方的 requiredQuota > 0
+	// 判断随之失效，订阅将不扣费直接发放。
+	return common.QuotaFromDecimalStrict(
+		decimal.NewFromFloat(priceAmount).
+			Mul(decimal.NewFromFloat(common.QuotaPerUnit)).
+			Ceil(),
+	)
 }
 
 // PurchaseSubscriptionWithBalance creates a subscription by deducting the user's wallet quota.

@@ -75,6 +75,10 @@ func AddRedemption(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgRedemptionCountPositive)
 		return
 	}
+	if err := model.ValidateWalletQuota(redemption.Quota); err != nil {
+		common.ApiErrorI18n(c, i18n.MsgQuotaExceedMax)
+		return
+	}
 	if redemption.Count > 100 {
 		common.ApiErrorI18n(c, i18n.MsgRedemptionCountMax)
 		return
@@ -158,6 +162,10 @@ func UpdateRedemption(c *gin.Context) {
 	if statusOnly == "" {
 		if valid, msg := validateExpiredTime(c, redemption.ExpiredTime); !valid {
 			c.JSON(http.StatusOK, gin.H{"success": false, "message": msg})
+			return
+		}
+		if err := model.ValidateWalletQuota(redemption.Quota); err != nil {
+			common.ApiErrorI18n(c, i18n.MsgQuotaExceedMax)
 			return
 		}
 		if redemption.MaxUses > model.MaxCodeUses {

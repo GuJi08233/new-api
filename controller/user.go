@@ -1128,6 +1128,12 @@ func ManageUser(c *gin.Context) {
 				"quota": logger.LogQuota(req.Value),
 			})
 		case "override":
+			// 覆盖是直接赋值，不经过 applyUserQuotaDelta 的 CAS 条件，
+			// 需自行守住 quota 列的可表示范围。
+			if err := model.ValidateWalletQuota(req.Value); err != nil {
+				common.ApiErrorI18n(c, i18n.MsgQuotaExceedMax)
+				return
+			}
 			oldQuota := user.Quota
 			if err := model.DB.Model(&model.User{}).Where("id = ?", user.Id).Update("quota", req.Value).Error; err != nil {
 				common.ApiError(c, err)

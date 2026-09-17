@@ -1,6 +1,7 @@
 package model
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -256,6 +257,9 @@ func UpdateOption(key string, value string) error {
 	if err := validateTieredBillingOption(key, value); err != nil {
 		return err
 	}
+	if err := validateQuotaGrantOption(key, value); err != nil {
+		return err
+	}
 	// Save to database first
 	option := Option{
 		Key: key,
@@ -296,6 +300,9 @@ func UpdateOptionsBulk(values map[string]string) error {
 			return err
 		}
 		if err := validateTieredBillingOption(key, value); err != nil {
+			return err
+		}
+		if err := validateQuotaGrantOption(key, value); err != nil {
 			return err
 		}
 		activeValues[key] = value
@@ -750,6 +757,25 @@ func validateTieredBillingOption(key, value string) error {
 		return billing_setting.ValidateExprMapJSONString(value)
 	case "GroupBillingExpr":
 		return ratio_setting.ValidateGroupBillingExprJSONString(value)
+	default:
+		return nil
+	}
+}
+
+// validateQuotaGrantOption 守住会直接写入钱包的赠送额度配置。QuotaForNewUser
+// 在注册时被直接赋给 user.Quota，不经过 applyUserQuotaDelta 的 CAS 条件，越界
+// 值会绕过所有增量守卫落进 quota 列。
+func validateQuotaGrantOption(key, value string) error {
+	switch key {
+	case "QuotaForNewUser", "QuotaForInvitee":
+		quota, err := strconv.Atoi(value)
+		if err != nil {
+			return fmt.Errorf("%s 必须是整数", key)
+		}
+		if ValidateWalletQuota(quota) != nil {
+			return fmt.Errorf("%s 超出额度有效范围", key)
+		}
+		return nil
 	default:
 		return nil
 	}

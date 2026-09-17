@@ -94,6 +94,27 @@ func TestRechargeEpayAtomicDuplicateAndCapacityRollback(t *testing.T) {
 	assert.Equal(t, common.MaxQuota-10, quota)
 }
 
+// 额度列是 bigint，余额早就可以超过 int32。当饱和边界还是 int32 时，这类账号
+// 会被 ValidateTopUpQuotaCapacity 永久拒绝充值——扣费照常，但充值、退款、兑换
+// 全部失效，只出不进。边界提到 2^53 后必须恢复正常。
+func TestRechargeEpaySucceedsForWalletBeyondLegacyInt32Bound(t *testing.T) {
+	truncateTables(t)
+	const legacyInt32Max = 2147483647
+	const existing = 37_801_410_000 // 75602.82 个单位 × QuotaPerUnit(500000)
+	require.Greater(t, existing, legacyInt32Max, "fixture 必须真的越过旧边界才有意义")
+
+	require.NoError(t, DB.Create(&User{Id: 906, Username: "large-wallet", AffCode: "aff-906", Quota: existing}).Error)
+	require.NoError(t, DB.Create(&TopUp{UserId: 906, TradeNo: "large-wallet", PaymentProvider: PaymentProviderEpay, PaymentMethod: "alipay", Amount: 1, Status: common.TopUpStatusPending}).Error)
+
+	credited := int(common.QuotaPerUnit)
+	require.NoError(t, ValidateTopUpQuotaCapacity(906, credited), "下单前的容量校验必须放行")
+	require.NoError(t, RechargeEpay(NewLogSource("127.0.0.1", ""), "large-wallet", "alipay"))
+
+	quota, err := GetUserQuota(906, true)
+	require.NoError(t, err)
+	assert.Equal(t, existing+credited, quota)
+}
+
 func TestManualCreemCreditsStoredQuotaUnits(t *testing.T) {
 	truncateTables(t)
 	require.NoError(t, DB.Create(&User{Id: 804, Username: "creem-units", Quota: 100}).Error)

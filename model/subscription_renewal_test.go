@@ -228,3 +228,29 @@ func TestPurchaseSubscriptionWithBalance_SecondPurchaseRenews(t *testing.T) {
 	require.NoError(t, DB.Where("id = ?", 3207).First(&charged).Error)
 	assert.Equal(t, requiredQuota, charged.Quota)
 }
+
+// 余额购买的额度换算必须走集中的饱和入口。裸 int(decimal.IntPart()) 溢出后会
+// 得到负数，让 requiredQuota > 0 的两处判断同时失效——余额不足检查被跳过、
+// 扣费被跳过——订阅就会被免费发放。溢出必须整笔失败。
+func TestPurchaseSubscriptionWithBalance_RejectsOverflowingPrice(t *testing.T) {
+	truncateTables(t)
+
+	user := insertUserForSubscriptionTest(t, 3208, "default")
+	user.Quota = 500_000
+	require.NoError(t, DB.Save(user).Error)
+
+	plan := insertPlanForGroupBillingTest(t, 1208, "Overflow Priced Plan", false, 0)
+	// priceAmount × QuotaPerUnit 远超 MaxQuota
+	require.NoError(t, DB.Model(&SubscriptionPlan{}).Where("id = ?", plan.Id).
+		Update("price_amount", 1e15).Error)
+
+	require.Error(t, PurchaseSubscriptionWithBalance(LogSource{}, 3208, plan.Id))
+
+	var count int64
+	require.NoError(t, DB.Model(&UserSubscription{}).Where("user_id = ?", 3208).Count(&count).Error)
+	assert.Zero(t, count, "换算溢出时不得发放订阅")
+
+	quota, err := GetUserQuota(3208, true)
+	require.NoError(t, err)
+	assert.Equal(t, 500_000, quota, "换算溢出时不得扣费")
+}

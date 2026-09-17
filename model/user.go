@@ -37,16 +37,20 @@ type User struct {
 	VerificationCode string  `json:"verification_code" gorm:"-:all"`                                    // this field is only for Email verification, don't save it to database!
 	InvitationCode   string  `json:"invitation_code" gorm:"-:all"`                                      // this field is only for registration invitation code, don't save it to database!
 	AccessToken      *string `json:"access_token" gorm:"type:char(32);column:access_token;uniqueIndex"` // this token is for system management
-	Quota            int     `json:"quota" gorm:"type:int;default:0"`
-	UsedQuota        int     `json:"used_quota" gorm:"type:int;default:0;column:used_quota"` // used quota
-	RequestCount     int     `json:"request_count" gorm:"type:int;default:0;"`               // request number
-	Group            string  `json:"group" gorm:"type:varchar(64);default:'default'"`
+	// 额度列必须是 bigint：common.MaxQuota 允许到 2^53，而 GORM 对 Go int 本就
+	// 默认建 bigint（其余表的 quota 列均如此）。这几列历史上标过 type:int，早期
+	// 建表的库因 AutoMigrate 不降级而实际仍是 bigint，新库却会建成 4 字节
+	// integer，同一份代码在新老部署上行为不一致。
+	Quota        int    `json:"quota" gorm:"type:bigint;default:0"`
+	UsedQuota    int    `json:"used_quota" gorm:"type:bigint;default:0;column:used_quota"` // used quota
+	RequestCount int    `json:"request_count" gorm:"type:int;default:0;"`                  // request number
+	Group        string `json:"group" gorm:"type:varchar(64);default:'default'"`
 	// aff 推广返利已下线，仅保留邀请码体系。以下字段保留历史数据；
 	// AffCode 仍在建号时生成，因为空字符串会触碰 uniqueIndex 冲突。
 	AffCode            string                     `json:"aff_code" gorm:"type:varchar(32);column:aff_code;uniqueIndex"`
 	AffCount           int                        `json:"aff_count" gorm:"type:int;default:0;column:aff_count"`
-	AffQuota           int                        `json:"aff_quota" gorm:"type:int;default:0;column:aff_quota"`           // 邀请剩余额度（遗留）
-	AffHistoryQuota    int                        `json:"aff_history_quota" gorm:"type:int;default:0;column:aff_history"` // 邀请历史额度（遗留）
+	AffQuota           int                        `json:"aff_quota" gorm:"type:bigint;default:0;column:aff_quota"`           // 邀请剩余额度（遗留）
+	AffHistoryQuota    int                        `json:"aff_history_quota" gorm:"type:bigint;default:0;column:aff_history"` // 邀请历史额度（遗留）
 	InviterId          int                        `json:"inviter_id" gorm:"type:int;column:inviter_id;index"`
 	InviterName        string                     `json:"inviter_name,omitempty" gorm:"-:all"`         // 邀请人用户名，仅用于管理端列表展示
 	UsedInvitationCode string                     `json:"used_invitation_code,omitempty" gorm:"-:all"` // 注册时使用的邀请码，仅用于管理端列表展示

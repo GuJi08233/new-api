@@ -9,6 +9,16 @@ import (
 
 var ErrQuotaOutOfRange = errors.New("quota exceeds the supported wallet range")
 
+// ValidateWalletQuota 校验一个将要写入 quota 列的绝对值。增量写入由
+// applyUserQuotaDelta / creditTopUpQuota 的 CAS 条件兜底，但管理员覆盖、
+// 兑换码面额、新用户赠送这类直接赋值的入口不经过那条路径，需共用同一边界。
+func ValidateWalletQuota(quota int) error {
+	if quota < 0 || quota >= common.MaxQuota {
+		return ErrQuotaOutOfRange
+	}
+	return nil
+}
+
 // 余额是账务状态，始终读取主库；缓存和批量统计不得决定可消费额度。
 func getUserQuotaForRead(id int, _ bool) (int, error) {
 	var user User

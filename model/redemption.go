@@ -222,9 +222,9 @@ func Redeem(source LogSource, key string, userId int) (quota int, err error) {
 				rewardQuota = invitationCode.Quota * common.InvitationCodeRewardRatio / 100
 			}
 			if rewardQuota > 0 {
-				err = tx.Model(&User{}).Where("id = ?", userId).
-					Update("quota", gorm.Expr("quota + ?", rewardQuota)).Error
-				if err != nil {
+				// 与充值入账共用 CAS 守卫：越界时整笔回滚，邀请码的核销计数
+				// 不会被消耗掉却没发放奖励。
+				if err := creditTopUpQuota(tx, userId, rewardQuota, nil); err != nil {
 					return err
 				}
 			}
@@ -276,9 +276,12 @@ func Redeem(source LogSource, key string, userId int) (quota int, err error) {
 				return errors.New("已使用过该兑换码")
 			}
 		}
-		if err := tx.Model(&User{}).Where("id = ?", userId).
-			Update("quota", gorm.Expr("quota + ?", redemption.Quota)).Error; err != nil {
-			return err
+		// 面额为 0 的码沿用历史行为（核销但不入账）；负面额是异常数据，交由
+		// creditTopUpQuota 拒绝并整笔回滚，避免静默跳过却记下一条充值日志。
+		if redemption.Quota != 0 {
+			if err := creditTopUpQuota(tx, userId, redemption.Quota, nil); err != nil {
+				return err
+			}
 		}
 		quota = redemption.Quota
 		logContent = fmt.Sprintf("通过兑换码充值 %s，兑换码ID %d", logger.LogQuota(redemption.Quota), redemption.Id)
