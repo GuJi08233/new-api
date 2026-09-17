@@ -224,6 +224,8 @@ const EditChannelModal = (props) => {
     // 渠道级自动恢复：定时测试被自动禁用的密钥/渠道，通过即恢复
     auto_recovery_enabled: false,
     auto_recovery_interval_minutes: 0,
+    // 测试时在提示词里注入当前时间，绕开上游对相同请求体的缓存响应
+    test_cache_bust_enabled: false,
     // 渠道级请求频率限制（周期分钟 / 每周期最多请求 / 每周期最多成功），0 = 不限制或默认 1 分钟
     rate_limit_period_minutes: 0,
     rate_limit_max_requests: 0,
@@ -540,6 +542,7 @@ const EditChannelModal = (props) => {
     auto_disable_status_codes: '',
     auto_recovery_enabled: false,
     auto_recovery_interval_minutes: 0,
+    test_cache_bust_enabled: false,
     rate_limit_period_minutes: 0,
     rate_limit_max_requests: 0,
     rate_limit_max_success: 0,
@@ -1023,6 +1026,8 @@ const EditChannelModal = (props) => {
             parsedSettings.auto_recovery_enabled === true;
           data.auto_recovery_interval_minutes =
             parsedSettings.auto_recovery_interval_minutes || 0;
+          data.test_cache_bust_enabled =
+            parsedSettings.test_cache_bust_enabled === true;
           data.rate_limit_period_minutes =
             parsedSettings.rate_limit_period_minutes || 0;
           data.rate_limit_max_requests =
@@ -1049,6 +1054,7 @@ const EditChannelModal = (props) => {
           data.auto_disable_status_codes = '';
           data.auto_recovery_enabled = false;
           data.auto_recovery_interval_minutes = 0;
+          data.test_cache_bust_enabled = false;
           data.rate_limit_period_minutes = 0;
           data.rate_limit_max_requests = 0;
           data.rate_limit_max_success = 0;
@@ -1072,6 +1078,7 @@ const EditChannelModal = (props) => {
         data.auto_disable_status_codes = '';
         data.auto_recovery_enabled = false;
         data.auto_recovery_interval_minutes = 0;
+        data.test_cache_bust_enabled = false;
         data.rate_limit_period_minutes = 0;
         data.rate_limit_max_requests = 0;
         data.rate_limit_max_success = 0;
@@ -1232,6 +1239,7 @@ const EditChannelModal = (props) => {
         auto_recovery_enabled: data.auto_recovery_enabled === true,
         auto_recovery_interval_minutes:
           data.auto_recovery_interval_minutes || 0,
+        test_cache_bust_enabled: data.test_cache_bust_enabled === true,
         rate_limit_period_minutes: data.rate_limit_period_minutes || 0,
         rate_limit_max_requests: data.rate_limit_max_requests || 0,
         rate_limit_max_success: data.rate_limit_max_success || 0,
@@ -1290,6 +1298,7 @@ const EditChannelModal = (props) => {
         (data.auto_disable_status_codes &&
           data.auto_disable_status_codes.trim()) ||
         data.auto_recovery_enabled ||
+        data.test_cache_bust_enabled ||
         (data.rate_limit_max_requests && data.rate_limit_max_requests !== 0) ||
         (data.rate_limit_max_success && data.rate_limit_max_success !== 0);
       if (hasAdvancedValues) {
@@ -1658,6 +1667,7 @@ const EditChannelModal = (props) => {
       auto_disable_status_codes: '',
       auto_recovery_enabled: false,
       auto_recovery_interval_minutes: 0,
+      test_cache_bust_enabled: false,
       rate_limit_period_minutes: 0,
       rate_limit_max_requests: 0,
       rate_limit_max_success: 0,
@@ -2067,6 +2077,7 @@ const EditChannelModal = (props) => {
       auto_recovery_enabled: localInputs.auto_recovery_enabled || false,
       auto_recovery_interval_minutes:
         localInputs.auto_recovery_interval_minutes || 0,
+      test_cache_bust_enabled: localInputs.test_cache_bust_enabled || false,
       rate_limit_period_minutes: localInputs.rate_limit_period_minutes || 0,
       rate_limit_max_requests: localInputs.rate_limit_max_requests || 0,
       rate_limit_max_success: localInputs.rate_limit_max_success || 0,
@@ -2198,6 +2209,7 @@ const EditChannelModal = (props) => {
     delete localInputs.auto_disable_status_codes;
     delete localInputs.auto_recovery_enabled;
     delete localInputs.auto_recovery_interval_minutes;
+    delete localInputs.test_cache_bust_enabled;
     delete localInputs.rate_limit_period_minutes;
     delete localInputs.rate_limit_max_requests;
     delete localInputs.rate_limit_max_success;
@@ -3319,6 +3331,21 @@ const EditChannelModal = (props) => {
                       )}
                     />
                   )}
+                  <Form.Switch
+                    field='test_cache_bust_enabled'
+                    label={t('测试时注入当前时间绕过缓存')}
+                    checkedText={t('开')}
+                    uncheckedText={t('关')}
+                    onChange={(value) =>
+                      handleChannelSettingsChange(
+                        'test_cache_bust_enabled',
+                        value,
+                      )
+                    }
+                    extraText={t(
+                      '在测试提示词里附加当前时间，使每次测试的请求体都不同，避免上游网关返回缓存响应把已失效的密钥测成可用；对手动测试、全局定时测试与自动恢复一并生效',
+                    )}
+                  />
 
                   <Text className='text-sm font-medium text-gray-500 mb-3 block mt-4'>
                     {t('每日限额')}

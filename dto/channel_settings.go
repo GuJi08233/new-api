@@ -59,6 +59,10 @@ type ChannelSettings struct {
 	AutoRecoveryEnabled bool `json:"auto_recovery_enabled,omitempty"`
 	// AutoRecoveryIntervalMinutes 自动恢复的测试间隔（分钟），0 表示使用 DefaultAutoRecoveryIntervalMinutes。
 	AutoRecoveryIntervalMinutes int `json:"auto_recovery_interval_minutes,omitempty"`
+	// TestCacheBustEnabled 渠道测试时在提示词里注入当前时间，使每次测试的请求体都不同。
+	// 上游网关/中转对相同请求体返回缓存响应时，测试会把已失效的密钥误判为可用；
+	// 注入时间后每次都是真实的上游请求。对手动测试、全局定时测试和自动恢复一并生效。
+	TestCacheBustEnabled bool `json:"test_cache_bust_enabled,omitempty"`
 }
 
 const (

@@ -717,7 +717,16 @@ func detectErrorMessageFromJSONBytes(jsonBytes []byte) string {
 }
 
 func buildTestRequest(model string, endpointType string, channel *model.Channel, isStream bool) dto.Request {
-	testResponsesInput := json.RawMessage(`[{"role":"user","content":"hi"}]`)
+	// 开启缓存绕过后给测试文本追加当前时间，让每次测试的请求体都不同：上游网关对相同
+	// 请求体返回缓存响应时，会把已失效的密钥伪装成可用，注入时间后每次都是真实请求。
+	cacheBust := ""
+	if channel != nil && channel.GetSetting().TestCacheBustEnabled {
+		cacheBust = fmt.Sprintf(" (%s)", time.Now().UTC().Format(time.RFC3339Nano))
+	}
+	prompt := "hi" + cacheBust
+	// prompt 由本函数生成，marshal 一个字符串不会失败
+	promptJSON, _ := common.Marshal(prompt)
+	testResponsesInput := json.RawMessage(`[{"role":"user","content":` + string(promptJSON) + `}]`)
 
 	// 根据端点类型构建不同的测试请求
 	if endpointType != "" {
@@ -726,13 +735,13 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 			// 返回 EmbeddingRequest
 			return &dto.EmbeddingRequest{
 				Model: model,
-				Input: []any{"hello world"},
+				Input: []any{"hello world" + cacheBust},
 			}
 		case constant.EndpointTypeImageGeneration:
 			// 返回 ImageRequest
 			return &dto.ImageRequest{
 				Model:  model,
-				Prompt: "a cute cat",
+				Prompt: "a cute cat" + cacheBust,
 				N:      lo.ToPtr(uint(1)),
 				Size:   "1024x1024",
 			}
@@ -740,7 +749,7 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 			// 返回 RerankRequest
 			return &dto.RerankRequest{
 				Model:     model,
-				Query:     "What is Deep Learning?",
+				Query:     "What is Deep Learning?" + cacheBust,
 				Documents: []any{"Deep Learning is a subset of machine learning.", "Machine learning is a field of artificial intelligence."},
 				TopN:      lo.ToPtr(2),
 			}
@@ -748,7 +757,7 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 			// 返回 OpenAIResponsesRequest
 			return &dto.OpenAIResponsesRequest{
 				Model:  model,
-				Input:  json.RawMessage(`[{"role":"user","content":"hi"}]`),
+				Input:  testResponsesInput,
 				Stream: lo.ToPtr(isStream),
 			}
 		case constant.EndpointTypeOpenAIResponseCompact:
@@ -760,11 +769,11 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 		case constant.EndpointTypeAnthropic:
 			return &dto.ClaudeRequest{
 				Model: model, Stream: lo.ToPtr(isStream), MaxTokens: lo.ToPtr(uint(16)),
-				Messages: []dto.ClaudeMessage{{Role: "user", Content: "hi"}},
+				Messages: []dto.ClaudeMessage{{Role: "user", Content: prompt}},
 			}
 		case constant.EndpointTypeGemini:
 			return &dto.GeminiChatRequest{
-				Contents:         []dto.GeminiChatContent{{Role: "user", Parts: []dto.GeminiPart{{Text: "hi"}}}},
+				Contents:         []dto.GeminiChatContent{{Role: "user", Parts: []dto.GeminiPart{{Text: prompt}}}},
 				GenerationConfig: dto.GeminiChatGenerationConfig{MaxOutputTokens: lo.ToPtr(uint(3000))},
 			}
 		case constant.EndpointTypeOpenAI:
@@ -774,7 +783,7 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 				Messages: []dto.Message{
 					{
 						Role:    "user",
-						Content: "hi",
+						Content: prompt,
 					},
 				},
 				MaxTokens: lo.ToPtr(uint(16)),
@@ -790,7 +799,7 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 	if strings.Contains(strings.ToLower(model), "rerank") {
 		return &dto.RerankRequest{
 			Model:     model,
-			Query:     "What is Deep Learning?",
+			Query:     "What is Deep Learning?" + cacheBust,
 			Documents: []any{"Deep Learning is a subset of machine learning.", "Machine learning is a field of artificial intelligence."},
 			TopN:      lo.ToPtr(2),
 		}
@@ -803,7 +812,7 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 		// 返回 EmbeddingRequest
 		return &dto.EmbeddingRequest{
 			Model: model,
-			Input: []any{"hello world"},
+			Input: []any{"hello world" + cacheBust},
 		}
 	}
 
@@ -819,7 +828,7 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 	if strings.Contains(strings.ToLower(model), "codex") {
 		return &dto.OpenAIResponsesRequest{
 			Model:  model,
-			Input:  json.RawMessage(`[{"role":"user","content":"hi"}]`),
+			Input:  testResponsesInput,
 			Stream: lo.ToPtr(isStream),
 		}
 	}
@@ -831,7 +840,7 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 		Messages: []dto.Message{
 			{
 				Role:    "user",
-				Content: "hi",
+				Content: prompt,
 			},
 		},
 	}

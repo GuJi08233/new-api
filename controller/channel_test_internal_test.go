@@ -4,8 +4,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
@@ -13,6 +15,7 @@ import (
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -111,6 +114,50 @@ func TestSelectChannelsForAutomaticTestScheduledSkipsManualDisabled(t *testing.T
 	require.Len(t, selected, 2)
 	require.Equal(t, 1, selected[0].Id)
 	require.Equal(t, 2, selected[1].Id)
+}
+
+// 开启缓存绕过后，每个测试端点的提示词都必须带上当前时间，否则上游网关对相同请求体的
+// 缓存响应会把已失效的密钥测成可用；关闭时请求体必须保持原样。
+func TestBuildTestRequestCacheBust(t *testing.T) {
+	channelWithCacheBust := func(enabled bool) *model.Channel {
+		channel := &model.Channel{Id: 1}
+		channel.SetSetting(dto.ChannelSettings{TestCacheBustEnabled: enabled})
+		return channel
+	}
+	today := time.Now().UTC().Format("2006-01-02T")
+
+	tests := []struct {
+		name      string
+		modelName string
+		endpoint  string
+		baseText  string
+	}{
+		{name: "openai", modelName: "gpt-4o-mini", endpoint: string(constant.EndpointTypeOpenAI), baseText: `"content":"hi"`},
+		{name: "anthropic", modelName: "claude-sonnet-4", endpoint: string(constant.EndpointTypeAnthropic), baseText: `"content":"hi"`},
+		{name: "gemini", modelName: "gemini-2.5-flash", endpoint: string(constant.EndpointTypeGemini), baseText: `"text":"hi"`},
+		{name: "responses", modelName: "gpt-5", endpoint: string(constant.EndpointTypeOpenAIResponse), baseText: `"content":"hi"`},
+		{name: "embeddings", modelName: "text-embedding-3-small", endpoint: string(constant.EndpointTypeEmbeddings), baseText: `"hello world"`},
+		{name: "rerank", modelName: "jina-reranker-v2", endpoint: string(constant.EndpointTypeJinaRerank), baseText: `"What is Deep Learning?"`},
+		{name: "image", modelName: "dall-e-3", endpoint: string(constant.EndpointTypeImageGeneration), baseText: `"a cute cat"`},
+		{name: "auto detected chat", modelName: "gpt-4o-mini", baseText: `"content":"hi"`},
+		{name: "auto detected embedding", modelName: "text-embedding-3-small", baseText: `"hello world"`},
+		{name: "auto detected rerank", modelName: "bge-reranker-v2", baseText: `"What is Deep Learning?"`},
+		{name: "auto detected codex", modelName: "gpt-5-codex", baseText: `"content":"hi"`},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			disabled, err := common.Marshal(buildTestRequest(tc.modelName, tc.endpoint, channelWithCacheBust(false), false))
+			require.NoError(t, err)
+			assert.Contains(t, string(disabled), tc.baseText)
+			assert.NotContains(t, string(disabled), today)
+
+			enabled, err := common.Marshal(buildTestRequest(tc.modelName, tc.endpoint, channelWithCacheBust(true), false))
+			require.NoError(t, err)
+			assert.NotContains(t, string(enabled), tc.baseText)
+			assert.Contains(t, string(enabled), today)
+		})
+	}
 }
 
 func TestTestAllChannelsRejectsExistingActiveTask(t *testing.T) {
