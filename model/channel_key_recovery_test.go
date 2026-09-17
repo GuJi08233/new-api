@@ -108,10 +108,12 @@ func TestNewChannelRecoveryTargetSelectsTestedKey(t *testing.T) {
 	target, ok := NewChannelRecoveryTarget(channel, ChannelRecoveryChannelTarget)
 	require.True(t, ok)
 	assert.Equal(t, "k2", target.TestedKey, "channel probes use the first enabled key from the snapshot")
+	assert.Equal(t, 1, target.TestedKeyIndex, "probe logs must name the key that was actually used")
 
 	target, ok = NewChannelRecoveryTarget(channel, 0)
 	require.True(t, ok)
 	assert.Equal(t, "k1", target.TestedKey)
+	assert.Equal(t, 0, target.TestedKeyIndex)
 
 	for _, index := range []int{-2, 1, 2, 3} {
 		_, ok = NewChannelRecoveryTarget(channel, index)
@@ -126,6 +128,7 @@ func TestNewChannelRecoveryTargetSelectsTestedKey(t *testing.T) {
 	target, ok = NewChannelRecoveryTarget(channel, ChannelRecoveryChannelTarget)
 	require.True(t, ok)
 	assert.Equal(t, "single-key", target.TestedKey)
+	assert.Equal(t, ChannelRecoveryChannelTarget, target.TestedKeyIndex, "single key channels have no key number to log")
 	_, ok = NewChannelRecoveryTarget(channel, 0)
 	assert.False(t, ok)
 }

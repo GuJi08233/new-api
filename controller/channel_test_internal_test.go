@@ -160,6 +160,28 @@ func TestBuildTestRequestCacheBust(t *testing.T) {
 	}
 }
 
+// 全局缓存绕过开关对没有单独开启的渠道同样生效：手动测试、定时测试与自动恢复共用
+// buildTestRequest，两个开关任一开启就必须注入时间。
+func TestBuildTestRequestCacheBustGlobalSetting(t *testing.T) {
+	monitor := operation_setting.GetMonitorSetting()
+	original := monitor.TestCacheBustEnabled
+	t.Cleanup(func() { monitor.TestCacheBustEnabled = original })
+
+	channel := &model.Channel{Id: 1}
+	channel.SetSetting(dto.ChannelSettings{TestCacheBustEnabled: false})
+	today := time.Now().UTC().Format("2006-01-02T")
+
+	monitor.TestCacheBustEnabled = false
+	disabled, err := common.Marshal(buildTestRequest("gpt-4o-mini", string(constant.EndpointTypeOpenAI), channel, false))
+	require.NoError(t, err)
+	assert.NotContains(t, string(disabled), today)
+
+	monitor.TestCacheBustEnabled = true
+	enabled, err := common.Marshal(buildTestRequest("gpt-4o-mini", string(constant.EndpointTypeOpenAI), channel, false))
+	require.NoError(t, err)
+	assert.Contains(t, string(enabled), today)
+}
+
 func TestTestAllChannelsRejectsExistingActiveTask(t *testing.T) {
 	db := setupModelListControllerTestDB(t)
 	require.NoError(t, db.AutoMigrate(&model.SystemTask{}, &model.SystemTaskLock{}))

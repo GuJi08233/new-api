@@ -13,8 +13,11 @@ const ChannelRecoveryChannelTarget = -1
 // ChannelRecoveryTarget 固定探测前的密钥身份和禁用记录。KeyList、TestedKey 仅供内部校验，
 // 不得写入日志或作为接口响应返回。
 type ChannelRecoveryTarget struct {
-	ChannelID       int
-	KeyIndex        int
+	ChannelID int
+	KeyIndex  int
+	// TestedKeyIndex 是 TestedKey 在渠道密钥列表中的编号，供探测日志标明用了哪把密钥；
+	// 单密钥渠道没有编号，取 ChannelRecoveryChannelTarget。
+	TestedKeyIndex  int
 	KeyList         string
 	TestedKey       string
 	IsMultiKey      bool
@@ -32,6 +35,7 @@ func NewChannelRecoveryTarget(channel *Channel, keyIndex int) (ChannelRecoveryTa
 	target := ChannelRecoveryTarget{
 		ChannelID:       channel.Id,
 		KeyIndex:        keyIndex,
+		TestedKeyIndex:  ChannelRecoveryChannelTarget,
 		KeyList:         channel.Key,
 		IsMultiKey:      channel.ChannelInfo.IsMultiKey,
 		ChannelStatusAt: channel.GetStatusTime(),
@@ -50,6 +54,7 @@ func NewChannelRecoveryTarget(channel *Channel, keyIndex int) (ChannelRecoveryTa
 			status, exists := channel.ChannelInfo.MultiKeyStatusList[index]
 			if !exists || status == common.ChannelStatusEnabled {
 				target.TestedKey = key
+				target.TestedKeyIndex = index
 				return target, true
 			}
 		}
@@ -63,6 +68,7 @@ func NewChannelRecoveryTarget(channel *Channel, keyIndex int) (ChannelRecoveryTa
 		return ChannelRecoveryTarget{}, false
 	}
 	target.TestedKey = keys[keyIndex]
+	target.TestedKeyIndex = keyIndex
 	target.DisabledAt = channel.ChannelInfo.MultiKeyDisabledTime[keyIndex]
 	target.DisabledReason = channel.ChannelInfo.MultiKeyDisabledReason[keyIndex]
 	return target, true

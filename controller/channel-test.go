@@ -41,6 +41,10 @@ type testResult struct {
 	newAPIError *types.NewAPIError
 }
 
+// noMultiKeyIndexOverride 表示调用方无需覆写日志里的密钥编号：传入的渠道对象自带
+// 多密钥信息，SetupContextForSelectedChannel 选中哪把密钥就记录哪个编号。
+const noMultiKeyIndexOverride = -1
+
 func normalizeChannelTestEndpoint(channel *model.Channel, modelName, endpointType string) string {
 	normalized := strings.TrimSpace(endpointType)
 	if normalized != "" {
@@ -87,7 +91,9 @@ func resolveChannelTestUserID(c *gin.Context) (int, error) {
 	return rootUser.Id, nil
 }
 
-func testChannel(ctx context.Context, channel *model.Channel, testUserID int, testModel string, endpointType string, isStream bool) testResult {
+// multiKeyIndex 覆写日志里记录的密钥编号，noMultiKeyIndexOverride 表示不覆写。
+// 自动恢复会把多密钥渠道拷贝成单密钥来固定被探测的密钥，需要用它补回真实编号。
+func testChannel(ctx context.Context, channel *model.Channel, testUserID int, testModel string, endpointType string, isStream bool, multiKeyIndex int) testResult {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -198,6 +204,12 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 			localErr:    newAPIError,
 			newAPIError: newAPIError,
 		}
+	}
+	if multiKeyIndex >= 0 {
+		// 渠道对象已被拷贝成单密钥，密钥编号只能由调用方给出；必须在 InitChannelMeta
+		// 之前写入，ChannelMeta 与消费日志才都能拿到真实编号。
+		common.SetContextKey(c, constant.ContextKeyChannelIsMultiKey, true)
+		common.SetContextKey(c, constant.ContextKeyChannelMultiKeyIndex, multiKeyIndex)
 	}
 
 	// Determine relay format based on endpoint type or request path
@@ -719,8 +731,10 @@ func detectErrorMessageFromJSONBytes(jsonBytes []byte) string {
 func buildTestRequest(model string, endpointType string, channel *model.Channel, isStream bool) dto.Request {
 	// 开启缓存绕过后给测试文本追加当前时间，让每次测试的请求体都不同：上游网关对相同
 	// 请求体返回缓存响应时，会把已失效的密钥伪装成可用，注入时间后每次都是真实请求。
+	// 全局开关与渠道开关任一开启即生效。
 	cacheBust := ""
-	if channel != nil && channel.GetSetting().TestCacheBustEnabled {
+	if operation_setting.GetMonitorSetting().TestCacheBustEnabled ||
+		(channel != nil && channel.GetSetting().TestCacheBustEnabled) {
 		cacheBust = fmt.Sprintf(" (%s)", time.Now().UTC().Format(time.RFC3339Nano))
 	}
 	prompt := "hi" + cacheBust
@@ -895,7 +909,7 @@ func TestChannel(c *gin.Context) {
 	if c.Request != nil {
 		requestCtx = c.Request.Context()
 	}
-	result := testChannel(requestCtx, channel, testUserID, testModel, endpointType, isStream)
+	result := testChannel(requestCtx, channel, testUserID, testModel, endpointType, isStream, noMultiKeyIndexOverride)
 	if result.localErr != nil {
 		resp := gin.H{
 			"success": false,
@@ -962,7 +976,7 @@ func performChannelTests(ctx context.Context, channels []*model.Channel, testUse
 		}
 		isChannelEnabled := channel.Status == common.ChannelStatusEnabled
 		tik := time.Now()
-		result := testChannel(ctx, channel, testUserID, "", "", shouldUseStreamForAutomaticChannelTest(channel))
+		result := testChannel(ctx, channel, testUserID, "", "", shouldUseStreamForAutomaticChannelTest(channel), noMultiKeyIndexOverride)
 		tok := time.Now()
 		milliseconds := tok.Sub(tik).Milliseconds()
 		if ctx != nil && ctx.Err() != nil {

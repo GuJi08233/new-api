@@ -214,11 +214,12 @@ func runChannelRecoveryTask(ctx context.Context, report func(processed, total in
 				return summary, err
 			}
 			// 渠道和密钥目标都固定到探测快照中的实际密钥，恢复时核对同一份身份与禁用记录。
+			// 拷贝成单密钥是为了不推进渠道的轮询游标，密钥编号另行传入以保留在日志里。
 			pinned := *job.channel
 			pinned.Key = target.TestedKey
 			pinned.Keys = nil
 			pinned.ChannelInfo.IsMultiKey = false
-			result := testChannel(ctx, &pinned, testUserID, "", "", shouldUseStreamForAutomaticChannelTest(job.channel))
+			result := testChannel(ctx, &pinned, testUserID, "", "", shouldUseStreamForAutomaticChannelTest(job.channel), target.TestedKeyIndex)
 			summary.Tested++
 			processed++
 			if err := model.RecordChannelRecoveryTest(target.ChannelID, targetID, common.GetTimestamp()); err != nil {

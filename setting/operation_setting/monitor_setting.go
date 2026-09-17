@@ -11,6 +11,9 @@ type MonitorSetting struct {
 	AutoTestChannelEnabled bool    `json:"auto_test_channel_enabled"`
 	AutoTestChannelMinutes float64 `json:"auto_test_channel_minutes"`
 	ChannelTestMode        string  `json:"channel_test_mode"`
+	// TestCacheBustEnabled 全局开启后，所有渠道的测试（手动、定时测试、自动恢复）都在提示词里
+	// 注入当前时间。渠道级的同名开关仍然有效，两者任一开启即注入。
+	TestCacheBustEnabled bool `json:"test_cache_bust_enabled"`
 }
 
 const (

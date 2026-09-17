@@ -338,3 +338,39 @@ func TestRunChannelRecoveryTaskUsesPersistedFailureCooldown(t *testing.T) {
 	require.NoError(t, db.First(&unchanged, channel.Id).Error)
 	assert.Equal(t, common.ChannelStatusAutoDisabled, unchanged.Status)
 }
+
+// 探测把渠道拷贝成单密钥来固定被测密钥，测试日志仍必须标明真实的密钥编号，
+// 管理员才能从「模型测试」记录定位到究竟是哪一把密钥。
+func TestRunChannelRecoveryTaskLogsTestedKeyIndex(t *testing.T) {
+	server, probes := newChannelRecoveryUpstream(t, http.StatusOK, channelRecoveryOpenAIResponse, nil)
+	db := setupChannelRecoveryIntegrationTest(t, server)
+	channel := channelRecoveryTestChannel(server.URL)
+	// 渠道本身可用，只有第二把密钥被自动禁用：编号必须是 1，而不是探测副本里的 0
+	channel.Status = common.ChannelStatusEnabled
+	channel.Key = "sk-recovery-other\nsk-recovery-target"
+	channel.ChannelInfo = model.ChannelInfo{
+		IsMultiKey:           true,
+		MultiKeySize:         2,
+		MultiKeyMode:         constant.MultiKeyModePolling,
+		MultiKeyStatusList:   map[int]int{1: common.ChannelStatusAutoDisabled},
+		MultiKeyDisabledTime: map[int]int64{1: common.GetTimestamp() - 3600},
+	}
+	require.NoError(t, channel.Insert())
+
+	summary, err := runChannelRecoveryTask(context.Background(), nil)
+	require.NoError(t, err)
+	assert.Equal(t, channelRecoverySummary{Channels: 1, Tested: 1, Recovered: 1}, summary)
+	require.Len(t, probes, 1)
+	probe := <-probes
+	require.NoError(t, probe.Err)
+	assert.Equal(t, "Bearer sk-recovery-target", probe.Authorization)
+
+	var consumeLog model.Log
+	require.NoError(t, db.Where("channel_id = ? AND type = ?", channel.Id, model.LogTypeConsume).First(&consumeLog).Error)
+	other := make(map[string]any)
+	require.NoError(t, common.UnmarshalJsonStr(consumeLog.Other, &other))
+	adminInfo, ok := other["admin_info"].(map[string]any)
+	require.True(t, ok, "channel test logs must carry admin_info")
+	assert.Equal(t, true, adminInfo["is_multi_key"])
+	assert.EqualValues(t, 1, adminInfo["multi_key_index"])
+}
