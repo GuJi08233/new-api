@@ -135,6 +135,9 @@ func Distribute() func(c *gin.Context) {
 						}
 						usingGroup = playgroundRequest.Group
 						common.SetContextKey(c, constant.ContextKeyUsingGroup, usingGroup)
+						// 重试与重路由用 TokenGroup 选渠道（controller/relay.go 的 RetryParam），
+						// 它必须是刚在这里通过鉴权的分组，否则换渠道时会绕开分组权限。
+						common.SetContextKey(c, constant.ContextKeyTokenGroup, usingGroup)
 					}
 				}
 
@@ -319,12 +322,37 @@ func getModelFromJSONBody(c *gin.Context) (*ModelRequest, error) {
 		return nil, errors.New("invalid JSON request body")
 	}
 
-	values := gjson.GetManyBytes(requestBody, "model", "group")
-	model, err := getJSONStringValue(values[0], "model")
+	// gjson 在重复键上取第一个，而同一个请求体之后还会被 encoding/json 解析（取最后一个）。
+	// 路由、令牌模型限制和分组鉴权都以这里的取值为准，两个解析器看到不同的值就等于让鉴权
+	// 与实际执行分离，因此重复的 model/group 直接拒绝，而不是任选其一。
+	var modelValue, groupValue gjson.Result
+	duplicateField := ""
+	gjson.ParseBytes(requestBody).ForEach(func(key, value gjson.Result) bool {
+		switch key.String() {
+		case "model":
+			if modelValue.Exists() {
+				duplicateField = "model"
+				return false
+			}
+			modelValue = value
+		case "group":
+			if groupValue.Exists() {
+				duplicateField = "group"
+				return false
+			}
+			groupValue = value
+		}
+		return true
+	})
+	if duplicateField != "" {
+		return nil, fmt.Errorf("duplicate %s field in JSON request body", duplicateField)
+	}
+
+	model, err := getJSONStringValue(modelValue, "model")
 	if err != nil {
 		return nil, err
 	}
-	group, err := getJSONStringValue(values[1], "group")
+	group, err := getJSONStringValue(groupValue, "group")
 	if err != nil {
 		return nil, err
 	}
@@ -501,13 +529,13 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 	}
 	if strings.HasPrefix(c.Request.URL.Path, "/pg/chat/completions") {
 		// playground chat completions
+		// 请求里的分组此处尚未鉴权，只带回给调用方；写入上下文由 Distribute 在鉴权之后完成。
 		req, err := getModelFromRequest(c)
 		if err != nil {
 			return nil, false, err
 		}
 		modelRequest.Model = req.Model
 		modelRequest.Group = req.Group
-		common.SetContextKey(c, constant.ContextKeyTokenGroup, modelRequest.Group)
 	}
 
 	if strings.HasPrefix(c.Request.URL.Path, "/v1/responses/compact") && modelRequest.Model != "" {

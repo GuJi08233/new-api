@@ -28,6 +28,14 @@ import (
 
 func RelayMidjourneyImage(c *gin.Context) {
 	taskId := c.Param("id")
+	// 本端点不经过 TokenAuth：签名是它唯一的访问凭证，没有签名就等于任何人都能按
+	// 任务 ID 遍历取走别人生成的图片。校验放在查库之前，避免泄漏任务是否存在。
+	if !setting.VerifyMjForwardImageSign(taskId, c.Query(setting.MjForwardImageSignParam)) {
+		c.JSON(http.StatusForbidden, gin.H{
+			"error": "invalid_image_signature",
+		})
+		return
+	}
 	midjourneyTask := model.GetByOnlyMJId(taskId)
 	if midjourneyTask == nil {
 		c.JSON(400, gin.H{
@@ -108,7 +116,9 @@ func RelayMidjourneyNotify(c *gin.Context) *dto.MidjourneyResponse {
 			Result:      "",
 		}
 	}
-	midjourneyTask := model.GetByOnlyMJId(midjRequest.MjId)
+	// 这里的字段全部来自请求体并直接写回任务，按任务归属取行，否则调用方可以改写
+	// 任意用户任务的状态和图片地址。与本文件其余任务处理保持同一口径。
+	midjourneyTask := model.GetByMJId(c.GetInt("id"), midjRequest.MjId)
 	if midjourneyTask == nil {
 		return &dto.MidjourneyResponse{
 			Code:        4,
@@ -150,9 +160,9 @@ func coverMidjourneyTaskDto(c *gin.Context, originTask *model.Midjourney) (midjo
 	midjourneyTask.FinishTime = originTask.FinishTime
 	midjourneyTask.ImageUrl = ""
 	if originTask.ImageUrl != "" && setting.MjForwardUrlEnabled {
-		midjourneyTask.ImageUrl = system_setting.ServerAddress + "/mj/image/" + originTask.MjId
+		midjourneyTask.ImageUrl = setting.MjForwardImageURL(originTask.MjId)
 		if originTask.Status != "SUCCESS" {
-			midjourneyTask.ImageUrl += "?rand=" + strconv.FormatInt(time.Now().UnixNano(), 10)
+			midjourneyTask.ImageUrl += "&rand=" + strconv.FormatInt(time.Now().UnixNano(), 10)
 		}
 	} else {
 		midjourneyTask.ImageUrl = originTask.ImageUrl
