@@ -4424,6 +4424,21 @@
     "验证失败": "Verification failed",
     "重新生成系统访问令牌？": "Regenerate the system access token?",
     "这会立即使已有的系统访问令牌失效，正在使用它的应用或脚本将停止工作。新令牌只显示一次，请复制并妥善保存。": "This immediately invalidates the existing system access token, and any application or script using it will stop working. The new token is shown only once, so copy it and store it securely.",
-    "出于安全考虑，已有的访问令牌不会再次显示；仅在需要新令牌时重新生成": "For security, an existing access token is never shown again; regenerate only when you need a new one"
+    "出于安全考虑，已有的访问令牌不会再次显示；仅在需要新令牌时重新生成": "For security, an existing access token is never shown again; regenerate only when you need a new one",
+    "周日": "Sun",
+    "周一": "Mon",
+    "周二": "Tue",
+    "周三": "Wed",
+    "周四": "Thu",
+    "周五": "Fri",
+    "周六": "Sat",
+    "{{from}} 至 {{to}}": "{{from}}-{{to}}",
+    "、": ", ",
+    "；": "; ",
+    "当前 {{tier}}": "Now: {{tier}}",
+    "当前生效": "Active now",
+    "价格已按 {{group}} 分组倍率 {{ratio}}x 计算": "Prices include the {{group}} group ratio ({{ratio}}x)",
+    "价格已按分组倍率 {{ratio}}x 计算": "Prices include the group ratio ({{ratio}}x)",
+    "时间段按 {{timezone}} 计算": "time windows in {{timezone}}"
   }
 }

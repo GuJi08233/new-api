@@ -20,7 +20,10 @@ For commercial licensing, please contact support@quantumnous.com
 import React from 'react';
 import { Avatar, Tag, Table, Typography } from '@douyinfe/semi-ui';
 import { IconPriceTag } from '@douyinfe/semi-icons';
-import { parseTiersFromExpr, getCurrencyConfig } from '../../../../../helpers';
+import {
+  parseTiersFromExpr,
+  analyzeTierSchedule,
+} from '../../../../../helpers';
 import { BILLING_PRICING_VARS } from '../../../../../constants';
 import {
   splitBillingExprAndRequestRules,
@@ -62,7 +65,6 @@ function formatConditionSummary(conditions, t) {
     .join(' && ');
 }
 
-
 function describeCondition(cond, t) {
   if (cond.source === SOURCE_TIME) {
     const fn = t(TIME_FUNC_LABELS[cond.timeFunc] || cond.timeFunc);
@@ -86,13 +88,20 @@ function describeGroup(group, t) {
   return parts.join(' && ');
 }
 
-export default function DynamicPricingBreakdown({ billingExpr, t }) {
-  const { symbol, rate } = getCurrencyConfig();
+export default function DynamicPricingBreakdown({
+  billingExpr,
+  t,
+  groupRatio = 1,
+  groupName = '',
+  tokenUnit = 'M',
+  displayPrice,
+}) {
   const { billingExpr: baseExpr, requestRuleExpr: ruleExpr } =
     splitBillingExprAndRequestRules(billingExpr || '');
 
   const tiers = parseTiersFromExpr(baseExpr);
   const ruleGroups = tryParseRequestRuleExpr(ruleExpr || '');
+  const { activeIndex, scheduleLabels, timeZone } = analyzeTierSchedule(tiers, t);
 
   const hasTiers = tiers && tiers.length > 0;
   const hasRules = ruleGroups && ruleGroups.length > 0;
@@ -114,6 +123,12 @@ export default function DynamicPricingBreakdown({ billingExpr, t }) {
   }
 
   const priceFields = BILLING_PRICING_VARS.map((v) => [v.field, v.shortLabel]);
+  const unitDivisor = tokenUnit === 'K' ? 1000 : 1;
+  const unitLabel = tokenUnit === 'K' ? '1K' : '1M';
+  const formatPrice = (usdPerMillion) =>
+    displayPrice
+      ? displayPrice((usdPerMillion * groupRatio) / unitDivisor)
+      : `$${((usdPerMillion * groupRatio) / unitDivisor).toFixed(4)}`;
 
   const tierColumns = [
     {
@@ -121,9 +136,17 @@ export default function DynamicPricingBreakdown({ billingExpr, t }) {
       dataIndex: 'label',
       render: (text, record) => (
         <div>
-          <Tag color='blue' size='small'>{text || t('默认')}</Tag>
+          <div className='flex items-center gap-1 flex-wrap'>
+            <Tag color='blue' size='small'>{text || t('默认')}</Tag>
+            {record.isActive && (
+              <Tag color='green' size='small'>{t('当前生效')}</Tag>
+            )}
+          </div>
           {record.condSummary && (
             <div className='text-xs text-gray-500 mt-1'>{record.condSummary}</div>
+          )}
+          {record.scheduleSummary && (
+            <div className='text-xs text-gray-500 mt-1'>{record.scheduleSummary}</div>
           )}
         </div>
       ),
@@ -131,9 +154,9 @@ export default function DynamicPricingBreakdown({ billingExpr, t }) {
     ...priceFields
       .filter(([field]) => hasTiers && tiers.some((tier) => tier[field] > 0))
       .map(([field, label]) => ({
-        title: `${t(label)} (${symbol}/1M tokens)`,
+        title: `${t(label)} / ${unitLabel} tokens`,
         dataIndex: field,
-        render: (v) => v > 0 ? <Text strong>{`${symbol}${(v * rate).toFixed(4)}`}</Text> : '-',
+        render: (v) => (v > 0 ? <Text strong>{formatPrice(v)}</Text> : '-'),
       })),
   ];
 
@@ -141,7 +164,9 @@ export default function DynamicPricingBreakdown({ billingExpr, t }) {
     ? tiers.map((tier, i) => ({
         key: `tier-${i}`,
         label: tier.label,
+        isActive: i === activeIndex,
         condSummary: formatConditionSummary(tier.conditions, t),
+        scheduleSummary: scheduleLabels?.[i] || '',
         ...Object.fromEntries(priceFields.map(([field]) => [field, tier[field] || 0])),
       }))
     : [];
@@ -162,9 +187,18 @@ export default function DynamicPricingBreakdown({ billingExpr, t }) {
 
       {hasTiers && (
         <div style={{ marginBottom: 16 }}>
-          <Text strong className='text-sm' style={{ display: 'block', marginBottom: 8 }}>
+          <Text strong className='text-sm' style={{ display: 'block', marginBottom: 4 }}>
             {t('分档价格表')}
           </Text>
+          <div className='text-xs text-gray-500' style={{ marginBottom: 8 }}>
+            {groupName
+              ? t('价格已按 {{group}} 分组倍率 {{ratio}}x 计算', {
+                  group: groupName,
+                  ratio: groupRatio,
+                })
+              : t('价格已按分组倍率 {{ratio}}x 计算', { ratio: groupRatio })}
+            {timeZone && `，${t('时间段按 {{timezone}} 计算', { timezone: timeZone })}`}
+          </div>
           <Table
             dataSource={tierData}
             columns={tierColumns}
@@ -172,6 +206,11 @@ export default function DynamicPricingBreakdown({ billingExpr, t }) {
             size='small'
             bordered={false}
             className='!rounded-lg'
+            onRow={(record) =>
+              record?.isActive
+                ? { style: { background: 'var(--semi-color-success-light-default)' } }
+                : {}
+            }
           />
         </div>
       )}

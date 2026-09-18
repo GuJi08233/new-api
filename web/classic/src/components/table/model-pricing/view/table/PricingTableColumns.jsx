@@ -24,6 +24,7 @@ import {
   renderModelTag,
   stringToColor,
   calculateModelPrice,
+  formatDynamicPriceSummary,
   getModelPriceItems,
   getLobeHubIcon,
 } from '../../../../../helpers';
@@ -237,8 +238,21 @@ export const getPricingTableColumns = ({
     ...(isMobile ? {} : { fixed: 'right' }),
     render: (text, record, index) => {
       const priceData = getPriceData(record);
-      const priceItems = getModelPriceItems(priceData, t, siteDisplayType);
+      if (priceData.isDynamicPricing) {
+        return (
+          <div className='flex flex-col gap-1 text-xs'>
+            {formatDynamicPriceSummary({
+              billingExpr: priceData.billingExpr,
+              t,
+              groupRatio: priceData.usedGroupRatio,
+              tokenUnit,
+              displayPrice,
+            })}
+          </div>
+        );
+      }
 
+      const priceItems = getModelPriceItems(priceData, t, siteDisplayType);
       return (
         <div className='space-y-1'>
           {priceItems.map((item) => (

@@ -36,6 +36,7 @@ const ModelPricingTable = ({
   autoGroups = [],
   t,
   groupPricing = null, // 新增：分组定价数据
+  breakdownExpr = '', // 上方动态计费详情当前展示的表达式
 }) => {
   const modelEnableGroups = Array.isArray(modelData?.enable_groups)
     ? modelData.enable_groups
@@ -133,13 +134,12 @@ const ModelPricingTable = ({
       dataIndex: 'priceItems',
       render: (items, row) => {
         if (items.length === 1 && items[0].isDynamic) {
-          const usesGlobalDynamicBreakdown =
-            modelData?.billing_mode === 'tiered_expr' &&
-            modelData?.billing_expr &&
-            row?.priceData?.billingExpr === modelData?.billing_expr;
+          // 上方详情只渲染一条表达式，其余分组只能提示它们另有规则
+          const shownInBreakdown =
+            !!breakdownExpr && row?.priceData?.billingExpr === breakdownExpr;
           return (
             <Text type='tertiary' size='small'>
-              {usesGlobalDynamicBreakdown
+              {shownInBreakdown
                 ? t('见上方动态计费详情')
                 : t('使用该分组专属动态计费规则')}
             </Text>

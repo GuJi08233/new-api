@@ -20,6 +20,7 @@ For commercial licensing, please contact support@quantumnous.com
 import i18next from 'i18next';
 import { Modal, Tag, Typography, Avatar } from '@douyinfe/semi-ui';
 import { copy, showSuccess } from './utils';
+import { analyzeTierSchedule, splitTieredExprBranches } from './billingSchedule';
 import { getConfiguredModelIcon } from './modelIcons';
 import { MOBILE_BREAKPOINT } from '../hooks/common/useIsMobile';
 import {
@@ -2280,28 +2281,131 @@ export function parseTiersFromExpr(exprStr) {
   if (!exprStr) return [];
   try {
     const { body } = stripExprVersion(exprStr);
-    const condGroup = `((?:(?:p|c|len)\\s*(?:<|<=|>|>=)\\s*[\\d.eE+]+)(?:\\s*&&\\s*(?:p|c|len)\\s*(?:<|<=|>|>=)\\s*[\\d.eE+]+)*)`;
-    const tierRe = new RegExp(`(?:${condGroup}\\s*\\?\\s*)?tier\\("([^"]*)",\\s*([^)]+)\\)`, 'g');
-    const tiers = [];
-    let m;
-    while ((m = tierRe.exec(body)) !== null) {
-      const condStr = m[1] || '';
-      const conditions = [];
-      if (condStr) {
-        for (const cp of condStr.split(/\s*&&\s*/)) {
-          const cm = cp.trim().match(/^(p|c|len)\s*(<|<=|>|>=)\s*([\d.eE+]+)$/);
-          if (cm) conditions.push({ var: cm[1], op: cm[2], value: Number(cm[3]) });
-        }
+    return splitTieredExprBranches(body).map((branch) => {
+      const tier = parseTierBody(branch.body);
+      tier.label = branch.label;
+      // 条件原文留给时段解析用，用量比较单独抽出来给现有的档位摘要
+      tier.condExpr = branch.condition;
+      tier.conditions = [];
+      const usageCondRe = /\b(p|c|len)\s*(<=|>=|<|>)\s*([\d.eE+]+)/g;
+      let cm;
+      while ((cm = usageCondRe.exec(branch.condition || '')) !== null) {
+        tier.conditions.push({ var: cm[1], op: cm[2], value: Number(cm[3]) });
       }
-      const tier = parseTierBody(m[3]);
-      tier.label = m[2];
-      tier.conditions = conditions;
-      tiers.push(tier);
-    }
-    return tiers;
+      return tier;
+    });
   } catch {
     return [];
   }
+}
+
+const DYNAMIC_BADGE_STYLE = {
+  display: 'inline-block',
+  padding: '1px 6px',
+  borderRadius: 4,
+  fontSize: 11,
+};
+
+/**
+ * 模型广场卡片上的动态计费摘要。
+ *
+ * 展示的是"此刻、该分组"的真实单价：先按当前时间判定命中档位，再乘上分组倍率。
+ * 命中档位算不出来时（条件依赖请求内容）退回价格区间，绝不拿其中一档冒充全部。
+ */
+export function formatDynamicPriceSummary({
+  billingExpr,
+  t,
+  groupRatio = 1,
+  tokenUnit = 'M',
+  displayPrice,
+}) {
+  const expr = billingExpr || '';
+  const tiers = parseTiersFromExpr(expr);
+  if (tiers.length === 0) {
+    return (
+      <span style={{ color: 'var(--semi-color-text-1)' }}>{t('动态计费')}</span>
+    );
+  }
+
+  const { activeIndex, scheduleLabels, timeZone } = analyzeTierSchedule(tiers, t);
+  const activeTier = activeIndex >= 0 ? tiers[activeIndex] : null;
+  const unitDivisor = tokenUnit === 'K' ? 1000 : 1;
+  const unitSuffix = tokenUnit === 'K' ? ' / 1K Tokens' : ' / 1M Tokens';
+  const formatPrice = (usdPerMillion) =>
+    displayPrice
+      ? displayPrice((usdPerMillion * groupRatio) / unitDivisor)
+      : `$${((usdPerMillion * groupRatio) / unitDivisor).toFixed(3)}`;
+
+  const priceLines = [];
+  for (const { field, label } of BILLING_PRICING_VARS) {
+    if (activeTier) {
+      if (activeTier[field] > 0) {
+        priceLines.push([field, t(label), formatPrice(activeTier[field])]);
+      }
+      continue;
+    }
+    const values = tiers.map((tier) => tier[field] || 0).filter((value) => value > 0);
+    if (values.length === 0) continue;
+    const low = Math.min(...values);
+    const high = Math.max(...values);
+    priceLines.push([
+      field,
+      t(label),
+      low === high ? formatPrice(low) : `${formatPrice(low)}~${formatPrice(high)}`,
+    ]);
+  }
+
+  const badges = [];
+  if (activeTier && tiers.length > 1) {
+    const schedule = scheduleLabels?.[activeIndex];
+    badges.push({
+      key: 'active-tier',
+      text: t('当前 {{tier}}', { tier: activeTier.label }),
+      title: schedule ? `${schedule}${timeZone ? ` (${timeZone})` : ''}` : '',
+      background: 'var(--semi-color-success-light-default)',
+      color: 'var(--semi-color-success)',
+    });
+  }
+  badges.push({
+    key: 'dynamic',
+    text: t('动态计费'),
+    background: 'var(--semi-color-warning-light-default)',
+    color: 'var(--semi-color-warning)',
+  });
+  if (tiers.length > 1) {
+    badges.push({ key: 'tier-count', text: `${tiers.length}${t('档')}` });
+  }
+  if (/\b(?:hour|minute|weekday|month|day)\(/.test(expr)) {
+    badges.push({ key: 'time-condition', text: t('含时间条件') });
+  }
+  if (/\b(?:param|header)\(/.test(expr)) {
+    badges.push({ key: 'request-condition', text: t('含请求条件') });
+  }
+
+  return (
+    <>
+      {priceLines.map(([field, label, price]) => (
+        <span key={field} style={{ color: 'var(--semi-color-text-1)' }}>
+          {`${label} ${price}${unitSuffix}`}
+        </span>
+      ))}
+      <span style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+        {badges.map((badge) => (
+          <span
+            key={badge.key}
+            title={badge.title || undefined}
+            style={{
+              ...DYNAMIC_BADGE_STYLE,
+              background: badge.background || 'var(--semi-color-fill-1)',
+              color: badge.color || 'var(--semi-color-text-2)',
+            }}
+          >
+            {badge.text}
+          </span>
+        ))}
+      </span>
+    </>
+  );
 }
 
 export const decodeFromBase64 = (base64) => {

@@ -24,6 +24,7 @@ export * from './utils';
 export * from './base64';
 export * from './api';
 export * from './modelIcons';
+export * from './billingSchedule';
 export * from './render';
 export * from './log';
 export * from './data';

@@ -21,6 +21,7 @@ import React from 'react';
 import { SideSheet, Typography, Button, Divider } from '@douyinfe/semi-ui';
 import { IconClose } from '@douyinfe/semi-icons';
 
+import { calculateModelPrice } from '../../../../helpers';
 import { useIsMobile } from '../../../../hooks/common/useIsMobile';
 import ModelHeader from './components/ModelHeader';
 import ModelBasicInfo from './components/ModelBasicInfo';
@@ -35,6 +36,7 @@ const ModelDetailSideSheet = ({
   onClose,
   modelData,
   groupRatio,
+  selectedGroup,
   currency,
   siteDisplayType,
   tokenUnit,
@@ -48,6 +50,19 @@ const ModelDetailSideSheet = ({
   groupPricing = null, // 新增：分组定价数据
 }) => {
   const isMobile = useIsMobile();
+  // 与卡片视图共用同一份分组选择结果，两处显示的单价才会是同一个数
+  const priceData = modelData
+    ? calculateModelPrice({
+        record: modelData,
+        selectedGroup,
+        groupRatio,
+        tokenUnit,
+        displayPrice,
+        currency,
+        quotaDisplayType: siteDisplayType,
+        groupPricing,
+      })
+    : null;
 
   return (
     <SideSheet
@@ -96,13 +111,17 @@ const ModelDetailSideSheet = ({
                 t={t}
               />
             </div>
-            {modelData.billing_mode === 'tiered_expr' && modelData.billing_expr && (
+            {priceData?.isDynamicPricing && priceData.billingExpr && (
               <>
                 <Divider margin={16} />
                 <div style={{ padding: '0 24px' }}>
                   <DynamicPricingBreakdown
-                    billingExpr={modelData.billing_expr}
+                    billingExpr={priceData.billingExpr}
                     t={t}
+                    groupRatio={priceData.usedGroupRatio ?? 1}
+                    groupName={priceData.usedGroup || ''}
+                    tokenUnit={tokenUnit}
+                    displayPrice={displayPrice}
                   />
                 </div>
               </>
@@ -121,6 +140,7 @@ const ModelDetailSideSheet = ({
                 autoGroups={autoGroups}
                 t={t}
                 groupPricing={groupPricing}
+                breakdownExpr={priceData?.billingExpr || ''}
               />
             </div>
             <Divider margin={16} />
