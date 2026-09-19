@@ -36,7 +36,16 @@ func RelayMidjourneyImage(c *gin.Context) {
 		})
 		return
 	}
-	midjourneyTask := model.GetByOnlyMJId(taskId)
+	// 链接标识是任务行主键：mj_id 可以对应多行（上游 21/22 会重复入库），按 mj_id 取首行
+	// 会让一份签名命中别人的任务。
+	taskRowId, err := strconv.Atoi(taskId)
+	if err != nil {
+		c.JSON(http.StatusForbidden, gin.H{
+			"error": "invalid_image_signature",
+		})
+		return
+	}
+	midjourneyTask := model.GetMjByuId(taskRowId)
 	if midjourneyTask == nil {
 		c.JSON(400, gin.H{
 			"error": "midjourney_task_not_found",
@@ -160,7 +169,7 @@ func coverMidjourneyTaskDto(c *gin.Context, originTask *model.Midjourney) (midjo
 	midjourneyTask.FinishTime = originTask.FinishTime
 	midjourneyTask.ImageUrl = ""
 	if originTask.ImageUrl != "" && setting.MjForwardUrlEnabled {
-		midjourneyTask.ImageUrl = setting.MjForwardImageURL(originTask.MjId)
+		midjourneyTask.ImageUrl = setting.MjForwardImageURL(originTask.Id)
 		if originTask.Status != "SUCCESS" {
 			midjourneyTask.ImageUrl += "&rand=" + strconv.FormatInt(time.Now().UnixNano(), 10)
 		}

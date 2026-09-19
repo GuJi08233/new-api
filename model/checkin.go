@@ -67,6 +67,12 @@ func UserCheckin(userId int) (*Checkin, error) {
 		return nil, errors.New("今日已签到")
 	}
 
+	// 奖励额度直接进钱包，配置本身必须先落在合法区间内：负数会把签到变成扣费，
+	// 越界值会写出前端无法精确表示的余额。
+	if ValidateWalletQuota(setting.MinQuota) != nil || ValidateWalletQuota(setting.MaxQuota) != nil {
+		return nil, errors.New("签到奖励额度配置超出有效范围")
+	}
+
 	// 计算随机额度奖励
 	quotaAwarded := setting.MinQuota
 	if setting.MaxQuota > setting.MinQuota {
@@ -101,9 +107,12 @@ func userCheckinWithTransaction(checkin *Checkin, userId int, quotaAwarded int) 
 		}
 
 		// 步骤2: 在事务中增加用户额度
-		if err := tx.Model(&User{}).Where("id = ?", userId).
-			Update("quota", gorm.Expr("quota + ?", quotaAwarded)).Error; err != nil {
-			return errors.New("签到失败：更新额度出错")
+		// 走和充值同一条 CAS 守卫（quota <= MaxQuota-1-delta）：余额接近上限时整笔事务回滚，
+		// 而不是把越界额度写进账本。SQLite 路径的 IncreaseUserQuota 带的是同一条守卫。
+		if quotaAwarded > 0 {
+			if err := creditTopUpQuota(tx, userId, quotaAwarded, nil); err != nil {
+				return errors.New("签到失败：更新额度出错")
+			}
 		}
 
 		return nil

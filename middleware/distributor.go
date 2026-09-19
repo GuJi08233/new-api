@@ -322,30 +322,39 @@ func getModelFromJSONBody(c *gin.Context) (*ModelRequest, error) {
 		return nil, errors.New("invalid JSON request body")
 	}
 
-	// gjson 在重复键上取第一个，而同一个请求体之后还会被 encoding/json 解析（取最后一个）。
-	// 路由、令牌模型限制和分组鉴权都以这里的取值为准，两个解析器看到不同的值就等于让鉴权
-	// 与实际执行分离，因此重复的 model/group 直接拒绝，而不是任选其一。
+	// gjson 在重复键上取第一个，而同一个请求体之后还会被 encoding/json 解析：它按大小写
+	// 折叠匹配字段名并取最后一个，所以 {"model":"a","Model":"b"} 在路由阶段是 a、在解析
+	// 阶段是 b。路由、令牌模型限制和分组鉴权都以这里的取值为准，两个解析器看到不同的值
+	// 就等于让鉴权与实际执行分离——透传改写和任务适配器随后发给上游的就是未授权的模型。
+	// 下游取值（gjson 路径、sjson 改写）只认精确小写键，因此任何大小写变体一律拒绝。
 	var modelValue, groupValue gjson.Result
-	duplicateField := ""
+	conflictField := ""
 	gjson.ParseBytes(requestBody).ForEach(func(key, value gjson.Result) bool {
-		switch key.String() {
-		case "model":
+		name := key.String()
+		switch {
+		case name == "model":
 			if modelValue.Exists() {
-				duplicateField = "model"
+				conflictField = "model"
 				return false
 			}
 			modelValue = value
-		case "group":
+		case name == "group":
 			if groupValue.Exists() {
-				duplicateField = "group"
+				conflictField = "group"
 				return false
 			}
 			groupValue = value
+		case strings.EqualFold(name, "model"):
+			conflictField = "model"
+			return false
+		case strings.EqualFold(name, "group"):
+			conflictField = "group"
+			return false
 		}
 		return true
 	})
-	if duplicateField != "" {
-		return nil, fmt.Errorf("duplicate %s field in JSON request body", duplicateField)
+	if conflictField != "" {
+		return nil, fmt.Errorf("conflicting %s field in JSON request body", conflictField)
 	}
 
 	model, err := getJSONStringValue(modelValue, "model")

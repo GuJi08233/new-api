@@ -301,7 +301,7 @@ func GetAllMidjourney(c *gin.Context) {
 
 	if setting.MjForwardUrlEnabled {
 		for i, midjourney := range items {
-			midjourney.ImageUrl = setting.MjForwardImageURL(midjourney.MjId)
+			midjourney.ImageUrl = setting.MjForwardImageURL(midjourney.Id)
 			items[i] = midjourney
 		}
 	}
@@ -326,7 +326,7 @@ func GetUserMidjourney(c *gin.Context) {
 
 	if setting.MjForwardUrlEnabled {
 		for i, midjourney := range items {
-			midjourney.ImageUrl = setting.MjForwardImageURL(midjourney.MjId)
+			midjourney.ImageUrl = setting.MjForwardImageURL(midjourney.Id)
 			items[i] = midjourney
 		}
 	}

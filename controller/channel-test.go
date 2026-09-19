@@ -31,6 +31,7 @@ import (
 
 	"github.com/samber/lo"
 	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 
 	"github.com/gin-gonic/gin"
 )
@@ -262,7 +263,14 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 		}
 	}
 
-	request := buildTestRequest(testModel, endpointType, channel, isStream)
+	// 开启缓存绕过后给测试文本追加一个随机串，让每次测试的请求体都不同：上游网关对相同
+	// 请求体返回缓存响应时，会把已失效的密钥伪装成可用，注入随机串后每次都是真实请求。
+	// 全局开关与渠道开关任一开启即生效。
+	cacheBustNonce := ""
+	if channelTestCacheBustEnabled(channel) {
+		cacheBustNonce = common.GetRandomString(12)
+	}
+	request := buildTestRequest(testModel, endpointType, cacheBustNonce, isStream)
 
 	info, err := relaycommon.GenRelayInfo(c, relayFormat, request, nil)
 
@@ -457,6 +465,17 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 				localErr:    err,
 				newAPIError: types.NewError(err, types.ErrorCodeChannelParamOverrideInvalid),
 			}
+		}
+		// 参数覆盖可以写任意 JSON 路径，把随机串连同测试文本一起改回固定内容，请求体又变得
+		// 可缓存。覆盖之后补一次注入，标记才真正不可被覆盖。
+		if cacheBustNonce != "" && !bytes.Contains(jsonData, []byte(cacheBustNonce)) {
+			patched, ok := injectTestCacheBust(jsonData, cacheBustNonce)
+			if !ok {
+				common.SysError(fmt.Sprintf(
+					"channel test cache bust dropped by param override: channel_id=%d name=%s model=%s",
+					channel.Id, channel.Name, testModel))
+			}
+			jsonData = patched
 		}
 	}
 
@@ -728,14 +747,47 @@ func detectErrorMessageFromJSONBytes(jsonBytes []byte) string {
 	return message
 }
 
-func buildTestRequest(model string, endpointType string, channel *model.Channel, isStream bool) dto.Request {
-	// 开启缓存绕过后给测试文本追加当前时间，让每次测试的请求体都不同：上游网关对相同
-	// 请求体返回缓存响应时，会把已失效的密钥伪装成可用，注入时间后每次都是真实请求。
-	// 全局开关与渠道开关任一开启即生效。
+// channelTestCacheBustEnabled 报告本次测试是否需要注入缓存绕过标记：全局开关与渠道
+// 开关任一开启即生效。
+func channelTestCacheBustEnabled(channel *model.Channel) bool {
+	return operation_setting.GetMonitorSetting().TestCacheBustEnabled ||
+		(channel != nil && channel.GetSetting().TestCacheBustEnabled)
+}
+
+// testCacheBustPaths 是转换后的上游请求体里承载测试文本的字段，按各家格式列全。
+// 顺序即优先级：更深的路径排在前面，避免把标记写到父级对象上。
+var testCacheBustPaths = []string{
+	"messages.0.content.0.text",
+	"messages.0.content",
+	"contents.0.parts.0.text",
+	"input.0.content.0.text",
+	"input.0.content",
+	"input.0",
+	"input",
+	"prompt",
+	"query",
+}
+
+// injectTestCacheBust 把缓存绕过标记重新追加到请求体的测试文本上，返回是否找到了落点。
+func injectTestCacheBust(jsonData []byte, cacheBustNonce string) ([]byte, bool) {
+	for _, path := range testCacheBustPaths {
+		value := gjson.GetBytes(jsonData, path)
+		if value.Type != gjson.String {
+			continue
+		}
+		patched, err := sjson.SetBytes(jsonData, path, value.String()+" ("+cacheBustNonce+")")
+		if err != nil {
+			continue
+		}
+		return patched, true
+	}
+	return jsonData, false
+}
+
+func buildTestRequest(model string, endpointType string, cacheBustNonce string, isStream bool) dto.Request {
 	cacheBust := ""
-	if operation_setting.GetMonitorSetting().TestCacheBustEnabled ||
-		(channel != nil && channel.GetSetting().TestCacheBustEnabled) {
-		cacheBust = fmt.Sprintf(" (%s)", time.Now().UTC().Format(time.RFC3339Nano))
+	if cacheBustNonce != "" {
+		cacheBust = " (" + cacheBustNonce + ")"
 	}
 	prompt := "hi" + cacheBust
 	// prompt 由本函数生成，marshal 一个字符串不会失败

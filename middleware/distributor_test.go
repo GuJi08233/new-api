@@ -47,9 +47,9 @@ func TestRouteWillEstimateTokens(t *testing.T) {
 }
 
 // 路由、令牌模型限制和分组鉴权读的是 gjson 的取值（重复键取第一个），而请求体随后
-// 又会被 encoding/json 解析（重复键取最后一个）。两个解析器看到不同的值就等于让鉴权
-// 与实际执行分离，所以重复的 model/group 必须被拒绝，而不是任选其一。
-func TestGetModelFromJSONBodyRejectsDuplicateRoutingKeys(t *testing.T) {
+// 又会被 encoding/json 解析：它按大小写折叠匹配字段名并取最后一个。两个解析器看到不同
+// 的值就等于让鉴权与实际执行分离，所以重复或大小写变体的 model/group 必须被拒绝。
+func TestGetModelFromJSONBodyRejectsConflictingRoutingKeys(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tests := []struct {
 		name      string
@@ -61,12 +61,28 @@ func TestGetModelFromJSONBodyRejectsDuplicateRoutingKeys(t *testing.T) {
 		{
 			name:    "duplicate model",
 			body:    `{"model":"gpt-3.5-turbo","messages":[],"model":"gpt-4o"}`,
-			wantErr: "duplicate model field in JSON request body",
+			wantErr: "conflicting model field in JSON request body",
 		},
 		{
 			name:    "duplicate group",
 			body:    `{"group":"vip","model":"gpt-4o","group":"default"}`,
-			wantErr: "duplicate group field in JSON request body",
+			wantErr: "conflicting group field in JSON request body",
+		},
+		{
+			// encoding/json 会把 Model 折叠到同一个字段并取后者，透传时上游收到的也是它
+			name:    "case variant model shadows routed model",
+			body:    `{"model":"allowed","Model":"restricted","messages":[]}`,
+			wantErr: "conflicting model field in JSON request body",
+		},
+		{
+			name:    "case variant group shadows routed group",
+			body:    `{"model":"gpt-4o","GROUP":"vip"}`,
+			wantErr: "conflicting group field in JSON request body",
+		},
+		{
+			name:    "case variant alone is still rejected",
+			body:    `{"Model":"restricted","messages":[]}`,
+			wantErr: "conflicting model field in JSON request body",
 		},
 		{
 			name:      "unique keys accepted",

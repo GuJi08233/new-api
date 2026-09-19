@@ -302,13 +302,20 @@ func CacheGetChannelInfo(id int) (*ChannelInfo, error) {
 	return &c.ChannelInfo, nil
 }
 
-// cacheApplyChannelStatus 把已提交到数据库的状态转换镜像到内存缓存和路由表；返回 false 表示渠道尚未进入缓存。
+// cacheApplyChannelStatus 把已提交到数据库的状态转换镜像到内存缓存和路由表；返回 false 表示
+// 本节点无法就地镜像，调用方需要整体重建缓存。
 // 只覆盖状态流拥有的字段，轮询游标等缓存独有的运行时状态保持不变。
 func cacheApplyChannelStatus(saved *Channel, statusChanged bool) bool {
 	channelSyncLock.Lock()
 	defer channelSyncLock.Unlock()
 	channel, ok := channelsIDM[saved.Id]
 	if !ok {
+		return false
+	}
+	// 重新挂回路由表读的是缓存副本的分组、模型和优先级。别的节点改过渠道配置而本节点还没
+	// 同步时，这些字段已经过期，按它们重挂会把渠道恢复到旧分组/旧模型下，直到下一次全量
+	// 同步才纠正。检测到与刚落库的行不一致就交给调用方整体重建，不写入过期路由。
+	if channel.Group != saved.Group || channel.Models != saved.Models || channel.GetPriority() != saved.GetPriority() {
 		return false
 	}
 	channel.Status = saved.Status

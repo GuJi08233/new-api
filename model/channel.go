@@ -845,7 +845,8 @@ func updateChannelStatus(channelId int, usingKey string, status int, reason stri
 		return false
 	}
 	if common.MemoryCacheEnabled && !cacheApplyChannelStatus(&saved, statusChanged) {
-		// 缓存中还没有这个渠道（例如刚由其他节点创建），整体重建以保持路由与数据库一致。
+		// 缓存里没有这个渠道（例如刚由其他节点创建），或缓存副本的分组/模型/优先级已经过期，
+		// 就地镜像会写出错误的路由；整体重建以保持路由与数据库一致。
 		InitChannelCache()
 	}
 	return true

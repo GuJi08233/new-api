@@ -20,7 +20,11 @@ For commercial licensing, please contact support@quantumnous.com
 import i18next from 'i18next';
 import { Modal, Tag, Typography, Avatar } from '@douyinfe/semi-ui';
 import { copy, showSuccess } from './utils';
-import { analyzeTierSchedule, splitTieredExprBranches } from './billingSchedule';
+import {
+  analyzeExprMultiplier,
+  analyzeTierSchedule,
+  splitTieredExprBranches,
+} from './billingSchedule';
 import { getConfiguredModelIcon } from './modelIcons';
 import { MOBILE_BREAKPOINT } from '../hooks/common/useIsMobile';
 import {
@@ -2309,8 +2313,9 @@ const DYNAMIC_BADGE_STYLE = {
 /**
  * 模型广场卡片上的动态计费摘要。
  *
- * 展示的是"此刻、该分组"的真实单价：先按当前时间判定命中档位，再乘上分组倍率。
- * 命中档位算不出来时（条件依赖请求内容）退回价格区间，绝不拿其中一档冒充全部。
+ * 展示的是"此刻、该分组"的真实单价：先按当前时间判定命中档位，再乘上档位外层的条件
+ * 乘数和分组倍率。命中档位或乘数算不出来时（条件依赖请求内容）退回价格区间，绝不拿
+ * 其中一种取值冒充全部；连乘数的结构都读不懂时明确标注展示的只是基准价。
  */
 export function formatDynamicPriceSummary({
   billingExpr,
@@ -2329,29 +2334,37 @@ export function formatDynamicPriceSummary({
 
   const { activeIndex, scheduleLabels, timeZone } = analyzeTierSchedule(tiers, t);
   const activeTier = activeIndex >= 0 ? tiers[activeIndex] : null;
+  const multiplier = analyzeExprMultiplier(stripExprVersion(expr).body);
   const unitDivisor = tokenUnit === 'K' ? 1000 : 1;
   const unitSuffix = tokenUnit === 'K' ? ' / 1K Tokens' : ' / 1M Tokens';
   const formatPrice = (usdPerMillion) =>
     displayPrice
       ? displayPrice((usdPerMillion * groupRatio) / unitDivisor)
       : `$${((usdPerMillion * groupRatio) / unitDivisor).toFixed(3)}`;
+  const formatPriceRange = (low, high) => {
+    const lowText = formatPrice(low * multiplier.min);
+    const highText = formatPrice(high * multiplier.max);
+    return lowText === highText ? lowText : `${lowText}~${highText}`;
+  };
 
   const priceLines = [];
   for (const { field, label } of BILLING_PRICING_VARS) {
     if (activeTier) {
       if (activeTier[field] > 0) {
-        priceLines.push([field, t(label), formatPrice(activeTier[field])]);
+        priceLines.push([
+          field,
+          t(label),
+          formatPriceRange(activeTier[field], activeTier[field]),
+        ]);
       }
       continue;
     }
     const values = tiers.map((tier) => tier[field] || 0).filter((value) => value > 0);
     if (values.length === 0) continue;
-    const low = Math.min(...values);
-    const high = Math.max(...values);
     priceLines.push([
       field,
       t(label),
-      low === high ? formatPrice(low) : `${formatPrice(low)}~${formatPrice(high)}`,
+      formatPriceRange(Math.min(...values), Math.max(...values)),
     ]);
   }
 
@@ -2380,6 +2393,26 @@ export function formatDynamicPriceSummary({
   }
   if (/\b(?:param|header)\(/.test(expr)) {
     badges.push({ key: 'request-condition', text: t('含请求条件') });
+  }
+  // 外层乘数直接改变实付单价，必须和价格一起说清楚，不能只提示"含请求条件"
+  if (!multiplier.resolved) {
+    badges.push({
+      key: 'base-price',
+      text: t('基准价'),
+      title: t('表达式含无法预估的乘数，上方价格未计入'),
+    });
+  } else if (multiplier.min !== 1 || multiplier.max !== 1) {
+    const format = (value) => String(Number(value.toFixed(4)));
+    badges.push({
+      key: 'multiplier',
+      text:
+        multiplier.min === multiplier.max
+          ? t('条件乘数 ×{{value}}', { value: format(multiplier.min) })
+          : t('条件乘数 ×{{min}}~×{{max}}', {
+              min: format(multiplier.min),
+              max: format(multiplier.max),
+            }),
+    });
   }
 
   return (

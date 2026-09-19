@@ -4,7 +4,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -116,15 +115,10 @@ func TestSelectChannelsForAutomaticTestScheduledSkipsManualDisabled(t *testing.T
 	require.Equal(t, 2, selected[1].Id)
 }
 
-// 开启缓存绕过后，每个测试端点的提示词都必须带上当前时间，否则上游网关对相同请求体的
-// 缓存响应会把已失效的密钥测成可用；关闭时请求体必须保持原样。
+// 开启缓存绕过后，每个测试端点的提示词都必须带上本次测试的随机串，否则上游网关对相同
+// 请求体的缓存响应会把已失效的密钥测成可用；关闭时请求体必须保持原样。
 func TestBuildTestRequestCacheBust(t *testing.T) {
-	channelWithCacheBust := func(enabled bool) *model.Channel {
-		channel := &model.Channel{Id: 1}
-		channel.SetSetting(dto.ChannelSettings{TestCacheBustEnabled: enabled})
-		return channel
-	}
-	today := time.Now().UTC().Format("2006-01-02T")
+	const nonce = "abc123xyz789"
 
 	tests := []struct {
 		name      string
@@ -147,39 +141,39 @@ func TestBuildTestRequestCacheBust(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			disabled, err := common.Marshal(buildTestRequest(tc.modelName, tc.endpoint, channelWithCacheBust(false), false))
+			disabled, err := common.Marshal(buildTestRequest(tc.modelName, tc.endpoint, "", false))
 			require.NoError(t, err)
 			assert.Contains(t, string(disabled), tc.baseText)
-			assert.NotContains(t, string(disabled), today)
+			assert.NotContains(t, string(disabled), nonce)
 
-			enabled, err := common.Marshal(buildTestRequest(tc.modelName, tc.endpoint, channelWithCacheBust(true), false))
+			enabled, err := common.Marshal(buildTestRequest(tc.modelName, tc.endpoint, nonce, false))
 			require.NoError(t, err)
 			assert.NotContains(t, string(enabled), tc.baseText)
-			assert.Contains(t, string(enabled), today)
+			assert.Contains(t, string(enabled), nonce)
 		})
 	}
 }
 
 // 全局缓存绕过开关对没有单独开启的渠道同样生效：手动测试、定时测试与自动恢复共用
-// buildTestRequest，两个开关任一开启就必须注入时间。
-func TestBuildTestRequestCacheBustGlobalSetting(t *testing.T) {
+// 同一个判定，两个开关任一开启就必须注入标记。
+func TestChannelTestCacheBustEnabledHonoursBothSwitches(t *testing.T) {
 	monitor := operation_setting.GetMonitorSetting()
 	original := monitor.TestCacheBustEnabled
 	t.Cleanup(func() { monitor.TestCacheBustEnabled = original })
 
-	channel := &model.Channel{Id: 1}
-	channel.SetSetting(dto.ChannelSettings{TestCacheBustEnabled: false})
-	today := time.Now().UTC().Format("2006-01-02T")
+	channelWithCacheBust := func(enabled bool) *model.Channel {
+		channel := &model.Channel{Id: 1}
+		channel.SetSetting(dto.ChannelSettings{TestCacheBustEnabled: enabled})
+		return channel
+	}
 
 	monitor.TestCacheBustEnabled = false
-	disabled, err := common.Marshal(buildTestRequest("gpt-4o-mini", string(constant.EndpointTypeOpenAI), channel, false))
-	require.NoError(t, err)
-	assert.NotContains(t, string(disabled), today)
+	assert.False(t, channelTestCacheBustEnabled(channelWithCacheBust(false)))
+	assert.True(t, channelTestCacheBustEnabled(channelWithCacheBust(true)))
 
 	monitor.TestCacheBustEnabled = true
-	enabled, err := common.Marshal(buildTestRequest("gpt-4o-mini", string(constant.EndpointTypeOpenAI), channel, false))
-	require.NoError(t, err)
-	assert.Contains(t, string(enabled), today)
+	assert.True(t, channelTestCacheBustEnabled(channelWithCacheBust(false)))
+	assert.True(t, channelTestCacheBustEnabled(channelWithCacheBust(true)))
 }
 
 func TestTestAllChannelsRejectsExistingActiveTask(t *testing.T) {

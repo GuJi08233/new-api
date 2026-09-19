@@ -764,10 +764,12 @@ func validateTieredBillingOption(key, value string) error {
 
 // validateQuotaGrantOption 守住会直接写入钱包的赠送额度配置。QuotaForNewUser
 // 在注册时被直接赋给 user.Quota，不经过 applyUserQuotaDelta 的 CAS 条件，越界
-// 值会绕过所有增量守卫落进 quota 列。
+// 值会绕过所有增量守卫落进 quota 列。签到奖励区间同理：它是每日发放的直接入账，
+// 负数会把签到变成扣费，越界值会让入账在 CAS 处整笔失败。
 func validateQuotaGrantOption(key, value string) error {
 	switch key {
-	case "QuotaForNewUser", "QuotaForInvitee":
+	case "QuotaForNewUser", "QuotaForInvitee",
+		"checkin_setting.min_quota", "checkin_setting.max_quota":
 		quota, err := strconv.Atoi(value)
 		if err != nil {
 			return fmt.Errorf("%s 必须是整数", key)

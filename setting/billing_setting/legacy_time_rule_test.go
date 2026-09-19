@@ -68,6 +68,18 @@ func TestFindLegacyAlwaysTrueTimeRules(t *testing.T) {
 	}
 }
 
+// 分组专属表达式承载同一批旧规则，审计必须覆盖它们并标出所属分组，
+// 否则管理员会以为存量规则已经全部确认过。
+func TestFindLegacyAlwaysTrueTimeRulesTagsGroup(t *testing.T) {
+	rules := findLegacyAlwaysTrueTimeRules("vip", map[string]string{
+		"gpt-4o": `p * (hour("UTC") >= 9 || hour("UTC") < 17 ? 2 : 1)`,
+	})
+	require.Len(t, rules, 1)
+	assert.Equal(t, LegacyTimeRule{
+		Group: "vip", Model: "gpt-4o", Func: "hour", Timezone: "UTC", Start: "9", End: "17",
+	}, rules[0])
+}
+
 func TestFindLegacyAlwaysTrueTimeRulesSortsByModel(t *testing.T) {
 	rules := FindLegacyAlwaysTrueTimeRules(map[string]string{
 		"z-model": `p * (hour("UTC") >= 9 || hour("UTC") < 17 ? 2 : 1)`,

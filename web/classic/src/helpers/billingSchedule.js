@@ -170,9 +170,13 @@ function scanTierCalls(text) {
 export function splitTieredExprBranches(exprBody) {
   const branches = [];
   const collect = (expr, inheritedCondition) => {
-    const ternary = splitTernary(expr);
+    // 每层都要先剥括号：编辑器和文档里的嵌套档位写成 `a ? x : (b ? y : z)`，
+    // 括号会把内层的 `?` 压到 depth 1，splitTernary 找不到它，两个内层档位就会一起
+    // 退化成无条件的兜底分支，模型广场因此高亮错误的当前档位。
+    const body = unwrapOuterParens(expr);
+    const ternary = splitTernary(body);
     if (!ternary) {
-      for (const call of scanTierCalls(expr)) {
+      for (const call of scanTierCalls(body)) {
         branches.push({ ...call, condition: inheritedCondition });
       }
       return;
@@ -183,7 +187,7 @@ export function splitTieredExprBranches(exprBody) {
     collect(ternary.consequent, nextCondition);
     collect(ternary.alternate, inheritedCondition);
   };
-  collect(unwrapOuterParens(exprBody), '');
+  collect(exprBody, '');
   return branches;
 }
 
@@ -409,6 +413,109 @@ function matchBranchAt(branchAsts, date) {
     if (hit) return i;
   }
   return -1;
+}
+
+const NUMBER_LITERAL_REGEX = /^-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?$/;
+const UNRESOLVED_MULTIPLIER = Object.freeze({
+  min: 1,
+  max: 1,
+  resolved: false,
+});
+
+/**
+ * 按顶层 `*` 把表达式拆成乘数因子。
+ *
+ * 顶层同时出现 `*` 和别的中缀运算（含三元的 `?`/`:`）时结构超出这里能安全归因的范围，
+ * 返回 null 让调用方降级——`a ? tier(x) * 2 : tier(y)` 这种写法里的 `* 2` 只作用于一个
+ * 分支，按整体乘数处理会算错价。
+ */
+function splitTopLevelFactors(text) {
+  const splits = [];
+  let start = 0;
+  let depth = 0;
+  let hasOtherOperator = false;
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+    if (ch === '"') {
+      i = skipStringLiteral(text, i);
+      continue;
+    }
+    if (ch === '(') depth += 1;
+    else if (ch === ')') depth -= 1;
+    else if (depth === 0) {
+      if (ch === '*') {
+        splits.push(text.slice(start, i));
+        start = i + 1;
+      } else if ('+-/%?:'.includes(ch)) {
+        hasOtherOperator = true;
+      }
+    }
+  }
+  splits.push(text.slice(start));
+  if (splits.length === 1) return splits;
+  return hasOtherOperator ? null : splits;
+}
+
+function evaluateMultiplierFactor(factor, resolveFields) {
+  const body = unwrapOuterParens(factor);
+  if (NUMBER_LITERAL_REGEX.test(body)) {
+    const value = Number(body);
+    return value > 0 ? { min: value, max: value } : null;
+  }
+  const ternary = splitTernary(body);
+  if (!ternary) return null;
+  const whenTrue = Number(unwrapOuterParens(ternary.consequent));
+  const whenFalse = Number(unwrapOuterParens(ternary.alternate));
+  if (!(whenTrue > 0) || !(whenFalse > 0)) return null;
+
+  const hit = evaluateConditionAst(
+    getConditionAst(ternary.condition),
+    resolveFields,
+  );
+  if (hit === true) return { min: whenTrue, max: whenTrue };
+  if (hit === false) return { min: whenFalse, max: whenFalse };
+  // 条件依赖请求内容，此刻只能给出取值区间
+  return {
+    min: Math.min(whenTrue, whenFalse),
+    max: Math.max(whenTrue, whenFalse),
+  };
+}
+
+/**
+ * 算出乘在档位外层的条件乘数。
+ *
+ * 表达式的标准形态是 `(档位体) * (条件 ? 倍率 : 1) * ...`（见 combineBillingExpr）。只解析
+ * tier() 里的系数，就会把 `tier("base", p * 5) * (param("service_tier") == "priority" ? 2 : 1)`
+ * 显示成 $5，而 priority 请求实际按 $10 计费。时间条件此刻就能判定，依赖请求内容的条件
+ * 给出取值区间，看不懂的结构报告无法归因，由调用方明确标注展示的是基准价。
+ *
+ * @param {string} exprBody - 去掉版本前缀的表达式正文
+ * @param {Date} [now]
+ * @returns {{min: number, max: number, resolved: boolean}}
+ */
+export function analyzeExprMultiplier(exprBody, now = new Date()) {
+  const body = unwrapOuterParens(exprBody);
+  if (!body) return { min: 1, max: 1, resolved: true };
+
+  const factors = splitTopLevelFactors(body);
+  if (!factors) return UNRESOLVED_MULTIPLIER;
+  if (factors.length === 1) return { min: 1, max: 1, resolved: true };
+  // 档位体必须落在唯一一个因子里，否则无法区分谁是价格、谁是乘数
+  if (factors.filter((factor) => factor.includes('tier(')).length !== 1) {
+    return UNRESOLVED_MULTIPLIER;
+  }
+
+  const resolveFields = createZoneFieldResolver(now);
+  let min = 1;
+  let max = 1;
+  for (const factor of factors) {
+    if (factor.includes('tier(')) continue;
+    const range = evaluateMultiplierFactor(factor, resolveFields);
+    if (!range) return UNRESOLVED_MULTIPLIER;
+    min *= range.min;
+    max *= range.max;
+  }
+  return { min, max, resolved: true };
 }
 
 // ---------------------------------------------------------------------------

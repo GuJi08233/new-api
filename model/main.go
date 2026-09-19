@@ -519,6 +519,13 @@ func migrateClickHouseLogDB() error {
 	if err := LOG_DB.Exec("ALTER TABLE logs ADD COLUMN IF NOT EXISTS ua String DEFAULT ''").Error; err != nil {
 		return err
 	}
+	// 额度上限是 2^53，token 计数同样可以越过 2^31-1。旧表按 Int32 建列，超限的日志会写失败
+	// 或截断，把账务证据丢在日志库里。
+	for _, column := range []string{"quota", "prompt_tokens", "completion_tokens"} {
+		if err := LOG_DB.Exec("ALTER TABLE logs MODIFY COLUMN IF EXISTS " + column + " Int64").Error; err != nil {
+			return err
+		}
+	}
 	return syncClickHouseLogTTL(ttlDays)
 }
 
@@ -556,9 +563,9 @@ CREATE TABLE IF NOT EXISTS logs (
 	username String DEFAULT '',
 	token_name String DEFAULT '',
 	model_name String DEFAULT '',
-	quota Int32 DEFAULT 0,
-	prompt_tokens Int32 DEFAULT 0,
-	completion_tokens Int32 DEFAULT 0,
+	quota Int64 DEFAULT 0,
+	prompt_tokens Int64 DEFAULT 0,
+	completion_tokens Int64 DEFAULT 0,
 	use_time Int32 DEFAULT 0,
 	is_stream UInt8 DEFAULT 0,
 	channel_id Int32 DEFAULT 0,
