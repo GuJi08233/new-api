@@ -19,9 +19,6 @@ func UpdateModelPricingOptions(values map[string]string) error {
 }
 
 func validateModelPricingOptions(values map[string]string) error {
-	common.OptionMapRWMutex.RLock()
-	defer common.OptionMapRWMutex.RUnlock()
-
 	_, groupMode := values["GroupBillingMode"]
 	prefix := ""
 	modeKey, exprKey := "billing_setting.billing_mode", billing_setting.BillingExprOptionKey
@@ -66,50 +63,80 @@ func validateModelPricingOptions(values map[string]string) error {
 			}
 		}
 	}
+	// 模式与表达式的一致性由 UpdateOptionsBulk 统一校验，单项写入也走同一检查。
+	return nil
+}
 
-	var modes, expressions map[string]map[string]string
-	if groupMode {
-		if err := common.UnmarshalJsonStr(values[modeKey], &modes); err != nil || modes == nil {
-			return fmt.Errorf("invalid billing modes")
-		}
-		if err := common.UnmarshalJsonStr(values[exprKey], &expressions); err != nil || expressions == nil {
-			return fmt.Errorf("invalid billing expressions")
-		}
-	} else {
-		var modelModes, modelExpressions map[string]string
-		if err := common.UnmarshalJsonStr(values[modeKey], &modelModes); err != nil || modelModes == nil {
-			return fmt.Errorf("invalid billing modes")
-		}
-		if err := common.UnmarshalJsonStr(values[exprKey], &modelExpressions); err != nil || modelExpressions == nil {
-			return fmt.Errorf("invalid billing expressions")
-		}
-		modes = map[string]map[string]string{"": modelModes}
-		expressions = map[string]map[string]string{"": modelExpressions}
-		// 分组可以沿用全局表达式，删除全局配置前必须检查这些依赖。
-		for group, groupModes := range ratio_setting.GetGroupBillingModeCopy() {
-			for name, mode := range groupModes {
-				if mode == billing_setting.BillingModeTieredExpr &&
-					strings.TrimSpace(ratio_setting.GetGroupBillingExpr(group, name)) == "" &&
-					strings.TrimSpace(modelExpressions[name]) == "" {
-					return fmt.Errorf("group %s model %s still requires a global billing expression", group, name)
-				}
-			}
+var billingModeOptionKeys = []string{"billing_setting.billing_mode", billing_setting.BillingExprOptionKey, "GroupBillingMode", "GroupBillingExpr"}
+
+// validateBillingModeConsistency 把即将写入的计费模式和表达式与当前运行配置合并，
+// 保证每个 tiered_expr 模型都能找到表达式。无论通过单项、批量还是定价编辑接口写入，
+// 都不能出现"模式已切换、表达式缺失"导致模型不可用的中间状态。
+func validateBillingModeConsistency(values map[string]string) error {
+	touched := false
+	for _, key := range billingModeOptionKeys {
+		if _, ok := values[key]; ok {
+			touched = true
+			break
 		}
 	}
-	for group, modelModes := range modes {
-		for name, mode := range modelModes {
+	if !touched {
+		return nil
+	}
+
+	common.OptionMapRWMutex.RLock()
+	globalModes := billing_setting.GetBillingModeCopy()
+	globalExprs := billing_setting.GetBillingExprCopy()
+	groupModes := ratio_setting.GetGroupBillingModeCopy()
+	groupExprs := ratio_setting.GetGroupBillingExprCopy()
+	common.OptionMapRWMutex.RUnlock()
+
+	if raw, ok := values["billing_setting.billing_mode"]; ok {
+		globalModes = nil
+		if err := common.UnmarshalJsonStr(raw, &globalModes); err != nil || globalModes == nil {
+			return fmt.Errorf("invalid billing modes")
+		}
+	}
+	if raw, ok := values[billing_setting.BillingExprOptionKey]; ok {
+		globalExprs = nil
+		if err := common.UnmarshalJsonStr(raw, &globalExprs); err != nil || globalExprs == nil {
+			return fmt.Errorf("invalid billing expressions")
+		}
+	}
+	if raw, ok := values["GroupBillingMode"]; ok {
+		groupModes = nil
+		if err := common.UnmarshalJsonStr(raw, &groupModes); err != nil || groupModes == nil {
+			return fmt.Errorf("invalid billing modes")
+		}
+	}
+	if raw, ok := values["GroupBillingExpr"]; ok {
+		groupExprs = nil
+		if err := common.UnmarshalJsonStr(raw, &groupExprs); err != nil || groupExprs == nil {
+			return fmt.Errorf("invalid billing expressions")
+		}
+	}
+
+	for name, mode := range globalModes {
+		switch mode {
+		case billing_setting.BillingModeTieredExpr:
+			if strings.TrimSpace(globalExprs[name]) == "" {
+				return fmt.Errorf("model %s is configured as tiered_expr but has no billing expression", name)
+			}
+		case billing_setting.BillingModeRatio, "per-token", "per-request":
+		default:
+			return fmt.Errorf("invalid billing mode %q for model %s", mode, name)
+		}
+	}
+	for group, modes := range groupModes {
+		for name, mode := range modes {
 			switch mode {
 			case billing_setting.BillingModeTieredExpr:
-				expr := expressions[group][name]
-				if groupMode && strings.TrimSpace(expr) == "" {
-					expr, _ = billing_setting.GetBillingExpr(name)
-				}
-				if strings.TrimSpace(expr) == "" {
-					return fmt.Errorf("model %s is configured as tiered_expr but has no billing expression", name)
+				if strings.TrimSpace(groupExprs[group][name]) == "" && strings.TrimSpace(globalExprs[name]) == "" {
+					return fmt.Errorf("group %s model %s is configured as tiered_expr and still requires a global billing expression", group, name)
 				}
 			case billing_setting.BillingModeRatio, "per-token", "per-request":
 			default:
-				return fmt.Errorf("invalid billing mode %q for model %s", mode, name)
+				return fmt.Errorf("invalid billing mode %q for group %s model %s", mode, group, name)
 			}
 		}
 	}

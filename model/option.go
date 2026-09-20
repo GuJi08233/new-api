@@ -266,6 +266,9 @@ func UpdateOption(key string, value string) error {
 	if err := validateQuotaGrantOption(key, value); err != nil {
 		return err
 	}
+	if err := validateBillingModeConsistency(map[string]string{key: value}); err != nil {
+		return err
+	}
 	// Save to database first
 	option := Option{
 		Key: key,
@@ -315,6 +318,9 @@ func UpdateOptionsBulk(values map[string]string) error {
 	}
 	if len(activeValues) == 0 {
 		return nil
+	}
+	if err := validateBillingModeConsistency(activeValues); err != nil {
+		return err
 	}
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		for k, v := range activeValues {

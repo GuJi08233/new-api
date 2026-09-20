@@ -202,3 +202,44 @@ func TestModelPricingUpdatePreservesInheritedGroupExpression(t *testing.T) {
 	assert.False(t, ok)
 	assert.Equal(t, `tier("group", p * 3)`, ratio_setting.GetGroupBillingExpr("vip", "paid"))
 }
+
+func TestSingleOptionUpdateKeepsBillingModeAndExpressionConsistent(t *testing.T) {
+	values := setupPricingOptionsTest(t, false)
+	values["billing_setting.billing_mode"] = `{"paid":"tiered_expr"}`
+	values[billing_setting.BillingExprOptionKey] = `{"paid":"tier(\"base\", p * 2)"}`
+	require.NoError(t, UpdateModelPricingOptions(values))
+	require.NoError(t, UpdateOption("GroupBillingMode", `{}`))
+	values["GroupBillingMode"] = `{}`
+
+	for _, tc := range []struct {
+		name  string
+		key   string
+		value string
+	}{
+		{"switch mode without expression", "billing_setting.billing_mode", `{"paid":"tiered_expr","other":"tiered_expr"}`},
+		{"remove expression still referenced by mode", billing_setting.BillingExprOptionKey, `{}`},
+		{"unknown billing mode", "billing_setting.billing_mode", `{"paid":"free"}`},
+		{"group mode without any expression", "GroupBillingMode", `{"vip":{"other":"tiered_expr"}}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Error(t, UpdateOption(tc.key, tc.value))
+			var stored Option
+			require.NoError(t, DB.Where("key = ?", tc.key).First(&stored).Error)
+			assert.Equal(t, values[tc.key], stored.Value, "database must keep the previous value")
+			common.OptionMapRWMutex.RLock()
+			assert.Equal(t, values[tc.key], common.OptionMap[tc.key], "runtime must keep the previous value")
+			common.OptionMapRWMutex.RUnlock()
+			assert.Equal(t, billing_setting.BillingModeTieredExpr, billing_setting.GetBillingMode("paid"))
+			expr, ok := billing_setting.GetBillingExpr("paid")
+			assert.True(t, ok)
+			assert.Equal(t, `tier("base", p * 2)`, expr)
+		})
+	}
+
+	// 分组模式可以沿用全局表达式；换成独立表达式后再删全局表达式也是合法的。
+	require.NoError(t, UpdateOption("GroupBillingMode", `{"vip":{"paid":"tiered_expr"}}`))
+	require.NoError(t, UpdateOption("GroupBillingExpr", `{"vip":{"paid":"tier(\"group\", p * 3)"}}`))
+	require.NoError(t, UpdateOption("billing_setting.billing_mode", `{}`))
+	require.NoError(t, UpdateOption(billing_setting.BillingExprOptionKey, `{}`))
+	assert.Equal(t, `tier("group", p * 3)`, ratio_setting.GetGroupBillingExpr("vip", "paid"))
+}
