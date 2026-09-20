@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -250,10 +251,16 @@ func SyncOptions(frequency int) {
 	}
 }
 
+// optionWriteMu 串行化"校验 → 落库 → 发布到运行时"的完整写入过程。
+// 一致性校验依赖运行时配置，若两次写入交错，后者可能基于前者尚未发布的状态通过校验。
+var optionWriteMu sync.Mutex
+
 func UpdateOption(key string, value string) error {
 	if isRemovedOptionKey(key) {
 		return nil
 	}
+	optionWriteMu.Lock()
+	defer optionWriteMu.Unlock()
 	if err := operation_setting.ValidateRiskControlOption(key, value); err != nil {
 		return err
 	}
@@ -297,6 +304,8 @@ func UpdateOptionsBulk(values map[string]string) error {
 	if len(values) == 0 {
 		return nil
 	}
+	optionWriteMu.Lock()
+	defer optionWriteMu.Unlock()
 	activeValues := make(map[string]string, len(values))
 	for key, value := range values {
 		if isRemovedOptionKey(key) {

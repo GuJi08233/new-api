@@ -9,8 +9,9 @@ import (
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 )
 
-// UpdateModelPricingOptions 将一次定价编辑的全部配置校验后一起提交。
-// 任意表达式或倍率无效时，数据库及运行中的定价都保持原值。
+// UpdateModelPricingOptions 将一次定价编辑中提交的配置校验后一起提交。
+// 只写入调用方提交的键，未提交的键保持现状；任意表达式或倍率无效时，
+// 数据库及运行中的定价都保持原值。
 func UpdateModelPricingOptions(values map[string]string) error {
 	if err := validateModelPricingOptions(values); err != nil {
 		return err
@@ -18,36 +19,50 @@ func UpdateModelPricingOptions(values map[string]string) error {
 	return UpdateOptionsBulk(values)
 }
 
+var pricingOptionKeys = []string{"ModelPrice", "ModelRatio", "CompletionRatio", "CacheRatio", "CreateCacheRatio", "ImageRatio", "AudioRatio", "AudioCompletionRatio"}
+
 func validateModelPricingOptions(values map[string]string) error {
-	_, groupMode := values["GroupBillingMode"]
-	prefix := ""
-	modeKey, exprKey := "billing_setting.billing_mode", billing_setting.BillingExprOptionKey
-	if groupMode {
-		prefix = "Group"
-		modeKey, exprKey = "GroupBillingMode", "GroupBillingExpr"
+	if len(values) == 0 {
+		return fmt.Errorf("a pricing update must contain at least one pricing option")
 	}
-	priceKeys := []string{"ModelPrice", "ModelRatio", "CompletionRatio", "CacheRatio", "CreateCacheRatio", "ImageRatio", "AudioRatio", "AudioCompletionRatio"}
-	if len(values) != len(priceKeys)+2 {
-		return fmt.Errorf("a pricing update must contain all prices, billing modes and expressions for one scope")
+	globalKeys := map[string]bool{"billing_setting.billing_mode": true, billing_setting.BillingExprOptionKey: true}
+	groupKeys := map[string]bool{"GroupBillingMode": true, "GroupBillingExpr": true}
+	for _, key := range pricingOptionKeys {
+		globalKeys[key] = true
+		groupKeys["Group"+key] = true
 	}
-	for _, key := range append([]string{modeKey, exprKey}, priceKeys...) {
-		if key != modeKey && key != exprKey {
-			key = prefix + key
+	scope := ""
+	for key := range values {
+		keyScope := ""
+		if globalKeys[key] {
+			keyScope = "global"
+		} else if groupKeys[key] {
+			keyScope = "group"
+		} else {
+			return fmt.Errorf("unknown pricing option %s", key)
 		}
-		if _, ok := values[key]; !ok {
-			return fmt.Errorf("missing pricing option %s", key)
+		if scope != "" && scope != keyScope {
+			return fmt.Errorf("a pricing update must target either global or group pricing, not both")
 		}
+		scope = keyScope
 	}
-	for _, key := range priceKeys {
-		key = prefix + key
+	groupMode := scope == "group"
+	for _, key := range pricingOptionKeys {
+		if groupMode {
+			key = "Group" + key
+		}
+		raw, ok := values[key]
+		if !ok {
+			continue
+		}
 		var prices map[string]map[string]*float64
 		if groupMode {
-			if err := common.UnmarshalJsonStr(values[key], &prices); err != nil || prices == nil {
+			if err := common.UnmarshalJsonStr(raw, &prices); err != nil || prices == nil {
 				return fmt.Errorf("invalid pricing map %s", key)
 			}
 		} else {
 			var modelPrices map[string]*float64
-			if err := common.UnmarshalJsonStr(values[key], &modelPrices); err != nil || modelPrices == nil {
+			if err := common.UnmarshalJsonStr(raw, &modelPrices); err != nil || modelPrices == nil {
 				return fmt.Errorf("invalid pricing map %s", key)
 			}
 			prices = map[string]map[string]*float64{"": modelPrices}
@@ -63,7 +78,7 @@ func validateModelPricingOptions(values map[string]string) error {
 			}
 		}
 	}
-	// 模式与表达式的一致性由 UpdateOptionsBulk 统一校验，单项写入也走同一检查。
+	// 模式与表达式的一致性由 UpdateOptionsBulk 在写入锁内统一校验。
 	return nil
 }
 

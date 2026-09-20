@@ -4,6 +4,7 @@ import (
 	"errors"
 	"maps"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
@@ -242,4 +243,73 @@ func TestSingleOptionUpdateKeepsBillingModeAndExpressionConsistent(t *testing.T)
 	require.NoError(t, UpdateOption("billing_setting.billing_mode", `{}`))
 	require.NoError(t, UpdateOption(billing_setting.BillingExprOptionKey, `{}`))
 	assert.Equal(t, `tier("group", p * 3)`, ratio_setting.GetGroupBillingExpr("vip", "paid"))
+}
+
+func TestModelPricingUpdateWritesOnlySubmittedKeys(t *testing.T) {
+	values := setupPricingOptionsTest(t, false)
+	values["billing_setting.billing_mode"] = `{"paid":"tiered_expr"}`
+	values[billing_setting.BillingExprOptionKey] = `{"paid":"tier(\"base\", p * 2)"}`
+	require.NoError(t, UpdateModelPricingOptions(values))
+
+	// 旧版手动编辑器只提交改动过的价格键，已配置的阶梯模式和表达式必须原样保留。
+	require.NoError(t, UpdateModelPricingOptions(map[string]string{"CacheRatio": `{"paid":0.5}`}))
+	ratio, ok := ratio_setting.GetCacheRatio("paid")
+	assert.True(t, ok)
+	assert.Equal(t, 0.5, ratio)
+	assert.Equal(t, billing_setting.BillingModeTieredExpr, billing_setting.GetBillingMode("paid"))
+	expr, ok := billing_setting.GetBillingExpr("paid")
+	assert.True(t, ok)
+	assert.Equal(t, `tier("base", p * 2)`, expr)
+	var stored Option
+	require.NoError(t, DB.Where("key = ?", "billing_setting.billing_mode").First(&stored).Error)
+	assert.Equal(t, `{"paid":"tiered_expr"}`, stored.Value)
+
+	require.Error(t, UpdateModelPricingOptions(map[string]string{"ModelRatio": `{"paid":2}`, "GroupModelRatio": `{"vip":{"paid":2}}`}), "global and group keys cannot be mixed")
+	require.Error(t, UpdateModelPricingOptions(map[string]string{"SystemName": "x"}), "non-pricing keys are rejected")
+	require.Error(t, UpdateModelPricingOptions(map[string]string{}))
+}
+
+func TestConcurrentOptionWritesCannotBypassBillingConsistency(t *testing.T) {
+	values := setupPricingOptionsTest(t, false)
+	values[billing_setting.BillingExprOptionKey] = `{"paid":"tier(\"base\", p * 2)"}`
+	require.NoError(t, UpdateModelPricingOptions(values))
+	sqlDB, err := DB.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+
+	// A 启用阶梯模式；在 A 已通过校验、正在落库时，B 尝试删除表达式。
+	// 写入过程必须整体串行，B 只能在 A 发布之后校验，从而被拒绝。
+	removeExprDone := make(chan error, 1)
+	started := false
+	require.NoError(t, DB.Callback().Update().Before("gorm:update").Register("pricing_race", func(tx *gorm.DB) {
+		if started || tx.Statement.Schema == nil || tx.Statement.Schema.Table != "options" {
+			return
+		}
+		started = true
+		go func() {
+			removeExprDone <- UpdateOption(billing_setting.BillingExprOptionKey, `{}`)
+		}()
+		select {
+		case err := <-removeExprDone:
+			removeExprDone <- err
+		case <-time.After(300 * time.Millisecond):
+		}
+	}))
+	t.Cleanup(func() { _ = DB.Callback().Update().Remove("pricing_race") })
+
+	require.NoError(t, UpdateOption("billing_setting.billing_mode", `{"paid":"tiered_expr"}`))
+	select {
+	case err := <-removeExprDone:
+		require.Error(t, err, "removing a referenced expression must fail once the mode is published")
+	case <-time.After(5 * time.Second):
+		t.Fatal("concurrent expression removal did not finish")
+	}
+
+	assert.Equal(t, billing_setting.BillingModeTieredExpr, billing_setting.GetBillingMode("paid"))
+	expr, ok := billing_setting.GetBillingExpr("paid")
+	assert.True(t, ok)
+	assert.Equal(t, `tier("base", p * 2)`, expr)
+	var stored Option
+	require.NoError(t, DB.Where("key = ?", billing_setting.BillingExprOptionKey).First(&stored).Error)
+	assert.Equal(t, `{"paid":"tier(\"base\", p * 2)"}`, stored.Value)
 }

@@ -77,25 +77,21 @@ export default function ModelRatioSettings(props) {
       showWarning(t('你似乎并没有修改什么'));
       return;
     }
-    const pricingChanged = updateArray.some((item) =>
-      PRICING_OPTION_KEYS.includes(item.key),
-    );
+    const changedPricingKeys = updateArray
+      .map((item) => item.key)
+      .filter((key) => PRICING_OPTION_KEYS.includes(key));
     const exposeChanged = updateArray.some(
       (item) => item.key === 'ExposeRatioEnabled',
     );
 
     setLoading(true);
     try {
-      if (pricingChanged) {
-        // 价格、计费模式和表达式必须作为一个整体提交，后端才能校验并原子写入；
-        // 此编辑器不修改模式和表达式，因此原样带上当前值。
+      if (changedPricingKeys.length > 0) {
+        // 只提交改动过的价格键，由后端在一个事务内校验并写入；
+        // 计费模式和表达式不在此编辑，不能用页面加载时的快照覆盖其他页面的更新。
         const options = Object.fromEntries(
-          PRICING_OPTION_KEYS.map((key) => [key, inputs[key] || '{}']),
+          changedPricingKeys.map((key) => [key, inputs[key] || '{}']),
         );
-        options['billing_setting.billing_mode'] =
-          props.options?.['billing_setting.billing_mode'] || '{}';
-        options['billing_setting.billing_expr'] =
-          props.options?.['billing_setting.billing_expr'] || '{}';
         const res = await API.put('/api/option/pricing', { options });
         if (!res?.data?.success) {
           showError(res?.data?.message || t('保存失败'));
