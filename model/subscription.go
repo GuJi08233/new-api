@@ -72,8 +72,19 @@ type QuotaTier struct {
 
 // TierUsageSnapshot stores the per-tier usage delta for a single pre-consume operation
 type TierUsageSnapshot struct {
-	TierIndex int   `json:"tier_index"`
-	Delta     int64 `json:"delta"`
+	TierIndex   int    `json:"tier_index"`
+	Delta       int64  `json:"delta"`
+	Period      string `json:"period,omitempty"`
+	PeriodStart int64  `json:"period_start,omitempty"`
+	WindowStart int64  `json:"window_start,omitempty"`
+}
+
+// 周期快照随请求及异步任务保存，重置后只调整仍属于原周期的计数器。
+type subscriptionQuotaSnapshot struct {
+	ResetTime    *int64              `json:"reset_time,omitempty"`
+	ResetVersion *int64              `json:"reset_version,omitempty"`
+	CreatedAt    int64               `json:"created_at"`
+	TierUsages   []TierUsageSnapshot `json:"tier_usages,omitempty"`
 }
 
 var (
@@ -585,7 +596,9 @@ type UserSubscription struct {
 	Source string `json:"source" gorm:"type:varchar(32);default:'order'"` // order/admin
 
 	LastResetTime int64 `json:"last_reset_time" gorm:"type:bigint;default:0"`
-	NextResetTime int64 `json:"next_reset_time" gorm:"type:bigint;default:0;index"`
+	// 独立于重置调度，区分手动重置以及同一秒内的多次重置。
+	QuotaResetVersion int64 `json:"-" gorm:"type:bigint;not null;default:0"`
+	NextResetTime     int64 `json:"next_reset_time" gorm:"type:bigint;default:0;index"`
 
 	UpgradeGroup  string `json:"upgrade_group" gorm:"type:varchar(64);default:''"`
 	PrevUserGroup string `json:"prev_user_group" gorm:"type:varchar(64);default:''"`
@@ -1969,6 +1982,7 @@ func resetUserSubscriptionTx(tx *gorm.DB, sub *UserSubscription, plan *Subscript
 		return errors.New("invalid reset args")
 	}
 	sub.AmountUsed = 0
+	sub.QuotaResetVersion++
 	if advanceResetTime {
 		nextReset := calcNextResetTime(time.Unix(now, 0), plan, sub.EndTime)
 		sub.NextResetTime = nextReset
@@ -2089,6 +2103,7 @@ type SubscriptionPreConsumeResult struct {
 	AmountTotal        int64
 	AmountUsedBefore   int64
 	AmountUsedAfter    int64
+	QuotaSnapshot      string
 }
 
 // ExpireDueSubscriptions marks expired subscriptions and handles group downgrade.
@@ -2216,6 +2231,8 @@ type SubscriptionPreConsumeRecord struct {
 	PreConsumed        int64  `json:"pre_consumed" gorm:"type:bigint;not null;default:0"`
 	Status             string `json:"status" gorm:"type:varchar(32);index"` // consumed/refunded
 	TierUsages         string `json:"tier_usages" gorm:"type:text"`
+	QuotaSnapshot      string `json:"quota_snapshot" gorm:"type:text"`
+	SettledAmount      int64  `json:"settled_amount" gorm:"type:bigint;not null;default:0"`
 	CreatedAt          int64  `json:"created_at" gorm:"bigint"`
 	UpdatedAt          int64  `json:"updated_at" gorm:"bigint;index"`
 }
@@ -2229,6 +2246,21 @@ func (r *SubscriptionPreConsumeRecord) BeforeCreate(tx *gorm.DB) error {
 
 func (r *SubscriptionPreConsumeRecord) BeforeUpdate(tx *gorm.DB) error {
 	r.UpdatedAt = common.GetTimestamp()
+	return nil
+}
+
+func (r *SubscriptionPreConsumeRecord) captureQuotaSnapshot(sub *UserSubscription, now int64) error {
+	snapshot := subscriptionQuotaSnapshot{ResetTime: &sub.LastResetTime, ResetVersion: &sub.QuotaResetVersion, CreatedAt: now}
+	if r.TierUsages != "" {
+		if err := common.UnmarshalJsonStr(r.TierUsages, &snapshot.TierUsages); err != nil {
+			return err
+		}
+	}
+	data, err := common.Marshal(snapshot)
+	if err != nil {
+		return err
+	}
+	r.QuotaSnapshot = string(data)
 	return nil
 }
 
@@ -2263,6 +2295,7 @@ func maybeResetUserSubscriptionWithPlanTx(tx *gorm.DB, sub *UserSubscription, pl
 		return nil
 	}
 	sub.AmountUsed = 0
+	sub.QuotaResetVersion++
 	sub.LastResetTime = base.Unix()
 	sub.NextResetTime = next
 	return tx.Save(sub).Error
@@ -2313,6 +2346,9 @@ func PreConsumeUserSubscription(requestId string, userId int, modelName string, 
 	if amount <= 0 {
 		return nil, errors.New("amount must be > 0")
 	}
+	if amount >= common.MaxQuota {
+		return nil, ErrQuotaOutOfRange
+	}
 	now := GetDBTimestamp()
 
 	returnValue := &SubscriptionPreConsumeResult{}
@@ -2336,6 +2372,7 @@ func PreConsumeUserSubscription(requestId string, userId int, modelName string, 
 			returnValue.AmountTotal = sub.AmountTotal
 			returnValue.AmountUsedBefore = sub.AmountUsed
 			returnValue.AmountUsedAfter = sub.AmountUsed
+			returnValue.QuotaSnapshot = existing.QuotaSnapshot
 			return nil
 		}
 
@@ -2362,6 +2399,9 @@ func PreConsumeUserSubscription(requestId string, userId int, modelName string, 
 				return err
 			}
 
+			if sub.AmountUsed < 0 || sub.AmountUsed >= common.MaxQuota-amount {
+				continue
+			}
 			tiers := plan.GetQuotaTiers()
 			if len(tiers) > 0 {
 				usedBefore := sub.AmountUsed
@@ -2394,6 +2434,7 @@ func PreConsumeUserSubscription(requestId string, userId int, modelName string, 
 						returnValue.AmountTotal = sub.AmountTotal
 						returnValue.AmountUsedBefore = sub.AmountUsed
 						returnValue.AmountUsedAfter = sub.AmountUsed
+						returnValue.QuotaSnapshot = dup.QuotaSnapshot
 						return nil
 					}
 					return err
@@ -2405,9 +2446,12 @@ func PreConsumeUserSubscription(requestId string, userId int, modelName string, 
 				}
 				if tierSnapshot != "" {
 					record.TierUsages = tierSnapshot
-					if err := tx.Model(record).Update("tier_usages", tierSnapshot).Error; err != nil {
-						return err
-					}
+				}
+				if err := record.captureQuotaSnapshot(&sub, now); err != nil {
+					return err
+				}
+				if err := tx.Save(record).Error; err != nil {
+					return err
 				}
 				sub.AmountUsed += amount
 				if err := tx.Save(&sub).Error; err != nil {
@@ -2418,6 +2462,7 @@ func PreConsumeUserSubscription(requestId string, userId int, modelName string, 
 				returnValue.AmountTotal = sub.AmountTotal
 				returnValue.AmountUsedBefore = usedBefore
 				returnValue.AmountUsedAfter = sub.AmountUsed
+				returnValue.QuotaSnapshot = record.QuotaSnapshot
 				return nil
 			}
 
@@ -2436,6 +2481,9 @@ func PreConsumeUserSubscription(requestId string, userId int, modelName string, 
 				PreConsumed:        amount,
 				Status:             "consumed",
 			}
+			if err := record.captureQuotaSnapshot(&sub, now); err != nil {
+				return err
+			}
 			if err := tx.Create(record).Error; err != nil {
 				var dup SubscriptionPreConsumeRecord
 				if err2 := tx.Where("request_id = ?", requestId).First(&dup).Error; err2 == nil {
@@ -2447,6 +2495,7 @@ func PreConsumeUserSubscription(requestId string, userId int, modelName string, 
 					returnValue.AmountTotal = sub.AmountTotal
 					returnValue.AmountUsedBefore = sub.AmountUsed
 					returnValue.AmountUsedAfter = sub.AmountUsed
+					returnValue.QuotaSnapshot = dup.QuotaSnapshot
 					return nil
 				}
 				return err
@@ -2460,6 +2509,7 @@ func PreConsumeUserSubscription(requestId string, userId int, modelName string, 
 			returnValue.AmountTotal = sub.AmountTotal
 			returnValue.AmountUsedBefore = usedBefore
 			returnValue.AmountUsedAfter = sub.AmountUsed
+			returnValue.QuotaSnapshot = record.QuotaSnapshot
 			return nil
 		}
 		return fmt.Errorf("subscription quota insufficient, need=%d", amount)
@@ -2481,26 +2531,69 @@ func RefundSubscriptionPreConsume(requestId string) error {
 			Where("request_id = ?", requestId).First(&record).Error; err != nil {
 			return err
 		}
-		if record.Status == "refunded" {
+		if record.Status == "refunded" || record.Status == "settled" {
 			return nil
 		}
 		if record.PreConsumed <= 0 {
 			record.Status = "refunded"
 			return tx.Save(&record).Error
 		}
-		if err := postConsumeUserSubscriptionDeltaTx(tx, record.UserSubscriptionId, -record.PreConsumed, false); err != nil {
+		if err := postConsumeUserSubscriptionDeltaTx(tx, record.UserSubscriptionId, -record.PreConsumed, record.QuotaSnapshot, record.CreatedAt, false); err != nil {
 			return err
 		}
-		// Refund tier usages if multi-tier was used
-		if record.TierUsages != "" {
-			var sub UserSubscription
-			if err := tx.Where("id = ?", record.UserSubscriptionId).First(&sub).Error; err == nil {
-				if plan, err := getSubscriptionPlanByIdTx(tx, sub.PlanId); err == nil && plan.HasMultiTier() {
-					_ = refundTierUsage(tx, record.UserSubscriptionId, record.TierUsages)
-				}
-			}
-		}
 		record.Status = "refunded"
+		return tx.Save(&record).Error
+	})
+}
+
+// ReserveUserSubscriptionQuota 补充预扣仍必须满足全部额度上限，且不能挪用新周期。
+// 负差额仅用于令牌预扣失败时回滚同一笔补充预扣。
+func ReserveUserSubscriptionQuota(requestId string, delta int64) error {
+	if delta <= common.MinQuota || delta >= common.MaxQuota {
+		return ErrQuotaOutOfRange
+	}
+	return DB.Transaction(func(tx *gorm.DB) error {
+		var record SubscriptionPreConsumeRecord
+		if err := lockForUpdate(tx).Where("request_id = ?", requestId).First(&record).Error; err != nil {
+			return err
+		}
+		if record.Status != "consumed" {
+			return errors.New("subscription pre-consume is already finalized")
+		}
+		reserved := record.PreConsumed + delta
+		if reserved <= 0 || reserved >= common.MaxQuota {
+			return ErrQuotaOutOfRange
+		}
+		if err := postConsumeUserSubscriptionDeltaTx(tx, record.UserSubscriptionId, delta, record.QuotaSnapshot, record.CreatedAt, delta > 0); err != nil {
+			return err
+		}
+		record.PreConsumed = reserved
+		return tx.Save(&record).Error
+	})
+}
+
+// SettleUserSubscription 记录已交付的实际费用；套餐额度只限制预扣，不拒绝事后记账。
+func SettleUserSubscription(requestId string, actualQuota int64) error {
+	if actualQuota < 0 || actualQuota >= common.MaxQuota {
+		return ErrQuotaOutOfRange
+	}
+	return DB.Transaction(func(tx *gorm.DB) error {
+		var record SubscriptionPreConsumeRecord
+		if err := lockForUpdate(tx).Where("request_id = ?", requestId).First(&record).Error; err != nil {
+			return err
+		}
+		if record.Status == "settled" {
+			return nil
+		}
+		if record.Status != "consumed" {
+			return errors.New("subscription pre-consume already refunded")
+		}
+		if err := postConsumeUserSubscriptionDeltaTx(tx, record.UserSubscriptionId, actualQuota-record.PreConsumed, record.QuotaSnapshot, record.CreatedAt, false); err != nil {
+			return err
+		}
+		// 即使原周期已经结束，也保留实际费用，不能污染新周期计数器。
+		record.SettledAmount = actualQuota
+		record.Status = "settled"
 		return tx.Save(&record).Error
 	})
 }
@@ -2588,7 +2681,7 @@ func GetSubscriptionPlanInfoByUserSubscriptionId(userSubscriptionId int) (*Subsc
 }
 
 // Update subscription used amount by delta (positive consume more, negative refund).
-func PostConsumeUserSubscriptionDelta(userSubscriptionId int, delta int64) error {
+func PostConsumeUserSubscriptionDelta(userSubscriptionId int, delta int64, snapshot string, requestTime int64) error {
 	if userSubscriptionId <= 0 {
 		return errors.New("invalid userSubscriptionId")
 	}
@@ -2596,13 +2689,22 @@ func PostConsumeUserSubscriptionDelta(userSubscriptionId int, delta int64) error
 		return nil
 	}
 	return DB.Transaction(func(tx *gorm.DB) error {
-		return postConsumeUserSubscriptionDeltaTx(tx, userSubscriptionId, delta, true)
+		return postConsumeUserSubscriptionDeltaTx(tx, userSubscriptionId, delta, snapshot, requestTime, false)
 	})
 }
 
-func postConsumeUserSubscriptionDeltaTx(tx *gorm.DB, userSubscriptionId int, delta int64, adjustTiers bool) error {
+func postConsumeUserSubscriptionDeltaTx(tx *gorm.DB, userSubscriptionId int, delta int64, snapshotJSON string, requestTime int64, reserve bool) error {
 	if tx == nil {
 		return errors.New("tx is nil")
+	}
+	if delta <= common.MinQuota || delta >= common.MaxQuota {
+		return ErrQuotaOutOfRange
+	}
+	snapshot := subscriptionQuotaSnapshot{CreatedAt: requestTime}
+	if snapshotJSON != "" {
+		if err := common.UnmarshalJsonStr(snapshotJSON, &snapshot); err != nil {
+			return err
+		}
 	}
 	var sub UserSubscription
 	if err := lockForUpdate(tx).
@@ -2622,31 +2724,78 @@ func postConsumeUserSubscriptionDeltaTx(tx *gorm.DB, userSubscriptionId int, del
 			return err
 		}
 	}
-	newUsed := sub.AmountUsed + delta
-	if newUsed < 0 {
-		newUsed = 0
+	// 升级前的记录缺少快照，仅在创建时间严格晚于当前重置时刻时确认归属。
+	// 同一秒内发生的重置无法可靠判断，保守跳过，避免退还其他请求的额度。
+	samePeriod := sub.QuotaResetVersion == 0 && (sub.LastResetTime == 0 || snapshot.CreatedAt > sub.LastResetTime)
+	if snapshot.ResetTime != nil {
+		samePeriod = snapshot.ResetVersion != nil && *snapshot.ResetVersion == sub.QuotaResetVersion && *snapshot.ResetTime == sub.LastResetTime
 	}
-	if sub.AmountTotal > 0 && newUsed > sub.AmountTotal {
-		return fmt.Errorf("subscription used exceeds total, used=%d total=%d", newUsed, sub.AmountTotal)
+	if reserve && !samePeriod {
+		return errors.New("subscription quota period changed")
 	}
-	if adjustTiers && plan != nil {
+	if samePeriod {
+		if sub.AmountUsed < 0 || sub.AmountUsed >= common.MaxQuota || delta > 0 && sub.AmountUsed >= common.MaxQuota-delta {
+			return ErrQuotaOutOfRange
+		}
+		newUsed := max(int64(0), sub.AmountUsed+delta)
+		if reserve && sub.AmountTotal > 0 && newUsed > sub.AmountTotal {
+			return fmt.Errorf("subscription quota insufficient, used=%d total=%d", newUsed, sub.AmountTotal)
+		}
+		sub.AmountUsed = newUsed
+	}
+	if plan != nil {
 		tiers := plan.GetQuotaTiers()
-		if len(tiers) > 0 {
-			if delta > 0 {
-				if err := checkTierLimits(tx, sub.Id, tiers, delta, now); err != nil {
-					return err
+		if reserve {
+			if err := checkTierLimits(tx, sub.Id, tiers, delta, now); err != nil {
+				return err
+			}
+		}
+		for i, tier := range tiers {
+			if tier.Limit <= 0 {
+				continue
+			}
+			var usage UserSubscriptionTierUsage
+			if err := lockForUpdate(tx).Where("user_subscription_id = ? AND tier_index = ?", sub.Id, i).First(&usage).Error; err != nil {
+				return err
+			}
+			if err := resetTierUsageForCurrentPeriod(tx, &usage, tier, now); err != nil {
+				return err
+			}
+			sameTierPeriod := tier.Period == TierPeriodNone
+			if isCalendarAligned(tier) {
+				sameTierPeriod = snapshot.CreatedAt > usage.PeriodStart
+			} else if isSlidingWindow(tier) {
+				sameTierPeriod = usage.WindowStart > 0 && snapshot.CreatedAt > usage.WindowStart
+			}
+			if snapshot.ResetTime != nil {
+				// 新快照只允许调整预扣时实际使用过的档位。
+				sameTierPeriod = false
+				for _, saved := range snapshot.TierUsages {
+					if saved.TierIndex == i && saved.Period == tier.Period {
+						sameTierPeriod = saved.PeriodStart == usage.PeriodStart && saved.WindowStart == usage.WindowStart
+						break
+					}
 				}
-				if _, err := incrementTierUsage(tx, sub.Id, tiers, delta, now); err != nil {
-					return err
+			}
+			if !sameTierPeriod {
+				if reserve {
+					return errors.New("subscription quota tier period changed")
 				}
-			} else if delta < 0 {
-				if err := decrementTierUsageAmount(tx, sub.Id, tiers, -delta); err != nil {
-					return err
-				}
+				continue
+			}
+			counter := &usage.UsageInWindow
+			if isCalendarAligned(tier) {
+				counter = &usage.UsageInPeriod
+			}
+			if *counter < 0 || *counter >= common.MaxQuota || delta > 0 && *counter >= common.MaxQuota-delta {
+				return ErrQuotaOutOfRange
+			}
+			*counter = max(int64(0), *counter+delta)
+			if err := tx.Save(&usage).Error; err != nil {
+				return err
 			}
 		}
 	}
-	sub.AmountUsed = newUsed
 	return tx.Save(&sub).Error
 }
 
@@ -2768,12 +2917,27 @@ func initTierUsage(tx *gorm.DB, subId int, tiers []QuotaTier, now int64) error {
 	return nil
 }
 
+func resetTierUsageForCurrentPeriod(tx *gorm.DB, usage *UserSubscriptionTierUsage, tier QuotaTier, now int64) error {
+	if isCalendarAligned(tier) && usage.NextPeriodStart > 0 && now >= usage.NextPeriodStart {
+		start, end := calcTierPeriodBoundaries(time.Unix(now, 0), tier.Period)
+		usage.PeriodStart = start.Unix()
+		usage.NextPeriodStart = end.Unix()
+		usage.UsageInPeriod = 0
+		return tx.Save(usage).Error
+	}
+	if isSlidingWindow(tier) && (usage.WindowStart == 0 || now-usage.WindowStart >= getSlidingWindowSeconds(tier)) {
+		usage.WindowStart = now
+		usage.UsageInWindow = 0
+		return tx.Save(usage).Error
+	}
+	return nil
+}
+
 // checkTierLimits checks all tier limits for a subscription. Returns error if any tier is exceeded.
 func checkTierLimits(tx *gorm.DB, subId int, tiers []QuotaTier, amount int64, now int64) error {
 	if tx == nil || len(tiers) == 0 {
 		return nil
 	}
-	nowTime := time.Unix(now, 0)
 	for i, tier := range tiers {
 		if tier.Limit <= 0 {
 			continue // no limit at this tier
@@ -2785,44 +2949,20 @@ func checkTierLimits(tx *gorm.DB, subId int, tiers []QuotaTier, amount int64, no
 			return fmt.Errorf("tier usage not found for sub %d tier %d: %w", subId, i, err)
 		}
 
+		if err := resetTierUsageForCurrentPeriod(tx, &usage, tier, now); err != nil {
+			return err
+		}
 		var currentUsage int64
 		if isCalendarAligned(tier) {
-			// Check if period rolled over
-			if now >= usage.NextPeriodStart && usage.NextPeriodStart > 0 {
-				// Period expired, reset
-				start, end := calcTierPeriodBoundaries(nowTime, tier.Period)
-				usage.PeriodStart = start.Unix()
-				usage.NextPeriodStart = end.Unix()
-				usage.UsageInPeriod = 0
-				if err := tx.Save(&usage).Error; err != nil {
-					return err
-				}
-			}
 			currentUsage = usage.UsageInPeriod
 		} else if isSlidingWindow(tier) {
-			windowSec := getSlidingWindowSeconds(tier)
-			if usage.WindowStart == 0 {
-				// First use in this window — start the window
-				usage.WindowStart = now
-				usage.UsageInWindow = 0
-				if err := tx.Save(&usage).Error; err != nil {
-					return err
-				}
-			} else if now >= usage.WindowStart+windowSec {
-				// Window expired, reset
-				usage.WindowStart = now
-				usage.UsageInWindow = 0
-				if err := tx.Save(&usage).Error; err != nil {
-					return err
-				}
-			}
 			currentUsage = usage.UsageInWindow
 		} else {
 			// TierPeriodNone — no periodic reset
 			currentUsage = usage.UsageInWindow + usage.UsageInPeriod
 		}
 
-		if currentUsage+amount > tier.Limit {
+		if currentUsage < 0 || currentUsage >= common.MaxQuota-amount || amount > tier.Limit || currentUsage > tier.Limit-amount {
 			return fmt.Errorf("tier %d limit exceeded: current=%d, need=%d, limit=%d", i, currentUsage, amount, tier.Limit)
 		}
 	}
@@ -2853,7 +2993,10 @@ func incrementTierUsage(tx *gorm.DB, subId int, tiers []QuotaTier, amount int64,
 		if err := tx.Save(&usage).Error; err != nil {
 			return "", err
 		}
-		snapshots = append(snapshots, TierUsageSnapshot{TierIndex: i, Delta: amount})
+		snapshots = append(snapshots, TierUsageSnapshot{
+			TierIndex: i, Delta: amount, Period: tier.Period,
+			PeriodStart: usage.PeriodStart, WindowStart: usage.WindowStart,
+		})
 	}
 	if len(snapshots) == 0 {
 		return "", nil
@@ -2863,73 +3006,6 @@ func incrementTierUsage(tx *gorm.DB, subId int, tiers []QuotaTier, amount int64,
 		return "", err
 	}
 	return string(data), nil
-}
-
-// refundTierUsage decrements tier usage based on the snapshot from pre-consume
-func refundTierUsage(tx *gorm.DB, subId int, tierUsagesJSON string) error {
-	if tx == nil || tierUsagesJSON == "" {
-		return nil
-	}
-	var snapshots []TierUsageSnapshot
-	if err := common.Unmarshal([]byte(tierUsagesJSON), &snapshots); err != nil {
-		return err
-	}
-	for _, snap := range snapshots {
-		if snap.Delta <= 0 {
-			continue
-		}
-		var usage UserSubscriptionTierUsage
-		if err := lockForUpdate(tx).
-			Where("user_subscription_id = ? AND tier_index = ?", subId, snap.TierIndex).
-			First(&usage).Error; err != nil {
-			continue // tier usage row not found, skip
-		}
-		// Decrement both fields (one will be zero for the non-applicable type)
-		usage.UsageInPeriod -= snap.Delta
-		if usage.UsageInPeriod < 0 {
-			usage.UsageInPeriod = 0
-		}
-		usage.UsageInWindow -= snap.Delta
-		if usage.UsageInWindow < 0 {
-			usage.UsageInWindow = 0
-		}
-		if err := tx.Save(&usage).Error; err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func decrementTierUsageAmount(tx *gorm.DB, subId int, tiers []QuotaTier, amount int64) error {
-	if tx == nil || subId <= 0 || amount <= 0 || len(tiers) == 0 {
-		return nil
-	}
-	for i, tier := range tiers {
-		if tier.Limit <= 0 {
-			continue
-		}
-		var usage UserSubscriptionTierUsage
-		if err := lockForUpdate(tx).
-			Where("user_subscription_id = ? AND tier_index = ?", subId, i).
-			First(&usage).Error; err != nil {
-			return err
-		}
-		if isCalendarAligned(tier) {
-			usage.UsageInPeriod -= amount
-			if usage.UsageInPeriod < 0 {
-				usage.UsageInPeriod = 0
-			}
-		} else if isSlidingWindow(tier) || tier.Period == TierPeriodNone {
-			usage.UsageInWindow -= amount
-			if usage.UsageInWindow < 0 {
-				usage.UsageInWindow = 0
-			}
-		}
-		if err := tx.Save(&usage).Error; err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // ResetExpiredCalendarTiers resets calendar-aligned tier usages whose periods have rolled over

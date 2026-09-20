@@ -1,7 +1,6 @@
 package controller
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -42,7 +41,7 @@ func getWeChatIdByCode(code string) (string, error) {
 	}
 	defer httpResponse.Body.Close()
 	var res wechatLoginResponse
-	err = json.NewDecoder(httpResponse.Body).Decode(&res)
+	err = common.DecodeJson(httpResponse.Body, &res)
 	if err != nil {
 		return "", err
 	}
@@ -106,8 +105,11 @@ func WeChatAuth(c *gin.Context) {
 			var invitationErr *OAuthInvitationCodeError
 			if errors.As(err, &invitationErr) {
 				session := sessions.Default(c)
-				session.Set(sessionKeyPendingWeChatId, wechatId)
-				_ = session.Save()
+				pending := pendingOAuthRegistration{WeChatID: wechatId}
+				if saveErr := savePendingOAuthRegistration(session, pending, time.Now().Add(5*time.Minute).Unix()); saveErr != nil {
+					common.ApiError(c, saveErr)
+					return
+				}
 			}
 			respondOAuthUserError(c, err)
 			return
@@ -126,18 +128,11 @@ func WeChatAuth(c *gin.Context) {
 }
 
 // registerWeChatUser 用已通过验证码换取的微信身份完成注册，遵循邀请码
-// 「占用 → 建号 → 归属/失败释放」两阶段协议。若该微信号已注册（重复或
-// 并发提交），幂等返回已有用户。
+// 「占用 → 建号 → 归属/失败释放」两阶段协议。已有身份必须重新验证登录，
+// 不能使用注册前保存的身份恢复会话。
 func registerWeChatUser(c *gin.Context, wechatId string, invCode string) (*model.User, error) {
 	if model.IsWeChatIdAlreadyTaken(wechatId) {
-		existing := &model.User{WeChatId: wechatId}
-		if err := existing.FillUserByWeChatId(); err != nil {
-			return nil, err
-		}
-		if existing.Id == 0 {
-			return nil, &OAuthUserDeletedError{}
-		}
-		return existing, nil
+		return nil, model.ErrSecurityProof
 	}
 	if !common.RegisterEnabled {
 		return nil, &OAuthRegistrationDisabledError{}

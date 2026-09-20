@@ -199,16 +199,16 @@ func HandleOAuth(c *gin.Context) {
 		return
 	}
 	// 7. Find or create user
-	user, err := findOrCreateOAuthUser(c, provider, oauthUser, session)
+	user, err := findOrCreateOAuthUser(c, provider, oauthUser, session, false)
 	if err != nil {
 		// 邀请码缺失/无效时暂存已验证的 OAuth 身份，前端补填邀请码后经
 		// CompleteOAuthRegistration 免二次授权完成注册
 		var invitationErr *OAuthInvitationCodeError
 		if errors.As(err, &invitationErr) {
-			if pendingUser, mErr := common.Marshal(oauthUser); mErr == nil {
-				session.Set(sessionKeyPendingOAuthProvider, providerName)
-				session.Set(sessionKeyPendingOAuthUser, string(pendingUser))
-				_ = session.Save()
+			pending := pendingOAuthRegistration{Provider: providerName, User: oauthUser}
+			if saveErr := savePendingOAuthRegistration(session, pending, time.Now().Add(5*time.Minute).Unix()); saveErr != nil {
+				common.ApiError(c, saveErr)
+				return
 			}
 		}
 		respondOAuthUserError(c, err)
@@ -291,11 +291,15 @@ func handleOAuthBind(c *gin.Context, provider oauth.Provider) {
 }
 
 // findOrCreateOAuthUser finds existing user or creates new user
-func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *oauth.OAuthUser, session sessions.Session) (*model.User, error) {
+// registrationOnly 限制补填凭证只能注册新号，不能恢复已注册身份的登录。
+func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *oauth.OAuthUser, session sessions.Session, registrationOnly bool) (*model.User, error) {
 	user := &model.User{}
 
 	// Check if user already exists with new ID
 	if provider.IsUserIDTaken(oauthUser.ProviderUserID) {
+		if registrationOnly {
+			return nil, model.ErrSecurityProof
+		}
 		err := provider.FillUserByProviderID(user, oauthUser.ProviderUserID)
 		if err != nil {
 			return nil, err
@@ -310,6 +314,9 @@ func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *o
 	// Try to find user with legacy ID (for GitHub migration from login to numeric ID)
 	if legacyID, ok := oauthUser.Extra["legacy_id"].(string); ok && legacyID != "" {
 		if provider.IsUserIDTaken(legacyID) {
+			if registrationOnly {
+				return nil, model.ErrSecurityProof
+			}
 			err := provider.FillUserByProviderID(user, legacyID)
 			if err != nil {
 				return nil, err
@@ -512,13 +519,32 @@ func (e *OAuthInvitationCodeError) Error() string {
 // 前端识别的失败原因标记：账号未注册且需要补填邀请码
 const oauthReasonInvitationCodeRequired = "invitation_code_required"
 
-// 因邀请码问题中断注册时，暂存已通过身份验证的第三方身份；
-// 补填邀请码后经 CompleteOAuthRegistration 免二次授权完成注册
 const (
-	sessionKeyPendingOAuthProvider = "pending_oauth_provider"
-	sessionKeyPendingOAuthUser     = "pending_oauth_user"
-	sessionKeyPendingWeChatId      = "pending_wechat_id"
+	sessionKeyPendingOAuthRegistration = "pending_oauth_registration"
+	pendingOAuthRegistrationKind       = "oauth_registration"
 )
+
+type pendingOAuthRegistration struct {
+	Provider string           `json:"provider,omitempty"`
+	User     *oauth.OAuthUser `json:"user,omitempty"`
+	WeChatID string           `json:"wechat_id,omitempty"`
+}
+
+// 待注册身份保存在服务端，Cookie 只持有短时一次性令牌。
+func savePendingOAuthRegistration(session sessions.Session, pending pendingOAuthRegistration, expiresAt int64) error {
+	payload, err := common.Marshal(pending)
+	if err != nil {
+		return err
+	}
+	token, err := model.CreateSecurityFlow(model.SecurityFlow{
+		Kind: pendingOAuthRegistrationKind, Payload: string(payload), ExpiresAt: expiresAt,
+	})
+	if err != nil {
+		return err
+	}
+	session.Set(sessionKeyPendingOAuthRegistration, token)
+	return session.Save()
+}
 
 // respondOAuthUserError 统一输出第三方注册/登录失败响应（findOrCreateOAuthUser、
 // registerWeChatUser 共用）。邀请码类失败附带 reason，供前端进入补填邀请码流程。
@@ -546,7 +572,7 @@ func respondOAuthUserError(c *gin.Context, err error) {
 }
 
 // CompleteOAuthRegistration 用邀请码完成此前因邀请码问题中断的第三方注册。
-// 身份信息来自回调阶段暂存的 session，无需再次跳转授权/重新获取验证码。
+// 服务端凭证在注册前原子核销，旧 Cookie 无法重放注册或恢复登录。
 func CompleteOAuthRegistration(c *gin.Context) {
 	var req struct {
 		InvitationCode string `json:"invitation_code"`
@@ -567,51 +593,58 @@ func CompleteOAuthRegistration(c *gin.Context) {
 		return
 	}
 
-	// 微信注册的待完成身份（验证码已在回调阶段核销，直接用暂存的 wechatId）
-	if wechatId, _ := session.Get(sessionKeyPendingWeChatId).(string); wechatId != "" {
-		user, err := registerWeChatUser(c, wechatId, req.InvitationCode)
-		if err != nil {
-			// 邀请码错误时保留暂存身份，允许换码重试
-			respondOAuthUserError(c, err)
-			return
-		}
-		if user.Status != common.UserStatusEnabled {
-			common.ApiErrorI18n(c, i18n.MsgOAuthUserBanned)
-			return
-		}
-		session.Delete(sessionKeyPendingWeChatId)
-		session.Delete("invitation_code")
-		setupLogin(user, c)
-		return
-	}
-
-	providerName, _ := session.Get(sessionKeyPendingOAuthProvider).(string)
-	pendingUserJson, _ := session.Get(sessionKeyPendingOAuthUser).(string)
-	if providerName == "" || pendingUserJson == "" {
+	token, _ := session.Get(sessionKeyPendingOAuthRegistration).(string)
+	flow, err := model.GetSecurityFlow(token, pendingOAuthRegistrationKind)
+	if err != nil {
 		common.ApiErrorI18n(c, i18n.MsgOAuthPendingNotFound)
 		return
 	}
-	provider := oauth.GetProvider(providerName)
-	if provider == nil {
-		common.ApiErrorI18n(c, i18n.MsgOAuthUnknownProvider)
+	var pending pendingOAuthRegistration
+	if err := common.UnmarshalJsonStr(flow.Payload, &pending); err != nil {
+		common.ApiErrorI18n(c, i18n.MsgOAuthPendingNotFound)
 		return
 	}
-	if !provider.IsEnabled() {
-		common.ApiErrorI18n(c, i18n.MsgOAuthNotEnabled, providerParams(provider.GetName()))
-		return
+	var provider oauth.Provider
+	if pending.WeChatID != "" {
+		if !common.WeChatAuthEnabled {
+			common.ApiErrorI18n(c, i18n.MsgOAuthNotEnabled, providerParams("WeChat"))
+			return
+		}
+	} else {
+		if pending.User == nil || pending.User.ProviderUserID == "" {
+			common.ApiErrorI18n(c, i18n.MsgOAuthPendingNotFound)
+			return
+		}
+		provider = oauth.GetProvider(pending.Provider)
+		if provider == nil {
+			common.ApiErrorI18n(c, i18n.MsgOAuthUnknownProvider)
+			return
+		}
+		if !provider.IsEnabled() {
+			common.ApiErrorI18n(c, i18n.MsgOAuthNotEnabled, providerParams(provider.GetName()))
+			return
+		}
 	}
-	var oauthUser oauth.OAuthUser
-	if err := common.UnmarshalJsonStr(pendingUserJson, &oauthUser); err != nil {
-		session.Delete(sessionKeyPendingOAuthProvider)
-		session.Delete(sessionKeyPendingOAuthUser)
-		_ = session.Save()
+	if _, err := model.ConsumeSecurityFlow(token, pendingOAuthRegistrationKind, model.SecurityIdentity{}, "", ""); err != nil {
 		common.ApiErrorI18n(c, i18n.MsgOAuthPendingNotFound)
 		return
 	}
 	session.Set("invitation_code", req.InvitationCode)
-	user, err := findOrCreateOAuthUser(c, provider, &oauthUser, session)
+	var user *model.User
+	if pending.WeChatID != "" {
+		user, err = registerWeChatUser(c, pending.WeChatID, req.InvitationCode)
+	} else {
+		user, err = findOrCreateOAuthUser(c, provider, pending.User, session, true)
+	}
 	if err != nil {
-		// 邀请码错误时保留暂存身份，允许换码重试
+		// 仅邀请码失败允许换码重试；签发新令牌且保留原到期时间，不恢复旧证明。
+		var invitationErr *OAuthInvitationCodeError
+		if errors.As(err, &invitationErr) {
+			if saveErr := savePendingOAuthRegistration(session, pending, flow.ExpiresAt); saveErr != nil {
+				common.ApiError(c, saveErr)
+				return
+			}
+		}
 		respondOAuthUserError(c, err)
 		return
 	}
@@ -619,8 +652,7 @@ func CompleteOAuthRegistration(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgOAuthUserBanned)
 		return
 	}
-	session.Delete(sessionKeyPendingOAuthProvider)
-	session.Delete(sessionKeyPendingOAuthUser)
+	session.Delete(sessionKeyPendingOAuthRegistration)
 	session.Delete("invitation_code")
 	setupLogin(user, c)
 }

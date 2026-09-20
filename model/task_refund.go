@@ -9,12 +9,12 @@ import (
 )
 
 // refundTaskBalancesTx 与任务退款标记共用事务，失败时资金和统计一起回滚。
-func refundTaskBalancesTx(tx *gorm.DB, userID, channelID, tokenID, subscriptionID, quota int) (string, error) {
+func refundTaskBalancesTx(tx *gorm.DB, userID, channelID, tokenID, subscriptionID, quota int, subscriptionSnapshot string, requestTime int64) (string, error) {
 	if quota <= 0 || quota >= common.MaxQuota {
 		return "", ErrQuotaOutOfRange
 	}
 	if subscriptionID > 0 {
-		if err := postConsumeUserSubscriptionDeltaTx(tx, subscriptionID, -int64(quota), true); err != nil {
+		if err := postConsumeUserSubscriptionDeltaTx(tx, subscriptionID, -int64(quota), subscriptionSnapshot, requestTime, false); err != nil {
 			return "", err
 		}
 	} else {
@@ -70,7 +70,7 @@ func RefundTaskBilling(taskID int64) (*Task, int, error) {
 			subscriptionID = task.PrivateData.SubscriptionId
 		}
 		var err error
-		tokenKey, err = refundTaskBalancesTx(tx, task.UserId, task.ChannelId, task.PrivateData.TokenId, subscriptionID, quota)
+		tokenKey, err = refundTaskBalancesTx(tx, task.UserId, task.ChannelId, task.PrivateData.TokenId, subscriptionID, quota, task.PrivateData.SubscriptionQuotaSnapshot, task.SubmitTime)
 		if err != nil {
 			return err
 		}
@@ -112,7 +112,7 @@ func RefundMidjourneyBilling(taskID int) (*Midjourney, int, error) {
 			channelID = task.ChannelId
 		}
 		var err error
-		tokenKey, err = refundTaskBalancesTx(tx, task.UserId, channelID, task.TokenId, 0, quota)
+		tokenKey, err = refundTaskBalancesTx(tx, task.UserId, channelID, task.TokenId, 0, quota, "", 0)
 		if err != nil {
 			return err
 		}
@@ -162,13 +162,13 @@ func SettleTaskBilling(taskID int64, actualQuota int) (*Task, int, error) {
 		}
 		if delta < 0 {
 			var err error
-			tokenKey, err = refundTaskBalancesTx(tx, task.UserId, task.ChannelId, task.PrivateData.TokenId, subscriptionID, -delta)
+			tokenKey, err = refundTaskBalancesTx(tx, task.UserId, task.ChannelId, task.PrivateData.TokenId, subscriptionID, -delta, task.PrivateData.SubscriptionQuotaSnapshot, task.SubmitTime)
 			if err != nil {
 				return err
 			}
 		} else {
 			if subscriptionID > 0 {
-				if err := postConsumeUserSubscriptionDeltaTx(tx, subscriptionID, int64(delta), true); err != nil {
+				if err := postConsumeUserSubscriptionDeltaTx(tx, subscriptionID, int64(delta), task.PrivateData.SubscriptionQuotaSnapshot, task.SubmitTime, false); err != nil {
 					return err
 				}
 			} else {

@@ -75,6 +75,8 @@ func HandleGroupRatio(ctx *gin.Context, relayInfo *relaycommon.RelayInfo) types.
 }
 
 func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens int, meta *types.TokenCountMeta) (types.PriceData, error) {
+	common.OptionMapRWMutex.RLock()
+	defer common.OptionMapRWMutex.RUnlock()
 	groupRatioInfo := HandleGroupRatio(c, info)
 	userGroup := info.UsingGroup
 
@@ -292,6 +294,8 @@ func PrepareBillingForSelectedGroup(c *gin.Context, info *relaycommon.RelayInfo,
 
 // ModelPriceHelperPerCall 按次/按量计费的 PriceHelper (MJ、Task)
 func ModelPriceHelperPerCall(c *gin.Context, info *relaycommon.RelayInfo) (types.PriceData, error) {
+	common.OptionMapRWMutex.RLock()
+	defer common.OptionMapRWMutex.RUnlock()
 	groupRatioInfo := HandleGroupRatio(c, info)
 
 	// 获取用户分组
@@ -395,6 +399,8 @@ func ModelPriceHelperPerCall(c *gin.Context, info *relaycommon.RelayInfo) (types
 }
 
 func HasModelBillingConfig(modelName string) bool {
+	common.OptionMapRWMutex.RLock()
+	defer common.OptionMapRWMutex.RUnlock()
 	if _, ok := ratio_setting.GetModelPrice(modelName, false); ok {
 		return true
 	}

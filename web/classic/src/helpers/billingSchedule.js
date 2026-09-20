@@ -176,6 +176,18 @@ export function splitTieredExprBranches(exprBody) {
     const body = unwrapOuterParens(expr);
     const ternary = splitTernary(body);
     if (!ternary) {
+      // 编辑器将请求条件倍率乘在整个分档表达式外，先进入唯一的档位因子，
+      // 才能保留括号内部的三元条件；倍率仍由 analyzeExprMultiplier 计算。
+      const factors = splitTopLevelFactors(body);
+      if (factors && factors.length > 1) {
+        const tierFactors = factors.filter((factor) =>
+          /\btier\s*\(/.test(factor),
+        );
+        if (tierFactors.length === 1) {
+          collect(tierFactors[0], inheritedCondition);
+          return;
+        }
+      }
       for (const call of scanTierCalls(body)) {
         branches.push({ ...call, condition: inheritedCondition });
       }
@@ -509,9 +521,10 @@ export function analyzeExprMultiplier(exprBody, now = new Date()) {
   let min = 1;
   let max = 1;
   for (const factor of factors) {
-    if (factor.includes('tier(')) continue;
-    const range = evaluateMultiplierFactor(factor, resolveFields);
-    if (!range) return UNRESOLVED_MULTIPLIER;
+    const range = factor.includes('tier(')
+      ? analyzeExprMultiplier(factor, now)
+      : evaluateMultiplierFactor(factor, resolveFields);
+    if (!range || range.resolved === false) return UNRESOLVED_MULTIPLIER;
     min *= range.min;
     max *= range.max;
   }

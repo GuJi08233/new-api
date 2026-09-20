@@ -645,16 +645,16 @@ export default function UpstreamRatioSync(props) {
       showInfo(t('正在同步价格，请稍候'));
       let success = false;
       try {
-        const updates = Object.entries(finalRatios).map(([key, value]) =>
-          API.put('/api/option/', {
-            key,
-            value: JSON.stringify(value, null, 2),
-          }),
-        );
+        const result = await API.put('/api/option/pricing', {
+          options: Object.fromEntries(
+            Object.entries(finalRatios).map(([key, value]) => [
+              key,
+              JSON.stringify(value),
+            ]),
+          ),
+        });
 
-        const results = await Promise.all(updates);
-
-        if (results.every((res) => res.data.success)) {
+        if (result.data.success) {
           showSuccess(t('同步成功'));
           props.refresh();
 
@@ -679,7 +679,7 @@ export default function UpstreamRatioSync(props) {
           setResolutions({});
           success = true;
         } else {
-          showError(t('部分保存失败'));
+          showError(result.data.message || t('保存失败'));
         }
       } catch (error) {
         showError(t('保存失败'));

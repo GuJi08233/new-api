@@ -375,6 +375,21 @@ func TestListModelsTokenLimitIncludesTieredBillingModel(t *testing.T) {
 	require.NotContains(t, ids, "zz-token-unpriced-model")
 }
 
+func TestListModelsAnthropicEmptyList(t *testing.T) {
+	withSelfUseModeEnabled(t)
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	common.SetContextKey(ctx, constant.ContextKeyUserGroup, "default")
+	common.SetContextKey(ctx, constant.ContextKeyTokenModelLimitEnabled, true)
+	common.SetContextKey(ctx, constant.ContextKeyTokenModelLimit, map[string]bool{})
+
+	require.NotPanics(t, func() { ListModels(ctx, constant.ChannelTypeAnthropic) })
+	assert.Equal(t, http.StatusOK, recorder.Code)
+	assert.JSONEq(t, `{"data":[],"first_id":null,"last_id":null,"has_more":false}`, recorder.Body.String())
+}
+
 func TestSetupLoginDoesNotTouchPasswordWhenPasswordFieldOmitted(t *testing.T) {
 	db := setupModelListControllerTestDB(t)
 	require.NoError(t, db.AutoMigrate(&model.Log{}, &model.SecurityFlow{}, &model.TwoFA{}))

@@ -64,17 +64,22 @@ var (
 )
 
 func GetPricing() []Pricing {
+	pricing, _ := getPricingSnapshot()
+	return pricing
+}
+
+func getPricingSnapshot() ([]Pricing, []PricingVendor) {
+	// 与配置发布统一锁顺序：配置锁 → 定价缓存锁 → 端点/渠道缓存锁。
+	common.OptionMapRWMutex.RLock()
+	defer common.OptionMapRWMutex.RUnlock()
+	updatePricingLock.Lock()
+	defer updatePricingLock.Unlock()
 	if time.Since(lastGetPricingTime) > time.Minute*1 || len(pricingMap) == 0 {
-		updatePricingLock.Lock()
-		defer updatePricingLock.Unlock()
-		// Double check after acquiring the lock
-		if time.Since(lastGetPricingTime) > time.Minute*1 || len(pricingMap) == 0 {
-			modelSupportEndpointsLock.Lock()
-			defer modelSupportEndpointsLock.Unlock()
-			updatePricing()
-		}
+		modelSupportEndpointsLock.Lock()
+		defer modelSupportEndpointsLock.Unlock()
+		updatePricing()
 	}
-	return pricingMap
+	return pricingMap, vendorsList
 }
 
 func InvalidatePricingCache() {
@@ -88,11 +93,8 @@ func InvalidatePricingCache() {
 
 // GetVendors 返回当前定价接口使用到的供应商信息
 func GetVendors() []PricingVendor {
-	if time.Since(lastGetPricingTime) > time.Minute*1 || len(pricingMap) == 0 {
-		// 保证先刷新一次
-		GetPricing()
-	}
-	return vendorsList
+	_, vendors := getPricingSnapshot()
+	return vendors
 }
 
 func GetModelSupportEndpointTypes(model string) []constant.EndpointType {
@@ -424,5 +426,7 @@ func updatePricing() {
 
 // GetSupportedEndpointMap 返回全局端点到路径的映射
 func GetSupportedEndpointMap() map[string]common.EndpointInfo {
+	modelSupportEndpointsLock.RLock()
+	defer modelSupportEndpointsLock.RUnlock()
 	return supportedEndpointMap
 }

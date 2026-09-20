@@ -227,9 +227,15 @@ func InitOptionMap() {
 }
 
 func loadOptionsFromDatabase() {
-	options, _ := AllOption()
+	options, err := AllOption()
+	if err != nil {
+		common.SysLog("failed to load options: " + err.Error())
+		return
+	}
+	common.OptionMapRWMutex.Lock()
+	defer common.OptionMapRWMutex.Unlock()
 	for _, option := range options {
-		err := updateOptionMap(option.Key, option.Value)
+		err := applyOptionToRuntime(option.Key, option.Value)
 		if err != nil {
 			common.SysLog("failed to update option map: " + err.Error())
 		}
@@ -326,8 +332,11 @@ func UpdateOptionsBulk(values map[string]string) error {
 	if err != nil {
 		return err
 	}
+	// 相关配置在同一写锁内发布，计费读取不会看见新模式配旧表达式。
+	common.OptionMapRWMutex.Lock()
+	defer common.OptionMapRWMutex.Unlock()
 	for k, v := range activeValues {
-		if err := updateOptionMap(k, v); err != nil {
+		if err := applyOptionToRuntime(k, v); err != nil {
 			return err
 		}
 	}
@@ -335,6 +344,14 @@ func UpdateOptionsBulk(values map[string]string) error {
 }
 
 func updateOptionMap(key string, value string) (err error) {
+	common.OptionMapRWMutex.Lock()
+	defer common.OptionMapRWMutex.Unlock()
+	return applyOptionToRuntime(key, value)
+}
+
+// applyOptionToRuntime 的调用方必须持有 OptionMapRWMutex 写锁。
+// 单项更新、批量提交和数据库回放共用相同的运行时发布逻辑。
+func applyOptionToRuntime(key string, value string) (err error) {
 	if isRemovedOptionKey(key) {
 		return nil
 	}
@@ -349,8 +366,6 @@ func updateOptionMap(key string, value string) (err error) {
 	// 的加载回放路径。在加载路径上拒绝一个已存在于库中的值，只会让整张表达式 map
 	// 静默不载入内存，导致所有 tiered_expr 模型退化为"无表达式"而全部请求失败。
 	// 运行期已有 billingexpr.ValidateCost 在预扣费与结算两端兜底，不依赖加载期校验。
-	common.OptionMapRWMutex.Lock()
-	defer common.OptionMapRWMutex.Unlock()
 	common.OptionMap[key] = value
 
 	// 检查是否是模型配置 - 使用更规范的方式处理

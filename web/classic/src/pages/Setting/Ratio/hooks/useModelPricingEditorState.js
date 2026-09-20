@@ -17,12 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  API,
-  showError,
-  showSuccess,
-  showWarning,
-} from '../../../../helpers';
+import { API, showError, showSuccess, showWarning } from '../../../../helpers';
 import {
   combineBillingExpr,
   splitBillingExprAndRequestRules,
@@ -244,7 +239,8 @@ const buildModelState = (name, sourceMaps) => {
 
 export const isBasePricingUnset = (model) =>
   model.billingMode !== 'tiered_expr' &&
-  !hasValue(model.fixedPrice) && !hasValue(model.inputPrice);
+  !hasValue(model.fixedPrice) &&
+  !hasValue(model.inputPrice);
 
 export const getModelWarnings = (model, t) => {
   if (!model) {
@@ -310,8 +306,8 @@ export const getModelWarnings = (model, t) => {
 export const buildSummaryText = (model, t) => {
   const requestRuleSuffix =
     model.billingMode === 'tiered_expr' && model.requestRuleExpr
-    ? `，${t('请求规则')}`
-    : '';
+      ? `，${t('请求规则')}`
+      : '';
   if (model.billingMode === 'tiered_expr') {
     const expr = model.billingExpr;
     if (!expr) return `${t('表达式计费')}${requestRuleSuffix}`;
@@ -674,19 +670,29 @@ export function useModelPricingEditorState({
         ImageRatio: parseOptionJSON(options.ImageRatio),
         AudioRatio: parseOptionJSON(options.AudioRatio),
         AudioCompletionRatio: parseOptionJSON(options.AudioCompletionRatio),
-        ModelBillingMode: parseOptionJSON(options['billing_setting.billing_mode']),
-        ModelBillingExpr: parseOptionJSON(options['billing_setting.billing_expr']),
+        ModelBillingMode: parseOptionJSON(
+          options['billing_setting.billing_mode'],
+        ),
+        ModelBillingExpr: parseOptionJSON(
+          options['billing_setting.billing_expr'],
+        ),
       };
     } else {
       // 分组级别配置
       const groupModelPrice = parseOptionJSON(options.GroupModelPrice);
       const groupModelRatio = parseOptionJSON(options.GroupModelRatio);
-      const groupCompletionRatio = parseOptionJSON(options.GroupCompletionRatio);
+      const groupCompletionRatio = parseOptionJSON(
+        options.GroupCompletionRatio,
+      );
       const groupCacheRatio = parseOptionJSON(options.GroupCacheRatio);
-      const groupCreateCacheRatio = parseOptionJSON(options.GroupCreateCacheRatio);
+      const groupCreateCacheRatio = parseOptionJSON(
+        options.GroupCreateCacheRatio,
+      );
       const groupImageRatio = parseOptionJSON(options.GroupImageRatio);
       const groupAudioRatio = parseOptionJSON(options.GroupAudioRatio);
-      const groupAudioCompletionRatio = parseOptionJSON(options.GroupAudioCompletionRatio);
+      const groupAudioCompletionRatio = parseOptionJSON(
+        options.GroupAudioCompletionRatio,
+      );
       const groupBillingMode = parseOptionJSON(options.GroupBillingMode);
       const groupBillingExpr = parseOptionJSON(options.GroupBillingExpr);
 
@@ -1127,14 +1133,17 @@ export function useModelPricingEditorState({
             model.billingExpr,
             model.requestRuleExpr,
           );
-          if (finalBillingExpr) {
-            if (isGroupMode) {
-              groupBillingModeLeaf[model.name] = 'tiered_expr';
-              groupBillingExprLeaf[model.name] = finalBillingExpr;
-            } else {
-              tieredOutput['billing_setting.billing_mode'][model.name] = 'tiered_expr';
-              tieredOutput['billing_setting.billing_expr'][model.name] = finalBillingExpr;
-            }
+          if (!finalBillingExpr) {
+            throw new Error(`${model.name}: ${t('表达式错误')}`);
+          }
+          if (isGroupMode) {
+            groupBillingModeLeaf[model.name] = 'tiered_expr';
+            groupBillingExprLeaf[model.name] = finalBillingExpr;
+          } else {
+            tieredOutput['billing_setting.billing_mode'][model.name] =
+              'tiered_expr';
+            tieredOutput['billing_setting.billing_expr'][model.name] =
+              finalBillingExpr;
           }
         }
 
@@ -1145,7 +1154,11 @@ export function useModelPricingEditorState({
             (value) => value !== null,
           );
 
-          if (isGroupMode && hasSerializedValue && model.billingMode !== 'tiered_expr') {
+          if (
+            isGroupMode &&
+            hasSerializedValue &&
+            model.billingMode !== 'tiered_expr'
+          ) {
             groupBillingModeLeaf[model.name] =
               model.billingMode === 'per-request' ? 'per-request' : 'per-token';
           }
@@ -1195,26 +1208,16 @@ export function useModelPricingEditorState({
         tieredOutput['GroupBillingExpr'] = existingExprs;
       }
 
-      const requestQueue = [
-        ...Object.entries(output).map(([key, value]) =>
-          API.put('/api/option/', {
+      const res = await API.put('/api/option/pricing', {
+        options: Object.fromEntries(
+          Object.entries({ ...output, ...tieredOutput }).map(([key, value]) => [
             key,
-            value: JSON.stringify(value, null, 2),
-          }),
+            JSON.stringify(value),
+          ]),
         ),
-        ...Object.entries(tieredOutput).map(([key, value]) =>
-          API.put('/api/option/', {
-            key,
-            value: JSON.stringify(value, null, 2),
-          }),
-        ),
-      ];
-
-      const results = await Promise.all(requestQueue);
-      for (const res of results) {
-        if (!res?.data?.success) {
-          throw new Error(res?.data?.message || t('保存失败，请重试'));
-        }
+      });
+      if (!res?.data?.success) {
+        throw new Error(res?.data?.message || t('保存失败，请重试'));
       }
 
       showSuccess(t('保存成功'));
@@ -1432,20 +1435,17 @@ export function useModelPricingEditorState({
 
     setLoading(true);
     try {
-      const results = await Promise.all(
-        GROUP_PRICING_OPTION_KEYS.map((key) => {
-          const existing = parseOptionJSON(options[key]);
-          delete existing[selectedGroup];
-          return API.put('/api/option/', {
-            key,
-            value: JSON.stringify(existing, null, 2),
-          });
-        }),
-      );
-      for (const res of results) {
-        if (!res?.data?.success) {
-          throw new Error(res?.data?.message || t('清空失败，请重试'));
-        }
+      const res = await API.put('/api/option/pricing', {
+        options: Object.fromEntries(
+          GROUP_PRICING_OPTION_KEYS.map((key) => {
+            const existing = parseOptionJSON(options[key]);
+            delete existing[selectedGroup];
+            return [key, JSON.stringify(existing)];
+          }),
+        ),
+      });
+      if (!res?.data?.success) {
+        throw new Error(res?.data?.message || t('清空失败，请重试'));
       }
 
       setSelectedModelNames([]);
@@ -1596,8 +1596,7 @@ export function useModelPricingEditorState({
               cachePrice: current.cachePrice || filled('cache_ratio'),
               createCachePrice:
                 current.createCachePrice || filled('create_cache_ratio'),
-              audioInputPrice:
-                current.audioInputPrice || filled('audio_ratio'),
+              audioInputPrice: current.audioInputPrice || filled('audio_ratio'),
               audioOutputPrice:
                 current.audioOutputPrice ||
                 (filled('audio_ratio') && filled('audio_completion_ratio')),
@@ -1665,7 +1664,11 @@ export function useModelPricingEditorState({
   }
 
   // 一键同步分组定价
-  async function syncGroupPricing(targetGroups, modelNames = null, fromGlobal = false) {
+  async function syncGroupPricing(
+    targetGroups,
+    modelNames = null,
+    fromGlobal = false,
+  ) {
     if (!fromGlobal && selectedGroup === 'global') {
       showError(t('全局配置无法同步，请先选择一个分组'));
       return false;
