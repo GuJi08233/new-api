@@ -19,6 +19,18 @@ func UpdateModelPricingOptions(values map[string]string) error {
 	return UpdateOptionsBulk(values)
 }
 
+// SyncGroupPricingOptions 在写入锁内计算分组同步结果，校验后单事务落库并发布。
+// 任一目标分组出现"阶梯模式但无表达式"等不一致状态时整体拒绝，运行时保持原样。
+func SyncGroupPricingOptions(sourceGroup string, targetGroups []string, modelNames []string, fromGlobal bool) error {
+	optionWriteMu.Lock()
+	defer optionWriteMu.Unlock()
+	values := ratio_setting.BuildGroupPricingSync(sourceGroup, targetGroups, modelNames, fromGlobal)
+	if err := validateModelPricingOptions(values); err != nil {
+		return err
+	}
+	return updateOptionsBulkLocked(values)
+}
+
 var pricingOptionKeys = []string{"ModelPrice", "ModelRatio", "CompletionRatio", "CacheRatio", "CreateCacheRatio", "ImageRatio", "AudioRatio", "AudioCompletionRatio"}
 
 func validateModelPricingOptions(values map[string]string) error {

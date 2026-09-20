@@ -381,62 +381,143 @@ func InvalidateGroupPricingCache() {
 	InvalidateExposedDataCache()
 }
 
-// SyncGroupPricing 将源分组的配置同步到目标分组
-func SyncGroupPricing(sourceGroup string, targetGroups []string) error {
+// groupPricingDraft 是分组定价十张表的可修改副本。同步在副本上计算，
+// 结果交由 model 层在写入锁内校验、落库并发布，运行时不会出现半同步状态。
+type groupPricingDraft struct {
+	groupModelPriceMap           *types.RWMap[string, map[string]float64]
+	groupModelRatioMap           *types.RWMap[string, map[string]float64]
+	groupCompletionRatioMap      *types.RWMap[string, map[string]float64]
+	groupCacheRatioMap           *types.RWMap[string, map[string]float64]
+	groupCreateCacheRatioMap     *types.RWMap[string, map[string]float64]
+	groupImageRatioMap           *types.RWMap[string, map[string]float64]
+	groupAudioRatioMap           *types.RWMap[string, map[string]float64]
+	groupAudioCompletionRatioMap *types.RWMap[string, map[string]float64]
+	groupBillingModeMap          *types.RWMap[string, map[string]string]
+	groupBillingExprMap          *types.RWMap[string, map[string]string]
+}
+
+func cloneFloat64GroupMap(src *types.RWMap[string, map[string]float64]) *types.RWMap[string, map[string]float64] {
+	dst := types.NewRWMap[string, map[string]float64]()
+	for group, values := range src.ReadAll() {
+		dst.Set(group, copyFloat64Map(values))
+	}
+	return dst
+}
+
+func cloneStringGroupMap(src *types.RWMap[string, map[string]string]) *types.RWMap[string, map[string]string] {
+	dst := types.NewRWMap[string, map[string]string]()
+	for group, values := range src.ReadAll() {
+		dst.Set(group, copyStringMap(values))
+	}
+	return dst
+}
+
+// HasGroupPricingConfig 判断分组是否配置过任何定价项。
+func HasGroupPricingConfig(group string) bool {
+	if _, ok := groupModelPriceMap.Get(group); ok {
+		return true
+	}
+	if _, ok := groupModelRatioMap.Get(group); ok {
+		return true
+	}
+	_, ok := groupBillingModeMap.Get(group)
+	return ok
+}
+
+// BuildGroupPricingSync 计算分组同步后的十项分组定价配置，不修改运行时。
+// 调用方必须在配置写入锁内调用并提交结果，避免读取源配置与落库之间插入其他写入。
+func BuildGroupPricingSync(sourceGroup string, targetGroups []string, modelNames []string, fromGlobal bool) map[string]string {
+	d := &groupPricingDraft{
+		groupModelPriceMap:           cloneFloat64GroupMap(groupModelPriceMap),
+		groupModelRatioMap:           cloneFloat64GroupMap(groupModelRatioMap),
+		groupCompletionRatioMap:      cloneFloat64GroupMap(groupCompletionRatioMap),
+		groupCacheRatioMap:           cloneFloat64GroupMap(groupCacheRatioMap),
+		groupCreateCacheRatioMap:     cloneFloat64GroupMap(groupCreateCacheRatioMap),
+		groupImageRatioMap:           cloneFloat64GroupMap(groupImageRatioMap),
+		groupAudioRatioMap:           cloneFloat64GroupMap(groupAudioRatioMap),
+		groupAudioCompletionRatioMap: cloneFloat64GroupMap(groupAudioCompletionRatioMap),
+		groupBillingModeMap:          cloneStringGroupMap(groupBillingModeMap),
+		groupBillingExprMap:          cloneStringGroupMap(groupBillingExprMap),
+	}
+	switch {
+	case fromGlobal || sourceGroup == "global":
+		d.syncFromGlobal(targetGroups, modelNames)
+	case len(modelNames) > 0 && !HasGroupPricingConfig(sourceGroup):
+		// 源分组没有配置时退回全局配置
+		d.syncFromGlobal(targetGroups, modelNames)
+	case len(modelNames) > 0:
+		d.syncModels(sourceGroup, targetGroups, modelNames)
+	default:
+		d.syncAll(sourceGroup, targetGroups)
+	}
+	return map[string]string{
+		"GroupModelPrice":           d.groupModelPriceMap.MarshalJSONString(),
+		"GroupModelRatio":           d.groupModelRatioMap.MarshalJSONString(),
+		"GroupCompletionRatio":      d.groupCompletionRatioMap.MarshalJSONString(),
+		"GroupCacheRatio":           d.groupCacheRatioMap.MarshalJSONString(),
+		"GroupCreateCacheRatio":     d.groupCreateCacheRatioMap.MarshalJSONString(),
+		"GroupImageRatio":           d.groupImageRatioMap.MarshalJSONString(),
+		"GroupAudioRatio":           d.groupAudioRatioMap.MarshalJSONString(),
+		"GroupAudioCompletionRatio": d.groupAudioCompletionRatioMap.MarshalJSONString(),
+		"GroupBillingMode":          d.groupBillingModeMap.MarshalJSONString(),
+		"GroupBillingExpr":          d.groupBillingExprMap.MarshalJSONString(),
+	}
+}
+
+// syncAll 将源分组的全部配置复制到目标分组。
+func (d *groupPricingDraft) syncAll(sourceGroup string, targetGroups []string) {
 	// 获取源分组的所有配置
-	sourcePrice := groupModelPriceMap.ReadAll()
-	sourceRatio := groupModelRatioMap.ReadAll()
-	sourceCompletion := groupCompletionRatioMap.ReadAll()
-	sourceCache := groupCacheRatioMap.ReadAll()
-	sourceCreateCache := groupCreateCacheRatioMap.ReadAll()
-	sourceImage := groupImageRatioMap.ReadAll()
-	sourceAudio := groupAudioRatioMap.ReadAll()
-	sourceAudioCompletion := groupAudioCompletionRatioMap.ReadAll()
-	sourceBillingMode := groupBillingModeMap.ReadAll()
-	sourceBillingExpr := groupBillingExprMap.ReadAll()
+	sourcePrice := d.groupModelPriceMap.ReadAll()
+	sourceRatio := d.groupModelRatioMap.ReadAll()
+	sourceCompletion := d.groupCompletionRatioMap.ReadAll()
+	sourceCache := d.groupCacheRatioMap.ReadAll()
+	sourceCreateCache := d.groupCreateCacheRatioMap.ReadAll()
+	sourceImage := d.groupImageRatioMap.ReadAll()
+	sourceAudio := d.groupAudioRatioMap.ReadAll()
+	sourceAudioCompletion := d.groupAudioCompletionRatioMap.ReadAll()
+	sourceBillingMode := d.groupBillingModeMap.ReadAll()
+	sourceBillingExpr := d.groupBillingExprMap.ReadAll()
 
 	// 复制到目标分组
 	for _, target := range targetGroups {
 		if sourceData, ok := sourcePrice[sourceGroup]; ok {
-			groupModelPriceMap.Set(target, copyFloat64Map(sourceData))
+			d.groupModelPriceMap.Set(target, copyFloat64Map(sourceData))
 		}
 		if sourceData, ok := sourceRatio[sourceGroup]; ok {
-			groupModelRatioMap.Set(target, copyFloat64Map(sourceData))
+			d.groupModelRatioMap.Set(target, copyFloat64Map(sourceData))
 		}
 		if sourceData, ok := sourceCompletion[sourceGroup]; ok {
-			groupCompletionRatioMap.Set(target, copyFloat64Map(sourceData))
+			d.groupCompletionRatioMap.Set(target, copyFloat64Map(sourceData))
 		}
 		if sourceData, ok := sourceCache[sourceGroup]; ok {
-			groupCacheRatioMap.Set(target, copyFloat64Map(sourceData))
+			d.groupCacheRatioMap.Set(target, copyFloat64Map(sourceData))
 		}
 		if sourceData, ok := sourceCreateCache[sourceGroup]; ok {
-			groupCreateCacheRatioMap.Set(target, copyFloat64Map(sourceData))
+			d.groupCreateCacheRatioMap.Set(target, copyFloat64Map(sourceData))
 		}
 		if sourceData, ok := sourceImage[sourceGroup]; ok {
-			groupImageRatioMap.Set(target, copyFloat64Map(sourceData))
+			d.groupImageRatioMap.Set(target, copyFloat64Map(sourceData))
 		}
 		if sourceData, ok := sourceAudio[sourceGroup]; ok {
-			groupAudioRatioMap.Set(target, copyFloat64Map(sourceData))
+			d.groupAudioRatioMap.Set(target, copyFloat64Map(sourceData))
 		}
 		if sourceData, ok := sourceAudioCompletion[sourceGroup]; ok {
-			groupAudioCompletionRatioMap.Set(target, copyFloat64Map(sourceData))
+			d.groupAudioCompletionRatioMap.Set(target, copyFloat64Map(sourceData))
 		}
 		if sourceData, ok := sourceBillingMode[sourceGroup]; ok {
-			groupBillingModeMap.Set(target, copyStringMap(sourceData))
+			d.groupBillingModeMap.Set(target, copyStringMap(sourceData))
 		}
 		if sourceData, ok := sourceBillingExpr[sourceGroup]; ok {
-			groupBillingExprMap.Set(target, copyStringMap(sourceData))
+			d.groupBillingExprMap.Set(target, copyStringMap(sourceData))
 		}
 	}
 
-	InvalidateExposedDataCache()
-	return nil
 }
 
-// SyncGroupPricingForModels 只同步指定模型的配置到目标分组
-func SyncGroupPricingForModels(sourceGroup string, targetGroups []string, modelNames []string) error {
+// syncModels 只把源分组中指定模型的配置复制到目标分组。
+func (d *groupPricingDraft) syncModels(sourceGroup string, targetGroups []string, modelNames []string) {
 	if len(modelNames) == 0 {
-		return nil
+		return
 	}
 
 	// 构建模型名称集合，方便查找
@@ -446,57 +527,57 @@ func SyncGroupPricingForModels(sourceGroup string, targetGroups []string, modelN
 	}
 
 	// 获取源分组的所有配置
-	sourcePrice := groupModelPriceMap.ReadAll()
-	sourceRatio := groupModelRatioMap.ReadAll()
-	sourceCompletion := groupCompletionRatioMap.ReadAll()
-	sourceCache := groupCacheRatioMap.ReadAll()
-	sourceCreateCache := groupCreateCacheRatioMap.ReadAll()
-	sourceImage := groupImageRatioMap.ReadAll()
-	sourceAudio := groupAudioRatioMap.ReadAll()
-	sourceAudioCompletion := groupAudioCompletionRatioMap.ReadAll()
-	sourceBillingMode := groupBillingModeMap.ReadAll()
-	sourceBillingExpr := groupBillingExprMap.ReadAll()
+	sourcePrice := d.groupModelPriceMap.ReadAll()
+	sourceRatio := d.groupModelRatioMap.ReadAll()
+	sourceCompletion := d.groupCompletionRatioMap.ReadAll()
+	sourceCache := d.groupCacheRatioMap.ReadAll()
+	sourceCreateCache := d.groupCreateCacheRatioMap.ReadAll()
+	sourceImage := d.groupImageRatioMap.ReadAll()
+	sourceAudio := d.groupAudioRatioMap.ReadAll()
+	sourceAudioCompletion := d.groupAudioCompletionRatioMap.ReadAll()
+	sourceBillingMode := d.groupBillingModeMap.ReadAll()
+	sourceBillingExpr := d.groupBillingExprMap.ReadAll()
 
 	// 只复制指定模型的配置到目标分组
 	for _, target := range targetGroups {
 		// 获取目标分组的现有配置
-		targetPrice := copyFloat64Map(groupModelPriceMap.ReadAll()[target])
+		targetPrice := copyFloat64Map(d.groupModelPriceMap.ReadAll()[target])
 		if targetPrice == nil {
 			targetPrice = make(map[string]float64)
 		}
-		targetRatio := copyFloat64Map(groupModelRatioMap.ReadAll()[target])
+		targetRatio := copyFloat64Map(d.groupModelRatioMap.ReadAll()[target])
 		if targetRatio == nil {
 			targetRatio = make(map[string]float64)
 		}
-		targetCompletion := copyFloat64Map(groupCompletionRatioMap.ReadAll()[target])
+		targetCompletion := copyFloat64Map(d.groupCompletionRatioMap.ReadAll()[target])
 		if targetCompletion == nil {
 			targetCompletion = make(map[string]float64)
 		}
-		targetCache := copyFloat64Map(groupCacheRatioMap.ReadAll()[target])
+		targetCache := copyFloat64Map(d.groupCacheRatioMap.ReadAll()[target])
 		if targetCache == nil {
 			targetCache = make(map[string]float64)
 		}
-		targetCreateCache := copyFloat64Map(groupCreateCacheRatioMap.ReadAll()[target])
+		targetCreateCache := copyFloat64Map(d.groupCreateCacheRatioMap.ReadAll()[target])
 		if targetCreateCache == nil {
 			targetCreateCache = make(map[string]float64)
 		}
-		targetImage := copyFloat64Map(groupImageRatioMap.ReadAll()[target])
+		targetImage := copyFloat64Map(d.groupImageRatioMap.ReadAll()[target])
 		if targetImage == nil {
 			targetImage = make(map[string]float64)
 		}
-		targetAudio := copyFloat64Map(groupAudioRatioMap.ReadAll()[target])
+		targetAudio := copyFloat64Map(d.groupAudioRatioMap.ReadAll()[target])
 		if targetAudio == nil {
 			targetAudio = make(map[string]float64)
 		}
-		targetAudioCompletion := copyFloat64Map(groupAudioCompletionRatioMap.ReadAll()[target])
+		targetAudioCompletion := copyFloat64Map(d.groupAudioCompletionRatioMap.ReadAll()[target])
 		if targetAudioCompletion == nil {
 			targetAudioCompletion = make(map[string]float64)
 		}
-		targetBillingMode := copyStringMap(groupBillingModeMap.ReadAll()[target])
+		targetBillingMode := copyStringMap(d.groupBillingModeMap.ReadAll()[target])
 		if targetBillingMode == nil {
 			targetBillingMode = make(map[string]string)
 		}
-		targetBillingExpr := copyStringMap(groupBillingExprMap.ReadAll()[target])
+		targetBillingExpr := copyStringMap(d.groupBillingExprMap.ReadAll()[target])
 		if targetBillingExpr == nil {
 			targetBillingExpr = make(map[string]string)
 		}
@@ -556,25 +637,23 @@ func SyncGroupPricingForModels(sourceGroup string, targetGroups []string, modelN
 		}
 
 		// 更新目标分组的配置
-		groupModelPriceMap.Set(target, targetPrice)
-		groupModelRatioMap.Set(target, targetRatio)
-		groupCompletionRatioMap.Set(target, targetCompletion)
-		groupCacheRatioMap.Set(target, targetCache)
-		groupCreateCacheRatioMap.Set(target, targetCreateCache)
-		groupImageRatioMap.Set(target, targetImage)
-		groupAudioRatioMap.Set(target, targetAudio)
-		groupAudioCompletionRatioMap.Set(target, targetAudioCompletion)
-		groupBillingModeMap.Set(target, targetBillingMode)
-		groupBillingExprMap.Set(target, targetBillingExpr)
+		d.groupModelPriceMap.Set(target, targetPrice)
+		d.groupModelRatioMap.Set(target, targetRatio)
+		d.groupCompletionRatioMap.Set(target, targetCompletion)
+		d.groupCacheRatioMap.Set(target, targetCache)
+		d.groupCreateCacheRatioMap.Set(target, targetCreateCache)
+		d.groupImageRatioMap.Set(target, targetImage)
+		d.groupAudioRatioMap.Set(target, targetAudio)
+		d.groupAudioCompletionRatioMap.Set(target, targetAudioCompletion)
+		d.groupBillingModeMap.Set(target, targetBillingMode)
+		d.groupBillingExprMap.Set(target, targetBillingExpr)
 	}
 
-	InvalidateExposedDataCache()
-	return nil
 }
 
-// SyncFromGlobalToGroups 从全局配置同步到目标分组
-// 如果 modelNames 为空，则同步所有全局配置；否则只同步指定的模型
-func SyncFromGlobalToGroups(targetGroups []string, modelNames []string) error {
+// syncFromGlobal 把全局配置复制到目标分组。
+// modelNames 为空时同步全部全局配置，否则只同步指定的模型。
+func (d *groupPricingDraft) syncFromGlobal(targetGroups []string, modelNames []string) {
 	// 获取全局配置
 	globalModelPrice := GetModelPriceCopy()
 	globalModelRatio := GetModelRatioCopy()
@@ -598,43 +677,43 @@ func SyncFromGlobalToGroups(targetGroups []string, modelNames []string) error {
 
 	for _, target := range targetGroups {
 		// 获取目标分组的现有配置
-		targetPrice := copyFloat64Map(groupModelPriceMap.ReadAll()[target])
+		targetPrice := copyFloat64Map(d.groupModelPriceMap.ReadAll()[target])
 		if targetPrice == nil {
 			targetPrice = make(map[string]float64)
 		}
-		targetRatio := copyFloat64Map(groupModelRatioMap.ReadAll()[target])
+		targetRatio := copyFloat64Map(d.groupModelRatioMap.ReadAll()[target])
 		if targetRatio == nil {
 			targetRatio = make(map[string]float64)
 		}
-		targetCompletion := copyFloat64Map(groupCompletionRatioMap.ReadAll()[target])
+		targetCompletion := copyFloat64Map(d.groupCompletionRatioMap.ReadAll()[target])
 		if targetCompletion == nil {
 			targetCompletion = make(map[string]float64)
 		}
-		targetCache := copyFloat64Map(groupCacheRatioMap.ReadAll()[target])
+		targetCache := copyFloat64Map(d.groupCacheRatioMap.ReadAll()[target])
 		if targetCache == nil {
 			targetCache = make(map[string]float64)
 		}
-		targetCreateCache := copyFloat64Map(groupCreateCacheRatioMap.ReadAll()[target])
+		targetCreateCache := copyFloat64Map(d.groupCreateCacheRatioMap.ReadAll()[target])
 		if targetCreateCache == nil {
 			targetCreateCache = make(map[string]float64)
 		}
-		targetImage := copyFloat64Map(groupImageRatioMap.ReadAll()[target])
+		targetImage := copyFloat64Map(d.groupImageRatioMap.ReadAll()[target])
 		if targetImage == nil {
 			targetImage = make(map[string]float64)
 		}
-		targetAudio := copyFloat64Map(groupAudioRatioMap.ReadAll()[target])
+		targetAudio := copyFloat64Map(d.groupAudioRatioMap.ReadAll()[target])
 		if targetAudio == nil {
 			targetAudio = make(map[string]float64)
 		}
-		targetAudioCompletion := copyFloat64Map(groupAudioCompletionRatioMap.ReadAll()[target])
+		targetAudioCompletion := copyFloat64Map(d.groupAudioCompletionRatioMap.ReadAll()[target])
 		if targetAudioCompletion == nil {
 			targetAudioCompletion = make(map[string]float64)
 		}
-		targetBillingMode := copyStringMap(groupBillingModeMap.ReadAll()[target])
+		targetBillingMode := copyStringMap(d.groupBillingModeMap.ReadAll()[target])
 		if targetBillingMode == nil {
 			targetBillingMode = make(map[string]string)
 		}
-		targetBillingExpr := copyStringMap(groupBillingExprMap.ReadAll()[target])
+		targetBillingExpr := copyStringMap(d.groupBillingExprMap.ReadAll()[target])
 		if targetBillingExpr == nil {
 			targetBillingExpr = make(map[string]string)
 		}
@@ -730,20 +809,18 @@ func SyncFromGlobalToGroups(targetGroups []string, modelNames []string) error {
 		}
 
 		// 更新目标分组的配置
-		groupModelPriceMap.Set(target, targetPrice)
-		groupModelRatioMap.Set(target, targetRatio)
-		groupCompletionRatioMap.Set(target, targetCompletion)
-		groupCacheRatioMap.Set(target, targetCache)
-		groupCreateCacheRatioMap.Set(target, targetCreateCache)
-		groupImageRatioMap.Set(target, targetImage)
-		groupAudioRatioMap.Set(target, targetAudio)
-		groupAudioCompletionRatioMap.Set(target, targetAudioCompletion)
-		groupBillingModeMap.Set(target, targetBillingMode)
-		groupBillingExprMap.Set(target, targetBillingExpr)
+		d.groupModelPriceMap.Set(target, targetPrice)
+		d.groupModelRatioMap.Set(target, targetRatio)
+		d.groupCompletionRatioMap.Set(target, targetCompletion)
+		d.groupCacheRatioMap.Set(target, targetCache)
+		d.groupCreateCacheRatioMap.Set(target, targetCreateCache)
+		d.groupImageRatioMap.Set(target, targetImage)
+		d.groupAudioRatioMap.Set(target, targetAudio)
+		d.groupAudioCompletionRatioMap.Set(target, targetAudioCompletion)
+		d.groupBillingModeMap.Set(target, targetBillingMode)
+		d.groupBillingExprMap.Set(target, targetBillingExpr)
 	}
 
-	InvalidateExposedDataCache()
-	return nil
 }
 
 func copyFloat64Map(m map[string]float64) map[string]float64 {

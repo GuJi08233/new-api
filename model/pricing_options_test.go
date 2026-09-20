@@ -313,3 +313,86 @@ func TestConcurrentOptionWritesCannotBypassBillingConsistency(t *testing.T) {
 	require.NoError(t, DB.Where("key = ?", billing_setting.BillingExprOptionKey).First(&stored).Error)
 	assert.Equal(t, `{"paid":"tier(\"base\", p * 2)"}`, stored.Value)
 }
+
+func TestOptionHotReloadCannotReplayStaleSnapshotOverConcurrentWrite(t *testing.T) {
+	values := setupPricingOptionsTest(t, false)
+	values[billing_setting.BillingExprOptionKey] = `{"paid":"tier(\"base\", p * 2)"}`
+	require.NoError(t, UpdateModelPricingOptions(values))
+	sqlDB, err := DB.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+
+	// 热重载读取快照后，A 启用阶梯模式。重载必须从读取快照前就持有写入锁，
+	// 否则 A 先完成、旧快照随后回放，B 删除表达式就能通过校验。
+	enableModeDone := make(chan error, 1)
+	entered := false
+	require.NoError(t, DB.Callback().Query().After("gorm:query").Register("pricing_reload_race", func(tx *gorm.DB) {
+		if entered || tx.Statement.Table != "options" {
+			return
+		}
+		entered = true
+		go func() {
+			enableModeDone <- UpdateOption("billing_setting.billing_mode", `{"paid":"tiered_expr"}`)
+		}()
+		select {
+		case err := <-enableModeDone:
+			enableModeDone <- err
+		case <-time.After(300 * time.Millisecond):
+		}
+	}))
+	t.Cleanup(func() { _ = DB.Callback().Query().Remove("pricing_reload_race") })
+
+	loadOptionsFromDatabase()
+	select {
+	case err := <-enableModeDone:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("concurrent mode update did not finish")
+	}
+	assert.Equal(t, billing_setting.BillingModeTieredExpr, billing_setting.GetBillingMode("paid"), "reload must not replay the stale mode")
+
+	require.Error(t, UpdateOption(billing_setting.BillingExprOptionKey, `{}`))
+	expr, ok := billing_setting.GetBillingExpr("paid")
+	assert.True(t, ok)
+	assert.Equal(t, `tier("base", p * 2)`, expr)
+	var stored Option
+	require.NoError(t, DB.Where("key = ?", "billing_setting.billing_mode").First(&stored).Error)
+	assert.Equal(t, `{"paid":"tiered_expr"}`, stored.Value)
+}
+
+func TestSyncGroupPricingOptionsPersistsAtomicallyAndKeepsConsistency(t *testing.T) {
+	values := setupPricingOptionsTest(t, true)
+	values["GroupModelRatio"] = `{"vip":{"paid":2}}`
+	values["GroupBillingMode"] = `{"vip":{"paid":"tiered_expr"}}`
+	values["GroupBillingExpr"] = `{"vip":{"paid":"tier(\"vip\", p * 3)"}}`
+	require.NoError(t, UpdateModelPricingOptions(values))
+
+	// 落库失败时整体回滚：目标分组既不在数据库，也不在运行时。
+	writes := 0
+	require.NoError(t, DB.Callback().Update().Before("gorm:update").Register("group_sync_failure", func(tx *gorm.DB) {
+		writes++
+		if writes == 2 {
+			tx.AddError(errors.New("group sync write failed"))
+		}
+	}))
+	require.ErrorContains(t, SyncGroupPricingOptions("vip", []string{"pro"}, nil, false), "group sync write failed")
+	require.NoError(t, DB.Callback().Update().Remove("group_sync_failure"))
+	assert.Equal(t, "", ratio_setting.GetGroupBillingMode("pro", "paid"))
+	var stored Option
+	require.NoError(t, DB.Where("key = ?", "GroupBillingMode").First(&stored).Error)
+	assert.Equal(t, `{"vip":{"paid":"tiered_expr"}}`, stored.Value)
+
+	require.NoError(t, SyncGroupPricingOptions("vip", []string{"pro"}, nil, false))
+	assert.Equal(t, billing_setting.BillingModeTieredExpr, ratio_setting.GetGroupBillingMode("pro", "paid"))
+	assert.Equal(t, `tier("vip", p * 3)`, ratio_setting.GetGroupBillingExpr("pro", "paid"))
+	ratio, ok := ratio_setting.GetGroupModelRatio("pro", "paid")
+	assert.True(t, ok)
+	assert.Equal(t, float64(2), ratio)
+	var storedExpr Option
+	require.NoError(t, DB.Where("key = ?", "GroupBillingExpr").First(&storedExpr).Error)
+	assert.Contains(t, storedExpr.Value, `"pro"`)
+
+	// 同步后的目标分组也受一致性保护，不能再单独删除它引用的表达式。
+	require.Error(t, UpdateOption("GroupBillingExpr", `{"vip":{"paid":"tier(\"vip\", p * 3)"}}`))
+	assert.Equal(t, `tier("vip", p * 3)`, ratio_setting.GetGroupBillingExpr("pro", "paid"))
+}

@@ -227,7 +227,11 @@ func InitOptionMap() {
 	loadOptionsFromDatabase()
 }
 
+// loadOptionsFromDatabase 从读取快照开始就持有写入锁，
+// 否则回放旧快照会覆盖并发写入刚发布的配置，随后的一致性校验会基于错误状态放行。
 func loadOptionsFromDatabase() {
+	optionWriteMu.Lock()
+	defer optionWriteMu.Unlock()
 	options, err := AllOption()
 	if err != nil {
 		common.SysLog("failed to load options: " + err.Error())
@@ -301,11 +305,16 @@ func UpdateOption(key string, value string) error {
 // is touched — safe for callers that must commit a set of related options
 // atomically (e.g. payment gateway binding).
 func UpdateOptionsBulk(values map[string]string) error {
+	optionWriteMu.Lock()
+	defer optionWriteMu.Unlock()
+	return updateOptionsBulkLocked(values)
+}
+
+// updateOptionsBulkLocked 的调用方必须持有 optionWriteMu。
+func updateOptionsBulkLocked(values map[string]string) error {
 	if len(values) == 0 {
 		return nil
 	}
-	optionWriteMu.Lock()
-	defer optionWriteMu.Unlock()
 	activeValues := make(map[string]string, len(values))
 	for key, value := range values {
 		if isRemovedOptionKey(key) {
