@@ -84,6 +84,31 @@ func TestIsEndpointAllowedEmbeddingAndRerank(t *testing.T) {
 	}
 }
 
+// The /typesafe prefix is an alias for the same System One endpoint, so a model
+// configured with the canonical /v1/systemone path must not be rejected when a
+// TypeSafe SDK reaches it through the prefix.
+func TestIsEndpointAllowedTypeSafePrefixAlias(t *testing.T) {
+	configuredEndpoints := parseEndpoints(`{"typesafe":{"path":"/v1/systemone","method":"POST"}}`)
+	require.Equal(t, []string{"/v1/systemone"}, configuredEndpoints)
+
+	tests := []struct {
+		name        string
+		requestPath string
+		want        bool
+	}{
+		{name: "canonical path", requestPath: "/v1/systemone", want: true},
+		{name: "typesafe prefix alias", requestPath: "/typesafe/v1/systemone", want: true},
+		{name: "unrelated route keeps failing", requestPath: "/v1/chat/completions", want: false},
+		{name: "prefixed unrelated route keeps failing", requestPath: "/typesafe/v1/chat/completions", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, isEndpointAllowed(tt.requestPath, configuredEndpoints))
+		})
+	}
+}
+
 func TestCheckModelEndpointProtectionSeparatesEmbeddingAndRerankModels(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)

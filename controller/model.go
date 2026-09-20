@@ -317,6 +317,18 @@ func ListModels(c *gin.Context, modelType int) {
 			"models":        userGeminiModels,
 			"nextPageToken": nil,
 		})
+	case constant.ChannelTypeTypeSafe:
+		userTypeSafeModels := make([]dto.TypeSafeModel, len(userOpenAiModels))
+		for i, model := range userOpenAiModels {
+			userTypeSafeModels[i] = dto.TypeSafeModel{
+				Name:        model.Id,
+				Description: model.OwnedBy,
+				ReleaseDate: time.Unix(int64(model.Created), 0).UTC().Format(time.RFC3339),
+			}
+		}
+		c.JSON(200, gin.H{
+			"models": userTypeSafeModels,
+		})
 	default:
 		c.JSON(200, gin.H{
 			"success": true,

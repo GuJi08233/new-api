@@ -8,6 +8,10 @@ func GetEndpointTypesByChannelType(channelType int, modelName string) []constant
 	switch channelType {
 	case constant.ChannelTypeJina:
 		endpointTypes = []constant.EndpointType{constant.EndpointTypeJinaRerank}
+	case constant.ChannelTypeTypeSafe:
+		// System One is the channel's only endpoint; its request shape has no
+		// OpenAI-compatible equivalent to fall back to.
+		return []constant.EndpointType{constant.EndpointTypeTypeSafe}
 	//case constant.ChannelTypeMidjourney, constant.ChannelTypeMidjourneyPlus:
 	//	endpointTypes = []constant.EndpointType{constant.EndpointTypeMidjourney}
 	//case constant.ChannelTypeSunoAPI:

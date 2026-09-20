@@ -63,6 +63,7 @@ const ENDPOINT_TEMPLATE = {
   'audio-speech': { path: '/v1/audio/speech', method: 'POST' },
   moderations: { path: '/v1/moderations', method: 'POST' },
   files: { path: '/v1/files', method: 'POST' },
+  typesafe: { path: '/v1/systemone', method: 'POST' },
 };
 
 const nameRuleOptions = [

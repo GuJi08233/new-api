@@ -81,3 +81,11 @@ type TaskAdaptor interface {
 type OpenAIVideoConverter interface {
 	ConvertToOpenAIVideo(originTask *model.Task) ([]byte, error)
 }
+
+// TypeSafeConverter is implemented by adaptors that can serve TypeSafe's System
+// One endpoint. Its request format (a state plus a map of typed questions) has
+// no counterpart in the formats Adaptor converts between, so it stays off the
+// main interface and the relay handler asserts for it.
+type TypeSafeConverter interface {
+	ConvertTypeSafeRequest(c *gin.Context, info *relaycommon.RelayInfo, request *dto.TypeSafeRequest) (any, error)
+}

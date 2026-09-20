@@ -47,6 +47,33 @@ func SetRelayRouter(router *gin.Engine) {
 		})
 	}
 
+	// TypeSafe SDKs point TYPESAFE_BASE_URL at this prefix and then request
+	// /typesafe/v1/... . Both endpoints answer in TypeSafe's native shape; the
+	// shared /v1 paths keep answering in OpenAI's.
+	typeSafeModelsRouter := router.Group(constant.TypeSafeRoutePrefix + "/v1/models")
+	typeSafeModelsRouter.Use(middleware.RouteTag("relay"))
+	typeSafeModelsRouter.Use(middleware.ErrorGuard())
+	typeSafeModelsRouter.Use(middleware.TokenAuth())
+	typeSafeModelsRouter.Use(middleware.IpBanGuard())
+	{
+		typeSafeModelsRouter.GET("", func(c *gin.Context) {
+			controller.ListModels(c, constant.ChannelTypeTypeSafe)
+		})
+	}
+
+	typeSafeRelayRouter := router.Group(constant.TypeSafeRoutePrefix + "/v1")
+	typeSafeRelayRouter.Use(middleware.RouteTag("relay"))
+	typeSafeRelayRouter.Use(middleware.ErrorGuard())
+	typeSafeRelayRouter.Use(middleware.SystemPerformanceCheck())
+	typeSafeRelayRouter.Use(middleware.TokenAuth())
+	typeSafeRelayRouter.Use(middleware.ModelRequestRateLimit())
+	typeSafeRelayRouter.Use(middleware.Distribute())
+	{
+		typeSafeRelayRouter.POST("/systemone", func(c *gin.Context) {
+			controller.Relay(c, types.RelayFormatTypeSafe)
+		})
+	}
+
 	geminiRouter := router.Group("/v1beta/models")
 	geminiRouter.Use(middleware.RouteTag("relay"))
 	geminiRouter.Use(middleware.ErrorGuard())
@@ -146,6 +173,11 @@ func SetRelayRouter(router *gin.Engine) {
 		// rerank related routes
 		httpRouter.POST("/rerank", func(c *gin.Context) {
 			controller.Relay(c, types.RelayFormatRerank)
+		})
+
+		// typesafe system one route
+		httpRouter.POST("/systemone", func(c *gin.Context) {
+			controller.Relay(c, types.RelayFormatTypeSafe)
 		})
 
 		// gemini relay routes

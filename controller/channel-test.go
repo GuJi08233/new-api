@@ -21,6 +21,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"github.com/QuantumNous/new-api/relay"
+	relaychannel "github.com/QuantumNous/new-api/relay/channel"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
@@ -56,6 +57,9 @@ func normalizeChannelTestEndpoint(channel *model.Channel, modelName, endpointTyp
 	}
 	if channel != nil && channel.Type == constant.ChannelTypeCodex {
 		return string(constant.EndpointTypeOpenAIResponse)
+	}
+	if channel != nil && channel.Type == constant.ChannelTypeTypeSafe {
+		return string(constant.EndpointTypeTypeSafe)
 	}
 	if channel != nil && channel.Type == constant.ChannelTypeOA2 {
 		// OA2 多合一渠道自动检测时按已配置的格式挑测试端点：OpenAI 优先，其次 Gemini、Claude、Codex。
@@ -234,6 +238,8 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 			relayFormat = types.RelayFormatOpenAIImage
 		case constant.EndpointTypeEmbeddings:
 			relayFormat = types.RelayFormatEmbedding
+		case constant.EndpointTypeTypeSafe:
+			relayFormat = types.RelayFormatTypeSafe
 		default:
 			relayFormat = types.RelayFormatOpenAI
 		}
@@ -254,6 +260,9 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 		}
 		if c.Request.URL.Path == "/v1/rerank" || c.Request.URL.Path == "/rerank" {
 			relayFormat = types.RelayFormatRerank
+		}
+		if c.Request.URL.Path == "/v1/systemone" {
+			relayFormat = types.RelayFormatTypeSafe
 		}
 		if c.Request.URL.Path == "/v1/responses" {
 			relayFormat = types.RelayFormatOpenAIResponses
@@ -378,6 +387,18 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 				newAPIError: types.NewError(errors.New("invalid rerank request type"), types.ErrorCodeConvertRequestFailed),
 			}
 		}
+	case relayconstant.RelayModeTypeSafe:
+		// System One 请求 - 只有实现了 TypeSafeConverter 的适配器能承接
+		converter, isConverter := adaptor.(relaychannel.TypeSafeConverter)
+		typeSafeReq, isTypeSafeRequest := request.(*dto.TypeSafeRequest)
+		if !isConverter || !isTypeSafeRequest {
+			return testResult{
+				context:     c,
+				localErr:    fmt.Errorf("channel %s does not support the System One endpoint", adaptor.GetChannelName()),
+				newAPIError: types.NewError(errors.New("invalid system one request type"), types.ErrorCodeConvertRequestFailed),
+			}
+		}
+		convertedRequest, err = converter.ConvertTypeSafeRequest(c, info, typeSafeReq)
 	case relayconstant.RelayModeResponses:
 		// Response 请求 - request 已经是正确的类型
 		if responseReq, ok := request.(*dto.OpenAIResponsesRequest); ok {
@@ -766,6 +787,7 @@ var testCacheBustPaths = []string{
 	"input",
 	"prompt",
 	"query",
+	"state",
 }
 
 // injectTestCacheBust 把缓存绕过标记重新追加到请求体的测试文本上，返回是否找到了落点。
@@ -818,6 +840,19 @@ func buildTestRequest(model string, endpointType string, cacheBustNonce string, 
 				Query:     "What is Deep Learning?" + cacheBust,
 				Documents: []any{"Deep Learning is a subset of machine learning.", "Machine learning is a field of artificial intelligence."},
 				TopN:      lo.ToPtr(2),
+			}
+		case constant.EndpointTypeTypeSafe:
+			// 返回 TypeSafeRequest：一个最小的 noul 问题，答案是 0~1 的概率
+			testState, _ := common.Marshal("Help! My payouts have been failing for 3 days." + cacheBust)
+			return &dto.TypeSafeRequest{
+				Model: model,
+				State: testState,
+				Questions: map[string]dto.TypeSafeQuestion{
+					"is_urgent": {
+						Type:         dto.TypeSafeQuestionNoul,
+						Instructions: json.RawMessage(`"Does this convey urgency?"`),
+					},
+				},
 			}
 		case constant.EndpointTypeOpenAIResponse:
 			// 返回 OpenAIResponsesRequest

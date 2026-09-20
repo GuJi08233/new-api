@@ -3,6 +3,8 @@ package constant
 import (
 	"net/http"
 	"strings"
+
+	"github.com/QuantumNous/new-api/constant"
 )
 
 const (
@@ -52,6 +54,8 @@ const (
 	RelayModeGemini
 
 	RelayModeResponsesCompact
+
+	RelayModeTypeSafe
 )
 
 func Path2RelayMode(path string) int {
@@ -84,6 +88,8 @@ func Path2RelayMode(path string) int {
 		relayMode = RelayModeAudioTranslation
 	} else if strings.HasPrefix(path, "/v1/rerank") {
 		relayMode = RelayModeRerank
+	} else if strings.HasPrefix(path, "/v1/systemone") || strings.HasPrefix(path, constant.TypeSafeRoutePrefix+"/v1/systemone") {
+		relayMode = RelayModeTypeSafe
 	} else if strings.HasPrefix(path, "/v1/realtime") {
 		relayMode = RelayModeRealtime
 	} else if strings.HasPrefix(path, "/v1beta/models") || strings.HasPrefix(path, "/v1/models") {

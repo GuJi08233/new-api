@@ -271,7 +271,9 @@ func isEndpointAllowed(requestPath string, allowedEndpoints []string) bool {
 		return true
 	}
 
-	// 标准化路径
+	// 标准化路径。/typesafe/v1/systemone 只是 TypeSafe SDK 用的别名前缀，与
+	// /v1/systemone 是同一个端点，端点保护按后者这一个规范路径配置。
+	requestPath = strings.TrimPrefix(requestPath, constant.TypeSafeRoutePrefix)
 	requestPath = strings.TrimSuffix(requestPath, "/")
 
 	for _, endpoint := range allowedEndpoints {

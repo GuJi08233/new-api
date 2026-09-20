@@ -194,6 +194,11 @@ export const CHANNEL_OPTIONS = [
     color: 'orange',
     label: 'OA2 多合一渠道 (OpenAI + Codex + Claude + Gemini)',
   },
+  {
+    value: 60,
+    color: 'cyan',
+    label: 'TypeSafe (System One)',
+  },
 ];
 
 // Channel types that support upstream model list fetching in UI.

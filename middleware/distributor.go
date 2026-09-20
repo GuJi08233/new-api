@@ -280,7 +280,8 @@ func routeWillEstimateTokens(c *gin.Context) bool {
 		relayconstant.RelayModeResponses,
 		relayconstant.RelayModeRealtime,
 		relayconstant.RelayModeGemini,
-		relayconstant.RelayModeResponsesCompact:
+		relayconstant.RelayModeResponsesCompact,
+		relayconstant.RelayModeTypeSafe:
 		return true
 	default:
 		return false

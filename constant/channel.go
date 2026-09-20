@@ -57,6 +57,7 @@ const (
 	ChannelTypeCodex          = 57
 	ChannelTypeOA2            = 58 // OA2 四合一渠道 (OpenAI + Codex + Anthropic + Gemini)
 	ChannelTypeAdvancedCustom = 59
+	ChannelTypeTypeSafe       = 60
 	ChannelTypeDummy          // this one is only for count, do not add any channel after this
 
 )
@@ -122,6 +123,7 @@ var ChannelBaseURLs = []string{
 	"https://chatgpt.com",                       //57
 	"",                                          //58
 	"",                                          //59
+	"https://api.typesafe.ai",                   //60
 }
 
 var ChannelTypeNames = map[int]string{
@@ -181,6 +183,7 @@ var ChannelTypeNames = map[int]string{
 	ChannelTypeCodex:          "Codex",
 	ChannelTypeOA2:            "OA2",
 	ChannelTypeAdvancedCustom: "Advanced Custom",
+	ChannelTypeTypeSafe:       "TypeSafe",
 }
 
 func GetChannelTypeName(channelType int) string {

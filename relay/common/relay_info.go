@@ -504,6 +504,13 @@ func GenRelayInfoEmbedding(c *gin.Context, request dto.Request) *RelayInfo {
 	return info
 }
 
+func GenRelayInfoTypeSafe(c *gin.Context, request dto.Request) *RelayInfo {
+	info := genBaseRelayInfo(c, request)
+	info.RelayMode = relayconstant.RelayModeTypeSafe
+	info.RelayFormat = types.RelayFormatTypeSafe
+	return info
+}
+
 func GenRelayInfoResponses(c *gin.Context, request *dto.OpenAIResponsesRequest) *RelayInfo {
 	info := genBaseRelayInfo(c, request)
 	info.RelayMode = relayconstant.RelayModeResponses
@@ -711,6 +718,8 @@ func GenRelayInfo(c *gin.Context, relayFormat types.RelayFormat, request dto.Req
 		info = GenRelayInfoGemini(c, request)
 	case types.RelayFormatEmbedding:
 		info = GenRelayInfoEmbedding(c, request)
+	case types.RelayFormatTypeSafe:
+		info = GenRelayInfoTypeSafe(c, request)
 	case types.RelayFormatOpenAIResponses:
 		if request, ok := request.(*dto.OpenAIResponsesRequest); ok {
 			info = GenRelayInfoResponses(c, request)
