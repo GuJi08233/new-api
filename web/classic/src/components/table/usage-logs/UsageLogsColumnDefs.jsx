@@ -210,34 +210,59 @@ function renderIsStream(bool, t, streamStatus) {
   }
 }
 
-function renderUseTime(type, t) {
-  const time = parseInt(type);
-  if (time < 101) {
+function renderUseTime(type, preciseMilliseconds) {
+  const seconds = Number.parseInt(type, 10);
+  const milliseconds = Number(preciseMilliseconds);
+  const hasPreciseMilliseconds =
+    preciseMilliseconds !== undefined &&
+    preciseMilliseconds !== null &&
+    preciseMilliseconds !== '' &&
+    Number.isFinite(milliseconds) &&
+    milliseconds >= 0;
+  const displaySeconds = hasPreciseMilliseconds
+    ? milliseconds / 1000
+    : Number.isFinite(seconds)
+      ? seconds
+      : 0;
+  const isSubSecond = displaySeconds < 1;
+  const label = isSubSecond
+    ? hasPreciseMilliseconds
+      ? milliseconds < 1
+        ? '<1 ms'
+        : `${Math.round(milliseconds)} ms`
+      : '<1 s'
+    : `${Math.floor(displaySeconds)} s`;
+
+  if (displaySeconds < 101) {
     return (
       <Tag color='green' shape='circle'>
         {' '}
-        {time} s{' '}
+        {label}{' '}
       </Tag>
     );
-  } else if (time < 300) {
+  } else if (displaySeconds < 300) {
     return (
       <Tag color='orange' shape='circle'>
         {' '}
-        {time} s{' '}
+        {label}{' '}
       </Tag>
     );
   } else {
     return (
       <Tag color='red' shape='circle'>
         {' '}
-        {time} s{' '}
+        {label}{' '}
       </Tag>
     );
   }
 }
 
 function renderFirstUseTime(type, t) {
-  let time = parseFloat(type) / 1000.0;
+  const milliseconds = Number(type);
+  if (!Number.isFinite(milliseconds) || milliseconds < 0) {
+    return null;
+  }
+  let time = milliseconds / 1000.0;
   time = time.toFixed(1);
   if (time < 3) {
     return (
@@ -728,12 +753,12 @@ export const getLogsColumns = ({
         if (!(record.type === 2 || record.type === 5)) {
           return <></>;
         }
+        const other = getLogOther(record.other);
         if (record.is_stream) {
-          let other = getLogOther(record.other);
           return (
             <>
               <Space>
-                {renderUseTime(text, t)}
+                {renderUseTime(text, other?.use_time_ms)}
                 {renderFirstUseTime(other?.frt, t)}
                 {renderIsStream(record.is_stream, t, other?.stream_status)}
                 {renderTps(record, t)}
@@ -744,7 +769,7 @@ export const getLogsColumns = ({
           return (
             <>
               <Space>
-                {renderUseTime(text, t)}
+                {renderUseTime(text, other?.use_time_ms)}
                 {renderIsStream(record.is_stream, t)}
                 {renderTps(record, t)}
               </Space>

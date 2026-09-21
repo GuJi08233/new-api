@@ -59,6 +59,7 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo) {
 		Quota:     info.PriceData.Quota,
 		Content:   logContent,
 		TokenId:   info.TokenId,
+		StartTime: info.StartTime,
 		Group:     info.UsingGroup,
 		Other:     other,
 	})

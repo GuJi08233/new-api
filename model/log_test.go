@@ -117,6 +117,34 @@ func TestRecordRequestLogsPersistSanitizedUa(t *testing.T) {
 	}
 }
 
+func TestRecordConsumeLogPersistsMillisecondDuration(t *testing.T) {
+	truncateTables(t)
+	originalExport := common.DataExportEnabled
+	t.Cleanup(func() {
+		common.DataExportEnabled = originalExport
+	})
+	common.DataExportEnabled = false
+
+	context := newLogTestContext("duration-test")
+	context.Set("username", "log-user")
+	startTime := time.Now().Add(-250 * time.Millisecond)
+	RecordConsumeLog(context, 1002, RecordConsumeLogParams{
+		ModelName: "test-model",
+		StartTime: startTime,
+	})
+
+	var log Log
+	require.NoError(t, LOG_DB.Where("user_id = ?", 1002).First(&log).Error)
+	assert.Zero(t, log.UseTime)
+
+	other, err := common.StrToMap(log.Other)
+	require.NoError(t, err)
+	useTimeMs, ok := other["use_time_ms"].(float64)
+	require.True(t, ok)
+	assert.GreaterOrEqual(t, useTimeMs, float64(200))
+	assert.Less(t, useTimeMs, float64(1000))
+}
+
 // 注册、签到这类账号审计日志的来源必须始终可溯源：IP / UA 不随中转调用日志的隐私
 // 开关一起关掉，否则运营者一关调用日志的 IP 记录，一人多号就再也追不回注册来源。
 func TestRecordAuditLogKeepsSourceWhenRequestLogsDisabled(t *testing.T) {

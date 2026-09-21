@@ -453,6 +453,7 @@ type RecordConsumeLogParams struct {
 	Content          string                 `json:"content"`
 	TokenId          int                    `json:"token_id"`
 	UseTimeSeconds   int                    `json:"use_time_seconds"`
+	StartTime        time.Time              `json:"-"`
 	IsStream         bool                   `json:"is_stream"`
 	Group            string                 `json:"group"`
 	Other            map[string]interface{} `json:"other"`
@@ -461,6 +462,13 @@ type RecordConsumeLogParams struct {
 func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams) {
 	if !common.LogConsumeEnabled {
 		return
+	}
+	if !params.StartTime.IsZero() {
+		elapsedMilliseconds := max(time.Since(params.StartTime).Milliseconds(), 0)
+		if params.Other == nil {
+			params.Other = make(map[string]interface{})
+		}
+		params.Other["use_time_ms"] = elapsedMilliseconds
 	}
 	logger.LogInfo(c, fmt.Sprintf("record consume log: userId=%d, params=%s", userId, common.GetJsonString(params)))
 	username := c.GetString("username")

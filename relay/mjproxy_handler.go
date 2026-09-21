@@ -294,6 +294,7 @@ func RelaySwapFace(c *gin.Context, info *relaycommon.RelayInfo) *dto.MidjourneyR
 			Quota:     priceData.Quota,
 			Content:   logContent,
 			TokenId:   info.TokenId,
+			StartTime: info.StartTime,
 			Group:     info.UsingGroup,
 			Other:     other,
 		})
@@ -654,6 +655,7 @@ func RelayMidjourneySubmit(c *gin.Context, relayInfo *relaycommon.RelayInfo) *dt
 			Quota:     priceData.Quota,
 			Content:   logContent,
 			TokenId:   relayInfo.TokenId,
+			StartTime: relayInfo.StartTime,
 			Group:     relayInfo.UsingGroup,
 			Other:     other,
 		})

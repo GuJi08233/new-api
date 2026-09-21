@@ -580,6 +580,7 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 		Quota:            quota,
 		Content:          "模型测试",
 		UseTimeSeconds:   int(consumedTime),
+		StartTime:        tik,
 		IsStream:         info.IsStream,
 		Group:            info.UsingGroup,
 		Other:            other,

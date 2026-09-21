@@ -764,7 +764,9 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 		if startTime.IsZero() {
 			startTime = time.Now()
 		}
-		useTimeSeconds := int(time.Since(startTime).Seconds())
+		elapsedMilliseconds := max(time.Since(startTime).Milliseconds(), 0)
+		other["use_time_ms"] = elapsedMilliseconds
+		useTimeSeconds := int(elapsedMilliseconds / 1000)
 		model.RecordErrorLog(c, userId, channelId, modelName, tokenName, err.MaskSensitiveErrorWithStatusCode(), tokenId, useTimeSeconds, common.GetContextKeyBool(c, constant.ContextKeyIsStream), userGroup, other)
 	}
 
