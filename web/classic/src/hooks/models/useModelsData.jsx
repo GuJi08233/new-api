@@ -33,6 +33,7 @@ export const useModelsData = () => {
   const [activePage, setActivePage] = useState(1);
   const [pageSize, setPageSize] = useState(ITEMS_PER_PAGE);
   const [searching, setSearching] = useState(false);
+  const [searchMode, setSearchMode] = useState(false); // 是否处于搜索结果视图
   const [modelCount, setModelCount] = useState(0);
 
   // Modal states
@@ -126,6 +127,7 @@ export const useModelsData = () => {
     vendorKey = activeVendorKey,
   ) => {
     setLoading(true);
+    setSearchMode(false);
     try {
       let url = `/api/models/?p=${page}&page_size=${size}`;
       if (vendorKey && vendorKey !== 'all') {
@@ -162,7 +164,11 @@ export const useModelsData = () => {
 
   // Refresh data
   const refresh = async (page = activePage) => {
-    await loadModels(page, pageSize);
+    if (searchMode) {
+      await searchModels(page, pageSize);
+    } else {
+      await loadModels(page, pageSize);
+    }
   };
 
   // Sync upstream models/vendors for missing models only
@@ -251,24 +257,28 @@ export const useModelsData = () => {
   };
 
   // Search models with keyword and vendor
-  const searchModels = async () => {
+  // 搜索表单的 onSubmit 会把表单值作为第一个参数传入，非正整数的页码按第一页处理
+  const searchModels = async (page = 1, size = pageSize) => {
+    const normalizedPage = Number.isInteger(page) && page > 0 ? page : 1;
+    const normalizedSize = Number.isInteger(size) && size > 0 ? size : pageSize;
     const { searchKeyword = '', searchVendor = '' } = getFormValues();
 
     if (searchKeyword === '' && searchVendor === '') {
       // If keyword is blank, load models instead
-      await loadModels(1, pageSize);
+      await loadModels(normalizedPage, normalizedSize);
       return;
     }
 
     setSearching(true);
     try {
       const res = await API.get(
-        `/api/models/search?keyword=${searchKeyword}&vendor=${searchVendor}&p=1&page_size=${pageSize}`,
+        `/api/models/search?keyword=${encodeURIComponent(searchKeyword)}&vendor=${encodeURIComponent(searchVendor)}&p=${normalizedPage}&page_size=${normalizedSize}`,
       );
       const { success, message, data } = res.data;
       if (success) {
+        setSearchMode(true);
         const newPageData = extractItems(data);
-        setActivePage(data.page || 1);
+        setActivePage(data.page || normalizedPage);
         setModelCount(data.total || newPageData.length);
         setModelFormat(newPageData);
         if (data.vendor_counts) {
@@ -330,7 +340,11 @@ export const useModelsData = () => {
   // Handle page change
   const handlePageChange = (page) => {
     setActivePage(page);
-    loadModels(page, pageSize, activeVendorKey);
+    if (searchMode) {
+      searchModels(page, pageSize);
+    } else {
+      loadModels(page, pageSize, activeVendorKey);
+    }
   };
 
   // Reload models when activeVendorKey changes
@@ -342,7 +356,11 @@ export const useModelsData = () => {
   const handlePageSizeChange = async (size) => {
     setPageSize(size);
     setActivePage(1);
-    await loadModels(1, size, activeVendorKey);
+    if (searchMode) {
+      await searchModels(1, size);
+    } else {
+      await loadModels(1, size, activeVendorKey);
+    }
   };
 
   // Handle row click and styling

@@ -93,22 +93,25 @@ export const useRedemptionsData = () => {
   };
 
   // Search redemption codes
-  const searchRedemptions = async () => {
+  // 搜索表单的 onSubmit 会把表单值作为第一个参数传入，非正整数的页码按第一页处理
+  const searchRedemptions = async (page = 1, size = pageSize) => {
+    const normalizedPage = Number.isInteger(page) && page > 0 ? page : 1;
+    const normalizedSize = Number.isInteger(size) && size > 0 ? size : pageSize;
     const { searchKeyword } = getFormValues();
     if (searchKeyword === '') {
-      await loadRedemptions(1, pageSize);
+      await loadRedemptions(normalizedPage, normalizedSize);
       return;
     }
 
     setSearching(true);
     try {
       const res = await API.get(
-        `/api/redemption/search?keyword=${searchKeyword}&p=1&page_size=${pageSize}`,
+        `/api/redemption/search?keyword=${encodeURIComponent(searchKeyword)}&p=${normalizedPage}&page_size=${normalizedSize}`,
       );
       const { success, message, data } = res.data;
       if (success) {
         const newPageData = data.items;
-        setActivePage(data.page || 1);
+        setActivePage(data.page || normalizedPage);
         setTokenCount(data.total);
         setRedemptionFormat(newPageData);
       } else {
@@ -161,37 +164,22 @@ export const useRedemptionsData = () => {
     setLoading(false);
   };
 
-  // Refresh data
+  // Refresh data (searchRedemptions 在关键词为空时会回退到普通列表)
   const refresh = async (page = activePage) => {
-    const { searchKeyword } = getFormValues();
-    if (searchKeyword === '') {
-      await loadRedemptions(page, pageSize);
-    } else {
-      await searchRedemptions();
-    }
+    await searchRedemptions(page, pageSize);
   };
 
   // Handle page change
   const handlePageChange = (page) => {
     setActivePage(page);
-    const { searchKeyword } = getFormValues();
-    if (searchKeyword === '') {
-      loadRedemptions(page, pageSize);
-    } else {
-      searchRedemptions();
-    }
+    searchRedemptions(page, pageSize);
   };
 
   // Handle page size change
   const handlePageSizeChange = (size) => {
     setPageSize(size);
     setActivePage(1);
-    const { searchKeyword } = getFormValues();
-    if (searchKeyword === '') {
-      loadRedemptions(1, size);
-    } else {
-      searchRedemptions();
-    }
+    searchRedemptions(1, size);
   };
 
   // Row selection configuration
@@ -294,14 +282,15 @@ export const useRedemptionsData = () => {
     }
   };
 
-  // Initialize data loading
+  // Initialize data loading. 只在挂载时加载：改每页条数由 handlePageSizeChange 按当前搜索条件重新加载，
+  // 依赖 pageSize 会在搜索时额外发一次未过滤的请求并覆盖搜索结果。
   useEffect(() => {
     loadRedemptions(1, pageSize)
       .then()
       .catch((reason) => {
         showError(reason);
       });
-  }, [pageSize]);
+  }, []);
 
   return {
     // Data state
