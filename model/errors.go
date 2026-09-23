@@ -15,6 +15,8 @@ var (
 	ErrEmailAlreadyTaken    = errors.New("email already taken")
 	ErrEmailNotFound        = errors.New("email not found")
 	ErrEmailAmbiguous       = errors.New("email matches multiple users")
+	// ErrUserRoleChanged 表示管理操作做完权限判断后，目标用户的角色被并发修改了。
+	ErrUserRoleChanged = errors.New("user role changed")
 )
 
 // Token auth errors

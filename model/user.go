@@ -400,6 +400,8 @@ func SearchUsers(keyword string, group string, role *int, status *int, startIdx 
 	return users, total, nil
 }
 
+// GetUserById 读主库：结果会用于管理员对目标用户的角色判断和“读出再改写”的更新，
+// 只读副本上的旧角色、旧设置会让权限判断失效或把旧值写回。
 func GetUserById(id int, selectAll bool) (*User, error) {
 	if id == 0 {
 		return nil, errors.New("id 为空！")
@@ -407,11 +409,24 @@ func GetUserById(id int, selectAll bool) (*User, error) {
 	user := User{Id: id}
 	var err error = nil
 	if selectAll {
-		err = ReadDB().First(&user, "id = ?", id).Error
+		err = DB.First(&user, "id = ?", id).Error
 	} else {
-		err = ReadDB().Omit("password", "access_token").First(&user, "id = ?", id).Error
+		err = DB.Omit("password", "access_token").First(&user, "id = ?", id).Error
 	}
 	return &user, err
+}
+
+// LockUserRole 在写事务内锁定目标用户行，并确认其角色仍是做权限判断时读到的值：
+// 判断与写入之间被并发提升或降级的用户，不能再按旧角色被管理。
+func LockUserRole(tx *gorm.DB, userId int, expectedRole int) error {
+	var current User
+	if err := lockForUpdate(tx).Select("id", "role").First(&current, userId).Error; err != nil {
+		return err
+	}
+	if current.Role != expectedRole {
+		return ErrUserRoleChanged
+	}
+	return nil
 }
 
 func DeleteUserById(id int) (err error) {
@@ -422,12 +437,13 @@ func DeleteUserById(id int) (err error) {
 	return user.Delete()
 }
 
-func HardDeleteUserById(id int) error {
+// HardDeleteUserById 只在目标用户的角色仍是 expectedRole（做权限判断时读到的角色）时删除。
+func HardDeleteUserById(id int, expectedRole int) error {
 	if id == 0 {
 		return errors.New("id 为空！")
 	}
 	user := User{Id: id}
-	return user.HardDelete()
+	return user.HardDelete(expectedRole)
 }
 
 func (user *User) prepareForInsert(tx *gorm.DB) error {
@@ -745,12 +761,15 @@ func (user *User) Delete() error {
 	return invalidateUserCache(user.Id)
 }
 
-func (user *User) HardDelete() error {
+func (user *User) HardDelete(expectedRole int) error {
 	if user.Id == 0 {
 		return errors.New("id 为空！")
 	}
 	var tokens []Token
 	err := DB.Transaction(func(tx *gorm.DB) error {
+		if err := LockUserRole(tx, user.Id, expectedRole); err != nil {
+			return err
+		}
 		if common.RedisEnabled {
 			if err := tx.Unscoped().Select("id", commonKeyCol).Where("user_id = ?", user.Id).Find(&tokens).Error; err != nil {
 				return err
@@ -951,7 +970,7 @@ func IsAdmin(userId int) bool {
 		return false
 	}
 	var user User
-	err := ReadDB().Where("id = ?", userId).Select("role").Find(&user).Error
+	err := DB.Where("id = ?", userId).Select("role").Find(&user).Error
 	if err != nil {
 		common.SysLog("no such user " + err.Error())
 		return false
@@ -965,7 +984,9 @@ func ValidateAccessToken(token string) (*User, error) {
 	}
 	token = strings.Replace(token, "Bearer ", "", 1)
 	user := &User{}
-	err := ReadDB().Where("access_token = ?", token).First(user).Error
+	// 与 ReadSecurityIdentity 一样读主库：鉴权直接使用这里的角色和状态，
+	// 撤销令牌、封禁、降权都不能等只读副本追上才生效。
+	err := DB.Where("access_token = ?", token).First(user).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil

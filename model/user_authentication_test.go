@@ -42,7 +42,7 @@ func TestHardDeleteUserPurgesAuthenticationDataWhenRedisFails(t *testing.T) {
 		common.RedisEnabled, common.RDB = oldRedisEnabled, oldRDB
 	})
 
-	require.NoError(t, HardDeleteUserById(user.Id))
+	require.NoError(t, HardDeleteUserById(user.Id, common.RoleCommonUser))
 	assert.True(t, cacheInvalidatedAfterCommit.Load())
 
 	var count int64

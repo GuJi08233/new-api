@@ -101,6 +101,7 @@ const (
 	MsgUserAlreadyAdmin              = "user.already_admin"
 	MsgUserAlreadyCommon             = "user.already_common"
 	MsgUserAdminCannotPromote        = "user.admin_cannot_promote"
+	MsgUserRoleChanged               = "user.role_changed"
 	MsgUserOriginalPasswordError     = "user.original_password_error"
 	MsgUserTopUpProcessing           = "user.topup_processing"
 	MsgUserRegisterFailed            = "user.register_failed"

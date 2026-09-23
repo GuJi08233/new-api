@@ -700,6 +700,9 @@ func UpdateUser(c *gin.Context) {
 	updatePassword := updatedUser.Password != ""
 	authzTouched := false
 	if err := model.DB.Transaction(func(tx *gorm.DB) error {
+		if err := model.LockUserRole(tx, updatedUser.Id, originUser.Role); err != nil {
+			return err
+		}
 		if err := updatedUser.EditWithTx(tx, updatePassword); err != nil {
 			return err
 		}
@@ -707,6 +710,10 @@ func UpdateUser(c *gin.Context) {
 		authzTouched = touched
 		return err
 	}); err != nil {
+		if errors.Is(err, model.ErrUserRoleChanged) {
+			common.ApiErrorI18n(c, i18n.MsgUserRoleChanged)
+			return
+		}
 		common.ApiError(c, err)
 		return
 	}
@@ -906,7 +913,11 @@ func DeleteUser(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgUserNoPermissionHigherLevel)
 		return
 	}
-	err = model.HardDeleteUserById(id)
+	err = model.HardDeleteUserById(id, originUser.Role)
+	if errors.Is(err, model.ErrUserRoleChanged) {
+		common.ApiErrorI18n(c, i18n.MsgUserRoleChanged)
+		return
+	}
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -1044,8 +1055,8 @@ func ManageUser(c *gin.Context) {
 	user := model.User{
 		Id: req.Id,
 	}
-	// Fill attributes
-	model.ReadDB().Unscoped().Where(&user).First(&user)
+	// 读主库：权限判断要基于目标用户的当前角色，只读副本可能还停在提升/降级之前。
+	model.DB.Unscoped().Where(&user).First(&user)
 	if user.Id == 0 {
 		common.ApiErrorI18n(c, i18n.MsgUserNotExists)
 		return
@@ -1055,6 +1066,7 @@ func ManageUser(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgUserNoPermissionHigherLevel)
 		return
 	}
+	checkedRole := user.Role
 	switch req.Action {
 	case "disable":
 		user.Status = common.UserStatusDisabled
@@ -1068,18 +1080,6 @@ func ManageUser(c *gin.Context) {
 		if user.Role == common.RoleRootUser {
 			common.ApiErrorI18n(c, i18n.MsgUserCannotDeleteRootUser)
 			return
-		}
-		if err := user.Delete(); err != nil {
-			c.JSON(http.StatusOK, gin.H{
-				"success": false,
-				"message": err.Error(),
-			})
-			return
-		}
-		// 删除用户后，强制清理 Redis 中所有该用户令牌的缓存，
-		// 避免已缓存的令牌在 TTL 过期前仍能通过 TokenAuth 校验。
-		if err := model.InvalidateUserTokensCache(user.Id); err != nil {
-			common.SysLog(fmt.Sprintf("failed to invalidate tokens cache for user %d: %s", user.Id, err.Error()))
 		}
 	case "promote":
 		if myRole != common.RoleRootUser {
@@ -1152,40 +1152,51 @@ func ManageUser(c *gin.Context) {
 			"message": "",
 		})
 		return
+	default:
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
 	}
 
-	authzTouched := false
-	if req.Action == "demote" {
-		if err := model.DB.Transaction(func(tx *gorm.DB) error {
-			if err := user.UpdateWithTx(tx, false); err != nil {
-				return err
-			}
-			authzTouched = true
+	// 事务内先锁定目标用户并确认角色仍是权限判断时读到的值，再只写本次操作改动的列：
+	// 把读出的整行写回，会覆盖掉期间其他请求对分组、绑定、角色等字段的修改。
+	if err := model.DB.Transaction(func(tx *gorm.DB) error {
+		if err := model.LockUserRole(tx, user.Id, checkedRole); err != nil {
+			return err
+		}
+		switch req.Action {
+		case "delete":
+			return tx.Delete(&model.User{}, user.Id).Error
+		case "disable", "enable":
+			return tx.Model(&model.User{}).Where("id = ?", user.Id).Update("status", user.Status).Error
+		}
+		if err := tx.Model(&model.User{}).Where("id = ?", user.Id).Update("role", user.Role).Error; err != nil {
+			return err
+		}
+		if req.Action == "demote" {
 			return authz.ClearUserAuthorizationInTx(tx, user.Id)
-		}); err != nil {
-			common.ApiError(c, err)
+		}
+		return nil
+	}); err != nil {
+		if errors.Is(err, model.ErrUserRoleChanged) {
+			common.ApiErrorI18n(c, i18n.MsgUserRoleChanged)
 			return
 		}
-		if authzTouched {
-			if err := authz.ReloadPolicy(); err != nil {
-				common.ApiError(c, err)
-				return
-			}
-		}
-	} else {
-		if err := user.Update(false); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if req.Action == "demote" {
+		if err := authz.ReloadPolicy(); err != nil {
 			common.ApiError(c, err)
 			return
 		}
 	}
-	// 禁用 / 角色调整后，强制失效用户缓存与其全部令牌缓存，
+	// 删除 / 禁用 / 启用 / 角色调整后，强制失效用户缓存，让下一次 GetUserCache 从数据库重新加载，
 	// 避免在 Redis TTL 过期前仍使用旧状态（尤其是禁用后仍可发起请求的问题）。
-	// InvalidateUserCache 会让下一次 GetUserCache 从数据库重新加载，
-	// InvalidateUserTokensCache 则确保令牌侧的缓存也同步刷新。
-	if req.Action == "disable" || req.Action == "promote" || req.Action == "demote" {
-		if err := model.InvalidateUserCache(user.Id); err != nil {
-			common.SysLog(fmt.Sprintf("failed to invalidate user cache for user %d: %s", user.Id, err.Error()))
-		}
+	// 删除、禁用和角色调整还要失效该用户全部令牌的缓存，确保令牌侧也同步刷新。
+	if err := model.InvalidateUserCache(user.Id); err != nil {
+		common.SysLog(fmt.Sprintf("failed to invalidate user cache for user %d: %s", user.Id, err.Error()))
+	}
+	if req.Action != "enable" {
 		if err := model.InvalidateUserTokensCache(user.Id); err != nil {
 			common.SysLog(fmt.Sprintf("failed to invalidate tokens cache for user %d: %s", user.Id, err.Error()))
 		}
