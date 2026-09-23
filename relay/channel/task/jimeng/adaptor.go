@@ -416,6 +416,8 @@ func (a *TaskAdaptor) convertToRequestPayload(req *relaycommon.TaskSubmitReq, in
 	if err := taskcommon.UnmarshalMetadata(req.Metadata, &r); err != nil {
 		return nil, errors.Wrap(err, "unmarshal metadata failed")
 	}
+	// req_key 就是即梦的模型字段，预扣费按 info.UpstreamModelName 计价，metadata 不能改掉它。
+	r.ReqKey = info.UpstreamModelName
 
 	// 即梦视频3.0 ReqKey转换
 	// https://www.volcengine.com/docs/85621/1792707

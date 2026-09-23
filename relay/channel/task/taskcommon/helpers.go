@@ -3,6 +3,7 @@ package taskcommon
 import (
 	"encoding/base64"
 	"fmt"
+	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
@@ -18,7 +19,13 @@ func UnmarshalMetadata(metadata map[string]any, target any) error {
 		return nil
 	}
 	// Prevent metadata from overriding model fields to avoid billing bypass.
-	delete(metadata, "model")
+	// JSON field matching is case-insensitive, so "Model" or "MODEL" would still
+	// land on a `json:"model"` field; every case variant has to be dropped.
+	for key := range metadata {
+		if strings.EqualFold(key, "model") {
+			delete(metadata, key)
+		}
+	}
 	metaBytes, err := common.Marshal(metadata)
 	if err != nil {
 		return fmt.Errorf("marshal metadata failed: %w", err)

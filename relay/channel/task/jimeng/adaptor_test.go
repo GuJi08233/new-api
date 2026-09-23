@@ -109,3 +109,31 @@ func TestDoRequestNewAPIRelayKeepsExplicitAuthorizationOverride(t *testing.T) {
 
 	assert.Equal(t, "Bearer explicit-override", (<-received).Get("Authorization"))
 }
+
+// req_key 就是即梦的模型字段；预扣费按 info.UpstreamModelName 计价，metadata.req_key
+// 不能把出站模型换成更贵的型号，3.0 的 req_key 转换也必须基于计价的那个模型。
+func TestConvertToRequestPayloadKeepsPricedReqKey(t *testing.T) {
+	tests := []struct {
+		name        string
+		pricedModel string
+		wantReqKey  string
+	}{
+		{"普通模型", "jimeng_vgfm_t2v_l20", "jimeng_vgfm_t2v_l20"},
+		{"3.0 文生视频不会被换成 pro", "jimeng_v30", "jimeng_t2v_v30"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			req := &relaycommon.TaskSubmitReq{
+				Prompt:   "a cat",
+				Metadata: map[string]any{"req_key": "jimeng_v30_pro", "seed": 7},
+			}
+			info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: tc.pricedModel}}
+
+			payload, err := (&TaskAdaptor{}).convertToRequestPayload(req, info)
+
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantReqKey, payload.ReqKey)
+			assert.Equal(t, int64(7), payload.Seed, "其余 metadata 字段仍应透传")
+		})
+	}
+}
