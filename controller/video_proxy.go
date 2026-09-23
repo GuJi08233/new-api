@@ -21,6 +21,10 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// videoProxyCacheControl 只允许用户自己的浏览器缓存视频：内容按任务所属用户鉴权后才返回，
+// public 会让 CDN 等共享缓存按 URL 保存响应，之后同一地址不经鉴权就能取到。
+const videoProxyCacheControl = "private, max-age=86400"
+
 // videoProxyError returns a standardized OpenAI-style error response.
 func videoProxyError(c *gin.Context, status int, errType, message string) {
 	c.JSON(status, gin.H{
@@ -174,7 +178,7 @@ func VideoProxy(c *gin.Context) {
 	if resp.ContentLength >= 0 {
 		c.Writer.Header().Set("Content-Length", strconv.FormatInt(resp.ContentLength, 10))
 	}
-	c.Writer.Header().Set("Cache-Control", "public, max-age=86400")
+	c.Writer.Header().Set("Cache-Control", videoProxyCacheControl)
 	c.Writer.WriteHeader(resp.StatusCode)
 	if _, err = io.Copy(c.Writer, resp.Body); err != nil {
 		logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to stream video content: %s", err.Error()))
@@ -208,7 +212,7 @@ func writeVideoDataURL(c *gin.Context, dataURL string) error {
 	}
 
 	c.Writer.Header().Set("Content-Type", mimeType)
-	c.Writer.Header().Set("Cache-Control", "public, max-age=86400")
+	c.Writer.Header().Set("Cache-Control", videoProxyCacheControl)
 	c.Writer.WriteHeader(http.StatusOK)
 	_, err = c.Writer.Write(videoBytes)
 	return err
