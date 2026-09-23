@@ -297,12 +297,8 @@ func ModelPriceHelperPerCall(c *gin.Context, info *relaycommon.RelayInfo) (types
 	common.OptionMapRWMutex.RLock()
 	defer common.OptionMapRWMutex.RUnlock()
 	groupRatioInfo := HandleGroupRatio(c, info)
-
-	// 获取用户分组
-	userGroup := info.UserGroup
-	if autoGroup, exists := c.Get("auto_group"); exists {
-		userGroup = autoGroup.(string)
-	}
+	// 分组价格必须跟倍率取自同一个实际分组：令牌指定的分组可能不同于用户自身分组。
+	userGroup := info.UsingGroup
 
 	// 先尝试获取分组级别的配置
 	groupBillingMode := ratio_setting.GetGroupBillingMode(userGroup, info.OriginModelName)

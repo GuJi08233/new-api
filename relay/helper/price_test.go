@@ -413,3 +413,45 @@ func TestHandleGroupRatioRecordsSelectedGroup(t *testing.T) {
 		})
 	}
 }
+
+// 任务与 Midjourney 的按次计费：令牌指定的分组（或 auto 命中的分组）与用户自身分组不同时，
+// 倍率取自实际分组，分组专属价格也必须取自同一个分组，不能混用用户分组的价格。
+func TestModelPriceHelperPerCallUsesSelectedGroupPrice(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	savedGroupRatio := ratio_setting.GroupRatio2JSONString()
+	savedPrices := ratio_setting.GroupModelPrice2JSONString()
+	savedModes := ratio_setting.GroupBillingMode2JSONString()
+	t.Cleanup(func() {
+		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(savedGroupRatio))
+		require.NoError(t, ratio_setting.UpdateGroupModelPriceByJSONString(savedPrices))
+		require.NoError(t, ratio_setting.UpdateGroupBillingModeByJSONString(savedModes))
+	})
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1,"vip":0.5}`))
+	require.NoError(t, ratio_setting.UpdateGroupModelPriceByJSONString(`{"default":{"per-call-task":10},"vip":{"per-call-task":2}}`))
+	require.NoError(t, ratio_setting.UpdateGroupBillingModeByJSONString(`{"default":{"per-call-task":"per-request"},"vip":{"per-call-task":"per-request"}}`))
+
+	tests := []struct {
+		name       string
+		tokenGroup string
+		autoGroup  string
+	}{
+		{"单分组令牌", "vip", ""},
+		{"auto 令牌命中 vip", "auto", "vip"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+			if tc.autoGroup != "" {
+				common.SetContextKey(ctx, constant.ContextKeyAutoGroup, tc.autoGroup)
+			}
+			info := &relaycommon.RelayInfo{OriginModelName: "per-call-task", UserGroup: "default", UsingGroup: tc.tokenGroup}
+
+			priceData, err := ModelPriceHelperPerCall(ctx, info)
+
+			require.NoError(t, err)
+			assert.Equal(t, "vip", info.UsingGroup)
+			assert.Equal(t, 2.0, priceData.ModelPrice)
+			assert.Equal(t, 500000, priceData.Quota)
+		})
+	}
+}
