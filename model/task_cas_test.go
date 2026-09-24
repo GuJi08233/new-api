@@ -61,6 +61,10 @@ func TestMain(m *testing.M) {
 		&RiskEvent{},
 		&IpBan{},
 		&CodeUse{},
+		&GameCoinAccount{},
+		&GameCoinLog{},
+		&GameCoinWithdrawal{},
+		&GameCoinWithdrawDay{},
 	); err != nil {
 		panic("failed to migrate: " + err.Error())
 	}
@@ -99,6 +103,10 @@ func truncateTables(t *testing.T) {
 		DB.Exec("DELETE FROM risk_events")
 		DB.Exec("DELETE FROM ip_bans")
 		DB.Exec("DELETE FROM code_uses")
+		DB.Exec("DELETE FROM game_coin_accounts")
+		DB.Exec("DELETE FROM game_coin_logs")
+		DB.Exec("DELETE FROM game_coin_withdrawals")
+		DB.Exec("DELETE FROM game_coin_withdraw_days")
 	})
 }
 

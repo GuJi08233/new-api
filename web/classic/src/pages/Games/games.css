@@ -1,0 +1,295 @@
+/*
+Copyright (C) 2025 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+
+/* ==========================================================================
+   Game center page — scoped styles (all classes prefixed with `games-`)
+   Theme-aware via Semi CSS variables, works in light & dark mode.
+   ========================================================================== */
+
+.games-page {
+  position: relative;
+  min-height: 100%;
+  padding-top: 64px;
+}
+
+.games-glow {
+  pointer-events: none;
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 520px;
+  background: radial-gradient(
+      ellipse 50% 45% at 15% 10%,
+      rgba(var(--semi-amber-5), 1) 0%,
+      transparent 70%
+    ),
+    radial-gradient(
+      ellipse 45% 40% at 85% 8%,
+      rgba(var(--semi-violet-5), 1) 0%,
+      transparent 70%
+    );
+  opacity: 0.12;
+  -webkit-mask-image: linear-gradient(to bottom, black 30%, transparent 100%);
+  mask-image: linear-gradient(to bottom, black 30%, transparent 100%);
+}
+
+.games-container {
+  position: relative;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 28px 24px 48px;
+}
+
+/* ---------- Hero ---------- */
+
+.games-hero {
+  margin-bottom: 24px;
+}
+
+.games-hero-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.games-hero-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  flex-shrink: 0;
+  color: #fff;
+  background: linear-gradient(135deg, #8b5cf6 0%, #ec4899 100%);
+  box-shadow: 0 6px 16px rgba(139, 92, 246, 0.35);
+}
+
+.games-hero-title {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  line-height: 1.25;
+  color: var(--semi-color-text-0);
+}
+
+.games-hero-sub {
+  margin: 8px 0 0;
+  font-size: 14px;
+  color: var(--semi-color-text-2);
+  max-width: 620px;
+}
+
+/* ---------- Wallet cards ---------- */
+
+.games-wallet {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+
+.games-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px 20px;
+  border-radius: 14px;
+  border: 1px solid var(--semi-color-border);
+  background: var(--semi-color-bg-1);
+}
+
+.games-card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.games-card-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  flex-shrink: 0;
+}
+
+.games-card-icon.tone-primary {
+  background: var(--semi-color-primary-light-default);
+  color: var(--semi-color-primary);
+}
+
+.games-card-icon.tone-green {
+  background: var(--semi-color-success-light-default);
+  color: var(--semi-color-success);
+}
+
+.games-card-icon.tone-amber {
+  background: var(--semi-color-warning-light-default);
+  color: var(--semi-color-warning);
+}
+
+.games-card-icon.tone-violet {
+  background: rgba(var(--semi-violet-5), 0.12);
+  color: rgba(var(--semi-violet-5), 1);
+}
+
+.games-card-title {
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--semi-color-text-0);
+}
+
+.games-balance-value {
+  font-size: 40px;
+  font-weight: 700;
+  line-height: 1.1;
+  font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+  font-variant-numeric: tabular-nums;
+  color: var(--semi-color-text-0);
+  word-break: break-all;
+}
+
+.games-balance-symbol {
+  margin-left: 8px;
+  font-size: 22px;
+  color: var(--semi-color-warning);
+}
+
+.games-balance-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--semi-color-border);
+}
+
+.games-balance-stats div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.games-balance-stats span {
+  font-size: 12px;
+  color: var(--semi-color-text-2);
+}
+
+.games-balance-stats strong {
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+  color: var(--semi-color-text-0);
+}
+
+.games-field {
+  width: 100%;
+}
+
+.games-preview {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  color: var(--semi-color-text-2);
+}
+
+.games-preview strong {
+  color: var(--semi-color-text-0);
+}
+
+.games-rules {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.8;
+  color: var(--semi-color-text-2);
+}
+
+.games-token {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 12px;
+  border-top: 1px solid var(--semi-color-border);
+  font-size: 12px;
+}
+
+.games-token-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--semi-color-text-2);
+}
+
+.games-token-row > span:last-child {
+  color: var(--semi-color-text-0);
+}
+
+.games-token-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.games-token-actions a {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--semi-color-link);
+}
+
+/* ---------- Sections ---------- */
+
+.games-section {
+  margin-top: 24px;
+  border-radius: 14px;
+  border: 1px solid var(--semi-color-border);
+  background: var(--semi-color-bg-1);
+  overflow: hidden;
+}
+
+.games-section-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--semi-color-border);
+}
+
+.games-section-title {
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--semi-color-text-0);
+}
+
+.games-section-body {
+  padding: 12px 20px 16px;
+}
+
+@media (max-width: 640px) {
+  .games-container {
+    padding: 20px 12px 32px;
+  }
+
+  .games-balance-value {
+    font-size: 32px;
+  }
+}

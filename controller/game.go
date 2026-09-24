@@ -1,0 +1,396 @@
+package controller
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strconv"
+	"strings"
+	"time"
+	"unicode/utf8"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/middleware"
+	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/config"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
+
+	"github.com/gin-gonic/gin"
+	"github.com/shopspring/decimal"
+)
+
+const gameZeroAddress = "0x0000000000000000000000000000000000000000"
+
+type gameCoinConvertRequest struct {
+	Amount int `json:"amount"`
+}
+
+type gameCoinWithdrawRequest struct {
+	Address string `json:"address"`
+	Amount  int    `json:"amount"`
+}
+
+type gameCoinAdjustRequest struct {
+	UserId int    `json:"user_id"`
+	Amount int    `json:"amount"`
+	Remark string `json:"remark"`
+}
+
+type gameHotWalletRequest struct {
+	PrivateKey string `json:"private_key"`
+}
+
+// gameCoinWithdrawDay 是全站提现额度的记账日，与签到一样按服务器本地时间 0 点切换。
+func gameCoinWithdrawDay() string {
+	return time.Now().Format("2006-01-02")
+}
+
+// GetGameCenterSelf 返回当前用户的游戏币账户、兑换比例与提现规则。
+func GetGameCenterSelf(c *gin.Context) {
+	userId := c.GetInt("id")
+	account, err := model.GetGameCoinAccount(userId)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	used, err := model.GetGameCoinWithdrawDayUsed(gameCoinWithdrawDay())
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	quotaPerCoin, err := model.GameCoinQuota(1)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	setting := operation_setting.GetGameSetting()
+	_, _, walletErr := service.GameHotWalletAddress()
+	common.ApiSuccess(c, gin.H{
+		"account":        account,
+		"quota_per_coin": quotaPerCoin,
+		"token": gin.H{
+			"symbol":       setting.TokenSymbol,
+			"address":      setting.TokenAddress,
+			"decimals":     setting.TokenDecimals,
+			"chain_id":     setting.ChainId,
+			"explorer_url": setting.ExplorerUrl,
+		},
+		"withdraw": gin.H{
+			"enabled":         setting.WithdrawEnabled && setting.ChainConfigured() && walletErr == nil,
+			"min_amount":      setting.WithdrawMinAmount,
+			"max_amount":      setting.WithdrawMaxAmount,
+			"daily_limit":     setting.WithdrawDailyLimit,
+			"daily_remaining": max(setting.WithdrawDailyLimit-used, 0),
+		},
+	})
+}
+
+// ConvertGameCoins 把游戏币单向兑换为主额度，1 币 = 1 美元额度，不设上限。
+func ConvertGameCoins(c *gin.Context) {
+	var req gameCoinConvertRequest
+	if err := common.DecodeJson(c.Request.Body, &req); err != nil || req.Amount < 1 {
+		common.ApiErrorI18n(c, i18n.MsgGameCoinAmountInvalid)
+		return
+	}
+	userId := c.GetInt("id")
+	quota, balance, err := model.ConvertGameCoinsToQuota(userId, req.Amount)
+	if err != nil {
+		switch {
+		case errors.Is(err, model.ErrGameCoinInsufficient):
+			common.ApiErrorI18n(c, i18n.MsgGameCoinInsufficient)
+		case errors.Is(err, model.ErrGameCoinAmountInvalid):
+			common.ApiErrorI18n(c, i18n.MsgGameCoinAmountInvalid)
+		case errors.Is(err, model.ErrQuotaOutOfRange):
+			common.ApiErrorI18n(c, i18n.MsgQuotaExceedMax)
+		default:
+			common.SysError(fmt.Sprintf("game coin convert failed for user %d: %v", userId, err))
+			common.ApiErrorI18n(c, i18n.MsgGameCoinConvertFailed)
+		}
+		return
+	}
+	model.RecordAuditLog(model.ClientLogSource(c), userId, "", model.LogTypeSystem,
+		fmt.Sprintf("游戏币兑换额度：%d 个游戏币，获得额度 %s", req.Amount, logger.LogQuota(quota)),
+		map[string]interface{}{"game_coins": req.Amount, "quota": quota})
+	common.ApiSuccess(c, gin.H{"quota": quota, "balance": balance})
+}
+
+// WithdrawGameCoins 创建一笔链上提现：扣币并占用当日额度后交给提现 worker 发送。
+// 游戏币要离开站点，必须先通过安全验证，验证绑定收款地址与数量。
+func WithdrawGameCoins(c *gin.Context) {
+	setting := operation_setting.GetGameSetting()
+	if !setting.WithdrawEnabled {
+		common.ApiErrorI18n(c, i18n.MsgGameWithdrawDisabled)
+		return
+	}
+	hotWallet, _, err := service.GameHotWalletAddress()
+	if err != nil || !setting.ChainConfigured() {
+		common.ApiErrorI18n(c, i18n.MsgGameWithdrawUnavailable)
+		return
+	}
+	var req gameCoinWithdrawRequest
+	if err := common.DecodeJson(c.Request.Body, &req); err != nil || req.Amount < 1 {
+		common.ApiErrorI18n(c, i18n.MsgGameCoinAmountInvalid)
+		return
+	}
+	if req.Amount < setting.WithdrawMinAmount {
+		common.ApiErrorI18n(c, i18n.MsgGameWithdrawBelowMin, map[string]any{"Min": setting.WithdrawMinAmount})
+		return
+	}
+	if req.Amount > setting.WithdrawMaxAmount {
+		common.ApiErrorI18n(c, i18n.MsgGameWithdrawAboveMax, map[string]any{"Max": setting.WithdrawMaxAmount})
+		return
+	}
+	// 转给零地址或代币合约自身等于销毁，转回热钱包没有意义，都当作无效地址。
+	address, err := service.NormalizeEthereumAddress(req.Address)
+	if err != nil || address == gameZeroAddress || strings.EqualFold(address, setting.TokenAddress) || address == hotWallet {
+		common.ApiErrorI18n(c, i18n.MsgGameWithdrawAddressInvalid)
+		return
+	}
+
+	userId := c.GetInt("id")
+	// 先挡掉余额不够的请求，免得白白消耗一次安全验证；真正的余额检查在扣币的条件更新里。
+	account, err := model.GetGameCoinAccount(userId)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if account.Balance < req.Amount {
+		common.ApiErrorI18n(c, i18n.MsgGameCoinInsufficient)
+		return
+	}
+	if !middleware.RequireSecurityProof(c, "game.withdraw", strings.ToLower(address)+":"+strconv.Itoa(req.Amount)) {
+		return
+	}
+
+	day := gameCoinWithdrawDay()
+	withdrawal, balance, err := model.CreateGameCoinWithdrawal(userId, address, req.Amount, day, setting.WithdrawDailyLimit)
+	if err != nil {
+		switch {
+		case errors.Is(err, model.ErrGameCoinInsufficient):
+			common.ApiErrorI18n(c, i18n.MsgGameCoinInsufficient)
+		case errors.Is(err, model.ErrGameCoinDailyLimit):
+			used, _ := model.GetGameCoinWithdrawDayUsed(day)
+			common.ApiErrorI18n(c, i18n.MsgGameWithdrawDailyLimit, map[string]any{"Remaining": max(setting.WithdrawDailyLimit-used, 0)})
+		case errors.Is(err, model.ErrGameCoinAmountInvalid):
+			common.ApiErrorI18n(c, i18n.MsgGameCoinAmountInvalid)
+		default:
+			common.SysError(fmt.Sprintf("game coin withdrawal failed for user %d: %v", userId, err))
+			common.ApiErrorI18n(c, i18n.MsgGameWithdrawFailed)
+		}
+		return
+	}
+	common.ApiSuccess(c, gin.H{"withdrawal": withdrawal, "balance": balance})
+}
+
+func GetGameCoinLogs(c *gin.Context) {
+	pageInfo := common.GetPageQuery(c)
+	logs, total, err := model.GetUserGameCoinLogs(c.GetInt("id"), pageInfo.GetStartIdx(), pageInfo.GetPageSize())
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	pageInfo.SetTotal(int(total))
+	pageInfo.SetItems(logs)
+	common.ApiSuccess(c, pageInfo)
+}
+
+func GetGameCoinWithdrawals(c *gin.Context) {
+	pageInfo := common.GetPageQuery(c)
+	withdrawals, total, err := model.GetUserGameCoinWithdrawals(c.GetInt("id"), pageInfo.GetStartIdx(), pageInfo.GetPageSize())
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	pageInfo.SetTotal(int(total))
+	pageInfo.SetItems(withdrawals)
+	common.ApiSuccess(c, pageInfo)
+}
+
+// gameHotWalletInfo 描述热钱包是否可用。私钥只写不读，这里只给出地址、私钥来源与错误原因。
+func gameHotWalletInfo() gin.H {
+	address, source, err := service.GameHotWalletAddress()
+	if err != nil {
+		return gin.H{"configured": false, "source": source, "env": service.GameHotWalletPrivateKeyEnv, "error": err.Error()}
+	}
+	return gin.H{"configured": true, "source": source, "env": service.GameHotWalletPrivateKeyEnv, "address": address}
+}
+
+func GetGameAdminSetting(c *gin.Context) {
+	common.ApiSuccess(c, gin.H{
+		"setting":    operation_setting.GetGameSetting(),
+		"hot_wallet": gameHotWalletInfo(),
+	})
+}
+
+// UpdateGameAdminSetting 整份保存游戏中心配置，所有字段在一个事务里写入，
+// 单次提现的上下限这类跨字段约束因此可以一并校验。
+func UpdateGameAdminSetting(c *gin.Context) {
+	var setting operation_setting.GameSetting
+	if err := common.DecodeJson(c.Request.Body, &setting); err != nil {
+		common.ApiErrorMsg(c, "无效的参数")
+		return
+	}
+	setting.RpcUrl = strings.TrimSpace(setting.RpcUrl)
+	setting.ExplorerUrl = strings.TrimRight(strings.TrimSpace(setting.ExplorerUrl), "/")
+	setting.TokenSymbol = strings.TrimSpace(setting.TokenSymbol)
+	setting.TokenAddress = strings.TrimSpace(setting.TokenAddress)
+	if setting.TokenAddress != "" {
+		normalized, err := service.NormalizeEthereumAddress(setting.TokenAddress)
+		if err != nil {
+			common.ApiErrorMsg(c, "代币合约地址无效："+err.Error())
+			return
+		}
+		setting.TokenAddress = normalized
+	}
+	if err := operation_setting.ValidateGameSetting(&setting); err != nil {
+		common.ApiErrorMsg(c, err.Error())
+		return
+	}
+	values, err := config.ConfigToMap(&setting)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	options := make(map[string]string, len(values))
+	for key, value := range values {
+		options[operation_setting.GameSettingPrefix+key] = value
+	}
+	if err := model.UpdateOptionsBulk(options); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	recordManageAudit(c, "game.setting_update", nil)
+	common.ApiSuccess(c, operation_setting.GetGameSetting())
+}
+
+// UpdateGameAdminHotWallet 保存管理员填写的热钱包私钥，之后优先于环境变量生效。私钥只写不读：
+// 响应里只有它对应的地址，管理员据此核对填的是哪个钱包、该往哪里补代币和 gas。
+// 已签名的提现带着原发送地址和原始交易，换钱包不影响它们继续对账。
+func UpdateGameAdminHotWallet(c *gin.Context) {
+	var req gameHotWalletRequest
+	if err := common.DecodeJson(c.Request.Body, &req); err != nil {
+		common.ApiErrorMsg(c, "无效的参数")
+		return
+	}
+	key := strings.TrimSpace(req.PrivateKey)
+	address, err := service.GameHotWalletAddressOf(key)
+	if err != nil {
+		common.ApiErrorMsg(c, "私钥无效，请填写 64 位十六进制私钥，可带 0x 前缀")
+		return
+	}
+	if err := model.UpdateOption(operation_setting.GameHotWalletPrivateKeyOption, strings.ToLower(strings.TrimPrefix(key, "0x"))); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	recordManageAudit(c, "game.hot_wallet_update", map[string]interface{}{"address": address})
+	common.ApiSuccess(c, gameHotWalletInfo())
+}
+
+// ClearGameAdminHotWallet 清除后台填写的私钥。设置了环境变量时改用环境变量里的私钥，
+// 否则提现 worker 暂停，直到重新填写。
+func ClearGameAdminHotWallet(c *gin.Context) {
+	if err := model.UpdateOption(operation_setting.GameHotWalletPrivateKeyOption, ""); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	recordManageAudit(c, "game.hot_wallet_clear", nil)
+	common.ApiSuccess(c, gameHotWalletInfo())
+}
+
+// GetGameAdminOverview 汇总热钱包余额、今日提现额度与未完成的提现单，供管理员判断是否需要补币或补 gas。
+func GetGameAdminOverview(c *gin.Context) {
+	setting := operation_setting.GetGameSetting()
+	day := gameCoinWithdrawDay()
+	used, err := model.GetGameCoinWithdrawDayUsed(day)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	statusCounts, err := model.CountGameCoinWithdrawalsByStatus()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	hotWallet := gameHotWalletInfo()
+	if hotWallet["configured"] == true && setting.ChainConfigured() {
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
+		defer cancel()
+		token, eth, err := service.GameHotWalletBalances(ctx, setting)
+		if err != nil {
+			hotWallet["balance_error"] = err.Error()
+		} else {
+			hotWallet["token_balance"] = decimal.NewFromBigInt(token, -int32(setting.TokenDecimals)).String()
+			hotWallet["eth_balance"] = decimal.NewFromBigInt(eth, -18).StringFixed(6)
+		}
+	}
+	common.ApiSuccess(c, gin.H{
+		"day":            day,
+		"withdraw_used":  used,
+		"withdraw_limit": setting.WithdrawDailyLimit,
+		"status_counts":  statusCounts,
+		"hot_wallet":     hotWallet,
+	})
+}
+
+func GetGameAdminWithdrawals(c *gin.Context) {
+	pageInfo := common.GetPageQuery(c)
+	userId, _ := strconv.Atoi(c.Query("user_id"))
+	withdrawals, total, err := model.GetAllGameCoinWithdrawals(c.Query("status"), userId, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	pageInfo.SetTotal(int(total))
+	pageInfo.SetItems(withdrawals)
+	common.ApiSuccess(c, pageInfo)
+}
+
+func GetGameAdminAccounts(c *gin.Context) {
+	pageInfo := common.GetPageQuery(c)
+	userId, _ := strconv.Atoi(c.Query("user_id"))
+	accounts, total, err := model.GetGameCoinAccounts(userId, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	pageInfo.SetTotal(int(total))
+	pageInfo.SetItems(accounts)
+	common.ApiSuccess(c, pageInfo)
+}
+
+// AdjustGameAdminCoins 让管理员给用户加减游戏币，用于补偿、活动发放或测试提现。
+func AdjustGameAdminCoins(c *gin.Context) {
+	var req gameCoinAdjustRequest
+	if err := common.DecodeJson(c.Request.Body, &req); err != nil || req.UserId < 1 || req.Amount == 0 {
+		common.ApiErrorI18n(c, i18n.MsgGameCoinAmountInvalid)
+		return
+	}
+	remark := strings.TrimSpace(req.Remark)
+	if utf8.RuneCountInString(remark) > 255 {
+		common.ApiErrorMsg(c, "备注最多 255 个字符")
+		return
+	}
+	balance, err := model.AdjustGameCoins(req.UserId, req.Amount, remark)
+	if err != nil {
+		switch {
+		case errors.Is(err, model.ErrGameCoinUserNotFound):
+			common.ApiErrorI18n(c, i18n.MsgGameUserNotFound)
+		case errors.Is(err, model.ErrGameCoinInsufficient):
+			common.ApiErrorI18n(c, i18n.MsgGameCoinInsufficient)
+		case errors.Is(err, model.ErrGameCoinAmountInvalid):
+			common.ApiErrorI18n(c, i18n.MsgGameCoinAmountInvalid)
+		default:
+			common.SysError(fmt.Sprintf("game coin adjust failed for user %d: %v", req.UserId, err))
+			common.ApiErrorI18n(c, i18n.MsgGameAdjustFailed)
+		}
+		return
+	}
+	recordManageAuditFor(c, req.UserId, "game.coin_adjust", map[string]interface{}{
+		"amount": req.Amount,
+		"remark": remark,
+	})
+	common.ApiSuccess(c, gin.H{"balance": balance})
+}

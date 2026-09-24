@@ -158,6 +158,29 @@ func SetApiRouter(router *gin.Engine) {
 			}
 		}
 
+		// 游戏中心：用户接口要求登录且游戏中心已启用；管理端只给 root，关闭期间也能配置。
+		gameRoute := apiRouter.Group("/game")
+		gameRoute.Use(middleware.UserAuth(), middleware.GameCenterEnabled())
+		{
+			gameRoute.GET("/self", controller.GetGameCenterSelf)
+			gameRoute.GET("/logs", controller.GetGameCoinLogs)
+			gameRoute.GET("/withdrawals", controller.GetGameCoinWithdrawals)
+			gameRoute.POST("/convert", middleware.UserCriticalRateLimit("game-convert"), controller.ConvertGameCoins)
+			gameRoute.POST("/withdraw", middleware.UserCriticalRateLimit("game-withdraw"), middleware.DisableCache(), controller.WithdrawGameCoins)
+		}
+		gameAdminRoute := apiRouter.Group("/game/admin")
+		gameAdminRoute.Use(middleware.RootAuth())
+		{
+			gameAdminRoute.GET("/setting", controller.GetGameAdminSetting)
+			gameAdminRoute.PUT("/setting", controller.UpdateGameAdminSetting)
+			gameAdminRoute.PUT("/hot_wallet", controller.UpdateGameAdminHotWallet)
+			gameAdminRoute.DELETE("/hot_wallet", controller.ClearGameAdminHotWallet)
+			gameAdminRoute.GET("/overview", controller.GetGameAdminOverview)
+			gameAdminRoute.GET("/withdrawals", controller.GetGameAdminWithdrawals)
+			gameAdminRoute.GET("/accounts", controller.GetGameAdminAccounts)
+			gameAdminRoute.POST("/adjust", controller.AdjustGameAdminCoins)
+		}
+
 		// Subscription billing (plans, purchase, admin management)
 		subscriptionRoute := apiRouter.Group("/subscription")
 		subscriptionRoute.Use(middleware.UserAuth())

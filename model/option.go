@@ -271,6 +271,9 @@ func UpdateOption(key string, value string) error {
 	if err := operation_setting.ValidateIpLocationOption(key, value); err != nil {
 		return err
 	}
+	if err := operation_setting.ValidateGameOption(key, value); err != nil {
+		return err
+	}
 	if err := validateTieredBillingOption(key, value); err != nil {
 		return err
 	}
@@ -324,6 +327,9 @@ func updateOptionsBulkLocked(values map[string]string) error {
 			return err
 		}
 		if err := operation_setting.ValidateIpLocationOption(key, value); err != nil {
+			return err
+		}
+		if err := operation_setting.ValidateGameOption(key, value); err != nil {
 			return err
 		}
 		if err := validateTieredBillingOption(key, value); err != nil {
@@ -383,6 +389,9 @@ func applyOptionToRuntime(key string, value string) (err error) {
 		return err
 	}
 	if err := operation_setting.ValidateIpLocationOption(key, value); err != nil {
+		return err
+	}
+	if err := operation_setting.ValidateGameOption(key, value); err != nil {
 		return err
 	}
 	// 注意：此处不做阶梯计费表达式校验。updateOptionMap 同时服务于写入路径
@@ -624,6 +633,8 @@ func applyOptionToRuntime(key string, value string) (err error) {
 		setting.EthereumContractAddress = value
 	case "EthereumAlchemyWebhookSigningKey":
 		setting.EthereumAlchemyWebhookSigningKey = value
+	case operation_setting.GameHotWalletPrivateKeyOption:
+		operation_setting.SetGameHotWalletPrivateKey(value)
 	case "EthereumMinTopUp":
 		setting.EthereumMinTopUp, _ = strconv.Atoi(value)
 	case "EthereumRpcUrl":
@@ -858,6 +869,8 @@ func handleConfigUpdate(key, value string) bool {
 		operation_setting.SyncRiskControlSetting()
 	} else if configName == "ip_location_setting" {
 		operation_setting.SyncIpLocationSetting()
+	} else if configName == "game_setting" {
+		operation_setting.SyncGameSetting()
 	}
 
 	return true // 已处理

@@ -64,6 +64,10 @@ const Navigation = ({
       if (link.itemKey === 'rankings' && rankingsRequireAuth && !userState.user) {
         targetPath = '/login';
       }
+      // 游戏中心始终要求登录
+      if (link.itemKey === 'games' && !userState.user) {
+        targetPath = '/login';
+      }
 
       return (
         <Link key={link.itemKey} to={targetPath} className={commonLinkClasses}>

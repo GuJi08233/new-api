@@ -44,6 +44,7 @@ const routerMap = {
   setting: '/console/setting',
   risk_control: '/console/risk_control',
   system_info: '/console/system_info',
+  game_admin: '/console/game',
   about: '/about',
   detail: '/console',
   pricing: '/pricing',
@@ -197,6 +198,12 @@ const SiderBar = ({ onNavigate = () => {} }) => {
         itemKey: 'risk_control',
         to: '/risk_control',
         className: isAdmin() ? '' : 'tableHiddle',
+      },
+      {
+        text: t('游戏管理'),
+        itemKey: 'game_admin',
+        to: '/game',
+        className: isRoot() ? '' : 'tableHiddle',
       },
       {
         text: t('系统信息'),

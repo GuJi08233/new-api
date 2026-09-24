@@ -223,6 +223,23 @@ const (
 	MsgCheckinQuotaFailed  = "checkin.quota_failed"
 )
 
+// Game center related messages
+const (
+	MsgGameCenterDisabled         = "game.disabled"
+	MsgGameCoinAmountInvalid      = "game.amount_invalid"
+	MsgGameCoinInsufficient       = "game.insufficient"
+	MsgGameCoinConvertFailed      = "game.convert_failed"
+	MsgGameWithdrawDisabled       = "game.withdraw_disabled"
+	MsgGameWithdrawUnavailable    = "game.withdraw_unavailable"
+	MsgGameWithdrawBelowMin       = "game.withdraw_below_min"
+	MsgGameWithdrawAboveMax       = "game.withdraw_above_max"
+	MsgGameWithdrawDailyLimit     = "game.withdraw_daily_limit"
+	MsgGameWithdrawAddressInvalid = "game.withdraw_address_invalid"
+	MsgGameWithdrawFailed         = "game.withdraw_failed"
+	MsgGameUserNotFound           = "game.user_not_found"
+	MsgGameAdjustFailed           = "game.adjust_failed"
+)
+
 // Passkey related messages
 const (
 	MsgPasskeyCreateFailed  = "passkey.create_failed"

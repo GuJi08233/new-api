@@ -54,6 +54,10 @@ func TestMain(m *testing.M) {
 		&model.SubscriptionPreConsumeRecord{},
 		&model.SystemTask{},
 		&model.SystemTaskLock{},
+		&model.GameCoinAccount{},
+		&model.GameCoinLog{},
+		&model.GameCoinWithdrawal{},
+		&model.GameCoinWithdrawDay{},
 	); err != nil {
 		panic("failed to migrate: " + err.Error())
 	}

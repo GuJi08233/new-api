@@ -37,6 +37,7 @@ import Token from './pages/Token';
 import Redemption from './pages/Redemption';
 import RiskControl from './pages/RiskControl';
 import SystemInfo from './pages/SystemInfo';
+import GameAdmin from './pages/GameAdmin';
 import InvitationCode from './pages/InvitationCode';
 import TopUp from './pages/TopUp';
 import Log from './pages/Log';
@@ -60,6 +61,7 @@ const About = lazy(() => import('./pages/About'));
 const UserAgreement = lazy(() => import('./pages/UserAgreement'));
 const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy'));
 const Rankings = lazy(() => import('./pages/Rankings'));
+const Games = lazy(() => import('./pages/Games'));
 
 function DynamicOAuth2Callback() {
   const { provider } = useParams();
@@ -216,6 +218,14 @@ function App() {
             element={
               <RootRoute>
                 <SystemInfo />
+              </RootRoute>
+            }
+          />
+          <Route
+            path='/console/game'
+            element={
+              <RootRoute>
+                <GameAdmin />
               </RootRoute>
             }
           />
@@ -423,6 +433,19 @@ function App() {
                   <Rankings />
                 </Suspense>
               )
+            }
+          />
+          <Route
+            path='/games'
+            element={
+              <PrivateRoute>
+                <Suspense
+                  fallback={<Loading></Loading>}
+                  key={location.pathname}
+                >
+                  <Games />
+                </Suspense>
+              </PrivateRoute>
             }
           />
           <Route

@@ -23,6 +23,7 @@ func RegisterScheduledSystemTasks() {
 	service.RegisterSystemTaskHandler(modelUpdateHandler{})
 	service.RegisterSystemTaskHandler(midjourneyPollHandler{})
 	service.RegisterSystemTaskHandler(asyncTaskPollHandler{})
+	service.RegisterSystemTaskHandler(gameCoinWithdrawHandler{})
 }
 
 // channelTestHandler runs the scheduled "test all channels" job. Enablement and
@@ -150,6 +151,24 @@ func (asyncTaskPollHandler) NewPayload() any { return nil }
 
 func (asyncTaskPollHandler) Run(ctx context.Context, task *model.SystemTask, runnerID string) {
 	summary := service.RunTaskPollingOnce(ctx, service.NewSystemTaskProgressReporter(task, runnerID))
+	finishSystemTaskHandler(task, runnerID, model.SystemTaskStatusSucceeded, summary, nil)
+}
+
+// gameCoinWithdrawHandler 推进游戏币链上提现：对账、重发、签发新交易。每类任务一把锁，
+// 多个主节点也只有一个在用热钱包发交易，nonce 才不会撞车。Enabled() 折叠了"是否有未完成
+// 的提现"，空闲时不产生任务记录。
+type gameCoinWithdrawHandler struct{}
+
+func (gameCoinWithdrawHandler) Type() string { return model.SystemTaskTypeGameCoinWithdraw }
+
+func (gameCoinWithdrawHandler) Enabled() bool { return model.HasUnfinishedGameCoinWithdrawals() }
+
+func (gameCoinWithdrawHandler) Interval() time.Duration { return 15 * time.Second }
+
+func (gameCoinWithdrawHandler) NewPayload() any { return nil }
+
+func (gameCoinWithdrawHandler) Run(ctx context.Context, task *model.SystemTask, runnerID string) {
+	summary := service.RunGameCoinWithdrawOnce(ctx)
 	finishSystemTaskHandler(task, runnerID, model.SystemTaskStatusSucceeded, summary, nil)
 }
 

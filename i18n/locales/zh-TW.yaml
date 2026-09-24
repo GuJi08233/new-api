@@ -192,6 +192,21 @@ checkin.already_today: "今日已簽到"
 checkin.failed: "簽到失敗，請稍後重試"
 checkin.quota_failed: "簽到失敗：更新額度出錯"
 
+# 遊戲中心
+game.disabled: "遊戲中心未啟用"
+game.amount_invalid: "遊戲幣數量必須是正整數"
+game.insufficient: "遊戲幣餘額不足"
+game.convert_failed: "兌換失敗，請稍後重試"
+game.withdraw_disabled: "鏈上提現未開放"
+game.withdraw_unavailable: "鏈上提現暫不可用，請聯繫管理員"
+game.withdraw_below_min: "單次提現最少 {{.Min}} 個"
+game.withdraw_above_max: "單次提現最多 {{.Max}} 個"
+game.withdraw_daily_limit: "今日全站提現額度不足，剩餘 {{.Remaining}} 個，請明天再試"
+game.withdraw_address_invalid: "收款地址無效，請檢查是否為 0x 開頭的 42 位地址"
+game.withdraw_failed: "提現失敗，請稍後重試"
+game.user_not_found: "用戶不存在"
+game.adjust_failed: "調整遊戲幣失敗"
+
 # Passkey messages
 passkey.create_failed: "無法建立 Passkey 憑證"
 passkey.login_abnormal: "Passkey 登錄狀態異常"

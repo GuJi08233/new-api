@@ -191,6 +191,21 @@ checkin.already_today: "Already checked in today"
 checkin.failed: "Check-in failed, please try again later"
 checkin.quota_failed: "Check-in failed: quota update error"
 
+# Game center messages
+game.disabled: "Game center is not enabled"
+game.amount_invalid: "Game coin amount must be a positive integer"
+game.insufficient: "Insufficient game coin balance"
+game.convert_failed: "Conversion failed, please try again later"
+game.withdraw_disabled: "On-chain withdrawal is not available"
+game.withdraw_unavailable: "On-chain withdrawal is temporarily unavailable, please contact the administrator"
+game.withdraw_below_min: "Each withdrawal must be at least {{.Min}} coins"
+game.withdraw_above_max: "Each withdrawal can be at most {{.Max}} coins"
+game.withdraw_daily_limit: "Today's site-wide withdrawal quota is insufficient, {{.Remaining}} coins left, please try again tomorrow"
+game.withdraw_address_invalid: "Invalid recipient address, it must be a 42-character address starting with 0x"
+game.withdraw_failed: "Withdrawal failed, please try again later"
+game.user_not_found: "User not found"
+game.adjust_failed: "Failed to adjust game coins"
+
 # Passkey messages
 passkey.create_failed: "Unable to create Passkey credential"
 passkey.login_abnormal: "Passkey login status is abnormal"

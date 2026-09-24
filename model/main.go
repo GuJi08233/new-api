@@ -377,6 +377,10 @@ func migrateDB() error {
 		&RiskEvent{},
 		&IpBan{},
 		&CodeUse{},
+		&GameCoinAccount{},
+		&GameCoinLog{},
+		&GameCoinWithdrawal{},
+		&GameCoinWithdrawDay{},
 	)
 	if err != nil {
 		return err
@@ -457,6 +461,10 @@ func migrateDBFast() error {
 		{&RiskEvent{}, "RiskEvent"},
 		{&IpBan{}, "IpBan"},
 		{&CodeUse{}, "CodeUse"},
+		{&GameCoinAccount{}, "GameCoinAccount"},
+		{&GameCoinLog{}, "GameCoinLog"},
+		{&GameCoinWithdrawal{}, "GameCoinWithdrawal"},
+		{&GameCoinWithdrawDay{}, "GameCoinWithdrawDay"},
 	}
 	// 动态计算migration数量，确保errChan缓冲区足够大
 	errChan := make(chan error, len(migrations))

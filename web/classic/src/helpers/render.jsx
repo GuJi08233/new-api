@@ -87,6 +87,7 @@ import {
   Server,
   CalendarClock,
   ShieldAlert,
+  Gamepad2,
 } from 'lucide-react';
 import {
   SiAtlassian,
@@ -161,6 +162,8 @@ export function getLucideIcon(key, selected = false) {
       return <ShieldAlert {...commonProps} color={iconColor} />;
     case 'system_info':
       return <Server {...commonProps} color={iconColor} />;
+    case 'game_admin':
+      return <Gamepad2 {...commonProps} color={iconColor} />;
     case 'setting':
       return <Settings {...commonProps} color={iconColor} />;
     default:

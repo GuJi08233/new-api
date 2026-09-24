@@ -67,6 +67,7 @@ export default function SettingsSidebarModulesAdmin(props) {
       user: true,
       subscription: true,
       risk_control: true,
+      game_admin: true,
       system_info: true,
       setting: true,
     },
@@ -130,6 +131,7 @@ export default function SettingsSidebarModulesAdmin(props) {
         user: true,
         subscription: true,
         risk_control: true,
+        game_admin: true,
         system_info: true,
         setting: true,
       },
@@ -182,6 +184,7 @@ export default function SettingsSidebarModulesAdmin(props) {
           ...modules,
           admin: {
             risk_control: true,
+            game_admin: true,
             system_info: true,
             ...(modules.admin || {}),
           },
@@ -208,6 +211,7 @@ export default function SettingsSidebarModulesAdmin(props) {
             user: true,
             subscription: true,
             risk_control: true,
+            game_admin: true,
             system_info: true,
             setting: true,
           },
@@ -288,6 +292,11 @@ export default function SettingsSidebarModulesAdmin(props) {
           key: 'risk_control',
           title: t('风控管理'),
           description: t('滥用监控与自动封禁'),
+        },
+        {
+          key: 'game_admin',
+          title: t('游戏管理'),
+          description: t('游戏中心配置与游戏币管理'),
         },
         {
           key: 'system_info',

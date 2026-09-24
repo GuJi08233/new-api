@@ -181,6 +181,17 @@ func VerifyEthereumPaymentReceipt(ctx context.Context, rpcURL string, chainId in
 	return fmt.Errorf("%w: no PaymentReceived log for order %s in %s", ErrEthereumPaymentInvalid, proof.OrderId, txHash)
 }
 
+// ethereumRpcError 是节点在 JSON-RPC 信封里返回的错误。与传输失败不同，它说明节点收到并
+// 处理了请求，调用方可以据此区分"交易已在内存池""nonce 已被占用"等明确结论。
+type ethereumRpcError struct {
+	Code    int
+	Message string
+}
+
+func (e *ethereumRpcError) Error() string {
+	return fmt.Sprintf("rpc error %d: %s", e.Code, e.Message)
+}
+
 func callEthereumRpc(ctx context.Context, rpcURL string, method string, params []any, result any) error {
 	if params == nil {
 		params = []any{}
@@ -228,7 +239,7 @@ func callEthereumRpc(ctx context.Context, rpcURL string, method string, params [
 		return err
 	}
 	if envelope.Error != nil {
-		return fmt.Errorf("rpc error %d: %s", envelope.Error.Code, envelope.Error.Message)
+		return &ethereumRpcError{Code: envelope.Error.Code, Message: envelope.Error.Message}
 	}
 	if len(envelope.Result) == 0 || string(envelope.Result) == "null" {
 		// Leave result at its zero value: a nil receipt is how the node says
