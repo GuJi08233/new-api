@@ -4459,7 +4459,7 @@
     "开放游戏": "Activer le jeu",
     "关闭后用户不能开始新的对局，进行中的对局也不能结算": "Une fois désactivé, les utilisateurs ne peuvent plus commencer de partie et les parties en cours ne peuvent pas être réglées",
     "每人每日奖励上限": "Limite quotidienne de récompenses par utilisateur",
-    "每个用户每天最多从这个游戏获得的游戏币，各游戏分别计算；0 表示照常可玩但不发奖励": "Nombre maximal de jetons de jeu qu'un utilisateur peut gagner avec ce jeu chaque jour, compté séparément pour chaque jeu ; 0 signifie que le jeu reste jouable sans récompense",
+    "每个用户每天最多从这个游戏获得的游戏币，同一 IP 下所有账号合计也不超过这个数；各游戏分别计算，0 表示照常可玩但不发奖励": "Nombre maximal de jetons de jeu qu'un utilisateur peut gagner avec ce jeu chaque jour ; tous les comptes d'une même adresse IP réunis ne peuvent pas non plus le dépasser. Compté séparément pour chaque jeu ; 0 signifie que le jeu reste jouable sans récompense",
     "每个游戏币所需分数": "Points par jeton de jeu",
     "单局每满这么多分奖励 1 个游戏币，再受每日上限约束": "Chaque fois qu'une partie atteint ce nombre de points, elle rapporte 1 jeton de jeu, dans la limite quotidienne",
     "今日已发放": "Distribué aujourd'hui",
@@ -4467,6 +4467,17 @@
     "游戏奖励": "Récompense de jeu",
     "经典消行玩法，消的行越多、等级越高，得分越快": "Le jeu classique de lignes : plus vous effacez de lignes et plus le niveau est élevé, plus vous marquez vite",
     "操作说明": "Commandes",
-    "左右移动": "Déplacer à gauche/droite"
+    "左右移动": "Déplacer à gauche/droite",
+    "单局每满 {{score}} 分得 1 个游戏币，每个至少需要玩 {{seconds}} 秒，每天最多 {{limit}} 个": "1 jeton de jeu tous les {{score}} points dans une partie, chacun demandant au moins {{seconds}} secondes de jeu, jusqu'à {{limit}} par jour",
+    "操作速度超出正常范围，本局不发放奖励": "La vitesse de jeu dépasse la plage normale, cette partie ne rapporte aucune récompense",
+    "奖励受本局时长限制：每个游戏币至少需要玩 {{seconds}} 秒": "Récompense limitée par la durée de jeu : chaque jeton de jeu demande au moins {{seconds}} secondes de jeu",
+    "当前 IP 今日的奖励已领满，明天再来": "Récompenses du jour atteintes pour votre adresse IP, revenez demain",
+    "人机验证加载失败，请刷新页面重试": "Échec du chargement de la vérification humaine, actualisez la page et réessayez",
+    "开局前需要完成人机验证，需要操作时验证框会出现在页面下方": "Une vérification humaine est requise avant chaque partie ; si elle demande une action, elle apparaît en bas de la page",
+    "开局人机验证": "Vérification humaine avant chaque partie",
+    "每局开始前需通过 Cloudflare Turnstile 验证，挡住不经浏览器直接调用接口的脚本；需要先在系统设置中启用 Turnstile": "Chaque partie doit passer Cloudflare Turnstile avant de commencer, ce qui bloque les scripts qui appellent l'API sans navigateur ; Turnstile doit d'abord être activé dans les paramètres système",
+    "系统设置中未启用 Turnstile，暂不生效": "Turnstile n'est pas activé dans les paramètres système, ce réglage est donc sans effet pour l'instant",
+    "每个游戏币所需时长（秒）": "Durée de jeu par jeton de jeu (secondes)",
+    "单局每玩满这么多秒才能多得 1 个游戏币，挡住几秒就刷够分数的脚本；0 表示不限制": "Une partie ne rapporte 1 jeton de jeu de plus que pour chaque tranche de ce nombre de secondes jouées, ce qui bloque les scripts qui atteignent le score en quelques secondes ; 0 signifie sans limite"
   }
 }

@@ -49,7 +49,7 @@ func loadGolden(t *testing.T) golden {
 	require.NoError(t, err)
 	var record golden
 	require.NoError(t, common.Unmarshal(data, &record))
-	require.Len(t, record.Games, 2)
+	require.Len(t, record.Games, 3)
 	return record
 }
 
@@ -74,8 +74,8 @@ func boardRows(g *Game) []string {
 }
 
 // golden.json 是浏览器端引擎打出来的整局记录(见 testdata/generate_golden.mjs)：一局消到 150 行、
-// 升到 16 级后顶出，一局乱按到中途主动结束。服务端从同一个种子重放，分数、消行、等级、方块数、
-// 帧数和最终盘面都必须与浏览器一致，否则玩家看到的成绩和发下去的奖励就对不上。
+// 升到 16 级后顶出，一局乱按到中途主动结束，一局是一帧摆好一块的脚本。服务端从同一个种子重放，
+// 分数、消行、等级、方块数、帧数和最终盘面都必须与浏览器一致，否则玩家看到的成绩和发下去的奖励就对不上。
 func TestReplayMatchesBrowserEngine(t *testing.T) {
 	for _, want := range loadGolden(t).Games {
 		inputs, err := DecodeInputs(want.Inputs)
@@ -134,6 +134,36 @@ func TestReplayIgnoresInputsAfterTopOut(t *testing.T) {
 	assert.Equal(t, topOut.Score, game.Score)
 	assert.Equal(t, topOut.Lines, game.Lines)
 	assert.Equal(t, topOut.Ticks, game.Ticks)
+}
+
+// 速度检查看任意 10 秒内锁定了多少块：golden 里按人的节奏打的两局都在人类极限以内，一帧摆好一块的脚本
+// 远远超出。窗口按帧计算，相隔不到 10 秒的两次锁定算在同一个窗口里，恰好相隔 10 秒就不算。
+func TestReplayMeasuresPeakSpeed(t *testing.T) {
+	for _, want := range loadGolden(t).Games {
+		inputs, err := DecodeInputs(want.Inputs)
+		require.NoError(t, err, want.Name)
+		game, err := Replay(want.Seed, want.Ticks, inputs)
+		require.NoError(t, err, want.Name)
+		if want.Name == "fast-bot" {
+			assert.Greater(t, game.PeakPieces, HumanPieceLimit, want.Name)
+		} else {
+			assert.LessOrEqual(t, game.PeakPieces, HumanPieceLimit, want.Name)
+		}
+	}
+
+	for name, c := range map[string]struct {
+		secondDrop int
+		want       int
+	}{
+		"within ten seconds": {secondDrop: SpeedWindowTicks - 1, want: 2},
+		"ten seconds apart":  {secondDrop: SpeedWindowTicks, want: 1},
+	} {
+		// 第二块在空盘上靠重力落不到底，只会在硬降的那一帧锁定。
+		game, err := Replay(1, c.secondDrop+1, []Input{{Tick: 0, Action: ActionHardDrop}, {Tick: c.secondDrop, Action: ActionHardDrop}})
+		require.NoError(t, err, name)
+		require.Equal(t, 2, game.Pieces, name)
+		assert.Equal(t, c.want, game.PeakPieces, name)
+	}
 }
 
 // 方块按 7 个一袋发放：每一袋恰好是 7 种方块各一个，任何种子都不会长时间缺某一种。

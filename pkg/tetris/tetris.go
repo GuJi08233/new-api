@@ -18,6 +18,11 @@ const (
 	// MaxTicks 是一局的游戏内时长上限(1 小时)，到点自动结束，同时限定服务端重放一局的开销。
 	MaxTicks = 60 * 60 * TicksPerSecond
 
+	// SpeedWindowTicks 与 HumanPieceLimit 划出人类的操作极限。浏览器的按住重复是 10 帧后每 2 帧一格，
+	// 在这套手感下连续 10 秒、每秒锁定 7 块已经快过顶尖玩家，更快的对局只可能是脚本在操作。
+	SpeedWindowTicks = 10 * TicksPerSecond
+	HumanPieceLimit  = 70
+
 	lockDelay     = 30 // 落地 0.5 秒后锁定
 	maxLockResets = 15 // 落地后移动或旋转最多重新计时 15 次，降到更低的行后次数清零
 	linesPerLevel = 10
@@ -136,6 +141,9 @@ type Game struct {
 	Pieces int // 已锁定的方块数
 	Ticks  int // 已推进的帧数，包括结束的那一帧
 	Over   bool
+
+	// PeakPieces 是任意连续 SpeedWindowTicks 帧内锁定的最多方块数，只由 Replay 统计。
+	PeakPieces int
 }
 
 func New(seed uint32) *Game {
@@ -381,6 +389,7 @@ func DecodeInputs(encoded []int) ([]Input, error) {
 
 // Replay 从种子开始重放一局。ticks 是浏览器推进过的帧数，inputs 按帧排序；
 // 游戏提前结束时，之后的帧和操作不再生效。平均每帧超过两个操作不是人能按出来的，直接拒绝。
+// 重放时顺带统计 PeakPieces，由调用方与 HumanPieceLimit 比较，判断这局是不是脚本打的。
 func Replay(seed uint32, ticks int, inputs []Input) (*Game, error) {
 	if ticks < 1 || ticks > MaxTicks || len(inputs) > 2*ticks+8 {
 		return nil, ErrInvalidReplay
@@ -393,6 +402,8 @@ func Replay(seed uint32, ticks int, inputs []Input) (*Game, error) {
 	}
 	g := New(seed)
 	actions := make([]Action, 0, 8)
+	// lockTicks 依次记下最近 SpeedWindowTicks 帧内每个方块锁定时的帧号。
+	var lockTicks []int
 	next := 0
 	for tick := 0; tick < ticks && !g.Over; tick++ {
 		actions = actions[:0]
@@ -400,7 +411,15 @@ func Replay(seed uint32, ticks int, inputs []Input) (*Game, error) {
 			actions = append(actions, inputs[next].Action)
 			next++
 		}
+		locked := g.Pieces
 		g.Tick(actions)
+		for ; locked < g.Pieces; locked++ {
+			lockTicks = append(lockTicks, tick)
+		}
+		for len(lockTicks) > 0 && lockTicks[0] <= tick-SpeedWindowTicks {
+			lockTicks = lockTicks[1:]
+		}
+		g.PeakPieces = max(g.PeakPieces, len(lockTicks))
 	}
 	return g, nil
 }

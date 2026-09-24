@@ -4610,7 +4610,7 @@
     "开放游戏": "Enable game",
     "关闭后用户不能开始新的对局，进行中的对局也不能结算": "When disabled, users cannot start new games, and games in progress cannot be settled",
     "每人每日奖励上限": "Daily reward limit per user",
-    "每个用户每天最多从这个游戏获得的游戏币，各游戏分别计算；0 表示照常可玩但不发奖励": "The most game coins each user can earn from this game per day, counted separately for each game; 0 means the game can still be played but gives no rewards",
+    "每个用户每天最多从这个游戏获得的游戏币，同一 IP 下所有账号合计也不超过这个数；各游戏分别计算，0 表示照常可玩但不发奖励": "The most game coins each user can earn from this game per day; all accounts on the same IP together cannot exceed it either. Counted separately for each game; 0 means the game can still be played but gives no rewards",
     "每个游戏币所需分数": "Points per game coin",
     "单局每满这么多分奖励 1 个游戏币，再受每日上限约束": "Every time a single game reaches this many points, it rewards 1 game coin, subject to the daily limit",
     "今日已发放": "Given out today",
@@ -4618,6 +4618,17 @@
     "游戏奖励": "Game reward",
     "经典消行玩法，消的行越多、等级越高，得分越快": "Classic line-clearing gameplay: the more lines you clear and the higher the level, the faster you score",
     "操作说明": "Controls",
-    "左右移动": "Move left/right"
+    "左右移动": "Move left/right",
+    "单局每满 {{score}} 分得 1 个游戏币，每个至少需要玩 {{seconds}} 秒，每天最多 {{limit}} 个": "1 game coin for every {{score}} points in a single game, each needing at least {{seconds}} seconds of play, up to {{limit}} per day",
+    "操作速度超出正常范围，本局不发放奖励": "Input speed is beyond the normal range, so this game gives no reward",
+    "奖励受本局时长限制：每个游戏币至少需要玩 {{seconds}} 秒": "Reward limited by play time: each game coin needs at least {{seconds}} seconds of play",
+    "当前 IP 今日的奖励已领满，明天再来": "Today's rewards for your current IP are maxed out, come back tomorrow",
+    "人机验证加载失败，请刷新页面重试": "Failed to load the human verification, please refresh the page and try again",
+    "开局前需要完成人机验证，需要操作时验证框会出现在页面下方": "Human verification is required before each game; if it needs your action, it appears at the bottom of the page",
+    "开局人机验证": "Human verification before each game",
+    "每局开始前需通过 Cloudflare Turnstile 验证，挡住不经浏览器直接调用接口的脚本；需要先在系统设置中启用 Turnstile": "Each game must pass Cloudflare Turnstile before it starts, which blocks scripts that call the API without a browser; Turnstile must be enabled in the system settings first",
+    "系统设置中未启用 Turnstile，暂不生效": "Turnstile is not enabled in the system settings, so this has no effect yet",
+    "每个游戏币所需时长（秒）": "Play time per game coin (seconds)",
+    "单局每玩满这么多秒才能多得 1 个游戏币，挡住几秒就刷够分数的脚本；0 表示不限制": "A single game earns 1 more game coin only for every this many seconds played, which stops scripts that rack up the score in seconds; 0 means no limit"
   }
 }

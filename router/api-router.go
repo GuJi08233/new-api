@@ -158,9 +158,9 @@ func SetApiRouter(router *gin.Engine) {
 			}
 		}
 
-		// 游戏中心：用户接口要求登录且游戏中心已启用；管理端只给 root，关闭期间也能配置。
+		// 游戏中心：用户接口要求登录且游戏中心已启用，被风控封禁的 IP 不能玩游戏、领奖励；管理端只给 root，关闭期间也能配置。
 		gameRoute := apiRouter.Group("/game")
-		gameRoute.Use(middleware.UserAuth(), middleware.GameCenterEnabled())
+		gameRoute.Use(middleware.UserAuth(), middleware.IpBanGuardApi(), middleware.GameCenterEnabled())
 		{
 			gameRoute.GET("/self", controller.GetGameCenterSelf)
 			gameRoute.GET("/logs", controller.GetGameCoinLogs)

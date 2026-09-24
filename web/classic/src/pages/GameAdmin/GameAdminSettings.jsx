@@ -333,6 +333,25 @@ const GameAdminSettings = () => {
             onChange={(value) => setField('enabled', value)}
           />
         </SettingRow>
+        <SettingRow
+          label={t('开局人机验证')}
+          extra={t(
+            '每局开始前需通过 Cloudflare Turnstile 验证，挡住不经浏览器直接调用接口的脚本；需要先在系统设置中启用 Turnstile',
+          )}
+        >
+          <div className='flex items-center gap-3 flex-wrap'>
+            <Switch
+              checked={setting.play_turnstile_enabled}
+              onChange={(value) => setField('play_turnstile_enabled', value)}
+            />
+            {setting.play_turnstile_enabled &&
+              !statusState?.status?.turnstile_check && (
+                <Text type='warning' size='small'>
+                  {t('系统设置中未启用 Turnstile，暂不生效')}
+                </Text>
+              )}
+          </div>
+        </SettingRow>
       </Card>
 
       {Object.entries(gameMetaMap).map(([game, meta]) => {
@@ -352,7 +371,7 @@ const GameAdminSettings = () => {
             <SettingRow
               label={t('每人每日奖励上限')}
               extra={t(
-                '每个用户每天最多从这个游戏获得的游戏币，各游戏分别计算；0 表示照常可玩但不发奖励',
+                '每个用户每天最多从这个游戏获得的游戏币，同一 IP 下所有账号合计也不超过这个数；各游戏分别计算，0 表示照常可玩但不发奖励',
               )}
             >
               <InputNumber
@@ -381,6 +400,26 @@ const GameAdminSettings = () => {
                   setGameRule(
                     game,
                     'score_per_coin',
+                    typeof value === 'number' ? value : 0,
+                  )
+                }
+              />
+            </SettingRow>
+            <SettingRow
+              label={t('每个游戏币所需时长（秒）')}
+              extra={t(
+                '单局每玩满这么多秒才能多得 1 个游戏币，挡住几秒就刷够分数的脚本；0 表示不限制',
+              )}
+            >
+              <InputNumber
+                value={rule.min_seconds_per_coin}
+                min={0}
+                max={3600}
+                precision={0}
+                onChange={(value) =>
+                  setGameRule(
+                    game,
+                    'min_seconds_per_coin',
                     typeof value === 'number' ? value : 0,
                   )
                 }

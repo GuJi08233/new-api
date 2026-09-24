@@ -17,6 +17,8 @@ import (
 // 这个比例是产品规则而不是运营参数，所以不在这里配置。
 type GameSetting struct {
 	Enabled bool `json:"enabled"` // 游戏中心总开关，关闭时页面入口与用户接口一并下线
+	// PlayTurnstileEnabled 要求每局开始前通过 Turnstile 人机验证，只在站点启用了 Turnstile 时生效。
+	PlayTurnstileEnabled bool `json:"play_turnstile_enabled"`
 
 	// 链上提现。每日上限按全站当日提现总量计算，保护热钱包里的周转余额。
 	WithdrawEnabled    bool `json:"withdraw_enabled"`
@@ -45,6 +47,9 @@ type GameRule struct {
 	DailyRewardLimit int `json:"daily_reward_limit"`
 	// ScorePerCoin 是单局每得这么多分奖励 1 个游戏币。
 	ScorePerCoin int `json:"score_per_coin"`
+	// MinSecondsPerCoin 是每个游戏币至少需要的游戏时长(秒)，0 表示不限制。脚本几秒就能刷够分数，
+	// 奖励还要按实际玩了多久来算。
+	MinSecondsPerCoin int `json:"min_seconds_per_coin"`
 }
 
 // GameHotWalletPrivateKeyOption 是管理员在游戏管理页填写的热钱包私钥所在的选项键。私钥不放进
@@ -60,6 +65,8 @@ const (
 	GameMaxTokenDecimals    = 36
 	GameMaxTokenSymbolRunes = 11
 	GameMaxConfirmations    = 64
+	// 一局最长一小时，每个游戏币要求的时长再长就永远拿不到奖励了。
+	GameMaxSecondsPerCoin = 3600
 )
 
 // ValidateGameOption 校验单个游戏中心配置项，非法值在落库前拒绝。
@@ -79,7 +86,7 @@ func ValidateGameOption(key string, value string) error {
 
 	field := strings.TrimPrefix(key, GameSettingPrefix)
 	switch field {
-	case "enabled", "withdraw_enabled":
+	case "enabled", "withdraw_enabled", "play_turnstile_enabled":
 		if _, err := strconv.ParseBool(value); err != nil {
 			return fmt.Errorf("%s 必须是 true 或 false", field)
 		}
@@ -128,6 +135,9 @@ func ValidateGameOption(key string, value string) error {
 		if rule.ScorePerCoin < 1 || rule.ScorePerCoin >= common.MaxQuota {
 			return fmt.Errorf("%s 的每个游戏币所需分数必须是正整数", field)
 		}
+		if rule.MinSecondsPerCoin < 0 || rule.MinSecondsPerCoin > GameMaxSecondsPerCoin {
+			return fmt.Errorf("%s 的每个游戏币所需时长必须为 0 到 %d 秒", field, GameMaxSecondsPerCoin)
+		}
 	default:
 		return fmt.Errorf("未知的游戏中心配置项: %s", field)
 	}
@@ -175,19 +185,20 @@ func isEthereumHexAddress(value string) bool {
 // gameSetting 仅作为配置框架(基于反射、无同步)就地修改的暂存区，
 // 请求 goroutine 读取下方发布的只读快照。
 var gameSetting = GameSetting{
-	Enabled:            false,
-	WithdrawEnabled:    false,
-	WithdrawDailyLimit: 1000,
-	WithdrawMinAmount:  1,
-	WithdrawMaxAmount:  100,
-	ChainId:            11155111,
-	RpcUrl:             "https://ethereum-sepolia-rpc.publicnode.com",
-	TokenAddress:       "0x64bf89340562AB4fE829a481E6797B012664425B",
-	TokenSymbol:        "✦",
-	TokenDecimals:      0,
-	ExplorerUrl:        "https://sepolia.etherscan.io",
-	Confirmations:      1,
-	Tetris:             GameRule{Enabled: true, DailyRewardLimit: 3, ScorePerCoin: 5000},
+	Enabled:              false,
+	PlayTurnstileEnabled: true,
+	WithdrawEnabled:      false,
+	WithdrawDailyLimit:   1000,
+	WithdrawMinAmount:    1,
+	WithdrawMaxAmount:    100,
+	ChainId:              11155111,
+	RpcUrl:               "https://ethereum-sepolia-rpc.publicnode.com",
+	TokenAddress:         "0x64bf89340562AB4fE829a481E6797B012664425B",
+	TokenSymbol:          "✦",
+	TokenDecimals:        0,
+	ExplorerUrl:          "https://sepolia.etherscan.io",
+	Confirmations:        1,
+	Tetris:               GameRule{Enabled: true, DailyRewardLimit: 3, ScorePerCoin: 5000, MinSecondsPerCoin: 60},
 }
 
 var gameSettingSnapshot atomic.Pointer[GameSetting]
@@ -215,6 +226,11 @@ func GetGameHotWalletPrivateKey() string {
 		return *key
 	}
 	return ""
+}
+
+// PlayTurnstileRequired 表示开局前要过 Turnstile 人机验证：游戏中心打开了这一项，且站点已启用 Turnstile。
+func (s *GameSetting) PlayTurnstileRequired() bool {
+	return s != nil && s.PlayTurnstileEnabled && common.TurnstileCheckEnabled
 }
 
 // ChainConfigured 表示链与合约已配好，提现 worker 才有地方可发。

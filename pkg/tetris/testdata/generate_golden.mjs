@@ -4,8 +4,9 @@
 //   node pkg/tetris/testdata/generate_golden.mjs > pkg/tetris/testdata/golden.json
 //
 // 也可以传入局数，批量生成更多对局做本地对照：node generate_golden.mjs 300 > /tmp/replays.json
-// 记录里有两部分：浏览器引擎的规则表原样导出，以及脚本里两个机器人按固定种子打出的整局操作。
-// 一个机器人按局面评估摆放方块、能连续消行升级，另一个随机乱按，覆盖踢墙、暂存、软降和锁定计时。
+// 记录里有两部分：浏览器引擎的规则表原样导出，以及脚本里的机器人按固定种子打出的整局操作。
+// 一个机器人按局面评估摆放方块、能连续消行升级，一个随机乱按，覆盖踢墙、暂存、软降和锁定计时；
+// 还有一个一帧摆好一块的脚本，速度远超人类，供服务端的速度检查对照。
 import {
   ACTION,
   HEIGHT,
@@ -126,6 +127,35 @@ function smartBot(random, reckless) {
   };
 }
 
+// 按评估结果在一帧里摆好一块：旋转、横移、硬降一次做完，再按服务端允许的平均每帧 2 个操作空等。
+// 这是代打脚本的速度，服务端必须把它认出来。
+function fastBot() {
+  let spent = 0;
+  return (game) => {
+    if (spent > 2 * game.ticks) return [];
+    const plan = bestPlacement(game);
+    if (plan === null) return [ACTION.HARD_DROP];
+    const actions = [];
+    if (plan.hold) {
+      actions.push(ACTION.HOLD);
+    } else {
+      const turns = (plan.rotation - game.rotation + 4) % 4;
+      if (turns === 3) {
+        actions.push(ACTION.ROTATE_CCW);
+      } else {
+        for (let i = 0; i < turns; i++) actions.push(ACTION.ROTATE_CW);
+      }
+      const dx = plan.x - game.x;
+      for (let i = 0; i < Math.abs(dx); i++) {
+        actions.push(dx < 0 ? ACTION.LEFT : ACTION.RIGHT);
+      }
+      actions.push(ACTION.HARD_DROP);
+    }
+    spent += actions.length;
+    return actions;
+  };
+}
+
 function chaosBot(random) {
   const pool = [
     ACTION.LEFT,
@@ -202,5 +232,7 @@ if (count > 0) {
   games.push(
     play('chaos-ended-early', 3141592653, chaosBot(createRandom(11)), 1500),
   );
+  // 脚本速度打 20 秒，锁定的方块数远超人类在 10 秒内能做到的。
+  games.push(play('fast-bot', 1618033988, fastBot(), 1200));
 }
 process.stdout.write(`${JSON.stringify({ rules: RULE_TABLES, games })}\n`);

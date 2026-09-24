@@ -49,7 +49,8 @@ func gameCenterDay() string {
 	return time.Now().Format("2006-01-02")
 }
 
-// GetGameCenterSelf 返回当前用户的游戏币账户、兑换比例、提现规则，以及已开放的游戏和各自今天的奖励进度。
+// GetGameCenterSelf 返回当前用户的游戏币账户、兑换比例、提现规则、已开放的游戏和各自今天的奖励进度，
+// 以及开局是否需要人机验证。
 func GetGameCenterSelf(c *gin.Context) {
 	userId := c.GetInt("id")
 	day := gameCenterDay()
@@ -82,11 +83,12 @@ func GetGameCenterSelf(c *gin.Context) {
 			return
 		}
 		games = append(games, gin.H{
-			"key":                gameTetris,
-			"daily_reward_limit": setting.Tetris.DailyRewardLimit,
-			"score_per_coin":     setting.Tetris.ScorePerCoin,
-			"earned_today":       earned,
-			"best_score":         best,
+			"key":                  gameTetris,
+			"daily_reward_limit":   setting.Tetris.DailyRewardLimit,
+			"score_per_coin":       setting.Tetris.ScorePerCoin,
+			"min_seconds_per_coin": setting.Tetris.MinSecondsPerCoin,
+			"earned_today":         earned,
+			"best_score":           best,
 		})
 	}
 	_, _, walletErr := service.GameHotWalletAddress()
@@ -94,6 +96,10 @@ func GetGameCenterSelf(c *gin.Context) {
 		"account":        account,
 		"quota_per_coin": quotaPerCoin,
 		"games":          games,
+		"play_turnstile": gin.H{
+			"required": setting.PlayTurnstileRequired(),
+			"site_key": common.TurnstileSiteKey,
+		},
 		"token": gin.H{
 			"symbol":       setting.TokenSymbol,
 			"address":      setting.TokenAddress,

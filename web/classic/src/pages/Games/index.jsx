@@ -94,6 +94,11 @@ const Games = () => {
         // 游戏中心关闭等情况下整页不可用，只显示原因，不再加载钱包和记录。
         setUnavailable(res.data.message);
       }
+    } catch (error) {
+      // 被风控封禁的 IP 收到 403，同样整页只显示原因；其他错误已由全局提示处理。
+      if (error?.response?.status === 403) {
+        setUnavailable(error.response.data?.message || '');
+      }
     } finally {
       setLoading(false);
     }

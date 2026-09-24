@@ -38,6 +38,7 @@ import {
   Trophy,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import Turnstile from 'react-turnstile';
 import { API, showError } from '../../../helpers';
 import {
   ACTION,
@@ -283,6 +284,13 @@ const Tetris = () => {
   const [stats, setStats] = useState({ score: 0, lines: 0, level: 1 });
   const [result, setResult] = useState(null);
   const [submitError, setSubmitError] = useState('');
+  // 开局人机验证：每局用一个新令牌，开局请求发出后换一个组件实例重新取令牌。
+  const [playTurnstile, setPlayTurnstile] = useState({ required: false });
+  const [turnstileToken, setTurnstileToken] = useState('');
+  const [turnstileKey, setTurnstileKey] = useState(0);
+  const [turnstileFailed, setTurnstileFailed] = useState(false);
+  // 结束、离开的确认框打开期间忽略游戏按键，免得在确认框后面按 P 继续玩。
+  const confirmingRef = useRef(false);
 
   useEffect(() => {
     const load = async () => {
@@ -301,8 +309,12 @@ const Tetris = () => {
         }
         setRule(tetris);
         setSymbol(res.data.data.token?.symbol || '');
+        setPlayTurnstile(res.data.data.play_turnstile || { required: false });
       } catch (error) {
-        setUnavailable(t('加载失败，请刷新重试'));
+        // 被风控封禁的 IP 收到 403，显示服务端给出的原因。
+        setUnavailable(
+          error?.response?.data?.message || t('加载失败，请刷新重试'),
+        );
       } finally {
         setLoading(false);
       }
@@ -320,6 +332,9 @@ const Tetris = () => {
 
   const submitResult = useCallback(async () => {
     const run = runRef.current;
+    // 同一局只提交一次；网络出错时放开，让玩家重新提交。
+    if (run.submitting) return;
+    run.submitting = true;
     releaseAllControls(run);
     setPhase('submitting');
     setSubmitError('');
@@ -349,12 +364,15 @@ const Tetris = () => {
       setRule((previous) => ({
         ...previous,
         daily_reward_limit: data.daily_reward_limit,
+        score_per_coin: data.score_per_coin,
+        min_seconds_per_coin: data.min_seconds_per_coin,
         earned_today: data.earned_today,
         best_score: data.best_score,
       }));
       setPhase('result');
     } catch (error) {
-      // 网络错误或限流：整局记录还在，可以重新提交。
+      // 网络错误或限流：整局记录还在，可以重新提交；已经结算过的话，服务端会返回第一次的结果。
+      run.submitting = false;
       setSubmitError(
         error?.response?.status === 429
           ? t('请求过于频繁，请稍后重新提交')
@@ -365,9 +383,18 @@ const Tetris = () => {
   }, [t]);
 
   const startGame = async () => {
+    const token = turnstileToken;
+    if (playTurnstile.required && !token) return;
     setPhase('starting');
+    // 令牌只能用一次，无论开局成败都换一个新的。
+    setTurnstileToken('');
+    setTurnstileKey((key) => key + 1);
     try {
-      const res = await API.post('/api/game/tetris/start');
+      const res = await API.post(
+        playTurnstile.required
+          ? `/api/game/tetris/start?turnstile=${encodeURIComponent(token)}`
+          : '/api/game/tetris/start',
+      );
       if (!res.data.success) {
         showError(res.data.message);
         setPhase('idle');
@@ -399,9 +426,20 @@ const Tetris = () => {
     setPhase((current) => (current === 'playing' ? 'paused' : current));
   }, []);
 
-  const endGame = () => {
+  // 暂停后弹出确认框，确认框关闭前游戏按键不起作用。
+  const confirmWhilePaused = (options) => {
     pauseGame();
+    confirmingRef.current = true;
     Modal.confirm({
+      ...options,
+      afterClose: () => {
+        confirmingRef.current = false;
+      },
+    });
+  };
+
+  const endGame = () => {
+    confirmWhilePaused({
       title: t('结束本局'),
       content: t('结束后按当前成绩结算，不能继续。'),
       onOk: () => {
@@ -415,8 +453,7 @@ const Tetris = () => {
       navigate('/games');
       return;
     }
-    pauseGame();
-    Modal.confirm({
+    confirmWhilePaused({
       title: t('离开游戏'),
       content: t('本局尚未结算，离开后成绩作废。'),
       onOk: () => navigate('/games'),
@@ -461,6 +498,7 @@ const Tetris = () => {
   useEffect(() => {
     if (phase !== 'playing' && phase !== 'paused') return undefined;
     const onKeyDown = (event) => {
+      if (confirmingRef.current) return;
       if (event.code === 'KeyP' && !event.repeat) {
         event.preventDefault();
         setPhase((current) => (current === 'playing' ? 'paused' : 'playing'));
@@ -546,27 +584,58 @@ const Tetris = () => {
 
   const limit = rule.daily_reward_limit;
   const earned = rule.earned_today;
-  const ruleText =
-    limit > 0
-      ? t('单局每满 {{score}} 分得 1 个游戏币，每天最多 {{limit}} 个', {
-          score: formatNumber(rule.score_per_coin),
-          limit,
-        })
-      : t('这个游戏暂不发放奖励');
+  let ruleText = t('这个游戏暂不发放奖励');
+  if (limit > 0 && rule.min_seconds_per_coin > 0) {
+    ruleText = t(
+      '单局每满 {{score}} 分得 1 个游戏币，每个至少需要玩 {{seconds}} 秒，每天最多 {{limit}} 个',
+      {
+        score: formatNumber(rule.score_per_coin),
+        seconds: rule.min_seconds_per_coin,
+        limit,
+      },
+    );
+  } else if (limit > 0) {
+    ruleText = t('单局每满 {{score}} 分得 1 个游戏币，每天最多 {{limit}} 个', {
+      score: formatNumber(rule.score_per_coin),
+      limit,
+    });
+  }
 
+  // 实际发放少于分数应得的数量时，服务端会返回是哪条规则限制了奖励。
+  const limitMessages = {
+    speed: t('操作速度超出正常范围，本局不发放奖励'),
+    time: t('奖励受本局时长限制：每个游戏币至少需要玩 {{seconds}} 秒', {
+      seconds: rule.min_seconds_per_coin,
+    }),
+    daily: t('今日奖励已领满，明天再来'),
+    ip: t('当前 IP 今日的奖励已领满，明天再来'),
+  };
   let rewardText = '';
+  let rewardNote = '';
   if (result && !result.rejected) {
+    const limitMessage = limitMessages[result.limited_by] || '';
     if (result.reward > 0) {
       rewardText = t('获得 {{reward}} 个游戏币', { reward: result.reward });
+      rewardNote = limitMessage;
     } else if (limit <= 0) {
       rewardText = t('这个游戏暂不发放奖励');
-    } else if (earned >= limit) {
-      rewardText = t('今日奖励已领满，明天再来');
+    } else if (limitMessage) {
+      rewardText = limitMessage;
     } else {
       rewardText = t('单局每满 {{score}} 分得 1 个游戏币', {
         score: formatNumber(rule.score_per_coin),
       });
     }
+  }
+
+  const waitingTurnstile = playTurnstile.required && !turnstileToken;
+  let turnstileHint = '';
+  if (playTurnstile.required && turnstileFailed) {
+    turnstileHint = t('人机验证加载失败，请刷新页面重试');
+  } else if (waitingTurnstile) {
+    turnstileHint = t(
+      '开局前需要完成人机验证，需要操作时验证框会出现在页面下方',
+    );
   }
 
   let overlay = null;
@@ -579,10 +648,14 @@ const Tetris = () => {
           theme='solid'
           size='large'
           icon={<Play size={16} />}
+          disabled={waitingTurnstile}
           onClick={startGame}
         >
           {t('开始游戏')}
         </Button>
+        {turnstileHint && (
+          <div className='tetris-overlay-note'>{turnstileHint}</div>
+        )}
       </div>
     );
   } else if (phase === 'starting' || phase === 'submitting') {
@@ -658,6 +731,9 @@ const Tetris = () => {
             >
               {rewardText}
             </div>
+            {rewardNote && (
+              <div className='tetris-overlay-note'>{rewardNote}</div>
+            )}
             {result.score !== result.localScore && (
               <div className='tetris-overlay-note'>
                 {t('成绩以服务器重放结果为准')}
@@ -669,10 +745,14 @@ const Tetris = () => {
           theme='solid'
           size='large'
           icon={<Play size={16} />}
+          disabled={waitingTurnstile}
           onClick={startGame}
         >
           {t('再来一局')}
         </Button>
+        {turnstileHint && (
+          <div className='tetris-overlay-note'>{turnstileHint}</div>
+        )}
       </div>
     );
   }
@@ -837,6 +917,26 @@ const Tetris = () => {
             </button>
           ))}
         </div>
+
+        {/* 平时不可见，Cloudflare 需要玩家操作时才在这里展开。 */}
+        {playTurnstile.required && (
+          <div className='tetris-turnstile'>
+            <Turnstile
+              key={turnstileKey}
+              sitekey={playTurnstile.site_key}
+              appearance='interaction-only'
+              onVerify={(token) => {
+                setTurnstileToken(token);
+                setTurnstileFailed(false);
+              }}
+              onExpire={() => setTurnstileToken('')}
+              onError={() => {
+                setTurnstileToken('');
+                setTurnstileFailed(true);
+              }}
+            />
+          </div>
+        )}
       </div>
     </div>
   );

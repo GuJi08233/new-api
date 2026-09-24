@@ -241,10 +241,11 @@ const (
 	MsgGamePlayDisabled           = "game.play_disabled"
 	MsgGameStartFailed            = "game.start_failed"
 	MsgGameSessionNotFound        = "game.session_not_found"
-	MsgGameSessionFinished        = "game.session_finished"
 	MsgGameSessionExpired         = "game.session_expired"
 	MsgGameReplayInvalid          = "game.replay_invalid"
 	MsgGameFinishFailed           = "game.finish_failed"
+	MsgGameTurnstileRequired      = "game.turnstile_required"
+	MsgGameTurnstileFailed        = "game.turnstile_failed"
 )
 
 // Passkey related messages

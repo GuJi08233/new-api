@@ -11,6 +11,7 @@ import (
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/tetris"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/gin-gonic/gin"
@@ -33,13 +34,40 @@ type tetrisFinishRequest struct {
 	Inputs    []int `json:"inputs"`
 }
 
+// tetrisDetail 是俄罗斯方块对局的成绩明细，存在对局的 Detail 里；重复提交同一局时据此返回同样的结果。
+type tetrisDetail struct {
+	Lines      int  `json:"lines"`
+	Level      int  `json:"level"`
+	Pieces     int  `json:"pieces"`
+	Ticks      int  `json:"ticks"`
+	Inputs     int  `json:"inputs"`
+	Over       bool `json:"over"`
+	PeakPieces int  `json:"peak_pieces"`
+}
+
 // StartTetris 开一局俄罗斯方块：记下对局，把随机种子交给浏览器，整局的方块序列只由种子决定。
+// 要求人机验证时每局都要带一个新的 Turnstile 令牌，不经浏览器直接调接口的脚本开不了局。
 func StartTetris(c *gin.Context) {
-	if !operation_setting.GetGameSetting().Tetris.Enabled {
+	setting := operation_setting.GetGameSetting()
+	if !setting.Tetris.Enabled {
 		common.ApiErrorI18n(c, i18n.MsgGamePlayDisabled)
 		return
 	}
 	userId := c.GetInt("id")
+	if setting.PlayTurnstileRequired() {
+		token := c.Query("turnstile")
+		if token == "" {
+			common.ApiErrorI18n(c, i18n.MsgGameTurnstileRequired)
+			return
+		}
+		if err := service.VerifyTurnstile(token, c.ClientIP()); err != nil {
+			if !errors.Is(err, service.ErrTurnstileRejected) {
+				common.SysError(fmt.Sprintf("failed to verify turnstile for user %d: %v", userId, err))
+			}
+			common.ApiErrorI18n(c, i18n.MsgGameTurnstileFailed)
+			return
+		}
+	}
 	var seed [4]byte
 	if _, err := rand.Read(seed[:]); err != nil {
 		common.SysError(fmt.Sprintf("failed to generate tetris seed for user %d: %v", userId, err))
@@ -56,7 +84,8 @@ func StartTetris(c *gin.Context) {
 }
 
 // FinishTetris 结算一局俄罗斯方块。浏览器上传整局操作，服务端从同一个种子重放，成绩与奖励都以重放结果为准。
-// 浏览器按真实时间推进帧，所以游戏内时长不能超过开局以来实际经过的时间；同一局只能结算一次。
+// 浏览器按真实时间推进帧，所以游戏内时长不能超过开局以来实际经过的时间。同一局只结算一次，重复提交
+// (例如结算成功但响应在网络上丢了)时返回第一次结算的结果。
 func FinishTetris(c *gin.Context) {
 	rule := operation_setting.GetGameSetting().Tetris
 	if !rule.Enabled {
@@ -79,7 +108,7 @@ func FinishTetris(c *gin.Context) {
 		return
 	}
 	if session.Status != model.GameSessionStatusPlaying {
-		common.ApiErrorI18n(c, i18n.MsgGameSessionFinished)
+		respondSettledTetris(c, session, rule)
 		return
 	}
 	elapsed := common.GetTimestamp() - session.CreatedAt
@@ -101,49 +130,131 @@ func FinishTetris(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgGameReplayInvalid)
 		return
 	}
-	// 最高分在结算之前读：结算一旦提交就不能再因为别的查询失败而报错，否则浏览器重试只会得到「已结算」。
+	// 最高分在结算之前读：结算一旦提交就不能再因为别的查询失败而报错，浏览器会把失败当成这局被拒绝。
 	best, err := model.GetGameBestScore(userId, gameTetris)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	detail, err := common.Marshal(gin.H{
-		"lines":  game.Lines,
-		"level":  game.Level,
-		"pieces": game.Pieces,
-		"ticks":  game.Ticks,
-		"inputs": len(inputs),
-		"over":   game.Over,
-	})
+
+	// 奖励按单局分数计算，再受两条防脚本的规则约束：每个游戏币至少要玩够 MinSecondsPerCoin 秒；
+	// 操作快过人类极限的对局判定为脚本，不发奖励。保存配置时已要求分数为正，这里再挡一次，手工改库留下的 0 不会除零。
+	reward, limitedBy := 0, ""
+	if rule.ScorePerCoin > 0 {
+		reward = game.Score / rule.ScorePerCoin
+	}
+	if rule.MinSecondsPerCoin > 0 {
+		if byTime := game.Ticks / (rule.MinSecondsPerCoin * tetris.TicksPerSecond); byTime < reward {
+			reward, limitedBy = byTime, model.GameRewardLimitedByTime
+		}
+	}
+	tooFast := game.PeakPieces > tetris.HumanPieceLimit
+	if tooFast {
+		reward, limitedBy = 0, model.GameRewardLimitedBySpeed
+	}
+	detail := tetrisDetail{
+		Lines:      game.Lines,
+		Level:      game.Level,
+		Pieces:     game.Pieces,
+		Ticks:      game.Ticks,
+		Inputs:     len(inputs),
+		Over:       game.Over,
+		PeakPieces: game.PeakPieces,
+	}
+	detailJson, err := common.Marshal(detail)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	// 保存配置时已要求分数为正；这里再挡一次，手工改库留下的 0 只会让这局没有奖励，不会除零。
-	reward := 0
-	if rule.ScorePerCoin > 0 {
-		reward = game.Score / rule.ScorePerCoin
-	}
-	granted, earned, balance, err := model.FinishGameSession(session, game.Score, string(detail), reward, rule.DailyRewardLimit, gameCenterDay())
-	if errors.Is(err, model.ErrGameSessionFinished) {
-		common.ApiErrorI18n(c, i18n.MsgGameSessionFinished)
-		return
-	}
+	ip := c.ClientIP()
+	// IPv6 客户端能在运营商分配的整段前缀里随意换地址，按 IP 计算奖励时与自动封禁一样归并到风控设置的前缀。
+	ipKey, err := model.NormalizeAutoBanTarget(ip, operation_setting.GetRiskControlSetting().ResolvedIpBanIpv6PrefixLength())
 	if err != nil {
+		ipKey = ip
+	}
+	settled, earned, balance, err := model.FinishGameSession(session, model.GameSettlement{
+		Score:      game.Score,
+		Detail:     string(detailJson),
+		Reward:     reward,
+		LimitedBy:  limitedBy,
+		DailyLimit: rule.DailyRewardLimit,
+		Day:        gameCenterDay(),
+		Ip:         ipKey,
+	})
+	switch {
+	case errors.Is(err, model.ErrGameSessionClosed):
+		// 同一局的另一次提交刚结算完，或者这局已被新开的一局作废：重新读取对局再回应。
+		current, err := model.GetUserGameSession(userId, gameTetris, session.Id)
+		if err == nil && current.Status == model.GameSessionStatusFinished {
+			respondSettledTetris(c, current, rule)
+			return
+		}
+		common.ApiErrorI18n(c, i18n.MsgGameSessionNotFound)
+		return
+	case errors.Is(err, model.ErrGameSessionSuperseded):
+		common.ApiErrorI18n(c, i18n.MsgGameSessionNotFound)
+		return
+	case err != nil:
 		common.SysError(fmt.Sprintf("failed to settle tetris session %d for user %d: %v", session.Id, userId, err))
 		common.ApiErrorI18n(c, i18n.MsgGameFinishFailed)
 		return
 	}
-	common.ApiSuccess(c, gin.H{
-		"score":              game.Score,
-		"lines":              game.Lines,
-		"level":              game.Level,
-		"pieces":             game.Pieces,
-		"ticks":              game.Ticks,
-		"reward":             granted,
-		"earned_today":       earned,
-		"daily_reward_limit": rule.DailyRewardLimit,
-		"balance":            balance,
-		"best_score":         max(best, game.Score),
-	})
+
+	if tooFast {
+		service.RecordGameCheatAlert(gameTetris, userId, ip, fmt.Sprintf(
+			"俄罗斯方块对局 #%d 在 %d 秒内锁定了 %d 块，超过人类操作极限 %d 块，判定为脚本，未发奖励",
+			session.Id, tetris.SpeedWindowTicks/tetris.TicksPerSecond, game.PeakPieces, tetris.HumanPieceLimit))
+	}
+	// 发奖记一条带来源 IP 的审计日志，风控的多账号视图能看到同一 IP 下哪些账号在领游戏奖励。
+	if settled.Reward > 0 {
+		model.RecordAuditLog(model.ClientLogSource(c), userId, "", model.LogTypeSystem,
+			fmt.Sprintf("游戏奖励：俄罗斯方块 %d 分，获得 %d 个游戏币", settled.Score, settled.Reward),
+			map[string]interface{}{"game": gameTetris, "session_id": settled.Id, "score": settled.Score, "game_coins": settled.Reward})
+	}
+	common.ApiSuccess(c, tetrisResult(settled, detail, rule, earned, balance, max(best, settled.Score)))
+}
+
+// respondSettledTetris 回应一局已经结算过的俄罗斯方块：成绩与奖励取自第一次结算时的记录，
+// 今日进度、余额与最高分取当前值。
+func respondSettledTetris(c *gin.Context, session *model.GameSession, rule operation_setting.GameRule) {
+	var detail tetrisDetail
+	if err := common.UnmarshalJsonStr(session.Detail, &detail); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	earned, err := model.GetGameRewardEarned(session.UserId, gameTetris, gameCenterDay())
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	account, err := model.GetGameCoinAccount(session.UserId)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	best, err := model.GetGameBestScore(session.UserId, gameTetris)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, tetrisResult(session, detail, rule, earned, account.Balance, best))
+}
+
+// tetrisResult 是一局俄罗斯方块的结算结果，首次结算与重复提交返回同样的内容。
+func tetrisResult(session *model.GameSession, detail tetrisDetail, rule operation_setting.GameRule, earned int, balance int, best int) gin.H {
+	return gin.H{
+		"score":                session.Score,
+		"lines":                detail.Lines,
+		"level":                detail.Level,
+		"pieces":               detail.Pieces,
+		"ticks":                detail.Ticks,
+		"reward":               session.Reward,
+		"limited_by":           session.LimitedBy,
+		"earned_today":         earned,
+		"balance":              balance,
+		"best_score":           best,
+		"daily_reward_limit":   rule.DailyRewardLimit,
+		"score_per_coin":       rule.ScorePerCoin,
+		"min_seconds_per_coin": rule.MinSecondsPerCoin,
+	}
 }

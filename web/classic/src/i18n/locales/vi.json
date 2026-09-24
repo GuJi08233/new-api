@@ -4979,7 +4979,7 @@
     "开放游戏": "Mở trò chơi",
     "关闭后用户不能开始新的对局，进行中的对局也不能结算": "Khi tắt, người dùng không thể bắt đầu ván mới và các ván đang chơi cũng không thể quyết toán",
     "每人每日奖励上限": "Giới hạn thưởng mỗi ngày cho mỗi người",
-    "每个用户每天最多从这个游戏获得的游戏币，各游戏分别计算；0 表示照常可玩但不发奖励": "Số xu trò chơi tối đa mỗi người dùng có thể nhận từ trò chơi này mỗi ngày, tính riêng cho từng trò chơi; 0 nghĩa là vẫn chơi được nhưng không phát thưởng",
+    "每个用户每天最多从这个游戏获得的游戏币，同一 IP 下所有账号合计也不超过这个数；各游戏分别计算，0 表示照常可玩但不发奖励": "Số xu trò chơi tối đa mỗi người dùng có thể nhận từ trò chơi này mỗi ngày; tổng của mọi tài khoản trên cùng một IP cũng không vượt quá số này. Tính riêng cho từng trò chơi; 0 nghĩa là vẫn chơi được nhưng không phát thưởng",
     "每个游戏币所需分数": "Số điểm cho mỗi xu trò chơi",
     "单局每满这么多分奖励 1 个游戏币，再受每日上限约束": "Mỗi khi một ván đạt đủ số điểm này sẽ được thưởng 1 xu trò chơi, vẫn chịu giới hạn mỗi ngày",
     "今日已发放": "Đã phát hôm nay",
@@ -4987,6 +4987,17 @@
     "游戏奖励": "Thưởng trò chơi",
     "经典消行玩法，消的行越多、等级越高，得分越快": "Lối chơi xếp hàng cổ điển: xóa càng nhiều hàng, cấp càng cao thì điểm tăng càng nhanh",
     "操作说明": "Hướng dẫn điều khiển",
-    "左右移动": "Di chuyển trái/phải"
+    "左右移动": "Di chuyển trái/phải",
+    "单局每满 {{score}} 分得 1 个游戏币，每个至少需要玩 {{seconds}} 秒，每天最多 {{limit}} 个": "Mỗi {{score}} điểm trong một ván được 1 xu trò chơi, mỗi xu cần chơi ít nhất {{seconds}} giây, tối đa {{limit}} xu mỗi ngày",
+    "操作速度超出正常范围，本局不发放奖励": "Tốc độ thao tác vượt quá mức bình thường, ván này không được thưởng",
+    "奖励受本局时长限制：每个游戏币至少需要玩 {{seconds}} 秒": "Phần thưởng bị giới hạn theo thời gian chơi: mỗi xu trò chơi cần chơi ít nhất {{seconds}} giây",
+    "当前 IP 今日的奖励已领满，明天再来": "IP hiện tại đã nhận đủ phần thưởng hôm nay, hãy quay lại vào ngày mai",
+    "人机验证加载失败，请刷新页面重试": "Không tải được xác minh người dùng, vui lòng tải lại trang và thử lại",
+    "开局前需要完成人机验证，需要操作时验证框会出现在页面下方": "Cần xác minh người dùng trước mỗi ván; nếu cần thao tác, ô xác minh sẽ hiện ở cuối trang",
+    "开局人机验证": "Xác minh người dùng trước mỗi ván",
+    "每局开始前需通过 Cloudflare Turnstile 验证，挡住不经浏览器直接调用接口的脚本；需要先在系统设置中启用 Turnstile": "Mỗi ván phải qua Cloudflare Turnstile trước khi bắt đầu, chặn các script gọi API mà không qua trình duyệt; cần bật Turnstile trong cài đặt hệ thống trước",
+    "系统设置中未启用 Turnstile，暂不生效": "Chưa bật Turnstile trong cài đặt hệ thống nên hiện chưa có hiệu lực",
+    "每个游戏币所需时长（秒）": "Thời gian chơi cho mỗi xu trò chơi (giây)",
+    "单局每玩满这么多秒才能多得 1 个游戏币，挡住几秒就刷够分数的脚本；0 表示不限制": "Mỗi ván chỉ được thêm 1 xu trò chơi cho mỗi ngần ấy giây đã chơi, chặn các script cày đủ điểm chỉ trong vài giây; 0 nghĩa là không giới hạn"
   }
 }
