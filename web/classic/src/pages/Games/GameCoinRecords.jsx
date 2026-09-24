@@ -33,6 +33,7 @@ import { renderQuota } from '../../helpers/render';
 import {
   getGameCoinLogTypeMap,
   getGameCoinWithdrawalStatusMap,
+  getGameMetaMap,
 } from '../../constants';
 
 const { Text } = Typography;
@@ -89,6 +90,7 @@ const GameCoinRecords = ({ version, symbol, explorerUrl }) => {
   const withdrawals = usePagedRecords('/api/game/withdrawals', version);
   const logTypeMap = getGameCoinLogTypeMap(t);
   const statusMap = getGameCoinWithdrawalStatusMap(t);
+  const gameMetaMap = getGameMetaMap(t);
 
   const logColumns = [
     {
@@ -124,6 +126,10 @@ const GameCoinRecords = ({ version, symbol, explorerUrl }) => {
       render: (value, record) => {
         if (record.type === 'convert') {
           return t('获得额度 {{quota}}', { quota: renderQuota(record.quota) });
+        }
+        // 游戏奖励的备注是游戏标识。
+        if (record.type === 'game_reward') {
+          return gameMetaMap[value]?.name || value;
         }
         return value || record.ref_id || '-';
       },

@@ -238,6 +238,13 @@ const (
 	MsgGameWithdrawFailed         = "game.withdraw_failed"
 	MsgGameUserNotFound           = "game.user_not_found"
 	MsgGameAdjustFailed           = "game.adjust_failed"
+	MsgGamePlayDisabled           = "game.play_disabled"
+	MsgGameStartFailed            = "game.start_failed"
+	MsgGameSessionNotFound        = "game.session_not_found"
+	MsgGameSessionFinished        = "game.session_finished"
+	MsgGameSessionExpired         = "game.session_expired"
+	MsgGameReplayInvalid          = "game.replay_invalid"
+	MsgGameFinishFailed           = "game.finish_failed"
 )
 
 // Passkey related messages

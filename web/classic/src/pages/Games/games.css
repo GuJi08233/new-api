@@ -284,6 +284,71 @@ For commercial licensing, please contact support@quantumnous.com
   padding: 12px 20px 16px;
 }
 
+/* ---------- Game list ---------- */
+
+.games-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 16px;
+  padding: 4px 0;
+}
+
+.games-list-card {
+  display: flex;
+  gap: 16px;
+  padding: 16px;
+  border-radius: 14px;
+  border: 1px solid var(--semi-color-border);
+  background: var(--semi-color-bg-0);
+}
+
+.games-list-cover {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 14px;
+  flex-shrink: 0;
+  color: #fff;
+  background: linear-gradient(135deg, #8b5cf6 0%, #ec4899 100%);
+}
+
+.games-list-cover.cover-tetris {
+  background: linear-gradient(135deg, #22d3ee 0%, #6366f1 100%);
+  box-shadow: 0 6px 16px rgba(99, 102, 241, 0.3);
+}
+
+.games-list-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+}
+
+.games-list-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--semi-color-text-0);
+}
+
+.games-list-desc {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--semi-color-text-2);
+}
+
+.games-list-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-bottom: 4px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--semi-color-text-1);
+}
+
 @media (max-width: 640px) {
   .games-container {
     padding: 20px 12px 32px;

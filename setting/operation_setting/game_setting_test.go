@@ -48,6 +48,24 @@ func TestValidateGameOption(t *testing.T) {
 		assert.Error(t, ValidateGameOption(key, value), key)
 	}
 
+	// 游戏规则整份以 JSON 保存：每日奖励上限可以为 0(只玩不发奖励)，每个游戏币所需分数必须为正，缺字段按零值拒绝。
+	for value, valid := range map[string]bool{
+		`{"enabled":true,"daily_reward_limit":0,"score_per_coin":1}`:                   true,
+		`{"enabled":false,"daily_reward_limit":3,"score_per_coin":5000}`:               true,
+		`{"enabled":true,"daily_reward_limit":-1,"score_per_coin":5000}`:               false,
+		`{"enabled":true,"daily_reward_limit":9007199254740992,"score_per_coin":5000}`: false,
+		`{"enabled":true,"daily_reward_limit":3,"score_per_coin":0}`:                   false,
+		`{"enabled":true,"daily_reward_limit":3}`:                                      false,
+		`not json`: false,
+	} {
+		err := ValidateGameOption(GameSettingPrefix+"tetris", value)
+		if valid {
+			assert.NoError(t, err, value)
+		} else {
+			assert.Error(t, err, value)
+		}
+	}
+
 	// 热钱包私钥也能经通用选项接口写入，同样要在落库前挡住格式错误；空值表示清除。
 	assert.NoError(t, ValidateGameOption(GameHotWalletPrivateKeyOption, ""))
 	assert.NoError(t, ValidateGameOption(GameHotWalletPrivateKeyOption, "4c0883a69102937d6231471b5dbb6204fe5129617082792ae468d01a3f362318"))

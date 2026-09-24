@@ -33,6 +33,7 @@ import { IconRefresh } from '@douyinfe/semi-icons';
 import { useTranslation } from 'react-i18next';
 import { API, showError, showSuccess } from '../../helpers';
 import { StatusContext } from '../../context/Status';
+import { getGameMetaMap } from '../../constants';
 
 const { Text, Title } = Typography;
 
@@ -99,6 +100,14 @@ const GameAdminSettings = () => {
 
   const numberField = (key) => (value) => {
     setField(key, typeof value === 'number' ? value : 0);
+  };
+
+  // 每个游戏的规则是配置里以游戏标识为键的一个对象。
+  const setGameRule = (game, key, value) => {
+    setSetting((previous) => ({
+      ...previous,
+      [game]: { ...previous[game], [key]: value },
+    }));
   };
 
   const save = async () => {
@@ -189,6 +198,8 @@ const GameAdminSettings = () => {
       { env: hotWallet.env },
     );
   }
+
+  const gameMetaMap = getGameMetaMap(t);
 
   const unfinished =
     (overview?.status_counts?.pending || 0) +
@@ -323,6 +334,69 @@ const GameAdminSettings = () => {
           />
         </SettingRow>
       </Card>
+
+      {Object.entries(gameMetaMap).map(([game, meta]) => {
+        const rule = setting[game];
+        if (!rule) return null;
+        return (
+          <Card key={game} title={meta.name}>
+            <SettingRow
+              label={t('开放游戏')}
+              extra={t('关闭后用户不能开始新的对局，进行中的对局也不能结算')}
+            >
+              <Switch
+                checked={rule.enabled}
+                onChange={(value) => setGameRule(game, 'enabled', value)}
+              />
+            </SettingRow>
+            <SettingRow
+              label={t('每人每日奖励上限')}
+              extra={t(
+                '每个用户每天最多从这个游戏获得的游戏币，各游戏分别计算；0 表示照常可玩但不发奖励',
+              )}
+            >
+              <InputNumber
+                value={rule.daily_reward_limit}
+                min={0}
+                precision={0}
+                suffix={setting.token_symbol}
+                onChange={(value) =>
+                  setGameRule(
+                    game,
+                    'daily_reward_limit',
+                    typeof value === 'number' ? value : 0,
+                  )
+                }
+              />
+            </SettingRow>
+            <SettingRow
+              label={t('每个游戏币所需分数')}
+              extra={t('单局每满这么多分奖励 1 个游戏币，再受每日上限约束')}
+            >
+              <InputNumber
+                value={rule.score_per_coin}
+                min={1}
+                precision={0}
+                onChange={(value) =>
+                  setGameRule(
+                    game,
+                    'score_per_coin',
+                    typeof value === 'number' ? value : 0,
+                  )
+                }
+              />
+            </SettingRow>
+            <SettingRow
+              label={t('今日已发放')}
+              extra={t('所有用户今天从这个游戏获得的游戏币总数')}
+            >
+              <Text strong>
+                {overview?.game_rewards?.[game] ?? 0} {setting.token_symbol}
+              </Text>
+            </SettingRow>
+          </Card>
+        );
+      })}
 
       <Card title={t('链上提现')}>
         <SettingRow

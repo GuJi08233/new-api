@@ -205,6 +205,13 @@ game.withdraw_address_invalid: "Invalid recipient address, it must be a 42-chara
 game.withdraw_failed: "Withdrawal failed, please try again later"
 game.user_not_found: "User not found"
 game.adjust_failed: "Failed to adjust game coins"
+game.play_disabled: "This game is not available"
+game.start_failed: "Failed to start the game, please try again later"
+game.session_not_found: "Game session not found"
+game.session_finished: "This game has already been settled"
+game.session_expired: "This game session has expired, please start a new game"
+game.replay_invalid: "The game record is invalid and cannot be settled"
+game.finish_failed: "Failed to settle the game, please try again later"
 
 # Passkey messages
 passkey.create_failed: "Unable to create Passkey credential"

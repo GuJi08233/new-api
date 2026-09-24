@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import React, { useCallback, useContext, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Banner,
   Button,
@@ -34,9 +35,11 @@ import {
 } from '@douyinfe/semi-illustrations';
 import {
   ArrowRightLeft,
+  Blocks,
   Coins,
   ExternalLink,
   Gamepad2,
+  Play,
   Send,
   Wallet,
 } from 'lucide-react';
@@ -48,6 +51,7 @@ import {
   isEthereumUserRejected,
 } from '../../helpers/ethereumWallet';
 import { UserContext } from '../../context/User';
+import { getGameMetaMap } from '../../constants';
 import GameCoinRecords from './GameCoinRecords';
 import './games.css';
 
@@ -68,8 +72,10 @@ async function findInjectedWallet(t) {
 
 const Games = () => {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const [, userDispatch] = useContext(UserContext);
   const [info, setInfo] = useState(null);
+  const [unavailable, setUnavailable] = useState('');
   const [loading, setLoading] = useState(true);
   const [convertAmount, setConvertAmount] = useState(1);
   const [converting, setConverting] = useState(false);
@@ -83,8 +89,10 @@ const Games = () => {
       const res = await API.get('/api/game/self');
       if (res.data.success) {
         setInfo(res.data.data);
+        setUnavailable('');
       } else {
-        showError(res.data.message);
+        // 游戏中心关闭等情况下整页不可用，只显示原因，不再加载钱包和记录。
+        setUnavailable(res.data.message);
       }
     } finally {
       setLoading(false);
@@ -101,6 +109,8 @@ const Games = () => {
   const symbol = token?.symbol || '';
   const quotaPerCoin = info?.quota_per_coin || 0;
   const withdraw = info?.withdraw;
+  const games = info?.games || [];
+  const gameMetaMap = getGameMetaMap(t);
 
   const refreshAfterChange = () => {
     setRecordsVersion((version) => version + 1);
@@ -261,6 +271,22 @@ const Games = () => {
       showError(error?.message || t('添加代币失败'));
     }
   };
+
+  if (unavailable) {
+    return (
+      <div className='games-page'>
+        <div className='games-container'>
+          <Empty
+            image={<IllustrationConstruction style={ILLUSTRATION_SIZE} />}
+            darkModeImage={
+              <IllustrationConstructionDark style={ILLUSTRATION_SIZE} />
+            }
+            title={unavailable}
+          />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className='games-page'>
@@ -475,22 +501,68 @@ const Games = () => {
             <div className='games-section-title'>{t('游戏列表')}</div>
           </div>
           <div className='games-section-body'>
-            <Empty
-              image={<IllustrationConstruction style={ILLUSTRATION_SIZE} />}
-              darkModeImage={
-                <IllustrationConstructionDark style={ILLUSTRATION_SIZE} />
-              }
-              title={t('游戏即将上线')}
-              description={t('上线后可以在这里玩游戏赚取游戏币，敬请期待')}
-            />
+            {games.length > 0 ? (
+              <div className='games-list'>
+                {games.map((game) => (
+                  <div key={game.key} className='games-list-card'>
+                    <span className={`games-list-cover cover-${game.key}`}>
+                      <Blocks size={28} />
+                    </span>
+                    <div className='games-list-body'>
+                      <div className='games-list-title'>
+                        {gameMetaMap[game.key]?.name || game.key}
+                      </div>
+                      <div className='games-list-desc'>
+                        {gameMetaMap[game.key]?.description}
+                      </div>
+                      <div className='games-list-meta'>
+                        <span>
+                          {game.daily_reward_limit > 0
+                            ? t('今日奖励 {{earned}} / {{limit}} {{symbol}}', {
+                                earned: game.earned_today,
+                                limit: game.daily_reward_limit,
+                                symbol,
+                              })
+                            : t('这个游戏暂不发放奖励')}
+                        </span>
+                        <span>
+                          {t('最高分 {{score}}', {
+                            score: Number(game.best_score).toLocaleString(),
+                          })}
+                        </span>
+                      </div>
+                      <Button
+                        theme='solid'
+                        icon={<Play size={14} />}
+                        onClick={() => navigate(`/games/${game.key}`)}
+                      >
+                        {t('开始游戏')}
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <Empty
+                image={<IllustrationConstruction style={ILLUSTRATION_SIZE} />}
+                darkModeImage={
+                  <IllustrationConstructionDark style={ILLUSTRATION_SIZE} />
+                }
+                title={t('游戏即将上线')}
+                description={t('上线后可以在这里玩游戏赚取游戏币，敬请期待')}
+              />
+            )}
           </div>
         </section>
 
-        <GameCoinRecords
-          version={recordsVersion}
-          symbol={symbol}
-          explorerUrl={token?.explorer_url}
-        />
+        {/* 等账户信息加载成功再拉记录：游戏中心关闭时记录接口同样会失败，避免重复报错。 */}
+        {info && (
+          <GameCoinRecords
+            version={recordsVersion}
+            symbol={symbol}
+            explorerUrl={token?.explorer_url}
+          />
+        )}
       </div>
     </div>
   );

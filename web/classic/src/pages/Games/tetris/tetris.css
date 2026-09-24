@@ -1,0 +1,328 @@
+/*
+Copyright (C) 2025 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+
+/* ==========================================================================
+   Tetris page — scoped styles (all classes prefixed with `tetris-`)
+   Built on the game center shell in ../games.css.
+   ========================================================================== */
+
+.tetris-page {
+  max-width: 980px;
+}
+
+.tetris-topbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.tetris-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+  color: var(--semi-color-text-0);
+}
+
+.tetris-layout {
+  display: grid;
+  grid-template-columns: 150px auto 200px;
+  justify-content: center;
+  align-items: start;
+  gap: 20px;
+}
+
+.tetris-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.tetris-box {
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--semi-color-border);
+  background: var(--semi-color-bg-1);
+}
+
+.tetris-box-label {
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--semi-color-text-2);
+}
+
+.tetris-preview {
+  display: block;
+  width: 80px;
+  height: auto;
+  margin: 0 auto;
+}
+
+.tetris-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tetris-stats div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tetris-stats span {
+  font-size: 12px;
+  color: var(--semi-color-text-2);
+}
+
+.tetris-stats strong {
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+  color: var(--semi-color-text-0);
+}
+
+/* 盘面固定 1:2，高度同时受视口高度和宽度约束，保证整块盘面不用滚动就能看全。 */
+.tetris-board {
+  position: relative;
+  height: min(600px, calc(100vh - 200px), calc((100vw - 48px) * 2));
+  min-height: 360px;
+  aspect-ratio: 1 / 2;
+  border-radius: 12px;
+  border: 1px solid var(--semi-color-border);
+  background: var(--semi-color-fill-0);
+  overflow: hidden;
+}
+
+.tetris-board canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.tetris-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 20px;
+  text-align: center;
+  background: color-mix(in srgb, var(--semi-color-bg-1) 82%, transparent);
+  backdrop-filter: blur(2px);
+}
+
+/* 暂停时完全遮住盘面，避免暂停下来慢慢想。 */
+.tetris-overlay-solid {
+  background: var(--semi-color-bg-1);
+  backdrop-filter: none;
+}
+
+.tetris-overlay-title {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--semi-color-text-0);
+}
+
+.tetris-overlay-text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--semi-color-text-1);
+}
+
+.tetris-overlay-note {
+  font-size: 12px;
+  color: var(--semi-color-text-2);
+}
+
+.tetris-record {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(var(--semi-amber-7), 1);
+  background: rgba(var(--semi-amber-5), 0.16);
+}
+
+.tetris-result-score {
+  font-size: 40px;
+  font-weight: 700;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  color: var(--semi-color-text-0);
+}
+
+.tetris-result-reward {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--semi-color-text-1);
+}
+
+.tetris-result-reward.is-earned {
+  color: rgba(var(--semi-green-6), 1);
+}
+
+.tetris-reward-value {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  font-size: 20px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--semi-color-text-0);
+}
+
+.tetris-reward-value span {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--semi-color-text-2);
+}
+
+.tetris-reward-rule {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--semi-color-text-2);
+}
+
+.tetris-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tetris-keys ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--semi-color-text-1);
+}
+
+.tetris-keys li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.tetris-keys li > span {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.tetris-keys kbd {
+  min-width: 22px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--semi-color-border);
+  border-bottom-width: 2px;
+  font-family: inherit;
+  font-size: 11px;
+  text-align: center;
+  color: var(--semi-color-text-0);
+  background: var(--semi-color-fill-0);
+}
+
+/* 触屏按钮只在以触摸为主的设备上显示。 */
+.tetris-touch {
+  display: none;
+}
+
+.tetris-touch-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 56px;
+  border-radius: 12px;
+  border: 1px solid var(--semi-color-border);
+  color: var(--semi-color-text-0);
+  background: var(--semi-color-bg-1);
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.tetris-touch-button:active {
+  background: var(--semi-color-fill-1);
+}
+
+@media (pointer: coarse) {
+  .tetris-touch {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+    max-width: 480px;
+    margin: 16px auto 0;
+  }
+
+  .tetris-keys {
+    display: none;
+  }
+}
+
+/* 窄屏：盘面在左，暂存、分数和预览收成右侧一列。 */
+@media (max-width: 720px) {
+  .tetris-layout {
+    grid-template-columns: auto 104px;
+    grid-template-areas:
+      'board left'
+      'board right';
+    gap: 12px;
+  }
+
+  .tetris-left {
+    grid-area: left;
+  }
+
+  .tetris-right {
+    grid-area: right;
+  }
+
+  .tetris-board {
+    grid-area: board;
+    height: min(600px, calc(100vh - 300px), calc((100vw - 156px) * 2));
+    min-height: 320px;
+  }
+
+  .tetris-box {
+    padding: 8px;
+  }
+
+  .tetris-stats strong,
+  .tetris-reward-value {
+    font-size: 16px;
+  }
+
+  .tetris-actions {
+    flex-direction: column;
+  }
+}

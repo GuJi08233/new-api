@@ -65,6 +65,8 @@ func TestMain(m *testing.M) {
 		&GameCoinLog{},
 		&GameCoinWithdrawal{},
 		&GameCoinWithdrawDay{},
+		&GameSession{},
+		&GameRewardDay{},
 	); err != nil {
 		panic("failed to migrate: " + err.Error())
 	}
@@ -107,6 +109,8 @@ func truncateTables(t *testing.T) {
 		DB.Exec("DELETE FROM game_coin_logs")
 		DB.Exec("DELETE FROM game_coin_withdrawals")
 		DB.Exec("DELETE FROM game_coin_withdraw_days")
+		DB.Exec("DELETE FROM game_sessions")
+		DB.Exec("DELETE FROM game_reward_days")
 	})
 }
 

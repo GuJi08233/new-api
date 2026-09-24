@@ -206,6 +206,13 @@ game.withdraw_address_invalid: "收款地址無效，請檢查是否為 0x 開�
 game.withdraw_failed: "提現失敗，請稍後重試"
 game.user_not_found: "用戶不存在"
 game.adjust_failed: "調整遊戲幣失敗"
+game.play_disabled: "這個遊戲暫未開放"
+game.start_failed: "開局失敗，請稍後重試"
+game.session_not_found: "對局不存在"
+game.session_finished: "這一局已經結算過了"
+game.session_expired: "對局已過期，請重新開始"
+game.replay_invalid: "對局記錄無效，無法結算"
+game.finish_failed: "結算失敗，請稍後重試"
 
 # Passkey messages
 passkey.create_failed: "無法建立 Passkey 憑證"

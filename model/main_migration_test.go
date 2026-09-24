@@ -41,6 +41,8 @@ func TestMigrateDBCreatesUpstreamSupportTables(t *testing.T) {
 		&GameCoinLog{},
 		&GameCoinWithdrawal{},
 		&GameCoinWithdrawDay{},
+		&GameSession{},
+		&GameRewardDay{},
 	} {
 		require.True(t, DB.Migrator().HasTable(table))
 	}

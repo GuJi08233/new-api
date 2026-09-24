@@ -22,6 +22,7 @@ const (
 	GameCoinLogTypeConvert        = "convert"
 	GameCoinLogTypeWithdraw       = "withdraw"
 	GameCoinLogTypeWithdrawRefund = "withdraw_refund"
+	GameCoinLogTypeGameReward     = "game_reward"
 )
 
 // 提现单状态。pending 到 signed 之间还没有任何链上动作；一旦 signed，签好的交易就已落库，

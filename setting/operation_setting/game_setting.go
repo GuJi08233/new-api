@@ -32,6 +32,19 @@ type GameSetting struct {
 	TokenDecimals int    `json:"token_decimals"`
 	ExplorerUrl   string `json:"explorer_url"`
 	Confirmations int    `json:"confirmations"`
+
+	// 每个游戏一份开关与奖励规则。
+	Tetris GameRule `json:"tetris"`
+}
+
+// GameRule 是单个游戏的开关与奖励规则。奖励按单局成绩计算，再受每人每日上限约束；
+// 上限按游戏分别计算，一个游戏领满了不影响其他游戏。
+type GameRule struct {
+	Enabled bool `json:"enabled"`
+	// DailyRewardLimit 是每人每天最多从这个游戏获得的游戏币，0 表示照常可玩但不发奖励。
+	DailyRewardLimit int `json:"daily_reward_limit"`
+	// ScorePerCoin 是单局每得这么多分奖励 1 个游戏币。
+	ScorePerCoin int `json:"score_per_coin"`
 }
 
 // GameHotWalletPrivateKeyOption 是管理员在游戏管理页填写的热钱包私钥所在的选项键。私钥不放进
@@ -103,6 +116,18 @@ func ValidateGameOption(key string, value string) error {
 		if err != nil || confirmations < 1 || confirmations > GameMaxConfirmations {
 			return fmt.Errorf("确认数必须为 1 到 %d", GameMaxConfirmations)
 		}
+	case "tetris":
+		// 游戏规则整份以 JSON 保存，缺字段按零值校验：管理端总是提交完整的规则。
+		var rule GameRule
+		if err := common.UnmarshalJsonStr(value, &rule); err != nil {
+			return fmt.Errorf("%s 的游戏规则格式无效", field)
+		}
+		if rule.DailyRewardLimit < 0 || rule.DailyRewardLimit >= common.MaxQuota {
+			return fmt.Errorf("%s 的每日奖励上限必须是非负整数", field)
+		}
+		if rule.ScorePerCoin < 1 || rule.ScorePerCoin >= common.MaxQuota {
+			return fmt.Errorf("%s 的每个游戏币所需分数必须是正整数", field)
+		}
 	default:
 		return fmt.Errorf("未知的游戏中心配置项: %s", field)
 	}
@@ -162,6 +187,7 @@ var gameSetting = GameSetting{
 	TokenDecimals:      0,
 	ExplorerUrl:        "https://sepolia.etherscan.io",
 	Confirmations:      1,
+	Tetris:             GameRule{Enabled: true, DailyRewardLimit: 3, ScorePerCoin: 5000},
 }
 
 var gameSettingSnapshot atomic.Pointer[GameSetting]

@@ -23,6 +23,15 @@ export const getGameCoinLogTypeMap = (t) => ({
   convert: { text: t('额度兑换'), color: 'blue' },
   withdraw: { text: t('链上提现'), color: 'orange' },
   withdraw_refund: { text: t('提现退回'), color: 'green' },
+  game_reward: { text: t('游戏奖励'), color: 'amber' },
+});
+
+// 已接入的游戏。键与服务端的游戏标识、游戏中心配置里的字段名一致，路由为 /games/{key}。
+export const getGameMetaMap = (t) => ({
+  tetris: {
+    name: t('俄罗斯方块'),
+    description: t('经典消行玩法，消的行越多、等级越高，得分越快'),
+  },
 });
 
 export const getGameCoinWithdrawalStatusMap = (t) => ({

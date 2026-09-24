@@ -43,20 +43,22 @@ type gameHotWalletRequest struct {
 	PrivateKey string `json:"private_key"`
 }
 
-// gameCoinWithdrawDay 是全站提现额度的记账日，与签到一样按服务器本地时间 0 点切换。
-func gameCoinWithdrawDay() string {
+// gameCenterDay 是游戏中心的记账日：全站提现额度和每人每天的游戏奖励都按它计算，
+// 与签到一样按服务器本地时间 0 点切换。
+func gameCenterDay() string {
 	return time.Now().Format("2006-01-02")
 }
 
-// GetGameCenterSelf 返回当前用户的游戏币账户、兑换比例与提现规则。
+// GetGameCenterSelf 返回当前用户的游戏币账户、兑换比例、提现规则，以及已开放的游戏和各自今天的奖励进度。
 func GetGameCenterSelf(c *gin.Context) {
 	userId := c.GetInt("id")
+	day := gameCenterDay()
 	account, err := model.GetGameCoinAccount(userId)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	used, err := model.GetGameCoinWithdrawDayUsed(gameCoinWithdrawDay())
+	used, err := model.GetGameCoinWithdrawDayUsed(day)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -67,10 +69,31 @@ func GetGameCenterSelf(c *gin.Context) {
 		return
 	}
 	setting := operation_setting.GetGameSetting()
+	games := []gin.H{}
+	if setting.Tetris.Enabled {
+		earned, err := model.GetGameRewardEarned(userId, gameTetris, day)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		best, err := model.GetGameBestScore(userId, gameTetris)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		games = append(games, gin.H{
+			"key":                gameTetris,
+			"daily_reward_limit": setting.Tetris.DailyRewardLimit,
+			"score_per_coin":     setting.Tetris.ScorePerCoin,
+			"earned_today":       earned,
+			"best_score":         best,
+		})
+	}
 	_, _, walletErr := service.GameHotWalletAddress()
 	common.ApiSuccess(c, gin.H{
 		"account":        account,
 		"quota_per_coin": quotaPerCoin,
+		"games":          games,
 		"token": gin.H{
 			"symbol":       setting.TokenSymbol,
 			"address":      setting.TokenAddress,
@@ -165,7 +188,7 @@ func WithdrawGameCoins(c *gin.Context) {
 		return
 	}
 
-	day := gameCoinWithdrawDay()
+	day := gameCenterDay()
 	withdrawal, balance, err := model.CreateGameCoinWithdrawal(userId, address, req.Amount, day, setting.WithdrawDailyLimit)
 	if err != nil {
 		switch {
@@ -300,11 +323,17 @@ func ClearGameAdminHotWallet(c *gin.Context) {
 	common.ApiSuccess(c, gameHotWalletInfo())
 }
 
-// GetGameAdminOverview 汇总热钱包余额、今日提现额度与未完成的提现单，供管理员判断是否需要补币或补 gas。
+// GetGameAdminOverview 汇总热钱包余额、今日提现额度、未完成的提现单与今日各游戏发出的奖励，
+// 供管理员判断是否需要补币、补 gas 或调整奖励规则。
 func GetGameAdminOverview(c *gin.Context) {
 	setting := operation_setting.GetGameSetting()
-	day := gameCoinWithdrawDay()
+	day := gameCenterDay()
 	used, err := model.GetGameCoinWithdrawDayUsed(day)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	rewards, err := model.SumGameRewardsByGame(day)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -332,6 +361,7 @@ func GetGameAdminOverview(c *gin.Context) {
 		"withdraw_limit": setting.WithdrawDailyLimit,
 		"status_counts":  statusCounts,
 		"hot_wallet":     hotWallet,
+		"game_rewards":   rewards,
 	})
 }
 

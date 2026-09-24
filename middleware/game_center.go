@@ -20,3 +20,9 @@ func GameCenterEnabled() gin.HandlerFunc {
 		c.Next()
 	}
 }
+
+// GamePlayRateLimit 按用户限制开局与结算的频率。一局最快几秒就能结束，关键操作的限流对游戏太紧；
+// 但每次开局都要写一条对局记录、每次结算都要重放整局，仍要挡住脚本连续请求。
+func GamePlayRateLimit(scope string) gin.HandlerFunc {
+	return userRateLimitFactory(20, 60, "GP:"+scope)
+}
