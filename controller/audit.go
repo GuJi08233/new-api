@@ -50,7 +50,7 @@ var auditContentTemplates = map[string]string{
 	"subscription.plan_reset":      "Reset active subscriptions for plan ${plan_id}",
 	"subscription.user_plan_reset": "Reset active plan ${plan_id} subscriptions for user ${target_user_id}",
 
-	"game.setting_update":    "Updated game center settings",
+	"game.setting_update":    "Updated game center settings: ${fields}",
 	"game.coin_adjust":       "Adjusted game coins by ${amount}",
 	"game.hot_wallet_update": "Set game hot wallet to ${address}",
 	"game.hot_wallet_clear":  "Cleared game hot wallet private key",

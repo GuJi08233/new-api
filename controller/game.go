@@ -2,8 +2,10 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -296,11 +298,22 @@ func GetGameAdminSetting(c *gin.Context) {
 	})
 }
 
-// UpdateGameAdminSetting 整份保存游戏中心配置，所有字段在一个事务里写入，
-// 单次提现的上下限这类跨字段约束因此可以一并校验。
+// UpdateGameAdminSetting 保存游戏中心配置里请求带上的字段，在一个事务里写入。管理页可能是很久以前打开的，
+// 整份回写会把别人在这期间改过的字段(例如紧急关闭的提现)悄悄改回去，所以只写改动过的字段；单次提现的
+// 上下限这类跨字段约束按合并到当前配置之后的整份配置校验。
 func UpdateGameAdminSetting(c *gin.Context) {
-	var setting operation_setting.GameSetting
-	if err := common.DecodeJson(c.Request.Body, &setting); err != nil {
+	var changes map[string]json.RawMessage
+	if err := common.DecodeJson(c.Request.Body, &changes); err != nil || len(changes) == 0 {
+		common.ApiErrorMsg(c, "无效的参数")
+		return
+	}
+	setting := *operation_setting.GetGameSetting()
+	body, err := common.Marshal(changes)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if err := common.Unmarshal(body, &setting); err != nil {
 		common.ApiErrorMsg(c, "无效的参数")
 		return
 	}
@@ -325,15 +338,23 @@ func UpdateGameAdminSetting(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	options := make(map[string]string, len(values))
-	for key, value := range values {
+	options := make(map[string]string, len(changes))
+	fields := make([]string, 0, len(changes))
+	for key := range changes {
+		value, ok := values[key]
+		if !ok {
+			common.ApiErrorMsg(c, "未知的游戏中心配置项："+key)
+			return
+		}
 		options[operation_setting.GameSettingPrefix+key] = value
+		fields = append(fields, key)
 	}
 	if err := model.UpdateOptionsBulk(options); err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	recordManageAudit(c, "game.setting_update", nil)
+	sort.Strings(fields)
+	recordManageAudit(c, "game.setting_update", map[string]interface{}{"fields": strings.Join(fields, ", ")})
 	common.ApiSuccess(c, operation_setting.GetGameSetting())
 }
 

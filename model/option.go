@@ -252,6 +252,8 @@ func loadOptionsFromDatabase() {
 	}
 	common.OptionMapRWMutex.Lock()
 	defer common.OptionMapRWMutex.Unlock()
+	// 游戏中心配置等所有项回放完再整份发布，读取方不会看到新旧混杂的配置。
+	defer operation_setting.SyncGameSetting()
 	for _, option := range options {
 		err := applyOptionToRuntime(option.Key, option.Value)
 		if err != nil {
@@ -378,6 +380,9 @@ func updateOptionsBulkLocked(values map[string]string) error {
 	// 相关配置在同一写锁内发布，计费读取不会看见新模式配旧表达式。
 	common.OptionMapRWMutex.Lock()
 	defer common.OptionMapRWMutex.Unlock()
+	// 游戏中心配置等这一批全部写完再整份发布：它的读取方不经过这把锁，逐项发布的话，提现 worker 可能读到
+	// 新的链和 RPC 配着旧的代币合约。
+	defer operation_setting.SyncGameSetting()
 	for k, v := range activeValues {
 		if err := applyOptionToRuntime(k, v); err != nil {
 			return err
@@ -389,6 +394,9 @@ func updateOptionsBulkLocked(values map[string]string) error {
 func updateOptionMap(key string, value string) (err error) {
 	common.OptionMapRWMutex.Lock()
 	defer common.OptionMapRWMutex.Unlock()
+	if strings.HasPrefix(key, operation_setting.GameSettingPrefix) {
+		defer operation_setting.SyncGameSetting()
+	}
 	return applyOptionToRuntime(key, value)
 }
 
@@ -882,9 +890,9 @@ func handleConfigUpdate(key, value string) bool {
 		operation_setting.SyncRiskControlSetting()
 	} else if configName == "ip_location_setting" {
 		operation_setting.SyncIpLocationSetting()
-	} else if configName == "game_setting" {
-		operation_setting.SyncGameSetting()
 	}
+	// game_setting 不在这里逐项发布快照，由 updateOptionMap、updateOptionsBulkLocked、loadOptionsFromDatabase
+	// 在写完之后整份发布。
 
 	return true // 已处理
 }

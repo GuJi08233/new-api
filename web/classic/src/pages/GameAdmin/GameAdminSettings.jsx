@@ -31,7 +31,7 @@ import {
 } from '@douyinfe/semi-ui';
 import { IconRefresh } from '@douyinfe/semi-icons';
 import { useTranslation } from 'react-i18next';
-import { API, showError, showSuccess } from '../../helpers';
+import { API, showError, showSuccess, showWarning } from '../../helpers';
 import { StatusContext } from '../../context/Status';
 import { getGameMetaMap } from '../../constants';
 
@@ -58,6 +58,8 @@ const GameAdminSettings = () => {
   const { t } = useTranslation();
   const [statusState, statusDispatch] = useContext(StatusContext);
   const [setting, setSetting] = useState(null);
+  // 最近一次从服务端读到的配置，保存时据此只提交改动过的字段。
+  const [savedSetting, setSavedSetting] = useState(null);
   const [hotWallet, setHotWallet] = useState(null);
   const [overview, setOverview] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -69,6 +71,7 @@ const GameAdminSettings = () => {
     const res = await API.get('/api/game/admin/setting');
     if (res.data.success) {
       setSetting(res.data.data.setting);
+      setSavedSetting(res.data.data.setting);
       setHotWallet(res.data.data.hot_wallet);
     } else {
       showError(res.data.message);
@@ -110,15 +113,27 @@ const GameAdminSettings = () => {
     }));
   };
 
+  // 只提交改动过的字段：页面可能是很久以前打开的，整份提交会把别人在这期间改过的字段(例如紧急关闭的提现)改回去。
   const save = async () => {
+    const changes = Object.fromEntries(
+      Object.entries(setting).filter(
+        ([key, value]) =>
+          JSON.stringify(value) !== JSON.stringify(savedSetting?.[key]),
+      ),
+    );
+    if (Object.keys(changes).length === 0) {
+      showWarning(t('你似乎并没有修改什么'));
+      return;
+    }
     setSaving(true);
     try {
-      const res = await API.put('/api/game/admin/setting', setting);
+      const res = await API.put('/api/game/admin/setting', changes);
       if (!res.data.success) {
         showError(res.data.message);
         return;
       }
       setSetting(res.data.data);
+      setSavedSetting(res.data.data);
       showSuccess(t('保存成功'));
       // 顶栏入口依赖 /api/status 的开关，保存后立即同步，不必刷新页面。
       statusDispatch({

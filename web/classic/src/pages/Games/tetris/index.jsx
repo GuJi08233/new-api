@@ -371,10 +371,23 @@ const Tetris = () => {
       }));
       setPhase('result');
     } catch (error) {
-      // 网络错误或限流：整局记录还在，可以重新提交；已经结算过的话，服务端会返回第一次的结果。
+      const status = error?.response?.status;
+      // 登录已过期：交给全局处理，跳转到登录页。
+      if (status === 401) {
+        showError(error);
+        return;
+      }
+      // 服务端给出了拒绝原因(例如 IP 已被风控封禁)，重新提交也不会成功。
+      const reason = error?.response?.data?.message;
+      if (status !== 429 && status < 500 && reason) {
+        setResult({ rejected: reason });
+        setPhase('result');
+        return;
+      }
+      // 网络错误、限流或服务端出错：整局记录还在，可以重新提交；已经结算过的话，服务端会返回第一次的结果。
       run.submitting = false;
       setSubmitError(
-        error?.response?.status === 429
+        status === 429
           ? t('请求过于频繁，请稍后重新提交')
           : t('网络异常，结算没有完成，可以重新提交'),
       );

@@ -8,6 +8,7 @@ import (
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -111,4 +112,48 @@ func TestWithdrawGameCoinsRequiresProofBoundToAddressAndAmount(t *testing.T) {
 	account, err = model.GetGameCoinAccount(user.Id)
 	require.NoError(t, err)
 	assert.Equal(t, 7, account.Balance)
+}
+
+// 管理页只提交改动过的字段：页面打开之后别人关掉了提现，这边只改俄罗斯方块的规则，保存不会把提现又打开。
+// 跨字段约束按合并到当前配置之后的整份配置校验，未知字段直接拒绝；审计日志记下改了哪些字段。
+func TestUpdateGameAdminSettingWritesOnlySubmittedFields(t *testing.T) {
+	db, router, _ := accountSecurityFixture(t)
+	require.NoError(t, db.AutoMigrate(&model.Option{}))
+	previousOptions, previousSetting := common.OptionMap, operation_setting.GetGameSetting()
+	common.OptionMap = map[string]string{}
+	t.Cleanup(func() {
+		values, err := config.ConfigToMap(previousSetting)
+		require.NoError(t, err)
+		restore := make(map[string]string, len(values))
+		for key, value := range values {
+			restore[operation_setting.GameSettingPrefix+key] = value
+		}
+		require.NoError(t, model.UpdateOptionsBulk(restore))
+		common.OptionMap = previousOptions
+	})
+	router.PUT("/api/game/admin/setting", UpdateGameAdminSetting)
+
+	require.NoError(t, model.UpdateOptionsBulk(map[string]string{
+		operation_setting.GameSettingPrefix + "withdraw_enabled":    "true",
+		operation_setting.GameSettingPrefix + "withdraw_min_amount": "1",
+		operation_setting.GameSettingPrefix + "withdraw_max_amount": "100",
+	}))
+	require.NoError(t, model.UpdateOption(operation_setting.GameSettingPrefix+"withdraw_enabled", "false"))
+
+	tetris := operation_setting.GetGameSetting().Tetris
+	tetris.DailyRewardLimit = 7
+	_, saved := accountRequest(t, router, http.MethodPut, "/api/game/admin/setting", nil, map[string]any{"tetris": tetris}, "")
+	require.Equal(t, true, saved["success"], saved["message"])
+	assert.Equal(t, 7, operation_setting.GetGameSetting().Tetris.DailyRewardLimit)
+	assert.False(t, operation_setting.GetGameSetting().WithdrawEnabled, "没有提交的字段保持别人刚改的值")
+	var audit model.Log
+	require.NoError(t, db.Where("content LIKE ?", "Updated game center settings%").Last(&audit).Error)
+	assert.Equal(t, "Updated game center settings: tetris", audit.Content)
+
+	_, crossField := accountRequest(t, router, http.MethodPut, "/api/game/admin/setting", nil, map[string]any{"withdraw_min_amount": 500}, "")
+	assert.Equal(t, false, crossField["success"], "单次最少大于当前的单次最多")
+	assert.Equal(t, 1, operation_setting.GetGameSetting().WithdrawMinAmount)
+
+	_, unknown := accountRequest(t, router, http.MethodPut, "/api/game/admin/setting", nil, map[string]any{"no_such_field": 1}, "")
+	assert.Equal(t, false, unknown["success"])
 }

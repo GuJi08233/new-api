@@ -48,6 +48,7 @@ func TurnstileCheck() gin.HandlerFunc {
 					"message": "无法保存会话信息，请重试",
 					"success": false,
 				})
+				c.Abort()
 				return
 			}
 		}
