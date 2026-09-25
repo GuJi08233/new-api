@@ -167,11 +167,6 @@ func FinishTetris(c *gin.Context) {
 		return
 	}
 	ip := c.ClientIP()
-	// IPv6 客户端能在运营商分配的整段前缀里随意换地址，按 IP 计算奖励时与自动封禁一样归并到风控设置的前缀。
-	ipKey, err := model.NormalizeAutoBanTarget(ip, operation_setting.GetRiskControlSetting().ResolvedIpBanIpv6PrefixLength())
-	if err != nil {
-		ipKey = ip
-	}
 	settled, earned, balance, err := model.FinishGameSession(session, model.GameSettlement{
 		Score:      game.Score,
 		Detail:     string(detailJson),
@@ -179,7 +174,7 @@ func FinishTetris(c *gin.Context) {
 		LimitedBy:  limitedBy,
 		DailyLimit: rule.DailyRewardLimit,
 		Day:        gameCenterDay(),
-		Ip:         ipKey,
+		Ip:         gameRewardIpKey(ip),
 	})
 	switch {
 	case errors.Is(err, model.ErrGameSessionClosed):

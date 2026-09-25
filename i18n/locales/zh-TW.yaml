@@ -214,6 +214,10 @@ game.replay_invalid: "對局記錄無效，無法結算"
 game.finish_failed: "結算失敗，請稍後重試"
 game.turnstile_required: "請先完成人機驗證"
 game.turnstile_failed: "人機驗證未通過，請重試"
+game.bet_invalid: "下注數量必須是 1 到 {{.Max}} 之間的整數"
+game.win_limit_reached: "今日在這個遊戲的淨贏已達上限，明天再來"
+game.ip_win_limit_reached: "目前 IP 今日在這個遊戲的淨贏已達上限，明天再來"
+game.spin_failed: "旋轉失敗，請稍後重試"
 
 # Passkey messages
 passkey.create_failed: "無法建立 Passkey 憑證"

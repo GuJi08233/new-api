@@ -140,6 +140,11 @@ const GameAdminAccounts = () => {
       dataIndex: 'total_withdrawn',
     },
     {
+      title: t('游戏输赢'),
+      dataIndex: 'total_wager_net',
+      render: (value) => (value > 0 ? `+${value}` : value || 0),
+    },
+    {
       title: t('更新时间'),
       dataIndex: 'updated_at',
       render: (value) => timestamp2string(value),

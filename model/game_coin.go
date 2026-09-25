@@ -23,6 +23,8 @@ const (
 	GameCoinLogTypeWithdraw       = "withdraw"
 	GameCoinLogTypeWithdrawRefund = "withdraw_refund"
 	GameCoinLogTypeGameReward     = "game_reward"
+	// GameCoinLogTypeGameWager 是下注游戏(例如老虎机)的一局，Amount 为这一局的净输赢(派彩减去下注)。
+	GameCoinLogTypeGameWager = "game_wager"
 )
 
 // 提现单状态。pending 到 signed 之间还没有任何链上动作；一旦 signed，签好的交易就已落库，
@@ -50,13 +52,16 @@ var unfinishedGameCoinWithdrawalStatuses = []string{
 
 // GameCoinAccount 以 user_id 为主键，首次入账时创建。
 type GameCoinAccount struct {
-	UserId         int   `json:"user_id" gorm:"primaryKey;autoIncrement:false"`
-	Balance        int   `json:"balance" gorm:"type:bigint;not null;default:0"`
-	TotalEarned    int   `json:"total_earned" gorm:"type:bigint;not null;default:0"`
-	TotalConverted int   `json:"total_converted" gorm:"type:bigint;not null;default:0"`
-	TotalWithdrawn int   `json:"total_withdrawn" gorm:"type:bigint;not null;default:0"`
-	CreatedAt      int64 `json:"created_at" gorm:"bigint"`
-	UpdatedAt      int64 `json:"updated_at" gorm:"bigint"`
+	UserId         int `json:"user_id" gorm:"primaryKey;autoIncrement:false"`
+	Balance        int `json:"balance" gorm:"type:bigint;not null;default:0"`
+	TotalEarned    int `json:"total_earned" gorm:"type:bigint;not null;default:0"`
+	TotalConverted int `json:"total_converted" gorm:"type:bigint;not null;default:0"`
+	TotalWithdrawn int `json:"total_withdrawn" gorm:"type:bigint;not null;default:0"`
+	// TotalWagerNet 是下注游戏(例如老虎机)的累计净输赢(派彩减去下注)，输多了为负。下注游戏的输赢不计入
+	// TotalEarned，单独累计后，页面上能看出余额里有多少来自下注游戏。
+	TotalWagerNet int   `json:"total_wager_net" gorm:"type:bigint;not null;default:0"`
+	CreatedAt     int64 `json:"created_at" gorm:"bigint"`
+	UpdatedAt     int64 `json:"updated_at" gorm:"bigint"`
 }
 
 // GameCoinLog 是游戏币流水，每次余额变动一条。
@@ -492,10 +497,15 @@ func FailGameCoinWithdrawal(id int, reason string, detail string) (bool, error) 
 	return failed, err
 }
 
-func GetUserGameCoinLogs(userId int, offset int, limit int) ([]*GameCoinLog, int64, error) {
+// GetUserGameCoinLogs 按时间倒序分页返回用户的游戏币流水，logType 不为空时只看这一类。老虎机每转一次记一条，
+// 不按类型筛选的话，兑换、提现记录很快会被挤到很多页以后。
+func GetUserGameCoinLogs(userId int, logType string, offset int, limit int) ([]*GameCoinLog, int64, error) {
 	var logs []*GameCoinLog
 	var total int64
 	query := DB.Model(&GameCoinLog{}).Where("user_id = ?", userId)
+	if logType != "" {
+		query = query.Where("type = ?", logType)
+	}
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}

@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 
 import React, { useCallback, useEffect, useState } from 'react';
 import {
+  Select,
   Table,
   TabPane,
   Tabs,
@@ -40,8 +41,8 @@ const { Text } = Typography;
 
 const PAGE_SIZE = 10;
 
-// 两张记录表共用的分页加载逻辑；version 变化时回到第一页重新拉取。
-function usePagedRecords(url, version) {
+// 两张记录表共用的分页加载逻辑；version 或筛选条件 query 变化时回到第一页重新拉取。
+function usePagedRecords(url, version, query = '') {
   const [items, setItems] = useState([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -52,7 +53,7 @@ function usePagedRecords(url, version) {
       setLoading(true);
       try {
         const res = await API.get(
-          `${url}?p=${targetPage}&page_size=${PAGE_SIZE}`,
+          `${url}?p=${targetPage}&page_size=${PAGE_SIZE}${query ? `&${query}` : ''}`,
         );
         if (res.data.success) {
           setItems(res.data.data.items || []);
@@ -65,7 +66,7 @@ function usePagedRecords(url, version) {
         setLoading(false);
       }
     },
-    [url],
+    [url, query],
   );
 
   useEffect(() => {
@@ -86,7 +87,13 @@ function usePagedRecords(url, version) {
 
 const GameCoinRecords = ({ version, symbol, explorerUrl }) => {
   const { t } = useTranslation();
-  const logs = usePagedRecords('/api/game/logs', version);
+  // 老虎机每转一次记一条流水，按类型筛选才找得到兑换、提现这些记录。
+  const [logType, setLogType] = useState('');
+  const logs = usePagedRecords(
+    '/api/game/logs',
+    version,
+    logType ? `type=${encodeURIComponent(logType)}` : '',
+  );
   const withdrawals = usePagedRecords('/api/game/withdrawals', version);
   const logTypeMap = getGameCoinLogTypeMap(t);
   const statusMap = getGameCoinWithdrawalStatusMap(t);
@@ -109,11 +116,17 @@ const GameCoinRecords = ({ version, symbol, explorerUrl }) => {
     {
       title: t('变动'),
       dataIndex: 'amount',
-      render: (value) => (
-        <Text type={value > 0 ? 'success' : 'danger'} strong>
-          {value > 0 ? `+${value}` : value} {symbol}
-        </Text>
-      ),
+      render: (value) => {
+        // 下注游戏原数退回下注时，这一局的净输赢为 0。
+        let type = 'tertiary';
+        if (value > 0) type = 'success';
+        if (value < 0) type = 'danger';
+        return (
+          <Text type={type} strong>
+            {value > 0 ? `+${value}` : value} {symbol}
+          </Text>
+        );
+      },
     },
     {
       title: t('余额'),
@@ -127,8 +140,8 @@ const GameCoinRecords = ({ version, symbol, explorerUrl }) => {
         if (record.type === 'convert') {
           return t('获得额度 {{quota}}', { quota: renderQuota(record.quota) });
         }
-        // 游戏奖励的备注是游戏标识。
-        if (record.type === 'game_reward') {
+        // 游戏奖励与下注游戏输赢的备注是游戏标识。
+        if (record.type === 'game_reward' || record.type === 'game_wager') {
           return gameMetaMap[value]?.name || value;
         }
         return value || record.ref_id || '-';
@@ -207,6 +220,18 @@ const GameCoinRecords = ({ version, symbol, explorerUrl }) => {
       <div className='games-section-body'>
         <Tabs type='line' defaultActiveKey='logs'>
           <TabPane tab={t('游戏币明细')} itemKey='logs'>
+            <Select
+              className='games-records-filter'
+              value={logType}
+              onChange={(value) => setLogType(value || '')}
+              optionList={[
+                { value: '', label: t('全部类型') },
+                ...Object.entries(logTypeMap).map(([value, meta]) => ({
+                  value,
+                  label: meta.text,
+                })),
+              ]}
+            />
             <Table
               rowKey='id'
               size='small'

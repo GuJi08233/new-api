@@ -14,6 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/slots"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -47,6 +48,16 @@ type gameHotWalletRequest struct {
 // 与签到一样按服务器本地时间 0 点切换。
 func gameCenterDay() string {
 	return time.Now().Format("2006-01-02")
+}
+
+// gameRewardIpKey 是每日上限按 IP 计数时用的键。IPv6 客户端能在运营商分配的整段前缀里随意换地址，
+// 与自动封禁一样归并到风控设置的前缀。
+func gameRewardIpKey(ip string) string {
+	key, err := model.NormalizeAutoBanTarget(ip, operation_setting.GetRiskControlSetting().ResolvedIpBanIpv6PrefixLength())
+	if err != nil {
+		return ip
+	}
+	return key
 }
 
 // GetGameCenterSelf 返回当前用户的游戏币账户、兑换比例、提现规则、已开放的游戏和各自今天的奖励进度，
@@ -89,6 +100,37 @@ func GetGameCenterSelf(c *gin.Context) {
 			"min_seconds_per_coin": setting.Tetris.MinSecondsPerCoin,
 			"earned_today":         earned,
 			"best_score":           best,
+		})
+	}
+	if setting.Slots.Enabled {
+		earned, err := model.GetGameRewardEarned(userId, gameSlots, day)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		ipEarned, err := model.GetGameRewardIpEarned(gameRewardIpKey(c.ClientIP()), gameSlots, day)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		best, err := model.GetGameBestScore(userId, gameSlots)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		paid, combos := slots.Payback()
+		// 老虎机的 earned_today、ip_earned_today 是账号、同一 IP 今天的净赢，可以为负，daily_reward_limit 为 0 表示不限制；
+		// best_score 是单次最高的实际派彩。转轮和赔付表随游戏信息下发，浏览器按它们画出转轮，把转轮转到服务端给出的停点。
+		games = append(games, gin.H{
+			"key":                gameSlots,
+			"daily_reward_limit": setting.Slots.DailyRewardLimit,
+			"max_bet":            setting.Slots.MaxBet,
+			"earned_today":       earned,
+			"ip_earned_today":    ipEarned,
+			"best_score":         best,
+			"reels":              slots.Strips,
+			"paytable":           slots.Paytable,
+			"payback":            float64(paid) / float64(combos),
 		})
 	}
 	_, _, walletErr := service.GameHotWalletAddress()
@@ -216,7 +258,7 @@ func WithdrawGameCoins(c *gin.Context) {
 
 func GetGameCoinLogs(c *gin.Context) {
 	pageInfo := common.GetPageQuery(c)
-	logs, total, err := model.GetUserGameCoinLogs(c.GetInt("id"), pageInfo.GetStartIdx(), pageInfo.GetPageSize())
+	logs, total, err := model.GetUserGameCoinLogs(c.GetInt("id"), c.Query("type"), pageInfo.GetStartIdx(), pageInfo.GetPageSize())
 	if err != nil {
 		common.ApiError(c, err)
 		return

@@ -36,7 +36,8 @@ type GameSetting struct {
 	Confirmations int    `json:"confirmations"`
 
 	// 每个游戏一份开关与奖励规则。
-	Tetris GameRule `json:"tetris"`
+	Tetris GameRule  `json:"tetris"`
+	Slots  SlotsRule `json:"slots"`
 }
 
 // GameRule 是单个游戏的开关与奖励规则。奖励按单局成绩计算，再受每人每日上限约束；
@@ -50,6 +51,17 @@ type GameRule struct {
 	// MinSecondsPerCoin 是每个游戏币至少需要的游戏时长(秒)，0 表示不限制。脚本几秒就能刷够分数，
 	// 奖励还要按实际玩了多久来算。
 	MinSecondsPerCoin int `json:"min_seconds_per_coin"`
+}
+
+// SlotsRule 是老虎机的开关与下注规则。老虎机用游戏币下注，赔付表固定在 pkg/slots，理论返还率低于 100%，
+// 玩家整体上输多赢少。默认不限制每日输赢；设了每日上限时按净赢(派彩减去下注)计算，同一 IP 下所有账号合计
+// 也不超过它，到上限后当天不能再下注。
+type SlotsRule struct {
+	Enabled bool `json:"enabled"`
+	// DailyRewardLimit 是每人每天最多从老虎机净赢的游戏币，0 表示不限制。
+	DailyRewardLimit int `json:"daily_reward_limit"`
+	// MaxBet 是每次旋转最多下注的游戏币。
+	MaxBet int `json:"max_bet"`
 }
 
 // GameHotWalletPrivateKeyOption 是管理员在游戏管理页填写的热钱包私钥所在的选项键。私钥不放进
@@ -67,6 +79,8 @@ const (
 	GameMaxConfirmations    = 64
 	// 一局最长一小时，每个游戏币要求的时长再长就永远拿不到奖励了。
 	GameMaxSecondsPerCoin = 3600
+	// 老虎机单次下注的上限。派彩最多是下注的 50 倍，下注再大也远在 2^53 之内。
+	GameMaxSlotsBet = 1000
 )
 
 // ValidateGameOption 校验单个游戏中心配置项，非法值在落库前拒绝。
@@ -138,6 +152,17 @@ func ValidateGameOption(key string, value string) error {
 		if rule.MinSecondsPerCoin < 0 || rule.MinSecondsPerCoin > GameMaxSecondsPerCoin {
 			return fmt.Errorf("%s 的每个游戏币所需时长必须为 0 到 %d 秒", field, GameMaxSecondsPerCoin)
 		}
+	case "slots":
+		var rule SlotsRule
+		if err := common.UnmarshalJsonStr(value, &rule); err != nil {
+			return fmt.Errorf("%s 的游戏规则格式无效", field)
+		}
+		if rule.DailyRewardLimit < 0 || rule.DailyRewardLimit >= common.MaxQuota {
+			return fmt.Errorf("%s 的每日净赢上限必须是非负整数", field)
+		}
+		if rule.MaxBet < 1 || rule.MaxBet > GameMaxSlotsBet {
+			return fmt.Errorf("%s 的单次最多下注必须为 1 到 %d", field, GameMaxSlotsBet)
+		}
 	default:
 		return fmt.Errorf("未知的游戏中心配置项: %s", field)
 	}
@@ -198,7 +223,9 @@ var gameSetting = GameSetting{
 	TokenDecimals:        0,
 	ExplorerUrl:          "https://sepolia.etherscan.io",
 	Confirmations:        1,
-	Tetris:               GameRule{Enabled: true, DailyRewardLimit: 3, ScorePerCoin: 5000, MinSecondsPerCoin: 60},
+	// 游戏默认都不开放，由管理员在游戏管理页逐个开启上线。
+	Tetris: GameRule{Enabled: false, DailyRewardLimit: 3, ScorePerCoin: 5000, MinSecondsPerCoin: 60},
+	Slots:  SlotsRule{Enabled: false, DailyRewardLimit: 0, MaxBet: 5},
 }
 
 var gameSettingSnapshot atomic.Pointer[GameSetting]

@@ -175,7 +175,9 @@ For commercial licensing, please contact support@quantumnous.com
 
 .games-balance-stats {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  /* 三项或四项(开放下注游戏时多一项游戏输赢)都排成一行。 */
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
   gap: 8px;
   padding-top: 12px;
   border-top: 1px solid var(--semi-color-border);
@@ -317,6 +319,16 @@ For commercial licensing, please contact support@quantumnous.com
 .games-list-cover.cover-tetris {
   background: linear-gradient(135deg, #22d3ee 0%, #6366f1 100%);
   box-shadow: 0 6px 16px rgba(99, 102, 241, 0.3);
+}
+
+.games-records-filter {
+  width: 180px;
+  margin-bottom: 12px;
+}
+
+.games-list-cover.cover-slots {
+  background: linear-gradient(135deg, #fbbf24 0%, #dc2626 100%);
+  box-shadow: 0 6px 16px rgba(220, 38, 38, 0.3);
 }
 
 .games-list-body {

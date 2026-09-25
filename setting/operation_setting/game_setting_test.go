@@ -72,6 +72,25 @@ func TestValidateGameOption(t *testing.T) {
 		}
 	}
 
+	// 老虎机的每日净赢上限只限制玩家一天最多赢走多少，0 表示不限制，不能为负；单次下注在 1 到 GameMaxSlotsBet 之间。
+	for value, valid := range map[string]bool{
+		`{"enabled":true,"daily_reward_limit":50,"max_bet":5}`:               true,
+		`{"enabled":false,"daily_reward_limit":1,"max_bet":1000}`:            true,
+		`{"enabled":true,"daily_reward_limit":0,"max_bet":5}`:                true,
+		`{"enabled":true,"daily_reward_limit":-1,"max_bet":5}`:               false,
+		`{"enabled":true,"daily_reward_limit":9007199254740992,"max_bet":5}`: false,
+		`{"enabled":true,"daily_reward_limit":50,"max_bet":0}`:               false,
+		`{"enabled":true,"daily_reward_limit":50,"max_bet":1001}`:            false,
+		`{"enabled":true,"daily_reward_limit":50}`:                           false,
+	} {
+		err := ValidateGameOption(GameSettingPrefix+"slots", value)
+		if valid {
+			assert.NoError(t, err, value)
+		} else {
+			assert.Error(t, err, value)
+		}
+	}
+
 	// 热钱包私钥也能经通用选项接口写入，同样要在落库前挡住格式错误；空值表示清除。
 	assert.NoError(t, ValidateGameOption(GameHotWalletPrivateKeyOption, ""))
 	assert.NoError(t, ValidateGameOption(GameHotWalletPrivateKeyOption, "4c0883a69102937d6231471b5dbb6204fe5129617082792ae468d01a3f362318"))

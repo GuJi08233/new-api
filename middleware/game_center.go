@@ -26,3 +26,9 @@ func GameCenterEnabled() gin.HandlerFunc {
 func GamePlayRateLimit(scope string) gin.HandlerFunc {
 	return userRateLimitFactory(20, 60, "GP:"+scope)
 }
+
+// GameSpinRateLimit 按用户限制老虎机的旋转频率。转一次只要两三秒，比开局和结算频繁得多；
+// 每次旋转仍要在一个事务里扣注、派彩、写流水，脚本连续请求时要挡住。
+func GameSpinRateLimit() gin.HandlerFunc {
+	return userRateLimitFactory(60, 60, "GP:slots-spin")
+}

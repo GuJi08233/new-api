@@ -246,6 +246,10 @@ const (
 	MsgGameFinishFailed           = "game.finish_failed"
 	MsgGameTurnstileRequired      = "game.turnstile_required"
 	MsgGameTurnstileFailed        = "game.turnstile_failed"
+	MsgGameBetInvalid             = "game.bet_invalid"
+	MsgGameWinLimitReached        = "game.win_limit_reached"
+	MsgGameIpWinLimitReached      = "game.ip_win_limit_reached"
+	MsgGameSpinFailed             = "game.spin_failed"
 )
 
 // Passkey related messages

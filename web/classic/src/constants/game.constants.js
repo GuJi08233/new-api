@@ -24,13 +24,20 @@ export const getGameCoinLogTypeMap = (t) => ({
   withdraw: { text: t('链上提现'), color: 'orange' },
   withdraw_refund: { text: t('提现退回'), color: 'green' },
   game_reward: { text: t('游戏奖励'), color: 'amber' },
+  game_wager: { text: t('游戏输赢'), color: 'pink' },
 });
 
 // 已接入的游戏。键与服务端的游戏标识、游戏中心配置里的字段名一致，路由为 /games/{key}。
+// wager 表示下注游戏：用游戏币下注，每日上限按净赢计算。
 export const getGameMetaMap = (t) => ({
   tetris: {
     name: t('俄罗斯方块'),
     description: t('经典消行玩法，消的行越多、等级越高，得分越快'),
+  },
+  slots: {
+    name: t('老虎机'),
+    description: t('用游戏币下注转动三个转轮，中线从左起连出相同的图案就能赢'),
+    wager: true,
   },
 });
 

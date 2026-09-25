@@ -213,6 +213,10 @@ game.replay_invalid: "The game record is invalid and cannot be settled"
 game.finish_failed: "Failed to settle the game, please try again later"
 game.turnstile_required: "Please complete the human verification first"
 game.turnstile_failed: "Human verification failed, please try again"
+game.bet_invalid: "Each bet must be a whole number from 1 to {{.Max}}"
+game.win_limit_reached: "You have reached today's net win limit for this game, come back tomorrow"
+game.ip_win_limit_reached: "Your IP has reached today's net win limit for this game, come back tomorrow"
+game.spin_failed: "Spin failed, please try again later"
 
 # Passkey messages
 passkey.create_failed: "Unable to create Passkey credential"

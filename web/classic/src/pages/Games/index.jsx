@@ -36,6 +36,7 @@ import {
 import {
   ArrowRightLeft,
   Blocks,
+  Cherry,
   Coins,
   ExternalLink,
   Gamepad2,
@@ -59,6 +60,7 @@ const { Text } = Typography;
 
 const ILLUSTRATION_SIZE = { width: 150, height: 150 };
 const ADDRESS_PATTERN = /^0x[0-9a-fA-F]{40}$/;
+const GAME_ICONS = { tetris: Blocks, slots: Cherry };
 
 // 取浏览器里排名最靠前的 EVM 钱包(Rabby / MetaMask 等)，没有时提示安装。
 async function findInjectedWallet(t) {
@@ -116,6 +118,10 @@ const Games = () => {
   const withdraw = info?.withdraw;
   const games = info?.games || [];
   const gameMetaMap = getGameMetaMap(t);
+  // 下注游戏的累计输赢不计入累计获得，单独列出；没开放下注游戏、也没玩过时不显示。
+  const wagerNet = account?.total_wager_net || 0;
+  const showWagerNet =
+    wagerNet !== 0 || games.some((game) => gameMetaMap[game.key]?.wager);
 
   const refreshAfterChange = () => {
     setRecordsVersion((version) => version + 1);
@@ -337,6 +343,12 @@ const Games = () => {
                   <span>{t('已提现')}</span>
                   <strong>{account?.total_withdrawn || 0}</strong>
                 </div>
+                {showWagerNet && (
+                  <div>
+                    <span>{t('游戏输赢')}</span>
+                    <strong>{wagerNet > 0 ? `+${wagerNet}` : wagerNet}</strong>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -508,44 +520,82 @@ const Games = () => {
           <div className='games-section-body'>
             {games.length > 0 ? (
               <div className='games-list'>
-                {games.map((game) => (
-                  <div key={game.key} className='games-list-card'>
-                    <span className={`games-list-cover cover-${game.key}`}>
-                      <Blocks size={28} />
-                    </span>
-                    <div className='games-list-body'>
-                      <div className='games-list-title'>
-                        {gameMetaMap[game.key]?.name || game.key}
+                {games.map((game) => {
+                  const meta = gameMetaMap[game.key];
+                  const Icon = GAME_ICONS[game.key] || Gamepad2;
+                  // 下注游戏的今日输赢带上正负号。
+                  const net =
+                    game.earned_today > 0
+                      ? `+${game.earned_today}`
+                      : game.earned_today;
+                  return (
+                    <div key={game.key} className='games-list-card'>
+                      <span className={`games-list-cover cover-${game.key}`}>
+                        <Icon size={28} />
+                      </span>
+                      <div className='games-list-body'>
+                        <div className='games-list-title'>
+                          {meta?.name || game.key}
+                        </div>
+                        <div className='games-list-desc'>
+                          {meta?.description}
+                        </div>
+                        {meta?.wager ? (
+                          <div className='games-list-meta'>
+                            <span>
+                              {/* 每日净赢上限为 0 表示不限制。 */}
+                              {game.daily_reward_limit > 0
+                                ? t(
+                                    '今日输赢 {{net}} · 净赢上限 {{limit}} {{symbol}}',
+                                    {
+                                      net,
+                                      limit: game.daily_reward_limit,
+                                      symbol,
+                                    },
+                                  )
+                                : t('今日输赢 {{net}} {{symbol}}', {
+                                    net,
+                                    symbol,
+                                  })}
+                            </span>
+                            <span>
+                              {t('单次最高派彩 {{win}}', {
+                                win: Number(game.best_score).toLocaleString(),
+                              })}
+                            </span>
+                          </div>
+                        ) : (
+                          <div className='games-list-meta'>
+                            <span>
+                              {game.daily_reward_limit > 0
+                                ? t(
+                                    '今日奖励 {{earned}} / {{limit}} {{symbol}}',
+                                    {
+                                      earned: game.earned_today,
+                                      limit: game.daily_reward_limit,
+                                      symbol,
+                                    },
+                                  )
+                                : t('这个游戏暂不发放奖励')}
+                            </span>
+                            <span>
+                              {t('最高分 {{score}}', {
+                                score: Number(game.best_score).toLocaleString(),
+                              })}
+                            </span>
+                          </div>
+                        )}
+                        <Button
+                          theme='solid'
+                          icon={<Play size={14} />}
+                          onClick={() => navigate(`/games/${game.key}`)}
+                        >
+                          {t('开始游戏')}
+                        </Button>
                       </div>
-                      <div className='games-list-desc'>
-                        {gameMetaMap[game.key]?.description}
-                      </div>
-                      <div className='games-list-meta'>
-                        <span>
-                          {game.daily_reward_limit > 0
-                            ? t('今日奖励 {{earned}} / {{limit}} {{symbol}}', {
-                                earned: game.earned_today,
-                                limit: game.daily_reward_limit,
-                                symbol,
-                              })
-                            : t('这个游戏暂不发放奖励')}
-                        </span>
-                        <span>
-                          {t('最高分 {{score}}', {
-                            score: Number(game.best_score).toLocaleString(),
-                          })}
-                        </span>
-                      </div>
-                      <Button
-                        theme='solid'
-                        icon={<Play size={14} />}
-                        onClick={() => navigate(`/games/${game.key}`)}
-                      >
-                        {t('开始游戏')}
-                      </Button>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             ) : (
               <Empty

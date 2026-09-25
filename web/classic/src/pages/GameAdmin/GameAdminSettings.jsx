@@ -336,7 +336,7 @@ const GameAdminSettings = () => {
         <SettingRow
           label={t('开局人机验证')}
           extra={t(
-            '每局开始前需通过 Cloudflare Turnstile 验证，挡住不经浏览器直接调用接口的脚本；需要先在系统设置中启用 Turnstile',
+            '俄罗斯方块每局开始前需通过 Cloudflare Turnstile 验证，挡住不经浏览器直接调用接口的脚本；老虎机按下注结算，不需要验证。需要先在系统设置中启用 Turnstile',
           )}
         >
           <div className='flex items-center gap-3 flex-wrap'>
@@ -357,6 +357,63 @@ const GameAdminSettings = () => {
       {Object.entries(gameMetaMap).map(([game, meta]) => {
         const rule = setting[game];
         if (!rule) return null;
+        const ruleNumber = (key) => (value) =>
+          setGameRule(game, key, typeof value === 'number' ? value : 0);
+        // 下注游戏(老虎机)的每日上限是净赢，没有分数与时长规则，改为限制单次下注。
+        if (meta.wager) {
+          return (
+            <Card key={game} title={meta.name}>
+              <SettingRow
+                label={t('开放游戏')}
+                extra={t('关闭后用户不能再下注')}
+              >
+                <Switch
+                  checked={rule.enabled}
+                  onChange={(value) => setGameRule(game, 'enabled', value)}
+                />
+              </SettingRow>
+              <SettingRow
+                label={t('每人每日净赢上限')}
+                extra={t(
+                  '0 表示不限制，玩家可以一直下注，输赢都照常结算。设了上限时，每个用户每天在这个游戏里最多净赢（派彩减去下注）这么多游戏币，同一 IP 下所有账号合计也不超过它；到上限后当天不能再下注，单次派彩超出的部分不发放',
+                )}
+              >
+                <InputNumber
+                  value={rule.daily_reward_limit}
+                  min={0}
+                  precision={0}
+                  suffix={setting.token_symbol}
+                  onChange={ruleNumber('daily_reward_limit')}
+                />
+              </SettingRow>
+              <SettingRow
+                label={t('单次最多下注')}
+                extra={t(
+                  '每次旋转最多下注的游戏币，派彩按下注的倍数计算，最高 50 倍',
+                )}
+              >
+                <InputNumber
+                  value={rule.max_bet}
+                  min={1}
+                  max={1000}
+                  precision={0}
+                  suffix={setting.token_symbol}
+                  onChange={ruleNumber('max_bet')}
+                />
+              </SettingRow>
+              <SettingRow
+                label={t('今日净发放')}
+                extra={t(
+                  '所有用户今天在这个游戏里的净赢合计，负数表示玩家合计输掉的数量',
+                )}
+              >
+                <Text strong>
+                  {overview?.game_rewards?.[game] ?? 0} {setting.token_symbol}
+                </Text>
+              </SettingRow>
+            </Card>
+          );
+        }
         return (
           <Card key={game} title={meta.name}>
             <SettingRow
@@ -379,13 +436,7 @@ const GameAdminSettings = () => {
                 min={0}
                 precision={0}
                 suffix={setting.token_symbol}
-                onChange={(value) =>
-                  setGameRule(
-                    game,
-                    'daily_reward_limit',
-                    typeof value === 'number' ? value : 0,
-                  )
-                }
+                onChange={ruleNumber('daily_reward_limit')}
               />
             </SettingRow>
             <SettingRow
@@ -396,13 +447,7 @@ const GameAdminSettings = () => {
                 value={rule.score_per_coin}
                 min={1}
                 precision={0}
-                onChange={(value) =>
-                  setGameRule(
-                    game,
-                    'score_per_coin',
-                    typeof value === 'number' ? value : 0,
-                  )
-                }
+                onChange={ruleNumber('score_per_coin')}
               />
             </SettingRow>
             <SettingRow
@@ -416,13 +461,7 @@ const GameAdminSettings = () => {
                 min={0}
                 max={3600}
                 precision={0}
-                onChange={(value) =>
-                  setGameRule(
-                    game,
-                    'min_seconds_per_coin',
-                    typeof value === 'number' ? value : 0,
-                  )
-                }
+                onChange={ruleNumber('min_seconds_per_coin')}
               />
             </SettingRow>
             <SettingRow
