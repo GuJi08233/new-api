@@ -72,12 +72,15 @@ func TestValidateGameOption(t *testing.T) {
 		}
 	}
 
-	// 老虎机的每日净赢上限只限制玩家一天最多赢走多少，0 表示不限制，不能为负；单次下注在 1 到 GameMaxSlotsBet 之间。
+	// 老虎机的每日净赢上限只限制玩家一天最多赢走多少，0 表示不限制，不能为负；均衡阶段下注额不能为负；
+	// 单次下注在 1 到 GameMaxSlotsBet 之间。
 	for value, valid := range map[string]bool{
 		`{"enabled":true,"daily_reward_limit":50,"max_bet":5}`:               true,
 		`{"enabled":false,"daily_reward_limit":1,"max_bet":1000}`:            true,
 		`{"enabled":true,"daily_reward_limit":0,"max_bet":5}`:                true,
 		`{"enabled":true,"daily_reward_limit":-1,"max_bet":5}`:               false,
+		`{"enabled":true,"even_stage_wager":200,"max_bet":5}`:                true,
+		`{"enabled":true,"even_stage_wager":-1,"max_bet":5}`:                 false,
 		`{"enabled":true,"daily_reward_limit":9007199254740992,"max_bet":5}`: false,
 		`{"enabled":true,"daily_reward_limit":50,"max_bet":0}`:               false,
 		`{"enabled":true,"daily_reward_limit":50,"max_bet":1001}`:            false,

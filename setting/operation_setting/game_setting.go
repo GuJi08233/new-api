@@ -53,11 +53,14 @@ type GameRule struct {
 	MinSecondsPerCoin int `json:"min_seconds_per_coin"`
 }
 
-// SlotsRule 是老虎机的开关与下注规则。老虎机用游戏币下注，赔付表固定在 pkg/slots，理论返还率低于 100%，
-// 玩家整体上输多赢少。默认不限制每日输赢；设了每日上限时按净赢(派彩减去下注)计算，同一 IP 下所有账号合计
-// 也不超过它，到上限后当天不能再下注。
+// SlotsRule 是老虎机的开关与下注规则。老虎机用游戏币下注，两个阶段的赔付表固定在 pkg/slots：每个玩家累计下注
+// 满 EvenStageWager 之前理论返还率 100%，之后约 80%，玩家长期是输的。默认不限制每日输赢；设了每日上限时按净赢
+// (派彩减去下注)计算，同一 IP 下所有账号合计也不超过它，到上限后当天不能再下注。
 type SlotsRule struct {
 	Enabled bool `json:"enabled"`
+	// EvenStageWager 是均衡阶段的累计下注额：玩家累计下注满这么多游戏币之前按均衡赔付表，之后按常规赔付表；
+	// 0 表示一开始就按常规赔付表。
+	EvenStageWager int `json:"even_stage_wager"`
 	// DailyRewardLimit 是每人每天最多从老虎机净赢的游戏币，0 表示不限制。
 	DailyRewardLimit int `json:"daily_reward_limit"`
 	// MaxBet 是每次旋转最多下注的游戏币。
@@ -160,6 +163,9 @@ func ValidateGameOption(key string, value string) error {
 		if rule.DailyRewardLimit < 0 || rule.DailyRewardLimit >= common.MaxQuota {
 			return fmt.Errorf("%s 的每日净赢上限必须是非负整数", field)
 		}
+		if rule.EvenStageWager < 0 || rule.EvenStageWager >= common.MaxQuota {
+			return fmt.Errorf("%s 的均衡阶段下注额必须是非负整数", field)
+		}
 		if rule.MaxBet < 1 || rule.MaxBet > GameMaxSlotsBet {
 			return fmt.Errorf("%s 的单次最多下注必须为 1 到 %d", field, GameMaxSlotsBet)
 		}
@@ -226,7 +232,7 @@ var gameSetting = GameSetting{
 	Confirmations: 3,
 	// 游戏默认都不开放，由管理员在游戏管理页逐个开启上线。
 	Tetris: GameRule{Enabled: false, DailyRewardLimit: 3, ScorePerCoin: 5000, MinSecondsPerCoin: 60},
-	Slots:  SlotsRule{Enabled: false, DailyRewardLimit: 0, MaxBet: 5},
+	Slots:  SlotsRule{Enabled: false, EvenStageWager: 200, DailyRewardLimit: 0, MaxBet: 5},
 }
 
 var gameSettingSnapshot atomic.Pointer[GameSetting]

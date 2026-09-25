@@ -95,12 +95,13 @@ type GameSettlement struct {
 	Ip         string
 }
 
-// GameWager 是下注游戏的一局：各游戏按自己的规则当场算出派彩，交给 SettleGameWager 扣注、派彩，并按每日净赢上限截断。
+// GameWager 是下注游戏的一局：由 Play 按游戏规则当场决定结果，SettleGameWager 扣注、派彩，并按每日净赢上限截断。
 type GameWager struct {
 	Bet int
-	// Win 是按游戏规则应得的派彩(含退回的下注)，还没有按每日上限截断。
-	Win    int
-	Detail string
+	// Play 决定这一局的结果：参数是玩家这一局之前在下注游戏里的累计下注，返回按游戏规则应得的派彩(含退回的下注，
+	// 还没有按每日上限截断)与明细。它在结算事务里、锁住玩家的计数与账户之后才调用，同一玩家的几局依次进行，
+	// 并发的另一局改不了这里看到的累计下注。
+	Play func(wageredBefore int) (win int, detail string, err error)
 	// DailyLimit 是每人每天、每个 IP 每天最多从这个游戏净赢的游戏币，0 表示不限制。
 	DailyLimit int
 	Day        string
@@ -108,12 +109,13 @@ type GameWager struct {
 }
 
 // GameWagerResult 是一局下注游戏的结算结果。Session 的 Score 与 Reward 都是实际派彩；
-// Earned、IpEarned 是结算后账号、同一 IP 今天在这个游戏的净赢。
+// Earned、IpEarned 是结算后账号、同一 IP 今天在这个游戏的净赢，Wagered 是结算后玩家的累计下注。
 type GameWagerResult struct {
 	Session  *GameSession
 	Earned   int
 	IpEarned int
 	Balance  int
+	Wagered  int
 }
 
 // CreateGameSession 开一局。每人每个游戏同一时间只能进行一局：之前没结算的对局在这里作废删除，
@@ -247,12 +249,11 @@ func FinishGameSession(session *GameSession, settlement GameSettlement) (settled
 	return &finished, earned, balance, nil
 }
 
-// SettleGameWager 结算下注游戏的一局：扣注、派彩、记对局与流水在同一个事务里。设了每日上限时，账号或 IP 今天的净赢
-// 已到上限就拒绝下注；派彩会让净赢越过上限时只派到上限为止，对局上记下原因。余额不够下注时返回
-// ErrGameCoinInsufficient，什么都不会改变。
+// SettleGameWager 结算下注游戏的一局：决定结果、扣注、派彩、记对局与流水在同一个事务里，结果由 wager.Play
+// 按玩家这一局之前的累计下注决定。设了每日上限时，账号或 IP 今天的净赢已到上限就拒绝下注；派彩会让净赢越过上限时
+// 只派到上限为止，对局上记下原因。余额不够下注时返回 ErrGameCoinInsufficient，什么都不会改变。
 func SettleGameWager(userId int, game string, wager GameWager) (*GameWagerResult, error) {
-	if wager.Bet < 1 || wager.Bet >= common.MaxQuota || wager.Win < 0 || wager.Win >= common.MaxQuota ||
-		wager.DailyLimit < 0 || wager.DailyLimit >= common.MaxQuota {
+	if wager.Bet < 1 || wager.Bet >= common.MaxQuota || wager.DailyLimit < 0 || wager.DailyLimit >= common.MaxQuota {
 		return nil, ErrGameCoinAmountInvalid
 	}
 	// 不限制每日净赢时按记账边界 2^53 计算：计数照常累加，今日输赢照常显示，也不会越界。
@@ -266,7 +267,6 @@ func SettleGameWager(userId int, game string, wager GameWager) (*GameWagerResult
 		Game:       game,
 		Status:     GameSessionStatusFinished,
 		Ip:         wager.Ip,
-		Detail:     wager.Detail,
 		CreatedAt:  now,
 		FinishedAt: now,
 	}
@@ -290,7 +290,24 @@ func SettleGameWager(userId int, game string, wager GameWager) (*GameWagerResult
 		if ipRoom <= 0 {
 			return ErrGameWagerIpLimit
 		}
-		net := wager.Win - wager.Bet
+		var wagered []int
+		if err := lockForUpdate(tx).Model(&GameCoinAccount{}).Where("user_id = ?", userId).Pluck("total_wagered", &wagered).Error; err != nil {
+			return err
+		}
+		wageredBefore := 0
+		if len(wagered) > 0 {
+			wageredBefore = wagered[0]
+		}
+		win, detail, err := wager.Play(wageredBefore)
+		if err != nil {
+			return err
+		}
+		if win < 0 || win >= common.MaxQuota {
+			return ErrGameCoinAmountInvalid
+		}
+		session.Detail = detail
+
+		net := win - wager.Bet
 		if room := min(userRoom, ipRoom); net > room {
 			net = room
 			session.LimitedBy = GameRewardLimitedByDaily
@@ -303,6 +320,7 @@ func SettleGameWager(userId int, game string, wager GameWager) (*GameWagerResult
 
 		balance, err := debitGameCoinsTx(tx, userId, wager.Bet, map[string]interface{}{
 			"total_wager_net": gorm.Expr("total_wager_net + ?", net),
+			"total_wagered":   gorm.Expr("total_wagered + ?", wager.Bet),
 		})
 		if err != nil {
 			return err
@@ -323,7 +341,7 @@ func SettleGameWager(userId int, game string, wager GameWager) (*GameWagerResult
 		if err := tx.Create(session).Error; err != nil {
 			return err
 		}
-		result.Earned, result.IpEarned, result.Balance = userNet+net, ipNet+net, balance
+		result.Earned, result.IpEarned, result.Balance, result.Wagered = userNet+net, ipNet+net, balance, wageredBefore+wager.Bet
 		return tx.Create(&GameCoinLog{
 			UserId:    userId,
 			Type:      GameCoinLogTypeGameWager,

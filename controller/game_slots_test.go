@@ -36,7 +36,7 @@ func slotsFixture(t *testing.T, rule operation_setting.SlotsRule, coins int) (*g
 func stopSlotsAt(t *testing.T, stops [3]int) {
 	t.Helper()
 	previous := spinSlots
-	spinSlots = func() (slots.Result, error) { return slots.StopAt(stops), nil }
+	spinSlots = func(stage slots.Stage) (slots.Result, error) { return slots.StopAt(stops, stage), nil }
 	t.Cleanup(func() { spinSlots = previous })
 }
 
@@ -56,7 +56,9 @@ func TestSpinSlotsSettlesServerOutcome(t *testing.T) {
 	}
 	require.NotNil(t, game, "开放的老虎机出现在游戏列表里")
 	reels := game["reels"].([]any)
-	assert.InDelta(t, 25608.0/27000.0, game["payback"], 1e-9)
+	paybacks := game["paybacks"].(map[string]any)
+	assert.InDelta(t, 1.0, paybacks["even"], 1e-9)
+	assert.InDelta(t, 21720.0/27000.0, paybacks["house"], 1e-9)
 
 	spin := func(bet int) map[string]any {
 		_, response := accountRequest(t, router, http.MethodPost, "/api/game/slots/spin", cookies, map[string]any{"bet": bet}, "")
@@ -71,12 +73,12 @@ func TestSpinSlotsSettlesServerOutcome(t *testing.T) {
 		wantEarned    int
 		wantBalance   int
 	}{
-		// 樱桃、樱桃、柠檬：前两个相同，派彩 2 倍。
-		{stops: [3]int{0, 1, 2}, bet: 3, wantWin: 6, wantPayout: 6, wantEarned: 3, wantBalance: 13},
+		// 樱桃、樱桃、柠檬：前两个相同，派彩 3 倍。
+		{stops: [3]int{0, 1, 2}, bet: 1, wantWin: 3, wantPayout: 3, wantEarned: 2, wantBalance: 12},
 		// 柠檬打头：没有中奖。
-		{stops: [3]int{1, 1, 1}, bet: 1, wantWin: 0, wantPayout: 0, wantEarned: 2, wantBalance: 12},
-		// 三个 7 应得 50 倍，今天只剩 3 个净赢额度，派彩截断为下注加 3。
-		{stops: [3]int{10, 14, 17}, bet: 1, wantWin: 50, wantPayout: 4, wantLimitedBy: model.GameRewardLimitedByDaily, wantEarned: 5, wantBalance: 15},
+		{stops: [3]int{1, 1, 1}, bet: 1, wantWin: 0, wantPayout: 0, wantEarned: 1, wantBalance: 11},
+		// 三个 7 应得 50 倍，今天只剩 4 个净赢额度，派彩截断为下注加 4。
+		{stops: [3]int{10, 14, 17}, bet: 1, wantWin: 50, wantPayout: 5, wantLimitedBy: model.GameRewardLimitedByDaily, wantEarned: 5, wantBalance: 15},
 	}
 	for i, c := range cases {
 		stopSlotsAt(t, c.stops)
@@ -106,6 +108,40 @@ func TestSpinSlotsSettlesServerOutcome(t *testing.T) {
 	var bigWinLogs int64
 	require.NoError(t, db.Model(&model.Log{}).Where("user_id = ? AND type = ? AND content LIKE ?", user.Id, model.LogTypeSystem, "游戏大奖%").Count(&bigWinLogs).Error)
 	assert.EqualValues(t, 1, bigWinLogs, "只有三个 7 那一局是大奖")
+}
+
+// 玩家累计下注满均衡阶段下注额之前按均衡赔付表，单个樱桃原数退回；满了之后按常规赔付表，单个樱桃不再退回。
+// 阶段按这一局之前的累计下注决定，记在接口返回与对局明细里。
+func TestSpinSlotsSwitchesToHouseStageAfterEvenWager(t *testing.T) {
+	db, router, user, cookies := slotsFixture(t, operation_setting.SlotsRule{Enabled: true, EvenStageWager: 6, MaxBet: 5}, 20)
+	stopSlotsAt(t, [3]int{0, 0, 0}) // 樱桃、柠檬、橙子：只有第一个是樱桃
+
+	cases := []struct {
+		wantStage   string
+		wantPayout  int
+		wantWagered int
+		wantBalance int
+	}{
+		{wantStage: "even", wantPayout: 5, wantWagered: 5, wantBalance: 20},
+		{wantStage: "even", wantPayout: 5, wantWagered: 10, wantBalance: 20},
+		{wantStage: "house", wantPayout: 0, wantWagered: 15, wantBalance: 15},
+	}
+	for i, c := range cases {
+		_, response := accountRequest(t, router, http.MethodPost, "/api/game/slots/spin", cookies, map[string]any{"bet": 5}, "")
+		require.Equal(t, true, response["success"], "spin %d: %v", i, response["message"])
+		result := response["data"].(map[string]any)
+		assert.Equal(t, c.wantStage, result["stage"], "spin %d stage", i)
+		assert.EqualValues(t, c.wantPayout, result["payout"], "spin %d payout", i)
+		assert.EqualValues(t, c.wantWagered, result["wagered"], "spin %d wagered", i)
+		assert.EqualValues(t, c.wantBalance, result["balance"], "spin %d balance", i)
+	}
+	var details []string
+	require.NoError(t, db.Model(&model.GameSession{}).Where("user_id = ?", user.Id).Order("id asc").Pluck("detail", &details).Error)
+	require.Len(t, details, 3)
+	assert.Contains(t, details[2], `"stage":"house"`)
+	account, err := model.GetGameCoinAccount(user.Id)
+	require.NoError(t, err)
+	assert.Equal(t, 15, account.TotalWagered)
 }
 
 // 每日净赢上限为 0 时不限制：三个 7 按 50 倍全额派彩，之后照样能转。

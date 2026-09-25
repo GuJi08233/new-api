@@ -28,13 +28,15 @@ type slotsSpinRequest struct {
 // slotsDetail 是老虎机一局的明细，存在对局的 Detail 里供事后核查。
 type slotsDetail struct {
 	Bet        int    `json:"bet"`
+	Stage      string `json:"stage"`
 	Stops      [3]int `json:"stops"`
 	Multiplier int    `json:"multiplier"`
 }
 
 // SpinSlots 转一次老虎机：服务端决定三个转轮的停点并按赔付表算出派彩，扣注与派彩在同一个事务里完成，
-// 浏览器只负责把转轮转到返回的停点。老虎机的理论返还率低于 100%，脚本连续下注只会输得更快，
-// 所以不像俄罗斯方块那样要求人机验证。管理员设了每日净赢上限时，同一 IP 下的账号合计计算。
+// 浏览器只负责把转轮转到返回的停点。玩家累计下注满均衡阶段下注额之前按均衡赔付表(返还率 100%)，之后按常规
+// 赔付表(约 80%)，脚本连续下注只会输得更快，所以不像俄罗斯方块那样要求人机验证。管理员设了每日净赢上限时，
+// 同一 IP 下的账号合计计算。
 func SpinSlots(c *gin.Context) {
 	rule := operation_setting.GetGameSetting().Slots
 	if !rule.Enabled {
@@ -47,22 +49,22 @@ func SpinSlots(c *gin.Context) {
 		return
 	}
 	userId := c.GetInt("id")
-	spin, err := spinSlots()
-	if err != nil {
-		common.SysError(fmt.Sprintf("failed to spin slots for user %d: %v", userId, err))
-		common.ApiErrorI18n(c, i18n.MsgGameSpinFailed)
-		return
-	}
-	detail, err := common.Marshal(slotsDetail{Bet: req.Bet, Stops: spin.Stops, Multiplier: spin.Multiplier})
-	if err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	win := req.Bet * spin.Multiplier
+	var spin slots.Result
+	stage := slots.StageHouse
 	settled, err := model.SettleGameWager(userId, gameSlots, model.GameWager{
-		Bet:        req.Bet,
-		Win:        win,
-		Detail:     string(detail),
+		Bet: req.Bet,
+		// 阶段按这一局之前的累计下注在结算事务里决定：同一玩家的几次旋转依次结算，并发请求多转不出均衡阶段的局。
+		Play: func(wageredBefore int) (int, string, error) {
+			if wageredBefore < rule.EvenStageWager {
+				stage = slots.StageEven
+			}
+			var err error
+			if spin, err = spinSlots(stage); err != nil {
+				return 0, "", err
+			}
+			detail, err := common.Marshal(slotsDetail{Bet: req.Bet, Stage: slots.StageKeys[stage], Stops: spin.Stops, Multiplier: spin.Multiplier})
+			return req.Bet * spin.Multiplier, string(detail), err
+		},
 		DailyLimit: rule.DailyRewardLimit,
 		Day:        gameCenterDay(),
 		Ip:         gameRewardIpKey(c.ClientIP()),
@@ -94,14 +96,17 @@ func SpinSlots(c *gin.Context) {
 		"line":               spin.Line,
 		"multiplier":         spin.Multiplier,
 		"matched":            spin.Matched,
+		"stage":              slots.StageKeys[stage],
 		"bet":                req.Bet,
-		"win":                win,
+		"win":                req.Bet * spin.Multiplier,
 		"payout":             settled.Session.Reward,
 		"limited_by":         settled.Session.LimitedBy,
 		"balance":            settled.Balance,
+		"wagered":            settled.Wagered,
 		"earned_today":       settled.Earned,
 		"ip_earned_today":    settled.IpEarned,
 		"daily_reward_limit": rule.DailyRewardLimit,
+		"even_stage_wager":   rule.EvenStageWager,
 		"max_bet":            rule.MaxBet,
 	})
 }

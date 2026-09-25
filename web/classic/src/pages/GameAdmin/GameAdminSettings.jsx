@@ -388,6 +388,20 @@ const GameAdminSettings = () => {
                 />
               </SettingRow>
               <SettingRow
+                label={t('均衡阶段下注额')}
+                extra={t(
+                  '每个玩家累计下注满这么多游戏币之前按均衡赔付表（长期不赚不赔）；之后单个樱桃不再退回下注，玩家长期是输的。0 表示从一开始就按后者',
+                )}
+              >
+                <InputNumber
+                  value={rule.even_stage_wager}
+                  min={0}
+                  precision={0}
+                  suffix={setting.token_symbol}
+                  onChange={ruleNumber('even_stage_wager')}
+                />
+              </SettingRow>
+              <SettingRow
                 label={t('每人每日净赢上限')}
                 extra={t(
                   '0 表示不限制，玩家可以一直下注，输赢都照常结算。设了上限时，每个用户每天在这个游戏里最多净赢（派彩减去下注）这么多游戏币，同一 IP 下所有账号合计也不超过它；到上限后当天不能再下注，单次派彩超出的部分不发放',

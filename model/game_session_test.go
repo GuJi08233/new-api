@@ -165,6 +165,48 @@ func TestGameSessionsAllowOnePlayingGame(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+// playFor 让下注游戏的这一局按给定的应得派彩结算，不看累计下注。
+func playFor(win int) func(int) (int, string, error) {
+	return func(int) (int, string, error) { return win, "{}", nil }
+}
+
+// 下注游戏的结果在结算事务里决定：Play 拿到的是这一局之前的累计下注，结算成功后累计下注才增加，
+// 余额不够、被拒绝的下注不计入。游戏据此决定玩家处在哪个赔付阶段。
+func TestSettleGameWagerPlaysWithWageredBefore(t *testing.T) {
+	truncateTables(t)
+	seedGameCoinUser(t, 1801, 0, 10)
+
+	var seen []int
+	play := func(wageredBefore int) (int, string, error) {
+		seen = append(seen, wageredBefore)
+		return 0, "{}", nil
+	}
+	cases := []struct {
+		bet         int
+		wantErr     error
+		wantWagered int
+	}{
+		{bet: 5, wantWagered: 5},
+		{bet: 3, wantWagered: 8},
+		{bet: 5, wantErr: ErrGameCoinInsufficient},
+		{bet: 2, wantWagered: 10},
+	}
+	for i, c := range cases {
+		result, err := SettleGameWager(1801, "slots", GameWager{Bet: c.bet, Play: play, Day: "2026-09-24", Ip: gameTestIp})
+		if c.wantErr != nil {
+			require.ErrorIs(t, err, c.wantErr, "case %d", i)
+			continue
+		}
+		require.NoError(t, err, "case %d", i)
+		assert.Equal(t, c.wantWagered, result.Wagered, "case %d wagered", i)
+	}
+	assert.Equal(t, []int{0, 5, 8, 8}, seen, "被拒绝的那一局也先决定了结果，但没有计入累计下注")
+	account, err := GetGameCoinAccount(1801)
+	require.NoError(t, err)
+	assert.Equal(t, 10, account.TotalWagered)
+	assert.Equal(t, 0, account.Balance)
+}
+
 // 下注游戏每局在一个事务里扣注、派彩，流水记这一局的净输赢。每日上限按净赢计算：输掉的下注会让当天还能赢的数量变多，
 // 派彩会越过上限时只派到上限为止；净赢到了上限，当天就不能再下注，换一天重新计算。余额不够下注时什么都不改变。
 func TestSettleGameWagerCapsDailyNetWin(t *testing.T) {
@@ -191,7 +233,7 @@ func TestSettleGameWagerCapsDailyNetWin(t *testing.T) {
 	}
 	for i, c := range cases {
 		result, err := SettleGameWager(1501, "slots", GameWager{
-			Bet: c.bet, Win: c.win, Detail: "{}", DailyLimit: 10, Day: c.day, Ip: gameTestIp,
+			Bet: c.bet, Play: playFor(c.win), DailyLimit: 10, Day: c.day, Ip: gameTestIp,
 		})
 		if c.wantErr != nil {
 			require.ErrorIs(t, err, c.wantErr, "case %d", i)
@@ -244,7 +286,7 @@ func TestSettleGameWagerWithoutDailyLimit(t *testing.T) {
 	}
 	for i, c := range cases {
 		result, err := SettleGameWager(1701, "slots", GameWager{
-			Bet: c.bet, Win: c.win, Detail: "{}", DailyLimit: 0, Day: c.day, Ip: gameTestIp,
+			Bet: c.bet, Play: playFor(c.win), DailyLimit: 0, Day: c.day, Ip: gameTestIp,
 		})
 		require.NoError(t, err, "case %d", i)
 		assert.Equal(t, c.win, result.Session.Reward, "case %d reward", i)
@@ -289,7 +331,7 @@ func TestSettleGameWagerSharesDailyNetWinPerIp(t *testing.T) {
 	}
 	for i, c := range cases {
 		result, err := SettleGameWager(c.userId, "slots", GameWager{
-			Bet: c.bet, Win: c.win, Detail: "{}", DailyLimit: 5, Day: day, Ip: c.ip,
+			Bet: c.bet, Play: playFor(c.win), DailyLimit: 5, Day: day, Ip: c.ip,
 		})
 		if c.wantErr != nil {
 			require.ErrorIs(t, err, c.wantErr, "case %d", i)

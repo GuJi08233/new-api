@@ -406,6 +406,12 @@ For commercial licensing, please contact support@quantumnous.com
   color: var(--semi-color-text-2);
 }
 
+.slots-stage {
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: var(--semi-color-text-1);
+}
+
 .slots-paytable {
   width: 100%;
   border-collapse: collapse;

@@ -59,9 +59,11 @@ type GameCoinAccount struct {
 	TotalWithdrawn int `json:"total_withdrawn" gorm:"type:bigint;not null;default:0"`
 	// TotalWagerNet 是下注游戏(例如老虎机)的累计净输赢(派彩减去下注)，输多了为负。下注游戏的输赢不计入
 	// TotalEarned，单独累计后，页面上能看出余额里有多少来自下注游戏。
-	TotalWagerNet int   `json:"total_wager_net" gorm:"type:bigint;not null;default:0"`
-	CreatedAt     int64 `json:"created_at" gorm:"bigint"`
-	UpdatedAt     int64 `json:"updated_at" gorm:"bigint"`
+	TotalWagerNet int `json:"total_wager_net" gorm:"type:bigint;not null;default:0"`
+	// TotalWagered 是下注游戏的累计下注，老虎机按它决定赔付阶段。
+	TotalWagered int   `json:"total_wagered" gorm:"type:bigint;not null;default:0"`
+	CreatedAt    int64 `json:"created_at" gorm:"bigint"`
+	UpdatedAt    int64 `json:"updated_at" gorm:"bigint"`
 }
 
 // GameCoinLog 是游戏币流水，每次余额变动一条。

@@ -4518,6 +4518,11 @@
     "单次最高派彩 {{win}}": "Plus gros paiement {{win}}",
     "当前 IP 今日净赢已达上限，明天再来": "Votre IP actuelle a atteint la limite de gains nets du jour, revenez demain",
     "0 表示不限制，玩家可以一直下注，输赢都照常结算。设了上限时，每个用户每天在这个游戏里最多净赢（派彩减去下注）这么多游戏币，同一 IP 下所有账号合计也不超过它；到上限后当天不能再下注，单次派彩超出的部分不发放": "0 signifie aucune limite : les joueurs peuvent continuer à miser et chaque gain ou perte est réglé normalement. Avec une limite, chaque utilisateur peut gagner nets au plus ce nombre de jetons de jeu par jour dans ce jeu (gains moins mises), et le total de tous les comptes d'une même adresse IP ne peut pas non plus la dépasser ; une fois atteinte, plus aucune mise n'est possible ce jour-là et la part d'un gain qui la dépasse n'est pas versée",
-    "从交易所在区块起累计达到这么多个区块才判定到账或退款，1 表示打包即下结论；区块重组可能推翻太浅的结论，建议至少 3": "Un retrait n'est déclaré arrivé ou remboursé qu'après ce nombre de blocs, le sien compris ; 1 signifie dès son inclusion. Une réorganisation de blocs peut invalider un résultat trop récent : utilisez au moins 3"
+    "从交易所在区块起累计达到这么多个区块才判定到账或退款，1 表示打包即下结论；区块重组可能推翻太浅的结论，建议至少 3": "Un retrait n'est déclaré arrivé ou remboursé qu'après ce nombre de blocs, le sien compris ; 1 signifie dès son inclusion. Une réorganisation de blocs peut invalider un résultat trop récent : utilisez au moins 3",
+    "累计下注 {{wagered}} / {{limit}} {{symbol}}，满额后单个樱桃不再退回下注": "Mises cumulées {{wagered}} / {{limit}} {{symbol}} ; une fois atteint, une cerise seule ne rembourse plus la mise",
+    "累计下注已满 {{limit}} {{symbol}}，单个樱桃不再退回下注": "Les mises cumulées ont atteint {{limit}} {{symbol}} ; une cerise seule ne rembourse plus la mise",
+    "累计下注的前 {{limit}} {{symbol}} 理论返还率 {{even}}%，之后 {{house}}%": "Taux de retour théorique de {{even}} % pour les {{limit}} {{symbol}} premiers de mises cumulées, puis {{house}} %",
+    "均衡阶段下注额": "Montant de mise de la phase équilibrée",
+    "每个玩家累计下注满这么多游戏币之前按均衡赔付表（长期不赚不赔）；之后单个樱桃不再退回下注，玩家长期是输的。0 表示从一开始就按后者": "Tant que les mises cumulées d'un joueur n'atteignent pas ce nombre de jetons de jeu, la table de gains équilibrée s'applique (le joueur est à l'équilibre sur la durée) ; ensuite, une cerise seule ne rembourse plus la mise et le joueur perd sur la durée. 0 applique la seconde dès le début"
   }
 }

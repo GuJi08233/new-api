@@ -255,6 +255,8 @@ const Slots = () => {
           ...previous,
           earned_today: result.earned_today,
           ip_earned_today: result.ip_earned_today,
+          wagered: result.wagered,
+          even_stage_wager: result.even_stage_wager,
           daily_reward_limit: result.daily_reward_limit,
           max_bet: result.max_bet,
         }));
@@ -372,6 +374,12 @@ const Slots = () => {
   }
 
   const limit = rule.daily_reward_limit;
+  // 累计下注没到均衡阶段下注额时按均衡赔付表(返还率 100%)，之后按常规赔付表，单个樱桃不再退回下注。
+  const evenStageWager = rule.even_stage_wager || 0;
+  const inEvenStage = rule.wagered < evenStageWager;
+  const paytable = rule.paytables[inEvenStage ? 'even' : 'house'];
+  const evenRate = (rule.paybacks.even * 100).toFixed(2);
+  const houseRate = (rule.paybacks.house * 100).toFixed(2);
   const result = !spinning ? outcome?.result : null;
   let message = t('选好下注后点击旋转，也可以按空格键');
   let messageClass = '';
@@ -548,6 +556,23 @@ const Slots = () => {
             </div>
             <div className='slots-box'>
               <div className='slots-box-label'>{t('赔付表')}</div>
+              {evenStageWager > 0 && (
+                <div className='slots-stage'>
+                  {inEvenStage
+                    ? t(
+                        '累计下注 {{wagered}} / {{limit}} {{symbol}}，满额后单个樱桃不再退回下注',
+                        {
+                          wagered: rule.wagered,
+                          limit: evenStageWager,
+                          symbol,
+                        },
+                      )
+                    : t(
+                        '累计下注已满 {{limit}} {{symbol}}，单个樱桃不再退回下注',
+                        { limit: evenStageWager, symbol },
+                      )}
+                </div>
+              )}
               <table className='slots-paytable'>
                 <thead>
                   <tr>
@@ -558,7 +583,7 @@ const Slots = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {rule.paytable.map((pay) => (
+                  {paytable.map((pay) => (
                     <tr key={pay.symbol}>
                       <td>
                         <span
@@ -581,9 +606,17 @@ const Slots = () => {
                   )}
                 </li>
                 <li>
-                  {t('理论返还率 {{rate}}%', {
-                    rate: (rule.payback * 100).toFixed(2),
-                  })}
+                  {evenStageWager > 0
+                    ? t(
+                        '累计下注的前 {{limit}} {{symbol}} 理论返还率 {{even}}%，之后 {{house}}%',
+                        {
+                          limit: evenStageWager,
+                          symbol,
+                          even: evenRate,
+                          house: houseRate,
+                        },
+                      )
+                    : t('理论返还率 {{rate}}%', { rate: houseRate })}
                 </li>
                 {limited && (
                   <li>

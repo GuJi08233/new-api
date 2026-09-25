@@ -120,19 +120,27 @@ func GetGameCenterSelf(c *gin.Context) {
 			common.ApiError(c, err)
 			return
 		}
-		paid, combos := slots.Payback()
+		paytables, paybacks := gin.H{}, gin.H{}
+		for stage, key := range slots.StageKeys {
+			paid, combos := slots.Payback(slots.Stage(stage))
+			paytables[key] = slots.Paytables[stage]
+			paybacks[key] = float64(paid) / float64(combos)
+		}
 		// 老虎机的 earned_today、ip_earned_today 是账号、同一 IP 今天的净赢，可以为负，daily_reward_limit 为 0 表示不限制；
-		// best_score 是单次最高的实际派彩。转轮和赔付表随游戏信息下发，浏览器按它们画出转轮，把转轮转到服务端给出的停点。
+		// best_score 是单次最高的实际派彩。wagered 是玩家的累计下注，没到 even_stage_wager 时按均衡赔付表。
+		// 转轮和两个阶段的赔付表、返还率随游戏信息下发，浏览器据此画出转轮、公示规则，把转轮转到服务端给出的停点。
 		games = append(games, gin.H{
 			"key":                gameSlots,
 			"daily_reward_limit": setting.Slots.DailyRewardLimit,
+			"even_stage_wager":   setting.Slots.EvenStageWager,
 			"max_bet":            setting.Slots.MaxBet,
 			"earned_today":       earned,
 			"ip_earned_today":    ipEarned,
 			"best_score":         best,
+			"wagered":            account.TotalWagered,
 			"reels":              slots.Strips,
-			"paytable":           slots.Paytable,
-			"payback":            float64(paid) / float64(combos),
+			"paytables":          paytables,
+			"paybacks":           paybacks,
 		})
 	}
 	_, _, walletErr := service.GameHotWalletAddress()
