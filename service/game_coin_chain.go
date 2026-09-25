@@ -36,8 +36,8 @@ type gameHotWallet struct {
 	address string // EIP-55 格式
 }
 
-// gameHotWalletKey 返回当前生效的私钥与来源：后台填写的优先，其次是环境变量。
-// 每次调用都现读，管理员换了钱包下一次调用就生效，不需要重启。
+// gameHotWalletKey 返回当前生效的私钥与来源：后台填写的优先，其次是环境变量。每次调用都现读本节点的配置，
+// 不需要重启；多节点部署时别的节点要等同步配置后才看到新私钥，提现 worker 签名前会先从数据库现读。
 func gameHotWalletKey() (key string, source string) {
 	if key := operation_setting.GetGameHotWalletPrivateKey(); key != "" {
 		return key, GameHotWalletSourceSetting
@@ -243,11 +243,13 @@ func signGameTransferTx(tx *gameTransferTx, key *secp256k1.PrivateKey) (rawTx st
 	return "0x" + hex.EncodeToString(raw), "0x" + hex.EncodeToString(keccak256(raw)), nil
 }
 
-// parseEthereumQuantity 解析 RPC 返回的十六进制数值，兼容带前导零的 DATA 字段。
+// parseEthereumQuantity 解析 RPC 返回的十六进制数值，兼容带前导零的 DATA 字段。空值(字段为 null、没有返回值，
+// 或者只有 "0x")一律报错：零要写成 "0x0"。把空值当成 0 的话，还没打包的回执会被当成第 0 个区块里执行失败的交易，
+// 空的 gas 预估会签出一笔 gas 为 0 的交易。
 func parseEthereumQuantity(value string) (*big.Int, error) {
 	clean := strings.TrimPrefix(strings.TrimSpace(value), "0x")
 	if clean == "" {
-		return new(big.Int), nil
+		return nil, fmt.Errorf("missing quantity %q", value)
 	}
 	parsed, ok := new(big.Int).SetString(clean, 16)
 	if !ok {

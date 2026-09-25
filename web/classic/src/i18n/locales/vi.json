@@ -4910,7 +4910,6 @@
     "区块浏览器地址": "Địa chỉ trình khám phá khối",
     "用于生成交易与代币链接，可留空": "Dùng để tạo liên kết giao dịch và token, có thể để trống",
     "确认数": "Số xác nhận",
-    "从交易所在区块起累计达到这么多个区块才算到账，1 表示打包即到账": "Lệnh rút được coi là đã đến khi đủ số khối này, tính cả khối chứa giao dịch; 1 nghĩa là đến ngay khi được đóng khối",
     "游戏币与额度按 1 个游戏币 = 1 美元额度兑换": "Xu trò chơi được đổi sang hạn ngạch theo tỷ lệ 1 xu = 1 USD hạn ngạch",
     "单号": "Mã đơn",
     "失败原因 / 最近错误": "Lý do thất bại / lỗi gần nhất",
@@ -5038,6 +5037,7 @@
     "今日输赢 {{net}} {{symbol}}": "Hôm nay {{net}} {{symbol}}",
     "单次最高派彩 {{win}}": "Lần trả thưởng lớn nhất {{win}}",
     "当前 IP 今日净赢已达上限，明天再来": "IP hiện tại đã đạt giới hạn thắng ròng hôm nay, hãy quay lại vào ngày mai",
-    "0 表示不限制，玩家可以一直下注，输赢都照常结算。设了上限时，每个用户每天在这个游戏里最多净赢（派彩减去下注）这么多游戏币，同一 IP 下所有账号合计也不超过它；到上限后当天不能再下注，单次派彩超出的部分不发放": "0 nghĩa là không giới hạn: người chơi có thể cược liên tục, thắng thua đều được thanh toán như bình thường. Khi đặt giới hạn, mỗi người dùng mỗi ngày chỉ thắng ròng (tiền thắng trừ tiền cược) tối đa chừng này xu trong trò chơi này, tổng các tài khoản cùng IP cũng không vượt quá; khi đạt giới hạn sẽ không thể cược tiếp trong ngày, phần tiền thắng vượt giới hạn của một lượt sẽ không được trả"
+    "0 表示不限制，玩家可以一直下注，输赢都照常结算。设了上限时，每个用户每天在这个游戏里最多净赢（派彩减去下注）这么多游戏币，同一 IP 下所有账号合计也不超过它；到上限后当天不能再下注，单次派彩超出的部分不发放": "0 nghĩa là không giới hạn: người chơi có thể cược liên tục, thắng thua đều được thanh toán như bình thường. Khi đặt giới hạn, mỗi người dùng mỗi ngày chỉ thắng ròng (tiền thắng trừ tiền cược) tối đa chừng này xu trong trò chơi này, tổng các tài khoản cùng IP cũng không vượt quá; khi đạt giới hạn sẽ không thể cược tiếp trong ngày, phần tiền thắng vượt giới hạn của một lượt sẽ không được trả",
+    "从交易所在区块起累计达到这么多个区块才判定到账或退款，1 表示打包即下结论；区块重组可能推翻太浅的结论，建议至少 3": "Lệnh rút chỉ được xác định là đã đến hoặc được hoàn tiền khi đủ số khối này, tính cả khối chứa giao dịch; 1 nghĩa là xác định ngay khi được đóng khối. Tái tổ chức khối có thể lật ngược kết luận quá sớm, nên đặt ít nhất 3"
   }
 }

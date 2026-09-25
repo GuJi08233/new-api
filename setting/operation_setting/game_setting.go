@@ -222,7 +222,8 @@ var gameSetting = GameSetting{
 	TokenSymbol:          "✦",
 	TokenDecimals:        0,
 	ExplorerUrl:          "https://sepolia.etherscan.io",
-	Confirmations:        1,
+	// 成功和失败都可能被浅层的区块重组推翻，而失败时的退款一旦发出就收不回来，默认等 3 个区块再下结论。
+	Confirmations: 3,
 	// 游戏默认都不开放，由管理员在游戏管理页逐个开启上线。
 	Tetris: GameRule{Enabled: false, DailyRewardLimit: 3, ScorePerCoin: 5000, MinSecondsPerCoin: 60},
 	Slots:  SlotsRule{Enabled: false, DailyRewardLimit: 0, MaxBet: 5},

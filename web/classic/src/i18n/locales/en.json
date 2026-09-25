@@ -4541,7 +4541,6 @@
     "区块浏览器地址": "Block explorer URL",
     "用于生成交易与代币链接，可留空": "Used for transaction and token links; optional",
     "确认数": "Confirmations",
-    "从交易所在区块起累计达到这么多个区块才算到账，1 表示打包即到账": "A withdrawal counts as delivered once this many blocks, including its own, exist; 1 means as soon as it is mined",
     "游戏币与额度按 1 个游戏币 = 1 美元额度兑换": "Game coins convert to quota at 1 game coin = 1 USD of quota",
     "单号": "Order No.",
     "失败原因 / 最近错误": "Failure reason / last error",
@@ -4669,6 +4668,7 @@
     "今日输赢 {{net}} {{symbol}}": "Today {{net}} {{symbol}}",
     "单次最高派彩 {{win}}": "Biggest payout {{win}}",
     "当前 IP 今日净赢已达上限，明天再来": "Your current IP has reached today's net win limit, come back tomorrow",
-    "0 表示不限制，玩家可以一直下注，输赢都照常结算。设了上限时，每个用户每天在这个游戏里最多净赢（派彩减去下注）这么多游戏币，同一 IP 下所有账号合计也不超过它；到上限后当天不能再下注，单次派彩超出的部分不发放": "0 means no limit: players can keep betting and every win or loss settles as usual. With a limit, each user can net at most this many game coins per day in this game (payouts minus bets), and all accounts on the same IP together cannot exceed it either; once it is reached no more bets are allowed that day, and the part of a payout beyond it is not paid"
+    "0 表示不限制，玩家可以一直下注，输赢都照常结算。设了上限时，每个用户每天在这个游戏里最多净赢（派彩减去下注）这么多游戏币，同一 IP 下所有账号合计也不超过它；到上限后当天不能再下注，单次派彩超出的部分不发放": "0 means no limit: players can keep betting and every win or loss settles as usual. With a limit, each user can net at most this many game coins per day in this game (payouts minus bets), and all accounts on the same IP together cannot exceed it either; once it is reached no more bets are allowed that day, and the part of a payout beyond it is not paid",
+    "从交易所在区块起累计达到这么多个区块才判定到账或退款，1 表示打包即下结论；区块重组可能推翻太浅的结论，建议至少 3": "A withdrawal is judged delivered or refunded only once this many blocks, including its own, exist; 1 means as soon as it is mined. A block reorganization can overturn a shallow result, so use at least 3"
   }
 }

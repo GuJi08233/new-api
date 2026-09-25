@@ -221,9 +221,6 @@ func callEthereumRpc(ctx context.Context, rpcURL string, method string, params [
 		return err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("rpc status %d", resp.StatusCode)
-	}
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if err != nil {
 		return err
@@ -235,11 +232,18 @@ func callEthereumRpc(ctx context.Context, rpcURL string, method string, params [
 			Message string `json:"message"`
 		} `json:"error"`
 	}
+	// 有的节点和代理把 JSON-RPC 错误配上非 200 的状态码返回，错误内容照样要交给调用方分辨。
 	if err := common.Unmarshal(raw, &envelope); err != nil {
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("rpc status %d", resp.StatusCode)
+		}
 		return err
 	}
 	if envelope.Error != nil {
 		return &ethereumRpcError{Code: envelope.Error.Code, Message: envelope.Error.Message}
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("rpc status %d", resp.StatusCode)
 	}
 	if len(envelope.Result) == 0 || string(envelope.Result) == "null" {
 		// Leave result at its zero value: a nil receipt is how the node says

@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -155,20 +156,25 @@ func (asyncTaskPollHandler) Run(ctx context.Context, task *model.SystemTask, run
 }
 
 // gameCoinWithdrawHandler 推进游戏币链上提现：对账、重发、签发新交易。每类任务一把锁，
-// 多个主节点也只有一个在用热钱包发交易，nonce 才不会撞车。Enabled() 折叠了"是否有未完成
-// 的提现"，空闲时不产生任务记录。
+// 多个主节点也只有一个在用热钱包发交易，nonce 才不会撞车。Enabled() 折叠了"有没有能推进的
+// 提现"，空闲或者只剩留在旧链上的提现时不产生任务记录。
 type gameCoinWithdrawHandler struct{}
 
 func (gameCoinWithdrawHandler) Type() string { return model.SystemTaskTypeGameCoinWithdraw }
 
-func (gameCoinWithdrawHandler) Enabled() bool { return model.HasUnfinishedGameCoinWithdrawals() }
+func (gameCoinWithdrawHandler) Enabled() bool { return service.GameCoinWithdrawalsNeedWork() }
 
 func (gameCoinWithdrawHandler) Interval() time.Duration { return 15 * time.Second }
 
 func (gameCoinWithdrawHandler) NewPayload() any { return nil }
 
+// Run 在这一轮因为配置或节点的问题没能处理时记为失败，卡住的提现不会藏在一排"成功"的记录后面。
 func (gameCoinWithdrawHandler) Run(ctx context.Context, task *model.SystemTask, runnerID string) {
 	summary := service.RunGameCoinWithdrawOnce(ctx)
+	if summary.Skipped != "" {
+		finishSystemTaskHandler(task, runnerID, model.SystemTaskStatusFailed, summary, errors.New(summary.Skipped))
+		return
+	}
 	finishSystemTaskHandler(task, runnerID, model.SystemTaskStatusSucceeded, summary, nil)
 }
 

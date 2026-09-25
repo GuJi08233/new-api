@@ -18,14 +18,20 @@ const (
 	gameCoinWithdrawBatchSize = 20
 	// 已广播却仍查不到回执的交易，隔这么久重发一次，防止它被节点丢出内存池后再无人知道。
 	gameCoinRebroadcastSeconds = 60
-	// nonce 已被推进却查不到这笔交易的回执时，再等这么久才判定它被别的交易顶掉。
-	// 回执偶尔落后于 nonce 计数，过早退款会让一笔稍后上链的提现变成重复发放。
+	// nonce 已被推进却查不到这笔交易的回执时，这种状态要连续保持这么久才判定它被别的交易顶掉。
+	// 回执偶尔落后于 nonce 计数(负载均衡后面的节点进度不一)，过早退款会让一笔已经上链的提现变成重复发放；
+	// 期间只要查到一次回执，就从头计算。
 	gameCoinNonceReplacedSeconds = 10 * 60
 	// 节点给不出小费建议时使用 1 gwei。
 	gameCoinDefaultTipWei = 1_000_000_000
+	// 最简单的转账也要 21000 gas，预估值比它还小说明节点的回答有问题。
+	gameCoinMinGas = 21_000
+	// erc20TransferTopic 是 keccak256("Transfer(address,address,uint256)")，ERC-20 转账事件的 topics[0]。
+	erc20TransferTopic = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 )
 
-// GameCoinWithdrawRunSummary 是一轮提现处理的结果，写进系统任务的运行记录。
+// GameCoinWithdrawRunSummary 是一轮提现处理的结果，写进系统任务的运行记录。Skipped 不为空表示这一轮
+// 因为配置或节点的问题没能处理，任务记录会标为失败。
 type GameCoinWithdrawRunSummary struct {
 	Signed    int    `json:"signed"`
 	Sent      int    `json:"sent"`
@@ -34,19 +40,25 @@ type GameCoinWithdrawRunSummary struct {
 	Skipped   string `json:"skipped,omitempty"`
 }
 
-// RunGameCoinWithdrawOnce 推进一轮游戏币提现：先对账已广播的交易，再重发已签名但节点还没收下的
+// GameCoinWithdrawalsNeedWork 决定提现 worker 这一轮是否需要调度：只在它能推进某笔提现时才产生任务记录。
+// 留在别的链上的交易要等管理员切回那条链；没有可用的热钱包时签不出新提现，只跟进已经签出的交易。
+func GameCoinWithdrawalsNeedWork() bool {
+	setting := operation_setting.GetGameSetting()
+	if !setting.ChainConfigured() {
+		return false
+	}
+	_, walletErr := loadGameHotWallet()
+	return model.HasGameCoinWithdrawalWork(setting.ChainId, walletErr == nil)
+}
+
+// RunGameCoinWithdrawOnce 推进一轮游戏币提现：先对账已广播的交易，再跟进已签名但节点还没收下的
 // 交易，最后按创建顺序签发新提现。同一个热钱包的交易必须按 nonce 顺序串行发出；系统任务的
-// 分类型租约保证多个主节点同时只有一个在跑。
+// 分类型租约保证多个主节点同时只有一个在跑。没有可用的热钱包时签不了新提现，已经签出的交易照常跟进。
 func RunGameCoinWithdrawOnce(ctx context.Context) GameCoinWithdrawRunSummary {
 	summary := GameCoinWithdrawRunSummary{}
 	setting := operation_setting.GetGameSetting()
 	if !setting.ChainConfigured() {
 		summary.Skipped = "chain is not configured"
-		return summary
-	}
-	wallet, err := loadGameHotWallet()
-	if err != nil {
-		summary.Skipped = err.Error()
 		return summary
 	}
 	chainId, err := ethereumRpcChainId(ctx, setting.RpcUrl)
@@ -61,16 +73,31 @@ func RunGameCoinWithdrawOnce(ctx context.Context) GameCoinWithdrawRunSummary {
 	}
 
 	reconcileSentGameCoinWithdrawals(ctx, setting, &summary)
-	if rebroadcastSignedGameCoinWithdrawals(ctx, setting, wallet, &summary) {
-		sendPendingGameCoinWithdrawals(ctx, setting, wallet, &summary)
+
+	// 多节点部署时，别的节点上刚换掉或清除的热钱包私钥要等下一次同步配置才会到这里；签名前从数据库现读一次。
+	if key, err := model.ReadOptionValue(operation_setting.GameHotWalletPrivateKeyOption); err != nil {
+		logger.LogWarn(ctx, fmt.Sprintf("game coin withdraw: read hot wallet key failed: %v", err))
+	} else {
+		operation_setting.SetGameHotWalletPrivateKey(key)
 	}
+	wallet, walletErr := loadGameHotWallet()
+	walletAddress := ""
+	if walletErr == nil {
+		walletAddress = wallet.address
+	}
+	if !rebroadcastSignedGameCoinWithdrawals(ctx, setting, walletAddress, &summary) || walletErr != nil {
+		return summary
+	}
+	sendPendingGameCoinWithdrawals(ctx, setting, wallet, &summary)
 	return summary
 }
 
-// reconcileSentGameCoinWithdrawals 按回执给已广播的提现下结论。只有链上明确失败或 nonce 被别的
-// 交易占用时才退款；查不到回执、节点报错都只是"还没有结论"。
+// reconcileSentGameCoinWithdrawals 按回执给当前链上已广播的提现下结论。只有链上明确失败、转账没有发生或
+// nonce 被别的交易占用时才退款；查不到回执、回执不完整、节点报错都只是"还没有结论"。管理员切换了网络时，
+// 旧网络上的交易留待切回后再对账。
 func reconcileSentGameCoinWithdrawals(ctx context.Context, setting *operation_setting.GameSetting, summary *GameCoinWithdrawRunSummary) {
-	withdrawals, err := model.ListGameCoinWithdrawalsByStatus(model.GameCoinWithdrawalStatusSent, gameCoinWithdrawBatchSize)
+	withdrawals, err := model.ListGameCoinWithdrawalsByStatus(model.GameCoinWithdrawalStatusSent,
+		model.GameCoinWithdrawalScope{ChainId: setting.ChainId}, gameCoinWithdrawBatchSize)
 	if err != nil {
 		logger.LogWarn(ctx, fmt.Sprintf("game coin withdraw: list sent failed: %v", err))
 		return
@@ -79,10 +106,6 @@ func reconcileSentGameCoinWithdrawals(ctx context.Context, setting *operation_se
 	for _, withdrawal := range withdrawals {
 		if ctx.Err() != nil {
 			return
-		}
-		// 管理员切换了网络时，旧网络上的交易留待切回后再对账。
-		if withdrawal.ChainId != setting.ChainId {
-			continue
 		}
 		var receipt *ethereumRpcReceipt
 		if err := callEthereumRpc(ctx, setting.RpcUrl, "eth_getTransactionReceipt", []any{withdrawal.TxHash}, &receipt); err != nil {
@@ -94,11 +117,16 @@ func reconcileSentGameCoinWithdrawals(ctx context.Context, setting *operation_se
 			continue
 		}
 
+		// 有的节点对还没打包的交易也给出回执，只是区块号与状态为空，这同样还没有结论。
 		receiptBlock, blockErr := parseEthereumQuantity(receipt.BlockNumber)
 		status, statusErr := parseEthereumQuantity(receipt.Status)
 		if blockErr != nil || statusErr != nil {
-			recordGameCoinWithdrawalAttempt(ctx, withdrawal, false, fmt.Errorf("malformed receipt for %s", withdrawal.TxHash))
+			recordGameCoinWithdrawalAttempt(ctx, withdrawal, false, fmt.Errorf("incomplete receipt for %s", withdrawal.TxHash))
 			continue
+		}
+		// 查到了回执，之前"nonce 已推进却查不到回执"的计时作废。
+		if withdrawal.NonceUsedAt != 0 {
+			setGameCoinWithdrawalNonceUsedAt(ctx, withdrawal, 0)
 		}
 		if latestBlock == nil {
 			latestBlock, err = callEthereumRpcQuantity(ctx, setting.RpcUrl, "eth_blockNumber", nil)
@@ -112,75 +140,129 @@ func reconcileSentGameCoinWithdrawals(ctx context.Context, setting *operation_se
 		if depth.Add(depth, big.NewInt(1)).Cmp(big.NewInt(int64(setting.Confirmations))) < 0 {
 			continue
 		}
-		if status.Cmp(big.NewInt(1)) == 0 {
-			confirmed, err := model.ConfirmGameCoinWithdrawal(withdrawal.Id)
-			if err != nil {
-				logger.LogError(ctx, fmt.Sprintf("game coin withdraw: confirm %s failed: %v", withdrawal.TradeNo, err))
-				continue
-			}
-			if confirmed {
-				summary.Confirmed++
-			}
+		if status.Cmp(big.NewInt(1)) != 0 {
+			failGameCoinWithdrawal(ctx, withdrawal, "链上转账执行失败，游戏币已退回", fmt.Sprintf("transaction %s reverted", withdrawal.TxHash), summary)
 			continue
 		}
-		failGameCoinWithdrawal(ctx, withdrawal, "链上转账执行失败，游戏币已退回", fmt.Sprintf("transaction %s reverted", withdrawal.TxHash), summary)
+		// 交易成功不等于代币到账：代币地址上没有合约，或者合约的 transfer 返回 false 而不回滚时，交易照样成功，
+		// 只是没有转账事件。交易已经上链，不会再执行第二次，这时退款不会重复发放。
+		if !receiptHasErc20Transfer(receipt.Logs, withdrawal.TokenAddress, withdrawal.FromAddress, withdrawal.ToAddress) {
+			failGameCoinWithdrawal(ctx, withdrawal, "代币合约没有完成转账，游戏币已退回",
+				fmt.Sprintf("transaction %s succeeded without a Transfer event", withdrawal.TxHash), summary)
+			continue
+		}
+		confirmed, err := model.ConfirmGameCoinWithdrawal(withdrawal.Id)
+		if err != nil {
+			logger.LogError(ctx, fmt.Sprintf("game coin withdraw: confirm %s failed: %v", withdrawal.TradeNo, err))
+			continue
+		}
+		if confirmed {
+			summary.Confirmed++
+		}
 	}
 }
 
-// reconcileUnminedGameCoinWithdrawal 处理查不到回执的已广播交易：nonce 还空着就定期重发，
-// nonce 已被推进则说明这个位置被别的交易用掉了，宽限期过后退款。
+// receiptHasErc20Transfer 判断回执里有没有这个代币合约发出的、从 from 转给 to 的 Transfer 事件。
+// 数量不比对：交易是自己签的，数量写死在里面，而管理员可能在签名之后改过代币精度。
+func receiptHasErc20Transfer(logs []ethereumRpcLog, token string, from string, to string) bool {
+	fromTopic := "0x000000000000000000000000" + strings.TrimPrefix(strings.ToLower(from), "0x")
+	toTopic := "0x000000000000000000000000" + strings.TrimPrefix(strings.ToLower(to), "0x")
+	for _, entry := range logs {
+		if entry.Removed || len(entry.Topics) != 3 || !strings.EqualFold(entry.Address, token) {
+			continue
+		}
+		if strings.EqualFold(entry.Topics[0], erc20TransferTopic) &&
+			strings.EqualFold(entry.Topics[1], fromTopic) &&
+			strings.EqualFold(entry.Topics[2], toTopic) {
+			return true
+		}
+	}
+	return false
+}
+
+// reconcileUnminedGameCoinWithdrawal 处理查不到回执的已广播交易：nonce 还空着就定期重发；nonce 已被推进，
+// 说明这个位置被别的交易用掉了，这种状态连续保持 gameCoinNonceReplacedSeconds 之后才退款。
 func reconcileUnminedGameCoinWithdrawal(ctx context.Context, setting *operation_setting.GameSetting, withdrawal *model.GameCoinWithdrawal, summary *GameCoinWithdrawRunSummary) {
 	accountNonce, err := callEthereumRpcQuantity(ctx, setting.RpcUrl, "eth_getTransactionCount", []any{withdrawal.FromAddress, "latest"})
 	if err != nil {
 		recordGameCoinWithdrawalAttempt(ctx, withdrawal, false, err)
 		return
 	}
-	elapsed := common.GetTimestamp() - withdrawal.BroadcastAt
+	now := common.GetTimestamp()
 	if accountNonce.Cmp(big.NewInt(withdrawal.Nonce)) > 0 {
-		if elapsed >= gameCoinNonceReplacedSeconds {
+		switch {
+		case withdrawal.NonceUsedAt == 0:
+			setGameCoinWithdrawalNonceUsedAt(ctx, withdrawal, now)
+		case now-withdrawal.NonceUsedAt >= gameCoinNonceReplacedSeconds:
 			failGameCoinWithdrawal(ctx, withdrawal, "交易未能上链，游戏币已退回",
 				fmt.Sprintf("nonce %d of %s was used by another transaction", withdrawal.Nonce, withdrawal.FromAddress), summary)
 		}
 		return
 	}
-	if elapsed < gameCoinRebroadcastSeconds {
+	if withdrawal.NonceUsedAt != 0 {
+		setGameCoinWithdrawalNonceUsedAt(ctx, withdrawal, 0)
+	}
+	if now-withdrawal.BroadcastAt < gameCoinRebroadcastSeconds {
 		return
 	}
 	_, err = broadcastGameCoinTx(ctx, setting.RpcUrl, withdrawal.RawTx)
 	recordGameCoinWithdrawalAttempt(ctx, withdrawal, true, err)
 }
 
-// rebroadcastSignedGameCoinWithdrawals 重发已签名但节点尚未收下的交易。返回 false 表示当前热钱包
+// rebroadcastSignedGameCoinWithdrawals 跟进当前链上已签名但节点尚未收下的交易。返回 false 表示当前热钱包
 // 的队首仍卡着一笔，这一轮不能再签新交易：nonce 必须连续，插在后面的交易只会在内存池里等它。
-func rebroadcastSignedGameCoinWithdrawals(ctx context.Context, setting *operation_setting.GameSetting, wallet *gameHotWallet, summary *GameCoinWithdrawRunSummary) bool {
-	withdrawals, err := model.ListGameCoinWithdrawalsByStatus(model.GameCoinWithdrawalStatusSigned, gameCoinWithdrawBatchSize)
+// 换过热钱包之后，旧钱包卡住的交易不影响新钱包，只尽力重发；两类分开查，旧钱包的再多也挤不掉新钱包的。
+func rebroadcastSignedGameCoinWithdrawals(ctx context.Context, setting *operation_setting.GameSetting, walletAddress string, summary *GameCoinWithdrawRunSummary) bool {
+	others, err := model.ListGameCoinWithdrawalsByStatus(model.GameCoinWithdrawalStatusSigned,
+		model.GameCoinWithdrawalScope{ChainId: setting.ChainId, ExceptFromAddress: walletAddress}, gameCoinWithdrawBatchSize)
 	if err != nil {
 		logger.LogWarn(ctx, fmt.Sprintf("game coin withdraw: list signed failed: %v", err))
 		return false
 	}
-	for _, withdrawal := range withdrawals {
+	for _, withdrawal := range others {
 		if ctx.Err() != nil {
 			return false
 		}
-		if withdrawal.ChainId != setting.ChainId {
-			continue
+		advanceSignedGameCoinWithdrawal(ctx, setting, withdrawal, summary)
+	}
+	if walletAddress == "" {
+		return true
+	}
+	current, err := model.ListGameCoinWithdrawalsByStatus(model.GameCoinWithdrawalStatusSigned,
+		model.GameCoinWithdrawalScope{ChainId: setting.ChainId, FromAddress: walletAddress}, gameCoinWithdrawBatchSize)
+	if err != nil {
+		logger.LogWarn(ctx, fmt.Sprintf("game coin withdraw: list signed failed: %v", err))
+		return false
+	}
+	for _, withdrawal := range current {
+		if ctx.Err() != nil || !advanceSignedGameCoinWithdrawal(ctx, setting, withdrawal, summary) {
+			return false
 		}
+	}
+	return true
+}
+
+// advanceSignedGameCoinWithdrawal 让一笔已签名的交易往前走：查到回执、或者节点收下了，就转为已广播，交给对账
+// 下结论。先查回执是因为它可能早已上链，只是节点收下它的那次广播没有得到答复，之后重发报的错又认不出来。
+// 返回 false 表示它还卡着，下一轮重试。
+func advanceSignedGameCoinWithdrawal(ctx context.Context, setting *operation_setting.GameSetting, withdrawal *model.GameCoinWithdrawal, summary *GameCoinWithdrawRunSummary) bool {
+	var receipt *ethereumRpcReceipt
+	mined := callEthereumRpc(ctx, setting.RpcUrl, "eth_getTransactionReceipt", []any{withdrawal.TxHash}, &receipt) == nil && receipt != nil
+	if !mined {
 		outcome, err := broadcastGameCoinTx(ctx, setting.RpcUrl, withdrawal.RawTx)
 		if outcome == rawTxRetry {
 			recordGameCoinWithdrawalAttempt(ctx, withdrawal, true, err)
-			// 换过热钱包之后，旧钱包的交易卡住不影响新钱包的 nonce 顺序。
-			if withdrawal.FromAddress == wallet.address {
-				return false
-			}
-			continue
-		}
-		// nonce 已被使用时同样交给对账：是这笔交易自己上链了就会有回执，被顶掉则宽限期后退款。
-		if marked, err := model.MarkGameCoinWithdrawalSent(withdrawal.Id); err != nil {
-			logger.LogError(ctx, fmt.Sprintf("game coin withdraw: mark %s sent failed: %v", withdrawal.TradeNo, err))
 			return false
-		} else if marked {
-			summary.Sent++
 		}
+	}
+	// nonce 已被使用时同样交给对账：是这笔交易自己上链了就会有回执，被顶掉则宽限期后退款。
+	marked, err := model.MarkGameCoinWithdrawalSent(withdrawal.Id)
+	if err != nil {
+		logger.LogError(ctx, fmt.Sprintf("game coin withdraw: mark %s sent failed: %v", withdrawal.TradeNo, err))
+		return false
+	}
+	if marked {
+		summary.Sent++
 	}
 	return true
 }
@@ -188,7 +270,8 @@ func rebroadcastSignedGameCoinWithdrawals(ctx context.Context, setting *operatio
 // sendPendingGameCoinWithdrawals 按创建顺序给新提现分配 nonce、签名、落库，然后广播。
 // 签好的交易先落库再广播，进程在两步之间退出时下一轮重发的是同一笔交易，不会再签第二笔。
 func sendPendingGameCoinWithdrawals(ctx context.Context, setting *operation_setting.GameSetting, wallet *gameHotWallet, summary *GameCoinWithdrawRunSummary) {
-	withdrawals, err := model.ListGameCoinWithdrawalsByStatus(model.GameCoinWithdrawalStatusPending, gameCoinWithdrawBatchSize)
+	withdrawals, err := model.ListGameCoinWithdrawalsByStatus(model.GameCoinWithdrawalStatusPending,
+		model.GameCoinWithdrawalScope{}, gameCoinWithdrawBatchSize)
 	if err != nil {
 		logger.LogWarn(ctx, fmt.Sprintf("game coin withdraw: list pending failed: %v", err))
 		return
@@ -202,14 +285,25 @@ func sendPendingGameCoinWithdrawals(ctx context.Context, setting *operation_sett
 		return
 	}
 	token, _ := ethereumAddressBytes(tokenAddress)
+	// 代币地址上没有合约时，转账交易照样执行成功却什么也没转；先确认它是合约，免得白花 gas。
+	var code string
+	if err := callEthereumRpc(ctx, setting.RpcUrl, "eth_getCode", []any{tokenAddress, "latest"}, &code); err != nil {
+		logger.LogWarn(ctx, fmt.Sprintf("game coin withdraw: eth_getCode failed: %v", err))
+		return
+	}
+	if strings.TrimPrefix(code, "0x") == "" {
+		summary.Skipped = fmt.Sprintf("token address %s has no contract code on chain %d", tokenAddress, setting.ChainId)
+		return
+	}
 
-	pendingNonce, err := callEthereumRpcQuantity(ctx, setting.RpcUrl, "eth_getTransactionCount", []any{wallet.address, "pending"})
+	// nonce 从已上链的计数起算，不用 pending：pending 会把这个热钱包在别处发出、还在内存池里的交易也算进去，
+	// 那笔交易一旦被丢弃，排在它后面的提现就永远等不到空缺被补上。自己签出还没上链的交易以数据库为准。
+	accountNonce, err := callEthereumRpcQuantity(ctx, setting.RpcUrl, "eth_getTransactionCount", []any{wallet.address, "latest"})
 	if err != nil {
 		logger.LogWarn(ctx, fmt.Sprintf("game coin withdraw: fetch nonce failed: %v", err))
 		return
 	}
-	nonce := pendingNonce.Uint64()
-	// 节点的 pending 计数可能还没看到刚发出的交易，已签出的最大 nonce 以数据库为准。
+	nonce := accountNonce.Uint64()
 	if maxNonce, found, err := model.MaxGameCoinWithdrawalNonce(wallet.address, setting.ChainId); err != nil {
 		logger.LogWarn(ctx, fmt.Sprintf("game coin withdraw: read max nonce failed: %v", err))
 		return
@@ -245,6 +339,10 @@ func sendPendingGameCoinWithdrawals(ctx context.Context, setting *operation_sett
 				continue
 			}
 			recordGameCoinWithdrawalAttempt(ctx, withdrawal, false, err)
+			return
+		}
+		if gas.Cmp(big.NewInt(gameCoinMinGas)) < 0 || !gas.IsUint64() {
+			recordGameCoinWithdrawalAttempt(ctx, withdrawal, false, fmt.Errorf("eth_estimateGas returned an implausible %s", gas))
 			return
 		}
 		tx := &gameTransferTx{
@@ -318,6 +416,9 @@ const (
 	rawTxRetry                         // 没有结论，下一轮重发同一笔
 )
 
+// broadcastGameCoinTx 广播一笔已签名的交易，并按节点的报错归类。各家节点的措辞不同：Geth 说 "already known"、
+// "nonce too low"，Nethermind 说 "AlreadyKnown"、"OldNonce"，OpenEthereum 说 "already imported"、
+// "nonce is too low"，Besu 说 "Known transaction"。认不出来的一律当作没有结论。
 func broadcastGameCoinTx(ctx context.Context, rpcURL string, rawTx string) (rawTxOutcome, error) {
 	var txHash string
 	err := callEthereumRpc(ctx, rpcURL, "eth_sendRawTransaction", []any{rawTx}, &txHash)
@@ -328,9 +429,11 @@ func broadcastGameCoinTx(ctx context.Context, rpcURL string, rawTx string) (rawT
 	if errors.As(err, &rpcErr) {
 		message := strings.ToLower(rpcErr.Message)
 		switch {
-		case strings.Contains(message, "already known"), strings.Contains(message, "known transaction"), strings.Contains(message, "alreadyknown"):
+		case strings.Contains(message, "already known"), strings.Contains(message, "known transaction"),
+			strings.Contains(message, "alreadyknown"), strings.Contains(message, "already imported"):
 			return rawTxAccepted, nil
-		case strings.Contains(message, "nonce too low"), strings.Contains(message, "oldnonce"):
+		case strings.Contains(message, "nonce too low"), strings.Contains(message, "nonce is too low"),
+			strings.Contains(message, "oldnonce"):
 			return rawTxNonceUsed, err
 		}
 	}
@@ -366,5 +469,11 @@ func recordGameCoinWithdrawalAttempt(ctx context.Context, withdrawal *model.Game
 	}
 	if err := model.RecordGameCoinWithdrawalAttempt(withdrawal.Id, broadcast, errText); err != nil {
 		logger.LogError(ctx, fmt.Sprintf("game coin withdraw: record attempt for %s failed: %v", withdrawal.TradeNo, err))
+	}
+}
+
+func setGameCoinWithdrawalNonceUsedAt(ctx context.Context, withdrawal *model.GameCoinWithdrawal, at int64) {
+	if err := model.SetGameCoinWithdrawalNonceUsedAt(withdrawal.Id, at); err != nil {
+		logger.LogError(ctx, fmt.Sprintf("game coin withdraw: record nonce state for %s failed: %v", withdrawal.TradeNo, err))
 	}
 }

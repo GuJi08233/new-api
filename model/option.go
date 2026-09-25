@@ -38,6 +38,19 @@ func AllOption() ([]*Option, error) {
 	return options, err
 }
 
+// ReadOptionValue 直接从主库读一个配置项，库里没有这一项时返回空字符串。多节点部署时，别的节点刚改的配置
+// 要等下一次同步才进到本节点的内存；签名这类必须用最新值的操作要现读。
+func ReadOptionValue(key string) (string, error) {
+	var options []Option
+	if err := DB.Where(&Option{Key: key}).Limit(1).Find(&options).Error; err != nil {
+		return "", err
+	}
+	if len(options) == 0 {
+		return "", nil
+	}
+	return options[0].Value, nil
+}
+
 func InitOptionMap() {
 	common.OptionMapRWMutex.Lock()
 	common.OptionMap = make(map[string]string)

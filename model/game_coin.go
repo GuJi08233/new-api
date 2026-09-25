@@ -99,7 +99,10 @@ type GameCoinWithdrawal struct {
 	CreatedAt   int64  `json:"created_at" gorm:"bigint;index"`
 	UpdatedAt   int64  `json:"updated_at" gorm:"bigint"`
 	BroadcastAt int64  `json:"broadcast_at" gorm:"bigint"`
-	CompletedAt int64  `json:"completed_at" gorm:"bigint"`
+	// NonceUsedAt 是第一次发现 nonce 已被推进、却查不到这笔交易回执的时间，0 表示没有这种情况。
+	// 这种状态要连续保持一段时间才判定交易被别的交易顶掉并退款，期间查到回执就清零。
+	NonceUsedAt int64 `json:"-" gorm:"bigint"`
+	CompletedAt int64 `json:"completed_at" gorm:"bigint"`
 }
 
 // GameCoinWithdrawDay 记录全站每天已占用的提现额度。额度用条件更新扣减，
@@ -322,13 +325,17 @@ func GetGameCoinWithdrawDayUsed(day string) (int, error) {
 	return used, err
 }
 
-// HasUnfinishedGameCoinWithdrawals 决定提现 worker 这一轮是否需要调度，空闲时不产生任务记录。
-func HasUnfinishedGameCoinWithdrawals() bool {
+// HasGameCoinWithdrawalWork 判断提现 worker 能不能推进某笔提现：当前链上有已签名、已广播的交易要跟进，
+// 或者 canSign 为真(热钱包可用)且有待签名的提现。留在别的链上的交易要等切回那条链，不算在内。
+func HasGameCoinWithdrawalWork(chainId int64, canSign bool) bool {
+	inFlight := []string{GameCoinWithdrawalStatusSigned, GameCoinWithdrawalStatusSent}
+	query := DB.Model(&GameCoinWithdrawal{}).Where("status IN ? AND chain_id = ?", inFlight, chainId)
+	if canSign {
+		query = DB.Model(&GameCoinWithdrawal{}).
+			Where("(status IN ? AND chain_id = ?) OR status = ?", inFlight, chainId, GameCoinWithdrawalStatusPending)
+	}
 	var id int
-	err := DB.Model(&GameCoinWithdrawal{}).
-		Where("status IN ?", unfinishedGameCoinWithdrawalStatuses).
-		Limit(1).
-		Pluck("id", &id).Error
+	err := query.Limit(1).Pluck("id", &id).Error
 	return err == nil && id != 0
 }
 
@@ -348,11 +355,30 @@ func CountGameCoinWithdrawalsByStatus() (map[string]int64, error) {
 	return counts, nil
 }
 
-// ListGameCoinWithdrawalsByStatus 按创建顺序返回某个状态的提现单。发送顺序决定 nonce 顺序，
+// GameCoinWithdrawalScope 限定提现 worker 这一轮处理哪些提现单。筛选要在查询里做：取出一批再在内存里跳过，
+// 排在前面、这一轮处理不了的单子(例如留在旧链上的)会一直占满这一批。ChainId 为 0 时不限链；
+// FromAddress 不为空时只要这个热钱包发出的，ExceptFromAddress 不为空时排除这个热钱包发出的。
+type GameCoinWithdrawalScope struct {
+	ChainId           int64
+	FromAddress       string
+	ExceptFromAddress string
+}
+
+// ListGameCoinWithdrawalsByStatus 按创建顺序返回某个状态、某个范围的提现单。发送顺序决定 nonce 顺序，
 // 所以必须按 id 升序处理。
-func ListGameCoinWithdrawalsByStatus(status string, limit int) ([]*GameCoinWithdrawal, error) {
+func ListGameCoinWithdrawalsByStatus(status string, scope GameCoinWithdrawalScope, limit int) ([]*GameCoinWithdrawal, error) {
+	query := DB.Where("status = ?", status)
+	if scope.ChainId != 0 {
+		query = query.Where("chain_id = ?", scope.ChainId)
+	}
+	if scope.FromAddress != "" {
+		query = query.Where("from_address = ?", scope.FromAddress)
+	}
+	if scope.ExceptFromAddress != "" {
+		query = query.Where("from_address <> ?", scope.ExceptFromAddress)
+	}
 	var withdrawals []*GameCoinWithdrawal
-	err := DB.Where("status = ?", status).Order("id asc").Limit(limit).Find(&withdrawals).Error
+	err := query.Order("id asc").Limit(limit).Find(&withdrawals).Error
 	return withdrawals, err
 }
 
@@ -416,6 +442,14 @@ func RecordGameCoinWithdrawalAttempt(id int, broadcast bool, errText string) err
 		updates["broadcast_at"] = now
 	}
 	return DB.Model(&GameCoinWithdrawal{}).Where("id = ?", id).Updates(updates).Error
+}
+
+// SetGameCoinWithdrawalNonceUsedAt 记下第一次发现 nonce 已被推进却查不到回执的时间，at 为 0 表示清除。
+func SetGameCoinWithdrawalNonceUsedAt(id int, at int64) error {
+	return DB.Model(&GameCoinWithdrawal{}).Where("id = ?", id).Updates(map[string]interface{}{
+		"nonce_used_at": at,
+		"updated_at":    common.GetTimestamp(),
+	}).Error
 }
 
 // ConfirmGameCoinWithdrawal 把已上链的提现单标记为完成，并计入用户的累计提现。

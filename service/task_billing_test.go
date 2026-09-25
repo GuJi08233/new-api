@@ -58,6 +58,7 @@ func TestMain(m *testing.M) {
 		&model.GameCoinLog{},
 		&model.GameCoinWithdrawal{},
 		&model.GameCoinWithdrawDay{},
+		&model.Option{},
 	); err != nil {
 		panic("failed to migrate: " + err.Error())
 	}
