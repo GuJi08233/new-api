@@ -169,8 +169,9 @@ func SetApiRouter(router *gin.Engine) {
 			gameRoute.POST("/withdraw", middleware.UserCriticalRateLimit("game-withdraw"), middleware.DisableCache(), controller.WithdrawGameCoins)
 			gameRoute.POST("/tetris/start", middleware.GamePlayRateLimit("tetris-start"), controller.StartTetris)
 			gameRoute.POST("/tetris/finish", middleware.GamePlayRateLimit("tetris-finish"), controller.FinishTetris)
-			gameRoute.POST("/slots/spin", middleware.GameSpinRateLimit(), controller.SpinSlots)
+			gameRoute.POST("/slots/spin", middleware.GameSpinRateLimit("slots-spin"), controller.SpinSlots)
 			gameRoute.POST("/wheel/spin", middleware.GamePlayRateLimit("wheel-spin"), controller.SpinWheel)
+			gameRoute.POST("/plinko/drop", middleware.GameSpinRateLimit("plinko-drop"), controller.DropPlinko)
 		}
 		gameAdminRoute := apiRouter.Group("/game/admin")
 		gameAdminRoute.Use(middleware.RootAuth())

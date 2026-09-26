@@ -253,6 +253,9 @@ const (
 	MsgGameDailyPlayLimit         = "game.daily_play_limit"
 	MsgGameFreePlayUsed           = "game.free_play_used"
 	MsgGameIpFreePlayUsed         = "game.ip_free_play_used"
+	MsgGamePlinkoStakeInvalid     = "game.plinko_stake_invalid"
+	MsgGamePlinkoTierClosed       = "game.plinko_tier_closed"
+	MsgGameDropFailed             = "game.drop_failed"
 )
 
 // Passkey related messages

@@ -1,0 +1,429 @@
+/*
+Copyright (C) 2025 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+
+/* ==========================================================================
+   Plinko page — scoped styles (all classes prefixed with `plinko-`)
+   Built on the game center shell in ../games.css. The stage and the board keep
+   their own colors in both themes; the side panel follows Semi variables.
+   ========================================================================== */
+
+.plinko-page {
+  max-width: 1000px;
+}
+
+.plinko-topbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.plinko-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+  color: var(--semi-color-text-0);
+}
+
+.plinko-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 540px) 300px;
+  justify-content: center;
+  align-items: start;
+  gap: 24px;
+}
+
+/* ---------- Stage ---------- */
+
+.plinko-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 18px 16px 20px;
+  border-radius: 22px;
+  background: radial-gradient(
+    circle at 50% 18%,
+    #1d4ed8 0%,
+    #172554 55%,
+    #0b1437 100%
+  );
+  box-shadow:
+    0 20px 40px -14px rgba(11, 20, 55, 0.6),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    inset 0 -3px 0 rgba(0, 0, 0, 0.25);
+}
+
+.plinko-stage.is-big-win {
+  animation: plinko-shake 0.5s ease-in-out;
+}
+
+.plinko-tiers {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  width: 100%;
+  max-width: 420px;
+}
+
+.plinko-tier {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 6px;
+  border: 1px solid rgba(191, 219, 254, 0.25);
+  border-radius: 12px;
+  color: #dbeafe;
+  background: rgba(15, 23, 42, 0.45);
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.plinko-tier:hover:not(:disabled) {
+  border-color: rgba(191, 219, 254, 0.55);
+}
+
+.plinko-tier.is-active {
+  color: #1e3a8a;
+  border-color: #fde047;
+  background: linear-gradient(180deg, #fef08a 0%, #facc15 100%);
+}
+
+.plinko-tier:disabled {
+  cursor: not-allowed;
+}
+
+.plinko-tier:disabled:not(.is-active) {
+  opacity: 0.45;
+}
+
+.plinko-tier:focus-visible {
+  outline: 3px solid #dbeafe;
+  outline-offset: 2px;
+}
+
+.plinko-tier-stake {
+  font-size: 17px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.plinko-tier-note {
+  font-size: 11px;
+  opacity: 0.85;
+}
+
+.plinko-board {
+  display: block;
+  width: 100%;
+  max-width: 480px;
+  margin-top: 10px;
+  overflow: visible;
+}
+
+.plinko-peg {
+  fill: #e2e8f0;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.plinko-slot {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.plinko-slot rect {
+  stroke: rgba(0, 0, 0, 0.18);
+  stroke-width: 1;
+}
+
+.plinko-slot-label {
+  font-family: 'Arial Black', 'Helvetica Neue', Arial, sans-serif;
+  font-size: 10.5px;
+  font-weight: 900;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.plinko-ball {
+  fill: #f472b6;
+  stroke: #fdf2f8;
+  stroke-width: 1.5;
+  filter: drop-shadow(0 0 4px rgba(244, 114, 182, 0.85));
+}
+
+.plinko-message {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 52px;
+  margin-top: 14px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  text-align: center;
+  font-size: 17px;
+  font-weight: 700;
+  color: #dbeafe;
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.plinko-message.is-win {
+  color: #fde047;
+}
+
+.plinko-message.is-loss {
+  color: #cbd5e1;
+}
+
+.plinko-message.is-big-win {
+  font-size: 24px;
+  text-shadow: 0 0 16px rgba(253, 224, 71, 0.8);
+  animation: plinko-pop 0.6s ease-out;
+}
+
+.plinko-message.is-error {
+  font-size: 14px;
+  font-weight: 600;
+  color: #fecaca;
+}
+
+/* ---------- Controls ---------- */
+
+.plinko-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin-top: 14px;
+}
+
+.plinko-drop {
+  min-width: 220px;
+  height: 56px;
+  padding: 0 28px;
+  border: none;
+  border-radius: 999px;
+  font-size: 19px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  color: #831843;
+  background: linear-gradient(180deg, #fbcfe8 0%, #f472b6 50%, #ec4899 100%);
+  box-shadow:
+    0 5px 0 #9d174d,
+    0 10px 20px rgba(0, 0, 0, 0.3);
+  cursor: pointer;
+  transition:
+    transform 0.08s ease,
+    box-shadow 0.08s ease;
+}
+
+.plinko-drop:active:not(:disabled) {
+  transform: translateY(4px);
+  box-shadow:
+    0 1px 0 #9d174d,
+    0 4px 10px rgba(0, 0, 0, 0.3);
+}
+
+.plinko-drop:disabled {
+  opacity: 0.65;
+  filter: grayscale(0.4);
+  cursor: not-allowed;
+}
+
+.plinko-drop:focus-visible {
+  outline: 3px solid #dbeafe;
+  outline-offset: 2px;
+}
+
+.plinko-counter {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: #bfdbfe;
+}
+
+.plinko-hint {
+  text-align: center;
+  font-size: 12px;
+  color: #fecaca;
+}
+
+/* ---------- Side panel ---------- */
+
+.plinko-side {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.plinko-box {
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--semi-color-border);
+  background: var(--semi-color-bg-1);
+}
+
+.plinko-box-label {
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--semi-color-text-2);
+}
+
+.plinko-box-value {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  font-size: 22px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--semi-color-text-0);
+}
+
+.plinko-box-value span {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--semi-color-text-2);
+}
+
+.plinko-box-note {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--semi-color-text-2);
+}
+
+.plinko-history {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 10px;
+}
+
+.plinko-history-item {
+  min-width: 34px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.plinko-odds {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--semi-color-text-1);
+}
+
+.plinko-odds th {
+  padding: 0 2px 6px;
+  font-weight: 500;
+  text-align: left;
+  color: var(--semi-color-text-2);
+}
+
+.plinko-odds th:not(:first-child),
+.plinko-odds td:not(:first-child) {
+  text-align: right;
+}
+
+.plinko-odds td {
+  padding: 4px 2px;
+  border-top: 1px solid var(--semi-color-border);
+}
+
+.plinko-odds-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 8px;
+  border-radius: 3px;
+  vertical-align: -1px;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12);
+}
+
+.plinko-rules {
+  margin: 10px 0 0;
+  padding-left: 16px;
+  list-style: disc;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--semi-color-text-2);
+}
+
+/* ---------- Animations ---------- */
+
+@keyframes plinko-pop {
+  0% {
+    transform: scale(0.85);
+  }
+  60% {
+    transform: scale(1.08);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes plinko-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-4px);
+  }
+  75% {
+    transform: translateX(4px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .plinko-message.is-big-win,
+  .plinko-stage.is-big-win {
+    animation: none;
+  }
+}
+
+/* 窄屏：钉板在上，余额与概率公示排到下面。 */
+@media (max-width: 900px) {
+  .plinko-layout {
+    grid-template-columns: minmax(0, 540px);
+  }
+}
+
+@media (max-width: 520px) {
+  .plinko-stage {
+    padding: 14px 10px 16px;
+  }
+
+  .plinko-drop {
+    width: 100%;
+    height: 50px;
+    font-size: 18px;
+  }
+}

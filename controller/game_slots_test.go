@@ -32,6 +32,7 @@ func spinGameFixture(t *testing.T, setting *operation_setting.GameSetting, coins
 	router.GET("/api/game/self", middleware.UserAuth(), middleware.GameCenterEnabled(), GetGameCenterSelf)
 	router.POST("/api/game/slots/spin", middleware.UserAuth(), middleware.GameCenterEnabled(), SpinSlots)
 	router.POST("/api/game/wheel/spin", middleware.UserAuth(), middleware.GameCenterEnabled(), SpinWheel)
+	router.POST("/api/game/plinko/drop", middleware.UserAuth(), middleware.GameCenterEnabled(), DropPlinko)
 	if coins > 0 {
 		_, err := model.AdjustGameCoins(user.Id, coins, "seed")
 		require.NoError(t, err)

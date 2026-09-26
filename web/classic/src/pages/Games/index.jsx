@@ -43,6 +43,7 @@ import {
   Gamepad2,
   Play,
   Send,
+  Triangle,
   Wallet,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -61,7 +62,12 @@ const { Text } = Typography;
 
 const ILLUSTRATION_SIZE = { width: 150, height: 150 };
 const ADDRESS_PATTERN = /^0x[0-9a-fA-F]{40}$/;
-const GAME_ICONS = { tetris: Blocks, slots: Cherry, wheel: Disc3 };
+const GAME_ICONS = {
+  tetris: Blocks,
+  slots: Cherry,
+  wheel: Disc3,
+  plinko: Triangle,
+};
 
 // 取浏览器里排名最靠前的 EVM 钱包(Rabby / MetaMask 等)，没有时提示安装。
 async function findInjectedWallet(t) {
@@ -572,31 +578,51 @@ const Games = () => {
                             </span>
                           </div>
                         )}
-                        {game.key !== 'wheel' && meta?.wager && (
+                        {game.key === 'plinko' && (
                           <div className='games-list-meta'>
                             <span>
-                              {/* 每日净赢上限为 0 表示不限制。 */}
-                              {game.daily_reward_limit > 0
-                                ? t(
-                                    '今日输赢 {{net}} · 净赢上限 {{limit}} {{symbol}}',
-                                    {
-                                      net,
-                                      limit: game.daily_reward_limit,
-                                      symbol,
-                                    },
-                                  )
-                                : t('今日输赢 {{net}} {{symbol}}', {
-                                    net,
-                                    symbol,
-                                  })}
+                              {t('今日已投 {{plays}} 颗', {
+                                plays: (game.tiers || []).reduce(
+                                  (sum, tier) => sum + tier.plays_today,
+                                  0,
+                                ),
+                              })}
                             </span>
                             <span>
-                              {t('单次最高派彩 {{win}}', {
-                                win: Number(game.best_score).toLocaleString(),
+                              {t('今日输赢 {{net}} {{symbol}}', {
+                                net,
+                                symbol,
                               })}
                             </span>
                           </div>
                         )}
+                        {game.key !== 'wheel' &&
+                          game.key !== 'plinko' &&
+                          meta?.wager && (
+                            <div className='games-list-meta'>
+                              <span>
+                                {/* 每日净赢上限为 0 表示不限制。 */}
+                                {game.daily_reward_limit > 0
+                                  ? t(
+                                      '今日输赢 {{net}} · 净赢上限 {{limit}} {{symbol}}',
+                                      {
+                                        net,
+                                        limit: game.daily_reward_limit,
+                                        symbol,
+                                      },
+                                    )
+                                  : t('今日输赢 {{net}} {{symbol}}', {
+                                      net,
+                                      symbol,
+                                    })}
+                              </span>
+                              <span>
+                                {t('单次最高派彩 {{win}}', {
+                                  win: Number(game.best_score).toLocaleString(),
+                                })}
+                              </span>
+                            </div>
+                          )}
                         {!meta?.wager && (
                           <div className='games-list-meta'>
                             <span>

@@ -351,7 +351,7 @@ const GameAdminSettings = () => {
         <SettingRow
           label={t('开局人机验证')}
           extra={t(
-            '俄罗斯方块每局开始前、大转盘每次免费旋转前需通过 Cloudflare Turnstile 验证，挡住不经浏览器直接调用接口的脚本；老虎机和大转盘的付费旋转按下注结算，不需要验证。需要先在系统设置中启用 Turnstile',
+            '俄罗斯方块每局开始前、大转盘每次免费旋转前需通过 Cloudflare Turnstile 验证，挡住不经浏览器直接调用接口的脚本；老虎机、大转盘的付费旋转和 Plinko 按下注结算，不需要验证。需要先在系统设置中启用 Turnstile',
           )}
         >
           <div className='flex items-center gap-3 flex-wrap'>
@@ -435,6 +435,61 @@ const GameAdminSettings = () => {
               >
                 <Text strong>
                   {overview?.game_rewards?.[game] ?? 0} {setting.token_symbol}
+                </Text>
+              </SettingRow>
+            </Card>
+          );
+        }
+        // Plinko 分 1、10、100 三档投入，派彩表固定，每一档分别限制每人每天投几颗球，0 表示这一档不开放。
+        if (game === 'plinko') {
+          return (
+            <Card key={game} title={meta.name}>
+              <SettingRow
+                label={t('开放游戏')}
+                extra={t('关闭后用户不能再投球')}
+              >
+                <Switch
+                  checked={rule.enabled}
+                  onChange={(value) => setGameRule(game, 'enabled', value)}
+                />
+              </SettingRow>
+              {[1, 10, 100].map((stake) => (
+                <SettingRow
+                  key={stake}
+                  label={t('{{stake}} 币档每人每日次数', { stake })}
+                  extra={
+                    stake === 1
+                      ? t(
+                          '格子直接加减游戏币，一颗球最多扣 2 个，平均每颗输约 0.2 个。0 表示不开放这一档',
+                        )
+                      : t(
+                          '派彩 = 投入 × 格子上的倍数，最高 13 倍，理论返还率 80%。0 表示不开放这一档',
+                        )
+                  }
+                >
+                  <InputNumber
+                    value={rule[`daily_drops_${stake}`]}
+                    min={0}
+                    max={1000}
+                    precision={0}
+                    onChange={ruleNumber(`daily_drops_${stake}`)}
+                  />
+                </SettingRow>
+              ))}
+              <SettingRow
+                label={t('今日净发放')}
+                extra={t(
+                  '所有用户今天在每一档的净赢合计，负数表示玩家合计输掉的数量',
+                )}
+              >
+                <Text strong>
+                  {[1, 10, 100]
+                    .map(
+                      (stake) =>
+                        `${t('{{stake}} 币档', { stake })} ${overview?.game_rewards?.[`plinko_${stake}`] ?? 0}`,
+                    )
+                    .join(' · ')}{' '}
+                  {setting.token_symbol}
                 </Text>
               </SettingRow>
             </Card>

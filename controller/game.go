@@ -16,6 +16,7 @@ import (
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/plinko"
 	"github.com/QuantumNous/new-api/pkg/slots"
 	"github.com/QuantumNous/new-api/pkg/wheel"
 	"github.com/QuantumNous/new-api/service"
@@ -193,6 +194,40 @@ func GetGameCenterSelf(c *gin.Context) {
 			"best_score":         best,
 			"segments":           wheel.Segments,
 			"payback":            float64(paid) / float64(total),
+		})
+	}
+	if setting.Plinko.Enabled {
+		ip := gameRewardIpKey(c.ClientIP())
+		tiers := make([]gin.H, 0, len(plinko.Tiers))
+		earned := 0
+		for _, tier := range plinko.Tiers {
+			count, err := model.GetGameDailyPlayCount(userId, ip, plinkoCounter(tier.Stake), day)
+			if err != nil {
+				common.ApiError(c, err)
+				return
+			}
+			paid, cost := plinko.Payback(tier)
+			earned += count.Earned
+			tiers = append(tiers, gin.H{
+				"stake":        tier.Stake,
+				"cost":         tier.Cost,
+				"delta":        tier.Delta,
+				"payouts":      tier.Payouts,
+				"payback":      float64(paid) / float64(cost),
+				"daily_drops":  setting.Plinko.DailyDrops(tier.Stake),
+				"plays_today":  count.Plays,
+				"earned_today": count.Earned,
+			})
+		}
+		// Plinko 的每一档各自计次：daily_drops 为 0 表示这一档不开放，earned_today 是这一档今天的净输赢；外层的 earned_today
+		// 是三档合计。每一档扣 cost 个游戏币、落进第 k 格派彩 payouts[k] 个，落进第 k 格的概率是 weights[k] 除以 weights 之和，
+		// 浏览器据此画出钉板、公示概率，照着服务端给出的路径播放小球落下的动画。
+		games = append(games, gin.H{
+			"key":          gamePlinko,
+			"rows":         plinko.Rows,
+			"weights":      plinko.Weights,
+			"tiers":        tiers,
+			"earned_today": earned,
 		})
 	}
 	_, _, walletErr := service.GameHotWalletAddress()

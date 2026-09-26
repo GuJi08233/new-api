@@ -46,6 +46,13 @@ export const getGameMetaMap = (t) => ({
     ),
     wager: true,
   },
+  plinko: {
+    name: t('Plinko'),
+    description: t(
+      '投 1、10 或 100 个游戏币，小球穿过钉板落进哪一格就按那一格结算',
+    ),
+    wager: true,
+  },
 });
 
 export const getGameCoinWithdrawalStatusMap = (t) => ({

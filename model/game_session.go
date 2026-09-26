@@ -147,6 +147,9 @@ type GameDailyPlay struct {
 	// FreeLimit 是每人每天、每个 IP 每天的免费次数；PlayLimit 是每人每天最多玩几局，含免费局，0 表示不限制。
 	FreeLimit int
 	PlayLimit int
+	// Counter 是当天局数与输赢计数用的键，默认是游戏标识。同一个游戏分几档各自限制次数时(例如 Plinko 的三档投入)，
+	// 每一档传自己的键；对局与流水仍记在游戏标识下。
+	Counter string
 	// Play 决定这一局的派彩(含退回的花费)与明细。它在结算事务里、锁住玩家与 IP 的计数并确认还有局数之后才调用。
 	Play func() (win int, detail string, err error)
 	Day  string
@@ -429,11 +432,15 @@ func SettleGameDailyPlay(userId int, game string, play GameDailyPlay) (*GameDail
 		FinishedAt: now,
 	}
 	result := &GameDailyPlayResult{Session: session}
-	userKey := map[string]interface{}{"user_id": userId, "game": game, "day": play.Day}
-	ipKey := map[string]interface{}{"ip": play.Ip, "game": game, "day": play.Day}
+	counter := game
+	if play.Counter != "" {
+		counter = play.Counter
+	}
+	userKey := map[string]interface{}{"user_id": userId, "game": counter, "day": play.Day}
+	ipKey := map[string]interface{}{"ip": play.Ip, "game": counter, "day": play.Day}
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		// 与其他结算一样先锁住两个计数：同一用户、同一 IP 的几局依次结算，局数与免费次数都不会越过上限。
-		userCount, err := lockGameRewardCounter(tx, &GameRewardDay{UserId: userId, Game: game, Day: play.Day}, userKey)
+		userCount, err := lockGameRewardCounter(tx, &GameRewardDay{UserId: userId, Game: counter, Day: play.Day}, userKey)
 		if err != nil {
 			return err
 		}
@@ -443,7 +450,7 @@ func SettleGameDailyPlay(userId int, game string, play GameDailyPlay) (*GameDail
 		if play.Free && userCount.FreePlays >= play.FreeLimit {
 			return ErrGameFreePlayUsed
 		}
-		ipCount, err := lockGameRewardCounter(tx, &GameRewardIpDay{Ip: play.Ip, Game: game, Day: play.Day}, ipKey)
+		ipCount, err := lockGameRewardCounter(tx, &GameRewardIpDay{Ip: play.Ip, Game: counter, Day: play.Day}, ipKey)
 		if err != nil {
 			return err
 		}
@@ -582,7 +589,8 @@ func GetGameRewardIpEarned(ip string, game string, day string) (int, error) {
 	return coins, err
 }
 
-// GetGameDailyPlayCount 返回用户某天在一个限制每日次数的游戏里的进度，ip 是用户当前的 IP。
+// GetGameDailyPlayCount 返回用户某天在一个限制每日次数的游戏里的进度。game 是计数用的键(见 GameDailyPlay.Counter)，
+// ip 是用户当前的 IP。
 func GetGameDailyPlayCount(userId int, ip string, game string, day string) (GameDailyPlayCount, error) {
 	var user, byIp gameRewardCount
 	if err := DB.Model(&GameRewardDay{}).Where("user_id = ? AND game = ? AND day = ?", userId, game, day).Select("coins, plays, free_plays").Scan(&user).Error; err != nil {
@@ -604,7 +612,8 @@ func GetGameBestScore(userId int, game string) (int, error) {
 	return best, err
 }
 
-// SumGameRewardsByGame 汇总某天各游戏发出的游戏币，供管理端概览。下注游戏是所有玩家的净赢合计，为负表示玩家合计输掉的数量。
+// SumGameRewardsByGame 汇总某天各游戏发出的游戏币，供管理端概览。下注游戏是所有玩家的净赢合计，为负表示玩家合计输掉的数量；
+// 分档计次的游戏(见 GameDailyPlay.Counter)按每一档的键分开汇总。
 func SumGameRewardsByGame(day string) (map[string]int, error) {
 	var rows []struct {
 		Game  string

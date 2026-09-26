@@ -336,6 +336,11 @@ For commercial licensing, please contact support@quantumnous.com
   box-shadow: 0 6px 16px rgba(109, 40, 217, 0.3);
 }
 
+.games-list-cover.cover-plinko {
+  background: linear-gradient(135deg, #38bdf8 0%, #1e3a8a 100%);
+  box-shadow: 0 6px 16px rgba(30, 58, 138, 0.3);
+}
+
 .games-list-body {
   display: flex;
   flex-direction: column;

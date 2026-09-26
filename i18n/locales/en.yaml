@@ -220,6 +220,9 @@ game.spin_failed: "Spin failed, please try again later"
 game.daily_play_limit: "You have used up today's plays for this game, come back tomorrow"
 game.free_play_used: "You have used up today's free plays"
 game.ip_free_play_used: "Your IP has used up today's free plays"
+game.plinko_stake_invalid: "Please choose the 1, 10 or 100 coin tier"
+game.plinko_tier_closed: "This tier is not open yet"
+game.drop_failed: "Failed to drop the ball, please try again later"
 
 # Passkey messages
 passkey.create_failed: "Unable to create Passkey credential"

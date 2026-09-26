@@ -118,6 +118,23 @@ func TestValidateGameOption(t *testing.T) {
 		}
 	}
 
+	// Plinko 三档的每日次数各自在 0(不开放)到 GameMaxPlinkoDailyDrops 之间。
+	for value, valid := range map[string]bool{
+		`{"enabled":true,"daily_drops_1":100,"daily_drops_10":20,"daily_drops_100":5}`:  true,
+		`{"enabled":true,"daily_drops_1":0,"daily_drops_10":0,"daily_drops_100":1000}`:  true,
+		`{"enabled":true,"daily_drops_1":1001,"daily_drops_10":20,"daily_drops_100":5}`: false,
+		`{"enabled":true,"daily_drops_1":100,"daily_drops_10":-1,"daily_drops_100":5}`:  false,
+		`{"enabled":true,"daily_drops_1":100,"daily_drops_10":20,"daily_drops_100":-5}`: false,
+		`{"enabled":true,"daily_drops_1":"100"}`:                                        false,
+	} {
+		err := ValidateGameOption(GameSettingPrefix+"plinko", value)
+		if valid {
+			assert.NoError(t, err, value)
+		} else {
+			assert.Error(t, err, value)
+		}
+	}
+
 	// 热钱包私钥也能经通用选项接口写入，同样要在落库前挡住格式错误；空值表示清除。
 	assert.NoError(t, ValidateGameOption(GameHotWalletPrivateKeyOption, ""))
 	assert.NoError(t, ValidateGameOption(GameHotWalletPrivateKeyOption, "4c0883a69102937d6231471b5dbb6204fe5129617082792ae468d01a3f362318"))

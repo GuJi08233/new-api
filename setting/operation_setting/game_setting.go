@@ -36,9 +36,10 @@ type GameSetting struct {
 	Confirmations int    `json:"confirmations"`
 
 	// 每个游戏一份开关与奖励规则。
-	Tetris GameRule  `json:"tetris"`
-	Slots  SlotsRule `json:"slots"`
-	Wheel  WheelRule `json:"wheel"`
+	Tetris GameRule   `json:"tetris"`
+	Slots  SlotsRule  `json:"slots"`
+	Wheel  WheelRule  `json:"wheel"`
+	Plinko PlinkoRule `json:"plinko"`
 }
 
 // GameRule 是单个游戏的开关与奖励规则。奖励按单局成绩计算，再受每人每日上限约束；
@@ -81,6 +82,28 @@ type WheelRule struct {
 	SpinCost int `json:"spin_cost"`
 }
 
+// PlinkoRule 是 Plinko 的开关与次数规则。每颗球从 1、10、100 个游戏币三档里选一档投，三档的格子与派彩固定在 pkg/plinko，
+// 理论返还率约 80%，玩家长期是输的。三档分别限制每人每天投几颗球，0 表示这一档不开放。
+type PlinkoRule struct {
+	Enabled       bool `json:"enabled"`
+	DailyDrops1   int  `json:"daily_drops_1"`
+	DailyDrops10  int  `json:"daily_drops_10"`
+	DailyDrops100 int  `json:"daily_drops_100"`
+}
+
+// DailyDrops 返回挡位为 stake 的一档每人每天最多投几颗球，0 表示这一档不开放；stake 不是三档之一时同样为 0。
+func (r PlinkoRule) DailyDrops(stake int) int {
+	switch stake {
+	case 1:
+		return r.DailyDrops1
+	case 10:
+		return r.DailyDrops10
+	case 100:
+		return r.DailyDrops100
+	}
+	return 0
+}
+
 // GameHotWalletPrivateKeyOption 是管理员在游戏管理页填写的热钱包私钥所在的选项键。私钥不放进
 // GameSetting：整份配置会原样返回给管理端，私钥必须单独存放、只写不读。键名以 Key 结尾，
 // 通用的选项列表接口会把它当作敏感项过滤掉。
@@ -101,6 +124,8 @@ const (
 	// 大转盘每次花费与每天次数的上限。派彩最多是花费的 50 倍，同样远在 2^53 之内。
 	GameMaxWheelSpinCost   = 100
 	GameMaxWheelDailySpins = 100
+	// Plinko 每一档每人每天最多投的球数上限。
+	GameMaxPlinkoDailyDrops = 1000
 )
 
 // ValidateGameOption 校验单个游戏中心配置项，非法值在落库前拒绝。
@@ -203,6 +228,16 @@ func ValidateGameOption(key string, value string) error {
 		if rule.SpinCost < 1 || rule.SpinCost > GameMaxWheelSpinCost {
 			return fmt.Errorf("%s 的每次花费必须为 1 到 %d", field, GameMaxWheelSpinCost)
 		}
+	case "plinko":
+		var rule PlinkoRule
+		if err := common.UnmarshalJsonStr(value, &rule); err != nil {
+			return fmt.Errorf("%s 的游戏规则格式无效", field)
+		}
+		for _, stake := range []int{1, 10, 100} {
+			if drops := rule.DailyDrops(stake); drops < 0 || drops > GameMaxPlinkoDailyDrops {
+				return fmt.Errorf("%s 的 %d 币档每日次数必须为 0 到 %d", field, stake, GameMaxPlinkoDailyDrops)
+			}
+		}
 	default:
 		return fmt.Errorf("未知的游戏中心配置项: %s", field)
 	}
@@ -268,6 +303,7 @@ var gameSetting = GameSetting{
 	Tetris: GameRule{Enabled: false, DailyRewardLimit: 3, ScorePerCoin: 5000, MinSecondsPerCoin: 60},
 	Slots:  SlotsRule{Enabled: false, EvenStageWager: 200, DailyRewardLimit: 0, MaxBet: 5},
 	Wheel:  WheelRule{Enabled: false, FreeSpins: 1, DailySpins: 10, SpinCost: 1},
+	Plinko: PlinkoRule{Enabled: false, DailyDrops1: 100, DailyDrops10: 20, DailyDrops100: 5},
 }
 
 var gameSettingSnapshot atomic.Pointer[GameSetting]

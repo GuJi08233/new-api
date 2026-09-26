@@ -221,6 +221,9 @@ game.spin_failed: "旋转失败，请稍后重试"
 game.daily_play_limit: "今天的次数已经用完，明天再来"
 game.free_play_used: "今天的免费次数已经用完"
 game.ip_free_play_used: "当前 IP 今天的免费次数已经用完"
+game.plinko_stake_invalid: "请选择 1、10 或 100 币档"
+game.plinko_tier_closed: "这一档暂未开放"
+game.drop_failed: "投球失败，请稍后重试"
 
 # Passkey messages
 passkey.create_failed: "无法创建 Passkey 凭证"
