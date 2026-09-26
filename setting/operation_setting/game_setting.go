@@ -38,6 +38,7 @@ type GameSetting struct {
 	// 每个游戏一份开关与奖励规则。
 	Tetris GameRule  `json:"tetris"`
 	Slots  SlotsRule `json:"slots"`
+	Wheel  WheelRule `json:"wheel"`
 }
 
 // GameRule 是单个游戏的开关与奖励规则。奖励按单局成绩计算，再受每人每日上限约束；
@@ -67,6 +68,19 @@ type SlotsRule struct {
 	MaxBet int `json:"max_bet"`
 }
 
+// WheelRule 是大转盘的开关与次数规则。每人每天前 FreeSpins 次免费，同一 IP 下所有账号合计也只有这么多次；之后每次花
+// SpinCost 个游戏币。每人每天最多转 DailySpins 次，含免费次数。格子的倍数与权重固定在 pkg/wheel，派彩按每次花费的倍数计算，
+// 理论返还率 80%，玩家长期是输的。
+type WheelRule struct {
+	Enabled bool `json:"enabled"`
+	// FreeSpins 是每人每天的免费次数，同一 IP 下所有账号合计也不超过它；0 表示没有免费次数。
+	FreeSpins int `json:"free_spins"`
+	// DailySpins 是每人每天最多旋转的次数，含免费次数；0 表示不限制。
+	DailySpins int `json:"daily_spins"`
+	// SpinCost 是免费次数用完后每次旋转花费的游戏币。免费旋转不花币，奖品同样按它的倍数计算。
+	SpinCost int `json:"spin_cost"`
+}
+
 // GameHotWalletPrivateKeyOption 是管理员在游戏管理页填写的热钱包私钥所在的选项键。私钥不放进
 // GameSetting：整份配置会原样返回给管理端，私钥必须单独存放、只写不读。键名以 Key 结尾，
 // 通用的选项列表接口会把它当作敏感项过滤掉。
@@ -84,6 +98,9 @@ const (
 	GameMaxSecondsPerCoin = 3600
 	// 老虎机单次下注的上限。派彩最多是下注的 50 倍，下注再大也远在 2^53 之内。
 	GameMaxSlotsBet = 1000
+	// 大转盘每次花费与每天次数的上限。派彩最多是花费的 50 倍，同样远在 2^53 之内。
+	GameMaxWheelSpinCost   = 100
+	GameMaxWheelDailySpins = 100
 )
 
 // ValidateGameOption 校验单个游戏中心配置项，非法值在落库前拒绝。
@@ -169,6 +186,23 @@ func ValidateGameOption(key string, value string) error {
 		if rule.MaxBet < 1 || rule.MaxBet > GameMaxSlotsBet {
 			return fmt.Errorf("%s 的单次最多下注必须为 1 到 %d", field, GameMaxSlotsBet)
 		}
+	case "wheel":
+		var rule WheelRule
+		if err := common.UnmarshalJsonStr(value, &rule); err != nil {
+			return fmt.Errorf("%s 的游戏规则格式无效", field)
+		}
+		if rule.DailySpins < 0 || rule.DailySpins > GameMaxWheelDailySpins {
+			return fmt.Errorf("%s 的每日次数必须为 0 到 %d", field, GameMaxWheelDailySpins)
+		}
+		if rule.FreeSpins < 0 || rule.FreeSpins > GameMaxWheelDailySpins {
+			return fmt.Errorf("%s 的每日免费次数必须为 0 到 %d", field, GameMaxWheelDailySpins)
+		}
+		if rule.DailySpins > 0 && rule.FreeSpins > rule.DailySpins {
+			return fmt.Errorf("%s 的每日免费次数不能多于每日次数", field)
+		}
+		if rule.SpinCost < 1 || rule.SpinCost > GameMaxWheelSpinCost {
+			return fmt.Errorf("%s 的每次花费必须为 1 到 %d", field, GameMaxWheelSpinCost)
+		}
 	default:
 		return fmt.Errorf("未知的游戏中心配置项: %s", field)
 	}
@@ -233,6 +267,7 @@ var gameSetting = GameSetting{
 	// 游戏默认都不开放，由管理员在游戏管理页逐个开启上线。
 	Tetris: GameRule{Enabled: false, DailyRewardLimit: 3, ScorePerCoin: 5000, MinSecondsPerCoin: 60},
 	Slots:  SlotsRule{Enabled: false, EvenStageWager: 200, DailyRewardLimit: 0, MaxBet: 5},
+	Wheel:  WheelRule{Enabled: false, FreeSpins: 1, DailySpins: 10, SpinCost: 1},
 }
 
 var gameSettingSnapshot atomic.Pointer[GameSetting]

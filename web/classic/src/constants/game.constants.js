@@ -28,7 +28,7 @@ export const getGameCoinLogTypeMap = (t) => ({
 });
 
 // 已接入的游戏。键与服务端的游戏标识、游戏中心配置里的字段名一致，路由为 /games/{key}。
-// wager 表示下注游戏：用游戏币下注，每日上限按净赢计算。
+// wager 表示下注游戏：用游戏币下注，输赢计入下注游戏的累计输赢。
 export const getGameMetaMap = (t) => ({
   tetris: {
     name: t('俄罗斯方块'),
@@ -37,6 +37,13 @@ export const getGameMetaMap = (t) => ({
   slots: {
     name: t('老虎机'),
     description: t('用游戏币下注转动三个转轮，中线从左起连出相同的图案就能赢'),
+    wager: true,
+  },
+  wheel: {
+    name: t('大转盘'),
+    description: t(
+      '每天可以免费转，之后花游戏币再转，指针停在哪一格就按那一格派奖',
+    ),
     wager: true,
   },
 });

@@ -250,6 +250,9 @@ const (
 	MsgGameWinLimitReached        = "game.win_limit_reached"
 	MsgGameIpWinLimitReached      = "game.ip_win_limit_reached"
 	MsgGameSpinFailed             = "game.spin_failed"
+	MsgGameDailyPlayLimit         = "game.daily_play_limit"
+	MsgGameFreePlayUsed           = "game.free_play_used"
+	MsgGameIpFreePlayUsed         = "game.ip_free_play_used"
 )
 
 // Passkey related messages

@@ -17,13 +17,21 @@ import (
 // slotsFixture 准备一个已登录、有 coins 个游戏币的用户，挂上游戏中心信息与老虎机旋转接口，并发布给定的老虎机规则。
 func slotsFixture(t *testing.T, rule operation_setting.SlotsRule, coins int) (*gorm.DB, *gin.Engine, model.User, []*http.Cookie) {
 	t.Helper()
+	return spinGameFixture(t, &operation_setting.GameSetting{Enabled: true, Slots: rule}, coins)
+}
+
+// spinGameFixture 准备一个已登录、有 coins 个游戏币的用户，挂上游戏中心信息与当场出结果的游戏(老虎机、大转盘)的接口，
+// 并发布给定的游戏中心配置。
+func spinGameFixture(t *testing.T, setting *operation_setting.GameSetting, coins int) (*gorm.DB, *gin.Engine, model.User, []*http.Cookie) {
+	t.Helper()
 	db, router, user := accountSecurityFixture(t)
 	require.NoError(t, db.AutoMigrate(&model.GameCoinAccount{}, &model.GameCoinLog{}, &model.GameCoinWithdrawDay{}, &model.GameSession{}, &model.GameRewardDay{}, &model.GameRewardIpDay{}))
 	previousSetting := operation_setting.GetGameSetting()
-	operation_setting.SetGameSettingForTest(&operation_setting.GameSetting{Enabled: true, Slots: rule})
+	operation_setting.SetGameSettingForTest(setting)
 	t.Cleanup(func() { operation_setting.SetGameSettingForTest(previousSetting) })
 	router.GET("/api/game/self", middleware.UserAuth(), middleware.GameCenterEnabled(), GetGameCenterSelf)
 	router.POST("/api/game/slots/spin", middleware.UserAuth(), middleware.GameCenterEnabled(), SpinSlots)
+	router.POST("/api/game/wheel/spin", middleware.UserAuth(), middleware.GameCenterEnabled(), SpinWheel)
 	if coins > 0 {
 		_, err := model.AdjustGameCoins(user.Id, coins, "seed")
 		require.NoError(t, err)

@@ -94,6 +94,30 @@ func TestValidateGameOption(t *testing.T) {
 		}
 	}
 
+	// 大转盘的每次花费在 1 到 GameMaxWheelSpinCost 之间；每日次数可以为 0(不限制)，最多 GameMaxWheelDailySpins；
+	// 免费次数可以为 0，限制了每日次数时不能比它多。
+	for value, valid := range map[string]bool{
+		`{"enabled":true,"free_spins":1,"daily_spins":10,"spin_cost":1}`:   true,
+		`{"enabled":true,"free_spins":0,"daily_spins":0,"spin_cost":100}`:  true,
+		`{"enabled":true,"free_spins":5,"daily_spins":0,"spin_cost":1}`:    true,
+		`{"enabled":true,"free_spins":10,"daily_spins":10,"spin_cost":1}`:  true,
+		`{"enabled":true,"free_spins":11,"daily_spins":10,"spin_cost":1}`:  false,
+		`{"enabled":true,"free_spins":-1,"daily_spins":10,"spin_cost":1}`:  false,
+		`{"enabled":true,"free_spins":101,"daily_spins":0,"spin_cost":1}`:  false,
+		`{"enabled":true,"free_spins":1,"daily_spins":101,"spin_cost":1}`:  false,
+		`{"enabled":true,"free_spins":1,"daily_spins":-1,"spin_cost":1}`:   false,
+		`{"enabled":true,"free_spins":1,"daily_spins":10,"spin_cost":0}`:   false,
+		`{"enabled":true,"free_spins":1,"daily_spins":10,"spin_cost":101}`: false,
+		`{"enabled":true,"free_spins":1,"daily_spins":10}`:                 false,
+	} {
+		err := ValidateGameOption(GameSettingPrefix+"wheel", value)
+		if valid {
+			assert.NoError(t, err, value)
+		} else {
+			assert.Error(t, err, value)
+		}
+	}
+
 	// 热钱包私钥也能经通用选项接口写入，同样要在落库前挡住格式错误；空值表示清除。
 	assert.NoError(t, ValidateGameOption(GameHotWalletPrivateKeyOption, ""))
 	assert.NoError(t, ValidateGameOption(GameHotWalletPrivateKeyOption, "4c0883a69102937d6231471b5dbb6204fe5129617082792ae468d01a3f362318"))

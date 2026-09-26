@@ -64,6 +64,7 @@ const Rankings = lazy(() => import('./pages/Rankings'));
 const Games = lazy(() => import('./pages/Games'));
 const Tetris = lazy(() => import('./pages/Games/tetris'));
 const Slots = lazy(() => import('./pages/Games/slots'));
+const Wheel = lazy(() => import('./pages/Games/wheel'));
 
 function DynamicOAuth2Callback() {
   const { provider } = useParams();
@@ -472,6 +473,19 @@ function App() {
                   key={location.pathname}
                 >
                   <Slots />
+                </Suspense>
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path='/games/wheel'
+            element={
+              <PrivateRoute>
+                <Suspense
+                  fallback={<Loading></Loading>}
+                  key={location.pathname}
+                >
+                  <Wheel />
                 </Suspense>
               </PrivateRoute>
             }

@@ -218,6 +218,9 @@ game.bet_invalid: "下注數量必須是 1 到 {{.Max}} 之間的整數"
 game.win_limit_reached: "今日在這個遊戲的淨贏已達上限，明天再來"
 game.ip_win_limit_reached: "目前 IP 今日在這個遊戲的淨贏已達上限，明天再來"
 game.spin_failed: "旋轉失敗，請稍後重試"
+game.daily_play_limit: "今天的次數已經用完，明天再來"
+game.free_play_used: "今天的免費次數已經用完"
+game.ip_free_play_used: "目前 IP 今天的免費次數已經用完"
 
 # Passkey messages
 passkey.create_failed: "無法建立 Passkey 憑證"

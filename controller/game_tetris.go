@@ -54,19 +54,8 @@ func StartTetris(c *gin.Context) {
 		return
 	}
 	userId := c.GetInt("id")
-	if setting.PlayTurnstileRequired() {
-		token := c.Query("turnstile")
-		if token == "" {
-			common.ApiErrorI18n(c, i18n.MsgGameTurnstileRequired)
-			return
-		}
-		if err := service.VerifyTurnstile(token, c.ClientIP()); err != nil {
-			if !errors.Is(err, service.ErrTurnstileRejected) {
-				common.SysError(fmt.Sprintf("failed to verify turnstile for user %d: %v", userId, err))
-			}
-			common.ApiErrorI18n(c, i18n.MsgGameTurnstileFailed)
-			return
-		}
+	if !passGamePlayTurnstile(c, setting, userId) {
+		return
 	}
 	var seed [4]byte
 	if _, err := rand.Read(seed[:]); err != nil {

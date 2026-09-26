@@ -351,7 +351,7 @@ const GameAdminSettings = () => {
         <SettingRow
           label={t('开局人机验证')}
           extra={t(
-            '俄罗斯方块每局开始前需通过 Cloudflare Turnstile 验证，挡住不经浏览器直接调用接口的脚本；老虎机按下注结算，不需要验证。需要先在系统设置中启用 Turnstile',
+            '俄罗斯方块每局开始前、大转盘每次免费旋转前需通过 Cloudflare Turnstile 验证，挡住不经浏览器直接调用接口的脚本；老虎机和大转盘的付费旋转按下注结算，不需要验证。需要先在系统设置中启用 Turnstile',
           )}
         >
           <div className='flex items-center gap-3 flex-wrap'>
@@ -374,6 +374,72 @@ const GameAdminSettings = () => {
         if (!rule) return null;
         const ruleNumber = (key) => (value) =>
           setGameRule(game, key, typeof value === 'number' ? value : 0);
+        // 大转盘按次数玩：每天前几次免费，之后每次花固定的游戏币，奖品按每次花费的倍数计算。
+        if (game === 'wheel') {
+          return (
+            <Card key={game} title={meta.name}>
+              <SettingRow label={t('开放游戏')} extra={t('关闭后用户不能再转')}>
+                <Switch
+                  checked={rule.enabled}
+                  onChange={(value) => setGameRule(game, 'enabled', value)}
+                />
+              </SettingRow>
+              <SettingRow
+                label={t('每人每日免费次数')}
+                extra={t(
+                  '每个用户每天可以免费转的次数，同一 IP 下所有账号合计也不超过这个数；免费旋转不扣币，奖品同样按每次花费计算。0 表示没有免费次数',
+                )}
+              >
+                <InputNumber
+                  value={rule.free_spins}
+                  min={0}
+                  max={100}
+                  precision={0}
+                  onChange={ruleNumber('free_spins')}
+                />
+              </SettingRow>
+              <SettingRow
+                label={t('每人每日次数')}
+                extra={t(
+                  '每个用户每天最多转的次数，含免费次数，不能少于免费次数；0 表示不限制',
+                )}
+              >
+                <InputNumber
+                  value={rule.daily_spins}
+                  min={0}
+                  max={100}
+                  precision={0}
+                  onChange={ruleNumber('daily_spins')}
+                />
+              </SettingRow>
+              <SettingRow
+                label={t('每次花费')}
+                extra={t(
+                  '免费次数用完后每次旋转花费的游戏币。奖品按它的倍数计算，最高 50 倍，付费旋转的理论返还率 80%',
+                )}
+              >
+                <InputNumber
+                  value={rule.spin_cost}
+                  min={1}
+                  max={100}
+                  precision={0}
+                  suffix={setting.token_symbol}
+                  onChange={ruleNumber('spin_cost')}
+                />
+              </SettingRow>
+              <SettingRow
+                label={t('今日净发放')}
+                extra={t(
+                  '所有用户今天从大转盘净得的游戏币：免费旋转的奖品加上付费旋转的输赢，负数表示玩家合计输掉的数量',
+                )}
+              >
+                <Text strong>
+                  {overview?.game_rewards?.[game] ?? 0} {setting.token_symbol}
+                </Text>
+              </SettingRow>
+            </Card>
+          );
+        }
         // 下注游戏(老虎机)的每日上限是净赢，没有分数与时长规则，改为限制单次下注。
         if (meta.wager) {
           return (

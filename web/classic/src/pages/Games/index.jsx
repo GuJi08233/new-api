@@ -38,6 +38,7 @@ import {
   Blocks,
   Cherry,
   Coins,
+  Disc3,
   ExternalLink,
   Gamepad2,
   Play,
@@ -60,7 +61,7 @@ const { Text } = Typography;
 
 const ILLUSTRATION_SIZE = { width: 150, height: 150 };
 const ADDRESS_PATTERN = /^0x[0-9a-fA-F]{40}$/;
-const GAME_ICONS = { tetris: Blocks, slots: Cherry };
+const GAME_ICONS = { tetris: Blocks, slots: Cherry, wheel: Disc3 };
 
 // 取浏览器里排名最靠前的 EVM 钱包(Rabby / MetaMask 等)，没有时提示安装。
 async function findInjectedWallet(t) {
@@ -540,7 +541,38 @@ const Games = () => {
                         <div className='games-list-desc'>
                           {meta?.description}
                         </div>
-                        {meta?.wager ? (
+                        {game.key === 'wheel' && (
+                          <div className='games-list-meta'>
+                            <span>
+                              {/* 每日次数为 0 表示不限制；免费次数账号与同一 IP 分别计算。 */}
+                              {game.daily_spins > 0
+                                ? t('今日已转 {{plays}} / {{limit}} 次', {
+                                    plays: game.plays_today,
+                                    limit: game.daily_spins,
+                                  })
+                                : t('今日已转 {{plays}} 次', {
+                                    plays: game.plays_today,
+                                  })}
+                              {game.free_spins > 0 &&
+                                ` · ${t('免费剩余 {{count}} 次', {
+                                  count: Math.max(
+                                    Math.min(
+                                      game.free_spins - game.free_used_today,
+                                      game.free_spins - game.ip_free_used_today,
+                                    ),
+                                    0,
+                                  ),
+                                })}`}
+                            </span>
+                            <span>
+                              {t('今日输赢 {{net}} {{symbol}}', {
+                                net,
+                                symbol,
+                              })}
+                            </span>
+                          </div>
+                        )}
+                        {game.key !== 'wheel' && meta?.wager && (
                           <div className='games-list-meta'>
                             <span>
                               {/* 每日净赢上限为 0 表示不限制。 */}
@@ -564,7 +596,8 @@ const Games = () => {
                               })}
                             </span>
                           </div>
-                        ) : (
+                        )}
+                        {!meta?.wager && (
                           <div className='games-list-meta'>
                             <span>
                               {game.daily_reward_limit > 0

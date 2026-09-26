@@ -350,3 +350,107 @@ func TestSettleGameWagerSharesDailyNetWinPerIp(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 10, account.Balance, "被拒绝的下注不扣币")
 }
+
+// 限制每日次数的游戏每人每天前几局免费：免费局不扣币，中奖计入累计获得并记为游戏奖励，没中奖不记流水；免费次数用完后
+// 每局扣币，按下注游戏计入累计下注与累计净输赢。含免费局在内到了每日局数上限就拒绝，什么都不改变；换一天重新计算。
+func TestSettleGameDailyPlayFreeThenPaidUpToDailyLimit(t *testing.T) {
+	truncateTables(t)
+	seedGameCoinUser(t, 1701, 0, 5)
+
+	cases := []struct {
+		day           string
+		free          bool
+		win           int
+		wantErr       error
+		wantBalance   int
+		wantPlays     int
+		wantFreePlays int
+		wantEarned    int
+	}{
+		{day: "2026-09-24", free: true, win: 4, wantBalance: 9, wantPlays: 1, wantFreePlays: 1, wantEarned: 4},
+		{day: "2026-09-24", free: true, win: 4, wantErr: ErrGameFreePlayUsed},
+		{day: "2026-09-24", win: 6, wantBalance: 13, wantPlays: 2, wantFreePlays: 1, wantEarned: 8},
+		{day: "2026-09-24", win: 0, wantBalance: 11, wantPlays: 3, wantFreePlays: 1, wantEarned: 6},
+		{day: "2026-09-24", win: 6, wantErr: ErrGameDailyPlayLimit},
+		{day: "2026-09-25", free: true, win: 0, wantBalance: 11, wantPlays: 1, wantFreePlays: 1, wantEarned: 0},
+	}
+	for i, c := range cases {
+		result, err := SettleGameDailyPlay(1701, "wheel", GameDailyPlay{
+			Free: c.free, Cost: 2, FreeLimit: 1, PlayLimit: 3,
+			Play: func() (int, string, error) { return c.win, "{}", nil },
+			Day:  c.day, Ip: gameTestIp,
+		})
+		if c.wantErr != nil {
+			require.ErrorIs(t, err, c.wantErr, "case %d", i)
+			continue
+		}
+		require.NoError(t, err, "case %d", i)
+		assert.Equal(t, c.win, result.Session.Reward, "case %d reward", i)
+		assert.Equal(t, c.wantBalance, result.Balance, "case %d balance", i)
+		assert.Equal(t, c.wantPlays, result.Plays, "case %d plays", i)
+		assert.Equal(t, c.wantFreePlays, result.FreePlays, "case %d free plays", i)
+		assert.Equal(t, c.wantEarned, result.Earned, "case %d earned", i)
+	}
+
+	assert.Equal(t, []string{GameCoinLogTypeAdminAdjust, GameCoinLogTypeGameReward, GameCoinLogTypeGameWager, GameCoinLogTypeGameWager}, gameCoinLogTypes(t, 1701))
+	account, err := GetGameCoinAccount(1701)
+	require.NoError(t, err)
+	assert.Equal(t, 11, account.Balance)
+	assert.Equal(t, 9, account.TotalEarned, "初始的 5 个加上免费局中的 4 个")
+	assert.Equal(t, 4, account.TotalWagered)
+	assert.Equal(t, 2, account.TotalWagerNet)
+	count, err := GetGameDailyPlayCount(1701, gameTestIp, "wheel", "2026-09-24")
+	require.NoError(t, err)
+	assert.Equal(t, GameDailyPlayCount{Plays: 3, FreePlays: 1, IpFreePlays: 1, Earned: 6}, count)
+}
+
+// 同一个 IP 视为同一个人：这个 IP 下所有账号当天合计只有那么多次免费，用完后别的账号只能付费；别的 IP 不受影响。
+// 没有免费次数的请求在决定结果之前就被拒绝；余额不够的付费局整笔回滚，不占用局数。
+func TestSettleGameDailyPlaySharesFreePlaysPerIp(t *testing.T) {
+	truncateTables(t)
+	const day = "2026-09-24"
+	for _, userId := range []int{1901, 1902, 1903} {
+		require.NoError(t, DB.Create(&User{Id: userId, Username: fmt.Sprintf("daily-play-user-%d", userId), AffCode: fmt.Sprintf("daily-play-aff-%d", userId)}).Error)
+	}
+
+	played := 0
+	cases := []struct {
+		userId          int
+		ip              string
+		free            bool
+		win             int
+		wantErr         error
+		wantBalance     int
+		wantIpFreePlays int
+	}{
+		{userId: 1901, ip: gameTestIp, free: true, win: 1, wantBalance: 1, wantIpFreePlays: 1},
+		{userId: 1902, ip: gameTestIp, free: true, win: 1, wantErr: ErrGameIpFreePlayUsed},
+		{userId: 1902, ip: gameTestIp, win: 1, wantErr: ErrGameCoinInsufficient},
+		{userId: 1903, ip: "198.51.100.9", free: true, win: 5, wantBalance: 5, wantIpFreePlays: 1},
+	}
+	for i, c := range cases {
+		result, err := SettleGameDailyPlay(c.userId, "wheel", GameDailyPlay{
+			Free: c.free, Cost: 1, FreeLimit: 1,
+			Play: func() (int, string, error) {
+				played++
+				return c.win, "{}", nil
+			},
+			Day: day, Ip: c.ip,
+		})
+		if c.wantErr != nil {
+			require.ErrorIs(t, err, c.wantErr, "case %d", i)
+			continue
+		}
+		require.NoError(t, err, "case %d", i)
+		assert.Equal(t, c.wantBalance, result.Balance, "case %d balance", i)
+		assert.Equal(t, c.wantIpFreePlays, result.IpFreePlays, "case %d ip free plays", i)
+	}
+	assert.Equal(t, 3, played, "IP 的免费次数用完时不决定结果")
+
+	count, err := GetGameDailyPlayCount(1902, gameTestIp, "wheel", day)
+	require.NoError(t, err)
+	assert.Equal(t, GameDailyPlayCount{IpFreePlays: 1}, count, "被拒绝的局不占用局数")
+	var sessions int64
+	require.NoError(t, DB.Model(&GameSession{}).Where("user_id = ?", 1902).Count(&sessions).Error)
+	assert.Zero(t, sessions)
+}

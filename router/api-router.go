@@ -170,6 +170,7 @@ func SetApiRouter(router *gin.Engine) {
 			gameRoute.POST("/tetris/start", middleware.GamePlayRateLimit("tetris-start"), controller.StartTetris)
 			gameRoute.POST("/tetris/finish", middleware.GamePlayRateLimit("tetris-finish"), controller.FinishTetris)
 			gameRoute.POST("/slots/spin", middleware.GameSpinRateLimit(), controller.SpinSlots)
+			gameRoute.POST("/wheel/spin", middleware.GamePlayRateLimit("wheel-spin"), controller.SpinWheel)
 		}
 		gameAdminRoute := apiRouter.Group("/game/admin")
 		gameAdminRoute.Use(middleware.RootAuth())

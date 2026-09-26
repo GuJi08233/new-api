@@ -17,6 +17,7 @@ import (
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/slots"
+	"github.com/QuantumNous/new-api/pkg/wheel"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -60,6 +61,27 @@ func gameRewardIpKey(ip string) string {
 		return ip
 	}
 	return key
+}
+
+// passGamePlayTurnstile 在要求人机验证时校验请求带的 Turnstile 令牌(查询参数 turnstile)，没通过时写好错误响应并返回 false。
+// 白送游戏币的操作(俄罗斯方块开局、大转盘的免费旋转)每次都要带一个新令牌，不经浏览器直接调接口的脚本领不到。
+func passGamePlayTurnstile(c *gin.Context, setting *operation_setting.GameSetting, userId int) bool {
+	if !setting.PlayTurnstileRequired() {
+		return true
+	}
+	token := c.Query("turnstile")
+	if token == "" {
+		common.ApiErrorI18n(c, i18n.MsgGameTurnstileRequired)
+		return false
+	}
+	if err := service.VerifyTurnstile(token, c.ClientIP()); err != nil {
+		if !errors.Is(err, service.ErrTurnstileRejected) {
+			common.SysError(fmt.Sprintf("failed to verify turnstile for user %d: %v", userId, err))
+		}
+		common.ApiErrorI18n(c, i18n.MsgGameTurnstileFailed)
+		return false
+	}
+	return true
 }
 
 // GetGameCenterSelf 返回当前用户的游戏币账户、兑换比例、提现规则、已开放的游戏和各自今天的奖励进度，
@@ -141,6 +163,36 @@ func GetGameCenterSelf(c *gin.Context) {
 			"reels":              slots.Strips,
 			"paytables":          paytables,
 			"paybacks":           paybacks,
+		})
+	}
+	if setting.Wheel.Enabled {
+		count, err := model.GetGameDailyPlayCount(userId, gameRewardIpKey(c.ClientIP()), gameWheel, day)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		best, err := model.GetGameBestScore(userId, gameWheel)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		paid, total := wheel.Payback()
+		// 大转盘的 earned_today 是账号今天的净得：免费旋转的奖品加上付费旋转的净输赢，可以为负。free_used_today、
+		// ip_free_used_today 是账号、同一 IP 今天用掉的免费次数，都没到 free_spins 时还能免费转；plays_today 含免费次数，
+		// daily_spins 为 0 表示不限制；best_score 是单次最高的派彩。格子与返还率随游戏信息下发，浏览器据此画出转盘、
+		// 公示概率，把转盘转到服务端选中的格子。
+		games = append(games, gin.H{
+			"key":                gameWheel,
+			"free_spins":         setting.Wheel.FreeSpins,
+			"daily_spins":        setting.Wheel.DailySpins,
+			"spin_cost":          setting.Wheel.SpinCost,
+			"plays_today":        count.Plays,
+			"free_used_today":    count.FreePlays,
+			"ip_free_used_today": count.IpFreePlays,
+			"earned_today":       count.Earned,
+			"best_score":         best,
+			"segments":           wheel.Segments,
+			"payback":            float64(paid) / float64(total),
 		})
 	}
 	_, _, walletErr := service.GameHotWalletAddress()

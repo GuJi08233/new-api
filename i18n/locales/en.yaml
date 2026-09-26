@@ -217,6 +217,9 @@ game.bet_invalid: "Each bet must be a whole number from 1 to {{.Max}}"
 game.win_limit_reached: "You have reached today's net win limit for this game, come back tomorrow"
 game.ip_win_limit_reached: "Your IP has reached today's net win limit for this game, come back tomorrow"
 game.spin_failed: "Spin failed, please try again later"
+game.daily_play_limit: "You have used up today's plays for this game, come back tomorrow"
+game.free_play_used: "You have used up today's free plays"
+game.ip_free_play_used: "Your IP has used up today's free plays"
 
 # Passkey messages
 passkey.create_failed: "Unable to create Passkey credential"
