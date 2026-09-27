@@ -68,6 +68,9 @@ const ADDRESS_PATTERN = /^0x[0-9a-fA-F]{40}$/;
 // 游戏卡片上的今日进度，按结算方式各写各的：免费游戏看领奖次数，对战看等待中的房间与人机奖励，
 // 下注游戏看今日输赢，奖池看当前奖池。
 function gameProgress(game, t, symbol) {
+  if (!game.enabled) {
+    return [t('游戏已关闭，你还有一局没结束')];
+  }
   const lines = [];
   switch (game.kind) {
     case 'skill':
