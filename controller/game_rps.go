@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/rps"
 )
 
@@ -17,9 +18,11 @@ func init() {
 // rpsEngine 是石头剪刀布的对战规则引擎，规则在 pkg/rps。双方同时出拳，没有先后之分，也没有人机对战。
 type rpsEngine struct{}
 
-// rpsMove 是一次出拳在接口里的样子：{"choice":"rock|paper|scissors"}。
+// rpsMove 是一次出拳在接口里的样子：{"choice":"rock|paper|scissors","round":n}。round 是这一拳出在第几回合(见 View
+// 的 round)：双方同时出拳，落子不核对房间版本，靠它避免迟到的一拳落进下一回合。
 type rpsMove struct {
 	Choice rps.Choice `json:"choice"`
+	Round  int        `json:"round"`
 }
 
 var errRpsNoAi = errors.New("rps has no ai opponent")
@@ -41,6 +44,8 @@ func rpsPvpState(match *rps.Match) (pvpState, error) {
 	return pvpState{Data: data, ToMove: match.ToMove(), Over: match.Over, Winner: match.Winner}, nil
 }
 
+func (rpsEngine) simultaneous() {}
+
 // New 开一场比赛。双方同时出拳，先走的座位没有意义。
 func (rpsEngine) New(int) (pvpState, error) {
 	match := rps.New()
@@ -55,6 +60,9 @@ func (rpsEngine) Play(data []byte, seat int, move json.RawMessage) (pvpState, er
 	var req rpsMove
 	if err := common.Unmarshal(move, &req); err != nil {
 		return pvpState{}, errPvpIllegalMove
+	}
+	if req.Round != len(match.Rounds)+1 {
+		return pvpState{}, model.ErrGameRoomChanged
 	}
 	if err := match.Play(seat, req.Choice); err != nil {
 		return pvpState{}, errPvpIllegalMove

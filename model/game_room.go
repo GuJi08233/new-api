@@ -58,9 +58,9 @@ type GameRoom struct {
 	GuestIp string `json:"-" gorm:"type:varchar(64)"`
 	State   string `json:"-" gorm:"type:text"`
 	Version int    `json:"version" gorm:"not null;default:0"`
-	// ToMove 是轮到哪个座位走，-1 表示双方同时出招(例如石头剪刀布)。
+	// ToMove 是轮到哪个座位走，-1 表示双方同时出招(例如石头剪刀布)或对局已结束。
 	ToMove int `json:"to_move" gorm:"not null;default:0"`
-	// Deadline 是这一步的截止时间，过了还没走就判负；等待中的房间为 0。
+	// Deadline 是这一步的截止时间，过了还没走就判负；等待中与已结束的房间为 0。
 	Deadline int64 `json:"deadline" gorm:"bigint;index:idx_game_room_due,priority:2"`
 	// WinnerId 是赢家的用户 ID，平局与取消为 0。
 	WinnerId  int    `json:"winner_id"`
@@ -243,6 +243,8 @@ func FinishGameRoom(room *GameRoom, winnerId int, reason string, state string, d
 			Where("id = ? AND status = ? AND version = ?", room.Id, GameRoomStatusPlaying, room.Version).
 			Updates(map[string]interface{}{
 				"status":      GameRoomStatusFinished,
+				"to_move":     -1,
+				"deadline":    0,
 				"winner_id":   winnerId,
 				"end_reason":  reason,
 				"state":       state,
@@ -284,7 +286,7 @@ func FinishGameRoom(room *GameRoom, winnerId int, reason string, state string, d
 		return err
 	}
 	room.Status, room.WinnerId, room.EndReason, room.State, room.Rake = GameRoomStatusFinished, winnerId, reason, state, rake
-	room.FinishedAt, room.Version = now, room.Version+1
+	room.ToMove, room.Deadline, room.FinishedAt, room.Version = -1, 0, now, room.Version+1
 	return nil
 }
 

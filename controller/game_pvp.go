@@ -33,6 +33,10 @@ const (
 	pvpRoomCodeLength = 8
 	// pvpAiLevels 是人机对战的难度数：1 简单、2 普通、3 困难。
 	pvpAiLevels = 3
+	// pvpAiMaxReplies 是 AI 一次最多连走几步，远多于任何一盘棋的步数。
+	pvpAiMaxReplies = 400
+	// pvpMoveAttempts 是双方同时出招时一招最多尝试写入几次。
+	pvpMoveAttempts = 3
 )
 
 // pvpEngine 是一个对战游戏的规则引擎。状态以 JSON 保存在房间或人机对局里，引擎只负责解释它。座位 0 是房主，人机对战里是玩家；
@@ -61,6 +65,12 @@ type pvpState struct {
 }
 
 var errPvpIllegalMove = errors.New("illegal move")
+
+// pvpSimultaneous 由双方同时出招的引擎实现(石头剪刀布)。对手先出招只改变玩家看不到的状态，玩家的一招不取决于它，
+// 由引擎按回合核对，所以落子不要求带着最新的房间版本；两人几乎同时提交、后写的一方撞上版本冲突时重新读出房间再走一次。
+type pvpSimultaneous interface {
+	simultaneous()
+}
 
 // pvpGame 是登记过的一个对战游戏。name 是写进审计日志的游戏名。
 type pvpGame struct {
@@ -733,36 +743,47 @@ func MoveGameRoom(c *gin.Context) {
 		return
 	}
 	seat := room.SeatOf(c.GetInt("id"))
-	switch {
-	case room.Status != model.GameRoomStatusPlaying || req.Version != room.Version:
-		common.ApiErrorI18n(c, i18n.MsgGameRoomChanged)
-		return
-	case room.ToMove >= 0 && room.ToMove != seat:
-		common.ApiErrorI18n(c, i18n.MsgGameRoomNotYourTurn)
-		return
-	}
 	game := pvpGames[room.Game]
-	next, err := game.engine.Play([]byte(room.State), seat, req.Move)
-	if err != nil {
-		respondGameRoomError(c, err)
-		return
-	}
-	if next.Over {
-		winnerId := 0
-		reason := model.GameRoomEndDraw
-		if next.Winner >= 0 {
-			winnerId, reason = room.PlayerAt(next.Winner), model.GameRoomEndWin
+	_, simultaneous := game.engine.(pvpSimultaneous)
+	for attempt := 1; ; attempt++ {
+		switch {
+		case room.Status != model.GameRoomStatusPlaying || (req.Version != room.Version && !simultaneous):
+			common.ApiErrorI18n(c, i18n.MsgGameRoomChanged)
+			return
+		case room.ToMove >= 0 && room.ToMove != seat:
+			common.ApiErrorI18n(c, i18n.MsgGameRoomNotYourTurn)
+			return
 		}
-		err = model.FinishGameRoom(room, winnerId, reason, string(next.Data), gameCenterDay())
-	} else {
-		err = model.UpdateGameRoomState(room, string(next.Data), next.ToMove, common.GetTimestamp()+int64(room.MoveSeconds))
-	}
-	if err != nil {
-		respondGameRoomError(c, err)
+		next, err := game.engine.Play([]byte(room.State), seat, req.Move)
+		if err != nil {
+			respondGameRoomError(c, err)
+			return
+		}
+		if next.Over {
+			winnerId := 0
+			reason := model.GameRoomEndDraw
+			if next.Winner >= 0 {
+				winnerId, reason = room.PlayerAt(next.Winner), model.GameRoomEndWin
+			}
+			err = model.FinishGameRoom(room, winnerId, reason, string(next.Data), gameCenterDay())
+		} else {
+			err = model.UpdateGameRoomState(room, string(next.Data), next.ToMove, common.GetTimestamp()+int64(room.MoveSeconds))
+		}
+		if errors.Is(err, model.ErrGameRoomChanged) && simultaneous && attempt < pvpMoveAttempts {
+			if room, err = model.GetGameRoom(room.Id); err != nil {
+				respondGameRoomError(c, err)
+				return
+			}
+			continue
+		}
+		if err != nil {
+			respondGameRoomError(c, err)
+			return
+		}
+		gameRoomWatch.notify(room.Id)
+		respondGameRoom(c, room, nil)
 		return
 	}
-	gameRoomWatch.notify(room.Id)
-	respondGameRoom(c, room, nil)
 }
 
 // ResignGameRoom 认输，对手获胜。
@@ -837,17 +858,24 @@ func (s *pvpAiState) apply(next pvpState) {
 	s.Moves++
 }
 
-// aiReply 让 AI 走一步，返回 AI 的走法。
+// aiReply 让 AI 一直走到轮到玩家或对局结束，返回 AI 的最后一步。玩家无子可下只能停一手时(黑白棋)AI 会连走几步；
+// 每一步都要改变局面，走满 pvpAiMaxReplies 步还没交还玩家说明引擎有问题。
 func (s *pvpAiState) aiReply(engine pvpEngine) (json.RawMessage, error) {
-	move, err := engine.AiMove(s.Board, 1, s.Level)
-	if err != nil {
-		return nil, err
+	var move json.RawMessage
+	for replies := 0; !s.Over && s.ToMove == 1; replies++ {
+		if replies == pvpAiMaxReplies {
+			return nil, fmt.Errorf("ai kept the turn for %d moves", replies)
+		}
+		var err error
+		if move, err = engine.AiMove(s.Board, 1, s.Level); err != nil {
+			return nil, err
+		}
+		next, err := engine.Play(s.Board, 1, move)
+		if err != nil {
+			return nil, fmt.Errorf("ai chose an illegal move %s: %w", move, err)
+		}
+		s.apply(next)
 	}
-	next, err := engine.Play(s.Board, 1, move)
-	if err != nil {
-		return nil, fmt.Errorf("ai chose an illegal move %s: %w", move, err)
-	}
-	s.apply(next)
 	return move, nil
 }
 
@@ -927,10 +955,8 @@ func startPvpAi(c *gin.Context, game *pvpGame) {
 			return "", err
 		}
 		state := pvpAiState{Level: req.Level, Board: initial.Data, ToMove: initial.ToMove, Winner: -1}
-		if state.ToMove == 1 {
-			if _, err := state.aiReply(game.engine); err != nil {
-				return "", err
-			}
+		if _, err := state.aiReply(game.engine); err != nil {
+			return "", err
 		}
 		data, err := common.Marshal(state)
 		return string(data), err
@@ -1014,7 +1040,7 @@ func settlePvpAi(c *gin.Context, game *pvpGame, rule operation_setting.SkillRule
 	respondPvpAiSettled(c, game, rule, session, result, aiMove)
 }
 
-// movePvpAi 玩家走一步，没结束时 AI 接着走一步，都在这一个请求里完成。
+// movePvpAi 玩家走一步，没结束时 AI 接着走，都在这一个请求里完成。
 func movePvpAi(c *gin.Context, game *pvpGame) {
 	rule, ok := pvpAiRule(c, game)
 	if !ok {
@@ -1043,13 +1069,11 @@ func movePvpAi(c *gin.Context, game *pvpGame) {
 		return
 	}
 	state.apply(next)
-	var aiMove json.RawMessage
-	if !state.Over && state.ToMove == 1 {
-		if aiMove, err = state.aiReply(game.engine); err != nil {
-			common.SysError(fmt.Sprintf("%s ai failed in session %d: %v", game.key, session.Id, err))
-			common.ApiErrorI18n(c, i18n.MsgGamePlayFailed)
-			return
-		}
+	aiMove, err := state.aiReply(game.engine)
+	if err != nil {
+		common.SysError(fmt.Sprintf("%s ai failed in session %d: %v", game.key, session.Id, err))
+		common.ApiErrorI18n(c, i18n.MsgGamePlayFailed)
+		return
 	}
 	if state.Over {
 		settlePvpAi(c, game, rule, session, state, aiMove)

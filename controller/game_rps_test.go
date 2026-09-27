@@ -40,14 +40,15 @@ func receivePoll(t *testing.T, polled <-chan *httptest.ResponseRecorder) (string
 	}
 }
 
-// rpsMoveBody 是出拳请求：带上玩家看到的房间版本。
-func rpsMoveBody(version any, choice string) map[string]any {
-	return map[string]any{"version": version, "move": map[string]any{"choice": choice}}
+// rpsMoveBody 是出拳请求：带上玩家看到的房间版本与这一拳出在第几回合。
+func rpsMoveBody(version any, round int, choice string) map[string]any {
+	return map[string]any{"version": version, "move": map[string]any{"choice": choice, "round": round}}
 }
 
 // 两位不同 IP 的玩家押 10 个游戏币打一场石头剪刀布，全程走真实的房间接口。先出拳的一方等对手：对手的长轮询立即拿到
-// "对方已出拳"，但看不到出了什么；双方都出了才公开这一回合，平局重来。1:1 之后的第四回合房主出了拳、对手一直不出，
-// 过了截止时间房主再来轮询就判对手超时输，房主拿走两份押注减去 5% 抽成。
+// "对方已出拳"，但看不到出了什么；双方都出了才公开这一回合，平局重来。双方同时出拳，后出的一方带着对手出拳之前的
+// 房间版本照样出得了，迟到的上一回合的拳则不会落进下一回合。1:1 之后的第四回合房主出了拳、对手一直不出，过了截止时间
+// 房主再来轮询就判对手超时输，房主拿走两份押注减去 5% 抽成。
 func TestRpsRoomPlaysStakedMatchOverHttp(t *testing.T) {
 	env := newGameTestEnv(t, gameSetting(func(s *operation_setting.GameSetting) {
 		s.Rps = operation_setting.PvpRule{Enabled: true, MaxStake: 100, RakePercent: 5, MoveSeconds: 20}
@@ -77,7 +78,7 @@ func TestRpsRoomPlaysStakedMatchOverHttp(t *testing.T) {
 		polled <- host.send(http.MethodGet, fmt.Sprintf("%s?after=%v", roomPath, version), nil)
 	}()
 	waitForRoomWatcher(t, roomId)
-	moved := guest.ok(http.MethodPost, roomPath+"/move", rpsMoveBody(version, "rock"))
+	moved := guest.ok(http.MethodPost, roomPath+"/move", rpsMoveBody(version, 1, "rock"))
 	assert.EqualValues(t, 0, moved["to_move"], "对手出了拳，轮到房主")
 	assert.Equal(t, "rock", moved["state"].(map[string]any)["choice"], "自己能看到自己出的拳")
 
@@ -90,7 +91,7 @@ func TestRpsRoomPlaysStakedMatchOverHttp(t *testing.T) {
 	assert.False(t, strings.Contains(body, "rock"), "对手这一回合出的拳不能出现在房主的视图里: %s", body)
 
 	// 同一回合里已经出过拳的一方不能再出，房间不变。
-	guest.fails(http.MethodPost, roomPath+"/move", rpsMoveBody(moved["version"], "paper"))
+	guest.fails(http.MethodPost, roomPath+"/move", rpsMoveBody(moved["version"], 1, "paper"))
 
 	rounds := []struct {
 		host, guest string
@@ -102,10 +103,12 @@ func TestRpsRoomPlaysStakedMatchOverHttp(t *testing.T) {
 	}
 	view := moved
 	for i, round := range rounds {
-		view = host.ok(http.MethodPost, roomPath+"/move", rpsMoveBody(view["version"], round.host))
+		// 对手还没看到房主这一拳：带着出拳之前的版本出拳。
+		before := view["version"]
+		view = host.ok(http.MethodPost, roomPath+"/move", rpsMoveBody(before, i+1, round.host))
 		if round.guest != "" {
 			assert.EqualValues(t, 1, view["to_move"], "round %d", i+1)
-			view = guest.ok(http.MethodPost, roomPath+"/move", rpsMoveBody(view["version"], round.guest))
+			view = guest.ok(http.MethodPost, roomPath+"/move", rpsMoveBody(before, i+1, round.guest))
 		}
 		state := view["state"].(map[string]any)
 		assert.EqualValues(t, -1, view["to_move"], "round %d", i+1)
@@ -114,8 +117,14 @@ func TestRpsRoomPlaysStakedMatchOverHttp(t *testing.T) {
 	}
 	assert.Equal(t, []any{"rock", "rock"}, view["state"].(map[string]any)["rounds"].([]any)[2].(map[string]any)["choices"])
 
+	// 对手第三回合的拳迟到了：第四回合已经开始，它不能算作第四回合的拳。
+	guest.fails(http.MethodPost, roomPath+"/move", rpsMoveBody(view["version"], 3, "paper"))
+	latest := guest.ok(http.MethodGet, roomPath, nil)
+	assert.Equal(t, view["version"], latest["version"])
+	assert.Equal(t, []any{false, false}, latest["state"].(map[string]any)["ready"])
+
 	// 第四回合房主出拳，对手一直不出；把这一步的截止时间拨到过去，房主轮询时结算超时。
-	view = host.ok(http.MethodPost, roomPath+"/move", rpsMoveBody(view["version"], "paper"))
+	view = host.ok(http.MethodPost, roomPath+"/move", rpsMoveBody(view["version"], 4, "paper"))
 	assert.EqualValues(t, 1, view["to_move"])
 	require.NoError(t, env.db.Model(&model.GameRoom{}).Where("id = ?", roomId).Update("deadline", common.GetTimestamp()-1).Error)
 
@@ -130,5 +139,7 @@ func TestRpsRoomPlaysStakedMatchOverHttp(t *testing.T) {
 	// 结束后双方看到的都是同一个结果，对手也不能再出拳。
 	guestView := guest.ok(http.MethodGet, roomPath, nil)
 	assert.Equal(t, model.GameRoomStatusFinished, guestView["status"])
-	guest.fails(http.MethodPost, roomPath+"/move", rpsMoveBody(guestView["version"], "rock"))
+	assert.EqualValues(t, -1, guestView["to_move"], "结束后没有人要走")
+	assert.EqualValues(t, 0, guestView["deadline"])
+	guest.fails(http.MethodPost, roomPath+"/move", rpsMoveBody(guestView["version"], 4, "rock"))
 }
