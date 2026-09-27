@@ -277,6 +277,7 @@ const RoomView = ({
 
   let message;
   let kind = '';
+  let note = '';
   if (room.status === 'waiting') {
     message = room.private
       ? t('把邀请链接发给朋友，等对方加入')
@@ -304,9 +305,9 @@ const RoomView = ({
       message = t('你输了');
     }
     if (room.end_reason === 'timeout') {
-      message += won ? ` (${t('对手超时')})` : ` (${t('超时')})`;
+      note = won ? t('对手超时') : t('你超时了');
     } else if (room.end_reason === 'resign') {
-      message += won ? ` (${t('对手认输')})` : ` (${t('认输')})`;
+      note = won ? t('对手认输') : t('你认输了');
     }
   } else {
     message =
@@ -349,7 +350,9 @@ const RoomView = ({
         extra={clocks}
       />
       {renderBoard({ state, seat, canMove: myTurn && !busy, busy, onMove })}
-      <StageMessage kind={kind}>{message}</StageMessage>
+      <StageMessage kind={kind} note={note}>
+        {message}
+      </StageMessage>
       {error && <StageMessage kind='error'>{error}</StageMessage>}
       <div className='pvp-actions'>
         {room.status === 'waiting' && (

@@ -231,8 +231,9 @@ For commercial licensing, please contact support@quantumnous.com
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
+  min-width: 20px;
   height: 20px;
+  padding: 0 4px;
   border-radius: 6px;
   font-weight: 700;
   color: var(--semi-color-text-2);
