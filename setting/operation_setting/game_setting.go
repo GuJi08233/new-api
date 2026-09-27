@@ -504,8 +504,8 @@ var gameSetting = GameSetting{
 	// 难度类游戏(扫雷、数独、记忆翻牌、数字华容道)的成绩是赢下的难度。
 	Tetris:      SkillRule{DailyRewards: 3, Tiers: skillTiers(5000, 20000), MinSecondsPerCoin: 60},
 	Game2048:    SkillRule{DailyRewards: 3, Tiers: skillTiers(6000, 20000), MinSecondsPerCoin: 60},
-	Snake:       SkillRule{DailyRewards: 3, Tiers: skillTiers(20, 50), MinSecondsPerCoin: 45},
-	Flappy:      SkillRule{DailyRewards: 3, Tiers: skillTiers(15, 50), MinSecondsPerCoin: 30},
+	Snake:       SkillRule{DailyRewards: 3, Tiers: skillTiers(20, 50), MinSecondsPerCoin: 25},
+	Flappy:      SkillRule{DailyRewards: 3, Tiers: skillTiers(15, 50), MinSecondsPerCoin: 20},
 	Minesweeper: SkillRule{DailyRewards: 3, Tiers: skillTiers(2, 3), MinSecondsPerCoin: 30},
 	Sudoku:      SkillRule{DailyRewards: 3, Tiers: skillTiers(1, 3), MinSecondsPerCoin: 90},
 	Memory:      SkillRule{DailyRewards: 3, Tiers: skillTiers(2, 3), MinSecondsPerCoin: 30},
