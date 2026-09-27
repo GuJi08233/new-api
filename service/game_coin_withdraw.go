@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math/big"
 	"strings"
+	"sync/atomic"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
@@ -28,6 +29,13 @@ const (
 	gameCoinMinGas = 21_000
 	// erc20TransferTopic 是 keccak256("Transfer(address,address,uint256)")，ERC-20 转账事件的 topics[0]。
 	erc20TransferTopic = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+)
+
+// 轮流处理的两类提现单各自记着上一轮取到的最后一笔的 id，0 表示从头开始：已广播待对账的，和换下来的热钱包签出、
+// 节点还没收下的。系统任务的租约保证同一时间只有一个节点在跑提现，各节点各记各的，轮到谁都能把所有单子轮一遍。
+var (
+	gameCoinSentCursor         atomic.Int64
+	gameCoinParkedSignedCursor atomic.Int64
 )
 
 // GameCoinWithdrawRunSummary 是一轮提现处理的结果，写进系统任务的运行记录。Skipped 不为空表示这一轮
@@ -94,10 +102,10 @@ func RunGameCoinWithdrawOnce(ctx context.Context) GameCoinWithdrawRunSummary {
 
 // reconcileSentGameCoinWithdrawals 按回执给当前链上已广播的提现下结论。只有链上明确失败、转账没有发生或
 // nonce 被别的交易占用时才退款；查不到回执、回执不完整、节点报错都只是"还没有结论"。管理员切换了网络时，
-// 旧网络上的交易留待切回后再对账。
+// 旧网络上的交易留待切回后再对账。一轮只对账一批，按 listGameCoinWithdrawalsInTurn 轮流取。
 func reconcileSentGameCoinWithdrawals(ctx context.Context, setting *operation_setting.GameSetting, summary *GameCoinWithdrawRunSummary) {
-	withdrawals, err := model.ListGameCoinWithdrawalsByStatus(model.GameCoinWithdrawalStatusSent,
-		model.GameCoinWithdrawalScope{ChainId: setting.ChainId}, gameCoinWithdrawBatchSize)
+	withdrawals, err := listGameCoinWithdrawalsInTurn(model.GameCoinWithdrawalStatusSent,
+		model.GameCoinWithdrawalScope{ChainId: setting.ChainId}, &gameCoinSentCursor)
 	if err != nil {
 		logger.LogWarn(ctx, fmt.Sprintf("game coin withdraw: list sent failed: %v", err))
 		return
@@ -162,6 +170,28 @@ func reconcileSentGameCoinWithdrawals(ctx context.Context, setting *operation_se
 	}
 }
 
+// listGameCoinWithdrawalsInTurn 从 cursor 记下的位置接着取一批提现单，取到末尾就从头开始，并把下一轮的起点记回 cursor。
+// 按 id 顺序每次只取开头一批的话，排在前面、迟迟没有结论的单子(例如换下来的旧热钱包没有 gas 重发)一多，
+// 后面的单子就永远轮不到。只能用于各单互不影响的处理：同一个热钱包的新交易要按 nonce 顺序发，不能这样轮。
+func listGameCoinWithdrawalsInTurn(status string, scope model.GameCoinWithdrawalScope, cursor *atomic.Int64) ([]*model.GameCoinWithdrawal, error) {
+	scope.AfterId = int(cursor.Load())
+	withdrawals, err := model.ListGameCoinWithdrawalsByStatus(status, scope, gameCoinWithdrawBatchSize)
+	if err == nil && len(withdrawals) == 0 && scope.AfterId != 0 {
+		scope.AfterId = 0
+		withdrawals, err = model.ListGameCoinWithdrawalsByStatus(status, scope, gameCoinWithdrawBatchSize)
+	}
+	if err != nil {
+		return nil, err
+	}
+	// 这一批没取满，说明已经取到末尾。
+	next := int64(0)
+	if len(withdrawals) == gameCoinWithdrawBatchSize {
+		next = int64(withdrawals[len(withdrawals)-1].Id)
+	}
+	cursor.Store(next)
+	return withdrawals, nil
+}
+
 // receiptHasErc20Transfer 判断回执里有没有这个代币合约发出的、从 from 转给 to 的 Transfer 事件。
 // 数量不比对：交易是自己签的，数量写死在里面，而管理员可能在签名之后改过代币精度。
 func receiptHasErc20Transfer(logs []ethereumRpcLog, token string, from string, to string) bool {
@@ -211,10 +241,10 @@ func reconcileUnminedGameCoinWithdrawal(ctx context.Context, setting *operation_
 
 // rebroadcastSignedGameCoinWithdrawals 跟进当前链上已签名但节点尚未收下的交易。返回 false 表示当前热钱包
 // 的队首仍卡着一笔，这一轮不能再签新交易：nonce 必须连续，插在后面的交易只会在内存池里等它。
-// 换过热钱包之后，旧钱包卡住的交易不影响新钱包，只尽力重发；两类分开查，旧钱包的再多也挤不掉新钱包的。
+// 换过热钱包之后，旧钱包卡住的交易不影响新钱包，只尽力重发，一轮一批轮流取；两类分开查，旧钱包的再多也挤不掉新钱包的。
 func rebroadcastSignedGameCoinWithdrawals(ctx context.Context, setting *operation_setting.GameSetting, walletAddress string, summary *GameCoinWithdrawRunSummary) bool {
-	others, err := model.ListGameCoinWithdrawalsByStatus(model.GameCoinWithdrawalStatusSigned,
-		model.GameCoinWithdrawalScope{ChainId: setting.ChainId, ExceptFromAddress: walletAddress}, gameCoinWithdrawBatchSize)
+	others, err := listGameCoinWithdrawalsInTurn(model.GameCoinWithdrawalStatusSigned,
+		model.GameCoinWithdrawalScope{ChainId: setting.ChainId, ExceptFromAddress: walletAddress}, &gameCoinParkedSignedCursor)
 	if err != nil {
 		logger.LogWarn(ctx, fmt.Sprintf("game coin withdraw: list signed failed: %v", err))
 		return false
@@ -320,12 +350,21 @@ func sendPendingGameCoinWithdrawals(ctx context.Context, setting *operation_sett
 		if ctx.Err() != nil {
 			return
 		}
+		// 提现只按申请时的代币发放：管理员之后换了网络、合约或精度，照现在的配置发出去就是另一种代币或另一个数量。
+		// 这笔提现还没有任何链上动作，退回游戏币不会重复发放，玩家可以按新配置重新申请。
+		if withdrawal.ChainId != setting.ChainId || !strings.EqualFold(withdrawal.TokenAddress, tokenAddress) ||
+			withdrawal.TokenDecimals != setting.TokenDecimals {
+			failGameCoinWithdrawal(ctx, withdrawal, "提现的网络或代币已变更，游戏币已退回",
+				fmt.Sprintf("requested chain %d token %s decimals %d, configured chain %d token %s decimals %d",
+					withdrawal.ChainId, withdrawal.TokenAddress, withdrawal.TokenDecimals, setting.ChainId, tokenAddress, setting.TokenDecimals), summary)
+			continue
+		}
 		recipient, err := ethereumAddressBytes(withdrawal.ToAddress)
 		if err != nil {
 			failGameCoinWithdrawal(ctx, withdrawal, "收款地址无效，游戏币已退回", err.Error(), summary)
 			continue
 		}
-		data := erc20TransferData(recipient, GameTokenRawAmount(withdrawal.Amount, setting.TokenDecimals))
+		data := erc20TransferData(recipient, GameTokenRawAmount(withdrawal.Amount, withdrawal.TokenDecimals))
 		gas, err := callEthereumRpcQuantity(ctx, setting.RpcUrl, "eth_estimateGas", []any{map[string]any{
 			"from": wallet.address,
 			"to":   tokenAddress,
@@ -359,7 +398,7 @@ func sendPendingGameCoinWithdrawals(ctx context.Context, setting *operation_sett
 			recordGameCoinWithdrawalAttempt(ctx, withdrawal, false, err)
 			return
 		}
-		marked, err := model.MarkGameCoinWithdrawalSigned(withdrawal.Id, setting.ChainId, tokenAddress, wallet.address, int64(nonce), txHash, rawTx)
+		marked, err := model.MarkGameCoinWithdrawalSigned(withdrawal.Id, wallet.address, int64(nonce), txHash, rawTx)
 		if err != nil {
 			logger.LogError(ctx, fmt.Sprintf("game coin withdraw: persist signed %s failed: %v", withdrawal.TradeNo, err))
 			return

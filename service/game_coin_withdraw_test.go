@@ -114,6 +114,9 @@ func useGameCoinTestChain(t *testing.T, node *withdrawTestNode) {
 	// worker 签名前会从数据库现读私钥，测试用的私钥也要落库。
 	require.NoError(t, model.DB.Save(&model.Option{Key: operation_setting.GameHotWalletPrivateKeyOption, Value: gameCoinTestKey}).Error)
 	previousSetting := operation_setting.GetGameSetting()
+	// 轮流处理的游标是进程内状态，每个测试都从头开始。
+	gameCoinSentCursor.Store(0)
+	gameCoinParkedSignedCursor.Store(0)
 	operation_setting.SetGameSettingForTest(&operation_setting.GameSetting{
 		ChainId:       11155111,
 		RpcUrl:        node.serve(t),
@@ -123,6 +126,8 @@ func useGameCoinTestChain(t *testing.T, node *withdrawTestNode) {
 		Confirmations: 1,
 	})
 	t.Cleanup(func() {
+		gameCoinSentCursor.Store(0)
+		gameCoinParkedSignedCursor.Store(0)
 		operation_setting.SetGameHotWalletPrivateKey(previousKey)
 		operation_setting.SetGameSettingForTest(previousSetting)
 		model.DB.Exec("DELETE FROM users")
@@ -134,12 +139,23 @@ func useGameCoinTestChain(t *testing.T, node *withdrawTestNode) {
 	})
 }
 
+// createTestGameCoinWithdrawal 给新用户发 10 个游戏币，再按当前配置的链与代币申请一笔提现。
 func createTestGameCoinWithdrawal(t *testing.T, userId int, amount int) *model.GameCoinWithdrawal {
 	t.Helper()
 	require.NoError(t, model.DB.Create(&model.User{Id: userId, Username: fmt.Sprintf("withdraw-%d", userId), AffCode: fmt.Sprintf("withdraw-aff-%d", userId)}).Error)
 	_, err := model.AdjustGameCoins(userId, 10, "seed")
 	require.NoError(t, err)
-	withdrawal, _, err := model.CreateGameCoinWithdrawal(userId, gameCoinTestRecipient, amount, "2026-09-24", 100)
+	setting := operation_setting.GetGameSetting()
+	withdrawal := &model.GameCoinWithdrawal{
+		UserId:        userId,
+		ToAddress:     gameCoinTestRecipient,
+		Amount:        amount,
+		Day:           "2026-09-24",
+		ChainId:       setting.ChainId,
+		TokenAddress:  setting.TokenAddress,
+		TokenDecimals: setting.TokenDecimals,
+	}
+	_, err = model.CreateGameCoinWithdrawal(withdrawal, 100)
 	require.NoError(t, err)
 	return withdrawal
 }
@@ -389,6 +405,40 @@ func TestGameCoinWithdrawalRefundsWhenTransferWouldRevert(t *testing.T) {
 	assert.Equal(t, 10, gameCoinBalance(t, 2104))
 }
 
+// 提现只按申请时的代币发放：申请之后管理员换了代币合约或精度，按新配置发出去就是另一种代币或另一个数量。
+// 这时还没有任何链上动作，退回游戏币、释放当日额度不会重复发放。
+func TestGameCoinWithdrawalRefundsWhenTokenChangedAfterRequest(t *testing.T) {
+	cases := []struct {
+		name   string
+		change func(setting *operation_setting.GameSetting)
+	}{
+		{name: "token address", change: func(setting *operation_setting.GameSetting) {
+			setting.TokenAddress = "0x3333333333333333333333333333333333333333"
+		}},
+		{name: "token decimals", change: func(setting *operation_setting.GameSetting) { setting.TokenDecimals = 18 }},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			node := &withdrawTestNode{receipts: map[string]map[string]any{}}
+			useGameCoinTestChain(t, node)
+			withdrawal := createTestGameCoinWithdrawal(t, 2115, 4)
+			c.change(operation_setting.GetGameSetting())
+
+			summary := RunGameCoinWithdrawOnce(context.Background())
+			assert.Equal(t, 1, summary.Failed)
+			assert.Zero(t, summary.Signed)
+			assert.Empty(t, node.broadcasts)
+			failed := reloadGameCoinWithdrawal(t, withdrawal.Id)
+			assert.Equal(t, model.GameCoinWithdrawalStatusFailed, failed.Status)
+			assert.Equal(t, "提现的网络或代币已变更，游戏币已退回", failed.FailReason)
+			assert.Equal(t, 10, gameCoinBalance(t, 2115))
+			used, err := model.GetGameCoinWithdrawDayUsed("2026-09-24")
+			require.NoError(t, err)
+			assert.Zero(t, used)
+		})
+	}
+}
+
 // 代币地址上没有合约时不签名：那样的转账会执行成功却什么也没转，白花 gas。提现留在待处理，改好配置后照常发出，
 // 这一轮记为跳过，系统任务里能看到原因。
 func TestGameCoinWithdrawalSkipsTokenWithoutContractCode(t *testing.T) {
@@ -457,6 +507,36 @@ func TestGameCoinWithdrawalIsNotStarvedByParkedWithdrawals(t *testing.T) {
 	var parkedSent int64
 	require.NoError(t, model.DB.Model(&model.GameCoinWithdrawal{}).Where("chain_id = ? AND status = ?", 1, model.GameCoinWithdrawalStatusSent).Count(&parkedSent).Error)
 	assert.EqualValues(t, gameCoinWithdrawBatchSize+1, parkedSent, "旧链上的单子留待切回后再对账")
+}
+
+// 已广播待对账的交易、旧钱包签出待重发的交易一轮都只处理一批，下一轮接着往后取：排在前面、一直没有结论的旧钱包交易
+// 占满一批，后面已经上链的提现下一轮照样确认，另一个旧钱包签出的交易下一轮照样重发。
+func TestGameCoinWithdrawalTakesTurnsPastStuckTransactions(t *testing.T) {
+	node := &withdrawTestNode{latestBlock: 100, sendRejects: map[string]bool{}, receipts: map[string]map[string]any{}}
+	useGameCoinTestChain(t, node)
+	const oldWallet = "0x1111111111111111111111111111111111111111"
+	for i := 1; i <= gameCoinWithdrawBatchSize; i++ {
+		// 查不到回执、nonce 也没推进，每一轮都没有结论。
+		createInFlightGameCoinWithdrawal(t, i, model.GameCoinWithdrawalStatusSent, 11155111, oldWallet)
+		parked := createInFlightGameCoinWithdrawal(t, 100+i, model.GameCoinWithdrawalStatusSigned, 11155111, oldWallet)
+		node.sendRejects[parked.RawTx] = true
+	}
+	otherParked := createInFlightGameCoinWithdrawal(t, 200, model.GameCoinWithdrawalStatusSigned, 11155111, "0x2222222222222222222222222222222222222222")
+	withdrawal := createTestGameCoinWithdrawal(t, 2114, 3)
+
+	summary := RunGameCoinWithdrawOnce(context.Background())
+	assert.Equal(t, 1, summary.Signed)
+	assert.Equal(t, 1, summary.Sent)
+	sent := reloadGameCoinWithdrawal(t, withdrawal.Id)
+	require.Equal(t, model.GameCoinWithdrawalStatusSent, sent.Status)
+	assert.Equal(t, model.GameCoinWithdrawalStatusSigned, reloadGameCoinWithdrawal(t, otherParked.Id).Status, "这一轮重发的一批被排在前面的旧钱包交易占满")
+
+	node.update(func(node *withdrawTestNode) { node.receipts[sent.TxHash] = transferReceipt(sent, 100) })
+	summary = RunGameCoinWithdrawOnce(context.Background())
+	assert.Equal(t, 1, summary.Confirmed)
+	assert.Equal(t, model.GameCoinWithdrawalStatusConfirmed, reloadGameCoinWithdrawal(t, withdrawal.Id).Status)
+	assert.Equal(t, 1, summary.Sent)
+	assert.Equal(t, model.GameCoinWithdrawalStatusSent, reloadGameCoinWithdrawal(t, otherParked.Id).Status)
 }
 
 // 多节点部署时，别的节点上清除或换掉的热钱包私钥要等同步配置才到本节点的内存；worker 签名前从数据库现读，

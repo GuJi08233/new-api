@@ -17,6 +17,20 @@ func seedGameCoinUser(t *testing.T, id int, quota int, coins int) {
 	}
 }
 
+// createGameCoinTestWithdrawal 给用户申请一笔提现，收款地址与代币合约固定，代币所在的链由 chainId 给出。
+func createGameCoinTestWithdrawal(userId int, amount int, day string, dailyLimit int, chainId int64) (*GameCoinWithdrawal, int, error) {
+	withdrawal := &GameCoinWithdrawal{
+		UserId:       userId,
+		ToAddress:    "0x8ba1f109551bD432803012645Ac136ddd64DBA72",
+		Amount:       amount,
+		Day:          day,
+		ChainId:      chainId,
+		TokenAddress: "0x64bf89340562AB4fE829a481E6797B012664425B",
+	}
+	balance, err := CreateGameCoinWithdrawal(withdrawal, dailyLimit)
+	return withdrawal, balance, err
+}
+
 func gameCoinLogTypes(t *testing.T, userId int) []string {
 	t.Helper()
 	var types []string
@@ -93,12 +107,12 @@ func TestGameCoinWithdrawalHoldsDailyLimitAndRefundsOnce(t *testing.T) {
 	seedGameCoinUser(t, 1104, 0, 10)
 	const day = "2026-09-24"
 
-	first, balance, err := CreateGameCoinWithdrawal(1104, "0x8ba1f109551bD432803012645Ac136ddd64DBA72", 3, day, 5)
+	first, balance, err := createGameCoinTestWithdrawal(1104, 3, day, 5, 11155111)
 	require.NoError(t, err)
 	assert.Equal(t, 7, balance)
 	assert.Equal(t, GameCoinWithdrawalStatusPending, first.Status)
 
-	_, _, err = CreateGameCoinWithdrawal(1104, "0x8ba1f109551bD432803012645Ac136ddd64DBA72", 3, day, 5)
+	_, _, err = createGameCoinTestWithdrawal(1104, 3, day, 5, 11155111)
 	require.ErrorIs(t, err, ErrGameCoinDailyLimit)
 	account, err := GetGameCoinAccount(1104)
 	require.NoError(t, err)
@@ -128,7 +142,7 @@ func TestGameCoinWithdrawalHoldsDailyLimitAndRefundsOnce(t *testing.T) {
 	assert.Equal(t, []string{GameCoinLogTypeAdminAdjust, GameCoinLogTypeWithdraw, GameCoinLogTypeWithdrawRefund}, gameCoinLogTypes(t, 1104))
 
 	// 释放后的额度可以再次使用。
-	_, _, err = CreateGameCoinWithdrawal(1104, "0x8ba1f109551bD432803012645Ac136ddd64DBA72", 5, day, 5)
+	_, _, err = createGameCoinTestWithdrawal(1104, 5, day, 5, 11155111)
 	require.NoError(t, err)
 }
 
@@ -153,9 +167,9 @@ func TestMaxGameCoinWithdrawalNonceIsScopedToWalletAndChain(t *testing.T) {
 		{wallet, 1, 90},
 	}
 	for _, row := range rows {
-		withdrawal, _, err := CreateGameCoinWithdrawal(1105, "0x8ba1f109551bD432803012645Ac136ddd64DBA72", 1, "2026-09-24", 100)
+		withdrawal, _, err := createGameCoinTestWithdrawal(1105, 1, "2026-09-24", 100, row.chainId)
 		require.NoError(t, err)
-		marked, err := MarkGameCoinWithdrawalSigned(withdrawal.Id, row.chainId, "0x64bf89340562AB4fE829a481E6797B012664425B", row.from, row.nonce, "0xhash", "0xraw")
+		marked, err := MarkGameCoinWithdrawalSigned(withdrawal.Id, row.from, row.nonce, "0xhash", "0xraw")
 		require.NoError(t, err)
 		require.True(t, marked)
 	}

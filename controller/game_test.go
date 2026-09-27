@@ -71,8 +71,9 @@ func TestWithdrawGameCoinsRequiresProofBoundToAddressAndAmount(t *testing.T) {
 		WithdrawMaxAmount:  10,
 		ChainId:            11155111,
 		RpcUrl:             "http://127.0.0.1:1",
-		TokenAddress:       "0x64bf89340562AB4fE829a481E6797B012664425B",
+		TokenAddress:       "0x64bf89340562ab4fe829a481e6797b012664425b",
 		TokenSymbol:        "✦",
+		TokenDecimals:      6,
 		Confirmations:      1,
 	})
 	t.Cleanup(func() { operation_setting.SetGameSettingForTest(previousSetting) })
@@ -106,6 +107,10 @@ func TestWithdrawGameCoinsRequiresProofBoundToAddressAndAmount(t *testing.T) {
 	withdrawal := created["data"].(map[string]any)["withdrawal"].(map[string]any)
 	assert.Equal(t, "0x8ba1f109551bD432803012645Ac136ddd64DBA72", withdrawal["to_address"], "收款地址按 EIP-55 格式保存")
 	assert.Equal(t, model.GameCoinWithdrawalStatusPending, withdrawal["status"])
+	// 申请时就记下要发放的代币，worker 只按它发。
+	assert.EqualValues(t, 11155111, withdrawal["chain_id"])
+	assert.Equal(t, "0x64bf89340562AB4fE829a481E6797B012664425B", withdrawal["token_address"])
+	assert.EqualValues(t, 6, withdrawal["token_decimals"])
 
 	reused, _ := accountRequest(t, router, http.MethodPost, "/api/game/withdraw", cookies, request, proof)
 	assert.Equal(t, http.StatusForbidden, reused.Code)
@@ -114,8 +119,8 @@ func TestWithdrawGameCoinsRequiresProofBoundToAddressAndAmount(t *testing.T) {
 	assert.Equal(t, 7, account.Balance)
 }
 
-// 管理页只提交改动过的字段：页面打开之后别人关掉了提现，这边只改俄罗斯方块的规则，保存不会把提现又打开。
-// 跨字段约束按合并到当前配置之后的整份配置校验，未知字段直接拒绝；审计日志记下改了哪些字段。
+// 管理页只提交改动过的字段：页面打开之后别人关掉了提现，这边只改俄罗斯方块的规则，保存不会把提现又打开；游戏规则里
+// 也只带改动过的子字段。跨字段约束按合并到当前配置之后的整份配置校验，未知字段直接拒绝；审计日志记下改了哪些字段。
 func TestUpdateGameAdminSettingWritesOnlySubmittedFields(t *testing.T) {
 	db, router, _ := accountSecurityFixture(t)
 	require.NoError(t, db.AutoMigrate(&model.Option{}))
@@ -149,6 +154,12 @@ func TestUpdateGameAdminSettingWritesOnlySubmittedFields(t *testing.T) {
 	var audit model.Log
 	require.NoError(t, db.Where("content LIKE ?", "Updated game center settings%").Last(&audit).Error)
 	assert.Equal(t, "Updated game center settings: tetris", audit.Content)
+
+	// 游戏规则只带改动过的子字段时合并进当前规则：别人刚关掉了老虎机，这边只改单次最多下注，老虎机不会又被打开。
+	require.NoError(t, model.UpdateOption(operation_setting.GameSettingPrefix+"slots", `{"enabled":false,"even_stage_wager":200,"daily_reward_limit":0,"max_bet":5}`))
+	_, partial := accountRequest(t, router, http.MethodPut, "/api/game/admin/setting", nil, map[string]any{"slots": map[string]any{"max_bet": 9}}, "")
+	require.Equal(t, true, partial["success"], partial["message"])
+	assert.Equal(t, operation_setting.SlotsRule{Enabled: false, EvenStageWager: 200, DailyRewardLimit: 0, MaxBet: 9}, operation_setting.GetGameSetting().Slots)
 
 	_, crossField := accountRequest(t, router, http.MethodPut, "/api/game/admin/setting", nil, map[string]any{"withdraw_min_amount": 500}, "")
 	assert.Equal(t, false, crossField["success"], "单次最少大于当前的单次最多")

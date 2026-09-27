@@ -79,23 +79,24 @@ type GameCoinLog struct {
 	CreatedAt int64  `json:"created_at" gorm:"bigint;index"`
 }
 
-// GameCoinWithdrawal 是一笔链上提现。签名时把链、合约和发送地址一起记下：
+// GameCoinWithdrawal 是一笔链上提现。申请时记下链、合约和精度，只按申请时的代币发放；签名时记下发送地址：
 // 之后即使管理员换了配置或热钱包，对账仍按这笔交易当时的上下文进行。
 type GameCoinWithdrawal struct {
-	Id           int    `json:"id"`
-	TradeNo      string `json:"trade_no" gorm:"type:varchar(64);uniqueIndex"`
-	UserId       int    `json:"user_id" gorm:"index"`
-	ToAddress    string `json:"to_address" gorm:"type:varchar(42)"`
-	Amount       int    `json:"amount" gorm:"type:bigint"`
-	Day          string `json:"day" gorm:"type:varchar(10);index"`
-	Status       string `json:"status" gorm:"type:varchar(16);index"`
-	ChainId      int64  `json:"chain_id" gorm:"bigint"`
-	TokenAddress string `json:"token_address" gorm:"type:varchar(42)"`
-	FromAddress  string `json:"from_address" gorm:"type:varchar(42);index"`
-	Nonce        int64  `json:"nonce" gorm:"bigint"`
-	TxHash       string `json:"tx_hash" gorm:"type:varchar(66);index"`
-	RawTx        string `json:"-" gorm:"type:text"`
-	FailReason   string `json:"fail_reason" gorm:"type:varchar(255)"`
+	Id            int    `json:"id"`
+	TradeNo       string `json:"trade_no" gorm:"type:varchar(64);uniqueIndex"`
+	UserId        int    `json:"user_id" gorm:"index"`
+	ToAddress     string `json:"to_address" gorm:"type:varchar(42)"`
+	Amount        int    `json:"amount" gorm:"type:bigint"`
+	Day           string `json:"day" gorm:"type:varchar(10);index"`
+	Status        string `json:"status" gorm:"type:varchar(16);index"`
+	ChainId       int64  `json:"chain_id" gorm:"bigint"`
+	TokenAddress  string `json:"token_address" gorm:"type:varchar(42)"`
+	TokenDecimals int    `json:"token_decimals" gorm:"not null;default:0"`
+	FromAddress   string `json:"from_address" gorm:"type:varchar(42);index"`
+	Nonce         int64  `json:"nonce" gorm:"bigint"`
+	TxHash        string `json:"tx_hash" gorm:"type:varchar(66);index"`
+	RawTx         string `json:"-" gorm:"type:text"`
+	FailReason    string `json:"fail_reason" gorm:"type:varchar(255)"`
 	// Error 是最近一次链上操作的原始错误，可能带有 RPC 地址，只给管理员看。
 	Error       string `json:"-" gorm:"type:varchar(512)"`
 	CreatedAt   int64  `json:"created_at" gorm:"bigint;index"`
@@ -267,34 +268,30 @@ func AdjustGameCoins(userId int, delta int, remark string) (int, error) {
 	return balance, err
 }
 
-// CreateGameCoinWithdrawal 在一个事务里扣币、占用当日全站额度并生成待发送的提现单。
+// CreateGameCoinWithdrawal 在一个事务里扣币、占用当日全站额度并生成待发送的提现单。withdrawal 由调用方填好用户、
+// 收款地址、数量、记账日与要发放的代币(链、合约、精度)，单号、状态与时间在这里生成。
 // 它必须先于任何链上动作成功，之后每条失败路径都由 FailGameCoinWithdrawal 原路退回。
-func CreateGameCoinWithdrawal(userId int, toAddress string, amount int, day string, dailyLimit int) (*GameCoinWithdrawal, int, error) {
+func CreateGameCoinWithdrawal(withdrawal *GameCoinWithdrawal, dailyLimit int) (int, error) {
+	amount := withdrawal.Amount
 	if amount < 1 || amount >= common.MaxQuota {
-		return nil, 0, ErrGameCoinAmountInvalid
+		return 0, ErrGameCoinAmountInvalid
 	}
 	now := common.GetTimestamp()
-	withdrawal := &GameCoinWithdrawal{
-		TradeNo:   fmt.Sprintf("GW%d%s%s", userId, strconv.FormatInt(time.Now().UnixMilli(), 36), common.GetRandomString(6)),
-		UserId:    userId,
-		ToAddress: toAddress,
-		Amount:    amount,
-		Day:       day,
-		Status:    GameCoinWithdrawalStatusPending,
-		CreatedAt: now,
-		UpdatedAt: now,
-	}
+	withdrawal.TradeNo = fmt.Sprintf("GW%d%s%s", withdrawal.UserId, strconv.FormatInt(time.Now().UnixMilli(), 36), common.GetRandomString(6))
+	withdrawal.Status = GameCoinWithdrawalStatusPending
+	withdrawal.CreatedAt = now
+	withdrawal.UpdatedAt = now
 	var balance int
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		var err error
-		balance, err = debitGameCoinsTx(tx, userId, amount, nil)
+		balance, err = debitGameCoinsTx(tx, withdrawal.UserId, amount, nil)
 		if err != nil {
 			return err
 		}
-		if err = tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&GameCoinWithdrawDay{Day: day}).Error; err != nil {
+		if err = tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&GameCoinWithdrawDay{Day: withdrawal.Day}).Error; err != nil {
 			return err
 		}
-		result := tx.Model(&GameCoinWithdrawDay{}).Where("day = ? AND used <= ?", day, dailyLimit-amount).
+		result := tx.Model(&GameCoinWithdrawDay{}).Where("day = ? AND used <= ?", withdrawal.Day, dailyLimit-amount).
 			Update("used", gorm.Expr("used + ?", amount))
 		if result.Error != nil {
 			return result.Error
@@ -306,7 +303,7 @@ func CreateGameCoinWithdrawal(userId int, toAddress string, amount int, day stri
 			return err
 		}
 		return tx.Create(&GameCoinLog{
-			UserId:    userId,
+			UserId:    withdrawal.UserId,
 			Type:      GameCoinLogTypeWithdraw,
 			Amount:    -amount,
 			Balance:   balance,
@@ -315,9 +312,9 @@ func CreateGameCoinWithdrawal(userId int, toAddress string, amount int, day stri
 		}).Error
 	})
 	if err != nil {
-		return nil, 0, err
+		return 0, err
 	}
-	return withdrawal, balance, nil
+	return balance, nil
 }
 
 // GetGameCoinWithdrawDayUsed 返回某天全站已占用的提现额度。
@@ -359,11 +356,13 @@ func CountGameCoinWithdrawalsByStatus() (map[string]int64, error) {
 
 // GameCoinWithdrawalScope 限定提现 worker 这一轮处理哪些提现单。筛选要在查询里做：取出一批再在内存里跳过，
 // 排在前面、这一轮处理不了的单子(例如留在旧链上的)会一直占满这一批。ChainId 为 0 时不限链；
-// FromAddress 不为空时只要这个热钱包发出的，ExceptFromAddress 不为空时排除这个热钱包发出的。
+// FromAddress 不为空时只要这个热钱包发出的，ExceptFromAddress 不为空时排除这个热钱包发出的；
+// AfterId 不为 0 时只要 id 比它大的，用于分批轮流处理。
 type GameCoinWithdrawalScope struct {
 	ChainId           int64
 	FromAddress       string
 	ExceptFromAddress string
+	AfterId           int
 }
 
 // ListGameCoinWithdrawalsByStatus 按创建顺序返回某个状态、某个范围的提现单。发送顺序决定 nonce 顺序，
@@ -378,6 +377,9 @@ func ListGameCoinWithdrawalsByStatus(status string, scope GameCoinWithdrawalScop
 	}
 	if scope.ExceptFromAddress != "" {
 		query = query.Where("from_address <> ?", scope.ExceptFromAddress)
+	}
+	if scope.AfterId != 0 {
+		query = query.Where("id > ?", scope.AfterId)
 	}
 	var withdrawals []*GameCoinWithdrawal
 	err := query.Order("id asc").Limit(limit).Find(&withdrawals).Error
@@ -401,20 +403,18 @@ func MaxGameCoinWithdrawalNonce(fromAddress string, chainId int64) (int64, bool,
 }
 
 // MarkGameCoinWithdrawalSigned 在广播之前把签好的交易落库。只有这样，进程在广播前后退出时，
-// 下一轮才能重发同一笔交易，而不是再签一笔新的、让用户收到两次。
-func MarkGameCoinWithdrawalSigned(id int, chainId int64, tokenAddress string, fromAddress string, nonce int64, txHash string, rawTx string) (bool, error) {
+// 下一轮才能重发同一笔交易，而不是再签一笔新的、让用户收到两次。链与合约在申请时已经记下。
+func MarkGameCoinWithdrawalSigned(id int, fromAddress string, nonce int64, txHash string, rawTx string) (bool, error) {
 	result := DB.Model(&GameCoinWithdrawal{}).
 		Where("id = ? AND status = ?", id, GameCoinWithdrawalStatusPending).
 		Updates(map[string]interface{}{
-			"status":        GameCoinWithdrawalStatusSigned,
-			"chain_id":      chainId,
-			"token_address": tokenAddress,
-			"from_address":  fromAddress,
-			"nonce":         nonce,
-			"tx_hash":       txHash,
-			"raw_tx":        rawTx,
-			"error":         "",
-			"updated_at":    common.GetTimestamp(),
+			"status":       GameCoinWithdrawalStatusSigned,
+			"from_address": fromAddress,
+			"nonce":        nonce,
+			"tx_hash":      txHash,
+			"raw_tx":       rawTx,
+			"error":        "",
+			"updated_at":   common.GetTimestamp(),
 		})
 	return result.RowsAffected == 1, result.Error
 }

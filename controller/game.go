@@ -298,6 +298,11 @@ func WithdrawGameCoins(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgGameWithdrawUnavailable)
 		return
 	}
+	tokenAddress, err := service.NormalizeEthereumAddress(setting.TokenAddress)
+	if err != nil {
+		common.ApiErrorI18n(c, i18n.MsgGameWithdrawUnavailable)
+		return
+	}
 	var req gameCoinWithdrawRequest
 	if err := common.DecodeJson(c.Request.Body, &req); err != nil || req.Amount < 1 {
 		common.ApiErrorI18n(c, i18n.MsgGameCoinAmountInvalid)
@@ -313,7 +318,7 @@ func WithdrawGameCoins(c *gin.Context) {
 	}
 	// 转给零地址或代币合约自身等于销毁，转回热钱包没有意义，都当作无效地址。
 	address, err := service.NormalizeEthereumAddress(req.Address)
-	if err != nil || address == gameZeroAddress || strings.EqualFold(address, setting.TokenAddress) || address == hotWallet {
+	if err != nil || address == gameZeroAddress || address == tokenAddress || address == hotWallet {
 		common.ApiErrorI18n(c, i18n.MsgGameWithdrawAddressInvalid)
 		return
 	}
@@ -334,7 +339,17 @@ func WithdrawGameCoins(c *gin.Context) {
 	}
 
 	day := gameCenterDay()
-	withdrawal, balance, err := model.CreateGameCoinWithdrawal(userId, address, req.Amount, day, setting.WithdrawDailyLimit)
+	// 记下现在的链、合约与精度：之后管理员换了配置，这笔提现也不会按另一种代币或另一个数量发出去。
+	withdrawal := &model.GameCoinWithdrawal{
+		UserId:        userId,
+		ToAddress:     address,
+		Amount:        req.Amount,
+		Day:           day,
+		ChainId:       setting.ChainId,
+		TokenAddress:  tokenAddress,
+		TokenDecimals: setting.TokenDecimals,
+	}
+	balance, err := model.CreateGameCoinWithdrawal(withdrawal, setting.WithdrawDailyLimit)
 	if err != nil {
 		switch {
 		case errors.Is(err, model.ErrGameCoinInsufficient):
