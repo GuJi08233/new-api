@@ -1,0 +1,133 @@
+/*
+Copyright (C) 2025 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+
+/* 奖池画成数据看板的环形图：每位玩家占一段，段的长度就是中奖概率；开奖后指针停在抽中的奖券上。 */
+
+.jackpot-ring {
+  position: relative;
+  width: min(100%, 320px);
+  aspect-ratio: 1;
+}
+
+.jackpot-ring svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.jackpot-ring-track {
+  fill: none;
+  stroke: var(--semi-color-fill-1);
+  stroke-width: 22;
+}
+
+.jackpot-ring-full {
+  fill: none;
+  stroke-width: 22;
+}
+
+.jackpot-arc {
+  stroke: var(--semi-color-bg-1);
+  stroke-width: 1.5;
+  transition: opacity 0.3s ease;
+}
+
+.jackpot-ring svg:has(.is-winner) .jackpot-arc:not(.is-winner) {
+  opacity: 0.35;
+}
+
+.jackpot-pointer {
+  fill: var(--semi-color-text-0);
+  transition: transform 1.6s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.jackpot-ring-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.jackpot-pot {
+  font-size: 40px;
+  font-weight: 700;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  color: var(--semi-color-text-0);
+}
+
+.jackpot-pot-unit {
+  font-size: 14px;
+  color: var(--semi-color-warning);
+}
+
+.jackpot-pot-label {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--semi-color-text-2);
+}
+
+.jackpot-swatch {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 2px;
+  vertical-align: middle;
+}
+
+.jackpot-recent {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+  color: var(--semi-color-text-1);
+}
+
+.jackpot-recent li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  padding: 6px 0;
+  border-top: 1px solid var(--semi-color-border);
+}
+
+.jackpot-recent li:first-child {
+  border-top: none;
+}
+
+.jackpot-recent li.is-own .jackpot-recent-winner {
+  color: var(--semi-color-primary);
+}
+
+.jackpot-recent-winner {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 600;
+  color: var(--semi-color-text-0);
+}
+
+.jackpot-recent-time {
+  width: 100%;
+  color: var(--semi-color-text-2);
+}

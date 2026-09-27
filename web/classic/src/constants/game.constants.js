@@ -25,35 +25,212 @@ export const getGameCoinLogTypeMap = (t) => ({
   withdraw_refund: { text: t('提现退回'), color: 'green' },
   game_reward: { text: t('游戏奖励'), color: 'amber' },
   game_wager: { text: t('游戏输赢'), color: 'pink' },
+  game_pvp: { text: t('对战'), color: 'cyan' },
 });
 
-// 已接入的游戏。键与服务端的游戏标识、游戏中心配置里的字段名一致，路由为 /games/{key}。
-// wager 表示下注游戏：用游戏币下注，输赢计入下注游戏的累计输赢。
+// 游戏的四种结算方式，与服务端 operation_setting.GameKind* 一致，也是游戏中心列表的分类顺序。
+export const GAME_KINDS = ['skill', 'pvp', 'wager', 'party'];
+
+export const getGameKindMap = (t) => ({
+  skill: {
+    name: t('免费赚币'),
+    description: t('不花游戏币，成绩达标就有奖励，每个游戏每天有领奖次数'),
+  },
+  pvp: {
+    name: t('对战'),
+    description: t('和其他玩家押注对战，也可以和 AI 下棋领奖'),
+  },
+  wager: {
+    name: t('运气'),
+    description: t('用游戏币下注，不限次数，返还率公示'),
+  },
+  party: {
+    name: t('多人'),
+    description: t('和所有玩家一起玩的奖池'),
+  },
+});
+
+// 按难度计成绩的游戏，成绩 1、2、3 对应的难度名称；人机对战也用这一套(简单、普通、困难)。
+export const getGameLevelNames = (t) => ({
+  minesweeper: [t('初级'), t('中级'), t('高级')],
+  sudoku: [t('简单'), t('普通'), t('困难')],
+  memory: ['4×4', '4×6', '6×6'],
+  puzzle15: ['3×3', '4×4', '5×5'],
+  ai: [t('简单'), t('普通'), t('困难')],
+});
+
+// 游戏在游戏中心里的排列顺序。不能靠 getGameMetaMap 的键序：像 2048 这样的数字键总会排在最前面。
+export const GAME_ORDER = [
+  'tetris',
+  '2048',
+  'snake',
+  'flappy',
+  'minesweeper',
+  'sudoku',
+  'memory',
+  'puzzle15',
+  'gomoku',
+  'connect4',
+  'reversi',
+  'xiangqi',
+  'rps',
+  'slots',
+  'wheel',
+  'plinko',
+  'dice',
+  'roulette',
+  'blackjack',
+  'mines',
+  'hilo',
+  'crash',
+  'scratch',
+  'jackpot',
+];
+
+// 所有游戏。键与服务端的游戏标识、游戏中心配置里的字段名一致，路由为 /games/{key}，顺序见 GAME_ORDER。
+// kind 是结算方式；score 是免费游戏的成绩怎么计：points 为分数类，level 为赢下的难度(名称见 getGameLevelNames)。
 export const getGameMetaMap = (t) => ({
   tetris: {
+    kind: 'skill',
     name: t('俄罗斯方块'),
     description: t('经典消行玩法，消的行越多、等级越高，得分越快'),
+    score: 'points',
+    scoreName: t('分数'),
+  },
+  2048: {
+    kind: 'skill',
+    name: '2048',
+    description: t('滑动合并相同的数字，合出越大的方块得分越高'),
+    score: 'points',
+    scoreName: t('分数'),
+  },
+  snake: {
+    kind: 'skill',
+    name: t('贪吃蛇'),
+    description: t('控制小蛇吃豆变长，越吃越快，别撞墙也别咬到自己'),
+    score: 'points',
+    scoreName: t('吃到的豆子'),
+  },
+  flappy: {
+    kind: 'skill',
+    name: t('像素鸟'),
+    description: t('点一下扑一次翅膀，穿过一道道管道缝隙'),
+    score: 'points',
+    scoreName: t('穿过的管道'),
+  },
+  minesweeper: {
+    kind: 'skill',
+    name: t('扫雷'),
+    description: t('根据数字推理出雷的位置，翻开所有安全格获胜'),
+    score: 'level',
+    scoreName: t('难度'),
+  },
+  sudoku: {
+    kind: 'skill',
+    name: t('数独'),
+    description: t('填满九宫格，每行每列每宫 1 到 9 各出现一次'),
+    score: 'level',
+    scoreName: t('难度'),
+  },
+  memory: {
+    kind: 'skill',
+    name: t('记忆翻牌'),
+    description: t('翻开两张相同的图案配对，在限定步数内全部配完'),
+    score: 'level',
+    scoreName: t('难度'),
+  },
+  puzzle15: {
+    kind: 'skill',
+    name: t('数字华容道'),
+    description: t('滑动方块，把打乱的数字按顺序排好'),
+    score: 'level',
+    scoreName: t('难度'),
+  },
+  gomoku: {
+    kind: 'pvp',
+    name: t('五子棋'),
+    description: t('横竖斜先连成五子者胜，可押注对战或挑战 AI'),
+  },
+  connect4: {
+    kind: 'pvp',
+    name: t('四子棋'),
+    description: t('棋子落到每列底部，先连成四子者胜'),
+  },
+  reversi: {
+    kind: 'pvp',
+    name: t('黑白棋'),
+    description: t('夹住对方的棋子翻成自己的颜色，终局子多者胜'),
+  },
+  xiangqi: {
+    kind: 'pvp',
+    name: t('中国象棋'),
+    description: t('楚河汉界，将死对方的将帅获胜'),
+  },
+  rps: {
+    kind: 'pvp',
+    name: t('石头剪刀布'),
+    description: t('和其他玩家三局两胜，同时出拳，押注或友谊赛'),
   },
   slots: {
+    kind: 'wager',
     name: t('老虎机'),
     description: t(
       '用游戏币下注转动三个转轮，中线从左起连出相同的 AI 图标就能赢',
     ),
-    wager: true,
   },
   wheel: {
+    kind: 'wager',
     name: t('大转盘'),
     description: t(
       '每天可以免费转，之后花游戏币再转，指针停在哪一格就按那一格派奖',
     ),
-    wager: true,
   },
   plinko: {
+    kind: 'wager',
     name: t('Plinko'),
     description: t(
       '投 1、10 或 100 个游戏币，小球穿过层层节点，落进哪一格就按那一格结算',
     ),
-    wager: true,
+  },
+  dice: {
+    kind: 'wager',
+    name: t('骰子'),
+    description: t('选一个倍数，掷出的点数落在区间里就按倍数派彩'),
+  },
+  roulette: {
+    kind: 'wager',
+    name: t('轮盘'),
+    description: t('欧式单零轮盘，押号码、红黑、单双或区间'),
+  },
+  blackjack: {
+    kind: 'wager',
+    name: t('21 点'),
+    description: t('要牌、停牌、加倍、分牌，点数比庄家更接近 21 就赢'),
+  },
+  mines: {
+    kind: 'wager',
+    name: t('挖宝'),
+    description: t('在 25 格里挖宝石，避开地雷，随时收手兑现'),
+  },
+  hilo: {
+    kind: 'wager',
+    name: t('高低牌'),
+    description: t('猜下一张牌比当前大还是小，连续猜对倍数越滚越高'),
+  },
+  crash: {
+    kind: 'wager',
+    name: t('火箭'),
+    description: t('倍数随火箭一路上升，在它爆炸之前收手'),
+  },
+  scratch: {
+    kind: 'wager',
+    name: t('刮刮乐'),
+    description: t('买一张刮开，三个相同的金额就中这个金额'),
+  },
+  jackpot: {
+    kind: 'party',
+    name: t('夺宝奖池'),
+    description: t('大家往奖池里投币，开奖时按投入比例抽出一位赢家拿走奖池'),
   },
 });
 

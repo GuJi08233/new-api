@@ -88,30 +88,35 @@ const GameAdminWithdrawals = () => {
     {
       title: t('单号'),
       dataIndex: 'trade_no',
+      width: 220,
       render: (value) => <Text copyable>{value}</Text>,
     },
     {
       title: t('时间'),
       dataIndex: 'created_at',
+      width: 170,
       render: (value) => timestamp2string(value),
     },
     {
       title: t('用户'),
       dataIndex: 'user_id',
+      width: 160,
       render: (value, record) => `${record.username || '-'} (#${value})`,
     },
     {
       title: t('数量'),
       dataIndex: 'amount',
+      width: 80,
     },
     {
       title: t('收款地址'),
       dataIndex: 'to_address',
+      width: 220,
       render: (value) => (
         <Text
           copyable={{ content: value }}
           ellipsis={{ showTooltip: true }}
-          style={{ maxWidth: 160 }}
+          style={{ width: 190 }}
         >
           {value}
         </Text>
@@ -120,6 +125,7 @@ const GameAdminWithdrawals = () => {
     {
       title: t('状态'),
       dataIndex: 'status',
+      width: 110,
       render: (value) => {
         const meta = statusMap[value];
         return <Tag color={meta?.color || 'grey'}>{meta?.text || value}</Tag>;
@@ -128,6 +134,7 @@ const GameAdminWithdrawals = () => {
     {
       title: t('交易'),
       dataIndex: 'tx_hash',
+      width: 200,
       render: (value, record) => {
         if (!value) return '-';
         const label = `${value.slice(0, 10)}… (nonce ${record.nonce})`;
@@ -196,6 +203,7 @@ const GameAdminWithdrawals = () => {
         columns={columns}
         dataSource={items}
         loading={loading}
+        scroll={{ x: 1400 }}
         pagination={{
           currentPage: page,
           pageSize: PAGE_SIZE,

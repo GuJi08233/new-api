@@ -42,6 +42,9 @@ import {
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { API, showError } from '../../../helpers';
+import { percent } from '../common/api';
+import { SideBox } from '../common/SideBox';
+import { WagerStats } from '../common/wager';
 import '../games.css';
 import './slots.css';
 
@@ -180,18 +183,12 @@ const Slots = () => {
   const loadInfo = useCallback(
     async (refresh = false) => {
       try {
-        const res = await API.get('/api/game/self');
+        const res = await API.get('/api/game/slots');
         if (!res.data.success) {
-          setUnavailable(res.data.message);
+          if (!refresh) setUnavailable(res.data.message);
           return;
         }
-        const slots = (res.data.data.games || []).find(
-          (game) => game.key === 'slots',
-        );
-        if (!slots) {
-          setUnavailable(t('老虎机暂未开放'));
-          return;
-        }
+        const slots = res.data.data;
         // 第一次加载时转轮停在随机的位置，只为了好看。
         if (positionsRef.current.length === 0) {
           positionsRef.current = slots.reels.map((strip) =>
@@ -199,8 +196,8 @@ const Slots = () => {
           );
         }
         setRule(slots);
-        setSymbol(res.data.data.token?.symbol || '');
-        setBalance(res.data.data.account?.balance || 0);
+        setSymbol(slots.symbol || '');
+        setBalance(slots.balance || 0);
         setBet((previous) => Math.min(previous, slots.max_bet));
       } catch (error) {
         if (refresh) return;
@@ -260,15 +257,11 @@ const Slots = () => {
       const { result } = motion.response;
       if (result) {
         setBalance(result.balance);
-        setBet((previous) => Math.min(previous, result.max_bet));
         setRule((previous) => ({
           ...previous,
-          earned_today: result.earned_today,
-          ip_earned_today: result.ip_earned_today,
-          wagered: result.wagered,
-          even_stage_wager: result.even_stage_wager,
-          daily_reward_limit: result.daily_reward_limit,
-          max_bet: result.max_bet,
+          net_today: result.net_today,
+          plays_today: result.plays_today,
+          best_win: Math.max(previous.best_win || 0, result.win),
         }));
       } else {
         // 旋转被拒绝或请求没有得到答复：页面上的余额与今日输赢可能已经过时(请求也可能已经结算)，重新读取。
@@ -337,16 +330,7 @@ const Slots = () => {
     if (reducedMotion) settleSpin(motion);
   }, [rule, bet, t, settleSpin]);
 
-  // 每日净赢上限为 0 表示不限制；设了上限时，账号与同一 IP 今天的净赢都不能越过它。
-  const limited = rule?.daily_reward_limit > 0;
-  const userRemaining = limited
-    ? Math.max(rule.daily_reward_limit - rule.earned_today, 0)
-    : Infinity;
-  const ipRemaining = limited
-    ? Math.max(rule.daily_reward_limit - (rule.ip_earned_today || 0), 0)
-    : Infinity;
-  const remaining = Math.min(userRemaining, ipRemaining);
-  const canSpin = !spinning && remaining > 0 && bet >= 1 && bet <= balance;
+  const canSpin = !spinning && bet >= 1 && bet <= balance;
 
   // 空格键旋转；焦点在按钮上时交给按钮自己处理，免得触发两次。
   useEffect(() => {
@@ -383,18 +367,11 @@ const Slots = () => {
     );
   }
 
-  const limit = rule.daily_reward_limit;
-  // 累计下注没到均衡阶段下注额时按均衡赔付表(返还率 100%)，之后按常规赔付表，单个樱桃(页面上的 Token)不再退回下注。
-  const evenStageWager = rule.even_stage_wager || 0;
-  const inEvenStage = rule.wagered < evenStageWager;
-  const paytable = rule.paytables[inEvenStage ? 'even' : 'house'];
+  const paytable = rule.paytable;
   const jackpot = paytable.find((pay) => pay.symbol === 'seven');
-  const evenRate = (rule.paybacks.even * 100).toFixed(2);
-  const houseRate = (rule.paybacks.house * 100).toFixed(2);
   const result = !spinning ? outcome?.result : null;
   let message = t('选好下注后点击旋转，也可以按空格键');
   let messageClass = '';
-  let note = '';
   if (spinning) {
     message = t('转动中…');
   } else if (outcome?.error) {
@@ -402,33 +379,12 @@ const Slots = () => {
     messageClass = 'is-error';
   } else if (result && result.win === 0) {
     message = t('没有中奖，再试一次');
-  } else if (result && result.multiplier === 1) {
-    message = t('退回下注 {{win}} {{symbol}}', { win: result.win, symbol });
   } else if (result) {
     message = t('赢得 {{win}} {{symbol}}', { win: result.win, symbol });
     messageClass =
       result.multiplier >= BIG_WIN_MULTIPLIER ? 'is-win is-big-win' : 'is-win';
   }
-  if (result?.limited_by === 'daily') {
-    note = t('超出今日净赢上限，实际到账 {{payout}} {{symbol}}', {
-      payout: result.payout,
-      symbol,
-    });
-  } else if (result?.limited_by === 'ip') {
-    note = t('超出当前 IP 今日净赢上限，实际到账 {{payout}} {{symbol}}', {
-      payout: result.payout,
-      symbol,
-    });
-  }
-
-  let hint = '';
-  if (userRemaining <= 0) {
-    hint = t('今日净赢已达上限，明天再来');
-  } else if (ipRemaining <= 0) {
-    hint = t('当前 IP 今日净赢已达上限，明天再来');
-  } else if (bet > balance) {
-    hint = t('游戏币余额不足');
-  }
+  const hint = bet > balance ? t('游戏币余额不足') : '';
   const hitReels = result?.matched || 0;
   const bigWin = messageClass.includes('is-big-win');
 
@@ -500,7 +456,6 @@ const Slots = () => {
               aria-live='polite'
             >
               <span>{message}</span>
-              {note && <span className='games-stage-message-note'>{note}</span>}
             </div>
 
             <div className='slots-controls'>
@@ -552,56 +507,16 @@ const Slots = () => {
           </div>
 
           <div className='slots-side'>
-            <div className='slots-box'>
-              <div className='slots-box-label'>{t('游戏币余额')}</div>
-              <div className='slots-box-value'>
-                {balance}
-                <span>{symbol}</span>
-              </div>
-            </div>
-            <div className='slots-box'>
-              <div className='slots-box-label'>{t('今日输赢')}</div>
-              <div className='slots-box-value'>
-                {rule.earned_today > 0
-                  ? `+${rule.earned_today}`
-                  : rule.earned_today}
-                <span>{symbol}</span>
-              </div>
-              {limited && (
-                <div className='slots-box-note'>
-                  {t(
-                    '每日净赢上限 {{limit}} {{symbol}}，今天还能再赢 {{remaining}} {{symbol}}',
-                    { limit, remaining, symbol },
-                  )}
-                </div>
-              )}
-            </div>
+            <SideBox label={t('游戏币余额')} value={balance} unit={symbol} />
+            <WagerStats info={rule} symbol={symbol} />
             <div className='slots-box'>
               <div className='slots-box-label'>{t('赔付表')}</div>
-              {evenStageWager > 0 && (
-                <div className='slots-stage'>
-                  {inEvenStage
-                    ? t(
-                        '累计下注 {{wagered}} / {{limit}} {{symbol}}，满额后单个 Token 不再退回下注',
-                        {
-                          wagered: rule.wagered,
-                          limit: evenStageWager,
-                          symbol,
-                        },
-                      )
-                    : t(
-                        '累计下注已满 {{limit}} {{symbol}}，单个 Token 不再退回下注',
-                        { limit: evenStageWager, symbol },
-                      )}
-                </div>
-              )}
               <table className='slots-paytable'>
                 <thead>
                   <tr>
                     <th>{t('符号')}</th>
                     <th>{t('三个相同')}</th>
                     <th>{t('前两个相同')}</th>
-                    <th>{t('只有第一个')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -616,7 +531,6 @@ const Slots = () => {
                       </td>
                       <td>{pay.three ? `×${pay.three}` : '-'}</td>
                       <td>{pay.two ? `×${pay.two}` : '-'}</td>
-                      <td>{pay.one ? `×${pay.one}` : '-'}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -628,26 +542,16 @@ const Slots = () => {
                   )}
                 </li>
                 <li>
-                  {evenStageWager > 0
-                    ? t(
-                        '累计下注的前 {{limit}} {{symbol}} 理论返还率 {{even}}%，之后 {{house}}%',
-                        {
-                          limit: evenStageWager,
-                          symbol,
-                          even: evenRate,
-                          house: houseRate,
-                        },
-                      )
-                    : t('理论返还率 {{rate}}%', { rate: houseRate })}
+                  {t('理论返还率 {{rate}}，玩家长期是输的', {
+                    rate: percent(rule.payback),
+                  })}
                 </li>
-                {limited && (
-                  <li>
-                    {t(
-                      '每人每天最多净赢 {{limit}} {{symbol}}，同一 IP 下的账号合计；到上限后当天不能再下注，单次赢得超出上限的部分不发放',
-                      { limit, symbol },
-                    )}
-                  </li>
-                )}
+                <li>
+                  {t('单次最多下注 {{max}} {{symbol}}，不限次数', {
+                    max: rule.max_bet,
+                    symbol,
+                  })}
+                </li>
               </ul>
             </div>
           </div>

@@ -140,9 +140,24 @@ const GameCoinRecords = ({ version, symbol, explorerUrl }) => {
         if (record.type === 'convert') {
           return t('获得额度 {{quota}}', { quota: renderQuota(record.quota) });
         }
-        // 游戏奖励与下注游戏输赢的备注是游戏标识。
+        // 游戏奖励与下注游戏输赢的备注是游戏标识，人机对战在标识后面带 _ai；奖池的备注是 jackpot。
         if (record.type === 'game_reward' || record.type === 'game_wager') {
+          if (value?.endsWith('_ai')) {
+            const game = gameMetaMap[value.slice(0, -3)]?.name || value;
+            return t('{{game}}人机对战', { game });
+          }
           return gameMetaMap[value]?.name || value;
+        }
+        // 对战流水的备注是「游戏标识:事件」。
+        if (record.type === 'game_pvp') {
+          const [game, event] = (value || '').split(':');
+          const events = {
+            stake: t('押注'),
+            win: t('获胜'),
+            draw: t('平局退回'),
+            refund: t('房间关闭退回'),
+          };
+          return `${gameMetaMap[game]?.name || game} · ${events[event] || event}`;
         }
         return value || record.ref_id || '-';
       },

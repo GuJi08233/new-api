@@ -158,6 +158,7 @@ func jackpotRecentRounds(userId int) ([]gin.H, error) {
 			"players":      round.Players,
 			"winner":       names[round.WinnerId],
 			"winner_stake": round.WinnerStake,
+			"ticket":       round.Ticket,
 			"own":          round.WinnerId == userId,
 			"drawn_at":     round.DrawnAt,
 		})

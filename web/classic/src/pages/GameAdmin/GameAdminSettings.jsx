@@ -33,7 +33,6 @@ import { IconRefresh } from '@douyinfe/semi-icons';
 import { useTranslation } from 'react-i18next';
 import { API, showError, showSuccess, showWarning } from '../../helpers';
 import { StatusContext } from '../../context/Status';
-import { getGameMetaMap } from '../../constants';
 
 const { Text, Title } = Typography;
 
@@ -105,29 +104,13 @@ const GameAdminSettings = () => {
     setField(key, typeof value === 'number' ? value : 0);
   };
 
-  // 每个游戏的规则是配置里以游戏标识为键的一个对象。
-  const setGameRule = (game, key, value) => {
-    setSetting((previous) => ({
-      ...previous,
-      [game]: { ...previous[game], [key]: value },
-    }));
-  };
-
   // 只提交改动过的字段：页面可能是很久以前打开的，整份提交会把别人在这期间改过的字段(例如紧急关闭的提现)改回去。
-  // 游戏规则是对象，同样只带改动过的子字段，否则改一个下注上限就会把别人刚关掉的游戏又打开；服务端把它们合并进当前规则。
+  // 这一页只管基础设置，各游戏的规则在「游戏规则」页保存。
   const save = async () => {
     const changes = {};
     for (const [key, value] of Object.entries(setting)) {
-      const saved = savedSetting?.[key];
-      if (value !== null && typeof value === 'object') {
-        const fields = Object.entries(value).filter(
-          ([field, fieldValue]) =>
-            JSON.stringify(fieldValue) !== JSON.stringify(saved?.[field]),
-        );
-        if (fields.length > 0) {
-          changes[key] = Object.fromEntries(fields);
-        }
-      } else if (JSON.stringify(value) !== JSON.stringify(saved)) {
+      if (value !== null && typeof value === 'object') continue;
+      if (JSON.stringify(value) !== JSON.stringify(savedSetting?.[key])) {
         changes[key] = value;
       }
     }
@@ -223,8 +206,6 @@ const GameAdminSettings = () => {
       { env: hotWallet.env },
     );
   }
-
-  const gameMetaMap = getGameMetaMap(t);
 
   const unfinished =
     (overview?.status_counts?.pending || 0) +
@@ -361,7 +342,7 @@ const GameAdminSettings = () => {
         <SettingRow
           label={t('开局人机验证')}
           extra={t(
-            '俄罗斯方块每局开始前、大转盘每次免费旋转前需通过 Cloudflare Turnstile 验证，挡住不经浏览器直接调用接口的脚本；老虎机、大转盘的付费旋转和 Plinko 按下注结算，不需要验证。需要先在系统设置中启用 Turnstile',
+            '能领免费奖励的对局(技巧游戏、人机对战、大转盘的免费旋转)开始前需通过 Cloudflare Turnstile 验证，挡住不经浏览器直接调用接口的脚本；下注游戏与对战不需要验证。需要先在系统设置中启用 Turnstile',
           )}
         >
           <div className='flex items-center gap-3 flex-wrap'>
@@ -377,264 +358,29 @@ const GameAdminSettings = () => {
               )}
           </div>
         </SettingRow>
+        <SettingRow
+          label={t('免费奖励每日合计上限')}
+          extra={t(
+            '每人每天从所有免费游戏合计最多获得的游戏币，同一 IP 下所有账号合计也不超过它；0 表示不限制，只按各游戏的每日领奖次数计算',
+          )}
+        >
+          <div className='flex items-center gap-3 flex-wrap'>
+            <InputNumber
+              value={setting.free_daily_limit}
+              min={0}
+              precision={0}
+              suffix={setting.token_symbol}
+              onChange={numberField('free_daily_limit')}
+            />
+            <Text type='tertiary' size='small'>
+              {t('今日已发放 {{value}} {{symbol}}', {
+                value: overview?.game_rewards?._free ?? 0,
+                symbol: setting.token_symbol,
+              })}
+            </Text>
+          </div>
+        </SettingRow>
       </Card>
-
-      {Object.entries(gameMetaMap).map(([game, meta]) => {
-        const rule = setting[game];
-        if (!rule) return null;
-        const ruleNumber = (key) => (value) =>
-          setGameRule(game, key, typeof value === 'number' ? value : 0);
-        // 大转盘按次数玩：每天前几次免费，之后每次花固定的游戏币，奖品按每次花费的倍数计算。
-        if (game === 'wheel') {
-          return (
-            <Card key={game} title={meta.name}>
-              <SettingRow label={t('开放游戏')} extra={t('关闭后用户不能再转')}>
-                <Switch
-                  checked={rule.enabled}
-                  onChange={(value) => setGameRule(game, 'enabled', value)}
-                />
-              </SettingRow>
-              <SettingRow
-                label={t('每人每日免费次数')}
-                extra={t(
-                  '每个用户每天可以免费转的次数，同一 IP 下所有账号合计也不超过这个数；免费旋转不扣币，奖品同样按每次花费计算。0 表示没有免费次数',
-                )}
-              >
-                <InputNumber
-                  value={rule.free_spins}
-                  min={0}
-                  max={100}
-                  precision={0}
-                  onChange={ruleNumber('free_spins')}
-                />
-              </SettingRow>
-              <SettingRow
-                label={t('每人每日次数')}
-                extra={t(
-                  '每个用户每天最多转的次数，含免费次数，不能少于免费次数；0 表示不限制',
-                )}
-              >
-                <InputNumber
-                  value={rule.daily_spins}
-                  min={0}
-                  max={100}
-                  precision={0}
-                  onChange={ruleNumber('daily_spins')}
-                />
-              </SettingRow>
-              <SettingRow
-                label={t('每次花费')}
-                extra={t(
-                  '免费次数用完后每次旋转花费的游戏币。奖品按它的倍数计算，最高 50 倍，付费旋转的理论返还率 80%',
-                )}
-              >
-                <InputNumber
-                  value={rule.spin_cost}
-                  min={1}
-                  max={100}
-                  precision={0}
-                  suffix={setting.token_symbol}
-                  onChange={ruleNumber('spin_cost')}
-                />
-              </SettingRow>
-              <SettingRow
-                label={t('今日净发放')}
-                extra={t(
-                  '所有用户今天从大转盘净得的游戏币：免费旋转的奖品加上付费旋转的输赢，负数表示玩家合计输掉的数量',
-                )}
-              >
-                <Text strong>
-                  {overview?.game_rewards?.[game] ?? 0} {setting.token_symbol}
-                </Text>
-              </SettingRow>
-            </Card>
-          );
-        }
-        // Plinko 分 1、10、100 三档投入，派彩表固定，每一档分别限制每人每天投几颗球，0 表示这一档不开放。
-        if (game === 'plinko') {
-          return (
-            <Card key={game} title={meta.name}>
-              <SettingRow
-                label={t('开放游戏')}
-                extra={t('关闭后用户不能再投球')}
-              >
-                <Switch
-                  checked={rule.enabled}
-                  onChange={(value) => setGameRule(game, 'enabled', value)}
-                />
-              </SettingRow>
-              {[1, 10, 100].map((stake) => (
-                <SettingRow
-                  key={stake}
-                  label={t('{{stake}} 币档每人每日次数', { stake })}
-                  extra={
-                    stake === 1
-                      ? t(
-                          '格子直接加减游戏币，一颗球最多扣 2 个，平均每颗输约 0.2 个。0 表示不开放这一档',
-                        )
-                      : t(
-                          '派彩 = 投入 × 格子上的倍数，最高 13 倍，理论返还率 80%。0 表示不开放这一档',
-                        )
-                  }
-                >
-                  <InputNumber
-                    value={rule[`daily_drops_${stake}`]}
-                    min={0}
-                    max={1000}
-                    precision={0}
-                    onChange={ruleNumber(`daily_drops_${stake}`)}
-                  />
-                </SettingRow>
-              ))}
-              <SettingRow
-                label={t('今日净发放')}
-                extra={t(
-                  '所有用户今天在每一档的净赢合计，负数表示玩家合计输掉的数量',
-                )}
-              >
-                <Text strong>
-                  {[1, 10, 100]
-                    .map(
-                      (stake) =>
-                        `${t('{{stake}} 币档', { stake })} ${overview?.game_rewards?.[`plinko_${stake}`] ?? 0}`,
-                    )
-                    .join(' · ')}{' '}
-                  {setting.token_symbol}
-                </Text>
-              </SettingRow>
-            </Card>
-          );
-        }
-        // 下注游戏(老虎机)的每日上限是净赢，没有分数与时长规则，改为限制单次下注。
-        if (meta.wager) {
-          return (
-            <Card key={game} title={meta.name}>
-              <SettingRow
-                label={t('开放游戏')}
-                extra={t('关闭后用户不能再下注')}
-              >
-                <Switch
-                  checked={rule.enabled}
-                  onChange={(value) => setGameRule(game, 'enabled', value)}
-                />
-              </SettingRow>
-              <SettingRow
-                label={t('均衡阶段下注额')}
-                extra={t(
-                  '每个玩家累计下注满这么多游戏币之前按均衡赔付表（长期不赚不赔）；之后单个 Token 不再退回下注，玩家长期是输的。0 表示从一开始就按后者',
-                )}
-              >
-                <InputNumber
-                  value={rule.even_stage_wager}
-                  min={0}
-                  precision={0}
-                  suffix={setting.token_symbol}
-                  onChange={ruleNumber('even_stage_wager')}
-                />
-              </SettingRow>
-              <SettingRow
-                label={t('每人每日净赢上限')}
-                extra={t(
-                  '0 表示不限制，玩家可以一直下注，输赢都照常结算。设了上限时，每个用户每天在这个游戏里最多净赢（派彩减去下注）这么多游戏币，同一 IP 下所有账号合计也不超过它；到上限后当天不能再下注，单次派彩超出的部分不发放',
-                )}
-              >
-                <InputNumber
-                  value={rule.daily_reward_limit}
-                  min={0}
-                  precision={0}
-                  suffix={setting.token_symbol}
-                  onChange={ruleNumber('daily_reward_limit')}
-                />
-              </SettingRow>
-              <SettingRow
-                label={t('单次最多下注')}
-                extra={t(
-                  '每次旋转最多下注的游戏币，派彩按下注的倍数计算，最高 50 倍',
-                )}
-              >
-                <InputNumber
-                  value={rule.max_bet}
-                  min={1}
-                  max={1000}
-                  precision={0}
-                  suffix={setting.token_symbol}
-                  onChange={ruleNumber('max_bet')}
-                />
-              </SettingRow>
-              <SettingRow
-                label={t('今日净发放')}
-                extra={t(
-                  '所有用户今天在这个游戏里的净赢合计，负数表示玩家合计输掉的数量',
-                )}
-              >
-                <Text strong>
-                  {overview?.game_rewards?.[game] ?? 0} {setting.token_symbol}
-                </Text>
-              </SettingRow>
-            </Card>
-          );
-        }
-        return (
-          <Card key={game} title={meta.name}>
-            <SettingRow
-              label={t('开放游戏')}
-              extra={t('关闭后用户不能开始新的对局，进行中的对局也不能结算')}
-            >
-              <Switch
-                checked={rule.enabled}
-                onChange={(value) => setGameRule(game, 'enabled', value)}
-              />
-            </SettingRow>
-            <SettingRow
-              label={t('每人每日奖励上限')}
-              extra={t(
-                '每个用户每天最多从这个游戏获得的游戏币，同一 IP 下所有账号合计也不超过这个数；各游戏分别计算，0 表示照常可玩但不发奖励',
-              )}
-            >
-              <InputNumber
-                value={rule.daily_reward_limit}
-                min={0}
-                precision={0}
-                suffix={setting.token_symbol}
-                onChange={ruleNumber('daily_reward_limit')}
-              />
-            </SettingRow>
-            <SettingRow
-              label={t('每个游戏币所需分数')}
-              extra={t('单局每满这么多分奖励 1 个游戏币，再受每日上限约束')}
-            >
-              <InputNumber
-                value={rule.score_per_coin}
-                min={1}
-                precision={0}
-                onChange={ruleNumber('score_per_coin')}
-              />
-            </SettingRow>
-            <SettingRow
-              label={t('每个游戏币所需时长（秒）')}
-              extra={t(
-                '单局每玩满这么多秒才能多得 1 个游戏币，挡住几秒就刷够分数的脚本；0 表示不限制',
-              )}
-            >
-              <InputNumber
-                value={rule.min_seconds_per_coin}
-                min={0}
-                max={3600}
-                precision={0}
-                onChange={ruleNumber('min_seconds_per_coin')}
-              />
-            </SettingRow>
-            <SettingRow
-              label={t('今日已发放')}
-              extra={t('所有用户今天从这个游戏获得的游戏币总数')}
-            >
-              <Text strong>
-                {overview?.game_rewards?.[game] ?? 0} {setting.token_symbol}
-              </Text>
-            </SettingRow>
-          </Card>
-        );
-      })}
 
       <Card title={t('链上提现')}>
         <SettingRow

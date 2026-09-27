@@ -62,10 +62,7 @@ const UserAgreement = lazy(() => import('./pages/UserAgreement'));
 const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy'));
 const Rankings = lazy(() => import('./pages/Rankings'));
 const Games = lazy(() => import('./pages/Games'));
-const Tetris = lazy(() => import('./pages/Games/tetris'));
-const Slots = lazy(() => import('./pages/Games/slots'));
-const Wheel = lazy(() => import('./pages/Games/wheel'));
-const Plinko = lazy(() => import('./pages/Games/plinko'));
+const GamePage = lazy(() => import('./pages/Games/GamePage'));
 
 function DynamicOAuth2Callback() {
   const { provider } = useParams();
@@ -453,53 +450,14 @@ function App() {
             }
           />
           <Route
-            path='/games/tetris'
+            path='/games/:game'
             element={
               <PrivateRoute>
                 <Suspense
                   fallback={<Loading></Loading>}
                   key={location.pathname}
                 >
-                  <Tetris />
-                </Suspense>
-              </PrivateRoute>
-            }
-          />
-          <Route
-            path='/games/slots'
-            element={
-              <PrivateRoute>
-                <Suspense
-                  fallback={<Loading></Loading>}
-                  key={location.pathname}
-                >
-                  <Slots />
-                </Suspense>
-              </PrivateRoute>
-            }
-          />
-          <Route
-            path='/games/wheel'
-            element={
-              <PrivateRoute>
-                <Suspense
-                  fallback={<Loading></Loading>}
-                  key={location.pathname}
-                >
-                  <Wheel />
-                </Suspense>
-              </PrivateRoute>
-            }
-          />
-          <Route
-            path='/games/plinko'
-            element={
-              <PrivateRoute>
-                <Suspense
-                  fallback={<Loading></Loading>}
-                  key={location.pathname}
-                >
-                  <Plinko />
+                  <GamePage />
                 </Suspense>
               </PrivateRoute>
             }

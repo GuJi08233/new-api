@@ -289,37 +289,166 @@ For commercial licensing, please contact support@quantumnous.com
 
 /* ---------- Game list ---------- */
 
+.games-kind-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0 12px;
+}
+
+.games-kind-desc {
+  margin: -4px 0 12px;
+  font-size: 12px;
+  color: var(--semi-color-text-2);
+}
+
 .games-list {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
   padding: 4px 0;
 }
 
 .games-list-card {
   display: flex;
-  gap: 16px;
-  padding: 16px;
+  gap: 14px;
+  width: 100%;
+  padding: 14px;
   border-radius: 14px;
   border: 1px solid var(--semi-color-border);
+  font: inherit;
+  text-align: left;
+  color: inherit;
   background: var(--semi-color-bg-0);
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.games-list-card:hover {
+  border-color: var(--semi-color-primary-light-active);
+  box-shadow: 0 8px 24px -16px var(--semi-color-primary);
+  transform: translateY(-1px);
+}
+
+.games-list-card:focus-visible {
+  outline: 2px solid var(--semi-color-primary);
+  outline-offset: 2px;
 }
 
 .games-list-cover {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 64px;
-  height: 64px;
+  width: 56px;
+  height: 56px;
   border-radius: 14px;
   flex-shrink: 0;
   color: #fff;
-  background: linear-gradient(135deg, #8b5cf6 0%, #ec4899 100%);
+  background: linear-gradient(135deg, var(--cover-from), var(--cover-to));
+  box-shadow: 0 6px 16px -8px var(--cover-to);
+  --cover-from: #8b5cf6;
+  --cover-to: #ec4899;
 }
 
-.games-list-cover.cover-tetris {
-  background: linear-gradient(135deg, #22d3ee 0%, #6366f1 100%);
-  box-shadow: 0 6px 16px -6px rgba(99, 102, 241, 0.55);
+/* 每个游戏一种封面渐变，同一类游戏的色相相近：免费游戏偏青蓝，对战偏绿，运气偏紫粉，多人偏金。 */
+.cover-tetris {
+  --cover-from: #22d3ee;
+  --cover-to: #6366f1;
+}
+.cover-2048 {
+  --cover-from: #fbbf24;
+  --cover-to: #f97316;
+}
+.cover-snake {
+  --cover-from: #34d399;
+  --cover-to: #0ea5e9;
+}
+.cover-flappy {
+  --cover-from: #38bdf8;
+  --cover-to: #2563eb;
+}
+.cover-minesweeper {
+  --cover-from: #94a3b8;
+  --cover-to: #475569;
+}
+.cover-sudoku {
+  --cover-from: #60a5fa;
+  --cover-to: #4f46e5;
+}
+.cover-memory {
+  --cover-from: #f472b6;
+  --cover-to: #8b5cf6;
+}
+.cover-puzzle15 {
+  --cover-from: #2dd4bf;
+  --cover-to: #0891b2;
+}
+.cover-gomoku {
+  --cover-from: #a3e635;
+  --cover-to: #16a34a;
+}
+.cover-connect4 {
+  --cover-from: #facc15;
+  --cover-to: #dc2626;
+}
+.cover-reversi {
+  --cover-from: #4ade80;
+  --cover-to: #047857;
+}
+.cover-xiangqi {
+  --cover-from: #fb923c;
+  --cover-to: #b91c1c;
+}
+.cover-rps {
+  --cover-from: #fda4af;
+  --cover-to: #e11d48;
+}
+.cover-slots {
+  --cover-from: #6366f1;
+  --cover-to: #a855f7;
+}
+.cover-wheel {
+  --cover-from: #2dd4bf;
+  --cover-to: #0ea5e9;
+}
+.cover-plinko {
+  --cover-from: #3b82f6;
+  --cover-to: #c026d3;
+}
+.cover-dice {
+  --cover-from: #818cf8;
+  --cover-to: #db2777;
+}
+.cover-roulette {
+  --cover-from: #f43f5e;
+  --cover-to: #7c2d12;
+}
+.cover-blackjack {
+  --cover-from: #64748b;
+  --cover-to: #0f172a;
+}
+.cover-mines {
+  --cover-from: #22d3ee;
+  --cover-to: #7c3aed;
+}
+.cover-hilo {
+  --cover-from: #f59e0b;
+  --cover-to: #be185d;
+}
+.cover-crash {
+  --cover-from: #fb7185;
+  --cover-to: #7c3aed;
+}
+.cover-scratch {
+  --cover-from: #fde047;
+  --cover-to: #ea580c;
+}
+.cover-jackpot {
+  --cover-from: #fcd34d;
+  --cover-to: #b45309;
 }
 
 .games-records-filter {
@@ -327,37 +456,56 @@ For commercial licensing, please contact support@quantumnous.com
   margin-bottom: 12px;
 }
 
-.games-list-cover.cover-slots {
-  background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
-  box-shadow: 0 6px 16px -6px rgba(168, 85, 247, 0.55);
-}
-
-.games-list-cover.cover-wheel {
-  background: linear-gradient(135deg, #2dd4bf 0%, #0ea5e9 100%);
-  box-shadow: 0 6px 16px -6px rgba(14, 165, 233, 0.55);
-}
-
-.games-list-cover.cover-plinko {
-  background: linear-gradient(135deg, #3b82f6 0%, #c026d3 100%);
-  box-shadow: 0 6px 16px -6px rgba(192, 38, 211, 0.5);
-}
-
 .games-list-body {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 6px;
+  gap: 4px;
   min-width: 0;
 }
 
+.games-list-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .games-list-title {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
   color: var(--semi-color-text-0);
 }
 
+.games-kind-tag {
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.games-kind-tag.kind-skill {
+  color: var(--semi-color-success);
+  background: var(--semi-color-success-light-default);
+}
+
+.games-kind-tag.kind-pvp {
+  color: var(--semi-color-primary);
+  background: var(--semi-color-primary-light-default);
+}
+
+.games-kind-tag.kind-wager {
+  color: rgba(var(--semi-violet-5), 1);
+  background: rgba(var(--semi-violet-5), 0.12);
+}
+
+.games-kind-tag.kind-party {
+  color: var(--semi-color-warning);
+  background: var(--semi-color-warning-light-default);
+}
+
 .games-list-desc {
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.5;
   color: var(--semi-color-text-2);
 }
@@ -365,11 +513,16 @@ For commercial licensing, please contact support@quantumnous.com
 .games-list-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 14px;
-  margin-bottom: 4px;
+  gap: 2px 12px;
+  margin-top: 2px;
   font-size: 12px;
   font-variant-numeric: tabular-nums;
   color: var(--semi-color-text-1);
+}
+
+.games-free-limit {
+  font-size: 12px;
+  color: var(--semi-color-text-2);
 }
 
 /* ---------- Game stage ----------
@@ -570,5 +723,299 @@ For commercial licensing, please contact support@quantumnous.com
 
   .games-balance-value {
     font-size: 32px;
+  }
+}
+
+/* ---------- Game page shell ----------
+   所有游戏页共用：顶栏、左边台面右边信息栏的布局、信息栏里的格子、下注控件与规则表。 */
+
+.game-topbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.game-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+  color: var(--semi-color-text-0);
+}
+
+.game-topbar-balance {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  margin-left: auto;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--semi-color-border);
+  font-size: 13px;
+  color: var(--semi-color-text-2);
+  background: var(--semi-color-bg-1);
+}
+
+.game-topbar-balance svg {
+  align-self: center;
+  color: var(--semi-color-warning);
+}
+
+.game-topbar-balance strong {
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+  color: var(--semi-color-text-0);
+}
+
+.game-placeholder {
+  display: flex;
+  justify-content: center;
+  padding: 80px 0;
+}
+
+.game-layout {
+  display: grid;
+  grid-template-columns: minmax(0, var(--game-main-width, 620px)) 300px;
+  justify-content: center;
+  align-items: start;
+  gap: 24px;
+}
+
+.game-layout.is-single {
+  grid-template-columns: minmax(0, var(--game-main-width, 960px));
+}
+
+.game-main {
+  min-width: 0;
+}
+
+.game-side {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.game-box {
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--semi-color-border);
+  background: var(--semi-color-bg-1);
+}
+
+.game-box-label {
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--semi-color-text-2);
+}
+
+.game-box-value {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  font-size: 22px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--semi-color-text-0);
+}
+
+.game-box-value span {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--semi-color-text-2);
+}
+
+.game-box-note {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--semi-color-text-2);
+}
+
+.game-rules {
+  margin: 10px 0 0;
+  padding-left: 16px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--semi-color-text-2);
+}
+
+.game-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--semi-color-text-1);
+}
+
+.game-table th {
+  padding: 0 4px 6px;
+  font-weight: 500;
+  text-align: left;
+  color: var(--semi-color-text-2);
+}
+
+.game-table td {
+  padding: 4px;
+  border-top: 1px solid var(--semi-color-border);
+}
+
+.game-table th:last-child,
+.game-table td:last-child {
+  text-align: right;
+}
+
+.game-table tr.is-active td {
+  font-weight: 600;
+  color: var(--semi-color-primary);
+}
+
+/* 台面下方的一排控件：下注、主按钮、提示。 */
+.game-controls {
+  display: flex;
+  width: 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 12px 16px;
+  margin-top: 16px;
+}
+
+.game-bet {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px 6px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--semi-color-border);
+  color: var(--semi-color-text-1);
+  background: var(--semi-color-fill-0);
+}
+
+.game-bet-label {
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.game-bet-value {
+  min-width: 52px;
+  text-align: center;
+  font-size: 20px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--semi-color-text-0);
+}
+
+.game-bet-value small {
+  margin-left: 3px;
+  font-size: 13px;
+  color: var(--semi-color-warning);
+}
+
+.game-bet-button,
+.game-bet-quick,
+.game-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 8px;
+  color: var(--semi-color-text-0);
+  background: var(--semi-color-bg-1);
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.game-bet-button {
+  width: 32px;
+}
+
+.game-bet-quick,
+.game-chip {
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.game-bet-button:hover:not(:disabled),
+.game-bet-quick:hover:not(:disabled),
+.game-chip:hover:not(:disabled) {
+  background: var(--semi-color-fill-1);
+}
+
+.game-chip.is-active {
+  border-color: var(--semi-color-primary);
+  color: var(--semi-color-primary);
+  background: var(--semi-color-primary-light-default);
+}
+
+.game-bet-button:disabled,
+.game-bet-quick:disabled,
+.game-chip:disabled {
+  color: var(--semi-color-disabled-text);
+  cursor: not-allowed;
+}
+
+.game-bet-button:focus-visible,
+.game-bet-quick:focus-visible,
+.game-chip:focus-visible {
+  outline: 2px solid var(--semi-color-primary);
+  outline-offset: 2px;
+}
+
+/* 一组可选项(难度、倍数、档位)。 */
+.game-chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+}
+
+.game-turnstile {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+}
+
+/* 台面上方一行对局信息：计时、步数、得分。 */
+.game-hud {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px 20px;
+  width: 100%;
+  margin-bottom: 12px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--semi-color-text-2);
+}
+
+.game-hud strong {
+  margin-left: 4px;
+  font-size: 16px;
+  color: var(--semi-color-text-0);
+}
+
+@media (max-width: 960px) {
+  .game-layout {
+    grid-template-columns: minmax(0, var(--game-main-width, 620px));
+  }
+}
+
+@media (max-width: 520px) {
+  .game-bet {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .game-topbar-balance {
+    padding: 4px 10px;
   }
 }

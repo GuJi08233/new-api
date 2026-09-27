@@ -35,15 +35,10 @@ import {
 } from '@douyinfe/semi-illustrations';
 import {
   ArrowRightLeft,
-  Blocks,
-  ChartPie,
   Coins,
   ExternalLink,
   Gamepad2,
-  Network,
-  Play,
   Send,
-  Sparkles,
   Wallet,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -54,20 +49,88 @@ import {
   isEthereumUserRejected,
 } from '../../helpers/ethereumWallet';
 import { UserContext } from '../../context/User';
-import { getGameMetaMap } from '../../constants';
+import {
+  GAME_KINDS,
+  GAME_ORDER,
+  getGameKindMap,
+  getGameMetaMap,
+} from '../../constants';
 import GameCoinRecords from './GameCoinRecords';
+import { GAME_ICONS } from './registry';
+import { signed } from './common/api';
 import './games.css';
 
 const { Text } = Typography;
 
 const ILLUSTRATION_SIZE = { width: 150, height: 150 };
 const ADDRESS_PATTERN = /^0x[0-9a-fA-F]{40}$/;
-const GAME_ICONS = {
-  tetris: Blocks,
-  slots: Sparkles,
-  wheel: ChartPie,
-  plinko: Network,
-};
+
+// 游戏卡片上的今日进度，按结算方式各写各的：免费游戏看领奖次数，对战看等待中的房间与人机奖励，
+// 下注游戏看今日输赢，奖池看当前奖池。
+function gameProgress(game, t, symbol) {
+  const lines = [];
+  switch (game.kind) {
+    case 'skill':
+      lines.push(
+        game.daily_rewards > 0
+          ? t('今日奖励 {{used}} / {{limit}} 次', {
+              used: Math.min(game.rewards_today, game.daily_rewards),
+              limit: game.daily_rewards,
+            })
+          : t('暂不发放奖励'),
+      );
+      if (game.max_reward > 0 && game.daily_rewards > 0) {
+        lines.push(
+          t('每次最多 {{coins}} {{symbol}}', {
+            coins: game.max_reward,
+            symbol,
+          }),
+        );
+      }
+      break;
+    case 'pvp':
+      lines.push(
+        game.waiting_rooms > 0
+          ? t('{{count}} 个房间等待对手', { count: game.waiting_rooms })
+          : t('暂无等待中的房间'),
+      );
+      if (game.ai_enabled && game.ai_daily_rewards > 0) {
+        lines.push(
+          t('人机奖励 {{used}} / {{limit}} 次', {
+            used: Math.min(game.ai_rewards_today, game.ai_daily_rewards),
+            limit: game.ai_daily_rewards,
+          }),
+        );
+      }
+      break;
+    case 'party':
+      lines.push(
+        game.pot > 0
+          ? t('当前奖池 {{pot}} {{symbol}} · {{players}} 人', {
+              pot: game.pot,
+              players: game.players,
+              symbol,
+            })
+          : t('等待第一位玩家投入'),
+      );
+      break;
+    default:
+      if (game.free_spins > 0) {
+        lines.push(
+          t('免费剩余 {{count}} 次', {
+            count: Math.max(game.free_spins - game.free_used_today, 0),
+          }),
+        );
+      }
+      lines.push(
+        t('今日输赢 {{net}} {{symbol}}', {
+          net: signed(game.net_today),
+          symbol,
+        }),
+      );
+  }
+  return lines;
+}
 
 // 取浏览器里排名最靠前的 EVM 钱包(Rabby / MetaMask 等)，没有时提示安装。
 async function findInjectedWallet(t) {
@@ -92,6 +155,7 @@ const Games = () => {
   const [withdrawAmount, setWithdrawAmount] = useState(1);
   const [withdrawing, setWithdrawing] = useState(false);
   const [recordsVersion, setRecordsVersion] = useState(0);
+  const [kindFilter, setKindFilter] = useState('all');
 
   const loadInfo = useCallback(async () => {
     try {
@@ -123,12 +187,28 @@ const Games = () => {
   const symbol = token?.symbol || '';
   const quotaPerCoin = info?.quota_per_coin || 0;
   const withdraw = info?.withdraw;
-  const games = info?.games || [];
   const gameMetaMap = getGameMetaMap(t);
-  // 下注游戏的累计输赢不计入累计获得，单独列出；没开放下注游戏、也没玩过时不显示。
+  const kindMap = getGameKindMap(t);
+  // 只列出前端认识的游戏，按 GAME_ORDER 排列。
+  const games = (info?.games || [])
+    .filter((game) => gameMetaMap[game.key])
+    .sort((a, b) => GAME_ORDER.indexOf(a.key) - GAME_ORDER.indexOf(b.key));
+  const kinds = GAME_KINDS.filter((kind) =>
+    games.some((game) => game.kind === kind),
+  );
+  const shownGames =
+    kindFilter === 'all'
+      ? games
+      : games.filter((game) => game.kind === kindFilter);
+  // 下注、对战与奖池的累计输赢不计入累计获得，单独列出；没开放这些游戏、也没玩过时不显示。
   const wagerNet = account?.total_wager_net || 0;
   const showWagerNet =
-    wagerNet !== 0 || games.some((game) => gameMetaMap[game.key]?.wager);
+    wagerNet !== 0 || games.some((game) => game.kind !== 'skill');
+  const free = info?.free;
+  const freeEarned = Math.max(
+    free?.earned_today || 0,
+    free?.ip_earned_today || 0,
+  );
 
   const refreshAfterChange = () => {
     setRecordsVersion((version) => version + 1);
@@ -353,10 +433,18 @@ const Games = () => {
                 {showWagerNet && (
                   <div>
                     <span>{t('游戏输赢')}</span>
-                    <strong>{wagerNet > 0 ? `+${wagerNet}` : wagerNet}</strong>
+                    <strong>{signed(wagerNet)}</strong>
                   </div>
                 )}
               </div>
+              {free?.daily_limit > 0 && (
+                <div className='games-free-limit'>
+                  {t(
+                    '今日免费奖励 {{earned}} / {{limit}} {{symbol}}，所有免费游戏合计，同一 IP 下的账号共用',
+                    { earned: freeEarned, limit: free.daily_limit, symbol },
+                  )}
+                </div>
+              )}
             </div>
 
             <div className='games-card'>
@@ -526,136 +614,69 @@ const Games = () => {
           </div>
           <div className='games-section-body'>
             {games.length > 0 ? (
-              <div className='games-list'>
-                {games.map((game) => {
-                  const meta = gameMetaMap[game.key];
-                  const Icon = GAME_ICONS[game.key] || Gamepad2;
-                  // 下注游戏的今日输赢带上正负号。
-                  const net =
-                    game.earned_today > 0
-                      ? `+${game.earned_today}`
-                      : game.earned_today;
-                  return (
-                    <div key={game.key} className='games-list-card'>
-                      <span className={`games-list-cover cover-${game.key}`}>
-                        <Icon size={28} />
-                      </span>
-                      <div className='games-list-body'>
-                        <div className='games-list-title'>
-                          {meta?.name || game.key}
-                        </div>
-                        <div className='games-list-desc'>
-                          {meta?.description}
-                        </div>
-                        {game.key === 'wheel' && (
-                          <div className='games-list-meta'>
-                            <span>
-                              {/* 每日次数为 0 表示不限制；免费次数账号与同一 IP 分别计算。 */}
-                              {game.daily_spins > 0
-                                ? t('今日已转 {{plays}} / {{limit}} 次', {
-                                    plays: game.plays_today,
-                                    limit: game.daily_spins,
-                                  })
-                                : t('今日已转 {{plays}} 次', {
-                                    plays: game.plays_today,
-                                  })}
-                              {game.free_spins > 0 &&
-                                ` · ${t('免费剩余 {{count}} 次', {
-                                  count: Math.max(
-                                    Math.min(
-                                      game.free_spins - game.free_used_today,
-                                      game.free_spins - game.ip_free_used_today,
-                                    ),
-                                    0,
-                                  ),
-                                })}`}
+              <>
+                {kinds.length > 1 && (
+                  <div className='games-kind-filter'>
+                    {['all', ...kinds].map((kind) => (
+                      <button
+                        key={kind}
+                        type='button'
+                        className={
+                          kind === kindFilter
+                            ? 'game-chip is-active'
+                            : 'game-chip'
+                        }
+                        onClick={() => setKindFilter(kind)}
+                      >
+                        {kind === 'all' ? t('全部') : kindMap[kind].name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {kindFilter !== 'all' && (
+                  <div className='games-kind-desc'>
+                    {kindMap[kindFilter].description}
+                  </div>
+                )}
+                <div className='games-list'>
+                  {shownGames.map((game) => {
+                    const meta = gameMetaMap[game.key];
+                    const Icon = GAME_ICONS[game.key] || Gamepad2;
+                    return (
+                      <button
+                        type='button'
+                        key={game.key}
+                        className='games-list-card'
+                        onClick={() => navigate(`/games/${game.key}`)}
+                      >
+                        <span className={`games-list-cover cover-${game.key}`}>
+                          <Icon size={28} />
+                        </span>
+                        <span className='games-list-body'>
+                          <span className='games-list-head'>
+                            <span className='games-list-title'>
+                              {meta.name}
                             </span>
-                            <span>
-                              {t('今日输赢 {{net}} {{symbol}}', {
-                                net,
-                                symbol,
-                              })}
+                            <span
+                              className={`games-kind-tag kind-${game.kind}`}
+                            >
+                              {kindMap[game.kind]?.name}
                             </span>
-                          </div>
-                        )}
-                        {game.key === 'plinko' && (
-                          <div className='games-list-meta'>
-                            <span>
-                              {t('今日已投 {{plays}} 颗', {
-                                plays: (game.tiers || []).reduce(
-                                  (sum, tier) => sum + tier.plays_today,
-                                  0,
-                                ),
-                              })}
-                            </span>
-                            <span>
-                              {t('今日输赢 {{net}} {{symbol}}', {
-                                net,
-                                symbol,
-                              })}
-                            </span>
-                          </div>
-                        )}
-                        {game.key !== 'wheel' &&
-                          game.key !== 'plinko' &&
-                          meta?.wager && (
-                            <div className='games-list-meta'>
-                              <span>
-                                {/* 每日净赢上限为 0 表示不限制。 */}
-                                {game.daily_reward_limit > 0
-                                  ? t(
-                                      '今日输赢 {{net}} · 净赢上限 {{limit}} {{symbol}}',
-                                      {
-                                        net,
-                                        limit: game.daily_reward_limit,
-                                        symbol,
-                                      },
-                                    )
-                                  : t('今日输赢 {{net}} {{symbol}}', {
-                                      net,
-                                      symbol,
-                                    })}
-                              </span>
-                              <span>
-                                {t('单次最高派彩 {{win}}', {
-                                  win: Number(game.best_score).toLocaleString(),
-                                })}
-                              </span>
-                            </div>
-                          )}
-                        {!meta?.wager && (
-                          <div className='games-list-meta'>
-                            <span>
-                              {game.daily_reward_limit > 0
-                                ? t(
-                                    '今日奖励 {{earned}} / {{limit}} {{symbol}}',
-                                    {
-                                      earned: game.earned_today,
-                                      limit: game.daily_reward_limit,
-                                      symbol,
-                                    },
-                                  )
-                                : t('这个游戏暂不发放奖励')}
-                            </span>
-                            <span>
-                              {t('最高分 {{score}}', {
-                                score: Number(game.best_score).toLocaleString(),
-                              })}
-                            </span>
-                          </div>
-                        )}
-                        <Button
-                          theme='solid'
-                          icon={<Play size={14} />}
-                          onClick={() => navigate(`/games/${game.key}`)}
-                        >
-                          {t('开始游戏')}
-                        </Button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+                          </span>
+                          <span className='games-list-desc'>
+                            {meta.description}
+                          </span>
+                          <span className='games-list-meta'>
+                            {gameProgress(game, t, symbol).map((line) => (
+                              <span key={line}>{line}</span>
+                            ))}
+                          </span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
             ) : (
               <Empty
                 image={<IllustrationConstruction style={ILLUSTRATION_SIZE} />}

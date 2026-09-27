@@ -27,6 +27,7 @@ import {
 import { ArrowLeft } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { API, showError } from '../../../helpers';
+import { signed } from '../common/api';
 import '../games.css';
 import './plinko.css';
 
@@ -210,16 +211,6 @@ function animateBalls(stage, onLand) {
   stage.frame = requestAnimationFrame(step);
 }
 
-// 更新某一档的进度。
-function patchTier(rule, stake, patch) {
-  return {
-    ...rule,
-    tiers: rule.tiers.map((tier) =>
-      tier.stake === stake ? { ...tier, ...patch } : tier,
-    ),
-  };
-}
-
 const Plinko = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -250,31 +241,22 @@ const Plinko = () => {
   const loadInfo = useCallback(
     async (refresh = false) => {
       try {
-        const res = await API.get('/api/game/self');
+        const res = await API.get('/api/game/plinko');
         if (!res.data.success) {
-          setUnavailable(res.data.message);
+          if (!refresh) setUnavailable(res.data.message);
           return;
         }
-        const plinko = (res.data.data.games || []).find(
-          (game) => game.key === 'plinko',
-        );
-        if (!plinko) {
-          setUnavailable(t('Plinko 暂未开放'));
-          return;
-        }
+        const plinko = res.data.data;
         setRule(plinko);
         // 默认选第一个开放的档。
         setStake(
           (previous) =>
             previous ??
-            (
-              plinko.tiers.find((tier) => tier.daily_drops > 0) ||
-              plinko.tiers[0]
-            ).stake,
+            (plinko.tiers.find((tier) => tier.open) || plinko.tiers[0]).stake,
         );
-        setSymbol(res.data.data.token?.symbol || '');
-        setBalance(res.data.data.account?.balance || 0);
-        setShownBalance(res.data.data.account?.balance || 0);
+        setSymbol(plinko.symbol || '');
+        setBalance(plinko.balance || 0);
+        setShownBalance(plinko.balance || 0);
       } catch (error) {
         if (refresh) return;
         // 被风控封禁的 IP 收到 403，显示服务端给出的原因。
@@ -308,15 +290,17 @@ const Plinko = () => {
   const landBall = useCallback((ball) => {
     const { result, tier } = ball;
     setShownBalance(result.balance);
-    setRule((previous) =>
-      patchTier(previous, tier.stake, { earned_today: result.earned_today }),
-    );
+    setRule((previous) => ({
+      ...previous,
+      net_today: result.net_today,
+      plays_today: result.plays_today,
+    }));
     setOutcome({ result, tier });
     setHistory((previous) =>
       [
         {
           id: ball.id,
-          label: payoutLabel(tier, result.payout),
+          label: payoutLabel(tier, result.win),
           slot: result.slot,
         },
         ...previous,
@@ -333,12 +317,11 @@ const Plinko = () => {
   }, []);
 
   const tier = rule?.tiers.find((item) => item.stake === stake);
-  const playsLeft = tier ? Math.max(tier.daily_drops - tier.plays_today, 0) : 0;
   const canDrop =
     !!tier &&
+    tier.open &&
     !requesting &&
     flying < MAX_FLYING &&
-    playsLeft > 0 &&
     balance >= tier.cost;
 
   const drop = useCallback(async () => {
@@ -382,14 +365,8 @@ const Plinko = () => {
       return;
     }
     const { result } = response;
-    // 次数和能不能再投以服务端为准，余额的显示等球落下再更新。
+    // 能不能再投以服务端的余额为准，余额的显示等球落下再更新。
     setBalance(result.balance);
-    setRule((previous) =>
-      patchTier(previous, result.stake, {
-        plays_today: result.plays_today,
-        daily_drops: result.daily_drops,
-      }),
-    );
     setOutcome((previous) => (previous?.error ? null : previous));
     setFlying((count) => count + 1);
     const ball = {
@@ -478,10 +455,6 @@ const Plinko = () => {
         0,
       ),
     }));
-  const earnedToday = rule.tiers.reduce(
-    (sum, item) => sum + item.earned_today,
-    0,
-  );
   const busy = requesting || flying > 0;
 
   const result = outcome?.result;
@@ -491,11 +464,11 @@ const Plinko = () => {
     message = outcome.error;
     messageClass = 'is-error';
   } else if (result) {
-    const net = result.payout - outcome.tier.cost;
+    const net = result.win - outcome.tier.cost;
     if (!outcome.tier.delta) {
       message = t('{{multiplier}} 倍，派彩 {{payout}} {{symbol}}', {
-        multiplier: Number((result.payout / outcome.tier.stake).toFixed(2)),
-        payout: result.payout,
+        multiplier: Number((result.win / outcome.tier.stake).toFixed(2)),
+        payout: result.win,
         symbol,
       });
     } else if (net > 0) {
@@ -505,7 +478,7 @@ const Plinko = () => {
     }
     if (net > 0) {
       messageClass =
-        result.payout >= BIG_WIN_MULTIPLIER * outcome.tier.cost
+        result.win >= BIG_WIN_MULTIPLIER * outcome.tier.cost
           ? 'is-win is-big-win'
           : 'is-win';
     } else if (net < 0) {
@@ -515,10 +488,8 @@ const Plinko = () => {
   const bigWin = messageClass.includes('is-big-win');
 
   let hint = '';
-  if (tier.daily_drops === 0) {
+  if (!tier.open) {
     hint = t('这一档暂未开放');
-  } else if (playsLeft === 0) {
-    hint = t('今天这一档的次数已经用完，明天再来');
   } else if (balance < tier.cost) {
     hint = tier.delta
       ? t('一颗球最多扣 {{cost}} 个游戏币，余额至少要有 {{cost}} {{symbol}}', {
@@ -528,7 +499,7 @@ const Plinko = () => {
       : t('游戏币余额不足');
   }
 
-  const earned = earnedToday > 0 ? `+${earnedToday}` : earnedToday;
+  const earned = signed(rule.net_today);
   const averageLoss = Number((tier.cost * (1 - tier.payback)).toFixed(2));
 
   return (
@@ -558,7 +529,7 @@ const Plinko = () => {
                       ? 'plinko-tier is-active'
                       : 'plinko-tier'
                   }
-                  disabled={busy || item.daily_drops === 0}
+                  disabled={busy || !item.open}
                   aria-pressed={item.stake === stake}
                   onClick={() => setStake(item.stake)}
                 >
@@ -566,13 +537,10 @@ const Plinko = () => {
                     {item.stake} {symbol}
                   </span>
                   <span className='plinko-tier-note'>
-                    {item.daily_drops > 0
-                      ? t('今日剩 {{count}} 颗', {
-                          count: Math.max(
-                            item.daily_drops - item.plays_today,
-                            0,
-                          ),
-                        })
+                    {item.open
+                      ? item.delta
+                        ? t('直接加减')
+                        : t('按倍数派彩')
                       : t('未开放')}
                   </span>
                 </button>
@@ -671,10 +639,7 @@ const Plinko = () => {
                   : t('投 {{stake}} {{symbol}}', { stake: tier.stake, symbol })}
               </button>
               <div className='games-stage-counter'>
-                {t('今日已投 {{plays}} / {{limit}} 颗', {
-                  plays: tier.plays_today,
-                  limit: tier.daily_drops,
-                })}
+                {t('今日已投 {{plays}} 颗', { plays: rule.plays_today || 0 })}
               </div>
               {hint && <div className='games-stage-hint'>{hint}</div>}
             </div>
@@ -694,7 +659,11 @@ const Plinko = () => {
                 {earned}
                 <span>{symbol}</span>
               </div>
-              <div className='plinko-box-note'>{t('三档合计')}</div>
+              <div className='plinko-box-note'>
+                {t('三档合计 · 单局最高派彩 {{best}}', {
+                  best: rule.best_win || 0,
+                })}
+              </div>
               {history.length > 0 && (
                 <div className='plinko-history'>
                   {history.map((item) => (
@@ -771,11 +740,7 @@ const Plinko = () => {
                         rate: Number((tier.payback * 100).toFixed(2)),
                       })}
                 </li>
-                <li>
-                  {t('这一档每人每天最多投 {{limit}} 颗，三档分别计算', {
-                    limit: tier.daily_drops,
-                  })}
-                </li>
+                <li>{t('不限次数，余额够就能一直投')}</li>
               </ul>
             </div>
           </div>

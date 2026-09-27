@@ -21,6 +21,7 @@ import React from 'react';
 import { Tabs, TabPane } from '@douyinfe/semi-ui';
 import { useTranslation } from 'react-i18next';
 import GameAdminSettings from './GameAdminSettings';
+import GameAdminRules from './GameAdminRules';
 import GameAdminWithdrawals from './GameAdminWithdrawals';
 import GameAdminAccounts from './GameAdminAccounts';
 
@@ -33,6 +34,11 @@ const GameAdmin = () => {
         <TabPane tab={t('基础设置')} itemKey='settings'>
           <div className='mt-4'>
             <GameAdminSettings />
+          </div>
+        </TabPane>
+        <TabPane tab={t('游戏规则')} itemKey='rules'>
+          <div className='mt-4'>
+            <GameAdminRules />
           </div>
         </TabPane>
         <TabPane tab={t('提现记录')} itemKey='withdrawals'>

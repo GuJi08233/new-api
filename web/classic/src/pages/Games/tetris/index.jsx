@@ -57,6 +57,11 @@ import {
   TetrisGame,
   WIDTH,
 } from './engine';
+import {
+  rewardsLeft,
+  skillResultMessage,
+  skillRuleSummary,
+} from '../common/skill';
 import '../games.css';
 import './tetris.css';
 
@@ -321,20 +326,14 @@ const Tetris = () => {
   useEffect(() => {
     const load = async () => {
       try {
-        const res = await API.get('/api/game/self');
+        const res = await API.get('/api/game/tetris');
         if (!res.data.success) {
           setUnavailable(res.data.message);
           return;
         }
-        const tetris = (res.data.data.games || []).find(
-          (game) => game.key === 'tetris',
-        );
-        if (!tetris) {
-          setUnavailable(t('俄罗斯方块暂未开放'));
-          return;
-        }
-        setRule(tetris);
-        setSymbol(res.data.data.token?.symbol || '');
+        // rule 是游戏页信息：领奖规则 rule、今日进度 progress、最高分 best_score 等。
+        setRule(res.data.data);
+        setSymbol(res.data.data.symbol || '');
         setPlayTurnstile(res.data.data.play_turnstile || { required: false });
       } catch (error) {
         // 被风控封禁的 IP 收到 403，显示服务端给出的原因。
@@ -383,16 +382,17 @@ const Tetris = () => {
       const data = res.data.data;
       setResult({
         ...data,
+        lines: data.detail?.lines || 0,
+        level: data.detail?.level || 1,
         over: run.game.over,
         localScore: run.game.score,
         newRecord: data.score > 0 && data.score > run.previousBest,
       });
       setRule((previous) => ({
         ...previous,
-        daily_reward_limit: data.daily_reward_limit,
-        score_per_coin: data.score_per_coin,
-        min_seconds_per_coin: data.min_seconds_per_coin,
-        earned_today: data.earned_today,
+        rule: data.rule,
+        progress: data.progress,
+        free_daily_limit: data.free_daily_limit,
         best_score: data.best_score,
       }));
       setPhase('result');
@@ -649,51 +649,16 @@ const Tetris = () => {
     );
   }
 
-  const limit = rule.daily_reward_limit;
-  const earned = rule.earned_today;
-  let ruleText = t('这个游戏暂不发放奖励');
-  if (limit > 0 && rule.min_seconds_per_coin > 0) {
-    ruleText = t(
-      '单局每满 {{score}} 分得 1 个游戏币，每个至少需要玩 {{seconds}} 秒，每天最多 {{limit}} 个',
-      {
-        score: formatNumber(rule.score_per_coin),
-        seconds: rule.min_seconds_per_coin,
-        limit,
-      },
-    );
-  } else if (limit > 0) {
-    ruleText = t('单局每满 {{score}} 分得 1 个游戏币，每天最多 {{limit}} 个', {
-      score: formatNumber(rule.score_per_coin),
-      limit,
-    });
+  const ruleText = skillRuleSummary(rule, t, symbol, t('分数'));
+  const left = rewardsLeft(rule.rule, rule.progress);
+  let leftText = t('今天还能领 {{left}} 次', { left });
+  if (rule.rule?.daily_rewards === 0) {
+    leftText = t('这个游戏暂不发放奖励');
+  } else if (left === 0) {
+    leftText = t('今天的领奖次数已用完，还可以继续玩');
   }
-
-  // 实际发放少于分数应得的数量时，服务端会返回是哪条规则限制了奖励。
-  const limitMessages = {
-    speed: t('操作速度超出正常范围，本局不发放奖励'),
-    time: t('奖励受本局时长限制：每个游戏币至少需要玩 {{seconds}} 秒', {
-      seconds: rule.min_seconds_per_coin,
-    }),
-    daily: t('今日奖励已领满，明天再来'),
-    ip: t('当前 IP 今日的奖励已领满，明天再来'),
-  };
-  let rewardText = '';
-  let rewardNote = '';
-  if (result && !result.rejected) {
-    const limitMessage = limitMessages[result.limited_by] || '';
-    if (result.reward > 0) {
-      rewardText = t('获得 {{reward}} 个游戏币', { reward: result.reward });
-      rewardNote = limitMessage;
-    } else if (limit <= 0) {
-      rewardText = t('这个游戏暂不发放奖励');
-    } else if (limitMessage) {
-      rewardText = limitMessage;
-    } else {
-      rewardText = t('单局每满 {{score}} 分得 1 个游戏币', {
-        score: formatNumber(rule.score_per_coin),
-      });
-    }
-  }
+  const rewardMessage =
+    result && !result.rejected ? skillResultMessage(result, t, symbol) : null;
 
   const waitingTurnstile = playTurnstile.required && !turnstileToken;
   let turnstileHint = '';
@@ -796,10 +761,10 @@ const Tetris = () => {
                   : 'tetris-result-reward'
               }
             >
-              {rewardText}
+              {rewardMessage.text}
             </div>
-            {rewardNote && (
-              <div className='tetris-overlay-note'>{rewardNote}</div>
+            {rewardMessage.note && (
+              <div className='tetris-overlay-note'>{rewardMessage.note}</div>
             )}
             {result.score !== result.localScore && (
               <div className='tetris-overlay-note'>
@@ -888,10 +853,18 @@ const Tetris = () => {
             <div className='tetris-box'>
               <div className='tetris-box-label'>{t('今日奖励')}</div>
               <div className='tetris-reward-value'>
-                {earned} / {limit}
+                {rule.progress?.earned_today || 0}
                 <span>{symbol}</span>
               </div>
+              <div className='tetris-reward-rule'>{leftText}</div>
               <div className='tetris-reward-rule'>{ruleText}</div>
+              {rule.rule?.min_seconds_per_coin > 0 && (
+                <div className='tetris-reward-rule'>
+                  {t('每个游戏币至少要玩 {{seconds}} 秒', {
+                    seconds: rule.rule.min_seconds_per_coin,
+                  })}
+                </div>
+              )}
             </div>
             {phase === 'playing' && (
               <div className='tetris-actions'>
