@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -15,10 +16,19 @@ import (
 
 // GameSetting 是游戏中心的全部可配置项。游戏币按 1 币 = 1 美元额度兑换主钱包，
 // 这个比例是产品规则而不是运营参数，所以不在这里配置。
+//
+// 游戏按结算方式分三类，奖励规则各不相同：
+//   - 免费游戏(技巧游戏、人机对战、大转盘的免费旋转)不花游戏币、只会赚，每人每个游戏每天只有前几次达标能领奖，
+//     同一 IP 下所有账号合计也只有这么多次，另可设所有免费奖励每天的合计上限；
+//   - 下注游戏花游戏币下注、会亏，理论返还率低于 100%，不限次数、不设每日上限，只限制单次下注；
+//   - 对战与奖池是玩家之间的输赢，平台按比例抽成，同样不限次数。
 type GameSetting struct {
 	Enabled bool `json:"enabled"` // 游戏中心总开关，关闭时页面入口与用户接口一并下线
-	// PlayTurnstileEnabled 要求每局开始前通过 Turnstile 人机验证，只在站点启用了 Turnstile 时生效。
+	// PlayTurnstileEnabled 要求每次领免费奖励的对局开始前通过 Turnstile 人机验证，只在站点启用了 Turnstile 时生效。
 	PlayTurnstileEnabled bool `json:"play_turnstile_enabled"`
+	// FreeDailyLimit 是每人每天从所有免费游戏合计最多获得的游戏币，同一 IP 下所有账号合计也不超过它；
+	// 0 表示不限制，只按各游戏的每日领奖次数计算。
+	FreeDailyLimit int `json:"free_daily_limit"`
 
 	// 链上提现。每日上限按全站当日提现总量计算，保护热钱包里的周转余额。
 	WithdrawEnabled    bool `json:"withdraw_enabled"`
@@ -35,73 +45,119 @@ type GameSetting struct {
 	ExplorerUrl   string `json:"explorer_url"`
 	Confirmations int    `json:"confirmations"`
 
-	// 每个游戏一份开关与奖励规则。
-	Tetris GameRule   `json:"tetris"`
-	Slots  SlotsRule  `json:"slots"`
-	Wheel  WheelRule  `json:"wheel"`
-	Plinko PlinkoRule `json:"plinko"`
+	// 每个游戏一份规则，字段名(json 标签)就是游戏标识，也是 gameRuleSpecs 的键。
+	Tetris      SkillRule `json:"tetris"`
+	Game2048    SkillRule `json:"2048"`
+	Snake       SkillRule `json:"snake"`
+	Flappy      SkillRule `json:"flappy"`
+	Minesweeper SkillRule `json:"minesweeper"`
+	Sudoku      SkillRule `json:"sudoku"`
+	Memory      SkillRule `json:"memory"`
+	Puzzle15    SkillRule `json:"puzzle15"`
+
+	Slots     WagerRule `json:"slots"`
+	Wheel     WheelRule `json:"wheel"`
+	Plinko    WagerRule `json:"plinko"`
+	Dice      WagerRule `json:"dice"`
+	Roulette  WagerRule `json:"roulette"`
+	Blackjack WagerRule `json:"blackjack"`
+	Mines     WagerRule `json:"mines"`
+	Hilo      WagerRule `json:"hilo"`
+	Crash     WagerRule `json:"crash"`
+	Scratch   WagerRule `json:"scratch"`
+
+	Gomoku   PvpRule `json:"gomoku"`
+	Connect4 PvpRule `json:"connect4"`
+	Reversi  PvpRule `json:"reversi"`
+	Xiangqi  PvpRule `json:"xiangqi"`
+	Rps      PvpRule `json:"rps"`
+
+	Jackpot JackpotRule `json:"jackpot"`
 }
 
-// GameRule 是单个游戏的开关与奖励规则。奖励按单局成绩计算，再受每人每日上限约束；
-// 上限按游戏分别计算，一个游戏领满了不影响其他游戏。
-type GameRule struct {
+// RewardTier 是免费游戏的一档奖励：单局成绩达到 Score 奖励 Coins 个游戏币。成绩的含义由各游戏决定，
+// 例如俄罗斯方块是分数，扫雷、人机对战是赢下的难度(1、2、3)。
+type RewardTier struct {
+	Score int `json:"score"`
+	Coins int `json:"coins"`
+}
+
+// SkillRule 是免费游戏的开关与奖励规则。玩家每天想玩多少局都可以，但只有成绩达到某一档的对局才发奖，发的是达到的最高一档；
+// 每人每天最多领 DailyRewards 次，同一 IP 下所有账号合计也只有这么多次，领满之后照常可玩、不再发奖。
+type SkillRule struct {
 	Enabled bool `json:"enabled"`
-	// DailyRewardLimit 是每人每天最多从这个游戏获得的游戏币，0 表示照常可玩但不发奖励。
-	DailyRewardLimit int `json:"daily_reward_limit"`
-	// ScorePerCoin 是单局每得这么多分奖励 1 个游戏币。
-	ScorePerCoin int `json:"score_per_coin"`
-	// MinSecondsPerCoin 是每个游戏币至少需要的游戏时长(秒)，0 表示不限制。脚本几秒就能刷够分数，
+	// DailyRewards 是每人每天最多领几次奖励，0 表示照常可玩但不发奖励。
+	DailyRewards int `json:"daily_rewards"`
+	// Tiers 按成绩从低到高排列，成绩与奖励都逐档递增。
+	Tiers []RewardTier `json:"tiers"`
+	// MinSecondsPerCoin 是每个游戏币至少需要的游戏时长(秒)，0 表示不限制。脚本几秒就能打出好成绩，
 	// 奖励还要按实际玩了多久来算。
 	MinSecondsPerCoin int `json:"min_seconds_per_coin"`
 }
 
-// SlotsRule 是老虎机的开关与下注规则。老虎机用游戏币下注，两个阶段的赔付表固定在 pkg/slots：每个玩家累计下注
-// 满 EvenStageWager 之前理论返还率 100%，之后约 80%，玩家长期是输的。默认不限制每日输赢；设了每日上限时按净赢
-// (派彩减去下注)计算，同一 IP 下所有账号合计也不超过它，到上限后当天不能再下注。
-type SlotsRule struct {
-	Enabled bool `json:"enabled"`
-	// EvenStageWager 是均衡阶段的累计下注额：玩家累计下注满这么多游戏币之前按均衡赔付表，之后按常规赔付表；
-	// 0 表示一开始就按常规赔付表。
-	EvenStageWager int `json:"even_stage_wager"`
-	// DailyRewardLimit 是每人每天最多从老虎机净赢的游戏币，0 表示不限制。
-	DailyRewardLimit int `json:"daily_reward_limit"`
-	// MaxBet 是每次旋转最多下注的游戏币。
-	MaxBet int `json:"max_bet"`
+// Reward 返回单局成绩应得的游戏币：达到的最高一档的奖励，一档都没达到时为 0。还没按游戏时长与每日次数扣减。
+func (r SkillRule) Reward(score int) int {
+	coins := 0
+	for _, tier := range r.Tiers {
+		if score >= tier.Score {
+			coins = tier.Coins
+		}
+	}
+	return coins
 }
 
-// WheelRule 是大转盘的开关与次数规则。每人每天前 FreeSpins 次免费，同一 IP 下所有账号合计也只有这么多次；之后每次花
-// SpinCost 个游戏币。每人每天最多转 DailySpins 次，含免费次数。格子的倍数与权重固定在 pkg/wheel，派彩按每次花费的倍数计算，
-// 理论返还率 80%，玩家长期是输的。
+// MaxReward 返回单局最多能领的游戏币，即最高一档的奖励。
+func (r SkillRule) MaxReward() int {
+	if len(r.Tiers) == 0 {
+		return 0
+	}
+	return r.Tiers[len(r.Tiers)-1].Coins
+}
+
+// WagerRule 是下注游戏的开关与下注规则。赔付表或赔率公式固定在各游戏的 pkg 包里，理论返还率低于 100%，
+// 玩家长期是输的，所以不限次数、不设每日上限，只限制单次下注。
+type WagerRule struct {
+	Enabled bool `json:"enabled"`
+	// MaxBet 是单次最多下注的游戏币。分档投入的游戏(Plinko、刮刮乐)只能从固定的几档里选，MaxBet 表示开放到哪一档。
+	MaxBet int `json:"max_bet"`
+	// RtpPercent 是按公式计算赔率的游戏(骰子、挖宝、高低牌、火箭)的理论返还率(百分比)，其他游戏不使用，为 0。
+	RtpPercent int `json:"rtp_percent,omitempty"`
+}
+
+// WheelRule 是大转盘的开关与次数规则。每人每天前 FreeSpins 次免费，是免费奖励：同一 IP 下所有账号合计也只有这么多次，
+// 奖品计入免费奖励的合计上限。之后每次花 SpinCost 个游戏币，按下注游戏结算，不限次数。
 type WheelRule struct {
 	Enabled bool `json:"enabled"`
-	// FreeSpins 是每人每天的免费次数，同一 IP 下所有账号合计也不超过它；0 表示没有免费次数。
+	// FreeSpins 是每人每天的免费次数，0 表示没有免费次数。
 	FreeSpins int `json:"free_spins"`
-	// DailySpins 是每人每天最多旋转的次数，含免费次数；0 表示不限制。
-	DailySpins int `json:"daily_spins"`
-	// SpinCost 是免费次数用完后每次旋转花费的游戏币。免费旋转不花币，奖品同样按它的倍数计算。
+	// SpinCost 是付费旋转每次花费的游戏币。免费旋转不花币，奖品同样按它的倍数计算。
 	SpinCost int `json:"spin_cost"`
 }
 
-// PlinkoRule 是 Plinko 的开关与次数规则。每颗球从 1、10、100 个游戏币三档里选一档投，三档的格子与派彩固定在 pkg/plinko，
-// 理论返还率约 80%，玩家长期是输的。三档分别限制每人每天投几颗球，0 表示这一档不开放。
-type PlinkoRule struct {
-	Enabled       bool `json:"enabled"`
-	DailyDrops1   int  `json:"daily_drops_1"`
-	DailyDrops10  int  `json:"daily_drops_10"`
-	DailyDrops100 int  `json:"daily_drops_100"`
+// PvpRule 是对战游戏的开关与规则。两位玩家押同样多的游戏币，赢家拿走两份押注，平台从中抽走 RakePercent%(向下取整)，
+// 平局各自退回；押注为 0 的是友谊赛。同一 IP 下的账号不能互相押注对战。Ai 是和服务端 AI 对战的领奖规则。
+type PvpRule struct {
+	Enabled bool `json:"enabled"`
+	// MaxStake 是每人最多押注的游戏币，0 表示只能开友谊赛。
+	MaxStake int `json:"max_stake"`
+	// RakePercent 是押注对局里平台从奖池抽走的百分比，按奖池向下取整；平局不抽成。
+	RakePercent int `json:"rake_percent"`
+	// MoveSeconds 是每一步的限时(秒)，超时判负。
+	MoveSeconds int `json:"move_seconds"`
+	// Ai 是人机对战的开关与领奖规则，成绩是赢下的 AI 难度：1 简单、2 普通、3 困难，输了为 0。
+	Ai SkillRule `json:"ai"`
 }
 
-// DailyDrops 返回挡位为 stake 的一档每人每天最多投几颗球，0 表示这一档不开放；stake 不是三档之一时同样为 0。
-func (r PlinkoRule) DailyDrops(stake int) int {
-	switch stake {
-	case 1:
-		return r.DailyDrops1
-	case 10:
-		return r.DailyDrops10
-	case 100:
-		return r.DailyDrops100
-	}
-	return 0
+// JackpotRule 是夺宝奖池的规则。玩家往当前一轮的奖池里投游戏币，第二位玩家投入后开始倒计时，到点按投入比例抽出一位赢家
+// 拿走奖池，平台从中抽走 RakePercent%(向下取整)。
+type JackpotRule struct {
+	Enabled bool `json:"enabled"`
+	// MaxBet 是每人每轮最多投入的游戏币。
+	MaxBet int `json:"max_bet"`
+	// RoundSeconds 是第二位玩家投入后到开奖的秒数。
+	RoundSeconds int `json:"round_seconds"`
+	// RakePercent 是平台从奖池抽走的百分比，按奖池向下取整。
+	RakePercent int `json:"rake_percent"`
 }
 
 // GameHotWalletPrivateKeyOption 是管理员在游戏管理页填写的热钱包私钥所在的选项键。私钥不放进
@@ -119,14 +175,89 @@ const (
 	GameMaxConfirmations    = 64
 	// 一局最长一小时，每个游戏币要求的时长再长就永远拿不到奖励了。
 	GameMaxSecondsPerCoin = 3600
-	// 老虎机单次下注的上限。派彩最多是下注的 50 倍，下注再大也远在 2^53 之内。
-	GameMaxSlotsBet = 1000
-	// 大转盘每次花费与每天次数的上限。派彩最多是花费的 50 倍，同样远在 2^53 之内。
-	GameMaxWheelSpinCost   = 100
-	GameMaxWheelDailySpins = 100
-	// Plinko 每一档每人每天最多投的球数上限。
-	GameMaxPlinkoDailyDrops = 1000
+	// 免费游戏每天最多的领奖次数、奖励档数与单档奖励。
+	GameMaxDailyRewards = 100
+	GameMaxRewardTiers  = 6
+	GameMaxTierCoins    = 100
+	// 按公式计算赔率的下注游戏，理论返还率可以配置的范围(百分比)。必须低于 100，下注游戏不能成为提款机。
+	GameMinRtpPercent = 50
+	GameMaxRtpPercent = 99
+	// 大转盘每次花费与每天免费次数的上限。派彩最多是花费的 50 倍，远在 2^53 之内。
+	GameMaxWheelSpinCost  = 100
+	GameMaxWheelFreeSpins = 100
+	// 对战押注、抽成与每步限时的范围。
+	GameMaxPvpStake       = 10000
+	GameMaxRakePercent    = 20
+	GameMinMoveSeconds    = 10
+	GameMaxMoveSeconds    = 600
+	GameMaxJackpotBet     = 10000
+	GameMinJackpotSeconds = 15
+	GameMaxJackpotSeconds = 600
 )
+
+// 游戏的结算方式，决定配置项的规则类型和管理页怎么编辑。
+const (
+	GameKindSkill = "skill" // 免费游戏：按成绩领奖，限制每日次数
+	GameKindWager = "wager" // 下注游戏：不限次数，限制单次下注
+	GameKindPvp   = "pvp"   // 对战：玩家之间押注，附带人机对战
+	GameKindParty = "party" // 多人奖池
+)
+
+// gameRuleSpec 是一个游戏的规则类型与取值范围。
+type gameRuleSpec struct {
+	Kind string
+	// MaxTierScore 是免费游戏奖励档位的成绩上限，难度类游戏是难度编号的上限；0 表示只要求成绩为正。
+	MaxTierScore int
+	// MinBet、MaxBet 是下注游戏单次最多下注这一项的取值范围；BetSteps 不为空时只能从这几档里选。
+	MinBet   int
+	MaxBet   int
+	BetSteps []int
+	// Rtp 表示赔率按返还率公式计算，返还率可以配置。
+	Rtp bool
+	// Ai 表示对战游戏支持人机对战。
+	Ai bool
+}
+
+// gameRuleSpecs 是所有游戏的规则类型，键是游戏标识，与 GameSetting 的字段名一致。
+var gameRuleSpecs = map[string]gameRuleSpec{
+	"tetris":      {Kind: GameKindSkill},
+	"2048":        {Kind: GameKindSkill},
+	"snake":       {Kind: GameKindSkill},
+	"flappy":      {Kind: GameKindSkill},
+	"minesweeper": {Kind: GameKindSkill, MaxTierScore: 3},
+	"sudoku":      {Kind: GameKindSkill, MaxTierScore: 3},
+	"memory":      {Kind: GameKindSkill, MaxTierScore: 3},
+	"puzzle15":    {Kind: GameKindSkill, MaxTierScore: 3},
+
+	"slots":     {Kind: GameKindWager, MinBet: 1, MaxBet: 1000},
+	"wheel":     {Kind: GameKindWager},
+	"plinko":    {Kind: GameKindWager, BetSteps: []int{1, 10, 100}},
+	"dice":      {Kind: GameKindWager, MinBet: 1, MaxBet: 1000, Rtp: true},
+	"roulette":  {Kind: GameKindWager, MinBet: 1, MaxBet: 1000},
+	"blackjack": {Kind: GameKindWager, MinBet: 2, MaxBet: 1000},
+	"mines":     {Kind: GameKindWager, MinBet: 1, MaxBet: 1000, Rtp: true},
+	"hilo":      {Kind: GameKindWager, MinBet: 1, MaxBet: 1000, Rtp: true},
+	"crash":     {Kind: GameKindWager, MinBet: 1, MaxBet: 1000, Rtp: true},
+	"scratch":   {Kind: GameKindWager, BetSteps: []int{1, 5, 20}},
+
+	"gomoku":   {Kind: GameKindPvp, Ai: true},
+	"connect4": {Kind: GameKindPvp, Ai: true},
+	"reversi":  {Kind: GameKindPvp, Ai: true},
+	"xiangqi":  {Kind: GameKindPvp, Ai: true},
+	"rps":      {Kind: GameKindPvp},
+
+	"jackpot": {Kind: GameKindParty},
+}
+
+// GameKind 返回游戏的结算方式，未知的游戏返回空字符串。
+func GameKind(game string) string {
+	return gameRuleSpecs[game].Kind
+}
+
+// GameBetSteps 返回分档投入的游戏可选的几档，其他游戏返回 nil。
+func GameBetSteps(game string) []int {
+	return slices.Clone(gameRuleSpecs[game].BetSteps)
+}
 
 // ValidateGameOption 校验单个游戏中心配置项，非法值在落库前拒绝。
 // 游戏币数量与 quota 共用 2^53 边界：它们都会以 JSON 数字交给前端，还会按 1:1 美元换成额度。
@@ -144,10 +275,18 @@ func ValidateGameOption(key string, value string) error {
 	}
 
 	field := strings.TrimPrefix(key, GameSettingPrefix)
+	if spec, ok := gameRuleSpecs[field]; ok {
+		return validateGameRule(field, spec, value)
+	}
 	switch field {
 	case "enabled", "withdraw_enabled", "play_turnstile_enabled":
 		if _, err := strconv.ParseBool(value); err != nil {
 			return fmt.Errorf("%s 必须是 true 或 false", field)
+		}
+	case "free_daily_limit":
+		amount, err := strconv.Atoi(value)
+		if err != nil || amount < 0 || amount >= common.MaxQuota {
+			return fmt.Errorf("免费奖励每日合计上限必须是非负整数")
 		}
 	case "withdraw_daily_limit", "withdraw_min_amount", "withdraw_max_amount":
 		amount, err := strconv.Atoi(value)
@@ -182,70 +321,119 @@ func ValidateGameOption(key string, value string) error {
 		if err != nil || confirmations < 1 || confirmations > GameMaxConfirmations {
 			return fmt.Errorf("确认数必须为 1 到 %d", GameMaxConfirmations)
 		}
-	case "tetris":
-		// 游戏规则整份以 JSON 保存，缺字段按零值校验：管理端总是提交完整的规则。
-		var rule GameRule
-		if err := common.UnmarshalJsonStr(value, &rule); err != nil {
-			return fmt.Errorf("%s 的游戏规则格式无效", field)
-		}
-		if rule.DailyRewardLimit < 0 || rule.DailyRewardLimit >= common.MaxQuota {
-			return fmt.Errorf("%s 的每日奖励上限必须是非负整数", field)
-		}
-		if rule.ScorePerCoin < 1 || rule.ScorePerCoin >= common.MaxQuota {
-			return fmt.Errorf("%s 的每个游戏币所需分数必须是正整数", field)
-		}
-		if rule.MinSecondsPerCoin < 0 || rule.MinSecondsPerCoin > GameMaxSecondsPerCoin {
-			return fmt.Errorf("%s 的每个游戏币所需时长必须为 0 到 %d 秒", field, GameMaxSecondsPerCoin)
-		}
-	case "slots":
-		var rule SlotsRule
-		if err := common.UnmarshalJsonStr(value, &rule); err != nil {
-			return fmt.Errorf("%s 的游戏规则格式无效", field)
-		}
-		if rule.DailyRewardLimit < 0 || rule.DailyRewardLimit >= common.MaxQuota {
-			return fmt.Errorf("%s 的每日净赢上限必须是非负整数", field)
-		}
-		if rule.EvenStageWager < 0 || rule.EvenStageWager >= common.MaxQuota {
-			return fmt.Errorf("%s 的均衡阶段下注额必须是非负整数", field)
-		}
-		if rule.MaxBet < 1 || rule.MaxBet > GameMaxSlotsBet {
-			return fmt.Errorf("%s 的单次最多下注必须为 1 到 %d", field, GameMaxSlotsBet)
-		}
-	case "wheel":
-		var rule WheelRule
-		if err := common.UnmarshalJsonStr(value, &rule); err != nil {
-			return fmt.Errorf("%s 的游戏规则格式无效", field)
-		}
-		if rule.DailySpins < 0 || rule.DailySpins > GameMaxWheelDailySpins {
-			return fmt.Errorf("%s 的每日次数必须为 0 到 %d", field, GameMaxWheelDailySpins)
-		}
-		if rule.FreeSpins < 0 || rule.FreeSpins > GameMaxWheelDailySpins {
-			return fmt.Errorf("%s 的每日免费次数必须为 0 到 %d", field, GameMaxWheelDailySpins)
-		}
-		if rule.DailySpins > 0 && rule.FreeSpins > rule.DailySpins {
-			return fmt.Errorf("%s 的每日免费次数不能多于每日次数", field)
-		}
-		if rule.SpinCost < 1 || rule.SpinCost > GameMaxWheelSpinCost {
-			return fmt.Errorf("%s 的每次花费必须为 1 到 %d", field, GameMaxWheelSpinCost)
-		}
-	case "plinko":
-		var rule PlinkoRule
-		if err := common.UnmarshalJsonStr(value, &rule); err != nil {
-			return fmt.Errorf("%s 的游戏规则格式无效", field)
-		}
-		for _, stake := range []int{1, 10, 100} {
-			if drops := rule.DailyDrops(stake); drops < 0 || drops > GameMaxPlinkoDailyDrops {
-				return fmt.Errorf("%s 的 %d 币档每日次数必须为 0 到 %d", field, stake, GameMaxPlinkoDailyDrops)
-			}
-		}
 	default:
 		return fmt.Errorf("未知的游戏中心配置项: %s", field)
 	}
 	return nil
 }
 
+// validateGameRule 校验一个游戏的规则。规则整份以 JSON 保存，缺字段按零值校验：管理端提交的改动先合并进当前规则再整份保存。
+func validateGameRule(game string, spec gameRuleSpec, value string) error {
+	switch {
+	case game == "wheel":
+		var rule WheelRule
+		if err := common.UnmarshalJsonStr(value, &rule); err != nil {
+			return fmt.Errorf("%s 的游戏规则格式无效", game)
+		}
+		if rule.FreeSpins < 0 || rule.FreeSpins > GameMaxWheelFreeSpins {
+			return fmt.Errorf("%s 的每日免费次数必须为 0 到 %d", game, GameMaxWheelFreeSpins)
+		}
+		if rule.SpinCost < 1 || rule.SpinCost > GameMaxWheelSpinCost {
+			return fmt.Errorf("%s 的每次花费必须为 1 到 %d", game, GameMaxWheelSpinCost)
+		}
+	case spec.Kind == GameKindSkill:
+		var rule SkillRule
+		if err := common.UnmarshalJsonStr(value, &rule); err != nil {
+			return fmt.Errorf("%s 的游戏规则格式无效", game)
+		}
+		return validateSkillRule(game, rule, spec.MaxTierScore)
+	case spec.Kind == GameKindWager:
+		var rule WagerRule
+		if err := common.UnmarshalJsonStr(value, &rule); err != nil {
+			return fmt.Errorf("%s 的游戏规则格式无效", game)
+		}
+		if len(spec.BetSteps) > 0 {
+			if !slices.Contains(spec.BetSteps, rule.MaxBet) {
+				return fmt.Errorf("%s 的最高开放档位必须是 %v 之一", game, spec.BetSteps)
+			}
+		} else if rule.MaxBet < spec.MinBet || rule.MaxBet > spec.MaxBet {
+			return fmt.Errorf("%s 的单次最多下注必须为 %d 到 %d", game, spec.MinBet, spec.MaxBet)
+		}
+		if spec.Rtp && (rule.RtpPercent < GameMinRtpPercent || rule.RtpPercent > GameMaxRtpPercent) {
+			return fmt.Errorf("%s 的理论返还率必须为 %d%% 到 %d%%", game, GameMinRtpPercent, GameMaxRtpPercent)
+		}
+		if !spec.Rtp && rule.RtpPercent != 0 {
+			return fmt.Errorf("%s 的赔付表固定，不能配置返还率", game)
+		}
+	case spec.Kind == GameKindPvp:
+		var rule PvpRule
+		if err := common.UnmarshalJsonStr(value, &rule); err != nil {
+			return fmt.Errorf("%s 的游戏规则格式无效", game)
+		}
+		if rule.MaxStake < 0 || rule.MaxStake > GameMaxPvpStake {
+			return fmt.Errorf("%s 的押注上限必须为 0 到 %d", game, GameMaxPvpStake)
+		}
+		if rule.RakePercent < 0 || rule.RakePercent > GameMaxRakePercent {
+			return fmt.Errorf("%s 的平台抽成必须为 0%% 到 %d%%", game, GameMaxRakePercent)
+		}
+		if rule.MoveSeconds < GameMinMoveSeconds || rule.MoveSeconds > GameMaxMoveSeconds {
+			return fmt.Errorf("%s 的每步限时必须为 %d 到 %d 秒", game, GameMinMoveSeconds, GameMaxMoveSeconds)
+		}
+		if !spec.Ai {
+			if rule.Ai.Enabled {
+				return fmt.Errorf("%s 不支持人机对战", game)
+			}
+			return nil
+		}
+		return validateSkillRule(game+" 人机对战", rule.Ai, 3)
+	case spec.Kind == GameKindParty:
+		var rule JackpotRule
+		if err := common.UnmarshalJsonStr(value, &rule); err != nil {
+			return fmt.Errorf("%s 的游戏规则格式无效", game)
+		}
+		if rule.MaxBet < 1 || rule.MaxBet > GameMaxJackpotBet {
+			return fmt.Errorf("%s 的每轮最多投入必须为 1 到 %d", game, GameMaxJackpotBet)
+		}
+		if rule.RoundSeconds < GameMinJackpotSeconds || rule.RoundSeconds > GameMaxJackpotSeconds {
+			return fmt.Errorf("%s 的开奖倒计时必须为 %d 到 %d 秒", game, GameMinJackpotSeconds, GameMaxJackpotSeconds)
+		}
+		if rule.RakePercent < 0 || rule.RakePercent > GameMaxRakePercent {
+			return fmt.Errorf("%s 的平台抽成必须为 0%% 到 %d%%", game, GameMaxRakePercent)
+		}
+	}
+	return nil
+}
+
+// validateSkillRule 校验免费游戏的领奖规则：至少一档，成绩逐档严格递增、奖励逐档不减，成绩不超过 maxScore(0 表示只要求为正)。
+func validateSkillRule(name string, rule SkillRule, maxScore int) error {
+	if rule.DailyRewards < 0 || rule.DailyRewards > GameMaxDailyRewards {
+		return fmt.Errorf("%s 的每日领奖次数必须为 0 到 %d", name, GameMaxDailyRewards)
+	}
+	if rule.MinSecondsPerCoin < 0 || rule.MinSecondsPerCoin > GameMaxSecondsPerCoin {
+		return fmt.Errorf("%s 的每个游戏币所需时长必须为 0 到 %d 秒", name, GameMaxSecondsPerCoin)
+	}
+	if len(rule.Tiers) < 1 || len(rule.Tiers) > GameMaxRewardTiers {
+		return fmt.Errorf("%s 的奖励档位必须有 1 到 %d 档", name, GameMaxRewardTiers)
+	}
+	if maxScore == 0 {
+		maxScore = common.MaxQuota - 1
+	}
+	for i, tier := range rule.Tiers {
+		if tier.Score < 1 || tier.Score > maxScore {
+			return fmt.Errorf("%s 第 %d 档的成绩必须为 1 到 %d", name, i+1, maxScore)
+		}
+		if tier.Coins < 1 || tier.Coins > GameMaxTierCoins {
+			return fmt.Errorf("%s 第 %d 档的奖励必须为 1 到 %d 个游戏币", name, i+1, GameMaxTierCoins)
+		}
+		if i > 0 && (tier.Score <= rule.Tiers[i-1].Score || tier.Coins < rule.Tiers[i-1].Coins) {
+			return fmt.Errorf("%s 的奖励档位要按成绩从低到高排列，奖励不能比前一档少", name)
+		}
+	}
+	return nil
+}
+
 // ValidateGameSetting 校验一份完整配置：逐项校验之外，还要求单次提现区间有意义。
-// 管理端整份保存时先过这里，逐项写 option 的旧入口只能做单项校验。
+// 管理端保存时先把改动合并进当前配置，再整份过这里；逐项写 option 的旧入口只能做单项校验。
 func ValidateGameSetting(setting *GameSetting) error {
 	values, err := config.ConfigToMap(setting)
 	if err != nil {
@@ -282,28 +470,65 @@ func isEthereumHexAddress(value string) bool {
 	return true
 }
 
+// skillTiers 是两档奖励的简写：成绩达到 first 奖励 1 个游戏币，达到 second 奖励 2 个。
+func skillTiers(first int, second int) []RewardTier {
+	return []RewardTier{{Score: first, Coins: 1}, {Score: second, Coins: 2}}
+}
+
+// aiRule 是人机对战的默认领奖规则：赢下普通难度奖励 1 个游戏币、困难难度 2 个，简单难度只用来练手；每天最多领 2 次。
+func aiRule(minSecondsPerCoin int) SkillRule {
+	return SkillRule{Enabled: true, DailyRewards: 2, Tiers: skillTiers(2, 3), MinSecondsPerCoin: minSecondsPerCoin}
+}
+
 // gameSetting 仅作为配置框架(基于反射、无同步)就地修改的暂存区，
 // 请求 goroutine 读取下方发布的只读快照。
 var gameSetting = GameSetting{
 	Enabled:              false,
 	PlayTurnstileEnabled: true,
-	WithdrawEnabled:      false,
-	WithdrawDailyLimit:   1000,
-	WithdrawMinAmount:    1,
-	WithdrawMaxAmount:    100,
-	ChainId:              11155111,
-	RpcUrl:               "https://ethereum-sepolia-rpc.publicnode.com",
-	TokenAddress:         "0x64bf89340562AB4fE829a481E6797B012664425B",
-	TokenSymbol:          "✦",
-	TokenDecimals:        0,
-	ExplorerUrl:          "https://sepolia.etherscan.io",
+	// 1 个游戏币就是 1 美元额度：免费游戏再多，每人每天合计也只发这么多。
+	FreeDailyLimit:     10,
+	WithdrawEnabled:    false,
+	WithdrawDailyLimit: 1000,
+	WithdrawMinAmount:  1,
+	WithdrawMaxAmount:  100,
+	ChainId:            11155111,
+	RpcUrl:             "https://ethereum-sepolia-rpc.publicnode.com",
+	TokenAddress:       "0x64bf89340562AB4fE829a481E6797B012664425B",
+	TokenSymbol:        "✦",
+	TokenDecimals:      0,
+	ExplorerUrl:        "https://sepolia.etherscan.io",
 	// 成功和失败都可能被浅层的区块重组推翻，而失败时的退款一旦发出就收不回来，默认等 3 个区块再下结论。
 	Confirmations: 3,
-	// 游戏默认都不开放，由管理员在游戏管理页逐个开启上线。
-	Tetris: GameRule{Enabled: false, DailyRewardLimit: 3, ScorePerCoin: 5000, MinSecondsPerCoin: 60},
-	Slots:  SlotsRule{Enabled: false, EvenStageWager: 200, DailyRewardLimit: 0, MaxBet: 5},
-	Wheel:  WheelRule{Enabled: false, FreeSpins: 1, DailySpins: 10, SpinCost: 1},
-	Plinko: PlinkoRule{Enabled: false, DailyDrops1: 100, DailyDrops10: 20, DailyDrops100: 5},
+
+	// 游戏默认都不开放，由管理员在游戏管理页逐个开启上线。免费游戏默认每天领 3 次，第一档 1 个游戏币、第二档 2 个；
+	// 难度类游戏(扫雷、数独、记忆翻牌、数字华容道)的成绩是赢下的难度。
+	Tetris:      SkillRule{DailyRewards: 3, Tiers: skillTiers(5000, 20000), MinSecondsPerCoin: 60},
+	Game2048:    SkillRule{DailyRewards: 3, Tiers: skillTiers(6000, 20000), MinSecondsPerCoin: 60},
+	Snake:       SkillRule{DailyRewards: 3, Tiers: skillTiers(20, 50), MinSecondsPerCoin: 45},
+	Flappy:      SkillRule{DailyRewards: 3, Tiers: skillTiers(15, 50), MinSecondsPerCoin: 30},
+	Minesweeper: SkillRule{DailyRewards: 3, Tiers: skillTiers(2, 3), MinSecondsPerCoin: 30},
+	Sudoku:      SkillRule{DailyRewards: 3, Tiers: skillTiers(1, 3), MinSecondsPerCoin: 90},
+	Memory:      SkillRule{DailyRewards: 3, Tiers: skillTiers(2, 3), MinSecondsPerCoin: 30},
+	Puzzle15:    SkillRule{DailyRewards: 3, Tiers: skillTiers(2, 3), MinSecondsPerCoin: 30},
+
+	Slots:     WagerRule{MaxBet: 10},
+	Wheel:     WheelRule{FreeSpins: 1, SpinCost: 1},
+	Plinko:    WagerRule{MaxBet: 100},
+	Dice:      WagerRule{MaxBet: 10, RtpPercent: 96},
+	Roulette:  WagerRule{MaxBet: 10},
+	Blackjack: WagerRule{MaxBet: 10},
+	Mines:     WagerRule{MaxBet: 10, RtpPercent: 96},
+	Hilo:      WagerRule{MaxBet: 10, RtpPercent: 96},
+	Crash:     WagerRule{MaxBet: 10, RtpPercent: 96},
+	Scratch:   WagerRule{MaxBet: 20},
+
+	Gomoku:   PvpRule{MaxStake: 100, RakePercent: 5, MoveSeconds: 60, Ai: aiRule(30)},
+	Connect4: PvpRule{MaxStake: 100, RakePercent: 5, MoveSeconds: 30, Ai: aiRule(20)},
+	Reversi:  PvpRule{MaxStake: 100, RakePercent: 5, MoveSeconds: 60, Ai: aiRule(30)},
+	Xiangqi:  PvpRule{MaxStake: 100, RakePercent: 5, MoveSeconds: 120, Ai: aiRule(60)},
+	Rps:      PvpRule{MaxStake: 100, RakePercent: 5, MoveSeconds: 20},
+
+	Jackpot: JackpotRule{MaxBet: 100, RoundSeconds: 60, RakePercent: 5},
 }
 
 var gameSettingSnapshot atomic.Pointer[GameSetting]
@@ -320,6 +545,102 @@ func GetGameSetting() *GameSetting {
 	return gameSettingSnapshot.Load()
 }
 
+// Clone 深拷贝一份配置。快照是只读的，而规则里的奖励档位是切片，浅拷贝后再解析 JSON 会写进快照共用的底层数组，
+// 要改动配置必须先 Clone。
+func (s *GameSetting) Clone() *GameSetting {
+	clone := &GameSetting{}
+	data, err := common.Marshal(s)
+	if err != nil || common.Unmarshal(data, clone) != nil {
+		return &GameSetting{}
+	}
+	return clone
+}
+
+// SkillRuleOf 返回免费游戏的规则，game 不是免费游戏时 ok 为假。
+func (s *GameSetting) SkillRuleOf(game string) (SkillRule, bool) {
+	switch game {
+	case "tetris":
+		return s.Tetris, true
+	case "2048":
+		return s.Game2048, true
+	case "snake":
+		return s.Snake, true
+	case "flappy":
+		return s.Flappy, true
+	case "minesweeper":
+		return s.Minesweeper, true
+	case "sudoku":
+		return s.Sudoku, true
+	case "memory":
+		return s.Memory, true
+	case "puzzle15":
+		return s.Puzzle15, true
+	}
+	return SkillRule{}, false
+}
+
+// WagerRuleOf 返回下注游戏的规则，game 不是用 WagerRule 配置的下注游戏时 ok 为假(大转盘用 WheelRule)。
+func (s *GameSetting) WagerRuleOf(game string) (WagerRule, bool) {
+	switch game {
+	case "slots":
+		return s.Slots, true
+	case "plinko":
+		return s.Plinko, true
+	case "dice":
+		return s.Dice, true
+	case "roulette":
+		return s.Roulette, true
+	case "blackjack":
+		return s.Blackjack, true
+	case "mines":
+		return s.Mines, true
+	case "hilo":
+		return s.Hilo, true
+	case "crash":
+		return s.Crash, true
+	case "scratch":
+		return s.Scratch, true
+	}
+	return WagerRule{}, false
+}
+
+// PvpRuleOf 返回对战游戏的规则，game 不是对战游戏时 ok 为假。
+func (s *GameSetting) PvpRuleOf(game string) (PvpRule, bool) {
+	switch game {
+	case "gomoku":
+		return s.Gomoku, true
+	case "connect4":
+		return s.Connect4, true
+	case "reversi":
+		return s.Reversi, true
+	case "xiangqi":
+		return s.Xiangqi, true
+	case "rps":
+		return s.Rps, true
+	}
+	return PvpRule{}, false
+}
+
+// GameEnabled 表示这个游戏已开放；未知的游戏返回 false。
+func (s *GameSetting) GameEnabled(game string) bool {
+	switch game {
+	case "wheel":
+		return s.Wheel.Enabled
+	case "jackpot":
+		return s.Jackpot.Enabled
+	}
+	if rule, ok := s.SkillRuleOf(game); ok {
+		return rule.Enabled
+	}
+	if rule, ok := s.WagerRuleOf(game); ok {
+		return rule.Enabled
+	}
+	if rule, ok := s.PvpRuleOf(game); ok {
+		return rule.Enabled
+	}
+	return false
+}
+
 // SetGameHotWalletPrivateKey 发布管理员填写的热钱包私钥，空字符串表示没有填写。
 func SetGameHotWalletPrivateKey(key string) {
 	gameHotWalletPrivateKey.Store(&key)
@@ -333,7 +654,7 @@ func GetGameHotWalletPrivateKey() string {
 	return ""
 }
 
-// PlayTurnstileRequired 表示开局前要过 Turnstile 人机验证：游戏中心打开了这一项，且站点已启用 Turnstile。
+// PlayTurnstileRequired 表示领免费奖励的对局开始前要过 Turnstile 人机验证：游戏中心打开了这一项，且站点已启用 Turnstile。
 func (s *GameSetting) PlayTurnstileRequired() bool {
 	return s != nil && s.PlayTurnstileEnabled && common.TurnstileCheckEnabled
 }
@@ -346,12 +667,7 @@ func (s *GameSetting) ChainConfigured() bool {
 // SyncGameSetting 将暂存配置深拷贝后发布为只读快照。
 // 每次更新暂存结构后都必须调用(见 model/option.go 的 handleConfigUpdate)。
 func SyncGameSetting() {
-	snapshot := &GameSetting{}
-	data, err := common.Marshal(gameSetting)
-	if err != nil || common.Unmarshal(data, snapshot) != nil {
-		snapshot = &GameSetting{}
-	}
-	gameSettingSnapshot.Store(snapshot)
+	gameSettingSnapshot.Store(gameSetting.Clone())
 }
 
 // SetGameSettingForTest 直接发布一个快照，仅供测试使用。
@@ -360,4 +676,9 @@ func SetGameSettingForTest(setting *GameSetting) {
 		setting = &GameSetting{}
 	}
 	gameSettingSnapshot.Store(setting)
+}
+
+// DefaultGameSettingForTest 返回默认配置的一份拷贝，测试在它的基础上打开要测的游戏。
+func DefaultGameSettingForTest() *GameSetting {
+	return gameSetting.Clone()
 }

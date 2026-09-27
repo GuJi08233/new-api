@@ -4,453 +4,291 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/QuantumNous/new-api/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 const gameTestIp = "203.0.113.7"
 
-// 每人每天从每个游戏获得的游戏币不超过该游戏的上限：同一天后面的对局只发剩下的额度，领满或管理员调低上限后
-// 照常结算但不再发币，对局上记下少发的原因；换一天、换一个游戏各自重新计算。
-func TestFinishGameSessionCapsDailyRewardPerGame(t *testing.T) {
-	truncateTables(t)
-	seedGameCoinUser(t, 1201, 0, 0)
+// seedGameUser 建一个用户，coins 大于 0 时先给他发这么多游戏币。用户名与邀请码按 ID 区分，同一个测试里可以建几个。
+func seedGameUser(t *testing.T, id int, coins int) {
+	t.Helper()
+	require.NoError(t, DB.Create(&User{Id: id, Username: fmt.Sprintf("game-user-%d", id), AffCode: fmt.Sprintf("game-aff-%d", id)}).Error)
+	if coins > 0 {
+		_, err := AdjustGameCoins(id, coins, "seed")
+		require.NoError(t, err)
+	}
+}
 
+func gameBalance(t *testing.T, userId int) int {
+	t.Helper()
+	account, err := GetGameCoinAccount(userId)
+	require.NoError(t, err)
+	return account.Balance
+}
+
+// finishWithReward 开一局并按给定的应得奖励结算，返回结算结果。
+func finishWithReward(t *testing.T, userId int, game string, ip string, day string, reward int, dailyRewards int, freeLimit int) *GameSettlementResult {
+	t.Helper()
+	session, err := CreateGameSession(userId, game, 7, "")
+	require.NoError(t, err)
+	result, err := FinishGameSession(session, GameSettlement{
+		Score: 100, Detail: "{}", Reward: reward, DailyRewards: dailyRewards, FreeDailyLimit: freeLimit, Day: day, Ip: ip,
+	})
+	require.NoError(t, err)
+	return result
+}
+
+// 免费游戏每人每天只能领 DailyRewards 次奖：没达标的对局不占次数，领满之后照常结算但不再发币，对局上记下原因；
+// 换一天、换一个游戏各自重新计算。只有真正发了币的对局才写流水、计入累计获得。
+func TestFinishGameSessionLimitsRewardedPlaysPerDay(t *testing.T) {
+	truncateTables(t)
+	const userId = 1201
 	cases := []struct {
 		game          string
 		day           string
 		reward        int
-		limit         int
 		wantGranted   int
-		wantEarned    int
+		wantRewards   int
 		wantLimitedBy string
 	}{
-		{game: "tetris", day: "2026-09-24", reward: 2, limit: 3, wantGranted: 2, wantEarned: 2},
-		{game: "tetris", day: "2026-09-24", reward: 5, limit: 3, wantGranted: 1, wantEarned: 3, wantLimitedBy: GameRewardLimitedByDaily},
-		{game: "tetris", day: "2026-09-24", reward: 4, limit: 3, wantGranted: 0, wantEarned: 3, wantLimitedBy: GameRewardLimitedByDaily},
-		{game: "tetris", day: "2026-09-24", reward: 4, limit: 2, wantGranted: 0, wantEarned: 3, wantLimitedBy: GameRewardLimitedByDaily},
-		{game: "tetris", day: "2026-09-25", reward: 4, limit: 3, wantGranted: 3, wantEarned: 3, wantLimitedBy: GameRewardLimitedByDaily},
-		{game: "snake", day: "2026-09-24", reward: 1, limit: 3, wantGranted: 1, wantEarned: 1},
+		{game: "2048", day: "2026-09-28", reward: 2, wantGranted: 2, wantRewards: 1},
+		{game: "2048", day: "2026-09-28", reward: 0, wantGranted: 0, wantRewards: 1},
+		{game: "2048", day: "2026-09-28", reward: 1, wantGranted: 1, wantRewards: 2},
+		{game: "2048", day: "2026-09-28", reward: 2, wantGranted: 0, wantRewards: 2, wantLimitedBy: GameRewardLimitedByDaily},
+		{game: "snake", day: "2026-09-28", reward: 1, wantGranted: 1, wantRewards: 1},
+		{game: "2048", day: "2026-09-29", reward: 2, wantGranted: 2, wantRewards: 1},
 	}
 	balance := 0
 	for i, c := range cases {
-		session, err := CreateGameSession(1201, c.game, 7)
-		require.NoError(t, err)
-		settled, earned, gotBalance, err := FinishGameSession(session, GameSettlement{
-			Score: 1000, Detail: "{}", Reward: c.reward, DailyLimit: c.limit, Day: c.day, Ip: gameTestIp,
-		})
-		require.NoError(t, err, i)
+		result := finishWithReward(t, userId, c.game, gameTestIp, c.day, c.reward, 2, 0)
 		balance += c.wantGranted
-		assert.Equal(t, c.wantGranted, settled.Reward, "case %d granted", i)
-		assert.Equal(t, c.wantLimitedBy, settled.LimitedBy, "case %d limited by", i)
-		assert.Equal(t, c.wantEarned, earned, "case %d earned", i)
-		assert.Equal(t, balance, gotBalance, "case %d balance", i)
+		assert.Equal(t, c.wantGranted, result.Session.Reward, "case %d granted", i)
+		assert.Equal(t, c.wantLimitedBy, result.Session.LimitedBy, "case %d limited by", i)
+		assert.Equal(t, c.wantRewards, result.Rewards, "case %d rewards today", i)
+		assert.Equal(t, balance, result.Balance, "case %d balance", i)
 
 		var stored GameSession
-		require.NoError(t, DB.First(&stored, session.Id).Error)
+		require.NoError(t, DB.First(&stored, result.Session.Id).Error)
 		assert.Equal(t, GameSessionStatusFinished, stored.Status)
-		assert.Equal(t, c.wantGranted, stored.Reward, "case %d session reward", i)
-		assert.Equal(t, c.wantLimitedBy, stored.LimitedBy, "case %d session limited by", i)
-		assert.Equal(t, gameTestIp, stored.Ip)
+		assert.Equal(t, c.wantGranted, stored.Reward, "case %d stored reward", i)
+		assert.Equal(t, c.wantLimitedBy, stored.LimitedBy, "case %d stored limited by", i)
 	}
+	progress, err := GetGameRewardProgress(userId, gameTestIp, "2048", "2026-09-28")
+	require.NoError(t, err)
+	// 合计里还有同一天贪吃蛇的那 1 个。
+	assert.Equal(t, GameRewardProgress{Plays: 4, Rewards: 2, IpRewards: 2, Earned: 3, FreeEarned: 4, IpFreeEarned: 4}, progress)
 
-	account, err := GetGameCoinAccount(1201)
+	account, err := GetGameCoinAccount(userId)
 	require.NoError(t, err)
 	assert.Equal(t, balance, account.Balance)
 	assert.Equal(t, balance, account.TotalEarned)
-	// 没有发币的对局不写流水。
-	assert.Equal(t, []string{GameCoinLogTypeGameReward, GameCoinLogTypeGameReward, GameCoinLogTypeGameReward, GameCoinLogTypeGameReward}, gameCoinLogTypes(t, 1201))
+	assert.Equal(t, []string{GameCoinLogTypeGameReward, GameCoinLogTypeGameReward, GameCoinLogTypeGameReward, GameCoinLogTypeGameReward}, gameCoinLogTypes(t, userId))
 }
 
-// 同一个 IP 视为同一个人：这个 IP 下所有账号当天从一个游戏获得的游戏币合计也不超过每日上限，
-// 换一个账号不能多领；别的 IP 不受影响。游戏规则给出的少发原因在没有触及上限时原样保留。
-func TestFinishGameSessionCapsDailyRewardPerIp(t *testing.T) {
+// 同一个 IP 视为同一个人：这个 IP 下所有账号当天在一个游戏里合计也只能领 DailyRewards 次，换一个账号不能多领；
+// 别的 IP 不受影响。
+func TestFinishGameSessionSharesRewardedPlaysPerIp(t *testing.T) {
 	truncateTables(t)
-	const day = "2026-09-24"
+	const day = "2026-09-28"
 	cases := []struct {
 		userId        int
 		ip            string
-		reward        int
-		limitedBy     string
 		wantGranted   int
 		wantLimitedBy string
 	}{
-		{userId: 1301, ip: gameTestIp, reward: 2, limitedBy: GameRewardLimitedByTime, wantGranted: 2, wantLimitedBy: GameRewardLimitedByTime},
-		{userId: 1302, ip: gameTestIp, reward: 3, wantGranted: 1, wantLimitedBy: GameRewardLimitedByIp},
-		{userId: 1303, ip: gameTestIp, reward: 1, wantGranted: 0, wantLimitedBy: GameRewardLimitedByIp},
-		{userId: 1304, ip: "198.51.100.9", reward: 3, wantGranted: 3},
+		{userId: 1301, ip: gameTestIp, wantGranted: 1},
+		{userId: 1302, ip: gameTestIp, wantGranted: 1},
+		{userId: 1303, ip: gameTestIp, wantGranted: 0, wantLimitedBy: GameRewardLimitedByIp},
+		{userId: 1303, ip: "198.51.100.9", wantGranted: 1},
 	}
 	for i, c := range cases {
-		require.NoError(t, DB.Create(&User{Id: c.userId, Username: fmt.Sprintf("ip-user-%d", c.userId), AffCode: fmt.Sprintf("ip-aff-%d", c.userId)}).Error)
-		session, err := CreateGameSession(c.userId, "tetris", 7)
-		require.NoError(t, err)
-		settled, earned, balance, err := FinishGameSession(session, GameSettlement{
-			Score: 1000, Detail: "{}", Reward: c.reward, LimitedBy: c.limitedBy, DailyLimit: 3, Day: day, Ip: c.ip,
-		})
-		require.NoError(t, err, i)
-		assert.Equal(t, c.wantGranted, settled.Reward, "case %d granted", i)
-		assert.Equal(t, c.wantLimitedBy, settled.LimitedBy, "case %d limited by", i)
-		assert.Equal(t, c.wantGranted, earned, "case %d earned", i)
-		assert.Equal(t, c.wantGranted, balance, "case %d balance", i)
-	}
-
-	var ipTotal int
-	require.NoError(t, DB.Model(&GameRewardIpDay{}).Where("ip = ? AND game = ? AND day = ?", gameTestIp, "tetris", day).Select("coins").Scan(&ipTotal).Error)
-	assert.Equal(t, 3, ipTotal)
-}
-
-// 同一局只能结算一次：重复提交既不改成绩也不再发币。最高分只看结算过的对局。
-func TestFinishGameSessionSettlesOnce(t *testing.T) {
-	truncateTables(t)
-	seedGameCoinUser(t, 1202, 0, 0)
-	const day = "2026-09-24"
-
-	session, err := CreateGameSession(1202, "tetris", 7)
-	require.NoError(t, err)
-	settled, _, _, err := FinishGameSession(session, GameSettlement{Score: 1200, Detail: "{}", Reward: 1, DailyLimit: 3, Day: day, Ip: gameTestIp})
-	require.NoError(t, err)
-	assert.Equal(t, 1, settled.Reward)
-	_, err = CreateGameSession(1202, "tetris", 8) // 开了没结算的对局
-	require.NoError(t, err)
-	_, _, _, err = FinishGameSession(session, GameSettlement{Score: 99999, Detail: "{}", Reward: 3, DailyLimit: 3, Day: day, Ip: gameTestIp})
-	require.ErrorIs(t, err, ErrGameSessionClosed)
-
-	earned, err := GetGameRewardEarned(1202, "tetris", day)
-	require.NoError(t, err)
-	assert.Equal(t, 1, earned)
-	best, err := GetGameBestScore(1202, "tetris")
-	require.NoError(t, err)
-	assert.Equal(t, 1200, best)
-	account, err := GetGameCoinAccount(1202)
-	require.NoError(t, err)
-	assert.Equal(t, 1, account.Balance)
-}
-
-// 每人每个游戏同一时间只能进行一局：开新局时作废删除之前没结算的对局，已结算的和其他游戏的对局保留。
-// 两次开局同时到达、都留了下来时，只有后开的那一局能结算。
-func TestGameSessionsAllowOnePlayingGame(t *testing.T) {
-	truncateTables(t)
-	seedGameCoinUser(t, 1401, 0, 0)
-	settlement := GameSettlement{Score: 100, Detail: "{}", DailyLimit: 3, Day: "2026-09-24", Ip: gameTestIp}
-
-	finished, err := CreateGameSession(1401, "tetris", 1)
-	require.NoError(t, err)
-	_, _, _, err = FinishGameSession(finished, settlement)
-	require.NoError(t, err)
-	abandoned, err := CreateGameSession(1401, "tetris", 2)
-	require.NoError(t, err)
-	otherGame, err := CreateGameSession(1401, "snake", 3)
-	require.NoError(t, err)
-	current, err := CreateGameSession(1401, "tetris", 4)
-	require.NoError(t, err)
-
-	_, err = GetUserGameSession(1401, "tetris", abandoned.Id)
-	assert.ErrorIs(t, err, ErrGameSessionNotFound)
-	_, _, _, err = FinishGameSession(abandoned, settlement)
-	assert.ErrorIs(t, err, ErrGameSessionClosed)
-	_, err = GetUserGameSession(1401, "tetris", finished.Id)
-	assert.NoError(t, err)
-	_, err = GetUserGameSession(1401, "snake", otherGame.Id)
-	assert.NoError(t, err)
-
-	racing := &GameSession{UserId: 1401, Game: "tetris", Seed: 5, Status: GameSessionStatusPlaying, CreatedAt: common.GetTimestamp()}
-	require.NoError(t, DB.Create(racing).Error)
-	_, _, _, err = FinishGameSession(current, settlement)
-	require.ErrorIs(t, err, ErrGameSessionSuperseded)
-	stored, err := GetUserGameSession(1401, "tetris", current.Id)
-	require.NoError(t, err)
-	assert.Equal(t, GameSessionStatusPlaying, stored.Status, "被取代的对局不会被改成已结算")
-	_, _, _, err = FinishGameSession(racing, settlement)
-	assert.NoError(t, err)
-}
-
-// playFor 让下注游戏的这一局按给定的应得派彩结算，不看累计下注。
-func playFor(win int) func(int) (int, string, error) {
-	return func(int) (int, string, error) { return win, "{}", nil }
-}
-
-// 下注游戏的结果在结算事务里决定：Play 拿到的是这一局之前的累计下注，结算成功后累计下注才增加，
-// 余额不够、被拒绝的下注不计入。游戏据此决定玩家处在哪个赔付阶段。
-func TestSettleGameWagerPlaysWithWageredBefore(t *testing.T) {
-	truncateTables(t)
-	seedGameCoinUser(t, 1801, 0, 10)
-
-	var seen []int
-	play := func(wageredBefore int) (int, string, error) {
-		seen = append(seen, wageredBefore)
-		return 0, "{}", nil
-	}
-	cases := []struct {
-		bet         int
-		wantErr     error
-		wantWagered int
-	}{
-		{bet: 5, wantWagered: 5},
-		{bet: 3, wantWagered: 8},
-		{bet: 5, wantErr: ErrGameCoinInsufficient},
-		{bet: 2, wantWagered: 10},
-	}
-	for i, c := range cases {
-		result, err := SettleGameWager(1801, "slots", GameWager{Bet: c.bet, Play: play, Day: "2026-09-24", Ip: gameTestIp})
-		if c.wantErr != nil {
-			require.ErrorIs(t, err, c.wantErr, "case %d", i)
-			continue
-		}
-		require.NoError(t, err, "case %d", i)
-		assert.Equal(t, c.wantWagered, result.Wagered, "case %d wagered", i)
-	}
-	assert.Equal(t, []int{0, 5, 8, 8}, seen, "被拒绝的那一局也先决定了结果，但没有计入累计下注")
-	account, err := GetGameCoinAccount(1801)
-	require.NoError(t, err)
-	assert.Equal(t, 10, account.TotalWagered)
-	assert.Equal(t, 0, account.Balance)
-}
-
-// 下注游戏每局在一个事务里扣注、派彩，流水记这一局的净输赢。每日上限按净赢计算：输掉的下注会让当天还能赢的数量变多，
-// 派彩会越过上限时只派到上限为止；净赢到了上限，当天就不能再下注，换一天重新计算。余额不够下注时什么都不改变。
-func TestSettleGameWagerCapsDailyNetWin(t *testing.T) {
-	truncateTables(t)
-	seedGameCoinUser(t, 1501, 0, 20)
-
-	cases := []struct {
-		day           string
-		bet           int
-		win           int
-		wantErr       error
-		wantReward    int
-		wantEarned    int
-		wantBalance   int
-		wantLimitedBy string
-	}{
-		{day: "2026-09-24", bet: 2, win: 0, wantReward: 0, wantEarned: -2, wantBalance: 18},
-		{day: "2026-09-24", bet: 1, win: 1, wantReward: 1, wantEarned: -2, wantBalance: 18},
-		{day: "2026-09-24", bet: 1, win: 10, wantReward: 10, wantEarned: 7, wantBalance: 27},
-		{day: "2026-09-24", bet: 5, win: 50, wantReward: 8, wantEarned: 10, wantBalance: 30, wantLimitedBy: GameRewardLimitedByDaily},
-		{day: "2026-09-24", bet: 1, win: 0, wantErr: ErrGameWagerDailyLimit, wantBalance: 30},
-		{day: "2026-09-25", bet: 1, win: 2, wantReward: 2, wantEarned: 1, wantBalance: 31},
-		{day: "2026-09-25", bet: 40, win: 0, wantErr: ErrGameCoinInsufficient, wantBalance: 31},
-	}
-	for i, c := range cases {
-		result, err := SettleGameWager(1501, "slots", GameWager{
-			Bet: c.bet, Play: playFor(c.win), DailyLimit: 10, Day: c.day, Ip: gameTestIp,
-		})
-		if c.wantErr != nil {
-			require.ErrorIs(t, err, c.wantErr, "case %d", i)
-		} else {
-			require.NoError(t, err, "case %d", i)
-			assert.Equal(t, c.wantReward, result.Session.Reward, "case %d reward", i)
-			assert.Equal(t, c.wantLimitedBy, result.Session.LimitedBy, "case %d limited by", i)
-			assert.Equal(t, c.wantEarned, result.Earned, "case %d earned", i)
-			assert.Equal(t, c.wantBalance, result.Balance, "case %d balance", i)
-		}
-		account, err := GetGameCoinAccount(1501)
-		require.NoError(t, err)
-		assert.Equal(t, c.wantBalance, account.Balance, "case %d stored balance", i)
-	}
-
-	var amounts []int
-	require.NoError(t, DB.Model(&GameCoinLog{}).Where("user_id = ? AND type = ?", 1501, GameCoinLogTypeGameWager).Order("id asc").Pluck("amount", &amounts).Error)
-	assert.Equal(t, []int{-2, 0, 9, 3, 1}, amounts, "每局一条流水，被拒绝的下注不记")
-	var sessions int64
-	require.NoError(t, DB.Model(&GameSession{}).Where("user_id = ? AND game = ? AND status = ?", 1501, "slots", GameSessionStatusFinished).Count(&sessions).Error)
-	assert.EqualValues(t, 5, sessions)
-	earned, err := GetGameRewardEarned(1501, "slots", "2026-09-24")
-	require.NoError(t, err)
-	assert.Equal(t, 10, earned)
-	best, err := GetGameBestScore(1501, "slots")
-	require.NoError(t, err)
-	assert.Equal(t, 10, best, "单次最高派彩按实际到账计算，被截断的 50 不算")
-	account, err := GetGameCoinAccount(1501)
-	require.NoError(t, err)
-	assert.Equal(t, 11, account.TotalWagerNet, "累计净输赢等于这几局流水之和")
-}
-
-// 每日净赢上限为 0 时不限制：大奖全额派彩，赢得再多也能接着下注；今日输赢照常累计，每天重新计算。
-// 下注游戏的输赢记在账户的累计净输赢里，不计入累计获得。
-func TestSettleGameWagerWithoutDailyLimit(t *testing.T) {
-	truncateTables(t)
-	seedGameCoinUser(t, 1701, 0, 10)
-
-	cases := []struct {
-		day         string
-		bet         int
-		win         int
-		wantEarned  int
-		wantBalance int
-	}{
-		{day: "2026-09-24", bet: 5, win: 250, wantEarned: 245, wantBalance: 255},
-		{day: "2026-09-24", bet: 5, win: 250, wantEarned: 490, wantBalance: 500},
-		{day: "2026-09-24", bet: 5, win: 0, wantEarned: 485, wantBalance: 495},
-		{day: "2026-09-25", bet: 3, win: 0, wantEarned: -3, wantBalance: 492},
-	}
-	for i, c := range cases {
-		result, err := SettleGameWager(1701, "slots", GameWager{
-			Bet: c.bet, Play: playFor(c.win), DailyLimit: 0, Day: c.day, Ip: gameTestIp,
-		})
-		require.NoError(t, err, "case %d", i)
-		assert.Equal(t, c.win, result.Session.Reward, "case %d reward", i)
-		assert.Empty(t, result.Session.LimitedBy, "case %d limited by", i)
-		assert.Equal(t, c.wantEarned, result.Earned, "case %d earned", i)
-		assert.Equal(t, c.wantEarned, result.IpEarned, "case %d ip earned", i)
-		assert.Equal(t, c.wantBalance, result.Balance, "case %d balance", i)
-	}
-
-	account, err := GetGameCoinAccount(1701)
-	require.NoError(t, err)
-	assert.Equal(t, 482, account.TotalWagerNet)
-	assert.Equal(t, 10, account.TotalEarned, "累计获得只有初始的 10 个")
-}
-
-// 同一个 IP 视为同一个人：这个 IP 下所有账号当天的净赢合计也不超过上限，到了上限这个 IP 下的账号都不能再下注；
-// 别的 IP 不受影响。结算结果带回这个 IP 今天的净赢，页面据此判断还能不能下注。
-func TestSettleGameWagerSharesDailyNetWinPerIp(t *testing.T) {
-	truncateTables(t)
-	const day = "2026-09-24"
-	for _, userId := range []int{1601, 1602, 1603, 1604} {
-		require.NoError(t, DB.Create(&User{Id: userId, Username: fmt.Sprintf("wager-user-%d", userId), AffCode: fmt.Sprintf("wager-aff-%d", userId)}).Error)
-		_, err := AdjustGameCoins(userId, 10, "seed")
-		require.NoError(t, err)
-	}
-
-	cases := []struct {
-		userId        int
-		ip            string
-		bet           int
-		win           int
-		wantErr       error
-		wantReward    int
-		wantIpEarned  int
-		wantLimitedBy string
-	}{
-		{userId: 1601, ip: gameTestIp, bet: 1, win: 5, wantReward: 5, wantIpEarned: 4},
-		{userId: 1602, ip: gameTestIp, bet: 1, win: 10, wantReward: 2, wantIpEarned: 5, wantLimitedBy: GameRewardLimitedByIp},
-		{userId: 1603, ip: gameTestIp, bet: 1, win: 0, wantErr: ErrGameWagerIpLimit},
-		{userId: 1601, ip: gameTestIp, bet: 2, win: 0, wantErr: ErrGameWagerIpLimit},
-		{userId: 1604, ip: "198.51.100.9", bet: 1, win: 10, wantReward: 6, wantIpEarned: 5, wantLimitedBy: GameRewardLimitedByDaily},
-	}
-	for i, c := range cases {
-		result, err := SettleGameWager(c.userId, "slots", GameWager{
-			Bet: c.bet, Play: playFor(c.win), DailyLimit: 5, Day: day, Ip: c.ip,
-		})
-		if c.wantErr != nil {
-			require.ErrorIs(t, err, c.wantErr, "case %d", i)
-			continue
-		}
-		require.NoError(t, err, "case %d", i)
-		assert.Equal(t, c.wantReward, result.Session.Reward, "case %d reward", i)
-		assert.Equal(t, c.wantIpEarned, result.IpEarned, "case %d ip earned", i)
+		result := finishWithReward(t, c.userId, "minesweeper", c.ip, day, 1, 2, 0)
+		assert.Equal(t, c.wantGranted, result.Session.Reward, "case %d granted", i)
 		assert.Equal(t, c.wantLimitedBy, result.Session.LimitedBy, "case %d limited by", i)
 	}
-
-	ipNet, err := GetGameRewardIpEarned(gameTestIp, "slots", day)
+	progress, err := GetGameRewardProgress(1303, gameTestIp, "minesweeper", day)
 	require.NoError(t, err)
-	assert.Equal(t, 5, ipNet)
-	account, err := GetGameCoinAccount(1603)
-	require.NoError(t, err)
-	assert.Equal(t, 10, account.Balance, "被拒绝的下注不扣币")
+	assert.Equal(t, 2, progress.IpRewards)
+	assert.Equal(t, 1, progress.Rewards, "账号在另一个 IP 上领的那次也算账号自己的次数")
 }
 
-// 限制每日次数的游戏每人每天前几局免费：免费局不扣币，中奖计入累计获得并记为游戏奖励，没中奖不记流水；免费次数用完后
-// 每局扣币，按下注游戏计入累计下注与累计净输赢。含免费局在内到了每日局数上限就拒绝，什么都不改变；换一天重新计算。
-func TestSettleGameDailyPlayFreeThenPaidUpToDailyLimit(t *testing.T) {
+// 所有免费奖励每人每天(同一 IP 合计)还有一个总上限：一局的奖励会越过它时只发到上限为止，到了上限就不再发；
+// 没发币的对局不占这个游戏的领奖次数。上限为 0 表示不限制。
+func TestFinishGameSessionCapsFreeRewardsInTotal(t *testing.T) {
 	truncateTables(t)
-	seedGameCoinUser(t, 1701, 0, 5)
-
+	const day = "2026-09-28"
 	cases := []struct {
-		day           string
-		free          bool
+		userId        int
+		game          string
+		reward        int
+		wantGranted   int
+		wantLimitedBy string
+	}{
+		{userId: 1401, game: "tetris", reward: 2, wantGranted: 2},
+		{userId: 1401, game: "sudoku", reward: 2, wantGranted: 1, wantLimitedBy: GameRewardLimitedByTotal},
+		{userId: 1401, game: "memory", reward: 1, wantGranted: 0, wantLimitedBy: GameRewardLimitedByTotal},
+		// 同一 IP 的另一个账号合计也只有这么多。
+		{userId: 1402, game: "memory", reward: 1, wantGranted: 0, wantLimitedBy: GameRewardLimitedByTotal},
+	}
+	for i, c := range cases {
+		result := finishWithReward(t, c.userId, c.game, gameTestIp, day, c.reward, 3, 3)
+		assert.Equal(t, c.wantGranted, result.Session.Reward, "case %d granted", i)
+		assert.Equal(t, c.wantLimitedBy, result.Session.LimitedBy, "case %d limited by", i)
+	}
+	progress, err := GetGameRewardProgress(1401, gameTestIp, "memory", day)
+	require.NoError(t, err)
+	assert.Equal(t, 0, progress.Rewards, "被合计上限挡住的对局不占领奖次数")
+	assert.Equal(t, 3, progress.FreeEarned)
+
+	// 不限制合计时照常发放。
+	result := finishWithReward(t, 1401, "memory", gameTestIp, day, 1, 3, 0)
+	assert.Equal(t, 1, result.Session.Reward)
+	assert.Equal(t, 4, result.FreeEarned)
+}
+
+// 同一局只能结算一次：第二次结算返回 ErrGameSessionClosed，奖励不会重复发放。
+func TestFinishGameSessionSettlesOnce(t *testing.T) {
+	truncateTables(t)
+	session, err := CreateGameSession(1501, "tetris", 7, "")
+	require.NoError(t, err)
+	settlement := GameSettlement{Score: 9000, Detail: "{}", Reward: 1, DailyRewards: 3, Day: "2026-09-28", Ip: gameTestIp}
+	_, err = FinishGameSession(session, settlement)
+	require.NoError(t, err)
+	_, err = FinishGameSession(session, settlement)
+	assert.ErrorIs(t, err, ErrGameSessionClosed)
+	assert.Equal(t, 1, gameBalance(t, 1501))
+}
+
+// 每人每个游戏同一时间只有一局免费对局：开新局作废之前没结算的，被作废的那局不能再结算；两局同时留下时只有后开的能结算。
+func TestGameSessionsAllowOnePlayingGame(t *testing.T) {
+	truncateTables(t)
+	first, err := CreateGameSession(1601, "tetris", 1, "")
+	require.NoError(t, err)
+	second, err := CreateGameSession(1601, "tetris", 2, "")
+	require.NoError(t, err)
+	settlement := GameSettlement{Score: 1, Detail: "{}", Reward: 1, DailyRewards: 3, Day: "2026-09-28", Ip: gameTestIp}
+	_, err = FinishGameSession(first, settlement)
+	assert.ErrorIs(t, err, ErrGameSessionClosed, "被新开的一局作废")
+
+	// 两次开局同时到达时可能都留了下来：先开的那局不能结算。
+	require.NoError(t, DB.Create(&GameSession{UserId: 1601, Game: "tetris", Status: GameSessionStatusPlaying, CreatedAt: second.CreatedAt}).Error)
+	_, err = FinishGameSession(second, settlement)
+	assert.ErrorIs(t, err, ErrGameSessionSuperseded)
+	assert.Equal(t, 0, gameBalance(t, 1601))
+}
+
+// 大转盘的免费旋转：每人每天、同一 IP 合计只有 FreeLimit 次，无论中没中奖都占一次；奖品计入免费奖励的合计上限，
+// 越过上限的部分不发，到了上限就不能再免费转。没中奖时不写流水。
+func TestSettleGameFreePlayLimitsFreePlays(t *testing.T) {
+	truncateTables(t)
+	const day = "2026-09-28"
+	cases := []struct {
+		userId        int
 		win           int
+		freeLimit     int
 		wantErr       error
-		wantBalance   int
-		wantPlays     int
-		wantFreePlays int
-		wantEarned    int
+		wantWin       int
+		wantLimitedBy string
 	}{
-		{day: "2026-09-24", free: true, win: 4, wantBalance: 9, wantPlays: 1, wantFreePlays: 1, wantEarned: 4},
-		{day: "2026-09-24", free: true, win: 4, wantErr: ErrGameFreePlayUsed},
-		{day: "2026-09-24", win: 6, wantBalance: 13, wantPlays: 2, wantFreePlays: 1, wantEarned: 8},
-		{day: "2026-09-24", win: 0, wantBalance: 11, wantPlays: 3, wantFreePlays: 1, wantEarned: 6},
-		{day: "2026-09-24", win: 6, wantErr: ErrGameDailyPlayLimit},
-		{day: "2026-09-25", free: true, win: 0, wantBalance: 11, wantPlays: 1, wantFreePlays: 1, wantEarned: 0},
+		{userId: 1701, win: 0, freeLimit: 2},
+		{userId: 1701, win: 3, freeLimit: 2, wantWin: 3},
+		{userId: 1701, win: 3, freeLimit: 2, wantErr: ErrGameFreePlayUsed},
+		// 同一 IP 的另一个账号：IP 合计的两次已经用完。
+		{userId: 1702, win: 3, freeLimit: 2, wantErr: ErrGameIpFreePlayUsed},
+		// 管理员加了免费次数，但合计上限只剩 2 个：奖品只发 2 个。
+		{userId: 1702, win: 5, freeLimit: 4, wantWin: 2, wantLimitedBy: GameRewardLimitedByTotal},
+		{userId: 1702, win: 1, freeLimit: 4, wantErr: ErrGameFreeDailyLimit},
 	}
 	for i, c := range cases {
-		result, err := SettleGameDailyPlay(1701, "wheel", GameDailyPlay{
-			Free: c.free, Cost: 2, FreeLimit: 1, PlayLimit: 3,
-			Play: func() (int, string, error) { return c.win, "{}", nil },
-			Day:  c.day, Ip: gameTestIp,
+		result, err := SettleGameFreePlay(c.userId, "wheel", GameFreePlay{
+			FreeLimit:      c.freeLimit,
+			FreeDailyLimit: 5,
+			Play:           func() (int, string, error) { return c.win, "{}", nil },
+			Day:            day,
+			Ip:             gameTestIp,
 		})
 		if c.wantErr != nil {
-			require.ErrorIs(t, err, c.wantErr, "case %d", i)
+			assert.ErrorIs(t, err, c.wantErr, "case %d", i)
 			continue
 		}
 		require.NoError(t, err, "case %d", i)
-		assert.Equal(t, c.win, result.Session.Reward, "case %d reward", i)
-		assert.Equal(t, c.wantBalance, result.Balance, "case %d balance", i)
-		assert.Equal(t, c.wantPlays, result.Plays, "case %d plays", i)
-		assert.Equal(t, c.wantFreePlays, result.FreePlays, "case %d free plays", i)
-		assert.Equal(t, c.wantEarned, result.Earned, "case %d earned", i)
+		assert.Equal(t, c.wantWin, result.Session.Reward, "case %d win", i)
+		assert.Equal(t, c.wantLimitedBy, result.Session.LimitedBy, "case %d limited by", i)
 	}
-
-	assert.Equal(t, []string{GameCoinLogTypeAdminAdjust, GameCoinLogTypeGameReward, GameCoinLogTypeGameWager, GameCoinLogTypeGameWager}, gameCoinLogTypes(t, 1701))
-	account, err := GetGameCoinAccount(1701)
-	require.NoError(t, err)
-	assert.Equal(t, 11, account.Balance)
-	assert.Equal(t, 9, account.TotalEarned, "初始的 5 个加上免费局中的 4 个")
-	assert.Equal(t, 4, account.TotalWagered)
-	assert.Equal(t, 2, account.TotalWagerNet)
-	count, err := GetGameDailyPlayCount(1701, gameTestIp, "wheel", "2026-09-24")
-	require.NoError(t, err)
-	assert.Equal(t, GameDailyPlayCount{Plays: 3, FreePlays: 1, IpFreePlays: 1, Earned: 6}, count)
+	assert.Equal(t, 3, gameBalance(t, 1701))
+	assert.Equal(t, 2, gameBalance(t, 1702))
+	assert.Equal(t, []string{GameCoinLogTypeGameReward}, gameCoinLogTypes(t, 1701), "没中奖的那次不写流水")
 }
 
-// 同一个 IP 视为同一个人：这个 IP 下所有账号当天合计只有那么多次免费，用完后别的账号只能付费；别的 IP 不受影响。
-// 没有免费次数的请求在决定结果之前就被拒绝；余额不够的付费局整笔回滚，不占用局数。
-func TestSettleGameDailyPlaySharesFreePlaysPerIp(t *testing.T) {
+// 下注游戏不设每日上限：想下多少局都可以，每局扣注、派彩、写一条净输赢流水，今天的净输赢与局数照常累计；
+// 余额不够时什么都不改变。
+func TestSettleGameWagerHasNoDailyLimit(t *testing.T) {
 	truncateTables(t)
-	const day = "2026-09-24"
-	for _, userId := range []int{1901, 1902, 1903} {
-		require.NoError(t, DB.Create(&User{Id: userId, Username: fmt.Sprintf("daily-play-user-%d", userId), AffCode: fmt.Sprintf("daily-play-aff-%d", userId)}).Error)
-	}
-
-	played := 0
-	cases := []struct {
-		userId          int
-		ip              string
-		free            bool
-		win             int
-		wantErr         error
-		wantBalance     int
-		wantIpFreePlays int
-	}{
-		{userId: 1901, ip: gameTestIp, free: true, win: 1, wantBalance: 1, wantIpFreePlays: 1},
-		{userId: 1902, ip: gameTestIp, free: true, win: 1, wantErr: ErrGameIpFreePlayUsed},
-		{userId: 1902, ip: gameTestIp, win: 1, wantErr: ErrGameCoinInsufficient},
-		{userId: 1903, ip: "198.51.100.9", free: true, win: 5, wantBalance: 5, wantIpFreePlays: 1},
-	}
-	for i, c := range cases {
-		result, err := SettleGameDailyPlay(c.userId, "wheel", GameDailyPlay{
-			Free: c.free, Cost: 1, FreeLimit: 1,
-			Play: func() (int, string, error) {
-				played++
-				return c.win, "{}", nil
-			},
-			Day: day, Ip: c.ip,
+	const userId = 1801
+	seedGameUser(t, userId, 30)
+	for i, win := range []int{0, 0, 20, 0, 5} {
+		result, err := SettleGameWager(userId, "dice", GameWager{
+			Bet:  5,
+			Play: func() (int, string, error) { return win, "{}", nil },
+			Day:  "2026-09-28",
+			Ip:   gameTestIp,
 		})
-		if c.wantErr != nil {
-			require.ErrorIs(t, err, c.wantErr, "case %d", i)
-			continue
-		}
-		require.NoError(t, err, "case %d", i)
-		assert.Equal(t, c.wantBalance, result.Balance, "case %d balance", i)
-		assert.Equal(t, c.wantIpFreePlays, result.IpFreePlays, "case %d ip free plays", i)
+		require.NoError(t, err, "wager %d", i)
+		assert.Equal(t, i+1, result.Plays)
 	}
-	assert.Equal(t, 3, played, "IP 的免费次数用完时不决定结果")
-
-	count, err := GetGameDailyPlayCount(1902, gameTestIp, "wheel", day)
+	account, err := GetGameCoinAccount(userId)
 	require.NoError(t, err)
-	assert.Equal(t, GameDailyPlayCount{IpFreePlays: 1}, count, "被拒绝的局不占用局数")
-	var sessions int64
-	require.NoError(t, DB.Model(&GameSession{}).Where("user_id = ?", 1902).Count(&sessions).Error)
-	assert.Zero(t, sessions)
+	assert.Equal(t, 30, account.Balance)
+	assert.Equal(t, 25, account.TotalWagered)
+	assert.Equal(t, 0, account.TotalWagerNet)
+	net, plays, err := GetGameDayStats(userId, "dice", "2026-09-28")
+	require.NoError(t, err)
+	assert.Equal(t, 0, net)
+	assert.Equal(t, 5, plays)
+
+	_, err = SettleGameWager(userId, "dice", GameWager{Bet: 31, Play: func() (int, string, error) { return 100, "{}", nil }, Day: "2026-09-28", Ip: gameTestIp})
+	assert.ErrorIs(t, err, ErrGameCoinInsufficient)
+	assert.Equal(t, 30, gameBalance(t, userId))
+}
+
+// 分几步完成的下注游戏：开局扣注，同一时间只能有一局；加注再扣；拿着旧版本的操作不生效；结束时派彩一次，
+// 扣注与派彩的流水合计就是这一局的净输赢。
+func TestGameRoundLifecycle(t *testing.T) {
+	truncateTables(t)
+	const userId = 1901
+	seedGameUser(t, userId, 20)
+	round, balance, err := OpenGameRound(userId, "blackjack", GameRound{Bet: 4, State: `{"step":0}`, Ip: gameTestIp})
+	require.NoError(t, err)
+	assert.Equal(t, 16, balance)
+	_, _, err = OpenGameRound(userId, "blackjack", GameRound{Bet: 4, State: "{}", Ip: gameTestIp})
+	assert.ErrorIs(t, err, ErrGameRoundOpen)
+
+	stale := *round
+	require.NoError(t, UpdateGameSessionState(round, `{"step":1}`, ""))
+	assert.ErrorIs(t, UpdateGameSessionState(&stale, `{"step":9}`, ""), ErrGameRoundChanged)
+
+	balance, err = RaiseGameRound(round, 4, `{"step":2}`, "")
+	require.NoError(t, err)
+	assert.Equal(t, 12, balance)
+	assert.Equal(t, 8, round.Bet)
+
+	settled, err := SettleGameRound(round, 16, `{"step":3}`, "{}", "2026-09-28")
+	require.NoError(t, err)
+	assert.Equal(t, 28, settled.Balance)
+	assert.Equal(t, 8, settled.Net)
+	_, err = SettleGameRound(round, 16, `{"step":3}`, "{}", "2026-09-28")
+	assert.ErrorIs(t, err, ErrGameRoundChanged, "同一局只结算一次")
+
+	var amounts []int
+	require.NoError(t, DB.Model(&GameCoinLog{}).Where("user_id = ? AND type = ?", userId, GameCoinLogTypeGameWager).Order("id asc").Pluck("amount", &amounts).Error)
+	assert.Equal(t, []int{-4, -4, 16}, amounts)
+	account, err := GetGameCoinAccount(userId)
+	require.NoError(t, err)
+	assert.Equal(t, 8, account.TotalWagered)
+	assert.Equal(t, 8, account.TotalWagerNet)
+
+	// 结束之后可以开下一局。
+	_, _, err = OpenGameRound(userId, "blackjack", GameRound{Bet: 2, State: "{}", Ip: gameTestIp})
+	assert.NoError(t, err)
 }

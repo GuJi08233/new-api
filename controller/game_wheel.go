@@ -1,11 +1,9 @@
 package controller
 
 import (
-	"errors"
-	"fmt"
-
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/wheel"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -15,11 +13,49 @@ import (
 
 const gameWheel = "wheel"
 
-// wheelAuditMultiplier 是记审计日志的派彩倍数，与页面上按大奖展示的倍数一致。
-const wheelAuditMultiplier = 10
-
 // spinWheel 转一次大转盘，按权重选中的格子来自密码学安全的随机数。测试里替换成固定的格子。
 var spinWheel = wheel.Spin
+
+func init() {
+	registerGame(&gameDefinition{
+		Key:  gameWheel,
+		Kind: operation_setting.GameKindWager,
+		Info: wheelInfo,
+		Summarize: func(ctx *gameContext, summary gin.H, counts gameDayCounts) {
+			summary["free_spins"] = ctx.Setting.Wheel.FreeSpins
+			summary["free_used_today"] = max(counts.user[gameWheel].FreePlays, counts.ip[gameWheel].FreePlays)
+		},
+		Routes: func(group *gin.RouterGroup) {
+			group.POST("/spin", middleware.GameSpinRateLimit("wheel-spin"), SpinWheel)
+		},
+	})
+}
+
+// wheelInfo 返回大转盘页的信息。net_today 是账号今天的净得：免费旋转的奖品加上付费旋转的净输赢，可以为负；
+// free_used_today、ip_free_used_today 是账号、同一 IP 今天用掉的免费次数。格子与返还率随游戏信息下发，浏览器据此画出转盘、
+// 公示概率，把转盘转到服务端选中的格子。
+func wheelInfo(ctx *gameContext) (gin.H, error) {
+	rule := ctx.Setting.Wheel
+	info, err := wagerInfo(ctx, gameWheel, rule.SpinCost)
+	if err != nil {
+		return nil, err
+	}
+	progress, err := model.GetGameRewardProgress(ctx.UserId, ctx.Ip, gameWheel, ctx.Day)
+	if err != nil {
+		return nil, err
+	}
+	paid, total := wheel.Payback()
+	info["free_spins"] = rule.FreeSpins
+	info["spin_cost"] = rule.SpinCost
+	info["free_used_today"] = progress.Rewards
+	info["ip_free_used_today"] = progress.IpRewards
+	info["free_daily_limit"] = ctx.Setting.FreeDailyLimit
+	info["free_earned_today"] = progress.FreeEarned
+	info["ip_free_earned_today"] = progress.IpFreeEarned
+	info["segments"] = wheel.Segments
+	info["payback"] = float64(paid) / float64(total)
+	return info, nil
+}
 
 type wheelSpinRequest struct {
 	Free bool `json:"free"`
@@ -35,8 +71,8 @@ type wheelDetail struct {
 
 // SpinWheel 转一次大转盘：服务端按权重选出一格，派彩 = 每次花费 × 这一格的倍数，扣币与派彩在同一个事务里完成，
 // 浏览器只负责把转盘转到返回的格子。请求写明这一次是不是用免费次数，服务端不会把玩家以为免费的旋转改成扣币。
-// 免费次数白送游戏币，同一 IP 下所有账号合计，每次都和俄罗斯方块开局一样要过人机验证；付费旋转的理论返还率 80%，
-// 脚本连续旋转只会输得更快，不需要验证。每人每天的次数含免费次数。
+// 免费旋转白送游戏币，是免费奖励：同一 IP 下所有账号合计次数，计入免费奖励的合计上限，每次都要过人机验证；
+// 付费旋转按下注游戏结算，理论返还率 80%，不限次数。
 func SpinWheel(c *gin.Context) {
 	setting := operation_setting.GetGameSetting()
 	rule := setting.Wheel
@@ -53,66 +89,58 @@ func SpinWheel(c *gin.Context) {
 	if req.Free && !passGamePlayTurnstile(c, setting, userId) {
 		return
 	}
-	cost := rule.SpinCost
 	var segment int
-	settled, err := model.SettleGameDailyPlay(userId, gameWheel, model.GameDailyPlay{
-		Free:      req.Free,
-		Cost:      cost,
-		FreeLimit: rule.FreeSpins,
-		PlayLimit: rule.DailySpins,
-		Play: func() (int, string, error) {
-			var err error
-			if segment, err = spinWheel(); err != nil {
-				return 0, "", err
-			}
-			multiplier := wheel.Segments[segment].Multiplier
-			detail, err := common.Marshal(wheelDetail{Free: req.Free, Cost: cost, Segment: segment, Multiplier: multiplier})
-			return cost * multiplier, string(detail), err
-		},
-		Day: gameCenterDay(),
-		Ip:  gameRewardIpKey(c.ClientIP()),
-	})
-	switch {
-	case errors.Is(err, model.ErrGameDailyPlayLimit):
-		common.ApiErrorI18n(c, i18n.MsgGameDailyPlayLimit)
-		return
-	case errors.Is(err, model.ErrGameFreePlayUsed):
-		common.ApiErrorI18n(c, i18n.MsgGameFreePlayUsed)
-		return
-	case errors.Is(err, model.ErrGameIpFreePlayUsed):
-		common.ApiErrorI18n(c, i18n.MsgGameIpFreePlayUsed)
-		return
-	case errors.Is(err, model.ErrGameCoinInsufficient):
-		common.ApiErrorI18n(c, i18n.MsgGameCoinInsufficient)
-		return
-	case err != nil:
-		common.SysError(fmt.Sprintf("failed to settle wheel spin for user %d: %v", userId, err))
-		common.ApiErrorI18n(c, i18n.MsgGameSpinFailed)
-		return
-	}
-	multiplier := wheel.Segments[segment].Multiplier
-	// 大奖记一条带来源 IP 的审计日志，风控的多账号视图能看到同一 IP 下哪些账号从转盘拿走了游戏币。
-	if multiplier >= wheelAuditMultiplier {
-		spent := fmt.Sprintf("花费 %d", cost)
-		if req.Free {
-			spent = "免费旋转"
+	play := func() (int, string, error) {
+		var err error
+		if segment, err = spinWheel(); err != nil {
+			return 0, "", err
 		}
-		model.RecordAuditLog(model.ClientLogSource(c), userId, "", model.LogTypeSystem,
-			fmt.Sprintf("游戏大奖：大转盘%s，%d 倍，派彩 %d 个游戏币", spent, multiplier, settled.Session.Reward),
-			map[string]interface{}{"game": gameWheel, "session_id": settled.Session.Id, "free": req.Free, "cost": cost, "multiplier": multiplier, "game_coins": settled.Session.Reward})
+		multiplier := wheel.Segments[segment].Multiplier
+		detail, err := common.Marshal(wheelDetail{Free: req.Free, Cost: rule.SpinCost, Segment: segment, Multiplier: multiplier})
+		return rule.SpinCost * multiplier, string(detail), err
 	}
-	common.ApiSuccess(c, gin.H{
-		"segment":            segment,
-		"multiplier":         multiplier,
-		"free":               req.Free,
-		"win":                settled.Session.Reward,
-		"balance":            settled.Balance,
-		"plays_today":        settled.Plays,
-		"free_used_today":    settled.FreePlays,
-		"ip_free_used_today": settled.IpFreePlays,
-		"earned_today":       settled.Earned,
-		"free_spins":         rule.FreeSpins,
-		"daily_spins":        rule.DailySpins,
-		"spin_cost":          rule.SpinCost,
-	})
+	day, ip := gameCenterDay(), gameRewardIpKey(c.ClientIP())
+	var view gin.H
+	if req.Free {
+		result, err := model.SettleGameFreePlay(userId, gameWheel, model.GameFreePlay{
+			FreeLimit:      rule.FreeSpins,
+			FreeDailyLimit: setting.FreeDailyLimit,
+			Play:           play,
+			Day:            day,
+			Ip:             ip,
+		})
+		if err != nil {
+			respondGameError(c, gameWheel, err)
+			return
+		}
+		view = gin.H{
+			"win":                  result.Session.Reward,
+			"limited_by":           result.Session.LimitedBy,
+			"balance":              result.Balance,
+			"free_used_today":      result.Rewards,
+			"ip_free_used_today":   result.IpRewards,
+			"free_earned_today":    result.FreeEarned,
+			"ip_free_earned_today": result.IpFreeEarned,
+		}
+		auditGameFreeWin(c, gameWheel, "大转盘免费旋转", result.Session, rule.SpinCost)
+	} else {
+		result, err := model.SettleGameWager(userId, gameWheel, model.GameWager{Bet: rule.SpinCost, Play: play, Day: day, Ip: ip})
+		if err != nil {
+			respondGameError(c, gameWheel, err)
+			return
+		}
+		view = wagerResultView(result)
+		auditGameWin(c, gameWheel, "大转盘", result.Session)
+	}
+	net, plays, err := model.GetGameDayStats(userId, gameWheel, day)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	view["free"] = req.Free
+	view["segment"] = segment
+	view["multiplier"] = wheel.Segments[segment].Multiplier
+	view["net_today"] = net
+	view["plays_today"] = plays
+	common.ApiSuccess(c, view)
 }

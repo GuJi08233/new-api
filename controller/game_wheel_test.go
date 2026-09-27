@@ -4,7 +4,6 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/stretchr/testify/assert"
@@ -19,27 +18,18 @@ func stopWheelAt(t *testing.T, segment int) {
 	t.Cleanup(func() { spinWheel = previous })
 }
 
-// 每天先免费转一次，之后每次按每次花费扣币，奖品 = 每次花费 × 格子的倍数。含免费那次在内到了每日次数就不能再转；
-// 免费旋转的奖品计入累计获得，付费旋转计入累计下注与下注输赢。派彩达到 10 倍的大奖记一条带 IP 的审计日志。
-func TestSpinWheelFreeThenPaidUntilDailyLimit(t *testing.T) {
-	rule := operation_setting.WheelRule{Enabled: true, FreeSpins: 1, DailySpins: 3, SpinCost: 2}
-	db, router, user, cookies := spinGameFixture(t, &operation_setting.GameSetting{Enabled: true, Wheel: rule}, 3)
+// 每天先免费转，免费次数用完之后每次按每次花费扣币、不限次数，奖品 = 每次花费 × 格子的倍数。免费旋转的奖品计入累计获得，
+// 付费旋转计入累计下注与下注输赢；请求写明要免费转但免费次数已经用完时拒绝，不会改成扣币。
+func TestSpinWheelFreeThenPaidWithoutDailyLimit(t *testing.T) {
+	env := newGameTestEnv(t, gameSetting(func(s *operation_setting.GameSetting) {
+		s.Wheel = operation_setting.WheelRule{Enabled: true, FreeSpins: 1, SpinCost: 2}
+	}))
+	player := env.player(3, gameTestIpA)
 
-	wheelInfo := func() map[string]any {
-		_, self := accountRequest(t, router, http.MethodGet, "/api/game/self", cookies, nil, "")
-		require.Equal(t, true, self["success"], self["message"])
-		for _, item := range self["data"].(map[string]any)["games"].([]any) {
-			if item.(map[string]any)["key"] == gameWheel {
-				return item.(map[string]any)
-			}
-		}
-		return nil
-	}
-	game := wheelInfo()
-	require.NotNil(t, game, "开放的大转盘出现在游戏列表里")
-	assert.InDelta(t, 0.8, game["payback"], 1e-9)
-	assert.Len(t, game["segments"], 8)
-	assert.EqualValues(t, 0, game["free_used_today"])
+	info := player.ok(http.MethodGet, "/api/game/wheel", nil)
+	assert.InDelta(t, 0.8, info["payback"], 1e-9)
+	assert.Len(t, info["segments"], 8)
+	assert.EqualValues(t, 0, info["free_used_today"])
 
 	cases := []struct {
 		free        bool
@@ -47,83 +37,56 @@ func TestSpinWheelFreeThenPaidUntilDailyLimit(t *testing.T) {
 		wantErr     bool
 		wantWin     int
 		wantBalance int
-		wantPlays   int
-		wantEarned  int
+		wantNet     int
 	}{
 		// 3 倍格：免费旋转不扣币，奖品 2 × 3。
-		{free: true, segment: 2, wantWin: 6, wantBalance: 9, wantPlays: 1, wantEarned: 6},
+		{free: true, segment: 2, wantWin: 6, wantBalance: 9, wantNet: 6},
 		{free: true, segment: 2, wantErr: true},
 		// 谢谢参与：扣掉 2 个。
-		{segment: 3, wantWin: 0, wantBalance: 7, wantPlays: 2, wantEarned: 4},
+		{segment: 3, wantWin: 0, wantBalance: 7, wantNet: 4},
+		{segment: 3, wantWin: 0, wantBalance: 5, wantNet: 2},
 		// 头奖 50 倍：扣 2 派 100。
-		{segment: 0, wantWin: 100, wantBalance: 105, wantPlays: 3, wantEarned: 102},
-		{segment: 3, wantErr: true},
+		{segment: 0, wantWin: 100, wantBalance: 103, wantNet: 100},
+		{segment: 3, wantWin: 0, wantBalance: 101, wantNet: 98},
 	}
 	for i, c := range cases {
 		stopWheelAt(t, c.segment)
-		_, response := accountRequest(t, router, http.MethodPost, "/api/game/wheel/spin", cookies, map[string]any{"free": c.free}, "")
 		if c.wantErr {
-			assert.Equal(t, false, response["success"], "case %d", i)
+			player.fails(http.MethodPost, "/api/game/wheel/spin", map[string]any{"free": c.free})
 			continue
 		}
-		require.Equal(t, true, response["success"], "case %d: %v", i, response["message"])
-		result := response["data"].(map[string]any)
-		assert.EqualValues(t, c.segment, result["segment"], "case %d segment", i)
+		result := player.ok(http.MethodPost, "/api/game/wheel/spin", map[string]any{"free": c.free})
 		assert.EqualValues(t, c.wantWin, result["win"], "case %d win", i)
 		assert.EqualValues(t, c.wantBalance, result["balance"], "case %d balance", i)
-		assert.EqualValues(t, c.wantPlays, result["plays_today"], "case %d plays", i)
-		assert.EqualValues(t, 1, result["free_used_today"], "case %d free used", i)
-		assert.EqualValues(t, c.wantEarned, result["earned_today"], "case %d earned", i)
+		assert.EqualValues(t, c.wantNet, result["net_today"], "case %d net today", i)
 	}
-
-	game = wheelInfo()
-	assert.EqualValues(t, 3, game["plays_today"])
-	assert.EqualValues(t, 1, game["ip_free_used_today"])
-	assert.EqualValues(t, 102, game["earned_today"])
-	assert.EqualValues(t, 100, game["best_score"])
-	account, err := model.GetGameCoinAccount(user.Id)
+	account, err := model.GetGameCoinAccount(player.user.Id)
 	require.NoError(t, err)
-	assert.Equal(t, 105, account.Balance)
-	assert.Equal(t, 9, account.TotalEarned, "初始的 3 个加上免费旋转中的 6 个")
-	assert.Equal(t, 4, account.TotalWagered)
-	assert.Equal(t, 96, account.TotalWagerNet)
-	var sessions int64
-	require.NoError(t, db.Model(&model.GameSession{}).Where("user_id = ? AND game = ?", user.Id, gameWheel).Count(&sessions).Error)
-	assert.EqualValues(t, 3, sessions)
-	var bigWinLogs int64
-	require.NoError(t, db.Model(&model.Log{}).Where("user_id = ? AND type = ? AND content LIKE ?", user.Id, model.LogTypeSystem, "游戏大奖%").Count(&bigWinLogs).Error)
-	assert.EqualValues(t, 1, bigWinLogs, "只有头奖那一次是大奖")
+	assert.Equal(t, 3+6, account.TotalEarned, "种子币加上免费旋转的奖品")
+	assert.Equal(t, 8, account.TotalWagered)
+	assert.Equal(t, 92, account.TotalWagerNet)
 }
 
-// 要求人机验证时，免费旋转没有带 Turnstile 令牌就拒绝，不会用掉免费次数；付费旋转不需要验证，余额不够时拒绝且不扣币。
-// 大转盘没开放时不能转。
-func TestSpinWheelChecksTurnstileBalanceAndSwitch(t *testing.T) {
-	setting := &operation_setting.GameSetting{
-		Enabled:              true,
-		PlayTurnstileEnabled: true,
-		Wheel:                operation_setting.WheelRule{Enabled: true, FreeSpins: 1, DailySpins: 10, SpinCost: 2},
-	}
-	db, router, user, cookies := spinGameFixture(t, setting, 2)
-	previousTurnstile := common.TurnstileCheckEnabled
-	common.TurnstileCheckEnabled = true
-	t.Cleanup(func() { common.TurnstileCheckEnabled = previousTurnstile })
-	stopWheelAt(t, 3)
+// 免费旋转是免费奖励：同一 IP 下所有账号合计也只有 FreeSpins 次；奖品计入所有免费奖励的合计上限，
+// 合计上限用完之后不能再免费转。
+func TestSpinWheelFreeSpinsAreSharedAndCapped(t *testing.T) {
+	env := newGameTestEnv(t, gameSetting(func(s *operation_setting.GameSetting) {
+		s.Wheel = operation_setting.WheelRule{Enabled: true, FreeSpins: 2, SpinCost: 1}
+		s.FreeDailyLimit = 3
+	}))
+	first := env.player(0, gameTestIpA)
+	second := env.player(0, gameTestIpA)
+	other := env.player(0, gameTestIpB)
 
-	spin := func(free bool) map[string]any {
-		_, response := accountRequest(t, router, http.MethodPost, "/api/game/wheel/spin", cookies, map[string]any{"free": free}, "")
-		return response
-	}
-	assert.Equal(t, false, spin(true)["success"], "免费旋转要先过人机验证")
-	paid := spin(false)
-	require.Equal(t, true, paid["success"], paid["message"])
-	assert.EqualValues(t, 0, paid["data"].(map[string]any)["balance"])
-	assert.EqualValues(t, 0, paid["data"].(map[string]any)["free_used_today"], "被拒绝的免费旋转没有用掉免费次数")
-	assert.Equal(t, false, spin(false)["success"], "余额不够")
+	stopWheelAt(t, 5) // 2 倍格：奖品 2 个
+	first.ok(http.MethodPost, "/api/game/wheel/spin", map[string]any{"free": true})
+	result := second.ok(http.MethodPost, "/api/game/wheel/spin", map[string]any{"free": true})
+	assert.EqualValues(t, 1, result["win"], "同一 IP 的合计上限只剩 1 个")
+	assert.Equal(t, model.GameRewardLimitedByTotal, result["limited_by"])
+	second.fails(http.MethodPost, "/api/game/wheel/spin", map[string]any{"free": true})
 
-	operation_setting.SetGameSettingForTest(&operation_setting.GameSetting{Enabled: true, Wheel: operation_setting.WheelRule{FreeSpins: 1, DailySpins: 10, SpinCost: 2}})
-	assert.Equal(t, false, spin(true)["success"], "大转盘没开放")
-
-	var sessions int64
-	require.NoError(t, db.Model(&model.GameSession{}).Where("user_id = ?", user.Id).Count(&sessions).Error)
-	assert.EqualValues(t, 1, sessions)
+	result = other.ok(http.MethodPost, "/api/game/wheel/spin", map[string]any{"free": true})
+	assert.EqualValues(t, 2, result["win"], "别的 IP 不受影响")
+	assert.Equal(t, 2, first.balance())
+	assert.Equal(t, 1, second.balance())
 }

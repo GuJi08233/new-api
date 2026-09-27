@@ -23,6 +23,7 @@ const (
 	SystemTaskTypeMidjourneyPoll   = "midjourney_poll"
 	SystemTaskTypeAsyncTaskPoll    = "async_task_poll"
 	SystemTaskTypeGameCoinWithdraw = "game_coin_withdraw"
+	SystemTaskTypeGameCenterSweep  = "game_center_sweep"
 )
 
 var ErrSystemTaskLockLost = errors.New("system task lock lost")

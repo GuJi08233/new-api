@@ -23,8 +23,11 @@ const (
 	GameCoinLogTypeWithdraw       = "withdraw"
 	GameCoinLogTypeWithdrawRefund = "withdraw_refund"
 	GameCoinLogTypeGameReward     = "game_reward"
-	// GameCoinLogTypeGameWager 是下注游戏(例如老虎机)的一局，Amount 为这一局的净输赢(派彩减去下注)。
+	// GameCoinLogTypeGameWager 是下注游戏与奖池的输赢。当场决定结果的一局记一条，Amount 为净输赢(派彩减去下注)；
+	// 分几步完成的一局(例如 21 点)扣注与派彩各记一条，奖池的投入与开奖各记一条。
 	GameCoinLogTypeGameWager = "game_wager"
+	// GameCoinLogTypeGamePvp 是对战的押注、赢得的奖池与平局或取消时的退回。
+	GameCoinLogTypeGamePvp = "game_pvp"
 )
 
 // 提现单状态。pending 到 signed 之间还没有任何链上动作；一旦 signed，签好的交易就已落库，
@@ -649,4 +652,24 @@ func GetGameCoinAccounts(userId int, offset int, limit int) ([]*GameCoinAccountA
 		views = append(views, &GameCoinAccountAdminView{GameCoinAccount: *account, Username: usernames[account.UserId]})
 	}
 	return views, total, nil
+}
+
+// GetGameDisplayNames 返回用户在游戏里显示的名字，键是用户 ID：填了显示名用显示名，否则用用户名。已删除的用户同样能查到。
+func GetGameDisplayNames(userIds []int) (map[int]string, error) {
+	names := make(map[int]string, len(userIds))
+	if len(userIds) == 0 {
+		return names, nil
+	}
+	var users []User
+	if err := DB.Unscoped().Select("id", "username", "display_name").Where("id IN ?", userIds).Find(&users).Error; err != nil {
+		return nil, err
+	}
+	for _, user := range users {
+		name := user.DisplayName
+		if name == "" {
+			name = user.Username
+		}
+		names[user.Id] = name
+	}
+	return names, nil
 }

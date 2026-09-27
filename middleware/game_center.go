@@ -32,3 +32,14 @@ func GamePlayRateLimit(scope string) gin.HandlerFunc {
 func GameSpinRateLimit(scope string) gin.HandlerFunc {
 	return userRateLimitFactory(60, 60, "GP:"+scope)
 }
+
+// GameActionRateLimit 按用户限制对局中每一步操作的频率，例如扫雷翻开一格、挖宝翻开一块、棋类落一子。
+// 一局要点很多下，但每一步只改一行对局状态。
+func GameActionRateLimit(scope string) gin.HandlerFunc {
+	return userRateLimitFactory(300, 60, "GP:"+scope)
+}
+
+// GamePollRateLimit 按用户限制对战房间与奖池的轮询频率。房间用长轮询，正常每分钟只有几次；奖池每两秒刷新一次。
+func GamePollRateLimit(scope string) gin.HandlerFunc {
+	return userRateLimitFactory(120, 60, "GP:"+scope)
+}

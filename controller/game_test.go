@@ -146,20 +146,27 @@ func TestUpdateGameAdminSettingWritesOnlySubmittedFields(t *testing.T) {
 	require.NoError(t, model.UpdateOption(operation_setting.GameSettingPrefix+"withdraw_enabled", "false"))
 
 	tetris := operation_setting.GetGameSetting().Tetris
-	tetris.DailyRewardLimit = 7
+	tetris.DailyRewards = 7
 	_, saved := accountRequest(t, router, http.MethodPut, "/api/game/admin/setting", nil, map[string]any{"tetris": tetris}, "")
 	require.Equal(t, true, saved["success"], saved["message"])
-	assert.Equal(t, 7, operation_setting.GetGameSetting().Tetris.DailyRewardLimit)
+	assert.Equal(t, 7, operation_setting.GetGameSetting().Tetris.DailyRewards)
 	assert.False(t, operation_setting.GetGameSetting().WithdrawEnabled, "没有提交的字段保持别人刚改的值")
 	var audit model.Log
 	require.NoError(t, db.Where("content LIKE ?", "Updated game center settings%").Last(&audit).Error)
 	assert.Equal(t, "Updated game center settings: tetris", audit.Content)
 
 	// 游戏规则只带改动过的子字段时合并进当前规则：别人刚关掉了老虎机，这边只改单次最多下注，老虎机不会又被打开。
-	require.NoError(t, model.UpdateOption(operation_setting.GameSettingPrefix+"slots", `{"enabled":false,"even_stage_wager":200,"daily_reward_limit":0,"max_bet":5}`))
+	require.NoError(t, model.UpdateOption(operation_setting.GameSettingPrefix+"slots", `{"enabled":false,"max_bet":5}`))
 	_, partial := accountRequest(t, router, http.MethodPut, "/api/game/admin/setting", nil, map[string]any{"slots": map[string]any{"max_bet": 9}}, "")
 	require.Equal(t, true, partial["success"], partial["message"])
-	assert.Equal(t, operation_setting.SlotsRule{Enabled: false, EvenStageWager: 200, DailyRewardLimit: 0, MaxBet: 9}, operation_setting.GetGameSetting().Slots)
+	assert.Equal(t, operation_setting.WagerRule{Enabled: false, MaxBet: 9}, operation_setting.GetGameSetting().Slots)
+
+	// 奖励档位整份替换，读出的快照不受之后的改动影响。
+	before := operation_setting.GetGameSetting()
+	_, tiers := accountRequest(t, router, http.MethodPut, "/api/game/admin/setting", nil, map[string]any{"2048": map[string]any{"tiers": []map[string]int{{"score": 100, "coins": 1}}}}, "")
+	require.Equal(t, true, tiers["success"], tiers["message"])
+	assert.Equal(t, []operation_setting.RewardTier{{Score: 100, Coins: 1}}, operation_setting.GetGameSetting().Game2048.Tiers)
+	assert.Equal(t, 6000, before.Game2048.Tiers[0].Score, "保存前读出的快照不变")
 
 	_, crossField := accountRequest(t, router, http.MethodPut, "/api/game/admin/setting", nil, map[string]any{"withdraw_min_amount": 500}, "")
 	assert.Equal(t, false, crossField["success"], "单次最少大于当前的单次最多")

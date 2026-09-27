@@ -16,9 +16,6 @@ import (
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/pkg/plinko"
-	"github.com/QuantumNous/new-api/pkg/slots"
-	"github.com/QuantumNous/new-api/pkg/wheel"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -85,17 +82,16 @@ func passGamePlayTurnstile(c *gin.Context, setting *operation_setting.GameSettin
 	return true
 }
 
-// GetGameCenterSelf 返回当前用户的游戏币账户、兑换比例、提现规则、已开放的游戏和各自今天的奖励进度，
-// 以及开局是否需要人机验证。
+// GetGameCenterSelf 返回当前用户的游戏币账户、兑换比例、提现规则、今天所有免费奖励的合计，以及每个开放游戏的今日进度。
+// 各游戏的规则与详细进度由游戏页自己的接口 GET /api/game/<key> 返回。
 func GetGameCenterSelf(c *gin.Context) {
-	userId := c.GetInt("id")
-	day := gameCenterDay()
-	account, err := model.GetGameCoinAccount(userId)
+	ctx := newGameContext(c)
+	account, err := model.GetGameCoinAccount(ctx.UserId)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	used, err := model.GetGameCoinWithdrawDayUsed(day)
+	used, err := model.GetGameCoinWithdrawDayUsed(ctx.Day)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -105,139 +101,22 @@ func GetGameCenterSelf(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	setting := operation_setting.GetGameSetting()
-	games := []gin.H{}
-	if setting.Tetris.Enabled {
-		earned, err := model.GetGameRewardEarned(userId, gameTetris, day)
-		if err != nil {
-			common.ApiError(c, err)
-			return
-		}
-		best, err := model.GetGameBestScore(userId, gameTetris)
-		if err != nil {
-			common.ApiError(c, err)
-			return
-		}
-		games = append(games, gin.H{
-			"key":                  gameTetris,
-			"daily_reward_limit":   setting.Tetris.DailyRewardLimit,
-			"score_per_coin":       setting.Tetris.ScorePerCoin,
-			"min_seconds_per_coin": setting.Tetris.MinSecondsPerCoin,
-			"earned_today":         earned,
-			"best_score":           best,
-		})
+	games, counts, err := gameSummaries(ctx)
+	if err != nil {
+		common.ApiError(c, err)
+		return
 	}
-	if setting.Slots.Enabled {
-		earned, err := model.GetGameRewardEarned(userId, gameSlots, day)
-		if err != nil {
-			common.ApiError(c, err)
-			return
-		}
-		ipEarned, err := model.GetGameRewardIpEarned(gameRewardIpKey(c.ClientIP()), gameSlots, day)
-		if err != nil {
-			common.ApiError(c, err)
-			return
-		}
-		best, err := model.GetGameBestScore(userId, gameSlots)
-		if err != nil {
-			common.ApiError(c, err)
-			return
-		}
-		paytables, paybacks := gin.H{}, gin.H{}
-		for stage, key := range slots.StageKeys {
-			paid, combos := slots.Payback(slots.Stage(stage))
-			paytables[key] = slots.Paytables[stage]
-			paybacks[key] = float64(paid) / float64(combos)
-		}
-		// 老虎机的 earned_today、ip_earned_today 是账号、同一 IP 今天的净赢，可以为负，daily_reward_limit 为 0 表示不限制；
-		// best_score 是单次最高的实际派彩。wagered 是玩家的累计下注，没到 even_stage_wager 时按均衡赔付表。
-		// 转轮和两个阶段的赔付表、返还率随游戏信息下发，浏览器据此画出转轮、公示规则，把转轮转到服务端给出的停点。
-		games = append(games, gin.H{
-			"key":                gameSlots,
-			"daily_reward_limit": setting.Slots.DailyRewardLimit,
-			"even_stage_wager":   setting.Slots.EvenStageWager,
-			"max_bet":            setting.Slots.MaxBet,
-			"earned_today":       earned,
-			"ip_earned_today":    ipEarned,
-			"best_score":         best,
-			"wagered":            account.TotalWagered,
-			"reels":              slots.Strips,
-			"paytables":          paytables,
-			"paybacks":           paybacks,
-		})
-	}
-	if setting.Wheel.Enabled {
-		count, err := model.GetGameDailyPlayCount(userId, gameRewardIpKey(c.ClientIP()), gameWheel, day)
-		if err != nil {
-			common.ApiError(c, err)
-			return
-		}
-		best, err := model.GetGameBestScore(userId, gameWheel)
-		if err != nil {
-			common.ApiError(c, err)
-			return
-		}
-		paid, total := wheel.Payback()
-		// 大转盘的 earned_today 是账号今天的净得：免费旋转的奖品加上付费旋转的净输赢，可以为负。free_used_today、
-		// ip_free_used_today 是账号、同一 IP 今天用掉的免费次数，都没到 free_spins 时还能免费转；plays_today 含免费次数，
-		// daily_spins 为 0 表示不限制；best_score 是单次最高的派彩。格子与返还率随游戏信息下发，浏览器据此画出转盘、
-		// 公示概率，把转盘转到服务端选中的格子。
-		games = append(games, gin.H{
-			"key":                gameWheel,
-			"free_spins":         setting.Wheel.FreeSpins,
-			"daily_spins":        setting.Wheel.DailySpins,
-			"spin_cost":          setting.Wheel.SpinCost,
-			"plays_today":        count.Plays,
-			"free_used_today":    count.FreePlays,
-			"ip_free_used_today": count.IpFreePlays,
-			"earned_today":       count.Earned,
-			"best_score":         best,
-			"segments":           wheel.Segments,
-			"payback":            float64(paid) / float64(total),
-		})
-	}
-	if setting.Plinko.Enabled {
-		ip := gameRewardIpKey(c.ClientIP())
-		tiers := make([]gin.H, 0, len(plinko.Tiers))
-		earned := 0
-		for _, tier := range plinko.Tiers {
-			count, err := model.GetGameDailyPlayCount(userId, ip, plinkoCounter(tier.Stake), day)
-			if err != nil {
-				common.ApiError(c, err)
-				return
-			}
-			paid, cost := plinko.Payback(tier)
-			earned += count.Earned
-			tiers = append(tiers, gin.H{
-				"stake":        tier.Stake,
-				"cost":         tier.Cost,
-				"delta":        tier.Delta,
-				"payouts":      tier.Payouts,
-				"payback":      float64(paid) / float64(cost),
-				"daily_drops":  setting.Plinko.DailyDrops(tier.Stake),
-				"plays_today":  count.Plays,
-				"earned_today": count.Earned,
-			})
-		}
-		// Plinko 的每一档各自计次：daily_drops 为 0 表示这一档不开放，earned_today 是这一档今天的净输赢；外层的 earned_today
-		// 是三档合计。每一档扣 cost 个游戏币、落进第 k 格派彩 payouts[k] 个，落进第 k 格的概率是 weights[k] 除以 weights 之和，
-		// 浏览器据此画出钉板、公示概率，照着服务端给出的路径播放小球落下的动画。
-		games = append(games, gin.H{
-			"key":          gamePlinko,
-			"rows":         plinko.Rows,
-			"weights":      plinko.Weights,
-			"tiers":        tiers,
-			"earned_today": earned,
-		})
-	}
+	setting := ctx.Setting
 	_, _, walletErr := service.GameHotWalletAddress()
 	common.ApiSuccess(c, gin.H{
 		"account":        account,
 		"quota_per_coin": quotaPerCoin,
 		"games":          games,
-		"play_turnstile": gin.H{
-			"required": setting.PlayTurnstileRequired(),
-			"site_key": common.TurnstileSiteKey,
+		// 免费奖励每人每天的合计上限(0 表示不限制)与账号、同一 IP 今天已经领到的合计。
+		"free": gin.H{
+			"daily_limit":     setting.FreeDailyLimit,
+			"earned_today":    counts.user[model.GameFreeCounter].Coins,
+			"ip_earned_today": counts.ip[model.GameFreeCounter].Coins,
 		},
 		"token": gin.H{
 			"symbol":       setting.TokenSymbol,
@@ -417,13 +296,14 @@ func UpdateGameAdminSetting(c *gin.Context) {
 		common.ApiErrorMsg(c, "无效的参数")
 		return
 	}
-	setting := *operation_setting.GetGameSetting()
+	// 快照是只读的，规则里的奖励档位是切片，先深拷贝再把改动解析进去。
+	setting := operation_setting.GetGameSetting().Clone()
 	body, err := common.Marshal(changes)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	if err := common.Unmarshal(body, &setting); err != nil {
+	if err := common.Unmarshal(body, setting); err != nil {
 		common.ApiErrorMsg(c, "无效的参数")
 		return
 	}
@@ -439,11 +319,11 @@ func UpdateGameAdminSetting(c *gin.Context) {
 		}
 		setting.TokenAddress = normalized
 	}
-	if err := operation_setting.ValidateGameSetting(&setting); err != nil {
+	if err := operation_setting.ValidateGameSetting(setting); err != nil {
 		common.ApiErrorMsg(c, err.Error())
 		return
 	}
-	values, err := config.ConfigToMap(&setting)
+	values, err := config.ConfigToMap(setting)
 	if err != nil {
 		common.ApiError(c, err)
 		return

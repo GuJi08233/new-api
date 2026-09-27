@@ -167,11 +167,8 @@ func SetApiRouter(router *gin.Engine) {
 			gameRoute.GET("/withdrawals", controller.GetGameCoinWithdrawals)
 			gameRoute.POST("/convert", middleware.UserCriticalRateLimit("game-convert"), controller.ConvertGameCoins)
 			gameRoute.POST("/withdraw", middleware.UserCriticalRateLimit("game-withdraw"), middleware.DisableCache(), controller.WithdrawGameCoins)
-			gameRoute.POST("/tetris/start", middleware.GamePlayRateLimit("tetris-start"), controller.StartTetris)
-			gameRoute.POST("/tetris/finish", middleware.GamePlayRateLimit("tetris-finish"), controller.FinishTetris)
-			gameRoute.POST("/slots/spin", middleware.GameSpinRateLimit("slots-spin"), controller.SpinSlots)
-			gameRoute.POST("/wheel/spin", middleware.GamePlayRateLimit("wheel-spin"), controller.SpinWheel)
-			gameRoute.POST("/plinko/drop", middleware.GameSpinRateLimit("plinko-drop"), controller.DropPlinko)
+			// 各游戏的规则与玩法接口 /api/game/<key>/...，以及对战房间 /api/game/rooms/...。
+			controller.RegisterGameRoutes(gameRoute)
 		}
 		gameAdminRoute := apiRouter.Group("/game/admin")
 		gameAdminRoute.Use(middleware.RootAuth())

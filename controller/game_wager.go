@@ -1,0 +1,158 @@
+package controller
+
+import (
+	"errors"
+	"fmt"
+	"slices"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/model"
+
+	"github.com/gin-gonic/gin"
+)
+
+// 下注游戏的公共流程。赔付表或赔率公式在各游戏的 pkg 包里，理论返还率低于 100%，玩家长期是输的，所以不限次数、不设每日
+// 上限，也不要求人机验证：脚本连续下注只会输得更快。
+
+// gameBigWinMultiplier 是派彩达到下注多少倍时记审计日志，与页面上按大奖展示的倍数一致。
+const gameBigWinMultiplier = 10
+
+// wagerInfo 返回下注游戏页的通用信息：单次下注上限、今天的输赢与局数、单局最高派彩。
+func wagerInfo(ctx *gameContext, game string, maxBet int) (gin.H, error) {
+	net, plays, err := model.GetGameDayStats(ctx.UserId, game, ctx.Day)
+	if err != nil {
+		return nil, err
+	}
+	best, err := model.GetGameBestScore(ctx.UserId, game)
+	if err != nil {
+		return nil, err
+	}
+	return gin.H{
+		"max_bet":     maxBet,
+		"net_today":   net,
+		"plays_today": plays,
+		"best_win":    best,
+	}, nil
+}
+
+// validWagerBet 检查单次下注在 [minBet, maxBet] 之内，不在时写好错误响应并返回 false。
+func validWagerBet(c *gin.Context, bet int, minBet int, maxBet int) bool {
+	if bet >= minBet && bet <= maxBet {
+		return true
+	}
+	common.ApiErrorI18n(c, i18n.MsgGameBetInvalid, map[string]any{"Min": minBet, "Max": maxBet})
+	return false
+}
+
+// validWagerStep 检查分档投入的游戏选的是开放的一档(不超过 maxBet 的那几档)，不是时写好错误响应并返回 false。
+func validWagerStep(c *gin.Context, bet int, steps []int, maxBet int) bool {
+	open := make([]int, 0, len(steps))
+	for _, step := range steps {
+		if step <= maxBet {
+			open = append(open, step)
+		}
+	}
+	if slices.Contains(open, bet) {
+		return true
+	}
+	common.ApiErrorI18n(c, i18n.MsgGameBetStepInvalid, map[string]any{"Steps": fmt.Sprint(open)})
+	return false
+}
+
+// respondGameError 把结算时的常见错误换成给玩家看的提示；其他错误记日志后提示操作失败。
+func respondGameError(c *gin.Context, game string, err error) {
+	switch {
+	case errors.Is(err, model.ErrGameCoinInsufficient):
+		common.ApiErrorI18n(c, i18n.MsgGameCoinInsufficient)
+	case errors.Is(err, model.ErrGameRoundOpen):
+		common.ApiErrorI18n(c, i18n.MsgGameRoundOpen)
+	case errors.Is(err, model.ErrGameRoundChanged):
+		common.ApiErrorI18n(c, i18n.MsgGameRoundChanged)
+	case errors.Is(err, model.ErrGameFreePlayUsed):
+		common.ApiErrorI18n(c, i18n.MsgGameFreePlayUsed)
+	case errors.Is(err, model.ErrGameIpFreePlayUsed):
+		common.ApiErrorI18n(c, i18n.MsgGameIpFreePlayUsed)
+	case errors.Is(err, model.ErrGameFreeDailyLimit):
+		common.ApiErrorI18n(c, i18n.MsgGameFreeDailyLimit)
+	default:
+		common.SysError(fmt.Sprintf("failed to settle %s for user %d: %v", game, c.GetInt("id"), err))
+		common.ApiErrorI18n(c, i18n.MsgGamePlayFailed)
+	}
+}
+
+// auditGameWin 在派彩达到下注 gameBigWinMultiplier 倍时记一条带来源 IP 的审计日志，风控的多账号视图能看到同一 IP 下哪些账号
+// 从下注游戏赢走了游戏币。每局都记会被连续下注刷满，只记大奖。
+func auditGameWin(c *gin.Context, game string, name string, session *model.GameSession) {
+	if session.Bet < 1 || session.Reward < gameBigWinMultiplier*session.Bet {
+		return
+	}
+	model.RecordAuditLog(model.ClientLogSource(c), session.UserId, "", model.LogTypeSystem,
+		fmt.Sprintf("游戏大奖：%s下注 %d，派彩 %d 个游戏币", name, session.Bet, session.Reward),
+		map[string]interface{}{"game": game, "session_id": session.Id, "bet": session.Bet, "game_coins": session.Reward})
+}
+
+// wagerResultView 是一局下注游戏的结算结果里各游戏共用的部分。
+func wagerResultView(result *model.GameWagerResult) gin.H {
+	return gin.H{
+		"bet":         result.Session.Bet,
+		"win":         result.Session.Reward,
+		"net":         result.Session.Reward - result.Session.Bet,
+		"balance":     result.Balance,
+		"net_today":   result.Net,
+		"plays_today": result.Plays,
+	}
+}
+
+// loadGameRound 读出玩家在这个游戏里进行中的一局并把状态解析进 state；没有进行中的一局时返回 nil 且不写响应，
+// 出错时写好错误响应并返回 nil、false。
+func loadGameRound(c *gin.Context, game string, state any) (*model.GameSession, bool) {
+	session, err := model.GetPlayingGameSession(c.GetInt("id"), game)
+	if err != nil {
+		common.ApiError(c, err)
+		return nil, false
+	}
+	if session == nil {
+		return nil, true
+	}
+	if err := common.UnmarshalJsonStr(session.State, state); err != nil {
+		common.SysError(fmt.Sprintf("failed to decode %s round %d: %v", game, session.Id, err))
+		common.ApiErrorI18n(c, i18n.MsgGamePlayFailed)
+		return nil, false
+	}
+	return session, true
+}
+
+// gameRoundResumable 表示玩家在这个游戏里还有进行中的一局，游戏关闭后也要能回来把它玩完。
+func gameRoundResumable(game string) func(ctx *gameContext) bool {
+	return func(ctx *gameContext) bool {
+		session, err := model.GetPlayingGameSession(ctx.UserId, game)
+		return err == nil && session != nil
+	}
+}
+
+// auditGameFreeWin 在免费旋转这类免费奖励开出 gameBigWinMultiplier 倍以上的大奖时记审计日志，cost 是奖品按倍数计算时的基数。
+func auditGameFreeWin(c *gin.Context, game string, name string, session *model.GameSession, cost int) {
+	if cost < 1 || session.Reward < gameBigWinMultiplier*cost {
+		return
+	}
+	model.RecordAuditLog(model.ClientLogSource(c), session.UserId, "", model.LogTypeSystem,
+		fmt.Sprintf("游戏大奖：%s，获得 %d 个游戏币", name, session.Reward),
+		map[string]interface{}{"game": game, "session_id": session.Id, "free": true, "game_coins": session.Reward})
+}
+
+// gameRoundView 是分几步完成的一局给玩家看的公共部分，各游戏再补上自己能公开的状态。结束的一局带上派彩。
+func gameRoundView(session *model.GameSession) gin.H {
+	view := gin.H{
+		"session_id": session.Id,
+		"version":    session.Version,
+		"status":     session.Status,
+		"bet":        session.Bet,
+		"created_at": session.CreatedAt,
+	}
+	if session.Status == model.GameSessionStatusFinished {
+		view["win"] = session.Reward
+		view["net"] = session.Reward - session.Bet
+	}
+	return view
+}
