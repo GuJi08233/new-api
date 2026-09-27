@@ -28,6 +28,7 @@ For commercial licensing, please contact support@quantumnous.com
   padding-top: 64px;
 }
 
+/* 与首页横幅的靛蓝、青绿光晕同色。 */
 .games-glow {
   pointer-events: none;
   position: absolute;
@@ -35,12 +36,12 @@ For commercial licensing, please contact support@quantumnous.com
   height: 520px;
   background: radial-gradient(
       ellipse 50% 45% at 15% 10%,
-      rgba(var(--semi-amber-5), 1) 0%,
+      rgba(var(--semi-indigo-5), 1) 0%,
       transparent 70%
     ),
     radial-gradient(
       ellipse 45% 40% at 85% 8%,
-      rgba(var(--semi-violet-5), 1) 0%,
+      rgba(var(--semi-teal-5), 1) 0%,
       transparent 70%
     );
   opacity: 0.12;
@@ -318,7 +319,7 @@ For commercial licensing, please contact support@quantumnous.com
 
 .games-list-cover.cover-tetris {
   background: linear-gradient(135deg, #22d3ee 0%, #6366f1 100%);
-  box-shadow: 0 6px 16px rgba(99, 102, 241, 0.3);
+  box-shadow: 0 6px 16px -6px rgba(99, 102, 241, 0.55);
 }
 
 .games-records-filter {
@@ -327,18 +328,18 @@ For commercial licensing, please contact support@quantumnous.com
 }
 
 .games-list-cover.cover-slots {
-  background: linear-gradient(135deg, #fbbf24 0%, #dc2626 100%);
-  box-shadow: 0 6px 16px rgba(220, 38, 38, 0.3);
+  background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+  box-shadow: 0 6px 16px -6px rgba(168, 85, 247, 0.55);
 }
 
 .games-list-cover.cover-wheel {
-  background: linear-gradient(135deg, #a78bfa 0%, #6d28d9 100%);
-  box-shadow: 0 6px 16px rgba(109, 40, 217, 0.3);
+  background: linear-gradient(135deg, #2dd4bf 0%, #0ea5e9 100%);
+  box-shadow: 0 6px 16px -6px rgba(14, 165, 233, 0.55);
 }
 
 .games-list-cover.cover-plinko {
-  background: linear-gradient(135deg, #38bdf8 0%, #1e3a8a 100%);
-  box-shadow: 0 6px 16px rgba(30, 58, 138, 0.3);
+  background: linear-gradient(135deg, #3b82f6 0%, #c026d3 100%);
+  box-shadow: 0 6px 16px -6px rgba(192, 38, 211, 0.5);
 }
 
 .games-list-body {
@@ -369,6 +370,197 @@ For commercial licensing, please contact support@quantumnous.com
   font-size: 12px;
   font-variant-numeric: tabular-nums;
   color: var(--semi-color-text-1);
+}
+
+/* ---------- Game stage ----------
+   老虎机、大转盘和 Plinko 共用的台面：沿用站点卡片的底色、边框和圆角，随明暗主题切换；
+   顶部叠一层淡淡的靛蓝光晕和点阵。 */
+
+.games-stage {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px 18px;
+  border-radius: 16px;
+  border: 1px solid var(--semi-color-border);
+  background: var(--semi-color-bg-1);
+  overflow: hidden;
+}
+
+.games-stage::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(
+      ellipse 70% 42% at 50% 0%,
+      rgba(var(--semi-indigo-5), 0.14) 0%,
+      transparent 100%
+    ),
+    radial-gradient(var(--semi-color-fill-1) 1px, transparent 1.4px) 0 0 / 16px
+      16px;
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, transparent 80%);
+  mask-image: linear-gradient(to bottom, #000 0%, transparent 80%);
+}
+
+/* 大奖时台面外圈亮一下。 */
+.games-stage.is-big-win {
+  animation: games-stage-glow 1.4s ease-out;
+}
+
+.games-stage-message {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: 100%;
+  min-height: 52px;
+  margin-top: 16px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  text-align: center;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--semi-color-text-1);
+  background: var(--semi-color-fill-0);
+}
+
+.games-stage-message.is-win {
+  color: var(--semi-color-success);
+  background: var(--semi-color-success-light-default);
+}
+
+.games-stage-message.is-big-win {
+  font-size: 22px;
+  font-weight: 700;
+  color: rgba(var(--semi-amber-7), 1);
+  background: rgba(var(--semi-amber-5), 0.14);
+  animation: games-pop 0.6s ease-out;
+}
+
+.games-stage-message.is-loss {
+  color: var(--semi-color-text-2);
+}
+
+.games-stage-message.is-error {
+  font-size: 14px;
+  color: var(--semi-color-danger);
+  background: var(--semi-color-danger-light-default);
+}
+
+.games-stage-message-note {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--semi-color-text-2);
+}
+
+/* 台面上的主按钮，颜色取站点主色。 */
+.games-play-button {
+  min-width: 220px;
+  height: 48px;
+  padding: 0 28px;
+  border: none;
+  border-radius: 999px;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  color: #fff;
+  background: var(--semi-color-primary);
+  box-shadow: 0 8px 20px -10px var(--semi-color-primary);
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    transform 0.08s ease;
+}
+
+.games-play-button:hover:not(:disabled) {
+  background: var(--semi-color-primary-hover);
+}
+
+.games-play-button:active:not(:disabled) {
+  background: var(--semi-color-primary-active);
+  transform: translateY(1px);
+}
+
+.games-play-button.is-free {
+  background: var(--semi-color-success);
+  box-shadow: 0 8px 20px -10px var(--semi-color-success);
+}
+
+.games-play-button.is-free:hover:not(:disabled) {
+  background: var(--semi-color-success-hover);
+}
+
+.games-play-button.is-free:active:not(:disabled) {
+  background: var(--semi-color-success-active);
+}
+
+.games-play-button:disabled {
+  color: var(--semi-color-disabled-text);
+  background: var(--semi-color-disabled-bg);
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+.games-play-button:focus-visible {
+  outline: 2px solid var(--semi-color-primary);
+  outline-offset: 3px;
+}
+
+.games-stage-counter {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--semi-color-text-2);
+}
+
+.games-stage-hint {
+  width: 100%;
+  text-align: center;
+  font-size: 12px;
+  color: var(--semi-color-warning);
+}
+
+@keyframes games-stage-glow {
+  0% {
+    box-shadow: 0 0 0 0 rgba(var(--semi-amber-5), 0.6);
+  }
+  100% {
+    box-shadow: 0 0 0 16px rgba(var(--semi-amber-5), 0);
+  }
+}
+
+@keyframes games-pop {
+  0% {
+    transform: scale(0.85);
+  }
+  60% {
+    transform: scale(1.06);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .games-stage.is-big-win,
+  .games-stage-message.is-big-win {
+    animation: none;
+  }
+}
+
+@media (max-width: 520px) {
+  .games-stage {
+    padding: 14px 12px 16px;
+  }
+
+  .games-play-button {
+    width: 100%;
+  }
 }
 
 @media (max-width: 640px) {

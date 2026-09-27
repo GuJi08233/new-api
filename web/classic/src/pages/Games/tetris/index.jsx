@@ -17,8 +17,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, {
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
+import { UNSAFE_NavigationContext, useNavigate } from 'react-router-dom';
 import { Button, Empty, Modal, Spin } from '@douyinfe/semi-ui';
 import {
   IllustrationConstruction,
@@ -67,13 +73,13 @@ const CELL = 30;
 const PREVIEW_CELL = 16;
 const PREVIEW_SLOT_HEIGHT = PREVIEW_CELL * 3;
 const PREVIEW_WIDTH = PREVIEW_CELL * 5;
-// 依次为 I O T S Z J L。
+// 依次为 I O T S Z J L，沿用各方块约定俗成的色相，取游戏中心共用的配色。
 const PIECE_COLORS = [
-  '#22d3ee',
-  '#facc15',
-  '#a855f7',
-  '#22c55e',
-  '#ef4444',
+  '#06b6d4',
+  '#f59e0b',
+  '#8b5cf6',
+  '#10b981',
+  '#f43f5e',
   '#3b82f6',
   '#f97316',
 ];
@@ -186,12 +192,23 @@ function prepareCanvas(canvas, width, height) {
   return ctx;
 }
 
+// 方块画成圆角小块，顶部一道高光，与游戏中心其他游戏的图标块一致。
 function drawCell(ctx, x, y, size, color, alpha) {
+  const radius = size * 0.2;
   ctx.globalAlpha = alpha;
   ctx.fillStyle = color;
-  ctx.fillRect(x + 1, y + 1, size - 2, size - 2);
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
-  ctx.fillRect(x + 1, y + 1, size - 2, Math.max(2, Math.round(size * 0.18)));
+  ctx.beginPath();
+  ctx.roundRect(x + 1, y + 1, size - 2, size - 2, radius);
+  ctx.fill();
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.22)';
+  ctx.beginPath();
+  ctx.roundRect(x + 1, y + 1, size - 2, Math.max(2, Math.round(size * 0.2)), [
+    radius,
+    radius,
+    0,
+    0,
+  ]);
+  ctx.fill();
   ctx.globalAlpha = 1;
 }
 
@@ -224,12 +241,20 @@ function drawBoard(canvas, game) {
   if (game.over) return;
   const color = PIECE_COLORS[game.piece];
   ctx.strokeStyle = color;
+  ctx.fillStyle = color;
   for (const [x, y] of game.cells(game.ghostY())) {
+    ctx.beginPath();
+    ctx.roundRect(
+      x * CELL + 1.5,
+      y * CELL + 1.5,
+      CELL - 3,
+      CELL - 3,
+      CELL * 0.2,
+    );
     ctx.globalAlpha = 0.18;
-    ctx.fillStyle = color;
-    ctx.fillRect(x * CELL + 1, y * CELL + 1, CELL - 2, CELL - 2);
+    ctx.fill();
     ctx.globalAlpha = 0.7;
-    ctx.strokeRect(x * CELL + 1.5, y * CELL + 1.5, CELL - 3, CELL - 3);
+    ctx.stroke();
   }
   ctx.globalAlpha = 1;
   for (const [x, y] of game.cells()) {
@@ -271,6 +296,7 @@ const formatNumber = (value) => Number(value || 0).toLocaleString();
 const Tetris = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const { navigator } = useContext(UNSAFE_NavigationContext);
   const boardRef = useRef(null);
   const holdRef = useRef(null);
   const nextRef = useRef(null);
@@ -440,16 +466,19 @@ const Tetris = () => {
   }, []);
 
   // 暂停后弹出确认框，确认框关闭前游戏按键不起作用。
-  const confirmWhilePaused = (options) => {
-    pauseGame();
-    confirmingRef.current = true;
-    Modal.confirm({
-      ...options,
-      afterClose: () => {
-        confirmingRef.current = false;
-      },
-    });
-  };
+  const confirmWhilePaused = useCallback(
+    (options) => {
+      pauseGame();
+      confirmingRef.current = true;
+      Modal.confirm({
+        ...options,
+        afterClose: () => {
+          confirmingRef.current = false;
+        },
+      });
+    },
+    [pauseGame],
+  );
 
   const endGame = () => {
     confirmWhilePaused({
@@ -461,17 +490,42 @@ const Tetris = () => {
     });
   };
 
-  const handleBack = () => {
-    if (phase !== 'playing' && phase !== 'paused') {
-      navigate('/games');
-      return;
-    }
-    confirmWhilePaused({
-      title: t('离开游戏'),
-      content: t('本局尚未结算，离开后成绩作废。'),
-      onOk: () => navigate('/games'),
-    });
-  };
+  // 对局进行中离开本页，这一局就不会结算：返回按钮、顶栏和侧栏的站内链接、浏览器的后退与前进都先确认一次。
+  // 站点用的是 BrowserRouter，没有 useBlocker，对局期间由这里接管路由的跳转；浏览器后退、前进时地址已经变了，
+  // 先把本页压回去，确认离开再退到玩家要去的那一页。刷新和关闭页面由 beforeunload 确认。
+  const inProgress = phase === 'playing' || phase === 'paused';
+  useEffect(() => {
+    if (!inProgress) return undefined;
+    const { push, replace, go } = navigator;
+    const here = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    let leaving = false;
+    const confirmLeave = (leave) => {
+      if (confirmingRef.current) return;
+      confirmWhilePaused({
+        title: t('离开游戏'),
+        content: t('本局尚未结算，离开后成绩作废。'),
+        onOk: () => {
+          leaving = true;
+          leave();
+        },
+      });
+    };
+    navigator.push = (...args) => confirmLeave(() => push(...args));
+    navigator.replace = (...args) => confirmLeave(() => replace(...args));
+    navigator.go = (delta) => confirmLeave(() => go(delta));
+    const onPopState = () => {
+      if (leaving) return;
+      push(here);
+      confirmLeave(() => go(-1));
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => {
+      navigator.push = push;
+      navigator.replace = replace;
+      navigator.go = go;
+      window.removeEventListener('popstate', onPopState);
+    };
+  }, [inProgress, navigator, confirmWhilePaused, t]);
 
   // 渲染循环：按真实时间以每秒 60 帧推进，游戏结束或到达时长上限时提交结算。
   useEffect(() => {
@@ -788,7 +842,7 @@ const Tetris = () => {
           <Button
             theme='borderless'
             icon={<ArrowLeft size={16} />}
-            onClick={handleBack}
+            onClick={() => navigate('/games')}
           >
             {t('游戏中心')}
           </Button>

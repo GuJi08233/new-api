@@ -114,13 +114,23 @@ const GameAdminSettings = () => {
   };
 
   // 只提交改动过的字段：页面可能是很久以前打开的，整份提交会把别人在这期间改过的字段(例如紧急关闭的提现)改回去。
+  // 游戏规则是对象，同样只带改动过的子字段，否则改一个下注上限就会把别人刚关掉的游戏又打开；服务端把它们合并进当前规则。
   const save = async () => {
-    const changes = Object.fromEntries(
-      Object.entries(setting).filter(
-        ([key, value]) =>
-          JSON.stringify(value) !== JSON.stringify(savedSetting?.[key]),
-      ),
-    );
+    const changes = {};
+    for (const [key, value] of Object.entries(setting)) {
+      const saved = savedSetting?.[key];
+      if (value !== null && typeof value === 'object') {
+        const fields = Object.entries(value).filter(
+          ([field, fieldValue]) =>
+            JSON.stringify(fieldValue) !== JSON.stringify(saved?.[field]),
+        );
+        if (fields.length > 0) {
+          changes[key] = Object.fromEntries(fields);
+        }
+      } else if (JSON.stringify(value) !== JSON.stringify(saved)) {
+        changes[key] = value;
+      }
+    }
     if (Object.keys(changes).length === 0) {
       showWarning(t('你似乎并没有修改什么'));
       return;
@@ -511,7 +521,7 @@ const GameAdminSettings = () => {
               <SettingRow
                 label={t('均衡阶段下注额')}
                 extra={t(
-                  '每个玩家累计下注满这么多游戏币之前按均衡赔付表（长期不赚不赔）；之后单个樱桃不再退回下注，玩家长期是输的。0 表示从一开始就按后者',
+                  '每个玩家累计下注满这么多游戏币之前按均衡赔付表（长期不赚不赔）；之后单个 Token 不再退回下注，玩家长期是输的。0 表示从一开始就按后者',
                 )}
               >
                 <InputNumber

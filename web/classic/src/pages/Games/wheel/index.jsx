@@ -33,7 +33,7 @@ import {
 import { ArrowLeft } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import Turnstile from 'react-turnstile';
-import { API, showError } from '../../../helpers';
+import { API, getLogo, showError } from '../../../helpers';
 import '../games.css';
 import './wheel.css';
 
@@ -51,19 +51,22 @@ const BIG_WIN_MULTIPLIER = 10;
 // 转盘画在以圆心为原点、边长 200 的坐标系里。
 const WHEEL_RADIUS = 92;
 const LABEL_RADIUS = 62;
-const BULB_RADIUS = 96;
-// 奖品格按倍数从高到低取色，"谢谢参与"用灰色。
+const TICK_RADIUS = 95.5;
+// 奖品格按倍数从高到低取色，与老虎机的符号同一套配色；"谢谢参与"用随主题变化的灰色。
 const PRIZE_COLORS = [
-  { fill: '#f59e0b', text: '#78350f' },
-  { fill: '#8b5cf6', text: '#ffffff' },
-  { fill: '#ef4444', text: '#ffffff' },
-  { fill: '#f97316', text: '#ffffff' },
-  { fill: '#3b82f6', text: '#ffffff' },
-  { fill: '#10b981', text: '#ffffff' },
+  { fill: '#7c3aed', text: '#ffffff' },
   { fill: '#ec4899', text: '#ffffff' },
-  { fill: '#14b8a6', text: '#ffffff' },
+  { fill: '#d97706', text: '#ffffff' },
+  { fill: '#3b82f6', text: '#ffffff' },
+  { fill: '#0891b2', text: '#ffffff' },
+  { fill: '#059669', text: '#ffffff' },
+  { fill: '#e11d48', text: '#ffffff' },
+  { fill: '#4f46e5', text: '#ffffff' },
 ];
-const EMPTY_COLOR = { fill: '#f3f4f6', text: '#6b7280' };
+const EMPTY_COLOR = {
+  fill: 'var(--semi-color-fill-1)',
+  text: 'var(--semi-color-text-2)',
+};
 
 const ILLUSTRATION_SIZE = { width: 150, height: 150 };
 
@@ -159,6 +162,8 @@ const Wheel = () => {
   const [turnstileToken, setTurnstileToken] = useState('');
   const [turnstileKey, setTurnstileKey] = useState(0);
   const [turnstileFailed, setTurnstileFailed] = useState(false);
+  // 转盘中心显示站点 Logo，加载失败时改为显示游戏币符号。
+  const [logoFailed, setLogoFailed] = useState(false);
 
   // refresh 为真时是旋转没有结果后重新读取：这时读不到就保留页面上的内容，失败原因已经显示在转盘下方。
   const loadInfo = useCallback(
@@ -452,83 +457,111 @@ const Wheel = () => {
         </div>
 
         <div className='wheel-layout'>
-          <div className={bigWin ? 'wheel-stage is-big-win' : 'wheel-stage'}>
+          <div className={bigWin ? 'games-stage is-big-win' : 'games-stage'}>
             <div className='wheel-frame'>
               <div className='wheel-pointer' aria-hidden />
-              <div className='wheel-disc' ref={discRef}>
-                <svg viewBox='-100 -100 200 200' aria-hidden>
-                  <circle r='99' className='wheel-rim' />
-                  {segments.map((item, index) => {
-                    const color = colorOf(item.multiplier);
-                    const center = (index + 0.5) * sweep;
-                    return (
-                      <g key={index}>
-                        <path
-                          d={segmentPath(index, sweep)}
-                          fill={color.fill}
+              <div className='wheel-dial'>
+                <div className='wheel-disc' ref={discRef}>
+                  {/* 中奖后其余格子变淡，像数据看板里的环形图聚焦一格。 */}
+                  <svg
+                    viewBox='-100 -100 200 200'
+                    className={hitSegment >= 0 ? 'has-hit' : undefined}
+                    aria-hidden
+                  >
+                    <circle r='99' className='wheel-rim' />
+                    {segments.map((item, index) => {
+                      const color = colorOf(item.multiplier);
+                      const center = (index + 0.5) * sweep;
+                      return (
+                        <g
+                          key={index}
                           className={
                             index === hitSegment
-                              ? 'wheel-segment is-hit'
-                              : 'wheel-segment'
+                              ? 'wheel-slice is-hit'
+                              : 'wheel-slice'
                           }
-                        />
-                        <g transform={`rotate(${center})`} fill={color.text}>
-                          {item.multiplier > 0 ? (
-                            <text
-                              y={-LABEL_RADIUS}
-                              textAnchor='middle'
-                              className='wheel-label'
-                            >
-                              <tspan x='0' className='wheel-label-amount'>
-                                {cost * item.multiplier}
-                              </tspan>
-                              <tspan x='0' dy='13' className='wheel-label-unit'>
-                                {symbol}
-                              </tspan>
-                            </text>
-                          ) : (
-                            <text
-                              y={-LABEL_RADIUS + 4}
-                              textAnchor='middle'
-                              className='wheel-label wheel-label-empty'
-                            >
-                              {t('谢谢参与')}
-                            </text>
-                          )}
+                        >
+                          <path
+                            d={segmentPath(index, sweep)}
+                            style={{ fill: color.fill }}
+                            className='wheel-segment'
+                          />
+                          <g
+                            transform={`rotate(${center})`}
+                            style={{ fill: color.text }}
+                          >
+                            {item.multiplier > 0 ? (
+                              <text
+                                y={-LABEL_RADIUS}
+                                textAnchor='middle'
+                                className='wheel-label'
+                              >
+                                <tspan x='0' className='wheel-label-amount'>
+                                  {cost * item.multiplier}
+                                </tspan>
+                                <tspan
+                                  x='0'
+                                  dy='13'
+                                  className='wheel-label-unit'
+                                >
+                                  {symbol}
+                                </tspan>
+                              </text>
+                            ) : (
+                              <text
+                                y={-LABEL_RADIUS + 4}
+                                textAnchor='middle'
+                                className='wheel-label wheel-label-empty'
+                              >
+                                {t('谢谢参与')}
+                              </text>
+                            )}
+                          </g>
                         </g>
-                      </g>
-                    );
-                  })}
-                  {segments.flatMap((_, index) =>
-                    [0, 0.5].map((half) => {
-                      const [x, y] = polar(BULB_RADIUS, (index + half) * sweep);
+                      );
+                    })}
+                    {segments.map((_, index) => {
+                      const [x, y] = polar(TICK_RADIUS, index * sweep);
                       return (
                         <circle
-                          key={`${index}-${half}`}
+                          key={index}
                           cx={x.toFixed(3)}
                           cy={y.toFixed(3)}
-                          r='2.2'
-                          className={half ? 'wheel-bulb is-alt' : 'wheel-bulb'}
+                          r='1.6'
+                          className='wheel-tick'
                         />
                       );
-                    }),
+                    })}
+                  </svg>
+                </div>
+                {/* 中心不随转盘转动。 */}
+                <div className='wheel-hub' aria-hidden>
+                  {logoFailed ? (
+                    <span className='wheel-hub-symbol'>{symbol || '★'}</span>
+                  ) : (
+                    <img
+                      src={getLogo()}
+                      alt=''
+                      onError={() => setLogoFailed(true)}
+                    />
                   )}
-                  <circle r='17' className='wheel-hub' />
-                  <text y='5' textAnchor='middle' className='wheel-hub-text'>
-                    {symbol || '★'}
-                  </text>
-                </svg>
+                </div>
               </div>
             </div>
 
-            <div className={`wheel-message ${messageClass}`} aria-live='polite'>
+            <div
+              className={`games-stage-message ${messageClass}`}
+              aria-live='polite'
+            >
               {message}
             </div>
 
             <div className='wheel-controls'>
               <button
                 type='button'
-                className={free ? 'wheel-spin is-free' : 'wheel-spin'}
+                className={
+                  free ? 'games-play-button is-free' : 'games-play-button'
+                }
                 disabled={!canSpin}
                 onClick={spin}
               >
@@ -538,7 +571,7 @@ const Wheel = () => {
                   !free &&
                   t('花 {{cost}} {{symbol}} 转一次', { cost, symbol })}
               </button>
-              <div className='wheel-counter'>
+              <div className='games-stage-counter'>
                 {rule.daily_spins > 0
                   ? t('今日已转 {{plays}} / {{limit}} 次', {
                       plays: rule.plays_today,
@@ -548,7 +581,7 @@ const Wheel = () => {
                 {rule.free_spins > 0 &&
                   ` · ${t('免费剩余 {{count}} 次', { count: freeLeft })}`}
               </div>
-              {hint && <div className='wheel-hint'>{hint}</div>}
+              {hint && <div className='games-stage-hint'>{hint}</div>}
               {/* 平时不可见，Cloudflare 需要玩家操作时才在这里展开。 */}
               {needTurnstile && (
                 <div className='wheel-turnstile'>

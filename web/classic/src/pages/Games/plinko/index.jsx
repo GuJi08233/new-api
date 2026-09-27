@@ -54,15 +54,15 @@ const MAX_FLYING = 8;
 const BIG_WIN_MULTIPLIER = 10;
 const HISTORY_SIZE = 12;
 
-// 格子从正中往两边由黄到红取色，下标是离正中的格数。
+// 格子从正中往两边由灰经蓝、靛到紫取色(与站点 Logo 的渐变同一方向)，下标是离正中的格数：正中两档总是输，颜色最淡。
 const SLOT_COLORS = [
-  { fill: '#fde047', text: '#422006' },
-  { fill: '#fcd34d', text: '#422006' },
-  { fill: '#fbbf24', text: '#422006' },
-  { fill: '#f59e0b', text: '#431407' },
-  { fill: '#f97316', text: '#431407' },
-  { fill: '#ef4444', text: '#ffffff' },
-  { fill: '#dc2626', text: '#ffffff' },
+  { fill: '#475569', text: '#ffffff' },
+  { fill: '#64748b', text: '#ffffff' },
+  { fill: '#0284c7', text: '#ffffff' },
+  { fill: '#2563eb', text: '#ffffff' },
+  { fill: '#4f46e5', text: '#ffffff' },
+  { fill: '#7c3aed', text: '#ffffff' },
+  { fill: '#c026d3', text: '#ffffff' },
 ];
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -125,7 +125,25 @@ function ballPosition(plan, elapsed) {
   return { ...points[points.length - 1], segment: durations.length };
 }
 
-// 逐帧推进钉板上的小球：碰到的钉子闪一下，落进格子的球交给 onLand。钉板上没有球时停下。
+// 在特效层上放一个一闪而过的图形，动画播完就移除。颜色写在样式表里，随明暗主题变化。
+function flashShape(layer, tag, attributes, keyframes, duration) {
+  const element = document.createElementNS(SVG_NS, tag);
+  for (const [name, value] of Object.entries(attributes)) {
+    element.setAttribute(name, value);
+  }
+  layer.appendChild(element);
+  const animation = element.animate?.(keyframes, {
+    duration,
+    easing: 'ease-out',
+  });
+  if (animation) {
+    animation.onfinish = () => element.remove();
+  } else {
+    element.remove();
+  }
+}
+
+// 逐帧推进钉板上的小球：碰到的钉子弹一下并荡开一圈，刚走过的那段连线亮起；落进格子的球交给 onLand。钉板上没有球时停下。
 function animateBalls(stage, onLand) {
   if (stage.frame) return;
   const step = () => {
@@ -136,20 +154,48 @@ function animateBalls(stage, onLand) {
       ball.element.setAttribute('cx', pegX(width, position.x).toFixed(2));
       ball.element.setAttribute('cy', position.y.toFixed(2));
       // 进入第 segment 段时刚碰过第 segment - 1 排的钉子。
+      const { points } = ball.plan;
       for (
         let segment = ball.segment + 1;
         segment <= position.segment;
         segment++
       ) {
         const row = segment - 1;
-        if (row < 0 || row >= ball.plan.points.length - 2) continue;
-        const peg = ball.plan.points[segment].x + (row + 2) / 2;
-        stage.board.querySelector(`[data-peg='${row}-${peg}']`)?.animate?.(
+        if (row < 0 || row >= points.length - 2) continue;
+        const peg = points[segment].x + (row + 2) / 2;
+        const x = pegX(width, points[segment].x).toFixed(2);
+        const y = pegY(row);
+        stage.board
+          .querySelector(`[data-peg='${row}-${peg}']`)
+          ?.animate?.(
+            [{ transform: 'scale(1.8)' }, { transform: 'scale(1)' }],
+            {
+              duration: 220,
+              easing: 'ease-out',
+            },
+          );
+        flashShape(
+          stage.effects,
+          'circle',
+          { cx: x, cy: y, r: PEG_RADIUS + 1, class: 'plinko-pulse' },
           [
-            { transform: 'scale(1.9)', fill: '#fde047' },
-            { transform: 'scale(1)', fill: '#e2e8f0' },
+            { transform: 'scale(1)', opacity: 0.9 },
+            { transform: 'scale(3.2)', opacity: 0 },
           ],
-          { duration: 220, easing: 'ease-out' },
+          480,
+        );
+        flashShape(
+          stage.effects,
+          'line',
+          {
+            x1: pegX(width, points[segment - 1].x).toFixed(2),
+            y1: row === 0 ? BALL_START_Y : pegY(row - 1),
+            x2: x,
+            y2: y,
+            class: 'plinko-trail',
+          },
+          [{ opacity: 1 }, { opacity: 0 }],
+          700,
         );
       }
       ball.segment = position.segment;
@@ -178,9 +224,10 @@ const Plinko = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const boardRef = useRef(null);
+  const effectLayerRef = useRef(null);
   const ballLayerRef = useRef(null);
   // 钉板上正在落下的球与动画帧。渲染循环直接读写它，不经过 React 状态。
-  const stageRef = useRef({ balls: [], frame: 0, board: null });
+  const stageRef = useRef({ balls: [], frame: 0, board: null, effects: null });
   const aliveRef = useRef(true);
   // 同一时间只发一个投球请求：服务端依次结算，每颗球带回的余额也就依次更新。连点时状态还没来得及刷新，用它挡住。
   const requestingRef = useRef(false);
@@ -356,7 +403,12 @@ const Plinko = () => {
     const reducedMotion = window.matchMedia?.(
       '(prefers-reduced-motion: reduce)',
     ).matches;
-    if (reducedMotion || !boardRef.current || !ballLayerRef.current) {
+    if (
+      reducedMotion ||
+      !boardRef.current ||
+      !effectLayerRef.current ||
+      !ballLayerRef.current
+    ) {
       landBall(ball);
       return;
     }
@@ -371,6 +423,7 @@ const Plinko = () => {
     ballLayerRef.current.appendChild(ball.element);
     const stage = stageRef.current;
     stage.board = boardRef.current;
+    stage.effects = effectLayerRef.current;
     stage.balls.push(ball);
     animateBalls(stage, landBall);
   }, [canDrop, tier, rule, t, loadInfo, landBall]);
@@ -494,7 +547,7 @@ const Plinko = () => {
         </div>
 
         <div className='plinko-layout'>
-          <div className={bigWin ? 'plinko-stage is-big-win' : 'plinko-stage'}>
+          <div className={bigWin ? 'games-stage is-big-win' : 'games-stage'}>
             <div className='plinko-tiers' role='group'>
               {rule.tiers.map((item) => (
                 <button
@@ -533,6 +586,32 @@ const Plinko = () => {
               data-width={width}
               aria-hidden
             >
+              {/* 钉子连成一张逐层的网络：投球口连到第一排，每颗钉子连到下一排左右两颗。 */}
+              <g className='plinko-links'>
+                <line
+                  x1={pegX(width, 0)}
+                  y1={BALL_START_Y}
+                  x2={pegX(width, 0)}
+                  y2={pegY(0)}
+                />
+                {Array.from({ length: rows - 1 }, (_, row) =>
+                  Array.from({ length: row + 3 }, (__, peg) => {
+                    const x = pegX(width, peg - (row + 2) / 2);
+                    return (
+                      <path
+                        key={`${row}-${peg}`}
+                        d={`M${x - PEG_GAP / 2} ${pegY(row + 1)}L${x} ${pegY(row)}L${x + PEG_GAP / 2} ${pegY(row + 1)}`}
+                      />
+                    );
+                  }),
+                )}
+              </g>
+              <circle
+                className='plinko-inlet'
+                cx={pegX(width, 0)}
+                cy={BALL_START_Y}
+                r={BALL_RADIUS + 2}
+              />
               {Array.from({ length: rows }, (_, row) =>
                 Array.from({ length: row + 3 }, (__, peg) => (
                   <circle
@@ -569,11 +648,12 @@ const Plinko = () => {
                   </g>
                 );
               })}
+              <g ref={effectLayerRef} />
               <g ref={ballLayerRef} />
             </svg>
 
             <div
-              className={`plinko-message ${messageClass}`}
+              className={`games-stage-message ${messageClass}`}
               aria-live='polite'
             >
               {message}
@@ -582,7 +662,7 @@ const Plinko = () => {
             <div className='plinko-controls'>
               <button
                 type='button'
-                className='plinko-drop'
+                className='games-play-button'
                 disabled={!canDrop}
                 onClick={drop}
               >
@@ -590,13 +670,13 @@ const Plinko = () => {
                   ? t('投一颗球')
                   : t('投 {{stake}} {{symbol}}', { stake: tier.stake, symbol })}
               </button>
-              <div className='plinko-counter'>
+              <div className='games-stage-counter'>
                 {t('今日已投 {{plays}} / {{limit}} 颗', {
                   plays: tier.plays_today,
                   limit: tier.daily_drops,
                 })}
               </div>
-              {hint && <div className='plinko-hint'>{hint}</div>}
+              {hint && <div className='games-stage-hint'>{hint}</div>}
             </div>
           </div>
 

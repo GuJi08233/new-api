@@ -36,14 +36,14 @@ import {
 import {
   ArrowRightLeft,
   Blocks,
-  Cherry,
+  ChartPie,
   Coins,
-  Disc3,
   ExternalLink,
   Gamepad2,
+  Network,
   Play,
   Send,
-  Triangle,
+  Sparkles,
   Wallet,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -64,9 +64,9 @@ const ILLUSTRATION_SIZE = { width: 150, height: 150 };
 const ADDRESS_PATTERN = /^0x[0-9a-fA-F]{40}$/;
 const GAME_ICONS = {
   tetris: Blocks,
-  slots: Cherry,
-  wheel: Disc3,
-  plinko: Triangle,
+  slots: Sparkles,
+  wheel: ChartPie,
+  plinko: Network,
 };
 
 // 取浏览器里排名最靠前的 EVM 钱包(Rabby / MetaMask 等)，没有时提示安装。

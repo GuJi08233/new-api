@@ -36,7 +36,9 @@ export const getGameMetaMap = (t) => ({
   },
   slots: {
     name: t('老虎机'),
-    description: t('用游戏币下注转动三个转轮，中线从左起连出相同的图案就能赢'),
+    description: t(
+      '用游戏币下注转动三个转轮，中线从左起连出相同的 AI 图标就能赢',
+    ),
     wager: true,
   },
   wheel: {
@@ -49,7 +51,7 @@ export const getGameMetaMap = (t) => ({
   plinko: {
     name: t('Plinko'),
     description: t(
-      '投 1、10 或 100 个游戏币，小球穿过钉板落进哪一格就按那一格结算',
+      '投 1、10 或 100 个游戏币，小球穿过层层节点，落进哪一格就按那一格结算',
     ),
     wager: true,
   },

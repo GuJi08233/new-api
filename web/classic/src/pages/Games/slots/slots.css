@@ -19,8 +19,9 @@ For commercial licensing, please contact support@quantumnous.com
 
 /* ==========================================================================
    Slot machine page — scoped styles (all classes prefixed with `slots-`)
-   Built on the game center shell in ../games.css. The cabinet keeps its own
-   colors in both themes; the side panel follows Semi variables.
+   Built on the game center shell and the shared stage in ../games.css. The
+   stage follows Semi variables in both themes; only the symbol tiles keep
+   their own colors.
    ========================================================================== */
 
 .slots-page {
@@ -50,112 +51,140 @@ For commercial licensing, please contact support@quantumnous.com
   gap: 24px;
 }
 
-/* ---------- Cabinet ---------- */
+/* ---------- Symbol tiles ----------
+   符号画成数据看板那样的彩色图标块，颜色按赔付从高到低排开。 */
 
-.slots-machine {
-  padding: 16px 18px 20px;
-  border-radius: 22px;
-  background: linear-gradient(165deg, #991b1b 0%, #dc2626 40%, #7f1d1d 100%);
-  box-shadow:
-    0 20px 40px -14px rgba(127, 29, 29, 0.6),
-    inset 0 1px 0 rgba(255, 255, 255, 0.28),
-    inset 0 -3px 0 rgba(0, 0, 0, 0.25);
+.symbol-seven {
+  --slots-color: #8b5cf6;
 }
 
-.slots-machine.is-big-win {
-  animation: slots-shake 0.5s ease-in-out;
+.symbol-diamond {
+  --slots-color: #d97706;
 }
 
-.slots-marquee {
+.symbol-bell {
+  --slots-color: #ec4899;
+}
+
+.symbol-grape {
+  --slots-color: #3b82f6;
+}
+
+.symbol-orange {
+  --slots-color: #e11d48;
+}
+
+.symbol-lemon {
+  --slots-color: #0891b2;
+}
+
+.symbol-cherry {
+  --slots-color: #059669;
+}
+
+.slots-tile {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: 28%;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  color: #fff;
+  background: var(--slots-color);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.slots-tile svg {
+  width: 54%;
+  height: 54%;
+  stroke-width: 2.2;
+}
+
+/* AI 是头奖，用靛蓝到粉的渐变与其他符号区分。 */
+.slots-tile.symbol-seven,
+.symbol-seven .slots-tile {
+  background: linear-gradient(135deg, #6366f1 0%, #a855f7 55%, #ec4899 100%);
+}
+
+.slots-jackpot {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 14px;
-  margin-bottom: 12px;
+  gap: 6px;
+  margin-bottom: 14px;
 }
 
-.slots-marquee-text {
-  font-family: 'Arial Black', 'Helvetica Neue', Arial, sans-serif;
-  font-size: 24px;
-  font-weight: 900;
-  letter-spacing: 6px;
-  color: #fde68a;
-  text-shadow:
-    0 2px 0 #92400e,
-    0 0 16px rgba(253, 230, 138, 0.55);
+.slots-jackpot .slots-tile {
+  width: 26px;
+  height: 26px;
+  font-size: 11px;
 }
 
-.slots-marquee-light {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: #fde68a;
-  box-shadow: 0 0 10px #fde68a;
-  animation: slots-blink 1.2s ease-in-out infinite;
+.slots-jackpot-multiplier {
+  margin-left: 4px;
+  font-size: 16px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--semi-color-text-0);
 }
 
-.slots-marquee-light:last-child {
-  animation-delay: 0.6s;
-}
+/* ---------- Reels ---------- */
 
 .slots-window {
   --slots-cell: 88px;
   position: relative;
   display: grid;
+  width: 100%;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
-  padding: 12px;
+  padding: 10px;
   border-radius: 16px;
-  background: #1c1917;
-  box-shadow:
-    inset 0 4px 14px rgba(0, 0, 0, 0.65),
-    0 0 0 3px #facc15,
-    0 0 0 6px #92400e;
+  border: 1px solid var(--semi-color-border);
+  background: var(--semi-color-fill-0);
 }
 
+/* 上下两行淡出，突出中线。 */
 .slots-reel {
   position: relative;
   height: calc(var(--slots-cell) * 3);
   overflow: hidden;
-  border-radius: 10px;
-  background: linear-gradient(
+  border-radius: 12px;
+  background: var(--semi-color-bg-1);
+  box-shadow: inset 0 0 0 1px var(--semi-color-border);
+  -webkit-mask-image: linear-gradient(
     180deg,
-    #d6d3d1 0%,
-    #ffffff 32%,
-    #ffffff 68%,
-    #d6d3d1 100%
+    rgba(0, 0, 0, 0.35) 0%,
+    #000 30%,
+    #000 70%,
+    rgba(0, 0, 0, 0.35) 100%
+  );
+  mask-image: linear-gradient(
+    180deg,
+    rgba(0, 0, 0, 0.35) 0%,
+    #000 30%,
+    #000 70%,
+    rgba(0, 0, 0, 0.35) 100%
   );
 }
 
-/* 上下两行压暗，突出中线。 */
-.slots-reel::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: linear-gradient(
-    180deg,
-    rgba(0, 0, 0, 0.4) 0%,
-    rgba(0, 0, 0, 0) 33%,
-    rgba(0, 0, 0, 0) 67%,
-    rgba(0, 0, 0, 0.4) 100%
-  );
-}
-
-/* 中奖的格子发光。 */
+/* 中奖的格子描边。 */
 .slots-reel.is-hit::before {
   content: '';
   position: absolute;
   z-index: 1;
-  left: 3px;
-  right: 3px;
+  left: 4px;
+  right: 4px;
   top: var(--slots-cell);
   height: var(--slots-cell);
-  border-radius: 8px;
+  border-radius: 10px;
   pointer-events: none;
   box-shadow:
-    inset 0 0 0 3px #facc15,
-    inset 0 0 22px rgba(250, 204, 21, 0.55);
+    inset 0 0 0 2px var(--semi-color-success),
+    inset 0 0 20px var(--semi-color-success-light-hover);
   animation: slots-pulse 0.8s ease-in-out 3;
 }
 
@@ -168,22 +197,15 @@ For commercial licensing, please contact support@quantumnous.com
   align-items: center;
   justify-content: center;
   height: var(--slots-cell);
-  font-size: calc(var(--slots-cell) * 0.56);
-  line-height: 1;
-  user-select: none;
-  -webkit-user-select: none;
 }
 
-.slots-symbol.symbol-seven,
-.slots-pay-symbol.symbol-seven {
-  font-family: 'Arial Black', 'Helvetica Neue', Arial, sans-serif;
-  font-weight: 900;
-  color: #dc2626;
-}
-
-.slots-symbol.symbol-seven {
-  font-size: calc(var(--slots-cell) * 0.7);
-  text-shadow: 0 3px 0 #7f1d1d;
+.slots-symbol .slots-tile {
+  width: calc(var(--slots-cell) * 0.64);
+  height: calc(var(--slots-cell) * 0.64);
+  font-size: calc(var(--slots-cell) * 0.28);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    0 6px 14px -8px var(--slots-color);
 }
 
 .slots-payline {
@@ -193,70 +215,34 @@ For commercial licensing, please contact support@quantumnous.com
   top: 50%;
   height: calc(var(--slots-cell) + 6px);
   transform: translateY(-50%);
-  border-radius: 12px;
-  border: 2px solid rgba(250, 204, 21, 0.75);
+  border-radius: 14px;
+  border: 2px solid
+    color-mix(in srgb, var(--semi-color-primary) 55%, transparent);
+  background: color-mix(in srgb, var(--semi-color-primary) 5%, transparent);
   pointer-events: none;
-}
-
-.slots-message {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-  min-height: 60px;
-  margin-top: 14px;
-  padding: 8px 12px;
-  border-radius: 12px;
-  text-align: center;
-  font-size: 17px;
-  font-weight: 700;
-  color: #fef3c7;
-  background: rgba(0, 0, 0, 0.28);
-}
-
-.slots-message.is-win {
-  color: #fde047;
-}
-
-.slots-message.is-big-win {
-  font-size: 24px;
-  text-shadow: 0 0 16px rgba(253, 224, 71, 0.8);
-  animation: slots-pop 0.6s ease-out;
-}
-
-.slots-message.is-error {
-  font-size: 14px;
-  font-weight: 600;
-  color: #fecaca;
-}
-
-.slots-message-note {
-  font-size: 12px;
-  font-weight: 500;
-  color: rgba(254, 243, 199, 0.85);
-  text-shadow: none;
 }
 
 /* ---------- Controls ---------- */
 
 .slots-controls {
   display: flex;
+  width: 100%;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 12px 16px;
-  margin-top: 14px;
+  margin-top: 16px;
 }
 
 .slots-bet {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 10px;
+  padding: 6px 8px 6px 12px;
   border-radius: 12px;
-  color: #fef3c7;
-  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid var(--semi-color-border);
+  color: var(--semi-color-text-1);
+  background: var(--semi-color-fill-0);
 }
 
 .slots-bet-label {
@@ -268,15 +254,16 @@ For commercial licensing, please contact support@quantumnous.com
 .slots-bet-value {
   min-width: 52px;
   text-align: center;
-  font-size: 22px;
-  font-weight: 800;
+  font-size: 20px;
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
-  color: #fde68a;
+  color: var(--semi-color-text-0);
 }
 
 .slots-bet-value small {
   margin-left: 3px;
   font-size: 13px;
+  color: var(--semi-color-warning);
 }
 
 .slots-bet-button,
@@ -285,11 +272,12 @@ For commercial licensing, please contact support@quantumnous.com
   align-items: center;
   justify-content: center;
   height: 32px;
-  border: none;
+  border: 1px solid var(--semi-color-border);
   border-radius: 8px;
-  color: #fef3c7;
-  background: rgba(255, 255, 255, 0.14);
+  color: var(--semi-color-text-0);
+  background: var(--semi-color-bg-1);
   cursor: pointer;
+  transition: background-color 0.15s ease;
 }
 
 .slots-bet-button {
@@ -305,60 +293,19 @@ For commercial licensing, please contact support@quantumnous.com
 
 .slots-bet-button:hover:not(:disabled),
 .slots-bet-max:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.24);
+  background: var(--semi-color-fill-1);
 }
 
 .slots-bet-button:disabled,
 .slots-bet-max:disabled {
-  opacity: 0.4;
+  color: var(--semi-color-disabled-text);
   cursor: not-allowed;
 }
 
-.slots-spin {
-  min-width: 150px;
-  height: 56px;
-  padding: 0 28px;
-  border: none;
-  border-radius: 999px;
-  font-size: 20px;
-  font-weight: 800;
-  letter-spacing: 2px;
-  color: #7c2d12;
-  background: linear-gradient(180deg, #fde68a 0%, #facc15 50%, #eab308 100%);
-  box-shadow:
-    0 5px 0 #a16207,
-    0 10px 20px rgba(0, 0, 0, 0.3);
-  cursor: pointer;
-  transition:
-    transform 0.08s ease,
-    box-shadow 0.08s ease;
-}
-
-.slots-spin:active:not(:disabled) {
-  transform: translateY(4px);
-  box-shadow:
-    0 1px 0 #a16207,
-    0 4px 10px rgba(0, 0, 0, 0.3);
-}
-
-.slots-spin:disabled {
-  opacity: 0.65;
-  filter: grayscale(0.4);
-  cursor: not-allowed;
-}
-
-.slots-spin:focus-visible,
 .slots-bet-button:focus-visible,
 .slots-bet-max:focus-visible {
-  outline: 3px solid #fef3c7;
+  outline: 2px solid var(--semi-color-primary);
   outline-offset: 2px;
-}
-
-.slots-hint {
-  width: 100%;
-  text-align: center;
-  font-size: 12px;
-  color: #fecaca;
 }
 
 /* ---------- Side panel ---------- */
@@ -434,8 +381,10 @@ For commercial licensing, please contact support@quantumnous.com
 }
 
 .slots-pay-symbol {
-  font-size: 18px;
-  line-height: 1;
+  width: 22px;
+  height: 22px;
+  font-size: 10px;
+  vertical-align: middle;
 }
 
 .slots-rules {
@@ -448,16 +397,6 @@ For commercial licensing, please contact support@quantumnous.com
 
 /* ---------- Animations ---------- */
 
-@keyframes slots-blink {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.35;
-  }
-}
-
 @keyframes slots-pulse {
   0%,
   100% {
@@ -468,36 +407,8 @@ For commercial licensing, please contact support@quantumnous.com
   }
 }
 
-@keyframes slots-pop {
-  0% {
-    transform: scale(0.85);
-  }
-  60% {
-    transform: scale(1.08);
-  }
-  100% {
-    transform: scale(1);
-  }
-}
-
-@keyframes slots-shake {
-  0%,
-  100% {
-    transform: translateX(0);
-  }
-  25% {
-    transform: translateX(-4px);
-  }
-  75% {
-    transform: translateX(4px);
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .slots-marquee-light,
-  .slots-reel.is-hit::before,
-  .slots-message.is-big-win,
-  .slots-machine.is-big-win {
+  .slots-reel.is-hit::before {
     animation: none;
   }
 }
@@ -510,25 +421,15 @@ For commercial licensing, please contact support@quantumnous.com
 }
 
 @media (max-width: 520px) {
-  .slots-machine {
-    padding: 12px 12px 16px;
-  }
-
   .slots-window {
     --slots-cell: 64px;
     gap: 6px;
-    padding: 8px;
+    padding: 6px;
   }
 
   /* 下注区与旋转按钮各占一整行。 */
   .slots-bet {
     width: 100%;
     justify-content: center;
-  }
-
-  .slots-spin {
-    width: 100%;
-    height: 50px;
-    font-size: 18px;
   }
 }

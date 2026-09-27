@@ -19,8 +19,10 @@ For commercial licensing, please contact support@quantumnous.com
 
 /* ==========================================================================
    Plinko page — scoped styles (all classes prefixed with `plinko-`)
-   Built on the game center shell in ../games.css. The stage and the board keep
-   their own colors in both themes; the side panel follows Semi variables.
+   Built on the game center shell and the shared stage in ../games.css. The
+   board is drawn as a layered network and follows Semi variables in both
+   themes; the ball uses the game coin color, only the slots keep their own
+   colors.
    ========================================================================== */
 
 .plinko-page {
@@ -50,36 +52,19 @@ For commercial licensing, please contact support@quantumnous.com
   gap: 24px;
 }
 
-/* ---------- Stage ---------- */
+/* ---------- Tiers ---------- */
 
-.plinko-stage {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 18px 16px 20px;
-  border-radius: 22px;
-  background: radial-gradient(
-    circle at 50% 18%,
-    #1d4ed8 0%,
-    #172554 55%,
-    #0b1437 100%
-  );
-  box-shadow:
-    0 20px 40px -14px rgba(11, 20, 55, 0.6),
-    inset 0 1px 0 rgba(255, 255, 255, 0.18),
-    inset 0 -3px 0 rgba(0, 0, 0, 0.25);
-}
-
-.plinko-stage.is-big-win {
-  animation: plinko-shake 0.5s ease-in-out;
-}
-
+/* 三档投入做成分段选择，与排行榜的时间段切换一致。 */
 .plinko-tiers {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
+  gap: 2px;
   width: 100%;
   max-width: 420px;
+  padding: 3px;
+  border-radius: 12px;
+  border: 1px solid var(--semi-color-border);
+  background: var(--semi-color-fill-0);
 }
 
 .plinko-tier {
@@ -87,25 +72,26 @@ For commercial licensing, please contact support@quantumnous.com
   flex-direction: column;
   align-items: center;
   gap: 2px;
-  padding: 8px 6px;
-  border: 1px solid rgba(191, 219, 254, 0.25);
-  border-radius: 12px;
-  color: #dbeafe;
-  background: rgba(15, 23, 42, 0.45);
+  padding: 6px;
+  border: none;
+  border-radius: 9px;
+  color: var(--semi-color-text-2);
+  background: transparent;
   cursor: pointer;
   transition:
+    color 0.15s ease,
     background 0.15s ease,
-    border-color 0.15s ease;
+    box-shadow 0.15s ease;
 }
 
 .plinko-tier:hover:not(:disabled) {
-  border-color: rgba(191, 219, 254, 0.55);
+  color: var(--semi-color-text-0);
 }
 
 .plinko-tier.is-active {
-  color: #1e3a8a;
-  border-color: #fde047;
-  background: linear-gradient(180deg, #fef08a 0%, #facc15 100%);
+  color: var(--semi-color-text-0);
+  background: var(--semi-color-bg-1);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
 }
 
 .plinko-tier:disabled {
@@ -117,13 +103,13 @@ For commercial licensing, please contact support@quantumnous.com
 }
 
 .plinko-tier:focus-visible {
-  outline: 3px solid #dbeafe;
-  outline-offset: 2px;
+  outline: 2px solid var(--semi-color-primary);
+  outline-offset: 1px;
 }
 
 .plinko-tier-stake {
-  font-size: 17px;
-  font-weight: 800;
+  font-size: 16px;
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
 
@@ -131,6 +117,8 @@ For commercial licensing, please contact support@quantumnous.com
   font-size: 11px;
   opacity: 0.85;
 }
+
+/* ---------- Board ---------- */
 
 .plinko-board {
   display: block;
@@ -140,10 +128,42 @@ For commercial licensing, please contact support@quantumnous.com
   overflow: visible;
 }
 
+.plinko-links {
+  fill: none;
+  stroke: var(--semi-color-text-2);
+  stroke-width: 1;
+  opacity: 0.22;
+}
+
+.plinko-inlet {
+  fill: none;
+  stroke: var(--semi-color-text-2);
+  stroke-width: 1.5;
+  stroke-dasharray: 3 3;
+  opacity: 0.6;
+}
+
 .plinko-peg {
-  fill: #e2e8f0;
+  fill: var(--semi-color-text-2);
   transform-box: fill-box;
   transform-origin: center;
+}
+
+/* 小球碰到钉子时荡开的一圈和刚走过的连线，取游戏币的颜色。 */
+.plinko-pulse {
+  fill: none;
+  stroke: var(--semi-color-warning);
+  stroke-width: 1.5;
+  transform-box: fill-box;
+  transform-origin: center;
+  pointer-events: none;
+}
+
+.plinko-trail {
+  stroke: var(--semi-color-warning);
+  stroke-width: 2;
+  stroke-linecap: round;
+  pointer-events: none;
 }
 
 .plinko-slot {
@@ -151,61 +171,21 @@ For commercial licensing, please contact support@quantumnous.com
   transform-origin: center;
 }
 
-.plinko-slot rect {
-  stroke: rgba(0, 0, 0, 0.18);
-  stroke-width: 1;
-}
-
 .plinko-slot-label {
-  font-family: 'Arial Black', 'Helvetica Neue', Arial, sans-serif;
   font-size: 10.5px;
-  font-weight: 900;
+  font-weight: 800;
   pointer-events: none;
   user-select: none;
   -webkit-user-select: none;
 }
 
 .plinko-ball {
-  fill: #f472b6;
-  stroke: #fdf2f8;
+  fill: var(--semi-color-warning);
+  stroke: var(--semi-color-bg-1);
   stroke-width: 1.5;
-  filter: drop-shadow(0 0 4px rgba(244, 114, 182, 0.85));
-}
-
-.plinko-message {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  min-height: 52px;
-  margin-top: 14px;
-  padding: 8px 12px;
-  border-radius: 12px;
-  text-align: center;
-  font-size: 17px;
-  font-weight: 700;
-  color: #dbeafe;
-  background: rgba(0, 0, 0, 0.28);
-}
-
-.plinko-message.is-win {
-  color: #fde047;
-}
-
-.plinko-message.is-loss {
-  color: #cbd5e1;
-}
-
-.plinko-message.is-big-win {
-  font-size: 24px;
-  text-shadow: 0 0 16px rgba(253, 224, 71, 0.8);
-  animation: plinko-pop 0.6s ease-out;
-}
-
-.plinko-message.is-error {
-  font-size: 14px;
-  font-weight: 600;
-  color: #fecaca;
+  filter: drop-shadow(
+    0 0 4px color-mix(in srgb, var(--semi-color-warning) 70%, transparent)
+  );
 }
 
 /* ---------- Controls ---------- */
@@ -216,57 +196,7 @@ For commercial licensing, please contact support@quantumnous.com
   align-items: center;
   gap: 10px;
   width: 100%;
-  margin-top: 14px;
-}
-
-.plinko-drop {
-  min-width: 220px;
-  height: 56px;
-  padding: 0 28px;
-  border: none;
-  border-radius: 999px;
-  font-size: 19px;
-  font-weight: 800;
-  letter-spacing: 1px;
-  color: #831843;
-  background: linear-gradient(180deg, #fbcfe8 0%, #f472b6 50%, #ec4899 100%);
-  box-shadow:
-    0 5px 0 #9d174d,
-    0 10px 20px rgba(0, 0, 0, 0.3);
-  cursor: pointer;
-  transition:
-    transform 0.08s ease,
-    box-shadow 0.08s ease;
-}
-
-.plinko-drop:active:not(:disabled) {
-  transform: translateY(4px);
-  box-shadow:
-    0 1px 0 #9d174d,
-    0 4px 10px rgba(0, 0, 0, 0.3);
-}
-
-.plinko-drop:disabled {
-  opacity: 0.65;
-  filter: grayscale(0.4);
-  cursor: not-allowed;
-}
-
-.plinko-drop:focus-visible {
-  outline: 3px solid #dbeafe;
-  outline-offset: 2px;
-}
-
-.plinko-counter {
-  font-size: 13px;
-  font-variant-numeric: tabular-nums;
-  color: #bfdbfe;
-}
-
-.plinko-hint {
-  text-align: center;
-  font-size: 12px;
-  color: #fecaca;
+  margin-top: 16px;
 }
 
 /* ---------- Side panel ---------- */
@@ -375,55 +305,9 @@ For commercial licensing, please contact support@quantumnous.com
   color: var(--semi-color-text-2);
 }
 
-/* ---------- Animations ---------- */
-
-@keyframes plinko-pop {
-  0% {
-    transform: scale(0.85);
-  }
-  60% {
-    transform: scale(1.08);
-  }
-  100% {
-    transform: scale(1);
-  }
-}
-
-@keyframes plinko-shake {
-  0%,
-  100% {
-    transform: translateX(0);
-  }
-  25% {
-    transform: translateX(-4px);
-  }
-  75% {
-    transform: translateX(4px);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .plinko-message.is-big-win,
-  .plinko-stage.is-big-win {
-    animation: none;
-  }
-}
-
 /* 窄屏：钉板在上，余额与概率公示排到下面。 */
 @media (max-width: 900px) {
   .plinko-layout {
     grid-template-columns: minmax(0, 540px);
-  }
-}
-
-@media (max-width: 520px) {
-  .plinko-stage {
-    padding: 14px 10px 16px;
-  }
-
-  .plinko-drop {
-    width: 100%;
-    height: 50px;
-    font-size: 18px;
   }
 }

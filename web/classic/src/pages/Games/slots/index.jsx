@@ -30,21 +30,31 @@ import {
   IllustrationConstruction,
   IllustrationConstructionDark,
 } from '@douyinfe/semi-illustrations';
-import { ArrowLeft, Minus, Plus } from 'lucide-react';
+import {
+  ArrowLeft,
+  Bot,
+  BrainCircuit,
+  Cpu,
+  KeyRound,
+  Minus,
+  Plus,
+  Zap,
+} from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { API, showError } from '../../../helpers';
 import '../games.css';
 import './slots.css';
 
-// 符号标识与服务端 pkg/slots 一致，7 用文字画，其余用 emoji。
+// 符号标识与服务端 pkg/slots 一致，沿用水果机的叫法；页面上画成站点里常见的 AI 与接口元素：
+// 7 是 AI，钻石是算力芯片，铃铛是模型，葡萄是机器人，橙子是密钥，柠檬是请求，樱桃是 Token 的 T(与数据看板的 Token 图标一致)。
 const SYMBOL_GLYPHS = {
-  seven: '7',
-  diamond: '💎',
-  bell: '🔔',
-  grape: '🍇',
-  orange: '🍊',
-  lemon: '🍋',
-  cherry: '🍒',
+  seven: 'AI',
+  diamond: <Cpu />,
+  bell: <BrainCircuit />,
+  grape: <Bot />,
+  orange: <KeyRound />,
+  lemon: <Zap />,
+  cherry: 'T',
 };
 
 // 转轮动画。位置按格计，数值变小时转轮向下滚动，时间以秒计。点击后转轮先匀速转动；服务端给出停点后，
@@ -374,10 +384,11 @@ const Slots = () => {
   }
 
   const limit = rule.daily_reward_limit;
-  // 累计下注没到均衡阶段下注额时按均衡赔付表(返还率 100%)，之后按常规赔付表，单个樱桃不再退回下注。
+  // 累计下注没到均衡阶段下注额时按均衡赔付表(返还率 100%)，之后按常规赔付表，单个樱桃(页面上的 Token)不再退回下注。
   const evenStageWager = rule.even_stage_wager || 0;
   const inEvenStage = rule.wagered < evenStageWager;
   const paytable = rule.paytables[inEvenStage ? 'even' : 'house'];
+  const jackpot = paytable.find((pay) => pay.symbol === 'seven');
   const evenRate = (rule.paybacks.even * 100).toFixed(2);
   const houseRate = (rule.paybacks.house * 100).toFixed(2);
   const result = !spinning ? outcome?.result : null;
@@ -437,14 +448,20 @@ const Slots = () => {
         </div>
 
         <div className='slots-layout'>
-          <div
-            className={bigWin ? 'slots-machine is-big-win' : 'slots-machine'}
-          >
-            <div className='slots-marquee' aria-hidden>
-              <span className='slots-marquee-light' />
-              <span className='slots-marquee-text'>7 7 7</span>
-              <span className='slots-marquee-light' />
-            </div>
+          <div className={bigWin ? 'games-stage is-big-win' : 'games-stage'}>
+            {/* 头奖提示：三个 AI 连成一线的倍数。 */}
+            {jackpot && (
+              <div className='slots-jackpot' aria-hidden>
+                {[0, 1, 2].map((index) => (
+                  <span key={index} className='slots-tile symbol-seven'>
+                    {SYMBOL_GLYPHS.seven}
+                  </span>
+                ))}
+                <span className='slots-jackpot-multiplier'>
+                  {`×${jackpot.three}`}
+                </span>
+              </div>
+            )}
 
             <div className='slots-window'>
               {rule.reels.map((strip, index) => (
@@ -466,7 +483,9 @@ const Slots = () => {
                           key={`${copy}-${stop}`}
                           className={`slots-symbol symbol-${key}`}
                         >
-                          {SYMBOL_GLYPHS[key] || '?'}
+                          <span className='slots-tile'>
+                            {SYMBOL_GLYPHS[key] || '?'}
+                          </span>
                         </div>
                       )),
                     )}
@@ -476,9 +495,12 @@ const Slots = () => {
               <div className='slots-payline' aria-hidden />
             </div>
 
-            <div className={`slots-message ${messageClass}`} aria-live='polite'>
+            <div
+              className={`games-stage-message ${messageClass}`}
+              aria-live='polite'
+            >
               <span>{message}</span>
-              {note && <span className='slots-message-note'>{note}</span>}
+              {note && <span className='games-stage-message-note'>{note}</span>}
             </div>
 
             <div className='slots-controls'>
@@ -519,13 +541,13 @@ const Slots = () => {
               </div>
               <button
                 type='button'
-                className='slots-spin'
+                className='games-play-button'
                 disabled={!canSpin}
                 onClick={spin}
               >
                 {spinning ? t('转动中…') : t('旋转')}
               </button>
-              {hint && <div className='slots-hint'>{hint}</div>}
+              {hint && <div className='games-stage-hint'>{hint}</div>}
             </div>
           </div>
 
@@ -560,7 +582,7 @@ const Slots = () => {
                 <div className='slots-stage'>
                   {inEvenStage
                     ? t(
-                        '累计下注 {{wagered}} / {{limit}} {{symbol}}，满额后单个樱桃不再退回下注',
+                        '累计下注 {{wagered}} / {{limit}} {{symbol}}，满额后单个 Token 不再退回下注',
                         {
                           wagered: rule.wagered,
                           limit: evenStageWager,
@@ -568,7 +590,7 @@ const Slots = () => {
                         },
                       )
                     : t(
-                        '累计下注已满 {{limit}} {{symbol}}，单个樱桃不再退回下注',
+                        '累计下注已满 {{limit}} {{symbol}}，单个 Token 不再退回下注',
                         { limit: evenStageWager, symbol },
                       )}
                 </div>
@@ -587,7 +609,7 @@ const Slots = () => {
                     <tr key={pay.symbol}>
                       <td>
                         <span
-                          className={`slots-pay-symbol symbol-${pay.symbol}`}
+                          className={`slots-tile slots-pay-symbol symbol-${pay.symbol}`}
                         >
                           {SYMBOL_GLYPHS[pay.symbol] || pay.symbol}
                         </span>
