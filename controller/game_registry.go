@@ -121,8 +121,8 @@ func requireGameEnabled(c *gin.Context, game string) bool {
 	return false
 }
 
-// gameSummaries 返回游戏中心列表里每个开放游戏的今日进度，以及读出的今日计数。所有游戏的计数一次读出，
-// 列表不会随游戏变多而多查几十次库。
+// gameSummaries 返回游戏中心列表里每个开放游戏(以及玩家还有一局没结束的关闭游戏)的今日进度，以及读出的今日计数。
+// 所有游戏的计数一次读出，列表不会随游戏变多而多查几十次库。
 func gameSummaries(ctx *gameContext) ([]gin.H, gameDayCounts, error) {
 	var counts gameDayCounts
 	var err error
@@ -138,13 +138,16 @@ func gameSummaries(ctx *gameContext) ([]gin.H, gameDayCounts, error) {
 	}
 	summaries := make([]gin.H, 0, len(gameDefinitions))
 	for _, def := range gameDefinitions {
-		if !ctx.Setting.GameEnabled(def.Key) {
+		// 关闭的游戏只给还押着游戏币、没结束一局的玩家列出来，让他回去把那一局玩完。
+		enabled := ctx.Setting.GameEnabled(def.Key)
+		if !enabled && (def.Resumable == nil || !def.Resumable(ctx)) {
 			continue
 		}
 		user := counts.user[def.Key]
 		summary := gin.H{
 			"key":         def.Key,
 			"kind":        def.Kind,
+			"enabled":     enabled,
 			"plays_today": user.Plays,
 			"net_today":   user.Coins,
 			"best_score":  best[def.Key],

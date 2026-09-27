@@ -64,9 +64,9 @@ var (
 type GameSession struct {
 	Id     int    `json:"id"`
 	UserId int    `json:"user_id" gorm:"index:idx_game_session_user_game,priority:1;index:idx_game_session_best,priority:1"`
-	Game   string `json:"game" gorm:"type:varchar(32);index:idx_game_session_user_game,priority:2;index:idx_game_session_best,priority:2"`
+	Game   string `json:"game" gorm:"type:varchar(32);index:idx_game_session_user_game,priority:2;index:idx_game_session_best,priority:2;index:idx_game_session_open,priority:2"`
 	Seed   int64  `json:"-" gorm:"bigint"`
-	Status string `json:"status" gorm:"type:varchar(16);index:idx_game_session_best,priority:3"`
+	Status string `json:"status" gorm:"type:varchar(16);index:idx_game_session_best,priority:3;index:idx_game_session_open,priority:1"`
 	// Bet 是下注游戏这一局下注的游戏币(含中途加注)，免费游戏为 0。
 	Bet int `json:"bet" gorm:"type:bigint;not null;default:0"`
 	// Score 是成绩：技巧游戏是分数或赢下的难度，下注游戏是派彩。
@@ -82,7 +82,7 @@ type GameSession struct {
 	State string `json:"-" gorm:"type:text"`
 	// Version 在每次改动 State 时加一：并发的两次操作只有一次能成功，另一次读到新状态后再来。
 	Version    int   `json:"-" gorm:"not null;default:0"`
-	CreatedAt  int64 `json:"created_at" gorm:"bigint;index"`
+	CreatedAt  int64 `json:"created_at" gorm:"bigint;index;index:idx_game_session_open,priority:3"`
 	FinishedAt int64 `json:"finished_at" gorm:"bigint"`
 }
 
@@ -245,6 +245,23 @@ func GetPlayingGameSession(userId int, game string) (*GameSession, error) {
 		return nil, err
 	}
 	return &sessions[0], nil
+}
+
+// ListUserFinishedGameSessions 返回玩家在某个游戏里最近结束的几局，从新到旧。
+func ListUserFinishedGameSessions(userId int, game string, limit int) ([]*GameSession, error) {
+	var sessions []*GameSession
+	err := DB.Where("user_id = ? AND game = ? AND status = ?", userId, game, GameSessionStatusFinished).
+		Order("id desc").Limit(limit).Find(&sessions).Error
+	return sessions, err
+}
+
+// ListStalePlayingGameSessions 返回某个游戏里开局早于 before、还没结束的对局，从旧到新，最多 limit 局。系统任务用它结算
+// 玩家离开之后自己结束的对局(例如火箭)。
+func ListStalePlayingGameSessions(game string, before int64, limit int) ([]*GameSession, error) {
+	var sessions []*GameSession
+	err := DB.Where("status = ? AND game = ? AND created_at < ?", GameSessionStatusPlaying, game, before).
+		Order("id asc").Limit(limit).Find(&sessions).Error
+	return sessions, err
 }
 
 // UpdateGameSessionState 保存进行中对局的新状态。只有 session.Version 仍是库里的版本时才会成功，否则返回
@@ -600,17 +617,30 @@ func RaiseGameRound(session *GameSession, extra int, state string, detail string
 	return balance, nil
 }
 
-// SettleGameRound 结束一局分几步完成的下注游戏并派彩 win(含退回的下注)。只有 session.Version 仍是库里的版本时才会成功，
-// 否则返回 ErrGameRoundChanged：同一局只结算一次。流水记下派彩，没有派彩时不记。
-func SettleGameRound(session *GameSession, win int, state string, detail string, day string) (*GameWagerResult, error) {
-	if win < 0 || win >= common.MaxQuota {
+// GameRoundSettlement 是一局分几步完成的下注游戏的结算。Raise 是让这一局结束的最后一步追加的下注(例如 21 点加倍之后
+// 这一局直接结束)，和派彩在同一个事务里扣下；Win 是派彩(含退回的下注)。
+type GameRoundSettlement struct {
+	Raise  int
+	Win    int
+	State  string
+	Detail string
+	Day    string
+}
+
+// SettleGameRound 结束一局分几步完成的下注游戏：先扣下最后一步追加的下注，再派彩。只有 session.Version 仍是库里的版本时
+// 才会成功，否则返回 ErrGameRoundChanged：同一局只结算一次。余额不够追加时返回 ErrGameCoinInsufficient，什么都不会改变。
+// 流水记下追加的下注与派彩，没有的不记。
+func SettleGameRound(session *GameSession, settlement GameRoundSettlement) (*GameWagerResult, error) {
+	win, raise := settlement.Win, settlement.Raise
+	if win < 0 || win >= common.MaxQuota || raise < 0 || raise >= common.MaxQuota || session.Bet+raise >= common.MaxQuota {
 		return nil, ErrGameCoinAmountInvalid
 	}
 	now := common.GetTimestamp()
 	settled := *session
 	settled.Status = GameSessionStatusFinished
+	settled.Bet = session.Bet + raise
 	settled.Score, settled.Reward = win, win
-	settled.State, settled.Detail = state, detail
+	settled.State, settled.Detail = settlement.State, settlement.Detail
 	settled.FinishedAt = now
 	settled.Version = session.Version + 1
 	result := &GameWagerResult{Session: &settled}
@@ -619,6 +649,7 @@ func SettleGameRound(session *GameSession, win int, state string, detail string,
 			Where("id = ? AND status = ? AND version = ?", session.Id, GameSessionStatusPlaying, session.Version).
 			Updates(map[string]interface{}{
 				"status":      settled.Status,
+				"bet":         settled.Bet,
 				"score":       settled.Score,
 				"reward":      settled.Reward,
 				"state":       settled.State,
@@ -632,7 +663,26 @@ func SettleGameRound(session *GameSession, win int, state string, detail string,
 		if update.RowsAffected != 1 {
 			return ErrGameRoundChanged
 		}
-		net := win - session.Bet
+		if raise > 0 {
+			balance, err := debitGameCoinsTx(tx, session.UserId, raise, map[string]interface{}{
+				"total_wagered": gorm.Expr("total_wagered + ?", raise),
+			})
+			if err != nil {
+				return err
+			}
+			if err := tx.Create(&GameCoinLog{
+				UserId:    session.UserId,
+				Type:      GameCoinLogTypeGameWager,
+				Amount:    -raise,
+				Balance:   balance,
+				RefId:     strconv.Itoa(session.Id),
+				Remark:    session.Game,
+				CreatedAt: now,
+			}).Error; err != nil {
+				return err
+			}
+		}
+		net := win - settled.Bet
 		var err error
 		if win > 0 {
 			result.Balance, err = creditGameCoinsTx(tx, session.UserId, win, map[string]interface{}{
@@ -650,7 +700,7 @@ func SettleGameRound(session *GameSession, win int, state string, detail string,
 		if err != nil {
 			return err
 		}
-		if result.Net, result.Plays, err = recordGameDayResult(tx, session.UserId, session.Game, day, net); err != nil {
+		if result.Net, result.Plays, err = recordGameDayResult(tx, session.UserId, session.Game, settlement.Day, net); err != nil {
 			return err
 		}
 		if win == 0 {

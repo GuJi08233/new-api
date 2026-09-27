@@ -198,8 +198,7 @@ func TestBlackjackRejectsInvalidRequests(t *testing.T) {
 	assert.Equal(t, 90, player.balance())
 }
 
-// 加倍、分牌之后结束的一局要记两次账：追加下注之后派彩没写进去时，这一局已经结束却还在进行中，查看对局时补上结算。
-// 发牌即是黑杰克的一局同理。
+// 发牌即是黑杰克的一局要记两次账(扣注与派彩)：派彩没写进去时这一局已经结束却还在进行中，查看对局时补上结算。
 func TestBlackjackSettlesFinishedButUnpaidRound(t *testing.T) {
 	env, _ := newWagerRoundEnv(t, blackjackSetting)
 	player := env.player(100, gameTestIpA)

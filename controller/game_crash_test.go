@@ -1,11 +1,13 @@
 package controller
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"testing"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/crash"
@@ -13,6 +15,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 // crashTestStart 是测试时钟的起点(服务端毫秒时间)。
@@ -180,4 +183,39 @@ func TestCrashRoundResumableAfterDisabled(t *testing.T) {
 	cashed := player.ok(http.MethodPost, "/api/game/crash/cashout", roundRequest(t, started, nil))
 	assert.EqualValues(t, 110, cashed["balance"])
 	assert.Equal(t, gameMessage(i18n.MsgGamePlayDisabled), player.fails(http.MethodGet, "/api/game/crash", nil))
+}
+
+// 玩家开了一局火箭就离开了：过了最长飞行时间，系统任务按自动兑现或爆点结算，自动兑现的派彩不必等玩家回来；
+// 还在最长飞行时间之内的一局不动。
+func TestCrashSweepSettlesAbandonedRounds(t *testing.T) {
+	env, _ := newWagerRoundEnv(t, crashSetting)
+	now := useCrashClock(t)
+	auto := env.player(100, gameTestIpA)
+	crashed := env.player(100, gameTestIpA)
+	flying := env.player(100, gameTestIpA)
+
+	crashAt(t, 500)
+	autoRound := roundOf(t, auto.ok(http.MethodPost, "/api/game/crash/start", map[string]any{"bet": 10, "auto_cashout": 200}))
+	crashAt(t, 300)
+	crashedRound := roundOf(t, crashed.ok(http.MethodPost, "/api/game/crash/start", map[string]any{"bet": 10}))
+	crashAt(t, crash.MaxPoint)
+	flying.ok(http.MethodPost, "/api/game/crash/start", map[string]any{"bet": 10})
+
+	// 前两局开局已经超过最长飞行时间，第三局刚开、还在飞。
+	require.NoError(t, env.db.Model(&model.GameSession{}).
+		Where("id IN ?", []any{autoRound["session_id"], crashedRound["session_id"]}).
+		Update("created_at", gorm.Expr("created_at - ?", crashFlightSeconds+1)).Error)
+	*now = crashTestStart + crash.TimeOf(300) + 1
+
+	settled, failed, err := sweepCrashRounds(context.Background(), common.GetTimestamp())
+	require.NoError(t, err)
+	assert.Equal(t, 2, settled)
+	assert.Equal(t, 0, failed)
+
+	assert.Equal(t, 110, auto.balance(), "按 2.00× 自动兑现")
+	assert.Nil(t, auto.ok(http.MethodGet, "/api/game/crash/round", nil)["round"])
+	assert.Equal(t, 90, crashed.balance())
+	assert.EqualValues(t, 1, crashed.ok(http.MethodGet, "/api/game/crash", nil)["plays_today"], "爆了的一局记为输掉的一局")
+	assert.Equal(t, 90, flying.balance())
+	assert.Equal(t, model.GameSessionStatusPlaying, roundOf(t, flying.ok(http.MethodGet, "/api/game/crash/round", nil))["status"])
 }

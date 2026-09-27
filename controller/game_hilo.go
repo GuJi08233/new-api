@@ -261,7 +261,7 @@ func settleHilo(c *gin.Context, session *model.GameSession, round *hilo.Round, w
 		common.ApiError(c, err)
 		return
 	}
-	result, err := model.SettleGameRound(session, win, string(state), string(detail), gameCenterDay())
+	result, err := model.SettleGameRound(session, model.GameRoundSettlement{Win: win, State: string(state), Detail: string(detail), Day: gameCenterDay()})
 	if err != nil {
 		respondGameError(c, gameHilo, err)
 		return

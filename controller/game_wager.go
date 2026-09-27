@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
@@ -115,6 +116,62 @@ func loadGameRound(c *gin.Context, game string, state any) (*model.GameSession, 
 	}
 	if session == nil {
 		return nil, true
+	}
+	if err := common.UnmarshalJsonStr(session.State, state); err != nil {
+		common.SysError(fmt.Sprintf("failed to decode %s round %d: %v", game, session.Id, err))
+		common.ApiErrorI18n(c, i18n.MsgGamePlayFailed)
+		return nil, false
+	}
+	return session, true
+}
+
+// wagerRoundRequest 是分几步完成的下注游戏(21 点、挖宝、高低牌、火箭)继续一局的请求都要带的部分：玩家看到的对局编号与版本。
+type wagerRoundRequest struct {
+	SessionId int `json:"session_id"`
+	Version   int `json:"version"`
+}
+
+// loadWagerRound 读出玩家在 game 里进行中的一局，并核对请求带的对局编号与版本就是它现在的样子，状态解析进 state。
+// 没有进行中的一局时回应 MsgGameRoundNotFound；编号或版本对不上(另一个请求已经改过或结束了这一局)时回应 MsgGameRoundChanged，
+// 前端重新读取对局再操作。继续已有的一局不检查游戏是否开放：游戏关闭时押着游戏币的对局也要能玩完。返回 nil 时已写好响应。
+// 21 点、挖宝、高低牌、火箭共用。
+func loadWagerRound(c *gin.Context, game string, req wagerRoundRequest, state any) *model.GameSession {
+	session, ok := loadGameRound(c, game, state)
+	if !ok {
+		return nil
+	}
+	if session == nil {
+		common.ApiErrorI18n(c, i18n.MsgGameRoundNotFound)
+		return nil
+	}
+	if session.Id != req.SessionId || session.Version != req.Version {
+		common.ApiErrorI18n(c, i18n.MsgGameRoundChanged)
+		return nil
+	}
+	return session
+}
+
+// findWagerRound 读出 GET /api/game/<key>/round 要看的一局：查询参数带 session_id 时是玩家自己的这一局，可以已经结束(前端据此
+// 查看被另一个请求结束、或响应丢失的一局的结果)；不带时是进行中的一局。没有时返回 nil 且不写响应，出错时写好错误响应并返回
+// nil、false。21 点、挖宝、高低牌、火箭共用。
+func findWagerRound(c *gin.Context, game string, state any) (*model.GameSession, bool) {
+	id, err := strconv.Atoi(c.Query("session_id"))
+	if err != nil || id <= 0 {
+		return loadGameRound(c, game, state)
+	}
+	return loadWagerRoundById(c, game, id, state)
+}
+
+// loadWagerRoundById 读出玩家自己在 game 里编号为 id 的一局(可以已经结束)，状态解析进 state。没有时返回 nil 且不写响应，
+// 出错时写好错误响应并返回 nil、false。
+func loadWagerRoundById(c *gin.Context, game string, id int, state any) (*model.GameSession, bool) {
+	session, err := model.GetUserGameSession(c.GetInt("id"), game, id)
+	if errors.Is(err, model.ErrGameSessionNotFound) {
+		return nil, true
+	}
+	if err != nil {
+		common.ApiError(c, err)
+		return nil, false
 	}
 	if err := common.UnmarshalJsonStr(session.State, state); err != nil {
 		common.SysError(fmt.Sprintf("failed to decode %s round %d: %v", game, session.Id, err))

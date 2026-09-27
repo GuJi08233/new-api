@@ -130,7 +130,7 @@ func TestMinesCashOutAndHitMine(t *testing.T) {
 	assert.Equal(t, -8, account.TotalWagerNet)
 }
 
-// 翻开所有安全格、或派彩到了下注的 1000 倍时自动兑现；达到下注 10 倍的派彩记大奖审计日志。
+// 翻开所有安全格、或派彩到了下注的 1000 倍时自动兑现；净赢达到 100 个游戏币的一局记大奖审计日志。
 func TestMinesAutoCashout(t *testing.T) {
 	env, _ := newWagerRoundEnv(t, minesSetting)
 	player := env.player(100, gameTestIpA)
@@ -164,7 +164,7 @@ func TestMinesAutoCashout(t *testing.T) {
 
 	var bigWinLogs int64
 	require.NoError(t, env.db.Model(&model.Log{}).Where("user_id = ? AND type = ? AND content LIKE ?", player.user.Id, model.LogTypeSystem, "游戏大奖%").Count(&bigWinLogs).Error)
-	assert.EqualValues(t, 2, bigWinLogs)
+	assert.EqualValues(t, 1, bigWinLogs, "第一局净赢 46 个不记，第二局净赢 4995 个记")
 }
 
 // 雷数、下注不合规则时不能开局；同一时间只能有一局。继续一局的请求要带玩家看到的编号与版本：版本过时、编号不对都拒绝，

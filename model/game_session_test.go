@@ -273,11 +273,12 @@ func TestGameRoundLifecycle(t *testing.T) {
 	assert.Equal(t, 12, balance)
 	assert.Equal(t, 8, round.Bet)
 
-	settled, err := SettleGameRound(round, 16, `{"step":3}`, "{}", "2026-09-28")
+	settlement := GameRoundSettlement{Win: 16, State: `{"step":3}`, Detail: "{}", Day: "2026-09-28"}
+	settled, err := SettleGameRound(round, settlement)
 	require.NoError(t, err)
 	assert.Equal(t, 28, settled.Balance)
 	assert.Equal(t, 8, settled.Net)
-	_, err = SettleGameRound(round, 16, `{"step":3}`, "{}", "2026-09-28")
+	_, err = SettleGameRound(round, settlement)
 	assert.ErrorIs(t, err, ErrGameRoundChanged, "同一局只结算一次")
 
 	var amounts []int
@@ -291,4 +292,37 @@ func TestGameRoundLifecycle(t *testing.T) {
 	// 结束之后可以开下一局。
 	_, _, err = OpenGameRound(userId, "blackjack", GameRound{Bet: 2, State: "{}", Ip: gameTestIp})
 	assert.NoError(t, err)
+}
+
+// 让一局结束的最后一步还追加了下注(21 点加倍后直接结束)：追加与派彩在同一个事务里，余额不够追加时这一局原样不动。
+func TestGameRoundSettleWithFinalRaise(t *testing.T) {
+	truncateTables(t)
+	const userId = 1902
+	seedGameUser(t, userId, 10)
+	round, balance, err := OpenGameRound(userId, "blackjack", GameRound{Bet: 6, State: "{}", Ip: gameTestIp})
+	require.NoError(t, err)
+	assert.Equal(t, 4, balance)
+
+	_, err = SettleGameRound(round, GameRoundSettlement{Raise: 6, Win: 24, State: "{}", Detail: "{}", Day: "2026-09-28"})
+	assert.ErrorIs(t, err, ErrGameCoinInsufficient)
+	open, err := GetPlayingGameSession(userId, "blackjack")
+	require.NoError(t, err)
+	require.NotNil(t, open, "余额不够追加时这一局还在进行")
+	assert.Equal(t, 6, open.Bet)
+	assert.Equal(t, round.Version, open.Version)
+	assert.Equal(t, 4, gameBalance(t, userId))
+
+	settled, err := SettleGameRound(round, GameRoundSettlement{Raise: 4, Win: 20, State: "{}", Detail: "{}", Day: "2026-09-28"})
+	require.NoError(t, err)
+	assert.Equal(t, 20, settled.Balance, "4 - 4 + 20")
+	assert.Equal(t, 10, settled.Net)
+	assert.Equal(t, 10, settled.Session.Bet)
+
+	var amounts []int
+	require.NoError(t, DB.Model(&GameCoinLog{}).Where("user_id = ? AND type = ?", userId, GameCoinLogTypeGameWager).Order("id asc").Pluck("amount", &amounts).Error)
+	assert.Equal(t, []int{-6, -4, 20}, amounts)
+	account, err := GetGameCoinAccount(userId)
+	require.NoError(t, err)
+	assert.Equal(t, 10, account.TotalWagered)
+	assert.Equal(t, 10, account.TotalWagerNet)
 }

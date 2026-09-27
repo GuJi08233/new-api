@@ -128,9 +128,9 @@ func GetBlackjackRound(c *gin.Context) {
 		common.ApiSuccess(c, gin.H{"round": nil})
 		return
 	}
-	// 发牌即结束的黑杰克、加倍或分牌之后结束的一局要记两次账(扣注与派彩)，第二次出错时这一局已经结束、却还没派彩，在这里补上。
+	// 发牌即结束的黑杰克要记两次账(扣注与派彩)，第二次出错时这一局已经结束、却还没派彩，在这里补上。
 	if session.Status == model.GameSessionStatusPlaying && game.Over {
-		settleBlackjack(c, session, &game)
+		settleBlackjack(c, session, &game, 0)
 		return
 	}
 	common.ApiSuccess(c, gin.H{"round": blackjackRoundView(session, &game)})
@@ -181,7 +181,7 @@ func DealBlackjack(c *gin.Context) {
 		return
 	}
 	if game.Over {
-		settleBlackjack(c, session, game)
+		settleBlackjack(c, session, game, 0)
 		return
 	}
 	common.ApiSuccess(c, gin.H{"round": blackjackRoundView(session, game), "balance": balance})
@@ -214,32 +214,31 @@ func ActBlackjack(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	if game.Over {
+		// 这一步让这一局结束(例如加倍之后)：追加的下注与派彩在同一个事务里结算。
+		settleBlackjack(c, session, &game, extra)
+		return
+	}
 	response := gin.H{}
-	switch {
-	case extra > 0:
-		// 追加下注与新状态在同一个事务里保存；这一步让这一局结束时，接着再派彩。
+	if extra > 0 {
+		// 追加下注与新状态在同一个事务里保存。
 		balance, err := model.RaiseGameRound(session, extra, string(state), "")
 		if err != nil {
 			respondGameError(c, gameBlackjack, err)
 			return
 		}
 		response["balance"] = balance
-	case !game.Over:
-		if err := model.UpdateGameSessionState(session, string(state), ""); err != nil {
-			respondGameError(c, gameBlackjack, err)
-			return
-		}
-	}
-	if game.Over {
-		settleBlackjack(c, session, &game)
+	} else if err := model.UpdateGameSessionState(session, string(state), ""); err != nil {
+		respondGameError(c, gameBlackjack, err)
 		return
 	}
 	response["round"] = blackjackRoundView(session, &game)
 	common.ApiSuccess(c, response)
 }
 
-// settleBlackjack 结束这一局 21 点，按各手的结果派彩，回应结束的一局与结算后的余额、今天的输赢与局数。
-func settleBlackjack(c *gin.Context, session *model.GameSession, game *blackjack.Game) {
+// settleBlackjack 结束这一局 21 点，扣下最后一步追加的下注 raise(没有为 0)，按各手的结果派彩，回应结束的一局与结算后的余额、
+// 今天的输赢与局数。
+func settleBlackjack(c *gin.Context, session *model.GameSession, game *blackjack.Game, raise int) {
 	results := game.Results()
 	win := 0
 	detail := blackjackDetail{Player: make([]int, 0, len(results)), Outcomes: make([]string, 0, len(results))}
@@ -260,7 +259,13 @@ func settleBlackjack(c *gin.Context, session *model.GameSession, game *blackjack
 		common.ApiError(c, err)
 		return
 	}
-	result, err := model.SettleGameRound(session, win, string(state), string(detailJson), gameCenterDay())
+	result, err := model.SettleGameRound(session, model.GameRoundSettlement{
+		Raise:  raise,
+		Win:    win,
+		State:  string(state),
+		Detail: string(detailJson),
+		Day:    gameCenterDay(),
+	})
 	if err != nil {
 		respondGameError(c, gameBlackjack, err)
 		return

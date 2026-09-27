@@ -1,7 +1,9 @@
 package controller
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -22,6 +24,9 @@ const (
 	// crashPollTimeout 是 GET /round?wait=1 最多等多久，远低于常见反向代理的空闲超时。
 	crashPollTimeout = 25 * time.Second
 )
+
+// crashFlightSeconds 是一局火箭最长能飞多久：倍数涨到上限 MaxPoint 的时刻，那时任何一局都已经爆了或兑现了。
+var crashFlightSeconds = crash.TimeOf(crash.MaxPoint)/1000 + 1
 
 // newCrashPoint 开局时决定爆点，来自密码学安全的随机数。测试里替换成固定的爆点。
 var newCrashPoint = crash.NewPoint
@@ -86,18 +91,14 @@ func crashInfo(ctx *gameContext) (gin.H, error) {
 	if err != nil {
 		return nil, err
 	}
-	// model 里还没有按游戏列出玩家最近几局的函数，这里直接按对局的 (user_id, game) 索引读最近几局的明细。
-	var details []string
-	err = model.DB.Model(&model.GameSession{}).
-		Where("user_id = ? AND game = ? AND status = ?", ctx.UserId, gameCrash, model.GameSessionStatusFinished).
-		Order("id desc").Limit(crashRecentLimit).Pluck("detail", &details).Error
+	sessions, err := model.ListUserFinishedGameSessions(ctx.UserId, gameCrash, crashRecentLimit)
 	if err != nil {
 		return nil, err
 	}
-	recent := make([]int, 0, len(details))
-	for _, raw := range details {
+	recent := make([]int, 0, len(sessions))
+	for _, session := range sessions {
 		var detail crashDetail
-		if common.UnmarshalJsonStr(raw, &detail) == nil && detail.Crash > 0 {
+		if common.UnmarshalJsonStr(session.Detail, &detail) == nil && detail.Crash > 0 {
 			recent = append(recent, detail.Crash)
 		}
 	}
@@ -125,7 +126,7 @@ func crashRoundView(session *model.GameSession, state *crashState) gin.H {
 }
 
 // settleCrash 按服务端毫秒时间 now 判定这一局：已经爆炸或到了自动兑现的时刻就结算；cashout 表示玩家在这一刻请求兑现，
-// 一定会结算。返回的结果为 nil 表示火箭还在飞。
+// 一定会结算。返回的结果为 nil 表示火箭还在飞。系统任务结算时 c 为 nil。
 func settleCrash(c *gin.Context, session *model.GameSession, state *crashState, now int64, cashout bool) (*model.GameWagerResult, error) {
 	over, multiplier := crash.Settle(state.Point, state.Auto, now-state.StartedAtMs, cashout)
 	if !over {
@@ -140,7 +141,12 @@ func settleCrash(c *gin.Context, session *model.GameSession, state *crashState, 
 	if err != nil {
 		return nil, err
 	}
-	result, err := model.SettleGameRound(session, crash.Payout(session.Bet, multiplier), string(data), string(detail), gameCenterDay())
+	result, err := model.SettleGameRound(session, model.GameRoundSettlement{
+		Win:    crash.Payout(session.Bet, multiplier),
+		State:  string(data),
+		Detail: string(detail),
+		Day:    gameCenterDay(),
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -288,4 +294,35 @@ func CashoutCrash(c *gin.Context) {
 		return
 	}
 	respondSettledCrash(c, result, &state)
+}
+
+// sweepCrashRounds 结算玩家离开之后自己结束的火箭：开局已经超过最长飞行时间、还没人来结算的一局，按爆点或自动兑现结算，
+// 自动兑现的派彩不必等玩家回来。返回结算了几局与出错的局数。
+func sweepCrashRounds(ctx context.Context, now int64) (settled int, failed int, err error) {
+	sessions, err := model.ListStalePlayingGameSessions(gameCrash, now-crashFlightSeconds, gameCenterSweepBatch)
+	if err != nil {
+		return 0, 0, err
+	}
+	for _, session := range sessions {
+		if ctx.Err() != nil {
+			break
+		}
+		var state crashState
+		if err := common.UnmarshalJsonStr(session.State, &state); err != nil {
+			common.SysError(fmt.Sprintf("game center sweep: failed to decode crash round %d: %v", session.Id, err))
+			failed++
+			continue
+		}
+		result, err := settleCrash(nil, session, &state, crashNowMs(), false)
+		switch {
+		case errors.Is(err, model.ErrGameRoundChanged):
+			// 玩家刚好回来结算了这一局。
+		case err != nil:
+			common.SysError(fmt.Sprintf("game center sweep: failed to settle crash round %d: %v", session.Id, err))
+			failed++
+		case result != nil:
+			settled++
+		}
+	}
+	return settled, failed, nil
 }
