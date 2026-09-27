@@ -39,6 +39,12 @@ func GameActionRateLimit(scope string) gin.HandlerFunc {
 	return userRateLimitFactory(300, 60, "GP:"+scope)
 }
 
+// GameAiRateLimit 按用户限制人机对战的落子频率。每一步都要在请求里让服务端 AI 搜索一次，比普通的一步贵得多；
+// 人下棋每秒最多一两步，每分钟 60 步足够。
+func GameAiRateLimit(scope string) gin.HandlerFunc {
+	return userRateLimitFactory(60, 60, "GP:"+scope)
+}
+
 // GamePollRateLimit 按用户限制对战房间与奖池的轮询频率。房间用长轮询，正常每分钟只有几次；奖池每两秒刷新一次。
 func GamePollRateLimit(scope string) gin.HandlerFunc {
 	return userRateLimitFactory(120, 60, "GP:"+scope)

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"runtime"
 	"strconv"
 	"sync"
 	"time"
@@ -66,6 +67,10 @@ type pvpState struct {
 
 var errPvpIllegalMove = errors.New("illegal move")
 
+// pvpAiSearches 限制同时进行的 AI 搜索：一次搜索要占满一个 CPU 核几毫秒到上百毫秒，同时搜索的不超过核数的一半，
+// 其余的排队等候，别的接口不受拖累。
+var pvpAiSearches = make(chan struct{}, max(runtime.NumCPU()/2, 1))
+
 // pvpSimultaneous 由双方同时出招的引擎实现(石头剪刀布)。对手先出招只改变玩家看不到的状态，玩家的一招不取决于它，
 // 由引擎按回合核对，所以落子不要求带着最新的房间版本；两人几乎同时提交、后写的一方撞上版本冲突时重新读出房间再走一次。
 type pvpSimultaneous interface {
@@ -119,7 +124,7 @@ func registerPvpGame(key string, name string, engine pvpEngine) {
 		Routes: func(group *gin.RouterGroup) {
 			group.GET("/ai", func(c *gin.Context) { getPvpAi(c, game) })
 			group.POST("/ai/start", middleware.GamePlayRateLimit(key+"-ai-start"), func(c *gin.Context) { startPvpAi(c, game) })
-			group.POST("/ai/move", middleware.GameActionRateLimit(key+"-ai-move"), func(c *gin.Context) { movePvpAi(c, game) })
+			group.POST("/ai/move", middleware.GameAiRateLimit(key+"-ai-move"), func(c *gin.Context) { movePvpAi(c, game) })
 			group.POST("/ai/resign", middleware.GamePlayRateLimit(key+"-ai-resign"), func(c *gin.Context) { resignPvpAi(c, game) })
 		},
 	})
@@ -866,8 +871,11 @@ func (s *pvpAiState) aiReply(engine pvpEngine) (json.RawMessage, error) {
 		if replies == pvpAiMaxReplies {
 			return nil, fmt.Errorf("ai kept the turn for %d moves", replies)
 		}
+		pvpAiSearches <- struct{}{}
 		var err error
-		if move, err = engine.AiMove(s.Board, 1, s.Level); err != nil {
+		move, err = engine.AiMove(s.Board, 1, s.Level)
+		<-pvpAiSearches
+		if err != nil {
 			return nil, err
 		}
 		next, err := engine.Play(s.Board, 1, move)
