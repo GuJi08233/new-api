@@ -54,7 +54,7 @@ type rouletteBetView struct {
 }
 
 // rouletteDetail 是轮盘一局的明细，存在对局的 Detail 里供事后核查。Detail 最长 255 字节，放不下 50 注的注单，
-// 只记开出的号码与注数；合计下注与派彩在对局的 bet、reward 上。
+// 只记开出的号码与注数，整张注单在对局的 State 里；合计下注与派彩在对局的 bet、reward 上。
 type rouletteDetail struct {
 	Number int `json:"number"`
 	Bets   int `json:"bets"`
@@ -92,10 +92,17 @@ func SpinRoulette(c *gin.Context) {
 	if !validWagerBet(c, stake, 1, rule.MaxBet) {
 		return
 	}
+	// 整张注单存进对局的状态，明细里只放得下开出的号码与注数。
+	slip, err := common.Marshal(req.Bets)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	var number int
 	bets := make([]rouletteBetView, len(req.Bets))
 	result, err := model.SettleGameWager(c.GetInt("id"), gameRoulette, model.GameWager{
-		Bet: stake,
+		Bet:   stake,
+		State: string(slip),
 		Play: func() (int, string, error) {
 			var err error
 			if number, err = spinRoulette(); err != nil {

@@ -174,11 +174,13 @@ type GameFreePlay struct {
 }
 
 // GameWager 是当场决定结果的一次下注：由 Play 按游戏规则决定派彩(含退回的下注)与明细，SettleGameWager 扣注、派彩。
+// State 是存进对局的完整下注内容(例如轮盘的整张注单)，放不进 255 字节的明细时用它，可以为空。
 type GameWager struct {
-	Bet  int
-	Play func() (win int, detail string, err error)
-	Day  string
-	Ip   string
+	Bet   int
+	Play  func() (win int, detail string, err error)
+	State string
+	Day   string
+	Ip    string
 }
 
 // GameWagerResult 是一局下注游戏的结算结果。Session 的 Score 与 Reward 都是派彩；Net、Plays 是结算后账号今天在这个游戏的
@@ -446,6 +448,7 @@ func SettleGameWager(userId int, game string, wager GameWager) (*GameWagerResult
 		Status:     GameSessionStatusFinished,
 		Bet:        wager.Bet,
 		Ip:         wager.Ip,
+		State:      wager.State,
 		CreatedAt:  now,
 		FinishedAt: now,
 	}

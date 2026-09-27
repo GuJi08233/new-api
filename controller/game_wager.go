@@ -15,8 +15,9 @@ import (
 // 下注游戏的公共流程。赔付表或赔率公式在各游戏的 pkg 包里，理论返还率低于 100%，玩家长期是输的，所以不限次数、不设每日
 // 上限，也不要求人机验证：脚本连续下注只会输得更快。
 
-// gameBigWinMultiplier 是派彩达到下注多少倍时记审计日志，与页面上按大奖展示的倍数一致。
-const gameBigWinMultiplier = 10
+// gameAuditMinNet 是一局净赢多少游戏币时记审计日志。按倍数记会被常见的高倍玩法刷满(骰子 10 倍约一成能中、轮盘单号
+// 每中一次就是 36 倍)，风控关心的是有多少游戏币被赢走，所以按净赢的数量记。
+const gameAuditMinNet = 100
 
 // wagerInfo 返回下注游戏页的通用信息：单次下注上限、今天的输赢与局数、单局最高派彩。
 func wagerInfo(ctx *gameContext, game string, maxBet int) (gin.H, error) {
@@ -81,10 +82,10 @@ func respondGameError(c *gin.Context, game string, err error) {
 	}
 }
 
-// auditGameWin 在派彩达到下注 gameBigWinMultiplier 倍时记一条带来源 IP 的审计日志，风控的多账号视图能看到同一 IP 下哪些账号
-// 从下注游戏赢走了游戏币。每局都记会被连续下注刷满，只记大奖。
+// auditGameWin 在一局下注净赢达到 gameAuditMinNet 时记一条带来源 IP 的审计日志，风控的多账号视图能看到同一 IP 下哪些账号
+// 从下注游戏赢走了游戏币。
 func auditGameWin(c *gin.Context, game string, name string, session *model.GameSession) {
-	if session.Bet < 1 || session.Reward < gameBigWinMultiplier*session.Bet {
+	if session.Reward-session.Bet < gameAuditMinNet {
 		return
 	}
 	model.RecordAuditLog(model.ClientLogSource(c), session.UserId, "", model.LogTypeSystem,
@@ -131,9 +132,9 @@ func gameRoundResumable(game string) func(ctx *gameContext) bool {
 	}
 }
 
-// auditGameFreeWin 在免费旋转这类免费奖励开出 gameBigWinMultiplier 倍以上的大奖时记审计日志，cost 是奖品按倍数计算时的基数。
-func auditGameFreeWin(c *gin.Context, game string, name string, session *model.GameSession, cost int) {
-	if cost < 1 || session.Reward < gameBigWinMultiplier*cost {
+// auditGameFreeWin 在免费奖励(例如大转盘的免费旋转)一次开出 gameAuditMinNet 以上的游戏币时记审计日志。
+func auditGameFreeWin(c *gin.Context, game string, name string, session *model.GameSession) {
+	if session.Reward < gameAuditMinNet {
 		return
 	}
 	model.RecordAuditLog(model.ClientLogSource(c), session.UserId, "", model.LogTypeSystem,

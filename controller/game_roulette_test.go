@@ -57,12 +57,12 @@ func TestSpinRoulettePaysEveryWinningBet(t *testing.T) {
 		// 单号 2×36 + 黑 3×2 + 单 4×2 + 第二打 5×3 = 101，第三列与大输掉。
 		{number: 17, bets: spread, wantColor: roulette.Black, wantBet: 21, wantWins: []int{72, 6, 8, 15, 0, 0}, wantWin: 101, wantBalance: 180},
 		{number: 0, bets: spread, wantColor: roulette.Green, wantBet: 21, wantWins: []int{0, 0, 0, 0, 0, 0}, wantWin: 0, wantBalance: 159},
-		// 押 0 的单号 2×36 = 72，是合计下注 4 的 18 倍。
+		// 押 0 的单号 5×36 = 180，扣掉合计下注 7 净赢 173，是大奖。
 		{number: 0, bets: []map[string]any{
-			{"type": roulette.Straight, "value": 0, "amount": 2},
+			{"type": roulette.Straight, "value": 0, "amount": 5},
 			{"type": roulette.Red, "amount": 1},
 			{"type": roulette.Even, "amount": 1},
-		}, wantColor: roulette.Green, wantBet: 4, wantWins: []int{72, 0, 0}, wantWin: 72, wantBalance: 227},
+		}, wantColor: roulette.Green, wantBet: 7, wantWins: []int{180, 0, 0}, wantWin: 180, wantBalance: 332},
 	}
 	for i, c := range cases {
 		spinRouletteAt(t, c.number)
@@ -83,11 +83,11 @@ func TestSpinRoulettePaysEveryWinningBet(t *testing.T) {
 	}
 	account, err := model.GetGameCoinAccount(player.user.Id)
 	require.NoError(t, err)
-	assert.Equal(t, 46, account.TotalWagered)
-	assert.Equal(t, 127, account.TotalWagerNet)
+	assert.Equal(t, 49, account.TotalWagered)
+	assert.Equal(t, 232, account.TotalWagerNet)
 	var bigWinLogs int64
 	require.NoError(t, env.db.Model(&model.Log{}).Where("user_id = ? AND type = ? AND content LIKE ?", player.user.Id, model.LogTypeSystem, "游戏大奖%").Count(&bigWinLogs).Error)
-	assert.EqualValues(t, 1, bigWinLogs, "只有押中 0 的那一局是大奖")
+	assert.EqualValues(t, 1, bigWinLogs, "只有押中 0 的那一局净赢超过 100 个")
 }
 
 // 注型或号码不合规则、一注都没下或超过 50 注、某一注金额不是正整数或超过单次下注上限、合计超过上限、余额不够，

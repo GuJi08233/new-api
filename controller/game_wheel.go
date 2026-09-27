@@ -122,7 +122,7 @@ func SpinWheel(c *gin.Context) {
 			"free_earned_today":    result.FreeEarned,
 			"ip_free_earned_today": result.IpFreeEarned,
 		}
-		auditGameFreeWin(c, gameWheel, "大转盘免费旋转", result.Session, rule.SpinCost)
+		auditGameFreeWin(c, gameWheel, "大转盘免费旋转", result.Session)
 	} else {
 		result, err := model.SettleGameWager(userId, gameWheel, model.GameWager{Bet: rule.SpinCost, Play: play, Day: day, Ip: ip})
 		if err != nil {

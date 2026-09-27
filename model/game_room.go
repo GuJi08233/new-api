@@ -260,17 +260,17 @@ func FinishGameRoom(room *GameRoom, winnerId int, reason string, state string, d
 		players := []int{room.HostId, room.GuestId}
 		sort.Ints(players)
 		for _, userId := range players {
-			net, credit, remark := 0, 0, "对战平局退回"
+			net, credit, event := 0, 0, "draw"
 			switch {
 			case winnerId == 0:
 				credit = room.Stake
 			case userId == winnerId:
-				net, credit, remark = room.Stake-rake, pot-rake, "对战获胜"
+				net, credit, event = room.Stake-rake, pot-rake, "win"
 			default:
 				net = -room.Stake
 			}
 			if room.Stake > 0 {
-				if err := settleGameRoomPlayerTx(tx, room, userId, net, credit, remark, now); err != nil {
+				if err := settleGameRoomPlayerTx(tx, room, userId, net, credit, event, now); err != nil {
 					return err
 				}
 			}
@@ -322,7 +322,7 @@ func CancelGameRoom(room *GameRoom, reason string) error {
 			Amount:    room.Stake,
 			Balance:   balance,
 			RefId:     gameRoomRef(room.Id),
-			Remark:    "对战房间关闭退回",
+			Remark:    gameRoomRemark(room, "refund"),
 			CreatedAt: now,
 		}).Error
 	})
@@ -347,13 +347,13 @@ func debitGameRoomStakeTx(tx *gorm.DB, room *GameRoom, userId int) (int, error) 
 		Amount:    -room.Stake,
 		Balance:   balance,
 		RefId:     gameRoomRef(room.Id),
-		Remark:    "对战押注",
+		Remark:    gameRoomRemark(room, "stake"),
 		CreatedAt: common.GetTimestamp(),
 	}).Error
 }
 
-// settleGameRoomPlayerTx 给一位玩家结算押注：净输赢计入累计输赢，有退回或赢得的游戏币时入账并记流水。
-func settleGameRoomPlayerTx(tx *gorm.DB, room *GameRoom, userId int, net int, credit int, remark string, now int64) error {
+// settleGameRoomPlayerTx 给一位玩家结算押注：净输赢计入累计输赢，有退回或赢得的游戏币时入账并记流水，event 见 gameRoomRemark。
+func settleGameRoomPlayerTx(tx *gorm.DB, room *GameRoom, userId int, net int, credit int, event string, now int64) error {
 	fields := map[string]interface{}{"total_wager_net": gorm.Expr("total_wager_net + ?", net)}
 	if credit == 0 {
 		fields["updated_at"] = now
@@ -369,9 +369,15 @@ func settleGameRoomPlayerTx(tx *gorm.DB, room *GameRoom, userId int, net int, cr
 		Amount:    credit,
 		Balance:   balance,
 		RefId:     gameRoomRef(room.Id),
-		Remark:    remark,
+		Remark:    gameRoomRemark(room, event),
 		CreatedAt: now,
 	}).Error
+}
+
+// gameRoomRemark 是对战流水的备注：游戏标识与事件(stake 押注、win 获胜、draw 平局退回、refund 房间关闭退回)，
+// 由前端翻译成玩家的语言。
+func gameRoomRemark(room *GameRoom, event string) string {
+	return room.Game + ":" + event
 }
 
 // gameRoomRef 是对战流水的关联编号，与对局编号区分开。
