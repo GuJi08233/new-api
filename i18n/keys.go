@@ -263,6 +263,7 @@ const (
 	MsgGameRoomStarted            = "game.room_started"
 	MsgGameRoomSelf               = "game.room_self"
 	MsgGameRoomSameIp             = "game.room_same_ip"
+	MsgGameJackpotSameIp          = "game.jackpot_same_ip"
 	MsgGameRoomStakeInvalid       = "game.room_stake_invalid"
 	MsgGameRoomNotPlayer          = "game.room_not_player"
 	MsgGameRoomNotYourTurn        = "game.room_not_your_turn"

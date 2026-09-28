@@ -200,6 +200,9 @@ func EnterJackpot(c *gin.Context) {
 	case errors.Is(err, model.ErrGameJackpotLimit):
 		common.ApiErrorI18n(c, i18n.MsgGameJackpotLimit, map[string]any{"Max": rule.MaxBet})
 		return
+	case errors.Is(err, model.ErrGameJackpotSameIp):
+		common.ApiErrorI18n(c, i18n.MsgGameJackpotSameIp)
+		return
 	case err != nil:
 		respondGameError(c, gameJackpot, err)
 		return

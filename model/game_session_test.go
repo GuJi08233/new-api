@@ -8,7 +8,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const gameTestIp = "203.0.113.7"
+const (
+	gameTestIp      = "203.0.113.7"
+	gameTestOtherIp = "198.51.100.9"
+)
 
 // seedGameUser 建一个用户，coins 大于 0 时先给他发这么多游戏币。用户名与邀请码按 ID 区分，同一个测试里可以建几个。
 func seedGameUser(t *testing.T, id int, coins int) {

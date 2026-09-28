@@ -116,7 +116,7 @@ func TestGameJackpotDrawPaysTicketHolder(t *testing.T) {
 	assert.Zero(t, round.Deadline, "只有一位玩家时不开始倒计时")
 	_, _, err = EnterGameJackpot(2301, 21, rule, gameTestIp)
 	assert.ErrorIs(t, err, ErrGameJackpotLimit)
-	round, _, err = EnterGameJackpot(2302, 25, rule, gameTestIp)
+	round, _, err = EnterGameJackpot(2302, 25, rule, gameTestOtherIp)
 	require.NoError(t, err)
 	assert.Equal(t, 35, round.Pot)
 	assert.Equal(t, 2, round.Players)
@@ -150,6 +150,33 @@ func TestGameJackpotDrawPaysTicketHolder(t *testing.T) {
 	next, _, err := EnterGameJackpot(2301, 5, rule, gameTestIp)
 	require.NoError(t, err)
 	assert.NotEqual(t, round.Id, next.Id)
+}
+
+// 同一 IP 下的账号算同一个人：一个账号投了这一轮，同一 IP 的另一个账号就不能再投，凑不够两位玩家开奖，
+// 也越不过每人每轮的上限。换一个 IP 的玩家照常加入。
+func TestGameJackpotRejectsSecondAccountOnTheSameIp(t *testing.T) {
+	truncateTables(t)
+	seedGameUser(t, 2311, 50)
+	seedGameUser(t, 2312, 50)
+	seedGameUser(t, 2313, 50)
+	rule := GameJackpotEntryRule{MaxBet: 30, RoundSeconds: 60, RakePercent: 10}
+	_, _, err := EnterGameJackpot(2311, 30, rule, gameTestIp)
+	require.NoError(t, err)
+
+	_, _, err = EnterGameJackpot(2312, 30, rule, gameTestIp)
+	require.ErrorIs(t, err, ErrGameJackpotSameIp)
+	assert.Equal(t, 50, gameBalance(t, 2312), "被拒绝的投入没有扣币")
+	round, err := GetOpenGameJackpotRound()
+	require.NoError(t, err)
+	assert.Equal(t, 1, round.Players)
+	assert.Zero(t, round.Deadline, "一个人凑不够两位玩家")
+
+	_, _, err = EnterGameJackpot(2311, 1, rule, gameTestIp)
+	require.ErrorIs(t, err, ErrGameJackpotLimit, "自己的账号照常受每轮上限约束")
+	round, _, err = EnterGameJackpot(2313, 10, rule, gameTestOtherIp)
+	require.NoError(t, err)
+	assert.Equal(t, 2, round.Players)
+	assert.NotZero(t, round.Deadline)
 }
 
 // 一直只有一位玩家的一轮放久了原样退回，这笔投入不算下注过；有两位玩家的一轮不会被退回。

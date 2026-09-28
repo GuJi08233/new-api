@@ -29,6 +29,8 @@ var (
 	ErrGameJackpotClosed = errors.New("jackpot round is closed for entries")
 	// ErrGameJackpotLimit 表示这次投入会让玩家在这一轮的投入超过每轮上限。
 	ErrGameJackpotLimit = errors.New("jackpot entry limit per round exceeded")
+	// ErrGameJackpotSameIp 表示同一 IP 下的另一个账号已经投了这一轮。
+	ErrGameJackpotSameIp = errors.New("another account on this ip has entered this jackpot round")
 )
 
 // GameJackpotRound 是奖池的一轮。
@@ -96,7 +98,9 @@ type GameJackpotEntryRule struct {
 }
 
 // EnterGameJackpot 往开放中的一轮投入 amount 个游戏币，没有开放的一轮时新开一轮。玩家在一轮里的投入合计不超过 rule.MaxBet；
-// 这是第二位玩家时开始倒计时。当前一轮已到开奖时间时返回 ErrGameJackpotClosed，调用方先开奖再投。
+// 这是第二位玩家时开始倒计时。当前一轮已到开奖时间时返回 ErrGameJackpotClosed，调用方先开奖再投。同一 IP 下的账号算同一个人：
+// 别的账号已经投了这一轮时返回 ErrGameJackpotSameIp，不然一个人用几个账号就能凑够两位玩家开奖、越过每人每轮的上限，
+// 在自己的账号之间倒腾游戏币(对战也不许同一 IP 的账号互相押注)。
 func EnterGameJackpot(userId int, amount int, rule GameJackpotEntryRule, ip string) (*GameJackpotRound, int, error) {
 	if amount < 1 || amount >= common.MaxQuota {
 		return nil, 0, ErrGameCoinAmountInvalid
@@ -114,6 +118,14 @@ func EnterGameJackpot(userId int, amount int, rule GameJackpotEntryRule, ip stri
 		}
 		if round.Deadline != 0 && round.Deadline <= now {
 			return ErrGameJackpotClosed
+		}
+		var sameIp []int
+		if err := tx.Model(&GameJackpotEntry{}).Where("round_id = ? AND ip = ? AND user_id <> ?", round.Id, ip, userId).
+			Limit(1).Pluck("id", &sameIp).Error; err != nil {
+			return err
+		}
+		if len(sameIp) > 0 {
+			return ErrGameJackpotSameIp
 		}
 		var entered int
 		if err := tx.Model(&GameJackpotEntry{}).Where("round_id = ? AND user_id = ?", round.Id, userId).
