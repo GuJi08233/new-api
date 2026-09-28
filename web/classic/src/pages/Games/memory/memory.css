@@ -1,0 +1,256 @@
+/*
+Copyright (C) 2025 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+
+/* 记忆翻牌：方形的牌绕竖轴翻转；牌背是一块平铺的靛蓝色，牌面是图案的图标，每种图案一种色相，取调色板的第 6、7 阶，
+   暗色主题下调色板整体翻转，图标照样清楚。 */
+
+.memory-board {
+  display: grid;
+  gap: 10px;
+  width: min(100%, 420px);
+  margin: 0 auto;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+}
+
+.memory-board.is-cols-6 {
+  width: min(100%, 560px);
+}
+
+.memory-card {
+  position: relative;
+  aspect-ratio: 1;
+  padding: 0;
+  border: none;
+  background: none;
+  perspective: 800px;
+  cursor: default;
+}
+
+.memory-board.is-playing .memory-card:not(.is-up) {
+  cursor: pointer;
+}
+
+.memory-card:focus-visible {
+  outline: 2px solid var(--semi-color-primary);
+  outline-offset: 2px;
+  border-radius: 12px;
+}
+
+.memory-card-inner {
+  position: absolute;
+  inset: 0;
+  display: block;
+  transform-style: preserve-3d;
+  transition: transform 0.32s ease;
+}
+
+.memory-card.is-up .memory-card-inner {
+  transform: rotateY(180deg);
+}
+
+.memory-card-back,
+.memory-card-front {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  border: 1px solid var(--semi-color-border);
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+}
+
+.memory-card-back {
+  border-color: rgba(var(--semi-indigo-5), 0.3);
+  background: rgba(var(--semi-indigo-5), 0.14);
+  transition: background-color 0.15s ease;
+}
+
+.memory-card-back::after {
+  content: '';
+  width: 30%;
+  height: 30%;
+  border-radius: 50%;
+  border: 2px solid rgba(var(--semi-indigo-5), 0.45);
+}
+
+.memory-board.is-playing .memory-card:not(.is-up):hover .memory-card-back {
+  background: rgba(var(--semi-indigo-5), 0.22);
+}
+
+.memory-card-front {
+  transform: rotateY(180deg);
+  color: rgba(var(--memory-hue, var(--semi-grey-6)), 1);
+  background: var(--semi-color-bg-1);
+  background-image: linear-gradient(
+    rgba(var(--memory-hue, var(--semi-grey-6)), 0.14),
+    rgba(var(--memory-hue, var(--semi-grey-6)), 0.14)
+  );
+}
+
+.memory-card-front svg {
+  width: 50%;
+  height: 50%;
+}
+
+.memory-card.is-matched .memory-card-front {
+  border-color: rgba(var(--memory-hue, var(--semi-grey-6)), 0.6);
+  box-shadow: inset 0 0 0 1px rgba(var(--memory-hue, var(--semi-grey-6)), 0.6);
+}
+
+.memory-card.is-miss .memory-card-front {
+  border-color: var(--semi-color-danger);
+}
+
+/* 输了之后没配上的牌淡一些。透明度只能加在牌面上：加在翻转的那一层会让 3D 变平，露出牌背。 */
+.memory-card.is-unmatched .memory-card-front {
+  opacity: 0.55;
+}
+
+.memory-symbol-0 {
+  --memory-hue: var(--semi-light-green-6);
+}
+
+.memory-symbol-1 {
+  --memory-hue: var(--semi-blue-6);
+}
+
+.memory-symbol-2 {
+  --memory-hue: var(--semi-amber-6);
+}
+
+.memory-symbol-3 {
+  --memory-hue: var(--semi-light-blue-6);
+}
+
+.memory-symbol-4 {
+  --memory-hue: var(--semi-orange-6);
+}
+
+.memory-symbol-5 {
+  --memory-hue: var(--semi-pink-6);
+}
+
+.memory-symbol-6 {
+  --memory-hue: var(--semi-cyan-6);
+}
+
+.memory-symbol-7 {
+  --memory-hue: var(--semi-yellow-7);
+}
+
+.memory-symbol-8 {
+  --memory-hue: var(--semi-violet-6);
+}
+
+.memory-symbol-9 {
+  --memory-hue: var(--semi-teal-6);
+}
+
+.memory-symbol-10 {
+  --memory-hue: var(--semi-green-6);
+}
+
+.memory-symbol-11 {
+  --memory-hue: var(--semi-purple-6);
+}
+
+.memory-symbol-12 {
+  --memory-hue: var(--semi-grey-6);
+}
+
+.memory-symbol-13 {
+  --memory-hue: var(--semi-red-6);
+}
+
+.memory-symbol-14 {
+  --memory-hue: var(--semi-indigo-6);
+}
+
+.memory-symbol-15 {
+  --memory-hue: var(--semi-lime-7);
+}
+
+.memory-symbol-16 {
+  --memory-hue: var(--semi-light-blue-6);
+}
+
+.memory-symbol-17 {
+  --memory-hue: var(--semi-orange-6);
+}
+
+.memory-hud-low {
+  color: var(--semi-color-danger);
+}
+
+.memory-start {
+  flex-direction: column;
+}
+
+.memory-summary {
+  margin: 0;
+  max-width: 520px;
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--semi-color-text-2);
+}
+
+.memory-chip-icon {
+  margin-right: 4px;
+}
+
+.memory-chip-note {
+  margin-left: 6px;
+  font-weight: 500;
+  color: var(--semi-color-text-2);
+}
+
+.memory-chip-reward {
+  margin-left: 6px;
+  color: var(--semi-color-success);
+}
+
+/* 站点的 Tailwind 基础样式把 svg 设成块级，按钮里的图标要放回行内。 */
+.memory-play-icon {
+  display: inline-block;
+  margin-right: 8px;
+  vertical-align: -3px;
+}
+
+@media (max-width: 520px) {
+  .memory-board {
+    gap: 6px;
+  }
+
+  .memory-card-back,
+  .memory-card-front {
+    border-radius: 9px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .memory-card-inner,
+  .memory-card-back {
+    transition: none;
+  }
+}

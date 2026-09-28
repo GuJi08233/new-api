@@ -1,0 +1,223 @@
+/*
+Copyright (C) 2025 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+
+/* 数独：九宫格随台面宽度缩放，字号按格子大小算；宫与宫之间是粗线。题目给出的数字用正文色，自己填的用主色，
+   选中格所在的行、列、宫淡淡地铺一层底色，冲突的数字标红。 */
+
+.sudoku-board {
+  container-type: inline-size;
+  display: grid;
+  grid-template-columns: repeat(9, minmax(0, 1fr));
+  width: min(100%, 468px);
+  aspect-ratio: 1;
+  border: 2px solid var(--semi-color-text-2);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--semi-color-bg-1);
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+}
+
+.sudoku-cell {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  border-right: 1px solid var(--semi-color-border);
+  border-bottom: 1px solid var(--semi-color-border);
+  font: inherit;
+  font-size: 20px;
+  font-size: calc(100cqw / 9 * 0.5);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  color: var(--semi-color-primary);
+  background: transparent;
+  cursor: default;
+  transition: background-color 0.12s ease;
+}
+
+.sudoku-cell:nth-child(9n) {
+  border-right: none;
+}
+
+.sudoku-cell:nth-last-child(-n + 9) {
+  border-bottom: none;
+}
+
+.sudoku-cell.is-box-right {
+  border-right: 2px solid var(--semi-color-text-2);
+}
+
+.sudoku-cell.is-box-bottom {
+  border-bottom: 2px solid var(--semi-color-text-2);
+}
+
+.sudoku-board.is-playing .sudoku-cell {
+  cursor: pointer;
+}
+
+.sudoku-cell:focus-visible {
+  outline: 2px solid var(--semi-color-primary);
+  outline-offset: -2px;
+}
+
+.sudoku-cell.is-given {
+  font-weight: 700;
+  color: var(--semi-color-text-0);
+}
+
+.sudoku-cell.is-peer {
+  background: var(--semi-color-fill-0);
+}
+
+.sudoku-cell.is-same {
+  background: rgba(var(--semi-blue-5), 0.14);
+}
+
+.sudoku-cell.is-selected {
+  background: rgba(var(--semi-blue-5), 0.26);
+}
+
+.sudoku-cell.is-conflict {
+  color: var(--semi-color-danger);
+  background: var(--semi-color-danger-light-default);
+}
+
+.sudoku-notes {
+  position: absolute;
+  inset: 2px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-rows: repeat(3, minmax(0, 1fr));
+  font-size: 9px;
+  font-size: calc(100cqw / 9 * 0.26);
+  font-weight: 500;
+  line-height: 1;
+  color: var(--semi-color-text-2);
+}
+
+.sudoku-notes span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sudoku-pad {
+  display: grid;
+  grid-template-columns: repeat(9, minmax(0, 1fr));
+  gap: 6px;
+  width: min(100%, 468px);
+  margin-top: 14px;
+}
+
+.sudoku-pad-key {
+  height: 44px;
+  padding: 0;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 8px;
+  font: inherit;
+  font-size: 18px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--semi-color-text-0);
+  background: var(--semi-color-bg-1);
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+}
+
+.sudoku-pad-key:hover:not(:disabled) {
+  background: var(--semi-color-fill-1);
+}
+
+.sudoku-pad-key:active:not(:disabled) {
+  background: var(--semi-color-fill-2);
+}
+
+.sudoku-pad-key:focus-visible {
+  outline: 2px solid var(--semi-color-primary);
+  outline-offset: 2px;
+}
+
+/* 这个数字已经填满 9 个。 */
+.sudoku-pad-key.is-done {
+  color: var(--semi-color-text-3);
+}
+
+.sudoku-pad-key:disabled {
+  cursor: not-allowed;
+}
+
+.sudoku-start {
+  flex-direction: column;
+}
+
+.sudoku-summary {
+  margin: 0;
+  max-width: 520px;
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--semi-color-text-2);
+}
+
+.sudoku-chip-icon {
+  margin-right: 4px;
+}
+
+.sudoku-chip-note {
+  margin-left: 6px;
+  font-weight: 500;
+  color: var(--semi-color-text-2);
+}
+
+.sudoku-chip-reward {
+  margin-left: 6px;
+  color: var(--semi-color-success);
+}
+
+/* 站点的 Tailwind 基础样式把 svg 设成块级，按钮里的图标要放回行内。 */
+.sudoku-play-icon {
+  display: inline-block;
+  margin-right: 8px;
+  vertical-align: -3px;
+}
+
+/* 窄屏上数字键之间留窄一点的缝，9 个键每个仍有 32px 以上。 */
+@media (max-width: 520px) {
+  .sudoku-pad {
+    gap: 2px;
+  }
+
+  .sudoku-pad-key {
+    height: 40px;
+    font-size: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sudoku-cell,
+  .sudoku-pad-key {
+    transition: none;
+  }
+}
