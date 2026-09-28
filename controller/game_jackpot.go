@@ -55,11 +55,18 @@ func init() {
 }
 
 // resolveGameJackpot 给到点的一轮开奖，退回一直只有一位玩家、放太久的一轮。没人访问时由系统任务定期调用。
+// 奖池页每隔几秒刷新都会走到这里，所以先不加锁读一次：没有到点、也不该退回时直接返回，不必每次刷新都锁住全站唯一的
+// 奖池行。读到的即使是旧数据也不要紧，开奖和退回在加锁之后都会重新判断。
 func resolveGameJackpot() error {
+	now := common.GetTimestamp()
+	staleBefore := now - jackpotStaleSeconds
+	if !model.HasDueGameJackpot(now, staleBefore) {
+		return nil
+	}
 	if _, err := model.DrawGameJackpot(pickJackpotTicket, gameCenterDay()); err != nil {
 		return err
 	}
-	_, err := model.RefundStaleGameJackpot(common.GetTimestamp() - jackpotStaleSeconds)
+	_, err := model.RefundStaleGameJackpot(staleBefore)
 	return err
 }
 
