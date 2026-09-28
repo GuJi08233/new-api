@@ -25,8 +25,11 @@ type withdrawTestNode struct {
 	latestNonce    uint64
 	latestBlock    uint64
 	estimateRevert bool
-	noCode         bool // 代币地址上没有合约代码
-	sendDown       bool // 模拟广播时传输失败：节点可能收到也可能没收到
+	noCode         bool   // 代币地址上没有合约代码
+	sendDown       bool   // 模拟广播时传输失败：节点可能收到也可能没收到
+	baseFee        uint64 // 最新区块的基础费(wei)，0 表示 1 gwei
+	// known 是节点内存池里有、还没有回执的交易，eth_getTransactionByHash 查得到它们；有回执的交易也查得到。
+	known map[string]bool
 	// sendRejects 让这些已签名交易的广播报一个认不出来的错(例如旧热钱包没有 gas)，广播就一直没有结论。
 	sendRejects map[string]bool
 	receipts    map[string]map[string]any
@@ -40,7 +43,11 @@ func (n *withdrawTestNode) serve(t *testing.T) string {
 			Method string `json:"method"`
 			Params []any  `json:"params"`
 		}
-		require.NoError(t, common.DecodeJson(r.Body, &call))
+		// 处理函数跑在服务端的 goroutine 里，这里不能用 require 结束测试。
+		if !assert.NoError(t, common.DecodeJson(r.Body, &call)) {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
 		n.mu.Lock()
 		defer n.mu.Unlock()
 		envelope := map[string]any{"jsonrpc": "2.0", "id": 1}
@@ -60,7 +67,11 @@ func (n *withdrawTestNode) serve(t *testing.T) string {
 				envelope["result"] = "0x6080604052"
 			}
 		case "eth_getBlockByNumber":
-			envelope["result"] = map[string]any{"baseFeePerGas": "0x3b9aca00"}
+			baseFee := n.baseFee
+			if baseFee == 0 {
+				baseFee = 1_000_000_000
+			}
+			envelope["result"] = map[string]any{"baseFeePerGas": fmt.Sprintf("0x%x", baseFee)}
 		case "eth_maxPriorityFeePerGas":
 			envelope["result"] = "0x3b9aca00"
 		case "eth_estimateGas":
@@ -87,13 +98,24 @@ func (n *withdrawTestNode) serve(t *testing.T) string {
 			} else {
 				envelope["result"] = nil
 			}
+		case "eth_getTransactionByHash":
+			hash := call.Params[0].(string)
+			if _, mined := n.receipts[hash]; mined || n.known[hash] {
+				envelope["result"] = map[string]any{"hash": hash}
+			} else {
+				envelope["result"] = nil
+			}
 		case "eth_blockNumber":
 			envelope["result"] = fmt.Sprintf("0x%x", n.latestBlock)
 		default:
-			t.Fatalf("unexpected rpc method %s", call.Method)
+			assert.Failf(t, "unexpected rpc method", "%s", call.Method)
+			envelope["error"] = map[string]any{"code": -32601, "message": "method not found"}
 		}
 		body, err := common.Marshal(envelope)
-		require.NoError(t, err)
+		if !assert.NoError(t, err) {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write(body)
 	}))
@@ -387,6 +409,206 @@ func TestGameCoinWithdrawalKeepsMinedTransferThroughAMissingReceipt(t *testing.T
 		assert.Equal(t, step.wantNonceUsed, current.NonceUsedAt != 0, "step %d", i)
 	}
 	assert.Equal(t, 7, gameCoinBalance(t, 2107), "到账了，没有退款")
+}
+
+// "连续保持"要有人一直在看：两次看到 nonce 已被推进隔了太久(RPC 一直报错、worker 停过、积压太多轮不到它)，
+// 中间发生了什么不得而知。即便从第一次看到算起早已超过十分钟，也只能从头计时，不能退款。
+func TestGameCoinWithdrawalRestartsReplacedNonceWatchAfterAGap(t *testing.T) {
+	node := &withdrawTestNode{pendingNonce: 5, latestNonce: 5, latestBlock: 100, receipts: map[string]map[string]any{}}
+	useGameCoinTestChain(t, node)
+	withdrawal := createTestGameCoinWithdrawal(t, 2119, 2)
+	RunGameCoinWithdrawOnce(context.Background())
+	require.Equal(t, model.GameCoinWithdrawalStatusSent, reloadGameCoinWithdrawal(t, withdrawal.Id).Status)
+
+	node.update(func(node *withdrawTestNode) { node.latestNonce = 6 })
+	now := common.GetTimestamp()
+	require.NoError(t, model.DB.Model(&model.GameCoinWithdrawal{}).Where("id = ?", withdrawal.Id).Updates(map[string]any{
+		"nonce_used_at":    now - 2*gameCoinNonceReplacedSeconds,
+		"nonce_checked_at": now - gameCoinNonceWatchGapSeconds - 1,
+	}).Error)
+	summary := RunGameCoinWithdrawOnce(context.Background())
+	assert.Zero(t, summary.Failed)
+	current := reloadGameCoinWithdrawal(t, withdrawal.Id)
+	assert.Equal(t, model.GameCoinWithdrawalStatusSent, current.Status)
+	assert.GreaterOrEqual(t, current.NonceUsedAt, now, "从头计时")
+	assert.Equal(t, 8, gameCoinBalance(t, 2119))
+}
+
+// 退款前按哈希查交易本身再确认一次：回执查询可能一直落在进度落后的节点上，节点还知道这笔交易，就说明它没有被顶掉。
+func TestGameCoinWithdrawalKeepsTransactionTheNodeStillKnows(t *testing.T) {
+	node := &withdrawTestNode{pendingNonce: 5, latestNonce: 5, latestBlock: 100, known: map[string]bool{}, receipts: map[string]map[string]any{}}
+	useGameCoinTestChain(t, node)
+	withdrawal := createTestGameCoinWithdrawal(t, 2120, 2)
+	RunGameCoinWithdrawOnce(context.Background())
+	sent := reloadGameCoinWithdrawal(t, withdrawal.Id)
+	require.Equal(t, model.GameCoinWithdrawalStatusSent, sent.Status)
+
+	node.update(func(node *withdrawTestNode) {
+		node.latestNonce = 6
+		node.known[sent.TxHash] = true
+	})
+	RunGameCoinWithdrawOnce(context.Background())
+	require.NotZero(t, reloadGameCoinWithdrawal(t, withdrawal.Id).NonceUsedAt)
+	require.NoError(t, model.DB.Model(&model.GameCoinWithdrawal{}).Where("id = ?", withdrawal.Id).
+		Update("nonce_used_at", common.GetTimestamp()-gameCoinNonceReplacedSeconds).Error)
+
+	summary := RunGameCoinWithdrawOnce(context.Background())
+	assert.Zero(t, summary.Failed)
+	current := reloadGameCoinWithdrawal(t, withdrawal.Id)
+	assert.Equal(t, model.GameCoinWithdrawalStatusSent, current.Status)
+	assert.Zero(t, current.NonceUsedAt, "节点还知道这笔交易，计时作废")
+	assert.Equal(t, 8, gameCoinBalance(t, 2120))
+}
+
+// 回执里没有 logs 字段(节点或代理截掉了)时看不出代币有没有转出，等回执完整了再下结论，不能当成没有转账退款。
+func TestGameCoinWithdrawalWaitsForReceiptLogs(t *testing.T) {
+	node := &withdrawTestNode{latestBlock: 100, receipts: map[string]map[string]any{}}
+	useGameCoinTestChain(t, node)
+	withdrawal := createTestGameCoinWithdrawal(t, 2118, 2)
+	RunGameCoinWithdrawOnce(context.Background())
+	sent := reloadGameCoinWithdrawal(t, withdrawal.Id)
+	require.Equal(t, model.GameCoinWithdrawalStatusSent, sent.Status)
+
+	for _, receipt := range []map[string]any{
+		{"status": "0x1", "blockNumber": "0x64"},
+		{"status": "0x1", "blockNumber": "0x64", "logs": nil},
+	} {
+		node.update(func(node *withdrawTestNode) { node.receipts[sent.TxHash] = receipt })
+		summary := RunGameCoinWithdrawOnce(context.Background())
+		assert.Zero(t, summary.Failed)
+		assert.Zero(t, summary.Confirmed)
+		assert.Equal(t, model.GameCoinWithdrawalStatusSent, reloadGameCoinWithdrawal(t, withdrawal.Id).Status)
+	}
+
+	node.update(func(node *withdrawTestNode) { node.receipts[sent.TxHash] = transferReceipt(sent, 100) })
+	summary := RunGameCoinWithdrawOnce(context.Background())
+	assert.Equal(t, 1, summary.Confirmed)
+	assert.Equal(t, 8, gameCoinBalance(t, 2118))
+}
+
+// 早期有的代币 Transfer 事件的参数都不加 indexed，from、to、数量依次放在 data 里；这样的转账同样算到账。
+func TestGameCoinWithdrawalConfirmsNonIndexedTransferEvent(t *testing.T) {
+	node := &withdrawTestNode{latestBlock: 100, receipts: map[string]map[string]any{}}
+	useGameCoinTestChain(t, node)
+	withdrawal := createTestGameCoinWithdrawal(t, 2117, 2)
+	RunGameCoinWithdrawOnce(context.Background())
+	sent := reloadGameCoinWithdrawal(t, withdrawal.Id)
+	require.Equal(t, model.GameCoinWithdrawalStatusSent, sent.Status)
+
+	word := func(address string) string {
+		return "000000000000000000000000" + strings.ToLower(strings.TrimPrefix(address, "0x"))
+	}
+	node.update(func(node *withdrawTestNode) {
+		node.receipts[sent.TxHash] = map[string]any{
+			"status":      "0x1",
+			"blockNumber": "0x64",
+			"logs": []any{map[string]any{
+				"address": strings.ToLower(sent.TokenAddress),
+				"topics":  []any{erc20TransferTopic},
+				"data":    "0x" + word(sent.FromAddress) + word(sent.ToAddress) + fmt.Sprintf("%064x", sent.Amount),
+				"removed": false,
+			}},
+		}
+	})
+	summary := RunGameCoinWithdrawOnce(context.Background())
+	assert.Equal(t, 1, summary.Confirmed)
+	assert.Zero(t, summary.Failed)
+	assert.Equal(t, model.GameCoinWithdrawalStatusConfirmed, reloadGameCoinWithdrawal(t, withdrawal.Id).Status)
+}
+
+// 基础费涨过签名时的费用上限，这笔交易就再也上不了链，这个热钱包之后的提现也全卡在它后面。worker 用同一个 nonce、
+// 同样的 gas 加价重签：小费和上限都加价 12.5%，上限不低于现在的三倍基础费加小费。旧哈希留着，之后上链的是旧交易
+// 也照常到账，不会退款。
+func TestGameCoinWithdrawalReplacesUnderpricedTransaction(t *testing.T) {
+	node := &withdrawTestNode{pendingNonce: 4, latestNonce: 4, latestBlock: 100, receipts: map[string]map[string]any{}}
+	useGameCoinTestChain(t, node)
+	withdrawal := createTestGameCoinWithdrawal(t, 2116, 3)
+	RunGameCoinWithdrawOnce(context.Background())
+	sent := reloadGameCoinWithdrawal(t, withdrawal.Id)
+	require.Equal(t, model.GameCoinWithdrawalStatusSent, sent.Status)
+	assert.Equal(t, "4000000000", sent.MaxFeePerGas, "三倍基础费加小费")
+	assert.Equal(t, "1000000000", sent.PriorityFeePerGas)
+
+	summary := RunGameCoinWithdrawOnce(context.Background())
+	assert.Zero(t, summary.Replaced, "基础费没涨，不重签")
+
+	node.update(func(node *withdrawTestNode) { node.baseFee = 10_000_000_000 })
+	summary = RunGameCoinWithdrawOnce(context.Background())
+	assert.Equal(t, 1, summary.Replaced)
+	replaced := reloadGameCoinWithdrawal(t, withdrawal.Id)
+	assert.Equal(t, model.GameCoinWithdrawalStatusSent, replaced.Status)
+	assert.Equal(t, sent.Nonce, replaced.Nonce)
+	assert.Equal(t, sent.GasLimit, replaced.GasLimit)
+	assert.NotEqual(t, sent.TxHash, replaced.TxHash)
+	assert.Equal(t, "1125000000", replaced.PriorityFeePerGas, "小费加价 12.5%")
+	assert.Equal(t, "31125000000", replaced.MaxFeePerGas, "上限不低于三倍基础费加小费")
+	hashes, err := replaced.TxHashes()
+	require.NoError(t, err)
+	assert.Equal(t, []string{replaced.TxHash, sent.TxHash}, hashes)
+	assert.Equal(t, replaced.RawTx, node.broadcasts[len(node.broadcasts)-1])
+
+	summary = RunGameCoinWithdrawOnce(context.Background())
+	assert.Zero(t, summary.Replaced, "新交易付得起现在的基础费")
+
+	// 旧交易赶在新交易之前上链：同一个 nonce 只会有一笔，照常到账，记下实际上链的那一笔。
+	node.update(func(node *withdrawTestNode) {
+		node.latestNonce = 5
+		node.receipts[sent.TxHash] = transferReceipt(sent, 100)
+	})
+	summary = RunGameCoinWithdrawOnce(context.Background())
+	assert.Equal(t, 1, summary.Confirmed)
+	assert.Zero(t, summary.Failed)
+	confirmed := reloadGameCoinWithdrawal(t, withdrawal.Id)
+	assert.Equal(t, model.GameCoinWithdrawalStatusConfirmed, confirmed.Status)
+	assert.Equal(t, sent.TxHash, confirmed.TxHash)
+	assert.Equal(t, 7, gameCoinBalance(t, 2116))
+}
+
+// 节点不收一笔已签名的交易(例如基础费涨过了它的费用上限，报的错认不出来)，这个热钱包的队首就一直卡着；付不起时同样加价重签。
+func TestGameCoinWithdrawalReplacesSignedTransactionTheNodeRejects(t *testing.T) {
+	node := &withdrawTestNode{pendingNonce: 2, latestNonce: 2, latestBlock: 100, sendRejects: map[string]bool{}, receipts: map[string]map[string]any{}}
+	useGameCoinTestChain(t, node)
+	withdrawal := createTestGameCoinWithdrawal(t, 2121, 3)
+	node.update(func(node *withdrawTestNode) { node.sendDown = true })
+	RunGameCoinWithdrawOnce(context.Background())
+	signed := reloadGameCoinWithdrawal(t, withdrawal.Id)
+	require.Equal(t, model.GameCoinWithdrawalStatusSigned, signed.Status)
+
+	node.update(func(node *withdrawTestNode) {
+		node.sendDown = false
+		node.sendRejects[signed.RawTx] = true
+		node.baseFee = 10_000_000_000
+	})
+	summary := RunGameCoinWithdrawOnce(context.Background())
+	assert.Equal(t, 1, summary.Replaced)
+	assert.Equal(t, 1, summary.Sent)
+	replaced := reloadGameCoinWithdrawal(t, withdrawal.Id)
+	assert.Equal(t, model.GameCoinWithdrawalStatusSent, replaced.Status)
+	assert.Equal(t, signed.Nonce, replaced.Nonce)
+	assert.NotEqual(t, signed.TxHash, replaced.TxHash)
+	assert.Equal(t, 7, gameCoinBalance(t, 2121))
+}
+
+// JSON-RPC 应答不是带 result 就是带 error。两个都没有的残缺应答要报错，不能当成"查不到这笔交易"：
+// 提现把查不到回执当作交易可能被顶掉的证据。result 为 null 才是真的查不到。
+func TestCallEthereumRpcRejectsReplyWithoutResult(t *testing.T) {
+	cases := []struct {
+		reply   string
+		wantErr bool
+	}{
+		{reply: `{"jsonrpc":"2.0","id":1}`, wantErr: true},
+		{reply: `{"jsonrpc":"2.0","id":1,"result":null}`, wantErr: false},
+	}
+	for _, c := range cases {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte(c.reply))
+		}))
+		var receipt *ethereumRpcReceipt
+		err := callEthereumRpc(context.Background(), server.URL, "eth_getTransactionReceipt", []any{"0x01"}, &receipt)
+		server.Close()
+		assert.Equal(t, c.wantErr, err != nil, c.reply)
+		assert.Nil(t, receipt, c.reply)
+	}
 }
 
 // 预估 gas 时就回滚的转账不上链，直接退回，也不占用 nonce。

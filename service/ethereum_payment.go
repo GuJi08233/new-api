@@ -245,7 +245,12 @@ func callEthereumRpc(ctx context.Context, rpcURL string, method string, params [
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("rpc status %d", resp.StatusCode)
 	}
-	if len(envelope.Result) == 0 || string(envelope.Result) == "null" {
+	// JSON-RPC 的应答不是带 result 就是带 error，两个都没有是残缺的应答(代理截断、节点出错)，不能当成"查无此交易"：
+	// 游戏币提现会把查不到回执当作交易可能被顶掉的证据。
+	if len(envelope.Result) == 0 {
+		return errors.New("rpc reply has neither result nor error")
+	}
+	if string(envelope.Result) == "null" {
 		// Leave result at its zero value: a nil receipt is how the node says
 		// "not mined yet", which callers must distinguish from a decode error.
 		return nil

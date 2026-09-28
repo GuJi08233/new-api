@@ -3,6 +3,7 @@ package model
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"time"
 
@@ -103,16 +104,49 @@ type GameCoinWithdrawal struct {
 	Nonce         int64  `json:"nonce" gorm:"bigint"`
 	TxHash        string `json:"tx_hash" gorm:"type:varchar(66);index"`
 	RawTx         string `json:"-" gorm:"type:text"`
-	FailReason    string `json:"fail_reason" gorm:"type:varchar(255)"`
+	// GasLimit 与两项费用(wei，十进制)是当前这笔签名交易的参数：基础费涨过费用上限时，要用同一个 nonce、同样的 gas 加价重签。
+	GasLimit          int64  `json:"-" gorm:"bigint"`
+	MaxFeePerGas      string `json:"-" gorm:"type:varchar(80)"`
+	PriorityFeePerGas string `json:"-" gorm:"type:varchar(80)"`
+	// ReplacedTxHashes 是被加价重签替换掉的旧交易哈希(JSON 数组)。同一个 nonce 只会有一笔上链，但不知道是哪一笔，
+	// 对账时每个哈希都要查。
+	ReplacedTxHashes string `json:"-" gorm:"type:text"`
+	FailReason       string `json:"fail_reason" gorm:"type:varchar(255)"`
 	// Error 是最近一次链上操作的原始错误，可能带有 RPC 地址，只给管理员看。
 	Error       string `json:"-" gorm:"type:varchar(512)"`
 	CreatedAt   int64  `json:"created_at" gorm:"bigint;index"`
 	UpdatedAt   int64  `json:"updated_at" gorm:"bigint"`
 	BroadcastAt int64  `json:"broadcast_at" gorm:"bigint"`
-	// NonceUsedAt 是第一次发现 nonce 已被推进、却查不到这笔交易回执的时间，0 表示没有这种情况。
-	// 这种状态要连续保持一段时间才判定交易被别的交易顶掉并退款，期间查到回执就清零。
-	NonceUsedAt int64 `json:"-" gorm:"bigint"`
-	CompletedAt int64 `json:"completed_at" gorm:"bigint"`
+	// NonceUsedAt 是这一轮"nonce 已被推进、却查不到这笔交易任何一个哈希的回执"开始的时间，NonceCheckedAt 是最近一次看到
+	// 这种状态的时间，0 表示没有这种情况。它要连续保持一段时间、中间没有长时间没人查看，才判定交易被别的交易顶掉并退款；
+	// 期间查到回执就清零，隔太久才再次看到就从头计时。
+	NonceUsedAt    int64 `json:"-" gorm:"bigint"`
+	NonceCheckedAt int64 `json:"-" gorm:"bigint"`
+	CompletedAt    int64 `json:"completed_at" gorm:"bigint"`
+}
+
+// TxHashes 返回这笔提现签出过的所有交易哈希，当前的排在最前。
+func (w *GameCoinWithdrawal) TxHashes() ([]string, error) {
+	hashes := []string{w.TxHash}
+	if w.ReplacedTxHashes == "" {
+		return hashes, nil
+	}
+	var replaced []string
+	if err := common.UnmarshalJsonStr(w.ReplacedTxHashes, &replaced); err != nil {
+		return nil, fmt.Errorf("withdrawal %s has malformed replaced tx hashes: %w", w.TradeNo, err)
+	}
+	return append(hashes, replaced...), nil
+}
+
+// GameCoinSignedTx 是一笔签好、还没广播的提现交易。
+type GameCoinSignedTx struct {
+	FromAddress       string
+	Nonce             int64
+	TxHash            string
+	RawTx             string
+	GasLimit          int64
+	MaxFeePerGas      string
+	PriorityFeePerGas string
 }
 
 // GameCoinWithdrawDay 记录全站每天已占用的提现额度。额度用条件更新扣减，
@@ -470,17 +504,51 @@ func MaxGameCoinWithdrawalNonce(fromAddress string, chainId int64) (int64, bool,
 
 // MarkGameCoinWithdrawalSigned 在广播之前把签好的交易落库。只有这样，进程在广播前后退出时，
 // 下一轮才能重发同一笔交易，而不是再签一笔新的、让用户收到两次。链与合约在申请时已经记下。
-func MarkGameCoinWithdrawalSigned(id int, fromAddress string, nonce int64, txHash string, rawTx string) (bool, error) {
+func MarkGameCoinWithdrawalSigned(id int, signed GameCoinSignedTx) (bool, error) {
 	result := DB.Model(&GameCoinWithdrawal{}).
 		Where("id = ? AND status = ?", id, GameCoinWithdrawalStatusPending).
 		Updates(map[string]interface{}{
-			"status":       GameCoinWithdrawalStatusSigned,
-			"from_address": fromAddress,
-			"nonce":        nonce,
-			"tx_hash":      txHash,
-			"raw_tx":       rawTx,
-			"error":        "",
-			"updated_at":   common.GetTimestamp(),
+			"status":               GameCoinWithdrawalStatusSigned,
+			"from_address":         signed.FromAddress,
+			"nonce":                signed.Nonce,
+			"tx_hash":              signed.TxHash,
+			"raw_tx":               signed.RawTx,
+			"gas_limit":            signed.GasLimit,
+			"max_fee_per_gas":      signed.MaxFeePerGas,
+			"priority_fee_per_gas": signed.PriorityFeePerGas,
+			"error":                "",
+			"updated_at":           common.GetTimestamp(),
+		})
+	return result.RowsAffected == 1, result.Error
+}
+
+// ReplaceGameCoinWithdrawalTx 把一笔还没上链的交易换成同一个 nonce、费用更高的新签名交易，状态回到已签名，由下一次广播
+// 推进；旧哈希记进 ReplacedTxHashes，之后哪一笔上链都认。只在提现单仍是调用方读到的那笔交易时生效。
+func ReplaceGameCoinWithdrawalTx(withdrawal *GameCoinWithdrawal, signed GameCoinSignedTx) (bool, error) {
+	if withdrawal.Status != GameCoinWithdrawalStatusSigned && withdrawal.Status != GameCoinWithdrawalStatusSent {
+		return false, nil
+	}
+	hashes, err := withdrawal.TxHashes()
+	if err != nil {
+		return false, err
+	}
+	replaced, err := common.Marshal(hashes)
+	if err != nil {
+		return false, err
+	}
+	result := DB.Model(&GameCoinWithdrawal{}).
+		Where("id = ? AND status = ? AND tx_hash = ? AND nonce = ?", withdrawal.Id, withdrawal.Status, withdrawal.TxHash, signed.Nonce).
+		Updates(map[string]interface{}{
+			"status":               GameCoinWithdrawalStatusSigned,
+			"tx_hash":              signed.TxHash,
+			"raw_tx":               signed.RawTx,
+			"max_fee_per_gas":      signed.MaxFeePerGas,
+			"priority_fee_per_gas": signed.PriorityFeePerGas,
+			"replaced_tx_hashes":   string(replaced),
+			"nonce_used_at":        0,
+			"nonce_checked_at":     0,
+			"error":                "",
+			"updated_at":           common.GetTimestamp(),
 		})
 	return result.RowsAffected == 1, result.Error
 }
@@ -512,27 +580,30 @@ func RecordGameCoinWithdrawalAttempt(id int, broadcast bool, errText string) err
 	return DB.Model(&GameCoinWithdrawal{}).Where("id = ?", id).Updates(updates).Error
 }
 
-// SetGameCoinWithdrawalNonceUsedAt 记下第一次发现 nonce 已被推进却查不到回执的时间，at 为 0 表示清除。
-func SetGameCoinWithdrawalNonceUsedAt(id int, at int64) error {
+// SetGameCoinWithdrawalNonceUsed 记下"nonce 已被推进却查不到回执"这一轮开始与最近一次看到的时间，都为 0 表示清除。
+func SetGameCoinWithdrawalNonceUsed(id int, usedAt int64, checkedAt int64) error {
 	return DB.Model(&GameCoinWithdrawal{}).Where("id = ?", id).Updates(map[string]interface{}{
-		"nonce_used_at": at,
-		"updated_at":    common.GetTimestamp(),
+		"nonce_used_at":    usedAt,
+		"nonce_checked_at": checkedAt,
+		"updated_at":       common.GetTimestamp(),
 	}).Error
 }
 
-// ConfirmGameCoinWithdrawal 把已上链的提现单标记为完成，并计入用户的累计提现。
-func ConfirmGameCoinWithdrawal(id int) (bool, error) {
+// ConfirmGameCoinWithdrawal 把已上链的提现单标记为完成，并计入用户的累计提现。minedTxHash 是实际上链的那笔交易：
+// 加价重签过的提现，上链的可能是被替换掉的旧交易。只在提现单仍是调用方读到的那笔交易时生效。
+func ConfirmGameCoinWithdrawal(observed *GameCoinWithdrawal, minedTxHash string) (bool, error) {
 	confirmed := false
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		var withdrawal GameCoinWithdrawal
-		if err := lockForUpdate(tx).Where("id = ?", id).First(&withdrawal).Error; err != nil {
+		if err := lockForUpdate(tx).Where("id = ?", observed.Id).First(&withdrawal).Error; err != nil {
 			return err
 		}
 		now := common.GetTimestamp()
 		result := tx.Model(&GameCoinWithdrawal{}).
-			Where("id = ? AND status = ?", id, GameCoinWithdrawalStatusSent).
+			Where("id = ? AND status = ? AND tx_hash = ?", observed.Id, GameCoinWithdrawalStatusSent, observed.TxHash).
 			Updates(map[string]interface{}{
 				"status":       GameCoinWithdrawalStatusConfirmed,
+				"tx_hash":      minedTxHash,
 				"error":        "",
 				"completed_at": now,
 				"updated_at":   now,
@@ -552,18 +623,22 @@ func ConfirmGameCoinWithdrawal(id int) (bool, error) {
 	return confirmed, err
 }
 
-// FailGameCoinWithdrawal 把尚未完成的提现单判定为失败：退回游戏币、释放当日额度、记退款流水。
-// 状态用条件更新切换，同一笔提现最多退款一次。调用方必须已经确认这笔交易不会再上链。
-func FailGameCoinWithdrawal(id int, reason string, detail string) (bool, error) {
+// FailGameCoinWithdrawal 把尚未完成的提现单判定为失败：退回游戏币、释放当日额度、记退款流水。调用方必须已经确认
+// 这笔交易不会再上链。判定依据的是调用方读到的那一刻，所以只在提现单仍是那个状态、那笔交易时生效：同时在跑的另一个
+// worker 已经把它签出、重签或广播了，这次判定就作废，不能把正在上链的提现退掉。同一笔提现最多退款一次。
+func FailGameCoinWithdrawal(observed *GameCoinWithdrawal, reason string, detail string) (bool, error) {
+	if !slices.Contains(unfinishedGameCoinWithdrawalStatuses, observed.Status) {
+		return false, nil
+	}
 	failed := false
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		var withdrawal GameCoinWithdrawal
-		if err := lockForUpdate(tx).Where("id = ?", id).First(&withdrawal).Error; err != nil {
+		if err := lockForUpdate(tx).Where("id = ?", observed.Id).First(&withdrawal).Error; err != nil {
 			return err
 		}
 		now := common.GetTimestamp()
 		result := tx.Model(&GameCoinWithdrawal{}).
-			Where("id = ? AND status IN ?", id, unfinishedGameCoinWithdrawalStatuses).
+			Where("id = ? AND status = ? AND tx_hash = ?", observed.Id, observed.Status, observed.TxHash).
 			Updates(map[string]interface{}{
 				"status":       GameCoinWithdrawalStatusFailed,
 				"fail_reason":  truncateRiskField(reason, 255),

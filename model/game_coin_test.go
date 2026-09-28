@@ -2,6 +2,7 @@ package model
 
 import (
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -211,7 +212,7 @@ func TestGameCoinConversionAndWithdrawalDailyLimitsAreIndependent(t *testing.T) 
 	used, err := GetGameCoinWithdrawDayUsed(day)
 	require.NoError(t, err)
 	assert.Equal(t, 5, used, "兑换不占全站提现池")
-	failed, err := FailGameCoinWithdrawal(withdrawal.Id, "test refund", "")
+	failed, err := FailGameCoinWithdrawal(withdrawal, "test refund", "")
 	require.NoError(t, err)
 	require.True(t, failed)
 	used, err = GetGameCoinConvertDayUsed(1114, day)
@@ -260,13 +261,13 @@ func TestGameCoinWithdrawalHoldsDailyLimitAndRefundsOnce(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 3, used)
 
-	failed, err := FailGameCoinWithdrawal(first.Id, "test refund", "detail")
+	failed, err := FailGameCoinWithdrawal(first, "test refund", "detail")
 	require.NoError(t, err)
 	assert.True(t, failed)
-	failed, err = FailGameCoinWithdrawal(first.Id, "test refund", "detail")
+	failed, err = FailGameCoinWithdrawal(first, "test refund", "detail")
 	require.NoError(t, err)
 	assert.False(t, failed, "重复退款必须是空操作")
-	confirmed, err := ConfirmGameCoinWithdrawal(first.Id)
+	confirmed, err := ConfirmGameCoinWithdrawal(first, first.TxHash)
 	require.NoError(t, err)
 	assert.False(t, confirmed)
 
@@ -282,6 +283,71 @@ func TestGameCoinWithdrawalHoldsDailyLimitAndRefundsOnce(t *testing.T) {
 	// 释放后的额度可以再次使用。
 	_, _, err = createGameCoinTestWithdrawal(1104, 5, day, 5, 11155111)
 	require.NoError(t, err)
+}
+
+// 退款依据的是调用方读到的那一刻：同时在跑的另一个 worker 已经把提现签出、广播或加价重签，拿着旧快照的判定作废，
+// 正在上链的提现不会被退掉。拿着当前状态的判定照常退款。
+func TestFailGameCoinWithdrawalIgnoresStaleCopies(t *testing.T) {
+	truncateTables(t)
+	seedGameCoinUser(t, 1115, 0, 10)
+	withdrawal, _, err := createGameCoinTestWithdrawal(1115, 4, "2026-09-24", 10, 11155111)
+	require.NoError(t, err)
+	stalePending := *withdrawal
+
+	signed := GameCoinSignedTx{
+		FromAddress:       "0x2c7536E3605D9C16a7a3D7b1898e529396a65c23",
+		Nonce:             3,
+		TxHash:            "0x" + strings.Repeat("a", 64),
+		RawTx:             "0x02aa",
+		GasLimit:          60000,
+		MaxFeePerGas:      "4000000000",
+		PriorityFeePerGas: "1000000000",
+	}
+	marked, err := MarkGameCoinWithdrawalSigned(withdrawal.Id, signed)
+	require.NoError(t, err)
+	require.True(t, marked)
+	marked, err = MarkGameCoinWithdrawalSent(withdrawal.Id)
+	require.NoError(t, err)
+	require.True(t, marked)
+
+	failed, err := FailGameCoinWithdrawal(&stalePending, "stale pending", "")
+	require.NoError(t, err)
+	assert.False(t, failed, "读到时还没签名，它已经广播了")
+
+	var sent GameCoinWithdrawal
+	require.NoError(t, DB.First(&sent, withdrawal.Id).Error)
+	replacement := signed
+	replacement.TxHash = "0x" + strings.Repeat("b", 64)
+	replacement.RawTx = "0x02bb"
+	replacement.MaxFeePerGas = "31125000000"
+	replaced, err := ReplaceGameCoinWithdrawalTx(&sent, replacement)
+	require.NoError(t, err)
+	require.True(t, replaced)
+	replaced, err = ReplaceGameCoinWithdrawalTx(&sent, replacement)
+	require.NoError(t, err)
+	assert.False(t, replaced, "读到的交易已经被换掉，不能再换一次")
+
+	failed, err = FailGameCoinWithdrawal(&sent, "stale sent", "")
+	require.NoError(t, err)
+	assert.False(t, failed, "读到的是被替换掉的旧交易")
+	account, err := GetGameCoinAccount(1115)
+	require.NoError(t, err)
+	assert.Equal(t, 6, account.Balance, "没有退款")
+
+	var current GameCoinWithdrawal
+	require.NoError(t, DB.First(&current, withdrawal.Id).Error)
+	assert.Equal(t, GameCoinWithdrawalStatusSigned, current.Status)
+	assert.Equal(t, signed.Nonce, current.Nonce)
+	hashes, err := current.TxHashes()
+	require.NoError(t, err)
+	assert.Equal(t, []string{replacement.TxHash, signed.TxHash}, hashes)
+
+	failed, err = FailGameCoinWithdrawal(&current, "refund", "")
+	require.NoError(t, err)
+	assert.True(t, failed)
+	account, err = GetGameCoinAccount(1115)
+	require.NoError(t, err)
+	assert.Equal(t, 10, account.Balance)
 }
 
 // nonce 按热钱包和链分开计算：换钱包或换网络后，旧记录不会把新钱包的 nonce 推到空洞后面。
@@ -307,7 +373,7 @@ func TestMaxGameCoinWithdrawalNonceIsScopedToWalletAndChain(t *testing.T) {
 	for _, row := range rows {
 		withdrawal, _, err := createGameCoinTestWithdrawal(1105, 1, "2026-09-24", 100, row.chainId)
 		require.NoError(t, err)
-		marked, err := MarkGameCoinWithdrawalSigned(withdrawal.Id, row.from, row.nonce, "0xhash", "0xraw")
+		marked, err := MarkGameCoinWithdrawalSigned(withdrawal.Id, GameCoinSignedTx{FromAddress: row.from, Nonce: row.nonce, TxHash: "0xhash", RawTx: "0xraw"})
 		require.NoError(t, err)
 		require.True(t, marked)
 	}
