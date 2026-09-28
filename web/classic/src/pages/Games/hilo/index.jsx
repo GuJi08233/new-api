@@ -36,7 +36,7 @@ import { RuleList, SideBox, StageMessage } from '../common/SideBox';
 import { percent } from '../common/api';
 import { WagerStats, wagerResultMessage } from '../common/wager';
 import { useGameInfo } from '../common/useGameInfo';
-import { useWagerRound } from '../mines/useWagerRound';
+import { useWagerRound } from '../common/useWagerRound';
 import './hilo.css';
 
 const RANK_LABELS = [

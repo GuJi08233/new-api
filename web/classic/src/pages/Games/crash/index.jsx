@@ -28,7 +28,7 @@ import { RuleList, SideBox, StageMessage } from '../common/SideBox';
 import { gameGet } from '../common/api';
 import { WagerStats, wagerResultMessage } from '../common/wager';
 import { useGameInfo } from '../common/useGameInfo';
-import { useWagerRound } from '../mines/useWagerRound';
+import { useWagerRound } from '../common/useWagerRound';
 import './crash.css';
 
 // 倍数都是百分之一倍的整数(250 就是 2.50×)，与服务端一致。

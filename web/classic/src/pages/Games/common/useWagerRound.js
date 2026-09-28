@@ -19,9 +19,9 @@ For commercial licensing, please contact support@quantumnous.com
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { gameGet, gamePost } from '../common/api';
+import { gameGet, gamePost } from './api';
 
-// 分几步完成的下注游戏(21 点、挖宝、高低牌、火箭)共用的对局状态。四个游戏都用它；公共目录不归游戏页修改，先放在挖宝目录里。
+// 分几步完成的下注游戏(21 点、挖宝、高低牌、火箭)共用的对局状态。
 //
 // 服务端同一时间只允许一局，每一步都带上最新一局的 session_id 与 version。请求被拒绝或没有得到答复时按编号重新读出这一局，
 // 页面总是显示服务端的真实状态。结算这一局的响应(带 net_today)还带着余额与今天的输赢，并进页面信息；settledInfo(previous, round)

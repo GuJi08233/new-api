@@ -34,9 +34,11 @@ const BetInput = ({
   label,
 }) => {
   const { t } = useTranslation();
+  // 上限不是步长的整数倍时(21 点只能下偶数)，能下的最大数量是不超过它的那个倍数。
+  const top = Math.floor(max / step) * step;
   const clamp = (next) => {
     const stepped = Math.round(next / step) * step;
-    return Math.min(Math.max(stepped, min), max);
+    return Math.min(Math.max(stepped, min), top);
   };
   return (
     <div className='game-bet'>
@@ -58,7 +60,7 @@ const BetInput = ({
         type='button'
         className='game-bet-button'
         aria-label={t('增加下注')}
-        disabled={disabled || value >= max}
+        disabled={disabled || value >= top}
         onClick={() => onChange(clamp(value + step))}
       >
         <Plus size={16} />
@@ -74,7 +76,7 @@ const BetInput = ({
       <button
         type='button'
         className='game-bet-quick'
-        disabled={disabled || value >= max}
+        disabled={disabled || value >= top}
         onClick={() => onChange(clamp(value * 2))}
       >
         ×2
@@ -82,7 +84,7 @@ const BetInput = ({
       <button
         type='button'
         className='game-bet-quick'
-        disabled={disabled || value >= max}
+        disabled={disabled || value >= top}
         onClick={() => onChange(clamp(max))}
       >
         {t('最大')}
