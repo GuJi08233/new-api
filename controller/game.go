@@ -301,8 +301,9 @@ func gameHotWalletInfo() gin.H {
 
 func GetGameAdminSetting(c *gin.Context) {
 	common.ApiSuccess(c, gin.H{
-		"setting":    operation_setting.GetGameSetting(),
-		"hot_wallet": gameHotWalletInfo(),
+		"setting":         operation_setting.GetGameSetting(),
+		"hot_wallet":      gameHotWalletInfo(),
+		"max_tier_scores": operation_setting.GameMaxTierScores(),
 	})
 }
 

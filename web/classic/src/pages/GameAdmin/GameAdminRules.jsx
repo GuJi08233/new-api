@@ -78,8 +78,16 @@ function SettingRow({ label, extra, children }) {
 
 const toNumber = (value) => (typeof value === 'number' ? value : 0);
 
-// 免费游戏的领奖规则：每日领奖次数、奖励档位、每个游戏币所需的当天累计时长。levelNames 不为空时成绩是难度，用下拉选择。
-function SkillRuleFields({ rule, onChange, levelNames, scoreName, symbol }) {
+// 免费游戏的领奖规则：每日领奖次数、奖励档位、每个游戏币所需的当天累计时长。levelNames 不为空时成绩是难度，用下拉选择；
+// maxScore 是服务端规定的成绩上限(例如推箱子只有过关一种成绩)，没有上限时为空。
+function SkillRuleFields({
+  rule,
+  onChange,
+  levelNames,
+  maxScore,
+  scoreName,
+  symbol,
+}) {
   const { t } = useTranslation();
   const tiers = rule.tiers || [];
   const setTier = (index, key, value) =>
@@ -88,15 +96,19 @@ function SkillRuleFields({ rule, onChange, levelNames, scoreName, symbol }) {
         i === index ? { ...tier, [key]: toNumber(value) } : tier,
       ),
     });
+  const scoreLimit = levelNames ? levelNames.length : maxScore;
+  const last = tiers[tiers.length - 1];
+  // 成绩逐档递增：已经到了上限就加不了下一档。
+  const full = !!scoreLimit && !!last && last.score >= scoreLimit;
   const addTier = () => {
-    const last = tiers[tiers.length - 1];
+    if (full) return;
     const next = last
       ? {
           score: levelNames ? last.score + 1 : last.score * 2,
           coins: last.coins + 1,
         }
       : { score: 1, coins: 1 };
-    if (levelNames && next.score > levelNames.length) return;
+    if (scoreLimit) next.score = Math.min(next.score, scoreLimit);
     onChange({ tiers: [...tiers, next] });
   };
   return (
@@ -142,6 +154,7 @@ function SkillRuleFields({ rule, onChange, levelNames, scoreName, symbol }) {
                 <InputNumber
                   value={tier.score}
                   min={1}
+                  max={maxScore}
                   precision={0}
                   prefix={t('达到')}
                   style={{ width: 180 }}
@@ -173,10 +186,7 @@ function SkillRuleFields({ rule, onChange, levelNames, scoreName, symbol }) {
             <Button
               icon={<IconPlus />}
               size='small'
-              disabled={
-                tiers.length >= MAX_REWARD_TIERS ||
-                (levelNames && tiers.length >= levelNames.length)
-              }
+              disabled={tiers.length >= MAX_REWARD_TIERS || full}
               onClick={addTier}
             >
               {t('添加一档')}
@@ -419,20 +429,27 @@ const GameAdminRules = () => {
   const [setting, setSetting] = useState(null);
   const [savedSetting, setSavedSetting] = useState(null);
   const [overview, setOverview] = useState(null);
+  const [maxTierScores, setMaxTierScores] = useState({});
   const [saving, setSaving] = useState(false);
 
-  const load = async () => {
-    const [settingRes, overviewRes] = await Promise.all([
-      API.get('/api/game/admin/setting'),
-      API.get('/api/game/admin/overview'),
-    ]);
-    if (settingRes.data.success) {
-      setSetting(settingRes.data.data.setting);
-      setSavedSetting(settingRes.data.data.setting);
-    } else {
-      showError(settingRes.data.message);
-    }
-    if (overviewRes.data.success) setOverview(overviewRes.data.data);
+  // 概览要查热钱包余额，节点慢或出错时不能拖住规则的加载：两者分开请求，概览失败只是不显示概览。
+  const load = () => {
+    API.get('/api/game/admin/setting')
+      .then((res) => {
+        if (!res.data.success) {
+          showError(res.data.message);
+          return;
+        }
+        setSetting(res.data.data.setting);
+        setSavedSetting(res.data.data.setting);
+        setMaxTierScores(res.data.data.max_tier_scores || {});
+      })
+      .catch(() => {});
+    API.get('/api/game/admin/overview')
+      .then((res) => {
+        if (res.data.success) setOverview(res.data.data);
+      })
+      .catch(() => {});
   };
 
   useEffect(() => {
@@ -494,6 +511,7 @@ const GameAdminRules = () => {
           rule={rule}
           onChange={onChange}
           levelNames={meta.score === 'level' ? levelNames[game] : null}
+          maxScore={maxTierScores[game]}
           scoreName={meta.scoreName}
           symbol={symbol}
         />

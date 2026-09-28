@@ -46,6 +46,7 @@ const TASK_TYPE_KEYS = {
   midjourney_poll: '绘图任务轮询',
   async_task_poll: '异步任务轮询',
   game_coin_withdraw: '游戏币提现',
+  game_center_sweep: '游戏中心结算',
 };
 
 const STATUS_META = {

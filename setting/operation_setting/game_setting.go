@@ -256,6 +256,18 @@ var gameRuleSpecs = map[string]gameRuleSpec{
 	"jackpot": {Kind: GameKindParty},
 }
 
+// GameMaxTierScores 返回奖励档位成绩有上限的免费游戏(按难度领奖的游戏，以及只有过关一种成绩的推箱子)各自的上限，
+// 管理端照着它限制能填的成绩，不必再在页面里抄一份。
+func GameMaxTierScores() map[string]int {
+	scores := make(map[string]int)
+	for game, spec := range gameRuleSpecs {
+		if spec.MaxTierScore > 0 {
+			scores[game] = spec.MaxTierScore
+		}
+	}
+	return scores
+}
+
 // GameKind 返回游戏的结算方式，未知的游戏返回空字符串。
 func GameKind(game string) string {
 	return gameRuleSpecs[game].Kind
