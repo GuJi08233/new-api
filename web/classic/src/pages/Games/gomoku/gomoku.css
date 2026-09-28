@@ -1,0 +1,149 @@
+/*
+Copyright (C) 2025 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+
+/* 五子棋盘：暖色的平面棋盘、细线网格，棋子是纯色圆片，最后一手打点，获胜连线描边。 */
+
+.gomoku-board-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: min(100%, 600px);
+}
+
+.gomoku-board {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1;
+  border-radius: 12px;
+  border: 1px solid rgba(var(--semi-amber-6), 0.35);
+  background: rgba(var(--semi-amber-4), 0.2);
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.gomoku-board.is-playable {
+  cursor: pointer;
+}
+
+.gomoku-grid line {
+  stroke: var(--semi-color-text-2);
+  stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
+  opacity: 0.75;
+}
+
+.gomoku-star {
+  fill: var(--semi-color-text-1);
+}
+
+.gomoku-stone {
+  stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.gomoku-stone.is-b {
+  fill: #1f2227;
+  stroke: rgba(0, 0, 0, 0.45);
+}
+
+.gomoku-stone.is-w {
+  fill: #fbfbfa;
+  stroke: rgba(0, 0, 0, 0.28);
+}
+
+.gomoku-stone.is-ghost {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.gomoku-stone.is-new {
+  animation: gomoku-place 0.22s ease-out;
+}
+
+.gomoku-last {
+  pointer-events: none;
+  fill: var(--semi-color-danger);
+}
+
+.gomoku-line-ring {
+  fill: none;
+  stroke: var(--semi-color-success);
+  stroke-width: 3px;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+.gomoku-hint {
+  min-height: 20px;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--semi-color-text-2);
+}
+
+/* 座位称呼里的小棋子。 */
+.gomoku-seat-stone {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 5px;
+  border-radius: 50%;
+  vertical-align: -1px;
+  border: 1px solid rgba(0, 0, 0, 0.3);
+}
+
+.gomoku-seat-stone.is-b {
+  background: #1f2227;
+}
+
+.gomoku-seat-stone.is-w {
+  background: #fbfbfa;
+}
+
+body[theme-mode='dark'] .gomoku-stone.is-b {
+  stroke: rgba(255, 255, 255, 0.35);
+}
+
+body[theme-mode='dark'] .gomoku-stone.is-w {
+  fill: #ececea;
+}
+
+body[theme-mode='dark'] .gomoku-seat-stone {
+  border-color: rgba(255, 255, 255, 0.35);
+}
+
+@keyframes gomoku-place {
+  from {
+    transform: scale(0.55);
+    opacity: 0.4;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gomoku-stone.is-new {
+    animation: none;
+  }
+}

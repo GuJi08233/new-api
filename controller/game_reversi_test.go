@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/reversi"
@@ -81,9 +82,6 @@ func TestReversiAiGameSettles(t *testing.T) {
 	rng := rand.New(rand.NewPCG(1, 1))
 	var result map[string]any
 	for result == nil {
-		// movePvpAi 在玩家走完之后只让 AI 回一步：玩家在 AI 走完之后无子可下时，这一局会停在轮到 AI 走，玩家也走不了。
-		// 这里固定种子下玩家执黑、执白的两局都没有碰到这种情况。
-		require.EqualValues(t, 0, session["to_move"], "the AI should keep moving while the player has to pass")
 		point, err := reversi.BestMove(local, 3, rng)
 		require.NoError(t, err)
 		require.NoError(t, local.Play(point.X, point.Y))
@@ -94,6 +92,8 @@ func TestReversiAiGameSettles(t *testing.T) {
 		if aiMove, ok := reply["ai_move"].(map[string]any); ok {
 			require.NoError(t, local.Play(jsonInt(t, aiMove["x"]), jsonInt(t, aiMove["y"])))
 		}
+		// 这两局里 AI 每次都只回一步，ai_move 就是它走的那一步；AI 连走几步的情形见 TestReversiAiKeepsMovingWhilePlayerPasses。
+		require.EqualValues(t, len(local.Moves()), session["moves"])
 		require.Equal(t, local.Board(), session["state"].(map[string]any)["board"])
 		result, _ = reply["result"].(map[string]any)
 	}
@@ -103,4 +103,69 @@ func TestReversiAiGameSettles(t *testing.T) {
 	assert.EqualValues(t, 1, result["score"])
 	assert.EqualValues(t, 1, result["reward"])
 	assert.Equal(t, 1, player.balance())
+}
+
+// AI 走完之后玩家无子可下，AI 接着走，直到把棋交还给玩家或者终局，一个请求里完成：玩家不会停在"轮到 AI 走"的局面。
+// 两个局面取自随机对局，AI 的每一步都只有一处可下，结果与难度、随机数无关；ai_move 是 AI 最后走的一步。
+func TestReversiAiKeepsMovingWhilePlayerPasses(t *testing.T) {
+	cases := map[string]struct {
+		// black 是执黑的座位，玩家坐座位 0。
+		black   int
+		moves   []int
+		move    reversi.Point
+		aiMoves []int
+		over    bool
+	}{
+		// 玩家执黑走 g2，白走 a1 后黑无子可下，白再走 h2，黑又有 h1 可下。
+		"the player moves again": {
+			black: 0,
+			moves: []int{37, 45, 44, 43, 51, 38, 42, 41, 52, 60, 58, 34, 26, 61, 33, 59, 46, 30, 53, 32, 24, 17, 8, 39, 62, 54, 25, 19,
+				31, 49, 55, 18, 11, 50, 20, 63, 47, 57, 40, 48, 29, 13, 21, 4, 56, 16, 5, 12, 9, 6, 2, 22, 3, 10, 1, 23},
+			move:    reversi.Point{X: 6, Y: 1},
+			aiMoves: []int{0, 15},
+		},
+		// 玩家执白走 a5，黑走 a7 后白无子可下，黑再走 a1 下满棋盘，44:20 黑胜。
+		"the game ends": {
+			black: 1,
+			moves: []int{37, 43, 26, 38, 45, 19, 20, 53, 39, 13, 34, 25, 52, 44, 16, 46, 29, 17, 10, 51, 9, 12, 42, 31, 47, 24, 30, 41,
+				61, 3, 59, 62, 1, 8, 60, 54, 21, 58, 6, 33, 55, 14, 50, 57, 4, 23, 49, 11, 15, 5, 7, 63, 2, 18, 22, 40, 56},
+			move:    reversi.Point{X: 0, Y: 4},
+			aiMoves: []int{48, 0},
+			over:    true,
+		},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			env := newGameTestEnv(t, reversiSetting(boardAiRule()))
+			player := env.player(0, gameTestIpA)
+			board, err := common.Marshal(reversiState{Black: c.black, Moves: c.moves})
+			require.NoError(t, err)
+			state, err := common.Marshal(pvpAiState{Level: 3, Board: board, ToMove: 0, Winner: -1, Moves: len(c.moves)})
+			require.NoError(t, err)
+			session, err := model.CreateGameSession(player.user.Id, pvpAiGame(gameReversi), 0, string(state))
+			require.NoError(t, err)
+
+			reply := player.ok(http.MethodPost, "/api/game/reversi/ai/move", map[string]any{
+				"session_id": session.Id, "version": session.Version, "move": c.move,
+			})
+			view := reply["session"].(map[string]any)
+			local, err := reversi.Replay(append(append(c.moves, c.move.Y*reversi.Size+c.move.X), c.aiMoves...))
+			require.NoError(t, err)
+			assert.Equal(t, local.Board(), view["state"].(map[string]any)["board"])
+			assert.EqualValues(t, len(c.moves)+1+len(c.aiMoves), view["moves"], "AI 连走了两步")
+			last := c.aiMoves[len(c.aiMoves)-1]
+			assert.Equal(t, map[string]any{"x": float64(last % reversi.Size), "y": float64(last / reversi.Size)}, reply["ai_move"])
+			assert.Equal(t, c.over, view["over"])
+			if !c.over {
+				assert.EqualValues(t, 0, view["to_move"])
+				assert.NotEmpty(t, view["state"].(map[string]any)["legal"])
+				assert.Nil(t, reply["result"])
+				return
+			}
+			assert.EqualValues(t, 1, view["winner"])
+			result := reply["result"].(map[string]any)
+			assert.EqualValues(t, 0, result["score"], "输给 AI 成绩为 0")
+			assert.EqualValues(t, 0, result["reward"])
+		})
+	}
 }
