@@ -314,4 +314,22 @@ func TestUpdateGameAdminSettingWritesOnlySubmittedFields(t *testing.T) {
 
 	_, unknown := accountRequest(t, router, http.MethodPut, "/api/game/admin/setting", nil, map[string]any{"no_such_field": 1}, "")
 	assert.Equal(t, false, unknown["success"])
+
+	// 别的节点刚把俄罗斯方块紧急关掉、把单次提现最多改成 20，库里已经是新值，本节点的快照还没同步。这边只改俄罗斯方块的
+	// 每日领奖次数：以数据库里的配置为底合并，游戏不会被打开；跨字段校验也对着库里的单次最多做。
+	_, opened := accountRequest(t, router, http.MethodPut, "/api/game/admin/setting", nil, map[string]any{"tetris": map[string]any{"enabled": true}}, "")
+	require.Equal(t, true, opened["success"], opened["message"])
+	closedTetris := operation_setting.GetGameSetting().Tetris
+	closedTetris.Enabled = false
+	stored, err := common.Marshal(closedTetris)
+	require.NoError(t, err)
+	require.NoError(t, db.Save(&model.Option{Key: operation_setting.GameSettingPrefix + "tetris", Value: string(stored)}).Error)
+	require.NoError(t, db.Save(&model.Option{Key: operation_setting.GameSettingPrefix + "withdraw_max_amount", Value: "20"}).Error)
+	require.True(t, operation_setting.GetGameSetting().Tetris.Enabled, "本节点的快照还没同步")
+	_, stale := accountRequest(t, router, http.MethodPut, "/api/game/admin/setting", nil, map[string]any{"tetris": map[string]any{"daily_rewards": 5}}, "")
+	require.Equal(t, true, stale["success"], stale["message"])
+	assert.False(t, operation_setting.GetGameSetting().Tetris.Enabled, "别人关掉的游戏没有被这次保存打开")
+	assert.Equal(t, 5, operation_setting.GetGameSetting().Tetris.DailyRewards)
+	_, staleCross := accountRequest(t, router, http.MethodPut, "/api/game/admin/setting", nil, map[string]any{"withdraw_min_amount": 50}, "")
+	assert.Equal(t, false, staleCross["success"], "单次最少大于库里的单次最多")
 }

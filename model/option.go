@@ -328,6 +328,34 @@ func UpdateOptionsBulk(values map[string]string) error {
 	return updateOptionsBulkLocked(values)
 }
 
+// UpdateGameSettingFields 保存管理员在游戏管理页改动的几项游戏中心配置。apply 拿到的底稿是数据库里现在的完整配置
+// (默认值加上库里存的项)，它把改动合并进去、整理并整份校验，返回要写回的配置项；返回错误时什么都不写。
+// 读底稿、校验、落库都在 optionWriteMu 里：用本节点的快照做底稿的话，别的节点刚保存、还没同步到这里的项(例如另一位
+// 管理员紧急关掉的游戏)会被这次保存改回去，两次保存交错时跨字段的校验(单次提现最少不大于最多)也会各自对着旧值通过。
+func UpdateGameSettingFields(apply func(setting *operation_setting.GameSetting) (map[string]string, error)) error {
+	optionWriteMu.Lock()
+	defer optionWriteMu.Unlock()
+	var stored []Option
+	if err := DB.Find(&stored).Error; err != nil {
+		return err
+	}
+	current := make(map[string]string)
+	for _, option := range stored {
+		if field, ok := strings.CutPrefix(option.Key, operation_setting.GameSettingPrefix); ok {
+			current[field] = option.Value
+		}
+	}
+	setting := operation_setting.DefaultGameSetting()
+	if err := config.UpdateConfigFromMap(setting, current); err != nil {
+		return err
+	}
+	options, err := apply(setting)
+	if err != nil {
+		return err
+	}
+	return updateOptionsBulkLocked(options)
+}
+
 // updateOptionsBulkLocked 的调用方必须持有 optionWriteMu。
 func updateOptionsBulkLocked(values map[string]string) error {
 	if len(values) == 0 {

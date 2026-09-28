@@ -306,61 +306,69 @@ func GetGameAdminSetting(c *gin.Context) {
 	})
 }
 
-// UpdateGameAdminSetting 保存游戏中心配置里请求带上的字段，在一个事务里写入。管理页可能是很久以前打开的，
-// 整份回写会把别人在这期间改过的字段(例如紧急关闭的提现)悄悄改回去，所以只写改动过的字段；单次提现的
-// 上下限这类跨字段约束按合并到当前配置之后的整份配置校验。
+// UpdateGameAdminSetting 保存管理员改动的几项配置。请求只带改动过的项，游戏规则也可以只带改动过的子字段：它们合并进数据库里
+// 现在的配置，整份校验之后只写回这几项，别人刚改过的其他配置不会被这次保存改回去。
 func UpdateGameAdminSetting(c *gin.Context) {
 	var changes map[string]json.RawMessage
 	if err := common.DecodeJson(c.Request.Body, &changes); err != nil || len(changes) == 0 {
 		common.ApiErrorMsg(c, "无效的参数")
 		return
 	}
-	// 快照是只读的，规则里的奖励档位是切片，先深拷贝再把改动解析进去。
-	setting := operation_setting.GetGameSetting().Clone()
 	body, err := common.Marshal(changes)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	if err := common.Unmarshal(body, setting); err != nil {
-		common.ApiErrorMsg(c, "无效的参数")
-		return
-	}
-	setting.RpcUrl = strings.TrimSpace(setting.RpcUrl)
-	setting.ExplorerUrl = strings.TrimRight(strings.TrimSpace(setting.ExplorerUrl), "/")
-	setting.TokenSymbol = strings.TrimSpace(setting.TokenSymbol)
-	setting.TokenAddress = strings.TrimSpace(setting.TokenAddress)
-	if setting.TokenAddress != "" {
-		normalized, err := service.NormalizeEthereumAddress(setting.TokenAddress)
-		if err != nil {
-			common.ApiErrorMsg(c, "代币合约地址无效："+err.Error())
-			return
+	// rejected 是给管理员看的校验失败原因；回调返回错误时什么都不写。
+	rejected := ""
+	errRejected := errors.New("game setting rejected")
+	err = model.UpdateGameSettingFields(func(setting *operation_setting.GameSetting) (map[string]string, error) {
+		if err := common.Unmarshal(body, setting); err != nil {
+			rejected = "无效的参数"
+			return nil, errRejected
 		}
-		setting.TokenAddress = normalized
-	}
-	if err := operation_setting.ValidateGameSetting(setting); err != nil {
-		common.ApiErrorMsg(c, err.Error())
+		setting.RpcUrl = strings.TrimSpace(setting.RpcUrl)
+		setting.ExplorerUrl = strings.TrimRight(strings.TrimSpace(setting.ExplorerUrl), "/")
+		setting.TokenSymbol = strings.TrimSpace(setting.TokenSymbol)
+		setting.TokenAddress = strings.TrimSpace(setting.TokenAddress)
+		if setting.TokenAddress != "" {
+			normalized, err := service.NormalizeEthereumAddress(setting.TokenAddress)
+			if err != nil {
+				rejected = "代币合约地址无效：" + err.Error()
+				return nil, errRejected
+			}
+			setting.TokenAddress = normalized
+		}
+		if err := operation_setting.ValidateGameSetting(setting); err != nil {
+			rejected = err.Error()
+			return nil, errRejected
+		}
+		values, err := config.ConfigToMap(setting)
+		if err != nil {
+			return nil, err
+		}
+		options := make(map[string]string, len(changes))
+		for key := range changes {
+			value, ok := values[key]
+			if !ok {
+				rejected = "未知的游戏中心配置项：" + key
+				return nil, errRejected
+			}
+			options[operation_setting.GameSettingPrefix+key] = value
+		}
+		return options, nil
+	})
+	if rejected != "" {
+		common.ApiErrorMsg(c, rejected)
 		return
 	}
-	values, err := config.ConfigToMap(setting)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	options := make(map[string]string, len(changes))
 	fields := make([]string, 0, len(changes))
 	for key := range changes {
-		value, ok := values[key]
-		if !ok {
-			common.ApiErrorMsg(c, "未知的游戏中心配置项："+key)
-			return
-		}
-		options[operation_setting.GameSettingPrefix+key] = value
 		fields = append(fields, key)
-	}
-	if err := model.UpdateOptionsBulk(options); err != nil {
-		common.ApiError(c, err)
-		return
 	}
 	sort.Strings(fields)
 	recordManageAudit(c, "game.setting_update", map[string]interface{}{"fields": strings.Join(fields, ", ")})

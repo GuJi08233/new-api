@@ -492,56 +492,61 @@ func aiRule(seconds int) SkillRule {
 
 // gameSetting 仅作为配置框架(基于反射、无同步)就地修改的暂存区，
 // 请求 goroutine 读取下方发布的只读快照。
-var gameSetting = GameSetting{
-	Enabled:              false,
-	PlayTurnstileEnabled: true,
-	// 1 个游戏币就是 1 美元额度：技巧游戏与人机对战再多，每人每天合计也只发这么多；大转盘免费旋转独立发奖。
-	FreeDailyLimit:     10,
-	WithdrawEnabled:    false,
-	WithdrawDailyLimit: 1000,
-	WithdrawMinAmount:  1,
-	WithdrawMaxAmount:  100,
-	ChainId:            11155111,
-	RpcUrl:             "https://ethereum-sepolia-rpc.publicnode.com",
-	TokenAddress:       "0x64bf89340562AB4fE829a481E6797B012664425B",
-	TokenSymbol:        "✦",
-	TokenDecimals:      0,
-	ExplorerUrl:        "https://sepolia.etherscan.io",
-	// 成功和失败都可能被浅层的区块重组推翻，而失败时的退款一旦发出就收不回来，默认等 3 个区块再下结论。
-	Confirmations: 3,
+var gameSetting = *DefaultGameSetting()
 
-	// 游戏默认都不开放，由管理员在游戏管理页逐个开启上线。技巧游戏每个每天只发 1 个游戏币，当天在这个游戏里累计玩满
-	// 2 到 5 分钟(按游戏节奏定)才能领；难度类游戏(扫雷、数独、记忆翻牌、数字华容道)的成绩是赢下的难度。
-	Tetris:      dailyCoinRule(5000, 180),
-	Game2048:    dailyCoinRule(6000, 180),
-	Snake:       dailyCoinRule(20, 120),
-	Flappy:      dailyCoinRule(15, 120),
-	Minesweeper: dailyCoinRule(2, 180),
-	Sudoku:      dailyCoinRule(1, 300),
-	Memory:      dailyCoinRule(2, 120),
-	Puzzle15:    dailyCoinRule(2, 180),
-	Pairlink:    dailyCoinRule(2, 120),
-	Breakout:    dailyCoinRule(300, 120),
-	Sokoban:     dailyCoinRule(1, 180),
+// DefaultGameSetting 返回一份默认配置。数据库里只存管理员改过的项，其余都是默认值，从数据库重建完整配置时以它为底。
+func DefaultGameSetting() *GameSetting {
+	return &GameSetting{
+		Enabled:              false,
+		PlayTurnstileEnabled: true,
+		// 1 个游戏币就是 1 美元额度：技巧游戏与人机对战再多，每人每天合计也只发这么多；大转盘免费旋转独立发奖。
+		FreeDailyLimit:     10,
+		WithdrawEnabled:    false,
+		WithdrawDailyLimit: 1000,
+		WithdrawMinAmount:  1,
+		WithdrawMaxAmount:  100,
+		ChainId:            11155111,
+		RpcUrl:             "https://ethereum-sepolia-rpc.publicnode.com",
+		TokenAddress:       "0x64bf89340562AB4fE829a481E6797B012664425B",
+		TokenSymbol:        "✦",
+		TokenDecimals:      0,
+		ExplorerUrl:        "https://sepolia.etherscan.io",
+		// 成功和失败都可能被浅层的区块重组推翻，而失败时的退款一旦发出就收不回来，默认等 3 个区块再下结论。
+		Confirmations: 3,
 
-	Slots:     WagerRule{MaxBet: 10},
-	Wheel:     WheelRule{FreeSpins: 1, SpinCost: 1},
-	Plinko:    WagerRule{MaxBet: 100},
-	Dice:      WagerRule{MaxBet: 10, RtpPercent: 96},
-	Roulette:  WagerRule{MaxBet: 10},
-	Blackjack: WagerRule{MaxBet: 10},
-	Mines:     WagerRule{MaxBet: 10, RtpPercent: 96},
-	Hilo:      WagerRule{MaxBet: 10, RtpPercent: 96},
-	Crash:     WagerRule{MaxBet: 10, RtpPercent: 96},
-	Scratch:   WagerRule{MaxBet: 20},
+		// 游戏默认都不开放，由管理员在游戏管理页逐个开启上线。技巧游戏每个每天只发 1 个游戏币，当天在这个游戏里累计玩满
+		// 2 到 5 分钟(按游戏节奏定)才能领；难度类游戏(扫雷、数独、记忆翻牌、数字华容道)的成绩是赢下的难度。
+		Tetris:      dailyCoinRule(5000, 180),
+		Game2048:    dailyCoinRule(6000, 180),
+		Snake:       dailyCoinRule(20, 120),
+		Flappy:      dailyCoinRule(15, 120),
+		Minesweeper: dailyCoinRule(2, 180),
+		Sudoku:      dailyCoinRule(1, 300),
+		Memory:      dailyCoinRule(2, 120),
+		Puzzle15:    dailyCoinRule(2, 180),
+		Pairlink:    dailyCoinRule(2, 120),
+		Breakout:    dailyCoinRule(300, 120),
+		Sokoban:     dailyCoinRule(1, 180),
 
-	Gomoku:   PvpRule{MaxStake: 100, RakePercent: 5, MoveSeconds: 60, Ai: aiRule(180)},
-	Connect4: PvpRule{MaxStake: 100, RakePercent: 5, MoveSeconds: 30, Ai: aiRule(120)},
-	Reversi:  PvpRule{MaxStake: 100, RakePercent: 5, MoveSeconds: 60, Ai: aiRule(180)},
-	Xiangqi:  PvpRule{MaxStake: 100, RakePercent: 5, MoveSeconds: 120, Ai: aiRule(300)},
-	Rps:      PvpRule{MaxStake: 100, RakePercent: 5, MoveSeconds: 20},
+		Slots:     WagerRule{MaxBet: 10},
+		Wheel:     WheelRule{FreeSpins: 1, SpinCost: 1},
+		Plinko:    WagerRule{MaxBet: 100},
+		Dice:      WagerRule{MaxBet: 10, RtpPercent: 96},
+		Roulette:  WagerRule{MaxBet: 10},
+		Blackjack: WagerRule{MaxBet: 10},
+		Mines:     WagerRule{MaxBet: 10, RtpPercent: 96},
+		Hilo:      WagerRule{MaxBet: 10, RtpPercent: 96},
+		Crash:     WagerRule{MaxBet: 10, RtpPercent: 96},
+		Scratch:   WagerRule{MaxBet: 20},
 
-	Jackpot: JackpotRule{MaxBet: 100, RoundSeconds: 60, RakePercent: 5},
+		Gomoku:   PvpRule{MaxStake: 100, RakePercent: 5, MoveSeconds: 60, Ai: aiRule(180)},
+		Connect4: PvpRule{MaxStake: 100, RakePercent: 5, MoveSeconds: 30, Ai: aiRule(120)},
+		Reversi:  PvpRule{MaxStake: 100, RakePercent: 5, MoveSeconds: 60, Ai: aiRule(180)},
+		Xiangqi:  PvpRule{MaxStake: 100, RakePercent: 5, MoveSeconds: 120, Ai: aiRule(300)},
+		Rps:      PvpRule{MaxStake: 100, RakePercent: 5, MoveSeconds: 20},
+
+		Jackpot: JackpotRule{MaxBet: 100, RoundSeconds: 60, RakePercent: 5},
+	}
 }
 
 var gameSettingSnapshot atomic.Pointer[GameSetting]
