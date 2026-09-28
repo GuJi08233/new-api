@@ -1,0 +1,146 @@
+/*
+Copyright (C) 2025 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+
+/* 数字华容道：方块按编号固定渲染、用 transform 摆到各自的位置，挪动时平滑滑过去；字号按方块大小算。
+   已经回到自己位置上的方块换成绿色，一眼能看出还差哪些；开始前盘面是排好的样子，颜色淡一些。 */
+
+.puzzle15-board {
+  --puzzle15-size: 3;
+  container-type: inline-size;
+  position: relative;
+  width: min(100%, 420px);
+  aspect-ratio: 1;
+  border-radius: 14px;
+  border: 1px solid var(--semi-color-border);
+  background: var(--semi-color-fill-0);
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+}
+
+.puzzle15-tile {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: calc(100% / var(--puzzle15-size));
+  height: calc(100% / var(--puzzle15-size));
+  padding: 3px;
+  border: none;
+  background: none;
+  cursor: default;
+  transition: transform 0.14s ease-out;
+}
+
+.puzzle15-board.is-playing .puzzle15-tile {
+  cursor: pointer;
+}
+
+.puzzle15-tile:focus-visible {
+  outline: none;
+}
+
+.puzzle15-tile:focus-visible .puzzle15-tile-face {
+  outline: 2px solid var(--semi-color-primary);
+  outline-offset: -2px;
+}
+
+.puzzle15-tile-face {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  border-radius: 10px;
+  border: 1px solid rgba(var(--semi-cyan-5), 0.4);
+  font-size: 22px;
+  font-size: calc(100cqw / var(--puzzle15-size) * 0.36);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  color: var(--semi-color-text-0);
+  background: var(--semi-color-bg-1);
+  background-image: linear-gradient(
+    rgba(var(--semi-cyan-5), 0.12),
+    rgba(var(--semi-cyan-5), 0.12)
+  );
+  box-shadow: 0 2px 0 rgba(var(--semi-cyan-5), 0.3);
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.puzzle15-board.is-playing .puzzle15-tile:hover .puzzle15-tile-face {
+  border-color: rgba(var(--semi-cyan-5), 0.8);
+}
+
+.puzzle15-tile.is-home .puzzle15-tile-face {
+  border-color: rgba(var(--semi-green-5), 0.45);
+  color: rgba(var(--semi-green-6), 1);
+  background-image: linear-gradient(
+    rgba(var(--semi-green-5), 0.12),
+    rgba(var(--semi-green-5), 0.12)
+  );
+  box-shadow: 0 2px 0 rgba(var(--semi-green-5), 0.3);
+}
+
+.puzzle15-board.is-idle .puzzle15-tile-face {
+  opacity: 0.7;
+}
+
+.puzzle15-preview {
+  margin-top: 10px;
+}
+
+.puzzle15-start {
+  flex-direction: column;
+}
+
+.puzzle15-summary {
+  margin: 0;
+  max-width: 520px;
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--semi-color-text-2);
+}
+
+.puzzle15-chip-icon {
+  margin-right: 4px;
+}
+
+.puzzle15-chip-reward {
+  margin-left: 6px;
+  color: var(--semi-color-success);
+}
+
+/* 站点的 Tailwind 基础样式把 svg 设成块级，按钮里的图标要放回行内。 */
+.puzzle15-play-icon {
+  display: inline-block;
+  margin-right: 8px;
+  vertical-align: -3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .puzzle15-tile,
+  .puzzle15-tile-face {
+    transition: none;
+  }
+}

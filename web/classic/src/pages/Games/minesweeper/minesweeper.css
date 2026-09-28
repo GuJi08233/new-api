@@ -1,0 +1,216 @@
+/*
+Copyright (C) 2025 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+
+/* 扫雷：没翻开的格子是一块略深的底色，翻开后露出台面的颜色；数字沿用经典的配色，取调色板的色阶，明暗主题都清楚。
+   高级 30 列放宽台面；窄屏与触屏上格子不小于 32px，放不下时雷区左右滚动。 */
+
+.minesweeper-page {
+  --game-main-width: 800px;
+}
+
+.minesweeper-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  padding: 2px;
+}
+
+.minesweeper-board {
+  --minesweeper-cell: 34px;
+  display: grid;
+  gap: 2px;
+  width: max-content;
+  margin: 0 auto;
+  padding: 6px;
+  border-radius: 12px;
+  border: 1px solid var(--semi-color-border);
+  background: var(--semi-color-fill-0);
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  touch-action: manipulation;
+  transition: border-color 0.15s ease;
+}
+
+.minesweeper-board.is-level-2 {
+  --minesweeper-cell: 28px;
+}
+
+.minesweeper-board.is-level-3 {
+  --minesweeper-cell: 22px;
+}
+
+.minesweeper-board.is-flag-mode {
+  border-color: var(--semi-color-danger);
+}
+
+.minesweeper-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--minesweeper-cell);
+  height: var(--minesweeper-cell);
+  padding: 0;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 5px;
+  font: inherit;
+  font-size: calc(var(--minesweeper-cell) * 0.5);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  color: var(--semi-color-text-0);
+  background: var(--semi-color-fill-2);
+  box-shadow: inset 0 -2px 0 var(--semi-color-fill-1);
+  cursor: default;
+}
+
+.minesweeper-board.is-playing .minesweeper-cell {
+  cursor: pointer;
+}
+
+.minesweeper-board.is-playing .minesweeper-cell:not(.is-open):hover {
+  background: var(--semi-color-fill-1);
+}
+
+.minesweeper-cell:focus-visible {
+  outline: 2px solid var(--semi-color-primary);
+  outline-offset: 1px;
+}
+
+.minesweeper-cell svg {
+  width: 58%;
+  height: 58%;
+}
+
+.minesweeper-cell.is-open,
+.minesweeper-cell.is-mine {
+  border-color: transparent;
+  box-shadow: none;
+  background: var(--semi-color-bg-1);
+}
+
+.minesweeper-board.is-playing .minesweeper-cell.is-open {
+  cursor: default;
+}
+
+.minesweeper-cell.is-n1 {
+  color: rgba(var(--semi-blue-6), 1);
+}
+
+.minesweeper-cell.is-n2 {
+  color: rgba(var(--semi-green-6), 1);
+}
+
+.minesweeper-cell.is-n3 {
+  color: rgba(var(--semi-red-5), 1);
+}
+
+.minesweeper-cell.is-n4 {
+  color: rgba(var(--semi-indigo-6), 1);
+}
+
+.minesweeper-cell.is-n5 {
+  color: rgba(var(--semi-orange-7), 1);
+}
+
+.minesweeper-cell.is-n6 {
+  color: rgba(var(--semi-cyan-6), 1);
+}
+
+.minesweeper-cell.is-n7 {
+  color: var(--semi-color-text-0);
+}
+
+.minesweeper-cell.is-n8 {
+  color: var(--semi-color-text-2);
+}
+
+.minesweeper-cell.is-flag {
+  color: var(--semi-color-danger);
+}
+
+.minesweeper-cell.is-mine {
+  color: var(--semi-color-text-1);
+}
+
+/* 插错的旗：旗子变灰，压一道斜线。 */
+.minesweeper-cell.is-wrong {
+  color: var(--semi-color-text-2);
+  background: linear-gradient(
+      to top right,
+      transparent calc(50% - 1px),
+      var(--semi-color-danger) calc(50% - 1px),
+      var(--semi-color-danger) calc(50% + 1px),
+      transparent calc(50% + 1px)
+    ),
+    var(--semi-color-fill-2);
+}
+
+.minesweeper-cell.is-exploded {
+  border-color: transparent;
+  box-shadow: none;
+  color: #fff;
+  background: var(--semi-color-danger);
+}
+
+.minesweeper-start {
+  flex-direction: column;
+}
+
+.minesweeper-summary {
+  margin: 0;
+  max-width: 520px;
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--semi-color-text-2);
+}
+
+.minesweeper-chip-icon {
+  margin-right: 4px;
+}
+
+.minesweeper-chip-note {
+  margin-left: 6px;
+  font-weight: 500;
+  color: var(--semi-color-text-2);
+}
+
+.minesweeper-chip-reward {
+  margin-left: 6px;
+  color: var(--semi-color-success);
+}
+
+/* 站点的 Tailwind 基础样式把 svg 设成块级，按钮里的图标要放回行内。 */
+.minesweeper-play-icon {
+  display: inline-block;
+  margin-right: 8px;
+  vertical-align: -3px;
+}
+
+/* 窄屏与触屏：初级按屏幕宽度铺满 9 列，中级、高级的格子保持 32px，雷区左右滚动。 */
+@media (max-width: 760px), (pointer: coarse) {
+  .minesweeper-board {
+    --minesweeper-cell: clamp(26px, calc((100vw - 88px) / 9 - 2px), 34px);
+  }
+
+  .minesweeper-board.is-level-2,
+  .minesweeper-board.is-level-3 {
+    --minesweeper-cell: 32px;
+  }
+}
