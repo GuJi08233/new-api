@@ -126,6 +126,16 @@ const Sokoban = () => {
     setBusy(false);
     if (response.error) {
       setError(response.error);
+      // 服务端明确拒绝的一局(已过期、被另一个页面新开的一局作废)重交也不会成功：放下它，回到可以开新局的状态。
+      // 没有得到答复、服务端暂时出错或被限流时留着，可以重新提交。
+      if (!response.network && !response.limited) {
+        setSession(null);
+        try {
+          localStorage.removeItem(STORAGE);
+        } catch {
+          /* 本地存储不可用时无需清理。 */
+        }
+      }
       return;
     }
     setResult(response.data);

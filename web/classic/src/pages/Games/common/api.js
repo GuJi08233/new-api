@@ -22,8 +22,8 @@ import { API, showError } from '../../../helpers';
 // 游戏页共用的请求与格式化工具。
 
 // 把请求结果换成 { data } 或 { error }：服务端的拒绝原因原样给玩家看；登录过期交给全局处理(跳转登录页)；
-// 限流与网络错误给出通用提示。network 为真表示请求没有得到答复，结果可能已经结算，页面要重新读取；limited 为真表示
-// 被限流、请求没有执行，稍后可以原样重试。
+// 限流与网络错误给出通用提示。network 为真表示请求没有得到答复或服务端暂时出错，结果可能已经结算或者可以原样重交，
+// 页面要保留这一局、重新读取或让玩家重新提交；limited 为真表示被限流、请求没有执行，稍后可以原样重试。
 function gameResult(promise, t) {
   return promise.then(
     (res) =>
@@ -37,12 +37,17 @@ function gameResult(promise, t) {
       if (status === 429) {
         return { error: t('操作太快了，请稍后再试'), limited: true };
       }
-      if (status && status < 500 && error.response.data?.message) {
+      const message = error?.response?.data?.message;
+      if (status && status < 500 && message) {
         // 服务端给出了拒绝原因，例如 IP 已被风控封禁。
-        return { error: error.response.data.message };
+        return { error: message };
       }
+      // 5xx 是服务端暂时出错(例如结算时数据库出错，这一局原样重交就能结算)，带着原因时照样给玩家看。
       return {
-        error: t('网络异常，本次结果以游戏币明细为准'),
+        error:
+          status >= 500 && message
+            ? message
+            : t('网络异常，本次结果以游戏币明细为准'),
         network: true,
       };
     },

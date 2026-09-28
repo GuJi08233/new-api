@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
@@ -121,6 +122,15 @@ func loadSkillSession(c *gin.Context, game string, rule operation_setting.SkillR
 	return session
 }
 
+// respondGameFinishRetry 回应一次没有提交的结算(数据库暂时出错)：对局还在进行中，原样重交就能结算。用 503 而不是
+// 普通的失败回应，浏览器据此保留整局记录、让玩家重新提交，而不是当成这局被拒绝、开下一局时把它作废。
+func respondGameFinishRetry(c *gin.Context) {
+	c.JSON(http.StatusServiceUnavailable, gin.H{
+		"success": false,
+		"message": common.TranslateMessage(c, i18n.MsgGameFinishFailed),
+	})
+}
+
 // settleSkillSession 按领奖规则算出一局应得的游戏币并结算，返回结算结果；返回 nil 时已写好错误响应。name 是写进审计日志的游戏名。
 // 奖励按单局成绩取达到的最高一档，再受两条防脚本的规则约束：每个游戏币要玩家今天在这个游戏里累计玩够 MinSecondsPerCoin 秒；
 // 判定为脚本的对局不发奖励。之后按账号与 IP 今天剩余的领奖次数、技巧与人机奖励的合计上限发放。
@@ -135,7 +145,8 @@ func settleSkillSession(c *gin.Context, name string, rule operation_setting.Skil
 	// 最高成绩在结算之前读：结算一旦提交就不能再因为别的查询失败而报错，浏览器会把失败当成这局被拒绝。
 	best, err := model.GetGameBestScore(userId, session.Game)
 	if err != nil {
-		common.ApiError(c, err)
+		common.SysError(fmt.Sprintf("failed to read best %s score for user %d: %v", session.Game, userId, err))
+		respondGameFinishRetry(c)
 		return nil
 	}
 	ip := c.ClientIP()
@@ -173,7 +184,7 @@ func settleSkillSession(c *gin.Context, name string, rule operation_setting.Skil
 		return nil
 	case err != nil:
 		common.SysError(fmt.Sprintf("failed to settle %s session %d for user %d: %v", session.Game, session.Id, userId, err))
-		common.ApiErrorI18n(c, i18n.MsgGameFinishFailed)
+		respondGameFinishRetry(c)
 		return nil
 	}
 

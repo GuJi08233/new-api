@@ -20,6 +20,7 @@ For commercial licensing, please contact support@quantumnous.com
 import React, { useEffect, useRef, useState } from 'react';
 import { Button } from '@douyinfe/semi-ui';
 import { useTranslation } from 'react-i18next';
+import { API } from '../../../helpers';
 import GameLayout from '../common/GameLayout';
 import { RuleList, SideBox, StageMessage } from '../common/SideBox';
 import { gamePost, withTurnstile } from '../common/api';
@@ -127,10 +128,19 @@ const Breakout = () => {
   const keysRef = useRef(new Set());
   const busyRef = useRef(false);
   const finishRef = useRef(null);
+  // sessionRef 与 submittedRef 给离开本页时的结算用：这一局有没有交过成绩(或被服务端明确拒绝)。
+  const sessionRef = useRef(null);
+  const submittedRef = useRef(false);
   if (!engineRef.current) engineRef.current = createGame(1);
 
   const finish = async () => {
-    if (busyRef.current || !session || !inputsRef.current.length) return;
+    if (
+      busyRef.current ||
+      submittedRef.current ||
+      !session ||
+      !inputsRef.current.length
+    )
+      return;
     busyRef.current = true;
     setBusy(true);
     setError('');
@@ -151,8 +161,15 @@ const Breakout = () => {
     setBusy(false);
     if (response.error) {
       setError(response.error);
+      // 没有得到答复、服务端暂时出错或被限流时整局记录还在，留在这里重新提交；服务端明确拒绝的一局重交也不会成功，
+      // 回到可以开新局的状态。
+      if (!response.network && !response.limited) {
+        submittedRef.current = true;
+        setPhase('done');
+      }
       return;
     }
+    submittedRef.current = true;
     setResult(response.data);
     setPhase('done');
     patch({
@@ -241,17 +258,49 @@ const Breakout = () => {
     const hidden = () => {
       if (document.hidden) pause();
     };
+    // 刷新或关闭页面前提醒一下：页面没了，进行中的一局就交不上了。
+    const beforeUnload = (event) => {
+      if (
+        (phase !== 'playing' && phase !== 'paused') ||
+        !inputsRef.current.length
+      )
+        return;
+      event.preventDefault();
+      event.returnValue = '';
+    };
     window.addEventListener('keydown', down);
     window.addEventListener('keyup', up);
     window.addEventListener('blur', pause);
+    window.addEventListener('beforeunload', beforeUnload);
     document.addEventListener('visibilitychange', hidden);
     return () => {
       window.removeEventListener('keydown', down);
       window.removeEventListener('keyup', up);
       window.removeEventListener('blur', pause);
+      window.removeEventListener('beforeunload', beforeUnload);
       document.removeEventListener('visibilitychange', hidden);
     };
   }, [phase]);
+
+  // 离开本页时把进行中的一局按当前成绩结算，成绩和游戏时长不会白白作废。页面已经不在了，不等答复，结果以游戏币明细为准。
+  useEffect(
+    () => () => {
+      const current = sessionRef.current;
+      if (
+        !current ||
+        busyRef.current ||
+        submittedRef.current ||
+        !inputsRef.current.length
+      )
+        return;
+      API.post(
+        '/api/game/breakout/finish',
+        { session_id: current.session_id, inputs: inputsRef.current },
+        { skipErrorHandler: true },
+      ).catch(() => {});
+    },
+    [],
+  );
 
   const start = async () => {
     if (busyRef.current || !turnstile.ready) return;
@@ -270,6 +319,8 @@ const Breakout = () => {
       return;
     }
     engineRef.current = createGame(response.data.seed);
+    sessionRef.current = response.data;
+    submittedRef.current = false;
     inputsRef.current = [];
     targetRef.current = WIDTH / 2;
     keysRef.current.clear();
