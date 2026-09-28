@@ -41,6 +41,7 @@ func TestMigrateDBCreatesUpstreamSupportTables(t *testing.T) {
 		&GameCoinLog{},
 		&GameCoinWithdrawal{},
 		&GameCoinWithdrawDay{},
+		&GameCoinConvertDay{},
 		&GameSession{},
 		&GameRewardDay{},
 		&GameRewardIpDay{},

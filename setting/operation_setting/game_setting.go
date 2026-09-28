@@ -18,16 +18,16 @@ import (
 // 这个比例是产品规则而不是运营参数，所以不在这里配置。
 //
 // 游戏按结算方式分三类，奖励规则各不相同：
-//   - 免费游戏(技巧游戏、人机对战、大转盘的免费旋转)不花游戏币、只会赚，每人每个游戏每天只有前几次达标能领奖，
-//     同一 IP 下所有账号合计也只有这么多次，另可设所有免费奖励每天的合计上限；
+//   - 技巧游戏与人机对战不花游戏币、只会赚，每人每个游戏每天只有前几次达标能领奖，同一 IP 下所有账号合计也只有这么多次，
+//     每个游戏币还要当天在这个游戏里累计玩够一定时长，另可设这些游戏奖励每天的合计上限；大转盘免费旋转只限次数，奖品全额发放；
 //   - 下注游戏花游戏币下注、会亏，理论返还率低于 100%，不限次数、不设每日上限，只限制单次下注；
 //   - 对战与奖池是玩家之间的输赢，平台按比例抽成，同样不限次数。
 type GameSetting struct {
 	Enabled bool `json:"enabled"` // 游戏中心总开关，关闭时页面入口与用户接口一并下线
 	// PlayTurnstileEnabled 要求每次领免费奖励的对局开始前通过 Turnstile 人机验证，只在站点启用了 Turnstile 时生效。
 	PlayTurnstileEnabled bool `json:"play_turnstile_enabled"`
-	// FreeDailyLimit 是每人每天从所有免费游戏合计最多获得的游戏币，同一 IP 下所有账号合计也不超过它；
-	// 0 表示不限制，只按各游戏的每日领奖次数计算。
+	// FreeDailyLimit 是每人每天从技巧游戏与人机对战合计最多获得的游戏币，同一 IP 下所有账号合计也不超过它；
+	// 大转盘免费旋转不受此上限影响，也不占用它。0 表示不限制，只按各游戏的每日领奖次数计算。
 	FreeDailyLimit int `json:"free_daily_limit"`
 
 	// 链上提现。每日上限按全站当日提现总量计算，保护热钱包里的周转余额。
@@ -54,6 +54,9 @@ type GameSetting struct {
 	Sudoku      SkillRule `json:"sudoku"`
 	Memory      SkillRule `json:"memory"`
 	Puzzle15    SkillRule `json:"puzzle15"`
+	Pairlink    SkillRule `json:"pairlink"`
+	Breakout    SkillRule `json:"breakout"`
+	Sokoban     SkillRule `json:"sokoban"`
 
 	Slots     WagerRule `json:"slots"`
 	Wheel     WheelRule `json:"wheel"`
@@ -90,7 +93,8 @@ type SkillRule struct {
 	DailyRewards int `json:"daily_rewards"`
 	// Tiers 按成绩从低到高排列，成绩与奖励都逐档递增。
 	Tiers []RewardTier `json:"tiers"`
-	// MinSecondsPerCoin 是每个游戏币至少需要的游戏时长(秒)，0 表示不限制。脚本几秒就能打出好成绩，
+	// MinSecondsPerCoin 是每个游戏币需要玩家当天在这个游戏里累计玩够的时长(秒)，0 表示不限制。时长按当天结算过的每一局累加，
+	// 不要求一局玩这么久；成绩先达标、时长还不够时奖励先记着，之后的对局把时长补够再发。脚本几秒就能打出好成绩，
 	// 奖励还要按实际玩了多久来算。
 	MinSecondsPerCoin int `json:"min_seconds_per_coin"`
 }
@@ -124,8 +128,8 @@ type WagerRule struct {
 	RtpPercent int `json:"rtp_percent,omitempty"`
 }
 
-// WheelRule 是大转盘的开关与次数规则。每人每天前 FreeSpins 次免费，是免费奖励：同一 IP 下所有账号合计也只有这么多次，
-// 奖品计入免费奖励的合计上限。之后每次花 SpinCost 个游戏币，按下注游戏结算，不限次数。
+// WheelRule 是大转盘的开关与次数规则。每人每天前 FreeSpins 次免费，同一 IP 下所有账号合计也只有这么多次，奖品全额发放，
+// 不受技巧游戏与人机对战的奖励合计上限影响，也不占用它。之后每次花 SpinCost 个游戏币，按下注游戏结算，不限次数。
 type WheelRule struct {
 	Enabled bool `json:"enabled"`
 	// FreeSpins 是每人每天的免费次数，0 表示没有免费次数。
@@ -173,7 +177,7 @@ const (
 	GameMaxTokenDecimals    = 36
 	GameMaxTokenSymbolRunes = 11
 	GameMaxConfirmations    = 64
-	// 一局最长一小时，每个游戏币要求的时长再长就永远拿不到奖励了。
+	// 每个游戏币要求的累计时长最多一小时，再长就几乎没人拿得到奖励了。
 	GameMaxSecondsPerCoin = 3600
 	// 免费游戏每天最多的领奖次数、奖励档数与单档奖励。
 	GameMaxDailyRewards = 100
@@ -228,6 +232,9 @@ var gameRuleSpecs = map[string]gameRuleSpec{
 	"sudoku":      {Kind: GameKindSkill, MaxTierScore: 3},
 	"memory":      {Kind: GameKindSkill, MaxTierScore: 3},
 	"puzzle15":    {Kind: GameKindSkill, MaxTierScore: 3},
+	"pairlink":    {Kind: GameKindSkill, MaxTierScore: 3},
+	"breakout":    {Kind: GameKindSkill},
+	"sokoban":     {Kind: GameKindSkill, MaxTierScore: 1},
 
 	"slots":     {Kind: GameKindWager, MinBet: 1, MaxBet: 1000},
 	"wheel":     {Kind: GameKindWager},
@@ -470,14 +477,17 @@ func isEthereumHexAddress(value string) bool {
 	return true
 }
 
-// skillTiers 是两档奖励的简写：成绩达到 first 奖励 1 个游戏币，达到 second 奖励 2 个。
-func skillTiers(first int, second int) []RewardTier {
-	return []RewardTier{{Score: first, Coins: 1}, {Score: second, Coins: 2}}
+// dailyCoinRule 是免费游戏的默认领奖规则：每天领 1 次、每次 1 个游戏币，要求成绩达到 score，并且当天在这个游戏里累计玩满
+// seconds 秒。
+func dailyCoinRule(score int, seconds int) SkillRule {
+	return SkillRule{DailyRewards: 1, Tiers: []RewardTier{{Score: score, Coins: 1}}, MinSecondsPerCoin: seconds}
 }
 
-// aiRule 是人机对战的默认领奖规则：赢下普通难度奖励 1 个游戏币、困难难度 2 个，简单难度只用来练手；每天最多领 2 次。
-func aiRule(minSecondsPerCoin int) SkillRule {
-	return SkillRule{Enabled: true, DailyRewards: 2, Tiers: skillTiers(2, 3), MinSecondsPerCoin: minSecondsPerCoin}
+// aiRule 是人机对战的默认领奖规则：赢下普通或困难难度领 1 个游戏币，简单难度只用来练手。
+func aiRule(seconds int) SkillRule {
+	rule := dailyCoinRule(2, seconds)
+	rule.Enabled = true
+	return rule
 }
 
 // gameSetting 仅作为配置框架(基于反射、无同步)就地修改的暂存区，
@@ -485,7 +495,7 @@ func aiRule(minSecondsPerCoin int) SkillRule {
 var gameSetting = GameSetting{
 	Enabled:              false,
 	PlayTurnstileEnabled: true,
-	// 1 个游戏币就是 1 美元额度：免费游戏再多，每人每天合计也只发这么多。
+	// 1 个游戏币就是 1 美元额度：技巧游戏与人机对战再多，每人每天合计也只发这么多；大转盘免费旋转独立发奖。
 	FreeDailyLimit:     10,
 	WithdrawEnabled:    false,
 	WithdrawDailyLimit: 1000,
@@ -500,16 +510,19 @@ var gameSetting = GameSetting{
 	// 成功和失败都可能被浅层的区块重组推翻，而失败时的退款一旦发出就收不回来，默认等 3 个区块再下结论。
 	Confirmations: 3,
 
-	// 游戏默认都不开放，由管理员在游戏管理页逐个开启上线。免费游戏默认每天领 3 次，第一档 1 个游戏币、第二档 2 个；
-	// 难度类游戏(扫雷、数独、记忆翻牌、数字华容道)的成绩是赢下的难度。
-	Tetris:      SkillRule{DailyRewards: 3, Tiers: skillTiers(5000, 20000), MinSecondsPerCoin: 60},
-	Game2048:    SkillRule{DailyRewards: 3, Tiers: skillTiers(6000, 20000), MinSecondsPerCoin: 60},
-	Snake:       SkillRule{DailyRewards: 3, Tiers: skillTiers(20, 50), MinSecondsPerCoin: 25},
-	Flappy:      SkillRule{DailyRewards: 3, Tiers: skillTiers(15, 50), MinSecondsPerCoin: 20},
-	Minesweeper: SkillRule{DailyRewards: 3, Tiers: skillTiers(2, 3), MinSecondsPerCoin: 30},
-	Sudoku:      SkillRule{DailyRewards: 3, Tiers: skillTiers(1, 3), MinSecondsPerCoin: 90},
-	Memory:      SkillRule{DailyRewards: 3, Tiers: skillTiers(2, 3), MinSecondsPerCoin: 30},
-	Puzzle15:    SkillRule{DailyRewards: 3, Tiers: skillTiers(2, 3), MinSecondsPerCoin: 30},
+	// 游戏默认都不开放，由管理员在游戏管理页逐个开启上线。技巧游戏每个每天只发 1 个游戏币，当天在这个游戏里累计玩满
+	// 2 到 5 分钟(按游戏节奏定)才能领；难度类游戏(扫雷、数独、记忆翻牌、数字华容道)的成绩是赢下的难度。
+	Tetris:      dailyCoinRule(5000, 180),
+	Game2048:    dailyCoinRule(6000, 180),
+	Snake:       dailyCoinRule(20, 120),
+	Flappy:      dailyCoinRule(15, 120),
+	Minesweeper: dailyCoinRule(2, 180),
+	Sudoku:      dailyCoinRule(1, 300),
+	Memory:      dailyCoinRule(2, 120),
+	Puzzle15:    dailyCoinRule(2, 180),
+	Pairlink:    dailyCoinRule(2, 120),
+	Breakout:    dailyCoinRule(300, 120),
+	Sokoban:     dailyCoinRule(1, 180),
 
 	Slots:     WagerRule{MaxBet: 10},
 	Wheel:     WheelRule{FreeSpins: 1, SpinCost: 1},
@@ -522,10 +535,10 @@ var gameSetting = GameSetting{
 	Crash:     WagerRule{MaxBet: 10, RtpPercent: 96},
 	Scratch:   WagerRule{MaxBet: 20},
 
-	Gomoku:   PvpRule{MaxStake: 100, RakePercent: 5, MoveSeconds: 60, Ai: aiRule(30)},
-	Connect4: PvpRule{MaxStake: 100, RakePercent: 5, MoveSeconds: 30, Ai: aiRule(20)},
-	Reversi:  PvpRule{MaxStake: 100, RakePercent: 5, MoveSeconds: 60, Ai: aiRule(30)},
-	Xiangqi:  PvpRule{MaxStake: 100, RakePercent: 5, MoveSeconds: 120, Ai: aiRule(60)},
+	Gomoku:   PvpRule{MaxStake: 100, RakePercent: 5, MoveSeconds: 60, Ai: aiRule(180)},
+	Connect4: PvpRule{MaxStake: 100, RakePercent: 5, MoveSeconds: 30, Ai: aiRule(120)},
+	Reversi:  PvpRule{MaxStake: 100, RakePercent: 5, MoveSeconds: 60, Ai: aiRule(180)},
+	Xiangqi:  PvpRule{MaxStake: 100, RakePercent: 5, MoveSeconds: 120, Ai: aiRule(300)},
 	Rps:      PvpRule{MaxStake: 100, RakePercent: 5, MoveSeconds: 20},
 
 	Jackpot: JackpotRule{MaxBet: 100, RoundSeconds: 60, RakePercent: 5},
@@ -575,6 +588,12 @@ func (s *GameSetting) SkillRuleOf(game string) (SkillRule, bool) {
 		return s.Memory, true
 	case "puzzle15":
 		return s.Puzzle15, true
+	case "pairlink":
+		return s.Pairlink, true
+	case "breakout":
+		return s.Breakout, true
+	case "sokoban":
+		return s.Sokoban, true
 	}
 	return SkillRule{}, false
 }

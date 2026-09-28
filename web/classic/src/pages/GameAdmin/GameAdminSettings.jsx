@@ -359,9 +359,9 @@ const GameAdminSettings = () => {
           </div>
         </SettingRow>
         <SettingRow
-          label={t('免费奖励每日合计上限')}
+          label={t('技巧与人机奖励每日合计上限')}
           extra={t(
-            '每人每天从所有免费游戏合计最多获得的游戏币，同一 IP 下所有账号合计也不超过它；0 表示不限制，只按各游戏的每日领奖次数计算',
+            '每人每天从技巧游戏与人机对战合计最多获得的游戏币，同一 IP 下所有账号合计也不超过它；不含大转盘奖品。0 表示不限制，只按各游戏的每日领奖次数计算',
           )}
         >
           <div className='flex items-center gap-3 flex-wrap'>
@@ -394,7 +394,9 @@ const GameAdminSettings = () => {
         </SettingRow>
         <SettingRow
           label={t('全站每日提现上限')}
-          extra={t('所有用户当天提现总量的上限，失败退回的提现不占用额度')}
+          extra={t(
+            '所有用户当天共用的链上提现总量上限，与每人每日兑换 15 美元额度独立；失败退回的提现不占用额度',
+          )}
         >
           <InputNumber
             value={setting.withdraw_daily_limit}
@@ -504,7 +506,7 @@ const GameAdminSettings = () => {
 
       <div className='flex items-center justify-between gap-4 flex-wrap'>
         <Title heading={6} type='tertiary'>
-          {t('游戏币与额度按 1 个游戏币 = 1 美元额度兑换')}
+          {t('1 个游戏币 = 1 美元额度，每人每天最多兑换 15 美元额度')}
         </Title>
         <Button theme='solid' loading={saving} onClick={save}>
           {t('保存设置')}

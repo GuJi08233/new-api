@@ -103,8 +103,8 @@ func TestFinishTetrisSettlesReplayedScore(t *testing.T) {
 	assert.EqualValues(t, 1, rewardLogs, "发了奖励的那一局记一条带 IP 的审计日志")
 }
 
-// 成绩够了还要玩够时间：每个游戏币至少要玩 MinSecondsPerCoin 秒。操作快过人类极限的对局判定为脚本，
-// 分数再高也不发奖励。少发的原因随结果返回，浏览器据此提示玩家。
+// 成绩够了还要玩够时间：每个游戏币要当天累计玩够 MinSecondsPerCoin 秒，时长只够几个就发几个。操作快过人类极限的对局
+// 判定为脚本，分数再高也不发奖励。少发的原因随结果返回，浏览器据此提示玩家。
 func TestFinishTetrisAppliesAntiBotRules(t *testing.T) {
 	golden := loadTetrisGolden(t)
 	cases := map[string]struct {
@@ -134,6 +134,34 @@ func TestFinishTetrisAppliesAntiBotRules(t *testing.T) {
 			assert.Equal(t, c.wantLimitedBy, result["limited_by"])
 		})
 	}
+}
+
+// 每个游戏币要玩家今天在这个游戏里累计玩够 MinSecondsPerCoin 秒，时长按重放出的游戏内时长逐局累加：一局 271 秒不够 300 秒，
+// 达标的奖励先记着；再玩一局累计够了就发。结算结果带着今天累计的时长和待发的奖励，浏览器据此提示还要玩多久。
+func TestFinishTetrisCountsPlayTimeAcrossGames(t *testing.T) {
+	env := newGameTestEnv(t, tetrisSetting(operation_setting.SkillRule{
+		Enabled: true, DailyRewards: 1, Tiers: []operation_setting.RewardTier{{Score: 5000, Coins: 1}}, MinSecondsPerCoin: 300,
+	}))
+	player := env.player(0, gameTestIpA)
+	game := loadTetrisGolden(t)["smart-then-top-out"]
+	played := game.Ticks / tetris.TicksPerSecond
+
+	first := finishTetris(player, startTetrisSession(t, env, player.user.Id, game, int64(played)+10), game)
+	require.Equal(t, true, first["success"], first["message"])
+	result := first["data"].(map[string]any)
+	assert.EqualValues(t, 0, result["reward"])
+	assert.Equal(t, model.GameRewardLimitedByTime, result["limited_by"])
+	assert.EqualValues(t, played, result["progress"].(map[string]any)["seconds_today"])
+	assert.EqualValues(t, 1, result["progress"].(map[string]any)["pending_reward"])
+
+	second := finishTetris(player, startTetrisSession(t, env, player.user.Id, game, int64(played)+10), game)
+	require.Equal(t, true, second["success"], second["message"])
+	result = second["data"].(map[string]any)
+	assert.EqualValues(t, 1, result["reward"])
+	assert.Equal(t, "", result["limited_by"])
+	assert.EqualValues(t, 2*played, result["progress"].(map[string]any)["seconds_today"])
+	assert.EqualValues(t, 0, result["progress"].(map[string]any)["pending_reward"])
+	assert.Equal(t, 1, player.balance())
 }
 
 // 要求人机验证时，没有带 Turnstile 令牌的开局请求直接拒绝，也不会留下对局。

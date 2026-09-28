@@ -13,8 +13,9 @@ import (
 // 游戏对局与记账。游戏按结算方式分三类：
 //
 // 免费游戏不花游戏币、只会赚。技巧游戏开局时由服务端发种子或出题，结束时服务端重放整局或按保存的对局状态判定成绩，
-// 成绩达标才发奖(FinishGameSession)；大转盘的免费旋转当场决定结果(SettleGameFreePlay)。每人每个游戏每天只能领几次奖，
-// 同一 IP 下所有账号合计也只有这么多次；所有免费奖励每人每天(同一 IP 合计)还可以设一个总上限。
+// 成绩达标、并且账号当天在这个游戏里累计玩够时长才发奖(FinishGameSession)。技巧游戏与人机对战每人每个游戏每天只能领几次奖，
+// 同一 IP 下所有账号合计也只有这么多次；这些奖励每人每天(同一 IP 合计)还可以设一个总上限。
+// 大转盘的免费旋转当场决定结果并全额发奖(SettleGameFreePlay)，只限制账号与 IP 的免费次数，不受上述总上限影响，也不占用它。
 //
 // 下注游戏花游戏币下注、会亏：理论返还率低于 100%，玩家长期是输的，所以不限次数、不设每日上限。当场决定结果的下注在一个
 // 事务里扣注、派彩(SettleGameWager)；要分几步完成的(例如 21 点、挖宝)开局时扣注，把只有服务端知道的状态存在对局里，
@@ -22,24 +23,24 @@ import (
 //
 // 对战与奖池是玩家之间的输赢，见 game_room.go 与 game_jackpot.go。
 //
-// 每人每天、每个 IP 每天在每个游戏的计数分别记在 GameRewardDay 与 GameRewardIpDay；所有免费奖励的合计记在游戏标识为
-// GameFreeCounter 的一行里。
+// 每人每天、每个 IP 每天在每个游戏的计数分别记在 GameRewardDay 与 GameRewardIpDay；技巧游戏与人机对战奖励的合计记在游戏标识为
+// GameFreeCounter 的一行里，大转盘奖励不计入该合计。
 
 const (
 	GameSessionStatusPlaying  = "playing"
 	GameSessionStatusFinished = "finished"
 )
 
-// GameFreeCounter 是所有免费奖励合计的计数行用的游戏标识，不会与真实的游戏标识重名。
+// GameFreeCounter 是技巧游戏与人机对战奖励合计的计数行用的游戏标识，不会与真实的游戏标识重名。
 const GameFreeCounter = "_free"
 
 // 一局实际发放的游戏币少于成绩应得的数量时，对局上记下原因，重复提交时原样告诉玩家。
 const (
 	GameRewardLimitedBySpeed = "speed" // 操作快过人类极限，判定为脚本，不发奖励
-	GameRewardLimitedByTime  = "time"  // 游戏时长不够成绩应得的数量
+	GameRewardLimitedByTime  = "time"  // 账号今天在这个游戏累计的游戏时长不够成绩应得的数量
 	GameRewardLimitedByDaily = "daily" // 账号今天在这个游戏的领奖次数已用完
 	GameRewardLimitedByIp    = "ip"    // 同一 IP 今天在这个游戏的领奖次数已用完
-	GameRewardLimitedByTotal = "total" // 今天所有免费奖励的合计已到上限
+	GameRewardLimitedByTotal = "total" // 今天技巧游戏与人机对战奖励的合计已到上限
 )
 
 var (
@@ -51,8 +52,6 @@ var (
 	// ErrGameFreePlayUsed 与 ErrGameIpFreePlayUsed 表示账号、同一 IP 下的账号今天在这个游戏里的免费次数已经用完。
 	ErrGameFreePlayUsed   = errors.New("free plays of this game are used up today")
 	ErrGameIpFreePlayUsed = errors.New("free plays of this game are used up today for this ip")
-	// ErrGameFreeDailyLimit 表示账号或同一 IP 今天从所有免费奖励获得的游戏币已到合计上限。
-	ErrGameFreeDailyLimit = errors.New("daily limit of free rewards reached")
 	// ErrGameRoundOpen 表示玩家在这个游戏里还有一局没有结束，要先把它玩完。
 	ErrGameRoundOpen = errors.New("an unfinished round of this game exists")
 	// ErrGameRoundChanged 表示对局在读出之后被另一个请求改过或结束了，这次操作没有生效。
@@ -71,7 +70,7 @@ type GameSession struct {
 	Bet int `json:"bet" gorm:"type:bigint;not null;default:0"`
 	// Score 是成绩：技巧游戏是分数或赢下的难度，下注游戏是派彩。
 	Score  int `json:"score" gorm:"type:bigint;index:idx_game_session_best,priority:4"`
-	Reward int `json:"reward" gorm:"type:bigint"` // 实际发放的游戏币：免费游戏已按次数与上限扣减，下注游戏是派彩
+	Reward int `json:"reward" gorm:"type:bigint"` // 实际发放的游戏币：技巧与人机奖励受次数与上限限制，大转盘及下注游戏是派彩
 	// LimitedBy 是 Reward 少于成绩应得数量的原因(GameRewardLimitedBy*)，没有少发时为空。
 	LimitedBy string `json:"limited_by" gorm:"type:varchar(16)"`
 	// Ip 是结算请求的来源 IP(IPv6 已归并到前缀)，这局的奖励计入它的领奖次数。
@@ -88,13 +87,17 @@ type GameSession struct {
 
 // GameRewardDay 是每个用户每天在每个游戏的计数：Coins 是免费游戏发放的游戏币，或下注、对战的净输赢(可以为负)；Plays 是结算了
 // 几局；FreePlays 是免费游戏领了几次奖，大转盘是用了几次免费次数。领奖前先锁住这一行，同一用户的几局同时结算也不会越过次数。
+// Seconds 与 PendingReward 只用于技巧游戏与人机对战：Seconds 是今天结算过的对局累计的游戏时长(秒)，PendingReward 是上次领奖
+// 之后达标对局里最高的应得奖励，累计时长还不够时先记在这里，之后的对局把时长补够再发。
 type GameRewardDay struct {
-	UserId    int    `json:"user_id" gorm:"primaryKey;autoIncrement:false"`
-	Game      string `json:"game" gorm:"type:varchar(32);primaryKey"`
-	Day       string `json:"day" gorm:"type:varchar(10);primaryKey;index"`
-	Coins     int    `json:"coins" gorm:"type:bigint;not null;default:0"`
-	Plays     int    `json:"plays" gorm:"not null;default:0"`
-	FreePlays int    `json:"free_plays" gorm:"not null;default:0"`
+	UserId        int    `json:"user_id" gorm:"primaryKey;autoIncrement:false"`
+	Game          string `json:"game" gorm:"type:varchar(32);primaryKey"`
+	Day           string `json:"day" gorm:"type:varchar(10);primaryKey;index"`
+	Coins         int    `json:"coins" gorm:"type:bigint;not null;default:0"`
+	Plays         int    `json:"plays" gorm:"not null;default:0"`
+	FreePlays     int    `json:"free_plays" gorm:"not null;default:0"`
+	Seconds       int    `json:"seconds" gorm:"not null;default:0"`
+	PendingReward int    `json:"pending_reward" gorm:"not null;default:0"`
 }
 
 // GameRewardIpDay 是每个 IP 每天在每个免费游戏领奖的计数，同一 IP 下所有账号合计。站点的用户各自使用独立的出口 IP，
@@ -108,50 +111,69 @@ type GameRewardIpDay struct {
 	FreePlays int    `json:"free_plays" gorm:"not null;default:0"`
 }
 
-// GameDayCount 是一行计数里的数字，含义见 GameRewardDay。
+// GameDayCount 是一行计数里的数字，含义见 GameRewardDay。GameRewardIpDay 没有 Seconds 与 PendingReward，读出来总是 0。
 type GameDayCount struct {
-	Coins     int
-	Plays     int
-	FreePlays int
+	Coins         int
+	Plays         int
+	FreePlays     int
+	Seconds       int
+	PendingReward int
 }
+
+// 读计数时选的列：账号的计数行(GameRewardDay)比 IP 的多出游戏时长与待发的奖励。
+const (
+	gameDayColumns     = "coins, plays, free_plays"
+	gameUserDayColumns = gameDayColumns + ", seconds, pending_reward"
+)
 
 // gameCounterDelta 是记到一行计数上的变化。MaxFreePlays、MaxCoins 大于 0 时，条件更新保证累加之后领奖次数、游戏币
-// 不越过它们：行锁之外再兜一次底。
+// 不越过它们：行锁之外再兜一次底。Seconds 累加到游戏时长；PendingReward 不为空时把待发的奖励改成它，这两项只能记在账号的
+// 计数行上。
 type gameCounterDelta struct {
-	Coins        int
-	Plays        int
-	FreePlays    int
-	MaxFreePlays int
-	MaxCoins     int
+	Coins         int
+	Plays         int
+	FreePlays     int
+	MaxFreePlays  int
+	MaxCoins      int
+	Seconds       int
+	PendingReward *int
 }
 
-// GameSettlement 是技巧游戏一局的结算：各游戏按自己的规则算出成绩和应得的游戏币，交给 FinishGameSession 按领奖次数与
-// 合计上限发放。
+// GameSettlement 是技巧游戏一局的结算：各游戏按自己的规则算出成绩和应得的游戏币，交给 FinishGameSession 按累计时长、
+// 领奖次数与合计上限发放。
 type GameSettlement struct {
 	Score  int
 	Detail string
 	// State 不为空时替换对局里保存的状态，例如结束后记下整张雷区，供事后核查。
 	State string
-	// Reward 是按成绩与游戏规则应得的游戏币，还没有按领奖次数与合计上限扣减；LimitedBy 说明游戏规则为什么给得比成绩应得的少。
-	Reward    int
-	LimitedBy string
+	// Reward 是按成绩与游戏规则应得的游戏币，还没有按累计时长、领奖次数与合计上限扣减。
+	Reward int
+	// Seconds 是这局玩了多久(秒)，累加进账号今天在这个游戏的游戏时长。
+	Seconds int
+	// Cheat 表示这局判定为脚本：不发奖励，游戏时长与成绩都不算数。
+	Cheat bool
+	// SecondsPerCoin 是每个游戏币需要账号今天在这个游戏里累计玩够的秒数，0 表示不限制。
+	SecondsPerCoin int
 	// DailyRewards 是每人每天、每个 IP 每天最多领几次这个游戏的奖励，0 表示不发奖励。
 	DailyRewards int
-	// FreeDailyLimit 是所有免费奖励每人每天、每个 IP 每天合计最多发放的游戏币，0 表示不限制。
+	// FreeDailyLimit 是技巧游戏与人机对战奖励每人每天、每个 IP 每天合计最多发放的游戏币，0 表示不限制。
 	FreeDailyLimit int
 	Day            string
 	Ip             string
 }
 
 // GameRewardProgress 是账号某天在一个免费游戏里的进度：Plays 是结算了几局，Rewards、IpRewards 是账号、同一 IP 下所有账号
-// 领了几次奖，Earned 是账号从这个游戏获得的游戏币；FreeEarned、IpFreeEarned 是账号、同一 IP 从所有免费奖励获得的合计。
+// 领了几次奖，Earned 是账号从这个游戏获得的游戏币；FreeEarned、IpFreeEarned 是账号、同一 IP 从技巧游戏与人机对战获得的奖励合计。
+// Seconds 是账号今天在这个游戏累计的游戏时长(秒)，PendingReward 是已经达标、等累计时长够了再发的游戏币。
 type GameRewardProgress struct {
-	Plays        int `json:"plays_today"`
-	Rewards      int `json:"rewards_today"`
-	IpRewards    int `json:"ip_rewards_today"`
-	Earned       int `json:"earned_today"`
-	FreeEarned   int `json:"free_earned_today"`
-	IpFreeEarned int `json:"ip_free_earned_today"`
+	Plays         int `json:"plays_today"`
+	Rewards       int `json:"rewards_today"`
+	IpRewards     int `json:"ip_rewards_today"`
+	Earned        int `json:"earned_today"`
+	FreeEarned    int `json:"free_earned_today"`
+	IpFreeEarned  int `json:"ip_free_earned_today"`
+	Seconds       int `json:"seconds_today"`
+	PendingReward int `json:"pending_reward"`
 }
 
 // GameSettlementResult 是免费游戏一局的结算结果：Session 的 Reward 是实际发放的数量，进度是结算之后的。
@@ -161,12 +183,10 @@ type GameSettlementResult struct {
 	GameRewardProgress
 }
 
-// GameFreePlay 是当场决定结果的一次免费奖励，例如大转盘的免费旋转。
+// GameFreePlay 是大转盘的一次免费旋转，奖品全额发放，不占用技巧游戏与人机对战的奖励合计上限。
 type GameFreePlay struct {
 	// FreeLimit 是每人每天、每个 IP 每天的免费次数。
 	FreeLimit int
-	// FreeDailyLimit 是所有免费奖励每天的合计上限，0 表示不限制。
-	FreeDailyLimit int
 	// Play 决定这一次的奖品与明细，在锁住计数、确认还有免费次数之后才调用。
 	Play func() (win int, detail string, err error)
 	Day  string
@@ -280,15 +300,14 @@ func UpdateGameSessionState(session *GameSession, state string, detail string) e
 	return nil
 }
 
-// FinishGameSession 结算一局免费游戏：把对局从进行中切换为已结束，同一局只有一次能成功；成绩达标时按账号和 IP 今天剩余的
-// 领奖次数、所有免费奖励的合计上限发放奖励。对局已不在进行中时返回 ErrGameSessionClosed，调用方重新读取对局就能知道
-// 它是已经结算还是被作废了。
+// FinishGameSession 结算一局免费游戏：把对局从进行中切换为已结束，同一局只有一次能成功；成绩达标时按账号今天在这个游戏
+// 累计的游戏时长、账号和 IP 今天剩余的领奖次数、技巧游戏与人机对战奖励的合计上限发放奖励。对局已不在进行中时返回 ErrGameSessionClosed，
+// 调用方重新读取对局就能知道它是已经结算还是被作废了。
 func FinishGameSession(session *GameSession, settlement GameSettlement) (*GameSettlementResult, error) {
 	finished := *session
 	finished.Status = GameSessionStatusFinished
 	finished.Score = settlement.Score
 	finished.Detail = settlement.Detail
-	finished.LimitedBy = settlement.LimitedBy
 	finished.Ip = settlement.Ip
 	finished.FinishedAt = common.GetTimestamp()
 	if settlement.State != "" {
@@ -302,11 +321,21 @@ func FinishGameSession(session *GameSession, settlement GameSettlement) (*GameSe
 		if err != nil {
 			return err
 		}
-		granted, limitedBy := counts.grant(max(settlement.Reward, 0), settlement.DailyRewards, settlement.FreeDailyLimit)
-		if limitedBy != "" {
-			finished.LimitedBy = limitedBy
+		// 判定为脚本的对局不发奖励，游戏时长与成绩都不算数。其余对局的时长累加进账号今天在这个游戏的游戏时长，奖励取上次领奖
+		// 之后达标对局里最高的应得奖励(包括这一局)；累计时长连一个游戏币都还不够时记下来，等之后的对局把时长补够再发。
+		// 领奖次数或合计上限用完时今天不会再发，不用记。
+		played, pending := 0, counts.user.PendingReward
+		granted, limitedBy := 0, GameRewardLimitedBySpeed
+		if !settlement.Cheat {
+			played = max(settlement.Seconds, 0)
+			reward := max(pending, settlement.Reward)
+			granted, limitedBy = counts.grant(reward, counts.user.Seconds+played, settlement)
+			pending = 0
+			if granted == 0 && limitedBy == GameRewardLimitedByTime {
+				pending = reward
+			}
 		}
-		finished.Reward = granted
+		finished.Reward, finished.LimitedBy = granted, limitedBy
 
 		update := tx.Model(&GameSession{}).
 			Where("id = ? AND status = ?", session.Id, GameSessionStatusPlaying).
@@ -335,10 +364,10 @@ func FinishGameSession(session *GameSession, settlement GameSettlement) (*GameSe
 			return ErrGameSessionSuperseded
 		}
 
-		if err := counters.record(tx, granted, settlement.DailyRewards, settlement.FreeDailyLimit); err != nil {
+		if err := counters.record(tx, granted, played, pending, settlement); err != nil {
 			return err
 		}
-		result.GameRewardProgress = counts.progress(granted)
+		result.GameRewardProgress = counts.progress(granted, counts.user.Seconds+played, pending)
 		if granted == 0 {
 			result.Balance, err = readGameCoinBalanceTx(tx, session.UserId)
 			return err
@@ -365,11 +394,10 @@ func FinishGameSession(session *GameSession, settlement GameSettlement) (*GameSe
 	return result, nil
 }
 
-// SettleGameFreePlay 结算当场决定结果的一次免费奖励(大转盘的免费旋转)：账号或同一 IP 今天的免费次数已经用完、所有免费奖励
-// 已到合计上限时拒绝，什么都不会改变；否则决定结果、发奖、记对局与流水在同一个事务里。奖品超出合计上限剩余的部分不发放，
-// 对局上记下原因；没中奖时余额没有变动，不记流水。
+// SettleGameFreePlay 结算大转盘的一次免费旋转：账号或同一 IP 今天的免费次数已经用完时拒绝，什么都不会改变；否则决定结果、
+// 全额发奖、记对局与流水在同一个事务里。大转盘不读写技巧游戏与人机对战的奖励合计计数；没中奖时余额没有变动，不记流水。
 func SettleGameFreePlay(userId int, game string, play GameFreePlay) (*GameSettlementResult, error) {
-	if play.FreeLimit < 0 || play.FreeDailyLimit < 0 {
+	if play.FreeLimit < 0 {
 		return nil, ErrGameCoinAmountInvalid
 	}
 	now := common.GetTimestamp()
@@ -384,17 +412,19 @@ func SettleGameFreePlay(userId int, game string, play GameFreePlay) (*GameSettle
 	result := &GameSettlementResult{Session: session}
 	counters := newGameFreeCounters(userId, play.Ip, game, play.Day)
 	err := DB.Transaction(func(tx *gorm.DB) error {
-		counts, err := counters.lock(tx)
+		user, err := lockGameRewardCounter(tx, counters.userRow, counters.userKey, gameDayColumns)
+		if err != nil {
+			return err
+		}
+		ip, err := lockGameRewardCounter(tx, counters.ipRow, counters.ipKey, gameDayColumns)
 		if err != nil {
 			return err
 		}
 		switch {
-		case counts.user.FreePlays >= play.FreeLimit:
+		case user.FreePlays >= play.FreeLimit:
 			return ErrGameFreePlayUsed
-		case counts.ip.FreePlays >= play.FreeLimit:
+		case ip.FreePlays >= play.FreeLimit:
 			return ErrGameIpFreePlayUsed
-		case play.FreeDailyLimit > 0 && counts.freeRoom(play.FreeDailyLimit) <= 0:
-			return ErrGameFreeDailyLimit
 		}
 		win, detail, err := play.Play()
 		if err != nil {
@@ -404,11 +434,6 @@ func SettleGameFreePlay(userId int, game string, play GameFreePlay) (*GameSettle
 			return ErrGameCoinAmountInvalid
 		}
 		session.Score, session.Detail = win, detail
-		if play.FreeDailyLimit > 0 {
-			if room := counts.freeRoom(play.FreeDailyLimit); win > room {
-				win, session.LimitedBy = room, GameRewardLimitedByTotal
-			}
-		}
 		session.Reward = win
 
 		// 免费次数用掉一次，无论中没中奖。
@@ -418,14 +443,15 @@ func SettleGameFreePlay(userId int, game string, play GameFreePlay) (*GameSettle
 		if err := bumpGameCounter(tx, &GameRewardIpDay{}, counters.ipKey, gameCounterDelta{Coins: win, Plays: 1, FreePlays: 1, MaxFreePlays: play.FreeLimit}); err != nil {
 			return err
 		}
-		if err := counters.recordFree(tx, win, play.FreeDailyLimit); err != nil {
-			return err
-		}
 		if err := tx.Create(session).Error; err != nil {
 			return err
 		}
-		result.GameRewardProgress = counts.progress(win)
-		result.Rewards, result.IpRewards = counts.user.FreePlays+1, counts.ip.FreePlays+1
+		result.GameRewardProgress = GameRewardProgress{
+			Plays:     user.Plays + 1,
+			Rewards:   user.FreePlays + 1,
+			IpRewards: ip.FreePlays + 1,
+			Earned:    user.Coins + win,
+		}
 		if win == 0 {
 			result.Balance, err = readGameCoinBalanceTx(tx, userId)
 			return err
@@ -722,8 +748,8 @@ func SettleGameRound(session *GameSession, settlement GameRoundSettlement) (*Gam
 	return result, nil
 }
 
-// gameFreeCounters 是结算一次免费奖励要用到的四行计数：账号与 IP 在这个游戏的计数，以及账号与 IP 所有免费奖励的合计。
-// 总是按这个顺序加锁，同时结算的几局不会互相等待成环。
+// gameFreeCounters 是免费奖励的计数键：账号与 IP 在这个游戏的计数，以及账号与 IP 的技巧游戏、人机对战奖励合计。
+// 技巧游戏与人机对战按这个顺序锁四行，大转盘只锁前两行，同时结算的几局不会互相等待成环。
 type gameFreeCounters struct {
 	userKey, ipKey    map[string]interface{}
 	userFree, ipFree  map[string]interface{}
@@ -752,36 +778,39 @@ func newGameFreeCounters(userId int, ip string, game string, day string) *gameFr
 func (c *gameFreeCounters) lock(tx *gorm.DB) (*gameFreeCounts, error) {
 	counts := &gameFreeCounts{}
 	var err error
-	if counts.user, err = lockGameRewardCounter(tx, c.userRow, c.userKey); err != nil {
+	if counts.user, err = lockGameRewardCounter(tx, c.userRow, c.userKey, gameUserDayColumns); err != nil {
 		return nil, err
 	}
-	if counts.ip, err = lockGameRewardCounter(tx, c.ipRow, c.ipKey); err != nil {
+	if counts.ip, err = lockGameRewardCounter(tx, c.ipRow, c.ipKey, gameDayColumns); err != nil {
 		return nil, err
 	}
-	if counts.userFree, err = lockGameRewardCounter(tx, c.userFRow, c.userFree); err != nil {
+	if counts.userFree, err = lockGameRewardCounter(tx, c.userFRow, c.userFree, gameDayColumns); err != nil {
 		return nil, err
 	}
-	if counts.ipFree, err = lockGameRewardCounter(tx, c.ipFRow, c.ipFree); err != nil {
+	if counts.ipFree, err = lockGameRewardCounter(tx, c.ipFRow, c.ipFree, gameDayColumns); err != nil {
 		return nil, err
 	}
 	return counts, nil
 }
 
-// record 给一局技巧游戏记账：账号的局数加一；发了奖时，账号与 IP 的领奖次数各加一，四行都累加发放的游戏币。
-func (c *gameFreeCounters) record(tx *gorm.DB, granted int, dailyRewards int, freeDailyLimit int) error {
+// record 给一局技巧游戏记账：账号的局数加一、游戏时长加上 played 秒、待发的奖励改成 pending；发了奖时，账号与 IP 的领奖次数
+// 各加一，四行都累加发放的游戏币。
+func (c *gameFreeCounters) record(tx *gorm.DB, granted int, played int, pending int, settlement GameSettlement) error {
+	user := gameCounterDelta{Plays: 1, Seconds: played, PendingReward: &pending}
 	if granted == 0 {
-		return bumpGameCounter(tx, &GameRewardDay{}, c.userKey, gameCounterDelta{Plays: 1})
+		return bumpGameCounter(tx, &GameRewardDay{}, c.userKey, user)
 	}
-	if err := bumpGameCounter(tx, &GameRewardDay{}, c.userKey, gameCounterDelta{Coins: granted, Plays: 1, FreePlays: 1, MaxFreePlays: dailyRewards}); err != nil {
+	user.Coins, user.FreePlays, user.MaxFreePlays = granted, 1, settlement.DailyRewards
+	if err := bumpGameCounter(tx, &GameRewardDay{}, c.userKey, user); err != nil {
 		return err
 	}
-	if err := bumpGameCounter(tx, &GameRewardIpDay{}, c.ipKey, gameCounterDelta{Coins: granted, Plays: 1, FreePlays: 1, MaxFreePlays: dailyRewards}); err != nil {
+	if err := bumpGameCounter(tx, &GameRewardIpDay{}, c.ipKey, gameCounterDelta{Coins: granted, Plays: 1, FreePlays: 1, MaxFreePlays: settlement.DailyRewards}); err != nil {
 		return err
 	}
-	return c.recordFree(tx, granted, freeDailyLimit)
+	return c.recordFree(tx, granted, settlement.FreeDailyLimit)
 }
 
-// recordFree 把发放的免费奖励累加到账号与 IP 的合计上，设了合计上限时条件更新保证不越过它。
+// recordFree 把发放的技巧游戏与人机对战奖励累加到账号与 IP 的合计上，设了合计上限时条件更新保证不越过它。
 func (c *gameFreeCounters) recordFree(tx *gorm.DB, granted int, freeDailyLimit int) error {
 	if granted == 0 {
 		return nil
@@ -792,38 +821,49 @@ func (c *gameFreeCounters) recordFree(tx *gorm.DB, granted int, freeDailyLimit i
 	return bumpGameCounter(tx, &GameRewardIpDay{}, c.ipFree, gameCounterDelta{Coins: granted, FreePlays: 1, MaxCoins: freeDailyLimit})
 }
 
-// grant 按今天的计数决定一局实际发放多少：账号或同一 IP 在这个游戏的领奖次数用完就不发；设了合计上限时最多发到上限为止。
-// 返回发放的数量和少发的原因(没有少发时为空)。
-func (n *gameFreeCounts) grant(reward int, dailyRewards int, freeDailyLimit int) (int, string) {
+// grant 按今天的计数决定这次结算实际发放多少。reward 是上次领奖之后达标对局里最高的应得奖励，played 是账号今天在这个游戏
+// 累计的游戏时长，都已算上这一局。账号或同一 IP 在这个游戏的领奖次数用完就不发；设了合计上限时最多发到上限为止；每个游戏币
+// 还要今天累计玩够 SecondsPerCoin 秒(已经领到的也算在内)，时长只够几个就先发几个，一个都不够时不发。返回发放的数量和
+// 少发的原因(没有少发时为空)。
+func (n *gameFreeCounts) grant(reward int, played int, settlement GameSettlement) (int, string) {
 	switch {
 	case reward == 0:
 		return 0, ""
-	case n.user.FreePlays >= dailyRewards:
+	case n.user.FreePlays >= settlement.DailyRewards:
 		return 0, GameRewardLimitedByDaily
-	case n.ip.FreePlays >= dailyRewards:
+	case n.ip.FreePlays >= settlement.DailyRewards:
 		return 0, GameRewardLimitedByIp
-	case freeDailyLimit > 0:
-		if room := n.freeRoom(freeDailyLimit); room < reward {
-			return max(room, 0), GameRewardLimitedByTotal
+	}
+	coins, limitedBy := reward, ""
+	if settlement.FreeDailyLimit > 0 {
+		if room := n.freeRoom(settlement.FreeDailyLimit); room < coins {
+			coins, limitedBy = max(room, 0), GameRewardLimitedByTotal
 		}
 	}
-	return reward, ""
+	if coins > 0 && settlement.SecondsPerCoin > 0 {
+		if byTime := played/settlement.SecondsPerCoin - n.user.Coins; byTime < coins {
+			coins, limitedBy = max(byTime, 0), GameRewardLimitedByTime
+		}
+	}
+	return coins, limitedBy
 }
 
-// freeRoom 返回账号与同一 IP 今天离所有免费奖励的合计上限还差多少，取两者中较少的。
+// freeRoom 返回账号与同一 IP 今天离技巧游戏与人机对战奖励的合计上限还差多少，取两者中较少的。
 func (n *gameFreeCounts) freeRoom(freeDailyLimit int) int {
 	return min(freeDailyLimit-n.userFree.Coins, freeDailyLimit-n.ipFree.Coins)
 }
 
-// progress 返回发放 granted 之后的进度。
-func (n *gameFreeCounts) progress(granted int) GameRewardProgress {
+// progress 返回这次结算之后的进度：发放了 granted，账号今天在这个游戏的游戏时长是 seconds、待发的奖励是 pending。
+func (n *gameFreeCounts) progress(granted int, seconds int, pending int) GameRewardProgress {
 	progress := GameRewardProgress{
-		Plays:        n.user.Plays + 1,
-		Rewards:      n.user.FreePlays,
-		IpRewards:    n.ip.FreePlays,
-		Earned:       n.user.Coins + granted,
-		FreeEarned:   n.userFree.Coins + granted,
-		IpFreeEarned: n.ipFree.Coins + granted,
+		Plays:         n.user.Plays + 1,
+		Rewards:       n.user.FreePlays,
+		IpRewards:     n.ip.FreePlays,
+		Earned:        n.user.Coins + granted,
+		FreeEarned:    n.userFree.Coins + granted,
+		IpFreeEarned:  n.ipFree.Coins + granted,
+		Seconds:       seconds,
+		PendingReward: pending,
 	}
 	if granted > 0 {
 		progress.Rewards++
@@ -832,13 +872,14 @@ func (n *gameFreeCounts) progress(granted int) GameRewardProgress {
 	return progress
 }
 
-// lockGameRewardCounter 锁住一个计数行并返回其中的数字，行不存在时先建出来。row 是要建的行，key 是它的主键列。
-func lockGameRewardCounter(tx *gorm.DB, row interface{}, key map[string]interface{}) (GameDayCount, error) {
+// lockGameRewardCounter 锁住一个计数行并返回其中的数字，行不存在时先建出来。row 是要建的行，key 是它的主键列，columns 是
+// 要读的列(gameDayColumns 或 gameUserDayColumns)。
+func lockGameRewardCounter(tx *gorm.DB, row interface{}, key map[string]interface{}, columns string) (GameDayCount, error) {
 	if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(row).Error; err != nil {
 		return GameDayCount{}, err
 	}
 	var count GameDayCount
-	err := lockForUpdate(tx).Model(row).Where(key).Select("coins, plays, free_plays").Scan(&count).Error
+	err := lockForUpdate(tx).Model(row).Where(key).Select(columns).Scan(&count).Error
 	return count, err
 }
 
@@ -860,6 +901,12 @@ func bumpGameCounter(tx *gorm.DB, table interface{}, key map[string]interface{},
 		if delta.MaxFreePlays > 0 {
 			query = query.Where("free_plays <= ?", delta.MaxFreePlays-delta.FreePlays)
 		}
+	}
+	if delta.Seconds != 0 {
+		updates["seconds"] = gorm.Expr("seconds + ?", delta.Seconds)
+	}
+	if delta.PendingReward != nil {
+		updates["pending_reward"] = *delta.PendingReward
 	}
 	if len(updates) == 0 {
 		return nil
@@ -885,7 +932,7 @@ func recordGameDayResult(tx *gorm.DB, userId int, game string, day string, net i
 		return 0, 0, err
 	}
 	var count GameDayCount
-	err := tx.Model(&GameRewardDay{}).Where(key).Select("coins, plays, free_plays").Scan(&count).Error
+	err := tx.Model(&GameRewardDay{}).Where(key).Select(gameDayColumns).Scan(&count).Error
 	return count.Coins, count.Plays, err
 }
 
@@ -893,27 +940,30 @@ func recordGameDayResult(tx *gorm.DB, userId int, game string, day string, net i
 func GetGameRewardProgress(userId int, ip string, game string, day string) (GameRewardProgress, error) {
 	var user, byIp, userFree, ipFree GameDayCount
 	reads := []struct {
-		table interface{}
-		key   map[string]interface{}
-		into  *GameDayCount
+		table   interface{}
+		key     map[string]interface{}
+		columns string
+		into    *GameDayCount
 	}{
-		{&GameRewardDay{}, map[string]interface{}{"user_id": userId, "game": game, "day": day}, &user},
-		{&GameRewardIpDay{}, map[string]interface{}{"ip": ip, "game": game, "day": day}, &byIp},
-		{&GameRewardDay{}, map[string]interface{}{"user_id": userId, "game": GameFreeCounter, "day": day}, &userFree},
-		{&GameRewardIpDay{}, map[string]interface{}{"ip": ip, "game": GameFreeCounter, "day": day}, &ipFree},
+		{&GameRewardDay{}, map[string]interface{}{"user_id": userId, "game": game, "day": day}, gameUserDayColumns, &user},
+		{&GameRewardIpDay{}, map[string]interface{}{"ip": ip, "game": game, "day": day}, gameDayColumns, &byIp},
+		{&GameRewardDay{}, map[string]interface{}{"user_id": userId, "game": GameFreeCounter, "day": day}, gameDayColumns, &userFree},
+		{&GameRewardIpDay{}, map[string]interface{}{"ip": ip, "game": GameFreeCounter, "day": day}, gameDayColumns, &ipFree},
 	}
 	for _, read := range reads {
-		if err := DB.Model(read.table).Where(read.key).Select("coins, plays, free_plays").Scan(read.into).Error; err != nil {
+		if err := DB.Model(read.table).Where(read.key).Select(read.columns).Scan(read.into).Error; err != nil {
 			return GameRewardProgress{}, err
 		}
 	}
 	return GameRewardProgress{
-		Plays:        user.Plays,
-		Rewards:      user.FreePlays,
-		IpRewards:    byIp.FreePlays,
-		Earned:       user.Coins,
-		FreeEarned:   userFree.Coins,
-		IpFreeEarned: ipFree.Coins,
+		Plays:         user.Plays,
+		Rewards:       user.FreePlays,
+		IpRewards:     byIp.FreePlays,
+		Earned:        user.Coins,
+		FreeEarned:    userFree.Coins,
+		IpFreeEarned:  ipFree.Coins,
+		Seconds:       user.Seconds,
+		PendingReward: user.PendingReward,
 	}, nil
 }
 
@@ -965,7 +1015,7 @@ func GetUserGameBestScores(userId int) (map[string]int, error) {
 func GetGameDayStats(userId int, game string, day string) (coins int, plays int, err error) {
 	var count GameDayCount
 	err = DB.Model(&GameRewardDay{}).Where("user_id = ? AND game = ? AND day = ?", userId, game, day).
-		Select("coins, plays, free_plays").Scan(&count).Error
+		Select(gameDayColumns).Scan(&count).Error
 	return count.Coins, count.Plays, err
 }
 
@@ -980,7 +1030,7 @@ func GetGameBestScore(userId int, game string) (int, error) {
 }
 
 // SumGameRewardsByGame 汇总某天各游戏的净发放，供管理端概览：免费游戏是发出的游戏币，下注、对战与奖池是所有玩家的净输赢
-// 合计，为负表示玩家合计输掉的数量；GameFreeCounter 一行是所有免费奖励的合计。
+// 合计，为负表示玩家合计输掉的数量；GameFreeCounter 一行是技巧游戏与人机对战奖励的合计。
 func SumGameRewardsByGame(day string) (map[string]int, error) {
 	var rows []struct {
 		Game  string

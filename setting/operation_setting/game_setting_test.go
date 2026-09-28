@@ -171,6 +171,28 @@ func TestGameRulesAreRegisteredByKey(t *testing.T) {
 	assert.False(t, setting.GameEnabled("unknown"))
 }
 
+// 免费玩法的默认规则是产品规定：每个技巧游戏与人机对战每天最多发 1 个游戏币，并且要当天在这个游戏里累计玩 2 到 5 分钟。
+// 1 个游戏币就是 1 美元额度，默认值放宽了，新部署的站点每天就会多送出额度。
+func TestDefaultFreeGameRulesPayOneCoinADay(t *testing.T) {
+	setting := gameSetting.Clone()
+	checked := 0
+	for game, spec := range gameRuleSpecs {
+		rule, ok := setting.SkillRuleOf(game)
+		if spec.Ai {
+			pvp, _ := setting.PvpRuleOf(game)
+			rule, ok = pvp.Ai, true
+		}
+		if !ok {
+			continue
+		}
+		checked++
+		assert.Equal(t, 1, rule.DailyRewards*rule.MaxReward(), "%s 每天最多发的游戏币", game)
+		assert.GreaterOrEqual(t, rule.MinSecondsPerCoin, 120, game)
+		assert.LessOrEqual(t, rule.MinSecondsPerCoin, 300, game)
+	}
+	assert.Equal(t, 15, checked, "11 个技巧游戏与 4 个人机对战")
+}
+
 // 快照是只读的：Clone 出来的配置改奖励档位不会写进原来的快照。
 func TestGameSettingCloneIsDeep(t *testing.T) {
 	original := gameSetting.Clone()

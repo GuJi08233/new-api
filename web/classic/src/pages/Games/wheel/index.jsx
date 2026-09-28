@@ -226,7 +226,7 @@ const Wheel = () => {
       const { result } = motion.response;
       if (result) {
         setBalance(result.balance);
-        // 免费旋转的结果带着免费次数与合计上限的进度，付费旋转没有这些字段，沿用原来的值。
+        // 免费旋转的结果带着免费次数，付费旋转没有这些字段，沿用原来的值。
         setRule((previous) => ({
           ...previous,
           net_today: result.net_today,
@@ -234,10 +234,6 @@ const Wheel = () => {
           free_used_today: result.free_used_today ?? previous.free_used_today,
           ip_free_used_today:
             result.ip_free_used_today ?? previous.ip_free_used_today,
-          free_earned_today:
-            result.free_earned_today ?? previous.free_earned_today,
-          ip_free_earned_today:
-            result.ip_free_earned_today ?? previous.ip_free_earned_today,
           best_win: Math.max(previous.best_win || 0, result.win),
         }));
       } else {
@@ -250,22 +246,17 @@ const Wheel = () => {
     [loadInfo],
   );
 
-  // 免费次数按账号和同一 IP 分别计算，两边都有剩余才能免费转；免费奖励的每日合计上限用完也不能再免费转。
+  // 免费次数按账号和同一 IP 分别计算，两边都有剩余才能免费转。
   // 付费旋转不限次数。
-  const freeCapped =
-    rule?.free_daily_limit > 0 &&
-    Math.max(rule.free_earned_today || 0, rule.ip_free_earned_today || 0) >=
-      rule.free_daily_limit;
-  const freeLeft =
-    rule && !freeCapped
-      ? Math.max(
-          Math.min(
-            rule.free_spins - rule.free_used_today,
-            rule.free_spins - rule.ip_free_used_today,
-          ),
-          0,
-        )
-      : 0;
+  const freeLeft = rule
+    ? Math.max(
+        Math.min(
+          rule.free_spins - rule.free_used_today,
+          rule.free_spins - rule.ip_free_used_today,
+        ),
+        0,
+      )
+    : 0;
   const free = freeLeft > 0;
   const needTurnstile = free && playTurnstile.required;
   const waitingTurnstile = needTurnstile && !turnstileToken;
@@ -399,7 +390,6 @@ const Wheel = () => {
   const hitSegment = result && result.win > 0 ? result.segment : -1;
   let message = t('点击按钮转动转盘，也可以按空格键');
   let messageClass = '';
-  let note = '';
   if (spinning) {
     message = t('转动中…');
   } else if (outcome?.error) {
@@ -416,9 +406,6 @@ const Wheel = () => {
     messageClass =
       result.multiplier >= BIG_WIN_MULTIPLIER ? 'is-win is-big-win' : 'is-win';
   }
-  if (result?.limited_by === 'total') {
-    note = t('今天的免费奖励已达合计上限，超出的部分不发放');
-  }
   const bigWin = messageClass.includes('is-big-win');
 
   let hint = '';
@@ -434,8 +421,6 @@ const Wheel = () => {
     rule.ip_free_used_today >= rule.free_spins
   ) {
     hint = t('当前 IP 今天的免费次数已经用完');
-  } else if (!free && freeCapped && rule.free_used_today < rule.free_spins) {
-    hint = t('今天的免费奖励已达合计上限，免费旋转明天再来');
   }
 
   const earned = signed(rule.net_today);
@@ -553,7 +538,6 @@ const Wheel = () => {
               aria-live='polite'
             >
               <span>{message}</span>
-              {note && <span className='games-stage-message-note'>{note}</span>}
             </div>
 
             <div className='wheel-controls'>
@@ -657,14 +641,9 @@ const Wheel = () => {
                     symbol,
                   })}
                 </li>
-                {rule.free_spins > 0 && rule.free_daily_limit > 0 && (
-                  <li>
-                    {t(
-                      '免费旋转的奖品计入所有免费游戏每天合计 {{limit}} {{symbol}} 的上限',
-                      { limit: rule.free_daily_limit, symbol },
-                    )}
-                  </li>
-                )}
+                <li>
+                  {t('转到多少就发多少，奖品全额到账，不占技巧与人机奖励上限')}
+                </li>
                 <li>
                   {t(
                     '奖品 = 每次花费 × 格子的倍数，免费旋转同样按每次花费计算；每格被选中的概率以上表为准，与格子画得多大无关',

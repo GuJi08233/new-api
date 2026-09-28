@@ -78,7 +78,7 @@ function SettingRow({ label, extra, children }) {
 
 const toNumber = (value) => (typeof value === 'number' ? value : 0);
 
-// 免费游戏的领奖规则：每日领奖次数、奖励档位、每个游戏币所需时长。levelNames 不为空时成绩是难度，用下拉选择。
+// 免费游戏的领奖规则：每日领奖次数、奖励档位、每个游戏币所需的当天累计时长。levelNames 不为空时成绩是难度，用下拉选择。
 function SkillRuleFields({ rule, onChange, levelNames, scoreName, symbol }) {
   const { t } = useTranslation();
   const tiers = rule.tiers || [];
@@ -185,9 +185,9 @@ function SkillRuleFields({ rule, onChange, levelNames, scoreName, symbol }) {
         </div>
       </SettingRow>
       <SettingRow
-        label={t('每个游戏币所需时长（秒）')}
+        label={t('每个游戏币所需累计时长（秒）')}
         extra={t(
-          '单局每玩满这么多秒才能多得 1 个游戏币，挡住几秒就打出好成绩的脚本；0 表示不限制',
+          '玩家当天在这个游戏里每累计玩满这么多秒才能多领 1 个游戏币，先达标的对局等时长够了再发；挡住几秒就打出好成绩的脚本。0 表示不限制',
         )}
       >
         <InputNumber
@@ -267,7 +267,7 @@ function WheelRuleFields({ rule, onChange, symbol }) {
       <SettingRow
         label={t('每人每日免费次数')}
         extra={t(
-          '免费旋转是免费奖励：同一 IP 下所有账号合计也只有这么多次，奖品计入免费奖励的每日合计上限；0 表示没有免费次数',
+          '默认每天免费 1 次，同一 IP 下所有账号共用次数；奖品全额发放，不占技巧与人机奖励上限。0 表示没有免费次数',
         )}
       >
         <InputNumber

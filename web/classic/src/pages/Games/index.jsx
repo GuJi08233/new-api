@@ -165,6 +165,13 @@ const Games = () => {
       const res = await API.get('/api/game/self');
       if (res.data.success) {
         setInfo(res.data.data);
+        setConvertAmount((amount) =>
+          Math.min(
+            Math.max(amount, 1),
+            res.data.data.account?.balance || 0,
+            res.data.data.convert?.daily_remaining || 0,
+          ),
+        );
         setUnavailable('');
       } else {
         // 游戏中心关闭等情况下整页不可用，只显示原因，不再加载钱包和记录。
@@ -189,6 +196,9 @@ const Games = () => {
   const token = info?.token;
   const symbol = token?.symbol || '';
   const quotaPerCoin = info?.quota_per_coin || 0;
+  const convert = info?.convert;
+  const convertRemaining = convert?.daily_remaining || 0;
+  const maxConvertAmount = Math.min(balance, convertRemaining);
   const withdraw = info?.withdraw;
   const gameMetaMap = getGameMetaMap(t);
   const kindMap = getGameKindMap(t);
@@ -235,10 +245,11 @@ const Games = () => {
       if (self.data.success) {
         userDispatch({ type: 'login', payload: self.data.data });
       }
-      await refreshAfterChange();
     } catch (error) {
       // 请求错误已由全局拦截器提示。
     } finally {
+      // 其他标签页可能已兑换，请求失败或结果未知时也重新读取个人今日余量。
+      await refreshAfterChange();
       setConverting(false);
     }
   };
@@ -250,6 +261,11 @@ const Games = () => {
     }
     if (convertAmount > balance) {
       showError(t('游戏币余额不足'));
+      return;
+    }
+    if (convertAmount > convertRemaining) {
+      showError(t('超过个人今日剩余可兑换额度'));
+      loadInfo();
       return;
     }
     const amount = convertAmount;
@@ -443,7 +459,7 @@ const Games = () => {
               {free?.daily_limit > 0 && (
                 <div className='games-free-limit'>
                   {t(
-                    '今日免费奖励 {{earned}} / {{limit}} {{symbol}}，所有免费游戏合计，同一 IP 下的账号共用',
+                    '今日技巧与人机奖励 {{earned}} / {{limit}} {{symbol}}，同一 IP 下的账号共用，不含大转盘',
                     { earned: freeEarned, limit: free.daily_limit, symbol },
                   )}
                 </div>
@@ -458,14 +474,22 @@ const Games = () => {
                 <span className='games-card-title'>{t('兑换为额度')}</span>
               </div>
               <Text type='tertiary' size='small'>
-                {t('1 个游戏币 = {{quota}} 额度，随时可换，兑换后不可撤回', {
+                {t('1 个游戏币 = {{quota}} 额度，兑换后不可撤回', {
                   quota: renderQuota(quotaPerCoin),
+                })}
+              </Text>
+              <Text type='tertiary' size='small'>
+                {t('个人今日剩余可兑换 {{remaining}} / {{limit}} 美元额度', {
+                  remaining: convertRemaining,
+                  limit: convert?.daily_limit || 0,
                 })}
               </Text>
               <InputNumber
                 className='games-field'
                 value={convertAmount}
-                min={1}
+                min={maxConvertAmount > 0 ? 1 : 0}
+                max={maxConvertAmount}
+                disabled={maxConvertAmount < 1}
                 precision={0}
                 suffix={symbol}
                 onChange={(value) =>
@@ -482,7 +506,7 @@ const Games = () => {
                 theme='solid'
                 block
                 loading={converting}
-                disabled={balance < 1}
+                disabled={maxConvertAmount < 1}
                 onClick={handleConvert}
               >
                 {t('开始兑换')}
@@ -542,6 +566,9 @@ const Games = () => {
                           symbol,
                         },
                       )}
+                    </li>
+                    <li>
+                      {t('全站提现额度由所有用户共用，与个人每日兑换额度独立')}
                     </li>
                     <li>{t('不收取手续费，链上 gas 由平台承担')}</li>
                   </ul>

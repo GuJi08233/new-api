@@ -66,7 +66,7 @@ func newGameTestEnv(t *testing.T, setting *operation_setting.GameSetting) *gameT
 		require.NoError(t, sqlDB.Close())
 	})
 	require.NoError(t, db.AutoMigrate(&model.User{}, &model.SecurityFlow{}, &model.TwoFA{}, &model.TwoFABackupCode{}, &model.Log{}, &model.RiskEvent{},
-		&model.GameCoinAccount{}, &model.GameCoinLog{}, &model.GameCoinWithdrawDay{}, &model.GameSession{},
+		&model.GameCoinAccount{}, &model.GameCoinLog{}, &model.GameCoinConvertDay{}, &model.GameCoinWithdrawDay{}, &model.GameSession{},
 		&model.GameRewardDay{}, &model.GameRewardIpDay{}, &model.GameRoom{}, &model.GameJackpotRound{}, &model.GameJackpotEntry{}))
 
 	router := gin.New()
@@ -77,6 +77,7 @@ func newGameTestEnv(t *testing.T, setting *operation_setting.GameSetting) *gameT
 	})
 	group := router.Group("/api/game", middleware.UserAuth(), middleware.GameCenterEnabled())
 	group.GET("/self", GetGameCenterSelf)
+	group.POST("/convert", ConvertGameCoins)
 	RegisterGameRoutes(group)
 	return &gameTestEnv{t: t, db: db, router: router}
 }

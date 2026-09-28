@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
@@ -13,6 +14,46 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// 兑换限额按账号累计，与同 IP 的其他账号和全站提现池分别计算。
+func TestGameCoinConvertDailyLimitOverHTTP(t *testing.T) {
+	require.NoError(t, i18n.Init())
+	env := newGameTestEnv(t, gameSetting(func(setting *operation_setting.GameSetting) {
+		setting.WithdrawDailyLimit = 1000
+	}))
+	player := env.player(50, gameTestIpA)
+	other := env.player(50, gameTestIpA)
+	require.NoError(t, env.db.Create(&model.GameCoinWithdrawDay{Day: gameCenterDay(), Used: 100}).Error)
+
+	info := player.ok(http.MethodGet, "/api/game/self", nil)
+	assert.Equal(t, map[string]any{"daily_limit": float64(15), "daily_used": float64(0), "daily_remaining": float64(15)}, info["convert"])
+	assert.EqualValues(t, 900, info["withdraw"].(map[string]any)["daily_remaining"])
+
+	result := player.ok(http.MethodPost, "/api/game/convert", map[string]any{"amount": 10})
+	assert.EqualValues(t, 10*common.QuotaPerUnit, result["quota"])
+	assert.EqualValues(t, 40, result["balance"])
+	info = player.ok(http.MethodGet, "/api/game/self", nil)
+	assert.Equal(t, map[string]any{"daily_limit": float64(15), "daily_used": float64(10), "daily_remaining": float64(5)}, info["convert"])
+	assert.EqualValues(t, 900, info["withdraw"].(map[string]any)["daily_remaining"])
+
+	message := player.fails(http.MethodPost, "/api/game/convert", map[string]any{"amount": 6})
+	assert.Equal(t, i18n.Translate(i18n.DefaultLang, i18n.MsgGameCoinConvertDailyLimit, map[string]any{"Limit": 15}), message)
+	assert.Equal(t, 40, player.balance(), "超额请求不扣游戏币")
+	player.ok(http.MethodPost, "/api/game/convert", map[string]any{"amount": 5})
+	player.fails(http.MethodPost, "/api/game/convert", map[string]any{"amount": 1})
+	info = player.ok(http.MethodGet, "/api/game/self", nil)
+	assert.Equal(t, map[string]any{"daily_limit": float64(15), "daily_used": float64(15), "daily_remaining": float64(0)}, info["convert"])
+	assert.Equal(t, 35, player.balance())
+	quota, err := model.GetUserQuota(player.user.Id, true)
+	require.NoError(t, err)
+	assert.EqualValues(t, 15*common.QuotaPerUnit, quota)
+
+	other.ok(http.MethodPost, "/api/game/convert", map[string]any{"amount": 15})
+	assert.Equal(t, 35, other.balance(), "同 IP 的另一个账号仍有自己的兑换限额")
+	used, err := model.GetGameCoinWithdrawDayUsed(gameCenterDay())
+	require.NoError(t, err)
+	assert.Equal(t, 100, used, "个人兑换不占用全站提现池")
+}
 
 // 热钱包私钥只写不读：保存后立即生效并落库，但任何接口都只给出它对应的地址，不会把私钥带出去。
 func TestGameAdminHotWalletKeyIsWriteOnly(t *testing.T) {

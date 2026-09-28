@@ -25,7 +25,7 @@ const skillSessionTTL = 2 * 60 * 60
 // skillOutcome 是一局免费游戏的成绩，由各游戏重放或判定后填好。
 type skillOutcome struct {
 	Score int
-	// Seconds 是这局玩了多久(秒)，每个游戏币所需时长按它计算。
+	// Seconds 是这局玩了多久(秒)，累加进玩家今天在这个游戏的游戏时长，每个游戏币所需时长按累计的时长计算。
 	Seconds int
 	// Detail 是成绩明细，序列化后存进对局的 Detail，不能超过 255 字节。
 	Detail any
@@ -53,7 +53,7 @@ func skillRuleView(rule operation_setting.SkillRule) gin.H {
 	}
 }
 
-// skillInfo 返回免费游戏页的通用信息：领奖规则、所有免费奖励的合计上限、今天的进度与最高成绩。game 是计数用的游戏标识。
+// skillInfo 返回免费游戏页的通用信息：领奖规则、技巧与人机奖励的合计上限、今天的进度与最高成绩。game 是计数用的游戏标识。
 func skillInfo(ctx *gameContext, game string, rule operation_setting.SkillRule) (gin.H, error) {
 	progress, err := model.GetGameRewardProgress(ctx.UserId, ctx.Ip, game, ctx.Day)
 	if err != nil {
@@ -119,20 +119,11 @@ func loadSkillSession(c *gin.Context, game string, rule operation_setting.SkillR
 }
 
 // settleSkillSession 按领奖规则算出一局应得的游戏币并结算，返回结算结果；返回 nil 时已写好错误响应。name 是写进审计日志的游戏名。
-// 奖励按单局成绩取达到的最高一档，再受两条防脚本的规则约束：每个游戏币至少要玩够 MinSecondsPerCoin 秒；判定为脚本的对局
-// 不发奖励。之后按账号与 IP 今天剩余的领奖次数、所有免费奖励的合计上限发放。
+// 奖励按单局成绩取达到的最高一档，再受两条防脚本的规则约束：每个游戏币要玩家今天在这个游戏里累计玩够 MinSecondsPerCoin 秒；
+// 判定为脚本的对局不发奖励。之后按账号与 IP 今天剩余的领奖次数、技巧与人机奖励的合计上限发放。
 func settleSkillSession(c *gin.Context, name string, rule operation_setting.SkillRule, session *model.GameSession, outcome skillOutcome) gin.H {
 	setting := operation_setting.GetGameSetting()
 	userId := session.UserId
-	reward, limitedBy := rule.Reward(outcome.Score), ""
-	if rule.MinSecondsPerCoin > 0 {
-		if byTime := outcome.Seconds / rule.MinSecondsPerCoin; byTime < reward {
-			reward, limitedBy = byTime, model.GameRewardLimitedByTime
-		}
-	}
-	if outcome.Cheat != "" {
-		reward, limitedBy = 0, model.GameRewardLimitedBySpeed
-	}
 	detail, err := common.Marshal(outcome.Detail)
 	if err != nil {
 		common.ApiError(c, err)
@@ -149,8 +140,10 @@ func settleSkillSession(c *gin.Context, name string, rule operation_setting.Skil
 		Score:          outcome.Score,
 		Detail:         string(detail),
 		State:          outcome.State,
-		Reward:         reward,
-		LimitedBy:      limitedBy,
+		Reward:         rule.Reward(outcome.Score),
+		Seconds:        outcome.Seconds,
+		Cheat:          outcome.Cheat != "",
+		SecondsPerCoin: rule.MinSecondsPerCoin,
 		DailyRewards:   rule.DailyRewards,
 		FreeDailyLimit: setting.FreeDailyLimit,
 		Day:            gameCenterDay(),
@@ -181,11 +174,12 @@ func settleSkillSession(c *gin.Context, name string, rule operation_setting.Skil
 		service.RecordGameCheatAlert(session.Game, userId, ip, outcome.Cheat)
 	}
 	settled := result.Session
-	// 发奖记一条带来源 IP 的审计日志，风控的多账号视图能看到同一 IP 下哪些账号在领游戏奖励。
+	// 发奖记一条带来源 IP 的审计日志，风控的多账号视图能看到同一 IP 下哪些账号在领游戏奖励。奖励可能来自今天更早达标、
+	// 等时长补够的一局，所以同时记下今天累计的时长。
 	if settled.Reward > 0 {
 		model.RecordAuditLog(model.ClientLogSource(c), userId, "", model.LogTypeSystem,
-			fmt.Sprintf("游戏奖励：%s成绩 %d，获得 %d 个游戏币", name, settled.Score, settled.Reward),
-			map[string]interface{}{"game": session.Game, "session_id": settled.Id, "score": settled.Score, "game_coins": settled.Reward})
+			fmt.Sprintf("游戏奖励：%s今天累计玩了 %d 秒，本局成绩 %d，获得 %d 个游戏币", name, result.Seconds, settled.Score, settled.Reward),
+			map[string]interface{}{"game": session.Game, "session_id": settled.Id, "score": settled.Score, "seconds_today": result.Seconds, "game_coins": settled.Reward})
 	}
 	return skillResultView(settled, rule, result.GameRewardProgress, result.Balance, max(best, settled.Score), setting.FreeDailyLimit)
 }

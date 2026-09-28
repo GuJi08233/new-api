@@ -24,6 +24,8 @@ import { RuleList, SideBox } from './SideBox';
 
 // 免费游戏(技巧游戏与人机对战)共用的领奖规则展示与结算提示。info 是 GET /api/game/<key> 返回的 skillInfo 部分：
 // rule { daily_rewards, tiers, min_seconds_per_coin }、free_daily_limit、progress、best_score。
+// min_seconds_per_coin 是每个游戏币要当天在这个游戏里累计玩够的秒数，progress.seconds_today 是今天已经累计的时长(每局结束后
+// 累加)，progress.pending_reward 是已经达标、等时长够了再发的游戏币。
 
 // 今天还能领几次：账号与同一 IP 各算一次，取剩下较少的那边。
 export function rewardsLeft(rule, progress) {
@@ -32,6 +34,35 @@ export function rewardsLeft(rule, progress) {
     progress?.ip_rewards_today || 0,
   );
   return Math.max((rule?.daily_rewards || 0) - used, 0);
+}
+
+// 领下一个游戏币要累计玩到多久(秒)：已经领到的游戏币也各占一份时长，与服务端的领奖规则一致。不限时长时为 0。
+export function nextCoinSeconds(rule, progress) {
+  const perCoin = rule?.min_seconds_per_coin || 0;
+  if (perCoin <= 0) return 0;
+  return ((progress?.earned_today || 0) + 1) * perCoin;
+}
+
+// 规则说明里的时长：写成"3 分钟""45 秒""2 分 30 秒"。
+export function formatDuration(seconds, t) {
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  if (minutes === 0) return t('{{count}} 秒', { count: rest });
+  if (rest === 0) return t('{{count}} 分钟', { count: minutes });
+  return t('{{minutes}} 分 {{seconds}} 秒', { minutes, seconds: rest });
+}
+
+// 今天的游戏时长进度：已经累计了多久、累计到多久能领下一个游戏币，已经达标在等时长时也说一声。不限时长或今天领不了时为空。
+export function playTimeNote(rule, progress, t) {
+  const target = nextCoinSeconds(rule, progress);
+  if (target <= 0 || rewardsLeft(rule, progress) === 0) return '';
+  const values = {
+    played: formatClock(progress?.seconds_today || 0),
+    target: formatClock(target),
+  };
+  return progress?.pending_reward > 0
+    ? t('今日游戏时长 {{played}} / {{target}}，已达标，时长够了就发奖', values)
+    : t('今日游戏时长 {{played}} / {{target}}', values);
 }
 
 // 成绩的写法：分数类直接写数字，难度类写难度名称。
@@ -66,17 +97,28 @@ export function skillResultMessage(result, t, symbol, { byLevel } = {}) {
         ? {
             kind: 'win',
             text: got,
-            note: t('今天的免费奖励已达合计上限，超出的部分不发放'),
+            note: t('今天的技巧与人机奖励已达合计上限，超出的部分不发放'),
           }
-        : { kind: '', text: t('今天的免费奖励已达合计上限，明天再来') };
-    case 'time':
-      return reward > 0
-        ? {
-            kind: 'win',
-            text: got,
-            note: t('游戏时长不够更高一档，按时长只发这么多'),
-          }
-        : { kind: '', text: t('游戏时长太短，这局不够领奖') };
+        : { kind: '', text: t('今天的技巧与人机奖励已达合计上限，明天再来') };
+    case 'time': {
+      if (reward > 0) {
+        return {
+          kind: 'win',
+          text: got,
+          note: t('游戏时长不够更高一档，按时长只发这么多'),
+        };
+      }
+      // 奖励已经记下，差的是今天在这个游戏里累计的时长。
+      const left =
+        nextCoinSeconds(result?.rule, result?.progress) -
+        (result?.progress?.seconds_today || 0);
+      return {
+        kind: '',
+        text: t('已达到奖励门槛，今天在这个游戏里再玩 {{time}} 就能领取', {
+          time: formatDuration(Math.max(left, 1), t),
+        }),
+      };
+    }
   }
   if (reward > 0) return { kind: 'win', text: got };
   if ((result?.rule?.daily_rewards || 0) === 0) {
@@ -117,7 +159,7 @@ export const GameClock = ({ since, stoppedAt }) => {
   return formatClock(((stoppedAt || now) - since) / 1000);
 };
 
-// 免费游戏信息栏里的领奖规则：今天还能领几次、奖励档位、时长要求与合计上限、最高成绩。
+// 免费游戏信息栏里的领奖规则：今天还能领几次与今天的游戏时长、奖励档位、时长要求与合计上限、最高成绩。
 // levelNames 不为空时成绩按难度显示；scoreName 是成绩一列的标题。
 export const SkillSide = ({ info, symbol, scoreName, levelNames, extra }) => {
   const { t } = useTranslation();
@@ -137,6 +179,7 @@ export const SkillSide = ({ info, symbol, scoreName, levelNames, extra }) => {
   } else if (left === 0) {
     rewardNote = t('今天的领奖次数已用完，还可以继续玩');
   }
+  const timeNote = playTimeNote(rule, progress, t);
 
   return (
     <>
@@ -145,7 +188,9 @@ export const SkillSide = ({ info, symbol, scoreName, levelNames, extra }) => {
         value={progress.earned_today || 0}
         unit={symbol}
         note={rewardNote}
-      />
+      >
+        {timeNote && <div className='game-box-note'>{timeNote}</div>}
+      </SideBox>
       <SideBox label={t('奖励规则')}>
         {tiers.length > 0 && (
           <table className='game-table'>
@@ -184,12 +229,13 @@ export const SkillSide = ({ info, symbol, scoreName, levelNames, extra }) => {
               ),
             t('每局按达到的最高一档发奖，没达到第一档不发'),
             rule.min_seconds_per_coin > 0 &&
-              t('每个游戏币至少要玩 {{seconds}} 秒', {
-                seconds: rule.min_seconds_per_coin,
-              }),
+              t(
+                '每个游戏币需要当天在这个游戏里累计玩满 {{time}}，先达标的对局等时长够了再发',
+                { time: formatDuration(rule.min_seconds_per_coin, t) },
+              ),
             freeLimit > 0 &&
               t(
-                '所有免费游戏每天合计最多奖励 {{limit}} {{symbol}}，今天已领 {{earned}}',
+                '技巧游戏与人机对战每天合计最多奖励 {{limit}} {{symbol}}，今天已领 {{earned}}，不含大转盘',
                 { limit: freeLimit, symbol, earned: freeEarned },
               ),
           ]}
@@ -230,6 +276,16 @@ export function skillRuleSummary(info, t, symbol, scoreName, levelNames) {
           }),
     )
     .join(t('，'));
+  if (rule.min_seconds_per_coin > 0) {
+    return t(
+      '{{tiers}}；每天最多领 {{count}} 次，每个游戏币需要当天累计玩满 {{time}}',
+      {
+        tiers,
+        count: rule.daily_rewards,
+        time: formatDuration(rule.min_seconds_per_coin, t),
+      },
+    );
+  }
   return t('{{tiers}}；每天最多领 {{count}} 次', {
     tiers,
     count: rule.daily_rewards,

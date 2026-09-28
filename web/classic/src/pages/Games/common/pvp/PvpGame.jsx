@@ -32,7 +32,12 @@ import { getGameLevelNames } from '../../../../constants';
 import GameLayout from '../GameLayout';
 import { RuleList, SideBox, StageMessage } from '../SideBox';
 import { gameGet, gamePost, withTurnstile } from '../api';
-import { rewardsLeft, skillResultMessage } from '../skill';
+import {
+  formatDuration,
+  playTimeNote,
+  rewardsLeft,
+  skillResultMessage,
+} from '../skill';
 import { usePlayTurnstile } from '../usePlayTurnstile';
 import { useGameInfo } from '../useGameInfo';
 import { isRoomOpen, usePvpRoom } from './usePvpRoom';
@@ -492,6 +497,9 @@ const PvpSide = ({ info, rules, randomFirst }) => {
   const symbol = info.symbol;
   const rule = info.rule || {};
   const aiInfo = info.ai;
+  const aiTimeNote = aiInfo
+    ? playTimeNote(aiInfo.rule, aiInfo.progress, t)
+    : '';
   const recent = info.recent || [];
   return (
     <>
@@ -530,6 +538,7 @@ const PvpSide = ({ info, rules, randomFirst }) => {
               : t('人机对战暂不发放奖励')
           }
         >
+          {aiTimeNote && <div className='game-box-note'>{aiTimeNote}</div>}
           <RuleList
             items={[
               ...(aiInfo.rule?.tiers || []).map((tier) =>
@@ -544,9 +553,10 @@ const PvpSide = ({ info, rules, randomFirst }) => {
                   count: aiInfo.rule.daily_rewards,
                 }),
               aiInfo.rule?.min_seconds_per_coin > 0 &&
-                t('每个游戏币至少要下 {{seconds}} 秒', {
-                  seconds: aiInfo.rule.min_seconds_per_coin,
-                }),
+                t(
+                  '每个游戏币需要当天和 AI 累计下满 {{time}}，先赢的对局等时长够了再发',
+                  { time: formatDuration(aiInfo.rule.min_seconds_per_coin, t) },
+                ),
             ]}
           />
         </SideBox>

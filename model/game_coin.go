@@ -17,6 +17,9 @@ import (
 // 主额度(1 币 = 1 美元额度)，也可以提现成链上 ERC-20 代币。余额、流水和提现单都在主库，
 // 兑换时扣币与 quota 入账在同一个事务里；日志库只做事后审计，不参与记账。
 
+// GameCoinConvertDailyLimit 是每人每天可兑换的游戏币数量，1 币 = 1 美元额度。
+const GameCoinConvertDailyLimit = 15
+
 const (
 	GameCoinLogTypeAdminAdjust    = "admin_adjust"
 	GameCoinLogTypeConvert        = "convert"
@@ -41,10 +44,11 @@ const (
 )
 
 var (
-	ErrGameCoinAmountInvalid = errors.New("game coin amount is out of range")
-	ErrGameCoinInsufficient  = errors.New("game coin balance is insufficient")
-	ErrGameCoinDailyLimit    = errors.New("game coin daily withdrawal limit reached")
-	ErrGameCoinUserNotFound  = errors.New("user not found")
+	ErrGameCoinAmountInvalid     = errors.New("game coin amount is out of range")
+	ErrGameCoinInsufficient      = errors.New("game coin balance is insufficient")
+	ErrGameCoinDailyLimit        = errors.New("game coin daily withdrawal limit reached")
+	ErrGameCoinConvertDailyLimit = errors.New("game coin daily conversion limit reached")
+	ErrGameCoinUserNotFound      = errors.New("user not found")
 )
 
 var unfinishedGameCoinWithdrawalStatuses = []string{
@@ -116,6 +120,13 @@ type GameCoinWithdrawal struct {
 type GameCoinWithdrawDay struct {
 	Day  string `json:"day" gorm:"type:varchar(10);primaryKey"`
 	Used int    `json:"used" gorm:"type:bigint;not null;default:0"`
+}
+
+// GameCoinConvertDay 记录每个用户每天已兑换的游戏币，与全站提现额度独立。
+type GameCoinConvertDay struct {
+	UserId int    `json:"user_id" gorm:"primaryKey;autoIncrement:false"`
+	Day    string `json:"day" gorm:"type:varchar(10);primaryKey"`
+	Used   int    `json:"used" gorm:"type:bigint;not null;default:0"`
 }
 
 func GetGameCoinAccount(userId int) (GameCoinAccount, error) {
@@ -200,13 +211,18 @@ func GameCoinQuota(coins int) (int, error) {
 	return quota, nil
 }
 
-// ConvertGameCoinsToQuota 把游戏币单向兑换为主额度。扣币、记流水、给 quota 入账在同一个
-// 事务里，主钱包容量不够时整笔回滚，游戏币原样保留。
+// ConvertGameCoinsToQuota 把游戏币单向兑换为主额度，每人每天最多兑换 GameCoinConvertDailyLimit 个币。
+// 日额度、扣币、流水和 quota 入账在同一个事务里，任何一步失败都不占用日额度，也不扣币。
 func ConvertGameCoinsToQuota(userId int, coins int) (quota int, balance int, err error) {
 	quota, err = GameCoinQuota(coins)
 	if err != nil {
 		return 0, 0, err
 	}
+	if coins > GameCoinConvertDailyLimit {
+		return 0, 0, ErrGameCoinConvertDailyLimit
+	}
+	now := time.Now()
+	day := now.Format("2006-01-02")
 	err = DB.Transaction(func(tx *gorm.DB) error {
 		var txErr error
 		balance, txErr = debitGameCoinsTx(tx, userId, coins, map[string]interface{}{
@@ -215,13 +231,34 @@ func ConvertGameCoinsToQuota(userId int, coins int) (quota int, balance int, err
 		if txErr != nil {
 			return txErr
 		}
+		// 首次启用日限额时把今天已有的兑换流水计入，升级当天不会重新得到一份额度。
+		used, txErr := gameCoinConvertDayUsed(tx, userId, day)
+		if txErr != nil {
+			return txErr
+		}
+		if txErr = tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&GameCoinConvertDay{
+			UserId: userId,
+			Day:    day,
+			Used:   used,
+		}).Error; txErr != nil {
+			return txErr
+		}
+		result := tx.Model(&GameCoinConvertDay{}).
+			Where("user_id = ? AND day = ? AND used <= ?", userId, day, GameCoinConvertDailyLimit-coins).
+			Update("used", gorm.Expr("used + ?", coins))
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return ErrGameCoinConvertDailyLimit
+		}
 		if txErr = tx.Create(&GameCoinLog{
 			UserId:    userId,
 			Type:      GameCoinLogTypeConvert,
 			Amount:    -coins,
 			Balance:   balance,
 			Quota:     quota,
-			CreatedAt: common.GetTimestamp(),
+			CreatedAt: now.Unix(),
 		}).Error; txErr != nil {
 			return txErr
 		}
@@ -232,6 +269,32 @@ func ConvertGameCoinsToQuota(userId int, coins int) (quota int, balance int, err
 	}
 	syncCreditUserQuotaCache(userId, quota, "game coin convert")
 	return quota, balance, nil
+}
+
+// GetGameCoinConvertDayUsed 返回用户在服务器本地记账日已经兑换的游戏币数量。
+func GetGameCoinConvertDayUsed(userId int, day string) (int, error) {
+	return gameCoinConvertDayUsed(DB, userId, day)
+}
+
+// gameCoinConvertDayUsed 兼容日限额上线前的兑换记录；查询本身不创建或改变计数。
+func gameCoinConvertDayUsed(tx *gorm.DB, userId int, day string) (int, error) {
+	var rows []GameCoinConvertDay
+	if err := tx.Where("user_id = ? AND day = ?", userId, day).Limit(1).Find(&rows).Error; err != nil {
+		return 0, err
+	}
+	if len(rows) > 0 {
+		return rows[0].Used, nil
+	}
+	start, err := time.ParseInLocation("2006-01-02", day, time.Local)
+	if err != nil {
+		return 0, err
+	}
+	var used int
+	err = tx.Model(&GameCoinLog{}).
+		Where("user_id = ? AND type = ? AND amount < 0 AND created_at >= ? AND created_at < ?",
+			userId, GameCoinLogTypeConvert, start.Unix(), start.AddDate(0, 0, 1).Unix()).
+		Select("COALESCE(SUM(-amount), 0)").Scan(&used).Error
+	return used, err
 }
 
 // AdjustGameCoins 是管理员给用户加减游戏币，delta 为正加币、为负扣币，扣币不会透支。

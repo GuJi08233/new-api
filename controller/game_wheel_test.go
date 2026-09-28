@@ -67,26 +67,39 @@ func TestSpinWheelFreeThenPaidWithoutDailyLimit(t *testing.T) {
 	assert.Equal(t, 92, account.TotalWagerNet)
 }
 
-// 免费旋转是免费奖励：同一 IP 下所有账号合计也只有 FreeSpins 次；奖品计入所有免费奖励的合计上限，
-// 合计上限用完之后不能再免费转。
-func TestSpinWheelFreeSpinsAreSharedAndCapped(t *testing.T) {
+// 技巧游戏已经领满当天奖励后，默认的一次免费旋转仍能领到完整的 50 币头奖；账号与同一 IP 的免费次数限制继续生效。
+func TestSpinWheelPaysFullFreePrizeAfterSkillRewardLimit(t *testing.T) {
 	env := newGameTestEnv(t, gameSetting(func(s *operation_setting.GameSetting) {
-		s.Wheel = operation_setting.WheelRule{Enabled: true, FreeSpins: 2, SpinCost: 1}
+		s.Wheel.Enabled = true
 		s.FreeDailyLimit = 3
 	}))
 	first := env.player(0, gameTestIpA)
 	second := env.player(0, gameTestIpA)
 	other := env.player(0, gameTestIpB)
+	session, err := model.CreateGameSession(first.user.Id, "tetris", 7, "")
+	require.NoError(t, err)
+	skill, err := model.FinishGameSession(session, model.GameSettlement{
+		Score: 5000, Reward: 3, DailyRewards: 1, FreeDailyLimit: 3, Day: gameCenterDay(), Ip: gameTestIpA,
+	})
+	require.NoError(t, err)
+	require.Equal(t, 3, skill.Session.Reward)
 
-	stopWheelAt(t, 5) // 2 倍格：奖品 2 个
-	first.ok(http.MethodPost, "/api/game/wheel/spin", map[string]any{"free": true})
-	result := second.ok(http.MethodPost, "/api/game/wheel/spin", map[string]any{"free": true})
-	assert.EqualValues(t, 1, result["win"], "同一 IP 的合计上限只剩 1 个")
-	assert.Equal(t, model.GameRewardLimitedByTotal, result["limited_by"])
+	info := first.ok(http.MethodGet, "/api/game/wheel", nil)
+	assert.EqualValues(t, 1, info["free_spins"])
+	assert.NotContains(t, info, "free_daily_limit")
+	stopWheelAt(t, 0) // 默认花费 1，头奖 50 倍。
+	result := first.ok(http.MethodPost, "/api/game/wheel/spin", map[string]any{"free": true})
+	assert.EqualValues(t, 50, result["win"])
+	assert.EqualValues(t, 53, result["balance"])
+	assert.Empty(t, result["limited_by"])
+	assert.EqualValues(t, 1, result["free_used_today"])
+	assert.EqualValues(t, 1, result["ip_free_used_today"])
+	first.fails(http.MethodPost, "/api/game/wheel/spin", map[string]any{"free": true})
 	second.fails(http.MethodPost, "/api/game/wheel/spin", map[string]any{"free": true})
 
 	result = other.ok(http.MethodPost, "/api/game/wheel/spin", map[string]any{"free": true})
-	assert.EqualValues(t, 2, result["win"], "别的 IP 不受影响")
-	assert.Equal(t, 2, first.balance())
-	assert.Equal(t, 1, second.balance())
+	assert.EqualValues(t, 50, result["win"], "别的 IP 有自己的免费次数")
+	assert.Equal(t, 53, first.balance())
+	assert.Zero(t, second.balance())
+	assert.Equal(t, 50, other.balance())
 }

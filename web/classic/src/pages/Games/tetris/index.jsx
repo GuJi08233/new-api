@@ -58,6 +58,7 @@ import {
   WIDTH,
 } from './engine';
 import {
+  playTimeNote,
   rewardsLeft,
   skillResultMessage,
   skillRuleSummary,
@@ -657,6 +658,7 @@ const Tetris = () => {
   } else if (left === 0) {
     leftText = t('今天的领奖次数已用完，还可以继续玩');
   }
+  const timeNote = playTimeNote(rule.rule, rule.progress, t);
   const rewardMessage =
     result && !result.rejected ? skillResultMessage(result, t, symbol) : null;
 
@@ -857,14 +859,8 @@ const Tetris = () => {
                 <span>{symbol}</span>
               </div>
               <div className='tetris-reward-rule'>{leftText}</div>
+              {timeNote && <div className='tetris-reward-rule'>{timeNote}</div>}
               <div className='tetris-reward-rule'>{ruleText}</div>
-              {rule.rule?.min_seconds_per_coin > 0 && (
-                <div className='tetris-reward-rule'>
-                  {t('每个游戏币至少要玩 {{seconds}} 秒', {
-                    seconds: rule.rule.min_seconds_per_coin,
-                  })}
-                </div>
-              )}
             </div>
             {phase === 'playing' && (
               <div className='tetris-actions'>

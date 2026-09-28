@@ -49,9 +49,6 @@ func wheelInfo(ctx *gameContext) (gin.H, error) {
 	info["spin_cost"] = rule.SpinCost
 	info["free_used_today"] = progress.Rewards
 	info["ip_free_used_today"] = progress.IpRewards
-	info["free_daily_limit"] = ctx.Setting.FreeDailyLimit
-	info["free_earned_today"] = progress.FreeEarned
-	info["ip_free_earned_today"] = progress.IpFreeEarned
 	info["segments"] = wheel.Segments
 	info["payback"] = float64(paid) / float64(total)
 	return info, nil
@@ -71,7 +68,7 @@ type wheelDetail struct {
 
 // SpinWheel 转一次大转盘：服务端按权重选出一格，派彩 = 每次花费 × 这一格的倍数，扣币与派彩在同一个事务里完成，
 // 浏览器只负责把转盘转到返回的格子。请求写明这一次是不是用免费次数，服务端不会把玩家以为免费的旋转改成扣币。
-// 免费旋转白送游戏币，是免费奖励：同一 IP 下所有账号合计次数，计入免费奖励的合计上限，每次都要过人机验证；
+// 免费旋转的奖品全额发放，不受技巧游戏与人机对战的奖励总上限影响，也不占用该上限；同一 IP 下所有账号合计次数，每次都要过人机验证；
 // 付费旋转按下注游戏结算，理论返还率 80%，不限次数。
 func SpinWheel(c *gin.Context) {
 	setting := operation_setting.GetGameSetting()
@@ -103,24 +100,21 @@ func SpinWheel(c *gin.Context) {
 	var view gin.H
 	if req.Free {
 		result, err := model.SettleGameFreePlay(userId, gameWheel, model.GameFreePlay{
-			FreeLimit:      rule.FreeSpins,
-			FreeDailyLimit: setting.FreeDailyLimit,
-			Play:           play,
-			Day:            day,
-			Ip:             ip,
+			FreeLimit: rule.FreeSpins,
+			Play:      play,
+			Day:       day,
+			Ip:        ip,
 		})
 		if err != nil {
 			respondGameError(c, gameWheel, err)
 			return
 		}
 		view = gin.H{
-			"win":                  result.Session.Reward,
-			"limited_by":           result.Session.LimitedBy,
-			"balance":              result.Balance,
-			"free_used_today":      result.Rewards,
-			"ip_free_used_today":   result.IpRewards,
-			"free_earned_today":    result.FreeEarned,
-			"ip_free_earned_today": result.IpFreeEarned,
+			"win":                result.Session.Reward,
+			"limited_by":         result.Session.LimitedBy,
+			"balance":            result.Balance,
+			"free_used_today":    result.Rewards,
+			"ip_free_used_today": result.IpRewards,
 		}
 		auditGameFreeWin(c, gameWheel, "大转盘免费旋转", result.Session)
 	} else {

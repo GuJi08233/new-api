@@ -147,6 +147,50 @@ func TestFinishGameSessionCapsFreeRewardsInTotal(t *testing.T) {
 	assert.Equal(t, 4, result.FreeEarned)
 }
 
+// 每个游戏币要账号当天在这个游戏里累计玩够 SecondsPerCoin 秒(已经领到的也算在内)，不要求一局玩这么久：成绩先达标、时长
+// 还不够时奖励先记着，之后的对局哪怕没达标，把时长补够就发；判定为脚本的对局不计时长，也不会把记着的奖励发出去；
+// 当天的领奖次数用完就不再记。
+func TestFinishGameSessionWaitsForDailyPlayTime(t *testing.T) {
+	truncateTables(t)
+	const userId, day = 1801, "2026-09-28"
+	cases := []struct {
+		name          string
+		reward        int
+		seconds       int
+		cheat         bool
+		wantGranted   int
+		wantLimitedBy string
+		wantSeconds   int
+		wantPending   int
+	}{
+		{name: "达标但累计时长不够", reward: 1, seconds: 40, wantLimitedBy: GameRewardLimitedByTime, wantSeconds: 40, wantPending: 1},
+		{name: "脚本对局不计时长", reward: 1, seconds: 500, cheat: true, wantLimitedBy: GameRewardLimitedBySpeed, wantSeconds: 40, wantPending: 1},
+		{name: "没达标的一局补够时长，发记着的奖励", reward: 0, seconds: 30, wantGranted: 1, wantSeconds: 70},
+		{name: "第二个游戏币要累计 120 秒", reward: 1, seconds: 30, wantLimitedBy: GameRewardLimitedByTime, wantSeconds: 100, wantPending: 1},
+		{name: "补够 120 秒", reward: 0, seconds: 20, wantGranted: 1, wantSeconds: 120},
+		{name: "当天的次数领完了", reward: 1, seconds: 600, wantLimitedBy: GameRewardLimitedByDaily, wantSeconds: 720},
+	}
+	balance := 0
+	for _, c := range cases {
+		session, err := CreateGameSession(userId, "tetris", 7, "")
+		require.NoError(t, err)
+		result, err := FinishGameSession(session, GameSettlement{
+			Score: 100, Detail: "{}", Reward: c.reward, Seconds: c.seconds, Cheat: c.cheat,
+			SecondsPerCoin: 60, DailyRewards: 2, Day: day, Ip: gameTestIp,
+		})
+		require.NoError(t, err, c.name)
+		balance += c.wantGranted
+		assert.Equal(t, c.wantGranted, result.Session.Reward, c.name)
+		assert.Equal(t, c.wantLimitedBy, result.Session.LimitedBy, c.name)
+		assert.Equal(t, c.wantSeconds, result.Seconds, c.name)
+		assert.Equal(t, c.wantPending, result.PendingReward, c.name)
+		assert.Equal(t, balance, result.Balance, c.name)
+	}
+	progress, err := GetGameRewardProgress(userId, gameTestIp, "tetris", day)
+	require.NoError(t, err)
+	assert.Equal(t, GameRewardProgress{Plays: 6, Rewards: 2, IpRewards: 2, Earned: 2, FreeEarned: 2, IpFreeEarned: 2, Seconds: 720}, progress)
+}
+
 // 同一局只能结算一次：第二次结算返回 ErrGameSessionClosed，奖励不会重复发放。
 func TestFinishGameSessionSettlesOnce(t *testing.T) {
 	truncateTables(t)
@@ -178,35 +222,33 @@ func TestGameSessionsAllowOnePlayingGame(t *testing.T) {
 	assert.Equal(t, 0, gameBalance(t, 1601))
 }
 
-// 大转盘的免费旋转：每人每天、同一 IP 合计只有 FreeLimit 次，无论中没中奖都占一次；奖品计入免费奖励的合计上限，
-// 越过上限的部分不发，到了上限就不能再免费转。没中奖时不写流水。
+// 大转盘的免费旋转：每人每天、同一 IP 合计只有 FreeLimit 次，无论中没中奖都占一次；奖品全额发放，没中奖时不写流水。
 func TestSettleGameFreePlayLimitsFreePlays(t *testing.T) {
 	truncateTables(t)
 	const day = "2026-09-28"
 	cases := []struct {
-		userId        int
-		win           int
-		freeLimit     int
-		wantErr       error
-		wantWin       int
-		wantLimitedBy string
+		userId    int
+		win       int
+		freeLimit int
+		wantErr   error
+		wantWin   int
 	}{
 		{userId: 1701, win: 0, freeLimit: 2},
 		{userId: 1701, win: 3, freeLimit: 2, wantWin: 3},
 		{userId: 1701, win: 3, freeLimit: 2, wantErr: ErrGameFreePlayUsed},
 		// 同一 IP 的另一个账号：IP 合计的两次已经用完。
 		{userId: 1702, win: 3, freeLimit: 2, wantErr: ErrGameIpFreePlayUsed},
-		// 管理员加了免费次数，但合计上限只剩 2 个：奖品只发 2 个。
-		{userId: 1702, win: 5, freeLimit: 4, wantWin: 2, wantLimitedBy: GameRewardLimitedByTotal},
-		{userId: 1702, win: 1, freeLimit: 4, wantErr: ErrGameFreeDailyLimit},
+		// 管理员加了免费次数，新的旋转仍按奖品全额发放。
+		{userId: 1702, win: 50, freeLimit: 4, wantWin: 50},
+		{userId: 1702, win: 1, freeLimit: 4, wantWin: 1},
+		{userId: 1702, win: 1, freeLimit: 4, wantErr: ErrGameIpFreePlayUsed},
 	}
 	for i, c := range cases {
 		result, err := SettleGameFreePlay(c.userId, "wheel", GameFreePlay{
-			FreeLimit:      c.freeLimit,
-			FreeDailyLimit: 5,
-			Play:           func() (int, string, error) { return c.win, "{}", nil },
-			Day:            day,
-			Ip:             gameTestIp,
+			FreeLimit: c.freeLimit,
+			Play:      func() (int, string, error) { return c.win, "{}", nil },
+			Day:       day,
+			Ip:        gameTestIp,
 		})
 		if c.wantErr != nil {
 			assert.ErrorIs(t, err, c.wantErr, "case %d", i)
@@ -214,11 +256,50 @@ func TestSettleGameFreePlayLimitsFreePlays(t *testing.T) {
 		}
 		require.NoError(t, err, "case %d", i)
 		assert.Equal(t, c.wantWin, result.Session.Reward, "case %d win", i)
-		assert.Equal(t, c.wantLimitedBy, result.Session.LimitedBy, "case %d limited by", i)
+		assert.Empty(t, result.Session.LimitedBy, "case %d limited by", i)
 	}
 	assert.Equal(t, 3, gameBalance(t, 1701))
-	assert.Equal(t, 2, gameBalance(t, 1702))
+	assert.Equal(t, 51, gameBalance(t, 1702))
 	assert.Equal(t, []string{GameCoinLogTypeGameReward}, gameCoinLogTypes(t, 1701), "没中奖的那次不写流水")
+}
+
+// 转盘与技巧游戏无论先后，都能领取各自奖励：转盘派彩不被免费奖励总上限截断，也不占用该上限。
+func TestWheelFreePrizeIsIndependentOfSkillRewardLimit(t *testing.T) {
+	const userId, day = 1751, "2026-09-28"
+	for _, first := range []string{"wheel", "skill"} {
+		t.Run(first+"_first", func(t *testing.T) {
+			truncateTables(t)
+			order := []string{"wheel", "skill"}
+			if first == "skill" {
+				order = []string{"skill", "wheel"}
+			}
+			for _, game := range order {
+				if game == "skill" {
+					result := finishWithReward(t, userId, "tetris", gameTestIp, day, 3, 2, 3)
+					assert.Equal(t, 3, result.Session.Reward)
+					continue
+				}
+				result, err := SettleGameFreePlay(userId, "wheel", GameFreePlay{
+					FreeLimit: 1,
+					Play:      func() (int, string, error) { return 50, "{}", nil },
+					Day:       day,
+					Ip:        gameTestIp,
+				})
+				require.NoError(t, err)
+				assert.Equal(t, 50, result.Session.Score)
+				assert.Equal(t, 50, result.Session.Reward)
+				assert.Empty(t, result.Session.LimitedBy)
+			}
+			progress, err := GetGameRewardProgress(userId, gameTestIp, "tetris", day)
+			require.NoError(t, err)
+			assert.Equal(t, 3, progress.FreeEarned)
+			assert.Equal(t, 3, progress.IpFreeEarned)
+			assert.Equal(t, 53, gameBalance(t, userId))
+			limited := finishWithReward(t, userId, "snake", gameTestIp, day, 1, 2, 3)
+			assert.Zero(t, limited.Session.Reward)
+			assert.Equal(t, GameRewardLimitedByTotal, limited.Session.LimitedBy)
+		})
+	}
 }
 
 // 下注游戏不设每日上限：想下多少局都可以，每局扣注、派彩、写一条净输赢流水，今天的净输赢与局数照常累计；

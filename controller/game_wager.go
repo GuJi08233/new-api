@@ -75,8 +75,6 @@ func respondGameError(c *gin.Context, game string, err error) {
 		common.ApiErrorI18n(c, i18n.MsgGameFreePlayUsed)
 	case errors.Is(err, model.ErrGameIpFreePlayUsed):
 		common.ApiErrorI18n(c, i18n.MsgGameIpFreePlayUsed)
-	case errors.Is(err, model.ErrGameFreeDailyLimit):
-		common.ApiErrorI18n(c, i18n.MsgGameFreeDailyLimit)
 	default:
 		common.SysError(fmt.Sprintf("failed to settle %s for user %d: %v", game, c.GetInt("id"), err))
 		common.ApiErrorI18n(c, i18n.MsgGamePlayFailed)

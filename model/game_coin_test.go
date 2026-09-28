@@ -1,7 +1,9 @@
 package model
 
 import (
+	"strconv"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/stretchr/testify/assert"
@@ -10,7 +12,7 @@ import (
 
 func seedGameCoinUser(t *testing.T, id int, quota int, coins int) {
 	t.Helper()
-	require.NoError(t, DB.Create(&User{Id: id, Username: "game-coin-user", AffCode: "game-aff", Quota: quota}).Error)
+	require.NoError(t, DB.Create(&User{Id: id, Username: "game-coin-user-" + strconv.Itoa(id), AffCode: "game-aff-" + strconv.Itoa(id), Quota: quota}).Error)
 	if coins > 0 {
 		_, err := AdjustGameCoins(id, coins, "seed")
 		require.NoError(t, err)
@@ -63,6 +65,9 @@ func TestConvertGameCoinsToQuotaMovesValueAtomically(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 100+2*int(common.QuotaPerUnit), userQuota)
 	assert.Equal(t, []string{GameCoinLogTypeAdminAdjust, GameCoinLogTypeConvert}, gameCoinLogTypes(t, 1101))
+	used, err := GetGameCoinConvertDayUsed(1101, time.Now().Format("2006-01-02"))
+	require.NoError(t, err)
+	assert.Equal(t, 2, used, "余额不足的兑换不占用日额度")
 }
 
 // 主钱包容量不够时整笔回滚：游戏币不能被扣掉却换不到额度。
@@ -81,6 +86,139 @@ func TestConvertGameCoinsRollsBackWhenWalletIsFull(t *testing.T) {
 	quota, err := GetUserQuota(1102, true)
 	require.NoError(t, err)
 	assert.Equal(t, common.MaxQuota-10, quota)
+	used, err := GetGameCoinConvertDayUsed(1102, time.Now().Format("2006-01-02"))
+	require.NoError(t, err)
+	assert.Zero(t, used, "主钱包入账失败必须退回已占用的日额度")
+}
+
+func TestConvertGameCoinsDailyLimitIsPerUserAndDay(t *testing.T) {
+	truncateTables(t)
+	seedGameCoinUser(t, 1110, 0, 40)
+	seedGameCoinUser(t, 1111, 0, 40)
+	now := time.Now()
+	day := now.Format("2006-01-02")
+	yesterday := now.AddDate(0, 0, -1).Format("2006-01-02")
+	require.NoError(t, DB.Create(&GameCoinConvertDay{UserId: 1110, Day: yesterday, Used: 15}).Error)
+
+	_, _, err := ConvertGameCoinsToQuota(1110, 16)
+	require.ErrorIs(t, err, ErrGameCoinConvertDailyLimit)
+	_, _, err = ConvertGameCoinsToQuota(1110, 10)
+	require.NoError(t, err, "前一天用完额度不影响今天")
+	_, balance, err := ConvertGameCoinsToQuota(1110, 5)
+	require.NoError(t, err)
+	assert.Equal(t, 25, balance)
+	_, _, err = ConvertGameCoinsToQuota(1110, 1)
+	require.ErrorIs(t, err, ErrGameCoinConvertDailyLimit)
+
+	_, balance, err = ConvertGameCoinsToQuota(1111, 15)
+	require.NoError(t, err, "一个用户用完额度不影响其他用户")
+	assert.Equal(t, 25, balance)
+	for _, userId := range []int{1110, 1111} {
+		used, err := GetGameCoinConvertDayUsed(userId, day)
+		require.NoError(t, err)
+		assert.Equal(t, 15, used)
+		account, err := GetGameCoinAccount(userId)
+		require.NoError(t, err)
+		assert.Equal(t, 25, account.Balance)
+		assert.Equal(t, 15, account.TotalConverted)
+		quota, err := GetUserQuota(userId, true)
+		require.NoError(t, err)
+		assert.Equal(t, 15*int(common.QuotaPerUnit), quota)
+	}
+	used, err := GetGameCoinConvertDayUsed(1110, yesterday)
+	require.NoError(t, err)
+	assert.Equal(t, 15, used)
+}
+
+func TestConvertGameCoinsConcurrentRequestsCannotExceedDailyLimit(t *testing.T) {
+	truncateTables(t)
+	seedGameCoinUser(t, 1112, 0, 40)
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	for range 2 {
+		go func() {
+			<-start
+			_, _, err := ConvertGameCoinsToQuota(1112, 10)
+			results <- err
+		}()
+	}
+	close(start)
+	errors := []error{<-results, <-results}
+	successes, rejected := 0, 0
+	for _, err := range errors {
+		if err == nil {
+			successes++
+		} else {
+			require.ErrorIs(t, err, ErrGameCoinConvertDailyLimit)
+			rejected++
+		}
+	}
+	assert.Equal(t, 1, successes)
+	assert.Equal(t, 1, rejected)
+	used, err := GetGameCoinConvertDayUsed(1112, time.Now().Format("2006-01-02"))
+	require.NoError(t, err)
+	assert.Equal(t, 10, used)
+	account, err := GetGameCoinAccount(1112)
+	require.NoError(t, err)
+	assert.Equal(t, 30, account.Balance)
+	assert.Equal(t, 10, account.TotalConverted)
+	quota, err := GetUserQuota(1112, true)
+	require.NoError(t, err)
+	assert.Equal(t, 10*int(common.QuotaPerUnit), quota)
+}
+
+func TestConvertGameCoinsCountsExistingDailyLogs(t *testing.T) {
+	for _, alreadyConverted := range []int{12, 20} {
+		t.Run(strconv.Itoa(alreadyConverted), func(t *testing.T) {
+			truncateTables(t)
+			seedGameCoinUser(t, 1113, alreadyConverted*int(common.QuotaPerUnit), 30)
+			now := time.Now()
+			day := now.Format("2006-01-02")
+			start, err := time.ParseInLocation("2006-01-02", day, time.Local)
+			require.NoError(t, err)
+			require.NoError(t, DB.Create(&[]GameCoinLog{
+				{UserId: 1113, Type: GameCoinLogTypeConvert, Amount: -15, CreatedAt: start.Unix() - 1},
+				{UserId: 1113, Type: GameCoinLogTypeConvert, Amount: -alreadyConverted, CreatedAt: start.Unix()},
+				{UserId: 1113, Type: GameCoinLogTypeWithdraw, Amount: -100, CreatedAt: now.Unix()},
+				{UserId: 9999, Type: GameCoinLogTypeConvert, Amount: -15, CreatedAt: now.Unix()},
+			}).Error)
+
+			used, err := GetGameCoinConvertDayUsed(1113, day)
+			require.NoError(t, err)
+			assert.Equal(t, alreadyConverted, used, "只计入当前用户在服务器本地日内的兑换")
+			_, _, err = ConvertGameCoinsToQuota(1113, 4)
+			require.ErrorIs(t, err, ErrGameCoinConvertDailyLimit)
+			if alreadyConverted == 12 {
+				_, _, err = ConvertGameCoinsToQuota(1113, 3)
+				require.NoError(t, err)
+				used, err = GetGameCoinConvertDayUsed(1113, day)
+				require.NoError(t, err)
+				assert.Equal(t, 15, used)
+			}
+		})
+	}
+}
+
+func TestGameCoinConversionAndWithdrawalDailyLimitsAreIndependent(t *testing.T) {
+	truncateTables(t)
+	seedGameCoinUser(t, 1114, 0, 40)
+	day := time.Now().Format("2006-01-02")
+	withdrawal, _, err := createGameCoinTestWithdrawal(1114, 5, day, 5, 11155111)
+	require.NoError(t, err)
+	_, _, err = ConvertGameCoinsToQuota(1114, 15)
+	require.NoError(t, err, "全站提现池用完仍然可以使用个人兑换额度")
+
+	used, err := GetGameCoinWithdrawDayUsed(day)
+	require.NoError(t, err)
+	assert.Equal(t, 5, used, "兑换不占全站提现池")
+	failed, err := FailGameCoinWithdrawal(withdrawal.Id, "test refund", "")
+	require.NoError(t, err)
+	require.True(t, failed)
+	used, err = GetGameCoinConvertDayUsed(1114, day)
+	require.NoError(t, err)
+	assert.Equal(t, 15, used, "提现退款不释放个人兑换额度")
+	_, _, err = createGameCoinTestWithdrawal(1114, 5, day, 5, 11155111)
+	require.NoError(t, err, "个人兑换额度用完仍然可以提现")
 }
 
 // 管理员扣币不能透支，也不能给不存在的用户发币。

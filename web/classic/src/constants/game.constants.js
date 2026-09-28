@@ -56,6 +56,7 @@ export const getGameLevelNames = (t) => ({
   sudoku: [t('简单'), t('普通'), t('困难')],
   memory: ['4×4', '4×6', '6×6'],
   puzzle15: ['3×3', '4×4', '5×5'],
+  pairlink: ['6×6', '6×8', '8×8'],
   ai: [t('简单'), t('普通'), t('困难')],
 });
 
@@ -69,6 +70,9 @@ export const GAME_ORDER = [
   'sudoku',
   'memory',
   'puzzle15',
+  'pairlink',
+  'breakout',
+  'sokoban',
   'gomoku',
   'connect4',
   'reversi',
@@ -145,6 +149,27 @@ export const getGameMetaMap = (t) => ({
     description: t('滑动方块，把打乱的数字按顺序排好'),
     score: 'level',
     scoreName: t('难度'),
+  },
+  pairlink: {
+    kind: 'skill',
+    name: t('连连看'),
+    description: t('限时连接相同图案，最多两次转弯，清空棋盘获胜'),
+    score: 'level',
+    scoreName: t('难度'),
+  },
+  breakout: {
+    kind: 'skill',
+    name: t('打砖块'),
+    description: t('反弹小球击碎砖块，收集多球与加宽挡板奖励'),
+    score: 'points',
+    scoreName: t('分数'),
+  },
+  sokoban: {
+    kind: 'skill',
+    name: t('每日推箱子'),
+    description: t('每天一张可解地图，把所有箱子推到目标位置'),
+    score: 'points',
+    scoreName: t('完成关卡'),
   },
   gomoku: {
     kind: 'pvp',

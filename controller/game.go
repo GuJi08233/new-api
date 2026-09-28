@@ -45,7 +45,7 @@ type gameHotWalletRequest struct {
 	PrivateKey string `json:"private_key"`
 }
 
-// gameCenterDay 是游戏中心的记账日：全站提现额度和每人每天的游戏奖励都按它计算，
+// gameCenterDay 是游戏中心的记账日：个人兑换限额、全站提现额度和每日游戏奖励都按它计算，
 // 与签到一样按服务器本地时间 0 点切换。
 func gameCenterDay() string {
 	return time.Now().Format("2006-01-02")
@@ -82,7 +82,7 @@ func passGamePlayTurnstile(c *gin.Context, setting *operation_setting.GameSettin
 	return true
 }
 
-// GetGameCenterSelf 返回当前用户的游戏币账户、兑换比例、提现规则、今天所有免费奖励的合计，以及每个开放游戏的今日进度。
+// GetGameCenterSelf 返回当前用户的游戏币账户、个人兑换限额、全站提现规则、技巧与人机奖励合计，以及每个开放游戏的今日进度。
 // 各游戏的规则与详细进度由游戏页自己的接口 GET /api/game/<key> 返回。
 func GetGameCenterSelf(c *gin.Context) {
 	ctx := newGameContext(c)
@@ -92,6 +92,11 @@ func GetGameCenterSelf(c *gin.Context) {
 		return
 	}
 	used, err := model.GetGameCoinWithdrawDayUsed(ctx.Day)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	converted, err := model.GetGameCoinConvertDayUsed(ctx.UserId, ctx.Day)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -112,7 +117,13 @@ func GetGameCenterSelf(c *gin.Context) {
 		"account":        account,
 		"quota_per_coin": quotaPerCoin,
 		"games":          games,
-		// 免费奖励每人每天的合计上限(0 表示不限制)与账号、同一 IP 今天已经领到的合计。
+		// 兑换按个人每日累计，1 币对应 1 美元 API 额度，与全站提现池互不占用。
+		"convert": gin.H{
+			"daily_limit":     model.GameCoinConvertDailyLimit,
+			"daily_used":      converted,
+			"daily_remaining": max(model.GameCoinConvertDailyLimit-converted, 0),
+		},
+		// 技巧与人机奖励的每日合计上限(0 表示不限制)，不包含大转盘奖金。
 		"free": gin.H{
 			"daily_limit":     setting.FreeDailyLimit,
 			"earned_today":    counts.user[model.GameFreeCounter].Coins,
@@ -135,7 +146,7 @@ func GetGameCenterSelf(c *gin.Context) {
 	})
 }
 
-// ConvertGameCoins 把游戏币单向兑换为主额度，1 币 = 1 美元额度，不设上限。
+// ConvertGameCoins 把游戏币单向兑换为主额度，1 币 = 1 美元额度，每人每天最多兑换 15 美元额度。
 func ConvertGameCoins(c *gin.Context) {
 	var req gameCoinConvertRequest
 	if err := common.DecodeJson(c.Request.Body, &req); err != nil || req.Amount < 1 {
@@ -146,6 +157,8 @@ func ConvertGameCoins(c *gin.Context) {
 	quota, balance, err := model.ConvertGameCoinsToQuota(userId, req.Amount)
 	if err != nil {
 		switch {
+		case errors.Is(err, model.ErrGameCoinConvertDailyLimit):
+			common.ApiErrorI18n(c, i18n.MsgGameCoinConvertDailyLimit, map[string]any{"Limit": model.GameCoinConvertDailyLimit})
 		case errors.Is(err, model.ErrGameCoinInsufficient):
 			common.ApiErrorI18n(c, i18n.MsgGameCoinInsufficient)
 		case errors.Is(err, model.ErrGameCoinAmountInvalid):
