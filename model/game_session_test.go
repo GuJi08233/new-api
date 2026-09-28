@@ -91,6 +91,31 @@ func TestFinishGameSessionLimitsRewardedPlaysPerDay(t *testing.T) {
 
 // 同一个 IP 视为同一个人：这个 IP 下所有账号当天在一个游戏里合计也只能领 DailyRewards 次，换一个账号不能多领；
 // 别的 IP 不受影响。
+// 结算和保存每一步一样核对版本：同一局的另一步已经保存了新局面，依据旧局面算出的结算作废，对局照常进行；
+// 拿着当前局面的结算照常成功。玩家不能同时发几步、挑赢了的那一步结算。
+func TestFinishGameSessionRejectsStaleVersion(t *testing.T) {
+	truncateTables(t)
+	seedGameUser(t, 1211, 0)
+	session, err := CreateGameSession(1211, "memory", 0, `{"step":0}`)
+	require.NoError(t, err)
+	stale := *session
+	require.NoError(t, UpdateGameSessionState(session, `{"step":1}`, ""))
+
+	settlement := GameSettlement{Score: 1, Reward: 1, DailyRewards: 1, Day: "2026-09-29", Ip: gameTestIp}
+	_, err = FinishGameSession(&stale, settlement)
+	require.ErrorIs(t, err, ErrGameSessionClosed)
+	var current GameSession
+	require.NoError(t, DB.First(&current, session.Id).Error)
+	assert.Equal(t, GameSessionStatusPlaying, current.Status)
+	assert.Equal(t, `{"step":1}`, current.State)
+	assert.Zero(t, gameBalance(t, 1211))
+
+	result, err := FinishGameSession(session, settlement)
+	require.NoError(t, err)
+	assert.Equal(t, 1, result.Session.Reward)
+	assert.Equal(t, 1, gameBalance(t, 1211))
+}
+
 func TestFinishGameSessionSharesRewardedPlaysPerIp(t *testing.T) {
 	truncateTables(t)
 	const day = "2026-09-28"

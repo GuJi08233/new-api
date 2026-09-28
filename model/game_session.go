@@ -329,11 +329,13 @@ func UpdateGameSessionState(session *GameSession, state string, detail string) e
 }
 
 // FinishGameSession 结算一局免费游戏：把对局从进行中切换为已结束，同一局只有一次能成功；成绩达标时按账号今天在这个游戏
-// 累计的游戏时长、账号和 IP 今天剩余的领奖次数、技巧游戏与人机对战奖励的合计上限发放奖励。对局已不在进行中时返回 ErrGameSessionClosed，
-// 调用方重新读取对局就能知道它是已经结算还是被作废了。
+// 累计的游戏时长、账号和 IP 今天剩余的领奖次数、技巧游戏与人机对战奖励的合计上限发放奖励。结算和保存每一步一样核对
+// session.Version：同一局的另一步已经保存了新局面时，依据旧局面算出的结算作废，玩家不能同时发几步、挑赢了的那一步结算。
+// 对局已不在进行中或版本已变时返回 ErrGameSessionClosed，调用方重新读取对局就能知道它是已经结算、被作废了还是局面变了。
 func FinishGameSession(session *GameSession, settlement GameSettlement) (*GameSettlementResult, error) {
 	finished := *session
 	finished.Status = GameSessionStatusFinished
+	finished.Version = session.Version + 1
 	finished.Score = settlement.Score
 	finished.Detail = settlement.Detail
 	finished.Ip = settlement.Ip
@@ -366,8 +368,9 @@ func FinishGameSession(session *GameSession, settlement GameSettlement) (*GameSe
 		finished.Reward, finished.LimitedBy = granted, limitedBy
 
 		update := tx.Model(&GameSession{}).
-			Where("id = ? AND status = ?", session.Id, GameSessionStatusPlaying).
+			Where("id = ? AND status = ? AND version = ?", session.Id, GameSessionStatusPlaying, session.Version).
 			Updates(map[string]interface{}{
+				"version":     session.Version + 1,
 				"status":      finished.Status,
 				"score":       finished.Score,
 				"reward":      finished.Reward,

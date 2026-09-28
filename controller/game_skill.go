@@ -154,13 +154,17 @@ func settleSkillSession(c *gin.Context, name string, rule operation_setting.Skil
 	})
 	switch {
 	case errors.Is(err, model.ErrGameSessionClosed):
-		// 同一局的另一次提交刚结算完，或者这局已被新开的一局作废：重新读取对局再回应。
+		// 同一局的另一次提交刚结算完、另一步刚保存了新局面，或者这局已被新开的一局作废：重新读取对局再回应。
 		current, readErr := model.GetUserGameSession(userId, session.Game, session.Id)
 		if readErr == nil && current.Status == model.GameSessionStatusFinished {
 			view, viewErr := skillSettledView(c, current, rule)
 			if viewErr == nil {
 				return view
 			}
+		}
+		if readErr == nil && current.Status == model.GameSessionStatusPlaying {
+			common.ApiErrorI18n(c, i18n.MsgGameRoundChanged)
+			return nil
 		}
 		common.ApiErrorI18n(c, i18n.MsgGameSessionNotFound)
 		return nil
