@@ -729,11 +729,17 @@ For commercial licensing, please contact support@quantumnous.com
 /* ---------- Game page shell ----------
    所有游戏页共用：顶栏、左边台面右边信息栏的布局、信息栏里的格子、下注控件与规则表。 */
 
+/* 顶栏与下面的台面、信息栏同宽，余额和信息栏右边对齐。 */
 .game-topbar {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 16px;
+  max-width: calc(var(--game-main-width, 620px) + 324px);
+  margin: 0 auto 16px;
+}
+
+.game-page:has(.game-layout.is-single) .game-topbar {
+  max-width: var(--game-main-width, 960px);
 }
 
 .game-title {
@@ -1006,6 +1012,10 @@ For commercial licensing, please contact support@quantumnous.com
 @media (max-width: 960px) {
   .game-layout {
     grid-template-columns: minmax(0, var(--game-main-width, 620px));
+  }
+
+  .game-topbar {
+    max-width: var(--game-main-width, 620px);
   }
 }
 
