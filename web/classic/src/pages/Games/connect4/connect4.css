@@ -1,0 +1,192 @@
+/*
+Copyright (C) 2025 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+
+/* 四子棋盘：蓝色的竖板上 7 × 6 个圆孔，红黄两色棋子从上方落进去；上方一排预览轮到自己时要投的一子。 */
+
+.connect4-board-wrap {
+  --connect4-gap: 6px;
+  --connect4-pad: 8px;
+  width: min(100%, 460px);
+}
+
+.connect4-slots,
+.connect4-board {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: var(--connect4-gap);
+  padding: 0 var(--connect4-pad);
+}
+
+.connect4-slots {
+  margin-bottom: 6px;
+}
+
+.connect4-slot {
+  position: relative;
+  aspect-ratio: 1;
+}
+
+.connect4-board {
+  padding: var(--connect4-pad);
+  border-radius: 14px;
+  background: #2f5fd0;
+  box-shadow: 0 10px 24px -16px rgba(20, 50, 140, 0.9);
+  overflow: hidden;
+}
+
+.connect4-column {
+  display: flex;
+  flex-direction: column;
+  gap: var(--connect4-gap);
+  min-width: 0;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color 0.15s ease;
+}
+
+.connect4-column[aria-disabled='true'] {
+  cursor: default;
+}
+
+.connect4-column:not([aria-disabled='true']):hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.connect4-column:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+/* 一个圆孔，透出台面的底色。 */
+.connect4-cell {
+  position: relative;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--semi-color-bg-1);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.connect4-disc {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+}
+
+.connect4-disc.is-r {
+  background: #e5484d;
+  box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.18);
+}
+
+.connect4-disc.is-y {
+  background: #f5c21b;
+  box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.14);
+}
+
+.connect4-disc.is-ghost {
+  opacity: 0.5;
+}
+
+/* 新落下的一子从棋盘顶端落到它的位置，落得越深用时越长。 */
+.connect4-disc.is-new {
+  animation: connect4-drop calc(0.14s + var(--connect4-fall) * 0.05s)
+    cubic-bezier(0.5, 0, 1, 0.6) both;
+}
+
+.connect4-disc.is-last::after {
+  content: '';
+  position: absolute;
+  inset: 38%;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.connect4-disc.is-line {
+  box-shadow:
+    inset 0 0 0 3px rgba(255, 255, 255, 0.9),
+    0 0 0 3px rgba(255, 255, 255, 0.45);
+  animation: connect4-win 0.9s ease-in-out infinite alternate;
+}
+
+/* 连成四子的最后一子先落下去，再和其他三子一起闪。 */
+.connect4-disc.is-new.is-line {
+  animation:
+    connect4-drop calc(0.14s + var(--connect4-fall) * 0.05s)
+      cubic-bezier(0.5, 0, 1, 0.6) both,
+    connect4-win 0.9s ease-in-out calc(0.14s + var(--connect4-fall) * 0.05s)
+      infinite alternate;
+}
+
+/* 座位称呼里的小棋子。 */
+.connect4-seat-disc {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 5px;
+  border-radius: 50%;
+  vertical-align: -1px;
+}
+
+.connect4-seat-disc.is-r {
+  background: #e5484d;
+}
+
+.connect4-seat-disc.is-y {
+  background: #f5c21b;
+}
+
+body[theme-mode='dark'] .connect4-board {
+  background: #2a52b8;
+  box-shadow: none;
+}
+
+@keyframes connect4-drop {
+  from {
+    transform: translateY(
+      calc(var(--connect4-fall) * (-100% - var(--connect4-gap)))
+    );
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@keyframes connect4-win {
+  to {
+    transform: scale(0.9);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .connect4-disc.is-new,
+  .connect4-disc.is-line,
+  .connect4-disc.is-new.is-line {
+    animation: none;
+  }
+}
+
+@media (max-width: 420px) {
+  .connect4-board-wrap {
+    --connect4-gap: 4px;
+    --connect4-pad: 6px;
+  }
+}
