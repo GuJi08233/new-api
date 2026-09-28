@@ -1025,7 +1025,23 @@ For commercial licensing, please contact support@quantumnous.com
     justify-content: center;
   }
 
+  .game-bet-quick {
+    padding: 0 8px;
+  }
+
   .game-topbar-balance {
     padding: 4px 10px;
+  }
+}
+
+/* 最窄的手机上下注控件收紧一点，减半、翻倍、最大留在同一行。 */
+@media (max-width: 380px) {
+  .game-bet {
+    gap: 4px;
+    padding: 6px;
+  }
+
+  .game-bet-value {
+    min-width: 40px;
   }
 }
