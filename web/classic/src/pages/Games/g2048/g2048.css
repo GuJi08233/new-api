@@ -1,0 +1,320 @@
+/*
+Copyright (C) 2025 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+
+/* 2048：4×4 的盘面随台面宽度缩放。方块按行列用 transform 定位，移动时滑过去；新方块弹出，合并出的方块放大一下。 */
+
+.g2048-page {
+  --game-main-width: 560px;
+}
+
+/* 盘面宽度同时受台面宽度与视口高度约束，整块盘面和下面的按钮不用滚动就能看全。 */
+.g2048-board {
+  --g2048-gap: 10px;
+  --g2048-radius: 8px;
+  position: relative;
+  width: clamp(260px, calc(100vh - 370px), 440px);
+  max-width: 100%;
+  aspect-ratio: 1;
+  border-radius: 14px;
+  background: var(--semi-color-fill-1);
+  container-type: inline-size;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* 对局中在盘面上滑动只移动方块，不滚动页面。 */
+.g2048-board.is-playing {
+  touch-action: none;
+}
+
+.g2048-grid,
+.g2048-tiles {
+  position: absolute;
+  inset: var(--g2048-gap);
+}
+
+.g2048-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  grid-template-rows: repeat(4, 1fr);
+  gap: var(--g2048-gap);
+}
+
+.g2048-cell {
+  border-radius: var(--g2048-radius);
+  background: var(--semi-color-fill-0);
+}
+
+.g2048-tile {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 2;
+  width: calc((100% - 3 * var(--g2048-gap)) / 4);
+  height: calc((100% - 3 * var(--g2048-gap)) / 4);
+  transform: translate(
+    calc(var(--g2048-col) * (100% + var(--g2048-gap))),
+    calc(var(--g2048-row) * (100% + var(--g2048-gap)))
+  );
+  transition: transform 110ms ease-in-out;
+}
+
+.g2048-tile-inner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  border-radius: var(--g2048-radius);
+  font-size: 28px;
+  font-size: 11cqi;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12);
+}
+
+.g2048-tile.is-d3 .g2048-tile-inner {
+  font-size: 24px;
+  font-size: 9cqi;
+}
+
+.g2048-tile.is-d4 .g2048-tile-inner {
+  font-size: 20px;
+  font-size: 7.5cqi;
+}
+
+.g2048-tile.is-d5 .g2048-tile-inner {
+  font-size: 16px;
+  font-size: 6cqi;
+}
+
+.g2048-tile.is-d6 .g2048-tile-inner {
+  font-size: 14px;
+  font-size: 5cqi;
+}
+
+/* 合并掉的两块滑到位后被新方块盖住，随后隐去；合并出的新方块压在最上面。 */
+.g2048-tile.is-gone {
+  z-index: 1;
+  animation: g2048-vanish 1ms linear 220ms forwards;
+}
+
+.g2048-tile.is-merged {
+  z-index: 3;
+}
+
+.g2048-tile.is-new .g2048-tile-inner {
+  animation: g2048-appear 160ms ease-out 100ms backwards;
+}
+
+.g2048-tile.is-merged .g2048-tile-inner {
+  animation: g2048-pop 200ms ease-out 100ms backwards;
+}
+
+/* 配色从浅灰到青、蓝、紫，2048 是金色，更大的方块是玫红。 */
+.g2048-tile.is-v2 .g2048-tile-inner {
+  color: #334155;
+  background: #eef2f7;
+}
+
+.g2048-tile.is-v4 .g2048-tile-inner {
+  color: #334155;
+  background: #dbe4ef;
+}
+
+.g2048-tile.is-v8 .g2048-tile-inner {
+  color: #134e4a;
+  background: #99f6e4;
+}
+
+.g2048-tile.is-v16 .g2048-tile-inner {
+  color: #134e4a;
+  background: #2dd4bf;
+}
+
+.g2048-tile.is-v32 .g2048-tile-inner {
+  background: #0d9488;
+}
+
+.g2048-tile.is-v64 .g2048-tile-inner {
+  background: #0891b2;
+}
+
+.g2048-tile.is-v128 .g2048-tile-inner {
+  background: #0284c7;
+}
+
+.g2048-tile.is-v256 .g2048-tile-inner {
+  background: #2563eb;
+}
+
+.g2048-tile.is-v512 .g2048-tile-inner {
+  background: #4f46e5;
+}
+
+.g2048-tile.is-v1024 .g2048-tile-inner {
+  background: #7c3aed;
+}
+
+.g2048-tile.is-v2048 .g2048-tile-inner {
+  color: #451a03;
+  background: #fbbf24;
+  box-shadow: 0 0 18px rgba(245, 158, 11, 0.5);
+}
+
+.g2048-tile.is-super .g2048-tile-inner {
+  background: #db2777;
+  box-shadow: 0 0 18px rgba(219, 39, 119, 0.45);
+}
+
+/* 暗色主题下盘面压得更深，空格比盘面亮一点；最小的两档换成石板灰，比空格亮、又不刺眼。 */
+body[theme-mode='dark'] .g2048-board {
+  background: var(--semi-color-bg-0);
+}
+
+body[theme-mode='dark'] .g2048-tile.is-v2 .g2048-tile-inner {
+  color: #f1f5f9;
+  background: #475569;
+}
+
+body[theme-mode='dark'] .g2048-tile.is-v4 .g2048-tile-inner {
+  color: #f8fafc;
+  background: #64748b;
+}
+
+.g2048-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 16px;
+  border-radius: inherit;
+  text-align: center;
+  background: color-mix(in srgb, var(--semi-color-bg-1) 78%, transparent);
+  backdrop-filter: blur(2px);
+  animation: g2048-fade-in 240ms ease-out;
+}
+
+/* 结算结果只盖一层薄纱，还看得见这局最后的盘面。 */
+.g2048-overlay.is-result {
+  background: color-mix(in srgb, var(--semi-color-bg-1) 62%, transparent);
+  backdrop-filter: blur(1px);
+}
+
+.g2048-overlay-title {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--semi-color-text-0);
+}
+
+.g2048-overlay-score {
+  font-size: 44px;
+  font-weight: 700;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  color: var(--semi-color-text-0);
+}
+
+.g2048-overlay-text {
+  font-size: 13px;
+  color: var(--semi-color-text-2);
+}
+
+.g2048-record {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(var(--semi-amber-7), 1);
+  background: rgba(var(--semi-amber-5), 0.16);
+}
+
+@keyframes g2048-appear {
+  0% {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes g2048-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  55% {
+    opacity: 1;
+    transform: scale(1.14);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes g2048-vanish {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes g2048-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (max-width: 420px) {
+  .g2048-board {
+    --g2048-gap: 7px;
+    --g2048-radius: 6px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .g2048-tile {
+    transition: none;
+  }
+
+  .g2048-tile.is-new .g2048-tile-inner,
+  .g2048-tile.is-merged .g2048-tile-inner,
+  .g2048-overlay {
+    animation: none;
+  }
+
+  .g2048-tile.is-gone {
+    animation: none;
+    opacity: 0;
+  }
+}
