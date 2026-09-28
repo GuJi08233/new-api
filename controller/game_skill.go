@@ -26,6 +26,9 @@ const skillSessionTTL = 2 * 60 * 60
 type skillOutcome struct {
 	Score int
 	// Seconds 是这局玩了多久(秒)，累加进玩家今天在这个游戏的游戏时长，每个游戏币所需时长按累计的时长计算。
+	// 它必须以服务端核实过的游戏过程为依据，不能只是开局以来过了多久，不然开一局挂着不动就能攒够时长：
+	// 重放的游戏取游戏内时长(不超过开局以来的真实时间)；一步一个请求的游戏按操作累计(GameSession.PlayedSeconds)；
+	// 只在最后交一次的游戏按交上来的步数封顶；放弃的数独不计。
 	Seconds int
 	// Detail 是成绩明细，序列化后存进对局的 Detail，不能超过 255 字节。
 	Detail any

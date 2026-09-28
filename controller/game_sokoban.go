@@ -14,6 +14,9 @@ import (
 
 const gameSokoban = "sokoban"
 
+// sokobanSecondsPerMove 是每一步最多算作多少秒游戏时长：推箱子要边想边走，但浏览器只在最后交一次，开局之后挂着不动不算在玩。
+const sokobanSecondsPerMove = 10
+
 func init() {
 	registerGame(&gameDefinition{Key: gameSokoban, Kind: operation_setting.GameKindSkill,
 		Info: func(ctx *gameContext) (gin.H, error) {
@@ -101,7 +104,7 @@ func FinishSokoban(c *gin.Context) {
 	if played.Solved() && !req.Abandon {
 		score = 1
 	}
-	result := settleSkillSession(c, "每日推箱子", rule, session, skillOutcome{Score: score, Seconds: int(min(elapsed, 3600)), Detail: gin.H{"day": game.Day, "moves": len(req.Moves), "pushes": played.Pushes, "won": score > 0}})
+	result := settleSkillSession(c, "每日推箱子", rule, session, skillOutcome{Score: score, Seconds: int(min(elapsed, int64(len(req.Moves))*sokobanSecondsPerMove)), Detail: gin.H{"day": game.Day, "moves": len(req.Moves), "pushes": played.Pushes, "won": score > 0}})
 	if result != nil {
 		common.ApiSuccess(c, result)
 	}

@@ -95,7 +95,7 @@ func FinishSnake(c *gin.Context) {
 	}
 	result := settleSkillSession(c, "贪吃蛇", rule, session, skillOutcome{
 		Score:   game.Score,
-		Seconds: game.ElapsedMs / 1000,
+		Seconds: int(min(int64(game.ElapsedMs/1000), elapsed)),
 		Detail:  snakeDetail{Length: game.Length(), Steps: game.Steps, Over: game.Over},
 	})
 	if result == nil {

@@ -80,9 +80,26 @@ type GameSession struct {
 	// State 是对局在服务端保存的状态(JSON)，例如扫雷的雷区、21 点的牌堆，只有服务端知道。
 	State string `json:"-" gorm:"type:text"`
 	// Version 在每次改动 State 时加一：并发的两次操作只有一次能成功，另一次读到新状态后再来。
-	Version    int   `json:"-" gorm:"not null;default:0"`
-	CreatedAt  int64 `json:"created_at" gorm:"bigint;index;index:idx_game_session_open,priority:3"`
-	FinishedAt int64 `json:"finished_at" gorm:"bigint"`
+	Version int `json:"-" gorm:"not null;default:0"`
+	// PlaySeconds 与 PlayedAt 按操作累计一局的游戏时长(见 PlayedSeconds)：每保存一步，把离上一步(第一步离开局)的间隔
+	// 计入 PlaySeconds，PlayedAt 记为这一步的时间。
+	PlaySeconds int   `json:"-" gorm:"not null;default:0"`
+	PlayedAt    int64 `json:"-" gorm:"bigint"`
+	CreatedAt   int64 `json:"created_at" gorm:"bigint;index;index:idx_game_session_open,priority:3"`
+	FinishedAt  int64 `json:"finished_at" gorm:"bigint"`
+}
+
+// GameActionGapSeconds 是一局里两步操作之间最多算作游戏时长的秒数：停下来想一想算在玩，开了局走开挂机不算。
+const GameActionGapSeconds = 60
+
+// PlayedSeconds 返回这一局到 now 为止按操作累计的游戏时长：之前每两步之间的间隔各按不超过 GameActionGapSeconds 计，
+// 再加上最后一步(一步都还没走时是开局)到 now 的间隔，同样不超过 GameActionGapSeconds。
+func (s *GameSession) PlayedSeconds(now int64) int {
+	last := s.PlayedAt
+	if last == 0 {
+		last = s.CreatedAt
+	}
+	return s.PlaySeconds + int(min(max(now-last, 0), GameActionGapSeconds))
 }
 
 // GameRewardDay 是每个用户每天在每个游戏的计数：Coins 是免费游戏发放的游戏币，或下注、对战的净输赢(可以为负)；Plays 是结算了
@@ -224,13 +241,15 @@ type GameRound struct {
 // 开几局来压缩所需的游戏时长，中途离开的对局也不会一直留在库里。state 是服务端保存的对局状态，不需要时为空。
 // 下注游戏的对局押着游戏币，不能这样作废，见 OpenGameRound。
 func CreateGameSession(userId int, game string, seed uint32, state string) (*GameSession, error) {
+	now := common.GetTimestamp()
 	session := &GameSession{
 		UserId:    userId,
 		Game:      game,
 		Seed:      int64(seed),
 		Status:    GameSessionStatusPlaying,
 		State:     state,
-		CreatedAt: common.GetTimestamp(),
+		PlayedAt:  now,
+		CreatedAt: now,
 	}
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("user_id = ? AND game = ? AND status = ?", userId, game, GameSessionStatusPlaying).Delete(&GameSession{}).Error; err != nil {
@@ -284,12 +303,20 @@ func ListStalePlayingGameSessions(game string, before int64, limit int) ([]*Game
 	return sessions, err
 }
 
-// UpdateGameSessionState 保存进行中对局的新状态。只有 session.Version 仍是库里的版本时才会成功，否则返回
-// ErrGameRoundChanged；成功后 session 的状态与版本随之更新。
+// UpdateGameSessionState 保存进行中对局的新状态，这一步同时计入按操作累计的游戏时长。只有 session.Version 仍是库里的版本时
+// 才会成功，否则返回 ErrGameRoundChanged；成功后 session 的状态、版本与游戏时长随之更新。
 func UpdateGameSessionState(session *GameSession, state string, detail string) error {
+	now := common.GetTimestamp()
+	played := session.PlayedSeconds(now)
 	result := DB.Model(&GameSession{}).
 		Where("id = ? AND status = ? AND version = ?", session.Id, GameSessionStatusPlaying, session.Version).
-		Updates(map[string]interface{}{"state": state, "detail": detail, "version": session.Version + 1})
+		Updates(map[string]interface{}{
+			"state":        state,
+			"detail":       detail,
+			"version":      session.Version + 1,
+			"play_seconds": played,
+			"played_at":    now,
+		})
 	if result.Error != nil {
 		return result.Error
 	}
@@ -297,6 +324,7 @@ func UpdateGameSessionState(session *GameSession, state string, detail string) e
 		return ErrGameRoundChanged
 	}
 	session.State, session.Detail, session.Version = state, detail, session.Version+1
+	session.PlaySeconds, session.PlayedAt = played, now
 	return nil
 }
 

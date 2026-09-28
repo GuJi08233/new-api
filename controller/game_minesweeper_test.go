@@ -26,7 +26,8 @@ func startMinesweeperSession(t *testing.T, env *gameTestEnv, userId int, difficu
 	require.NoError(t, err)
 	session, err := model.CreateGameSession(userId, gameMinesweeper, 0, string(state))
 	require.NoError(t, err)
-	require.NoError(t, env.db.Model(session).Update("created_at", session.CreatedAt-startedAgo).Error)
+	// 开局 startedAgo 秒前，之后一直在玩：游戏时长按操作累计，只把开局时间往前挪不算玩过。
+	require.NoError(t, env.db.Model(session).Updates(map[string]any{"created_at": session.CreatedAt - startedAgo, "play_seconds": startedAgo}).Error)
 	return session
 }
 

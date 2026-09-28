@@ -103,7 +103,7 @@ func FinishFlappy(c *gin.Context) {
 	}
 	result := settleSkillSession(c, "像素鸟", rule, session, skillOutcome{
 		Score:   game.Score,
-		Seconds: game.Ticks / flappy.TicksPerSecond,
+		Seconds: int(min(int64(game.Ticks/flappy.TicksPerSecond), elapsed)),
 		Detail: flappyDetail{
 			Ticks:     game.Ticks,
 			Flaps:     game.Flaps,

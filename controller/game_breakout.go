@@ -60,7 +60,7 @@ func FinishBreakout(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgGameReplayInvalid)
 		return
 	}
-	result := settleSkillSession(c, "打砖块", rule, session, skillOutcome{Score: game.Score, Seconds: game.Ticks / breakout.FPS, Detail: gin.H{"bricks": game.Broken, "ticks": game.Ticks, "lives": game.Lives, "won": game.Won}})
+	result := settleSkillSession(c, "打砖块", rule, session, skillOutcome{Score: game.Score, Seconds: int(min(int64(game.Ticks/breakout.FPS), elapsed)), Detail: gin.H{"bricks": game.Broken, "ticks": game.Ticks, "lives": game.Lives, "won": game.Won}})
 	if result != nil {
 		common.ApiSuccess(c, result)
 	}

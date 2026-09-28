@@ -21,6 +21,8 @@ const (
 	puzzle15ClockSlackSeconds = 2
 	// puzzle15FinishMaxBytes 限制结算请求体：步骤最多 puzzle15.MaxMoves 个字符。
 	puzzle15FinishMaxBytes = 64 << 10
+	// puzzle15SecondsPerMove 是每一步最多算作多少秒游戏时长：浏览器只在最后交一次，开局之后挂着不动不算在玩。
+	puzzle15SecondsPerMove = 5
 )
 
 func init() {
@@ -136,7 +138,7 @@ func FinishPuzzle15(c *gin.Context) {
 	}
 	result := settleSkillSession(c, "数字华容道", rule, session, skillOutcome{
 		Score:   game.Difficulty,
-		Seconds: int(elapsed),
+		Seconds: int(min(elapsed, int64(len(req.Moves))*puzzle15SecondsPerMove)),
 		Detail:  puzzle15Detail{Difficulty: game.Difficulty, Moves: len(req.Moves)},
 	})
 	if result == nil {

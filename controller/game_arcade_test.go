@@ -24,7 +24,9 @@ func TestPairlinkActionsRestoreAndSettleOnlyOnce(t *testing.T) {
 	player.fails(http.MethodPost, "/api/game/pairlink/start", map[string]any{"difficulty": 4})
 	view := player.ok(http.MethodPost, "/api/game/pairlink/start", map[string]any{"difficulty": 2})
 	id := int(view["session_id"].(float64))
-	require.NoError(t, env.db.Model(&model.GameSession{}).Where("id = ?", id).Update("created_at", common.GetTimestamp()-121).Error)
+	// 已经玩了两分钟：开局时间与按操作累计的游戏时长一起往前挪。
+	require.NoError(t, env.db.Model(&model.GameSession{}).Where("id = ?", id).
+		Updates(map[string]any{"created_at": common.GetTimestamp() - 121, "play_seconds": 121}).Error)
 	restored := player.ok(http.MethodGet, "/api/game/pairlink/state", nil)["session"].(map[string]any)
 	assert.Equal(t, view["board"], restored["board"])
 	other.fails(http.MethodPost, "/api/game/pairlink/action", map[string]any{"session_id": id, "version": 0, "action": "hint"})
@@ -63,16 +65,21 @@ func TestPairlinkTimeoutAndToolLimits(t *testing.T) {
 		}
 		player.fails(http.MethodPost, "/api/game/pairlink/action", map[string]any{"session_id": view["session_id"], "version": view["version"], "action": action})
 	}
-	require.NoError(t, env.db.Model(&model.GameSession{}).Where("id = ?", view["session_id"]).Update("created_at", common.GetTimestamp()-181).Error)
+	require.NoError(t, env.db.Model(&model.GameSession{}).Where("id = ?", view["session_id"]).
+		Updates(map[string]any{"created_at": common.GetTimestamp() - 181, "play_seconds": 200}).Error)
 	ended := player.ok(http.MethodPost, "/api/game/pairlink/action", map[string]any{"session_id": view["session_id"], "version": view["version"], "action": "hint"})
 	assert.Equal(t, "lost", ended["status"])
 	assert.EqualValues(t, 0, ended["result"].(map[string]any)["reward"])
-	assert.EqualValues(t, 180, ended["result"].(map[string]any)["progress"].(map[string]any)["seconds_today"])
+	assert.EqualValues(t, 180, ended["result"].(map[string]any)["progress"].(map[string]any)["seconds_today"], "游戏时长不超过这一档的限时")
 }
 
 func TestSokobanDailyLayoutAndReplaySettlement(t *testing.T) {
 	require.NoError(t, i18n.Init())
-	env := newGameTestEnv(t, gameSetting(func(s *operation_setting.GameSetting) { s.Sokoban.Enabled = true }))
+	// 这里只看关卡与重放结算，不要求累计时长。
+	env := newGameTestEnv(t, gameSetting(func(s *operation_setting.GameSetting) {
+		s.Sokoban.Enabled = true
+		s.Sokoban.MinSecondsPerCoin = 0
+	}))
 	player := env.player(0, gameTestIpA)
 	other := env.player(0, gameTestIpB)
 	first := player.ok(http.MethodPost, "/api/game/sokoban/start", nil)

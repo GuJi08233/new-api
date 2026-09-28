@@ -106,7 +106,7 @@ func FinishTetris(c *gin.Context) {
 	}
 	result := settleSkillSession(c, "俄罗斯方块", rule, session, skillOutcome{
 		Score:   game.Score,
-		Seconds: game.Ticks / tetris.TicksPerSecond,
+		Seconds: int(min(int64(game.Ticks/tetris.TicksPerSecond), elapsed)),
 		Detail: tetrisDetail{
 			Lines:      game.Lines,
 			Level:      game.Level,

@@ -169,7 +169,7 @@ func RevealMinesweeper(c *gin.Context) {
 		}
 		result = settleSkillSession(c, "扫雷", rule, session, skillOutcome{
 			Score:   score,
-			Seconds: int(common.GetTimestamp() - session.CreatedAt),
+			Seconds: session.PlayedSeconds(common.GetTimestamp()),
 			Detail:  minesweeperDetail{Difficulty: game.Difficulty, Won: game.Status == minesweeper.StatusWon, Opened: len(game.Revealed())},
 			State:   string(state),
 		})

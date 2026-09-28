@@ -163,7 +163,7 @@ func FlipMemory(c *gin.Context) {
 		}
 		result = settleSkillSession(c, "记忆翻牌", rule, session, skillOutcome{
 			Score:   score,
-			Seconds: int(common.GetTimestamp() - session.CreatedAt),
+			Seconds: session.PlayedSeconds(common.GetTimestamp()),
 			Detail:  memoryDetail{Difficulty: game.Difficulty, Won: game.Status == memory.StatusWon, Moves: game.Moves},
 			State:   string(state),
 		})

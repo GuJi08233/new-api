@@ -130,7 +130,7 @@ func TestXiangqiAiGameAgainstServer(t *testing.T) {
 	aiState, err := common.Marshal(pvpAiState{Level: 3, Board: board, ToMove: 0, Winner: -1, Moves: 30})
 	require.NoError(t, err)
 	require.NoError(t, env.db.Model(&model.GameSession{}).Where("id = ?", after["session_id"]).
-		Updates(map[string]any{"state": string(aiState), "created_at": common.GetTimestamp() - 200}).Error)
+		Updates(map[string]any{"state": string(aiState), "created_at": common.GetTimestamp() - 200, "play_seconds": 200}).Error)
 
 	won := player.ok(http.MethodPost, "/api/game/xiangqi/ai/move", map[string]any{
 		"session_id": after["session_id"], "version": after["version"], "move": map[string]any{"from": []int{8, 7}, "to": []int{8, 9}},

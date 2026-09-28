@@ -62,6 +62,41 @@ func TestGameCenterClosedLetsPlayersFinishStakedRounds(t *testing.T) {
 	assert.Equal(t, gameMessage(i18n.MsgGamePlayDisabled), player.fails(http.MethodGet, "/api/game/blackjack", nil))
 }
 
+// 累计时长要以服务端核实过的游戏过程为依据，不能只是开局以来过了多久：开了局挂着不动，最后交一份空记录、放弃或认输，
+// 都攒不到时长(认输时只算最后一步到现在的一小段)。玩了多少步才算多久：2048 每一步最多 5 秒。
+func TestIdleSessionsDoNotBankPlayTime(t *testing.T) {
+	require.NoError(t, i18n.Init())
+	env := newGameTestEnv(t, gameSetting(func(s *operation_setting.GameSetting) {
+		s.Game2048.Enabled = true
+		s.Sudoku.Enabled = true
+		s.Gomoku = operation_setting.PvpRule{Enabled: true, MaxStake: 100, RakePercent: 5, MoveSeconds: 60, Ai: boardAiRule()}
+	}))
+	player := env.player(0, gameTestIpA)
+	const idle = skillSessionTTL - 100
+	secondsToday := func(result map[string]any) any {
+		return result["progress"].(map[string]any)["seconds_today"]
+	}
+
+	empty := finish2048(player, start2048Session(t, env, player.user.Id, 1, idle).Id, "")
+	require.Equal(t, true, empty["success"], empty["message"])
+	assert.EqualValues(t, 0, secondsToday(empty["data"].(map[string]any)))
+	few := finish2048(player, start2048Session(t, env, player.user.Id, 1, idle).Id, "0123")
+	require.Equal(t, true, few["success"], few["message"])
+	moved := few["data"].(map[string]any)["detail"].(map[string]any)["moves"].(float64)
+	assert.EqualValues(t, moved*g2048SecondsPerMove, secondsToday(few["data"].(map[string]any)))
+
+	sudokuSession, _ := startSudokuSession(t, env, player.user.Id, 1, idle)
+	abandoned := player.ok(http.MethodPost, "/api/game/sudoku/abandon", map[string]any{"session_id": sudokuSession.Id})
+	assert.EqualValues(t, 0, secondsToday(abandoned))
+
+	started := player.ok(http.MethodPost, "/api/game/gomoku/ai/start", map[string]any{"level": 1})["session"].(map[string]any)
+	longAgo := common.GetTimestamp() - idle
+	require.NoError(t, env.db.Model(&model.GameSession{}).Where("id = ?", started["session_id"]).
+		Updates(map[string]any{"created_at": longAgo, "played_at": longAgo}).Error)
+	resigned := player.ok(http.MethodPost, "/api/game/gomoku/ai/resign", map[string]any{"session_id": started["session_id"]})
+	assert.EqualValues(t, model.GameActionGapSeconds, secondsToday(resigned["result"].(map[string]any)))
+}
+
 // 游戏接口的请求体有上限：json.Decoder 会先把整个值读进内存，一个登录用户发一个巨大的请求就能耗尽内存。普通请求只有几个字段，
 // 超过上限的请求直接拒绝，不扣币。
 func TestGameRequestBodiesAreBounded(t *testing.T) {

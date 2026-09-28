@@ -149,7 +149,7 @@ func ActPairlink(c *gin.Context) {
 		if game.Status == "won" {
 			score = game.Difficulty
 		}
-		result = settleSkillSession(c, "连连看", rule, session, skillOutcome{Score: score, Seconds: int(min(elapsed, int64(game.Seconds))), State: string(state), Detail: gin.H{"difficulty": game.Difficulty, "won": game.Status == "won", "pairs": game.Rows*game.Cols/2 - game.Remaining}})
+		result = settleSkillSession(c, "连连看", rule, session, skillOutcome{Score: score, Seconds: min(session.PlayedSeconds(common.GetTimestamp()), game.Seconds), State: string(state), Detail: gin.H{"difficulty": game.Difficulty, "won": game.Status == "won", "pairs": game.Rows*game.Cols/2 - game.Remaining}})
 		if result == nil {
 			return
 		}

@@ -19,6 +19,9 @@ const gameSudoku = "sudoku"
 // sudokuFinishMaxBytes 限制交卷请求的请求体：答卷只有 81 个数字。
 const sudokuFinishMaxBytes = 4 << 10
 
+// sudokuSecondsPerCell 是每填一格最多算作多少秒游戏时长：浏览器只在交卷时交一次，开局之后挂着不动不算在玩。
+const sudokuSecondsPerCell = 20
+
 func init() {
 	registerGame(&gameDefinition{
 		Key:  gameSudoku,
@@ -135,9 +138,10 @@ func FinishSudoku(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgGameReplayInvalid)
 		return
 	}
+	elapsed := common.GetTimestamp() - session.CreatedAt
 	result := settleSkillSession(c, "数独", rule, session, skillOutcome{
 		Score:   puzzle.Difficulty,
-		Seconds: int(common.GetTimestamp() - session.CreatedAt),
+		Seconds: int(min(elapsed, int64(81-puzzle.Givens())*sudokuSecondsPerCell)),
 		Detail:  sudokuDetail{Difficulty: puzzle.Difficulty, Givens: puzzle.Givens(), Solved: true},
 	})
 	if result == nil {
@@ -161,9 +165,10 @@ func AbandonSudoku(c *gin.Context) {
 	if session == nil {
 		return
 	}
+	// 放弃时浏览器什么都不交，看不出玩了多少，不计游戏时长。
 	result := settleSkillSession(c, "数独", rule, session, skillOutcome{
 		Score:   0,
-		Seconds: int(common.GetTimestamp() - session.CreatedAt),
+		Seconds: 0,
 		Detail:  sudokuDetail{Difficulty: puzzle.Difficulty, Givens: puzzle.Givens(), Solved: false},
 	})
 	if result == nil {

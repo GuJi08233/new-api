@@ -1039,7 +1039,7 @@ func settlePvpAi(c *gin.Context, game *pvpGame, rule operation_setting.SkillRule
 	}
 	result := settleSkillSession(c, game.name+"人机对战", rule, session, skillOutcome{
 		Score:   score,
-		Seconds: int(common.GetTimestamp() - session.CreatedAt),
+		Seconds: session.PlayedSeconds(common.GetTimestamp()),
 		Detail:  pvpAiDetail{Level: state.Level, Winner: state.Winner, Moves: state.Moves},
 		State:   string(data),
 	})

@@ -19,6 +19,8 @@ const (
 	g2048ClockSlackSeconds = 2
 	// g2048FinishMaxBytes 限制结算请求体：移动记录最多 g2048.MaxMoves 个字符，其余字段不到 100 字节。
 	g2048FinishMaxBytes = 256 << 10
+	// g2048SecondsPerMove 是每一步有效移动最多算作多少秒游戏时长：浏览器只在最后交一次，开局之后挂着不动不算在玩。
+	g2048SecondsPerMove = 5
 )
 
 func init() {
@@ -89,7 +91,7 @@ func Finish2048(c *gin.Context) {
 	}
 	result := settleSkillSession(c, "2048", rule, session, skillOutcome{
 		Score:   game.Score,
-		Seconds: int(elapsed),
+		Seconds: int(min(elapsed, int64(game.Moves)*g2048SecondsPerMove)),
 		Detail:  g2048Detail{MaxTile: game.MaxTile(), Moves: game.Moves, Over: game.Over},
 	})
 	if result == nil {
