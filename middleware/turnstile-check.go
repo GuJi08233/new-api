@@ -30,7 +30,14 @@ func TurnstileCheck() gin.HandlerFunc {
 			}
 			if err := service.VerifyTurnstile(response, c.ClientIP()); err != nil {
 				message := "Turnstile 校验失败，请刷新重试！"
-				if !errors.Is(err, service.ErrTurnstileRejected) {
+				switch {
+				case errors.Is(err, service.ErrTurnstileRejected):
+				case errors.Is(err, service.ErrTurnstileSiteError):
+					// 站点密钥没填或填错、Cloudflare 内部出错：记进日志给管理员排查，用户看到的仍是通用提示，
+					// 不把站点的配置问题暴露出去。
+					common.SysLog(err.Error())
+				default:
+					// 连不上 Cloudflare 或回应无法解析，与以前一样把原因告诉用户。
 					common.SysLog(err.Error())
 					message = err.Error()
 				}

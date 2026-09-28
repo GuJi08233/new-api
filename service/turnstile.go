@@ -14,6 +14,10 @@ import (
 // ErrTurnstileRejected 表示 Cloudflare 判定令牌无效：过期、已经用过，或者没有通过人机验证。
 var ErrTurnstileRejected = errors.New("turnstile token rejected")
 
+// ErrTurnstileSiteError 表示 Cloudflare 拒绝的是站点这一边：站点密钥没填或填错、Cloudflare 内部出错。不是用户的问题，
+// 调用方要记进日志，但不必把原因显示给用户。
+var ErrTurnstileSiteError = errors.New("turnstile verification failed on the site side")
+
 var turnstileVerifyUrl = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
 
 var turnstileClient = &http.Client{Timeout: 10 * time.Second}
@@ -45,7 +49,7 @@ func VerifyTurnstile(token string, remoteIp string) error {
 		switch code {
 		case "missing-input-response", "invalid-input-response", "timeout-or-duplicate":
 		default:
-			return fmt.Errorf("turnstile verification failed on the site side: %s", strings.Join(result.ErrorCodes, ", "))
+			return fmt.Errorf("%w: %s", ErrTurnstileSiteError, strings.Join(result.ErrorCodes, ", "))
 		}
 	}
 	return ErrTurnstileRejected

@@ -55,5 +55,6 @@ func TestVerifyTurnstileSeparatesSiteErrorsFromRejectedTokens(t *testing.T) {
 		server.Close()
 		require.Error(t, err, body)
 		assert.Equal(t, rejected, errors.Is(err, ErrTurnstileRejected), body)
+		assert.Equal(t, !rejected, errors.Is(err, ErrTurnstileSiteError), body)
 	}
 }
