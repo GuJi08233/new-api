@@ -1,0 +1,170 @@
+/*
+Copyright (C) 2025 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+
+/* 刮刮乐：一张带橙色票头的卡片，3×3 格金额上盖着画布画的涂层。涂层颜色由这里的变量给出，画布按它绘制。 */
+
+.scratch-card {
+  --scratch-coating: #c3c9d2;
+  --scratch-coating-mark: #a9b1bd;
+  width: min(100%, 360px);
+  border-radius: 16px;
+  border: 1px solid var(--semi-color-border);
+  background: var(--semi-color-bg-0);
+  box-shadow: 0 12px 28px -18px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+}
+
+body[theme-mode='dark'] .scratch-card {
+  --scratch-coating: #6b7483;
+  --scratch-coating-mark: #818a99;
+}
+
+.scratch-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #fff;
+  background: #ea580c;
+}
+
+.scratch-card-price {
+  margin-left: auto;
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.scratch-grid {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-rows: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  padding: 12px;
+  aspect-ratio: 1;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.scratch-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: 0;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 10px;
+  background: var(--semi-color-fill-0);
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.scratch-cell strong {
+  font-size: 24px;
+  font-weight: 800;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  color: var(--semi-color-text-0);
+}
+
+.scratch-cell small {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--semi-color-warning);
+}
+
+/* 中奖的三格。 */
+.scratch-cell.is-match {
+  border-color: rgba(var(--semi-amber-5), 1);
+  background: rgba(var(--semi-amber-5), 0.16);
+  animation: scratch-pop 0.4s ease-out;
+}
+
+.scratch-cell.is-match strong {
+  color: rgba(var(--semi-amber-7), 1);
+}
+
+/* 涂层画布盖住整个票面；只有刮的时候接收指针，并且不让手指拖动页面。 */
+.scratch-coating {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.scratch-coating.is-active {
+  pointer-events: auto;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.scratch-card-foot {
+  padding: 0 14px 12px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--semi-color-text-2);
+}
+
+.scratch-prices {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px 10px;
+}
+
+.scratch-prices-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--semi-color-text-1);
+}
+
+@keyframes scratch-pop {
+  0% {
+    transform: scale(0.9);
+  }
+  60% {
+    transform: scale(1.06);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scratch-cell {
+    transition: none;
+  }
+
+  .scratch-cell.is-match {
+    animation: none;
+  }
+}
+
+@media (max-width: 520px) {
+  .scratch-cell strong {
+    font-size: 20px;
+  }
+}
