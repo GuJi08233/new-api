@@ -227,7 +227,7 @@ func StartCrash(c *gin.Context) {
 		return
 	}
 	var req crashStartRequest
-	if err := common.DecodeJson(c.Request.Body, &req); err != nil {
+	if err := decodeGameRequest(c, &req); err != nil {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
@@ -278,7 +278,7 @@ func CashoutCrash(c *gin.Context) {
 	// 按收到请求的时刻判定，读库花的时间不算在玩家头上。
 	now := crashNowMs()
 	var req wagerRoundRequest
-	if err := common.DecodeJson(c.Request.Body, &req); err != nil {
+	if err := decodeGameRequest(c, &req); err != nil {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}

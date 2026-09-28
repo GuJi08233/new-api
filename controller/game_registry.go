@@ -1,6 +1,8 @@
 package controller
 
 import (
+	"net/http"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
@@ -111,6 +113,19 @@ func gameInfoHandler(def *gameDefinition) gin.HandlerFunc {
 		}
 		common.ApiSuccess(c, info)
 	}
+}
+
+// GameRequestBodyMaxBytes 是整组游戏接口请求体的总上限，挂在路由组上兜底，取各接口上限里最大的一个(俄罗斯方块一小时对局的
+// 录像)。各接口解析时再按自己的请求收紧，普通请求用 decodeGameRequest。
+const GameRequestBodyMaxBytes = tetrisFinishMaxBytes
+
+// gameRequestMaxBytes 是开局、下注、落子这类普通请求体的上限，它们只有几个字段。
+const gameRequestMaxBytes = 16 << 10
+
+// decodeGameRequest 解析游戏接口的普通 JSON 请求体，最多读 gameRequestMaxBytes 字节。json.Decoder 会先把整个值读进内存，
+// 不设上限时一个登录用户发一个几百兆的请求就能耗尽内存。
+func decodeGameRequest(c *gin.Context, v any) error {
+	return common.DecodeJson(http.MaxBytesReader(c.Writer, c.Request.Body, gameRequestMaxBytes), v)
 }
 
 // requireGameEnabled 在游戏或整个游戏中心关闭时拒绝开局类请求，写好错误响应并返回 false。

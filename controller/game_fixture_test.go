@@ -76,7 +76,7 @@ func newGameTestEnv(t *testing.T, setting *operation_setting.GameSetting) *gameT
 		setupLogin(&model.User{Id: id}, c)
 	})
 	// 与 router/api-router.go 一样：游戏中心开关只挂在钱包接口上，游戏接口自己判断开放与否。
-	group := router.Group("/api/game", middleware.UserAuth())
+	group := router.Group("/api/game", middleware.UserAuth(), middleware.GameRequestBodyLimit(GameRequestBodyMaxBytes))
 	group.GET("/self", GetGameCenterSelf)
 	group.POST("/convert", middleware.GameCenterEnabled(), ConvertGameCoins)
 	RegisterGameRoutes(group)

@@ -3,6 +3,7 @@ package controller
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
@@ -59,6 +60,23 @@ func TestGameCenterClosedLetsPlayersFinishStakedRounds(t *testing.T) {
 
 	assert.Equal(t, gameMessage(i18n.MsgGameCenterDisabled), player.fails(http.MethodGet, "/api/game/self", nil))
 	assert.Equal(t, gameMessage(i18n.MsgGamePlayDisabled), player.fails(http.MethodGet, "/api/game/blackjack", nil))
+}
+
+// 游戏接口的请求体有上限：json.Decoder 会先把整个值读进内存，一个登录用户发一个巨大的请求就能耗尽内存。普通请求只有几个字段，
+// 超过上限的请求直接拒绝，不扣币。
+func TestGameRequestBodiesAreBounded(t *testing.T) {
+	require.NoError(t, i18n.Init())
+	env := newGameTestEnv(t, gameSetting(func(s *operation_setting.GameSetting) {
+		s.Slots = operation_setting.WagerRule{Enabled: true, MaxBet: 5}
+		s.Memory = operation_setting.SkillRule{Enabled: true, DailyRewards: 1, Tiers: []operation_setting.RewardTier{{Score: 1, Coins: 1}}}
+	}))
+	player := env.player(10, gameTestIpA)
+
+	padding := strings.Repeat("a", gameRequestMaxBytes)
+	player.fails(http.MethodPost, "/api/game/slots/spin", map[string]any{"bet": 1, "padding": padding})
+	player.fails(http.MethodPost, "/api/game/memory/start", map[string]any{"difficulty": 1, "padding": padding})
+	assert.Equal(t, 10, player.balance(), "被拒绝的下注没有扣币")
+	player.ok(http.MethodPost, "/api/game/slots/spin", map[string]any{"bet": 1})
 }
 
 // 兑换限额按账号累计，与同 IP 的其他账号和全站提现池分别计算。

@@ -78,7 +78,7 @@ func StartPuzzle15(c *gin.Context) {
 		return
 	}
 	var req puzzle15StartRequest
-	if err := common.DecodeJson(c.Request.Body, &req); err != nil {
+	if err := decodeGameRequest(c, &req); err != nil {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}

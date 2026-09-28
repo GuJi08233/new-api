@@ -140,7 +140,7 @@ func StartHilo(c *gin.Context) {
 		return
 	}
 	var req hiloStartRequest
-	if err := common.DecodeJson(c.Request.Body, &req); err != nil {
+	if err := decodeGameRequest(c, &req); err != nil {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
@@ -175,7 +175,7 @@ func StartHilo(c *gin.Context) {
 // 派彩到了封顶时自动兑现。
 func GuessHilo(c *gin.Context) {
 	var req hiloGuessRequest
-	if err := common.DecodeJson(c.Request.Body, &req); err != nil {
+	if err := decodeGameRequest(c, &req); err != nil {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
@@ -227,7 +227,7 @@ func GuessHilo(c *gin.Context) {
 // CashoutHilo 兑现：派彩 = floor(下注 × 累计倍数)。至少猜对一次才能兑现。
 func CashoutHilo(c *gin.Context) {
 	var req wagerRoundRequest
-	if err := common.DecodeJson(c.Request.Body, &req); err != nil {
+	if err := decodeGameRequest(c, &req); err != nil {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}

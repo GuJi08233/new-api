@@ -144,7 +144,7 @@ func DealBlackjack(c *gin.Context) {
 		return
 	}
 	var req blackjackDealRequest
-	if err := common.DecodeJson(c.Request.Body, &req); err != nil {
+	if err := decodeGameRequest(c, &req); err != nil {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
@@ -190,7 +190,7 @@ func DealBlackjack(c *gin.Context) {
 // 什么都不会改变。所有手都结束后庄家补牌、这一局结算。
 func ActBlackjack(c *gin.Context) {
 	var req blackjackActionRequest
-	if err := common.DecodeJson(c.Request.Body, &req); err != nil {
+	if err := decodeGameRequest(c, &req); err != nil {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}

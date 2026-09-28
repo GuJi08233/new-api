@@ -70,7 +70,7 @@ func BuyScratch(c *gin.Context) {
 		return
 	}
 	var req scratchBuyRequest
-	if err := common.DecodeJson(c.Request.Body, &req); err != nil {
+	if err := decodeGameRequest(c, &req); err != nil {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}

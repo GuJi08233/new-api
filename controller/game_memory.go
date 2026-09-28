@@ -85,7 +85,7 @@ func StartMemory(c *gin.Context) {
 		return
 	}
 	var req memoryStartRequest
-	if err := common.DecodeJson(c.Request.Body, &req); err != nil {
+	if err := decodeGameRequest(c, &req); err != nil {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
@@ -121,7 +121,7 @@ func FlipMemory(c *gin.Context) {
 		return
 	}
 	var req memoryFlipRequest
-	if err := common.DecodeJson(c.Request.Body, &req); err != nil {
+	if err := decodeGameRequest(c, &req); err != nil {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}

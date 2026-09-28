@@ -77,7 +77,7 @@ func StartSudoku(c *gin.Context) {
 		return
 	}
 	var req sudokuStartRequest
-	if err := common.DecodeJson(c.Request.Body, &req); err != nil {
+	if err := decodeGameRequest(c, &req); err != nil {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
@@ -153,7 +153,7 @@ func AbandonSudoku(c *gin.Context) {
 		return
 	}
 	var req sudokuAbandonRequest
-	if err := common.DecodeJson(c.Request.Body, &req); err != nil {
+	if err := decodeGameRequest(c, &req); err != nil {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}

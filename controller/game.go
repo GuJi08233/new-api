@@ -155,7 +155,7 @@ func GetGameCenterSelf(c *gin.Context) {
 // ConvertGameCoins 把游戏币单向兑换为主额度，1 币 = 1 美元额度，每人每天最多兑换 15 美元额度。
 func ConvertGameCoins(c *gin.Context) {
 	var req gameCoinConvertRequest
-	if err := common.DecodeJson(c.Request.Body, &req); err != nil || req.Amount < 1 {
+	if err := decodeGameRequest(c, &req); err != nil || req.Amount < 1 {
 		common.ApiErrorI18n(c, i18n.MsgGameCoinAmountInvalid)
 		return
 	}
@@ -202,7 +202,7 @@ func WithdrawGameCoins(c *gin.Context) {
 		return
 	}
 	var req gameCoinWithdrawRequest
-	if err := common.DecodeJson(c.Request.Body, &req); err != nil || req.Amount < 1 {
+	if err := decodeGameRequest(c, &req); err != nil || req.Amount < 1 {
 		common.ApiErrorI18n(c, i18n.MsgGameCoinAmountInvalid)
 		return
 	}

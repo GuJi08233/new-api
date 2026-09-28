@@ -177,7 +177,7 @@ func EnterJackpot(c *gin.Context) {
 	}
 	rule := operation_setting.GetGameSetting().Jackpot
 	var req jackpotEnterRequest
-	if err := common.DecodeJson(c.Request.Body, &req); err != nil {
+	if err := decodeGameRequest(c, &req); err != nil {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}

@@ -520,7 +520,7 @@ func createPvpRoom(c *gin.Context, game string, rule operation_setting.PvpRule, 
 // CreateGameRoom 开一个等待对手的房间。私密房间不在大厅列出，把带邀请码的链接发给朋友就能加入。
 func CreateGameRoom(c *gin.Context) {
 	var req gameRoomCreateRequest
-	if err := common.DecodeJson(c.Request.Body, &req); err != nil {
+	if err := decodeGameRequest(c, &req); err != nil {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
@@ -599,7 +599,7 @@ func JoinGameRoomById(c *gin.Context) {
 // JoinGameRoomByCode 凭邀请码加入房间，私密房间只能这样加入。
 func JoinGameRoomByCode(c *gin.Context) {
 	var req gameRoomJoinRequest
-	if err := common.DecodeJson(c.Request.Body, &req); err != nil || req.Code == "" {
+	if err := decodeGameRequest(c, &req); err != nil || req.Code == "" {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
@@ -614,7 +614,7 @@ func JoinGameRoomByCode(c *gin.Context) {
 // MatchGameRoom 快速匹配：加入大厅里押注相同、等得最久的房间，没有时开一个公开房间等别人来。
 func MatchGameRoom(c *gin.Context) {
 	var req gameRoomCreateRequest
-	if err := common.DecodeJson(c.Request.Body, &req); err != nil {
+	if err := decodeGameRequest(c, &req); err != nil {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
@@ -744,7 +744,7 @@ func MoveGameRoom(c *gin.Context) {
 		return
 	}
 	var req gameRoomMoveRequest
-	if err := common.DecodeJson(c.Request.Body, &req); err != nil || len(req.Move) == 0 {
+	if err := decodeGameRequest(c, &req); err != nil || len(req.Move) == 0 {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
@@ -951,7 +951,7 @@ func startPvpAi(c *gin.Context, game *pvpGame) {
 		return
 	}
 	var req pvpAiStartRequest
-	if err := common.DecodeJson(c.Request.Body, &req); err != nil || req.Level < 1 || req.Level > pvpAiLevels {
+	if err := decodeGameRequest(c, &req); err != nil || req.Level < 1 || req.Level > pvpAiLevels {
 		common.ApiErrorI18n(c, i18n.MsgGameAiLevelInvalid)
 		return
 	}
@@ -1057,7 +1057,7 @@ func movePvpAi(c *gin.Context, game *pvpGame) {
 		return
 	}
 	var req pvpAiMoveRequest
-	if err := common.DecodeJson(c.Request.Body, &req); err != nil || len(req.Move) == 0 {
+	if err := decodeGameRequest(c, &req); err != nil || len(req.Move) == 0 {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
@@ -1113,7 +1113,7 @@ func resignPvpAi(c *gin.Context, game *pvpGame) {
 		return
 	}
 	var req pvpAiMoveRequest
-	if err := common.DecodeJson(c.Request.Body, &req); err != nil {
+	if err := decodeGameRequest(c, &req); err != nil {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}

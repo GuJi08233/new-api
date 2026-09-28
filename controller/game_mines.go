@@ -104,7 +104,7 @@ func StartMines(c *gin.Context) {
 		return
 	}
 	var req minesStartRequest
-	if err := common.DecodeJson(c.Request.Body, &req); err != nil {
+	if err := decodeGameRequest(c, &req); err != nil {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
@@ -142,7 +142,7 @@ func StartMines(c *gin.Context) {
 // PickMines 翻开一格：踩雷就输掉下注、揭示全部雷；是安全格就记下，翻开所有安全格或派彩到了封顶时自动兑现。
 func PickMines(c *gin.Context) {
 	var req minesPickRequest
-	if err := common.DecodeJson(c.Request.Body, &req); err != nil {
+	if err := decodeGameRequest(c, &req); err != nil {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
@@ -179,7 +179,7 @@ func PickMines(c *gin.Context) {
 // CashoutMines 兑现：按翻开的安全格数派彩。至少翻开一格才能兑现。
 func CashoutMines(c *gin.Context) {
 	var req wagerRoundRequest
-	if err := common.DecodeJson(c.Request.Body, &req); err != nil {
+	if err := decodeGameRequest(c, &req); err != nil {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
