@@ -32,16 +32,16 @@ import './jackpot.css';
 const POLL_MS = 2000;
 const RING_RADIUS = 80;
 const RING_WIDTH = 22;
-// 玩家的颜色依次取用，自己永远是主色。
+// 玩家的颜色依次取用，自己永远是主色；这几种颜色都和主色(蓝)分得清。
 const PLAYER_COLORS = [
-  '#0ea5e9',
   '#f59e0b',
   '#10b981',
   '#ec4899',
   '#8b5cf6',
   '#ef4444',
   '#14b8a6',
-  '#6366f1',
+  '#f97316',
+  '#84cc16',
 ];
 
 // 从正上方起顺时针转过 degrees 度、离圆心 radius 处的坐标。
@@ -100,7 +100,11 @@ const Jackpot = () => {
       const last = lastRoundRef.current;
       if (last && data.round?.id !== last.id) {
         const result = (data.recent || []).find((item) => item.id === last.id);
-        if (result) setDrawn({ ...result, players: last.players });
+        if (result) {
+          // 开奖之后"已投入"的提示过时了，换成开奖结果。
+          setDrawn({ ...result, players: last.players });
+          setMessage(null);
+        }
       }
       lastRoundRef.current = data.round?.pot > 0 ? data.round : null;
       setInfo(data);
