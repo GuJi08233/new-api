@@ -134,7 +134,8 @@ func TestCrashLongPollWaitsForTheEnd(t *testing.T) {
 	assert.NotContains(t, first, "crash_point")
 
 	second := player.ok(http.MethodGet, "/api/game/crash/round?wait=1", nil)
-	assert.EqualValues(t, crashTestStart+crash.TimeOf(500), *now, "正好等到爆炸的那一刻")
+	assert.EqualValues(t, crashTestStart+crash.TimeOf(500)+crashSettleGrace.Milliseconds(), *now,
+		"等到爆炸之后再等一小会儿：爆炸前一刻发出的兑现先按它收到的时刻结算")
 	assert.Equal(t, model.GameSessionStatusFinished, roundOf(t, second)["status"])
 	assert.EqualValues(t, 500, roundOf(t, second)["crash_point"])
 	assert.EqualValues(t, 90, second["balance"])

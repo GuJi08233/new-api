@@ -443,6 +443,10 @@ func SettleGameFreePlay(userId int, game string, play GameFreePlay) (*GameSettle
 	result := &GameSettlementResult{Session: session}
 	counters := newGameFreeCounters(userId, play.Ip, game, play.Day)
 	err := DB.Transaction(func(tx *gorm.DB) error {
+		// 先锁账户再锁计数：付费旋转先扣币、再记今天的输赢，同一用户同时的免费与付费旋转按同一顺序加锁，不会互相等待成环。
+		if err := lockGameCoinAccountTx(tx, userId); err != nil {
+			return err
+		}
 		user, err := lockGameRewardCounter(tx, counters.userRow, counters.userKey, gameDayColumns)
 		if err != nil {
 			return err

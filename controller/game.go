@@ -232,11 +232,22 @@ func WithdrawGameCoins(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgGameCoinInsufficient)
 		return
 	}
+	// 全站当日额度同样先查一次：页面上的剩余额度可能已经被别人用掉，验证之后才被拒绝的话，验证白做、重试还要再验证。
+	// 真正的额度检查在占用额度的条件更新里。
+	day := gameCenterDay()
+	used, err := model.GetGameCoinWithdrawDayUsed(day)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if used+req.Amount > setting.WithdrawDailyLimit {
+		common.ApiErrorI18n(c, i18n.MsgGameWithdrawDailyLimit, map[string]any{"Remaining": max(setting.WithdrawDailyLimit-used, 0)})
+		return
+	}
 	if !middleware.RequireSecurityProof(c, "game.withdraw", strings.ToLower(address)+":"+strconv.Itoa(req.Amount)) {
 		return
 	}
 
-	day := gameCenterDay()
 	// 记下现在的链、合约与精度：之后管理员换了配置，这笔提现也不会按另一种代币或另一个数量发出去。
 	withdrawal := &model.GameCoinWithdrawal{
 		UserId:        userId,

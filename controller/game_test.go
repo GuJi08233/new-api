@@ -225,6 +225,13 @@ func TestWithdrawGameCoinsRequiresProofBoundToAddressAndAmount(t *testing.T) {
 	cookies := login.Result().Cookies()
 	request := map[string]any{"address": "0x8ba1f109551bd432803012645ac136ddd64dba72", "amount": 3}
 
+	// 全站当日额度不够时直接拒绝，不必先做安全验证：验证之后才被拒绝的话，验证白做，重试还要再验证一次。
+	require.NoError(t, db.Create(&model.GameCoinWithdrawDay{Day: gameCenterDay(), Used: 98}).Error)
+	full, fullBody := accountRequest(t, router, http.MethodPost, "/api/game/withdraw", cookies, request, "")
+	assert.Equal(t, http.StatusOK, full.Code, "没有要求安全验证")
+	assert.Equal(t, false, fullBody["success"])
+	require.NoError(t, db.Where("day = ?", gameCenterDay()).Delete(&model.GameCoinWithdrawDay{}).Error)
+
 	denied, challenge := accountRequest(t, router, http.MethodPost, "/api/game/withdraw", cookies, request, "")
 	require.Equal(t, http.StatusForbidden, denied.Code)
 	assert.Equal(t, "game.withdraw", challenge["scope"])

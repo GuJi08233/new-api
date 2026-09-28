@@ -23,6 +23,9 @@ const (
 	crashRecentLimit = 10
 	// crashPollTimeout 是 GET /round?wait=1 最多等多久，远低于常见反向代理的空闲超时。
 	crashPollTimeout = 25 * time.Second
+	// crashSettleGrace 是到了爆点(或自动兑现的时刻)之后，长轮询再等多久才结算：玩家在爆炸前一刻发出的兑现可能还在路上
+	// 或正在读库，先让它按收到的时刻结算，不被长轮询抢先判成爆炸。
+	crashSettleGrace = 250 * time.Millisecond
 )
 
 // crashFlightSeconds 是一局火箭最长能飞多久：倍数涨到上限 MaxPoint 的时刻，那时任何一局都已经爆了或兑现了。
@@ -180,7 +183,7 @@ func GetCrashRound(c *gin.Context) {
 	}
 	if session.Status == model.GameSessionStatusPlaying && c.Query("wait") != "" {
 		endsAt := state.StartedAtMs + crash.EndsAt(state.Point, state.Auto)
-		if wait := min(endsAt-crashNowMs(), crashPollTimeout.Milliseconds()); wait > 0 {
+		if wait := min(endsAt+crashSettleGrace.Milliseconds()-crashNowMs(), crashPollTimeout.Milliseconds()); wait > 0 {
 			if !crashSleep(c, time.Duration(wait)*time.Millisecond) {
 				return
 			}

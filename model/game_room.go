@@ -161,6 +161,11 @@ func JoinGameRoom(room *GameRoom, guestId int, guestIp string, start GameRoomSta
 	now := common.GetTimestamp()
 	var balance int
 	err := DB.Transaction(func(tx *gorm.DB) error {
+		// 先锁房间再锁账户，与取消、结束房间的顺序一致：它们先改房间、再给玩家记账，反过来加锁会和别的房间互相等待成环。
+		var locked []int
+		if err := lockForUpdate(tx).Model(&GameRoom{}).Where("id = ?", room.Id).Pluck("id", &locked).Error; err != nil {
+			return err
+		}
 		if err := lockGameCoinAccountTx(tx, guestId); err != nil {
 			return err
 		}
