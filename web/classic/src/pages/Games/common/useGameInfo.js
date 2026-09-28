@@ -33,7 +33,10 @@ export function useGameInfo(key) {
   const reload = useCallback(
     async (refresh = false) => {
       try {
-        const res = await API.get(`/api/game/${key}`);
+        // 重新读取时页面上已经有内容，失败由调用方自己提示，不再弹全局的错误。
+        const res = await API.get(`/api/game/${key}`, {
+          skipErrorHandler: refresh,
+        });
         if (!res.data.success) {
           if (!refresh) setUnavailable(res.data.message);
           return null;

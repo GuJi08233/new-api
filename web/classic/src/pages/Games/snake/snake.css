@@ -1,0 +1,186 @@
+/*
+Copyright (C) 2025 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+
+/* 贪吃蛇：20×20 的场地画在正方形画布上，随台面宽度缩放；触屏设备在场地下方多一个方向键盘。 */
+
+.snake-page {
+  --game-main-width: 580px;
+}
+
+/* 场地宽度同时受台面宽度与视口高度约束，整块场地和下面的按钮不用滚动就能看全。 */
+.snake-board {
+  position: relative;
+  width: clamp(260px, calc(100vh - 370px), 480px);
+  max-width: 100%;
+  aspect-ratio: 1;
+  border-radius: 12px;
+  border: 1px solid var(--semi-color-border);
+  background: var(--semi-color-fill-0);
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* 对局中在场地上滑动只用来转向，不滚动页面。 */
+.snake-board.is-steering {
+  touch-action: none;
+}
+
+.snake-board canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.snake-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 16px;
+  text-align: center;
+  background: color-mix(in srgb, var(--semi-color-bg-1) 80%, transparent);
+  backdrop-filter: blur(2px);
+  animation: snake-fade-in 240ms ease-out;
+}
+
+/* 开局提示放在场地上方，不挡住蛇。 */
+.snake-overlay.is-hint {
+  justify-content: flex-start;
+  padding-top: 14%;
+  background: none;
+  backdrop-filter: none;
+}
+
+.snake-overlay.is-hint .snake-overlay-title,
+.snake-overlay.is-hint .snake-overlay-text {
+  padding: 2px 10px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--semi-color-bg-1) 80%, transparent);
+}
+
+/* 结算结果只盖一层薄纱，还看得见这局最后的样子。 */
+.snake-overlay.is-result {
+  background: color-mix(in srgb, var(--semi-color-bg-1) 62%, transparent);
+  backdrop-filter: blur(1px);
+}
+
+.snake-overlay-title {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--semi-color-text-0);
+}
+
+.snake-overlay-score {
+  font-size: 44px;
+  font-weight: 700;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  color: var(--semi-color-text-0);
+}
+
+.snake-overlay-text {
+  font-size: 13px;
+  color: var(--semi-color-text-1);
+}
+
+.snake-record {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(var(--semi-amber-7), 1);
+  background: rgba(var(--semi-amber-5), 0.16);
+}
+
+/* 方向键盘只在以触摸为主的设备上显示：上、左右、下排成十字。 */
+.snake-pad {
+  display: none;
+}
+
+.snake-pad-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  border: 1px solid var(--semi-color-border);
+  color: var(--semi-color-text-0);
+  background: var(--semi-color-bg-1);
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.snake-pad-button:active {
+  background: var(--semi-color-fill-1);
+}
+
+.snake-pad-button.is-up {
+  grid-area: up;
+}
+
+.snake-pad-button.is-left {
+  grid-area: left;
+}
+
+.snake-pad-button.is-right {
+  grid-area: right;
+}
+
+.snake-pad-button.is-down {
+  grid-area: down;
+}
+
+@media (pointer: coarse) {
+  .snake-pad {
+    display: grid;
+    grid-template-areas:
+      '. up .'
+      'left . right'
+      '. down .';
+    grid-template-columns: repeat(3, 60px);
+    grid-template-rows: repeat(3, 52px);
+    gap: 8px;
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+@keyframes snake-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .snake-overlay {
+    animation: none;
+  }
+}

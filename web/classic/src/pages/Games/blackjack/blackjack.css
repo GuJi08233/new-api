@@ -1,0 +1,313 @@
+/*
+Copyright (C) 2025 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+
+/* 21 点：上面庄家、下面玩家的牌，分牌后两手并排。牌面固定用浅色卡片与黑红两色，明暗主题下都清楚；
+   牌背用站点主色。发牌时每张牌依次落下。 */
+
+.blackjack-page {
+  --blackjack-card-width: 64px;
+}
+
+.blackjack-table {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  width: 100%;
+}
+
+.blackjack-dealer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding-bottom: 18px;
+  border-bottom: 1px dashed var(--semi-color-border);
+}
+
+.blackjack-hands {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.blackjack-hand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid transparent;
+  border-radius: 14px;
+  transition:
+    border-color 0.2s ease,
+    background-color 0.2s ease;
+}
+
+.blackjack-hand.is-playing {
+  border-color: var(--semi-color-primary-light-active);
+  background: var(--semi-color-primary-light-default);
+}
+
+.blackjack-hand.is-waiting {
+  opacity: 0.7;
+}
+
+.blackjack-hand-head,
+.blackjack-hand-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px 8px;
+  font-size: 12px;
+  color: var(--semi-color-text-2);
+}
+
+.blackjack-hand-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--semi-color-text-1);
+}
+
+.blackjack-total {
+  min-width: 32px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--semi-color-text-0);
+  background: var(--semi-color-fill-1);
+}
+
+.blackjack-total.is-bust {
+  color: var(--semi-color-danger);
+  background: var(--semi-color-danger-light-default);
+}
+
+.blackjack-total.is-blackjack {
+  color: rgba(var(--semi-amber-7), 1);
+  background: rgba(var(--semi-amber-5), 0.16);
+}
+
+.blackjack-bet {
+  font-variant-numeric: tabular-nums;
+}
+
+.blackjack-payout {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--semi-color-text-1);
+}
+
+.blackjack-result {
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.blackjack-result.is-win {
+  color: var(--semi-color-success);
+  background: var(--semi-color-success-light-default);
+}
+
+.blackjack-result.is-blackjack {
+  color: rgba(var(--semi-amber-7), 1);
+  background: rgba(var(--semi-amber-5), 0.16);
+}
+
+.blackjack-result.is-push {
+  color: var(--semi-color-text-1);
+  background: var(--semi-color-fill-1);
+}
+
+.blackjack-result.is-lose {
+  color: var(--semi-color-danger);
+  background: var(--semi-color-danger-light-default);
+}
+
+/* 一手里的牌互相压住一部分，牌多了也排得下。 */
+.blackjack-cards {
+  display: flex;
+  justify-content: center;
+  min-height: calc(var(--blackjack-card-width) * 1.4);
+}
+
+.blackjack-card {
+  position: relative;
+  flex-shrink: 0;
+  width: var(--blackjack-card-width);
+  aspect-ratio: 5 / 7;
+  border: 1px solid rgba(15, 23, 42, 0.14);
+  border-radius: 8px;
+  color: #0f172a;
+  background: #fff;
+  box-shadow: 0 4px 10px -4px rgba(15, 23, 42, 0.35);
+  animation: blackjack-deal 0.28s ease-out both;
+  animation-delay: calc(var(--card-index, 0) * 90ms);
+}
+
+.blackjack-card + .blackjack-card {
+  margin-left: calc(var(--blackjack-card-width) * -0.36);
+}
+
+.blackjack-card.is-red {
+  color: #dc2626;
+}
+
+.blackjack-card-corner {
+  position: absolute;
+  top: 5px;
+  left: 5px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  width: calc(var(--blackjack-card-width) * 0.3);
+}
+
+.blackjack-card-rank {
+  font-size: calc(var(--blackjack-card-width) * 0.26);
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.blackjack-card-pip,
+.blackjack-card-suit {
+  fill: currentColor;
+  stroke-width: 1.5;
+}
+
+.blackjack-card-pip {
+  width: calc(var(--blackjack-card-width) * 0.2);
+  height: auto;
+}
+
+.blackjack-card-suit {
+  position: absolute;
+  right: 10%;
+  bottom: 10%;
+  width: 40%;
+  height: auto;
+}
+
+.blackjack-card.is-back {
+  border-color: rgba(var(--semi-indigo-5), 0.5);
+  background: repeating-linear-gradient(
+      45deg,
+      rgba(255, 255, 255, 0.14) 0 4px,
+      transparent 4px 10px
+    ),
+    var(--semi-color-primary);
+}
+
+.blackjack-card.is-back::after {
+  content: '';
+  position: absolute;
+  inset: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 5px;
+}
+
+body[theme-mode='dark'] .blackjack-card:not(.is-back) {
+  background: #e2e8f0;
+}
+
+.blackjack-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+.blackjack-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 100px;
+  height: 44px;
+  padding: 0 18px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 999px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--semi-color-text-0);
+  background: var(--semi-color-bg-0);
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.blackjack-action:hover:not(:disabled) {
+  border-color: var(--semi-color-primary-light-active);
+  background: var(--semi-color-primary-light-default);
+}
+
+.blackjack-action:disabled {
+  color: var(--semi-color-disabled-text);
+  background: var(--semi-color-disabled-bg);
+  cursor: not-allowed;
+}
+
+.blackjack-action:focus-visible {
+  outline: 2px solid var(--semi-color-primary);
+  outline-offset: 2px;
+}
+
+@keyframes blackjack-deal {
+  from {
+    opacity: 0;
+    transform: translateY(-14px) scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .blackjack-card {
+    animation: none;
+  }
+}
+
+@media (max-width: 520px) {
+  .blackjack-page {
+    --blackjack-card-width: 52px;
+  }
+
+  .blackjack-hand {
+    padding: 8px;
+  }
+
+  .blackjack-action {
+    flex: 1 1 40%;
+    min-width: 0;
+  }
+}
