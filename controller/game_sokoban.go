@@ -87,6 +87,11 @@ func FinishSokoban(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	// 奖励记在结算的这一天：开局时的那张图已经不是今天的了，解开它不能领今天的奖励，不然一张图的解法能领两天。
+	if game.Day != gameCenterDay() {
+		common.ApiErrorI18n(c, i18n.MsgGameSessionExpired)
+		return
+	}
 	played := &game
 	if len(req.Moves) > 0 {
 		var err error
@@ -126,6 +131,11 @@ func GetSokobanState(c *gin.Context) {
 	var game sokoban.Game
 	if err := common.UnmarshalJsonStr(session.State, &game); err != nil {
 		common.ApiError(c, err)
+		return
+	}
+	// 昨天开的一局已经交不了，不再恢复，玩家直接开今天的这张图。
+	if game.Day != gameCenterDay() {
+		common.ApiSuccess(c, gin.H{"session": nil})
 		return
 	}
 	common.ApiSuccess(c, gin.H{"session": sokobanView(session, &game)})

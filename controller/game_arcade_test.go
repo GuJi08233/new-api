@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
@@ -110,6 +111,27 @@ func TestSokobanDailyLayoutAndReplaySettlement(t *testing.T) {
 	quit := other.ok(http.MethodPost, "/api/game/sokoban/finish", map[string]any{"session_id": second["session_id"], "abandon": true})
 	assert.EqualValues(t, 0, quit["score"])
 	assert.EqualValues(t, 0, quit["reward"])
+}
+
+// 每日推箱子的奖励记在结算的这一天：前一天开局、存着前一天那张图的一局，过了零点再交解法也不算，页面也不再恢复它，
+// 不然一张图的解法能领两天的奖励。
+func TestSokobanRejectsYesterdaysMap(t *testing.T) {
+	require.NoError(t, i18n.Init())
+	env := newGameTestEnv(t, gameSetting(func(s *operation_setting.GameSetting) {
+		s.Sokoban.Enabled = true
+		s.Sokoban.MinSecondsPerCoin = 0
+	}))
+	player := env.player(0, gameTestIpA)
+	started := player.ok(http.MethodPost, "/api/game/sokoban/start", nil)
+	yesterday := time.Now().AddDate(0, 0, -1).Format("2006-01-02")
+	game := &sokoban.Game{Day: yesterday, Width: 5, Height: 4, Walls: []int{0, 1, 2, 3, 4, 5, 9, 10, 14, 15, 16, 17, 18, 19}, Player: 6, Boxes: []int{7}, Goals: []int{8}}
+	state, err := common.Marshal(game)
+	require.NoError(t, err)
+	require.NoError(t, env.db.Model(&model.GameSession{}).Where("id = ?", started["session_id"]).Update("state", string(state)).Error)
+
+	assert.Equal(t, gameMessage(i18n.MsgGameSessionExpired), player.fails(http.MethodPost, "/api/game/sokoban/finish", map[string]any{"session_id": started["session_id"], "moves": "R"}))
+	assert.Nil(t, player.ok(http.MethodGet, "/api/game/sokoban/state", nil)["session"])
+	assert.Zero(t, player.balance())
 }
 
 func TestBreakoutReplayedScoreAndSharedRewardLimit(t *testing.T) {
