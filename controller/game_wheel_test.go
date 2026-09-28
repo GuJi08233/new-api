@@ -63,6 +63,12 @@ func TestSpinWheelFreeThenPaidWithoutDailyLimit(t *testing.T) {
 	account, err := model.GetGameCoinAccount(player.user.Id)
 	require.NoError(t, err)
 	assert.Equal(t, 3+6, account.TotalEarned, "种子币加上免费旋转的奖品")
+	// 免费旋转没有下注，每次中奖都和技巧游戏的奖励一样记审计日志；付费旋转按净赢数量，净赢 98 个不记。
+	var rewardLogs, bigWinLogs int64
+	require.NoError(t, env.db.Model(&model.Log{}).Where("user_id = ? AND type = ? AND content LIKE ?", player.user.Id, model.LogTypeSystem, "游戏奖励%").Count(&rewardLogs).Error)
+	require.NoError(t, env.db.Model(&model.Log{}).Where("user_id = ? AND type = ? AND content LIKE ?", player.user.Id, model.LogTypeSystem, "游戏大奖%").Count(&bigWinLogs).Error)
+	assert.EqualValues(t, 1, rewardLogs)
+	assert.Zero(t, bigWinLogs)
 	assert.Equal(t, 8, account.TotalWagered)
 	assert.Equal(t, 92, account.TotalWagerNet)
 }

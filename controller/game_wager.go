@@ -187,13 +187,15 @@ func gameRoundResumable(game string) func(ctx *gameContext) bool {
 	}
 }
 
-// auditGameFreeWin 在免费奖励(例如大转盘的免费旋转)一次开出 gameAuditMinNet 以上的游戏币时记审计日志。
+// auditGameFreeWin 给免费奖励(大转盘的免费旋转)每一次中奖记一条带来源 IP 的审计日志，和技巧游戏的奖励一样：没有下注，
+// 开出多少就白得多少，最高 50 个游戏币也不受奖励合计上限约束，风控要能在多账号视图里看到同一 IP 下哪些账号在领。
+// 每人每天只有一两次免费旋转，日志不会多。
 func auditGameFreeWin(c *gin.Context, game string, name string, session *model.GameSession) {
-	if session.Reward < gameAuditMinNet {
+	if session.Reward <= 0 {
 		return
 	}
 	model.RecordAuditLog(model.ClientLogSource(c), session.UserId, "", model.LogTypeSystem,
-		fmt.Sprintf("游戏大奖：%s，获得 %d 个游戏币", name, session.Reward),
+		fmt.Sprintf("游戏奖励：%s，获得 %d 个游戏币", name, session.Reward),
 		map[string]interface{}{"game": game, "session_id": session.Id, "free": true, "game_coins": session.Reward})
 }
 
