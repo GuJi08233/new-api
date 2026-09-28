@@ -1,0 +1,196 @@
+/*
+Copyright (C) 2025 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+
+/* 挖宝：5×5 的格子画成看板上的圆角方块，宝石用青绿、地雷用红色，结束后没挖的宝石淡淡地显示出来。 */
+
+.mines-board {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-rows: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  width: min(100%, 400px);
+  aspect-ratio: 1;
+}
+
+.mines-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  padding: 0;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 12px;
+  color: var(--semi-color-text-2);
+  /* 台面顶部有一层光晕，格子用不透明的底色，整盘看起来一样深。 */
+  background-color: var(--semi-color-bg-1);
+  background-image: linear-gradient(
+    var(--semi-color-fill-0),
+    var(--semi-color-fill-0)
+  );
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    transform 0.1s ease;
+}
+
+.mines-cell svg {
+  width: 46%;
+  height: 46%;
+}
+
+.mines-board.is-playing .mines-cell.is-hidden {
+  cursor: pointer;
+  background-image: linear-gradient(
+    var(--semi-color-fill-1),
+    var(--semi-color-fill-1)
+  );
+}
+
+.mines-board.is-playing .mines-cell.is-hidden:hover:not(:disabled) {
+  border-color: var(--semi-color-primary-light-active);
+  background-image: linear-gradient(
+    var(--semi-color-primary-light-default),
+    var(--semi-color-primary-light-default)
+  );
+  transform: translateY(-1px);
+}
+
+.mines-cell:disabled {
+  cursor: default;
+}
+
+.mines-cell:focus-visible {
+  outline: 2px solid var(--semi-color-primary);
+  outline-offset: 2px;
+}
+
+.mines-cell.is-gem {
+  border-color: rgba(var(--semi-teal-5), 0.5);
+  color: rgba(var(--semi-teal-5), 1);
+  background-image: linear-gradient(
+    rgba(var(--semi-teal-5), 0.14),
+    rgba(var(--semi-teal-5), 0.14)
+  );
+}
+
+.mines-cell.is-gem svg {
+  animation: mines-pop 0.3s ease-out;
+}
+
+/* 没挖的宝石画得小一些、淡一些，和挖出来的分得开。 */
+.mines-cell.is-spare {
+  color: rgba(var(--semi-teal-5), 0.45);
+}
+
+.mines-cell.is-spare svg {
+  width: 32%;
+  height: 32%;
+}
+
+.mines-cell.is-mine {
+  color: var(--semi-color-danger);
+  background-image: linear-gradient(
+    var(--semi-color-danger-light-default),
+    var(--semi-color-danger-light-default)
+  );
+}
+
+.mines-cell.is-exploded {
+  border-color: var(--semi-color-danger);
+  color: #fff;
+  background-color: var(--semi-color-danger);
+  background-image: none;
+  animation: mines-shake 0.35s ease-out;
+}
+
+.mines-cell.is-spare svg,
+.mines-cell.is-mine svg {
+  animation: mines-fade 0.3s ease-out;
+}
+
+.mines-count {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px 8px;
+}
+
+.mines-count-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--semi-color-text-1);
+}
+
+@keyframes mines-pop {
+  0% {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+  70% {
+    transform: scale(1.15);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes mines-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes mines-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-4px);
+  }
+  75% {
+    transform: translateX(4px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mines-cell,
+  .mines-cell.is-exploded,
+  .mines-cell.is-gem svg,
+  .mines-cell.is-spare svg,
+  .mines-cell.is-mine svg {
+    animation: none;
+    transition: none;
+  }
+}
+
+@media (max-width: 520px) {
+  .mines-board {
+    gap: 6px;
+  }
+
+  .mines-cell {
+    border-radius: 10px;
+  }
+}
