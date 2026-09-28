@@ -97,7 +97,8 @@ func ActPairlink(c *gin.Context) {
 	var path []pairlink.Point
 	var hint []int
 	shuffled := false
-	if elapsed >= int64(game.Seconds) || req.Action == "finish" {
+	// 开局与现在都按整秒计，算出来的时间最多差一秒；到点之后的这一秒仍然算数，页面倒计时还剩时间时发出的最后一步不会被判输。
+	if elapsed > int64(game.Seconds) || req.Action == "finish" {
 		game.Status = "lost"
 	} else {
 		switch req.Action {

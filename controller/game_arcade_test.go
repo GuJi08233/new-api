@@ -74,6 +74,23 @@ func TestPairlinkTimeoutAndToolLimits(t *testing.T) {
 	assert.EqualValues(t, 180, ended["result"].(map[string]any)["progress"].(map[string]any)["seconds_today"], "游戏时长不超过这一档的限时")
 }
 
+// 开局与现在都按整秒计，到点之后的那一秒仍然算数：页面倒计时还剩时间时发出的最后一步不会被判输；再晚一秒就判输。
+func TestPairlinkAllowsTheLastSecond(t *testing.T) {
+	require.NoError(t, i18n.Init())
+	env := newGameTestEnv(t, gameSetting(func(s *operation_setting.GameSetting) { s.Pairlink.Enabled = true }))
+	player := env.player(0, gameTestIpA)
+	view := player.ok(http.MethodPost, "/api/game/pairlink/start", map[string]any{"difficulty": 1})
+	limit := int64(pairlink.Levels[0].Seconds)
+
+	require.NoError(t, env.db.Model(&model.GameSession{}).Where("id = ?", view["session_id"]).Update("created_at", common.GetTimestamp()-limit).Error)
+	hinted := player.ok(http.MethodPost, "/api/game/pairlink/action", map[string]any{"session_id": view["session_id"], "version": view["version"], "action": "hint"})
+	assert.Equal(t, "playing", hinted["status"])
+
+	require.NoError(t, env.db.Model(&model.GameSession{}).Where("id = ?", view["session_id"]).Update("created_at", common.GetTimestamp()-limit-1).Error)
+	ended := player.ok(http.MethodPost, "/api/game/pairlink/action", map[string]any{"session_id": view["session_id"], "version": hinted["version"], "action": "hint"})
+	assert.Equal(t, "lost", ended["status"])
+}
+
 func TestSokobanDailyLayoutAndReplaySettlement(t *testing.T) {
 	require.NoError(t, i18n.Init())
 	// 这里只看关卡与重放结算，不要求累计时长。

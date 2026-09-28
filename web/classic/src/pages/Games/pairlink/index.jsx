@@ -66,7 +66,8 @@ const Pairlink = () => {
   const playing = game?.status === 'playing';
 
   const accept = useCallback((view) => {
-    setGame({ ...view, since: Date.now() - view.elapsed * 1000 });
+    // 服务端的 elapsed 按整秒计，最多比实际少算一秒；倒计时提前一秒到点，显示还有时间时发出的一步一定来得及。
+    setGame({ ...view, since: Date.now() - (view.elapsed + 1) * 1000 });
     setNow(Date.now());
     setDifficulty(view.difficulty);
     setSelected(-1);
@@ -195,8 +196,12 @@ const Pairlink = () => {
       setSelected(-1);
       return;
     }
-    if (selected < 0) setSelected(index);
-    else action('match', selected, index);
+    // 图案不同的两张连不上，不必问服务端：改选新点的这一张。
+    if (selected < 0 || game.board[selected] !== game.board[index]) {
+      setSelected(index);
+      return;
+    }
+    action('match', selected, index);
   };
 
   const message =
