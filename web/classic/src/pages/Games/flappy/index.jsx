@@ -263,7 +263,7 @@ const Flappy = () => {
     run.submitting = false;
     if (!mountedRef.current || runRef.current !== run) return;
     // 没有得到答复或被限流时整局记录还在，可以重新提交；已经结算过的话，服务端会返回第一次的结果。
-    if (response.network || response.error === t('操作太快了，请稍后再试')) {
+    if (response.network || response.limited) {
       setPhase('error');
       return;
     }
