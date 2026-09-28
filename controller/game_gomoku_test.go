@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/gomoku"
@@ -118,6 +119,24 @@ func TestGomokuStakedRoomPaysWinnerMinusRake(t *testing.T) {
 
 // 人机对战走真实接口：开局后(AI 执黑时它已经走了天元)玩家每走一步，AI 在同一个请求里回一步，局面与玩家这边按双方着法
 // 重放的一致；落在已有棋子的格子被拒绝。玩家这边用困难难度的 AI 下，赢下简单难度后按成绩 1 领到 1 个游戏币。
+// 人机对战的一局放过了有效期就走不了也认不了输：游戏页不再恢复它，玩家直接回到大厅，开新的一局时旧的一局作废。
+func TestGomokuAiExpiredSessionIsNotRestored(t *testing.T) {
+	require.NoError(t, i18n.Init())
+	env := newGameTestEnv(t, gameSetting(func(s *operation_setting.GameSetting) {
+		s.Gomoku = operation_setting.PvpRule{Enabled: true, MaxStake: 100, RakePercent: 5, MoveSeconds: 60, Ai: boardAiRule()}
+	}))
+	player := env.player(0, gameTestIpA)
+	started := player.ok(http.MethodPost, "/api/game/gomoku/ai/start", map[string]any{"level": 1})["session"].(map[string]any)
+	require.NotNil(t, player.ok(http.MethodGet, "/api/game/gomoku", nil)["ai"].(map[string]any)["session"])
+
+	require.NoError(t, env.db.Model(&model.GameSession{}).Where("id = ?", started["session_id"]).
+		Update("created_at", common.GetTimestamp()-skillSessionTTL-1).Error)
+	assert.Nil(t, player.ok(http.MethodGet, "/api/game/gomoku", nil)["ai"].(map[string]any)["session"])
+	assert.Nil(t, player.ok(http.MethodGet, "/api/game/gomoku/ai", nil)["session"])
+	restarted := player.ok(http.MethodPost, "/api/game/gomoku/ai/start", map[string]any{"level": 1})["session"].(map[string]any)
+	assert.NotEqual(t, started["session_id"], restarted["session_id"])
+}
+
 func TestGomokuAiGameSettles(t *testing.T) {
 	require.NoError(t, i18n.Init())
 	env := newGameTestEnv(t, gameSetting(func(s *operation_setting.GameSetting) {

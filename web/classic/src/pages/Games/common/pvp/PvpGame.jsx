@@ -468,9 +468,17 @@ const AiView = ({
       {error && <StageMessage kind='error'>{error}</StageMessage>}
       <div className='pvp-actions'>
         {!ai.over ? (
-          <Button icon={<Flag size={14} />} disabled={busy} onClick={onResign}>
-            {t('认输')}
-          </Button>
+          <>
+            <Button
+              icon={<Flag size={14} />}
+              disabled={busy}
+              onClick={onResign}
+            >
+              {t('认输')}
+            </Button>
+            {/* 操作失败时(例如这一局已经过期)也能回到大厅重新开始，不会卡在这一局上。 */}
+            {error && <Button onClick={onBack}>{t('返回大厅')}</Button>}
+          </>
         ) : (
           <>
             <button

@@ -369,7 +369,8 @@ func pvpInfo(ctx *gameContext, game *pvpGame) (gin.H, error) {
 		if err != nil {
 			return nil, err
 		}
-		if session != nil {
+		// 过期的一局已经走不了也认不了输，不再恢复，玩家直接回到大厅。
+		if session != nil && common.GetTimestamp()-session.CreatedAt <= skillSessionTTL {
 			if ai["session"], err = pvpAiView(game, session); err != nil {
 				return nil, err
 			}
@@ -918,7 +919,7 @@ func getPvpAi(c *gin.Context, game *pvpGame) {
 		common.ApiError(c, err)
 		return
 	}
-	if session == nil {
+	if session == nil || common.GetTimestamp()-session.CreatedAt > skillSessionTTL {
 		common.ApiSuccess(c, gin.H{"session": nil})
 		return
 	}
