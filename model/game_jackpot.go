@@ -48,7 +48,8 @@ type GameJackpotRound struct {
 	WinnerId    int `json:"winner_id"`
 	// WinnerStake 是赢家在这一轮投入的游戏币，与奖池之比就是赢家中奖的概率。
 	WinnerStake int `json:"winner_stake" gorm:"type:bigint;not null;default:0"`
-	// Payout 是赢家拿到的游戏币，Rake 是平台抽走的，两者之和就是奖池。Ticket 是抽中的奖券，从 0 起按投入先后编号。
+	// Payout 是赢家拿到的游戏币，Rake 是平台抽走的，两者之和就是奖池。Ticket 是抽中的奖券，从 0 起编号：玩家按第一次投入的
+	// 先后排，每位玩家的奖券连在一起，数量就是他的投入合计。
 	Payout    int   `json:"payout" gorm:"type:bigint;not null;default:0"`
 	Rake      int   `json:"rake" gorm:"type:bigint;not null;default:0"`
 	Ticket    int   `json:"ticket" gorm:"type:bigint;not null;default:0"`
@@ -209,12 +210,21 @@ func DrawGameJackpot(pick func(tickets int) (int, error), day string) (*GameJack
 		if ticket < 0 || ticket >= round.Pot {
 			return errors.New("jackpot ticket out of range")
 		}
-		for i, rest := 0, ticket; i < len(entries); i++ {
-			if rest < entries[i].Amount {
-				round.WinnerId = entries[i].UserId
+		// 奖券按玩家编号，和页面上按玩家画的奖池一一对应，指针停在哪一段就是谁中奖。抽中每位玩家的概率只看他的投入合计，
+		// 与怎么编号无关。
+		totals, users := gameJackpotTotals(entries)
+		counted := make(map[int]bool, len(totals))
+		rest := ticket
+		for _, entry := range entries {
+			if counted[entry.UserId] {
+				continue
+			}
+			counted[entry.UserId] = true
+			if rest < totals[entry.UserId] {
+				round.WinnerId = entry.UserId
 				break
 			}
-			rest -= entries[i].Amount
+			rest -= totals[entry.UserId]
 		}
 		round.Status, round.Ticket, round.DrawnAt = GameJackpotStatusDrawn, ticket, now
 		round.Rake = round.Pot * round.RakePercent / 100
@@ -230,7 +240,6 @@ func DrawGameJackpot(pick func(tickets int) (int, error), day string) (*GameJack
 		}).Error; err != nil {
 			return err
 		}
-		totals, users := gameJackpotTotals(entries)
 		round.WinnerStake = totals[round.WinnerId]
 		if err := tx.Model(&GameJackpotRound{}).Where("id = ?", round.Id).Update("winner_stake", round.WinnerStake).Error; err != nil {
 			return err

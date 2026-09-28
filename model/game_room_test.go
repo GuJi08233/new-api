@@ -152,6 +152,28 @@ func TestGameJackpotDrawPaysTicketHolder(t *testing.T) {
 	assert.NotEqual(t, round.Id, next.Id)
 }
 
+// 奖券按玩家编号：玩家按第一次投入的先后排，每位玩家的奖券连在一起，和页面按玩家画的奖池一一对应。A 投 10、B 投 10、
+// A 再投 10 时，奖券 0–19 属于 A，20–29 属于 B；抽中 15 号是 A 赢，指针也停在 A 的那一段上。
+func TestGameJackpotTicketsFollowPlayerOrder(t *testing.T) {
+	truncateTables(t)
+	seedGameUser(t, 2321, 50)
+	seedGameUser(t, 2322, 50)
+	rule := GameJackpotEntryRule{MaxBet: 30, RoundSeconds: 60, RakePercent: 10}
+	_, _, err := EnterGameJackpot(2321, 10, rule, gameTestIp)
+	require.NoError(t, err)
+	_, _, err = EnterGameJackpot(2322, 10, rule, gameTestOtherIp)
+	require.NoError(t, err)
+	round, _, err := EnterGameJackpot(2321, 10, rule, gameTestIp)
+	require.NoError(t, err)
+	require.NoError(t, DB.Model(&GameJackpotRound{}).Where("id = ?", round.Id).Update("deadline", 1).Error)
+
+	drawn, err := DrawGameJackpot(func(int) (int, error) { return 15, nil }, "2026-09-29")
+	require.NoError(t, err)
+	require.NotNil(t, drawn)
+	assert.Equal(t, 2321, drawn.WinnerId)
+	assert.Equal(t, 20, drawn.WinnerStake)
+}
+
 // 同一 IP 下的账号算同一个人：一个账号投了这一轮，同一 IP 的另一个账号就不能再投，凑不够两位玩家开奖，
 // 也越不过每人每轮的上限。换一个 IP 的玩家照常加入。
 func TestGameJackpotRejectsSecondAccountOnTheSameIp(t *testing.T) {

@@ -107,6 +107,24 @@ func jackpotRoundView(userId int) (gin.H, error) {
 	if err != nil {
 		return nil, err
 	}
+	players, mine, err := jackpotStakes(entries, userId, 0)
+	if err != nil {
+		return nil, err
+	}
+	return gin.H{
+		"id":           round.Id,
+		"pot":          round.Pot,
+		"deadline":     round.Deadline,
+		"rake_percent": round.RakePercent,
+		"created_at":   round.CreatedAt,
+		"players":      players,
+		"mine":         mine,
+	}, nil
+}
+
+// jackpotStakes 把一轮的投入按玩家汇总，按每位玩家第一次投入的先后排列：奖券也是这样编号的，页面照这个顺序画奖池，
+// 指针停在哪一段就是谁的奖券。winnerId 不为 0 时标出赢家；第二个返回值是 userId 自己的投入合计。
+func jackpotStakes(entries []model.GameJackpotEntry, userId int, winnerId int) ([]gin.H, int, error) {
 	order := make([]int, 0)
 	totals := make(map[int]int)
 	for _, entry := range entries {
@@ -117,24 +135,17 @@ func jackpotRoundView(userId int) (gin.H, error) {
 	}
 	names, err := model.GetGameDisplayNames(order)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	players := make([]gin.H, 0, len(order))
+	stakes := make([]gin.H, 0, len(order))
 	for _, id := range order {
-		players = append(players, gin.H{"name": names[id], "amount": totals[id], "own": id == userId})
+		stakes = append(stakes, gin.H{"name": names[id], "amount": totals[id], "own": id == userId, "winner": winnerId != 0 && id == winnerId})
 	}
-	return gin.H{
-		"id":           round.Id,
-		"pot":          round.Pot,
-		"deadline":     round.Deadline,
-		"rake_percent": round.RakePercent,
-		"created_at":   round.CreatedAt,
-		"players":      players,
-		"mine":         totals[userId],
-	}, nil
+	return stakes, totals[userId], nil
 }
 
-// jackpotRecentRounds 是最近开奖的几轮：赢家、奖池、赢家拿到的游戏币与赢家的投入。
+// jackpotRecentRounds 是最近开奖的几轮：赢家、奖池、赢家拿到的游戏币与赢家的投入。最近的一轮还带着每位玩家最终的投入
+// (stakes)：页面刷新有间隔，开奖前最后几秒的投入它可能没看到，要照开奖时的奖池画出指针停在谁那一段。
 func jackpotRecentRounds(userId int) ([]gin.H, error) {
 	rounds, err := model.ListRecentGameJackpotRounds(jackpotRecentLimit)
 	if err != nil {
@@ -149,8 +160,8 @@ func jackpotRecentRounds(userId int) ([]gin.H, error) {
 		return nil, err
 	}
 	recent := make([]gin.H, 0, len(rounds))
-	for _, round := range rounds {
-		recent = append(recent, gin.H{
+	for i, round := range rounds {
+		item := gin.H{
 			"id":           round.Id,
 			"pot":          round.Pot,
 			"payout":       round.Payout,
@@ -161,7 +172,17 @@ func jackpotRecentRounds(userId int) ([]gin.H, error) {
 			"ticket":       round.Ticket,
 			"own":          round.WinnerId == userId,
 			"drawn_at":     round.DrawnAt,
-		})
+		}
+		if i == 0 {
+			entries, err := model.ListGameJackpotEntries(round.Id)
+			if err != nil {
+				return nil, err
+			}
+			if item["stakes"], _, err = jackpotStakes(entries, userId, round.WinnerId); err != nil {
+				return nil, err
+			}
+		}
+		recent = append(recent, item)
 	}
 	return recent, nil
 }

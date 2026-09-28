@@ -30,6 +30,8 @@ import './jackpot.css';
 
 // 页面每隔这么久刷新一次奖池；开奖由服务端在刷新时完成。
 const POLL_MS = 2000;
+// 开奖结果至少展示这么久；之后下一轮有人投入了，就换成下一轮的奖池与倒计时。
+const DRAW_SHOW_MS = 8000;
 const RING_RADIUS = 80;
 const RING_WIDTH = 22;
 // 玩家的颜色依次取用，自己永远是主色；这几种颜色都和主色(蓝)分得清。
@@ -101,10 +103,25 @@ const Jackpot = () => {
       if (last && data.round?.id !== last.id) {
         const result = (data.recent || []).find((item) => item.id === last.id);
         if (result) {
-          // 开奖之后"已投入"的提示过时了，换成开奖结果。
-          setDrawn({ ...result, players: last.players });
+          // 开奖之后"已投入"的提示过时了，换成开奖结果。按开奖时每位玩家的投入画奖池(exact)，指针停在抽中的奖券上；
+          // 错过了好几轮、拿不到那一轮的投入时，只能按上一次看到的奖池画，不画指针。
+          setDrawn({
+            ...result,
+            players: result.stakes || last.players,
+            exact: !!result.stakes,
+            shownAt: Date.now(),
+          });
           setMessage(null);
         }
+      } else if (data.round?.pot > 0) {
+        // 下一轮已经有人投入：上一轮的开奖结果展示够了，就换成这一轮。
+        setDrawn((current) =>
+          current &&
+          current.id !== data.round.id &&
+          Date.now() - current.shownAt >= DRAW_SHOW_MS
+            ? null
+            : current,
+        );
       }
       lastRoundRef.current = data.round?.pot > 0 ? data.round : null;
       setInfo(data);
@@ -168,9 +185,11 @@ const Jackpot = () => {
 
   const arcs = playerArcs(players, pot);
   const drawnArcs = drawn ? playerArcs(drawn.players || [], drawn.pot) : [];
-  // 开奖后指针停在抽中的那张奖券上。
+  // 开奖后指针停在抽中的那张奖券上：奖券按玩家第一次投入的先后编号，和奖池里每位玩家的一段一一对应。
   const pointer =
-    drawn && drawn.pot > 0 ? ((drawn.ticket + 0.5) / drawn.pot) * 360 : null;
+    drawn?.exact && drawn.pot > 0
+      ? ((drawn.ticket + 0.5) / drawn.pot) * 360
+      : null;
   const shownArcs = drawn ? drawnArcs : arcs;
 
   let status = t('等待第一位玩家投入');
@@ -309,7 +328,8 @@ const Jackpot = () => {
                   d={arcPath(arc.from, arc.to)}
                   style={{ fill: arc.color }}
                   className={
-                    drawn && arc.name === drawn.winner
+                    drawn &&
+                    (drawn.exact ? arc.winner : arc.name === drawn.winner)
                       ? 'jackpot-arc is-winner'
                       : 'jackpot-arc'
                   }
