@@ -520,6 +520,10 @@ For commercial licensing, please contact support@quantumnous.com
   color: var(--semi-color-text-1);
 }
 
+.games-closed-banner {
+  margin-bottom: 16px;
+}
+
 .games-free-limit {
   font-size: 12px;
   color: var(--semi-color-text-2);

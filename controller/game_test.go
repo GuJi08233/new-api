@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"fmt"
 	"net/http"
 	"testing"
 
@@ -8,12 +9,57 @@ import (
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/blackjack"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// 关掉整个游戏中心之后不能再开新局，也不能兑换，但押着游戏币的一局还能回来下完：21 点照常停牌结算，对战房间里双方照常出拳，
+// 不会眼看着后台按超时判负。游戏中心列表这时只列出这几个游戏，都结束以后整个游戏中心就打不开了。
+func TestGameCenterClosedLetsPlayersFinishStakedRounds(t *testing.T) {
+	require.NoError(t, i18n.Init())
+	setting := gameSetting(func(s *operation_setting.GameSetting) {
+		blackjackSetting(s)
+		s.Rps = operation_setting.PvpRule{Enabled: true, MaxStake: 100, RakePercent: 5, MoveSeconds: 20}
+	})
+	env := newGameTestEnv(t, setting)
+	player := env.player(100, gameTestIpA)
+	rival := env.player(100, gameTestIpB)
+	// 10、9 对庄家 6、10：停牌后庄家 16 点补 8 爆牌。
+	stackBlackjackShoe(t, 10, 6, 9, 10, 8)
+	player.ok(http.MethodPost, "/api/game/blackjack/deal", map[string]any{"bet": 10})
+	created := player.ok(http.MethodPost, "/api/game/rooms", map[string]any{"game": gameRps, "stake": 10})
+	roomPath := fmt.Sprintf("/api/game/rooms/%d", int(created["id"].(float64)))
+	joined := rival.ok(http.MethodPost, roomPath+"/join", nil)
+
+	setting.Enabled = false
+	assert.Equal(t, gameMessage(i18n.MsgGamePlayDisabled), player.fails(http.MethodPost, "/api/game/blackjack/deal", map[string]any{"bet": 10}))
+	assert.Equal(t, gameMessage(i18n.MsgGamePlayDisabled), rival.fails(http.MethodPost, "/api/game/rooms", map[string]any{"game": gameRps, "stake": 10}))
+	assert.Equal(t, gameMessage(i18n.MsgGameCenterDisabled), player.fails(http.MethodPost, "/api/game/convert", map[string]any{"amount": 1}))
+
+	hub := player.ok(http.MethodGet, "/api/game/self", nil)
+	assert.Equal(t, true, hub["closed"])
+	assert.Equal(t, false, hub["withdraw"].(map[string]any)["enabled"])
+	var listed []string
+	for _, game := range hub["games"].([]any) {
+		listed = append(listed, game.(map[string]any)["key"].(string))
+	}
+	assert.ElementsMatch(t, []string{gameBlackjack, gameRps}, listed)
+	assert.Equal(t, false, player.ok(http.MethodGet, "/api/game/blackjack", nil)["enabled"])
+
+	moved := player.ok(http.MethodPost, roomPath+"/move", rpsMoveBody(joined["version"], 1, "rock"))
+	rival.ok(http.MethodPost, roomPath+"/move", rpsMoveBody(moved["version"], 1, "scissors"))
+	current := player.ok(http.MethodGet, "/api/game/blackjack/round", nil)
+	stood := player.ok(http.MethodPost, "/api/game/blackjack/action", roundRequest(t, current, map[string]any{"action": blackjack.ActionStand}))
+	assert.EqualValues(t, 20, roundOf(t, stood)["win"])
+	player.ok(http.MethodPost, roomPath+"/resign", nil)
+
+	assert.Equal(t, gameMessage(i18n.MsgGameCenterDisabled), player.fails(http.MethodGet, "/api/game/self", nil))
+	assert.Equal(t, gameMessage(i18n.MsgGamePlayDisabled), player.fails(http.MethodGet, "/api/game/blackjack", nil))
+}
 
 // 兑换限额按账号累计，与同 IP 的其他账号和全站提现池分别计算。
 func TestGameCoinConvertDailyLimitOverHTTP(t *testing.T) {

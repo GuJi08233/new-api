@@ -65,8 +65,7 @@ func Start2048(c *gin.Context) {
 // 重复提交时返回第一次结算的结果。
 func Finish2048(c *gin.Context) {
 	rule := operation_setting.GetGameSetting().Game2048
-	if !rule.Enabled {
-		common.ApiErrorI18n(c, i18n.MsgGamePlayDisabled)
+	if !requireGameEnabled(c, game2048) {
 		return
 	}
 	var req g2048FinishRequest

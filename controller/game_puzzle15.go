@@ -106,8 +106,7 @@ func StartPuzzle15(c *gin.Context) {
 // 同一局只结算一次，重复提交返回第一次结算的结果。
 func FinishPuzzle15(c *gin.Context) {
 	rule := operation_setting.GetGameSetting().Puzzle15
-	if !rule.Enabled {
-		common.ApiErrorI18n(c, i18n.MsgGamePlayDisabled)
+	if !requireGameEnabled(c, gamePuzzle15) {
 		return
 	}
 	var req puzzle15FinishRequest

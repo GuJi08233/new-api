@@ -71,8 +71,7 @@ func StartTetris(c *gin.Context) {
 // (例如结算成功但响应在网络上丢了)时返回第一次结算的结果。
 func FinishTetris(c *gin.Context) {
 	rule := operation_setting.GetGameSetting().Tetris
-	if !rule.Enabled {
-		common.ApiErrorI18n(c, i18n.MsgGamePlayDisabled)
+	if !requireGameEnabled(c, gameTetris) {
 		return
 	}
 	var req tetrisFinishRequest

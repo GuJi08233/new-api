@@ -67,7 +67,8 @@ func newGameContext(c *gin.Context) *gameContext {
 }
 
 // RegisterGameRoutes 注册所有游戏的接口：每个游戏的规则接口 GET /api/game/<key> 与它自己登记的接口，以及对战房间的公共接口。
-// group 已经挂好登录、IP 封禁与游戏中心开关的中间件。
+// group 已经挂好登录与 IP 封禁的中间件，但不挂游戏中心开关：总开关关闭时所有游戏都算关闭，开局类接口由 requireGameEnabled
+// 拒绝，押着游戏币的一局照样能下完、兑现，不然后台按超时结算时玩家只能干看着输掉押注。
 func RegisterGameRoutes(group *gin.RouterGroup) {
 	for _, def := range gameDefinitions {
 		sub := group.Group("/" + def.Key)
@@ -112,7 +113,7 @@ func gameInfoHandler(def *gameDefinition) gin.HandlerFunc {
 	}
 }
 
-// requireGameEnabled 在游戏关闭时拒绝开局类请求，写好错误响应并返回 false。
+// requireGameEnabled 在游戏或整个游戏中心关闭时拒绝开局类请求，写好错误响应并返回 false。
 func requireGameEnabled(c *gin.Context, game string) bool {
 	if operation_setting.GetGameSetting().GameEnabled(game) {
 		return true

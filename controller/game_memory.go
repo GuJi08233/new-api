@@ -117,8 +117,7 @@ func StartMemory(c *gin.Context) {
 // 请求要带玩家看到的版本号，局面已被另一个请求改过时拒绝；只有保存成功之后才回应图案，并发的请求探不到别的牌。
 func FlipMemory(c *gin.Context) {
 	rule := operation_setting.GetGameSetting().Memory
-	if !rule.Enabled {
-		common.ApiErrorI18n(c, i18n.MsgGamePlayDisabled)
+	if !requireGameEnabled(c, gameMemory) {
 		return
 	}
 	var req memoryFlipRequest

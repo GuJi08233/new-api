@@ -8,8 +8,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// GameCenterEnabled 在游戏中心关闭时拒绝用户侧的游戏接口。管理端接口不挂它：
-// 关闭期间管理员仍要能配置、查看提现与调整余额。
+// GameCenterEnabled 在游戏中心关闭时拒绝用户侧的钱包接口(兑换、提现与记录)。游戏接口不挂它，由各游戏自己判断开放与否：
+// 关闭后不能开新局，押着游戏币的一局还要能玩完。管理端接口也不挂它：关闭期间管理员仍要能配置、查看提现与调整余额。
 func GameCenterEnabled() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !operation_setting.GetGameSetting().Enabled {

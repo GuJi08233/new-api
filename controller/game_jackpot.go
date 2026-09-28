@@ -43,10 +43,10 @@ func init() {
 				summary["players"] = round.Players
 			}
 		},
-		// 投入的游戏币押在奖池里，游戏关闭后也要让玩家回来看开奖。
+		// 投入的游戏币押在奖池里，游戏关闭后也要让这一轮投了币的玩家回来看开奖。
 		Resumable: func(ctx *gameContext) bool {
-			round, err := model.GetOpenGameJackpotRound()
-			return err == nil && round != nil && round.Pot > 0
+			entered, err := model.HasOpenGameJackpotEntry(ctx.UserId)
+			return err == nil && entered
 		},
 		Routes: func(group *gin.RouterGroup) {
 			group.POST("/enter", middleware.GameSpinRateLimit("jackpot-enter"), EnterJackpot)

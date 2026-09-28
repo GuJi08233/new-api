@@ -73,8 +73,7 @@ type wheelDetail struct {
 func SpinWheel(c *gin.Context) {
 	setting := operation_setting.GetGameSetting()
 	rule := setting.Wheel
-	if !rule.Enabled {
-		common.ApiErrorI18n(c, i18n.MsgGamePlayDisabled)
+	if !requireGameEnabled(c, gameWheel) {
 		return
 	}
 	var req wheelSpinRequest

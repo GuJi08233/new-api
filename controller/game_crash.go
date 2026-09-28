@@ -223,8 +223,7 @@ func reloadCrashRound(c *gin.Context, id int, state *crashState) *model.GameSess
 // 上一局已经爆炸或到了自动兑现的时刻、只是还没人来结算时，先把它结算掉；还在飞时要先把它玩完。
 func StartCrash(c *gin.Context) {
 	rule := operation_setting.GetGameSetting().Crash
-	if !rule.Enabled {
-		common.ApiErrorI18n(c, i18n.MsgGamePlayDisabled)
+	if !requireGameEnabled(c, gameCrash) {
 		return
 	}
 	var req crashStartRequest

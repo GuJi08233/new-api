@@ -640,8 +640,11 @@ func (s *GameSetting) PvpRuleOf(game string) (PvpRule, bool) {
 	return PvpRule{}, false
 }
 
-// GameEnabled 表示这个游戏已开放；未知的游戏返回 false。
+// GameEnabled 表示这个游戏已开放；游戏中心总开关关闭时所有游戏都算关闭，未知的游戏返回 false。
 func (s *GameSetting) GameEnabled(game string) bool {
+	if !s.Enabled {
+		return false
+	}
 	switch game {
 	case "wheel":
 		return s.Wheel.Enabled

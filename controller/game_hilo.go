@@ -136,8 +136,7 @@ func GetHiloRound(c *gin.Context) {
 // StartHilo 开一局高低牌：扣下注，翻开第一张牌。同一时间只能有一局，还有没结束的一局时要先把它玩完。
 func StartHilo(c *gin.Context) {
 	rule := operation_setting.GetGameSetting().Hilo
-	if !rule.Enabled {
-		common.ApiErrorI18n(c, i18n.MsgGamePlayDisabled)
+	if !requireGameEnabled(c, gameHilo) {
 		return
 	}
 	var req hiloStartRequest

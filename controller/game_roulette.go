@@ -64,8 +64,7 @@ type rouletteDetail struct {
 // 注的派彩之和。扣注与派彩在同一个事务里完成，浏览器只负责把轮盘转到返回的号码。
 func SpinRoulette(c *gin.Context) {
 	rule := operation_setting.GetGameSetting().Roulette
-	if !rule.Enabled {
-		common.ApiErrorI18n(c, i18n.MsgGamePlayDisabled)
+	if !requireGameEnabled(c, gameRoulette) {
 		return
 	}
 	var req rouletteSpinRequest

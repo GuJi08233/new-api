@@ -83,9 +83,19 @@ func passGamePlayTurnstile(c *gin.Context, setting *operation_setting.GameSettin
 }
 
 // GetGameCenterSelf 返回当前用户的游戏币账户、个人兑换限额、全站提现规则、技巧与人机奖励合计，以及每个开放游戏的今日进度。
-// 各游戏的规则与详细进度由游戏页自己的接口 GET /api/game/<key> 返回。
+// 各游戏的规则与详细进度由游戏页自己的接口 GET /api/game/<key> 返回。游戏中心关闭时，只给还押着游戏币、没结束一局的玩家
+// 列出那几个游戏(closed 为 true)，让他回去把它玩完；兑换与提现这时都不开放。
 func GetGameCenterSelf(c *gin.Context) {
 	ctx := newGameContext(c)
+	games, counts, err := gameSummaries(ctx)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if !ctx.Setting.Enabled && len(games) == 0 {
+		common.ApiErrorI18n(c, i18n.MsgGameCenterDisabled)
+		return
+	}
 	account, err := model.GetGameCoinAccount(ctx.UserId)
 	if err != nil {
 		common.ApiError(c, err)
@@ -106,14 +116,10 @@ func GetGameCenterSelf(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	games, counts, err := gameSummaries(ctx)
-	if err != nil {
-		common.ApiError(c, err)
-		return
-	}
 	setting := ctx.Setting
 	_, _, walletErr := service.GameHotWalletAddress()
 	common.ApiSuccess(c, gin.H{
+		"closed":         !setting.Enabled,
 		"account":        account,
 		"quota_per_coin": quotaPerCoin,
 		"games":          games,
@@ -137,7 +143,7 @@ func GetGameCenterSelf(c *gin.Context) {
 			"explorer_url": setting.ExplorerUrl,
 		},
 		"withdraw": gin.H{
-			"enabled":         setting.WithdrawEnabled && setting.ChainConfigured() && walletErr == nil,
+			"enabled":         setting.Enabled && setting.WithdrawEnabled && setting.ChainConfigured() && walletErr == nil,
 			"min_amount":      setting.WithdrawMinAmount,
 			"max_amount":      setting.WithdrawMaxAmount,
 			"daily_limit":     setting.WithdrawDailyLimit,

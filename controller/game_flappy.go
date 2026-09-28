@@ -69,8 +69,7 @@ func StartFlappy(c *gin.Context) {
 // 脚本，不发奖励。同一局只结算一次，重复提交时返回第一次结算的结果。
 func FinishFlappy(c *gin.Context) {
 	rule := operation_setting.GetGameSetting().Flappy
-	if !rule.Enabled {
-		common.ApiErrorI18n(c, i18n.MsgGamePlayDisabled)
+	if !requireGameEnabled(c, gameFlappy) {
 		return
 	}
 	var req flappyFinishRequest

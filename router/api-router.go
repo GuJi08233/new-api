@@ -158,15 +158,16 @@ func SetApiRouter(router *gin.Engine) {
 			}
 		}
 
-		// 游戏中心：用户接口要求登录且游戏中心已启用，被风控封禁的 IP 不能玩游戏、领奖励；管理端只给 root，关闭期间也能配置。
+		// 游戏中心：用户接口要求登录，被风控封禁的 IP 不能玩游戏、领奖励；管理端只给 root，关闭期间也能配置。
+		// 游戏中心关闭时钱包接口一并关闭；游戏接口自己判断开放与否，押着游戏币、没结束的一局照样能玩完。
 		gameRoute := apiRouter.Group("/game")
-		gameRoute.Use(middleware.UserAuth(), middleware.IpBanGuardApi(), middleware.GameCenterEnabled())
+		gameRoute.Use(middleware.UserAuth(), middleware.IpBanGuardApi())
 		{
 			gameRoute.GET("/self", controller.GetGameCenterSelf)
-			gameRoute.GET("/logs", controller.GetGameCoinLogs)
-			gameRoute.GET("/withdrawals", controller.GetGameCoinWithdrawals)
-			gameRoute.POST("/convert", middleware.UserCriticalRateLimit("game-convert"), controller.ConvertGameCoins)
-			gameRoute.POST("/withdraw", middleware.UserCriticalRateLimit("game-withdraw"), middleware.DisableCache(), controller.WithdrawGameCoins)
+			gameRoute.GET("/logs", middleware.GameCenterEnabled(), controller.GetGameCoinLogs)
+			gameRoute.GET("/withdrawals", middleware.GameCenterEnabled(), controller.GetGameCoinWithdrawals)
+			gameRoute.POST("/convert", middleware.GameCenterEnabled(), middleware.UserCriticalRateLimit("game-convert"), controller.ConvertGameCoins)
+			gameRoute.POST("/withdraw", middleware.GameCenterEnabled(), middleware.UserCriticalRateLimit("game-withdraw"), middleware.DisableCache(), controller.WithdrawGameCoins)
 			// 各游戏的规则与玩法接口 /api/game/<key>/...，以及对战房间 /api/game/rooms/...。
 			controller.RegisterGameRoutes(gameRoute)
 		}

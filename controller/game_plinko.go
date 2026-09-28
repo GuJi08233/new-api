@@ -69,8 +69,7 @@ type plinkoDetail struct {
 // 浏览器只照着返回的路径播放动画。
 func DropPlinko(c *gin.Context) {
 	rule := operation_setting.GetGameSetting().Plinko
-	if !rule.Enabled {
-		common.ApiErrorI18n(c, i18n.MsgGamePlayDisabled)
+	if !requireGameEnabled(c, gamePlinko) {
 		return
 	}
 	var req plinkoDropRequest

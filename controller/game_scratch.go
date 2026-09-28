@@ -66,8 +66,7 @@ type scratchDetail struct {
 // 扣币与派彩在同一个事务里完成，结果在购买时就已确定，浏览器只负责刮开的交互。
 func BuyScratch(c *gin.Context) {
 	rule := operation_setting.GetGameSetting().Scratch
-	if !rule.Enabled {
-		common.ApiErrorI18n(c, i18n.MsgGamePlayDisabled)
+	if !requireGameEnabled(c, gameScratch) {
 		return
 	}
 	var req scratchBuyRequest

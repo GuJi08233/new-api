@@ -66,8 +66,7 @@ func StartSnake(c *gin.Context) {
 // 同一局只结算一次，重复提交时返回第一次结算的结果。
 func FinishSnake(c *gin.Context) {
 	rule := operation_setting.GetGameSetting().Snake
-	if !rule.Enabled {
-		common.ApiErrorI18n(c, i18n.MsgGamePlayDisabled)
+	if !requireGameEnabled(c, gameSnake) {
 		return
 	}
 	var req snakeFinishRequest

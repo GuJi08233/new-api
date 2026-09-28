@@ -119,8 +119,7 @@ func loadSudokuSession(c *gin.Context, rule operation_setting.SkillRule, session
 // 玩家可以接着改了再交。同一局只结算一次，重复提交返回第一次结算的结果。
 func FinishSudoku(c *gin.Context) {
 	rule := operation_setting.GetGameSetting().Sudoku
-	if !rule.Enabled {
-		common.ApiErrorI18n(c, i18n.MsgGamePlayDisabled)
+	if !requireGameEnabled(c, gameSudoku) {
 		return
 	}
 	var req sudokuFinishRequest
@@ -150,8 +149,7 @@ func FinishSudoku(c *gin.Context) {
 // AbandonSudoku 放弃这一局，按成绩 0 结算。
 func AbandonSudoku(c *gin.Context) {
 	rule := operation_setting.GetGameSetting().Sudoku
-	if !rule.Enabled {
-		common.ApiErrorI18n(c, i18n.MsgGamePlayDisabled)
+	if !requireGameEnabled(c, gameSudoku) {
 		return
 	}
 	var req sudokuAbandonRequest

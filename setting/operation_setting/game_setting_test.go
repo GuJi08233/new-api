@@ -161,6 +161,7 @@ func TestGameRulesAreRegisteredByKey(t *testing.T) {
 		assert.True(t, ok, "%s 在 GameSetting 里有字段", game)
 	}
 	setting := gameSetting.Clone()
+	setting.Enabled = true
 	setting.Game2048.Enabled = true
 	setting.Mines.Enabled = true
 	setting.Xiangqi.Enabled = true
@@ -169,6 +170,12 @@ func TestGameRulesAreRegisteredByKey(t *testing.T) {
 		assert.Equal(t, want, setting.GameEnabled(game), game)
 	}
 	assert.False(t, setting.GameEnabled("unknown"))
+
+	// 游戏中心总开关关闭时，单个游戏的开关打开也算关闭。
+	setting.Enabled = false
+	for game := range gameRuleSpecs {
+		assert.False(t, setting.GameEnabled(game), game)
+	}
 }
 
 // 免费玩法的默认规则是产品规定：每个技巧游戏与人机对战每天最多发 1 个游戏币，并且要当天在这个游戏里累计玩 2 到 5 分钟。

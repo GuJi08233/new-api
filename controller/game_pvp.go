@@ -460,8 +460,9 @@ func ListGameRooms(c *gin.Context) {
 
 // pvpOpenRule 读出可以开房或加入的对战游戏的规则：游戏不存在或没开放时写好错误响应并返回 false。
 func pvpOpenRule(c *gin.Context, game string) (operation_setting.PvpRule, bool) {
-	rule, ok := operation_setting.GetGameSetting().PvpRuleOf(game)
-	if !ok || pvpGames[game] == nil || !rule.Enabled {
+	setting := operation_setting.GetGameSetting()
+	rule, ok := setting.PvpRuleOf(game)
+	if !ok || pvpGames[game] == nil || !setting.GameEnabled(game) {
 		common.ApiErrorI18n(c, i18n.MsgGamePlayDisabled)
 		return rule, false
 	}
@@ -931,8 +932,9 @@ func getPvpAi(c *gin.Context, game *pvpGame) {
 
 // pvpAiRule 读出人机对战的领奖规则：游戏没开放或没开放人机对战时写好错误响应并返回 false。
 func pvpAiRule(c *gin.Context, game *pvpGame) (operation_setting.SkillRule, bool) {
-	rule, _ := operation_setting.GetGameSetting().PvpRuleOf(game.key)
-	if !rule.Enabled {
+	setting := operation_setting.GetGameSetting()
+	rule, _ := setting.PvpRuleOf(game.key)
+	if !setting.GameEnabled(game.key) {
 		common.ApiErrorI18n(c, i18n.MsgGamePlayDisabled)
 		return rule.Ai, false
 	}

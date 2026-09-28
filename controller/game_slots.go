@@ -52,8 +52,7 @@ type slotsDetail struct {
 // 浏览器只负责把转轮转到返回的停点。
 func SpinSlots(c *gin.Context) {
 	rule := operation_setting.GetGameSetting().Slots
-	if !rule.Enabled {
-		common.ApiErrorI18n(c, i18n.MsgGamePlayDisabled)
+	if !requireGameEnabled(c, gameSlots) {
 		return
 	}
 	var req slotsSpinRequest

@@ -324,6 +324,17 @@ func GetOpenGameJackpotRound() (*GameJackpotRound, error) {
 	return &rounds[0], nil
 }
 
+// HasOpenGameJackpotEntry 判断玩家在开放中的这一轮里有没有投入。
+func HasOpenGameJackpotEntry(userId int) (bool, error) {
+	round, err := GetOpenGameJackpotRound()
+	if err != nil || round == nil {
+		return false, err
+	}
+	var ids []int
+	err = DB.Model(&GameJackpotEntry{}).Where("round_id = ? AND user_id = ?", round.Id, userId).Limit(1).Pluck("id", &ids).Error
+	return len(ids) > 0, err
+}
+
 // ListGameJackpotEntries 按投入先后返回一轮的所有投入。
 func ListGameJackpotEntries(roundId int) ([]GameJackpotEntry, error) {
 	var entries []GameJackpotEntry

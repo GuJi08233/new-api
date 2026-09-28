@@ -5242,6 +5242,7 @@
     "准备接球！": "Get ready to catch the ball!",
     "限时连接相同图案，最多两次转弯，清空棋盘获胜": "Connect matching tiles with up to two turns and clear the board before time runs out.",
     "反弹小球击碎砖块，收集多球与加宽挡板奖励": "Bounce balls to break bricks and collect extra balls and paddle extensions.",
-    "每天一张可解地图，把所有箱子推到目标位置": "A solvable puzzle every day. Push all boxes onto their targets."
+    "每天一张可解地图，把所有箱子推到目标位置": "A solvable puzzle every day. Push all boxes onto their targets.",
+    "游戏中心已关闭，不能再开新局。你还有押着游戏币、没结束的对局，请回去把它玩完": "The game center is closed and no new games can be started. You still have unfinished games with game coins at stake. Please go back and finish them."
   }
 }

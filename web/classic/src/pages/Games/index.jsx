@@ -200,6 +200,8 @@ const Games = () => {
   const convertRemaining = convert?.daily_remaining || 0;
   const maxConvertAmount = Math.min(balance, convertRemaining);
   const withdraw = info?.withdraw;
+  // 游戏中心关闭后，只有还押着游戏币、没结束一局的玩家能打开这里：只列出那几个游戏，兑换、提现与记录都不开放。
+  const closed = info?.closed === true;
   const gameMetaMap = getGameMetaMap(t);
   const kindMap = getGameKindMap(t);
   // 只列出前端认识的游戏，按 GAME_ORDER 排列。
@@ -466,172 +468,183 @@ const Games = () => {
               )}
             </div>
 
-            <div className='games-card'>
-              <div className='games-card-head'>
-                <span className='games-card-icon tone-primary'>
-                  <ArrowRightLeft size={18} />
-                </span>
-                <span className='games-card-title'>{t('兑换为额度')}</span>
-              </div>
-              <Text type='tertiary' size='small'>
-                {t('1 个游戏币 = {{quota}} 额度，兑换后不可撤回', {
-                  quota: renderQuota(quotaPerCoin),
-                })}
-              </Text>
-              <Text type='tertiary' size='small'>
-                {t('个人今日剩余可兑换 {{remaining}} / {{limit}} 美元额度', {
-                  remaining: convertRemaining,
-                  limit: convert?.daily_limit || 0,
-                })}
-              </Text>
-              <InputNumber
-                className='games-field'
-                value={convertAmount}
-                min={maxConvertAmount > 0 ? 1 : 0}
-                max={maxConvertAmount}
-                disabled={maxConvertAmount < 1}
-                precision={0}
-                suffix={symbol}
-                onChange={(value) =>
-                  setConvertAmount(typeof value === 'number' ? value : 0)
-                }
-              />
-              <div className='games-preview'>
-                {t('可获得额度')}
-                <strong>
-                  {renderQuota((convertAmount || 0) * quotaPerCoin)}
-                </strong>
-              </div>
-              <Button
-                theme='solid'
-                block
-                loading={converting}
-                disabled={maxConvertAmount < 1}
-                onClick={handleConvert}
-              >
-                {t('开始兑换')}
-              </Button>
-            </div>
-
-            <div className='games-card'>
-              <div className='games-card-head'>
-                <span className='games-card-icon tone-green'>
-                  <Send size={18} />
-                </span>
-                <span className='games-card-title'>{t('提现到链上')}</span>
-              </div>
-              {withdraw?.enabled ? (
-                <>
-                  <Input
-                    className='games-field'
-                    value={withdrawAddress}
-                    placeholder={t('收款钱包地址，0x 开头')}
-                    onChange={setWithdrawAddress}
-                    suffix={
-                      <Button
-                        theme='borderless'
-                        size='small'
-                        icon={<Wallet size={14} />}
-                        onClick={handleUseWalletAddress}
-                      >
-                        {t('使用钱包地址')}
-                      </Button>
-                    }
-                  />
+            {!closed && (
+              <>
+                <div className='games-card'>
+                  <div className='games-card-head'>
+                    <span className='games-card-icon tone-primary'>
+                      <ArrowRightLeft size={18} />
+                    </span>
+                    <span className='games-card-title'>{t('兑换为额度')}</span>
+                  </div>
+                  <Text type='tertiary' size='small'>
+                    {t('1 个游戏币 = {{quota}} 额度，兑换后不可撤回', {
+                      quota: renderQuota(quotaPerCoin),
+                    })}
+                  </Text>
+                  <Text type='tertiary' size='small'>
+                    {t(
+                      '个人今日剩余可兑换 {{remaining}} / {{limit}} 美元额度',
+                      {
+                        remaining: convertRemaining,
+                        limit: convert?.daily_limit || 0,
+                      },
+                    )}
+                  </Text>
                   <InputNumber
                     className='games-field'
-                    value={withdrawAmount}
-                    min={withdraw.min_amount}
-                    max={withdraw.max_amount}
+                    value={convertAmount}
+                    min={maxConvertAmount > 0 ? 1 : 0}
+                    max={maxConvertAmount}
+                    disabled={maxConvertAmount < 1}
                     precision={0}
                     suffix={symbol}
                     onChange={(value) =>
-                      setWithdrawAmount(typeof value === 'number' ? value : 0)
+                      setConvertAmount(typeof value === 'number' ? value : 0)
                     }
                   />
-                  <ul className='games-rules'>
-                    <li>
-                      {t('单次提现 {{min}} – {{max}} {{symbol}}', {
-                        min: withdraw.min_amount,
-                        max: withdraw.max_amount,
-                        symbol,
-                      })}
-                    </li>
-                    <li>
-                      {t(
-                        '今日全站剩余提现额度 {{remaining}} / {{limit}} {{symbol}}',
-                        {
-                          remaining: withdraw.daily_remaining,
-                          limit: withdraw.daily_limit,
-                          symbol,
-                        },
-                      )}
-                    </li>
-                    <li>
-                      {t('全站提现额度由所有用户共用，与个人每日兑换额度独立')}
-                    </li>
-                    <li>{t('不收取手续费，链上 gas 由平台承担')}</li>
-                  </ul>
+                  <div className='games-preview'>
+                    {t('可获得额度')}
+                    <strong>
+                      {renderQuota((convertAmount || 0) * quotaPerCoin)}
+                    </strong>
+                  </div>
                   <Button
                     theme='solid'
-                    type='primary'
                     block
-                    loading={withdrawing}
-                    disabled={balance < 1 || withdraw.daily_remaining < 1}
-                    onClick={handleWithdraw}
+                    loading={converting}
+                    disabled={maxConvertAmount < 1}
+                    onClick={handleConvert}
                   >
-                    {t('提现')}
+                    {t('开始兑换')}
                   </Button>
-                </>
-              ) : (
-                <Banner
-                  type='warning'
-                  closeIcon={null}
-                  description={t('链上提现暂未开放')}
-                />
-              )}
-              {token?.address && (
-                <div className='games-token'>
-                  <div className='games-token-row'>
-                    <span>{t('代币合约')}</span>
-                    <Text
-                      copyable={{ content: token.address }}
-                      ellipsis={{ showTooltip: true }}
-                      style={{ maxWidth: 200 }}
-                    >
-                      {token.address}
-                    </Text>
-                  </div>
-                  <div className='games-token-row'>
-                    <span>{t('链 ID')}</span>
-                    <span>{token.chain_id}</span>
-                  </div>
-                  <div className='games-token-row'>
-                    <span>{t('精度')}</span>
-                    <span>{token.decimals}</span>
-                  </div>
-                  <div className='games-token-actions'>
-                    <Button
-                      size='small'
-                      icon={<Wallet size={14} />}
-                      onClick={handleWatchToken}
-                    >
-                      {t('添加到钱包')}
-                    </Button>
-                    {token.explorer_url && (
-                      <a
-                        href={`${token.explorer_url}/token/${token.address}`}
-                        target='_blank'
-                        rel='noopener noreferrer'
-                      >
-                        {t('在区块浏览器查看')}
-                        <ExternalLink size={12} />
-                      </a>
-                    )}
-                  </div>
                 </div>
-              )}
-            </div>
+
+                <div className='games-card'>
+                  <div className='games-card-head'>
+                    <span className='games-card-icon tone-green'>
+                      <Send size={18} />
+                    </span>
+                    <span className='games-card-title'>{t('提现到链上')}</span>
+                  </div>
+                  {withdraw?.enabled ? (
+                    <>
+                      <Input
+                        className='games-field'
+                        value={withdrawAddress}
+                        placeholder={t('收款钱包地址，0x 开头')}
+                        onChange={setWithdrawAddress}
+                        suffix={
+                          <Button
+                            theme='borderless'
+                            size='small'
+                            icon={<Wallet size={14} />}
+                            onClick={handleUseWalletAddress}
+                          >
+                            {t('使用钱包地址')}
+                          </Button>
+                        }
+                      />
+                      <InputNumber
+                        className='games-field'
+                        value={withdrawAmount}
+                        min={withdraw.min_amount}
+                        max={withdraw.max_amount}
+                        precision={0}
+                        suffix={symbol}
+                        onChange={(value) =>
+                          setWithdrawAmount(
+                            typeof value === 'number' ? value : 0,
+                          )
+                        }
+                      />
+                      <ul className='games-rules'>
+                        <li>
+                          {t('单次提现 {{min}} – {{max}} {{symbol}}', {
+                            min: withdraw.min_amount,
+                            max: withdraw.max_amount,
+                            symbol,
+                          })}
+                        </li>
+                        <li>
+                          {t(
+                            '今日全站剩余提现额度 {{remaining}} / {{limit}} {{symbol}}',
+                            {
+                              remaining: withdraw.daily_remaining,
+                              limit: withdraw.daily_limit,
+                              symbol,
+                            },
+                          )}
+                        </li>
+                        <li>
+                          {t(
+                            '全站提现额度由所有用户共用，与个人每日兑换额度独立',
+                          )}
+                        </li>
+                        <li>{t('不收取手续费，链上 gas 由平台承担')}</li>
+                      </ul>
+                      <Button
+                        theme='solid'
+                        type='primary'
+                        block
+                        loading={withdrawing}
+                        disabled={balance < 1 || withdraw.daily_remaining < 1}
+                        onClick={handleWithdraw}
+                      >
+                        {t('提现')}
+                      </Button>
+                    </>
+                  ) : (
+                    <Banner
+                      type='warning'
+                      closeIcon={null}
+                      description={t('链上提现暂未开放')}
+                    />
+                  )}
+                  {token?.address && (
+                    <div className='games-token'>
+                      <div className='games-token-row'>
+                        <span>{t('代币合约')}</span>
+                        <Text
+                          copyable={{ content: token.address }}
+                          ellipsis={{ showTooltip: true }}
+                          style={{ maxWidth: 200 }}
+                        >
+                          {token.address}
+                        </Text>
+                      </div>
+                      <div className='games-token-row'>
+                        <span>{t('链 ID')}</span>
+                        <span>{token.chain_id}</span>
+                      </div>
+                      <div className='games-token-row'>
+                        <span>{t('精度')}</span>
+                        <span>{token.decimals}</span>
+                      </div>
+                      <div className='games-token-actions'>
+                        <Button
+                          size='small'
+                          icon={<Wallet size={14} />}
+                          onClick={handleWatchToken}
+                        >
+                          {t('添加到钱包')}
+                        </Button>
+                        {token.explorer_url && (
+                          <a
+                            href={`${token.explorer_url}/token/${token.address}`}
+                            target='_blank'
+                            rel='noopener noreferrer'
+                          >
+                            {t('在区块浏览器查看')}
+                            <ExternalLink size={12} />
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
           </div>
         </Spin>
 
@@ -643,6 +656,16 @@ const Games = () => {
             <div className='games-section-title'>{t('游戏列表')}</div>
           </div>
           <div className='games-section-body'>
+            {closed && (
+              <Banner
+                type='warning'
+                closeIcon={null}
+                className='games-closed-banner'
+                description={t(
+                  '游戏中心已关闭，不能再开新局。你还有押着游戏币、没结束的对局，请回去把它玩完',
+                )}
+              />
+            )}
             {games.length > 0 ? (
               <>
                 {kinds.length > 1 && (
@@ -721,7 +744,7 @@ const Games = () => {
         </section>
 
         {/* 等账户信息加载成功再拉记录：游戏中心关闭时记录接口同样会失败，避免重复报错。 */}
-        {info && (
+        {info && !closed && (
           <GameCoinRecords
             version={recordsVersion}
             symbol={symbol}

@@ -112,8 +112,7 @@ func StartMinesweeper(c *gin.Context) {
 // 局面已被另一个请求改过时拒绝，浏览器重新拉取局面；只有保存成功之后才回应翻开的格子，并发的请求探不到别的格子。
 func RevealMinesweeper(c *gin.Context) {
 	rule := operation_setting.GetGameSetting().Minesweeper
-	if !rule.Enabled {
-		common.ApiErrorI18n(c, i18n.MsgGamePlayDisabled)
+	if !requireGameEnabled(c, gameMinesweeper) {
 		return
 	}
 	var req minesweeperRevealRequest

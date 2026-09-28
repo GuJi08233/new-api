@@ -100,8 +100,7 @@ func GetMinesRound(c *gin.Context) {
 // StartMines 开一局挖宝：扣下注，服务端布好雷存在对局里。同一时间只能有一局，还有没结束的一局时要先把它玩完。
 func StartMines(c *gin.Context) {
 	rule := operation_setting.GetGameSetting().Mines
-	if !rule.Enabled {
-		common.ApiErrorI18n(c, i18n.MsgGamePlayDisabled)
+	if !requireGameEnabled(c, gameMines) {
 		return
 	}
 	var req minesStartRequest

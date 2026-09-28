@@ -140,8 +140,7 @@ func GetBlackjackRound(c *gin.Context) {
 // 玩完。
 func DealBlackjack(c *gin.Context) {
 	rule := operation_setting.GetGameSetting().Blackjack
-	if !rule.Enabled {
-		common.ApiErrorI18n(c, i18n.MsgGamePlayDisabled)
+	if !requireGameEnabled(c, gameBlackjack) {
 		return
 	}
 	var req blackjackDealRequest
