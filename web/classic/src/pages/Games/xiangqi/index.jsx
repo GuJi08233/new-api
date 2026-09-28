@@ -119,8 +119,18 @@ const PieceArt = ({ letter }) => (
   </svg>
 );
 
+// 一局正常下完的原因(引擎视图的 result)：棋盘上方与结算提示都用它。
+function xiangqiResultText(result, t) {
+  return {
+    checkmate: t('将死'),
+    stalemate: t('困毙：无子可走判负'),
+    no_capture: t('连续 120 步没有吃子，和棋'),
+    move_limit: t('总步数达到 300 步，和棋'),
+  }[result];
+}
+
 // 棋盘：看的人一方在下面。轮到自己走时点自己的棋子选中，再点高亮的落点走棋；标出最后一手与被将军的将帅。
-const XiangqiBoard = ({ state, seat, canMove, onMove }) => {
+const XiangqiBoard = ({ state, seat, canMove, over, onMove }) => {
   const { t } = useTranslation();
   // 选中的棋子与选中时的步数：局面一变(自己或对手走了一步)，选中自然失效。
   const [selected, setSelected] = useState(null);
@@ -243,12 +253,6 @@ const XiangqiBoard = ({ state, seat, canMove, onMove }) => {
   }
 
   const myColor = flip ? 'black' : 'red';
-  const results = {
-    checkmate: t('将死'),
-    stalemate: t('困毙：无子可走判负'),
-    no_capture: t('连续 120 步没有吃子，和棋'),
-    move_limit: t('总步数达到 300 步，和棋'),
-  };
   return (
     <div className='xiangqi-stage'>
       {state && (
@@ -266,10 +270,13 @@ const XiangqiBoard = ({ state, seat, canMove, onMove }) => {
               <strong>{`${state.quiet} / ${QUIET_DRAW_PLIES}`}</strong>
             </span>
           )}
-          {state.over ? (
-            <span className='xiangqi-result'>{results[state.result]}</span>
-          ) : (
-            state.check && <span className='xiangqi-check'>{t('将军！')}</span>
+          {state.check && !over && (
+            <span className='xiangqi-check'>{t('将军！')}</span>
+          )}
+          {over && state.result && (
+            <span className='xiangqi-result'>
+              {xiangqiResultText(state.result, t)}
+            </span>
           )}
         </div>
       )}
@@ -347,6 +354,9 @@ const Xiangqi = () => {
         if (!state?.check) return undefined;
         return myTurn ? t('将军！轮到你应将') : t('将军！等待对手应将');
       }}
+      resultNote={({ state }) =>
+        state?.over ? xiangqiResultText(state.result, t) : ''
+      }
       rules={[
         t('先走的一方执红，红先黑后，轮流走一步'),
         t('帅将不出九宫，双方的帅将不能在同一列上直接照面'),
@@ -358,11 +368,12 @@ const Xiangqi = () => {
           '连续 120 步（双方合计）没有吃子，或总步数达到 300 步，判和；长将不判负',
         ),
       ]}
-      renderBoard={({ state, seat, canMove, onMove }) => (
+      renderBoard={({ state, seat, canMove, over, onMove }) => (
         <XiangqiBoard
           state={state}
           seat={seat}
           canMove={canMove}
+          over={over}
           onMove={onMove}
         />
       )}

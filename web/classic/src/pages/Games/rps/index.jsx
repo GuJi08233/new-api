@@ -70,7 +70,8 @@ const HandCard = ({ choice, ready, result, reveal, label, names }) => {
 };
 
 // 比分、这一回合双方的状态、三个出拳按钮与每回合的记录。刚公开的一回合短暂亮出双方的拳，比赛结束后停在最后一回合。
-const RpsBoard = ({ state, seat, canMove, onMove }) => {
+// over 表示这一场已经结束，包括超时与认输(这时 state.over 仍为假)。
+const RpsBoard = ({ state, seat, canMove, over, onMove }) => {
   const { t } = useTranslation();
   const names = { rock: t('石头'), scissors: t('剪刀'), paper: t('布') };
   const rounds = state?.rounds || [];
@@ -119,7 +120,7 @@ const RpsBoard = ({ state, seat, canMove, onMove }) => {
         </div>
       </div>
       <div className='games-stage-counter'>
-        {state && !state.over
+        {state && !state.over && !over
           ? t(
               '第 {{round}} 回合 · 先赢 {{wins}} 回合获胜 · 最多 {{max}} 回合',
               {
@@ -234,8 +235,15 @@ const Rps = () => {
         t('出拳之前看不到对手的选择；一方出拳后，另一方重新计时'),
         t('这一回合双方都没出拳而超时判和，只有一方没出则判它负'),
       ]}
-      renderBoard={({ state, seat, canMove, onMove }) => (
-        <RpsBoard state={state} seat={seat} canMove={canMove} onMove={onMove} />
+      randomFirst={false}
+      renderBoard={({ state, seat, canMove, over, onMove }) => (
+        <RpsBoard
+          state={state}
+          seat={seat}
+          canMove={canMove}
+          over={over}
+          onMove={onMove}
+        />
       )}
     />
   );

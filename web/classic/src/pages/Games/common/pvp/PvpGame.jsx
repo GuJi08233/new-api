@@ -246,6 +246,7 @@ const RoomView = ({
   symbol,
   seatLabels,
   statusText,
+  resultNote,
   renderBoard,
   clockOffset,
   busy,
@@ -269,8 +270,12 @@ const RoomView = ({
   const seat = room.seat;
   const state = room.state;
   const myTurn = playing && (room.to_move === seat || room.to_move === -1);
+  // 服务器时间只精确到秒，刚走完一步时算出来可能比每步限时多一秒。
   const secondsLeft = room.deadline
-    ? Math.max(Math.ceil(room.deadline - (now + clockOffset())), 0)
+    ? Math.min(
+        Math.max(Math.ceil(room.deadline - (now + clockOffset())), 0),
+        room.move_seconds || Infinity,
+      )
     : 0;
   const pot = room.stake * 2;
   const me = room.players[seat]?.user_id;
@@ -308,6 +313,8 @@ const RoomView = ({
       note = won ? t('对手超时') : t('你超时了');
     } else if (room.end_reason === 'resign') {
       note = won ? t('对手认输') : t('你认输了');
+    } else {
+      note = resultNote?.({ state, seat }) || '';
     }
   } else {
     message =
@@ -349,7 +356,14 @@ const RoomView = ({
         seat={seat}
         extra={clocks}
       />
-      {renderBoard({ state, seat, canMove: myTurn && !busy, busy, onMove })}
+      {renderBoard({
+        state,
+        seat,
+        canMove: myTurn && !busy,
+        busy,
+        over: !isRoomOpen(room),
+        onMove,
+      })}
       <StageMessage kind={kind} note={note}>
         {message}
       </StageMessage>
@@ -388,6 +402,8 @@ const AiView = ({
   result,
   symbol,
   seatLabels,
+  statusText,
+  resultNote,
   renderBoard,
   busy,
   error,
@@ -401,20 +417,25 @@ const AiView = ({
   const levelNames = getGameLevelNames(t).ai;
   const state = ai.state;
   const myTurn = !ai.over && ai.to_move === 0;
-  let message = myTurn ? t('轮到你了') : t('AI 思考中…');
+  let message =
+    statusText?.({ room: null, state, seat: 0, myTurn }) ||
+    (myTurn ? t('轮到你了') : t('AI 思考中…'));
   let kind = '';
   let note = '';
   if (ai.over) {
+    const reason = resultNote?.({ state, seat: 0 });
     if (ai.winner === 0) {
       const reward = skillResultMessage(result, t, symbol);
       kind = result?.reward > 0 ? 'win' : '';
       message = t('你赢了！');
-      note = reward.note ? `${reward.text} · ${reward.note}` : reward.text;
+      note = [reason, reward.text, reward.note].filter(Boolean).join(' · ');
     } else if (ai.winner === 1) {
       kind = 'loss';
       message = t('AI 获胜，再接再厉');
+      note = reason || '';
     } else {
       message = t('和棋');
+      note = reason || '';
     }
   }
   return (
@@ -428,7 +449,14 @@ const AiView = ({
         toMove={ai.over ? null : ai.to_move}
         seat={0}
       />
-      {renderBoard({ state, seat: 0, canMove: myTurn && !busy, busy, onMove })}
+      {renderBoard({
+        state,
+        seat: 0,
+        canMove: myTurn && !busy,
+        busy,
+        over: ai.over,
+        onMove,
+      })}
       <StageMessage kind={kind} note={note}>
         {message}
       </StageMessage>
@@ -458,7 +486,7 @@ const AiView = ({
 };
 
 // 信息栏：对战规则、人机对战的奖励与最近的押注对局。
-const PvpSide = ({ info, rules }) => {
+const PvpSide = ({ info, rules, randomFirst }) => {
   const { t } = useTranslation();
   const levelNames = getGameLevelNames(t).ai;
   const symbol = info.symbol;
@@ -485,7 +513,7 @@ const PvpSide = ({ info, rules }) => {
             t('每一步限时 {{seconds}} 秒，超时判负', {
               seconds: rule.move_seconds,
             }),
-            t('先走的一方随机决定'),
+            randomFirst && t('先走的一方随机决定'),
           ]}
         />
       </SideBox>
@@ -550,15 +578,19 @@ const PvpSide = ({ info, rules }) => {
 };
 
 // 对战游戏页的外壳：大厅(快速匹配、开房间、邀请好友、加入房间)、押注对局(长轮询、计时、认输)与人机对战，各游戏只提供棋盘。
-// renderBoard({ state, seat, canMove, busy, onMove }) 画出棋盘，state 为空时画空棋盘；玩家落子时调用 onMove(走法)。
-// seatLabels(state) 返回两个座位的称呼(例如执黑、执白)；statusText 可以按游戏改写对局中的提示；rules 是信息栏里的规则。
+// renderBoard({ state, seat, canMove, busy, over, onMove }) 画出棋盘，state 为空时画空棋盘；over 表示对局已经结束(含超时、
+// 认输，这时引擎的状态不一定是结束的)；玩家落子时调用 onMove(走法)。seatLabels(state) 返回两个座位的称呼(例如执黑、执白)；
+// statusText({ room, state, seat, myTurn }) 可以按游戏改写对局中的提示(人机对战里 room 为空)；resultNote({ state, seat })
+// 说明正常下完的一局为什么结束(例如将死、困毙)；rules 是信息栏里的规则，randomFirst 为假时(双方同时出招)不写先走的规则。
 const PvpGame = ({
   gameKey,
   title,
   renderBoard,
   seatLabels,
   statusText,
+  resultNote,
   rules = [],
+  randomFirst = true,
   className = '',
 }) => {
   const { t } = useTranslation();
@@ -670,6 +702,7 @@ const PvpGame = ({
         symbol={info.symbol}
         seatLabels={labels}
         statusText={statusText}
+        resultNote={resultNote}
         renderBoard={renderBoard}
         clockOffset={clockOffset}
         busy={busy}
@@ -706,6 +739,8 @@ const PvpGame = ({
         result={aiResult}
         symbol={info.symbol}
         seatLabels={labels}
+        statusText={statusText}
+        resultNote={resultNote}
         renderBoard={renderBoard}
         busy={busy}
         error={error}
@@ -768,7 +803,9 @@ const PvpGame = ({
       unavailable={unavailable}
       balance={info?.balance}
       symbol={info?.symbol}
-      side={info && <PvpSide info={info} rules={rules} />}
+      side={
+        info && <PvpSide info={info} rules={rules} randomFirst={randomFirst} />
+      }
       className={`pvp-page ${className}`}
     >
       {main}
