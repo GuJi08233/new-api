@@ -425,7 +425,7 @@ const AiView = ({
   if (ai.over) {
     const reason = resultNote?.({ state, seat: 0 });
     if (ai.winner === 0) {
-      const reward = skillResultMessage(result, t, symbol);
+      const reward = skillResultMessage(result, t, symbol, { byLevel: true });
       kind = result?.reward > 0 ? 'win' : '';
       message = t('你赢了！');
       note = [reason, reward.text, reward.note].filter(Boolean).join(' · ');

@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { formatNumber } from './api';
 import { RuleList, SideBox } from './SideBox';
@@ -40,8 +40,9 @@ export function formatSkillScore(score, levelNames) {
   return formatNumber(score);
 }
 
-// 一局免费游戏结算之后给玩家看的提示：得了多少、没得或少得的原因。result 是结算接口的返回。
-export function skillResultMessage(result, t, symbol) {
+// 一局免费游戏结算之后给玩家看的提示：得了多少、没得或少得的原因。result 是结算接口的返回。byLevel 表示成绩是赢下的难度
+// (扫雷、数独、人机对战……)：赢了却没到第一档，说的是这个难度本来就不发奖，而不是成绩不够。
+export function skillResultMessage(result, t, symbol, { byLevel } = {}) {
   const reward = result?.reward || 0;
   const got = t('获得 {{reward}} {{symbol}}', { reward, symbol });
   switch (result?.limited_by) {
@@ -81,8 +82,40 @@ export function skillResultMessage(result, t, symbol) {
   if ((result?.rule?.daily_rewards || 0) === 0) {
     return { kind: '', text: t('这个游戏暂不发放奖励') };
   }
+  if (byLevel && result?.score > 0) {
+    return { kind: '', text: t('这个难度不发奖励，赢下更高的难度才有奖励') };
+  }
   return { kind: 'loss', text: t('没有达到奖励档位，再接再厉') };
 }
+
+// 难度的奖励：成绩达到的最高一档，与服务端的领奖规则一致。
+export function levelReward(tiers, level) {
+  let coins = 0;
+  for (const tier of tiers || []) {
+    if (level >= tier.score) coins = tier.coins;
+  }
+  return coins;
+}
+
+// 用时写成 分:秒，一小时以上带上小时。
+export function formatClock(seconds) {
+  const total = Math.max(0, Math.floor(seconds));
+  const minutes = String(Math.floor((total % 3600) / 60)).padStart(2, '0');
+  const rest = String(total % 60).padStart(2, '0');
+  const hours = Math.floor(total / 3600);
+  return hours > 0 ? `${hours}:${minutes}:${rest}` : `${minutes}:${rest}`;
+}
+
+// 对局用时，每秒走一格；stoppedAt 不为空时停在那一刻。since 是本地时钟上的开局时刻。
+export const GameClock = ({ since, stoppedAt }) => {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (stoppedAt) return undefined;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [stoppedAt]);
+  return formatClock(((stoppedAt || now) - since) / 1000);
+};
 
 // 免费游戏信息栏里的领奖规则：今天还能领几次、奖励档位、时长要求与合计上限、最高成绩。
 // levelNames 不为空时成绩按难度显示；scoreName 是成绩一列的标题。

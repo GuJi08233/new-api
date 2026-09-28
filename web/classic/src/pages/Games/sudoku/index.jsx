@@ -32,10 +32,13 @@ import GameLayout from '../common/GameLayout';
 import { RuleList, SideBox, StageMessage } from '../common/SideBox';
 import { gameGet, gamePost, withTurnstile } from '../common/api';
 import {
-  SkillSide,
+  formatClock,
+  GameClock,
+  levelReward,
   rewardsLeft,
   skillResultMessage,
   skillRuleSummary,
+  SkillSide,
 } from '../common/skill';
 import { useGameInfo } from '../common/useGameInfo';
 import { usePlayTurnstile } from '../common/usePlayTurnstile';
@@ -64,24 +67,6 @@ const PEERS = Array.from({ length: 81 }, (_, index) => {
   return [...peers];
 });
 
-// 难度的奖励：成绩达到的最高一档，与服务端的领奖规则一致。
-function levelReward(tiers, level) {
-  let coins = 0;
-  for (const tier of tiers || []) {
-    if (level >= tier.score) coins = tier.coins;
-  }
-  return coins;
-}
-
-// 用时写成 分:秒，一小时以上带上小时。
-function formatClock(seconds) {
-  const total = Math.max(0, Math.floor(seconds));
-  const minutes = String(Math.floor((total % 3600) / 60)).padStart(2, '0');
-  const rest = String(total % 60).padStart(2, '0');
-  const hours = Math.floor(total / 3600);
-  return hours > 0 ? `${hours}:${minutes}:${rest}` : `${minutes}:${rest}`;
-}
-
 // 与同行、同列或同宫的某一格填了同一个数字的格子。盘面是公开的，冲突在本地就能看出来。
 function conflictsOf(values) {
   const conflicts = new Set();
@@ -102,17 +87,6 @@ function savedProgress(sessionId) {
     return null;
   }
 }
-
-// 对局用时，每秒走一格；stoppedAt 不为空时停在那一刻。since 是本地时钟上的开局时刻。
-const GameClock = ({ since, stoppedAt }) => {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (stoppedAt) return undefined;
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, [stoppedAt]);
-  return formatClock(((stoppedAt || now) - since) / 1000);
-};
 
 const Sudoku = () => {
   const { t } = useTranslation();
@@ -393,14 +367,7 @@ const Sudoku = () => {
   }
   let reward = null;
   if (end?.status === 'solved' && result) {
-    reward = skillResultMessage(result, t, symbol);
-    // 赢了却没达到第一档：这个难度本来就不发奖，说清楚要挑战更高的难度。
-    if (reward.kind === 'loss') {
-      reward = {
-        kind: '',
-        text: t('这个难度不发奖励，赢下更高的难度才有奖励'),
-      };
-    }
+    reward = skillResultMessage(result, t, symbol, { byLevel: true });
   }
 
   const side = info && (
