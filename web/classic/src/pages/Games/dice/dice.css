@@ -1,0 +1,265 @@
+/*
+Copyright (C) 2025 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+
+/* 骰子：大号点数、0–9999 的点数条(绿色是所选方向的获胜区间)，掷出后标记滑到点数上。 */
+
+.dice-readout {
+  min-width: 4.5ch;
+  margin: 4px 0 2px;
+  font-size: 64px;
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -1px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  color: var(--semi-color-text-0);
+  transition: color 0.2s ease;
+}
+
+.dice-readout.is-rolling,
+.dice-readout.is-empty {
+  color: var(--semi-color-text-2);
+}
+
+.dice-readout.is-win {
+  color: var(--semi-color-success);
+}
+
+.dice-readout.is-loss {
+  color: var(--semi-color-danger);
+}
+
+.dice-track {
+  position: relative;
+  width: 100%;
+  margin-top: 26px;
+}
+
+.dice-track-bar {
+  position: relative;
+  height: 14px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(var(--semi-red-5), 0.2);
+}
+
+.dice-track-zone {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: var(--semi-color-success);
+  transition:
+    left 0.25s ease,
+    width 0.25s ease;
+}
+
+/* 标记是一根竖线加上方的小三角，尖端指着点数；竖线在绿色、红色区间上都用正文色，三角按输赢着色。 */
+.dice-marker {
+  position: absolute;
+  top: -12px;
+  width: 4px;
+  height: 38px;
+  margin-left: -2px;
+  border-radius: 2px;
+  color: var(--semi-color-text-0);
+  background: var(--semi-color-text-0);
+  box-shadow: 0 0 0 2px var(--semi-color-bg-1);
+  transition:
+    left 0.35s cubic-bezier(0.2, 0.8, 0.2, 1),
+    color 0.2s ease;
+}
+
+.dice-marker::before {
+  content: '';
+  position: absolute;
+  top: -8px;
+  left: 50%;
+  transform: translateX(-50%);
+  border-left: 7px solid transparent;
+  border-right: 7px solid transparent;
+  border-top: 8px solid currentColor;
+}
+
+.dice-marker.is-win {
+  color: var(--semi-color-success);
+}
+
+.dice-marker.is-loss {
+  color: var(--semi-color-danger);
+}
+
+.dice-scale {
+  position: relative;
+  height: 18px;
+  margin-top: 16px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--semi-color-text-2);
+}
+
+.dice-scale span {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+}
+
+.dice-scale span:first-child {
+  transform: none;
+}
+
+.dice-scale span:last-child {
+  transform: translateX(-100%);
+}
+
+.dice-history {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 22px;
+  margin-top: 14px;
+}
+
+.dice-history-item {
+  min-width: 42px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  color: var(--semi-color-text-2);
+  background: var(--semi-color-fill-0);
+}
+
+.dice-history-item.is-win {
+  color: var(--semi-color-success);
+  background: var(--semi-color-success-light-default);
+}
+
+.dice-history-item:first-child {
+  box-shadow: inset 0 0 0 1px var(--semi-color-border);
+}
+
+/* 倍数与方向。 */
+.dice-options {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  margin-top: 16px;
+}
+
+.dice-option {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px 10px;
+}
+
+.dice-option-label {
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--semi-color-text-1);
+}
+
+.dice-directions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  width: min(100%, 360px);
+}
+
+.dice-direction {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 40px;
+  padding: 0 10px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--semi-color-text-0);
+  background: var(--semi-color-bg-1);
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.dice-direction small {
+  font-size: 12px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--semi-color-text-2);
+}
+
+.dice-direction:hover:not(:disabled) {
+  background: var(--semi-color-fill-1);
+}
+
+.dice-direction.is-active {
+  border-color: var(--semi-color-primary);
+  color: var(--semi-color-primary);
+  background: var(--semi-color-primary-light-default);
+}
+
+.dice-direction.is-active small {
+  color: var(--semi-color-primary);
+}
+
+.dice-direction:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.dice-direction:focus-visible {
+  outline: 2px solid var(--semi-color-primary);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dice-readout,
+  .dice-track-zone,
+  .dice-marker {
+    transition: none;
+  }
+}
+
+@media (max-width: 520px) {
+  .dice-readout {
+    font-size: 52px;
+  }
+
+  /* 窄屏只留最近几次，免得占满好几行；八档倍数排成两行四列。 */
+  .dice-history-item:nth-child(n + 7) {
+    display: none;
+  }
+
+  .dice-multipliers {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    width: 100%;
+  }
+}
