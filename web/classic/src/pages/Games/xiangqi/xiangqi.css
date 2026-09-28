@@ -1,0 +1,323 @@
+/*
+Copyright (C) 2025 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+
+/* 中国象棋：棋盘是平涂的暖色底，线条和底色都取琥珀色阶，随明暗主题一起换；棋子是固定配色的米色圆盘，红黑两色的字。 */
+
+.xiangqi-page {
+  --game-main-width: 600px;
+}
+
+.xiangqi-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+}
+
+.xiangqi-hud {
+  align-items: center;
+}
+
+.xiangqi-side {
+  padding: 1px 10px;
+  border-radius: 999px;
+  font-weight: 600;
+}
+
+.xiangqi-side.is-red {
+  color: rgba(var(--semi-red-6), 1);
+  background: rgba(var(--semi-red-5), 0.12);
+}
+
+.xiangqi-side.is-black {
+  color: var(--semi-color-text-0);
+  background: var(--semi-color-fill-1);
+}
+
+.xiangqi-check,
+.xiangqi-result {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.xiangqi-check {
+  color: var(--semi-color-danger);
+  animation: xiangqi-pop 0.35s ease-out;
+}
+
+.xiangqi-result {
+  color: var(--semi-color-text-0);
+}
+
+.xiangqi-board {
+  position: relative;
+  width: min(100%, 520px);
+  border-radius: 14px;
+  border: 1px solid rgba(var(--semi-amber-4), 0.5);
+  background: rgba(var(--semi-amber-1), 0.6);
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body[theme-mode='dark'] .xiangqi-board {
+  border-color: rgba(var(--semi-amber-3), 0.45);
+  background: rgba(var(--semi-amber-1), 0.35);
+}
+
+.xiangqi-lines {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.xiangqi-grid,
+.xiangqi-edge,
+.xiangqi-frame,
+.xiangqi-marks {
+  fill: none;
+  stroke: rgba(var(--semi-amber-8), 0.7);
+}
+
+.xiangqi-grid {
+  stroke-width: 1.6;
+}
+
+.xiangqi-edge {
+  stroke-width: 3;
+}
+
+.xiangqi-frame {
+  stroke-width: 1.2;
+  stroke-opacity: 0.6;
+}
+
+.xiangqi-marks {
+  stroke-width: 1.4;
+}
+
+body[theme-mode='dark'] .xiangqi-grid,
+body[theme-mode='dark'] .xiangqi-edge,
+body[theme-mode='dark'] .xiangqi-frame,
+body[theme-mode='dark'] .xiangqi-marks {
+  stroke: rgba(var(--semi-amber-8), 0.45);
+}
+
+.xiangqi-river {
+  font-family: 'KaiTi', 'STKaiti', 'Kaiti SC', 'Songti SC', serif;
+  font-size: 30px;
+  font-weight: 600;
+  letter-spacing: 10px;
+  fill: rgba(var(--semi-amber-7), 0.65);
+}
+
+/* 每个交叉点一格大小，棋子、落点和上一手的起点都放在这一格里。 */
+.xiangqi-point {
+  position: absolute;
+  width: var(--xiangqi-cell-w);
+  height: var(--xiangqi-cell-h);
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+button.xiangqi-point {
+  cursor: pointer;
+}
+
+button.xiangqi-point:focus-visible {
+  outline: 2px solid var(--semi-color-primary);
+  outline-offset: -2px;
+}
+
+.xiangqi-piece {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  filter: drop-shadow(0 1px 1.5px rgba(0, 0, 0, 0.35));
+  transition:
+    transform 0.15s ease,
+    filter 0.15s ease;
+}
+
+.xiangqi-piece-halo {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 4;
+}
+
+.xiangqi-piece-disc {
+  fill: #fbf1dc;
+  stroke: #b98d4f;
+  stroke-width: 2.5;
+}
+
+.xiangqi-piece-ring {
+  fill: none;
+  stroke-width: 2.2;
+}
+
+.xiangqi-piece-glyph {
+  font-family: 'KaiTi', 'STKaiti', 'Kaiti SC', 'Songti SC', serif;
+  font-size: 50px;
+  font-weight: 700;
+}
+
+.xiangqi-point.is-red .xiangqi-piece-ring {
+  stroke: #c62f22;
+}
+
+.xiangqi-point.is-red .xiangqi-piece-glyph {
+  fill: #c62f22;
+}
+
+.xiangqi-point.is-black .xiangqi-piece-ring {
+  stroke: #2d2a26;
+}
+
+.xiangqi-point.is-black .xiangqi-piece-glyph {
+  fill: #26231f;
+}
+
+body[theme-mode='dark'] .xiangqi-piece-disc {
+  fill: #eee2c8;
+}
+
+/* 悬停效果只给有鼠标的设备，触屏点过之后不会一直停在悬停状态。 */
+@media (hover: hover) {
+  button.xiangqi-point.is-movable:hover .xiangqi-piece {
+    transform: translateY(-2px);
+  }
+
+  .xiangqi-target:hover .xiangqi-dot {
+    width: 38%;
+    height: 38%;
+    opacity: 1;
+  }
+}
+
+.xiangqi-point.is-last .xiangqi-piece-halo {
+  stroke: rgba(var(--semi-blue-5), 0.85);
+}
+
+.xiangqi-point.is-selected {
+  z-index: 3;
+}
+
+.xiangqi-point.is-selected .xiangqi-piece {
+  transform: scale(1.1);
+  filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.35));
+}
+
+.xiangqi-point.is-selected .xiangqi-piece-halo {
+  stroke: var(--semi-color-primary);
+}
+
+/* 可以吃掉的子外圈画虚线。 */
+.xiangqi-point.is-target .xiangqi-piece-halo {
+  stroke: var(--semi-color-danger);
+  stroke-dasharray: 9 6;
+}
+
+.xiangqi-point.is-check .xiangqi-piece-halo {
+  stroke: var(--semi-color-danger);
+  stroke-width: 6;
+  animation: xiangqi-check 0.9s ease-in-out infinite alternate;
+}
+
+.xiangqi-dot {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 30%;
+  height: 30%;
+  border-radius: 50%;
+  background: var(--semi-color-primary);
+  opacity: 0.7;
+  transform: translate(-50%, -50%);
+  transition:
+    width 0.12s ease,
+    height 0.12s ease,
+    opacity 0.12s ease;
+}
+
+/* 上一手的起点。 */
+.xiangqi-from {
+  pointer-events: none;
+}
+
+.xiangqi-from::before {
+  content: '';
+  position: absolute;
+  inset: 28%;
+  border-radius: 50%;
+  border: 2px dashed rgba(var(--semi-blue-5), 0.8);
+}
+
+/* 刚走的一步从起点滑到落点，偏移(格数)由页面给出。 */
+.xiangqi-point.is-last {
+  z-index: 2;
+}
+
+.xiangqi-point.is-last .xiangqi-piece {
+  animation: xiangqi-slide 0.24s ease-out;
+}
+
+@keyframes xiangqi-slide {
+  from {
+    transform: translate(
+      calc(var(--xiangqi-dx, 0) * 100%),
+      calc(var(--xiangqi-dy, 0) * 100%)
+    );
+  }
+}
+
+@keyframes xiangqi-check {
+  to {
+    stroke-opacity: 0.35;
+  }
+}
+
+@keyframes xiangqi-pop {
+  0% {
+    transform: scale(0.8);
+  }
+  60% {
+    transform: scale(1.12);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .xiangqi-point.is-last .xiangqi-piece,
+  .xiangqi-point.is-check .xiangqi-piece-halo,
+  .xiangqi-check {
+    animation: none;
+  }
+
+  .xiangqi-piece,
+  .xiangqi-dot {
+    transition: none;
+  }
+}

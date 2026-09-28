@@ -1,0 +1,301 @@
+/*
+Copyright (C) 2025 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+
+/* 石头剪刀布：上面是比分和这一回合双方的拳，下面是三个大号出拳按钮与每回合的记录，颜色都取站点变量。 */
+
+.rps-board {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.rps-score {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+}
+
+.rps-score-side {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--semi-color-text-2);
+}
+
+.rps-score-side strong {
+  font-size: 44px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--semi-color-text-0);
+}
+
+.rps-score-side.is-me strong {
+  color: var(--semi-color-primary);
+}
+
+.rps-score-colon {
+  font-size: 32px;
+  font-weight: 700;
+  color: var(--semi-color-text-2);
+}
+
+.rps-arena {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.rps-vs {
+  color: var(--semi-color-text-2);
+}
+
+/* 一个座位这一回合的拳。 */
+.rps-hand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 136px;
+  padding: 12px 8px;
+  border-radius: 16px;
+  border: 1px dashed var(--semi-color-border);
+  text-align: center;
+  color: var(--semi-color-text-2);
+  background: var(--semi-color-fill-0);
+}
+
+.rps-hand strong {
+  font-size: 15px;
+  font-weight: 600;
+  color: inherit;
+}
+
+.rps-hand-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--semi-color-text-2);
+}
+
+.rps-hand.is-chosen,
+.rps-hand.is-win {
+  border-style: solid;
+  border-color: var(--semi-color-primary);
+  color: var(--semi-color-primary);
+  background: var(--semi-color-primary-light-default);
+}
+
+.rps-hand.is-win {
+  border-color: var(--semi-color-success);
+  color: var(--semi-color-success);
+  background: var(--semi-color-success-light-default);
+}
+
+.rps-hand.is-ready,
+.rps-hand.is-draw,
+.rps-hand.is-loss {
+  border-style: solid;
+  color: var(--semi-color-text-1);
+  background: var(--semi-color-fill-1);
+}
+
+.rps-hand.is-loss {
+  color: var(--semi-color-text-2);
+}
+
+.rps-hand.is-reveal {
+  animation: rps-reveal 0.35s ease-out;
+}
+
+.rps-outcome {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--semi-color-text-1);
+}
+
+.rps-outcome.is-win {
+  color: var(--semi-color-success);
+}
+
+.rps-outcome.is-loss {
+  color: var(--semi-color-danger);
+}
+
+.rps-choices {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  width: 100%;
+  margin-top: 4px;
+}
+
+.rps-choice {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 104px;
+  padding: 10px 6px;
+  border-radius: 16px;
+  border: 1px solid var(--semi-color-border);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--semi-color-text-0);
+  background: var(--semi-color-bg-0);
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    color 0.15s ease,
+    background-color 0.15s ease,
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+/* 只在有鼠标悬停的设备上高亮：触屏点过之后悬停状态会一直留着，看起来像已经选了这一拳。 */
+@media (hover: hover) {
+  .rps-choice:hover:not(:disabled) {
+    border-color: var(--semi-color-primary);
+    color: var(--semi-color-primary);
+    box-shadow: 0 8px 20px -14px var(--semi-color-primary);
+    transform: translateY(-2px);
+  }
+}
+
+.rps-choice:focus-visible {
+  outline: 2px solid var(--semi-color-primary);
+  outline-offset: 2px;
+}
+
+.rps-choice:disabled {
+  color: var(--semi-color-disabled-text);
+  background: var(--semi-color-fill-0);
+  cursor: not-allowed;
+}
+
+/* 自己这一回合出的拳一直亮着，直到这一回合公开。 */
+.rps-choice.is-picked,
+.rps-choice.is-picked:disabled {
+  border-color: var(--semi-color-primary);
+  color: var(--semi-color-primary);
+  background: var(--semi-color-primary-light-default);
+}
+
+.rps-history {
+  width: 100%;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+  color: var(--semi-color-text-1);
+}
+
+.rps-history li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 4px;
+  border-top: 1px solid var(--semi-color-border);
+}
+
+.rps-history-round {
+  flex: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--semi-color-text-2);
+}
+
+.rps-history-hands {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--semi-color-text-0);
+}
+
+.rps-history-result {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 4px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--semi-color-text-2);
+  background: var(--semi-color-fill-1);
+}
+
+.rps-history li.is-win .rps-history-result {
+  color: var(--semi-color-success);
+  background: var(--semi-color-success-light-default);
+}
+
+.rps-history li.is-loss .rps-history-result {
+  color: var(--semi-color-danger);
+  background: var(--semi-color-danger-light-default);
+}
+
+@keyframes rps-reveal {
+  0% {
+    transform: scale(0.85);
+    opacity: 0.4;
+  }
+  70% {
+    transform: scale(1.04);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rps-hand.is-reveal {
+    animation: none;
+  }
+
+  .rps-choice,
+  .rps-choice:hover:not(:disabled) {
+    transition: none;
+    transform: none;
+  }
+}
+
+@media (max-width: 520px) {
+  .rps-hand {
+    min-height: 112px;
+  }
+
+  .rps-choice {
+    min-height: 88px;
+  }
+
+  .rps-score-side strong {
+    font-size: 36px;
+  }
+}
