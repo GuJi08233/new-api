@@ -33,6 +33,7 @@ import { API, showError, timestamp2string } from '../../helpers';
 import { renderQuota } from '../../helpers/render';
 import {
   getGameCoinLogTypeMap,
+  getGameCoinWithdrawFailReasonMap,
   getGameCoinWithdrawalStatusMap,
   getGameMetaMap,
 } from '../../constants';
@@ -98,6 +99,7 @@ const GameCoinRecords = ({ version, symbol, explorerUrl, chainId }) => {
   const withdrawals = usePagedRecords('/api/game/withdrawals', version);
   const logTypeMap = getGameCoinLogTypeMap(t);
   const statusMap = getGameCoinWithdrawalStatusMap(t);
+  const failReasons = getGameCoinWithdrawFailReasonMap(t);
   const gameMetaMap = getGameMetaMap(t);
 
   const logColumns = [
@@ -160,6 +162,10 @@ const GameCoinRecords = ({ version, symbol, explorerUrl, chainId }) => {
           };
           return `${gameMetaMap[game]?.name || game} · ${events[event] || event}`;
         }
+        // 提现退回的备注是失败原因。
+        if (record.type === 'withdraw_refund' && value) {
+          return failReasons[value] || value;
+        }
         return value || record.ref_id || '-';
       },
     },
@@ -198,7 +204,11 @@ const GameCoinRecords = ({ version, symbol, explorerUrl, chainId }) => {
           <Tag color={meta?.color || 'grey'}>{meta?.text || value}</Tag>
         );
         return record.fail_reason ? (
-          <Tooltip content={record.fail_reason}>{tag}</Tooltip>
+          <Tooltip
+            content={failReasons[record.fail_reason] || record.fail_reason}
+          >
+            {tag}
+          </Tooltip>
         ) : (
           tag
         );

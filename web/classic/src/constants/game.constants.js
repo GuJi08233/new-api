@@ -259,6 +259,20 @@ export const getGameMetaMap = (t) => ({
   },
 });
 
+// 提现失败的原因：服务端写进提现单与退回流水的固定中文句子(service/game_coin_withdraw.go 的 failGameCoinWithdrawal)，
+// 在这里逐条翻译；不认识的原因原样显示。
+export const getGameCoinWithdrawFailReasonMap = (t) => ({
+  '链上转账执行失败，游戏币已退回': t('链上转账执行失败，游戏币已退回'),
+  '代币合约没有完成转账，游戏币已退回': t('代币合约没有完成转账，游戏币已退回'),
+  '交易未能上链，游戏币已退回': t('交易未能上链，游戏币已退回'),
+  '提现的网络或代币已变更，游戏币已退回':
+    t('提现的网络或代币已变更，游戏币已退回'),
+  '收款地址无效，游戏币已退回': t('收款地址无效，游戏币已退回'),
+  '热钱包代币不足或合约拒绝转账，游戏币已退回': t(
+    '热钱包代币不足或合约拒绝转账，游戏币已退回',
+  ),
+});
+
 export const getGameCoinWithdrawalStatusMap = (t) => ({
   pending: { text: t('排队中'), color: 'grey' },
   signed: { text: t('处理中'), color: 'blue' },

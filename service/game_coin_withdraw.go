@@ -646,6 +646,8 @@ func isEthereumExecutionReverted(err error) bool {
 	return rpcErr.Code == 3 || strings.Contains(strings.ToLower(rpcErr.Message), "execution reverted")
 }
 
+// failGameCoinWithdrawal 判定提现失败并退回游戏币。reason 是给用户看的固定中文句子，写进提现单与退回流水，前端按原文翻译
+// (web/classic 的 getGameCoinWithdrawFailReasonMap)，改动或新增时两边一起改；detail 是给管理员排查的技术细节。
 func failGameCoinWithdrawal(ctx context.Context, withdrawal *model.GameCoinWithdrawal, reason string, detail string, summary *GameCoinWithdrawRunSummary) {
 	failed, err := model.FailGameCoinWithdrawal(withdrawal, reason, detail)
 	if err != nil {

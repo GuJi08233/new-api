@@ -30,7 +30,10 @@ import {
 import { IconRefresh } from '@douyinfe/semi-icons';
 import { useTranslation } from 'react-i18next';
 import { API, showError, timestamp2string } from '../../helpers';
-import { getGameCoinWithdrawalStatusMap } from '../../constants';
+import {
+  getGameCoinWithdrawFailReasonMap,
+  getGameCoinWithdrawalStatusMap,
+} from '../../constants';
 import { TxHashLink } from '../Games/common/TxHashLink';
 
 const { Text } = Typography;
@@ -40,6 +43,7 @@ const PAGE_SIZE = 20;
 const GameAdminWithdrawals = () => {
   const { t } = useTranslation();
   const statusMap = getGameCoinWithdrawalStatusMap(t);
+  const failReasons = getGameCoinWithdrawFailReasonMap(t);
   const [items, setItems] = useState([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -155,7 +159,8 @@ const GameAdminWithdrawals = () => {
       title: t('失败原因 / 最近错误'),
       dataIndex: 'error',
       render: (value, record) => {
-        const message = record.fail_reason || value;
+        const message =
+          failReasons[record.fail_reason] || record.fail_reason || value;
         if (!message) return '-';
         return (
           <Text
