@@ -294,6 +294,7 @@ const Plinko = () => {
       ...previous,
       net_today: result.net_today,
       plays_today: result.plays_today,
+      best_win: Math.max(previous.best_win || 0, result.win),
     }));
     setOutcome({ result, tier });
     setHistory((previous) =>
