@@ -45,6 +45,10 @@ const (
 	ttBits = 16
 )
 
+// nodeLimit 是一次搜索最多展开的节点数。搜索每秒约展开一千万个节点，实测困难难度最多用到约 14 万个，个别局面可能多得多；
+// 超过上限的搜索作废重来(见 searchMove)，一步棋最多想零点几秒。测试里调小它走到重来的路径。
+var nodeLimit = 2_000_000
+
 // 位棋盘：每列占 7 位(6 行加 1 位哨兵)，第 col 列从下数第 h 格是第 col*7+h 位。
 const colStride = Rows + 1
 
@@ -179,6 +183,9 @@ type ttEntry struct {
 type searcher struct {
 	table []ttEntry
 	nodes int
+	// limit 是最多展开的节点数，0 表示不限。展开得更多时 aborted 为真，搜索中止，算出的分数和置换表都不能用。
+	limit   int
+	aborted bool
 }
 
 func newSearcher() *searcher {
@@ -189,6 +196,10 @@ func newSearcher() *searcher {
 // 一样，ply 也一样，所以置换表里的赢棋分数不用换算。
 func (s *searcher) negamax(p position, depth int, alpha int, beta int, ply int) int {
 	s.nodes++
+	if s.limit > 0 && s.nodes > s.limit {
+		s.aborted = true
+		return 0
+	}
 	possible := p.possible()
 	if winningCells(p.cur, p.mask)&possible != 0 {
 		return winScore - ply - 1
@@ -329,9 +340,13 @@ func easyMove(p position, rng *rand.Rand) int {
 }
 
 // searchMove 搜 depth 步，给根局面的每一步算出分数，在不比最好一步差 tolerance 以上的几步里随机挑一步。已经算出输赢时
-// 不留容差：能赢就挑最快赢的，要输就挑拖得最久的。
+// 不留容差：能赢就挑最快赢的，要输就挑拖得最久的。展开的节点超过 nodeLimit 时这次的分数作废：算终局的改搜 hardDepth
+// 步，其余的少搜两步重来；只搜一两步时不设上限，展开的节点不过几十个，总能算完。
 func searchMove(p position, depth int, tolerance int, rng *rand.Rand) int {
 	s := newSearcher()
+	if depth > 2 {
+		s.limit = nodeLimit
+	}
 	// 迭代加深：浅层的结果存进置换表，给深一层的搜索排好着法顺序。
 	for d := 1; d < depth; d++ {
 		s.negamax(p, d, -infinity, infinity, 0)
@@ -356,6 +371,9 @@ func searchMove(p position, depth int, tolerance int, rng *rand.Rand) int {
 		cols = append(cols, col)
 		scores = append(scores, score)
 		best = max(best, score)
+	}
+	if s.aborted {
+		return searchMove(p, min(depth-2, hardDepth), tolerance, rng)
 	}
 	if best >= decidedScore || best <= -decidedScore {
 		tolerance = 0

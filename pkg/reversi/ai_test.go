@@ -13,6 +13,7 @@ func seeded(seed uint64) *rand.Rand {
 }
 
 // 普通与困难难度能一步赢下来就走这一步，不走让对方一步赢回去的那一步。每个局面换几个随机种子，不是碰巧挑中。
+// 节点上限小到每次搜索都要作废、一直退到只搜两步时也一样：作废的搜索算出的分数不会拿来选棋。
 func TestBestMoveTakesWinsAndStopsLosses(t *testing.T) {
 	cases := map[string]struct {
 		rows []string
@@ -29,12 +30,17 @@ func TestBestMoveTakesWinsAndStopsLosses(t *testing.T) {
 			want: Point{X: 0, Y: 2},
 		},
 	}
-	for name, c := range cases {
-		for _, level := range []int{2, 3} {
-			for seed := uint64(1); seed <= 3; seed++ {
-				move, err := BestMove(setup(t, Black, c.rows...), level, seeded(seed))
-				require.NoError(t, err)
-				assert.Equal(t, c.want, move, "%s level %d seed %d", name, level, seed)
+	defaultLimit := nodeLimit
+	t.Cleanup(func() { nodeLimit = defaultLimit })
+	for _, limit := range []int{defaultLimit, 1} {
+		nodeLimit = limit
+		for name, c := range cases {
+			for _, level := range []int{2, 3} {
+				for seed := uint64(1); seed <= 3; seed++ {
+					move, err := BestMove(setup(t, Black, c.rows...), level, seeded(seed))
+					require.NoError(t, err)
+					assert.Equal(t, c.want, move, "%s level %d seed %d node limit %d", name, level, seed, limit)
+				}
 			}
 		}
 	}

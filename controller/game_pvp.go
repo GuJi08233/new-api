@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/json"
 	"errors"
@@ -40,6 +41,10 @@ const (
 	pvpMoveAttempts = 3
 )
 
+// pvpAiQueueTimeout 是 AI 搜索名额都占满时一步棋最多排队多久：等太久的请求直接回应失败，玩家稍后再走，而不是越积越多、
+// 在客户端早已放弃之后还占着名额空算。测试里调短它。
+var pvpAiQueueTimeout = 5 * time.Second
+
 // pvpEngine 是一个对战游戏的规则引擎。状态以 JSON 保存在房间或人机对局里，引擎只负责解释它。座位 0 是房主，人机对战里是玩家；
 // 座位 1 是对手，人机对战里是 AI。
 type pvpEngine interface {
@@ -66,6 +71,9 @@ type pvpState struct {
 }
 
 var errPvpIllegalMove = errors.New("illegal move")
+
+// errPvpAiBusy 表示 AI 搜索名额一直占满，这一步排队超过了 pvpAiQueueTimeout。
+var errPvpAiBusy = errors.New("ai search queue is full")
 
 // pvpAiSearches 限制同时进行的 AI 搜索：一次搜索要占满一个 CPU 核几毫秒到上百毫秒，同时搜索的不超过核数的一半，
 // 其余的排队等候，别的接口不受拖累。
@@ -920,17 +928,15 @@ func (s *pvpAiState) apply(next pvpState) {
 }
 
 // aiReply 让 AI 一直走到轮到玩家或对局结束，返回 AI 的最后一步。玩家无子可下只能停一手时(黑白棋)AI 会连走几步；
-// 每一步都要改变局面，走满 pvpAiMaxReplies 步还没交还玩家说明引擎有问题。
-func (s *pvpAiState) aiReply(engine pvpEngine) (json.RawMessage, error) {
+// 每一步都要改变局面，走满 pvpAiMaxReplies 步还没交还玩家说明引擎有问题。ctx 是请求的上下文，客户端断开后不再排队。
+func (s *pvpAiState) aiReply(ctx context.Context, engine pvpEngine) (json.RawMessage, error) {
 	var move json.RawMessage
 	for replies := 0; !s.Over && s.ToMove == 1; replies++ {
 		if replies == pvpAiMaxReplies {
 			return nil, fmt.Errorf("ai kept the turn for %d moves", replies)
 		}
-		pvpAiSearches <- struct{}{}
 		var err error
-		move, err = engine.AiMove(s.Board, 1, s.Level)
-		<-pvpAiSearches
+		move, err = pvpAiSearchMove(ctx, engine, s.Board, s.Level)
 		if err != nil {
 			return nil, err
 		}
@@ -941,6 +947,22 @@ func (s *pvpAiState) aiReply(engine pvpEngine) (json.RawMessage, error) {
 		s.apply(next)
 	}
 	return move, nil
+}
+
+// pvpAiSearchMove 占一个 pvpAiSearches 名额让 AI 想一步。名额占满时排队，最多等 pvpAiQueueTimeout，请求取消时不再等；
+// 名额在搜索结束时归还，引擎出错甚至 panic 也不会少掉一个。
+func pvpAiSearchMove(ctx context.Context, engine pvpEngine, board []byte, level int) (json.RawMessage, error) {
+	queued := time.NewTimer(pvpAiQueueTimeout)
+	defer queued.Stop()
+	select {
+	case pvpAiSearches <- struct{}{}:
+	case <-queued.C:
+		return nil, errPvpAiBusy
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	defer func() { <-pvpAiSearches }()
+	return engine.AiMove(board, 1, level)
 }
 
 // pvpAiView 是人机对战一局给玩家看的样子。
@@ -1020,7 +1042,7 @@ func startPvpAi(c *gin.Context, game *pvpGame) {
 			return "", err
 		}
 		state := pvpAiState{Level: req.Level, Board: initial.Data, ToMove: initial.ToMove, Winner: -1}
-		if _, err := state.aiReply(game.engine); err != nil {
+		if _, err := state.aiReply(c.Request.Context(), game.engine); err != nil {
 			return "", err
 		}
 		data, err := common.Marshal(state)
@@ -1134,7 +1156,7 @@ func movePvpAi(c *gin.Context, game *pvpGame) {
 		return
 	}
 	state.apply(next)
-	aiMove, err := state.aiReply(game.engine)
+	aiMove, err := state.aiReply(c.Request.Context(), game.engine)
 	if err != nil {
 		common.SysError(fmt.Sprintf("%s ai failed in session %d: %v", game.key, session.Id, err))
 		common.ApiErrorI18n(c, i18n.MsgGamePlayFailed)

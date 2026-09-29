@@ -5,6 +5,7 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
@@ -128,4 +129,36 @@ func TestConnect4AiGameSettles(t *testing.T) {
 	assert.EqualValues(t, 1, result["score"])
 	assert.EqualValues(t, 1, result["reward"])
 	assert.Equal(t, 1, player.balance())
+}
+
+// AI 搜索名额一直占满时，这一步排队到上限就回应失败，不会一直挂着；玩家这一步没有记下，名额空出来之后原样再走一次就行。
+func TestConnect4AiMoveGivesUpWhenSearchesAreBusy(t *testing.T) {
+	require.NoError(t, i18n.Init())
+	env := newGameTestEnv(t, connect4Setting(boardAiRule()))
+	fixBoardAiRandom(t, 7)
+	previousTimeout := pvpAiQueueTimeout
+	pvpAiQueueTimeout = 20 * time.Millisecond
+	t.Cleanup(func() { pvpAiQueueTimeout = previousTimeout })
+	player := env.player(0, gameTestIpA)
+	session := player.ok(http.MethodPost, "/api/game/connect4/ai/start", map[string]any{"level": 1})["session"].(map[string]any)
+
+	for len(pvpAiSearches) < cap(pvpAiSearches) {
+		pvpAiSearches <- struct{}{}
+	}
+	t.Cleanup(func() {
+		for len(pvpAiSearches) > 0 {
+			<-pvpAiSearches
+		}
+	})
+	move := map[string]any{"session_id": session["session_id"], "version": session["version"], "move": map[string]any{"col": 0}}
+	assert.Equal(t, gameMessage(i18n.MsgGamePlayFailed), player.fails(http.MethodPost, "/api/game/connect4/ai/move", move))
+	current := player.ok(http.MethodGet, "/api/game/connect4/ai", nil)["session"].(map[string]any)
+	assert.Equal(t, session["version"], current["version"], "这一步没有记下")
+	assert.Equal(t, session["moves"], current["moves"])
+
+	for len(pvpAiSearches) > 0 {
+		<-pvpAiSearches
+	}
+	moved := player.ok(http.MethodPost, "/api/game/connect4/ai/move", move)["session"].(map[string]any)
+	assert.EqualValues(t, jsonInt(t, session["moves"])+2, moved["moves"], "玩家与 AI 各走了一步")
 }

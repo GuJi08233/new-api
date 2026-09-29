@@ -33,6 +33,10 @@ const (
 	hardExactEmpties = 12
 )
 
+// nodeLimit 是一次搜索最多展开的节点数。搜索每秒约展开一千万个节点，实测困难难度中局最多用到约 25 万个、算终局最多约
+// 21 万个，个别局面可能多得多；超过上限的搜索作废重来(见 searchMove)，一步棋最多想零点几秒。测试里调小它走到重来的路径。
+var nodeLimit = 2_000_000
+
 // squareWeights 是普通难度的位置权重：角一旦占住就不会被翻，角旁边的星位与边位会把角送给对方。
 var squareWeights = [Squares]int{
 	100, -20, 10, 5, 5, 10, -20, 100,
@@ -124,11 +128,18 @@ func finalScore(me, opp uint64) int {
 type searcher struct {
 	evaluate func(me, opp uint64) int
 	nodes    int
+	// limit 是最多展开的节点数，0 表示不限。展开得更多时 aborted 为真，搜索中止，算出的分数都不能用。
+	limit   int
+	aborted bool
 }
 
 // negamax 返回 me 这一方(轮到它走)在 depth 步以内能保证的分数。depth 为负表示一直搜到终局。
 func (s *searcher) negamax(me, opp uint64, depth int, alpha int, beta int) int {
 	s.nodes++
+	if s.limit > 0 && s.nodes > s.limit {
+		s.aborted = true
+		return 0
+	}
 	moves := legalMoves(me, opp)
 	if moves == 0 {
 		if legalMoves(opp, me) == 0 {
@@ -190,13 +201,13 @@ func BestMove(g *Game, level int, rng *rand.Rand) (Point, error) {
 	case 1:
 		square = easyMove(me, opp, rng)
 	case 2:
-		square = searchMove(&searcher{evaluate: evaluateNormal}, me, opp, normalDepth, normalTolerance, rng)
+		square = searchMove(evaluateNormal, me, opp, normalDepth, normalTolerance, rng)
 	case 3:
 		depth := hardDepth
 		if bits.OnesCount64(^(me | opp)) <= hardExactEmpties {
 			depth = -1
 		}
-		square = searchMove(&searcher{evaluate: evaluateHard}, me, opp, depth, hardTolerance, rng)
+		square = searchMove(evaluateHard, me, opp, depth, hardTolerance, rng)
 	default:
 		return Point{}, ErrInvalidLevel
 	}
@@ -216,9 +227,14 @@ func easyMove(me, opp uint64, rng *rand.Rand) int {
 	return bestSquare
 }
 
-// searchMove 搜 depth 步(为负时搜到终局)，给每一步算出分数，在不比最好一步差 tolerance 以上的几步里随机挑一步。
-// 已经算出输赢时不留容差。
-func searchMove(s *searcher, me, opp uint64, depth int, tolerance int, rng *rand.Rand) int {
+// searchMove 用 evaluate 搜 depth 步(为负时搜到终局)，给每一步算出分数，在不比最好一步差 tolerance 以上的几步里随机
+// 挑一步。已经算出输赢时不留容差。展开的节点超过 nodeLimit 时这次的分数作废：算终局的改搜 hardDepth 步，其余的少搜
+// 两步重来；只搜两步时不设上限，展开的节点不过几百个，总能算完。
+func searchMove(evaluate func(me, opp uint64) int, me, opp uint64, depth int, tolerance int, rng *rand.Rand) int {
+	s := &searcher{evaluate: evaluate}
+	if depth < 0 || depth > 2 {
+		s.limit = nodeLimit
+	}
 	var order [Squares]int
 	count := s.orderMoves(me, opp, legalMoves(me, opp), depth < 0, &order)
 	squares := make([]int, 0, count)
@@ -235,6 +251,13 @@ func searchMove(s *searcher, me, opp uint64, depth int, tolerance int, rng *rand
 		squares = append(squares, square)
 		scores = append(scores, score)
 		best = max(best, score)
+	}
+	if s.aborted {
+		next := depth - 2
+		if depth < 0 {
+			next = hardDepth
+		}
+		return searchMove(evaluate, me, opp, next, tolerance, rng)
 	}
 	if depth < 0 || best >= decidedScore-Squares || best <= -decidedScore+Squares {
 		tolerance = 0

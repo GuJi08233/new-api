@@ -13,7 +13,8 @@ func seeded(seed uint64) *rand.Rand {
 }
 
 // 普通与困难难度能一步赢就赢；对手下一步能赢时必须堵住；不会投在对手赢棋格子的正下方把这一格让给对手。
-// 每个局面换几个随机种子，不是碰巧挑中。
+// 每个局面换几个随机种子，不是碰巧挑中。节点上限小到每次搜索都要作废、一直退到只搜一步时也一样：作废的搜索算出的分数
+// 不会拿来选棋。
 func TestBestMoveTakesWinsAndStopsLosses(t *testing.T) {
 	cases := map[string]struct {
 		moves   []int
@@ -26,15 +27,20 @@ func TestBestMoveTakesWinsAndStopsLosses(t *testing.T) {
 		// 先手第二行 0、1、2 列三子，第 3 列还空着：后手投第 3 列会让先手接着在它上面连成 4 子。
 		"do not play under the threat": {moves: []int{1, 0, 0, 2, 1, 6, 2, 6, 5}, allowed: []int{0, 1, 2, 4, 5, 6}},
 	}
-	for name, c := range cases {
-		for _, level := range []int{2, 3} {
-			for seed := uint64(1); seed <= 3; seed++ {
-				g, err := Replay(c.moves)
-				require.NoError(t, err)
-				require.False(t, g.Over())
-				col, err := BestMove(g, level, seeded(seed))
-				require.NoError(t, err)
-				assert.Contains(t, c.allowed, col, "%s level %d seed %d", name, level, seed)
+	defaultLimit := nodeLimit
+	t.Cleanup(func() { nodeLimit = defaultLimit })
+	for _, limit := range []int{defaultLimit, 1} {
+		nodeLimit = limit
+		for name, c := range cases {
+			for _, level := range []int{2, 3} {
+				for seed := uint64(1); seed <= 3; seed++ {
+					g, err := Replay(c.moves)
+					require.NoError(t, err)
+					require.False(t, g.Over())
+					col, err := BestMove(g, level, seeded(seed))
+					require.NoError(t, err)
+					assert.Contains(t, c.allowed, col, "%s level %d seed %d node limit %d", name, level, seed, limit)
+				}
 			}
 		}
 	}
