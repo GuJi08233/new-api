@@ -40,6 +40,7 @@ import {
 } from '../skill';
 import { usePlayTurnstile } from '../usePlayTurnstile';
 import { useGameInfo } from '../useGameInfo';
+import { useVisiblePolling } from '../useVisiblePolling';
 import { isRoomOpen, usePvpRoom } from './usePvpRoom';
 import './pvp.css';
 
@@ -641,17 +642,14 @@ const PvpGame = ({
 
   const loaded = !!info;
   const inLobby = !room && !ai;
-  // 在大厅时定时刷新等待中的房间；别人加入了自己开的房间时直接进入对局。
-  useEffect(() => {
-    if (!loaded || !inLobby) return undefined;
-    const timer = setInterval(async () => {
-      const response = await gameGet(`/api/game/rooms?game=${gameKey}`, t);
-      if (!response.data) return;
-      setLobby(response.data);
-      if (response.data.active) setRoom(response.data.active);
-    }, LOBBY_POLL_MS);
-    return () => clearInterval(timer);
-  }, [loaded, inLobby, gameKey, t, setRoom]);
+  // 在大厅时定时刷新等待中的房间，页面在后台时不刷新；别人加入了自己开的房间时直接进入对局。
+  const pollLobby = useCallback(async () => {
+    const response = await gameGet(`/api/game/rooms?game=${gameKey}`, t);
+    if (!response.data) return;
+    setLobby(response.data);
+    if (response.data.active) setRoom(response.data.active);
+  }, [gameKey, t, setRoom]);
+  useVisiblePolling(pollLobby, LOBBY_POLL_MS, loaded && inLobby);
 
   // 朋友发来的邀请链接带着 invite=邀请码：打开页面后直接加入那个房间。
   const invite = params.get('invite');

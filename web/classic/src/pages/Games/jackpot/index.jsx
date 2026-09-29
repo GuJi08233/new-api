@@ -26,6 +26,7 @@ import GameLayout from '../common/GameLayout';
 import { RuleList, SideBox, StageMessage } from '../common/SideBox';
 import { gameGet, gamePost, percent, signed } from '../common/api';
 import { useGameInfo } from '../common/useGameInfo';
+import { useVisiblePolling } from '../common/useVisiblePolling';
 import './jackpot.css';
 
 // 页面每隔这么久刷新一次奖池；开奖由服务端在刷新时完成。
@@ -129,16 +130,12 @@ const Jackpot = () => {
     [setInfo],
   );
 
-  // 拿到信息之后定时刷新，开奖、别人的投入都靠它看到。
-  const loaded = !!info;
-  useEffect(() => {
-    if (!loaded) return undefined;
-    const timer = setInterval(async () => {
-      const response = await gameGet('/api/game/jackpot', t);
-      if (response.data) apply(response.data);
-    }, POLL_MS);
-    return () => clearInterval(timer);
-  }, [loaded, apply, t]);
+  // 拿到信息之后定时刷新，开奖、别人的投入都靠它看到；页面在后台时不刷新。
+  const poll = useCallback(async () => {
+    const response = await gameGet('/api/game/jackpot', t);
+    if (response.data) apply(response.data);
+  }, [apply, t]);
+  useVisiblePolling(poll, POLL_MS, !!info);
 
   useEffect(() => {
     if (info && !lastRoundRef.current && info.round?.pot > 0) {
