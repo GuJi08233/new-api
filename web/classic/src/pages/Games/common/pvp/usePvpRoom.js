@@ -31,10 +31,23 @@ export const isRoomOpen = (room) =>
 // clockOffset() 是服务器时钟减本地时钟(秒)，倒计时按服务器时间算。
 export function usePvpRoom(t) {
   const [room, setRoomState] = useState(null);
+  const roomRef = useRef(null);
   const offsetRef = useRef(0);
   const versionRef = useRef(-1);
 
   const setRoom = useCallback((next) => {
+    // 落子与长轮询的响应可能先后错乱：同一个房间只接受不比现在旧的状态，晚到的旧状态不能盖住新的，否则这时挂着的长轮询
+    // 带的是新版本，要等到下一次变化或 25 秒后才会把页面纠正过来。
+    const current = roomRef.current;
+    if (
+      next &&
+      current &&
+      next.id === current.id &&
+      next.version < current.version
+    ) {
+      return;
+    }
+    roomRef.current = next;
     if (next?.server_time) {
       offsetRef.current = next.server_time - Date.now() / 1000;
     }
