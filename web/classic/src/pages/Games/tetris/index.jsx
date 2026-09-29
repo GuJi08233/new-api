@@ -44,7 +44,6 @@ import {
   Trophy,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import Turnstile from 'react-turnstile';
 import { API, showError } from '../../../helpers';
 import {
   ACTION,
@@ -59,10 +58,12 @@ import {
 } from './engine';
 import {
   playTimeNote,
-  rewardsLeft,
+  rewardsLeftText,
   skillResultMessage,
   skillRuleSummary,
 } from '../common/skill';
+import { withTurnstile } from '../common/api';
+import { usePlayTurnstile } from '../common/usePlayTurnstile';
 import '../games.css';
 import './tetris.css';
 
@@ -316,11 +317,8 @@ const Tetris = () => {
   const [stats, setStats] = useState({ score: 0, lines: 0, level: 1 });
   const [result, setResult] = useState(null);
   const [submitError, setSubmitError] = useState('');
-  // 开局人机验证：每局用一个新令牌，开局请求发出后换一个组件实例重新取令牌。
-  const [playTurnstile, setPlayTurnstile] = useState({ required: false });
-  const [turnstileToken, setTurnstileToken] = useState('');
-  const [turnstileKey, setTurnstileKey] = useState(0);
-  const [turnstileFailed, setTurnstileFailed] = useState(false);
+  // 开局人机验证：每局用一个新令牌。
+  const turnstile = usePlayTurnstile(rule?.play_turnstile);
   // 结束、离开的确认框打开期间忽略游戏按键，免得在确认框后面按 P 继续玩。
   const confirmingRef = useRef(false);
 
@@ -335,7 +333,6 @@ const Tetris = () => {
         // rule 是游戏页信息：领奖规则 rule、今日进度 progress、最高分 best_score 等。
         setRule(res.data.data);
         setSymbol(res.data.data.symbol || '');
-        setPlayTurnstile(res.data.data.play_turnstile || { required: false });
       } catch (error) {
         // 被风控封禁的 IP 收到 403，显示服务端给出的原因。
         setUnavailable(
@@ -420,17 +417,13 @@ const Tetris = () => {
   }, [t]);
 
   const startGame = async () => {
-    const token = turnstileToken;
-    if (playTurnstile.required && !token) return;
+    if (!turnstile.ready) return;
     setPhase('starting');
     // 令牌只能用一次，无论开局成败都换一个新的。
-    setTurnstileToken('');
-    setTurnstileKey((key) => key + 1);
+    const token = turnstile.take();
     try {
       const res = await API.post(
-        playTurnstile.required
-          ? `/api/game/tetris/start?turnstile=${encodeURIComponent(token)}`
-          : '/api/game/tetris/start',
+        withTurnstile('/api/game/tetris/start', token),
       );
       if (!res.data.success) {
         showError(res.data.message);
@@ -648,20 +641,14 @@ const Tetris = () => {
   }
 
   const ruleText = skillRuleSummary(rule, t, symbol, t('分数'));
-  const left = rewardsLeft(rule.rule, rule.progress);
-  let leftText = t('今天还能领 {{left}} 次', { left });
-  if (rule.rule?.daily_rewards === 0) {
-    leftText = t('这个游戏暂不发放奖励');
-  } else if (left === 0) {
-    leftText = t('今天的领奖次数已用完，还可以继续玩');
-  }
+  const leftText = rewardsLeftText(rule.rule, rule.progress, t);
   const timeNote = playTimeNote(rule.rule, rule.progress, t);
   const rewardMessage =
     result && !result.rejected ? skillResultMessage(result, t, symbol) : null;
 
-  const waitingTurnstile = playTurnstile.required && !turnstileToken;
+  const waitingTurnstile = !turnstile.ready;
   let turnstileHint = '';
-  if (playTurnstile.required && turnstileFailed) {
+  if (turnstile.failed) {
     turnstileHint = t('人机验证加载失败，请刷新页面重试');
   } else if (waitingTurnstile) {
     turnstileHint = t(
@@ -952,23 +939,8 @@ const Tetris = () => {
         </div>
 
         {/* 平时不可见，Cloudflare 需要玩家操作时才在这里展开。 */}
-        {playTurnstile.required && (
-          <div className='tetris-turnstile'>
-            <Turnstile
-              key={turnstileKey}
-              sitekey={playTurnstile.site_key}
-              appearance='interaction-only'
-              onVerify={(token) => {
-                setTurnstileToken(token);
-                setTurnstileFailed(false);
-              }}
-              onExpire={() => setTurnstileToken('')}
-              onError={() => {
-                setTurnstileToken('');
-                setTurnstileFailed(true);
-              }}
-            />
-          </div>
+        {turnstile.required && (
+          <div className='tetris-turnstile'>{turnstile.widget}</div>
         )}
       </div>
     </div>

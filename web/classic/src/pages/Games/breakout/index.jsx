@@ -26,7 +26,7 @@ import { RuleList, SideBox, StageMessage } from '../common/SideBox';
 import { gamePost, withTurnstile } from '../common/api';
 import { SkillSide, skillResultMessage, formatClock } from '../common/skill';
 import { useGameInfo } from '../common/useGameInfo';
-import { usePlayTurnstile } from '../common/usePlayTurnstile';
+import { PlayTurnstile, usePlayTurnstile } from '../common/usePlayTurnstile';
 import {
   createGame,
   step,
@@ -449,7 +449,9 @@ const Breakout = () => {
             </Button>
           )}
         </div>
-        {(phase === 'idle' || phase === 'done') && turnstile.widget}
+        {(phase === 'idle' || phase === 'done') && (
+          <PlayTurnstile turnstile={turnstile} />
+        )}
         {(error || reward) && (
           <StageMessage
             kind={error ? 'error' : reward?.kind}

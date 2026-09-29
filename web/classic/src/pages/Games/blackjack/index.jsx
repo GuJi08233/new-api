@@ -18,16 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import React, { useEffect, useState } from 'react';
-import {
-  ChevronsUp,
-  Club,
-  Diamond,
-  Hand,
-  Heart,
-  Plus,
-  Spade,
-  Split,
-} from 'lucide-react';
+import { ChevronsUp, Hand, Plus, Split } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { getGameMetaMap } from '../../../constants';
 import GameLayout from '../common/GameLayout';
@@ -36,26 +27,9 @@ import { RuleList, SideBox, StageMessage } from '../common/SideBox';
 import { percent } from '../common/api';
 import { WagerStats, wagerResultMessage } from '../common/wager';
 import { useGameInfo } from '../common/useGameInfo';
+import { RANK_LABELS, SUIT_ICONS, isRedSuit } from '../common/cards';
 import { useWagerRound } from '../common/useWagerRound';
 import './blackjack.css';
-
-const RANK_LABELS = [
-  'A',
-  '2',
-  '3',
-  '4',
-  '5',
-  '6',
-  '7',
-  '8',
-  '9',
-  '10',
-  'J',
-  'Q',
-  'K',
-];
-// 花色按服务端的编号：0 黑桃、1 红心、2 方块、3 梅花。
-const SUIT_ICONS = [Spade, Heart, Diamond, Club];
 
 // 一张牌：左上角是点数与小花色(牌叠在一起时也看得见)，右下角是大花色，红心与方块是红色。faceDown 时画成牌背
 // (庄家还没翻开的暗牌)。
@@ -73,7 +47,7 @@ const BlackjackCard = ({ card, faceDown, index }) => {
     );
   }
   const Suit = SUIT_ICONS[card.suit];
-  const red = card.suit === 1 || card.suit === 2;
+  const red = isRedSuit(card.suit);
   return (
     <div
       className={red ? 'blackjack-card is-red' : 'blackjack-card'}

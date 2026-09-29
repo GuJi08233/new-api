@@ -50,13 +50,13 @@ import {
   formatClock,
   GameClock,
   levelReward,
-  rewardsLeft,
+  rewardsLeftText,
   skillResultMessage,
   skillRuleSummary,
   SkillSide,
 } from '../common/skill';
 import { useGameInfo } from '../common/useGameInfo';
-import { usePlayTurnstile } from '../common/usePlayTurnstile';
+import { PlayTurnstile, usePlayTurnstile } from '../common/usePlayTurnstile';
 import './memory.css';
 
 const STATE_URL = '/api/game/memory/state';
@@ -296,13 +296,7 @@ const Memory = () => {
   const pairs = game?.pairs || selected?.pairs || 0;
   const cards = game ? symbols : new Array(rows * cols).fill(null);
 
-  const left = rewardsLeft(info?.rule, info?.progress);
-  let leftText = t('今天还能领 {{left}} 次', { left });
-  if (info?.rule?.daily_rewards === 0) {
-    leftText = t('这个游戏暂不发放奖励');
-  } else if (left === 0) {
-    leftText = t('今天的领奖次数已用完，还可以继续玩');
-  }
+  const leftText = rewardsLeftText(info?.rule, info?.progress, t);
 
   let outcome = null;
   if (end?.status === 'won') {
@@ -483,12 +477,7 @@ const Memory = () => {
               <Play size={16} className='memory-play-icon' />
               {busy ? t('正在开局…') : end ? t('再来一局') : t('开始游戏')}
             </button>
-            {turnstile.widget}
-            {turnstile.failed && (
-              <div className='games-stage-hint'>
-                {t('人机验证加载失败，请刷新页面重试')}
-              </div>
-            )}
+            <PlayTurnstile turnstile={turnstile} />
             <div className='games-stage-counter'>{leftText}</div>
           </div>
         )}

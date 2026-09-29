@@ -33,7 +33,7 @@ import { RuleList, SideBox, StageMessage } from '../common/SideBox';
 import { gameGet, gamePost, withTurnstile } from '../common/api';
 import { SkillSide, skillResultMessage, GameClock } from '../common/skill';
 import { useGameInfo } from '../common/useGameInfo';
-import { usePlayTurnstile } from '../common/usePlayTurnstile';
+import { PlayTurnstile, usePlayTurnstile } from '../common/usePlayTurnstile';
 import { movePuzzle, replayPuzzle, solved } from './engine';
 import '../common/puzzles.css';
 
@@ -391,7 +391,7 @@ const Sokoban = () => {
             {t('已达到步数上限，请撤销或重置棋盘')}
           </p>
         )}
-        {!playing && turnstile.widget}
+        {!playing && <PlayTurnstile turnstile={turnstile} />}
         {(error || reward) && (
           <StageMessage
             kind={error ? 'error' : reward?.kind}

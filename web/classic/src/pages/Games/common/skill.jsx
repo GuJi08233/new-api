@@ -18,9 +18,12 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import React, { useEffect, useState } from 'react';
+import { Button } from '@douyinfe/semi-ui';
+import { RotateCcw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { formatNumber } from './api';
 import { RuleList, SideBox } from './SideBox';
+import { PlayTurnstile } from './usePlayTurnstile';
 
 // 免费游戏(技巧游戏与人机对战)共用的领奖规则展示与结算提示。info 是 GET /api/game/<key> 返回的 skillInfo 部分：
 // rule { daily_rewards, tiers, min_seconds_per_coin }、free_daily_limit、progress、best_score。
@@ -34,6 +37,14 @@ export function rewardsLeft(rule, progress) {
     progress?.ip_rewards_today || 0,
   );
   return Math.max((rule?.daily_rewards || 0) - used, 0);
+}
+
+// 今天还能领几次奖励的一句话：这个游戏不发奖、今天的次数已用完，或者还剩几次。
+export function rewardsLeftText(rule, progress, t) {
+  if (rule?.daily_rewards === 0) return t('这个游戏暂不发放奖励');
+  const left = rewardsLeft(rule, progress);
+  if (left === 0) return t('今天的领奖次数已用完，还可以继续玩');
+  return t('今天还能领 {{left}} 次', { left });
 }
 
 // 领下一个游戏币要累计玩到多久(秒)：已经领到的游戏币也各占一份时长，与服务端的领奖规则一致。不限时长时为 0。
@@ -166,19 +177,13 @@ export const SkillSide = ({ info, symbol, scoreName, levelNames, extra }) => {
   const rule = info?.rule || {};
   const progress = info?.progress || {};
   const tiers = rule.tiers || [];
-  const left = rewardsLeft(rule, progress);
   const freeLimit = info?.free_daily_limit || 0;
   const freeEarned = Math.max(
     progress.free_earned_today || 0,
     progress.ip_free_earned_today || 0,
   );
 
-  let rewardNote = t('今天还能领 {{left}} 次', { left });
-  if (rule.daily_rewards === 0) {
-    rewardNote = t('这个游戏暂不发放奖励');
-  } else if (left === 0) {
-    rewardNote = t('今天的领奖次数已用完，还可以继续玩');
-  }
+  const rewardNote = rewardsLeftText(rule, progress, t);
   const timeNote = playTimeNote(rule, progress, t);
 
   return (
@@ -291,3 +296,58 @@ export function skillRuleSummary(info, t, symbol, scoreName, levelNames) {
     count: rule.daily_rewards,
   });
 }
+
+// ReplayRunControls 是上传整局操作记录结算的技巧游戏(贪吃蛇、Flappy Bird、2048)在对局之外的按钮。phase 为 'error' 时结算
+// 没有得到答复，可以重新提交或放弃本局；其余时候是开局按钮、人机验证与今天还能领几次，phase 为 'starting' 时正在开局、
+// 为 'result' 时刚结算完一局。info 是游戏页信息，turnstile 是 usePlayTurnstile 的返回值。
+export const ReplayRunControls = ({
+  phase,
+  info,
+  turnstile,
+  onStart,
+  onResubmit,
+  onAbandon,
+}) => {
+  const { t } = useTranslation();
+  if (phase === 'error') {
+    return (
+      <>
+        <Button
+          theme='solid'
+          icon={<RotateCcw size={14} />}
+          onClick={onResubmit}
+        >
+          {t('重新提交')}
+        </Button>
+        <Button onClick={onAbandon}>{t('放弃本局')}</Button>
+      </>
+    );
+  }
+  let startLabel = t('开始游戏');
+  if (phase === 'starting') {
+    startLabel = t('正在开局…');
+  } else if (phase === 'result') {
+    startLabel = t('再来一局');
+  }
+  return (
+    <>
+      <button
+        type='button'
+        className='games-play-button is-free'
+        disabled={phase === 'starting' || !turnstile.ready}
+        onClick={onStart}
+      >
+        {startLabel}
+      </button>
+      <PlayTurnstile turnstile={turnstile} />
+      {!turnstile.ready && !turnstile.failed && (
+        <div className='games-stage-hint'>
+          {t('开局前需要完成人机验证，需要操作时验证框会出现在页面下方')}
+        </div>
+      )}
+      <div className='games-stage-counter'>
+        {rewardsLeftText(info?.rule, info?.progress, t)}
+      </div>
+    </>
+  );
+};

@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Button, Modal, Spin } from '@douyinfe/semi-ui';
-import { Flag, Pause, Play, RotateCcw, Trophy } from 'lucide-react';
+import { Flag, Pause, Play, Trophy } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { API } from '../../../helpers';
 import { getGameMetaMap } from '../../../constants';
@@ -28,8 +28,8 @@ import GameLayout from '../common/GameLayout';
 import { RuleList, SideBox, StageMessage } from '../common/SideBox';
 import { formatNumber, gamePost, withTurnstile } from '../common/api';
 import {
+  ReplayRunControls,
   SkillSide,
-  rewardsLeft,
   skillResultMessage,
   skillRuleSummary,
 } from '../common/skill';
@@ -462,14 +462,6 @@ const Flappy = () => {
     };
   }, []);
 
-  const left = rewardsLeft(info?.rule, info?.progress);
-  let leftText = t('今天还能领 {{left}} 次', { left });
-  if (info?.rule?.daily_rewards === 0) {
-    leftText = t('这个游戏暂不发放奖励');
-  } else if (left === 0) {
-    leftText = t('今天的领奖次数已用完，还可以继续玩');
-  }
-
   let message = notice;
   if (!message) {
     if (phase === 'error') {
@@ -552,13 +544,6 @@ const Flappy = () => {
     );
   }
 
-  let startLabel = t('开始游戏');
-  if (phase === 'starting') {
-    startLabel = t('正在开局…');
-  } else if (phase === 'result') {
-    startLabel = t('再来一局');
-  }
-
   let controls = null;
   if (running) {
     controls = (
@@ -585,39 +570,16 @@ const Flappy = () => {
         </Button>
       </>
     );
-  } else if (phase === 'error') {
-    controls = (
-      <>
-        <Button theme='solid' icon={<RotateCcw size={14} />} onClick={submit}>
-          {t('重新提交')}
-        </Button>
-        <Button onClick={abandon}>{t('放弃本局')}</Button>
-      </>
-    );
   } else if (phase !== 'submitting') {
     controls = (
-      <>
-        <button
-          type='button'
-          className='games-play-button is-free'
-          disabled={phase === 'starting' || !turnstile.ready}
-          onClick={start}
-        >
-          {startLabel}
-        </button>
-        {turnstile.widget}
-        {turnstile.failed && (
-          <div className='games-stage-hint'>
-            {t('人机验证加载失败，请刷新页面重试')}
-          </div>
-        )}
-        {!turnstile.ready && !turnstile.failed && (
-          <div className='games-stage-hint'>
-            {t('开局前需要完成人机验证，需要操作时验证框会出现在页面下方')}
-          </div>
-        )}
-        <div className='games-stage-counter'>{leftText}</div>
-      </>
+      <ReplayRunControls
+        phase={phase}
+        info={info}
+        turnstile={turnstile}
+        onStart={start}
+        onResubmit={submit}
+        onAbandon={abandon}
+      />
     );
   }
 

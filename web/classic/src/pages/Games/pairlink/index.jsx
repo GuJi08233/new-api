@@ -25,7 +25,7 @@ import { RuleList, SideBox, StageMessage } from '../common/SideBox';
 import { gameGet, gamePost, withTurnstile } from '../common/api';
 import { formatClock, SkillSide, skillResultMessage } from '../common/skill';
 import { useGameInfo } from '../common/useGameInfo';
-import { usePlayTurnstile } from '../common/usePlayTurnstile';
+import { PlayTurnstile, usePlayTurnstile } from '../common/usePlayTurnstile';
 import { getGameLevelNames } from '../../../constants/game.constants';
 import '../common/puzzles.css';
 
@@ -343,7 +343,7 @@ const Pairlink = () => {
             </>
           )}
         </div>
-        {!playing && turnstile.widget}
+        {!playing && <PlayTurnstile turnstile={turnstile} />}
         {(error || message || notice) && (
           <StageMessage
             kind={error ? 'error' : message?.kind}

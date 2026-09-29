@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 
 import React, { useCallback, useState } from 'react';
 import Turnstile from 'react-turnstile';
+import { useTranslation } from 'react-i18next';
 
 // 领免费奖励的对局开始前的人机验证。config 是游戏信息里的 play_turnstile({ required, site_key })。
 // 令牌只能用一次：take() 取出当前令牌并换一个新的验证组件重新取。widget 平时不可见，Cloudflare 需要玩家操作时才展开，
@@ -58,3 +59,18 @@ export function usePlayTurnstile(config) {
 
   return { required, ready: !required || !!token, failed, take, widget };
 }
+
+// PlayTurnstile 放在开局按钮下方：usePlayTurnstile 的验证组件，加载失败时提示刷新页面。
+export const PlayTurnstile = ({ turnstile }) => {
+  const { t } = useTranslation();
+  return (
+    <>
+      {turnstile.widget}
+      {turnstile.failed && (
+        <div className='games-stage-hint'>
+          {t('人机验证加载失败，请刷新页面重试')}
+        </div>
+      )}
+    </>
+  );
+};

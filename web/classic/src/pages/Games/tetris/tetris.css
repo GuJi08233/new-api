@@ -329,7 +329,5 @@ For commercial licensing, please contact support@quantumnous.com
 
 /* 开局人机验证：平时不可见，需要玩家操作时在盘面下方展开。 */
 .tetris-turnstile {
-  display: flex;
-  justify-content: center;
   margin-top: 12px;
 }

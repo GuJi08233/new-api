@@ -38,7 +38,7 @@ import {
   rewardsLeft,
   skillResultMessage,
 } from '../skill';
-import { usePlayTurnstile } from '../usePlayTurnstile';
+import { PlayTurnstile, usePlayTurnstile } from '../usePlayTurnstile';
 import { useGameInfo } from '../useGameInfo';
 import { useVisiblePolling } from '../useVisiblePolling';
 import { isRoomOpen, usePvpRoom } from './usePvpRoom';
@@ -234,12 +234,7 @@ const Lobby = ({
                 })
               : t('人机对战暂不发放奖励')}
           </div>
-          {turnstile.failed && (
-            <div className='games-stage-hint'>
-              {t('人机验证加载失败，请刷新页面重试')}
-            </div>
-          )}
-          {turnstile.widget}
+          <PlayTurnstile turnstile={turnstile} />
         </div>
       )}
     </div>
@@ -494,7 +489,7 @@ const AiView = ({
           </>
         )}
       </div>
-      {ai.over && turnstile.widget}
+      {ai.over && <PlayTurnstile turnstile={turnstile} />}
     </div>
   );
 };

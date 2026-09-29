@@ -18,16 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import React, { useEffect, useState } from 'react';
-import {
-  ArrowDown,
-  ArrowUp,
-  Club,
-  Diamond,
-  Equal,
-  Heart,
-  SkipForward,
-  Spade,
-} from 'lucide-react';
+import { ArrowDown, ArrowUp, Equal, SkipForward } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { getGameMetaMap } from '../../../constants';
 import GameLayout from '../common/GameLayout';
@@ -36,26 +27,10 @@ import { RuleList, SideBox, StageMessage } from '../common/SideBox';
 import { percent } from '../common/api';
 import { WagerStats, wagerResultMessage } from '../common/wager';
 import { useGameInfo } from '../common/useGameInfo';
+import { RANK_LABELS, SUIT_ICONS, isRedSuit } from '../common/cards';
 import { useWagerRound } from '../common/useWagerRound';
 import './hilo.css';
 
-const RANK_LABELS = [
-  'A',
-  '2',
-  '3',
-  '4',
-  '5',
-  '6',
-  '7',
-  '8',
-  '9',
-  '10',
-  'J',
-  'Q',
-  'K',
-];
-// 花色按服务端的编号：0 黑桃、1 红心、2 方块、3 梅花。
-const SUIT_ICONS = [Spade, Heart, Diamond, Club];
 const GUESS_ICONS = {
   higher: ArrowUp,
   lower: ArrowDown,
@@ -68,7 +43,7 @@ const HiloCard = ({ card, small }) => {
   const Suit = SUIT_ICONS[card.suit];
   const classes = ['hilo-card'];
   if (small) classes.push('is-small');
-  if (card.suit === 1 || card.suit === 2) classes.push('is-red');
+  if (isRedSuit(card.suit)) classes.push('is-red');
   return (
     <div className={classes.join(' ')}>
       <span className='hilo-card-corner'>
