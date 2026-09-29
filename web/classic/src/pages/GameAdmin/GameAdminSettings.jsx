@@ -380,6 +380,21 @@ const GameAdminSettings = () => {
             </Text>
           </div>
         </SettingRow>
+        <SettingRow
+          label={t('游戏记录保留天数')}
+          extra={t(
+            '对局、对战房间、奖池记录、每日计数，以及游戏币明细里的游戏奖励、下注与对战流水，超过这么多天后每天自动清理一次；每个游戏的最高成绩会留着，兑换、提现与管理员调整的流水不清理。0 表示一直保留，否则至少 7 天',
+          )}
+        >
+          <InputNumber
+            value={setting.record_retention_days}
+            min={0}
+            max={3650}
+            precision={0}
+            suffix={t('天')}
+            onChange={numberField('record_retention_days')}
+          />
+        </SettingRow>
       </Card>
 
       <Card title={t('链上提现')}>

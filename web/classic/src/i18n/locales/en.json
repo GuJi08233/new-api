@@ -5244,6 +5244,9 @@
     "反弹小球击碎砖块，收集多球与加宽挡板奖励": "Bounce balls to break bricks and collect extra balls and paddle extensions.",
     "每天一张可解地图，把所有箱子推到目标位置": "A solvable puzzle every day. Push all boxes onto their targets.",
     "游戏中心已关闭，不能再开新局。你还有押着游戏币、没结束的对局，请回去把它玩完": "The game center is closed and no new games can be started. You still have unfinished games with game coins at stake. Please go back and finish them.",
-    "游戏中心结算": "Game center settlement"
+    "游戏中心结算": "Game center settlement",
+    "游戏记录保留天数": "Game record retention (days)",
+    "对局、对战房间、奖池记录、每日计数，以及游戏币明细里的游戏奖励、下注与对战流水，超过这么多天后每天自动清理一次；每个游戏的最高成绩会留着，兑换、提现与管理员调整的流水不清理。0 表示一直保留，否则至少 7 天": "Rounds, PvP rooms, jackpot records, daily counters, and the game reward, wager and PvP entries in the coin history are cleaned up once a day after this many days. Each game's best score is kept, and conversion, withdrawal and admin adjustment entries are never removed. 0 keeps everything; otherwise at least 7 days",
+    "游戏中心清理": "Game center cleanup"
   }
 }

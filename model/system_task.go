@@ -24,6 +24,8 @@ const (
 	SystemTaskTypeAsyncTaskPoll    = "async_task_poll"
 	SystemTaskTypeGameCoinWithdraw = "game_coin_withdraw"
 	SystemTaskTypeGameCenterSweep  = "game_center_sweep"
+	// SystemTaskTypeGameCenterCleanup 每天清理一次过了保留期的游戏记录。
+	SystemTaskTypeGameCenterCleanup = "game_center_cleanup"
 )
 
 var ErrSystemTaskLockLost = errors.New("system task lock lost")

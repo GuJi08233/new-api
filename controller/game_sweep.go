@@ -7,6 +7,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 )
 
 // gameCenterSweepHandler 定期处理没人访问时也要推进的游戏：结算超时的对战、关闭等太久没人加入的房间、给到点的奖池开奖、
@@ -71,4 +72,36 @@ func (gameCenterSweepHandler) Run(ctx context.Context, task *model.SystemTask, r
 		return
 	}
 	finishSystemTaskHandler(task, runnerID, model.SystemTaskStatusSucceeded, summary, nil)
+}
+
+// gameCenterCleanupHandler 每天清理一次过了保留期的游戏记录(见 model.PruneGameRecords)，以及游戏中心自己的系统任务记录。
+// 游戏中心关闭时记录不再增长，也就不再清理。
+type gameCenterCleanupHandler struct{}
+
+// gameTaskRecordDays 是游戏中心系统任务运行记录的保留天数。结算与提现任务有事可做时每 15 秒一条，只留最近一周供排查。
+const gameTaskRecordDays = 7
+
+func (gameCenterCleanupHandler) Type() string { return model.SystemTaskTypeGameCenterCleanup }
+
+func (gameCenterCleanupHandler) Enabled() bool { return operation_setting.GetGameSetting().Enabled }
+
+func (gameCenterCleanupHandler) Interval() time.Duration { return 24 * time.Hour }
+
+func (gameCenterCleanupHandler) NewPayload() any { return nil }
+
+func (gameCenterCleanupHandler) Run(ctx context.Context, task *model.SystemTask, runnerID string) {
+	now := time.Now()
+	var result model.GameCleanupResult
+	var err error
+	if days := operation_setting.GetGameSetting().RecordRetentionDays; days > 0 {
+		result, err = model.PruneGameRecords(ctx, now.AddDate(0, 0, -days))
+	}
+	if err == nil {
+		result.Tasks, err = model.PruneGameSystemTasks(ctx, now.AddDate(0, 0, -gameTaskRecordDays).Unix())
+	}
+	if err != nil {
+		finishSystemTaskHandler(task, runnerID, model.SystemTaskStatusFailed, result, err)
+		return
+	}
+	finishSystemTaskHandler(task, runnerID, model.SystemTaskStatusSucceeded, result, nil)
 }

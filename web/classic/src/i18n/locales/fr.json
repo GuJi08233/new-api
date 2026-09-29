@@ -5093,6 +5093,9 @@
     "反弹小球击碎砖块，收集多球与加宽挡板奖励": "Renvoyez les balles pour casser les briques et obtenir des balles supplémentaires et une raquette élargie.",
     "每天一张可解地图，把所有箱子推到目标位置": "Une carte résoluble chaque jour : poussez toutes les caisses sur les cibles.",
     "游戏中心已关闭，不能再开新局。你还有押着游戏币、没结束的对局，请回去把它玩完": "Le centre de jeux est fermé et aucune nouvelle partie ne peut être lancée. Vous avez encore des parties en cours avec des jetons de jeu en jeu ; retournez les terminer.",
-    "游戏中心结算": "Règlement du centre de jeux"
+    "游戏中心结算": "Règlement du centre de jeux",
+    "游戏记录保留天数": "Conservation des historiques de jeu (jours)",
+    "对局、对战房间、奖池记录、每日计数，以及游戏币明细里的游戏奖励、下注与对战流水，超过这么多天后每天自动清理一次；每个游戏的最高成绩会留着，兑换、提现与管理员调整的流水不清理。0 表示一直保留，否则至少 7 天": "Les parties, salles JcJ, historiques du jackpot, compteurs journaliers ainsi que les récompenses, mises et gains JcJ de l'historique des jetons sont nettoyés une fois par jour au-delà de ce nombre de jours. Le meilleur score de chaque jeu est conservé ; les conversions, retraits et ajustements par un administrateur ne sont jamais supprimés. 0 conserve tout ; sinon au moins 7 jours",
+    "游戏中心清理": "Nettoyage du centre de jeux"
   }
 }

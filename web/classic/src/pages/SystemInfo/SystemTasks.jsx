@@ -47,6 +47,7 @@ const TASK_TYPE_KEYS = {
   async_task_poll: '异步任务轮询',
   game_coin_withdraw: '游戏币提现',
   game_center_sweep: '游戏中心结算',
+  game_center_cleanup: '游戏中心清理',
 };
 
 const STATUS_META = {

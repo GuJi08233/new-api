@@ -55,6 +55,11 @@ func TestValidateGameOption(t *testing.T) {
 	assert.NoError(t, ValidateGameOption(GameSettingPrefix+"free_daily_limit", "0"))
 	assert.Error(t, ValidateGameOption(GameSettingPrefix+"free_daily_limit", "-1"))
 
+	// 游戏记录保留天数为 0(一直保留)或 7 到 3650 天。
+	for value, valid := range map[string]bool{"0": true, "7": true, "3650": true, "6": false, "3651": false, "-1": false, "x": false} {
+		assert.Equal(t, valid, ValidateGameOption(GameSettingPrefix+"record_retention_days", value) == nil, value)
+	}
+
 	// 免费游戏的规则：每日领奖次数 0 到 GameMaxDailyRewards，至少一档奖励，成绩严格递增、奖励不减，
 	// 难度类游戏(扫雷)的成绩不超过最高难度。
 	for game, cases := range map[string]map[string]bool{

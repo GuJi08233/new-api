@@ -29,6 +29,9 @@ type GameSetting struct {
 	// FreeDailyLimit 是每人每天从技巧游戏与人机对战合计最多获得的游戏币，同一 IP 下所有账号合计也不超过它；
 	// 大转盘免费旋转不受此上限影响，也不占用它。0 表示不限制，只按各游戏的每日领奖次数计算。
 	FreeDailyLimit int `json:"free_daily_limit"`
+	// RecordRetentionDays 是对局、对战房间、奖池、每日计数与游戏币明细里的游戏流水保留的天数，过了就由系统任务清理；
+	// 每个玩家在每个游戏里的最高成绩留着，兑换、提现与管理员调整的流水不清理。0 表示一直保留。
+	RecordRetentionDays int `json:"record_retention_days"`
 
 	// 链上提现。每日上限按全站当日提现总量计算，保护热钱包里的周转余额。
 	WithdrawEnabled    bool `json:"withdraw_enabled"`
@@ -197,6 +200,9 @@ const (
 	GameMaxJackpotBet     = 10000
 	GameMinJackpotSeconds = 15
 	GameMaxJackpotSeconds = 600
+	// 游戏记录保留天数的范围(0 表示一直保留)：至少一周，页面上"今天""最近几局"用到的记录不会被清理掉。
+	GameMinRecordRetentionDays = 7
+	GameMaxRecordRetentionDays = 3650
 )
 
 // 游戏的结算方式，决定配置项的规则类型和管理页怎么编辑。
@@ -306,6 +312,11 @@ func ValidateGameOption(key string, value string) error {
 		amount, err := strconv.Atoi(value)
 		if err != nil || amount < 0 || amount >= common.MaxQuota {
 			return fmt.Errorf("免费奖励每日合计上限必须是非负整数")
+		}
+	case "record_retention_days":
+		days, err := strconv.Atoi(value)
+		if err != nil || (days != 0 && (days < GameMinRecordRetentionDays || days > GameMaxRecordRetentionDays)) {
+			return fmt.Errorf("游戏记录保留天数必须为 0(一直保留)或 %d 到 %d", GameMinRecordRetentionDays, GameMaxRecordRetentionDays)
 		}
 	case "withdraw_daily_limit", "withdraw_min_amount", "withdraw_max_amount":
 		amount, err := strconv.Atoi(value)
@@ -512,17 +523,19 @@ func DefaultGameSetting() *GameSetting {
 		Enabled:              false,
 		PlayTurnstileEnabled: true,
 		// 1 个游戏币就是 1 美元额度：技巧游戏与人机对战再多，每人每天合计也只发这么多；大转盘免费旋转独立发奖。
-		FreeDailyLimit:     10,
-		WithdrawEnabled:    false,
-		WithdrawDailyLimit: 1000,
-		WithdrawMinAmount:  1,
-		WithdrawMaxAmount:  100,
-		ChainId:            11155111,
-		RpcUrl:             "https://ethereum-sepolia-rpc.publicnode.com",
-		TokenAddress:       "0x64bf89340562AB4fE829a481E6797B012664425B",
-		TokenSymbol:        "✦",
-		TokenDecimals:      0,
-		ExplorerUrl:        "https://sepolia.etherscan.io",
+		FreeDailyLimit: 10,
+		// 对局与游戏流水每人每天几十条，保留一个季度。
+		RecordRetentionDays: 90,
+		WithdrawEnabled:     false,
+		WithdrawDailyLimit:  1000,
+		WithdrawMinAmount:   1,
+		WithdrawMaxAmount:   100,
+		ChainId:             11155111,
+		RpcUrl:              "https://ethereum-sepolia-rpc.publicnode.com",
+		TokenAddress:        "0x64bf89340562AB4fE829a481E6797B012664425B",
+		TokenSymbol:         "✦",
+		TokenDecimals:       0,
+		ExplorerUrl:         "https://sepolia.etherscan.io",
 		// 成功和失败都可能被浅层的区块重组推翻，而失败时的退款一旦发出就收不回来，默认等 3 个区块再下结论。
 		Confirmations: 3,
 

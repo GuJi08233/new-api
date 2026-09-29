@@ -161,7 +161,7 @@ type GameCoinWithdrawDay struct {
 // GameCoinConvertDay 记录每个用户每天已兑换的游戏币，与全站提现额度独立。
 type GameCoinConvertDay struct {
 	UserId int    `json:"user_id" gorm:"primaryKey;autoIncrement:false"`
-	Day    string `json:"day" gorm:"type:varchar(10);primaryKey"`
+	Day    string `json:"day" gorm:"type:varchar(10);primaryKey;index"`
 	Used   int    `json:"used" gorm:"type:bigint;not null;default:0"`
 }
 
