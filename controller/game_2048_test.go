@@ -98,11 +98,12 @@ func TestFinish2048SettlesReplayedScore(t *testing.T) {
 	malformed := finish2048(player, start2048Session(t, env, player.user.Id, game.Seed, 200).Id, game.Moves+"4")
 	assert.Equal(t, false, malformed["success"], "记录里有 0-3 以外的字符")
 
-	// 110 秒只够 1 个游戏币，虽然 24484 分达到了 2 个游戏币那一档。
+	// 110 秒只够 1 个游戏币，虽然 24484 分达到了 2 个游戏币那一档：先发 1 个，另一个记着。
 	short := finish2048(player, start2048Session(t, env, player.user.Id, game.Seed, 110).Id, game.Moves)
 	require.Equal(t, true, short["success"], short["message"])
 	assert.EqualValues(t, 1, short["data"].(map[string]any)["reward"])
 	assert.Equal(t, model.GameRewardLimitedByTime, short["data"].(map[string]any)["limited_by"])
+	assert.EqualValues(t, 1, short["data"].(map[string]any)["progress"].(map[string]any)["pending_reward"])
 
 	session := start2048Session(t, env, player.user.Id, game.Seed, 200)
 	settled := finish2048(player, session.Id, game.Moves)
@@ -110,13 +111,13 @@ func TestFinish2048SettlesReplayedScore(t *testing.T) {
 	result := settled["data"].(map[string]any)
 	assert.EqualValues(t, game.Score, result["score"])
 	assert.Equal(t, map[string]any{"max_tile": float64(game.MaxTile), "moves": float64(game.EffectiveMoves), "over": true}, result["detail"])
-	assert.EqualValues(t, 2, result["reward"])
+	assert.EqualValues(t, 3, result["reward"], "这一局的 2 个加上之前记着的 1 个，累计 310 秒够发")
 	assert.Equal(t, "", result["limited_by"])
-	assert.EqualValues(t, 3, result["balance"])
+	assert.EqualValues(t, 4, result["balance"])
 	assert.EqualValues(t, game.Score, result["best_score"])
 
 	again := finish2048(player, session.Id, strings.Repeat("0", 10))
 	require.Equal(t, true, again["success"], again["message"])
 	assert.Equal(t, result, again["data"], "重复提交返回第一次结算的结果")
-	assert.Equal(t, 3, player.balance())
+	assert.Equal(t, 4, player.balance())
 }

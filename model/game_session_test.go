@@ -219,6 +219,42 @@ func TestFinishGameSessionWaitsForDailyPlayTime(t *testing.T) {
 	assert.Equal(t, GameRewardProgress{Plays: 6, Rewards: 2, IpRewards: 2, Earned: 2, FreeEarned: 2, IpFreeEarned: 2, Seconds: 720}, progress)
 }
 
+// 一次奖励有几个游戏币、累计时长只够发一部分时，先发够时长的几个，剩下的记着，之后的对局把时长补够接着发，不占用新的领奖
+// 次数，一个都不会少。这一局没领上奖(次数用完)也照样发之前待发的。
+func TestFinishGameSessionPaysMultiCoinRewardAsPlayTimeAccrues(t *testing.T) {
+	truncateTables(t)
+	const userId, day = 1811, "2026-09-28"
+	cases := []struct {
+		name          string
+		reward        int
+		seconds       int
+		wantGranted   int
+		wantLimitedBy string
+		wantPending   int
+	}{
+		{name: "达标领奖，时长一个都不够", reward: 5, seconds: 30, wantLimitedBy: GameRewardLimitedByTime, wantPending: 5},
+		{name: "次数已用完，时长够发一个", reward: 5, seconds: 30, wantGranted: 1, wantLimitedBy: GameRewardLimitedByTime, wantPending: 4},
+		{name: "补够时长，发完剩下的", reward: 0, seconds: 600, wantGranted: 4},
+		{name: "再达标也不能再领", reward: 5, seconds: 600, wantLimitedBy: GameRewardLimitedByDaily},
+	}
+	balance := 0
+	for _, c := range cases {
+		session, err := CreateGameSession(userId, "tetris", 7, "")
+		require.NoError(t, err)
+		result, err := FinishGameSession(session, GameSettlement{
+			Score: 100, Detail: "{}", Reward: c.reward, Seconds: c.seconds, SecondsPerCoin: 60, DailyRewards: 1, Day: day, Ip: gameTestIp,
+		})
+		require.NoError(t, err, c.name)
+		balance += c.wantGranted
+		assert.Equal(t, c.wantGranted, result.Session.Reward, c.name)
+		assert.Equal(t, c.wantLimitedBy, result.Session.LimitedBy, c.name)
+		assert.Equal(t, c.wantPending, result.PendingReward, c.name)
+		assert.Equal(t, 1, result.Rewards, "%s: 达标那一局就占用了当天唯一的一次领奖", c.name)
+		assert.Equal(t, balance, result.Balance, c.name)
+	}
+	assert.Equal(t, 5, gameBalance(t, userId))
+}
+
 // 同一局只能结算一次：第二次结算返回 ErrGameSessionClosed，奖励不会重复发放。
 func TestFinishGameSessionSettlesOnce(t *testing.T) {
 	truncateTables(t)

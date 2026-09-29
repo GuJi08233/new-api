@@ -4693,7 +4693,6 @@
     "当前 IP 今天在这个游戏的领奖次数已经用完": "Votre IP a épuisé les récompenses du jour pour ce jeu",
     "今天的技巧与人机奖励已达合计上限，超出的部分不发放": "Le plafond quotidien des récompenses de jeux d'adresse et contre l'IA est atteint ; l'excédent n'est pas versé",
     "今天的技巧与人机奖励已达合计上限，明天再来": "Le plafond quotidien des récompenses de jeux d'adresse et contre l'IA est atteint. Revenez demain",
-    "游戏时长不够更高一档，按时长只发这么多": "Durée de jeu insuffisante pour un palier supérieur : voici ce que rapporte ce temps de jeu",
     "没有达到奖励档位，再接再厉": "Aucun palier atteint. Continuez !",
     "今天的领奖次数已用完，还可以继续玩": "Plus de récompenses aujourd'hui, mais vous pouvez continuer à jouer",
     "奖励规则": "Règles de récompense",
@@ -5096,6 +5095,7 @@
     "游戏中心结算": "Règlement du centre de jeux",
     "游戏记录保留天数": "Conservation des historiques de jeu (jours)",
     "对局、对战房间、奖池记录、每日计数，以及游戏币明细里的游戏奖励、下注与对战流水，超过这么多天后每天自动清理一次；每个游戏的最高成绩会留着，兑换、提现与管理员调整的流水不清理。0 表示一直保留，否则至少 7 天": "Les parties, salles JcJ, historiques du jackpot, compteurs journaliers ainsi que les récompenses, mises et gains JcJ de l'historique des jetons sont nettoyés une fois par jour au-delà de ce nombre de jours. Le meilleur score de chaque jeu est conservé ; les conversions, retraits et ajustements par un administrateur ne sont jamais supprimés. 0 conserve tout ; sinon au moins 7 jours",
-    "游戏中心清理": "Nettoyage du centre de jeux"
+    "游戏中心清理": "Nettoyage du centre de jeux",
+    "还有 {{pending}} {{symbol}} 待发，今天在这个游戏里再玩 {{time}} 发下一个": "Encore {{pending}} {{symbol}} à venir ; jouez encore {{time}} à ce jeu aujourd'hui pour le suivant"
   }
 }

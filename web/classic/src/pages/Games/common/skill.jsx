@@ -66,7 +66,11 @@ export function formatDuration(seconds, t) {
 // 今天的游戏时长进度：已经累计了多久、累计到多久能领下一个游戏币，已经达标在等时长时也说一声。不限时长或今天领不了时为空。
 export function playTimeNote(rule, progress, t) {
   const target = nextCoinSeconds(rule, progress);
-  if (target <= 0 || rewardsLeft(rule, progress) === 0) return '';
+  if (target <= 0) return '';
+  // 领奖次数用完之后，之前领到、还没发完的游戏币照样等时长够了再发。
+  if (!(progress?.pending_reward > 0) && rewardsLeft(rule, progress) === 0) {
+    return '';
+  }
   const values = {
     played: formatClock(progress?.seconds_today || 0),
     target: formatClock(target),
@@ -112,21 +116,25 @@ export function skillResultMessage(result, t, symbol, { byLevel } = {}) {
           }
         : { kind: '', text: t('今天的技巧与人机奖励已达合计上限，明天再来') };
     case 'time': {
+      // 奖励已经记下，差的是今天在这个游戏里累计的时长：时长够一个就发一个。
+      const left =
+        nextCoinSeconds(result?.rule, result?.progress) -
+        (result?.progress?.seconds_today || 0);
+      const time = formatDuration(Math.max(left, 1), t);
       if (reward > 0) {
         return {
           kind: 'win',
           text: got,
-          note: t('游戏时长不够更高一档，按时长只发这么多'),
+          note: t(
+            '还有 {{pending}} {{symbol}} 待发，今天在这个游戏里再玩 {{time}} 发下一个',
+            { pending: result?.progress?.pending_reward || 0, symbol, time },
+          ),
         };
       }
-      // 奖励已经记下，差的是今天在这个游戏里累计的时长。
-      const left =
-        nextCoinSeconds(result?.rule, result?.progress) -
-        (result?.progress?.seconds_today || 0);
       return {
         kind: '',
         text: t('已达到奖励门槛，今天在这个游戏里再玩 {{time}} 就能领取', {
-          time: formatDuration(Math.max(left, 1), t),
+          time,
         }),
       };
     }

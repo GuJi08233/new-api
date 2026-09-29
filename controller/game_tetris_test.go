@@ -109,8 +109,8 @@ func TestFinishTetrisSettlesReplayedScore(t *testing.T) {
 	assert.EqualValues(t, 1, rewardLogs, "发了奖励的那一局记一条带 IP 的审计日志")
 }
 
-// 成绩够了还要玩够时间：每个游戏币要当天累计玩够 MinSecondsPerCoin 秒，时长只够几个就发几个。操作快过人类极限的对局
-// 判定为脚本，分数再高也不发奖励。少发的原因随结果返回，浏览器据此提示玩家。
+// 成绩够了还要玩够时间：每个游戏币要当天累计玩够 MinSecondsPerCoin 秒，时长只够几个就先发几个，剩下的记着等时长补够再发。
+// 操作快过人类极限的对局判定为脚本，分数再高也不发奖励。少发的原因随结果返回，浏览器据此提示玩家。
 func TestFinishTetrisAppliesAntiBotRules(t *testing.T) {
 	golden := loadTetrisGolden(t)
 	cases := map[string]struct {
@@ -118,9 +118,10 @@ func TestFinishTetrisAppliesAntiBotRules(t *testing.T) {
 		minSecondsPerCoin int
 		wantReward        int
 		wantLimitedBy     string
+		wantPending       int
 	}{
-		// 每个游戏币要玩够 120 秒，271 秒的一局只够 2 个。
-		"play time limits the reward":                      {game: "smart-then-top-out", minSecondsPerCoin: 120, wantReward: 2, wantLimitedBy: model.GameRewardLimitedByTime},
+		// 每个游戏币要玩够 120 秒，271 秒的一局只够 2 个，第 3 个记着。
+		"play time limits the reward":                      {game: "smart-then-top-out", minSecondsPerCoin: 120, wantReward: 2, wantLimitedBy: model.GameRewardLimitedByTime, wantPending: 1},
 		"without a time rule the top tier is paid":         {game: "smart-then-top-out", minSecondsPerCoin: 0, wantReward: 3},
 		"a script placing a piece per frame earns nothing": {game: "fast-bot", minSecondsPerCoin: 0, wantReward: 0, wantLimitedBy: model.GameRewardLimitedBySpeed},
 	}
@@ -138,6 +139,7 @@ func TestFinishTetrisAppliesAntiBotRules(t *testing.T) {
 			assert.EqualValues(t, game.Score, result["score"])
 			assert.EqualValues(t, c.wantReward, result["reward"])
 			assert.Equal(t, c.wantLimitedBy, result["limited_by"])
+			assert.EqualValues(t, c.wantPending, result["progress"].(map[string]any)["pending_reward"])
 		})
 	}
 }

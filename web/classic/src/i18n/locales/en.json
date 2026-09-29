@@ -4844,7 +4844,6 @@
     "当前 IP 今天在这个游戏的领奖次数已经用完": "Your IP has used today's rewards for this game",
     "今天的技巧与人机奖励已达合计上限，超出的部分不发放": "Today's total cap for skill and AI rewards has been reached; the excess is not awarded",
     "今天的技巧与人机奖励已达合计上限，明天再来": "Today's total cap for skill and AI rewards has been reached. Come back tomorrow",
-    "游戏时长不够更高一档，按时长只发这么多": "You didn't play long enough for a higher tier, so this is what the play time earns",
     "没有达到奖励档位，再接再厉": "No reward tier reached. Keep trying!",
     "今天的领奖次数已用完，还可以继续玩": "No rewards left today, but you can keep playing",
     "奖励规则": "Reward rules",
@@ -5247,6 +5246,7 @@
     "游戏中心结算": "Game center settlement",
     "游戏记录保留天数": "Game record retention (days)",
     "对局、对战房间、奖池记录、每日计数，以及游戏币明细里的游戏奖励、下注与对战流水，超过这么多天后每天自动清理一次；每个游戏的最高成绩会留着，兑换、提现与管理员调整的流水不清理。0 表示一直保留，否则至少 7 天": "Rounds, PvP rooms, jackpot records, daily counters, and the game reward, wager and PvP entries in the coin history are cleaned up once a day after this many days. Each game's best score is kept, and conversion, withdrawal and admin adjustment entries are never removed. 0 keeps everything; otherwise at least 7 days",
-    "游戏中心清理": "Game center cleanup"
+    "游戏中心清理": "Game center cleanup",
+    "还有 {{pending}} {{symbol}} 待发，今天在这个游戏里再玩 {{time}} 发下一个": "{{pending}} {{symbol}} still to come; play this game {{time}} more today for the next one"
   }
 }
