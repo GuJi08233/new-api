@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -123,7 +124,8 @@ func TestFinishFlappySettlesReplayedScore(t *testing.T) {
 	assert.Equal(t, 2, player.balance())
 }
 
-// 任意 1 秒内拍翅膀超过 12 次只可能是脚本：成绩照常记下，但不发奖励，并给管理员留一条风控告警。
+// 任意 1 秒内拍翅膀超过 12 次只可能是脚本：不发奖励，成绩不算数(记为 0，不会成为最高分)，并给管理员留一条风控告警，
+// 告警里写着重放出的成绩。
 func TestFinishFlappyRefusesScriptedFlapping(t *testing.T) {
 	env := newGameTestEnv(t, flappySetting(operation_setting.SkillRule{
 		Enabled: true, DailyRewards: 3, Tiers: []operation_setting.RewardTier{{Score: 1, Coins: 3}},
@@ -135,13 +137,16 @@ func TestFinishFlappyRefusesScriptedFlapping(t *testing.T) {
 	response := finishFlappy(player, session.Id, game.Ticks, game.Flaps)
 	require.Equal(t, true, response["success"], response["message"])
 	result := response["data"].(map[string]any)
-	assert.EqualValues(t, game.Score, result["score"])
+	require.Greater(t, game.Score, 0)
+	assert.EqualValues(t, 0, result["score"])
+	assert.EqualValues(t, 0, result["best_score"])
 	assert.Greater(t, result["detail"].(map[string]any)["peak_flaps"], float64(flappy.HumanFlapLimit))
 	assert.EqualValues(t, 0, result["reward"])
 	assert.Equal(t, model.GameRewardLimitedBySpeed, result["limited_by"])
 	assert.Equal(t, 0, player.balance())
 
-	var alerts int64
-	require.NoError(t, env.db.Model(&model.RiskEvent{}).Where("user_id = ? AND rule = ?", player.user.Id, "game:"+gameFlappy).Count(&alerts).Error)
-	assert.EqualValues(t, 1, alerts)
+	var alerts []model.RiskEvent
+	require.NoError(t, env.db.Where("user_id = ? AND rule = ?", player.user.Id, "game:"+gameFlappy).Find(&alerts).Error)
+	require.Len(t, alerts, 1)
+	assert.Contains(t, alerts[0].Reason, fmt.Sprintf("重放成绩 %d", game.Score))
 }

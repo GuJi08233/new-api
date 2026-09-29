@@ -108,8 +108,8 @@ func FinishTetris(c *gin.Context) {
 	// 操作快过人类极限的对局判定为脚本，不发奖励。
 	cheat := ""
 	if game.PeakPieces > tetris.HumanPieceLimit {
-		cheat = fmt.Sprintf("俄罗斯方块对局 #%d 在 %d 秒内锁定了 %d 块，超过人类操作极限 %d 块，判定为脚本，未发奖励",
-			session.Id, tetris.SpeedWindowTicks/tetris.TicksPerSecond, game.PeakPieces, tetris.HumanPieceLimit)
+		cheat = fmt.Sprintf("俄罗斯方块对局 #%d 在 %d 秒内锁定了 %d 块，超过人类操作极限 %d 块，判定为脚本，未发奖励，重放成绩 %d 不计入",
+			session.Id, tetris.SpeedWindowTicks/tetris.TicksPerSecond, game.PeakPieces, tetris.HumanPieceLimit, game.Score)
 	}
 	result := settleSkillSession(c, "俄罗斯方块", rule, session, skillOutcome{
 		Score:   game.Score,

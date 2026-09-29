@@ -110,7 +110,7 @@ func TestFinishTetrisSettlesReplayedScore(t *testing.T) {
 }
 
 // 成绩够了还要玩够时间：每个游戏币要当天累计玩够 MinSecondsPerCoin 秒，时长只够几个就先发几个，剩下的记着等时长补够再发。
-// 操作快过人类极限的对局判定为脚本，分数再高也不发奖励。少发的原因随结果返回，浏览器据此提示玩家。
+// 操作快过人类极限的对局判定为脚本，分数再高也不发奖励，成绩记为 0，不会成为最高分。少发的原因随结果返回，浏览器据此提示玩家。
 func TestFinishTetrisAppliesAntiBotRules(t *testing.T) {
 	golden := loadTetrisGolden(t)
 	cases := map[string]struct {
@@ -119,11 +119,12 @@ func TestFinishTetrisAppliesAntiBotRules(t *testing.T) {
 		wantReward        int
 		wantLimitedBy     string
 		wantPending       int
+		cheat             bool
 	}{
 		// 每个游戏币要玩够 120 秒，271 秒的一局只够 2 个，第 3 个记着。
 		"play time limits the reward":                      {game: "smart-then-top-out", minSecondsPerCoin: 120, wantReward: 2, wantLimitedBy: model.GameRewardLimitedByTime, wantPending: 1},
 		"without a time rule the top tier is paid":         {game: "smart-then-top-out", minSecondsPerCoin: 0, wantReward: 3},
-		"a script placing a piece per frame earns nothing": {game: "fast-bot", minSecondsPerCoin: 0, wantReward: 0, wantLimitedBy: model.GameRewardLimitedBySpeed},
+		"a script placing a piece per frame earns nothing": {game: "fast-bot", minSecondsPerCoin: 0, wantReward: 0, wantLimitedBy: model.GameRewardLimitedBySpeed, cheat: true},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -136,7 +137,13 @@ func TestFinishTetrisAppliesAntiBotRules(t *testing.T) {
 			response := finishTetris(player, session, game)
 			require.Equal(t, true, response["success"], response["message"])
 			result := response["data"].(map[string]any)
-			assert.EqualValues(t, game.Score, result["score"])
+			wantScore := game.Score
+			if c.cheat {
+				wantScore = 0
+			}
+			assert.EqualValues(t, wantScore, result["score"])
+			assert.EqualValues(t, wantScore, result["best_score"])
+			assert.EqualValues(t, wantScore, player.ok(http.MethodGet, "/api/game/tetris", nil)["best_score"])
 			assert.EqualValues(t, c.wantReward, result["reward"])
 			assert.Equal(t, c.wantLimitedBy, result["limited_by"])
 			assert.EqualValues(t, c.wantPending, result["progress"].(map[string]any)["pending_reward"])

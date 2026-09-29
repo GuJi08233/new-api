@@ -98,8 +98,8 @@ func FinishFlappy(c *gin.Context) {
 	}
 	cheat := ""
 	if game.PeakFlaps > flappy.HumanFlapLimit {
-		cheat = fmt.Sprintf("像素鸟对局 #%d 在 1 秒内拍了 %d 次翅膀，超过人类操作极限 %d 次，判定为脚本，未发奖励",
-			session.Id, game.PeakFlaps, flappy.HumanFlapLimit)
+		cheat = fmt.Sprintf("像素鸟对局 #%d 在 1 秒内拍了 %d 次翅膀，超过人类操作极限 %d 次，判定为脚本，未发奖励，重放成绩 %d 不计入",
+			session.Id, game.PeakFlaps, flappy.HumanFlapLimit, game.Score)
 	}
 	result := settleSkillSession(c, "像素鸟", rule, session, skillOutcome{
 		Score:   game.Score,

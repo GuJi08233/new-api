@@ -167,7 +167,7 @@ type GameSettlement struct {
 	Reward int
 	// Seconds 是这局玩了多久(秒)，累加进账号今天在这个游戏的游戏时长。
 	Seconds int
-	// Cheat 表示这局判定为脚本：不发奖励，游戏时长与成绩都不算数。
+	// Cheat 表示这局判定为脚本：不发奖励，游戏时长与成绩都不算数，成绩记为 0，不会成为最高成绩。
 	Cheat bool
 	// SecondsPerCoin 是每个游戏币需要账号今天在这个游戏里累计玩够的秒数，0 表示不限制。
 	SecondsPerCoin int
@@ -337,6 +337,9 @@ func FinishGameSession(session *GameSession, settlement GameSettlement) (*GameSe
 	finished.Status = GameSessionStatusFinished
 	finished.Version = session.Version + 1
 	finished.Score = settlement.Score
+	if settlement.Cheat {
+		finished.Score = 0
+	}
 	finished.Detail = settlement.Detail
 	finished.Ip = settlement.Ip
 	finished.FinishedAt = common.GetTimestamp()
