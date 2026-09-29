@@ -8,6 +8,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // 对战房间。房主开房时押下 Stake 个游戏币，对手加入时押下同样多，开局；分出胜负后赢家拿走两份押注，平台按比例抽成，
@@ -110,9 +111,13 @@ func countActiveGameRooms(tx *gorm.DB, userId int, game string) (int64, error) {
 	return count, err
 }
 
-// lockGameCoinAccountTx 锁住用户的游戏币账户，同一用户的几个请求依次进行；账户还不存在时什么都不锁，
-// 这时余额为 0，后面的扣币自然会失败。
+// lockGameCoinAccountTx 锁住用户的游戏币账户，同一用户的几个请求依次进行。账户还不存在时先建一个余额为 0 的：不存在的行
+// 锁不住，从没得过游戏币的新用户同时发两个不花币的请求(例如开两个友谊赛房间)就会各自通过检查。
 func lockGameCoinAccountTx(tx *gorm.DB, userId int) error {
+	now := common.GetTimestamp()
+	if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&GameCoinAccount{UserId: userId, CreatedAt: now, UpdatedAt: now}).Error; err != nil {
+		return err
+	}
 	var balances []int
 	return lockForUpdate(tx).Model(&GameCoinAccount{}).Where("user_id = ?", userId).Pluck("balance", &balances).Error
 }
