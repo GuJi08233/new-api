@@ -237,7 +237,6 @@ const (
 	MsgGameWithdrawDailyLimit     = "game.withdraw_daily_limit"
 	MsgGameWithdrawAddressInvalid = "game.withdraw_address_invalid"
 	MsgGameWithdrawFailed         = "game.withdraw_failed"
-	MsgGameUserNotFound           = "game.user_not_found"
 	MsgGameAdjustFailed           = "game.adjust_failed"
 	MsgGamePlayDisabled           = "game.play_disabled"
 	MsgGameStartFailed            = "game.start_failed"

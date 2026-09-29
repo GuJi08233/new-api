@@ -322,7 +322,7 @@ func GetGameAdminSetting(c *gin.Context) {
 func UpdateGameAdminSetting(c *gin.Context) {
 	var changes map[string]json.RawMessage
 	if err := common.DecodeJson(c.Request.Body, &changes); err != nil || len(changes) == 0 {
-		common.ApiErrorMsg(c, "无效的参数")
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
 	body, err := common.Marshal(changes)
@@ -335,7 +335,7 @@ func UpdateGameAdminSetting(c *gin.Context) {
 	errRejected := errors.New("game setting rejected")
 	err = model.UpdateGameSettingFields(func(setting *operation_setting.GameSetting) (map[string]string, error) {
 		if err := common.Unmarshal(body, setting); err != nil {
-			rejected = "无效的参数"
+			rejected = common.TranslateMessage(c, i18n.MsgInvalidParams)
 			return nil, errRejected
 		}
 		setting.RpcUrl = strings.TrimSpace(setting.RpcUrl)
@@ -392,7 +392,7 @@ func UpdateGameAdminSetting(c *gin.Context) {
 func UpdateGameAdminHotWallet(c *gin.Context) {
 	var req gameHotWalletRequest
 	if err := common.DecodeJson(c.Request.Body, &req); err != nil {
-		common.ApiErrorMsg(c, "无效的参数")
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
 	key := strings.TrimSpace(req.PrivateKey)
@@ -504,7 +504,7 @@ func AdjustGameAdminCoins(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, model.ErrGameCoinUserNotFound):
-			common.ApiErrorI18n(c, i18n.MsgGameUserNotFound)
+			common.ApiErrorI18n(c, i18n.MsgUserNotExists)
 		case errors.Is(err, model.ErrGameCoinInsufficient):
 			common.ApiErrorI18n(c, i18n.MsgGameCoinInsufficient)
 		case errors.Is(err, model.ErrGameCoinAmountInvalid):
