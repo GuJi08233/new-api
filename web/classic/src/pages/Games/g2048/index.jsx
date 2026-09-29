@@ -34,7 +34,14 @@ import {
 } from '../common/skill';
 import { useGameInfo } from '../common/useGameInfo';
 import { usePlayTurnstile } from '../common/usePlayTurnstile';
-import { Game2048, MAX_MOVES, MOVE, MoveRecorder, SIZE } from './engine';
+import {
+  Game2048,
+  MAX_MOVES,
+  MAX_MOVES_PER_SECOND,
+  MOVE,
+  MoveRecorder,
+  SIZE,
+} from './engine';
 import './g2048.css';
 
 const START_URL = '/api/game/2048/start';
@@ -176,6 +183,12 @@ const G2048 = () => {
         return;
       }
       const { game } = run;
+      // 服务端要求有效移动数不超过 (开局以来的秒数 + 2) × 每秒上限，超出的整局作废。开局时刻按收到开局响应算，比服务端
+      // 记下的开局晚，服务端又把两头都取整到秒，所以这里只用 1 秒余量：按得再快，多出来的操作也只是不生效，不会让整局作废。
+      const elapsed = (performance.now() - run.startedAt) / 1000;
+      if (game.moves >= Math.floor((elapsed + 1) * MAX_MOVES_PER_SECOND)) {
+        return;
+      }
       if (!game.move(direction)) return;
       run.recorder.record(direction);
       const move = game.lastMove;
@@ -207,6 +220,7 @@ const G2048 = () => {
       sessionId: response.data.session_id,
       game,
       recorder: new MoveRecorder(),
+      startedAt: performance.now(),
       previousBest: info?.best_score || 0,
     };
     setTiles(boardTiles(game.board, newTileId));

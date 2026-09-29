@@ -25,7 +25,7 @@ For commercial licensing, please contact support@quantumnous.com
 export const SIZE = 4;
 // 一局移动记录的长度上限：到了就要结束并提交，更长的记录服务端整局拒绝。
 export const MAX_MOVES = 50000;
-// 服务端按开局以来的真实时间限制有效移动数：不超过 (秒数 + 2) × 12。
+// 服务端按开局以来的真实时间限制有效移动数：不超过 (秒数 + 2) × 12，页面按同样的速度限制玩家的操作。
 export const MAX_MOVES_PER_SECOND = 12;
 
 // 新方块在随机数除以它余 0 时是 4，否则是 2。
@@ -39,7 +39,7 @@ export const MOVE = {
   LEFT: 3,
 };
 
-// 规则常量原样导出，只给 generate_golden.mjs 写进跨端对照记录，服务端测试会逐项比对。
+// 规则常量原样导出，给 generate_golden.mjs 写进跨端对照记录，服务端测试会逐项比对。
 export const RULES = {
   size: SIZE,
   fourChance: FOUR_CHANCE,
