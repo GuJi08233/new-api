@@ -21,10 +21,13 @@ import React from 'react';
 import { Navigate, useParams } from 'react-router-dom';
 import { GAME_PAGES } from './registry';
 
-// /games/:game 的页面：按游戏标识找到对应的游戏页，未知的游戏回到游戏中心。
+// /games/:game 的页面：按游戏标识找到对应的游戏页，未知的游戏回到游戏中心。只认 GAME_PAGES 自己的键：constructor、
+// toString 这类从原型继承来的属性也能取到值，拿去渲染会报错，而不是回到游戏中心。
 const GamePage = () => {
   const { game } = useParams();
-  const Page = GAME_PAGES[game];
+  const Page = Object.prototype.hasOwnProperty.call(GAME_PAGES, game)
+    ? GAME_PAGES[game]
+    : null;
   if (!Page) {
     return <Navigate to='/games' replace />;
   }
