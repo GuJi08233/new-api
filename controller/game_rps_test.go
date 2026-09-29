@@ -143,3 +143,33 @@ func TestRpsRoomPlaysStakedMatchOverHttp(t *testing.T) {
 	assert.EqualValues(t, 0, guestView["deadline"])
 	guest.fails(http.MethodPost, roomPath+"/move", rpsMoveBody(guestView["version"], 4, "rock"))
 }
+
+// 另一个节点上的变化不会唤醒本进程里的长轮询，要靠后台定期读库的版本发现：对手的出拳直接写进库、不经过本进程，挂着的
+// 长轮询照样在一两秒内拿到新版本的房间。
+func TestRoomLongPollSeesChangesFromAnotherNode(t *testing.T) {
+	env := newGameTestEnv(t, gameSetting(func(s *operation_setting.GameSetting) {
+		s.Rps = operation_setting.PvpRule{Enabled: true, MaxStake: 100, RakePercent: 5, MoveSeconds: 20}
+	}))
+	host := env.player(50, gameTestIpA)
+	guest := env.player(50, gameTestIpB)
+	created := host.ok(http.MethodPost, "/api/game/rooms", map[string]any{"game": gameRps, "stake": 10})
+	roomId := int(created["id"].(float64))
+	roomPath := fmt.Sprintf("/api/game/rooms/%d", roomId)
+	joined := guest.ok(http.MethodPost, roomPath+"/join", nil)
+
+	polled := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		polled <- host.send(http.MethodGet, fmt.Sprintf("%s?after=%v", roomPath, joined["version"]), nil)
+	}()
+	waitForRoomWatcher(t, roomId)
+	room, err := model.GetGameRoom(roomId)
+	require.NoError(t, err)
+	require.NoError(t, model.UpdateGameRoomState(room, room.State, 0, room.Deadline))
+	require.Greater(t, float64(room.Version), joined["version"])
+
+	start := time.Now()
+	_, view := receivePoll(t, polled)
+	assert.EqualValues(t, room.Version, view["version"])
+	assert.EqualValues(t, 0, view["to_move"])
+	assert.Less(t, time.Since(start), pvpPollTimeout/2, "不是等到长轮询超时才返回")
+}

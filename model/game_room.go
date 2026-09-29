@@ -392,6 +392,25 @@ func gameRoomRef(roomId int) string {
 	return "room:" + strconv.Itoa(roomId)
 }
 
+// gameRoomVersionBatch 是 GetGameRoomVersions 一条查询最多带的房间数，远低于各数据库对参数个数的限制。
+const gameRoomVersionBatch = 500
+
+// GetGameRoomVersions 返回这些房间当前的版本，键是房间 ID；不存在的房间不在结果里。
+func GetGameRoomVersions(ids []int) (map[int]int, error) {
+	versions := make(map[int]int, len(ids))
+	for start := 0; start < len(ids); start += gameRoomVersionBatch {
+		var rooms []GameRoom
+		batch := ids[start:min(start+gameRoomVersionBatch, len(ids))]
+		if err := DB.Select("id", "version").Where("id IN ?", batch).Find(&rooms).Error; err != nil {
+			return nil, err
+		}
+		for _, room := range rooms {
+			versions[room.Id] = room.Version
+		}
+	}
+	return versions, nil
+}
+
 // GetGameRoom 按 ID 读取房间，不存在时返回 ErrGameRoomNotFound。
 func GetGameRoom(id int) (*GameRoom, error) {
 	var rooms []GameRoom

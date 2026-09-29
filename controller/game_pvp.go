@@ -25,7 +25,7 @@ import (
 const (
 	// pvpPollTimeout 是一次长轮询最多等多久，远低于常见反向代理的空闲超时。
 	pvpPollTimeout = 25 * time.Second
-	// pvpPollInterval 是长轮询期间重新读库的间隔：本进程内的变化会立即唤醒，别的节点上的变化靠它发现。
+	// pvpPollInterval 是 gameRoomWatchers 读库查看房间版本的间隔：本进程内的变化会立即唤醒，别的节点上的变化靠它发现。
 	pvpPollInterval = time.Second
 	// pvpWaitingSeconds 是房间等待对手的最长时间，过了就关闭并退回押注。
 	pvpWaitingSeconds = 30 * 60
@@ -158,23 +158,32 @@ func randomSeat() (int, error) {
 	return int(b[0] & 1), nil
 }
 
-// gameRoomWatchers 让长轮询在房间有变化时立即返回。只能唤醒本进程里的等待者，别的节点靠 pvpPollInterval 读库发现变化。
+// gameRoomWatchers 让长轮询在房间有变化时立即返回。本进程里的变化由 notify 立即唤醒；别的节点上的变化由后台的 poll 发现：
+// 每隔 pvpPollInterval 用一条查询读出所有被等待房间的版本，唤醒看到的版本已经过时的等待者。等多少人，每个进程每秒也只查
+// 一次库，而不是每个等待者各查一次；没有等待者时 poll 退出，下次有人等时再启动。
 type gameRoomWatchers struct {
-	mu      sync.Mutex
-	waiters map[int]map[chan struct{}]struct{}
+	mu sync.Mutex
+	// waiters 按房间记着每个等待者看到的房间版本。
+	waiters map[int]map[chan struct{}]int
+	polling bool
 }
 
-var gameRoomWatch = &gameRoomWatchers{waiters: map[int]map[chan struct{}]struct{}{}}
+var gameRoomWatch = &gameRoomWatchers{waiters: map[int]map[chan struct{}]int{}}
 
-func (w *gameRoomWatchers) watch(roomId int) (<-chan struct{}, func()) {
+// watch 登记一个看到了 version 版房间的等待者，房间有变化时往返回的通道里发一个信号。
+func (w *gameRoomWatchers) watch(roomId int, version int) (<-chan struct{}, func()) {
 	ch := make(chan struct{}, 1)
 	w.mu.Lock()
 	set := w.waiters[roomId]
 	if set == nil {
-		set = map[chan struct{}]struct{}{}
+		set = map[chan struct{}]int{}
 		w.waiters[roomId] = set
 	}
-	set[ch] = struct{}{}
+	set[ch] = version
+	if !w.polling {
+		w.polling = true
+		go w.poll()
+	}
 	w.mu.Unlock()
 	return ch, func() {
 		w.mu.Lock()
@@ -195,6 +204,45 @@ func (w *gameRoomWatchers) notify(roomId int) {
 		}
 	}
 	w.mu.Unlock()
+}
+
+// poll 是在后台读库、发现别的节点上变化的循环，见 gameRoomWatchers。
+func (w *gameRoomWatchers) poll() {
+	ticker := time.NewTicker(pvpPollInterval)
+	defer ticker.Stop()
+	for range ticker.C {
+		w.mu.Lock()
+		if len(w.waiters) == 0 {
+			w.polling = false
+			w.mu.Unlock()
+			return
+		}
+		ids := make([]int, 0, len(w.waiters))
+		for id := range w.waiters {
+			ids = append(ids, id)
+		}
+		w.mu.Unlock()
+		versions, err := model.GetGameRoomVersions(ids)
+		if err != nil {
+			common.SysError(fmt.Sprintf("failed to poll game room versions: %v", err))
+			continue
+		}
+		w.mu.Lock()
+		for _, id := range ids {
+			// 读不到的房间也唤醒，让等待者自己读出错误返回。
+			latest, found := versions[id]
+			for ch, seen := range w.waiters[id] {
+				if found && latest <= seen {
+					continue
+				}
+				select {
+				case ch <- struct{}{}:
+				default:
+				}
+			}
+		}
+		w.mu.Unlock()
+	}
 }
 
 // resolveGameRoom 处理到期的房间：对局中这一步已超时的判超时一方负，等太久没人加入的关闭并退回押注。房间有变化时返回 true，
@@ -716,12 +764,12 @@ func PollGameRoom(c *gin.Context) {
 	}
 	giveUp := time.Now().Add(pvpPollTimeout)
 	for room.Version <= after && time.Now().Before(giveUp) {
-		wait := min(pvpPollInterval, time.Until(giveUp))
+		wait := time.Until(giveUp)
 		if room.Status == model.GameRoomStatusPlaying && room.Deadline > 0 {
 			// 这一步快到截止时间时提前醒来，超时判负要及时告诉双方。
 			wait = min(wait, max(time.Until(time.Unix(room.Deadline+1, 0)), 10*time.Millisecond))
 		}
-		changed, cancel := gameRoomWatch.watch(room.Id)
+		changed, cancel := gameRoomWatch.watch(room.Id, room.Version)
 		select {
 		case <-changed:
 		case <-time.After(wait):
