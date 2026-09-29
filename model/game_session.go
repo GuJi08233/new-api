@@ -1028,24 +1028,6 @@ func GetIpGameDayCounts(ip string, day string) (map[string]GameDayCount, error) 
 	return counts, nil
 }
 
-// GetUserGameBestScores 返回用户在每个游戏里结算过的最高成绩，键是游戏标识。
-func GetUserGameBestScores(userId int) (map[string]int, error) {
-	var rows []struct {
-		Game string
-		Best int
-	}
-	err := DB.Model(&GameSession{}).Select("game, MAX(score) AS best").
-		Where("user_id = ? AND status = ?", userId, GameSessionStatusFinished).Group("game").Scan(&rows).Error
-	if err != nil {
-		return nil, err
-	}
-	best := make(map[string]int, len(rows))
-	for _, row := range rows {
-		best[row.Game] = row.Best
-	}
-	return best, nil
-}
-
 // GetGameDayStats 返回账号某天在一个游戏的净输赢(免费游戏是获得的游戏币)与局数。
 func GetGameDayStats(userId int, game string, day string) (coins int, plays int, err error) {
 	var count GameDayCount

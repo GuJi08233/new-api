@@ -110,11 +110,17 @@ func registerPvpGame(key string, name string, engine pvpEngine) {
 			summary["waiting_rooms"] = ctx.waitingRooms()[key]
 		},
 		Resumable: func(ctx *gameContext) bool {
-			rooms, err := model.GetUserActiveGameRooms(ctx.UserId)
-			if err != nil {
-				return false
+			// 游戏中心列表要给每个关闭的对战游戏问一遍，查的都是玩家所有进行中的房间：同一个请求里只查一次。
+			cached, ok := ctx.Get("game_active_rooms")
+			if !ok {
+				active, err := model.GetUserActiveGameRooms(ctx.UserId)
+				if err != nil {
+					return false
+				}
+				cached = active
+				ctx.Set("game_active_rooms", active)
 			}
-			for _, room := range rooms {
+			for _, room := range cached.([]*model.GameRoom) {
 				if room.Game == key {
 					return true
 				}

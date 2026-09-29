@@ -148,10 +148,6 @@ func gameSummaries(ctx *gameContext) ([]gin.H, gameDayCounts, error) {
 	if counts.ip, err = model.GetIpGameDayCounts(ctx.Ip, ctx.Day); err != nil {
 		return nil, counts, err
 	}
-	best, err := model.GetUserGameBestScores(ctx.UserId)
-	if err != nil {
-		return nil, counts, err
-	}
 	summaries := make([]gin.H, 0, len(gameDefinitions))
 	for _, def := range gameDefinitions {
 		// 关闭的游戏只给还押着游戏币、没结束一局的玩家列出来，让他回去把那一局玩完。
@@ -166,7 +162,6 @@ func gameSummaries(ctx *gameContext) ([]gin.H, gameDayCounts, error) {
 			"enabled":     enabled,
 			"plays_today": user.Plays,
 			"net_today":   user.Coins,
-			"best_score":  best[def.Key],
 		}
 		if rule, ok := ctx.Setting.SkillRuleOf(def.Key); ok {
 			summary["daily_rewards"] = rule.DailyRewards
