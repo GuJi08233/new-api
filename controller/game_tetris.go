@@ -3,6 +3,7 @@ package controller
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
@@ -36,10 +37,10 @@ func init() {
 	})
 }
 
+// tetrisFinishRequest 是结算请求体：整局推进过的帧数与操作记录。对局编号在查询参数 session_id 里。
 type tetrisFinishRequest struct {
-	SessionId int   `json:"session_id"`
-	Ticks     int   `json:"ticks"`
-	Inputs    []int `json:"inputs"`
+	Ticks  int   `json:"ticks"`
+	Inputs []int `json:"inputs"`
 }
 
 // tetrisDetail 是俄罗斯方块对局的成绩明细，存在对局的 Detail 里；重复提交同一局时据此返回同样的结果。
@@ -69,18 +70,24 @@ func StartTetris(c *gin.Context) {
 // FinishTetris 结算一局俄罗斯方块。浏览器上传整局操作，服务端从同一个种子重放，成绩与奖励都以重放结果为准。
 // 浏览器按真实时间推进帧，所以游戏内时长不能超过开局以来实际经过的时间。同一局只结算一次，重复提交
 // (例如结算成功但响应在网络上丢了)时返回第一次结算的结果。
+// 对局编号放在查询参数里，先读出对局再解析请求体：一小时的操作记录有一两 MB，不存在、过期或已经结算的对局不必解析它。
 func FinishTetris(c *gin.Context) {
 	rule := operation_setting.GetGameSetting().Tetris
 	if !requireGameEnabled(c, gameTetris) {
 		return
 	}
+	sessionId, err := strconv.Atoi(c.Query("session_id"))
+	if err != nil {
+		common.ApiErrorI18n(c, i18n.MsgGameSessionNotFound)
+		return
+	}
+	session := loadSkillSession(c, gameTetris, rule, sessionId)
+	if session == nil {
+		return
+	}
 	var req tetrisFinishRequest
 	if err := common.DecodeJson(http.MaxBytesReader(c.Writer, c.Request.Body, tetrisFinishMaxBytes), &req); err != nil {
 		common.ApiErrorI18n(c, i18n.MsgGameReplayInvalid)
-		return
-	}
-	session := loadSkillSession(c, gameTetris, rule, req.SessionId)
-	if session == nil {
 		return
 	}
 	elapsed := common.GetTimestamp() - session.CreatedAt

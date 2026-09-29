@@ -365,14 +365,11 @@ const Tetris = () => {
     setPhase('submitting');
     setSubmitError('');
     try {
+      // 对局编号放在查询参数里：服务端先读出对局，不必解析整局的操作记录就能回应已经结算过的一局。
       const res = await API.post(
         '/api/game/tetris/finish',
-        {
-          session_id: run.sessionId,
-          ticks: run.game.ticks,
-          inputs: run.recorder.inputs,
-        },
-        { skipErrorHandler: true },
+        { ticks: run.game.ticks, inputs: run.recorder.inputs },
+        { params: { session_id: run.sessionId }, skipErrorHandler: true },
       );
       if (!res.data.success) {
         // 服务端明确拒绝(对局过期、记录无效等)，重新提交也不会成功。

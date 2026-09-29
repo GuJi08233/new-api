@@ -1,12 +1,14 @@
 package controller
 
 import (
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/tetris"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -49,11 +51,11 @@ func startTetrisSession(t *testing.T, env *gameTestEnv, userId int, game tetrisG
 }
 
 func finishTetris(player *gamePlayer, session *model.GameSession, game tetrisGoldenGame) map[string]any {
-	return player.call(http.MethodPost, "/api/game/tetris/finish", map[string]any{
-		"session_id": session.Id,
-		"ticks":      game.Ticks,
-		"inputs":     game.Inputs,
-	})
+	return player.call(http.MethodPost, tetrisFinishPath(session.Id), map[string]any{"ticks": game.Ticks, "inputs": game.Inputs})
+}
+
+func tetrisFinishPath(sessionId int) string {
+	return fmt.Sprintf("/api/game/tetris/finish?session_id=%d", sessionId)
 }
 
 func tetrisSetting(rule operation_setting.SkillRule) *operation_setting.GameSetting {
@@ -62,8 +64,10 @@ func tetrisSetting(rule operation_setting.SkillRule) *operation_setting.GameSett
 
 // 成绩与奖励只认服务端重放：请求里只有帧数和操作，服务端从这一局的种子重放出与浏览器引擎一致的成绩
 // (见 pkg/tetris/testdata/golden.json)，奖励取达到的最高一档，每天只能领 DailyRewards 次。游戏内时长超过开局以来经过的时间、
-// 结算别人的对局都会被拒绝；重复提交同一局返回第一次的结果，不会再发一次。
+// 结算别人的对局都会被拒绝；重复提交同一局返回第一次的结果，不会再发一次。先按对局编号读出对局再解析操作记录：
+// 不存在的对局、已经结算的对局，请求体是什么都不看。
 func TestFinishTetrisSettlesReplayedScore(t *testing.T) {
+	require.NoError(t, i18n.Init())
 	env := newGameTestEnv(t, tetrisSetting(operation_setting.SkillRule{
 		Enabled: true, DailyRewards: 1, Tiers: []operation_setting.RewardTier{{Score: 5000, Coins: 1}, {Score: 100000, Coins: 3}}, MinSecondsPerCoin: 60,
 	}))
@@ -75,6 +79,8 @@ func TestFinishTetrisSettlesReplayedScore(t *testing.T) {
 	assert.Equal(t, false, rushed["success"], "开局才过了一半的时间，不可能已经玩完这一局")
 	foreign := finishTetris(player, startTetrisSession(t, env, player.user.Id+100000, game, playedSeconds+10), game)
 	assert.Equal(t, false, foreign["success"], "不能结算别人的对局")
+	garbage := map[string]any{"inputs": "not a replay"}
+	assert.Equal(t, gameMessage(i18n.MsgGameSessionNotFound), player.fails(http.MethodPost, tetrisFinishPath(999999), garbage))
 
 	session := startTetrisSession(t, env, player.user.Id, game, playedSeconds+10)
 	settled := finishTetris(player, session, game)
@@ -88,7 +94,7 @@ func TestFinishTetrisSettlesReplayedScore(t *testing.T) {
 	assert.EqualValues(t, 3, result["balance"])
 	assert.EqualValues(t, game.Score, result["best_score"])
 
-	again := finishTetris(player, session, game)
+	again := player.call(http.MethodPost, tetrisFinishPath(session.Id), garbage)
 	require.Equal(t, true, again["success"], again["message"])
 	assert.Equal(t, result, again["data"], "重复提交返回第一次结算的结果")
 
