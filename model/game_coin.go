@@ -76,9 +76,11 @@ type GameCoinAccount struct {
 
 // GameCoinLog 是游戏币流水，每次余额变动一条。
 type GameCoinLog struct {
-	Id        int    `json:"id"`
-	UserId    int    `json:"user_id" gorm:"index"`
-	Type      string `json:"type" gorm:"type:varchar(32)"`
+	// (user_id, type, id) 索引用于按类型筛选的流水分页，以及统计当天兑换了多少：下注游戏每局都记流水，只靠 user_id 索引
+	// 要把玩家的全部流水读一遍。
+	Id        int    `json:"id" gorm:"index:idx_game_coin_log_user_type,priority:3"`
+	UserId    int    `json:"user_id" gorm:"index;index:idx_game_coin_log_user_type,priority:1"`
+	Type      string `json:"type" gorm:"type:varchar(32);index:idx_game_coin_log_user_type,priority:2"`
 	Amount    int    `json:"amount" gorm:"type:bigint"`  // 入账为正，出账为负
 	Balance   int    `json:"balance" gorm:"type:bigint"` // 本次变动后的余额
 	Quota     int    `json:"quota" gorm:"type:bigint"`   // 兑换得到的主额度，只有兑换流水有值
