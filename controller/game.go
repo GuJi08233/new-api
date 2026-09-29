@@ -45,10 +45,9 @@ type gameHotWalletRequest struct {
 	PrivateKey string `json:"private_key"`
 }
 
-// gameCenterDay 是游戏中心的记账日：个人兑换限额、全站提现额度和每日游戏奖励都按它计算，
-// 与签到一样按服务器本地时间 0 点切换。
+// gameCenterDay 是今天的游戏中心记账日，见 model.GameCenterDay。
 func gameCenterDay() string {
-	return time.Now().Format("2006-01-02")
+	return model.GameCenterDay(time.Now())
 }
 
 // gameRewardIpKey 是每日上限按 IP 计数时用的键。IPv6 客户端能在运营商分配的整段前缀里随意换地址，

@@ -247,6 +247,12 @@ func GameCoinQuota(coins int) (int, error) {
 	return quota, nil
 }
 
+// GameCenterDay 返回 t 所在的游戏中心记账日：每日游戏奖励、个人兑换限额与全站提现额度都按它切换，与签到一样按服务器本地时间
+// 0 点切换。多个节点必须用同一个时区(TZ)，否则日切前后的一段时间里各节点对"今天"的看法不同，这段时间按两天计数。
+func GameCenterDay(t time.Time) string {
+	return t.Format("2006-01-02")
+}
+
 // ConvertGameCoinsToQuota 把游戏币单向兑换为主额度，每人每天最多兑换 GameCoinConvertDailyLimit 个币。
 // 日额度、扣币、流水和 quota 入账在同一个事务里，任何一步失败都不占用日额度，也不扣币。
 func ConvertGameCoinsToQuota(userId int, coins int) (quota int, balance int, err error) {
@@ -258,7 +264,7 @@ func ConvertGameCoinsToQuota(userId int, coins int) (quota int, balance int, err
 		return 0, 0, ErrGameCoinConvertDailyLimit
 	}
 	now := time.Now()
-	day := now.Format("2006-01-02")
+	day := GameCenterDay(now)
 	err = DB.Transaction(func(tx *gorm.DB) error {
 		var txErr error
 		balance, txErr = debitGameCoinsTx(tx, userId, coins, map[string]interface{}{

@@ -44,7 +44,7 @@ func PruneGameRecords(ctx context.Context, before time.Time) (GameCleanupResult,
 	if result.Logs, err = deleteGameRowsBefore(ctx, &GameCoinLog{}, cutoff, "type IN ?", gameCleanupLogTypes); err != nil {
 		return result, err
 	}
-	day := before.Format("2006-01-02")
+	day := GameCenterDay(before)
 	for _, table := range []any{&GameRewardDay{}, &GameRewardIpDay{}, &GameCoinConvertDay{}} {
 		deleted, err := deleteGameDaysBefore(ctx, table, day)
 		result.DayRows += deleted
