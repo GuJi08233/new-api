@@ -31,6 +31,7 @@ import { IconRefresh } from '@douyinfe/semi-icons';
 import { useTranslation } from 'react-i18next';
 import { API, showError, timestamp2string } from '../../helpers';
 import { getGameCoinWithdrawalStatusMap } from '../../constants';
+import { TxHashLink } from '../Games/common/TxHashLink';
 
 const { Text } = Typography;
 
@@ -46,6 +47,7 @@ const GameAdminWithdrawals = () => {
   const [status, setStatus] = useState('');
   const [userId, setUserId] = useState();
   const [explorerUrl, setExplorerUrl] = useState('');
+  const [chainId, setChainId] = useState(0);
 
   const load = useCallback(
     async (targetPage) => {
@@ -80,6 +82,7 @@ const GameAdminWithdrawals = () => {
     API.get('/api/game/admin/setting').then((res) => {
       if (res.data.success) {
         setExplorerUrl(res.data.data.setting.explorer_url || '');
+        setChainId(res.data.data.setting.chain_id || 0);
       }
     });
   }, []);
@@ -135,21 +138,18 @@ const GameAdminWithdrawals = () => {
       title: t('交易'),
       dataIndex: 'tx_hash',
       width: 200,
-      render: (value, record) => {
-        if (!value) return '-';
-        const label = `${value.slice(0, 10)}… (nonce ${record.nonce})`;
-        return explorerUrl ? (
-          <a
-            href={`${explorerUrl}/tx/${value}`}
-            target='_blank'
-            rel='noopener noreferrer'
-          >
-            {label}
-          </a>
+      render: (value, record) =>
+        value ? (
+          <TxHashLink
+            hash={value}
+            label={`${value.slice(0, 10)}… (nonce ${record.nonce})`}
+            chainId={record.chain_id}
+            currentChainId={chainId}
+            explorerUrl={explorerUrl}
+          />
         ) : (
-          <Text copyable={{ content: value }}>{label}</Text>
-        );
-      },
+          '-'
+        ),
     },
     {
       title: t('失败原因 / 最近错误'),

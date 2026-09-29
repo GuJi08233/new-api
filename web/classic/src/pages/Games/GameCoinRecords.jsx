@@ -36,6 +36,7 @@ import {
   getGameCoinWithdrawalStatusMap,
   getGameMetaMap,
 } from '../../constants';
+import { TxHashLink } from './common/TxHashLink';
 
 const { Text } = Typography;
 
@@ -85,7 +86,7 @@ function usePagedRecords(url, version, query = '') {
   };
 }
 
-const GameCoinRecords = ({ version, symbol, explorerUrl }) => {
+const GameCoinRecords = ({ version, symbol, explorerUrl, chainId }) => {
   const { t } = useTranslation();
   // 老虎机每转一次记一条流水，按类型筛选才找得到兑换、提现这些记录。
   const [logType, setLogType] = useState('');
@@ -206,21 +207,18 @@ const GameCoinRecords = ({ version, symbol, explorerUrl }) => {
     {
       title: t('交易'),
       dataIndex: 'tx_hash',
-      render: (value) => {
-        if (!value) return '-';
-        const short = `${value.slice(0, 10)}…`;
-        return explorerUrl ? (
-          <a
-            href={`${explorerUrl}/tx/${value}`}
-            target='_blank'
-            rel='noopener noreferrer'
-          >
-            {short}
-          </a>
+      render: (value, record) =>
+        value ? (
+          <TxHashLink
+            hash={value}
+            label={`${value.slice(0, 10)}…`}
+            chainId={record.chain_id}
+            currentChainId={chainId}
+            explorerUrl={explorerUrl}
+          />
         ) : (
-          <Text copyable={{ content: value }}>{short}</Text>
-        );
-      },
+          '-'
+        ),
     },
   ];
 

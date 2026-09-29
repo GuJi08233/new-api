@@ -749,6 +749,7 @@ const Games = () => {
             version={recordsVersion}
             symbol={symbol}
             explorerUrl={token?.explorer_url}
+            chainId={token?.chain_id}
           />
         )}
       </div>
