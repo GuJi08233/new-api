@@ -274,11 +274,6 @@ func GameMaxTierScores() map[string]int {
 	return scores
 }
 
-// GameKind 返回游戏的结算方式，未知的游戏返回空字符串。
-func GameKind(game string) string {
-	return gameRuleSpecs[game].Kind
-}
-
 // GameBetSteps 返回分档投入的游戏可选的几档，其他游戏返回 nil。
 func GameBetSteps(game string) []int {
 	return slices.Clone(gameRuleSpecs[game].BetSteps)

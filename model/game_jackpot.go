@@ -370,15 +370,6 @@ func ListRecentGameJackpotRounds(limit int) ([]GameJackpotRound, error) {
 	return rounds, err
 }
 
-// GetGameJackpotRound 按 ID 读取一轮，不存在时返回 nil。
-func GetGameJackpotRound(id int) (*GameJackpotRound, error) {
-	var rounds []GameJackpotRound
-	if err := DB.Where("id = ?", id).Limit(1).Find(&rounds).Error; err != nil || len(rounds) == 0 {
-		return nil, err
-	}
-	return &rounds[0], nil
-}
-
 // HasDueGameJackpot 表示开放中的一轮已到开奖时间，或者一直只有一位玩家、在 staleBefore 之前开的一轮该退回了。
 func HasDueGameJackpot(now int64, staleBefore int64) bool {
 	round, err := GetOpenGameJackpotRound()

@@ -90,7 +90,7 @@ func TestCrashCashoutAndLazySettlement(t *testing.T) {
 	// 没人兑现：过了爆点查看对局时结算，之后没有进行中的一局，按编号还能看到结果。
 	crashAt(t, 300)
 	*now = crashTestStart
-	started = player.ok(http.MethodPost, "/api/game/crash/start", map[string]any{"bet": 10})
+	player.ok(http.MethodPost, "/api/game/crash/start", map[string]any{"bet": 10})
 	*now = crashTestStart + crash.TimeOf(300) + 1000
 	settled := player.ok(http.MethodGet, "/api/game/crash/round", nil)
 	round = roundOf(t, settled)
