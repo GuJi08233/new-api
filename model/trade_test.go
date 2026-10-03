@@ -247,12 +247,3 @@ func TestCancelTradeOrderReleasesWhatItFroze(t *testing.T) {
 	require.Len(t, positions, 1)
 	assert.Zero(t, positions[0].FrozenQty)
 }
-
-// 卖出一部分时按数量比例结转持仓成本并向上取整，卖完时成本归零。
-func TestTradeCostShareRoundsUpAndClearsOnFullSell(t *testing.T) {
-	assert.Equal(t, 4, tradeCostShare(10, 1, 3))
-	assert.Equal(t, 3, tradeCostShare(9, 1, 3))
-	assert.Equal(t, 10, tradeCostShare(10, 3, 3))
-	assert.Equal(t, common.MaxQuota-1, tradeCostShare(common.MaxQuota-1, 1<<50, 1<<50))
-	assert.Equal(t, 1, tradeCostShare(common.MaxQuota-1, 1, 1<<60))
-}

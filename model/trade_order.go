@@ -2,6 +2,7 @@ package model
 
 import (
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/pkg/tradesim"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -104,7 +105,8 @@ func applyTradeFillTx(tx *gorm.DB, account *TradeAccount, position *TradePositio
 		if fill.Qty > position.Qty-position.FrozenQty || fill.Fee > fill.Amount {
 			return ErrTradePositionInsufficient
 		}
-		released := tradeCostShare(position.Cost, fill.Qty, position.Qty)
+		// 按数量比例结转持仓成本，向上取整：结转多了，剩下的成本就少，记下的盈利也跟着少，取整的零头留在站点这边。
+		released := tradesim.ShareQuota(position.Cost, fill.Qty, position.Qty)
 		position.Qty -= fill.Qty
 		position.Cost -= released
 		proceeds := fill.Amount - fill.Fee

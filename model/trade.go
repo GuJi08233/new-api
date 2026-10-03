@@ -2,7 +2,6 @@ package model
 
 import (
 	"errors"
-	"math/big"
 
 	"github.com/QuantumNous/new-api/common"
 
@@ -196,20 +195,6 @@ func tradeLedgerTx(tx *gorm.DB, account *TradeAccount, entry TradeLedger) error 
 	entry.Balance = account.Cash + account.Frozen
 	entry.CreatedAt = common.GetTimestamp()
 	return tx.Create(&entry).Error
-}
-
-// tradeCostShare 按数量比例算出卖掉 qty 要结转的持仓成本，向上取整：结转多了，剩下的成本就少，记下的盈利也跟着少，
-// 取整的零头留在站点这边。全部卖完时结转全部成本。
-func tradeCostShare(cost int, qty int64, held int64) int {
-	if qty >= held {
-		return cost
-	}
-	product := new(big.Int).Mul(big.NewInt(int64(cost)), big.NewInt(qty))
-	share, remainder := new(big.Int).QuoRem(product, big.NewInt(held), new(big.Int))
-	if remainder.Sign() > 0 {
-		share.Add(share, big.NewInt(1))
-	}
-	return int(share.Int64())
 }
 
 // TradeStats 是全站模拟盘的汇总，给管理员看：资金与持仓成本都是额度单位。
