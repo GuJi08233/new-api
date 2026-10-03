@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -49,10 +50,12 @@ func (e *APIError) Is(target error) bool {
 	return target == ErrRateLimited && (e.Status == http.StatusTooManyRequests || e.Status == http.StatusTeapot)
 }
 
-// Client 是 Binance 现货行情的 REST 客户端，可以被多个 goroutine 并发使用。
+// Client 是 Binance 现货或 U 本位合约行情的 REST 客户端，可以被多个 goroutine 并发使用。
 type Client struct {
 	baseURL string
 	http    *http.Client
+	// futures 为真时请求合约的 /fapi 接口。
+	futures bool
 
 	mu        sync.Mutex
 	coolUntil time.Time // 被限频后，在这之前的请求直接返回 ErrRateLimited
@@ -64,6 +67,21 @@ func NewClient(baseURL string, httpClient *http.Client) *Client {
 		httpClient = &http.Client{Timeout: 15 * time.Second}
 	}
 	return &Client{baseURL: strings.TrimRight(baseURL, "/"), http: httpClient}
+}
+
+// NewFuturesClient 创建 U 本位合约行情的 REST 客户端。baseURL 例如 https://fapi.binance.com。
+func NewFuturesClient(baseURL string, httpClient *http.Client) *Client {
+	client := NewClient(baseURL, httpClient)
+	client.futures = true
+	return client
+}
+
+// endpoint 返回现货或合约的接口路径，name 例如 klines。
+func (c *Client) endpoint(name string) string {
+	if c.futures {
+		return "/fapi/v1/" + name
+	}
+	return "/api/v3/" + name
 }
 
 // get 发一个 GET 请求，把 2xx 响应体解码到 out。被限频(429/418)后按 Retry-After(没有时 60 秒)冷却，冷却期内直接返回
@@ -127,7 +145,7 @@ func (c *Client) Klines(ctx context.Context, symbol, interval string, limit int,
 	// 每根 K 线是一个数组：[开盘时间, "开", "高", "低", "收", "成交量", 收盘时间, "成交额", 成交笔数, ...]，
 	// 时间与笔数是数字，价格与数量是字符串。
 	var rows [][]json.RawMessage
-	if err := c.get(ctx, "/api/v3/klines", query, &rows); err != nil {
+	if err := c.get(ctx, c.endpoint("klines"), query, &rows); err != nil {
 		return nil, err
 	}
 	klines := make([]Kline, 0, len(rows))
@@ -158,14 +176,19 @@ func (c *Client) Klines(ctx context.Context, symbol, interval string, limit int,
 	return klines, nil
 }
 
-// Tickers 查多个交易对的 24 小时迷你行情。symbols 为空时直接返回空结果：不带 symbols 参数查的是全市场。
+// Tickers 查多个交易对的 24 小时迷你行情。symbols 为空时直接返回空结果：不带 symbols 参数查的是全市场。合约接口不支持按列表查，
+// 查全市场再挑出要的。
 func (c *Client) Tickers(ctx context.Context, symbols []string) ([]Ticker, error) {
 	if len(symbols) == 0 {
 		return nil, nil
 	}
-	list, err := common.Marshal(symbols)
-	if err != nil {
-		return nil, err
+	query := url.Values{}
+	if !c.futures {
+		list, err := common.Marshal(symbols)
+		if err != nil {
+			return nil, err
+		}
+		query = url.Values{"symbols": {string(list)}, "type": {"MINI"}}
 	}
 	var rows []struct {
 		Symbol      string `json:"symbol"`
@@ -176,11 +199,14 @@ func (c *Client) Tickers(ctx context.Context, symbols []string) ([]Ticker, error
 		Volume      string `json:"volume"`
 		QuoteVolume string `json:"quoteVolume"`
 	}
-	if err := c.get(ctx, "/api/v3/ticker/24hr", url.Values{"symbols": {string(list)}, "type": {"MINI"}}, &rows); err != nil {
+	if err := c.get(ctx, c.endpoint("ticker/24hr"), query, &rows); err != nil {
 		return nil, err
 	}
-	tickers := make([]Ticker, 0, len(rows))
+	tickers := make([]Ticker, 0, len(symbols))
 	for _, row := range rows {
+		if !slices.Contains(symbols, row.Symbol) {
+			continue
+		}
 		var p decimalParser
 		ticker := Ticker{
 			Symbol:      row.Symbol,
@@ -199,14 +225,19 @@ func (c *Client) Tickers(ctx context.Context, symbols []string) ([]Ticker, error
 	return tickers, nil
 }
 
-// ExchangeInfo 查交易对的交易规则，按交易对索引。symbols 为空时直接返回空结果：不带 symbols 参数查的是全市场。
+// ExchangeInfo 查交易对的交易规则，按交易对索引。symbols 为空时直接返回空结果：不带 symbols 参数查的是全市场。合约接口不支持
+// 按列表查，查全市场(约 1 MB)再挑出要的。
 func (c *Client) ExchangeInfo(ctx context.Context, symbols []string) (map[string]SymbolInfo, error) {
 	if len(symbols) == 0 {
 		return map[string]SymbolInfo{}, nil
 	}
-	list, err := common.Marshal(symbols)
-	if err != nil {
-		return nil, err
+	query := url.Values{}
+	if !c.futures {
+		list, err := common.Marshal(symbols)
+		if err != nil {
+			return nil, err
+		}
+		query.Set("symbols", string(list))
 	}
 	// 各种过滤器都解到同一个结构里，再按 filterType 只取用得到的几种：这几个字段名在所有过滤器里都是字符串。
 	var resp struct {
@@ -216,21 +247,27 @@ func (c *Client) ExchangeInfo(ctx context.Context, symbols []string) (map[string
 			BaseAsset  string `json:"baseAsset"`
 			QuoteAsset string `json:"quoteAsset"`
 			Filters    []struct {
-				FilterType  string `json:"filterType"`
-				TickSize    string `json:"tickSize"`
-				StepSize    string `json:"stepSize"`
-				MinQty      string `json:"minQty"`
-				MaxQty      string `json:"maxQty"`
-				MinNotional string `json:"minNotional"`
-				MaxNotional string `json:"maxNotional"`
+				FilterType     string `json:"filterType"`
+				TickSize       string `json:"tickSize"`
+				StepSize       string `json:"stepSize"`
+				MinQty         string `json:"minQty"`
+				MaxQty         string `json:"maxQty"`
+				MinNotional    string `json:"minNotional"`
+				MaxNotional    string `json:"maxNotional"`
+				Notional       string `json:"notional"`
+				MultiplierUp   string `json:"multiplierUp"`
+				MultiplierDown string `json:"multiplierDown"`
 			} `json:"filters"`
 		} `json:"symbols"`
 	}
-	if err := c.get(ctx, "/api/v3/exchangeInfo", url.Values{"symbols": {string(list)}}, &resp); err != nil {
+	if err := c.get(ctx, c.endpoint("exchangeInfo"), query, &resp); err != nil {
 		return nil, err
 	}
-	infos := make(map[string]SymbolInfo, len(resp.Symbols))
+	infos := make(map[string]SymbolInfo, len(symbols))
 	for _, symbol := range resp.Symbols {
+		if !slices.Contains(symbols, symbol.Symbol) {
+			continue
+		}
 		info := SymbolInfo{Symbol: symbol.Symbol, BaseAsset: symbol.BaseAsset, QuoteAsset: symbol.QuoteAsset, Status: symbol.Status}
 		var p decimalParser
 		hasNotional := false
@@ -243,12 +280,21 @@ func (c *Client) ExchangeInfo(ctx context.Context, symbols []string) (map[string
 				info.StepSize = p.parse("stepSize", filter.StepSize)
 				info.MinQty = p.parse("minQty", filter.MinQty)
 				info.MaxQty = p.parse("maxQty", filter.MaxQty)
+			case "MARKET_LOT_SIZE":
+				info.MarketMaxQty = p.parse("maxQty", filter.MaxQty)
 			case "NOTIONAL":
 				hasNotional = true
 				info.MinNotional = p.parse("minNotional", filter.MinNotional)
 				info.MaxNotional = p.parse("maxNotional", filter.MaxNotional)
 			case "MIN_NOTIONAL":
-				legacyMinNotional = p.parse("minNotional", filter.MinNotional)
+				if c.futures {
+					legacyMinNotional = p.parse("notional", filter.Notional)
+				} else {
+					legacyMinNotional = p.parse("minNotional", filter.MinNotional)
+				}
+			case "PERCENT_PRICE":
+				info.PriceUp = p.parse("multiplierUp", filter.MultiplierUp)
+				info.PriceDown = p.parse("multiplierDown", filter.MultiplierDown)
 			}
 		}
 		if p.err != nil {
@@ -269,7 +315,7 @@ func (c *Client) Depth(ctx context.Context, symbol string, limit int) (*Depth, e
 		query.Set("limit", strconv.Itoa(limit))
 	}
 	var payload depthPayload
-	if err := c.get(ctx, "/api/v3/depth", query, &payload); err != nil {
+	if err := c.get(ctx, c.endpoint("depth"), query, &payload); err != nil {
 		return nil, err
 	}
 	depth, err := payload.depth()
@@ -277,4 +323,79 @@ func (c *Client) Depth(ctx context.Context, symbol string, limit int) (*Depth, e
 		return nil, fmt.Errorf("binance depth %s: %w", symbol, err)
 	}
 	return depth, nil
+}
+
+// MarkPrices 查合约全部交易对当前的标记价格与资金费率，挑出 symbols 里的，只用于合约客户端。连上推送之后补一份：标记价格
+// 每秒推一次，刚连上的这一秒里没有。
+func (c *Client) MarkPrices(ctx context.Context, symbols []string) ([]MarkPrice, error) {
+	if !c.futures {
+		return nil, errors.New("binance: mark prices are only available on the futures api")
+	}
+	var rows []struct {
+		Symbol          string `json:"symbol"`
+		MarkPrice       string `json:"markPrice"`
+		IndexPrice      string `json:"indexPrice"`
+		LastFundingRate string `json:"lastFundingRate"`
+		NextFundingTime int64  `json:"nextFundingTime"`
+		Time            int64  `json:"time"`
+	}
+	if err := c.get(ctx, "/fapi/v1/premiumIndex", url.Values{}, &rows); err != nil {
+		return nil, err
+	}
+	marks := make([]MarkPrice, 0, len(symbols))
+	for _, row := range rows {
+		if !slices.Contains(symbols, row.Symbol) {
+			continue
+		}
+		var p decimalParser
+		mark := MarkPrice{
+			Symbol:          row.Symbol,
+			EventTime:       row.Time,
+			Mark:            p.parse("markPrice", row.MarkPrice),
+			Index:           p.parse("indexPrice", row.IndexPrice),
+			FundingRate:     p.parseSigned("lastFundingRate", row.LastFundingRate),
+			NextFundingTime: row.NextFundingTime,
+		}
+		if p.err != nil {
+			return nil, fmt.Errorf("binance premiumIndex %s: %w", row.Symbol, p.err)
+		}
+		marks = append(marks, mark)
+	}
+	return marks, nil
+}
+
+// FundingRates 查一个合约在 startTime(毫秒，含)之后已经结算的资金费，按结算时间从早到晚，最多 limit 条(<= 0 时用 Binance 的
+// 默认 100 条)。只用于合约客户端。
+func (c *Client) FundingRates(ctx context.Context, symbol string, startTime int64, limit int) ([]FundingRate, error) {
+	if !c.futures {
+		return nil, errors.New("binance: funding rates are only available on the futures api")
+	}
+	query := url.Values{"symbol": {symbol}, "startTime": {strconv.FormatInt(startTime, 10)}}
+	if limit > 0 {
+		query.Set("limit", strconv.Itoa(limit))
+	}
+	var rows []struct {
+		Symbol      string `json:"symbol"`
+		FundingTime int64  `json:"fundingTime"`
+		FundingRate string `json:"fundingRate"`
+		MarkPrice   string `json:"markPrice"`
+	}
+	if err := c.get(ctx, "/fapi/v1/fundingRate", query, &rows); err != nil {
+		return nil, err
+	}
+	rates := make([]FundingRate, 0, len(rows))
+	for _, row := range rows {
+		var p decimalParser
+		rate := FundingRate{
+			Symbol:      row.Symbol,
+			FundingTime: row.FundingTime,
+			Rate:        p.parseSigned("fundingRate", row.FundingRate),
+			MarkPrice:   p.parse("markPrice", row.MarkPrice),
+		}
+		if p.err != nil {
+			return nil, fmt.Errorf("binance fundingRate %s: %w", symbol, p.err)
+		}
+		rates = append(rates, rate)
+	}
+	return rates, nil
 }

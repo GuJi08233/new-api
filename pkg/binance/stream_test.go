@@ -94,6 +94,10 @@ type klineEvent struct {
 	closed bool
 }
 
+type markEvent struct {
+	mark *MarkPrice
+}
+
 type connectedEvent bool
 
 func newRecorder() *recorder {
@@ -110,6 +114,10 @@ func (r *recorder) OnTicker(ticker *Ticker, _ time.Time) {
 
 func (r *recorder) OnKline(symbol string, kline *Kline, closed bool, _ time.Time) {
 	r.events <- klineEvent{symbol: symbol, kline: kline, closed: closed}
+}
+
+func (r *recorder) OnMarkPrice(mark *MarkPrice, _ time.Time) {
+	r.events <- markEvent{mark: mark}
 }
 
 func (r *recorder) OnConnected(connected bool) {
@@ -134,6 +142,7 @@ func newTestStream(server *streamServer, events *recorder) *Stream {
 		BaseURL:       server.url,
 		Symbols:       []string{"BTCUSDT", "NVDABUSDT"},
 		DepthLevels:   5,
+		Ticker:        true,
 		KlineInterval: "1m",
 	}, events)
 	s.backoff = []time.Duration{10 * time.Millisecond}
@@ -373,4 +382,29 @@ func TestStreamPlannedReconnectSkipsBackoff(t *testing.T) {
 			assert.Equal(t, connectedEvent(true), events.next(t))
 		})
 	}
+}
+
+// 合约的盘口推送是 depthUpdate 事件(两侧叫 b、a，版本取 u)，标记价格推送里资金费率可以为负。
+func TestStreamParsesFuturesDepthAndMarkPrice(t *testing.T) {
+	server := newStreamServer(t, nil)
+	events := newRecorder()
+	s := NewStream(StreamConfig{BaseURL: server.url, Symbols: []string{"BTCUSDT"}, DepthLevels: 20, MarkPrice: true}, events)
+	s.keepalive = time.Hour
+	runStream(t, s)
+
+	conn := server.accept(t)
+	assert.Equal(t, "btcusdt@depth20@100ms/btcusdt@markPrice@1s", conn.streams)
+	require.Equal(t, connectedEvent(true), events.next(t))
+	conn.send(t, `{"stream":"btcusdt@depth20@100ms","data":{"e":"depthUpdate","E":1791044805993,"T":1791044805992,"s":"BTCUSDT",`+
+		`"U":11727350456530,"u":11727350464793,"pu":11727350456340,"b":[["84756.30","9.447"]],"a":[["84756.40","1.5"],["84756.50","0.2"]]}}`)
+	conn.send(t, `{"stream":"btcusdt@markPrice@1s","data":{"e":"markPriceUpdate","E":1791044809001,"s":"BTCUSDT","p":"84756.35776087",`+
+		`"ap":"84756.35776087","P":"84830.21202428","i":"84788.51847826","r":"-0.00005353","T":1791072000000}}`)
+
+	assert.Equal(t, depthEvent{symbol: "BTCUSDT", depth: &Depth{
+		LastUpdateID: 11727350464793,
+		Bids:         []Level{{Price: d("84756.30"), Qty: d("9.447")}},
+		Asks:         []Level{{Price: d("84756.40"), Qty: d("1.5")}, {Price: d("84756.50"), Qty: d("0.2")}},
+	}}, events.next(t))
+	assert.Equal(t, markEvent{mark: &MarkPrice{Symbol: "BTCUSDT", EventTime: 1791044809001, Mark: d("84756.35776087"),
+		Index: d("84788.51847826"), FundingRate: d("-0.00005353"), NextFundingTime: 1791072000000}}, events.next(t))
 }

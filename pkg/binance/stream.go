@@ -30,22 +30,27 @@ type StreamHandler interface {
 	OnDepth(symbol string, depth *Depth, received time.Time)
 	OnTicker(ticker *Ticker, received time.Time)
 	OnKline(symbol string, kline *Kline, closed bool, received time.Time)
+	// OnMarkPrice 只有订阅了合约的标记价格才会调用。
+	OnMarkPrice(mark *MarkPrice, received time.Time)
 	// OnConnected 在每次连上之后以 true、每次断开之后以 false 调用。连上之后服务端不会先推一份快照，冷门交易对可能
 	// 几秒都没有第一帧，断线前缓存的盘口也不能再当成最新的：需要时用 Client.Depth 补一份快照，两边的 LastUpdateID
 	// 是同一个序列，可以比较新旧。
 	OnConnected(connected bool)
 }
 
-// StreamConfig 是行情订阅的配置。
+// StreamConfig 是行情订阅的配置。合约要按 Binance 的要求分两条连接：盘口在 wss://fstream.binance.com/public，标记价格、
+// 迷你行情与 K 线在 wss://fstream.binance.com/market，订阅到错的那条上收不到推送。
 type StreamConfig struct {
-	BaseURL       string            // 例如 wss://data-stream.binance.vision
+	BaseURL       string            // 例如 wss://data-stream.binance.vision、wss://fstream.binance.com/public
 	Symbols       []string          // 大写，例如 BTCUSDT
-	DepthLevels   int               // 盘口档数 5、10 或 20，其他值按 20
+	DepthLevels   int               // 局部盘口的档数 5、10 或 20(其他正数按 20)；0 表示不订阅盘口
+	Ticker        bool              // 订阅迷你行情
 	KlineInterval string            // K 线周期，例如 1m；为空时不订阅 K 线
+	MarkPrice     bool              // 订阅合约的标记价格(每秒一次)
 	Dialer        *websocket.Dialer // 为空时用 websocket.DefaultDialer 的副本(代理取环境变量)，握手超时 15 秒
 }
 
-// Stream 用一条组合流连接订阅所有交易对的局部盘口(100ms)、迷你行情与 K 线，断线自动重连。
+// Stream 用一条组合流连接订阅所有交易对的局部盘口(100ms)、迷你行情、K 线与标记价格(按配置)，断线自动重连。
 //
 // 局部盘口只在前几档变化时才推送，冷门交易对(比如美股代币)几秒没有推送很正常，"多久没收到推送"说明不了盘口是否过期。
 // 要确认手里的盘口是最新的，用 Sync；刚(重)连上时的情况见 StreamHandler.OnConnected。
@@ -69,15 +74,23 @@ type Stream struct {
 // NewStream 创建行情订阅，调用 Run 之后才会连接。
 func NewStream(cfg StreamConfig, handler StreamHandler) *Stream {
 	levels := cfg.DepthLevels
-	if levels != 5 && levels != 10 {
+	if levels > 0 && levels != 5 && levels != 10 {
 		levels = 20
 	}
-	names := make([]string, 0, len(cfg.Symbols)*3)
+	names := make([]string, 0, len(cfg.Symbols)*4)
 	for _, symbol := range cfg.Symbols {
 		lower := strings.ToLower(symbol)
-		names = append(names, fmt.Sprintf("%s@depth%d@100ms", lower, levels), lower+"@miniTicker")
+		if levels > 0 {
+			names = append(names, fmt.Sprintf("%s@depth%d@100ms", lower, levels))
+		}
+		if cfg.Ticker {
+			names = append(names, lower+"@miniTicker")
+		}
 		if cfg.KlineInterval != "" {
 			names = append(names, lower+"@kline_"+cfg.KlineInterval)
+		}
+		if cfg.MarkPrice {
+			names = append(names, lower+"@markPrice@1s")
 		}
 	}
 	streamURL := ""
@@ -291,7 +304,7 @@ func (s *Stream) read(ws *websocket.Conn) error {
 	}
 }
 
-// dispatch 解析一帧组合流的 data 并交给 handler。局部盘口的 data 里没有交易对，交易对一律取自流名称，
+// dispatch 解析一帧组合流的 data 并交给 handler。现货局部盘口的 data 里没有交易对，交易对一律取自流名称，
 // 例如 "btcusdt@depth20@100ms" 是 BTCUSDT。
 //
 // encoding/json 匹配字段名不分大小写，Binance 的推送里又有只差大小写的字段(e 与 E、v 与 V)，所以下面会声明一些用不到的
@@ -379,6 +392,35 @@ func (s *Stream) dispatch(stream string, data json.RawMessage, received time.Tim
 			return p.err
 		}
 		s.handler.OnKline(symbol, kline, k.Closed, received)
+	case strings.HasPrefix(kind, "markPrice"):
+		var payload struct {
+			EventType       string `json:"e"`
+			EventTime       int64  `json:"E"`
+			Mark            string `json:"p"`
+			SettlePrice     string `json:"P"`
+			Index           string `json:"i"`
+			FundingRate     string `json:"r"`
+			NextFundingTime int64  `json:"T"`
+		}
+		if err := common.Unmarshal(data, &payload); err != nil {
+			return err
+		}
+		var p decimalParser
+		mark := &MarkPrice{
+			Symbol:          symbol,
+			EventTime:       payload.EventTime,
+			Mark:            p.parse("p", payload.Mark),
+			Index:           p.parse("i", payload.Index),
+			FundingRate:     p.parseSigned("r", payload.FundingRate),
+			NextFundingTime: payload.NextFundingTime,
+		}
+		if p.err != nil {
+			return p.err
+		}
+		if !mark.Mark.IsPositive() {
+			return errors.New("mark price is not positive")
+		}
+		s.handler.OnMarkPrice(mark, received)
 	default:
 		return errors.New("unknown stream")
 	}

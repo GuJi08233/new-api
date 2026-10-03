@@ -92,7 +92,7 @@ func TestClientExchangeInfoReadsFilters(t *testing.T) {
 		var symbols []string
 		assert.NoError(t, common.UnmarshalJsonStr(r.URL.Query().Get("symbols"), &symbols))
 		assert.Equal(t, []string{"BTCUSDT", "OLDUSDT"}, symbols)
-		// BTCUSDT 同时有旧的 MIN_NOTIONAL 与新的 NOTIONAL，以 NOTIONAL 为准；MARKET_LOT_SIZE 不能覆盖 LOT_SIZE。
+		// BTCUSDT 同时有旧的 MIN_NOTIONAL 与新的 NOTIONAL，以 NOTIONAL 为准；MARKET_LOT_SIZE 单独记下，不能覆盖 LOT_SIZE。
 		// OLDUSDT 只有 MIN_NOTIONAL，也没有 LOT_SIZE。
 		_, _ = w.Write([]byte(`{"timezone":"UTC","serverTime":1565246363776,"rateLimits":[],"exchangeFilters":[],"symbols":[
 			{"symbol":"BTCUSDT","status":"TRADING","baseAsset":"BTC","baseAssetPrecision":8,"quoteAsset":"USDT","quotePrecision":8,"filters":[
@@ -115,7 +115,8 @@ func TestClientExchangeInfoReadsFilters(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, map[string]SymbolInfo{
 		"BTCUSDT": {Symbol: "BTCUSDT", BaseAsset: "BTC", QuoteAsset: "USDT", Status: "TRADING", TickSize: d("0.01000000"),
-			StepSize: d("0.00001000"), MinQty: d("0.00001000"), MaxQty: d("9000.00000000"), MinNotional: d("5.00000000"), MaxNotional: d("9000000.00000000")},
+			StepSize: d("0.00001000"), MinQty: d("0.00001000"), MaxQty: d("9000.00000000"), MarketMaxQty: d("119.23000000"),
+			MinNotional: d("5.00000000"), MaxNotional: d("9000000.00000000")},
 		"OLDUSDT": {Symbol: "OLDUSDT", BaseAsset: "OLD", QuoteAsset: "USDT", Status: "BREAK", TickSize: d("0.00010000"), MinNotional: d("10.00000000")},
 	}, infos)
 }
@@ -229,4 +230,87 @@ func TestClientCoolsDownAfterRateLimit(t *testing.T) {
 			assert.Equal(t, int32(1), requests.Load())
 		})
 	}
+}
+
+// 合约接口不能按列表查交易规则与 24 小时行情，查全市场后只留下要的交易对；合约的 MIN_NOTIONAL 用 notional 字段。
+func TestFuturesClientReadsRulesAndTickers(t *testing.T) {
+	client := NewFuturesClient("", nil)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Empty(t, r.URL.Query().Get("symbols"))
+		switch r.URL.Path {
+		case "/fapi/v1/exchangeInfo":
+			_, _ = w.Write([]byte(`{"timezone":"UTC","symbols":[
+				{"symbol":"NVDAUSDT","status":"TRADING","baseAsset":"NVDA","quoteAsset":"USDT","contractType":"TRADIFI_PERPETUAL","filters":[
+					{"filterType":"PRICE_FILTER","minPrice":"0.01","maxPrice":"100000","tickSize":"0.01000"},
+					{"filterType":"LOT_SIZE","minQty":"0.01","maxQty":"10000","stepSize":"0.01"},
+					{"filterType":"MARKET_LOT_SIZE","minQty":"0.01","maxQty":"3000","stepSize":"0.01"},
+					{"filterType":"MAX_NUM_ORDERS","limit":200},
+					{"filterType":"MIN_NOTIONAL","notional":"5"},
+					{"filterType":"PERCENT_PRICE","multiplierUp":"1.0300","multiplierDown":"0.9700","multiplierDecimal":"4"}
+				]},
+				{"symbol":"ETHUSDT","status":"TRADING","baseAsset":"ETH","quoteAsset":"USDT","filters":[]}
+			]}`))
+		case "/fapi/v1/ticker/24hr":
+			_, _ = w.Write([]byte(`[
+				{"symbol":"NVDAUSDT","priceChange":"-1.71","lastPrice":"234.74","openPrice":"236.45","highPrice":"236.62","lowPrice":"233.86","volume":"193573.17","quoteVolume":"45434328.77"},
+				{"symbol":"ETHUSDT","lastPrice":"3000","openPrice":"2900","highPrice":"3100","lowPrice":"2800","volume":"1","quoteVolume":"3000"}
+			]`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+	client.baseURL = server.URL
+
+	infos, err := client.ExchangeInfo(context.Background(), []string{"NVDAUSDT"})
+	require.NoError(t, err)
+	assert.Equal(t, map[string]SymbolInfo{"NVDAUSDT": {Symbol: "NVDAUSDT", BaseAsset: "NVDA", QuoteAsset: "USDT", Status: "TRADING",
+		TickSize: d("0.01000"), StepSize: d("0.01"), MinQty: d("0.01"), MaxQty: d("10000"), MarketMaxQty: d("3000"),
+		MinNotional: d("5"), PriceUp: d("1.0300"), PriceDown: d("0.9700")}}, infos)
+
+	tickers, err := client.Tickers(context.Background(), []string{"NVDAUSDT"})
+	require.NoError(t, err)
+	assert.Equal(t, []Ticker{{Symbol: "NVDAUSDT", Close: d("234.74"), Open: d("236.45"), High: d("236.62"), Low: d("233.86"),
+		Volume: d("193573.17"), QuoteVolume: d("45434328.77")}}, tickers)
+}
+
+// 标记价格与已结算的资金费率只在合约接口上有，资金费率可以为负。
+func TestFuturesClientReadsMarkPricesAndFundingRates(t *testing.T) {
+	var fundingQuery url.Values
+	client := NewFuturesClient("", nil)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/fapi/v1/premiumIndex":
+			_, _ = w.Write([]byte(`[
+				{"symbol":"BTCUSDT","markPrice":"84756.54044928","indexPrice":"84788.51847826","estimatedSettlePrice":"84834.33","lastFundingRate":"0.00005250","interestRate":"0.0001","nextFundingTime":1791072000000,"time":1791044697000},
+				{"symbol":"ETHUSDT","markPrice":"3000","indexPrice":"3001","lastFundingRate":"-0.0001","nextFundingTime":1791072000000,"time":1791044697000}
+			]`))
+		case "/fapi/v1/fundingRate":
+			fundingQuery = r.URL.Query()
+			_, _ = w.Write([]byte(`[
+				{"symbol":"BTCUSDT","fundingTime":1791043200000,"fundingRate":"-0.00002100","markPrice":"84500.10000000"},
+				{"symbol":"BTCUSDT","fundingTime":1791072000001,"fundingRate":"0.00010000","markPrice":"84756.00000000"}
+			]`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+	client.baseURL = server.URL
+
+	marks, err := client.MarkPrices(context.Background(), []string{"BTCUSDT"})
+	require.NoError(t, err)
+	assert.Equal(t, []MarkPrice{{Symbol: "BTCUSDT", EventTime: 1791044697000, Mark: d("84756.54044928"), Index: d("84788.51847826"),
+		FundingRate: d("0.00005250"), NextFundingTime: 1791072000000}}, marks)
+
+	rates, err := client.FundingRates(context.Background(), "BTCUSDT", 1791043200000, 10)
+	require.NoError(t, err)
+	assert.Equal(t, url.Values{"symbol": {"BTCUSDT"}, "startTime": {"1791043200000"}, "limit": {"10"}}, fundingQuery)
+	assert.Equal(t, []FundingRate{
+		{Symbol: "BTCUSDT", FundingTime: 1791043200000, Rate: d("-0.00002100"), MarkPrice: d("84500.10000000")},
+		{Symbol: "BTCUSDT", FundingTime: 1791072000001, Rate: d("0.00010000"), MarkPrice: d("84756.00000000")},
+	}, rates)
+
+	_, err = NewClient(server.URL, nil).FundingRates(context.Background(), "BTCUSDT", 0, 0)
+	assert.Error(t, err, "the spot api has no funding rates")
 }

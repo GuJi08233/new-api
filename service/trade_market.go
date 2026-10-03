@@ -178,6 +178,7 @@ func (m *TradeMarket) applySetting(setting *operation_setting.TradeSetting) {
 		BaseURL:       want.WsURL,
 		Symbols:       want.Symbols,
 		DepthLevels:   tradeDepthLevels,
+		Ticker:        true,
 		KlineInterval: tradeKlineInterval,
 		Dialer:        dialer,
 	}, handler)
@@ -301,6 +302,9 @@ func (h *tradeStreamHandler) OnKline(symbol string, kline *binance.Kline, _ bool
 	m.mu.Unlock()
 	m.markDirty(symbol, tradeDirtyKline)
 }
+
+// OnMarkPrice 不会被调用：现货连接不订阅合约的标记价格。
+func (h *tradeStreamHandler) OnMarkPrice(*binance.MarkPrice, time.Time) {}
 
 func tradeLevels(levels []binance.Level) []tradesim.Level {
 	out := make([]tradesim.Level, len(levels))
