@@ -41,8 +41,9 @@ import {
 import { formatPrice, formatQty, tradeGet } from './api';
 
 // K 线图：蜡烛与成交量，可叠加 MA / EMA / 布林带，可开 MACD、RSI 副图；往左拖到头时加载更早的历史；
-// 用 1 分钟 K 线推送实时更新最后一根；画出持仓均价线与自己的买卖点。图表库是 TradingView 的 lightweight-charts，
-// 按它的许可证要求保留右下角的 TradingView 标志。
+// 用 1 分钟 K 线推送实时更新最后一根；画出持仓的价格线(现货的持仓均价，合约的开仓均价与强平价)与自己的买卖点。
+// klineUrl 是拉历史 K 线的接口，现货与合约各一个。图表库是 TradingView 的 lightweight-charts，按它的许可证要求保留
+// 右下角的 TradingView 标志。
 
 const INTERVALS = ['1m', '5m', '15m', '1h', '4h', '1d'];
 const INTERVAL_MS = {
@@ -131,7 +132,15 @@ function lineData(bars, values) {
   return out;
 }
 
-const CandleChart = ({ symbol, priceDigits, kline, avgPrice, fills, t }) => {
+const CandleChart = ({
+  symbol,
+  klineUrl = '/api/trade/klines',
+  priceDigits,
+  kline,
+  priceLines,
+  fills,
+  t,
+}) => {
   const actualTheme = useActualTheme();
   const { i18n } = useTranslation();
   const locale = i18n.language;
@@ -142,7 +151,7 @@ const CandleChart = ({ symbol, priceDigits, kline, avgPrice, fills, t }) => {
   const barsRef = useRef([]);
   const liveRef = useRef(null);
   const pagingRef = useRef({ loading: false, done: false });
-  const avgLineRef = useRef(null);
+  const priceLinesRef = useRef([]);
   const markersRef = useRef(null);
   const [period, setPeriod] = useState(() =>
     readSetting('trade-chart-interval', '15m'),
@@ -369,7 +378,7 @@ const CandleChart = ({ symbol, priceDigits, kline, avgPrice, fills, t }) => {
     }
     seriesRef.current = series;
     markersRef.current = createSeriesMarkers(candle, []);
-    avgLineRef.current = null;
+    priceLinesRef.current = [];
     barsRef.current = [];
     liveRef.current = null;
     pagingRef.current = { loading: false, done: false };
@@ -398,7 +407,7 @@ const CandleChart = ({ symbol, priceDigits, kline, avgPrice, fills, t }) => {
       )
         return;
       paging.loading = true;
-      tradeGet('/api/trade/klines', t, {
+      tradeGet(klineUrl, t, {
         symbol,
         interval: period,
         limit: PAGE_SIZE,
@@ -428,7 +437,7 @@ const CandleChart = ({ symbol, priceDigits, kline, avgPrice, fills, t }) => {
 
     setLoading(true);
     setError('');
-    tradeGet('/api/trade/klines', t, {
+    tradeGet(klineUrl, t, {
       symbol,
       interval: period,
       limit: PAGE_SIZE,
@@ -457,7 +466,16 @@ const CandleChart = ({ symbol, priceDigits, kline, avgPrice, fills, t }) => {
     };
     // 叠加线的开关只切显示，不重建图；主题变化在下面单独处理。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [symbol, period, panes.macd, panes.rsi, priceDigits, locale, paint]);
+  }, [
+    symbol,
+    klineUrl,
+    period,
+    panes.macd,
+    panes.rsi,
+    priceDigits,
+    locale,
+    paint,
+  ]);
 
   // 叠加线开关。
   useEffect(() => {
@@ -557,26 +575,30 @@ const CandleChart = ({ symbol, priceDigits, kline, avgPrice, fills, t }) => {
     setTick((value) => value + 1);
   }, [kline, symbol, period, paint]);
 
-  // 持仓均价线。
+  // 持仓的价格线，priceLines 是 [{ price, title, danger }]，danger 的线(强平价)用跌色。
   useEffect(() => {
     const series = seriesRef.current;
     if (!series) return;
-    if (avgLineRef.current) {
-      series.candle.removePriceLine(avgLineRef.current);
-      avgLineRef.current = null;
-    }
-    const price = Number(avgPrice);
-    if (price > 0) {
-      avgLineRef.current = series.candle.createPriceLine({
-        price,
-        color: chartColors().primary,
-        lineWidth: 1,
-        lineStyle: LineStyle.Dashed,
-        axisLabelVisible: true,
-        title: t('持仓均价'),
-      });
-    }
-  }, [avgPrice, version, t]);
+    priceLinesRef.current.forEach((line) =>
+      series.candle.removePriceLine(line),
+    );
+    priceLinesRef.current = [];
+    const colors = chartColors();
+    (priceLines || []).forEach((line) => {
+      const price = Number(line.price);
+      if (!(price > 0)) return;
+      priceLinesRef.current.push(
+        series.candle.createPriceLine({
+          price,
+          color: line.danger ? colors.down : colors.primary,
+          lineWidth: 1,
+          lineStyle: LineStyle.Dashed,
+          axisLabelVisible: true,
+          title: line.title,
+        }),
+      );
+    });
+  }, [priceLines, version]);
 
   // 自己的买卖点，同一根 K 线上同方向的成交合成一个标记。
   useEffect(() => {
@@ -595,8 +617,16 @@ const CandleChart = ({ symbol, priceDigits, kline, avgPrice, fills, t }) => {
       const ms = fill.created_at * 1000;
       if (ms < first) return;
       const bucket = Math.floor(ms / size) * size;
-      const key = `${bucket}|${fill.type}`;
-      const entry = grouped.get(key) || { bucket, side: fill.type, qty: 0 };
+      // 现货成交的 type 就是买卖方向；合约成交带着仓位方向：开多、平空是买入，开空、平多(含强平)是卖出。
+      let side = fill.type;
+      if (fill.side) {
+        side =
+          (fill.side === 'long') === (fill.type === 'futures_open')
+            ? 'buy'
+            : 'sell';
+      }
+      const key = `${bucket}|${side}`;
+      const entry = grouped.get(key) || { bucket, side, qty: 0 };
       entry.qty += Number(fill.qty);
       grouped.set(key, entry);
     });

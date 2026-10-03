@@ -21,6 +21,7 @@ import React, { useEffect, useState } from 'react';
 import { Select, Table, Typography } from '@douyinfe/semi-ui';
 import { showError, timestamp2string } from '../../helpers';
 import {
+  formatFundingRate,
   formatPrice,
   formatQty,
   formatSignedUsdt,
@@ -32,7 +33,8 @@ import {
 const { Text, Title } = Typography;
 const PAGE_SIZE = 10;
 
-// 账单：资金每变动一次一条(转入、转出、每一次成交)，余额是变动后的资金合计(可用 + 冻结)。
+// 账单：资金每变动一次一条(转入、转出、每一次成交、合约的开平仓与保证金调整)，余额是变动后的资金合计(可用 + 冻结)。
+// 合约的资金费与强平记在仓位的保证金上，资金变动为 0，金额看盈亏一栏。
 const LedgerCard = ({ perUnit, refreshKey, t }) => {
   const [type, setType] = useState('');
   const [page, setPage] = useState(1);
@@ -43,7 +45,19 @@ const LedgerCard = ({ perUnit, refreshKey, t }) => {
     quota_out: t('额度转出'),
     buy: t('买入'),
     sell: t('卖出'),
+    futures_open: t('合约开仓'),
+    futures_close: t('合约平仓'),
+    futures_margin: t('调整保证金'),
+    futures_funding: t('资金费'),
+    liquidation: t('强制平仓'),
   };
+  const fillTypes = [
+    'buy',
+    'sell',
+    'futures_open',
+    'futures_close',
+    'liquidation',
+  ];
 
   useEffect(() => {
     let alive = true;
@@ -81,10 +95,13 @@ const LedgerCard = ({ perUnit, refreshKey, t }) => {
       title: t('明细'),
       dataIndex: 'symbol',
       render: (_, entry) => {
-        if (entry.type === 'buy' || entry.type === 'sell') {
+        if (fillTypes.includes(entry.type)) {
           return `${entry.symbol} ${formatQty(entry.qty)} @ ${formatPrice(entry.price)}`;
         }
-        return '--';
+        if (entry.type === 'futures_funding') {
+          return `${entry.symbol} ${t('资金费率')} ${formatFundingRate(entry.price)}`;
+        }
+        return entry.symbol || '--';
       },
     },
     {
@@ -102,6 +119,21 @@ const LedgerCard = ({ perUnit, refreshKey, t }) => {
       dataIndex: 'fee',
       align: 'right',
       render: (value) => (value ? formatUsdt(value, perUnit, 4) : '--'),
+    },
+    {
+      title: t('盈亏'),
+      dataIndex: 'pnl',
+      align: 'right',
+      render: (value, entry) =>
+        ['futures_close', 'futures_funding', 'liquidation'].includes(
+          entry.type,
+        ) ? (
+          <span className={`trade-num ${trendClass(value)}`}>
+            {formatSignedUsdt(value, perUnit, 4)}
+          </span>
+        ) : (
+          '--'
+        ),
     },
     {
       title: t('余额'),

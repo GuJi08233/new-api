@@ -33,7 +33,8 @@ import { formatPrice, formatQty, formatUsdt, tradeGet, tradePost } from './api';
 const { Text } = Typography;
 const PAGE_SIZE = 10;
 
-function orderStatusTag(order, t) {
+// orderStatusTag 是委托状态的标签，现货与合约共用；撤销的委托按原因显示。
+export function orderStatusTag(order, t) {
   const partial =
     Number(order.filled_qty) > 0 &&
     Number(order.filled_qty) < Number(order.qty);
@@ -48,6 +49,7 @@ function orderStatusTag(order, t) {
     depth: t('盘口不足，剩余已撤销'),
     balance: t('资金不足，剩余已撤销'),
     symbol: t('交易对已下架'),
+    position: t('仓位已平，委托撤销'),
   };
   return (
     <Tag color={partial ? 'orange' : 'grey'}>

@@ -27,6 +27,10 @@ For commercial licensing, please contact support@quantumnous.com
   color: var(--semi-color-danger);
 }
 
+.trade-warning {
+  color: var(--semi-color-warning);
+}
+
 .trade-num {
   font-variant-numeric: tabular-nums;
 }
@@ -36,6 +40,11 @@ For commercial licensing, please contact support@quantumnous.com
   border: 1px solid var(--semi-color-border);
   border-radius: 12px;
   padding: 16px;
+}
+
+/* 表格至少占满卡片的宽度，内容更宽时横向滚动。 */
+.trade-card .semi-table {
+  min-width: 100%;
 }
 
 .trade-muted {

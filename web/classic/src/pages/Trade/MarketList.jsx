@@ -18,11 +18,12 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import React from 'react';
-import { Button, Table, Typography } from '@douyinfe/semi-ui';
+import { Button, Table, Tag, Typography } from '@douyinfe/semi-ui';
 import {
   changePercent,
   decimalsOf,
   formatCompact,
+  formatFundingRate,
   formatPrice,
   trendClass,
 } from './api';
@@ -61,23 +62,60 @@ const Sparkline = ({ closes }) => {
   );
 };
 
-// 行情列表：加密货币与美股代币分两组，价格随推送实时变化，点一行进入交易。
-const MarketList = ({ symbols, quotes, onOpen, t }) => {
+// 行情列表：加密货币与美股分两组，价格随推送实时变化，点一行进入交易。futures 为真时列的是永续合约，多出标记价格、
+// 资金费率与最高杠杆，暂停开仓(只能平仓)的合约标出来。
+const MarketList = ({ symbols, quotes, futures = false, onOpen, t }) => {
   const groups = [
     { kind: 'crypto', title: t('加密货币') },
-    { kind: 'stock', title: t('美股代币') },
+    { kind: 'stock', title: futures ? t('美股永续') : t('美股代币') },
+  ];
+
+  const futuresColumns = [
+    {
+      title: t('标记价格'),
+      dataIndex: 'mark',
+      align: 'right',
+      render: (_, item) => (
+        <Text type='secondary' className='trade-num'>
+          {formatPrice(
+            quotes[item.symbol]?.mark,
+            decimalsOf(item.rules?.tick_size),
+          )}
+        </Text>
+      ),
+    },
+    {
+      title: t('资金费率'),
+      dataIndex: 'funding_rate',
+      align: 'right',
+      render: (_, item) => (
+        <Text type='secondary' className='trade-num'>
+          {formatFundingRate(quotes[item.symbol]?.funding_rate)}
+        </Text>
+      ),
+    },
   ];
 
   const columns = [
     {
-      title: t('交易对'),
+      title: futures ? t('合约') : t('交易对'),
       dataIndex: 'ticker',
       render: (ticker, item) => (
-        <div className='flex items-center gap-2'>
+        <div className='flex items-center gap-2 whitespace-nowrap'>
           <Text strong>{ticker}</Text>
           <Text type='tertiary' size='small'>
-            /USDT
+            {futures ? `USDT ${t('永续')}` : '/USDT'}
           </Text>
+          {futures && (
+            <Tag size='small' color='blue'>
+              {item.max_leverage}x
+            </Tag>
+          )}
+          {futures && !item.open && (
+            <Tag size='small' color='grey'>
+              {t('仅可平仓')}
+            </Tag>
+          )}
         </div>
       ),
     },
@@ -95,6 +133,7 @@ const MarketList = ({ symbols, quotes, onOpen, t }) => {
         );
       },
     },
+    ...(futures ? futuresColumns : []),
     {
       title: t('24 小时涨跌'),
       dataIndex: 'change',
@@ -167,7 +206,7 @@ const MarketList = ({ symbols, quotes, onOpen, t }) => {
               columns={columns}
               dataSource={items}
               pagination={false}
-              scroll={{ x: 760 }}
+              scroll={{ x: futures ? 960 : 760 }}
               onRow={(item) => ({
                 onClick: () => onOpen(item.symbol),
                 style: { cursor: 'pointer' },
@@ -177,9 +216,13 @@ const MarketList = ({ symbols, quotes, onOpen, t }) => {
         );
       })}
       <Text type='tertiary' size='small'>
-        {t(
-          '美股代币是 Binance 现货上 24 小时交易的代币化股票，盘口比主流加密货币薄得多，大额市价单可能只成交一部分。',
-        )}
+        {futures
+          ? t(
+              '合约是 Binance 的 U 本位永续合约，只有逐仓：每个仓位单独占用保证金，最多亏掉这份保证金。强平和止盈止损按标记价格触发，资金费按 Binance 公布的费率结算。',
+            )
+          : t(
+              '美股代币是 Binance 现货上 24 小时交易的代币化股票，盘口比主流加密货币薄得多，大额市价单可能只成交一部分。',
+            )}
       </Text>
     </div>
   );

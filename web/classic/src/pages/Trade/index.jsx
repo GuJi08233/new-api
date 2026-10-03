@@ -30,6 +30,7 @@ import {
 } from '@douyinfe/semi-ui';
 import { initVChartSemiTheme } from '@visactor/vchart-semi-theme';
 import AssetsView from './AssetsView';
+import FuturesView from './FuturesView';
 import MarketList from './MarketList';
 import TradeView from './TradeView';
 import {
@@ -43,18 +44,48 @@ import './trade.css';
 
 const { Text, Title } = Typography;
 
-// 模拟盘：按 Binance 实时盘口买卖现货，账户里的钱从主钱包额度转入。/trade 是行情列表，/trade/assets 是资产，
-// /trade/<交易对> 是交易页。
+// 合并接口返回的行情：推送已经带来的字段比接口里的新，保留推送的。
+function mergeQuotes(previous, symbols) {
+  const next = { ...previous };
+  symbols.forEach((item) => {
+    if (item.quote)
+      next[item.symbol] = { ...item.quote, ...previous[item.symbol] };
+  });
+  return next;
+}
+
+// 24 小时行情推送并进行情表。
+function applyTicker(previous, data) {
+  return {
+    ...previous,
+    [data.s]: {
+      ...previous[data.s],
+      price: data.c,
+      open: data.o,
+      high: data.h,
+      low: data.l,
+      volume: data.v,
+      quote_volume: data.q,
+    },
+  };
+}
+
+// 模拟盘：按 Binance 实时盘口买卖现货与永续合约，账户里的钱从主钱包额度转入。/trade 是现货行情，/trade/futures 是
+// 合约行情，/trade/assets 是资产，/trade/<交易对> 与 /trade/futures/<合约> 是交易页。
 const Trade = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { symbol } = useParams();
   const location = useLocation();
   const isAssets = location.pathname === '/trade/assets';
+  const isFutures = location.pathname.startsWith('/trade/futures');
   const [self, setSelf] = useState(null);
   const [market, setMarket] = useState(null);
   const [marketError, setMarketError] = useState('');
   const [quotes, setQuotes] = useState({});
+  const [futures, setFutures] = useState(null);
+  const [futuresError, setFuturesError] = useState('');
+  const [futuresQuotes, setFuturesQuotes] = useState({});
   const [loadError, setLoadError] = useState('');
 
   useEffect(() => {
@@ -77,39 +108,56 @@ const Trade = () => {
       return;
     }
     setMarket(res.data);
-    setQuotes((previous) => {
-      const next = { ...previous };
-      res.data.symbols.forEach((item) => {
-        if (item.quote)
-          next[item.symbol] = { ...item.quote, ...previous[item.symbol] };
-      });
-      return next;
-    });
+    setQuotes((previous) => mergeQuotes(previous, res.data.symbols));
+  }, [t]);
+
+  const loadFutures = useCallback(async () => {
+    const res = await tradeGet('/api/trade/futures/market', t);
+    if (res.error) {
+      setFuturesError(res.error);
+      return;
+    }
+    setFutures(res.data);
+    setFuturesQuotes((previous) => mergeQuotes(previous, res.data.symbols));
   }, [t]);
 
   useEffect(() => {
     loadSelf();
-    loadMarket();
-  }, [loadSelf, loadMarket]);
+    if (isFutures) {
+      loadFutures();
+    } else {
+      loadMarket();
+    }
+  }, [loadSelf, loadMarket, loadFutures, isFutures]);
 
   const symbols = useMemo(
     () => market?.symbols.map((item) => item.symbol) || [],
     [market],
   );
+  const futuresSymbols = useMemo(
+    () => futures?.symbols.map((item) => item.symbol) || [],
+    [futures],
+  );
   useTradeStream(
-    { symbols, enabled: !symbol && !isAssets },
+    { symbols, enabled: !symbol && !isAssets && !isFutures },
+    {
+      ticker: (data) => setQuotes((previous) => applyTicker(previous, data)),
+    },
+  );
+  useTradeStream(
+    { symbols: futuresSymbols, futures: true, enabled: isFutures && !symbol },
     {
       ticker: (data) =>
-        setQuotes((previous) => ({
+        setFuturesQuotes((previous) => applyTicker(previous, data)),
+      mark: (data) =>
+        setFuturesQuotes((previous) => ({
           ...previous,
           [data.s]: {
             ...previous[data.s],
-            price: data.c,
-            open: data.o,
-            high: data.h,
-            low: data.l,
-            volume: data.v,
-            quote_volume: data.q,
+            mark: data.p,
+            index: data.i,
+            funding_rate: data.r,
+            next_funding_time: data.T,
           },
         })),
     },
@@ -124,9 +172,12 @@ const Trade = () => {
     [market],
   );
   const item = symbol
-    ? market?.symbols.find((entry) => entry.symbol === symbol)
+    ? (isFutures ? futures : market)?.symbols.find(
+        (entry) => entry.symbol === symbol,
+      )
     : null;
   const openSymbol = (next) => navigate(`/trade/${next}`);
+  const openFutures = (next) => navigate(`/trade/futures/${next}`);
 
   let content;
   if (loadError) {
@@ -140,7 +191,42 @@ const Trade = () => {
         perUnit={perUnit}
         tickers={tickers}
         onSelfChanged={setSelf}
+        onAccountChanged={loadSelf}
         onOpenSymbol={openSymbol}
+        onOpenFutures={openFutures}
+        t={t}
+      />
+    );
+  } else if (isFutures && !futures) {
+    content = futuresError ? (
+      <Empty title={futuresError} />
+    ) : (
+      <Spin size='large' />
+    );
+  } else if (isFutures && symbol && !item) {
+    content = <Empty title={t('这个合约没有开放交易')} />;
+  } else if (isFutures && item) {
+    content = (
+      <FuturesView
+        key={item.symbol}
+        item={item}
+        initialQuote={futuresQuotes[item.symbol]}
+        self={self}
+        perUnit={perUnit}
+        market={futures}
+        onBack={() => navigate('/trade/futures')}
+        onOpenSymbol={openFutures}
+        onAccountChanged={loadSelf}
+        t={t}
+      />
+    );
+  } else if (isFutures) {
+    content = (
+      <MarketList
+        futures
+        symbols={futures.symbols}
+        quotes={futuresQuotes}
+        onOpen={openFutures}
         t={t}
       />
     );
@@ -187,14 +273,19 @@ const Trade = () => {
             </Title>
             <RadioGroup
               type='button'
-              value={isAssets ? 'assets' : 'market'}
+              value={isAssets ? 'assets' : isFutures ? 'futures' : 'spot'}
               onChange={(e) =>
                 navigate(
-                  e.target.value === 'assets' ? '/trade/assets' : '/trade',
+                  {
+                    spot: '/trade',
+                    futures: '/trade/futures',
+                    assets: '/trade/assets',
+                  }[e.target.value],
                 )
               }
             >
-              <Radio value='market'>{t('行情')}</Radio>
+              <Radio value='spot'>{t('现货')}</Radio>
+              <Radio value='futures'>{t('合约')}</Radio>
               <Radio value='assets'>{t('资产')}</Radio>
             </RadioGroup>
           </div>
@@ -222,6 +313,13 @@ const Trade = () => {
             description={t(
               '模拟盘暂未开放交易，账户里的资金可以在资产页转出。',
             )}
+          />
+        )}
+        {self?.enabled && isFutures && !self.futures?.enabled && (
+          <Banner
+            type='warning'
+            closeIcon={null}
+            description={t('合约暂未开放开仓，已有的仓位可以平仓。')}
           />
         )}
         {content}

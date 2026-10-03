@@ -21,17 +21,16 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button, Tag, Typography } from '@douyinfe/semi-ui';
 import { ArrowLeft } from 'lucide-react';
 import CandleChart from './CandleChart';
+import FuturesOrderPanel from './FuturesOrderPanel';
+import FuturesOrdersCard from './FuturesOrdersCard';
+import FuturesPositions from './FuturesPositions';
 import OrderBook from './OrderBook';
-import OrderPanel from './OrderPanel';
-import OrdersCard from './OrdersCard';
 import {
   changePercent,
   decimalsOf,
   formatCompact,
+  formatFundingRate,
   formatPrice,
-  formatQty,
-  formatSignedUsdt,
-  formatUsdt,
   trendClass,
   tradeGet,
   useTradeStream,
@@ -39,17 +38,18 @@ import {
 
 const { Text, Title } = Typography;
 
-// 后台撮合的限价单成交后页面不会收到通知，定时刷新账户与委托。
-const REFRESH_MS = 10_000;
+// 止盈止损、强平与后台撮合的限价单都在服务端发生，页面不会收到通知，定时刷新仓位、账户与委托。
+const REFRESH_MS = 5_000;
 
-// 一个交易对的交易页：行情头、K 线、下单面板、盘口、当前持仓与委托。
-const TradeView = ({
+// 一个永续合约的交易页：行情头(含标记价格、资金费率与下次结算倒计时)、K 线、下单面板、盘口、仓位与委托。
+const FuturesView = ({
   item,
   initialQuote,
   self,
   perUnit,
-  feeBps,
+  market,
   onBack,
+  onOpenSymbol,
   onAccountChanged,
   t,
 }) => {
@@ -58,11 +58,13 @@ const TradeView = ({
   const [book, setBook] = useState(null);
   const [kline, setKline] = useState(null);
   const [fills, setFills] = useState([]);
+  const [positions, setPositions] = useState([]);
   const [picked, setPicked] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [now, setNow] = useState(() => Date.now());
 
   const connected = useTradeStream(
-    { symbols: [symbol], kline: symbol, book: symbol },
+    { symbols: [symbol], kline: symbol, book: symbol, futures: true },
     {
       ticker: (data) =>
         data.s === symbol &&
@@ -74,6 +76,15 @@ const TradeView = ({
           low: data.l,
           volume: data.v,
           quote_volume: data.q,
+        })),
+      mark: (data) =>
+        data.s === symbol &&
+        setQuote((previous) => ({
+          ...previous,
+          mark: data.p,
+          index: data.i,
+          funding_rate: data.r,
+          next_funding_time: data.T,
         })),
       kline: (data) => data.s === symbol && setKline(data),
       book: (data) => {
@@ -89,22 +100,29 @@ const TradeView = ({
   );
 
   const loadFills = useCallback(async () => {
-    const res = await tradeGet('/api/trade/fills', t, { symbol });
+    const res = await tradeGet('/api/trade/futures/fills', t, { symbol });
     if (res.data) setFills(res.data);
   }, [symbol, t]);
+
+  const loadPositions = useCallback(async () => {
+    const res = await tradeGet('/api/trade/futures/positions', t);
+    if (res.data) setPositions(res.data.positions || []);
+  }, [t]);
 
   const refresh = useCallback(() => {
     setRefreshKey((value) => value + 1);
     loadFills();
+    loadPositions();
     onAccountChanged?.();
-  }, [loadFills, onAccountChanged]);
+  }, [loadFills, loadPositions, onAccountChanged]);
 
   useEffect(() => {
     setQuote(initialQuote || {});
     setBook(null);
     setKline(null);
     loadFills();
-    // 换交易对时才重置，initialQuote 之后的变化由推送接管。
+    loadPositions();
+    // 换合约时才重置，initialQuote 之后的变化由推送接管。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [symbol]);
 
@@ -115,20 +133,52 @@ const TradeView = ({
     return () => clearInterval(timer);
   }, [refresh]);
 
+  // 资金费结算倒计时每秒走一次。
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
   const priceDigits = decimalsOf(item.rules?.tick_size);
-  const qtyDigits = decimalsOf(item.rules?.step_size);
   const change = changePercent(quote.price, quote.open);
-  const holding = self?.valuation?.holdings?.find(
-    (entry) => entry.symbol === symbol,
+  const symbolPositions = useMemo(
+    () => positions.filter((entry) => entry.symbol === symbol),
+    [positions, symbol],
   );
-  const holdingPnl = holding ? holding.value - holding.cost : 0;
   const priceLines = useMemo(
     () =>
-      holding?.avg_price
-        ? [{ price: holding.avg_price, title: t('持仓均价') }]
-        : [],
-    [holding?.avg_price, t],
+      symbolPositions.flatMap((entry) => {
+        const long = entry.side === 'long';
+        return [
+          {
+            price: entry.entry_price,
+            title: long ? t('多仓均价') : t('空仓均价'),
+          },
+          {
+            price: entry.liquidation_price,
+            title: long ? t('多仓强平价') : t('空仓强平价'),
+            danger: true,
+          },
+        ];
+      }),
+    [symbolPositions, t],
   );
+  const marks = useMemo(
+    () => (quote.mark ? { [symbol]: quote.mark } : {}),
+    [quote.mark, symbol],
+  );
+  let countdown = '--';
+  const left = Number(quote.next_funding_time) - now;
+  if (left > 0) {
+    const seconds = Math.floor(left / 1000);
+    countdown = [
+      Math.floor(seconds / 3600),
+      Math.floor((seconds % 3600) / 60),
+      seconds % 60,
+    ]
+      .map((part) => String(part).padStart(2, '0'))
+      .join(':');
+  }
 
   return (
     <div className='flex flex-col gap-4'>
@@ -143,9 +193,11 @@ const TradeView = ({
           />
           <Title heading={4} className='!mb-0'>
             {item.ticker}
-            <Text type='tertiary'>/USDT</Text>
+            <Text type='tertiary'>USDT</Text>
           </Title>
-          {item.kind === 'stock' && <Tag color='violet'>{t('美股代币')}</Tag>}
+          <Tag color='blue'>{t('永续')}</Tag>
+          {item.kind === 'stock' && <Tag color='violet'>{t('美股')}</Tag>}
+          {!item.open && <Tag color='grey'>{t('仅可平仓')}</Tag>}
           <Tag color={connected ? 'green' : 'orange'}>
             {connected ? t('实时') : t('连接中')}
           </Tag>
@@ -165,9 +217,14 @@ const TradeView = ({
           </div>
         </div>
         {[
+          [t('标记价格'), formatPrice(quote.mark, priceDigits)],
+          [t('指数价格'), formatPrice(quote.index, priceDigits)],
+          [
+            t('资金费率 / 倒计时'),
+            `${formatFundingRate(quote.funding_rate)} / ${countdown}`,
+          ],
           [t('24 小时最高'), formatPrice(quote.high, priceDigits)],
           [t('24 小时最低'), formatPrice(quote.low, priceDigits)],
-          [t('24 小时成交量'), `${formatCompact(quote.volume)} ${item.ticker}`],
           [t('24 小时成交额'), `${formatCompact(quote.quote_volume)} USDT`],
         ].map(([label, value]) => (
           <div key={label}>
@@ -182,48 +239,28 @@ const TradeView = ({
         <div className='flex min-w-0 flex-col gap-4'>
           <CandleChart
             symbol={symbol}
+            klineUrl='/api/trade/futures/klines'
             priceDigits={priceDigits}
             kline={kline}
             priceLines={priceLines}
             fills={fills}
             t={t}
           />
-          <div className='trade-card grid grid-cols-2 gap-3 sm:grid-cols-4'>
-            {[
-              [
-                t('持有数量'),
-                holding
-                  ? `${formatQty(holding.qty, qtyDigits)} ${item.ticker}`
-                  : '--',
-              ],
-              [
-                t('持仓均价'),
-                holding ? formatPrice(holding.avg_price, priceDigits) : '--',
-              ],
-              [
-                t('持仓市值'),
-                holding ? `${formatUsdt(holding.value, perUnit)} USDT` : '--',
-              ],
-              [
-                t('浮动盈亏'),
-                holding ? (
-                  <span
-                    className={trendClass(holdingPnl)}
-                  >{`${formatSignedUsdt(holdingPnl, perUnit)} USDT`}</span>
-                ) : (
-                  '--'
-                ),
-              ],
-            ].map(([label, value]) => (
-              <div key={label}>
-                <Text type='tertiary' size='small'>
-                  {label}
-                </Text>
-                <div className='trade-num'>{value}</div>
-              </div>
-            ))}
+          <div className='trade-card'>
+            <Title heading={6} className='!mb-2'>
+              {t('仓位')}
+            </Title>
+            <FuturesPositions
+              positions={positions}
+              marks={marks}
+              cash={self?.account?.cash}
+              perUnit={perUnit}
+              onChanged={refresh}
+              onOpenSymbol={(next) => next !== symbol && onOpenSymbol(next)}
+              t={t}
+            />
           </div>
-          <OrdersCard
+          <FuturesOrdersCard
             symbol={symbol}
             priceDigits={priceDigits}
             perUnit={perUnit}
@@ -233,15 +270,19 @@ const TradeView = ({
           />
         </div>
         <div className='flex flex-col gap-4'>
-          <OrderPanel
+          <FuturesOrderPanel
             symbol={symbol}
             ticker={item.ticker}
             rules={item.rules}
             quote={quote}
             cash={self?.account?.cash}
-            position={holding}
+            positions={symbolPositions}
             perUnit={perUnit}
-            feeBps={feeBps}
+            takerFeeBps={market.taker_fee_bps}
+            makerFeeBps={market.maker_fee_bps}
+            maxLeverage={item.max_leverage}
+            mmrBps={item.mmr_bps}
+            canOpen={item.open}
             pickedPrice={picked}
             onPlaced={refresh}
             t={t}
@@ -249,7 +290,7 @@ const TradeView = ({
           <OrderBook
             book={book}
             priceDigits={priceDigits}
-            qtyDigits={qtyDigits}
+            qtyDigits={decimalsOf(item.rules?.step_size)}
             lastPrice={quote.price}
             connected={connected}
             onPick={setPicked}
@@ -261,4 +302,4 @@ const TradeView = ({
   );
 };
 
-export default TradeView;
+export default FuturesView;

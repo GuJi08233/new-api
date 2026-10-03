@@ -462,6 +462,32 @@ function App() {
             }
           />
           <Route
+            path='/trade/futures'
+            element={
+              <PrivateRoute>
+                <Suspense
+                  fallback={<Loading></Loading>}
+                  key={location.pathname}
+                >
+                  <Trade />
+                </Suspense>
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path='/trade/futures/:symbol'
+            element={
+              <PrivateRoute>
+                <Suspense
+                  fallback={<Loading></Loading>}
+                  key={location.pathname}
+                >
+                  <Trade />
+                </Suspense>
+              </PrivateRoute>
+            }
+          />
+          <Route
             path='/trade/:symbol'
             element={
               <PrivateRoute>

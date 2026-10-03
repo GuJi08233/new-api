@@ -17,10 +17,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button, Table, Typography } from '@douyinfe/semi-ui';
 import { VChart } from '@visactor/react-vchart';
 import { ArrowDownToLine, ArrowUpFromLine } from 'lucide-react';
+import FuturesPositions from './FuturesPositions';
 import LedgerCard from './LedgerCard';
 import PnlCalendar from './PnlCalendar';
 import TransferModal from './TransferModal';
@@ -36,19 +37,31 @@ import {
 
 const { Text, Title } = Typography;
 
-// 资产页：总资产与盈亏、转入转出、持仓、资产分布、30 天总资产曲线、盈亏日历与账单。
+// 资产页：总资产与盈亏、转入转出、现货持仓、合约仓位、资产分布、30 天总资产曲线、盈亏日历与账单。
 const AssetsView = ({
   self,
   perUnit,
   tickers,
   onSelfChanged,
+  onAccountChanged,
   onOpenSymbol,
+  onOpenFutures,
   t,
 }) => {
   const [transfer, setTransfer] = useState(null);
   const [history, setHistory] = useState([]);
+  const [futuresPositions, setFuturesPositions] = useState([]);
   const [refreshKey, setRefreshKey] = useState(0);
   const valuation = self?.valuation;
+
+  const loadFutures = useCallback(async () => {
+    const res = await tradeGet('/api/trade/futures/positions', t);
+    if (res.data) setFuturesPositions(res.data.positions || []);
+  }, [t]);
+
+  useEffect(() => {
+    loadFutures();
+  }, [loadFutures, refreshKey]);
 
   useEffect(() => {
     let alive = true;
@@ -112,6 +125,7 @@ const AssetsView = ({
       },
       { type: t('加密货币'), value: toUsdt(valuation?.crypto_value, perUnit) },
       { type: t('美股代币'), value: toUsdt(valuation?.stock_value, perUnit) },
+      { type: t('合约'), value: toUsdt(valuation?.futures_value, perUnit) },
     ].filter((item) => item.value > 0);
     return {
       type: 'pie',
@@ -153,7 +167,12 @@ const AssetsView = ({
     ],
     [t('可用资金'), `${formatUsdt(valuation?.cash, perUnit)} USDT`, ''],
     [t('挂单冻结'), `${formatUsdt(valuation?.frozen, perUnit)} USDT`, ''],
-    [t('持仓市值'), `${formatUsdt(positionValue, perUnit)} USDT`, ''],
+    [t('现货市值'), `${formatUsdt(positionValue, perUnit)} USDT`, ''],
+    [
+      t('合约价值'),
+      `${formatUsdt(valuation?.futures_value, perUnit)} USDT`,
+      '',
+    ],
   ];
 
   const holdingColumns = [
@@ -214,7 +233,7 @@ const AssetsView = ({
   return (
     <div className='flex flex-col gap-4'>
       <div className='trade-card flex flex-col gap-4'>
-        <div className='grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6'>
+        <div className='grid grid-cols-2 gap-4 md:grid-cols-4 xl:grid-cols-7'>
           {summary.map(([label, value, className]) => (
             <div key={label}>
               <Text type='tertiary' size='small'>
@@ -250,7 +269,7 @@ const AssetsView = ({
       </div>
       <div className='trade-card'>
         <Title heading={6} className='!mb-2'>
-          {t('持仓')}
+          {t('现货持仓')}
         </Title>
         <Table
           size='small'
@@ -262,6 +281,25 @@ const AssetsView = ({
           empty={<Text type='tertiary'>{t('还没有持仓')}</Text>}
         />
       </div>
+      {(futuresPositions.length > 0 || self.futures?.enabled) && (
+        <div className='trade-card'>
+          <Title heading={6} className='!mb-2'>
+            {t('合约仓位')}
+          </Title>
+          <FuturesPositions
+            positions={futuresPositions}
+            cash={valuation?.cash}
+            perUnit={perUnit}
+            onChanged={() => {
+              loadFutures();
+              onAccountChanged?.();
+              setRefreshKey((value) => value + 1);
+            }}
+            onOpenSymbol={onOpenFutures}
+            t={t}
+          />
+        </div>
+      )}
       <div className='grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]'>
         <div className='trade-card'>
           <Title heading={6} className='!mb-2'>

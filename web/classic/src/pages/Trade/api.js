@@ -53,16 +53,17 @@ export function tradePost(url, body, t) {
   return tradeResult(API.post(url, body, { skipErrorHandler: true }), t);
 }
 
-// useTradeStream 订阅行情推送(SSE)：symbols 的 24 小时行情，kline 那个交易对的 1 分钟 K 线，book 那个交易对的盘口。
-// 断线后按 2、4、8…最多 30 秒重连。回调用 ref 保存，换回调不会重连。
+// useTradeStream 订阅行情推送(SSE)：symbols 的 24 小时行情，kline 那个交易对的 1 分钟 K 线，book 那个交易对的盘口；
+// futures 为真时订阅合约，另有 symbols 的标记价格与资金费率(mark)。断线后按 2、4、8…最多 30 秒重连。回调用 ref 保存，
+// 换回调不会重连。
 export function useTradeStream(
-  { symbols, kline, book, enabled = true },
+  { symbols, kline, book, futures = false, enabled = true },
   handlers,
 ) {
   const handlersRef = useRef(handlers);
   handlersRef.current = handlers;
   const [connected, setConnected] = useState(false);
-  const key = `${(symbols || []).join(',')}|${kline || ''}|${book || ''}`;
+  const key = `${futures ? 'futures' : 'spot'}|${(symbols || []).join(',')}|${kline || ''}|${book || ''}`;
 
   useEffect(() => {
     if (!enabled || !symbols?.length) return undefined;
@@ -86,11 +87,12 @@ export function useTradeStream(
       const params = new URLSearchParams({ symbols: symbols.join(',') });
       if (kline) params.set('kline', kline);
       if (book) params.set('book', book);
+      if (futures) params.set('market', 'futures');
       source = new SSE(`/api/trade/stream?${params.toString()}`, {
         headers: { 'New-Api-User': getUserIdFromLocalStorage() },
         method: 'GET',
       });
-      ['status', 'ticker', 'kline', 'book'].forEach((name) =>
+      ['status', 'ticker', 'kline', 'book', 'mark'].forEach((name) =>
         source.addEventListener(name, dispatch(name)),
       );
       source.addEventListener('open', () => {
@@ -116,7 +118,7 @@ export function useTradeStream(
       clearTimeout(timer);
       source?.close();
     };
-    // key 涵盖了 symbols、kline 与 book。
+    // key 涵盖了 futures、symbols、kline 与 book。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, enabled]);
 
@@ -199,6 +201,32 @@ export function changePercent(price, open) {
   const o = Number(open);
   if (!Number.isFinite(p) || !Number.isFinite(o) || o <= 0) return null;
   return ((p - o) / o) * 100;
+}
+
+// formatFundingRate 把资金费率(小数)显示成百分比，保留 4 位小数，与 Binance 一致。
+export function formatFundingRate(rate) {
+  const number = Number(rate);
+  if (rate === undefined || rate === '' || !Number.isFinite(number))
+    return '--';
+  return `${(number * 100).toFixed(4)}%`;
+}
+
+// estimateLiquidationPrice 是逐仓合约仓位的预估强平价：保证金 + 浮动盈亏 = 维持保证金时的标记价格，金额都是 USDT。
+// 与后端的算法相同：多仓 (开仓价值 - 保证金) / (数量 × (1 - 维持保证金率))，空仓 (开仓价值 + 保证金) /
+// (数量 × (1 + 维持保证金率))。多仓的保证金不少于开仓价值时不会强平，返回 0。
+export function estimateLiquidationPrice(
+  side,
+  entryValue,
+  qty,
+  margin,
+  mmrBps,
+) {
+  if (!(qty > 0)) return 0;
+  const rate = (mmrBps || 0) / 10000;
+  if (side === 'long') {
+    return Math.max((entryValue - margin) / (qty * (1 - rate)), 0);
+  }
+  return (entryValue + margin) / (qty * (1 + rate));
 }
 
 // trendClass 是涨跌的文字颜色：涨绿跌红，与 K 线一致。

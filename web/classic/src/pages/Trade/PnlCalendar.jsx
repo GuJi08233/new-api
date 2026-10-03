@@ -25,8 +25,8 @@ import { formatSignedUsdt, toUsdt, tradeGet, trendClass } from './api';
 
 const { Text, Title } = Typography;
 
-// 月度盈亏日历：每天的盈亏是当天结束时的总资产减去前一天，再扣掉当天的净转入；点开某一天看加密货币与美股代币各自的部分。
-// 今天按此刻的估值计算。
+// 月度盈亏日历：每天的盈亏是当天结束时的总资产减去前一天，再扣掉当天的净转入；点开某一天看加密货币、美股代币与合约
+// 各自的部分。今天按此刻的估值计算。
 const PnlCalendar = ({ perUnit, refreshKey, t }) => {
   const [month, setMonth] = useState(() => dayjs().format('YYYY-MM'));
   const [days, setDays] = useState([]);
@@ -145,6 +145,12 @@ const PnlCalendar = ({ perUnit, refreshKey, t }) => {
             {t('美股代币')}{' '}
             <span className={`trade-num ${trendClass(detail.stock_pnl)}`}>
               {formatSignedUsdt(detail.stock_pnl, perUnit)}
+            </span>
+          </Text>
+          <Text>
+            {t('合约')}{' '}
+            <span className={`trade-num ${trendClass(detail.futures_pnl)}`}>
+              {formatSignedUsdt(detail.futures_pnl, perUnit)}
             </span>
           </Text>
           <Text>
