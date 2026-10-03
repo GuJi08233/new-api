@@ -375,4 +375,14 @@ const (
 	MsgTradeWithdrawExceeded     = "trade.withdraw_exceeded"
 	MsgTradeProfitOutLimit       = "trade.profit_out_limit"
 	MsgTradeTransferFailed       = "trade.transfer_failed"
+
+	MsgTradeFuturesDisabled         = "trade.futures_disabled"
+	MsgTradeLeverageInvalid         = "trade.leverage_invalid"
+	MsgTradeTpSlInvalid             = "trade.tpsl_invalid"
+	MsgTradeFuturesNoPosition       = "trade.futures_no_position"
+	MsgTradeFuturesLeverageMismatch = "trade.futures_leverage_mismatch"
+	MsgTradeFuturesMarginTooLow     = "trade.futures_margin_too_low"
+	MsgTradeFuturesPriceInvalid     = "trade.futures_price_invalid"
+	MsgTradeFuturesQtyTooLarge      = "trade.futures_qty_too_large"
+	MsgTradeFuturesPositionLimit    = "trade.futures_position_limit"
 )

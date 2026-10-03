@@ -14,20 +14,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// tradeTodayValuation 返回用户此刻的总资产与累计净转入，曲线和日历的最后一个点用它。
-func tradeTodayValuation(userId int) (model.TradeAccount, service.TradeValuation, error) {
-	account, err := model.GetTradeAccount(userId)
-	if err != nil {
-		return account, service.TradeValuation{}, err
-	}
-	positions, err := model.GetTradePositions(userId)
-	if err != nil {
-		return account, service.TradeValuation{}, err
-	}
-	valuation, err := service.ValueTradeAccount(account, positions)
-	return account, valuation, err
-}
-
 // GetTradeAssetHistory 返回最近 days 天(7 到 90，默认 30)每天结束时的总资产与累计净转入，最后加上此刻的一点。
 func GetTradeAssetHistory(c *gin.Context) {
 	days, _ := strconv.Atoi(c.DefaultQuery("days", "30"))
@@ -39,7 +25,7 @@ func GetTradeAssetHistory(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	account, valuation, err := tradeTodayValuation(userId)
+	account, valuation, err := service.ValueTradeUser(userId)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -52,8 +38,8 @@ func GetTradeAssetHistory(c *gin.Context) {
 	common.ApiSuccess(c, points)
 }
 
-// GetTradeAssetDaily 返回 month(YYYY-MM)里每天的盈亏，以及加密货币、美股代币各自的部分。某一天的盈亏是总资产的变化减去
-// 当天的净转入；分类盈亏是这一类的市值变化加上当天的买卖资金流。本月包含今天时，今天按此刻的估值算。
+// GetTradeAssetDaily 返回 month(YYYY-MM)里每天的盈亏，以及加密货币、美股代币现货与合约各自的部分。某一天的盈亏是总资产的
+// 变化减去当天的净转入；分类盈亏是这一类的市值变化加上当天的资金流。本月包含今天时，今天按此刻的估值算。
 func GetTradeAssetDaily(c *gin.Context) {
 	start, err := time.ParseInLocation("2006-01", c.Query("month"), time.Local)
 	if err != nil {
@@ -78,7 +64,8 @@ func GetTradeAssetDaily(c *gin.Context) {
 	now := time.Now()
 	today := tradeDay(now)
 	if !now.Before(start) && now.Before(end) && (len(snapshots) == 0 || snapshots[len(snapshots)-1].Day < today) {
-		live, err := tradeLiveSnapshot(userId, now)
+		dayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
+		live, err := service.LiveTradeSnapshot(userId, today, dayStart.Unix(), now.Unix())
 		if err != nil {
 			common.ApiError(c, err)
 			return
@@ -89,46 +76,17 @@ func GetTradeAssetDaily(c *gin.Context) {
 	for i := range snapshots {
 		snapshot := &snapshots[i]
 		days = append(days, gin.H{
-			"day":        snapshot.Day,
-			"equity":     snapshot.Equity,
-			"pnl":        snapshot.Equity - snapshot.NetIn - (previous.Equity - previous.NetIn),
-			"crypto_pnl": snapshot.CryptoValue - previous.CryptoValue + snapshot.CryptoFlow,
-			"stock_pnl":  snapshot.StockValue - previous.StockValue + snapshot.StockFlow,
-			"live":       snapshot.Day == today,
+			"day":         snapshot.Day,
+			"equity":      snapshot.Equity,
+			"pnl":         snapshot.Equity - snapshot.NetIn - (previous.Equity - previous.NetIn),
+			"crypto_pnl":  snapshot.CryptoValue - previous.CryptoValue + snapshot.CryptoFlow,
+			"stock_pnl":   snapshot.StockValue - previous.StockValue + snapshot.StockFlow,
+			"futures_pnl": snapshot.FuturesValue - previous.FuturesValue + snapshot.FuturesFlow,
+			"live":        snapshot.Day == today,
 		})
 		previous = snapshot
 	}
 	common.ApiSuccess(c, days)
-}
-
-// tradeLiveSnapshot 按此刻的估值和今天的买卖资金流算出今天的"快照"，不落库。
-func tradeLiveSnapshot(userId int, now time.Time) (model.TradeSnapshot, error) {
-	account, valuation, err := tradeTodayValuation(userId)
-	if err != nil {
-		return model.TradeSnapshot{}, err
-	}
-	dayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
-	flows, err := model.ListTradeSymbolFlows([]int{userId}, dayStart.Unix(), now.Unix()+1)
-	if err != nil {
-		return model.TradeSnapshot{}, err
-	}
-	snapshot := model.TradeSnapshot{
-		UserId:      userId,
-		Day:         tradeDay(now),
-		Equity:      valuation.Equity,
-		Cash:        valuation.Cash + valuation.Frozen,
-		CryptoValue: valuation.CryptoValue,
-		StockValue:  valuation.StockValue,
-		NetIn:       account.TotalIn - account.TotalOut,
-	}
-	for _, flow := range flows {
-		if info, _ := operation_setting.TradeSymbolOf(flow.Symbol); info.Kind == operation_setting.TradeKindStock {
-			snapshot.StockFlow += flow.Amount
-		} else {
-			snapshot.CryptoFlow += flow.Amount
-		}
-	}
-	return snapshot, nil
 }
 
 // GetTradeAdminStatus 给管理员看模拟盘的行情连接、全站汇总与配置(含默认值和各项的取值范围)。配置通过通用的配置接口保存。
@@ -145,6 +103,7 @@ func GetTradeAdminStatus(c *gin.Context) {
 	}
 	common.ApiSuccess(c, gin.H{
 		"market":         service.GetTradeMarket().Status(),
+		"futures_market": service.GetFuturesMarket().Status(),
 		"stats":          stats,
 		"quota_per_unit": perUsd,
 		"setting":        operation_setting.GetTradeSetting(),
@@ -157,18 +116,22 @@ func GetTradeAdminStatus(c *gin.Context) {
 			"max_profit_out":   operation_setting.TradeMaxProfitOut,
 			"min_stale_ms":     operation_setting.TradeMinStaleMs,
 			"max_stale_ms":     operation_setting.TradeMaxStaleMs,
+			"max_leverage":     operation_setting.TradeMaxLeverage,
 		},
 	})
 }
 
 // tradeSnapshotHandler 每天给模拟盘账户拍一次资产快照：0 点过后第一次运行时拍前一天的，拍完记下那一天，当天不再运行。
-// 行情没连上时不拍，持仓没有价格只能按成本估值，那天的盈亏会失真；等连上再拍。
+// 行情没连上时不拍(合约有连接时也要连上)，持仓没有价格只能按成本估值，那天的盈亏会失真；等连上再拍。
 type tradeSnapshotHandler struct{}
 
 func (tradeSnapshotHandler) Type() string { return model.SystemTaskTypeTradeSnapshot }
 
 func (tradeSnapshotHandler) Enabled() bool {
 	if !operation_setting.GetTradeSetting().Enabled || !service.GetTradeMarket().Status().Connected {
+		return false
+	}
+	if futures := service.GetFuturesMarket().Status(); futures.Running && (!futures.Connected || !futures.DataConnected) {
 		return false
 	}
 	done, err := model.HasTradeSnapshotDay(tradeDay(time.Now().AddDate(0, 0, -1)))

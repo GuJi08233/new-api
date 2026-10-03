@@ -17,6 +17,7 @@ const (
 	tradeDirtyTicker tradeDirty = 1 << iota
 	tradeDirtyKline
 	tradeDirtyBook
+	tradeDirtyMark
 )
 
 const (
@@ -32,7 +33,8 @@ type TradeEvent struct {
 	Data []byte
 }
 
-// TradeSubscriber 是一个页面的行情订阅：一组交易对的 24 小时行情，以及其中一个交易对的 1 分钟 K 线与盘口。
+// TradeSubscriber 是一个页面的行情订阅：一组交易对的 24 小时行情(合约另有标记价格与资金费率)，以及其中一个交易对的
+// 1 分钟 K 线与盘口。
 // 页面处理太慢、队列满了时丢掉这一轮的推送，下一轮仍推最新的。
 type TradeSubscriber struct {
 	Events      chan TradeEvent
@@ -68,6 +70,14 @@ type tradeBookEvent struct {
 	Asks   [][2]string `json:"a"`
 }
 
+type tradeMarkEvent struct {
+	Symbol          string `json:"s"`
+	Mark            string `json:"p"`
+	Index           string `json:"i"`
+	FundingRate     string `json:"r"`
+	NextFundingTime int64  `json:"T"`
+}
+
 // Subscribe 登记一个页面的订阅，并立刻把当前的行情、K 线和盘口放进队列，页面不必等下一次变化。
 func (m *TradeMarket) Subscribe(symbols []string, klineSymbol string, bookSymbol string) *TradeSubscriber {
 	sub := &TradeSubscriber{
@@ -82,7 +92,7 @@ func (m *TradeMarket) Subscribe(symbols []string, klineSymbol string, bookSymbol
 	m.mu.RLock()
 	events := []TradeEvent{m.statusEventLocked()}
 	for symbol := range sub.symbols {
-		events = append(events, m.symbolEventsLocked(symbol, tradeDirtyTicker|tradeDirtyKline|tradeDirtyBook, sub)...)
+		events = append(events, m.symbolEventsLocked(symbol, tradeDirtyTicker|tradeDirtyKline|tradeDirtyBook|tradeDirtyMark, sub)...)
 	}
 	m.mu.RUnlock()
 	for _, event := range events {
@@ -115,7 +125,7 @@ func (m *TradeMarket) markAllDirty() {
 	m.feedMu.Lock()
 	m.dirty[""] = tradeDirtyTicker
 	for _, symbol := range symbols {
-		m.dirty[symbol] |= tradeDirtyTicker | tradeDirtyBook
+		m.dirty[symbol] |= tradeDirtyTicker | tradeDirtyBook | tradeDirtyMark
 	}
 	m.feedMu.Unlock()
 }
@@ -164,7 +174,7 @@ func (m *TradeMarket) broadcast() {
 }
 
 func (m *TradeMarket) statusEventLocked() TradeEvent {
-	data, _ := common.Marshal(map[string]bool{"connected": m.connected})
+	data, _ := common.Marshal(map[string]bool{"connected": m.connected && m.dataConnected})
 	return TradeEvent{Name: "status", Data: data}
 }
 
@@ -189,6 +199,12 @@ func (m *TradeMarket) symbolEventsLocked(symbol string, what tradeDirty, sub *Tr
 		add("kline", tradeKlineEvent{
 			Symbol: symbol, Open: kline.OpenTime, O: kline.Open.String(), H: kline.High.String(), L: kline.Low.String(),
 			C: kline.Close.String(), V: kline.Volume.String(),
+		})
+	}
+	if mark, ok := m.marks[symbol]; ok && what&tradeDirtyMark != 0 {
+		add("mark", tradeMarkEvent{
+			Symbol: symbol, Mark: mark.Mark.String(), Index: mark.Index.String(), FundingRate: mark.FundingRate.String(),
+			NextFundingTime: mark.NextFundingTime,
 		})
 	}
 	if what&tradeDirtyBook != 0 && symbol == sub.bookSymbol {

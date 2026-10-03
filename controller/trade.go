@@ -101,6 +101,7 @@ func tradeLedgerView(entry model.TradeLedger) gin.H {
 		"price":      entry.Price,
 		"amount":     entry.Amount,
 		"fee":        entry.Fee,
+		"pnl":        entry.Pnl,
 		"balance":    entry.Balance,
 		"created_at": entry.CreatedAt,
 	}
@@ -114,15 +115,7 @@ func tradeSelfView(userId int) (gin.H, error) {
 	if err != nil {
 		return nil, err
 	}
-	account, err := model.GetTradeAccount(userId)
-	if err != nil {
-		return nil, err
-	}
-	positions, err := model.GetTradePositions(userId)
-	if err != nil {
-		return nil, err
-	}
-	valuation, err := service.ValueTradeAccount(account, positions)
+	account, valuation, err := service.ValueTradeUser(userId)
 	if err != nil {
 		return nil, err
 	}
@@ -158,10 +151,17 @@ func tradeSelfView(userId int) (gin.H, error) {
 		"max_position_usd":     setting.MaxPositionUsd,
 		"daily_profit_out_usd": setting.DailyProfitOutUsd,
 		"max_open_orders":      model.TradeMaxOpenOrders,
-		"account":              account,
-		"valuation":            valuation,
-		"total_pnl":            valuation.Equity - netIn,
-		"today_pnl":            todayPnl,
+		"futures": gin.H{
+			"enabled":          setting.Enabled && setting.FuturesEnabled,
+			"taker_fee_bps":    setting.FuturesTakerFeeBps,
+			"maker_fee_bps":    setting.FuturesMakerFeeBps,
+			"max_leverage":     setting.FuturesMaxLeverage,
+			"max_position_usd": setting.FuturesMaxPositionUsd,
+		},
+		"account":   account,
+		"valuation": valuation,
+		"total_pnl": valuation.Equity - netIn,
+		"today_pnl": todayPnl,
 		"withdrawable": gin.H{
 			"quota":           withdrawable,
 			"profit_out_used": profitUsed,
@@ -276,21 +276,30 @@ func GetTradeKlines(c *gin.Context) {
 // tradeStreamKeepalive 是行情推送的心跳间隔，没有行情变化时也定时写一行注释，免得代理把连接当成空闲断开。
 const tradeStreamKeepalive = 15 * time.Second
 
-// StreamTradeMarket 以 SSE 推送行情：symbols 的 24 小时行情、kline 那个交易对的 1 分钟 K 线、book 那个交易对的盘口。
-// 只推开放交易的交易对；模拟盘关闭后断开。
+// StreamTradeMarket 以 SSE 推送行情：symbols 的 24 小时行情(合约另有标记价格与资金费率)、kline 那个交易对的 1 分钟 K 线、
+// book 那个交易对的盘口。market=futures 时推合约，否则推现货。现货只推开放交易的交易对，模拟盘关闭后断开；合约推所有支持的
+// 合约，合约关掉以后还有仓位的照样有行情(行情中心只连着用得到的合约)。
 func StreamTradeMarket(c *gin.Context) {
 	setting := operation_setting.GetTradeSetting()
-	if !setting.Enabled {
+	futures := c.Query("market") == "futures"
+	if !futures && !setting.Enabled {
 		common.ApiErrorI18n(c, i18n.MsgTradeDisabled)
 		return
 	}
 	var symbols []string
 	for _, symbol := range strings.Split(c.Query("symbols"), ",") {
-		if setting.SymbolEnabled(symbol) && len(symbols) < len(operation_setting.TradeSymbols) {
+		allowed := setting.SymbolEnabled(symbol)
+		if futures {
+			_, allowed = operation_setting.TradeFuturesSymbolOf(symbol)
+		}
+		if allowed && len(symbols) < len(operation_setting.TradeSymbols) {
 			symbols = append(symbols, symbol)
 		}
 	}
 	market := service.GetTradeMarket()
+	if futures {
+		market = service.GetFuturesMarket()
+	}
 	sub := market.Subscribe(symbols, c.Query("kline"), c.Query("book"))
 	defer market.Unsubscribe(sub)
 	header := c.Writer.Header()
@@ -311,7 +320,7 @@ func StreamTradeMarket(c *gin.Context) {
 				return
 			}
 		case <-keepalive.C:
-			if !operation_setting.GetTradeSetting().Enabled {
+			if !futures && !operation_setting.GetTradeSetting().Enabled {
 				return
 			}
 			if _, err := c.Writer.WriteString(": keepalive\n\n"); err != nil {

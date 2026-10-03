@@ -174,6 +174,18 @@ func SetApiRouter(router *gin.Engine) {
 			tradeRoute.GET("/market", middleware.TradeEnabled(), controller.GetTradeMarket)
 			tradeRoute.GET("/klines", middleware.TradeEnabled(), controller.GetTradeKlines)
 			tradeRoute.POST("/orders", middleware.TradeEnabled(), middleware.TradeOrderRateLimit(), controller.PlaceTradeOrder)
+			// 合约：开仓要合约开放(由下单接口判断)；平仓、撤单、调整保证金与止盈止损在合约关闭后照样可以，用户随时能把仓位平掉。
+			tradeRoute.GET("/futures/market", controller.GetTradeFuturesMarket)
+			tradeRoute.GET("/futures/klines", controller.GetTradeFuturesKlines)
+			tradeRoute.GET("/futures/positions", controller.GetTradeFuturesPositions)
+			tradeRoute.GET("/futures/orders", controller.GetTradeFuturesOrders)
+			tradeRoute.GET("/futures/orders/:id/fills", controller.GetTradeFuturesOrderFills)
+			tradeRoute.GET("/futures/fills", controller.GetTradeFuturesFills)
+			tradeRoute.GET("/futures/history", controller.GetTradeFuturesHistory)
+			tradeRoute.POST("/futures/orders", middleware.TradeOrderRateLimit(), controller.PlaceTradeFuturesOrder)
+			tradeRoute.POST("/futures/orders/:id/cancel", middleware.TradeOrderRateLimit(), controller.CancelTradeFuturesOrder)
+			tradeRoute.POST("/futures/positions/margin", middleware.TradeOrderRateLimit(), controller.AdjustTradeFuturesMargin)
+			tradeRoute.POST("/futures/positions/tpsl", middleware.TradeOrderRateLimit(), controller.SetTradeFuturesTpSl)
 		}
 		tradeAdminRoute := apiRouter.Group("/trade/admin")
 		tradeAdminRoute.Use(middleware.RootAuth())
