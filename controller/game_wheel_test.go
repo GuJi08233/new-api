@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"errors"
 	"net/http"
 	"testing"
 
@@ -8,6 +9,7 @@ import (
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 // stopWheelAt 让接下来的旋转都停在给定的格子上。
@@ -108,4 +110,60 @@ func TestSpinWheelPaysFullFreePrizeAfterSkillRewardLimit(t *testing.T) {
 	assert.Equal(t, 53, first.balance())
 	assert.Zero(t, second.balance())
 	assert.Equal(t, 50, other.balance())
+}
+
+// 结算已提交后统计查询不可用，仍应返回完整的中奖结果和累计统计，不能让玩家把成功的旋转当作失败重试。
+func TestSpinWheelReturnsCommittedResultWhenStatsUnavailable(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		free        bool
+		wantBalance int
+		wantNet     int
+	}{
+		{name: "free", free: true, wantBalance: 24, wantNet: 4},
+		{name: "paid", wantBalance: 22, wantNet: 2},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			env := newGameTestEnv(t, gameSetting(func(s *operation_setting.GameSetting) {
+				s.Wheel = operation_setting.WheelRule{Enabled: true, FreeSpins: 1, SpinCost: 2}
+			}))
+			player := env.player(20, gameTestIpA)
+			stopWheelAt(t, 3)
+			player.ok(http.MethodPost, "/api/game/wheel/spin", map[string]any{"free": false})
+			stopWheelAt(t, 2)
+
+			sqlDB, err := env.db.DB()
+			require.NoError(t, err)
+			statsUnavailable := true
+			statsError := errors.New("game statistics unavailable after settlement")
+			const callback = "test:wheel_stats_unavailable"
+			require.NoError(t, env.db.Callback().Row().Before("gorm:row").Register(callback, func(db *gorm.DB) {
+				if statsUnavailable && db.Statement.Table == "game_reward_days" && db.Statement.ConnPool == sqlDB {
+					db.AddError(statsError)
+				}
+			}))
+			t.Cleanup(func() { require.NoError(t, env.db.Callback().Row().Remove(callback)) })
+			_, _, err = model.GetGameDayStats(player.user.Id, gameWheel, gameCenterDay())
+			require.ErrorIs(t, err, statsError)
+
+			result := player.ok(http.MethodPost, "/api/game/wheel/spin", map[string]any{"free": test.free})
+			assert.Equal(t, test.free, result["free"])
+			assert.EqualValues(t, 2, result["segment"])
+			assert.EqualValues(t, 3, result["multiplier"])
+			assert.EqualValues(t, 6, result["win"])
+			assert.EqualValues(t, test.wantBalance, result["balance"])
+			assert.EqualValues(t, test.wantNet, result["net_today"])
+			assert.EqualValues(t, 2, result["plays_today"])
+			if test.free {
+				assert.EqualValues(t, 1, result["free_used_today"])
+				assert.EqualValues(t, 1, result["ip_free_used_today"])
+			}
+			assert.Equal(t, test.wantBalance, player.balance())
+			statsUnavailable = false
+			net, plays, err := model.GetGameDayStats(player.user.Id, gameWheel, gameCenterDay())
+			require.NoError(t, err)
+			assert.Equal(t, test.wantNet, net)
+			assert.Equal(t, 2, plays)
+		})
+	}
 }

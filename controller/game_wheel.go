@@ -112,6 +112,8 @@ func SpinWheel(c *gin.Context) {
 			"win":                result.Session.Reward,
 			"limited_by":         result.Session.LimitedBy,
 			"balance":            result.Balance,
+			"net_today":          result.Earned,
+			"plays_today":        result.Plays,
 			"free_used_today":    result.Rewards,
 			"ip_free_used_today": result.IpRewards,
 		}
@@ -125,15 +127,9 @@ func SpinWheel(c *gin.Context) {
 		view = wagerResultView(result)
 		auditGameWin(c, gameWheel, "大转盘", result.Session)
 	}
-	net, plays, err := model.GetGameDayStats(userId, gameWheel, day)
-	if err != nil {
-		common.ApiError(c, err)
-		return
-	}
+	// 统计与派彩取同一次结算的结果，提交后的查询失败不能把已成功的旋转变成失败响应。
 	view["free"] = req.Free
 	view["segment"] = segment
 	view["multiplier"] = wheel.Segments[segment].Multiplier
-	view["net_today"] = net
-	view["plays_today"] = plays
 	common.ApiSuccess(c, view)
 }
