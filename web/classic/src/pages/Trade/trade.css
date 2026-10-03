@@ -1,0 +1,160 @@
+/*
+Copyright (C) 2025 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+
+/* 模拟盘页面：涨绿跌红，与 K 线一致；数字用等宽数字，跳动时不晃。 */
+
+.trade-up {
+  color: var(--semi-color-success);
+}
+
+.trade-down {
+  color: var(--semi-color-danger);
+}
+
+.trade-num {
+  font-variant-numeric: tabular-nums;
+}
+
+.trade-card {
+  background: var(--semi-color-bg-1);
+  border: 1px solid var(--semi-color-border);
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.trade-muted {
+  color: var(--semi-color-text-2);
+}
+
+.trade-chart {
+  display: flex;
+  flex-direction: column;
+  height: 520px;
+  background: var(--semi-color-bg-1);
+  border: 1px solid var(--semi-color-border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.trade-chart-fullscreen {
+  height: 100vh;
+  border-radius: 0;
+}
+
+.trade-chart-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--semi-color-border);
+}
+
+.trade-chart-switches {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.trade-chart-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.trade-chart-canvas {
+  position: absolute;
+  inset: 0;
+}
+
+.trade-chart-legend {
+  position: absolute;
+  top: 6px;
+  left: 10px;
+  z-index: 3;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--semi-color-text-1);
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.trade-chart-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.trade-chart-error {
+  color: var(--semi-color-text-2);
+  font-size: 13px;
+}
+
+.trade-book-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  padding: 1px 4px;
+  font-size: 12px;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+
+.trade-book-row:hover {
+  background: var(--semi-color-fill-0);
+}
+
+.trade-book-depth {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  opacity: 0.12;
+  pointer-events: none;
+}
+
+.trade-calendar {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.trade-calendar-cell {
+  min-height: 56px;
+  padding: 6px;
+  border-radius: 8px;
+  border: 1px solid var(--semi-color-border);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.trade-calendar-cell-active {
+  cursor: pointer;
+}
+
+.trade-calendar-cell-selected {
+  border-color: var(--semi-color-primary);
+}

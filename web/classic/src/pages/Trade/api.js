@@ -1,0 +1,220 @@
+/*
+Copyright (C) 2025 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+
+import { useEffect, useRef, useState } from 'react';
+import { SSE } from 'sse.js';
+import { API, getUserIdFromLocalStorage, showError } from '../../helpers';
+
+// 模拟盘页面共用的请求、行情推送与格式化工具。金额在接口里都是额度单位，页面按 quota_per_unit 换成 USDT 显示：
+// 1 USDT = 1 美元额度。
+
+// 把请求结果换成 { data } 或 { error }：服务端的拒绝原因原样给用户看，登录过期交给全局处理，限流与网络错误给出通用提示。
+function tradeResult(promise, t) {
+  return promise.then(
+    (res) =>
+      res.data.success ? { data: res.data.data } : { error: res.data.message },
+    (error) => {
+      const status = error?.response?.status;
+      if (status === 401) {
+        showError(error);
+        return { error: t('登录已过期，请重新登录') };
+      }
+      if (status === 429) {
+        return { error: t('操作太快了，请稍后再试') };
+      }
+      return {
+        error: error?.response?.data?.message || t('网络异常，请稍后重试'),
+      };
+    },
+  );
+}
+
+export function tradeGet(url, t, params) {
+  return tradeResult(API.get(url, { params, skipErrorHandler: true }), t);
+}
+
+export function tradePost(url, body, t) {
+  return tradeResult(API.post(url, body, { skipErrorHandler: true }), t);
+}
+
+// useTradeStream 订阅行情推送(SSE)：symbols 的 24 小时行情，kline 那个交易对的 1 分钟 K 线，book 那个交易对的盘口。
+// 断线后按 2、4、8…最多 30 秒重连。回调用 ref 保存，换回调不会重连。
+export function useTradeStream(
+  { symbols, kline, book, enabled = true },
+  handlers,
+) {
+  const handlersRef = useRef(handlers);
+  handlersRef.current = handlers;
+  const [connected, setConnected] = useState(false);
+  const key = `${(symbols || []).join(',')}|${kline || ''}|${book || ''}`;
+
+  useEffect(() => {
+    if (!enabled || !symbols?.length) return undefined;
+    let source = null;
+    let timer = null;
+    let delay = 2000;
+    let stopped = false;
+    const dispatch = (name) => (event) => {
+      let data;
+      try {
+        data = JSON.parse(event.data);
+      } catch {
+        return;
+      }
+      if (name === 'status') {
+        setConnected(!!data.connected);
+      }
+      handlersRef.current?.[name]?.(data);
+    };
+    const connect = () => {
+      const params = new URLSearchParams({ symbols: symbols.join(',') });
+      if (kline) params.set('kline', kline);
+      if (book) params.set('book', book);
+      source = new SSE(`/api/trade/stream?${params.toString()}`, {
+        headers: { 'New-Api-User': getUserIdFromLocalStorage() },
+        method: 'GET',
+      });
+      ['status', 'ticker', 'kline', 'book'].forEach((name) =>
+        source.addEventListener(name, dispatch(name)),
+      );
+      source.addEventListener('open', () => {
+        delay = 2000;
+      });
+      const retry = () => {
+        setConnected(false);
+        if (stopped || timer) return;
+        timer = setTimeout(() => {
+          timer = null;
+          connect();
+        }, delay);
+        delay = Math.min(delay * 2, 30000);
+      };
+      source.addEventListener('error', retry);
+      source.addEventListener('readystatechange', (event) => {
+        if (event.readyState === 2) retry();
+      });
+    };
+    connect();
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+      source?.close();
+    };
+    // key 涵盖了 symbols、kline 与 book。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, enabled]);
+
+  return connected;
+}
+
+// toUsdt 把额度单位换成 USDT 数值。
+export function toUsdt(quota, perUnit) {
+  if (!perUnit) return 0;
+  return Number(quota || 0) / perUnit;
+}
+
+// formatUsdt 按 USDT 显示额度单位的金额，默认两位小数，带千分位。
+export function formatUsdt(quota, perUnit, digits = 2) {
+  return toUsdt(quota, perUnit).toLocaleString(undefined, {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  });
+}
+
+// formatSignedUsdt 是带正负号的 USDT 金额，用于盈亏。
+export function formatSignedUsdt(quota, perUnit, digits = 2) {
+  const value = toUsdt(quota, perUnit);
+  const text = Math.abs(value).toLocaleString(undefined, {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  });
+  if (value > 0) return `+${text}`;
+  if (value < 0) return `-${text}`;
+  return text;
+}
+
+// decimalsOf 是步长(例如 "0.001"、"1")的小数位数，价格与数量按交易对的精度显示。
+export function decimalsOf(step) {
+  if (!step) return 2;
+  const text = String(step);
+  const dot = text.indexOf('.');
+  if (dot < 0) return 0;
+  const trimmed = text.replace(/0+$/, '');
+  return Math.max(trimmed.length - dot - 1, 0);
+}
+
+// formatPrice 按位数显示价格；没有给位数时按价格大小自动取。
+export function formatPrice(value, digits) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || value === '' || value === null) return '--';
+  let fraction = digits;
+  if (fraction === undefined) {
+    if (number >= 1000) fraction = 2;
+    else if (number >= 1) fraction = 4;
+    else fraction = 6;
+  }
+  return number.toLocaleString(undefined, {
+    minimumFractionDigits: fraction,
+    maximumFractionDigits: fraction,
+  });
+}
+
+// formatQty 显示数量，去掉多余的零。
+export function formatQty(value, digits = 8) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return '--';
+  return number.toLocaleString(undefined, { maximumFractionDigits: digits });
+}
+
+// formatCompact 用 K/M/B 缩写大数，成交额用。
+export function formatCompact(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return '--';
+  const abs = Math.abs(number);
+  if (abs >= 1e9) return `${(number / 1e9).toFixed(2)}B`;
+  if (abs >= 1e6) return `${(number / 1e6).toFixed(2)}M`;
+  if (abs >= 1e3) return `${(number / 1e3).toFixed(2)}K`;
+  return number.toFixed(2);
+}
+
+// changePercent 是 24 小时涨跌幅(%)，开盘价无效时为 null。
+export function changePercent(price, open) {
+  const p = Number(price);
+  const o = Number(open);
+  if (!Number.isFinite(p) || !Number.isFinite(o) || o <= 0) return null;
+  return ((p - o) / o) * 100;
+}
+
+// trendClass 是涨跌的文字颜色：涨绿跌红，与 K 线一致。
+export function trendClass(value) {
+  if (value > 0) return 'trade-up';
+  if (value < 0) return 'trade-down';
+  return '';
+}
+
+// floorToStep 把数量按步长向下取整，返回字符串，避免浮点误差传给后端。
+export function floorToStep(value, step) {
+  const number = Number(value);
+  const size = Number(step);
+  if (!Number.isFinite(number) || number <= 0) return '';
+  if (!Number.isFinite(size) || size <= 0) return String(number);
+  const digits = decimalsOf(step);
+  const units = Math.floor(number / size + 1e-9);
+  return (units * size).toFixed(digits);
+}

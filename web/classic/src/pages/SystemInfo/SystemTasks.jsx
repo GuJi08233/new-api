@@ -45,6 +45,7 @@ const TASK_TYPE_KEYS = {
   model_update: '批量上游模型更新',
   midjourney_poll: '绘图任务轮询',
   async_task_poll: '异步任务轮询',
+  trade_snapshot: '模拟盘资产快照',
 };
 
 const STATUS_META = {

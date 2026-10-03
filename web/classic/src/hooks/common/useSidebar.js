@@ -53,6 +53,7 @@ export const DEFAULT_ADMIN_CONFIG = {
     user: true,
     subscription: true,
     risk_control: true,
+    trade_admin: true,
     system_info: true,
     setting: true,
   },
