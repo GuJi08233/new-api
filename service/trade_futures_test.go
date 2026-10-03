@@ -198,6 +198,10 @@ func TestFuturesStopLossClosesByTheBook(t *testing.T) {
 	assert.Equal(t, model.TradeFuturesTriggerStopLoss, orders[0].Trigger)
 	assert.Equal(t, "94.5", orders[0].FilledValue, "0.5 @ 94.6 + 0.5 @ 94.4")
 	assert.Equal(t, tradeTestUsd("994.40275"), tradeTestCash(t, 4203), "10 margin - 5.5 loss - 0.04725 fee comes back")
+	history, _, err := model.GetTradeFuturesHistory(4203, 0, 10)
+	require.NoError(t, err)
+	require.Len(t, history, 1)
+	assert.Equal(t, model.TradeFuturesTriggerStopLoss, history[0].CloseReason)
 }
 
 // 标记价格让保证金加浮动盈亏跌到维持保证金时强平，保证金全部亏掉，可用资金不变。
@@ -286,6 +290,9 @@ func TestFuturesOrderValidation(t *testing.T) {
 	_, err := PlaceTradeFuturesOrder(context.Background(), 4206, TradeFuturesOrderRequest{Symbol: "BTCUSDT", Side: model.TradeFuturesShort,
 		Action: model.TradeFuturesClose, Type: model.TradeOrderTypeMarket, Qty: tradeTestDecimal("1")})
 	require.ErrorIs(t, err, model.ErrTradeFuturesNoPosition)
+	_, err = PlaceTradeFuturesOrder(context.Background(), 4206, TradeFuturesOrderRequest{Symbol: "BTCUSDT", Side: model.TradeFuturesShort,
+		Action: model.TradeFuturesClose, Type: model.TradeOrderTypeMarket})
+	require.ErrorIs(t, err, model.ErrTradeFuturesNoPosition, "closing everything with nothing to close")
 
 	setting := operation_setting.GetTradeSetting().Clone()
 	setting.FuturesEnabled = false

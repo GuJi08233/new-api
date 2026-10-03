@@ -115,15 +115,18 @@ func PlaceTradeFuturesOrder(ctx context.Context, userId int, req TradeFuturesOrd
 	if !step.IsPositive() {
 		step = decimal.New(1, -tradesim.QtyDecimals)
 	}
-	qty := req.Qty
-	if !isOpen && !qty.IsPositive() {
+	qty := req.Qty.Div(step).Floor().Mul(step)
+	if !isOpen && !req.Qty.IsPositive() {
 		position, err := model.GetTradeFuturesPosition(userId, req.Symbol, req.Side)
 		if err != nil {
 			return nil, err
 		}
+		if position.Qty <= position.FrozenQty {
+			return nil, model.ErrTradeFuturesNoPosition
+		}
+		// 全部平掉时不按步长取整：Binance 以后调大步长也不会留下平不掉的零头。
 		qty = tradesim.QtyFromUnits(position.Qty - position.FrozenQty)
 	}
-	qty = qty.Div(step).Floor().Mul(step)
 	if !qty.IsPositive() || isOpen && qty.LessThan(rules.MinQty) {
 		return nil, ErrTradeQtyTooSmall
 	}

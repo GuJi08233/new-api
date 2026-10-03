@@ -30,7 +30,7 @@ const (
 	// TradeCancelByPosition 是平仓委托因为仓位已经平掉或强平而撤销。
 	TradeCancelByPosition = "position"
 
-	// TradeFuturesCloseByUser 与 TradeFuturesCloseByLiquidation 是仓位结束的方式，记在历史里。
+	// TradeFuturesCloseByUser 与 TradeFuturesCloseByLiquidation 是仓位结束的方式，记在历史里；止盈止损平掉的记为 tp/sl。
 	TradeFuturesCloseByUser        = "close"
 	TradeFuturesCloseByLiquidation = "liquidation"
 )
@@ -555,7 +555,11 @@ func PlaceTradeFuturesOrder(in TradeFuturesOrderInput) (*TradeFuturesOrder, erro
 		default:
 			finishTradeFuturesOrder(account, order, TradeOrderStatusCanceled, TradeCancelByDepth)
 		}
-		if err = finishTradeFuturesPositionTx(tx, position, TradeFuturesCloseByUser); err != nil {
+		reason := TradeFuturesCloseByUser
+		if in.Trigger != "" {
+			reason = in.Trigger
+		}
+		if err = finishTradeFuturesPositionTx(tx, position, reason); err != nil {
 			return err
 		}
 		if err = saveTradeAccountTx(tx, account); err != nil {
