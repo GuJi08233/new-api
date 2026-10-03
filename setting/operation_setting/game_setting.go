@@ -458,7 +458,7 @@ func validateSkillRule(name string, rule SkillRule, maxScore int) error {
 }
 
 // ValidateGameSetting 校验一份完整配置：逐项校验之外，还要求单次提现区间有意义。
-// 管理端保存时先把改动合并进当前配置，再整份过这里；逐项写 option 的旧入口只能做单项校验。
+// 管理端与通用 option 写入入口都在数据库事务中合并最新配置，再校验整份配置。
 func ValidateGameSetting(setting *GameSetting) error {
 	values, err := config.ConfigToMap(setting)
 	if err != nil {
