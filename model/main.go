@@ -377,6 +377,13 @@ func migrateDB() error {
 		&RiskEvent{},
 		&IpBan{},
 		&CodeUse{},
+		&TradeAccount{},
+		&TradePosition{},
+		&TradeOrder{},
+		&TradeLedger{},
+		&TradeProfitOutDay{},
+		&TradeSnapshot{},
+		&TradeSnapshotDay{},
 	)
 	if err != nil {
 		return err
@@ -457,6 +464,13 @@ func migrateDBFast() error {
 		{&RiskEvent{}, "RiskEvent"},
 		{&IpBan{}, "IpBan"},
 		{&CodeUse{}, "CodeUse"},
+		{&TradeAccount{}, "TradeAccount"},
+		{&TradePosition{}, "TradePosition"},
+		{&TradeOrder{}, "TradeOrder"},
+		{&TradeLedger{}, "TradeLedger"},
+		{&TradeProfitOutDay{}, "TradeProfitOutDay"},
+		{&TradeSnapshot{}, "TradeSnapshot"},
+		{&TradeSnapshotDay{}, "TradeSnapshotDay"},
 	}
 	// 动态计算migration数量，确保errChan缓冲区足够大
 	errChan := make(chan error, len(migrations))
