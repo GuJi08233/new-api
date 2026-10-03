@@ -211,3 +211,37 @@ func tradeCostShare(cost int, qty int64, held int64) int {
 	}
 	return int(share.Int64())
 }
+
+// TradeStats 是全站模拟盘的汇总，给管理员看：资金与持仓成本都是额度单位。
+type TradeStats struct {
+	Accounts     int64 `json:"accounts"`
+	Cash         int   `json:"cash"`
+	Frozen       int   `json:"frozen"`
+	PositionCost int   `json:"position_cost"`
+	NetIn        int   `json:"net_in"`
+	OpenOrders   int64 `json:"open_orders"`
+}
+
+// GetTradeStats 汇总全站的模拟盘账户、资金、持仓成本与挂单。
+func GetTradeStats() (TradeStats, error) {
+	var stats TradeStats
+	if err := DB.Model(&TradeAccount{}).Count(&stats.Accounts).Error; err != nil {
+		return stats, err
+	}
+	var sums struct {
+		Cash   int
+		Frozen int
+		NetIn  int
+	}
+	if err := DB.Model(&TradeAccount{}).
+		Select("COALESCE(SUM(cash), 0) AS cash, COALESCE(SUM(frozen), 0) AS frozen, COALESCE(SUM(total_in - total_out), 0) AS net_in").
+		Scan(&sums).Error; err != nil {
+		return stats, err
+	}
+	stats.Cash, stats.Frozen, stats.NetIn = sums.Cash, sums.Frozen, sums.NetIn
+	if err := DB.Model(&TradePosition{}).Select("COALESCE(SUM(cost), 0)").Scan(&stats.PositionCost).Error; err != nil {
+		return stats, err
+	}
+	err := DB.Model(&TradeOrder{}).Where("status = ?", TradeOrderStatusOpen).Count(&stats.OpenOrders).Error
+	return stats, err
+}

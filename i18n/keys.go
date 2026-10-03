@@ -351,3 +351,28 @@ const (
 	MsgCustomOAuthBindingNotFound   = "custom_oauth.binding_not_found"
 	MsgCustomOAuthProviderIdInvalid = "custom_oauth.provider_id_field_invalid"
 )
+
+// Paper trading related messages
+const (
+	MsgTradeDisabled             = "trade.disabled"
+	MsgTradeSymbolClosed         = "trade.symbol_closed"
+	MsgTradeMarketUnavailable    = "trade.market_unavailable"
+	MsgTradeMarketStale          = "trade.market_stale"
+	MsgTradeOrderInvalid         = "trade.order_invalid"
+	MsgTradeQtyTooSmall          = "trade.qty_too_small"
+	MsgTradeNotionalTooSmall     = "trade.notional_too_small"
+	MsgTradeOrderTooLarge        = "trade.order_too_large"
+	MsgTradePriceInvalid         = "trade.price_invalid"
+	MsgTradeNoLiquidity          = "trade.no_liquidity"
+	MsgTradeCashInsufficient     = "trade.cash_insufficient"
+	MsgTradePositionInsufficient = "trade.position_insufficient"
+	MsgTradePositionLimit        = "trade.position_limit"
+	MsgTradeOpenOrderLimit       = "trade.open_order_limit"
+	MsgTradeOrderNotOpen         = "trade.order_not_open"
+	MsgTradeOrderFailed          = "trade.order_failed"
+	MsgTradeAmountInvalid        = "trade.amount_invalid"
+	MsgTradeQuotaInsufficient    = "trade.quota_insufficient"
+	MsgTradeWithdrawExceeded     = "trade.withdraw_exceeded"
+	MsgTradeProfitOutLimit       = "trade.profit_out_limit"
+	MsgTradeTransferFailed       = "trade.transfer_failed"
+)

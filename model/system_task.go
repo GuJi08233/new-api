@@ -22,6 +22,8 @@ const (
 	SystemTaskTypeModelUpdate     = "model_update"
 	SystemTaskTypeMidjourneyPoll  = "midjourney_poll"
 	SystemTaskTypeAsyncTaskPoll   = "async_task_poll"
+	// SystemTaskTypeTradeSnapshot 每天给模拟盘账户拍一次资产快照。
+	SystemTaskTypeTradeSnapshot = "trade_snapshot"
 )
 
 var ErrSystemTaskLockLost = errors.New("system task lock lost")

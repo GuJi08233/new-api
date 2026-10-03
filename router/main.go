@@ -19,6 +19,8 @@ func SetRouter(router *gin.Engine, assets WebAssets) {
 	// paying on-chain. UserAuth cannot be used here because a browser WebSocket
 	// handshake carries the session cookie but no custom headers.
 	router.GET("/api/walletconnect/relay", middleware.RouteTag("api"), middleware.GlobalAPIRateLimit(), middleware.WebSocketUserAuth(), controller.WalletConnectRelayProxy)
+	// 模拟盘的行情推送是长连接 SSE，同样不能经过 gzip：压缩器会攒着数据不发。
+	router.GET("/api/trade/stream", middleware.RouteTag("api"), middleware.GlobalAPIRateLimit(), middleware.UserAuth(), middleware.IpBanGuardApi(), controller.StreamTradeMarket)
 	SetApiRouter(router)
 	SetDashboardRouter(router)
 	SetRelayRouter(router)

@@ -121,6 +121,7 @@ func GetStatus(c *gin.Context) {
 		"user_agreement_enabled":      legalSetting.UserAgreement != "",
 		"privacy_policy_enabled":      legalSetting.PrivacyPolicy != "",
 		"checkin_enabled":             operation_setting.GetCheckinSetting().Enabled,
+		"trade_enabled":               operation_setting.GetTradeSetting().Enabled,
 		"invitation_code_enabled":     common.InvitationCodeEnabled,
 		// 生成邀请码的单价与奖励比例:前端生成确认弹窗据此展示总消耗与使用者所得
 		"invitation_code_price":        common.InvitationCodePrice,

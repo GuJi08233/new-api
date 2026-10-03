@@ -54,6 +54,13 @@ func TestMain(m *testing.M) {
 		&model.SubscriptionPreConsumeRecord{},
 		&model.SystemTask{},
 		&model.SystemTaskLock{},
+		&model.TradeAccount{},
+		&model.TradePosition{},
+		&model.TradeOrder{},
+		&model.TradeLedger{},
+		&model.TradeProfitOutDay{},
+		&model.TradeSnapshot{},
+		&model.TradeSnapshotDay{},
 	); err != nil {
 		panic("failed to migrate: " + err.Error())
 	}

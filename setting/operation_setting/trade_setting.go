@@ -29,13 +29,15 @@ type TradeSetting struct {
 	MaxPositionUsd int `json:"max_position_usd"`
 	// DailyProfitOutUsd 是每人每天最多把多少美元的盈利转出成额度；转回自己转入的额度不受限制。0 表示不限制。
 	DailyProfitOutUsd int `json:"daily_profit_out_usd"`
-	// StaleMs 是盘口多久没有更新就视为过期：市价单与限价单的撮合都只用这段时间内收到的盘口。
+	// StaleMs 是下单时等待最新盘口的最长时间(毫秒)。盘口只在变化时推送，冷门交易对几秒不变很正常，所以不按多久没收到推送判断
+	// 过期，而是下单后在行情连接上发 ping：pong 回来说明下单前的变化都已收到。超过这个时间还没回来就拒单。
 	StaleMs int `json:"stale_ms"`
-	// RestUrl 与 WsUrl 是 Binance 现货行情的 REST 与 WebSocket 地址，服务器连不上官方地址时可以换成镜像，
-	// 例如 https://data-api.binance.vision 与 wss://data-stream.binance.vision。
+	// RestUrl 与 WsUrl 是 Binance 现货行情的 REST 与 WebSocket 地址。默认用 Binance 的只读行情镜像 data-api.binance.vision 与
+	// data-stream.binance.vision：数据与主站相同，受限地区(主站返回 451)也能访问；也可以换回主站 api.binance.com 与
+	// stream.binance.com:9443。
 	RestUrl string `json:"rest_url"`
 	WsUrl   string `json:"ws_url"`
-	// ProxyUrl 是连接 Binance 用的代理(http、https 或 socks5)，空表示直连。
+	// ProxyUrl 是连接 Binance 用的代理(http 或 socks5)，空表示按环境变量 HTTPS_PROXY 等决定。WebSocket 不支持 https 代理。
 	ProxyUrl string `json:"proxy_url"`
 }
 
@@ -105,8 +107,8 @@ func DefaultTradeSetting() *TradeSetting {
 		MaxPositionUsd:    5000,
 		DailyProfitOutUsd: 100,
 		StaleMs:           3000,
-		RestUrl:           "https://api.binance.com",
-		WsUrl:             "wss://stream.binance.com:9443",
+		RestUrl:           "https://data-api.binance.vision",
+		WsUrl:             "wss://data-stream.binance.vision",
 	}
 }
 
@@ -198,8 +200,8 @@ func ValidateTradeOption(key string, value string) error {
 			return fmt.Errorf("WebSocket 地址必须是 ws 或 wss 地址")
 		}
 	case "proxy_url":
-		if value != "" && !isUrlWithScheme(value, "http", "https", "socks5") {
-			return fmt.Errorf("代理地址必须是 http、https 或 socks5 地址")
+		if value != "" && !isUrlWithScheme(value, "http", "socks5") {
+			return fmt.Errorf("代理地址必须是 http 或 socks5 地址")
 		}
 	default:
 		return fmt.Errorf("未知的模拟盘配置项: %s", field)

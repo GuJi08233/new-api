@@ -158,6 +158,29 @@ func SetApiRouter(router *gin.Engine) {
 			}
 		}
 
+		tradeRoute := apiRouter.Group("/trade")
+		tradeRoute.Use(middleware.UserAuth(), middleware.IpBanGuardApi(), middleware.TradeRequestBodyLimit())
+		{
+			// 查询、撤单与转出在模拟盘关闭后仍然开放，用户随时能把钱拿出来。
+			tradeRoute.GET("/self", controller.GetTradeSelf)
+			tradeRoute.GET("/orders", controller.GetTradeOrders)
+			tradeRoute.GET("/orders/:id/fills", controller.GetTradeOrderFills)
+			tradeRoute.GET("/fills", controller.GetTradeFills)
+			tradeRoute.GET("/ledger", controller.GetTradeLedger)
+			tradeRoute.GET("/assets/history", controller.GetTradeAssetHistory)
+			tradeRoute.GET("/assets/daily", controller.GetTradeAssetDaily)
+			tradeRoute.POST("/orders/:id/cancel", middleware.TradeOrderRateLimit(), controller.CancelTradeOrder)
+			tradeRoute.POST("/transfer", middleware.UserCriticalRateLimit("trade-transfer"), controller.TransferTrade)
+			tradeRoute.GET("/market", middleware.TradeEnabled(), controller.GetTradeMarket)
+			tradeRoute.GET("/klines", middleware.TradeEnabled(), controller.GetTradeKlines)
+			tradeRoute.POST("/orders", middleware.TradeEnabled(), middleware.TradeOrderRateLimit(), controller.PlaceTradeOrder)
+		}
+		tradeAdminRoute := apiRouter.Group("/trade/admin")
+		tradeAdminRoute.Use(middleware.RootAuth())
+		{
+			tradeAdminRoute.GET("/status", controller.GetTradeAdminStatus)
+		}
+
 		// Subscription billing (plans, purchase, admin management)
 		subscriptionRoute := apiRouter.Group("/subscription")
 		subscriptionRoute.Use(middleware.UserAuth())

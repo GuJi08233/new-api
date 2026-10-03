@@ -135,6 +135,10 @@ func PlaceTradeOrder(in TradeOrderInput) (*TradeOrder, error) {
 	if !in.Rest && in.Fill.Qty <= 0 {
 		return nil, ErrTradeNoFill
 	}
+	// 挂单要有限价，否则撮合永远成交不了它，冻结的资金只能等用户撤单。
+	if in.Rest && in.Price == "" {
+		return nil, ErrTradeAmountInvalid
+	}
 	now := common.GetTimestamp()
 	order := &TradeOrder{
 		UserId:    in.UserId,
