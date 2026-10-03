@@ -642,6 +642,21 @@ const PvpGame = ({
     }
   }, [info, setRoom]);
 
+  // 房间结束或取消后，获胜奖励与退回的押注已经入账；操作响应和长轮询都只带局面，另外刷新余额与最近对局。
+  const roomId = room?.id;
+  const roomEnded = !!room && !isRoomOpen(room);
+  useEffect(() => {
+    if (!roomEnded) return undefined;
+    let alive = true;
+    gameGet(`/api/game/${gameKey}`, t).then((response) => {
+      if (!alive || !response.data) return;
+      patch({ balance: response.data.balance, recent: response.data.recent });
+    });
+    return () => {
+      alive = false;
+    };
+  }, [gameKey, roomId, roomEnded, t, patch]);
+
   const loaded = !!info;
   const inLobby = !room && !ai;
   // 在大厅时定时刷新等待中的房间，页面在后台时不刷新；别人加入了自己开的房间时直接进入对局。
