@@ -315,9 +315,20 @@ func GetTradeFuturesOrderFills(c *gin.Context) {
 	common.ApiSuccess(c, items)
 }
 
-// GetTradeFuturesFills 返回用户在一个合约上最近的成交，K 线图用它标出开平仓的位置。
+// GetTradeFuturesFills 返回用户在一个合约上最近的成交，K 线图用它标出开平仓的位置。每笔成交带上委托的仓位方向：
+// 开多、平空是买入，开空、平多是卖出。
 func GetTradeFuturesFills(c *gin.Context) {
-	fills, err := model.GetTradeFuturesFills(c.GetInt("id"), c.Query("symbol"), tradeFillMarks)
+	userId := c.GetInt("id")
+	fills, err := model.GetTradeFuturesFills(userId, c.Query("symbol"), tradeFillMarks)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	orderIds := make([]int, len(fills))
+	for i, fill := range fills {
+		orderIds[i] = fill.OrderId
+	}
+	sides, err := model.GetTradeFuturesOrderSides(userId, orderIds)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -325,6 +336,7 @@ func GetTradeFuturesFills(c *gin.Context) {
 	items := make([]gin.H, len(fills))
 	for i, fill := range fills {
 		items[i] = tradeLedgerView(fill)
+		items[i]["side"] = sides[fill.OrderId]
 	}
 	common.ApiSuccess(c, items)
 }
@@ -385,10 +397,10 @@ func SetTradeFuturesTpSl(c *gin.Context) {
 	common.ApiSuccess(c, gin.H{"take_profit": position.TakeProfit, "stop_loss": position.StopLoss})
 }
 
-// GetTradeFuturesHistory 分页列出已经结束的仓位。
+// GetTradeFuturesHistory 分页列出已经结束的仓位，symbol 为空时不限合约。
 func GetTradeFuturesHistory(c *gin.Context) {
 	pageInfo := common.GetPageQuery(c)
-	history, total, err := model.GetTradeFuturesHistory(c.GetInt("id"), pageInfo.GetStartIdx(), pageInfo.GetPageSize())
+	history, total, err := model.GetTradeFuturesHistory(c.GetInt("id"), c.Query("symbol"), pageInfo.GetStartIdx(), pageInfo.GetPageSize())
 	if err != nil {
 		common.ApiError(c, err)
 		return

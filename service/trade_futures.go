@@ -311,9 +311,11 @@ type TradeFuturesHolding struct {
 	Mark       string `json:"mark"`
 	Margin     int    `json:"margin"`
 	// Pnl 是按标记价格的浮动盈亏，Value 是这个仓位现在值多少：保证金加浮动盈亏，最少为 0(逐仓最多亏掉保证金)。
-	Pnl              int    `json:"pnl"`
-	Value            int    `json:"value"`
-	Maintenance      int    `json:"maintenance"`
+	Pnl         int `json:"pnl"`
+	Value       int `json:"value"`
+	Maintenance int `json:"maintenance"`
+	// MmrBps 是这个合约的维持保证金率(万分之几)，页面用它估算调整保证金之后的强平价。
+	MmrBps           int    `json:"mmr_bps"`
 	LiquidationPrice string `json:"liquidation_price"`
 	TakeProfit       string `json:"take_profit"`
 	StopLoss         string `json:"stop_loss"`
@@ -349,6 +351,7 @@ func ValueTradeFutures(positions []model.TradeFuturesPosition) ([]TradeFuturesHo
 			FrozenQty:   tradesim.QtyFromUnits(position.FrozenQty).String(),
 			Margin:      position.Margin,
 			Value:       position.Margin,
+			MmrBps:      info.FuturesMmrBps,
 			TakeProfit:  position.TakeProfit,
 			StopLoss:    position.StopLoss,
 			Funding:     position.Funding,

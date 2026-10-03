@@ -36,7 +36,7 @@ func closeTradeFutures(side string, userId int, qty int64, value string, feeUsd 
 
 func tradeFuturesHistoryOf(t *testing.T, userId int) []TradeFuturesHistory {
 	t.Helper()
-	items, _, err := GetTradeFuturesHistory(userId, 0, 10)
+	items, _, err := GetTradeFuturesHistory(userId, "", 0, 10)
 	require.NoError(t, err)
 	return items
 }

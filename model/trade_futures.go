@@ -987,9 +987,25 @@ func GetTradeFuturesFills(userId int, symbol string, limit int) ([]TradeLedger, 
 	return fills, err
 }
 
-// GetTradeFuturesHistory 按结束时间倒序分页列出已经结束的仓位。
-func GetTradeFuturesHistory(userId int, offset int, limit int) ([]TradeFuturesHistory, int64, error) {
+// GetTradeFuturesOrderSides 按委托 id 查用户这些合约委托的仓位方向。
+func GetTradeFuturesOrderSides(userId int, orderIds []int) (map[int]string, error) {
+	var orders []TradeFuturesOrder
+	if err := DB.Select("id", "side").Where("user_id = ? AND id IN ?", userId, orderIds).Find(&orders).Error; err != nil {
+		return nil, err
+	}
+	sides := make(map[int]string, len(orders))
+	for _, order := range orders {
+		sides[order.Id] = order.Side
+	}
+	return sides, nil
+}
+
+// GetTradeFuturesHistory 按结束时间倒序分页列出已经结束的仓位，symbol 为空时不限合约。
+func GetTradeFuturesHistory(userId int, symbol string, offset int, limit int) ([]TradeFuturesHistory, int64, error) {
 	query := DB.Model(&TradeFuturesHistory{}).Where("user_id = ?", userId)
+	if symbol != "" {
+		query = query.Where("symbol = ?", symbol)
+	}
 	var total int64
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
