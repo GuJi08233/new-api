@@ -385,6 +385,10 @@ func (c *Client) FundingRates(ctx context.Context, symbol string, startTime int6
 	}
 	rates := make([]FundingRate, 0, len(rows))
 	for _, row := range rows {
+		// 很早的期次没有标记价格，算不出资金费，跳过它，不让它挡住后面的期次。
+		if row.MarkPrice == "" {
+			continue
+		}
 		var p decimalParser
 		rate := FundingRate{
 			Symbol:      row.Symbol,

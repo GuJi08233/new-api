@@ -274,7 +274,7 @@ func TestFuturesClientReadsRulesAndTickers(t *testing.T) {
 		Volume: d("193573.17"), QuoteVolume: d("45434328.77")}}, tickers)
 }
 
-// 标记价格与已结算的资金费率只在合约接口上有，资金费率可以为负。
+// 标记价格与已结算的资金费率只在合约接口上有，资金费率可以为负；没有标记价格的期次算不出资金费，跳过。
 func TestFuturesClientReadsMarkPricesAndFundingRates(t *testing.T) {
 	var fundingQuery url.Values
 	client := NewFuturesClient("", nil)
@@ -288,6 +288,7 @@ func TestFuturesClientReadsMarkPricesAndFundingRates(t *testing.T) {
 		case "/fapi/v1/fundingRate":
 			fundingQuery = r.URL.Query()
 			_, _ = w.Write([]byte(`[
+				{"symbol":"BTCUSDT","fundingTime":1791014400000,"fundingRate":"0.00010000","markPrice":""},
 				{"symbol":"BTCUSDT","fundingTime":1791043200000,"fundingRate":"-0.00002100","markPrice":"84500.10000000"},
 				{"symbol":"BTCUSDT","fundingTime":1791072000001,"fundingRate":"0.00010000","markPrice":"84756.00000000"}
 			]`))
