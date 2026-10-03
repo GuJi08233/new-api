@@ -473,7 +473,11 @@ const AiView = ({
               {t('认输')}
             </Button>
             {/* 操作失败时(例如这一局已经过期)也能回到大厅重新开始，不会卡在这一局上。 */}
-            {error && <Button onClick={onBack}>{t('返回大厅')}</Button>}
+            {error && (
+              <Button disabled={busy} onClick={onBack}>
+                {t('返回大厅')}
+              </Button>
+            )}
           </>
         ) : (
           <>
@@ -485,7 +489,9 @@ const AiView = ({
             >
               {t('再来一局')}
             </button>
-            <Button onClick={onBack}>{t('返回大厅')}</Button>
+            <Button disabled={busy} onClick={onBack}>
+              {t('返回大厅')}
+            </Button>
           </>
         )}
       </div>
@@ -620,6 +626,7 @@ const PvpGame = ({
   const [params, setParams] = useSearchParams();
   const turnstile = usePlayTurnstile(info?.play_turnstile);
   const restoredRef = useRef(false);
+  const busyRef = useRef(false);
   const labels = (state) =>
     seatLabels ? seatLabels(state) : [t('先手'), t('后手')];
 
@@ -662,21 +669,42 @@ const PvpGame = ({
   }, [loaded, invite, room, setParams, setRoom, patch, t]);
 
   const act = useCallback(
-    async (url, body, onData) => {
-      if (busy) return;
+    async (url, body, onData, recoverAi = false) => {
+      if (busyRef.current) return;
+      busyRef.current = true;
       setBusy(true);
       setError('');
-      const response = await gamePost(url, body, t);
-      setBusy(false);
-      if (response.error) {
-        setError(response.error);
-        return;
+      try {
+        let response = await gamePost(url, body, t);
+        if (response.error) {
+          setError(response.error);
+          if (!recoverAi) return;
+          // 落子可能已经执行，只是响应丢失；版本冲突也要恢复，不能让下一步一直带着旧版本重试。
+          // 恢复失败时保留原局，下一次操作失败后仍可重新读取；恢复结束前始终持有 busy 锁。
+          const query = body.session_id ? `?session_id=${body.session_id}` : '';
+          const current = await gameGet(`/api/game/${gameKey}/ai${query}`, t);
+          if (!current.data) return;
+          setAiResult(null);
+          if (!current.data.session) {
+            setAi(null);
+            const latest = await reload(true);
+            if (latest) setLobby(latest.lobby);
+            return;
+          }
+          // 指定编号时也能读回已经结算的局，和原操作成功一样显示最终局面、胜负与奖励。
+          response = current;
+          if (current.data.result) setError('');
+        }
+        onData(response.data);
+        const balance =
+          response.data?.balance ?? response.data?.result?.balance;
+        if (balance !== undefined) patch({ balance });
+      } finally {
+        busyRef.current = false;
+        setBusy(false);
       }
-      onData(response.data);
-      const balance = response.data?.balance ?? response.data?.result?.balance;
-      if (balance !== undefined) patch({ balance });
     },
-    [busy, t, patch],
+    [gameKey, t, patch, reload],
   );
 
   const backToLobby = async () => {
@@ -703,6 +731,7 @@ const PvpGame = ({
         setAi(data.session);
         setAiResult(null);
       },
+      true,
     );
 
   let main = null;
@@ -761,6 +790,7 @@ const PvpGame = ({
             `/api/game/${gameKey}/ai/move`,
             { session_id: ai.session_id, version: ai.version, move: value },
             applyAi,
+            true,
           )
         }
         onResign={() =>
@@ -772,6 +802,7 @@ const PvpGame = ({
                 `/api/game/${gameKey}/ai/resign`,
                 { session_id: ai.session_id },
                 applyAi,
+                true,
               ),
           })
         }

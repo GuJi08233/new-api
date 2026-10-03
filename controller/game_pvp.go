@@ -990,12 +990,33 @@ func pvpAiView(game *pvpGame, session *model.GameSession) (gin.H, error) {
 }
 
 func getPvpAi(c *gin.Context, game *pvpGame) {
-	session, err := model.GetPlayingGameSession(c.GetInt("id"), pvpAiGame(game.key))
+	var session *model.GameSession
+	var err error
+	if requested, present := c.GetQuery("session_id"); present {
+		id, parseErr := strconv.Atoi(requested)
+		if parseErr != nil || id < 1 {
+			common.ApiErrorI18n(c, i18n.MsgGameSessionNotFound)
+			return
+		}
+		// 丢失落子或认输的响应时按原局恢复，包括已经结算的一局；只能查询自己的同类游戏。
+		session, err = model.GetUserGameSession(c.GetInt("id"), pvpAiGame(game.key), id)
+		if errors.Is(err, model.ErrGameSessionNotFound) {
+			common.ApiErrorI18n(c, i18n.MsgGameSessionNotFound)
+			return
+		}
+	} else {
+		session, err = model.GetPlayingGameSession(c.GetInt("id"), pvpAiGame(game.key))
+	}
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	if session == nil || common.GetTimestamp()-session.CreatedAt > skillSessionTTL {
+	if session != nil && session.Status == model.GameSessionStatusFinished {
+		rule, _ := operation_setting.GetGameSetting().PvpRuleOf(game.key)
+		respondPvpAiSettled(c, game, rule.Ai, session, nil, nil)
+		return
+	}
+	if session == nil || session.Status != model.GameSessionStatusPlaying || common.GetTimestamp()-session.CreatedAt > skillSessionTTL {
 		common.ApiSuccess(c, gin.H{"session": nil})
 		return
 	}
