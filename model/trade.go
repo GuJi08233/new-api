@@ -92,12 +92,14 @@ type TradeLedger struct {
 	Type    string `json:"type" gorm:"type:varchar(16);index"`
 	Symbol  string `json:"symbol" gorm:"type:varchar(20)"`
 	OrderId int    `json:"order_id" gorm:"index"`
-	// Qty 与 Price 是这次成交的数量(10^-8)与均价，转入转出时为空。
+	// Qty 与 Price 是这次成交的数量(10^-8)与均价，转入转出时为空；合约资金费的账单里 Price 是资金费率。
 	Qty   int64  `json:"qty" gorm:"bigint"`
 	Price string `json:"price" gorm:"type:varchar(40)"`
 	// Amount 是资金变动(额度单位)，入账为正；买入是成交金额加手续费，卖出是成交金额减手续费。
 	Amount int `json:"amount" gorm:"type:bigint"`
 	Fee    int `json:"fee" gorm:"type:bigint"`
+	// Pnl 是合约平仓的毛盈亏、强平亏掉的保证金或资金费的收付(额度单位)，其他账单为 0。
+	Pnl int `json:"pnl" gorm:"type:bigint"`
 	// Balance 是变动后的资金合计(可用 + 冻结)。
 	Balance   int   `json:"balance" gorm:"type:bigint"`
 	CreatedAt int64 `json:"created_at" gorm:"bigint;index"`
@@ -197,7 +199,7 @@ func tradeLedgerTx(tx *gorm.DB, account *TradeAccount, entry TradeLedger) error 
 	return tx.Create(&entry).Error
 }
 
-// TradeStats 是全站模拟盘的汇总，给管理员看：资金与持仓成本都是额度单位。
+// TradeStats 是全站模拟盘的汇总，给管理员看：资金、持仓成本与合约保证金都是额度单位。
 type TradeStats struct {
 	Accounts     int64 `json:"accounts"`
 	Cash         int   `json:"cash"`
@@ -205,6 +207,10 @@ type TradeStats struct {
 	PositionCost int   `json:"position_cost"`
 	NetIn        int   `json:"net_in"`
 	OpenOrders   int64 `json:"open_orders"`
+	// FuturesPositions 是持有中的合约仓位数，FuturesMargin 是它们的保证金合计，FuturesOpenOrders 是挂着的合约委托数。
+	FuturesPositions  int64 `json:"futures_positions"`
+	FuturesMargin     int   `json:"futures_margin"`
+	FuturesOpenOrders int64 `json:"futures_open_orders"`
 }
 
 // GetTradeStats 汇总全站的模拟盘账户、资金、持仓成本与挂单。
@@ -227,6 +233,18 @@ func GetTradeStats() (TradeStats, error) {
 	if err := DB.Model(&TradePosition{}).Select("COALESCE(SUM(cost), 0)").Scan(&stats.PositionCost).Error; err != nil {
 		return stats, err
 	}
-	err := DB.Model(&TradeOrder{}).Where("status = ?", TradeOrderStatusOpen).Count(&stats.OpenOrders).Error
+	if err := DB.Model(&TradeOrder{}).Where("status = ?", TradeOrderStatusOpen).Count(&stats.OpenOrders).Error; err != nil {
+		return stats, err
+	}
+	var futures struct {
+		Positions int64
+		Margin    int
+	}
+	if err := DB.Model(&TradeFuturesPosition{}).Where("qty > 0").
+		Select("COUNT(*) AS positions, COALESCE(SUM(margin), 0) AS margin").Scan(&futures).Error; err != nil {
+		return stats, err
+	}
+	stats.FuturesPositions, stats.FuturesMargin = futures.Positions, futures.Margin
+	err := DB.Model(&TradeFuturesOrder{}).Where("status = ?", TradeOrderStatusOpen).Count(&stats.FuturesOpenOrders).Error
 	return stats, err
 }

@@ -7,18 +7,21 @@ import (
 )
 
 // TradeSnapshot 是每人每天结束时的资产快照，用来画总资产曲线和每日盈亏日历。持仓按拍快照时的价格估值，
-// 按交易对的种类(加密货币、美股代币)分开记市值和当天的买卖资金流，日历点开某一天时能看出盈亏来自哪一类：
-// 某一类当天的盈亏 = 当天市值 - 前一天市值 + 当天的资金流(卖出到账减去买入花费)，两类相加正好是总资产的变化减去净转入。
+// 按现货的种类(加密货币、美股代币)与合约分开记市值和当天的资金流，日历点开某一天时能看出盈亏来自哪一类：
+// 某一类当天的盈亏 = 当天市值 - 前一天市值 + 当天的资金流(卖出、平仓到账减去买入、开仓花费)，三类相加正好是总资产的变化减去净转入。
 type TradeSnapshot struct {
 	UserId int    `json:"user_id" gorm:"primaryKey;autoIncrement:false"`
 	Day    string `json:"day" gorm:"type:varchar(10);primaryKey;index"`
-	// Equity 是总资产：资金合计(可用 + 冻结)加上持仓市值。
+	// Equity 是总资产：资金合计(可用 + 冻结)加上现货市值与合约仓位的价值(保证金加浮动盈亏)。
 	Equity      int `json:"equity" gorm:"type:bigint"`
 	Cash        int `json:"cash" gorm:"type:bigint"`
 	CryptoValue int `json:"crypto_value" gorm:"type:bigint"`
 	StockValue  int `json:"stock_value" gorm:"type:bigint"`
 	CryptoFlow  int `json:"crypto_flow" gorm:"type:bigint"`
 	StockFlow   int `json:"stock_flow" gorm:"type:bigint"`
+	// FuturesValue 是合约仓位的价值合计，FuturesFlow 是当天合约的资金流(平仓、减少保证金到账减去开仓、追加保证金花费)。
+	FuturesValue int `json:"futures_value" gorm:"type:bigint"`
+	FuturesFlow  int `json:"futures_flow" gorm:"type:bigint"`
 	// NetIn 是截至当天结束的累计净转入(TotalIn - TotalOut)。
 	NetIn     int   `json:"net_in" gorm:"type:bigint"`
 	CreatedAt int64 `json:"created_at" gorm:"bigint"`
@@ -85,14 +88,36 @@ func ListTradeSymbolFlows(userIds []int, start int64, end int64) ([]TradeSymbolF
 	return flows, err
 }
 
+// TradeUserFlow 是一个用户一段时间的资金流。
+type TradeUserFlow struct {
+	UserId int `json:"user_id"`
+	Amount int `json:"amount"`
+}
+
+// ListTradeFuturesFlows 汇总这些用户在 [start, end) 里合约的资金流：开仓、平仓与调整保证金动过的可用资金。
+func ListTradeFuturesFlows(userIds []int, start int64, end int64) ([]TradeUserFlow, error) {
+	var flows []TradeUserFlow
+	if len(userIds) == 0 {
+		return flows, nil
+	}
+	err := DB.Model(&TradeLedger{}).
+		Select("user_id, COALESCE(SUM(amount), 0) AS amount").
+		Where("user_id IN ? AND type IN ? AND created_at >= ? AND created_at < ?", userIds,
+			[]string{TradeLedgerFuturesOpen, TradeLedgerFuturesClose, TradeLedgerFuturesMargin}, start, end).
+		Group("user_id").
+		Scan(&flows).Error
+	return flows, err
+}
+
 // SaveTradeSnapshots 写入一批快照，同一天重复拍时以后拍的为准。
 func SaveTradeSnapshots(snapshots []TradeSnapshot) error {
 	if len(snapshots) == 0 {
 		return nil
 	}
 	return DB.Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "user_id"}, {Name: "day"}},
-		DoUpdates: clause.AssignmentColumns([]string{"equity", "cash", "crypto_value", "stock_value", "crypto_flow", "stock_flow", "net_in", "created_at"}),
+		Columns: []clause.Column{{Name: "user_id"}, {Name: "day"}},
+		DoUpdates: clause.AssignmentColumns([]string{"equity", "cash", "crypto_value", "stock_value", "crypto_flow", "stock_flow",
+			"futures_value", "futures_flow", "net_in", "created_at"}),
 	}).Create(&snapshots).Error
 }
 

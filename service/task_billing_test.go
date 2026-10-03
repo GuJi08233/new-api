@@ -61,6 +61,9 @@ func TestMain(m *testing.M) {
 		&model.TradeProfitOutDay{},
 		&model.TradeSnapshot{},
 		&model.TradeSnapshotDay{},
+		&model.TradeFuturesPosition{},
+		&model.TradeFuturesHistory{},
+		&model.TradeFuturesOrder{},
 	); err != nil {
 		panic("failed to migrate: " + err.Error())
 	}
