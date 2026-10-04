@@ -63,31 +63,57 @@ func TestEntrySharesAddUpToTheEntryValue(t *testing.T) {
 	assert.True(t, d("33.333333333333333333").Equal(EntryShare(d("100"), 1, 3)))
 }
 
-// 强平价与强平判断一致：到了预估强平价就该强平，离强平价还远时不强平。
+// flatBrackets 只有一档：维持保证金率 0.5%。
+var flatBrackets = Brackets{{Floor: d("0"), Cap: d("1000000000"), MaxLeverage: 100, Mmr: d("0.005"), MaintAmount: d("0")}}
+
+// btcBrackets 是 BTCUSDT 的前两档：30 万以下 0.4%，30 万到 80 万 0.5% 减去速算数 300。
+var btcBrackets = Brackets{
+	{Floor: d("0"), Cap: d("300000"), MaxLeverage: 150, Mmr: d("0.004"), MaintAmount: d("0")},
+	{Floor: d("300000"), Cap: d("800000"), MaxLeverage: 100, Mmr: d("0.005"), MaintAmount: d("300")},
+}
+
+// 档位按名义价值左闭右开取，超过最高档按最高档；维持保证金在两档分界处连续。
+func TestBracketsPickTheTierByNotional(t *testing.T) {
+	assert.Equal(t, 150, btcBrackets.For(d("299999.99")).MaxLeverage)
+	assert.Equal(t, 100, btcBrackets.For(d("300000")).MaxLeverage)
+	assert.Equal(t, 100, btcBrackets.For(d("5000000")).MaxLeverage, "beyond the last tier")
+	assert.True(t, d("1200").Equal(btcBrackets.MaintenanceUsd(d("300000"))))
+	assert.True(t, d("1199.99996").Equal(btcBrackets.MaintenanceUsd(d("299999.99"))))
+	assert.Zero(t, Brackets{}.For(d("1")).MaxLeverage, "no brackets, no limit")
+}
+
+// 强平价与强平判断一致：到了预估强平价就该强平，离强平价还远时不强平；仓位跨档时按强平价所在的档位算。
 func TestLiquidationPriceMatchesLiquidatable(t *testing.T) {
-	const margin = 50_000_000 // 100 USDT，10 倍开 10 个 @ 100
 	tests := []struct {
-		name    string
-		side    PositionSide
-		wantLiq string
-		safe    string
+		name     string
+		side     PositionSide
+		entry    string
+		qty      int64
+		margin   int
+		brackets Brackets
+		wantLiq  string
+		safe     string
 	}{
-		{name: "long", side: Long, wantLiq: "90.45226131", safe: "90.46"},
-		{name: "short", side: Short, wantLiq: "109.45273631", safe: "109.4"},
+		// 10 倍开 10 个 @ 100，保证金 100 USDT。
+		{name: "long", side: Long, entry: "1000", qty: 10_0000_0000, margin: 50_000_000, brackets: flatBrackets, wantLiq: "90.45226131", safe: "90.46"},
+		{name: "short", side: Short, entry: "1000", qty: 10_0000_0000, margin: 50_000_000, brackets: flatBrackets, wantLiq: "109.45273631", safe: "109.4"},
+		// 10 倍开 4 个 @ 100000，保证金 40000 USDT，强平时名义价值在第二档。
+		{name: "long in the second tier", side: Long, entry: "400000", qty: 4_0000_0000, margin: 20_000_000_000, brackets: btcBrackets, wantLiq: "90376.88442212", safe: "90377"},
+		{name: "short in the second tier", side: Short, entry: "400000", qty: 4_0000_0000, margin: 20_000_000_000, brackets: btcBrackets, wantLiq: "109527.36318407", safe: "109527"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			liq := pricing.LiquidationPrice(test.side, d("1000"), 10_0000_0000, margin, 50)
+			liq := pricing.LiquidationPrice(test.side, d(test.entry), test.qty, test.margin, test.brackets)
 			assert.True(t, d(test.wantLiq).Equal(liq), "liquidation price %s", liq)
-			hit, err := pricing.Liquidatable(test.side, d("1000"), 10_0000_0000, margin, liq, 50)
+			hit, err := pricing.Liquidatable(test.side, d(test.entry), test.qty, test.margin, liq, test.brackets)
 			require.NoError(t, err)
 			assert.True(t, hit, "liquidated at the liquidation price")
-			hit, err = pricing.Liquidatable(test.side, d("1000"), 10_0000_0000, margin, d(test.safe), 50)
+			hit, err = pricing.Liquidatable(test.side, d(test.entry), test.qty, test.margin, d(test.safe), test.brackets)
 			require.NoError(t, err)
 			assert.False(t, hit, "not liquidated before the liquidation price")
 		})
 	}
-	assert.True(t, pricing.LiquidationPrice(Long, d("1000"), 10_0000_0000, 500_000_000, 50).IsZero(), "a fully funded long is never liquidated")
+	assert.True(t, pricing.LiquidationPrice(Long, d("1000"), 10_0000_0000, 500_000_000, flatBrackets).IsZero(), "a fully funded long is never liquidated")
 }
 
 // 资金费率为正时多仓付、空仓收，为负时反过来；按带符号的值向下取整。

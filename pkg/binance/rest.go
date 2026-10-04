@@ -364,6 +364,59 @@ func (c *Client) MarkPrices(ctx context.Context, symbols []string) ([]MarkPrice,
 	return marks, nil
 }
 
+// RiskBrackets 读 Binance 网页用的公开合约风险限额表(不需要 API Key)，返回 symbols 里每个合约的档位，从低到高；表里没有的
+// 合约不在结果里。这个接口在 www.binance.com 的 /bapi 下，不在 fapi 上，客户端的根地址要是 https://www.binance.com。
+// 档位不完整或不连贯的合约整个丢掉，调用方继续用原来的档位。
+func (c *Client) RiskBrackets(ctx context.Context, symbols []string) (map[string][]RiskBracket, error) {
+	var payload struct {
+		Code string `json:"code"`
+		Data struct {
+			Brackets []struct {
+				Symbol       string `json:"symbol"`
+				RiskBrackets []struct {
+					Seq         int         `json:"bracketSeq"`
+					Floor       json.Number `json:"bracketNotionalFloor"`
+					Cap         json.Number `json:"bracketNotionalCap"`
+					Mmr         json.Number `json:"bracketMaintenanceMarginRate"`
+					MaintAmount json.Number `json:"cumFastMaintenanceAmount"`
+					MaxLeverage int         `json:"maxOpenPosLeverage"`
+				} `json:"riskBrackets"`
+			} `json:"brackets"`
+		} `json:"data"`
+	}
+	if err := c.get(ctx, "/bapi/futures/v1/friendly/future/common/brackets", nil, &payload); err != nil {
+		return nil, err
+	}
+	if payload.Code != "000000" {
+		return nil, fmt.Errorf("binance brackets: code %s", payload.Code)
+	}
+	one := decimal.NewFromInt(1)
+	result := make(map[string][]RiskBracket, len(symbols))
+	for _, item := range payload.Data.Brackets {
+		if !slices.Contains(symbols, item.Symbol) || len(item.RiskBrackets) == 0 {
+			continue
+		}
+		tiers := make([]RiskBracket, 0, len(item.RiskBrackets))
+		for i, row := range item.RiskBrackets {
+			floor, floorErr := decimal.NewFromString(row.Floor.String())
+			upper, capErr := decimal.NewFromString(row.Cap.String())
+			mmr, mmrErr := decimal.NewFromString(row.Mmr.String())
+			maint, maintErr := decimal.NewFromString(row.MaintAmount.String())
+			if floorErr != nil || capErr != nil || mmrErr != nil || maintErr != nil || row.Seq != i+1 || row.MaxLeverage < 1 ||
+				!upper.GreaterThan(floor) || !mmr.IsPositive() || !mmr.LessThan(one) || maint.IsNegative() ||
+				i > 0 && !floor.Equal(tiers[i-1].Cap) {
+				tiers = nil
+				break
+			}
+			tiers = append(tiers, RiskBracket{Floor: floor, Cap: upper, MaxLeverage: row.MaxLeverage, Mmr: mmr, MaintAmount: maint})
+		}
+		if len(tiers) > 0 {
+			result[item.Symbol] = tiers
+		}
+	}
+	return result, nil
+}
+
 // FundingRates 查一个合约在 startTime(毫秒，含)之后已经结算的资金费，按结算时间从早到晚，最多 limit 条(<= 0 时用 Binance 的
 // 默认 100 条)。只用于合约客户端。
 func (c *Client) FundingRates(ctx context.Context, symbol string, startTime int64, limit int) ([]FundingRate, error) {

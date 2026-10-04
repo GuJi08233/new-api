@@ -177,6 +177,7 @@ func SetApiRouter(router *gin.Engine) {
 			// 合约：开仓要合约开放(由下单接口判断)；平仓、撤单、调整保证金与止盈止损在合约关闭后照样可以，用户随时能把仓位平掉。
 			tradeRoute.GET("/futures/market", controller.GetTradeFuturesMarket)
 			tradeRoute.GET("/futures/klines", controller.GetTradeFuturesKlines)
+			tradeRoute.GET("/futures/brackets", controller.GetTradeFuturesBrackets)
 			tradeRoute.GET("/futures/positions", controller.GetTradeFuturesPositions)
 			tradeRoute.GET("/futures/orders", controller.GetTradeFuturesOrders)
 			tradeRoute.GET("/futures/orders/:id/fills", controller.GetTradeFuturesOrderFills)
@@ -185,7 +186,10 @@ func SetApiRouter(router *gin.Engine) {
 			tradeRoute.POST("/futures/orders", middleware.TradeOrderRateLimit(), controller.PlaceTradeFuturesOrder)
 			tradeRoute.POST("/futures/orders/:id/cancel", middleware.TradeOrderRateLimit(), controller.CancelTradeFuturesOrder)
 			tradeRoute.POST("/futures/positions/margin", middleware.TradeOrderRateLimit(), controller.AdjustTradeFuturesMargin)
-			tradeRoute.POST("/futures/positions/tpsl", middleware.TradeOrderRateLimit(), controller.SetTradeFuturesTpSl)
+			tradeRoute.POST("/futures/positions/levels", middleware.TradeOrderRateLimit(), controller.SetTradeFuturesLevels)
+			tradeRoute.POST("/futures/positions/close-all", middleware.TradeOrderRateLimit(), controller.CloseAllTradeFutures)
+			tradeRoute.POST("/futures/positions/reverse", middleware.TradeOrderRateLimit(), controller.ReverseTradeFutures)
+			tradeRoute.POST("/futures/leverage", middleware.TradeOrderRateLimit(), controller.AdjustTradeFuturesLeverage)
 		}
 		tradeAdminRoute := apiRouter.Group("/trade/admin")
 		tradeAdminRoute.Use(middleware.RootAuth())

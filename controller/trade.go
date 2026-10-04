@@ -331,45 +331,49 @@ func StreamTradeMarket(c *gin.Context) {
 	}
 }
 
-// respondTradeOrderError 把下单与撤单的错误翻译给用户，意料之外的错误记日志。
-func respondTradeOrderError(c *gin.Context, symbol string, err error) {
+// tradeOrderErrorMessage 把下单与撤单的错误翻译给用户，意料之外的错误记日志。
+func tradeOrderErrorMessage(c *gin.Context, symbol string, err error) string {
 	setting := operation_setting.GetTradeSetting()
 	rules, _ := service.GetTradeMarket().Rules(symbol)
 	switch {
 	case errors.Is(err, service.ErrTradeDisabled):
-		common.ApiErrorI18n(c, i18n.MsgTradeDisabled)
+		return i18n.T(c, i18n.MsgTradeDisabled)
 	case errors.Is(err, service.ErrTradeSymbolClosed):
-		common.ApiErrorI18n(c, i18n.MsgTradeSymbolClosed)
-	case errors.Is(err, service.ErrTradeMarketUnavailable):
-		common.ApiErrorI18n(c, i18n.MsgTradeMarketUnavailable)
+		return i18n.T(c, i18n.MsgTradeSymbolClosed)
+	case errors.Is(err, service.ErrTradeMarketUnavailable), errors.Is(err, model.ErrTradeMarkUnavailable):
+		return i18n.T(c, i18n.MsgTradeMarketUnavailable)
 	case errors.Is(err, service.ErrTradeMarketStale):
-		common.ApiErrorI18n(c, i18n.MsgTradeMarketStale)
+		return i18n.T(c, i18n.MsgTradeMarketStale)
 	case errors.Is(err, service.ErrTradeOrderInvalid):
-		common.ApiErrorI18n(c, i18n.MsgTradeOrderInvalid)
+		return i18n.T(c, i18n.MsgTradeOrderInvalid)
 	case errors.Is(err, service.ErrTradeQtyTooSmall):
-		common.ApiErrorI18n(c, i18n.MsgTradeQtyTooSmall, map[string]any{"Min": rules.MinQty.String()})
+		return i18n.T(c, i18n.MsgTradeQtyTooSmall, map[string]any{"Min": rules.MinQty.String()})
 	case errors.Is(err, service.ErrTradeNotionalTooSmall):
-		common.ApiErrorI18n(c, i18n.MsgTradeNotionalTooSmall, map[string]any{"Min": rules.MinNotional.String()})
+		return i18n.T(c, i18n.MsgTradeNotionalTooSmall, map[string]any{"Min": rules.MinNotional.String()})
 	case errors.Is(err, service.ErrTradeOrderTooLarge):
-		common.ApiErrorI18n(c, i18n.MsgTradeOrderTooLarge, map[string]any{"Max": setting.MaxOrderUsd})
+		return i18n.T(c, i18n.MsgTradeOrderTooLarge, map[string]any{"Max": setting.MaxOrderUsd})
 	case errors.Is(err, service.ErrTradePriceInvalid):
-		common.ApiErrorI18n(c, i18n.MsgTradePriceInvalid)
+		return i18n.T(c, i18n.MsgTradePriceInvalid)
 	case errors.Is(err, service.ErrTradeNoLiquidity):
-		common.ApiErrorI18n(c, i18n.MsgTradeNoLiquidity)
+		return i18n.T(c, i18n.MsgTradeNoLiquidity)
 	case errors.Is(err, model.ErrTradeCashInsufficient):
-		common.ApiErrorI18n(c, i18n.MsgTradeCashInsufficient)
+		return i18n.T(c, i18n.MsgTradeCashInsufficient)
 	case errors.Is(err, model.ErrTradePositionInsufficient):
-		common.ApiErrorI18n(c, i18n.MsgTradePositionInsufficient)
+		return i18n.T(c, i18n.MsgTradePositionInsufficient)
 	case errors.Is(err, model.ErrTradePositionLimit):
-		common.ApiErrorI18n(c, i18n.MsgTradePositionLimit, map[string]any{"Max": setting.MaxPositionUsd})
+		return i18n.T(c, i18n.MsgTradePositionLimit, map[string]any{"Max": setting.MaxPositionUsd})
 	case errors.Is(err, model.ErrTradeOpenOrderLimit):
-		common.ApiErrorI18n(c, i18n.MsgTradeOpenOrderLimit, map[string]any{"Max": model.TradeMaxOpenOrders})
+		return i18n.T(c, i18n.MsgTradeOpenOrderLimit, map[string]any{"Max": model.TradeMaxOpenOrders})
 	case errors.Is(err, model.ErrTradeOrderNotOpen), errors.Is(err, gorm.ErrRecordNotFound):
-		common.ApiErrorI18n(c, i18n.MsgTradeOrderNotOpen)
+		return i18n.T(c, i18n.MsgTradeOrderNotOpen)
 	default:
 		common.SysError(fmt.Sprintf("trade order failed for user %d: %v", c.GetInt("id"), err))
-		common.ApiErrorI18n(c, i18n.MsgTradeOrderFailed)
+		return i18n.T(c, i18n.MsgTradeOrderFailed)
 	}
+}
+
+func respondTradeOrderError(c *gin.Context, symbol string, err error) {
+	common.ApiErrorMsg(c, tradeOrderErrorMessage(c, symbol, err))
 }
 
 // PlaceTradeOrder 下一笔委托。
@@ -529,7 +533,7 @@ func TransferTrade(c *gin.Context) {
 		_, err = model.TransferQuotaToTrade(userId, quota)
 		content = fmt.Sprintf("模拟盘转入额度 %s", logger.LogQuota(quota))
 	} else {
-		_, profit, err = model.TransferQuotaFromTrade(userId, quota, tradeDay(time.Now()), setting.DailyProfitOutUsd*perUsd)
+		_, profit, err = model.TransferQuotaFromTrade(userId, quota, tradeDay(time.Now()), setting.DailyProfitOutUsd*perUsd, service.TradeAccountingMarket())
 		content = fmt.Sprintf("模拟盘转出额度 %s，其中盈利 %s", logger.LogQuota(quota), logger.LogQuota(profit))
 	}
 	if err != nil {
@@ -544,6 +548,8 @@ func TransferTrade(c *gin.Context) {
 			common.ApiErrorI18n(c, i18n.MsgTradeProfitOutLimit, map[string]any{"Max": setting.DailyProfitOutUsd})
 		case errors.Is(err, model.ErrQuotaOutOfRange):
 			common.ApiErrorI18n(c, i18n.MsgQuotaExceedMax)
+		case errors.Is(err, model.ErrTradeMarkUnavailable):
+			common.ApiErrorI18n(c, i18n.MsgTradeMarketUnavailable)
 		default:
 			common.SysError(fmt.Sprintf("trade transfer failed for user %d: %v", userId, err))
 			common.ApiErrorI18n(c, i18n.MsgTradeTransferFailed)

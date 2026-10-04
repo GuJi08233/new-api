@@ -89,6 +89,16 @@ type FundingRate struct {
 	MarkPrice   decimal.Decimal
 }
 
+// RiskBracket 是合约的一档风险限额：仓位名义价值在 [Floor, Cap) 之间时最高 MaxLeverage 倍杠杆，
+// 维持保证金 = 名义价值 × Mmr − MaintAmount。
+type RiskBracket struct {
+	Floor       decimal.Decimal
+	Cap         decimal.Decimal
+	MaxLeverage int
+	Mmr         decimal.Decimal
+	MaintAmount decimal.Decimal
+}
+
 // decimalParser 解析 Binance 用字符串表示的价格与数量。它只记下第一个错误，一条消息里的字段可以连着解析、最后检查一次。
 type decimalParser struct {
 	err error

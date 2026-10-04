@@ -92,13 +92,15 @@ type TradeLedger struct {
 	Type    string `json:"type" gorm:"type:varchar(16);index"`
 	Symbol  string `json:"symbol" gorm:"type:varchar(20)"`
 	OrderId int    `json:"order_id" gorm:"index"`
+	// PositionId 是合约账单所属的那一段仓位(见 TradeFuturesPosition.PositionId)，其他账单为 0。
+	PositionId int `json:"position_id" gorm:"index"`
 	// Qty 与 Price 是这次成交的数量(10^-8)与均价，转入转出时为空；合约资金费的账单里 Price 是资金费率。
 	Qty   int64  `json:"qty" gorm:"bigint"`
 	Price string `json:"price" gorm:"type:varchar(40)"`
 	// Amount 是资金变动(额度单位)，入账为正；买入是成交金额加手续费，卖出是成交金额减手续费。
 	Amount int `json:"amount" gorm:"type:bigint"`
 	Fee    int `json:"fee" gorm:"type:bigint"`
-	// Pnl 是合约平仓的毛盈亏、强平亏掉的保证金或资金费的收付(额度单位)，其他账单为 0。
+	// Pnl 是合约平仓与强平的毛盈亏或资金费的收付(额度单位)，其他账单为 0。
 	Pnl int `json:"pnl" gorm:"type:bigint"`
 	// Balance 是变动后的资金合计(可用 + 冻结)。
 	Balance   int   `json:"balance" gorm:"type:bigint"`
@@ -174,8 +176,12 @@ func lockTradeAccountTx(tx *gorm.DB, userId int) (*TradeAccount, error) {
 }
 
 // saveTradeAccountTx 写回锁住后改过的账户。金额都必须在 [0, 2^53) 里，越界说明上游算错了，整笔事务回滚，不写出夹过的数字。
+// 资金例外：有全仓合约仓位时可以暂时是负的(见 settleTradeCrossDeficitTx)，其他地方花钱之前都先检查资金够不够。
 func saveTradeAccountTx(tx *gorm.DB, account *TradeAccount) error {
-	for _, value := range []int{account.Cash, account.Frozen, account.QuotaPrincipal, account.TotalIn, account.TotalOut} {
+	if account.Cash <= -common.MaxQuota || account.Cash >= common.MaxQuota {
+		return ErrTradeAmountInvalid
+	}
+	for _, value := range []int{account.Frozen, account.QuotaPrincipal, account.TotalIn, account.TotalOut} {
 		if value < 0 || value >= common.MaxQuota {
 			return ErrTradeAmountInvalid
 		}
@@ -192,11 +198,11 @@ func saveTradeAccountTx(tx *gorm.DB, account *TradeAccount) error {
 }
 
 // tradeLedgerTx 写一条账单，Balance 取账户当前的资金合计。
-func tradeLedgerTx(tx *gorm.DB, account *TradeAccount, entry TradeLedger) error {
+func tradeLedgerTx(tx *gorm.DB, account *TradeAccount, entry *TradeLedger) error {
 	entry.UserId = account.UserId
 	entry.Balance = account.Cash + account.Frozen
 	entry.CreatedAt = common.GetTimestamp()
-	return tx.Create(&entry).Error
+	return tx.Create(entry).Error
 }
 
 // TradeStats 是全站模拟盘的汇总，给管理员看：资金、持仓成本与合约保证金都是额度单位。
@@ -207,9 +213,11 @@ type TradeStats struct {
 	PositionCost int   `json:"position_cost"`
 	NetIn        int   `json:"net_in"`
 	OpenOrders   int64 `json:"open_orders"`
-	// FuturesPositions 是持有中的合约仓位数，FuturesMargin 是它们的保证金合计，FuturesOpenOrders 是挂着的合约委托数。
+	// FuturesPositions 是持有中的合约仓位数，FuturesMargin 是逐仓仓位的保证金合计，FuturesCrossUsed 是全仓仓位占用的保证金合计，
+	// FuturesOpenOrders 是挂着的合约委托数。
 	FuturesPositions  int64 `json:"futures_positions"`
 	FuturesMargin     int   `json:"futures_margin"`
+	FuturesCrossUsed  int   `json:"futures_cross_used"`
 	FuturesOpenOrders int64 `json:"futures_open_orders"`
 }
 
@@ -236,15 +244,23 @@ func GetTradeStats() (TradeStats, error) {
 	if err := DB.Model(&TradeOrder{}).Where("status = ?", TradeOrderStatusOpen).Count(&stats.OpenOrders).Error; err != nil {
 		return stats, err
 	}
-	var futures struct {
-		Positions int64
-		Margin    int
+	var futures []struct {
+		MarginMode string
+		Positions  int64
+		Margin     int
 	}
 	if err := DB.Model(&TradeFuturesPosition{}).Where("qty > 0").
-		Select("COUNT(*) AS positions, COALESCE(SUM(margin), 0) AS margin").Scan(&futures).Error; err != nil {
+		Select("margin_mode, COUNT(*) AS positions, COALESCE(SUM(margin), 0) AS margin").Group("margin_mode").Scan(&futures).Error; err != nil {
 		return stats, err
 	}
-	stats.FuturesPositions, stats.FuturesMargin = futures.Positions, futures.Margin
+	for _, row := range futures {
+		stats.FuturesPositions += row.Positions
+		if row.MarginMode == TradeFuturesCross {
+			stats.FuturesCrossUsed += row.Margin
+		} else {
+			stats.FuturesMargin += row.Margin
+		}
+	}
 	err := DB.Model(&TradeFuturesOrder{}).Where("status = ?", TradeOrderStatusOpen).Count(&stats.FuturesOpenOrders).Error
 	return stats, err
 }

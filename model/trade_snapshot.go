@@ -57,6 +57,16 @@ func ListTradeAccounts(afterUserId int, limit int) ([]TradeAccount, error) {
 	return accounts, err
 }
 
+// ListTradeAccountsOf 返回这些用户的模拟盘账户。
+func ListTradeAccountsOf(userIds []int) ([]TradeAccount, error) {
+	var accounts []TradeAccount
+	if len(userIds) == 0 {
+		return accounts, nil
+	}
+	err := DB.Where("user_id IN ?", userIds).Find(&accounts).Error
+	return accounts, err
+}
+
 // ListTradePositionsOf 返回这些用户还持有的仓位。
 func ListTradePositionsOf(userIds []int) ([]TradePosition, error) {
 	var positions []TradePosition
@@ -94,7 +104,7 @@ type TradeUserFlow struct {
 	Amount int `json:"amount"`
 }
 
-// ListTradeFuturesFlows 汇总这些用户在 [start, end) 里合约的资金流：开仓、平仓与调整保证金动过的可用资金。
+// ListTradeFuturesFlows 汇总这些用户在 [start, end) 里合约的资金流：开仓、平仓、强平、调整保证金、全仓资金费与站点补足动过的资金。
 func ListTradeFuturesFlows(userIds []int, start int64, end int64) ([]TradeUserFlow, error) {
 	var flows []TradeUserFlow
 	if len(userIds) == 0 {
@@ -102,8 +112,7 @@ func ListTradeFuturesFlows(userIds []int, start int64, end int64) ([]TradeUserFl
 	}
 	err := DB.Model(&TradeLedger{}).
 		Select("user_id, COALESCE(SUM(amount), 0) AS amount").
-		Where("user_id IN ? AND type IN ? AND created_at >= ? AND created_at < ?", userIds,
-			[]string{TradeLedgerFuturesOpen, TradeLedgerFuturesClose, TradeLedgerFuturesMargin}, start, end).
+		Where("user_id IN ? AND type IN ? AND created_at >= ? AND created_at < ?", userIds, tradeFuturesFlowTypes, start, end).
 		Group("user_id").
 		Scan(&flows).Error
 	return flows, err

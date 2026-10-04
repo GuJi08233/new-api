@@ -56,7 +56,7 @@ func TestTradeQuotaTransferMovesValueAtomically(t *testing.T) {
 	assert.Equal(t, tradeUsd(6), quota)
 	assert.Equal(t, tradeUsd(4), tradeTestAccount(t, 3001).Cash)
 
-	_, profit, err := TransferQuotaFromTrade(3001, tradeUsd(1.5), tradeTestDay, tradeUsd(1))
+	_, profit, err := TransferQuotaFromTrade(3001, tradeUsd(1.5), tradeTestDay, tradeUsd(1), nil)
 	require.NoError(t, err)
 	assert.Zero(t, profit, "转回自己转入的额度不算盈利")
 	quota, err = GetUserQuota(3001, true)
@@ -82,24 +82,24 @@ func TestTradeProfitLeavesUnderTheDailyCap(t *testing.T) {
 	require.NoError(t, err)
 	tradeRoundTrip(t, 3002, 10, 15)
 
-	_, _, err = TransferQuotaFromTrade(3002, tradeUsd(16), tradeTestDay, tradeUsd(100))
+	_, _, err = TransferQuotaFromTrade(3002, tradeUsd(16), tradeTestDay, tradeUsd(100), nil)
 	require.ErrorIs(t, err, ErrTradeWithdrawExceeded, "账户里只有 15 美元")
-	_, _, err = TransferQuotaFromTrade(3002, tradeUsd(15), tradeTestDay, tradeUsd(2))
+	_, _, err = TransferQuotaFromTrade(3002, tradeUsd(15), tradeTestDay, tradeUsd(2), nil)
 	require.ErrorIs(t, err, ErrTradeProfitOutLimit, "盈利 5 美元超过当天的上限")
 
-	_, profit, err := TransferQuotaFromTrade(3002, tradeUsd(12), tradeTestDay, tradeUsd(2))
+	_, profit, err := TransferQuotaFromTrade(3002, tradeUsd(12), tradeTestDay, tradeUsd(2), nil)
 	require.NoError(t, err)
 	assert.Equal(t, tradeUsd(2), profit, "先转回本金 10 美元，其余算盈利")
-	_, _, err = TransferQuotaFromTrade(3002, tradeUsd(1), tradeTestDay, tradeUsd(2))
+	_, _, err = TransferQuotaFromTrade(3002, tradeUsd(1), tradeTestDay, tradeUsd(2), nil)
 	require.ErrorIs(t, err, ErrTradeProfitOutLimit, "当天的盈利额度已经用完")
-	_, profit, err = TransferQuotaFromTrade(3002, tradeUsd(1), "2026-10-04", tradeUsd(2))
+	_, profit, err = TransferQuotaFromTrade(3002, tradeUsd(1), "2026-10-04", tradeUsd(2), nil)
 	require.NoError(t, err, "第二天重新计算")
 	assert.Equal(t, tradeUsd(1), profit)
 
 	_, err = PlaceTradeOrder(TradeOrderInput{UserId: 3002, Symbol: "BTCUSDT", Side: TradeSideBuy, Type: TradeOrderTypeMarket, Qty: 100_000_000,
 		Fill: TradeFill{Qty: 100_000_000, Amount: tradeUsd(1.5), Price: "1.5"}})
 	require.NoError(t, err)
-	_, _, err = TransferQuotaFromTrade(3002, tradeUsd(1), "2026-10-04", 0)
+	_, _, err = TransferQuotaFromTrade(3002, tradeUsd(1), "2026-10-04", 0, nil)
 	require.ErrorIs(t, err, ErrTradeWithdrawExceeded, "持仓里的钱要卖出之后才能转出")
 
 	account := tradeTestAccount(t, 3002)

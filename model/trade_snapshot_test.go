@@ -10,18 +10,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// 每日盈亏按类别拆分靠账单汇总：现货按交易对汇总买卖的资金流，合约汇总开仓、平仓与调整保证金动过的可用资金
-// (资金费与强平记在保证金上，不算资金流)；时间窗之外的账单不算。管理页的全站汇总同样来自这几张表。
+// 每日盈亏按类别拆分靠账单汇总：现货按交易对汇总买卖的资金流，合约汇总全部合约账单动过的资金(开平仓、调整保证金、全仓的
+// 资金费、强平退回的钱与站点补足的钱)；时间窗之外的账单不算。管理页的全站汇总同样来自这几张表。
 func TestTradeFlowsAndStatsSumTheLedger(t *testing.T) {
 	truncateTables(t)
 	seedTradeFuturesAccount(t, 4101, 100)
 	seedTradeFuturesAccount(t, 4102, 50)
 
 	tradeRoundTrip(t, 4101, 20, 23)
-	openTradeFutures(t, 4101, TradeFuturesLong, tradeFuturesCoin, "500", 10, 0.25)
-	_, err := closeTradeFutures(TradeFuturesLong, 4101, tradeFuturesCoin/2, "260", 0.13)
+	openTradeFutures(t, 4101, tradeFuturesSymbol, TradeFuturesIsolated, TradeFuturesLong, tradeFuturesCoin, "500", 10, 0.25, nil)
+	_, err := closeTradeFutures(4101, tradeFuturesSymbol, TradeFuturesLong, tradeFuturesCoin/2, "260", 0.13)
 	require.NoError(t, err)
-	_, err = AdjustTradeFuturesMargin(4101, tradeFuturesSymbol, TradeFuturesLong, tradeUsd(5), decimal.RequireFromString("520"))
+	_, err = AdjustTradeFuturesMargin(4101, tradeFuturesSymbol, TradeFuturesLong, tradeUsd(5), decimal.RequireFromString("520"), nil)
 	require.NoError(t, err)
 	end := common.GetTimestamp() + 1
 

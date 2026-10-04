@@ -16,8 +16,9 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// 合约仓位的风控只在主节点运行：每收到一个合约的标记价格(每秒一次)，就检查这个合约上所有仓位该不该强平、止盈止损有没有到价；
-// 仓位索引定时从数据库重建，本节点改过的仓位立刻重读。资金费按 Binance 已经结算的费率与标记价格结算，记在仓位的保证金上。
+// 合约仓位的风控只在主节点运行：每收到一个合约的标记价格(每秒一次)或最新成交价，就检查这个合约上的仓位：逐仓该不该强平、全仓用户的
+// 账户该不该强平、止损(按标记价格)与止盈(按最新成交价)有没有到价。仓位索引定时从数据库重建，本节点改过的用户立刻重读。
+// 资金费按 Binance 已经结算的费率与标记价格结算，逐仓记在仓位的保证金上，全仓进出资金。
 
 const (
 	// tradeRiskMarkMaxAge 是强平与止盈止损能用的标记价格最多多旧：断线时手里的旧价格不能拿来强平。
@@ -30,59 +31,73 @@ const (
 	tradeFundingBatch = 100
 )
 
+// tradeRiskLevel 是风控索引里的一档止盈或止损。
+type tradeRiskLevel struct {
+	Id    int64
+	Price decimal.Decimal
+	Qty   int64
+}
+
 // tradeRiskPosition 是风控索引里的一个仓位。
 type tradeRiskPosition struct {
-	UserId     int
-	Side       string
-	Qty        int64
-	EntryValue decimal.Decimal
-	Margin     int
-	TakeProfit decimal.Decimal
-	StopLoss   decimal.Decimal
-	// takeProfit 与 stopLoss 是库里记的原样字符串，下止盈止损单时用来核对没被改过。
-	takeProfit string
-	stopLoss   string
+	UserId      int
+	Symbol      string
+	Side        string
+	MarginMode  string
+	Qty         int64
+	EntryValue  decimal.Decimal
+	Margin      int
+	TakeProfits []tradeRiskLevel
+	StopLosses  []tradeRiskLevel
 }
 
 func tradeRiskPositionOf(position model.TradeFuturesPosition) (tradeRiskPosition, error) {
 	entry := tradeRiskPosition{
 		UserId:     position.UserId,
+		Symbol:     position.Symbol,
 		Side:       position.Side,
+		MarginMode: position.MarginMode,
 		Qty:        position.Qty,
 		Margin:     position.Margin,
-		takeProfit: position.TakeProfit,
-		stopLoss:   position.StopLoss,
 	}
 	var err error
 	if entry.EntryValue, err = decimal.NewFromString(position.EntryValue); err != nil {
 		return entry, err
 	}
-	if position.TakeProfit != "" {
-		if entry.TakeProfit, err = decimal.NewFromString(position.TakeProfit); err != nil {
+	for _, list := range []struct {
+		raw    string
+		target *[]tradeRiskLevel
+	}{{position.TakeProfits, &entry.TakeProfits}, {position.StopLosses, &entry.StopLosses}} {
+		levels, err := model.ParseTradeFuturesLevels(list.raw)
+		if err != nil {
 			return entry, err
 		}
-	}
-	if position.StopLoss != "" {
-		if entry.StopLoss, err = decimal.NewFromString(position.StopLoss); err != nil {
-			return entry, err
+		for _, level := range levels {
+			price, err := decimal.NewFromString(level.Price)
+			if err != nil {
+				return entry, err
+			}
+			*list.target = append(*list.target, tradeRiskLevel{Id: level.Id, Price: price, Qty: level.Qty})
 		}
 	}
 	return entry, nil
 }
 
-// trigger 返回标记价格 mark 触发了这个仓位的止盈(tp)还是止损(sl)，都没有时为空。多仓涨到止盈价、跌到止损价触发，空仓反过来。
-func (p tradeRiskPosition) trigger(mark decimal.Decimal) string {
-	long := p.Side == model.TradeFuturesLong
-	switch {
-	case p.StopLoss.IsPositive() && (long && mark.LessThanOrEqual(p.StopLoss) || !long && mark.GreaterThanOrEqual(p.StopLoss)):
-		return model.TradeFuturesTriggerStopLoss
-	case p.TakeProfit.IsPositive() && (long && mark.GreaterThanOrEqual(p.TakeProfit) || !long && mark.LessThanOrEqual(p.TakeProfit)):
-		return model.TradeFuturesTriggerTakeProfit
+// hitTradeRiskLevels 返回价格 price 让哪几档到价以及它们要平的数量合计。rising 为真时价格涨到档位触发(多仓止盈、空仓止损)，
+// 否则跌到档位触发。
+func hitTradeRiskLevels(levels []tradeRiskLevel, price decimal.Decimal, rising bool) ([]int64, int64) {
+	var ids []int64
+	var qty int64
+	for _, level := range levels {
+		if rising && price.GreaterThanOrEqual(level.Price) || !rising && price.LessThanOrEqual(level.Price) {
+			ids = append(ids, level.Id)
+			qty += level.Qty
+		}
 	}
-	return ""
+	return ids, qty
 }
 
-// signalRisk 通知风控这个合约有了新的标记价格。同一合约的多次通知合并成一次。风控只在主节点运行，其他节点不记。
+// signalRisk 通知风控这个合约有了新的标记价格或成交价。同一合约的多次通知合并成一次。风控只在主节点运行，其他节点不记。
 func (m *TradeMarket) signalRisk(symbol string) {
 	if !m.futures || !common.IsMasterNode {
 		return
@@ -96,30 +111,64 @@ func (m *TradeMarket) signalRisk(symbol string) {
 	}
 }
 
-// refreshRisk 在本节点改过一个仓位之后(下单、撤单、调整保证金、止盈止损、资金费)把它重新读进主节点的风控索引并检查一次；
-// 其他节点改的由定时重建读到。
-func (m *TradeMarket) refreshRisk(userId int, symbol string, side string) {
+// refreshRisk 在本节点改过一个用户的合约之后(下单、撤单、调整保证金与杠杆、止盈止损、资金费)把他的仓位与资金重新读进主节点的
+// 风控索引，并检查一次相关的合约；其他节点改的由定时重建读到。
+func (m *TradeMarket) refreshRisk(userId int) {
 	if !m.futures || !common.IsMasterNode {
 		return
 	}
-	position, err := model.GetTradeFuturesPosition(userId, symbol, side)
+	positions, err := model.GetTradeFuturesPositions(userId)
 	if err != nil {
-		common.SysError(fmt.Sprintf("trade futures risk: failed to load the %s %s position of user %d: %v", symbol, side, userId, err))
+		common.SysError(fmt.Sprintf("trade futures risk: failed to load the positions of user %d: %v", userId, err))
 		return
 	}
-	entry, err := tradeRiskPositionOf(*position)
+	account, err := model.GetTradeAccount(userId)
 	if err != nil {
-		common.SysError(fmt.Sprintf("trade futures risk: the %s %s position of user %d is invalid: %v", symbol, side, userId, err))
+		common.SysError(fmt.Sprintf("trade futures risk: failed to load the account of user %d: %v", userId, err))
 		return
 	}
+	pending, err := model.ListTradeFuturesCrossPending([]int{userId})
+	if err != nil {
+		common.SysError(fmt.Sprintf("trade futures risk: failed to load the cross orders of user %d: %v", userId, err))
+		return
+	}
+	entries := make([]tradeRiskPosition, 0, len(positions))
+	for _, position := range positions {
+		entry, err := tradeRiskPositionOf(position)
+		if err != nil {
+			common.SysError(fmt.Sprintf("trade futures risk: the %s %s position of user %d is invalid: %v", position.Symbol, position.Side, userId, err))
+			continue
+		}
+		entries = append(entries, entry)
+	}
+	symbols := map[string]bool{}
 	m.riskMu.Lock()
-	positions := slices.DeleteFunc(m.positions[symbol], func(p tradeRiskPosition) bool { return p.UserId == userId && p.Side == side })
-	if position.Qty > 0 {
-		positions = append(positions, entry)
+	for symbol, list := range m.positions {
+		before := len(list)
+		list = slices.DeleteFunc(list, func(p tradeRiskPosition) bool { return p.UserId == userId })
+		if len(list) != before {
+			symbols[symbol] = true
+		}
+		m.positions[symbol] = list
 	}
-	m.positions[symbol] = positions
+	var cross []tradeRiskPosition
+	for _, entry := range entries {
+		m.positions[entry.Symbol] = append(m.positions[entry.Symbol], entry)
+		symbols[entry.Symbol] = true
+		if entry.MarginMode == model.TradeFuturesCross {
+			cross = append(cross, entry)
+		}
+	}
+	if len(cross) > 0 {
+		m.crossPositions[userId], m.crossCash[userId] = cross, account.Cash+pending[userId]
+	} else {
+		delete(m.crossPositions, userId)
+		delete(m.crossCash, userId)
+	}
 	m.riskMu.Unlock()
-	m.signalRisk(symbol)
+	for symbol := range symbols {
+		m.signalRisk(symbol)
+	}
 }
 
 // reloadRisk 从数据库重建风控索引。
@@ -129,6 +178,7 @@ func (m *TradeMarket) reloadRisk() error {
 		return err
 	}
 	index := map[string][]tradeRiskPosition{}
+	cross := map[int][]tradeRiskPosition{}
 	for _, position := range positions {
 		entry, err := tradeRiskPositionOf(position)
 		if err != nil {
@@ -136,14 +186,33 @@ func (m *TradeMarket) reloadRisk() error {
 			continue
 		}
 		index[position.Symbol] = append(index[position.Symbol], entry)
+		if entry.MarginMode == model.TradeFuturesCross {
+			cross[entry.UserId] = append(cross[entry.UserId], entry)
+		}
+	}
+	userIds := make([]int, 0, len(cross))
+	for userId := range cross {
+		userIds = append(userIds, userId)
+	}
+	accounts, err := model.ListTradeAccountsOf(userIds)
+	if err != nil {
+		return err
+	}
+	pending, err := model.ListTradeFuturesCrossPending(userIds)
+	if err != nil {
+		return err
+	}
+	cash := make(map[int]int, len(accounts))
+	for _, account := range accounts {
+		cash[account.UserId] = account.Cash + pending[account.UserId]
 	}
 	m.riskMu.Lock()
-	m.positions = index
+	m.positions, m.crossPositions, m.crossCash = index, cross, cash
 	m.riskMu.Unlock()
 	return nil
 }
 
-// guard 是主节点上的合约风控：标记价格一更新就检查这个合约上的仓位，另外定时重建索引并全部检查一遍。
+// guard 是主节点上的合约风控：标记价格或成交价一更新就检查这个合约上的仓位，另外定时重建索引并全部检查一遍。
 func (m *TradeMarket) guard() {
 	reload := time.NewTicker(tradeMatchReload)
 	defer reload.Stop()
@@ -174,67 +243,140 @@ func (m *TradeMarket) guard() {
 	}
 }
 
-// checkRisk 用最新的标记价格检查一个合约上的仓位：该强平的强平(保证金全部亏掉)；没到强平而价格到了止盈或止损的，按盘口市价平掉。
-// 索引里的仓位可能是旧的，强平与止盈止损都在事务里按锁住的仓位重新核对。
+// checkRisk 用最新的标记价格与成交价检查一个合约上的仓位：全仓用户的账户该强平的整体强平；逐仓该强平的强平；没强平而止损(标记价格)
+// 或止盈(最新成交价)到价的，按盘口市价平掉到价那几档的数量。索引可能是旧的，强平与止盈止损都在事务里按锁住的数据重新核对。
 func (m *TradeMarket) checkRisk(symbol string) {
 	mark, ok := m.freshMark(symbol, tradeRiskMarkMaxAge)
 	if !ok {
 		return
 	}
-	info, ok := operation_setting.TradeFuturesSymbolOf(symbol)
-	if !ok {
-		return
-	}
-	pricing, _, err := tradePricing(operation_setting.GetTradeSetting())
+	setting := operation_setting.GetTradeSetting()
+	pricing, _, err := tradePricing(setting)
 	if err != nil {
 		return
 	}
+	m.mu.RLock()
+	last, hasLast := decimal.Zero, false
+	if ticker, ok := m.tickers[symbol]; ok && m.dataConnected && ticker.Close.IsPositive() {
+		last, hasLast = ticker.Close, true
+	}
+	m.mu.RUnlock()
+	brackets := TradeFuturesBrackets(symbol)
 	m.riskMu.Lock()
 	positions := slices.Clone(m.positions[symbol])
 	m.riskMu.Unlock()
+
+	checked := map[int]bool{}
 	for _, position := range positions {
-		hit, err := pricing.Liquidatable(tradesim.PositionSide(position.Side), position.EntryValue, position.Qty, position.Margin, mark, info.FuturesMmrBps)
-		if err != nil {
-			common.SysError(fmt.Sprintf("trade futures risk: failed to check the %s %s position of user %d: %v", symbol, position.Side, position.UserId, err))
-			continue
+		if position.MarginMode == model.TradeFuturesCross && !checked[position.UserId] {
+			checked[position.UserId] = true
+			m.checkCross(position.UserId)
 		}
-		if hit {
-			liquidated, err := model.LiquidateTradeFuturesPosition(position.UserId, symbol, position.Side, mark, info.FuturesMmrBps)
+	}
+	for _, position := range positions {
+		if position.MarginMode != model.TradeFuturesCross {
+			hit, err := pricing.Liquidatable(tradesim.PositionSide(position.Side), position.EntryValue, position.Qty, position.Margin, mark, brackets)
 			if err != nil {
-				common.SysError(fmt.Sprintf("trade futures risk: failed to liquidate the %s %s position of user %d: %v", symbol, position.Side, position.UserId, err))
+				common.SysError(fmt.Sprintf("trade futures risk: failed to check the %s %s position of user %d: %v", symbol, position.Side, position.UserId, err))
 				continue
 			}
-			if liquidated {
-				common.SysLog(fmt.Sprintf("trade futures: liquidated the %s %s position of user %d at mark %s", symbol, position.Side, position.UserId, mark))
+			if hit {
+				liquidated, err := model.LiquidateTradeFuturesPosition(position.UserId, symbol, position.Side, mark, brackets, setting.FuturesTakerFeeBps)
+				if err != nil {
+					common.SysError(fmt.Sprintf("trade futures risk: failed to liquidate the %s %s position of user %d: %v", symbol, position.Side, position.UserId, err))
+					continue
+				}
+				if liquidated {
+					common.SysLog(fmt.Sprintf("trade futures: liquidated the %s %s position of user %d at mark %s", symbol, position.Side, position.UserId, mark))
+				}
+				m.refreshRisk(position.UserId)
+				continue
 			}
-			m.refreshRisk(position.UserId, symbol, position.Side)
+		}
+		long := position.Side == model.TradeFuturesLong
+		if ids, qty := hitTradeRiskLevels(position.StopLosses, mark, !long); len(ids) > 0 {
+			m.closeByTrigger(position, model.TradeFuturesTriggerStopLoss, ids, min(qty, position.Qty), mark)
 			continue
 		}
-		if trigger := position.trigger(mark); trigger != "" {
-			m.closeByTrigger(symbol, position, trigger)
+		if !hasLast {
+			continue
+		}
+		if ids, qty := hitTradeRiskLevels(position.TakeProfits, last, long); len(ids) > 0 {
+			m.closeByTrigger(position, model.TradeFuturesTriggerTakeProfit, ids, min(qty, position.Qty), last)
 		}
 	}
 }
 
-// closeByTrigger 在止盈或止损到价时按盘口市价平掉整个仓位(先撤掉仓位挂着的平仓委托)。盘口不够时平掉能平的部分，
-// 剩下的仓位留着止盈止损，下一次标记价格到来时再平。
-func (m *TradeMarket) closeByTrigger(symbol string, position tradeRiskPosition, trigger string) {
+// checkCross 用索引里的资金(加上全仓挂单冻结的钱)与新鲜的标记价格估一下用户的全仓：全仓权益跌到全仓维持保证金时，在事务里核对后
+// 整体强平。有一个全仓合约没有新鲜的标记价格就不检查。
+func (m *TradeMarket) checkCross(userId int) {
+	m.riskMu.Lock()
+	positions := slices.Clone(m.crossPositions[userId])
+	cash := m.crossCash[userId]
+	m.riskMu.Unlock()
+	if len(positions) == 0 {
+		return
+	}
 	setting := operation_setting.GetTradeSetting()
-	rules, ok := m.Rules(symbol)
-	if !ok {
+	pricing, _, err := tradePricing(setting)
+	if err != nil {
+		return
+	}
+	equity, maintenance := cash, 0
+	for _, position := range positions {
+		mark, ok := m.freshMark(position.Symbol, tradeRiskMarkMaxAge)
+		if !ok {
+			return
+		}
+		markValue := mark.Mul(tradesim.QtyFromUnits(position.Qty))
+		pnl, err := pricing.Pnl(tradesim.PositionSide(position.Side), position.EntryValue, markValue)
+		if err != nil {
+			return
+		}
+		required, err := pricing.Maintenance(markValue, TradeFuturesBrackets(position.Symbol))
+		if err != nil {
+			return
+		}
+		equity += pnl
+		maintenance += required
+	}
+	if equity > maintenance {
+		return
+	}
+	liquidated, err := model.LiquidateTradeFuturesCross(userId, tradeFuturesMarks{market: m, maxAge: tradeRiskMarkMaxAge}, setting.FuturesTakerFeeBps)
+	if err != nil {
+		if !errors.Is(err, model.ErrTradeMarkUnavailable) {
+			common.SysError(fmt.Sprintf("trade futures risk: failed to liquidate the cross positions of user %d: %v", userId, err))
+		}
+		return
+	}
+	if liquidated {
+		common.SysLog(fmt.Sprintf("trade futures: liquidated the cross positions of user %d", userId))
+	}
+	m.refreshRisk(userId)
+}
+
+// closeByTrigger 在止盈或止损到价时按盘口市价平掉到价那几档的数量 qty(不超过仓位)，price 是让它们到价的价格。盘口连接断开时不平，
+// 盘口不够时平掉能平的部分，剩下的数量还留在这几档里，下一次价格到来时再平。
+func (m *TradeMarket) closeByTrigger(position tradeRiskPosition, trigger string, ids []int64, qty int64, price decimal.Decimal) {
+	setting := operation_setting.GetTradeSetting()
+	rules, ok := m.Rules(position.Symbol)
+	if !ok || qty <= 0 {
 		return
 	}
 	pricing, _, err := tradePricing(setting)
 	if err != nil {
 		return
 	}
-	triggerPrice := position.takeProfit
-	if trigger == model.TradeFuturesTriggerStopLoss {
-		triggerPrice = position.stopLoss
+	m.mu.RLock()
+	connected := m.connected
+	m.mu.RUnlock()
+	if !connected {
+		return
 	}
-	unlock := m.lockSymbol(symbol)
+	unlock := m.lockSymbol(position.Symbol)
 	defer unlock()
-	view, ok := m.bookView(symbol)
+	view, ok := m.bookView(position.Symbol)
 	if !ok {
 		return
 	}
@@ -243,7 +385,7 @@ func (m *TradeMarket) closeByTrigger(symbol string, position tradeRiskPosition, 
 	if side == tradesim.Buy {
 		levels = view.Asks
 	}
-	fill := tradesim.Walk(levels, side, tradesim.QtyFromUnits(position.Qty), decimal.Zero, rules.StepSize)
+	fill := tradesim.Walk(levels, side, tradesim.QtyFromUnits(qty), decimal.Zero, tradeFuturesStep(rules))
 	if !fill.Qty.IsPositive() {
 		return
 	}
@@ -252,25 +394,26 @@ func (m *TradeMarket) closeByTrigger(symbol string, position tradeRiskPosition, 
 		return
 	}
 	_, err = model.PlaceTradeFuturesOrder(model.TradeFuturesOrderInput{
-		UserId:       position.UserId,
-		Symbol:       symbol,
-		Side:         position.Side,
-		Action:       model.TradeFuturesClose,
-		Type:         model.TradeOrderTypeMarket,
-		Qty:          position.Qty,
-		Fill:         model.TradeFuturesFill{Qty: tradesim.QtyUnits(fill.Qty), Value: fill.Notional, Fee: fee, Price: fill.AvgPrice().Round(tradesim.QtyDecimals).String()},
-		Trigger:      trigger,
-		TriggerPrice: triggerPrice,
+		UserId:        position.UserId,
+		Symbol:        position.Symbol,
+		Side:          position.Side,
+		Action:        model.TradeFuturesClose,
+		Type:          model.TradeOrderTypeMarket,
+		Qty:           qty,
+		Fill:          model.TradeFuturesFill{Qty: tradesim.QtyUnits(fill.Qty), Value: fill.Notional, Fee: fee, Price: fill.AvgPrice().Round(tradesim.QtyDecimals).String()},
+		Trigger:       trigger,
+		TriggerLevels: ids,
+		TriggerPrice:  price,
 	})
 	switch {
 	case err == nil:
-		m.recordTaken(symbol, view.Version, side, levels, fill)
+		m.recordTaken(position.Symbol, view.Version, side, levels, fill)
 	case errors.Is(err, model.ErrTradeFuturesTriggerChanged), errors.Is(err, model.ErrTradeFuturesNoPosition), errors.Is(err, model.ErrTradePositionInsufficient):
 		// 仓位或止盈止损刚被改过，索引是旧的。
 	default:
-		common.SysError(fmt.Sprintf("trade futures risk: failed to close the %s %s position of user %d by %s: %v", symbol, position.Side, position.UserId, trigger, err))
+		common.SysError(fmt.Sprintf("trade futures risk: failed to close the %s %s position of user %d by %s: %v", position.Symbol, position.Side, position.UserId, trigger, err))
 	}
-	m.refreshRisk(position.UserId, symbol, position.Side)
+	m.refreshRisk(position.UserId)
 }
 
 // settleFunding 是主节点上的资金费结算：定时检查每个连着的合约，有仓位还没结算的已结算期次时，按 Binance 公布的费率与
@@ -342,7 +485,7 @@ func (m *TradeMarket) settleSymbolFunding(client *binance.Client, symbol string)
 				continue
 			}
 			if applied {
-				m.refreshRisk(position.UserId, symbol, position.Side)
+				m.refreshRisk(position.UserId)
 			}
 		}
 	}

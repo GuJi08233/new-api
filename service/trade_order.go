@@ -35,8 +35,8 @@ var (
 
 // 限价必须在当前价格的 0.5 到 1.5 倍之间：远离市价的委托不会成交，只会长期冻结资金。
 var (
-	tradePriceBandLow  = decimal.RequireFromString("0.5")
-	tradePriceBandHigh = decimal.RequireFromString("1.5")
+	TradePriceBandLow  = decimal.RequireFromString("0.5")
+	TradePriceBandHigh = decimal.RequireFromString("1.5")
 )
 
 // tradePricing 是按当前配置把美元换成额度单位、收手续费的参数。
@@ -96,7 +96,7 @@ func PlaceTradeOrder(ctx context.Context, userId int, req TradeOrderRequest) (*m
 		if rules.TickSize.IsPositive() && !req.Price.Mod(rules.TickSize).IsZero() {
 			return nil, ErrTradePriceInvalid
 		}
-		if req.Price.LessThan(reference.Mul(tradePriceBandLow)) || req.Price.GreaterThan(reference.Mul(tradePriceBandHigh)) {
+		if req.Price.LessThan(reference.Mul(TradePriceBandLow)) || req.Price.GreaterThan(reference.Mul(TradePriceBandHigh)) {
 			return nil, ErrTradePriceInvalid
 		}
 	}
@@ -194,6 +194,7 @@ func PlaceTradeOrder(ctx context.Context, userId int, req TradeOrderRequest) (*m
 		}
 		input.Freeze = frozen + pricing.FeeQuota(frozen)
 	}
+	input.Market = tradeFuturesMarks{market: futuresMarket}
 	order, err := model.PlaceTradeOrder(input)
 	if err != nil {
 		return nil, err

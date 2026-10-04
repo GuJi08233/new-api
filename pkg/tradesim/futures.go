@@ -35,9 +35,36 @@ func (s PositionSide) CloseSide() Side {
 	return Buy
 }
 
-// bpsRate 把万分之几换成小数。
-func bpsRate(bps int) decimal.Decimal {
-	return decimal.NewFromInt(int64(bps)).Div(decimal.NewFromInt(10000))
+// Bracket 是 Binance 合约的一档风险限额：仓位名义价值在 [Floor, Cap) 之间时最高 MaxLeverage 倍杠杆，
+// 维持保证金 = 名义价值 × Mmr − MaintAmount(速算数，让相邻两档在分界处连续)。
+type Bracket struct {
+	Floor       decimal.Decimal
+	Cap         decimal.Decimal
+	MaxLeverage int
+	Mmr         decimal.Decimal
+	MaintAmount decimal.Decimal
+}
+
+// Brackets 是一个合约的全部档位，从低到高排列。
+type Brackets []Bracket
+
+// For 返回名义价值 notional 所在的那一档，超过最高档时按最高档；没有档位时返回零值(不限杠杆、维持保证金为 0)。
+func (b Brackets) For(notional decimal.Decimal) Bracket {
+	for _, bracket := range b {
+		if notional.GreaterThanOrEqual(bracket.Floor) && notional.LessThan(bracket.Cap) {
+			return bracket
+		}
+	}
+	if len(b) == 0 {
+		return Bracket{}
+	}
+	return b[len(b)-1]
+}
+
+// MaintenanceUsd 是名义价值 notional(USDT)的维持保证金(USDT)：名义价值 × 维持保证金率 − 速算数，不小于 0。
+func (b Brackets) MaintenanceUsd(notional decimal.Decimal) decimal.Decimal {
+	bracket := b.For(notional)
+	return decimal.Max(decimal.Zero, notional.Mul(bracket.Mmr).Sub(bracket.MaintAmount))
 }
 
 // floorQuota 把带符号的美元金额换成额度单位并向下取整。
@@ -81,13 +108,13 @@ func EntryShare(entryValue decimal.Decimal, qty int64, held int64) decimal.Decim
 	return entryValue.Mul(decimal.NewFromInt(qty)).DivRound(decimal.NewFromInt(held), 18)
 }
 
-// Maintenance 是按标记价值 markValue(USDT)与维持保证金率(万分之几)算的维持保证金(额度单位)，向上取整。
-func (p Pricing) Maintenance(markValue decimal.Decimal, mmrBps int) (int, error) {
-	return p.DebitQuota(markValue.Mul(bpsRate(mmrBps)))
+// Maintenance 是标记价值 markValue(USDT)按档位算的维持保证金(额度单位)，向上取整。
+func (p Pricing) Maintenance(markValue decimal.Decimal, brackets Brackets) (int, error) {
+	return p.DebitQuota(brackets.MaintenanceUsd(markValue))
 }
 
 // Liquidatable 表示逐仓仓位在标记价格 mark 下该强平了：保证金加上按标记价格算的浮动盈亏不超过维持保证金。
-func (p Pricing) Liquidatable(side PositionSide, entryValue decimal.Decimal, qty int64, margin int, mark decimal.Decimal, mmrBps int) (bool, error) {
+func (p Pricing) Liquidatable(side PositionSide, entryValue decimal.Decimal, qty int64, margin int, mark decimal.Decimal, brackets Brackets) (bool, error) {
 	if qty <= 0 {
 		return false, nil
 	}
@@ -96,35 +123,48 @@ func (p Pricing) Liquidatable(side PositionSide, entryValue decimal.Decimal, qty
 	if err != nil {
 		return false, err
 	}
-	maintenance, err := p.Maintenance(markValue, mmrBps)
+	maintenance, err := p.Maintenance(markValue, brackets)
 	if err != nil {
 		return false, err
 	}
 	return margin+pnl <= maintenance, nil
 }
 
-// LiquidationPrice 是逐仓仓位的预估强平价：保证金 + 浮动盈亏 = 维持保证金时的标记价格。
+// LiquidationPrice 是逐仓仓位的预估强平价：保证金 + 浮动盈亏 = 维持保证金时的标记价格。维持保证金随档位变化，逐档代入
 //
-//	多仓：(开仓价值 - 保证金) / (数量 × (1 - 维持保证金率))
-//	空仓：(开仓价值 + 保证金) / (数量 × (1 + 维持保证金率))
+//	多仓：(开仓价值 - 保证金 - 速算数) / (数量 × (1 - 维持保证金率))
+//	空仓：(开仓价值 + 保证金 + 速算数) / (数量 × (1 + 维持保证金率))
 //
-// 保留 8 位小数，朝着更早触发的方向取整(多仓向上、空仓向下)。多仓的保证金不少于开仓价值时永远不会强平，返回 0。
-func (p Pricing) LiquidationPrice(side PositionSide, entryValue decimal.Decimal, qty int64, margin int, mmrBps int) decimal.Decimal {
+// 取第一个算出的强平价正好落在这一档名义价值范围里的结果；都不落在时按开仓价值所在的那一档算。保留 8 位小数，朝着更早
+// 触发的方向取整(多仓向上、空仓向下)。多仓的保证金足够多、强平价算出来不是正数时永远不会强平，返回 0。
+func (p Pricing) LiquidationPrice(side PositionSide, entryValue decimal.Decimal, qty int64, margin int, brackets Brackets) decimal.Decimal {
 	if qty <= 0 || !p.QuotaPerUsd.IsPositive() {
 		return decimal.Zero
 	}
 	marginUsd := decimal.NewFromInt(int64(margin)).Div(p.QuotaPerUsd)
 	size := QtyFromUnits(qty)
-	rate := bpsRate(mmrBps)
 	one := decimal.NewFromInt(1)
-	if side == Short {
-		return entryValue.Add(marginUsd).Div(size.Mul(one.Add(rate))).Truncate(QtyDecimals)
+	candidate := func(bracket Bracket) decimal.Decimal {
+		if side == Short {
+			return entryValue.Add(marginUsd).Add(bracket.MaintAmount).Div(size.Mul(one.Add(bracket.Mmr)))
+		}
+		return entryValue.Sub(marginUsd).Sub(bracket.MaintAmount).Div(size.Mul(one.Sub(bracket.Mmr)))
 	}
-	numerator := entryValue.Sub(marginUsd)
-	if !numerator.IsPositive() {
+	price := candidate(brackets.For(entryValue))
+	for i, bracket := range brackets {
+		tierPrice := candidate(bracket)
+		notional := tierPrice.Mul(size)
+		if notional.GreaterThanOrEqual(bracket.Floor) && (notional.LessThan(bracket.Cap) || i == len(brackets)-1) {
+			price = tierPrice
+			break
+		}
+	}
+	if !price.IsPositive() {
 		return decimal.Zero
 	}
-	price := numerator.Div(size.Mul(one.Sub(rate)))
+	if side == Short {
+		return price.Truncate(QtyDecimals)
+	}
 	if truncated := price.Truncate(QtyDecimals); truncated.LessThan(price) {
 		return truncated.Add(decimal.New(1, -QtyDecimals))
 	}

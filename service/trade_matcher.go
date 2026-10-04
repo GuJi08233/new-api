@@ -333,24 +333,33 @@ func (m *TradeMarket) matchFuturesSymbol(symbol string) {
 			Value: value,
 			Fee:   fee,
 			Price: order.Price.String(),
-		})
+		}, tradeFuturesMarks{market: m})
+		cancelReason := ""
 		switch {
 		case errors.Is(err, model.ErrTradeOrderNotOpen):
 			m.dropResting(symbol, order.Id)
 			continue
-		case errors.Is(err, model.ErrTradeCashInsufficient), errors.Is(err, model.ErrTradePositionInsufficient), errors.Is(err, model.ErrTradeFuturesLeverageMismatch):
-			// 冻结的钱被取整吃光、仓位已经变小或者杠杆对不上(都不该发生)，撤掉剩下的部分。
-			if _, cancelErr := model.CancelTradeFuturesOrder(0, order.Id, model.TradeCancelByBalance); cancelErr != nil && !errors.Is(cancelErr, model.ErrTradeOrderNotOpen) {
-				common.SysError(fmt.Sprintf("trade matcher: failed to cancel futures order %d: %v", order.Id, cancelErr))
-			}
-			m.dropResting(symbol, order.Id)
-			continue
+		case errors.Is(err, model.ErrTradeCashInsufficient), errors.Is(err, model.ErrTradePositionInsufficient):
+			// 资金被全仓亏损吃掉、冻结的钱被取整吃光或者仓位已经变小，撤掉剩下的部分。
+			cancelReason = model.TradeCancelByBalance
+		case errors.Is(err, model.ErrTradeFuturesLeverageMismatch), errors.Is(err, model.ErrTradeFuturesModeMismatch),
+			errors.Is(err, model.ErrTradeFuturesLeverageTooHigh), errors.Is(err, model.ErrTradeFuturesLevelsInvalid):
+			// 这个合约的保证金模式或杠杆已经变了、并进仓位后超过档位杠杆、止盈止损放不下。
+			cancelReason = model.TradeCancelByMismatch
 		case err != nil:
 			common.SysError(fmt.Sprintf("trade matcher: failed to fill futures order %d: %v", order.Id, err))
 			continue
 		}
+		if cancelReason != "" {
+			if _, cancelErr := model.CancelTradeFuturesOrder(0, order.Id, cancelReason); cancelErr != nil && !errors.Is(cancelErr, model.ErrTradeOrderNotOpen) {
+				common.SysError(fmt.Sprintf("trade matcher: failed to cancel futures order %d: %v", order.Id, cancelErr))
+			}
+			m.dropResting(symbol, order.Id)
+			m.refreshRisk(order.UserId)
+			continue
+		}
 		m.recordTaken(symbol, view.Version, side, levels, fill)
-		m.refreshRisk(order.UserId, symbol, order.PositionSide)
+		m.refreshRisk(order.UserId)
 		if updated.Status != model.TradeOrderStatusOpen {
 			m.dropResting(symbol, order.Id)
 			continue

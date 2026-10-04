@@ -27,19 +27,23 @@ type TradeHolding struct {
 
 // TradeValuation 是模拟盘账户按当前行情的估值，金额都是额度单位。
 type TradeValuation struct {
+	// Cash 是资金，有全仓合约仓位时可以暂时是负的。
 	Cash        int `json:"cash"`
 	Frozen      int `json:"frozen"`
 	CryptoValue int `json:"crypto_value"`
 	StockValue  int `json:"stock_value"`
-	// FuturesValue 是合约仓位的价值合计：每个仓位的保证金加按标记价格的浮动盈亏，最少为 0。
-	FuturesValue int            `json:"futures_value"`
-	Equity       int            `json:"equity"`
-	Holdings     []TradeHolding `json:"holdings"`
+	// FuturesValue 是合约仓位算进总资产的价值合计：逐仓是保证金加按标记价格的浮动盈亏(最少为 0)，全仓只有浮动盈亏。
+	FuturesValue int `json:"futures_value"`
+	// Equity 是总资产，最少为 0。
+	Equity   int               `json:"equity"`
+	Cross    TradeCrossSummary `json:"cross"`
+	Holdings []TradeHolding    `json:"holdings"`
 }
 
 // ValueTradeAccount 按当前行情给账户估值。现货市值按最新价乘数量向下取整，没有行情的交易对按成本计，不让估值凭空涨跌；
-// 合约仓位按标记价格估值(见 ValueTradeFutures)。估值只用于展示和快照，转出只看可用资金，不看它。
-func ValueTradeAccount(account model.TradeAccount, positions []model.TradePosition, futures []model.TradeFuturesPosition) (TradeValuation, error) {
+// 合约仓位按标记价格估值(见 ValueTradeFutures，crossPending 是挂着的全仓开仓委托冻结的钱)。估值只用于展示和快照，转出看资金与
+// 全仓占用，不看它。
+func ValueTradeAccount(account model.TradeAccount, crossPending int, positions []model.TradePosition, futures []model.TradeFuturesPosition) (TradeValuation, error) {
 	valuation := TradeValuation{Cash: account.Cash, Frozen: account.Frozen, Holdings: []TradeHolding{}}
 	perUsd, err := model.TradeQuotaPerUsd()
 	if err != nil {
@@ -74,10 +78,10 @@ func ValueTradeAccount(account model.TradeAccount, positions []model.TradePositi
 		}
 		valuation.Holdings = append(valuation.Holdings, holding)
 	}
-	if _, valuation.FuturesValue, err = ValueTradeFutures(futures); err != nil {
+	if _, valuation.FuturesValue, valuation.Cross, err = ValueTradeFutures(account.Cash, crossPending, futures); err != nil {
 		return valuation, err
 	}
-	valuation.Equity = valuation.Cash + valuation.Frozen + valuation.CryptoValue + valuation.StockValue + valuation.FuturesValue
+	valuation.Equity = max(0, valuation.Cash+valuation.Frozen+valuation.CryptoValue+valuation.StockValue+valuation.FuturesValue)
 	return valuation, nil
 }
 
@@ -95,7 +99,11 @@ func ValueTradeUser(userId int) (model.TradeAccount, TradeValuation, error) {
 	if err != nil {
 		return account, TradeValuation{}, err
 	}
-	valuation, err := ValueTradeAccount(account, positions, futures)
+	pending, err := model.ListTradeFuturesCrossPending([]int{userId})
+	if err != nil {
+		return account, TradeValuation{}, err
+	}
+	valuation, err := ValueTradeAccount(account, pending[userId], positions, futures)
 	return account, valuation, err
 }
 
@@ -174,6 +182,10 @@ func TakeTradeSnapshots(ctx context.Context, day string, start int64, end int64)
 		if err != nil {
 			return total, err
 		}
+		pending, err := model.ListTradeFuturesCrossPending(userIds)
+		if err != nil {
+			return total, err
+		}
 		flows, err := model.ListTradeSymbolFlows(userIds, start, end)
 		if err != nil {
 			return total, err
@@ -200,7 +212,7 @@ func TakeTradeSnapshots(ctx context.Context, day string, start int64, end int64)
 		}
 		snapshots := make([]model.TradeSnapshot, 0, len(accounts))
 		for _, account := range accounts {
-			valuation, err := ValueTradeAccount(account, positionsByUser[account.UserId], futuresByUser[account.UserId])
+			valuation, err := ValueTradeAccount(account, pending[account.UserId], positionsByUser[account.UserId], futuresByUser[account.UserId])
 			if err != nil {
 				return total, err
 			}

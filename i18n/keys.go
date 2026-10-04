@@ -385,4 +385,10 @@ const (
 	MsgTradeFuturesPriceInvalid     = "trade.futures_price_invalid"
 	MsgTradeFuturesQtyTooLarge      = "trade.futures_qty_too_large"
 	MsgTradeFuturesPositionLimit    = "trade.futures_position_limit"
+	MsgTradeFuturesModeMismatch     = "trade.futures_mode_mismatch"
+	MsgTradeFuturesLeverageTooHigh  = "trade.futures_leverage_too_high"
+	MsgTradeFuturesLeverageDown     = "trade.futures_leverage_down"
+	MsgTradeFuturesOpenOrders       = "trade.futures_open_orders"
+	MsgTradeFuturesCrossMargin      = "trade.futures_cross_margin"
+	MsgTradeFuturesLevelsInvalid    = "trade.futures_levels_invalid"
 )

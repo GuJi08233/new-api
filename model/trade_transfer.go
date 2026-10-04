@@ -31,7 +31,7 @@ func TransferQuotaToTrade(userId int, quota int) (*TradeAccount, error) {
 		if err = saveTradeAccountTx(tx, account); err != nil {
 			return err
 		}
-		return tradeLedgerTx(tx, account, TradeLedger{Type: TradeLedgerQuotaIn, Amount: quota})
+		return tradeLedgerTx(tx, account, &TradeLedger{Type: TradeLedgerQuotaIn, Amount: quota})
 	})
 	if err != nil {
 		return nil, err
@@ -41,9 +41,9 @@ func TransferQuotaToTrade(userId int, quota int) (*TradeAccount, error) {
 }
 
 // TransferQuotaFromTrade 把模拟盘的可用资金转出成主钱包额度，返回转出后的账户与这次转出里算作盈利的部分。持仓要先卖出、
-// 挂单要先撤销才能转出；超过转入额度(QuotaPrincipal)的部分算盈利，当天累计不能超过 dailyProfitCap(额度单位，0 表示
-// 不限制)。
-func TransferQuotaFromTrade(userId int, quota int, day string, dailyProfitCap int) (*TradeAccount, int, error) {
+// 挂单要先撤销才能转出；有全仓合约仓位时只能转出它们占用之外的资金，浮动盈利不算(market 提供标记价格)。超过转入额度
+// (QuotaPrincipal)的部分算盈利，当天累计不能超过 dailyProfitCap(额度单位，0 表示不限制)。
+func TransferQuotaFromTrade(userId int, quota int, day string, dailyProfitCap int, market TradeFuturesMarket) (*TradeAccount, int, error) {
 	if quota < 1 || quota >= common.MaxQuota {
 		return nil, 0, ErrTradeAmountInvalid
 	}
@@ -54,7 +54,11 @@ func TransferQuotaFromTrade(userId int, quota int, day string, dailyProfitCap in
 		if account, err = lockTradeAccountTx(tx, userId); err != nil {
 			return err
 		}
-		if quota > account.Cash {
+		state, err := tradeCrossStateTx(tx, userId, market)
+		if err != nil {
+			return err
+		}
+		if quota > state.Withdrawable(account.Cash) {
 			return ErrTradeWithdrawExceeded
 		}
 		principal := min(quota, account.QuotaPrincipal)
@@ -82,7 +86,7 @@ func TransferQuotaFromTrade(userId int, quota int, day string, dailyProfitCap in
 		if err = creditTopUpQuota(tx, userId, quota, nil); err != nil {
 			return err
 		}
-		return tradeLedgerTx(tx, account, TradeLedger{Type: TradeLedgerQuotaOut, Amount: -quota})
+		return tradeLedgerTx(tx, account, &TradeLedger{Type: TradeLedgerQuotaOut, Amount: -quota})
 	})
 	if err != nil {
 		return nil, 0, err

@@ -50,6 +50,8 @@ type TradeOrderInput struct {
 	Freeze int
 	// MaxPositionCost 是这个交易对的持仓成本加上买单冻结的资金最多多少(额度单位)，0 表示不限制。
 	MaxPositionCost int
+	// Market 提供全仓合约的标记价格：有全仓仓位时，买入要全仓可用也够(全仓仓位占着的资金不能拿来买现货)。
+	Market TradeFuturesMarket
 }
 
 func loadTradePositionTx(tx *gorm.DB, userId int, symbol string) (*TradePosition, error) {
@@ -116,7 +118,7 @@ func applyTradeFillTx(tx *gorm.DB, account *TradeAccount, position *TradePositio
 	order.FilledQty += fill.Qty
 	order.FilledAmount += fill.Amount
 	order.Fee += fill.Fee
-	return tradeLedgerTx(tx, account, entry)
+	return tradeLedgerTx(tx, account, &entry)
 }
 
 // finishTradeOrder 结束一笔委托：限价买单退回还冻结着的资金。status 是 filled 或 canceled。
@@ -186,8 +188,8 @@ func PlaceTradeOrder(in TradeOrderInput) (*TradeOrder, error) {
 				freeze = in.Freeze
 			}
 			need := in.Fill.Amount + in.Fill.Fee + freeze
-			if need > account.Cash {
-				return ErrTradeCashInsufficient
+			if err = checkTradeAffordTx(tx, account, need, need, in.Market); err != nil {
+				return err
 			}
 			if in.MaxPositionCost > 0 {
 				var frozenBuys int

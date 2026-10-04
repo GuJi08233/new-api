@@ -46,11 +46,11 @@ type TradeSetting struct {
 	FuturesEnabled bool `json:"futures_enabled"`
 	// FuturesSymbols 是开放开仓的永续合约，取自 TradeSymbols 的 Futures。
 	FuturesSymbols []string `json:"futures_symbols"`
-	// FuturesMaxLeverage 是合约最高杠杆，实际还不能超过 Binance 该合约第一档风险限额的最高杠杆。杠杆越高，价格跳空越过
-	// 强平价时站点承担的亏空越多(逐仓最多亏掉保证金，超出的部分没人付)。
+	// FuturesMaxLeverage 是合约最高杠杆，实际还不能超过 Binance 风险限额里仓位名义价值所在那一档的最高杠杆。杠杆越高，
+	// 价格跳空越过强平价时站点承担的亏空越多(账户不会变成负数，超出的部分没人付)。
 	FuturesMaxLeverage int `json:"futures_max_leverage"`
-	// FuturesTakerFeeBps、FuturesMakerFeeBps 是合约的吃单、挂单手续费，单位万分之一。市价单和下单时就成交的部分按吃单收，
-	// 挂着的限价单之后被撮合成交的部分按挂单收。
+	// FuturesTakerFeeBps、FuturesMakerFeeBps 是合约的吃单、挂单手续费，单位万分之一。市价单、下单时就成交的部分、止盈止损与
+	// 强平按吃单收，挂着的限价单之后被撮合成交的部分按挂单收。
 	FuturesTakerFeeBps int `json:"futures_taker_fee_bps"`
 	FuturesMakerFeeBps int `json:"futures_maker_fee_bps"`
 	// FuturesMaxPositionUsd 是每人每个合约多空两个仓位的开仓价值，加上挂着的开仓委托，合计最多多少美元。
@@ -62,46 +62,50 @@ type TradeSetting struct {
 	FuturesWsUrl   string `json:"futures_ws_url"`
 }
 
-// 交易对的种类，决定前端放在哪个分组里。
+// 品种的种类，决定前端放在哪个分组里。
 const (
-	TradeKindCrypto = "crypto" // 加密货币
-	TradeKindStock  = "stock"  // 美股代币
+	TradeKindCrypto    = "crypto"    // 加密货币
+	TradeKindStock     = "stock"     // 股票与 ETF：现货是美股代币，合约是 Binance 的 TradFi 永续
+	TradeKindCommodity = "commodity" // 大宗商品，只有合约
 )
 
-// TradeSymbolInfo 是模拟盘支持的一个品种：Binance 现货交易对与对应的 U 本位永续合约。
+// TradeSymbolInfo 是模拟盘支持的一个品种：Binance 现货交易对与对应的 U 本位永续合约，二者可以只有一个。合约的杠杆与维持
+// 保证金按 Binance 的风险限额档位算，档位表在 service 里。
 type TradeSymbolInfo struct {
+	// Symbol 是现货交易对，只有合约的品种为空。
 	Symbol string `json:"symbol"`
-	// Ticker 是展示用的代码：加密货币是币名，美股代币是股票代码。
+	// Ticker 是展示用的代码：加密货币是币名，股票是股票代码，大宗商品是期货代码。
 	Ticker string `json:"ticker"`
 	Kind   string `json:"kind"`
-	// Futures 是对应的 Binance U 本位永续合约，例如 NVDAUSDT。
+	// Futures 是对应的 Binance U 本位永续合约，例如 NVDAUSDT，只有现货的品种为空。
 	Futures string `json:"futures"`
-	// FuturesMmrBps 与 FuturesMaxLeverage 是这个合约在 Binance 第一档风险限额里的维持保证金率(万分之几)与最高杠杆。
-	// 模拟盘的仓位不超过 FuturesMaxPositionUsd，只用第一档。
-	FuturesMmrBps      int `json:"futures_mmr_bps"`
-	FuturesMaxLeverage int `json:"futures_max_leverage"`
 }
 
 // TradeSymbols 是模拟盘支持的全部品种，开放哪些由 TradeSetting.Symbols 与 FuturesSymbols 决定。美股代币是 Binance 现货上
-// 以 B 结尾的代币化股票，24 小时交易，盘口比主流加密货币薄得多；对应的合约是 Binance 的 TradFi 永续合约。
+// 以 B 结尾的代币化股票，24 小时交易，盘口比主流加密货币薄得多；股票、ETF 与大宗商品的合约是 Binance 的 TradFi 永续合约。
 var TradeSymbols = []TradeSymbolInfo{
-	{Symbol: "BTCUSDT", Ticker: "BTC", Kind: TradeKindCrypto, Futures: "BTCUSDT", FuturesMmrBps: 40, FuturesMaxLeverage: 125},
-	{Symbol: "ETHUSDT", Ticker: "ETH", Kind: TradeKindCrypto, Futures: "ETHUSDT", FuturesMmrBps: 40, FuturesMaxLeverage: 125},
-	{Symbol: "SOLUSDT", Ticker: "SOL", Kind: TradeKindCrypto, Futures: "SOLUSDT", FuturesMmrBps: 50, FuturesMaxLeverage: 100},
-	{Symbol: "BNBUSDT", Ticker: "BNB", Kind: TradeKindCrypto, Futures: "BNBUSDT", FuturesMmrBps: 50, FuturesMaxLeverage: 75},
-	{Symbol: "XRPUSDT", Ticker: "XRP", Kind: TradeKindCrypto, Futures: "XRPUSDT", FuturesMmrBps: 50, FuturesMaxLeverage: 100},
-	{Symbol: "DOGEUSDT", Ticker: "DOGE", Kind: TradeKindCrypto, Futures: "DOGEUSDT", FuturesMmrBps: 65, FuturesMaxLeverage: 75},
-	{Symbol: "ZECUSDT", Ticker: "ZEC", Kind: TradeKindCrypto, Futures: "ZECUSDT", FuturesMmrBps: 100, FuturesMaxLeverage: 75},
-	{Symbol: "NVDABUSDT", Ticker: "NVDA", Kind: TradeKindStock, Futures: "NVDAUSDT", FuturesMmrBps: 100, FuturesMaxLeverage: 50},
-	{Symbol: "TSLABUSDT", Ticker: "TSLA", Kind: TradeKindStock, Futures: "TSLAUSDT", FuturesMmrBps: 100, FuturesMaxLeverage: 50},
-	{Symbol: "AMDBUSDT", Ticker: "AMD", Kind: TradeKindStock, Futures: "AMDUSDT", FuturesMmrBps: 100, FuturesMaxLeverage: 50},
-	{Symbol: "MUBUSDT", Ticker: "MU", Kind: TradeKindStock, Futures: "MUUSDT", FuturesMmrBps: 100, FuturesMaxLeverage: 50},
-	{Symbol: "SNDKBUSDT", Ticker: "SNDK", Kind: TradeKindStock, Futures: "SNDKUSDT", FuturesMmrBps: 100, FuturesMaxLeverage: 50},
-	{Symbol: "CRCLBUSDT", Ticker: "CRCL", Kind: TradeKindStock, Futures: "CRCLUSDT", FuturesMmrBps: 100, FuturesMaxLeverage: 50},
-	{Symbol: "MSTRBUSDT", Ticker: "MSTR", Kind: TradeKindStock, Futures: "MSTRUSDT", FuturesMmrBps: 100, FuturesMaxLeverage: 50},
-	{Symbol: "SPCXBUSDT", Ticker: "SPCX", Kind: TradeKindStock, Futures: "SPCXUSDT", FuturesMmrBps: 65, FuturesMaxLeverage: 75},
-	{Symbol: "QQQBUSDT", Ticker: "QQQ", Kind: TradeKindStock, Futures: "QQQUSDT", FuturesMmrBps: 100, FuturesMaxLeverage: 50},
-	{Symbol: "SOXLBUSDT", Ticker: "SOXL", Kind: TradeKindStock, Futures: "SOXLUSDT", FuturesMmrBps: 100, FuturesMaxLeverage: 50},
+	{Symbol: "BTCUSDT", Ticker: "BTC", Kind: TradeKindCrypto, Futures: "BTCUSDT"},
+	{Symbol: "ETHUSDT", Ticker: "ETH", Kind: TradeKindCrypto, Futures: "ETHUSDT"},
+	{Symbol: "SOLUSDT", Ticker: "SOL", Kind: TradeKindCrypto, Futures: "SOLUSDT"},
+	{Symbol: "BNBUSDT", Ticker: "BNB", Kind: TradeKindCrypto, Futures: "BNBUSDT"},
+	{Symbol: "XRPUSDT", Ticker: "XRP", Kind: TradeKindCrypto, Futures: "XRPUSDT"},
+	{Symbol: "DOGEUSDT", Ticker: "DOGE", Kind: TradeKindCrypto, Futures: "DOGEUSDT"},
+	{Symbol: "ZECUSDT", Ticker: "ZEC", Kind: TradeKindCrypto, Futures: "ZECUSDT"},
+	{Ticker: "HYPE", Kind: TradeKindCrypto, Futures: "HYPEUSDT"},
+	{Symbol: "NVDABUSDT", Ticker: "NVDA", Kind: TradeKindStock, Futures: "NVDAUSDT"},
+	{Symbol: "TSLABUSDT", Ticker: "TSLA", Kind: TradeKindStock, Futures: "TSLAUSDT"},
+	{Symbol: "AMDBUSDT", Ticker: "AMD", Kind: TradeKindStock, Futures: "AMDUSDT"},
+	{Symbol: "MUBUSDT", Ticker: "MU", Kind: TradeKindStock, Futures: "MUUSDT"},
+	{Symbol: "SNDKBUSDT", Ticker: "SNDK", Kind: TradeKindStock, Futures: "SNDKUSDT"},
+	{Symbol: "CRCLBUSDT", Ticker: "CRCL", Kind: TradeKindStock, Futures: "CRCLUSDT"},
+	{Symbol: "MSTRBUSDT", Ticker: "MSTR", Kind: TradeKindStock, Futures: "MSTRUSDT"},
+	{Symbol: "SPCXBUSDT", Ticker: "SPCX", Kind: TradeKindStock, Futures: "SPCXUSDT"},
+	{Symbol: "QQQBUSDT", Ticker: "QQQ", Kind: TradeKindStock, Futures: "QQQUSDT"},
+	{Symbol: "SOXLBUSDT", Ticker: "SOXL", Kind: TradeKindStock, Futures: "SOXLUSDT"},
+	{Ticker: "SKHYNIX", Kind: TradeKindStock, Futures: "SKHYNIXUSDT"},
+	{Ticker: "KORU", Kind: TradeKindStock, Futures: "KORUUSDT"},
+	{Ticker: "XAU", Kind: TradeKindCommodity, Futures: "XAUUSDT"},
+	{Ticker: "CL", Kind: TradeKindCommodity, Futures: "CLUSDT"},
 }
 
 const (
@@ -113,7 +117,7 @@ const (
 	TradeMaxProfitOut   = 1_000_000
 	TradeMinStaleMs     = 500
 	TradeMaxStaleMs     = 60_000
-	TradeMaxLeverage    = 125
+	TradeMaxLeverage    = 150
 )
 
 // tradeSetting 仅作为配置框架(基于反射、无同步)就地修改的暂存区，请求 goroutine 读取下方发布的只读快照。
@@ -126,8 +130,12 @@ func DefaultTradeSetting() *TradeSetting {
 	symbols := make([]string, 0, len(TradeSymbols))
 	futures := make([]string, 0, len(TradeSymbols))
 	for _, info := range TradeSymbols {
-		symbols = append(symbols, info.Symbol)
-		futures = append(futures, info.Futures)
+		if info.Symbol != "" {
+			symbols = append(symbols, info.Symbol)
+		}
+		if info.Futures != "" {
+			futures = append(futures, info.Futures)
+		}
 	}
 	return &TradeSetting{
 		Enabled:               false,
@@ -141,8 +149,8 @@ func DefaultTradeSetting() *TradeSetting {
 		WsUrl:                 "wss://data-stream.binance.vision",
 		FuturesEnabled:        false,
 		FuturesSymbols:        futures,
-		FuturesMaxLeverage:    10,
-		FuturesTakerFeeBps:    5,
+		FuturesMaxLeverage:    TradeMaxLeverage,
+		FuturesTakerFeeBps:    4,
 		FuturesMakerFeeBps:    2,
 		FuturesMaxPositionUsd: 5000,
 		FuturesRestUrl:        "https://fapi.binance.com",
@@ -191,10 +199,10 @@ func (s *TradeSetting) FuturesOpenEnabled(symbol string) bool {
 	return s.Enabled && s.FuturesEnabled && slices.Contains(s.FuturesSymbols, symbol)
 }
 
-// TradeSymbolOf 返回模拟盘支持的交易对的信息，不支持时 ok 为假。
+// TradeSymbolOf 返回模拟盘支持的现货交易对的信息，不支持时 ok 为假。
 func TradeSymbolOf(symbol string) (TradeSymbolInfo, bool) {
 	for _, info := range TradeSymbols {
-		if info.Symbol == symbol {
+		if symbol != "" && info.Symbol == symbol {
 			return info, true
 		}
 	}
@@ -204,16 +212,17 @@ func TradeSymbolOf(symbol string) (TradeSymbolInfo, bool) {
 // TradeFuturesSymbolOf 按永续合约查品种信息，不支持时 ok 为假。
 func TradeFuturesSymbolOf(futures string) (TradeSymbolInfo, bool) {
 	for _, info := range TradeSymbols {
-		if info.Futures == futures {
+		if futures != "" && info.Futures == futures {
 			return info, true
 		}
 	}
 	return TradeSymbolInfo{}, false
 }
 
-// FuturesLeverageLimit 是这个合约现在允许的最高杠杆：配置的上限与 Binance 第一档上限中较小的一个。
-func (s *TradeSetting) FuturesLeverageLimit(info TradeSymbolInfo) int {
-	return max(1, min(s.FuturesMaxLeverage, info.FuturesMaxLeverage))
+// FuturesLeverageLimit 是这个合约现在允许的最高杠杆：配置的上限与 Binance 风险限额第一档的最高杠杆 bracketMax 中较小的一个。
+// 仓位越大档位越高、能用的杠杆越低，开仓时还要按仓位的名义价值再查一次档位。
+func (s *TradeSetting) FuturesLeverageLimit(bracketMax int) int {
+	return max(1, min(s.FuturesMaxLeverage, bracketMax))
 }
 
 // ValidateTradeOption 校验单个模拟盘配置项，非法值在落库前拒绝。

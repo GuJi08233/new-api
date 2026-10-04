@@ -315,3 +315,28 @@ func TestFuturesClientReadsMarkPricesAndFundingRates(t *testing.T) {
 	_, err = NewClient(server.URL, nil).FundingRates(context.Background(), "BTCUSDT", 0, 0)
 	assert.Error(t, err, "the spot api has no funding rates")
 }
+
+// 风险限额表只留要的合约；档位不连贯的合约整个丢掉，调用方继续用原来的档位。
+func TestRiskBracketsKeepsCompleteTablesOfRequestedSymbols(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/bapi/futures/v1/friendly/future/common/brackets", r.URL.Path)
+		_, _ = w.Write([]byte(`{"code":"000000","data":{"brackets":[
+			{"symbol":"BTCUSDT","riskBrackets":[
+				{"bracketSeq":1,"bracketNotionalFloor":0,"bracketNotionalCap":300000,"bracketMaintenanceMarginRate":0.004,"cumFastMaintenanceAmount":0,"maxOpenPosLeverage":150},
+				{"bracketSeq":2,"bracketNotionalFloor":300000,"bracketNotionalCap":800000,"bracketMaintenanceMarginRate":0.005,"cumFastMaintenanceAmount":300,"maxOpenPosLeverage":100}]},
+			{"symbol":"ETHUSDT","riskBrackets":[
+				{"bracketSeq":1,"bracketNotionalFloor":0,"bracketNotionalCap":300000,"bracketMaintenanceMarginRate":0.004,"cumFastMaintenanceAmount":0,"maxOpenPosLeverage":150},
+				{"bracketSeq":2,"bracketNotionalFloor":350000,"bracketNotionalCap":800000,"bracketMaintenanceMarginRate":0.005,"cumFastMaintenanceAmount":300,"maxOpenPosLeverage":100}]},
+			{"symbol":"ALTUSDT","riskBrackets":[
+				{"bracketSeq":1,"bracketNotionalFloor":0,"bracketNotionalCap":5000,"bracketMaintenanceMarginRate":0.05,"cumFastMaintenanceAmount":0,"maxOpenPosLeverage":10}]}
+		]}}`))
+	}))
+	t.Cleanup(server.Close)
+
+	brackets, err := NewFuturesClient(server.URL, nil).RiskBrackets(context.Background(), []string{"BTCUSDT", "ETHUSDT"})
+	require.NoError(t, err)
+	assert.Equal(t, map[string][]RiskBracket{"BTCUSDT": {
+		{Floor: d("0"), Cap: d("300000"), MaxLeverage: 150, Mmr: d("0.004"), MaintAmount: d("0")},
+		{Floor: d("300000"), Cap: d("800000"), MaxLeverage: 100, Mmr: d("0.005"), MaintAmount: d("300")},
+	}}, brackets, "ETHUSDT has a gap between its tiers and ALTUSDT was not asked for")
+}

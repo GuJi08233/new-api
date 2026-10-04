@@ -19,12 +19,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// setupFuturesMarketTest 让合约行情中心像已经连上一样：BTCUSDT 合约的交易规则(数量步长 0.001、价格精度 0.1、最少 5 USDT、
-// 限价在标记价格的 0.95 到 1.05 倍之间)、标记价格 100，确认盘口新鲜的 ping 由 syncErr 决定成败。合约开放，最高 10 倍杠杆。
+// setupFuturesMarketTest 让合约行情中心像已经连上一样：BTCUSDT 合约的交易规则(数量步长 0.001、价格精度 0.1、最少 5 USDT)、
+// 标记价格 100，确认盘口新鲜的 ping 由 syncErr 决定成败。合约开放，最高 10 倍杠杆，吃单 0.05%、挂单 0.02%；风险限额按内置的
+// BTCUSDT 档位(第一档维持保证金率 0.4%)。
 func setupFuturesMarketTest(t *testing.T, syncErr error) {
 	t.Helper()
 	setting := operation_setting.DefaultTradeSetting()
 	setting.Enabled, setting.FuturesEnabled = true, true
+	setting.FuturesMaxLeverage, setting.FuturesTakerFeeBps, setting.FuturesMakerFeeBps = 10, 5, 2
 	previousSetting := operation_setting.GetTradeSetting()
 	operation_setting.SetTradeSettingForTest(setting)
 	previousMaster := common.IsMasterNode
@@ -38,19 +40,19 @@ func setupFuturesMarketTest(t *testing.T, syncErr error) {
 		books                    map[string]*tradeBook
 		marks                    map[string]tradeMark
 		rules                    map[string]binance.SymbolInfo
-	}{m.connected, m.dataConnected, m.stream, m.books, m.marks, m.rules}
+		tickers                  map[string]binance.Ticker
+	}{m.connected, m.dataConnected, m.stream, m.books, m.marks, m.rules, m.tickers}
 	m.connected, m.dataConnected = true, true
 	m.stream = fakeTradeSyncer{err: syncErr}
 	m.books = map[string]*tradeBook{}
 	m.marks = map[string]tradeMark{}
+	m.tickers = map[string]binance.Ticker{}
 	m.rules = map[string]binance.SymbolInfo{"BTCUSDT": {
 		Symbol:      "BTCUSDT",
 		TickSize:    tradeTestDecimal("0.1"),
 		StepSize:    tradeTestDecimal("0.001"),
 		MinQty:      tradeTestDecimal("0.001"),
 		MinNotional: tradeTestDecimal("5"),
-		PriceUp:     tradeTestDecimal("1.05"),
-		PriceDown:   tradeTestDecimal("0.95"),
 	}}
 	m.mu.Unlock()
 	setFuturesTestMark("100", time.Now().Add(time.Hour).UnixMilli())
@@ -60,7 +62,7 @@ func setupFuturesMarketTest(t *testing.T, syncErr error) {
 		common.IsMasterNode = previousMaster
 		operation_setting.SetTradeSettingForTest(previousSetting)
 		m.mu.Lock()
-		m.connected, m.dataConnected, m.stream, m.books, m.marks, m.rules = previous.connected, previous.dataConnected, previous.stream, previous.books, previous.marks, previous.rules
+		m.connected, m.dataConnected, m.stream, m.books, m.marks, m.rules, m.tickers = previous.connected, previous.dataConnected, previous.stream, previous.books, previous.marks, previous.rules, previous.tickers
 		m.client = nil
 		m.mu.Unlock()
 		resetFuturesTestIndexes()
@@ -77,6 +79,7 @@ func resetFuturesTestIndexes() {
 	m.matchMu.Unlock()
 	m.riskMu.Lock()
 	m.positions, m.riskPending = map[string][]tradeRiskPosition{}, map[string]bool{}
+	m.crossPositions, m.crossCash = map[int][]tradeRiskPosition{}, map[int]int{}
 	m.riskMu.Unlock()
 	m.fundingMu.Lock()
 	m.fundingQuiet = map[string]time.Time{}
@@ -104,6 +107,19 @@ func setFuturesTestMark(mark string, nextFundingTime int64) {
 	}
 }
 
+func setFuturesTestLast(last string) {
+	futuresMarket.mu.Lock()
+	defer futuresMarket.mu.Unlock()
+	futuresMarket.tickers["BTCUSDT"] = binance.Ticker{Symbol: "BTCUSDT", Close: tradeTestDecimal(last)}
+}
+
+func futuresTestLevels(t *testing.T, raw string) []model.TradeFuturesLevel {
+	t.Helper()
+	levels, err := model.ParseTradeFuturesLevels(raw)
+	require.NoError(t, err)
+	return levels
+}
+
 func futuresTestPosition(t *testing.T, userId int, side string) *model.TradeFuturesPosition {
 	t.Helper()
 	position, err := model.GetTradeFuturesPosition(userId, "BTCUSDT", side)
@@ -126,11 +142,13 @@ func TestFuturesMarketOrdersOpenAndCloseAgainstTheBook(t *testing.T) {
 	fundTradeTestUser(t, 4201, "1000")
 	setFuturesTestBook(1, tradeTestLevels("99", "1", "98", "2"), tradeTestLevels("100", "1", "101", "2"))
 
-	order := openFuturesTest(t, 4201, TradeFuturesOrderRequest{Side: model.TradeFuturesLong, Type: model.TradeOrderTypeMarket, Qty: tradeTestDecimal("1.5"), Leverage: 10})
+	order := openFuturesTest(t, 4201, TradeFuturesOrderRequest{Side: model.TradeFuturesLong, Type: model.TradeOrderTypeMarket, MarginMode: model.TradeFuturesIsolated,
+		Qty: tradeTestDecimal("1.5"), Leverage: 10})
 	assert.Equal(t, model.TradeOrderStatusFilled, order.Status)
 	assert.Equal(t, "150.5", order.FilledValue)
 	assert.Equal(t, tradeTestUsd("0.07525"), order.Fee, "0.05% taker fee")
-	order = openFuturesTest(t, 4201, TradeFuturesOrderRequest{Side: model.TradeFuturesLong, Type: model.TradeOrderTypeMarket, Qty: tradeTestDecimal("1"), Leverage: 10})
+	order = openFuturesTest(t, 4201, TradeFuturesOrderRequest{Side: model.TradeFuturesLong, Type: model.TradeOrderTypeMarket, MarginMode: model.TradeFuturesIsolated,
+		Qty: tradeTestDecimal("1"), Leverage: 10})
 	assert.Equal(t, "101", order.FilledValue, "only 1.5 left at 101")
 
 	position := futuresTestPosition(t, 4201, model.TradeFuturesLong)
@@ -154,8 +172,8 @@ func TestFuturesLimitOpenRestsAndFillsAsMaker(t *testing.T) {
 	fundTradeTestUser(t, 4202, "1000")
 	setFuturesTestBook(1, tradeTestLevels("99", "5"), tradeTestLevels("100", "5"))
 
-	order := openFuturesTest(t, 4202, TradeFuturesOrderRequest{Side: model.TradeFuturesLong, Type: model.TradeOrderTypeLimit, Qty: tradeTestDecimal("1"),
-		Price: tradeTestDecimal("99.5"), Leverage: 10})
+	order := openFuturesTest(t, 4202, TradeFuturesOrderRequest{Side: model.TradeFuturesLong, Type: model.TradeOrderTypeLimit, MarginMode: model.TradeFuturesIsolated,
+		Qty: tradeTestDecimal("1"), Price: tradeTestDecimal("99.5"), Leverage: 10})
 	assert.Equal(t, model.TradeOrderStatusOpen, order.Status)
 	assert.Equal(t, tradeTestUsd("9.99975"), order.Frozen, "9.95 margin + 0.04975 taker fee reserve")
 
@@ -173,35 +191,75 @@ func TestFuturesLimitOpenRestsAndFillsAsMaker(t *testing.T) {
 	assert.Zero(t, account.Frozen)
 }
 
-// 标记价格到了止损价，风控按盘口市价平掉整个仓位；还没到强平价的仓位不强平。
-func TestFuturesStopLossClosesByTheBook(t *testing.T) {
+// 止损按标记价格分档触发：标记价格越过哪几档就按盘口市价平掉那几档的数量，没到的档位留着；平掉的档位从仓位上删掉。
+func TestFuturesStopLossLevelsCloseByTheBook(t *testing.T) {
 	setupFuturesMarketTest(t, nil)
 	fundTradeTestUser(t, 4203, "1000")
 	setFuturesTestBook(1, tradeTestLevels("99.9", "5"), tradeTestLevels("100", "5"))
-	openFuturesTest(t, 4203, TradeFuturesOrderRequest{Side: model.TradeFuturesLong, Type: model.TradeOrderTypeMarket, Qty: tradeTestDecimal("1"), Leverage: 10,
-		TakeProfit: tradeTestDecimal("120"), StopLoss: tradeTestDecimal("95")})
+	openFuturesTest(t, 4203, TradeFuturesOrderRequest{Side: model.TradeFuturesLong, Type: model.TradeOrderTypeMarket, MarginMode: model.TradeFuturesIsolated,
+		Qty: tradeTestDecimal("1"), Leverage: 10,
+		TakeProfits: []TradeFuturesLevelRequest{{Price: tradeTestDecimal("120"), Qty: tradeTestDecimal("1")}},
+		StopLosses: []TradeFuturesLevelRequest{{Price: tradeTestDecimal("95"), Qty: tradeTestDecimal("0.4")},
+			{Price: tradeTestDecimal("94"), Qty: tradeTestDecimal("0.6")}}})
 	position := futuresTestPosition(t, 4203, model.TradeFuturesLong)
-	assert.Equal(t, "120", position.TakeProfit)
-	assert.Equal(t, "95", position.StopLoss)
+	require.Len(t, futuresTestLevels(t, position.TakeProfits), 1)
+	require.Len(t, futuresTestLevels(t, position.StopLosses), 2)
 
 	setFuturesTestMark("96", time.Now().Add(time.Hour).UnixMilli())
 	futuresMarket.checkRisk("BTCUSDT")
-	assert.EqualValues(t, 100_000_000, futuresTestPosition(t, 4203, model.TradeFuturesLong).Qty, "96 is above the stop loss")
+	assert.EqualValues(t, 100_000_000, futuresTestPosition(t, 4203, model.TradeFuturesLong).Qty, "96 is above both stop losses")
 
-	setFuturesTestBook(2, tradeTestLevels("94.6", "0.5", "94.4", "5"), tradeTestLevels("94.7", "5"))
+	setFuturesTestBook(2, tradeTestLevels("94.6", "5"), tradeTestLevels("94.7", "5"))
 	setFuturesTestMark("94.5", time.Now().Add(time.Hour).UnixMilli())
 	futuresMarket.checkRisk("BTCUSDT")
+	position = futuresTestPosition(t, 4203, model.TradeFuturesLong)
+	assert.EqualValues(t, 60_000_000, position.Qty, "only the 95 level is hit")
+	stopLosses := futuresTestLevels(t, position.StopLosses)
+	require.Len(t, stopLosses, 1)
+	assert.Equal(t, "94", stopLosses[0].Price)
+	assert.Equal(t, tradeTestUsd("991.77108"), tradeTestCash(t, 4203), "4 margin - 2.16 loss - 0.01892 fee comes back")
+
+	setFuturesTestBook(3, tradeTestLevels("93.8", "5"), tradeTestLevels("93.9", "5"))
+	setFuturesTestMark("93.9", time.Now().Add(time.Hour).UnixMilli())
+	futuresMarket.checkRisk("BTCUSDT")
 	assert.Zero(t, futuresTestPosition(t, 4203, model.TradeFuturesLong).Qty)
+	assert.Equal(t, tradeTestUsd("994.02294"), tradeTestCash(t, 4203), "6 margin - 3.72 loss - 0.02814 fee comes back")
 	orders, _, err := model.GetTradeFuturesOrders(4203, false, "", 0, 10)
 	require.NoError(t, err)
-	require.Len(t, orders, 2)
+	require.Len(t, orders, 3)
 	assert.Equal(t, model.TradeFuturesTriggerStopLoss, orders[0].Trigger)
-	assert.Equal(t, "94.5", orders[0].FilledValue, "0.5 @ 94.6 + 0.5 @ 94.4")
-	assert.Equal(t, tradeTestUsd("994.40275"), tradeTestCash(t, 4203), "10 margin - 5.5 loss - 0.04725 fee comes back")
+	assert.Equal(t, "56.28", orders[0].FilledValue)
 	history, _, err := model.GetTradeFuturesHistory(4203, "BTCUSDT", 0, 10)
 	require.NoError(t, err)
 	require.Len(t, history, 1)
 	assert.Equal(t, model.TradeFuturesTriggerStopLoss, history[0].CloseReason)
+}
+
+// 止盈按最新成交价触发，不看标记价格；只平到价那一档的数量。
+func TestFuturesTakeProfitTriggersOnTheLastPrice(t *testing.T) {
+	setupFuturesMarketTest(t, nil)
+	fundTradeTestUser(t, 4208, "1000")
+	setFuturesTestBook(1, tradeTestLevels("99.9", "5"), tradeTestLevels("100", "5"))
+	openFuturesTest(t, 4208, TradeFuturesOrderRequest{Side: model.TradeFuturesLong, Type: model.TradeOrderTypeMarket, MarginMode: model.TradeFuturesIsolated,
+		Qty: tradeTestDecimal("1"), Leverage: 10,
+		TakeProfits: []TradeFuturesLevelRequest{{Price: tradeTestDecimal("110"), Qty: tradeTestDecimal("0.5")}}})
+
+	setFuturesTestBook(2, tradeTestLevels("110.2", "5"), tradeTestLevels("110.3", "5"))
+	setFuturesTestMark("111", time.Now().Add(time.Hour).UnixMilli())
+	setFuturesTestLast("109")
+	futuresMarket.checkRisk("BTCUSDT")
+	assert.EqualValues(t, 100_000_000, futuresTestPosition(t, 4208, model.TradeFuturesLong).Qty, "the mark alone does not take profit")
+
+	setFuturesTestLast("110.5")
+	futuresMarket.checkRisk("BTCUSDT")
+	position := futuresTestPosition(t, 4208, model.TradeFuturesLong)
+	assert.EqualValues(t, 50_000_000, position.Qty)
+	assert.Empty(t, position.TakeProfits)
+	orders, _, err := model.GetTradeFuturesOrders(4208, false, "", 0, 10)
+	require.NoError(t, err)
+	require.Len(t, orders, 2)
+	assert.Equal(t, model.TradeFuturesTriggerTakeProfit, orders[0].Trigger)
+	assert.Equal(t, "55.1", orders[0].FilledValue, "0.5 @ 110.2")
 }
 
 // 标记价格让保证金加浮动盈亏跌到维持保证金时强平，保证金全部亏掉，可用资金不变。
@@ -209,7 +267,8 @@ func TestFuturesLiquidationAtTheMark(t *testing.T) {
 	setupFuturesMarketTest(t, nil)
 	fundTradeTestUser(t, 4204, "100")
 	setFuturesTestBook(1, tradeTestLevels("99.9", "5"), tradeTestLevels("100", "5"))
-	openFuturesTest(t, 4204, TradeFuturesOrderRequest{Side: model.TradeFuturesLong, Type: model.TradeOrderTypeMarket, Qty: tradeTestDecimal("1"), Leverage: 10})
+	openFuturesTest(t, 4204, TradeFuturesOrderRequest{Side: model.TradeFuturesLong, Type: model.TradeOrderTypeMarket, MarginMode: model.TradeFuturesIsolated,
+		Qty: tradeTestDecimal("1"), Leverage: 10})
 
 	setFuturesTestMark("90.5", time.Now().Add(time.Hour).UnixMilli())
 	futuresMarket.checkRisk("BTCUSDT")
@@ -218,12 +277,82 @@ func TestFuturesLiquidationAtTheMark(t *testing.T) {
 	setFuturesTestMark("90.3", time.Now().Add(time.Hour).UnixMilli())
 	futuresMarket.checkRisk("BTCUSDT")
 	assert.Zero(t, futuresTestPosition(t, 4204, model.TradeFuturesLong).Qty)
-	assert.Equal(t, tradeTestUsd("89.95"), tradeTestCash(t, 4204))
+	assert.Equal(t, tradeTestUsd("90.20485"), tradeTestCash(t, 4204), "the 0.3 margin left minus the 0.04515 taker fee comes back")
 	history, _, err := model.GetTradeFuturesHistory(4204, "", 0, 10)
 	require.NoError(t, err)
 	require.Len(t, history, 1)
 	assert.Equal(t, model.TradeFuturesCloseByLiquidation, history[0].CloseReason)
-	assert.Equal(t, -tradeTestUsd("10.05"), history[0].Pnl, "the margin and the opening fee are lost")
+	assert.Equal(t, -tradeTestUsd("9.79515"), history[0].Pnl, "net PnL equals the change of cash")
+}
+
+// 全仓的保证金只算占用：权益(资金、全仓挂单冻结的钱与全仓浮动盈亏)跌到全仓维持保证金时，按标记价格平掉全部全仓仓位并撤掉全仓
+// 开仓挂单，盈亏与手续费记进资金。
+func TestFuturesCrossLiquidatesTheAccountAtTheMark(t *testing.T) {
+	setupFuturesMarketTest(t, nil)
+	fundTradeTestUser(t, 4209, "100")
+	setFuturesTestBook(1, tradeTestLevels("99.9", "10"), tradeTestLevels("100", "10"))
+	openFuturesTest(t, 4209, TradeFuturesOrderRequest{Side: model.TradeFuturesLong, Type: model.TradeOrderTypeMarket, MarginMode: model.TradeFuturesCross,
+		Qty: tradeTestDecimal("9"), Leverage: 10})
+	assert.Equal(t, tradeTestUsd("99.55"), tradeTestCash(t, 4209), "a cross open only pays the fee")
+	resting := openFuturesTest(t, 4209, TradeFuturesOrderRequest{Side: model.TradeFuturesLong, Type: model.TradeOrderTypeLimit, MarginMode: model.TradeFuturesCross,
+		Qty: tradeTestDecimal("0.1"), Price: tradeTestDecimal("95"), Leverage: 10})
+	assert.Equal(t, tradeTestUsd("0.95475"), resting.Frozen)
+
+	_, err := PlaceTradeFuturesOrder(context.Background(), 4209, TradeFuturesOrderRequest{Symbol: "BTCUSDT", Side: model.TradeFuturesLong,
+		Action: model.TradeFuturesOpen, Type: model.TradeOrderTypeMarket, MarginMode: model.TradeFuturesCross, Qty: tradeTestDecimal("1"), Leverage: 10})
+	require.ErrorIs(t, err, model.ErrTradeCashInsufficient, "8.6 USDT of cross available cannot back 10 more")
+	_, err = PlaceTradeFuturesOrder(context.Background(), 4209, TradeFuturesOrderRequest{Symbol: "BTCUSDT", Side: model.TradeFuturesShort,
+		Action: model.TradeFuturesOpen, Type: model.TradeOrderTypeMarket, MarginMode: model.TradeFuturesIsolated, Qty: tradeTestDecimal("0.1"), Leverage: 10})
+	require.ErrorIs(t, err, model.ErrTradeFuturesModeMismatch)
+
+	setFuturesTestMark("89.3", time.Now().Add(time.Hour).UnixMilli())
+	futuresMarket.checkRisk("BTCUSDT")
+	assert.EqualValues(t, 900_000_000, futuresTestPosition(t, 4209, model.TradeFuturesLong).Qty,
+		"3.25 of equity, the money frozen by the cross order included, is above the 3.2148 maintenance margin")
+
+	setFuturesTestMark("89.2", time.Now().Add(time.Hour).UnixMilli())
+	futuresMarket.checkRisk("BTCUSDT")
+	assert.Zero(t, futuresTestPosition(t, 4209, model.TradeFuturesLong).Qty)
+	account, err := model.GetTradeAccount(4209)
+	require.NoError(t, err)
+	assert.Equal(t, tradeTestUsd("1.9486"), account.Cash, "99.55 - 97.2 loss - 0.4014 fee, the cross order refunded")
+	assert.Zero(t, account.Frozen)
+	orders, _, err := model.GetTradeFuturesOrders(4209, false, "", 0, 10)
+	require.NoError(t, err)
+	require.Len(t, orders, 3)
+	assert.Equal(t, model.TradeFuturesTriggerLiquidation, orders[0].Trigger)
+	assert.Equal(t, model.TradeCancelByLiquidation, orders[1].CancelReason)
+}
+
+// 反手按市价平掉仓位，再按平掉的数量、同样的保证金模式与杠杆开反方向；一键全平平掉全部仓位。
+func TestFuturesReverseAndCloseAll(t *testing.T) {
+	setupFuturesMarketTest(t, nil)
+	fundTradeTestUser(t, 4210, "1000")
+	setFuturesTestBook(1, tradeTestLevels("99.9", "10"), tradeTestLevels("100", "10"))
+	openFuturesTest(t, 4210, TradeFuturesOrderRequest{Side: model.TradeFuturesLong, Type: model.TradeOrderTypeMarket, MarginMode: model.TradeFuturesIsolated,
+		Qty: tradeTestDecimal("2"), Leverage: 5, StopLosses: []TradeFuturesLevelRequest{{Price: tradeTestDecimal("90"), Qty: tradeTestDecimal("2")}}})
+
+	closed, opened, err := ReverseTradeFutures(context.Background(), 4210, "BTCUSDT", model.TradeFuturesLong)
+	require.NoError(t, err)
+	assert.Equal(t, "199.8", closed.FilledValue)
+	assert.Equal(t, model.TradeFuturesShort, opened.Side)
+	assert.Equal(t, "199.8", opened.FilledValue)
+	assert.Zero(t, futuresTestPosition(t, 4210, model.TradeFuturesLong).Qty)
+	short := futuresTestPosition(t, 4210, model.TradeFuturesShort)
+	assert.EqualValues(t, 200_000_000, short.Qty)
+	assert.Equal(t, model.TradeFuturesIsolated, short.MarginMode)
+	assert.Equal(t, 5, short.Leverage)
+	assert.Empty(t, short.StopLosses, "take profits and stop losses are not carried over")
+
+	openFuturesTest(t, 4210, TradeFuturesOrderRequest{Side: model.TradeFuturesLong, Type: model.TradeOrderTypeMarket, MarginMode: model.TradeFuturesIsolated,
+		Qty: tradeTestDecimal("1"), Leverage: 5})
+	closedAll, failures, err := CloseAllTradeFutures(context.Background(), 4210)
+	require.NoError(t, err)
+	assert.Len(t, closedAll, 2)
+	assert.Empty(t, failures)
+	positions, err := model.GetTradeFuturesPositions(4210)
+	require.NoError(t, err)
+	assert.Empty(t, positions)
 }
 
 // 资金费按 Binance 已经结算的期次结算：开仓之前的、还没到的不算，同一期只结算一次；结算完到下一次结算时间之前不再去查。
@@ -231,7 +360,8 @@ func TestFuturesFundingSettlesBinanceRounds(t *testing.T) {
 	setupFuturesMarketTest(t, nil)
 	fundTradeTestUser(t, 4205, "1000")
 	setFuturesTestBook(1, tradeTestLevels("99.9", "5"), tradeTestLevels("100", "5"))
-	openFuturesTest(t, 4205, TradeFuturesOrderRequest{Side: model.TradeFuturesLong, Type: model.TradeOrderTypeMarket, Qty: tradeTestDecimal("1"), Leverage: 10})
+	openFuturesTest(t, 4205, TradeFuturesOrderRequest{Side: model.TradeFuturesLong, Type: model.TradeOrderTypeMarket, MarginMode: model.TradeFuturesIsolated,
+		Qty: tradeTestDecimal("1"), Leverage: 10})
 	openedAt := time.Now().Add(-time.Hour).UnixMilli()
 	require.NoError(t, model.DB.Model(&model.TradeFuturesPosition{}).Where("user_id = ?", 4205).Update("funding_at", openedAt).Error)
 
@@ -274,9 +404,14 @@ func TestFuturesOrderValidation(t *testing.T) {
 	}{
 		{name: "leverage above the limit", req: TradeFuturesOrderRequest{Side: model.TradeFuturesLong, Type: model.TradeOrderTypeMarket, Qty: tradeTestDecimal("1"), Leverage: 11}, want: ErrTradeLeverageInvalid},
 		{name: "no leverage", req: TradeFuturesOrderRequest{Side: model.TradeFuturesLong, Type: model.TradeOrderTypeMarket, Qty: tradeTestDecimal("1")}, want: ErrTradeLeverageInvalid},
-		{name: "take profit below a long", req: TradeFuturesOrderRequest{Side: model.TradeFuturesLong, Type: model.TradeOrderTypeMarket, Qty: tradeTestDecimal("1"), Leverage: 5, TakeProfit: tradeTestDecimal("90")}, want: ErrTradeTpSlInvalid},
-		{name: "stop loss below a short", req: TradeFuturesOrderRequest{Side: model.TradeFuturesShort, Type: model.TradeOrderTypeMarket, Qty: tradeTestDecimal("1"), Leverage: 5, StopLoss: tradeTestDecimal("90")}, want: ErrTradeTpSlInvalid},
-		{name: "limit beyond the price band", req: TradeFuturesOrderRequest{Side: model.TradeFuturesShort, Type: model.TradeOrderTypeLimit, Qty: tradeTestDecimal("1"), Price: tradeTestDecimal("105.1"), Leverage: 5}, want: ErrTradePriceInvalid},
+		{name: "take profit below a long", req: TradeFuturesOrderRequest{Side: model.TradeFuturesLong, Type: model.TradeOrderTypeMarket, Qty: tradeTestDecimal("1"), Leverage: 5,
+			TakeProfits: []TradeFuturesLevelRequest{{Price: tradeTestDecimal("90"), Qty: tradeTestDecimal("1")}}}, want: ErrTradeTpSlInvalid},
+		{name: "stop loss below a short", req: TradeFuturesOrderRequest{Side: model.TradeFuturesShort, Type: model.TradeOrderTypeMarket, Qty: tradeTestDecimal("1"), Leverage: 5,
+			StopLosses: []TradeFuturesLevelRequest{{Price: tradeTestDecimal("90"), Qty: tradeTestDecimal("1")}}}, want: ErrTradeTpSlInvalid},
+		{name: "a level without a quantity", req: TradeFuturesOrderRequest{Side: model.TradeFuturesLong, Type: model.TradeOrderTypeMarket, Qty: tradeTestDecimal("1"), Leverage: 5,
+			StopLosses: []TradeFuturesLevelRequest{{Price: tradeTestDecimal("90")}}}, want: model.ErrTradeFuturesLevelsInvalid},
+		{name: "unknown margin mode", req: TradeFuturesOrderRequest{Side: model.TradeFuturesLong, Type: model.TradeOrderTypeMarket, MarginMode: "portfolio", Qty: tradeTestDecimal("1"), Leverage: 5}, want: ErrTradeOrderInvalid},
+		{name: "limit beyond the price band", req: TradeFuturesOrderRequest{Side: model.TradeFuturesShort, Type: model.TradeOrderTypeLimit, Qty: tradeTestDecimal("1"), Price: tradeTestDecimal("150.1"), Leverage: 5}, want: ErrTradePriceInvalid},
 		{name: "value below the minimum", req: TradeFuturesOrderRequest{Side: model.TradeFuturesLong, Type: model.TradeOrderTypeMarket, Qty: tradeTestDecimal("0.04"), Leverage: 5}, want: ErrTradeNotionalTooSmall},
 		{name: "unknown side", req: TradeFuturesOrderRequest{Side: "buy", Type: model.TradeOrderTypeMarket, Qty: tradeTestDecimal("1"), Leverage: 5}, want: ErrTradeOrderInvalid},
 	}

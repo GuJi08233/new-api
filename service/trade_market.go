@@ -55,6 +55,8 @@ type TradeMarket struct {
 	// positionSymbols 是还有人持仓的合约，定时从数据库读：合约关掉以后这些合约也要连着。
 	positionSymbols   []string
 	positionSymbolsAt time.Time
+	// bracketsNext 是下一次从 Binance 刷新合约风险限额档位的时间。
+	bracketsNext time.Time
 
 	// symbolLocks 让同一交易对的成交依次进行：按盘口算出成交、落库、记下吃掉的数量是一个整体，否则两笔委托会在同一档上重复成交。
 	symbolLocks sync.Map
@@ -72,6 +74,9 @@ type TradeMarket struct {
 	riskPending map[string]bool
 	riskSignal  chan struct{}
 	positions   map[string][]tradeRiskPosition
+	// crossPositions 与 crossCash 是有全仓仓位的用户的全仓仓位与资金，全仓强平的预检用。
+	crossPositions map[int][]tradeRiskPosition
+	crossCash      map[int]int
 
 	fundingMu    sync.Mutex
 	fundingQuiet map[string]time.Time
@@ -138,21 +143,23 @@ var (
 
 func newTradeMarket(futures bool) *TradeMarket {
 	return &TradeMarket{
-		futures:      futures,
-		books:        map[string]*tradeBook{},
-		tickers:      map[string]binance.Ticker{},
-		klines:       map[string]binance.Kline{},
-		marks:        map[string]tradeMark{},
-		rules:        map[string]binance.SymbolInfo{},
-		subs:         map[*TradeSubscriber]struct{}{},
-		dirty:        map[string]tradeDirty{},
-		matchPending: map[string]bool{},
-		matchSignal:  make(chan struct{}, 1),
-		resting:      map[string][]tradeRestingOrder{},
-		riskPending:  map[string]bool{},
-		riskSignal:   make(chan struct{}, 1),
-		positions:    map[string][]tradeRiskPosition{},
-		fundingQuiet: map[string]time.Time{},
+		futures:        futures,
+		books:          map[string]*tradeBook{},
+		tickers:        map[string]binance.Ticker{},
+		klines:         map[string]binance.Kline{},
+		marks:          map[string]tradeMark{},
+		rules:          map[string]binance.SymbolInfo{},
+		subs:           map[*TradeSubscriber]struct{}{},
+		dirty:          map[string]tradeDirty{},
+		matchPending:   map[string]bool{},
+		matchSignal:    make(chan struct{}, 1),
+		resting:        map[string][]tradeRestingOrder{},
+		riskPending:    map[string]bool{},
+		riskSignal:     make(chan struct{}, 1),
+		positions:      map[string][]tradeRiskPosition{},
+		crossPositions: map[int][]tradeRiskPosition{},
+		crossCash:      map[int]int{},
+		fundingQuiet:   map[string]time.Time{},
 	}
 }
 
@@ -204,6 +211,15 @@ func (m *TradeMarket) supervise() {
 			}
 		}
 		m.applySetting(operation_setting.GetTradeSetting())
+		m.mu.Lock()
+		refreshBrackets := m.futures && m.client != nil && time.Now().After(m.bracketsNext)
+		if refreshBrackets {
+			m.bracketsNext = time.Now().Add(tradeBracketsRetry)
+		}
+		m.mu.Unlock()
+		if refreshBrackets {
+			gopool.Go(m.refreshBrackets)
+		}
 		<-ticker.C
 	}
 }
@@ -489,6 +505,8 @@ func (m *TradeMarket) applyTicker(generation uint64, ticker *binance.Ticker, pus
 	m.tickers[ticker.Symbol] = *ticker
 	m.mu.Unlock()
 	m.markDirty(ticker.Symbol, tradeDirtyTicker)
+	// 止盈按最新成交价触发。
+	m.signalRisk(ticker.Symbol)
 }
 
 // applyMark 记下合约的标记价格(比手里的旧就丢掉)，并让主节点检查这个合约上仓位的强平与止盈止损。
