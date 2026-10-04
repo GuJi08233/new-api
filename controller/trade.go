@@ -124,11 +124,11 @@ func tradeSelfView(userId int) (gin.H, error) {
 	if err != nil {
 		return nil, err
 	}
-	// 转回自己转入的额度不受限制，超出的部分是盈利，当天还能转出多少受上限约束。
+	// 转回自己转入的额度不受限制，超出的部分是盈利，当天还能转出多少受上限约束；有全仓仓位时还要留下全仓占用与浮动亏损。
 	profitCap := setting.DailyProfitOutUsd * perUsd
-	withdrawable := account.Cash
+	withdrawable := valuation.Cross.Withdrawable
 	if profitCap > 0 {
-		withdrawable = min(account.Cash, account.QuotaPrincipal+max(profitCap-profitUsed, 0))
+		withdrawable = min(withdrawable, account.QuotaPrincipal+max(profitCap-profitUsed, 0))
 	}
 	userQuota, err := model.GetUserQuota(userId, true)
 	if err != nil {
