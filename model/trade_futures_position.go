@@ -119,9 +119,7 @@ func LiquidateTradeFuturesPosition(userId int, symbol string, side string, mark 
 	if err != nil {
 		return false, err
 	}
-	if covered > 0 {
-		syncCreditUserQuotaCache(userId, -covered, "trade futures deficit")
-	}
+	afterTradeDeficitCovered(userId, covered)
 	return liquidated, nil
 }
 
@@ -187,9 +185,7 @@ func LiquidateTradeFuturesCross(userId int, market TradeFuturesMarket, feeBps in
 	if err != nil {
 		return false, err
 	}
-	if covered > 0 {
-		syncCreditUserQuotaCache(userId, -covered, "trade futures deficit")
-	}
+	afterTradeDeficitCovered(userId, covered)
 	return liquidated, nil
 }
 
@@ -242,9 +238,7 @@ func ApplyTradeFuturesFunding(userId int, symbol string, side string, fundingTim
 	if err != nil {
 		return false, err
 	}
-	if covered > 0 {
-		syncCreditUserQuotaCache(userId, -covered, "trade futures deficit")
-	}
+	afterTradeDeficitCovered(userId, covered)
 	return applied, nil
 }
 

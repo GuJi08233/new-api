@@ -37,6 +37,21 @@ type TradeNotice struct {
 	CreatedAt int64  `json:"created_at" gorm:"bigint"`
 }
 
+// TradeDeficitNotifier 在亏空从用户的站内额度里扣掉、事务提交之后调用，由 service 设成按用户的通知设置(邮件、Webhook 等)
+// 通知用户；为空时不发。
+var TradeDeficitNotifier func(userId int, covered int)
+
+// afterTradeDeficitCovered 在补亏空的事务提交之后刷新用户的额度缓存并通知用户，covered 为 0 时什么都不做。
+func afterTradeDeficitCovered(userId int, covered int) {
+	if covered <= 0 {
+		return
+	}
+	syncCreditUserQuotaCache(userId, -covered, "trade futures deficit")
+	if TradeDeficitNotifier != nil {
+		TradeDeficitNotifier(userId, covered)
+	}
+}
+
 func addTradeNoticeTx(tx *gorm.DB, notice TradeNotice) error {
 	notice.CreatedAt = common.GetTimestamp()
 	return tx.Create(&notice).Error

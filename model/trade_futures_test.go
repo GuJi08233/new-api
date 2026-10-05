@@ -152,10 +152,15 @@ func TestTradeFuturesGapLiquidationIsChargedToTheWallet(t *testing.T) {
 	seedTradeFuturesAccount(t, 4015, 10)
 	openTradeFutures(t, 4015, tradeFuturesSymbol, TradeFuturesIsolated, TradeFuturesLong, tradeFuturesCoin, "100", 10, 0, nil)
 	brackets := tradeTestMarket{}.Brackets(tradeFuturesSymbol)
+	var notified []int
+	previous := TradeDeficitNotifier
+	TradeDeficitNotifier = func(userId int, covered int) { notified = append(notified, userId, covered) }
+	t.Cleanup(func() { TradeDeficitNotifier = previous })
 
 	liquidated, err := LiquidateTradeFuturesPosition(4015, tradeFuturesSymbol, TradeFuturesLong, decimal.RequireFromString("80"), brackets, 4)
 	require.NoError(t, err)
 	assert.True(t, liquidated)
+	assert.Equal(t, []int{4015, tradeUsd(10.032)}, notified, "the user is told once the quota is charged")
 	account := tradeTestAccount(t, 4015)
 	assert.Zero(t, account.Cash)
 	// 10 保证金 - 20 亏损 - 80 × 0.04% = 0.032 手续费 = -10.032，从站内额度扣。

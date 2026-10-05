@@ -964,9 +964,7 @@ func PlaceTradeFuturesOrder(in TradeFuturesOrderInput) (*TradeFuturesOrder, erro
 	if err != nil {
 		return nil, err
 	}
-	if covered > 0 {
-		syncCreditUserQuotaCache(in.UserId, -covered, "trade futures deficit")
-	}
+	afterTradeDeficitCovered(in.UserId, covered)
 	return order, nil
 }
 
@@ -1065,9 +1063,7 @@ func FillTradeFuturesOrder(orderId int, fill TradeFuturesFill, market TradeFutur
 	if err != nil {
 		return nil, err
 	}
-	if covered > 0 {
-		syncCreditUserQuotaCache(stored.UserId, -covered, "trade futures deficit")
-	}
+	afterTradeDeficitCovered(stored.UserId, covered)
 	return order, nil
 }
 
