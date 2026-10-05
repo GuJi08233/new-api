@@ -33,6 +33,7 @@ import {
   formatPrice,
   trendClass,
   tradeGet,
+  useFuturesBrackets,
   useTradeStream,
 } from './api';
 
@@ -59,6 +60,7 @@ const FuturesView = ({
   const [kline, setKline] = useState(null);
   const [fills, setFills] = useState([]);
   const [positions, setPositions] = useState([]);
+  const [cross, setCross] = useState(null);
   const [picked, setPicked] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [now, setNow] = useState(() => Date.now());
@@ -106,7 +108,9 @@ const FuturesView = ({
 
   const loadPositions = useCallback(async () => {
     const res = await tradeGet('/api/trade/futures/positions', t);
-    if (res.data) setPositions(res.data.positions || []);
+    if (!res.data) return;
+    setPositions(res.data.positions || []);
+    setCross(res.data.cross || null);
   }, [t]);
 
   const refresh = useCallback(() => {
@@ -139,16 +143,25 @@ const FuturesView = ({
     return () => clearInterval(timer);
   }, []);
 
+  const bracketInfo = useFuturesBrackets(symbol, t);
   const priceDigits = decimalsOf(item.rules?.tick_size);
   const change = changePercent(quote.price, quote.open);
   const symbolPositions = useMemo(
     () => positions.filter((entry) => entry.symbol === symbol),
     [positions, symbol],
   );
+  // 仓位的开仓均价、强平价与每一档止盈止损画在 K 线上，例如 "多 10x TP1"、"多 10x SL2"，只有一档时不带序号。
   const priceLines = useMemo(
     () =>
       symbolPositions.flatMap((entry) => {
         const long = entry.side === 'long';
+        const prefix = `${long ? t('多仓') : t('空仓')} ${entry.leverage}x`;
+        const levels = (list, name, color) =>
+          (list || []).map((level, i) => ({
+            price: level.price,
+            title: `${prefix} ${name}${list.length > 1 ? i + 1 : ''}`,
+            color,
+          }));
         return [
           {
             price: entry.entry_price,
@@ -157,11 +170,22 @@ const FuturesView = ({
           {
             price: entry.liquidation_price,
             title: long ? t('多仓强平价') : t('空仓强平价'),
-            danger: true,
+            color: 'down',
           },
+          ...levels(entry.take_profits, 'TP', 'up'),
+          ...levels(entry.stop_losses, 'SL', 'down'),
         ];
       }),
     [symbolPositions, t],
+  );
+  const positionRules = useMemo(
+    () => ({
+      [symbol]: {
+        priceDigits: decimalsOf(item.rules?.tick_size),
+        step: item.rules?.step_size,
+      },
+    }),
+    [symbol, item.rules],
   );
   const marks = useMemo(
     () => (quote.mark ? { [symbol]: quote.mark } : {}),
@@ -197,6 +221,9 @@ const FuturesView = ({
           </Title>
           <Tag color='blue'>{t('永续')}</Tag>
           {item.kind === 'stock' && <Tag color='violet'>{t('美股')}</Tag>}
+          {item.kind === 'commodity' && (
+            <Tag color='amber'>{t('大宗商品')}</Tag>
+          )}
           {!item.open && <Tag color='grey'>{t('仅可平仓')}</Tag>}
           <Tag color={connected ? 'green' : 'orange'}>
             {connected ? t('实时') : t('连接中')}
@@ -247,14 +274,16 @@ const FuturesView = ({
             t={t}
           />
           <div className='trade-card'>
-            <Title heading={6} className='!mb-2'>
-              {t('仓位')}
-            </Title>
             <FuturesPositions
               positions={positions}
+              cross={cross}
               marks={marks}
+              lastPrices={{ [symbol]: quote.price }}
+              rules={positionRules}
               cash={self?.account?.cash}
               perUnit={perUnit}
+              takerFeeBps={market.taker_fee_bps}
+              showReverse={item.open}
               onChanged={refresh}
               onOpenSymbol={(next) => next !== symbol && onOpenSymbol(next)}
               t={t}
@@ -276,12 +305,13 @@ const FuturesView = ({
             rules={item.rules}
             quote={quote}
             cash={self?.account?.cash}
+            cross={cross}
             positions={symbolPositions}
             perUnit={perUnit}
             takerFeeBps={market.taker_fee_bps}
             makerFeeBps={market.maker_fee_bps}
+            brackets={bracketInfo?.brackets}
             maxLeverage={item.max_leverage}
-            mmrBps={item.mmr_bps}
             canOpen={item.open}
             pickedPrice={picked}
             onPlaced={refresh}

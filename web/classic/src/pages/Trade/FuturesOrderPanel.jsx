@@ -17,10 +17,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Button,
-  Checkbox,
   Input,
   Radio,
   RadioGroup,
@@ -28,70 +27,86 @@ import {
   Typography,
 } from '@douyinfe/semi-ui';
 import { showError, showSuccess } from '../../helpers';
+import FuturesLevelsEditor, {
+  levelsIncomplete,
+  levelsPayload,
+  levelsQty,
+} from './FuturesLevelsEditor';
 import {
+  bracketFor,
   decimalsOf,
   estimateLiquidationPrice,
   floorToStep,
   formatPrice,
   formatQty,
+  leverageMarks,
   toUsdt,
   tradePost,
-  trendClass,
 } from './api';
 
 const { Text } = Typography;
 const PERCENTS = [0.25, 0.5, 0.75, 1];
-const LEVERAGE_KEY = 'trade-futures-leverage';
+const DEFAULT_LEVERAGE = 10;
+const emptyRows = () => [{ price: '', qty: '' }];
 
-// 合约下单面板：开仓或平仓，做多或做空，市价或限价。开仓时选杠杆(这个方向已有仓位时沿用仓位的杠杆)，可以同时设止盈止损；
-// 百分比按钮在开仓时按可用资金最多能开的数量填写，平仓时按可平数量填写。估算按当前盘口的最优价算，实际按盘口逐档成交。
+// 合约开仓面板：做多或做空，全仓或逐仓，市价或限价，选杠杆、填保证金(或开仓数量)，可以同时设多档止盈止损。这个合约已有
+// 仓位时保证金模式与杠杆跟着仓位走：模式锁定，改杠杆要先点"应用"(多空两边一起改)。估算按当前盘口的最优价算，实际按盘口逐档
+// 成交；强平价按 Binance 的风险限额档位估算，全仓按整个账户的权益估算。平仓、反手、调整保证金与止盈止损在仓位卡片上。
 const FuturesOrderPanel = ({
   symbol,
   ticker,
   rules,
   quote,
   cash,
+  cross,
   positions,
   perUnit,
   takerFeeBps,
   makerFeeBps,
+  brackets,
   maxLeverage,
-  mmrBps,
   canOpen,
   pickedPrice,
   onPlaced,
   t,
 }) => {
-  const [action, setAction] = useState(canOpen ? 'open' : 'close');
+  const held = positions?.[0];
+  const heldMode = held
+    ? held.margin_mode === 'cross'
+      ? 'cross'
+      : 'isolated'
+    : '';
+  const heldLeverage = held?.leverage || 0;
   const [side, setSide] = useState('long');
+  const [mode, setMode] = useState('cross');
   const [type, setType] = useState('market');
   const [price, setPrice] = useState('');
-  const [qty, setQty] = useState('');
-  const [leverage, setLeverage] = useState(() => {
-    try {
-      const saved = Number(localStorage.getItem(LEVERAGE_KEY));
-      if (saved >= 1) return saved;
-    } catch {
-      // 读不到就用默认值。
-    }
-    return 5;
-  });
-  const [withTpSl, setWithTpSl] = useState(false);
-  const [takeProfit, setTakeProfit] = useState('');
-  const [stopLoss, setStopLoss] = useState('');
+  const [amount, setAmount] = useState('');
+  const [unit, setUnit] = useState('usdt');
+  const [leverage, setLeverage] = useState(DEFAULT_LEVERAGE);
+  const [stopRows, setStopRows] = useState(emptyRows);
+  const [takeRows, setTakeRows] = useState(emptyRows);
+  const [applying, setApplying] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const previousQty = useRef(0);
 
   useEffect(() => {
     setPrice('');
-    setQty('');
-    setTakeProfit('');
-    setStopLoss('');
+    setAmount('');
+    setStopRows(emptyRows());
+    setTakeRows(emptyRows());
   }, [symbol]);
 
-  // 合约暂停开仓时只能平仓。
+  // 有仓位时杠杆跟着仓位；没有仓位时不超过这个合约能选的最高杠杆。
   useEffect(() => {
-    if (!canOpen) setAction('close');
-  }, [canOpen]);
+    if (heldLeverage) {
+      setLeverage(heldLeverage);
+      return;
+    }
+    setLeverage((value) =>
+      Math.min(Math.max(value, 1), Math.max(maxLeverage || 1, 1)),
+    );
+  }, [heldLeverage, maxLeverage, symbol]);
 
   // 点盘口上的价格时改成限价单并填上这个价格。
   useEffect(() => {
@@ -101,84 +116,191 @@ const FuturesOrderPanel = ({
     }
   }, [pickedPrice]);
 
-  const isOpen = action === 'open';
+  const effMode = heldMode || mode;
+  const isCross = effMode === 'cross';
   const isLong = side === 'long';
   const step = rules?.step_size;
   const priceDigits = decimalsOf(rules?.tick_size);
   const taker = (takerFeeBps || 0) / 10000;
   const maker = (makerFeeBps || 0) / 10000;
-  const position = positions?.find((entry) => entry.side === side);
-  // 同一方向的仓位只有一个杠杆，加仓沿用仓位的杠杆。
-  const lockedLeverage = position?.leverage;
-  const lev = lockedLeverage || Math.min(Math.max(leverage, 1), maxLeverage);
-  // 开多、平空是买入，在卖一成交；开空、平多是卖出，在买一成交。
-  const buying = isLong === isOpen;
-  const marketPrice =
-    Number(buying ? quote?.ask || quote?.price : quote?.bid || quote?.price) ||
-    0;
-  const refPrice = type === 'limit' ? Number(price) || 0 : marketPrice;
-  const qtyNumber = Number(qty) || 0;
-  const notional = qtyNumber * refPrice;
-  // 限价单挂着之后成交的部分按挂单费率收，下单就成交的部分按吃单收，这里按较高的吃单估算。
-  const fee = notional * taker;
+  const pending = !!heldLeverage && leverage !== heldLeverage;
+  const lev = Math.max(leverage, 1);
+  const last = Number(quote?.price) || 0;
+  // 开多在卖一成交，开空在买一成交。
+  const bookPrice = Number(isLong ? quote?.ask : quote?.bid) || last;
+  const calcPrice = type === 'limit' ? Number(price) || 0 : bookPrice;
+  const input = Number(amount) || 0;
+  let qtyText = '';
+  if (calcPrice > 0 && input > 0) {
+    qtyText = floorToStep(
+      unit === 'usdt' ? (input * lev) / calcPrice : input,
+      step,
+    );
+  }
+  const qty = Number(qtyText) || 0;
+  const notional = qty * calcPrice;
   const margin = notional / lev;
+  const fee = notional * taker;
   const cashUsdt = toUsdt(cash, perUnit);
-  const maxOpenQty =
-    refPrice > 0 ? cashUsdt / (refPrice * (1 / lev + taker)) : 0;
-  const available = position
-    ? Math.max(Number(position.qty) - Number(position.frozen_qty), 0)
-    : 0;
-  const entryPrice = Number(position?.entry_price || 0);
+  const crossAvailable = cross ? toUsdt(cross.available, perUnit) : cashUsdt;
+  // 全仓市价单可以用浮动盈利开仓；逐仓与限价挂单要从资金里拿出保证金(挂单是冻结)，还不能超过全仓可用。
+  const budget = Math.max(
+    isCross && type === 'market'
+      ? crossAvailable
+      : Math.min(crossAvailable, cashUsdt),
+    0,
+  );
   const minNotional = Number(rules?.min_notional || 0);
+  const minQty = Number(rules?.min_qty || 0);
 
-  // 开仓后的预估强平价，已有仓位时按加仓后的整个仓位算。
-  const heldQty = Number(position?.qty || 0);
-  const liquidation =
-    isOpen && notional > 0
-      ? estimateLiquidationPrice(
-          side,
-          entryPrice * heldQty + notional,
-          heldQty + qtyNumber,
-          toUsdt(position?.margin, perUnit) + margin,
-          mmrBps,
-        )
-      : 0;
-  const closePnl =
-    !isOpen && position
-      ? (isLong ? refPrice - entryPrice : entryPrice - refPrice) * qtyNumber
-      : 0;
+  // 开仓后的预估强平价按并进同方向仓位后的整个仓位算。全仓仓位由资金、全仓挂单冻结的钱与其他全仓仓位的浮动盈亏减去它们的
+  // 维持保证金撑着。
+  const same = positions?.find((entry) => entry.side === side);
+  const sameQty = Number(same?.qty || 0);
+  const mergedQty = sameQty + qty;
+  const mergedValue = Number(same?.entry_price || 0) * sameQty + notional;
+  let liquidation = 0;
+  if (qty > 0 && isCross) {
+    const sameCross = same?.margin_mode === 'cross';
+    const backing =
+      cashUsdt -
+      fee +
+      toUsdt(cross?.pending, perUnit) +
+      toUsdt((cross?.upnl || 0) - (sameCross ? same.pnl : 0), perUnit) -
+      toUsdt(
+        (cross?.maintenance || 0) - (sameCross ? same.maintenance : 0),
+        perUnit,
+      );
+    liquidation = estimateLiquidationPrice(
+      side,
+      mergedValue,
+      mergedQty,
+      backing,
+      brackets,
+    );
+  } else if (qty > 0) {
+    liquidation = estimateLiquidationPrice(
+      side,
+      mergedValue,
+      mergedQty,
+      toUsdt(same?.margin, perUnit) + margin,
+      brackets,
+    );
+  }
+  const tier = bracketFor(brackets, mergedValue);
 
-  const changeLeverage = (value) => {
-    setLeverage(value);
-    try {
-      localStorage.setItem(LEVERAGE_KEY, String(value));
-    } catch {
-      // 存不了就只在本次会话里生效。
-    }
-  };
+  // 开仓数量变了时，止盈止损每一档按原来占开仓数量的比例换算，没填数量的档位按全部数量。
+  useEffect(() => {
+    const previous = previousQty.current;
+    previousQty.current = qty;
+    if (!(qty > 0)) return;
+    const rescale = (rows) =>
+      rows.map((row) => {
+        const current = Number(row.qty);
+        if (!(current > 0) || !(previous > 0)) return { ...row, qty: qtyText };
+        const percent = Math.round((current / previous) * 100);
+        return {
+          ...row,
+          qty:
+            percent >= 100
+              ? qtyText
+              : floorToStep((qty * percent) / 100, step) || qtyText,
+        };
+      });
+    setStopRows(rescale);
+    setTakeRows(rescale);
+    // 只在开仓数量变化时换算。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [qtyText]);
 
+  // 百分比按钮按可用的这一部分算保证金：保证金加手续费正好用完。
   const applyPercent = (percent) => {
-    if (isOpen) {
-      setQty(floorToStep(maxOpenQty * percent, step));
+    if (!(calcPrice > 0)) return;
+    const target = (budget * percent) / (1 + taker * lev);
+    if (unit === 'usdt') {
+      setAmount(String(Math.floor(target * 100) / 100));
       return;
     }
-    setQty(
-      percent === 1
-        ? String(available)
-        : floorToStep(available * percent, step),
+    setAmount(floorToStep((target * lev) / calcPrice, step));
+  };
+
+  const switchUnit = (next) => {
+    if (next === unit) return;
+    setUnit(next);
+    if (!(qty > 0)) {
+      setAmount('');
+      return;
+    }
+    setAmount(
+      next === 'usdt' ? String(Math.floor(margin * 100) / 100) : qtyText,
     );
   };
 
-  const submit = async () => {
-    const body = { symbol, side, action, type, qty };
-    if (type === 'limit') body.price = price;
-    if (isOpen) {
-      body.leverage = lev;
-      if (withTpSl) {
-        body.take_profit = takeProfit;
-        body.stop_loss = stopLoss;
-      }
+  const applyLeverage = async () => {
+    setApplying(true);
+    const res = await tradePost(
+      '/api/trade/futures/leverage',
+      { symbol, leverage: lev },
+      t,
+    );
+    setApplying(false);
+    if (res.error) {
+      showError(res.error);
+      setLeverage(heldLeverage);
+      return;
     }
+    showSuccess(t('杠杆已调整为 {{leverage}}x', { leverage: lev }));
+    onPlaced?.();
+  };
+
+  const submit = async () => {
+    if (pending) {
+      showError(t('杠杆调整未确认，请先确认或还原'));
+      return;
+    }
+    if (type === 'limit' && !(Number(price) > 0)) {
+      showError(t('请输入委托价格'));
+      return;
+    }
+    if (!(qty > 0) || qty < minQty) {
+      showError(
+        t('最小下单数量 {{qty}} {{ticker}}', {
+          qty: formatQty(minQty || step),
+          ticker,
+        }),
+      );
+      return;
+    }
+    if (notional < minNotional) {
+      showError(t('最小下单金额 {{min}} USDT', { min: minNotional }));
+      return;
+    }
+    if (levelsIncomplete(stopRows) || levelsIncomplete(takeRows)) {
+      showError(t('止盈止损的每一档都要填有效的触发价和数量'));
+      return;
+    }
+    const stopLosses = levelsPayload(stopRows);
+    const takeProfits = levelsPayload(takeRows);
+    if (levelsQty(stopLosses) > qty + 1e-12) {
+      showError(t('止损总量超过开仓数量'));
+      return;
+    }
+    if (levelsQty(takeProfits) > qty + 1e-12) {
+      showError(t('止盈总量超过开仓数量'));
+      return;
+    }
+    const body = {
+      symbol,
+      side,
+      action: 'open',
+      type,
+      margin_mode: effMode,
+      leverage: lev,
+      qty: qtyText,
+      take_profits: takeProfits,
+      stop_losses: stopLosses,
+    };
+    if (type === 'limit') body.price = price;
     setSubmitting(true);
     const res = await tradePost('/api/trade/futures/orders', body, t);
     setSubmitting(false);
@@ -198,11 +320,14 @@ const FuturesOrderPanel = ({
       );
     } else if (order.status === 'filled') {
       showSuccess(
-        t('已成交 {{qty}} {{ticker}}，均价 {{price}}', {
-          qty: formatQty(order.filled_qty),
-          ticker,
-          price: formatPrice(order.avg_price, priceDigits),
-        }),
+        `${isLong ? t('做多开仓成功') : t('做空开仓成功')}：${t(
+          '已成交 {{qty}} {{ticker}}，均价 {{price}}',
+          {
+            qty: formatQty(order.filled_qty),
+            ticker,
+            price: formatPrice(order.avg_price, priceDigits),
+          },
+        )}`,
       );
     } else {
       showSuccess(
@@ -212,63 +337,55 @@ const FuturesOrderPanel = ({
         }),
       );
     }
-    setQty('');
+    setAmount('');
+    if (type === 'limit') setPrice('');
+    setStopRows(emptyRows());
+    setTakeRows(emptyRows());
     onPlaced?.();
   };
 
-  // 限价单列出挂单与吃单两个费率，估算按吃单。
+  const minLeverage = heldMode === 'isolated' ? heldLeverage : 1;
+  const sliderMax = Math.max(maxLeverage || 1, lev, 1);
+  const marketable =
+    type === 'limit' &&
+    Number(price) > 0 &&
+    last > 0 &&
+    (isLong ? Number(price) >= last : Number(price) <= last);
   const feeLabel =
     type === 'limit'
       ? `${t('手续费')} (${(maker * 100).toFixed(2)}% / ${(taker * 100).toFixed(2)}%)`
-      : `${t('手续费')} (${(taker * 100).toFixed(2)}%)`;
-  const ready =
-    qtyNumber > 0 &&
-    (type === 'market' || Number(price) > 0) &&
-    (isOpen ? canOpen : available > 0);
-  let actionLabel = isLong ? t('平多') : t('平空');
-  if (isOpen) actionLabel = isLong ? t('开多') : t('开空');
-  const rows = isOpen
-    ? [
-        [t('可用资金'), `${cashUsdt.toFixed(2)} USDT`],
-        [
-          t('最多可开'),
-          `${formatQty(floorToStep(maxOpenQty, step) || 0)} ${ticker}`,
-        ],
-        [t('委托价值'), notional > 0 ? `${notional.toFixed(2)} USDT` : '--'],
-        [t('所需保证金'), notional > 0 ? `${margin.toFixed(2)} USDT` : '--'],
-        [feeLabel, notional > 0 ? `${fee.toFixed(4)} USDT` : '--'],
-        [
-          t('预估强平价'),
-          liquidation > 0 ? formatPrice(liquidation, priceDigits) : '--',
-        ],
-      ]
-    : [
-        [t('可平数量'), `${formatQty(available)} ${ticker}`],
-        [
-          t('预计盈亏'),
-          notional > 0 ? (
-            <span className={trendClass(closePnl)}>
-              {`${closePnl > 0 ? '+' : ''}${closePnl.toFixed(2)} USDT`}
-            </span>
-          ) : (
-            '--'
-          ),
-        ],
-        [feeLabel, notional > 0 ? `${fee.toFixed(4)} USDT` : '--'],
-      ];
+      : `${t('手续费')} (${t('吃单')} ${(taker * 100).toFixed(2)}%)`;
+  const rows = [
+    [t('仓位价值'), notional > 0 ? `${notional.toFixed(2)} USDT` : '--'],
+    [t('保证金'), notional > 0 ? `${margin.toFixed(2)} USDT` : '--'],
+    [feeLabel, notional > 0 ? `${fee.toFixed(4)} USDT` : '--'],
+    [t('合计需要'), notional > 0 ? `${(margin + fee).toFixed(2)} USDT` : '--'],
+    [
+      t('预估强平价'),
+      <span key='liq' className='trade-warning'>
+        {liquidation > 0 ? formatPrice(liquidation, priceDigits) : '--'}
+      </span>,
+    ],
+    [
+      t('维持保证金率'),
+      tier
+        ? t('档 {{tier}} · {{rate}}%', {
+            tier: tier.tier,
+            rate: (tier.mmr * 100).toFixed(2),
+          })
+        : '--',
+    ],
+  ];
+  const sideLabel = isLong ? t('开多') : t('开空');
 
   return (
     <div className='trade-card flex flex-col gap-3'>
-      <RadioGroup
-        type='button'
-        value={action}
-        onChange={(e) => setAction(e.target.value)}
-      >
-        <Radio value='open' disabled={!canOpen}>
-          {t('开仓')}
-        </Radio>
-        <Radio value='close'>{t('平仓')}</Radio>
-      </RadioGroup>
+      <div className='flex items-center justify-between'>
+        <Text strong>{t('开仓')}</Text>
+        <Text type='tertiary' size='small' className='trade-num'>
+          {t('可用 {{amount}} USDT', { amount: budget.toFixed(2) })}
+        </Text>
+      </div>
       <div className='grid grid-cols-2 gap-2'>
         <Button
           theme={isLong ? 'solid' : 'light'}
@@ -278,69 +395,146 @@ const FuturesOrderPanel = ({
             isLong ? { background: 'var(--semi-color-success)' } : undefined
           }
         >
-          {isOpen ? t('开多') : t('平多')}
+          {t('做多')}
         </Button>
         <Button
           theme={!isLong ? 'solid' : 'light'}
           type={!isLong ? 'danger' : 'tertiary'}
           onClick={() => setSide('short')}
         >
-          {isOpen ? t('开空') : t('平空')}
+          {t('做空')}
         </Button>
       </div>
-      <RadioGroup
-        type='button'
-        value={type}
-        onChange={(e) => setType(e.target.value)}
-      >
-        <Radio value='market'>{t('市价')}</Radio>
-        <Radio value='limit'>{t('限价')}</Radio>
-      </RadioGroup>
-      {isOpen && (
+      <div className='flex items-center justify-between gap-2'>
+        <Text type='tertiary' size='small'>
+          {t('保证金模式')}
+        </Text>
+        <RadioGroup
+          type='button'
+          value={effMode}
+          disabled={!!heldMode}
+          onChange={(e) => setMode(e.target.value)}
+        >
+          <Radio value='cross'>{t('全仓')}</Radio>
+          <Radio value='isolated'>{t('逐仓')}</Radio>
+        </RadioGroup>
+      </div>
+      <div className='flex items-center justify-between gap-2'>
+        <Text type='tertiary' size='small'>
+          {t('委托类型')}
+        </Text>
+        <RadioGroup
+          type='button'
+          value={type}
+          onChange={(e) => setType(e.target.value)}
+        >
+          <Radio value='market'>{t('市价')}</Radio>
+          <Radio value='limit'>{t('限价')}</Radio>
+        </RadioGroup>
+      </div>
+      {heldMode && (
+        <Text type='tertiary' size='small'>
+          {t('有持仓时无法切换保证金模式')}
+        </Text>
+      )}
+      {type === 'limit' && (
         <div className='flex flex-col gap-1'>
-          <div className='flex items-center justify-between'>
-            <Text type='tertiary' size='small'>
-              {t('杠杆')}
-            </Text>
-            <Text strong className='trade-num'>
-              {lev}x
-            </Text>
-          </div>
-          <Slider
-            min={1}
-            max={Math.max(maxLeverage, 1)}
-            step={1}
-            value={lev}
-            disabled={!!lockedLeverage || maxLeverage <= 1}
-            tipFormatter={(value) => `${value}x`}
-            onChange={changeLeverage}
+          <Input
+            value={price}
+            onChange={setPrice}
+            prefix={t('委托价格')}
+            aria-label={t('委托价格')}
+            suffix='USDT'
+            placeholder={formatPrice(quote?.price, priceDigits)}
+            inputMode='decimal'
           />
-          {lockedLeverage && (
-            <Text type='tertiary' size='small'>
-              {t('这个方向已有仓位，沿用仓位的杠杆')}
+          {marketable && (
+            <Text type='warning' size='small'>
+              {isLong
+                ? t('限价≥当前价，将立即以市价成交')
+                : t('限价≤当前价，将立即以市价成交')}
             </Text>
           )}
         </div>
       )}
-      {type === 'limit' && (
+      <div className='flex flex-col gap-1'>
+        <div className='flex items-center justify-between'>
+          <Text type='tertiary' size='small'>
+            {t('杠杆')}
+          </Text>
+          <Text
+            strong
+            className={`trade-num ${pending ? 'trade-warning' : ''}`}
+          >
+            {lev}x
+          </Text>
+        </div>
+        <Slider
+          min={minLeverage}
+          max={sliderMax}
+          step={1}
+          value={lev}
+          marks={leverageMarks(minLeverage, sliderMax)}
+          disabled={sliderMax <= minLeverage}
+          tipFormatter={(value) => `${value}x`}
+          onChange={setLeverage}
+        />
+        {pending && (
+          <div className='flex items-center gap-2'>
+            <Button
+              size='small'
+              theme='solid'
+              loading={applying}
+              onClick={applyLeverage}
+            >
+              {t('应用 {{leverage}}x', { leverage: lev })}
+            </Button>
+            <Button
+              size='small'
+              theme='light'
+              type='tertiary'
+              onClick={() => setLeverage(heldLeverage)}
+            >
+              {t('撤回')}
+            </Button>
+          </div>
+        )}
+        {tier && lev > tier.maxLeverage && (
+          <Text type='warning' size='small'>
+            {t('按这个仓位价值最高只能用 {{max}}x 杠杆', {
+              max: tier.maxLeverage,
+            })}
+          </Text>
+        )}
+      </div>
+      <div className='flex flex-col gap-1'>
+        <RadioGroup
+          type='button'
+          size='small'
+          value={unit}
+          onChange={(e) => switchUnit(e.target.value)}
+        >
+          <Radio value='usdt'>{t('按保证金')}</Radio>
+          <Radio value='coin'>{t('按数量')}</Radio>
+        </RadioGroup>
         <Input
-          value={price}
-          onChange={setPrice}
-          prefix={t('委托价格')}
-          aria-label={t('委托价格')}
-          suffix='USDT'
-          placeholder={formatPrice(quote?.price, priceDigits)}
+          value={amount}
+          onChange={setAmount}
+          prefix={unit === 'usdt' ? t('保证金') : t('开仓数量')}
+          aria-label={unit === 'usdt' ? t('保证金') : t('开仓数量')}
+          suffix={unit === 'usdt' ? 'USDT' : ticker}
           inputMode='decimal'
         />
-      )}
-      <Input
-        value={qty}
-        onChange={setQty}
-        prefix={t('委托数量')}
-        aria-label={t('委托数量')}
-        suffix={ticker}
-        inputMode='decimal'
-      />
+        <Text type='tertiary' size='small' className='trade-num'>
+          {t('最小 {{qty}} {{ticker}} · 最低保证金 {{margin}} USDT', {
+            qty: formatQty(minQty || step),
+            ticker,
+            margin: (minNotional / lev).toFixed(2),
+          })}
+          {qty > 0 &&
+            ` · ${t('开仓 {{qty}} {{ticker}}', { qty: formatQty(qty), ticker })}`}
+        </Text>
+      </div>
       <div className='grid grid-cols-4 gap-1'>
         {PERCENTS.map((percent) => (
           <Button
@@ -354,37 +548,6 @@ const FuturesOrderPanel = ({
           </Button>
         ))}
       </div>
-      {isOpen && (
-        <Checkbox
-          checked={withTpSl}
-          onChange={(e) => setWithTpSl(e.target.checked)}
-        >
-          {t('止盈止损')}
-        </Checkbox>
-      )}
-      {isOpen && withTpSl && (
-        <div className='flex flex-col gap-2'>
-          <Input
-            value={takeProfit}
-            onChange={setTakeProfit}
-            prefix={t('止盈价')}
-            aria-label={t('止盈价')}
-            suffix='USDT'
-            inputMode='decimal'
-          />
-          <Input
-            value={stopLoss}
-            onChange={setStopLoss}
-            prefix={t('止损价')}
-            aria-label={t('止损价')}
-            suffix='USDT'
-            inputMode='decimal'
-          />
-          <Text type='tertiary' size='small'>
-            {t('按标记价格触发，触发后按市价平掉整个仓位。')}
-          </Text>
-        </div>
-      )}
       <div className='flex flex-col gap-1 text-xs'>
         {rows.map(([label, value]) => (
           <div key={label} className='flex justify-between'>
@@ -396,30 +559,73 @@ const FuturesOrderPanel = ({
             </Text>
           </div>
         ))}
-        {isOpen && notional > 0 && notional < minNotional && (
+        {notional > 0 && margin + fee > budget && (
           <Text type='warning' size='small'>
-            {t('单笔至少 {{min}} USDT', { min: minNotional })}
+            {t('可用资金不足')}
           </Text>
         )}
+      </div>
+      <div className='flex flex-col gap-2'>
+        <Text type='tertiary' size='small'>
+          {t('止损')}
+          {' · '}
+          {t('标记价格触及止损价时自动平仓对应数量，可设多档分批止损')}
+        </Text>
+        <FuturesLevelsEditor
+          kind='sl'
+          side={side}
+          rows={stopRows}
+          onChange={setStopRows}
+          reference={calcPrice}
+          entryPrice={calcPrice}
+          positionQty={qty}
+          margin={margin}
+          takerRate={taker}
+          ticker={ticker}
+          priceDigits={priceDigits}
+          t={t}
+        />
+        <Text type='tertiary' size='small'>
+          {t('止盈')}
+          {' · '}
+          {t('现价触及止盈价时自动平仓对应数量，可设多档分批止盈')}
+        </Text>
+        <FuturesLevelsEditor
+          kind='tp'
+          side={side}
+          rows={takeRows}
+          onChange={setTakeRows}
+          reference={calcPrice}
+          entryPrice={calcPrice}
+          positionQty={qty}
+          margin={margin}
+          takerRate={taker}
+          ticker={ticker}
+          priceDigits={priceDigits}
+          t={t}
+        />
       </div>
       <Button
         theme='solid'
         type={isLong ? 'primary' : 'danger'}
         style={isLong ? { background: 'var(--semi-color-success)' } : undefined}
         loading={submitting}
-        disabled={!ready}
+        disabled={!canOpen || !(calcPrice > 0) || pending}
         onClick={submit}
       >
-        {`${actionLabel} ${ticker}`}
+        {`${sideLabel} ${symbol} · ${lev}x`}
       </Button>
       <Text type='tertiary' size='small'>
-        {!isOpen
-          ? t('平仓数量不能超过可平数量，挂着的限价平仓单会占用可平数量。')
-          : type === 'market'
-            ? t('市价单按 Binance 实时盘口逐档成交，盘口不够时剩余部分撤销。')
-            : t(
-                '限价开仓会冻结保证金和手续费，挂着之后成交的部分按挂单费率收费，可以随时撤单。',
-              )}
+        {!canOpen
+          ? t('该合约暂停开仓，已有仓位可以在仓位卡片上平仓。')
+          : isCross
+            ? t('全仓模式下整个账户净值为仓位兜底。')
+            : t('逐仓只押本仓保证金，最多亏光这一份。')}
+        {canOpen &&
+          liquidation > 0 &&
+          ` ${t('标记价触及 {{price}} 会被强平，请控制杠杆。', {
+            price: formatPrice(liquidation, priceDigits),
+          })}`}
       </Text>
     </div>
   );

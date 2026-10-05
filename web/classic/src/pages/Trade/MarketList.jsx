@@ -62,12 +62,13 @@ const Sparkline = ({ closes }) => {
   );
 };
 
-// 行情列表：加密货币与美股分两组，价格随推送实时变化，点一行进入交易。futures 为真时列的是永续合约，多出标记价格、
+// 行情列表：加密货币、美股与大宗商品分组，价格随推送实时变化，点一行进入交易。futures 为真时列的是永续合约，多出标记价格、
 // 资金费率与最高杠杆，暂停开仓(只能平仓)的合约标出来。
 const MarketList = ({ symbols, quotes, futures = false, onOpen, t }) => {
   const groups = [
     { kind: 'crypto', title: t('加密货币') },
     { kind: 'stock', title: futures ? t('美股永续') : t('美股代币') },
+    { kind: 'commodity', title: t('大宗商品') },
   ];
 
   const futuresColumns = [
@@ -218,7 +219,7 @@ const MarketList = ({ symbols, quotes, futures = false, onOpen, t }) => {
       <Text type='tertiary' size='small'>
         {futures
           ? t(
-              '合约是 Binance 的 U 本位永续合约，只有逐仓：每个仓位单独占用保证金，最多亏掉这份保证金。强平和止盈止损按标记价格触发，资金费按 Binance 公布的费率结算。',
+              '合约是 Binance 的 U 本位永续合约，可选全仓或逐仓：全仓由整个账户的资金兜底，逐仓每个仓位最多亏掉自己的保证金。杠杆上限与维持保证金率按 Binance 的风险限额档位，强平与止损按标记价格触发，止盈按最新成交价触发，资金费按 Binance 公布的费率结算。',
             )
           : t(
               '美股代币是 Binance 现货上 24 小时交易的代币化股票，盘口比主流加密货币薄得多，大额市价单可能只成交一部分。',

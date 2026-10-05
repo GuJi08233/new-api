@@ -330,20 +330,31 @@ const TradeAdmin = () => {
   );
   const symbolChoices = (field, key) => (
     <CheckboxGroup value={form[key]} onChange={(value) => change(key, value)}>
-      {['crypto', 'stock'].map((kind) => (
-        <div key={kind} className='flex flex-wrap items-center gap-x-4 gap-y-2'>
-          <Text type='tertiary' size='small' style={{ width: 72 }}>
-            {kind === 'crypto' ? t('加密货币') : t('美股代币')}
-          </Text>
-          {symbols
-            .filter((item) => item.kind === kind)
-            .map((item) => (
+      {[
+        ['crypto', t('加密货币')],
+        ['stock', field === 'futures' ? t('美股永续') : t('美股代币')],
+        ['commodity', t('大宗商品')],
+      ].map(([kind, label]) => {
+        const items = symbols.filter(
+          (item) => item.kind === kind && item[field],
+        );
+        if (!items.length) return null;
+        return (
+          <div
+            key={kind}
+            className='flex flex-wrap items-center gap-x-4 gap-y-2'
+          >
+            <Text type='tertiary' size='small' style={{ width: 72 }}>
+              {label}
+            </Text>
+            {items.map((item) => (
               <Checkbox key={item[field]} value={item[field]}>
                 {item.ticker}
               </Checkbox>
             ))}
-        </div>
-      ))}
+          </div>
+        );
+      })}
     </CheckboxGroup>
   );
 
@@ -423,7 +434,7 @@ const TradeAdmin = () => {
               <Text className='whitespace-nowrap'>{t('开放合约')}</Text>
               <Text type='tertiary' size='small'>
                 {t(
-                  '只有逐仓，模拟盘本身也要开放。关闭后不能开仓；已有的仓位照样可以平仓、调整保证金和止盈止损，强平与资金费照常进行。',
+                  '可选全仓或逐仓，模拟盘本身也要开放。关闭后不能开仓和反手；已有的仓位照样可以平仓、调杠杆、调整逐仓保证金和止盈止损，强平与资金费照常进行。',
                 )}
               </Text>
             </div>

@@ -167,3 +167,29 @@ For commercial licensing, please contact support@quantumnous.com
 .trade-calendar-cell-selected {
   border-color: var(--semi-color-primary);
 }
+
+/* 合约仓位卡片：左边一条色条，多仓绿、空仓红；按钮展开的平仓、杠杆、止盈止损与保证金面板放在浅底色里。 */
+.trade-position {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--semi-color-border);
+  border-left-width: 3px;
+  border-radius: 8px;
+}
+
+.trade-position-long {
+  border-left-color: var(--semi-color-success);
+}
+
+.trade-position-short {
+  border-left-color: var(--semi-color-danger);
+}
+
+.trade-position-panel {
+  max-width: 480px;
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--semi-color-fill-0);
+}

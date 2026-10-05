@@ -30,6 +30,7 @@ import {
 import { showError, showSuccess, timestamp2string } from '../../helpers';
 import { orderStatusTag } from './OrdersCard';
 import {
+  formatDuration,
   formatPrice,
   formatQty,
   formatSignedUsdt,
@@ -42,8 +43,8 @@ import {
 const { Text } = Typography;
 const PAGE_SIZE = 10;
 
-// 合约委托与仓位历史：当前委托可以撤单，历史委托可以查看每一次成交，仓位历史是已经结束的仓位(平仓、止盈止损或强平)
-// 与它们的净盈亏。symbol 为空时列出所有合约。
+// 合约委托与仓位历史：当前委托可以撤单，历史委托可以查看每一次成交。仓位历史一行是一段从开仓到平完(或强平)的仓位，
+// 收益率按投入的保证金算，点开看这段仓位的每一次成交。symbol 为空时列出所有合约。
 const FuturesOrdersCard = ({
   symbol,
   priceDigits,
@@ -125,12 +126,11 @@ const FuturesOrdersCard = ({
     sl: t('止损'),
     liquidation: t('强平'),
   };
-  const closeReasons = {
-    close: t('平仓'),
-    tp: t('止盈'),
-    sl: t('止损'),
-    liquidation: t('强平'),
-  };
+  const modeTag = (item) => (
+    <Tag size='small'>
+      {item.margin_mode === 'cross' ? t('全仓') : t('逐仓')} {item.leverage}x
+    </Tag>
+  );
   const symbolColumn = symbol
     ? []
     : [{ title: t('合约'), dataIndex: 'symbol' }];
@@ -146,8 +146,15 @@ const FuturesOrdersCard = ({
     {
       title: t('方向'),
       dataIndex: 'side',
+      // 开多、平空是买入用涨色，开空、平多是卖出用跌色。
       render: (value, order) => (
-        <span className={value === 'long' ? 'trade-up' : 'trade-down'}>
+        <span
+          className={
+            (value === 'long') === (order.action === 'open')
+              ? 'trade-up'
+              : 'trade-down'
+          }
+        >
           {actionLabels[`${order.action}-${value}`]}
         </span>
       ),
@@ -156,20 +163,30 @@ const FuturesOrdersCard = ({
       title: t('类型'),
       dataIndex: 'type',
       render: (value, order) => (
-        <div className='flex items-center gap-1 whitespace-nowrap'>
-          {value === 'limit' ? t('限价') : t('市价')}
-          {order.trigger && (
-            <Tag size='small' color={order.trigger === 'tp' ? 'green' : 'red'}>
-              {triggerLabels[order.trigger] || order.trigger}
-            </Tag>
+        <div className='flex flex-col gap-1'>
+          <div className='flex items-center gap-1 whitespace-nowrap'>
+            {value === 'limit' ? t('限价') : t('市价')}
+            {modeTag(order)}
+            {order.trigger && (
+              <Tag
+                size='small'
+                color={order.trigger === 'tp' ? 'green' : 'red'}
+              >
+                {triggerLabels[order.trigger] || order.trigger}
+              </Tag>
+            )}
+          </div>
+          {(order.take_profits?.length > 0 ||
+            order.stop_losses?.length > 0) && (
+            <Text type='tertiary' size='small'>
+              {t('止盈 {{tp}} 档 · 止损 {{sl}} 档', {
+                tp: order.take_profits?.length || 0,
+                sl: order.stop_losses?.length || 0,
+              })}
+            </Text>
           )}
         </div>
       ),
-    },
-    {
-      title: t('杠杆'),
-      dataIndex: 'leverage',
-      render: (value) => `${value}x`,
     },
     {
       title: t('委托价'),
@@ -216,6 +233,7 @@ const FuturesOrdersCard = ({
     {
       title: '',
       dataIndex: 'operate',
+      fixed: 'right',
       render: (_, order) =>
         order.status === 'open' ? (
           <Button
@@ -243,27 +261,39 @@ const FuturesOrdersCard = ({
 
   const historyColumns = [
     {
-      title: t('平仓时间'),
-      dataIndex: 'closed_at',
-      render: (value) => timestamp2string(value),
-    },
-    ...symbolColumn,
-    {
-      title: t('方向'),
-      dataIndex: 'side',
+      title: t('合约'),
+      dataIndex: 'symbol',
       render: (value, item) => (
         <div className='flex items-center gap-1 whitespace-nowrap'>
-          <Tag size='small' color={value === 'long' ? 'green' : 'red'}>
-            {value === 'long' ? t('多仓') : t('空仓')}
+          <Text strong>{value}</Text>
+          <Tag
+            size='small'
+            type='solid'
+            color={item.side === 'long' ? 'green' : 'red'}
+          >
+            {item.side === 'long' ? t('多仓') : t('空仓')}
           </Tag>
-          <Tag size='small'>{item.leverage}x</Tag>
+          {modeTag(item)}
+          {item.close_reason === 'liquidation' && (
+            <Tag size='small' color='red'>
+              {t('强平')}
+            </Tag>
+          )}
+          {(item.close_reason === 'tp' || item.close_reason === 'sl') && (
+            <Tag
+              size='small'
+              color={item.close_reason === 'tp' ? 'green' : 'orange'}
+            >
+              {triggerLabels[item.close_reason]}
+            </Tag>
+          )}
         </div>
       ),
     },
     {
-      title: t('数量'),
+      title: t('已平仓量'),
       dataIndex: 'qty',
-      render: (value) => formatQty(value),
+      render: (value) => formatQty(value, 4),
     },
     {
       title: t('开仓均价'),
@@ -277,55 +307,95 @@ const FuturesOrdersCard = ({
     },
     {
       title: t('已实现盈亏'),
-      dataIndex: 'realized_pnl',
-      render: (value) => (
-        <span className={`trade-num ${trendClass(value)}`}>
-          {formatSignedUsdt(value, perUnit, 4)}
-        </span>
-      ),
-    },
-    {
-      title: t('手续费'),
-      dataIndex: 'fees',
-      render: (value) => formatUsdt(value, perUnit, 4),
-    },
-    {
-      title: t('资金费'),
-      dataIndex: 'funding',
-      render: (value) => (
-        <span className={`trade-num ${trendClass(value)}`}>
-          {formatSignedUsdt(value, perUnit, 4)}
-        </span>
-      ),
-    },
-    {
-      title: t('净盈亏'),
       dataIndex: 'pnl',
       render: (value) => (
         <Text strong className={`trade-num ${trendClass(value)}`}>
-          {formatSignedUsdt(value, perUnit, 4)} USDT
+          {formatSignedUsdt(value, perUnit)} USDT
         </Text>
       ),
     },
     {
-      title: t('结束方式'),
-      dataIndex: 'close_reason',
-      render: (value) => (
-        <Tag
-          size='small'
-          color={
-            value === 'liquidation'
-              ? 'red'
-              : value === 'close'
-                ? 'grey'
-                : 'blue'
-          }
-        >
-          {closeReasons[value] || value}
-        </Tag>
-      ),
+      title: t('回报率'),
+      dataIndex: 'initial_margin',
+      render: (value, item) => {
+        if (!(value > 0)) return '--';
+        const roi = (item.pnl / value) * 100;
+        return (
+          <span className={`trade-num ${trendClass(roi)}`}>
+            {`${roi > 0 ? '+' : ''}${roi.toFixed(2)}%`}
+          </span>
+        );
+      },
+    },
+    {
+      title: t('开仓时间'),
+      dataIndex: 'opened_at',
+      render: (value) => timestamp2string(value),
+    },
+    {
+      title: t('持仓时间'),
+      dataIndex: 'closed_at',
+      render: (value, item) => formatDuration(value - item.opened_at, t),
     },
   ];
+
+  // 仓位历史展开后的每一次成交与这段仓位的保证金、手续费、资金费和平仓时间。资金费收到为正。
+  const historyDetail = (item) => (
+    <div className='flex flex-col gap-1 py-1'>
+      {item.fills.length === 0 ? (
+        <Text type='tertiary' size='small'>
+          {t('这笔仓位没有成交记录')}
+        </Text>
+      ) : (
+        item.fills.map((fill) => {
+          const opening = fill.type === 'futures_open';
+          return (
+            <div
+              key={fill.id}
+              className='flex flex-wrap items-center gap-x-3 gap-y-1 text-xs'
+            >
+              <Text type='tertiary' size='small'>
+                {timestamp2string(fill.created_at)}
+              </Text>
+              <span
+                className={
+                  (item.side === 'long') === opening ? 'trade-up' : 'trade-down'
+                }
+              >
+                {actionLabels[`${opening ? 'open' : 'close'}-${item.side}`]}
+              </span>
+              {fill.trigger && (
+                <Tag
+                  size='small'
+                  color={fill.trigger === 'tp' ? 'green' : 'red'}
+                >
+                  {triggerLabels[fill.trigger] || fill.trigger}
+                </Tag>
+              )}
+              <span className='trade-num'>
+                {`${formatQty(fill.qty)} @ ${price(fill.price)}`}
+              </span>
+              <Text type='tertiary' size='small' className='trade-num'>
+                {t('费 {{fee}}', { fee: formatUsdt(fill.fee, perUnit, 4) })}
+              </Text>
+              <span className={`trade-num ${trendClass(fill.pnl)}`}>
+                {opening ? '--' : formatSignedUsdt(fill.pnl, perUnit, 4)}
+              </span>
+            </div>
+          );
+        })
+      )}
+      <Text type='tertiary' size='small' className='trade-num'>
+        {t('投入保证金')} {formatUsdt(item.initial_margin, perUnit)}
+        {' · '}
+        {t('手续费')} -{formatUsdt(item.fees, perUnit, 4)}
+        {' · '}
+        {t('资金费')} {formatSignedUsdt(item.funding, perUnit, 4)}
+        {' · '}
+        {t('平仓时间')} {timestamp2string(item.closed_at)}
+      </Text>
+    </div>
+  );
 
   const empty = {
     open: t('没有挂着的委托'),
@@ -349,12 +419,15 @@ const FuturesOrdersCard = ({
         <TabPane tab={t('仓位历史')} itemKey='positions' />
       </Tabs>
       <Table
+        key={tab}
         size='small'
         rowKey='id'
         columns={tab === 'positions' ? historyColumns : orderColumns}
         dataSource={data.items}
         loading={loading}
         scroll={{ x: 'max-content' }}
+        expandedRowRender={tab === 'positions' ? historyDetail : undefined}
+        expandRowByClick={tab === 'positions'}
         pagination={
           data.total > PAGE_SIZE && {
             currentPage: page,
@@ -370,7 +443,7 @@ const FuturesOrdersCard = ({
         visible={!!detail}
         footer={null}
         onCancel={() => setDetail(null)}
-        width={620}
+        width={720}
       >
         {detail && (
           <Table

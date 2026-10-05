@@ -575,7 +575,8 @@ const CandleChart = ({
     setTick((value) => value + 1);
   }, [kline, symbol, period, paint]);
 
-  // 持仓的价格线，priceLines 是 [{ price, title, danger }]，danger 的线(强平价)用跌色。
+  // 持仓的价格线，priceLines 是 [{ price, title, color }]：color 为 up 的线(止盈)用涨色，down 的线(强平价、止损)用跌色，
+  // 其余用主色。
   useEffect(() => {
     const series = seriesRef.current;
     if (!series) return;
@@ -590,7 +591,8 @@ const CandleChart = ({
       priceLinesRef.current.push(
         series.candle.createPriceLine({
           price,
-          color: line.danger ? colors.down : colors.primary,
+          color:
+            { up: colors.up, down: colors.down }[line.color] || colors.primary,
           lineWidth: 1,
           lineStyle: LineStyle.Dashed,
           axisLabelVisible: true,

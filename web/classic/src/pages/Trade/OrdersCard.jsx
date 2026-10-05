@@ -50,6 +50,8 @@ export function orderStatusTag(order, t) {
     balance: t('资金不足，剩余已撤销'),
     symbol: t('交易对已下架'),
     position: t('仓位已平，委托撤销'),
+    mismatch: t('杠杆或保证金模式已变，委托撤销'),
+    liquidation: t('全仓强平，委托撤销'),
   };
   return (
     <Tag color={partial ? 'orange' : 'grey'}>

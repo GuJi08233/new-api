@@ -51,12 +51,15 @@ const AssetsView = ({
   const [transfer, setTransfer] = useState(null);
   const [history, setHistory] = useState([]);
   const [futuresPositions, setFuturesPositions] = useState([]);
+  const [cross, setCross] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const valuation = self?.valuation;
 
   const loadFutures = useCallback(async () => {
     const res = await tradeGet('/api/trade/futures/positions', t);
-    if (res.data) setFuturesPositions(res.data.positions || []);
+    if (!res.data) return;
+    setFuturesPositions(res.data.positions || []);
+    setCross(res.data.cross || null);
   }, [t]);
 
   useEffect(() => {
@@ -283,13 +286,12 @@ const AssetsView = ({
       </div>
       {(futuresPositions.length > 0 || self.futures?.enabled) && (
         <div className='trade-card'>
-          <Title heading={6} className='!mb-2'>
-            {t('合约仓位')}
-          </Title>
           <FuturesPositions
             positions={futuresPositions}
+            cross={cross}
             cash={valuation?.cash}
             perUnit={perUnit}
+            takerFeeBps={self.futures?.taker_fee_bps}
             onChanged={() => {
               loadFutures();
               onAccountChanged?.();

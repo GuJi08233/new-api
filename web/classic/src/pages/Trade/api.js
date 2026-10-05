@@ -211,22 +211,109 @@ export function formatFundingRate(rate) {
   return `${(number * 100).toFixed(4)}%`;
 }
 
-// estimateLiquidationPrice 是逐仓合约仓位的预估强平价：保证金 + 浮动盈亏 = 维持保证金时的标记价格，金额都是 USDT。
-// 与后端的算法相同：多仓 (开仓价值 - 保证金) / (数量 × (1 - 维持保证金率))，空仓 (开仓价值 + 保证金) /
-// (数量 × (1 + 维持保证金率))。多仓的保证金不少于开仓价值时不会强平，返回 0。
+// bracketFor 是名义价值 notional(USDT)所在的风险限额档位，带上从 1 开始的档位序号：floor ≤ notional < cap，超出最后一档时
+// 按最后一档。没有档位时返回 null。
+export function bracketFor(brackets, notional) {
+  if (!brackets?.length) return null;
+  const index = brackets.findIndex(
+    (bracket) => notional >= bracket.floor && notional < bracket.cap,
+  );
+  const i = index >= 0 ? index : brackets.length - 1;
+  return { ...brackets[i], tier: i + 1 };
+}
+
+// estimateLiquidationPrice 是合约仓位的预估强平价：保证金 margin 加浮动盈亏等于维持保证金时的标记价格，金额都是 USDT。
+// 维持保证金按强平时名义价值所在的档位算，与后端相同：逐档求出多仓 (开仓价值 - 保证金 - 速算数) / (数量 × (1 - 维持保证金率))、
+// 空仓 (开仓价值 + 保证金 + 速算数) / (数量 × (1 + 维持保证金率))，取名义价值正好落在这一档里的那个。全仓的 margin 是撑着
+// 这个仓位的权益。不会强平时返回 0。
 export function estimateLiquidationPrice(
   side,
   entryValue,
   qty,
   margin,
-  mmrBps,
+  brackets,
 ) {
-  if (!(qty > 0)) return 0;
-  const rate = (mmrBps || 0) / 10000;
-  if (side === 'long') {
-    return Math.max((entryValue - margin) / (qty * (1 - rate)), 0);
+  if (!(qty > 0) || !brackets?.length) return 0;
+  const candidate = (bracket) =>
+    side === 'short'
+      ? (entryValue + margin + bracket.maintAmount) / (qty * (1 + bracket.mmr))
+      : (entryValue - margin - bracket.maintAmount) / (qty * (1 - bracket.mmr));
+  let price = candidate(bracketFor(brackets, entryValue));
+  for (let i = 0; i < brackets.length; i += 1) {
+    const tierPrice = candidate(brackets[i]);
+    const notional = tierPrice * qty;
+    if (
+      notional >= brackets[i].floor &&
+      (notional < brackets[i].cap || i === brackets.length - 1)
+    ) {
+      price = tierPrice;
+      break;
+    }
   }
-  return (entryValue + margin) / (qty * (1 + rate));
+  return price > 0 ? price : 0;
+}
+
+// 合约的风险限额档位在一次页面访问里只读一次。
+const bracketsCache = new Map();
+
+// useFuturesBrackets 读一个合约的风险限额档位(名义价值区间、最高杠杆、维持保证金率与速算数，都换成数值)与现在能选的最高杠杆。
+export function useFuturesBrackets(symbol, t) {
+  const [info, setInfo] = useState(() => bracketsCache.get(symbol) || null);
+
+  useEffect(() => {
+    if (!symbol) return undefined;
+    const cached = bracketsCache.get(symbol);
+    if (cached) {
+      setInfo(cached);
+      return undefined;
+    }
+    let alive = true;
+    tradeGet('/api/trade/futures/brackets', t, { symbol }).then((res) => {
+      if (!alive || !res.data) return;
+      const next = {
+        maxLeverage: res.data.max_leverage,
+        brackets: (res.data.brackets || []).map((bracket) => ({
+          floor: Number(bracket.floor),
+          cap: Number(bracket.cap),
+          maxLeverage: bracket.max_leverage,
+          mmr: Number(bracket.mmr),
+          maintAmount: Number(bracket.maint_amount),
+        })),
+      };
+      bracketsCache.set(symbol, next);
+      setInfo(next);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [symbol, t]);
+
+  return info;
+}
+
+// leverageMarks 是杠杆滑块上的刻度：两端加上中间整齐的倍数(最高超过 50 倍时每 25 倍一个，超过 20 倍时每 10 倍，否则每 5 倍)，
+// 离两端不到全程十分之一的不标，免得文字挤在一起。
+export function leverageMarks(min, max) {
+  const step = max > 50 ? 25 : max > 20 ? 10 : 5;
+  const gap = (max - min) / 10;
+  const marks = { [min]: `${min}x`, [max]: `${max}x` };
+  for (let value = step; value < max; value += step) {
+    if (value - min >= gap && max - value >= gap) marks[value] = `${value}x`;
+  }
+  return marks;
+}
+
+// formatDuration 把秒数显示成最大的两个单位：3天4时、5时12分、8分30秒、42秒。
+export function formatDuration(seconds, t) {
+  const total = Math.max(Math.floor(Number(seconds) || 0), 0);
+  const days = Math.floor(total / 86400);
+  const hours = Math.floor((total % 86400) / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  if (days > 0) return t('{{days}}天{{hours}}时', { days, hours });
+  if (hours > 0) return t('{{hours}}时{{minutes}}分', { hours, minutes });
+  if (minutes > 0)
+    return t('{{minutes}}分{{seconds}}秒', { minutes, seconds: total % 60 });
+  return t('{{seconds}}秒', { seconds: total });
 }
 
 // trendClass 是涨跌的文字颜色：涨绿跌红，与 K 线一致。
