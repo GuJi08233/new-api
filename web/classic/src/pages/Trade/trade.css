@@ -216,3 +216,77 @@ For commercial licensing, please contact support@quantumnous.com
   gap: 6px;
   padding: 2px 0;
 }
+
+/* 顶部行情条：滚动时两份相同的内容首尾相接，向左移动一份的宽度(整条的一半)正好接上；悬停或聚焦时停下。 */
+.trade-ticker {
+  overflow: hidden;
+  white-space: nowrap;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--semi-color-border);
+  font-size: 13px;
+}
+
+.trade-ticker-track {
+  display: flex;
+  width: max-content;
+}
+
+.trade-ticker-scrolling .trade-ticker-track {
+  animation: trade-ticker linear infinite;
+}
+
+.trade-ticker:hover .trade-ticker-track,
+.trade-ticker:focus-within .trade-ticker-track {
+  animation-play-state: paused;
+}
+
+.trade-ticker-set {
+  display: flex;
+  gap: 28px;
+  padding-right: 28px;
+}
+
+.trade-ticker-cell {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--semi-color-text-1);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.trade-ticker-cell b {
+  color: var(--semi-color-text-0);
+  font-weight: 600;
+}
+
+.trade-ticker-cell:hover b,
+.trade-ticker-current b {
+  color: var(--semi-color-primary);
+}
+
+@keyframes trade-ticker {
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+/* 系统设置了减少动态效果时不滚，改成可以横向滚动，只留一份内容。 */
+@media (prefers-reduced-motion: reduce) {
+  .trade-ticker {
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
+
+  .trade-ticker-scrolling .trade-ticker-track {
+    animation: none;
+  }
+
+  .trade-ticker-set[aria-hidden='true'] {
+    display: none;
+  }
+}

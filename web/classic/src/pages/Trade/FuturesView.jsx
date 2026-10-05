@@ -49,6 +49,8 @@ const FuturesView = ({
   self,
   perUnit,
   market,
+  tickerSymbols,
+  onTicker,
   onBack,
   onOpenSymbol,
   onAccountChanged,
@@ -66,11 +68,18 @@ const FuturesView = ({
   const [refreshKey, setRefreshKey] = useState(0);
   const [now, setNow] = useState(() => Date.now());
 
+  // 顶部行情条显示时顺带订阅它要的全部品种，行情转给行情条，一个页面只开一条推送连接。
   const connected = useTradeStream(
-    { symbols: [symbol], kline: symbol, book: symbol, futures: true },
     {
-      ticker: (data) =>
-        data.s === symbol &&
+      symbols: tickerSymbols || [symbol],
+      kline: symbol,
+      book: symbol,
+      futures: true,
+    },
+    {
+      ticker: (data) => {
+        onTicker?.(data);
+        if (data.s !== symbol) return;
         setQuote((previous) => ({
           ...previous,
           price: data.c,
@@ -79,7 +88,8 @@ const FuturesView = ({
           low: data.l,
           volume: data.v,
           quote_volume: data.q,
-        })),
+        }));
+      },
       mark: (data) =>
         data.s === symbol &&
         setQuote((previous) => ({

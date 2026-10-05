@@ -29,10 +29,12 @@ import {
   Typography,
 } from '@douyinfe/semi-ui';
 import { initVChartSemiTheme } from '@visactor/vchart-semi-theme';
+import { useIsMobile } from '../../hooks/common/useIsMobile';
 import AssetsView from './AssetsView';
 import FuturesView from './FuturesView';
 import MarketList from './MarketList';
 import NoticeBell from './NoticeBell';
+import TickerStrip from './TickerStrip';
 import TradeView from './TradeView';
 import {
   formatSignedUsdt,
@@ -90,6 +92,9 @@ const Trade = () => {
   const [loadError, setLoadError] = useState('');
   // 每来一批新通知加一，当前页面据此刷新仓位与委托。
   const [noticeKey, setNoticeKey] = useState(0);
+  // 顶部行情条的数据：页面上已有的行情推送把每条 24 小时行情发到这里，行情条自己保存，推送不会让整个页面重绘。
+  const [tickerFeed] = useState(() => new EventTarget());
+  const isMobile = useIsMobile();
 
   useEffect(() => {
     initVChartSemiTheme({ isWatchingThemeSwitch: true });
@@ -141,17 +146,34 @@ const Trade = () => {
     () => futures?.symbols.map((item) => item.symbol) || [],
     [futures],
   );
+  // 行情条只在桌面宽度、模拟盘开放时显示，列的是当前市场(资产页算现货)的全部品种。不显示时交易页只订阅自己的交易对。
+  const stripItems = (isFutures ? futures : market)?.symbols || [];
+  const showStrip = !isMobile && !!self?.enabled && stripItems.length > 0;
+  const publishTicker = useCallback(
+    (data) =>
+      tickerFeed.dispatchEvent(new CustomEvent('ticker', { detail: data })),
+    [tickerFeed],
+  );
+  // 现货列表页推全部交易对给列表和行情条；资产页没有别的推送，单为行情条订阅，行情不进页面状态，免得资产页的图表跟着重绘。
   useTradeStream(
-    { symbols, enabled: !symbol && !isAssets && !isFutures },
     {
-      ticker: (data) => setQuotes((previous) => applyTicker(previous, data)),
+      symbols,
+      enabled: !symbol && !isFutures && (!isAssets || showStrip),
+    },
+    {
+      ticker: (data) => {
+        if (!isAssets) setQuotes((previous) => applyTicker(previous, data));
+        publishTicker(data);
+      },
     },
   );
   useTradeStream(
     { symbols: futuresSymbols, futures: true, enabled: isFutures && !symbol },
     {
-      ticker: (data) =>
-        setFuturesQuotes((previous) => applyTicker(previous, data)),
+      ticker: (data) => {
+        setFuturesQuotes((previous) => applyTicker(previous, data));
+        publishTicker(data);
+      },
       mark: (data) =>
         setFuturesQuotes((previous) => ({
           ...previous,
@@ -222,6 +244,8 @@ const Trade = () => {
         self={self}
         perUnit={perUnit}
         market={futures}
+        tickerSymbols={showStrip ? futuresSymbols : null}
+        onTicker={publishTicker}
         onBack={() => navigate('/trade/futures')}
         onOpenSymbol={openFutures}
         onAccountChanged={loadSelf}
@@ -256,6 +280,8 @@ const Trade = () => {
         self={self}
         perUnit={perUnit}
         feeBps={market.fee_bps}
+        tickerSymbols={showStrip ? symbols : null}
+        onTicker={publishTicker}
         onBack={() => navigate('/trade')}
         onAccountChanged={loadSelf}
         noticeKey={noticeKey}
@@ -276,6 +302,16 @@ const Trade = () => {
   return (
     <div className='mt-[60px] px-2 pb-6 md:px-4'>
       <div className='mx-auto flex max-w-[1440px] flex-col gap-4'>
+        {showStrip && (
+          <TickerStrip
+            key={isFutures ? 'futures' : 'spot'}
+            items={stripItems}
+            feed={tickerFeed}
+            current={symbol}
+            onOpen={isFutures ? openFutures : openSymbol}
+            t={t}
+          />
+        )}
         <div className='flex flex-wrap items-center justify-between gap-3'>
           <div className='flex items-center gap-4'>
             <Title heading={3} className='!mb-0'>

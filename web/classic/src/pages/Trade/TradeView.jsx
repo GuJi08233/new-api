@@ -49,6 +49,8 @@ const TradeView = ({
   self,
   perUnit,
   feeBps,
+  tickerSymbols,
+  onTicker,
   onBack,
   onAccountChanged,
   noticeKey,
@@ -62,11 +64,17 @@ const TradeView = ({
   const [picked, setPicked] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
 
+  // 顶部行情条显示时顺带订阅它要的全部品种，行情转给行情条，一个页面只开一条推送连接。
   const connected = useTradeStream(
-    { symbols: [symbol], kline: symbol, book: symbol },
     {
-      ticker: (data) =>
-        data.s === symbol &&
+      symbols: tickerSymbols || [symbol],
+      kline: symbol,
+      book: symbol,
+    },
+    {
+      ticker: (data) => {
+        onTicker?.(data);
+        if (data.s !== symbol) return;
         setQuote((previous) => ({
           ...previous,
           price: data.c,
@@ -75,7 +83,8 @@ const TradeView = ({
           low: data.l,
           volume: data.v,
           quote_volume: data.q,
-        })),
+        }));
+      },
       kline: (data) => data.s === symbol && setKline(data),
       book: (data) => {
         if (data.s !== symbol) return;
