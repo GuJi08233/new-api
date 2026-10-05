@@ -193,3 +193,26 @@ For commercial licensing, please contact support@quantumnous.com
   border-radius: 8px;
   background: var(--semi-color-fill-0);
 }
+
+/* 点 K 线弹出的这根 K 线上的成交列表。 */
+.trade-chart-fills {
+  position: absolute;
+  z-index: 5;
+  width: 248px;
+  max-height: 60%;
+  overflow-y: auto;
+  padding: 6px 10px 8px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 8px;
+  background: var(--semi-color-bg-2);
+  box-shadow: var(--semi-shadow-elevated);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.trade-chart-fill-row {
+  display: grid;
+  grid-template-columns: 44px 58px 1fr;
+  gap: 6px;
+  padding: 2px 0;
+}

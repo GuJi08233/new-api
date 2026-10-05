@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Button, Radio, RadioGroup, Spin, Tooltip } from '@douyinfe/semi-ui';
-import { Maximize2, Minimize2 } from 'lucide-react';
+import { Maximize2, Minimize2, X } from 'lucide-react';
 import {
   CandlestickSeries,
   CrosshairMode,
@@ -31,6 +31,7 @@ import {
 } from 'lightweight-charts';
 import { useTranslation } from 'react-i18next';
 import { useActualTheme } from '../../context/Theme';
+import { timestamp2string } from '../../helpers';
 import {
   bollSeries,
   emaSeries,
@@ -41,7 +42,8 @@ import {
 import { formatPrice, formatQty, tradeGet } from './api';
 
 // K 线图：蜡烛与成交量，可叠加 MA / EMA / 布林带，可开 MACD、RSI 副图；往左拖到头时加载更早的历史；
-// 用 1 分钟 K 线推送实时更新最后一根；画出持仓的价格线(现货的持仓均价，合约的开仓均价与强平价)与自己的买卖点。
+// 用 1 分钟 K 线推送实时更新最后一根；画出持仓的价格线(现货的持仓均价，合约的开仓均价与强平价)与自己的买卖点，
+// 点一根有买卖点的 K 线列出它上面的每一次成交。
 // klineUrl 是拉历史 K 线的接口，现货与合约各一个。图表库是 TradingView 的 lightweight-charts，按它的许可证要求保留
 // 右下角的 TradingView 标志。
 
@@ -124,6 +126,15 @@ function withAlpha(color, alpha) {
   return color;
 }
 
+// fillSide 是一次成交在盘口上的方向：现货成交的 type 就是买卖方向；合约成交带着仓位方向，开多、平空是买入，开空、平多(含强平)
+// 是卖出。
+function fillSide(fill) {
+  if (!fill.side) return fill.type;
+  return (fill.side === 'long') === (fill.type === 'futures_open')
+    ? 'buy'
+    : 'sell';
+}
+
 function lineData(bars, values) {
   const out = [];
   values.forEach((value, i) => {
@@ -153,6 +164,10 @@ const CandleChart = ({
   const pagingRef = useRef({ loading: false, done: false });
   const priceLinesRef = useRef([]);
   const markersRef = useRef(null);
+  // 点 K 线时要用最新的成交与周期，建图时订阅的回调从这里读。
+  const fillsRef = useRef(fills);
+  fillsRef.current = fills;
+  const periodRef = useRef(null);
   const [period, setPeriod] = useState(() =>
     readSetting('trade-chart-interval', '15m'),
   );
@@ -168,6 +183,9 @@ const CandleChart = ({
   const [legend, setLegend] = useState(null);
   const [fullscreen, setFullscreen] = useState(false);
   const [version, setVersion] = useState(0);
+  // picked 是点开的那根 K 线上的成交列表与弹出的位置。
+  const [picked, setPicked] = useState(null);
+  periodRef.current = period;
 
   // 用全部 K 线重算指标并灌进各条线；live 为真时只更新最后一个点(实时推送每秒一次，整段重灌会闪)。
   const paint = useCallback((live) => {
@@ -382,6 +400,32 @@ const CandleChart = ({
     barsRef.current = [];
     liveRef.current = null;
     pagingRef.current = { loading: false, done: false };
+
+    // 点一根有买卖点的 K 线，在点的位置列出这根 K 线上的成交；点别处收起。
+    chart.subscribeClick((param) => {
+      const bar = barsRef.current.find((entry) => entry.time === param.time);
+      if (!bar || !param.point) {
+        setPicked(null);
+        return;
+      }
+      const end = bar.openMs + INTERVAL_MS[periodRef.current];
+      const list = (fillsRef.current || [])
+        .filter((fill) => {
+          const ms = fill.created_at * 1000;
+          return ms >= bar.openMs && ms < end;
+        })
+        .sort((a, b) => a.created_at - b.created_at);
+      setPicked(
+        list.length
+          ? {
+              openMs: bar.openMs,
+              fills: list,
+              x: param.point.x,
+              y: param.point.y,
+            }
+          : null,
+      );
+    });
 
     chart.subscribeCrosshairMove((param) => {
       const bars = barsRef.current;
@@ -619,14 +663,7 @@ const CandleChart = ({
       const ms = fill.created_at * 1000;
       if (ms < first) return;
       const bucket = Math.floor(ms / size) * size;
-      // 现货成交的 type 就是买卖方向；合约成交带着仓位方向：开多、平空是买入，开空、平多(含强平)是卖出。
-      let side = fill.type;
-      if (fill.side) {
-        side =
-          (fill.side === 'long') === (fill.type === 'futures_open')
-            ? 'buy'
-            : 'sell';
-      }
+      const side = fillSide(fill);
       const key = `${bucket}|${side}`;
       const entry = grouped.get(key) || { bucket, side, qty: 0 };
       entry.qty += Number(fill.qty);
@@ -660,6 +697,7 @@ const CandleChart = ({
   };
 
   const changeInterval = (value) => {
+    setPicked(null);
     setPeriod(value);
     writeSetting('trade-chart-interval', value);
   };
@@ -760,6 +798,58 @@ const CandleChart = ({
           </div>
         )}
         <div ref={hostRef} className='trade-chart-canvas' />
+        {picked && (
+          <div
+            className='trade-chart-fills'
+            style={{
+              left: Math.min(
+                picked.x + 12,
+                (hostRef.current?.clientWidth || 0) - 260,
+              ),
+              top: Math.max(picked.y - 12, 6),
+            }}
+          >
+            <div className='flex items-center justify-between gap-2'>
+              <span className='trade-muted'>
+                {timestamp2string(picked.openMs / 1000).slice(0, 16)}
+              </span>
+              <Button
+                size='small'
+                theme='borderless'
+                type='tertiary'
+                icon={<X size={12} />}
+                aria-label={t('关闭')}
+                onClick={() => setPicked(null)}
+              />
+            </div>
+            {picked.fills.map((fill) => {
+              const side = fillSide(fill);
+              const label = fill.side
+                ? {
+                    futures_open: { long: t('开多'), short: t('开空') },
+                    futures_close: { long: t('平多'), short: t('平空') },
+                    liquidation: { long: t('强平'), short: t('强平') },
+                  }[fill.type]?.[fill.side]
+                : side === 'buy'
+                  ? t('买入')
+                  : t('卖出');
+              return (
+                <div key={fill.id} className='trade-chart-fill-row'>
+                  <span className={side === 'buy' ? 'trade-up' : 'trade-down'}>
+                    {label}
+                  </span>
+                  <span className='trade-muted'>
+                    {timestamp2string(fill.created_at).slice(11)}
+                  </span>
+                  <span>
+                    {formatQty(fill.qty)} @{' '}
+                    {formatPrice(fill.price, priceDigits)}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
         {loading && (
           <div className='trade-chart-overlay'>
             <Spin />
