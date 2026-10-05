@@ -415,6 +415,18 @@ const TradeAdmin = () => {
                 {t('关闭后不能下单和转入；已有的委托可以撤销，资金可以转出。')}
               </Text>
             </div>
+            <div className='flex items-center gap-3'>
+              <Switch
+                checked={form.leaderboard_enabled}
+                onChange={(value) => change('leaderboard_enabled', value)}
+              />
+              <Text className='whitespace-nowrap'>{t('开放排行榜')}</Text>
+              <Text type='tertiary' size='small'>
+                {t(
+                  '买入过现货或开过合约的用户按累计盈亏、收益率与总资产排名，所有用户都能看到前 100 名的显示名与金额，名单每 5 分钟最多更新一次。',
+                )}
+              </Text>
+            </div>
             <div className='flex flex-col gap-2'>
               <Text strong>{t('开放交易的交易对')}</Text>
               {symbolChoices('symbol', 'symbols')}

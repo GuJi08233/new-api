@@ -107,6 +107,42 @@ func ValueTradeUser(userId int) (model.TradeAccount, TradeValuation, error) {
 	return account, valuation, err
 }
 
+// valueTradeAccounts 读出一批账户的现货持仓、合约仓位与全仓开仓委托冻结的钱，按当前行情逐个估值，顺序与 accounts 相同。
+func valueTradeAccounts(accounts []model.TradeAccount) ([]TradeValuation, error) {
+	userIds := make([]int, len(accounts))
+	for i, account := range accounts {
+		userIds[i] = account.UserId
+	}
+	positions, err := model.ListTradePositionsOf(userIds)
+	if err != nil {
+		return nil, err
+	}
+	futures, err := model.ListTradeFuturesPositionsOf(userIds)
+	if err != nil {
+		return nil, err
+	}
+	pending, err := model.ListTradeFuturesCrossPending(userIds)
+	if err != nil {
+		return nil, err
+	}
+	positionsByUser := map[int][]model.TradePosition{}
+	for _, position := range positions {
+		positionsByUser[position.UserId] = append(positionsByUser[position.UserId], position)
+	}
+	futuresByUser := map[int][]model.TradeFuturesPosition{}
+	for _, position := range futures {
+		futuresByUser[position.UserId] = append(futuresByUser[position.UserId], position)
+	}
+	valuations := make([]TradeValuation, len(accounts))
+	for i, account := range accounts {
+		valuations[i], err = ValueTradeAccount(account, pending[account.UserId], positionsByUser[account.UserId], futuresByUser[account.UserId])
+		if err != nil {
+			return nil, err
+		}
+	}
+	return valuations, nil
+}
+
 // tradeSnapshotOf 按估值与这一天的资金流拼出一份快照：现货的资金流按交易对的种类分到加密货币与美股代币。
 func tradeSnapshotOf(account model.TradeAccount, valuation TradeValuation, day string, flows []model.TradeSymbolFlow, futuresFlow int) model.TradeSnapshot {
 	snapshot := model.TradeSnapshot{
@@ -170,21 +206,13 @@ func TakeTradeSnapshots(ctx context.Context, day string, start int64, end int64)
 		if len(accounts) == 0 {
 			break
 		}
+		valuations, err := valueTradeAccounts(accounts)
+		if err != nil {
+			return total, err
+		}
 		userIds := make([]int, len(accounts))
 		for i, account := range accounts {
 			userIds[i] = account.UserId
-		}
-		positions, err := model.ListTradePositionsOf(userIds)
-		if err != nil {
-			return total, err
-		}
-		futures, err := model.ListTradeFuturesPositionsOf(userIds)
-		if err != nil {
-			return total, err
-		}
-		pending, err := model.ListTradeFuturesCrossPending(userIds)
-		if err != nil {
-			return total, err
 		}
 		flows, err := model.ListTradeSymbolFlows(userIds, start, end)
 		if err != nil {
@@ -193,14 +221,6 @@ func TakeTradeSnapshots(ctx context.Context, day string, start int64, end int64)
 		futuresFlows, err := model.ListTradeFuturesFlows(userIds, start, end)
 		if err != nil {
 			return total, err
-		}
-		positionsByUser := map[int][]model.TradePosition{}
-		for _, position := range positions {
-			positionsByUser[position.UserId] = append(positionsByUser[position.UserId], position)
-		}
-		futuresByUser := map[int][]model.TradeFuturesPosition{}
-		for _, position := range futures {
-			futuresByUser[position.UserId] = append(futuresByUser[position.UserId], position)
 		}
 		flowsByUser := map[int][]model.TradeSymbolFlow{}
 		for _, flow := range flows {
@@ -211,12 +231,8 @@ func TakeTradeSnapshots(ctx context.Context, day string, start int64, end int64)
 			futuresFlowByUser[flow.UserId] += flow.Amount
 		}
 		snapshots := make([]model.TradeSnapshot, 0, len(accounts))
-		for _, account := range accounts {
-			valuation, err := ValueTradeAccount(account, pending[account.UserId], positionsByUser[account.UserId], futuresByUser[account.UserId])
-			if err != nil {
-				return total, err
-			}
-			snapshots = append(snapshots, tradeSnapshotOf(account, valuation, day, flowsByUser[account.UserId], futuresFlowByUser[account.UserId]))
+		for i, account := range accounts {
+			snapshots = append(snapshots, tradeSnapshotOf(account, valuations[i], day, flowsByUser[account.UserId], futuresFlowByUser[account.UserId]))
 		}
 		if err := model.SaveTradeSnapshots(snapshots); err != nil {
 			return total, err

@@ -157,6 +157,7 @@ func tradeSelfView(userId int) (gin.H, error) {
 		"max_position_usd":     setting.MaxPositionUsd,
 		"daily_profit_out_usd": setting.DailyProfitOutUsd,
 		"max_open_orders":      model.TradeMaxOpenOrders,
+		"leaderboard":          setting.Enabled && setting.LeaderboardEnabled,
 		"futures": gin.H{
 			"enabled":          setting.Enabled && setting.FuturesEnabled,
 			"taker_fee_bps":    setting.FuturesTakerFeeBps,
@@ -535,6 +536,51 @@ func GetTradeNotices(c *gin.Context) {
 		}
 	}
 	common.ApiSuccess(c, gin.H{"items": items, "latest_id": latestId})
+}
+
+// tradeLeaderboardSize 是排行榜列出的人数。
+const tradeLeaderboardSize = 100
+
+// GetTradeLeaderboard 返回排行榜的前 100 名与自己的名次(没上榜为 null)，sort 是 profit(累计盈亏，默认)、return(收益率)或
+// equity(总资产)。名单最多 TradeLeaderboardTTL 更新一次，refresh_seconds 告诉页面多久更新。
+func GetTradeLeaderboard(c *gin.Context) {
+	setting := operation_setting.GetTradeSetting()
+	if !setting.Enabled || !setting.LeaderboardEnabled {
+		common.ApiErrorI18n(c, i18n.MsgTradeLeaderboardDisabled)
+		return
+	}
+	board, err := service.GetTradeLeaderboard()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	userId := c.GetInt("id")
+	ranked := board.Ranked(c.Query("sort"))
+	items := make([]gin.H, 0, min(len(ranked), tradeLeaderboardSize))
+	var me gin.H
+	for i, entry := range ranked {
+		row := gin.H{
+			"rank":        i + 1,
+			"name":        entry.Name,
+			"equity":      entry.Equity,
+			"profit":      entry.Profit,
+			"return_rate": entry.ReturnRate,
+			"me":          entry.UserId == userId,
+		}
+		if i < tradeLeaderboardSize {
+			items = append(items, row)
+		}
+		if entry.UserId == userId {
+			me = row
+		}
+	}
+	common.ApiSuccess(c, gin.H{
+		"items":           items,
+		"me":              me,
+		"total":           len(ranked),
+		"updated_at":      board.UpdatedAt,
+		"refresh_seconds": int(service.TradeLeaderboardTTL / time.Second),
+	})
 }
 
 // TransferTrade 在主钱包与模拟盘之间转账。转入要模拟盘开放；转出随时可以，关闭期间也能把钱拿出来。成功后返回最新的账户。

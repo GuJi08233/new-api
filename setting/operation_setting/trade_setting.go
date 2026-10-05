@@ -40,6 +40,9 @@ type TradeSetting struct {
 	// ProxyUrl 是连接 Binance 用的代理(http 或 socks5)，空表示按环境变量 HTTPS_PROXY 等决定。WebSocket 不支持 https 代理。
 	// 现货与合约的行情连接共用它。
 	ProxyUrl string `json:"proxy_url"`
+	// LeaderboardEnabled 打开排行榜：成交过的用户按累计盈亏、收益率与总资产排名，所有能用模拟盘的用户都能看到前 100 名的
+	// 显示名与金额。模拟盘本身也要打开。
+	LeaderboardEnabled bool `json:"leaderboard_enabled"`
 
 	// FuturesEnabled 打开合约(U 本位永续，全仓或逐仓)，模拟盘本身也要打开。关闭后不能开仓(也不能反手)；已有的仓位照样可以
 	// 平仓、调杠杆、调整逐仓保证金和止盈止损，强平与资金费照常进行，行情连接会一直保持到所有仓位平掉。
@@ -125,7 +128,7 @@ var tradeSetting = *DefaultTradeSetting()
 
 var tradeSettingSnapshot atomic.Pointer[TradeSetting]
 
-// DefaultTradeSetting 返回一份默认配置：模拟盘与合约默认都关闭，开放全部交易对与合约。
+// DefaultTradeSetting 返回一份默认配置：模拟盘与合约默认都关闭，开放全部交易对与合约；排行榜默认打开，随模拟盘一起开放。
 func DefaultTradeSetting() *TradeSetting {
 	symbols := make([]string, 0, len(TradeSymbols))
 	futures := make([]string, 0, len(TradeSymbols))
@@ -147,6 +150,7 @@ func DefaultTradeSetting() *TradeSetting {
 		StaleMs:               3000,
 		RestUrl:               "https://data-api.binance.vision",
 		WsUrl:                 "wss://data-stream.binance.vision",
+		LeaderboardEnabled:    true,
 		FuturesEnabled:        false,
 		FuturesSymbols:        futures,
 		FuturesMaxLeverage:    20,
@@ -271,7 +275,7 @@ func ValidateTradeOption(key string, value string) error {
 		if value != "" && !isUrlWithScheme(value, "http", "socks5") {
 			return fmt.Errorf("代理地址必须是 http 或 socks5 地址")
 		}
-	case "futures_enabled":
+	case "futures_enabled", "leaderboard_enabled":
 		if _, err := strconv.ParseBool(value); err != nil {
 			return fmt.Errorf("%s 必须是 true 或 false", field)
 		}

@@ -5160,6 +5160,16 @@
     "模拟盘通知": "Thông báo giao dịch mô phỏng",
     "还没有通知": "Chưa có thông báo",
     "排行榜": "Bảng xếp hạng",
-    "邀请码管理": "Quản lý mã mời"
+    "邀请码管理": "Quản lý mã mời",
+    "收益率": "Tỷ suất lợi nhuận",
+    "排名": "Hạng",
+    "我的排名": "Hạng của tôi",
+    "我": "Tôi",
+    "你还没有上榜：买入过现货或开过合约才会上榜，刚成交的要等名单下次更新。": "Bạn chưa có trong bảng xếp hạng: bảng gồm những người đã mua giao ngay hoặc mở vị thế hợp đồng, giao dịch đầu tiên sẽ hiện ở lần cập nhật kế tiếp.",
+    "共 {{count}} 人上榜，更新于 {{time}}": "{{count}} người được xếp hạng, cập nhật lúc {{time}}",
+    "还没有人上榜": "Chưa có ai được xếp hạng",
+    "累计盈亏是总资产减去净转入(累计转入减累计转出)，收益率是累计盈亏除以累计转入。名单列出前 100 名，每 {{minutes}} 分钟最多更新一次。": "Tổng lãi lỗ là tổng tài sản trừ khoản chuyển vào ròng (tổng chuyển vào trừ tổng chuyển ra); tỷ suất lợi nhuận là tổng lãi lỗ chia cho tổng chuyển vào. Danh sách hiển thị 100 người đứng đầu, cập nhật nhiều nhất mỗi {{minutes}} phút một lần.",
+    "开放排行榜": "Mở bảng xếp hạng",
+    "买入过现货或开过合约的用户按累计盈亏、收益率与总资产排名，所有用户都能看到前 100 名的显示名与金额，名单每 5 分钟最多更新一次。": "Người dùng đã mua giao ngay hoặc mở vị thế hợp đồng được xếp hạng theo tổng lãi lỗ, tỷ suất lợi nhuận và tổng tài sản. Mọi người dùng đều thấy tên hiển thị và số tiền của 100 người đứng đầu. Danh sách cập nhật nhiều nhất mỗi 5 phút một lần."
   }
 }

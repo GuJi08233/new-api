@@ -32,6 +32,7 @@ import { initVChartSemiTheme } from '@visactor/vchart-semi-theme';
 import { useIsMobile } from '../../hooks/common/useIsMobile';
 import AssetsView from './AssetsView';
 import FuturesView from './FuturesView';
+import LeaderboardView from './LeaderboardView';
 import MarketList from './MarketList';
 import NoticeBell from './NoticeBell';
 import TickerStrip from './TickerStrip';
@@ -74,14 +75,17 @@ function applyTicker(previous, data) {
 }
 
 // 模拟盘：按 Binance 实时盘口买卖现货与永续合约，账户里的钱从主钱包额度转入。/trade 是现货行情，/trade/futures 是
-// 合约行情，/trade/assets 是资产，/trade/<交易对> 与 /trade/futures/<合约> 是交易页。
+// 合约行情，/trade/assets 是资产，/trade/leaderboard 是排行榜，/trade/<交易对> 与 /trade/futures/<合约> 是交易页。
 const Trade = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { symbol } = useParams();
   const location = useLocation();
   const isAssets = location.pathname === '/trade/assets';
+  const isLeaderboard = location.pathname === '/trade/leaderboard';
   const isFutures = location.pathname.startsWith('/trade/futures');
+  // 现货行情列表页。资产页与排行榜没有自己的行情，顶部行情条在那里也列现货。
+  const isSpotList = !symbol && !isFutures && !isAssets && !isLeaderboard;
   const [self, setSelf] = useState(null);
   const [market, setMarket] = useState(null);
   const [marketError, setMarketError] = useState('');
@@ -154,15 +158,15 @@ const Trade = () => {
       tickerFeed.dispatchEvent(new CustomEvent('ticker', { detail: data })),
     [tickerFeed],
   );
-  // 现货列表页推全部交易对给列表和行情条；资产页没有别的推送，单为行情条订阅，行情不进页面状态，免得资产页的图表跟着重绘。
+  // 现货列表页推全部交易对给列表和行情条；资产页与排行榜没有别的推送，单为行情条订阅，行情不进页面状态，免得页面跟着重绘。
   useTradeStream(
     {
       symbols,
-      enabled: !symbol && !isFutures && (!isAssets || showStrip),
+      enabled: isSpotList || (!symbol && !isFutures && showStrip),
     },
     {
       ticker: (data) => {
-        if (!isAssets) setQuotes((previous) => applyTicker(previous, data));
+        if (isSpotList) setQuotes((previous) => applyTicker(previous, data));
         publishTicker(data);
       },
     },
@@ -213,6 +217,8 @@ const Trade = () => {
     content = <Empty title={loadError} />;
   } else if (!self) {
     content = <Spin size='large' />;
+  } else if (isLeaderboard) {
+    content = <LeaderboardView perUnit={perUnit} t={t} />;
   } else if (isAssets) {
     content = (
       <AssetsView
@@ -319,13 +325,22 @@ const Trade = () => {
             </Title>
             <RadioGroup
               type='button'
-              value={isAssets ? 'assets' : isFutures ? 'futures' : 'spot'}
+              value={
+                isAssets
+                  ? 'assets'
+                  : isLeaderboard
+                    ? 'leaderboard'
+                    : isFutures
+                      ? 'futures'
+                      : 'spot'
+              }
               onChange={(e) =>
                 navigate(
                   {
                     spot: '/trade',
                     futures: '/trade/futures',
                     assets: '/trade/assets',
+                    leaderboard: '/trade/leaderboard',
                   }[e.target.value],
                 )
               }
@@ -333,6 +348,9 @@ const Trade = () => {
               <Radio value='spot'>{t('现货')}</Radio>
               <Radio value='futures'>{t('合约')}</Radio>
               <Radio value='assets'>{t('资产')}</Radio>
+              {(self?.leaderboard || isLeaderboard) && (
+                <Radio value='leaderboard'>{t('排行榜')}</Radio>
+              )}
             </RadioGroup>
           </div>
           {self && (

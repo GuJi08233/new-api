@@ -375,6 +375,7 @@ const (
 	MsgTradeWithdrawExceeded     = "trade.withdraw_exceeded"
 	MsgTradeProfitOutLimit       = "trade.profit_out_limit"
 	MsgTradeTransferFailed       = "trade.transfer_failed"
+	MsgTradeLeaderboardDisabled  = "trade.leaderboard_disabled"
 
 	MsgTradeFuturesDisabled         = "trade.futures_disabled"
 	MsgTradeLeverageInvalid         = "trade.leverage_invalid"

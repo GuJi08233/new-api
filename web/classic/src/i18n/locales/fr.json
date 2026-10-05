@@ -4642,6 +4642,16 @@
     "模拟盘通知": "Notifications du trading simulé",
     "还没有通知": "Aucune notification pour l'instant",
     "排行榜": "Classements",
-    "邀请码管理": "Codes d'invitation"
+    "邀请码管理": "Codes d'invitation",
+    "收益率": "Rendement",
+    "排名": "Rang",
+    "我的排名": "Mon rang",
+    "我": "Moi",
+    "你还没有上榜：买入过现货或开过合约才会上榜，刚成交的要等名单下次更新。": "Vous n'êtes pas encore classé : le classement liste les utilisateurs qui ont acheté au comptant ou ouvert une position sur contrat, et une première transaction apparaît à la mise à jour suivante.",
+    "共 {{count}} 人上榜，更新于 {{time}}": "{{count}} classés, mis à jour le {{time}}",
+    "还没有人上榜": "Personne n'est encore classé",
+    "累计盈亏是总资产减去净转入(累计转入减累计转出)，收益率是累计盈亏除以累计转入。名单列出前 100 名，每 {{minutes}} 分钟最多更新一次。": "Le P&L cumulé correspond aux actifs totaux moins les transferts nets entrants (total transféré moins total retiré) ; le rendement est le P&L cumulé divisé par le total transféré. La liste affiche les 100 premiers et se met à jour au plus toutes les {{minutes}} minutes.",
+    "开放排行榜": "Ouvrir le classement",
+    "买入过现货或开过合约的用户按累计盈亏、收益率与总资产排名，所有用户都能看到前 100 名的显示名与金额，名单每 5 分钟最多更新一次。": "Les utilisateurs qui ont acheté au comptant ou ouvert une position sur contrat sont classés par P&L cumulé, rendement et actifs totaux. Tous les utilisateurs voient les noms affichés et les montants des 100 premiers. La liste se met à jour au plus toutes les 5 minutes."
   }
 }

@@ -290,3 +290,35 @@ For commercial licensing, please contact support@quantumnous.com
     display: none;
   }
 }
+
+/* 排行榜：前三名的名次放进金、银、铜色的圆里，自己那一行用浅色底标出来。 */
+.trade-rank {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 6px;
+  border-radius: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.trade-rank-1 {
+  background: #f5c242;
+  color: #5c4400;
+}
+
+.trade-rank-2 {
+  background: #c9ced6;
+  color: #3b4048;
+}
+
+.trade-rank-3 {
+  background: #d99a6c;
+  color: #4a2a12;
+}
+
+.trade-leaderboard-me .semi-table-row-cell {
+  background: var(--semi-color-primary-light-default);
+}
