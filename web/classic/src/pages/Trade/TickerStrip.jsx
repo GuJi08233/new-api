@@ -44,15 +44,15 @@ const TickerStrip = ({ items, feed, current, onOpen, t }) => {
     return () => feed.removeEventListener('ticker', onTicker);
   }, [feed]);
 
-  // 一份内容比行情条宽时才滚动。
+  // 一份内容比行情条宽时才滚动。元素在这里取好：卸载之后才送到的尺寸变化回调里 ref 已经是 null。
   useEffect(() => {
+    const viewport = viewportRef.current;
+    const set = setRef.current;
     const observer = new ResizeObserver(() =>
-      setScrolling(
-        setRef.current.scrollWidth > viewportRef.current.clientWidth,
-      ),
+      setScrolling(set.scrollWidth > viewport.clientWidth),
     );
-    observer.observe(viewportRef.current);
-    observer.observe(setRef.current);
+    observer.observe(viewport);
+    observer.observe(set);
     return () => observer.disconnect();
   }, []);
 
