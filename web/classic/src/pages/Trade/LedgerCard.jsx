@@ -50,6 +50,7 @@ const LedgerCard = ({ perUnit, refreshKey, t }) => {
     futures_margin: t('调整保证金'),
     futures_funding: t('资金费'),
     liquidation: t('强制平仓'),
+    futures_cover: t('额度补足亏空'),
   };
   const fillTypes = [
     'buy',

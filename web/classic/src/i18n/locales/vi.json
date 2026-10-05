@@ -5062,7 +5062,6 @@
     "做空开仓成功": "Đã mở Short",
     "全仓": "Chéo",
     "全仓强平，委托撤销": "Bị hủy do thanh lý chéo",
-    "全仓模式下整个账户净值为仓位兜底。": "Ở chế độ chéo, toàn bộ số dư tài khoản bảo đảm cho vị thế.",
     "全仓：占用 {{used}} · 浮动盈亏 {{upnl}} · 维持保证金 {{maintenance}} · 可用 {{available}} USDT": "Chéo: đang dùng {{used}} · lãi lỗ chưa thực hiện {{upnl}} · ký quỹ duy trì {{maintenance}} · khả dụng {{available}} USDT",
     "减保证金": "Giảm ký quỹ",
     "减少金额": "Số tiền giảm",
@@ -5077,7 +5076,6 @@
     "可用资金不足": "Không đủ tiền khả dụng",
     "吃单": "taker",
     "合约持仓": "Vị thế hợp đồng",
-    "合约是 Binance 的 U 本位永续合约，可选全仓或逐仓：全仓由整个账户的资金兜底，逐仓每个仓位最多亏掉自己的保证金。杠杆上限与维持保证金率按 Binance 的风险限额档位，强平与止损按标记价格触发，止盈按最新成交价触发，资金费按 Binance 公布的费率结算。": "Hợp đồng là hợp đồng vĩnh cửu USDⓈ-M của Binance, chọn ký quỹ chéo hoặc cô lập: chéo được toàn bộ tài khoản bảo đảm, cô lập thì mỗi vị thế lỗ tối đa bằng ký quỹ của chính nó. Giới hạn đòn bẩy và tỷ lệ ký quỹ duy trì theo các bậc giới hạn rủi ro của Binance; thanh lý và cắt lỗ kích hoạt theo giá đánh dấu, chốt lời theo giá khớp gần nhất, phí funding thanh toán theo mức Binance công bố.",
     "合计需要": "Tổng cần",
     "回报率": "Tỷ suất lợi nhuận",
     "多空两边的仓位一起调整。": "Áp dụng cho cả vị thế Long và Short.",
@@ -5141,11 +5139,14 @@
     "这笔仓位没有成交记录": "Vị thế này không có lịch sử khớp lệnh",
     "追加金额": "Số tiền thêm",
     "逐仓": "Cô lập",
-    "逐仓只押本仓保证金，最多亏光这一份。": "Vị thế cô lập chỉ đặt cược ký quỹ của chính nó và lỗ tối đa bằng phần đó.",
     "限价≤当前价，将立即以市价成交": "Giá giới hạn ≤ giá hiện tại, lệnh sẽ khớp ngay theo thị trường",
     "限价≥当前价，将立即以市价成交": "Giá giới hạn ≥ giá hiện tại, lệnh sẽ khớp ngay theo thị trường",
-    "可选全仓或逐仓，模拟盘本身也要开放。关闭后不能开仓和反手；已有的仓位照样可以平仓、调杠杆、调整逐仓保证金和止盈止损，强平与资金费照常进行。": "Có thể chọn ký quỹ chéo hoặc cô lập, và giao dịch mô phỏng cũng phải đang mở. Khi tắt sẽ không mở hay đảo chiều được vị thế; vị thế hiện có vẫn có thể đóng, điều chỉnh đòn bẩy, ký quỹ cô lập và chốt lời/cắt lỗ, thanh lý và funding vẫn diễn ra bình thường.",
     "止盈止损的每一档都要填有效的触发价和数量": "Mỗi mức chốt lời và cắt lỗ đều cần giá kích hoạt và số lượng hợp lệ",
-    "按保证金": "Theo ký quỹ"
+    "按保证金": "Theo ký quỹ",
+    "全仓由整个账户的资金兜底，资金亏成负数时从站内额度扣，额度可以扣成负数。": "Ký quỹ chéo được toàn bộ tài khoản bảo đảm; nếu tiền bị âm, phần thiếu sẽ trừ vào hạn mức trên trang, hạn mức có thể bị âm.",
+    "逐仓一般最多亏光本仓保证金；价格跳空越过强平价时，超出的亏损从资金里扣。": "Vị thế cô lập thường chỉ mất tối đa ký quỹ của chính nó; nếu giá nhảy vượt qua giá thanh lý, phần lỗ vượt quá sẽ trừ vào tiền của bạn.",
+    "合约是 Binance 的 U 本位永续合约，可选全仓或逐仓：全仓由整个账户的资金兜底，逐仓每个仓位一般最多亏掉自己的保证金。杠杆上限与维持保证金率按 Binance 的风险限额档位，强平与止损按标记价格触发，止盈按最新成交价触发，资金费按 Binance 公布的费率结算。价格跳空越过强平价时，超出保证金的亏损由你承担：先扣模拟盘资金，不够的从站内额度扣，额度可以扣成负数。": "Hợp đồng là hợp đồng vĩnh cửu USDⓈ-M của Binance, chọn ký quỹ chéo hoặc cô lập: chéo được toàn bộ tài khoản bảo đảm, cô lập thì mỗi vị thế thường chỉ lỗ tối đa bằng ký quỹ của chính nó. Giới hạn đòn bẩy và tỷ lệ ký quỹ duy trì theo các bậc giới hạn rủi ro của Binance; thanh lý và cắt lỗ kích hoạt theo giá đánh dấu, chốt lời theo giá khớp gần nhất, phí funding thanh toán theo mức Binance công bố. Nếu giá nhảy vượt qua giá thanh lý, phần lỗ vượt quá ký quỹ do bạn chịu: trừ trước vào tiền giao dịch mô phỏng, thiếu thì trừ vào hạn mức trên trang, hạn mức có thể bị âm.",
+    "可选全仓或逐仓，模拟盘本身也要开放。关闭后不能开仓和反手；已有的仓位照样可以平仓、调杠杆、调整逐仓保证金和止盈止损，强平与资金费照常进行。价格跳空越过强平价时，超出保证金的亏损由用户承担：先扣模拟盘资金，不够的从站内额度扣，额度可以扣成负数。": "Có thể chọn ký quỹ chéo hoặc cô lập, và giao dịch mô phỏng cũng phải đang mở. Khi tắt sẽ không mở hay đảo chiều được vị thế; vị thế hiện có vẫn có thể đóng, điều chỉnh đòn bẩy, ký quỹ cô lập và chốt lời/cắt lỗ, thanh lý và funding vẫn diễn ra bình thường. Nếu giá nhảy vượt qua giá thanh lý, phần lỗ vượt quá ký quỹ do người dùng chịu: trừ trước vào tiền giao dịch mô phỏng, thiếu thì trừ vào hạn mức trên trang, hạn mức có thể bị âm.",
+    "额度补足亏空": "Bù khoản thiếu từ hạn mức"
   }
 }

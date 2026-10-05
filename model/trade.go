@@ -177,7 +177,8 @@ func lockTradeAccountTx(tx *gorm.DB, userId int) (*TradeAccount, error) {
 }
 
 // saveTradeAccountTx 写回锁住后改过的账户。金额都必须在 [0, 2^53) 里，越界说明上游算错了，整笔事务回滚，不写出夹过的数字。
-// 资金例外：有全仓合约仓位时可以暂时是负的(见 settleTradeCrossDeficitTx)，其他地方花钱之前都先检查资金够不够。
+// 资金例外：合约亏损可以让它暂时是负的(有全仓仓位撑着，或者在同一个事务里从站内额度补回之前，见 settleTradeDeficitTx)，
+// 其他地方花钱之前都先检查资金够不够。
 func saveTradeAccountTx(tx *gorm.DB, account *TradeAccount) error {
 	if account.Cash <= -common.MaxQuota || account.Cash >= common.MaxQuota {
 		return ErrTradeAmountInvalid

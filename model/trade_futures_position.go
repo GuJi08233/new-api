@@ -11,7 +11,8 @@ import (
 // 合约仓位的强平、资金费、保证金与杠杆的调整、止盈止损的设置，以及合约的查询。
 
 // liquidateTradeFuturesPositionTx 按标记价格 mark 强平整个仓位(按吃单费率 feeBps 收手续费)，记下系统的强平委托、账单与历史。
-// 逐仓收回保证金加盈亏再减手续费，不够时最多亏掉保证金；全仓的盈亏与手续费记进资金。调用方先撤掉仓位挂着的平仓委托，之后写回仓位。
+// 逐仓收回保证金加盈亏再减手续费，价格跳过了强平价、不够减时从资金里扣；全仓的盈亏与手续费记进资金。资金因此变成负的时由调用方
+// 用 settleTradeDeficitTx 补回。调用方先撤掉仓位挂着的平仓委托，之后写回仓位。
 func liquidateTradeFuturesPositionTx(tx *gorm.DB, pricing tradesim.Pricing, account *TradeAccount, position *TradeFuturesPosition, mark decimal.Decimal, feeBps int) error {
 	entryValue, err := parseTradeValue(position.EntryValue)
 	if err != nil {
@@ -29,12 +30,7 @@ func liquidateTradeFuturesPositionTx(tx *gorm.DB, pricing tradesim.Pricing, acco
 	}
 	amount := pnl - fee
 	if position.MarginMode != TradeFuturesCross {
-		left := position.Margin + pnl
-		if left < 0 {
-			pnl, left = -position.Margin, 0
-		}
-		fee = min(fee, left)
-		amount = left - fee
+		amount += position.Margin
 	}
 	account.Cash += amount
 	now := common.GetTimestamp()
@@ -76,14 +72,14 @@ func liquidateTradeFuturesPositionTx(tx *gorm.DB, pricing tradesim.Pricing, acco
 }
 
 // LiquidateTradeFuturesPosition 在标记价格 mark 下强平一个逐仓仓位：保证金加按标记价格的浮动盈亏跌到维持保证金(按档位 brackets 算)时，
-// 撤掉它挂着的平仓委托，按标记价格平掉，收回剩下的保证金减去手续费。事务里按锁住的仓位重新判断，已经不满足强平条件(用户刚追加了
-// 保证金、仓位已经平掉)时什么都不做，返回 false。
+// 撤掉它挂着的平仓委托，按标记价格平掉，收回剩下的保证金减去手续费；价格跳过了强平价时超出的亏损从资金里扣，资金不够从站内额度扣。
+// 事务里按锁住的仓位重新判断，已经不满足强平条件(用户刚追加了保证金、仓位已经平掉)时什么都不做，返回 false。
 func LiquidateTradeFuturesPosition(userId int, symbol string, side string, mark decimal.Decimal, brackets tradesim.Brackets, feeBps int) (bool, error) {
 	pricing, err := tradeFuturesPricing()
 	if err != nil {
 		return false, err
 	}
-	liquidated := false
+	liquidated, covered := false, 0
 	err = DB.Transaction(func(tx *gorm.DB) error {
 		account, err := lockTradeAccountTx(tx, userId)
 		if err != nil {
@@ -110,24 +106,30 @@ func LiquidateTradeFuturesPosition(userId int, symbol string, side string, mark 
 		if err = saveTradeFuturesPositionTx(tx, position); err != nil {
 			return err
 		}
+		if covered, err = settleTradeDeficitTx(tx, account); err != nil {
+			return err
+		}
 		liquidated = true
 		return saveTradeAccountTx(tx, account)
 	})
 	if err != nil {
 		return false, err
 	}
+	if covered > 0 {
+		syncCreditUserQuotaCache(userId, -covered, "trade futures deficit")
+	}
 	return liquidated, nil
 }
 
 // LiquidateTradeFuturesCross 检查用户的全仓：全仓权益跌到全仓维持保证金时，按 market 的标记价格平掉全部全仓仓位、撤掉全仓开仓挂单；
-// 平完资金还是负的由站点补到 0。全仓权益是资金、挂着的全仓开仓委托冻结的钱(钱还是账户的，与 Binance 一样算进权益)与全仓浮动盈亏
+// 平完资金还是负的从站内额度补回(见 settleTradeDeficitTx)。全仓权益是资金、挂着的全仓开仓委托冻结的钱(钱还是账户的，与 Binance 一样算进权益)与全仓浮动盈亏
 // 之和。market 必须只给出足够新的标记价格，拿不到时什么都不做并返回 ErrTradeMarkUnavailable。
 func LiquidateTradeFuturesCross(userId int, market TradeFuturesMarket, feeBps int) (bool, error) {
 	pricing, err := tradeFuturesPricing()
 	if err != nil {
 		return false, err
 	}
-	liquidated := false
+	liquidated, covered := false, 0
 	err = DB.Transaction(func(tx *gorm.DB) error {
 		account, err := lockTradeAccountTx(tx, userId)
 		if err != nil {
@@ -172,7 +174,7 @@ func LiquidateTradeFuturesCross(userId int, market TradeFuturesMarket, feeBps in
 				return err
 			}
 		}
-		if err = settleTradeCrossDeficitTx(tx, account); err != nil {
+		if covered, err = settleTradeDeficitTx(tx, account); err != nil {
 			return err
 		}
 		liquidated = true
@@ -181,17 +183,20 @@ func LiquidateTradeFuturesCross(userId int, market TradeFuturesMarket, feeBps in
 	if err != nil {
 		return false, err
 	}
+	if covered > 0 {
+		syncCreditUserQuotaCache(userId, -covered, "trade futures deficit")
+	}
 	return liquidated, nil
 }
 
 // ApplyTradeFuturesFunding 给一个仓位结算 fundingTime(毫秒)这一次的资金费：按结算时的标记价格与费率算出收付。逐仓记在仓位的保证金上
-// (付不起时付完剩下的保证金为止)，全仓直接进出资金。仓位已经没有了、结算过这一次或者是在这之后才开的，什么都不做，返回 false。
+// (保证金不够付时，不够的部分从资金里扣)，全仓直接进出资金。仓位已经没有了、结算过这一次或者是在这之后才开的，什么都不做，返回 false。
 func ApplyTradeFuturesFunding(userId int, symbol string, side string, fundingTime int64, rate decimal.Decimal, mark decimal.Decimal) (bool, error) {
 	pricing, err := tradeFuturesPricing()
 	if err != nil {
 		return false, err
 	}
-	applied := false
+	applied, covered := false, 0
 	err = DB.Transaction(func(tx *gorm.DB) error {
 		account, err := lockTradeAccountTx(tx, userId)
 		if err != nil {
@@ -210,8 +215,10 @@ func ApplyTradeFuturesFunding(userId int, symbol string, side string, fundingTim
 			account.Cash += amount
 			entry.Amount = amount
 		} else {
-			amount = max(amount, -position.Margin)
-			position.Margin += amount
+			fromMargin := max(amount, -position.Margin)
+			position.Margin += fromMargin
+			account.Cash += amount - fromMargin
+			entry.Amount = amount - fromMargin
 		}
 		entry.Pnl = amount
 		position.Funding += amount
@@ -222,11 +229,17 @@ func ApplyTradeFuturesFunding(userId int, symbol string, side string, fundingTim
 		if err = saveTradeFuturesPositionTx(tx, position); err != nil {
 			return err
 		}
+		if covered, err = settleTradeDeficitTx(tx, account); err != nil {
+			return err
+		}
 		applied = true
 		return saveTradeAccountTx(tx, account)
 	})
 	if err != nil {
 		return false, err
+	}
+	if covered > 0 {
+		syncCreditUserQuotaCache(userId, -covered, "trade futures deficit")
 	}
 	return applied, nil
 }

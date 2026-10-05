@@ -46,8 +46,8 @@ type TradeSetting struct {
 	FuturesEnabled bool `json:"futures_enabled"`
 	// FuturesSymbols 是开放开仓的永续合约，取自 TradeSymbols 的 Futures。
 	FuturesSymbols []string `json:"futures_symbols"`
-	// FuturesMaxLeverage 是合约最高杠杆，实际还不能超过 Binance 风险限额里仓位名义价值所在那一档的最高杠杆。杠杆越高，
-	// 价格跳空越过强平价时站点承担的亏空越多(账户不会变成负数，超出的部分没人付)。
+	// FuturesMaxLeverage 是合约最高杠杆，实际还不能超过 Binance 风险限额里仓位名义价值所在那一档的最高杠杆。杠杆越高，强平价
+	// 离开仓价越近，价格跳空越过强平价的机会越多：超出保证金的亏损由用户承担，先扣模拟盘资金，不够的从站内额度扣(可以扣成负数)。
 	FuturesMaxLeverage int `json:"futures_max_leverage"`
 	// FuturesTakerFeeBps、FuturesMakerFeeBps 是合约的吃单、挂单手续费，单位万分之一。市价单、下单时就成交的部分、止盈止损与
 	// 强平按吃单收，挂着的限价单之后被撮合成交的部分按挂单收。
@@ -149,7 +149,7 @@ func DefaultTradeSetting() *TradeSetting {
 		WsUrl:                 "wss://data-stream.binance.vision",
 		FuturesEnabled:        false,
 		FuturesSymbols:        futures,
-		FuturesMaxLeverage:    TradeMaxLeverage,
+		FuturesMaxLeverage:    20,
 		FuturesTakerFeeBps:    4,
 		FuturesMakerFeeBps:    2,
 		FuturesMaxPositionUsd: 5000,

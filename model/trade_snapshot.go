@@ -104,7 +104,7 @@ type TradeUserFlow struct {
 	Amount int `json:"amount"`
 }
 
-// ListTradeFuturesFlows 汇总这些用户在 [start, end) 里合约的资金流：开仓、平仓、强平、调整保证金、全仓资金费与站点补足动过的资金。
+// ListTradeFuturesFlows 汇总这些用户在 [start, end) 里合约的资金流：开仓、平仓、强平、调整保证金与资金费动过的资金。
 func ListTradeFuturesFlows(userIds []int, start int64, end int64) ([]TradeUserFlow, error) {
 	var flows []TradeUserFlow
 	if len(userIds) == 0 {

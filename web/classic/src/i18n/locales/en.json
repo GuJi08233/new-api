@@ -4695,7 +4695,6 @@
     "做空开仓成功": "Short opened",
     "全仓": "Cross",
     "全仓强平，委托撤销": "Canceled by the cross liquidation",
-    "全仓模式下整个账户净值为仓位兜底。": "In cross mode the whole account balance backs the position.",
     "全仓：占用 {{used}} · 浮动盈亏 {{upnl}} · 维持保证金 {{maintenance}} · 可用 {{available}} USDT": "Cross: used {{used}} · unrealized P&L {{upnl}} · maintenance {{maintenance}} · available {{available}} USDT",
     "减保证金": "Reduce margin",
     "减少金额": "Amount to remove",
@@ -4710,7 +4709,6 @@
     "可用资金不足": "Not enough available funds",
     "吃单": "taker",
     "合约持仓": "Futures positions",
-    "合约是 Binance 的 U 本位永续合约，可选全仓或逐仓：全仓由整个账户的资金兜底，逐仓每个仓位最多亏掉自己的保证金。杠杆上限与维持保证金率按 Binance 的风险限额档位，强平与止损按标记价格触发，止盈按最新成交价触发，资金费按 Binance 公布的费率结算。": "Contracts are Binance USDⓈ-M perpetuals in cross or isolated mode: cross positions are backed by the whole account, an isolated position can lose at most its own margin. Leverage limits and maintenance margin rates follow Binance's risk limit tiers; liquidation and stop losses trigger on the mark price, take profits on the last price, and funding settles at the rates Binance publishes.",
     "合计需要": "Total cost",
     "回报率": "ROI",
     "多空两边的仓位一起调整。": "Applies to both the long and the short position.",
@@ -4774,11 +4772,14 @@
     "这笔仓位没有成交记录": "No fills recorded for this position",
     "追加金额": "Amount to add",
     "逐仓": "Isolated",
-    "逐仓只押本仓保证金，最多亏光这一份。": "An isolated position risks only its own margin and can lose at most that.",
     "限价≤当前价，将立即以市价成交": "The limit is at or below the current price and will fill right away at market",
     "限价≥当前价，将立即以市价成交": "The limit is at or above the current price and will fill right away at market",
-    "可选全仓或逐仓，模拟盘本身也要开放。关闭后不能开仓和反手；已有的仓位照样可以平仓、调杠杆、调整逐仓保证金和止盈止损，强平与资金费照常进行。": "Cross or isolated margin; paper trading itself must also be open. When off, no positions can be opened or reversed; existing positions can still be closed and have their leverage, isolated margin and take profit/stop loss changed, and liquidation and funding continue as usual.",
     "止盈止损的每一档都要填有效的触发价和数量": "Every take profit and stop loss level needs a valid trigger price and quantity",
-    "按保证金": "By margin"
+    "按保证金": "By margin",
+    "全仓由整个账户的资金兜底，资金亏成负数时从站内额度扣，额度可以扣成负数。": "Cross positions are backed by the whole account; if the funds go negative, the shortfall is taken from your site quota, which can go negative.",
+    "逐仓一般最多亏光本仓保证金；价格跳空越过强平价时，超出的亏损从资金里扣。": "An isolated position usually loses at most its own margin; if the price gaps past the liquidation price, the extra loss is taken from your funds.",
+    "合约是 Binance 的 U 本位永续合约，可选全仓或逐仓：全仓由整个账户的资金兜底，逐仓每个仓位一般最多亏掉自己的保证金。杠杆上限与维持保证金率按 Binance 的风险限额档位，强平与止损按标记价格触发，止盈按最新成交价触发，资金费按 Binance 公布的费率结算。价格跳空越过强平价时，超出保证金的亏损由你承担：先扣模拟盘资金，不够的从站内额度扣，额度可以扣成负数。": "Contracts are Binance USDⓈ-M perpetuals in cross or isolated mode: cross positions are backed by the whole account, an isolated position usually loses at most its own margin. Leverage limits and maintenance margin rates follow Binance's risk limit tiers; liquidation and stop losses trigger on the mark price, take profits on the last price, and funding settles at the rates Binance publishes. If the price gaps past the liquidation price, the loss beyond the margin is yours: it comes out of your paper trading funds first, then out of your site quota, which can go negative.",
+    "可选全仓或逐仓，模拟盘本身也要开放。关闭后不能开仓和反手；已有的仓位照样可以平仓、调杠杆、调整逐仓保证金和止盈止损，强平与资金费照常进行。价格跳空越过强平价时，超出保证金的亏损由用户承担：先扣模拟盘资金，不够的从站内额度扣，额度可以扣成负数。": "Cross or isolated margin; paper trading itself must also be open. When off, no positions can be opened or reversed; existing positions can still be closed and have their leverage, isolated margin and take profit/stop loss changed, and liquidation and funding continue as usual. If the price gaps past the liquidation price, the loss beyond the margin is borne by the user: it comes out of the paper trading funds first, then out of the site quota, which can go negative.",
+    "额度补足亏空": "Shortfall covered from quota"
   }
 }

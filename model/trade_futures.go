@@ -16,13 +16,14 @@ import (
 // 合约(U 本位永续)有逐仓与全仓两种保证金模式，双向持仓：每人每个合约多空各一个仓位。同一个合约上的多空仓位与开仓挂单用同一种
 // 保证金模式、同一个杠杆，要换模式得先把这个合约的仓位平掉、挂单撤掉。
 //
-// 逐仓：开仓从资金里拿出保证金和手续费，平仓把释放的保证金加上盈亏、减去手续费放回资金，一个仓位最多亏掉它的保证金。
+// 逐仓：开仓从资金里拿出保证金和手续费，平仓把释放的保证金加上盈亏、减去手续费放回资金。强平保证了一个仓位通常最多亏掉它的
+// 保证金；价格跳空越过强平价时超出保证金的亏损从资金里扣。
 //
 // 全仓：保证金不从资金里拿出来，只算占用。全仓可用 = 资金 + 全仓浮动盈亏 − 全仓占用，开仓、买入现货、追加逐仓保证金都要它够；
 // 开仓只从资金里付手续费，平仓的盈亏与手续费直接记进资金。全仓权益(资金、全仓开仓挂单冻结的钱与全仓浮动盈亏之和)跌到全仓维持保证金时，
 // 全部全仓仓位一起按标记价格强平。
-// 有全仓仓位时资金可以暂时是负的(平掉亏损的仓位、付资金费，由其他全仓仓位的浮动盈利撑着)，全仓仓位都没了还是负的(价格跳空)
-// 就由站点补到 0：账户不会欠站点的钱。
+// 有全仓仓位时资金可以暂时是负的(平掉亏损的仓位、付资金费，由其他全仓仓位的浮动盈利撑着)。没有全仓仓位撑着资金还是负的(价格跳空)，
+// 就从用户的站内额度里扣回来，额度可以扣成负数(欠费)：亏损都由用户承担，站点不兜底。
 //
 // 资金变动与现货一样先锁住账户行，仓位与委托不再单独加锁。
 
@@ -56,7 +57,7 @@ const (
 )
 
 // 合约账单的类型。逐仓的资金费记在仓位的保证金上，账单的资金变动为 0，收付记在 Pnl 上；全仓的资金费直接进出资金。
-// futures_cover 是全仓仓位都没了而资金还是负的时，站点补到 0 的那笔钱。
+// futures_cover 是没有全仓仓位撑着而资金还是负的时，从站内额度扣来补到 0 的那笔钱，和转入一样算进净转入。
 const (
 	TradeLedgerFuturesOpen    = "futures_open"
 	TradeLedgerFuturesClose   = "futures_close"
@@ -66,9 +67,9 @@ const (
 	TradeLedgerFuturesCover   = "futures_cover"
 )
 
-// tradeFuturesFlowTypes 是合约的账单类型，每日盈亏按它们汇总合约动过的资金。
+// tradeFuturesFlowTypes 是合约成交与仓位的账单类型，每日盈亏按它们汇总合约动过的资金。从站内额度补的钱是转入，不算在里面。
 var tradeFuturesFlowTypes = []string{TradeLedgerFuturesOpen, TradeLedgerFuturesClose, TradeLedgerFuturesMargin, TradeLedgerFuturesFunding,
-	TradeLedgerLiquidation, TradeLedgerFuturesCover}
+	TradeLedgerLiquidation}
 
 var (
 	ErrTradeFuturesNoPosition       = errors.New("trade futures position does not exist")
@@ -380,22 +381,35 @@ func checkTradeAffordTx(tx *gorm.DB, account *TradeAccount, cash int, collateral
 	return nil
 }
 
-// settleTradeCrossDeficitTx 在全仓仓位都没了而资金还是负的时(价格跳空越过强平价)由站点补到 0，记一笔账单。要在仓位写回之后调用。
-func settleTradeCrossDeficitTx(tx *gorm.DB, account *TradeAccount) error {
+// settleTradeDeficitTx 在资金是负的、又没有全仓仓位撑着时(价格跳空越过强平价，全仓或逐仓亏损超过了保证金)，从用户的站内额度里
+// 扣回这笔亏空，资金回到 0，记一笔账单。额度可以扣成负数(欠费)，但不能越过数据库能存的范围；扣来的钱和转入一样算进 QuotaPrincipal
+// 与 TotalIn。返回扣掉的额度，调用方在事务提交之后刷新用户的额度缓存。要在仓位写回之后调用。
+func settleTradeDeficitTx(tx *gorm.DB, account *TradeAccount) (int, error) {
 	if account.Cash >= 0 {
-		return nil
+		return 0, nil
 	}
 	var open int64
 	if err := tx.Model(&TradeFuturesPosition{}).Where("user_id = ? AND margin_mode = ? AND qty > 0", account.UserId, TradeFuturesCross).
 		Count(&open).Error; err != nil {
-		return err
+		return 0, err
 	}
 	if open > 0 {
-		return nil
+		return 0, nil
 	}
-	cover := -account.Cash
+	deficit := -account.Cash
+	// 注销了的用户也要扣，否则这笔亏空没地方记，强平会一直失败。
+	result := tx.Unscoped().Model(&User{}).Where("id = ? AND quota >= ?", account.UserId, common.MinQuota+1+deficit).
+		Update("quota", gorm.Expr("quota - ?", deficit))
+	if result.Error != nil {
+		return 0, result.Error
+	}
+	if result.RowsAffected != 1 {
+		return 0, ErrQuotaOutOfRange
+	}
 	account.Cash = 0
-	return tradeLedgerTx(tx, account, &TradeLedger{Type: TradeLedgerFuturesCover, Amount: cover})
+	account.QuotaPrincipal += deficit
+	account.TotalIn += deficit
+	return deficit, tradeLedgerTx(tx, account, &TradeLedger{Type: TradeLedgerFuturesCover, Amount: deficit})
 }
 
 func loadTradeFuturesPositionTx(tx *gorm.DB, userId int, symbol string, side string) (*TradeFuturesPosition, error) {
@@ -540,8 +554,8 @@ func applyTradeFuturesOpenTx(tx *gorm.DB, pricing tradesim.Pricing, account *Tra
 }
 
 // applyTradeFuturesCloseTx 把一次平仓成交记进账户、仓位与委托：按数量比例结转开仓价值、释放保证金。逐仓收回释放的保证金加上盈亏
-// 再减去手续费，亏得比分到的保证金还多时先用仓位剩下的保证金补，还补不上的由站点承担，盈亏按实际承担的记；全仓的盈亏和手续费直接
-// 记进资金，资金可以暂时变成负的(见 settleTradeCrossDeficitTx)。平仓的数量不能超过可平的数量，挂着的平仓委托占着的数量由调用方先释放。
+// 再减去手续费，亏得比分到的保证金还多(价格跳过了强平价)时先用仓位剩下的保证金补，还不够的从资金里扣；全仓的盈亏和手续费直接
+// 记进资金。资金可以因此变成负的(见 settleTradeDeficitTx)。平仓的数量不能超过可平的数量，挂着的平仓委托占着的数量由调用方先释放。
 func applyTradeFuturesCloseTx(tx *gorm.DB, pricing tradesim.Pricing, account *TradeAccount, position *TradeFuturesPosition, order *TradeFuturesOrder, fill TradeFuturesFill) error {
 	if fill.Qty <= 0 || fill.Value.IsNegative() || fill.Fee < 0 || fill.Fee >= common.MaxQuota {
 		return ErrTradeAmountInvalid
@@ -568,8 +582,7 @@ func applyTradeFuturesCloseTx(tx *gorm.DB, pricing tradesim.Pricing, account *Tr
 		if amount < 0 {
 			cover := min(-amount, position.Margin)
 			position.Margin -= cover
-			pnl += -amount - cover
-			amount = 0
+			amount += cover
 		}
 	}
 	account.Cash += amount
@@ -753,6 +766,7 @@ func PlaceTradeFuturesOrder(in TradeFuturesOrderInput) (*TradeFuturesOrder, erro
 	remaining := order.Qty - in.Fill.Qty
 	resting := in.Rest && remaining > 0
 	isTrigger := in.Trigger == TradeFuturesTriggerTakeProfit || in.Trigger == TradeFuturesTriggerStopLoss
+	covered := 0
 	err = DB.Transaction(func(tx *gorm.DB) error {
 		account, err := lockTradeAccountTx(tx, in.UserId)
 		if err != nil {
@@ -933,7 +947,7 @@ func PlaceTradeFuturesOrder(in TradeFuturesOrderInput) (*TradeFuturesOrder, erro
 		if err = saveTradeFuturesPositionTx(tx, position); err != nil {
 			return err
 		}
-		if err = settleTradeCrossDeficitTx(tx, account); err != nil {
+		if covered, err = settleTradeDeficitTx(tx, account); err != nil {
 			return err
 		}
 		if err = saveTradeAccountTx(tx, account); err != nil {
@@ -943,6 +957,9 @@ func PlaceTradeFuturesOrder(in TradeFuturesOrderInput) (*TradeFuturesOrder, erro
 	})
 	if err != nil {
 		return nil, err
+	}
+	if covered > 0 {
+		syncCreditUserQuotaCache(in.UserId, -covered, "trade futures deficit")
 	}
 	return order, nil
 }
@@ -972,6 +989,7 @@ func FillTradeFuturesOrder(orderId int, fill TradeFuturesFill, market TradeFutur
 		return nil, err
 	}
 	var order *TradeFuturesOrder
+	covered := 0
 	err = DB.Transaction(func(tx *gorm.DB) error {
 		account, err := lockTradeAccountTx(tx, stored.UserId)
 		if err != nil {
@@ -1026,7 +1044,7 @@ func FillTradeFuturesOrder(orderId int, fill TradeFuturesFill, market TradeFutur
 		if err = saveTradeFuturesPositionTx(tx, position); err != nil {
 			return err
 		}
-		if err = settleTradeCrossDeficitTx(tx, account); err != nil {
+		if covered, err = settleTradeDeficitTx(tx, account); err != nil {
 			return err
 		}
 		if err = saveTradeAccountTx(tx, account); err != nil {
@@ -1036,6 +1054,9 @@ func FillTradeFuturesOrder(orderId int, fill TradeFuturesFill, market TradeFutur
 	})
 	if err != nil {
 		return nil, err
+	}
+	if covered > 0 {
+		syncCreditUserQuotaCache(stored.UserId, -covered, "trade futures deficit")
 	}
 	return order, nil
 }

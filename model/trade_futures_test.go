@@ -127,8 +127,8 @@ func TestTradeFuturesOpenAndCloseSettleMarginAndPnl(t *testing.T) {
 	assert.Len(t, fills, 3, "position 0 does not pull in the spot ledger")
 }
 
-// 逐仓平仓亏掉的超过仓位的保证金时只亏保证金，多出来的由站点承担，资金不会变成负数。
-func TestTradeFuturesLossIsCappedAtTheMargin(t *testing.T) {
+// 逐仓平仓亏得比仓位的保证金还多(价格跳过了强平价)时，超出的部分从资金里扣，站点不兜底。
+func TestTradeFuturesLossBeyondTheMarginComesFromTheCash(t *testing.T) {
 	truncateTables(t)
 	seedTradeFuturesAccount(t, 4002, 100)
 	openTradeFutures(t, 4002, tradeFuturesSymbol, TradeFuturesIsolated, TradeFuturesShort, tradeFuturesCoin, "100", 10, 0, nil)
@@ -138,11 +138,39 @@ func TestTradeFuturesLossIsCappedAtTheMargin(t *testing.T) {
 	_, err = closeTradeFutures(4002, tradeFuturesSymbol, TradeFuturesShort, tradeFuturesCoin, "125", 0.1)
 	require.NoError(t, err)
 
-	assert.Equal(t, tradeUsd(90), tradeTestAccount(t, 4002).Cash)
+	assert.Equal(t, tradeUsd(74.9), tradeTestAccount(t, 4002).Cash, "90 - (25 loss + 0.1 fee - 10 margin)")
 	history := tradeFuturesHistoryOf(t, 4002)
 	require.Len(t, history, 1)
-	assert.Equal(t, -tradeUsd(10), history[0].Pnl, "only the margin is lost")
-	assert.Equal(t, -tradeUsd(9.9), history[0].RealizedPnl, "the loss beyond the margin and the fee is borne by the site")
+	assert.Equal(t, -tradeUsd(25.1), history[0].Pnl)
+	assert.Equal(t, -tradeUsd(25), history[0].RealizedPnl)
+}
+
+// 逐仓强平时价格已经跳过了强平价：亏损与手续费照算，保证金不够的从资金里扣，资金扣成负数又没有全仓仓位撑着时，从站内额度
+// 扣回来补到 0，额度可以扣成负数；补的钱算作转入。
+func TestTradeFuturesGapLiquidationIsChargedToTheWallet(t *testing.T) {
+	truncateTables(t)
+	seedTradeFuturesAccount(t, 4015, 10)
+	openTradeFutures(t, 4015, tradeFuturesSymbol, TradeFuturesIsolated, TradeFuturesLong, tradeFuturesCoin, "100", 10, 0, nil)
+	brackets := tradeTestMarket{}.Brackets(tradeFuturesSymbol)
+
+	liquidated, err := LiquidateTradeFuturesPosition(4015, tradeFuturesSymbol, TradeFuturesLong, decimal.RequireFromString("80"), brackets, 4)
+	require.NoError(t, err)
+	assert.True(t, liquidated)
+	account := tradeTestAccount(t, 4015)
+	assert.Zero(t, account.Cash)
+	// 10 保证金 - 20 亏损 - 80 × 0.04% = 0.032 手续费 = -10.032，从站内额度扣。
+	assert.Equal(t, tradeUsd(20.032), account.TotalIn)
+	assert.Equal(t, tradeUsd(20.032), account.QuotaPrincipal)
+	quota, err := GetUserQuota(4015, true)
+	require.NoError(t, err)
+	assert.Equal(t, -tradeUsd(10.032), quota, "the wallet can go negative")
+	ledgers, _, err := GetTradeLedgers(4015, TradeLedgerFuturesCover, 0, 1)
+	require.NoError(t, err)
+	require.Len(t, ledgers, 1)
+	assert.Equal(t, tradeUsd(10.032), ledgers[0].Amount)
+	history := tradeFuturesHistoryOf(t, 4015)
+	require.Len(t, history, 1)
+	assert.Equal(t, -tradeUsd(20.032), history[0].Pnl, "the whole loss stays with the user")
 }
 
 // 逐仓强平前在锁住的仓位上重新判断，强平时撤掉它挂着的平仓委托，按标记价格平掉，收回剩下的保证金减去吃单手续费。
@@ -223,7 +251,7 @@ func TestTradeFuturesCrossOccupiesWithoutMovingCash(t *testing.T) {
 	require.ErrorIs(t, err, ErrTradeMarkUnavailable, "cross positions need a mark price")
 }
 
-// 有别的全仓仓位撑着时，平掉亏损的全仓仓位可以让资金暂时变成负的；全仓仓位都没了还是负的(跳空)由站点补到 0。
+// 有别的全仓仓位撑着时，平掉亏损的全仓仓位可以让资金暂时变成负的；全仓仓位都没了还是负的(跳空)就从站内额度扣回来补到 0。
 func TestTradeFuturesCrossDeficitIsCoveredWhenNoCrossPositionIsLeft(t *testing.T) {
 	truncateTables(t)
 	seedTradeFuturesAccount(t, 4011, 100)
@@ -241,7 +269,12 @@ func TestTradeFuturesCrossDeficitIsCoveredWhenNoCrossPositionIsLeft(t *testing.T
 	openTradeFutures(t, 4011, tradeFuturesSymbol, TradeFuturesCross, TradeFuturesLong, 10*tradeFuturesCoin, "1000", 10, 0, market)
 	_, err = closeTradeFutures(4011, tradeFuturesSymbol, TradeFuturesLong, 10*tradeFuturesCoin, "850", 0)
 	require.NoError(t, err)
-	assert.Zero(t, tradeTestAccount(t, 4011).Cash, "the 50 USDT beyond the cash is covered")
+	account := tradeTestAccount(t, 4011)
+	assert.Zero(t, account.Cash, "the 50 USDT beyond the cash is covered")
+	assert.Equal(t, tradeUsd(150), account.TotalIn, "the cover counts as money put in")
+	quota, err := GetUserQuota(4011, true)
+	require.NoError(t, err)
+	assert.Equal(t, -tradeUsd(50), quota, "taken from the wallet, which goes negative")
 	ledgers, _, err := GetTradeLedgers(4011, "", 0, 2)
 	require.NoError(t, err)
 	assert.Equal(t, TradeLedgerFuturesCover, ledgers[0].Type)
@@ -249,7 +282,7 @@ func TestTradeFuturesCrossDeficitIsCoveredWhenNoCrossPositionIsLeft(t *testing.T
 	assert.Equal(t, -tradeUsd(150), ledgers[1].Amount)
 }
 
-// 资金加全仓浮动盈亏跌到全仓维持保证金时，全部全仓仓位按标记价格一起强平，全仓开仓挂单撤销，平完还是负的由站点补到 0。
+// 资金加全仓浮动盈亏跌到全仓维持保证金时，全部全仓仓位按标记价格一起强平，全仓开仓挂单撤销，平完还是负的从站内额度补到 0。
 func TestTradeFuturesCrossLiquidationClosesEveryCrossPosition(t *testing.T) {
 	truncateTables(t)
 	seedTradeFuturesAccount(t, 4012, 100)
@@ -281,18 +314,21 @@ func TestTradeFuturesCrossLiquidationClosesEveryCrossPosition(t *testing.T) {
 	require.Len(t, orders, 3)
 	assert.Equal(t, resting.Id, orders[1].Id)
 	assert.Equal(t, TradeCancelByLiquidation, orders[1].CancelReason)
-	// 91 资金 - 2 × (50 亏损 + 0.02 手续费) + 9 退回的冻结 = -0.04，由站点补上。
+	// 91 资金 - 2 × (50 亏损 + 0.02 手续费) + 9 退回的冻结 = -0.04，从站内额度扣。
 	ledgers, _, err := GetTradeLedgers(4012, TradeLedgerFuturesCover, 0, 1)
 	require.NoError(t, err)
 	require.Len(t, ledgers, 1)
 	assert.Equal(t, 20_000, ledgers[0].Amount)
+	quota, err := GetUserQuota(4012, true)
+	require.NoError(t, err)
+	assert.Equal(t, -20_000, quota)
 	history := tradeFuturesHistoryOf(t, 4012)
 	require.Len(t, history, 2)
 	assert.Equal(t, TradeFuturesCloseByLiquidation, history[0].CloseReason)
 	assert.Equal(t, TradeFuturesCross, history[0].MarginMode)
 }
 
-// 逐仓的资金费记在仓位的保证金上，同一次只结算一遍，开仓之前的那次不结算，付不起时付完剩下的保证金为止；全仓的资金费直接进出资金。
+// 逐仓的资金费记在仓位的保证金上，同一次只结算一遍，开仓之前的那次不结算，保证金不够付时不够的部分从资金里扣；全仓的资金费直接进出资金。
 func TestTradeFuturesFundingSettlesOnce(t *testing.T) {
 	truncateTables(t)
 	seedTradeFuturesAccount(t, 4004, 300)
@@ -320,14 +356,14 @@ func TestTradeFuturesFundingSettlesOnce(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, applied)
 	position = tradeTestPosition(t, 4004, tradeFuturesSymbol, TradeFuturesShort)
-	assert.Zero(t, position.Margin, "a short pays at most its margin")
-	assert.Equal(t, -tradeUsd(1), position.Funding)
-	assert.Equal(t, tradeUsd(199), tradeTestAccount(t, 4004).Cash, "isolated funding never touches the cash")
+	assert.Zero(t, position.Margin, "the 1 USDT margin pays first")
+	assert.Equal(t, -tradeUsd(2), position.Funding)
+	assert.Equal(t, tradeUsd(198), tradeTestAccount(t, 4004).Cash, "the other 1 USDT comes from the cash")
 
 	applied, err = ApplyTradeFuturesFunding(4004, tradeFuturesOther, TradeFuturesLong, at+1000, rate, mark)
 	require.NoError(t, err)
 	assert.True(t, applied)
-	assert.Equal(t, tradeUsd(198.9), tradeTestAccount(t, 4004).Cash, "cross funding is paid from the cash")
+	assert.Equal(t, tradeUsd(197.9), tradeTestAccount(t, 4004).Cash, "cross funding is paid from the cash")
 	assert.Equal(t, tradeUsd(100), tradeTestPosition(t, 4004, tradeFuturesOther, TradeFuturesLong).Margin)
 }
 
