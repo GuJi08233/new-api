@@ -4450,7 +4450,7 @@
     "交易规则": "Trading rules",
     "已获取": "Loaded",
     "最新价": "Last price",
-    "模拟盘管理": "Paper Trading",
+    "模拟盘管理": "Paper Trading Management",
     "行情连接": "Market data connection",
     "未运行(模拟盘关闭或没有开放的交易对)": "Not running (paper trading is off or no pair is open)",
     "已连接": "Connected",
@@ -4791,6 +4791,8 @@
     "成交": "Filled",
     "扣额度": "Quota charged",
     "模拟盘通知": "Paper trading notices",
-    "还没有通知": "No notices yet"
+    "还没有通知": "No notices yet",
+    "排行榜": "Rankings",
+    "邀请码管理": "Invitation Code Management"
   }
 }

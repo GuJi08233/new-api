@@ -2175,7 +2175,7 @@
     "模型调用次数占比": "Ratio d'appels de modèles",
     "模型调用次数排行": "Classement des appels de modèles",
     "模型选择和映射设置": "Sélection de modèle et paramètres de mappage",
-    "模型部署": "Model Deployment",
+    "模型部署": "Déploiement de modèles",
     "模型部署服务未启用": "Model deployment service is not enabled",
     "模型部署管理": "Model Deployment Management",
     "模型部署设置": "Déploiement de modèles",
@@ -3744,7 +3744,7 @@
     "输入模型名称": "Saisissez le nom du modèle",
     "选择端点...": "Sélectionnez un point de terminaison...",
     "根据分组、模型、请求路径和 Token 条件智能选择渠道池。支持多档位条件匹配，未配置时对现有行为无影响。": "Sélectionne intelligemment les pools de canaux selon le groupe, le modèle, le chemin de requête et les conditions de tokens. Prend en charge la correspondance de conditions multi-paliers ; sans configuration, le comportement existant n'est pas affecté.",
-    "风控管理": "风控管理",
+    "风控管理": "Contrôle des risques",
     "滥用监控与自动封禁": "滥用监控与自动封禁",
     "滥用排行榜": "滥用排行榜",
     "风控设置": "风控设置",
@@ -4299,7 +4299,7 @@
     "交易规则": "Règles de trading",
     "已获取": "Chargées",
     "最新价": "Dernier prix",
-    "模拟盘管理": "Trading simulé",
+    "模拟盘管理": "Gestion du trading simulé",
     "行情连接": "Connexion aux données de marché",
     "未运行(模拟盘关闭或没有开放的交易对)": "Arrêté (trading simulé désactivé ou aucune paire ouverte)",
     "已连接": "Connecté",
@@ -4640,6 +4640,8 @@
     "成交": "Exécuté",
     "扣额度": "Quota débité",
     "模拟盘通知": "Notifications du trading simulé",
-    "还没有通知": "Aucune notification pour l'instant"
+    "还没有通知": "Aucune notification pour l'instant",
+    "排行榜": "Classements",
+    "邀请码管理": "Codes d'invitation"
   }
 }

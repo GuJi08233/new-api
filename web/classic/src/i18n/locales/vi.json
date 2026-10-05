@@ -2164,7 +2164,7 @@
     "模型调用次数排行": "Xếp hạng số lần gọi mô hình",
     "模型选择和映射设置": "Cài đặt chọn và ánh xạ mô hình",
     "模型速率限制": "Giới hạn tốc độ mô hình",
-    "模型部署": "Model Deployment",
+    "模型部署": "Triển khai mô hình",
     "模型部署服务未启用": "Model deployment service is not enabled",
     "模型部署管理": "Model Deployment Management",
     "模型部署设置": "Triển khai mô hình",
@@ -4277,7 +4277,7 @@
     "输入模型名称": "Nhập tên mô hình",
     "选择端点...": "Chọn điểm cuối...",
     "根据分组、模型、请求路径和 Token 条件智能选择渠道池。支持多档位条件匹配，未配置时对现有行为无影响。": "Chọn nhóm kênh một cách thông minh dựa trên nhóm, mô hình, đường dẫn yêu cầu và điều kiện token. Hỗ trợ khớp điều kiện đa bậc; khi chưa cấu hình sẽ không ảnh hưởng đến hành vi hiện tại.",
-    "风控管理": "风控管理",
+    "风控管理": "Kiểm soát rủi ro",
     "滥用监控与自动封禁": "滥用监控与自动封禁",
     "滥用排行榜": "滥用排行榜",
     "风控设置": "风控设置",
@@ -5158,6 +5158,8 @@
     "成交": "Đã khớp",
     "扣额度": "Trừ hạn mức",
     "模拟盘通知": "Thông báo giao dịch mô phỏng",
-    "还没有通知": "Chưa có thông báo"
+    "还没有通知": "Chưa có thông báo",
+    "排行榜": "Bảng xếp hạng",
+    "邀请码管理": "Quản lý mã mời"
   }
 }
