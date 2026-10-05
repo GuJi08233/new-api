@@ -52,6 +52,7 @@ const FuturesView = ({
   onBack,
   onOpenSymbol,
   onAccountChanged,
+  noticeKey,
   t,
 }) => {
   const symbol = item.symbol;
@@ -136,6 +137,11 @@ const FuturesView = ({
     }, REFRESH_MS);
     return () => clearInterval(timer);
   }, [refresh]);
+
+  // 后台发生了成交、止盈止损或强平(见 NoticeBell)时马上刷新，不等下一轮。
+  useEffect(() => {
+    if (noticeKey) refresh();
+  }, [noticeKey, refresh]);
 
   // 资金费结算倒计时每秒走一次。
   useEffect(() => {

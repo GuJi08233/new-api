@@ -82,7 +82,7 @@ func setupTradeMarketTest(t *testing.T, syncErr error) {
 		m.matchMu.Lock()
 		m.resting = map[string][]tradeRestingOrder{}
 		m.matchMu.Unlock()
-		for _, table := range []string{"users", "logs", "trade_accounts", "trade_positions", "trade_orders", "trade_ledgers"} {
+		for _, table := range []string{"users", "logs", "trade_accounts", "trade_positions", "trade_orders", "trade_ledgers", "trade_notices"} {
 			model.DB.Exec("DELETE FROM " + table)
 		}
 	})

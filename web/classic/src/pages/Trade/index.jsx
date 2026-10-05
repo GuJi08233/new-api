@@ -32,6 +32,7 @@ import { initVChartSemiTheme } from '@visactor/vchart-semi-theme';
 import AssetsView from './AssetsView';
 import FuturesView from './FuturesView';
 import MarketList from './MarketList';
+import NoticeBell from './NoticeBell';
 import TradeView from './TradeView';
 import {
   formatSignedUsdt,
@@ -87,6 +88,8 @@ const Trade = () => {
   const [futuresError, setFuturesError] = useState('');
   const [futuresQuotes, setFuturesQuotes] = useState({});
   const [loadError, setLoadError] = useState('');
+  // 每来一批新通知加一，当前页面据此刷新仓位与委托。
+  const [noticeKey, setNoticeKey] = useState(0);
 
   useEffect(() => {
     initVChartSemiTheme({ isWatchingThemeSwitch: true });
@@ -178,6 +181,10 @@ const Trade = () => {
     : null;
   const openSymbol = (next) => navigate(`/trade/${next}`);
   const openFutures = (next) => navigate(`/trade/futures/${next}`);
+  const onNotice = useCallback(() => {
+    loadSelf();
+    setNoticeKey((value) => value + 1);
+  }, [loadSelf]);
 
   let content;
   if (loadError) {
@@ -194,6 +201,7 @@ const Trade = () => {
         onAccountChanged={loadSelf}
         onOpenSymbol={openSymbol}
         onOpenFutures={openFutures}
+        noticeKey={noticeKey}
         t={t}
       />
     );
@@ -217,6 +225,7 @@ const Trade = () => {
         onBack={() => navigate('/trade/futures')}
         onOpenSymbol={openFutures}
         onAccountChanged={loadSelf}
+        noticeKey={noticeKey}
         t={t}
       />
     );
@@ -249,6 +258,7 @@ const Trade = () => {
         feeBps={market.fee_bps}
         onBack={() => navigate('/trade')}
         onAccountChanged={loadSelf}
+        noticeKey={noticeKey}
         t={t}
       />
     );
@@ -291,6 +301,7 @@ const Trade = () => {
           </div>
           {self && (
             <div className='flex items-center gap-4'>
+              <NoticeBell perUnit={perUnit} onNotice={onNotice} t={t} />
               <Text type='tertiary' size='small'>
                 {t('总资产')}{' '}
                 <Text strong className='trade-num'>

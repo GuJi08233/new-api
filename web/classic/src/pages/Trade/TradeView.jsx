@@ -51,6 +51,7 @@ const TradeView = ({
   feeBps,
   onBack,
   onAccountChanged,
+  noticeKey,
   t,
 }) => {
   const symbol = item.symbol;
@@ -114,6 +115,11 @@ const TradeView = ({
     }, REFRESH_MS);
     return () => clearInterval(timer);
   }, [refresh]);
+
+  // 后台发生了成交、止盈止损或强平(见 NoticeBell)时马上刷新，不等下一轮。
+  useEffect(() => {
+    if (noticeKey) refresh();
+  }, [noticeKey, refresh]);
 
   const priceDigits = decimalsOf(item.rules?.tick_size);
   const qtyDigits = decimalsOf(item.rules?.step_size);

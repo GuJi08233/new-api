@@ -4629,6 +4629,17 @@
     "逐仓一般最多亏光本仓保证金；价格跳空越过强平价时，超出的亏损从资金里扣。": "Une position isolée perd en général au plus sa propre marge ; si le prix saute au-delà du prix de liquidation, la perte supplémentaire est prélevée sur vos fonds.",
     "合约是 Binance 的 U 本位永续合约，可选全仓或逐仓：全仓由整个账户的资金兜底，逐仓每个仓位一般最多亏掉自己的保证金。杠杆上限与维持保证金率按 Binance 的风险限额档位，强平与止损按标记价格触发，止盈按最新成交价触发，资金费按 Binance 公布的费率结算。价格跳空越过强平价时，超出保证金的亏损由你承担：先扣模拟盘资金，不够的从站内额度扣，额度可以扣成负数。": "Les contrats sont les perpétuels USDⓈ-M de Binance, en marge croisée ou isolée : la marge croisée est couverte par tout le compte, une position isolée perd en général au plus sa propre marge. Les leviers maximaux et taux de marge de maintenance suivent les paliers de limite de risque de Binance ; liquidations et stop loss se déclenchent au prix de marque, les prises de profit au dernier prix, et le financement se règle aux taux publiés par Binance. Si le prix saute au-delà du prix de liquidation, la perte au-delà de la marge est pour vous : elle est prélevée d'abord sur vos fonds de trading simulé, puis sur votre quota du site, qui peut devenir négatif.",
     "可选全仓或逐仓，模拟盘本身也要开放。关闭后不能开仓和反手；已有的仓位照样可以平仓、调杠杆、调整逐仓保证金和止盈止损，强平与资金费照常进行。价格跳空越过强平价时，超出保证金的亏损由用户承担：先扣模拟盘资金，不够的从站内额度扣，额度可以扣成负数。": "Marge croisée ou isolée ; le trading simulé doit aussi être ouvert. Une fois désactivé, aucune position ne peut être ouverte ni inversée ; les positions existantes peuvent toujours être fermées, leur levier, leur marge isolée et leurs prise de profit/stop loss modifiés, et la liquidation et le financement continuent normalement. Si le prix saute au-delà du prix de liquidation, la perte au-delà de la marge est à la charge de l'utilisateur : elle est prélevée d'abord sur ses fonds de trading simulé, puis sur son quota du site, qui peut devenir négatif.",
-    "额度补足亏空": "Déficit couvert par le quota"
+    "额度补足亏空": "Déficit couvert par le quota",
+    "{{symbol}} {{side}}止盈：平掉 {{qty}}，均价 {{price}}，盈亏 {{pnl}} USDT": "{{symbol}} {{side}} prise de profit : {{qty}} fermé à un prix moyen de {{price}}, P&L {{pnl}} USDT",
+    "{{symbol}} {{side}}止损：平掉 {{qty}}，均价 {{price}}，盈亏 {{pnl}} USDT": "{{symbol}} {{side}} stop loss : {{qty}} fermé à un prix moyen de {{price}}, P&L {{pnl}} USDT",
+    "{{symbol}} {{side}}被强平：{{qty}} @ {{price}}，盈亏 {{pnl}} USDT": "{{symbol}} {{side}} liquidé : {{qty}} @ {{price}}, P&L {{pnl}} USDT",
+    "合约亏空 {{amount}} USDT 已从站内额度扣除": "Un déficit sur les contrats de {{amount}} USDT a été prélevé sur votre quota du site",
+    "{{symbol}} 限价{{action}}成交 {{qty}} @ {{price}}，盈亏 {{pnl}} USDT": "{{symbol}} ordre limite {{action}} exécuté : {{qty}} @ {{price}}, P&L {{pnl}} USDT",
+    "{{symbol}} 限价{{action}}成交 {{qty}} @ {{price}}": "{{symbol}} ordre limite {{action}} exécuté : {{qty}} @ {{price}}",
+    "还有 {{count}} 条通知，点铃铛查看": "{{count}} autres notifications, ouvrez la cloche pour les voir",
+    "成交": "Exécuté",
+    "扣额度": "Quota débité",
+    "模拟盘通知": "Notifications du trading simulé",
+    "还没有通知": "Aucune notification pour l'instant"
   }
 }

@@ -68,6 +68,10 @@ func liquidateTradeFuturesPositionTx(tx *gorm.DB, pricing tradesim.Pricing, acco
 		Qty: qty, Price: mark.String(), Amount: amount, Fee: fee, Pnl: pnl}); err != nil {
 		return err
 	}
+	if err = addTradeNoticeTx(tx, TradeNotice{UserId: position.UserId, Kind: TradeNoticeLiquidation, Market: TradeNoticeFutures,
+		Symbol: position.Symbol, Side: position.Side, Action: TradeFuturesClose, OrderId: order.Id, Qty: qty, Price: mark.String(), Pnl: pnl}); err != nil {
+		return err
+	}
 	return finishTradeFuturesPositionTx(tx, position, TradeFuturesCloseByLiquidation)
 }
 

@@ -145,7 +145,7 @@ func TestMigrationSchemaStability(t *testing.T) {
 			// 模拟盘的表用到了复合主键、字符串存的小数与 bigint 额度，重启时 AutoMigrate 不能再改它们。
 			t.Run("trade_tables", func(t *testing.T) {
 				tables := []any{&TradeAccount{}, &TradePosition{}, &TradeOrder{}, &TradeLedger{}, &TradeProfitOutDay{},
-					&TradeSnapshot{}, &TradeSnapshotDay{}, &TradeFuturesPosition{}, &TradeFuturesHistory{}, &TradeFuturesOrder{}}
+					&TradeSnapshot{}, &TradeSnapshotDay{}, &TradeFuturesPosition{}, &TradeFuturesHistory{}, &TradeFuturesOrder{}, &TradeNotice{}}
 				t.Cleanup(func() { _ = db.Migrator().DropTable(tables...) })
 				require.NoError(t, db.AutoMigrate(tables...))
 				recorder.reset()

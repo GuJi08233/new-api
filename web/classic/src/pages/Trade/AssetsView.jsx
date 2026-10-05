@@ -46,6 +46,7 @@ const AssetsView = ({
   onAccountChanged,
   onOpenSymbol,
   onOpenFutures,
+  noticeKey,
   t,
 }) => {
   const [transfer, setTransfer] = useState(null);
@@ -65,6 +66,11 @@ const AssetsView = ({
   useEffect(() => {
     loadFutures();
   }, [loadFutures, refreshKey]);
+
+  // 后台发生了成交、止盈止损或强平(见 NoticeBell)时刷新仓位、曲线、日历与账单。
+  useEffect(() => {
+    if (noticeKey) setRefreshKey((value) => value + 1);
+  }, [noticeKey]);
 
   useEffect(() => {
     let alive = true;

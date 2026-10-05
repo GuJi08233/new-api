@@ -291,6 +291,10 @@ func FillTradeOrder(orderId int, fill TradeFill) (*TradeOrder, error) {
 		if err = applyTradeFillTx(tx, account, position, &order, fill); err != nil {
 			return err
 		}
+		if err = addTradeNoticeTx(tx, TradeNotice{UserId: order.UserId, Kind: TradeNoticeFill, Market: TradeNoticeSpot, Symbol: order.Symbol,
+			Side: order.Side, OrderId: order.Id, Qty: fill.Qty, Price: fill.Price}); err != nil {
+			return err
+		}
 		if order.FilledQty == order.Qty {
 			finishTradeOrder(account, &order, TradeOrderStatusFilled, "")
 		}

@@ -66,7 +66,8 @@ func setupFuturesMarketTest(t *testing.T, syncErr error) {
 		m.client = nil
 		m.mu.Unlock()
 		resetFuturesTestIndexes()
-		for _, table := range []string{"users", "logs", "trade_accounts", "trade_ledgers", "trade_futures_positions", "trade_futures_histories", "trade_futures_orders"} {
+		for _, table := range []string{"users", "logs", "trade_accounts", "trade_ledgers", "trade_futures_positions", "trade_futures_histories", "trade_futures_orders",
+			"trade_notices"} {
 			model.DB.Exec("DELETE FROM " + table)
 		}
 	})
@@ -218,6 +219,13 @@ func TestFuturesStopLossLevelsCloseByTheBook(t *testing.T) {
 	require.Len(t, stopLosses, 1)
 	assert.Equal(t, "94", stopLosses[0].Price)
 	assert.Equal(t, tradeTestUsd("991.77108"), tradeTestCash(t, 4203), "4 margin - 2.16 loss - 0.01892 fee comes back")
+	notices, _, err := model.GetTradeNotices(4203, 0, 10)
+	require.NoError(t, err)
+	require.Len(t, notices, 1, "the user is told about the triggered stop loss")
+	assert.Equal(t, model.TradeNoticeStopLoss, notices[0].Kind)
+	assert.EqualValues(t, 40_000_000, notices[0].Qty)
+	assert.Equal(t, "94.6", notices[0].Price)
+	assert.Equal(t, -tradeTestUsd("2.16"), notices[0].Pnl)
 
 	setFuturesTestBook(3, tradeTestLevels("93.8", "5"), tradeTestLevels("93.9", "5"))
 	setFuturesTestMark("93.9", time.Now().Add(time.Hour).UnixMilli())

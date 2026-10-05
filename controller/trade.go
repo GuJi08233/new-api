@@ -501,6 +501,42 @@ func GetTradeLedger(c *gin.Context) {
 	common.ApiSuccess(c, pageInfo)
 }
 
+// tradeNoticeMaxLimit 是一次最多取几条通知。
+const tradeNoticeMaxLimit = 50
+
+// GetTradeNotices 返回 id 大于 after 的通知(新的在前，最多 limit 条)与最新一条通知的 id，页面轮询它弹出提示。
+func GetTradeNotices(c *gin.Context) {
+	after, afterErr := strconv.Atoi(c.DefaultQuery("after", "0"))
+	limit, limitErr := strconv.Atoi(c.DefaultQuery("limit", "20"))
+	if afterErr != nil || limitErr != nil || after < 0 || limit < 1 || limit > tradeNoticeMaxLimit {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
+	notices, latestId, err := model.GetTradeNotices(c.GetInt("id"), after, limit)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	items := make([]gin.H, len(notices))
+	for i, notice := range notices {
+		items[i] = gin.H{
+			"id":         notice.Id,
+			"kind":       notice.Kind,
+			"market":     notice.Market,
+			"symbol":     notice.Symbol,
+			"side":       notice.Side,
+			"action":     notice.Action,
+			"order_id":   notice.OrderId,
+			"qty":        tradeQty(notice.Qty),
+			"price":      notice.Price,
+			"pnl":        notice.Pnl,
+			"amount":     notice.Amount,
+			"created_at": notice.CreatedAt,
+		}
+	}
+	common.ApiSuccess(c, gin.H{"items": items, "latest_id": latestId})
+}
+
 // TransferTrade 在主钱包与模拟盘之间转账。转入要模拟盘开放；转出随时可以，关闭期间也能把钱拿出来。成功后返回最新的账户。
 func TransferTrade(c *gin.Context) {
 	var req tradeTransferRequest

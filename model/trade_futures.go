@@ -409,7 +409,10 @@ func settleTradeDeficitTx(tx *gorm.DB, account *TradeAccount) (int, error) {
 	account.Cash = 0
 	account.QuotaPrincipal += deficit
 	account.TotalIn += deficit
-	return deficit, tradeLedgerTx(tx, account, &TradeLedger{Type: TradeLedgerFuturesCover, Amount: deficit})
+	if err := tradeLedgerTx(tx, account, &TradeLedger{Type: TradeLedgerFuturesCover, Amount: deficit}); err != nil {
+		return 0, err
+	}
+	return deficit, addTradeNoticeTx(tx, TradeNotice{UserId: account.UserId, Kind: TradeNoticeCover, Market: TradeNoticeFutures, Amount: deficit})
 }
 
 func loadTradeFuturesPositionTx(tx *gorm.DB, userId int, symbol string, side string) (*TradeFuturesPosition, error) {
@@ -921,6 +924,9 @@ func PlaceTradeFuturesOrder(in TradeFuturesOrderInput) (*TradeFuturesOrder, erro
 			} else {
 				position.StopLosses = encoded
 			}
+			if err = tradeFuturesFillNoticeTx(tx, in.Trigger, order, in.Fill, order.RealizedPnl); err != nil {
+				return err
+			}
 		}
 		switch {
 		case resting && isOpen:
@@ -1002,6 +1008,7 @@ func FillTradeFuturesOrder(orderId int, fill TradeFuturesFill, market TradeFutur
 		if fill.Qty > remaining {
 			return ErrTradeAmountInvalid
 		}
+		realizedBefore := order.RealizedPnl
 		position, err := loadTradeFuturesPositionTx(tx, order.UserId, order.Symbol, order.Side)
 		if err != nil {
 			return err
@@ -1034,6 +1041,9 @@ func FillTradeFuturesOrder(orderId int, fill TradeFuturesFill, market TradeFutur
 			if err = applyTradeFuturesCloseTx(tx, pricing, account, position, order, fill); err != nil {
 				return err
 			}
+		}
+		if err = tradeFuturesFillNoticeTx(tx, TradeNoticeFill, order, fill, order.RealizedPnl-realizedBefore); err != nil {
+			return err
 		}
 		if order.FilledQty == order.Qty {
 			finishTradeFuturesOrder(account, order, TradeOrderStatusFilled, "")
