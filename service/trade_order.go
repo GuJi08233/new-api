@@ -184,7 +184,8 @@ func PlaceTradeOrder(ctx context.Context, userId int, req TradeOrderRequest) (*m
 		}
 	}
 	if fill.Qty.IsPositive() {
-		input.Fill = model.TradeFill{Qty: tradesim.QtyUnits(fill.Qty), Amount: amount, Fee: fee, Price: fill.AvgPrice().Round(tradesim.QtyDecimals).String()}
+		input.Fill = model.TradeFill{Qty: tradesim.QtyUnits(fill.Qty), Value: fill.Notional, Amount: amount, Fee: fee,
+			Price: fill.AvgPrice().Round(tradesim.QtyDecimals).String()}
 	}
 	if isLimit && isBuy {
 		// 挂单部分按限价冻结资金并预留手续费，之后的成交都按限价付款，冻结的钱够付。

@@ -21,10 +21,12 @@ type TradeOrder struct {
 	// Qty 是委托数量(10^-8)。按金额买入的市价单下单时不知道数量，记成实际成交的数量，预算记在 Budget(含手续费)。
 	Qty    int64 `json:"qty" gorm:"bigint"`
 	Budget int   `json:"budget" gorm:"type:bigint"`
-	// FilledQty、FilledAmount、Fee 是累计成交的数量、成交金额(不含手续费)与手续费。
-	FilledQty    int64 `json:"filled_qty" gorm:"bigint"`
-	FilledAmount int   `json:"filled_amount" gorm:"type:bigint"`
-	Fee          int   `json:"fee" gorm:"type:bigint"`
+	// FilledQty、FilledAmount、Fee 是累计成交的数量、成交金额(不含手续费)与手续费。FilledValue 是累计的成交价值(成交价 × 数量之和，
+	// USDT 小数)：成交均价按它算，不受金额取整到额度单位的影响。记它之前成交的委托为空。
+	FilledQty    int64  `json:"filled_qty" gorm:"bigint"`
+	FilledValue  string `json:"filled_value" gorm:"type:varchar(64)"`
+	FilledAmount int    `json:"filled_amount" gorm:"type:bigint"`
+	Fee          int    `json:"fee" gorm:"type:bigint"`
 	// Frozen 是限价买单还冻结着的资金，成交时从这里付款，结束时退回剩下的。
 	Frozen       int    `json:"frozen" gorm:"type:bigint"`
 	CancelReason string `json:"cancel_reason" gorm:"type:varchar(16)"`
@@ -87,7 +89,7 @@ func saveTradeOrderTx(tx *gorm.DB, order *TradeOrder) error {
 // applyTradeFillTx 把一次成交记进账户、持仓与委托，并写一条账单。买入先用委托冻结的资金付款，不够的从可用资金里扣；
 // 卖出按数量比例结转持仓成本，挂单冻结的数量由调用方先释放。
 func applyTradeFillTx(tx *gorm.DB, account *TradeAccount, position *TradePosition, order *TradeOrder, fill TradeFill) error {
-	if fill.Qty <= 0 || fill.Amount < 0 || fill.Fee < 0 || fill.Amount >= common.MaxQuota || fill.Fee >= common.MaxQuota {
+	if fill.Qty <= 0 || fill.Value.IsNegative() || fill.Amount < 0 || fill.Fee < 0 || fill.Amount >= common.MaxQuota || fill.Fee >= common.MaxQuota {
 		return ErrTradeAmountInvalid
 	}
 	entry := TradeLedger{Symbol: order.Symbol, OrderId: order.Id, Qty: fill.Qty, Price: fill.Price, Fee: fill.Fee}
@@ -114,6 +116,14 @@ func applyTradeFillTx(tx *gorm.DB, account *TradeAccount, position *TradePositio
 		proceeds := fill.Amount - fill.Fee
 		account.Cash += proceeds
 		entry.Type, entry.Amount = TradeLedgerSell, proceeds
+	}
+	// 记成交价值之前就有过成交的委托不从半路开始记，均价仍按成交金额算。
+	if order.FilledValue != "" || order.FilledQty == 0 {
+		filledValue, err := addTradeValue(order.FilledValue, fill.Value)
+		if err != nil {
+			return err
+		}
+		order.FilledValue = filledValue
 	}
 	order.FilledQty += fill.Qty
 	order.FilledAmount += fill.Amount

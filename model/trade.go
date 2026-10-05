@@ -114,9 +114,10 @@ type TradeProfitOutDay struct {
 	Used   int    `json:"used" gorm:"type:bigint;not null;default:0"`
 }
 
-// TradeFill 是一次成交：数量(10^-8)、成交金额与手续费(额度单位)和成交均价。
+// TradeFill 是一次成交：数量(10^-8)、成交价值(成交价 × 数量之和，USDT)、成交金额与手续费(额度单位)和成交均价。
 type TradeFill struct {
 	Qty    int64
+	Value  decimal.Decimal
 	Amount int
 	Fee    int
 	Price  string

@@ -123,6 +123,7 @@ func TestPlaceTradeOrderWalksTheBookAndConsumesDepth(t *testing.T) {
 	order, err := PlaceTradeOrder(context.Background(), 4101, TradeOrderRequest{Symbol: "BTCUSDT", Side: model.TradeSideBuy, Type: model.TradeOrderTypeMarket, Qty: tradeTestDecimal("1.2")})
 	require.NoError(t, err)
 	assert.Equal(t, model.TradeOrderStatusFilled, order.Status)
+	assert.Equal(t, "120.7", order.FilledValue, "0.5 @ 100 + 0.7 @ 101")
 	assert.Equal(t, tradeTestUsd("120.7"), order.FilledAmount)
 	assert.Equal(t, tradeTestUsd("0.1207"), order.Fee)
 
@@ -233,6 +234,7 @@ func TestRestingLimitOrdersFillAtTheLimitWhenTheBookCrosses(t *testing.T) {
 	assert.Equal(t, first.Id, orders[0].Id)
 	assert.Equal(t, model.TradeOrderStatusFilled, orders[0].Status)
 	assert.Equal(t, tradeTestUsd("98"), orders[0].FilledAmount, "按限价 98 成交，不按盘口的 97.5")
+	assert.Equal(t, "98", orders[0].FilledValue)
 	assert.Zero(t, orders[0].Frozen)
 
 	orders, _, err = model.GetTradeOrders(4106, true, "", 0, 10)

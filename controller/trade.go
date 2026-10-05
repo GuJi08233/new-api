@@ -64,12 +64,18 @@ func tradeQty(units int64) string {
 	return tradesim.QtyFromUnits(units).String()
 }
 
-// tradeOrderView 是给页面看的委托：数量是十进制字符串，金额是额度单位，AvgPrice 是成交均价。
+// tradeOrderView 是给页面看的委托：数量是十进制字符串，金额是额度单位，AvgPrice 是成交均价。均价按成交价值算；没有记成交价值的
+// 委托按取整到额度单位的成交金额算，数量很小时会差几个价格最小单位。
 func tradeOrderView(order *model.TradeOrder, perUsd int) gin.H {
 	avgPrice := ""
-	if order.FilledQty > 0 && perUsd > 0 {
-		avgPrice = decimal.NewFromInt(int64(order.FilledAmount)).Div(decimal.NewFromInt(int64(perUsd))).
-			Div(tradesim.QtyFromUnits(order.FilledQty)).Round(tradesim.QtyDecimals).String()
+	if order.FilledQty > 0 {
+		value, err := decimal.NewFromString(order.FilledValue)
+		if (err != nil || !value.IsPositive()) && perUsd > 0 {
+			value = decimal.NewFromInt(int64(order.FilledAmount)).Div(decimal.NewFromInt(int64(perUsd)))
+		}
+		if value.IsPositive() {
+			avgPrice = value.Div(tradesim.QtyFromUnits(order.FilledQty)).Round(tradesim.QtyDecimals).String()
+		}
 	}
 	return gin.H{
 		"id":            order.Id,

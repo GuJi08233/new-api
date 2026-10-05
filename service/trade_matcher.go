@@ -251,6 +251,7 @@ func (m *TradeMarket) matchSymbol(symbol string) {
 		}
 		updated, err := model.FillTradeOrder(order.Id, model.TradeFill{
 			Qty:    tradesim.QtyUnits(fill.Qty),
+			Value:  notional,
 			Amount: amount,
 			Fee:    pricing.FeeQuota(amount),
 			Price:  order.Price.String(),
