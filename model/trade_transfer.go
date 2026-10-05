@@ -1,6 +1,8 @@
 package model
 
 import (
+	"strconv"
+
 	"github.com/QuantumNous/new-api/common"
 
 	"gorm.io/gorm"
@@ -54,33 +56,7 @@ func TransferQuotaFromTrade(userId int, quota int, day string, dailyProfitCap in
 		if account, err = lockTradeAccountTx(tx, userId); err != nil {
 			return err
 		}
-		state, err := tradeCrossStateTx(tx, userId, market)
-		if err != nil {
-			return err
-		}
-		if quota > state.Withdrawable(account.Cash) {
-			return ErrTradeWithdrawExceeded
-		}
-		principal := min(quota, account.QuotaPrincipal)
-		profit = quota - principal
-		if profit > 0 && dailyProfitCap > 0 {
-			if err = tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&TradeProfitOutDay{UserId: userId, Day: day}).Error; err != nil {
-				return err
-			}
-			result := tx.Model(&TradeProfitOutDay{}).
-				Where("user_id = ? AND day = ? AND used <= ?", userId, day, dailyProfitCap-profit).
-				Update("used", gorm.Expr("used + ?", profit))
-			if result.Error != nil {
-				return result.Error
-			}
-			if result.RowsAffected != 1 {
-				return ErrTradeProfitOutLimit
-			}
-		}
-		account.Cash -= quota
-		account.QuotaPrincipal -= principal
-		account.TotalOut += quota
-		if err = saveTradeAccountTx(tx, account); err != nil {
+		if profit, err = withdrawTradeCashTx(tx, account, quota, day, dailyProfitCap, market); err != nil {
 			return err
 		}
 		if err = creditTopUpQuota(tx, userId, quota, nil); err != nil {
@@ -93,4 +69,99 @@ func TransferQuotaFromTrade(userId int, quota int, day string, dailyProfitCap in
 	}
 	syncCreditUserQuotaCache(userId, quota, "trade transfer out")
 	return account, profit, nil
+}
+
+// TransferGameCoinsToTrade 将整数游戏币转入模拟盘，1 币 = 1 美元。两边余额、两边流水同时提交或回滚。
+func TransferGameCoinsToTrade(userId int, coins int) (*TradeAccount, error) {
+	quota, err := GameCoinQuota(coins)
+	if err != nil {
+		return nil, err
+	}
+	var account *TradeAccount
+	err = DB.Transaction(func(tx *gorm.DB) error {
+		var err error
+		if account, err = lockTradeAccountTx(tx, userId); err != nil {
+			return err
+		}
+		account.Cash += quota
+		account.QuotaPrincipal += quota
+		account.TotalIn += quota
+		if err = saveTradeAccountTx(tx, account); err != nil {
+			return err
+		}
+		entry := TradeLedger{Type: TradeLedgerCoinIn, Amount: quota}
+		if err = tradeLedgerTx(tx, account, &entry); err != nil {
+			return err
+		}
+		_, err = applyGameCoinDeltaTx(tx, userId, -coins, GameCoinLog{Type: GameCoinLogTypeTradeOut, Quota: quota, RefId: strconv.Itoa(entry.Id)})
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return account, nil
+}
+
+// TransferGameCoinsFromTrade 将模拟盘资金转回整数游戏币，返回的盈利以额度单位计。
+// 与额度转出共用可提现资金、本金及当日盈利上限，不能通过切换目标钱包重复支取盈利。
+func TransferGameCoinsFromTrade(userId int, coins int, day string, dailyProfitCap int, market TradeFuturesMarket) (*TradeAccount, int, error) {
+	quota, err := GameCoinQuota(coins)
+	if err != nil {
+		return nil, 0, err
+	}
+	var account *TradeAccount
+	profit := 0
+	err = DB.Transaction(func(tx *gorm.DB) error {
+		var err error
+		if account, err = lockTradeAccountTx(tx, userId); err != nil {
+			return err
+		}
+		if profit, err = withdrawTradeCashTx(tx, account, quota, day, dailyProfitCap, market); err != nil {
+			return err
+		}
+		entry := TradeLedger{Type: TradeLedgerCoinOut, Amount: -quota}
+		if err = tradeLedgerTx(tx, account, &entry); err != nil {
+			return err
+		}
+		_, err = applyGameCoinDeltaTx(tx, userId, coins, GameCoinLog{Type: GameCoinLogTypeTradeIn, Quota: quota, RefId: strconv.Itoa(entry.Id)})
+		return err
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+	return account, profit, nil
+}
+
+// withdrawTradeCashTx 对所有目标钱包使用同一提现规则；调用前必须锁住模拟盘账户。
+func withdrawTradeCashTx(tx *gorm.DB, account *TradeAccount, quota int, day string, dailyProfitCap int, market TradeFuturesMarket) (int, error) {
+	state, err := tradeCrossStateTx(tx, account.UserId, market)
+	if err != nil {
+		return 0, err
+	}
+	if quota > state.Withdrawable(account.Cash) {
+		return 0, ErrTradeWithdrawExceeded
+	}
+	principal := min(quota, account.QuotaPrincipal)
+	profit := quota - principal
+	if profit > 0 && dailyProfitCap > 0 {
+		if err = tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&TradeProfitOutDay{UserId: account.UserId, Day: day}).Error; err != nil {
+			return 0, err
+		}
+		result := tx.Model(&TradeProfitOutDay{}).
+			Where("user_id = ? AND day = ? AND used <= ?", account.UserId, day, dailyProfitCap-profit).
+			Update("used", gorm.Expr("used + ?", profit))
+		if result.Error != nil {
+			return 0, result.Error
+		}
+		if result.RowsAffected != 1 {
+			return 0, ErrTradeProfitOutLimit
+		}
+	}
+	account.Cash -= quota
+	account.QuotaPrincipal -= principal
+	account.TotalOut += quota
+	if err = saveTradeAccountTx(tx, account); err != nil {
+		return 0, err
+	}
+	return profit, nil
 }

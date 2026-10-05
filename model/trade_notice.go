@@ -16,6 +16,12 @@ const (
 
 	TradeNoticeSpot    = "spot"
 	TradeNoticeFutures = "futures"
+
+	TradeNoticeNotifyPending = "pending"
+	TradeNoticeNotifySending = "sending"
+	TradeNoticeNotifySent    = "sent"
+	TradeNoticeNotifyFailed  = "failed"
+	TradeNoticeNotifyExpired = "expired"
 )
 
 // TradeNotice 是一件不是用户当场操作、在后台发生的事，页面轮询新的通知弹出提示。和引起它的成交在同一个事务里写入。
@@ -34,7 +40,9 @@ type TradeNotice struct {
 	Price     string `json:"price" gorm:"type:varchar(40)"`
 	Pnl       int    `json:"pnl" gorm:"type:bigint"`
 	Amount    int    `json:"amount" gorm:"type:bigint"`
-	CreatedAt int64  `json:"created_at" gorm:"bigint"`
+	CreatedAt int64  `json:"created_at" gorm:"bigint;index:idx_trade_notice_notify,priority:2"`
+	// 空值是升级前的历史通知，永不补发。发送状态不暴露给用户通知 API。
+	NotifyState string `json:"-" gorm:"type:varchar(16);index:idx_trade_notice_notify,priority:1"`
 }
 
 // TradeDeficitNotifier 在亏空从用户的站内额度里扣掉、事务提交之后调用，由 service 设成按用户的通知设置(邮件、Webhook 等)
@@ -54,7 +62,52 @@ func afterTradeDeficitCovered(userId int, covered int) {
 
 func addTradeNoticeTx(tx *gorm.DB, notice TradeNotice) error {
 	notice.CreatedAt = common.GetTimestamp()
+	switch notice.Kind {
+	case TradeNoticeTakeProfit, TradeNoticeStopLoss, TradeNoticeLiquidation, TradeNoticeFill:
+		notice.NotifyState = TradeNoticeNotifyPending
+	}
 	return tx.Create(&notice).Error
+}
+
+// ClaimTradeNoticeNotifications 只取已提交的新通知；CAS 保证多个节点也不会重复领取。
+// 过期积压只保留站内通知。领取后不自动重试，避免外部渠道已收到但本地未确认时重复发送。
+// 出错时仍返回此前成功领取的通知，调用方必须处理它们。
+func ClaimTradeNoticeNotifications(notBefore int64, limit int) ([]TradeNotice, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+	if err := DB.Model(&TradeNotice{}).Where("notify_state = ? AND created_at < ?", TradeNoticeNotifyPending, notBefore).
+		Update("notify_state", TradeNoticeNotifyExpired).Error; err != nil {
+		return nil, err
+	}
+	var pending []TradeNotice
+	if err := DB.Where("notify_state = ? AND created_at >= ?", TradeNoticeNotifyPending, notBefore).
+		Order("id ASC").Limit(limit).Find(&pending).Error; err != nil {
+		return nil, err
+	}
+	claimed := make([]TradeNotice, 0, len(pending))
+	for _, notice := range pending {
+		result := DB.Model(&TradeNotice{}).Where("id = ? AND notify_state = ?", notice.Id, TradeNoticeNotifyPending).
+			Update("notify_state", TradeNoticeNotifySending)
+		if result.Error != nil {
+			return claimed, result.Error
+		}
+		if result.RowsAffected == 1 {
+			notice.NotifyState = TradeNoticeNotifySending
+			claimed = append(claimed, notice)
+		}
+	}
+	return claimed, nil
+}
+
+// FinishTradeNoticeNotification 记录一次投递的结果，不把已结束的通知重新放回待发送队列。
+func FinishTradeNoticeNotification(id int, delivered bool) error {
+	state := TradeNoticeNotifyFailed
+	if delivered {
+		state = TradeNoticeNotifySent
+	}
+	return DB.Model(&TradeNotice{}).Where("id = ? AND notify_state = ?", id, TradeNoticeNotifySending).
+		Update("notify_state", state).Error
 }
 
 // tradeFuturesFillNoticeTx 记一次合约成交的通知：止盈止损触发的平仓、挂着的限价单之后成交。pnl 是这次平仓的盈亏，开仓为 0。

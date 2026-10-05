@@ -191,6 +191,7 @@ func StartTradeMarket() {
 			}
 		}
 		if common.IsMasterNode {
+			gopool.Go(sendTradeNotices)
 			gopool.Go(futuresMarket.guard)
 			gopool.Go(futuresMarket.settleFunding)
 		}

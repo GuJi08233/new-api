@@ -388,6 +388,8 @@ func migrateDB() error {
 		&TradeFuturesHistory{},
 		&TradeFuturesOrder{},
 		&TradeNotice{},
+		&GameCoinAccount{},
+		&GameCoinLog{},
 	)
 	if err != nil {
 		return err
@@ -479,6 +481,8 @@ func migrateDBFast() error {
 		{&TradeFuturesHistory{}, "TradeFuturesHistory"},
 		{&TradeFuturesOrder{}, "TradeFuturesOrder"},
 		{&TradeNotice{}, "TradeNotice"},
+		{&GameCoinAccount{}, "GameCoinAccount"},
+		{&GameCoinLog{}, "GameCoinLog"},
 	}
 	// 动态计算migration数量，确保errChan缓冲区足够大
 	errChan := make(chan error, len(migrations))

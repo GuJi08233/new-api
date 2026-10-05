@@ -13,7 +13,7 @@ import (
 )
 
 // TradeSetting 是模拟盘的全部可配置项。模拟盘按 Binance 现货的实时盘口成交，账户以 USDT 计价：1 USDT = 1 美元额度，
-// 这个比例是产品规则，不在这里配置。账户里的钱来自用户转入的额度，又能转出成额度，所以下面的上限与手续费都是在
+// 这个比例是产品规则，不在这里配置。账户里的钱来自用户转入的额度或等值游戏币，又能转回这两个钱包，所以下面的上限与手续费都是在
 // 保护站点的真实额度。
 type TradeSetting struct {
 	// Enabled 关闭时不能下单、不能转入；已有的委托可以撤销，可用资金可以转出，持仓要等重新开放才能卖出。
@@ -43,6 +43,8 @@ type TradeSetting struct {
 	// LeaderboardEnabled 打开排行榜：成交过的用户按累计盈亏、收益率与总资产排名，所有能用模拟盘的用户都能看到前 100 名的
 	// 显示名与金额。模拟盘本身也要打开。
 	LeaderboardEnabled bool `json:"leaderboard_enabled"`
+	// InsightsEnabled 开放市场资讯，各数据源的覆盖范围和更新时间在页面上标明。
+	InsightsEnabled bool `json:"insights_enabled"`
 
 	// FuturesEnabled 打开合约(U 本位永续，全仓或逐仓)，模拟盘本身也要打开。关闭后不能开仓(也不能反手)；已有的仓位照样可以
 	// 平仓、调杠杆、调整逐仓保证金和止盈止损，强平与资金费照常进行，行情连接会一直保持到所有仓位平掉。
@@ -151,6 +153,7 @@ func DefaultTradeSetting() *TradeSetting {
 		RestUrl:               "https://data-api.binance.vision",
 		WsUrl:                 "wss://data-stream.binance.vision",
 		LeaderboardEnabled:    true,
+		InsightsEnabled:       true,
 		FuturesEnabled:        false,
 		FuturesSymbols:        futures,
 		FuturesMaxLeverage:    20,
@@ -275,7 +278,7 @@ func ValidateTradeOption(key string, value string) error {
 		if value != "" && !isUrlWithScheme(value, "http", "socks5") {
 			return fmt.Errorf("代理地址必须是 http 或 socks5 地址")
 		}
-	case "futures_enabled", "leaderboard_enabled":
+	case "futures_enabled", "leaderboard_enabled", "insights_enabled":
 		if _, err := strconv.ParseBool(value); err != nil {
 			return fmt.Errorf("%s 必须是 true 或 false", field)
 		}

@@ -372,6 +372,8 @@ const (
 	MsgTradeOrderFailed          = "trade.order_failed"
 	MsgTradeAmountInvalid        = "trade.amount_invalid"
 	MsgTradeQuotaInsufficient    = "trade.quota_insufficient"
+	MsgTradeGameCoinInsufficient = "trade.game_coin_insufficient"
+	MsgTradeGameCoinInteger      = "trade.game_coin_integer"
 	MsgTradeWithdrawExceeded     = "trade.withdraw_exceeded"
 	MsgTradeProfitOutLimit       = "trade.profit_out_limit"
 	MsgTradeTransferFailed       = "trade.transfer_failed"

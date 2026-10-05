@@ -274,6 +274,11 @@ const AssetsView = ({
               quota: formatUsdt(self.withdrawable?.quota, perUnit),
             })}
           </Text>
+          <Text type='tertiary' size='small'>
+            {t('游戏币余额：{{amount}}', {
+              amount: self.wallet?.game_coins || 0,
+            })}
+          </Text>
         </div>
       </div>
       <div className='trade-card'>

@@ -33,6 +33,7 @@ import { useIsMobile } from '../../hooks/common/useIsMobile';
 import AssetsView from './AssetsView';
 import FuturesView from './FuturesView';
 import LeaderboardView from './LeaderboardView';
+import InsightsView from './InsightsView';
 import MarketList from './MarketList';
 import NoticeBell from './NoticeBell';
 import TickerStrip from './TickerStrip';
@@ -83,9 +84,11 @@ const Trade = () => {
   const location = useLocation();
   const isAssets = location.pathname === '/trade/assets';
   const isLeaderboard = location.pathname === '/trade/leaderboard';
+  const isInsights = location.pathname === '/trade/insights';
   const isFutures = location.pathname.startsWith('/trade/futures');
   // 现货行情列表页。资产页与排行榜没有自己的行情，顶部行情条在那里也列现货。
-  const isSpotList = !symbol && !isFutures && !isAssets && !isLeaderboard;
+  const isSpotList =
+    !symbol && !isFutures && !isAssets && !isLeaderboard && !isInsights;
   const [self, setSelf] = useState(null);
   const [market, setMarket] = useState(null);
   const [marketError, setMarketError] = useState('');
@@ -137,10 +140,10 @@ const Trade = () => {
     loadSelf();
     if (isFutures) {
       loadFutures();
-    } else {
+    } else if (!isInsights) {
       loadMarket();
     }
-  }, [loadSelf, loadMarket, loadFutures, isFutures]);
+  }, [loadSelf, loadMarket, loadFutures, isFutures, isInsights]);
 
   const symbols = useMemo(
     () => market?.symbols.map((item) => item.symbol) || [],
@@ -152,7 +155,8 @@ const Trade = () => {
   );
   // 行情条只在桌面宽度、模拟盘开放时显示，列的是当前市场(资产页算现货)的全部品种。不显示时交易页只订阅自己的交易对。
   const stripItems = (isFutures ? futures : market)?.symbols || [];
-  const showStrip = !isMobile && !!self?.enabled && stripItems.length > 0;
+  const showStrip =
+    !isMobile && !isInsights && !!self?.enabled && stripItems.length > 0;
   const publishTicker = useCallback(
     (data) =>
       tickerFeed.dispatchEvent(new CustomEvent('ticker', { detail: data })),
@@ -217,6 +221,12 @@ const Trade = () => {
     content = <Empty title={loadError} />;
   } else if (!self) {
     content = <Spin size='large' />;
+  } else if (isInsights) {
+    content = self.insights ? (
+      <InsightsView t={t} />
+    ) : (
+      <Empty title={t('市场资讯暂未开放')} />
+    );
   } else if (isLeaderboard) {
     content = <LeaderboardView perUnit={perUnit} t={t} />;
   } else if (isAssets) {
@@ -319,7 +329,7 @@ const Trade = () => {
           />
         )}
         <div className='flex flex-wrap items-center justify-between gap-3'>
-          <div className='flex items-center gap-4'>
+          <div className='flex flex-wrap items-center gap-4'>
             <Title heading={3} className='!mb-0'>
               {t('模拟盘')}
             </Title>
@@ -330,9 +340,11 @@ const Trade = () => {
                   ? 'assets'
                   : isLeaderboard
                     ? 'leaderboard'
-                    : isFutures
-                      ? 'futures'
-                      : 'spot'
+                    : isInsights
+                      ? 'insights'
+                      : isFutures
+                        ? 'futures'
+                        : 'spot'
               }
               onChange={(e) =>
                 navigate(
@@ -341,6 +353,7 @@ const Trade = () => {
                     futures: '/trade/futures',
                     assets: '/trade/assets',
                     leaderboard: '/trade/leaderboard',
+                    insights: '/trade/insights',
                   }[e.target.value],
                 )
               }
@@ -350,6 +363,9 @@ const Trade = () => {
               <Radio value='assets'>{t('资产')}</Radio>
               {(self?.leaderboard || isLeaderboard) && (
                 <Radio value='leaderboard'>{t('排行榜')}</Radio>
+              )}
+              {(self?.insights || isInsights) && (
+                <Radio value='insights'>{t('市场资讯')}</Radio>
               )}
             </RadioGroup>
           </div>

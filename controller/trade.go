@@ -35,6 +35,8 @@ type tradeTransferRequest struct {
 	// Direction 是 in(从主钱包转入模拟盘)或 out(转回主钱包)，Amount 是额度，按美元填写，可以有小数。
 	Direction string `json:"direction"`
 	Amount    string `json:"amount"`
+	// Wallet 为空或 quota 使用平台额度，game_coin 使用独立游戏币钱包（只接受整币）。
+	Wallet string `json:"wallet"`
 }
 
 // tradeDay 是模拟盘的记账日：每天的盈利转出上限与资产快照都按它切换，与签到一样按服务器本地时间 0 点切换。多个节点
@@ -131,12 +133,19 @@ func tradeSelfView(userId int) (gin.H, error) {
 		return nil, err
 	}
 	// 转回自己转入的额度不受限制，超出的部分是盈利，当天还能转出多少受上限约束；有全仓仓位时还要留下全仓占用与浮动亏损。
-	profitCap := setting.DailyProfitOutUsd * perUsd
+	profitCap, err := common.QuotaFromDecimalStrict(decimal.NewFromInt(int64(setting.DailyProfitOutUsd)).Mul(decimal.NewFromInt(int64(perUsd))))
+	if err != nil {
+		return nil, err
+	}
 	withdrawable := valuation.Cross.Withdrawable
 	if profitCap > 0 {
 		withdrawable = min(withdrawable, account.QuotaPrincipal+max(profitCap-profitUsed, 0))
 	}
 	userQuota, err := model.GetUserQuota(userId, true)
+	if err != nil {
+		return nil, err
+	}
+	coinAccount, err := model.GetGameCoinAccount(userId)
 	if err != nil {
 		return nil, err
 	}
@@ -158,6 +167,7 @@ func tradeSelfView(userId int) (gin.H, error) {
 		"daily_profit_out_usd": setting.DailyProfitOutUsd,
 		"max_open_orders":      model.TradeMaxOpenOrders,
 		"leaderboard":          setting.Enabled && setting.LeaderboardEnabled,
+		"insights":             setting.Enabled && setting.InsightsEnabled,
 		"futures": gin.H{
 			"enabled":          setting.Enabled && setting.FuturesEnabled,
 			"taker_fee_bps":    setting.FuturesTakerFeeBps,
@@ -174,7 +184,7 @@ func tradeSelfView(userId int) (gin.H, error) {
 			"profit_out_used": profitUsed,
 			"profit_out_cap":  profitCap,
 		},
-		"wallet": gin.H{"quota": userQuota},
+		"wallet": gin.H{"quota": userQuota, "game_coins": coinAccount.Balance},
 	}, nil
 }
 
@@ -583,7 +593,7 @@ func GetTradeLeaderboard(c *gin.Context) {
 	})
 }
 
-// TransferTrade 在主钱包与模拟盘之间转账。转入要模拟盘开放；转出随时可以，关闭期间也能把钱拿出来。成功后返回最新的账户。
+// TransferTrade 在平台额度或游戏币钱包与模拟盘之间转账。转入要模拟盘开放；转出随时可以，关闭期间也能把钱拿出来。
 func TransferTrade(c *gin.Context) {
 	var req tradeTransferRequest
 	if err := common.DecodeJson(c.Request.Body, &req); err != nil {
@@ -606,6 +616,22 @@ func TransferTrade(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
+	if req.Wallet != "" && req.Wallet != "quota" && req.Wallet != "game_coin" {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
+	coins := 0
+	if req.Wallet == "game_coin" {
+		if !amount.Equal(amount.Truncate(0)) {
+			common.ApiErrorI18n(c, i18n.MsgTradeGameCoinInteger)
+			return
+		}
+		coins, err = common.QuotaFromDecimalStrict(amount)
+		if err != nil || coins < 1 {
+			common.ApiErrorI18n(c, i18n.MsgTradeAmountInvalid)
+			return
+		}
+	}
 	if isIn && !setting.Enabled {
 		common.ApiErrorI18n(c, i18n.MsgTradeDisabled)
 		return
@@ -617,17 +643,30 @@ func TransferTrade(c *gin.Context) {
 	}
 	userId := c.GetInt("id")
 	content, profit := "", 0
-	if isIn {
+	profitCap, err := common.QuotaFromDecimalStrict(decimal.NewFromInt(int64(setting.DailyProfitOutUsd)).Mul(decimal.NewFromInt(int64(perUsd))))
+	if err != nil {
+		common.ApiErrorI18n(c, i18n.MsgTradeAmountInvalid)
+		return
+	}
+	if req.Wallet == "game_coin" && isIn {
+		_, err = model.TransferGameCoinsToTrade(userId, coins)
+		content = fmt.Sprintf("模拟盘转入游戏币 %d", coins)
+	} else if req.Wallet == "game_coin" {
+		_, profit, err = model.TransferGameCoinsFromTrade(userId, coins, tradeDay(time.Now()), profitCap, service.TradeAccountingMarket())
+		content = fmt.Sprintf("模拟盘转出游戏币 %d，其中盈利 %s", coins, logger.LogQuota(profit))
+	} else if isIn {
 		_, err = model.TransferQuotaToTrade(userId, quota)
 		content = fmt.Sprintf("模拟盘转入额度 %s", logger.LogQuota(quota))
 	} else {
-		_, profit, err = model.TransferQuotaFromTrade(userId, quota, tradeDay(time.Now()), setting.DailyProfitOutUsd*perUsd, service.TradeAccountingMarket())
+		_, profit, err = model.TransferQuotaFromTrade(userId, quota, tradeDay(time.Now()), profitCap, service.TradeAccountingMarket())
 		content = fmt.Sprintf("模拟盘转出额度 %s，其中盈利 %s", logger.LogQuota(quota), logger.LogQuota(profit))
 	}
 	if err != nil {
 		switch {
-		case errors.Is(err, model.ErrTradeAmountInvalid):
+		case errors.Is(err, model.ErrTradeAmountInvalid), errors.Is(err, model.ErrGameCoinAmountInvalid):
 			common.ApiErrorI18n(c, i18n.MsgTradeAmountInvalid)
+		case errors.Is(err, model.ErrGameCoinInsufficient):
+			common.ApiErrorI18n(c, i18n.MsgTradeGameCoinInsufficient)
 		case errors.Is(err, model.ErrTradeQuotaInsufficient):
 			common.ApiErrorI18n(c, i18n.MsgTradeQuotaInsufficient)
 		case errors.Is(err, model.ErrTradeWithdrawExceeded):
@@ -645,7 +684,7 @@ func TransferTrade(c *gin.Context) {
 		return
 	}
 	model.RecordAuditLog(model.ClientLogSource(c), userId, "", model.LogTypeSystem, content,
-		map[string]interface{}{"trade_direction": req.Direction, "quota": quota, "profit": profit})
+		map[string]interface{}{"trade_direction": req.Direction, "wallet": req.Wallet, "quota": quota, "profit": profit})
 	view, err := tradeSelfView(userId)
 	if err != nil {
 		common.ApiError(c, err)

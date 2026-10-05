@@ -169,6 +169,7 @@ func SetApiRouter(router *gin.Engine) {
 			tradeRoute.GET("/ledger", controller.GetTradeLedger)
 			tradeRoute.GET("/notices", controller.GetTradeNotices)
 			tradeRoute.GET("/leaderboard", controller.GetTradeLeaderboard)
+			tradeRoute.GET("/insights/:kind", middleware.TradeEnabled(), controller.GetTradeInsights)
 			tradeRoute.GET("/assets/history", controller.GetTradeAssetHistory)
 			tradeRoute.GET("/assets/daily", controller.GetTradeAssetDaily)
 			tradeRoute.POST("/orders/:id/cancel", middleware.TradeOrderRateLimit(), controller.CancelTradeOrder)

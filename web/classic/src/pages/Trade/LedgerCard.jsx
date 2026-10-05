@@ -43,6 +43,8 @@ const LedgerCard = ({ perUnit, refreshKey, t }) => {
   const typeLabels = {
     quota_in: t('额度转入'),
     quota_out: t('额度转出'),
+    coin_in: t('游戏币转入'),
+    coin_out: t('游戏币转出'),
     buy: t('买入'),
     sell: t('卖出'),
     futures_open: t('合约开仓'),

@@ -11,7 +11,7 @@ import (
 )
 
 // 模拟盘账户按 Binance 现货的实时盘口买卖，以额度单位记账(1 美元 = common.QuotaPerUnit)，数量按 10^-8 记成整数
-// (见 pkg/tradesim)。账户里的钱来自用户转入的额度，也能转出成额度，所以每一笔资金变动都在一个事务里完成，并且先锁住
+// (见 pkg/tradesim)。账户里的钱来自用户转入的额度或游戏币，也能转回这两种钱包，所以每一笔资金变动都在一个事务里完成，并且先锁住
 // 账户行：同一用户的转入转出、下单、成交与撤单依次进行，持仓与委托不再单独加锁。
 //
 // 转出规则：可用资金都能转出，持仓要先卖出；超过转入额度的部分算盈利，每人每天转出的盈利有上限。
@@ -38,6 +38,8 @@ const (
 const (
 	TradeLedgerQuotaIn  = "quota_in"
 	TradeLedgerQuotaOut = "quota_out"
+	TradeLedgerCoinIn   = "coin_in"
+	TradeLedgerCoinOut  = "coin_out"
 	TradeLedgerBuy      = "buy"
 	TradeLedgerSell     = "sell"
 )
@@ -64,7 +66,7 @@ type TradeAccount struct {
 	// Cash 是可用资金，Frozen 是挂着的限价买单冻结的资金，单位都是额度。
 	Cash   int `json:"cash" gorm:"type:bigint;not null;default:0"`
 	Frozen int `json:"frozen" gorm:"type:bigint;not null;default:0"`
-	// QuotaPrincipal 是转入后还没转回的额度。转出的额度超过它的部分是交易盈利，受每天的盈利转出上限约束。
+	// QuotaPrincipal 是两种钱包转入后还没转回的本金(额度单位)。转出超过它的部分是交易盈利，共用每天的盈利转出上限。
 	QuotaPrincipal int `json:"quota_principal" gorm:"type:bigint;not null;default:0"`
 	// TotalIn、TotalOut 是累计转入、转出的资金，总资产减去两者之差就是累计盈亏。
 	TotalIn   int   `json:"total_in" gorm:"type:bigint;not null;default:0"`

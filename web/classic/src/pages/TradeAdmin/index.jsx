@@ -427,6 +427,19 @@ const TradeAdmin = () => {
                 )}
               </Text>
             </div>
+            <div className='flex items-center gap-3'>
+              <Switch
+                checked={form.insights_enabled}
+                aria-label={t('市场资讯')}
+                onChange={(value) => change('insights_enabled', value)}
+              />
+              <Text className='whitespace-nowrap'>{t('开放市场资讯')}</Text>
+              <Text type='tertiary' size='small'>
+                {t(
+                  '财经日历、强平快照、大户持仓样本、新闻快讯与公司资料。外部数据源中断时只影响对应栏目，不影响交易。',
+                )}
+              </Text>
+            </div>
             <div className='flex flex-col gap-2'>
               <Text strong>{t('开放交易的交易对')}</Text>
               {symbolChoices('symbol', 'symbols')}
