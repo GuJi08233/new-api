@@ -105,6 +105,17 @@ func tradeFuturesBookSide(side string, action string) tradesim.Side {
 	return positionSide.CloseSide()
 }
 
+// tradeFuturesOpenAllowed 检查这个合约现在能不能开仓：模拟盘与合约都打开，并且合约在开放列表里。
+func tradeFuturesOpenAllowed(setting *operation_setting.TradeSetting, symbol string) error {
+	if setting.FuturesOpenEnabled(symbol) {
+		return nil
+	}
+	if !setting.Enabled || !setting.FuturesEnabled {
+		return ErrTradeFuturesDisabled
+	}
+	return ErrTradeSymbolClosed
+}
+
 // tradeFuturesStep 是合约的数量步长，没有规则时按最小数量单位。
 func tradeFuturesStep(rules binance.SymbolInfo) decimal.Decimal {
 	if rules.StepSize.IsPositive() {
@@ -137,11 +148,10 @@ func PlaceTradeFuturesOrder(ctx context.Context, userId int, req TradeFuturesOrd
 		isLimit && !req.Price.IsPositive():
 		return nil, ErrTradeOrderInvalid
 	}
-	if isOpen && !setting.FuturesOpenEnabled(req.Symbol) {
-		if !setting.Enabled || !setting.FuturesEnabled {
-			return nil, ErrTradeFuturesDisabled
+	if isOpen {
+		if err := tradeFuturesOpenAllowed(setting, req.Symbol); err != nil {
+			return nil, err
 		}
-		return nil, ErrTradeSymbolClosed
 	}
 	if isOpen && (req.Leverage < 1 || req.Leverage > TradeFuturesLeverageLimit(req.Symbol)) {
 		return nil, ErrTradeLeverageInvalid
@@ -337,10 +347,13 @@ func CloseAllTradeFutures(ctx context.Context, userId int) ([]*model.TradeFuture
 }
 
 // ReverseTradeFutures 反手：按市价平掉一个仓位，再按平掉的数量、同样的保证金模式与杠杆市价开反方向的仓位。两步各自成交，
-// 第二步失败时仓位已经平掉，返回平仓委托与开仓的错误。止盈止损不带过去。
+// 第二步失败时仓位已经平掉，返回平仓委托与开仓的错误；合约现在不能开仓时直接拒绝，不平仓。止盈止损不带过去。
 func ReverseTradeFutures(ctx context.Context, userId int, symbol string, side string) (*model.TradeFuturesOrder, *model.TradeFuturesOrder, error) {
 	if side != model.TradeFuturesLong && side != model.TradeFuturesShort {
 		return nil, nil, ErrTradeOrderInvalid
+	}
+	if err := tradeFuturesOpenAllowed(operation_setting.GetTradeSetting(), symbol); err != nil {
+		return nil, nil, err
 	}
 	position, err := model.GetTradeFuturesPosition(userId, symbol, side)
 	if err != nil {

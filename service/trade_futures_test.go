@@ -355,6 +355,24 @@ func TestFuturesReverseAndCloseAll(t *testing.T) {
 	assert.Empty(t, positions)
 }
 
+// 合约暂停开仓时反手直接拒绝，不会先把仓位平掉。
+func TestFuturesReverseRefusedWhenTheContractCannotOpen(t *testing.T) {
+	setupFuturesMarketTest(t, nil)
+	fundTradeTestUser(t, 4211, "1000")
+	setFuturesTestBook(1, tradeTestLevels("99.9", "10"), tradeTestLevels("100", "10"))
+	openFuturesTest(t, 4211, TradeFuturesOrderRequest{Side: model.TradeFuturesLong, Type: model.TradeOrderTypeMarket, MarginMode: model.TradeFuturesCross,
+		Qty: tradeTestDecimal("1"), Leverage: 5})
+
+	setting := operation_setting.GetTradeSetting().Clone()
+	setting.FuturesSymbols = nil
+	operation_setting.SetTradeSettingForTest(setting)
+	closed, opened, err := ReverseTradeFutures(context.Background(), 4211, "BTCUSDT", model.TradeFuturesLong)
+	require.ErrorIs(t, err, ErrTradeSymbolClosed)
+	assert.Nil(t, closed)
+	assert.Nil(t, opened)
+	assert.EqualValues(t, 100_000_000, futuresTestPosition(t, 4211, model.TradeFuturesLong).Qty, "the long is still open")
+}
+
 // 资金费按 Binance 已经结算的期次结算：开仓之前的、还没到的不算，同一期只结算一次；结算完到下一次结算时间之前不再去查。
 func TestFuturesFundingSettlesBinanceRounds(t *testing.T) {
 	setupFuturesMarketTest(t, nil)

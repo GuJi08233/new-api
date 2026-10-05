@@ -41,8 +41,8 @@ type TradeSetting struct {
 	// 现货与合约的行情连接共用它。
 	ProxyUrl string `json:"proxy_url"`
 
-	// FuturesEnabled 打开合约(U 本位永续，只有逐仓)，模拟盘本身也要打开。关闭后不能开仓；已有的仓位照样可以平仓、调整
-	// 保证金和止盈止损，强平与资金费照常进行，行情连接会一直保持到所有仓位平掉。
+	// FuturesEnabled 打开合约(U 本位永续，全仓或逐仓)，模拟盘本身也要打开。关闭后不能开仓(也不能反手)；已有的仓位照样可以
+	// 平仓、调杠杆、调整逐仓保证金和止盈止损，强平与资金费照常进行，行情连接会一直保持到所有仓位平掉。
 	FuturesEnabled bool `json:"futures_enabled"`
 	// FuturesSymbols 是开放开仓的永续合约，取自 TradeSymbols 的 Futures。
 	FuturesSymbols []string `json:"futures_symbols"`

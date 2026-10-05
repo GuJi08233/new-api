@@ -8,7 +8,7 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// 合约(U 本位永续)的成交计算。仓位只用逐仓：每个仓位有自己的保证金，亏损最多亏掉这份保证金，账户的可用资金不会变成负数。
+// 合约(U 本位永续)的成交计算：保证金、手续费、盈亏、维持保证金、强平价与资金费。全仓与逐仓的记账规则在 model 里。
 // 金额的取整同样朝着站点有利的方向：保证金与手续费向上取整，盈亏与资金费按带符号的值向下取整(赚的少记、亏的多记)。
 
 // PositionSide 是合约仓位的方向。
@@ -130,7 +130,8 @@ func (p Pricing) Liquidatable(side PositionSide, entryValue decimal.Decimal, qty
 	return margin+pnl <= maintenance, nil
 }
 
-// LiquidationPrice 是逐仓仓位的预估强平价：保证金 + 浮动盈亏 = 维持保证金时的标记价格。维持保证金随档位变化，逐档代入
+// LiquidationPrice 是仓位的预估强平价：保证金 + 浮动盈亏 = 维持保证金时的标记价格，全仓的 margin 是撑着这个仓位的权益。
+// 维持保证金随档位变化，逐档代入
 //
 //	多仓：(开仓价值 - 保证金 - 速算数) / (数量 × (1 - 维持保证金率))
 //	空仓：(开仓价值 + 保证金 + 速算数) / (数量 × (1 + 维持保证金率))
