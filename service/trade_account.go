@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
@@ -34,6 +35,15 @@ type TradeValuation struct {
 	StockValue  int `json:"stock_value"`
 	// FuturesValue 是合约仓位算进总资产的价值合计：逐仓是保证金加按标记价格的浮动盈亏(最少为 0)，全仓只有浮动盈亏。
 	FuturesValue int `json:"futures_value"`
+	// PredictionValue 是 BTC 预测持仓按能卖出的价格的估值。
+	PredictionValue int `json:"prediction_value"`
+	// SpotDebt 是现货借款的本金加利息(算上到期还没收的)，SpotMargin 是借款本身，SpotRisk 与 SpotLevel 是借款的风险与风险率
+	// (见 model.TradeSpotRisk)。SpotPricesFresh 为假时现货盘口不新鲜，风险率算不出来。
+	SpotDebt        int                   `json:"spot_debt"`
+	SpotMargin      model.TradeSpotMargin `json:"spot_margin"`
+	SpotRisk        model.TradeSpotRisk   `json:"spot_risk"`
+	SpotLevel       string                `json:"spot_level"`
+	SpotPricesFresh bool                  `json:"spot_prices_fresh"`
 	// Equity 是总资产，最少为 0。
 	Equity   int               `json:"equity"`
 	Cross    TradeCrossSummary `json:"cross"`
@@ -104,7 +114,53 @@ func ValueTradeUser(userId int) (model.TradeAccount, TradeValuation, error) {
 		return account, TradeValuation{}, err
 	}
 	valuation, err := ValueTradeAccount(account, pending[userId], positions, futures)
+	if err != nil {
+		return account, valuation, err
+	}
+	loan, err := model.GetTradeSpotMargin(userId)
+	if err != nil {
+		return account, valuation, err
+	}
+	predictions, err := model.ListTradePredictionPositionsOf([]int{userId})
+	if err != nil {
+		return account, valuation, err
+	}
+	err = valueTradeFinancing(&valuation, loan, positions, predictions)
 	return account, valuation, err
+}
+
+// valueTradeFinancing 把预测持仓和现货借款算进总资产，算出借款的风险率。有借款时把钱转出去(转回额度、给合约或预测用)之后
+// 风险率不能低于 2，要留下的资金从全仓可用与可转出里扣掉；现货盘口不新鲜、风险率算不出来时这两项按 0 算。预测持仓不能作抵押。
+func valueTradeFinancing(valuation *TradeValuation, loan model.TradeSpotMargin, spots []model.TradePosition, predictions []model.TradePredictionPosition) error {
+	loan, err := model.AccruedTradeSpotMargin(loan, common.GetTimestamp())
+	if err != nil {
+		return err
+	}
+	valuation.SpotMargin, valuation.SpotDebt = loan, loan.Principal+loan.Interest
+	valuation.PredictionValue, err = ValueTradePredictions(predictions)
+	if err != nil {
+		return err
+	}
+	valuation.Equity = max(0, valuation.Cash+valuation.Frozen+valuation.CryptoValue+valuation.StockValue+valuation.FuturesValue+valuation.PredictionValue-valuation.SpotDebt)
+	valuation.SpotPricesFresh = true
+	if valuation.SpotDebt == 0 {
+		return nil
+	}
+	risk, err := model.TradeSpotRiskOf(loan, valuation.Cross.Withdrawable, spots, tradeFuturesMarks{market: futuresMarket})
+	if errors.Is(err, model.ErrTradeMarkUnavailable) {
+		valuation.SpotPricesFresh = false
+		valuation.Cross.Available = min(valuation.Cross.Available, 0)
+		valuation.Cross.Withdrawable = 0
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	valuation.SpotRisk, valuation.SpotLevel = risk, risk.Level().StringFixed(4)
+	reserve := risk.Reserve(model.TradeSpotTransferLevel)
+	valuation.Cross.Available -= reserve
+	valuation.Cross.Withdrawable = max(0, valuation.Cross.Withdrawable-reserve)
+	return nil
 }
 
 // valueTradeAccounts 读出一批账户的现货持仓、合约仓位与全仓开仓委托冻结的钱，按当前行情逐个估值，顺序与 accounts 相同。
@@ -125,6 +181,22 @@ func valueTradeAccounts(accounts []model.TradeAccount) ([]TradeValuation, error)
 	if err != nil {
 		return nil, err
 	}
+	loans, err := model.ListTradeSpotMarginsOf(userIds)
+	if err != nil {
+		return nil, err
+	}
+	predictions, err := model.ListTradePredictionPositionsOf(userIds)
+	if err != nil {
+		return nil, err
+	}
+	loansByUser := make(map[int]model.TradeSpotMargin, len(loans))
+	for _, loan := range loans {
+		loansByUser[loan.UserId] = loan
+	}
+	predictionsByUser := make(map[int][]model.TradePredictionPosition)
+	for _, position := range predictions {
+		predictionsByUser[position.UserId] = append(predictionsByUser[position.UserId], position)
+	}
 	positionsByUser := map[int][]model.TradePosition{}
 	for _, position := range positions {
 		positionsByUser[position.UserId] = append(positionsByUser[position.UserId], position)
@@ -139,6 +211,9 @@ func valueTradeAccounts(accounts []model.TradeAccount) ([]TradeValuation, error)
 		if err != nil {
 			return nil, err
 		}
+		if err = valueTradeFinancing(&valuations[i], loansByUser[account.UserId], positionsByUser[account.UserId], predictionsByUser[account.UserId]); err != nil {
+			return nil, err
+		}
 	}
 	return valuations, nil
 }
@@ -146,16 +221,18 @@ func valueTradeAccounts(accounts []model.TradeAccount) ([]TradeValuation, error)
 // tradeSnapshotOf 按估值与这一天的资金流拼出一份快照：现货的资金流按交易对的种类分到加密货币与美股代币。
 func tradeSnapshotOf(account model.TradeAccount, valuation TradeValuation, day string, flows []model.TradeSymbolFlow, futuresFlow int) model.TradeSnapshot {
 	snapshot := model.TradeSnapshot{
-		UserId:       account.UserId,
-		Day:          day,
-		Equity:       valuation.Equity,
-		Cash:         valuation.Cash + valuation.Frozen,
-		CryptoValue:  valuation.CryptoValue,
-		StockValue:   valuation.StockValue,
-		FuturesValue: valuation.FuturesValue,
-		FuturesFlow:  futuresFlow,
-		NetIn:        account.TotalIn - account.TotalOut,
-		CreatedAt:    common.GetTimestamp(),
+		UserId:          account.UserId,
+		Day:             day,
+		Equity:          valuation.Equity,
+		Cash:            valuation.Cash + valuation.Frozen,
+		CryptoValue:     valuation.CryptoValue,
+		StockValue:      valuation.StockValue,
+		FuturesValue:    valuation.FuturesValue,
+		FuturesFlow:     futuresFlow,
+		PredictionValue: valuation.PredictionValue,
+		SpotDebt:        valuation.SpotDebt,
+		NetIn:           account.TotalIn - account.TotalOut,
+		CreatedAt:       common.GetTimestamp(),
 	}
 	for _, flow := range flows {
 		if info, _ := operation_setting.TradeSymbolOf(flow.Symbol); info.Kind == operation_setting.TradeKindStock {
@@ -185,7 +262,19 @@ func LiveTradeSnapshot(userId int, day string, dayStart int64, now int64) (model
 	for _, flow := range futuresFlows {
 		futuresFlow += flow.Amount
 	}
-	return tradeSnapshotOf(account, valuation, day, flows, futuresFlow), nil
+	snapshot := tradeSnapshotOf(account, valuation, day, flows, futuresFlow)
+	financialFlows, err := model.ListTradeFinancialFlows([]int{userId}, dayStart, now+1)
+	if err != nil {
+		return model.TradeSnapshot{}, err
+	}
+	for _, flow := range financialFlows {
+		if flow.Type == model.TradeLedgerSpotLoan || flow.Type == model.TradeLedgerSpotRepay {
+			snapshot.SpotFinanceFlow += flow.Amount
+		} else {
+			snapshot.PredictionFlow += flow.Amount
+		}
+	}
+	return snapshot, nil
 }
 
 // tradeSnapshotBatch 是拍快照时每批处理的账户数。
@@ -230,9 +319,23 @@ func TakeTradeSnapshots(ctx context.Context, day string, start int64, end int64)
 		for _, flow := range futuresFlows {
 			futuresFlowByUser[flow.UserId] += flow.Amount
 		}
+		financialFlows, err := model.ListTradeFinancialFlows(userIds, start, end)
+		if err != nil {
+			return total, err
+		}
+		predictionFlowByUser, financingFlowByUser := map[int]int{}, map[int]int{}
+		for _, flow := range financialFlows {
+			if flow.Type == model.TradeLedgerSpotLoan || flow.Type == model.TradeLedgerSpotRepay {
+				financingFlowByUser[flow.UserId] += flow.Amount
+			} else {
+				predictionFlowByUser[flow.UserId] += flow.Amount
+			}
+		}
 		snapshots := make([]model.TradeSnapshot, 0, len(accounts))
 		for i, account := range accounts {
-			snapshots = append(snapshots, tradeSnapshotOf(account, valuations[i], day, flowsByUser[account.UserId], futuresFlowByUser[account.UserId]))
+			snapshot := tradeSnapshotOf(account, valuations[i], day, flowsByUser[account.UserId], futuresFlowByUser[account.UserId])
+			snapshot.PredictionFlow, snapshot.SpotFinanceFlow = predictionFlowByUser[account.UserId], financingFlowByUser[account.UserId]
+			snapshots = append(snapshots, snapshot)
 		}
 		if err := model.SaveTradeSnapshots(snapshots); err != nil {
 			return total, err

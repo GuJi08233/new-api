@@ -365,9 +365,9 @@ func tradeCrossStateTx(tx *gorm.DB, userId int, market TradeFuturesMarket) (Trad
 	return TradeCrossStateOf(positions, market)
 }
 
-// checkTradeAffordTx 检查账户付得起一笔支出：cash 是要从资金里付出去的，collateral 是要占用的(全仓开仓只付手续费，却要占用
+// checkTradeCashTx 检查账户付得起一笔支出：cash 是要从资金里付出去的，collateral 是要占用的(全仓开仓只付手续费，却要占用
 // 保证金加手续费)。资金要够付 cash，全仓可用(没有全仓仓位时就是资金)要够 collateral。
-func checkTradeAffordTx(tx *gorm.DB, account *TradeAccount, cash int, collateral int, market TradeFuturesMarket) error {
+func checkTradeCashTx(tx *gorm.DB, account *TradeAccount, cash int, collateral int, market TradeFuturesMarket) error {
 	if cash > account.Cash {
 		return ErrTradeCashInsufficient
 	}
@@ -381,10 +381,38 @@ func checkTradeAffordTx(tx *gorm.DB, account *TradeAccount, cash int, collateral
 	return nil
 }
 
+// checkTradeAffordTx 是合约与预测用钱时的检查：除了 checkTradeCashTx，有现货借款时这笔钱等于从杠杆账户转出去，转出之后
+// 现货借款的风险率不能低于 2(见 tradeSpotTransferReserveTx)。
+func checkTradeAffordTx(tx *gorm.DB, account *TradeAccount, cash int, collateral int, market TradeFuturesMarket) error {
+	if err := checkTradeCashTx(tx, account, cash, collateral, market); err != nil {
+		return err
+	}
+	reserve, err := tradeSpotTransferReserveTx(tx, account, market)
+	if err != nil {
+		return err
+	}
+	if reserve == 0 {
+		return nil
+	}
+	state, err := tradeCrossStateTx(tx, account.UserId, market)
+	if err != nil {
+		return err
+	}
+	if collateral > state.Withdrawable(account.Cash)-reserve {
+		return ErrTradeCashInsufficient
+	}
+	return nil
+}
+
 // settleTradeDeficitTx 在资金是负的、又没有全仓仓位撑着时(价格跳空越过强平价，全仓或逐仓亏损超过了保证金)，从用户的站内额度里
 // 扣回这笔亏空，资金回到 0，记一笔账单。额度可以扣成负数(欠费)，但不能越过数据库能存的范围；扣来的钱和转入一样算进 QuotaPrincipal
 // 与 TotalIn。返回扣掉的额度，调用方在事务提交之后刷新用户的额度缓存。要在仓位写回之后调用。
 func settleTradeDeficitTx(tx *gorm.DB, account *TradeAccount) (int, error) {
+	return coverTradeDeficitTx(tx, account, TradeLedgerFuturesCover, TradeNoticeFutures)
+}
+
+// coverTradeDeficitTx 是 settleTradeDeficitTx 的实现，ledgerType 与 noticeMarket 说明亏空来自合约还是现货借款。
+func coverTradeDeficitTx(tx *gorm.DB, account *TradeAccount, ledgerType string, noticeMarket string) (int, error) {
 	if account.Cash >= 0 {
 		return 0, nil
 	}
@@ -409,10 +437,10 @@ func settleTradeDeficitTx(tx *gorm.DB, account *TradeAccount) (int, error) {
 	account.Cash = 0
 	account.QuotaPrincipal += deficit
 	account.TotalIn += deficit
-	if err := tradeLedgerTx(tx, account, &TradeLedger{Type: TradeLedgerFuturesCover, Amount: deficit}); err != nil {
+	if err := tradeLedgerTx(tx, account, &TradeLedger{Type: ledgerType, Amount: deficit}); err != nil {
 		return 0, err
 	}
-	return deficit, addTradeNoticeTx(tx, TradeNotice{UserId: account.UserId, Kind: TradeNoticeCover, Market: TradeNoticeFutures, Amount: deficit})
+	return deficit, addTradeNoticeTx(tx, TradeNotice{UserId: account.UserId, Kind: TradeNoticeCover, Market: noticeMarket, Amount: deficit})
 }
 
 func loadTradeFuturesPositionTx(tx *gorm.DB, userId int, symbol string, side string) (*TradeFuturesPosition, error) {

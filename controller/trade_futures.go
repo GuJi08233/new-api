@@ -448,6 +448,12 @@ func GetTradeFuturesPositions(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	_, valuation, err := service.ValueTradeUser(userId)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	cross = valuation.Cross
 	common.ApiSuccess(c, gin.H{"positions": holdings, "value": value, "cross": cross, "cash": account.Cash})
 }
 

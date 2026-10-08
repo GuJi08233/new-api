@@ -45,6 +45,13 @@ type TradeSetting struct {
 	LeaderboardEnabled bool `json:"leaderboard_enabled"`
 	// InsightsEnabled 开放市场资讯，各数据源的覆盖范围和更新时间在页面上标明。
 	InsightsEnabled bool `json:"insights_enabled"`
+	// PredictionEnabled 开放 BTC 五分钟涨跌预测(按 Polymarket 的真实盘口买卖)，模拟盘本身也要打开。关闭后不能再买，已有的
+	// 持仓照样能卖出与结算。
+	PredictionEnabled bool `json:"prediction_enabled"`
+	// SpotMaxLeverage 是现货杠杆账户的最高杠杆，照 Binance 全仓杠杆经典模式只能是 3 或 5，1 表示不开放杠杆。它决定借款之后
+	// 风险率不能低于的开仓线(3 倍 1.5，5 倍 1.25)和追加保证金提醒线(3 倍 1.3，5 倍 1.16)；利率跟 Binance 借 USDT 的实时
+	// 利率，风险率不高于 1.1 强平，这些不能配置。关闭杠杆不影响已有的借款：照样计息、检查风险，卖出时还款。
+	SpotMaxLeverage int `json:"spot_max_leverage"`
 
 	// FuturesEnabled 打开合约(U 本位永续，全仓或逐仓)，模拟盘本身也要打开。关闭后不能开仓(也不能反手)；已有的仓位照样可以
 	// 平仓、调杠杆、调整逐仓保证金和止盈止损，强平与资金费照常进行，行情连接会一直保持到所有仓位平掉。
@@ -154,6 +161,8 @@ func DefaultTradeSetting() *TradeSetting {
 		WsUrl:                 "wss://data-stream.binance.vision",
 		LeaderboardEnabled:    true,
 		InsightsEnabled:       true,
+		PredictionEnabled:     true,
+		SpotMaxLeverage:       5,
 		FuturesEnabled:        false,
 		FuturesSymbols:        futures,
 		FuturesMaxLeverage:    20,
@@ -278,7 +287,7 @@ func ValidateTradeOption(key string, value string) error {
 		if value != "" && !isUrlWithScheme(value, "http", "socks5") {
 			return fmt.Errorf("代理地址必须是 http 或 socks5 地址")
 		}
-	case "futures_enabled", "leaderboard_enabled", "insights_enabled":
+	case "futures_enabled", "leaderboard_enabled", "insights_enabled", "prediction_enabled":
 		if _, err := strconv.ParseBool(value); err != nil {
 			return fmt.Errorf("%s 必须是 true 或 false", field)
 		}
@@ -297,6 +306,10 @@ func ValidateTradeOption(key string, value string) error {
 		}
 	case "futures_max_leverage":
 		return validateTradeInt(value, 1, TradeMaxLeverage, "合约最高杠杆")
+	case "spot_max_leverage":
+		if value != "1" && value != "3" && value != "5" {
+			return fmt.Errorf("现货最高杠杆只能是 1(不开放)、3 或 5")
+		}
 	case "futures_taker_fee_bps":
 		return validateTradeInt(value, 0, TradeMaxFeeBps, "合约吃单手续费")
 	case "futures_maker_fee_bps":

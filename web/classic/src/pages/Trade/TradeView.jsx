@@ -24,6 +24,7 @@ import CandleChart from './CandleChart';
 import OrderBook from './OrderBook';
 import OrderPanel from './OrderPanel';
 import OrdersCard from './OrdersCard';
+import SpotMarginCard from './SpotMarginCard';
 import {
   changePercent,
   decimalsOf,
@@ -201,6 +202,7 @@ const TradeView = ({
             kline={kline}
             priceLines={priceLines}
             fills={fills}
+            calendarEnabled={!!self?.insights}
             t={t}
           />
           <div className='trade-card grid grid-cols-2 gap-3 sm:grid-cols-4'>
@@ -259,6 +261,13 @@ const TradeView = ({
             feeBps={feeBps}
             pickedPrice={picked}
             onPlaced={refresh}
+            spot={self?.spot}
+            t={t}
+          />
+          <SpotMarginCard
+            self={self}
+            perUnit={perUnit}
+            onChanged={onAccountChanged}
             t={t}
           />
           <OrderBook

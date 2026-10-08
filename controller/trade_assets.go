@@ -76,13 +76,15 @@ func GetTradeAssetDaily(c *gin.Context) {
 	for i := range snapshots {
 		snapshot := &snapshots[i]
 		days = append(days, gin.H{
-			"day":         snapshot.Day,
-			"equity":      snapshot.Equity,
-			"pnl":         snapshot.Equity - snapshot.NetIn - (previous.Equity - previous.NetIn),
-			"crypto_pnl":  snapshot.CryptoValue - previous.CryptoValue + snapshot.CryptoFlow,
-			"stock_pnl":   snapshot.StockValue - previous.StockValue + snapshot.StockFlow,
-			"futures_pnl": snapshot.FuturesValue - previous.FuturesValue + snapshot.FuturesFlow,
-			"live":        snapshot.Day == today,
+			"day":            snapshot.Day,
+			"equity":         snapshot.Equity,
+			"pnl":            snapshot.Equity - snapshot.NetIn - (previous.Equity - previous.NetIn),
+			"crypto_pnl":     snapshot.CryptoValue - previous.CryptoValue + snapshot.CryptoFlow,
+			"stock_pnl":      snapshot.StockValue - previous.StockValue + snapshot.StockFlow,
+			"futures_pnl":    snapshot.FuturesValue - previous.FuturesValue + snapshot.FuturesFlow,
+			"prediction_pnl": snapshot.PredictionValue - previous.PredictionValue + snapshot.PredictionFlow,
+			"financing_pnl":  previous.SpotDebt - snapshot.SpotDebt + snapshot.SpotFinanceFlow,
+			"live":           snapshot.Day == today,
 		})
 		previous = snapshot
 	}

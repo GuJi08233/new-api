@@ -37,6 +37,8 @@ import {
 
 const { Text } = Typography;
 const PERCENTS = [0.25, 0.5, 0.75, 1];
+// 现货杠杆的倍数：Binance 全仓杠杆的账户最高 3 倍或 5 倍，每笔可以少借一些。
+const SPOT_LEVERAGES = [1, 2, 3, 5];
 
 // 下单面板：买入或卖出，市价或限价；市价买入可以按数量也可以按金额。百分比按钮按可用资金(买入)或可卖数量(卖出)填写，
 // 卖出 100% 是全部可卖数量。估算按当前盘口的最优价算，实际按盘口逐档成交。
@@ -52,6 +54,7 @@ const OrderPanel = ({
   pickedPrice,
   onPlaced,
   t,
+  spot,
 }) => {
   const [side, setSide] = useState('buy');
   const [type, setType] = useState('market');
@@ -60,6 +63,7 @@ const OrderPanel = ({
   const [qty, setQty] = useState('');
   const [amount, setAmount] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [leverage, setLeverage] = useState(1);
 
   const step = rules?.step_size;
   const tick = rules?.tick_size;
@@ -67,6 +71,11 @@ const OrderPanel = ({
   const fee = (feeBps || 0) / 10000;
   const isBuy = side === 'buy';
   const amountMode = isBuy && type === 'market' && byAmount;
+  const buyingDisabled = spot?.enabled === false;
+  // 杠杆只用于按数量的市价买入：借多少要成交后才知道，限价单和按金额买入都不借。管理员调低最高杠杆后，超出的选择按 1 倍算。
+  const canLever =
+    isBuy && type === 'market' && !byAmount && spot?.max_leverage > 1;
+  const lever = canLever && leverage <= spot.max_leverage ? leverage : 1;
 
   useEffect(() => {
     setPrice('');
@@ -96,7 +105,10 @@ const OrderPanel = ({
     ? (Number(amount) || 0) / (1 + fee)
     : (Number(qty) || 0) * refPrice;
   const estimatedFee = notional * fee;
-  const total = isBuy ? notional + estimatedFee : notional - estimatedFee;
+  // 杠杆买入只从模拟盘现金支付保证金，但手续费仍按全额名义金额收取。
+  const total = isBuy
+    ? notional / lever + estimatedFee
+    : notional - estimatedFee;
   const minNotional = Number(rules?.min_notional || 0);
 
   const applyPercent = (percent) => {
@@ -106,7 +118,12 @@ const OrderPanel = ({
     }
     if (isBuy) {
       if (refPrice <= 0) return;
-      setQty(floorToStep((cashUsdt * percent) / (refPrice * (1 + fee)), step));
+      setQty(
+        floorToStep(
+          (cashUsdt * percent) / (refPrice * (1 / lever + fee)),
+          step,
+        ),
+      );
       return;
     }
     setQty(
@@ -115,7 +132,7 @@ const OrderPanel = ({
   };
 
   const submit = async () => {
-    const body = { symbol, side, type };
+    const body = { symbol, side, type, leverage: lever };
     if (amountMode) {
       body.amount = amount;
     } else {
@@ -215,6 +232,35 @@ const OrderPanel = ({
           <Radio value='amount'>{t('按金额')}</Radio>
         </RadioGroup>
       )}
+      {canLever && (
+        <div className='flex flex-col gap-1'>
+          <div className='flex flex-wrap items-center gap-1'>
+            <Text type='tertiary' size='small'>
+              {t('杠杆')}
+            </Text>
+            {SPOT_LEVERAGES.filter((value) => value <= spot.max_leverage).map(
+              (value) => (
+                <Button
+                  key={value}
+                  size='small'
+                  theme={lever === value ? 'solid' : 'light'}
+                  onClick={() => setLeverage(value)}
+                >
+                  {value}x
+                </Button>
+              ),
+            )}
+          </div>
+          {lever > 1 && (
+            <Text type='tertiary' size='small'>
+              {t(
+                '不够的 USDT 自动借入，按小时计息；风险率不高于 {{level}} 时强平，另收还款额 2% 的强平费',
+                { level: spot.liquidation_level },
+              )}
+            </Text>
+          )}
+        </div>
+      )}
       {amountMode ? (
         <Input
           value={amount}
@@ -258,6 +304,19 @@ const OrderPanel = ({
               : `${formatQty(heldQty)} ${ticker}`}
           </Text>
         </div>
+        {lever > 1 && (
+          <div className='flex justify-between'>
+            <Text type='tertiary' size='small'>
+              {t('借入')} ({t('日利率')}{' '}
+              {(Number(spot?.daily_rate || 0) * 100).toFixed(4)}%)
+            </Text>
+            <Text size='small' className='trade-num'>
+              {notional > 0
+                ? `${(notional - notional / lever).toFixed(2)} USDT`
+                : '--'}
+            </Text>
+          </div>
+        )}
         <div className='flex justify-between'>
           <Text type='tertiary' size='small'>
             {t('预计成交额')}
@@ -293,7 +352,7 @@ const OrderPanel = ({
         type={isBuy ? 'primary' : 'danger'}
         style={isBuy ? { background: 'var(--semi-color-success)' } : undefined}
         loading={submitting}
-        disabled={!ready}
+        disabled={!ready || (isBuy && buyingDisabled)}
         onClick={submit}
       >
         {isBuy

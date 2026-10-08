@@ -187,6 +187,41 @@ func (p Pricing) BuyWithBudget(asks []Level, budget int, limit decimal.Decimal, 
 	return Fill{}, 0, 0, nil
 }
 
+// SellForProceeds 在买档 bids(最优价在前)上卖出到账(成交金额减手续费)够 need 个额度单位的最少数量，用于强平：数量向上取到
+// step 的整数倍、再多卖一个 step 抵消取整，不超过 maxQty；盘口不够时有多少卖多少。卖光 maxQty 时不按步长取整，不留零头。
+// 返回成交、成交金额与手续费。
+func (p Pricing) SellForProceeds(bids []Level, maxQty decimal.Decimal, need int, step decimal.Decimal) (Fill, int, int, error) {
+	net := decimal.NewFromInt(1).Sub(decimal.NewFromInt(int64(p.FeeBps)).Div(decimal.NewFromInt(10000)))
+	if need <= 0 || !maxQty.IsPositive() || !p.QuotaPerUsd.IsPositive() || !net.IsPositive() {
+		return Fill{}, 0, 0, nil
+	}
+	remaining := decimal.NewFromInt(int64(need)).Div(p.QuotaPerUsd)
+	qty := decimal.Zero
+	for _, level := range bids {
+		if !remaining.IsPositive() || !level.Price.IsPositive() {
+			break
+		}
+		unit := level.Price.Mul(net)
+		if value := unit.Mul(level.Qty); value.LessThan(remaining) {
+			qty = qty.Add(level.Qty)
+			remaining = remaining.Sub(value)
+			continue
+		}
+		qty = qty.Add(remaining.Div(unit).RoundUp(QtyDecimals))
+		remaining = decimal.Zero
+	}
+	walkStep := step
+	if step.IsPositive() && !remaining.IsPositive() {
+		qty = qty.Div(step).Ceil().Add(decimal.NewFromInt(1)).Mul(step)
+	}
+	if qty.GreaterThanOrEqual(maxQty) {
+		qty, walkStep = maxQty, decimal.Zero
+	}
+	fill := Walk(bids, Sell, qty, decimal.Zero, walkStep)
+	amount, fee, err := p.SellProceeds(fill)
+	return fill, amount, fee, err
+}
+
 // QtyUnits 把数量换成数据库里的整数(10^-8)，向下取整。
 func QtyUnits(qty decimal.Decimal) int64 {
 	return qty.Shift(QtyDecimals).Floor().IntPart()

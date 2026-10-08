@@ -340,3 +340,24 @@ func TestRiskBracketsKeepsCompleteTablesOfRequestedSymbols(t *testing.T) {
 		{Floor: d("300000"), Cap: d("800000"), MaxLeverage: 100, Mmr: d("0.005"), MaintAmount: d("300")},
 	}}, brackets, "ETHUSDT has a gap between its tiers and ALTUSDT was not asked for")
 }
+
+// 借币利率取普通用户(VIP 0)那一档；表里没有、或者利率离谱时报错，调用方继续用手上的利率。
+func TestMarginDailyInterestRateReadsVipZero(t *testing.T) {
+	body := `{"code":"000000","data":[
+		{"assetName":"BTC","specs":[{"vipLevel":"0","dailyInterestRate":"0.00001164"}]},
+		{"assetName":"USDT","specs":[{"vipLevel":"1","dailyInterestRate":"0.00013000"},{"vipLevel":"0","dailyInterestRate":"0.00013778"}]},
+		{"assetName":"BAD","specs":[{"vipLevel":"0","dailyInterestRate":"0.5"}]}]}`
+	client := newRESTClient(t, func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/bapi/margin/v1/public/margin/vip/spec/list-all", r.URL.Path)
+		_, _ = w.Write([]byte(body))
+	})
+
+	rate, err := client.MarginDailyInterestRate(context.Background(), "USDT")
+	require.NoError(t, err)
+	assert.Equal(t, "0.00013778", rate.String())
+
+	_, err = client.MarginDailyInterestRate(context.Background(), "ETH")
+	assert.Error(t, err, "asset missing from the table")
+	_, err = client.MarginDailyInterestRate(context.Background(), "BAD")
+	assert.Error(t, err, "a 50% daily rate is not plausible")
+}

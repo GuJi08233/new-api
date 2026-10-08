@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -23,12 +24,13 @@ import (
 )
 
 type tradeOrderRequest struct {
-	Symbol string `json:"symbol"`
-	Side   string `json:"side"`
-	Type   string `json:"type"`
-	Qty    string `json:"qty"`
-	Amount string `json:"amount"`
-	Price  string `json:"price"`
+	Symbol   string `json:"symbol"`
+	Side     string `json:"side"`
+	Type     string `json:"type"`
+	Qty      string `json:"qty"`
+	Amount   string `json:"amount"`
+	Price    string `json:"price"`
+	Leverage *int   `json:"leverage,omitempty"`
 }
 
 type tradeTransferRequest struct {
@@ -88,6 +90,8 @@ func tradeOrderView(order *model.TradeOrder, perUsd int) gin.H {
 		"price":         order.Price,
 		"qty":           tradeQty(order.Qty),
 		"budget":        order.Budget,
+		"leverage":      max(1, order.Leverage),
+		"borrowed":      order.Borrowed,
 		"filled_qty":    tradeQty(order.FilledQty),
 		"filled_amount": order.FilledAmount,
 		"fee":           order.Fee,
@@ -123,6 +127,11 @@ func tradeSelfView(userId int) (gin.H, error) {
 	if err != nil {
 		return nil, err
 	}
+	// 有现货借款时风险率与可转出按新鲜的现货买一算，盘口确认不了就照样估值(这两项按 0 显示)。最多等 1 秒：行情连接延迟时
+	// 页面照样打开，显示盘口暂时不新鲜。
+	syncCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+	_ = service.EnsureTradeSpotPricesFresh(syncCtx, userId)
+	cancel()
 	account, valuation, err := service.ValueTradeUser(userId)
 	if err != nil {
 		return nil, err
@@ -168,6 +177,8 @@ func tradeSelfView(userId int) (gin.H, error) {
 		"max_open_orders":      model.TradeMaxOpenOrders,
 		"leaderboard":          setting.Enabled && setting.LeaderboardEnabled,
 		"insights":             setting.Enabled && setting.InsightsEnabled,
+		"prediction":           setting.Enabled && setting.PredictionEnabled,
+		"spot":                 tradeSpotSettings(setting),
 		"futures": gin.H{
 			"enabled":          setting.Enabled && setting.FuturesEnabled,
 			"taker_fee_bps":    setting.FuturesTakerFeeBps,
@@ -256,6 +267,7 @@ func GetTradeMarket(c *gin.Context) {
 		"symbols":   items,
 		"connected": market.Status().Connected,
 		"fee_bps":   setting.FeeBps,
+		"spot":      tradeSpotSettings(setting),
 	})
 }
 
@@ -299,10 +311,6 @@ const tradeStreamKeepalive = 15 * time.Second
 func StreamTradeMarket(c *gin.Context) {
 	setting := operation_setting.GetTradeSetting()
 	futures := c.Query("market") == "futures"
-	if !futures && !setting.Enabled {
-		common.ApiErrorI18n(c, i18n.MsgTradeDisabled)
-		return
-	}
 	var symbols []string
 	for _, symbol := range strings.Split(c.Query("symbols"), ",") {
 		allowed := setting.SymbolEnabled(symbol)
@@ -337,9 +345,6 @@ func StreamTradeMarket(c *gin.Context) {
 				return
 			}
 		case <-keepalive.C:
-			if !futures && !operation_setting.GetTradeSetting().Enabled {
-				return
-			}
 			if _, err := c.Writer.WriteString(": keepalive\n\n"); err != nil {
 				return
 			}
@@ -363,6 +368,10 @@ func tradeOrderErrorMessage(c *gin.Context, symbol string, err error) string {
 		return i18n.T(c, i18n.MsgTradeMarketStale)
 	case errors.Is(err, service.ErrTradeOrderInvalid):
 		return i18n.T(c, i18n.MsgTradeOrderInvalid)
+	case errors.Is(err, model.ErrTradeSpotFinancingInvalid):
+		return i18n.T(c, i18n.MsgTradeSpotFinancingInvalid)
+	case errors.Is(err, model.ErrTradeSpotMarginLevel):
+		return i18n.T(c, i18n.MsgTradeSpotMarginLevel)
 	case errors.Is(err, service.ErrTradeQtyTooSmall):
 		return i18n.T(c, i18n.MsgTradeQtyTooSmall, map[string]any{"Min": rules.MinQty.String()})
 	case errors.Is(err, service.ErrTradeNotionalTooSmall):
@@ -407,14 +416,23 @@ func PlaceTradeOrder(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgTradeOrderInvalid)
 		return
 	}
+	leverage := 1
+	if req.Leverage != nil {
+		leverage = *req.Leverage
+	}
+	if leverage < 1 || leverage > model.TradeSpotMaxLeverage {
+		common.ApiErrorI18n(c, i18n.MsgTradeSpotFinancingInvalid)
+		return
+	}
 	userId := c.GetInt("id")
 	order, err := service.PlaceTradeOrder(c.Request.Context(), userId, service.TradeOrderRequest{
-		Symbol: req.Symbol,
-		Side:   req.Side,
-		Type:   req.Type,
-		Qty:    qty,
-		Amount: amount,
-		Price:  price,
+		Symbol:   req.Symbol,
+		Side:     req.Side,
+		Type:     req.Type,
+		Qty:      qty,
+		Amount:   amount,
+		Price:    price,
+		Leverage: leverage,
 	})
 	if err != nil {
 		respondTradeOrderError(c, req.Symbol, err)
@@ -647,6 +665,13 @@ func TransferTrade(c *gin.Context) {
 	if err != nil {
 		common.ApiErrorI18n(c, i18n.MsgTradeAmountInvalid)
 		return
+	}
+	if !isIn {
+		// 有现货借款时转出要按现货买一检查风险率。
+		if err = service.EnsureTradeSpotPricesFresh(c.Request.Context(), userId); err != nil {
+			respondTradeOrderError(c, "", err)
+			return
+		}
 	}
 	if req.Wallet == "game_coin" && isIn {
 		_, err = model.TransferGameCoinsToTrade(userId, coins)

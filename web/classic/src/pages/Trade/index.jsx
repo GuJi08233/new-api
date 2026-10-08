@@ -34,6 +34,7 @@ import AssetsView from './AssetsView';
 import FuturesView from './FuturesView';
 import LeaderboardView from './LeaderboardView';
 import InsightsView from './InsightsView';
+import PredictionView from './PredictionView';
 import MarketList from './MarketList';
 import NoticeBell from './NoticeBell';
 import TickerStrip from './TickerStrip';
@@ -85,10 +86,16 @@ const Trade = () => {
   const isAssets = location.pathname === '/trade/assets';
   const isLeaderboard = location.pathname === '/trade/leaderboard';
   const isInsights = location.pathname === '/trade/insights';
+  const isPrediction = location.pathname === '/trade/prediction';
   const isFutures = location.pathname.startsWith('/trade/futures');
   // 现货行情列表页。资产页与排行榜没有自己的行情，顶部行情条在那里也列现货。
   const isSpotList =
-    !symbol && !isFutures && !isAssets && !isLeaderboard && !isInsights;
+    !symbol &&
+    !isFutures &&
+    !isAssets &&
+    !isLeaderboard &&
+    !isInsights &&
+    !isPrediction;
   const [self, setSelf] = useState(null);
   const [market, setMarket] = useState(null);
   const [marketError, setMarketError] = useState('');
@@ -140,10 +147,10 @@ const Trade = () => {
     loadSelf();
     if (isFutures) {
       loadFutures();
-    } else if (!isInsights) {
+    } else if (!isInsights && !isPrediction) {
       loadMarket();
     }
-  }, [loadSelf, loadMarket, loadFutures, isFutures, isInsights]);
+  }, [loadSelf, loadMarket, loadFutures, isFutures, isInsights, isPrediction]);
 
   const symbols = useMemo(
     () => market?.symbols.map((item) => item.symbol) || [],
@@ -156,7 +163,11 @@ const Trade = () => {
   // 行情条只在桌面宽度、模拟盘开放时显示，列的是当前市场(资产页算现货)的全部品种。不显示时交易页只订阅自己的交易对。
   const stripItems = (isFutures ? futures : market)?.symbols || [];
   const showStrip =
-    !isMobile && !isInsights && !!self?.enabled && stripItems.length > 0;
+    !isMobile &&
+    !isInsights &&
+    !isPrediction &&
+    !!self?.enabled &&
+    stripItems.length > 0;
   const publishTicker = useCallback(
     (data) =>
       tickerFeed.dispatchEvent(new CustomEvent('ticker', { detail: data })),
@@ -221,6 +232,15 @@ const Trade = () => {
     content = <Empty title={loadError} />;
   } else if (!self) {
     content = <Spin size='large' />;
+  } else if (isPrediction) {
+    content = (
+      <PredictionView
+        self={self}
+        perUnit={perUnit}
+        onAccountChanged={loadSelf}
+        t={t}
+      />
+    );
   } else if (isInsights) {
     content = self.insights ? (
       <InsightsView t={t} />
@@ -342,9 +362,11 @@ const Trade = () => {
                     ? 'leaderboard'
                     : isInsights
                       ? 'insights'
-                      : isFutures
-                        ? 'futures'
-                        : 'spot'
+                      : isPrediction
+                        ? 'prediction'
+                        : isFutures
+                          ? 'futures'
+                          : 'spot'
               }
               onChange={(e) =>
                 navigate(
@@ -354,6 +376,7 @@ const Trade = () => {
                     assets: '/trade/assets',
                     leaderboard: '/trade/leaderboard',
                     insights: '/trade/insights',
+                    prediction: '/trade/prediction',
                   }[e.target.value],
                 )
               }
@@ -366,6 +389,9 @@ const Trade = () => {
               )}
               {(self?.insights || isInsights) && (
                 <Radio value='insights'>{t('市场资讯')}</Radio>
+              )}
+              {(self?.prediction || isPrediction) && (
+                <Radio value='prediction'>{t('BTC预测')}</Radio>
               )}
             </RadioGroup>
           </div>

@@ -177,15 +177,18 @@ const FuturesView = ({
             price: level.price,
             title: `${prefix} ${name}${list.length > 1 ? i + 1 : ''}`,
             color,
+            side: entry.side,
           }));
         return [
           {
             price: entry.entry_price,
             title: long ? t('多仓均价') : t('空仓均价'),
+            side: entry.side,
           },
           {
             price: entry.liquidation_price,
             title: long ? t('多仓强平价') : t('空仓强平价'),
+            side: entry.side,
             color: 'down',
           },
           ...levels(entry.take_profits, 'TP', 'up'),
@@ -287,6 +290,7 @@ const FuturesView = ({
             kline={kline}
             priceLines={priceLines}
             fills={fills}
+            calendarEnabled={!!self?.insights}
             t={t}
           />
           <div className='trade-card'>

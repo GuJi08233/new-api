@@ -41,6 +41,8 @@ type TradeMarket struct {
 	client     *binance.Client
 	// stream 是盘口所在的连接，下单前在它上面确认盘口是最新的。
 	stream tradeSyncer
+	// bookSyncedAt 是同一代连接最近一次ping/pong确认的时间；盘口没变化不等于数据过期。
+	bookSyncedAt time.Time
 	// connected 表示盘口连接连着；dataConnected 表示合约的 /market 连接连着，现货只有一条连接，与 connected 相同。
 	connected     bool
 	dataConnected bool
@@ -190,10 +192,12 @@ func StartTradeMarket() {
 				gopool.Go(market.match)
 			}
 		}
+		gopool.Go(runTradeSpotRate)
 		if common.IsMasterNode {
 			gopool.Go(sendTradeNotices)
 			gopool.Go(futuresMarket.guard)
 			gopool.Go(futuresMarket.settleFunding)
+			gopool.Go(RunTradeSpotMarginRisk)
 		}
 	})
 }
@@ -202,8 +206,12 @@ func (m *TradeMarket) supervise() {
 	ticker := time.NewTicker(tradeSettingPoll)
 	defer ticker.Stop()
 	for {
-		if m.futures && time.Since(m.positionSymbolsAt) >= tradePositionSymbolsPoll {
-			if symbols, err := model.ListTradeFuturesPositionSymbols(); err != nil {
+		if time.Since(m.positionSymbolsAt) >= tradePositionSymbolsPoll {
+			listSymbols := model.ListTradeSpotPositionSymbols
+			if m.futures {
+				listSymbols = model.ListTradeFuturesPositionSymbols
+			}
+			if symbols, err := listSymbols(); err != nil {
 				common.SysError("trade futures: failed to list position symbols: " + err.Error())
 			} else {
 				m.mu.Lock()
@@ -228,10 +236,16 @@ func (m *TradeMarket) supervise() {
 // wantConfig 是按当前配置应该连接的地址与交易对，什么都不用连时为零值。
 func (m *TradeMarket) wantConfig(setting *operation_setting.TradeSetting) tradeMarketConfig {
 	if !m.futures {
-		if !setting.Enabled || len(setting.Symbols) == 0 {
+		symbols := slices.Clone(m.positionSymbols)
+		if setting.Enabled {
+			symbols = append(symbols, setting.Symbols...)
+		}
+		slices.Sort(symbols)
+		symbols = slices.Compact(symbols)
+		if len(symbols) == 0 {
 			return tradeMarketConfig{}
 		}
-		return tradeMarketConfig{RestURL: setting.RestUrl, WsURL: setting.WsUrl, ProxyURL: setting.ProxyUrl, Symbols: slices.Sorted(slices.Values(setting.Symbols))}
+		return tradeMarketConfig{RestURL: setting.RestUrl, WsURL: setting.WsUrl, ProxyURL: setting.ProxyUrl, Symbols: symbols}
 	}
 	symbols := slices.Clone(m.positionSymbols)
 	if setting.Enabled && setting.FuturesEnabled {
@@ -259,6 +273,7 @@ func (m *TradeMarket) applySetting(setting *operation_setting.TradeSetting) {
 	m.generation++
 	m.config = want
 	m.stop, m.client, m.stream, m.connected, m.dataConnected = nil, nil, nil, false, false
+	m.bookSyncedAt = time.Time{}
 	m.books = map[string]*tradeBook{}
 	if len(want.Symbols) == 0 {
 		return
@@ -368,6 +383,7 @@ func (h *tradeStreamHandler) OnConnected(connected bool) {
 	}
 	if h.part&tradeStreamBook != 0 {
 		m.connected = connected
+		m.bookSyncedAt = time.Time{}
 		// 断线期间盘口可能变了却收不到推送，旧盘口不能再用来成交；重连后重新拉一份。
 		m.books = map[string]*tradeBook{}
 	}
@@ -583,7 +599,7 @@ func (m *TradeMarket) recordTaken(symbol string, version int64, side tradesim.Si
 // since 之前推出的盘口变化都已经读到。最多等 staleMs 毫秒，等不到返回 ErrTradeMarketStale。
 func (m *TradeMarket) awaitFreshBook(ctx context.Context, since time.Time, staleMs int) error {
 	m.mu.RLock()
-	stream, connected := m.stream, m.connected
+	stream, connected, generation := m.stream, m.connected, m.generation
 	m.mu.RUnlock()
 	if stream == nil || !connected {
 		return ErrTradeMarketUnavailable
@@ -602,6 +618,12 @@ func (m *TradeMarket) awaitFreshBook(ctx context.Context, since time.Time, stale
 	if err := stream.Sync(ctx); err != nil {
 		return ErrTradeMarketStale
 	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if !m.connected || m.generation != generation || m.stream != stream {
+		return ErrTradeMarketStale
+	}
+	m.bookSyncedAt = time.Now()
 	return nil
 }
 

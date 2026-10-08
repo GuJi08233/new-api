@@ -224,6 +224,12 @@ func PlaceTradeFuturesOrder(ctx context.Context, userId int, req TradeFuturesOrd
 			return nil, err
 		}
 	}
+	if isOpen {
+		// 有现货借款时开仓要按现货买一检查转出之后的风险率。
+		if err := EnsureTradeSpotPricesFresh(ctx, userId); err != nil {
+			return nil, err
+		}
+	}
 
 	unlock := market.lockSymbol(req.Symbol)
 	defer unlock()
@@ -387,6 +393,11 @@ func AdjustTradeFuturesMargin(userId int, symbol string, side string, amount dec
 	mark, ok := futuresMarket.MarkPrice(symbol)
 	if !ok {
 		return nil, ErrTradeMarketUnavailable
+	}
+	if add {
+		if err := EnsureTradeSpotPricesFresh(context.Background(), userId); err != nil {
+			return nil, err
+		}
 	}
 	pricing, _, err := tradePricing(operation_setting.GetTradeSetting())
 	if err != nil {

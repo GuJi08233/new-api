@@ -6,13 +6,14 @@ import (
 	"gorm.io/gorm"
 )
 
-// 通知的种类：止盈、止损、强平、挂着的限价单成交、亏空从站内额度扣除。
+// 通知的种类：止盈、止损、强平、挂着的限价单成交、亏空从站内额度扣除、现货借款的风险率跌到追加保证金线。
 const (
 	TradeNoticeTakeProfit  = "tp"
 	TradeNoticeStopLoss    = "sl"
 	TradeNoticeLiquidation = "liquidation"
 	TradeNoticeFill        = "fill"
 	TradeNoticeCover       = "cover"
+	TradeNoticeMarginCall  = "margin_call"
 
 	TradeNoticeSpot    = "spot"
 	TradeNoticeFutures = "futures"
@@ -25,8 +26,8 @@ const (
 )
 
 // TradeNotice 是一件不是用户当场操作、在后台发生的事，页面轮询新的通知弹出提示。和引起它的成交在同一个事务里写入。
-// Side 是现货的 buy/sell 或合约仓位的 long/short，Action 是合约的 open/close；Qty 是数量(10^-8)，Price 是成交均价或强平价；
-// Pnl 是平仓的盈亏，Amount 是从站内额度扣的钱(额度单位)。
+// Side 是现货的 buy/sell 或合约仓位的 long/short，Action 是合约的 open/close；Qty 是数量(10^-8)，Price 是成交均价或强平价
+// (追加保证金提醒是当时的风险率)；Pnl 是平仓的盈亏，Amount 是从站内额度扣的钱(追加保证金提醒是当时的借款本息，额度单位)。
 type TradeNotice struct {
 	Id        int    `json:"id" gorm:"index:idx_trade_notice_user,priority:2"`
 	UserId    int    `json:"user_id" gorm:"index:idx_trade_notice_user,priority:1"`
@@ -54,7 +55,7 @@ func afterTradeDeficitCovered(userId int, covered int) {
 	if covered <= 0 {
 		return
 	}
-	syncCreditUserQuotaCache(userId, -covered, "trade futures deficit")
+	syncCreditUserQuotaCache(userId, -covered, "trade deficit")
 	if TradeDeficitNotifier != nil {
 		TradeDeficitNotifier(userId, covered)
 	}
@@ -63,7 +64,7 @@ func afterTradeDeficitCovered(userId int, covered int) {
 func addTradeNoticeTx(tx *gorm.DB, notice TradeNotice) error {
 	notice.CreatedAt = common.GetTimestamp()
 	switch notice.Kind {
-	case TradeNoticeTakeProfit, TradeNoticeStopLoss, TradeNoticeLiquidation, TradeNoticeFill:
+	case TradeNoticeTakeProfit, TradeNoticeStopLoss, TradeNoticeLiquidation, TradeNoticeFill, TradeNoticeMarginCall:
 		notice.NotifyState = TradeNoticeNotifyPending
 	}
 	return tx.Create(&notice).Error

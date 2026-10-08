@@ -730,7 +730,9 @@ export function useDrawings() {
           setSelection(null);
           live.host.focus({ preventScroll: true });
           live.layer.update();
-        }
+        } else return;
+        // 这次 Escape 已经用掉了，退出全屏要再按一次。
+        e.preventDefault();
         return;
       }
       if (dragRef.current || touchRef.current) return;

@@ -119,3 +119,31 @@ func TestQtyUnitsRoundTrip(t *testing.T) {
 	assert.Equal(t, int64(12345678), QtyUnits(d("0.123456789")))
 	assert.True(t, d("0.12345678").Equal(QtyFromUnits(12345678)))
 }
+
+// 强平只卖够还债的数量：盘口和持仓够时到账不少于要的数，取整多卖不超过一个步长；不够时有多少卖多少，卖光持仓时不留零头。
+func TestSellForProceedsSellsJustEnough(t *testing.T) {
+	bids := levels("100", "0.5", "99", "1", "95", "2")
+	tests := []struct {
+		name    string
+		maxQty  string
+		needUsd int
+		step    string
+		wantQty string
+	}{
+		{name: "first level and a bit of the second", maxQty: "10", needUsd: 50, step: "0.001", wantQty: "0.502"},
+		{name: "book depth caps the sale", maxQty: "10", needUsd: 1000, step: "0.001", wantQty: "3.5"},
+		{name: "position caps the sale without leaving dust", maxQty: "0.30000001", needUsd: 1000, step: "0.001", wantQty: "0.30000001"},
+		{name: "nothing needed", maxQty: "10", needUsd: 0, step: "0.001", wantQty: "0"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			need := test.needUsd * 500000
+			fill, amount, fee, err := pricing.SellForProceeds(bids, d(test.maxQty), need, d(test.step))
+			require.NoError(t, err)
+			assert.Equal(t, d(test.wantQty).String(), fill.Qty.String())
+			if fill.Qty.LessThan(d(test.maxQty)) && fill.Qty.LessThan(d("3.5")) {
+				assert.GreaterOrEqual(t, amount-fee, need, "proceeds after the fee cover what is needed")
+			}
+		})
+	}
+}

@@ -62,6 +62,7 @@ type tradeKlineEvent struct {
 	L      string `json:"l"`
 	C      string `json:"c"`
 	V      string `json:"v"`
+	Q      string `json:"q"`
 }
 
 type tradeBookEvent struct {
@@ -198,7 +199,7 @@ func (m *TradeMarket) symbolEventsLocked(symbol string, what tradeDirty, sub *Tr
 	if kline, ok := m.klines[symbol]; ok && what&tradeDirtyKline != 0 && symbol == sub.klineSymbol {
 		add("kline", tradeKlineEvent{
 			Symbol: symbol, Open: kline.OpenTime, O: kline.Open.String(), H: kline.High.String(), L: kline.Low.String(),
-			C: kline.Close.String(), V: kline.Volume.String(),
+			C: kline.Close.String(), V: kline.Volume.String(), Q: kline.QuoteVolume.String(),
 		})
 	}
 	if mark, ok := m.marks[symbol]; ok && what&tradeDirtyMark != 0 {

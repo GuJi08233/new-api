@@ -469,6 +469,121 @@ For commercial licensing, please contact support@quantumnous.com
   padding: 2px 0;
 }
 
+/* 图表扩展：基础图保持挂载，切高级档后恢复原视窗和画线。 */
+.trade-chart-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.trade-chart-stage > .trade-chart-workspace {
+  height: 100%;
+}
+
+.trade-chart-hidden {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* 压过页头(z-50)和布局(100)，但留在 Semi 的弹层(Modal 1000 起)之下，确认框、提示和 Toast 才看得见。 */
+.trade-chart-fullscreen-fallback {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  height: 100dvh;
+  width: 100vw;
+}
+
+.trade-chart-indicator-readings {
+  display: flex;
+  gap: 8px 18px;
+  padding: 5px 10px;
+  overflow-x: auto;
+  flex-shrink: 0;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  border-bottom: 1px solid var(--semi-color-border);
+}
+
+.trade-chart-indicator-group {
+  display: flex;
+  gap: 10px;
+  white-space: nowrap;
+}
+
+.trade-chart-events {
+  position: absolute;
+  z-index: 8;
+  width: 310px;
+  max-width: 100%;
+  max-height: 80%;
+  overflow-y: auto;
+  background: var(--semi-color-bg-2);
+  color: var(--semi-color-text-0);
+  border: 1px solid var(--semi-color-border);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  font-size: 12px;
+  padding: 8px 10px;
+  overflow-wrap: anywhere;
+}
+
+.trade-chart-events-heading,
+.trade-chart-event-values {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.trade-chart-event {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 8px 0;
+  border-top: 1px solid var(--semi-color-border);
+}
+
+.trade-chart-event-values {
+  flex-wrap: wrap;
+}
+
+.trade-chart-advanced {
+  position: absolute;
+  inset: 0;
+  z-index: 9;
+  display: flex;
+  flex-direction: column;
+  background: var(--semi-color-bg-1);
+}
+
+.trade-chart-advanced-widget {
+  height: calc(100% - 24px);
+  width: 100%;
+}
+
+.trade-chart-advanced-widget > .tradingview-widget-container__widget {
+  height: 100%;
+  width: 100%;
+}
+
+/* TradingView 的脚本会给这个类名注入带 !important 的 32px 行高与 13px 字号，这里要压回来才不会溢出这一行。 */
+.trade-chart-advanced .tradingview-widget-copyright {
+  height: 24px;
+  line-height: 24px !important;
+  text-align: center;
+  font-size: 12px !important;
+  color: var(--semi-color-text-2) !important;
+}
+
+.trade-chart-advanced-error {
+  position: absolute;
+  inset: 40% 10px auto;
+  text-align: center;
+  font-size: 13px;
+  color: var(--semi-color-text-2);
+}
+
 /* 顶部行情条：滚动时两份相同的内容首尾相接，向左移动一份的宽度(整条的一半)正好接上；悬停或聚焦时停下。 */
 .trade-ticker {
   overflow: hidden;

@@ -472,6 +472,16 @@ function App() {
             }
           />
           <Route
+            path='/trade/prediction'
+            element={
+              <PrivateRoute>
+                <Suspense fallback={<Loading />}>
+                  <Trade />
+                </Suspense>
+              </PrivateRoute>
+            }
+          />
+          <Route
             path='/trade/leaderboard'
             element={
               <PrivateRoute>

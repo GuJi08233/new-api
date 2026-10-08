@@ -25,6 +25,7 @@ import FuturesPositions from './FuturesPositions';
 import LedgerCard from './LedgerCard';
 import PnlCalendar from './PnlCalendar';
 import TransferModal from './TransferModal';
+import SpotMarginCard from './SpotMarginCard';
 import {
   formatPrice,
   formatQty,
@@ -281,6 +282,12 @@ const AssetsView = ({
           </Text>
         </div>
       </div>
+      <SpotMarginCard
+        self={self}
+        perUnit={perUnit}
+        onChanged={onSelfChanged}
+        t={t}
+      />
       <div className='trade-card'>
         <Title heading={6} className='!mb-2'>
           {t('现货持仓')}

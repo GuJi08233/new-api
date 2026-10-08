@@ -127,6 +127,7 @@ func main() {
 	// 模拟盘行情中心：每个节点按模拟盘配置连接 Binance 行情，主节点另外撮合挂着的限价单。
 	service.StartTradeMarket()
 	service.StartTradeInsights()
+	service.StartTradePrediction()
 
 	// Codex credential auto-refresh check every 10 minutes, refresh when expires within 1 day
 	service.StartCodexCredentialAutoRefreshTask()

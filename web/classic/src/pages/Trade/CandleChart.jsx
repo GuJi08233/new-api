@@ -25,8 +25,18 @@ import React, {
   useState,
 } from 'react';
 import { Button, Radio, RadioGroup, Spin, Tooltip } from '@douyinfe/semi-ui';
-import { Maximize2, Minimize2, X } from 'lucide-react';
 import {
+  CalendarDays,
+  ChartCandlestick,
+  ChartLine,
+  History,
+  Layers,
+  Maximize2,
+  Minimize2,
+  X,
+} from 'lucide-react';
+import {
+  AreaSeries,
   CandlestickSeries,
   CrosshairMode,
   HistogramSeries,
@@ -49,6 +59,9 @@ import {
 import { formatPrice, formatQty, tradeGet } from './api';
 import { DrawOverlay, DrawToolPopover, DrawToolRail } from './DrawingTools';
 import { useDrawings } from './useDrawings';
+import { ChartCalendarLayer } from './ChartCalendarLayer';
+import { useChartFullscreen } from './useChartFullscreen';
+import TradingViewChart from './TradingViewChart';
 
 // K 线图：蜡烛与成交量，可叠加 MA / EMA / 布林带，可开 MACD、RSI 副图；往左拖到头时加载更早的历史；
 // 用 1 分钟 K 线推送实时更新最后一根；画出持仓的价格线(现货的持仓均价，合约的开仓均价与强平价)与自己的买卖点，
@@ -68,7 +81,7 @@ const INTERVAL_MS = {
 const MA_PERIODS = [7, 25, 99];
 const RSI_PERIODS = [6, 12, 24];
 const PAGE_SIZE = 500;
-const MAX_BARS = 3000;
+const MAX_BARS = 5000;
 const LINE_COLORS = ['#f59e0b', '#3b82f6', '#a855f7'];
 
 function readSetting(key, fallback) {
@@ -102,6 +115,7 @@ function toBar(row) {
     low: Number(row[3]),
     close: Number(row[4]),
     volume: Number(row[5]),
+    quote: row[7] == null ? null : Number(row[7]),
   };
 }
 
@@ -159,6 +173,7 @@ const CandleChart = ({
   kline,
   priceLines,
   fills,
+  calendarEnabled = true,
   t,
 }) => {
   const actualTheme = useActualTheme();
@@ -174,10 +189,13 @@ const CandleChart = ({
   const seriesRef = useRef(null);
   const barsRef = useRef([]);
   const barIndexRef = useRef(new Map());
+  const timeIndexRef = useRef(new Map());
   const liveRef = useRef(null);
   const pagingRef = useRef({ loading: false, done: false });
   const priceLinesRef = useRef([]);
   const markersRef = useRef(null);
+  const calendarLayerRef = useRef(null);
+  const indicatorValuesRef = useRef(null);
   // 点 K 线时要用最新的成交与周期，建图时订阅的回调从这里读。
   const fillsRef = useRef(fills);
   fillsRef.current = fills;
@@ -195,7 +213,32 @@ const CandleChart = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [legend, setLegend] = useState(null);
-  const [fullscreen, setFullscreen] = useState(false);
+  const fullscreen = useChartFullscreen(wrapRef);
+  const [chartType, setChartType] = useState(() =>
+    readSetting('trade-chart-type', 'candle') === 'line' ? 'line' : 'candle',
+  );
+  const [advanced, setAdvanced] = useState(false);
+  const [showPriceLines, setShowPriceLines] = useState(() =>
+    readSetting('trade-chart-price-lines', true),
+  );
+  const [hiddenSides, setHiddenSides] = useState({});
+  const positionSides = ['long', 'short'].filter((side) =>
+    priceLines?.some((line) => line.side === side),
+  );
+  // 分边隐藏只在多空同时有仓位时生效；只剩一边时忽略之前的隐藏，否则线不见了又没有按钮能打开。
+  const multiSided = positionSides.length > 1;
+  const [showFills, setShowFills] = useState(() =>
+    readSetting('trade-chart-fills', true),
+  );
+  const showFillsRef = useRef(showFills);
+  showFillsRef.current = showFills;
+  const [showCalendar, setShowCalendar] = useState(() =>
+    readSetting('trade-chart-calendar', true),
+  );
+  const [calendar, setCalendar] = useState(null);
+  const [calendarError, setCalendarError] = useState('');
+  const [calendarOff, setCalendarOff] = useState(false);
+  const [pickedEvents, setPickedEvents] = useState(null);
   const [version, setVersion] = useState(0);
   // picked 是点开的那根 K 线上的成交列表与弹出的位置。
   const [picked, setPicked] = useState(null);
@@ -214,11 +257,15 @@ const CandleChart = ({
     });
     const closes = bars.map((bar) => bar.close);
     const lines = [];
+    const values = { ma: [], ema: [], boll: [], macd: [], rsi: [] };
     MA_PERIODS.forEach((period, i) => {
-      lines.push([series.ma[i], maSeries(closes, period)]);
-      lines.push([series.ema[i], emaSeries(closes, period)]);
+      values.ma.push(maSeries(closes, period));
+      values.ema.push(emaSeries(closes, period));
+      lines.push([series.ma[i], values.ma[i]]);
+      lines.push([series.ema[i], values.ema[i]]);
     });
     const boll = bollSeries(closes);
+    values.boll = [boll.upper, boll.mid, boll.lower];
     lines.push(
       [series.boll[0], boll.upper],
       [series.boll[1], boll.mid],
@@ -227,13 +274,16 @@ const CandleChart = ({
     let macd = null;
     if (series.macd) {
       macd = macdSeries(closes);
+      values.macd = [macd.dif, macd.dea, macd.hist];
       lines.push([series.macd.dif, macd.dif], [series.macd.dea, macd.dea]);
     }
     if (series.rsi) {
-      RSI_PERIODS.forEach((period, i) =>
-        lines.push([series.rsi[i], rsiSeries(closes, period)]),
-      );
+      RSI_PERIODS.forEach((period, i) => {
+        values.rsi.push(rsiSeries(closes, period));
+        lines.push([series.rsi[i], values.rsi[i]]);
+      });
     }
+    indicatorValuesRef.current = values;
     const histPoint = (i) => ({
       time: bars[i].time,
       value: macd.hist[i],
@@ -242,6 +292,7 @@ const CandleChart = ({
     if (live) {
       const last = bars.length - 1;
       series.candle.update(bars[last]);
+      series.area.update({ time: bars[last].time, value: bars[last].close });
       series.volume.update(volumePoint(bars[last]));
       lines.forEach(([line, values]) => {
         if (values[last] !== null)
@@ -254,7 +305,11 @@ const CandleChart = ({
     barIndexRef.current = new Map(
       bars.map((bar, index) => [bar.openMs / 1000, index]),
     );
+    timeIndexRef.current = new Map(bars.map((bar, index) => [bar.time, index]));
     series.candle.setData(bars);
+    series.area.setData(
+      bars.map((bar) => ({ time: bar.time, value: bar.close })),
+    );
     series.volume.setData(bars.map(volumePoint));
     lines.forEach(([line, values]) => line.setData(lineData(bars, values)));
     if (macd) {
@@ -319,6 +374,17 @@ const CandleChart = ({
       wickUpColor: colors.up,
       wickDownColor: colors.down,
       priceFormat,
+      visible: chartType !== 'line',
+    });
+    // 保留蜡烛数据作为绘图与财经事件的锚点；primitive 不随 series.visible 隐藏。
+    const area = chart.addSeries(AreaSeries, {
+      lineColor: colors.primary,
+      lineWidth: 2,
+      topColor: withAlpha(colors.primary, 0.16),
+      bottomColor: 'transparent',
+      crosshairMarkerVisible: false,
+      priceFormat,
+      visible: chartType === 'line',
     });
     const volume = chart.addSeries(HistogramSeries, {
       priceScaleId: '',
@@ -329,6 +395,7 @@ const CandleChart = ({
     volume.priceScale().applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
     const series = {
       candle,
+      area,
       volume,
       ma: MA_PERIODS.map((_, i) =>
         chart.addSeries(LineSeries, {
@@ -412,13 +479,25 @@ const CandleChart = ({
         chartPanes[i].setStretchFactor(1);
     }
     seriesRef.current = series;
-    markersRef.current = createSeriesMarkers(candle, []);
+    // 买卖标记在蜡烛和折线上各挂一份：图表库不画隐藏序列的标记，切图型时就不用重建。
+    markersRef.current = [
+      createSeriesMarkers(candle, []),
+      createSeriesMarkers(area, []),
+    ];
+    const calendarLayer = new ChartCalendarLayer((time) => {
+      const index = timeIndexRef.current.get(time);
+      return index == null ? null : (barsRef.current[index]?.high ?? null);
+    });
+    candle.attachPrimitive(calendarLayer);
+    calendarLayerRef.current = calendarLayer;
     priceLinesRef.current = [];
     barsRef.current = [];
     barIndexRef.current = new Map();
+    timeIndexRef.current = new Map();
     liveRef.current = null;
     pagingRef.current = { loading: false, done: false };
     setPicked(null);
+    setPickedEvents(null);
     const detachDrawings = attachDrawings({
       chart,
       series: candle,
@@ -437,12 +516,25 @@ const CandleChart = ({
       decimals: precision,
       fmtTime: (seconds) => timestamp2string(seconds).slice(0, 16),
       t,
-      onInteract: () => setPicked(null),
+      onInteract: () => {
+        setPicked(null);
+        setPickedEvents(null);
+      },
     });
 
     // 点一根有买卖点的 K 线，在点的位置列出这根 K 线上的成交；点别处收起。
     chart.subscribeClick((param) => {
       if (!shouldHandleChartClick()) return;
+      // 副图(MACD/RSI)里的点击坐标相对副图，不能拿来找主图上的财经事件。
+      const event =
+        param.point && !param.paneIndex
+          ? calendarLayer.pick(param.point.x, param.point.y)
+          : null;
+      setPickedEvents(event);
+      if (event || !showFillsRef.current) {
+        setPicked(null);
+        return;
+      }
       const bar = barsRef.current.find((entry) => entry.time === param.time);
       if (!bar || !param.point) {
         setPicked(null);
@@ -473,8 +565,7 @@ const CandleChart = ({
         setLegend(null);
         return;
       }
-      const index = bars.findIndex((bar) => bar.time === param.time);
-      setLegend(index >= 0 ? index : null);
+      setLegend(param.time);
     });
 
     // 往左拖到离最早一根不到 50 根时，接着往前加载一页。
@@ -499,9 +590,15 @@ const CandleChart = ({
       }).then((res) => {
         paging.loading = false;
         if (disposed || !res.data) return;
+        const remaining = MAX_BARS - barsRef.current.length;
+        if (remaining <= 0) {
+          paging.done = true;
+          return;
+        }
         const older = res.data
           .map(toBar)
-          .filter((bar) => bar.openMs < barsRef.current[0].openMs);
+          .filter((bar) => bar.openMs < barsRef.current[0].openMs)
+          .slice(-remaining);
         if (!older.length) {
           paging.done = true;
           return;
@@ -509,6 +606,7 @@ const CandleChart = ({
         const visible = chart.timeScale().getVisibleLogicalRange();
         barsRef.current = [...older, ...barsRef.current];
         paint(false);
+        setVersion((value) => value + 1);
         if (visible) {
           chart.timeScale().setVisibleLogicalRange({
             from: visible.from + older.length,
@@ -545,6 +643,9 @@ const CandleChart = ({
     return () => {
       disposed = true;
       detachDrawings();
+      candle.detachPrimitive(calendarLayer);
+      calendarLayerRef.current = null;
+      markersRef.current = null;
       seriesRef.current = null;
       chartRef.current = null;
       chart.remove();
@@ -576,6 +677,14 @@ const CandleChart = ({
     );
   }, [overlays, version]);
 
+  // 切图型仅切可见性，保持当前视窗、画线及历史数据。
+  useEffect(() => {
+    const series = seriesRef.current;
+    if (!series) return;
+    series.candle.applyOptions({ visible: chartType !== 'line' });
+    series.area.applyOptions({ visible: chartType === 'line' });
+  }, [chartType, version]);
+
   // 换主题时重读颜色。
   useEffect(() => {
     const chart = chartRef.current;
@@ -602,6 +711,10 @@ const CandleChart = ({
       wickUpColor: colors.up,
       wickDownColor: colors.down,
     });
+    series.area.applyOptions({
+      lineColor: colors.primary,
+      topColor: withAlpha(colors.primary, 0.16),
+    });
     paint(false);
   }, [actualTheme, paint]);
 
@@ -618,6 +731,7 @@ const CandleChart = ({
     const low = Number(kline.l);
     const close = Number(kline.c);
     const minuteVolume = Number(kline.v);
+    const minuteQuote = kline.q == null ? null : Number(kline.q);
     if (bucket < last.openMs) return;
     let live = liveRef.current;
     if (bucket > last.openMs) {
@@ -629,9 +743,17 @@ const CandleChart = ({
         low,
         close,
         volume: minuteVolume,
+        quote: minuteQuote,
       });
       if (bars.length > MAX_BARS) bars.shift();
-      liveRef.current = { bucket, minute: kline.t, minuteVolume, base: 0 };
+      liveRef.current = {
+        bucket,
+        minute: kline.t,
+        minuteVolume,
+        base: 0,
+        minuteQuote,
+        quoteBase: 0,
+      };
       paint(false);
       setTick((value) => value + 1);
       return;
@@ -643,6 +765,11 @@ const CandleChart = ({
         minute: kline.t,
         minuteVolume,
         base: Math.max(last.volume - minuteVolume, 0),
+        minuteQuote,
+        quoteBase:
+          last.quote == null || minuteQuote == null
+            ? null
+            : Math.max(last.quote - minuteQuote, 0),
       };
     } else if (kline.t > live.minute) {
       live = {
@@ -650,15 +777,24 @@ const CandleChart = ({
         minute: kline.t,
         minuteVolume,
         base: live.base + live.minuteVolume,
+        minuteQuote,
+        quoteBase:
+          live.quoteBase == null || live.minuteQuote == null
+            ? null
+            : live.quoteBase + live.minuteQuote,
       };
     } else if (kline.t === live.minute) {
-      live = { ...live, minuteVolume };
+      live = { ...live, minuteVolume, minuteQuote };
     }
     liveRef.current = live;
     last.high = Math.max(last.high, high);
     last.low = Math.min(last.low, low);
     last.close = close;
     last.volume = live.base + live.minuteVolume;
+    last.quote =
+      live.quoteBase == null || live.minuteQuote == null
+        ? null
+        : live.quoteBase + live.minuteQuote;
     paint(true);
     setTick((value) => value + 1);
   }, [kline, symbol, period, paint]);
@@ -668,16 +804,19 @@ const CandleChart = ({
   useEffect(() => {
     const series = seriesRef.current;
     if (!series) return;
-    priceLinesRef.current.forEach((line) =>
-      series.candle.removePriceLine(line),
+    priceLinesRef.current.forEach(({ owner, line }) =>
+      owner.removePriceLine(line),
     );
     priceLinesRef.current = [];
+    if (!showPriceLines) return;
+    const owner = chartType === 'line' ? series.area : series.candle;
     const colors = chartColors();
     (priceLines || []).forEach((line) => {
       const price = Number(line.price);
-      if (!(price > 0)) return;
-      priceLinesRef.current.push(
-        series.candle.createPriceLine({
+      if (!(price > 0) || (multiSided && hiddenSides[line.side])) return;
+      priceLinesRef.current.push({
+        owner,
+        line: owner.createPriceLine({
           price,
           color:
             { up: colors.up, down: colors.down }[line.color] || colors.primary,
@@ -686,17 +825,25 @@ const CandleChart = ({
           axisLabelVisible: true,
           title: line.title,
         }),
-      );
+      });
     });
-  }, [priceLines, version]);
+  }, [
+    priceLines,
+    version,
+    chartType,
+    showPriceLines,
+    hiddenSides,
+    multiSided,
+    actualTheme,
+  ]);
 
   // 自己的买卖点，同一根 K 线上同方向的成交合成一个标记。
   useEffect(() => {
     const markers = markersRef.current;
     const bars = barsRef.current;
     if (!markers) return;
-    if (!fills?.length || !bars.length) {
-      markers.setMarkers([]);
+    if (!showFills || !fills?.length || !bars.length) {
+      markers.forEach((plugin) => plugin.setMarkers([]));
       return;
     }
     const size = INTERVAL_MS[period];
@@ -722,26 +869,74 @@ const CandleChart = ({
         shape: entry.side === 'buy' ? 'arrowUp' : 'arrowDown',
         text: `${entry.side === 'buy' ? 'B' : 'S'} ${formatQty(entry.qty, 6)}`,
       }));
-    markers.setMarkers(list);
-  }, [fills, period, version]);
+    markers.forEach((plugin) => plugin.setMarkers(list));
+  }, [fills, period, version, showFills, actualTheme]);
+
+  // 资讯接口与历史行情独立读取，数据源暂不可用时仍可正常交易和看图。
+  useEffect(() => {
+    if (symbol !== 'BTCUSDT' || !showCalendar || !calendarEnabled) return;
+    let disposed = false;
+    const load = async () => {
+      const res = await tradeGet('/api/trade/insights/calendar', t);
+      if (disposed) return;
+      const data = res.data;
+      // 管理员关掉市场资讯时后端答 disabled：收起按钮，不当成数据源故障。
+      const off = data?.status === 'disabled';
+      const ready = data?.status === 'ready' || data?.status === 'stale';
+      setCalendarOff(off);
+      if (ready) setCalendar(data);
+      else if (off) setCalendar(null);
+      setCalendarError(
+        res.error ||
+          (!ready && !off ? t('数据源暂时不可用，请稍后刷新。') : ''),
+      );
+    };
+    load();
+    const timer = setInterval(load, 5 * 60_000);
+    return () => {
+      disposed = true;
+      clearInterval(timer);
+    };
+  }, [symbol, showCalendar, calendarEnabled, t]);
 
   useEffect(() => {
-    const onChange = () =>
-      setFullscreen(document.fullscreenElement === wrapRef.current);
-    document.addEventListener('fullscreenchange', onChange);
-    return () => document.removeEventListener('fullscreenchange', onChange);
-  }, []);
-
-  const toggleFullscreen = () => {
-    if (document.fullscreenElement) {
-      document.exitFullscreen?.();
-    } else {
-      wrapRef.current?.requestFullscreen?.();
+    const layer = calendarLayerRef.current;
+    if (!layer) return;
+    const groups = new Map();
+    if (showCalendar && calendarEnabled && symbol === 'BTCUSDT') {
+      (calendar?.items || []).forEach((event) => {
+        if (!(Number(event.time) > 0)) return;
+        const bucket =
+          Math.floor((Number(event.time) * 1000) / INTERVAL_MS[period]) *
+          INTERVAL_MS[period];
+        const time = chartTime(bucket);
+        const group = groups.get(time) || [];
+        group.push(event);
+        groups.set(time, group);
+      });
     }
-  };
+    const colors = chartColors();
+    layer.palette = {
+      fg: colors.text,
+      border: colors.border,
+      bg: cssColor('--semi-color-bg-1', '#fff'),
+    };
+    layer.markers = [...groups].map(([time, events]) => ({ time, events }));
+    layer.update();
+  }, [
+    calendar,
+    showCalendar,
+    calendarEnabled,
+    symbol,
+    period,
+    version,
+    actualTheme,
+  ]);
 
   const changeInterval = (value) => {
     setPicked(null);
+    setPickedEvents(null);
+    setAdvanced(false);
     setPeriod(value);
     writeSetting('trade-chart-interval', value);
   };
@@ -757,9 +952,19 @@ const CandleChart = ({
   };
 
   const bars = barsRef.current;
-  const shown =
-    legend !== null && bars[legend] ? bars[legend] : bars[bars.length - 1];
-  const previous = shown ? bars[bars.indexOf(shown) - 1] : null;
+  // 悬停的 K 线按时间记：往前加载历史或最老一根被挤掉后下标会变，时间不会。
+  const hoverIndex =
+    legend === null ? -1 : (timeIndexRef.current.get(legend) ?? -1);
+  const shownIndex = hoverIndex >= 0 ? hoverIndex : bars.length - 1;
+  const shown = shownIndex >= 0 ? bars[shownIndex] : undefined;
+  const previous = shownIndex > 0 ? bars[shownIndex - 1] : null;
+  const indicatorReadings = [
+    ['ma', overlays.ma, ['MA7', 'MA25', 'MA99']],
+    ['ema', overlays.ema, ['EMA7', 'EMA25', 'EMA99']],
+    ['boll', overlays.boll, ['BOLL UP', 'BOLL MID', 'BOLL LOW']],
+    ['macd', panes.macd, ['DIF', 'DEA', 'MACD']],
+    ['rsi', panes.rsi, ['RSI6', 'RSI12', 'RSI24']],
+  ].filter(([, visible]) => visible);
   const change =
     shown && previous
       ? ((shown.close - previous.close) / previous.close) * 100
@@ -769,7 +974,7 @@ const CandleChart = ({
     <div
       ref={wrapRef}
       tabIndex={0}
-      className={`trade-chart ${fullscreen ? 'trade-chart-fullscreen' : ''}`}
+      className={`trade-chart ${fullscreen.active ? 'trade-chart-fullscreen' : ''} ${fullscreen.css ? 'trade-chart-fullscreen-fallback' : ''}`}
     >
       <div className='trade-chart-toolbar'>
         <RadioGroup
@@ -785,9 +990,50 @@ const CandleChart = ({
           ))}
         </RadioGroup>
         <div className='trade-chart-switches'>
-          <div className='trade-draw-mobile'>
-            <DrawToolPopover d={drawing} t={t} />
-          </div>
+          {[
+            [
+              'candle',
+              t('蜡烛图'),
+              <ChartCandlestick size={15} key='candle' />,
+            ],
+            ['line', t('折线图'), <ChartLine size={15} key='line' />],
+          ].map(([value, label, icon]) => (
+            <Tooltip content={label} key={value}>
+              <Button
+                size='small'
+                aria-label={label}
+                aria-pressed={!advanced && chartType === value}
+                icon={icon}
+                theme={
+                  !advanced && chartType === value ? 'solid' : 'borderless'
+                }
+                onClick={() => {
+                  setAdvanced(false);
+                  setChartType(value);
+                  writeSetting('trade-chart-type', value);
+                }}
+              />
+            </Tooltip>
+          ))}
+          <Button
+            size='small'
+            theme={advanced ? 'solid' : 'borderless'}
+            aria-pressed={advanced}
+            onClick={() => {
+              setAdvanced((value) => !value);
+              setPicked(null);
+              setPickedEvents(null);
+            }}
+          >
+            {t('高级图表')}
+          </Button>
+        </div>
+        <div className='trade-chart-switches'>
+          {!advanced && (
+            <div className='trade-draw-mobile'>
+              <DrawToolPopover d={drawing} t={t} />
+            </div>
+          )}
           {[
             ['ma', 'MA', overlays.ma, toggleOverlay],
             ['ema', 'EMA', overlays.ema, toggleOverlay],
@@ -800,120 +1046,312 @@ const CandleChart = ({
               size='small'
               theme={on ? 'solid' : 'borderless'}
               type={on ? 'primary' : 'tertiary'}
+              disabled={advanced}
               onClick={() => toggle(key)}
             >
               {label}
             </Button>
           ))}
-          <Tooltip content={fullscreen ? t('退出全屏') : t('全屏')}>
+          {!!priceLines?.length && (
+            <Tooltip content={t('仓位参考线')}>
+              <Button
+                size='small'
+                icon={<Layers size={14} />}
+                aria-label={t('仓位参考线')}
+                aria-pressed={showPriceLines}
+                disabled={advanced}
+                theme={showPriceLines ? 'solid' : 'borderless'}
+                onClick={() => {
+                  setShowPriceLines(!showPriceLines);
+                  writeSetting('trade-chart-price-lines', !showPriceLines);
+                }}
+              />
+            </Tooltip>
+          )}
+          {showPriceLines &&
+            multiSided &&
+            positionSides.map((side) => (
+              <Button
+                key={side}
+                size='small'
+                disabled={advanced}
+                aria-pressed={!hiddenSides[side]}
+                theme={hiddenSides[side] ? 'borderless' : 'solid'}
+                aria-label={side === 'long' ? t('多仓参考线') : t('空仓参考线')}
+                onClick={() =>
+                  setHiddenSides((current) => ({
+                    ...current,
+                    [side]: !current[side],
+                  }))
+                }
+              >
+                {side === 'long' ? t('多仓') : t('空仓')}
+              </Button>
+            ))}
+          {fills != null && (
+            <Tooltip content={t('成交标记')}>
+              <Button
+                size='small'
+                icon={<History size={14} />}
+                aria-label={t('成交标记')}
+                aria-pressed={showFills}
+                disabled={advanced}
+                theme={showFills ? 'solid' : 'borderless'}
+                onClick={() => {
+                  setShowFills(!showFills);
+                  setPicked(null);
+                  writeSetting('trade-chart-fills', !showFills);
+                }}
+              />
+            </Tooltip>
+          )}
+          {symbol === 'BTCUSDT' && calendarEnabled && !calendarOff && (
+            <Tooltip
+              content={
+                showCalendar && calendarError ? calendarError : t('财经事件')
+              }
+            >
+              <Button
+                size='small'
+                icon={<CalendarDays size={14} />}
+                aria-label={t('财经事件')}
+                aria-pressed={showCalendar}
+                disabled={advanced}
+                theme={showCalendar ? 'solid' : 'borderless'}
+                type={showCalendar && calendarError ? 'warning' : 'primary'}
+                onClick={() => {
+                  setShowCalendar(!showCalendar);
+                  setPickedEvents(null);
+                  writeSetting('trade-chart-calendar', !showCalendar);
+                }}
+              />
+            </Tooltip>
+          )}
+          <Tooltip content={fullscreen.active ? t('退出全屏') : t('全屏')}>
             <Button
               size='small'
               theme='borderless'
               type='tertiary'
               icon={
-                fullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />
+                fullscreen.active ? (
+                  <Minimize2 size={14} />
+                ) : (
+                  <Maximize2 size={14} />
+                )
               }
-              onClick={toggleFullscreen}
-              aria-label={fullscreen ? t('退出全屏') : t('全屏')}
+              onClick={fullscreen.toggle}
+              aria-label={fullscreen.active ? t('退出全屏') : t('全屏')}
             />
           </Tooltip>
         </div>
       </div>
-      <div className='trade-chart-workspace'>
-        <DrawToolRail d={drawing} t={t} />
-        <div className='trade-chart-body'>
-          {shown && (
-            <div className='trade-chart-legend'>
-              <span>
-                {t('开盘价')} {formatPrice(shown.open, priceDigits)}
-              </span>
-              <span>
-                {t('最高价')} {formatPrice(shown.high, priceDigits)}
-              </span>
-              <span>
-                {t('最低价')} {formatPrice(shown.low, priceDigits)}
-              </span>
-              <span>
-                {t('收盘价')} {formatPrice(shown.close, priceDigits)}
-              </span>
-              {change !== null && (
-                <span className={change >= 0 ? 'trade-up' : 'trade-down'}>
-                  {change >= 0 ? '+' : ''}
-                  {change.toFixed(2)}%
-                </span>
-              )}
-              <span>
-                {t('成交量')} {formatQty(shown.volume, 4)}
-              </span>
-            </div>
-          )}
-          <div ref={hostRef} className='trade-chart-canvas' />
-          <DrawOverlay d={drawing} t={t} />
-          {picked && (
+      {!advanced && shown && indicatorReadings.length > 0 && (
+        <div
+          className='trade-chart-indicator-readings'
+          aria-label={t('指标读数')}
+        >
+          {indicatorReadings.map(([kind, , labels]) => (
             <div
-              className='trade-chart-fills'
-              style={{
-                left: Math.max(
-                  0,
-                  Math.min(
-                    picked.x + 12,
-                    (hostRef.current?.clientWidth || 0) - 260,
-                  ),
-                ),
-                top: Math.max(picked.y - 12, 6),
-              }}
+              className='trade-chart-indicator-group'
+              key={kind}
+              data-indicator={kind}
             >
-              <div className='flex items-center justify-between gap-2'>
-                <span className='trade-muted'>
-                  {timestamp2string(picked.openMs / 1000).slice(0, 16)}
-                </span>
-                <Button
-                  size='small'
-                  theme='borderless'
-                  type='tertiary'
-                  icon={<X size={12} />}
-                  aria-label={t('关闭')}
-                  onClick={() => setPicked(null)}
-                />
-              </div>
-              {picked.fills.map((fill) => {
-                const side = fillSide(fill);
-                const label = fill.side
-                  ? {
-                      futures_open: { long: t('开多'), short: t('开空') },
-                      futures_close: { long: t('平多'), short: t('平空') },
-                      liquidation: { long: t('强平'), short: t('强平') },
-                    }[fill.type]?.[fill.side]
-                  : side === 'buy'
-                    ? t('买入')
-                    : t('卖出');
+              {labels.map((label, index) => {
+                const value =
+                  indicatorValuesRef.current?.[kind]?.[index]?.[shownIndex];
+                // 读数颜色跟线一致：BOLL 三条都是灰线，MACD 柱按正负用涨跌色。
+                let color = LINE_COLORS[index];
+                if (kind === 'boll') color = 'var(--semi-color-text-3)';
+                else if (kind === 'macd' && index === 2 && value != null)
+                  color =
+                    value >= 0
+                      ? 'var(--semi-color-success)'
+                      : 'var(--semi-color-danger)';
                 return (
-                  <div key={fill.id} className='trade-chart-fill-row'>
-                    <span
-                      className={side === 'buy' ? 'trade-up' : 'trade-down'}
-                    >
-                      {label}
-                    </span>
-                    <span className='trade-muted'>
-                      {timestamp2string(fill.created_at).slice(11)}
-                    </span>
-                    <span>
-                      {formatQty(fill.qty)} @{' '}
-                      {formatPrice(fill.price, priceDigits)}
-                    </span>
-                  </div>
+                  <span key={label} style={{ color }}>
+                    {label}{' '}
+                    <output>
+                      {value == null
+                        ? '--'
+                        : formatPrice(
+                            value,
+                            kind === 'rsi' ? 2 : Math.max(priceDigits ?? 2, 2),
+                          )}
+                    </output>
+                  </span>
                 );
               })}
             </div>
-          )}
-          {loading && (
-            <div className='trade-chart-overlay'>
-              <Spin />
-            </div>
-          )}
-          {error && !loading && (
-            <div className='trade-chart-overlay trade-chart-error'>{error}</div>
-          )}
+          ))}
+        </div>
+      )}
+      <div className='trade-chart-stage'>
+        {advanced && (
+          <TradingViewChart
+            symbol={`BINANCE:${symbol}${klineUrl.includes('/futures/') ? '.P' : ''}`}
+            locale={locale}
+            theme={actualTheme}
+            t={t}
+          />
+        )}
+        <div
+          className={`trade-chart-workspace ${advanced ? 'trade-chart-hidden' : ''}`}
+        >
+          <DrawToolRail d={drawing} t={t} />
+          <div className='trade-chart-body'>
+            {shown && (
+              <div className='trade-chart-legend'>
+                <span>
+                  {t('开盘价')} {formatPrice(shown.open, priceDigits)}
+                </span>
+                <span>
+                  {t('最高价')} {formatPrice(shown.high, priceDigits)}
+                </span>
+                <span>
+                  {t('最低价')} {formatPrice(shown.low, priceDigits)}
+                </span>
+                <span>
+                  {t('收盘价')} {formatPrice(shown.close, priceDigits)}
+                </span>
+                {change !== null && (
+                  <span className={change >= 0 ? 'trade-up' : 'trade-down'}>
+                    {change >= 0 ? '+' : ''}
+                    {change.toFixed(2)}%
+                  </span>
+                )}
+                <span>
+                  {t('成交量')} {formatQty(shown.volume, 4)}
+                </span>
+                {shown.quote != null && (
+                  <span>
+                    {t('成交额')} {formatQty(shown.quote, 2)}
+                  </span>
+                )}
+              </div>
+            )}
+            <div ref={hostRef} className='trade-chart-canvas' />
+            <DrawOverlay d={drawing} t={t} />
+            {pickedEvents && (
+              <div
+                className='trade-chart-events'
+                role='dialog'
+                aria-label={t('财经事件')}
+                style={{
+                  left: Math.max(
+                    0,
+                    Math.min(
+                      pickedEvents.x + 12,
+                      (hostRef.current?.clientWidth || 0) - 310,
+                    ),
+                  ),
+                  top: Math.max(6, pickedEvents.y - 12),
+                }}
+              >
+                <div className='trade-chart-events-heading'>
+                  <strong>{t('财经事件')}</strong>
+                  <Button
+                    size='small'
+                    theme='borderless'
+                    icon={<X size={12} />}
+                    aria-label={t('关闭')}
+                    onClick={() => setPickedEvents(null)}
+                  />
+                </div>
+                {calendar?.status === 'stale' && (
+                  <div className='trade-warning'>
+                    {t('数据源暂时不可用，请稍后刷新。')}
+                  </div>
+                )}
+                {pickedEvents.events.map((event) => (
+                  <div key={event.id} className='trade-chart-event'>
+                    <div className='trade-muted'>
+                      {timestamp2string(event.time)} · {event.country}{' '}
+                      {event.currency}
+                    </div>
+                    <strong>{event.title}</strong>
+                    <div className='trade-chart-event-values'>
+                      {[
+                        [t('公布值'), event.actual],
+                        [t('预期值'), event.forecast],
+                        [t('前值'), event.previous],
+                      ].map(([label, value]) => (
+                        <span key={label}>
+                          {label} <b>{value || '--'}</b>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {picked && (
+              <div
+                className='trade-chart-fills'
+                style={{
+                  left: Math.max(
+                    0,
+                    Math.min(
+                      picked.x + 12,
+                      (hostRef.current?.clientWidth || 0) - 260,
+                    ),
+                  ),
+                  top: Math.max(picked.y - 12, 6),
+                }}
+              >
+                <div className='flex items-center justify-between gap-2'>
+                  <span className='trade-muted'>
+                    {timestamp2string(picked.openMs / 1000).slice(0, 16)}
+                  </span>
+                  <Button
+                    size='small'
+                    theme='borderless'
+                    type='tertiary'
+                    icon={<X size={12} />}
+                    aria-label={t('关闭')}
+                    onClick={() => setPicked(null)}
+                  />
+                </div>
+                {picked.fills.map((fill) => {
+                  const side = fillSide(fill);
+                  const label = fill.side
+                    ? {
+                        futures_open: { long: t('开多'), short: t('开空') },
+                        futures_close: { long: t('平多'), short: t('平空') },
+                        liquidation: { long: t('强平'), short: t('强平') },
+                      }[fill.type]?.[fill.side]
+                    : side === 'buy'
+                      ? t('买入')
+                      : t('卖出');
+                  return (
+                    <div key={fill.id} className='trade-chart-fill-row'>
+                      <span
+                        className={side === 'buy' ? 'trade-up' : 'trade-down'}
+                      >
+                        {label}
+                      </span>
+                      <span className='trade-muted'>
+                        {timestamp2string(fill.created_at).slice(11)}
+                      </span>
+                      <span>
+                        {formatQty(fill.qty)} @{' '}
+                        {formatPrice(fill.price, priceDigits)}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {loading && (
+              <div className='trade-chart-overlay'>
+                <Spin />
+              </div>
+            )}
+            {error && !loading && (
+              <div className='trade-chart-overlay trade-chart-error'>
+                {error}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

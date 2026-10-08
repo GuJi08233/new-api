@@ -53,6 +53,14 @@ const LedgerCard = ({ perUnit, refreshKey, t }) => {
     futures_funding: t('资金费'),
     liquidation: t('强制平仓'),
     futures_cover: t('额度补足亏空'),
+    spot_loan: t('借入'),
+    spot_interest: t('借款利息'),
+    spot_repay: t('还款'),
+    spot_liq_fee: t('强平费'),
+    spot_cover: t('额度补足借款亏空'),
+    prediction_buy: t('预测买入'),
+    prediction_sell: t('预测卖出'),
+    predict_settle: t('预测结算'),
   };
   const fillTypes = [
     'buy',
@@ -103,6 +111,9 @@ const LedgerCard = ({ perUnit, refreshKey, t }) => {
         }
         if (entry.type === 'futures_funding') {
           return `${entry.symbol} ${t('资金费率')} ${formatFundingRate(entry.price)}`;
+        }
+        if (entry.type === 'spot_interest') {
+          return `${t('日利率')} ${(Number(entry.price || 0) * 100).toFixed(4)}%`;
         }
         return entry.symbol || '--';
       },

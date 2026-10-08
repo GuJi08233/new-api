@@ -20,8 +20,12 @@ type TradeSnapshot struct {
 	CryptoFlow  int `json:"crypto_flow" gorm:"type:bigint"`
 	StockFlow   int `json:"stock_flow" gorm:"type:bigint"`
 	// FuturesValue 是合约仓位的价值合计，FuturesFlow 是当天合约的资金流(平仓、减少保证金到账减去开仓、追加保证金花费)。
-	FuturesValue int `json:"futures_value" gorm:"type:bigint"`
-	FuturesFlow  int `json:"futures_flow" gorm:"type:bigint"`
+	FuturesValue    int `json:"futures_value" gorm:"type:bigint"`
+	FuturesFlow     int `json:"futures_flow" gorm:"type:bigint"`
+	PredictionValue int `json:"prediction_value" gorm:"type:bigint"`
+	PredictionFlow  int `json:"prediction_flow" gorm:"type:bigint"`
+	SpotDebt        int `json:"spot_debt" gorm:"type:bigint"`
+	SpotFinanceFlow int `json:"spot_finance_flow" gorm:"type:bigint"`
 	// NetIn 是截至当天结束的累计净转入(TotalIn - TotalOut)。
 	NetIn     int   `json:"net_in" gorm:"type:bigint"`
 	CreatedAt int64 `json:"created_at" gorm:"bigint"`
@@ -126,7 +130,7 @@ func SaveTradeSnapshots(snapshots []TradeSnapshot) error {
 	return DB.Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "user_id"}, {Name: "day"}},
 		DoUpdates: clause.AssignmentColumns([]string{"equity", "cash", "crypto_value", "stock_value", "crypto_flow", "stock_flow",
-			"futures_value", "futures_flow", "net_in", "created_at"}),
+			"futures_value", "futures_flow", "prediction_value", "prediction_flow", "spot_debt", "spot_finance_flow", "net_in", "created_at"}),
 	}).Create(&snapshots).Error
 }
 

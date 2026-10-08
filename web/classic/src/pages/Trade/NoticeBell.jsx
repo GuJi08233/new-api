@@ -46,6 +46,7 @@ const KIND_STYLES = {
   liquidation: { color: 'red', toast: 'error' },
   fill: { color: 'blue', toast: 'info' },
   cover: { color: 'red', toast: 'error' },
+  margin_call: { color: 'orange', toast: 'warning' },
 };
 
 // noticeText 把一条通知写成一句话：止盈止损与强平带上平掉的数量、价格和盈亏，限价单成交带上方向，扣额度带上金额。
@@ -81,14 +82,27 @@ function noticeText(notice, perUnit, t) {
         values,
       );
     case 'liquidation':
+      if (notice.market === 'spot') {
+        return t('{{symbol}} 现货借款强平：卖出 {{qty}} @ {{price}}', values);
+      }
       return t(
         '{{symbol}} {{side}}被强平：{{qty}} @ {{price}}，盈亏 {{pnl}} USDT',
         values,
       );
     case 'cover':
+      if (notice.market === 'spot') {
+        return t('现货借款亏空 {{amount}} USDT 已从站内额度扣除', {
+          amount: formatUsdt(notice.amount, perUnit),
+        });
+      }
       return t('合约亏空 {{amount}} USDT 已从站内额度扣除', {
         amount: formatUsdt(notice.amount, perUnit),
       });
+    case 'margin_call':
+      return t(
+        '现货借款风险率降到 {{level}}，请还款、卖出部分现货或转入资金，不高于 1.1 会被强平',
+        { level: notice.price },
+      );
     default: {
       const action =
         notice.market === 'futures'
@@ -209,6 +223,7 @@ const NoticeBell = ({ perUnit, onNotice, t }) => {
     liquidation: t('强平'),
     fill: t('成交'),
     cover: t('扣额度'),
+    margin_call: t('追加保证金'),
   };
 
   return (

@@ -18,6 +18,7 @@ const (
 	NotifyTypeTradeStopLoss    = "trade_stop_loss"
 	NotifyTypeTradeLiquidation = "trade_liquidation"
 	NotifyTypeTradeFill        = "trade_fill"
+	NotifyTypeTradeMarginCall  = "trade_margin_call"
 )
 
 func NewNotify(t string, title string, content string, values []interface{}) Notify {

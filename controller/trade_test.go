@@ -44,6 +44,17 @@ func TestTradeOrderViewAveragePrice(t *testing.T) {
 	}
 }
 
+// 杠杆买入的倍数与借款随委托返回；加杠杆之前的委托没有记倍数，按 1 倍显示。
+func TestTradeOrderViewExposesSpotLeverage(t *testing.T) {
+	legacy := tradeOrderView(&model.TradeOrder{Id: 8}, 1)
+	assert.Equal(t, 1, legacy["leverage"])
+	assert.Equal(t, 0, legacy["borrowed"])
+
+	leveraged := tradeOrderView(&model.TradeOrder{Id: 9, Leverage: 5, Borrowed: 123}, 1)
+	assert.Equal(t, 5, leveraged["leverage"])
+	assert.Equal(t, 123, leveraged["borrowed"])
+}
+
 // 钱包选择和整币数量在访问账户之前校验，非法输入不能落入默认额度转账路径。
 func TestTradeTransferRejectsInvalidWalletInputs(t *testing.T) {
 	require.NoError(t, i18n.Init())

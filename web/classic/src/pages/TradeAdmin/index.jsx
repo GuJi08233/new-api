@@ -27,6 +27,8 @@ import {
   CheckboxGroup,
   Input,
   InputNumber,
+  Radio,
+  RadioGroup,
   Spin,
   Switch,
   Table,
@@ -443,6 +445,32 @@ const TradeAdmin = () => {
             <div className='flex flex-col gap-2'>
               <Text strong>{t('开放交易的交易对')}</Text>
               {symbolChoices('symbol', 'symbols')}
+            </div>
+            <div className='flex flex-wrap items-center gap-4'>
+              <div className='flex items-center gap-2'>
+                <Switch
+                  checked={form.prediction_enabled}
+                  onChange={(value) => change('prediction_enabled', value)}
+                />
+                <Text>{t('开放 BTC 预测')}</Text>
+              </div>
+            </div>
+            <div className='flex flex-col gap-1'>
+              <Text strong>{t('现货杠杆')}</Text>
+              <RadioGroup
+                type='button'
+                value={form.spot_max_leverage}
+                onChange={(e) => change('spot_max_leverage', e.target.value)}
+              >
+                <Radio value={1}>{t('不开放')}</Radio>
+                <Radio value={3}>3x</Radio>
+                <Radio value={5}>5x</Radio>
+              </RadioGroup>
+              <Text type='tertiary' size='small'>
+                {t(
+                  '照 Binance 全仓杠杆：账户最高 3 倍或 5 倍，借 USDT 按 Binance 的实时利率每小时计息，风险率不高于 1.1 强平并收 2% 强平费。关闭只停止新的借款，已有借款照常计息和检查风险。',
+                )}
+              </Text>
             </div>
             <div className='grid grid-cols-1 gap-4 md:grid-cols-2'>
               {NUMBER_FIELDS.map(numberField)}

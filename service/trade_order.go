@@ -14,12 +14,13 @@ import (
 
 // TradeOrderRequest 是用户提交的一笔委托。市价买单可以不给数量而给 Amount(USDT，含手续费)，按金额买入。
 type TradeOrderRequest struct {
-	Symbol string
-	Side   string
-	Type   string
-	Qty    decimal.Decimal
-	Amount decimal.Decimal
-	Price  decimal.Decimal
+	Symbol   string
+	Side     string
+	Type     string
+	Qty      decimal.Decimal
+	Amount   decimal.Decimal
+	Price    decimal.Decimal
+	Leverage int
 }
 
 var (
@@ -53,15 +54,22 @@ func tradePricing(setting *operation_setting.TradeSetting) (tradesim.Pricing, in
 func PlaceTradeOrder(ctx context.Context, userId int, req TradeOrderRequest) (*model.TradeOrder, error) {
 	arrived := time.Now()
 	setting := operation_setting.GetTradeSetting()
-	if !setting.Enabled {
+	if !setting.Enabled && req.Side != model.TradeSideSell {
 		return nil, ErrTradeDisabled
 	}
-	if !setting.SymbolEnabled(req.Symbol) {
+	if !setting.SymbolEnabled(req.Symbol) && req.Side != model.TradeSideSell {
 		return nil, ErrTradeSymbolClosed
 	}
 	isBuy := req.Side == model.TradeSideBuy
 	isLimit := req.Type == model.TradeOrderTypeLimit
 	byAmount := !isLimit && isBuy && req.Amount.IsPositive()
+	if req.Leverage == 0 {
+		req.Leverage = 1
+	}
+	if req.Leverage < 1 || req.Leverage > min(model.TradeSpotMaxLeverage, setting.SpotMaxLeverage) ||
+		req.Leverage > 1 && (!isBuy || isLimit || byAmount) {
+		return nil, model.ErrTradeSpotFinancingInvalid
+	}
 	switch {
 	case req.Side != model.TradeSideBuy && req.Side != model.TradeSideSell,
 		req.Type != model.TradeOrderTypeMarket && req.Type != model.TradeOrderTypeLimit,
@@ -131,6 +139,11 @@ func PlaceTradeOrder(ctx context.Context, userId int, req TradeOrderRequest) (*m
 		if err := market.awaitFreshBook(ctx, arrived, setting.StaleMs); err != nil {
 			return nil, err
 		}
+	} else if isBuy {
+		// 有现货借款时买入之后要按买一检查风险率，挂单不确认盘口的话先确认一次。
+		if err := EnsureTradeSpotPricesFresh(ctx, userId); err != nil {
+			return nil, err
+		}
 	}
 
 	unlock := market.lockSymbol(req.Symbol)
@@ -150,6 +163,8 @@ func PlaceTradeOrder(ctx context.Context, userId int, req TradeOrderRequest) (*m
 		Price:           price,
 		Qty:             tradesim.QtyUnits(qty),
 		Rest:            isLimit,
+		Leverage:        req.Leverage,
+		SpotMaxLeverage: setting.SpotMaxLeverage,
 		MaxPositionCost: setting.MaxPositionUsd * perUsd,
 	}
 	var fill tradesim.Fill

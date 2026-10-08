@@ -417,6 +417,44 @@ func (c *Client) RiskBrackets(ctx context.Context, symbols []string) (map[string
 	return result, nil
 }
 
+// MarginDailyInterestRate 读 Binance 网页用的公开杠杆借币利率表(不需要 API Key)，返回 asset 在普通用户(VIP 0)这一档的日利率，
+// 是小数，例如 0.00013778 即每天 0.013778%。Binance 每小时按市场情况调整一次。这个接口在 www.binance.com 的 /bapi 下，
+// 客户端的根地址要是 https://www.binance.com。表里没有这个币种、或者利率不在 [0, 1%] 里时返回错误。
+func (c *Client) MarginDailyInterestRate(ctx context.Context, asset string) (decimal.Decimal, error) {
+	var payload struct {
+		Code string `json:"code"`
+		Data []struct {
+			AssetName string `json:"assetName"`
+			Specs     []struct {
+				VipLevel          string      `json:"vipLevel"`
+				DailyInterestRate json.Number `json:"dailyInterestRate"`
+			} `json:"specs"`
+		} `json:"data"`
+	}
+	if err := c.get(ctx, "/bapi/margin/v1/public/margin/vip/spec/list-all", nil, &payload); err != nil {
+		return decimal.Zero, err
+	}
+	if payload.Code != "000000" {
+		return decimal.Zero, fmt.Errorf("binance margin rates: code %s", payload.Code)
+	}
+	for _, item := range payload.Data {
+		if item.AssetName != asset {
+			continue
+		}
+		for _, spec := range item.Specs {
+			if spec.VipLevel != "0" {
+				continue
+			}
+			rate, err := decimal.NewFromString(spec.DailyInterestRate.String())
+			if err != nil || rate.IsNegative() || rate.GreaterThan(decimal.New(1, -2)) {
+				return decimal.Zero, fmt.Errorf("binance margin rates: invalid daily rate %q for %s", spec.DailyInterestRate, asset)
+			}
+			return rate, nil
+		}
+	}
+	return decimal.Zero, fmt.Errorf("binance margin rates: no VIP 0 rate for %s", asset)
+}
+
 // FundingRates 查一个合约在 startTime(毫秒，含)之后已经结算的资金费，按结算时间从早到晚，最多 limit 条(<= 0 时用 Binance 的
 // 默认 100 条)。只用于合约客户端。
 func (c *Client) FundingRates(ctx context.Context, symbol string, startTime int64, limit int) ([]FundingRate, error) {

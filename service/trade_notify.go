@@ -71,6 +71,8 @@ func tradeNoticeNotification(notice model.TradeNotice, channel string) (dto.Noti
 		kind, title = dto.NotifyTypeTradeLiquidation, "模拟盘仓位已强平"
 	case model.TradeNoticeFill:
 		kind, title = dto.NotifyTypeTradeFill, "模拟盘挂单已成交"
+	case model.TradeNoticeMarginCall:
+		return tradeMarginCallNotification(notice, channel), nil
 	default:
 		return dto.Notify{}, fmt.Errorf("unsupported trade notice kind %q", notice.Kind)
 	}
@@ -110,7 +112,26 @@ func tradeNoticeNotification(notice model.TradeNotice, channel string) (dto.Noti
 	return dto.NewNotify(kind, title, content, values), nil
 }
 
-// notifyTradeDeficit 按用户的通知设置(邮件、Webhook、Bark、Gotify)告诉用户：合约穿仓的亏空从站内额度里扣了多少、额度还剩多少。
+// tradeMarginCallNotification 是现货借款风险率跌到追加保证金线的提醒：Price 是当时的风险率，Amount 是借款本息。
+func tradeMarginCallNotification(notice model.TradeNotice, channel string) dto.Notify {
+	title := "模拟盘现货借款风险率过低"
+	content := "现货借款的风险率降到 {{value}}，借款本息 {{value}}。风险率不高于 1.1 时会被强平，请还款、卖出部分现货或转入资金"
+	values := []interface{}{notice.Price, logger.FormatQuota(notice.Amount)}
+	assets := PaymentReturnURL("/trade/assets")
+	if channel == dto.NotifyTypeBark || channel == dto.NotifyTypeGotify {
+		content += "。查看模拟盘：{{value}}"
+		values = append(values, assets)
+	} else {
+		for i, value := range values {
+			values[i] = html.EscapeString(fmt.Sprint(value))
+		}
+		content += "。<br/>查看模拟盘：<a href='{{value}}'>{{value}}</a>"
+		values = append(values, html.EscapeString(assets), html.EscapeString(assets))
+	}
+	return dto.NewNotify(dto.NotifyTypeTradeMarginCall, title, content, values)
+}
+
+// notifyTradeDeficit 按用户的通知设置(邮件、Webhook、Bark、Gotify)告诉用户：穿仓的亏空从站内额度里扣了多少、额度还剩多少。
 // 在后台发，不拖慢强平与平仓；发不出去只记日志。
 func notifyTradeDeficit(userId int, covered int) {
 	gopool.Go(func() {
@@ -120,16 +141,16 @@ func notifyTradeDeficit(userId int, covered int) {
 			return
 		}
 		setting := user.GetSetting()
-		prompt := "模拟盘合约亏空已从额度扣除"
+		prompt := "模拟盘亏空已从额度扣除"
 		var content string
 		var values []interface{}
 		switch setting.NotifyType {
 		case dto.NotifyTypeBark, dto.NotifyTypeGotify:
-			content = "价格跳空越过强平价，合约亏空 {{value}} 已从站内额度扣除，当前额度 {{value}}"
+			content = "价格跳空越过强平价，模拟盘亏空 {{value}} 已从站内额度扣除，当前额度 {{value}}"
 			values = []interface{}{logger.FormatQuota(covered), logger.FormatQuota(user.Quota)}
 		default:
 			assets := PaymentReturnURL("/trade/assets")
-			content = "{{value}}：价格跳空越过了强平价，合约亏空 {{value}} 已从站内额度扣除，当前额度 {{value}}。<br/>查看模拟盘：<a href='{{value}}'>{{value}}</a>"
+			content = "{{value}}：价格跳空越过了强平价，模拟盘亏空 {{value}} 已从站内额度扣除，当前额度 {{value}}。<br/>查看模拟盘：<a href='{{value}}'>{{value}}</a>"
 			values = []interface{}{prompt, logger.FormatQuota(covered), logger.FormatQuota(user.Quota), assets, assets}
 		}
 		if err := NotifyUser(userId, user.Email, setting, dto.NewNotify(dto.NotifyTypeTradeDeficit, prompt, content, values)); err != nil {

@@ -138,7 +138,11 @@ func withdrawTradeCashTx(tx *gorm.DB, account *TradeAccount, quota int, day stri
 	if err != nil {
 		return 0, err
 	}
-	if quota > state.Withdrawable(account.Cash) {
+	spotReserve, err := tradeSpotTransferReserveTx(tx, account, market)
+	if err != nil {
+		return 0, err
+	}
+	if quota > max(0, state.Withdrawable(account.Cash)-spotReserve) {
 		return 0, ErrTradeWithdrawExceeded
 	}
 	principal := min(quota, account.QuotaPrincipal)

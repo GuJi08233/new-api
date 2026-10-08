@@ -67,6 +67,9 @@ func TestMain(m *testing.M) {
 		&model.TradeNotice{},
 		&model.GameCoinAccount{},
 		&model.GameCoinLog{},
+		&model.TradeSpotMargin{},
+		&model.TradePredictionRound{},
+		&model.TradePredictionPosition{},
 	); err != nil {
 		panic("failed to migrate: " + err.Error())
 	}

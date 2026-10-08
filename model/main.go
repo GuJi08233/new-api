@@ -390,6 +390,9 @@ func migrateDB() error {
 		&TradeNotice{},
 		&GameCoinAccount{},
 		&GameCoinLog{},
+		&TradeSpotMargin{},
+		&TradePredictionRound{},
+		&TradePredictionPosition{},
 	)
 	if err != nil {
 		return err
@@ -483,6 +486,9 @@ func migrateDBFast() error {
 		{&TradeNotice{}, "TradeNotice"},
 		{&GameCoinAccount{}, "GameCoinAccount"},
 		{&GameCoinLog{}, "GameCoinLog"},
+		{&TradeSpotMargin{}, "TradeSpotMargin"},
+		{&TradePredictionRound{}, "TradePredictionRound"},
+		{&TradePredictionPosition{}, "TradePredictionPosition"},
 	}
 	// 动态计算migration数量，确保errChan缓冲区足够大
 	errChan := make(chan error, len(migrations))
