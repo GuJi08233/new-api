@@ -388,6 +388,8 @@ const TradeAdmin = () => {
               [t('合约仓位'), stats.futures_positions],
               [t('合约保证金'), `${usd(stats.futures_margin)} USDT`],
               [t('挂着的合约委托'), stats.futures_open_orders],
+              [t('现货借款'), `${usd(stats.spot_debt)} USDT`],
+              [t('预测持仓成本'), `${usd(stats.prediction_cost)} USDT`],
             ].map(([label, value]) => (
               <div key={label}>
                 <Text type='tertiary' size='small'>

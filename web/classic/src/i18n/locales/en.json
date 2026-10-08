@@ -5018,6 +5018,7 @@
     "不开放": "Off",
     "照 Binance 全仓杠杆：账户最高 3 倍或 5 倍，借 USDT 按 Binance 的实时利率每小时计息，风险率不高于 1.1 强平并收 2% 强平费。关闭只停止新的借款，已有借款照常计息和检查风险。": "Follows Binance Cross Margin: accounts go up to 3x or 5x, borrowed USDT is charged interest hourly at Binance’s live rate, and loans are liquidated at a margin level of 1.1 or below with a 2% fee. Turning it off only stops new borrowing; existing loans keep accruing interest and are still risk-checked.",
     "五五开结算": "Resolved 50-50",
-    "五五开": "50-50"
+    "五五开": "50-50",
+    "预测持仓成本": "Open prediction cost"
   }
 }

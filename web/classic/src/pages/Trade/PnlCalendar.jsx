@@ -153,6 +153,24 @@ const PnlCalendar = ({ perUnit, refreshKey, t }) => {
               {formatSignedUsdt(detail.futures_pnl, perUnit)}
             </span>
           </Text>
+          {!!detail.prediction_pnl && (
+            <Text>
+              {t('BTC预测')}{' '}
+              <span
+                className={`trade-num ${trendClass(detail.prediction_pnl)}`}
+              >
+                {formatSignedUsdt(detail.prediction_pnl, perUnit)}
+              </span>
+            </Text>
+          )}
+          {!!detail.financing_pnl && (
+            <Text>
+              {t('借款利息')}{' '}
+              <span className={`trade-num ${trendClass(detail.financing_pnl)}`}>
+                {formatSignedUsdt(detail.financing_pnl, perUnit, 4)}
+              </span>
+            </Text>
+          )}
           <Text>
             {t('合计')}{' '}
             <span className={`trade-num ${trendClass(detail.pnl)}`}>

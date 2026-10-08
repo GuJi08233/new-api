@@ -4871,6 +4871,7 @@
     "不开放": "Désactivé",
     "照 Binance 全仓杠杆：账户最高 3 倍或 5 倍，借 USDT 按 Binance 的实时利率每小时计息，风险率不高于 1.1 强平并收 2% 强平费。关闭只停止新的借款，已有借款照常计息和检查风险。": "Suit la marge croisée de Binance : jusqu’à 3x ou 5x par compte, les USDT empruntés portent des intérêts horaires au taux en direct de Binance, et les emprunts sont liquidés à un niveau de marge de 1,1 ou moins avec des frais de 2 %. La désactivation n’arrête que les nouveaux emprunts ; les emprunts existants continuent de porter intérêts et d’être surveillés.",
     "五五开结算": "Résolu à 50-50",
-    "五五开": "50-50"
+    "五五开": "50-50",
+    "预测持仓成本": "Coût des prédictions ouvertes"
   }
 }

@@ -5382,6 +5382,7 @@
     "不开放": "Tắt",
     "照 Binance 全仓杠杆：账户最高 3 倍或 5 倍，借 USDT 按 Binance 的实时利率每小时计息，风险率不高于 1.1 强平并收 2% 强平费。关闭只停止新的借款，已有借款照常计息和检查风险。": "Theo ký quỹ chéo của Binance: tài khoản tối đa 3x hoặc 5x, USDT đã vay được tính lãi theo giờ với lãi suất thực tế của Binance, khoản vay bị thanh lý khi tỷ lệ ký quỹ từ 1,1 trở xuống kèm phí 2%. Tắt chỉ dừng các khoản vay mới; khoản vay hiện có vẫn tính lãi và kiểm tra rủi ro như bình thường.",
     "五五开结算": "Tất toán 50-50",
-    "五五开": "50-50"
+    "五五开": "50-50",
+    "预测持仓成本": "Chi phí dự đoán đang mở"
   }
 }

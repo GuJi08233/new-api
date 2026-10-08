@@ -223,6 +223,9 @@ type TradeStats struct {
 	FuturesMargin     int   `json:"futures_margin"`
 	FuturesCrossUsed  int   `json:"futures_cross_used"`
 	FuturesOpenOrders int64 `json:"futures_open_orders"`
+	// SpotDebt 是现货借款的本金加已收未还的利息合计，PredictionCost 是还没结算的 BTC 预测持仓成本合计。
+	SpotDebt       int `json:"spot_debt"`
+	PredictionCost int `json:"prediction_cost"`
 }
 
 // GetTradeStats 汇总全站的模拟盘账户、资金、持仓成本与挂单。
@@ -265,6 +268,12 @@ func GetTradeStats() (TradeStats, error) {
 			stats.FuturesMargin += row.Margin
 		}
 	}
-	err := DB.Model(&TradeFuturesOrder{}).Where("status = ?", TradeOrderStatusOpen).Count(&stats.FuturesOpenOrders).Error
+	if err := DB.Model(&TradeFuturesOrder{}).Where("status = ?", TradeOrderStatusOpen).Count(&stats.FuturesOpenOrders).Error; err != nil {
+		return stats, err
+	}
+	if err := DB.Model(&TradeSpotMargin{}).Select("COALESCE(SUM(principal + interest), 0)").Scan(&stats.SpotDebt).Error; err != nil {
+		return stats, err
+	}
+	err := DB.Model(&TradePredictionPosition{}).Where("status = ?", TradePredictionActive).Select("COALESCE(SUM(cost), 0)").Scan(&stats.PredictionCost).Error
 	return stats, err
 }

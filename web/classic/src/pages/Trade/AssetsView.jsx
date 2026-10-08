@@ -136,6 +136,10 @@ const AssetsView = ({
       { type: t('加密货币'), value: toUsdt(valuation?.crypto_value, perUnit) },
       { type: t('美股代币'), value: toUsdt(valuation?.stock_value, perUnit) },
       { type: t('合约'), value: toUsdt(valuation?.futures_value, perUnit) },
+      {
+        type: t('BTC预测'),
+        value: toUsdt(valuation?.prediction_value, perUnit),
+      },
     ].filter((item) => item.value > 0);
     return {
       type: 'pie',
@@ -184,6 +188,21 @@ const AssetsView = ({
       '',
     ],
   ];
+  // 预测持仓和现货借款也算进总资产(借款是减项)，有的时候才列出来，让各项加起来等于总资产。
+  if (valuation?.prediction_value > 0) {
+    summary.push([
+      t('BTC预测'),
+      `${formatUsdt(valuation.prediction_value, perUnit)} USDT`,
+      '',
+    ]);
+  }
+  if (valuation?.spot_debt > 0) {
+    summary.push([
+      t('现货借款'),
+      `${formatSignedUsdt(-valuation.spot_debt, perUnit)} USDT`,
+      trendClass(-valuation.spot_debt),
+    ]);
+  }
 
   const holdingColumns = [
     {
