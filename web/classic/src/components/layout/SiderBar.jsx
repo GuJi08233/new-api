@@ -44,6 +44,7 @@ const routerMap = {
   setting: '/console/setting',
   risk_control: '/console/risk_control',
   system_info: '/console/system_info',
+  trade_admin: '/console/trade',
   about: '/about',
   detail: '/console',
   pricing: '/pricing',
@@ -197,6 +198,12 @@ const SiderBar = ({ onNavigate = () => {} }) => {
         itemKey: 'risk_control',
         to: '/risk_control',
         className: isAdmin() ? '' : 'tableHiddle',
+      },
+      {
+        text: t('模拟盘管理'),
+        itemKey: 'trade_admin',
+        to: '/trade',
+        className: isRoot() ? '' : 'tableHiddle',
       },
       {
         text: t('系统信息'),

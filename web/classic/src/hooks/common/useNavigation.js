@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 
 import { useMemo } from 'react';
 
-export const useNavigation = (t, docsLink, headerNavModules) => {
+export const useNavigation = (t, docsLink, headerNavModules, tradeEnabled) => {
   const mainNavLinks = useMemo(() => {
     // 默认配置，如果没有传入配置则显示所有模块
     const defaultModules = {
@@ -55,6 +55,11 @@ export const useNavigation = (t, docsLink, headerNavModules) => {
         itemKey: 'rankings',
         to: '/rankings',
       },
+      {
+        text: t('模拟盘'),
+        itemKey: 'trade',
+        to: '/trade',
+      },
       ...(docsLink
         ? [
             {
@@ -89,9 +94,13 @@ export const useNavigation = (t, docsLink, headerNavModules) => {
           ? modules.rankings.enabled
           : modules.rankings;
       }
+      if (link.itemKey === 'trade') {
+        // 模拟盘的开关在模拟盘管理页，不属于顶栏模块配置
+        return tradeEnabled;
+      }
       return modules[link.itemKey] === true;
     });
-  }, [t, docsLink, headerNavModules]);
+  }, [t, docsLink, headerNavModules, tradeEnabled]);
 
   return {
     mainNavLinks,

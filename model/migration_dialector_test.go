@@ -142,6 +142,18 @@ func TestMigrationSchemaStability(t *testing.T) {
 				require.NoError(t, db.Table(table).Create(&migrationConstraintV1{Name: "existing"}).Error)
 			})
 
+			// 模拟盘的表用到了复合主键、字符串存的小数与 bigint 额度，重启时 AutoMigrate 不能再改它们。
+			t.Run("trade_tables", func(t *testing.T) {
+				tables := []any{&TradeAccount{}, &TradePosition{}, &TradeOrder{}, &TradeLedger{}, &TradeProfitOutDay{},
+					&TradeSnapshot{}, &TradeSnapshotDay{}, &TradeFuturesPosition{}, &TradeFuturesHistory{}, &TradeFuturesOrder{}, &TradeNotice{},
+					&GameCoinAccount{}, &GameCoinLog{}, &TradeSpotMargin{}, &TradeSpotAssetLoan{}, &TradePredictionRound{}, &TradePredictionPosition{}}
+				t.Cleanup(func() { _ = db.Migrator().DropTable(tables...) })
+				require.NoError(t, db.AutoMigrate(tables...))
+				recorder.reset()
+				require.NoError(t, db.AutoMigrate(tables...))
+				assert.Empty(t, recorder.schemaMutations())
+			})
+
 			if dialect == "postgres" {
 				t.Run("renamed_unique_constraints", func(t *testing.T) {
 					const table = "migration_renamed_unique"

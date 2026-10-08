@@ -23,6 +23,7 @@ import {
   useContext,
   useState,
   useEffect,
+  useLayoutEffect,
 } from 'react';
 
 const ThemeContext = createContext(null);
@@ -75,8 +76,9 @@ export const ThemeProvider = ({ children }) => {
     }
   }, []);
 
-  // 应用主题到DOM
-  useEffect(() => {
+  // 应用主题到DOM。用 layout effect：子组件(如 K 线图)在自己的 effect 里读 CSS 变量取颜色，
+  // 普通 effect 子先父后，属性还没换就读到旧主题的颜色。
+  useLayoutEffect(() => {
     const body = document.body;
     if (actualTheme === 'dark') {
       body.setAttribute('theme-mode', 'dark');

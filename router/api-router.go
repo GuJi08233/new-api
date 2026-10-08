@@ -158,6 +158,57 @@ func SetApiRouter(router *gin.Engine) {
 			}
 		}
 
+		tradeRoute := apiRouter.Group("/trade")
+		tradeRoute.Use(middleware.UserAuth(), middleware.IpBanGuardApi(), middleware.TradeRequestBodyLimit())
+		{
+			// 查询、撤单与转出在模拟盘关闭后仍然开放，用户随时能把钱拿出来。
+			tradeRoute.GET("/self", controller.GetTradeSelf)
+			tradeRoute.GET("/orders", controller.GetTradeOrders)
+			tradeRoute.GET("/orders/:id/fills", controller.GetTradeOrderFills)
+			tradeRoute.GET("/fills", controller.GetTradeFills)
+			tradeRoute.GET("/ledger", controller.GetTradeLedger)
+			tradeRoute.GET("/notices", controller.GetTradeNotices)
+			tradeRoute.GET("/leaderboard", controller.GetTradeLeaderboard)
+			tradeRoute.GET("/insights/:kind", middleware.TradeEnabled(), controller.GetTradeInsights)
+			tradeRoute.GET("/assets/history", controller.GetTradeAssetHistory)
+			tradeRoute.GET("/assets/daily", controller.GetTradeAssetDaily)
+			tradeRoute.POST("/orders/:id/cancel", middleware.TradeOrderRateLimit(), controller.CancelTradeOrder)
+			tradeRoute.POST("/transfer", middleware.UserCriticalRateLimit("trade-transfer"), controller.TransferTrade)
+			// 行情与 K 线是只读数据；停用新交易后仍须给已有持仓提供卖出入口。
+			tradeRoute.GET("/market", controller.GetTradeMarket)
+			tradeRoute.GET("/klines", controller.GetTradeKlines)
+			tradeRoute.POST("/orders", middleware.TradeOrderRateLimit(), controller.PlaceTradeOrder)
+			tradeRoute.POST("/spot/repay", middleware.TradeOrderRateLimit(), controller.RepayTradeSpotMargin)
+			tradeRoute.POST("/spot/cover", middleware.TradeOrderRateLimit(), controller.CoverTradeSpotAsset)
+			tradeRoute.GET("/prediction/market", controller.GetTradePredictionMarket)
+			tradeRoute.GET("/prediction/live", controller.GetTradePredictionLive)
+			tradeRoute.GET("/prediction/positions", controller.GetTradePredictionPositions)
+			tradeRoute.GET("/prediction/rounds", controller.GetTradePredictionRounds)
+			tradeRoute.POST("/prediction/orders", middleware.TradeOrderRateLimit(), controller.BuyTradePrediction)
+			tradeRoute.POST("/prediction/positions/:id/sell", middleware.TradeOrderRateLimit(), controller.SellTradePrediction)
+			// 合约：开仓要合约开放(由下单接口判断)；平仓、撤单、调整保证金与止盈止损在合约关闭后照样可以，用户随时能把仓位平掉。
+			tradeRoute.GET("/futures/market", controller.GetTradeFuturesMarket)
+			tradeRoute.GET("/futures/klines", controller.GetTradeFuturesKlines)
+			tradeRoute.GET("/futures/brackets", controller.GetTradeFuturesBrackets)
+			tradeRoute.GET("/futures/positions", controller.GetTradeFuturesPositions)
+			tradeRoute.GET("/futures/orders", controller.GetTradeFuturesOrders)
+			tradeRoute.GET("/futures/orders/:id/fills", controller.GetTradeFuturesOrderFills)
+			tradeRoute.GET("/futures/fills", controller.GetTradeFuturesFills)
+			tradeRoute.GET("/futures/history", controller.GetTradeFuturesHistory)
+			tradeRoute.POST("/futures/orders", middleware.TradeOrderRateLimit(), controller.PlaceTradeFuturesOrder)
+			tradeRoute.POST("/futures/orders/:id/cancel", middleware.TradeOrderRateLimit(), controller.CancelTradeFuturesOrder)
+			tradeRoute.POST("/futures/positions/margin", middleware.TradeOrderRateLimit(), controller.AdjustTradeFuturesMargin)
+			tradeRoute.POST("/futures/positions/levels", middleware.TradeOrderRateLimit(), controller.SetTradeFuturesLevels)
+			tradeRoute.POST("/futures/positions/close-all", middleware.TradeOrderRateLimit(), controller.CloseAllTradeFutures)
+			tradeRoute.POST("/futures/positions/reverse", middleware.TradeOrderRateLimit(), controller.ReverseTradeFutures)
+			tradeRoute.POST("/futures/leverage", middleware.TradeOrderRateLimit(), controller.AdjustTradeFuturesLeverage)
+		}
+		tradeAdminRoute := apiRouter.Group("/trade/admin")
+		tradeAdminRoute.Use(middleware.RootAuth())
+		{
+			tradeAdminRoute.GET("/status", controller.GetTradeAdminStatus)
+		}
+
 		// Subscription billing (plans, purchase, admin management)
 		subscriptionRoute := apiRouter.Group("/subscription")
 		subscriptionRoute.Use(middleware.UserAuth())

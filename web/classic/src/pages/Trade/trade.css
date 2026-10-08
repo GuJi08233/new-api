@@ -1,0 +1,950 @@
+/*
+Copyright (C) 2025 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+
+/* 模拟盘页面：涨绿跌红，与 K 线一致；数字用等宽数字，跳动时不晃。 */
+
+.trade-up {
+  color: var(--semi-color-success);
+}
+
+.trade-down {
+  color: var(--semi-color-danger);
+}
+
+.trade-warning {
+  color: var(--semi-color-warning);
+}
+
+.trade-num {
+  font-variant-numeric: tabular-nums;
+}
+
+.trade-card {
+  background: var(--semi-color-bg-1);
+  border: 1px solid var(--semi-color-border);
+  border-radius: 12px;
+  padding: 16px;
+}
+
+/* 表格至少占满卡片的宽度，内容更宽时横向滚动。 */
+.trade-card .semi-table {
+  min-width: 100%;
+}
+
+.trade-muted {
+  color: var(--semi-color-text-2);
+}
+
+.trade-chart {
+  display: flex;
+  flex-direction: column;
+  height: 520px;
+  background: var(--semi-color-bg-1);
+  border: 1px solid var(--semi-color-border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.trade-chart-fullscreen {
+  height: 100vh;
+  border-radius: 0;
+}
+
+.trade-chart-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--semi-color-border);
+}
+
+.trade-chart-switches {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.trade-chart-body {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.trade-chart-workspace {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+/* 绘图控件与图表宿主并列，避免属性菜单的点击被当作图表落点。 */
+.trade-draw-rail {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  width: 36px;
+  padding-top: 4px;
+  border-right: 1px solid var(--semi-color-border);
+  z-index: 6;
+}
+
+.trade-draw-btn,
+.trade-draw-square,
+.trade-draw-prop,
+.trade-draw-trigger,
+.trade-draw-item,
+.trade-draw-cell,
+.trade-draw-swatch {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--semi-color-text-1);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.trade-draw-btn {
+  width: 35px;
+  height: 32px;
+  flex-shrink: 0;
+}
+
+.trade-draw-btn:hover,
+.trade-draw-square:hover,
+.trade-draw-prop:hover,
+.trade-draw-trigger:hover,
+.trade-draw-item:hover,
+.trade-draw-cell:hover,
+.trade-draw-swatch:hover {
+  background: var(--semi-color-fill-0);
+}
+
+.trade-draw-btn-on,
+.trade-draw-btn-on:hover {
+  color: var(--semi-color-primary);
+  background: var(--semi-color-primary-light-default);
+}
+
+.trade-chart button:focus-visible,
+.trade-chart:focus-visible {
+  outline: 2px solid var(--semi-color-primary);
+  outline-offset: -2px;
+}
+
+.trade-draw-rail button:disabled,
+.trade-draw-sheet button:disabled {
+  cursor: default;
+  opacity: 0.35;
+  background: transparent;
+}
+
+.trade-draw-more {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 13px;
+  height: 14px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.trade-draw-more::after {
+  content: '';
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  border-left: 5px solid transparent;
+  border-bottom: 5px solid var(--semi-color-text-2);
+}
+
+.trade-draw-flyout,
+.trade-draw-sheet,
+.trade-draw-props,
+.trade-draw-pop {
+  position: absolute;
+  z-index: 7;
+  padding: 4px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 6px;
+  background: var(--semi-color-bg-2);
+  box-shadow: var(--semi-shadow-elevated);
+}
+
+.trade-draw-flyout {
+  left: 38px;
+  top: 0;
+  min-width: 155px;
+  max-width: 280px;
+}
+
+.trade-draw-item {
+  justify-content: flex-start;
+  width: 100%;
+  min-height: 32px;
+  padding: 6px 10px;
+  text-align: left;
+}
+
+.trade-draw-item-icon {
+  display: flex;
+  justify-content: center;
+  width: 20px;
+  flex-shrink: 0;
+}
+
+.trade-draw-text-icon {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: -0.2px;
+}
+
+.trade-draw-divider {
+  width: 24px;
+  margin: 6px auto;
+  border: 0;
+  border-top: 1px solid var(--semi-color-border);
+}
+
+.trade-draw-mobile {
+  display: none;
+}
+
+.trade-draw-trigger {
+  min-height: 28px;
+  padding: 4px 6px;
+}
+
+.trade-draw-sheet {
+  top: calc(100% + 6px);
+  left: 0;
+  width: 280px;
+  max-width: calc(100vw - 48px);
+  max-height: 340px;
+  overflow-y: auto;
+}
+
+.trade-draw-cell {
+  flex-direction: column;
+  min-width: 0;
+  min-height: 52px;
+  padding: 6px 3px;
+  line-height: 1.25;
+}
+
+.trade-draw-cell span {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.trade-draw-sheet-actions {
+  display: flex;
+  justify-content: space-around;
+  border-top: 1px solid var(--semi-color-border);
+  padding-top: 4px;
+  margin-top: 4px;
+}
+
+.trade-draw-square {
+  width: 36px;
+  height: 36px;
+}
+
+.trade-draw-props {
+  display: flex;
+  gap: 2px;
+  left: 50%;
+  bottom: 36px;
+  transform: translateX(-50%);
+}
+
+.trade-draw-prop {
+  width: 30px;
+  height: 30px;
+}
+
+.trade-draw-prop-wide {
+  width: 64px;
+}
+
+.trade-draw-prop-danger {
+  color: var(--semi-color-danger);
+}
+
+.trade-draw-pop {
+  bottom: calc(100% + 8px);
+  left: 0;
+  width: max-content;
+}
+
+.trade-draw-swatch {
+  width: 24px;
+  height: 24px;
+}
+
+.trade-draw-swatch > span {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+}
+
+.trade-draw-swatch-on {
+  outline: 1px solid var(--semi-color-primary);
+}
+
+.trade-draw-input {
+  position: absolute;
+  z-index: 7;
+  width: 180px;
+  max-width: 100%;
+  border: 0;
+  border-bottom: 1px dashed var(--semi-color-primary);
+  outline: none;
+  background: var(--semi-color-bg-2);
+  color: var(--semi-color-primary);
+  font: 12px sans-serif;
+  padding: 2px;
+}
+
+@media (max-width: 767px) {
+  .trade-draw-rail {
+    display: none;
+  }
+
+  .trade-draw-mobile {
+    display: block;
+  }
+}
+
+.trade-chart-canvas {
+  position: absolute;
+  inset: 0;
+}
+
+.trade-chart-legend {
+  position: absolute;
+  top: 6px;
+  left: 10px;
+  z-index: 3;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--semi-color-text-1);
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.trade-chart-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.trade-chart-error {
+  color: var(--semi-color-text-2);
+  font-size: 13px;
+}
+
+.trade-book-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  padding: 1px 4px;
+  font-size: 12px;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+
+.trade-book-row:hover {
+  background: var(--semi-color-fill-0);
+}
+
+/* 最新成交多一列时间。 */
+.trade-tape-row {
+  grid-template-columns: 1.2fr 1fr 0.9fr;
+}
+
+.trade-book-depth {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  opacity: 0.12;
+  pointer-events: none;
+}
+
+.trade-calendar {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.trade-calendar-cell {
+  min-height: 56px;
+  padding: 6px;
+  border-radius: 8px;
+  border: 1px solid var(--semi-color-border);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.trade-calendar-cell-active {
+  cursor: pointer;
+}
+
+.trade-calendar-cell-selected {
+  border-color: var(--semi-color-primary);
+}
+
+/* 合约仓位卡片：左边一条色条，多仓绿、空仓红；按钮展开的平仓、杠杆、止盈止损与保证金面板放在浅底色里。 */
+.trade-position {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--semi-color-border);
+  border-left-width: 3px;
+  border-radius: 8px;
+}
+
+.trade-position-long {
+  border-left-color: var(--semi-color-success);
+}
+
+.trade-position-short {
+  border-left-color: var(--semi-color-danger);
+}
+
+.trade-position-panel {
+  max-width: 480px;
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--semi-color-fill-0);
+}
+
+/* 点 K 线弹出的这根 K 线上的成交列表。 */
+.trade-chart-fills {
+  position: absolute;
+  z-index: 5;
+  width: 248px;
+  max-height: 60%;
+  overflow-y: auto;
+  padding: 6px 10px 8px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 8px;
+  background: var(--semi-color-bg-2);
+  box-shadow: var(--semi-shadow-elevated);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.trade-chart-fill-row {
+  display: grid;
+  grid-template-columns: 44px 58px 1fr;
+  gap: 6px;
+  padding: 2px 0;
+}
+
+/* 图表扩展：基础图保持挂载，切高级档后恢复原视窗和画线。 */
+.trade-chart-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.trade-chart-stage > .trade-chart-workspace {
+  height: 100%;
+}
+
+.trade-chart-hidden {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* 压过页头(z-50)和布局(100)，但留在 Semi 的弹层(Modal 1000 起)之下，确认框、提示和 Toast 才看得见。 */
+.trade-chart-fullscreen-fallback {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  height: 100dvh;
+  width: 100vw;
+}
+
+.trade-chart-indicator-readings {
+  display: flex;
+  gap: 8px 18px;
+  padding: 5px 10px;
+  overflow-x: auto;
+  flex-shrink: 0;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  border-bottom: 1px solid var(--semi-color-border);
+}
+
+.trade-chart-indicator-group {
+  display: flex;
+  gap: 10px;
+  white-space: nowrap;
+}
+
+.trade-chart-events {
+  position: absolute;
+  z-index: 8;
+  width: 310px;
+  max-width: 100%;
+  max-height: 80%;
+  overflow-y: auto;
+  background: var(--semi-color-bg-2);
+  color: var(--semi-color-text-0);
+  border: 1px solid var(--semi-color-border);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  font-size: 12px;
+  padding: 8px 10px;
+  overflow-wrap: anywhere;
+}
+
+.trade-chart-events-heading,
+.trade-chart-event-values {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.trade-chart-event {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 8px 0;
+  border-top: 1px solid var(--semi-color-border);
+}
+
+.trade-chart-event-values {
+  flex-wrap: wrap;
+}
+
+.trade-chart-advanced {
+  position: absolute;
+  inset: 0;
+  z-index: 9;
+  display: flex;
+  flex-direction: column;
+  background: var(--semi-color-bg-1);
+}
+
+.trade-chart-advanced-widget {
+  height: calc(100% - 24px);
+  width: 100%;
+}
+
+.trade-chart-advanced-widget > .tradingview-widget-container__widget {
+  height: 100%;
+  width: 100%;
+}
+
+/* TradingView 的脚本会给这个类名注入带 !important 的 32px 行高与 13px 字号，这里要压回来才不会溢出这一行。 */
+.trade-chart-advanced .tradingview-widget-copyright {
+  height: 24px;
+  line-height: 24px !important;
+  text-align: center;
+  font-size: 12px !important;
+  color: var(--semi-color-text-2) !important;
+}
+
+.trade-chart-advanced-error {
+  position: absolute;
+  inset: 40% 10px auto;
+  text-align: center;
+  font-size: 13px;
+  color: var(--semi-color-text-2);
+}
+
+/* 顶部行情条：滚动时两份相同的内容首尾相接，向左移动一份的宽度(整条的一半)正好接上；悬停或聚焦时停下。 */
+.trade-ticker {
+  overflow: hidden;
+  white-space: nowrap;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--semi-color-border);
+  font-size: 13px;
+}
+
+.trade-ticker-track {
+  display: flex;
+  width: max-content;
+}
+
+.trade-ticker-scrolling .trade-ticker-track {
+  animation: trade-ticker linear infinite;
+}
+
+.trade-ticker:hover .trade-ticker-track,
+.trade-ticker:focus-within .trade-ticker-track {
+  animation-play-state: paused;
+}
+
+.trade-ticker-set {
+  display: flex;
+  gap: 28px;
+  padding-right: 28px;
+}
+
+.trade-ticker-cell {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--semi-color-text-1);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.trade-ticker-cell b {
+  color: var(--semi-color-text-0);
+  font-weight: 600;
+}
+
+.trade-ticker-cell:hover b,
+.trade-ticker-current b {
+  color: var(--semi-color-primary);
+}
+
+@keyframes trade-ticker {
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+/* 系统设置了减少动态效果时不滚，改成可以横向滚动，只留一份内容。 */
+@media (prefers-reduced-motion: reduce) {
+  .trade-ticker {
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
+
+  .trade-ticker-scrolling .trade-ticker-track {
+    animation: none;
+  }
+
+  .trade-ticker-set[aria-hidden='true'] {
+    display: none;
+  }
+}
+
+/* 排行榜：前三名的名次放进金、银、铜色的圆里，自己那一行用浅色底标出来。 */
+.trade-rank {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 6px;
+  border-radius: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.trade-rank-1 {
+  background: #f5c242;
+  color: #5c4400;
+}
+
+.trade-rank-2 {
+  background: #c9ced6;
+  color: #3b4048;
+}
+
+.trade-rank-3 {
+  background: #d99a6c;
+  color: #4a2a12;
+}
+
+.trade-leaderboard-me .semi-table-row-cell {
+  background: var(--semi-color-primary-light-default);
+}
+
+/* 行情列表的搜索框：不必占满整行。 */
+.trade-market-search {
+  max-width: 320px;
+}
+
+/* 价格轴上的最新价标签：上面价格、下面这根 K 线的收盘倒计时，位置和底色由 K 线图每 250 毫秒更新。 */
+.trade-chart-last {
+  position: absolute;
+  right: 0;
+  z-index: 4;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  box-sizing: border-box;
+  padding: 1px 4px;
+  transform: translateY(-50%);
+  color: #fff;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.3;
+  pointer-events: none;
+}
+
+.trade-chart-last-countdown {
+  font-size: 10px;
+  opacity: 0.85;
+}
+
+/* 标的市场交易时段：徽标、时段图与图例共用一套颜色，照 Binance 的时段图。 */
+.trade-session-pre {
+  --trade-session: rgb(var(--semi-amber-5));
+}
+
+.trade-session-open {
+  --trade-session: rgb(var(--semi-green-5));
+}
+
+.trade-session-post {
+  --trade-session: rgb(var(--semi-violet-5));
+}
+
+.trade-session-overnight {
+  --trade-session: rgb(var(--semi-blue-5));
+}
+
+.trade-session-closed {
+  --trade-session: var(--semi-color-text-2);
+}
+
+.trade-session-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 8px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 999px;
+  background: var(--semi-color-bg-1);
+  color: var(--semi-color-text-0);
+  font-size: 12px;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.trade-session-badge:hover {
+  background: var(--semi-color-fill-0);
+}
+
+.trade-session-countdown {
+  color: var(--semi-color-text-2);
+}
+
+@media (max-width: 640px) {
+  .trade-session-countdown {
+    display: none;
+  }
+}
+
+.trade-session-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  color: var(--trade-session);
+}
+
+.trade-session-dot {
+  width: 45%;
+  height: 45%;
+  border-radius: 50%;
+  background: var(--trade-session);
+}
+
+.trade-session-axis {
+  position: relative;
+  height: 22px;
+  margin-left: 48px;
+}
+
+.trade-session-bubble,
+.trade-session-tick {
+  position: absolute;
+  top: 2px;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.trade-session-bubble {
+  padding: 0 6px;
+  border-radius: 6px;
+  background: var(--semi-color-text-0);
+  color: var(--semi-color-bg-0);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+}
+
+.trade-session-tick {
+  color: var(--semi-color-text-2);
+  font-size: 11px;
+}
+
+.trade-session-rows {
+  position: relative;
+}
+
+.trade-session-now-track {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 48px;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.trade-session-now {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-left: 1px dashed var(--semi-color-text-2);
+}
+
+.trade-session-row {
+  display: flex;
+  align-items: center;
+  padding: 8px 0;
+  border-radius: 6px;
+}
+
+.trade-session-row.is-today {
+  background: var(--semi-color-fill-0);
+}
+
+.trade-session-day {
+  flex-shrink: 0;
+  width: 48px;
+  padding-left: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.trade-session-track {
+  position: relative;
+  flex: 1;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--semi-color-fill-1);
+}
+
+.trade-session-bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+}
+
+/* 左右各缩 1.5px，相邻时段之间留一道细缝。 */
+.trade-session-bar::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 1.5px;
+  bottom: 0;
+  left: 1.5px;
+  border-radius: 999px;
+  background: var(--trade-session);
+}
+
+/* 预测页：本轮进度、BTC 价格走势、目标价与 Polymarket 实时成交。 */
+.trade-prediction-progress {
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--semi-color-fill-1);
+}
+
+.trade-prediction-progress > span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--semi-color-success);
+  transition: width 1s linear;
+}
+
+.trade-prediction-progress > span.is-ending {
+  background: var(--semi-color-warning);
+}
+
+.trade-prediction-chart {
+  height: 220px;
+}
+
+.trade-prediction-target {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--semi-color-fill-0);
+  color: var(--semi-color-text-1);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: help;
+}
+
+.trade-prediction-trades {
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.trade-prediction-trade {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) 64px 76px;
+  gap: 8px;
+  align-items: center;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--semi-color-border);
+  font-size: 12px;
+}
+
+.trade-prediction-trade-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--semi-color-bg-1);
+  color: var(--semi-color-text-2);
+}
+
+/* 现货借款卡里每一种借着的币，和上面隔一条虚线。 */
+.trade-short {
+  padding-top: 8px;
+  border-top: 1px dashed var(--semi-color-border);
+}

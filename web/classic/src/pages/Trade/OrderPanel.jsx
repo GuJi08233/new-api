@@ -1,0 +1,461 @@
+/*
+Copyright (C) 2025 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+
+import React, { useEffect, useState } from 'react';
+import {
+  Button,
+  Input,
+  Radio,
+  RadioGroup,
+  Switch,
+  Typography,
+} from '@douyinfe/semi-ui';
+import { showError, showSuccess } from '../../helpers';
+import {
+  decimalsOf,
+  floorToStep,
+  formatPrice,
+  formatQty,
+  toUsdt,
+  tradePost,
+} from './api';
+
+const { Text } = Typography;
+const PERCENTS = [0.25, 0.5, 0.75, 1];
+// 现货杠杆的倍数：Binance 全仓杠杆的账户最高 3 倍或 5 倍，每笔可以少借一些。
+const SPOT_LEVERAGES = [1, 2, 3, 5];
+
+// 下单面板：买入或卖出，市价或限价；市价买入可以按数量也可以按金额。百分比按钮按可用资金(买入)或可卖数量(卖出)填写，
+// 卖出 100% 是全部可卖数量。估算按当前盘口的最优价算，实际按盘口逐档成交。账户开着杠杆时市价卖出可以借币卖出(做空)：先卖可卖
+// 的持仓，不够的借来卖掉，百分比按可卖数量加上估出的最多可借数量填写。
+const OrderPanel = ({
+  symbol,
+  ticker,
+  rules,
+  quote,
+  cash,
+  position,
+  perUnit,
+  feeBps,
+  pickedPrice,
+  onPlaced,
+  t,
+  spot,
+  valuation,
+}) => {
+  const [side, setSide] = useState('buy');
+  const [type, setType] = useState('market');
+  const [byAmount, setByAmount] = useState(false);
+  const [price, setPrice] = useState('');
+  const [qty, setQty] = useState('');
+  const [amount, setAmount] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [leverage, setLeverage] = useState(1);
+  const [borrowing, setBorrowing] = useState(false);
+
+  const step = rules?.step_size;
+  const tick = rules?.tick_size;
+  const priceDigits = decimalsOf(tick);
+  const fee = (feeBps || 0) / 10000;
+  const isBuy = side === 'buy';
+  const amountMode = isBuy && type === 'market' && byAmount;
+  const buyingDisabled = spot?.enabled === false;
+  // 杠杆只用于按数量的市价买入：借多少要成交后才知道，限价单和按金额买入都不借。管理员调低最高杠杆后，超出的选择按 1 倍算。
+  const canLever =
+    isBuy && type === 'market' && !byAmount && spot?.max_leverage > 1;
+  const lever = canLever && leverage <= spot.max_leverage ? leverage : 1;
+  // 借币卖出只用于市价卖出，借的数量就是卖出的数量。
+  const canBorrow =
+    !isBuy &&
+    type === 'market' &&
+    spot?.max_leverage > 1 &&
+    spot?.enabled !== false &&
+    !!spot?.asset_rates?.[symbol];
+  const borrow = canBorrow && borrowing;
+
+  useEffect(() => {
+    setPrice('');
+    setQty('');
+    setAmount('');
+  }, [symbol]);
+
+  // 点盘口上的价格时改成限价单并填上这个价格。
+  useEffect(() => {
+    if (pickedPrice) {
+      setType('limit');
+      setPrice(pickedPrice.price);
+    }
+  }, [pickedPrice]);
+
+  const cashUsdt = toUsdt(cash, perUnit);
+  const heldQty = Math.max(
+    Number(position?.qty || 0) - Number(position?.frozen_qty || 0),
+    0,
+  );
+  const marketPrice =
+    Number(isBuy ? quote?.ask || quote?.price : quote?.bid || quote?.price) ||
+    0;
+  const refPrice = type === 'limit' ? Number(price) || 0 : marketPrice;
+  // 按金额买入时填的金额含手续费，成交额是扣掉手续费后的部分。
+  const notional = amountMode
+    ? (Number(amount) || 0) / (1 + fee)
+    : (Number(qty) || 0) * refPrice;
+  const estimatedFee = notional * fee;
+  // 杠杆买入只从模拟盘现金支付保证金，但手续费仍按全额名义金额收取。
+  const total = isBuy
+    ? notional / lever + estimatedFee
+    : notional - estimatedFee;
+  const minNotional = Number(rules?.min_notional || 0);
+  // 最多能借多少：借币卖出之后风险率 (资金 + 现货 + 卖出到账) ÷ (负债 + 借的币) 不能低于开仓线 L，可借价值约为
+  // (资金 + 现货 − L × 负债) ÷ (L − 1)，再留 2% 给手续费与价差。
+  const risk = valuation?.spot_risk || {};
+  const hasDebt = Number(risk.debt || 0) > 0;
+  const collateral = toUsdt(
+    (hasDebt ? risk.cash : valuation?.cross?.withdrawable || 0) +
+      (hasDebt
+        ? risk.assets
+        : (valuation?.crypto_value || 0) + (valuation?.stock_value || 0)),
+    perUnit,
+  );
+  const initialLevel = Number(spot?.initial_level || 0);
+  const maxBorrowQty =
+    borrow && initialLevel > 1 && marketPrice > 0
+      ? Math.max(
+          0,
+          ((collateral - initialLevel * toUsdt(risk.debt || 0, perUnit)) /
+            (initialLevel - 1) /
+            marketPrice) *
+            0.98,
+        )
+      : 0;
+  // 这笔要借的数量：卖出数量超出可卖持仓的部分。
+  const borrowQty = borrow ? Math.max(0, (Number(qty) || 0) - heldQty) : 0;
+
+  const applyPercent = (percent) => {
+    if (amountMode) {
+      setAmount((Math.floor(cashUsdt * percent * 100) / 100).toFixed(2));
+      return;
+    }
+    if (isBuy) {
+      if (refPrice <= 0) return;
+      setQty(
+        floorToStep(
+          (cashUsdt * percent) / (refPrice * (1 / lever + fee)),
+          step,
+        ),
+      );
+      return;
+    }
+    if (borrow) {
+      setQty(floorToStep((heldQty + maxBorrowQty) * percent, step));
+      return;
+    }
+    setQty(
+      percent === 1 ? String(heldQty) : floorToStep(heldQty * percent, step),
+    );
+  };
+
+  const submit = async () => {
+    const body = { symbol, side, type, leverage: lever, borrow };
+    if (amountMode) {
+      body.amount = amount;
+    } else {
+      body.qty = qty;
+    }
+    if (type === 'limit') body.price = price;
+    setSubmitting(true);
+    const res = await tradePost('/api/trade/orders', body, t);
+    setSubmitting(false);
+    if (res.error) {
+      showError(res.error);
+      return;
+    }
+    const order = res.data;
+    if (order.status === 'open' && Number(order.filled_qty) === 0) {
+      showSuccess(t('限价单已挂出'));
+    } else if (order.status === 'open') {
+      showSuccess(
+        t('已成交 {{qty}} {{ticker}}，剩余部分挂单', {
+          qty: formatQty(order.filled_qty),
+          ticker,
+        }),
+      );
+    } else if (order.status === 'filled') {
+      showSuccess(
+        t('已成交 {{qty}} {{ticker}}，均价 {{price}}', {
+          qty: formatQty(order.filled_qty),
+          ticker,
+          price: formatPrice(order.avg_price, priceDigits),
+        }),
+      );
+    } else {
+      showSuccess(
+        t('成交 {{qty}} {{ticker}}，盘口不够的部分已撤销', {
+          qty: formatQty(order.filled_qty),
+          ticker,
+        }),
+      );
+    }
+    setQty('');
+    setAmount('');
+    onPlaced?.();
+  };
+
+  const ready = amountMode
+    ? Number(amount) > 0
+    : Number(qty) > 0 && (type === 'market' || Number(price) > 0);
+
+  return (
+    <div className='trade-card flex flex-col gap-3'>
+      <div className='grid grid-cols-2 gap-2'>
+        <Button
+          theme={isBuy ? 'solid' : 'light'}
+          type={isBuy ? 'primary' : 'tertiary'}
+          onClick={() => setSide('buy')}
+          style={
+            isBuy ? { background: 'var(--semi-color-success)' } : undefined
+          }
+        >
+          {t('买入')}
+        </Button>
+        <Button
+          theme={!isBuy ? 'solid' : 'light'}
+          type={!isBuy ? 'danger' : 'tertiary'}
+          onClick={() => setSide('sell')}
+        >
+          {t('卖出')}
+        </Button>
+      </div>
+      <RadioGroup
+        type='button'
+        value={type}
+        onChange={(e) => setType(e.target.value)}
+      >
+        <Radio value='market'>{t('市价')}</Radio>
+        <Radio value='limit'>{t('限价')}</Radio>
+      </RadioGroup>
+      {type === 'limit' && (
+        <Input
+          value={price}
+          onChange={setPrice}
+          prefix={t('委托价格')}
+          aria-label={t('委托价格')}
+          suffix='USDT'
+          placeholder={formatPrice(quote?.price, priceDigits)}
+          inputMode='decimal'
+        />
+      )}
+      {isBuy && type === 'market' && (
+        <RadioGroup
+          type='button'
+          size='small'
+          value={byAmount ? 'amount' : 'qty'}
+          onChange={(e) => setByAmount(e.target.value === 'amount')}
+        >
+          <Radio value='qty'>{t('按数量')}</Radio>
+          <Radio value='amount'>{t('按金额')}</Radio>
+        </RadioGroup>
+      )}
+      {canBorrow && (
+        <div className='flex flex-col gap-1'>
+          <label className='flex items-center justify-between gap-2'>
+            <Text type='tertiary' size='small'>
+              {t('借币卖出')}
+            </Text>
+            <Switch
+              size='small'
+              checked={borrowing}
+              onChange={setBorrowing}
+              aria-label={t('借币卖出')}
+            />
+          </label>
+          {borrow && (
+            <Text type='tertiary' size='small'>
+              {t(
+                '先卖可卖的持仓，不够的数量借来卖掉；欠的币按小时计息，买入这个币时先还借币。风险率不高于 {{level}} 时强平买回，另收 2% 的强平费',
+                { level: spot.liquidation_level },
+              )}
+            </Text>
+          )}
+        </div>
+      )}
+      {canLever && (
+        <div className='flex flex-col gap-1'>
+          <div className='flex flex-wrap items-center gap-1'>
+            <Text type='tertiary' size='small'>
+              {t('杠杆')}
+            </Text>
+            {SPOT_LEVERAGES.filter((value) => value <= spot.max_leverage).map(
+              (value) => (
+                <Button
+                  key={value}
+                  size='small'
+                  theme={lever === value ? 'solid' : 'light'}
+                  onClick={() => setLeverage(value)}
+                >
+                  {value}x
+                </Button>
+              ),
+            )}
+          </div>
+          {lever > 1 && (
+            <Text type='tertiary' size='small'>
+              {t(
+                '不够的 USDT 自动借入，按小时计息；风险率不高于 {{level}} 时强平，另收还款额 2% 的强平费',
+                { level: spot.liquidation_level },
+              )}
+            </Text>
+          )}
+        </div>
+      )}
+      {amountMode ? (
+        <Input
+          value={amount}
+          onChange={setAmount}
+          prefix={t('买入金额')}
+          aria-label={t('买入金额')}
+          suffix='USDT'
+          inputMode='decimal'
+        />
+      ) : (
+        <Input
+          value={qty}
+          onChange={setQty}
+          prefix={t('委托数量')}
+          aria-label={t('委托数量')}
+          suffix={ticker}
+          inputMode='decimal'
+        />
+      )}
+      <div className='grid grid-cols-4 gap-1'>
+        {PERCENTS.map((percent) => (
+          <Button
+            key={percent}
+            size='small'
+            theme='light'
+            type='tertiary'
+            onClick={() => applyPercent(percent)}
+          >
+            {percent * 100}%
+          </Button>
+        ))}
+      </div>
+      <div className='flex flex-col gap-1 text-xs'>
+        <div className='flex justify-between'>
+          <Text type='tertiary' size='small'>
+            {isBuy ? t('可用资金') : t('可卖数量')}
+          </Text>
+          <Text size='small' className='trade-num'>
+            {isBuy
+              ? `${cashUsdt.toFixed(2)} USDT`
+              : `${formatQty(heldQty)} ${ticker}`}
+          </Text>
+        </div>
+        {borrow && (
+          <>
+            <div className='flex justify-between'>
+              <Text type='tertiary' size='small'>
+                {t('约可借')}
+              </Text>
+              <Text size='small' className='trade-num'>
+                {formatQty(floorToStep(maxBorrowQty, step))} {ticker}
+              </Text>
+            </div>
+            <div className='flex justify-between'>
+              <Text type='tertiary' size='small'>
+                {t('借入')} ({t('日利率')}{' '}
+                {(Number(spot.asset_rates[symbol] || 0) * 100).toFixed(4)}%)
+              </Text>
+              <Text size='small' className='trade-num'>
+                {borrowQty > 0
+                  ? `${formatQty(floorToStep(borrowQty, step))} ${ticker}`
+                  : '--'}
+              </Text>
+            </div>
+          </>
+        )}
+        {lever > 1 && (
+          <div className='flex justify-between'>
+            <Text type='tertiary' size='small'>
+              {t('借入')} ({t('日利率')}{' '}
+              {(Number(spot?.daily_rate || 0) * 100).toFixed(4)}%)
+            </Text>
+            <Text size='small' className='trade-num'>
+              {notional > 0
+                ? `${(notional - notional / lever).toFixed(2)} USDT`
+                : '--'}
+            </Text>
+          </div>
+        )}
+        <div className='flex justify-between'>
+          <Text type='tertiary' size='small'>
+            {t('预计成交额')}
+          </Text>
+          <Text size='small' className='trade-num'>
+            {notional > 0 ? `${notional.toFixed(2)} USDT` : '--'}
+          </Text>
+        </div>
+        <div className='flex justify-between'>
+          <Text type='tertiary' size='small'>
+            {t('手续费')} ({(fee * 100).toFixed(2)}%)
+          </Text>
+          <Text size='small' className='trade-num'>
+            {notional > 0 ? `${estimatedFee.toFixed(4)} USDT` : '--'}
+          </Text>
+        </div>
+        <div className='flex justify-between'>
+          <Text type='tertiary' size='small'>
+            {isBuy ? t('合计花费') : t('预计到账')}
+          </Text>
+          <Text size='small' strong className='trade-num'>
+            {notional > 0 ? `${total.toFixed(2)} USDT` : '--'}
+          </Text>
+        </div>
+        {notional > 0 && notional < minNotional && (
+          <Text type='warning' size='small'>
+            {t('单笔至少 {{min}} USDT', { min: minNotional })}
+          </Text>
+        )}
+      </div>
+      <Button
+        theme='solid'
+        type={isBuy ? 'primary' : 'danger'}
+        style={isBuy ? { background: 'var(--semi-color-success)' } : undefined}
+        loading={submitting}
+        disabled={!ready || (isBuy && buyingDisabled)}
+        onClick={submit}
+      >
+        {isBuy
+          ? t('买入 {{ticker}}', { ticker })
+          : borrow
+            ? t('借币卖出 {{ticker}}', { ticker })
+            : t('卖出 {{ticker}}', { ticker })}
+      </Button>
+      <Text type='tertiary' size='small'>
+        {type === 'market'
+          ? t('市价单按 Binance 实时盘口逐档成交，盘口不够时剩余部分撤销。')
+          : t(
+              '限价单按限价成交，盘口达到限价前会冻结资金或数量，可以随时撤单。',
+            )}
+      </Text>
+    </div>
+  );
+};
+
+export default OrderPanel;

@@ -37,6 +37,7 @@ import Token from './pages/Token';
 import Redemption from './pages/Redemption';
 import RiskControl from './pages/RiskControl';
 import SystemInfo from './pages/SystemInfo';
+import TradeAdmin from './pages/TradeAdmin';
 import InvitationCode from './pages/InvitationCode';
 import TopUp from './pages/TopUp';
 import Log from './pages/Log';
@@ -60,6 +61,7 @@ const About = lazy(() => import('./pages/About'));
 const UserAgreement = lazy(() => import('./pages/UserAgreement'));
 const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy'));
 const Rankings = lazy(() => import('./pages/Rankings'));
+const Trade = lazy(() => import('./pages/Trade'));
 
 function DynamicOAuth2Callback() {
   const { provider } = useParams();
@@ -216,6 +218,14 @@ function App() {
             element={
               <RootRoute>
                 <SystemInfo />
+              </RootRoute>
+            }
+          />
+          <Route
+            path='/console/trade'
+            element={
+              <RootRoute>
+                <TradeAdmin />
               </RootRoute>
             }
           />
@@ -423,6 +433,104 @@ function App() {
                   <Rankings />
                 </Suspense>
               )
+            }
+          />
+          <Route
+            path='/trade'
+            element={
+              <PrivateRoute>
+                <Suspense
+                  fallback={<Loading></Loading>}
+                  key={location.pathname}
+                >
+                  <Trade />
+                </Suspense>
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path='/trade/assets'
+            element={
+              <PrivateRoute>
+                <Suspense
+                  fallback={<Loading></Loading>}
+                  key={location.pathname}
+                >
+                  <Trade />
+                </Suspense>
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path='/trade/insights'
+            element={
+              <PrivateRoute>
+                <Suspense fallback={<Loading />}>
+                  <Trade />
+                </Suspense>
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path='/trade/prediction'
+            element={
+              <PrivateRoute>
+                <Suspense fallback={<Loading />}>
+                  <Trade />
+                </Suspense>
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path='/trade/leaderboard'
+            element={
+              <PrivateRoute>
+                <Suspense
+                  fallback={<Loading></Loading>}
+                  key={location.pathname}
+                >
+                  <Trade />
+                </Suspense>
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path='/trade/futures'
+            element={
+              <PrivateRoute>
+                <Suspense
+                  fallback={<Loading></Loading>}
+                  key={location.pathname}
+                >
+                  <Trade />
+                </Suspense>
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path='/trade/futures/:symbol'
+            element={
+              <PrivateRoute>
+                <Suspense
+                  fallback={<Loading></Loading>}
+                  key={location.pathname}
+                >
+                  <Trade />
+                </Suspense>
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path='/trade/:symbol'
+            element={
+              <PrivateRoute>
+                <Suspense
+                  fallback={<Loading></Loading>}
+                  key={location.pathname}
+                >
+                  <Trade />
+                </Suspense>
+              </PrivateRoute>
             }
           />
           <Route

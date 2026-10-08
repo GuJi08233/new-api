@@ -239,6 +239,8 @@ func loadOptionsFromDatabase() {
 	}
 	common.OptionMapRWMutex.Lock()
 	defer common.OptionMapRWMutex.Unlock()
+	// 模拟盘配置等所有项回放完再整份发布，读取方不会看到新旧混杂的配置。
+	defer operation_setting.SyncTradeSetting()
 	for _, option := range options {
 		err := applyOptionToRuntime(option.Key, option.Value)
 		if err != nil {
@@ -269,6 +271,9 @@ func UpdateOption(key string, value string) error {
 		return err
 	}
 	if err := operation_setting.ValidateIpLocationOption(key, value); err != nil {
+		return err
+	}
+	if err := operation_setting.ValidateTradeOption(key, value); err != nil {
 		return err
 	}
 	if err := validateTieredBillingOption(key, value); err != nil {
@@ -326,6 +331,9 @@ func updateOptionsBulkLocked(values map[string]string) error {
 		if err := operation_setting.ValidateIpLocationOption(key, value); err != nil {
 			return err
 		}
+		if err := operation_setting.ValidateTradeOption(key, value); err != nil {
+			return err
+		}
 		if err := validateTieredBillingOption(key, value); err != nil {
 			return err
 		}
@@ -359,6 +367,8 @@ func updateOptionsBulkLocked(values map[string]string) error {
 	// 相关配置在同一写锁内发布，计费读取不会看见新模式配旧表达式。
 	common.OptionMapRWMutex.Lock()
 	defer common.OptionMapRWMutex.Unlock()
+	// 模拟盘配置等这一批全部写完再整份发布：它的读取方不经过这把锁，逐项发布的话，行情连接可能拿到新地址配旧代理。
+	defer operation_setting.SyncTradeSetting()
 	for k, v := range activeValues {
 		if err := applyOptionToRuntime(k, v); err != nil {
 			return err
@@ -370,6 +380,9 @@ func updateOptionsBulkLocked(values map[string]string) error {
 func updateOptionMap(key string, value string) (err error) {
 	common.OptionMapRWMutex.Lock()
 	defer common.OptionMapRWMutex.Unlock()
+	if strings.HasPrefix(key, operation_setting.TradeSettingPrefix) {
+		defer operation_setting.SyncTradeSetting()
+	}
 	return applyOptionToRuntime(key, value)
 }
 
@@ -383,6 +396,9 @@ func applyOptionToRuntime(key string, value string) (err error) {
 		return err
 	}
 	if err := operation_setting.ValidateIpLocationOption(key, value); err != nil {
+		return err
+	}
+	if err := operation_setting.ValidateTradeOption(key, value); err != nil {
 		return err
 	}
 	// 注意：此处不做阶梯计费表达式校验。updateOptionMap 同时服务于写入路径

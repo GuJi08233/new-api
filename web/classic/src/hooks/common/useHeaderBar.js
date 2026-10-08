@@ -51,6 +51,7 @@ export const useHeaderBar = ({ onMobileMenuToggle, drawerOpen }) => {
   const isSelfUseMode = statusState?.status?.self_use_mode_enabled || false;
   const docsLink = statusState?.status?.docs_link || '';
   const isDemoSiteMode = statusState?.status?.demo_site_enabled || false;
+  const tradeEnabled = statusState?.status?.trade_enabled === true;
 
   // 获取顶栏模块配置
   const headerNavModulesConfig = statusState?.status?.HeaderNavModules;
@@ -257,6 +258,7 @@ export const useHeaderBar = ({ onMobileMenuToggle, drawerOpen }) => {
     headerNavModules,
     pricingRequireAuth,
     rankingsRequireAuth,
+    tradeEnabled,
 
     // Actions
     logout,
