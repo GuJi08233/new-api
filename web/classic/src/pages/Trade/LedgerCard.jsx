@@ -58,6 +58,9 @@ const LedgerCard = ({ perUnit, refreshKey, t }) => {
     spot_repay: t('还款'),
     spot_liq_fee: t('强平费'),
     spot_cover: t('额度补足借款亏空'),
+    spot_coin_loan: t('借币'),
+    spot_coin_int: t('借币利息'),
+    spot_coin_repay: t('还币'),
     prediction_buy: t('预测买入'),
     prediction_sell: t('预测卖出'),
     predict_settle: t('预测结算'),
@@ -114,6 +117,15 @@ const LedgerCard = ({ perUnit, refreshKey, t }) => {
         }
         if (entry.type === 'spot_interest') {
           return `${t('日利率')} ${(Number(entry.price || 0) * 100).toFixed(4)}%`;
+        }
+        if (entry.type === 'spot_coin_int') {
+          return `${entry.symbol} ${formatQty(entry.qty)} · ${t('日利率')} ${(Number(entry.price || 0) * 100).toFixed(4)}%`;
+        }
+        if (
+          entry.type === 'spot_coin_loan' ||
+          entry.type === 'spot_coin_repay'
+        ) {
+          return `${entry.symbol} ${formatQty(entry.qty)}`;
         }
         return entry.symbol || '--';
       },

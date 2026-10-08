@@ -5044,6 +5044,22 @@
     "价格推送连接中…": "Connecting to the price feed…",
     "实时成交": "Live trades",
     "等待成交…": "Waiting for trades…",
-    "最新成交": "Market trades"
+    "最新成交": "Market trades",
+    "借币欠款": "Borrowed coins owed",
+    "借币": "Coin loan",
+    "借币利息": "Coin loan interest",
+    "还币": "Coin repayment",
+    "{{symbol}} 借币强平：买回 {{qty}} @ {{price}}": "{{symbol}} coin loan liquidated: bought back {{qty}} @ {{price}}",
+    "借币卖出": "Borrow to sell",
+    "先卖可卖的持仓，不够的数量借来卖掉；欠的币按小时计息，买入这个币时先还借币。风险率不高于 {{level}} 时强平买回，另收 2% 的强平费": "Sells your available holdings first and borrows only the rest. Interest on the borrowed coins is charged hourly, and buying this coin repays the loan first. At a margin level of {{level}} or below, the coins are bought back in a liquidation with a 2% fee.",
+    "约可借": "Max to borrow (est.)",
+    "借币卖出 {{ticker}}": "Borrow & sell {{ticker}}",
+    "已买回并还币": "Bought back and repaid",
+    "买入还币": "Buy back & repay",
+    "欠币(含利息)": "Owed (incl. interest)",
+    "按最新价": "At last price",
+    "开空均价": "Avg. short price",
+    "风险率 = (资金 + 现货按买一的市值) ÷ (借款本金 + 利息 + 借着的币按卖一的价值)。不高于 {{call}} 提醒追加保证金，不高于 {{liquidation}} 强平并收还款额 2% 的强平费；转出资金后不能低于 {{transfer}}。利息按 Binance 的实时借贷利率每小时收一次，借币的利息按币收。": "Margin level = (cash + spot holdings at the best bid) ÷ (loan principal + interest + borrowed coins at the best ask). At {{call}} or below you get a margin call; at {{liquidation}} or below the account is liquidated with a 2% fee on the amount repaid; transfers out must leave it at {{transfer}} or above. Interest follows Binance's live borrow rates and is charged hourly; interest on borrowed coins is charged in coins.",
+    "借币笔数": "Open coin loans"
   }
 }

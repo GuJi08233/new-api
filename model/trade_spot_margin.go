@@ -2,6 +2,7 @@ package model
 
 import (
 	"errors"
+	"slices"
 	"sync/atomic"
 
 	"github.com/QuantumNous/new-api/common"
@@ -11,9 +12,10 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// 现货杠杆照 Binance 全仓杠杆的经典模式：借的都是 USDT，账户里的全部现货和不被全仓合约占用的资金一起作抵押。
+// 现货杠杆照 Binance 全仓杠杆的经典模式：杠杆买入借 USDT，借币卖出借币(见 trade_spot_asset_loan.go)，账户里的全部现货和不被
+// 全仓合约占用的资金一起作抵押。
 //
-// 风险率 = (不被全仓合约占用的资金 + 现货按买一的市值) / (借款本金 + 利息)。风险率不高于 1.1 时强平；借款之后不能低于开仓线
+// 风险率 = (不被全仓合约占用的资金 + 现货按买一的市值) / (借 USDT 的本金 + 利息 + 借着的币按卖一的价值)。风险率不高于 1.1 时强平；借款之后不能低于开仓线
 // (3 倍账户 1.5，5 倍账户 1.25)；把钱转出去(转回额度、给合约或预测用)之后不能低于 2；跌到追加保证金线(3 倍 1.3，5 倍 1.16)
 // 时提醒一次。
 //
@@ -97,9 +99,11 @@ type TradeSpotMargin struct {
 	MarginCallAt int64 `json:"margin_call_at" gorm:"bigint"`
 }
 
-// TradeSpotPriceMarket 给现货估值：返回买一价与它是否新鲜。过期的价格不能用来放款、转出或强平。
+// TradeSpotPriceMarket 给现货估值：SpotPrice 是买一价(持仓的抵押价值)，SpotAsk 是卖一价(借着的币买回来的价钱)，以及它们是否
+// 新鲜。过期的价格不能用来放款、转出或强平。
 type TradeSpotPriceMarket interface {
 	SpotPrice(symbol string) (decimal.Decimal, bool)
+	SpotAsk(symbol string) (decimal.Decimal, bool)
 }
 
 func GetTradeSpotMargin(userId int) (TradeSpotMargin, error) {
@@ -122,18 +126,33 @@ func ListTradeSpotMarginsOf(userIds []int) ([]TradeSpotMargin, error) {
 	return loans, err
 }
 
-// ListTradeSpotMarginUsers 是有借款的用户。
+// ListTradeSpotMarginUsers 是借着 USDT 或者借着币的用户，按 user_id 升序。
 func ListTradeSpotMarginUsers() ([]int, error) {
-	var users []int
-	err := DB.Model(&TradeSpotMargin{}).Where("principal > 0 OR interest > 0").Order("user_id").Pluck("user_id", &users).Error
-	return users, err
+	var users, borrowers []int
+	if err := DB.Model(&TradeSpotMargin{}).Where("principal > 0 OR interest > 0").Pluck("user_id", &users).Error; err != nil {
+		return nil, err
+	}
+	if err := DB.Model(&TradeSpotAssetLoan{}).Where("principal > 0 OR interest > 0").Distinct("user_id").Pluck("user_id", &borrowers).Error; err != nil {
+		return nil, err
+	}
+	users = append(users, borrowers...)
+	slices.Sort(users)
+	return slices.Compact(users), nil
 }
 
-// ListTradeSpotPositionSymbols 是有人持有的现货交易对：交易对关了也要给持有的人行情，好让他们卖出、还款。
+// ListTradeSpotPositionSymbols 是有人持有或者借着币的现货交易对：交易对关了也要给他们行情，好让他们卖出、买回还币、还款，也让
+// 强平能按盘口进行。
 func ListTradeSpotPositionSymbols() ([]string, error) {
-	var symbols []string
-	err := DB.Model(&TradePosition{}).Where("qty > 0").Distinct("symbol").Pluck("symbol", &symbols).Error
-	return symbols, err
+	var symbols, borrowed []string
+	if err := DB.Model(&TradePosition{}).Where("qty > 0").Distinct("symbol").Pluck("symbol", &symbols).Error; err != nil {
+		return nil, err
+	}
+	if err := DB.Model(&TradeSpotAssetLoan{}).Where("principal > 0 OR interest > 0").Distinct("symbol").Pluck("symbol", &borrowed).Error; err != nil {
+		return nil, err
+	}
+	symbols = append(symbols, borrowed...)
+	slices.Sort(symbols)
+	return slices.Compact(symbols), nil
 }
 
 // tradeSpotNextHour 是 now 之后的第一个整点。
@@ -270,11 +289,13 @@ func repayTradeSpotMarginTx(tx *gorm.DB, account *TradeAccount, amount int, orde
 	return paid, tradeLedgerTx(tx, account, &TradeLedger{Type: TradeLedgerSpotRepay, OrderId: orderId, Amount: -paid})
 }
 
-// TradeSpotRisk 是现货借款的风险(额度单位)：Debt 是借款本金加利息，Cash 是不被全仓合约占用的资金，Assets 是现货按买一的市值。
+// TradeSpotRisk 是现货借款的风险(额度单位)：Debt 是借 USDT 的本金加利息再加上借着的币按卖一的价值(AssetDebt)，Cash 是不被全仓
+// 合约占用的资金，Assets 是现货按买一的市值。
 type TradeSpotRisk struct {
-	Debt   int `json:"debt"`
-	Cash   int `json:"cash"`
-	Assets int `json:"assets"`
+	Debt      int `json:"debt"`
+	AssetDebt int `json:"asset_debt"`
+	Cash      int `json:"cash"`
+	Assets    int `json:"assets"`
 }
 
 // Level 是风险率 (Cash + Assets) / Debt，没有借款时为 0。
@@ -325,27 +346,41 @@ func tradeSpotAssetsOf(positions []TradePosition, market TradeSpotPriceMarket) (
 	return assets, nil
 }
 
-// TradeSpotRiskOf 算出现货借款的风险，cash 是不被全仓合约占用的资金。没有借款时不给现货估值，也就不需要行情。
-func TradeSpotRiskOf(loan TradeSpotMargin, cash int, positions []TradePosition, market TradeSpotPriceMarket) (TradeSpotRisk, error) {
+// TradeSpotRiskOf 算出现货借款的风险，loans 是借着的币，cash 是不被全仓合约占用的资金。既没借 USDT 也没借币时不给现货估值，
+// 也就不需要行情。
+func TradeSpotRiskOf(loan TradeSpotMargin, loans []TradeSpotAssetLoan, cash int, positions []TradePosition, market TradeSpotPriceMarket) (TradeSpotRisk, error) {
 	risk := TradeSpotRisk{Debt: loan.Principal + loan.Interest, Cash: max(0, cash)}
 	if loan.Principal < 0 || loan.Interest < 0 || risk.Debt >= common.MaxQuota {
 		return risk, ErrTradeAmountInvalid
 	}
-	if risk.Debt == 0 {
+	borrowing := slices.ContainsFunc(loans, func(loan TradeSpotAssetLoan) bool { return loan.Debt() > 0 })
+	if risk.Debt == 0 && !borrowing {
 		return risk, nil
 	}
-	assets, err := tradeSpotAssetsOf(positions, market)
-	risk.Assets = assets
+	assetDebt, err := tradeSpotAssetDebtOf(loans, market)
+	if err != nil {
+		return risk, err
+	}
+	if assetDebt >= common.MaxQuota-risk.Debt {
+		return risk, ErrTradeAmountInvalid
+	}
+	risk.AssetDebt = assetDebt
+	risk.Debt += assetDebt
+	risk.Assets, err = tradeSpotAssetsOf(positions, market)
 	return risk, err
 }
 
-// tradeSpotRiskTx 在资金行锁内收掉到期的利息，算出现货借款的风险。没有借款时不需要行情。
+// tradeSpotRiskTx 在资金行锁内收掉到期的利息(USDT 与借着的币)，算出现货借款的风险。没有借款时不需要行情。
 func tradeSpotRiskTx(tx *gorm.DB, account *TradeAccount, market TradeFuturesMarket) (TradeSpotRisk, *TradeSpotMargin, error) {
 	loan, err := loadTradeSpotMarginTx(tx, account)
 	if err != nil {
 		return TradeSpotRisk{}, nil, err
 	}
-	if loan.Principal+loan.Interest == 0 {
+	loans, err := loadTradeSpotAssetLoansTx(tx, account)
+	if err != nil {
+		return TradeSpotRisk{}, loan, err
+	}
+	if loan.Principal+loan.Interest == 0 && len(loans) == 0 {
 		return TradeSpotRisk{}, loan, nil
 	}
 	cross, err := tradeCrossStateTx(tx, account.UserId, market)
@@ -357,36 +392,67 @@ func tradeSpotRiskTx(tx *gorm.DB, account *TradeAccount, market TradeFuturesMark
 		return TradeSpotRisk{}, loan, err
 	}
 	spotMarket, _ := market.(TradeSpotPriceMarket)
-	risk, err := TradeSpotRiskOf(*loan, cross.Withdrawable(account.Cash), positions, spotMarket)
+	risk, err := TradeSpotRiskOf(*loan, loans, cross.Withdrawable(account.Cash), positions, spotMarket)
 	return risk, loan, err
 }
 
-// ReadTradeSpotRisk 不加锁地读出借款与现货持仓，估出现货借款的风险(算上到期还没收的利息)，给定时检查先筛一遍。返回的借款是
-// 库里原样的，ChargedUntil 还是上次收利息时的。
-func ReadTradeSpotRisk(userId int, market TradeFuturesMarket) (TradeSpotRisk, TradeSpotMargin, []TradePosition, error) {
+// TradeSpotRiskRead 是不加锁读出的现货借款情况，给定时检查先筛一遍。Loan 与 Loans 是库里原样的，ChargedUntil 还是上次收利息
+// 时的；Risk 算上了到期还没收的利息。
+type TradeSpotRiskRead struct {
+	Risk      TradeSpotRisk
+	Loan      TradeSpotMargin
+	Loans     []TradeSpotAssetLoan
+	Positions []TradePosition
+}
+
+// NextCharge 是下一次要收利息的时间：借 USDT 与借着的币里最早的那个整点，没有借款时为 0。
+func (r TradeSpotRiskRead) NextCharge() int64 {
+	next := int64(0)
+	if r.Loan.Principal > 0 {
+		next = r.Loan.ChargedUntil
+	}
+	for _, loan := range r.Loans {
+		if loan.Principal > 0 && (next == 0 || loan.ChargedUntil < next) {
+			next = loan.ChargedUntil
+		}
+	}
+	return next
+}
+
+// ReadTradeSpotRisk 不加锁地读出借款、借着的币与现货持仓，估出现货借款的风险(算上到期还没收的利息)。
+func ReadTradeSpotRisk(userId int, market TradeFuturesMarket) (TradeSpotRiskRead, error) {
+	var read TradeSpotRiskRead
 	loan, err := GetTradeSpotMargin(userId)
 	if err != nil {
-		return TradeSpotRisk{}, loan, nil, err
+		return read, err
 	}
-	accrued, err := AccruedTradeSpotMargin(loan, common.GetTimestamp())
+	read.Loan = loan
+	if read.Loans, err = GetTradeSpotAssetLoans([]int{userId}); err != nil {
+		return read, err
+	}
+	now := common.GetTimestamp()
+	accrued, err := AccruedTradeSpotMargin(loan, now)
 	if err != nil {
-		return TradeSpotRisk{}, loan, nil, err
+		return read, err
+	}
+	accruedLoans, err := AccruedTradeSpotAssetLoans(read.Loans, now)
+	if err != nil {
+		return read, err
 	}
 	account, err := GetTradeAccount(userId)
 	if err != nil {
-		return TradeSpotRisk{}, loan, nil, err
+		return read, err
 	}
 	cross, err := tradeCrossStateTx(DB, userId, market)
 	if err != nil {
-		return TradeSpotRisk{}, loan, nil, err
+		return read, err
 	}
-	var positions []TradePosition
-	if err = DB.Where("user_id = ? AND qty > 0", userId).Find(&positions).Error; err != nil {
-		return TradeSpotRisk{}, loan, nil, err
+	if err = DB.Where("user_id = ? AND qty > 0", userId).Find(&read.Positions).Error; err != nil {
+		return read, err
 	}
 	spotMarket, _ := market.(TradeSpotPriceMarket)
-	risk, err := TradeSpotRiskOf(accrued, cross.Withdrawable(account.Cash), positions, spotMarket)
-	return risk, loan, positions, err
+	read.Risk, err = TradeSpotRiskOf(accrued, accruedLoans, cross.Withdrawable(account.Cash), read.Positions, spotMarket)
+	return read, err
 }
 
 // tradeSpotTransferReserveTx 是有现货借款时把钱转出去(转回额度、给合约或预测用)必须留下的资金：转出之后风险率不能低于 2。
@@ -416,12 +482,20 @@ func checkTradeSpotBorrowTx(tx *gorm.DB, account *TradeAccount, borrowed int, ma
 	if err = tx.Where("user_id = ? AND qty > 0", account.UserId).Find(&positions).Error; err != nil {
 		return err
 	}
+	loans, err := loadTradeSpotAssetLoansTx(tx, account)
+	if err != nil {
+		return err
+	}
 	spotMarket, _ := market.(TradeSpotPriceMarket)
 	assets, err := tradeSpotAssetsOf(positions, spotMarket)
 	if err != nil {
 		return err
 	}
-	after := TradeSpotRisk{Debt: loan.Principal + loan.Interest + borrowed, Cash: cross.Withdrawable(account.Cash) + borrowed, Assets: assets}
+	assetDebt, err := tradeSpotAssetDebtOf(loans, spotMarket)
+	if err != nil {
+		return err
+	}
+	after := TradeSpotRisk{Debt: loan.Principal + loan.Interest + assetDebt + borrowed, Cash: cross.Withdrawable(account.Cash) + borrowed, Assets: assets}
 	if after.Level().LessThan(TradeSpotInitialLevel(maxLeverage)) {
 		return ErrTradeSpotMarginLevel
 	}
@@ -466,26 +540,30 @@ func RepayTradeSpotMargin(userId int, amount int, market TradeFuturesMarket) (*T
 	return loan, err
 }
 
-// TradeSpotBook 是强平卖出时一个交易对能吃的买盘：最优价在前，已经扣掉同一份盘口上别的委托吃掉的数量。Step 是数量步长。
+// TradeSpotBook 是强平时一个交易对能吃的盘口：卖出现货吃买盘 Bids，买回借着的币吃卖盘 Asks，最优价在前，已经扣掉同一份盘口上
+// 别的委托吃掉的数量。Step 是数量步长。
 type TradeSpotBook struct {
 	Symbol string
 	Bids   []tradesim.Level
+	Asks   []tradesim.Level
 	Step   decimal.Decimal
 }
 
-// TradeSpotSettlement 是一次定时检查做的事：Canceled 是强平时撤掉的委托，Fills 是强平在各交易对盘口上的成交(给行情中心记下
-// 吃掉的数量)，Covered 是从站内额度补的亏空。
+// TradeSpotSettlement 是一次定时检查做的事：Canceled 是强平时撤掉的委托，Fills 与 BuyFills 是强平卖出现货、买回借着的币在各
+// 交易对盘口上的成交(给行情中心记下吃掉的数量)，Covered 是从站内额度补的亏空。
 type TradeSpotSettlement struct {
 	Canceled   []TradeOrder
 	Fills      map[string]tradesim.Fill
+	BuyFills   map[string]tradesim.Fill
 	Liquidated bool
 	Covered    int
 }
 
-// SettleTradeSpotMargin 是现货借款的定时检查，在资金行锁内做：收掉到期的利息；风险率不高于追加保证金线时提醒一次，回到线上
-// 之后清掉记号；不高于 1.1 时强平。强平先撤掉现货挂单，风险率还是不高于 1.1 就要还清借款本息、再付 2% 的强平费：先用不被全仓
-// 合约占用的资金，不够的按 books 的顺序(流动性好的在前)在盘口上逐档卖出现货，卖够为止。books 为空时只检查不强平。盘口吃不下、
-// 还剩现货卖不掉的，借款还到哪算哪，下一次接着卖；现货卖光还不够的从资金里扣，资金扣成负数又没有全仓仓位撑着时从站内额度补。
+// SettleTradeSpotMargin 是现货借款的定时检查，在资金行锁内做：收掉到期的利息(USDT 与借着的币)；风险率不高于追加保证金线时提醒
+// 一次，回到线上之后清掉记号；不高于 1.1 时强平。强平先撤掉现货挂单，风险率还是不高于 1.1 就要还清全部借款、再按还掉的价值付
+// 2% 的强平费：先用不被全仓合约占用的资金，不够的按 books 的顺序(流动性好的在前)在买盘上逐档卖出现货凑钱，再在卖盘上把借着的
+// 币买回来还掉(买回不看资金够不够)，最后用资金还 USDT 借款。books 为空时只检查不强平。盘口吃不下、还剩现货卖不掉或者币买不回来
+// 的，借款还到哪算哪，下一次接着来；现货卖光还不够的从资金里扣，资金扣成负数又没有全仓仓位撑着时从站内额度补。
 func SettleTradeSpotMargin(userId int, market TradeFuturesMarket, books []TradeSpotBook, pricing tradesim.Pricing, maxLeverage int) (TradeSpotSettlement, error) {
 	var result TradeSpotSettlement
 	err := DB.Transaction(func(tx *gorm.DB) error {
@@ -537,8 +615,40 @@ func SettleTradeSpotMargin(userId int, market TradeFuturesMarket, books []TradeS
 			}
 			return saveTradeAccountTx(tx, account)
 		}
-		debt := risk.Debt
-		shortfall := debt + tradeSpotLiquidationFee(debt) - risk.Cash
+		// 买回借着的币要花的钱按现在的卖盘估：欠的数量向上取到步长，加上手续费。
+		usdtDebt := loan.Principal + loan.Interest
+		loans, err := loadTradeSpotAssetLoansTx(tx, account)
+		if err != nil {
+			return err
+		}
+		booksBySymbol := make(map[string]TradeSpotBook, len(books))
+		for _, book := range books {
+			booksBySymbol[book.Symbol] = book
+		}
+		buybacks := make(map[string]tradesim.Fill, len(loans))
+		buybackAmount, buybackCost := 0, 0
+		for _, assetLoan := range loans {
+			book, ok := booksBySymbol[assetLoan.Symbol]
+			if !ok || assetLoan.Debt() <= 0 {
+				continue
+			}
+			qty := tradesim.QtyFromUnits(assetLoan.Debt())
+			if book.Step.IsPositive() {
+				qty = qty.Div(book.Step).Ceil().Mul(book.Step)
+			}
+			fill := tradesim.Walk(book.Asks, tradesim.Buy, qty, decimal.Zero, book.Step)
+			if !fill.Qty.IsPositive() {
+				continue
+			}
+			amount, fee, err := pricing.BuyCost(fill)
+			if err != nil {
+				return ErrTradeAmountInvalid
+			}
+			buybacks[assetLoan.Symbol] = fill
+			buybackAmount += amount
+			buybackCost += amount + fee
+		}
+		shortfall := usdtDebt + buybackCost + tradeSpotLiquidationFee(usdtDebt+buybackAmount) - risk.Cash
 		bySymbol := make(map[string]*TradePosition, len(positions))
 		for i := range positions {
 			bySymbol[positions[i].Symbol] = &positions[i]
@@ -579,6 +689,45 @@ func SettleTradeSpotMargin(userId int, market TradeFuturesMarket, books []TradeS
 			result.Fills[book.Symbol] = fill
 			shortfall -= amount - fee
 		}
+		// 买回借着的币：成交时先还这个币的借币，多买的零头进持仓。
+		result.BuyFills = map[string]tradesim.Fill{}
+		bought := 0
+		for _, book := range books {
+			fill, ok := buybacks[book.Symbol]
+			if !ok {
+				continue
+			}
+			amount, fee, err := pricing.BuyCost(fill)
+			if err != nil {
+				return ErrTradeAmountInvalid
+			}
+			position, err := loadTradePositionTx(tx, userId, book.Symbol)
+			if err != nil {
+				return err
+			}
+			order := TradeOrder{UserId: userId, Symbol: book.Symbol, Side: TradeSideBuy, Type: TradeOrderTypeMarket, Qty: tradesim.QtyUnits(fill.Qty),
+				Leverage: 1, Status: TradeOrderStatusOpen, CreatedAt: common.GetTimestamp()}
+			if err = tx.Create(&order).Error; err != nil {
+				return err
+			}
+			price := fill.AvgPrice().Round(tradesim.QtyDecimals).String()
+			if err = applyTradeFill(tx, account, position, &order, TradeFill{Qty: order.Qty, Value: fill.Notional, Amount: amount, Fee: fee, Price: price}, true); err != nil {
+				return err
+			}
+			finishTradeOrder(account, &order, TradeOrderStatusFilled, TradeCancelByLiquidation)
+			if err = saveTradeOrderTx(tx, &order); err != nil {
+				return err
+			}
+			if err = saveTradePositionTx(tx, position); err != nil {
+				return err
+			}
+			if err = addTradeNoticeTx(tx, TradeNotice{UserId: userId, Kind: TradeNoticeLiquidation, Market: TradeNoticeSpot,
+				Symbol: book.Symbol, Side: TradeSideBuy, OrderId: order.Id, Qty: order.Qty, Price: price}); err != nil {
+				return err
+			}
+			result.BuyFills[book.Symbol] = fill
+			bought += amount
+		}
 		// 卖出到账的钱已经自动还了借款，剩下的用资金还：现货卖光了就全还(资金可能扣成负的)，盘口吃不下、还有现货的只用空闲资金。
 		if loan, err = loadTradeSpotMarginTx(tx, account); err != nil {
 			return err
@@ -603,7 +752,7 @@ func SettleTradeSpotMargin(userId int, market TradeFuturesMarket, books []TradeS
 		if loan, err = loadTradeSpotMarginTx(tx, account); err != nil {
 			return err
 		}
-		if fee := tradeSpotLiquidationFee(debt - loan.Principal - loan.Interest); fee > 0 {
+		if fee := tradeSpotLiquidationFee(usdtDebt - loan.Principal - loan.Interest + bought); fee > 0 {
 			account.Cash -= fee
 			if err = tradeLedgerTx(tx, account, &TradeLedger{Type: TradeLedgerSpotLiquidationFee, Amount: -fee, Fee: fee, Pnl: -fee}); err != nil {
 				return err

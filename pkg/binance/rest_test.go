@@ -342,7 +342,7 @@ func TestRiskBracketsKeepsCompleteTablesOfRequestedSymbols(t *testing.T) {
 }
 
 // 借币利率取普通用户(VIP 0)那一档；表里没有、或者利率离谱时报错，调用方继续用手上的利率。
-func TestMarginDailyInterestRateReadsVipZero(t *testing.T) {
+func TestMarginDailyInterestRatesReadVipZero(t *testing.T) {
 	body := `{"code":"000000","data":[
 		{"assetName":"BTC","specs":[{"vipLevel":"0","dailyInterestRate":"0.00001164"}]},
 		{"assetName":"USDT","specs":[{"vipLevel":"1","dailyInterestRate":"0.00013000"},{"vipLevel":"0","dailyInterestRate":"0.00013778"}]},
@@ -352,14 +352,14 @@ func TestMarginDailyInterestRateReadsVipZero(t *testing.T) {
 		_, _ = w.Write([]byte(body))
 	})
 
-	rate, err := client.MarginDailyInterestRate(context.Background(), "USDT")
+	rates, err := client.MarginDailyInterestRates(context.Background())
 	require.NoError(t, err)
-	assert.Equal(t, "0.00013778", rate.String())
-
-	_, err = client.MarginDailyInterestRate(context.Background(), "ETH")
-	assert.Error(t, err, "asset missing from the table")
-	_, err = client.MarginDailyInterestRate(context.Background(), "BAD")
-	assert.Error(t, err, "a 50% daily rate is not plausible")
+	got := map[string]string{}
+	for asset, rate := range rates {
+		got[asset] = rate.String()
+	}
+	// BAD 的 50% 日利率不可信，跳过；表里没有的币种(ETH)也就没有利率。
+	assert.Equal(t, map[string]string{"BTC": "0.00001164", "USDT": "0.00013778"}, got)
 }
 
 func TestClientAggTradesReadsSpotAndFutures(t *testing.T) {

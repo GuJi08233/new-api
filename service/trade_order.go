@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/tradesim"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -12,7 +13,8 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// TradeOrderRequest 是用户提交的一笔委托。市价买单可以不给数量而给 Amount(USDT，含手续费)，按金额买入。
+// TradeOrderRequest 是用户提交的一笔委托。市价买单可以不给数量而给 Amount(USDT，含手续费)，按金额买入。Borrow 为真时是借币
+// 卖出(只用于按数量的市价卖出)；Cover 为真时是买回借着的币还掉(CoverTradeSpotAsset 用)，模拟盘或交易对关了也能买。
 type TradeOrderRequest struct {
 	Symbol   string
 	Side     string
@@ -21,6 +23,8 @@ type TradeOrderRequest struct {
 	Amount   decimal.Decimal
 	Price    decimal.Decimal
 	Leverage int
+	Borrow   bool
+	Cover    bool
 }
 
 var (
@@ -54,10 +58,12 @@ func tradePricing(setting *operation_setting.TradeSetting) (tradesim.Pricing, in
 func PlaceTradeOrder(ctx context.Context, userId int, req TradeOrderRequest) (*model.TradeOrder, error) {
 	arrived := time.Now()
 	setting := operation_setting.GetTradeSetting()
-	if !setting.Enabled && req.Side != model.TradeSideSell {
+	// 卖出与买回还币是减少风险，模拟盘或交易对关了也能做；借币卖出是新开的，和买入一样要开着。
+	closing := req.Side == model.TradeSideSell && !req.Borrow || req.Cover
+	if !setting.Enabled && !closing {
 		return nil, ErrTradeDisabled
 	}
-	if !setting.SymbolEnabled(req.Symbol) && req.Side != model.TradeSideSell {
+	if !setting.SymbolEnabled(req.Symbol) && !closing {
 		return nil, ErrTradeSymbolClosed
 	}
 	isBuy := req.Side == model.TradeSideBuy
@@ -67,7 +73,8 @@ func PlaceTradeOrder(ctx context.Context, userId int, req TradeOrderRequest) (*m
 		req.Leverage = 1
 	}
 	if req.Leverage < 1 || req.Leverage > min(model.TradeSpotMaxLeverage, setting.SpotMaxLeverage) ||
-		req.Leverage > 1 && (!isBuy || isLimit || byAmount) {
+		req.Leverage > 1 && (!isBuy || isLimit || byAmount) ||
+		req.Borrow && (isBuy || isLimit || req.Leverage > 1 || setting.SpotMaxLeverage <= 1) {
 		return nil, model.ErrTradeSpotFinancingInvalid
 	}
 	switch {
@@ -164,6 +171,7 @@ func PlaceTradeOrder(ctx context.Context, userId int, req TradeOrderRequest) (*m
 		Qty:             tradesim.QtyUnits(qty),
 		Rest:            isLimit,
 		Leverage:        req.Leverage,
+		Borrow:          req.Borrow,
 		SpotMaxLeverage: setting.SpotMaxLeverage,
 		MaxPositionCost: setting.MaxPositionUsd * perUsd,
 	}
@@ -222,6 +230,47 @@ func PlaceTradeOrder(ctx context.Context, userId int, req TradeOrderRequest) (*m
 		market.addResting(order)
 	}
 	return order, nil
+}
+
+// CoverTradeSpotAsset 买回 symbol 上借着的全部币还掉：数量是欠的币(算上到期还没收的利息)向上取到步长，不到最小下单数量或最小
+// 成交额时补足，多买的进持仓。按市价在盘口上买，买到的先还借币。
+func CoverTradeSpotAsset(ctx context.Context, userId int, symbol string) (*model.TradeOrder, error) {
+	loans, err := model.GetTradeSpotAssetLoans([]int{userId})
+	if err != nil {
+		return nil, err
+	}
+	loans, err = model.AccruedTradeSpotAssetLoans(loans, common.GetTimestamp())
+	if err != nil {
+		return nil, err
+	}
+	debt := int64(0)
+	for _, loan := range loans {
+		if loan.Symbol == symbol {
+			debt = loan.Debt()
+		}
+	}
+	if debt <= 0 {
+		return nil, model.ErrTradePositionInsufficient
+	}
+	rules, ok := tradeMarket.Rules(symbol)
+	if !ok {
+		return nil, ErrTradeMarketUnavailable
+	}
+	price, ok := tradeMarket.LastPrice(symbol)
+	if !ok || !price.IsPositive() {
+		return nil, ErrTradeMarketUnavailable
+	}
+	step := rules.StepSize
+	if !step.IsPositive() {
+		step = decimal.New(1, -tradesim.QtyDecimals)
+	}
+	qty := decimal.Max(tradesim.QtyFromUnits(debt), rules.MinQty)
+	if rules.MinNotional.IsPositive() {
+		// 按最新价补足最小成交额，再多留一个步长，免得卖一比最新价低时成交额差一点点。
+		qty = decimal.Max(qty, rules.MinNotional.Div(price).Add(step))
+	}
+	qty = qty.Div(step).Ceil().Mul(step)
+	return PlaceTradeOrder(ctx, userId, TradeOrderRequest{Symbol: symbol, Side: model.TradeSideBuy, Type: model.TradeOrderTypeMarket, Qty: qty, Leverage: 1, Cover: true})
 }
 
 // tradeBookCrosses 表示限价单在这份盘口上能立刻成交：买单的限价不低于卖一，卖单的限价不高于买一。

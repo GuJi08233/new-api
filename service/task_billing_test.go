@@ -68,6 +68,7 @@ func TestMain(m *testing.M) {
 		&model.GameCoinAccount{},
 		&model.GameCoinLog{},
 		&model.TradeSpotMargin{},
+		&model.TradeSpotAssetLoan{},
 		&model.TradePredictionRound{},
 		&model.TradePredictionPosition{},
 	); err != nil {

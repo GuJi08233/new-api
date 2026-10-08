@@ -271,6 +271,7 @@ const TradeView = ({
             pickedPrice={picked}
             onPlaced={refresh}
             spot={self?.spot}
+            valuation={self?.valuation}
             t={t}
           />
           <SpotMarginCard

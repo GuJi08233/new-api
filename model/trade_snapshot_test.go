@@ -41,8 +41,12 @@ func TestTradeFlowsAndStatsSumTheLedger(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, futuresFlows)
 
-	// 全站汇总还要列出没还的现货借款(本金加利息)和没结算的预测持仓成本，已结算的预测不算。
+	// 全站汇总还要列出没还的现货借款(本金加利息)、还没还清的借币和没结算的预测持仓成本，已结算的预测、已还清的借币不算。
 	require.NoError(t, DB.Create(&TradeSpotMargin{UserId: 4102, Principal: tradeUsd(40), Interest: tradeUsd(0.02)}).Error)
+	require.NoError(t, DB.Create(&[]TradeSpotAssetLoan{
+		{UserId: 4101, Symbol: "BTCUSDT", Principal: 100_000_000},
+		{UserId: 4102, Symbol: "ETHUSDT"},
+	}).Error)
 	require.NoError(t, DB.Create(&[]TradePredictionPosition{
 		{UserId: 4101, WindowStart: 300, Side: TradePredictionUp, Qty: 100_000_000, Cost: tradeUsd(2), Status: TradePredictionActive},
 		{UserId: 4102, WindowStart: 300, Side: TradePredictionDown, Qty: 0, Cost: 0, TotalCost: tradeUsd(9), Status: TradePredictionWon},
@@ -57,6 +61,7 @@ func TestTradeFlowsAndStatsSumTheLedger(t *testing.T) {
 	assert.EqualValues(t, 1, stats.FuturesPositions)
 	assert.Equal(t, tradeUsd(30), stats.FuturesMargin)
 	assert.Equal(t, tradeUsd(40)+tradeUsd(0.02), stats.SpotDebt)
+	assert.EqualValues(t, 1, stats.SpotCoinLoans)
 	assert.Equal(t, tradeUsd(2), stats.PredictionCost)
 }
 

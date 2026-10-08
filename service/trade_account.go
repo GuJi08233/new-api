@@ -26,6 +26,23 @@ type TradeHolding struct {
 	Value int    `json:"value"`
 }
 
+// TradeShort 是借币卖出(做空)借着的一种币按当前行情的估值：欠的币(本金加利息)按最新价算出的价值，记成负的现货市值。
+type TradeShort struct {
+	Symbol    string `json:"symbol"`
+	Ticker    string `json:"ticker"`
+	Kind      string `json:"kind"`
+	Qty       string `json:"qty"`
+	Principal string `json:"principal"`
+	Interest  string `json:"interest"`
+	DailyRate string `json:"daily_rate"`
+	// Proceeds 是借着的本金当初卖出到账的钱(额度单位)，AvgPrice 是按它算出的开空均价。
+	Proceeds int    `json:"proceeds"`
+	AvgPrice string `json:"avg_price"`
+	// Price 是估值用的最新价，没有行情时为空，Value 这时按到账的钱计。
+	Price string `json:"price"`
+	Value int    `json:"value"`
+}
+
 // TradeValuation 是模拟盘账户按当前行情的估值，金额都是额度单位。
 type TradeValuation struct {
 	// Cash 是资金，有全仓合约仓位时可以暂时是负的。
@@ -33,6 +50,10 @@ type TradeValuation struct {
 	Frozen      int `json:"frozen"`
 	CryptoValue int `json:"crypto_value"`
 	StockValue  int `json:"stock_value"`
+	// CryptoShort 与 StockShort 是借币卖出欠着的币的价值(正数)，从总资产里减掉；Shorts 是每种币的明细。
+	CryptoShort int          `json:"crypto_short"`
+	StockShort  int          `json:"stock_short"`
+	Shorts      []TradeShort `json:"shorts"`
 	// FuturesValue 是合约仓位算进总资产的价值合计：逐仓是保证金加按标记价格的浮动盈亏(最少为 0)，全仓只有浮动盈亏。
 	FuturesValue int `json:"futures_value"`
 	// PredictionValue 是 BTC 预测持仓按能卖出的价格的估值。
@@ -54,7 +75,7 @@ type TradeValuation struct {
 // 合约仓位按标记价格估值(见 ValueTradeFutures，crossPending 是挂着的全仓开仓委托冻结的钱)。估值只用于展示和快照，转出看资金与
 // 全仓占用，不看它。
 func ValueTradeAccount(account model.TradeAccount, crossPending int, positions []model.TradePosition, futures []model.TradeFuturesPosition) (TradeValuation, error) {
-	valuation := TradeValuation{Cash: account.Cash, Frozen: account.Frozen, Holdings: []TradeHolding{}}
+	valuation := TradeValuation{Cash: account.Cash, Frozen: account.Frozen, Holdings: []TradeHolding{}, Shorts: []TradeShort{}}
 	perUsd, err := model.TradeQuotaPerUsd()
 	if err != nil {
 		return valuation, err
@@ -121,19 +142,28 @@ func ValueTradeUser(userId int) (model.TradeAccount, TradeValuation, error) {
 	if err != nil {
 		return account, valuation, err
 	}
+	loans, err := model.GetTradeSpotAssetLoans([]int{userId})
+	if err != nil {
+		return account, valuation, err
+	}
 	predictions, err := model.ListTradePredictionPositionsOf([]int{userId})
 	if err != nil {
 		return account, valuation, err
 	}
-	err = valueTradeFinancing(&valuation, loan, positions, predictions)
+	err = valueTradeFinancing(&valuation, loan, loans, positions, predictions)
 	return account, valuation, err
 }
 
-// valueTradeFinancing 把预测持仓和现货借款算进总资产，算出借款的风险率。有借款时把钱转出去(转回额度、给合约或预测用)之后
-// 风险率不能低于 2，要留下的资金从全仓可用与可转出里扣掉；现货盘口不新鲜、风险率算不出来时这两项按 0 算。预测持仓不能作抵押。
-func valueTradeFinancing(valuation *TradeValuation, loan model.TradeSpotMargin, spots []model.TradePosition, predictions []model.TradePredictionPosition) error {
-	loan, err := model.AccruedTradeSpotMargin(loan, common.GetTimestamp())
+// valueTradeFinancing 把预测持仓、现货借款与借币卖出欠着的币算进总资产，算出借款的风险率。有借款时把钱转出去(转回额度、给
+// 合约或预测用)之后风险率不能低于 2，要留下的资金从全仓可用与可转出里扣掉；现货盘口不新鲜、风险率算不出来时这两项按 0 算。
+// 预测持仓不能作抵押。
+func valueTradeFinancing(valuation *TradeValuation, loan model.TradeSpotMargin, loans []model.TradeSpotAssetLoan, spots []model.TradePosition, predictions []model.TradePredictionPosition) error {
+	now := common.GetTimestamp()
+	loan, err := model.AccruedTradeSpotMargin(loan, now)
 	if err != nil {
+		return err
+	}
+	if loans, err = model.AccruedTradeSpotAssetLoans(loans, now); err != nil {
 		return err
 	}
 	valuation.SpotMargin, valuation.SpotDebt = loan, loan.Principal+loan.Interest
@@ -141,12 +171,16 @@ func valueTradeFinancing(valuation *TradeValuation, loan model.TradeSpotMargin, 
 	if err != nil {
 		return err
 	}
-	valuation.Equity = max(0, valuation.Cash+valuation.Frozen+valuation.CryptoValue+valuation.StockValue+valuation.FuturesValue+valuation.PredictionValue-valuation.SpotDebt)
+	if err = valueTradeShorts(valuation, loans); err != nil {
+		return err
+	}
+	valuation.Equity = max(0, valuation.Cash+valuation.Frozen+valuation.CryptoValue+valuation.StockValue+valuation.FuturesValue+valuation.PredictionValue-
+		valuation.SpotDebt-valuation.CryptoShort-valuation.StockShort)
 	valuation.SpotPricesFresh = true
-	if valuation.SpotDebt == 0 {
+	if valuation.SpotDebt == 0 && len(valuation.Shorts) == 0 {
 		return nil
 	}
-	risk, err := model.TradeSpotRiskOf(loan, valuation.Cross.Withdrawable, spots, tradeFuturesMarks{market: futuresMarket})
+	risk, err := model.TradeSpotRiskOf(loan, loans, valuation.Cross.Withdrawable, spots, tradeFuturesMarks{market: futuresMarket})
 	if errors.Is(err, model.ErrTradeMarkUnavailable) {
 		valuation.SpotPricesFresh = false
 		valuation.Cross.Available = min(valuation.Cross.Available, 0)
@@ -160,6 +194,50 @@ func valueTradeFinancing(valuation *TradeValuation, loan model.TradeSpotMargin, 
 	reserve := risk.Reserve(model.TradeSpotTransferLevel)
 	valuation.Cross.Available -= reserve
 	valuation.Cross.Withdrawable = max(0, valuation.Cross.Withdrawable-reserve)
+	return nil
+}
+
+// valueTradeShorts 按最新价给借币卖出欠着的币估值(向上取整，欠的按多算)，没有行情的按当初卖出到账的钱计。
+func valueTradeShorts(valuation *TradeValuation, loans []model.TradeSpotAssetLoan) error {
+	perUsd, err := model.TradeQuotaPerUsd()
+	if err != nil {
+		return err
+	}
+	pricing := tradesim.Pricing{QuotaPerUsd: decimal.NewFromInt(int64(perUsd))}
+	for _, loan := range loans {
+		if loan.Debt() <= 0 {
+			continue
+		}
+		qty := tradesim.QtyFromUnits(loan.Debt())
+		info, _ := operation_setting.TradeSymbolOf(loan.Symbol)
+		short := TradeShort{
+			Symbol:    loan.Symbol,
+			Ticker:    info.Ticker,
+			Kind:      info.Kind,
+			Qty:       qty.String(),
+			Principal: tradesim.QtyFromUnits(loan.Principal).String(),
+			Interest:  tradesim.QtyFromUnits(loan.Interest).String(),
+			DailyRate: loan.DailyRate,
+			Proceeds:  loan.Proceeds,
+			Value:     loan.Proceeds,
+		}
+		if loan.Principal > 0 {
+			short.AvgPrice = decimal.NewFromInt(int64(loan.Proceeds)).Div(pricing.QuotaPerUsd).Div(tradesim.QtyFromUnits(loan.Principal)).Round(tradesim.QtyDecimals).String()
+		}
+		if price, ok := tradeMarket.LastPrice(loan.Symbol); ok {
+			value, err := pricing.DebitQuota(price.Mul(qty))
+			if err != nil {
+				return err
+			}
+			short.Price, short.Value = price.String(), value
+		}
+		if info.Kind == operation_setting.TradeKindStock {
+			valuation.StockShort += short.Value
+		} else {
+			valuation.CryptoShort += short.Value
+		}
+		valuation.Shorts = append(valuation.Shorts, short)
+	}
 	return nil
 }
 
@@ -184,6 +262,14 @@ func valueTradeAccounts(accounts []model.TradeAccount) ([]TradeValuation, error)
 	loans, err := model.ListTradeSpotMarginsOf(userIds)
 	if err != nil {
 		return nil, err
+	}
+	assetLoans, err := model.GetTradeSpotAssetLoans(userIds)
+	if err != nil {
+		return nil, err
+	}
+	assetLoansByUser := map[int][]model.TradeSpotAssetLoan{}
+	for _, loan := range assetLoans {
+		assetLoansByUser[loan.UserId] = append(assetLoansByUser[loan.UserId], loan)
 	}
 	predictions, err := model.ListTradePredictionPositionsOf(userIds)
 	if err != nil {
@@ -211,22 +297,24 @@ func valueTradeAccounts(accounts []model.TradeAccount) ([]TradeValuation, error)
 		if err != nil {
 			return nil, err
 		}
-		if err = valueTradeFinancing(&valuations[i], loansByUser[account.UserId], positionsByUser[account.UserId], predictionsByUser[account.UserId]); err != nil {
+		if err = valueTradeFinancing(&valuations[i], loansByUser[account.UserId], assetLoansByUser[account.UserId], positionsByUser[account.UserId],
+			predictionsByUser[account.UserId]); err != nil {
 			return nil, err
 		}
 	}
 	return valuations, nil
 }
 
-// tradeSnapshotOf 按估值与这一天的资金流拼出一份快照：现货的资金流按交易对的种类分到加密货币与美股代币。
+// tradeSnapshotOf 按估值与这一天的资金流拼出一份快照：现货的资金流按交易对的种类分到加密货币与美股代币，借币卖出欠着的币按负的
+// 市值记进对应的种类，借币卖出到账与买回还币的资金流也在那一类里，分类盈亏加起来仍等于总资产的变化。
 func tradeSnapshotOf(account model.TradeAccount, valuation TradeValuation, day string, flows []model.TradeSymbolFlow, futuresFlow int) model.TradeSnapshot {
 	snapshot := model.TradeSnapshot{
 		UserId:          account.UserId,
 		Day:             day,
 		Equity:          valuation.Equity,
 		Cash:            valuation.Cash + valuation.Frozen,
-		CryptoValue:     valuation.CryptoValue,
-		StockValue:      valuation.StockValue,
+		CryptoValue:     valuation.CryptoValue - valuation.CryptoShort,
+		StockValue:      valuation.StockValue - valuation.StockShort,
 		FuturesValue:    valuation.FuturesValue,
 		FuturesFlow:     futuresFlow,
 		PredictionValue: valuation.PredictionValue,

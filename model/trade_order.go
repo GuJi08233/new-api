@@ -50,6 +50,8 @@ type TradeOrderInput struct {
 	Leverage int
 	// SpotMaxLeverage 是现货杠杆账户的最高杠杆(管理员设的)，决定借款之后风险率不能低于的开仓线。
 	SpotMaxLeverage int
+	// Borrow 为真时是借币卖出：先卖可卖的持仓，不够的数量借来卖掉。只用于按数量的市价卖出。
+	Borrow bool
 	// Fill 是下单时立刻成交的部分，可以为空。
 	Fill TradeFill
 	// Rest 为真时没成交的部分挂单等待(限价单)，否则撤销(市价单)。
@@ -92,9 +94,14 @@ func saveTradeOrderTx(tx *gorm.DB, order *TradeOrder) error {
 	return tx.Save(order).Error
 }
 
-// applyTradeFillTx 把一次成交记进账户、持仓与委托，并写一条账单。买入先用委托冻结的资金付款，不够的从可用资金里扣；
-// 卖出按数量比例结转持仓成本，挂单冻结的数量由调用方先释放。
+// applyTradeFillTx 把一次成交记进账户、持仓与委托，并写一条账单。买入先用委托冻结的资金付款，不够的从可用资金里扣，买到的币先还
+// 这个交易对的借币，剩下的才进持仓(成本按数量比例分给持仓)；卖出按数量比例结转持仓成本，挂单冻结的数量由调用方先释放。
 func applyTradeFillTx(tx *gorm.DB, account *TradeAccount, position *TradePosition, order *TradeOrder, fill TradeFill) error {
+	return applyTradeFill(tx, account, position, order, fill, false)
+}
+
+// applyTradeFill 同 applyTradeFillTx；allowDebt 为真时买入不检查资金够不够，资金可以扣成负的(强平买回借着的币)。
+func applyTradeFill(tx *gorm.DB, account *TradeAccount, position *TradePosition, order *TradeOrder, fill TradeFill, allowDebt bool) error {
 	if fill.Qty <= 0 || fill.Value.IsNegative() || fill.Amount < 0 || fill.Fee < 0 || fill.Amount >= common.MaxQuota || fill.Fee >= common.MaxQuota {
 		return ErrTradeAmountInvalid
 	}
@@ -102,14 +109,12 @@ func applyTradeFillTx(tx *gorm.DB, account *TradeAccount, position *TradePositio
 	if order.Side == TradeSideBuy {
 		cost := fill.Amount + fill.Fee
 		fromFrozen := min(cost, order.Frozen)
-		if cost-fromFrozen > account.Cash {
+		if cost-fromFrozen > account.Cash && !allowDebt {
 			return ErrTradeCashInsufficient
 		}
 		order.Frozen -= fromFrozen
 		account.Frozen -= fromFrozen
 		account.Cash -= cost - fromFrozen
-		position.Qty += fill.Qty
-		position.Cost += cost
 		entry.Type, entry.Amount = TradeLedgerBuy, -cost
 	} else {
 		if fill.Qty > position.Qty-position.FrozenQty || fill.Fee > fill.Amount {
@@ -142,6 +147,13 @@ func applyTradeFillTx(tx *gorm.DB, account *TradeAccount, position *TradePositio
 		_, err := repayTradeSpotMarginTx(tx, account, fill.Amount-fill.Fee, order.Id)
 		return err
 	}
+	// 买到的币先还这个交易对的借币，剩下的才进持仓，成本按数量比例分给持仓。
+	kept, err := repayTradeSpotAssetTx(tx, account, order, fill.Qty)
+	if err != nil {
+		return err
+	}
+	position.Qty += kept
+	position.Cost += tradesim.ShareQuota(-entry.Amount, kept, fill.Qty)
 	return nil
 }
 
@@ -160,9 +172,10 @@ func PlaceTradeOrder(in TradeOrderInput) (*TradeOrder, error) {
 	if in.Leverage == 0 {
 		in.Leverage = 1
 	}
-	// 杠杆只用于按数量的市价买入：借款金额要在成交后才知道，挂单与按金额买入都不借。
+	// 杠杆只用于按数量的市价买入：借款金额要在成交后才知道，挂单与按金额买入都不借。借币卖出只用于按数量的市价卖出，账户要开着杠杆。
 	if in.Leverage < 1 || in.Leverage > TradeSpotMaxLeverage ||
-		in.Leverage > 1 && (in.Side != TradeSideBuy || in.Type != TradeOrderTypeMarket || in.Rest || in.Budget > 0) {
+		in.Leverage > 1 && (in.Side != TradeSideBuy || in.Type != TradeOrderTypeMarket || in.Rest || in.Budget > 0) ||
+		in.Borrow && (in.Side != TradeSideSell || in.Type != TradeOrderTypeMarket || in.Rest || in.Leverage > 1 || in.SpotMaxLeverage <= 1) {
 		return nil, ErrTradeSpotFinancingInvalid
 	}
 	if in.Qty < 0 || in.Budget < 0 || in.Freeze < 0 || in.Budget >= common.MaxQuota || in.Freeze >= common.MaxQuota {
@@ -251,7 +264,7 @@ func PlaceTradeOrder(in TradeOrderInput) (*TradeOrder, error) {
 					return ErrTradePositionLimit
 				}
 			}
-		} else {
+		} else if !in.Borrow {
 			reserve := in.Fill.Qty
 			if resting {
 				reserve = order.Qty
@@ -268,8 +281,25 @@ func PlaceTradeOrder(in TradeOrderInput) (*TradeOrder, error) {
 				return err
 			}
 		}
+		// 借币卖出先卖可卖的持仓，不够的才借(Binance 杠杆的自动借款)：可卖的持仓连同借来的币按一份临时的持仓卖掉，不存；
+		// 卖掉的持仓按数量比例结转成本，借来的币没有成本。
+		sellFrom := position
+		borrowed := int64(0)
+		if in.Borrow {
+			available := position.Qty - position.FrozenQty
+			borrowed = in.Fill.Qty - available
+			if borrowed > 0 {
+				if err = borrowTradeSpotAssetTx(tx, account, order, in.Fill, borrowed, in.MaxPositionCost); err != nil {
+					return err
+				}
+				cost := tradesim.ShareQuota(position.Cost, available, position.Qty)
+				sellFrom = &TradePosition{UserId: in.UserId, Symbol: in.Symbol, Qty: in.Fill.Qty, Cost: cost}
+				position.Qty -= available
+				position.Cost -= cost
+			}
+		}
 		if in.Fill.Qty > 0 {
-			if err = applyTradeFillTx(tx, account, position, order, in.Fill); err != nil {
+			if err = applyTradeFillTx(tx, account, sellFrom, order, in.Fill); err != nil {
 				return err
 			}
 		}
@@ -291,13 +321,13 @@ func PlaceTradeOrder(in TradeOrderInput) (*TradeOrder, error) {
 		if err = saveTradePositionTx(tx, position); err != nil {
 			return err
 		}
-		if in.Side == TradeSideBuy {
-			// 有借款时按成交后的买一给现货估值，买完风险率不高于 1.1(会被立刻强平)的整笔回滚。
+		if in.Side == TradeSideBuy || borrowed > 0 {
+			// 有借款时按成交后的盘口估值：买完风险率不高于 1.1(会被立刻强平)的整笔回滚；借了币之后风险率不能低于开仓线。
 			risk, _, err := tradeSpotRiskTx(tx, account, in.Market)
 			if err != nil {
 				return err
 			}
-			if risk.AtOrBelow(TradeSpotLiquidationLevel) {
+			if risk.AtOrBelow(TradeSpotLiquidationLevel) || borrowed > 0 && risk.Level().LessThan(TradeSpotInitialLevel(in.SpotMaxLeverage)) {
 				return ErrTradeSpotMarginLevel
 			}
 		}

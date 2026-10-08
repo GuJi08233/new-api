@@ -11,14 +11,20 @@ import (
 	"gorm.io/gorm"
 )
 
-// tradeSpotTestMarket 给每个现货交易对一个买一价；fresh 为假时所有价格都不新鲜。测试里没有全仓合约仓位，不会问到标记价格。
+// tradeSpotTestMarket 给每个现货交易对一个买一价与卖一价；fresh 为假时所有价格都不新鲜。测试里没有全仓合约仓位，不会问到标记价格。
 type tradeSpotTestMarket struct {
 	bids  map[string]decimal.Decimal
+	asks  map[string]decimal.Decimal
 	fresh bool
 }
 
 func (m tradeSpotTestMarket) SpotPrice(symbol string) (decimal.Decimal, bool) {
 	price, ok := m.bids[symbol]
+	return price, ok && m.fresh
+}
+
+func (m tradeSpotTestMarket) SpotAsk(symbol string) (decimal.Decimal, bool) {
+	price, ok := m.asks[symbol]
 	return price, ok && m.fresh
 }
 func (m tradeSpotTestMarket) MarkPrice(string) (decimal.Decimal, bool) { return decimal.Zero, false }

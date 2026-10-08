@@ -5408,6 +5408,22 @@
     "价格推送连接中…": "Đang kết nối luồng giá…",
     "实时成交": "Giao dịch trực tiếp",
     "等待成交…": "Đang chờ giao dịch…",
-    "最新成交": "Giao dịch gần đây"
+    "最新成交": "Giao dịch gần đây",
+    "借币欠款": "Nợ coin đã vay",
+    "借币": "Vay coin",
+    "借币利息": "Lãi vay coin",
+    "还币": "Trả coin",
+    "{{symbol}} 借币强平：买回 {{qty}} @ {{price}}": "{{symbol}} thanh lý khoản vay coin: mua lại {{qty}} @ {{price}}",
+    "借币卖出": "Vay để bán",
+    "先卖可卖的持仓，不够的数量借来卖掉；欠的币按小时计息，买入这个币时先还借币。风险率不高于 {{level}} 时强平买回，另收 2% 的强平费": "Bán tài sản đang có trước, chỉ vay phần còn thiếu. Lãi trên coin vay tính theo giờ, mua coin này sẽ trả khoản vay trước. Khi tỷ lệ ký quỹ từ {{level}} trở xuống, coin sẽ bị mua lại khi thanh lý, kèm phí 2%.",
+    "约可借": "Có thể vay (ước tính)",
+    "借币卖出 {{ticker}}": "Vay và bán {{ticker}}",
+    "已买回并还币": "Đã mua lại và trả coin",
+    "买入还币": "Mua lại và trả",
+    "欠币(含利息)": "Còn nợ (gồm lãi)",
+    "按最新价": "Theo giá mới nhất",
+    "开空均价": "Giá bán khống TB",
+    "风险率 = (资金 + 现货按买一的市值) ÷ (借款本金 + 利息 + 借着的币按卖一的价值)。不高于 {{call}} 提醒追加保证金，不高于 {{liquidation}} 强平并收还款额 2% 的强平费；转出资金后不能低于 {{transfer}}。利息按 Binance 的实时借贷利率每小时收一次，借币的利息按币收。": "Tỷ lệ ký quỹ = (tiền + giao ngay theo giá mua tốt nhất) ÷ (gốc vay + lãi + coin đã vay theo giá bán tốt nhất). Từ {{call}} trở xuống sẽ có cảnh báo ký quỹ; từ {{liquidation}} trở xuống bị thanh lý với phí 2% trên số tiền trả nợ; sau khi chuyển tiền ra không được thấp hơn {{transfer}}. Lãi theo lãi suất vay thời gian thực của Binance, tính mỗi giờ; lãi của coin vay trả bằng coin.",
+    "借币笔数": "Khoản vay coin đang mở"
   }
 }

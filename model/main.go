@@ -391,6 +391,7 @@ func migrateDB() error {
 		&GameCoinAccount{},
 		&GameCoinLog{},
 		&TradeSpotMargin{},
+		&TradeSpotAssetLoan{},
 		&TradePredictionRound{},
 		&TradePredictionPosition{},
 	)
@@ -487,6 +488,7 @@ func migrateDBFast() error {
 		{&GameCoinAccount{}, "GameCoinAccount"},
 		{&GameCoinLog{}, "GameCoinLog"},
 		{&TradeSpotMargin{}, "TradeSpotMargin"},
+		{&TradeSpotAssetLoan{}, "TradeSpotAssetLoan"},
 		{&TradePredictionRound{}, "TradePredictionRound"},
 		{&TradePredictionPosition{}, "TradePredictionPosition"},
 	}

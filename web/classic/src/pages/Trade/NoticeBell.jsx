@@ -82,6 +82,9 @@ function noticeText(notice, perUnit, t) {
         values,
       );
     case 'liquidation':
+      if (notice.market === 'spot' && notice.side === 'buy') {
+        return t('{{symbol}} 借币强平：买回 {{qty}} @ {{price}}', values);
+      }
       if (notice.market === 'spot') {
         return t('{{symbol}} 现货借款强平：卖出 {{qty}} @ {{price}}', values);
       }

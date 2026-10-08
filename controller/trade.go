@@ -32,6 +32,8 @@ type tradeOrderRequest struct {
 	Amount   string `json:"amount"`
 	Price    string `json:"price"`
 	Leverage *int   `json:"leverage,omitempty"`
+	// Borrow 为真时借币卖出：先卖可卖的持仓，不够的数量借来卖掉。
+	Borrow bool `json:"borrow"`
 }
 
 type tradeTransferRequest struct {
@@ -438,6 +440,7 @@ func PlaceTradeOrder(c *gin.Context) {
 		Amount:   amount,
 		Price:    price,
 		Leverage: leverage,
+		Borrow:   req.Borrow,
 	})
 	if err != nil {
 		respondTradeOrderError(c, req.Symbol, err)

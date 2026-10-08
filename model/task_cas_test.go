@@ -75,6 +75,7 @@ func TestMain(m *testing.M) {
 		&GameCoinAccount{},
 		&GameCoinLog{},
 		&TradeSpotMargin{},
+		&TradeSpotAssetLoan{},
 		&TradePredictionRound{},
 		&TradePredictionPosition{},
 	); err != nil {
@@ -129,6 +130,7 @@ func truncateTables(t *testing.T) {
 		DB.Exec("DELETE FROM game_coin_logs")
 		DB.Exec("DELETE FROM game_coin_accounts")
 		DB.Exec("DELETE FROM trade_spot_margins")
+		DB.Exec("DELETE FROM trade_spot_asset_loans")
 		DB.Exec("DELETE FROM trade_prediction_rounds")
 		DB.Exec("DELETE FROM trade_prediction_positions")
 	})

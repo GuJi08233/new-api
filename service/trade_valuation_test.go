@@ -61,3 +61,35 @@ func TestTradeSnapshotSeparatesPredictionAndFinancingCashFlows(t *testing.T) {
 	assert.Equal(t, tradeTestUsd("5"), snapshot.PredictionFlow)
 	assert.Equal(t, -tradeTestUsd("2"), snapshot.SpotFinanceFlow, "扣平台额度补入是外部入金，不是融资收益")
 }
+
+// 借币卖出欠着的币是负债：按最新价算出的价值从总资产里扣掉；快照里记成这一类负的市值，借币卖出到账与买回花费都在这一类的资金流里，
+// 分类盈亏加起来仍等于总资产的变化。盘口不新鲜时风险率算不出来，转不出钱。
+func TestTradeValuationDeductsBorrowedCoins(t *testing.T) {
+	setupTradeMarketTest(t, nil)
+	const userId = 9824
+	require.NoError(t, model.DB.Create(&model.TradeAccount{UserId: userId, Cash: tradeTestUsd("1999"), TotalIn: tradeTestUsd("1000")}).Error)
+	require.NoError(t, model.DB.Create(&model.TradeSpotAssetLoan{UserId: userId, Symbol: "BTCUSDT", Principal: 10 * 100_000_000, Interest: 1_000_000,
+		Proceeds: tradeTestUsd("999"), ChargedUntil: common.GetTimestamp() + 3600, DailyRate: "0"}).Error)
+	require.NoError(t, model.DB.Create(&model.TradeLedger{UserId: userId, Type: model.TradeLedgerSell, Symbol: "BTCUSDT", Amount: tradeTestUsd("999"), CreatedAt: 10}).Error)
+	t.Cleanup(func() { model.DB.Where("user_id = ?", userId).Delete(&model.TradeSpotAssetLoan{}) })
+
+	account, valuation, err := ValueTradeUser(userId)
+	require.NoError(t, err)
+	require.Len(t, valuation.Shorts, 1)
+	short := valuation.Shorts[0]
+	assert.Equal(t, "10.01", short.Qty)
+	assert.Equal(t, "99.9", short.AvgPrice)
+	assert.Equal(t, "100", short.Price)
+	assert.Equal(t, tradeTestUsd("1001"), short.Value)
+	assert.Equal(t, tradeTestUsd("1001"), valuation.CryptoShort)
+	assert.Equal(t, tradeTestUsd("998"), valuation.Equity)
+	assert.Equal(t, -tradeTestUsd("2"), valuation.Equity-account.TotalIn, "开空付了 1 的手续费、欠了 0.01 个币的利息")
+	assert.False(t, valuation.SpotPricesFresh)
+	assert.Zero(t, valuation.Cross.Withdrawable)
+
+	snapshot, err := LiveTradeSnapshot(userId, "2026-10-09", 1, 20)
+	require.NoError(t, err)
+	assert.Equal(t, -tradeTestUsd("1001"), snapshot.CryptoValue)
+	assert.Equal(t, tradeTestUsd("999"), snapshot.CryptoFlow)
+	assert.Equal(t, snapshot.Equity, snapshot.Cash+snapshot.CryptoValue, "总资产 = 资金 + 负的币价值")
+}

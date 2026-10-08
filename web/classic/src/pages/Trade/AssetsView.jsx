@@ -188,7 +188,7 @@ const AssetsView = ({
       '',
     ],
   ];
-  // 预测持仓和现货借款也算进总资产(借款是减项)，有的时候才列出来，让各项加起来等于总资产。
+  // 预测持仓、现货借款与借币卖出欠着的币也算进总资产(后两项是减项)，有的时候才列出来，让各项加起来等于总资产。
   if (valuation?.prediction_value > 0) {
     summary.push([
       t('BTC预测'),
@@ -201,6 +201,16 @@ const AssetsView = ({
       t('现货借款'),
       `${formatSignedUsdt(-valuation.spot_debt, perUnit)} USDT`,
       trendClass(-valuation.spot_debt),
+    ]);
+  }
+  // 借币卖出欠着的币按最新价是负债。
+  const shortValue =
+    (valuation?.crypto_short || 0) + (valuation?.stock_short || 0);
+  if (shortValue > 0) {
+    summary.push([
+      t('借币欠款'),
+      `${formatSignedUsdt(-shortValue, perUnit)} USDT`,
+      trendClass(-shortValue),
     ]);
   }
 

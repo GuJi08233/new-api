@@ -942,3 +942,9 @@ For commercial licensing, please contact support@quantumnous.com
   background: var(--semi-color-bg-1);
   color: var(--semi-color-text-2);
 }
+
+/* 现货借款卡里每一种借着的币，和上面隔一条虚线。 */
+.trade-short {
+  padding-top: 8px;
+  border-top: 1px dashed var(--semi-color-border);
+}
