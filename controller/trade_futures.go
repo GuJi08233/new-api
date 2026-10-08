@@ -167,6 +167,7 @@ func GetTradeFuturesMarket(c *gin.Context) {
 			"symbol":       info.Futures,
 			"ticker":       info.Ticker,
 			"kind":         info.Kind,
+			"session":      info.Session,
 			"spot":         info.Symbol,
 			"open":         setting.FuturesOpenEnabled(info.Futures),
 			"max_leverage": service.TradeFuturesLeverageLimit(info.Futures),

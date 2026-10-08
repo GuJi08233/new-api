@@ -45,6 +45,12 @@ func GetTradePredictionMarket(c *gin.Context) {
 	common.ApiSuccess(c, service.GetTradePredictionMarket(c.Request.Context()))
 }
 
+// GetTradePredictionLive 是预测页每秒拉一次的 BTC 价格、目标价与最近成交；since 是页面已有的最后一个价格点的毫秒时间戳。
+func GetTradePredictionLive(c *gin.Context) {
+	since, _ := strconv.ParseInt(c.Query("since"), 10, 64)
+	common.ApiSuccess(c, service.GetTradePredictionLive(since))
+}
+
 func BuyTradePrediction(c *gin.Context) {
 	var request struct {
 		WindowStart int64  `json:"window_start"`

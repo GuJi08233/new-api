@@ -81,6 +81,14 @@ const (
 	TradeKindCommodity = "commodity" // 大宗商品，只有合约
 )
 
+// 标的所在市场的交易时段，前端据此标出盘前、盘中、盘后、夜盘或休市(照 Binance 美股代币与 TradFi 合约页)。代币和合约本身
+// 7×24 小时交易，标的市场休市时流动性差、价格可能跳空。加密货币没有标的市场，为空。
+const (
+	TradeSessionUS  = "us"  // 美股：盘前、盘中、盘后、夜盘
+	TradeSessionKRX = "krx" // 韩国交易所
+	TradeSessionCME = "cme" // CME Globex 的黄金与原油期货
+)
+
 // TradeSymbolInfo 是模拟盘支持的一个品种：Binance 现货交易对与对应的 U 本位永续合约，二者可以只有一个。合约的杠杆与维持
 // 保证金按 Binance 的风险限额档位算，档位表在 service 里。
 type TradeSymbolInfo struct {
@@ -91,6 +99,8 @@ type TradeSymbolInfo struct {
 	Kind   string `json:"kind"`
 	// Futures 是对应的 Binance U 本位永续合约，例如 NVDAUSDT，只有现货的品种为空。
 	Futures string `json:"futures"`
+	// Session 是标的市场(TradeSession*)，加密货币为空。
+	Session string `json:"session"`
 }
 
 // TradeSymbols 是模拟盘支持的全部品种，开放哪些由 TradeSetting.Symbols 与 FuturesSymbols 决定。美股代币是 Binance 现货上
@@ -104,20 +114,20 @@ var TradeSymbols = []TradeSymbolInfo{
 	{Symbol: "DOGEUSDT", Ticker: "DOGE", Kind: TradeKindCrypto, Futures: "DOGEUSDT"},
 	{Symbol: "ZECUSDT", Ticker: "ZEC", Kind: TradeKindCrypto, Futures: "ZECUSDT"},
 	{Ticker: "HYPE", Kind: TradeKindCrypto, Futures: "HYPEUSDT"},
-	{Symbol: "NVDABUSDT", Ticker: "NVDA", Kind: TradeKindStock, Futures: "NVDAUSDT"},
-	{Symbol: "TSLABUSDT", Ticker: "TSLA", Kind: TradeKindStock, Futures: "TSLAUSDT"},
-	{Symbol: "AMDBUSDT", Ticker: "AMD", Kind: TradeKindStock, Futures: "AMDUSDT"},
-	{Symbol: "MUBUSDT", Ticker: "MU", Kind: TradeKindStock, Futures: "MUUSDT"},
-	{Symbol: "SNDKBUSDT", Ticker: "SNDK", Kind: TradeKindStock, Futures: "SNDKUSDT"},
-	{Symbol: "CRCLBUSDT", Ticker: "CRCL", Kind: TradeKindStock, Futures: "CRCLUSDT"},
-	{Symbol: "MSTRBUSDT", Ticker: "MSTR", Kind: TradeKindStock, Futures: "MSTRUSDT"},
-	{Symbol: "SPCXBUSDT", Ticker: "SPCX", Kind: TradeKindStock, Futures: "SPCXUSDT"},
-	{Symbol: "QQQBUSDT", Ticker: "QQQ", Kind: TradeKindStock, Futures: "QQQUSDT"},
-	{Symbol: "SOXLBUSDT", Ticker: "SOXL", Kind: TradeKindStock, Futures: "SOXLUSDT"},
-	{Ticker: "SKHYNIX", Kind: TradeKindStock, Futures: "SKHYNIXUSDT"},
-	{Ticker: "KORU", Kind: TradeKindStock, Futures: "KORUUSDT"},
-	{Ticker: "XAU", Kind: TradeKindCommodity, Futures: "XAUUSDT"},
-	{Ticker: "CL", Kind: TradeKindCommodity, Futures: "CLUSDT"},
+	{Symbol: "NVDABUSDT", Ticker: "NVDA", Kind: TradeKindStock, Futures: "NVDAUSDT", Session: TradeSessionUS},
+	{Symbol: "TSLABUSDT", Ticker: "TSLA", Kind: TradeKindStock, Futures: "TSLAUSDT", Session: TradeSessionUS},
+	{Symbol: "AMDBUSDT", Ticker: "AMD", Kind: TradeKindStock, Futures: "AMDUSDT", Session: TradeSessionUS},
+	{Symbol: "MUBUSDT", Ticker: "MU", Kind: TradeKindStock, Futures: "MUUSDT", Session: TradeSessionUS},
+	{Symbol: "SNDKBUSDT", Ticker: "SNDK", Kind: TradeKindStock, Futures: "SNDKUSDT", Session: TradeSessionUS},
+	{Symbol: "CRCLBUSDT", Ticker: "CRCL", Kind: TradeKindStock, Futures: "CRCLUSDT", Session: TradeSessionUS},
+	{Symbol: "MSTRBUSDT", Ticker: "MSTR", Kind: TradeKindStock, Futures: "MSTRUSDT", Session: TradeSessionUS},
+	{Symbol: "SPCXBUSDT", Ticker: "SPCX", Kind: TradeKindStock, Futures: "SPCXUSDT", Session: TradeSessionUS},
+	{Symbol: "QQQBUSDT", Ticker: "QQQ", Kind: TradeKindStock, Futures: "QQQUSDT", Session: TradeSessionUS},
+	{Symbol: "SOXLBUSDT", Ticker: "SOXL", Kind: TradeKindStock, Futures: "SOXLUSDT", Session: TradeSessionUS},
+	{Ticker: "SKHYNIX", Kind: TradeKindStock, Futures: "SKHYNIXUSDT", Session: TradeSessionKRX},
+	{Ticker: "KORU", Kind: TradeKindStock, Futures: "KORUUSDT", Session: TradeSessionUS},
+	{Ticker: "XAU", Kind: TradeKindCommodity, Futures: "XAUUSDT", Session: TradeSessionCME},
+	{Ticker: "CL", Kind: TradeKindCommodity, Futures: "CLUSDT", Session: TradeSessionCME},
 }
 
 const (

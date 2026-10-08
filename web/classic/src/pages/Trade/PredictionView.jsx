@@ -33,6 +33,11 @@ import {
 import { ExternalLink, RefreshCw } from 'lucide-react';
 import { API, showError, showSuccess, timestamp2string } from '../../helpers';
 import { formatQty, formatSignedUsdt, formatUsdt, tradePost } from './api';
+import {
+  PredictionPricePanel,
+  PredictionTradesCard,
+  usePredictionLive,
+} from './PredictionLive';
 
 const { Text, Title } = Typography;
 const PAGE_SIZE = 10;
@@ -74,6 +79,7 @@ const PredictionView = ({ self, perUnit, onAccountChanged, t }) => {
   const [now, setNow] = useState(Date.now);
   const [clockOffset, setClockOffset] = useState(0);
   const mounted = useRef(true);
+  const live = usePredictionLive();
 
   useEffect(() => {
     mounted.current = true;
@@ -358,6 +364,17 @@ const PredictionView = ({ self, perUnit, onAccountChanged, t }) => {
               </Tag>
             </div>
           )}
+          {round && (
+            <div className='trade-prediction-progress' aria-hidden='true'>
+              <span
+                className={remaining <= 30 ? 'is-ending' : ''}
+                style={{
+                  width: `${(Math.min(Math.max(300 - remaining, 0), 300) / 300) * 100}%`,
+                }}
+              />
+            </div>
+          )}
+          <PredictionPricePanel live={live} t={t} />
           {!ready && (
             <Banner
               type='warning'
@@ -421,75 +438,82 @@ const PredictionView = ({ self, perUnit, onAccountChanged, t }) => {
           </a>
         </div>
 
-        <div className='trade-card flex flex-col gap-4'>
-          <Text strong>{t('买入预测份额')}</Text>
-          {!market?.enabled && ready && (
-            <Text type='warning'>
-              {t('预测买入已关闭，已有持仓仍会自动结算。')}
-            </Text>
-          )}
-          <RadioGroup
-            type='button'
-            value={side}
-            disabled={submitting}
-            onChange={(event) => setSide(event.target.value)}
-          >
-            <Radio value='UP'>{t('看涨')}</Radio>
-            <Radio value='DOWN'>{t('看跌')}</Radio>
-          </RadioGroup>
-          <label className='flex flex-col gap-2'>
-            <Text size='small'>{t('投入预算（含手续费）')}</Text>
-            <Input
-              value={amount}
-              onChange={setAmount}
-              inputMode='decimal'
-              suffix='USDT'
-              disabled={submitting}
-              aria-label={t('投入预算（含手续费）')}
-            />
-          </label>
-          <label className='flex flex-col gap-2'>
-            <Text size='small'>{t('最高接受买入价')}</Text>
-            <Input
-              value={maxPrice}
-              onChange={(value) =>
-                setPriceInput({ round: round?.window_start, side, value })
-              }
-              inputMode='decimal'
-              suffix='USDT'
-              disabled={submitting}
-              aria-label={t('最高接受买入价')}
-            />
-          </label>
-          <Text type='tertiary' size='small'>
-            {t('可用资金')} {formatUsdt(spendable, perUnit)} USDT
-          </Text>
-          <Text type='tertiary' size='small'>
-            {t('每笔预算 {{min}}–{{max}} USDT，未平仓成本上限 {{cap}} USDT。', {
-              min: market?.min_amount_usd ?? 1,
-              max: market?.max_amount_usd ?? self?.max_order_usd ?? '—',
-              cap: market?.max_position_usd ?? self?.max_position_usd ?? '—',
-            })}
-          </Text>
-          <Text size='small'>
-            {t('预计份额')}{' '}
-            {estimatedShares === null ? '—' : formatQty(estimatedShares, 4)}
-          </Text>
-          <Text type='tertiary' size='small'>
-            {t(
-              '预计份额按当前卖一价计算；手续费 = 份额 × {{rate}} × 价格 × (1 − 价格)，实际金额以成交为准。',
-              { rate: market?.fee_rate || '0.07' },
+        <div className='flex min-w-0 flex-col gap-4'>
+          <div className='trade-card flex flex-col gap-4'>
+            <Text strong>{t('买入预测份额')}</Text>
+            {!market?.enabled && ready && (
+              <Text type='warning'>
+                {t('预测买入已关闭，已有持仓仍会自动结算。')}
+              </Text>
             )}
-          </Text>
-          <Button
-            theme='solid'
-            block
-            loading={submitting && !sellPosition}
-            disabled={!validBuy || submitting}
-            onClick={buy}
-          >
-            {t('买入预测份额')}
-          </Button>
+            <RadioGroup
+              type='button'
+              value={side}
+              disabled={submitting}
+              onChange={(event) => setSide(event.target.value)}
+            >
+              <Radio value='UP'>{t('看涨')}</Radio>
+              <Radio value='DOWN'>{t('看跌')}</Radio>
+            </RadioGroup>
+            <label className='flex flex-col gap-2'>
+              <Text size='small'>{t('投入预算（含手续费）')}</Text>
+              <Input
+                value={amount}
+                onChange={setAmount}
+                inputMode='decimal'
+                suffix='USDT'
+                disabled={submitting}
+                aria-label={t('投入预算（含手续费）')}
+              />
+            </label>
+            <label className='flex flex-col gap-2'>
+              <Text size='small'>{t('最高接受买入价')}</Text>
+              <Input
+                value={maxPrice}
+                onChange={(value) =>
+                  setPriceInput({ round: round?.window_start, side, value })
+                }
+                inputMode='decimal'
+                suffix='USDT'
+                disabled={submitting}
+                aria-label={t('最高接受买入价')}
+              />
+            </label>
+            <Text type='tertiary' size='small'>
+              {t('可用资金')} {formatUsdt(spendable, perUnit)} USDT
+            </Text>
+            <Text type='tertiary' size='small'>
+              {t(
+                '每笔预算 {{min}}–{{max}} USDT，未平仓成本上限 {{cap}} USDT。',
+                {
+                  min: market?.min_amount_usd ?? 1,
+                  max: market?.max_amount_usd ?? self?.max_order_usd ?? '—',
+                  cap:
+                    market?.max_position_usd ?? self?.max_position_usd ?? '—',
+                },
+              )}
+            </Text>
+            <Text size='small'>
+              {t('预计份额')}{' '}
+              {estimatedShares === null ? '—' : formatQty(estimatedShares, 4)}
+            </Text>
+            <Text type='tertiary' size='small'>
+              {t(
+                '预计份额按当前卖一价计算；手续费 = 份额 × {{rate}} × 价格 × (1 − 价格)，实际金额以成交为准。',
+                { rate: market?.fee_rate || '0.07' },
+              )}
+            </Text>
+            <Button
+              theme='solid'
+              block
+              loading={submitting && !sellPosition}
+              disabled={!validBuy || submitting}
+              onClick={buy}
+            >
+              {t('买入预测份额')}
+            </Button>
+          </div>
+          <PredictionTradesCard live={live} t={t} />
         </div>
       </div>
 

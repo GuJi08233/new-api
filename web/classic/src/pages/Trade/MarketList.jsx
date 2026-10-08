@@ -17,8 +17,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React from 'react';
-import { Button, Table, Tag, Typography } from '@douyinfe/semi-ui';
+import React, { useState } from 'react';
+import { Button, Input, Table, Tag, Typography } from '@douyinfe/semi-ui';
+import { Search } from 'lucide-react';
 import {
   changePercent,
   decimalsOf,
@@ -62,12 +63,50 @@ const Sparkline = ({ closes }) => {
   );
 };
 
+// compareQuotes 按数值比较两个行情字段。没有行情的不论升序降序都排在最后，不当成 0 混进前面；Semi 的表格降序时会把比较结果
+// 取反，所以这里按 order 先反一次。
+function compareQuotes(leftValue, rightValue, order) {
+  const left =
+    leftValue === undefined || leftValue === null || leftValue === ''
+      ? NaN
+      : Number(leftValue);
+  const right =
+    rightValue === undefined || rightValue === null || rightValue === ''
+      ? NaN
+      : Number(rightValue);
+  const leftMissing = !Number.isFinite(left);
+  const rightMissing = !Number.isFinite(right);
+  if (leftMissing || rightMissing) {
+    if (leftMissing === rightMissing) return 0;
+    const last = leftMissing ? 1 : -1;
+    return order === 'descend' ? -last : last;
+  }
+  return left - right;
+}
+
 // 行情列表：加密货币、美股与大宗商品分组，价格随推送实时变化，点一行进入交易。futures 为真时列的是永续合约，多出标记价格、
-// 资金费率与最高杠杆，暂停开仓(只能平仓)的合约标出来。
+// 资金费率与最高杠杆，暂停开仓(只能平仓)的合约标出来。可以按代码搜索，点列头按价格、涨跌幅、成交额(合约还有资金费率)排序。
 const MarketList = ({ symbols, quotes, futures = false, onOpen, t }) => {
+  const [query, setQuery] = useState('');
+  const keyword = query.trim().toUpperCase();
+  const matched = keyword
+    ? symbols.filter(
+        (item) =>
+          item.ticker?.toUpperCase().includes(keyword) ||
+          item.symbol?.toUpperCase().includes(keyword),
+      )
+    : symbols;
+  const byQuote = (field) => (a, b, order) =>
+    compareQuotes(quotes[a.symbol]?.[field], quotes[b.symbol]?.[field], order);
+  const byChange = (a, b, order) =>
+    compareQuotes(
+      changePercent(quotes[a.symbol]?.price, quotes[a.symbol]?.open),
+      changePercent(quotes[b.symbol]?.price, quotes[b.symbol]?.open),
+      order,
+    );
   const groups = [
     { kind: 'crypto', title: t('加密货币') },
-    { kind: 'stock', title: futures ? t('美股永续') : t('美股代币') },
+    { kind: 'stock', title: futures ? t('股票永续') : t('美股代币') },
     { kind: 'commodity', title: t('大宗商品') },
   ];
 
@@ -89,6 +128,7 @@ const MarketList = ({ symbols, quotes, futures = false, onOpen, t }) => {
       title: t('资金费率'),
       dataIndex: 'funding_rate',
       align: 'right',
+      sorter: byQuote('funding_rate'),
       render: (_, item) => (
         <Text type='secondary' className='trade-num'>
           {formatFundingRate(quotes[item.symbol]?.funding_rate)}
@@ -124,6 +164,7 @@ const MarketList = ({ symbols, quotes, futures = false, onOpen, t }) => {
       title: t('最新价'),
       dataIndex: 'price',
       align: 'right',
+      sorter: byQuote('price'),
       render: (_, item) => {
         const quote = quotes[item.symbol] || {};
         const change = changePercent(quote.price, quote.open);
@@ -139,6 +180,7 @@ const MarketList = ({ symbols, quotes, futures = false, onOpen, t }) => {
       title: t('24 小时涨跌'),
       dataIndex: 'change',
       align: 'right',
+      sorter: byChange,
       render: (_, item) => {
         const quote = quotes[item.symbol] || {};
         const change = changePercent(quote.price, quote.open);
@@ -169,6 +211,7 @@ const MarketList = ({ symbols, quotes, futures = false, onOpen, t }) => {
       title: t('24 小时成交额'),
       dataIndex: 'volume',
       align: 'right',
+      sorter: byQuote('quote_volume'),
       render: (_, item) => (
         <Text type='secondary' className='trade-num'>
           {formatCompact(quotes[item.symbol]?.quote_volume)} USDT
@@ -193,8 +236,24 @@ const MarketList = ({ symbols, quotes, futures = false, onOpen, t }) => {
 
   return (
     <div className='flex flex-col gap-4'>
+      <Input
+        className='trade-market-search'
+        prefix={<Search size={15} className='ml-2' />}
+        value={query}
+        onChange={setQuery}
+        showClear
+        placeholder={t('按代码搜索，例如 BTC、NVDA')}
+        aria-label={t('按代码搜索，例如 BTC、NVDA')}
+      />
+      {keyword && !matched.length && (
+        <div className='trade-card'>
+          <Text type='tertiary'>
+            {futures ? t('没有匹配的合约') : t('没有匹配的交易对')}
+          </Text>
+        </div>
+      )}
       {groups.map((group) => {
-        const items = symbols.filter((item) => item.kind === group.kind);
+        const items = matched.filter((item) => item.kind === group.kind);
         if (!items.length) return null;
         return (
           <div key={group.kind} className='trade-card'>

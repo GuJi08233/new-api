@@ -56,7 +56,14 @@ import {
   maSeries,
   rsiSeries,
 } from './indicators';
-import { formatPrice, formatQty, tradeGet } from './api';
+import {
+  chartTime,
+  cssColor,
+  formatPrice,
+  formatQty,
+  tradeGet,
+  withAlpha,
+} from './api';
 import { DrawOverlay, DrawToolPopover, DrawToolRail } from './DrawingTools';
 import { useDrawings } from './useDrawings';
 import { ChartCalendarLayer } from './ChartCalendarLayer';
@@ -101,11 +108,6 @@ function writeSetting(key, value) {
   }
 }
 
-// 图表库按 UTC 显示时间，平移本地时区的偏移量后横轴就是本地时间。
-function chartTime(ms) {
-  return Math.floor(ms / 1000) - new Date(ms).getTimezoneOffset() * 60;
-}
-
 function toBar(row) {
   return {
     openMs: row[0],
@@ -119,11 +121,6 @@ function toBar(row) {
   };
 }
 
-function cssColor(name, fallback) {
-  const value = getComputedStyle(document.body).getPropertyValue(name).trim();
-  return value || fallback;
-}
-
 function chartColors() {
   return {
     text: cssColor('--semi-color-text-2', '#888'),
@@ -133,20 +130,6 @@ function chartColors() {
     mute: cssColor('--semi-color-text-3', '#aaa'),
     primary: cssColor('--semi-color-primary', '#3b82f6'),
   };
-}
-
-// withAlpha 把颜色的透明度乘上 alpha。Semi 的颜色变量本身可能带透明度(边框色是 0.08)，要在它的基础上调，不能直接覆盖。
-function withAlpha(color, alpha) {
-  const match = color.match(/rgba?\(([^)]+)\)/);
-  if (match) {
-    const [r, g, b, a = '1'] = match[1].split(',').map((part) => part.trim());
-    return `rgba(${r},${g},${b},${Number(a) * alpha})`;
-  }
-  if (color.startsWith('#') && color.length === 7) {
-    const value = parseInt(color.slice(1), 16);
-    return `rgba(${(value >> 16) & 255},${(value >> 8) & 255},${value & 255},${alpha})`;
-  }
-  return color;
 }
 
 // fillSide 是一次成交在盘口上的方向：现货成交的 type 就是买卖方向；合约成交带着仓位方向，开多、平空是买入，开空、平多(含强平)
@@ -196,6 +179,7 @@ const CandleChart = ({
   const markersRef = useRef(null);
   const calendarLayerRef = useRef(null);
   const indicatorValuesRef = useRef(null);
+  const lastLabelRef = useRef(null);
   // 点 K 线时要用最新的成交与周期，建图时订阅的回调从这里读。
   const fillsRef = useRef(fills);
   fillsRef.current = fills;
@@ -217,6 +201,8 @@ const CandleChart = ({
   const [chartType, setChartType] = useState(() =>
     readSetting('trade-chart-type', 'candle') === 'line' ? 'line' : 'candle',
   );
+  const chartTypeRef = useRef(chartType);
+  chartTypeRef.current = chartType;
   const [advanced, setAdvanced] = useState(false);
   const [showPriceLines, setShowPriceLines] = useState(() =>
     readSetting('trade-chart-price-lines', true),
@@ -366,6 +352,7 @@ const CandleChart = ({
       lastValueVisible: false,
       crosshairMarkerVisible: false,
     };
+    // 最新价的轴标签由下面的「最新价 + 收盘倒计时」标签代替，这里关掉自带的。
     const candle = chart.addSeries(CandlestickSeries, {
       upColor: colors.up,
       downColor: colors.down,
@@ -374,6 +361,7 @@ const CandleChart = ({
       wickUpColor: colors.up,
       wickDownColor: colors.down,
       priceFormat,
+      lastValueVisible: false,
       visible: chartType !== 'line',
     });
     // 保留蜡烛数据作为绘图与财经事件的锚点；primitive 不随 series.visible 隐藏。
@@ -384,6 +372,7 @@ const CandleChart = ({
       bottomColor: 'transparent',
       crosshairMarkerVisible: false,
       priceFormat,
+      lastValueVisible: false,
       visible: chartType === 'line',
     });
     const volume = chart.addSeries(HistogramSeries, {
@@ -798,6 +787,53 @@ const CandleChart = ({
     paint(true);
     setTick((value) => value + 1);
   }, [kline, symbol, period, paint]);
+
+  // 价格轴上的「最新价 + 收盘倒计时」标签(照 Binance)：贴在最新价的高度，上面是价格、下面是这根 K 线离收盘还剩多久，
+  // 底色跟这根 K 线涨跌。每 250 毫秒重取坐标，价格跳动和缩放平移都跟得上；最新一根已经不是当前周期(断流或休市)时只显示价格，
+  // 停住的倒计时比没有更误导。
+  useEffect(() => {
+    const label = lastLabelRef.current;
+    if (!label) return undefined;
+    const size = INTERVAL_MS[period];
+    const precision = Math.min(Math.max(priceDigits ?? 2, 0), 8);
+    const render = () => {
+      const chart = chartRef.current;
+      const series = seriesRef.current;
+      const last = barsRef.current[barsRef.current.length - 1];
+      const owner =
+        chartTypeRef.current === 'line' ? series?.area : series?.candle;
+      const y =
+        chart && owner && last ? owner.priceToCoordinate(last.close) : null;
+      if (y === null || y < 0 || y > chart.paneSize(0).height) {
+        label.style.display = 'none';
+        return;
+      }
+      const remain = last.openMs + size - Date.now();
+      let countdown = '';
+      if (remain > 0 && remain <= size) {
+        const seconds = Math.floor(remain / 1000);
+        const pad = (value) => String(value).padStart(2, '0');
+        const hours = Math.floor(seconds / 3600);
+        countdown = `${hours > 0 ? `${hours}:` : ''}${pad(Math.floor((seconds % 3600) / 60))}:${pad(seconds % 60)}`;
+      }
+      label.firstChild.textContent = Number(last.close).toFixed(precision);
+      label.lastChild.textContent = countdown;
+      label.lastChild.style.display = countdown ? 'block' : 'none';
+      label.style.background =
+        last.close >= last.open
+          ? cssColor('--semi-color-success', '#16a34a')
+          : cssColor('--semi-color-danger', '#dc2626');
+      label.style.minWidth = `${chart.priceScale('right').width()}px`;
+      label.style.top = `${y}px`;
+      label.style.display = 'flex';
+    };
+    render();
+    const timer = setInterval(render, 250);
+    return () => {
+      clearInterval(timer);
+      label.style.display = 'none';
+    };
+  }, [period, priceDigits]);
 
   // 持仓的价格线，priceLines 是 [{ price, title, color }]：color 为 up 的线(止盈)用涨色，down 的线(强平价、止损)用跌色，
   // 其余用主色。
@@ -1230,6 +1266,14 @@ const CandleChart = ({
               </div>
             )}
             <div ref={hostRef} className='trade-chart-canvas' />
+            <div
+              ref={lastLabelRef}
+              className='trade-chart-last'
+              aria-hidden='true'
+            >
+              <span />
+              <span className='trade-chart-last-countdown' />
+            </div>
             <DrawOverlay d={drawing} t={t} />
             {pickedEvents && (
               <div

@@ -24,6 +24,7 @@ import CandleChart from './CandleChart';
 import OrderBook from './OrderBook';
 import OrderPanel from './OrderPanel';
 import OrdersCard from './OrdersCard';
+import SessionBadge from './SessionBadge';
 import SpotMarginCard from './SpotMarginCard';
 import {
   changePercent,
@@ -162,6 +163,7 @@ const TradeView = ({
             <Text type='tertiary'>/USDT</Text>
           </Title>
           {item.kind === 'stock' && <Tag color='violet'>{t('美股代币')}</Tag>}
+          {item.session && <SessionBadge session={item.session} t={t} />}
           <Tag color={connected ? 'green' : 'orange'}>
             {connected ? t('实时') : t('连接中')}
           </Tag>

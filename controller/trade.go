@@ -244,7 +244,7 @@ func GetTradeMarket(c *gin.Context) {
 	}
 	items := make([]gin.H, 0, len(infos))
 	for i, info := range infos {
-		item := gin.H{"symbol": info.Symbol, "ticker": info.Ticker, "kind": info.Kind}
+		item := gin.H{"symbol": info.Symbol, "ticker": info.Ticker, "kind": info.Kind, "session": info.Session}
 		if quote, ok := market.Quote(info.Symbol); ok {
 			item["quote"] = quote
 		}

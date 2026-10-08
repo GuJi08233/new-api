@@ -25,6 +25,7 @@ import FuturesOrderPanel from './FuturesOrderPanel';
 import FuturesOrdersCard from './FuturesOrdersCard';
 import FuturesPositions from './FuturesPositions';
 import OrderBook from './OrderBook';
+import SessionBadge from './SessionBadge';
 import {
   changePercent,
   decimalsOf,
@@ -239,11 +240,16 @@ const FuturesView = ({
             <Text type='tertiary'>USDT</Text>
           </Title>
           <Tag color='blue'>{t('永续')}</Tag>
-          {item.kind === 'stock' && <Tag color='violet'>{t('美股')}</Tag>}
+          {item.kind === 'stock' && (
+            <Tag color='violet'>
+              {item.session === 'krx' ? t('韩股') : t('美股')}
+            </Tag>
+          )}
           {item.kind === 'commodity' && (
             <Tag color='amber'>{t('大宗商品')}</Tag>
           )}
           {!item.open && <Tag color='grey'>{t('仅可平仓')}</Tag>}
+          {item.session && <SessionBadge session={item.session} t={t} />}
           <Tag color={connected ? 'green' : 'orange'}>
             {connected ? t('实时') : t('连接中')}
           </Tag>

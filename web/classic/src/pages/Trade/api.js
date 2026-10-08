@@ -333,3 +333,28 @@ export function floorToStep(value, step) {
   const units = Math.floor(number / size + 1e-9);
   return (units * size).toFixed(digits);
 }
+
+// 图表库按 UTC 显示时间，平移本地时区的偏移量后横轴就是本地时间。
+export function chartTime(ms) {
+  return Math.floor(ms / 1000) - new Date(ms).getTimezoneOffset() * 60;
+}
+
+// cssColor 读 Semi 主题的颜色变量，读不到时用 fallback。
+export function cssColor(name, fallback) {
+  const value = getComputedStyle(document.body).getPropertyValue(name).trim();
+  return value || fallback;
+}
+
+// withAlpha 把颜色的透明度乘上 alpha。Semi 的颜色变量本身可能带透明度(边框色是 0.08)，要在它的基础上调，不能直接覆盖。
+export function withAlpha(color, alpha) {
+  const match = color.match(/rgba?\(([^)]+)\)/);
+  if (match) {
+    const [r, g, b, a = '1'] = match[1].split(',').map((part) => part.trim());
+    return `rgba(${r},${g},${b},${Number(a) * alpha})`;
+  }
+  if (color.startsWith('#') && color.length === 7) {
+    const value = parseInt(color.slice(1), 16);
+    return `rgba(${(value >> 16) & 255},${(value >> 8) & 255},${value & 255},${alpha})`;
+  }
+  return color;
+}

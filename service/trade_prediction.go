@@ -18,6 +18,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/tradesim"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/gorilla/websocket"
 	"github.com/shopspring/decimal"
 	"golang.org/x/sync/singleflight"
 )
@@ -77,18 +78,27 @@ type tradePredictionBook struct {
 
 type tradePredictionClient struct {
 	gammaURL, clobURL string
-	transport         func(string) (*http.Client, error)
-	group             singleflight.Group
-	mu                sync.Mutex
-	view              TradePredictionMarketView
-	cacheUntil        time.Time
+	// 预测页的实时数据：目标价接口与 BTC 价格、成交推送，见 trade_prediction_live.go。
+	cryptoURL, liveURL string
+	transport          func(string) (*http.Client, error)
+	dialer             func(string) (*websocket.Dialer, error)
+	group              singleflight.Group
+	mu                 sync.Mutex
+	view               TradePredictionMarketView
+	cacheUntil         time.Time
+	live               tradePredictionLive
 }
 
 func newTradePredictionClient() *tradePredictionClient {
 	return &tradePredictionClient{gammaURL: "https://gamma-api.polymarket.com", clobURL: "https://clob.polymarket.com",
+		cryptoURL: "https://polymarket.com", liveURL: "wss://ws-live-data.polymarket.com/",
 		transport: func(proxy string) (*http.Client, error) {
 			client, _, err := tradeMarketTransport(proxy)
 			return client, err
+		},
+		dialer: func(proxy string) (*websocket.Dialer, error) {
+			_, dialer, err := tradeMarketTransport(proxy)
+			return dialer, err
 		}}
 }
 

@@ -689,3 +689,251 @@ For commercial licensing, please contact support@quantumnous.com
 .trade-leaderboard-me .semi-table-row-cell {
   background: var(--semi-color-primary-light-default);
 }
+
+/* 行情列表的搜索框：不必占满整行。 */
+.trade-market-search {
+  max-width: 320px;
+}
+
+/* 价格轴上的最新价标签：上面价格、下面这根 K 线的收盘倒计时，位置和底色由 K 线图每 250 毫秒更新。 */
+.trade-chart-last {
+  position: absolute;
+  right: 0;
+  z-index: 4;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  box-sizing: border-box;
+  padding: 1px 4px;
+  transform: translateY(-50%);
+  color: #fff;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.3;
+  pointer-events: none;
+}
+
+.trade-chart-last-countdown {
+  font-size: 10px;
+  opacity: 0.85;
+}
+
+/* 标的市场交易时段：徽标、时段图与图例共用一套颜色，照 Binance 的时段图。 */
+.trade-session-pre {
+  --trade-session: rgb(var(--semi-amber-5));
+}
+
+.trade-session-open {
+  --trade-session: rgb(var(--semi-green-5));
+}
+
+.trade-session-post {
+  --trade-session: rgb(var(--semi-violet-5));
+}
+
+.trade-session-overnight {
+  --trade-session: rgb(var(--semi-blue-5));
+}
+
+.trade-session-closed {
+  --trade-session: var(--semi-color-text-2);
+}
+
+.trade-session-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 8px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 999px;
+  background: var(--semi-color-bg-1);
+  color: var(--semi-color-text-0);
+  font-size: 12px;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.trade-session-badge:hover {
+  background: var(--semi-color-fill-0);
+}
+
+.trade-session-countdown {
+  color: var(--semi-color-text-2);
+}
+
+@media (max-width: 640px) {
+  .trade-session-countdown {
+    display: none;
+  }
+}
+
+.trade-session-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  color: var(--trade-session);
+}
+
+.trade-session-dot {
+  width: 45%;
+  height: 45%;
+  border-radius: 50%;
+  background: var(--trade-session);
+}
+
+.trade-session-axis {
+  position: relative;
+  height: 22px;
+  margin-left: 48px;
+}
+
+.trade-session-bubble,
+.trade-session-tick {
+  position: absolute;
+  top: 2px;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.trade-session-bubble {
+  padding: 0 6px;
+  border-radius: 6px;
+  background: var(--semi-color-text-0);
+  color: var(--semi-color-bg-0);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+}
+
+.trade-session-tick {
+  color: var(--semi-color-text-2);
+  font-size: 11px;
+}
+
+.trade-session-rows {
+  position: relative;
+}
+
+.trade-session-now-track {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 48px;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.trade-session-now {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-left: 1px dashed var(--semi-color-text-2);
+}
+
+.trade-session-row {
+  display: flex;
+  align-items: center;
+  padding: 8px 0;
+  border-radius: 6px;
+}
+
+.trade-session-row.is-today {
+  background: var(--semi-color-fill-0);
+}
+
+.trade-session-day {
+  flex-shrink: 0;
+  width: 48px;
+  padding-left: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.trade-session-track {
+  position: relative;
+  flex: 1;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--semi-color-fill-1);
+}
+
+.trade-session-bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+}
+
+/* 左右各缩 1.5px，相邻时段之间留一道细缝。 */
+.trade-session-bar::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 1.5px;
+  bottom: 0;
+  left: 1.5px;
+  border-radius: 999px;
+  background: var(--trade-session);
+}
+
+/* 预测页：本轮进度、BTC 价格走势、目标价与 Polymarket 实时成交。 */
+.trade-prediction-progress {
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--semi-color-fill-1);
+}
+
+.trade-prediction-progress > span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--semi-color-success);
+  transition: width 1s linear;
+}
+
+.trade-prediction-progress > span.is-ending {
+  background: var(--semi-color-warning);
+}
+
+.trade-prediction-chart {
+  height: 220px;
+}
+
+.trade-prediction-target {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--semi-color-fill-0);
+  color: var(--semi-color-text-1);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: help;
+}
+
+.trade-prediction-trades {
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.trade-prediction-trade {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) 64px 76px;
+  gap: 8px;
+  align-items: center;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--semi-color-border);
+  font-size: 12px;
+}
+
+.trade-prediction-trade-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--semi-color-bg-1);
+  color: var(--semi-color-text-2);
+}

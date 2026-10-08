@@ -180,6 +180,7 @@ func SetApiRouter(router *gin.Engine) {
 			tradeRoute.POST("/orders", middleware.TradeOrderRateLimit(), controller.PlaceTradeOrder)
 			tradeRoute.POST("/spot/repay", middleware.TradeOrderRateLimit(), controller.RepayTradeSpotMargin)
 			tradeRoute.GET("/prediction/market", controller.GetTradePredictionMarket)
+			tradeRoute.GET("/prediction/live", controller.GetTradePredictionLive)
 			tradeRoute.GET("/prediction/positions", controller.GetTradePredictionPositions)
 			tradeRoute.GET("/prediction/rounds", controller.GetTradePredictionRounds)
 			tradeRoute.POST("/prediction/orders", middleware.TradeOrderRateLimit(), controller.BuyTradePrediction)

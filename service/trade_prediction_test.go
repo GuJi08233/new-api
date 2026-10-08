@@ -67,7 +67,7 @@ func predictionTestClient(t *testing.T, handler http.HandlerFunc) *tradePredicti
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
 	client := newTradePredictionClient()
-	client.gammaURL, client.clobURL = server.URL, server.URL
+	client.gammaURL, client.clobURL, client.cryptoURL = server.URL, server.URL, server.URL
 	client.transport = func(string) (*http.Client, error) { return server.Client(), nil }
 	return client
 }
