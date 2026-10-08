@@ -32,6 +32,7 @@ import {
   formatCompact,
   formatFundingRate,
   formatPrice,
+  mergeTradeTape,
   trendClass,
   tradeGet,
   useFuturesBrackets,
@@ -61,6 +62,7 @@ const FuturesView = ({
   const symbol = item.symbol;
   const [quote, setQuote] = useState(initialQuote || {});
   const [book, setBook] = useState(null);
+  const [trades, setTrades] = useState([]);
   const [kline, setKline] = useState(null);
   const [fills, setFills] = useState([]);
   const [positions, setPositions] = useState([]);
@@ -75,6 +77,7 @@ const FuturesView = ({
       symbols: tickerSymbols || [symbol],
       kline: symbol,
       book: symbol,
+      trades: symbol,
       futures: true,
     },
     {
@@ -101,6 +104,9 @@ const FuturesView = ({
           next_funding_time: data.T,
         })),
       kline: (data) => data.s === symbol && setKline(data),
+      trades: (data) =>
+        data.s === symbol &&
+        setTrades((previous) => mergeTradeTape(previous, data)),
       book: (data) => {
         if (data.s !== symbol) return;
         setBook(data);
@@ -135,6 +141,7 @@ const FuturesView = ({
   useEffect(() => {
     setQuote(initialQuote || {});
     setBook(null);
+    setTrades([]);
     setKline(null);
     loadFills();
     loadPositions();
@@ -345,6 +352,7 @@ const FuturesView = ({
           />
           <OrderBook
             book={book}
+            trades={trades}
             priceDigits={priceDigits}
             qtyDigits={decimalsOf(item.rules?.step_size)}
             lastPrice={quote.price}

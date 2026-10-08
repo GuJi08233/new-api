@@ -18,6 +18,7 @@ const (
 	tradeDirtyKline
 	tradeDirtyBook
 	tradeDirtyMark
+	tradeDirtyTrades
 )
 
 const (
@@ -34,13 +35,16 @@ type TradeEvent struct {
 }
 
 // TradeSubscriber 是一个页面的行情订阅：一组交易对的 24 小时行情(合约另有标记价格与资金费率)，以及其中一个交易对的
-// 1 分钟 K 线与盘口。
-// 页面处理太慢、队列满了时丢掉这一轮的推送，下一轮仍推最新的。
+// 1 分钟 K 线、盘口与最新成交。
+// 页面处理太慢、队列满了时丢掉这一轮的推送，下一轮仍推最新的。最新成交推的是增量，tapeResets 与 tapeTradeID 记着推到了哪里。
 type TradeSubscriber struct {
-	Events      chan TradeEvent
-	symbols     map[string]bool
-	klineSymbol string
-	bookSymbol  string
+	Events       chan TradeEvent
+	symbols      map[string]bool
+	klineSymbol  string
+	bookSymbol   string
+	tradesSymbol string
+	tapeResets   uint64
+	tapeTradeID  int64
 }
 
 type tradeTickerEvent struct {
@@ -79,21 +83,26 @@ type tradeMarkEvent struct {
 	NextFundingTime int64  `json:"T"`
 }
 
-// Subscribe 登记一个页面的订阅，并立刻把当前的行情、K 线和盘口放进队列，页面不必等下一次变化。
-func (m *TradeMarket) Subscribe(symbols []string, klineSymbol string, bookSymbol string) *TradeSubscriber {
+// Subscribe 登记一个页面的订阅，并立刻把当前的行情、K 线、盘口与最新成交放进队列，页面不必等下一次变化。tradesSymbol 不为空时
+// 连上它的成交推送，它必须在 symbols 里。
+func (m *TradeMarket) Subscribe(symbols []string, klineSymbol string, bookSymbol string, tradesSymbol string) *TradeSubscriber {
 	sub := &TradeSubscriber{
-		Events:      make(chan TradeEvent, tradeSubscriberQueue),
-		symbols:     map[string]bool{},
-		klineSymbol: klineSymbol,
-		bookSymbol:  bookSymbol,
+		Events:       make(chan TradeEvent, tradeSubscriberQueue),
+		symbols:      map[string]bool{},
+		klineSymbol:  klineSymbol,
+		bookSymbol:   bookSymbol,
+		tradesSymbol: tradesSymbol,
 	}
 	for _, symbol := range symbols {
 		sub.symbols[symbol] = true
 	}
+	if tradesSymbol != "" {
+		m.watchTape(tradesSymbol)
+	}
 	m.mu.RLock()
 	events := []TradeEvent{m.statusEventLocked()}
 	for symbol := range sub.symbols {
-		events = append(events, m.symbolEventsLocked(symbol, tradeDirtyTicker|tradeDirtyKline|tradeDirtyBook|tradeDirtyMark, sub)...)
+		events = append(events, m.symbolEventsLocked(symbol, tradeDirtyTicker|tradeDirtyKline|tradeDirtyBook|tradeDirtyMark|tradeDirtyTrades, sub)...)
 	}
 	m.mu.RUnlock()
 	for _, event := range events {
@@ -110,6 +119,9 @@ func (m *TradeMarket) Unsubscribe(sub *TradeSubscriber) {
 	m.feedMu.Lock()
 	delete(m.subs, sub)
 	m.feedMu.Unlock()
+	if sub.tradesSymbol != "" {
+		m.unwatchTape(sub.tradesSymbol)
+	}
 }
 
 func (m *TradeMarket) markDirty(symbol string, what tradeDirty) {
@@ -140,37 +152,47 @@ func (m *TradeMarket) broadcast() {
 			m.pruneKlineCache()
 			lastPrune = time.Now()
 		}
-		m.feedMu.Lock()
-		dirty := m.dirty
-		m.dirty = map[string]tradeDirty{}
-		subs := make([]*TradeSubscriber, 0, len(m.subs))
-		for sub := range m.subs {
-			subs = append(subs, sub)
+		m.pruneTapes()
+		m.pushDirty()
+	}
+}
+
+// pushDirty 把上一轮之后变了的行情推给订阅了的页面，只在 broadcast 这一个 goroutine 里调用(测试里直接调用)。
+func (m *TradeMarket) pushDirty() {
+	m.feedMu.Lock()
+	dirty := m.dirty
+	m.dirty = map[string]tradeDirty{}
+	subs := make([]*TradeSubscriber, 0, len(m.subs))
+	for sub := range m.subs {
+		subs = append(subs, sub)
+	}
+	m.feedMu.Unlock()
+	if len(dirty) == 0 || len(subs) == 0 {
+		return
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var status []TradeEvent
+	if _, ok := dirty[""]; ok {
+		status = []TradeEvent{m.statusEventLocked()}
+	}
+	for _, sub := range subs {
+		events := status
+		for symbol, what := range dirty {
+			if sub.symbols[symbol] {
+				events = append(events, m.symbolEventsLocked(symbol, what, sub)...)
+			}
 		}
-		m.feedMu.Unlock()
-		if len(dirty) == 0 || len(subs) == 0 {
-			continue
-		}
-		m.mu.RLock()
-		var status []TradeEvent
-		if _, ok := dirty[""]; ok {
-			status = []TradeEvent{m.statusEventLocked()}
-		}
-		for _, sub := range subs {
-			events := status
-			for symbol, what := range dirty {
-				if sub.symbols[symbol] {
-					events = append(events, m.symbolEventsLocked(symbol, what, sub)...)
+		for _, event := range events {
+			select {
+			case sub.Events <- event:
+			default:
+				// 最新成交推的是增量，丢了一次就要整份重推。
+				if event.Name == "trades" {
+					sub.tapeResets = 0
 				}
 			}
-			for _, event := range events {
-				select {
-				case sub.Events <- event:
-				default:
-				}
-			}
 		}
-		m.mu.RUnlock()
 	}
 }
 
@@ -214,6 +236,11 @@ func (m *TradeMarket) symbolEventsLocked(symbol string, what tradeDirty, sub *Tr
 			event.Bids, event.Asks = tradeBookSide(book.bids), tradeBookSide(book.asks)
 		}
 		add("book", event)
+	}
+	if what&tradeDirtyTrades != 0 && symbol == sub.tradesSymbol {
+		if event, ok := m.tapeEventLocked(symbol, sub); ok {
+			add("trades", event)
+		}
 	}
 	return events
 }

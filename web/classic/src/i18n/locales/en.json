@@ -5043,6 +5043,7 @@
     "目标价获取中": "Loading price to beat",
     "价格推送连接中…": "Connecting to the price feed…",
     "实时成交": "Live trades",
-    "等待成交…": "Waiting for trades…"
+    "等待成交…": "Waiting for trades…",
+    "最新成交": "Market trades"
   }
 }

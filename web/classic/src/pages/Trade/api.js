@@ -53,17 +53,17 @@ export function tradePost(url, body, t) {
   return tradeResult(API.post(url, body, { skipErrorHandler: true }), t);
 }
 
-// useTradeStream 订阅行情推送(SSE)：symbols 的 24 小时行情，kline 那个交易对的 1 分钟 K 线，book 那个交易对的盘口；
-// futures 为真时订阅合约，另有 symbols 的标记价格与资金费率(mark)。断线后按 2、4、8…最多 30 秒重连。回调用 ref 保存，
-// 换回调不会重连。
+// useTradeStream 订阅行情推送(SSE)：symbols 的 24 小时行情，kline 那个交易对的 1 分钟 K 线，book 那个交易对的盘口，trades
+// 那个交易对的最新成交(先整份、之后增量，r 为真时整份替换)；futures 为真时订阅合约，另有 symbols 的标记价格与资金费率(mark)。
+// 断线后按 2、4、8…最多 30 秒重连。回调用 ref 保存，换回调不会重连。
 export function useTradeStream(
-  { symbols, kline, book, futures = false, enabled = true },
+  { symbols, kline, book, trades, futures = false, enabled = true },
   handlers,
 ) {
   const handlersRef = useRef(handlers);
   handlersRef.current = handlers;
   const [connected, setConnected] = useState(false);
-  const key = `${futures ? 'futures' : 'spot'}|${(symbols || []).join(',')}|${kline || ''}|${book || ''}`;
+  const key = `${futures ? 'futures' : 'spot'}|${(symbols || []).join(',')}|${kline || ''}|${book || ''}|${trades || ''}`;
 
   useEffect(() => {
     if (!enabled || !symbols?.length) return undefined;
@@ -87,12 +87,13 @@ export function useTradeStream(
       const params = new URLSearchParams({ symbols: symbols.join(',') });
       if (kline) params.set('kline', kline);
       if (book) params.set('book', book);
+      if (trades) params.set('trades', trades);
       if (futures) params.set('market', 'futures');
       source = new SSE(`/api/trade/stream?${params.toString()}`, {
         headers: { 'New-Api-User': getUserIdFromLocalStorage() },
         method: 'GET',
       });
-      ['status', 'ticker', 'kline', 'book', 'mark'].forEach((name) =>
+      ['status', 'ticker', 'kline', 'book', 'mark', 'trades'].forEach((name) =>
         source.addEventListener(name, dispatch(name)),
       );
       source.addEventListener('open', () => {
@@ -118,11 +119,17 @@ export function useTradeStream(
       clearTimeout(timer);
       source?.close();
     };
-    // key 涵盖了 futures、symbols、kline 与 book。
+    // key 涵盖了 futures、symbols、kline、book 与 trades。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, enabled]);
 
   return connected;
+}
+
+// mergeTradeTape 把一条最新成交推送并进已有的列表(旧的在前)：r 为真时整份替换，否则接在后面，最多留 limit 笔。
+export function mergeTradeTape(previous, data, limit = 30) {
+  const next = data.r ? data.t || [] : [...previous, ...(data.t || [])];
+  return next.slice(-limit);
 }
 
 // toUsdt 把额度单位换成 USDT 数值。

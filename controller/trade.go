@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -306,7 +307,7 @@ func GetTradeKlines(c *gin.Context) {
 const tradeStreamKeepalive = 15 * time.Second
 
 // StreamTradeMarket 以 SSE 推送行情：symbols 的 24 小时行情(合约另有标记价格与资金费率)、kline 那个交易对的 1 分钟 K 线、
-// book 那个交易对的盘口。market=futures 时推合约，否则推现货。现货只推开放交易的交易对，模拟盘关闭后断开；合约推所有支持的
+// book 那个交易对的盘口、trades 那个交易对的最新成交(trades 要在 symbols 里)。market=futures 时推合约，否则推现货。现货只推开放交易的交易对，模拟盘关闭后断开；合约推所有支持的
 // 合约，合约关掉以后还有仓位的照样有行情(行情中心只连着用得到的合约)。
 func StreamTradeMarket(c *gin.Context) {
 	setting := operation_setting.GetTradeSetting()
@@ -325,7 +326,11 @@ func StreamTradeMarket(c *gin.Context) {
 	if futures {
 		market = service.GetFuturesMarket()
 	}
-	sub := market.Subscribe(symbols, c.Query("kline"), c.Query("book"))
+	tradesSymbol := c.Query("trades")
+	if !slices.Contains(symbols, tradesSymbol) {
+		tradesSymbol = ""
+	}
+	sub := market.Subscribe(symbols, c.Query("kline"), c.Query("book"), tradesSymbol)
 	defer market.Unsubscribe(sub)
 	header := c.Writer.Header()
 	header.Set("Content-Type", "text/event-stream")

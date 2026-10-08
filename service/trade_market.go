@@ -67,6 +67,10 @@ type TradeMarket struct {
 	subs   map[*TradeSubscriber]struct{}
 	dirty  map[string]tradeDirty
 
+	// tapes 是页面正在看的交易对的最新成交，见 trade_tape.go。锁的顺序：mu 在 tapeMu 之前，tapeMu 在 feedMu 之前。
+	tapeMu sync.Mutex
+	tapes  map[string]*tradeTape
+
 	matchMu      sync.Mutex
 	matchPending map[string]bool
 	matchSignal  chan struct{}
@@ -153,6 +157,7 @@ func newTradeMarket(futures bool) *TradeMarket {
 		rules:          map[string]binance.SymbolInfo{},
 		subs:           map[*TradeSubscriber]struct{}{},
 		dirty:          map[string]tradeDirty{},
+		tapes:          map[string]*tradeTape{},
 		matchPending:   map[string]bool{},
 		matchSignal:    make(chan struct{}, 1),
 		resting:        map[string][]tradeRestingOrder{},
@@ -475,6 +480,9 @@ func (h *tradeStreamHandler) OnKline(symbol string, kline *binance.Kline, _ bool
 func (h *tradeStreamHandler) OnMarkPrice(mark *binance.MarkPrice, received time.Time) {
 	h.market.applyMark(h.generation, mark, received)
 }
+
+// OnAggTrade 不会被调用：行情中心的连接不订阅成交，最新成交另外按需连接(trade_tape.go)。
+func (h *tradeStreamHandler) OnAggTrade(string, *binance.AggTrade, time.Time) {}
 
 func tradeLevels(levels []binance.Level) []tradesim.Level {
 	out := make([]tradesim.Level, len(levels))

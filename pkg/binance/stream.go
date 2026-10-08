@@ -32,6 +32,8 @@ type StreamHandler interface {
 	OnKline(symbol string, kline *Kline, closed bool, received time.Time)
 	// OnMarkPrice 只有订阅了合约的标记价格才会调用。
 	OnMarkPrice(mark *MarkPrice, received time.Time)
+	// OnAggTrade 只有订阅了归集成交才会调用。
+	OnAggTrade(symbol string, trade *AggTrade, received time.Time)
 	// OnConnected 在每次连上之后以 true、每次断开之后以 false 调用。连上之后服务端不会先推一份快照，冷门交易对可能
 	// 几秒都没有第一帧，断线前缓存的盘口也不能再当成最新的：需要时用 Client.Depth 补一份快照，两边的 LastUpdateID
 	// 是同一个序列，可以比较新旧。
@@ -47,10 +49,11 @@ type StreamConfig struct {
 	Ticker        bool              // 订阅迷你行情
 	KlineInterval string            // K 线周期，例如 1m；为空时不订阅 K 线
 	MarkPrice     bool              // 订阅合约的标记价格(每秒一次)
+	AggTrades     bool              // 订阅归集成交(逐笔推送)；合约在 /market 那条连接上
 	Dialer        *websocket.Dialer // 为空时用 websocket.DefaultDialer 的副本(代理取环境变量)，握手超时 15 秒
 }
 
-// Stream 用一条组合流连接订阅所有交易对的局部盘口(100ms)、迷你行情、K 线与标记价格(按配置)，断线自动重连。
+// Stream 用一条组合流连接订阅所有交易对的局部盘口(100ms)、迷你行情、K 线、标记价格与归集成交(按配置)，断线自动重连。
 //
 // 局部盘口只在前几档变化时才推送，冷门交易对(比如美股代币)几秒没有推送很正常，"多久没收到推送"说明不了盘口是否过期。
 // 要确认手里的盘口是最新的，用 Sync；刚(重)连上时的情况见 StreamHandler.OnConnected。
@@ -91,6 +94,9 @@ func NewStream(cfg StreamConfig, handler StreamHandler) *Stream {
 		}
 		if cfg.MarkPrice {
 			names = append(names, lower+"@markPrice@1s")
+		}
+		if cfg.AggTrades {
+			names = append(names, lower+"@aggTrade")
 		}
 	}
 	streamURL := ""
@@ -421,6 +427,16 @@ func (s *Stream) dispatch(stream string, data json.RawMessage, received time.Tim
 			return errors.New("mark price is not positive")
 		}
 		s.handler.OnMarkPrice(mark, received)
+	case kind == "aggTrade":
+		var payload aggTradePayload
+		if err := common.Unmarshal(data, &payload); err != nil {
+			return err
+		}
+		trade, err := payload.aggTrade()
+		if err != nil {
+			return err
+		}
+		s.handler.OnAggTrade(symbol, &trade, received)
 	default:
 		return errors.New("unknown stream")
 	}

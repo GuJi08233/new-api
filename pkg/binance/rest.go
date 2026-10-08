@@ -176,6 +176,27 @@ func (c *Client) Klines(ctx context.Context, symbol, interval string, limit int,
 	return klines, nil
 }
 
+// AggTrades 查最近的归集成交，按成交顺序从早到晚。limit <= 0 时用 Binance 的默认条数(500)。
+func (c *Client) AggTrades(ctx context.Context, symbol string, limit int) ([]AggTrade, error) {
+	query := url.Values{"symbol": {symbol}}
+	if limit > 0 {
+		query.Set("limit", strconv.Itoa(limit))
+	}
+	var rows []aggTradePayload
+	if err := c.get(ctx, c.endpoint("aggTrades"), query, &rows); err != nil {
+		return nil, err
+	}
+	trades := make([]AggTrade, 0, len(rows))
+	for _, row := range rows {
+		trade, err := row.aggTrade()
+		if err != nil {
+			return nil, fmt.Errorf("binance aggTrades: %w", err)
+		}
+		trades = append(trades, trade)
+	}
+	return trades, nil
+}
+
 // Tickers 查多个交易对的 24 小时迷你行情。symbols 为空时直接返回空结果：不带 symbols 参数查的是全市场。合约接口不支持按列表查，
 // 查全市场再挑出要的。
 func (c *Client) Tickers(ctx context.Context, symbols []string) ([]Ticker, error) {

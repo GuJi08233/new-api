@@ -34,6 +34,7 @@ import {
   formatQty,
   formatSignedUsdt,
   formatUsdt,
+  mergeTradeTape,
   trendClass,
   tradeGet,
   useTradeStream,
@@ -61,6 +62,7 @@ const TradeView = ({
   const symbol = item.symbol;
   const [quote, setQuote] = useState(initialQuote || {});
   const [book, setBook] = useState(null);
+  const [trades, setTrades] = useState([]);
   const [kline, setKline] = useState(null);
   const [fills, setFills] = useState([]);
   const [picked, setPicked] = useState(null);
@@ -72,6 +74,7 @@ const TradeView = ({
       symbols: tickerSymbols || [symbol],
       kline: symbol,
       book: symbol,
+      trades: symbol,
     },
     {
       ticker: (data) => {
@@ -88,6 +91,9 @@ const TradeView = ({
         }));
       },
       kline: (data) => data.s === symbol && setKline(data),
+      trades: (data) =>
+        data.s === symbol &&
+        setTrades((previous) => mergeTradeTape(previous, data)),
       book: (data) => {
         if (data.s !== symbol) return;
         setBook(data);
@@ -114,6 +120,7 @@ const TradeView = ({
   useEffect(() => {
     setQuote(initialQuote || {});
     setBook(null);
+    setTrades([]);
     setKline(null);
     loadFills();
     // 换交易对时才重置，initialQuote 之后的变化由推送接管。
@@ -274,6 +281,7 @@ const TradeView = ({
           />
           <OrderBook
             book={book}
+            trades={trades}
             priceDigits={priceDigits}
             qtyDigits={qtyDigits}
             lastPrice={quote.price}

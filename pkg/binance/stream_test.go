@@ -98,6 +98,11 @@ type markEvent struct {
 	mark *MarkPrice
 }
 
+type aggTradeEvent struct {
+	symbol string
+	trade  *AggTrade
+}
+
 type connectedEvent bool
 
 func newRecorder() *recorder {
@@ -118,6 +123,10 @@ func (r *recorder) OnKline(symbol string, kline *Kline, closed bool, _ time.Time
 
 func (r *recorder) OnMarkPrice(mark *MarkPrice, _ time.Time) {
 	r.events <- markEvent{mark: mark}
+}
+
+func (r *recorder) OnAggTrade(symbol string, trade *AggTrade, _ time.Time) {
+	r.events <- aggTradeEvent{symbol: symbol, trade: trade}
 }
 
 func (r *recorder) OnConnected(connected bool) {
@@ -407,4 +416,28 @@ func TestStreamParsesFuturesDepthAndMarkPrice(t *testing.T) {
 	}}, events.next(t))
 	assert.Equal(t, markEvent{mark: &MarkPrice{Symbol: "BTCUSDT", EventTime: 1791044809001, Mark: d("84756.35776087"),
 		Index: d("84788.51847826"), FundingRate: d("-0.00005353"), NextFundingTime: 1791072000000}}, events.next(t))
+}
+
+// 归集成交：现货带着不用的 M、合约带着 nq 与 st，买方是否挂单方只看 m(只差大小写的 M 不能把它盖掉)；没有价格的成交跳过。
+func TestStreamParsesAggTrades(t *testing.T) {
+	server := newStreamServer(t, nil)
+	events := newRecorder()
+	s := NewStream(StreamConfig{BaseURL: server.url, Symbols: []string{"BTCUSDT"}, AggTrades: true}, events)
+	s.keepalive = time.Hour
+	runStream(t, s)
+
+	conn := server.accept(t)
+	assert.Equal(t, "btcusdt@aggTrade", conn.streams)
+	require.Equal(t, connectedEvent(true), events.next(t))
+	conn.send(t, `{"stream":"btcusdt@aggTrade","data":{"e":"aggTrade","E":1791482952136,"s":"BTCUSDT","a":4085799055,"p":"80655.20000000",`+
+		`"q":"0.00188000","f":6749254870,"l":6749254870,"T":1791482952136,"m":false,"M":true}}`)
+	conn.send(t, `{"stream":"btcusdt@aggTrade","data":{"e":"aggTrade","E":1791482959470,"a":3479777121,"s":"BTCUSDT","p":"0",`+
+		`"q":"0.507","f":1,"l":1,"T":1791482959329,"m":true}}`)
+	conn.send(t, `{"stream":"btcusdt@aggTrade","data":{"e":"aggTrade","E":1791482959470,"a":3479777122,"s":"BTCUSDT","p":"80606.80",`+
+		`"q":"0.507","nq":"0.507","f":8158518466,"l":8158518471,"T":1791482959329,"m":true,"st":1}}`)
+
+	assert.Equal(t, aggTradeEvent{symbol: "BTCUSDT", trade: &AggTrade{ID: 4085799055, Price: d("80655.20000000"), Qty: d("0.00188000"),
+		Time: 1791482952136, BuyerMaker: false}}, events.next(t))
+	assert.Equal(t, aggTradeEvent{symbol: "BTCUSDT", trade: &AggTrade{ID: 3479777122, Price: d("80606.80"), Qty: d("0.507"),
+		Time: 1791482959329, BuyerMaker: true}}, events.next(t))
 }

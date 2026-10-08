@@ -388,6 +388,11 @@ For commercial licensing, please contact support@quantumnous.com
   background: var(--semi-color-fill-0);
 }
 
+/* 最新成交多一列时间。 */
+.trade-tape-row {
+  grid-template-columns: 1.2fr 1fr 0.9fr;
+}
+
 .trade-book-depth {
   position: absolute;
   top: 0;

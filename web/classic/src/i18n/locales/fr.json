@@ -4896,6 +4896,7 @@
     "目标价获取中": "Chargement du prix à battre",
     "价格推送连接中…": "Connexion au flux de prix…",
     "实时成交": "Transactions en direct",
-    "等待成交…": "En attente de transactions…"
+    "等待成交…": "En attente de transactions…",
+    "最新成交": "Transactions récentes"
   }
 }

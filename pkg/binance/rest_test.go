@@ -361,3 +361,32 @@ func TestMarginDailyInterestRateReadsVipZero(t *testing.T) {
 	_, err = client.MarginDailyInterestRate(context.Background(), "BAD")
 	assert.Error(t, err, "a 50% daily rate is not plausible")
 }
+
+func TestClientAggTradesReadsSpotAndFutures(t *testing.T) {
+	paths := make(chan string, 2)
+	queries := make(chan url.Values, 2)
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		paths <- r.URL.Path
+		queries <- r.URL.Query()
+		_, _ = w.Write([]byte(`[{"a":4085799358,"p":"80605.89000000","q":"0.00007000","f":1,"l":1,"T":1791482992352,"m":true,"M":true},` +
+			`{"a":4085799359,"p":"80605.85","q":"0.166","nq":"0.166","f":2,"l":3,"T":1791482993865,"m":false}]`))
+	}
+	want := []AggTrade{
+		{ID: 4085799358, Price: d("80605.89000000"), Qty: d("0.00007000"), Time: 1791482992352, BuyerMaker: true},
+		{ID: 4085799359, Price: d("80605.85"), Qty: d("0.166"), Time: 1791482993865, BuyerMaker: false},
+	}
+
+	trades, err := newRESTClient(t, handler).AggTrades(context.Background(), "BTCUSDT", 50)
+	require.NoError(t, err)
+	assert.Equal(t, want, trades)
+	assert.Equal(t, "/api/v3/aggTrades", <-paths)
+	assert.Equal(t, url.Values{"symbol": {"BTCUSDT"}, "limit": {"50"}}, <-queries)
+
+	server := httptest.NewServer(http.HandlerFunc(handler))
+	t.Cleanup(server.Close)
+	trades, err = NewFuturesClient(server.URL, nil).AggTrades(context.Background(), "BTCUSDT", 50)
+	require.NoError(t, err)
+	assert.Equal(t, want, trades)
+	assert.Equal(t, "/fapi/v1/aggTrades", <-paths)
+	<-queries
+}

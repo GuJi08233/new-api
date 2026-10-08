@@ -1,5 +1,6 @@
 // Package binance 是 Binance 现货与 U 本位合约公开行情的最小客户端，给模拟盘按真实盘口成交用：REST 查 K 线、24 小时行情、
-// 交易规则与盘口快照(合约另有标记价格与已结算的资金费率)，WebSocket 订阅局部盘口、迷你行情与 K 线(合约另有标记价格)。
+// 交易规则、盘口快照与最近成交(合约另有标记价格与已结算的资金费率)，WebSocket 订阅局部盘口、迷你行情、K 线与归集成交
+// (合约另有标记价格)。
 // 只用不需要 API Key 的公开接口，现货的官方地址(https://api.binance.com、wss://stream.binance.com:9443)与行情镜像
 // (https://data-api.binance.vision、wss://data-stream.binance.vision)用法相同；合约是 https://fapi.binance.com 与
 // wss://fstream.binance.com/public、/market。地址由调用方传入。
@@ -79,6 +80,41 @@ type MarkPrice struct {
 	Index           decimal.Decimal
 	FundingRate     decimal.Decimal // 可以为负
 	NextFundingTime int64           // 下一次结算资金费的时间，毫秒
+}
+
+// AggTrade 是一笔归集成交：同一吃单在同一价格上的逐笔成交合在一起。BuyerMaker 为真表示买方是挂单方，也就是主动卖出
+// (Binance 页面上标红)。
+type AggTrade struct {
+	ID         int64
+	Price      decimal.Decimal
+	Qty        decimal.Decimal
+	Time       int64 // 成交时间，毫秒
+	BuyerMaker bool
+}
+
+// aggTradePayload 是归集成交在 REST 响应与推送里共有的字段：推送多出事件类型 e 与事件时间 E，现货多出不用的 M，合约多出
+// nq、st 等。只差大小写的字段(e 与 E、m 与 M)都要声明，原因见 Stream.dispatch。
+type aggTradePayload struct {
+	EventType  string `json:"e"`
+	EventTime  int64  `json:"E"`
+	ID         int64  `json:"a"`
+	Price      string `json:"p"`
+	Qty        string `json:"q"`
+	Time       int64  `json:"T"`
+	BuyerMaker bool   `json:"m"`
+	Ignore     bool   `json:"M"`
+}
+
+func (payload aggTradePayload) aggTrade() (AggTrade, error) {
+	var p decimalParser
+	trade := AggTrade{ID: payload.ID, Price: p.parse("p", payload.Price), Qty: p.parse("q", payload.Qty), Time: payload.Time, BuyerMaker: payload.BuyerMaker}
+	if p.err != nil {
+		return AggTrade{}, p.err
+	}
+	if !trade.Price.IsPositive() || !trade.Qty.IsPositive() || trade.Time <= 0 {
+		return AggTrade{}, errors.New("aggregate trade has no price, quantity or time")
+	}
+	return trade, nil
 }
 
 // FundingRate 是一次已经结算的资金费：结算时间、费率与结算用的标记价格。
