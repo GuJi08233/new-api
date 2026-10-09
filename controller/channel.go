@@ -501,8 +501,9 @@ func validateChannel(channel *model.Channel, isAdd bool) error {
 	}
 
 	// 如果是添加操作，检查 channel 和 key 是否为空
+	// OA2 多合一渠道允许空密钥，用于对接 Kilo 等按出口 IP 限流、无需认证的上游
 	if isAdd {
-		if channel == nil || channel.Key == "" {
+		if channel == nil || (channel.Key == "" && channel.Type != constant.ChannelTypeOA2) {
 			return fmt.Errorf("channel cannot be empty")
 		}
 

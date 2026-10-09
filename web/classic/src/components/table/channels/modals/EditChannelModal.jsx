@@ -3702,10 +3702,14 @@ const EditChannelModal = (props) => {
                                   : t(
                                       '请输入密钥，一行一个，格式：AccessKey|SecretAccessKey|Region',
                                     )
-                                : t('请输入密钥，一行一个')
+                                : inputs.type === 58
+                                  ? t(
+                                      '请输入密钥，一行一个；对接无认证上游可留空',
+                                    )
+                                  : t('请输入密钥，一行一个')
                             }
                             rules={
-                              isEdit
+                              isEdit || inputs.type === 58
                                 ? []
                                 : [{ required: true, message: t('请输入密钥') }]
                             }

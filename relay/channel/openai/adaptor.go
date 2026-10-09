@@ -222,12 +222,12 @@ func (a *Adaptor) SetupRequestHeader(c *gin.Context, header *http.Header, info *
 			if legacyRealtimeBeta {
 				header.Set("openai-beta", "realtime=v1")
 			}
-			if !hasAuthOverride {
+			if !hasAuthOverride && info.ApiKey != "" {
 				header.Set("Authorization", "Bearer "+info.ApiKey)
 			}
 		}
 	} else {
-		if !hasAuthOverride {
+		if !hasAuthOverride && info.ApiKey != "" {
 			header.Set("Authorization", "Bearer "+info.ApiKey)
 		}
 	}
