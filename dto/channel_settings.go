@@ -63,6 +63,10 @@ type ChannelSettings struct {
 	// 上游网关/中转对相同请求体返回缓存响应时，测试会把已失效的密钥误判为可用；
 	// 注入时间后每次都是真实的上游请求。对手动测试、全局定时测试和自动恢复一并生效。
 	TestCacheBustEnabled bool `json:"test_cache_bust_enabled,omitempty"`
+	// DisableKeepAlive 让本渠道的每个出站请求独占一条新建连接，请求结束后立即关闭，
+	// 不复用连接池中的空闲连接（同时禁用 HTTP/2，避免并发请求多路复用同一条连接）。
+	// 用于代理池入口按连接分配不同出口 IP 的场景：不开启时同一出口会被连续复用。
+	DisableKeepAlive bool `json:"disable_keep_alive,omitempty"`
 }
 
 const (

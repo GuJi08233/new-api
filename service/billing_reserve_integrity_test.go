@@ -131,7 +131,7 @@ func TestMidjourneyChargeAndRefundIncludeTokenAndUsage(t *testing.T) {
 type sunoFailureBillingAdaptor struct{}
 
 func (sunoFailureBillingAdaptor) Init(*relaycommon.RelayInfo) {}
-func (sunoFailureBillingAdaptor) FetchTask(string, string, map[string]any, string) (*http.Response, error) {
+func (sunoFailureBillingAdaptor) FetchTask(string, string, map[string]any, string, bool) (*http.Response, error) {
 	return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewBufferString(`{"code":"success","data":[{"task_id":"suno-refund","status":"FAILURE","fail_reason":"failed"}]}`))}, nil
 }
 func (sunoFailureBillingAdaptor) ParseTaskResult([]byte) (*relaycommon.TaskInfo, error) {

@@ -1409,7 +1409,7 @@ func FetchModels(c *gin.Context) {
 
 		// 获取 Gemini 格式的模型(Gemini 原生 /v1beta/models 接口)
 		if req.OA2GeminiURL != "" {
-			geminiModels, err := gemini.FetchGeminiModels(req.OA2GeminiURL, strings.TrimSpace(strings.Split(req.Key, "\n")[0]), "")
+			geminiModels, err := gemini.FetchGeminiModels(req.OA2GeminiURL, strings.TrimSpace(strings.Split(req.Key, "\n")[0]), "", false)
 			if err != nil {
 				errorMessages = append(errorMessages, fmt.Sprintf("Gemini格式: %s", err.Error()))
 			} else {
@@ -1469,7 +1469,7 @@ func FetchModels(c *gin.Context) {
 	}
 
 	if req.Type == constant.ChannelTypeGemini {
-		models, err := gemini.FetchGeminiModels(baseURL, key, "")
+		models, err := gemini.FetchGeminiModels(baseURL, key, "", false)
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,

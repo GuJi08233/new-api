@@ -74,7 +74,9 @@ type TaskAdaptor interface {
 
 	// ── Polling ──────────────────────────────────────────────────────
 
-	FetchTask(baseUrl, key string, body map[string]any, proxy string) (*http.Response, error)
+	// FetchTask 拉取上游任务状态。proxy 为空表示直连；disableKeepAlive 为 true 时
+	// 该请求独占一条新建连接，不复用连接池（用于代理池按连接分配出口 IP 的渠道）。
+	FetchTask(baseUrl, key string, body map[string]any, proxy string, disableKeepAlive bool) (*http.Response, error)
 	ParseTaskResult(respBody []byte) (*relaycommon.TaskInfo, error)
 }
 

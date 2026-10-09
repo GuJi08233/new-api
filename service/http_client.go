@@ -2,10 +2,12 @@ package service
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"math"
 	"net"
 	"net/http"
+	"net/url"
 	"sync"
 	"time"
 
@@ -15,12 +17,38 @@ import (
 	"golang.org/x/net/proxy"
 )
 
+// proxyClientKey 唯一标识一个缓存的出站客户端：规范化后的代理地址 + 连接复用策略。
+// 同一地址的「复用连接」与「每次新建连接」是两套不同的连接池，必须分开缓存。
+type proxyClientKey struct {
+	proxyURL         string
+	disableKeepAlive bool
+}
+
 var (
 	httpClient              *http.Client
 	ssrfProtectedHTTPClient *http.Client
 	proxyClientLock         sync.Mutex
-	proxyClients            = make(map[string]*http.Client)
+	proxyClients            = make(map[proxyClientKey]*http.Client)
 )
+
+// ProxyClientOptions 描述一个渠道级出站代理客户端的可变行为。
+type ProxyClientOptions struct {
+	// DisableKeepAlive 让每个请求独占一条新建连接，请求结束后立即断开。
+	// 代理池按连接分配出口 IP 时，不开启该选项会让同一出口被连续复用。
+	DisableKeepAlive bool
+}
+
+// applyKeepAliveSetting 按选项配置连接复用。关闭 keep-alive 时同时禁用 HTTP/2：
+// HTTP/2 会把同一时刻的并发请求多路复用到同一条 TCP 连接上，那样多个请求仍共用一个
+// 代理出口 IP，与「每个请求独占一个新连接」的目标冲突。
+func applyKeepAliveSetting(transport *http.Transport, options ProxyClientOptions) {
+	if !options.DisableKeepAlive {
+		return
+	}
+	transport.DisableKeepAlives = true
+	transport.ForceAttemptHTTP2 = false
+	transport.TLSNextProto = make(map[string]func(string, *tls.Conn) http.RoundTripper)
+}
 
 func checkRedirect(req *http.Request, via []*http.Request) error {
 	urlStr := req.URL.String()
@@ -134,10 +162,13 @@ func GetSSRFProtectedHTTPClient() *http.Client {
 
 // GetHttpClientWithProxy returns the default client or a proxy-enabled one when proxyURL is provided.
 func GetHttpClientWithProxy(proxyURL string) (*http.Client, error) {
-	if proxyURL == "" {
-		return GetHttpClient(), nil
-	}
 	return NewProxyHttpClient(proxyURL)
+}
+
+// GetChannelHttpClient 按渠道设置返回出站客户端。代理地址为空时回退到默认客户端，
+// 除非该渠道要求每个请求独占新连接：那样必须有独立的长连接池，不能借用默认客户端。
+func GetChannelHttpClient(proxyURL string, disableKeepAlive bool) (*http.Client, error) {
+	return NewProxyHttpClientOptions(proxyURL, ProxyClientOptions{DisableKeepAlive: disableKeepAlive})
 }
 
 // ResetProxyClientCache 清空代理客户端缓存，确保下次使用时重新初始化
@@ -145,23 +176,28 @@ func ResetProxyClientCache() {
 	proxyClientLock.Lock()
 	defer proxyClientLock.Unlock()
 	for _, client := range proxyClients {
-		if transport, ok := client.Transport.(*http.Transport); ok && transport != nil {
-			transport.CloseIdleConnections()
-		}
+		client.CloseIdleConnections()
 	}
-	proxyClients = make(map[string]*http.Client)
+	proxyClients = make(map[proxyClientKey]*http.Client)
 }
 
 // InvalidateProxyClient 清理不再使用的代理凭据和空闲连接，其他代理保持复用。
+// 同一代理地址下的两种连接复用策略都会被清理；空地址对应「无代理但每次新建连接」的客户端。
 func InvalidateProxyClient(proxyURL string) {
+	normalizedProxyURL := ""
 	parsed, _, err := common.ParseProxyURLRuntime(proxyURL)
-	if err != nil || parsed == nil {
+	if err != nil {
 		return
 	}
-	key := parsed.String()
+	if parsed != nil {
+		normalizedProxyURL = parsed.String()
+	}
 	proxyClientLock.Lock()
 	defer proxyClientLock.Unlock()
-	if client := proxyClients[key]; client != nil {
+	for key, client := range proxyClients {
+		if key.proxyURL != normalizedProxyURL {
+			continue
+		}
 		client.CloseIdleConnections()
 		delete(proxyClients, key)
 	}
@@ -169,7 +205,12 @@ func InvalidateProxyClient(proxyURL string) {
 
 // NewProxyHttpClient 创建支持代理的 HTTP 客户端
 func NewProxyHttpClient(proxyURL string) (*http.Client, error) {
-	if proxyURL == "" {
+	return NewProxyHttpClientOptions(proxyURL, ProxyClientOptions{})
+}
+
+// NewProxyHttpClientOptions 创建支持代理的 HTTP 客户端，并应用连接复用策略。
+func NewProxyHttpClientOptions(proxyURL string, options ProxyClientOptions) (*http.Client, error) {
+	if proxyURL == "" && !options.DisableKeepAlive {
 		if client := GetHttpClient(); client != nil {
 			return client, nil
 		}
@@ -180,41 +221,54 @@ func NewProxyHttpClient(proxyURL string) (*http.Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	if parsedURL == nil {
+	if parsedURL == nil && !options.DisableKeepAlive {
 		return GetHttpClient(), nil
 	}
-	proxyURL = parsedURL.String()
-	// 同一个规范化地址只创建一个客户端，失效操作也使用同一把锁。
+	cacheKey := proxyClientKey{disableKeepAlive: options.DisableKeepAlive}
+	if parsedURL != nil {
+		cacheKey.proxyURL = parsedURL.String()
+	}
+	// 同一个规范化地址 + 同一套复用策略只创建一个客户端，失效操作也使用同一把锁。
 	proxyClientLock.Lock()
 	defer proxyClientLock.Unlock()
-	if client, ok := proxyClients[proxyURL]; ok {
+	if client, ok := proxyClients[cacheKey]; ok {
 		return client, nil
 	}
 
-	switch parsedURL.Scheme {
-	case "http", "https":
-		transport := &http.Transport{
-			DialContext:           relayDialer().DialContext,
-			MaxIdleConns:          common.RelayMaxIdleConns,
-			MaxIdleConnsPerHost:   common.RelayMaxIdleConnsPerHost,
-			IdleConnTimeout:       time.Duration(common.RelayIdleConnTimeout) * time.Second,
-			TLSHandshakeTimeout:   relayTLSHandshakeTimeout(),
-			ResponseHeaderTimeout: relayResponseHeaderTimeout(),
-			ForceAttemptHTTP2:     true,
-			Proxy:                 http.ProxyURL(parsedURL),
-		}
-		if common.TLSInsecureSkipVerify {
-			transport.TLSClientConfig = common.InsecureTLSConfig
-		}
-		client := &http.Client{
-			Transport:     transport,
-			CheckRedirect: checkRedirect,
-		}
-		client.Timeout = time.Duration(common.RelayTimeout) * time.Second
-		proxyClients[proxyURL] = client
-		return client, nil
+	transport, err := newProxyTransport(parsedURL, options)
+	if err != nil {
+		return nil, err
+	}
 
-	case "socks5", "socks5h":
+	client := &http.Client{Transport: transport, CheckRedirect: checkRedirect}
+	client.Timeout = time.Duration(common.RelayTimeout) * time.Second
+	proxyClients[cacheKey] = client
+	return client, nil
+}
+
+// newProxyTransport 按代理协议构造出站 transport。各协议共享同一套连接池、
+// 超时与连接复用配置，只有拨号与代理握手方式不同。parsedURL 为 nil 表示不使用
+// 渠道代理，此时与默认客户端一致地跟随 HTTP_PROXY 等环境变量。
+func newProxyTransport(parsedURL *url.URL, options ProxyClientOptions) (*http.Transport, error) {
+	transport := &http.Transport{
+		MaxIdleConns:          common.RelayMaxIdleConns,
+		MaxIdleConnsPerHost:   common.RelayMaxIdleConnsPerHost,
+		IdleConnTimeout:       time.Duration(common.RelayIdleConnTimeout) * time.Second,
+		TLSHandshakeTimeout:   relayTLSHandshakeTimeout(),
+		ResponseHeaderTimeout: relayResponseHeaderTimeout(),
+		ForceAttemptHTTP2:     true,
+	}
+
+	switch {
+	case parsedURL == nil:
+		transport.DialContext = relayDialer().DialContext
+		transport.Proxy = http.ProxyFromEnvironment
+
+	case parsedURL.Scheme == "http" || parsedURL.Scheme == "https":
+		transport.DialContext = relayDialer().DialContext
+		transport.Proxy = http.ProxyURL(parsedURL)
+
+	case parsedURL.Scheme == "socks5" || parsedURL.Scheme == "socks5h":
 		// 获取认证信息
 		var auth *proxy.Auth
 		if parsedURL.User != nil {
@@ -237,30 +291,21 @@ func NewProxyHttpClient(proxyURL string) (*http.Client, error) {
 		// 请求取消时中断代理建连与握手，而不是无限等待
 		contextDialer, _ := dialer.(proxy.ContextDialer)
 
-		transport := &http.Transport{
-			MaxIdleConns:          common.RelayMaxIdleConns,
-			MaxIdleConnsPerHost:   common.RelayMaxIdleConnsPerHost,
-			IdleConnTimeout:       time.Duration(common.RelayIdleConnTimeout) * time.Second,
-			TLSHandshakeTimeout:   relayTLSHandshakeTimeout(),
-			ResponseHeaderTimeout: relayResponseHeaderTimeout(),
-			ForceAttemptHTTP2:     true,
-			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-				if contextDialer != nil {
-					return contextDialer.DialContext(ctx, network, addr)
-				}
-				return dialer.Dial(network, addr)
-			},
+		transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+			if contextDialer != nil {
+				return contextDialer.DialContext(ctx, network, addr)
+			}
+			return dialer.Dial(network, addr)
 		}
-		if common.TLSInsecureSkipVerify {
-			transport.TLSClientConfig = common.InsecureTLSConfig
-		}
-
-		client := &http.Client{Transport: transport, CheckRedirect: checkRedirect}
-		client.Timeout = time.Duration(common.RelayTimeout) * time.Second
-		proxyClients[proxyURL] = client
-		return client, nil
 
 	default:
 		return nil, fmt.Errorf("unsupported proxy scheme: %s, must be http, https, socks5 or socks5h", parsedURL.Scheme)
 	}
+
+	if common.TLSInsecureSkipVerify {
+		transport.TLSClientConfig = common.InsecureTLSConfig
+	}
+	applyKeepAliveSetting(transport, options)
+
+	return transport, nil
 }

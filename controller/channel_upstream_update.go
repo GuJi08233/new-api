@@ -346,7 +346,8 @@ func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 		if otherSettings.OA2GeminiEnabled && otherSettings.OA2BaseURLGemini != "" {
 			attemptedSources++
 			key := strings.TrimSpace(strings.Split(channel.Key, "\n")[0])
-			if geminiModels, err := gemini.FetchGeminiModels(otherSettings.OA2BaseURLGemini, key, channel.GetSetting().Proxy); err != nil {
+			channelProxySettings := channel.GetSetting()
+			if geminiModels, err := gemini.FetchGeminiModels(otherSettings.OA2BaseURLGemini, key, channelProxySettings.Proxy, channelProxySettings.DisableKeepAlive); err != nil {
 				errorMessages = append(errorMessages, fmt.Sprintf("Gemini: %v", err))
 			} else {
 				succeededSources++
@@ -413,7 +414,8 @@ func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 			return nil, fmt.Errorf("获取渠道密钥失败: %w", apiErr)
 		}
 		key = strings.TrimSpace(key)
-		models, err := gemini.FetchGeminiModels(baseURL, key, channel.GetSetting().Proxy)
+		channelProxySettings := channel.GetSetting()
+		models, err := gemini.FetchGeminiModels(baseURL, key, channelProxySettings.Proxy, channelProxySettings.DisableKeepAlive)
 		if err != nil {
 			return nil, err
 		}

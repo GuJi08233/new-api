@@ -40,11 +40,11 @@ type CodexOAuthAuthorizationFlow struct {
 }
 
 func RefreshCodexOAuthToken(ctx context.Context, refreshToken string) (*CodexOAuthTokenResult, error) {
-	return RefreshCodexOAuthTokenWithProxy(ctx, refreshToken, "")
+	return RefreshCodexOAuthTokenWithProxy(ctx, refreshToken, "", false)
 }
 
-func RefreshCodexOAuthTokenWithProxy(ctx context.Context, refreshToken string, proxyURL string) (*CodexOAuthTokenResult, error) {
-	client, err := getCodexOAuthHTTPClient(proxyURL)
+func RefreshCodexOAuthTokenWithProxy(ctx context.Context, refreshToken string, proxyURL string, disableKeepAlive bool) (*CodexOAuthTokenResult, error) {
+	client, err := getCodexOAuthHTTPClient(proxyURL, disableKeepAlive)
 	if err != nil {
 		return nil, err
 	}
@@ -52,11 +52,11 @@ func RefreshCodexOAuthTokenWithProxy(ctx context.Context, refreshToken string, p
 }
 
 func ExchangeCodexAuthorizationCode(ctx context.Context, code string, verifier string) (*CodexOAuthTokenResult, error) {
-	return ExchangeCodexAuthorizationCodeWithProxy(ctx, code, verifier, "")
+	return ExchangeCodexAuthorizationCodeWithProxy(ctx, code, verifier, "", false)
 }
 
-func ExchangeCodexAuthorizationCodeWithProxy(ctx context.Context, code string, verifier string, proxyURL string) (*CodexOAuthTokenResult, error) {
-	client, err := getCodexOAuthHTTPClient(proxyURL)
+func ExchangeCodexAuthorizationCodeWithProxy(ctx context.Context, code string, verifier string, proxyURL string, disableKeepAlive bool) (*CodexOAuthTokenResult, error) {
+	client, err := getCodexOAuthHTTPClient(proxyURL, disableKeepAlive)
 	if err != nil {
 		return nil, err
 	}
@@ -197,8 +197,8 @@ func exchangeCodexAuthorizationCode(
 	}, nil
 }
 
-func getCodexOAuthHTTPClient(proxyURL string) (*http.Client, error) {
-	baseClient, err := GetHttpClientWithProxy(strings.TrimSpace(proxyURL))
+func getCodexOAuthHTTPClient(proxyURL string, disableKeepAlive bool) (*http.Client, error) {
+	baseClient, err := GetChannelHttpClient(strings.TrimSpace(proxyURL), disableKeepAlive)
 	if err != nil {
 		return nil, err
 	}

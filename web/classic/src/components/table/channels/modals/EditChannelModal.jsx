@@ -203,6 +203,8 @@ const EditChannelModal = (props) => {
     force_format: false,
     thinking_to_content: false,
     proxy: '',
+    // 每个请求新建连接并立即断开，不复用连接池（用于代理池按连接分配出口 IP）
+    disable_keep_alive: false,
     pass_through_body_enabled: false,
     pass_through_headers_enabled: false,
     pass_through_rewrite_model_enabled: false,
@@ -528,6 +530,7 @@ const EditChannelModal = (props) => {
     force_format: false,
     thinking_to_content: false,
     proxy: '',
+    disable_keep_alive: false,
     pass_through_body_enabled: false,
     pass_through_headers_enabled: false,
     pass_through_rewrite_model_enabled: false,
@@ -997,6 +1000,7 @@ const EditChannelModal = (props) => {
           data.thinking_to_content =
             parsedSettings.thinking_to_content || false;
           data.proxy = parsedSettings.proxy || '';
+          data.disable_keep_alive = parsedSettings.disable_keep_alive === true;
           data.pass_through_body_enabled =
             parsedSettings.pass_through_body_enabled || false;
           data.pass_through_headers_enabled =
@@ -1039,6 +1043,7 @@ const EditChannelModal = (props) => {
           data.force_format = false;
           data.thinking_to_content = false;
           data.proxy = '';
+          data.disable_keep_alive = false;
           data.pass_through_body_enabled = false;
           data.pass_through_headers_enabled = false;
           data.pass_through_rewrite_model_enabled = false;
@@ -1063,6 +1068,7 @@ const EditChannelModal = (props) => {
         data.force_format = false;
         data.thinking_to_content = false;
         data.proxy = '';
+        data.disable_keep_alive = false;
         data.pass_through_body_enabled = false;
         data.pass_through_headers_enabled = false;
         data.pass_through_rewrite_model_enabled = false;
@@ -1218,6 +1224,7 @@ const EditChannelModal = (props) => {
         force_format: data.force_format,
         thinking_to_content: data.thinking_to_content,
         proxy: data.proxy,
+        disable_keep_alive: data.disable_keep_alive === true,
         pass_through_body_enabled: data.pass_through_body_enabled,
         pass_through_headers_enabled: data.pass_through_headers_enabled,
         pass_through_rewrite_model_enabled:
@@ -1281,6 +1288,7 @@ const EditChannelModal = (props) => {
         (data.priority && data.priority !== 0) ||
         (data.weight && data.weight !== 0) ||
         (data.proxy && data.proxy.trim()) ||
+        data.disable_keep_alive ||
         (data.system_prompt && data.system_prompt.trim()) ||
         data.thinking_to_content ||
         data.pass_through_body_enabled ||
@@ -1652,6 +1660,7 @@ const EditChannelModal = (props) => {
       force_format: false,
       thinking_to_content: false,
       proxy: '',
+      disable_keep_alive: false,
       pass_through_body_enabled: false,
       pass_through_headers_enabled: false,
       pass_through_rewrite_model_enabled: false,
@@ -2046,6 +2055,7 @@ const EditChannelModal = (props) => {
       force_format: localInputs.force_format || false,
       thinking_to_content: localInputs.thinking_to_content || false,
       proxy: localInputs.proxy || '',
+      disable_keep_alive: localInputs.disable_keep_alive === true,
       pass_through_body_enabled: localInputs.pass_through_body_enabled || false,
       pass_through_headers_enabled:
         localInputs.pass_through_headers_enabled || false,
@@ -2193,6 +2203,7 @@ const EditChannelModal = (props) => {
     delete localInputs.force_format;
     delete localInputs.thinking_to_content;
     delete localInputs.proxy;
+    delete localInputs.disable_keep_alive;
     delete localInputs.pass_through_body_enabled;
     delete localInputs.pass_through_headers_enabled;
     delete localInputs.pass_through_rewrite_model_enabled;
@@ -3185,6 +3196,18 @@ const EditChannelModal = (props) => {
                     }
                     showClear
                     extraText={t('用于配置网络代理，支持 socks5 协议')}
+                  />
+                  <Form.Switch
+                    field='disable_keep_alive'
+                    label={t('每个请求新建连接')}
+                    checkedText={t('开')}
+                    uncheckedText={t('关')}
+                    onChange={(value) =>
+                      handleChannelSettingsChange('disable_keep_alive', value)
+                    }
+                    extraText={t(
+                      '开启后本渠道的每次请求都新建一条连接并在请求结束后立即断开，不复用连接池中的空闲连接（同时禁用 HTTP/2，避免并发请求共用一条连接）。适用于代理池入口按连接分配不同出口 IP 的场景；关闭时会复用连接，同一出口可能被连续使用',
+                    )}
                   />
 
                   <Form.TextArea

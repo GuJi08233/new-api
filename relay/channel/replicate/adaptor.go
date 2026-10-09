@@ -484,7 +484,7 @@ func uploadFileFromForm(c *gin.Context, info *relaycommon.RelayInfo, fieldCandid
 	// the channel has a general Content-Type override for its main API calls.
 	req.Header.Set("Content-Type", formContentType)
 
-	client, err := service.GetHttpClientWithProxy(info.ChannelSetting.Proxy)
+	client, err := service.GetChannelHttpClient(info.ChannelSetting.Proxy, info.ChannelSetting.DisableKeepAlive)
 	if err != nil {
 		return "", fmt.Errorf("replicate adaptor: create upload client failed: %w", err)
 	}

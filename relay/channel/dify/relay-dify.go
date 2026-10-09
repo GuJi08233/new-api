@@ -107,7 +107,7 @@ func uploadDifyFile(c *gin.Context, info *relaycommon.RelayInfo, user string, me
 		req.Header.Set("Content-Type", formContentType)
 
 		// Send request
-		client, err := service.GetHttpClientWithProxy(info.ChannelSetting.Proxy)
+		client, err := service.GetChannelHttpClient(info.ChannelSetting.Proxy, info.ChannelSetting.DisableKeepAlive)
 		if err != nil {
 			common.SysLog("failed to create upload client: " + err.Error())
 			return nil

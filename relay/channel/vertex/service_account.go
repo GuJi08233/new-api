@@ -113,8 +113,8 @@ func exchangeJwtForAccessToken(signedJWT string, info *relaycommon.RelayInfo) (s
 
 	var client *http.Client
 	var err error
-	if info.ChannelSetting.Proxy != "" {
-		client, err = service.NewProxyHttpClient(info.ChannelSetting.Proxy)
+	if info.ChannelSetting.Proxy != "" || info.ChannelSetting.DisableKeepAlive {
+		client, err = service.GetChannelHttpClient(info.ChannelSetting.Proxy, info.ChannelSetting.DisableKeepAlive)
 		if err != nil {
 			return "", fmt.Errorf("new proxy http client failed: %w", err)
 		}
@@ -140,15 +140,17 @@ func exchangeJwtForAccessToken(signedJWT string, info *relaycommon.RelayInfo) (s
 	return "", fmt.Errorf("failed to get access token: %v", result)
 }
 
-func AcquireAccessToken(creds Credentials, proxy string) (string, error) {
+// AcquireAccessToken 用服务账号凭据换取访问令牌。disableKeepAlive 为 true 时，
+// 令牌交换请求也独占一条新连接，与渠道的其它出站请求保持一致。
+func AcquireAccessToken(creds Credentials, proxy string, disableKeepAlive bool) (string, error) {
 	signedJWT, err := createSignedJWT(creds.ClientEmail, creds.PrivateKey)
 	if err != nil {
 		return "", fmt.Errorf("failed to create signed JWT: %w", err)
 	}
-	return exchangeJwtForAccessTokenWithProxy(signedJWT, proxy)
+	return exchangeJwtForAccessTokenWithProxy(signedJWT, proxy, disableKeepAlive)
 }
 
-func exchangeJwtForAccessTokenWithProxy(signedJWT string, proxy string) (string, error) {
+func exchangeJwtForAccessTokenWithProxy(signedJWT string, proxy string, disableKeepAlive bool) (string, error) {
 	authURL := "https://www.googleapis.com/oauth2/v4/token"
 	data := url.Values{}
 	data.Set("grant_type", "urn:ietf:params:oauth:grant-type:jwt-bearer")
@@ -156,8 +158,8 @@ func exchangeJwtForAccessTokenWithProxy(signedJWT string, proxy string) (string,
 
 	var client *http.Client
 	var err error
-	if proxy != "" {
-		client, err = service.NewProxyHttpClient(proxy)
+	if proxy != "" || disableKeepAlive {
+		client, err = service.GetChannelHttpClient(proxy, disableKeepAlive)
 		if err != nil {
 			return "", fmt.Errorf("new proxy http client failed: %w", err)
 		}

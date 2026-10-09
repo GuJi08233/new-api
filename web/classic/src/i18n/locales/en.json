@@ -2431,6 +2431,8 @@
     "用于API调用的身份验证令牌，请妥善保管": "Authentication token for API calls, please keep it safe",
     "用于唯一标识用户的字段路径": "Field path for uniquely identifying users",
     "用于配置网络代理，支持 socks5 协议": "Used to configure network proxy, supports socks5 protocol",
+    "每个请求新建连接": "New connection per request",
+    "开启后本渠道的每次请求都新建一条连接并在请求结束后立即断开，不复用连接池中的空闲连接（同时禁用 HTTP/2，避免并发请求共用一条连接）。适用于代理池入口按连接分配不同出口 IP 的场景；关闭时会复用连接，同一出口可能被连续使用": "When enabled, every request on this channel opens a new connection and closes it as soon as the request finishes, instead of reusing idle connections from the pool (HTTP/2 is disabled too, so concurrent requests cannot share one connection). Use this when a proxy pool endpoint assigns a different egress IP per connection; when disabled, connections are reused and the same egress may be used repeatedly",
     "用于验证回调 new-api 的 webhook 请求的密钥，敏感信息不显示": "The key used to validate webhook requests for the callback new-api, sensitive information is not displayed.",
     "用以支持基于 WebAuthn 的无密码登录注册": "Support WebAuthn-based passwordless login and registration",
     "用以支持用户校验": "To support user verification",

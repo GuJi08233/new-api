@@ -206,7 +206,7 @@ func updateTask(c *gin.Context, info *relaycommon.RelayInfo, taskID string) (*Al
 		return &aliResponse, err, nil
 	}
 
-	client, err := service.GetHttpClientWithProxy(info.ChannelSetting.Proxy)
+	client, err := service.GetChannelHttpClient(info.ChannelSetting.Proxy, info.ChannelSetting.DisableKeepAlive)
 	if err != nil {
 		return &aliResponse, fmt.Errorf("get task http client failed: %w", err), nil
 	}

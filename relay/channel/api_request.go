@@ -553,8 +553,8 @@ func doRequestWithPreparedHeaders(c *gin.Context, req *http.Request, info *commo
 
 	var client *http.Client
 	var err error
-	if info.ChannelSetting.Proxy != "" {
-		client, err = service.NewProxyHttpClient(info.ChannelSetting.Proxy)
+	if info.ChannelSetting.Proxy != "" || info.ChannelSetting.DisableKeepAlive {
+		client, err = service.GetChannelHttpClient(info.ChannelSetting.Proxy, info.ChannelSetting.DisableKeepAlive)
 		if err != nil {
 			return nil, fmt.Errorf("new proxy http client failed: %w", err)
 		}

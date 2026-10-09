@@ -54,10 +54,13 @@ func RelayMidjourneyImage(c *gin.Context) {
 	}
 	var httpClient *http.Client
 	var proxy string
+	disableKeepAlive := false
 	if channel, err := model.CacheGetChannel(midjourneyTask.ChannelId); err == nil {
-		proxy = channel.GetSetting().Proxy
-		if proxy != "" {
-			if httpClient, err = service.NewProxyHttpClient(proxy); err != nil {
+		channelSettings := channel.GetSetting()
+		proxy = channelSettings.Proxy
+		disableKeepAlive = channelSettings.DisableKeepAlive
+		if proxy != "" || disableKeepAlive {
+			if httpClient, err = service.GetChannelHttpClient(proxy, disableKeepAlive); err != nil {
 				c.JSON(400, gin.H{
 					"error": "proxy_url_invalid",
 				})
@@ -69,7 +72,7 @@ func RelayMidjourneyImage(c *gin.Context) {
 		httpClient = service.GetSSRFProtectedHTTPClient()
 	}
 	var validateErr error
-	if proxy == "" {
+	if proxy == "" && !disableKeepAlive {
 		validateErr = service.ValidateSSRFProtectedFetchURL(midjourneyTask.ImageUrl)
 	} else {
 		// 渠道代理路径的连接由代理侧建立，无法做拨号时逐 IP 校验，

@@ -99,7 +99,8 @@ func fetchCodexChannelWhamData(
 		return
 	}
 
-	client, err := service.NewProxyHttpClient(ch.GetSetting().Proxy)
+	channelSettings := ch.GetSetting()
+	client, err := service.GetChannelHttpClient(channelSettings.Proxy, channelSettings.DisableKeepAlive)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -119,7 +120,7 @@ func fetchCodexChannelWhamData(
 		refreshCtx, refreshCancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
 		defer refreshCancel()
 
-		res, refreshErr := service.RefreshCodexOAuthTokenWithProxy(refreshCtx, oauthKey.RefreshToken, ch.GetSetting().Proxy)
+		res, refreshErr := service.RefreshCodexOAuthTokenWithProxy(refreshCtx, oauthKey.RefreshToken, channelSettings.Proxy, channelSettings.DisableKeepAlive)
 		if refreshErr == nil {
 			oauthKey.AccessToken = res.AccessToken
 			oauthKey.RefreshToken = res.RefreshToken
