@@ -269,7 +269,7 @@ func fetchUpstreamJSON(ctx context.Context, url string, timeoutSeconds int, deco
 		ResponseHeaderTimeout: 10 * time.Second,
 	}
 	if common.TLSInsecureSkipVerify {
-		transport.TLSClientConfig = common.InsecureTLSConfig
+		transport.TLSClientConfig = common.InsecureTLSConfig.Clone()
 	}
 	client := &http.Client{Transport: transport}
 

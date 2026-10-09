@@ -54,13 +54,11 @@ func RelayMidjourneyImage(c *gin.Context) {
 	}
 	var httpClient *http.Client
 	var proxy string
-	disableKeepAlive := false
 	if channel, err := model.CacheGetChannel(midjourneyTask.ChannelId); err == nil {
 		channelSettings := channel.GetSetting()
-		proxy = channelSettings.Proxy
-		disableKeepAlive = channelSettings.DisableKeepAlive
-		if proxy != "" || disableKeepAlive {
-			if httpClient, err = service.GetChannelHttpClient(proxy, disableKeepAlive); err != nil {
+		proxy = strings.TrimSpace(channelSettings.Proxy)
+		if proxy != "" {
+			if httpClient, err = service.GetChannelHttpClient(proxy, channelSettings.DisableKeepAlive); err != nil {
 				c.JSON(400, gin.H{
 					"error": "proxy_url_invalid",
 				})
@@ -72,7 +70,7 @@ func RelayMidjourneyImage(c *gin.Context) {
 		httpClient = service.GetSSRFProtectedHTTPClient()
 	}
 	var validateErr error
-	if proxy == "" && !disableKeepAlive {
+	if proxy == "" {
 		validateErr = service.ValidateSSRFProtectedFetchURL(midjourneyTask.ImageUrl)
 	} else {
 		// 渠道代理路径的连接由代理侧建立，无法做拨号时逐 IP 校验，
@@ -332,6 +330,7 @@ func RelayMidjourneyTaskImageSeed(c *gin.Context) *dto.MidjourneyResponse {
 		return service.MidjourneyErrorWrapper(constant.MjRequestError, "该任务所属渠道已被禁用")
 	}
 	c.Set("channel_id", originTask.ChannelId)
+	common.SetContextKey(c, constant.ContextKeyChannelSetting, channel.GetSetting())
 	c.Request.Header.Set("Authorization", fmt.Sprintf("Bearer %s", channel.Key))
 
 	requestURL := getMjRequestPath(c.Request.URL.String())
@@ -506,6 +505,7 @@ func RelayMidjourneySubmit(c *gin.Context, relayInfo *relaycommon.RelayInfo) *dt
 			}
 			c.Set("base_url", channel.GetBaseURL())
 			c.Set("channel_id", originTask.ChannelId)
+			common.SetContextKey(c, constant.ContextKeyChannelSetting, channel.GetSetting())
 			c.Request.Header.Set("Authorization", fmt.Sprintf("Bearer %s", channel.Key))
 			logger.LogDebug(c, "Midjourney action uses origin channel: id=%s, base_url=%s", strconv.Itoa(originTask.ChannelId), channel.GetBaseURL())
 		}

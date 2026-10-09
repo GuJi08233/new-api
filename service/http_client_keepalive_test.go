@@ -1,7 +1,9 @@
 package service
 
 import (
+	"crypto/tls"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -10,6 +12,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -133,6 +136,73 @@ func TestChannelClientDisableKeepAliveThroughSocks5(t *testing.T) {
 	// 关闭开关时应复用同一条到代理的连接，服务端只看到一次连接。
 	ResetProxyClientCache()
 	assertProxyConnectionCount(t, "socks5://"+proxyAddr, false, origin.URL, originConnections, proxyConnections)
+}
+
+func TestChannelClientDisableKeepAliveHTTPS(t *testing.T) {
+	oldInsecure, oldTLSConfig := common.TLSInsecureSkipVerify, common.InsecureTLSConfig
+	t.Cleanup(func() {
+		ResetProxyClientCache()
+		GetHttpClient().CloseIdleConnections()
+		common.TLSInsecureSkipVerify, common.InsecureTLSConfig = oldInsecure, oldTLSConfig
+		InitHttpClient()
+	})
+	common.TLSInsecureSkipVerify = true
+
+	for _, seededALPN := range []bool{false, true} {
+		for _, proxyScheme := range []string{"direct", "socks5"} {
+			t.Run(fmt.Sprintf("%s/seededALPN=%v", proxyScheme, seededALPN), func(t *testing.T) {
+				common.InsecureTLSConfig = &tls.Config{InsecureSkipVerify: true}
+				if seededALPN {
+					common.InsecureTLSConfig.NextProtos = []string{"h2", "http/1.1"}
+				}
+				InitHttpClient()
+				t.Cleanup(GetHttpClient().CloseIdleConnections)
+				t.Cleanup(ResetProxyClientCache)
+
+				var connections atomic.Int64
+				origin := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					_, _ = io.WriteString(w, r.Proto)
+				}))
+				origin.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+					if state == http.StateNew {
+						connections.Add(1)
+					}
+				}
+				origin.EnableHTTP2 = true
+				origin.StartTLS()
+				t.Cleanup(origin.Close)
+
+				proxyURL := ""
+				if proxyScheme == "socks5" {
+					proxyAddr, _ := startCountingSocks5Proxy(t)
+					proxyURL = "socks5://" + proxyAddr
+				}
+				pooled, err := GetChannelHttpClient(proxyURL, false)
+				require.NoError(t, err)
+				fresh, err := GetChannelHttpClient(proxyURL, true)
+				require.NoError(t, err)
+
+				// 先启动普通客户端的 HTTP/2，再交替请求，验证两种策略互不污染。
+				for _, request := range []struct {
+					client *http.Client
+					proto  string
+				}{
+					{pooled, "HTTP/2.0"},
+					{fresh, "HTTP/1.1"},
+					{fresh, "HTTP/1.1"},
+					{pooled, "HTTP/2.0"},
+				} {
+					resp, err := request.client.Get(origin.URL)
+					require.NoError(t, err)
+					body, err := io.ReadAll(resp.Body)
+					require.NoError(t, resp.Body.Close())
+					require.NoError(t, err)
+					assert.Equal(t, request.proto, string(body))
+				}
+				assert.Equal(t, int64(3), connections.Load())
+			})
+		}
+	}
 }
 
 func assertProxyConnectionCount(t *testing.T, proxyURL string, disableKeepAlive bool, originURL string, originConnections, proxyConnections *int64) {

@@ -103,6 +103,12 @@ func runMidjourneyTaskUpdateOnce(ctx context.Context, report func(processed, tot
 			}
 			continue
 		}
+		channelSettings := midjourneyChannel.GetSetting()
+		client, err := service.GetChannelHttpClient(channelSettings.Proxy, channelSettings.DisableKeepAlive)
+		if err != nil {
+			logger.LogError(ctx, fmt.Sprintf("Get Task proxy client error: %v", err))
+			continue
+		}
 		requestUrl := fmt.Sprintf("%s/mj/task/list-by-condition", *midjourneyChannel.BaseURL)
 
 		body, err := common.Marshal(map[string]any{
@@ -122,7 +128,7 @@ func runMidjourneyTaskUpdateOnce(ctx context.Context, report func(processed, tot
 		}
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("mj-api-secret", midjourneyChannel.Key)
-		resp, err := service.GetHttpClient().Do(req)
+		resp, err := client.Do(req)
 		if err != nil {
 			logger.LogError(ctx, fmt.Sprintf("Get Task Do req error: %v", err))
 			cancel()

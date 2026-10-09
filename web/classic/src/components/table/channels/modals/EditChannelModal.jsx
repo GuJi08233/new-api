@@ -3203,7 +3203,8 @@ const EditChannelModal = (props) => {
                     checkedText={t('开')}
                     uncheckedText={t('关')}
                     disabled={
-                      !channelSettings.proxy || !channelSettings.proxy.trim()
+                      !channelSettings.disable_keep_alive &&
+                      (!channelSettings.proxy || !channelSettings.proxy.trim())
                     }
                     onChange={(value) =>
                       handleChannelSettingsChange('disable_keep_alive', value)

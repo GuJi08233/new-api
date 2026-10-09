@@ -48,6 +48,10 @@ func applyKeepAliveSetting(transport *http.Transport, options ProxyClientOptions
 	transport.DisableKeepAlives = true
 	transport.ForceAttemptHTTP2 = false
 	transport.TLSNextProto = make(map[string]func(string, *tls.Conn) http.RoundTripper)
+	if transport.TLSClientConfig != nil {
+		// 禁用 HTTP/2 的 transport 不能通过 ALPN 协商 h2，即使模板中已包含它。
+		transport.TLSClientConfig.NextProtos = []string{"http/1.1"}
+	}
 }
 
 func checkRedirect(req *http.Request, via []*http.Request) error {
@@ -122,7 +126,7 @@ func InitHttpClient() {
 		Proxy:                 http.ProxyFromEnvironment, // Support HTTP_PROXY, HTTPS_PROXY, NO_PROXY env vars
 	}
 	if common.TLSInsecureSkipVerify {
-		transport.TLSClientConfig = common.InsecureTLSConfig
+		transport.TLSClientConfig = common.InsecureTLSConfig.Clone()
 	}
 
 	if common.RelayTimeout == 0 {
@@ -303,7 +307,7 @@ func newProxyTransport(parsedURL *url.URL, options ProxyClientOptions) (*http.Tr
 	}
 
 	if common.TLSInsecureSkipVerify {
-		transport.TLSClientConfig = common.InsecureTLSConfig
+		transport.TLSClientConfig = common.InsecureTLSConfig.Clone()
 	}
 	applyKeepAliveSetting(transport, options)
 

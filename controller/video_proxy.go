@@ -73,9 +73,9 @@ func VideoProxy(c *gin.Context) {
 
 	var videoURL string
 	channelSettings := channel.GetSetting()
-	proxy := channelSettings.Proxy
+	proxy := strings.TrimSpace(channelSettings.Proxy)
 	client := service.GetSSRFProtectedHTTPClient()
-	if proxy != "" || channelSettings.DisableKeepAlive {
+	if proxy != "" {
 		// 渠道代理路径的连接由代理侧建立，无法做拨号时逐 IP 校验，
 		// 因此后面对 videoURL 保留请求前的一次性 SSRF 校验。
 		client, err = service.GetChannelHttpClient(proxy, channelSettings.DisableKeepAlive)
@@ -141,7 +141,7 @@ func VideoProxy(c *gin.Context) {
 	}
 
 	var validateErr error
-	if proxy == "" && !channelSettings.DisableKeepAlive {
+	if proxy == "" {
 		validateErr = service.ValidateSSRFProtectedFetchURL(videoURL)
 	} else {
 		fetchSetting := system_setting.GetFetchSetting()
