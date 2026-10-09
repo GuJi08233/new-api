@@ -2416,6 +2416,7 @@
     "用于配置网络代理，支持 socks5 协议": "Utilisé pour configurer le proxy réseau, prend en charge le protocole socks5",
     "每个请求新建连接": "Nouvelle connexion par requête",
     "开启后本渠道的每次请求都新建一条连接并在请求结束后立即断开，不复用连接池中的空闲连接（同时禁用 HTTP/2，避免并发请求共用一条连接）。适用于代理池入口按连接分配不同出口 IP 的场景；关闭时会复用连接，同一出口可能被连续使用": "Une fois activé, chaque requête de ce canal ouvre une nouvelle connexion et la ferme dès la fin de la requête, sans réutiliser les connexions inactives du pool (HTTP/2 est également désactivé, afin que les requêtes simultanées ne partagent pas une même connexion). À utiliser lorsqu'un point d'entrée de pool de proxys attribue une IP de sortie différente par connexion ; désactivé, les connexions sont réutilisées et la même sortie peut servir plusieurs fois de suite",
+    "需先填写渠道代理地址后才能开启：代理池按连接分配出口 IP，每个请求新建一条连接": "Renseignez d'abord l'adresse du proxy du canal pour activer cette option : le pool de proxys attribue une IP de sortie par connexion, et chaque requête ouvre une nouvelle connexion",
     "用于验证回调 new-api 的 webhook 请求的密钥，敏感信息不显示": "Clé utilisée pour vérifier les requêtes webhook de rappel de new-api, les informations sensibles ne sont pas affichées.",
     "用以支持基于 WebAuthn 的无密码登录注册": "Prise en charge de la connexion et de l'enregistrement sans mot de passe basés sur WebAuthn",
     "用以支持用户校验": "Pour prendre en charge la vérification des utilisateurs",

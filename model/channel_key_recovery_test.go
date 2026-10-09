@@ -423,6 +423,9 @@ func TestValidateSettingsAutomationFields(t *testing.T) {
 		{name: "negative success limit", setting: `{"rate_limit_max_success":-1}`, wantErr: true},
 		{name: "rate limit period above one day", setting: `{"rate_limit_period_minutes":1441}`, wantErr: true},
 		{name: "negative daily limit", setting: `{"daily_request_limit":-5}`, wantErr: true},
+		{name: "disable keep alive with proxy", setting: `{"proxy":"socks5://127.0.0.1:1080","disable_keep_alive":true}`},
+		{name: "disable keep alive without proxy", setting: `{"disable_keep_alive":true}`, wantErr: true},
+		{name: "disable keep alive with blank proxy", setting: `{"proxy":"  ","disable_keep_alive":true}`, wantErr: true},
 	}
 
 	for _, tc := range tests {

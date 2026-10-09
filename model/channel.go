@@ -1045,6 +1045,10 @@ func (channel *Channel) ValidateSettings() error {
 	if _, err := common.ParseProxyURLStrict(channelParams.Proxy); err != nil {
 		return fmt.Errorf("invalid channel proxy: %w", err)
 	}
+	// disable_keep_alive 依赖渠道代理生效（代理池按连接分配出口 IP），无代理时不允许开启。
+	if channelParams.DisableKeepAlive && strings.TrimSpace(channelParams.Proxy) == "" {
+		return fmt.Errorf("disable_keep_alive requires a channel proxy to be set")
+	}
 	channelOtherSettings := &dto.ChannelOtherSettings{}
 	if channel.OtherSettings != "" {
 		err := common.UnmarshalJsonStr(channel.OtherSettings, channelOtherSettings)

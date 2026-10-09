@@ -2543,6 +2543,7 @@
     "用于配置网络代理，支持 socks5 协议": "Được sử dụng để cấu hình proxy mạng, hỗ trợ giao thức socks5",
     "每个请求新建连接": "Tạo kết nối mới cho mỗi yêu cầu",
     "开启后本渠道的每次请求都新建一条连接并在请求结束后立即断开，不复用连接池中的空闲连接（同时禁用 HTTP/2，避免并发请求共用一条连接）。适用于代理池入口按连接分配不同出口 IP 的场景；关闭时会复用连接，同一出口可能被连续使用": "Khi bật, mỗi yêu cầu của kênh này sẽ mở một kết nối mới và đóng ngay khi yêu cầu kết thúc, không tái sử dụng các kết nối nhàn rỗi trong pool (đồng thời tắt HTTP/2 để các yêu cầu đồng thời không dùng chung một kết nối). Dùng khi cổng vào của pool proxy cấp IP ra khác nhau theo từng kết nối; khi tắt, kết nối được tái sử dụng và cùng một IP ra có thể bị dùng liên tiếp",
+    "需先填写渠道代理地址后才能开启：代理池按连接分配出口 IP，每个请求新建一条连接": "Vui lòng điền địa chỉ proxy của kênh trước khi bật: pool proxy cấp IP ra theo từng kết nối, và mỗi yêu cầu mở một kết nối mới",
     "用于非 OpenAI 格式的 Gemini/Vertex 渠道": "Dành cho các kênh Gemini/Vertex không phải định dạng OpenAI",
     "用于验证回调 new-api 的 webhook 请求的密钥，敏感信息不显示": "Khóa được sử dụng để xác minh các yêu cầu webhook gọi lại new-api, thông tin nhạy cảm không được hiển thị.",
     "用以支持基于 WebAuthn 的无密码登录注册": "Hỗ trợ đăng nhập và đăng ký không mật khẩu dựa trên WebAuthn",

@@ -3202,12 +3202,21 @@ const EditChannelModal = (props) => {
                     label={t('每个请求新建连接')}
                     checkedText={t('开')}
                     uncheckedText={t('关')}
+                    disabled={
+                      !channelSettings.proxy || !channelSettings.proxy.trim()
+                    }
                     onChange={(value) =>
                       handleChannelSettingsChange('disable_keep_alive', value)
                     }
-                    extraText={t(
-                      '开启后本渠道的每次请求都新建一条连接并在请求结束后立即断开，不复用连接池中的空闲连接（同时禁用 HTTP/2，避免并发请求共用一条连接）。适用于代理池入口按连接分配不同出口 IP 的场景；关闭时会复用连接，同一出口可能被连续使用',
-                    )}
+                    extraText={
+                      !channelSettings.proxy || !channelSettings.proxy.trim()
+                        ? t(
+                            '需先填写渠道代理地址后才能开启：代理池按连接分配出口 IP，每个请求新建一条连接',
+                          )
+                        : t(
+                            '开启后本渠道的每次请求都新建一条连接并在请求结束后立即断开，不复用连接池中的空闲连接（同时禁用 HTTP/2，避免并发请求共用一条连接）。适用于代理池入口按连接分配不同出口 IP 的场景；关闭时会复用连接，同一出口可能被连续使用',
+                          )
+                    }
                   />
 
                   <Form.TextArea
