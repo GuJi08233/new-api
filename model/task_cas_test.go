@@ -70,6 +70,7 @@ func TestMain(m *testing.M) {
 		&GameRewardDay{},
 		&GameRewardIpDay{},
 		&GameRoom{},
+		&GameRoomSeat{},
 		&GameJackpotRound{},
 		&GameJackpotEntry{},
 	); err != nil {
@@ -119,6 +120,7 @@ func truncateTables(t *testing.T) {
 		DB.Exec("DELETE FROM game_reward_days")
 		DB.Exec("DELETE FROM game_reward_ip_days")
 		DB.Exec("DELETE FROM game_rooms")
+		DB.Exec("DELETE FROM game_room_seats")
 		DB.Exec("DELETE FROM game_jackpot_rounds")
 		DB.Exec("DELETE FROM game_jackpot_entries")
 	})

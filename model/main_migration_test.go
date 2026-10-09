@@ -46,6 +46,7 @@ func TestMigrateDBCreatesUpstreamSupportTables(t *testing.T) {
 		&GameRewardDay{},
 		&GameRewardIpDay{},
 		&GameRoom{},
+		&GameRoomSeat{},
 		&GameJackpotRound{},
 		&GameJackpotEntry{},
 	} {

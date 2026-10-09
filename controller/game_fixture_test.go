@@ -67,7 +67,7 @@ func newGameTestEnv(t *testing.T, setting *operation_setting.GameSetting) *gameT
 	})
 	require.NoError(t, db.AutoMigrate(&model.User{}, &model.SecurityFlow{}, &model.TwoFA{}, &model.TwoFABackupCode{}, &model.Log{}, &model.RiskEvent{},
 		&model.GameCoinAccount{}, &model.GameCoinLog{}, &model.GameCoinConvertDay{}, &model.GameCoinWithdrawDay{}, &model.GameSession{},
-		&model.GameRewardDay{}, &model.GameRewardIpDay{}, &model.GameRoom{}, &model.GameJackpotRound{}, &model.GameJackpotEntry{}))
+		&model.GameRewardDay{}, &model.GameRewardIpDay{}, &model.GameRoom{}, &model.GameRoomSeat{}, &model.GameJackpotRound{}, &model.GameJackpotEntry{}))
 
 	router := gin.New()
 	router.Use(sessions.Sessions("session", cookie.NewStore([]byte("game-test-cookie-secret"))))

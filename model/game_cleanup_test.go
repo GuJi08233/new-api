@@ -66,6 +66,9 @@ func TestPruneGameRecordsKeepsBestScoresAndMoneyRecords(t *testing.T) {
 		{Game: "gomoku", Status: GameRoomStatusFinished, HostId: 3001, CreatedAt: recent},
 	}
 	require.NoError(t, DB.Create(&rooms).Error)
+	for _, room := range rooms {
+		require.NoError(t, DB.Create(&GameRoomSeat{RoomId: room.Id, UserId: room.HostId, CreatedAt: room.CreatedAt}).Error)
+	}
 
 	rounds := []GameJackpotRound{
 		{Slot: "old-drawn", Status: GameJackpotStatusDrawn, CreatedAt: old},
@@ -117,6 +120,9 @@ func TestPruneGameRecordsKeepsBestScoresAndMoneyRecords(t *testing.T) {
 	var roomIds []int
 	require.NoError(t, DB.Model(&GameRoom{}).Order("id").Pluck("id", &roomIds).Error)
 	assert.Equal(t, []int{rooms[2].Id, rooms[3].Id}, roomIds)
+	var seatRooms []int
+	require.NoError(t, DB.Model(&GameRoomSeat{}).Order("room_id").Pluck("room_id", &seatRooms).Error)
+	assert.Equal(t, []int{rooms[2].Id, rooms[3].Id}, seatRooms, "删掉的房间连座位一起删")
 	var slots []string
 	require.NoError(t, DB.Model(&GameJackpotRound{}).Order("id").Pluck("slot", &slots).Error)
 	assert.Equal(t, []string{"recent-drawn", gameJackpotOpenSlot}, slots)

@@ -386,6 +386,7 @@ func migrateDB() error {
 		&GameRewardDay{},
 		&GameRewardIpDay{},
 		&GameRoom{},
+		&GameRoomSeat{},
 		&GameJackpotRound{},
 		&GameJackpotEntry{},
 	)
@@ -477,6 +478,7 @@ func migrateDBFast() error {
 		{&GameRewardDay{}, "GameRewardDay"},
 		{&GameRewardIpDay{}, "GameRewardIpDay"},
 		{&GameRoom{}, "GameRoom"},
+		{&GameRoomSeat{}, "GameRoomSeat"},
 		{&GameJackpotRound{}, "GameJackpotRound"},
 		{&GameJackpotEntry{}, "GameJackpotEntry"},
 	}

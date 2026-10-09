@@ -3,6 +3,8 @@ package model
 import (
 	"context"
 	"time"
+
+	"gorm.io/gorm"
 )
 
 // 游戏中心的数据清理。对局、对战房间、奖池、每日计数与游戏币明细里的游戏流水随玩家活跃一直增长，由系统任务按保留天数定期
@@ -52,8 +54,7 @@ func PruneGameRecords(ctx context.Context, before time.Time) (GameCleanupResult,
 			return result, err
 		}
 	}
-	if result.Rooms, err = deleteGameRowsBefore(ctx, &GameRoom{}, cutoff, "status IN ?",
-		[]string{GameRoomStatusFinished, GameRoomStatusCancelled}); err != nil {
+	if result.Rooms, err = deleteGameRoomsBefore(ctx, cutoff); err != nil {
 		return result, err
 	}
 	// 开放中的一轮只会是最近开的(一位玩家的一轮十分钟就退回，两位玩家的一轮几分钟就开奖)，排除它只是以防万一。
@@ -103,6 +104,36 @@ func deleteGameRowsBefore(ctx context.Context, model any, before int64, query st
 			return deleted, result.Error
 		}
 		deleted += int(result.RowsAffected)
+	}
+	return deleted, ctx.Err()
+}
+
+// deleteGameRoomsBefore 分批删掉 before 之前开的、已经结束或关闭的房间和它们的座位，返回删了几个房间。ctx 取消时在当前一批
+// 之后停下。
+func deleteGameRoomsBefore(ctx context.Context, before int64) (int, error) {
+	deleted := 0
+	after := 0
+	for ctx.Err() == nil {
+		var ids []int
+		if err := DB.Model(&GameRoom{}).Where("id > ? AND created_at < ? AND status IN ?", after, before,
+			[]string{GameRoomStatusFinished, GameRoomStatusCancelled}).Order("id").Limit(gameCleanupBatch).Pluck("id", &ids).Error; err != nil {
+			return deleted, err
+		}
+		if len(ids) == 0 {
+			return deleted, nil
+		}
+		after = ids[len(ids)-1]
+		err := DB.Transaction(func(tx *gorm.DB) error {
+			if err := tx.Where("room_id IN ?", ids).Delete(&GameRoomSeat{}).Error; err != nil {
+				return err
+			}
+			result := tx.Where("id IN ?", ids).Delete(&GameRoom{})
+			deleted += int(result.RowsAffected)
+			return result.Error
+		})
+		if err != nil {
+			return deleted, err
+		}
 	}
 	return deleted, ctx.Err()
 }
