@@ -5064,6 +5064,7 @@
     "按最新价": "At last price",
     "开空均价": "Avg. short price",
     "风险率 = (资金 + 现货按买一的市值) ÷ (借款本金 + 利息 + 借着的币按卖一的价值)。不高于 {{call}} 提醒追加保证金，不高于 {{liquidation}} 强平并收还款额 2% 的强平费；转出资金后不能低于 {{transfer}}。利息按 Binance 的实时借贷利率每小时收一次，借币的利息按币收。": "Margin level = (cash + spot holdings at the best bid) ÷ (loan principal + interest + borrowed coins at the best ask). At {{call}} or below you get a margin call; at {{liquidation}} or below the account is liquidated with a 2% fee on the amount repaid; transfers out must leave it at {{transfer}} or above. Interest follows Binance's live borrow rates and is charged hourly; interest on borrowed coins is charged in coins.",
-    "借币笔数": "Open coin loans"
+    "借币笔数": "Open coin loans",
+    "请输入渠道对应的鉴权密钥": "Please enter the authentication key for this channel"
   }
 }

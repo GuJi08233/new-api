@@ -130,7 +130,7 @@ const PARAM_OVERRIDE_OPERATIONS_TEMPLATE = {
 
 const DEPRECATED_DOUBAO_CODING_PLAN_BASE_URL = 'doubao-coding-plan';
 
-function type2secretPrompt(type) {
+function type2secretPrompt(type, isEdit) {
   // inputs.type === 15 ? '按照如下格式输入：APIKey|SecretKey' : (inputs.type === 18 ? '按照如下格式输入：APPID|APISecret|APIKey' : '请输入渠道对应的鉴权密钥')
   switch (type) {
     case 15:
@@ -152,7 +152,8 @@ function type2secretPrompt(type) {
     case 57:
       return '请输入 JSON 格式的 OAuth 凭据（必须包含 access_token 和 account_id）';
     case 58:
-      return '对接无认证上游可留空密钥';
+      // 编辑时留空表示保留原密钥，不能借此改成无认证，只在新建时提示可留空
+      return isEdit ? '请输入渠道对应的鉴权密钥' : '对接无认证上游可留空密钥';
     default:
       return '请输入渠道对应的鉴权密钥';
   }
@@ -4050,7 +4051,7 @@ const EditChannelModal = (props) => {
                                     : t(
                                         '按照如下格式输入：AccessKey|SecretAccessKey|Region',
                                       )
-                                  : t(type2secretPrompt(inputs.type))
+                                  : t(type2secretPrompt(inputs.type, isEdit))
                               }
                               rules={
                                 isEdit || inputs.type === 58
@@ -4427,7 +4428,7 @@ const EditChannelModal = (props) => {
                               <div className='flex items-start gap-3'>
                                 <Form.Switch
                                   field='oa2_openai_enabled'
-                                  label=''
+                                  noLabel
                                   checkedText={t('开')}
                                   uncheckedText={t('关')}
                                   initValue={false}
@@ -4465,7 +4466,7 @@ const EditChannelModal = (props) => {
                               <div className='flex items-start gap-3'>
                                 <Form.Switch
                                   field='oa2_codex_enabled'
-                                  label=''
+                                  noLabel
                                   checkedText={t('开')}
                                   uncheckedText={t('关')}
                                   initValue={false}
@@ -4503,7 +4504,7 @@ const EditChannelModal = (props) => {
                               <div className='flex items-start gap-3'>
                                 <Form.Switch
                                   field='oa2_claude_enabled'
-                                  label=''
+                                  noLabel
                                   checkedText={t('开')}
                                   uncheckedText={t('关')}
                                   initValue={false}
@@ -4541,7 +4542,7 @@ const EditChannelModal = (props) => {
                               <div className='flex items-start gap-3'>
                                 <Form.Switch
                                   field='oa2_gemini_enabled'
-                                  label=''
+                                  noLabel
                                   checkedText={t('开')}
                                   uncheckedText={t('关')}
                                   initValue={false}

@@ -4917,6 +4917,7 @@
     "按最新价": "Au dernier prix",
     "开空均价": "Prix moyen de vente à découvert",
     "风险率 = (资金 + 现货按买一的市值) ÷ (借款本金 + 利息 + 借着的币按卖一的价值)。不高于 {{call}} 提醒追加保证金，不高于 {{liquidation}} 强平并收还款额 2% 的强平费；转出资金后不能低于 {{transfer}}。利息按 Binance 的实时借贷利率每小时收一次，借币的利息按币收。": "Niveau de marge = (liquidités + actifs au meilleur prix acheteur) ÷ (principal + intérêts + cryptos empruntées au meilleur prix vendeur). À {{call}} ou moins, appel de marge ; à {{liquidation}} ou moins, liquidation avec 2 % de frais sur le montant remboursé ; après un transfert sortant, il ne peut pas descendre sous {{transfer}}. Les intérêts suivent les taux d'emprunt en temps réel de Binance et sont facturés à l'heure ; ceux des cryptos empruntées sont payés en crypto.",
-    "借币笔数": "Emprunts de crypto en cours"
+    "借币笔数": "Emprunts de crypto en cours",
+    "请输入渠道对应的鉴权密钥": "Veuillez saisir la clé d'authentification de ce canal"
   }
 }
