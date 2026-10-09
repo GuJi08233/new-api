@@ -1338,7 +1338,8 @@ const EditChannelModal = (props) => {
       }
     } else {
       // 如果是新建模式，通过后端代理获取模型列表
-      if (!inputs?.['key']) {
+      // OA2 可留空密钥对接无认证上游，获取模型列表时同样不要求密钥
+      if (!inputs?.['key'] && inputs.type !== 58) {
         showError(t('请填写密钥'));
         err = true;
       } else {

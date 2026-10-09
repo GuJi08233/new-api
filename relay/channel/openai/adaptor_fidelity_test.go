@@ -52,3 +52,31 @@ func TestRealtimeGAOmitsLegacyBetaHeader(t *testing.T) {
 		}
 	}
 }
+
+// OA2 空密钥对接无认证上游：各认证位置都不能发出不带令牌的畸形凭据，有密钥时照常发送。
+func TestSetupRequestHeaderSendsCredentialsOnlyForNonEmptyKey(t *testing.T) {
+	for _, tc := range []struct {
+		name, apiKey, protocol string
+		relayMode              int
+		wantAuthorization      []string
+		wantProtocol           string
+	}{
+		{name: "chat empty key", relayMode: relayconstant.RelayModeChatCompletions},
+		{name: "chat with key", apiKey: "sk-test", relayMode: relayconstant.RelayModeChatCompletions, wantAuthorization: []string{"Bearer sk-test"}},
+		{name: "realtime header empty key", relayMode: relayconstant.RelayModeRealtime},
+		{name: "realtime header with key", apiKey: "sk-test", relayMode: relayconstant.RelayModeRealtime, wantAuthorization: []string{"Bearer sk-test"}},
+		{name: "realtime subprotocol empty key", protocol: "realtime", relayMode: relayconstant.RelayModeRealtime, wantProtocol: "realtime"},
+		{name: "realtime subprotocol with key", apiKey: "sk-test", protocol: "realtime", relayMode: relayconstant.RelayModeRealtime, wantProtocol: "realtime,openai-insecure-api-key.sk-test"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest(http.MethodGet, "/v1/realtime", nil)
+			c.Request.Header.Set("Sec-WebSocket-Protocol", tc.protocol)
+			info := &relaycommon.RelayInfo{RelayMode: tc.relayMode, ChannelMeta: &relaycommon.ChannelMeta{ApiKey: tc.apiKey, UpstreamModelName: "gpt-realtime", ChannelType: constant.ChannelTypeOA2}}
+			headers := http.Header{}
+			require.NoError(t, (&Adaptor{}).SetupRequestHeader(c, &headers, info))
+			assert.Equal(t, tc.wantAuthorization, headers.Values("Authorization"))
+			assert.Equal(t, tc.wantProtocol, headers.Get("Sec-WebSocket-Protocol"))
+		})
+	}
+}

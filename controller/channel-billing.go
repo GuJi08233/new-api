@@ -123,9 +123,12 @@ type OpenRouterCreditResponse struct {
 }
 
 // GetAuthHeader get auth header
+// 密钥为空（OA2 对接无认证上游）时不发送 Authorization，避免上游收到不带令牌的畸形凭据。
 func GetAuthHeader(token string) http.Header {
 	h := http.Header{}
-	h.Add("Authorization", fmt.Sprintf("Bearer %s", token))
+	if token != "" {
+		h.Add("Authorization", fmt.Sprintf("Bearer %s", token))
+	}
 	return h
 }
 

@@ -1316,7 +1316,9 @@ func fetchOpenAIStyleModels(baseURL, key string) ([]string, error) {
 		return nil, err
 	}
 
-	request.Header.Set("Authorization", "Bearer "+key)
+	if key != "" {
+		request.Header.Set("Authorization", "Bearer "+key)
+	}
 
 	response, err := client.Do(request)
 	if err != nil {
@@ -1379,6 +1381,8 @@ func FetchModels(c *gin.Context) {
 			}
 		}
 
+		// 批量添加时密钥为多行，只用第一把；留空表示对接无认证上游。
+		key := strings.TrimSpace(strings.Split(strings.TrimSpace(req.Key), "\n")[0])
 		allModels := make([]string, 0)
 		modelSet := make(map[string]bool)
 		errorMessages := make([]string, 0)
@@ -1393,7 +1397,7 @@ func FetchModels(c *gin.Context) {
 
 		// 获取 OpenAI 格式的模型
 		if req.OA2OpenAIURL != "" {
-			openAIModels, err := fetchOpenAIStyleModels(req.OA2OpenAIURL, req.Key)
+			openAIModels, err := fetchOpenAIStyleModels(req.OA2OpenAIURL, key)
 			if err != nil {
 				errorMessages = append(errorMessages, fmt.Sprintf("OpenAI格式: %s", err.Error()))
 			} else {
@@ -1403,7 +1407,7 @@ func FetchModels(c *gin.Context) {
 
 		// 获取 Codex(Responses)格式的模型(上游通常也提供 OpenAI 兼容接口)
 		if req.OA2CodexURL != "" {
-			codexModels, err := fetchOpenAIStyleModels(req.OA2CodexURL, req.Key)
+			codexModels, err := fetchOpenAIStyleModels(req.OA2CodexURL, key)
 			if err != nil {
 				errorMessages = append(errorMessages, fmt.Sprintf("Codex格式: %s", err.Error()))
 			} else {
@@ -1413,7 +1417,7 @@ func FetchModels(c *gin.Context) {
 
 		// 获取 Claude 格式的模型（大部分中转也用 OpenAI 兼容接口）
 		if req.OA2ClaudeURL != "" {
-			claudeModels, err := fetchOpenAIStyleModels(req.OA2ClaudeURL, req.Key)
+			claudeModels, err := fetchOpenAIStyleModels(req.OA2ClaudeURL, key)
 			if err != nil {
 				errorMessages = append(errorMessages, fmt.Sprintf("Claude格式: %s", err.Error()))
 			} else {
@@ -1423,7 +1427,7 @@ func FetchModels(c *gin.Context) {
 
 		// 获取 Gemini 格式的模型(Gemini 原生 /v1beta/models 接口)
 		if req.OA2GeminiURL != "" {
-			geminiModels, err := gemini.FetchGeminiModels(req.OA2GeminiURL, strings.TrimSpace(strings.Split(req.Key, "\n")[0]), "", false)
+			geminiModels, err := gemini.FetchGeminiModels(req.OA2GeminiURL, key, "", false)
 			if err != nil {
 				errorMessages = append(errorMessages, fmt.Sprintf("Gemini格式: %s", err.Error()))
 			} else {

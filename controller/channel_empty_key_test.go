@@ -8,6 +8,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -161,4 +162,100 @@ func TestUpdateChannelOA2EmptyKeyKeepsExistingKey(t *testing.T) {
 	updated, err := model.GetChannelById(channel.Id, true)
 	require.NoError(t, err)
 	assert.Equal(t, "sk-existing", updated.Key)
+}
+
+// newCredentialRecordingServer 同时提供 OpenAI 与 Gemini 格式的模型列表，并记录每次请求的请求头，
+// 用来确认空密钥渠道不会向上游发送不带令牌的认证头。
+func newCredentialRecordingServer(t *testing.T) (*httptest.Server, chan http.Header) {
+	t.Helper()
+	requests := make(chan http.Header, 4)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests <- r.Header.Clone()
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/v1/models":
+			_, _ = w.Write([]byte(`{"data":[{"id":"openai-model"}]}`))
+		case "/v1beta/models":
+			_, _ = w.Write([]byte(`{"models":[{"name":"models/gemini-model"}]}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(server.Close)
+	return server, requests
+}
+
+func TestFetchModelsOA2SendsCredentialsOnlyForNonEmptyKey(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, tt := range []struct {
+		name              string
+		key               string
+		wantAuthorization []string
+		wantGoogAPIKey    []string
+	}{
+		{name: "empty"},
+		{name: "whitespace", key: " \t\n "},
+		{name: "batch keys use the first line", key: " sk-one \nsk-two\n", wantAuthorization: []string{"Bearer sk-one"}, wantGoogAPIKey: []string{"sk-one"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			openAIServer, openAIRequests := newCredentialRecordingServer(t)
+			geminiServer, geminiRequests := newCredentialRecordingServer(t)
+			payload, err := common.Marshal(map[string]any{
+				"type":                constant.ChannelTypeOA2,
+				"key":                 tt.key,
+				"oa2_base_url_openai": openAIServer.URL,
+				"oa2_base_url_gemini": geminiServer.URL,
+			})
+			require.NoError(t, err)
+			recorder := httptest.NewRecorder()
+			ctx, _ := gin.CreateTestContext(recorder)
+			ctx.Request = httptest.NewRequest(http.MethodPost, "/api/channel/fetch_models", bytes.NewReader(payload))
+			ctx.Request.Header.Set("Content-Type", "application/json")
+
+			FetchModels(ctx)
+
+			var response struct {
+				Success bool     `json:"success"`
+				Message string   `json:"message"`
+				Data    []string `json:"data"`
+			}
+			require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+			require.True(t, response.Success, response.Message)
+			// 两路模型都返回才说明两个上游各收到过一次请求，下面读取记录不会阻塞。
+			require.Equal(t, []string{"openai-model", "gemini-model"}, response.Data)
+			assert.Equal(t, tt.wantAuthorization, (<-openAIRequests).Values("Authorization"))
+			assert.Equal(t, tt.wantGoogAPIKey, (<-geminiRequests).Values("X-Goog-Api-Key"))
+		})
+	}
+}
+
+func TestFetchChannelUpstreamModelIDsOA2SendsCredentialsOnlyForNonEmptyKey(t *testing.T) {
+	for _, tt := range []struct {
+		name              string
+		key               string
+		wantAuthorization []string
+		wantGoogAPIKey    []string
+	}{
+		{name: "empty"},
+		{name: "configured", key: "sk-test", wantAuthorization: []string{"Bearer sk-test"}, wantGoogAPIKey: []string{"sk-test"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			openAIServer, openAIRequests := newCredentialRecordingServer(t)
+			geminiServer, geminiRequests := newCredentialRecordingServer(t)
+			channel := newOA2Channel(t, "", dto.ChannelOtherSettings{
+				OA2OpenAIEnabled: true,
+				OA2BaseURLOpenAI: openAIServer.URL,
+				OA2GeminiEnabled: true,
+				OA2BaseURLGemini: geminiServer.URL,
+			})
+			channel.Key = tt.key
+
+			models, err := fetchChannelUpstreamModelIDs(channel)
+
+			require.NoError(t, err)
+			require.Equal(t, []string{"openai-model", "gemini-model"}, models)
+			assert.Equal(t, tt.wantAuthorization, (<-openAIRequests).Values("Authorization"))
+			assert.Equal(t, tt.wantGoogAPIKey, (<-geminiRequests).Values("X-Goog-Api-Key"))
+		})
+	}
 }

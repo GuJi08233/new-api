@@ -549,7 +549,9 @@ func FetchGeminiModels(baseURL, apiKey, proxyURL string, disableKeepAlive bool) 
 			return nil, fmt.Errorf("创建请求失败: %v", err)
 		}
 
-		request.Header.Set("x-goog-api-key", apiKey)
+		if apiKey != "" {
+			request.Header.Set("x-goog-api-key", apiKey)
+		}
 
 		response, err := client.Do(request)
 		if err != nil {

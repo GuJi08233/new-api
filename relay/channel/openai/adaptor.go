@@ -207,9 +207,9 @@ func (a *Adaptor) SetupRequestHeader(c *gin.Context, header *http.Header, info *
 		swp := c.Request.Header.Get("Sec-WebSocket-Protocol")
 		legacyRealtimeBeta := strings.Contains(info.UpstreamModelName, "-realtime-preview")
 		if swp != "" {
-			items := []string{
-				"realtime",
-				"openai-insecure-api-key." + info.ApiKey,
+			items := []string{"realtime"}
+			if info.ApiKey != "" {
+				items = append(items, "openai-insecure-api-key."+info.ApiKey)
 			}
 			if legacyRealtimeBeta {
 				items = append(items, "openai-beta.realtime-v1")
