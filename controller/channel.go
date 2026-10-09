@@ -495,6 +495,9 @@ func GetChannelKey(c *gin.Context) {
 
 // validateChannel 通用的渠道校验函数
 func validateChannel(channel *model.Channel, isAdd bool) error {
+	if channel == nil {
+		return fmt.Errorf("channel cannot be empty")
+	}
 	// 校验 channel settings
 	if err := channel.ValidateSettings(); err != nil {
 		return fmt.Errorf("渠道额外设置[channel setting] 格式错误：%s", err.Error())
@@ -503,7 +506,7 @@ func validateChannel(channel *model.Channel, isAdd bool) error {
 	// 如果是添加操作，检查 channel 和 key 是否为空
 	// OA2 多合一渠道允许空密钥，用于对接 Kilo 等按出口 IP 限流、无需认证的上游
 	if isAdd {
-		if channel == nil || (channel.Key == "" && channel.Type != constant.ChannelTypeOA2) {
+		if strings.TrimSpace(channel.Key) == "" && channel.Type != constant.ChannelTypeOA2 {
 			return fmt.Errorf("channel cannot be empty")
 		}
 
@@ -757,6 +760,9 @@ func AddChannel(c *gin.Context) {
 		})
 		return
 	}
+	if addChannelRequest.Channel.Type == constant.ChannelTypeOA2 && strings.TrimSpace(addChannelRequest.Channel.Key) == "" {
+		addChannelRequest.Channel.Key = ""
+	}
 
 	addChannelRequest.Channel.CreatedTime = common.GetTimestamp()
 	keys := make([]string, 0)
@@ -778,10 +784,10 @@ func AddChannel(c *gin.Context) {
 		} else {
 			cleanKeys := make([]string, 0)
 			for _, key := range strings.Split(addChannelRequest.Channel.Key, "\n") {
+				key = strings.TrimSpace(key)
 				if key == "" {
 					continue
 				}
-				key = strings.TrimSpace(key)
 				cleanKeys = append(cleanKeys, key)
 			}
 			addChannelRequest.Channel.ChannelInfo.MultiKeySize = len(cleanKeys)
@@ -812,9 +818,10 @@ func AddChannel(c *gin.Context) {
 		return
 	}
 
+	allowEmptyKey := addChannelRequest.Mode == "single" && addChannelRequest.Channel.Type == constant.ChannelTypeOA2 && !addChannelRequest.Channel.ChannelInfo.IsMultiKey
 	channels := make([]model.Channel, 0, len(keys))
 	for _, key := range keys {
-		if key == "" {
+		if strings.TrimSpace(key) == "" && !allowEmptyKey {
 			continue
 		}
 		localChannel := addChannelRequest.Channel
@@ -827,6 +834,13 @@ func AddChannel(c *gin.Context) {
 			localChannel.Name = fmt.Sprintf("%s %s", localChannel.Name, keyPrefix)
 		}
 		channels = append(channels, *localChannel)
+	}
+	if len(channels) == 0 {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": "密钥不能为空",
+		})
+		return
 	}
 	err = model.BatchInsertChannels(channels)
 	if err != nil {

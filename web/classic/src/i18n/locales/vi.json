@@ -1315,6 +1315,7 @@
     "对免费模型启用预消耗": "Enable pre-consumption for free models",
     "对域名启用 IP 过滤（推荐开启）": "Bật lọc IP cho tên miền (khuyến nghị)",
     "对外运营模式": "Chế độ mặc định",
+    "对接无认证上游可留空密钥": "Có thể để trống khóa khi dịch vụ thượng nguồn không yêu cầu xác thực",
     "对比：不勾选「用户可选」的场景": "Comparison: groups without \"User Selectable\"",
     "对象清理规则": "Quy tắc dọn dẹp đối tượng",
     "导入": "Nhập",

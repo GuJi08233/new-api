@@ -151,6 +151,8 @@ function type2secretPrompt(type) {
       return '按照如下格式输入: AccessKey|SecretAccessKey';
     case 57:
       return '请输入 JSON 格式的 OAuth 凭据（必须包含 access_token 和 account_id）';
+    case 58:
+      return '对接无认证上游可留空密钥';
     default:
       return '请输入渠道对应的鉴权密钥';
   }
@@ -1850,6 +1852,10 @@ const EditChannelModal = (props) => {
     let localInputs = { ...formValues };
     localInputs.param_override = inputs.param_override;
 
+    if (localInputs.type === 58) {
+      localInputs.key = (localInputs.key || '').trim();
+    }
+
     if (localInputs.type === 57) {
       if (batch) {
         showInfo(t('Codex 渠道不支持批量创建'));
@@ -1955,7 +1961,11 @@ const EditChannelModal = (props) => {
     }
     delete localInputs.vertex_files;
 
-    if (!isEdit && (!localInputs.name || !localInputs.key)) {
+    if (
+      !isEdit &&
+      (!localInputs.name ||
+        (!localInputs.key && (localInputs.type !== 58 || batch)))
+    ) {
       showInfo(t('请填写渠道名称和渠道密钥！'));
       return;
     }
@@ -3735,14 +3745,10 @@ const EditChannelModal = (props) => {
                                   : t(
                                       '请输入密钥，一行一个，格式：AccessKey|SecretAccessKey|Region',
                                     )
-                                : inputs.type === 58
-                                  ? t(
-                                      '请输入密钥，一行一个；对接无认证上游可留空',
-                                    )
-                                  : t('请输入密钥，一行一个')
+                                : t('请输入密钥，一行一个')
                             }
                             rules={
-                              isEdit || inputs.type === 58
+                              isEdit
                                 ? []
                                 : [{ required: true, message: t('请输入密钥') }]
                             }
@@ -4046,7 +4052,7 @@ const EditChannelModal = (props) => {
                                   : t(type2secretPrompt(inputs.type))
                               }
                               rules={
-                                isEdit
+                                isEdit || inputs.type === 58
                                   ? []
                                   : [
                                       {

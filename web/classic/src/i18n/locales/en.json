@@ -1333,6 +1333,7 @@
     "对免费模型启用预消耗": "Enable pre-consumption for free models",
     "对域名启用 IP 过滤（推荐开启）": "Enable IP filtering for domains (recommended)",
     "对外运营模式": "Default mode",
+    "对接无认证上游可留空密钥": "Leave the key empty for upstreams that require no authentication",
     "对比：不勾选「用户可选」的场景": "Comparison: groups without \"User Selectable\"",
     "对象清理规则": "Object Pruning Rules",
     "导入": "Import",

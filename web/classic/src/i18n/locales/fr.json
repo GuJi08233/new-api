@@ -1327,6 +1327,7 @@
     "对免费模型启用预消耗": "Activer la préconsommation pour les modèles gratuits",
     "对域名启用 IP 过滤（推荐开启）": "Activer le filtrage IP pour les domaines (recommandé)",
     "对外运营模式": "Mode par défaut",
+    "对接无认证上游可留空密钥": "La clé peut rester vide si le service en amont ne requiert aucune authentification",
     "对比：不勾选「用户可选」的场景": "Comparison: groups without \"User Selectable\"",
     "对象清理规则": "Règles de nettoyage d'objets",
     "导入": "Importer",
