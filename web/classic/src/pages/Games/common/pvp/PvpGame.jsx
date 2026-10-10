@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Button,
   Input,
@@ -78,56 +78,138 @@ const Players = ({ names, labels, toMove, seat, extra }) => (
 
 const RoomEntryModal = ({
   entry,
+  gameKey,
+  title,
   stake,
   symbol,
+  balance,
   busy,
   error,
   onSubmit,
   onClose,
 }) => {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const [password, setPassword] = useState('');
+  const [preview, setPreview] = useState(null);
+  const [previewRequest, setPreviewRequest] = useState(0);
+  const code = entry.code;
   const creating = entry.type === 'create';
   const tooLong = new TextEncoder().encode(password).length > 72;
+
+  // 邀请链接先读房间概要，看到实扣额后再由玩家确认加入；查询本身不会入座或扣币。
+  useEffect(() => {
+    if (!code) return undefined;
+    let alive = true;
+    const controller = new AbortController();
+    gameGet(`/api/game/rooms/invite?code=${encodeURIComponent(code)}`, t, {
+      signal: controller.signal,
+    }).then((response) => {
+      if (!alive) return;
+      if (response.data && response.data.game !== gameKey) {
+        navigate(
+          `/games/${encodeURIComponent(response.data.game)}?invite=${encodeURIComponent(code)}`,
+          { replace: true },
+        );
+        return;
+      }
+      setPreview(response);
+    });
+    return () => {
+      alive = false;
+      controller.abort();
+    };
+  }, [code, gameKey, t, navigate, previewRequest]);
+
+  const details = code ? preview?.data : entry;
+  const displayedStake = creating ? stake : details?.stake;
+  const escrow = creating ? stake : (details?.escrow ?? displayedStake);
+  const unavailable =
+    !creating && details?.status && details.status !== 'waiting';
+  const insufficient = escrow > balance;
+  const canSubmit =
+    !busy && !tooLong && !insufficient && !unavailable && (!code || !!details);
   return (
     <Modal
       visible
       title={creating ? t('开一个房间') : t('加入房间')}
       okText={creating ? t('创建') : t('加入')}
       confirmLoading={busy}
-      okButtonProps={{ disabled: tooLong || busy }}
+      okButtonProps={{ disabled: !canSubmit }}
       cancelButtonProps={{ disabled: busy }}
       closable={!busy}
       maskClosable={!busy}
       closeOnEsc={!busy}
       onCancel={onClose}
-      onOk={() => !tooLong && onSubmit(password)}
+      onOk={() => canSubmit && onSubmit(password)}
     >
       <div className='pvp-entry'>
-        {stake !== undefined && (
+        <Text strong>{title}</Text>
+        {code && !preview && <Text type='tertiary'>{t('加载中...')}</Text>}
+        {preview?.error && (
+          <>
+            <Text type='danger'>{preview.error}</Text>
+            <Button
+              onClick={() => {
+                setPreview(null);
+                setPreviewRequest((current) => current + 1);
+              }}
+            >
+              {t('刷新')}
+            </Button>
+          </>
+        )}
+        {displayedStake !== undefined && (
           <Text>
-            {stake > 0
-              ? t('押注 {{stake}} {{symbol}}', { stake, symbol })
+            {displayedStake > 0
+              ? t('押注 {{stake}} {{symbol}}', {
+                  stake: displayedStake,
+                  symbol,
+                })
               : t('友谊赛')}
           </Text>
+        )}
+        {!creating && details && (
+          <Text type='tertiary'>
+            {t('{{occupied}}/{{seats}} 人', {
+              occupied: details.player_count,
+              seats: details.seats,
+            })}
+          </Text>
+        )}
+        {!creating && escrow > 0 && (
+          <Text>
+            {t('加入时将扣除 {{amount}} {{symbol}}', {
+              amount: escrow,
+              symbol,
+            })}
+          </Text>
+        )}
+        {insufficient && <Text type='danger'>{t('游戏币余额不足')}</Text>}
+        {unavailable && (
+          <Text type='danger'>{t('房间已开始或关闭，不能加入')}</Text>
         )}
         {creating && entry.private && (
           <Text type='tertiary'>{t('仅通过邀请链接加入，不在大厅展示')}</Text>
         )}
-        <label htmlFor='pvp-room-password'>{t('房间密码')}</label>
-        <Input
-          id='pvp-room-password'
-          mode='password'
-          autoComplete='off'
-          value={password}
-          maxLength={72}
-          disabled={busy}
-          placeholder={
-            creating ? t('可选，留空则无需密码') : t('如有房间密码，请输入')
-          }
-          onChange={setPassword}
-          onEnterPress={() => !busy && !tooLong && onSubmit(password)}
-        />
+        {(creating || details?.locked) && (
+          <>
+            <label htmlFor='pvp-room-password'>{t('房间密码')}</label>
+            <Input
+              id='pvp-room-password'
+              mode='password'
+              autoComplete='off'
+              value={password}
+              maxLength={72}
+              disabled={busy}
+              placeholder={
+                creating ? t('可选，留空则无需密码') : t('如有房间密码，请输入')
+              }
+              onChange={setPassword}
+              onEnterPress={() => canSubmit && onSubmit(password)}
+            />
+          </>
+        )}
         {tooLong && (
           <Text type='danger'>{t('房间密码过长，请缩短后重试')}</Text>
         )}
@@ -360,7 +442,7 @@ const RoomView = ({
         room.move_seconds || Infinity,
       )
     : 0;
-  const members = room.members || room.players;
+  const members = room.members;
   const players = Array.from({ length: room.seats }, (_, index) =>
     members.find((member) => member.seat === index),
   );
@@ -1006,7 +1088,7 @@ const PvpGame = ({
             return act(`/api/game/rooms/${item.id}/join`, {}, setRoom);
           }
           setError('');
-          setEntry({ type: 'join', id: item.id, stake: item.stake });
+          setEntry({ ...item, type: 'join' });
         }}
         onStartAi={startAi}
       />
@@ -1030,8 +1112,11 @@ const PvpGame = ({
         <RoomEntryModal
           key={`${roomEntry.type}:${roomEntry.id || roomEntry.code || ''}`}
           entry={roomEntry}
+          gameKey={gameKey}
+          title={title}
           stake={roomEntry.type === 'create' ? stake : roomEntry.stake}
           symbol={info.symbol}
+          balance={info.balance || 0}
           busy={busy}
           error={error}
           onSubmit={submitEntry}

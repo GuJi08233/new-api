@@ -5080,6 +5080,8 @@
     "{{occupied}}/{{seats}} 人": "{{occupied}}/{{seats}} 人",
     "座位 {{seat}}": "座位 {{seat}}",
     "离开房间": "离开房间",
-    "押注 {{stake}} {{symbol}}": "押注 {{stake}} {{symbol}}"
+    "押注 {{stake}} {{symbol}}": "押注 {{stake}} {{symbol}}",
+    "加入时将扣除 {{amount}} {{symbol}}": "加入时将扣除 {{amount}} {{symbol}}",
+    "房间已开始或关闭，不能加入": "房间已开始或关闭，不能加入"
   }
 }

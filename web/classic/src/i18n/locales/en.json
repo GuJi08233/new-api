@@ -5265,6 +5265,8 @@
     "{{occupied}}/{{seats}} 人": "{{occupied}}/{{seats}} players",
     "座位 {{seat}}": "Seat {{seat}}",
     "离开房间": "Leave room",
-    "押注 {{stake}} {{symbol}}": "Stake {{stake}} {{symbol}}"
+    "押注 {{stake}} {{symbol}}": "Stake {{stake}} {{symbol}}",
+    "加入时将扣除 {{amount}} {{symbol}}": "Joining will deduct {{amount}} {{symbol}}",
+    "房间已开始或关闭，不能加入": "This room has started or closed and cannot be joined"
   }
 }

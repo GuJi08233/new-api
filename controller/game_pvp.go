@@ -152,13 +152,9 @@ func (ctx *gameContext) waitingRooms() map[string]int {
 	if cached, ok := ctx.Get("game_waiting_rooms"); ok {
 		return cached.(map[string]int)
 	}
-	stats, err := model.CountGameRoomStats()
-	counts := make(map[string]int, len(stats))
+	counts, err := model.CountWaitingGameRooms()
 	if err != nil {
 		common.SysError(fmt.Sprintf("failed to count game rooms: %v", err))
-	}
-	for game, stat := range stats {
-		counts[game] = stat.Waiting
 	}
 	ctx.Set("game_waiting_rooms", counts)
 	return counts
@@ -343,15 +339,10 @@ func pvpRoomView(room *model.GameRoom, viewer int) (gin.H, error) {
 	if err != nil {
 		return nil, err
 	}
-	seat, guestId, hostNet, guestNet := -1, 0, 0, 0
+	seat := -1
 	for _, member := range seats[room.Id] {
 		if member.UserId == viewer {
 			seat = member.Seat
-		}
-		if member.Seat == 0 {
-			hostNet = member.Net
-		} else if member.Seat == 1 {
-			guestId, guestNet = member.UserId, member.Net
 		}
 	}
 	members := pvpRoomMembers(seats[room.Id], names)
@@ -367,12 +358,8 @@ func pvpRoomView(room *model.GameRoom, viewer int) (gin.H, error) {
 		"private":      room.Private,
 		"version":      room.Version,
 		"seat":         seat,
-		"players":      members,
 		"members":      members,
 		"host_id":      room.HostId,
-		"guest_id":     guestId,
-		"host_net":     hostNet,
-		"guest_net":    guestNet,
 		"to_move":      room.ToMove,
 		"deadline":     room.Deadline,
 		"server_time":  common.GetTimestamp(),
@@ -550,6 +537,7 @@ func registerGameRoomRoutes(group *gin.RouterGroup) {
 	group.POST("", middleware.GamePlayRateLimit("room-create"), CreateGameRoom)
 	group.POST("/match", middleware.GamePlayRateLimit("room-match"), MatchGameRoom)
 	group.POST("/join", middleware.GamePlayRateLimit("room-join"), JoinGameRoomByCode)
+	group.GET("/invite", middleware.GamePollRateLimit("room-invite"), PreviewGameRoomInvite)
 	group.GET("/:id", middleware.GamePollRateLimit("room-poll"), PollGameRoom)
 	group.POST("/:id/join", middleware.GamePlayRateLimit("room-join"), JoinGameRoomById)
 	group.POST("/:id/move", middleware.GameActionRateLimit("room-move"), MoveGameRoom)
@@ -574,6 +562,32 @@ type gameRoomJoinRequest struct {
 type gameRoomMoveRequest struct {
 	Version int             `json:"version"`
 	Move    json.RawMessage `json:"move"`
+}
+
+// PreviewGameRoomInvite 只读取邀请码对应的入座条件，不扣币、不占座或暴露私密局面。
+func PreviewGameRoomInvite(c *gin.Context) {
+	code := c.Query("code")
+	if len(code) != pvpRoomCodeLength {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
+	room, err := model.GetWaitingGameRoomByCode(code)
+	if err != nil {
+		respondGameRoomError(c, err)
+		return
+	}
+	if _, ok := pvpOpenRule(c, room.Game); !ok {
+		return
+	}
+	if common.GetTimestamp()-room.CreatedAt > pvpWaitingSeconds {
+		respondGameRoomError(c, model.ErrGameRoomNotFound)
+		return
+	}
+	common.ApiSuccess(c, gin.H{
+		"game": room.Game, "stake": room.Stake, "escrow": room.Escrow,
+		"seats": room.Seats, "player_count": room.Players,
+		"locked": room.Locked(), "status": room.Status,
+	})
 }
 
 // ListGameRooms 返回某个对战游戏的大厅。

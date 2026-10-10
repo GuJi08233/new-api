@@ -5114,6 +5114,8 @@
     "{{occupied}}/{{seats}} 人": "{{occupied}}/{{seats}} joueurs",
     "座位 {{seat}}": "Place {{seat}}",
     "离开房间": "Quitter la salle",
-    "押注 {{stake}} {{symbol}}": "Mise : {{stake}} {{symbol}}"
+    "押注 {{stake}} {{symbol}}": "Mise : {{stake}} {{symbol}}",
+    "加入时将扣除 {{amount}} {{symbol}}": "Rejoindre la salle débitera {{amount}} {{symbol}}",
+    "房间已开始或关闭，不能加入": "Cette salle a commencé ou est fermée ; vous ne pouvez plus la rejoindre"
   }
 }

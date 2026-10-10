@@ -5082,6 +5082,8 @@
     "{{occupied}}/{{seats}} 人": "{{occupied}}/{{seats}} 人",
     "座位 {{seat}}": "席 {{seat}}",
     "离开房间": "ルームを退出",
-    "押注 {{stake}} {{symbol}}": "賭け金 {{stake}} {{symbol}}"
+    "押注 {{stake}} {{symbol}}": "賭け金 {{stake}} {{symbol}}",
+    "加入时将扣除 {{amount}} {{symbol}}": "参加時に {{amount}} {{symbol}} が差し引かれます",
+    "房间已开始或关闭，不能加入": "ルームは開始済み、または閉鎖済みのため参加できません"
   }
 }

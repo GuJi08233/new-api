@@ -711,42 +711,22 @@ func ListUserFinishedGameRooms(userId int, game string, limit int) ([]*GameRoom,
 	return rooms, err
 }
 
-// GameRoomStats 是一个游戏里正在进行的联机情况：等人入座的公开房间、对局中的公开房间，以及坐在等待中或对局中房间里的
-// 玩家(含私密房间)。
-type GameRoomStats struct {
-	Waiting int `json:"waiting"`
-	Playing int `json:"playing"`
-	Players int `json:"players"`
-}
-
-// CountGameRoomStats 按游戏统计正在进行的联机情况，见 GameRoomStats。
-func CountGameRoomStats() (map[string]GameRoomStats, error) {
+// CountWaitingGameRooms 按游戏统计公开且等待玩家入座的房间数。
+func CountWaitingGameRooms() (map[string]int, error) {
 	var rows []struct {
-		Game    string
-		Status  string
-		Private bool
-		Rooms   int
-		Players int
+		Game  string
+		Rooms int
 	}
-	err := DB.Model(&GameRoom{}).Select("game, status, private, COUNT(*) AS rooms, COALESCE(SUM(players), 0) AS players").
-		Where("status IN ?", gameRoomActiveStatuses).Group("game, status, private").Scan(&rows).Error
+	err := DB.Model(&GameRoom{}).Select("game, COUNT(*) AS rooms").
+		Where("status = ? AND private = ?", GameRoomStatusWaiting, false).Group("game").Scan(&rows).Error
 	if err != nil {
 		return nil, err
 	}
-	stats := make(map[string]GameRoomStats, len(rows))
+	counts := make(map[string]int, len(rows))
 	for _, row := range rows {
-		entry := stats[row.Game]
-		entry.Players += row.Players
-		if !row.Private {
-			if row.Status == GameRoomStatusWaiting {
-				entry.Waiting += row.Rooms
-			} else {
-				entry.Playing += row.Rooms
-			}
-		}
-		stats[row.Game] = entry
+		counts[row.Game] = row.Rooms
 	}
-	return stats, nil
+	return counts, nil
 }
 
 // ListDueGameRooms 返回需要系统处理的房间：对局中已超过这一步截止时间的，以及在 waitingBefore 之前开、还没坐满的。

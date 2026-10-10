@@ -5632,6 +5632,8 @@
     "{{occupied}}/{{seats}} 人": "{{occupied}}/{{seats}} người",
     "座位 {{seat}}": "Chỗ {{seat}}",
     "离开房间": "Rời phòng",
-    "押注 {{stake}} {{symbol}}": "Cược {{stake}} {{symbol}}"
+    "押注 {{stake}} {{symbol}}": "Cược {{stake}} {{symbol}}",
+    "加入时将扣除 {{amount}} {{symbol}}": "Tham gia sẽ trừ {{amount}} {{symbol}}",
+    "房间已开始或关闭，不能加入": "Phòng đã bắt đầu hoặc đóng, không thể tham gia"
   }
 }

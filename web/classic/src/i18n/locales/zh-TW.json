@@ -5094,6 +5094,8 @@
     "{{occupied}}/{{seats}} 人": "{{occupied}}/{{seats}} 人",
     "座位 {{seat}}": "座位 {{seat}}",
     "离开房间": "離開房間",
-    "押注 {{stake}} {{symbol}}": "押注 {{stake}} {{symbol}}"
+    "押注 {{stake}} {{symbol}}": "押注 {{stake}} {{symbol}}",
+    "加入时将扣除 {{amount}} {{symbol}}": "加入時將扣除 {{amount}} {{symbol}}",
+    "房间已开始或关闭，不能加入": "房間已開始或關閉，不能加入"
   }
 }
