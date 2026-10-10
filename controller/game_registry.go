@@ -5,6 +5,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 
@@ -72,6 +73,7 @@ func newGameContext(c *gin.Context) *gameContext {
 // group 已经挂好登录与 IP 封禁的中间件，但不挂游戏中心开关：总开关关闭时所有游戏都算关闭，开局类接口由 requireGameEnabled
 // 拒绝，押着游戏币的一局照样能下完、兑现，不然后台按超时结算时玩家只能干看着输掉押注。
 func RegisterGameRoutes(group *gin.RouterGroup) {
+	group.GET("/lobby", middleware.GamePollRateLimit("game-lobby"), ListGameLobby)
 	for _, def := range gameDefinitions {
 		sub := group.Group("/" + def.Key)
 		sub.GET("", gameInfoHandler(def))

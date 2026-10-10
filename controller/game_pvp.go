@@ -50,8 +50,8 @@ const (
 // 在客户端早已放弃之后还占着名额空算。测试里调短它。
 var pvpAiQueueTimeout = 5 * time.Second
 
-// pvpEngine 是一个对战游戏的规则引擎。状态以 JSON 保存在房间或人机对局里，引擎只负责解释它。座位 0 是房主，人机对战里是玩家；
-// 座位 1 是对手，人机对战里是 AI。
+// pvpEngine 是一个对战游戏的规则引擎。状态以 JSON 保存在房间或人机对局里，引擎只负责解释它。
+// 房间座位 0 是房主，桌人数由游戏声明；双人人机模式中座位 0 是玩家，座位 1 是 AI。
 type pvpEngine interface {
 	// New 返回开局状态，first 是先走的座位。
 	New(first int) (pvpState, error)
@@ -68,10 +68,10 @@ type pvpEngine interface {
 // pvpState 是引擎给出的一个局面。
 type pvpState struct {
 	Data []byte
-	// ToMove 是轮到哪个座位走，-1 表示双方同时出招。
+	// ToMove 是轮到哪个座位走，-1 表示同时出招。
 	ToMove int
 	Over   bool
-	// Winner 是 Over 时的赢家座位，-1 表示平局。
+	// Winner 是 Over 时的代表赢家座位，-1 表示平局；多人完整获胜座位由 Winners 返回。
 	Winner int
 }
 
@@ -451,7 +451,7 @@ func respondGameRoom(c *gin.Context, room *model.GameRoom, extra gin.H) {
 
 // pvpLobby 是大厅：某个游戏里等待对手的公开房间，以及玩家自己在这个游戏里等待中或对局中的房间。
 func pvpLobby(userId int, game string) (gin.H, error) {
-	rooms, err := model.ListPublicGameRooms([]string{game}, model.GameRoomStatusWaiting, pvpLobbyLimit)
+	rooms, err := model.ListWaitingPublicGameRooms([]string{game}, common.GetTimestamp()-pvpWaitingSeconds, pvpLobbyLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -746,7 +746,7 @@ func CreateGameRoom(c *gin.Context) {
 	respondGameRoom(c, room, gin.H{"balance": balance})
 }
 
-// joinPvpRoom 以对手身份加入等待中的房间并开局：先走的一方随机决定。押注对局不能和同一 IP 下的账号对战。
+// joinPvpRoom 以玩家身份加入等待中的房间，坐满后开局，首个行动座位随机决定。押注对局不能和同一 IP 下的账号对战。
 // 返回 false 时已写好错误响应。
 func joinPvpRoom(c *gin.Context, room *model.GameRoom, password string) bool {
 	userId := c.GetInt("id")

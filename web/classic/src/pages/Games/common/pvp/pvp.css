@@ -45,6 +45,22 @@ For commercial licensing, please contact support@quantumnous.com
   gap: 10px;
 }
 
+.pvp-entry-modal .semi-modal-content {
+  height: auto;
+  max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px);
+}
+
+.pvp-entry-modal .semi-modal-header,
+.pvp-entry-modal .semi-modal-footer {
+  flex-shrink: 0;
+}
+
+.pvp-entry-modal .semi-modal-body {
+  min-height: 0;
+  overflow-y: auto;
+}
+
 .pvp-stake {
   display: flex;
   flex-wrap: wrap;

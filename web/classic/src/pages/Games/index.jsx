@@ -38,6 +38,7 @@ import {
   Coins,
   ExternalLink,
   Gamepad2,
+  Users,
   Send,
   Wallet,
 } from 'lucide-react';
@@ -52,8 +53,10 @@ import { UserContext } from '../../context/User';
 import {
   GAME_KINDS,
   GAME_ORDER,
+  GAME_SECTIONS,
   getGameKindMap,
   getGameMetaMap,
+  getGameSectionMap,
 } from '../../constants';
 import GameCoinRecords from './GameCoinRecords';
 import { GAME_ICONS } from './registry';
@@ -204,6 +207,7 @@ const Games = () => {
   const closed = info?.closed === true;
   const gameMetaMap = getGameMetaMap(t);
   const kindMap = getGameKindMap(t);
+  const sectionMap = getGameSectionMap(t);
   // 只列出前端认识的游戏，按 GAME_ORDER 排列。
   const games = (info?.games || [])
     .filter((game) => gameMetaMap[game.key])
@@ -654,6 +658,13 @@ const Games = () => {
               <Gamepad2 size={18} />
             </span>
             <div className='games-section-title'>{t('游戏列表')}</div>
+            <Button
+              className='games-lobby-link'
+              icon={<Users size={16} />}
+              onClick={() => navigate('/games/lobby')}
+            >
+              {t('联机大厅')}
+            </Button>
           </div>
           <div className='games-section-body'>
             {closed && (
@@ -691,44 +702,63 @@ const Games = () => {
                     {kindMap[kindFilter].description}
                   </div>
                 )}
-                <div className='games-list'>
-                  {shownGames.map((game) => {
-                    const meta = gameMetaMap[game.key];
-                    const Icon = GAME_ICONS[game.key] || Gamepad2;
-                    return (
-                      <button
-                        type='button'
-                        key={game.key}
-                        className='games-list-card'
-                        onClick={() => navigate(`/games/${game.key}`)}
-                      >
-                        <span className={`games-list-cover cover-${game.key}`}>
-                          <Icon size={28} />
-                        </span>
-                        <span className='games-list-body'>
-                          <span className='games-list-head'>
-                            <span className='games-list-title'>
-                              {meta.name}
-                            </span>
-                            <span
-                              className={`games-kind-tag kind-${game.kind}`}
+                {GAME_SECTIONS.map((section) => {
+                  const sectionGames = shownGames.filter((game) =>
+                    section.games.includes(game.key),
+                  );
+                  if (sectionGames.length === 0) return null;
+                  return (
+                    <section className='games-play-section' key={section.key}>
+                      <div className='games-play-section-head'>
+                        <h3>{sectionMap[section.key].name}</h3>
+                        <Text type='tertiary'>{sectionGames.length}</Text>
+                      </div>
+                      <p className='games-play-section-desc'>
+                        {sectionMap[section.key].description}
+                      </p>
+                      <div className='games-list'>
+                        {sectionGames.map((game) => {
+                          const meta = gameMetaMap[game.key];
+                          const Icon = GAME_ICONS[game.key] || Gamepad2;
+                          return (
+                            <button
+                              type='button'
+                              key={game.key}
+                              className='games-list-card'
+                              onClick={() => navigate(`/games/${game.key}`)}
                             >
-                              {kindMap[game.kind]?.name}
-                            </span>
-                          </span>
-                          <span className='games-list-desc'>
-                            {meta.description}
-                          </span>
-                          <span className='games-list-meta'>
-                            {gameProgress(game, t, symbol).map((line) => (
-                              <span key={line}>{line}</span>
-                            ))}
-                          </span>
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
+                              <span
+                                className={`games-list-cover cover-${game.key}`}
+                              >
+                                <Icon size={28} />
+                              </span>
+                              <span className='games-list-body'>
+                                <span className='games-list-head'>
+                                  <span className='games-list-title'>
+                                    {meta.name}
+                                  </span>
+                                  <span
+                                    className={`games-kind-tag kind-${game.kind}`}
+                                  >
+                                    {kindMap[game.kind]?.name}
+                                  </span>
+                                </span>
+                                <span className='games-list-desc'>
+                                  {meta.description}
+                                </span>
+                                <span className='games-list-meta'>
+                                  {gameProgress(game, t, symbol).map((line) => (
+                                    <span key={line}>{line}</span>
+                                  ))}
+                                </span>
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </section>
+                  );
+                })}
               </>
             ) : (
               <Empty

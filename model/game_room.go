@@ -694,13 +694,15 @@ func GetWaitingGameRoomByCode(code string) (*GameRoom, error) {
 	return &rooms[0], nil
 }
 
-// ListPublicGameRooms 按开房先后返回这些游戏里状态为 status 的公开房间(不含私密房间，含加密码的)。
-func ListPublicGameRooms(games []string, status string, limit int) ([]*GameRoom, error) {
+// ListWaitingPublicGameRooms 按开房先后返回未过期且未坐满的公开等待房间(含密码房)。
+// 在分页前筛选有效房间，避免较早的过期房间占满整个大厅列表。
+func ListWaitingPublicGameRooms(games []string, waitingAfter int64, limit int) ([]*GameRoom, error) {
 	var rooms []*GameRoom
 	if len(games) == 0 {
 		return rooms, nil
 	}
-	err := DB.Where("game IN ? AND status = ? AND private = ?", games, status, false).
+	err := DB.Where("game IN ? AND status = ? AND private = ?", games, GameRoomStatusWaiting, false).
+		Where("players < seats AND created_at >= ?", waitingAfter).
 		Order("id asc").Limit(limit).Find(&rooms).Error
 	return rooms, err
 }

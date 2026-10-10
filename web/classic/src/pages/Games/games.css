@@ -283,6 +283,33 @@ For commercial licensing, please contact support@quantumnous.com
   color: var(--semi-color-text-0);
 }
 
+.games-lobby-link {
+  margin-left: auto;
+}
+
+.games-play-section + .games-play-section {
+  margin-top: 26px;
+}
+
+.games-play-section-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.games-play-section-head h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--semi-color-text-0);
+}
+
+.games-play-section-desc {
+  margin: 6px 0 14px;
+  color: var(--semi-color-text-2);
+  font-size: 13px;
+}
+
 .games-section-body {
   padding: 12px 20px 16px;
 }

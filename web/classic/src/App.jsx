@@ -62,6 +62,7 @@ const UserAgreement = lazy(() => import('./pages/UserAgreement'));
 const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy'));
 const Rankings = lazy(() => import('./pages/Rankings'));
 const Games = lazy(() => import('./pages/Games'));
+const GameLobby = lazy(() => import('./pages/Games/GameLobby'));
 const GamePage = lazy(() => import('./pages/Games/GamePage'));
 
 function DynamicOAuth2Callback() {
@@ -445,6 +446,19 @@ function App() {
                   key={location.pathname}
                 >
                   <Games />
+                </Suspense>
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path='/games/lobby'
+            element={
+              <PrivateRoute>
+                <Suspense
+                  fallback={<Loading></Loading>}
+                  key={location.pathname}
+                >
+                  <GameLobby />
                 </Suspense>
               </PrivateRoute>
             }

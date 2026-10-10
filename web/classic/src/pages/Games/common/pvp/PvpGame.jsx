@@ -76,7 +76,7 @@ const Players = ({ names, labels, toMove, seat, extra }) => (
   </div>
 );
 
-const RoomEntryModal = ({
+export const RoomEntryModal = ({
   entry,
   gameKey,
   title,
@@ -132,6 +132,11 @@ const RoomEntryModal = ({
   return (
     <Modal
       visible
+      centered
+      width={448}
+      height='auto'
+      className='pvp-entry-modal'
+      style={{ maxWidth: 'calc(100vw - 32px)' }}
       title={creating ? t('开一个房间') : t('加入房间')}
       okText={creating ? t('创建') : t('加入')}
       confirmLoading={busy}
@@ -831,6 +836,7 @@ const PvpGame = ({
   className = '',
 }) => {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const { loading, unavailable, info, reload, patch } = useGameInfo(gameKey);
   const { room, setRoom, clockOffset } = usePvpRoom(t);
   const [ai, setAi] = useState(null);
@@ -1152,6 +1158,17 @@ const PvpGame = ({
       }
       className={`pvp-page ${className}`}
     >
+      {info && (
+        <div className='flex justify-end mb-3'>
+          <Button
+            icon={<Users size={14} />}
+            disabled={busy}
+            onClick={() => navigate('/games/lobby')}
+          >
+            {t('联机大厅')}
+          </Button>
+        </div>
+      )}
       {main}
       {roomEntry && (
         <RoomEntryModal

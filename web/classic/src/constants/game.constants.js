@@ -92,6 +92,60 @@ export const GAME_ORDER = [
   'jackpot',
 ];
 
+// 玩法分区与结算类型独立：卡牌区也可以包含下注游戏，每个游戏只属于一个分区。
+export const GAME_SECTIONS = [
+  { key: 'arcade', games: ['tetris', 'snake', 'flappy', 'breakout'] },
+  {
+    key: 'puzzles',
+    games: [
+      '2048',
+      'minesweeper',
+      'sudoku',
+      'memory',
+      'puzzle15',
+      'pairlink',
+      'sokoban',
+    ],
+  },
+  { key: 'board', games: ['gomoku', 'connect4', 'reversi', 'xiangqi'] },
+  { key: 'cards', games: ['landlord', 'rps', 'blackjack', 'hilo'] },
+  {
+    key: 'chance',
+    games: [
+      'slots',
+      'wheel',
+      'plinko',
+      'dice',
+      'roulette',
+      'mines',
+      'crash',
+      'scratch',
+    ],
+  },
+  { key: 'jackpot', games: ['jackpot'] },
+];
+
+export const getGameSectionMap = (t) => ({
+  arcade: {
+    name: t('街机挑战'),
+    description: t('反应、操作与节奏，挑战自己的最高成绩'),
+  },
+  puzzles: {
+    name: t('益智解谜'),
+    description: t('数字、逻辑与记忆，慢慢想出解法'),
+  },
+  board: { name: t('棋盘对战'), description: t('落子布局，与玩家或 AI 对弈') },
+  cards: {
+    name: t('卡牌与手势'),
+    description: t('叫分、出牌与出拳，和其他玩家或庄家较量'),
+  },
+  chance: {
+    name: t('运气游戏'),
+    description: t('选择押注，查看规则与返还率后再开始'),
+  },
+  jackpot: { name: t('多人奖池'), description: t('一起投入奖池，等待开奖') },
+});
+
 // 所有游戏。键与服务端的游戏标识、游戏中心配置里的字段名一致，路由为 /games/{key}，顺序见 GAME_ORDER。
 // kind 是结算方式；score 是免费游戏的成绩怎么计：points 为分数类，level 为赢下的难度(名称见 getGameLevelNames)。
 export const getGameMetaMap = (t) => ({
