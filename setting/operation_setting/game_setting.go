@@ -77,6 +77,7 @@ type GameSetting struct {
 	Reversi  PvpRule `json:"reversi"`
 	Xiangqi  PvpRule `json:"xiangqi"`
 	Rps      PvpRule `json:"rps"`
+	Landlord PvpRule `json:"landlord"`
 
 	Jackpot JackpotRule `json:"jackpot"`
 }
@@ -258,6 +259,7 @@ var gameRuleSpecs = map[string]gameRuleSpec{
 	"reversi":  {Kind: GameKindPvp, Ai: true},
 	"xiangqi":  {Kind: GameKindPvp, Ai: true},
 	"rps":      {Kind: GameKindPvp},
+	"landlord": {Kind: GameKindPvp},
 
 	"jackpot": {Kind: GameKindParty},
 }
@@ -564,6 +566,7 @@ func DefaultGameSetting() *GameSetting {
 		Reversi:  PvpRule{MaxStake: 100, RakePercent: 5, MoveSeconds: 60, Ai: aiRule(180)},
 		Xiangqi:  PvpRule{MaxStake: 100, RakePercent: 5, MoveSeconds: 120, Ai: aiRule(300)},
 		Rps:      PvpRule{MaxStake: 100, RakePercent: 5, MoveSeconds: 20},
+		Landlord: PvpRule{MaxStake: 100, RakePercent: 5, MoveSeconds: 45},
 
 		Jackpot: JackpotRule{MaxBet: 100, RoundSeconds: 60, RakePercent: 5},
 	}
@@ -661,6 +664,8 @@ func (s *GameSetting) PvpRuleOf(game string) (PvpRule, bool) {
 		return s.Xiangqi, true
 	case "rps":
 		return s.Rps, true
+	case "landlord":
+		return s.Landlord, true
 	}
 	return PvpRule{}, false
 }

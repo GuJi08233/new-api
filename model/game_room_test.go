@@ -186,7 +186,7 @@ func TestMultiplayerRoomStartAndSettlementAreAtomic(t *testing.T) {
 	assert.ErrorIs(t, LeaveGameRoom(room, 2514), ErrGameRoomChanged)
 
 	// 单人最多输 20，但赢家可以赢到多人的押注；两个赢家分别抽成，全部余额加抽成守恒。
-	require.NoError(t, FinishGameRoom(room, GameRoomResult{Nets: []int{30, 10, -20, -20}, WinnerSeat: 0}, GameRoomEndWin, "finished", "2026-10-10"))
+	require.NoError(t, FinishGameRoom(room, GameRoomResult{Nets: []int{30, 10, -20, -20}, WinnerSeat: 0, Winners: []int{0, 1}}, GameRoomEndWin, "finished", "2026-10-10"))
 	assert.Equal(t, 4, room.Rake)
 	assert.Equal(t, 2511, room.WinnerId)
 	seats, err := GetGameRoomSeats([]int{room.Id})

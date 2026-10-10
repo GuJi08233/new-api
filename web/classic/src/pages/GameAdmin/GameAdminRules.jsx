@@ -315,7 +315,7 @@ function PvpRuleFields({ game, rule, onChange, symbol, levelNames }) {
       <SettingRow
         label={t('押注上限')}
         extra={t(
-          '每位玩家最多押注的游戏币，赢家拿走两份押注；0 表示只能开友谊赛。同一 IP 下的账号不能互相押注对战',
+          '每位玩家最多押注的游戏币，获胜玩家按游戏规则分配奖池；0 表示只能开友谊赛。同一 IP 下的账号不能互相押注对战',
         )}
       >
         <InputNumber
@@ -329,7 +329,11 @@ function PvpRuleFields({ game, rule, onChange, symbol, levelNames }) {
       </SettingRow>
       <SettingRow
         label={t('平台抽成')}
-        extra={t('从赢家拿走的奖池里抽取的比例，按奖池向下取整；平局全额退回')}
+        extra={
+          game === 'landlord'
+            ? t('从获胜玩家的净赢额抽取的比例，向下取整；平局全额退回')
+            : t('从赢家拿走的奖池里抽取的比例，按奖池向下取整；平局全额退回')
+        }
       >
         <InputNumber
           value={rule.rake_percent}
@@ -352,7 +356,7 @@ function PvpRuleFields({ game, rule, onChange, symbol, levelNames }) {
           onChange={(value) => onChange({ move_seconds: toNumber(value) })}
         />
       </SettingRow>
-      {game !== 'rps' && (
+      {game !== 'rps' && game !== 'landlord' && (
         <>
           <SettingRow
             label={t('开放人机对战')}

@@ -250,6 +250,11 @@ const Lobby = ({
           <Swords size={18} />
           {t('和玩家对战')}
         </div>
+        {rule.seats > 2 && (
+          <Text type='tertiary'>
+            {t('{{seats}} 人桌，所有座位坐满后自动开局', { seats: rule.seats })}
+          </Text>
+        )}
         <div className='pvp-stake'>
           <span className='pvp-stake-label'>{t('押注')}</span>
           <div className='game-chips'>
@@ -434,7 +439,6 @@ const RoomView = ({
 
   const seat = room.seat;
   const state = room.state;
-  const myTurn = playing && (room.to_move === seat || room.to_move === -1);
   // 服务器时间只精确到秒，刚走完一步时算出来可能比每步限时多一秒。
   const secondsLeft = room.deadline
     ? Math.min(
@@ -442,6 +446,10 @@ const RoomView = ({
         room.move_seconds || Infinity,
       )
     : 0;
+  const myTurn =
+    playing &&
+    (!room.deadline || secondsLeft > 0) &&
+    (room.to_move === seat || room.to_move === -1);
   const members = room.members;
   const players = Array.from({ length: room.seats }, (_, index) =>
     members.find((member) => member.seat === index),
@@ -455,16 +463,18 @@ const RoomView = ({
   let note = '';
   if (room.status === 'waiting') {
     message = room.private
-      ? t('把邀请链接发给朋友，等对方加入')
-      : t('等待对手加入…');
+      ? room.seats > 2
+        ? t('把邀请链接发给朋友，等所有座位坐满')
+        : t('把邀请链接发给朋友，等对方加入')
+      : t('等待其他玩家加入…');
   } else if (room.status === 'cancelled') {
     message =
       room.end_reason === 'expired'
         ? t('等了太久没人加入，房间已关闭，押注已退回')
         : t('房间已关闭，押注已退回');
   } else if (room.status === 'finished') {
-    const won = room.winner_id === me?.user_id;
-    if (room.winner_id === 0) {
+    const won = me?.result === 'win';
+    if (me?.result === 'draw') {
       message = room.stake > 0 ? t('平局，押注已退回') : t('平局');
     } else if (won) {
       kind = room.stake > 0 ? 'big-win' : 'win';
@@ -480,9 +490,19 @@ const RoomView = ({
       message = t('你输了');
     }
     if (room.end_reason === 'timeout') {
-      note = won ? t('对手超时') : t('你超时了');
+      note =
+        room.seats > 2
+          ? t('本局因超时结束')
+          : won
+            ? t('对手超时')
+            : t('你超时了');
     } else if (room.end_reason === 'resign') {
-      note = won ? t('对手认输') : t('你认输了');
+      note =
+        room.seats > 2
+          ? t('本局因认输结束')
+          : won
+            ? t('对手认输')
+            : t('你认输了');
     } else {
       note = resultNote?.({ state, seat }) || '';
     }
@@ -534,6 +554,7 @@ const RoomView = ({
         extra={clocks}
       />
       {renderBoard({
+        roomId: room.id,
         state,
         seat,
         canMove: myTurn && !busy,
@@ -703,10 +724,15 @@ const PvpSide = ({ info, rules, randomFirst }) => {
           items={[
             ...rules,
             rule.max_stake > 0
-              ? t(
-                  '双方押同样多的游戏币，赢家拿走奖池，平台抽取 {{rake}}%（向下取整）；平局退回押注',
-                  { rake: rule.rake_percent },
-                )
+              ? rule.seats > 2
+                ? t(
+                    '每位玩家押同样多的游戏币，获胜玩家分配输方押注，平台从净赢额抽取 {{rake}}%（向下取整）；平局退回押注',
+                    { rake: rule.rake_percent },
+                  )
+                : t(
+                    '双方押同样多的游戏币，赢家拿走奖池，平台抽取 {{rake}}%（向下取整）；平局退回押注',
+                    { rake: rule.rake_percent },
+                  )
               : t('只能开友谊赛，不押注'),
             rule.max_stake > 0 &&
               t(
@@ -766,7 +792,12 @@ const PvpSide = ({ info, rules, randomFirst }) => {
                 <span className='pvp-recent-result'>
                   {{ win: t('胜'), loss: t('负'), draw: t('平') }[item.result]}
                 </span>
-                <span className='pvp-recent-opponent'>{item.opponent}</span>
+                <span className='pvp-recent-opponent'>
+                  {item.members
+                    .filter((member) => member.seat !== item.seat)
+                    .map((member) => member.name)
+                    .join(' / ')}
+                </span>
                 <span>
                   {item.stake > 0 ? `${item.stake} ${symbol}` : t('友谊赛')}
                 </span>
@@ -784,7 +815,7 @@ const PvpSide = ({ info, rules, randomFirst }) => {
 
 // 对战游戏页的外壳：大厅(快速匹配、开房间、邀请好友、加入房间)、押注对局(长轮询、计时、认输)与人机对战，各游戏只提供棋盘。
 // renderBoard({ state, seat, canMove, busy, over, onMove }) 画出棋盘，state 为空时画空棋盘；over 表示对局已经结束(含超时、
-// 认输，这时引擎的状态不一定是结束的)；玩家落子时调用 onMove(走法)。seatLabels(state) 返回两个座位的称呼(例如执黑、执白)；
+// 认输，这时引擎的状态不一定是结束的)；玩家落子时调用 onMove(走法)。seatLabels(state) 返回各座位的称呼(例如执黑、执白)；
 // statusText({ room, state, seat, myTurn }) 可以按游戏改写对局中的提示(人机对战里 room 为空)；resultNote({ state, seat })
 // 说明正常下完的一局为什么结束(例如将死、困毙)；rules 是信息栏里的规则，randomFirst 为假时(双方同时出招)不写先走的规则。
 const PvpGame = ({
@@ -796,6 +827,7 @@ const PvpGame = ({
   resultNote,
   rules = [],
   randomFirst = true,
+  teamGame = false,
   className = '',
 }) => {
   const { t } = useTranslation();
@@ -949,7 +981,13 @@ const PvpGame = ({
         ? '/api/game/rooms/join'
         : `/api/game/rooms/${roomEntry.id}/join`;
     const body = creating
-      ? { game: gameKey, stake, private: roomEntry.private, password }
+      ? {
+          game: gameKey,
+          stake,
+          seats: info.rule.seats,
+          private: roomEntry.private,
+          password,
+        }
       : { code: roomEntry.code, password };
     return act(url, body, (data) => {
       setRoom(data);
@@ -1008,8 +1046,11 @@ const PvpGame = ({
         onResign={() =>
           Modal.confirm({
             title: t('认输'),
-            content:
-              room.stake > 0 ? t('认输后押注归对手。') : t('确定认输吗？'),
+            content: teamGame
+              ? t('认输会使你的队伍判负，押注按本局规则结算。')
+              : room.stake > 0
+                ? t('认输后押注归对手。')
+                : t('确定认输吗？'),
             onOk: () => act(`/api/game/rooms/${room.id}/resign`, {}, setRoom),
           })
         }
@@ -1077,7 +1118,11 @@ const PvpGame = ({
         error={error}
         turnstile={turnstile}
         onQuickMatch={() =>
-          act('/api/game/rooms/match', { game: gameKey, stake }, setRoom)
+          act(
+            '/api/game/rooms/match',
+            { game: gameKey, stake, seats: info.rule.seats },
+            setRoom,
+          )
         }
         onCreate={(isPrivate) => {
           setError('');

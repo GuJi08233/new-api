@@ -78,6 +78,7 @@ export const GAME_ORDER = [
   'reversi',
   'xiangqi',
   'rps',
+  'landlord',
   'slots',
   'wheel',
   'plinko',
@@ -195,6 +196,11 @@ export const getGameMetaMap = (t) => ({
     kind: 'pvp',
     name: t('石头剪刀布'),
     description: t('和其他玩家三局两胜，同时出拳，押注或友谊赛'),
+  },
+  landlord: {
+    kind: 'pvp',
+    name: t('斗地主'),
+    description: t('三人叫分抢地主，两位农民联手，先出完手牌的一方获胜'),
   },
   slots: {
     kind: 'wager',

@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/big"
 	"runtime"
+	"sort"
 	"strconv"
 	"sync"
 	"time"
@@ -88,11 +90,19 @@ type pvpSimultaneous interface {
 	simultaneous()
 }
 
+// pvpMultiplayer 定义多座位游戏的桌人数与团队胜负。loserSeat 为 -1 时读取自然结束结果，
+// 否则按认输或超时的座位判定获胜团队。没有实现它的现有引擎按双人规则运行。
+type pvpMultiplayer interface {
+	Seats() int
+	Winners(state []byte, loserSeat int) ([]int, error)
+}
+
 // pvpGame 是登记过的一个对战游戏。name 是写进审计日志的游戏名。
 type pvpGame struct {
 	key    string
 	name   string
 	engine pvpEngine
+	seats  int
 }
 
 var pvpGames = map[string]*pvpGame{}
@@ -104,7 +114,14 @@ func pvpAiGame(game string) string {
 
 // registerPvpGame 登记一个对战游戏：房间接口按房间的游戏找到引擎，人机对战的接口挂在 /api/game/<key>/ai 下。
 func registerPvpGame(key string, name string, engine pvpEngine) {
-	game := &pvpGame{key: key, name: name, engine: engine}
+	seats := 2
+	if multiplayer, ok := engine.(pvpMultiplayer); ok {
+		seats = multiplayer.Seats()
+	}
+	if seats < 2 || seats > model.GameRoomMaxSeats {
+		panic("invalid pvp game seats: " + key)
+	}
+	game := &pvpGame{key: key, name: name, engine: engine, seats: seats}
 	pvpGames[key] = game
 	registerGame(&gameDefinition{
 		Key:  key,
@@ -119,6 +136,7 @@ func registerPvpGame(key string, name string, engine pvpEngine) {
 			summary["ai_daily_rewards"] = rule.Ai.DailyRewards
 			summary["ai_rewards_today"] = max(counts.user[ai].FreePlays, counts.ip[ai].FreePlays)
 			summary["waiting_rooms"] = ctx.waitingRooms()[key]
+			summary["seats"] = seats
 		},
 		Resumable: func(ctx *gameContext) bool {
 			// 游戏中心列表要给每个关闭的对战游戏问一遍，查的都是玩家所有进行中的房间：同一个请求里只查一次。
@@ -161,12 +179,12 @@ func (ctx *gameContext) waitingRooms() map[string]int {
 }
 
 // randomSeat 用密码学安全的随机数决定先走的座位。
-func randomSeat() (int, error) {
-	var b [1]byte
-	if _, err := rand.Read(b[:]); err != nil {
+func randomSeat(seats int) (int, error) {
+	n, err := rand.Int(rand.Reader, big.NewInt(int64(seats)))
+	if err != nil {
 		return 0, err
 	}
-	return int(b[0] & 1), nil
+	return int(n.Int64()), nil
 }
 
 // gameRoomWatchers 让长轮询在房间有变化时立即返回。本进程里的变化由 notify 立即唤醒；别的节点上的变化由后台的 poll 发现：
@@ -271,7 +289,7 @@ func resolveGameRoom(room *model.GameRoom) (bool, error) {
 		if timeoutErr != nil {
 			return false, timeoutErr
 		}
-		err = finishPvpRoom(room, winnerSeat, model.GameRoomEndTimeout, room.State)
+		err = finishPvpRoom(room, winnerSeat, room.ToMove, model.GameRoomEndTimeout, room.State)
 	case room.Status == model.GameRoomStatusWaiting && now-room.CreatedAt > pvpWaitingSeconds:
 		err = model.CancelGameRoom(room, model.GameRoomEndExpired)
 	default:
@@ -293,16 +311,48 @@ func resolveGameRoom(room *model.GameRoom) (bool, error) {
 	return true, nil
 }
 
-// finishPvpRoom 把双人引擎的赢家转换为按座位结算的结果；友谊赛也保留赢家。
-func finishPvpRoom(room *model.GameRoom, winner int, reason string, state string) error {
-	if room.Seats != 2 || winner < -1 || winner > 1 {
-		return errors.New("invalid two-player game room result")
+// finishPvpRoom 按获胜座位分配固定押注池，团队收益均分，余数按座位从小到大分配。
+// 认输或超时由游戏规则解释 loser；自然结束时 loser 为 -1。
+func finishPvpRoom(room *model.GameRoom, winner int, loser int, reason string, state string) error {
+	game := pvpGames[room.Game]
+	if game == nil || room.Seats != game.seats || winner < -1 || winner >= room.Seats {
+		return errors.New("invalid game room result")
 	}
-	nets := make([]int, 2)
-	if winner >= 0 {
-		nets[winner], nets[1-winner] = room.Stake, -room.Stake
+	var winners []int
+	if multiplayer, ok := game.engine.(pvpMultiplayer); ok {
+		var err error
+		winners, err = multiplayer.Winners([]byte(state), loser)
+		if err != nil {
+			return err
+		}
+	} else if winner >= 0 {
+		winners = []int{winner}
 	}
-	return model.FinishGameRoom(room, model.GameRoomResult{Nets: nets, WinnerSeat: winner}, reason, state, gameCenterDay())
+	if len(winners) >= room.Seats {
+		return errors.New("invalid game room winners")
+	}
+	sort.Ints(winners)
+	for i, seat := range winners {
+		if seat < 0 || seat >= room.Seats || (i > 0 && winners[i-1] == seat) {
+			return errors.New("invalid game room winners")
+		}
+	}
+	nets := make([]int, room.Seats)
+	winner = -1
+	if len(winners) > 0 {
+		winner = winners[0]
+		for i := range nets {
+			nets[i] = -room.Stake
+		}
+		pot := room.Stake * (room.Seats - len(winners))
+		for i, seat := range winners {
+			nets[seat] = pot / len(winners)
+			if i < pot%len(winners) {
+				nets[seat]++
+			}
+		}
+	}
+	return model.FinishGameRoom(room, model.GameRoomResult{Nets: nets, WinnerSeat: winner, Winners: winners}, reason, state, gameCenterDay())
 }
 
 // pvpRoomParticipants 批量读出房间的座位和昵称，列表查询不随房间数逐条查库。
@@ -328,7 +378,7 @@ func pvpRoomParticipants(rooms []*model.GameRoom) (map[int][]model.GameRoomSeat,
 func pvpRoomMembers(seats []model.GameRoomSeat, names map[int]string) []gin.H {
 	members := make([]gin.H, 0, len(seats))
 	for _, seat := range seats {
-		members = append(members, gin.H{"seat": seat.Seat, "user_id": seat.UserId, "name": names[seat.UserId], "net": seat.Net})
+		members = append(members, gin.H{"seat": seat.Seat, "user_id": seat.UserId, "name": names[seat.UserId], "net": seat.Net, "result": seat.Result})
 	}
 	return members
 }
@@ -461,6 +511,7 @@ func pvpInfo(ctx *gameContext, game *pvpGame) (gin.H, error) {
 	}
 	info := gin.H{
 		"rule": gin.H{
+			"seats":        game.seats,
 			"max_stake":    rule.MaxStake,
 			"rake_percent": rule.RakePercent,
 			"move_seconds": rule.MoveSeconds,
@@ -501,23 +552,21 @@ func pvpRecentRooms(userId int, game string) ([]gin.H, error) {
 	}
 	recent := make([]gin.H, 0, len(rooms))
 	for _, room := range rooms {
-		opponent, net := 0, 0
+		opponent, net, mySeat, result := 0, 0, -1, "draw"
 		for _, member := range seats[room.Id] {
 			if member.UserId == userId {
 				net = member.Net
+				mySeat = member.Seat
+				if member.Result != "" {
+					result = member.Result
+				}
 			} else {
 				opponent = member.UserId
 			}
 		}
-		result := "draw"
-		switch room.WinnerId {
-		case userId:
-			result = "win"
-		case opponent:
-			result = "loss"
-		}
 		recent = append(recent, gin.H{
 			"id":          room.Id,
+			"seat":        mySeat,
 			"opponent":    names[opponent],
 			"stake":       room.Stake,
 			"escrow":      room.Escrow,
@@ -652,7 +701,7 @@ func createPvpRoom(c *gin.Context, game string, rule operation_setting.PvpRule, 
 		Game:        game,
 		Stake:       stake,
 		Escrow:      stake,
-		Seats:       2,
+		Seats:       pvpGames[game].seats,
 		Private:     private,
 		Code:        common.GetRandomString(pvpRoomCodeLength),
 		HostId:      c.GetInt("id"),
@@ -678,12 +727,16 @@ func createPvpRoom(c *gin.Context, game string, rule operation_setting.PvpRule, 
 // CreateGameRoom 开一个等待对手的房间。私密房间不在大厅列出，把带邀请码的链接发给朋友就能加入。
 func CreateGameRoom(c *gin.Context) {
 	var req gameRoomCreateRequest
-	if err := decodeGameRequest(c, &req); err != nil || len(req.Password) > pvpRoomPasswordMaxBytes || (req.Seats != nil && *req.Seats != 2) {
+	if err := decodeGameRequest(c, &req); err != nil || len(req.Password) > pvpRoomPasswordMaxBytes {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
 	rule, ok := pvpOpenRule(c, req.Game)
 	if !ok || !validPvpStake(c, req.Stake, rule) {
+		return
+	}
+	if req.Seats != nil && *req.Seats != pvpGames[req.Game].seats {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
 	room, balance := createPvpRoom(c, req.Game, rule, req.Stake, req.Private, req.Password)
@@ -700,7 +753,7 @@ func joinPvpRoom(c *gin.Context, room *model.GameRoom, password string) bool {
 	if _, ok := pvpOpenRule(c, room.Game); !ok {
 		return false
 	}
-	if room.Seats != 2 {
+	if room.Seats != pvpGames[room.Game].seats {
 		common.ApiErrorI18n(c, i18n.MsgGamePlayDisabled)
 		return false
 	}
@@ -732,16 +785,17 @@ func joinPvpRoom(c *gin.Context, room *model.GameRoom, password string) bool {
 	return true
 }
 
-// startPvpRoom 在最后一位玩家入座的事务中创建局面，已有规则引擎只支持两个座位。
+// startPvpRoom 在所有规则要求的座位坐满后，于最后一位玩家入座的事务中创建局面。
 func startPvpRoom(room *model.GameRoom, seats []model.GameRoomSeat) (model.GameRoomStart, error) {
-	if room.Seats != 2 || len(seats) != 2 {
-		return model.GameRoomStart{}, errors.New("invalid two-player game room seats")
+	game := pvpGames[room.Game]
+	if game == nil || room.Seats != game.seats || len(seats) != game.seats {
+		return model.GameRoomStart{}, errors.New("invalid game room seats")
 	}
-	first, err := randomSeat()
+	first, err := randomSeat(room.Seats)
 	if err != nil {
 		return model.GameRoomStart{}, err
 	}
-	state, err := pvpGames[room.Game].engine.New(first)
+	state, err := game.engine.New(first)
 	if err != nil {
 		return model.GameRoomStart{}, err
 	}
@@ -788,12 +842,16 @@ func JoinGameRoomByCode(c *gin.Context) {
 // MatchGameRoom 快速匹配：加入大厅里押注相同、等得最久的房间，没有时开一个公开房间等别人来。
 func MatchGameRoom(c *gin.Context) {
 	var req gameRoomCreateRequest
-	if err := decodeGameRequest(c, &req); err != nil || req.Password != "" || (req.Seats != nil && *req.Seats != 2) {
+	if err := decodeGameRequest(c, &req); err != nil || req.Password != "" {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
 	rule, ok := pvpOpenRule(c, req.Game)
 	if !ok || !validPvpStake(c, req.Stake, rule) {
+		return
+	}
+	if req.Seats != nil && *req.Seats != pvpGames[req.Game].seats {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
 	userId := c.GetInt("id")
@@ -803,7 +861,7 @@ func MatchGameRoom(c *gin.Context) {
 	}
 	// 同时匹配的几个人可能挑中同一个房间，被人抢先时换下一个。
 	for attempt := 0; attempt < 3; attempt++ {
-		room, err := model.FindGameRoomMatch(req.Game, req.Stake, 2, userId, excludeIp)
+		room, err := model.FindGameRoomMatch(req.Game, req.Stake, pvpGames[req.Game].seats, userId, excludeIp)
 		if err != nil {
 			respondGameRoomError(c, err)
 			return
@@ -920,7 +978,7 @@ func MoveGameRoom(c *gin.Context) {
 	}
 	seat := c.GetInt("game_room_seat")
 	game := pvpGames[room.Game]
-	if game == nil || room.Seats != 2 {
+	if game == nil || room.Seats != game.seats {
 		common.ApiErrorI18n(c, i18n.MsgGamePlayDisabled)
 		return
 	}
@@ -944,7 +1002,7 @@ func MoveGameRoom(c *gin.Context) {
 			if next.Winner >= 0 {
 				reason = model.GameRoomEndWin
 			}
-			err = finishPvpRoom(room, next.Winner, reason, string(next.Data))
+			err = finishPvpRoom(room, next.Winner, -1, reason, string(next.Data))
 		} else {
 			err = model.UpdateGameRoomState(room, string(next.Data), next.ToMove, common.GetTimestamp()+int64(room.MoveSeconds))
 		}
@@ -976,7 +1034,11 @@ func ResignGameRoom(c *gin.Context) {
 		return
 	}
 	seat := c.GetInt("game_room_seat")
-	if err := finishPvpRoom(room, 1-seat, model.GameRoomEndResign, room.State); err != nil {
+	winner := -1
+	if room.Seats == 2 {
+		winner = 1 - seat
+	}
+	if err := finishPvpRoom(room, winner, seat, model.GameRoomEndResign, room.State); err != nil {
 		respondGameRoomError(c, err)
 		return
 	}
@@ -1183,7 +1245,7 @@ func startPvpAi(c *gin.Context, game *pvpGame) {
 		return
 	}
 	session := startSkillSession(c, pvpAiGame(game.key), func(uint32) (string, error) {
-		first, err := randomSeat()
+		first, err := randomSeat(2)
 		if err != nil {
 			return "", err
 		}

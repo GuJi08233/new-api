@@ -59,7 +59,7 @@ func TestPvpRoomPasswordAndSeatContract(t *testing.T) {
 	for _, removed := range []string{"players", "guest_id", "host_net", "guest_net"} {
 		assert.NotContains(t, created, removed)
 	}
-	assert.Equal(t, []any{map[string]any{"seat": 0.0, "user_id": float64(host.user.Id), "name": host.user.Username, "net": 0.0}}, created["members"])
+	assert.Equal(t, []any{map[string]any{"seat": 0.0, "user_id": float64(host.user.Id), "name": host.user.Username, "net": 0.0, "result": ""}}, created["members"])
 	assert.NotContains(t, created, "password")
 	assert.NotContains(t, created, "password_hash")
 	stored, err := model.GetGameRoom(id)

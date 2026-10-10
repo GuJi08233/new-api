@@ -98,8 +98,10 @@ type GameRoomSeat struct {
 	UserId int    `json:"user_id" gorm:"uniqueIndex:idx_game_room_seat_user,priority:2;index"`
 	Ip     string `json:"-" gorm:"type:varchar(64)"`
 	// Net 是结算之后这位玩家的净输赢(已扣抽成)，结算之前为 0。
-	Net       int   `json:"net" gorm:"type:bigint;not null;default:0"`
-	CreatedAt int64 `json:"created_at" gorm:"bigint;index"`
+	Net int `json:"net" gorm:"type:bigint;not null;default:0"`
+	// Result 保留规则上的胜负，友谊赛、零收益队友以及抽成后亏损的赢家也有明确结果。
+	Result    string `json:"result" gorm:"type:varchar(8)"`
+	CreatedAt int64  `json:"created_at" gorm:"bigint;index"`
 }
 
 // GameRoomStart 是坐满开局时的开局状态。
@@ -110,10 +112,11 @@ type GameRoomStart struct {
 }
 
 // GameRoomResult 是规则引擎给出的结算结果。Nets 按座位排列，金额为抽成前的净输赢；WinnerSeat 为获胜座位，
-// 平局是 -1。单独保留胜者让不涉及游戏币的友谊赛也能记录胜负。
+// 平局是 -1。Winners 记录团队获胜的全部座位，为空时沿用 WinnerSeat 单人获胜；单独保留胜者让不涉及游戏币的友谊赛也能记录胜负。
 type GameRoomResult struct {
 	Nets       []int
 	WinnerSeat int
+	Winners    []int
 }
 
 // gameRoomActiveOf 是用户坐着的房间编号的子查询。
@@ -366,11 +369,28 @@ func FinishGameRoom(room *GameRoom, result GameRoomResult, reason string, state 
 		if current.Escrow < 0 || current.Escrow >= common.MaxQuota || current.RakePercent < 0 || current.RakePercent > 100 {
 			return ErrGameCoinAmountInvalid
 		}
+		winners := make([]bool, current.Seats)
+		winnerSeats := result.Winners
+		if len(winnerSeats) == 0 && result.WinnerSeat >= 0 {
+			winnerSeats = []int{result.WinnerSeat}
+		}
+		for _, seat := range winnerSeats {
+			if seat < 0 || seat >= current.Seats || winners[seat] {
+				return errors.New("game room winners do not match its seats")
+			}
+			winners[seat] = true
+		}
+		if (result.WinnerSeat == -1) != (len(winnerSeats) == 0) || (result.WinnerSeat >= 0 && !winners[result.WinnerSeat]) {
+			return errors.New("game room winner does not match its team")
+		}
 		// 每项先限界，最多 8 项、每项最多 7 * MaxQuota，累加与后面的抽成都不会溢出 int64。
 		total, best := 0, 0
-		for _, net := range result.Nets {
+		for i, net := range result.Nets {
 			if net < -current.Escrow || net > current.Escrow*(current.Seats-1) {
 				return errors.New("game room result exceeds the escrow")
+			}
+			if (net > 0 && !winners[i]) || (net < 0 && winners[i]) {
+				return errors.New("game room winnings do not match its winners")
 			}
 			total += net
 			best = max(best, net)
@@ -437,15 +457,22 @@ func FinishGameRoom(room *GameRoom, result GameRoomResult, reason string, state 
 		sort.Slice(order, func(a, b int) bool { return seats[order[a]].UserId < seats[order[b]].UserId })
 		for _, i := range order {
 			seat := seats[i]
-			if err := tx.Model(&GameRoomSeat{}).Where("id = ?", seat.Id).Update("net", settled[i]).Error; err != nil {
+			outcome := "draw"
+			if len(winnerSeats) > 0 {
+				outcome = "loss"
+				if winners[i] {
+					outcome = "win"
+				}
+			}
+			if err := tx.Model(&GameRoomSeat{}).Where("id = ?", seat.Id).Updates(map[string]interface{}{"net": settled[i], "result": outcome}).Error; err != nil {
 				return err
 			}
 			if current.Escrow > 0 {
 				event := "settle"
 				switch {
-				case result.Nets[i] > 0:
+				case winners[i]:
 					event = "win"
-				case result.Nets[i] == 0:
+				case len(winnerSeats) == 0:
 					event = "draw"
 				}
 				if err := settleGameRoomPlayerTx(tx, current, seat.UserId, settled[i], current.Escrow+settled[i], event, now); err != nil {

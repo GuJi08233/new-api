@@ -1,0 +1,181 @@
+/*
+Copyright (C) 2025 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+
+.landlord-page .pvp-players {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.landlord-seat-label {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.landlord-board,
+.landlord-reveal {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.landlord-empty {
+  display: flex;
+  min-height: 220px;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 16px;
+  color: var(--semi-color-text-2);
+}
+
+.landlord-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+
+.landlord-caption {
+  color: var(--semi-color-text-1);
+  font-size: 13px;
+}
+
+.landlord-cards {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 5px;
+  padding-top: 10px;
+}
+
+.landlord-card {
+  display: inline-flex;
+  width: 44px;
+  min-height: 65px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-around;
+  padding: 5px 3px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 6px;
+  color: var(--semi-color-text-0);
+  background: var(--semi-color-bg-2);
+  font-size: 17px;
+  flex-shrink: 0;
+}
+
+button.landlord-card {
+  cursor: pointer;
+  transition:
+    transform 120ms,
+    box-shadow 120ms;
+}
+
+button.landlord-card:disabled {
+  cursor: default;
+}
+
+button.landlord-card:not(:disabled):hover,
+.landlord-card.is-selected {
+  transform: translateY(-8px);
+  border-color: var(--semi-color-primary);
+  box-shadow: 0 0 0 1px var(--semi-color-primary);
+}
+
+button.landlord-card:focus-visible {
+  outline: 2px solid var(--semi-color-primary);
+  outline-offset: 3px;
+}
+
+.landlord-card.is-red {
+  color: var(--semi-color-danger);
+}
+
+.landlord-card.is-joker {
+  font-size: 12px;
+}
+
+.landlord-card.is-back {
+  background: repeating-linear-gradient(
+    45deg,
+    var(--semi-color-primary-light-default),
+    var(--semi-color-primary-light-default) 4px,
+    var(--semi-color-fill-1) 4px,
+    var(--semi-color-fill-1) 8px
+  );
+}
+
+.landlord-bids {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.landlord-bids > div {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 6px;
+  border-radius: 8px;
+  background: var(--semi-color-fill-0);
+  font-size: 13px;
+}
+
+.landlord-bids > .is-turn {
+  background: var(--semi-color-primary-light-default);
+}
+
+.landlord-table {
+  min-height: 135px;
+  padding: 16px;
+  border-radius: 12px;
+  text-align: center;
+  background: var(--semi-color-success-light-default);
+}
+
+.landlord-passes {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  padding-top: 8px;
+  color: var(--semi-color-text-2);
+  font-size: 12px;
+}
+
+.landlord-hand,
+.landlord-reveal {
+  text-align: center;
+}
+
+@media (max-width: 520px) {
+  .landlord-page .pvp-players {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .landlord-card {
+    width: 36px;
+    min-height: 56px;
+    font-size: 15px;
+  }
+}
