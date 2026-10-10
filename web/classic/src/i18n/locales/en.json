@@ -5254,6 +5254,17 @@
     "交易未能上链，游戏币已退回": "The transaction never made it on chain; your game coins were refunded",
     "提现的网络或代币已变更，游戏币已退回": "The withdrawal network or token has changed; your game coins were refunded",
     "收款地址无效，游戏币已退回": "The receiving address is invalid; your game coins were refunded",
-    "热钱包代币不足或合约拒绝转账，游戏币已退回": "The hot wallet is short of tokens or the contract refused the transfer; your game coins were refunded"
+    "热钱包代币不足或合约拒绝转账，游戏币已退回": "The hot wallet is short of tokens or the contract refused the transfer; your game coins were refunded",
+    "加入房间": "Join room",
+    "仅通过邀请链接加入，不在大厅展示": "Join by invitation link only; hidden from the lobby",
+    "房间密码": "Room password",
+    "可选，留空则无需密码": "Optional; leave blank for no password",
+    "如有房间密码，请输入": "Enter the room password, if any",
+    "房间密码过长，请缩短后重试": "Room password is too long. Shorten it and try again.",
+    "需要房间密码": "Room password required",
+    "{{occupied}}/{{seats}} 人": "{{occupied}}/{{seats}} players",
+    "座位 {{seat}}": "Seat {{seat}}",
+    "离开房间": "Leave room",
+    "押注 {{stake}} {{symbol}}": "Stake {{stake}} {{symbol}}"
   }
 }

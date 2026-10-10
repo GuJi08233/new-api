@@ -5103,6 +5103,17 @@
     "交易未能上链，游戏币已退回": "La transaction n'a pas été inscrite sur la chaîne ; vos jetons de jeu ont été remboursés",
     "提现的网络或代币已变更，游戏币已退回": "Le réseau ou le jeton de retrait a changé ; vos jetons de jeu ont été remboursés",
     "收款地址无效，游戏币已退回": "L'adresse de réception est invalide ; vos jetons de jeu ont été remboursés",
-    "热钱包代币不足或合约拒绝转账，游戏币已退回": "Le portefeuille chaud manque de jetons ou le contrat a refusé le transfert ; vos jetons de jeu ont été remboursés"
+    "热钱包代币不足或合约拒绝转账，游戏币已退回": "Le portefeuille chaud manque de jetons ou le contrat a refusé le transfert ; vos jetons de jeu ont été remboursés",
+    "加入房间": "Rejoindre une salle",
+    "仅通过邀请链接加入，不在大厅展示": "Accessible uniquement par lien d’invitation, masquée dans le salon",
+    "房间密码": "Mot de passe de la salle",
+    "可选，留空则无需密码": "Facultatif ; laisser vide pour ne pas définir de mot de passe",
+    "如有房间密码，请输入": "Saisissez le mot de passe de la salle, s’il y en a un",
+    "房间密码过长，请缩短后重试": "Le mot de passe est trop long. Raccourcissez-le et réessayez.",
+    "需要房间密码": "Mot de passe requis",
+    "{{occupied}}/{{seats}} 人": "{{occupied}}/{{seats}} joueurs",
+    "座位 {{seat}}": "Place {{seat}}",
+    "离开房间": "Quitter la salle",
+    "押注 {{stake}} {{symbol}}": "Mise : {{stake}} {{symbol}}"
   }
 }

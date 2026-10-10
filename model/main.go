@@ -393,6 +393,9 @@ func migrateDB() error {
 	if err != nil {
 		return err
 	}
+	if err := migrateGameRoomSeats(DB); err != nil {
+		return err
+	}
 	if err := initializeIpInfoCacheState(); err != nil {
 		return err
 	}
@@ -504,6 +507,9 @@ func migrateDBFast() error {
 		if err != nil {
 			return err
 		}
+	}
+	if err := migrateGameRoomSeats(DB); err != nil {
+		return err
 	}
 	if err := initializeIpInfoCacheState(); err != nil {
 		return err

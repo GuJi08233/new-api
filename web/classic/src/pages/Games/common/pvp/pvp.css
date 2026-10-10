@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-/* 对战游戏页共用的大厅、对局双方与最近对局的样式；棋盘由各游戏自己画。 */
+/* 对战游戏页共用的大厅、对局成员与最近对局的样式；棋盘由各游戏自己画。 */
 
 .pvp-lobby {
   display: flex;
@@ -37,6 +37,12 @@ For commercial licensing, please contact support@quantumnous.com
   font-size: 16px;
   font-weight: 600;
   color: var(--semi-color-text-0);
+}
+
+.pvp-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 .pvp-stake {
@@ -132,6 +138,12 @@ For commercial licensing, please contact support@quantumnous.com
   color: var(--semi-color-warning);
 }
 
+.pvp-room-count {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .pvp-stage-head {
   margin-bottom: 10px;
   font-size: 13px;
@@ -140,7 +152,7 @@ For commercial licensing, please contact support@quantumnous.com
   color: var(--semi-color-text-2);
 }
 
-/* 对局双方：轮到的一方描边，自己的名字用主色。 */
+/* 对局成员：轮到的一方描边，自己的名字用主色。 */
 .pvp-players {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

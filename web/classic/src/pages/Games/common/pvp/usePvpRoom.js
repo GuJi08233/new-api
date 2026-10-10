@@ -68,7 +68,7 @@ export function usePvpRoom(t) {
           t,
           { signal: controller.signal },
         );
-        if (!alive) return;
+        if (!alive || roomRef.current?.id !== roomId) return;
         if (response.data) {
           if (response.data.version !== versionRef.current) {
             setRoom(response.data);

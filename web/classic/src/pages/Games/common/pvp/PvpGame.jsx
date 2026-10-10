@@ -19,15 +19,24 @@ For commercial licensing, please contact support@quantumnous.com
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Button, InputNumber, Modal, Typography } from '@douyinfe/semi-ui';
-import { Bot, Copy, Flag, Swords, UserRound, Users } from 'lucide-react';
-import { useTranslation } from 'react-i18next';
 import {
-  copy,
-  showError,
-  showSuccess,
-  timestamp2string,
-} from '../../../../helpers';
+  Button,
+  Input,
+  InputNumber,
+  Modal,
+  Typography,
+} from '@douyinfe/semi-ui';
+import {
+  Bot,
+  Copy,
+  Flag,
+  LockKeyhole,
+  Swords,
+  UserRound,
+  Users,
+} from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import { copy, showSuccess, timestamp2string } from '../../../../helpers';
 import { getGameLevelNames } from '../../../../constants';
 import GameLayout from '../GameLayout';
 import { RuleList, SideBox, StageMessage } from '../SideBox';
@@ -51,21 +60,82 @@ const LOBBY_POLL_MS = 5000;
 // 押注的快捷档位，超过押注上限的不显示；0 是友谊赛。
 const STAKE_CHIPS = [0, 1, 5, 10, 50, 100, 500];
 
-// 对局双方：座位称呼(执黑、执白……)、名字，轮到的一方高亮，extra 是每个座位后面的附加内容(例如计时)。
+// 对局成员：座位称呼(执黑、执白……)、名字，轮到的一方高亮，extra 是每个座位后面的附加内容(例如计时)。
 const Players = ({ names, labels, toMove, seat, extra }) => (
   <div className='pvp-players'>
-    {[0, 1].map((index) => (
+    {names.map((name, index) => (
       <div
         key={index}
         className={`pvp-player ${toMove === index || toMove === -1 ? 'is-turn' : ''} ${index === seat ? 'is-me' : ''}`}
       >
         <span className='pvp-player-seat'>{labels[index]}</span>
-        <span className='pvp-player-name'>{names[index]}</span>
+        <span className='pvp-player-name'>{name}</span>
         {extra?.[index]}
       </div>
     ))}
   </div>
 );
+
+const RoomEntryModal = ({
+  entry,
+  stake,
+  symbol,
+  busy,
+  error,
+  onSubmit,
+  onClose,
+}) => {
+  const { t } = useTranslation();
+  const [password, setPassword] = useState('');
+  const creating = entry.type === 'create';
+  const tooLong = new TextEncoder().encode(password).length > 72;
+  return (
+    <Modal
+      visible
+      title={creating ? t('开一个房间') : t('加入房间')}
+      okText={creating ? t('创建') : t('加入')}
+      confirmLoading={busy}
+      okButtonProps={{ disabled: tooLong || busy }}
+      cancelButtonProps={{ disabled: busy }}
+      closable={!busy}
+      maskClosable={!busy}
+      closeOnEsc={!busy}
+      onCancel={onClose}
+      onOk={() => !tooLong && onSubmit(password)}
+    >
+      <div className='pvp-entry'>
+        {stake !== undefined && (
+          <Text>
+            {stake > 0
+              ? t('押注 {{stake}} {{symbol}}', { stake, symbol })
+              : t('友谊赛')}
+          </Text>
+        )}
+        {creating && entry.private && (
+          <Text type='tertiary'>{t('仅通过邀请链接加入，不在大厅展示')}</Text>
+        )}
+        <label htmlFor='pvp-room-password'>{t('房间密码')}</label>
+        <Input
+          id='pvp-room-password'
+          mode='password'
+          autoComplete='off'
+          value={password}
+          maxLength={72}
+          disabled={busy}
+          placeholder={
+            creating ? t('可选，留空则无需密码') : t('如有房间密码，请输入')
+          }
+          onChange={setPassword}
+          onEnterPress={() => !busy && !tooLong && onSubmit(password)}
+        />
+        {tooLong && (
+          <Text type='danger'>{t('房间密码过长，请缩短后重试')}</Text>
+        )}
+        {error && <Text type='danger'>{error}</Text>}
+      </div>
+    </Modal>
+  );
+};
 
 // 大厅：押注、快速匹配、开房间、邀请好友、等待中的房间，以及人机对战的入口。
 const Lobby = ({
@@ -172,6 +242,17 @@ const Lobby = ({
                 <li key={item.id}>
                   <UserRound size={14} />
                   <span className='pvp-room-host'>{item.host}</span>
+                  {item.locked && (
+                    <span title={t('需要房间密码')}>
+                      <LockKeyhole size={14} aria-label={t('需要房间密码')} />
+                    </span>
+                  )}
+                  <span className='pvp-room-count'>
+                    {t('{{occupied}}/{{seats}} 人', {
+                      occupied: item.player_count,
+                      seats: item.seats,
+                    })}
+                  </span>
                   <span className='pvp-room-stake'>
                     {item.stake > 0 ? `${item.stake} ${symbol}` : t('友谊赛')}
                   </span>
@@ -179,7 +260,7 @@ const Lobby = ({
                     size='small'
                     theme='solid'
                     disabled={busy || item.own || item.stake > balance}
-                    onClick={() => onJoin(item.id)}
+                    onClick={() => onJoin(item)}
                   >
                     {item.own ? t('我的房间') : t('加入')}
                   </Button>
@@ -255,6 +336,7 @@ const RoomView = ({
   onMove,
   onResign,
   onCancel,
+  onLeave,
   onCopyInvite,
   onBack,
 }) => {
@@ -278,8 +360,13 @@ const RoomView = ({
         room.move_seconds || Infinity,
       )
     : 0;
-  const pot = room.stake * 2;
-  const me = room.players[seat]?.user_id;
+  const members = room.members || room.players;
+  const players = Array.from({ length: room.seats }, (_, index) =>
+    members.find((member) => member.seat === index),
+  );
+  const me = players[seat];
+  const pot = room.escrow * room.player_count;
+  const labels = seatLabels(state);
 
   let message;
   let kind = '';
@@ -294,7 +381,7 @@ const RoomView = ({
         ? t('等了太久没人加入，房间已关闭，押注已退回')
         : t('房间已关闭，押注已退回');
   } else if (room.status === 'finished') {
-    const won = room.winner_id === me;
+    const won = room.winner_id === me?.user_id;
     if (room.winner_id === 0) {
       message = room.stake > 0 ? t('平局，押注已退回') : t('平局');
     } else if (won) {
@@ -302,7 +389,7 @@ const RoomView = ({
       message =
         room.stake > 0
           ? t('你赢了！获得 {{win}} {{symbol}}', {
-              win: pot - room.rake,
+              win: room.escrow + me.net,
               symbol,
             })
           : t('你赢了！');
@@ -323,12 +410,11 @@ const RoomView = ({
       (myTurn ? t('轮到你了') : t('等待对手走棋'));
   }
 
-  const names = [0, 1].map((index) => {
-    const player = room.players[index];
+  const names = players.map((player, index) => {
     if (!player) return t('等待加入…');
     return index === seat ? t('我') : player.name;
   });
-  const clocks = [0, 1].map((index) =>
+  const clocks = players.map((_, index) =>
     playing && (room.to_move === index || room.to_move === -1) ? (
       <span
         key='clock'
@@ -349,10 +435,18 @@ const RoomView = ({
               symbol,
             })
           : t('友谊赛')}
+        {' · '}
+        {t('{{occupied}}/{{seats}} 人', {
+          occupied: room.player_count,
+          seats: room.seats,
+        })}
       </div>
       <Players
         names={names}
-        labels={seatLabels(state)}
+        labels={players.map(
+          (_, index) =>
+            labels[index] || t('座位 {{seat}}', { seat: index + 1 }),
+        )}
         toMove={playing ? room.to_move : null}
         seat={seat}
         extra={clocks}
@@ -377,8 +471,12 @@ const RoomView = ({
                 {t('复制邀请链接')}
               </Button>
             )}
-            <Button type='danger' disabled={busy} onClick={onCancel}>
-              {t('取消房间')}
+            <Button
+              type='danger'
+              disabled={busy}
+              onClick={seat === 0 ? onCancel : onLeave}
+            >
+              {seat === 0 ? t('取消房间') : t('离开房间')}
             </Button>
           </>
         )}
@@ -388,7 +486,12 @@ const RoomView = ({
           </Button>
         )}
         {!isRoomOpen(room) && (
-          <button type='button' className='games-play-button' onClick={onBack}>
+          <button
+            type='button'
+            className='games-play-button'
+            disabled={busy}
+            onClick={onBack}
+          >
             {t('返回大厅')}
           </button>
         )}
@@ -623,10 +726,12 @@ const PvpGame = ({
   const [aiLevel, setAiLevel] = useState(2);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [entry, setEntry] = useState(null);
   const [params, setParams] = useSearchParams();
   const turnstile = usePlayTurnstile(info?.play_turnstile);
   const restoredRef = useRef(false);
   const busyRef = useRef(false);
+  const lobbyEpochRef = useRef(0);
   const labels = (state) =>
     seatLabels ? seatLabels(state) : [t('先手'), t('后手')];
 
@@ -661,39 +766,60 @@ const PvpGame = ({
   const inLobby = !room && !ai;
   // 在大厅时定时刷新等待中的房间，页面在后台时不刷新；别人加入了自己开的房间时直接进入对局。
   const pollLobby = useCallback(async () => {
+    if (busyRef.current) return;
+    const epoch = lobbyEpochRef.current;
     const response = await gameGet(`/api/game/rooms?game=${gameKey}`, t);
-    if (!response.data) return;
+    if (!response.data || epoch !== lobbyEpochRef.current) return;
     setLobby(response.data);
     if (response.data.active) setRoom(response.data.active);
   }, [gameKey, t, setRoom]);
   useVisiblePolling(pollLobby, LOBBY_POLL_MS, loaded && inLobby);
 
-  // 朋友发来的邀请链接带着 invite=邀请码：打开页面后直接加入那个房间。
+  // 邀请保留到成功加入或主动取消，密码错误、网络中断与恢复已有对局都不会丢失邀请码。
   const invite = params.get('invite');
-  useEffect(() => {
-    if (!loaded || !invite || room) return;
-    setParams({}, { replace: true });
-    gamePost('/api/game/rooms/join', { code: invite }, t).then((response) => {
-      if (response.error) {
-        showError(response.error);
-        return;
-      }
-      setRoom(response.data);
-      patch({ balance: response.data.balance });
-    });
-  }, [loaded, invite, room, setParams, setRoom, patch, t]);
+  const roomEntry =
+    loaded && inLobby
+      ? entry || (invite ? { type: 'join', code: invite } : null)
+      : null;
+  const closeEntry = () => {
+    if (busyRef.current) return;
+    setEntry(null);
+    setError('');
+    if (!invite) return;
+    setParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        next.delete('invite');
+        return next;
+      },
+      { replace: true },
+    );
+  };
 
   const act = useCallback(
-    async (url, body, onData, recoverAi = false) => {
+    async (url, body, onData, recovery = '') => {
       if (busyRef.current) return;
       busyRef.current = true;
+      lobbyEpochRef.current += 1;
       setBusy(true);
       setError('');
       try {
         let response = await gamePost(url, body, t);
         if (response.error) {
           setError(response.error);
-          if (!recoverAi) return;
+          if (recovery === 'room') {
+            // 离座可能已成功但响应丢失；先确认自己仍在哪个房间，避免一直轮询已失去席位的旧房间。
+            const latest = await reload(true);
+            if (!latest) return;
+            const active = latest.lobby?.active || null;
+            setRoom(active);
+            setLobby(latest.lobby);
+            setAi(active ? null : latest.ai?.session || null);
+            setAiResult(null);
+            if (!active) setError('');
+            return;
+          }
+          if (recovery !== 'ai') return;
           // 落子可能已经执行，只是响应丢失；版本冲突也要恢复，不能让下一步一直带着旧版本重试。
           // 恢复失败时保留原局，下一次操作失败后仍可重新读取；恢复结束前始终持有 busy 锁。
           const query = body.session_id ? `?session_id=${body.session_id}` : '';
@@ -710,25 +836,53 @@ const PvpGame = ({
           response = current;
           if (current.data.result) setError('');
         }
-        onData(response.data);
         const balance =
           response.data?.balance ?? response.data?.result?.balance;
         if (balance !== undefined) patch({ balance });
+        await onData(response.data);
       } finally {
         busyRef.current = false;
         setBusy(false);
       }
     },
-    [gameKey, t, patch, reload],
+    [gameKey, t, patch, reload, setRoom],
   );
 
   const backToLobby = async () => {
+    lobbyEpochRef.current += 1;
     setRoom(null);
     setAi(null);
     setAiResult(null);
     setError('');
     const latest = await reload(true);
     if (latest) setLobby(latest.lobby);
+  };
+
+  const submitEntry = (password) => {
+    if (!roomEntry) return;
+    const creating = roomEntry.type === 'create';
+    const url = creating
+      ? '/api/game/rooms'
+      : roomEntry.code
+        ? '/api/game/rooms/join'
+        : `/api/game/rooms/${roomEntry.id}/join`;
+    const body = creating
+      ? { game: gameKey, stake, private: roomEntry.private, password }
+      : { code: roomEntry.code, password };
+    return act(url, body, (data) => {
+      setRoom(data);
+      setEntry(null);
+      if (roomEntry.code) {
+        setParams(
+          (current) => {
+            const next = new URLSearchParams(current);
+            next.delete('invite');
+            return next;
+          },
+          { replace: true },
+        );
+      }
+    });
   };
 
   // 人机对局结束时结算结果带着新的领奖进度，信息栏里的剩余次数跟着更新。
@@ -746,7 +900,7 @@ const PvpGame = ({
         setAi(data.session);
         setAiResult(null);
       },
-      true,
+      'ai',
     );
 
   let main = null;
@@ -778,6 +932,9 @@ const PvpGame = ({
           })
         }
         onCancel={() => act(`/api/game/rooms/${room.id}/cancel`, {}, setRoom)}
+        onLeave={() =>
+          act(`/api/game/rooms/${room.id}/leave`, {}, backToLobby, 'room')
+        }
         onCopyInvite={async () => {
           const link = `${window.location.origin}/games/${gameKey}?invite=${room.code}`;
           if (await copy(link)) {
@@ -805,7 +962,7 @@ const PvpGame = ({
             `/api/game/${gameKey}/ai/move`,
             { session_id: ai.session_id, version: ai.version, move: value },
             applyAi,
-            true,
+            'ai',
           )
         }
         onResign={() =>
@@ -817,7 +974,7 @@ const PvpGame = ({
                 `/api/game/${gameKey}/ai/resign`,
                 { session_id: ai.session_id },
                 applyAi,
-                true,
+                'ai',
               ),
           })
         }
@@ -840,14 +997,17 @@ const PvpGame = ({
         onQuickMatch={() =>
           act('/api/game/rooms/match', { game: gameKey, stake }, setRoom)
         }
-        onCreate={(isPrivate) =>
-          act(
-            '/api/game/rooms',
-            { game: gameKey, stake, private: isPrivate },
-            setRoom,
-          )
-        }
-        onJoin={(id) => act(`/api/game/rooms/${id}/join`, {}, setRoom)}
+        onCreate={(isPrivate) => {
+          setError('');
+          setEntry({ type: 'create', private: isPrivate });
+        }}
+        onJoin={(item) => {
+          if (!item.locked) {
+            return act(`/api/game/rooms/${item.id}/join`, {}, setRoom);
+          }
+          setError('');
+          setEntry({ type: 'join', id: item.id, stake: item.stake });
+        }}
         onStartAi={startAi}
       />
     );
@@ -866,6 +1026,18 @@ const PvpGame = ({
       className={`pvp-page ${className}`}
     >
       {main}
+      {roomEntry && (
+        <RoomEntryModal
+          key={`${roomEntry.type}:${roomEntry.id || roomEntry.code || ''}`}
+          entry={roomEntry}
+          stake={roomEntry.type === 'create' ? stake : roomEntry.stake}
+          symbol={info.symbol}
+          busy={busy}
+          error={error}
+          onSubmit={submitEntry}
+          onClose={closeEntry}
+        />
+      )}
     </GameLayout>
   );
 };

@@ -5621,6 +5621,17 @@
     "交易未能上链，游戏币已退回": "Giao dịch không được ghi lên chuỗi; xu trò chơi đã được hoàn lại",
     "提现的网络或代币已变更，游戏币已退回": "Mạng hoặc token rút đã thay đổi; xu trò chơi đã được hoàn lại",
     "收款地址无效，游戏币已退回": "Địa chỉ nhận không hợp lệ; xu trò chơi đã được hoàn lại",
-    "热钱包代币不足或合约拒绝转账，游戏币已退回": "Ví nóng không đủ token hoặc hợp đồng từ chối chuyển khoản; xu trò chơi đã được hoàn lại"
+    "热钱包代币不足或合约拒绝转账，游戏币已退回": "Ví nóng không đủ token hoặc hợp đồng từ chối chuyển khoản; xu trò chơi đã được hoàn lại",
+    "加入房间": "Tham gia phòng",
+    "仅通过邀请链接加入，不在大厅展示": "Chỉ tham gia qua liên kết mời, không hiển thị ở sảnh",
+    "房间密码": "Mật khẩu phòng",
+    "可选，留空则无需密码": "Không bắt buộc; để trống nếu không cần mật khẩu",
+    "如有房间密码，请输入": "Nhập mật khẩu phòng nếu có",
+    "房间密码过长，请缩短后重试": "Mật khẩu phòng quá dài. Hãy rút ngắn rồi thử lại.",
+    "需要房间密码": "Cần mật khẩu phòng",
+    "{{occupied}}/{{seats}} 人": "{{occupied}}/{{seats}} người",
+    "座位 {{seat}}": "Chỗ {{seat}}",
+    "离开房间": "Rời phòng",
+    "押注 {{stake}} {{symbol}}": "Cược {{stake}} {{symbol}}"
   }
 }

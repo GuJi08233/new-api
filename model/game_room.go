@@ -12,7 +12,7 @@ import (
 )
 
 // 联机房间。房主开房时坐 0 号座位并押下押注，其他玩家依次入座、各押同样多，坐满即开局。分出结果后按规则引擎给出的每个座位的
-// 输赢结算：赢家从赢到的游戏币里被平台按比例抽成，平局各自退回；开局前离开的退回押注，房主离开则房间关闭、全部退回。押注为 0 的
+// 输赢结算：双人对局按赢家所得奖池抽成，多人对局按赢得的净额抽成，平局各自退回；开局前离开的退回押注，房主离开则房间关闭、全部退回。押注为 0 的
 // 是友谊赛，不涉及游戏币。棋盘与轮到谁都在 State 里，由各游戏的规则引擎解释；每次改动 Version 加一，并发的两步只有一步能成功。
 
 const (
@@ -109,6 +109,13 @@ type GameRoomStart struct {
 	Deadline int64
 }
 
+// GameRoomResult 是规则引擎给出的结算结果。Nets 按座位排列，金额为抽成前的净输赢；WinnerSeat 为获胜座位，
+// 平局是 -1。单独保留胜者让不涉及游戏币的友谊赛也能记录胜负。
+type GameRoomResult struct {
+	Nets       []int
+	WinnerSeat int
+}
+
 // gameRoomActiveOf 是用户坐着的房间编号的子查询。
 func gameRoomActiveOf(tx *gorm.DB, userId int) *gorm.DB {
 	return tx.Model(&GameRoomSeat{}).Select("room_id").Where("user_id = ?", userId)
@@ -156,11 +163,15 @@ func loadGameRoomSeatsTx(tx *gorm.DB, roomId int) ([]GameRoomSeat, error) {
 // 邀请码、密码与房主，状态与时间在这里生成。玩家在这个游戏里已有等待中或对局中的房间时返回 ErrGameRoomActive，余额不够时返回
 // ErrGameCoinInsufficient，都什么都不会改变。
 func CreateGameRoom(room *GameRoom, hostIp string) (int, error) {
-	if room.Stake < 0 || room.Escrow < room.Stake || room.Escrow >= common.MaxQuota || (room.Stake == 0) != (room.Escrow == 0) {
-		return 0, ErrGameCoinAmountInvalid
-	}
 	if room.Seats < 2 || room.Seats > GameRoomMaxSeats {
 		return 0, errors.New("invalid game room seats")
+	}
+	// 奖池也必须能作为一笔合法入账，先做除法再比较，避免乘法溢出。
+	if room.Stake < 0 || room.Escrow < room.Stake || room.Escrow > (common.MaxQuota-1)/room.Seats || (room.Stake == 0) != (room.Escrow == 0) {
+		return 0, ErrGameCoinAmountInvalid
+	}
+	if room.RakePercent < 0 || room.RakePercent > 100 {
+		return 0, ErrGameCoinAmountInvalid
 	}
 	now := common.GetTimestamp()
 	room.Status, room.CreatedAt, room.Version, room.Players = GameRoomStatusWaiting, now, 0, 1
@@ -208,6 +219,10 @@ func JoinGameRoom(room *GameRoom, userId int, ip string, start func(seats []Game
 		if current.Players >= current.Seats {
 			return ErrGameRoomFull
 		}
+		// MySQL 默认的可重复读事务要在锁账户后才进行普通读取，避免建立旧快照而漏掉刚加入的另一间房。
+		if err := lockGameCoinAccountTx(tx, userId); err != nil {
+			return err
+		}
 		seats, err := loadGameRoomSeatsTx(tx, current.Id)
 		if err != nil {
 			return err
@@ -221,9 +236,6 @@ func JoinGameRoom(room *GameRoom, userId int, ip string, start func(seats []Game
 				return ErrGameRoomSameIp
 			}
 			taken[seat.Seat] = true
-		}
-		if err := lockGameCoinAccountTx(tx, userId); err != nil {
-			return err
 		}
 		active, err := countActiveGameRooms(tx, userId, current.Game)
 		if err != nil {
@@ -245,6 +257,9 @@ func JoinGameRoom(room *GameRoom, userId int, ip string, start func(seats []Game
 		}
 		updates := map[string]interface{}{"players": current.Players + 1, "version": current.Version + 1}
 		if current.Players+1 == current.Seats {
+			if start == nil {
+				return errors.New("game room opening is required")
+			}
 			seats = append(seats, seat)
 			sort.Slice(seats, func(i, j int) bool { return seats[i].Seat < seats[j].Seat })
 			opening, err := start(seats)
@@ -331,44 +346,68 @@ func UpdateGameRoomState(room *GameRoom, state string, toMove int, deadline int6
 	return nil
 }
 
-// FinishGameRoom 结束对局并结算：nets 按座位顺序给出每位玩家的输赢(游戏币，抽成之前)，合计为 0，输的不超过押注。赢家按
-// room.RakePercent% 从赢到的游戏币里被抽成(向下取整)，每人拿回押注加上净输赢；全是 0 是平局，各自退回押注、不抽成。只有
+// FinishGameRoom 结束对局并结算：Nets 按座位顺序给出每位玩家的输赢(游戏币，抽成之前)，合计为 0，输的不超过押注。双人
+// 保持原有的奖池抽成，多人按赢家净赢抽成(均向下取整)，每人拿回押注加上净输赢；平局各自退回押注、不抽成。只有
 // room.Version 仍是库里的版本时才会成功，否则返回 ErrGameRoomChanged：同一局只结算一次。
-func FinishGameRoom(room *GameRoom, nets []int, reason string, state string, day string) error {
-	if len(nets) != room.Seats {
-		return errors.New("game room result does not match its seats")
-	}
-	total := 0
-	for _, net := range nets {
-		if net < -room.Escrow || net > room.Escrow*(room.Seats-1) {
-			return errors.New("game room result exceeds the escrow")
-		}
-		total += net
-	}
-	if total != 0 {
-		return errors.New("game room result does not balance")
-	}
+func FinishGameRoom(room *GameRoom, result GameRoomResult, reason string, state string, day string) error {
 	now := common.GetTimestamp()
 	rake, winnerId := 0, 0
 	err := DB.Transaction(func(tx *gorm.DB) error {
-		seats, err := loadGameRoomSeatsTx(tx, room.Id)
+		current, err := lockGameRoomTx(tx, room.Id)
 		if err != nil {
 			return err
 		}
-		if len(seats) != room.Seats {
+		if current.Status != GameRoomStatusPlaying || current.Version != room.Version {
+			return ErrGameRoomChanged
+		}
+		if current.Seats < 2 || current.Seats > GameRoomMaxSeats || len(result.Nets) != current.Seats || result.WinnerSeat < -1 || result.WinnerSeat >= current.Seats {
+			return errors.New("game room result does not match its seats")
+		}
+		if current.Escrow < 0 || current.Escrow >= common.MaxQuota || current.RakePercent < 0 || current.RakePercent > 100 {
+			return ErrGameCoinAmountInvalid
+		}
+		// 每项先限界，最多 8 项、每项最多 7 * MaxQuota，累加与后面的抽成都不会溢出 int64。
+		total, best := 0, 0
+		for _, net := range result.Nets {
+			if net < -current.Escrow || net > current.Escrow*(current.Seats-1) {
+				return errors.New("game room result exceeds the escrow")
+			}
+			total += net
+			best = max(best, net)
+		}
+		if total != 0 {
+			return errors.New("game room result does not balance")
+		}
+		if best > 0 && (result.WinnerSeat < 0 || result.Nets[result.WinnerSeat] != best) {
+			return errors.New("game room winner does not match its result")
+		}
+		if current.Escrow > 0 && best == 0 && result.WinnerSeat != -1 {
+			return errors.New("a tied game room cannot have a winner")
+		}
+		seats, err := loadGameRoomSeatsTx(tx, current.Id)
+		if err != nil {
+			return err
+		}
+		if len(seats) != current.Seats {
 			return errors.New("game room seats are incomplete")
 		}
-		best := 0
 		settled := make([]int, len(seats))
 		for i, seat := range seats {
+			if seat.Seat != i {
+				return errors.New("game room seats are incomplete")
+			}
 			cut := 0
-			if nets[i] > 0 {
-				cut = nets[i] * room.RakePercent / 100
+			if result.Nets[i] > 0 {
+				base := result.Nets[i]
+				if current.Seats == 2 {
+					base += current.Escrow
+				}
+				cut = base * current.RakePercent / 100
 			}
 			rake += cut
-			settled[i] = nets[i] - cut
-			if nets[i] > best {
-				best, winnerId = nets[i], seat.UserId
+			settled[i] = result.Nets[i] - cut
+			if i == result.WinnerSeat {
+				winnerId = seat.UserId
 			}
 		}
 		update := tx.Model(&GameRoom{}).
@@ -401,19 +440,19 @@ func FinishGameRoom(room *GameRoom, nets []int, reason string, state string, day
 			if err := tx.Model(&GameRoomSeat{}).Where("id = ?", seat.Id).Update("net", settled[i]).Error; err != nil {
 				return err
 			}
-			if room.Escrow > 0 {
+			if current.Escrow > 0 {
 				event := "settle"
 				switch {
-				case nets[i] > 0:
+				case result.Nets[i] > 0:
 					event = "win"
-				case nets[i] == 0:
+				case result.Nets[i] == 0:
 					event = "draw"
 				}
-				if err := settleGameRoomPlayerTx(tx, room, seat.UserId, settled[i], room.Escrow+settled[i], event, now); err != nil {
+				if err := settleGameRoomPlayerTx(tx, current, seat.UserId, settled[i], current.Escrow+settled[i], event, now); err != nil {
 					return err
 				}
 			}
-			if _, _, err := recordGameDayResult(tx, seat.UserId, room.Game, day, settled[i]); err != nil {
+			if _, _, err := recordGameDayResult(tx, seat.UserId, current.Game, day, settled[i]); err != nil {
 				return err
 			}
 		}

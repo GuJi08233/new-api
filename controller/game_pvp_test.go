@@ -3,7 +3,10 @@ package controller
 import (
 	"fmt"
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
@@ -12,6 +15,163 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestPvpRoomPasswordAndSeatContract(t *testing.T) {
+	require.NoError(t, i18n.Init())
+	env := newGameTestEnv(t, gameSetting(func(s *operation_setting.GameSetting) {
+		s.Rps = operation_setting.PvpRule{Enabled: true, MaxStake: 100, RakePercent: 5, MoveSeconds: 20}
+	}))
+	host, guest := env.player(100, gameTestIpA), env.player(100, gameTestIpB)
+	password := strings.Repeat("密", 24) // 72 字节边界允许完整保存和验证。
+	created := host.ok(http.MethodPost, "/api/game/rooms", map[string]any{
+		"game": gameRps, "stake": 10, "seats": 2, "password": password,
+	})
+	id := jsonInt(t, created["id"])
+	assert.EqualValues(t, 2, created["seats"])
+	assert.EqualValues(t, 1, created["player_count"])
+	assert.EqualValues(t, 10, created["escrow"])
+	assert.Equal(t, true, created["locked"])
+	assert.Equal(t, created["players"], created["members"], "保留旧版成员数组契约")
+	assert.Equal(t, []any{map[string]any{"seat": 0.0, "user_id": float64(host.user.Id), "name": host.user.Username, "net": 0.0}}, created["members"])
+	assert.NotContains(t, created, "password")
+	assert.NotContains(t, created, "password_hash")
+	stored, err := model.GetGameRoom(id)
+	require.NoError(t, err)
+	assert.NotEqual(t, password, stored.PasswordHash)
+	assert.True(t, common.ValidatePasswordAndHash(password, stored.PasswordHash))
+
+	lobby := guest.ok(http.MethodGet, "/api/game/rooms?game=rps", nil)
+	rooms := lobby["rooms"].([]any)
+	require.Len(t, rooms, 1)
+	listed := rooms[0].(map[string]any)
+	assert.Equal(t, true, listed["locked"])
+	assert.Equal(t, created["members"], listed["members"])
+	assert.EqualValues(t, 1, listed["player_count"])
+	assert.NotContains(t, listed, "code")
+	wrong := i18n.Translate(i18n.DefaultLang, i18n.MsgGameRoomPassword)
+	assert.Equal(t, wrong, guest.fails(http.MethodPost, gameRoomPath(id, "join"), nil))
+	assert.Equal(t, wrong, guest.fails(http.MethodPost, "/api/game/rooms/join", map[string]any{"code": created["code"], "password": "wrong"}))
+	guest.fails(http.MethodPost, gameRoomPath(id, "join"), map[string]any{"password": password + "密"})
+	assert.Equal(t, 100, guest.balance(), "密码失败不能扣币或占座")
+	assert.Equal(t, created["version"], host.ok(http.MethodGet, fmt.Sprintf("/api/game/rooms/%d", id), nil)["version"])
+
+	joined := guest.ok(http.MethodPost, gameRoomPath(id, "join"), map[string]any{"password": password})
+	assert.EqualValues(t, 2, joined["player_count"])
+	assert.EqualValues(t, guest.user.Id, joined["guest_id"])
+	assert.NotContains(t, joined, "code")
+	guest.fails(http.MethodPost, gameRoomPath(id, "leave"), nil)
+	assert.Equal(t, 90, guest.balance(), "开局后不能离座退押注")
+	finished := guest.ok(http.MethodPost, gameRoomPath(id, "resign"), nil)
+	assert.EqualValues(t, host.user.Id, finished["winner_id"])
+	assert.EqualValues(t, 1, finished["rake"])
+	assert.EqualValues(t, 9, finished["host_net"])
+	assert.EqualValues(t, -10, finished["guest_net"])
+	members := finished["members"].([]any)
+	assert.EqualValues(t, 9, members[0].(map[string]any)["net"])
+	assert.EqualValues(t, -10, members[1].(map[string]any)["net"])
+	recent := host.ok(http.MethodGet, "/api/game/rps", nil)["recent"].([]any)
+	require.Len(t, recent, 1)
+	assert.Equal(t, "win", recent[0].(map[string]any)["result"])
+	assert.EqualValues(t, 9, recent[0].(map[string]any)["net"])
+	assert.Equal(t, 109, host.balance())
+	assert.Equal(t, 90, guest.balance())
+}
+
+func TestPvpPrivatePasswordAndMatchIsolation(t *testing.T) {
+	env := newGameTestEnv(t, gameSetting(func(s *operation_setting.GameSetting) {
+		s.Rps = operation_setting.PvpRule{Enabled: true, MoveSeconds: 20}
+	}))
+	privateHost, lockedHost := env.player(0, gameTestIpA), env.player(0, gameTestIpB)
+	guest, matcher := env.player(0, gameTestIpA), env.player(0, gameTestIpB)
+	private := privateHost.ok(http.MethodPost, "/api/game/rooms", map[string]any{"game": gameRps, "private": true, "password": "private"})
+	locked := lockedHost.ok(http.MethodPost, "/api/game/rooms", map[string]any{"game": gameRps, "password": "locked"})
+	id := jsonInt(t, private["id"])
+	guest.fails(http.MethodGet, fmt.Sprintf("/api/game/rooms/%d", id), nil)
+	guest.fails(http.MethodPost, gameRoomPath(id, "join"), map[string]any{"password": "private"})
+	lobby := guest.ok(http.MethodGet, "/api/game/rooms?game=rps", nil)["rooms"].([]any)
+	require.Len(t, lobby, 1)
+	assert.Equal(t, locked["id"], lobby[0].(map[string]any)["id"])
+	matched := matcher.ok(http.MethodPost, "/api/game/rooms/match", map[string]any{"game": gameRps})
+	assert.NotEqual(t, private["id"], matched["id"])
+	assert.NotEqual(t, locked["id"], matched["id"])
+	assert.Equal(t, model.GameRoomStatusWaiting, matched["status"])
+	assert.Equal(t, false, matched["locked"])
+	joined := guest.ok(http.MethodPost, "/api/game/rooms/join", map[string]any{"code": private["code"], "password": "private"})
+	assert.Equal(t, private["id"], joined["id"])
+	assert.NotContains(t, joined, "code")
+	finished := guest.ok(http.MethodPost, gameRoomPath(id, "resign"), nil)
+	assert.EqualValues(t, privateHost.user.Id, finished["winner_id"], "零押注也保留赢家")
+	assert.EqualValues(t, 0, finished["host_net"])
+	assert.EqualValues(t, 0, finished["guest_net"])
+	recent := guest.ok(http.MethodGet, "/api/game/rps", nil)["recent"].([]any)
+	require.Len(t, recent, 1)
+	assert.Equal(t, "loss", recent[0].(map[string]any)["result"])
+	matchedGuest := guest.ok(http.MethodPost, "/api/game/rooms/match", map[string]any{"game": gameRps})
+	assert.Equal(t, matched["id"], matchedGuest["id"])
+	assert.Equal(t, model.GameRoomStatusPlaying, matchedGuest["status"])
+	assert.EqualValues(t, 2, matchedGuest["player_count"])
+}
+
+func TestPvpRoomRejectsUnsupportedSeatsAndOversizePassword(t *testing.T) {
+	env := newGameTestEnv(t, gameSetting(func(s *operation_setting.GameSetting) {
+		s.Rps = operation_setting.PvpRule{Enabled: true, MaxStake: 100, MoveSeconds: 20}
+	}))
+	for _, request := range []map[string]any{
+		{"game": gameRps, "stake": 10, "seats": 0},
+		{"game": gameRps, "stake": 10, "seats": 3},
+		{"game": gameRps, "stake": 10, "password": strings.Repeat("密", 25)},
+	} {
+		player := env.player(100, gameTestIpA)
+		player.fails(http.MethodPost, "/api/game/rooms", request)
+		player.fails(http.MethodPost, "/api/game/rooms/match", request)
+		assert.Equal(t, 100, player.balance())
+		rooms, err := model.GetUserActiveGameRooms(player.user.Id)
+		require.NoError(t, err)
+		assert.Empty(t, rooms)
+	}
+}
+
+func TestPvpLeaveRefundsAndRevokesPrivateRoomPolling(t *testing.T) {
+	require.NoError(t, i18n.Init())
+	env := newGameTestEnv(t, gameSetting(func(s *operation_setting.GameSetting) {
+		s.Rps = operation_setting.PvpRule{Enabled: true, MaxStake: 100, MoveSeconds: 20}
+	}))
+	host, guest := env.player(100, gameTestIpA), env.player(100, gameTestIpB)
+	// 直接准备尚未坐满的座位房间，验证通用离座接口；游戏开房接口仍只接受两人规则。
+	room := &model.GameRoom{Game: gameRps, HostId: host.user.Id, Seats: 3, Stake: 10, Escrow: 10, Private: true}
+	_, err := model.CreateGameRoom(room, gameTestIpA)
+	require.NoError(t, err)
+	_, err = model.JoinGameRoom(room, guest.user.Id, gameTestIpB, func([]model.GameRoomSeat) (model.GameRoomStart, error) {
+		return model.GameRoomStart{}, fmt.Errorf("room must remain waiting")
+	})
+	require.NoError(t, err)
+	path := fmt.Sprintf("/api/game/rooms/%d", room.Id)
+	polled := make(chan *httptest.ResponseRecorder, 1)
+	go func() { polled <- guest.send(http.MethodGet, fmt.Sprintf("%s?after=%d", path, room.Version), nil) }()
+	waitForRoomWatcher(t, room.Id)
+	left := guest.ok(http.MethodPost, path+"/leave", nil)
+	assert.EqualValues(t, -1, left["seat"])
+	assert.EqualValues(t, 1, left["player_count"])
+	assert.EqualValues(t, 100, left["balance"])
+	assert.NotContains(t, left, "code")
+	assert.Equal(t, 100, guest.balance())
+	select {
+	case response := <-polled:
+		var body map[string]any
+		require.NoError(t, common.Unmarshal(response.Body.Bytes(), &body))
+		assert.Equal(t, false, body["success"])
+		assert.Equal(t, i18n.Translate(i18n.DefaultLang, i18n.MsgGameRoomNotPlayer), body["message"])
+	case <-time.After(10 * time.Second):
+		require.FailNow(t, "leaving must wake the poll and revoke access")
+	}
+	guest.fails(http.MethodGet, path, nil)
+	guest.fails(http.MethodPost, path+"/leave", nil)
+	closed := host.ok(http.MethodPost, path+"/leave", nil)
+	assert.Equal(t, model.GameRoomStatusCancelled, closed["status"])
+	assert.EqualValues(t, 100, closed["balance"])
+	assert.Equal(t, 100, host.balance())
+	assert.Equal(t, 100, guest.balance())
+}
 
 func TestPvpAiRestoreCommittedMoveAfterStaleVersion(t *testing.T) {
 	require.NoError(t, i18n.Init())
