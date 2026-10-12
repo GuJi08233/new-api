@@ -29,7 +29,7 @@ func validVerificationScope(scope, digest string) bool {
 		return false
 	}
 	switch scope {
-	case "channel.key.read", "account.delete", "access_token.generate", "password.change", "passkey.register", "passkey.delete", "2fa.setup", "account.bind.email", "account.bind.wechat", "account.bind.telegram", "account.bind.oauth", "account.unbind.oauth":
+	case "channel.key.read", "account.delete", "access_token.generate", "password.change", "passkey.register", "passkey.delete", "2fa.setup", "account.bind.email", "account.bind.wechat", "account.bind.telegram", "account.bind.oauth", "account.unbind.oauth", "game.withdraw":
 		return true
 	}
 	return false

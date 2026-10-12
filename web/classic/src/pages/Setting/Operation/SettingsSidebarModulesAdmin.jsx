@@ -68,6 +68,7 @@ export default function SettingsSidebarModulesAdmin(props) {
       subscription: true,
       risk_control: true,
       trade_admin: true,
+      game_admin: true,
       system_info: true,
       setting: true,
     },
@@ -132,6 +133,7 @@ export default function SettingsSidebarModulesAdmin(props) {
         subscription: true,
         risk_control: true,
         trade_admin: true,
+        game_admin: true,
         system_info: true,
         setting: true,
       },
@@ -185,6 +187,7 @@ export default function SettingsSidebarModulesAdmin(props) {
           admin: {
             risk_control: true,
             trade_admin: true,
+            game_admin: true,
             system_info: true,
             ...(modules.admin || {}),
           },
@@ -212,6 +215,7 @@ export default function SettingsSidebarModulesAdmin(props) {
             subscription: true,
             risk_control: true,
             trade_admin: true,
+            game_admin: true,
             system_info: true,
             setting: true,
           },
@@ -297,6 +301,11 @@ export default function SettingsSidebarModulesAdmin(props) {
           key: 'trade_admin',
           title: t('模拟盘管理'),
           description: t('模拟盘行情连接、交易规则与资金上限'),
+        },
+        {
+          key: 'game_admin',
+          title: t('游戏管理'),
+          description: t('游戏中心配置与游戏币管理'),
         },
         {
           key: 'system_info',

@@ -52,6 +52,7 @@ export const useHeaderBar = ({ onMobileMenuToggle, drawerOpen }) => {
   const docsLink = statusState?.status?.docs_link || '';
   const isDemoSiteMode = statusState?.status?.demo_site_enabled || false;
   const tradeEnabled = statusState?.status?.trade_enabled === true;
+  const gameCenterEnabled = statusState?.status?.game_center_enabled === true;
 
   // 获取顶栏模块配置
   const headerNavModulesConfig = statusState?.status?.HeaderNavModules;
@@ -259,6 +260,7 @@ export const useHeaderBar = ({ onMobileMenuToggle, drawerOpen }) => {
     pricingRequireAuth,
     rankingsRequireAuth,
     tradeEnabled,
+    gameCenterEnabled,
 
     // Actions
     logout,

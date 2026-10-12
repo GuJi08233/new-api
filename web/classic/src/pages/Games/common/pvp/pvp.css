@@ -1,0 +1,320 @@
+/*
+Copyright (C) 2025 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+
+/* 对战游戏页共用的大厅、对局成员与最近对局的样式；棋盘由各游戏自己画。 */
+
+.pvp-lobby {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.pvp-card {
+  align-items: stretch;
+  gap: 14px;
+}
+
+.pvp-card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--semi-color-text-0);
+}
+
+.pvp-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pvp-entry-modal .semi-modal-content {
+  height: auto;
+  max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px);
+}
+
+.pvp-entry-modal .semi-modal-header,
+.pvp-entry-modal .semi-modal-footer {
+  flex-shrink: 0;
+}
+
+.pvp-entry-modal .semi-modal-body {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.pvp-stake {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.pvp-stake-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--semi-color-text-1);
+}
+
+.pvp-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  margin-top: 4px;
+}
+
+.pvp-stage .pvp-actions {
+  margin-top: 14px;
+}
+
+.pvp-card .games-stage-message {
+  margin-top: 0;
+}
+
+.pvp-card .games-stage-counter {
+  text-align: center;
+}
+
+.pvp-rooms {
+  padding-top: 12px;
+  border-top: 1px solid var(--semi-color-border);
+}
+
+.pvp-rooms-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--semi-color-text-1);
+}
+
+.pvp-empty {
+  padding: 16px 0;
+  text-align: center;
+  font-size: 12px;
+  color: var(--semi-color-text-2);
+}
+
+.pvp-room-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pvp-room-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 4px;
+  border-top: 1px solid var(--semi-color-border);
+  font-size: 13px;
+  color: var(--semi-color-text-2);
+}
+
+.pvp-room-list li:first-child {
+  border-top: none;
+}
+
+.pvp-room-host {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--semi-color-text-0);
+}
+
+.pvp-room-stake {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--semi-color-warning);
+}
+
+.pvp-room-count {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.pvp-stage-head {
+  margin-bottom: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--semi-color-text-2);
+}
+
+/* 对局成员：轮到的一方描边，自己的名字用主色。 */
+.pvp-players {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  width: 100%;
+  margin-bottom: 14px;
+}
+
+.pvp-player {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--semi-color-border);
+  background: var(--semi-color-fill-0);
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.pvp-player.is-turn {
+  border-color: var(--semi-color-primary);
+  box-shadow: 0 0 0 3px var(--semi-color-primary-light-default);
+}
+
+.pvp-player-seat {
+  flex: none;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--semi-color-text-1);
+  background: var(--semi-color-fill-1);
+}
+
+.pvp-player-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--semi-color-text-0);
+}
+
+.pvp-player.is-me .pvp-player-name {
+  color: var(--semi-color-primary);
+}
+
+.pvp-clock {
+  flex: none;
+  font-size: 14px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--semi-color-text-1);
+}
+
+.pvp-clock.is-low {
+  color: var(--semi-color-danger);
+  animation: pvp-clock-blink 1s steps(2, start) infinite;
+}
+
+.pvp-recent {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+  color: var(--semi-color-text-1);
+}
+
+.pvp-recent li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 8px;
+  padding: 6px 0;
+  border-top: 1px solid var(--semi-color-border);
+}
+
+.pvp-recent li:first-child {
+  border-top: none;
+}
+
+.pvp-recent-result {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 4px;
+  border-radius: 6px;
+  font-weight: 700;
+  color: var(--semi-color-text-2);
+  background: var(--semi-color-fill-1);
+}
+
+.pvp-recent li.is-win .pvp-recent-result {
+  color: var(--semi-color-success);
+  background: var(--semi-color-success-light-default);
+}
+
+.pvp-recent li.is-loss .pvp-recent-result {
+  color: var(--semi-color-danger);
+  background: var(--semi-color-danger-light-default);
+}
+
+.pvp-recent-opponent {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  color: var(--semi-color-text-0);
+}
+
+.pvp-recent-time {
+  width: 100%;
+  padding-left: 28px;
+  color: var(--semi-color-text-2);
+}
+
+@keyframes pvp-clock-blink {
+  to {
+    opacity: 0.4;
+  }
+}
+
+@media (max-width: 520px) {
+  .pvp-players {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* 托管中的座位：AI 代打的标记。 */
+.pvp-auto {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--semi-color-warning);
+  background: var(--semi-color-warning-light-default);
+}

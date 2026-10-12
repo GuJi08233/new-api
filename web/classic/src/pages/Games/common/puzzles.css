@@ -1,0 +1,190 @@
+/*
+Copyright (C) 2025 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+
+.puzzle-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: center;
+  align-items: center;
+  margin: 18px 0;
+}
+.puzzle-intro {
+  text-align: center;
+  color: var(--semi-color-text-2);
+  line-height: 1.7;
+  margin: 12px auto;
+  max-width: 520px;
+}
+.puzzle-board {
+  margin: 20px auto;
+  width: min(100%, 480px);
+  border-radius: 20px;
+  padding: 8px;
+  background: var(--semi-color-fill-0);
+  box-shadow: inset 0 0 0 1px var(--semi-color-border);
+}
+.pairlink-grid {
+  display: grid;
+  position: relative;
+  aspect-ratio: var(--cols) / var(--rows);
+  grid-template-columns: repeat(var(--cols), 1fr);
+  grid-template-rows: repeat(var(--rows), 1fr);
+  gap: 3px;
+}
+.pairlink-tile {
+  border: 1px solid var(--semi-color-border);
+  border-radius: 10px;
+  background: var(--semi-color-bg-1);
+  font-size: clamp(18px, 3vw, 28px);
+  cursor: pointer;
+  box-shadow: 0 3px 0 var(--semi-color-fill-1);
+  transition:
+    transform 0.12s,
+    background 0.12s;
+  touch-action: manipulation;
+}
+.pairlink-tile:hover {
+  transform: translateY(-2px);
+}
+.pairlink-tile.is-selected {
+  background: rgba(245, 158, 11, 0.25);
+  border: 2px solid #f59e0b;
+  transform: scale(0.95);
+}
+.pairlink-tile.is-hint {
+  outline: 2px solid #38bdf8;
+}
+.pairlink-path {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 2;
+  filter: drop-shadow(0 0 3px #34d399);
+}
+.sokoban-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--cols), 1fr);
+  aspect-ratio: 1;
+  gap: 3px;
+  background: #17233b;
+  border-radius: 15px;
+  padding: 8px;
+}
+.sokoban-cell {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  padding: 0;
+  border-radius: 5px;
+  background: #263b54;
+  min-width: 0;
+  aspect-ratio: 1;
+}
+.sokoban-cell.is-wall {
+  background: repeating-linear-gradient(
+    145deg,
+    #40556d,
+    #40556d 8px,
+    #354a62 8px,
+    #354a62 16px
+  );
+  box-shadow: inset 0 2px rgba(255, 255, 255, 0.08);
+}
+.sokoban-cell.is-goal::before {
+  content: '';
+  position: absolute;
+  width: 35%;
+  height: 35%;
+  border-radius: 50%;
+  border: 2px solid #6ee7b7;
+  background: rgba(52, 211, 153, 0.2);
+}
+.sokoban-box {
+  width: 74%;
+  height: 74%;
+  border-radius: 6px;
+  background: #fbbf24;
+  border: 3px solid #d97706;
+  box-shadow: inset 0 0 0 2px #fde68a;
+  position: relative;
+  z-index: 1;
+}
+.sokoban-box.is-home {
+  background: #34d399;
+  border-color: #059669;
+  box-shadow: inset 0 0 0 2px #a7f3d0;
+}
+.sokoban-player {
+  border-radius: 50%;
+  width: 66%;
+  height: 66%;
+  background: #60a5fa;
+  border: 3px solid #bfdbfe;
+  z-index: 2;
+  box-shadow: 0 2px 10px #2563eb70;
+}
+.puzzle-dpad {
+  display: grid;
+  grid-template-columns: repeat(3, 48px);
+  gap: 6px;
+  justify-content: center;
+  margin: 12px auto;
+}
+.puzzle-dpad button {
+  min-height: 44px;
+  touch-action: manipulation;
+}
+.breakout-screen {
+  position: relative;
+  max-width: 420px;
+  margin: 16px auto;
+  border-radius: 18px;
+  overflow: hidden;
+  background: #0b1326;
+  box-shadow: 0 8px 28px #0f172a30;
+  touch-action: none;
+}
+.breakout-screen canvas {
+  display: block;
+  width: 100%;
+  aspect-ratio: 420 / 540;
+  outline-offset: -4px;
+}
+.breakout-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #0b1326b3;
+  color: #fff;
+  font-size: 22px;
+  font-weight: 700;
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pairlink-tile {
+    transition: none;
+  }
+}

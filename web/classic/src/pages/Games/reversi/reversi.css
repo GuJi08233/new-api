@@ -1,0 +1,237 @@
+/*
+Copyright (C) 2025 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+
+/* 黑白棋盘：平面的绿色棋盘，能下的格子打点，新落的子弹出、被夹住的子翻面(先落子，稍后再翻)。 */
+
+.reversi-board-wrap {
+  --reversi-black: #1c1e22;
+  --reversi-white: #f4f4f2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: min(100%, 480px);
+}
+
+.reversi-hud {
+  margin-bottom: 6px;
+}
+
+.reversi-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.reversi-count-disc {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-right: 4px;
+  border-radius: 50%;
+  vertical-align: -2px;
+  border: 1px solid rgba(0, 0, 0, 0.3);
+}
+
+.reversi-count-disc.is-b {
+  background: var(--reversi-black, #1c1e22);
+}
+
+.reversi-count-disc.is-w {
+  background: var(--reversi-white, #f4f4f2);
+}
+
+.reversi-notice {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 22px;
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--semi-color-warning);
+}
+
+.reversi-board {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 2px;
+  width: 100%;
+  padding: 2px;
+  border-radius: 12px;
+  background: #1d5a3b;
+  overflow: hidden;
+  box-shadow: 0 10px 24px -18px rgba(10, 60, 30, 0.9);
+}
+
+.reversi-cell {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 1;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: #2d7d52;
+  cursor: default;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.reversi-cell.is-legal {
+  cursor: pointer;
+}
+
+.reversi-cell.is-legal:hover {
+  background: #348e5d;
+}
+
+.reversi-cell:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: -2px;
+}
+
+.reversi-disc {
+  width: 80%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+}
+
+.reversi-disc.is-b {
+  background: var(--reversi-black);
+  box-shadow:
+    inset 0 -3px 0 rgba(255, 255, 255, 0.08),
+    0 2px 3px rgba(0, 0, 0, 0.35);
+}
+
+.reversi-disc.is-w {
+  background: var(--reversi-white);
+  box-shadow:
+    inset 0 -3px 0 rgba(0, 0, 0, 0.12),
+    0 2px 3px rgba(0, 0, 0, 0.3);
+}
+
+.reversi-disc.is-ghost {
+  opacity: 0.45;
+}
+
+.reversi-hint {
+  width: 24%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.38);
+}
+
+.reversi-last {
+  position: absolute;
+  width: 14%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  pointer-events: none;
+  background: var(--semi-color-danger);
+}
+
+.reversi-disc.is-new {
+  animation: reversi-place 0.22s ease-out;
+}
+
+/* 翻面：先压扁成一条线，过了一半换成新的颜色再展开；稍等落子动画之后再翻，等待时保持原来的颜色。 */
+.reversi-disc.is-flip.is-b {
+  animation: reversi-flip-to-black 0.36s ease-in-out 0.12s backwards;
+}
+
+.reversi-disc.is-flip.is-w {
+  animation: reversi-flip-to-white 0.36s ease-in-out 0.12s backwards;
+}
+
+body[theme-mode='dark'] .reversi-board {
+  background: #174a31;
+  box-shadow: none;
+}
+
+body[theme-mode='dark'] .reversi-count-disc {
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+body[theme-mode='dark'] .reversi-cell {
+  background: #276e48;
+}
+
+body[theme-mode='dark'] .reversi-cell.is-legal:hover {
+  background: #2e7f53;
+}
+
+@keyframes reversi-place {
+  from {
+    transform: scale(0.5);
+    opacity: 0.5;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes reversi-flip-to-black {
+  0%,
+  50% {
+    background: var(--reversi-white);
+  }
+  0% {
+    transform: scaleX(1);
+  }
+  50% {
+    transform: scaleX(0);
+  }
+  50.1%,
+  100% {
+    background: var(--reversi-black);
+  }
+  100% {
+    transform: scaleX(1);
+  }
+}
+
+@keyframes reversi-flip-to-white {
+  0%,
+  50% {
+    background: var(--reversi-black);
+  }
+  0% {
+    transform: scaleX(1);
+  }
+  50% {
+    transform: scaleX(0);
+  }
+  50.1%,
+  100% {
+    background: var(--reversi-white);
+  }
+  100% {
+    transform: scaleX(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reversi-disc.is-new,
+  .reversi-disc.is-flip.is-b,
+  .reversi-disc.is-flip.is-w {
+    animation: none;
+  }
+}

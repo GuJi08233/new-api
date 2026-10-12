@@ -505,6 +505,12 @@ func recordRuleAlert(metric string, userId int, username string, ip string, reas
 	}, time.Now())
 }
 
+// RecordGameCheatAlert 记录一条游戏作弊告警(例如操作快过人类极限的对局)，出现在风控事件列表里，
+// 由管理员决定是否处置账号。同一账号在同一 IP 上的反复命中与其他告警共用聚合窗口。
+func RecordGameCheatAlert(game string, userId int, ip string, reason string) {
+	recordRuleAlert("game:"+game, userId, "", ip, reason)
+}
+
 // recordExemptSkipAlert 记录一条「命中规则但因白名单跳过账号处置」的告警。
 // 与其他告警共用聚合窗口,同一账号的反复命中不会刷屏。
 // 有意不查用户名:本函数可能被重试循环反复触发(例如用户级白名单账号命中 UA 黑名单),

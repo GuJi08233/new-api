@@ -78,6 +78,16 @@ func TestMain(m *testing.M) {
 		&TradeSpotAssetLoan{},
 		&TradePredictionRound{},
 		&TradePredictionPosition{},
+		&GameCoinWithdrawal{},
+		&GameCoinWithdrawDay{},
+		&GameCoinConvertDay{},
+		&GameSession{},
+		&GameRewardDay{},
+		&GameRewardIpDay{},
+		&GameRoom{},
+		&GameRoomSeat{},
+		&GameJackpotRound{},
+		&GameJackpotEntry{},
 	); err != nil {
 		panic("failed to migrate: " + err.Error())
 	}
@@ -133,6 +143,16 @@ func truncateTables(t *testing.T) {
 		DB.Exec("DELETE FROM trade_spot_asset_loans")
 		DB.Exec("DELETE FROM trade_prediction_rounds")
 		DB.Exec("DELETE FROM trade_prediction_positions")
+		DB.Exec("DELETE FROM game_coin_withdrawals")
+		DB.Exec("DELETE FROM game_coin_withdraw_days")
+		DB.Exec("DELETE FROM game_coin_convert_days")
+		DB.Exec("DELETE FROM game_sessions")
+		DB.Exec("DELETE FROM game_reward_days")
+		DB.Exec("DELETE FROM game_reward_ip_days")
+		DB.Exec("DELETE FROM game_rooms")
+		DB.Exec("DELETE FROM game_room_seats")
+		DB.Exec("DELETE FROM game_jackpot_rounds")
+		DB.Exec("DELETE FROM game_jackpot_entries")
 	})
 }
 

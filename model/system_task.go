@@ -23,7 +23,11 @@ const (
 	SystemTaskTypeMidjourneyPoll  = "midjourney_poll"
 	SystemTaskTypeAsyncTaskPoll   = "async_task_poll"
 	// SystemTaskTypeTradeSnapshot 每天给模拟盘账户拍一次资产快照。
-	SystemTaskTypeTradeSnapshot = "trade_snapshot"
+	SystemTaskTypeTradeSnapshot    = "trade_snapshot"
+	SystemTaskTypeGameCoinWithdraw = "game_coin_withdraw"
+	SystemTaskTypeGameCenterSweep  = "game_center_sweep"
+	// SystemTaskTypeGameCenterCleanup 每天清理一次过了保留期的游戏记录。
+	SystemTaskTypeGameCenterCleanup = "game_center_cleanup"
 )
 
 var ErrSystemTaskLockLost = errors.New("system task lock lost")

@@ -16,6 +16,7 @@ import (
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type Option struct {
@@ -36,6 +37,19 @@ func AllOption() ([]*Option, error) {
 	var err error
 	err = ReadDB().Find(&options).Error
 	return options, err
+}
+
+// ReadOptionValue 直接从主库读一个配置项，库里没有这一项时返回空字符串。多节点部署时，别的节点刚改的配置
+// 要等下一次同步才进到本节点的内存；签名这类必须用最新值的操作要现读。
+func ReadOptionValue(key string) (string, error) {
+	var options []Option
+	if err := DB.Where(&Option{Key: key}).Limit(1).Find(&options).Error; err != nil {
+		return "", err
+	}
+	if len(options) == 0 {
+		return "", nil
+	}
+	return options[0].Value, nil
 }
 
 func InitOptionMap() {
@@ -239,8 +253,9 @@ func loadOptionsFromDatabase() {
 	}
 	common.OptionMapRWMutex.Lock()
 	defer common.OptionMapRWMutex.Unlock()
-	// 模拟盘配置等所有项回放完再整份发布，读取方不会看到新旧混杂的配置。
+	// 模拟盘与游戏中心的配置等所有项回放完再整份发布，读取方不会看到新旧混杂的配置。
 	defer operation_setting.SyncTradeSetting()
+	defer operation_setting.SyncGameSetting()
 	for _, option := range options {
 		err := applyOptionToRuntime(option.Key, option.Value)
 		if err != nil {
@@ -265,6 +280,9 @@ func UpdateOption(key string, value string) error {
 	if isRemovedOptionKey(key) {
 		return nil
 	}
+	if strings.HasPrefix(key, operation_setting.GameSettingPrefix) {
+		return UpdateOptionsBulk(map[string]string{key: value})
+	}
 	optionWriteMu.Lock()
 	defer optionWriteMu.Unlock()
 	if err := operation_setting.ValidateRiskControlOption(key, value); err != nil {
@@ -274,6 +292,9 @@ func UpdateOption(key string, value string) error {
 		return err
 	}
 	if err := operation_setting.ValidateTradeOption(key, value); err != nil {
+		return err
+	}
+	if err := operation_setting.ValidateGameOption(key, value); err != nil {
 		return err
 	}
 	if err := validateTieredBillingOption(key, value); err != nil {
@@ -315,12 +336,106 @@ func UpdateOptionsBulk(values map[string]string) error {
 	return updateOptionsBulkLocked(values)
 }
 
+// UpdateGameSettingFields 保存管理员在游戏管理页改动的几项游戏中心配置。apply 拿到的底稿是数据库里现在的完整配置
+// (默认值加上库里存的项)，它把改动合并进去、整理并整份校验，返回要写回的配置项；返回错误时什么都不写。
+// 数据库锁覆盖读底稿、合并、校验与落库，多个节点修改同一游戏的不同子字段也不会互相覆盖。
+// optionWriteMu 另外保证本节点的提交与运行时发布按顺序执行。
+func UpdateGameSettingFields(apply func(setting *operation_setting.GameSetting) (map[string]string, error)) error {
+	optionWriteMu.Lock()
+	defer optionWriteMu.Unlock()
+	var runtimeOptions map[string]string
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		setting, err := loadGameSettingForUpdate(tx)
+		if err != nil {
+			return err
+		}
+		options, err := apply(setting)
+		if err != nil {
+			return err
+		}
+		for key := range options {
+			if !strings.HasPrefix(key, operation_setting.GameSettingPrefix) {
+				return fmt.Errorf("unknown game setting option: %s", key)
+			}
+		}
+		runtimeOptions, err = mergeGameSettingOptions(setting, options)
+		if err != nil {
+			return err
+		}
+		return saveOptionsTx(tx, options)
+	})
+	if err != nil {
+		return err
+	}
+	return publishOptions(runtimeOptions)
+}
+
+// loadGameSettingForUpdate 用总开关这一稳定行串行化所有游戏配置写入，再读取数据库里的完整配置。
+// 首次保存时也先创建锁行；SQLite 的 INSERT 先取得写锁，MySQL/PostgreSQL 使用共享的行锁工具。
+func loadGameSettingForUpdate(tx *gorm.DB) (*operation_setting.GameSetting, error) {
+	setting := operation_setting.DefaultGameSetting()
+	key := operation_setting.GameSettingPrefix + "enabled"
+	if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&Option{
+		Key: key, Value: strconv.FormatBool(setting.Enabled),
+	}).Error; err != nil {
+		return nil, err
+	}
+	var guard Option
+	if err := lockForUpdate(tx).Where(&Option{Key: key}).First(&guard).Error; err != nil {
+		return nil, err
+	}
+	var stored []Option
+	if err := tx.Find(&stored).Error; err != nil {
+		return nil, err
+	}
+	current := make(map[string]string)
+	for _, option := range stored {
+		if field, ok := strings.CutPrefix(option.Key, operation_setting.GameSettingPrefix); ok {
+			current[field] = option.Value
+		}
+	}
+	if err := config.UpdateConfigFromMap(setting, current); err != nil {
+		return nil, err
+	}
+	return setting, nil
+}
+
+// mergeGameSettingOptions 对数据库底稿合并序列化配置并做完整校验，返回提交后应发布的整份游戏配置。
+// 同时发布未修改的字段，避免本节点尚未同步的旧值与刚保存的新值组成无效的提现区间或链配置。
+func mergeGameSettingOptions(setting *operation_setting.GameSetting, options map[string]string) (map[string]string, error) {
+	changes := make(map[string]string)
+	for key, value := range options {
+		if field, ok := strings.CutPrefix(key, operation_setting.GameSettingPrefix); ok {
+			if err := operation_setting.ValidateGameOption(key, value); err != nil {
+				return nil, err
+			}
+			changes[field] = value
+		}
+	}
+	if err := config.UpdateConfigFromMap(setting, changes); err != nil {
+		return nil, err
+	}
+	if err := operation_setting.ValidateGameSetting(setting); err != nil {
+		return nil, err
+	}
+	values, err := config.ConfigToMap(setting)
+	if err != nil {
+		return nil, err
+	}
+	runtimeOptions := make(map[string]string, len(values))
+	for key, value := range values {
+		runtimeOptions[operation_setting.GameSettingPrefix+key] = value
+	}
+	return runtimeOptions, nil
+}
+
 // updateOptionsBulkLocked 的调用方必须持有 optionWriteMu。
 func updateOptionsBulkLocked(values map[string]string) error {
 	if len(values) == 0 {
 		return nil
 	}
 	activeValues := make(map[string]string, len(values))
+	hasGameSettings := false
 	for key, value := range values {
 		if isRemovedOptionKey(key) {
 			continue
@@ -334,6 +449,9 @@ func updateOptionsBulkLocked(values map[string]string) error {
 		if err := operation_setting.ValidateTradeOption(key, value); err != nil {
 			return err
 		}
+		if err := operation_setting.ValidateGameOption(key, value); err != nil {
+			return err
+		}
 		if err := validateTieredBillingOption(key, value); err != nil {
 			return err
 		}
@@ -341,6 +459,7 @@ func updateOptionsBulkLocked(values map[string]string) error {
 			return err
 		}
 		activeValues[key] = value
+		hasGameSettings = hasGameSettings || strings.HasPrefix(key, operation_setting.GameSettingPrefix)
 	}
 	if len(activeValues) == 0 {
 		return nil
@@ -348,28 +467,57 @@ func updateOptionsBulkLocked(values map[string]string) error {
 	if err := validateBillingModeConsistency(activeValues); err != nil {
 		return err
 	}
+	runtimeOptions := make(map[string]string, len(activeValues))
+	for key, value := range activeValues {
+		runtimeOptions[key] = value
+	}
 	err := DB.Transaction(func(tx *gorm.DB) error {
-		for k, v := range activeValues {
-			option := Option{Key: k}
-			if err := tx.FirstOrCreate(&option, Option{Key: k}).Error; err != nil {
+		if hasGameSettings {
+			setting, err := loadGameSettingForUpdate(tx)
+			if err != nil {
 				return err
 			}
-			option.Value = v
-			if err := tx.Save(&option).Error; err != nil {
+			gameOptions, err := mergeGameSettingOptions(setting, activeValues)
+			if err != nil {
 				return err
+			}
+			for key, value := range gameOptions {
+				runtimeOptions[key] = value
 			}
 		}
-		return nil
+		return saveOptionsTx(tx, activeValues)
 	})
 	if err != nil {
 		return err
 	}
+	return publishOptions(runtimeOptions)
+}
+
+// saveOptionsTx 将一批配置写进调用方的事务；运行时配置必须等提交成功后才能发布。
+func saveOptionsTx(tx *gorm.DB, values map[string]string) error {
+	for key, value := range values {
+		option := Option{Key: key}
+		if err := tx.FirstOrCreate(&option, Option{Key: key}).Error; err != nil {
+			return err
+		}
+		option.Value = value
+		if err := tx.Save(&option).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// publishOptions 的调用方持有 optionWriteMu；整批配置提交后才一次发布，读取方不会看到新旧混杂的游戏配置。
+func publishOptions(values map[string]string) error {
 	// 相关配置在同一写锁内发布，计费读取不会看见新模式配旧表达式。
 	common.OptionMapRWMutex.Lock()
 	defer common.OptionMapRWMutex.Unlock()
-	// 模拟盘配置等这一批全部写完再整份发布：它的读取方不经过这把锁，逐项发布的话，行情连接可能拿到新地址配旧代理。
+	// 模拟盘与游戏中心的配置等这一批全部写完再整份发布：它们的读取方不经过这把锁，逐项发布的话，行情连接可能拿到新地址配旧代理，
+	// 提现 worker 可能读到新的链和 RPC 配着旧的代币合约。
 	defer operation_setting.SyncTradeSetting()
-	for k, v := range activeValues {
+	defer operation_setting.SyncGameSetting()
+	for k, v := range values {
 		if err := applyOptionToRuntime(k, v); err != nil {
 			return err
 		}
@@ -382,6 +530,9 @@ func updateOptionMap(key string, value string) (err error) {
 	defer common.OptionMapRWMutex.Unlock()
 	if strings.HasPrefix(key, operation_setting.TradeSettingPrefix) {
 		defer operation_setting.SyncTradeSetting()
+	}
+	if strings.HasPrefix(key, operation_setting.GameSettingPrefix) {
+		defer operation_setting.SyncGameSetting()
 	}
 	return applyOptionToRuntime(key, value)
 }
@@ -399,6 +550,9 @@ func applyOptionToRuntime(key string, value string) (err error) {
 		return err
 	}
 	if err := operation_setting.ValidateTradeOption(key, value); err != nil {
+		return err
+	}
+	if err := operation_setting.ValidateGameOption(key, value); err != nil {
 		return err
 	}
 	// 注意：此处不做阶梯计费表达式校验。updateOptionMap 同时服务于写入路径
@@ -640,6 +794,8 @@ func applyOptionToRuntime(key string, value string) (err error) {
 		setting.EthereumContractAddress = value
 	case "EthereumAlchemyWebhookSigningKey":
 		setting.EthereumAlchemyWebhookSigningKey = value
+	case operation_setting.GameHotWalletPrivateKeyOption:
+		operation_setting.SetGameHotWalletPrivateKey(value)
 	case "EthereumMinTopUp":
 		setting.EthereumMinTopUp, _ = strconv.Atoi(value)
 	case "EthereumRpcUrl":
@@ -875,6 +1031,8 @@ func handleConfigUpdate(key, value string) bool {
 	} else if configName == "ip_location_setting" {
 		operation_setting.SyncIpLocationSetting()
 	}
+	// game_setting 不在这里逐项发布快照，由 updateOptionMap、updateOptionsBulkLocked、loadOptionsFromDatabase
+	// 在写完之后整份发布。
 
 	return true // 已处理
 }

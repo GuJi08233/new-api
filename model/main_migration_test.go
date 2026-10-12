@@ -37,6 +37,18 @@ func TestMigrateDBCreatesUpstreamSupportTables(t *testing.T) {
 		&CasbinRule{},
 		&AuthzRole{},
 		&UserSubscriptionTierUsage{},
+		&GameCoinAccount{},
+		&GameCoinLog{},
+		&GameCoinWithdrawal{},
+		&GameCoinWithdrawDay{},
+		&GameCoinConvertDay{},
+		&GameSession{},
+		&GameRewardDay{},
+		&GameRewardIpDay{},
+		&GameRoom{},
+		&GameRoomSeat{},
+		&GameJackpotRound{},
+		&GameJackpotEntry{},
 	} {
 		require.True(t, DB.Migrator().HasTable(table))
 	}

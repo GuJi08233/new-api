@@ -1,0 +1,313 @@
+/*
+Copyright (C) 2025 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+
+/* ==========================================================================
+   Plinko page — scoped styles (all classes prefixed with `plinko-`)
+   Built on the game center shell and the shared stage in ../games.css. The
+   board is drawn as a layered network and follows Semi variables in both
+   themes; the ball uses the game coin color, only the slots keep their own
+   colors.
+   ========================================================================== */
+
+.plinko-page {
+  max-width: 1000px;
+}
+
+.plinko-topbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.plinko-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+  color: var(--semi-color-text-0);
+}
+
+.plinko-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 540px) 300px;
+  justify-content: center;
+  align-items: start;
+  gap: 24px;
+}
+
+/* ---------- Tiers ---------- */
+
+/* 三档投入做成分段选择，与排行榜的时间段切换一致。 */
+.plinko-tiers {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 2px;
+  width: 100%;
+  max-width: 420px;
+  padding: 3px;
+  border-radius: 12px;
+  border: 1px solid var(--semi-color-border);
+  background: var(--semi-color-fill-0);
+}
+
+.plinko-tier {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px;
+  border: none;
+  border-radius: 9px;
+  color: var(--semi-color-text-2);
+  background: transparent;
+  cursor: pointer;
+  transition:
+    color 0.15s ease,
+    background 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.plinko-tier:hover:not(:disabled) {
+  color: var(--semi-color-text-0);
+}
+
+.plinko-tier.is-active {
+  color: var(--semi-color-text-0);
+  background: var(--semi-color-bg-1);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+}
+
+.plinko-tier:disabled {
+  cursor: not-allowed;
+}
+
+.plinko-tier:disabled:not(.is-active) {
+  opacity: 0.45;
+}
+
+.plinko-tier:focus-visible {
+  outline: 2px solid var(--semi-color-primary);
+  outline-offset: 1px;
+}
+
+.plinko-tier-stake {
+  font-size: 16px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.plinko-tier-note {
+  font-size: 11px;
+  opacity: 0.85;
+}
+
+/* ---------- Board ---------- */
+
+.plinko-board {
+  display: block;
+  width: 100%;
+  max-width: 480px;
+  margin-top: 10px;
+  overflow: visible;
+}
+
+.plinko-links {
+  fill: none;
+  stroke: var(--semi-color-text-2);
+  stroke-width: 1;
+  opacity: 0.22;
+}
+
+.plinko-inlet {
+  fill: none;
+  stroke: var(--semi-color-text-2);
+  stroke-width: 1.5;
+  stroke-dasharray: 3 3;
+  opacity: 0.6;
+}
+
+.plinko-peg {
+  fill: var(--semi-color-text-2);
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+/* 小球碰到钉子时荡开的一圈和刚走过的连线，取游戏币的颜色。 */
+.plinko-pulse {
+  fill: none;
+  stroke: var(--semi-color-warning);
+  stroke-width: 1.5;
+  transform-box: fill-box;
+  transform-origin: center;
+  pointer-events: none;
+}
+
+.plinko-trail {
+  stroke: var(--semi-color-warning);
+  stroke-width: 2;
+  stroke-linecap: round;
+  pointer-events: none;
+}
+
+.plinko-slot {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.plinko-slot-label {
+  font-size: 10.5px;
+  font-weight: 800;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.plinko-ball {
+  fill: var(--semi-color-warning);
+  stroke: var(--semi-color-bg-1);
+  stroke-width: 1.5;
+  filter: drop-shadow(
+    0 0 4px color-mix(in srgb, var(--semi-color-warning) 70%, transparent)
+  );
+}
+
+/* ---------- Controls ---------- */
+
+.plinko-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin-top: 16px;
+}
+
+/* ---------- Side panel ---------- */
+
+.plinko-side {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.plinko-box {
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--semi-color-border);
+  background: var(--semi-color-bg-1);
+}
+
+.plinko-box-label {
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--semi-color-text-2);
+}
+
+.plinko-box-value {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  font-size: 22px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--semi-color-text-0);
+}
+
+.plinko-box-value span {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--semi-color-text-2);
+}
+
+.plinko-box-note {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--semi-color-text-2);
+}
+
+.plinko-history {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 10px;
+}
+
+.plinko-history-item {
+  min-width: 34px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.plinko-odds {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--semi-color-text-1);
+}
+
+.plinko-odds th {
+  padding: 0 2px 6px;
+  font-weight: 500;
+  text-align: left;
+  color: var(--semi-color-text-2);
+}
+
+.plinko-odds th:not(:first-child),
+.plinko-odds td:not(:first-child) {
+  text-align: right;
+}
+
+.plinko-odds td {
+  padding: 4px 2px;
+  border-top: 1px solid var(--semi-color-border);
+}
+
+.plinko-odds-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 8px;
+  border-radius: 3px;
+  vertical-align: -1px;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12);
+}
+
+.plinko-rules {
+  margin: 10px 0 0;
+  padding-left: 16px;
+  list-style: disc;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--semi-color-text-2);
+}
+
+/* 窄屏：钉板在上，余额与概率公示排到下面。 */
+@media (max-width: 900px) {
+  .plinko-layout {
+    grid-template-columns: minmax(0, 540px);
+  }
+}

@@ -1,0 +1,1082 @@
+/*
+Copyright (C) 2025 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+
+/* ==========================================================================
+   Game center page — scoped styles (all classes prefixed with `games-`)
+   Theme-aware via Semi CSS variables, works in light & dark mode.
+   ========================================================================== */
+
+.games-page {
+  position: relative;
+  min-height: 100%;
+  padding-top: 64px;
+}
+
+/* 与首页横幅的靛蓝、青绿光晕同色。 */
+.games-glow {
+  pointer-events: none;
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 520px;
+  background: radial-gradient(
+      ellipse 50% 45% at 15% 10%,
+      rgba(var(--semi-indigo-5), 1) 0%,
+      transparent 70%
+    ),
+    radial-gradient(
+      ellipse 45% 40% at 85% 8%,
+      rgba(var(--semi-teal-5), 1) 0%,
+      transparent 70%
+    );
+  opacity: 0.12;
+  -webkit-mask-image: linear-gradient(to bottom, black 30%, transparent 100%);
+  mask-image: linear-gradient(to bottom, black 30%, transparent 100%);
+}
+
+.games-container {
+  position: relative;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 28px 24px 48px;
+}
+
+/* ---------- Hero ---------- */
+
+.games-hero {
+  margin-bottom: 24px;
+}
+
+.games-hero-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.games-hero-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  flex-shrink: 0;
+  color: #fff;
+  background: linear-gradient(135deg, #8b5cf6 0%, #ec4899 100%);
+  box-shadow: 0 6px 16px rgba(139, 92, 246, 0.35);
+}
+
+.games-hero-title {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  line-height: 1.25;
+  color: var(--semi-color-text-0);
+}
+
+.games-hero-sub {
+  margin: 8px 0 0;
+  font-size: 14px;
+  color: var(--semi-color-text-2);
+  max-width: 620px;
+}
+
+/* ---------- Wallet cards ---------- */
+
+.games-wallet {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+
+.games-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px 20px;
+  border-radius: 14px;
+  border: 1px solid var(--semi-color-border);
+  background: var(--semi-color-bg-1);
+}
+
+.games-card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.games-card-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  flex-shrink: 0;
+}
+
+.games-card-icon.tone-primary {
+  background: var(--semi-color-primary-light-default);
+  color: var(--semi-color-primary);
+}
+
+.games-card-icon.tone-green {
+  background: var(--semi-color-success-light-default);
+  color: var(--semi-color-success);
+}
+
+.games-card-icon.tone-amber {
+  background: var(--semi-color-warning-light-default);
+  color: var(--semi-color-warning);
+}
+
+.games-card-icon.tone-violet {
+  background: rgba(var(--semi-violet-5), 0.12);
+  color: rgba(var(--semi-violet-5), 1);
+}
+
+.games-card-title {
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--semi-color-text-0);
+}
+
+.games-balance-value {
+  font-size: 40px;
+  font-weight: 700;
+  line-height: 1.1;
+  font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+  font-variant-numeric: tabular-nums;
+  color: var(--semi-color-text-0);
+  word-break: break-all;
+}
+
+.games-balance-symbol {
+  margin-left: 8px;
+  font-size: 22px;
+  color: var(--semi-color-warning);
+}
+
+.games-balance-stats {
+  display: grid;
+  /* 三项或四项(开放下注游戏时多一项游戏输赢)都排成一行。 */
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--semi-color-border);
+}
+
+.games-balance-stats div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.games-balance-stats span {
+  font-size: 12px;
+  color: var(--semi-color-text-2);
+}
+
+.games-balance-stats strong {
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+  color: var(--semi-color-text-0);
+}
+
+.games-field {
+  width: 100%;
+}
+
+.games-preview {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  color: var(--semi-color-text-2);
+}
+
+.games-preview strong {
+  color: var(--semi-color-text-0);
+}
+
+.games-rules {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.8;
+  color: var(--semi-color-text-2);
+}
+
+.games-token {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 12px;
+  border-top: 1px solid var(--semi-color-border);
+  font-size: 12px;
+}
+
+.games-token-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--semi-color-text-2);
+}
+
+.games-token-row > span:last-child {
+  color: var(--semi-color-text-0);
+}
+
+.games-token-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.games-token-actions a {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--semi-color-link);
+}
+
+/* ---------- Sections ---------- */
+
+.games-section {
+  margin-top: 24px;
+  border-radius: 14px;
+  border: 1px solid var(--semi-color-border);
+  background: var(--semi-color-bg-1);
+  overflow: hidden;
+}
+
+.games-section-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--semi-color-border);
+}
+
+.games-section-title {
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--semi-color-text-0);
+}
+
+.games-lobby-link {
+  margin-left: auto;
+}
+
+.games-play-section + .games-play-section {
+  margin-top: 26px;
+}
+
+.games-play-section-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.games-play-section-head h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--semi-color-text-0);
+}
+
+.games-play-section-desc {
+  margin: 6px 0 14px;
+  color: var(--semi-color-text-2);
+  font-size: 13px;
+}
+
+.games-section-body {
+  padding: 12px 20px 16px;
+}
+
+/* ---------- Game list ---------- */
+
+.games-kind-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0 12px;
+}
+
+.games-kind-desc {
+  margin: -4px 0 12px;
+  font-size: 12px;
+  color: var(--semi-color-text-2);
+}
+
+.games-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
+  padding: 4px 0;
+}
+
+.games-list-card {
+  display: flex;
+  gap: 14px;
+  width: 100%;
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid var(--semi-color-border);
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  background: var(--semi-color-bg-0);
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.games-list-card:hover {
+  border-color: var(--semi-color-primary-light-active);
+  box-shadow: 0 8px 24px -16px var(--semi-color-primary);
+  transform: translateY(-1px);
+}
+
+.games-list-card:focus-visible {
+  outline: 2px solid var(--semi-color-primary);
+  outline-offset: 2px;
+}
+
+.games-list-cover {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  flex-shrink: 0;
+  color: #fff;
+  background: linear-gradient(135deg, var(--cover-from), var(--cover-to));
+  box-shadow: 0 6px 16px -8px var(--cover-to);
+  --cover-from: #8b5cf6;
+  --cover-to: #ec4899;
+}
+
+/* 每个游戏一种封面渐变，同一类游戏的色相相近：免费游戏偏青蓝，对战偏绿，运气偏紫粉，多人偏金。 */
+.cover-tetris {
+  --cover-from: #22d3ee;
+  --cover-to: #6366f1;
+}
+.cover-2048 {
+  --cover-from: #fbbf24;
+  --cover-to: #f97316;
+}
+.cover-snake {
+  --cover-from: #34d399;
+  --cover-to: #0ea5e9;
+}
+.cover-flappy {
+  --cover-from: #38bdf8;
+  --cover-to: #2563eb;
+}
+.cover-minesweeper {
+  --cover-from: #94a3b8;
+  --cover-to: #475569;
+}
+.cover-sudoku {
+  --cover-from: #60a5fa;
+  --cover-to: #4f46e5;
+}
+.cover-memory {
+  --cover-from: #f472b6;
+  --cover-to: #8b5cf6;
+}
+.cover-puzzle15 {
+  --cover-from: #2dd4bf;
+  --cover-to: #0891b2;
+}
+.cover-gomoku {
+  --cover-from: #a3e635;
+  --cover-to: #16a34a;
+}
+.cover-connect4 {
+  --cover-from: #facc15;
+  --cover-to: #dc2626;
+}
+.cover-reversi {
+  --cover-from: #4ade80;
+  --cover-to: #047857;
+}
+.cover-xiangqi {
+  --cover-from: #fb923c;
+  --cover-to: #b91c1c;
+}
+.cover-rps {
+  --cover-from: #fda4af;
+  --cover-to: #e11d48;
+}
+.cover-slots {
+  --cover-from: #6366f1;
+  --cover-to: #a855f7;
+}
+.cover-wheel {
+  --cover-from: #2dd4bf;
+  --cover-to: #0ea5e9;
+}
+.cover-plinko {
+  --cover-from: #3b82f6;
+  --cover-to: #c026d3;
+}
+.cover-dice {
+  --cover-from: #818cf8;
+  --cover-to: #db2777;
+}
+.cover-roulette {
+  --cover-from: #f43f5e;
+  --cover-to: #7c2d12;
+}
+.cover-blackjack {
+  --cover-from: #64748b;
+  --cover-to: #0f172a;
+}
+.cover-mines {
+  --cover-from: #22d3ee;
+  --cover-to: #7c3aed;
+}
+.cover-hilo {
+  --cover-from: #f59e0b;
+  --cover-to: #be185d;
+}
+.cover-crash {
+  --cover-from: #fb7185;
+  --cover-to: #7c3aed;
+}
+.cover-scratch {
+  --cover-from: #fde047;
+  --cover-to: #ea580c;
+}
+.cover-jackpot {
+  --cover-from: #fcd34d;
+  --cover-to: #b45309;
+}
+
+.games-records-filter {
+  width: 180px;
+  margin-bottom: 12px;
+}
+
+.games-list-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+}
+
+.games-list-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.games-list-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--semi-color-text-0);
+}
+
+.games-kind-tag {
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.games-kind-tag.kind-skill {
+  color: var(--semi-color-success);
+  background: var(--semi-color-success-light-default);
+}
+
+.games-kind-tag.kind-pvp {
+  color: var(--semi-color-primary);
+  background: var(--semi-color-primary-light-default);
+}
+
+.games-kind-tag.kind-wager {
+  color: rgba(var(--semi-violet-5), 1);
+  background: rgba(var(--semi-violet-5), 0.12);
+}
+
+.games-kind-tag.kind-party {
+  color: var(--semi-color-warning);
+  background: var(--semi-color-warning-light-default);
+}
+
+.games-list-desc {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--semi-color-text-2);
+}
+
+.games-list-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  margin-top: 2px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--semi-color-text-1);
+}
+
+.games-closed-banner {
+  margin-bottom: 16px;
+}
+
+.games-free-limit {
+  font-size: 12px;
+  color: var(--semi-color-text-2);
+}
+
+/* ---------- Game stage ----------
+   老虎机、大转盘和 Plinko 共用的台面：沿用站点卡片的底色、边框和圆角，随明暗主题切换；
+   顶部叠一层淡淡的靛蓝光晕和点阵。 */
+
+.games-stage {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px 18px;
+  border-radius: 16px;
+  border: 1px solid var(--semi-color-border);
+  background: var(--semi-color-bg-1);
+  overflow: hidden;
+}
+
+.games-stage::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(
+      ellipse 70% 42% at 50% 0%,
+      rgba(var(--semi-indigo-5), 0.14) 0%,
+      transparent 100%
+    ),
+    radial-gradient(var(--semi-color-fill-1) 1px, transparent 1.4px) 0 0 / 16px
+      16px;
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, transparent 80%);
+  mask-image: linear-gradient(to bottom, #000 0%, transparent 80%);
+}
+
+/* 大奖时台面外圈亮一下。 */
+.games-stage.is-big-win {
+  animation: games-stage-glow 1.4s ease-out;
+}
+
+.games-stage-message {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: 100%;
+  min-height: 52px;
+  margin-top: 16px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  text-align: center;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--semi-color-text-1);
+  background: var(--semi-color-fill-0);
+}
+
+.games-stage-message.is-win {
+  color: var(--semi-color-success);
+  background: var(--semi-color-success-light-default);
+}
+
+.games-stage-message.is-big-win {
+  font-size: 22px;
+  font-weight: 700;
+  color: rgba(var(--semi-amber-7), 1);
+  background: rgba(var(--semi-amber-5), 0.14);
+  animation: games-pop 0.6s ease-out;
+}
+
+.games-stage-message.is-loss {
+  color: var(--semi-color-text-2);
+}
+
+.games-stage-message.is-error {
+  font-size: 14px;
+  color: var(--semi-color-danger);
+  background: var(--semi-color-danger-light-default);
+}
+
+.games-stage-message-note {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--semi-color-text-2);
+}
+
+/* 台面上的主按钮，颜色取站点主色。按钮里可以放图标，和文字排在一行。 */
+.games-play-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 220px;
+  height: 48px;
+  padding: 0 28px;
+  border: none;
+  border-radius: 999px;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  color: #fff;
+  background: var(--semi-color-primary);
+  box-shadow: 0 8px 20px -10px var(--semi-color-primary);
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    transform 0.08s ease;
+}
+
+.games-play-button:hover:not(:disabled) {
+  background: var(--semi-color-primary-hover);
+}
+
+.games-play-button:active:not(:disabled) {
+  background: var(--semi-color-primary-active);
+  transform: translateY(1px);
+}
+
+.games-play-button.is-free {
+  background: var(--semi-color-success);
+  box-shadow: 0 8px 20px -10px var(--semi-color-success);
+}
+
+.games-play-button.is-free:hover:not(:disabled) {
+  background: var(--semi-color-success-hover);
+}
+
+.games-play-button.is-free:active:not(:disabled) {
+  background: var(--semi-color-success-active);
+}
+
+.games-play-button:disabled {
+  color: var(--semi-color-disabled-text);
+  background: var(--semi-color-disabled-bg);
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+.games-play-button:focus-visible {
+  outline: 2px solid var(--semi-color-primary);
+  outline-offset: 3px;
+}
+
+.games-stage-counter {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--semi-color-text-2);
+}
+
+.games-stage-hint {
+  width: 100%;
+  text-align: center;
+  font-size: 12px;
+  color: var(--semi-color-warning);
+}
+
+@keyframes games-stage-glow {
+  0% {
+    box-shadow: 0 0 0 0 rgba(var(--semi-amber-5), 0.6);
+  }
+  100% {
+    box-shadow: 0 0 0 16px rgba(var(--semi-amber-5), 0);
+  }
+}
+
+@keyframes games-pop {
+  0% {
+    transform: scale(0.85);
+  }
+  60% {
+    transform: scale(1.06);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .games-stage.is-big-win,
+  .games-stage-message.is-big-win {
+    animation: none;
+  }
+}
+
+@media (max-width: 520px) {
+  .games-stage {
+    padding: 14px 12px 16px;
+  }
+
+  .games-play-button {
+    width: 100%;
+  }
+}
+
+@media (max-width: 640px) {
+  .games-container {
+    padding: 20px 12px 32px;
+  }
+
+  .games-balance-value {
+    font-size: 32px;
+  }
+}
+
+/* ---------- Game page shell ----------
+   所有游戏页共用：顶栏、左边台面右边信息栏的布局、信息栏里的格子、下注控件与规则表。 */
+
+/* 顶栏与下面的台面、信息栏同宽，余额和信息栏右边对齐。 */
+.game-topbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(var(--game-main-width, 620px) + 324px);
+  margin: 0 auto 16px;
+}
+
+.game-page:has(.game-layout.is-single) .game-topbar {
+  max-width: var(--game-main-width, 960px);
+}
+
+.game-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+  color: var(--semi-color-text-0);
+}
+
+.game-topbar-balance {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  margin-left: auto;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--semi-color-border);
+  font-size: 13px;
+  color: var(--semi-color-text-2);
+  background: var(--semi-color-bg-1);
+}
+
+.game-topbar-balance svg {
+  align-self: center;
+  color: var(--semi-color-warning);
+}
+
+.game-topbar-balance strong {
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+  color: var(--semi-color-text-0);
+}
+
+.game-placeholder {
+  display: flex;
+  justify-content: center;
+  padding: 80px 0;
+}
+
+.game-layout {
+  display: grid;
+  grid-template-columns: minmax(0, var(--game-main-width, 620px)) 300px;
+  justify-content: center;
+  align-items: start;
+  gap: 24px;
+}
+
+.game-layout.is-single {
+  grid-template-columns: minmax(0, var(--game-main-width, 960px));
+}
+
+.game-main {
+  min-width: 0;
+}
+
+.game-side {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.game-box {
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--semi-color-border);
+  background: var(--semi-color-bg-1);
+}
+
+.game-box-label {
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--semi-color-text-2);
+}
+
+.game-box-value {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  font-size: 22px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--semi-color-text-0);
+}
+
+.game-box-value span {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--semi-color-text-2);
+}
+
+.game-box-note {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--semi-color-text-2);
+}
+
+.game-rules {
+  margin: 10px 0 0;
+  padding-left: 16px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--semi-color-text-2);
+}
+
+.game-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--semi-color-text-1);
+}
+
+.game-table th {
+  padding: 0 4px 6px;
+  font-weight: 500;
+  text-align: left;
+  color: var(--semi-color-text-2);
+}
+
+.game-table td {
+  padding: 4px;
+  border-top: 1px solid var(--semi-color-border);
+}
+
+.game-table th:last-child,
+.game-table td:last-child {
+  text-align: right;
+}
+
+.game-table tr.is-active td {
+  font-weight: 600;
+  color: var(--semi-color-primary);
+}
+
+/* 台面下方的一排控件：下注、主按钮、提示。 */
+.game-controls {
+  display: flex;
+  width: 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 12px 16px;
+  margin-top: 16px;
+}
+
+.game-bet {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px 6px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--semi-color-border);
+  color: var(--semi-color-text-1);
+  background: var(--semi-color-fill-0);
+}
+
+.game-bet-label {
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.game-bet-value {
+  min-width: 52px;
+  text-align: center;
+  font-size: 20px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--semi-color-text-0);
+}
+
+.game-bet-value small {
+  margin-left: 3px;
+  font-size: 13px;
+  color: var(--semi-color-warning);
+}
+
+.game-bet-button,
+.game-bet-quick,
+.game-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 8px;
+  color: var(--semi-color-text-0);
+  background: var(--semi-color-bg-1);
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.game-bet-button {
+  width: 32px;
+}
+
+.game-bet-quick,
+.game-chip {
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.game-bet-button:hover:not(:disabled),
+.game-bet-quick:hover:not(:disabled),
+.game-chip:hover:not(:disabled) {
+  background: var(--semi-color-fill-1);
+}
+
+.game-chip.is-active {
+  border-color: var(--semi-color-primary);
+  color: var(--semi-color-primary);
+  background: var(--semi-color-primary-light-default);
+}
+
+.game-bet-button:disabled,
+.game-bet-quick:disabled,
+.game-chip:disabled {
+  color: var(--semi-color-disabled-text);
+  cursor: not-allowed;
+}
+
+.game-bet-button:focus-visible,
+.game-bet-quick:focus-visible,
+.game-chip:focus-visible {
+  outline: 2px solid var(--semi-color-primary);
+  outline-offset: 2px;
+}
+
+/* 一组可选项(难度、倍数、档位)。 */
+.game-chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+}
+
+.game-turnstile {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+}
+
+/* 台面上方一行对局信息：计时、步数、得分。 */
+.game-hud {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px 20px;
+  width: 100%;
+  margin-bottom: 12px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--semi-color-text-2);
+}
+
+.game-hud strong {
+  margin-left: 4px;
+  font-size: 16px;
+  color: var(--semi-color-text-0);
+}
+
+@media (max-width: 960px) {
+  .game-layout {
+    grid-template-columns: minmax(0, var(--game-main-width, 620px));
+  }
+
+  .game-topbar {
+    max-width: var(--game-main-width, 620px);
+  }
+}
+
+@media (max-width: 520px) {
+  .game-bet {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .game-bet-quick {
+    padding: 0 8px;
+  }
+
+  .game-topbar-balance {
+    padding: 4px 10px;
+  }
+}
+
+/* 最窄的手机上下注控件收紧一点，减半、翻倍、最大留在同一行。 */
+@media (max-width: 380px) {
+  .game-bet {
+    gap: 4px;
+    padding: 6px;
+  }
+
+  .game-bet-value {
+    min-width: 40px;
+  }
+}

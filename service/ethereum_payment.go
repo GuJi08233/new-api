@@ -181,6 +181,17 @@ func VerifyEthereumPaymentReceipt(ctx context.Context, rpcURL string, chainId in
 	return fmt.Errorf("%w: no PaymentReceived log for order %s in %s", ErrEthereumPaymentInvalid, proof.OrderId, txHash)
 }
 
+// ethereumRpcError 是节点在 JSON-RPC 信封里返回的错误。与传输失败不同，它说明节点收到并
+// 处理了请求，调用方可以据此区分"交易已在内存池""nonce 已被占用"等明确结论。
+type ethereumRpcError struct {
+	Code    int
+	Message string
+}
+
+func (e *ethereumRpcError) Error() string {
+	return fmt.Sprintf("rpc error %d: %s", e.Code, e.Message)
+}
+
 func callEthereumRpc(ctx context.Context, rpcURL string, method string, params []any, result any) error {
 	if params == nil {
 		params = []any{}
@@ -210,9 +221,6 @@ func callEthereumRpc(ctx context.Context, rpcURL string, method string, params [
 		return err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("rpc status %d", resp.StatusCode)
-	}
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if err != nil {
 		return err
@@ -224,13 +232,25 @@ func callEthereumRpc(ctx context.Context, rpcURL string, method string, params [
 			Message string `json:"message"`
 		} `json:"error"`
 	}
+	// 有的节点和代理把 JSON-RPC 错误配上非 200 的状态码返回，错误内容照样要交给调用方分辨。
 	if err := common.Unmarshal(raw, &envelope); err != nil {
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("rpc status %d", resp.StatusCode)
+		}
 		return err
 	}
 	if envelope.Error != nil {
-		return fmt.Errorf("rpc error %d: %s", envelope.Error.Code, envelope.Error.Message)
+		return &ethereumRpcError{Code: envelope.Error.Code, Message: envelope.Error.Message}
 	}
-	if len(envelope.Result) == 0 || string(envelope.Result) == "null" {
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("rpc status %d", resp.StatusCode)
+	}
+	// JSON-RPC 的应答不是带 result 就是带 error，两个都没有是残缺的应答(代理截断、节点出错)，不能当成"查无此交易"：
+	// 游戏币提现会把查不到回执当作交易可能被顶掉的证据。
+	if len(envelope.Result) == 0 {
+		return errors.New("rpc reply has neither result nor error")
+	}
+	if string(envelope.Result) == "null" {
 		// Leave result at its zero value: a nil receipt is how the node says
 		// "not mined yet", which callers must distinguish from a decode error.
 		return nil

@@ -54,6 +54,7 @@ export const DEFAULT_ADMIN_CONFIG = {
     subscription: true,
     risk_control: true,
     trade_admin: true,
+    game_admin: true,
     system_info: true,
     setting: true,
   },

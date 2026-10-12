@@ -19,7 +19,13 @@ For commercial licensing, please contact support@quantumnous.com
 
 import { useMemo } from 'react';
 
-export const useNavigation = (t, docsLink, headerNavModules, tradeEnabled) => {
+export const useNavigation = (
+  t,
+  docsLink,
+  headerNavModules,
+  tradeEnabled,
+  gameCenterEnabled,
+) => {
   const mainNavLinks = useMemo(() => {
     // 默认配置，如果没有传入配置则显示所有模块
     const defaultModules = {
@@ -60,6 +66,11 @@ export const useNavigation = (t, docsLink, headerNavModules, tradeEnabled) => {
         itemKey: 'trade',
         to: '/trade',
       },
+      {
+        text: t('游戏中心'),
+        itemKey: 'games',
+        to: '/games',
+      },
       ...(docsLink
         ? [
             {
@@ -98,9 +109,13 @@ export const useNavigation = (t, docsLink, headerNavModules, tradeEnabled) => {
         // 模拟盘的开关在模拟盘管理页，不属于顶栏模块配置
         return tradeEnabled;
       }
+      if (link.itemKey === 'games') {
+        // 游戏中心的开关在管理员的游戏配置里，不属于顶栏模块配置
+        return gameCenterEnabled;
+      }
       return modules[link.itemKey] === true;
     });
-  }, [t, docsLink, headerNavModules, tradeEnabled]);
+  }, [t, docsLink, headerNavModules, tradeEnabled, gameCenterEnabled]);
 
   return {
     mainNavLinks,

@@ -1,0 +1,271 @@
+/*
+Copyright (C) 2025 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+
+/* 火箭：飞行曲线画成看板上的面积图，飞行中用主色，爆炸时变红，兑现的一段用绿色；大号倍数叠在图中间。
+   最近几局的爆点按高低着色排成一行。 */
+
+.crash-recent {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  margin-bottom: 12px;
+  padding-bottom: 2px;
+  overflow-x: auto;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.crash-recent-label {
+  flex-shrink: 0;
+  font-weight: 600;
+  color: var(--semi-color-text-2);
+}
+
+.crash-recent-empty {
+  color: var(--semi-color-text-2);
+}
+
+.crash-recent-item {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-weight: 600;
+}
+
+.crash-recent-item.is-low {
+  color: var(--semi-color-text-1);
+  background: var(--semi-color-fill-1);
+}
+
+.crash-recent-item.is-mid {
+  color: var(--semi-color-success);
+  background: var(--semi-color-success-light-default);
+}
+
+.crash-recent-item.is-high {
+  color: rgba(var(--semi-amber-7), 1);
+  background: rgba(var(--semi-amber-5), 0.16);
+}
+
+.crash-chart {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 2 / 1;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 14px;
+  background: var(--semi-color-fill-0);
+  overflow: hidden;
+}
+
+.crash-chart svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.crash-guide {
+  stroke: var(--semi-color-border);
+  stroke-dasharray: 4 6;
+  vector-effect: non-scaling-stroke;
+}
+
+.crash-guide-label {
+  position: absolute;
+  left: 8px;
+  transform: translateY(-120%);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--semi-color-text-2);
+  pointer-events: none;
+}
+
+.crash-auto-line {
+  stroke: var(--semi-color-success);
+  stroke-width: 1.5;
+  stroke-dasharray: 6 5;
+  vector-effect: non-scaling-stroke;
+}
+
+.crash-area {
+  fill: rgba(var(--semi-indigo-5), 0.14);
+}
+
+.crash-curve {
+  fill: none;
+  stroke: var(--semi-color-primary);
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.crash-chart.is-crashed .crash-area {
+  fill: var(--semi-color-danger-light-default);
+}
+
+.crash-chart.is-crashed .crash-curve {
+  stroke: var(--semi-color-danger);
+}
+
+.crash-chart.is-cashed .crash-area {
+  fill: var(--semi-color-success-light-default);
+}
+
+.crash-chart.is-cashed .crash-curve {
+  stroke: var(--semi-color-success);
+}
+
+.crash-chart.is-cashed .crash-curve.is-after {
+  stroke: var(--semi-color-text-2);
+  stroke-width: 2;
+  stroke-dasharray: 5 6;
+  opacity: 0.6;
+}
+
+.crash-cashout-dot {
+  fill: var(--semi-color-success);
+  stroke: var(--semi-color-bg-1);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.crash-tip {
+  position: absolute;
+  display: inline-flex;
+  color: var(--semi-color-primary);
+  pointer-events: none;
+}
+
+.crash-tip svg {
+  width: 30px;
+  height: 30px;
+}
+
+.crash-chart.is-crashed .crash-tip {
+  color: var(--semi-color-danger);
+  animation: crash-burst 0.4s ease-out;
+}
+
+.crash-chart.is-cashed .crash-tip {
+  color: var(--semi-color-text-2);
+  opacity: 0.6;
+}
+
+.crash-readout {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  pointer-events: none;
+}
+
+.crash-readout-value {
+  font-size: 52px;
+  font-weight: 800;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  color: var(--semi-color-text-0);
+}
+
+.crash-chart.is-idle .crash-readout-value {
+  color: var(--semi-color-text-2);
+}
+
+.crash-chart.is-crashed .crash-readout-value {
+  color: var(--semi-color-danger);
+}
+
+.crash-chart.is-cashed .crash-readout-value {
+  color: var(--semi-color-success);
+}
+
+.crash-readout-caption {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--semi-color-text-2);
+}
+
+.crash-auto {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px 8px;
+}
+
+.crash-auto-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--semi-color-text-1);
+}
+
+.crash-cashout {
+  min-width: 260px;
+  background: var(--semi-color-success);
+  box-shadow: 0 8px 20px -10px var(--semi-color-success);
+}
+
+.crash-cashout:hover:not(:disabled) {
+  background: var(--semi-color-success-hover);
+}
+
+.crash-cashout:active:not(:disabled) {
+  background: var(--semi-color-success-active);
+}
+
+@keyframes crash-burst {
+  0% {
+    transform: translate(-50%, -50%) scale(0.4);
+    opacity: 0;
+  }
+  60% {
+    transform: translate(-50%, -50%) scale(1.4);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .crash-chart.is-crashed .crash-tip {
+    animation: none;
+  }
+}
+
+@media (max-width: 520px) {
+  .crash-readout-value {
+    font-size: 38px;
+  }
+
+  .crash-tip svg {
+    width: 24px;
+    height: 24px;
+  }
+
+  .crash-cashout {
+    min-width: 0;
+  }
+}

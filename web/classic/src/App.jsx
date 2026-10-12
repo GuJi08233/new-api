@@ -38,6 +38,7 @@ import Redemption from './pages/Redemption';
 import RiskControl from './pages/RiskControl';
 import SystemInfo from './pages/SystemInfo';
 import TradeAdmin from './pages/TradeAdmin';
+import GameAdmin from './pages/GameAdmin';
 import InvitationCode from './pages/InvitationCode';
 import TopUp from './pages/TopUp';
 import Log from './pages/Log';
@@ -62,6 +63,9 @@ const UserAgreement = lazy(() => import('./pages/UserAgreement'));
 const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy'));
 const Rankings = lazy(() => import('./pages/Rankings'));
 const Trade = lazy(() => import('./pages/Trade'));
+const Games = lazy(() => import('./pages/Games'));
+const GameLobby = lazy(() => import('./pages/Games/GameLobby'));
+const GamePage = lazy(() => import('./pages/Games/GamePage'));
 
 function DynamicOAuth2Callback() {
   const { provider } = useParams();
@@ -226,6 +230,14 @@ function App() {
             element={
               <RootRoute>
                 <TradeAdmin />
+              </RootRoute>
+            }
+          />
+          <Route
+            path='/console/game'
+            element={
+              <RootRoute>
+                <GameAdmin />
               </RootRoute>
             }
           />
@@ -529,6 +541,45 @@ function App() {
                   key={location.pathname}
                 >
                   <Trade />
+                </Suspense>
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path='/games'
+            element={
+              <PrivateRoute>
+                <Suspense
+                  fallback={<Loading></Loading>}
+                  key={location.pathname}
+                >
+                  <Games />
+                </Suspense>
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path='/games/lobby'
+            element={
+              <PrivateRoute>
+                <Suspense
+                  fallback={<Loading></Loading>}
+                  key={location.pathname}
+                >
+                  <GameLobby />
+                </Suspense>
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path='/games/:game'
+            element={
+              <PrivateRoute>
+                <Suspense
+                  fallback={<Loading></Loading>}
+                  key={location.pathname}
+                >
+                  <GamePage />
                 </Suspense>
               </PrivateRoute>
             }

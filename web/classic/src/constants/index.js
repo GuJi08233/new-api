@@ -26,3 +26,4 @@ export * from './playground.constants';
 export * from './redemption.constants';
 export * from './channel-affinity-template.constants';
 export * from './billing.constants';
+export * from './game.constants';

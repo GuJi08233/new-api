@@ -48,6 +48,7 @@ const HeaderBar = ({ onMobileMenuToggle, drawerOpen }) => {
     pricingRequireAuth,
     rankingsRequireAuth,
     tradeEnabled,
+    gameCenterEnabled,
     logout,
     handleLanguageChange,
     handleThemeToggle,
@@ -69,6 +70,7 @@ const HeaderBar = ({ onMobileMenuToggle, drawerOpen }) => {
     docsLink,
     headerNavModules,
     tradeEnabled,
+    gameCenterEnabled,
   );
 
   return (

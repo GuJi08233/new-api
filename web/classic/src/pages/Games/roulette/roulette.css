@@ -1,0 +1,506 @@
+/*
+Copyright (C) 2025 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+
+/* 轮盘：上面是欧式单零轮盘与小球，下面是下注桌面(宽屏横排、窄屏竖排)与筹码。号码格是固定的红、黑、绿，
+   两种主题下都一样；其余部分跟随 Semi 变量。 */
+
+.roulette-page {
+  --game-main-width: 680px;
+}
+
+/* ---------- Wheel ---------- */
+
+.roulette-wheel {
+  position: relative;
+  width: min(100%, 272px);
+  aspect-ratio: 1;
+}
+
+.roulette-wheel svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.14));
+}
+
+.roulette-rim {
+  fill: var(--semi-color-bg-2);
+  stroke: var(--semi-color-border);
+  stroke-width: 1.2;
+}
+
+/* 小球滚动的轨道。 */
+.roulette-track {
+  fill: none;
+  stroke: var(--semi-color-fill-1);
+  stroke-width: 10;
+}
+
+.roulette-pocket {
+  transition: opacity 0.3s ease;
+}
+
+.roulette-pocket path {
+  stroke: rgba(255, 255, 255, 0.35);
+  stroke-width: 0.6;
+}
+
+.roulette-pocket.is-red path {
+  fill: #dc2626;
+}
+
+.roulette-pocket.is-black path {
+  fill: #1f2937;
+}
+
+.roulette-pocket.is-green path {
+  fill: #16a34a;
+}
+
+.roulette-pocket text {
+  font-size: 8.5px;
+  font-weight: 700;
+  fill: #fff;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* 公布结果后其余号码格变淡，开出的那一格描上金边。 */
+.roulette-wheel svg.has-hit .roulette-pocket:not(.is-hit) {
+  opacity: 0.6;
+}
+
+.roulette-pocket.is-hit path {
+  stroke: #fbbf24;
+  stroke-width: 1.6;
+}
+
+.roulette-cone {
+  fill: var(--semi-color-bg-1);
+  stroke: var(--semi-color-border);
+  stroke-width: 1;
+}
+
+.roulette-hub {
+  fill: var(--semi-color-fill-0);
+  stroke: var(--semi-color-border);
+  stroke-width: 1;
+}
+
+.roulette-ball {
+  transition: opacity 0.2s ease;
+}
+
+.roulette-ball.is-hidden {
+  opacity: 0;
+}
+
+.roulette-ball circle {
+  fill: #f8fafc;
+  stroke: rgba(15, 23, 42, 0.45);
+  stroke-width: 0.8;
+}
+
+/* 开出的号码显示在轮盘中心，不随轮盘转动。 */
+.roulette-result {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30%;
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  font-size: 28px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+  box-shadow:
+    0 0 0 4px var(--semi-color-bg-1),
+    0 6px 16px rgba(0, 0, 0, 0.2);
+  pointer-events: none;
+  animation: roulette-pop 0.3s ease-out;
+}
+
+.roulette-result.is-red {
+  background: #dc2626;
+}
+
+.roulette-result.is-black {
+  background: #1f2937;
+}
+
+.roulette-result.is-green {
+  background: #16a34a;
+}
+
+/* ---------- Recent numbers ---------- */
+
+.roulette-recent {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 5px;
+  width: 100%;
+  min-height: 26px;
+  margin-top: 14px;
+}
+
+.roulette-recent-item {
+  min-width: 26px;
+  height: 26px;
+  padding: 0 5px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 24px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+}
+
+.roulette-recent-item:first-child {
+  box-shadow:
+    0 0 0 2px var(--semi-color-bg-1),
+    0 0 0 3px #fbbf24;
+}
+
+.roulette-recent-item.is-red {
+  background: #dc2626;
+}
+
+.roulette-recent-item.is-black {
+  background: #1f2937;
+}
+
+.roulette-recent-item.is-green {
+  background: #16a34a;
+}
+
+/* ---------- Table ---------- */
+
+.roulette-hud {
+  margin: 14px 0 8px;
+}
+
+.roulette-table {
+  display: grid;
+  grid-template-columns:
+    minmax(0, 1.2fr)
+    repeat(12, minmax(0, 1fr))
+    minmax(0, 1.2fr);
+  grid-template-rows: repeat(3, 40px) repeat(2, 34px);
+  gap: 3px;
+  width: 100%;
+}
+
+/* 每格在横排与竖排时的位置由 --h*、--v* 变量给出。押了注的格子在名字下面(长条格在右边)显示押了多少。 */
+.roulette-spot {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  min-width: 0;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+  cursor: pointer;
+  grid-column: var(--hc) / span var(--hcs);
+  grid-row: var(--hr) / span var(--hrs);
+  transition:
+    filter 0.15s ease,
+    background-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.roulette-spot.is-red {
+  background: #dc2626;
+}
+
+.roulette-spot.is-black {
+  background: #1f2937;
+}
+
+.roulette-spot.is-green {
+  background: #16a34a;
+}
+
+.roulette-spot.is-group {
+  flex-direction: row;
+  gap: 6px;
+}
+
+.roulette-spot.is-outside {
+  border-color: var(--semi-color-border);
+  font-size: 12px;
+  color: var(--semi-color-text-0);
+  background: var(--semi-color-fill-0);
+}
+
+.roulette-spot:hover:not(:disabled) {
+  filter: brightness(1.12);
+}
+
+.roulette-spot.is-outside:hover:not(:disabled) {
+  filter: none;
+  background: var(--semi-color-fill-1);
+}
+
+.roulette-spot:disabled {
+  cursor: default;
+}
+
+.roulette-spot:focus-visible {
+  z-index: 2;
+  outline: 2px solid var(--semi-color-primary);
+  outline-offset: 1px;
+}
+
+.roulette-spot-label {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: clip;
+}
+
+/* 开出的号码描金边，押中的注描绿边，没押中的注的筹码变淡。 */
+.roulette-spot.is-hit {
+  z-index: 1;
+  box-shadow:
+    0 0 0 2px #fbbf24,
+    0 0 14px rgba(251, 191, 36, 0.55);
+  animation: roulette-flash 0.8s ease-in-out 2;
+}
+
+.roulette-spot.is-won {
+  z-index: 1;
+  box-shadow: 0 0 0 2px var(--semi-color-success);
+}
+
+.roulette-spot.is-hit.is-won {
+  box-shadow:
+    0 0 0 2px #fbbf24,
+    0 0 0 4px var(--semi-color-success);
+}
+
+.roulette-spot.is-lost .roulette-stake {
+  opacity: 0.4;
+}
+
+/* 这一格押了多少游戏币。 */
+.roulette-stake {
+  min-width: 16px;
+  height: 15px;
+  padding: 0 4px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 15px;
+  color: #1f2937;
+  background: #fbbf24;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.85);
+  pointer-events: none;
+}
+
+/* ---------- Chips and actions ---------- */
+
+.roulette-chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.roulette-chip {
+  --chip-color: #64748b;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  border: 3px dashed rgba(255, 255, 255, 0.75);
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+  background: var(--chip-color);
+  box-shadow:
+    0 0 0 2px var(--chip-color),
+    0 3px 8px -2px rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.roulette-chip.is-chip-5 {
+  --chip-color: #dc2626;
+}
+
+.roulette-chip.is-chip-10 {
+  --chip-color: #2563eb;
+}
+
+.roulette-chip.is-chip-50 {
+  --chip-color: #16a34a;
+}
+
+.roulette-chip.is-chip-100 {
+  --chip-color: #111827;
+}
+
+.roulette-chip.is-chip-500 {
+  --chip-color: #7c3aed;
+}
+
+.roulette-chip.is-active {
+  transform: translateY(-3px);
+  box-shadow:
+    0 0 0 2px var(--chip-color),
+    0 0 0 5px var(--semi-color-primary),
+    0 6px 12px -4px rgba(0, 0, 0, 0.4);
+}
+
+.roulette-chip:focus-visible {
+  outline: 2px solid var(--semi-color-primary);
+  outline-offset: 5px;
+}
+
+.roulette-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.roulette-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 40px;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--semi-color-text-0);
+  background: var(--semi-color-bg-1);
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.roulette-action:hover:not(:disabled) {
+  background: var(--semi-color-fill-1);
+}
+
+.roulette-action:disabled {
+  color: var(--semi-color-disabled-text);
+  cursor: not-allowed;
+}
+
+.roulette-action:focus-visible {
+  outline: 2px solid var(--semi-color-primary);
+  outline-offset: 2px;
+}
+
+/* 暗色主题下黑色格子与深色底接近，描一道浅边分开。 */
+body[theme-mode='dark'] .roulette-spot.is-black,
+body[theme-mode='dark'] .roulette-recent-item.is-black {
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+@keyframes roulette-pop {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.6);
+  }
+  100% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+@keyframes roulette-flash {
+  0%,
+  100% {
+    filter: brightness(1);
+  }
+  50% {
+    filter: brightness(1.3);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .roulette-result,
+  .roulette-spot.is-hit {
+    animation: none;
+  }
+
+  .roulette-pocket,
+  .roulette-ball,
+  .roulette-spot,
+  .roulette-chip {
+    transition: none;
+  }
+}
+
+/* 窄屏把桌面竖过来：号码 12 行 3 列，打与一赔一的外围注排在右边两列。 */
+@media (max-width: 540px) {
+  .roulette-table {
+    grid-template-columns:
+      repeat(3, minmax(0, 1fr))
+      repeat(2, minmax(0, 0.85fr));
+    grid-template-rows: 36px repeat(12, 34px) 34px;
+  }
+
+  .roulette-spot {
+    flex-direction: row;
+    gap: 4px;
+    grid-column: var(--vc) / span var(--vcs);
+    grid-row: var(--vr) / span var(--vrs);
+  }
+
+  .roulette-spot.is-group {
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .roulette-chips {
+    gap: 8px;
+  }
+
+  /* 窄屏最近开出只留一行。 */
+  .roulette-recent-item:nth-child(n + 10) {
+    display: none;
+  }
+}

@@ -1,0 +1,306 @@
+/*
+Copyright (C) 2025 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+
+/* ==========================================================================
+   Prize wheel page — scoped styles (all classes prefixed with `wheel-`)
+   Built on the game center shell and the shared stage in ../games.css. The
+   wheel is drawn like a dashboard donut chart and follows Semi variables in
+   both themes; only the prize slices keep their own colors.
+   ========================================================================== */
+
+.wheel-page {
+  max-width: 1000px;
+}
+
+.wheel-topbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.wheel-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+  color: var(--semi-color-text-0);
+}
+
+.wheel-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 520px) 300px;
+  justify-content: center;
+  align-items: start;
+  gap: 24px;
+}
+
+/* ---------- Wheel ---------- */
+
+.wheel-frame {
+  position: relative;
+  width: min(100%, 400px);
+  padding-top: 12px;
+}
+
+/* 指针固定在正上方，尖端压在转盘边缘上。 */
+.wheel-pointer {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  left: 50%;
+  width: 0;
+  height: 0;
+  transform: translateX(-50%);
+  border-left: 13px solid transparent;
+  border-right: 13px solid transparent;
+  border-top: 28px solid var(--semi-color-primary);
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.25));
+}
+
+.wheel-dial {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+}
+
+.wheel-disc {
+  width: 100%;
+  height: 100%;
+  will-change: transform;
+}
+
+.wheel-disc svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.14));
+}
+
+.wheel-rim {
+  fill: var(--semi-color-bg-1);
+  stroke: var(--semi-color-border);
+  stroke-width: 1.5;
+}
+
+.wheel-slice {
+  transition: opacity 0.3s ease;
+}
+
+/* 相邻两格之间留出一道底色的缝。 */
+.wheel-segment {
+  stroke: var(--semi-color-bg-1);
+  stroke-width: 1.5;
+}
+
+.has-hit .wheel-slice:not(.is-hit) {
+  opacity: 0.3;
+}
+
+.wheel-slice.is-hit .wheel-segment {
+  animation: wheel-pulse 0.8s ease-in-out 3;
+}
+
+.wheel-label {
+  font-weight: 800;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.wheel-label-amount {
+  font-size: 16px;
+}
+
+.wheel-label-unit {
+  font-size: 9px;
+  font-weight: 600;
+}
+
+.wheel-label-empty {
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.wheel-tick {
+  fill: var(--semi-color-text-3);
+}
+
+/* 中心放站点 Logo，不随转盘转动。 */
+.wheel-hub {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28%;
+  height: 28%;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  border: 1px solid var(--semi-color-border);
+  background: var(--semi-color-bg-1);
+  box-shadow:
+    0 0 0 5px color-mix(in srgb, var(--semi-color-bg-1) 60%, transparent),
+    0 6px 16px rgba(0, 0, 0, 0.16);
+  pointer-events: none;
+}
+
+.wheel-hub img {
+  width: 56%;
+  height: 56%;
+  object-fit: contain;
+}
+
+.wheel-hub-symbol {
+  font-size: 24px;
+  font-weight: 800;
+  color: var(--semi-color-warning);
+}
+
+/* ---------- Controls ---------- */
+
+.wheel-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin-top: 16px;
+}
+
+.wheel-turnstile {
+  display: flex;
+  justify-content: center;
+}
+
+/* ---------- Side panel ---------- */
+
+.wheel-side {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.wheel-box {
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--semi-color-border);
+  background: var(--semi-color-bg-1);
+}
+
+.wheel-box-label {
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--semi-color-text-2);
+}
+
+.wheel-box-value {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  font-size: 22px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--semi-color-text-0);
+}
+
+.wheel-box-value span {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--semi-color-text-2);
+}
+
+.wheel-box-note {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--semi-color-text-2);
+}
+
+.wheel-odds {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--semi-color-text-1);
+}
+
+.wheel-odds th {
+  padding: 0 2px 6px;
+  font-weight: 500;
+  text-align: left;
+  color: var(--semi-color-text-2);
+}
+
+.wheel-odds th:last-child,
+.wheel-odds td:last-child {
+  text-align: right;
+}
+
+.wheel-odds td {
+  padding: 4px 2px;
+  border-top: 1px solid var(--semi-color-border);
+}
+
+.wheel-odds-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 8px;
+  border-radius: 3px;
+  vertical-align: -1px;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12);
+}
+
+.wheel-rules {
+  margin: 10px 0 0;
+  padding-left: 16px;
+  list-style: disc;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--semi-color-text-2);
+}
+
+/* ---------- Animations ---------- */
+
+@keyframes wheel-pulse {
+  0%,
+  100% {
+    filter: brightness(1);
+  }
+  50% {
+    filter: brightness(1.18);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wheel-slice.is-hit .wheel-segment {
+    animation: none;
+  }
+}
+
+/* 窄屏：转盘在上，余额与概率公示排到下面。 */
+@media (max-width: 900px) {
+  .wheel-layout {
+    grid-template-columns: minmax(0, 520px);
+  }
+}
