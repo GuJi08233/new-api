@@ -314,9 +314,15 @@ function PvpRuleFields({ game, rule, onChange, symbol, levelNames }) {
     <>
       <SettingRow
         label={t('押注上限')}
-        extra={t(
-          '每位玩家最多押注的游戏币，获胜玩家按游戏规则分配奖池；0 表示只能开友谊赛。同一 IP 下的账号不能互相押注对战',
-        )}
+        extra={
+          game === 'landlord'
+            ? t(
+                '底注上限：地主输赢两倍底注、农民各输赢一倍，入座时每人按两倍预扣；0 表示只能开友谊赛。同一 IP 下的账号不能互相押注对战',
+              )
+            : t(
+                '每位玩家最多押注的游戏币，获胜玩家按游戏规则分配奖池；0 表示只能开友谊赛。同一 IP 下的账号不能互相押注对战',
+              )
+        }
       >
         <InputNumber
           value={rule.max_stake}
@@ -346,7 +352,11 @@ function PvpRuleFields({ game, rule, onChange, symbol, levelNames }) {
       </SettingRow>
       <SettingRow
         label={t('每步限时（秒）')}
-        extra={t('轮到的一方超时没走判负')}
+        extra={
+          game === 'landlord'
+            ? t('轮到的玩家超时没走时转为托管，由 AI 代打')
+            : t('轮到的一方超时没走判负')
+        }
       >
         <InputNumber
           value={rule.move_seconds}
@@ -356,7 +366,7 @@ function PvpRuleFields({ game, rule, onChange, symbol, levelNames }) {
           onChange={(value) => onChange({ move_seconds: toNumber(value) })}
         />
       </SettingRow>
-      {game !== 'rps' && game !== 'landlord' && (
+      {game !== 'rps' && (
         <>
           <SettingRow
             label={t('开放人机对战')}

@@ -69,18 +69,23 @@ const Players = ({ names, labels, toMove, seat, extra }) => (
         className={`pvp-player ${toMove === index || toMove === -1 ? 'is-turn' : ''} ${index === seat ? 'is-me' : ''}`}
       >
         <span className='pvp-player-seat'>{labels[index]}</span>
-        <span className='pvp-player-name'>{name}</span>
+        <span className='pvp-player-name' title={name}>
+          {name}
+        </span>
         {extra?.[index]}
       </div>
     ))}
   </div>
 );
 
+// 开房或加入房间的确认框：押注、入座时实际预扣的游戏币与密码。maxLoss 是一个座位最多输掉几倍押注(斗地主的地主输两倍)，
+// 开房时按它预扣；加入时用房间给出的预扣额。
 export const RoomEntryModal = ({
   entry,
   gameKey,
   title,
   stake,
+  maxLoss = 1,
   symbol,
   balance,
   busy,
@@ -123,7 +128,9 @@ export const RoomEntryModal = ({
 
   const details = code ? preview?.data : entry;
   const displayedStake = creating ? stake : details?.stake;
-  const escrow = creating ? stake : (details?.escrow ?? displayedStake);
+  const escrow = creating
+    ? stake * maxLoss
+    : (details?.escrow ?? displayedStake);
   const unavailable =
     !creating && details?.status && details.status !== 'waiting';
   const insufficient = escrow > balance;
@@ -182,12 +189,22 @@ export const RoomEntryModal = ({
             })}
           </Text>
         )}
-        {!creating && escrow > 0 && (
+        {escrow > 0 && (!creating || escrow > stake) && (
           <Text>
-            {t('加入时将扣除 {{amount}} {{symbol}}', {
-              amount: escrow,
-              symbol,
-            })}
+            {creating
+              ? t('开房时将预扣 {{amount}} {{symbol}}', {
+                  amount: escrow,
+                  symbol,
+                })
+              : t('加入时将扣除 {{amount}} {{symbol}}', {
+                  amount: escrow,
+                  symbol,
+                })}
+          </Text>
+        )}
+        {escrow > displayedStake && (
+          <Text type='tertiary'>
+            {t('按最多可能输掉的游戏币预扣，结算后退回没输掉的部分')}
           </Text>
         )}
         {insufficient && <Text type='danger'>{t('游戏币余额不足')}</Text>}
@@ -248,6 +265,7 @@ const Lobby = ({
   const stakes = STAKE_CHIPS.filter((value) => value <= (rule.max_stake || 0));
   const rooms = lobby?.rooms || [];
   const balance = info.balance || 0;
+  const short = stake * (rule.max_loss || 1) > balance;
   return (
     <div className='pvp-lobby'>
       <div className='games-stage pvp-card'>
@@ -294,28 +312,23 @@ const Lobby = ({
           <button
             type='button'
             className='games-play-button'
-            disabled={busy || stake > balance}
+            disabled={busy || short}
             onClick={onQuickMatch}
           >
             {t('快速匹配')}
           </button>
-          <Button
-            disabled={busy || stake > balance}
-            onClick={() => onCreate(false)}
-          >
+          <Button disabled={busy || short} onClick={() => onCreate(false)}>
             {t('开一个房间')}
           </Button>
           <Button
-            disabled={busy || stake > balance}
+            disabled={busy || short}
             icon={<Users size={14} />}
             onClick={() => onCreate(true)}
           >
             {t('邀请好友')}
           </Button>
         </div>
-        {stake > balance && (
-          <div className='games-stage-hint'>{t('游戏币余额不足')}</div>
-        )}
+        {short && <div className='games-stage-hint'>{t('游戏币余额不足')}</div>}
         {error && <StageMessage kind='error'>{error}</StageMessage>}
         <div className='pvp-rooms'>
           <div className='pvp-rooms-title'>
@@ -351,7 +364,7 @@ const Lobby = ({
                   <Button
                     size='small'
                     theme='solid'
-                    disabled={busy || item.own || item.stake > balance}
+                    disabled={busy || item.own || item.escrow > balance}
                     onClick={() => onJoin(item)}
                   >
                     {item.own ? t('我的房间') : t('加入')}
@@ -414,7 +427,7 @@ const Lobby = ({
   );
 };
 
-// 押注对局：双方、计时、棋盘、结果与操作。
+// 押注对局：各座位、计时、棋盘、结果与操作。多人对局(超过两个座位)不能认输，可以托管：轮到托管的座位时由 AI 代打。
 const RoomView = ({
   room,
   symbol,
@@ -427,6 +440,7 @@ const RoomView = ({
   error,
   onMove,
   onResign,
+  onAuto,
   onCancel,
   onLeave,
   onCopyInvite,
@@ -435,6 +449,7 @@ const RoomView = ({
   const { t } = useTranslation();
   const [now, setNow] = useState(() => Date.now() / 1000);
   const playing = room.status === 'playing';
+  const table = room.seats > 2;
   // 对局中每半秒走一次钟，显示这一步还剩多少秒。
   useEffect(() => {
     if (!playing) return undefined;
@@ -460,6 +475,7 @@ const RoomView = ({
     members.find((member) => member.seat === index),
   );
   const me = players[seat];
+  const auto = !!me?.auto;
   const pot = room.escrow * room.player_count;
   const labels = seatLabels(state);
 
@@ -483,31 +499,30 @@ const RoomView = ({
       message = room.stake > 0 ? t('平局，押注已退回') : t('平局');
     } else if (won) {
       kind = room.stake > 0 ? 'big-win' : 'win';
-      message =
-        room.stake > 0
-          ? t('你赢了！获得 {{win}} {{symbol}}', {
-              win: room.escrow + me.net,
-              symbol,
-            })
-          : t('你赢了！');
+      if (room.stake <= 0) {
+        message = t('你赢了！');
+      } else if (table) {
+        message = t('你赢了！净赢 {{net}} {{symbol}}', {
+          net: me.net,
+          symbol,
+        });
+      } else {
+        message = t('你赢了！获得 {{win}} {{symbol}}', {
+          win: room.escrow + me.net,
+          symbol,
+        });
+      }
     } else {
       kind = 'loss';
-      message = t('你输了');
+      message =
+        table && room.stake > 0
+          ? t('你输了，输掉 {{loss}} {{symbol}}', { loss: -me.net, symbol })
+          : t('你输了');
     }
     if (room.end_reason === 'timeout') {
-      note =
-        room.seats > 2
-          ? t('本局因超时结束')
-          : won
-            ? t('对手超时')
-            : t('你超时了');
+      note = won ? t('对手超时') : t('你超时了');
     } else if (room.end_reason === 'resign') {
-      note =
-        room.seats > 2
-          ? t('本局因认输结束')
-          : won
-            ? t('对手认输')
-            : t('你认输了');
+      note = won ? t('对手认输') : t('你认输了');
     } else {
       note = resultNote?.({ state, seat }) || '';
     }
@@ -515,33 +530,45 @@ const RoomView = ({
     message =
       statusText?.({ room, state, seat, myTurn }) ||
       (myTurn ? t('轮到你了') : t('等待对手走棋'));
+    if (playing && auto) {
+      note = myTurn
+        ? t('托管中，AI 马上替你出牌；自己出牌即可收回托管')
+        : t('托管中，轮到你时由 AI 代打');
+    }
   }
 
   const names = players.map((player, index) => {
     if (!player) return t('等待加入…');
     return index === seat ? t('我') : player.name;
   });
-  const clocks = players.map((_, index) =>
-    playing && (room.to_move === index || room.to_move === -1) ? (
-      <span
-        key='clock'
-        className={secondsLeft <= 10 ? 'pvp-clock is-low' : 'pvp-clock'}
-      >
-        {secondsLeft}s
-      </span>
-    ) : null,
-  );
+  const extras = players.map((player, index) => (
+    <React.Fragment key='extra'>
+      {playing && player?.auto && (
+        <span className='pvp-auto' title={t('托管中，轮到时由 AI 代打')}>
+          <Bot size={13} aria-hidden />
+          {t('托管')}
+        </span>
+      )}
+      {playing && (room.to_move === index || room.to_move === -1) && (
+        <span className={secondsLeft <= 10 ? 'pvp-clock is-low' : 'pvp-clock'}>
+          {secondsLeft}s
+        </span>
+      )}
+    </React.Fragment>
+  ));
 
   return (
     <div className='games-stage pvp-stage'>
       <div className='pvp-stage-head'>
-        {room.stake > 0
-          ? t('押注 {{stake}} {{symbol}} · 奖池 {{pot}}', {
-              stake: room.stake,
-              pot,
-              symbol,
-            })
-          : t('友谊赛')}
+        {room.stake <= 0
+          ? t('友谊赛')
+          : table
+            ? t('底注 {{stake}} {{symbol}}', { stake: room.stake, symbol })
+            : t('押注 {{stake}} {{symbol}} · 奖池 {{pot}}', {
+                stake: room.stake,
+                pot,
+                symbol,
+              })}
         {' · '}
         {t('{{occupied}}/{{seats}} 人', {
           occupied: room.player_count,
@@ -556,12 +583,13 @@ const RoomView = ({
         )}
         toMove={playing ? room.to_move : null}
         seat={seat}
-        extra={clocks}
+        extra={extras}
       />
       {renderBoard({
         roomId: room.id,
         state,
         seat,
+        names,
         canMove: myTurn && !busy,
         busy,
         over: !isRoomOpen(room),
@@ -588,9 +616,18 @@ const RoomView = ({
             </Button>
           </>
         )}
-        {playing && (
+        {playing && !table && (
           <Button icon={<Flag size={14} />} disabled={busy} onClick={onResign}>
             {t('认输')}
+          </Button>
+        )}
+        {playing && table && (
+          <Button
+            icon={<Bot size={14} />}
+            disabled={busy}
+            onClick={() => onAuto(!auto)}
+          >
+            {auto ? t('取消托管') : t('托管')}
           </Button>
         )}
         {!isRoomOpen(room) && (
@@ -608,7 +645,7 @@ const RoomView = ({
   );
 };
 
-// 人机对战的一局：玩家坐座位 0，AI 坐座位 1。
+// 人机对战的一局：玩家坐座位 0，其余座位都是 AI。
 const AiView = ({
   ai,
   result,
@@ -629,6 +666,15 @@ const AiView = ({
   const levelNames = getGameLevelNames(t).ai;
   const state = ai.state;
   const myTurn = !ai.over && ai.to_move === 0;
+  // 几个 AI 时编上号，出牌记录里分得清是哪一个。
+  const seats = ai.seats || 2;
+  const names = Array.from({ length: seats }, (_, index) => {
+    const level = levelNames[ai.level - 1];
+    if (index === 0) return t('我');
+    return seats > 2
+      ? t('AI {{index}}（{{level}}）', { index, level })
+      : t('AI（{{level}}）', { level });
+  });
   let message =
     statusText?.({ room: null, state, seat: 0, myTurn }) ||
     (myTurn ? t('轮到你了') : t('AI 思考中…'));
@@ -636,12 +682,12 @@ const AiView = ({
   let note = '';
   if (ai.over) {
     const reason = resultNote?.({ state, seat: 0 });
-    if (ai.winner === 0) {
+    if (ai.result === 'win') {
       const reward = skillResultMessage(result, t, symbol, { byLevel: true });
       kind = result?.reward > 0 ? 'win' : '';
       message = t('你赢了！');
       note = [reason, reward.text, reward.note].filter(Boolean).join(' · ');
-    } else if (ai.winner === 1) {
+    } else if (ai.result === 'loss') {
       kind = 'loss';
       message = t('AI 获胜，再接再厉');
       note = reason || '';
@@ -653,10 +699,7 @@ const AiView = ({
   return (
     <div className='games-stage pvp-stage'>
       <Players
-        names={[
-          t('我'),
-          t('AI（{{level}}）', { level: levelNames[ai.level - 1] }),
-        ]}
+        names={names}
         labels={seatLabels(state)}
         toMove={ai.over ? null : ai.to_move}
         seat={0}
@@ -664,6 +707,7 @@ const AiView = ({
       {renderBoard({
         state,
         seat: 0,
+        names,
         canMove: myTurn && !busy,
         busy,
         over: ai.over,
@@ -722,6 +766,7 @@ const PvpSide = ({ info, rules, randomFirst }) => {
     ? playTimeNote(aiInfo.rule, aiInfo.progress, t)
     : '';
   const recent = info.recent || [];
+  const table = rule.seats > 2;
   return (
     <>
       <SideBox label={t('对战规则')}>
@@ -729,9 +774,9 @@ const PvpSide = ({ info, rules, randomFirst }) => {
           items={[
             ...rules,
             rule.max_stake > 0
-              ? rule.seats > 2
+              ? table
                 ? t(
-                    '每位玩家押同样多的游戏币，获胜玩家分配输方押注，平台从净赢额抽取 {{rake}}%（向下取整）；平局退回押注',
+                    '入座时按最多可能输掉的游戏币预扣，结算后退回没输掉的部分；平台从赢家的净赢抽取 {{rake}}%（向下取整）',
                     { rake: rule.rake_percent },
                   )
                 : t(
@@ -744,9 +789,14 @@ const PvpSide = ({ info, rules, randomFirst }) => {
                 '每人最多押注 {{max}} {{symbol}}；同一 IP 下的账号不能互相押注对战',
                 { max: rule.max_stake, symbol },
               ),
-            t('每一步限时 {{seconds}} 秒，超时判负', {
-              seconds: rule.move_seconds,
-            }),
+            table
+              ? t(
+                  '每一步限时 {{seconds}} 秒，超时由 AI 托管代打；不能认输，要离开可以托管',
+                  { seconds: rule.move_seconds },
+                )
+              : t('每一步限时 {{seconds}} 秒，超时判负', {
+                  seconds: rule.move_seconds,
+                }),
             randomFirst && t('先走的一方随机决定'),
           ]}
         />
@@ -818,9 +868,10 @@ const PvpSide = ({ info, rules, randomFirst }) => {
   );
 };
 
-// 对战游戏页的外壳：大厅(快速匹配、开房间、邀请好友、加入房间)、押注对局(长轮询、计时、认输)与人机对战，各游戏只提供棋盘。
-// renderBoard({ state, seat, canMove, busy, over, onMove }) 画出棋盘，state 为空时画空棋盘；over 表示对局已经结束(含超时、
-// 认输，这时引擎的状态不一定是结束的)；玩家落子时调用 onMove(走法)。seatLabels(state) 返回各座位的称呼(例如执黑、执白)；
+// 对战游戏页的外壳：大厅(快速匹配、开房间、邀请好友、加入房间)、押注对局(长轮询、计时、认输或托管)与人机对战，各游戏只提供
+// 棋盘。renderBoard({ state, seat, names, canMove, busy, over, onMove }) 画出棋盘，state 为空时画空棋盘；names 是各座位的
+// 称呼(自己是“我”)；over 表示对局已经结束(含超时、认输，这时引擎的状态不一定是结束的)；玩家落子时调用 onMove(走法)。
+// seatLabels(state) 返回各座位的角色(例如执黑、执白)；
 // statusText({ room, state, seat, myTurn }) 可以按游戏改写对局中的提示(人机对战里 room 为空)；resultNote({ state, seat })
 // 说明正常下完的一局为什么结束(例如将死、困毙)；rules 是信息栏里的规则，randomFirst 为假时(双方同时出招)不写先走的规则。
 const PvpGame = ({
@@ -832,7 +883,6 @@ const PvpGame = ({
   resultNote,
   rules = [],
   randomFirst = true,
-  teamGame = false,
   className = '',
 }) => {
   const { t } = useTranslation();
@@ -1052,13 +1102,13 @@ const PvpGame = ({
         onResign={() =>
           Modal.confirm({
             title: t('认输'),
-            content: teamGame
-              ? t('认输会使你的队伍判负，押注按本局规则结算。')
-              : room.stake > 0
-                ? t('认输后押注归对手。')
-                : t('确定认输吗？'),
+            content:
+              room.stake > 0 ? t('认输后押注归对手。') : t('确定认输吗？'),
             onOk: () => act(`/api/game/rooms/${room.id}/resign`, {}, setRoom),
           })
+        }
+        onAuto={(auto) =>
+          act(`/api/game/rooms/${room.id}/auto`, { auto }, setRoom)
         }
         onCancel={() => act(`/api/game/rooms/${room.id}/cancel`, {}, setRoom)}
         onLeave={() =>
@@ -1177,6 +1227,7 @@ const PvpGame = ({
           gameKey={gameKey}
           title={title}
           stake={roomEntry.type === 'create' ? stake : roomEntry.stake}
+          maxLoss={info.rule?.max_loss || 1}
           symbol={info.symbol}
           balance={info.balance || 0}
           busy={busy}

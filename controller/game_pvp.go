@@ -9,7 +9,7 @@ import (
 	"io"
 	"math/big"
 	"runtime"
-	"sort"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -44,6 +44,10 @@ const (
 	pvpAiMaxReplies = 400
 	// pvpMoveAttempts 是双方同时出招时一招最多尝试写入几次。
 	pvpMoveAttempts = 3
+	// pvpAutoMoveSeconds 是托管中的座位轮到时，AI 替他走之前留出的秒数，让桌上的人看清上一手。
+	pvpAutoMoveSeconds = 2
+	// pvpAutoLevel 是托管用的 AI 难度(普通)。
+	pvpAutoLevel = 2
 )
 
 // pvpAiQueueTimeout 是 AI 搜索名额都占满时一步棋最多排队多久：等太久的请求直接回应失败，玩家稍后再走，而不是越积越多、
@@ -51,7 +55,7 @@ const (
 var pvpAiQueueTimeout = 5 * time.Second
 
 // pvpEngine 是一个对战游戏的规则引擎。状态以 JSON 保存在房间或人机对局里，引擎只负责解释它。
-// 房间座位 0 是房主，桌人数由游戏声明；双人人机模式中座位 0 是玩家，座位 1 是 AI。
+// 房间座位 0 是房主，桌人数由游戏声明；人机对战里玩家坐座位 0，其余座位都是 AI。
 type pvpEngine interface {
 	// New 返回开局状态，first 是先走的座位。
 	New(first int) (pvpState, error)
@@ -59,9 +63,8 @@ type pvpEngine interface {
 	Play(state []byte, seat int, move json.RawMessage) (pvpState, error)
 	// View 返回给 seat 看的状态，隐藏对手还没公开的信息；seat 为 -1 表示旁观者。
 	View(state []byte, seat int) (any, error)
-	// Timeout 返回轮到走的一方超时之后的赢家座位，-1 表示平局(例如双方同时出招都没出)。
-	Timeout(state []byte) (int, error)
-	// AiMove 为 seat 选一步，level 为 1 到 pvpAiLevels。不支持人机对战的游戏返回错误。
+	// AiMove 为 seat 选一步，level 为 1 到 pvpAiLevels，只能用 seat 看得到的信息。不支持人机对战的游戏返回错误。多人游戏的
+	// 托管也用它替超时的玩家走，要在几毫秒内算完。
 	AiMove(state []byte, seat int, level int) (json.RawMessage, error)
 }
 
@@ -71,7 +74,7 @@ type pvpState struct {
 	// ToMove 是轮到哪个座位走，-1 表示同时出招。
 	ToMove int
 	Over   bool
-	// Winner 是 Over 时的代表赢家座位，-1 表示平局；多人完整获胜座位由 Winners 返回。
+	// Winner 是 Over 时的赢家座位，-1 表示平局；多人游戏里是先结束的座位，每个座位的输赢由 pvpMultiplayer.Scores 给出。
 	Winner int
 }
 
@@ -90,19 +93,33 @@ type pvpSimultaneous interface {
 	simultaneous()
 }
 
-// pvpMultiplayer 定义多座位游戏的桌人数与团队胜负。loserSeat 为 -1 时读取自然结束结果，
-// 否则按认输或超时的座位判定获胜团队。没有实现它的现有引擎按双人规则运行。
-type pvpMultiplayer interface {
-	Seats() int
-	Winners(state []byte, loserSeat int) ([]int, error)
+// pvpDuel 由双人对战的引擎实现：一方超时或认输判负。
+type pvpDuel interface {
+	// Timeout 返回轮到走的一方超时之后的赢家座位，-1 表示平局(例如双方同时出招都没出)。
+	Timeout(state []byte) (int, error)
 }
 
-// pvpGame 是登记过的一个对战游戏。name 是写进审计日志的游戏名。
+// pvpMultiplayer 由多人对战的引擎实现。一个人超时不判他的队伍输(队友没有过错)，而是转为托管、由 AI 替他走，多人对局也不能
+// 认输，要离开可以托管。
+type pvpMultiplayer interface {
+	// Seats 是桌人数，坐满才开局。
+	Seats() int
+	// MaxLoss 是一个座位最多输掉几倍押注：入座时按它押下游戏币，结算时退回没输掉的部分。
+	MaxLoss() int
+	// Scores 返回自然结束的一局里每个座位输赢几倍押注，合计为 0。
+	Scores(state []byte) ([]int, error)
+}
+
+// pvpGame 是登记过的一个对战游戏。name 是写进审计日志的游戏名。duel 与 table 有且只有一个不为空。
 type pvpGame struct {
 	key    string
 	name   string
 	engine pvpEngine
+	duel   pvpDuel
+	table  pvpMultiplayer
 	seats  int
+	// maxLoss 是一个座位最多输掉几倍押注，双人对战是 1。
+	maxLoss int
 }
 
 var pvpGames = map[string]*pvpGame{}
@@ -114,14 +131,15 @@ func pvpAiGame(game string) string {
 
 // registerPvpGame 登记一个对战游戏：房间接口按房间的游戏找到引擎，人机对战的接口挂在 /api/game/<key>/ai 下。
 func registerPvpGame(key string, name string, engine pvpEngine) {
-	seats := 2
-	if multiplayer, ok := engine.(pvpMultiplayer); ok {
-		seats = multiplayer.Seats()
+	game := &pvpGame{key: key, name: name, engine: engine, seats: 2, maxLoss: 1}
+	if table, ok := engine.(pvpMultiplayer); ok {
+		game.table, game.seats, game.maxLoss = table, table.Seats(), table.MaxLoss()
+	} else if duel, ok := engine.(pvpDuel); ok {
+		game.duel = duel
 	}
-	if seats < 2 || seats > model.GameRoomMaxSeats {
-		panic("invalid pvp game seats: " + key)
+	if game.duel == nil && game.table == nil || game.seats < 2 || game.seats > model.GameRoomMaxSeats || game.maxLoss < 1 {
+		panic("invalid pvp game: " + key)
 	}
-	game := &pvpGame{key: key, name: name, engine: engine, seats: seats}
 	pvpGames[key] = game
 	registerGame(&gameDefinition{
 		Key:  key,
@@ -136,7 +154,7 @@ func registerPvpGame(key string, name string, engine pvpEngine) {
 			summary["ai_daily_rewards"] = rule.Ai.DailyRewards
 			summary["ai_rewards_today"] = max(counts.user[ai].FreePlays, counts.ip[ai].FreePlays)
 			summary["waiting_rooms"] = ctx.waitingRooms()[key]
-			summary["seats"] = seats
+			summary["seats"] = game.seats
 		},
 		Resumable: func(ctx *gameContext) bool {
 			// 游戏中心列表要给每个关闭的对战游戏问一遍，查的都是玩家所有进行中的房间：同一个请求里只查一次。
@@ -274,8 +292,8 @@ func (w *gameRoomWatchers) poll() {
 	}
 }
 
-// resolveGameRoom 处理到期的房间：对局中这一步已超时的判超时一方负，等太久没人加入的关闭并退回押注。房间有变化时返回 true，
-// room 已更新为最新状态。
+// resolveGameRoom 处理到期的房间：对局中这一步已超时的，双人对战判超时一方负，多人对战由 AI 替他走并转为托管；等太久没人
+// 加入的关闭并退回押注。房间有变化时返回 true，room 已更新为最新状态。
 func resolveGameRoom(room *model.GameRoom) (bool, error) {
 	now := common.GetTimestamp()
 	var err error
@@ -285,11 +303,15 @@ func resolveGameRoom(room *model.GameRoom) (bool, error) {
 		if game == nil {
 			return false, fmt.Errorf("unknown pvp game %s", room.Game)
 		}
-		winnerSeat, timeoutErr := game.engine.Timeout([]byte(room.State))
+		if game.table != nil {
+			err = autoPlayGameRoom(room, game)
+			break
+		}
+		winnerSeat, timeoutErr := game.duel.Timeout([]byte(room.State))
 		if timeoutErr != nil {
 			return false, timeoutErr
 		}
-		err = finishPvpRoom(room, winnerSeat, room.ToMove, model.GameRoomEndTimeout, room.State)
+		err = finishPvpRoom(room, game, duelScores(winnerSeat), model.GameRoomEndTimeout, room.State)
 	case room.Status == model.GameRoomStatusWaiting && now-room.CreatedAt > pvpWaitingSeconds:
 		err = model.CancelGameRoom(room, model.GameRoomEndExpired)
 	default:
@@ -311,48 +333,96 @@ func resolveGameRoom(room *model.GameRoom) (bool, error) {
 	return true, nil
 }
 
-// finishPvpRoom 按获胜座位分配固定押注池，团队收益均分，余数按座位从小到大分配。
-// 认输或超时由游戏规则解释 loser；自然结束时 loser 为 -1。
-func finishPvpRoom(room *model.GameRoom, winner int, loser int, reason string, state string) error {
-	game := pvpGames[room.Game]
-	if game == nil || room.Seats != game.seats || winner < -1 || winner >= room.Seats {
+// autoPlayGameRoom 让 AI 替这一步超时的座位走，并把这个座位转为托管：之后轮到它时 pvpAutoMoveSeconds 秒后由 AI 替他走，
+// 玩家自己走一步或取消托管就恢复。所有座位都在托管时桌上已经没人在玩，一口气替他们下完。AI 出错(不应发生)时这一局作废，
+// 按平局退回所有人的押注，房间不会卡住、押注不会一直锁着。
+func autoPlayGameRoom(room *model.GameRoom, game *pvpGame) error {
+	next := pvpState{Data: []byte(room.State), ToMove: room.ToMove}
+	auto, everyone := room.AutoSeats, 1<<room.Seats-1
+	for moves := 0; ; moves++ {
+		seat := next.ToMove
+		var err error
+		if seat < 0 || seat >= room.Seats || moves == pvpAiMaxReplies {
+			err = fmt.Errorf("seat %d to move after %d auto moves", seat, moves)
+		} else {
+			var move json.RawMessage
+			if move, err = game.engine.AiMove(next.Data, seat, pvpAutoLevel); err == nil {
+				next, err = game.engine.Play(next.Data, seat, move)
+			}
+		}
+		if err != nil {
+			common.SysError(fmt.Sprintf("auto play failed in game room %d: %v", room.Id, err))
+			return finishPvpRoom(room, game, make([]int, room.Seats), model.GameRoomEndDraw, room.State)
+		}
+		auto |= 1 << seat
+		if next.Over {
+			return settlePvpRoom(room, game, next)
+		}
+		if auto != everyone {
+			return model.UpdateGameRoomState(room, string(next.Data), next.ToMove, pvpMoveDeadline(room, next.ToMove, auto), auto)
+		}
+	}
+}
+
+// pvpMoveDeadline 是轮到 toMove 的这一步的截止时间：托管中的座位 pvpAutoMoveSeconds 秒后由 AI 替他走，其他座位有完整的
+// 每步限时。
+func pvpMoveDeadline(room *model.GameRoom, toMove int, autoSeats int) int64 {
+	if toMove >= 0 && autoSeats&(1<<toMove) != 0 {
+		return common.GetTimestamp() + pvpAutoMoveSeconds
+	}
+	return common.GetTimestamp() + int64(room.MoveSeconds)
+}
+
+// scores 返回自然结束的一局里每个座位输赢几倍押注：多人对战由规则给出，双人对战见 duelScores。
+func (g *pvpGame) scores(next pvpState) ([]int, error) {
+	if g.table != nil {
+		return g.table.Scores(next.Data)
+	}
+	return duelScores(next.Winner), nil
+}
+
+// duelScores 是双人对战 winner 获胜时双方输赢几倍押注：赢家 1、输家 -1，winner 为 -1 是平局。
+func duelScores(winner int) []int {
+	scores := make([]int, 2)
+	if winner >= 0 {
+		scores[winner], scores[1-winner] = 1, -1
+	}
+	return scores
+}
+
+// settlePvpRoom 结算按规则下完的一局，有人赢时结束原因是 win，否则是 draw。
+func settlePvpRoom(room *model.GameRoom, game *pvpGame, next pvpState) error {
+	scores, err := game.scores(next)
+	if err != nil {
+		return err
+	}
+	reason := model.GameRoomEndDraw
+	if slices.ContainsFunc(scores, func(score int) bool { return score > 0 }) {
+		reason = model.GameRoomEndWin
+	}
+	return finishPvpRoom(room, game, scores, reason, string(next.Data))
+}
+
+// finishPvpRoom 结束对局并结算：scores 是每个座位输赢几倍押注，合计为 0，为正的座位获胜，全为 0 是平局。一个座位最多输掉
+// game.maxLoss 倍(入座时押下的)，规则给出的分数越界时拒绝结算。
+func finishPvpRoom(room *model.GameRoom, game *pvpGame, scores []int, reason string, state string) error {
+	if room.Seats != game.seats || len(scores) != room.Seats {
 		return errors.New("invalid game room result")
 	}
-	var winners []int
-	if multiplayer, ok := game.engine.(pvpMultiplayer); ok {
-		var err error
-		winners, err = multiplayer.Winners([]byte(state), loser)
-		if err != nil {
-			return err
+	result := model.GameRoomResult{Nets: make([]int, room.Seats), WinnerSeat: -1}
+	for seat, score := range scores {
+		if score < -game.maxLoss || score > game.maxLoss*(room.Seats-1) {
+			return fmt.Errorf("game room score %d out of range", score)
 		}
-	} else if winner >= 0 {
-		winners = []int{winner}
-	}
-	if len(winners) >= room.Seats {
-		return errors.New("invalid game room winners")
-	}
-	sort.Ints(winners)
-	for i, seat := range winners {
-		if seat < 0 || seat >= room.Seats || (i > 0 && winners[i-1] == seat) {
-			return errors.New("invalid game room winners")
-		}
-	}
-	nets := make([]int, room.Seats)
-	winner = -1
-	if len(winners) > 0 {
-		winner = winners[0]
-		for i := range nets {
-			nets[i] = -room.Stake
-		}
-		pot := room.Stake * (room.Seats - len(winners))
-		for i, seat := range winners {
-			nets[seat] = pot / len(winners)
-			if i < pot%len(winners) {
-				nets[seat]++
+		result.Nets[seat] = score * room.Stake
+		if score > 0 {
+			result.Winners = append(result.Winners, seat)
+			if result.WinnerSeat < 0 || score > scores[result.WinnerSeat] {
+				result.WinnerSeat = seat
 			}
 		}
 	}
-	return model.FinishGameRoom(room, model.GameRoomResult{Nets: nets, WinnerSeat: winner, Winners: winners}, reason, state, gameCenterDay())
+	return model.FinishGameRoom(room, result, reason, state, gameCenterDay())
 }
 
 // pvpRoomParticipants 批量读出房间的座位和昵称，列表查询不随房间数逐条查库。
@@ -375,10 +445,14 @@ func pvpRoomParticipants(rooms []*model.GameRoom) (map[int][]model.GameRoomSeat,
 	return seats, names, err
 }
 
-func pvpRoomMembers(seats []model.GameRoomSeat, names map[int]string) []gin.H {
+// pvpRoomMembers 是房间里的玩家：座位、昵称、结算后的输赢与胜负，以及是否在托管。
+func pvpRoomMembers(room *model.GameRoom, seats []model.GameRoomSeat, names map[int]string) []gin.H {
 	members := make([]gin.H, 0, len(seats))
 	for _, seat := range seats {
-		members = append(members, gin.H{"seat": seat.Seat, "user_id": seat.UserId, "name": names[seat.UserId], "net": seat.Net, "result": seat.Result})
+		members = append(members, gin.H{
+			"seat": seat.Seat, "user_id": seat.UserId, "name": names[seat.UserId], "net": seat.Net, "result": seat.Result,
+			"auto": room.AutoSeats&(1<<seat.Seat) != 0,
+		})
 	}
 	return members
 }
@@ -395,7 +469,7 @@ func pvpRoomView(room *model.GameRoom, viewer int) (gin.H, error) {
 			seat = member.Seat
 		}
 	}
-	members := pvpRoomMembers(seats[room.Id], names)
+	members := pvpRoomMembers(room, seats[room.Id], names)
 	view := gin.H{
 		"id":           room.Id,
 		"game":         room.Game,
@@ -414,6 +488,7 @@ func pvpRoomView(room *model.GameRoom, viewer int) (gin.H, error) {
 		"deadline":     room.Deadline,
 		"server_time":  common.GetTimestamp(),
 		"move_seconds": room.MoveSeconds,
+		"auto_seats":   room.AutoSeats,
 		"rake_percent": room.RakePercent,
 		"winner_id":    room.WinnerId,
 		"end_reason":   room.EndReason,
@@ -468,7 +543,7 @@ func pvpLobby(userId int, game string) (gin.H, error) {
 			"seats":        room.Seats,
 			"player_count": room.Players,
 			"locked":       room.Locked(),
-			"members":      pvpRoomMembers(seats[room.Id], names),
+			"members":      pvpRoomMembers(room, seats[room.Id], names),
 			"host":         names[room.HostId],
 			"own":          room.HostId == userId,
 			"created_at":   room.CreatedAt,
@@ -512,6 +587,7 @@ func pvpInfo(ctx *gameContext, game *pvpGame) (gin.H, error) {
 	info := gin.H{
 		"rule": gin.H{
 			"seats":        game.seats,
+			"max_loss":     game.maxLoss,
 			"max_stake":    rule.MaxStake,
 			"rake_percent": rule.RakePercent,
 			"move_seconds": rule.MoveSeconds,
@@ -571,7 +647,7 @@ func pvpRecentRooms(userId int, game string) ([]gin.H, error) {
 			"stake":       room.Stake,
 			"escrow":      room.Escrow,
 			"net":         net,
-			"members":     pvpRoomMembers(seats[room.Id], names),
+			"members":     pvpRoomMembers(room, seats[room.Id], names),
 			"rake":        room.Rake,
 			"result":      result,
 			"end_reason":  room.EndReason,
@@ -591,6 +667,7 @@ func registerGameRoomRoutes(group *gin.RouterGroup) {
 	group.POST("/:id/join", middleware.GamePlayRateLimit("room-join"), JoinGameRoomById)
 	group.POST("/:id/move", middleware.GameActionRateLimit("room-move"), MoveGameRoom)
 	group.POST("/:id/resign", middleware.GamePlayRateLimit("room-resign"), ResignGameRoom)
+	group.POST("/:id/auto", middleware.GamePlayRateLimit("room-auto"), AutoGameRoom)
 	group.POST("/:id/cancel", middleware.GamePlayRateLimit("room-cancel"), CancelGameRoom)
 	group.POST("/:id/leave", middleware.GamePlayRateLimit("room-leave"), LeaveGameRoom)
 }
@@ -611,6 +688,10 @@ type gameRoomJoinRequest struct {
 type gameRoomMoveRequest struct {
 	Version int             `json:"version"`
 	Move    json.RawMessage `json:"move"`
+}
+
+type gameRoomAutoRequest struct {
+	Auto *bool `json:"auto"`
 }
 
 // PreviewGameRoomInvite 只读取邀请码对应的入座条件，不扣币、不占座或暴露私密局面。
@@ -700,7 +781,7 @@ func createPvpRoom(c *gin.Context, game string, rule operation_setting.PvpRule, 
 	room := &model.GameRoom{
 		Game:        game,
 		Stake:       stake,
-		Escrow:      stake,
+		Escrow:      stake * pvpGames[game].maxLoss,
 		Seats:       pvpGames[game].seats,
 		Private:     private,
 		Code:        common.GetRandomString(pvpRoomCodeLength),
@@ -998,13 +1079,11 @@ func MoveGameRoom(c *gin.Context) {
 			return
 		}
 		if next.Over {
-			reason := model.GameRoomEndDraw
-			if next.Winner >= 0 {
-				reason = model.GameRoomEndWin
-			}
-			err = finishPvpRoom(room, next.Winner, -1, reason, string(next.Data))
+			err = settlePvpRoom(room, game, next)
 		} else {
-			err = model.UpdateGameRoomState(room, string(next.Data), next.ToMove, common.GetTimestamp()+int64(room.MoveSeconds))
+			// 自己走了一步就不再托管。
+			auto := room.AutoSeats &^ (1 << seat)
+			err = model.UpdateGameRoomState(room, string(next.Data), next.ToMove, pvpMoveDeadline(room, next.ToMove, auto), auto)
 		}
 		if errors.Is(err, model.ErrGameRoomChanged) && simultaneous && attempt < pvpMoveAttempts {
 			if room, err = model.GetGameRoom(room.Id); err != nil {
@@ -1023,7 +1102,7 @@ func MoveGameRoom(c *gin.Context) {
 	}
 }
 
-// ResignGameRoom 认输，对手获胜。
+// ResignGameRoom 认输，对手获胜。多人游戏不能认输(会连累队友)，要离开可以托管。
 func ResignGameRoom(c *gin.Context) {
 	room := loadPlayerGameRoom(c)
 	if room == nil {
@@ -1033,16 +1112,60 @@ func ResignGameRoom(c *gin.Context) {
 		respondGameRoom(c, room, nil)
 		return
 	}
-	seat := c.GetInt("game_room_seat")
-	winner := -1
-	if room.Seats == 2 {
-		winner = 1 - seat
+	game := pvpGames[room.Game]
+	if game == nil || room.Seats != game.seats {
+		common.ApiErrorI18n(c, i18n.MsgGamePlayDisabled)
+		return
 	}
-	if err := finishPvpRoom(room, winner, seat, model.GameRoomEndResign, room.State); err != nil {
+	if game.table != nil {
+		common.ApiErrorI18n(c, i18n.MsgGameRoomResignTeam)
+		return
+	}
+	seat := c.GetInt("game_room_seat")
+	if err := finishPvpRoom(room, game, duelScores(1-seat), model.GameRoomEndResign, room.State); err != nil {
 		respondGameRoomError(c, err)
 		return
 	}
 	gameRoomWatch.notify(room.Id)
+	respondGameRoom(c, room, nil)
+}
+
+// AutoGameRoom 打开或取消自己座位的托管，只有多人对战可以托管。轮到自己时打开托管，AI 在 pvpAutoMoveSeconds 秒后替自己走。
+func AutoGameRoom(c *gin.Context) {
+	room := loadPlayerGameRoom(c)
+	if room == nil {
+		return
+	}
+	var req gameRoomAutoRequest
+	if err := decodeGameRequest(c, &req); err != nil || req.Auto == nil {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
+	if game := pvpGames[room.Game]; game == nil || game.table == nil {
+		common.ApiErrorI18n(c, i18n.MsgGameRoomAutoUnsupported)
+		return
+	}
+	if room.Status != model.GameRoomStatusPlaying {
+		respondGameRoom(c, room, nil)
+		return
+	}
+	seat := c.GetInt("game_room_seat")
+	auto := room.AutoSeats &^ (1 << seat)
+	if *req.Auto {
+		auto |= 1 << seat
+	}
+	if auto != room.AutoSeats {
+		// 托管不能用来拖时间：轮到自己时打开托管只会把截止时间提前，取消托管也不重新计时，玩家要在剩下的时间里自己走。
+		deadline := room.Deadline
+		if *req.Auto && room.ToMove == seat {
+			deadline = min(deadline, pvpMoveDeadline(room, seat, auto))
+		}
+		if err := model.UpdateGameRoomState(room, room.State, room.ToMove, deadline, auto); err != nil {
+			respondGameRoomError(c, err)
+			return
+		}
+		gameRoomWatch.notify(room.Id)
+	}
 	respondGameRoom(c, room, nil)
 }
 
@@ -1085,21 +1208,24 @@ func CancelGameRoom(c *gin.Context) {
 	respondGameRoom(c, room, nil)
 }
 
-// pvpAiState 是人机对战保存在对局里的状态。玩家坐座位 0，AI 坐座位 1。
+// pvpAiState 是人机对战保存在对局里的状态。玩家坐座位 0，其余座位都是 AI。Result 是结束时玩家的胜负(win、loss、draw)，
+// 团队游戏里队友先出完也算玩家赢。
 type pvpAiState struct {
 	Level  int             `json:"level"`
 	Board  json.RawMessage `json:"board"`
 	ToMove int             `json:"to_move"`
 	Over   bool            `json:"over"`
 	Winner int             `json:"winner"`
+	Result string          `json:"result,omitempty"`
 	Moves  int             `json:"moves"`
 }
 
 // pvpAiDetail 是人机对战一局的成绩明细。
 type pvpAiDetail struct {
-	Level  int `json:"level"`
-	Winner int `json:"winner"`
-	Moves  int `json:"moves"`
+	Level  int    `json:"level"`
+	Winner int    `json:"winner"`
+	Result string `json:"result"`
+	Moves  int    `json:"moves"`
 }
 
 type pvpAiStartRequest struct {
@@ -1112,37 +1238,55 @@ type pvpAiMoveRequest struct {
 	Move      json.RawMessage `json:"move"`
 }
 
-// apply 记下引擎给出的新局面。
-func (s *pvpAiState) apply(next pvpState) {
+// apply 记下引擎给出的新局面，结束时按规则给出的输赢算出玩家的结果。
+func (s *pvpAiState) apply(game *pvpGame, next pvpState) error {
 	s.Board, s.ToMove, s.Over, s.Winner = next.Data, next.ToMove, next.Over, next.Winner
 	s.Moves++
+	if !s.Over {
+		return nil
+	}
+	scores, err := game.scores(next)
+	if err != nil {
+		return err
+	}
+	s.Result = "draw"
+	switch {
+	case scores[0] > 0:
+		s.Result = "win"
+	case scores[0] < 0:
+		s.Result = "loss"
+	}
+	return nil
 }
 
-// aiReply 让 AI 一直走到轮到玩家或对局结束，返回 AI 的最后一步。玩家无子可下只能停一手时(黑白棋)AI 会连走几步；
-// 每一步都要改变局面，走满 pvpAiMaxReplies 步还没交还玩家说明引擎有问题。ctx 是请求的上下文，客户端断开后不再排队。
-func (s *pvpAiState) aiReply(ctx context.Context, engine pvpEngine) (json.RawMessage, error) {
+// aiReply 让 AI 一直走到轮到玩家或对局结束，返回 AI 的最后一步。玩家无子可下只能停一手时(黑白棋)AI 会连走几步，多人游戏里
+// 几个 AI 座位依次走；每一步都要改变局面，走满 pvpAiMaxReplies 步还没交还玩家说明引擎有问题。ctx 是请求的上下文，客户端
+// 断开后不再排队。
+func (s *pvpAiState) aiReply(ctx context.Context, game *pvpGame) (json.RawMessage, error) {
 	var move json.RawMessage
-	for replies := 0; !s.Over && s.ToMove == 1; replies++ {
-		if replies == pvpAiMaxReplies {
-			return nil, fmt.Errorf("ai kept the turn for %d moves", replies)
+	for replies := 0; !s.Over && s.ToMove != 0; replies++ {
+		if replies == pvpAiMaxReplies || s.ToMove < 0 {
+			return nil, fmt.Errorf("ai cannot hand the turn back after %d moves (to move %d)", replies, s.ToMove)
 		}
 		var err error
-		move, err = pvpAiSearchMove(ctx, engine, s.Board, s.Level)
+		move, err = pvpAiSearchMove(ctx, game.engine, s.Board, s.ToMove, s.Level)
 		if err != nil {
 			return nil, err
 		}
-		next, err := engine.Play(s.Board, 1, move)
+		next, err := game.engine.Play(s.Board, s.ToMove, move)
 		if err != nil {
 			return nil, fmt.Errorf("ai chose an illegal move %s: %w", move, err)
 		}
-		s.apply(next)
+		if err := s.apply(game, next); err != nil {
+			return nil, err
+		}
 	}
 	return move, nil
 }
 
-// pvpAiSearchMove 占一个 pvpAiSearches 名额让 AI 想一步。名额占满时排队，最多等 pvpAiQueueTimeout，请求取消时不再等；
+// pvpAiSearchMove 占一个 pvpAiSearches 名额让 AI 替 seat 想一步。名额占满时排队，最多等 pvpAiQueueTimeout，请求取消时不再等；
 // 名额在搜索结束时归还，引擎出错甚至 panic 也不会少掉一个。
-func pvpAiSearchMove(ctx context.Context, engine pvpEngine, board []byte, level int) (json.RawMessage, error) {
+func pvpAiSearchMove(ctx context.Context, engine pvpEngine, board []byte, seat int, level int) (json.RawMessage, error) {
 	queued := time.NewTimer(pvpAiQueueTimeout)
 	defer queued.Stop()
 	select {
@@ -1153,7 +1297,7 @@ func pvpAiSearchMove(ctx context.Context, engine pvpEngine, board []byte, level 
 		return nil, ctx.Err()
 	}
 	defer func() { <-pvpAiSearches }()
-	return engine.AiMove(board, 1, level)
+	return engine.AiMove(board, seat, level)
 }
 
 // pvpAiView 是人机对战一局给玩家看的样子。
@@ -1172,9 +1316,11 @@ func pvpAiView(game *pvpGame, session *model.GameSession) (gin.H, error) {
 		"status":     session.Status,
 		"level":      state.Level,
 		"seat":       0,
+		"seats":      game.seats,
 		"to_move":    state.ToMove,
 		"over":       state.Over,
 		"winner":     state.Winner,
+		"result":     state.Result,
 		"moves":      state.Moves,
 		"state":      board,
 	}, nil
@@ -1245,7 +1391,7 @@ func startPvpAi(c *gin.Context, game *pvpGame) {
 		return
 	}
 	session := startSkillSession(c, pvpAiGame(game.key), func(uint32) (string, error) {
-		first, err := randomSeat(2)
+		first, err := randomSeat(game.seats)
 		if err != nil {
 			return "", err
 		}
@@ -1254,7 +1400,7 @@ func startPvpAi(c *gin.Context, game *pvpGame) {
 			return "", err
 		}
 		state := pvpAiState{Level: req.Level, Board: initial.Data, ToMove: initial.ToMove, Winner: -1}
-		if _, err := state.aiReply(c.Request.Context(), game.engine); err != nil {
+		if _, err := state.aiReply(c.Request.Context(), game); err != nil {
 			return "", err
 		}
 		data, err := common.Marshal(state)
@@ -1323,13 +1469,13 @@ func settlePvpAi(c *gin.Context, game *pvpGame, rule operation_setting.SkillRule
 		return
 	}
 	score := 0
-	if state.Winner == 0 {
+	if state.Result == "win" {
 		score = state.Level
 	}
 	result := settleSkillSession(c, game.name+"人机对战", rule, session, skillOutcome{
 		Score:   score,
 		Seconds: session.PlayedSeconds(common.GetTimestamp()),
-		Detail:  pvpAiDetail{Level: state.Level, Winner: state.Winner, Moves: state.Moves},
+		Detail:  pvpAiDetail{Level: state.Level, Winner: state.Winner, Result: state.Result, Moves: state.Moves},
 		State:   string(data),
 	})
 	if result == nil {
@@ -1367,8 +1513,11 @@ func movePvpAi(c *gin.Context, game *pvpGame) {
 		respondGameRoomError(c, err)
 		return
 	}
-	state.apply(next)
-	aiMove, err := state.aiReply(c.Request.Context(), game.engine)
+	if err := state.apply(game, next); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	aiMove, err := state.aiReply(c.Request.Context(), game)
 	if err != nil {
 		common.SysError(fmt.Sprintf("%s ai failed in session %d: %v", game.key, session.Id, err))
 		common.ApiErrorI18n(c, i18n.MsgGamePlayFailed)
@@ -1410,6 +1559,6 @@ func resignPvpAi(c *gin.Context, game *pvpGame) {
 	if session == nil {
 		return
 	}
-	state.Over, state.Winner = true, 1
+	state.Over, state.Winner, state.Result = true, 1, "loss"
 	settlePvpAi(c, game, rule, session, state, nil)
 }

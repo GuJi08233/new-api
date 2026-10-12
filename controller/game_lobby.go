@@ -83,7 +83,7 @@ func pvpLobbyRoomSummary(room *model.GameRoom, viewer int, seats []model.GameRoo
 		"stake": room.Stake, "escrow": room.Escrow,
 		"seats": room.Seats, "player_count": room.Players,
 		"locked": room.Locked(), "private": room.Private,
-		"members": pvpRoomMembers(seats, names), "host": names[room.HostId],
+		"members": pvpRoomMembers(room, seats, names), "host": names[room.HostId],
 		"own": mySeat >= 0, "seat": mySeat, "created_at": room.CreatedAt,
 	}
 }

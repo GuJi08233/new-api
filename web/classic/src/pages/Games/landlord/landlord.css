@@ -24,8 +24,24 @@ For commercial licensing, please contact support@quantumnous.com
 .landlord-seat-label {
   display: inline-flex;
   align-items: center;
-  flex-wrap: wrap;
   gap: 4px;
+}
+
+.landlord-seat-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-variant-numeric: tabular-nums;
+  color: var(--semi-color-text-2);
+}
+
+/* 三个座位并排时名字至少留出几个字，放不下就换到下一行，不缩成省略号。 */
+.landlord-page .pvp-player {
+  flex-wrap: wrap;
+}
+
+.landlord-page .pvp-player-name {
+  min-width: 72px;
 }
 
 .landlord-board,
@@ -110,8 +126,12 @@ button.landlord-card:focus-visible {
   color: var(--semi-color-danger);
 }
 
-.landlord-card.is-joker {
-  font-size: 12px;
+.landlord-card.is-joker strong {
+  writing-mode: vertical-rl;
+  text-orientation: upright;
+  font-size: 9px;
+  letter-spacing: -1px;
+  line-height: 1;
 }
 
 .landlord-card.is-back {
@@ -153,14 +173,41 @@ button.landlord-card:focus-visible {
   background: var(--semi-color-success-light-default);
 }
 
-.landlord-passes {
+/* 这一轮的出牌：按先后排开，要压的那一手描边。 */
+.landlord-trick {
   display: flex;
   flex-wrap: wrap;
+  align-items: flex-start;
   justify-content: center;
-  gap: 8px;
-  padding-top: 8px;
-  color: var(--semi-color-text-2);
-  font-size: 12px;
+  gap: 10px 18px;
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+}
+
+.landlord-trick > li {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 8px 8px;
+  border-radius: 8px;
+}
+
+.landlord-trick > li.is-lead {
+  box-shadow: 0 0 0 1px var(--semi-color-primary);
+  background: var(--semi-color-bg-1);
+}
+
+.landlord-trick .landlord-cards {
+  padding-top: 4px;
+  gap: 3px;
+}
+
+.landlord-trick .landlord-card {
+  width: 34px;
+  min-height: 50px;
+  font-size: 14px;
 }
 
 .landlord-hand,

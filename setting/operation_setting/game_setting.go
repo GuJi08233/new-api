@@ -142,15 +142,16 @@ type WheelRule struct {
 	SpinCost int `json:"spin_cost"`
 }
 
-// PvpRule 是对战游戏的开关与规则。两位玩家押同样多的游戏币，赢家拿走两份押注，平台从中抽走 RakePercent%(向下取整)，
-// 平局各自退回；押注为 0 的是友谊赛。同一 IP 下的账号不能互相押注对战。Ai 是和服务端 AI 对战的领奖规则。
+// PvpRule 是对战游戏的开关与规则。每位玩家押同样多的游戏币：双人对局赢家拿走两份押注，平台从中抽走 RakePercent%，多人对局
+// 获胜的一方分输方的押注，平台从净赢额抽成(都向下取整)；平局各自退回，押注为 0 的是友谊赛。同一 IP 下的账号不能互相押注对战。
+// Ai 是和服务端 AI 对战的领奖规则。
 type PvpRule struct {
 	Enabled bool `json:"enabled"`
 	// MaxStake 是每人最多押注的游戏币，0 表示只能开友谊赛。
 	MaxStake int `json:"max_stake"`
 	// RakePercent 是押注对局里平台从奖池抽走的百分比，按奖池向下取整；平局不抽成。
 	RakePercent int `json:"rake_percent"`
-	// MoveSeconds 是每一步的限时(秒)，超时判负。
+	// MoveSeconds 是每一步的限时(秒)，双人对局超时判负，多人对局超时由 AI 托管代打。
 	MoveSeconds int `json:"move_seconds"`
 	// Ai 是人机对战的开关与领奖规则，成绩是赢下的 AI 难度：1 简单、2 普通、3 困难，输了为 0。
 	Ai SkillRule `json:"ai"`
@@ -259,7 +260,7 @@ var gameRuleSpecs = map[string]gameRuleSpec{
 	"reversi":  {Kind: GameKindPvp, Ai: true},
 	"xiangqi":  {Kind: GameKindPvp, Ai: true},
 	"rps":      {Kind: GameKindPvp},
-	"landlord": {Kind: GameKindPvp},
+	"landlord": {Kind: GameKindPvp, Ai: true},
 
 	"jackpot": {Kind: GameKindParty},
 }
@@ -566,7 +567,7 @@ func DefaultGameSetting() *GameSetting {
 		Reversi:  PvpRule{MaxStake: 100, RakePercent: 5, MoveSeconds: 60, Ai: aiRule(180)},
 		Xiangqi:  PvpRule{MaxStake: 100, RakePercent: 5, MoveSeconds: 120, Ai: aiRule(300)},
 		Rps:      PvpRule{MaxStake: 100, RakePercent: 5, MoveSeconds: 20},
-		Landlord: PvpRule{MaxStake: 100, RakePercent: 5, MoveSeconds: 45},
+		Landlord: PvpRule{MaxStake: 100, RakePercent: 5, MoveSeconds: 45, Ai: aiRule(180)},
 
 		Jackpot: JackpotRule{MaxBet: 100, RoundSeconds: 60, RakePercent: 5},
 	}

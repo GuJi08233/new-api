@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 
 import React, { useState } from 'react';
 import { Button } from '@douyinfe/semi-ui';
-import { Crown, Users } from 'lucide-react';
+import { Crown, Layers, Users } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { isRedSuit, SUIT_ICONS } from '../common/cards';
 import PvpGame from '../common/pvp/PvpGame';
@@ -41,17 +41,20 @@ const RANKS = [
   '2',
 ];
 const SUITS = ['♠', '♥', '♦', '♣'];
+// 一局最多发几次牌，与服务端 pkg/landlord.MaxDeals 一致：最后一次发牌时前两位都不叫，最后一位必须叫分。
+const MAX_DEALS = 3;
 
+// 一张牌。王的牌面像实体牌一样竖写 JOKER，小王黑色、大王红色，读屏与悬停提示用翻译后的名字。
 const PlayingCard = ({ card, selected = false, disabled = false, onClick }) => {
   const { t } = useTranslation();
   const joker = card >= 52;
-  const rank = joker
+  const suit = card % 4;
+  const Suit = SUIT_ICONS[suit];
+  const name = joker
     ? card === 52
       ? t('小王')
       : t('大王')
-    : RANKS[Math.floor(card / 4)];
-  const suit = card % 4;
-  const Suit = SUIT_ICONS[suit];
+    : `${RANKS[Math.floor(card / 4)]}${SUITS[suit]}`;
   const Element = onClick ? 'button' : 'span';
   return (
     <Element
@@ -59,16 +62,32 @@ const PlayingCard = ({ card, selected = false, disabled = false, onClick }) => {
       type={onClick ? 'button' : undefined}
       disabled={onClick ? disabled : undefined}
       aria-pressed={onClick ? selected : undefined}
-      aria-label={joker ? rank : `${rank}${SUITS[suit]}`}
+      aria-label={name}
+      title={joker ? name : undefined}
       onClick={onClick}
     >
-      <strong>{rank}</strong>
-      {!joker && <Suit size={18} aria-hidden />}
+      {joker ? (
+        <strong aria-hidden>JOKER</strong>
+      ) : (
+        <>
+          <strong>{RANKS[Math.floor(card / 4)]}</strong>
+          <Suit size={18} aria-hidden />
+        </>
+      )}
     </Element>
   );
 };
 
-const LandlordBoard = ({ state, seat, canMove, over, onMove }) => {
+// 一组牌，从大到小排。
+const Cards = ({ cards }) => (
+  <div className='landlord-cards'>
+    {[...cards].reverse().map((card) => (
+      <PlayingCard key={card} card={card} />
+    ))}
+  </div>
+);
+
+const LandlordBoard = ({ state, seat, names, canMove, over, onMove }) => {
   const { t } = useTranslation();
   const [selection, setSelection] = useState([]);
   const hand = [...(state?.hand || [])].sort((left, right) => right - left);
@@ -76,6 +95,16 @@ const LandlordBoard = ({ state, seat, canMove, over, onMove }) => {
   const selected = selection.filter((card) => hand.includes(card));
   const bidding = state?.phase === 'bidding';
   const lastPlay = state?.last_play;
+  const trick = state?.trick || [];
+  // 这一轮要压的那一手：最后一次出牌(之后可能还跟着不出)，一轮结束后没有。
+  let leadIndex = -1;
+  if (lastPlay) {
+    trick.forEach((action, index) => {
+      if (!action.pass) leadIndex = index;
+    });
+  }
+  const nameOf = (index) =>
+    names?.[index] || t('座位 {{seat}}', { seat: index + 1 });
   const combinations = {
     single: t('单张'),
     pair: t('对子'),
@@ -104,23 +133,28 @@ const LandlordBoard = ({ state, seat, canMove, over, onMove }) => {
     <div className='landlord-board'>
       <div className='landlord-bottom'>
         <span className='landlord-caption'>{t('底牌')}</span>
-        <div className='landlord-cards'>
-          {bidding
-            ? [0, 1, 2].map((index) => (
-                <span
-                  key={index}
-                  className='landlord-card is-back'
-                  aria-label={t('未公开')}
-                />
-              ))
-            : state.bottom.map((card) => (
-                <PlayingCard key={card} card={card} />
-              ))}
-        </div>
+        {bidding ? (
+          <div className='landlord-cards'>
+            {[0, 1, 2].map((index) => (
+              <span
+                key={index}
+                className='landlord-card is-back'
+                aria-label={t('未公开')}
+              />
+            ))}
+          </div>
+        ) : (
+          <Cards cards={state.bottom} />
+        )}
       </div>
-      {state.deals > 1 && (
+      {bidding && state.deals > 1 && (
         <div className='games-stage-counter'>
-          {t('都不叫，已重新发牌（第 {{deal}} 次）', { deal: state.deals })}
+          {state.deals >= MAX_DEALS
+            ? t(
+                '都不叫，已重新发牌（第 {{deal}} 次）；这次前两位都不叫时，最后一位必须叫分',
+                { deal: state.deals },
+              )
+            : t('都不叫，已重新发牌（第 {{deal}} 次）', { deal: state.deals })}
         </div>
       )}
       {bidding ? (
@@ -131,11 +165,7 @@ const LandlordBoard = ({ state, seat, canMove, over, onMove }) => {
                 key={index}
                 className={index === state.to_move && !over ? 'is-turn' : ''}
               >
-                <span>
-                  {index === seat
-                    ? t('我')
-                    : t('座位 {{seat}}', { seat: index + 1 })}
-                </span>
+                <span>{nameOf(index)}</span>
                 <strong>
                   {bid < 0
                     ? t('尚未叫分')
@@ -151,7 +181,11 @@ const LandlordBoard = ({ state, seat, canMove, over, onMove }) => {
               <Button
                 key={bid}
                 theme={bid > 0 ? 'solid' : 'light'}
-                disabled={!canMove || (bid > 0 && bid <= state.high_bid)}
+                disabled={
+                  !canMove ||
+                  (bid > 0 && bid <= state.high_bid) ||
+                  (bid === 0 && state.must_bid)
+                }
                 onClick={() => onMove({ bid })}
               >
                 {bid === 0 ? t('不叫') : t('叫 {{bid}} 分', { bid })}
@@ -161,33 +195,36 @@ const LandlordBoard = ({ state, seat, canMove, over, onMove }) => {
         </>
       ) : (
         <div className='landlord-table' aria-live='polite'>
-          {lastPlay ? (
-            <>
-              <div className='landlord-caption'>
-                {lastPlay.seat === seat
-                  ? t('我')
-                  : t('座位 {{seat}}', { seat: lastPlay.seat + 1 })}
-                {' · '}
-                {combinations[lastPlay.type]}
-              </div>
-              <div className='landlord-cards'>
-                {[...lastPlay.cards].reverse().map((card) => (
-                  <PlayingCard key={card} card={card} />
-                ))}
-              </div>
-              <div className='landlord-passes'>
-                {state.passed.map(
-                  (passed, index) =>
-                    passed && (
-                      <span key={index}>
-                        {t('座位 {{seat}} 不出', { seat: index + 1 })}
-                      </span>
-                    ),
-                )}
-              </div>
-            </>
-          ) : (
-            <span className='landlord-caption'>{t('新一轮，请领出')}</span>
+          {trick.length === 0 && (
+            <span className='landlord-caption'>
+              {t('{{name}} 是地主，先出牌', {
+                name: nameOf(state.landlord),
+              })}
+            </span>
+          )}
+          {trick.length > 0 && (
+            <ol className='landlord-trick'>
+              {trick.map((action, index) => (
+                <li
+                  key={index}
+                  className={index === leadIndex ? 'is-lead' : ''}
+                >
+                  <span className='landlord-caption'>
+                    {nameOf(action.seat)}
+                    {' · '}
+                    {action.pass ? t('不出') : combinations[action.type]}
+                  </span>
+                  {!action.pass && <Cards cards={action.cards} />}
+                </li>
+              ))}
+            </ol>
+          )}
+          {trick.length > 0 && !lastPlay && !over && (
+            <span className='landlord-caption'>
+              {t('两家都不出，{{name}} 领出新一轮', {
+                name: nameOf(state.to_move),
+              })}
+            </span>
           )}
         </div>
       )}
@@ -243,18 +280,15 @@ const LandlordBoard = ({ state, seat, canMove, over, onMove }) => {
         <div className='landlord-reveal'>
           {state.hands.map(
             (cards, index) =>
-              index !== seat && (
+              index !== seat &&
+              cards.length > 0 && (
                 <div key={index}>
                   <div className='landlord-caption'>
-                    {t('座位 {{seat}}', { seat: index + 1 })}
+                    {nameOf(index)}
                     {' · '}
                     {index === state.landlord ? t('地主') : t('农民')}
                   </div>
-                  <div className='landlord-cards'>
-                    {[...cards].reverse().map((card) => (
-                      <PlayingCard key={card} card={card} />
-                    ))}
-                  </div>
+                  <Cards cards={cards} />
                 </div>
               ),
           )}
@@ -272,7 +306,6 @@ const Landlord = () => {
       title={t('斗地主')}
       className='landlord-page'
       randomFirst={false}
-      teamGame
       seatLabels={(state) =>
         [0, 1, 2].map((index) => (
           <span className='landlord-seat-label' key={index}>
@@ -283,22 +316,24 @@ const Landlord = () => {
                 : t('农民')
               : t('待定')}
             {state && (
-              <span>
-                {t('剩余 {{count}} 张', { count: state.counts[index] })}
+              <span
+                className='landlord-seat-count'
+                title={t('剩余 {{count}} 张', { count: state.counts[index] })}
+              >
+                <Layers size={12} aria-hidden />
+                {state.counts[index]}
               </span>
             )}
           </span>
         ))
       }
-      statusText={({ state, myTurn }) =>
-        state?.phase === 'bidding'
-          ? myTurn
-            ? t('轮到你叫分')
-            : t('等待其他玩家叫分')
-          : myTurn
-            ? t('请选择手牌出牌，或选择不出')
-            : t('等待其他玩家出牌')
-      }
+      statusText={({ state, myTurn }) => {
+        if (state?.phase === 'bidding') {
+          if (!myTurn) return t('等待其他玩家叫分');
+          return state.must_bid ? t('轮到你叫分，这次必须叫') : t('轮到你叫分');
+        }
+        return myTurn ? t('请选择手牌出牌，或选择不出') : t('等待其他玩家出牌');
+      }}
       resultNote={({ state }) =>
         state?.winner >= 0
           ? state.winner === state.landlord
@@ -308,20 +343,19 @@ const Landlord = () => {
       }
       rules={[
         t(
-          '三人各发 17 张牌，叫分最高者为地主并拿走 3 张底牌；都不叫则重新发牌',
+          '三人各发 17 张牌，叫分最高者为地主并拿走 3 张底牌；都不叫则重新发牌，第三次发牌时前两位都不叫，最后一位必须叫分',
         ),
         t(
           '地主先出牌，按座位顺序轮流出牌；连续两人不出后，上一位出牌者重新领出',
         ),
-        t('地主先出完则地主获胜，任一农民先出完则两位农民共同获胜'),
         t(
-          '固定押注，叫分与炸弹不加注；获胜队伍平分输方押注，平台从净赢额抽成，余数按座位顺序分配',
+          '押注是底注：地主先出完赢两倍，两位农民各输一倍；任一农民先出完，两位农民各赢一倍，地主输两倍。叫分与炸弹不加倍',
         ),
         t('顺子、连对和飞机不能包含 2 或王；炸弹可压普通牌型，王炸最大'),
       ]}
       renderBoard={({ roomId, state, ...props }) => (
         <LandlordBoard
-          key={`${roomId || 'waiting'}:${state?.deals || 0}`}
+          key={`${roomId || 'ai'}:${state?.deals || 0}`}
           state={state}
           {...props}
         />

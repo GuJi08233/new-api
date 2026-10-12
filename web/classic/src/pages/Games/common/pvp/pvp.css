@@ -305,3 +305,16 @@ For commercial licensing, please contact support@quantumnous.com
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* 托管中的座位：AI 代打的标记。 */
+.pvp-auto {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--semi-color-warning);
+  background: var(--semi-color-warning-light-default);
+}

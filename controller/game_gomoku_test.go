@@ -178,6 +178,6 @@ func TestGomokuAiGameSettles(t *testing.T) {
 	assert.EqualValues(t, 1, result["score"])
 	assert.EqualValues(t, 1, result["reward"])
 	assert.EqualValues(t, 1, result["balance"])
-	assert.Equal(t, map[string]any{"level": 1.0, "winner": 0.0, "moves": float64(len(local.Moves()))}, result["detail"])
+	assert.Equal(t, map[string]any{"level": 1.0, "winner": 0.0, "result": "win", "moves": float64(len(local.Moves()))}, result["detail"])
 	assert.Equal(t, 1, player.balance())
 }

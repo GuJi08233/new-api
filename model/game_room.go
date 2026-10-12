@@ -70,8 +70,10 @@ type GameRoom struct {
 	Version      int    `json:"version" gorm:"not null;default:0"`
 	// ToMove 是轮到哪个座位走，-1 表示同时出招(例如石头剪刀布)或对局已结束。
 	ToMove int `json:"to_move" gorm:"not null;default:0"`
-	// Deadline 是这一步的截止时间，过了还没走就按规则处理(两人对弈判负，多人游戏替他走)；等待中与已结束的房间为 0。
+	// Deadline 是这一步的截止时间，过了还没走就按规则处理(两人对弈判负，多人游戏由 AI 替他走并转为托管)；等待中与已结束的房间为 0。
 	Deadline int64 `json:"deadline" gorm:"bigint;index:idx_game_room_due,priority:2"`
+	// AutoSeats 是托管中的座位(按位记，第 n 位是座位 n)：多人游戏里超时或自己选择托管的座位，轮到时由 AI 替他走。
+	AutoSeats int `json:"auto_seats" gorm:"not null;default:0"`
 	// WinnerId 是赢得最多的玩家，平局与取消为 0。
 	WinnerId  int    `json:"winner_id"`
 	EndReason string `json:"end_reason" gorm:"type:varchar(16)"`
@@ -328,16 +330,17 @@ func LeaveGameRoom(room *GameRoom, userId int) error {
 	return reloadGameRoom(room)
 }
 
-// UpdateGameRoomState 保存对局中的一步。只有 room.Version 仍是库里的版本时才会成功，否则返回 ErrGameRoomChanged；
-// 成功后 room 随之更新。
-func UpdateGameRoomState(room *GameRoom, state string, toMove int, deadline int64) error {
+// UpdateGameRoomState 保存对局中的一步与之后托管中的座位。只有 room.Version 仍是库里的版本时才会成功，否则返回
+// ErrGameRoomChanged；成功后 room 随之更新。
+func UpdateGameRoomState(room *GameRoom, state string, toMove int, deadline int64, autoSeats int) error {
 	result := DB.Model(&GameRoom{}).
 		Where("id = ? AND status = ? AND version = ?", room.Id, GameRoomStatusPlaying, room.Version).
 		Updates(map[string]interface{}{
-			"state":    state,
-			"to_move":  toMove,
-			"deadline": deadline,
-			"version":  room.Version + 1,
+			"state":      state,
+			"to_move":    toMove,
+			"deadline":   deadline,
+			"auto_seats": autoSeats,
+			"version":    room.Version + 1,
 		})
 	if result.Error != nil {
 		return result.Error
@@ -345,7 +348,7 @@ func UpdateGameRoomState(room *GameRoom, state string, toMove int, deadline int6
 	if result.RowsAffected != 1 {
 		return ErrGameRoomChanged
 	}
-	room.State, room.ToMove, room.Deadline, room.Version = state, toMove, deadline, room.Version+1
+	room.State, room.ToMove, room.Deadline, room.AutoSeats, room.Version = state, toMove, deadline, autoSeats, room.Version+1
 	return nil
 }
 

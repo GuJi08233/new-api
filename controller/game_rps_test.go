@@ -164,7 +164,7 @@ func TestRoomLongPollSeesChangesFromAnotherNode(t *testing.T) {
 	waitForRoomWatcher(t, roomId)
 	room, err := model.GetGameRoom(roomId)
 	require.NoError(t, err)
-	require.NoError(t, model.UpdateGameRoomState(room, room.State, 0, room.Deadline))
+	require.NoError(t, model.UpdateGameRoomState(room, room.State, 0, room.Deadline, room.AutoSeats))
 	require.Greater(t, float64(room.Version), joined["version"])
 
 	start := time.Now()

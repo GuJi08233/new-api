@@ -78,16 +78,16 @@ func TestGameLobbyListsCrossGameRoomsWithoutJoiningOrLeakingSecrets(t *testing.T
 	assert.EqualValues(t, 2, listedRps["seats"])
 	assert.EqualValues(t, 1, listedRps["player_count"])
 	assert.Equal(t, true, listedRps["locked"])
-	assert.Equal(t, []any{map[string]any{"seat": 0.0, "user_id": float64(rpsHost.user.Id), "name": rpsHost.user.Username, "net": 0.0, "result": ""}}, listedRps["members"])
+	assert.Equal(t, []any{map[string]any{"seat": 0.0, "user_id": float64(rpsHost.user.Id), "name": rpsHost.user.Username, "net": 0.0, "result": "", "auto": false}}, listedRps["members"])
 	assert.Equal(t, landlord["id"], listedLandlord["id"])
 	assert.EqualValues(t, 11, listedLandlord["stake"])
-	assert.EqualValues(t, 11, listedLandlord["escrow"])
+	assert.EqualValues(t, 22, listedLandlord["escrow"], "landlord seats escrow twice the stake")
 	assert.EqualValues(t, 3, listedLandlord["seats"])
 	assert.EqualValues(t, 2, listedLandlord["player_count"])
 	assert.Equal(t, false, listedLandlord["locked"])
 	assert.Equal(t, []any{
-		map[string]any{"seat": 0.0, "user_id": float64(landlordHost.user.Id), "name": landlordHost.user.Username, "net": 0.0, "result": ""},
-		map[string]any{"seat": 1.0, "user_id": float64(member.user.Id), "name": member.user.Username, "net": 0.0, "result": ""},
+		map[string]any{"seat": 0.0, "user_id": float64(landlordHost.user.Id), "name": landlordHost.user.Username, "net": 0.0, "result": "", "auto": false},
+		map[string]any{"seat": 1.0, "user_id": float64(member.user.Id), "name": member.user.Username, "net": 0.0, "result": "", "auto": false},
 	}, listedLandlord["members"])
 
 	filtered := viewer.ok(http.MethodGet, "/api/game/lobby?game="+gameLandlord, nil)
@@ -154,7 +154,7 @@ func TestGameLobbyKeepsPrivateAndDisabledGameRecoveryAcrossGames(t *testing.T) {
 	assert.Empty(t, filtered["rooms"])
 	require.Len(t, filtered["active_rooms"], 1)
 	assert.Equal(t, gomoku["id"], filtered["active_rooms"].([]any)[0].(map[string]any)["id"])
-	assert.Equal(t, 79, owner.balance(), "恢复入口不重复扣押注")
+	assert.Equal(t, 70, owner.balance(), "恢复入口不重复扣押注")
 	assert.Equal(t, 95, rival.balance())
 }
 

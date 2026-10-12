@@ -268,6 +268,8 @@ const (
 	MsgGameRoomNotPlayer          = "game.room_not_player"
 	MsgGameRoomNotYourTurn        = "game.room_not_your_turn"
 	MsgGameRoomNotHost            = "game.room_not_host"
+	MsgGameRoomResignTeam         = "game.room_resign_team"
+	MsgGameRoomAutoUnsupported    = "game.room_auto_unsupported"
 	MsgGameAiDisabled             = "game.ai_disabled"
 	MsgGameAiLevelInvalid         = "game.ai_level_invalid"
 	MsgGameJackpotClosed          = "game.jackpot_closed"
