@@ -26,6 +26,8 @@ export const getGameCoinLogTypeMap = (t) => ({
   game_reward: { text: t('游戏奖励'), color: 'amber' },
   game_wager: { text: t('游戏输赢'), color: 'pink' },
   game_pvp: { text: t('对战'), color: 'cyan' },
+  trade_out: { text: t('转入模拟盘'), color: 'indigo' },
+  trade_in: { text: t('从模拟盘转回'), color: 'teal' },
 });
 
 // 游戏的四种结算方式，与服务端 operation_setting.GameKind* 一致，也是游戏中心列表的分类顺序。

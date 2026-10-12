@@ -4779,7 +4779,6 @@
     "游戏币": "Pièces de jeu",
     "请输入整数游戏币数量": "Saisissez un nombre entier de pièces de jeu",
     "1 游戏币 = 1 USDT，只能转入转出整币，钱包从 0 开始。": "1 pièce de jeu = 1 USDT. Les transferts se font uniquement en pièces entières. Le portefeuille démarre à 0.",
-    "游戏币与平台额度共用每日盈利转出上限。": "Les pièces de jeu et le crédit de la plateforme partagent la même limite quotidienne de retrait des bénéfices.",
     "游戏币转入": "Entrée de pièces de jeu",
     "游戏币转出": "Sortie de pièces de jeu",
     "游戏币余额：{{amount}}": "Solde de pièces de jeu : {{amount}}",
@@ -5666,7 +5665,6 @@
     "每个游戏币所需累计时长（秒）": "Durée de jeu cumulée par jeton de jeu (secondes)",
     "玩家当天在这个游戏里每累计玩满这么多秒才能多领 1 个游戏币，先达标的对局等时长够了再发；挡住几秒就打出好成绩的脚本。0 表示不限制": "Chaque jeton supplémentaire exige autant de secondes de jeu cumulé à ce jeu dans la journée ; une partie qualifiante est payée dès que le temps est atteint. Cela bloque les scripts qui réalisent de gros scores en quelques secondes. 0 signifie aucune limite",
     "超过个人今日剩余可兑换额度": "Dépasse votre montant convertible restant pour aujourd'hui",
-    "个人今日剩余可兑换 {{remaining}} / {{limit}} 美元额度": "Votre montant convertible restant aujourd'hui : {{remaining}} / {{limit}} USD de quota",
     "全站提现额度由所有用户共用，与个人每日兑换额度独立": "Le plafond de retrait du site est partagé par tous les utilisateurs et indépendant du plafond de conversion quotidien individuel",
     "对局已结束，奖励以游戏币明细为准": "La partie est terminée. Consultez votre historique de pièces pour la récompense.",
     "牌面已重新排列": "Les tuiles ont été mélangées.",
@@ -5826,6 +5824,12 @@
     "底注上限：地主输赢两倍底注、农民各输赢一倍，入座时每人按两倍预扣；0 表示只能开友谊赛。同一 IP 下的账号不能互相押注对战": "Mise de base maximale : le seigneur gagne ou perd le double et chaque paysan une mise, donc chaque place bloque le double de la mise en s’asseyant ; 0 n’autorise que les parties amicales. Les comptes d’une même IP ne peuvent pas s’affronter avec mise",
     "轮到的玩家超时没走时转为托管，由 AI 代打": "Un joueur hors délai passe en jeu automatique et l’IA joue pour lui",
     "AI {{index}}（{{level}}）": "IA {{index}} ({{level}})",
-    "高级难度": "Expert"
+    "高级难度": "Expert",
+    "最多可转入：{{amount}}": "Dépôt maximal : {{amount}}",
+    "转入模拟盘与兑换额度共用每人每天 {{limit}} 个游戏币的上限，今天还能转入 {{left}} 个。": "Les transferts vers le trading simulé partagent avec la conversion en quota la limite quotidienne de {{limit}} pièces de jeu par utilisateur. Vous pouvez encore en transférer {{left}} aujourd'hui.",
+    "只有从游戏币转入的本金能转回游戏币，目前 {{coins}} 个；盈利只能转出到平台额度。": "Seul le capital déposé en pièces de jeu peut être reconverti en pièces de jeu ({{coins}} actuellement). Les bénéfices ne peuvent être retirés que vers le crédit de la plateforme.",
+    "个人今日剩余可兑换 {{remaining}} / {{limit}} 美元额度，转入模拟盘的游戏币也计入": "Votre montant convertible restant aujourd'hui : {{remaining}} / {{limit}} USD de quota, pièces de jeu transférées vers le trading simulé comprises",
+    "从模拟盘转回": "Retour du trading simulé",
+    "模拟盘资金流水 #{{id}}": "Historique des fonds du trading simulé #{{id}}"
   }
 }

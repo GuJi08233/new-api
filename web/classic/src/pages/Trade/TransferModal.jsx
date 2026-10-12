@@ -32,7 +32,7 @@ import { toUsdt, tradePost } from './api';
 const { Text } = Typography;
 
 // 在平台额度或游戏币钱包与模拟盘之间转账，额度按美元填写，可以有小数，游戏币只接受整数。转出上限由后端算好：只有可用资金能转出，超过本金的部分
-// 算盈利，受每天的上限约束。
+// 算盈利，受每天的上限约束。游戏币转入与兑换额度共用每天的余量，转回游戏币不超过从游戏币转入、还没转回的币数，盈利只能转出成额度。
 const TransferModal = ({ direction, self, perUnit, onClose, onDone, t }) => {
   const [amount, setAmount] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -51,10 +51,18 @@ const TransferModal = ({ direction, self, perUnit, onClose, onDone, t }) => {
     profitCap - (self.withdrawable?.profit_out_used || 0),
     0,
   );
-  const available =
-    isIn && isCoin
-      ? self.wallet?.game_coins || 0
-      : toUsdt(isIn ? self.wallet?.quota : self.withdrawable?.quota, perUnit);
+  const coinDailyLimit = self.wallet?.game_coin_daily_limit || 0;
+  const coinDailyLeft = self.wallet?.game_coin_daily_remaining || 0;
+  const coinPrincipal = self.account?.coin_principal || 0;
+  let available = toUsdt(
+    isIn ? self.wallet?.quota : self.withdrawable?.quota,
+    perUnit,
+  );
+  if (isCoin && isIn) {
+    available = Math.min(self.wallet?.game_coins || 0, coinDailyLeft);
+  } else if (isCoin) {
+    available = Math.min(available, coinPrincipal);
+  }
   const max = Math.max(0, available);
   const maxText = (
     isCoin ? Math.floor(max) : Math.floor(max * 1e6) / 1e6
@@ -120,9 +128,13 @@ const TransferModal = ({ direction, self, perUnit, onClose, onDone, t }) => {
         />
         <div className='flex items-center justify-between'>
           <Text type='tertiary' size='small'>
-            {isIn
-              ? t('主钱包余额：{{amount}}', { amount: `${maxText} ${unit}` })
-              : t('最多可转出：{{amount}}', { amount: `${maxText} ${unit}` })}
+            {!isIn
+              ? t('最多可转出：{{amount}}', { amount: `${maxText} ${unit}` })
+              : isCoin
+                ? t('最多可转入：{{amount}}', { amount: `${maxText} ${unit}` })
+                : t('主钱包余额：{{amount}}', {
+                    amount: `${maxText} ${unit}`,
+                  })}
           </Text>
           <Button
             size='small'
@@ -143,7 +155,20 @@ const TransferModal = ({ direction, self, perUnit, onClose, onDone, t }) => {
                   : t('1 USDT = 1 美元额度，账户从 0 开始，不送初始资金。')}
               </span>
               {isCoin && (
-                <span>{t('游戏币与平台额度共用每日盈利转出上限。')}</span>
+                <span>
+                  {t(
+                    '转入模拟盘与兑换额度共用每人每天 {{limit}} 个游戏币的上限，今天还能转入 {{left}} 个。',
+                    { limit: coinDailyLimit, left: coinDailyLeft },
+                  )}
+                </span>
+              )}
+              {isCoin && (
+                <span>
+                  {t(
+                    '只有从游戏币转入的本金能转回游戏币，目前 {{coins}} 个；盈利只能转出到平台额度。',
+                    { coins: coinPrincipal },
+                  )}
+                </span>
               )}
               <span>
                 {profitCap > 0

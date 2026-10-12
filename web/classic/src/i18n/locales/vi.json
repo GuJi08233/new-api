@@ -5290,7 +5290,6 @@
     "游戏币": "Xu trò chơi",
     "请输入整数游戏币数量": "Nhập số xu trò chơi là số nguyên",
     "1 游戏币 = 1 USDT，只能转入转出整币，钱包从 0 开始。": "1 xu trò chơi = 1 USDT. Chỉ có thể chuyển số xu nguyên. Ví bắt đầu từ 0.",
-    "游戏币与平台额度共用每日盈利转出上限。": "Xu trò chơi và hạn mức nền tảng dùng chung giới hạn rút lợi nhuận mỗi ngày.",
     "游戏币转入": "Chuyển xu trò chơi vào",
     "游戏币转出": "Chuyển xu trò chơi ra",
     "游戏币余额：{{amount}}": "Số dư xu trò chơi: {{amount}}",
@@ -6176,7 +6175,6 @@
     "每个游戏币所需累计时长（秒）": "Tổng thời gian chơi cho mỗi xu trò chơi (giây)",
     "玩家当天在这个游戏里每累计玩满这么多秒才能多领 1 个游戏币，先达标的对局等时长够了再发；挡住几秒就打出好成绩的脚本。0 表示不限制": "Người chơi cứ chơi trò này đủ tổng cộng số giây này trong ngày thì được nhận thêm 1 xu; ván đạt ngưỡng trước sẽ được trả khi đủ thời gian. Chặn script đạt điểm cao trong vài giây. 0 là không giới hạn",
     "超过个人今日剩余可兑换额度": "Vượt hạn mức quy đổi còn lại của bạn hôm nay",
-    "个人今日剩余可兑换 {{remaining}} / {{limit}} 美元额度": "Hạn mức quy đổi còn lại của bạn hôm nay: {{remaining}} / {{limit}} USD",
     "全站提现额度由所有用户共用，与个人每日兑换额度独立": "Hạn mức rút toàn trang dùng chung cho mọi người, độc lập với hạn mức quy đổi hằng ngày của từng người",
     "对局已结束，奖励以游戏币明细为准": "Ván đã kết thúc. Xem lịch sử xu để biết phần thưởng.",
     "牌面已重新排列": "Các ô đã được xáo lại.",
@@ -6335,6 +6333,12 @@
     "底注上限：地主输赢两倍底注、农民各输赢一倍，入座时每人按两倍预扣；0 表示只能开友谊赛。同一 IP 下的账号不能互相押注对战": "Giới hạn cược cơ bản: địa chủ thắng thua gấp đôi, mỗi nông dân một lần cược, nên khi vào bàn mỗi người bị tạm giữ gấp đôi; 0 nghĩa là chỉ chơi giao hữu. Các tài khoản cùng IP không thể đặt cược đấu với nhau",
     "轮到的玩家超时没走时转为托管，由 AI 代打": "Người chơi hết giờ sẽ chuyển sang tự động chơi và AI đánh thay",
     "AI {{index}}（{{level}}）": "AI {{index}} ({{level}})",
-    "高级难度": "Chuyên gia"
+    "高级难度": "Chuyên gia",
+    "最多可转入：{{amount}}": "Có thể chuyển vào tối đa: {{amount}}",
+    "转入模拟盘与兑换额度共用每人每天 {{limit}} 个游戏币的上限，今天还能转入 {{left}} 个。": "Chuyển vào giao dịch mô phỏng dùng chung giới hạn {{limit}} xu trò chơi mỗi người mỗi ngày với việc đổi hạn ngạch. Hôm nay còn chuyển vào được {{left}} xu.",
+    "只有从游戏币转入的本金能转回游戏币，目前 {{coins}} 个；盈利只能转出到平台额度。": "Chỉ phần vốn chuyển vào bằng xu trò chơi mới có thể chuyển lại thành xu trò chơi (hiện có {{coins}} xu). Lợi nhuận chỉ có thể chuyển ra hạn mức nền tảng.",
+    "个人今日剩余可兑换 {{remaining}} / {{limit}} 美元额度，转入模拟盘的游戏币也计入": "Hạn mức quy đổi còn lại của bạn hôm nay: {{remaining}} / {{limit}} USD, tính cả xu trò chơi đã chuyển vào giao dịch mô phỏng",
+    "从模拟盘转回": "Chuyển về từ giao dịch mô phỏng",
+    "模拟盘资金流水 #{{id}}": "Sổ dòng tiền giao dịch mô phỏng #{{id}}"
   }
 }

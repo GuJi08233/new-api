@@ -53,6 +53,7 @@ var (
 	ErrTradeQuotaInsufficient    = errors.New("user quota is insufficient for the transfer")
 	ErrTradeWithdrawExceeded     = errors.New("trade withdrawal exceeds the withdrawable amount")
 	ErrTradeProfitOutLimit       = errors.New("trade daily profit withdrawal limit reached")
+	ErrTradeCoinPrincipal        = errors.New("trade game coin withdrawal exceeds the coins transferred in")
 	ErrTradePositionInsufficient = errors.New("trade position is insufficient")
 	ErrTradePositionLimit        = errors.New("trade position limit reached")
 	ErrTradeOpenOrderLimit       = errors.New("too many open trade orders")
@@ -68,6 +69,9 @@ type TradeAccount struct {
 	Frozen int `json:"frozen" gorm:"type:bigint;not null;default:0"`
 	// QuotaPrincipal 是两种钱包转入后还没转回的本金(额度单位)。转出超过它的部分是交易盈利，共用每天的盈利转出上限。
 	QuotaPrincipal int `json:"quota_principal" gorm:"type:bigint;not null;default:0"`
+	// CoinPrincipal 是本金里从游戏币转入、还没转回的币数，只有这么多能转回游戏币：额度不能换成游戏币，盈利只能转出成额度。
+	// 本金被转出后剩下的不够时随之减少(见 withdrawTradeCashTx)，始终不超过 QuotaPrincipal 折合的币数。
+	CoinPrincipal int `json:"coin_principal" gorm:"type:bigint;not null;default:0"`
 	// TotalIn、TotalOut 是累计转入、转出的资金，总资产减去两者之差就是累计盈亏。
 	TotalIn   int   `json:"total_in" gorm:"type:bigint;not null;default:0"`
 	TotalOut  int   `json:"total_out" gorm:"type:bigint;not null;default:0"`
@@ -185,7 +189,7 @@ func saveTradeAccountTx(tx *gorm.DB, account *TradeAccount) error {
 	if account.Cash <= -common.MaxQuota || account.Cash >= common.MaxQuota {
 		return ErrTradeAmountInvalid
 	}
-	for _, value := range []int{account.Frozen, account.QuotaPrincipal, account.TotalIn, account.TotalOut} {
+	for _, value := range []int{account.Frozen, account.QuotaPrincipal, account.CoinPrincipal, account.TotalIn, account.TotalOut} {
 		if value < 0 || value >= common.MaxQuota {
 			return ErrTradeAmountInvalid
 		}
@@ -195,6 +199,7 @@ func saveTradeAccountTx(tx *gorm.DB, account *TradeAccount) error {
 		"cash":            account.Cash,
 		"frozen":          account.Frozen,
 		"quota_principal": account.QuotaPrincipal,
+		"coin_principal":  account.CoinPrincipal,
 		"total_in":        account.TotalIn,
 		"total_out":       account.TotalOut,
 		"updated_at":      account.UpdatedAt,

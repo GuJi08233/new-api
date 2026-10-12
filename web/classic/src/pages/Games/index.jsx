@@ -488,7 +488,7 @@ const Games = () => {
                   </Text>
                   <Text type='tertiary' size='small'>
                     {t(
-                      '个人今日剩余可兑换 {{remaining}} / {{limit}} 美元额度',
+                      '个人今日剩余可兑换 {{remaining}} / {{limit}} 美元额度，转入模拟盘的游戏币也计入',
                       {
                         remaining: convertRemaining,
                         limit: convert?.daily_limit || 0,

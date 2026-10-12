@@ -18,7 +18,7 @@ import (
 // 主额度(1 币 = 1 美元额度)，也可以提现成链上 ERC-20 代币。余额、流水和提现单都在主库，
 // 兑换时扣币与 quota 入账在同一个事务里；日志库只做事后审计，不参与记账。
 
-// GameCoinConvertDailyLimit 是每人每天可兑换的游戏币数量，1 币 = 1 美元额度。
+// GameCoinConvertDailyLimit 是每人每天可兑换的游戏币数量，1 币 = 1 美元额度。转入模拟盘的币可以再转出成额度，也占用这份额度。
 const GameCoinConvertDailyLimit = 15
 
 const (
@@ -304,26 +304,8 @@ func ConvertGameCoinsToQuota(userId int, coins int) (quota int, balance int, err
 		if txErr != nil {
 			return txErr
 		}
-		// 首次启用日限额时把今天已有的兑换流水计入，升级当天不会重新得到一份额度。
-		used, txErr := gameCoinConvertDayUsed(tx, userId, day)
-		if txErr != nil {
+		if txErr = consumeGameCoinConvertDayTx(tx, userId, day, coins); txErr != nil {
 			return txErr
-		}
-		if txErr = tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&GameCoinConvertDay{
-			UserId: userId,
-			Day:    day,
-			Used:   used,
-		}).Error; txErr != nil {
-			return txErr
-		}
-		result := tx.Model(&GameCoinConvertDay{}).
-			Where("user_id = ? AND day = ? AND used <= ?", userId, day, GameCoinConvertDailyLimit-coins).
-			Update("used", gorm.Expr("used + ?", coins))
-		if result.Error != nil {
-			return result.Error
-		}
-		if result.RowsAffected != 1 {
-			return ErrGameCoinConvertDailyLimit
 		}
 		if txErr = tx.Create(&GameCoinLog{
 			UserId:    userId,
@@ -344,12 +326,35 @@ func ConvertGameCoinsToQuota(userId int, coins int) (quota int, balance int, err
 	return quota, balance, nil
 }
 
-// GetGameCoinConvertDayUsed 返回用户在服务器本地记账日已经兑换的游戏币数量。
+// consumeGameCoinConvertDayTx 占用用户当天的兑换额度，超过 GameCoinConvertDailyLimit 时返回 ErrGameCoinConvertDailyLimit。
+// 兑换主额度和转入模拟盘共用这份额度。调用方要先锁住用户的游戏币账户，同一用户的占用依次进行。
+func consumeGameCoinConvertDayTx(tx *gorm.DB, userId int, day string, coins int) error {
+	// 首次启用日限额时把今天已有的流水计入，升级当天不会重新得到一份额度。
+	used, err := gameCoinConvertDayUsed(tx, userId, day)
+	if err != nil {
+		return err
+	}
+	if err = tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&GameCoinConvertDay{UserId: userId, Day: day, Used: used}).Error; err != nil {
+		return err
+	}
+	result := tx.Model(&GameCoinConvertDay{}).
+		Where("user_id = ? AND day = ? AND used <= ?", userId, day, GameCoinConvertDailyLimit-coins).
+		Update("used", gorm.Expr("used + ?", coins))
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return ErrGameCoinConvertDailyLimit
+	}
+	return nil
+}
+
+// GetGameCoinConvertDayUsed 返回用户在服务器本地记账日已经兑换和转入模拟盘的游戏币数量。
 func GetGameCoinConvertDayUsed(userId int, day string) (int, error) {
 	return gameCoinConvertDayUsed(DB, userId, day)
 }
 
-// gameCoinConvertDayUsed 兼容日限额上线前的兑换记录；查询本身不创建或改变计数。
+// gameCoinConvertDayUsed 兼容日限额上线前的兑换与转入模拟盘记录；查询本身不创建或改变计数。
 func gameCoinConvertDayUsed(tx *gorm.DB, userId int, day string) (int, error) {
 	var rows []GameCoinConvertDay
 	if err := tx.Where("user_id = ? AND day = ?", userId, day).Limit(1).Find(&rows).Error; err != nil {
@@ -364,8 +369,8 @@ func gameCoinConvertDayUsed(tx *gorm.DB, userId int, day string) (int, error) {
 	}
 	var used int
 	err = tx.Model(&GameCoinLog{}).
-		Where("user_id = ? AND type = ? AND amount < 0 AND created_at >= ? AND created_at < ?",
-			userId, GameCoinLogTypeConvert, start.Unix(), start.AddDate(0, 0, 1).Unix()).
+		Where("user_id = ? AND type IN ? AND amount < 0 AND created_at >= ? AND created_at < ?",
+			userId, []string{GameCoinLogTypeConvert, GameCoinLogTypeTradeOut}, start.Unix(), start.AddDate(0, 0, 1).Unix()).
 		Select("COALESCE(SUM(-amount), 0)").Scan(&used).Error
 	return used, err
 }

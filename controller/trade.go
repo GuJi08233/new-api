@@ -161,6 +161,10 @@ func tradeSelfView(userId int) (gin.H, error) {
 	if err != nil {
 		return nil, err
 	}
+	coinsConverted, err := model.GetGameCoinConvertDayUsed(userId, model.GameCenterDay(time.Now()))
+	if err != nil {
+		return nil, err
+	}
 	base, err := model.GetLatestTradeSnapshotBefore(userId, day)
 	if err != nil {
 		return nil, err
@@ -198,7 +202,13 @@ func tradeSelfView(userId int) (gin.H, error) {
 			"profit_out_used": profitUsed,
 			"profit_out_cap":  profitCap,
 		},
-		"wallet": gin.H{"quota": userQuota, "game_coins": coinAccount.Balance},
+		// 转入模拟盘的游戏币与兑换额度共用每人每天的上限；转回游戏币不能超过账户里的 coin_principal。
+		"wallet": gin.H{
+			"quota":                     userQuota,
+			"game_coins":                coinAccount.Balance,
+			"game_coin_daily_limit":     model.GameCoinConvertDailyLimit,
+			"game_coin_daily_remaining": max(model.GameCoinConvertDailyLimit-coinsConverted, 0),
+		},
 	}, nil
 }
 
@@ -682,7 +692,7 @@ func TransferTrade(c *gin.Context) {
 		}
 	}
 	if req.Wallet == "game_coin" && isIn {
-		_, err = model.TransferGameCoinsToTrade(userId, coins)
+		_, err = model.TransferGameCoinsToTrade(userId, coins, model.GameCenterDay(time.Now()))
 		content = fmt.Sprintf("模拟盘转入游戏币 %d", coins)
 	} else if req.Wallet == "game_coin" {
 		_, profit, err = model.TransferGameCoinsFromTrade(userId, coins, tradeDay(time.Now()), profitCap, service.TradeAccountingMarket())
@@ -700,6 +710,10 @@ func TransferTrade(c *gin.Context) {
 			common.ApiErrorI18n(c, i18n.MsgTradeAmountInvalid)
 		case errors.Is(err, model.ErrGameCoinInsufficient):
 			common.ApiErrorI18n(c, i18n.MsgTradeGameCoinInsufficient)
+		case errors.Is(err, model.ErrGameCoinConvertDailyLimit):
+			common.ApiErrorI18n(c, i18n.MsgGameCoinConvertDailyLimit, map[string]any{"Limit": model.GameCoinConvertDailyLimit})
+		case errors.Is(err, model.ErrTradeCoinPrincipal):
+			common.ApiErrorI18n(c, i18n.MsgTradeCoinPrincipal)
 		case errors.Is(err, model.ErrTradeQuotaInsufficient):
 			common.ApiErrorI18n(c, i18n.MsgTradeQuotaInsufficient)
 		case errors.Is(err, model.ErrTradeWithdrawExceeded):

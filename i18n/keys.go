@@ -433,6 +433,7 @@ const (
 	MsgTradeGameCoinInteger      = "trade.game_coin_integer"
 	MsgTradeWithdrawExceeded     = "trade.withdraw_exceeded"
 	MsgTradeProfitOutLimit       = "trade.profit_out_limit"
+	MsgTradeCoinPrincipal        = "trade.coin_principal"
 	MsgTradeTransferFailed       = "trade.transfer_failed"
 	MsgTradeLeaderboardDisabled  = "trade.leaderboard_disabled"
 

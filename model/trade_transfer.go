@@ -72,10 +72,15 @@ func TransferQuotaFromTrade(userId int, quota int, day string, dailyProfitCap in
 }
 
 // TransferGameCoinsToTrade 将整数游戏币转入模拟盘，1 币 = 1 美元。两边余额、两边流水同时提交或回滚。
-func TransferGameCoinsToTrade(userId int, coins int) (*TradeAccount, error) {
+// 转入的币可以再转出成额度，所以和兑换主额度共用每人每天的兑换上限，按游戏中心记账日 day(GameCenterDay)计数，超过时返回
+// ErrGameCoinConvertDailyLimit。
+func TransferGameCoinsToTrade(userId int, coins int, day string) (*TradeAccount, error) {
 	quota, err := GameCoinQuota(coins)
 	if err != nil {
 		return nil, err
+	}
+	if coins > GameCoinConvertDailyLimit {
+		return nil, ErrGameCoinConvertDailyLimit
 	}
 	var account *TradeAccount
 	err = DB.Transaction(func(tx *gorm.DB) error {
@@ -83,8 +88,17 @@ func TransferGameCoinsToTrade(userId int, coins int) (*TradeAccount, error) {
 		if account, err = lockTradeAccountTx(tx, userId); err != nil {
 			return err
 		}
+		// 先锁游戏币账户再占用兑换额度，与兑换主额度的加锁顺序一致。额度要在写这笔流水之前占用：当天第一次占用时按已有流水
+		// 补计，先写流水就会把这一笔算两次。
+		if _, err = lockGameCoinAccountTx(tx, userId); err != nil {
+			return err
+		}
+		if err = consumeGameCoinConvertDayTx(tx, userId, day, coins); err != nil {
+			return err
+		}
 		account.Cash += quota
 		account.QuotaPrincipal += quota
+		account.CoinPrincipal += coins
 		account.TotalIn += quota
 		if err = saveTradeAccountTx(tx, account); err != nil {
 			return err
@@ -103,7 +117,8 @@ func TransferGameCoinsToTrade(userId int, coins int) (*TradeAccount, error) {
 }
 
 // TransferGameCoinsFromTrade 将模拟盘资金转回整数游戏币，返回的盈利以额度单位计。
-// 与额度转出共用可提现资金、本金及当日盈利上限，不能通过切换目标钱包重复支取盈利。
+// 与额度转出共用可提现资金、本金及当日盈利上限，不能通过切换目标钱包重复支取盈利。只有从游戏币转入、还没转回的币
+// (CoinPrincipal)能转回游戏币，超过时返回 ErrTradeCoinPrincipal：额度不能借道模拟盘换成游戏币。
 func TransferGameCoinsFromTrade(userId int, coins int, day string, dailyProfitCap int, market TradeFuturesMarket) (*TradeAccount, int, error) {
 	quota, err := GameCoinQuota(coins)
 	if err != nil {
@@ -116,6 +131,10 @@ func TransferGameCoinsFromTrade(userId int, coins int, day string, dailyProfitCa
 		if account, err = lockTradeAccountTx(tx, userId); err != nil {
 			return err
 		}
+		if coins > account.CoinPrincipal {
+			return ErrTradeCoinPrincipal
+		}
+		account.CoinPrincipal -= coins
 		if profit, err = withdrawTradeCashTx(tx, account, quota, day, dailyProfitCap, market); err != nil {
 			return err
 		}
@@ -163,6 +182,16 @@ func withdrawTradeCashTx(tx *gorm.DB, account *TradeAccount, quota int, day stri
 	}
 	account.Cash -= quota
 	account.QuotaPrincipal -= principal
+	// 游戏币本金是本金的一部分：本金转出成额度后，剩下的本金不够折合的币数也不能再转回游戏币，否则先把本金转成额度、
+	// 再转入额度，就能把额度换成游戏币。
+	perUsd, err := TradeQuotaPerUsd()
+	if err != nil {
+		return 0, err
+	}
+	if perUsd <= 0 {
+		return 0, ErrTradeAmountInvalid
+	}
+	account.CoinPrincipal = min(account.CoinPrincipal, account.QuotaPrincipal/perUsd)
 	account.TotalOut += quota
 	if err = saveTradeAccountTx(tx, account); err != nil {
 		return 0, err
