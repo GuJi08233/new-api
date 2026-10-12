@@ -359,18 +359,19 @@ func autoPlayGameRoom(room *model.GameRoom, game *pvpGame) error {
 			return settlePvpRoom(room, game, next)
 		}
 		if auto != everyone {
-			return model.UpdateGameRoomState(room, string(next.Data), next.ToMove, pvpMoveDeadline(room, next.ToMove, auto), auto)
+			deadline := common.GetTimestamp() + pvpMoveSeconds(room, next.ToMove, auto)
+			return model.UpdateGameRoomState(room, string(next.Data), next.ToMove, deadline, auto)
 		}
 	}
 }
 
-// pvpMoveDeadline 是轮到 toMove 的这一步的截止时间：托管中的座位 pvpAutoMoveSeconds 秒后由 AI 替他走，其他座位有完整的
-// 每步限时。
-func pvpMoveDeadline(room *model.GameRoom, toMove int, autoSeats int) int64 {
+// pvpMoveSeconds 是轮到 toMove 时这一步有几秒：托管中的座位 pvpAutoMoveSeconds 秒后由 AI 替他走，其他座位有完整的每步限时。
+// 房间的截止时间总是这一步开始的时间加上它，打开或取消托管时据此算回这一步从哪里开始。
+func pvpMoveSeconds(room *model.GameRoom, toMove int, autoSeats int) int64 {
 	if toMove >= 0 && autoSeats&(1<<toMove) != 0 {
-		return common.GetTimestamp() + pvpAutoMoveSeconds
+		return pvpAutoMoveSeconds
 	}
-	return common.GetTimestamp() + int64(room.MoveSeconds)
+	return int64(room.MoveSeconds)
 }
 
 // scores 返回自然结束的一局里每个座位输赢几倍押注：多人对战由规则给出，双人对战见 duelScores。
@@ -616,7 +617,7 @@ func pvpInfo(ctx *gameContext, game *pvpGame) (gin.H, error) {
 	return info, nil
 }
 
-// pvpRecentRooms 是玩家在这个游戏里最近结束的对局：对手、押注与输赢。
+// pvpRecentRooms 是玩家在这个游戏里最近结束的对局：同桌玩家、押注与输赢。
 func pvpRecentRooms(userId int, game string) ([]gin.H, error) {
 	rooms, err := model.ListUserFinishedGameRooms(userId, game, pvpRecentLimit)
 	if err != nil {
@@ -628,7 +629,7 @@ func pvpRecentRooms(userId int, game string) ([]gin.H, error) {
 	}
 	recent := make([]gin.H, 0, len(rooms))
 	for _, room := range rooms {
-		opponent, net, mySeat, result := 0, 0, -1, "draw"
+		net, mySeat, result := 0, -1, "draw"
 		for _, member := range seats[room.Id] {
 			if member.UserId == userId {
 				net = member.Net
@@ -636,14 +637,11 @@ func pvpRecentRooms(userId int, game string) ([]gin.H, error) {
 				if member.Result != "" {
 					result = member.Result
 				}
-			} else {
-				opponent = member.UserId
 			}
 		}
 		recent = append(recent, gin.H{
 			"id":          room.Id,
 			"seat":        mySeat,
-			"opponent":    names[opponent],
 			"stake":       room.Stake,
 			"escrow":      room.Escrow,
 			"net":         net,
@@ -1083,7 +1081,7 @@ func MoveGameRoom(c *gin.Context) {
 		} else {
 			// 自己走了一步就不再托管。
 			auto := room.AutoSeats &^ (1 << seat)
-			err = model.UpdateGameRoomState(room, string(next.Data), next.ToMove, pvpMoveDeadline(room, next.ToMove, auto), auto)
+			err = model.UpdateGameRoomState(room, string(next.Data), next.ToMove, common.GetTimestamp()+pvpMoveSeconds(room, next.ToMove, auto), auto)
 		}
 		if errors.Is(err, model.ErrGameRoomChanged) && simultaneous && attempt < pvpMoveAttempts {
 			if room, err = model.GetGameRoom(room.Id); err != nil {
@@ -1130,7 +1128,8 @@ func ResignGameRoom(c *gin.Context) {
 	respondGameRoom(c, room, nil)
 }
 
-// AutoGameRoom 打开或取消自己座位的托管，只有多人对战可以托管。轮到自己时打开托管，AI 在 pvpAutoMoveSeconds 秒后替自己走。
+// AutoGameRoom 打开或取消自己座位的托管，只有多人对战可以托管。托管不改变这一步从哪里开始计时：轮到自己时打开托管，AI 在
+// 这一步开始 pvpAutoMoveSeconds 秒后替自己走，已经过了就马上走；取消托管拿回这一步剩下的时间，来回切换也拖不了时间。
 func AutoGameRoom(c *gin.Context) {
 	room := loadPlayerGameRoom(c)
 	if room == nil {
@@ -1155,16 +1154,16 @@ func AutoGameRoom(c *gin.Context) {
 		auto |= 1 << seat
 	}
 	if auto != room.AutoSeats {
-		// 托管不能用来拖时间：轮到自己时打开托管只会把截止时间提前，取消托管也不重新计时，玩家要在剩下的时间里自己走。
-		deadline := room.Deadline
-		if *req.Auto && room.ToMove == seat {
-			deadline = min(deadline, pvpMoveDeadline(room, seat, auto))
-		}
-		if err := model.UpdateGameRoomState(room, room.State, room.ToMove, deadline, auto); err != nil {
+		start := room.Deadline - pvpMoveSeconds(room, room.ToMove, room.AutoSeats)
+		if err := model.UpdateGameRoomState(room, room.State, room.ToMove, start+pvpMoveSeconds(room, room.ToMove, auto), auto); err != nil {
 			respondGameRoomError(c, err)
 			return
 		}
 		gameRoomWatch.notify(room.Id)
+		if _, err := resolveGameRoom(room); err != nil {
+			respondGameRoomError(c, err)
+			return
+		}
 	}
 	respondGameRoom(c, room, nil)
 }

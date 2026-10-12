@@ -5205,6 +5205,7 @@
     "押注是底注：地主先出完赢两倍，两位农民各输一倍；任一农民先出完，两位农民各赢一倍，地主输两倍。叫分与炸弹不加倍": "La mise est la mise de base : si le seigneur se défausse en premier, il gagne le double et chaque paysan perd une mise ; si un paysan finit en premier, les deux paysans gagnent une mise chacun et le seigneur perd le double. Enchères et bombes ne la multiplient pas",
     "底注上限：地主输赢两倍底注、农民各输赢一倍，入座时每人按两倍预扣；0 表示只能开友谊赛。同一 IP 下的账号不能互相押注对战": "Mise de base maximale : le seigneur gagne ou perd le double et chaque paysan une mise, donc chaque place bloque le double de la mise en s’asseyant ; 0 n’autorise que les parties amicales. Les comptes d’une même IP ne peuvent pas s’affronter avec mise",
     "轮到的玩家超时没走时转为托管，由 AI 代打": "Un joueur hors délai passe en jeu automatique et l’IA joue pour lui",
-    "AI {{index}}（{{level}}）": "IA {{index}} ({{level}})"
+    "AI {{index}}（{{level}}）": "IA {{index}} ({{level}})",
+    "高级难度": "Expert"
   }
 }

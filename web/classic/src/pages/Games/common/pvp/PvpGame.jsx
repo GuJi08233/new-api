@@ -1185,7 +1185,8 @@ const PvpGame = ({
           setEntry({ type: 'create', private: isPrivate });
         }}
         onJoin={(item) => {
-          if (!item.locked) {
+          // 不要密码、预扣额就是押注时直接加入；要预扣更多(斗地主按两倍)时先确认。
+          if (!item.locked && item.escrow <= item.stake) {
             return act(`/api/game/rooms/${item.id}/join`, {}, setRoom);
           }
           setError('');

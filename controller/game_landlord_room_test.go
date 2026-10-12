@@ -200,8 +200,9 @@ func TestLandlordRoomEveryoneOnAutoPlaysTheGameOut(t *testing.T) {
 	assert.Equal(t, 300-jsonInt(t, finished["rake"]), total, "coins are only moved between players and the rake")
 }
 
-// 托管不能用来拖时间：轮到自己时打开托管只会提前截止时间，取消托管也不重新计时。双人对战不能托管。
-func TestLandlordRoomAutoToggleNeverExtendsTheTurn(t *testing.T) {
+// 托管不改变这一步从哪里开始计时：轮到自己时打开托管，AI 在这一步开始两秒后替自己走；取消托管拿回这一步剩下的时间，来回
+// 切换也拖不了时间。双人对战不能托管。
+func TestLandlordRoomAutoToggleKeepsTheTurnClock(t *testing.T) {
 	require.NoError(t, i18n.Init())
 	env := newGameTestEnv(t, gameSetting(func(s *operation_setting.GameSetting) {
 		landlordTestRule(0)(s)
@@ -209,18 +210,31 @@ func TestLandlordRoomAutoToggleNeverExtendsTheTurn(t *testing.T) {
 	}))
 	players, id, started := landlordTestTable(t, env, 10)
 	first := jsonInt(t, started["to_move"])
-	deadline := jsonInt(t, started["deadline"])
+	other := (first + 1) % 3
+	// 这一步刚开始：截止时间是开始时间加上 45 秒的每步限时。
+	turnStart := common.GetTimestamp()
+	require.NoError(t, env.db.Model(&model.GameRoom{}).Where("id = ?", id).Update("deadline", turnStart+45).Error)
 
-	waiting := players[(first+1)%3].ok(http.MethodPost, gameRoomPath(id, "auto"), map[string]any{"auto": true})
-	assert.EqualValues(t, 1<<((first+1)%3), waiting["auto_seats"])
-	assert.EqualValues(t, deadline, waiting["deadline"], "another seat going on auto leaves this turn alone")
+	waiting := players[other].ok(http.MethodPost, gameRoomPath(id, "auto"), map[string]any{"auto": true})
+	assert.EqualValues(t, 1<<other, waiting["auto_seats"])
+	assert.EqualValues(t, turnStart+45, waiting["deadline"], "another seat going on auto leaves this turn alone")
 
-	on := players[first].ok(http.MethodPost, gameRoomPath(id, "auto"), map[string]any{"auto": true})
-	assert.LessOrEqual(t, jsonInt(t, on["deadline"]), int(common.GetTimestamp())+pvpAutoMoveSeconds)
-	off := players[first].ok(http.MethodPost, gameRoomPath(id, "auto"), map[string]any{"auto": false})
-	assert.Equal(t, on["deadline"], off["deadline"], "cancelling auto-play does not restart the clock")
-	assert.EqualValues(t, 1<<((first+1)%3), off["auto_seats"])
+	for range 3 {
+		on := players[first].ok(http.MethodPost, gameRoomPath(id, "auto"), map[string]any{"auto": true})
+		assert.EqualValues(t, turnStart+pvpAutoMoveSeconds, on["deadline"], "the ai plays two seconds after the turn started")
+		assert.EqualValues(t, first, on["to_move"])
+		off := players[first].ok(http.MethodPost, gameRoomPath(id, "auto"), map[string]any{"auto": false})
+		assert.EqualValues(t, turnStart+45, off["deadline"], "cancelling auto-play hands back the rest of the turn, never more")
+		assert.EqualValues(t, 1<<other, off["auto_seats"])
+	}
 	players[first].fails(http.MethodPost, gameRoomPath(id, "auto"), map[string]any{})
+
+	// 这一步已经过了两秒才打开托管：AI 在这个请求里就替他走了，下一位有完整的限时。
+	require.NoError(t, env.db.Model(&model.GameRoom{}).Where("id = ?", id).Update("deadline", common.GetTimestamp()+45-10).Error)
+	played := players[first].ok(http.MethodPost, gameRoomPath(id, "auto"), map[string]any{"auto": true})
+	assert.NotEqualValues(t, first, played["to_move"])
+	assert.NotEqualValues(t, -1, played["state"].(map[string]any)["bids"].([]any)[first], "the ai bid for the seat")
+	assert.EqualValues(t, 1<<first|1<<other, played["auto_seats"])
 
 	gomoku := []*gamePlayer{env.player(0, gameTestIpA), env.player(0, gameTestIpB)}
 	room := gomoku[0].ok(http.MethodPost, "/api/game/rooms", map[string]any{"game": gameGomoku, "stake": 0})

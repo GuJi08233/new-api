@@ -5723,6 +5723,7 @@
     "押注是底注：地主先出完赢两倍，两位农民各输一倍；任一农民先出完，两位农民各赢一倍，地主输两倍。叫分与炸弹不加倍": "Tiền cược là cược cơ bản: địa chủ đánh hết trước thắng gấp đôi, mỗi nông dân thua một lần cược; nếu một nông dân đánh hết trước, hai nông dân mỗi người thắng một lần cược, địa chủ thua gấp đôi. Gọi điểm và bom không nhân cược",
     "底注上限：地主输赢两倍底注、农民各输赢一倍，入座时每人按两倍预扣；0 表示只能开友谊赛。同一 IP 下的账号不能互相押注对战": "Giới hạn cược cơ bản: địa chủ thắng thua gấp đôi, mỗi nông dân một lần cược, nên khi vào bàn mỗi người bị tạm giữ gấp đôi; 0 nghĩa là chỉ chơi giao hữu. Các tài khoản cùng IP không thể đặt cược đấu với nhau",
     "轮到的玩家超时没走时转为托管，由 AI 代打": "Người chơi hết giờ sẽ chuyển sang tự động chơi và AI đánh thay",
-    "AI {{index}}（{{level}}）": "AI {{index}} ({{level}})"
+    "AI {{index}}（{{level}}）": "AI {{index}} ({{level}})",
+    "高级难度": "Chuyên gia"
   }
 }
