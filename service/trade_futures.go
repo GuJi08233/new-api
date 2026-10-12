@@ -533,6 +533,10 @@ type TradeCrossSummary struct {
 // ValueTradeFutures 按当前标记价格给合约仓位估值，返回每个仓位、它们算进总资产的价值合计与全仓汇总(额度单位)。cash 是账户的资金，
 // crossPending 是挂着的全仓开仓委托冻结的钱，全仓可用与全仓的预估强平价要用。
 func ValueTradeFutures(cash int, crossPending int, positions []model.TradeFuturesPosition) ([]TradeFuturesHolding, int, TradeCrossSummary, error) {
+	return valueTradeFutures(cash, crossPending, positions, false)
+}
+
+func valueTradeFutures(cash int, crossPending int, positions []model.TradeFuturesPosition, accounting bool) ([]TradeFuturesHolding, int, TradeCrossSummary, error) {
 	holdings := make([]TradeFuturesHolding, 0, len(positions))
 	cross := TradeCrossSummary{Pending: crossPending}
 	perUsd, err := model.TradeQuotaPerUsd()
@@ -571,7 +575,19 @@ func ValueTradeFutures(cash int, crossPending int, positions []model.TradeFuture
 		if qty.IsPositive() {
 			holding.EntryPrice = entryValue.Div(qty).Round(tradesim.QtyDecimals).String()
 		}
-		if mark, ok := futuresMarket.MarkPrice(position.Symbol); ok && mark.Mark.IsPositive() {
+		mark, ok := futuresMarket.MarkPrice(position.Symbol)
+		if accounting {
+			maxAge := time.Duration(operation_setting.GetTradeSetting().StaleMs) * time.Millisecond
+			if maxAge <= 0 {
+				maxAge = 3 * time.Second
+			}
+			price, fresh := futuresMarket.freshMark(position.Symbol, maxAge)
+			if !fresh || !price.IsPositive() {
+				return holdings, 0, cross, model.ErrTradeMarkUnavailable
+			}
+			mark.Mark, ok = price, true
+		}
+		if ok && mark.Mark.IsPositive() {
 			markValue := mark.Mark.Mul(qty)
 			if holding.Pnl, err = pricing.Pnl(tradesim.PositionSide(position.Side), entryValue, markValue); err != nil {
 				return holdings, 0, cross, err

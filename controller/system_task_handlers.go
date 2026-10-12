@@ -169,11 +169,35 @@ func (gameCoinWithdrawHandler) Enabled() bool { return service.GameCoinWithdrawa
 
 func (gameCoinWithdrawHandler) Interval() time.Duration { return 15 * time.Second }
 
-func (gameCoinWithdrawHandler) NewPayload() any { return nil }
+func (gameCoinWithdrawHandler) NewPayload() any {
+	watch := &service.GameCoinNonceWatch{}
+	latest, err := model.GetLatestSystemTask(model.SystemTaskTypeGameCoinWithdraw)
+	if err != nil {
+		common.SysError(fmt.Sprintf("game coin withdraw: read previous nonce watch failed: %v", err))
+		return watch
+	}
+	if latest == nil || latest.Result == "" {
+		return watch
+	}
+	var summary service.GameCoinWithdrawRunSummary
+	if err := common.UnmarshalJsonStr(latest.Result, &summary); err != nil {
+		common.SysError(fmt.Sprintf("game coin withdraw: decode previous nonce watch failed: %v", err))
+		return watch
+	}
+	if summary.NonceWatch != nil {
+		return summary.NonceWatch
+	}
+	return watch
+}
 
 // Run 在这一轮因为配置或节点的问题没能处理时记为失败，卡住的提现不会藏在一排"成功"的记录后面。
 func (gameCoinWithdrawHandler) Run(ctx context.Context, task *model.SystemTask, runnerID string) {
-	summary := service.RunGameCoinWithdrawOnce(ctx)
+	var watch service.GameCoinNonceWatch
+	if err := task.DecodePayload(&watch); err != nil {
+		common.SysError(fmt.Sprintf("game coin withdraw: decode nonce watch failed: %v", err))
+		watch = service.GameCoinNonceWatch{}
+	}
+	summary := service.RunGameCoinWithdrawOnceWithNonceWatch(ctx, &watch)
 	if summary.Skipped != "" {
 		finishSystemTaskHandler(task, runnerID, model.SystemTaskStatusFailed, summary, errors.New(summary.Skipped))
 		return

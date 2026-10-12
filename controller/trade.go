@@ -711,8 +711,16 @@ func TransferTrade(c *gin.Context) {
 	// 每次转账之前按账户总资产把亏损按抵扣顺序记到游戏币本金上，估值算不出来时有游戏币本金的账户不能转账。估值之后账户又有了
 	// 变动(同时在下单、转账)时重新估值，连续几次都赶不上就让用户稍后再试。
 	for attempt := 1; ; attempt++ {
-		seen, valuation, valueErr := service.ValueTradeUser(userId)
-		equity := model.TradeEquity{Value: valuation.Equity, Known: valueErr == nil, Account: seen}
+		seen, valueErr := model.GetTradeAccount(userId)
+		if valueErr != nil {
+			common.ApiError(c, valueErr)
+			return
+		}
+		equity := model.TradeEquity{}
+		if (req.Wallet == "game_coin" && isIn) || seen.CoinPrincipal > 0 {
+			seen, valuation, valueErr := service.ValueTradeUserForTransfer(c.Request.Context(), userId)
+			equity = model.TradeEquity{Value: valuation.Equity, Known: valueErr == nil, Account: seen}
+		}
 		if req.Wallet == "game_coin" && isIn {
 			_, err = model.TransferGameCoinsToTrade(userId, coins, model.GameCenterDay(time.Now()), equity)
 			content = fmt.Sprintf("模拟盘转入游戏币 %d", coins)

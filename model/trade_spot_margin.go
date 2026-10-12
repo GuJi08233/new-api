@@ -581,7 +581,10 @@ func SettleTradeSpotMargin(userId int, market TradeFuturesMarket, books []TradeS
 			return nil
 		}
 		if !risk.AtOrBelow(TradeSpotLiquidationLevel) || len(books) == 0 {
-			return noteTradeSpotMarginCallTx(tx, loan, risk, maxLeverage)
+			if err = noteTradeSpotMarginCallTx(tx, loan, risk, maxLeverage); err != nil {
+				return err
+			}
+			return saveTradeAccountTx(tx, account)
 		}
 		var orders []TradeOrder
 		if err = tx.Where("user_id = ? AND status = ?", userId, TradeOrderStatusOpen).Find(&orders).Error; err != nil {

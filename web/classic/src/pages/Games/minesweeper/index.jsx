@@ -211,55 +211,58 @@ const Minesweeper = () => {
     setBusy(true);
     setError('');
     const { width } = game;
-    const response = await gamePost(
-      '/api/game/minesweeper/reveal',
-      {
-        session_id: game.sessionId,
-        version: versionRef.current,
-        cells: targets.map((index) => [
-          index % width,
-          Math.floor(index / width),
-        ]),
-      },
-      t,
-    );
-    busyRef.current = false;
-    setBusy(false);
-    if (response.error) {
-      setError(response.error);
-      resync();
-      return;
-    }
-    const data = response.data;
-    // 这局已经结算过(例如在别的标签页里玩完了)：服务端直接回应第一次的结算结果。
-    if (data.status === undefined) {
-      settle(data, { status: data.detail?.won ? 'won' : 'lost' });
-      return;
-    }
-    versionRef.current = data.version;
-    const opened = data.revealed.map(([x, y]) => y * width + x);
-    setCells((previous) => {
-      const next = previous.slice();
-      data.revealed.forEach(([x, y, count]) => {
-        next[y * width + x] = count;
+    try {
+      const response = await gamePost(
+        '/api/game/minesweeper/reveal',
+        {
+          session_id: game.sessionId,
+          version: versionRef.current,
+          cells: targets.map((index) => [
+            index % width,
+            Math.floor(index / width),
+          ]),
+        },
+        t,
+      );
+      if (response.error) {
+        setError(response.error);
+        await resync();
+        return;
+      }
+      const data = response.data;
+      // 这局已经结算过(例如在别的标签页里玩完了)：服务端直接回应第一次的结算结果。
+      if (data.status === undefined) {
+        settle(data, { status: data.detail?.won ? 'won' : 'lost' });
+        return;
+      }
+      versionRef.current = data.version;
+      const opened = data.revealed.map(([x, y]) => y * width + x);
+      setCells((previous) => {
+        const next = previous.slice();
+        data.revealed.forEach(([x, y, count]) => {
+          next[y * width + x] = count;
+        });
+        return next;
       });
-      return next;
-    });
-    // 连锁展开会翻开插错旗的空格，旗子跟着拿掉。
-    setFlags((previous) => {
-      if (!opened.some((index) => previous.has(index))) return previous;
-      const next = new Set(previous);
-      opened.forEach((index) => next.delete(index));
-      return next;
-    });
-    if (data.status === 'playing') return;
-    settle(data.result, {
-      status: data.status,
-      mines: new Set(data.mine_cells.map(([x, y]) => y * width + x)),
-      exploded: data.exploded
-        ? data.exploded[1] * width + data.exploded[0]
-        : null,
-    });
+      // 连锁展开会翻开插错旗的空格，旗子跟着拿掉。
+      setFlags((previous) => {
+        if (!opened.some((index) => previous.has(index))) return previous;
+        const next = new Set(previous);
+        opened.forEach((index) => next.delete(index));
+        return next;
+      });
+      if (data.status === 'playing') return;
+      settle(data.result, {
+        status: data.status,
+        mines: new Set(data.mine_cells.map(([x, y]) => y * width + x)),
+        exploded: data.exploded
+          ? data.exploded[1] * width + data.exploded[0]
+          : null,
+      });
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
   };
 
   const toggleFlag = (index) => {

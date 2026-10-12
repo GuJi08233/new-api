@@ -16,7 +16,7 @@ func checkTradeEquity(account *TradeAccount, equity TradeEquity) error {
 		return ErrTradeMarkUnavailable
 	}
 	seen := equity.Account
-	if seen.Cash != account.Cash || seen.Frozen != account.Frozen || seen.QuotaPrincipal != account.QuotaPrincipal || seen.CoinPrincipal != account.CoinPrincipal {
+	if seen.AssetVersion != account.AssetVersion || seen.Cash != account.Cash || seen.Frozen != account.Frozen || seen.QuotaPrincipal != account.QuotaPrincipal || seen.CoinPrincipal != account.CoinPrincipal {
 		return ErrTradeValuationStale
 	}
 	return nil
@@ -68,9 +68,8 @@ func SetTradeLossOrder(userId int, order string) (*TradeAccount, error) {
 		if account, err = lockTradeAccountTx(tx, userId); err != nil {
 			return err
 		}
-		account.LossOrder, account.UpdatedAt = order, common.GetTimestamp()
-		return tx.Model(&TradeAccount{}).Where("user_id = ?", userId).
-			Updates(map[string]interface{}{"loss_order": order, "updated_at": account.UpdatedAt}).Error
+		account.LossOrder = order
+		return saveTradeAccountTx(tx, account)
 	})
 	if err != nil {
 		return nil, err

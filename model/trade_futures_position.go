@@ -324,10 +324,10 @@ func SetTradeFuturesLevels(userId int, symbol string, side string, kind string, 
 	}
 	var position *TradeFuturesPosition
 	err = DB.Transaction(func(tx *gorm.DB) error {
-		if _, err := lockTradeAccountTx(tx, userId); err != nil {
+		account, err := lockTradeAccountTx(tx, userId)
+		if err != nil {
 			return err
 		}
-		var err error
 		if position, err = loadTradeFuturesPositionTx(tx, userId, symbol, side); err != nil {
 			return err
 		}
@@ -342,7 +342,10 @@ func SetTradeFuturesLevels(userId int, symbol string, side string, kind string, 
 		} else {
 			position.StopLosses = encoded
 		}
-		return saveTradeFuturesPositionTx(tx, position)
+		if err = saveTradeFuturesPositionTx(tx, position); err != nil {
+			return err
+		}
+		return saveTradeAccountTx(tx, account)
 	})
 	if err != nil {
 		return nil, err

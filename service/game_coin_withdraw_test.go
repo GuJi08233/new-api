@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +15,7 @@ import (
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 const gameCoinTestRecipient = "0x8ba1f109551bD432803012645Ac136ddd64DBA72"
@@ -30,6 +32,8 @@ type withdrawTestNode struct {
 	baseFee        uint64 // 最新区块的基础费(wei)，0 表示 1 gwei
 	// known 是节点内存池里有、还没有回执的交易，eth_getTransactionByHash 查得到它们；有回执的交易也查得到。
 	known map[string]bool
+	// rpcFailures 模拟某笔对账所需的特定方法失败，其他方法仍正常响应。
+	rpcFailures map[string]bool
 	// sendRejects 让这些已签名交易的广播报一个认不出来的错(例如旧热钱包没有 gas)，广播就一直没有结论。
 	sendRejects map[string]bool
 	receipts    map[string]map[string]any
@@ -51,6 +55,10 @@ func (n *withdrawTestNode) serve(t *testing.T) string {
 		n.mu.Lock()
 		defer n.mu.Unlock()
 		envelope := map[string]any{"jsonrpc": "2.0", "id": 1}
+		if n.rpcFailures[call.Method] {
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
 		switch call.Method {
 		case "eth_chainId":
 			envelope["result"] = "0xaa36a7"
@@ -139,6 +147,8 @@ func useGameCoinTestChain(t *testing.T, node *withdrawTestNode) {
 	// 轮流处理的游标是进程内状态，每个测试都从头开始。
 	gameCoinSentCursor.Store(0)
 	gameCoinParkedSignedCursor.Store(0)
+	previousNonceStateFailure := gameCoinNonceStateFailedAt.Load()
+	gameCoinNonceStateFailedAt.Store(0)
 	operation_setting.SetGameSettingForTest(&operation_setting.GameSetting{
 		ChainId:       11155111,
 		RpcUrl:        node.serve(t),
@@ -150,6 +160,7 @@ func useGameCoinTestChain(t *testing.T, node *withdrawTestNode) {
 	t.Cleanup(func() {
 		gameCoinSentCursor.Store(0)
 		gameCoinParkedSignedCursor.Store(0)
+		gameCoinNonceStateFailedAt.Store(previousNonceStateFailure)
 		operation_setting.SetGameHotWalletPrivateKey(previousKey)
 		operation_setting.SetGameSettingForTest(previousSetting)
 		model.DB.Exec("DELETE FROM users")
@@ -439,6 +450,202 @@ func TestGameCoinWithdrawalRestartsReplacedNonceWatchAfterAGap(t *testing.T) {
 	assert.Equal(t, model.GameCoinWithdrawalStatusSent, current.Status)
 	assert.GreaterOrEqual(t, current.NonceUsedAt, now, "从头计时")
 	assert.Equal(t, 8, gameCoinBalance(t, 2119))
+}
+
+// 260 笔待对账、每批 20 笔、每轮 15 秒时，一笔要隔 195 秒才再次轮到。跨节点交接的最近成功观察证明 worker
+// 仍在持续工作，不能因此反复重置这笔的十分钟计时；真正停机、换 RPC、首次观察则仍须重新计时。
+func TestGameCoinWithdrawalSharedNonceWatchSurvivesBacklogAndWorkerHandoff(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		watchGap   int64
+		freshWatch bool
+		changedRPC bool
+		known      bool
+		wantRefund bool
+	}{
+		{name: "backlog with worker handoff", watchGap: 15, wantRefund: true},
+		{name: "worker stopped", watchGap: 181},
+		{name: "first observation", freshWatch: true},
+		{name: "RPC changed", watchGap: 15, changedRPC: true},
+		{name: "transaction still known", watchGap: 15, known: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			node := &withdrawTestNode{latestNonce: 4, receipts: map[string]map[string]any{}, known: map[string]bool{}}
+			useGameCoinTestChain(t, node)
+			withdrawal := createTestGameCoinWithdrawal(t, 2121, 3)
+			sent := RunGameCoinWithdrawOnce(context.Background())
+			require.Equal(t, 1, sent.Sent)
+			withdrawal = reloadGameCoinWithdrawal(t, withdrawal.Id)
+			now := common.GetTimestamp()
+			require.NoError(t, model.DB.Model(&model.GameCoinWithdrawal{}).Where("id = ?", withdrawal.Id).Updates(map[string]any{
+				"nonce_used_at":    now - 601,
+				"nonce_checked_at": now - 195,
+			}).Error)
+			node.update(func(node *withdrawTestNode) {
+				node.latestNonce = 5
+				node.known[withdrawal.TxHash] = test.known
+			})
+			var previousWatch GameCoinNonceWatch
+			if !test.freshWatch {
+				previousWatch.observe(operation_setting.GetGameSetting(), now-1200)
+				previousWatch.CheckedAt = now - test.watchGap
+				if test.changedRPC {
+					previousWatch.RpcURLHash = "previous-rpc"
+				}
+			}
+			// 模拟上一节点把结果写进系统任务，下一节点从 JSON 载入，进程内没有上一轮状态。
+			result, err := common.Marshal(GameCoinWithdrawRunSummary{NonceWatch: &previousWatch})
+			require.NoError(t, err)
+			var priorSummary GameCoinWithdrawRunSummary
+			require.NoError(t, common.Unmarshal(result, &priorSummary))
+			require.NotNil(t, priorSummary.NonceWatch)
+			payload, err := common.Marshal(priorSummary.NonceWatch)
+			require.NoError(t, err)
+			var nextWatch GameCoinNonceWatch
+			require.NoError(t, common.Unmarshal(payload, &nextWatch))
+			summary := RunGameCoinWithdrawOnceWithNonceWatch(context.Background(), &nextWatch)
+			current := reloadGameCoinWithdrawal(t, withdrawal.Id)
+			if test.wantRefund {
+				assert.Equal(t, 1, summary.Failed)
+				assert.Equal(t, model.GameCoinWithdrawalStatusFailed, current.Status)
+				assert.Equal(t, 10, gameCoinBalance(t, withdrawal.UserId))
+				used, err := model.GetGameCoinWithdrawDayUsed(withdrawal.Day)
+				require.NoError(t, err)
+				assert.Zero(t, used)
+				return
+			}
+			assert.Zero(t, summary.Failed)
+			assert.Equal(t, model.GameCoinWithdrawalStatusSent, current.Status)
+			assert.Equal(t, 7, gameCoinBalance(t, withdrawal.UserId))
+			if test.known {
+				assert.Zero(t, current.NonceUsedAt)
+			} else {
+				assert.GreaterOrEqual(t, current.NonceUsedAt, now)
+			}
+		})
+	}
+}
+
+// 其他提现保持对账成功，也不能掩盖这笔自身的 RPC 失败；下一次恢复只重新计时，不立即退款。
+func TestGameCoinWithdrawalSharedNonceWatchRestartsAfterOwnRPCFailure(t *testing.T) {
+	for _, method := range []string{"eth_getTransactionReceipt", "eth_getTransactionCount", "eth_getTransactionByHash"} {
+		t.Run(method, func(t *testing.T) {
+			node := &withdrawTestNode{latestNonce: 4, receipts: map[string]map[string]any{}, rpcFailures: map[string]bool{}}
+			useGameCoinTestChain(t, node)
+			withdrawal := createTestGameCoinWithdrawal(t, 2122, 3)
+			sent := RunGameCoinWithdrawOnce(context.Background())
+			require.Equal(t, 1, sent.Sent)
+			now := common.GetTimestamp()
+			require.NoError(t, model.DB.Model(&model.GameCoinWithdrawal{}).Where("id = ?", withdrawal.Id).Updates(map[string]any{
+				"nonce_used_at":    now - 601,
+				"nonce_checked_at": now - 195,
+			}).Error)
+			var watch GameCoinNonceWatch
+			watch.observe(operation_setting.GetGameSetting(), now-1200)
+			watch.CheckedAt = now - 15
+			node.update(func(node *withdrawTestNode) {
+				node.latestNonce = 5
+				node.rpcFailures[method] = true
+			})
+			summary := RunGameCoinWithdrawOnceWithNonceWatch(context.Background(), &watch)
+			assert.Zero(t, summary.Failed)
+			assert.Zero(t, reloadGameCoinWithdrawal(t, withdrawal.Id).NonceUsedAt)
+			node.update(func(node *withdrawTestNode) { delete(node.rpcFailures, method) })
+			summary = RunGameCoinWithdrawOnceWithNonceWatch(context.Background(), &watch)
+			assert.Zero(t, summary.Failed)
+			current := reloadGameCoinWithdrawal(t, withdrawal.Id)
+			assert.Equal(t, model.GameCoinWithdrawalStatusSent, current.Status)
+			assert.GreaterOrEqual(t, current.NonceUsedAt, now)
+			assert.Equal(t, 7, gameCoinBalance(t, withdrawal.UserId))
+		})
+	}
+}
+
+func TestGameCoinWithdrawalCancelledRunDoesNotAdvanceNonceWatch(t *testing.T) {
+	node := &withdrawTestNode{latestNonce: 4, receipts: map[string]map[string]any{}}
+	useGameCoinTestChain(t, node)
+	withdrawal := createTestGameCoinWithdrawal(t, 2123, 3)
+	RunGameCoinWithdrawOnce(context.Background())
+	var watch GameCoinNonceWatch
+	watch.observe(operation_setting.GetGameSetting(), common.GetTimestamp()-1200)
+	previous := watch
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	summary := RunGameCoinWithdrawOnceWithNonceWatch(ctx, &watch)
+	assert.Zero(t, summary.Failed)
+	assert.Equal(t, previous, watch)
+	assert.Equal(t, model.GameCoinWithdrawalStatusSent, reloadGameCoinWithdrawal(t, withdrawal.Id).Status)
+}
+
+// RPC 失败后的计时清零写入也可能失败。不能让后面的单继续更新全局连续性、掩盖这笔尚未清零的旧计时；
+// 恢复后的共享 watch 和保守单次入口都必须先重新观察，不能立即退款。
+func TestGameCoinWithdrawalNonceResetWriteFailureRestartsObservation(t *testing.T) {
+	for _, sharedWatch := range []bool{true, false} {
+		name := "single run"
+		if sharedWatch {
+			name = "shared watch"
+		}
+		t.Run(name, func(t *testing.T) {
+			node := &withdrawTestNode{latestNonce: 4, receipts: map[string]map[string]any{}, rpcFailures: map[string]bool{}}
+			useGameCoinTestChain(t, node)
+			first := createTestGameCoinWithdrawal(t, 2124, 3)
+			second := createTestGameCoinWithdrawal(t, 2125, 3)
+			sent := RunGameCoinWithdrawOnce(context.Background())
+			require.Equal(t, 2, sent.Sent)
+			now := common.GetTimestamp()
+			require.NoError(t, model.DB.Model(&model.GameCoinWithdrawal{}).Where("id IN ?", []int{first.Id, second.Id}).Updates(map[string]any{
+				"nonce_used_at":    now - 601,
+				"nonce_checked_at": now - 15,
+			}).Error)
+			var watch *GameCoinNonceWatch
+			if sharedWatch {
+				watch = &GameCoinNonceWatch{}
+				watch.observe(operation_setting.GetGameSetting(), now-1200)
+				watch.CheckedAt = now - 15
+			}
+			rejectReset := true
+			const callback = "test:reject-game-nonce-reset"
+			require.NoError(t, model.DB.Callback().Update().Before("gorm:update").Register(callback, func(tx *gorm.DB) {
+				if !rejectReset || tx.Statement.Table != "game_coin_withdrawals" {
+					return
+				}
+				updates, ok := tx.Statement.Dest.(map[string]interface{})
+				if !ok {
+					return
+				}
+				usedAt, ok := updates["nonce_used_at"].(int64)
+				if ok && usedAt == 0 {
+					tx.AddError(errors.New("nonce reset write failed"))
+				}
+			}))
+			t.Cleanup(func() { require.NoError(t, model.DB.Callback().Update().Remove(callback)) })
+			node.update(func(node *withdrawTestNode) {
+				node.latestNonce = 6
+				node.rpcFailures["eth_getTransactionCount"] = true
+			})
+			summary := RunGameCoinWithdrawOnceWithNonceWatch(context.Background(), watch)
+			assert.Zero(t, summary.Failed)
+			assert.Equal(t, now-601, reloadGameCoinWithdrawal(t, first.Id).NonceUsedAt, "清零确实未落库")
+			if sharedWatch {
+				require.NotNil(t, summary.NonceWatch)
+				assert.Equal(t, GameCoinNonceWatch{}, *summary.NonceWatch, "不能由后面的单继续推进失效的观察")
+				data, err := common.Marshal(summary.NonceWatch)
+				require.NoError(t, err)
+				watch = &GameCoinNonceWatch{}
+				require.NoError(t, common.Unmarshal(data, watch))
+			}
+			rejectReset = false
+			node.update(func(node *withdrawTestNode) { delete(node.rpcFailures, "eth_getTransactionCount") })
+			summary = RunGameCoinWithdrawOnceWithNonceWatch(context.Background(), watch)
+			assert.Zero(t, summary.Failed)
+			for _, withdrawal := range []*model.GameCoinWithdrawal{first, second} {
+				current := reloadGameCoinWithdrawal(t, withdrawal.Id)
+				assert.Equal(t, model.GameCoinWithdrawalStatusSent, current.Status)
+				assert.GreaterOrEqual(t, current.NonceUsedAt, now)
+				assert.Equal(t, 7, gameCoinBalance(t, withdrawal.UserId))
+			}
+		})
+	}
 }
 
 // 退款前按哈希查交易本身再确认一次：回执查询可能一直落在进度落后的节点上，节点还知道这笔交易，就说明它没有被顶掉。

@@ -208,22 +208,28 @@ func ResolveTradePredictionRound(windowStart int64, outcome string) error {
 		return ErrTradePredictionOutcome
 	}
 	now := common.GetTimestamp()
-	result := DB.Model(&TradePredictionRound{}).Where("window_start = ? AND end_time <= ? AND outcome = ?", windowStart, now, "").
-		Updates(map[string]any{"outcome": outcome, "settled_at": now, "last_checked_at": now})
-	if result.Error != nil {
-		return result.Error
-	}
-	if result.RowsAffected > 0 {
+	return DB.Transaction(func(tx *gorm.DB) error {
+		result := tx.Model(&TradePredictionRound{}).Where("window_start = ? AND end_time <= ? AND outcome = ?", windowStart, now, "").
+			Updates(map[string]any{"outcome": outcome, "settled_at": now, "last_checked_at": now})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected > 0 {
+			// 已决结果改变预测资产的价值。与结果同时使持仓用户的旧估值失效，不能等到逐用户派彩才更新版本。
+			users := tx.Model(&TradePredictionPosition{}).Select("user_id").
+				Where("window_start = ? AND status = ?", windowStart, TradePredictionActive)
+			return tx.Model(&TradeAccount{}).Where("user_id IN (?)", users).
+				Update("asset_version", gorm.Expr("asset_version + ?", 1)).Error
+		}
+		var round TradePredictionRound
+		if err := tx.Where("window_start = ?", windowStart).First(&round).Error; err != nil {
+			return err
+		}
+		if round.Outcome != outcome {
+			return ErrTradePredictionOutcome
+		}
 		return nil
-	}
-	round, err := GetTradePredictionRound(windowStart)
-	if err != nil {
-		return err
-	}
-	if round.Outcome != outcome {
-		return ErrTradePredictionOutcome
-	}
-	return nil
+	})
 }
 
 // SettleTradePredictionPosition 账户行锁串行化卖出、划转与结算。已处理的持仓直接返回，崩溃重试不重复入账。

@@ -228,50 +228,53 @@ const Memory = () => {
     busyRef.current = true;
     setBusy(true);
     setError('');
-    const response = await gamePost(
-      '/api/game/memory/flip',
-      { session_id: game.sessionId, version: versionRef.current, index },
-      t,
-    );
-    busyRef.current = false;
-    setBusy(false);
-    if (response.error) {
-      setError(response.error);
-      resync();
-      return;
-    }
-    const data = response.data;
-    // 这局已经结算过(例如在别的标签页里玩完了)：服务端直接回应第一次的结算结果。
-    if (data.status === undefined) {
-      settle(data, data.detail?.won ? 'won' : 'lost');
-      return;
-    }
-    versionRef.current = data.version;
-    setMoves(data.moves);
-    setSymbols((previous) => {
-      const next = previous.slice();
-      next[index] = data.symbol;
-      if (data.previous) next[data.previous.index] = data.previous.symbol;
-      return next;
-    });
-    if (data.first) {
-      setFaceUp([index]);
-    } else if (data.matched) {
-      setMatched((previous) =>
-        new Set(previous).add(index).add(data.previous.index),
+    try {
+      const response = await gamePost(
+        '/api/game/memory/flip',
+        { session_id: game.sessionId, version: versionRef.current, index },
+        t,
       );
-      setFaceUp([]);
-    } else {
-      setFaceUp([data.previous.index, index]);
-      setMissing(true);
-      if (data.status === 'playing') {
-        missTimerRef.current = setTimeout(hideMiss, MISS_SHOW_MS);
+      if (response.error) {
+        setError(response.error);
+        await resync();
+        return;
       }
+      const data = response.data;
+      // 这局已经结算过(例如在别的标签页里玩完了)：服务端直接回应第一次的结算结果。
+      if (data.status === undefined) {
+        settle(data, data.detail?.won ? 'won' : 'lost');
+        return;
+      }
+      versionRef.current = data.version;
+      setMoves(data.moves);
+      setSymbols((previous) => {
+        const next = previous.slice();
+        next[index] = data.symbol;
+        if (data.previous) next[data.previous.index] = data.previous.symbol;
+        return next;
+      });
+      if (data.first) {
+        setFaceUp([index]);
+      } else if (data.matched) {
+        setMatched((previous) =>
+          new Set(previous).add(index).add(data.previous.index),
+        );
+        setFaceUp([]);
+      } else {
+        setFaceUp([data.previous.index, index]);
+        setMissing(true);
+        if (data.status === 'playing') {
+          missTimerRef.current = setTimeout(hideMiss, MISS_SHOW_MS);
+        }
+      }
+      if (data.status === 'playing') return;
+      // 结束后公开整副牌。
+      setSymbols(data.layout);
+      settle(data.result, data.status);
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
     }
-    if (data.status === 'playing') return;
-    // 结束后公开整副牌。
-    setSymbols(data.layout);
-    settle(data.result, data.status);
   };
 
   const confirmRestart = () => {

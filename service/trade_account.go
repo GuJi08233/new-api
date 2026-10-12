@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
@@ -75,6 +76,10 @@ type TradeValuation struct {
 // 合约仓位按标记价格估值(见 ValueTradeFutures，crossPending 是挂着的全仓开仓委托冻结的钱)。估值只用于展示和快照，转出看资金与
 // 全仓占用，不看它。
 func ValueTradeAccount(account model.TradeAccount, crossPending int, positions []model.TradePosition, futures []model.TradeFuturesPosition) (TradeValuation, error) {
+	return valueTradeAccount(account, crossPending, positions, futures, false)
+}
+
+func valueTradeAccount(account model.TradeAccount, crossPending int, positions []model.TradePosition, futures []model.TradeFuturesPosition, accounting bool) (TradeValuation, error) {
 	valuation := TradeValuation{Cash: account.Cash, Frozen: account.Frozen, Holdings: []TradeHolding{}, Shorts: []TradeShort{}}
 	perUsd, err := model.TradeQuotaPerUsd()
 	if err != nil {
@@ -95,7 +100,14 @@ func ValueTradeAccount(account model.TradeAccount, crossPending int, positions [
 		if qty.IsPositive() {
 			holding.AvgPrice = decimal.NewFromInt(int64(position.Cost)).Div(pricing.QuotaPerUsd).Div(qty).Round(tradesim.QtyDecimals).String()
 		}
-		if price, ok := tradeMarket.LastPrice(position.Symbol); ok {
+		price, ok := tradeMarket.LastPrice(position.Symbol)
+		if accounting {
+			price, ok = freshSpotTop(position.Symbol, false)
+			if !ok {
+				return valuation, model.ErrTradeMarkUnavailable
+			}
+		}
+		if ok {
 			value, err := pricing.CreditQuota(price.Mul(qty))
 			if err != nil {
 				return valuation, err
@@ -109,7 +121,7 @@ func ValueTradeAccount(account model.TradeAccount, crossPending int, positions [
 		}
 		valuation.Holdings = append(valuation.Holdings, holding)
 	}
-	if _, valuation.FuturesValue, valuation.Cross, err = ValueTradeFutures(account.Cash, crossPending, futures); err != nil {
+	if _, valuation.FuturesValue, valuation.Cross, err = valueTradeFutures(account.Cash, crossPending, futures, accounting); err != nil {
 		return valuation, err
 	}
 	valuation.Equity = max(0, valuation.Cash+valuation.Frozen+valuation.CryptoValue+valuation.StockValue+valuation.FuturesValue)
@@ -118,6 +130,16 @@ func ValueTradeAccount(account model.TradeAccount, crossPending int, positions [
 
 // ValueTradeUser 读出用户的账户、现货持仓与合约仓位，按当前行情估值。
 func ValueTradeUser(userId int) (model.TradeAccount, TradeValuation, error) {
+	return valueTradeUser(context.Background(), userId, false)
+}
+
+// ValueTradeUserForTransfer 只接受新鲜行情与已确认的预测兑付额，不把展示用的历史成本当作可用于本金结算的资产。
+// 返回账户的资产版本供划转事务校验，读取期间发生的持仓或借款变动同样会使估值失效。
+func ValueTradeUserForTransfer(ctx context.Context, userId int) (model.TradeAccount, TradeValuation, error) {
+	return valueTradeUser(ctx, userId, true)
+}
+
+func valueTradeUser(ctx context.Context, userId int, accounting bool) (model.TradeAccount, TradeValuation, error) {
 	account, err := model.GetTradeAccount(userId)
 	if err != nil {
 		return account, TradeValuation{}, err
@@ -125,6 +147,25 @@ func ValueTradeUser(userId int) (model.TradeAccount, TradeValuation, error) {
 	positions, err := model.GetTradePositions(userId)
 	if err != nil {
 		return account, TradeValuation{}, err
+	}
+	loans, err := model.GetTradeSpotAssetLoans([]int{userId})
+	if err != nil {
+		return account, TradeValuation{}, err
+	}
+	if accounting && (len(positions) > 0 || len(loans) > 0) {
+		// 从节点平时不确认盘口；有现货资产需要记账估值时，在本次请求内确认连接上的旧推送已经收齐。
+		staleMs := operation_setting.GetTradeSetting().StaleMs
+		if staleMs <= 0 {
+			staleMs = 3000
+		}
+		tradeMarket.mu.RLock()
+		synced, connected := tradeMarket.bookSyncedAt, tradeMarket.connected
+		tradeMarket.mu.RUnlock()
+		if !connected || time.Since(synced) >= time.Duration(staleMs)*time.Millisecond/2 {
+			if err := tradeMarket.awaitFreshBook(ctx, time.Now(), staleMs); err != nil {
+				return account, TradeValuation{}, model.ErrTradeMarkUnavailable
+			}
+		}
 	}
 	futures, err := model.GetTradeFuturesPositions(userId)
 	if err != nil {
@@ -134,7 +175,7 @@ func ValueTradeUser(userId int) (model.TradeAccount, TradeValuation, error) {
 	if err != nil {
 		return account, TradeValuation{}, err
 	}
-	valuation, err := ValueTradeAccount(account, pending[userId], positions, futures)
+	valuation, err := valueTradeAccount(account, pending[userId], positions, futures, accounting)
 	if err != nil {
 		return account, valuation, err
 	}
@@ -142,22 +183,18 @@ func ValueTradeUser(userId int) (model.TradeAccount, TradeValuation, error) {
 	if err != nil {
 		return account, valuation, err
 	}
-	loans, err := model.GetTradeSpotAssetLoans([]int{userId})
-	if err != nil {
-		return account, valuation, err
-	}
 	predictions, err := model.ListTradePredictionPositionsOf([]int{userId})
 	if err != nil {
 		return account, valuation, err
 	}
-	err = valueTradeFinancing(&valuation, loan, loans, positions, predictions)
+	err = valueTradeFinancing(&valuation, loan, loans, positions, predictions, accounting)
 	return account, valuation, err
 }
 
 // valueTradeFinancing 把预测持仓、现货借款与借币卖出欠着的币算进总资产，算出借款的风险率。有借款时把钱转出去(转回额度、给
 // 合约或预测用)之后风险率不能低于 2，要留下的资金从全仓可用与可转出里扣掉；现货盘口不新鲜、风险率算不出来时这两项按 0 算。
 // 预测持仓不能作抵押。
-func valueTradeFinancing(valuation *TradeValuation, loan model.TradeSpotMargin, loans []model.TradeSpotAssetLoan, spots []model.TradePosition, predictions []model.TradePredictionPosition) error {
+func valueTradeFinancing(valuation *TradeValuation, loan model.TradeSpotMargin, loans []model.TradeSpotAssetLoan, spots []model.TradePosition, predictions []model.TradePredictionPosition, accounting bool) error {
 	now := common.GetTimestamp()
 	loan, err := model.AccruedTradeSpotMargin(loan, now)
 	if err != nil {
@@ -167,11 +204,11 @@ func valueTradeFinancing(valuation *TradeValuation, loan model.TradeSpotMargin, 
 		return err
 	}
 	valuation.SpotMargin, valuation.SpotDebt = loan, loan.Principal+loan.Interest
-	valuation.PredictionValue, err = ValueTradePredictions(predictions)
+	valuation.PredictionValue, err = valueTradePredictions(predictions, accounting)
 	if err != nil {
 		return err
 	}
-	if err = valueTradeShorts(valuation, loans); err != nil {
+	if err = valueTradeShorts(valuation, loans, accounting); err != nil {
 		return err
 	}
 	valuation.Equity = max(0, valuation.Cash+valuation.Frozen+valuation.CryptoValue+valuation.StockValue+valuation.FuturesValue+valuation.PredictionValue-
@@ -198,7 +235,7 @@ func valueTradeFinancing(valuation *TradeValuation, loan model.TradeSpotMargin, 
 }
 
 // valueTradeShorts 按最新价给借币卖出欠着的币估值(向上取整，欠的按多算)，没有行情的按当初卖出到账的钱计。
-func valueTradeShorts(valuation *TradeValuation, loans []model.TradeSpotAssetLoan) error {
+func valueTradeShorts(valuation *TradeValuation, loans []model.TradeSpotAssetLoan, accounting bool) error {
 	perUsd, err := model.TradeQuotaPerUsd()
 	if err != nil {
 		return err
@@ -224,7 +261,14 @@ func valueTradeShorts(valuation *TradeValuation, loans []model.TradeSpotAssetLoa
 		if loan.Principal > 0 {
 			short.AvgPrice = decimal.NewFromInt(int64(loan.Proceeds)).Div(pricing.QuotaPerUsd).Div(tradesim.QtyFromUnits(loan.Principal)).Round(tradesim.QtyDecimals).String()
 		}
-		if price, ok := tradeMarket.LastPrice(loan.Symbol); ok {
+		price, ok := tradeMarket.LastPrice(loan.Symbol)
+		if accounting {
+			price, ok = freshSpotTop(loan.Symbol, true)
+			if !ok {
+				return model.ErrTradeMarkUnavailable
+			}
+		}
+		if ok {
 			value, err := pricing.DebitQuota(price.Mul(qty))
 			if err != nil {
 				return err
@@ -298,7 +342,7 @@ func valueTradeAccounts(accounts []model.TradeAccount) ([]TradeValuation, error)
 			return nil, err
 		}
 		if err = valueTradeFinancing(&valuations[i], loansByUser[account.UserId], assetLoansByUser[account.UserId], positionsByUser[account.UserId],
-			predictionsByUser[account.UserId]); err != nil {
+			predictionsByUser[account.UserId], false); err != nil {
 			return nil, err
 		}
 	}

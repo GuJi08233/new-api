@@ -133,8 +133,8 @@ type GameCoinWithdrawal struct {
 	UpdatedAt   int64  `json:"updated_at" gorm:"bigint"`
 	BroadcastAt int64  `json:"broadcast_at" gorm:"bigint"`
 	// NonceUsedAt 是这一轮"nonce 已被推进、却查不到这笔交易任何一个哈希的回执"开始的时间，NonceCheckedAt 是最近一次看到
-	// 这种状态的时间，0 表示没有这种情况。它要连续保持一段时间、中间没有长时间没人查看，才判定交易被别的交易顶掉并退款；
-	// 期间查到回执就清零，隔太久才再次看到就从头计时。
+	// 这种状态的时间，0 表示没有这种情况。定时任务交接连续观察状态，正常排队不重置计时；worker/RPC 长停、这笔自身查询失败
+	// 或查到回执时重新观察。没有共享观察状态的单次调用仍按这笔的检查间隔保守判断。
 	NonceUsedAt    int64 `json:"-" gorm:"bigint"`
 	NonceCheckedAt int64 `json:"-" gorm:"bigint"`
 	CompletedAt    int64 `json:"completed_at" gorm:"bigint"`

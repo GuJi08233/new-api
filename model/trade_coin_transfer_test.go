@@ -392,6 +392,81 @@ func TestTradeTransferNeedsAFreshValuationWhenCoinsAreInvolved(t *testing.T) {
 	assert.Equal(t, before, tradeTestAccount(t, 6112))
 }
 
+// 发布猜错的结果和零派彩结算都不改变现金，却会使预测资产消失；旧估值不能把损失挪到额度本金。
+func TestTradeCoinTransferRejectsValuationBeforePredictionLoss(t *testing.T) {
+	for _, settle := range []bool{false, true} {
+		t.Run(strconv.FormatBool(settle), func(t *testing.T) {
+			round := predictionTestRound(t, common.GetTimestamp()/300*300-300)
+			const userId = 6140
+			seedTradeUser(t, userId, 0)
+			require.NoError(t, DB.Create(&TradeAccount{UserId: userId, Cash: tradeUsd(10), QuotaPrincipal: tradeUsd(20), CoinPrincipal: coin(10), TotalIn: tradeUsd(20)}).Error)
+			position := TradePredictionPosition{UserId: userId, WindowStart: round.WindowStart, Side: TradePredictionUp,
+				Qty: 20 * 100_000_000, InitialQty: 20 * 100_000_000, Cost: tradeUsd(10), TotalCost: tradeUsd(10), Status: TradePredictionActive}
+			require.NoError(t, DB.Create(&position).Error)
+			if settle {
+				require.NoError(t, ResolveTradePredictionRound(round.WindowStart, TradePredictionDown))
+			}
+			before := tradeTestAccount(t, userId)
+			stale := TradeEquity{Value: tradeUsd(20), Known: true, Account: before}
+			if settle {
+				require.NoError(t, SettleTradePredictionPosition(position.Id))
+			} else {
+				require.NoError(t, ResolveTradePredictionRound(round.WindowStart, TradePredictionDown))
+			}
+			after := tradeTestAccount(t, userId)
+			assert.Equal(t, before.Cash, after.Cash)
+			assert.Equal(t, before.Frozen, after.Frozen)
+			assert.Equal(t, before.QuotaPrincipal, after.QuotaPrincipal)
+			assert.Equal(t, before.CoinPrincipal, after.CoinPrincipal)
+			_, _, err := TransferGameCoinsFromTrade(userId, coin(10), tradeTestDay, tradeUsd(100), nil, stale)
+			require.ErrorIs(t, err, ErrTradeValuationStale)
+			_, _, err = TransferGameCoinsFromTrade(userId, coin(1), tradeTestDay, tradeUsd(100), nil, TradeEquity{Value: tradeUsd(10), Known: true, Account: after})
+			require.ErrorIs(t, err, ErrTradeCoinPrincipal)
+			assert.Equal(t, after, tradeTestAccount(t, userId))
+			assert.Zero(t, gameBalance(t, userId))
+		})
+	}
+}
+
+func TestTradeCoinTransferRejectsValuationWhenBalancesReturnToSameValues(t *testing.T) {
+	truncateTables(t)
+	const userId = 6141
+	seedTradeUser(t, userId, 1)
+	require.NoError(t, DB.Create(&TradeAccount{UserId: userId, Cash: tradeUsd(20), QuotaPrincipal: tradeUsd(20), CoinPrincipal: coin(10), TotalIn: tradeUsd(20)}).Error)
+	stale := tradeCashEquity(t, userId)
+	_, err := TransferQuotaToTrade(userId, tradeUsd(1), stale)
+	require.NoError(t, err)
+	_, _, err = TransferQuotaFromTrade(userId, tradeUsd(1), tradeTestDay, tradeUsd(100), nil, tradeCashEquity(t, userId))
+	require.NoError(t, err)
+	after := tradeTestAccount(t, userId)
+	assert.Equal(t, stale.Account.Cash, after.Cash)
+	assert.Equal(t, stale.Account.QuotaPrincipal, after.QuotaPrincipal)
+	assert.Equal(t, stale.Account.CoinPrincipal, after.CoinPrincipal)
+	_, _, err = TransferGameCoinsFromTrade(userId, coin(1), tradeTestDay, tradeUsd(100), nil, stale)
+	require.ErrorIs(t, err, ErrTradeValuationStale)
+	_, _, err = TransferGameCoinsFromTrade(userId, coin(1), tradeTestDay, tradeUsd(100), nil, tradeCashEquity(t, userId))
+	require.NoError(t, err)
+	assert.Equal(t, coin(1), gameBalance(t, userId))
+}
+
+func TestTradeCoinTransferRejectsValuationBeforeSpotInterestAccrual(t *testing.T) {
+	truncateTables(t)
+	useTradeSpotRate(t, "0.24")
+	const userId = 6142
+	seedTradeUser(t, userId, 0)
+	require.NoError(t, DB.Create(&TradeAccount{UserId: userId, Cash: tradeUsd(20), QuotaPrincipal: tradeUsd(20), CoinPrincipal: coin(10), TotalIn: tradeUsd(20)}).Error)
+	require.NoError(t, DB.Create(&TradeSpotMargin{UserId: userId, Principal: tradeUsd(5), ChargedUntil: common.GetTimestamp() - 3600, DailyRate: "0.24"}).Error)
+	stale := tradeCashEquity(t, userId)
+	result, err := SettleTradeSpotMargin(userId, btcBid(100), nil, tradeSpotTestPricing(), 5)
+	require.NoError(t, err)
+	assert.False(t, result.Liquidated)
+	assert.Positive(t, tradeSpotTestLoan(t, userId).Interest)
+	assert.Equal(t, stale.Account.Cash, tradeTestAccount(t, userId).Cash)
+	_, _, err = TransferGameCoinsFromTrade(userId, coin(1), tradeTestDay, tradeUsd(100), btcBid(100), stale)
+	require.ErrorIs(t, err, ErrTradeValuationStale)
+	assert.Zero(t, gameBalance(t, userId))
+}
+
 // 抵扣顺序只接受两种取值，账户还不存在时建出来；没设置过时先扣游戏币。
 func TestSetTradeLossOrderValidatesTheOrder(t *testing.T) {
 	truncateTables(t)

@@ -23,8 +23,8 @@ const (
 	// 回执偶尔落后于 nonce 计数(负载均衡后面的节点进度不一)，过早退款会让一笔已经上链的提现变成重复发放；
 	// 期间只要查到一次回执，就从头计算。
 	gameCoinNonceReplacedSeconds = 10 * 60
-	// "连续保持"要有人一直在看：两次看到这种状态隔了这么久以上(RPC 一直报错、worker 停过、积压太多轮不到它)，
-	// 中间发生了什么不得而知，从头计时。worker 每 15 秒一轮，这相当于连续十几轮没有看到它。
+	// 对账连续性中断这么久后重新观察，避免 worker 或 RPC 长停后立即退款。
+	// 定时任务跨批次、跨节点传递连续性；没有共享观察状态的单次调用按每笔的检查间隔保守判断。
 	gameCoinNonceWatchGapSeconds = 3 * 60
 	// 节点给不出小费建议时使用 1 gwei。
 	gameCoinDefaultTipWei = 1_000_000_000
@@ -39,17 +39,41 @@ const (
 var (
 	gameCoinSentCursor         atomic.Int64
 	gameCoinParkedSignedCursor atomic.Int64
+	// 单次入口没有持久 watch，计时写入失败后也必须让本进程下一次调用重新观察。
+	gameCoinNonceStateFailedAt atomic.Int64
 )
 
 // GameCoinWithdrawRunSummary 是一轮提现处理的结果，写进系统任务的运行记录。Skipped 不为空表示这一轮
 // 因为配置或节点的问题没能处理，任务记录会标为失败。
 type GameCoinWithdrawRunSummary struct {
-	Signed    int    `json:"signed"`
-	Replaced  int    `json:"replaced"`
-	Sent      int    `json:"sent"`
-	Confirmed int    `json:"confirmed"`
-	Failed    int    `json:"failed"`
-	Skipped   string `json:"skipped,omitempty"`
+	Signed     int                 `json:"signed"`
+	Replaced   int                 `json:"replaced"`
+	Sent       int                 `json:"sent"`
+	Confirmed  int                 `json:"confirmed"`
+	Failed     int                 `json:"failed"`
+	Skipped    string              `json:"skipped,omitempty"`
+	NonceWatch *GameCoinNonceWatch `json:"nonce_watch,omitempty"`
+}
+
+// GameCoinNonceWatch 随系统任务的 payload/result 交接，记录当前 RPC 上成功对账的连续观察周期。
+// 某一笔轮到下一批可能超过三分钟，不能把正常积压当成整个 worker 停机；RPC 地址只保存摘要。
+type GameCoinNonceWatch struct {
+	ChainId    int64  `json:"chain_id"`
+	RpcURLHash string `json:"rpc_url_hash"`
+	StartedAt  int64  `json:"started_at"`
+	CheckedAt  int64  `json:"checked_at"`
+}
+
+func (watch *GameCoinNonceWatch) observe(setting *operation_setting.GameSetting, now int64) int64 {
+	rpcURLHash := hex.EncodeToString(common.Sha256Raw([]byte(setting.RpcUrl)))
+	if watch.ChainId != setting.ChainId || watch.RpcURLHash != rpcURLHash || watch.StartedAt <= 0 ||
+		watch.CheckedAt < watch.StartedAt || now < watch.CheckedAt || now-watch.CheckedAt > gameCoinNonceWatchGapSeconds {
+		watch.ChainId = setting.ChainId
+		watch.RpcURLHash = rpcURLHash
+		watch.StartedAt = now
+	}
+	watch.CheckedAt = now
+	return watch.StartedAt
 }
 
 // gameCoinFees 是这一轮签名用的 EIP-1559 费用：最新区块的基础费、小费，以及费用上限(三倍基础费加小费)。
@@ -75,7 +99,14 @@ func GameCoinWithdrawalsNeedWork() bool {
 // 分类型租约保证多个主节点同时只有一个在跑。没有可用的热钱包或拿不到费用时签不了交易(新提现和加价重签都不行)，
 // 已经签出的交易照常跟进。
 func RunGameCoinWithdrawOnce(ctx context.Context) GameCoinWithdrawRunSummary {
-	summary := GameCoinWithdrawRunSummary{}
+	// 单次调用没有跨轮次的连续性证明，仍按每笔最多三分钟的检查间隔保守处理。
+	return RunGameCoinWithdrawOnceWithNonceWatch(ctx, nil)
+}
+
+// RunGameCoinWithdrawOnceWithNonceWatch 供定时任务使用，watch 必须从上一轮结果交接(首轮传空值的地址)。
+// 只有成功的链上观察才推进它，调用方将返回结果持久化后，另一个节点也能接着观察。
+func RunGameCoinWithdrawOnceWithNonceWatch(ctx context.Context, watch *GameCoinNonceWatch) GameCoinWithdrawRunSummary {
+	summary := GameCoinWithdrawRunSummary{NonceWatch: watch}
 	setting := operation_setting.GetGameSetting()
 	if !setting.ChainConfigured() {
 		summary.Skipped = "chain is not configured"
@@ -104,7 +135,7 @@ func RunGameCoinWithdrawOnce(ctx context.Context) GameCoinWithdrawRunSummary {
 		logger.LogWarn(ctx, fmt.Sprintf("game coin withdraw: fee suggestion failed: %v", err))
 	}
 
-	reconcileSentGameCoinWithdrawals(ctx, setting, wallet, fees, &summary)
+	reconcileSentGameCoinWithdrawals(ctx, setting, wallet, fees, watch, &summary)
 	if !rebroadcastSignedGameCoinWithdrawals(ctx, setting, wallet, fees, &summary) || wallet == nil || fees == nil {
 		return summary
 	}
@@ -115,7 +146,7 @@ func RunGameCoinWithdrawOnce(ctx context.Context) GameCoinWithdrawRunSummary {
 // reconcileSentGameCoinWithdrawals 按回执给当前链上已广播的提现下结论。只有链上明确失败、转账没有发生或
 // nonce 被别的交易占用时才退款；查不到回执、回执不完整、节点报错都只是"还没有结论"。管理员切换了网络时，
 // 旧网络上的交易留待切回后再对账。一轮只对账一批，按 listGameCoinWithdrawalsInTurn 轮流取。
-func reconcileSentGameCoinWithdrawals(ctx context.Context, setting *operation_setting.GameSetting, wallet *gameHotWallet, fees *gameCoinFees, summary *GameCoinWithdrawRunSummary) {
+func reconcileSentGameCoinWithdrawals(ctx context.Context, setting *operation_setting.GameSetting, wallet *gameHotWallet, fees *gameCoinFees, watch *GameCoinNonceWatch, summary *GameCoinWithdrawRunSummary) {
 	withdrawals, err := listGameCoinWithdrawalsInTurn(model.GameCoinWithdrawalStatusSent,
 		model.GameCoinWithdrawalScope{ChainId: setting.ChainId}, &gameCoinSentCursor)
 	if err != nil {
@@ -129,17 +160,32 @@ func reconcileSentGameCoinWithdrawals(ctx context.Context, setting *operation_se
 		}
 		receipt, minedTxHash, err := lookupGameCoinWithdrawalReceipt(ctx, setting.RpcUrl, withdrawal)
 		if err != nil {
+			if withdrawal.NonceUsedAt != 0 {
+				if !setGameCoinWithdrawalNonceUsed(ctx, withdrawal, 0, 0, watch) {
+					return
+				}
+			}
 			recordGameCoinWithdrawalAttempt(ctx, withdrawal, false, err)
 			continue
 		}
+		if ctx.Err() != nil {
+			return
+		}
+		if watch != nil {
+			watch.observe(setting, common.GetTimestamp())
+		}
 		if receipt == nil {
-			reconcileUnminedGameCoinWithdrawal(ctx, setting, wallet, fees, withdrawal, summary)
+			if !reconcileUnminedGameCoinWithdrawal(ctx, setting, wallet, fees, withdrawal, watch, summary) {
+				return
+			}
 			continue
 		}
 
 		// 查到了回执，节点知道这笔交易，之前"nonce 已推进却查不到回执"的计时作废；回执不完整也一样。
 		if withdrawal.NonceUsedAt != 0 {
-			setGameCoinWithdrawalNonceUsed(ctx, withdrawal, 0, 0)
+			if !setGameCoinWithdrawalNonceUsed(ctx, withdrawal, 0, 0, watch) {
+				return
+			}
 		}
 		// 有的节点对还没打包的交易也给出回执，只是区块号与状态为空，这同样还没有结论。
 		receiptBlock, blockErr := parseEthereumQuantity(receipt.BlockNumber)
@@ -253,30 +299,41 @@ func receiptHasErc20Transfer(logs []ethereumRpcLog, token string, from string, t
 
 // reconcileUnminedGameCoinWithdrawal 处理每个哈希都查不到回执的已广播交易。nonce 还空着时：费用上限已经付不起现在的
 // 基础费就加价重签，否则定期重发。nonce 已被推进，说明这个位置被别的交易用掉了：这种状态要连续保持
-// gameCoinNonceReplacedSeconds、期间两次查看的间隔都不超过 gameCoinNonceWatchGapSeconds，最后还要节点对这笔提现的
+// gameCoinNonceReplacedSeconds、期间 worker 对账持续成功(这笔自身查询失败时也重新观察)，最后还要节点对这笔提现的
 // 每个哈希都一无所知，才退款。退款晚一些没关系，把一笔已经上链的转账退掉就是重复发放。
-func reconcileUnminedGameCoinWithdrawal(ctx context.Context, setting *operation_setting.GameSetting, wallet *gameHotWallet, fees *gameCoinFees, withdrawal *model.GameCoinWithdrawal, summary *GameCoinWithdrawRunSummary) {
+// 返回 false 表示本轮必须停止对账，防止计时写入失败后又被其他单的成功观察掩盖。
+func reconcileUnminedGameCoinWithdrawal(ctx context.Context, setting *operation_setting.GameSetting, wallet *gameHotWallet, fees *gameCoinFees, withdrawal *model.GameCoinWithdrawal, watch *GameCoinNonceWatch, summary *GameCoinWithdrawRunSummary) bool {
 	accountNonce, err := callEthereumRpcQuantity(ctx, setting.RpcUrl, "eth_getTransactionCount", []any{withdrawal.FromAddress, "latest"})
 	if err != nil {
 		recordGameCoinWithdrawalAttempt(ctx, withdrawal, false, err)
-		return
+		if withdrawal.NonceUsedAt != 0 {
+			return setGameCoinWithdrawalNonceUsed(ctx, withdrawal, 0, 0, watch)
+		}
+		return true
+	}
+	if ctx.Err() != nil {
+		return false
 	}
 	now := common.GetTimestamp()
+	observationInterrupted := now-withdrawal.NonceCheckedAt > gameCoinNonceWatchGapSeconds
+	if watch != nil {
+		observationInterrupted = withdrawal.NonceUsedAt < watch.observe(setting, now)
+	} else if withdrawal.NonceUsedAt < gameCoinNonceStateFailedAt.Load() {
+		observationInterrupted = true
+	}
 	if accountNonce.Cmp(big.NewInt(withdrawal.Nonce)) > 0 {
 		switch {
-		case withdrawal.NonceUsedAt == 0 || now-withdrawal.NonceCheckedAt > gameCoinNonceWatchGapSeconds:
-			setGameCoinWithdrawalNonceUsed(ctx, withdrawal, now, now)
-			return
+		case withdrawal.NonceUsedAt == 0 || observationInterrupted:
+			return setGameCoinWithdrawalNonceUsed(ctx, withdrawal, now, now, watch)
 		case now-withdrawal.NonceUsedAt < gameCoinNonceReplacedSeconds:
-			setGameCoinWithdrawalNonceUsed(ctx, withdrawal, withdrawal.NonceUsedAt, now)
-			return
+			return setGameCoinWithdrawalNonceUsed(ctx, withdrawal, withdrawal.NonceUsedAt, now, watch)
 		}
 		// 回执查询可能落在进度落后的节点上；按哈希查交易本身再确认一次，节点知道其中任何一笔(还在内存池或已经上链)
 		// 都说明它没有被顶掉。
 		hashes, err := withdrawal.TxHashes()
 		if err != nil {
 			recordGameCoinWithdrawalAttempt(ctx, withdrawal, false, err)
-			return
+			return setGameCoinWithdrawalNonceUsed(ctx, withdrawal, 0, 0, watch)
 		}
 		for _, hash := range hashes {
 			var tx *struct {
@@ -284,28 +341,30 @@ func reconcileUnminedGameCoinWithdrawal(ctx context.Context, setting *operation_
 			}
 			if err := callEthereumRpc(ctx, setting.RpcUrl, "eth_getTransactionByHash", []any{hash}, &tx); err != nil {
 				recordGameCoinWithdrawalAttempt(ctx, withdrawal, false, err)
-				return
+				return setGameCoinWithdrawalNonceUsed(ctx, withdrawal, 0, 0, watch)
 			}
 			if tx != nil {
-				setGameCoinWithdrawalNonceUsed(ctx, withdrawal, 0, 0)
-				return
+				return setGameCoinWithdrawalNonceUsed(ctx, withdrawal, 0, 0, watch)
 			}
 		}
 		failGameCoinWithdrawal(ctx, withdrawal, "交易未能上链，游戏币已退回",
 			fmt.Sprintf("nonce %d of %s was used by another transaction", withdrawal.Nonce, withdrawal.FromAddress), summary)
-		return
+		return true
 	}
 	if withdrawal.NonceUsedAt != 0 {
-		setGameCoinWithdrawalNonceUsed(ctx, withdrawal, 0, 0)
+		if !setGameCoinWithdrawalNonceUsed(ctx, withdrawal, 0, 0, watch) {
+			return false
+		}
 	}
 	if replaceUnderpricedGameCoinTx(ctx, setting, wallet, fees, withdrawal, summary) {
-		return
+		return true
 	}
 	if now-withdrawal.BroadcastAt < gameCoinRebroadcastSeconds {
-		return
+		return true
 	}
 	_, err = broadcastGameCoinTx(ctx, setting.RpcUrl, withdrawal.RawTx)
 	recordGameCoinWithdrawalAttempt(ctx, withdrawal, true, err)
+	return true
 }
 
 // replaceUnderpricedGameCoinTx 在基础费涨过一笔还没上链的交易的费用上限、它再也上不了链时，用同一个 nonce、同样的 gas
@@ -672,8 +731,15 @@ func recordGameCoinWithdrawalAttempt(ctx context.Context, withdrawal *model.Game
 	}
 }
 
-func setGameCoinWithdrawalNonceUsed(ctx context.Context, withdrawal *model.GameCoinWithdrawal, usedAt int64, checkedAt int64) {
+func setGameCoinWithdrawalNonceUsed(ctx context.Context, withdrawal *model.GameCoinWithdrawal, usedAt int64, checkedAt int64, watch *GameCoinNonceWatch) bool {
 	if err := model.SetGameCoinWithdrawalNonceUsed(withdrawal.Id, usedAt, checkedAt); err != nil {
 		logger.LogError(ctx, fmt.Sprintf("game coin withdraw: record nonce state for %s failed: %v", withdrawal.TradeNo, err))
+		gameCoinNonceStateFailedAt.Store(common.GetTimestamp())
+		if watch != nil {
+			// 不能把没清零的旧计时连同其他单的成功观察交给下一节点。
+			*watch = GameCoinNonceWatch{}
+		}
+		return false
 	}
+	return true
 }

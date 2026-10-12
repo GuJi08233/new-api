@@ -663,6 +663,10 @@ func (client *tradePredictionClient) settlePending(ctx context.Context) {
 
 // ValueTradePredictions 用已缓存的可卖价估值；断线/旧轮次未决时按剩余成本显示，不参与保证金或可转出金额。
 func ValueTradePredictions(positions []model.TradePredictionPosition) (int, error) {
+	return valueTradePredictions(positions, false)
+}
+
+func valueTradePredictions(positions []model.TradePredictionPosition, accounting bool) (int, error) {
 	tradePredictions.mu.Lock()
 	view := tradePredictions.view
 	tradePredictions.mu.Unlock()
@@ -671,19 +675,55 @@ func ValueTradePredictions(positions []model.TradePredictionPosition) (int, erro
 		return 0, err
 	}
 	total := 0
+	now := common.GetTimestamp()
+	rounds := make(map[int64]*model.TradePredictionRound)
 	for _, position := range positions {
 		value := position.Cost
-		if view.Status == "ready" && view.Round != nil && view.Round.WindowStart == position.WindowStart && view.UpdatedAt >= common.GetTimestamp()-5 {
+		price, priced := decimal.Zero, false
+		var round *model.TradePredictionRound
+		if accounting {
+			round = rounds[position.WindowStart]
+			if round == nil {
+				round, err = model.GetTradePredictionRound(position.WindowStart)
+				if err != nil {
+					return 0, err
+				}
+				rounds[position.WindowStart] = round
+			}
+			switch round.Outcome {
+			case model.TradePredictionUp, model.TradePredictionDown:
+				priced = true
+				if position.Side == round.Outcome {
+					price = decimal.NewFromInt(1)
+				}
+			case model.TradePredictionSplit:
+				price, priced = decimal.New(5, -1), true
+			case "":
+				if now >= round.EndTime {
+					return 0, model.ErrTradeMarkUnavailable
+				}
+			default:
+				return 0, model.ErrTradeMarkUnavailable
+			}
+		}
+		if !priced && view.Status == "ready" && view.Round != nil && view.Round.WindowStart == position.WindowStart &&
+			view.UpdatedAt >= now-5 && view.UpdatedAt <= now {
 			bid := view.Up.Bid
 			if position.Side == model.TradePredictionDown {
 				bid = view.Down.Bid
 			}
-			price, err := parsePredictionNumber(bid)
-			if err == nil {
-				value, err = (tradesim.Pricing{QuotaPerUsd: decimal.NewFromInt(int64(perUsd))}).CreditQuota(price.Mul(tradesim.QtyFromUnits(position.Qty)))
-				if err != nil {
-					return 0, err
-				}
+			parsed, parseErr := parsePredictionNumber(bid)
+			if parseErr == nil && (!accounting || parsed.LessThanOrEqual(decimal.NewFromInt(1))) {
+				price, priced = parsed, true
+			}
+		}
+		if accounting && !priced {
+			return 0, model.ErrTradeMarkUnavailable
+		}
+		if priced {
+			value, err = (tradesim.Pricing{QuotaPerUsd: decimal.NewFromInt(int64(perUsd))}).CreditQuota(price.Mul(tradesim.QtyFromUnits(position.Qty)))
+			if err != nil {
+				return 0, err
 			}
 		}
 		if value < 0 || total >= common.MaxQuota-value {

@@ -64,7 +64,7 @@ func (a *TradeAccount) CoinFirst() bool {
 }
 
 // TradeEquity 是转账之前按当前行情算出的账户总资产(额度单位)，按抵扣顺序结算游戏币本金时用。Account 是估值时读到的账户：加锁之后
-// 账户的资金已经变了(估值之后又有别的转账、成交)时这份估值作废，返回 ErrTradeValuationStale，由调用方重新估值。Known 为假表示估值
+// 账户的资产版本已经变了(估值之后又有别的转账、成交、借款或预测结算)时这份估值作废，返回 ErrTradeValuationStale，由调用方重新估值。Known 为假表示估值
 // 不可用，账户里有游戏币本金时转账会被拒绝(ErrTradeMarkUnavailable)。账户里没有游戏币本金时用不到它。
 type TradeEquity struct {
 	Value   int
@@ -102,6 +102,8 @@ type TradeAccount struct {
 	// LossOrder 是亏损先扣哪一种本金、穿仓的亏空先从哪个钱包补：TradeLossCoinFirst 先扣游戏币，TradeLossQuotaFirst 先扣平台额度，
 	// 空值按先扣游戏币。由用户自己选。
 	LossOrder string `json:"loss_order" gorm:"type:varchar(16)"`
+	// AssetVersion 在账户锁内随资金、持仓和借款变动递增。零派彩结算也会使旧估值失效，不能只比较余额。
+	AssetVersion int64 `json:"-" gorm:"type:bigint;not null;default:0"`
 	// TotalIn、TotalOut 是累计转入、转出的资金，总资产减去两者之差就是累计盈亏。
 	TotalIn   int   `json:"total_in" gorm:"type:bigint;not null;default:0"`
 	TotalOut  int   `json:"total_out" gorm:"type:bigint;not null;default:0"`
@@ -227,12 +229,18 @@ func saveTradeAccountTx(tx *gorm.DB, account *TradeAccount) error {
 	if int(account.CoinPrincipal) > account.QuotaPrincipal {
 		return ErrTradeAmountInvalid
 	}
+	if account.AssetVersion < 0 || account.AssetVersion >= common.MaxQuota-1 {
+		return ErrTradeAmountInvalid
+	}
+	account.AssetVersion++
 	account.UpdatedAt = common.GetTimestamp()
 	return tx.Model(&TradeAccount{}).Where("user_id = ?", account.UserId).Updates(map[string]interface{}{
 		"cash":            account.Cash,
 		"frozen":          account.Frozen,
 		"quota_principal": account.QuotaPrincipal,
 		"coin_principal":  account.CoinPrincipal,
+		"loss_order":      account.LossOrder,
+		"asset_version":   account.AssetVersion,
 		"total_in":        account.TotalIn,
 		"total_out":       account.TotalOut,
 		"updated_at":      account.UpdatedAt,
