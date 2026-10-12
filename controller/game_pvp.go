@@ -1460,8 +1460,8 @@ func respondPvpAiSettled(c *gin.Context, game *pvpGame, rule operation_setting.S
 	common.ApiSuccess(c, gin.H{"session": view, "ai_move": aiMove, "result": result})
 }
 
-// settlePvpAi 结算结束的一局人机对战：赢了按难度领奖，输了或和棋成绩为 0。
-func settlePvpAi(c *gin.Context, game *pvpGame, rule operation_setting.SkillRule, session *model.GameSession, state *pvpAiState, aiMove json.RawMessage) {
+// settlePvpAi 结算结束的一局人机对战：赢了按难度领奖，输了或和棋成绩为 0，seconds 只计已验证的玩家操作时长。
+func settlePvpAi(c *gin.Context, game *pvpGame, rule operation_setting.SkillRule, session *model.GameSession, state *pvpAiState, aiMove json.RawMessage, seconds int) {
 	data, err := common.Marshal(state)
 	if err != nil {
 		common.ApiError(c, err)
@@ -1473,7 +1473,7 @@ func settlePvpAi(c *gin.Context, game *pvpGame, rule operation_setting.SkillRule
 	}
 	result := settleSkillSession(c, game.name+"人机对战", rule, session, skillOutcome{
 		Score:   score,
-		Seconds: session.PlayedSeconds(common.GetTimestamp()),
+		Seconds: seconds,
 		Detail:  pvpAiDetail{Level: state.Level, Winner: state.Winner, Result: state.Result, Moves: state.Moves},
 		State:   string(data),
 	})
@@ -1523,7 +1523,7 @@ func movePvpAi(c *gin.Context, game *pvpGame) {
 		return
 	}
 	if state.Over {
-		settlePvpAi(c, game, rule, session, state, aiMove)
+		settlePvpAi(c, game, rule, session, state, aiMove, session.PlayedSeconds(common.GetTimestamp()))
 		return
 	}
 	data, err := common.Marshal(state)
@@ -1559,5 +1559,6 @@ func resignPvpAi(c *gin.Context, game *pvpGame) {
 		return
 	}
 	state.Over, state.Winner, state.Result = true, 1, "loss"
-	settlePvpAi(c, game, rule, session, state, nil)
+	// 认输不是走棋，只保留之前合法操作已经计入的时长，开局或末步之后的挂机时间不算。
+	settlePvpAi(c, game, rule, session, state, nil, session.PlaySeconds)
 }

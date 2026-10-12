@@ -65,7 +65,7 @@ func TestGameCenterClosedLetsPlayersFinishStakedRounds(t *testing.T) {
 }
 
 // 累计时长要以服务端核实过的游戏过程为依据，不能只是开局以来过了多久：开了局挂着不动，最后交一份空记录、放弃或认输，
-// 都攒不到时长(认输时只算最后一步到现在的一小段)。玩了多少步才算多久：2048 每一步最多 5 秒。
+// 都攒不到时长；认输只保留此前合法操作已累计的时长。玩了多少步才算多久：2048 每一步最多 5 秒。
 func TestIdleSessionsDoNotBankPlayTime(t *testing.T) {
 	require.NoError(t, i18n.Init())
 	env := newGameTestEnv(t, gameSetting(func(s *operation_setting.GameSetting) {
@@ -96,7 +96,7 @@ func TestIdleSessionsDoNotBankPlayTime(t *testing.T) {
 	require.NoError(t, env.db.Model(&model.GameSession{}).Where("id = ?", started["session_id"]).
 		Updates(map[string]any{"created_at": longAgo, "played_at": longAgo}).Error)
 	resigned := player.ok(http.MethodPost, "/api/game/gomoku/ai/resign", map[string]any{"session_id": started["session_id"]})
-	assert.EqualValues(t, model.GameActionGapSeconds, secondsToday(resigned["result"].(map[string]any)))
+	assert.EqualValues(t, 0, secondsToday(resigned["result"].(map[string]any)))
 }
 
 // 游戏接口的请求体有上限：json.Decoder 会先把整个值读进内存，一个登录用户发一个巨大的请求就能耗尽内存。普通请求只有几个字段，

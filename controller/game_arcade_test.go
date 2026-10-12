@@ -66,6 +66,8 @@ func TestPairlinkTimeoutAndToolLimits(t *testing.T) {
 		}
 		player.fails(http.MethodPost, "/api/game/pairlink/action", map[string]any{"session_id": view["session_id"], "version": view["version"], "action": action})
 	}
+	// 至少实际消除一对；只使用工具的局不累计领奖时长。
+	view = matchPairlinkTestPair(t, player, view)
 	require.NoError(t, env.db.Model(&model.GameSession{}).Where("id = ?", view["session_id"]).
 		Updates(map[string]any{"created_at": common.GetTimestamp() - 181, "play_seconds": 200}).Error)
 	ended := player.ok(http.MethodPost, "/api/game/pairlink/action", map[string]any{"session_id": view["session_id"], "version": view["version"], "action": "hint"})

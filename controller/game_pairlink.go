@@ -146,11 +146,19 @@ func ActPairlink(c *gin.Context) {
 			return
 		}
 	} else {
+		pairs := game.Rows*game.Cols/2 - game.Remaining
 		score := 0
+		// 放弃或超时只保留已保存操作的时长，不把结束前的空等追加进去。
+		// 仅用提示或重排还不能证明玩过：至少成功消除过一对才累计本局时长。
+		seconds := 0
+		if pairs > 0 {
+			seconds = session.PlaySeconds
+		}
 		if game.Status == "won" {
 			score = game.Difficulty
+			seconds = session.PlayedSeconds(common.GetTimestamp())
 		}
-		result = settleSkillSession(c, "连连看", rule, session, skillOutcome{Score: score, Seconds: min(session.PlayedSeconds(common.GetTimestamp()), game.Seconds), State: string(state), Detail: gin.H{"difficulty": game.Difficulty, "won": game.Status == "won", "pairs": game.Rows*game.Cols/2 - game.Remaining}})
+		result = settleSkillSession(c, "连连看", rule, session, skillOutcome{Score: score, Seconds: min(seconds, game.Seconds), State: string(state), Detail: gin.H{"difficulty": game.Difficulty, "won": game.Status == "won", "pairs": pairs}})
 		if result == nil {
 			return
 		}
