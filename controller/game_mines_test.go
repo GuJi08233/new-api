@@ -73,14 +73,14 @@ func TestMinesCashOutAndHitMine(t *testing.T) {
 
 	placeMinesAt(t, 0, 1, 2)
 	started := player.ok(http.MethodPost, "/api/game/mines/start", map[string]any{"bet": 10, "mines": 3})
-	assert.EqualValues(t, 90, started["balance"])
+	assert.Equal(t, 90.0, started["balance"])
 	round := roundOf(t, started)
 	assert.Equal(t, model.GameSessionStatusPlaying, round["status"])
 	assert.EqualValues(t, 0, round["version"])
 	assert.EqualValues(t, 3, round["mines"])
 	assert.Empty(t, round["revealed"])
-	assert.EqualValues(t, 0, round["cashout"], "还没翻开安全格，不能兑现")
-	assert.EqualValues(t, 10, round["next_cashout"], "10 × 96 × 25 / 2200 = 10.9")
+	assert.Equal(t, 0.0, round["cashout"], "还没翻开安全格，不能兑现")
+	assert.Equal(t, 10.90909, round["next_cashout"], "10 × 96 × 25 / 2200 = 10.9")
 	assert.NotContains(t, round, "mine_cells")
 	sessionId := round["session_id"]
 
@@ -88,26 +88,26 @@ func TestMinesCashOutAndHitMine(t *testing.T) {
 	round = roundOf(t, picked)
 	assert.EqualValues(t, 1, round["version"])
 	assert.EqualValues(t, []any{5.0}, round["revealed"])
-	assert.EqualValues(t, 10, round["cashout"])
-	assert.EqualValues(t, 12, round["next_cashout"], "10 × 96 × 300 / 23100 = 12.5")
+	assert.Equal(t, 10.90909, round["cashout"])
+	assert.Equal(t, 12.467532, round["next_cashout"], "10 × 96 × 300 / 23100 = 12.5")
 	assert.NotContains(t, round, "mine_cells")
 	picked = player.ok(http.MethodPost, "/api/game/mines/pick", roundRequest(t, picked, map[string]any{"index": 6}))
-	assert.EqualValues(t, 12, roundOf(t, picked)["cashout"])
+	assert.Equal(t, 12.467532, roundOf(t, picked)["cashout"])
 
 	cashed := player.ok(http.MethodPost, "/api/game/mines/cashout", roundRequest(t, picked, nil))
 	round = roundOf(t, cashed)
 	assert.Equal(t, model.GameSessionStatusFinished, round["status"])
-	assert.EqualValues(t, 12, round["win"])
-	assert.EqualValues(t, 2, round["net"])
+	assert.Equal(t, 12.467532, round["win"])
+	assert.Equal(t, 2.467532, round["net"])
 	assert.EqualValues(t, []any{0.0, 1.0, 2.0}, round["mine_cells"])
 	assert.NotContains(t, round, "exploded")
-	assert.EqualValues(t, 102, cashed["balance"])
-	assert.EqualValues(t, 2, cashed["net_today"])
+	assert.Equal(t, 102.467532, cashed["balance"])
+	assert.Equal(t, 2.467532, cashed["net_today"])
 	assert.EqualValues(t, 1, cashed["plays_today"])
 
 	assert.Nil(t, player.ok(http.MethodGet, "/api/game/mines/round", nil)["round"], "没有进行中的一局")
 	finished := roundOf(t, player.ok(http.MethodGet, fmt.Sprintf("/api/game/mines/round?session_id=%v", sessionId), nil))
-	assert.EqualValues(t, 12, finished["win"], "按编号查看结束的一局")
+	assert.Equal(t, 12.467532, finished["win"], "按编号查看结束的一局")
 	assert.EqualValues(t, []any{0.0, 1.0, 2.0}, finished["mine_cells"])
 
 	started = player.ok(http.MethodPost, "/api/game/mines/start", map[string]any{"bet": 10, "mines": 3})
@@ -115,19 +115,19 @@ func TestMinesCashOutAndHitMine(t *testing.T) {
 	lost := player.ok(http.MethodPost, "/api/game/mines/pick", roundRequest(t, picked, map[string]any{"index": 1}))
 	round = roundOf(t, lost)
 	assert.Equal(t, model.GameSessionStatusFinished, round["status"])
-	assert.EqualValues(t, 0, round["win"])
-	assert.EqualValues(t, -10, round["net"])
+	assert.Equal(t, 0.0, round["win"])
+	assert.Equal(t, -10.0, round["net"])
 	assert.EqualValues(t, 1, round["exploded"])
 	assert.EqualValues(t, []any{12.0}, round["revealed"])
 	assert.EqualValues(t, []any{0.0, 1.0, 2.0}, round["mine_cells"])
-	assert.EqualValues(t, 92, lost["balance"])
-	assert.EqualValues(t, -8, lost["net_today"])
+	assert.Equal(t, 92.467532, lost["balance"])
+	assert.Equal(t, -7.532468, lost["net_today"])
 	assert.EqualValues(t, 2, lost["plays_today"])
 
 	account, err := model.GetGameCoinAccount(player.user.Id)
 	require.NoError(t, err)
-	assert.Equal(t, 20, account.TotalWagered)
-	assert.Equal(t, -8, account.TotalWagerNet)
+	assert.Equal(t, 20.0, coinsOf(t, account.TotalWagered))
+	assert.Equal(t, -7.532468, coinsOf(t, account.TotalWagerNet))
 }
 
 // 翻开所有安全格、或派彩到了下注的 1000 倍时自动兑现；净赢达到 100 个游戏币的一局记大奖审计日志。
@@ -146,8 +146,8 @@ func TestMinesAutoCashout(t *testing.T) {
 	started := player.ok(http.MethodPost, "/api/game/mines/start", map[string]any{"bet": 2, "mines": 24})
 	cleared := player.ok(http.MethodPost, "/api/game/mines/pick", roundRequest(t, started, map[string]any{"index": 7}))
 	assert.Equal(t, model.GameSessionStatusFinished, roundOf(t, cleared)["status"])
-	assert.EqualValues(t, 48, roundOf(t, cleared)["win"])
-	assert.EqualValues(t, 146, cleared["balance"])
+	assert.Equal(t, 48.0, roundOf(t, cleared)["win"])
+	assert.Equal(t, 146.0, cleared["balance"])
 
 	// 20 个雷(第 0 到 19 格)：翻开 3 格可兑现 1104，第 4 格按公式 2428.8 倍，封顶 1000 倍自动兑现。
 	placeMinesAt(t, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19)
@@ -155,12 +155,12 @@ func TestMinesAutoCashout(t *testing.T) {
 	for _, cell := range []int{20, 21, 22} {
 		data = player.ok(http.MethodPost, "/api/game/mines/pick", roundRequest(t, data, map[string]any{"index": cell}))
 	}
-	assert.EqualValues(t, 1104, roundOf(t, data)["cashout"])
-	assert.EqualValues(t, 5000, roundOf(t, data)["next_cashout"])
+	assert.Equal(t, 1104.0, roundOf(t, data)["cashout"])
+	assert.Equal(t, 5000.0, roundOf(t, data)["next_cashout"])
 	capped := player.ok(http.MethodPost, "/api/game/mines/pick", roundRequest(t, data, map[string]any{"index": 23}))
 	assert.Equal(t, model.GameSessionStatusFinished, roundOf(t, capped)["status"])
-	assert.EqualValues(t, 5000, roundOf(t, capped)["win"])
-	assert.EqualValues(t, 146-5+5000, capped["balance"])
+	assert.Equal(t, 5000.0, roundOf(t, capped)["win"])
+	assert.Equal(t, float64(146-5+5000), capped["balance"])
 
 	var bigWinLogs int64
 	require.NoError(t, env.db.Model(&model.Log{}).Where("user_id = ? AND type = ? AND content LIKE ?", player.user.Id, model.LogTypeSystem, "游戏大奖%").Count(&bigWinLogs).Error)
@@ -180,12 +180,12 @@ func TestMinesRejectsInvalidRequests(t *testing.T) {
 	for _, body := range []map[string]any{{"bet": 0, "mines": 3}, {"bet": 101, "mines": 3}} {
 		player.fails(http.MethodPost, "/api/game/mines/start", body)
 	}
-	assert.Equal(t, 100, player.balance())
+	assert.Equal(t, 100.0, player.balance())
 
 	placeMinesAt(t, 0, 1, 2)
 	started := player.ok(http.MethodPost, "/api/game/mines/start", map[string]any{"bet": 10, "mines": 3})
 	assert.Equal(t, gameMessage(i18n.MsgGameRoundOpen), player.fails(http.MethodPost, "/api/game/mines/start", map[string]any{"bet": 10, "mines": 3}))
-	assert.Equal(t, 90, player.balance(), "第二局没有开成，只扣了一次")
+	assert.Equal(t, 90.0, player.balance(), "第二局没有开成，只扣了一次")
 	assert.Equal(t, gameMessage(i18n.MsgGameMoveInvalid), player.fails(http.MethodPost, "/api/game/mines/cashout", roundRequest(t, started, nil)))
 
 	picked := player.ok(http.MethodPost, "/api/game/mines/pick", roundRequest(t, started, map[string]any{"index": 5}))
@@ -220,6 +220,6 @@ func TestMinesRoundResumableAfterDisabled(t *testing.T) {
 	current := player.ok(http.MethodGet, "/api/game/mines/round", nil)
 	picked := player.ok(http.MethodPost, "/api/game/mines/pick", roundRequest(t, current, map[string]any{"index": 9}))
 	cashed := player.ok(http.MethodPost, "/api/game/mines/cashout", roundRequest(t, picked, nil))
-	assert.EqualValues(t, 100, cashed["balance"], "翻开一格兑现 10 个")
+	assert.Equal(t, 100.90909, cashed["balance"], "翻开一格兑现 10.90909 个")
 	assert.Equal(t, gameMessage(i18n.MsgGamePlayDisabled), player.fails(http.MethodGet, "/api/game/mines", nil))
 }

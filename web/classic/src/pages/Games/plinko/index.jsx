@@ -27,7 +27,7 @@ import {
 import { ArrowLeft } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { API, showError } from '../../../helpers';
-import { signed } from '../common/api';
+import { formatCoins, signed } from '../common/api';
 import '../games.css';
 import './plinko.css';
 
@@ -77,12 +77,8 @@ const slotTop = (rows) => pegY(rows - 1) + SLOT_OFFSET;
 const slotColor = (slot, rows) =>
   SLOT_COLORS[Math.min(Math.abs(slot - rows / 2), SLOT_COLORS.length - 1)];
 
-// 1 币档的格子写加减多少个游戏币，倍率档写派彩是投入的几倍。
+// 格子上写派彩是投入的几倍，三档用同一张倍率表。
 function payoutLabel(tier, payout) {
-  if (tier.delta) {
-    const net = payout - tier.cost;
-    return net > 0 ? `+${net}` : `${net}`;
-  }
   return `${Number((payout / tier.stake).toFixed(2))}×`;
 }
 
@@ -466,17 +462,11 @@ const Plinko = () => {
     messageClass = 'is-error';
   } else if (result) {
     const net = result.win - outcome.tier.cost;
-    if (!outcome.tier.delta) {
-      message = t('{{multiplier}} 倍，派彩 {{payout}} {{symbol}}', {
-        multiplier: Number((result.win / outcome.tier.stake).toFixed(2)),
-        payout: result.win,
-        symbol,
-      });
-    } else if (net > 0) {
-      message = t('赢得 {{win}} {{symbol}}', { win: net, symbol });
-    } else {
-      message = t('输掉 {{loss}} {{symbol}}', { loss: -net, symbol });
-    }
+    message = t('{{multiplier}} 倍，派彩 {{payout}} {{symbol}}', {
+      multiplier: Number((result.win / outcome.tier.stake).toFixed(2)),
+      payout: formatCoins(result.win),
+      symbol,
+    });
     if (net > 0) {
       messageClass =
         result.win >= BIG_WIN_MULTIPLIER * outcome.tier.cost
@@ -492,16 +482,10 @@ const Plinko = () => {
   if (!tier.open) {
     hint = t('这一档暂未开放');
   } else if (balance < tier.cost) {
-    hint = tier.delta
-      ? t('一颗球最多扣 {{cost}} 个游戏币，余额至少要有 {{cost}} {{symbol}}', {
-          cost: tier.cost,
-          symbol,
-        })
-      : t('游戏币余额不足');
+    hint = t('游戏币余额不足');
   }
 
   const earned = signed(rule.net_today);
-  const averageLoss = Number((tier.cost * (1 - tier.payback)).toFixed(2));
 
   return (
     <div className='games-page'>
@@ -538,11 +522,7 @@ const Plinko = () => {
                     {item.stake} {symbol}
                   </span>
                   <span className='plinko-tier-note'>
-                    {item.open
-                      ? item.delta
-                        ? t('直接加减')
-                        : t('按倍数派彩')
-                      : t('未开放')}
+                    {item.open ? t('按倍数派彩') : t('未开放')}
                   </span>
                 </button>
               ))}
@@ -635,9 +615,7 @@ const Plinko = () => {
                 disabled={!canDrop}
                 onClick={drop}
               >
-                {tier.delta
-                  ? t('投一颗球')
-                  : t('投 {{stake}} {{symbol}}', { stake: tier.stake, symbol })}
+                {t('投 {{stake}} {{symbol}}', { stake: tier.stake, symbol })}
               </button>
               <div className='games-stage-counter'>
                 {t('今日已投 {{plays}} 颗', { plays: rule.plays_today || 0 })}
@@ -650,7 +628,7 @@ const Plinko = () => {
             <div className='plinko-box'>
               <div className='plinko-box-label'>{t('游戏币余额')}</div>
               <div className='plinko-box-value'>
-                {shownBalance}
+                {formatCoins(shownBalance)}
                 <span>{symbol}</span>
               </div>
             </div>
@@ -662,7 +640,7 @@ const Plinko = () => {
               </div>
               <div className='plinko-box-note'>
                 {t('三档合计 · 单局最高派彩 {{best}}', {
-                  best: rule.best_win || 0,
+                  best: formatCoins(rule.best_win),
                 })}
               </div>
               {history.length > 0 && (
@@ -689,7 +667,7 @@ const Plinko = () => {
               <table className='plinko-odds'>
                 <thead>
                   <tr>
-                    <th>{tier.delta ? t('加减') : t('倍数')}</th>
+                    <th>{t('倍数')}</th>
                     <th>{t('派彩')}</th>
                     <th>{t('概率')}</th>
                   </tr>
@@ -707,7 +685,7 @@ const Plinko = () => {
                         {payoutLabel(tier, item.payout)}
                       </td>
                       <td>
-                        {item.payout} {symbol}
+                        {formatCoins(item.payout)} {symbol}
                       </td>
                       <td>{formatPercent(item.weight, totalWeight)}</td>
                     </tr>
@@ -721,25 +699,13 @@ const Plinko = () => {
                     { rows },
                   )}
                 </li>
-                {tier.delta ? (
-                  <li>
-                    {t(
-                      '格子上的数直接加到余额上，负数就是扣掉，一颗球最多扣 {{cost}} 个',
-                      { cost: tier.cost },
-                    )}
-                  </li>
-                ) : (
-                  <li>{t('派彩 = 投入 × 格子上的倍数，含投入本身')}</li>
-                )}
                 <li>
-                  {tier.delta
-                    ? t('平均每颗球输 {{loss}} {{symbol}}', {
-                        loss: averageLoss,
-                        symbol,
-                      })
-                    : t('理论返还率 {{rate}}%', {
-                        rate: Number((tier.payback * 100).toFixed(2)),
-                      })}
+                  {t('派彩 = 投入 × 格子上的倍数，含投入本身，可以有小数')}
+                </li>
+                <li>
+                  {t('理论返还率 {{rate}}%', {
+                    rate: Number((tier.payback * 100).toFixed(2)),
+                  })}
                 </li>
                 <li>{t('不限次数，余额够就能一直投')}</li>
               </ul>

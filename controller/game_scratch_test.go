@@ -72,20 +72,20 @@ func TestBuyScratchPaysTheTicketPrize(t *testing.T) {
 		}
 		result := player.ok(http.MethodPost, "/api/game/scratch/buy", map[string]any{"price": c.price})
 		assert.EqualValues(t, c.price, result["price"], "case %d price", i)
-		assert.EqualValues(t, c.price, result["bet"], "case %d bet", i)
+		assert.Equal(t, float64(c.price), result["bet"], "case %d bet", i)
 		cells := result["cells"].([]any)
 		require.Len(t, cells, scratch.CellCount, "case %d cells", i)
 		for cell, want := range c.wantCells {
 			assert.EqualValues(t, want, cells[cell], "case %d cell %d", i, cell)
 		}
-		assert.EqualValues(t, c.wantWin, result["prize"], "case %d prize", i)
-		assert.EqualValues(t, c.wantWin, result["win"], "case %d win", i)
-		assert.EqualValues(t, c.wantBalance, result["balance"], "case %d balance", i)
+		assert.Equal(t, float64(c.wantWin), result["prize"], "case %d prize", i)
+		assert.Equal(t, float64(c.wantWin), result["win"], "case %d win", i)
+		assert.Equal(t, float64(c.wantBalance), result["balance"], "case %d balance", i)
 	}
 	account, err := model.GetGameCoinAccount(player.user.Id)
 	require.NoError(t, err)
-	assert.Equal(t, 11, account.TotalWagered)
-	assert.Equal(t, 499, account.TotalWagerNet)
+	assert.Equal(t, 11.0, coinsOf(t, account.TotalWagered))
+	assert.Equal(t, 499.0, coinsOf(t, account.TotalWagerNet))
 	var bigWinLogs int64
 	require.NoError(t, env.db.Model(&model.Log{}).Where("user_id = ? AND type = ? AND content LIKE ?", player.user.Id, model.LogTypeSystem, "游戏大奖%").Count(&bigWinLogs).Error)
 	assert.EqualValues(t, 1, bigWinLogs, "只有 100 倍那一张是大奖")
@@ -107,7 +107,7 @@ func TestBuyScratchRejectsWithoutCharging(t *testing.T) {
 	player.fails(http.MethodPost, "/api/game/scratch/buy", map[string]any{"price": 1})
 	player.fails(http.MethodGet, "/api/game/scratch", nil)
 
-	assert.Equal(t, 3, player.balance())
+	assert.Equal(t, 3.0, player.balance())
 	var sessions int64
 	require.NoError(t, env.db.Model(&model.GameSession{}).Where("user_id = ?", player.user.Id).Count(&sessions).Error)
 	assert.Zero(t, sessions)

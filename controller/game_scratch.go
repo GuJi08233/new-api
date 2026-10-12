@@ -74,19 +74,20 @@ func BuyScratch(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
-	if !validWagerStep(c, req.Price, operation_setting.GameBetSteps(gameScratch), rule.MaxBet) {
+	bet, ok := validWagerStep(c, req.Price, operation_setting.GameBetSteps(gameScratch), rule.MaxBet)
+	if !ok {
 		return
 	}
 	var ticket scratch.Ticket
 	result, err := model.SettleGameWager(c.GetInt("id"), gameScratch, model.GameWager{
-		Bet: req.Price,
-		Play: func() (int, string, error) {
+		Bet: bet,
+		Play: func() (model.GameCoins, string, error) {
 			var err error
 			if ticket, err = buyScratch(); err != nil {
 				return 0, "", err
 			}
 			detail, err := common.Marshal(scratchDetail{Price: req.Price, Multiple: ticket.Multiple, Cells: ticket.Cells})
-			return req.Price * ticket.Multiple, string(detail), err
+			return bet * model.GameCoins(ticket.Multiple), string(detail), err
 		},
 		Day: gameCenterDay(),
 		Ip:  gameRewardIpKey(c.ClientIP()),

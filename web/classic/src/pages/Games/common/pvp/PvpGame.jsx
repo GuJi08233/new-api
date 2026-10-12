@@ -40,7 +40,7 @@ import { copy, showSuccess, timestamp2string } from '../../../../helpers';
 import { getGameLevelNames } from '../../../../constants';
 import GameLayout from '../GameLayout';
 import { RuleList, SideBox, StageMessage } from '../SideBox';
-import { gameGet, gamePost, withTurnstile } from '../api';
+import { formatCoins, gameGet, gamePost, withTurnstile } from '../api';
 import {
   formatDuration,
   playTimeNote,
@@ -193,11 +193,11 @@ export const RoomEntryModal = ({
           <Text>
             {creating
               ? t('开房时将预扣 {{amount}} {{symbol}}', {
-                  amount: escrow,
+                  amount: formatCoins(escrow),
                   symbol,
                 })
               : t('加入时将扣除 {{amount}} {{symbol}}', {
-                  amount: escrow,
+                  amount: formatCoins(escrow),
                   symbol,
                 })}
           </Text>
@@ -299,7 +299,7 @@ const Lobby = ({
               value={stake}
               min={0}
               max={rule.max_stake}
-              precision={0}
+              precision={2}
               suffix={symbol}
               style={{ width: 140 }}
               onChange={(value) =>
@@ -503,12 +503,12 @@ const RoomView = ({
         message = t('你赢了！');
       } else if (table) {
         message = t('你赢了！净赢 {{net}} {{symbol}}', {
-          net: me.net,
+          net: formatCoins(me.net),
           symbol,
         });
       } else {
         message = t('你赢了！获得 {{win}} {{symbol}}', {
-          win: room.escrow + me.net,
+          win: formatCoins(room.escrow + me.net),
           symbol,
         });
       }
@@ -516,7 +516,10 @@ const RoomView = ({
       kind = 'loss';
       message =
         table && room.stake > 0
-          ? t('你输了，输掉 {{loss}} {{symbol}}', { loss: -me.net, symbol })
+          ? t('你输了，输掉 {{loss}} {{symbol}}', {
+              loss: formatCoins(-me.net),
+              symbol,
+            })
           : t('你输了');
     }
     if (room.end_reason === 'timeout') {
@@ -566,7 +569,7 @@ const RoomView = ({
             ? t('底注 {{stake}} {{symbol}}', { stake: room.stake, symbol })
             : t('押注 {{stake}} {{symbol}} · 奖池 {{pot}}', {
                 stake: room.stake,
-                pot,
+                pot: formatCoins(pot),
                 symbol,
               })}
         {' · '}
@@ -776,11 +779,11 @@ const PvpSide = ({ info, rules, randomFirst }) => {
             rule.max_stake > 0
               ? table
                 ? t(
-                    '入座时按最多可能输掉的游戏币预扣，结算后退回没输掉的部分；平台从赢家的净赢抽取 {{rake}}%（向下取整）',
+                    '入座时按最多可能输掉的游戏币预扣，结算后退回没输掉的部分；平台从赢家的净赢抽取 {{rake}}%',
                     { rake: rule.rake_percent },
                   )
                 : t(
-                    '双方押同样多的游戏币，赢家拿走奖池，平台抽取 {{rake}}%（向下取整）；平局退回押注',
+                    '双方押同样多的游戏币，赢家拿走奖池，平台抽取 {{rake}}%；平局退回押注',
                     { rake: rule.rake_percent },
                   )
               : t('只能开友谊赛，不押注'),

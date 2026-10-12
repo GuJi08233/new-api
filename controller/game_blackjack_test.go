@@ -45,14 +45,15 @@ func TestBlackjackHitStandAndNaturals(t *testing.T) {
 	env, _ := newWagerRoundEnv(t, blackjackSetting)
 	player := env.player(100, gameTestIpA)
 	info := player.ok(http.MethodGet, "/api/game/blackjack", nil)
-	assert.EqualValues(t, 2, info["min_bet"])
+	assert.Equal(t, 0.01, info["min_bet"])
+	assert.EqualValues(t, 2, info["bet_decimals"])
 	assert.EqualValues(t, 6, info["decks"])
 	assert.EqualValues(t, 2.5, info["payouts"].(map[string]any)["blackjack"])
 
 	// 10、5 对庄家 6、10：要到 4 共 19 点停牌，庄家 16 点补 8 爆牌。
 	stackBlackjackShoe(t, 10, 6, 5, 10, 4, 8)
 	dealt := player.ok(http.MethodPost, "/api/game/blackjack/deal", map[string]any{"bet": 10})
-	assert.EqualValues(t, 90, dealt["balance"])
+	assert.Equal(t, 90.0, dealt["balance"])
 	round := roundOf(t, dealt)
 	assert.Equal(t, model.GameSessionStatusPlaying, round["status"])
 	hand := handOf(t, round, 0)
@@ -76,38 +77,38 @@ func TestBlackjackHitStandAndNaturals(t *testing.T) {
 	stood := player.ok(http.MethodPost, "/api/game/blackjack/action", roundRequest(t, hit, map[string]any{"action": blackjack.ActionStand}))
 	round = roundOf(t, stood)
 	assert.Equal(t, model.GameSessionStatusFinished, round["status"])
-	assert.EqualValues(t, 20, round["win"])
-	assert.EqualValues(t, 10, round["net"])
+	assert.Equal(t, 20.0, round["win"])
+	assert.Equal(t, 10.0, round["net"])
 	dealer = round["dealer"].(map[string]any)
 	assert.Len(t, dealer["cards"], 3)
 	assert.EqualValues(t, 24, dealer["total"])
 	assert.Equal(t, false, dealer["hidden"])
 	assert.Equal(t, blackjack.OutcomeWin, handOf(t, round, 0)["result"])
-	assert.EqualValues(t, 20, handOf(t, round, 0)["payout"])
+	assert.Equal(t, 20.0, handOf(t, round, 0)["payout"])
 	assert.EqualValues(t, -1, round["current"])
 	assert.Empty(t, round["actions"])
-	assert.EqualValues(t, 110, stood["balance"])
+	assert.Equal(t, 110.0, stood["balance"])
 
 	// 玩家黑杰克：发完牌就结算，派彩 2.5 倍。
 	stackBlackjackShoe(t, 1, 9, 13, 7)
 	natural := player.ok(http.MethodPost, "/api/game/blackjack/deal", map[string]any{"bet": 10})
 	round = roundOf(t, natural)
 	assert.Equal(t, model.GameSessionStatusFinished, round["status"])
-	assert.EqualValues(t, 25, round["win"])
+	assert.Equal(t, 25.0, round["win"])
 	assert.Equal(t, blackjack.HandBlackjack, handOf(t, round, 0)["status"])
 	assert.Equal(t, blackjack.OutcomeBlackjack, handOf(t, round, 0)["result"])
-	assert.EqualValues(t, 125, natural["balance"])
+	assert.Equal(t, 125.0, natural["balance"])
 
 	// 庄家明牌 A、暗牌 K：偷看出黑杰克，玩家直接输。
 	stackBlackjackShoe(t, 10, 1, 9, 13)
 	dealerNatural := player.ok(http.MethodPost, "/api/game/blackjack/deal", map[string]any{"bet": 10})
 	round = roundOf(t, dealerNatural)
 	assert.Equal(t, model.GameSessionStatusFinished, round["status"])
-	assert.EqualValues(t, 0, round["win"])
+	assert.Equal(t, 0.0, round["win"])
 	assert.Equal(t, true, round["peeked"])
 	assert.Len(t, round["dealer"].(map[string]any)["cards"], 2)
-	assert.EqualValues(t, 115, dealerNatural["balance"])
-	assert.EqualValues(t, 15, dealerNatural["net_today"])
+	assert.Equal(t, 115.0, dealerNatural["balance"])
+	assert.Equal(t, 15.0, dealerNatural["net_today"])
 	assert.EqualValues(t, 3, dealerNatural["plays_today"])
 }
 
@@ -123,41 +124,41 @@ func TestBlackjackDoubleAndSplitChargeTheExtraBet(t *testing.T) {
 	doubled := player.ok(http.MethodPost, "/api/game/blackjack/action", roundRequest(t, dealt, map[string]any{"action": blackjack.ActionDouble}))
 	round := roundOf(t, doubled)
 	assert.Equal(t, model.GameSessionStatusFinished, round["status"])
-	assert.EqualValues(t, 20, round["bet"])
-	assert.EqualValues(t, 40, round["win"])
-	assert.EqualValues(t, 20, round["net"])
+	assert.Equal(t, 20.0, round["bet"])
+	assert.Equal(t, 40.0, round["win"])
+	assert.Equal(t, 20.0, round["net"])
 	assert.Equal(t, true, handOf(t, round, 0)["doubled"])
-	assert.EqualValues(t, 120, doubled["balance"])
+	assert.Equal(t, 120.0, doubled["balance"])
 
 	// 8、8 对庄家 6、10：分成 8、3 与 8、10；第一手加倍补到 9 共 20 点，第二手 18 点停牌；庄家 16 点补 7 爆牌，两手都赢。
 	stackBlackjackShoe(t, 8, 6, 8, 10, 3, 10, 9, 7)
 	dealt = player.ok(http.MethodPost, "/api/game/blackjack/deal", map[string]any{"bet": 10})
 	assert.Contains(t, roundOf(t, dealt)["actions"], blackjack.ActionSplit)
 	split := player.ok(http.MethodPost, "/api/game/blackjack/action", roundRequest(t, dealt, map[string]any{"action": blackjack.ActionSplit}))
-	assert.EqualValues(t, 100, split["balance"], "分牌追加 10 个")
+	assert.Equal(t, 100.0, split["balance"], "分牌追加 10 个")
 	round = roundOf(t, split)
-	assert.EqualValues(t, 20, round["bet"])
+	assert.Equal(t, 20.0, round["bet"])
 	assert.Len(t, round["hands"], 2)
 	assert.EqualValues(t, 0, round["current"])
 	assert.Equal(t, blackjack.HandWaiting, handOf(t, round, 1)["status"])
 	doubled = player.ok(http.MethodPost, "/api/game/blackjack/action", roundRequest(t, split, map[string]any{"action": blackjack.ActionDouble}))
-	assert.EqualValues(t, 90, doubled["balance"], "第一手加倍追加 10 个")
+	assert.Equal(t, 90.0, doubled["balance"], "第一手加倍追加 10 个")
 	round = roundOf(t, doubled)
 	assert.EqualValues(t, 1, round["current"])
-	assert.EqualValues(t, 30, round["bet"])
+	assert.Equal(t, 30.0, round["bet"])
 	stood := player.ok(http.MethodPost, "/api/game/blackjack/action", roundRequest(t, doubled, map[string]any{"action": blackjack.ActionStand}))
 	round = roundOf(t, stood)
 	assert.Equal(t, model.GameSessionStatusFinished, round["status"])
-	assert.EqualValues(t, 60, round["win"])
-	assert.EqualValues(t, 30, round["net"])
-	assert.EqualValues(t, 40, handOf(t, round, 0)["payout"])
-	assert.EqualValues(t, 20, handOf(t, round, 1)["payout"])
-	assert.EqualValues(t, 150, stood["balance"])
+	assert.Equal(t, 60.0, round["win"])
+	assert.Equal(t, 30.0, round["net"])
+	assert.Equal(t, 40.0, handOf(t, round, 0)["payout"])
+	assert.Equal(t, 20.0, handOf(t, round, 1)["payout"])
+	assert.Equal(t, 150.0, stood["balance"])
 
 	account, err := model.GetGameCoinAccount(player.user.Id)
 	require.NoError(t, err)
-	assert.Equal(t, 50, account.TotalWagered)
-	assert.Equal(t, 50, account.TotalWagerNet)
+	assert.Equal(t, 50.0, coinsOf(t, account.TotalWagered))
+	assert.Equal(t, 50.0, coinsOf(t, account.TotalWagerNet))
 
 	// 余额正好够下注：加倍拒绝，什么都不变，玩家照样停牌。
 	poor := env.player(10, gameTestIpB)
@@ -166,22 +167,21 @@ func TestBlackjackDoubleAndSplitChargeTheExtraBet(t *testing.T) {
 	assert.Equal(t, gameMessage(i18n.MsgGameCoinInsufficient), poor.fails(http.MethodPost, "/api/game/blackjack/action", roundRequest(t, dealt, map[string]any{"action": blackjack.ActionDouble})))
 	current := roundOf(t, poor.ok(http.MethodGet, "/api/game/blackjack/round", nil))
 	assert.EqualValues(t, 0, current["version"])
-	assert.EqualValues(t, 10, current["bet"])
+	assert.Equal(t, 10.0, current["bet"])
 	assert.Len(t, handOf(t, current, 0)["cards"], 2)
 	stood = poor.ok(http.MethodPost, "/api/game/blackjack/action", roundRequest(t, dealt, map[string]any{"action": blackjack.ActionStand}))
-	assert.EqualValues(t, 0, roundOf(t, stood)["win"], "11 点对 17 点输了")
-	assert.EqualValues(t, 0, stood["balance"])
+	assert.Equal(t, 0.0, roundOf(t, stood)["win"], "11 点对 17 点输了")
+	assert.Equal(t, 0.0, stood["balance"])
 }
 
-// 下注必须是偶数；同一时间只能有一局；不合规则的操作与过时的版本都拒绝，不改动这一局。
+// 下注最少 0.01 个币、最多两位小数；同一时间只能有一局；不合规则的操作与过时的版本都拒绝，不改动这一局。
 func TestBlackjackRejectsInvalidRequests(t *testing.T) {
 	env, _ := newWagerRoundEnv(t, blackjackSetting)
 	player := env.player(100, gameTestIpA)
-	assert.Equal(t, gameMessage(i18n.MsgGameBetEven), player.fails(http.MethodPost, "/api/game/blackjack/deal", map[string]any{"bet": 3}))
-	for _, bet := range []int{0, 1, 102} {
+	for _, bet := range []any{0, 0.001, 1.005, 102, "x"} {
 		player.fails(http.MethodPost, "/api/game/blackjack/deal", map[string]any{"bet": bet})
 	}
-	assert.Equal(t, 100, player.balance())
+	assert.Equal(t, 100.0, player.balance())
 
 	// 5、4 对庄家 6、10：不是对子不能分牌；要到 2 共 11 点，还没结束。
 	stackBlackjackShoe(t, 5, 6, 4, 10, 2)
@@ -195,26 +195,28 @@ func TestBlackjackRejectsInvalidRequests(t *testing.T) {
 	current := roundOf(t, player.ok(http.MethodGet, "/api/game/blackjack/round", nil))
 	assert.EqualValues(t, roundOf(t, hit)["version"], current["version"])
 	assert.Equal(t, model.GameSessionStatusPlaying, current["status"])
-	assert.Equal(t, 90, player.balance())
+	assert.Equal(t, 90.0, player.balance())
 }
 
 // 发牌即是黑杰克的一局要记两次账(扣注与派彩)：派彩没写进去时这一局已经结束却还在进行中，查看对局时补上结算。
 func TestBlackjackSettlesFinishedButUnpaidRound(t *testing.T) {
 	env, _ := newWagerRoundEnv(t, blackjackSetting)
 	player := env.player(100, gameTestIpA)
-	game, err := blackjack.Deal([]int{0, 8, 12, 6}, 10) // 玩家 A、K 对庄家 9、7：黑杰克
+	bet, err := model.WholeGameCoins(10)
+	require.NoError(t, err)
+	game, err := blackjack.Deal([]int{0, 8, 12, 6}, int(bet)) // 玩家 A、K 对庄家 9、7：黑杰克
 	require.NoError(t, err)
 	require.True(t, game.Over)
 	state, err := common.Marshal(game)
 	require.NoError(t, err)
-	_, _, err = model.OpenGameRound(player.user.Id, gameBlackjack, model.GameRound{Bet: 10, State: string(state), Ip: gameTestIpA})
+	_, _, err = model.OpenGameRound(player.user.Id, gameBlackjack, model.GameRound{Bet: bet, State: string(state), Ip: gameTestIpA})
 	require.NoError(t, err)
-	assert.Equal(t, 90, player.balance())
+	assert.Equal(t, 90.0, player.balance())
 
 	repaired := player.ok(http.MethodGet, "/api/game/blackjack/round", nil)
 	assert.Equal(t, model.GameSessionStatusFinished, roundOf(t, repaired)["status"])
-	assert.EqualValues(t, 25, roundOf(t, repaired)["win"])
-	assert.EqualValues(t, 115, repaired["balance"])
+	assert.Equal(t, 25.0, roundOf(t, repaired)["win"])
+	assert.Equal(t, 115.0, repaired["balance"])
 	assert.Nil(t, player.ok(http.MethodGet, "/api/game/blackjack/round", nil)["round"])
 }
 
@@ -231,7 +233,7 @@ func TestBlackjackRoundResumableAfterDisabled(t *testing.T) {
 	assert.Equal(t, false, player.ok(http.MethodGet, "/api/game/blackjack", nil)["enabled"])
 	current := player.ok(http.MethodGet, "/api/game/blackjack/round", nil)
 	stood := player.ok(http.MethodPost, "/api/game/blackjack/action", roundRequest(t, current, map[string]any{"action": blackjack.ActionStand}))
-	assert.EqualValues(t, 20, roundOf(t, stood)["win"])
-	assert.EqualValues(t, 110, stood["balance"])
+	assert.Equal(t, 20.0, roundOf(t, stood)["win"])
+	assert.Equal(t, 110.0, stood["balance"])
 	assert.Equal(t, gameMessage(i18n.MsgGamePlayDisabled), player.fails(http.MethodGet, "/api/game/blackjack", nil))
 }

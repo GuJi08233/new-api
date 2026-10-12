@@ -46,6 +46,8 @@ const { Text } = Typography;
 const MAX_DAILY_REWARDS = 100;
 const MAX_REWARD_TIERS = 6;
 const MAX_TIER_COINS = 100;
+// 奖励档位最少 0.01 个游戏币，最多两位小数。
+const MIN_TIER_COINS = 0.01;
 const MAX_SECONDS_PER_COIN = 3600;
 const MIN_RTP = 50;
 const MAX_RTP = 99;
@@ -105,7 +107,7 @@ function SkillRuleFields({
     const next = last
       ? {
           score: levelNames ? last.score + 1 : last.score * 2,
-          coins: last.coins + 1,
+          coins: Math.min(last.coins + 1, MAX_TIER_COINS),
         }
       : { score: 1, coins: 1 };
     if (scoreLimit) next.score = Math.min(next.score, scoreLimit);
@@ -163,9 +165,9 @@ function SkillRuleFields({
               )}
               <InputNumber
                 value={tier.coins}
-                min={1}
+                min={MIN_TIER_COINS}
                 max={MAX_TIER_COINS}
-                precision={0}
+                precision={2}
                 prefix={t('奖励')}
                 suffix={symbol}
                 style={{ width: 160 }}

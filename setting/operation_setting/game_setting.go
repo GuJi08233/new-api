@@ -12,6 +12,8 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/setting/config"
+
+	"github.com/shopspring/decimal"
 )
 
 // GameSetting 是游戏中心的全部可配置项。游戏币按 1 币 = 1 美元额度兑换主钱包，
@@ -82,11 +84,11 @@ type GameSetting struct {
 	Jackpot JackpotRule `json:"jackpot"`
 }
 
-// RewardTier 是免费游戏的一档奖励：单局成绩达到 Score 奖励 Coins 个游戏币。成绩的含义由各游戏决定，
+// RewardTier 是免费游戏的一档奖励：单局成绩达到 Score 奖励 Coins 个游戏币，Coins 可以有两位小数。成绩的含义由各游戏决定，
 // 例如俄罗斯方块是分数，扫雷、人机对战是赢下的难度(1、2、3)。
 type RewardTier struct {
-	Score int `json:"score"`
-	Coins int `json:"coins"`
+	Score int     `json:"score"`
+	Coins float64 `json:"coins"`
 }
 
 // SkillRule 是免费游戏的开关与奖励规则。玩家每天想玩多少局都可以，但只有成绩达到某一档的对局才发奖，发的是达到的最高一档；
@@ -104,8 +106,8 @@ type SkillRule struct {
 }
 
 // Reward 返回单局成绩应得的游戏币：达到的最高一档的奖励，一档都没达到时为 0。还没按游戏时长与每日次数扣减。
-func (r SkillRule) Reward(score int) int {
-	coins := 0
+func (r SkillRule) Reward(score int) float64 {
+	coins := 0.0
 	for _, tier := range r.Tiers {
 		if score >= tier.Score {
 			coins = tier.Coins
@@ -115,7 +117,7 @@ func (r SkillRule) Reward(score int) int {
 }
 
 // MaxReward 返回单局最多能领的游戏币，即最高一档的奖励。
-func (r SkillRule) MaxReward() int {
+func (r SkillRule) MaxReward() float64 {
 	if len(r.Tiers) == 0 {
 		return 0
 	}
@@ -184,10 +186,11 @@ const (
 	GameMaxConfirmations    = 64
 	// 每个游戏币要求的累计时长最多一小时，再长就几乎没人拿得到奖励了。
 	GameMaxSecondsPerCoin = 3600
-	// 免费游戏每天最多的领奖次数、奖励档数与单档奖励。
+	// 免费游戏每天最多的领奖次数、奖励档数与单档奖励。单档奖励最少 0.01 个游戏币，最多两位小数。
 	GameMaxDailyRewards = 100
 	GameMaxRewardTiers  = 6
 	GameMaxTierCoins    = 100
+	GameMinTierCoins    = 0.01
 	// 按公式计算赔率的下注游戏，理论返还率可以配置的范围(百分比)。必须低于 100，下注游戏不能成为提款机。
 	GameMinRtpPercent = 50
 	GameMaxRtpPercent = 99
@@ -249,7 +252,7 @@ var gameRuleSpecs = map[string]gameRuleSpec{
 	"plinko":    {Kind: GameKindWager, BetSteps: []int{1, 10, 100}},
 	"dice":      {Kind: GameKindWager, MinBet: 1, MaxBet: 1000, Rtp: true},
 	"roulette":  {Kind: GameKindWager, MinBet: 1, MaxBet: 1000},
-	"blackjack": {Kind: GameKindWager, MinBet: 2, MaxBet: 1000},
+	"blackjack": {Kind: GameKindWager, MinBet: 1, MaxBet: 1000},
 	"mines":     {Kind: GameKindWager, MinBet: 1, MaxBet: 1000, Rtp: true},
 	"hilo":      {Kind: GameKindWager, MinBet: 1, MaxBet: 1000, Rtp: true},
 	"crash":     {Kind: GameKindWager, MinBet: 1, MaxBet: 1000, Rtp: true},
@@ -450,8 +453,9 @@ func validateSkillRule(name string, rule SkillRule, maxScore int) error {
 		if tier.Score < 1 || tier.Score > maxScore {
 			return fmt.Errorf("%s 第 %d 档的成绩必须为 1 到 %d", name, i+1, maxScore)
 		}
-		if tier.Coins < 1 || tier.Coins > GameMaxTierCoins {
-			return fmt.Errorf("%s 第 %d 档的奖励必须为 1 到 %d 个游戏币", name, i+1, GameMaxTierCoins)
+		coins := decimal.NewFromFloat(tier.Coins)
+		if tier.Coins < GameMinTierCoins || tier.Coins > GameMaxTierCoins || !coins.Equal(coins.Truncate(2)) {
+			return fmt.Errorf("%s 第 %d 档的奖励必须为 %v 到 %d 个游戏币，最多两位小数", name, i+1, GameMinTierCoins, GameMaxTierCoins)
 		}
 		if i > 0 && (tier.Score <= rule.Tiers[i-1].Score || tier.Coins < rule.Tiers[i-1].Coins) {
 			return fmt.Errorf("%s 的奖励档位要按成绩从低到高排列，奖励不能比前一档少", name)

@@ -27,18 +27,22 @@ import (
 const gameZeroAddress = "0x0000000000000000000000000000000000000000"
 
 type gameCoinConvertRequest struct {
-	Amount int `json:"amount"`
+	Amount model.GameCoins `json:"amount"`
 }
 
+// gameCoinWithdrawRequest 是一笔链上提现，发往绑定的提现地址，Amount 必须是整数个游戏币。
 type gameCoinWithdrawRequest struct {
+	Amount model.GameCoins `json:"amount"`
+}
+
+type gameWithdrawAddressRequest struct {
 	Address string `json:"address"`
-	Amount  int    `json:"amount"`
 }
 
 type gameCoinAdjustRequest struct {
-	UserId int    `json:"user_id"`
-	Amount int    `json:"amount"`
-	Remark string `json:"remark"`
+	UserId int             `json:"user_id"`
+	Amount model.GameCoins `json:"amount"`
+	Remark string          `json:"remark"`
 }
 
 type gameHotWalletRequest struct {
@@ -110,7 +114,12 @@ func GetGameCenterSelf(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	quotaPerCoin, err := model.GameCoinQuota(1)
+	quotaPerCoin, err := model.GameCoinUnit()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	convertCap, err := model.GameCoinConvertDailyCap()
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -122,11 +131,11 @@ func GetGameCenterSelf(c *gin.Context) {
 		"account":        account,
 		"quota_per_coin": quotaPerCoin,
 		"games":          games,
-		// 兑换按个人每日累计，1 币对应 1 美元 API 额度，与全站提现池互不占用。
+		// 兑换按个人每日累计，1 币对应 1 美元 API 额度，可以有小数，与全站提现池互不占用。
 		"convert": gin.H{
 			"daily_limit":     model.GameCoinConvertDailyLimit,
 			"daily_used":      converted,
-			"daily_remaining": max(model.GameCoinConvertDailyLimit-converted, 0),
+			"daily_remaining": max(convertCap-converted, 0),
 		},
 		// 技巧与人机奖励的每日合计上限(0 表示不限制)，不包含大转盘奖金。
 		"free": gin.H{
@@ -141,17 +150,21 @@ func GetGameCenterSelf(c *gin.Context) {
 			"chain_id":     setting.ChainId,
 			"explorer_url": setting.ExplorerUrl,
 		},
+		// 链上提现只发往绑定的地址，只能提整币；换绑之后 rebind_lock_seconds 秒内不能提现，unlock_at 是恢复的时间。
 		"withdraw": gin.H{
-			"enabled":         setting.Enabled && setting.WithdrawEnabled && setting.ChainConfigured() && walletErr == nil,
-			"min_amount":      setting.WithdrawMinAmount,
-			"max_amount":      setting.WithdrawMaxAmount,
-			"daily_limit":     setting.WithdrawDailyLimit,
-			"daily_remaining": max(setting.WithdrawDailyLimit-used, 0),
+			"enabled":             setting.Enabled && setting.WithdrawEnabled && setting.ChainConfigured() && walletErr == nil,
+			"min_amount":          setting.WithdrawMinAmount,
+			"max_amount":          setting.WithdrawMaxAmount,
+			"daily_limit":         setting.WithdrawDailyLimit,
+			"daily_remaining":     max(setting.WithdrawDailyLimit-used, 0),
+			"address":             account.WithdrawAddress,
+			"unlock_at":           account.WithdrawUnlockAt,
+			"rebind_lock_seconds": model.GameWithdrawRebindLockSeconds,
 		},
 	})
 }
 
-// ConvertGameCoins 把游戏币单向兑换为主额度，1 币 = 1 美元额度，每人每天最多兑换 15 美元额度。
+// ConvertGameCoins 把游戏币单向兑换为主额度，1 币 = 1 美元额度，可以有小数，每人每天最多兑换 15 美元额度。
 func ConvertGameCoins(c *gin.Context) {
 	var req gameCoinConvertRequest
 	if err := decodeGameRequest(c, &req); err != nil || req.Amount < 1 {
@@ -177,13 +190,13 @@ func ConvertGameCoins(c *gin.Context) {
 		return
 	}
 	model.RecordAuditLog(model.ClientLogSource(c), userId, "", model.LogTypeSystem,
-		fmt.Sprintf("游戏币兑换额度：%d 个游戏币，获得额度 %s", req.Amount, logger.LogQuota(quota)),
+		fmt.Sprintf("游戏币兑换额度：%s 个游戏币，获得额度 %s", req.Amount.Decimal(), logger.LogQuota(quota)),
 		map[string]interface{}{"game_coins": req.Amount, "quota": quota})
 	common.ApiSuccess(c, gin.H{"quota": quota, "balance": balance})
 }
 
-// WithdrawGameCoins 创建一笔链上提现：扣币并占用当日额度后交给提现 worker 发送。
-// 游戏币要离开站点，必须先通过安全验证，验证绑定收款地址与数量。
+// WithdrawGameCoins 创建一笔链上提现：扣币并占用当日额度后交给提现 worker 发送。收款地址是用户绑定的提现地址，换绑之后的
+// 等待时间里不能提现；游戏币要离开站点，还要先通过安全验证，验证绑定收款地址与数量。链上只提整币。
 func WithdrawGameCoins(c *gin.Context) {
 	setting := operation_setting.GetGameSetting()
 	if !setting.WithdrawEnabled {
@@ -201,32 +214,45 @@ func WithdrawGameCoins(c *gin.Context) {
 		return
 	}
 	var req gameCoinWithdrawRequest
-	if err := decodeGameRequest(c, &req); err != nil || req.Amount < 1 {
+	if err := decodeGameRequest(c, &req); err != nil {
 		common.ApiErrorI18n(c, i18n.MsgGameCoinAmountInvalid)
 		return
 	}
-	if req.Amount < setting.WithdrawMinAmount {
+	amount, whole := req.Amount.Whole()
+	if !whole || amount < 1 {
+		common.ApiErrorI18n(c, i18n.MsgGameWithdrawInteger)
+		return
+	}
+	if amount < setting.WithdrawMinAmount {
 		common.ApiErrorI18n(c, i18n.MsgGameWithdrawBelowMin, map[string]any{"Min": setting.WithdrawMinAmount})
 		return
 	}
-	if req.Amount > setting.WithdrawMaxAmount {
+	if amount > setting.WithdrawMaxAmount {
 		common.ApiErrorI18n(c, i18n.MsgGameWithdrawAboveMax, map[string]any{"Max": setting.WithdrawMaxAmount})
-		return
-	}
-	// 转给零地址或代币合约自身等于销毁，转回热钱包没有意义，都当作无效地址。
-	address, err := service.NormalizeEthereumAddress(req.Address)
-	if err != nil || address == gameZeroAddress || address == tokenAddress || address == hotWallet {
-		common.ApiErrorI18n(c, i18n.MsgGameWithdrawAddressInvalid)
 		return
 	}
 
 	userId := c.GetInt("id")
-	// 先挡掉余额不够的请求，免得白白消耗一次安全验证；真正的余额检查在扣币的条件更新里。
 	account, err := model.GetGameCoinAccount(userId)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
+	if account.WithdrawAddress == "" {
+		common.ApiErrorI18n(c, i18n.MsgGameWithdrawAddressRequired)
+		return
+	}
+	if account.WithdrawUnlockAt > common.GetTimestamp() {
+		respondGameWithdrawLocked(c, account.WithdrawUnlockAt)
+		return
+	}
+	// 转给零地址或代币合约自身等于销毁，转回热钱包没有意义：绑定之后管理员换了代币或热钱包，也不能发往这些地址。
+	address := account.WithdrawAddress
+	if address == gameZeroAddress || address == tokenAddress || address == hotWallet {
+		common.ApiErrorI18n(c, i18n.MsgGameWithdrawAddressInvalid)
+		return
+	}
+	// 先挡掉余额不够的请求，免得白白消耗一次安全验证；真正的余额检查在扣币的条件更新里。
 	if account.Balance < req.Amount {
 		common.ApiErrorI18n(c, i18n.MsgGameCoinInsufficient)
 		return
@@ -239,11 +265,11 @@ func WithdrawGameCoins(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	if used+req.Amount > setting.WithdrawDailyLimit {
+	if used+amount > setting.WithdrawDailyLimit {
 		common.ApiErrorI18n(c, i18n.MsgGameWithdrawDailyLimit, map[string]any{"Remaining": max(setting.WithdrawDailyLimit-used, 0)})
 		return
 	}
-	if !middleware.RequireSecurityProof(c, "game.withdraw", strings.ToLower(address)+":"+strconv.Itoa(req.Amount)) {
+	if !middleware.RequireSecurityProof(c, "game.withdraw", strings.ToLower(address)+":"+strconv.Itoa(amount)) {
 		return
 	}
 
@@ -251,7 +277,7 @@ func WithdrawGameCoins(c *gin.Context) {
 	withdrawal := &model.GameCoinWithdrawal{
 		UserId:        userId,
 		ToAddress:     address,
-		Amount:        req.Amount,
+		Amount:        amount,
 		Day:           day,
 		ChainId:       setting.ChainId,
 		TokenAddress:  tokenAddress,
@@ -262,6 +288,13 @@ func WithdrawGameCoins(c *gin.Context) {
 		switch {
 		case errors.Is(err, model.ErrGameCoinInsufficient):
 			common.ApiErrorI18n(c, i18n.MsgGameCoinInsufficient)
+		case errors.Is(err, model.ErrGameWithdrawAddressUnbound):
+			common.ApiErrorI18n(c, i18n.MsgGameWithdrawAddressRequired)
+		case errors.Is(err, model.ErrGameWithdrawAddressChanged):
+			common.ApiErrorI18n(c, i18n.MsgGameWithdrawAddressChanged)
+		case errors.Is(err, model.ErrGameWithdrawAddressLocked):
+			latest, _ := model.GetGameCoinAccount(userId)
+			respondGameWithdrawLocked(c, latest.WithdrawUnlockAt)
 		case errors.Is(err, model.ErrGameCoinDailyLimit):
 			used, _ := model.GetGameCoinWithdrawDayUsed(day)
 			common.ApiErrorI18n(c, i18n.MsgGameWithdrawDailyLimit, map[string]any{"Remaining": max(setting.WithdrawDailyLimit-used, 0)})
@@ -274,6 +307,47 @@ func WithdrawGameCoins(c *gin.Context) {
 		return
 	}
 	common.ApiSuccess(c, gin.H{"withdrawal": withdrawal, "balance": balance})
+}
+
+// respondGameWithdrawLocked 回应换绑提现地址之后还不能提现，告诉用户什么时候恢复(服务器本地时间)。
+func respondGameWithdrawLocked(c *gin.Context, unlockAt int64) {
+	common.ApiErrorI18n(c, i18n.MsgGameWithdrawAddressLocked, map[string]any{"Time": time.Unix(unlockAt, 0).Format("2006-01-02 15:04")})
+}
+
+// BindGameWithdrawAddress 绑定或更换提现地址，要先通过安全验证。第一次绑定立即可以提现；换成另一个地址后 24 小时内不能提现，
+// 账号被盗时本人有时间发现，盗号的人也不能马上把币提到自己的地址。
+func BindGameWithdrawAddress(c *gin.Context) {
+	var req gameWithdrawAddressRequest
+	if err := decodeGameRequest(c, &req); err != nil {
+		common.ApiErrorI18n(c, i18n.MsgGameWithdrawAddressInvalid)
+		return
+	}
+	// 零地址与代币合约收到的币等于销毁，热钱包是发币的一方，都不能绑定。
+	setting := operation_setting.GetGameSetting()
+	tokenAddress, _ := service.NormalizeEthereumAddress(setting.TokenAddress)
+	hotWallet, _, _ := service.GameHotWalletAddress()
+	address, err := service.NormalizeEthereumAddress(req.Address)
+	if err != nil || address == gameZeroAddress || address == tokenAddress || address == hotWallet {
+		common.ApiErrorI18n(c, i18n.MsgGameWithdrawAddressInvalid)
+		return
+	}
+	if !middleware.RequireSecurityProof(c, "game.withdraw_address", strings.ToLower(address)) {
+		return
+	}
+	userId := c.GetInt("id")
+	account, err := model.BindGameWithdrawAddress(userId, address)
+	if err != nil {
+		if errors.Is(err, model.ErrGameCoinUserNotFound) {
+			common.ApiErrorI18n(c, i18n.MsgUserNotExists)
+			return
+		}
+		common.SysError(fmt.Sprintf("game withdraw address bind failed for user %d: %v", userId, err))
+		common.ApiErrorI18n(c, i18n.MsgGameWithdrawAddressBindFailed)
+		return
+	}
+	model.RecordAuditLog(model.ClientLogSource(c), userId, "", model.LogTypeSystem,
+		fmt.Sprintf("绑定游戏币提现地址：%s", address), map[string]interface{}{"address": address, "unlock_at": account.WithdrawUnlockAt})
+	common.ApiSuccess(c, gin.H{"address": account.WithdrawAddress, "unlock_at": account.WithdrawUnlockAt})
 }
 
 func GetGameCoinLogs(c *gin.Context) {

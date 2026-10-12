@@ -30,6 +30,7 @@ import {
 import { IconPlus, IconRefresh } from '@douyinfe/semi-icons';
 import { useTranslation } from 'react-i18next';
 import { API, showError, showSuccess, timestamp2string } from '../../helpers';
+import { formatCoins, signed } from '../Games/common/api';
 
 const { Text } = Typography;
 
@@ -85,12 +86,14 @@ const GameAdminAccounts = () => {
   };
 
   const submitAdjust = async () => {
+    // 游戏币可以有小数，按额度单位记账，最多 6 位小数。
     if (
       !adjustUserId ||
-      !Number.isInteger(adjustAmount) ||
-      adjustAmount === 0
+      typeof adjustAmount !== 'number' ||
+      adjustAmount === 0 ||
+      Number(adjustAmount.toFixed(6)) !== adjustAmount
     ) {
-      showError(t('请填写用户 ID 和非零的整数数量'));
+      showError(t('请填写用户 ID 和非零的数量，最多 6 位小数'));
       return;
     }
     setAdjusting(true);
@@ -106,7 +109,7 @@ const GameAdminAccounts = () => {
       }
       showSuccess(
         t('调整成功，当前余额 {{balance}}', {
-          balance: res.data.data.balance,
+          balance: formatCoins(res.data.data.balance),
         }),
       );
       setAdjustVisible(false);
@@ -125,24 +128,27 @@ const GameAdminAccounts = () => {
     {
       title: t('余额'),
       dataIndex: 'balance',
-      render: (value) => <Text strong>{value}</Text>,
+      render: (value) => <Text strong>{formatCoins(value)}</Text>,
     },
     {
       title: t('累计获得'),
       dataIndex: 'total_earned',
+      render: (value) => formatCoins(value),
     },
     {
       title: t('已兑换'),
       dataIndex: 'total_converted',
+      render: (value) => formatCoins(value),
     },
     {
       title: t('已提现'),
       dataIndex: 'total_withdrawn',
+      render: (value) => formatCoins(value),
     },
     {
       title: t('游戏输赢'),
       dataIndex: 'total_wager_net',
-      render: (value) => (value > 0 ? `+${value}` : value || 0),
+      render: (value) => signed(value),
     },
     {
       title: t('更新时间'),
@@ -216,8 +222,7 @@ const GameAdminAccounts = () => {
           />
           <InputNumber
             value={adjustAmount}
-            precision={0}
-            placeholder={t('数量，正数加币、负数扣币')}
+            placeholder={t('数量，正数加币、负数扣币，可以有小数')}
             style={{ width: '100%' }}
             onChange={(value) =>
               setAdjustAmount(typeof value === 'number' ? value : undefined)

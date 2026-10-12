@@ -51,7 +51,7 @@ func setupTradeSpotFinancing(t *testing.T, userId int, cash float64) {
 	t.Helper()
 	truncateTables(t)
 	seedTradeUser(t, userId, cash)
-	_, err := TransferQuotaToTrade(userId, tradeUsd(cash))
+	_, err := TransferQuotaToTrade(userId, tradeUsd(cash), TradeEquity{})
 	require.NoError(t, err)
 	useTradeSpotRate(t, "0")
 }
@@ -60,7 +60,7 @@ func setupTradeSpotFinancing(t *testing.T, userId int, cash float64) {
 func addTradeSpotTestCash(t *testing.T, userId int, usd float64) {
 	t.Helper()
 	require.NoError(t, DB.Model(&User{}).Where("id = ?", userId).Update("quota", gorm.Expr("quota + ?", tradeUsd(usd))).Error)
-	_, err := TransferQuotaToTrade(userId, tradeUsd(usd))
+	_, err := TransferQuotaToTrade(userId, tradeUsd(usd), TradeEquity{})
 	require.NoError(t, err)
 }
 
@@ -219,9 +219,9 @@ func TestTradeSpotMarginTransfersKeepLevelTwo(t *testing.T) {
 	addTradeSpotTestCash(t, userId, 700)
 
 	// 风险率 (700 + 1000) / 800，要留下 2 × 800 − 1000 = 600。
-	_, _, err = TransferQuotaFromTrade(userId, tradeUsd(100.01), tradeTestDay, tradeUsd(100), btcBid(100))
+	_, _, err = TransferQuotaFromTrade(userId, tradeUsd(100.01), tradeTestDay, tradeUsd(100), btcBid(100), TradeEquity{})
 	require.ErrorIs(t, err, ErrTradeWithdrawExceeded)
-	_, _, err = TransferQuotaFromTrade(userId, tradeUsd(100), tradeTestDay, tradeUsd(100), btcBid(100))
+	_, _, err = TransferQuotaFromTrade(userId, tradeUsd(100), tradeTestDay, tradeUsd(100), btcBid(100), TradeEquity{})
 	require.NoError(t, err)
 
 	require.NoError(t, DB.Transaction(func(tx *gorm.DB) error {
@@ -231,7 +231,7 @@ func TestTradeSpotMarginTransfersKeepLevelTwo(t *testing.T) {
 		require.NoError(t, checkTradeCashTx(tx, account, tradeUsd(600), tradeUsd(600), btcBid(100)), "买现货不是转出")
 		return nil
 	}))
-	_, _, err = TransferQuotaFromTrade(userId, tradeUsd(1), tradeTestDay, tradeUsd(100), tradeSpotTestMarket{fresh: false})
+	_, _, err = TransferQuotaFromTrade(userId, tradeUsd(1), tradeTestDay, tradeUsd(100), tradeSpotTestMarket{fresh: false}, TradeEquity{})
 	require.ErrorIs(t, err, ErrTradeMarkUnavailable, "价格不新鲜时不能转出")
 }
 
@@ -301,7 +301,7 @@ func TestTradeSpotMarginGapLiquidationChargesUserQuota(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, result.Liquidated)
 	// 卖出到账 399.6，还差 400.4，强平费 16。
-	assert.Equal(t, tradeUsd(416.4), result.Covered)
+	assert.Equal(t, TradeDeficitCover{Quota: tradeUsd(416.4)}, result.Covered)
 	quota, err := GetUserQuota(userId, true)
 	require.NoError(t, err)
 	assert.Equal(t, -tradeUsd(416.4), quota)

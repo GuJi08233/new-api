@@ -3,6 +3,7 @@ package model
 import (
 	"errors"
 	"slices"
+	"strconv"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -57,14 +58,15 @@ const (
 )
 
 // 合约账单的类型。逐仓的资金费记在仓位的保证金上，账单的资金变动为 0，收付记在 Pnl 上；全仓的资金费直接进出资金。
-// futures_cover 是没有全仓仓位撑着而资金还是负的时，从站内额度扣来补到 0 的那笔钱，和转入一样算进净转入。
+// futures_cover 与 coin_cover 是没有全仓仓位撑着而资金还是负的时，从站内额度、游戏币扣来补到 0 的钱，和转入一样算进净转入。
 const (
-	TradeLedgerFuturesOpen    = "futures_open"
-	TradeLedgerFuturesClose   = "futures_close"
-	TradeLedgerFuturesMargin  = "futures_margin"
-	TradeLedgerFuturesFunding = "futures_funding"
-	TradeLedgerLiquidation    = "liquidation"
-	TradeLedgerFuturesCover   = "futures_cover"
+	TradeLedgerFuturesOpen      = "futures_open"
+	TradeLedgerFuturesClose     = "futures_close"
+	TradeLedgerFuturesMargin    = "futures_margin"
+	TradeLedgerFuturesFunding   = "futures_funding"
+	TradeLedgerLiquidation      = "liquidation"
+	TradeLedgerFuturesCover     = "futures_cover"
+	TradeLedgerFuturesCoinCover = "coin_cover"
 )
 
 // tradeFuturesFlowTypes 是合约成交与仓位的账单类型，每日盈亏按它们汇总合约动过的资金。从站内额度补的钱是转入，不算在里面。
@@ -404,43 +406,98 @@ func checkTradeAffordTx(tx *gorm.DB, account *TradeAccount, cash int, collateral
 	return nil
 }
 
-// settleTradeDeficitTx 在资金是负的、又没有全仓仓位撑着时(价格跳空越过强平价，全仓或逐仓亏损超过了保证金)，从用户的站内额度里
-// 扣回这笔亏空，资金回到 0，记一笔账单。额度可以扣成负数(欠费)，但不能越过数据库能存的范围；扣来的钱和转入一样算进 QuotaPrincipal
-// 与 TotalIn。返回扣掉的额度，调用方在事务提交之后刷新用户的额度缓存。要在仓位写回之后调用。
-func settleTradeDeficitTx(tx *gorm.DB, account *TradeAccount) (int, error) {
-	return coverTradeDeficitTx(tx, account, TradeLedgerFuturesCover, TradeNoticeFutures)
+// TradeDeficitCover 是一笔穿仓亏空的补法：Quota 从站内额度扣(可以扣成负数)，Coins 从游戏币扣，两者之和就是亏空。
+type TradeDeficitCover struct {
+	Quota int
+	Coins GameCoins
 }
 
-// coverTradeDeficitTx 是 settleTradeDeficitTx 的实现，ledgerType 与 noticeMarket 说明亏空来自合约还是现货借款。
-func coverTradeDeficitTx(tx *gorm.DB, account *TradeAccount, ledgerType string, noticeMarket string) (int, error) {
+// settleTradeDeficitTx 在资金是负的、又没有全仓仓位撑着时(价格跳空越过强平价，全仓或逐仓亏损超过了保证金)，按用户选的抵扣顺序
+// 从游戏币与站内额度补回这笔亏空，资金回到 0，每个来源记一笔账单。返回两边各补了多少，调用方在事务提交之后刷新用户的额度缓存。
+// 要在仓位写回之后调用。
+func settleTradeDeficitTx(tx *gorm.DB, account *TradeAccount) (TradeDeficitCover, error) {
+	return coverTradeDeficitTx(tx, account, TradeLedgerFuturesCover, TradeLedgerFuturesCoinCover, TradeNoticeFutures)
+}
+
+// coverTradeDeficitTx 是 settleTradeDeficitTx 的实现，quotaLedger、coinLedger 是两种来源的账单类型，noticeMarket 说明亏空来自合约还是
+// 现货借款。先扣游戏币时先用游戏币余额补，不够的扣站内额度；先扣平台额度时先用站内额度里正的部分补，不够的用游戏币，再不够的仍扣
+// 站内额度。游戏币不能是负数，额度可以扣成负数(欠费)，但不能越过数据库能存的范围。补来的钱和转入一样算进 QuotaPrincipal 与
+// TotalIn，游戏币补的那部分也算进 CoinPrincipal，之后的转账再按抵扣顺序结算它(见 settleTradeCoinPrincipal)。
+// 注销了的用户也要扣，否则这笔亏空没地方记，强平会一直失败；游戏币账户已经锁在模拟盘账户之后，加锁顺序与转账一致。
+func coverTradeDeficitTx(tx *gorm.DB, account *TradeAccount, quotaLedger string, coinLedger string, noticeMarket string) (TradeDeficitCover, error) {
+	var cover TradeDeficitCover
 	if account.Cash >= 0 {
-		return 0, nil
+		return cover, nil
 	}
 	var open int64
 	if err := tx.Model(&TradeFuturesPosition{}).Where("user_id = ? AND margin_mode = ? AND qty > 0", account.UserId, TradeFuturesCross).
 		Count(&open).Error; err != nil {
-		return 0, err
+		return cover, err
 	}
 	if open > 0 {
-		return 0, nil
+		return cover, nil
 	}
 	deficit := -account.Cash
-	// 注销了的用户也要扣，否则这笔亏空没地方记，强平会一直失败。
-	result := tx.Unscoped().Model(&User{}).Where("id = ? AND quota >= ?", account.UserId, common.MinQuota+1+deficit).
-		Update("quota", gorm.Expr("quota - ?", deficit))
-	if result.Error != nil {
-		return 0, result.Error
+	var coinAccounts []GameCoinAccount
+	if err := lockForUpdate(tx).Where("user_id = ?", account.UserId).Limit(1).Find(&coinAccounts).Error; err != nil {
+		return cover, err
 	}
-	if result.RowsAffected != 1 {
-		return 0, ErrQuotaOutOfRange
+	coins := GameCoins(0)
+	if len(coinAccounts) > 0 {
+		coins = max(coinAccounts[0].Balance, 0)
 	}
-	account.Cash = 0
+	need := deficit
+	if !account.CoinFirst() {
+		var quotas []int
+		if err := tx.Unscoped().Model(&User{}).Where("id = ?", account.UserId).Pluck("quota", &quotas).Error; err != nil {
+			return cover, err
+		}
+		if len(quotas) > 0 {
+			need -= min(deficit, max(quotas[0], 0))
+		}
+	}
+	cover.Coins = min(coins, GameCoins(need))
+	cover.Quota = deficit - int(cover.Coins)
+	if cover.Coins > 0 {
+		balance, err := debitGameCoinsTx(tx, account.UserId, cover.Coins, nil)
+		if err != nil {
+			return cover, err
+		}
+		account.Cash += int(cover.Coins)
+		account.CoinPrincipal += cover.Coins
+		entry := TradeLedger{Type: coinLedger, Amount: int(cover.Coins)}
+		if err = tradeLedgerTx(tx, account, &entry); err != nil {
+			return cover, err
+		}
+		if err = tx.Create(&GameCoinLog{
+			UserId:    account.UserId,
+			Type:      GameCoinLogTypeTradeCover,
+			Amount:    -cover.Coins,
+			Balance:   balance,
+			Quota:     int(cover.Coins),
+			RefId:     strconv.Itoa(entry.Id),
+			CreatedAt: common.GetTimestamp(),
+		}).Error; err != nil {
+			return cover, err
+		}
+	}
+	if cover.Quota > 0 {
+		result := tx.Unscoped().Model(&User{}).Where("id = ? AND quota >= ?", account.UserId, common.MinQuota+1+cover.Quota).
+			Update("quota", gorm.Expr("quota - ?", cover.Quota))
+		if result.Error != nil {
+			return cover, result.Error
+		}
+		if result.RowsAffected != 1 {
+			return cover, ErrQuotaOutOfRange
+		}
+		account.Cash += cover.Quota
+		if err := tradeLedgerTx(tx, account, &TradeLedger{Type: quotaLedger, Amount: cover.Quota}); err != nil {
+			return cover, err
+		}
+	}
 	account.QuotaPrincipal += deficit
 	account.TotalIn += deficit
-	if err := tradeLedgerTx(tx, account, &TradeLedger{Type: ledgerType, Amount: deficit}); err != nil {
-		return 0, err
-	}
-	return deficit, addTradeNoticeTx(tx, TradeNotice{UserId: account.UserId, Kind: TradeNoticeCover, Market: noticeMarket, Amount: deficit})
+	return cover, addTradeNoticeTx(tx, TradeNotice{UserId: account.UserId, Kind: TradeNoticeCover, Market: noticeMarket, Amount: cover.Quota, Coins: cover.Coins})
 }
 
 func loadTradeFuturesPositionTx(tx *gorm.DB, userId int, symbol string, side string) (*TradeFuturesPosition, error) {
@@ -797,7 +854,7 @@ func PlaceTradeFuturesOrder(in TradeFuturesOrderInput) (*TradeFuturesOrder, erro
 	remaining := order.Qty - in.Fill.Qty
 	resting := in.Rest && remaining > 0
 	isTrigger := in.Trigger == TradeFuturesTriggerTakeProfit || in.Trigger == TradeFuturesTriggerStopLoss
-	covered := 0
+	var covered TradeDeficitCover
 	err = DB.Transaction(func(tx *gorm.DB) error {
 		account, err := lockTradeAccountTx(tx, in.UserId)
 		if err != nil {
@@ -1021,7 +1078,7 @@ func FillTradeFuturesOrder(orderId int, fill TradeFuturesFill, market TradeFutur
 		return nil, err
 	}
 	var order *TradeFuturesOrder
-	covered := 0
+	var covered TradeDeficitCover
 	err = DB.Transaction(func(tx *gorm.DB) error {
 		account, err := lockTradeAccountTx(tx, stored.UserId)
 		if err != nil {

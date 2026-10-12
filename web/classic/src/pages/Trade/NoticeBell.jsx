@@ -28,6 +28,7 @@ import {
   formatUsdt,
   tradeGet,
 } from './api';
+import { formatCoins } from '../Games/common/api';
 
 const { Text } = Typography;
 // 每隔多久查一次新的通知，页面不在前台时不查。
@@ -92,15 +93,33 @@ function noticeText(notice, perUnit, t) {
         '{{symbol}} {{side}}被强平：{{qty}} @ {{price}}，盈亏 {{pnl}} USDT',
         values,
       );
-    case 'cover':
-      if (notice.market === 'spot') {
-        return t('现货借款亏空 {{amount}} USDT 已从站内额度扣除', {
-          amount: formatUsdt(notice.amount, perUnit),
-        });
-      }
-      return t('合约亏空 {{amount}} USDT 已从站内额度扣除', {
+    case 'cover': {
+      // 亏空按用户选的抵扣顺序从游戏币与站内额度补：amount 是额度那部分(额度单位)，coins 是游戏币那部分(币数，1 币 = 1 USDT)。
+      const covered = {
         amount: formatUsdt(notice.amount, perUnit),
-      });
+        coins: formatCoins(notice.coins),
+      };
+      const spot = notice.market === 'spot';
+      if (notice.coins > 0 && notice.amount > 0) {
+        return spot
+          ? t(
+              '现货借款亏空已补足：游戏币扣除 {{coins}} 个，站内额度扣除 {{amount}} USDT',
+              covered,
+            )
+          : t(
+              '合约亏空已补足：游戏币扣除 {{coins}} 个，站内额度扣除 {{amount}} USDT',
+              covered,
+            );
+      }
+      if (notice.coins > 0) {
+        return spot
+          ? t('现货借款亏空 {{coins}} USDT 已从游戏币扣除', covered)
+          : t('合约亏空 {{coins}} USDT 已从游戏币扣除', covered);
+      }
+      return spot
+        ? t('现货借款亏空 {{amount}} USDT 已从站内额度扣除', covered)
+        : t('合约亏空 {{amount}} USDT 已从站内额度扣除', covered);
+    }
     case 'margin_call':
       return t(
         '现货借款风险率降到 {{level}}，请还款、卖出部分现货或转入资金，不高于 1.1 会被强平',
@@ -225,7 +244,7 @@ const NoticeBell = ({ perUnit, onNotice, t }) => {
     sl: t('止损'),
     liquidation: t('强平'),
     fill: t('成交'),
-    cover: t('扣额度'),
+    cover: t('补亏空'),
     margin_call: t('追加保证金'),
   };
 

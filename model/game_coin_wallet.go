@@ -7,15 +7,17 @@ import (
 	"gorm.io/gorm"
 )
 
-// 划转方向以游戏币钱包为准；模拟盘划转不算游戏发奖，也不改动原有累计收益字段。
+// 划转方向以游戏币钱包为准；模拟盘划转不算游戏发奖，也不改动原有累计收益字段。GameCoinLogTypeTradeCover 是模拟盘穿仓的亏空
+// 按用户选的抵扣顺序从游戏币里扣掉的部分。
 const (
-	GameCoinLogTypeTradeIn  = "trade_in"
-	GameCoinLogTypeTradeOut = "trade_out"
+	GameCoinLogTypeTradeIn    = "trade_in"
+	GameCoinLogTypeTradeOut   = "trade_out"
+	GameCoinLogTypeTradeCover = "trade_cover"
 )
 
 // applyGameCoinDeltaTx 只供已有资金来源的业务事务调用。调用方须在同一事务扣除来源余额、校验提款限制，
 // 并向外返回本函数的任何错误以回滚整笔划转；此处不提供独立发币、兑换额度或提现入口。
-func applyGameCoinDeltaTx(tx *gorm.DB, userId int, delta int, entry GameCoinLog) (int, error) {
+func applyGameCoinDeltaTx(tx *gorm.DB, userId int, delta GameCoins, entry GameCoinLog) (GameCoins, error) {
 	if delta == 0 || delta <= -common.MaxQuota || delta >= common.MaxQuota || entry.Quota < 0 || entry.Quota >= common.MaxQuota ||
 		entry.Type == "" || utf8.RuneCountInString(entry.Type) > 32 || utf8.RuneCountInString(entry.RefId) > 64 || utf8.RuneCountInString(entry.Remark) > 255 {
 		return 0, ErrGameCoinAmountInvalid

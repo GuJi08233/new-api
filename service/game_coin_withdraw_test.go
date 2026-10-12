@@ -161,11 +161,15 @@ func useGameCoinTestChain(t *testing.T, node *withdrawTestNode) {
 	})
 }
 
-// createTestGameCoinWithdrawal 给新用户发 10 个游戏币，再按当前配置的链与代币申请一笔提现。
+// createTestGameCoinWithdrawal 给新用户发 10 个游戏币、绑定收款地址，再按当前配置的链与代币申请一笔提现。
 func createTestGameCoinWithdrawal(t *testing.T, userId int, amount int) *model.GameCoinWithdrawal {
 	t.Helper()
 	require.NoError(t, model.DB.Create(&model.User{Id: userId, Username: fmt.Sprintf("withdraw-%d", userId), AffCode: fmt.Sprintf("withdraw-aff-%d", userId)}).Error)
-	_, err := model.AdjustGameCoins(userId, 10, "seed")
+	seed, err := model.WholeGameCoins(10)
+	require.NoError(t, err)
+	_, err = model.AdjustGameCoins(userId, seed, "seed")
+	require.NoError(t, err)
+	_, err = model.BindGameWithdrawAddress(userId, gameCoinTestRecipient)
 	require.NoError(t, err)
 	setting := operation_setting.GetGameSetting()
 	withdrawal := &model.GameCoinWithdrawal{
@@ -210,11 +214,14 @@ func reloadGameCoinWithdrawal(t *testing.T, id int) *model.GameCoinWithdrawal {
 	return &withdrawal
 }
 
+// gameCoinBalance 返回用户的游戏币余额(整币数)，这些测试里的余额都是整币。
 func gameCoinBalance(t *testing.T, userId int) int {
 	t.Helper()
 	account, err := model.GetGameCoinAccount(userId)
 	require.NoError(t, err)
-	return account.Balance
+	coins, ok := account.Balance.Whole()
+	require.True(t, ok, "balance %s is not a whole number of coins", account.Balance.Decimal())
+	return coins
 }
 
 // transferReceipt 是一笔转账成功的回执：代币合约发出了从热钱包转给收款地址的 Transfer 事件。
@@ -270,8 +277,8 @@ func TestGameCoinWithdrawalRebroadcastsTheSameSignedTransaction(t *testing.T) {
 	assert.Equal(t, model.GameCoinWithdrawalStatusConfirmed, reloadGameCoinWithdrawal(t, withdrawal.Id).Status)
 	account, err := model.GetGameCoinAccount(2101)
 	require.NoError(t, err)
-	assert.Equal(t, 7, account.Balance)
-	assert.Equal(t, 3, account.TotalWithdrawn)
+	assert.Equal(t, "7", account.Balance.Decimal().String())
+	assert.Equal(t, "3", account.TotalWithdrawn.Decimal().String())
 }
 
 // 链上回滚的交易在达到确认数后退款并释放当日额度；没达到确认数之前不下结论。

@@ -410,12 +410,12 @@ func finishPvpRoom(room *model.GameRoom, game *pvpGame, scores []int, reason str
 	if room.Seats != game.seats || len(scores) != room.Seats {
 		return errors.New("invalid game room result")
 	}
-	result := model.GameRoomResult{Nets: make([]int, room.Seats), WinnerSeat: -1}
+	result := model.GameRoomResult{Nets: make([]model.GameCoins, room.Seats), WinnerSeat: -1}
 	for seat, score := range scores {
 		if score < -game.maxLoss || score > game.maxLoss*(room.Seats-1) {
 			return fmt.Errorf("game room score %d out of range", score)
 		}
-		result.Nets[seat] = score * room.Stake
+		result.Nets[seat] = model.GameCoins(score) * room.Stake
 		if score > 0 {
 			result.Winners = append(result.Winners, seat)
 			if result.WinnerSeat < 0 || score > scores[result.WinnerSeat] {
@@ -629,7 +629,7 @@ func pvpRecentRooms(userId int, game string) ([]gin.H, error) {
 	}
 	recent := make([]gin.H, 0, len(rooms))
 	for _, room := range rooms {
-		net, mySeat, result := 0, -1, "draw"
+		net, mySeat, result := model.GameCoins(0), -1, "draw"
 		for _, member := range seats[room.Id] {
 			if member.UserId == userId {
 				net = member.Net
@@ -671,11 +671,11 @@ func registerGameRoomRoutes(group *gin.RouterGroup) {
 }
 
 type gameRoomCreateRequest struct {
-	Game     string `json:"game"`
-	Stake    int    `json:"stake"`
-	Private  bool   `json:"private"`
-	Seats    *int   `json:"seats"`
-	Password string `json:"password"`
+	Game     string          `json:"game"`
+	Stake    model.GameCoins `json:"stake"`
+	Private  bool            `json:"private"`
+	Seats    *int            `json:"seats"`
+	Password string          `json:"password"`
 }
 
 type gameRoomJoinRequest struct {
@@ -744,9 +744,9 @@ func pvpOpenRule(c *gin.Context, game string) (operation_setting.PvpRule, bool) 
 	return rule, true
 }
 
-// validPvpStake 检查押注在 [0, MaxStake] 之内，不在时写好错误响应并返回 false。
-func validPvpStake(c *gin.Context, stake int, rule operation_setting.PvpRule) bool {
-	if stake >= 0 && stake <= rule.MaxStake {
+// validPvpStake 检查押注是 0(友谊赛)或 [0.01, MaxStake] 之内、最多两位小数，不是时写好错误响应并返回 false。
+func validPvpStake(c *gin.Context, stake model.GameCoins, rule operation_setting.PvpRule) bool {
+	if stake == 0 || validGameStake(stake, rule.MaxStake) {
 		return true
 	}
 	common.ApiErrorI18n(c, i18n.MsgGameRoomStakeInvalid, map[string]any{"Max": rule.MaxStake})
@@ -775,11 +775,11 @@ func respondGameRoomError(c *gin.Context, err error) {
 }
 
 // createPvpRoom 按规则开一个等待对手的房间并押下押注，返回 nil 时已写好错误响应。
-func createPvpRoom(c *gin.Context, game string, rule operation_setting.PvpRule, stake int, private bool, password string) (*model.GameRoom, int) {
+func createPvpRoom(c *gin.Context, game string, rule operation_setting.PvpRule, stake model.GameCoins, private bool, password string) (*model.GameRoom, model.GameCoins) {
 	room := &model.GameRoom{
 		Game:        game,
 		Stake:       stake,
-		Escrow:      stake * pvpGames[game].maxLoss,
+		Escrow:      stake * model.GameCoins(pvpGames[game].maxLoss),
 		Seats:       pvpGames[game].seats,
 		Private:     private,
 		Code:        common.GetRandomString(pvpRoomCodeLength),

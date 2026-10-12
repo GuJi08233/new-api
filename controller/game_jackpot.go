@@ -131,9 +131,9 @@ func jackpotRoundView(userId int) (gin.H, error) {
 
 // jackpotStakes 把一轮的投入按玩家汇总，按每位玩家第一次投入的先后排列：奖券也是这样编号的，页面照这个顺序画奖池，
 // 指针停在哪一段就是谁的奖券。winnerId 不为 0 时标出赢家；第二个返回值是 userId 自己的投入合计。
-func jackpotStakes(entries []model.GameJackpotEntry, userId int, winnerId int) ([]gin.H, int, error) {
+func jackpotStakes(entries []model.GameJackpotEntry, userId int, winnerId int) ([]gin.H, model.GameCoins, error) {
 	order := make([]int, 0)
-	totals := make(map[int]int)
+	totals := make(map[int]model.GameCoins)
 	for _, entry := range entries {
 		if _, seen := totals[entry.UserId]; !seen {
 			order = append(order, entry.UserId)
@@ -195,10 +195,10 @@ func jackpotRecentRounds(userId int) ([]gin.H, error) {
 }
 
 type jackpotEnterRequest struct {
-	Amount int `json:"amount"`
+	Amount model.GameCoins `json:"amount"`
 }
 
-// EnterJackpot 往当前一轮的奖池里投入游戏币。每人每轮的投入合计不超过每轮上限。
+// EnterJackpot 往当前一轮的奖池里投入游戏币，可以有两位小数。每人每轮的投入合计不超过每轮上限。
 func EnterJackpot(c *gin.Context) {
 	if !requireGameEnabled(c, gameJackpot) {
 		return
@@ -209,15 +209,20 @@ func EnterJackpot(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
-	if !validWagerBet(c, req.Amount, 1, rule.MaxBet) {
+	if !validWagerBet(c, req.Amount, rule.MaxBet) {
+		return
+	}
+	maxBet, err := model.WholeGameCoins(rule.MaxBet)
+	if err != nil {
+		respondGameError(c, gameJackpot, err)
 		return
 	}
 	if err := resolveGameJackpot(); err != nil {
 		respondGameError(c, gameJackpot, err)
 		return
 	}
-	_, _, err := model.EnterGameJackpot(c.GetInt("id"), req.Amount, model.GameJackpotEntryRule{
-		MaxBet:       rule.MaxBet,
+	_, _, err = model.EnterGameJackpot(c.GetInt("id"), req.Amount, model.GameJackpotEntryRule{
+		MaxBet:       maxBet,
 		RoundSeconds: rule.RoundSeconds,
 		RakePercent:  rule.RakePercent,
 	}, gameRewardIpKey(c.ClientIP()))

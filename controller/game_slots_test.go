@@ -31,7 +31,7 @@ func TestSpinSlotsSettlesServerOutcome(t *testing.T) {
 	reels := info["reels"].([]any)
 	assert.InDelta(t, 21720.0/27000.0, info["payback"], 1e-9)
 	assert.EqualValues(t, 5, info["max_bet"])
-	assert.EqualValues(t, 10, info["balance"])
+	assert.Equal(t, 10.0, info["balance"])
 
 	cases := []struct {
 		stops       [3]int
@@ -55,15 +55,15 @@ func TestSpinSlotsSettlesServerOutcome(t *testing.T) {
 		for reel, stop := range c.stops {
 			assert.Equal(t, reels[reel].([]any)[stop], line[reel], "case %d reel %d", i, reel)
 		}
-		assert.EqualValues(t, c.wantWin, result["win"], "case %d win", i)
-		assert.EqualValues(t, c.wantNet, result["net_today"], "case %d net today", i)
+		assert.Equal(t, float64(c.wantWin), result["win"], "case %d win", i)
+		assert.Equal(t, float64(c.wantNet), result["net_today"], "case %d net today", i)
 		assert.EqualValues(t, i+1, result["plays_today"], "case %d plays today", i)
-		assert.EqualValues(t, c.wantBalance, result["balance"], "case %d balance", i)
+		assert.Equal(t, float64(c.wantBalance), result["balance"], "case %d balance", i)
 	}
 	account, err := model.GetGameCoinAccount(player.user.Id)
 	require.NoError(t, err)
-	assert.Equal(t, 13, account.TotalWagered)
-	assert.Equal(t, 490, account.TotalWagerNet)
+	assert.Equal(t, 13.0, coinsOf(t, account.TotalWagered))
+	assert.Equal(t, 490.0, coinsOf(t, account.TotalWagerNet))
 	var bigWinLogs int64
 	require.NoError(t, env.db.Model(&model.Log{}).Where("user_id = ? AND type = ? AND content LIKE ?", player.user.Id, model.LogTypeSystem, "游戏大奖%").Count(&bigWinLogs).Error)
 	assert.EqualValues(t, 2, bigWinLogs, "两局三个 7 是大奖")
@@ -85,7 +85,7 @@ func TestSpinSlotsRejectsBetsOutsideRule(t *testing.T) {
 	player.fails(http.MethodPost, "/api/game/slots/spin", map[string]any{"bet": 1})
 	player.fails(http.MethodGet, "/api/game/slots", nil)
 
-	assert.Equal(t, 3, player.balance())
+	assert.Equal(t, 3.0, player.balance())
 	var sessions int64
 	require.NoError(t, env.db.Model(&model.GameSession{}).Where("user_id = ?", player.user.Id).Count(&sessions).Error)
 	assert.Zero(t, sessions)

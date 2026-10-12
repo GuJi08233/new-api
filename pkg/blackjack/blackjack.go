@@ -1,6 +1,6 @@
 // Package blackjack 是游戏中心 21 点的规则：6 副牌，每局用密码学安全的随机数重新洗牌，庄家软 17 停牌。
 //
-// 发牌顺序是玩家、庄家明牌、玩家、庄家暗牌。黑杰克(首两张 21 点)赔 3:2，所以下注必须是偶数。庄家明牌是 A 或 10 点时先偷看暗牌：
+// 发牌顺序是玩家、庄家明牌、玩家、庄家暗牌。黑杰克(首两张 21 点)赔 3:2，派彩按记账单位算、零头舍去。庄家明牌是 A 或 10 点时先偷看暗牌：
 // 庄家是黑杰克时这一局立即结束，玩家也是黑杰克就是平局；玩家是黑杰克而庄家不是时同样立即结束，按 2.5 倍派彩。
 //
 // 玩家可以要牌(hit)、停牌(stand)。首两张可以加倍(double)：追加与这一手相同的下注，只再发一张。首两张点数相同(10、J、Q、K 都算
@@ -133,10 +133,10 @@ type Result struct {
 	Payout  int
 }
 
-// Deal 用洗好的牌靴开一局、下注 bet(正偶数)。有黑杰克时发完牌这一局就结束了。
+// Deal 用洗好的牌靴开一局、下注 bet(正数，任意记账单位)。有黑杰克时发完牌这一局就结束了。
 func Deal(shoe []int, bet int) (*Game, error) {
-	if bet < 2 || bet%2 != 0 {
-		return nil, fmt.Errorf("blackjack bet must be a positive even number, got %d", bet)
+	if bet < 1 {
+		return nil, fmt.Errorf("blackjack bet must be positive, got %d", bet)
 	}
 	game := &Game{Shoe: shoe}
 	var cards [4]int

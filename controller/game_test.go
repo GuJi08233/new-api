@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
@@ -14,6 +15,7 @@ import (
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -55,7 +57,7 @@ func TestGameCenterClosedLetsPlayersFinishStakedRounds(t *testing.T) {
 	rival.ok(http.MethodPost, roomPath+"/move", rpsMoveBody(moved["version"], 1, "scissors"))
 	current := player.ok(http.MethodGet, "/api/game/blackjack/round", nil)
 	stood := player.ok(http.MethodPost, "/api/game/blackjack/action", roundRequest(t, current, map[string]any{"action": blackjack.ActionStand}))
-	assert.EqualValues(t, 20, roundOf(t, stood)["win"])
+	assert.Equal(t, 20.0, roundOf(t, stood)["win"])
 	player.ok(http.MethodPost, roomPath+"/resign", nil)
 
 	assert.Equal(t, gameMessage(i18n.MsgGameCenterDisabled), player.fails(http.MethodGet, "/api/game/self", nil))
@@ -110,7 +112,7 @@ func TestGameRequestBodiesAreBounded(t *testing.T) {
 	padding := strings.Repeat("a", gameRequestMaxBytes)
 	player.fails(http.MethodPost, "/api/game/slots/spin", map[string]any{"bet": 1, "padding": padding})
 	player.fails(http.MethodPost, "/api/game/memory/start", map[string]any{"difficulty": 1, "padding": padding})
-	assert.Equal(t, 10, player.balance(), "被拒绝的下注没有扣币")
+	assert.Equal(t, 10.0, player.balance(), "被拒绝的下注没有扣币")
 	player.ok(http.MethodPost, "/api/game/slots/spin", map[string]any{"bet": 1})
 }
 
@@ -126,29 +128,29 @@ func TestGameCoinConvertDailyLimitOverHTTP(t *testing.T) {
 
 	info := player.ok(http.MethodGet, "/api/game/self", nil)
 	assert.Equal(t, map[string]any{"daily_limit": float64(15), "daily_used": float64(0), "daily_remaining": float64(15)}, info["convert"])
-	assert.EqualValues(t, 900, info["withdraw"].(map[string]any)["daily_remaining"])
+	assert.Equal(t, 900.0, info["withdraw"].(map[string]any)["daily_remaining"])
 
 	result := player.ok(http.MethodPost, "/api/game/convert", map[string]any{"amount": 10})
 	assert.EqualValues(t, 10*common.QuotaPerUnit, result["quota"])
-	assert.EqualValues(t, 40, result["balance"])
+	assert.Equal(t, 40.0, result["balance"])
 	info = player.ok(http.MethodGet, "/api/game/self", nil)
 	assert.Equal(t, map[string]any{"daily_limit": float64(15), "daily_used": float64(10), "daily_remaining": float64(5)}, info["convert"])
-	assert.EqualValues(t, 900, info["withdraw"].(map[string]any)["daily_remaining"])
+	assert.Equal(t, 900.0, info["withdraw"].(map[string]any)["daily_remaining"])
 
 	message := player.fails(http.MethodPost, "/api/game/convert", map[string]any{"amount": 6})
 	assert.Equal(t, i18n.Translate(i18n.DefaultLang, i18n.MsgGameCoinConvertDailyLimit, map[string]any{"Limit": 15}), message)
-	assert.Equal(t, 40, player.balance(), "超额请求不扣游戏币")
+	assert.Equal(t, 40.0, player.balance(), "超额请求不扣游戏币")
 	player.ok(http.MethodPost, "/api/game/convert", map[string]any{"amount": 5})
 	player.fails(http.MethodPost, "/api/game/convert", map[string]any{"amount": 1})
 	info = player.ok(http.MethodGet, "/api/game/self", nil)
 	assert.Equal(t, map[string]any{"daily_limit": float64(15), "daily_used": float64(15), "daily_remaining": float64(0)}, info["convert"])
-	assert.Equal(t, 35, player.balance())
+	assert.Equal(t, 35.0, player.balance())
 	quota, err := model.GetUserQuota(player.user.Id, true)
 	require.NoError(t, err)
 	assert.EqualValues(t, 15*common.QuotaPerUnit, quota)
 
 	other.ok(http.MethodPost, "/api/game/convert", map[string]any{"amount": 15})
-	assert.Equal(t, 35, other.balance(), "同 IP 的另一个账号仍有自己的兑换限额")
+	assert.Equal(t, 35.0, other.balance(), "同 IP 的另一个账号仍有自己的兑换限额")
 	used, err := model.GetGameCoinWithdrawDayUsed(gameCenterDay())
 	require.NoError(t, err)
 	assert.Equal(t, 100, used, "个人兑换不占用全站提现池")
@@ -197,8 +199,23 @@ func TestGameAdminHotWalletKeyIsWriteOnly(t *testing.T) {
 	assert.Equal(t, false, cleared["data"].(map[string]any)["configured"], "没有环境变量兜底时清除即未配置")
 }
 
-// 游戏币离站之前必须通过安全验证，证明只对它绑定的收款地址和数量有效，且只能用一次。
+// gameWithdrawProof 走一遍安全验证：没带证明的请求被要求验证 scope 这一类操作，用密码验证之后拿到只对这个请求有效的证明。
+func gameWithdrawProof(t *testing.T, router *gin.Engine, cookies []*http.Cookie, method string, path string, body any, scope string) string {
+	t.Helper()
+	denied, challenge := accountRequest(t, router, method, path, cookies, body, "")
+	require.Equal(t, http.StatusForbidden, denied.Code)
+	require.Equal(t, scope, challenge["scope"])
+	_, verified := accountRequest(t, router, http.MethodPost, "/api/verify", cookies, map[string]any{
+		"method": "password", "password": "correct-password", "scope": challenge["scope"], "context_hash": challenge["context_hash"],
+	}, "")
+	require.Equal(t, true, verified["success"])
+	return verified["data"].(map[string]any)["proof_token"].(string)
+}
+
+// 游戏币提到事先绑定的地址：绑定与提现都要通过安全验证，提现的证明只对绑定的地址和这个数量有效，且只能用一次。链上只能提
+// 整币。第一次绑定马上能提，换绑之后 24 小时内不能提。
 func TestWithdrawGameCoinsRequiresProofBoundToAddressAndAmount(t *testing.T) {
+	require.NoError(t, i18n.Init())
 	t.Setenv(service.GameHotWalletPrivateKeyEnv, "0x4c0883a69102937d6231471b5dbb6204fe5129617082792ae468d01a3f362318")
 	db, router, user := accountSecurityFixture(t)
 	require.NoError(t, db.AutoMigrate(&model.GameCoinAccount{}, &model.GameCoinLog{}, &model.GameCoinWithdrawal{}, &model.GameCoinWithdrawDay{}))
@@ -218,41 +235,57 @@ func TestWithdrawGameCoinsRequiresProofBoundToAddressAndAmount(t *testing.T) {
 	})
 	t.Cleanup(func() { operation_setting.SetGameSettingForTest(previousSetting) })
 	router.POST("/api/game/withdraw", middleware.UserAuth(), middleware.GameCenterEnabled(), WithdrawGameCoins)
-	_, err := model.AdjustGameCoins(user.Id, 10, "seed")
+	router.PUT("/api/game/withdraw_address", middleware.UserAuth(), middleware.GameCenterEnabled(), BindGameWithdrawAddress)
+	seed, err := model.WholeGameCoins(10)
+	require.NoError(t, err)
+	_, err = model.AdjustGameCoins(user.Id, seed, "seed")
 	require.NoError(t, err)
 
 	login, _ := accountRequest(t, router, http.MethodPost, "/primary", nil, nil, "")
 	cookies := login.Result().Cookies()
-	request := map[string]any{"address": "0x8ba1f109551bd432803012645ac136ddd64dba72", "amount": 3}
+	request := map[string]any{"amount": 3}
 
-	// 全站当日额度不够时直接拒绝，不必先做安全验证：验证之后才被拒绝的话，验证白做，重试还要再验证一次。
+	unbound, unboundBody := accountRequest(t, router, http.MethodPost, "/api/game/withdraw", cookies, request, "")
+	assert.Equal(t, http.StatusOK, unbound.Code, "没绑定地址时不必先做安全验证")
+	assert.Equal(t, i18n.Translate(i18n.DefaultLang, i18n.MsgGameWithdrawAddressRequired), unboundBody["message"])
+	for _, address := range []string{"not-an-address", "0x0000000000000000000000000000000000000000", "0x64bf89340562ab4fe829a481e6797b012664425b"} {
+		_, rejected := accountRequest(t, router, http.MethodPut, "/api/game/withdraw_address", cookies, map[string]any{"address": address}, "")
+		assert.Equal(t, i18n.Translate(i18n.DefaultLang, i18n.MsgGameWithdrawAddressInvalid), rejected["message"], address)
+	}
+	bind := map[string]any{"address": "0x8ba1f109551bd432803012645ac136ddd64dba72"}
+	bindProof := gameWithdrawProof(t, router, cookies, http.MethodPut, "/api/game/withdraw_address", bind, "game.withdraw_address")
+	_, bound := accountRequest(t, router, http.MethodPut, "/api/game/withdraw_address", cookies, bind, bindProof)
+	require.Equal(t, true, bound["success"], bound["message"])
+	assert.Equal(t, "0x8ba1f109551bD432803012645Ac136ddd64DBA72", bound["data"].(map[string]any)["address"], "地址按 EIP-55 格式保存")
+	assert.LessOrEqual(t, int64(bound["data"].(map[string]any)["unlock_at"].(float64)), common.GetTimestamp(), "第一次绑定马上能提")
+
+	// 全站当日额度不够、数量不是整币时直接拒绝，不必先做安全验证：验证之后才被拒绝的话，验证白做，重试还要再验证一次。
 	require.NoError(t, db.Create(&model.GameCoinWithdrawDay{Day: gameCenterDay(), Used: 98}).Error)
 	full, fullBody := accountRequest(t, router, http.MethodPost, "/api/game/withdraw", cookies, request, "")
 	assert.Equal(t, http.StatusOK, full.Code, "没有要求安全验证")
 	assert.Equal(t, false, fullBody["success"])
 	require.NoError(t, db.Where("day = ?", gameCenterDay()).Delete(&model.GameCoinWithdrawDay{}).Error)
+	_, fraction := accountRequest(t, router, http.MethodPost, "/api/game/withdraw", cookies, map[string]any{"amount": 2.5}, "")
+	assert.Equal(t, i18n.Translate(i18n.DefaultLang, i18n.MsgGameWithdrawInteger), fraction["message"])
 
-	denied, challenge := accountRequest(t, router, http.MethodPost, "/api/game/withdraw", cookies, request, "")
-	require.Equal(t, http.StatusForbidden, denied.Code)
-	assert.Equal(t, "game.withdraw", challenge["scope"])
-	_, verified := accountRequest(t, router, http.MethodPost, "/api/verify", cookies, map[string]any{
-		"method": "password", "password": "correct-password", "scope": challenge["scope"], "context_hash": challenge["context_hash"],
-	}, "")
-	require.Equal(t, true, verified["success"])
-	proof := verified["data"].(map[string]any)["proof_token"].(string)
-
-	larger, _ := accountRequest(t, router, http.MethodPost, "/api/game/withdraw", cookies, map[string]any{"address": request["address"], "amount": 4}, proof)
+	proof := gameWithdrawProof(t, router, cookies, http.MethodPost, "/api/game/withdraw", request, "game.withdraw")
+	larger, _ := accountRequest(t, router, http.MethodPost, "/api/game/withdraw", cookies, map[string]any{"amount": 4}, proof)
 	assert.Equal(t, http.StatusForbidden, larger.Code, "证明不能拿去提走另一个数量")
-	otherAddress, _ := accountRequest(t, router, http.MethodPost, "/api/game/withdraw", cookies, map[string]any{"address": "0x0000000000000000000000000000000000000001", "amount": 3}, proof)
+	// 拿到证明之后绑定的地址被换掉(这里跳过换绑等待)，证明也不能拿去提到新地址。
+	other := "0x0000000000000000000000000000000000000001"
+	require.NoError(t, db.Model(&model.GameCoinAccount{}).Where("user_id = ?", user.Id).Update("withdraw_address", other).Error)
+	otherAddress, _ := accountRequest(t, router, http.MethodPost, "/api/game/withdraw", cookies, request, proof)
 	assert.Equal(t, http.StatusForbidden, otherAddress.Code, "证明不能拿去提到另一个地址")
+	require.NoError(t, db.Model(&model.GameCoinAccount{}).Where("user_id = ?", user.Id).Update("withdraw_address", "0x8ba1f109551bD432803012645Ac136ddd64DBA72").Error)
 	account, err := model.GetGameCoinAccount(user.Id)
 	require.NoError(t, err)
-	assert.Equal(t, 10, account.Balance)
+	assert.Equal(t, 10.0, coinsOf(t, account.Balance))
 
 	_, created := accountRequest(t, router, http.MethodPost, "/api/game/withdraw", cookies, request, proof)
 	require.Equal(t, true, created["success"], created["message"])
 	withdrawal := created["data"].(map[string]any)["withdrawal"].(map[string]any)
-	assert.Equal(t, "0x8ba1f109551bD432803012645Ac136ddd64DBA72", withdrawal["to_address"], "收款地址按 EIP-55 格式保存")
+	assert.Equal(t, "0x8ba1f109551bD432803012645Ac136ddd64DBA72", withdrawal["to_address"])
+	assert.EqualValues(t, 3, withdrawal["amount"])
 	assert.Equal(t, model.GameCoinWithdrawalStatusPending, withdrawal["status"])
 	// 申请时就记下要发放的代币，worker 只按它发。
 	assert.EqualValues(t, 11155111, withdrawal["chain_id"])
@@ -263,7 +296,17 @@ func TestWithdrawGameCoinsRequiresProofBoundToAddressAndAmount(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, reused.Code)
 	account, err = model.GetGameCoinAccount(user.Id)
 	require.NoError(t, err)
-	assert.Equal(t, 7, account.Balance)
+	assert.Equal(t, 7.0, coinsOf(t, account.Balance))
+
+	rebind := map[string]any{"address": "0x00000000000000000000000000000000000000aa"}
+	rebindProof := gameWithdrawProof(t, router, cookies, http.MethodPut, "/api/game/withdraw_address", rebind, "game.withdraw_address")
+	_, rebound := accountRequest(t, router, http.MethodPut, "/api/game/withdraw_address", cookies, rebind, rebindProof)
+	require.Equal(t, true, rebound["success"], rebound["message"])
+	unlockAt := int64(rebound["data"].(map[string]any)["unlock_at"].(float64))
+	assert.GreaterOrEqual(t, unlockAt, common.GetTimestamp()+model.GameWithdrawRebindLockSeconds-5)
+	locked, lockedBody := accountRequest(t, router, http.MethodPost, "/api/game/withdraw", cookies, request, "")
+	assert.Equal(t, http.StatusOK, locked.Code, "换绑之后的等待时间里不必先做安全验证")
+	assert.Equal(t, i18n.Translate(i18n.DefaultLang, i18n.MsgGameWithdrawAddressLocked, map[string]any{"Time": time.Unix(unlockAt, 0).Format("2006-01-02 15:04")}), lockedBody["message"])
 }
 
 // 管理页只提交改动过的字段：页面打开之后别人关掉了提现，这边只改俄罗斯方块的规则，保存不会把提现又打开；游戏规则里

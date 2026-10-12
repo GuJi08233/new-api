@@ -118,15 +118,15 @@ func TestSudokuFinishChecksTheAnswer(t *testing.T) {
 
 	result := player.ok(http.MethodPost, "/api/game/sudoku/finish", map[string]any{"session_id": session.Id, "grid": puzzle.Solution})
 	assert.EqualValues(t, 3, result["score"], "成绩是解出的难度")
-	assert.EqualValues(t, 2, result["reward"], "200 秒只够 2 个游戏币")
+	assert.Equal(t, 2.0, result["reward"], "200 秒只够 2 个游戏币")
 	assert.Equal(t, model.GameRewardLimitedByTime, result["limited_by"])
-	assert.EqualValues(t, 2, result["balance"])
+	assert.Equal(t, 2.0, result["balance"])
 	assert.Equal(t, map[string]any{"difficulty": 3.0, "givens": float64(puzzle.Givens()), "solved": true}, result["detail"])
 
 	again := player.ok(http.MethodPost, "/api/game/sudoku/finish", map[string]any{"session_id": session.Id, "grid": puzzle.Solution})
 	assert.Equal(t, result, again, "重复交卷返回第一次结算的结果")
 	assert.Nil(t, player.ok(http.MethodGet, "/api/game/sudoku/state", nil)["session"])
-	assert.Equal(t, 2, player.balance())
+	assert.Equal(t, 2.0, player.balance())
 }
 
 // 放弃按成绩 0 结算、什么都不发；放弃之后再交对的答卷，拿到的仍是放弃时的结果。
@@ -139,11 +139,11 @@ func TestSudokuAbandonSettlesNothing(t *testing.T) {
 
 	abandoned := player.ok(http.MethodPost, "/api/game/sudoku/abandon", map[string]any{"session_id": session.Id})
 	assert.EqualValues(t, 0, abandoned["score"])
-	assert.EqualValues(t, 0, abandoned["reward"])
+	assert.Equal(t, 0.0, abandoned["reward"])
 	assert.Equal(t, map[string]any{"difficulty": 1.0, "givens": float64(puzzle.Givens()), "solved": false}, abandoned["detail"])
 	assert.EqualValues(t, 1, abandoned["progress"].(map[string]any)["plays_today"])
 
 	late := player.ok(http.MethodPost, "/api/game/sudoku/finish", map[string]any{"session_id": session.Id, "grid": puzzle.Solution})
 	assert.Equal(t, abandoned, late)
-	assert.Equal(t, 0, player.balance())
+	assert.Equal(t, 0.0, player.balance())
 }

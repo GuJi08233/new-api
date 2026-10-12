@@ -3,7 +3,6 @@ package model
 import (
 	"errors"
 	"fmt"
-	"math"
 	"slices"
 	"strconv"
 	"time"
@@ -16,10 +15,14 @@ import (
 
 // 游戏币是与主钱包 quota 相互独立的余额：由游戏发放或管理员调整获得，可以单向兑换成
 // 主额度(1 币 = 1 美元额度)，也可以提现成链上 ERC-20 代币。余额、流水和提现单都在主库，
-// 兑换时扣币与 quota 入账在同一个事务里；日志库只做事后审计，不参与记账。
+// 兑换时扣币与 quota 入账在同一个事务里；日志库只做事后审计，不参与记账。金额都按额度单位记账(见 GameCoins)，可以有小数。
 
-// GameCoinConvertDailyLimit 是每人每天可兑换的游戏币数量，1 币 = 1 美元额度。转入模拟盘的币可以再转出成额度，也占用这份额度。
+// GameCoinConvertDailyLimit 是每人每天可兑换的整币数，1 币 = 1 美元额度。转入模拟盘的币可以再转出成额度，也占用这份额度。
 const GameCoinConvertDailyLimit = 15
+
+// GameWithdrawRebindLockSeconds 是换绑提现地址之后不能提现的秒数：账号被盗时本人有时间发现，盗号的人也不能马上把币提到
+// 自己的地址。第一次绑定不用等。
+const GameWithdrawRebindLockSeconds = 24 * 60 * 60
 
 const (
 	GameCoinLogTypeAdminAdjust    = "admin_adjust"
@@ -50,6 +53,11 @@ var (
 	ErrGameCoinDailyLimit        = errors.New("game coin daily withdrawal limit reached")
 	ErrGameCoinConvertDailyLimit = errors.New("game coin daily conversion limit reached")
 	ErrGameCoinUserNotFound      = errors.New("user not found")
+	// ErrGameWithdrawAddressUnbound 表示还没有绑定提现地址，ErrGameWithdrawAddressChanged 表示提现单的地址已经不是绑定的地址
+	// (页面打开之后换绑过)，ErrGameWithdrawAddressLocked 表示换绑之后的等待时间还没过。
+	ErrGameWithdrawAddressUnbound = errors.New("game coin withdrawal address is not bound")
+	ErrGameWithdrawAddressChanged = errors.New("game coin withdrawal address has changed")
+	ErrGameWithdrawAddressLocked  = errors.New("game coin withdrawal is locked after rebinding the address")
 )
 
 var unfinishedGameCoinWithdrawalStatuses = []string{
@@ -58,54 +66,59 @@ var unfinishedGameCoinWithdrawalStatuses = []string{
 	GameCoinWithdrawalStatusSent,
 }
 
-// GameCoinAccount 以 user_id 为主键，首次入账时创建。
+// GameCoinAccount 以 user_id 为主键，首次入账或绑定提现地址时创建。
 type GameCoinAccount struct {
-	UserId         int `json:"user_id" gorm:"primaryKey;autoIncrement:false"`
-	Balance        int `json:"balance" gorm:"type:bigint;not null;default:0"`
-	TotalEarned    int `json:"total_earned" gorm:"type:bigint;not null;default:0"`
-	TotalConverted int `json:"total_converted" gorm:"type:bigint;not null;default:0"`
-	TotalWithdrawn int `json:"total_withdrawn" gorm:"type:bigint;not null;default:0"`
+	UserId         int       `json:"user_id" gorm:"primaryKey;autoIncrement:false"`
+	Balance        GameCoins `json:"balance" gorm:"type:bigint;not null;default:0"`
+	TotalEarned    GameCoins `json:"total_earned" gorm:"type:bigint;not null;default:0"`
+	TotalConverted GameCoins `json:"total_converted" gorm:"type:bigint;not null;default:0"`
+	TotalWithdrawn GameCoins `json:"total_withdrawn" gorm:"type:bigint;not null;default:0"`
 	// TotalWagerNet 是下注游戏(例如老虎机)的累计净输赢(派彩减去下注)，输多了为负。下注游戏的输赢不计入
 	// TotalEarned，单独累计后，页面上能看出余额里有多少来自下注游戏。
-	TotalWagerNet int `json:"total_wager_net" gorm:"type:bigint;not null;default:0"`
-	// TotalWagered 是下注游戏的累计下注，老虎机按它决定赔付阶段。
-	TotalWagered int   `json:"total_wagered" gorm:"type:bigint;not null;default:0"`
-	CreatedAt    int64 `json:"created_at" gorm:"bigint"`
-	UpdatedAt    int64 `json:"updated_at" gorm:"bigint"`
+	TotalWagerNet GameCoins `json:"total_wager_net" gorm:"type:bigint;not null;default:0"`
+	// TotalWagered 是下注游戏、对战与奖池的累计下注。
+	TotalWagered GameCoins `json:"total_wagered" gorm:"type:bigint;not null;default:0"`
+	// WithdrawAddress 是绑定的提现地址，链上提现只发往这里；WithdrawUnlockAt 是换绑之后恢复提现的时间，第一次绑定时就是绑定的时间。
+	WithdrawAddress  string `json:"withdraw_address" gorm:"type:varchar(42)"`
+	WithdrawUnlockAt int64  `json:"withdraw_unlock_at" gorm:"bigint"`
+	CreatedAt        int64  `json:"created_at" gorm:"bigint"`
+	UpdatedAt        int64  `json:"updated_at" gorm:"bigint"`
 }
 
 // GameCoinLog 是游戏币流水，每次余额变动一条。
 type GameCoinLog struct {
 	// (user_id, type, id) 索引用于按类型筛选的流水分页，以及统计当天兑换了多少：下注游戏每局都记流水，只靠 user_id 索引
 	// 要把玩家的全部流水读一遍。
-	Id        int    `json:"id" gorm:"index:idx_game_coin_log_user_type,priority:3"`
-	UserId    int    `json:"user_id" gorm:"index;index:idx_game_coin_log_user_type,priority:1"`
-	Type      string `json:"type" gorm:"type:varchar(32);index:idx_game_coin_log_user_type,priority:2"`
-	Amount    int    `json:"amount" gorm:"type:bigint"`  // 入账为正，出账为负
-	Balance   int    `json:"balance" gorm:"type:bigint"` // 本次变动后的余额
-	Quota     int    `json:"quota" gorm:"type:bigint"`   // 兑换得到的主额度，只有兑换流水有值
-	RefId     string `json:"ref_id" gorm:"type:varchar(64);index"`
-	Remark    string `json:"remark" gorm:"type:varchar(255)"`
-	CreatedAt int64  `json:"created_at" gorm:"bigint;index"`
+	Id        int       `json:"id" gorm:"index:idx_game_coin_log_user_type,priority:3"`
+	UserId    int       `json:"user_id" gorm:"index;index:idx_game_coin_log_user_type,priority:1"`
+	Type      string    `json:"type" gorm:"type:varchar(32);index:idx_game_coin_log_user_type,priority:2"`
+	Amount    GameCoins `json:"amount" gorm:"type:bigint"`  // 入账为正，出账为负
+	Balance   GameCoins `json:"balance" gorm:"type:bigint"` // 本次变动后的余额
+	Quota     int       `json:"quota" gorm:"type:bigint"`   // 兑换、模拟盘划转与亏空抵扣对应的额度
+	RefId     string    `json:"ref_id" gorm:"type:varchar(64);index"`
+	Remark    string    `json:"remark" gorm:"type:varchar(255)"`
+	CreatedAt int64     `json:"created_at" gorm:"bigint;index"`
 }
 
 // GameCoinWithdrawal 是一笔链上提现。申请时记下链、合约和精度，只按申请时的代币发放；签名时记下发送地址：
 // 之后即使管理员换了配置或热钱包，对账仍按这笔交易当时的上下文进行。
 type GameCoinWithdrawal struct {
-	Id            int    `json:"id"`
-	TradeNo       string `json:"trade_no" gorm:"type:varchar(64);uniqueIndex"`
-	UserId        int    `json:"user_id" gorm:"index"`
-	ToAddress     string `json:"to_address" gorm:"type:varchar(42)"`
-	Amount        int    `json:"amount" gorm:"type:bigint"`
-	Day           string `json:"day" gorm:"type:varchar(10);index"`
-	Status        string `json:"status" gorm:"type:varchar(16);index"`
-	ChainId       int64  `json:"chain_id" gorm:"bigint"`
-	TokenAddress  string `json:"token_address" gorm:"type:varchar(42)"`
-	TokenDecimals int    `json:"token_decimals" gorm:"not null;default:0"`
-	FromAddress   string `json:"from_address" gorm:"type:varchar(42);index"`
-	Nonce         int64  `json:"nonce" gorm:"bigint"`
-	TxHash        string `json:"tx_hash" gorm:"type:varchar(66);index"`
-	RawTx         string `json:"-" gorm:"type:text"`
+	Id        int    `json:"id"`
+	TradeNo   string `json:"trade_no" gorm:"type:varchar(64);uniqueIndex"`
+	UserId    int    `json:"user_id" gorm:"index"`
+	ToAddress string `json:"to_address" gorm:"type:varchar(42)"`
+	// Amount 是链上发放的整币数，Units 是申请时扣下的游戏币：退回时按它原样退，之后改了 QuotaPerUnit 也不会多退少退。
+	Amount        int       `json:"amount" gorm:"type:bigint"`
+	Units         GameCoins `json:"-" gorm:"type:bigint;not null;default:0"`
+	Day           string    `json:"day" gorm:"type:varchar(10);index"`
+	Status        string    `json:"status" gorm:"type:varchar(16);index"`
+	ChainId       int64     `json:"chain_id" gorm:"bigint"`
+	TokenAddress  string    `json:"token_address" gorm:"type:varchar(42)"`
+	TokenDecimals int       `json:"token_decimals" gorm:"not null;default:0"`
+	FromAddress   string    `json:"from_address" gorm:"type:varchar(42);index"`
+	Nonce         int64     `json:"nonce" gorm:"bigint"`
+	TxHash        string    `json:"tx_hash" gorm:"type:varchar(66);index"`
+	RawTx         string    `json:"-" gorm:"type:text"`
 	// GasLimit 与两项费用(wei，十进制)是当前这笔签名交易的参数：基础费涨过费用上限时，要用同一个 nonce、同样的 gas 加价重签。
 	GasLimit          int64  `json:"-" gorm:"bigint"`
 	MaxFeePerGas      string `json:"-" gorm:"type:varchar(80)"`
@@ -160,9 +173,9 @@ type GameCoinWithdrawDay struct {
 
 // GameCoinConvertDay 记录每个用户每天已兑换的游戏币，与全站提现额度独立。
 type GameCoinConvertDay struct {
-	UserId int    `json:"user_id" gorm:"primaryKey;autoIncrement:false"`
-	Day    string `json:"day" gorm:"type:varchar(10);primaryKey;index"`
-	Used   int    `json:"used" gorm:"type:bigint;not null;default:0"`
+	UserId int       `json:"user_id" gorm:"primaryKey;autoIncrement:false"`
+	Day    string    `json:"day" gorm:"type:varchar(10);primaryKey;index"`
+	Used   GameCoins `json:"used" gorm:"type:bigint;not null;default:0"`
 }
 
 func GetGameCoinAccount(userId int) (GameCoinAccount, error) {
@@ -208,7 +221,7 @@ func lockGameCoinAccountTx(tx *gorm.DB, userId int) (*GameCoinAccount, error) {
 
 // creditGameCoinsTx 给账户加币，账户不存在时先建出来。余额和 quota 一样受 2^53 边界约束，
 // 越界时返回错误让整笔事务回滚，而不是写出前端无法精确表示的数字。
-func creditGameCoinsTx(tx *gorm.DB, userId int, amount int, fields map[string]interface{}) (int, error) {
+func creditGameCoinsTx(tx *gorm.DB, userId int, amount GameCoins, fields map[string]interface{}) (GameCoins, error) {
 	if amount < 1 || amount >= common.MaxQuota {
 		return 0, ErrGameCoinAmountInvalid
 	}
@@ -235,7 +248,7 @@ func creditGameCoinsTx(tx *gorm.DB, userId int, amount int, fields map[string]in
 }
 
 // debitGameCoinsTx 用一条条件更新检查并扣减余额，并发扣减不会透支。
-func debitGameCoinsTx(tx *gorm.DB, userId int, amount int, fields map[string]interface{}) (int, error) {
+func debitGameCoinsTx(tx *gorm.DB, userId int, amount GameCoins, fields map[string]interface{}) (GameCoins, error) {
 	if amount < 1 || amount >= common.MaxQuota {
 		return 0, ErrGameCoinAmountInvalid
 	}
@@ -256,26 +269,15 @@ func debitGameCoinsTx(tx *gorm.DB, userId int, amount int, fields map[string]int
 	return readGameCoinBalanceTx(tx, userId)
 }
 
-func readGameCoinBalanceTx(tx *gorm.DB, userId int) (int, error) {
-	var balance int
+func readGameCoinBalanceTx(tx *gorm.DB, userId int) (GameCoins, error) {
+	var balance GameCoins
 	err := tx.Model(&GameCoinAccount{}).Where("user_id = ?", userId).Select("balance").Scan(&balance).Error
 	return balance, err
 }
 
-// GameCoinQuota 返回 coins 个游戏币对应的额度：1 币 = 1 美元，与模拟盘用同一汇率，兑换主额度与划入模拟盘按同一个数记账。
-// 先校验乘法边界，绝不截断或夹紧用户资金。
-func GameCoinQuota(coins int) (int, error) {
-	if coins <= 0 || coins >= common.MaxQuota || math.IsNaN(common.QuotaPerUnit) || math.IsInf(common.QuotaPerUnit, 0) {
-		return 0, ErrGameCoinAmountInvalid
-	}
-	perUsd, err := TradeQuotaPerUsd()
-	if err != nil {
-		return 0, err
-	}
-	if perUsd <= 0 || coins > (common.MaxQuota-1)/perUsd {
-		return 0, ErrGameCoinAmountInvalid
-	}
-	return coins * perUsd, nil
+// GameCoinConvertDailyCap 是每人每天能兑换(含转入模拟盘)的游戏币，即 GameCoinConvertDailyLimit 个整币。
+func GameCoinConvertDailyCap() (GameCoins, error) {
+	return WholeGameCoins(GameCoinConvertDailyLimit)
 }
 
 // GameCenterDay 返回 t 所在的游戏中心记账日：每日游戏奖励、个人兑换限额与全站提现额度都按它切换，与签到一样按服务器本地时间
@@ -284,33 +286,37 @@ func GameCenterDay(t time.Time) string {
 	return t.Format("2006-01-02")
 }
 
-// ConvertGameCoinsToQuota 把游戏币单向兑换为主额度，每人每天最多兑换 GameCoinConvertDailyLimit 个币。
-// 日额度、扣币、流水和 quota 入账在同一个事务里，任何一步失败都不占用日额度，也不扣币。
-func ConvertGameCoinsToQuota(userId int, coins int) (quota int, balance int, err error) {
-	quota, err = GameCoinQuota(coins)
+// ConvertGameCoinsToQuota 把游戏币单向兑换为主额度，每人每天最多兑换 GameCoinConvertDailyLimit 个币。游戏币按额度单位记账，
+// 兑换多少个单位就入账多少额度，可以有小数。日额度、扣币、流水和 quota 入账在同一个事务里，任何一步失败都不占用日额度，也不扣币。
+func ConvertGameCoinsToQuota(userId int, amount GameCoins) (quota int, balance GameCoins, err error) {
+	if amount < 1 || amount >= common.MaxQuota {
+		return 0, 0, ErrGameCoinAmountInvalid
+	}
+	limit, err := GameCoinConvertDailyCap()
 	if err != nil {
 		return 0, 0, err
 	}
-	if coins > GameCoinConvertDailyLimit {
+	if amount > limit {
 		return 0, 0, ErrGameCoinConvertDailyLimit
 	}
+	quota = int(amount)
 	now := time.Now()
 	day := GameCenterDay(now)
 	err = DB.Transaction(func(tx *gorm.DB) error {
 		var txErr error
-		balance, txErr = debitGameCoinsTx(tx, userId, coins, map[string]interface{}{
-			"total_converted": gorm.Expr("total_converted + ?", coins),
+		balance, txErr = debitGameCoinsTx(tx, userId, amount, map[string]interface{}{
+			"total_converted": gorm.Expr("total_converted + ?", amount),
 		})
 		if txErr != nil {
 			return txErr
 		}
-		if txErr = consumeGameCoinConvertDayTx(tx, userId, day, coins); txErr != nil {
+		if txErr = consumeGameCoinConvertDayTx(tx, userId, day, amount); txErr != nil {
 			return txErr
 		}
 		if txErr = tx.Create(&GameCoinLog{
 			UserId:    userId,
 			Type:      GameCoinLogTypeConvert,
-			Amount:    -coins,
+			Amount:    -amount,
 			Balance:   balance,
 			Quota:     quota,
 			CreatedAt: now.Unix(),
@@ -326,9 +332,13 @@ func ConvertGameCoinsToQuota(userId int, coins int) (quota int, balance int, err
 	return quota, balance, nil
 }
 
-// consumeGameCoinConvertDayTx 占用用户当天的兑换额度，超过 GameCoinConvertDailyLimit 时返回 ErrGameCoinConvertDailyLimit。
+// consumeGameCoinConvertDayTx 占用用户当天的兑换额度，超过 GameCoinConvertDailyLimit 个币时返回 ErrGameCoinConvertDailyLimit。
 // 兑换主额度和转入模拟盘共用这份额度。调用方要先锁住用户的游戏币账户，同一用户的占用依次进行。
-func consumeGameCoinConvertDayTx(tx *gorm.DB, userId int, day string, coins int) error {
+func consumeGameCoinConvertDayTx(tx *gorm.DB, userId int, day string, amount GameCoins) error {
+	limit, err := GameCoinConvertDailyCap()
+	if err != nil {
+		return err
+	}
 	// 首次启用日限额时把今天已有的流水计入，升级当天不会重新得到一份额度。
 	used, err := gameCoinConvertDayUsed(tx, userId, day)
 	if err != nil {
@@ -338,8 +348,8 @@ func consumeGameCoinConvertDayTx(tx *gorm.DB, userId int, day string, coins int)
 		return err
 	}
 	result := tx.Model(&GameCoinConvertDay{}).
-		Where("user_id = ? AND day = ? AND used <= ?", userId, day, GameCoinConvertDailyLimit-coins).
-		Update("used", gorm.Expr("used + ?", coins))
+		Where("user_id = ? AND day = ? AND used <= ?", userId, day, limit-amount).
+		Update("used", gorm.Expr("used + ?", amount))
 	if result.Error != nil {
 		return result.Error
 	}
@@ -349,13 +359,13 @@ func consumeGameCoinConvertDayTx(tx *gorm.DB, userId int, day string, coins int)
 	return nil
 }
 
-// GetGameCoinConvertDayUsed 返回用户在服务器本地记账日已经兑换和转入模拟盘的游戏币数量。
-func GetGameCoinConvertDayUsed(userId int, day string) (int, error) {
+// GetGameCoinConvertDayUsed 返回用户在服务器本地记账日已经兑换和转入模拟盘的游戏币。
+func GetGameCoinConvertDayUsed(userId int, day string) (GameCoins, error) {
 	return gameCoinConvertDayUsed(DB, userId, day)
 }
 
 // gameCoinConvertDayUsed 兼容日限额上线前的兑换与转入模拟盘记录；查询本身不创建或改变计数。
-func gameCoinConvertDayUsed(tx *gorm.DB, userId int, day string) (int, error) {
+func gameCoinConvertDayUsed(tx *gorm.DB, userId int, day string) (GameCoins, error) {
 	var rows []GameCoinConvertDay
 	if err := tx.Where("user_id = ? AND day = ?", userId, day).Limit(1).Find(&rows).Error; err != nil {
 		return 0, err
@@ -367,7 +377,7 @@ func gameCoinConvertDayUsed(tx *gorm.DB, userId int, day string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	var used int
+	var used GameCoins
 	err = tx.Model(&GameCoinLog{}).
 		Where("user_id = ? AND type IN ? AND amount < 0 AND created_at >= ? AND created_at < ?",
 			userId, []string{GameCoinLogTypeConvert, GameCoinLogTypeTradeOut}, start.Unix(), start.AddDate(0, 0, 1).Unix()).
@@ -375,12 +385,12 @@ func gameCoinConvertDayUsed(tx *gorm.DB, userId int, day string) (int, error) {
 	return used, err
 }
 
-// AdjustGameCoins 是管理员给用户加减游戏币，delta 为正加币、为负扣币，扣币不会透支。
-func AdjustGameCoins(userId int, delta int, remark string) (int, error) {
+// AdjustGameCoins 是管理员给用户加减游戏币，delta 为正加币、为负扣币，可以有小数，扣币不会透支。
+func AdjustGameCoins(userId int, delta GameCoins, remark string) (GameCoins, error) {
 	if delta == 0 || delta <= -common.MaxQuota || delta >= common.MaxQuota {
 		return 0, ErrGameCoinAmountInvalid
 	}
-	var balance int
+	var balance GameCoins
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		var users int64
 		if err := tx.Model(&User{}).Where("id = ?", userId).Count(&users).Error; err != nil {
@@ -412,23 +422,67 @@ func AdjustGameCoins(userId int, delta int, remark string) (int, error) {
 	return balance, err
 }
 
+// BindGameWithdrawAddress 绑定或更换用户的提现地址，address 由调用方校验并规范成 EIP-55 格式。第一次绑定立即可以提现；换成另一个地址后
+// GameWithdrawRebindLockSeconds 秒内不能提现，重复绑定同一个地址不改变等待时间。返回绑定之后的账户。
+func BindGameWithdrawAddress(userId int, address string) (*GameCoinAccount, error) {
+	var account *GameCoinAccount
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		var err error
+		if account, err = lockGameCoinAccountTx(tx, userId); err != nil {
+			return err
+		}
+		if account.WithdrawAddress == address {
+			return nil
+		}
+		now := common.GetTimestamp()
+		unlockAt := now
+		if account.WithdrawAddress != "" {
+			unlockAt = now + GameWithdrawRebindLockSeconds
+		}
+		account.WithdrawAddress, account.WithdrawUnlockAt, account.UpdatedAt = address, unlockAt, now
+		return tx.Model(&GameCoinAccount{}).Where("user_id = ?", userId).Updates(map[string]interface{}{
+			"withdraw_address":   address,
+			"withdraw_unlock_at": unlockAt,
+			"updated_at":         now,
+		}).Error
+	})
+	if err != nil {
+		return nil, err
+	}
+	return account, nil
+}
+
 // CreateGameCoinWithdrawal 在一个事务里扣币、占用当日全站额度并生成待发送的提现单。withdrawal 由调用方填好用户、
-// 收款地址、数量、记账日与要发放的代币(链、合约、精度)，单号、状态与时间在这里生成。
-// 它必须先于任何链上动作成功，之后每条失败路径都由 FailGameCoinWithdrawal 原路退回。
-func CreateGameCoinWithdrawal(withdrawal *GameCoinWithdrawal, dailyLimit int) (int, error) {
+// 收款地址(必须是绑定的提现地址)、整币数、记账日与要发放的代币(链、合约、精度)，单号、状态、扣下的游戏币与时间在这里生成。
+// 换绑之后的等待时间还没过时返回 ErrGameWithdrawAddressLocked。它必须先于任何链上动作成功，之后每条失败路径都由
+// FailGameCoinWithdrawal 原路退回。
+func CreateGameCoinWithdrawal(withdrawal *GameCoinWithdrawal, dailyLimit int) (GameCoins, error) {
 	amount := withdrawal.Amount
-	if amount < 1 || amount >= common.MaxQuota {
+	units, err := WholeGameCoins(amount)
+	if err != nil || amount < 1 {
 		return 0, ErrGameCoinAmountInvalid
 	}
 	now := common.GetTimestamp()
 	withdrawal.TradeNo = fmt.Sprintf("GW%d%s%s", withdrawal.UserId, strconv.FormatInt(time.Now().UnixMilli(), 36), common.GetRandomString(6))
 	withdrawal.Status = GameCoinWithdrawalStatusPending
+	withdrawal.Units = units
 	withdrawal.CreatedAt = now
 	withdrawal.UpdatedAt = now
-	var balance int
-	err := DB.Transaction(func(tx *gorm.DB) error {
-		var err error
-		balance, err = debitGameCoinsTx(tx, withdrawal.UserId, amount, nil)
+	var balance GameCoins
+	err = DB.Transaction(func(tx *gorm.DB) error {
+		account, err := lockGameCoinAccountTx(tx, withdrawal.UserId)
+		if err != nil {
+			return err
+		}
+		switch {
+		case account.WithdrawAddress == "":
+			return ErrGameWithdrawAddressUnbound
+		case account.WithdrawAddress != withdrawal.ToAddress:
+			return ErrGameWithdrawAddressChanged
+		case account.WithdrawUnlockAt > now:
+			return ErrGameWithdrawAddressLocked
+		}
+		balance, err = debitGameCoinsTx(tx, withdrawal.UserId, units, nil)
 		if err != nil {
 			return err
 		}
@@ -449,7 +503,7 @@ func CreateGameCoinWithdrawal(withdrawal *GameCoinWithdrawal, dailyLimit int) (i
 		return tx.Create(&GameCoinLog{
 			UserId:    withdrawal.UserId,
 			Type:      GameCoinLogTypeWithdraw,
-			Amount:    -amount,
+			Amount:    -units,
 			Balance:   balance,
 			RefId:     withdrawal.TradeNo,
 			CreatedAt: now,
@@ -459,6 +513,14 @@ func CreateGameCoinWithdrawal(withdrawal *GameCoinWithdrawal, dailyLimit int) (i
 		return 0, err
 	}
 	return balance, nil
+}
+
+// gameCoinWithdrawalUnits 是一笔提现扣下的游戏币。按额度单位记账之前的提现单由迁移补上；没补上的按整币数折算。
+func gameCoinWithdrawalUnits(withdrawal *GameCoinWithdrawal) (GameCoins, error) {
+	if withdrawal.Units > 0 {
+		return withdrawal.Units, nil
+	}
+	return WholeGameCoins(withdrawal.Amount)
 }
 
 // GetGameCoinWithdrawDayUsed 返回某天全站已占用的提现额度。
@@ -659,8 +721,12 @@ func ConfirmGameCoinWithdrawal(observed *GameCoinWithdrawal, minedTxHash string)
 			return nil
 		}
 		confirmed = true
+		units, err := gameCoinWithdrawalUnits(&withdrawal)
+		if err != nil {
+			return err
+		}
 		return tx.Model(&GameCoinAccount{}).Where("user_id = ?", withdrawal.UserId).Updates(map[string]interface{}{
-			"total_withdrawn": gorm.Expr("total_withdrawn + ?", withdrawal.Amount),
+			"total_withdrawn": gorm.Expr("total_withdrawn + ?", units),
 			"updated_at":      now,
 		}).Error
 	})
@@ -701,14 +767,18 @@ func FailGameCoinWithdrawal(observed *GameCoinWithdrawal, reason string, detail 
 			Update("used", gorm.Expr("used - ?", withdrawal.Amount)).Error; err != nil {
 			return err
 		}
-		balance, err := creditGameCoinsTx(tx, withdrawal.UserId, withdrawal.Amount, nil)
+		units, err := gameCoinWithdrawalUnits(&withdrawal)
+		if err != nil {
+			return err
+		}
+		balance, err := creditGameCoinsTx(tx, withdrawal.UserId, units, nil)
 		if err != nil {
 			return err
 		}
 		return tx.Create(&GameCoinLog{
 			UserId:    withdrawal.UserId,
 			Type:      GameCoinLogTypeWithdrawRefund,
-			Amount:    withdrawal.Amount,
+			Amount:    units,
 			Balance:   balance,
 			RefId:     withdrawal.TradeNo,
 			Remark:    truncateRiskField(reason, 255),

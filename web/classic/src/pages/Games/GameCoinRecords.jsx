@@ -38,6 +38,7 @@ import {
   getGameMetaMap,
 } from '../../constants';
 import { TxHashLink } from './common/TxHashLink';
+import { formatCoins, signed } from './common/api';
 
 const { Text } = Typography;
 
@@ -126,7 +127,7 @@ const GameCoinRecords = ({ version, symbol, explorerUrl, chainId }) => {
         if (value < 0) type = 'danger';
         return (
           <Text type={type} strong>
-            {value > 0 ? `+${value}` : value} {symbol}
+            {signed(value)} {symbol}
           </Text>
         );
       },
@@ -134,7 +135,7 @@ const GameCoinRecords = ({ version, symbol, explorerUrl, chainId }) => {
     {
       title: t('余额'),
       dataIndex: 'balance',
-      render: (value) => `${value} ${symbol}`,
+      render: (value) => `${formatCoins(value)} ${symbol}`,
     },
     {
       title: t('说明'),
@@ -166,8 +167,12 @@ const GameCoinRecords = ({ version, symbol, explorerUrl, chainId }) => {
         if (record.type === 'withdraw_refund' && value) {
           return failReasons[value] || value;
         }
-        // 模拟盘划转的关联号是模拟盘资金流水的编号。
-        if (record.type === 'trade_in' || record.type === 'trade_out') {
+        // 模拟盘划转与补亏空的关联号是模拟盘资金流水的编号。
+        if (
+          record.type === 'trade_in' ||
+          record.type === 'trade_out' ||
+          record.type === 'trade_cover'
+        ) {
           return t('模拟盘资金流水 #{{id}}', { id: record.ref_id });
         }
         return value || record.ref_id || '-';

@@ -224,6 +224,27 @@ For commercial licensing, please contact support@quantumnous.com
   color: var(--semi-color-text-2);
 }
 
+/* 绑定的提现地址：标题、地址与绑定按钮排成一行。 */
+.games-withdraw-address {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--semi-color-text-2);
+}
+
+.games-withdraw-address > span:first-child {
+  white-space: nowrap;
+}
+
+.games-withdraw-address > button {
+  margin-left: auto;
+}
+
+.games-bind-rules {
+  margin-top: 12px;
+}
+
 .games-token {
   display: flex;
   flex-direction: column;
@@ -954,6 +975,24 @@ For commercial licensing, please contact support@quantumnous.com
   margin-left: 3px;
   font-size: 13px;
   color: var(--semi-color-warning);
+}
+
+/* 下注数量可以直接输入，看起来和旁边的数字一样，宽度随内容变化。 */
+.game-bet-input {
+  min-width: 2ch;
+  padding: 0;
+  border: none;
+  border-bottom: 1px dashed transparent;
+  outline: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: center;
+}
+
+.game-bet-input:hover:not(:disabled),
+.game-bet-input:focus {
+  border-bottom-color: var(--semi-color-primary);
 }
 
 .game-bet-button,

@@ -67,10 +67,22 @@ export function withTurnstile(url, token) {
   return token ? `${url}?turnstile=${encodeURIComponent(token)}` : url;
 }
 
-// 带正负号的整数，用于今日输赢。
+// 游戏币数量的显示：游戏币可以有小数(按额度单位记账，最多 6 位)，去掉多余的零并按千分位分组。
+export function formatCoins(value) {
+  return Number(value || 0).toLocaleString(undefined, {
+    maximumFractionDigits: 6,
+  });
+}
+
+// 游戏币数量换成分(0.01 个币)，不足一分的舍去。下注、押注最多两位小数，按分加减不会有浮点误差。
+export function toCoinCents(value) {
+  return Math.floor(Number(value || 0) * 100 + 1e-6);
+}
+
+// 带正负号的游戏币数量，用于今日输赢。
 export function signed(value) {
   const number = Number(value || 0);
-  return number > 0 ? `+${number}` : `${number}`;
+  return number > 0 ? `+${formatCoins(number)}` : formatCoins(number);
 }
 
 // 百分比，去掉多余的零：0.9644 → 96.44%。
@@ -78,4 +90,4 @@ export function percent(ratio, digits = 2) {
   return `${Number((ratio * 100).toFixed(digits))}%`;
 }
 
-export const formatNumber = (value) => Number(value || 0).toLocaleString();
+export const formatNumber = (value) => formatCoins(value);

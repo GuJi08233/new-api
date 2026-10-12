@@ -103,7 +103,7 @@ func setTradeTestBook(version int64, bids []tradesim.Level, asks []tradesim.Leve
 func fundTradeTestUser(t *testing.T, userId int, usd string) {
 	t.Helper()
 	require.NoError(t, model.DB.Create(&model.User{Id: userId, Username: "trade-svc-" + strconv.Itoa(userId), AffCode: "trade-svc-aff-" + strconv.Itoa(userId), Quota: tradeTestUsd(usd)}).Error)
-	_, err := model.TransferQuotaToTrade(userId, tradeTestUsd(usd))
+	_, err := model.TransferQuotaToTrade(userId, tradeTestUsd(usd), model.TradeEquity{})
 	require.NoError(t, err)
 }
 

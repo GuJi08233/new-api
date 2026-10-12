@@ -27,7 +27,7 @@ func TestJackpotRefreshSettlesOnlyDueRounds(t *testing.T) {
 
 	info := first.ok(http.MethodGet, "/api/game/jackpot", nil)
 	round := info["round"].(map[string]any)
-	assert.EqualValues(t, 40, round["pot"], "没到开奖时间，奖池还开着")
+	assert.Equal(t, 40.0, round["pot"], "没到开奖时间，奖池还开着")
 	assert.Empty(t, info["recent"])
 
 	require.NoError(t, env.db.Model(&model.GameJackpotRound{}).Where("id = ?", round["id"]).Update("deadline", common.GetTimestamp()-1).Error)
@@ -36,20 +36,20 @@ func TestJackpotRefreshSettlesOnlyDueRounds(t *testing.T) {
 	recent := info["recent"].([]any)
 	require.Len(t, recent, 1)
 	drawn := recent[0].(map[string]any)
-	assert.EqualValues(t, 36, drawn["payout"], "奖池 40，抽成 10%")
+	assert.Equal(t, 36.0, drawn["payout"], "奖池 40，抽成 10%")
 	assert.Len(t, drawn["stakes"], 2)
-	assert.Equal(t, 56, first.balance(), "第一张奖券属于先投入的玩家")
-	assert.Equal(t, 40, second.balance())
+	assert.Equal(t, 56.0, first.balance(), "第一张奖券属于先投入的玩家")
+	assert.Equal(t, 40.0, second.balance())
 
 	first.ok(http.MethodPost, "/api/game/jackpot/enter", map[string]any{"amount": 6})
 	info = first.ok(http.MethodGet, "/api/game/jackpot", nil)
 	round = info["round"].(map[string]any)
-	assert.EqualValues(t, 6, round["pot"], "只有一位玩家、还没放够时间，奖池还开着")
-	assert.Equal(t, 50, first.balance())
+	assert.Equal(t, 6.0, round["pot"], "只有一位玩家、还没放够时间，奖池还开着")
+	assert.Equal(t, 50.0, first.balance())
 
 	require.NoError(t, env.db.Model(&model.GameJackpotRound{}).Where("id = ?", round["id"]).
 		Update("created_at", common.GetTimestamp()-jackpotStaleSeconds-1).Error)
 	info = second.ok(http.MethodGet, "/api/game/jackpot", nil)
 	assert.Nil(t, info["round"], "放太久之后的刷新退回投入")
-	assert.Equal(t, 56, first.balance())
+	assert.Equal(t, 56.0, first.balance())
 }

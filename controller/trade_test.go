@@ -69,6 +69,8 @@ func TestTradeTransferRejectsInvalidWalletInputs(t *testing.T) {
 		{"zero coins", `{"direction":"out","amount":"0","wallet":"game_coin"}`, "Invalid transfer amount"},
 		{"negative coins", `{"direction":"out","amount":"-1","wallet":"game_coin"}`, "Invalid transfer amount"},
 		{"oversized coins", `{"direction":"out","amount":"9007199254740992","wallet":"game_coin"}`, "Invalid transfer amount"},
+		{"coins finer than a quota unit", `{"direction":"out","amount":"1.0000001","wallet":"game_coin"}`, "Invalid transfer amount"},
+		{"coins in scientific notation", `{"direction":"out","amount":"1e3","wallet":"game_coin"}`, "Invalid transfer amount"},
 		{"invalid direction", `{"direction":"send","amount":"1","wallet":"game_coin"}`, "Invalid"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

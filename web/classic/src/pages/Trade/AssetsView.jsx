@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Button, Table, Typography } from '@douyinfe/semi-ui';
+import { Button, Select, Table, Typography } from '@douyinfe/semi-ui';
 import { VChart } from '@visactor/react-vchart';
 import { ArrowDownToLine, ArrowUpFromLine } from 'lucide-react';
 import FuturesPositions from './FuturesPositions';
@@ -33,8 +33,10 @@ import {
   formatUsdt,
   toUsdt,
   tradeGet,
+  tradePost,
   trendClass,
 } from './api';
+import { showError } from '../../helpers';
 
 const { Text, Title } = Typography;
 
@@ -55,7 +57,20 @@ const AssetsView = ({
   const [futuresPositions, setFuturesPositions] = useState([]);
   const [cross, setCross] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [savingLossOrder, setSavingLossOrder] = useState(false);
   const valuation = self?.valuation;
+
+  // 亏损抵扣顺序：亏损先记到游戏币还是平台额度那部分本金上，决定能转回多少游戏币，也决定穿仓的亏空先从哪个钱包补。
+  const changeLossOrder = async (order) => {
+    setSavingLossOrder(true);
+    const res = await tradePost('/api/trade/loss_order', { order }, t);
+    setSavingLossOrder(false);
+    if (res.error) {
+      showError(res.error);
+      return;
+    }
+    onSelfChanged(res.data);
+  };
 
   const loadFutures = useCallback(async () => {
     const res = await tradeGet('/api/trade/futures/positions', t);
@@ -308,6 +323,26 @@ const AssetsView = ({
             {t('游戏币余额：{{amount}}', {
               amount: self.wallet?.game_coins || 0,
             })}
+          </Text>
+          <Select
+            size='small'
+            prefix={t('亏损先扣')}
+            value={
+              self.account?.loss_order === 'quota_first'
+                ? 'quota_first'
+                : 'coin_first'
+            }
+            loading={savingLossOrder}
+            onChange={changeLossOrder}
+            optionList={[
+              { value: 'coin_first', label: t('游戏币') },
+              { value: 'quota_first', label: t('平台额度') },
+            ]}
+          />
+          <Text type='tertiary' size='small'>
+            {t(
+              '亏损先算在这种本金上：选游戏币时能转回的游戏币先变少。穿仓的亏空也先从这个钱包补，不够再用另一个',
+            )}
           </Text>
         </div>
       </div>

@@ -69,22 +69,22 @@ func TestSpinRoulettePaysEveryWinningBet(t *testing.T) {
 		result := player.ok(http.MethodPost, "/api/game/roulette/spin", map[string]any{"bets": c.bets})
 		assert.EqualValues(t, c.number, result["number"], "case %d number", i)
 		assert.Equal(t, c.wantColor, result["color"], "case %d color", i)
-		assert.EqualValues(t, c.wantBet, result["bet"], "case %d bet", i)
-		assert.EqualValues(t, c.wantWin, result["win"], "case %d win", i)
-		assert.EqualValues(t, c.wantBalance, result["balance"], "case %d balance", i)
+		assert.Equal(t, float64(c.wantBet), result["bet"], "case %d bet", i)
+		assert.Equal(t, float64(c.wantWin), result["win"], "case %d win", i)
+		assert.Equal(t, float64(c.wantBalance), result["balance"], "case %d balance", i)
 		bets := result["bets"].([]any)
 		require.Len(t, bets, len(c.bets), "case %d bets", i)
 		for j, bet := range bets {
 			view := bet.(map[string]any)
 			assert.Equal(t, c.bets[j]["type"], view["type"], "case %d bet %d type", i, j)
 			assert.EqualValues(t, c.bets[j]["amount"], view["amount"], "case %d bet %d amount", i, j)
-			assert.EqualValues(t, c.wantWins[j], view["win"], "case %d bet %d win", i, j)
+			assert.Equal(t, float64(c.wantWins[j]), view["win"], "case %d bet %d win", i, j)
 		}
 	}
 	account, err := model.GetGameCoinAccount(player.user.Id)
 	require.NoError(t, err)
-	assert.Equal(t, 49, account.TotalWagered)
-	assert.Equal(t, 232, account.TotalWagerNet)
+	assert.Equal(t, 49.0, coinsOf(t, account.TotalWagered))
+	assert.Equal(t, 232.0, coinsOf(t, account.TotalWagerNet))
 	var bigWinLogs int64
 	require.NoError(t, env.db.Model(&model.Log{}).Where("user_id = ? AND type = ? AND content LIKE ?", player.user.Id, model.LogTypeSystem, "游戏大奖%").Count(&bigWinLogs).Error)
 	assert.EqualValues(t, 1, bigWinLogs, "只有押中 0 的那一局净赢超过 100 个")
@@ -116,7 +116,7 @@ func TestSpinRouletteRejectsInvalidBets(t *testing.T) {
 		{{"type": roulette.Red, "value": 7, "amount": 1}},
 		{{"type": roulette.Red, "amount": 1}, {"type": roulette.Black, "amount": 0}},
 		{{"type": roulette.Red, "amount": -5}},
-		{{"type": roulette.Red, "amount": 1.5}},
+		{{"type": roulette.Red, "amount": 1.005}},
 		{{"type": roulette.Red, "amount": 101}},
 		{{"type": roulette.Red, "amount": 60}, {"type": roulette.Black, "amount": 41}},
 		{{"type": roulette.Red, "amount": 61}},
@@ -127,7 +127,7 @@ func TestSpinRouletteRejectsInvalidBets(t *testing.T) {
 	player.fails(http.MethodPost, "/api/game/roulette/spin", map[string]any{"bets": []map[string]any{{"type": roulette.Red, "amount": 1}}})
 	player.fails(http.MethodGet, "/api/game/roulette", nil)
 
-	assert.Equal(t, 60, player.balance())
+	assert.Equal(t, 60.0, player.balance())
 	var sessions int64
 	require.NoError(t, env.db.Model(&model.GameSession{}).Where("user_id = ?", player.user.Id).Count(&sessions).Error)
 	assert.Zero(t, sessions)

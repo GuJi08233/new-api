@@ -160,7 +160,7 @@ const Hilo = () => {
               count: info.max_skips,
             }),
             t(
-              '至少猜对一次才能兑现，派彩向下取整；到下注的 {{max}} 倍时自动兑现',
+              '至少猜对一次才能兑现，派彩可以有小数；到下注的 {{max}} 倍时自动兑现',
               { max: maxMultiplier },
             ),
             t('每猜一次的理论返还率都是 {{rate}}%', { rate: info.rtp_percent }),

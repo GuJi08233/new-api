@@ -27,25 +27,32 @@ func init() {
 	})
 }
 
-// plinkoInfo 返回 Plinko 页的信息：每一档扣 cost 个游戏币、落进第 k 格派彩 payouts[k] 个，落进第 k 格的概率是 weights[k]
-// 除以 weights 之和；open 为假的一档没有开放(挡位高于管理员设的最高一档)。浏览器据此画出钉板、公示概率，照着服务端给出的
-// 路径播放小球落下的动画。
+// plinkoInfo 返回 Plinko 页的信息：每一档扣 cost(就是挡位 stake)个游戏币、落进第 k 格派彩 payouts[k] 个(挡位乘以这一格的倍率，
+// 可以有小数)，落进第 k 格的概率是 weights[k] 除以 weights 之和；open 为假的一档没有开放(挡位高于管理员设的最高一档)。浏览器据此
+// 画出钉板、公示概率，照着服务端给出的路径播放小球落下的动画。
 func plinkoInfo(ctx *gameContext) (gin.H, error) {
 	rule := ctx.Setting.Plinko
 	info, err := wagerInfo(ctx, gamePlinko, rule.MaxBet)
 	if err != nil {
 		return nil, err
 	}
-	tiers := make([]gin.H, 0, len(plinko.Tiers))
-	for _, tier := range plinko.Tiers {
-		paid, cost := plinko.Payback(tier)
+	paid, cost := plinko.Payback()
+	tiers := make([]gin.H, 0, len(plinko.Stakes))
+	for _, stake := range plinko.Stakes {
+		units, err := model.WholeGameCoins(stake)
+		if err != nil {
+			return nil, err
+		}
+		var payouts [plinko.Slots]model.GameCoins
+		for slot := range payouts {
+			payouts[slot] = model.GameCoins(plinko.Payout(int(units), slot))
+		}
 		tiers = append(tiers, gin.H{
-			"stake":   tier.Stake,
-			"cost":    tier.Cost,
-			"delta":   tier.Delta,
-			"payouts": tier.Payouts,
+			"stake":   stake,
+			"cost":    stake,
+			"payouts": payouts,
 			"payback": float64(paid) / float64(cost),
-			"open":    tier.Stake <= rule.MaxBet,
+			"open":    stake <= rule.MaxBet,
 		})
 	}
 	info["rows"] = plinko.Rows
@@ -77,26 +84,22 @@ func DropPlinko(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
-	if !validWagerStep(c, req.Stake, operation_setting.GameBetSteps(gamePlinko), rule.MaxBet) {
-		return
-	}
-	tier, ok := plinko.TierOf(req.Stake)
+	bet, ok := validWagerStep(c, req.Stake, operation_setting.GameBetSteps(gamePlinko), rule.MaxBet)
 	if !ok {
-		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
 	var path [plinko.Rows]int
 	var slot int
 	result, err := model.SettleGameWager(c.GetInt("id"), gamePlinko, model.GameWager{
-		Bet: tier.Cost,
-		Play: func() (int, string, error) {
+		Bet: bet,
+		Play: func() (model.GameCoins, string, error) {
 			var err error
 			if path, err = dropPlinko(); err != nil {
 				return 0, "", err
 			}
 			slot = plinko.SlotOf(path)
-			detail, err := common.Marshal(plinkoDetail{Stake: tier.Stake, Path: path, Slot: slot})
-			return tier.Payouts[slot], string(detail), err
+			detail, err := common.Marshal(plinkoDetail{Stake: req.Stake, Path: path, Slot: slot})
+			return model.GameCoins(plinko.Payout(int(bet), slot)), string(detail), err
 		},
 		Day: gameCenterDay(),
 		Ip:  gameRewardIpKey(c.ClientIP()),
@@ -107,7 +110,7 @@ func DropPlinko(c *gin.Context) {
 	}
 	auditGameWin(c, gamePlinko, "Plinko", result.Session)
 	view := wagerResultView(result)
-	view["stake"] = tier.Stake
+	view["stake"] = req.Stake
 	view["path"] = path
 	view["slot"] = slot
 	common.ApiSuccess(c, view)

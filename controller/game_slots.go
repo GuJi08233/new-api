@@ -39,7 +39,7 @@ func init() {
 }
 
 type slotsSpinRequest struct {
-	Bet int `json:"bet"`
+	Bet model.GameCoins `json:"bet"`
 }
 
 // slotsDetail 是老虎机一局的明细，存在对局的 Detail 里供事后核查。
@@ -60,19 +60,19 @@ func SpinSlots(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
-	if !validWagerBet(c, req.Bet, 1, rule.MaxBet) {
+	if !validWagerBet(c, req.Bet, rule.MaxBet) {
 		return
 	}
 	var spin slots.Result
 	result, err := model.SettleGameWager(c.GetInt("id"), gameSlots, model.GameWager{
 		Bet: req.Bet,
-		Play: func() (int, string, error) {
+		Play: func() (model.GameCoins, string, error) {
 			var err error
 			if spin, err = spinSlots(); err != nil {
 				return 0, "", err
 			}
 			detail, err := common.Marshal(slotsDetail{Stops: spin.Stops, Multiplier: spin.Multiplier})
-			return req.Bet * spin.Multiplier, string(detail), err
+			return req.Bet * model.GameCoins(spin.Multiplier), string(detail), err
 		},
 		Day: gameCenterDay(),
 		Ip:  gameRewardIpKey(c.ClientIP()),

@@ -56,15 +56,15 @@ func TestReversiStakedRoomPaysWinnerMinusRake(t *testing.T) {
 
 	assert.Equal(t, model.GameRoomStatusFinished, view["status"])
 	assert.EqualValues(t, black.user.Id, view["winner_id"])
-	assert.EqualValues(t, 1, view["rake"])
+	assert.Equal(t, 1.5, view["rake"])
 	state = view["state"].(map[string]any)
 	assert.Equal(t, true, state["over"])
 	assert.EqualValues(t, 13, state["black_discs"])
 	assert.EqualValues(t, 0, state["white_discs"])
 	assert.Empty(t, state["legal"])
 	assert.Equal(t, map[string]any{"x": 5.0, "y": 3.0}, state["last"])
-	assert.Equal(t, 114, black.balance())
-	assert.Equal(t, 85, white.balance())
+	assert.Equal(t, 113.5, black.balance())
+	assert.Equal(t, 85.0, white.balance())
 }
 
 // 人机对战走真实接口：玩家每走一步，AI 在同一个请求里回一步(无子可下的一方由引擎跳过)，局面与玩家这边按双方着法重放的
@@ -101,8 +101,8 @@ func TestReversiAiGameSettles(t *testing.T) {
 	assert.Equal(t, true, session["over"])
 	assert.EqualValues(t, 0, session["winner"])
 	assert.EqualValues(t, 1, result["score"])
-	assert.EqualValues(t, 1, result["reward"])
-	assert.Equal(t, 1, player.balance())
+	assert.Equal(t, 1.0, result["reward"])
+	assert.Equal(t, 1.0, player.balance())
 }
 
 // AI 走完之后玩家无子可下，AI 接着走，直到把棋交还给玩家或者终局，一个请求里完成：玩家不会停在"轮到 AI 走"的局面。
@@ -165,7 +165,7 @@ func TestReversiAiKeepsMovingWhilePlayerPasses(t *testing.T) {
 			assert.EqualValues(t, 1, view["winner"])
 			result := reply["result"].(map[string]any)
 			assert.EqualValues(t, 0, result["score"], "输给 AI 成绩为 0")
-			assert.EqualValues(t, 0, result["reward"])
+			assert.Equal(t, 0.0, result["reward"])
 		})
 	}
 }

@@ -303,7 +303,7 @@ func TestTradeSpotGapLiquidationOfACoinLoanChargesUserQuota(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, result.Liquidated)
 	// 买回 780 + 0.78，强平费 15.6，资金 489.61 差 306.77。
-	assert.Equal(t, tradeUsd(306.77), result.Covered)
+	assert.Equal(t, TradeDeficitCover{Quota: tradeUsd(306.77)}, result.Covered)
 	assert.Zero(t, tradeTestAccount(t, userId).Cash)
 	assert.Zero(t, tradeSpotTestAssetLoan(t, userId, "BTCUSDT").Debt())
 	quota, err := GetUserQuota(userId, true)

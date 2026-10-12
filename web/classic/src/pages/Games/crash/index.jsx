@@ -25,7 +25,7 @@ import { getGameMetaMap } from '../../../constants';
 import GameLayout from '../common/GameLayout';
 import BetInput from '../common/BetInput';
 import { RuleList, SideBox, StageMessage } from '../common/SideBox';
-import { gameGet } from '../common/api';
+import { formatCoins, gameGet } from '../common/api';
 import { WagerStats, wagerResultMessage } from '../common/wager';
 import { useGameInfo } from '../common/useGameInfo';
 import { useWagerRound } from '../common/useWagerRound';
@@ -258,7 +258,7 @@ const CrashFlight = ({
             onClick={onCashout}
           >
             {t('兑现 {{amount}} {{symbol}}', {
-              amount: Math.floor((round.bet * multiplier) / 100),
+              amount: formatCoins((round.bet * multiplier) / 100),
               symbol,
             })}
           </button>
@@ -414,7 +414,7 @@ const Crash = () => {
             t(
               '可以设自动兑现：倍数涨到设定值时自动兑现，设定值高于这一局的爆点就等不到',
             ),
-            t('派彩 = 下注 × 兑现倍数，向下取整'),
+            t('派彩 = 下注 × 兑现倍数，可以有小数'),
             t('理论返还率 {{rate}}%', { rate: info.rtp_percent }),
             t('单次最多下注 {{max}} {{symbol}}', { max: maxBet, symbol }),
           ]}

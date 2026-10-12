@@ -24,7 +24,7 @@ import { getGameMetaMap } from '../../../constants';
 import BetInput from '../common/BetInput';
 import GameLayout from '../common/GameLayout';
 import { RuleList, SideBox, StageMessage } from '../common/SideBox';
-import { gamePost, percent } from '../common/api';
+import { formatCoins, gamePost, percent } from '../common/api';
 import { useGameInfo } from '../common/useGameInfo';
 import { WagerStats, wagerResultMessage } from '../common/wager';
 import './dice.css';
@@ -266,7 +266,10 @@ const Dice = () => {
           </span>
           <span>
             {t('赢了派彩')}
-            <strong>{choice ? stake * choice.multiplier : '-'}</strong> {symbol}
+            <strong>
+              {choice ? formatCoins(stake * choice.multiplier) : '-'}
+            </strong>{' '}
+            {symbol}
           </span>
         </div>
 
@@ -367,7 +370,7 @@ const Dice = () => {
         <div className='game-controls'>
           <BetInput
             value={stake}
-            min={1}
+            min={info.min_bet}
             max={maxBet}
             symbol={symbol}
             disabled={busy}

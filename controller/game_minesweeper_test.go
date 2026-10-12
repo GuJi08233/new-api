@@ -155,9 +155,9 @@ func TestMinesweeperSettlesWinsAndLosses(t *testing.T) {
 	assert.NotContains(t, last, "exploded")
 	result := last["result"].(map[string]any)
 	assert.EqualValues(t, 1, result["score"], "成绩是赢下的难度")
-	assert.EqualValues(t, 1, result["reward"])
+	assert.Equal(t, 1.0, result["reward"])
 	assert.Equal(t, "", result["limited_by"])
-	assert.EqualValues(t, 1, result["balance"])
+	assert.Equal(t, 1.0, result["balance"])
 	assert.Equal(t, map[string]any{"difficulty": 1.0, "won": true, "opened": 71.0}, result["detail"])
 
 	again := player.ok(http.MethodPost, "/api/game/minesweeper/reveal", map[string]any{"session_id": won.Id, "version": version, "cells": [][2]int{{0, 0}}})
@@ -176,11 +176,11 @@ func TestMinesweeperSettlesWinsAndLosses(t *testing.T) {
 	assert.Len(t, data["mine_cells"], 10)
 	result = data["result"].(map[string]any)
 	assert.EqualValues(t, 0, result["score"])
-	assert.EqualValues(t, 0, result["reward"])
+	assert.Equal(t, 0.0, result["reward"])
 	assert.Equal(t, false, result["detail"].(map[string]any)["won"])
 	assert.EqualValues(t, 2, result["progress"].(map[string]any)["plays_today"])
 	assert.EqualValues(t, 1, result["progress"].(map[string]any)["rewards_today"])
-	assert.Equal(t, 1, player.balance(), "踩雷什么都不发")
+	assert.Equal(t, 1.0, player.balance(), "踩雷什么都不发")
 }
 
 // 翻开请求要带玩家看到的版本号：过期的版本、越界的格子、一次太多格、不是 [x, y] 的格子、别人的对局都拒绝，局面不变，

@@ -44,8 +44,8 @@ func init() {
 }
 
 type minesStartRequest struct {
-	Bet   int `json:"bet"`
-	Mines int `json:"mines"`
+	Bet   model.GameCoins `json:"bet"`
+	Mines int             `json:"mines"`
 }
 
 type minesPickRequest struct {
@@ -73,12 +73,12 @@ func minesRoundView(session *model.GameSession, round *mines.Round) gin.H {
 		}
 		return view
 	}
-	cashout := 0
+	cashout := model.GameCoins(0)
 	if len(round.Revealed) > 0 {
-		cashout = round.Cashout(session.Bet)
+		cashout = model.GameCoins(round.Cashout(int(session.Bet)))
 	}
 	view["cashout"] = cashout
-	view["next_cashout"] = round.NextCashout(session.Bet)
+	view["next_cashout"] = model.GameCoins(round.NextCashout(int(session.Bet)))
 	return view
 }
 
@@ -108,7 +108,7 @@ func StartMines(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
-	if !validWagerBet(c, req.Bet, 1, rule.MaxBet) {
+	if !validWagerBet(c, req.Bet, rule.MaxBet) {
 		return
 	}
 	if req.Mines < mines.MinMines || req.Mines > mines.MaxMines {
@@ -160,8 +160,8 @@ func PickMines(c *gin.Context) {
 	case mine:
 		settleMines(c, session, &round, 0)
 		return
-	case round.AutoCashout(session.Bet):
-		settleMines(c, session, &round, round.Cashout(session.Bet))
+	case round.AutoCashout(int(session.Bet)):
+		settleMines(c, session, &round, model.GameCoins(round.Cashout(int(session.Bet))))
 		return
 	}
 	state, err := common.Marshal(round)
@@ -192,11 +192,11 @@ func CashoutMines(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgGameMoveInvalid)
 		return
 	}
-	settleMines(c, session, &round, round.Cashout(session.Bet))
+	settleMines(c, session, &round, model.GameCoins(round.Cashout(int(session.Bet))))
 }
 
 // settleMines 结束这一局挖宝、派彩 win，回应结束的一局与结算后的余额、今天的输赢与局数。
-func settleMines(c *gin.Context, session *model.GameSession, round *mines.Round, win int) {
+func settleMines(c *gin.Context, session *model.GameSession, round *mines.Round, win model.GameCoins) {
 	state, err := common.Marshal(round)
 	if err != nil {
 		common.ApiError(c, err)

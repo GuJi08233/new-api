@@ -15,6 +15,7 @@ import (
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/gin-gonic/gin"
+	"github.com/shopspring/decimal"
 )
 
 // 免费游戏(技巧游戏与人机对战)的公共流程：开局时发种子或出题，结束时各游戏重放整局或按保存的状态判定成绩，这里按领奖规则
@@ -149,17 +150,29 @@ func settleSkillSession(c *gin.Context, name string, rule operation_setting.Skil
 		respondGameFinishRetry(c)
 		return nil
 	}
+	reward, err := model.GameCoinsFromDecimal(decimal.NewFromFloat(rule.Reward(outcome.Score)))
+	if err != nil {
+		common.SysError(fmt.Sprintf("failed to price %s reward for user %d: %v", session.Game, userId, err))
+		respondGameFinishRetry(c)
+		return nil
+	}
+	freeDailyLimit, err := model.WholeGameCoins(setting.FreeDailyLimit)
+	if err != nil {
+		common.SysError(fmt.Sprintf("failed to price the free reward limit: %v", err))
+		respondGameFinishRetry(c)
+		return nil
+	}
 	ip := c.ClientIP()
 	result, err := model.FinishGameSession(session, model.GameSettlement{
 		Score:          outcome.Score,
 		Detail:         string(detail),
 		State:          outcome.State,
-		Reward:         rule.Reward(outcome.Score),
+		Reward:         reward,
 		Seconds:        outcome.Seconds,
 		Cheat:          outcome.Cheat != "",
 		SecondsPerCoin: rule.MinSecondsPerCoin,
 		DailyRewards:   rule.DailyRewards,
-		FreeDailyLimit: setting.FreeDailyLimit,
+		FreeDailyLimit: freeDailyLimit,
 		Day:            gameCenterDay(),
 		Ip:             gameRewardIpKey(ip),
 	})
@@ -196,7 +209,7 @@ func settleSkillSession(c *gin.Context, name string, rule operation_setting.Skil
 	// 等时长补够的一局，所以同时记下今天累计的时长。
 	if settled.Reward > 0 {
 		model.RecordAuditLog(model.ClientLogSource(c), userId, "", model.LogTypeSystem,
-			fmt.Sprintf("游戏奖励：%s今天累计玩了 %d 秒，本局成绩 %d，获得 %d 个游戏币", name, result.Seconds, settled.Score, settled.Reward),
+			fmt.Sprintf("游戏奖励：%s今天累计玩了 %d 秒，本局成绩 %d，获得 %s 个游戏币", name, result.Seconds, settled.Score, settled.Reward.Decimal()),
 			map[string]interface{}{"game": session.Game, "session_id": settled.Id, "score": settled.Score, "seconds_today": result.Seconds, "game_coins": settled.Reward})
 	}
 	return skillResultView(settled, rule, result.GameRewardProgress, result.Balance, max(best, settled.Score), setting.FreeDailyLimit)
@@ -229,7 +242,7 @@ func skillSettledView(c *gin.Context, session *model.GameSession, rule operation
 }
 
 // skillResultView 是一局免费游戏的结算结果，首次结算与重复提交返回同样的内容。detail 是各游戏自己的成绩明细。
-func skillResultView(session *model.GameSession, rule operation_setting.SkillRule, progress model.GameRewardProgress, balance int, best int, freeDailyLimit int) gin.H {
+func skillResultView(session *model.GameSession, rule operation_setting.SkillRule, progress model.GameRewardProgress, balance model.GameCoins, best int, freeDailyLimit int) gin.H {
 	view := gin.H{
 		"session_id":       session.Id,
 		"score":            session.Score,

@@ -110,13 +110,13 @@ func TestFinishSnakeSettlesReplayedScore(t *testing.T) {
 	assert.EqualValues(t, game.Score, result["score"])
 	assert.Equal(t, map[string]any{"length": float64(game.Length), "steps": float64(game.Steps), "over": true}, result["detail"])
 	// 45 个食物达到 2 个游戏币那一档，但游戏内只玩了 63 秒，每个游戏币要 45 秒，只够 1 个；开局以来的 600 秒不算数。
-	assert.EqualValues(t, 1, result["reward"])
+	assert.Equal(t, 1.0, result["reward"])
 	assert.Equal(t, model.GameRewardLimitedByTime, result["limited_by"])
-	assert.EqualValues(t, 1, result["balance"])
+	assert.Equal(t, 1.0, result["balance"])
 	assert.EqualValues(t, game.Score, result["best_score"])
 
 	again := finishSnake(player, session.Id, 1, nil)
 	require.Equal(t, true, again["success"], again["message"])
 	assert.Equal(t, result, again["data"], "重复提交返回第一次结算的结果")
-	assert.Equal(t, 1, player.balance())
+	assert.Equal(t, 1.0, player.balance())
 }

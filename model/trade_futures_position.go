@@ -83,7 +83,7 @@ func LiquidateTradeFuturesPosition(userId int, symbol string, side string, mark 
 	if err != nil {
 		return false, err
 	}
-	liquidated, covered := false, 0
+	liquidated, covered := false, TradeDeficitCover{}
 	err = DB.Transaction(func(tx *gorm.DB) error {
 		account, err := lockTradeAccountTx(tx, userId)
 		if err != nil {
@@ -131,7 +131,7 @@ func LiquidateTradeFuturesCross(userId int, market TradeFuturesMarket, feeBps in
 	if err != nil {
 		return false, err
 	}
-	liquidated, covered := false, 0
+	liquidated, covered := false, TradeDeficitCover{}
 	err = DB.Transaction(func(tx *gorm.DB) error {
 		account, err := lockTradeAccountTx(tx, userId)
 		if err != nil {
@@ -196,7 +196,7 @@ func ApplyTradeFuturesFunding(userId int, symbol string, side string, fundingTim
 	if err != nil {
 		return false, err
 	}
-	applied, covered := false, 0
+	applied, covered := false, TradeDeficitCover{}
 	err = DB.Transaction(func(tx *gorm.DB) error {
 		account, err := lockTradeAccountTx(tx, userId)
 		if err != nil {

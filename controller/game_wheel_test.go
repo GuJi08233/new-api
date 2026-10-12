@@ -31,7 +31,7 @@ func TestSpinWheelFreeThenPaidWithoutDailyLimit(t *testing.T) {
 	info := player.ok(http.MethodGet, "/api/game/wheel", nil)
 	assert.InDelta(t, 0.8, info["payback"], 1e-9)
 	assert.Len(t, info["segments"], 8)
-	assert.EqualValues(t, 0, info["free_used_today"])
+	assert.Equal(t, 0.0, info["free_used_today"])
 
 	cases := []struct {
 		free        bool
@@ -58,21 +58,21 @@ func TestSpinWheelFreeThenPaidWithoutDailyLimit(t *testing.T) {
 			continue
 		}
 		result := player.ok(http.MethodPost, "/api/game/wheel/spin", map[string]any{"free": c.free})
-		assert.EqualValues(t, c.wantWin, result["win"], "case %d win", i)
-		assert.EqualValues(t, c.wantBalance, result["balance"], "case %d balance", i)
-		assert.EqualValues(t, c.wantNet, result["net_today"], "case %d net today", i)
+		assert.Equal(t, float64(c.wantWin), result["win"], "case %d win", i)
+		assert.Equal(t, float64(c.wantBalance), result["balance"], "case %d balance", i)
+		assert.Equal(t, float64(c.wantNet), result["net_today"], "case %d net today", i)
 	}
 	account, err := model.GetGameCoinAccount(player.user.Id)
 	require.NoError(t, err)
-	assert.Equal(t, 3+6, account.TotalEarned, "种子币加上免费旋转的奖品")
+	assert.Equal(t, float64(3+6), coinsOf(t, account.TotalEarned), "种子币加上免费旋转的奖品")
 	// 免费旋转没有下注，每次中奖都和技巧游戏的奖励一样记审计日志；付费旋转按净赢数量，净赢 98 个不记。
 	var rewardLogs, bigWinLogs int64
 	require.NoError(t, env.db.Model(&model.Log{}).Where("user_id = ? AND type = ? AND content LIKE ?", player.user.Id, model.LogTypeSystem, "游戏奖励%").Count(&rewardLogs).Error)
 	require.NoError(t, env.db.Model(&model.Log{}).Where("user_id = ? AND type = ? AND content LIKE ?", player.user.Id, model.LogTypeSystem, "游戏大奖%").Count(&bigWinLogs).Error)
 	assert.EqualValues(t, 1, rewardLogs)
 	assert.Zero(t, bigWinLogs)
-	assert.Equal(t, 8, account.TotalWagered)
-	assert.Equal(t, 92, account.TotalWagerNet)
+	assert.Equal(t, 8.0, coinsOf(t, account.TotalWagered))
+	assert.Equal(t, 92.0, coinsOf(t, account.TotalWagerNet))
 }
 
 // 技巧游戏已经领满当天奖励后，默认的一次免费旋转仍能领到完整的 50 币头奖；账号与同一 IP 的免费次数限制继续生效。
@@ -86,30 +86,32 @@ func TestSpinWheelPaysFullFreePrizeAfterSkillRewardLimit(t *testing.T) {
 	other := env.player(0, gameTestIpB)
 	session, err := model.CreateGameSession(first.user.Id, "tetris", 7, "")
 	require.NoError(t, err)
+	three, err := model.WholeGameCoins(3)
+	require.NoError(t, err)
 	skill, err := model.FinishGameSession(session, model.GameSettlement{
-		Score: 5000, Reward: 3, DailyRewards: 1, FreeDailyLimit: 3, Day: gameCenterDay(), Ip: gameTestIpA,
+		Score: 5000, Reward: three, DailyRewards: 1, FreeDailyLimit: three, Day: gameCenterDay(), Ip: gameTestIpA,
 	})
 	require.NoError(t, err)
-	require.Equal(t, 3, skill.Session.Reward)
+	require.Equal(t, three, skill.Session.Reward)
 
 	info := first.ok(http.MethodGet, "/api/game/wheel", nil)
 	assert.EqualValues(t, 1, info["free_spins"])
 	assert.NotContains(t, info, "free_daily_limit")
 	stopWheelAt(t, 0) // 默认花费 1，头奖 50 倍。
 	result := first.ok(http.MethodPost, "/api/game/wheel/spin", map[string]any{"free": true})
-	assert.EqualValues(t, 50, result["win"])
-	assert.EqualValues(t, 53, result["balance"])
+	assert.Equal(t, 50.0, result["win"])
+	assert.Equal(t, 53.0, result["balance"])
 	assert.Empty(t, result["limited_by"])
-	assert.EqualValues(t, 1, result["free_used_today"])
-	assert.EqualValues(t, 1, result["ip_free_used_today"])
+	assert.Equal(t, 1.0, result["free_used_today"])
+	assert.Equal(t, 1.0, result["ip_free_used_today"])
 	first.fails(http.MethodPost, "/api/game/wheel/spin", map[string]any{"free": true})
 	second.fails(http.MethodPost, "/api/game/wheel/spin", map[string]any{"free": true})
 
 	result = other.ok(http.MethodPost, "/api/game/wheel/spin", map[string]any{"free": true})
-	assert.EqualValues(t, 50, result["win"], "别的 IP 有自己的免费次数")
-	assert.Equal(t, 53, first.balance())
+	assert.Equal(t, 50.0, result["win"], "别的 IP 有自己的免费次数")
+	assert.Equal(t, 53.0, first.balance())
 	assert.Zero(t, second.balance())
-	assert.Equal(t, 50, other.balance())
+	assert.Equal(t, 50.0, other.balance())
 }
 
 // 结算已提交后统计查询不可用，仍应返回完整的中奖结果和累计统计，不能让玩家把成功的旋转当作失败重试。
@@ -150,19 +152,19 @@ func TestSpinWheelReturnsCommittedResultWhenStatsUnavailable(t *testing.T) {
 			assert.Equal(t, test.free, result["free"])
 			assert.EqualValues(t, 2, result["segment"])
 			assert.EqualValues(t, 3, result["multiplier"])
-			assert.EqualValues(t, 6, result["win"])
-			assert.EqualValues(t, test.wantBalance, result["balance"])
-			assert.EqualValues(t, test.wantNet, result["net_today"])
+			assert.Equal(t, 6.0, result["win"])
+			assert.Equal(t, float64(test.wantBalance), result["balance"])
+			assert.Equal(t, float64(test.wantNet), result["net_today"])
 			assert.EqualValues(t, 2, result["plays_today"])
 			if test.free {
-				assert.EqualValues(t, 1, result["free_used_today"])
-				assert.EqualValues(t, 1, result["ip_free_used_today"])
+				assert.Equal(t, 1.0, result["free_used_today"])
+				assert.Equal(t, 1.0, result["ip_free_used_today"])
 			}
-			assert.Equal(t, test.wantBalance, player.balance())
+			assert.Equal(t, float64(test.wantBalance), player.balance())
 			statsUnavailable = false
 			net, plays, err := model.GetGameDayStats(player.user.Id, gameWheel, gameCenterDay())
 			require.NoError(t, err)
-			assert.Equal(t, test.wantNet, net)
+			assert.Equal(t, float64(test.wantNet), coinsOf(t, net))
 			assert.Equal(t, 2, plays)
 		})
 	}

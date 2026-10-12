@@ -31,8 +31,9 @@ import { toUsdt, tradePost } from './api';
 
 const { Text } = Typography;
 
-// 在平台额度或游戏币钱包与模拟盘之间转账，额度按美元填写，可以有小数，游戏币只接受整数。转出上限由后端算好：只有可用资金能转出，超过本金的部分
-// 算盈利，受每天的上限约束。游戏币转入与兑换额度共用每天的余量，转回游戏币不超过从游戏币转入、还没转回的币数，盈利只能转出成额度。
+// 在平台额度或游戏币钱包与模拟盘之间转账，额度按美元填写，可以有小数；游戏币转入只接受整币，转回可以有小数。转出上限由后端算好：
+// 只有可用资金能转出，超过本金的部分算盈利，受每天的上限约束。游戏币转入与兑换额度共用每天的余量；转回游戏币不超过按亏损抵扣顺序
+// 结算之后还剩的游戏币本金(coin_returnable)，盈利只能转出成额度。
 const TransferModal = ({ direction, self, perUnit, onClose, onDone, t }) => {
   const [amount, setAmount] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -53,20 +54,21 @@ const TransferModal = ({ direction, self, perUnit, onClose, onDone, t }) => {
   );
   const coinDailyLimit = self.wallet?.game_coin_daily_limit || 0;
   const coinDailyLeft = self.wallet?.game_coin_daily_remaining || 0;
-  const coinPrincipal = self.account?.coin_principal || 0;
+  const coinReturnable = self.wallet?.coin_returnable || 0;
   let available = toUsdt(
     isIn ? self.wallet?.quota : self.withdrawable?.quota,
     perUnit,
   );
   if (isCoin && isIn) {
-    available = Math.min(self.wallet?.game_coins || 0, coinDailyLeft);
+    available = Math.floor(
+      Math.min(self.wallet?.game_coins || 0, coinDailyLeft),
+    );
   } else if (isCoin) {
-    available = Math.min(available, coinPrincipal);
+    // 服务端给出的币数已经精确到额度单位，原样显示，不再做浮点运算。
+    available = coinReturnable;
   }
   const max = Math.max(0, available);
-  const maxText = (
-    isCoin ? Math.floor(max) : Math.floor(max * 1e6) / 1e6
-  ).toString();
+  const maxText = (isCoin ? max : Math.floor(max * 1e6) / 1e6).toString();
   const unit = isCoin ? t('游戏币') : 'USDT';
 
   const submit = async () => {
@@ -85,10 +87,11 @@ const TransferModal = ({ direction, self, perUnit, onClose, onDone, t }) => {
     onDone(res.data);
   };
 
+  // 游戏币转入只能是整币；转回最多 6 位小数，与游戏币的最小单位一致。
+  let pattern = /^\d+(\.\d+)?$/;
+  if (isCoin) pattern = isIn ? /^\d+$/ : /^\d+(\.\d{1,6})?$/;
   const valid =
-    (isCoin ? /^\d+$/ : /^\d+(\.\d+)?$/).test(amount) &&
-    Number(amount) > 0 &&
-    Number(amount) <= max;
+    pattern.test(amount) && Number(amount) > 0 && Number(amount) <= max;
 
   return (
     <Modal
@@ -122,9 +125,13 @@ const TransferModal = ({ direction, self, perUnit, onClose, onDone, t }) => {
           aria-label={isIn ? t('转入') : t('转出')}
           suffix={unit}
           placeholder={
-            isCoin ? t('请输入整数游戏币数量') : t('按美元填写，可以有小数')
+            isCoin && isIn
+              ? t('请输入整数游戏币数量')
+              : isCoin
+                ? t('可以有小数')
+                : t('按美元填写，可以有小数')
           }
-          inputMode={isCoin ? 'numeric' : 'decimal'}
+          inputMode={isCoin && isIn ? 'numeric' : 'decimal'}
         />
         <div className='flex items-center justify-between'>
           <Text type='tertiary' size='small'>
@@ -151,7 +158,7 @@ const TransferModal = ({ direction, self, perUnit, onClose, onDone, t }) => {
             <div className='flex flex-col gap-1 text-xs'>
               <span>
                 {isCoin
-                  ? t('1 游戏币 = 1 USDT，只能转入转出整币，钱包从 0 开始。')
+                  ? t('1 游戏币 = 1 USDT，转入只能是整币，转回可以有小数。')
                   : t('1 USDT = 1 美元额度，账户从 0 开始，不送初始资金。')}
               </span>
               {isCoin && (
@@ -165,8 +172,8 @@ const TransferModal = ({ direction, self, perUnit, onClose, onDone, t }) => {
               {isCoin && (
                 <span>
                   {t(
-                    '只有从游戏币转入的本金能转回游戏币，目前 {{coins}} 个；盈利只能转出到平台额度。',
-                    { coins: coinPrincipal },
+                    '只有从游戏币转入的本金能转回游戏币，按亏损抵扣顺序结算之后现在最多 {{coins}} 个；盈利只能转出到平台额度。',
+                    { coins: coinReturnable },
                   )}
                 </span>
               )}

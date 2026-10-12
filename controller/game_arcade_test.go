@@ -48,10 +48,10 @@ func TestPairlinkActionsRestoreAndSettleOnlyOnce(t *testing.T) {
 	assert.Equal(t, "won", view["status"])
 	settled := view["result"].(map[string]any)
 	assert.EqualValues(t, 2, settled["score"])
-	assert.EqualValues(t, 1, settled["reward"])
+	assert.Equal(t, 1.0, settled["reward"])
 	again := player.ok(http.MethodPost, "/api/game/pairlink/action", map[string]any{"session_id": id, "action": "finish"})
 	assert.Equal(t, settled, again)
-	assert.Equal(t, 1, player.balance())
+	assert.Equal(t, 1.0, player.balance())
 	assert.Nil(t, player.ok(http.MethodGet, "/api/game/pairlink/state", nil)["session"])
 }
 
@@ -70,7 +70,7 @@ func TestPairlinkTimeoutAndToolLimits(t *testing.T) {
 		Updates(map[string]any{"created_at": common.GetTimestamp() - 181, "play_seconds": 200}).Error)
 	ended := player.ok(http.MethodPost, "/api/game/pairlink/action", map[string]any{"session_id": view["session_id"], "version": view["version"], "action": "hint"})
 	assert.Equal(t, "lost", ended["status"])
-	assert.EqualValues(t, 0, ended["result"].(map[string]any)["reward"])
+	assert.Equal(t, 0.0, ended["result"].(map[string]any)["reward"])
 	assert.EqualValues(t, 180, ended["result"].(map[string]any)["progress"].(map[string]any)["seconds_today"], "游戏时长不超过这一档的限时")
 }
 
@@ -119,15 +119,15 @@ func TestSokobanDailyLayoutAndReplaySettlement(t *testing.T) {
 	}
 	result := player.ok(http.MethodPost, "/api/game/sokoban/finish", map[string]any{"session_id": id, "moves": "R"})
 	assert.EqualValues(t, 1, result["score"])
-	assert.EqualValues(t, 1, result["reward"])
+	assert.Equal(t, 1.0, result["reward"])
 	assert.EqualValues(t, 1, result["detail"].(map[string]any)["pushes"])
 	again := player.ok(http.MethodPost, "/api/game/sokoban/finish", map[string]any{"session_id": id, "moves": "R"})
 	assert.Equal(t, result, again)
-	assert.Equal(t, 1, player.balance())
+	assert.Equal(t, 1.0, player.balance())
 	assert.Nil(t, player.ok(http.MethodGet, "/api/game/sokoban/state", nil)["session"])
 	quit := other.ok(http.MethodPost, "/api/game/sokoban/finish", map[string]any{"session_id": second["session_id"], "abandon": true})
 	assert.EqualValues(t, 0, quit["score"])
-	assert.EqualValues(t, 0, quit["reward"])
+	assert.Equal(t, 0.0, quit["reward"])
 }
 
 // 每日推箱子的奖励记在结算的这一天：前一天开局、存着前一天那张图的一局，过了零点再交解法也不算，页面也不再恢复它，
@@ -175,10 +175,10 @@ func TestBreakoutReplayedScoreAndSharedRewardLimit(t *testing.T) {
 	require.NoError(t, env.db.Model(session).Updates(map[string]any{"seed": golden.Seed, "created_at": common.GetTimestamp() - 301}).Error)
 	result := player.ok(http.MethodPost, "/api/game/breakout/finish", map[string]any{"session_id": session.Id, "inputs": golden.Inputs, "score": 99999})
 	assert.EqualValues(t, golden.Game.Score, result["score"])
-	assert.EqualValues(t, 1, result["reward"])
+	assert.Equal(t, 1.0, result["reward"])
 	again := player.ok(http.MethodPost, "/api/game/breakout/finish", map[string]any{"session_id": session.Id, "inputs": []int{0}})
 	assert.Equal(t, result, again)
-	assert.Equal(t, 1, player.balance())
+	assert.Equal(t, 1.0, player.balance())
 
 	// 新增技巧游戏同样占用原来的免费奖励池。
 	otherGame, err := model.CreateGameSession(player.user.Id, gameSokoban, 1, "")
@@ -206,6 +206,6 @@ func TestBreakoutDoesNotCreditFramesAfterLoss(t *testing.T) {
 	result := player.ok(http.MethodPost, "/api/game/breakout/finish", map[string]any{"session_id": session.Id, "inputs": inputs})
 	assert.EqualValues(t, 35, result["score"])
 	assert.EqualValues(t, 10, result["progress"].(map[string]any)["seconds_today"])
-	assert.EqualValues(t, 0, result["reward"])
+	assert.Equal(t, 0.0, result["reward"])
 	assert.Equal(t, model.GameRewardLimitedByTime, result["limited_by"])
 }

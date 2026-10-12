@@ -32,6 +32,7 @@ const (
 	TradeLedgerSpotRepay          = "spot_repay"
 	TradeLedgerSpotLiquidationFee = "spot_liq_fee"
 	TradeLedgerSpotCover          = "spot_cover"
+	TradeLedgerSpotCoinCover      = "spot_coin_cover"
 
 	// tradeSpotDefaultDailyRate 是 2026-10-08 Binance 普通用户借 USDT 的日利率，取到实时的之前先用它。
 	tradeSpotDefaultDailyRate = "0.00013778"
@@ -550,13 +551,13 @@ type TradeSpotBook struct {
 }
 
 // TradeSpotSettlement 是一次定时检查做的事：Canceled 是强平时撤掉的委托，Fills 与 BuyFills 是强平卖出现货、买回借着的币在各
-// 交易对盘口上的成交(给行情中心记下吃掉的数量)，Covered 是从站内额度补的亏空。
+// 交易对盘口上的成交(给行情中心记下吃掉的数量)，Covered 是按抵扣顺序从游戏币与站内额度补的亏空。
 type TradeSpotSettlement struct {
 	Canceled   []TradeOrder
 	Fills      map[string]tradesim.Fill
 	BuyFills   map[string]tradesim.Fill
 	Liquidated bool
-	Covered    int
+	Covered    TradeDeficitCover
 }
 
 // SettleTradeSpotMargin 是现货借款的定时检查，在资金行锁内做：收掉到期的利息(USDT 与借着的币)；风险率不高于追加保证金线时提醒
@@ -758,7 +759,7 @@ func SettleTradeSpotMargin(userId int, market TradeFuturesMarket, books []TradeS
 				return err
 			}
 		}
-		if result.Covered, err = coverTradeDeficitTx(tx, account, TradeLedgerSpotCover, TradeNoticeSpot); err != nil {
+		if result.Covered, err = coverTradeDeficitTx(tx, account, TradeLedgerSpotCover, TradeLedgerSpotCoinCover, TradeNoticeSpot); err != nil {
 			return err
 		}
 		result.Liquidated = true

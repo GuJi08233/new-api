@@ -58,7 +58,7 @@ func TestCrashCashoutAndLazySettlement(t *testing.T) {
 	// 1.50× 兑现：7 × 1.5 = 10.5，派彩 10。
 	crashAt(t, 250)
 	started := player.ok(http.MethodPost, "/api/game/crash/start", map[string]any{"bet": 7})
-	assert.EqualValues(t, 93, started["balance"])
+	assert.Equal(t, 93.0, started["balance"])
 	round := roundOf(t, started)
 	assert.EqualValues(t, crashTestStart, round["started_at_ms"])
 	assert.EqualValues(t, crashTestStart, round["server_time_ms"])
@@ -75,17 +75,17 @@ func TestCrashCashoutAndLazySettlement(t *testing.T) {
 	assert.Equal(t, model.GameSessionStatusFinished, round["status"])
 	assert.EqualValues(t, 250, round["crash_point"])
 	assert.EqualValues(t, 150, round["cashout_multiplier"])
-	assert.EqualValues(t, 10, round["win"])
-	assert.EqualValues(t, 103, cashed["balance"])
+	assert.Equal(t, 10.5, round["win"])
+	assert.Equal(t, 103.5, cashed["balance"])
 
 	// 爆炸的那一刻才请求兑现，已经晚了。
 	*now = crashTestStart
 	started = player.ok(http.MethodPost, "/api/game/crash/start", map[string]any{"bet": 10})
 	*now = crashTestStart + crash.TimeOf(250)
 	lost := player.ok(http.MethodPost, "/api/game/crash/cashout", roundRequest(t, started, nil))
-	assert.EqualValues(t, 0, roundOf(t, lost)["win"])
+	assert.Equal(t, 0.0, roundOf(t, lost)["win"])
 	assert.EqualValues(t, 0, roundOf(t, lost)["cashout_multiplier"])
-	assert.EqualValues(t, 93, lost["balance"])
+	assert.Equal(t, 93.5, lost["balance"])
 
 	// 没人兑现：过了爆点查看对局时结算，之后没有进行中的一局，按编号还能看到结果。
 	crashAt(t, 300)
@@ -96,8 +96,8 @@ func TestCrashCashoutAndLazySettlement(t *testing.T) {
 	round = roundOf(t, settled)
 	assert.Equal(t, model.GameSessionStatusFinished, round["status"])
 	assert.EqualValues(t, 300, round["crash_point"])
-	assert.EqualValues(t, 0, round["win"])
-	assert.EqualValues(t, 83, settled["balance"])
+	assert.Equal(t, 0.0, round["win"])
+	assert.Equal(t, 83.5, settled["balance"])
 	assert.Nil(t, player.ok(http.MethodGet, "/api/game/crash/round", nil)["round"])
 	byId := roundOf(t, player.ok(http.MethodGet, fmt.Sprintf("/api/game/crash/round?session_id=%v", round["session_id"]), nil))
 	assert.EqualValues(t, 300, byId["crash_point"])
@@ -109,9 +109,9 @@ func TestCrashCashoutAndLazySettlement(t *testing.T) {
 	*now = crashTestStart + crash.TimeOf(250)
 	auto := player.ok(http.MethodGet, "/api/game/crash/round", nil)
 	assert.EqualValues(t, 200, roundOf(t, auto)["cashout_multiplier"])
-	assert.EqualValues(t, 20, roundOf(t, auto)["win"])
-	assert.EqualValues(t, 93, auto["balance"])
-	assert.EqualValues(t, -7, auto["net_today"])
+	assert.Equal(t, 20.0, roundOf(t, auto)["win"])
+	assert.Equal(t, 93.5, auto["balance"])
+	assert.Equal(t, -6.5, auto["net_today"])
 	assert.EqualValues(t, 4, auto["plays_today"])
 
 	info := player.ok(http.MethodGet, "/api/game/crash", nil)
@@ -138,7 +138,7 @@ func TestCrashLongPollWaitsForTheEnd(t *testing.T) {
 		"等到爆炸之后再等一小会儿：爆炸前一刻发出的兑现先按它收到的时刻结算")
 	assert.Equal(t, model.GameSessionStatusFinished, roundOf(t, second)["status"])
 	assert.EqualValues(t, 500, roundOf(t, second)["crash_point"])
-	assert.EqualValues(t, 90, second["balance"])
+	assert.Equal(t, 90.0, second["balance"])
 }
 
 // 自动兑现不合规则时不能开局；还在飞的一局没结束不能开下一局，已经爆了、只是没人结算的一局在开下一局时结算。
@@ -156,12 +156,12 @@ func TestCrashRejectsInvalidRequests(t *testing.T) {
 	assert.Equal(t, gameMessage(i18n.MsgGameRoundOpen), player.fails(http.MethodPost, "/api/game/crash/start", map[string]any{"bet": 10}))
 	stale := roundRequest(t, started, map[string]any{"version": 1})
 	assert.Equal(t, gameMessage(i18n.MsgGameRoundChanged), player.fails(http.MethodPost, "/api/game/crash/cashout", stale))
-	assert.Equal(t, 90, player.balance())
+	assert.Equal(t, 90.0, player.balance())
 
 	*now = crashTestStart + crash.TimeOf(250)
 	next := player.ok(http.MethodPost, "/api/game/crash/start", map[string]any{"bet": 10})
 	assert.NotEqual(t, roundOf(t, started)["session_id"], roundOf(t, next)["session_id"])
-	assert.EqualValues(t, 80, next["balance"], "上一局爆了，输掉 10 个")
+	assert.Equal(t, 80.0, next["balance"], "上一局爆了，输掉 10 个")
 	previous, err := model.GetUserGameSession(player.user.Id, gameCrash, int(roundOf(t, started)["session_id"].(float64)))
 	require.NoError(t, err)
 	assert.Equal(t, model.GameSessionStatusFinished, previous.Status)
@@ -182,7 +182,7 @@ func TestCrashRoundResumableAfterDisabled(t *testing.T) {
 	assert.Equal(t, model.GameSessionStatusPlaying, roundOf(t, player.ok(http.MethodGet, "/api/game/crash/round", nil))["status"])
 	*now = crashTestStart + crash.TimeOf(200)
 	cashed := player.ok(http.MethodPost, "/api/game/crash/cashout", roundRequest(t, started, nil))
-	assert.EqualValues(t, 110, cashed["balance"])
+	assert.Equal(t, 110.0, cashed["balance"])
 	assert.Equal(t, gameMessage(i18n.MsgGamePlayDisabled), player.fails(http.MethodGet, "/api/game/crash", nil))
 }
 
@@ -213,10 +213,10 @@ func TestCrashSweepSettlesAbandonedRounds(t *testing.T) {
 	assert.Equal(t, 2, settled)
 	assert.Equal(t, 0, failed)
 
-	assert.Equal(t, 110, auto.balance(), "按 2.00× 自动兑现")
+	assert.Equal(t, 110.0, auto.balance(), "按 2.00× 自动兑现")
 	assert.Nil(t, auto.ok(http.MethodGet, "/api/game/crash/round", nil)["round"])
-	assert.Equal(t, 90, crashed.balance())
+	assert.Equal(t, 90.0, crashed.balance())
 	assert.EqualValues(t, 1, crashed.ok(http.MethodGet, "/api/game/crash", nil)["plays_today"], "爆了的一局记为输掉的一局")
-	assert.Equal(t, 90, flying.balance())
+	assert.Equal(t, 90.0, flying.balance())
 	assert.Equal(t, model.GameSessionStatusPlaying, roundOf(t, flying.ok(http.MethodGet, "/api/game/crash/round", nil))["status"])
 }

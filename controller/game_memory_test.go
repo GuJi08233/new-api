@@ -160,7 +160,7 @@ func TestMemorySettlesWinsAndLosses(t *testing.T) {
 	assert.Equal(t, layout, last["layout"], "结束后公开整副牌")
 	result := last["result"].(map[string]any)
 	assert.EqualValues(t, 1, result["score"], "成绩是赢下的难度")
-	assert.EqualValues(t, 1, result["reward"])
+	assert.Equal(t, 1.0, result["reward"])
 	assert.Equal(t, "", result["limited_by"])
 	assert.Equal(t, map[string]any{"difficulty": 1.0, "won": true, "moves": 8.0}, result["detail"])
 	again := player.ok(http.MethodPost, "/api/game/memory/flip", map[string]any{"session_id": won.Id, "version": version, "index": 0})
@@ -182,9 +182,9 @@ func TestMemorySettlesWinsAndLosses(t *testing.T) {
 	assert.Len(t, last["layout"], 16)
 	result = last["result"].(map[string]any)
 	assert.EqualValues(t, 0, result["score"])
-	assert.EqualValues(t, 0, result["reward"])
+	assert.Equal(t, 0.0, result["reward"])
 	assert.Equal(t, map[string]any{"difficulty": 1.0, "won": false, "moves": 20.0}, result["detail"])
-	assert.Equal(t, 1, player.balance(), "输了什么都不发")
+	assert.Equal(t, 1.0, player.balance(), "输了什么都不发")
 }
 
 // 翻牌请求要带玩家看到的版本号：过期的版本、正翻开着的牌、已经配上的牌、越界的位置、别人的对局都拒绝，局面不变，

@@ -47,6 +47,31 @@ const (
 // TradeMaxOpenOrders 是每人同时挂着的限价委托上限，撮合每次盘口变化都要检查挂单，不能无限增长。
 const TradeMaxOpenOrders = 50
 
+// 亏损抵扣顺序(TradeAccount.LossOrder)。
+const (
+	TradeLossCoinFirst  = "coin_first"  // 先扣游戏币，再扣平台额度
+	TradeLossQuotaFirst = "quota_first" // 先扣平台额度，再扣游戏币
+)
+
+// ValidTradeLossOrder 表示 order 是一种抵扣顺序。
+func ValidTradeLossOrder(order string) bool {
+	return order == TradeLossCoinFirst || order == TradeLossQuotaFirst
+}
+
+// CoinFirst 表示亏损先扣游戏币。
+func (a *TradeAccount) CoinFirst() bool {
+	return a.LossOrder != TradeLossQuotaFirst
+}
+
+// TradeEquity 是转账之前按当前行情算出的账户总资产(额度单位)，按抵扣顺序结算游戏币本金时用。Account 是估值时读到的账户：加锁之后
+// 账户的资金已经变了(估值之后又有别的转账、成交)时这份估值作废，返回 ErrTradeValuationStale，由调用方重新估值。Known 为假表示估值
+// 不可用，账户里有游戏币本金时转账会被拒绝(ErrTradeMarkUnavailable)。账户里没有游戏币本金时用不到它。
+type TradeEquity struct {
+	Value   int
+	Known   bool
+	Account TradeAccount
+}
+
 var (
 	ErrTradeAmountInvalid        = errors.New("trade amount is out of range")
 	ErrTradeCashInsufficient     = errors.New("trade cash is insufficient")
@@ -54,6 +79,7 @@ var (
 	ErrTradeWithdrawExceeded     = errors.New("trade withdrawal exceeds the withdrawable amount")
 	ErrTradeProfitOutLimit       = errors.New("trade daily profit withdrawal limit reached")
 	ErrTradeCoinPrincipal        = errors.New("trade game coin withdrawal exceeds the coins transferred in")
+	ErrTradeValuationStale       = errors.New("trade account changed after it was valued")
 	ErrTradePositionInsufficient = errors.New("trade position is insufficient")
 	ErrTradePositionLimit        = errors.New("trade position limit reached")
 	ErrTradeOpenOrderLimit       = errors.New("too many open trade orders")
@@ -69,9 +95,13 @@ type TradeAccount struct {
 	Frozen int `json:"frozen" gorm:"type:bigint;not null;default:0"`
 	// QuotaPrincipal 是两种钱包转入后还没转回的本金(额度单位)。转出超过它的部分是交易盈利，共用每天的盈利转出上限。
 	QuotaPrincipal int `json:"quota_principal" gorm:"type:bigint;not null;default:0"`
-	// CoinPrincipal 是本金里从游戏币转入、还没转回的币数，只有这么多能转回游戏币：额度不能换成游戏币，盈利只能转出成额度。
-	// 本金被转出后剩下的不够时随之减少(见 withdrawTradeCashTx)，始终不超过 QuotaPrincipal 折合的币数。
-	CoinPrincipal int `json:"coin_principal" gorm:"type:bigint;not null;default:0"`
+	// CoinPrincipal 是本金里从游戏币转入、按抵扣顺序承担过亏损之后还剩的游戏币，只有这么多能转回游戏币：额度不能换成游戏币，盈利只能
+	// 转出成额度。每次转账之前按账户总资产结算一次(见 settleTradeCoinPrincipal)，本金被转出后剩下的不够时随之减少(见
+	// withdrawTradeCashTx)，始终不超过 QuotaPrincipal。
+	CoinPrincipal GameCoins `json:"coin_principal" gorm:"type:bigint;not null;default:0"`
+	// LossOrder 是亏损先扣哪一种本金、穿仓的亏空先从哪个钱包补：TradeLossCoinFirst 先扣游戏币，TradeLossQuotaFirst 先扣平台额度，
+	// 空值按先扣游戏币。由用户自己选。
+	LossOrder string `json:"loss_order" gorm:"type:varchar(16)"`
 	// TotalIn、TotalOut 是累计转入、转出的资金，总资产减去两者之差就是累计盈亏。
 	TotalIn   int   `json:"total_in" gorm:"type:bigint;not null;default:0"`
 	TotalOut  int   `json:"total_out" gorm:"type:bigint;not null;default:0"`
@@ -189,10 +219,13 @@ func saveTradeAccountTx(tx *gorm.DB, account *TradeAccount) error {
 	if account.Cash <= -common.MaxQuota || account.Cash >= common.MaxQuota {
 		return ErrTradeAmountInvalid
 	}
-	for _, value := range []int{account.Frozen, account.QuotaPrincipal, account.CoinPrincipal, account.TotalIn, account.TotalOut} {
+	for _, value := range []int{account.Frozen, account.QuotaPrincipal, int(account.CoinPrincipal), account.TotalIn, account.TotalOut} {
 		if value < 0 || value >= common.MaxQuota {
 			return ErrTradeAmountInvalid
 		}
+	}
+	if int(account.CoinPrincipal) > account.QuotaPrincipal {
+		return ErrTradeAmountInvalid
 	}
 	account.UpdatedAt = common.GetTimestamp()
 	return tx.Model(&TradeAccount{}).Where("user_id = ?", account.UserId).Updates(map[string]interface{}{

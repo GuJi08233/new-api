@@ -107,7 +107,9 @@ func (e *gameTestEnv) player(coins int, ip string) *gamePlayer {
 	}
 	require.NoError(e.t, e.db.Create(&user).Error)
 	if coins > 0 {
-		_, err := model.AdjustGameCoins(id, coins, "seed")
+		seed, err := model.WholeGameCoins(coins)
+		require.NoError(e.t, err)
+		_, err = model.AdjustGameCoins(id, seed, "seed")
 		require.NoError(e.t, err)
 	}
 	player := &gamePlayer{env: e, user: user, ip: ip}
@@ -161,9 +163,19 @@ func (p *gamePlayer) fails(method string, path string, body any) string {
 	return message
 }
 
-func (p *gamePlayer) balance() int {
+// balance 返回玩家的游戏币余额(币数)。
+func (p *gamePlayer) balance() float64 {
 	p.env.t.Helper()
 	account, err := model.GetGameCoinAccount(p.user.Id)
 	require.NoError(p.env.t, err)
-	return account.Balance
+	return coinsOf(p.env.t, account.Balance)
+}
+
+// coinsOf 把按额度单位记账的游戏币换成币数，测试按币数写预期。单位数除以每币的单位数正好舍入到最近的 float64，带小数的币数
+// 也能和字面量精确比较。
+func coinsOf(t *testing.T, amount model.GameCoins) float64 {
+	t.Helper()
+	unit, err := model.GameCoinUnit()
+	require.NoError(t, err)
+	return float64(amount) / float64(unit)
 }

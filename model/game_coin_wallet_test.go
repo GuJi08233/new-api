@@ -38,32 +38,32 @@ func TestGameCoinWalletStartsAtZeroAndPreservesExistingAccounting(t *testing.T) 
 	})
 	require.NoError(t, err)
 	// 模拟已有游戏钱包的数据；只操作余额，历史累计收益、兑换、提现与下注统计都须保持原值。
-	existing := GameCoinAccount{UserId: 6010, Balance: 20, TotalEarned: 41, TotalConverted: 5,
-		TotalWithdrawn: 3, TotalWagerNet: -13, TotalWagered: 100}
+	existing := GameCoinAccount{UserId: 6010, Balance: coin(20), TotalEarned: coin(41), TotalConverted: coin(5),
+		TotalWithdrawn: coin(3), TotalWagerNet: -coin(13), TotalWagered: coin(100)}
 	require.NoError(t, db.Model(&GameCoinAccount{}).Where("user_id = ?", 6010).Updates(existing).Error)
 	err = db.Transaction(func(tx *gorm.DB) error {
-		balance, err := applyGameCoinDeltaTx(tx, 6010, 2, GameCoinLog{Type: GameCoinLogTypeTradeIn, RefId: "trade-1"})
+		balance, err := applyGameCoinDeltaTx(tx, 6010, coinText("2.5"), GameCoinLog{Type: GameCoinLogTypeTradeIn, RefId: "trade-1"})
 		if err != nil {
 			return err
 		}
-		assert.Equal(t, 22, balance)
-		balance, err = applyGameCoinDeltaTx(tx, 6010, -7, GameCoinLog{Type: GameCoinLogTypeTradeOut, RefId: "trade-2"})
+		assert.Equal(t, coinText("22.5"), balance)
+		balance, err = applyGameCoinDeltaTx(tx, 6010, -coin(7), GameCoinLog{Type: GameCoinLogTypeTradeOut, RefId: "trade-2"})
 		if err != nil {
 			return err
 		}
-		assert.Equal(t, 15, balance)
+		assert.Equal(t, coinText("15.5"), balance)
 		return nil
 	})
 	require.NoError(t, err)
 	account, err = GetGameCoinAccount(6010)
 	require.NoError(t, err)
-	existing.Balance, existing.CreatedAt, existing.UpdatedAt = 15, account.CreatedAt, account.UpdatedAt
+	existing.Balance, existing.CreatedAt, existing.UpdatedAt = coinText("15.5"), account.CreatedAt, account.UpdatedAt
 	assert.Equal(t, existing, account)
 	var logs []GameCoinLog
 	require.NoError(t, db.Where("user_id = ?", 6010).Order("id ASC").Find(&logs).Error)
 	require.Len(t, logs, 2)
-	assert.Equal(t, []int{2, -7}, []int{logs[0].Amount, logs[1].Amount})
-	assert.Equal(t, []int{22, 15}, []int{logs[0].Balance, logs[1].Balance})
+	assert.Equal(t, []GameCoins{coinText("2.5"), -coin(7)}, []GameCoins{logs[0].Amount, logs[1].Amount})
+	assert.Equal(t, []GameCoins{coinText("22.5"), coinText("15.5")}, []GameCoins{logs[0].Balance, logs[1].Balance})
 	assert.Equal(t, []string{"trade-1", "trade-2"}, []string{logs[0].RefId, logs[1].RefId})
 }
 
@@ -71,7 +71,7 @@ func TestGameCoinWalletRejectsInvalidChangesWithoutMutation(t *testing.T) {
 	db := setupGameCoinWalletTest(t)
 	tests := []struct {
 		name           string
-		balance, delta int
+		balance, delta GameCoins
 		wantErr        error
 	}{
 		{"zero", 10, 0, ErrGameCoinAmountInvalid},
@@ -101,7 +101,7 @@ func TestGameCoinWalletRejectsInvalidChangesWithoutMutation(t *testing.T) {
 		})
 	}
 	err := db.Transaction(func(tx *gorm.DB) error {
-		_, err := applyGameCoinDeltaTx(tx, 9999, 1, GameCoinLog{Type: GameCoinLogTypeTradeIn})
+		_, err := applyGameCoinDeltaTx(tx, 9999, coin(1), GameCoinLog{Type: GameCoinLogTypeTradeIn})
 		return err
 	})
 	require.ErrorIs(t, err, ErrGameCoinUserNotFound)
@@ -113,7 +113,7 @@ func TestGameCoinWalletRejectsInvalidChangesWithoutMutation(t *testing.T) {
 func TestGameCoinWalletLedgerFailureRollsBackBalance(t *testing.T) {
 	db := setupGameCoinWalletTest(t)
 	require.NoError(t, db.Create(&User{Id: 6030, Username: "game-wallet-rollback"}).Error)
-	require.NoError(t, db.Create(&GameCoinAccount{UserId: 6030, Balance: 10}).Error)
+	require.NoError(t, db.Create(&GameCoinAccount{UserId: 6030, Balance: coin(10)}).Error)
 	// 在当前测试事务的流水写入处注入故障，三个数据库都验证余额扣减与流水的原子性。
 	ledgerErr := errors.New("test ledger unavailable")
 	const callback = "test:game_coin_ledger_failure"
@@ -124,36 +124,39 @@ func TestGameCoinWalletLedgerFailureRollsBackBalance(t *testing.T) {
 	}))
 	t.Cleanup(func() { assert.NoError(t, db.Callback().Create().Remove(callback)) })
 	err := db.Transaction(func(tx *gorm.DB) error {
-		_, err := applyGameCoinDeltaTx(tx, 6030, -4, GameCoinLog{Type: GameCoinLogTypeTradeOut})
+		_, err := applyGameCoinDeltaTx(tx, 6030, -coin(4), GameCoinLog{Type: GameCoinLogTypeTradeOut})
 		return err
 	})
 	require.ErrorIs(t, err, ledgerErr)
 	account, err := GetGameCoinAccount(6030)
 	require.NoError(t, err)
-	assert.Equal(t, 10, account.Balance)
+	assert.Equal(t, coin(10), account.Balance)
 	var count int64
 	require.NoError(t, db.Model(&GameCoinLog{}).Count(&count).Error)
 	assert.Zero(t, count)
 }
 
-func TestGameCoinQuotaUsesTradeConversionWithoutOverflow(t *testing.T) {
+func TestWholeGameCoinsUsesTradeConversionWithoutOverflow(t *testing.T) {
 	previous := common.QuotaPerUnit
 	common.QuotaPerUnit = 500_000
 	t.Cleanup(func() { common.QuotaPerUnit = previous })
-	quota, err := GameCoinQuota(3)
+	coins, err := WholeGameCoins(3)
 	require.NoError(t, err)
-	assert.Equal(t, 1_500_000, quota)
+	assert.Equal(t, GameCoins(1_500_000), coins)
 	maximumCoins := (common.MaxQuota - 1) / 500_000
-	quota, err = GameCoinQuota(maximumCoins)
+	coins, err = WholeGameCoins(maximumCoins)
 	require.NoError(t, err)
-	assert.Equal(t, maximumCoins*500_000, quota)
-	for _, coins := range []int{-1, 0, maximumCoins + 1, common.MaxQuota, math.MaxInt64} {
-		_, err = GameCoinQuota(coins)
+	assert.Equal(t, GameCoins(maximumCoins*500_000), coins)
+	coins, err = WholeGameCoins(-maximumCoins)
+	require.NoError(t, err)
+	assert.Equal(t, GameCoins(-maximumCoins*500_000), coins)
+	for _, whole := range []int{maximumCoins + 1, -maximumCoins - 1, common.MaxQuota, math.MaxInt64} {
+		_, err = WholeGameCoins(whole)
 		require.ErrorIs(t, err, ErrGameCoinAmountInvalid)
 	}
 	for _, perUsd := range []float64{0, -1, 0.1, math.NaN(), math.Inf(1), common.MaxQuota} {
 		common.QuotaPerUnit = perUsd
-		_, err = GameCoinQuota(1)
+		_, err = WholeGameCoins(1)
 		require.Error(t, err)
 	}
 }

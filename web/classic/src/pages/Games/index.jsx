@@ -43,7 +43,7 @@ import {
   Wallet,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { API, showError, showSuccess } from '../../helpers';
+import { API, showError, showSuccess, timestamp2string } from '../../helpers';
 import { renderQuota } from '../../helpers/render';
 import {
   discoverInjectedWallets,
@@ -60,13 +60,15 @@ import {
 } from '../../constants';
 import GameCoinRecords from './GameCoinRecords';
 import { GAME_ICONS } from './registry';
-import { signed } from './common/api';
+import { formatCoins, signed } from './common/api';
 import './games.css';
 
 const { Text } = Typography;
 
 const ILLUSTRATION_SIZE = { width: 150, height: 150 };
 const ADDRESS_PATTERN = /^0x[0-9a-fA-F]{40}$/;
+// 兑换数量最多这么多位小数：游戏币按额度单位记账，1 个币是 500000 个单位时最小的数量是 0.000002。
+const CONVERT_DECIMALS = 6;
 
 // 游戏卡片上的今日进度，按结算方式各写各的：免费游戏看领奖次数，对战看等待中的房间与人机奖励，
 // 下注游戏看今日输赢，奖池看当前奖池。
@@ -88,7 +90,7 @@ function gameProgress(game, t, symbol) {
       if (game.max_reward > 0 && game.daily_rewards > 0) {
         lines.push(
           t('每次最多 {{coins}} {{symbol}}', {
-            coins: game.max_reward,
+            coins: formatCoins(game.max_reward),
             symbol,
           }),
         );
@@ -113,7 +115,7 @@ function gameProgress(game, t, symbol) {
       lines.push(
         game.pot > 0
           ? t('当前奖池 {{pot}} {{symbol}} · {{players}} 人', {
-              pot: game.pot,
+              pot: formatCoins(game.pot),
               players: game.players,
               symbol,
             })
@@ -157,9 +159,11 @@ const Games = () => {
   const [loading, setLoading] = useState(true);
   const [convertAmount, setConvertAmount] = useState(1);
   const [converting, setConverting] = useState(false);
-  const [withdrawAddress, setWithdrawAddress] = useState('');
   const [withdrawAmount, setWithdrawAmount] = useState(1);
   const [withdrawing, setWithdrawing] = useState(false);
+  // 绑定提现地址的弹窗：bindAddress 是正在填写的地址，为 null 时弹窗关闭。
+  const [bindAddress, setBindAddress] = useState(null);
+  const [binding, setBinding] = useState(false);
   const [recordsVersion, setRecordsVersion] = useState(0);
   const [kindFilter, setKindFilter] = useState('all');
 
@@ -168,6 +172,7 @@ const Games = () => {
       const res = await API.get('/api/game/self');
       if (res.data.success) {
         setInfo(res.data.data);
+        // 默认兑换 1 个，余额或今日余量不到 1 个时取它们中较小的那个(可以是小数)。
         setConvertAmount((amount) =>
           Math.min(
             Math.max(amount, 1),
@@ -203,6 +208,9 @@ const Games = () => {
   const convertRemaining = convert?.daily_remaining || 0;
   const maxConvertAmount = Math.min(balance, convertRemaining);
   const withdraw = info?.withdraw;
+  const boundAddress = withdraw?.address || '';
+  // 换绑提现地址之后的等待时间还没过时不能提现，unlock_at 是恢复的时间(秒)。
+  const withdrawLocked = (withdraw?.unlock_at || 0) > Date.now() / 1000;
   // 游戏中心关闭后，只有还押着游戏币、没结束一局的玩家能打开这里：只列出那几个游戏，兑换、提现与记录都不开放。
   const closed = info?.closed === true;
   const gameMetaMap = getGameMetaMap(t);
@@ -261,8 +269,15 @@ const Games = () => {
   };
 
   const handleConvert = () => {
-    if (!Number.isInteger(convertAmount) || convertAmount < 1) {
-      showError(t('请输入正整数数量'));
+    if (
+      !(convertAmount > 0) ||
+      Number(convertAmount.toFixed(CONVERT_DECIMALS)) !== convertAmount
+    ) {
+      showError(
+        t('请输入大于 0、最多 {{decimals}} 位小数的数量', {
+          decimals: CONVERT_DECIMALS,
+        }),
+      );
       return;
     }
     if (convertAmount > balance) {
@@ -279,7 +294,10 @@ const Games = () => {
       title: t('确认兑换'),
       content: t(
         '将 {{coins}} 个游戏币兑换为 {{quota}} 额度，兑换后不可撤回。',
-        { coins: amount, quota: renderQuota(amount * quotaPerCoin) },
+        {
+          coins: formatCoins(amount),
+          quota: renderQuota(Math.round(amount * quotaPerCoin)),
+        },
       ),
       onOk: () => {
         submitConvert(amount);
@@ -287,11 +305,11 @@ const Games = () => {
     });
   };
 
-  const submitWithdraw = async (address, amount) => {
+  const submitWithdraw = async (amount) => {
     setWithdrawing(true);
     try {
-      // 首次请求会被要求安全验证，全局拦截器弹出验证后自动带上证明重试。
-      const res = await API.post('/api/game/withdraw', { address, amount });
+      // 首次请求会被要求安全验证，全局拦截器弹出验证后自动带上证明重试。提现只发往绑定的地址。
+      const res = await API.post('/api/game/withdraw', { amount });
       if (!res.data.success) {
         showError(res.data.message);
         return;
@@ -309,9 +327,8 @@ const Games = () => {
   };
 
   const handleWithdraw = () => {
-    const address = withdrawAddress.trim();
-    if (!ADDRESS_PATTERN.test(address)) {
-      showError(t('请输入 0x 开头的 42 位钱包地址'));
+    if (!boundAddress) {
+      showError(t('请先绑定提现地址'));
       return;
     }
     if (
@@ -336,12 +353,38 @@ const Games = () => {
       title: t('确认提现'),
       content: t(
         '将 {{amount}} {{symbol}} 提现到 {{address}}。链上转账无法撤回，请确认地址无误。',
-        { amount, symbol, address },
+        { amount, symbol, address: boundAddress },
       ),
       onOk: () => {
-        submitWithdraw(address, amount);
+        submitWithdraw(amount);
       },
     });
+  };
+
+  const submitBind = async () => {
+    const address = (bindAddress || '').trim();
+    if (!ADDRESS_PATTERN.test(address)) {
+      showError(t('请输入 0x 开头的 42 位钱包地址'));
+      return;
+    }
+    setBinding(true);
+    try {
+      // 绑定同样要先通过安全验证，全局拦截器弹出验证后自动带上证明重试。
+      const res = await API.put('/api/game/withdraw_address', { address });
+      if (!res.data.success) {
+        showError(res.data.message);
+        return;
+      }
+      showSuccess(t('提现地址已保存'));
+      setBindAddress(null);
+      await loadInfo();
+    } catch (error) {
+      if (!error?.isAxiosError) {
+        showError(error);
+      }
+    } finally {
+      setBinding(false);
+    }
   };
 
   const handleUseWalletAddress = async () => {
@@ -352,7 +395,7 @@ const Games = () => {
         method: 'eth_requestAccounts',
       });
       if (accounts?.[0]) {
-        setWithdrawAddress(accounts[0]);
+        setBindAddress(accounts[0]);
       }
     } catch (error) {
       if (!isEthereumUserRejected(error)) {
@@ -439,21 +482,21 @@ const Games = () => {
                 <span className='games-card-title'>{t('游戏币余额')}</span>
               </div>
               <div className='games-balance-value'>
-                {balance}
+                {formatCoins(balance)}
                 <span className='games-balance-symbol'>{symbol}</span>
               </div>
               <div className='games-balance-stats'>
                 <div>
                   <span>{t('累计获得')}</span>
-                  <strong>{account?.total_earned || 0}</strong>
+                  <strong>{formatCoins(account?.total_earned)}</strong>
                 </div>
                 <div>
                   <span>{t('已兑换')}</span>
-                  <strong>{account?.total_converted || 0}</strong>
+                  <strong>{formatCoins(account?.total_converted)}</strong>
                 </div>
                 <div>
                   <span>{t('已提现')}</span>
-                  <strong>{account?.total_withdrawn || 0}</strong>
+                  <strong>{formatCoins(account?.total_withdrawn)}</strong>
                 </div>
                 {showWagerNet && (
                   <div>
@@ -466,7 +509,11 @@ const Games = () => {
                 <div className='games-free-limit'>
                   {t(
                     '今日技巧与人机奖励 {{earned}} / {{limit}} {{symbol}}，同一 IP 下的账号共用，不含大转盘',
-                    { earned: freeEarned, limit: free.daily_limit, symbol },
+                    {
+                      earned: formatCoins(freeEarned),
+                      limit: free.daily_limit,
+                      symbol,
+                    },
                   )}
                 </div>
               )}
@@ -482,15 +529,18 @@ const Games = () => {
                     <span className='games-card-title'>{t('兑换为额度')}</span>
                   </div>
                   <Text type='tertiary' size='small'>
-                    {t('1 个游戏币 = {{quota}} 额度，兑换后不可撤回', {
-                      quota: renderQuota(quotaPerCoin),
-                    })}
+                    {t(
+                      '1 个游戏币 = {{quota}} 额度，可以兑换小数个，兑换后不可撤回',
+                      {
+                        quota: renderQuota(quotaPerCoin),
+                      },
+                    )}
                   </Text>
                   <Text type='tertiary' size='small'>
                     {t(
                       '个人今日剩余可兑换 {{remaining}} / {{limit}} 美元额度，转入模拟盘的游戏币也计入',
                       {
-                        remaining: convertRemaining,
+                        remaining: formatCoins(convertRemaining),
                         limit: convert?.daily_limit || 0,
                       },
                     )}
@@ -498,11 +548,19 @@ const Games = () => {
                   <InputNumber
                     className='games-field'
                     value={convertAmount}
-                    min={maxConvertAmount > 0 ? 1 : 0}
+                    min={0}
                     max={maxConvertAmount}
-                    disabled={maxConvertAmount < 1}
-                    precision={0}
-                    suffix={symbol}
+                    disabled={maxConvertAmount <= 0}
+                    suffix={
+                      <Button
+                        theme='borderless'
+                        size='small'
+                        disabled={maxConvertAmount <= 0}
+                        onClick={() => setConvertAmount(maxConvertAmount)}
+                      >
+                        {t('全部')}
+                      </Button>
+                    }
                     onChange={(value) =>
                       setConvertAmount(typeof value === 'number' ? value : 0)
                     }
@@ -510,14 +568,16 @@ const Games = () => {
                   <div className='games-preview'>
                     {t('可获得额度')}
                     <strong>
-                      {renderQuota((convertAmount || 0) * quotaPerCoin)}
+                      {renderQuota(
+                        Math.round((convertAmount || 0) * quotaPerCoin),
+                      )}
                     </strong>
                   </div>
                   <Button
                     theme='solid'
                     block
                     loading={converting}
-                    disabled={maxConvertAmount < 1}
+                    disabled={maxConvertAmount <= 0}
                     onClick={handleConvert}
                   >
                     {t('开始兑换')}
@@ -533,22 +593,36 @@ const Games = () => {
                   </div>
                   {withdraw?.enabled ? (
                     <>
-                      <Input
-                        className='games-field'
-                        value={withdrawAddress}
-                        placeholder={t('收款钱包地址，0x 开头')}
-                        onChange={setWithdrawAddress}
-                        suffix={
-                          <Button
-                            theme='borderless'
-                            size='small'
-                            icon={<Wallet size={14} />}
-                            onClick={handleUseWalletAddress}
+                      <div className='games-withdraw-address'>
+                        <span>{t('提现地址')}</span>
+                        {boundAddress ? (
+                          <Text
+                            copyable={{ content: boundAddress }}
+                            ellipsis={{ showTooltip: true }}
+                            style={{ maxWidth: 170 }}
                           >
-                            {t('使用钱包地址')}
-                          </Button>
-                        }
-                      />
+                            {boundAddress}
+                          </Text>
+                        ) : (
+                          <Text type='warning'>{t('还没有绑定')}</Text>
+                        )}
+                        <Button
+                          size='small'
+                          onClick={() => setBindAddress(boundAddress)}
+                        >
+                          {boundAddress ? t('更换') : t('绑定')}
+                        </Button>
+                      </div>
+                      {withdrawLocked && (
+                        <Banner
+                          type='warning'
+                          closeIcon={null}
+                          description={t(
+                            '刚更换了提现地址，{{time}} 之前不能提现',
+                            { time: timestamp2string(withdraw.unlock_at) },
+                          )}
+                        />
+                      )}
                       <InputNumber
                         className='games-field'
                         value={withdrawAmount}
@@ -563,6 +637,11 @@ const Games = () => {
                         }
                       />
                       <ul className='games-rules'>
+                        <li>
+                          {t(
+                            '链上只能提整数个游戏币，只发往绑定的地址；更换地址后 24 小时内不能提现',
+                          )}
+                        </li>
                         <li>
                           {t('单次提现 {{min}} – {{max}} {{symbol}}', {
                             min: withdraw.min_amount,
@@ -592,7 +671,12 @@ const Games = () => {
                         type='primary'
                         block
                         loading={withdrawing}
-                        disabled={balance < 1 || withdraw.daily_remaining < 1}
+                        disabled={
+                          !boundAddress ||
+                          withdrawLocked ||
+                          balance < 1 ||
+                          withdraw.daily_remaining < 1
+                        }
                         onClick={handleWithdraw}
                       >
                         {t('提现')}
@@ -772,6 +856,39 @@ const Games = () => {
             )}
           </div>
         </section>
+
+        <Modal
+          title={boundAddress ? t('更换提现地址') : t('绑定提现地址')}
+          visible={bindAddress !== null}
+          confirmLoading={binding}
+          onOk={submitBind}
+          onCancel={() => setBindAddress(null)}
+        >
+          <Input
+            value={bindAddress || ''}
+            placeholder={t('收款钱包地址，0x 开头')}
+            onChange={setBindAddress}
+            suffix={
+              <Button
+                theme='borderless'
+                size='small'
+                icon={<Wallet size={14} />}
+                onClick={handleUseWalletAddress}
+              >
+                {t('使用钱包地址')}
+              </Button>
+            }
+          />
+          <ul className='games-rules games-bind-rules'>
+            <li>{t('保存地址需要先通过安全验证')}</li>
+            <li>{t('第一次绑定马上可以提现')}</li>
+            <li>
+              {t(
+                '更换地址后 24 小时内不能提现，账号被盗时你有时间发现，对方也不能马上把游戏币提走',
+              )}
+            </li>
+          </ul>
+        </Modal>
 
         {/* 等账户信息加载成功再拉记录：游戏中心关闭时记录接口同样会失败，避免重复报错。 */}
         {info && !closed && (

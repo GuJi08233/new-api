@@ -27,37 +27,41 @@ const (
 
 // TradeNotice 是一件不是用户当场操作、在后台发生的事，页面轮询新的通知弹出提示。和引起它的成交在同一个事务里写入。
 // Side 是现货的 buy/sell 或合约仓位的 long/short，Action 是合约的 open/close；Qty 是数量(10^-8)，Price 是成交均价或强平价
-// (追加保证金提醒是当时的风险率)；Pnl 是平仓的盈亏，Amount 是从站内额度扣的钱(追加保证金提醒是当时的借款本息，额度单位)。
+// (追加保证金提醒是当时的风险率)；Pnl 是平仓的盈亏，Amount 是从站内额度扣的钱(追加保证金提醒是当时的借款本息，额度单位)，
+// Coins 是补亏空时从游戏币扣的部分。
 type TradeNotice struct {
-	Id        int    `json:"id" gorm:"index:idx_trade_notice_user,priority:2"`
-	UserId    int    `json:"user_id" gorm:"index:idx_trade_notice_user,priority:1"`
-	Kind      string `json:"kind" gorm:"type:varchar(16)"`
-	Market    string `json:"market" gorm:"type:varchar(8)"`
-	Symbol    string `json:"symbol" gorm:"type:varchar(20)"`
-	Side      string `json:"side" gorm:"type:varchar(5)"`
-	Action    string `json:"action" gorm:"type:varchar(5)"`
-	OrderId   int    `json:"order_id"`
-	Qty       int64  `json:"qty" gorm:"bigint"`
-	Price     string `json:"price" gorm:"type:varchar(40)"`
-	Pnl       int    `json:"pnl" gorm:"type:bigint"`
-	Amount    int    `json:"amount" gorm:"type:bigint"`
-	CreatedAt int64  `json:"created_at" gorm:"bigint;index:idx_trade_notice_notify,priority:2"`
+	Id        int       `json:"id" gorm:"index:idx_trade_notice_user,priority:2"`
+	UserId    int       `json:"user_id" gorm:"index:idx_trade_notice_user,priority:1"`
+	Kind      string    `json:"kind" gorm:"type:varchar(16)"`
+	Market    string    `json:"market" gorm:"type:varchar(8)"`
+	Symbol    string    `json:"symbol" gorm:"type:varchar(20)"`
+	Side      string    `json:"side" gorm:"type:varchar(5)"`
+	Action    string    `json:"action" gorm:"type:varchar(5)"`
+	OrderId   int       `json:"order_id"`
+	Qty       int64     `json:"qty" gorm:"bigint"`
+	Price     string    `json:"price" gorm:"type:varchar(40)"`
+	Pnl       int       `json:"pnl" gorm:"type:bigint"`
+	Amount    int       `json:"amount" gorm:"type:bigint"`
+	Coins     GameCoins `json:"coins" gorm:"type:bigint;not null;default:0"`
+	CreatedAt int64     `json:"created_at" gorm:"bigint;index:idx_trade_notice_notify,priority:2"`
 	// 空值是升级前的历史通知，永不补发。发送状态不暴露给用户通知 API。
 	NotifyState string `json:"-" gorm:"type:varchar(16);index:idx_trade_notice_notify,priority:1"`
 }
 
-// TradeDeficitNotifier 在亏空从用户的站内额度里扣掉、事务提交之后调用，由 service 设成按用户的通知设置(邮件、Webhook 等)
+// TradeDeficitNotifier 在亏空从用户的游戏币与站内额度里扣掉、事务提交之后调用，由 service 设成按用户的通知设置(邮件、Webhook 等)
 // 通知用户；为空时不发。
-var TradeDeficitNotifier func(userId int, covered int)
+var TradeDeficitNotifier func(userId int, cover TradeDeficitCover)
 
-// afterTradeDeficitCovered 在补亏空的事务提交之后刷新用户的额度缓存并通知用户，covered 为 0 时什么都不做。
-func afterTradeDeficitCovered(userId int, covered int) {
-	if covered <= 0 {
+// afterTradeDeficitCovered 在补亏空的事务提交之后刷新用户的额度缓存并通知用户，没有补任何钱时什么都不做。
+func afterTradeDeficitCovered(userId int, cover TradeDeficitCover) {
+	if cover.Quota <= 0 && cover.Coins <= 0 {
 		return
 	}
-	syncCreditUserQuotaCache(userId, -covered, "trade deficit")
+	if cover.Quota > 0 {
+		syncCreditUserQuotaCache(userId, -cover.Quota, "trade deficit")
+	}
 	if TradeDeficitNotifier != nil {
-		TradeDeficitNotifier(userId, covered)
+		TradeDeficitNotifier(userId, cover)
 	}
 }
 

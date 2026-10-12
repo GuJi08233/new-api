@@ -29,7 +29,7 @@ func TestPvpInvitePreviewShowsStakeWithoutJoining(t *testing.T) {
 		"game": gameRps, "stake": 17.0, "escrow": 17.0, "seats": 2.0,
 		"player_count": 1.0, "locked": true, "status": model.GameRoomStatusWaiting,
 	}, preview)
-	assert.Equal(t, 100, guest.balance())
+	assert.Equal(t, 100.0, guest.balance())
 	room, err := model.GetGameRoom(jsonInt(t, created["id"]))
 	require.NoError(t, err)
 	assert.Equal(t, 1, room.Players)
@@ -38,7 +38,7 @@ func TestPvpInvitePreviewShowsStakeWithoutJoining(t *testing.T) {
 	guest.fails(http.MethodGet, "/api/game/rooms/invite?code=xxxxxxxx", nil)
 	host.ok(http.MethodPost, gameRoomPath(room.Id, "cancel"), nil)
 	guest.fails(http.MethodGet, "/api/game/rooms/invite?code="+created["code"].(string), nil)
-	assert.Equal(t, 100, guest.balance())
+	assert.Equal(t, 100.0, guest.balance())
 }
 
 func TestPvpRoomPasswordAndSeatContract(t *testing.T) {
@@ -54,7 +54,7 @@ func TestPvpRoomPasswordAndSeatContract(t *testing.T) {
 	id := jsonInt(t, created["id"])
 	assert.EqualValues(t, 2, created["seats"])
 	assert.EqualValues(t, 1, created["player_count"])
-	assert.EqualValues(t, 10, created["escrow"])
+	assert.Equal(t, 10.0, created["escrow"])
 	assert.Equal(t, true, created["locked"])
 	for _, removed := range []string{"players", "guest_id", "host_net", "guest_net"} {
 		assert.NotContains(t, created, removed)
@@ -79,7 +79,7 @@ func TestPvpRoomPasswordAndSeatContract(t *testing.T) {
 	assert.Equal(t, wrong, guest.fails(http.MethodPost, gameRoomPath(id, "join"), nil))
 	assert.Equal(t, wrong, guest.fails(http.MethodPost, "/api/game/rooms/join", map[string]any{"code": created["code"], "password": "wrong"}))
 	guest.fails(http.MethodPost, gameRoomPath(id, "join"), map[string]any{"password": password + "密"})
-	assert.Equal(t, 100, guest.balance(), "密码失败不能扣币或占座")
+	assert.Equal(t, 100.0, guest.balance(), "密码失败不能扣币或占座")
 	assert.Equal(t, created["version"], host.ok(http.MethodGet, fmt.Sprintf("/api/game/rooms/%d", id), nil)["version"])
 
 	joined := guest.ok(http.MethodPost, gameRoomPath(id, "join"), map[string]any{"password": password})
@@ -87,19 +87,19 @@ func TestPvpRoomPasswordAndSeatContract(t *testing.T) {
 	assert.EqualValues(t, guest.user.Id, joined["members"].([]any)[1].(map[string]any)["user_id"])
 	assert.NotContains(t, joined, "code")
 	guest.fails(http.MethodPost, gameRoomPath(id, "leave"), nil)
-	assert.Equal(t, 90, guest.balance(), "开局后不能离座退押注")
+	assert.Equal(t, 90.0, guest.balance(), "开局后不能离座退押注")
 	finished := guest.ok(http.MethodPost, gameRoomPath(id, "resign"), nil)
 	assert.EqualValues(t, host.user.Id, finished["winner_id"])
-	assert.EqualValues(t, 1, finished["rake"])
+	assert.Equal(t, 1.0, finished["rake"])
 	members := finished["members"].([]any)
-	assert.EqualValues(t, 9, members[0].(map[string]any)["net"])
-	assert.EqualValues(t, -10, members[1].(map[string]any)["net"])
+	assert.Equal(t, 9.0, members[0].(map[string]any)["net"])
+	assert.Equal(t, -10.0, members[1].(map[string]any)["net"])
 	recent := host.ok(http.MethodGet, "/api/game/rps", nil)["recent"].([]any)
 	require.Len(t, recent, 1)
 	assert.Equal(t, "win", recent[0].(map[string]any)["result"])
-	assert.EqualValues(t, 9, recent[0].(map[string]any)["net"])
-	assert.Equal(t, 109, host.balance())
-	assert.Equal(t, 90, guest.balance())
+	assert.Equal(t, 9.0, recent[0].(map[string]any)["net"])
+	assert.Equal(t, 109.0, host.balance())
+	assert.Equal(t, 90.0, guest.balance())
 }
 
 func TestPvpPrivatePasswordAndMatchIsolation(t *testing.T) {
@@ -127,7 +127,7 @@ func TestPvpPrivatePasswordAndMatchIsolation(t *testing.T) {
 	finished := guest.ok(http.MethodPost, gameRoomPath(id, "resign"), nil)
 	assert.EqualValues(t, privateHost.user.Id, finished["winner_id"], "零押注也保留赢家")
 	for _, member := range finished["members"].([]any) {
-		assert.EqualValues(t, 0, member.(map[string]any)["net"])
+		assert.Equal(t, 0.0, member.(map[string]any)["net"])
 	}
 	recent := guest.ok(http.MethodGet, "/api/game/rps", nil)["recent"].([]any)
 	require.Len(t, recent, 1)
@@ -150,7 +150,7 @@ func TestPvpRoomRejectsUnsupportedSeatsAndOversizePassword(t *testing.T) {
 		player := env.player(100, gameTestIpA)
 		player.fails(http.MethodPost, "/api/game/rooms", request)
 		player.fails(http.MethodPost, "/api/game/rooms/match", request)
-		assert.Equal(t, 100, player.balance())
+		assert.Equal(t, 100.0, player.balance())
 		rooms, err := model.GetUserActiveGameRooms(player.user.Id)
 		require.NoError(t, err)
 		assert.Empty(t, rooms)
@@ -178,9 +178,9 @@ func TestPvpLeaveRefundsAndRevokesPrivateRoomPolling(t *testing.T) {
 	left := guest.ok(http.MethodPost, path+"/leave", nil)
 	assert.EqualValues(t, -1, left["seat"])
 	assert.EqualValues(t, 1, left["player_count"])
-	assert.EqualValues(t, 100, left["balance"])
+	assert.Equal(t, 100.0, left["balance"])
 	assert.NotContains(t, left, "code")
-	assert.Equal(t, 100, guest.balance())
+	assert.Equal(t, 100.0, guest.balance())
 	select {
 	case response := <-polled:
 		var body map[string]any
@@ -194,9 +194,9 @@ func TestPvpLeaveRefundsAndRevokesPrivateRoomPolling(t *testing.T) {
 	guest.fails(http.MethodPost, path+"/leave", nil)
 	closed := host.ok(http.MethodPost, path+"/leave", nil)
 	assert.Equal(t, model.GameRoomStatusCancelled, closed["status"])
-	assert.EqualValues(t, 100, closed["balance"])
-	assert.Equal(t, 100, host.balance())
-	assert.Equal(t, 100, guest.balance())
+	assert.Equal(t, 100.0, closed["balance"])
+	assert.Equal(t, 100.0, host.balance())
+	assert.Equal(t, 100.0, guest.balance())
 }
 
 func TestPvpAiRestoreCommittedMoveAfterStaleVersion(t *testing.T) {
@@ -236,7 +236,7 @@ func TestPvpAiRestoreWinningResultDoesNotRewardAgain(t *testing.T) {
 		"session_id": session.Id, "version": session.Version, "move": map[string]any{"x": 4, "y": 0},
 	})
 	result := finished["result"].(map[string]any)
-	require.EqualValues(t, 1, result["reward"])
+	require.Equal(t, 1.0, result["reward"])
 	path := fmt.Sprintf("/api/game/gomoku/ai?session_id=%d", session.Id)
 	for range 2 {
 		restored := player.ok(http.MethodGet, path, nil)
@@ -247,7 +247,7 @@ func TestPvpAiRestoreWinningResultDoesNotRewardAgain(t *testing.T) {
 		assert.Equal(t, finished["session"].(map[string]any)["state"], view["state"])
 		assert.Equal(t, result, restored["result"])
 	}
-	assert.Equal(t, 1, player.balance())
+	assert.Equal(t, 1.0, player.balance())
 	progress, err := model.GetGameRewardProgress(player.user.Id, gameTestIpA, pvpAiGame(gameGomoku), gameCenterDay())
 	require.NoError(t, err)
 	assert.Equal(t, 1, progress.Plays)

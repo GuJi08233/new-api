@@ -112,8 +112,13 @@ func TestDealSettlesNaturals(t *testing.T) {
 		require.Len(t, results, 1, c.name)
 		assert.Equal(t, Result{Outcome: c.wantOutcome, Payout: c.wantPayout}, results[0], c.name)
 	}
-	_, err := Deal(cards(10, 9, 6, 7), 3)
-	assert.Error(t, err, "黑杰克赔 3:2，下注必须是偶数")
+	// 下注按记账单位计，可以是奇数：黑杰克 2.5 倍派彩的零头舍去。
+	game, err := Deal(cards(1, 9, 13, 7), 3)
+	require.NoError(t, err)
+	require.True(t, game.Over)
+	assert.Equal(t, []Result{{Outcome: OutcomeBlackjack, Payout: 7}}, game.Results())
+	_, err = Deal(cards(10, 9, 6, 7), 0)
+	assert.Error(t, err, "下注必须为正")
 }
 
 // 庄家不到 17 点要牌，17 点停牌，软 17 也停；玩家停牌后按点数比大小，庄家爆牌玩家赢。

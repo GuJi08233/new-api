@@ -39,7 +39,7 @@ func (tradeTestMarket) Brackets(string) tradesim.Brackets {
 func seedTradeFuturesAccount(t *testing.T, userId int, usd float64) {
 	t.Helper()
 	seedTradeUser(t, userId, usd)
-	_, err := TransferQuotaToTrade(userId, tradeUsd(usd))
+	_, err := TransferQuotaToTrade(userId, tradeUsd(usd), TradeEquity{})
 	require.NoError(t, err)
 }
 
@@ -152,15 +152,18 @@ func TestTradeFuturesGapLiquidationIsChargedToTheWallet(t *testing.T) {
 	seedTradeFuturesAccount(t, 4015, 10)
 	openTradeFutures(t, 4015, tradeFuturesSymbol, TradeFuturesIsolated, TradeFuturesLong, tradeFuturesCoin, "100", 10, 0, nil)
 	brackets := tradeTestMarket{}.Brackets(tradeFuturesSymbol)
-	var notified []int
+	var notified []TradeDeficitCover
 	previous := TradeDeficitNotifier
-	TradeDeficitNotifier = func(userId int, covered int) { notified = append(notified, userId, covered) }
+	TradeDeficitNotifier = func(userId int, cover TradeDeficitCover) {
+		assert.Equal(t, 4015, userId)
+		notified = append(notified, cover)
+	}
 	t.Cleanup(func() { TradeDeficitNotifier = previous })
 
 	liquidated, err := LiquidateTradeFuturesPosition(4015, tradeFuturesSymbol, TradeFuturesLong, decimal.RequireFromString("80"), brackets, 4)
 	require.NoError(t, err)
 	assert.True(t, liquidated)
-	assert.Equal(t, []int{4015, tradeUsd(10.032)}, notified, "the user is told once the quota is charged")
+	assert.Equal(t, []TradeDeficitCover{{Quota: tradeUsd(10.032)}}, notified, "the user is told once the quota is charged")
 	account := tradeTestAccount(t, 4015)
 	assert.Zero(t, account.Cash)
 	// 10 保证金 - 20 亏损 - 80 × 0.04% = 0.032 手续费 = -10.032，从站内额度扣。
@@ -246,13 +249,13 @@ func TestTradeFuturesCrossOccupiesWithoutMovingCash(t *testing.T) {
 		Fill: TradeFill{Qty: tradeFuturesCoin, Amount: tradeUsd(20), Price: "20"}, Market: market})
 	require.ErrorIs(t, err, ErrTradeCashInsufficient, "only 9.75 is not occupied")
 
-	_, _, err = TransferQuotaFromTrade(4010, tradeUsd(10), tradeTestDay, 0, market)
+	_, _, err = TransferQuotaFromTrade(4010, tradeUsd(10), tradeTestDay, 0, market, TradeEquity{})
 	require.ErrorIs(t, err, ErrTradeWithdrawExceeded)
-	_, _, err = TransferQuotaFromTrade(4010, tradeUsd(9.75), tradeTestDay, 0, market)
+	_, _, err = TransferQuotaFromTrade(4010, tradeUsd(9.75), tradeTestDay, 0, market, TradeEquity{})
 	require.NoError(t, err)
-	_, _, err = TransferQuotaFromTrade(4010, tradeUsd(1), tradeTestDay, 0, tradeTestMarket{tradeFuturesSymbol: "550"})
+	_, _, err = TransferQuotaFromTrade(4010, tradeUsd(1), tradeTestDay, 0, tradeTestMarket{tradeFuturesSymbol: "550"}, TradeEquity{})
 	require.ErrorIs(t, err, ErrTradeWithdrawExceeded, "a floating profit cannot be withdrawn")
-	_, _, err = TransferQuotaFromTrade(4010, tradeUsd(1), tradeTestDay, 0, nil)
+	_, _, err = TransferQuotaFromTrade(4010, tradeUsd(1), tradeTestDay, 0, nil, TradeEquity{})
 	require.ErrorIs(t, err, ErrTradeMarkUnavailable, "cross positions need a mark price")
 }
 

@@ -45,10 +45,10 @@ func TestTradeQuotaTransferMovesValueAtomically(t *testing.T) {
 	truncateTables(t)
 	seedTradeUser(t, 3001, 10)
 
-	account, err := TransferQuotaToTrade(3001, tradeUsd(4))
+	account, err := TransferQuotaToTrade(3001, tradeUsd(4), TradeEquity{})
 	require.NoError(t, err)
 	assert.Equal(t, tradeUsd(4), account.Cash)
-	_, err = TransferQuotaToTrade(3001, tradeUsd(7))
+	_, err = TransferQuotaToTrade(3001, tradeUsd(7), TradeEquity{})
 	require.ErrorIs(t, err, ErrTradeQuotaInsufficient)
 
 	quota, err := GetUserQuota(3001, true)
@@ -56,7 +56,7 @@ func TestTradeQuotaTransferMovesValueAtomically(t *testing.T) {
 	assert.Equal(t, tradeUsd(6), quota)
 	assert.Equal(t, tradeUsd(4), tradeTestAccount(t, 3001).Cash)
 
-	_, profit, err := TransferQuotaFromTrade(3001, tradeUsd(1.5), tradeTestDay, tradeUsd(1), nil)
+	_, profit, err := TransferQuotaFromTrade(3001, tradeUsd(1.5), tradeTestDay, tradeUsd(1), nil, TradeEquity{})
 	require.NoError(t, err)
 	assert.Zero(t, profit, "转回自己转入的额度不算盈利")
 	quota, err = GetUserQuota(3001, true)
@@ -78,28 +78,28 @@ func TestTradeQuotaTransferMovesValueAtomically(t *testing.T) {
 func TestTradeProfitLeavesUnderTheDailyCap(t *testing.T) {
 	truncateTables(t)
 	seedTradeUser(t, 3002, 10)
-	_, err := TransferQuotaToTrade(3002, tradeUsd(10))
+	_, err := TransferQuotaToTrade(3002, tradeUsd(10), TradeEquity{})
 	require.NoError(t, err)
 	tradeRoundTrip(t, 3002, 10, 15)
 
-	_, _, err = TransferQuotaFromTrade(3002, tradeUsd(16), tradeTestDay, tradeUsd(100), nil)
+	_, _, err = TransferQuotaFromTrade(3002, tradeUsd(16), tradeTestDay, tradeUsd(100), nil, TradeEquity{})
 	require.ErrorIs(t, err, ErrTradeWithdrawExceeded, "账户里只有 15 美元")
-	_, _, err = TransferQuotaFromTrade(3002, tradeUsd(15), tradeTestDay, tradeUsd(2), nil)
+	_, _, err = TransferQuotaFromTrade(3002, tradeUsd(15), tradeTestDay, tradeUsd(2), nil, TradeEquity{})
 	require.ErrorIs(t, err, ErrTradeProfitOutLimit, "盈利 5 美元超过当天的上限")
 
-	_, profit, err := TransferQuotaFromTrade(3002, tradeUsd(12), tradeTestDay, tradeUsd(2), nil)
+	_, profit, err := TransferQuotaFromTrade(3002, tradeUsd(12), tradeTestDay, tradeUsd(2), nil, TradeEquity{})
 	require.NoError(t, err)
 	assert.Equal(t, tradeUsd(2), profit, "先转回本金 10 美元，其余算盈利")
-	_, _, err = TransferQuotaFromTrade(3002, tradeUsd(1), tradeTestDay, tradeUsd(2), nil)
+	_, _, err = TransferQuotaFromTrade(3002, tradeUsd(1), tradeTestDay, tradeUsd(2), nil, TradeEquity{})
 	require.ErrorIs(t, err, ErrTradeProfitOutLimit, "当天的盈利额度已经用完")
-	_, profit, err = TransferQuotaFromTrade(3002, tradeUsd(1), "2026-10-04", tradeUsd(2), nil)
+	_, profit, err = TransferQuotaFromTrade(3002, tradeUsd(1), "2026-10-04", tradeUsd(2), nil, TradeEquity{})
 	require.NoError(t, err, "第二天重新计算")
 	assert.Equal(t, tradeUsd(1), profit)
 
 	_, err = PlaceTradeOrder(TradeOrderInput{UserId: 3002, Symbol: "BTCUSDT", Side: TradeSideBuy, Type: TradeOrderTypeMarket, Qty: 100_000_000,
 		Fill: TradeFill{Qty: 100_000_000, Amount: tradeUsd(1.5), Price: "1.5"}})
 	require.NoError(t, err)
-	_, _, err = TransferQuotaFromTrade(3002, tradeUsd(1), "2026-10-04", 0, nil)
+	_, _, err = TransferQuotaFromTrade(3002, tradeUsd(1), "2026-10-04", 0, nil, TradeEquity{})
 	require.ErrorIs(t, err, ErrTradeWithdrawExceeded, "持仓里的钱要卖出之后才能转出")
 
 	account := tradeTestAccount(t, 3002)
@@ -114,7 +114,7 @@ func TestTradeProfitLeavesUnderTheDailyCap(t *testing.T) {
 func TestTradeLimitBuyFreezesThenFillsFromTheFreeze(t *testing.T) {
 	truncateTables(t)
 	seedTradeUser(t, 3005, 1000)
-	_, err := TransferQuotaToTrade(3005, tradeUsd(1000))
+	_, err := TransferQuotaToTrade(3005, tradeUsd(1000), TradeEquity{})
 	require.NoError(t, err)
 
 	order, err := PlaceTradeOrder(TradeOrderInput{UserId: 3005, Symbol: "BTCUSDT", Side: TradeSideBuy, Type: TradeOrderTypeLimit,
@@ -152,7 +152,7 @@ func TestTradeLimitBuyFreezesThenFillsFromTheFreeze(t *testing.T) {
 func TestPlaceTradeOrderRejectsOverspendAndOversell(t *testing.T) {
 	truncateTables(t)
 	seedTradeUser(t, 3006, 10)
-	_, err := TransferQuotaToTrade(3006, tradeUsd(10))
+	_, err := TransferQuotaToTrade(3006, tradeUsd(10), TradeEquity{})
 	require.NoError(t, err)
 
 	_, err = PlaceTradeOrder(TradeOrderInput{UserId: 3006, Symbol: "BTCUSDT", Side: TradeSideBuy, Type: TradeOrderTypeLimit,
@@ -188,7 +188,7 @@ func TestPlaceTradeOrderRejectsOverspendAndOversell(t *testing.T) {
 func TestTradeMarketOrderRemainderIsCanceled(t *testing.T) {
 	truncateTables(t)
 	seedTradeUser(t, 3007, 100)
-	_, err := TransferQuotaToTrade(3007, tradeUsd(100))
+	_, err := TransferQuotaToTrade(3007, tradeUsd(100), TradeEquity{})
 	require.NoError(t, err)
 
 	order, err := PlaceTradeOrder(TradeOrderInput{UserId: 3007, Symbol: "BTCUSDT", Side: TradeSideBuy, Type: TradeOrderTypeMarket,
@@ -213,7 +213,7 @@ func TestTradeMarketOrderRemainderIsCanceled(t *testing.T) {
 func TestCancelTradeOrderReleasesWhatItFroze(t *testing.T) {
 	truncateTables(t)
 	seedTradeUser(t, 3008, 100)
-	_, err := TransferQuotaToTrade(3008, tradeUsd(100))
+	_, err := TransferQuotaToTrade(3008, tradeUsd(100), TradeEquity{})
 	require.NoError(t, err)
 	_, err = PlaceTradeOrder(TradeOrderInput{UserId: 3008, Symbol: "BTCUSDT", Side: TradeSideBuy, Type: TradeOrderTypeMarket,
 		Qty: 300_000_000, Fill: TradeFill{Qty: 300_000_000, Amount: tradeUsd(30), Price: "10"}})

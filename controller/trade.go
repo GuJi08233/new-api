@@ -40,8 +40,12 @@ type tradeTransferRequest struct {
 	// Direction 是 in(从主钱包转入模拟盘)或 out(转回主钱包)，Amount 是额度，按美元填写，可以有小数。
 	Direction string `json:"direction"`
 	Amount    string `json:"amount"`
-	// Wallet 为空或 quota 使用平台额度，game_coin 使用独立游戏币钱包（只接受整币）。
+	// Wallet 为空或 quota 使用平台额度，game_coin 使用独立游戏币钱包：转入只接受整币，转回游戏币可以有小数。
 	Wallet string `json:"wallet"`
+}
+
+type tradeLossOrderRequest struct {
+	Order string `json:"order"`
 }
 
 // tradeDay 是模拟盘的记账日：每天的盈利转出上限与资产快照都按它切换，与签到一样按服务器本地时间 0 点切换。多个节点
@@ -165,6 +169,10 @@ func tradeSelfView(userId int) (gin.H, error) {
 	if err != nil {
 		return nil, err
 	}
+	convertCap, err := model.GameCoinConvertDailyCap()
+	if err != nil {
+		return nil, err
+	}
 	base, err := model.GetLatestTradeSnapshotBefore(userId, day)
 	if err != nil {
 		return nil, err
@@ -202,12 +210,14 @@ func tradeSelfView(userId int) (gin.H, error) {
 			"profit_out_used": profitUsed,
 			"profit_out_cap":  profitCap,
 		},
-		// 转入模拟盘的游戏币与兑换额度共用每人每天的上限；转回游戏币不能超过账户里的 coin_principal。
+		// 转入模拟盘的游戏币与兑换额度共用每人每天的上限；转回游戏币不能超过按亏损抵扣顺序结算之后的游戏币本金
+		// (coin_returnable，也不超过现在能转出的资金)。
 		"wallet": gin.H{
 			"quota":                     userQuota,
 			"game_coins":                coinAccount.Balance,
 			"game_coin_daily_limit":     model.GameCoinConvertDailyLimit,
-			"game_coin_daily_remaining": max(model.GameCoinConvertDailyLimit-coinsConverted, 0),
+			"game_coin_daily_remaining": max(convertCap-coinsConverted, 0),
+			"coin_returnable":           min(model.TradeCoinReturnable(account, valuation.Equity), model.GameCoins(max(withdrawable, 0))),
 		},
 	}, nil
 }
@@ -578,6 +588,7 @@ func GetTradeNotices(c *gin.Context) {
 			"price":      notice.Price,
 			"pnl":        notice.Pnl,
 			"amount":     notice.Amount,
+			"coins":      notice.Coins,
 			"created_at": notice.CreatedAt,
 		}
 	}
@@ -656,14 +667,20 @@ func TransferTrade(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
-	coins := 0
-	if req.Wallet == "game_coin" {
+	// 游戏币转入模拟盘只接受整币(占用每天的兑换额度，按整币计)，转回游戏币可以有小数，按额度单位精确记账。
+	coins, coinAmount := 0, model.GameCoins(0)
+	if req.Wallet == "game_coin" && isIn {
 		if !amount.Equal(amount.Truncate(0)) {
 			common.ApiErrorI18n(c, i18n.MsgTradeGameCoinInteger)
 			return
 		}
 		coins, err = common.QuotaFromDecimalStrict(amount)
 		if err != nil || coins < 1 {
+			common.ApiErrorI18n(c, i18n.MsgTradeAmountInvalid)
+			return
+		}
+	} else if req.Wallet == "game_coin" {
+		if coinAmount, err = model.ParseGameCoins(req.Amount); err != nil || coinAmount < 1 {
 			common.ApiErrorI18n(c, i18n.MsgTradeAmountInvalid)
 			return
 		}
@@ -691,18 +708,29 @@ func TransferTrade(c *gin.Context) {
 			return
 		}
 	}
-	if req.Wallet == "game_coin" && isIn {
-		_, err = model.TransferGameCoinsToTrade(userId, coins, model.GameCenterDay(time.Now()))
-		content = fmt.Sprintf("模拟盘转入游戏币 %d", coins)
-	} else if req.Wallet == "game_coin" {
-		_, profit, err = model.TransferGameCoinsFromTrade(userId, coins, tradeDay(time.Now()), profitCap, service.TradeAccountingMarket())
-		content = fmt.Sprintf("模拟盘转出游戏币 %d，其中盈利 %s", coins, logger.LogQuota(profit))
-	} else if isIn {
-		_, err = model.TransferQuotaToTrade(userId, quota)
-		content = fmt.Sprintf("模拟盘转入额度 %s", logger.LogQuota(quota))
-	} else {
-		_, profit, err = model.TransferQuotaFromTrade(userId, quota, tradeDay(time.Now()), profitCap, service.TradeAccountingMarket())
-		content = fmt.Sprintf("模拟盘转出额度 %s，其中盈利 %s", logger.LogQuota(quota), logger.LogQuota(profit))
+	// 每次转账之前按账户总资产把亏损按抵扣顺序记到游戏币本金上，估值算不出来时有游戏币本金的账户不能转账。估值之后账户又有了
+	// 变动(同时在下单、转账)时重新估值，连续几次都赶不上就让用户稍后再试。
+	for attempt := 1; ; attempt++ {
+		seen, valuation, valueErr := service.ValueTradeUser(userId)
+		equity := model.TradeEquity{Value: valuation.Equity, Known: valueErr == nil, Account: seen}
+		if req.Wallet == "game_coin" && isIn {
+			_, err = model.TransferGameCoinsToTrade(userId, coins, model.GameCenterDay(time.Now()), equity)
+			content = fmt.Sprintf("模拟盘转入游戏币 %d", coins)
+			quota = coins * perUsd
+		} else if req.Wallet == "game_coin" {
+			_, profit, err = model.TransferGameCoinsFromTrade(userId, coinAmount, tradeDay(time.Now()), profitCap, service.TradeAccountingMarket(), equity)
+			content = fmt.Sprintf("模拟盘转出游戏币 %s，其中盈利 %s", coinAmount.Decimal(), logger.LogQuota(profit))
+			quota = int(coinAmount)
+		} else if isIn {
+			_, err = model.TransferQuotaToTrade(userId, quota, equity)
+			content = fmt.Sprintf("模拟盘转入额度 %s", logger.LogQuota(quota))
+		} else {
+			_, profit, err = model.TransferQuotaFromTrade(userId, quota, tradeDay(time.Now()), profitCap, service.TradeAccountingMarket(), equity)
+			content = fmt.Sprintf("模拟盘转出额度 %s，其中盈利 %s", logger.LogQuota(quota), logger.LogQuota(profit))
+		}
+		if !errors.Is(err, model.ErrTradeValuationStale) || attempt == 3 {
+			break
+		}
 	}
 	if err != nil {
 		switch {
@@ -724,6 +752,8 @@ func TransferTrade(c *gin.Context) {
 			common.ApiErrorI18n(c, i18n.MsgQuotaExceedMax)
 		case errors.Is(err, model.ErrTradeMarkUnavailable):
 			common.ApiErrorI18n(c, i18n.MsgTradeMarketUnavailable)
+		case errors.Is(err, model.ErrTradeValuationStale):
+			common.ApiErrorI18n(c, i18n.MsgRetryLater)
 		default:
 			common.SysError(fmt.Sprintf("trade transfer failed for user %d: %v", userId, err))
 			common.ApiErrorI18n(c, i18n.MsgTradeTransferFailed)
@@ -732,6 +762,28 @@ func TransferTrade(c *gin.Context) {
 	}
 	model.RecordAuditLog(model.ClientLogSource(c), userId, "", model.LogTypeSystem, content,
 		map[string]interface{}{"trade_direction": req.Direction, "wallet": req.Wallet, "quota": quota, "profit": profit})
+	view, err := tradeSelfView(userId)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, view)
+}
+
+// SetTradeLossOrder 设置亏损抵扣顺序：coin_first 先扣游戏币、再扣平台额度，quota_first 反过来。它决定转账时亏损先记到哪一种本金上
+// (能转回多少游戏币)，以及穿仓的亏空先从哪个钱包补，模拟盘关闭时也能改。
+func SetTradeLossOrder(c *gin.Context) {
+	var req tradeLossOrderRequest
+	if err := common.DecodeJson(c.Request.Body, &req); err != nil || !model.ValidTradeLossOrder(req.Order) {
+		common.ApiErrorI18n(c, i18n.MsgTradeLossOrderInvalid)
+		return
+	}
+	userId := c.GetInt("id")
+	if _, err := model.SetTradeLossOrder(userId, req.Order); err != nil {
+		common.SysError(fmt.Sprintf("trade loss order update failed for user %d: %v", userId, err))
+		common.ApiErrorI18n(c, i18n.MsgTradeTransferFailed)
+		return
+	}
 	view, err := tradeSelfView(userId)
 	if err != nil {
 		common.ApiError(c, err)

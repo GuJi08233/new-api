@@ -88,10 +88,10 @@ func TestFinishTetrisSettlesReplayedScore(t *testing.T) {
 	result := settled["data"].(map[string]any)
 	assert.EqualValues(t, game.Score, result["score"])
 	assert.EqualValues(t, game.Lines, result["detail"].(map[string]any)["lines"])
-	assert.EqualValues(t, 3, result["reward"], "136087 分达到 100000 分那一档，271 秒也够 3 个游戏币")
+	assert.Equal(t, 3.0, result["reward"], "136087 分达到 100000 分那一档，271 秒也够 3 个游戏币")
 	assert.Equal(t, "", result["limited_by"])
 	assert.EqualValues(t, 1, result["progress"].(map[string]any)["rewards_today"])
-	assert.EqualValues(t, 3, result["balance"])
+	assert.Equal(t, 3.0, result["balance"])
 	assert.EqualValues(t, game.Score, result["best_score"])
 
 	again := player.call(http.MethodPost, tetrisFinishPath(session.Id), garbage)
@@ -100,10 +100,10 @@ func TestFinishTetrisSettlesReplayedScore(t *testing.T) {
 
 	next := finishTetris(player, startTetrisSession(t, env, player.user.Id, game, playedSeconds+10), game)
 	require.Equal(t, true, next["success"], next["message"])
-	assert.EqualValues(t, 0, next["data"].(map[string]any)["reward"], "今天的领奖次数已经用完")
+	assert.Equal(t, 0.0, next["data"].(map[string]any)["reward"], "今天的领奖次数已经用完")
 	assert.Equal(t, model.GameRewardLimitedByDaily, next["data"].(map[string]any)["limited_by"])
 
-	assert.Equal(t, 3, player.balance())
+	assert.Equal(t, 3.0, player.balance())
 	var rewardLogs int64
 	require.NoError(t, env.db.Model(&model.Log{}).Where("user_id = ? AND type = ? AND content LIKE ?", player.user.Id, model.LogTypeSystem, "游戏奖励%").Count(&rewardLogs).Error)
 	assert.EqualValues(t, 1, rewardLogs, "发了奖励的那一局记一条带 IP 的审计日志")
@@ -144,9 +144,9 @@ func TestFinishTetrisAppliesAntiBotRules(t *testing.T) {
 			assert.EqualValues(t, wantScore, result["score"])
 			assert.EqualValues(t, wantScore, result["best_score"])
 			assert.EqualValues(t, wantScore, player.ok(http.MethodGet, "/api/game/tetris", nil)["best_score"])
-			assert.EqualValues(t, c.wantReward, result["reward"])
+			assert.Equal(t, float64(c.wantReward), result["reward"])
 			assert.Equal(t, c.wantLimitedBy, result["limited_by"])
-			assert.EqualValues(t, c.wantPending, result["progress"].(map[string]any)["pending_reward"])
+			assert.Equal(t, float64(c.wantPending), result["progress"].(map[string]any)["pending_reward"])
 		})
 	}
 }
@@ -164,19 +164,19 @@ func TestFinishTetrisCountsPlayTimeAcrossGames(t *testing.T) {
 	first := finishTetris(player, startTetrisSession(t, env, player.user.Id, game, int64(played)+10), game)
 	require.Equal(t, true, first["success"], first["message"])
 	result := first["data"].(map[string]any)
-	assert.EqualValues(t, 0, result["reward"])
+	assert.Equal(t, 0.0, result["reward"])
 	assert.Equal(t, model.GameRewardLimitedByTime, result["limited_by"])
 	assert.EqualValues(t, played, result["progress"].(map[string]any)["seconds_today"])
-	assert.EqualValues(t, 1, result["progress"].(map[string]any)["pending_reward"])
+	assert.Equal(t, 1.0, result["progress"].(map[string]any)["pending_reward"])
 
 	second := finishTetris(player, startTetrisSession(t, env, player.user.Id, game, int64(played)+10), game)
 	require.Equal(t, true, second["success"], second["message"])
 	result = second["data"].(map[string]any)
-	assert.EqualValues(t, 1, result["reward"])
+	assert.Equal(t, 1.0, result["reward"])
 	assert.Equal(t, "", result["limited_by"])
 	assert.EqualValues(t, 2*played, result["progress"].(map[string]any)["seconds_today"])
-	assert.EqualValues(t, 0, result["progress"].(map[string]any)["pending_reward"])
-	assert.Equal(t, 1, player.balance())
+	assert.Equal(t, 0.0, result["progress"].(map[string]any)["pending_reward"])
+	assert.Equal(t, 1.0, player.balance())
 }
 
 // 要求人机验证时，没有带 Turnstile 令牌的开局请求直接拒绝，也不会留下对局。

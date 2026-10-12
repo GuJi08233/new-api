@@ -44,7 +44,7 @@ func init() {
 }
 
 type hiloStartRequest struct {
-	Bet int `json:"bet"`
+	Bet model.GameCoins `json:"bet"`
 }
 
 type hiloGuessRequest struct {
@@ -85,9 +85,9 @@ func hiloRoundView(session *model.GameSession, round *hilo.Round) (gin.H, error)
 	if session.Status == model.GameSessionStatusFinished {
 		return view, nil
 	}
-	cashout := 0
+	cashout := model.GameCoins(0)
 	if round.Wins > 0 {
-		cashout = hilo.Payout(session.Bet, multiplier)
+		cashout = model.GameCoins(hilo.Payout(int(session.Bet), multiplier))
 	}
 	rank := round.Current().Rank
 	options := make([]gin.H, 0, 2)
@@ -99,7 +99,7 @@ func hiloRoundView(session *model.GameSession, round *hilo.Round) (gin.H, error)
 			"hits":       hits,
 			"chance":     float64(hits) / hilo.Ranks,
 			"multiplier": hilo.FormatMultiplier(next),
-			"payout":     hilo.Payout(session.Bet, next),
+			"payout":     model.GameCoins(hilo.Payout(int(session.Bet), next)),
 		})
 	}
 	view["cashout"] = cashout
@@ -144,7 +144,7 @@ func StartHilo(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
-	if !validWagerBet(c, req.Bet, 1, rule.MaxBet) {
+	if !validWagerBet(c, req.Bet, rule.MaxBet) {
 		return
 	}
 	first, err := drawHiloCard()
@@ -208,7 +208,7 @@ func GuessHilo(c *gin.Context) {
 		respondGameError(c, gameHilo, err)
 		return
 	}
-	if payout := hilo.Payout(session.Bet, multiplier); payout >= session.Bet*hilo.MaxMultiplier {
+	if payout := model.GameCoins(hilo.Payout(int(session.Bet), multiplier)); payout >= session.Bet*hilo.MaxMultiplier {
 		settleHilo(c, session, &round, payout)
 		return
 	}
@@ -245,11 +245,11 @@ func CashoutHilo(c *gin.Context) {
 		respondGameError(c, gameHilo, err)
 		return
 	}
-	settleHilo(c, session, &round, hilo.Payout(session.Bet, multiplier))
+	settleHilo(c, session, &round, model.GameCoins(hilo.Payout(int(session.Bet), multiplier)))
 }
 
 // settleHilo 结束这一局高低牌、派彩 win，回应结束的一局与结算后的余额、今天的输赢与局数。
-func settleHilo(c *gin.Context, session *model.GameSession, round *hilo.Round, win int) {
+func settleHilo(c *gin.Context, session *model.GameSession, round *hilo.Round, win model.GameCoins) {
 	state, err := common.Marshal(round)
 	if err != nil {
 		common.ApiError(c, err)

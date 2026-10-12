@@ -174,6 +174,7 @@ func SetApiRouter(router *gin.Engine) {
 			tradeRoute.GET("/assets/daily", controller.GetTradeAssetDaily)
 			tradeRoute.POST("/orders/:id/cancel", middleware.TradeOrderRateLimit(), controller.CancelTradeOrder)
 			tradeRoute.POST("/transfer", middleware.UserCriticalRateLimit("trade-transfer"), controller.TransferTrade)
+			tradeRoute.POST("/loss_order", middleware.UserCriticalRateLimit("trade-loss-order"), controller.SetTradeLossOrder)
 			// 行情与 K 线是只读数据；停用新交易后仍须给已有持仓提供卖出入口。
 			tradeRoute.GET("/market", controller.GetTradeMarket)
 			tradeRoute.GET("/klines", controller.GetTradeKlines)
@@ -219,6 +220,7 @@ func SetApiRouter(router *gin.Engine) {
 			gameRoute.GET("/withdrawals", middleware.GameCenterEnabled(), controller.GetGameCoinWithdrawals)
 			gameRoute.POST("/convert", middleware.GameCenterEnabled(), middleware.UserCriticalRateLimit("game-convert"), controller.ConvertGameCoins)
 			gameRoute.POST("/withdraw", middleware.GameCenterEnabled(), middleware.UserCriticalRateLimit("game-withdraw"), middleware.DisableCache(), controller.WithdrawGameCoins)
+			gameRoute.PUT("/withdraw_address", middleware.GameCenterEnabled(), middleware.UserCriticalRateLimit("game-withdraw-address"), middleware.DisableCache(), controller.BindGameWithdrawAddress)
 			// 各游戏的规则与玩法接口 /api/game/<key>/...，以及对战房间 /api/game/rooms/...。
 			controller.RegisterGameRoutes(gameRoute)
 		}

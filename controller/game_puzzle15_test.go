@@ -100,7 +100,7 @@ func TestPuzzle15FinishReplaysTheMoves(t *testing.T) {
 
 	result := player.ok(http.MethodPost, "/api/game/puzzle15/finish", map[string]any{"session_id": session.Id, "moves": solvedIn(180)})
 	assert.EqualValues(t, 3, result["score"], "成绩是排好的难度")
-	assert.EqualValues(t, 2, result["reward"])
+	assert.Equal(t, 2.0, result["reward"])
 	assert.Equal(t, map[string]any{"difficulty": 3.0, "moves": 180.0}, result["detail"])
 	again := player.ok(http.MethodPost, "/api/game/puzzle15/finish", map[string]any{"session_id": session.Id, "moves": "RD"})
 	assert.Equal(t, result, again, "重复提交返回第一次结算的结果")
@@ -110,5 +110,5 @@ func TestPuzzle15FinishReplaysTheMoves(t *testing.T) {
 	result = player.ok(http.MethodPost, "/api/game/puzzle15/finish", map[string]any{"session_id": older.Id, "moves": solvedIn(198)})
 	assert.EqualValues(t, 3, result["score"], "开局 20 秒时 198 步不算快")
 	assert.EqualValues(t, 2, result["progress"].(map[string]any)["rewards_today"])
-	assert.Equal(t, 4, player.balance())
+	assert.Equal(t, 4.0, player.balance())
 }

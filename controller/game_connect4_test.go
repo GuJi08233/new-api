@@ -41,8 +41,8 @@ func TestConnect4StakedRoomPaysWinnerMinusRake(t *testing.T) {
 	env := newGameTestEnv(t, connect4Setting(operation_setting.SkillRule{}))
 	host, guest := env.player(100, gameTestIpA), env.player(100, gameTestIpB)
 	roomId, view, first, second := startConnect4Room(t, host, guest, 15)
-	assert.Equal(t, 85, host.balance())
-	assert.Equal(t, 85, guest.balance())
+	assert.Equal(t, 85.0, host.balance())
+	assert.Equal(t, 85.0, guest.balance())
 
 	version := view["version"]
 	drop := func(col any) map[string]any {
@@ -66,15 +66,15 @@ func TestConnect4StakedRoomPaysWinnerMinusRake(t *testing.T) {
 
 	assert.Equal(t, model.GameRoomStatusFinished, view["status"])
 	assert.EqualValues(t, first.user.Id, view["winner_id"])
-	assert.EqualValues(t, 1, view["rake"])
+	assert.Equal(t, 1.5, view["rake"])
 	state := view["state"].(map[string]any)
 	assert.Equal(t, "......."+"......."+"r......"+"ry....."+"ry....."+"ry.....", state["board"])
 	assert.ElementsMatch(t, []any{
 		map[string]any{"col": 0.0, "row": 2.0}, map[string]any{"col": 0.0, "row": 3.0},
 		map[string]any{"col": 0.0, "row": 4.0}, map[string]any{"col": 0.0, "row": 5.0},
 	}, state["line"])
-	assert.Equal(t, 114, first.balance())
-	assert.Equal(t, 85, second.balance())
+	assert.Equal(t, 113.5, first.balance())
+	assert.Equal(t, 85.0, second.balance())
 }
 
 // 轮到的一方过了这一步的截止时间还没走，下一次有人读房间时判他超时负，对手拿走奖池减去抽成。
@@ -90,9 +90,9 @@ func TestConnect4TimeoutLosesTheSideToMove(t *testing.T) {
 	assert.Equal(t, model.GameRoomStatusFinished, polled["status"])
 	assert.Equal(t, model.GameRoomEndTimeout, polled["end_reason"])
 	assert.EqualValues(t, first.user.Id, polled["winner_id"], "轮到后手走时超时，先手获胜")
-	assert.EqualValues(t, 2, polled["rake"])
-	assert.Equal(t, 118, first.balance())
-	assert.Equal(t, 80, second.balance())
+	assert.Equal(t, 2.0, polled["rake"])
+	assert.Equal(t, 118.0, first.balance())
+	assert.Equal(t, 80.0, second.balance())
 }
 
 // 人机对战走真实接口：玩家每投一子，AI 在同一个请求里回一子，局面与玩家这边按双方着法重放的一致。玩家这边用困难难度的
@@ -127,8 +127,8 @@ func TestConnect4AiGameSettles(t *testing.T) {
 	assert.Equal(t, true, session["over"])
 	assert.EqualValues(t, 0, session["winner"])
 	assert.EqualValues(t, 1, result["score"])
-	assert.EqualValues(t, 1, result["reward"])
-	assert.Equal(t, 1, player.balance())
+	assert.Equal(t, 1.0, result["reward"])
+	assert.Equal(t, 1.0, player.balance())
 }
 
 // AI 搜索名额一直占满时，这一步排队到上限就回应失败，不会一直挂着；玩家这一步没有记下，名额空出来之后原样再走一次就行。

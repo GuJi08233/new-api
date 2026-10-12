@@ -87,8 +87,8 @@ func TestXiangqiRoomStakedGameEndsInResign(t *testing.T) {
 	assert.Equal(t, model.GameRoomStatusFinished, resigned["status"])
 	assert.Equal(t, model.GameRoomEndResign, resigned["end_reason"])
 	assert.EqualValues(t, red.user.Id, resigned["winner_id"])
-	assert.Equal(t, 59, red.balance(), "50 - 10 + 20 - 1")
-	assert.Equal(t, 40, black.balance())
+	assert.Equal(t, 59.0, red.balance(), "50 - 10 + 20 - 1")
+	assert.Equal(t, 40.0, black.balance())
 }
 
 // 人机对战：玩家坐座位 0，AI 执红时开局就先替它走一步。玩家走一步，AI 在同一个请求里回一步，返回的最后一手就是 AI 的走法。
@@ -143,7 +143,7 @@ func TestXiangqiAiGameAgainstServer(t *testing.T) {
 	assert.Nil(t, won["ai_move"], "将死之后 AI 不再走")
 	result := won["result"].(map[string]any)
 	assert.EqualValues(t, 3, result["score"])
-	assert.EqualValues(t, 2, result["reward"])
+	assert.Equal(t, 2.0, result["reward"])
 	assert.Equal(t, "", result["limited_by"])
-	assert.Equal(t, 2, player.balance())
+	assert.Equal(t, 2.0, player.balance())
 }

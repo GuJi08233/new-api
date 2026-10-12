@@ -50,9 +50,9 @@ func diceInfo(ctx *gameContext) (gin.H, error) {
 }
 
 type diceRollRequest struct {
-	Bet        int    `json:"bet"`
-	Multiplier int    `json:"multiplier"`
-	Direction  string `json:"direction"`
+	Bet        model.GameCoins `json:"bet"`
+	Multiplier int             `json:"multiplier"`
+	Direction  string          `json:"direction"`
 }
 
 // diceDetail 是骰子一局的明细，存在对局的 Detail 里供事后核查。
@@ -75,7 +75,7 @@ func RollDice(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
-	if !validWagerBet(c, req.Bet, 1, rule.MaxBet) {
+	if !validWagerBet(c, req.Bet, rule.MaxBet) {
 		return
 	}
 	// 倍数直接乘进派彩，只能是公示的几档；方向只能是 under 或 over。
@@ -88,15 +88,15 @@ func RollDice(c *gin.Context) {
 	var won bool
 	result, err := model.SettleGameWager(c.GetInt("id"), gameDice, model.GameWager{
 		Bet: req.Bet,
-		Play: func() (int, string, error) {
+		Play: func() (model.GameCoins, string, error) {
 			var err error
 			if roll, err = rollDice(); err != nil {
 				return 0, "", err
 			}
 			won = dice.Wins(roll, threshold, req.Direction)
-			win := 0
+			win := model.GameCoins(0)
 			if won {
-				win = req.Bet * req.Multiplier
+				win = req.Bet * model.GameCoins(req.Multiplier)
 			}
 			detail, err := common.Marshal(diceDetail{Roll: roll, Multiplier: req.Multiplier, Direction: req.Direction, Threshold: threshold})
 			return win, string(detail), err

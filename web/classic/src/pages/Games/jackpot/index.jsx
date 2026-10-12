@@ -24,7 +24,14 @@ import { useTranslation } from 'react-i18next';
 import { timestamp2string } from '../../../helpers';
 import GameLayout from '../common/GameLayout';
 import { RuleList, SideBox, StageMessage } from '../common/SideBox';
-import { gameGet, gamePost, percent, signed } from '../common/api';
+import {
+  formatCoins,
+  gameGet,
+  gamePost,
+  percent,
+  signed,
+  toCoinCents,
+} from '../common/api';
 import { useGameInfo } from '../common/useGameInfo';
 import { useVisiblePolling } from '../common/useVisiblePolling';
 import './jackpot.css';
@@ -155,7 +162,8 @@ const Jackpot = () => {
   const pot = round?.pot || 0;
   const players = round?.players || [];
   const mine = round?.mine || 0;
-  const room = Math.max((rule.max_bet || 0) - mine, 0);
+  // 投入最多两位小数，按分相减免得浮点误差。
+  const room = Math.max(toCoinCents(rule.max_bet) - toCoinCents(mine), 0) / 100;
   const serverNow = now + offsetRef.current;
   const secondsLeft = round?.deadline
     ? Math.max(Math.ceil(round.deadline - serverNow), 0)
@@ -176,26 +184,31 @@ const Jackpot = () => {
     setDrawn(null);
     setMessage({
       kind: 'win',
-      text: t('已投入 {{amount}} {{symbol}}', { amount, symbol }),
+      text: t('已投入 {{amount}} {{symbol}}', {
+        amount: formatCoins(amount),
+        symbol,
+      }),
     });
   };
 
   const arcs = playerArcs(players, pot);
   const drawnArcs = drawn ? playerArcs(drawn.players || [], drawn.pot) : [];
-  // 开奖后指针停在抽中的那张奖券上：奖券按玩家第一次投入的先后编号，和奖池里每位玩家的一段一一对应。
+  // 开奖后指针停在抽中的那张奖券上：奖券按玩家第一次投入的先后编号(每个最小单位一张，ticket 写成币数)，和奖池里每位玩家的
+  // 一段一一对应。
   const pointer =
-    drawn?.exact && drawn.pot > 0
-      ? ((drawn.ticket + 0.5) / drawn.pot) * 360
-      : null;
+    drawn?.exact && drawn.pot > 0 ? (drawn.ticket / drawn.pot) * 360 : null;
   const shownArcs = drawn ? drawnArcs : arcs;
 
   let status = t('等待第一位玩家投入');
   if (drawn) {
     status = drawn.own
-      ? t('你赢得了 {{payout}} {{symbol}}！', { payout: drawn.payout, symbol })
+      ? t('你赢得了 {{payout}} {{symbol}}！', {
+          payout: formatCoins(drawn.payout),
+          symbol,
+        })
       : t('{{winner}} 赢得了 {{payout}} {{symbol}}', {
           winner: drawn.winner,
-          payout: drawn.payout,
+          payout: formatCoins(drawn.payout),
           symbol,
         });
   } else if (closing) {
@@ -238,7 +251,7 @@ const Jackpot = () => {
                     />
                     {player.own ? t('我') : player.name}
                   </td>
-                  <td>{player.amount}</td>
+                  <td>{formatCoins(player.amount)}</td>
                   <td>{percent(player.amount / pot)}</td>
                 </tr>
               ))}
@@ -259,7 +272,7 @@ const Jackpot = () => {
                 </span>
                 <span>
                   {t('奖池 {{pot}}，概率 {{chance}}', {
-                    pot: item.pot,
+                    pot: formatCoins(item.pot),
                     chance: percent(item.winner_stake / item.pot, 1),
                   })}
                 </span>
@@ -283,7 +296,7 @@ const Jackpot = () => {
                 seconds: rule.round_seconds,
               },
             ),
-            t('赢家拿走奖池，平台抽取 {{rake}}%（向下取整）', {
+            t('赢家拿走奖池，平台抽取 {{rake}}%', {
               rake: round?.rake_percent ?? rule.rake_percent,
             }),
             t('每人每轮最多投入 {{max}} {{symbol}}', {
@@ -345,7 +358,9 @@ const Jackpot = () => {
             )}
           </svg>
           <div className='jackpot-ring-center'>
-            <span className='jackpot-pot'>{drawn ? drawn.pot : pot}</span>
+            <span className='jackpot-pot'>
+              {formatCoins(drawn ? drawn.pot : pot)}
+            </span>
             <span className='jackpot-pot-unit'>{symbol}</span>
             <span className='jackpot-pot-label'>
               {drawn ? t('上一轮奖池') : t('当前奖池')}
@@ -377,9 +392,9 @@ const Jackpot = () => {
           </div>
           <InputNumber
             value={amount}
-            min={1}
-            max={Math.max(room, 1)}
-            precision={0}
+            min={0.01}
+            max={Math.max(room, 0.01)}
+            precision={2}
             suffix={symbol}
             style={{ width: 150 }}
             onChange={(value) =>
@@ -392,7 +407,7 @@ const Jackpot = () => {
             disabled={
               entering ||
               closing ||
-              amount < 1 ||
+              amount < 0.01 ||
               amount > room ||
               amount > (info?.balance || 0)
             }
@@ -402,7 +417,7 @@ const Jackpot = () => {
           </button>
           <div className='games-stage-counter'>
             {t('本轮已投入 {{mine}} / {{max}} {{symbol}}', {
-              mine,
+              mine: formatCoins(mine),
               max: rule.max_bet,
               symbol,
             })}

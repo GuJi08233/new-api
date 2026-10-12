@@ -15,9 +15,6 @@ import (
 
 const gameBlackjack = "blackjack"
 
-// blackjackMinBet 是 21 点最少的下注：黑杰克赔 3:2，下注是偶数才能按整数派彩。
-const blackjackMinBet = 2
-
 // blackjackPayback 是这套规则按基本策略玩的理论返还率(约 99.5%)，是公开的标准结果，只用于页面公示，见 pkg/blackjack。
 const blackjackPayback = 0.995
 
@@ -33,7 +30,6 @@ func init() {
 			if err != nil {
 				return nil, err
 			}
-			info["min_bet"] = blackjackMinBet
 			info["decks"] = blackjack.Decks
 			info["payouts"] = gin.H{"win": 2, "push": 1, "blackjack": 2.5}
 			info["payback"] = blackjackPayback
@@ -49,7 +45,7 @@ func init() {
 }
 
 type blackjackDealRequest struct {
-	Bet int `json:"bet"`
+	Bet model.GameCoins `json:"bet"`
 }
 
 type blackjackActionRequest struct {
@@ -90,13 +86,13 @@ func blackjackRoundView(session *model.GameSession, game *blackjack.Game) gin.H 
 			"cards":   blackjackCards(hand.Cards),
 			"total":   total,
 			"soft":    soft,
-			"bet":     hand.Bet,
+			"bet":     model.GameCoins(hand.Bet),
 			"doubled": hand.Doubled,
 			"status":  game.Status(i),
 		}
 		if game.Over {
 			item["result"] = results[i].Outcome
-			item["payout"] = results[i].Payout
+			item["payout"] = model.GameCoins(results[i].Payout)
 		}
 		hands = append(hands, item)
 	}
@@ -148,11 +144,7 @@ func DealBlackjack(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
-	if !validWagerBet(c, req.Bet, blackjackMinBet, rule.MaxBet) {
-		return
-	}
-	if req.Bet%2 != 0 {
-		common.ApiErrorI18n(c, i18n.MsgGameBetEven)
+	if !validWagerBet(c, req.Bet, rule.MaxBet) {
 		return
 	}
 	shoe, err := shuffleBlackjack()
@@ -160,7 +152,7 @@ func DealBlackjack(c *gin.Context) {
 		respondGameError(c, gameBlackjack, err)
 		return
 	}
-	game, err := blackjack.Deal(shoe, req.Bet)
+	game, err := blackjack.Deal(shoe, int(req.Bet))
 	if err != nil {
 		respondGameError(c, gameBlackjack, err)
 		return
@@ -215,13 +207,13 @@ func ActBlackjack(c *gin.Context) {
 	}
 	if game.Over {
 		// 这一步让这一局结束(例如加倍之后)：追加的下注与派彩在同一个事务里结算。
-		settleBlackjack(c, session, &game, extra)
+		settleBlackjack(c, session, &game, model.GameCoins(extra))
 		return
 	}
 	response := gin.H{}
 	if extra > 0 {
 		// 追加下注与新状态在同一个事务里保存。
-		balance, err := model.RaiseGameRound(session, extra, string(state), "")
+		balance, err := model.RaiseGameRound(session, model.GameCoins(extra), string(state), "")
 		if err != nil {
 			respondGameError(c, gameBlackjack, err)
 			return
@@ -237,13 +229,13 @@ func ActBlackjack(c *gin.Context) {
 
 // settleBlackjack 结束这一局 21 点，扣下最后一步追加的下注 raise(没有为 0)，按各手的结果派彩，回应结束的一局与结算后的余额、
 // 今天的输赢与局数。
-func settleBlackjack(c *gin.Context, session *model.GameSession, game *blackjack.Game, raise int) {
+func settleBlackjack(c *gin.Context, session *model.GameSession, game *blackjack.Game, raise model.GameCoins) {
 	results := game.Results()
-	win := 0
+	win := model.GameCoins(0)
 	detail := blackjackDetail{Player: make([]int, 0, len(results)), Outcomes: make([]string, 0, len(results))}
 	for i, result := range results {
 		total, _ := blackjack.Total(game.Hands[i].Cards)
-		win += result.Payout
+		win += model.GameCoins(result.Payout)
 		detail.Player = append(detail.Player, total)
 		detail.Outcomes = append(detail.Outcomes, result.Outcome)
 	}

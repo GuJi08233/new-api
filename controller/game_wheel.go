@@ -85,15 +85,20 @@ func SpinWheel(c *gin.Context) {
 	if req.Free && !passGamePlayTurnstile(c, setting, userId) {
 		return
 	}
+	cost, err := model.WholeGameCoins(rule.SpinCost)
+	if err != nil {
+		respondGameError(c, gameWheel, err)
+		return
+	}
 	var segment int
-	play := func() (int, string, error) {
+	play := func() (model.GameCoins, string, error) {
 		var err error
 		if segment, err = spinWheel(); err != nil {
 			return 0, "", err
 		}
 		multiplier := wheel.Segments[segment].Multiplier
 		detail, err := common.Marshal(wheelDetail{Free: req.Free, Cost: rule.SpinCost, Segment: segment, Multiplier: multiplier})
-		return rule.SpinCost * multiplier, string(detail), err
+		return cost * model.GameCoins(multiplier), string(detail), err
 	}
 	day, ip := gameCenterDay(), gameRewardIpKey(c.ClientIP())
 	var view gin.H
@@ -119,7 +124,7 @@ func SpinWheel(c *gin.Context) {
 		}
 		auditGameFreeWin(c, gameWheel, "大转盘免费旋转", result.Session)
 	} else {
-		result, err := model.SettleGameWager(userId, gameWheel, model.GameWager{Bet: rule.SpinCost, Play: play, Day: day, Ip: ip})
+		result, err := model.SettleGameWager(userId, gameWheel, model.GameWager{Bet: cost, Play: play, Day: day, Ip: ip})
 		if err != nil {
 			respondGameError(c, gameWheel, err)
 			return

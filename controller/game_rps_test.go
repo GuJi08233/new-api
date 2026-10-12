@@ -58,13 +58,13 @@ func TestRpsRoomPlaysStakedMatchOverHttp(t *testing.T) {
 
 	created := host.ok(http.MethodPost, "/api/game/rooms", map[string]any{"game": gameRps, "stake": 10})
 	assert.Equal(t, model.GameRoomStatusWaiting, created["status"])
-	assert.EqualValues(t, 40, created["balance"])
+	assert.Equal(t, 40.0, created["balance"])
 	roomId := int(created["id"].(float64))
 	roomPath := fmt.Sprintf("/api/game/rooms/%d", roomId)
 
 	joined := guest.ok(http.MethodPost, roomPath+"/join", nil)
 	assert.Equal(t, model.GameRoomStatusPlaying, joined["status"])
-	assert.EqualValues(t, 40, joined["balance"])
+	assert.Equal(t, 40.0, joined["balance"])
 	assert.EqualValues(t, 1, joined["seat"])
 	assert.EqualValues(t, -1, joined["to_move"], "双方同时出拳")
 	state := joined["state"].(map[string]any)
@@ -132,9 +132,9 @@ func TestRpsRoomPlaysStakedMatchOverHttp(t *testing.T) {
 	assert.Equal(t, model.GameRoomStatusFinished, finished["status"])
 	assert.Equal(t, model.GameRoomEndTimeout, finished["end_reason"])
 	assert.EqualValues(t, host.user.Id, finished["winner_id"])
-	assert.EqualValues(t, 1, finished["rake"], "奖池 20 个游戏币的 5%")
-	assert.Equal(t, 59, host.balance(), "50 - 10 + 20 - 1")
-	assert.Equal(t, 40, guest.balance())
+	assert.Equal(t, 1.0, finished["rake"], "奖池 20 个游戏币的 5%")
+	assert.Equal(t, 59.0, host.balance(), "50 - 10 + 20 - 1")
+	assert.Equal(t, 40.0, guest.balance())
 
 	// 结束后双方看到的都是同一个结果，对手也不能再出拳。
 	guestView := guest.ok(http.MethodGet, roomPath, nil)

@@ -46,7 +46,7 @@ func TestLandlordRoomWaitsForThreeAndKeepsHandsPrivate(t *testing.T) {
 	created := players[0].ok(http.MethodPost, "/api/game/rooms", map[string]any{"game": gameLandlord, "stake": 10, "seats": 3})
 	id := jsonInt(t, created["id"])
 	assert.EqualValues(t, 3, created["seats"])
-	assert.EqualValues(t, 20, created["escrow"], "anyone may become the landlord, who can lose twice the stake")
+	assert.Equal(t, 20.0, created["escrow"], "anyone may become the landlord, who can lose twice the stake")
 	second := players[1].ok(http.MethodPost, gameRoomPath(id, "join"), nil)
 	assert.Equal(t, model.GameRoomStatusWaiting, second["status"])
 	assert.EqualValues(t, 2, second["player_count"])
@@ -55,7 +55,7 @@ func TestLandlordRoomWaitsForThreeAndKeepsHandsPrivate(t *testing.T) {
 	assert.Equal(t, model.GameRoomStatusPlaying, third["status"])
 	assert.EqualValues(t, 3, third["player_count"])
 	for seat, player := range players {
-		assert.Equal(t, 80, player.balance())
+		assert.Equal(t, 80.0, player.balance())
 		view := player.ok(http.MethodGet, fmt.Sprintf("/api/game/rooms/%d", id), nil)
 		assert.EqualValues(t, seat, view["seat"])
 		state := view["state"].(map[string]any)
@@ -73,7 +73,7 @@ func TestLandlordRoomWaitsForThreeAndKeepsHandsPrivate(t *testing.T) {
 	players[(first+1)%3].fails(http.MethodPost, gameRoomPath(id, "move"), map[string]any{"version": playing["version"], "move": map[string]any{"cards": []int{0}}})
 	players[first].fails(http.MethodPost, gameRoomPath(id, "move"), map[string]any{"version": third["version"], "move": map[string]any{"pass": true}})
 	for _, player := range players {
-		assert.Equal(t, 80, player.balance(), "bidding never takes more coins")
+		assert.Equal(t, 80.0, player.balance(), "bidding never takes more coins")
 	}
 }
 
@@ -84,12 +84,12 @@ func TestLandlordRoomSettlesTwoToOne(t *testing.T) {
 		stake    int
 		finisher int
 		results  []string
-		balances []int
+		balances []float64
 	}{
-		{"landlord finishes", 10, 0, []string{"win", "loss", "loss"}, []int{118, 90, 90}},
-		{"a farmer finishes for both", 10, 1, []string{"loss", "win", "win"}, []int{80, 109, 109}},
-		{"rake rounds down to zero", 1, 2, []string{"loss", "win", "win"}, []int{98, 101, 101}},
-		{"friendly game records the result", 0, 1, []string{"loss", "win", "win"}, []int{100, 100, 100}},
+		{"landlord finishes", 10, 0, []string{"win", "loss", "loss"}, []float64{118, 90, 90}},
+		{"a farmer finishes for both", 10, 1, []string{"loss", "win", "win"}, []float64{80, 109, 109}},
+		{"rake takes a fraction of a coin", 1, 2, []string{"loss", "win", "win"}, []float64{98, 100.9, 100.9}},
+		{"friendly game records the result", 0, 1, []string{"loss", "win", "win"}, []float64{100, 100, 100}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			env := newGameTestEnv(t, gameSetting(landlordTestRule(10)))
@@ -125,7 +125,7 @@ func TestLandlordRoomRejectsResign(t *testing.T) {
 	room := players[1].ok(http.MethodGet, fmt.Sprintf("/api/game/rooms/%d", id), nil)
 	assert.Equal(t, model.GameRoomStatusPlaying, room["status"])
 	for _, player := range players {
-		assert.Equal(t, 80, player.balance())
+		assert.Equal(t, 80.0, player.balance())
 	}
 }
 
@@ -149,7 +149,7 @@ func TestLandlordRoomTimeoutHandsTheSeatToTheAi(t *testing.T) {
 		assert.GreaterOrEqual(t, jsonInt(t, view["deadline"]), int(common.GetTimestamp())+44, "the next human gets the full move time")
 	}
 	for _, player := range players {
-		assert.Equal(t, 80, player.balance(), "a timeout costs nothing by itself")
+		assert.Equal(t, 80.0, player.balance(), "a timeout costs nothing by itself")
 	}
 
 	// 轮到托管的座位时，AI 很快替他走；他自己走一步就收回托管。
@@ -182,7 +182,7 @@ func TestLandlordRoomEveryoneOnAutoPlaysTheGameOut(t *testing.T) {
 	require.Equal(t, true, state["over"])
 	landlordSeat := jsonInt(t, state["landlord"])
 	landlordWon := jsonInt(t, state["winner"]) == landlordSeat
-	total := 0
+	total := 0.0
 	for seat, player := range players {
 		won := (seat == landlordSeat) == landlordWon
 		want := 100 - 10
@@ -194,10 +194,10 @@ func TestLandlordRoomEveryoneOnAutoPlaysTheGameOut(t *testing.T) {
 		case won:
 			want = 100 + 10 - 1
 		}
-		assert.Equal(t, want, player.balance(), "seat %d", seat)
+		assert.Equal(t, float64(want), player.balance(), "seat %d", seat)
 		total += player.balance()
 	}
-	assert.Equal(t, 300-jsonInt(t, finished["rake"]), total, "coins are only moved between players and the rake")
+	assert.Equal(t, 300-finished["rake"].(float64), total, "coins are only moved between players and the rake")
 }
 
 // 托管不改变这一步从哪里开始计时：轮到自己时打开托管，AI 在这一步开始两秒后替自己走；取消托管拿回这一步剩下的时间，来回
@@ -261,7 +261,7 @@ func TestLandlordMatchFillsThreeSeatsAndRejectsWrongSize(t *testing.T) {
 			want = model.GameRoomStatusPlaying
 		}
 		assert.Equal(t, want, room["status"])
-		assert.Equal(t, 80, player.balance())
+		assert.Equal(t, 80.0, player.balance())
 	}
 }
 
@@ -287,8 +287,8 @@ func TestLandlordAiPartnerWinningCountsForThePlayer(t *testing.T) {
 	assert.Equal(t, "win", view["result"])
 	assert.EqualValues(t, 3, view["seats"])
 	assert.EqualValues(t, 2, view["state"].(map[string]any)["winner"], "the ai partner went out first")
-	assert.EqualValues(t, 1, finished["result"].(map[string]any)["reward"])
-	assert.Equal(t, 1, player.balance())
+	assert.Equal(t, 1.0, finished["result"].(map[string]any)["reward"])
+	assert.Equal(t, 1.0, player.balance())
 }
 
 // 和 AI 打一整局：玩家这边也交给 AI 出牌，每一步都经过接口，局面里始终只有玩家自己的牌，结束后奖励与胜负一致。
@@ -328,8 +328,8 @@ func TestLandlordAiGamePlaysToTheEndOverHttp(t *testing.T) {
 	} else {
 		assert.Equal(t, "loss", session["result"], "landlord games never end in a draw")
 	}
-	assert.EqualValues(t, reward, result["reward"])
-	assert.Equal(t, reward, player.balance())
+	assert.Equal(t, float64(reward), result["reward"])
+	assert.Equal(t, float64(reward), player.balance())
 }
 
 // landlordTestHands 按点数给三家发牌，同一点数依次取不同花色。

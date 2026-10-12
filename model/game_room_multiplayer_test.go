@@ -10,7 +10,7 @@ import (
 )
 
 // 创建已经坐满的测试房间，所有成员从相同余额开始，结算前已各自扣下押注。
-func createTestMultiplayerRoom(t *testing.T, count, stake, rakePercent int) *GameRoom {
+func createTestMultiplayerRoom(t *testing.T, count int, stake GameCoins, rakePercent int) *GameRoom {
 	t.Helper()
 	truncateTables(t)
 	for i := 0; i < count; i++ {
@@ -30,40 +30,40 @@ func createTestMultiplayerRoom(t *testing.T, count, stake, rakePercent int) *Gam
 func TestGameRoomTeamResultsDoNotDependOnSettledNet(t *testing.T) {
 	for _, test := range []struct {
 		name      string
-		stake     int
+		stake     GameCoins
 		rake      int
 		result    GameRoomResult
-		wantNets  []int
-		wantRake  int
+		wantNets  []GameCoins
+		wantRake  GameCoins
 		wantSeats []string
 	}{
 		{
 			name:     "friendly teams",
-			result:   GameRoomResult{Nets: []int{0, 0, 0}, WinnerSeat: 1, Winners: []int{1, 2}},
-			wantNets: []int{0, 0, 0}, wantSeats: []string{"loss", "win", "win"},
+			result:   GameRoomResult{Nets: coins(0, 0, 0), WinnerSeat: 1, Winners: []int{1, 2}},
+			wantNets: coins(0, 0, 0), wantSeats: []string{"loss", "win", "win"},
 		},
 		{
 			name:  "zero gain teammate",
-			stake: 1, rake: 10,
-			result:   GameRoomResult{Nets: []int{-1, 1, 0}, WinnerSeat: 1, Winners: []int{1, 2}},
-			wantNets: []int{-1, 1, 0}, wantSeats: []string{"loss", "win", "win"},
+			stake: coin(1), rake: 10,
+			result:   GameRoomResult{Nets: coins(-1, 1, 0), WinnerSeat: 1, Winners: []int{1, 2}},
+			wantNets: []GameCoins{-coin(1), coinText("0.9"), 0}, wantRake: coinText("0.1"), wantSeats: []string{"loss", "win", "win"},
 		},
 		{
 			name:  "team rake applies to each net gain",
-			stake: 11, rake: 20,
-			result:   GameRoomResult{Nets: []int{-11, 6, 5}, WinnerSeat: 1, Winners: []int{1, 2}},
-			wantNets: []int{-11, 5, 4}, wantRake: 2, wantSeats: []string{"loss", "win", "win"},
+			stake: coin(11), rake: 20,
+			result:   GameRoomResult{Nets: coins(-11, 6, 5), WinnerSeat: 1, Winners: []int{1, 2}},
+			wantNets: []GameCoins{-coin(11), coinText("4.8"), coin(4)}, wantRake: coinText("2.2"), wantSeats: []string{"loss", "win", "win"},
 		},
 		{
 			name:  "two player pool rake can make winner net negative",
-			stake: 5, rake: 100,
-			result:   GameRoomResult{Nets: []int{-5, 5}, WinnerSeat: 1},
-			wantNets: []int{-5, -5}, wantRake: 10, wantSeats: []string{"loss", "win"},
+			stake: coin(5), rake: 100,
+			result:   GameRoomResult{Nets: coins(-5, 5), WinnerSeat: 1},
+			wantNets: coins(-5, -5), wantRake: coin(10), wantSeats: []string{"loss", "win"},
 		},
 		{
 			name:     "friendly draw",
-			result:   GameRoomResult{Nets: []int{0, 0, 0}, WinnerSeat: -1},
-			wantNets: []int{0, 0, 0}, wantSeats: []string{"draw", "draw", "draw"},
+			result:   GameRoomResult{Nets: coins(0, 0, 0), WinnerSeat: -1},
+			wantNets: coins(0, 0, 0), wantSeats: []string{"draw", "draw", "draw"},
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -83,7 +83,7 @@ func TestGameRoomTeamResultsDoNotDependOnSettledNet(t *testing.T) {
 				assert.Equal(t, test.wantSeats[i], seat.Result)
 				assert.Equal(t, test.wantNets[i], seat.Net)
 				balance := gameBalance(t, seat.UserId)
-				assert.Equal(t, 100+test.wantNets[i], balance)
+				assert.Equal(t, coin(100)+test.wantNets[i], balance)
 				total += balance
 				net, plays, err := GetGameDayStats(seat.UserId, room.Game, "2026-10-10")
 				require.NoError(t, err)
@@ -97,10 +97,10 @@ func TestGameRoomTeamResultsDoNotDependOnSettledNet(t *testing.T) {
 					}
 				}
 			}
-			assert.Equal(t, len(test.wantSeats)*100, total, "玩家余额与抽成守恒")
+			assert.Equal(t, coin(len(test.wantSeats)*100), total, "玩家余额与抽成守恒")
 			assert.ErrorIs(t, FinishGameRoom(&stale, test.result, GameRoomEndWin, "duplicate", "2026-10-10"), ErrGameRoomChanged)
 			for i, seat := range seats[room.Id] {
-				assert.Equal(t, 100+test.wantNets[i], gameBalance(t, seat.UserId), "重复结算不重复派彩")
+				assert.Equal(t, coin(100)+test.wantNets[i], gameBalance(t, seat.UserId), "重复结算不重复派彩")
 				_, plays, err := GetGameDayStats(seat.UserId, room.Game, "2026-10-10")
 				require.NoError(t, err)
 				assert.Equal(t, 1, plays, "重复结算不增加对局计数")
@@ -110,20 +110,20 @@ func TestGameRoomTeamResultsDoNotDependOnSettledNet(t *testing.T) {
 }
 
 func TestGameRoomRejectsInconsistentTeamResultsWithoutChangingBalances(t *testing.T) {
-	room := createTestMultiplayerRoom(t, 3, 5, 0)
+	room := createTestMultiplayerRoom(t, 3, coin(5), 0)
 	for _, test := range []struct {
 		name   string
 		result GameRoomResult
 	}{
-		{"winner outside room", GameRoomResult{Nets: []int{-5, 3, 2}, WinnerSeat: 1, Winners: []int{1, 3}}},
-		{"negative winner seat", GameRoomResult{Nets: []int{-5, 3, 2}, WinnerSeat: 1, Winners: []int{-1, 1, 2}}},
-		{"duplicate winner", GameRoomResult{Nets: []int{-5, 3, 2}, WinnerSeat: 1, Winners: []int{1, 1, 2}}},
-		{"missing positive teammate", GameRoomResult{Nets: []int{-5, 3, 2}, WinnerSeat: 1, Winners: []int{1}}},
-		{"negative gain winner", GameRoomResult{Nets: []int{-5, 3, 2}, WinnerSeat: 1, Winners: []int{0, 1, 2}}},
-		{"representative not a winner", GameRoomResult{Nets: []int{-5, 3, 2}, WinnerSeat: 0, Winners: []int{1, 2}}},
-		{"representative not highest gain", GameRoomResult{Nets: []int{-5, 3, 2}, WinnerSeat: 2, Winners: []int{1, 2}}},
-		{"draw with team winners", GameRoomResult{Nets: []int{0, 0, 0}, WinnerSeat: -1, Winners: []int{1, 2}}},
-		{"paid team without gain", GameRoomResult{Nets: []int{0, 0, 0}, WinnerSeat: 1, Winners: []int{1, 2}}},
+		{"winner outside room", GameRoomResult{Nets: coins(-5, 3, 2), WinnerSeat: 1, Winners: []int{1, 3}}},
+		{"negative winner seat", GameRoomResult{Nets: coins(-5, 3, 2), WinnerSeat: 1, Winners: []int{-1, 1, 2}}},
+		{"duplicate winner", GameRoomResult{Nets: coins(-5, 3, 2), WinnerSeat: 1, Winners: []int{1, 1, 2}}},
+		{"missing positive teammate", GameRoomResult{Nets: coins(-5, 3, 2), WinnerSeat: 1, Winners: []int{1}}},
+		{"negative gain winner", GameRoomResult{Nets: coins(-5, 3, 2), WinnerSeat: 1, Winners: []int{0, 1, 2}}},
+		{"representative not a winner", GameRoomResult{Nets: coins(-5, 3, 2), WinnerSeat: 0, Winners: []int{1, 2}}},
+		{"representative not highest gain", GameRoomResult{Nets: coins(-5, 3, 2), WinnerSeat: 2, Winners: []int{1, 2}}},
+		{"draw with team winners", GameRoomResult{Nets: coins(0, 0, 0), WinnerSeat: -1, Winners: []int{1, 2}}},
+		{"paid team without gain", GameRoomResult{Nets: coins(0, 0, 0), WinnerSeat: 1, Winners: []int{1, 2}}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			assert.Error(t, FinishGameRoom(room, test.result, GameRoomEndWin, "invalid", "2026-10-10"))
@@ -132,26 +132,26 @@ func TestGameRoomRejectsInconsistentTeamResultsWithoutChangingBalances(t *testin
 			assert.Equal(t, GameRoomStatusPlaying, latest.Status)
 			assert.Equal(t, room.Version, latest.Version)
 			for i := 0; i < 3; i++ {
-				assert.Equal(t, 95, gameBalance(t, 2601+i))
+				assert.Equal(t, coin(95), gameBalance(t, 2601+i))
 			}
 		})
 	}
 }
 
 func TestMultiplayerRoomSettlementOverflowRollsBackWholeTeam(t *testing.T) {
-	room := createTestMultiplayerRoom(t, 3, 5, 10)
+	room := createTestMultiplayerRoom(t, 3, coin(5), 10)
 	// 最后一位获胜玩家已经接近余额上限，前面的输家与赢家写账也必须一起回滚。
 	require.NoError(t, DB.Model(&GameCoinAccount{}).Where("user_id = ?", 2603).Update("balance", common.MaxQuota-5).Error)
-	result := GameRoomResult{Nets: []int{-5, 3, 2}, WinnerSeat: 1, Winners: []int{1, 2}}
+	result := GameRoomResult{Nets: coins(-5, 3, 2), WinnerSeat: 1, Winners: []int{1, 2}}
 	assert.ErrorIs(t, FinishGameRoom(room, result, GameRoomEndWin, "finished", "2026-10-10"), ErrGameCoinAmountInvalid)
 	latest, err := GetGameRoom(room.Id)
 	require.NoError(t, err)
 	assert.Equal(t, GameRoomStatusPlaying, latest.Status)
 	assert.Equal(t, room.Version, latest.Version)
 	assert.Zero(t, latest.Rake)
-	assert.Equal(t, 95, gameBalance(t, 2601))
-	assert.Equal(t, 95, gameBalance(t, 2602))
-	assert.Equal(t, common.MaxQuota-5, gameBalance(t, 2603))
+	assert.Equal(t, coin(95), gameBalance(t, 2601))
+	assert.Equal(t, coin(95), gameBalance(t, 2602))
+	assert.Equal(t, GameCoins(common.MaxQuota-5), gameBalance(t, 2603))
 	seats, err := GetGameRoomSeats([]int{room.Id})
 	require.NoError(t, err)
 	for _, seat := range seats[room.Id] {

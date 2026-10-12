@@ -176,12 +176,8 @@ const Blackjack = () => {
   const closed = info?.enabled === false;
   const symbol = info?.symbol || '';
   const balance = info?.balance || 0;
-  const minBet = info?.min_bet || 2;
-  // 黑杰克赔 3:2，下注只能是偶数：上限取不超过单次最多下注的最大偶数。
-  const maxBet = Math.max(
-    Math.floor((info?.max_bet || minBet) / 2) * 2,
-    minBet,
-  );
+  const minBet = info?.min_bet || 0.01;
+  const maxBet = Math.max(info?.max_bet || minBet, minBet);
   const stake = Math.min(Math.max(bet, minBet), maxBet);
   const playing = round?.status === 'playing';
   const finished = round?.status === 'finished';
@@ -355,7 +351,6 @@ const Blackjack = () => {
               value={stake}
               min={minBet}
               max={maxBet}
-              step={2}
               symbol={symbol}
               disabled={busy}
               onChange={setBet}

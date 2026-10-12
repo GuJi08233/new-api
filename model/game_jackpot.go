@@ -11,7 +11,7 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// 夺宝奖池。全站同一时间只有一轮开放：玩家往奖池里投游戏币，每投 1 个就是一张奖券；第二位玩家投入后开始倒计时，
+// 夺宝奖池。全站同一时间只有一轮开放：玩家往奖池里投游戏币，每个额度单位就是一张奖券；第二位玩家投入后开始倒计时，
 // 到点从所有奖券里随机抽出一张，持有者拿走奖池，平台按比例抽成。一直只有一位玩家的一轮放久了就原样退回。
 
 const (
@@ -39,32 +39,32 @@ type GameJackpotRound struct {
 	Slot   string `json:"-" gorm:"type:varchar(16);uniqueIndex"`
 	Status string `json:"status" gorm:"type:varchar(16);index"`
 	// Pot 是奖池里的游戏币，也是奖券总数；Players 是投入过的玩家数。
-	Pot     int `json:"pot" gorm:"type:bigint;not null;default:0"`
-	Players int `json:"players" gorm:"not null;default:0"`
+	Pot     GameCoins `json:"pot" gorm:"type:bigint;not null;default:0"`
+	Players int       `json:"players" gorm:"not null;default:0"`
 	// Deadline 是开奖时间，第二位玩家投入之前为 0。
 	Deadline int64 `json:"deadline" gorm:"bigint"`
 	// RakePercent 是这一轮开放时的抽成比例，之后管理员改了配置也按它开奖。
 	RakePercent int `json:"rake_percent" gorm:"not null;default:0"`
 	WinnerId    int `json:"winner_id"`
 	// WinnerStake 是赢家在这一轮投入的游戏币，与奖池之比就是赢家中奖的概率。
-	WinnerStake int `json:"winner_stake" gorm:"type:bigint;not null;default:0"`
+	WinnerStake GameCoins `json:"winner_stake" gorm:"type:bigint;not null;default:0"`
 	// Payout 是赢家拿到的游戏币，Rake 是平台抽走的，两者之和就是奖池。Ticket 是抽中的奖券，从 0 起编号：玩家按第一次投入的
 	// 先后排，每位玩家的奖券连在一起，数量就是他的投入合计。
-	Payout    int   `json:"payout" gorm:"type:bigint;not null;default:0"`
-	Rake      int   `json:"rake" gorm:"type:bigint;not null;default:0"`
-	Ticket    int   `json:"ticket" gorm:"type:bigint;not null;default:0"`
-	CreatedAt int64 `json:"created_at" gorm:"bigint;index"`
-	DrawnAt   int64 `json:"drawn_at" gorm:"bigint"`
+	Payout    GameCoins `json:"payout" gorm:"type:bigint;not null;default:0"`
+	Rake      GameCoins `json:"rake" gorm:"type:bigint;not null;default:0"`
+	Ticket    GameCoins `json:"ticket" gorm:"type:bigint;not null;default:0"`
+	CreatedAt int64     `json:"created_at" gorm:"bigint;index"`
+	DrawnAt   int64     `json:"drawn_at" gorm:"bigint"`
 }
 
 // GameJackpotEntry 是一次投入。一位玩家在一轮里可以投几次，奖券按投入先后连续编号。
 type GameJackpotEntry struct {
-	Id        int    `json:"id"`
-	RoundId   int    `json:"round_id" gorm:"index"`
-	UserId    int    `json:"user_id" gorm:"index"`
-	Amount    int    `json:"amount" gorm:"type:bigint"`
-	Ip        string `json:"-" gorm:"type:varchar(64)"`
-	CreatedAt int64  `json:"created_at" gorm:"bigint"`
+	Id        int       `json:"id"`
+	RoundId   int       `json:"round_id" gorm:"index"`
+	UserId    int       `json:"user_id" gorm:"index"`
+	Amount    GameCoins `json:"amount" gorm:"type:bigint"`
+	Ip        string    `json:"-" gorm:"type:varchar(64)"`
+	CreatedAt int64     `json:"created_at" gorm:"bigint"`
 }
 
 // gameJackpotRef 是奖池流水的关联编号，与对局编号区分开。
@@ -93,7 +93,7 @@ func lockOpenGameJackpotRoundTx(tx *gorm.DB, create bool, rakePercent int, now i
 // GameJackpotEntryRule 是投入时的规则：每人每轮最多投入 MaxBet，第二位玩家投入后 RoundSeconds 秒开奖，新开的一轮按
 // RakePercent 抽成。
 type GameJackpotEntryRule struct {
-	MaxBet       int
+	MaxBet       GameCoins
 	RoundSeconds int
 	RakePercent  int
 }
@@ -102,13 +102,13 @@ type GameJackpotEntryRule struct {
 // 这是第二位玩家时开始倒计时。当前一轮已到开奖时间时返回 ErrGameJackpotClosed，调用方先开奖再投。同一 IP 下的账号算同一个人：
 // 别的账号已经投了这一轮时返回 ErrGameJackpotSameIp，不然一个人用几个账号就能凑够两位玩家开奖、越过每人每轮的上限，
 // 在自己的账号之间倒腾游戏币(对战也不许同一 IP 的账号互相押注)。
-func EnterGameJackpot(userId int, amount int, rule GameJackpotEntryRule, ip string) (*GameJackpotRound, int, error) {
+func EnterGameJackpot(userId int, amount GameCoins, rule GameJackpotEntryRule, ip string) (*GameJackpotRound, GameCoins, error) {
 	if amount < 1 || amount >= common.MaxQuota {
 		return nil, 0, ErrGameCoinAmountInvalid
 	}
 	now := common.GetTimestamp()
 	var round *GameJackpotRound
-	var balance int
+	var balance GameCoins
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		var err error
 		if round, err = lockOpenGameJackpotRoundTx(tx, true, rule.RakePercent, now); err != nil {
@@ -128,7 +128,7 @@ func EnterGameJackpot(userId int, amount int, rule GameJackpotEntryRule, ip stri
 		if len(sameIp) > 0 {
 			return ErrGameJackpotSameIp
 		}
-		var entered int
+		var entered GameCoins
 		if err := tx.Model(&GameJackpotEntry{}).Where("round_id = ? AND user_id = ?", round.Id, userId).
 			Select("COALESCE(SUM(amount), 0)").Scan(&entered).Error; err != nil {
 			return err
@@ -176,8 +176,8 @@ func EnterGameJackpot(userId int, amount int, rule GameJackpotEntryRule, ip stri
 }
 
 // gameJackpotTotals 按用户汇总一轮的投入，并按用户 ID 从小到大返回用户列表，结算时依次记账，加锁顺序一致。
-func gameJackpotTotals(entries []GameJackpotEntry) (map[int]int, []int) {
-	totals := make(map[int]int)
+func gameJackpotTotals(entries []GameJackpotEntry) (map[int]GameCoins, []int) {
+	totals := make(map[int]GameCoins)
 	for _, entry := range entries {
 		totals[entry.UserId] += entry.Amount
 	}
@@ -203,10 +203,11 @@ func DrawGameJackpot(pick func(tickets int) (int, error), day string) (*GameJack
 		if err := tx.Where("round_id = ?", round.Id).Order("id asc").Find(&entries).Error; err != nil {
 			return err
 		}
-		ticket, err := pick(round.Pot)
+		picked, err := pick(int(round.Pot))
 		if err != nil {
 			return err
 		}
+		ticket := GameCoins(picked)
 		if ticket < 0 || ticket >= round.Pot {
 			return errors.New("jackpot ticket out of range")
 		}
@@ -227,7 +228,7 @@ func DrawGameJackpot(pick func(tickets int) (int, error), day string) (*GameJack
 			rest -= totals[entry.UserId]
 		}
 		round.Status, round.Ticket, round.DrawnAt = GameJackpotStatusDrawn, ticket, now
-		round.Rake = round.Pot * round.RakePercent / 100
+		round.Rake = round.Pot * GameCoins(round.RakePercent) / 100
 		round.Payout = round.Pot - round.Rake
 		if err := tx.Model(&GameJackpotRound{}).Where("id = ?", round.Id).Updates(map[string]interface{}{
 			"slot":      "r" + strconv.Itoa(round.Id),

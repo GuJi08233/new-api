@@ -114,14 +114,14 @@ func TestFinishFlappySettlesReplayedScore(t *testing.T) {
 	assert.EqualValues(t, game.FlapCount, detail["flaps"])
 	assert.Equal(t, true, detail["over"])
 	assert.LessOrEqual(t, detail["peak_flaps"], float64(flappy.HumanFlapLimit))
-	assert.EqualValues(t, 2, result["reward"], "40 根管道达到 2 个游戏币那一档，62 秒也够 2 个")
+	assert.Equal(t, 2.0, result["reward"], "40 根管道达到 2 个游戏币那一档，62 秒也够 2 个")
 	assert.Equal(t, "", result["limited_by"])
-	assert.EqualValues(t, 2, result["balance"])
+	assert.Equal(t, 2.0, result["balance"])
 
 	again := finishFlappy(player, session.Id, 1, []int{0})
 	require.Equal(t, true, again["success"], again["message"])
 	assert.Equal(t, result, again["data"], "重复提交返回第一次结算的结果")
-	assert.Equal(t, 2, player.balance())
+	assert.Equal(t, 2.0, player.balance())
 }
 
 // 任意 1 秒内拍翅膀超过 12 次只可能是脚本：不发奖励，成绩不算数(记为 0，不会成为最高分)，并给管理员留一条风控告警，
@@ -141,9 +141,9 @@ func TestFinishFlappyRefusesScriptedFlapping(t *testing.T) {
 	assert.EqualValues(t, 0, result["score"])
 	assert.EqualValues(t, 0, result["best_score"])
 	assert.Greater(t, result["detail"].(map[string]any)["peak_flaps"], float64(flappy.HumanFlapLimit))
-	assert.EqualValues(t, 0, result["reward"])
+	assert.Equal(t, 0.0, result["reward"])
 	assert.Equal(t, model.GameRewardLimitedBySpeed, result["limited_by"])
-	assert.Equal(t, 0, player.balance())
+	assert.Equal(t, 0.0, player.balance())
 
 	var alerts []model.RiskEvent
 	require.NoError(t, env.db.Where("user_id = ? AND rule = ?", player.user.Id, "game:"+gameFlappy).Find(&alerts).Error)

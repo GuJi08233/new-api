@@ -60,8 +60,8 @@ func TestValidateGameOption(t *testing.T) {
 		assert.Equal(t, valid, ValidateGameOption(GameSettingPrefix+"record_retention_days", value) == nil, value)
 	}
 
-	// 免费游戏的规则：每日领奖次数 0 到 GameMaxDailyRewards，至少一档奖励，成绩严格递增、奖励不减，
-	// 难度类游戏(扫雷)的成绩不超过最高难度。
+	// 免费游戏的规则：每日领奖次数 0 到 GameMaxDailyRewards，至少一档奖励，成绩严格递增、奖励不减，奖励最少 0.01 个币、
+	// 最多两位小数，难度类游戏(扫雷)的成绩不超过最高难度。
 	for game, cases := range map[string]map[string]bool{
 		"tetris": {
 			`{"enabled":true,"daily_rewards":3,"tiers":[{"score":5000,"coins":1},{"score":20000,"coins":2}],"min_seconds_per_coin":60}`: true,
@@ -70,6 +70,11 @@ func TestValidateGameOption(t *testing.T) {
 			`{"enabled":true,"daily_rewards":3,"tiers":[]}`:                                                                             false,
 			`{"enabled":true,"daily_rewards":3,"tiers":[{"score":20000,"coins":1},{"score":5000,"coins":2}]}`:                           false,
 			`{"enabled":true,"daily_rewards":3,"tiers":[{"score":5000,"coins":2},{"score":20000,"coins":1}]}`:                           false,
+			`{"enabled":true,"daily_rewards":3,"tiers":[{"score":5000,"coins":0.5},{"score":20000,"coins":1.25}]}`:                      true,
+			`{"enabled":true,"daily_rewards":3,"tiers":[{"score":5000,"coins":0.01}]}`:                                                  true,
+			`{"enabled":true,"daily_rewards":3,"tiers":[{"score":5000,"coins":0.29}]}`:                                                  true,
+			`{"enabled":true,"daily_rewards":3,"tiers":[{"score":5000,"coins":0.005}]}`:                                                 false,
+			`{"enabled":true,"daily_rewards":3,"tiers":[{"score":5000,"coins":1.234}]}`:                                                 false,
 			`{"enabled":true,"daily_rewards":3,"tiers":[{"score":5000,"coins":0}]}`:                                                     false,
 			`{"enabled":true,"daily_rewards":3,"tiers":[{"score":5000,"coins":101}]}`:                                                   false,
 			`{"enabled":true,"daily_rewards":3,"tiers":[{"score":1,"coins":1}],"min_seconds_per_coin":3601}`:                            false,
@@ -95,8 +100,8 @@ func TestValidateGameOption(t *testing.T) {
 			`{"enabled":true,"max_bet":10,"rtp_percent":90}`: false,
 		},
 		"blackjack": {
-			`{"enabled":true,"max_bet":2}`: true,
-			`{"enabled":true,"max_bet":1}`: false,
+			`{"enabled":true,"max_bet":1}`: true,
+			`{"enabled":true,"max_bet":0}`: false,
 		},
 		"plinko": {
 			`{"enabled":true,"max_bet":10}`: true,
@@ -198,7 +203,7 @@ func TestDefaultFreeGameRulesPayOneCoinADay(t *testing.T) {
 			continue
 		}
 		checked++
-		assert.Equal(t, 1, rule.DailyRewards*rule.MaxReward(), "%s 每天最多发的游戏币", game)
+		assert.Equal(t, 1.0, float64(rule.DailyRewards)*rule.MaxReward(), "%s 每天最多发的游戏币", game)
 		assert.GreaterOrEqual(t, rule.MinSecondsPerCoin, 120, game)
 		assert.LessOrEqual(t, rule.MinSecondsPerCoin, 300, game)
 	}

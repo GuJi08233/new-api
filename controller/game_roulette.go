@@ -43,14 +43,23 @@ func init() {
 	})
 }
 
+// rouletteBetRequest 是注单上的一注，金额可以有两位小数。
+type rouletteBetRequest struct {
+	Type   string          `json:"type"`
+	Value  int             `json:"value"`
+	Amount model.GameCoins `json:"amount"`
+}
+
 type rouletteSpinRequest struct {
-	Bets []roulette.Bet `json:"bets"`
+	Bets []rouletteBetRequest `json:"bets"`
 }
 
 // rouletteBetView 是一注的结算：这一注本身与它的派彩(含本金，没中为 0)。
 type rouletteBetView struct {
-	roulette.Bet
-	Win int `json:"win"`
+	Type   string          `json:"type"`
+	Value  int             `json:"value"`
+	Amount model.GameCoins `json:"amount"`
+	Win    model.GameCoins `json:"win"`
 }
 
 // rouletteDetail 是轮盘一局的明细，存在对局的 Detail 里供事后核查。Detail 最长 255 字节，放不下 50 注的注单，
@@ -77,40 +86,43 @@ func SpinRoulette(c *gin.Context) {
 		return
 	}
 	// 每一注先检查注型、号码与金额再累加：金额都不超过单次下注上限，50 注加起来不会溢出，合计同样不能超过上限。
-	stake := 0
-	for _, bet := range req.Bets {
-		if !bet.Valid() {
+	// 注单按额度单位换成规则里的注，派彩按额度单位算。
+	stake := model.GameCoins(0)
+	bets := make([]roulette.Bet, len(req.Bets))
+	for i, bet := range req.Bets {
+		bets[i] = roulette.Bet{Type: bet.Type, Value: bet.Value, Amount: int(bet.Amount)}
+		if !bets[i].Valid() {
 			common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 			return
 		}
-		if !validWagerBet(c, bet.Amount, 1, rule.MaxBet) {
+		if !validWagerBet(c, bet.Amount, rule.MaxBet) {
 			return
 		}
 		stake += bet.Amount
 	}
-	if !validWagerBet(c, stake, 1, rule.MaxBet) {
+	if !validWagerBet(c, stake, rule.MaxBet) {
 		return
 	}
 	// 整张注单存进对局的状态，明细里只放得下开出的号码与注数。
-	slip, err := common.Marshal(req.Bets)
+	slip, err := common.Marshal(bets)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
 	var number int
-	bets := make([]rouletteBetView, len(req.Bets))
+	views := make([]rouletteBetView, len(bets))
 	result, err := model.SettleGameWager(c.GetInt("id"), gameRoulette, model.GameWager{
 		Bet:   stake,
 		State: string(slip),
-		Play: func() (int, string, error) {
+		Play: func() (model.GameCoins, string, error) {
 			var err error
 			if number, err = spinRoulette(); err != nil {
 				return 0, "", err
 			}
-			win := 0
-			for i, bet := range req.Bets {
-				bets[i] = rouletteBetView{Bet: bet, Win: bet.Win(number)}
-				win += bets[i].Win
+			win := model.GameCoins(0)
+			for i, bet := range bets {
+				views[i] = rouletteBetView{Type: bet.Type, Value: bet.Value, Amount: model.GameCoins(bet.Amount), Win: model.GameCoins(bet.Win(number))}
+				win += views[i].Win
 			}
 			detail, err := common.Marshal(rouletteDetail{Number: number, Bets: len(req.Bets)})
 			return win, string(detail), err
@@ -126,6 +138,6 @@ func SpinRoulette(c *gin.Context) {
 	view := wagerResultView(result)
 	view["number"] = number
 	view["color"] = roulette.Color(number)
-	view["bets"] = bets
+	view["bets"] = views
 	common.ApiSuccess(c, view)
 }

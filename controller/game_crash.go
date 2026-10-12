@@ -75,8 +75,8 @@ type crashState struct {
 }
 
 type crashStartRequest struct {
-	Bet         int `json:"bet"`
-	AutoCashout int `json:"auto_cashout"`
+	Bet         model.GameCoins `json:"bet"`
+	AutoCashout int             `json:"auto_cashout"`
 }
 
 // crashDetail 是一局火箭结束时的明细，存在对局的 Detail 里；游戏页从这里读出玩家最近几局的爆点。
@@ -145,7 +145,7 @@ func settleCrash(c *gin.Context, session *model.GameSession, state *crashState, 
 		return nil, err
 	}
 	result, err := model.SettleGameRound(session, model.GameRoundSettlement{
-		Win:    crash.Payout(session.Bet, multiplier),
+		Win:    model.GameCoins(crash.Payout(int(session.Bet), multiplier)),
 		State:  string(data),
 		Detail: string(detail),
 		Day:    gameCenterDay(),
@@ -234,7 +234,7 @@ func StartCrash(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
-	if !validWagerBet(c, req.Bet, 1, rule.MaxBet) {
+	if !validWagerBet(c, req.Bet, rule.MaxBet) {
 		return
 	}
 	if req.AutoCashout != 0 && (req.AutoCashout < crash.MinAutoCashout || req.AutoCashout > crash.MaxPoint) {
