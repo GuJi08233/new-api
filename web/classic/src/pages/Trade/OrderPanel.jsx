@@ -57,9 +57,10 @@ const OrderPanel = ({
   onPlaced,
   t,
   spot,
+  canOpen,
   valuation,
 }) => {
-  const [side, setSide] = useState('buy');
+  const [side, setSide] = useState(canOpen ? 'buy' : 'sell');
   const [type, setType] = useState('market');
   const [byAmount, setByAmount] = useState(false);
   const [price, setPrice] = useState('');
@@ -75,17 +76,21 @@ const OrderPanel = ({
   const fee = (feeBps || 0) / 10000;
   const isBuy = side === 'buy';
   const amountMode = isBuy && type === 'market' && byAmount;
-  const buyingDisabled = spot?.enabled === false;
+  const buyingDisabled = !canOpen || spot?.enabled === false;
   // 杠杆只用于按数量的市价买入：借多少要成交后才知道，限价单和按金额买入都不借。管理员调低最高杠杆后，超出的选择按 1 倍算。
   const canLever =
-    isBuy && type === 'market' && !byAmount && spot?.max_leverage > 1;
+    isBuy &&
+    !buyingDisabled &&
+    type === 'market' &&
+    !byAmount &&
+    spot?.max_leverage > 1;
   const lever = canLever && leverage <= spot.max_leverage ? leverage : 1;
   // 借币卖出只用于市价卖出，借的数量就是卖出的数量。
   const canBorrow =
     !isBuy &&
     type === 'market' &&
     spot?.max_leverage > 1 &&
-    spot?.enabled !== false &&
+    !buyingDisabled &&
     !!spot?.asset_rates?.[symbol];
   const borrow = canBorrow && borrowing;
 

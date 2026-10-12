@@ -70,6 +70,8 @@ func TestMain(m *testing.M) {
 		&TradeSnapshotDay{},
 		&TradeFuturesPosition{},
 		&TradeFuturesHistory{},
+		&TradeFuturesFundingState{},
+		&TradeFuturesExposure{},
 		&TradeFuturesOrder{},
 		&TradeNotice{},
 		&GameCoinAccount{},
@@ -135,6 +137,8 @@ func truncateTables(t *testing.T) {
 		DB.Exec("DELETE FROM trade_snapshot_days")
 		DB.Exec("DELETE FROM trade_futures_positions")
 		DB.Exec("DELETE FROM trade_futures_histories")
+		DB.Exec("DELETE FROM trade_futures_funding_states")
+		DB.Exec("DELETE FROM trade_futures_exposures")
 		DB.Exec("DELETE FROM trade_futures_orders")
 		DB.Exec("DELETE FROM trade_notices")
 		DB.Exec("DELETE FROM game_coin_logs")

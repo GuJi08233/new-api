@@ -112,17 +112,18 @@ func tradeOrderView(order *model.TradeOrder, perUsd int) gin.H {
 
 func tradeLedgerView(entry model.TradeLedger) gin.H {
 	return gin.H{
-		"id":         entry.Id,
-		"type":       entry.Type,
-		"symbol":     entry.Symbol,
-		"order_id":   entry.OrderId,
-		"qty":        tradeQty(entry.Qty),
-		"price":      entry.Price,
-		"amount":     entry.Amount,
-		"fee":        entry.Fee,
-		"pnl":        entry.Pnl,
-		"balance":    entry.Balance,
-		"created_at": entry.CreatedAt,
+		"id":           entry.Id,
+		"type":         entry.Type,
+		"symbol":       entry.Symbol,
+		"order_id":     entry.OrderId,
+		"qty":          tradeQty(entry.Qty),
+		"price":        entry.Price,
+		"amount":       entry.Amount,
+		"fee":          entry.Fee,
+		"pnl":          entry.Pnl,
+		"funding_time": entry.FundingTime,
+		"balance":      entry.Balance,
+		"created_at":   entry.CreatedAt,
 	}
 }
 
@@ -235,15 +236,47 @@ func GetTradeSelf(c *gin.Context) {
 // tradeSparklineTimeout 是行情列表等迷你走势的最长时间，超时的交易对不画走势，不拖慢整个列表。
 const tradeSparklineTimeout = 5 * time.Second
 
-// GetTradeMarket 返回开放交易的交易对：行情、交易规则与最近 24 小时的走势。
+// tradeSpotSymbolsFor 保留用户仍有持仓、借币或挂单的交易对，停用之后仍能查看行情、卖出和撤单。
+func tradeSpotSymbolsFor(userId int, setting *operation_setting.TradeSetting) ([]operation_setting.TradeSymbolInfo, error) {
+	positions, err := model.GetTradePositions(userId)
+	if err != nil {
+		return nil, err
+	}
+	loans, err := model.GetTradeSpotAssetLoans([]int{userId})
+	if err != nil {
+		return nil, err
+	}
+	orders, _, err := model.GetTradeOrders(userId, true, "", 0, model.TradeMaxOpenOrders)
+	if err != nil {
+		return nil, err
+	}
+	held := make(map[string]bool, len(positions)+len(loans)+len(orders))
+	for _, position := range positions {
+		held[position.Symbol] = true
+	}
+	for _, loan := range loans {
+		held[loan.Symbol] = true
+	}
+	for _, order := range orders {
+		held[order.Symbol] = true
+	}
+	var infos []operation_setting.TradeSymbolInfo
+	for _, info := range operation_setting.TradeSymbols {
+		if info.Symbol != "" && (setting.SymbolEnabled(info.Symbol) || held[info.Symbol]) {
+			infos = append(infos, info)
+		}
+	}
+	return infos, nil
+}
+
+// GetTradeMarket 返回开放交易及用户仍有资产或挂单的交易对：行情、交易规则与最近 24 小时的走势。
 func GetTradeMarket(c *gin.Context) {
 	setting := operation_setting.GetTradeSetting()
 	market := service.GetTradeMarket()
-	var infos []operation_setting.TradeSymbolInfo
-	for _, info := range operation_setting.TradeSymbols {
-		if setting.SymbolEnabled(info.Symbol) {
-			infos = append(infos, info)
-		}
+	infos, err := tradeSpotSymbolsFor(c.GetInt("id"), setting)
+	if err != nil {
+		common.ApiError(c, err)
+		return
 	}
 	// 各交易对的走势并发去取；超时后这次列表不带走势，取到的留在缓存里给下一次用。
 	ctx := c.Request.Context()
@@ -267,7 +300,8 @@ func GetTradeMarket(c *gin.Context) {
 	}
 	items := make([]gin.H, 0, len(infos))
 	for i, info := range infos {
-		item := gin.H{"symbol": info.Symbol, "ticker": info.Ticker, "kind": info.Kind, "session": info.Session}
+		item := gin.H{"symbol": info.Symbol, "ticker": info.Ticker, "kind": info.Kind, "session": info.Session,
+			"open": setting.Enabled && setting.SymbolEnabled(info.Symbol)}
 		if quote, ok := market.Quote(info.Symbol); ok {
 			item["quote"] = quote
 		}
@@ -300,7 +334,12 @@ func GetTradeKlines(c *gin.Context) {
 	interval := c.Query("interval")
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "300"))
 	endTime, _ := strconv.ParseInt(c.DefaultQuery("end_time", "0"), 10, 64)
-	if _, ok := operation_setting.TradeSymbolOf(symbol); !ok || !operation_setting.GetTradeSetting().SymbolEnabled(symbol) {
+	infos, err := tradeSpotSymbolsFor(c.GetInt("id"), operation_setting.GetTradeSetting())
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if !slices.ContainsFunc(infos, func(info operation_setting.TradeSymbolInfo) bool { return info.Symbol == symbol }) {
 		common.ApiErrorI18n(c, i18n.MsgTradeSymbolClosed)
 		return
 	}
@@ -329,14 +368,23 @@ func GetTradeKlines(c *gin.Context) {
 const tradeStreamKeepalive = 15 * time.Second
 
 // StreamTradeMarket 以 SSE 推送行情：symbols 的 24 小时行情(合约另有标记价格与资金费率)、kline 那个交易对的 1 分钟 K 线、
-// book 那个交易对的盘口、trades 那个交易对的最新成交(trades 要在 symbols 里)。market=futures 时推合约，否则推现货。现货只推开放交易的交易对，模拟盘关闭后断开；合约推所有支持的
+// book 那个交易对的盘口、trades 那个交易对的最新成交(trades 要在 symbols 里)。market=futures 时推合约，否则推现货。现货推开放交易及用户仍有资产或挂单的交易对；合约推所有支持的
 // 合约，合约关掉以后还有仓位的照样有行情(行情中心只连着用得到的合约)。
 func StreamTradeMarket(c *gin.Context) {
 	setting := operation_setting.GetTradeSetting()
 	futures := c.Query("market") == "futures"
+	var infos []operation_setting.TradeSymbolInfo
+	if !futures {
+		var err error
+		infos, err = tradeSpotSymbolsFor(c.GetInt("id"), setting)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+	}
 	var symbols []string
 	for _, symbol := range strings.Split(c.Query("symbols"), ",") {
-		allowed := setting.SymbolEnabled(symbol)
+		allowed := slices.ContainsFunc(infos, func(info operation_setting.TradeSymbolInfo) bool { return info.Symbol == symbol })
 		if futures {
 			_, allowed = operation_setting.TradeFuturesSymbolOf(symbol)
 		}

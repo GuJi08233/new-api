@@ -146,6 +146,7 @@ func TestMigrationSchemaStability(t *testing.T) {
 			t.Run("trade_tables", func(t *testing.T) {
 				tables := []any{&TradeAccount{}, &TradePosition{}, &TradeOrder{}, &TradeLedger{}, &TradeProfitOutDay{},
 					&TradeSnapshot{}, &TradeSnapshotDay{}, &TradeFuturesPosition{}, &TradeFuturesHistory{}, &TradeFuturesOrder{}, &TradeNotice{},
+					&TradeFuturesFundingState{}, &TradeFuturesExposure{},
 					&GameCoinAccount{}, &GameCoinLog{}, &TradeSpotMargin{}, &TradeSpotAssetLoan{}, &TradePredictionRound{}, &TradePredictionPosition{},
 					&GameCoinWithdrawal{}, &GameCoinWithdrawDay{}, &GameCoinConvertDay{}, &GameSession{}, &GameRewardDay{}, &GameRewardIpDay{},
 					&GameRoom{}, &GameRoomSeat{}, &GameJackpotRound{}, &GameJackpotEntry{}}

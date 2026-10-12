@@ -223,6 +223,7 @@ const TradeAdmin = () => {
   const { t } = useTranslation();
   const [status, setStatus] = useState(null);
   const [form, setForm] = useState(null);
+  const [savedSetting, setSavedSetting] = useState(null);
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
@@ -232,6 +233,7 @@ const TradeAdmin = () => {
       return;
     }
     setStatus(res.data.data);
+    setSavedSetting(res.data.data.setting);
     setForm({
       ...res.data.data.setting,
       symbols: [...(res.data.data.setting.symbols || [])],
@@ -267,8 +269,9 @@ const TradeAdmin = () => {
     setForm((previous) => ({ ...previous, [key]: value }));
 
   const save = async () => {
+    // 行情轮询会更新 status，只有相对表单初始配置的变化才是本次编辑。
     const changed = Object.keys(form).filter(
-      (key) => optionValue(form[key]) !== optionValue(status.setting[key]),
+      (key) => optionValue(form[key]) !== optionValue(savedSetting[key]),
     );
     if (!changed.length) {
       showWarning(t('你似乎并没有修改什么'));

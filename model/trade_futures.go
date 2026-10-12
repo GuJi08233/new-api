@@ -560,15 +560,32 @@ func startTradeFuturesPosition(position *TradeFuturesPosition, mode string, leve
 
 // tradeFuturesLedgerTx 记一条合约账单并记上仓位的编号。这一段仓位还没有编号时(第一次开仓成交)，用这条账单的 id 当编号。
 func tradeFuturesLedgerTx(tx *gorm.DB, account *TradeAccount, position *TradeFuturesPosition, entry TradeLedger) error {
+	changesQty := entry.Type == TradeLedgerFuturesOpen || entry.Type == TradeLedgerFuturesClose || entry.Type == TradeLedgerLiquidation
+	if changesQty && position.PositionId != 0 {
+		before := *position
+		if entry.Type == TradeLedgerFuturesOpen {
+			before.Qty -= entry.Qty
+		} else {
+			before.Qty += entry.Qty
+		}
+		if err := ensureTradeFuturesFundingStateTx(tx, &before); err != nil {
+			return err
+		}
+	}
 	entry.Symbol, entry.PositionId = position.Symbol, position.PositionId
 	if err := tradeLedgerTx(tx, account, &entry); err != nil {
 		return err
 	}
-	if position.PositionId != 0 {
-		return nil
+	if position.PositionId == 0 {
+		position.PositionId = entry.Id
+		if err := tx.Model(&TradeLedger{}).Where("id = ?", entry.Id).Update("position_id", entry.Id).Error; err != nil {
+			return err
+		}
 	}
-	position.PositionId = entry.Id
-	return tx.Model(&TradeLedger{}).Where("id = ?", entry.Id).Update("position_id", entry.Id).Error
+	if changesQty {
+		return recordTradeFuturesExposureTx(tx, position, entry.Id)
+	}
+	return nil
 }
 
 // applyTradeFuturesOpenTx 把一次开仓成交记进账户、仓位与委托。release 是挂单成交时这次成交对应的那份冻结资金，先放回资金。

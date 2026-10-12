@@ -271,6 +271,7 @@ const TradeView = ({
             pickedPrice={picked}
             onPlaced={refresh}
             spot={self?.spot}
+            canOpen={!!self?.enabled && item.open !== false}
             valuation={self?.valuation}
             t={t}
           />

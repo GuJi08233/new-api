@@ -62,6 +62,8 @@ func TestMain(m *testing.M) {
 		&model.TradeSnapshot{},
 		&model.TradeSnapshotDay{},
 		&model.TradeFuturesPosition{},
+		&model.TradeFuturesFundingState{},
+		&model.TradeFuturesExposure{},
 		&model.TradeFuturesHistory{},
 		&model.TradeFuturesOrder{},
 		&model.TradeNotice{},

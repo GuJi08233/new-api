@@ -22,6 +22,7 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
   Banner,
+  Button,
   Empty,
   Radio,
   RadioGroup,
@@ -121,6 +122,7 @@ const Trade = () => {
       return;
     }
     setSelf(res.data);
+    setLoadError('');
   }, [t]);
 
   const loadMarket = useCallback(async () => {
@@ -130,6 +132,7 @@ const Trade = () => {
       return;
     }
     setMarket(res.data);
+    setMarketError('');
     setQuotes((previous) => mergeQuotes(previous, res.data.symbols));
   }, [t]);
 
@@ -140,6 +143,7 @@ const Trade = () => {
       return;
     }
     setFutures(res.data);
+    setFuturesError('');
     setFuturesQuotes((previous) => mergeQuotes(previous, res.data.symbols));
   }, [t]);
 
@@ -228,10 +232,14 @@ const Trade = () => {
   }, [loadSelf]);
 
   let content;
-  if (loadError) {
-    content = <Empty title={loadError} />;
-  } else if (!self) {
-    content = <Spin size='large' />;
+  if (!self) {
+    content = loadError ? (
+      <Empty title={loadError}>
+        <Button onClick={loadSelf}>{t('刷新')}</Button>
+      </Empty>
+    ) : (
+      <Spin size='large' />
+    );
   } else if (isPrediction) {
     content = (
       <PredictionView
@@ -413,6 +421,9 @@ const Trade = () => {
             </div>
           )}
         </div>
+        {self && loadError && (
+          <Banner type='warning' closeIcon={null} description={loadError} />
+        )}
         {self && !self.enabled && (
           <Banner
             type='warning'

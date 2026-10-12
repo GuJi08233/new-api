@@ -1,6 +1,8 @@
 package model
 
 import (
+	"slices"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/pkg/tradesim"
 
@@ -187,59 +189,6 @@ func LiquidateTradeFuturesCross(userId int, market TradeFuturesMarket, feeBps in
 	}
 	afterTradeDeficitCovered(userId, covered)
 	return liquidated, nil
-}
-
-// ApplyTradeFuturesFunding 给一个仓位结算 fundingTime(毫秒)这一次的资金费：按结算时的标记价格与费率算出收付。逐仓记在仓位的保证金上
-// (保证金不够付时，不够的部分从资金里扣)，全仓直接进出资金。仓位已经没有了、结算过这一次或者是在这之后才开的，什么都不做，返回 false。
-func ApplyTradeFuturesFunding(userId int, symbol string, side string, fundingTime int64, rate decimal.Decimal, mark decimal.Decimal) (bool, error) {
-	pricing, err := tradeFuturesPricing()
-	if err != nil {
-		return false, err
-	}
-	applied, covered := false, TradeDeficitCover{}
-	err = DB.Transaction(func(tx *gorm.DB) error {
-		account, err := lockTradeAccountTx(tx, userId)
-		if err != nil {
-			return err
-		}
-		position, err := loadTradeFuturesPositionTx(tx, userId, symbol, side)
-		if err != nil || position.Qty <= 0 || position.FundingAt >= fundingTime {
-			return err
-		}
-		amount, err := pricing.Funding(tradesim.PositionSide(side), mark.Mul(tradesim.QtyFromUnits(position.Qty)), rate)
-		if err != nil {
-			return ErrTradeAmountInvalid
-		}
-		entry := TradeLedger{Type: TradeLedgerFuturesFunding, Qty: position.Qty, Price: rate.String()}
-		if position.MarginMode == TradeFuturesCross {
-			account.Cash += amount
-			entry.Amount = amount
-		} else {
-			fromMargin := max(amount, -position.Margin)
-			position.Margin += fromMargin
-			account.Cash += amount - fromMargin
-			entry.Amount = amount - fromMargin
-		}
-		entry.Pnl = amount
-		position.Funding += amount
-		position.FundingAt = fundingTime
-		if err = tradeFuturesLedgerTx(tx, account, position, entry); err != nil {
-			return err
-		}
-		if err = saveTradeFuturesPositionTx(tx, position); err != nil {
-			return err
-		}
-		if covered, err = settleTradeDeficitTx(tx, account); err != nil {
-			return err
-		}
-		applied = true
-		return saveTradeAccountTx(tx, account)
-	})
-	if err != nil {
-		return false, err
-	}
-	afterTradeDeficitCovered(userId, covered)
-	return applied, nil
 }
 
 // AdjustTradeFuturesMargin 给逐仓仓位追加(amount > 0)或减少(amount < 0)保证金(额度单位)。追加要资金与全仓可用都够；减少后的保证金
@@ -591,32 +540,23 @@ func ListOpenTradeFuturesPositions() ([]TradeFuturesPosition, error) {
 	return positions, err
 }
 
-// ListTradeFuturesPositionSymbols 返回还有人持仓的合约：合约关掉以后，这些合约的行情也要一直连着，直到仓位都平掉。
+// ListTradeFuturesPositionSymbols 返回仍有持仓或平仓后资金费待结的合约；停止开仓后也持续运行，直到官方期次确认所有费用。
 func ListTradeFuturesPositionSymbols() ([]string, error) {
 	var symbols []string
 	err := DB.Model(&TradeFuturesPosition{}).Where("qty > 0").Distinct("symbol").Pluck("symbol", &symbols).Error
-	return symbols, err
-}
-
-// ListTradeFuturesFundingDue 返回这个合约上在 fundingTime(毫秒)之前开仓、还没结算这一次资金费的仓位。
-func ListTradeFuturesFundingDue(symbol string, fundingTime int64) ([]TradeFuturesPosition, error) {
-	var positions []TradeFuturesPosition
-	err := DB.Where("symbol = ? AND qty > 0 AND funding_at < ?", symbol, fundingTime).Find(&positions).Error
-	return positions, err
-}
-
-// GetTradeFuturesFundingFrom 返回这个合约上还没结算资金费的仓位里最早的结算起点(毫秒)，没有仓位时 ok 为假。
-func GetTradeFuturesFundingFrom(symbol string) (int64, bool, error) {
-	var row struct {
-		Positions int64
-		Earliest  int64
-	}
-	err := DB.Model(&TradeFuturesPosition{}).Where("symbol = ? AND qty > 0", symbol).
-		Select("COUNT(*) AS positions, COALESCE(MIN(funding_at), 0) AS earliest").Scan(&row).Error
 	if err != nil {
-		return 0, false, err
+		return nil, err
 	}
-	return row.Earliest, row.Positions > 0, nil
+	var pending []string
+	if err = DB.Model(&TradeFuturesFundingState{}).Where("closed_at > 0 AND funding_at < closed_at").Distinct("symbol").Pluck("symbol", &pending).Error; err != nil {
+		return nil, err
+	}
+	for _, symbol := range pending {
+		if !slices.Contains(symbols, symbol) {
+			symbols = append(symbols, symbol)
+		}
+	}
+	return symbols, nil
 }
 
 // ListOpenTradeFuturesOrders 返回所有挂着的合约限价委托，供撮合建立索引。

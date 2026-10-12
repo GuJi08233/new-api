@@ -1,6 +1,7 @@
 package service
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -468,11 +469,11 @@ func (m *TradeMarket) settleSymbolFunding(client *binance.Client, symbol string)
 		return
 	}
 	settled := from
+	slices.SortFunc(rates, func(a, b binance.FundingRate) int { return cmp.Compare(a.FundingTime, b.FundingTime) })
 	for _, rate := range rates {
 		if rate.FundingTime <= from || rate.FundingTime > now.UnixMilli() {
 			continue
 		}
-		settled = max(settled, rate.FundingTime)
 		positions, err := model.ListTradeFuturesFundingDue(symbol, rate.FundingTime)
 		if err != nil {
 			common.SysError(fmt.Sprintf("trade futures funding: failed to list %s positions: %v", symbol, err))
@@ -482,12 +483,15 @@ func (m *TradeMarket) settleSymbolFunding(client *binance.Client, symbol string)
 			applied, err := model.ApplyTradeFuturesFunding(position.UserId, symbol, position.Side, rate.FundingTime, rate.Rate, rate.MarkPrice)
 			if err != nil {
 				common.SysError(fmt.Sprintf("trade futures funding: failed to settle %s for user %d: %v", symbol, position.UserId, err))
-				continue
+				// 旧期失败时不能继续推进到新期，否则游标会越过尚未成功入账的费用。
+				m.setFundingQuiet(symbol, now.Add(tradeFundingRetry))
+				return
 			}
 			if applied {
 				m.refreshRisk(position.UserId)
 			}
 		}
+		settled = max(settled, rate.FundingTime)
 	}
 	switch {
 	case len(rates) >= tradeFundingBatch:

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -76,6 +77,17 @@ type tradePredictionBook struct {
 	expiresAtMs int64
 }
 
+// 与现货/合约一致，深度消费保存在本节点，重启后重新开始；同一 token 的买卖串行记账。
+// HTTP 时间戳更新不代表挂单补充，只有规范化后的盘口内容更新才补充可成交深度。
+type tradePredictionDepth struct {
+	sync.Mutex
+	endTime     int64
+	timestamp   int64
+	fingerprint [32]byte
+	initialized bool
+	bids, asks  map[string]decimal.Decimal
+}
+
 type tradePredictionClient struct {
 	gammaURL, clobURL string
 	// 预测页的实时数据：目标价接口与 BTC 价格、成交推送，见 trade_prediction_live.go。
@@ -87,6 +99,8 @@ type tradePredictionClient struct {
 	view               TradePredictionMarketView
 	cacheUntil         time.Time
 	live               tradePredictionLive
+	depthMu            sync.Mutex
+	depths             map[string]*tradePredictionDepth
 }
 
 func newTradePredictionClient() *tradePredictionClient {
@@ -104,6 +118,56 @@ func newTradePredictionClient() *tradePredictionClient {
 
 var tradePredictions = newTradePredictionClient()
 var tradePredictionStart sync.Once
+
+func (client *tradePredictionClient) lockDepth(round *model.TradePredictionRound, side string) *tradePredictionDepth {
+	token := round.UpToken
+	if side == model.TradePredictionDown {
+		token = round.DownToken
+	}
+	client.depthMu.Lock()
+	if client.depths == nil {
+		client.depths = make(map[string]*tradePredictionDepth)
+	}
+	for key, depth := range client.depths {
+		if depth.endTime <= common.GetTimestamp() {
+			delete(client.depths, key)
+		}
+	}
+	depth := client.depths[token]
+	if depth == nil {
+		depth = &tradePredictionDepth{endTime: round.EndTime}
+		client.depths[token] = depth
+	}
+	client.depthMu.Unlock()
+	depth.Lock()
+	return depth
+}
+
+// acceptBook 保留同一盘口已消费的数量；旧时间戳或同一时间戳的矛盾盘口不能把深度回退补满。
+func (depth *tradePredictionDepth) acceptBook(book *tradePredictionBook) error {
+	bids, err := predictionBookLevels(book.Bids, false)
+	if err != nil {
+		return err
+	}
+	asks, err := predictionBookLevels(book.Asks, true)
+	if err != nil {
+		return err
+	}
+	data, err := common.Marshal(struct{ Bids, Asks []tradesim.Level }{bids, asks})
+	if err != nil {
+		return err
+	}
+	fingerprint := sha256.Sum256(data)
+	stamp, err := strconv.ParseInt(book.Timestamp, 10, 64)
+	if err != nil || depth.initialized && (stamp < depth.timestamp || stamp == depth.timestamp && fingerprint != depth.fingerprint) {
+		return model.ErrTradePredictionQuote
+	}
+	if !depth.initialized || fingerprint != depth.fingerprint {
+		depth.bids, depth.asks = map[string]decimal.Decimal{}, map[string]decimal.Decimal{}
+	}
+	depth.initialized, depth.timestamp, depth.fingerprint = true, stamp, fingerprint
+	return nil
+}
 
 func (client *tradePredictionClient) getJSON(ctx context.Context, endpoint string, out any) error {
 	transport, err := client.transport(operation_setting.GetTradeSetting().ProxyUrl)
@@ -318,35 +382,58 @@ type TradePredictionOrderRequest struct {
 	LimitPrice  decimal.Decimal
 }
 
-// matchPredictionBook 按真实深度吃单，限价保护保证不滑到用户未接受的赔率。
-// 买入 amount 为含费预算，卖出 shares 为份数；不足可部分成交，不虚构剩余流动性。
-func matchPredictionBook(book *tradePredictionBook, buy bool, amount, shares, limit decimal.Decimal, perUsd int) (model.TradePredictionFill, error) {
+// predictionBookLevels 规范化价位：合并重复价格、统一小数表示并排序，HTTP 字段顺序不改变盘口身份。
+func predictionBookLevels(levels []tradePredictionLevel, buy bool) ([]tradesim.Level, error) {
+	byPrice := make(map[string]tradesim.Level, len(levels))
+	for _, level := range levels {
+		price, err := parsePredictionNumber(level.Price)
+		size, sizeErr := parsePredictionNumber(level.Size)
+		if err != nil || sizeErr != nil || !price.IsPositive() || price.GreaterThanOrEqual(decimal.NewFromInt(1)) || size.GreaterThan(decimal.NewFromInt(1_000_000_000)) {
+			return nil, model.ErrTradePredictionQuote
+		}
+		size = size.Truncate(4)
+		if !size.IsPositive() {
+			continue
+		}
+		key := price.String()
+		size = size.Add(byPrice[key].Qty)
+		if size.GreaterThan(decimal.NewFromInt(1_000_000_000)) {
+			return nil, model.ErrTradePredictionQuote
+		}
+		byPrice[key] = tradesim.Level{Price: price, Qty: size}
+	}
+	parsed := make([]tradesim.Level, 0, len(byPrice))
+	for _, level := range byPrice {
+		parsed = append(parsed, level)
+	}
+	sort.Slice(parsed, func(i, j int) bool {
+		if buy {
+			return parsed[i].Price.LessThan(parsed[j].Price)
+		}
+		return parsed[i].Price.GreaterThan(parsed[j].Price)
+	})
+	return parsed, nil
+}
+
+type tradePredictionMatch struct {
+	model.TradePredictionFill
+	takes map[string]decimal.Decimal
+}
+
+// matchPredictionBook 按扣除 taken 后的深度吃单，限价保护保证不滑到用户未接受的赔率。
+// 买入 amount 为含费预算，卖出 shares 为份数；不足可部分成交，takes 只在记账成功后消费。
+func matchPredictionBook(book *tradePredictionBook, buy bool, amount, shares, limit decimal.Decimal, perUsd int, taken map[string]decimal.Decimal) (tradePredictionMatch, error) {
 	if !limit.IsPositive() || limit.GreaterThanOrEqual(decimal.NewFromInt(1)) || perUsd <= 0 {
-		return model.TradePredictionFill{}, ErrTradeOrderInvalid
+		return tradePredictionMatch{}, ErrTradeOrderInvalid
 	}
 	levels := book.Bids
 	if buy {
 		levels = book.Asks
 	}
-	type levelValue struct{ price, shares decimal.Decimal }
-	parsed := make([]levelValue, 0, len(levels))
-	for _, level := range levels {
-		price, err := parsePredictionNumber(level.Price)
-		size, sizeErr := parsePredictionNumber(level.Size)
-		if err != nil || sizeErr != nil || !price.IsPositive() || price.GreaterThanOrEqual(decimal.NewFromInt(1)) || size.GreaterThan(decimal.NewFromInt(1_000_000_000)) {
-			return model.TradePredictionFill{}, model.ErrTradePredictionQuote
-		}
-		if !size.IsPositive() {
-			continue
-		}
-		parsed = append(parsed, levelValue{price, size.Truncate(4)})
+	parsed, err := predictionBookLevels(levels, buy)
+	if err != nil {
+		return tradePredictionMatch{}, err
 	}
-	sort.Slice(parsed, func(i, j int) bool {
-		if buy {
-			return parsed[i].price.LessThan(parsed[j].price)
-		}
-		return parsed[i].price.GreaterThan(parsed[j].price)
-	})
 	pricing := tradesim.Pricing{QuotaPerUsd: decimal.NewFromInt(int64(perUsd))}
 	budget := 0
 	remaining := amount
@@ -354,19 +441,24 @@ func matchPredictionBook(book *tradePredictionBook, buy bool, amount, shares, li
 		// 买入的预算先换成整数额度再换回美元(截断，不会比预算多)，按它吃单：成交金额加手续费合起来向上取整也不会超过预算。
 		var err error
 		if budget, err = pricing.CreditQuota(amount); err != nil {
-			return model.TradePredictionFill{}, model.ErrTradeAmountInvalid
+			return tradePredictionMatch{}, model.ErrTradeAmountInvalid
 		}
 		remaining = decimal.NewFromInt(int64(budget)).Div(pricing.QuotaPerUsd).Truncate(12)
 	}
 	quantity, value, fee := decimal.Zero, decimal.Zero, decimal.Zero
+	takes := make(map[string]decimal.Decimal)
 	for _, level := range parsed {
-		if buy && level.price.GreaterThan(limit) || !buy && level.price.LessThan(limit) {
+		if buy && level.Price.GreaterThan(limit) || !buy && level.Price.LessThan(limit) {
 			break
 		}
-		feePerShare := predictionFeeRate.Mul(level.price).Mul(decimal.NewFromInt(1).Sub(level.price))
-		qty := level.shares
+		feePerShare := predictionFeeRate.Mul(level.Price).Mul(decimal.NewFromInt(1).Sub(level.Price))
+		key := level.Price.String()
+		qty := level.Qty.Sub(taken[key])
+		if !qty.IsPositive() {
+			continue
+		}
 		if buy {
-			qty = decimal.Min(qty, remaining.Div(level.price.Add(feePerShare)).Truncate(4))
+			qty = decimal.Min(qty, remaining.Div(level.Price.Add(feePerShare)).Truncate(4))
 		} else {
 			qty = decimal.Min(qty, shares.Sub(quantity))
 		}
@@ -374,41 +466,42 @@ func matchPredictionBook(book *tradePredictionBook, buy bool, amount, shares, li
 		if !qty.IsPositive() {
 			break
 		}
+		takes[key] = qty
 		quantity = quantity.Add(qty)
-		value = value.Add(qty.Mul(level.price))
+		value = value.Add(qty.Mul(level.Price))
 		fee = fee.Add(qty.Mul(feePerShare))
 		if buy {
-			remaining = remaining.Sub(qty.Mul(level.price.Add(feePerShare)))
+			remaining = remaining.Sub(qty.Mul(level.Price.Add(feePerShare)))
 		}
 	}
 	if !quantity.IsPositive() {
-		return model.TradePredictionFill{}, ErrTradeNoLiquidity
+		return tradePredictionMatch{}, ErrTradeNoLiquidity
 	}
 	feeQuota, err := pricing.DebitQuota(fee)
 	if err != nil {
-		return model.TradePredictionFill{}, model.ErrTradeAmountInvalid
+		return tradePredictionMatch{}, model.ErrTradeAmountInvalid
 	}
 	var quota int
 	if buy {
 		// 买入一共扣成交金额加手续费向上取整，手续费单独向上取整，剩下的记成交金额。
 		total, err := pricing.DebitQuota(value.Add(fee))
 		if err != nil || total > budget {
-			return model.TradePredictionFill{}, ErrTradeQtyTooSmall
+			return tradePredictionMatch{}, ErrTradeQtyTooSmall
 		}
 		feeQuota = min(feeQuota, total)
 		quota = total - feeQuota
 	} else {
 		if quota, err = pricing.CreditQuota(value); err != nil {
-			return model.TradePredictionFill{}, model.ErrTradeAmountInvalid
+			return tradePredictionMatch{}, model.ErrTradeAmountInvalid
 		}
 		if feeQuota > quota {
-			return model.TradePredictionFill{}, ErrTradeQtyTooSmall
+			return tradePredictionMatch{}, ErrTradeQtyTooSmall
 		}
 	}
 	if quota >= common.MaxQuota-feeQuota {
-		return model.TradePredictionFill{}, model.ErrTradeAmountInvalid
+		return tradePredictionMatch{}, model.ErrTradeAmountInvalid
 	}
-	return model.TradePredictionFill{Qty: quantity.Shift(8).IntPart(), Amount: quota, Fee: feeQuota, Price: value.Div(quantity).Round(8).String(), ExpiresAtMs: book.expiresAtMs}, nil
+	return tradePredictionMatch{TradePredictionFill: model.TradePredictionFill{Qty: quantity.Shift(8).IntPart(), Amount: quota, Fee: feeQuota, Price: value.Div(quantity).Round(8).String(), ExpiresAtMs: book.expiresAtMs}, takes: takes}, nil
 }
 
 func BuyTradePrediction(ctx context.Context, userId int, request TradePredictionOrderRequest) (*model.TradePredictionPosition, error) {
@@ -422,22 +515,31 @@ func BuyTradePrediction(ctx context.Context, userId int, request TradePrediction
 	if request.WindowStart != common.GetTimestamp()/model.TradePredictionWindow*model.TradePredictionWindow {
 		return nil, model.ErrTradePredictionClosed
 	}
+	if err := EnsureTradeSpotPricesFresh(ctx, userId); err != nil {
+		return nil, err
+	}
+	client := tradePredictions
 	round, err := model.GetTradePredictionRound(request.WindowStart)
 	if err != nil {
-		round, err = tradePredictions.discover(ctx, request.WindowStart)
+		round, err = client.discover(ctx, request.WindowStart)
 	}
 	if err != nil {
 		return nil, err
 	}
-	book, err := tradePredictions.book(ctx, round, request.Side)
+	depth := client.lockDepth(round, request.Side)
+	defer depth.Unlock()
+	book, err := client.book(ctx, round, request.Side)
 	if err != nil {
 		return nil, model.ErrTradePredictionQuote
+	}
+	if err := depth.acceptBook(book); err != nil {
+		return nil, err
 	}
 	perUsd, err := model.TradeQuotaPerUsd()
 	if err != nil {
 		return nil, err
 	}
-	fill, err := matchPredictionBook(book, true, request.Amount, decimal.Zero, request.LimitPrice, perUsd)
+	fill, err := matchPredictionBook(book, true, request.Amount, decimal.Zero, request.LimitPrice, perUsd, depth.asks)
 	if err != nil {
 		return nil, err
 	}
@@ -446,7 +548,13 @@ func BuyTradePrediction(ctx context.Context, userId int, request TradePrediction
 	if err != nil {
 		return nil, model.ErrTradeAmountInvalid
 	}
-	return model.BuyTradePrediction(fill)
+	position, err := model.BuyTradePrediction(fill.TradePredictionFill)
+	if err == nil {
+		for price, qty := range fill.takes {
+			depth.asks[price] = depth.asks[price].Add(qty)
+		}
+	}
+	return position, err
 }
 
 func SellTradePrediction(ctx context.Context, userId, positionId int, shares, limit decimal.Decimal) (*model.TradePredictionPosition, error) {
@@ -472,20 +580,32 @@ func SellTradePrediction(ctx context.Context, userId, positionId int, shares, li
 	if err != nil {
 		return nil, err
 	}
-	book, err := tradePredictions.book(ctx, round, position.Side)
+	client := tradePredictions
+	depth := client.lockDepth(round, position.Side)
+	defer depth.Unlock()
+	book, err := client.book(ctx, round, position.Side)
 	if err != nil {
 		return nil, model.ErrTradePredictionQuote
+	}
+	if err := depth.acceptBook(book); err != nil {
+		return nil, err
 	}
 	perUsd, err := model.TradeQuotaPerUsd()
 	if err != nil {
 		return nil, err
 	}
-	fill, err := matchPredictionBook(book, false, decimal.Zero, shares, limit, perUsd)
+	fill, err := matchPredictionBook(book, false, decimal.Zero, shares, limit, perUsd, depth.bids)
 	if err != nil {
 		return nil, err
 	}
 	fill.UserId, fill.WindowStart, fill.Side = userId, position.WindowStart, position.Side
-	return model.SellTradePrediction(positionId, fill)
+	position, err = model.SellTradePrediction(positionId, fill.TradePredictionFill)
+	if err == nil {
+		for price, qty := range fill.takes {
+			depth.bids[price] = depth.bids[price].Add(qty)
+		}
+	}
+	return position, err
 }
 
 // officialOutcome 读 Polymarket 的官方结果：先看 CLOB，CLOB 还没标出赢家时看 Gamma(结算之后 CLOB 往往要过十几分钟才标

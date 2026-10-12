@@ -229,11 +229,20 @@ func TestLandlordRoomAutoToggleKeepsTheTurnClock(t *testing.T) {
 	}
 	players[first].fails(http.MethodPost, gameRoomPath(id, "auto"), map[string]any{})
 
-	// 这一步已经过了两秒才打开托管：AI 在这个请求里就替他走了，下一位有完整的限时。
+	// 这一步已经过了两秒才打开托管：AI 在这个请求里就替他叫分。叫 3 分时成为地主、仍由他出牌。
 	require.NoError(t, env.db.Model(&model.GameRoom{}).Where("id = ?", id).Update("deadline", common.GetTimestamp()+45-10).Error)
 	played := players[first].ok(http.MethodPost, gameRoomPath(id, "auto"), map[string]any{"auto": true})
-	assert.NotEqualValues(t, first, played["to_move"])
-	assert.NotEqualValues(t, -1, played["state"].(map[string]any)["bids"].([]any)[first], "the ai bid for the seat")
+	state := played["state"].(map[string]any)
+	bid := jsonInt(t, state["bids"].([]any)[first])
+	assert.NotEqual(t, -1, bid, "the ai bid for the seat")
+	if bid == landlord.MaxBid {
+		assert.Equal(t, landlord.PhasePlaying, state["phase"])
+		assert.EqualValues(t, first, state["landlord"])
+		assert.EqualValues(t, first, played["to_move"])
+	} else {
+		assert.Equal(t, landlord.PhaseBidding, state["phase"])
+		assert.EqualValues(t, (first+1)%landlord.Players, played["to_move"])
+	}
 	assert.EqualValues(t, 1<<first|1<<other, played["auto_seats"])
 
 	gomoku := []*gamePlayer{env.player(0, gameTestIpA), env.player(0, gameTestIpB)}

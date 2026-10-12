@@ -36,7 +36,7 @@ func TestTradePredictionMatchesDepthFeesAndLimit(t *testing.T) {
 		{"reject zero limit", true, "20", "0", "0", 0, 0, 0, ErrTradeOrderInvalid},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			fill, err := matchPredictionBook(book, test.buy, decimal.RequireFromString(test.amount), decimal.RequireFromString(test.shares), decimal.RequireFromString(test.limit), 1_000_000)
+			fill, err := matchPredictionBook(book, test.buy, decimal.RequireFromString(test.amount), decimal.RequireFromString(test.shares), decimal.RequireFromString(test.limit), 1_000_000, nil)
 			if test.err != nil {
 				require.ErrorIs(t, err, test.err)
 				return
@@ -48,14 +48,14 @@ func TestTradePredictionMatchesDepthFeesAndLimit(t *testing.T) {
 		})
 	}
 	book.Asks = []tradePredictionLevel{{"1e100000000", "10"}}
-	_, err := matchPredictionBook(book, true, decimal.NewFromInt(10), decimal.Zero, decimal.RequireFromString("0.9"), 1_000_000)
+	_, err := matchPredictionBook(book, true, decimal.NewFromInt(10), decimal.Zero, decimal.RequireFromString("0.9"), 1_000_000, nil)
 	require.ErrorIs(t, err, model.ErrTradePredictionQuote)
 }
 
 // 成交金额与手续费各自向上取整到额度单位时可能比预算多出一两个单位；买入要照样成交，合起来不超过预算。
 func TestTradePredictionBuyStaysWithinBudgetAfterRounding(t *testing.T) {
 	book := &tradePredictionBook{Asks: []tradePredictionLevel{{"0.001", "100000"}}}
-	fill, err := matchPredictionBook(book, true, decimal.NewFromInt(1), decimal.Zero, decimal.RequireFromString("0.001"), 500_000)
+	fill, err := matchPredictionBook(book, true, decimal.NewFromInt(1), decimal.Zero, decimal.RequireFromString("0.001"), 500_000, nil)
 	require.NoError(t, err)
 	assert.Equal(t, int64(93_464_050_000), fill.Qty)
 	assert.Equal(t, 500_000, fill.Amount+fill.Fee)

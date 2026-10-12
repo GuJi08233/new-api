@@ -140,6 +140,8 @@ type TradeLedger struct {
 	Fee    int `json:"fee" gorm:"type:bigint"`
 	// Pnl 是合约平仓与强平的毛盈亏或资金费的收付(额度单位)，其他账单为 0。
 	Pnl int `json:"pnl" gorm:"type:bigint"`
+	// FundingTime 是合约资金费所属的官方期次(毫秒)，延迟结算时与入账时间不同；其他账单为 0。
+	FundingTime int64 `json:"funding_time,omitempty" gorm:"type:bigint"`
 	// Balance 是变动后的资金合计(可用 + 冻结)。
 	Balance   int   `json:"balance" gorm:"type:bigint"`
 	CreatedAt int64 `json:"created_at" gorm:"bigint;index"`

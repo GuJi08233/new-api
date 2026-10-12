@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -67,7 +68,7 @@ func setupFuturesMarketTest(t *testing.T, syncErr error) {
 		m.mu.Unlock()
 		resetFuturesTestIndexes()
 		for _, table := range []string{"users", "logs", "trade_accounts", "trade_ledgers", "trade_futures_positions", "trade_futures_histories", "trade_futures_orders",
-			"trade_notices"} {
+			"trade_futures_funding_states", "trade_futures_exposures", "trade_notices"} {
 			model.DB.Exec("DELETE FROM " + table)
 		}
 	})
@@ -390,6 +391,10 @@ func TestFuturesFundingSettlesBinanceRounds(t *testing.T) {
 		Qty: tradeTestDecimal("1"), Leverage: 10})
 	openedAt := time.Now().Add(-time.Hour).UnixMilli()
 	require.NoError(t, model.DB.Model(&model.TradeFuturesPosition{}).Where("user_id = ?", 4205).Update("funding_at", openedAt).Error)
+	positionId := futuresTestPosition(t, 4205, model.TradeFuturesLong).PositionId
+	require.NoError(t, model.DB.Model(&model.TradeFuturesFundingState{}).Where("position_id = ?", positionId).
+		Updates(map[string]any{"opened_at": openedAt, "funding_at": openedAt}).Error)
+	require.NoError(t, model.DB.Model(&model.TradeFuturesExposure{}).Where("position_id = ?", positionId).Update("occurred_at", openedAt).Error)
 
 	var requests atomic.Int32
 	var startTime string
@@ -415,6 +420,93 @@ func TestFuturesFundingSettlesBinanceRounds(t *testing.T) {
 	futuresMarket.settleSymbolFunding(client, "BTCUSDT")
 	assert.EqualValues(t, 1, requests.Load(), "nothing to ask Binance before the next funding time")
 	assert.Equal(t, tradeTestUsd("9.89"), futuresTestPosition(t, 4205, model.TradeFuturesLong).Margin)
+}
+
+// 进程内的风控索引全丢失后，全平仓位仍从数据库恢复每个期次，供应商乱序返回也按时间顺序结算。
+func TestFuturesFundingRecoversClosedPositionPeriods(t *testing.T) {
+	setupFuturesMarketTest(t, nil)
+	setting := operation_setting.GetTradeSetting().Clone()
+	setting.FuturesTakerFeeBps = 0
+	operation_setting.SetTradeSettingForTest(setting)
+	const userId = 4291
+	fundTradeTestUser(t, userId, "1000")
+	setFuturesTestBook(1, tradeTestLevels("100", "5"), tradeTestLevels("100", "5"))
+	openFuturesTest(t, userId, TradeFuturesOrderRequest{Side: model.TradeFuturesLong, Type: model.TradeOrderTypeMarket,
+		MarginMode: model.TradeFuturesIsolated, Qty: tradeTestDecimal("1"), Leverage: 10})
+	positionId := futuresTestPosition(t, userId, model.TradeFuturesLong).PositionId
+	_, err := PlaceTradeFuturesOrder(context.Background(), userId, TradeFuturesOrderRequest{Symbol: "BTCUSDT", Side: model.TradeFuturesLong,
+		Action: model.TradeFuturesClose, Type: model.TradeOrderTypeMarket, Qty: tradeTestDecimal("0.5")})
+	require.NoError(t, err)
+	_, err = PlaceTradeFuturesOrder(context.Background(), userId, TradeFuturesOrderRequest{Symbol: "BTCUSDT", Side: model.TradeFuturesLong,
+		Action: model.TradeFuturesClose, Type: model.TradeOrderTypeMarket, Qty: tradeTestDecimal("0.5")})
+	require.NoError(t, err)
+	base := time.Now().Add(-time.Hour).UnixMilli()
+	var exposures []model.TradeFuturesExposure
+	require.NoError(t, model.DB.Where("position_id = ?", positionId).Order("id").Find(&exposures).Error)
+	require.Len(t, exposures, 3)
+	for i, exposure := range exposures {
+		require.NoError(t, model.DB.Model(&model.TradeFuturesExposure{}).Where("id = ?", exposure.Id).Update("occurred_at", base+int64(i*2000)).Error)
+	}
+	require.NoError(t, model.DB.Model(&model.TradeFuturesFundingState{}).Where("position_id = ?", positionId).
+		Updates(map[string]any{"opened_at": base, "funding_at": base, "closed_at": base + 4000}).Error)
+	resetFuturesTestIndexes()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, fmt.Sprint(base+1), r.URL.Query().Get("startTime"))
+		fmt.Fprintf(w, `[
+			{"symbol":"BTCUSDT","fundingTime":%d,"fundingRate":"0.01","markPrice":"100"},
+			{"symbol":"BTCUSDT","fundingTime":%d,"fundingRate":"0.01","markPrice":"100"},
+			{"symbol":"BTCUSDT","fundingTime":%d,"fundingRate":"0.01","markPrice":"100"}
+		]`, base+3000, base+1000, base+5000)
+	}))
+	t.Cleanup(server.Close)
+	futuresMarket.settleSymbolFunding(binance.NewFuturesClient(server.URL, nil), "BTCUSDT")
+	assert.Equal(t, tradeTestUsd("998.5"), tradeTestCash(t, userId))
+	history, _, err := model.GetTradeFuturesHistory(userId, "", 0, 10)
+	require.NoError(t, err)
+	require.Len(t, history, 1)
+	assert.Equal(t, -tradeTestUsd("1.5"), history[0].Funding)
+	assert.Equal(t, -tradeTestUsd("1.5"), history[0].Pnl)
+	_, pending, err := model.GetTradeFuturesFundingFrom("BTCUSDT")
+	require.NoError(t, err)
+	assert.False(t, pending, "the period after closing retires the persisted cursor")
+}
+
+func TestFuturesFundingRetriesFailedPeriodBeforeAdvancing(t *testing.T) {
+	setupFuturesMarketTest(t, nil)
+	const userId = 4292
+	fundTradeTestUser(t, userId, "1000")
+	setFuturesTestBook(1, tradeTestLevels("100", "5"), tradeTestLevels("100", "5"))
+	openFuturesTest(t, userId, TradeFuturesOrderRequest{Side: model.TradeFuturesLong, Type: model.TradeOrderTypeMarket,
+		MarginMode: model.TradeFuturesCross, Qty: tradeTestDecimal("1"), Leverage: 10})
+	positionId := futuresTestPosition(t, userId, model.TradeFuturesLong).PositionId
+	base := time.Now().Add(-time.Hour).UnixMilli()
+	require.NoError(t, model.DB.Model(&model.TradeFuturesFundingState{}).Where("position_id = ?", positionId).
+		Updates(map[string]any{"opened_at": base, "funding_at": base}).Error)
+	require.NoError(t, model.DB.Model(&model.TradeFuturesExposure{}).Where("position_id = ?", positionId).Update("occurred_at", base).Error)
+	before := tradeTestCash(t, userId)
+	var repaired atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mark := "100000000000000000000"
+		if repaired.Load() {
+			mark = "100"
+		}
+		fmt.Fprintf(w, `[
+			{"symbol":"BTCUSDT","fundingTime":%d,"fundingRate":"0.001","markPrice":"100"},
+			{"symbol":"BTCUSDT","fundingTime":%d,"fundingRate":"0.01","markPrice":%q}
+		]`, base+2000, base+1000, mark)
+	}))
+	t.Cleanup(server.Close)
+	client := binance.NewFuturesClient(server.URL, nil)
+	futuresMarket.settleSymbolFunding(client, "BTCUSDT")
+	assert.Equal(t, before, tradeTestCash(t, userId))
+	from, _, err := model.GetTradeFuturesFundingFrom("BTCUSDT")
+	require.NoError(t, err)
+	assert.Equal(t, base, from, "the later successful period must not erase the failed older period")
+	repaired.Store(true)
+	futuresMarket.setFundingQuiet("BTCUSDT", time.Time{})
+	futuresMarket.settleSymbolFunding(client, "BTCUSDT")
+	assert.Equal(t, before-tradeTestUsd("1.1"), tradeTestCash(t, userId))
+	assert.Equal(t, -tradeTestUsd("1.1"), futuresTestPosition(t, userId, model.TradeFuturesLong).Funding)
 }
 
 // 合约下单前的检查：合约开放、杠杆上限、止盈止损方向、限价范围，以及盘口确认不了新鲜时拒单。
