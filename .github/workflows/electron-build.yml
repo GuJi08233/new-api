@@ -55,7 +55,7 @@ jobs:
       - name: Build frontend (classic)
         env:
           CI: ""
-          NODE_OPTIONS: "--max-old-space-size=4096"
+          NODE_OPTIONS: "--max-old-space-size=6144"
         run: |
           cd web/classic
           bun install --frozen-lockfile
