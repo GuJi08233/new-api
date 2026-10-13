@@ -26,11 +26,19 @@ import RiskRankings from './RiskRankings';
 import MultiAccount from './MultiAccount';
 import RiskEvents from './RiskEvents';
 import IpBans from './IpBans';
+import DisabledUsers from './DisabledUsers';
 import RiskSettings from './RiskSettings';
 import RiskSubjectDrawer from './RiskSubjectDrawer';
 import RiskDispositionModal from './RiskDispositionModal';
 import RiskOverview from './RiskOverview';
 import RiskBatchModal from './RiskBatchModal';
+
+const SUBJECT_KEYS = [
+  'subject_type',
+  'subject_value',
+  'detail_hours',
+  'exclude_whitelist',
+];
 
 const RiskControl = () => {
   const { t } = useTranslation();
@@ -40,15 +48,21 @@ const RiskControl = () => {
   const [refreshKey, setRefreshKey] = useState(0);
   const tabs = [
     'overview',
+    'events',
+    'dispositions',
     'rankings',
     'multi_account',
-    'events',
-    'ip_bans',
     ...(isRoot() ? ['settings'] : []),
   ];
-  const activeTab = tabs.includes(params.get('tab'))
-    ? params.get('tab')
-    : 'overview';
+  // 旧地址里的 tab=ip_bans 并入「处置管理」的 IP 封禁视图。
+  const legacyIpBans = params.get('tab') === 'ip_bans';
+  const activeTab = legacyIpBans
+    ? 'dispositions'
+    : tabs.includes(params.get('tab'))
+      ? params.get('tab')
+      : 'overview';
+  const dispositionView =
+    legacyIpBans || params.get('d_view') === 'ip' ? 'ip' : 'users';
   const subject =
     ['user', 'ip', 'ua'].includes(params.get('subject_type')) &&
     params.get('subject_value')
@@ -61,13 +75,7 @@ const RiskControl = () => {
       : null;
   const closeDetail = () => {
     const next = new URLSearchParams(params);
-    for (const key of [
-      'subject_type',
-      'subject_value',
-      'detail_hours',
-      'exclude_whitelist',
-    ])
-      next.delete(key);
+    for (const key of SUBJECT_KEYS) next.delete(key);
     setParams(next);
   };
   const inspect = (target) => {
@@ -78,17 +86,21 @@ const RiskControl = () => {
     next.set('exclude_whitelist', String(!!target.excludeWhitelist));
     setParams(next);
   };
+  // 切到某个标签并带上该页的筛选参数(参数名带各页的前缀,如 d_view、b_status、s_section)。
+  const navigate = (tab, patch = {}) => {
+    const next = new URLSearchParams(params);
+    for (const key of SUBJECT_KEYS) next.delete(key);
+    next.set('tab', tab);
+    for (const [key, value] of Object.entries(patch)) {
+      if (value === '' || value === null || value === undefined)
+        next.delete(key);
+      else next.set(key, String(value));
+    }
+    setParams(next);
+  };
   const viewEvents = (filters) => {
     const next = new URLSearchParams(params);
-    for (const key of [
-      'subject_type',
-      'subject_value',
-      'detail_hours',
-      'exclude_whitelist',
-      'user_id',
-      'ip',
-      'ua',
-    ])
+    for (const key of [...SUBJECT_KEYS, 'user_id', 'ip', 'ua'])
       next.delete(key);
     next.set('tab', 'events');
     for (const key of [...next.keys()]) {
@@ -103,6 +115,12 @@ const RiskControl = () => {
       );
     setParams(next);
   };
+  const shared = {
+    onInspect: inspect,
+    onDisposition: setDisposition,
+    onBatch: setBatch,
+    refreshKey,
+  };
 
   return (
     <div className='mt-[60px] px-2'>
@@ -110,34 +128,15 @@ const RiskControl = () => {
         type='line'
         activeKey={activeTab}
         keepDOM={false}
-        onChange={(key) => {
-          const next = new URLSearchParams(params);
-          next.set('tab', key);
-          setParams(next);
-        }}
+        onChange={(key) => navigate(key)}
       >
         <TabPane tab={t('风控概览')} itemKey='overview'>
           <div className='mt-4'>
-            <RiskOverview refreshKey={refreshKey} onViewEvents={viewEvents} />
-          </div>
-        </TabPane>
-        <TabPane tab={t('滥用排行榜')} itemKey='rankings'>
-          <div className='mt-4'>
-            <RiskRankings
-              onInspect={inspect}
-              onDisposition={setDisposition}
-              onBatch={setBatch}
+            <RiskOverview
               refreshKey={refreshKey}
-            />
-          </div>
-        </TabPane>
-        <TabPane tab={t('多账号关联')} itemKey='multi_account'>
-          <div className='mt-4'>
-            <MultiAccount
+              onViewEvents={viewEvents}
+              onNavigate={navigate}
               onInspect={inspect}
-              onDisposition={setDisposition}
-              onBatch={setBatch}
-              refreshKey={refreshKey}
             />
           </div>
         </TabPane>
@@ -146,14 +145,33 @@ const RiskControl = () => {
             <RiskEvents onInspect={inspect} refreshKey={refreshKey} />
           </div>
         </TabPane>
-        <TabPane tab={t('IP 封禁')} itemKey='ip_bans'>
+        <TabPane tab={t('处置管理')} itemKey='dispositions'>
           <div className='mt-4'>
-            <IpBans
-              onInspect={inspect}
-              onDisposition={setDisposition}
-              onBatch={setBatch}
-              refreshKey={refreshKey}
+            <Tabs
+              type='button'
+              className='mb-3'
+              activeKey={dispositionView}
+              onChange={(key) => navigate('dispositions', { d_view: key })}
+              tabList={[
+                { tab: t('已禁用账号'), itemKey: 'users' },
+                { tab: t('IP 封禁'), itemKey: 'ip' },
+              ]}
             />
+            {dispositionView === 'ip' ? (
+              <IpBans {...shared} />
+            ) : (
+              <DisabledUsers {...shared} onViewEvents={viewEvents} />
+            )}
+          </div>
+        </TabPane>
+        <TabPane tab={t('滥用排行榜')} itemKey='rankings'>
+          <div className='mt-4'>
+            <RiskRankings {...shared} />
+          </div>
+        </TabPane>
+        <TabPane tab={t('多账号关联')} itemKey='multi_account'>
+          <div className='mt-4'>
+            <MultiAccount {...shared} />
           </div>
         </TabPane>
         {isRoot() && (

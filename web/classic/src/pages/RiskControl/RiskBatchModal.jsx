@@ -23,7 +23,8 @@ import {
   Button,
   InputNumber,
   Modal,
-  Select,
+  Radio,
+  RadioGroup,
   Space,
   Table,
   Tag,
@@ -32,7 +33,11 @@ import {
 } from '@douyinfe/semi-ui';
 import { useTranslation } from 'react-i18next';
 import { API, isRoot } from '../../helpers';
-import { riskActionLabel } from './riskLabels';
+import {
+  RISK_MAX_BAN_MINUTES,
+  riskActionLabel,
+  riskBanDurations,
+} from './riskLabels';
 import RiskUserState from './RiskUserState';
 
 export function RiskBatchToolbar({ targets, mode, onBatch }) {
@@ -79,8 +84,8 @@ export default function RiskBatchModal({ batch, onClose, onApplied }) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [reason, setReason] = useState('');
-  const [durationMode, setDurationMode] = useState('temporary');
-  const [minutes, setMinutes] = useState(60);
+  const [duration, setDuration] = useState(60);
+  const [minutes, setMinutes] = useState(120);
   const [reload, setReload] = useState(0);
   useEffect(() => {
     const controller = new AbortController();
@@ -107,13 +112,15 @@ export default function RiskBatchModal({ batch, onClose, onApplied }) {
     return () => controller.abort();
   }, [batch, reload]);
   const allowed = preview.filter((item) => item.allowed);
+  const blocked = preview.length - allowed.length;
+  const customInvalid =
+    duration === 'custom' &&
+    (!Number.isInteger(minutes) ||
+      minutes < 1 ||
+      minutes > RISK_MAX_BAN_MINUTES);
   const submit = async () => {
     if (submitting || !allowed.length || !reason.trim()) return;
-    if (
-      batch.action === 'ban_ip' &&
-      durationMode === 'temporary' &&
-      (!Number.isInteger(minutes) || minutes < 1 || minutes > 43200)
-    ) {
+    if (batch.action === 'ban_ip' && customInvalid) {
       setError(t('封禁时长无效'));
       return;
     }
@@ -127,9 +134,11 @@ export default function RiskBatchModal({ batch, onClose, onApplied }) {
           targets: allowed.map((item) => item.target),
           reason: reason.trim(),
           expire_minutes:
-            batch.action === 'ban_ip' && durationMode === 'temporary'
-              ? minutes
-              : 0,
+            batch.action !== 'ban_ip'
+              ? 0
+              : duration === 'custom'
+                ? minutes
+                : duration,
         },
         { skipErrorHandler: true },
       );
@@ -201,31 +210,45 @@ export default function RiskBatchModal({ batch, onClose, onApplied }) {
       />
       {!results && (
         <Space vertical align='start' className='w-full mb-3'>
-          <Typography.Text>
-            {t('本次预计执行 {{count}} 个目标', { count: allowed.length })}
-          </Typography.Text>
+          <Space wrap>
+            <Tag color='green'>
+              {t('可执行 {{count}} 个', { count: allowed.length })}
+            </Tag>
+            {blocked > 0 && (
+              <Tag color='grey'>
+                {t('不执行 {{count}} 个', { count: blocked })}
+              </Tag>
+            )}
+            {blocked > 0 && (
+              <Typography.Text type='tertiary' size='small'>
+                {t('不执行的原因见下表「说明」列。')}
+              </Typography.Text>
+            )}
+          </Space>
           {batch.action === 'ban_ip' && (
             <Space wrap>
-              <Select
-                value={durationMode}
-                onChange={setDurationMode}
-                style={{ width: 120 }}
+              <RadioGroup
+                type='button'
+                value={duration}
+                onChange={(event) => setDuration(event.target.value)}
                 aria-label={t('封禁期限')}
               >
-                <Select.Option value='temporary'>{t('临时封禁')}</Select.Option>
-                <Select.Option value='permanent'>{t('永久封禁')}</Select.Option>
-              </Select>
-              {durationMode === 'temporary' && (
-                <>
-                  <InputNumber
-                    value={minutes}
-                    onChange={setMinutes}
-                    min={1}
-                    max={43200}
-                    aria-label={t('封禁分钟数')}
-                  />
-                  <Typography.Text>{t('分钟')}</Typography.Text>
-                </>
+                {riskBanDurations.map((preset) => (
+                  <Radio key={preset.minutes} value={preset.minutes}>
+                    {t(preset.label)}
+                  </Radio>
+                ))}
+                <Radio value='custom'>{t('自定义')}</Radio>
+              </RadioGroup>
+              {duration === 'custom' && (
+                <InputNumber
+                  value={minutes}
+                  onChange={setMinutes}
+                  min={1}
+                  max={RISK_MAX_BAN_MINUTES}
+                  suffix={t('分钟')}
+                  aria-label={t('封禁分钟数')}
+                />
               )}
             </Space>
           )}

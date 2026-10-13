@@ -23,7 +23,8 @@ import {
   Input,
   InputNumber,
   Modal,
-  Select,
+  Radio,
+  RadioGroup,
   Space,
   Spin,
   TextArea,
@@ -32,13 +33,14 @@ import {
 import { useTranslation } from 'react-i18next';
 import { API, showError, showSuccess, timestamp2string } from '../../helpers';
 import RiskUserState from './RiskUserState';
+import { RISK_MAX_BAN_MINUTES, riskBanDurations } from './riskLabels';
 
 const RiskDispositionModal = ({ target, onCancel, onSuccess }) => {
   const { t } = useTranslation();
   const [value, setValue] = useState(target.value || '');
   const [reason, setReason] = useState('');
-  const [duration, setDuration] = useState('permanent');
-  const [minutes, setMinutes] = useState(10);
+  const [duration, setDuration] = useState(0);
+  const [minutes, setMinutes] = useState(120);
   const [state, setState] = useState(null);
   const [validatedValue, setValidatedValue] = useState('');
   const [loading, setLoading] = useState(false);
@@ -46,13 +48,27 @@ const RiskDispositionModal = ({ target, onCancel, onSuccess }) => {
   const [saving, setSaving] = useState(false);
   const isUser = target.type === 'user';
   const isRelease = target.action === 'enable' || target.action === 'unban_ip';
+  // 同一目标已有临时封禁时,这次操作只能延长它。
+  const exactBan = state?.ip_bans?.find((ban) => ban.target === state.value);
+  const extending = !isUser && !isRelease && exactBan?.expires_at > 0;
   const title = isUser
     ? isRelease
       ? t('启用用户')
-      : t('永久禁用用户')
+      : state?.user?.status === 2
+        ? t('转为永久禁用')
+        : t('永久禁用用户')
     : isRelease
       ? t('解除封禁')
-      : t('封禁 IP');
+      : extending
+        ? t('延长封禁')
+        : t('封禁 IP');
+  const okText = isUser
+    ? isRelease
+      ? t('确认启用')
+      : t('确认禁用')
+    : isRelease
+      ? t('确认解除')
+      : t('确认封禁');
 
   useEffect(() => {
     setState(null);
@@ -91,6 +107,12 @@ const RiskDispositionModal = ({ target, onCancel, onSuccess }) => {
     };
   }, [target.type, value]);
 
+  const banMinutes = duration === 'custom' ? minutes : duration;
+  const customInvalid =
+    duration === 'custom' &&
+    (!Number.isInteger(minutes) ||
+      minutes < 1 ||
+      minutes > RISK_MAX_BAN_MINUTES);
   const permitted = isUser
     ? isRelease
       ? state?.user?.can_enable
@@ -102,12 +124,7 @@ const RiskDispositionModal = ({ target, onCancel, onSuccess }) => {
   const confirm = async () => {
     if (!state || !permitted || saving || validatedValue !== value.trim())
       return;
-    if (
-      !isUser &&
-      !isRelease &&
-      duration === 'temporary' &&
-      (!Number.isInteger(minutes) || minutes < 1 || minutes > 43200)
-    ) {
+    if (!isUser && !isRelease && customInvalid) {
       showError(t('临时封禁时长必须为 1 到 43200 分钟'));
       return;
     }
@@ -130,7 +147,7 @@ const RiskDispositionModal = ({ target, onCancel, onSuccess }) => {
           {
             target: value.trim(),
             reason: reason.trim(),
-            expire_minutes: duration === 'permanent' ? 0 : minutes,
+            expire_minutes: banMinutes,
           },
           { skipErrorHandler: true },
         );
@@ -148,14 +165,15 @@ const RiskDispositionModal = ({ target, onCancel, onSuccess }) => {
   return (
     <Modal
       title={title}
+      width={520}
       visible
       onOk={confirm}
       onCancel={onCancel}
-      okText={isRelease ? t('确认解除') : t('确认封禁')}
+      okText={okText}
       okType={isRelease ? 'primary' : 'danger'}
       confirmLoading={saving}
       okButtonProps={{
-        'aria-label': isRelease ? t('确认解除') : t('确认封禁'),
+        'aria-label': okText,
         disabled:
           loading || !state || !permitted || validatedValue !== value.trim(),
       }}
@@ -212,33 +230,41 @@ const RiskDispositionModal = ({ target, onCancel, onSuccess }) => {
         {!isUser && !isRelease && (
           <>
             <Typography.Text>{t('封禁期限')}</Typography.Text>
-            <Select
+            <RadioGroup
+              type='button'
               value={duration}
-              onChange={setDuration}
+              onChange={(event) => setDuration(event.target.value)}
               disabled={saving}
-              className='w-full'
+              aria-label={t('封禁期限')}
             >
-              <Select.Option value='temporary'>{t('临时封禁')}</Select.Option>
-              <Select.Option value='permanent'>{t('永久封禁')}</Select.Option>
-            </Select>
-            {duration === 'temporary' && (
-              <Space wrap>
+              {riskBanDurations.map((preset) => (
+                <Radio key={preset.minutes} value={preset.minutes}>
+                  {t(preset.label)}
+                </Radio>
+              ))}
+              <Radio value='custom'>{t('自定义')}</Radio>
+            </RadioGroup>
+            <Space wrap>
+              {duration === 'custom' && (
                 <InputNumber
                   value={minutes}
                   onChange={setMinutes}
                   min={1}
-                  max={43200}
+                  max={RISK_MAX_BAN_MINUTES}
                   suffix={t('分钟')}
                   disabled={saving}
                 />
-                <Typography.Text>
-                  {t('到期时间')}:{' '}
-                  {timestamp2string(
-                    Math.floor(Date.now() / 1000) + (Number(minutes) || 0) * 60,
-                  )}
-                </Typography.Text>
-              </Space>
-            )}
+              )}
+              <Typography.Text type='tertiary'>
+                {customInvalid
+                  ? t('临时封禁时长必须为 1 到 43200 分钟')
+                  : banMinutes
+                    ? `${t('到期时间')}: ${timestamp2string(
+                        Math.floor(Date.now() / 1000) + banMinutes * 60,
+                      )}`
+                    : t('永久封禁，需手动解除')}
+              </Typography.Text>
+            </Space>
             <Typography.Text type='tertiary'>
               {t(
                 '该 IP 或网段的请求将被拦截；已认证的全局白名单账号仍按豁免规则处理。',
@@ -255,7 +281,20 @@ const RiskDispositionModal = ({ target, onCancel, onSuccess }) => {
         {!isUser && !isRelease && state?.ip_bans?.length > 0 && (
           <Banner
             type='info'
-            description={t('已存在生效封禁，新记录不会解除或缩短已有封禁。')}
+            description={
+              exactBan
+                ? t(
+                    '该目标已在封禁中（{{expires}}）。封禁只会延长，选择更短的期限不会生效。',
+                    {
+                      expires: exactBan.expires_at
+                        ? t('到 {{time}} 解除', {
+                            time: timestamp2string(exactBan.expires_at),
+                          })
+                        : t('永久'),
+                    },
+                  )
+                : t('已存在覆盖该目标的封禁，新记录不会解除或缩短已有封禁。')
+            }
           />
         )}
         {!isRelease || isUser ? (

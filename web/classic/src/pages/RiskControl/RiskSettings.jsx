@@ -32,6 +32,7 @@ import {
   Table,
   Tabs,
   TabPane,
+  Tag,
   TextArea,
   Typography,
 } from '@douyinfe/semi-ui';
@@ -40,6 +41,8 @@ import { useTranslation } from 'react-i18next';
 import { API, showError, showSuccess } from '../../helpers';
 import { clearIpInfoCache } from '../../components/common/ui/IpTag';
 import RiskRulePreviewModal from './RiskRulePreviewModal';
+import RiskUserPicker from './RiskUserPicker';
+import useRiskFilters from './useRiskFilters';
 import { riskMetricLabel, riskActionLabel } from './riskLabels';
 
 const { Text, Title } = Typography;
@@ -103,6 +106,85 @@ const IP_PROVIDER_OPTIONS = [
 const DEFAULT_IPV4_ORDER = ['gitee', 'ipwhois', 'ip9'];
 const DEFAULT_IPV6_ORDER = ['ipwhois', 'ip9'];
 
+const SECTIONS = [
+  'realtime',
+  'scan',
+  'blacklist',
+  'exempt',
+  'ladder',
+  'location',
+];
+
+// 账号 ID 列表的输入按逗号与空白分隔,与保存时的解析一致。
+const splitIdTokens = (text) => text.split(/[,，\s]+/).filter(Boolean);
+const isAccountId = (token) =>
+  /^[1-9]\d*$/.test(token) && Number.isSafeInteger(Number(token));
+
+// 豁免名单:逐个显示账号名与当前状态,可搜索添加、点叉移除,也可展开按 ID 批量编辑。
+// lookup 为 null 表示账号信息读取失败,此时只显示 ID。
+const ExemptAccountList = ({ text, onChange, lookup, onAdd }) => {
+  const { t } = useTranslation();
+  const [editing, setEditing] = useState(false);
+  const tokens = [...new Set(splitIdTokens(text))];
+  const remove = (token) =>
+    onChange(tokens.filter((item) => item !== token).join(','));
+  return (
+    <div className='flex flex-col gap-2 w-full'>
+      <div className='flex flex-wrap items-center gap-2'>
+        {tokens.length === 0 && <Text type='tertiary'>{t('暂无账号')}</Text>}
+        {tokens.map((token) => {
+          const valid = isAccountId(token);
+          const state = valid ? lookup?.states[token] : null;
+          const missing = valid && lookup?.ids.has(token) && !state;
+          return (
+            <Tag
+              key={token}
+              size='large'
+              color={
+                !valid || missing
+                  ? 'red'
+                  : state?.status === 2
+                    ? 'orange'
+                    : 'blue'
+              }
+              closable
+              onClose={() => remove(token)}
+            >
+              {state
+                ? `${state.username} #${token}`
+                : valid
+                  ? `#${token}`
+                  : token}
+              {state?.status === 2 && ` · ${t('已禁用')}`}
+              {!valid && ` · ${t('无效 ID')}`}
+              {missing && ` · ${t('账号不存在')}`}
+            </Tag>
+          );
+        })}
+        <Button size='small' icon={<IconPlus />} onClick={onAdd}>
+          {t('添加账号')}
+        </Button>
+        <Button
+          size='small'
+          theme='borderless'
+          onClick={() => setEditing((value) => !value)}
+        >
+          {editing ? t('收起') : t('按 ID 批量编辑')}
+        </Button>
+      </div>
+      {editing && (
+        <TextArea
+          value={text}
+          onChange={onChange}
+          placeholder='1,2,3'
+          rows={2}
+          aria-label={t('账号 ID 列表')}
+        />
+      )}
+    </div>
+  );
+};
+
 const parseJsonArray = (value, fallback = []) => {
   if (!value) return fallback;
   try {
@@ -119,8 +201,13 @@ const RiskSettings = ({ onInspect, onViewEvents, onSaved }) => {
   const [saving, setSaving] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [saveError, setSaveError] = useState('');
-  const [section, setSection] = useState('realtime');
+  const [filters, setFilters] = useRiskFilters('s', { section: 'realtime' });
+  const section = SECTIONS.includes(filters.section)
+    ? filters.section
+    : 'realtime';
   const [previewRule, setPreviewRule] = useState(null);
+  const [picker, setPicker] = useState('');
+  const [exemptLookup, setExemptLookup] = useState(null);
 
   const [enabled, setEnabled] = useState(false);
   const [uaBlacklistText, setUaBlacklistText] = useState('');
@@ -268,18 +355,55 @@ const RiskSettings = ({ onInspect, onViewEvents, onSaved }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // 豁免名单里的账号名与状态。输入停顿后再查,超过接口单次上限时只显示 ID。
+  useEffect(() => {
+    const ids = [
+      ...new Set([
+        ...splitIdTokens(whitelistText),
+        ...splitIdTokens(publicKeyUsersText),
+      ]),
+    ].filter(isAccountId);
+    if (ids.length === 0 || ids.length > 200) {
+      setExemptLookup(ids.length ? null : { ids: new Set(), states: {} });
+      return;
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      API.get(`/api/risk/users?ids=${ids.join(',')}`, {
+        signal: controller.signal,
+        skipErrorHandler: true,
+      })
+        .then((res) => {
+          if (controller.signal.aborted) return;
+          setExemptLookup(
+            res.data.success
+              ? { ids: new Set(ids), states: res.data.data || {} }
+              : null,
+          );
+        })
+        .catch(() => {
+          if (!controller.signal.aborted) setExemptLookup(null);
+        });
+    }, 300);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [whitelistText, publicKeyUsersText]);
+
+  const addExemptAccount = (user) => {
+    const update =
+      picker === 'public' ? setPublicKeyUsersText : setWhitelistText;
+    update((text) =>
+      [...new Set([...splitIdTokens(text), String(user.id)])].join(','),
+    );
+  };
+
   const saveSettings = async () => {
     if (saving || !loaded) return;
     setSaveError('');
     for (const text of [whitelistText, publicKeyUsersText]) {
-      const invalid = text
-        .split(/[,，\s]+/)
-        .filter(Boolean)
-        .some(
-          (value) =>
-            !/^[1-9]\d*$/.test(value) || !Number.isSafeInteger(Number(value)),
-        );
-      if (invalid) {
+      if (!splitIdTokens(text).every(isAccountId)) {
         setSaveError(t('账号 ID 必须为正整数，请检查白名单输入。'));
         return;
       }
@@ -306,13 +430,12 @@ const RiskSettings = ({ onInspect, onViewEvents, onSaved }) => {
       .split('\n')
       .map((s) => s.trim())
       .filter(Boolean);
-    const parseUserIds = (text) =>
-      text
-        .split(/[,，\s]+/)
-        .map((s) => parseInt(s, 10))
-        .filter((n) => Number.isFinite(n) && n > 0);
-    const whitelistUserIds = parseUserIds(whitelistText);
-    const publicKeyUserIds = parseUserIds(publicKeyUsersText);
+    const whitelistUserIds = [...new Set(splitIdTokens(whitelistText))].map(
+      Number,
+    );
+    const publicKeyUserIds = [
+      ...new Set(splitIdTokens(publicKeyUsersText)),
+    ].map(Number);
     const cleanRules = rules.map((rest) => {
       const metric = rest.metric || 'ip_multi_user';
       let action = rest.action || 'alert';
@@ -670,7 +793,7 @@ const RiskSettings = ({ onInspect, onViewEvents, onSaved }) => {
       <Tabs
         type='button'
         activeKey={section}
-        onChange={setSection}
+        onChange={(key) => setFilters({ section: key })}
         keepDOM={false}
       >
         <TabPane itemKey='realtime' tab={t('实时防护')}>
@@ -871,13 +994,13 @@ const RiskSettings = ({ onInspect, onViewEvents, onSaved }) => {
               <Space vertical align='start' style={{ width: '100%' }}>
                 <Text type='tertiary'>
                   {t(
-                    '每行一条。普通文本按子串匹配(不区分大小写),含正则元字符时按正则匹配。',
+                    '每行一条。默认按不区分大小写的子串匹配；以 re: 开头按正则匹配（不区分大小写），例如 re:^Go-http-client。保存时逐条校验，正则写错会提示是第几条。',
                   )}
                 </Text>
                 <TextArea
                   value={uaBlacklistText}
                   onChange={setUaBlacklistText}
-                  placeholder={'curl\npython-requests\n^Go-http-client'}
+                  placeholder={'curl\npython-requests\nre:^Go-http-client'}
                   rows={6}
                 />
                 <Space>
@@ -919,16 +1042,13 @@ const RiskSettings = ({ onInspect, onViewEvents, onSaved }) => {
           <div className='mt-4'>
             <Card title={t('豁免账号')} className='mb-4'>
               <Space vertical align='start' style={{ width: '100%' }}>
-                <Space>
-                  <Text>{t('全局白名单账号 ID(逗号分隔)')}</Text>
-                  <TextArea
-                    value={whitelistText}
-                    onChange={setWhitelistText}
-                    placeholder='1,2,3'
-                    rows={1}
-                    style={{ width: 320 }}
-                  />
-                </Space>
+                <Text strong>{t('全局白名单')}</Text>
+                <ExemptAccountList
+                  text={whitelistText}
+                  onChange={setWhitelistText}
+                  lookup={exemptLookup}
+                  onAdd={() => setPicker('whitelist')}
+                />
                 <Text type='tertiary' size='small'>
                   {t(
                     '全局白名单账号完全不受风控:请求不被拦截、账号不被自动禁用,且它近 24 小时内使用过的 IP 不会被自动封禁(这些账号的流量也不进入自动封禁扫描的排行统计)。把运营者自己和内部账号填在这里,避免自己的出口地址被自己的规则封掉后连带拦下同出口的其他用户。手动添加的 IP 封禁不受此豁免影响。',
@@ -945,16 +1065,15 @@ const RiskSettings = ({ onInspect, onViewEvents, onSaved }) => {
                     )}
                   />
                 )}
-                <Space>
-                  <Text>{t('用户级白名单账号 ID(逗号分隔,仅保护账号)')}</Text>
-                  <TextArea
-                    value={publicKeyUsersText}
-                    onChange={setPublicKeyUsersText}
-                    placeholder='1,2,3'
-                    rows={1}
-                    style={{ width: 320 }}
-                  />
-                </Space>
+                <Text strong className='mt-2'>
+                  {t('用户级白名单(仅保护账号)')}
+                </Text>
+                <ExemptAccountList
+                  text={publicKeyUsersText}
+                  onChange={setPublicKeyUsersText}
+                  lookup={exemptLookup}
+                  onAdd={() => setPicker('public')}
+                />
                 <Text type='tertiary' size='small'>
                   {t(
                     '用户级白名单只保证账号永不被自动禁用,来源 IP 的封禁与请求拦截照常生效。适用于对外分享的公开/共享密钥:滥用者不是账号主人,禁用账号会打死所有正常使用者。想封住滥用者又不影响密钥主人时,把账号填在这里,并把处置动作设为「封禁 IP」或「封禁 IP + 禁用账号」。',
@@ -1149,15 +1268,36 @@ const RiskSettings = ({ onInspect, onViewEvents, onSaved }) => {
           onInspect={onInspect}
         />
       )}
-      <Button
-        theme='solid'
-        type='primary'
-        loading={saving}
-        disabled={!loaded || loading}
-        onClick={saveSettings}
-      >
-        {t('保存设置')}
-      </Button>
+      <RiskUserPicker
+        visible={!!picker}
+        title={
+          picker === 'public'
+            ? t('添加用户级白名单账号')
+            : t('添加全局白名单账号')
+        }
+        excludeIds={splitIdTokens(
+          picker === 'public' ? publicKeyUsersText : whitelistText,
+        ).map(Number)}
+        onCancel={() => setPicker('')}
+        onSelect={addExemptAccount}
+      />
+      <div className='sticky bottom-0 z-10 flex flex-wrap items-center gap-3 py-3 bg-[var(--semi-color-bg-0)] border-t border-[var(--semi-color-border)]'>
+        <Button
+          theme='solid'
+          type='primary'
+          loading={saving}
+          disabled={!loaded || loading}
+          onClick={saveSettings}
+        >
+          {t('保存设置')}
+        </Button>
+        <Button disabled={saving || loading} onClick={() => loadSettings()}>
+          {t('放弃修改并重新读取')}
+        </Button>
+        <Text type='tertiary' size='small'>
+          {t('所有分区的修改一起保存，保存前切换分区不会丢失已填写的内容。')}
+        </Text>
+      </div>
     </Spin>
   );
 };

@@ -21,9 +21,9 @@ import React, { useEffect, useState } from 'react';
 import {
   Banner,
   Button,
-  Descriptions,
-  InputNumber,
   Modal,
+  Radio,
+  RadioGroup,
   Select,
   Space,
   Table,
@@ -32,14 +32,20 @@ import {
 } from '@douyinfe/semi-ui';
 import { useTranslation } from 'react-i18next';
 import { API, timestamp2string } from '../../helpers';
-import {
-  riskActionLabel,
-  riskMetricLabel,
-  riskReviewLabel,
-} from './riskLabels';
+import RiskEventEvidence from './RiskEventEvidence';
+import useRiskAssignees from './useRiskAssignees';
+import { riskCurrentUserId, riskReviewLabel } from './riskLabels';
 
-export default function RiskEventReviewModal({ event, onClose, onSaved }) {
+const { Text } = Typography;
+
+export default function RiskEventReviewModal({
+  event,
+  rules,
+  onClose,
+  onSaved,
+}) {
   const { t } = useTranslation();
+  const { list: assignees, nameOf } = useRiskAssignees();
   const [current, setCurrent] = useState(event);
   const [status, setStatus] = useState(event.review_status || 'pending');
   const [note, setNote] = useState(event.review_note || '');
@@ -50,6 +56,8 @@ export default function RiskEventReviewModal({ event, onClose, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [reload, setReload] = useState(0);
+  const me = riskCurrentUserId();
+
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
@@ -63,7 +71,7 @@ export default function RiskEventReviewModal({ event, onClose, onSaved }) {
         if (controller.signal.aborted) return;
         if (!res.data.success) throw new Error(res.data.message);
         const latest = res.data.data?.event;
-        if (!latest) throw new Error('当前事件读取失败');
+        if (!latest) throw new Error(t('当前事件读取失败'));
         setCurrent(latest);
         setStatus(latest.review_status || 'pending');
         setNote(latest.review_note || '');
@@ -79,13 +87,10 @@ export default function RiskEventReviewModal({ event, onClose, onSaved }) {
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [event.id, reload]);
+  }, [event.id, reload, t]);
+
   const save = async () => {
     if (saving || !loaded) return;
-    if (!Number.isSafeInteger(assignee) || assignee < 0) {
-      setError('负责人 ID 必须为非负整数');
-      return;
-    }
     setSaving(true);
     setError('');
     try {
@@ -94,26 +99,30 @@ export default function RiskEventReviewModal({ event, onClose, onSaved }) {
         {
           status,
           note,
-          assignee_id: assignee,
+          assignee_id: assignee || 0,
           version: current.review_version || 0,
         },
         { skipErrorHandler: true },
       );
       if (!res.data.success) throw new Error(res.data.message);
-      onSaved();
+      onSaved(res.data.data);
     } catch (e) {
       setError(e.response?.data?.message || e.message);
     }
     setSaving(false);
   };
-  const evidence = current.evidence;
-  const operator = (() => {
-    try {
-      return JSON.parse(localStorage.getItem('user') || '{}').id;
-    } catch {
-      return null;
-    }
-  })();
+
+  const assigneeOptions = [
+    { value: 0, label: t('未分配') },
+    ...assignees.map((admin) => ({
+      value: admin.id,
+      label: `${admin.display_name || admin.username} (#${admin.id})`,
+    })),
+    ...(assignee && !assignees.some((admin) => admin.id === assignee)
+      ? [{ value: assignee, label: `#${assignee}` }]
+      : []),
+  ];
+
   return (
     <Modal
       visible
@@ -122,136 +131,93 @@ export default function RiskEventReviewModal({ event, onClose, onSaved }) {
       onCancel={() => {
         if (!saving) onClose();
       }}
-      onOk={save}
-      okText={t('保存处理记录')}
-      cancelText={t('取消')}
-      okButtonProps={{
-        disabled: !loaded || loading,
-        loading: saving,
-        'aria-label': t('保存处理记录'),
-      }}
-      cancelButtonProps={{ disabled: saving, 'aria-label': t('取消') }}
+      footer={
+        <Space>
+          <Button
+            disabled={loading || saving}
+            onClick={() => setReload((n) => n + 1)}
+          >
+            {t('重新读取')}
+          </Button>
+          <Button disabled={saving} onClick={onClose}>
+            {t('取消')}
+          </Button>
+          <Button
+            theme='solid'
+            loading={saving}
+            disabled={!loaded || loading}
+            onClick={save}
+          >
+            {t('保存处理记录')}
+          </Button>
+        </Space>
+      }
       closable={!saving}
       maskClosable={!saving}
     >
       {error && (
         <Banner type='danger' className='mb-3' description={t(error)} />
       )}
-      <Typography.Text className='block mb-3'>
-        {current.reason || '-'}
-      </Typography.Text>
-      {evidence ? (
-        <Descriptions
-          data={[
-            {
-              key: t('规则名称'),
-              value:
-                evidence.name && evidence.name !== evidence.metric
-                  ? evidence.name
-                  : riskMetricLabel(evidence.metric, t),
-            },
-            { key: t('规则标识'), value: evidence.rule_id },
-            { key: t('规则版本'), value: evidence.version },
-            {
-              key: t('观测值 / 阈值'),
-              value: `${evidence.observed} ${evidence.comparison} ${evidence.threshold}`,
-            },
-            { key: t('统计窗口（秒）'), value: evidence.window_seconds },
-            {
-              key: t('当时配置动作'),
-              value: riskActionLabel(evidence.action, t),
-            },
-            {
-              key: t('当时运行模式'),
-              value: evidence.dry_run ? t('演练模式') : t('执行模式'),
-            },
-            ...(evidence.tiny_max_tokens
-              ? [
-                  {
-                    key: t('微量请求判定阈值'),
-                    value: evidence.tiny_max_tokens,
-                  },
-                ]
-              : []),
-            ...(evidence.status_codes?.length
-              ? [
-                  {
-                    key: t('统计的状态码'),
-                    value: evidence.status_codes.join(', '),
-                  },
-                ]
-              : []),
-            ...(evidence.offense
-              ? [
-                  {
-                    key: t('实际处置期限'),
-                    value: evidence.expires_at
-                      ? timestamp2string(evidence.expires_at)
-                      : t('永久'),
-                  },
-                ]
-              : []),
-          ]}
-        />
-      ) : (
-        <Banner
-          type='info'
-          description={t(
-            '此事件未保存结构化规则快照，请依据事件原因和当时日志判断。',
-          )}
-        />
-      )}
-      <Space wrap className='my-4'>
-        <Typography.Text>{t('处理状态')}</Typography.Text>
-        <Select
-          value={status}
-          onChange={setStatus}
-          disabled={loading || saving}
-          aria-label={t('处理状态')}
-          style={{ width: 160 }}
-        >
-          {['pending', 'confirmed', 'false_positive'].map((value) => (
-            <Select.Option value={value} key={value}>
-              {riskReviewLabel(value, t)}
-            </Select.Option>
-          ))}
-        </Select>
-        <Typography.Text>{t('负责人 ID')}</Typography.Text>
-        <InputNumber
-          value={assignee}
-          onChange={setAssignee}
-          min={0}
-          disabled={loading || saving}
-          aria-label={t('负责人 ID')}
-        />
-        {operator && (
-          <Button
+      <RiskEventEvidence event={current} rules={rules} />
+      <div className='grid grid-cols-1 md:grid-cols-2 gap-4 my-4'>
+        <div>
+          <Text strong className='block mb-2'>
+            {t('处理结论')}
+          </Text>
+          <RadioGroup
+            type='button'
+            value={status}
+            onChange={(e) => setStatus(e.target.value)}
             disabled={loading || saving}
-            onClick={() => setAssignee(operator)}
+            aria-label={t('处理状态')}
           >
-            {t('分配给我')}
-          </Button>
-        )}
-        <Button
-          disabled={loading || saving}
-          onClick={() => setReload((n) => n + 1)}
-        >
-          {t('重新读取事件')}
-        </Button>
-      </Space>
+            {['pending', 'confirmed', 'false_positive'].map((value) => (
+              <Radio value={value} key={value}>
+                {riskReviewLabel(value, t)}
+              </Radio>
+            ))}
+          </RadioGroup>
+        </div>
+        <div>
+          <Text strong className='block mb-2'>
+            {t('负责人')}
+          </Text>
+          <Space>
+            <Select
+              value={assignee}
+              onChange={setAssignee}
+              optionList={assigneeOptions}
+              filter
+              disabled={loading || saving}
+              style={{ width: 240 }}
+              aria-label={t('负责人')}
+            />
+            {me > 0 && assignee !== me && (
+              <Button
+                disabled={loading || saving}
+                onClick={() => setAssignee(me)}
+              >
+                {t('分配给我')}
+              </Button>
+            )}
+          </Space>
+        </div>
+      </div>
       <TextArea
         value={note}
         onChange={setNote}
         maxCount={2000}
+        rows={3}
         disabled={loading || saving}
-        placeholder={t('处理备注')}
+        placeholder={t('处理备注，例如核查结论或后续动作')}
       />
-      <Typography.Text type='tertiary' className='block my-3'>
+      <Text type='tertiary' size='small' className='block my-3'>
         {t(
-          '负责人填 0 表示未分配；处理记录随对应事件保留。重新读取会覆盖尚未保存的表单内容。',
+          '保存时检查事件版本，避免覆盖其他管理员刚保存的内容；重新读取会丢弃尚未保存的修改。',
         )}
-      </Typography.Text>
+      </Text>
       <Table
+        size='small'
         loading={loading}
         dataSource={history}
         rowKey='id'
@@ -261,22 +227,26 @@ export default function RiskEventReviewModal({ event, onClose, onSaved }) {
           {
             title: t('时间'),
             dataIndex: 'created_at',
+            width: 170,
             render: timestamp2string,
           },
           {
             title: t('处理状态'),
             dataIndex: 'status',
+            width: 100,
             render: (value) => riskReviewLabel(value, t),
           },
           {
             title: t('负责人'),
             dataIndex: 'assignee_id',
-            render: (value) => (value ? `#${value}` : '-'),
+            width: 120,
+            render: (value) => nameOf(value) || '-',
           },
           {
             title: t('操作人'),
             dataIndex: 'operator_id',
-            render: (value) => `#${value}`,
+            width: 120,
+            render: (value) => nameOf(value) || '-',
           },
           { title: t('处理备注'), dataIndex: 'note' },
         ]}

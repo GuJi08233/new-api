@@ -21,6 +21,8 @@ import React, { useEffect, useState } from 'react';
 import {
   Banner,
   Button,
+  Radio,
+  RadioGroup,
   SideSheet,
   Space,
   Spin,
@@ -34,7 +36,22 @@ import { useTranslation } from 'react-i18next';
 import { API, timestamp2string } from '../../helpers';
 import RiskUserState from './RiskUserState';
 import RiskEvents from './RiskEvents';
-import { riskSourceLabel } from './riskLabels';
+import { RiskTimelineChart } from './RiskTrendChart';
+import { riskRemainingTime, riskSourceLabel } from './riskLabels';
+
+const { Text } = Typography;
+
+const HOUR_OPTIONS = [1, 24, 72, 168];
+
+// 明细列表最多返回 500 条,达到上限时数量显示为 500+。
+const DETAIL_LIMIT = 500;
+
+const hoursLabel = (hours, t) => {
+  if (hours === 1) return t('近 1 小时');
+  if (hours === 24) return t('近 24 小时');
+  if (hours % 24 === 0) return t('近 {{days}} 天', { days: hours / 24 });
+  return t('近 {{hours}} 小时', { hours });
+};
 
 const RiskSubjectDrawer = ({
   subject,
@@ -112,13 +129,53 @@ const RiskSubjectDrawer = ({
     return () => controller.abort();
   }, [type, value, hours, excludeWhitelist, refreshKey, retry, isNetwork]);
 
-  const inspect = (subjectType, subjectValue) =>
+  const inspect = (subjectType, subjectValue, windowHours = hours) =>
     onInspect({
       type: subjectType,
       value: String(subjectValue),
-      hours,
+      hours: windowHours,
       excludeWhitelist,
     });
+  const timeline = detail.timeline || [];
+  const requests = timeline.reduce((sum, bucket) => sum + bucket.requests, 0);
+  const errors = timeline.reduce((sum, bucket) => sum + bucket.errors, 0);
+  const related = detail.items || [];
+  const extra = (type === 'ua' ? detail.ips : detail.uas) || [];
+  const countText = (list) =>
+    list.length >= DETAIL_LIMIT ? `${DETAIL_LIMIT}+` : String(list.length);
+  const stats = [
+    { label: t('调用次数'), value: requests.toLocaleString() },
+    {
+      label: t('错误调用'),
+      value: errors.toLocaleString(),
+      hint: requests
+        ? t('错误率 {{rate}}%', {
+            rate: ((errors / requests) * 100).toFixed(1),
+          })
+        : '',
+      danger: requests > 0 && errors / requests >= 0.5,
+    },
+    {
+      label: type === 'user' ? t('使用 IP 数') : t('关联用户数'),
+      value: countText(related),
+    },
+    {
+      label: type === 'ua' ? t('使用 IP 数') : t('UA 数'),
+      value: countText(extra),
+    },
+  ];
+  const hourOptions = HOUR_OPTIONS.includes(hours)
+    ? HOUR_OPTIONS
+    : [...HOUR_OPTIONS, hours].sort((a, b) => a - b);
+  const activeBans = state?.ip_bans || [];
+  // 同一目标的封禁只能延长:已是永久时不再提供封禁按钮。
+  const exactBan = activeBans.find(
+    (ban) => ban.target === (state?.value || value),
+  );
+  const typeLabel = isNetwork
+    ? t('网段')
+    : { user: t('用户'), ip: 'IP', ua: 'User-Agent' }[type];
+
   const relatedColumns = [
     type === 'user'
       ? {
@@ -142,49 +199,68 @@ const RiskSubjectDrawer = ({
             </Button>
           ),
         },
-    { title: t('请求数'), dataIndex: 'request_count' },
+    { title: t('请求数'), dataIndex: 'request_count', width: 100 },
     {
       title: t('首次'),
       dataIndex: 'first_seen',
+      width: 170,
       render: (v) => (v ? timestamp2string(v) : '-'),
     },
     {
       title: t('最近'),
       dataIndex: 'last_seen',
+      width: 170,
       render: (v) => (v ? timestamp2string(v) : '-'),
     },
   ];
-  const ipColumns = [
+  const extraColumns = [
+    type === 'ua'
+      ? {
+          title: 'IP',
+          dataIndex: 'ip',
+          render: (ip) => (
+            <Button theme='borderless' onClick={() => inspect('ip', ip)}>
+              {ip}
+            </Button>
+          ),
+        }
+      : {
+          title: 'User-Agent',
+          dataIndex: 'ua',
+          ellipsis: { showTitle: true },
+          render: (ua) => (
+            <Button theme='borderless' onClick={() => inspect('ua', ua)}>
+              {ua}
+            </Button>
+          ),
+        },
+    { title: t('请求数'), dataIndex: 'request_count', width: 100 },
     {
-      title: 'IP',
-      dataIndex: 'ip',
-      render: (ip) => (
-        <Button theme='borderless' onClick={() => inspect('ip', ip)}>
-          {ip}
-        </Button>
-      ),
+      title: t('最近'),
+      dataIndex: 'last_seen',
+      width: 170,
+      render: (v) => (v ? timestamp2string(v) : '-'),
     },
-    { title: t('请求数'), dataIndex: 'request_count' },
-  ];
-  const uaColumns = [
-    {
-      title: 'User-Agent',
-      dataIndex: 'ua',
-      ellipsis: { showTitle: true },
-      render: (ua) => (
-        <Button theme='borderless' onClick={() => inspect('ua', ua)}>
-          {ua}
-        </Button>
-      ),
-    },
-    { title: t('请求数'), dataIndex: 'request_count' },
   ];
   const banColumns = [
-    { title: t('封禁目标'), dataIndex: 'target' },
+    { title: t('封禁目标'), dataIndex: 'target', width: 200 },
     {
-      title: t('到期时间'),
+      title: t('期限'),
       dataIndex: 'expires_at',
-      render: (v) => (v ? timestamp2string(v) : t('永久')),
+      width: 200,
+      render: (v) =>
+        v ? (
+          <div className='flex flex-col items-start gap-1'>
+            <Tag color='orange'>
+              {t('剩余 {{time}}', { time: riskRemainingTime(v) })}
+            </Tag>
+            <Text type='tertiary' size='small'>
+              {timestamp2string(v)}
+            </Text>
+          </div>
+        ) : (
+          <Tag color='red'>{t('永久')}</Tag>
+        ),
     },
     {
       title: t('来源'),
@@ -225,12 +301,27 @@ const RiskSubjectDrawer = ({
       style={{ maxWidth: '100vw' }}
       onCancel={onClose}
     >
-      <Space vertical align='start' className='w-full mb-4'>
-        <Typography.Text strong className='break-all'>
-          {state?.user ? `${state.user.username} (#${state.user.id})` : value}
-        </Typography.Text>
-        <Space wrap>
+      <div className='flex flex-col gap-3 mb-4'>
+        <div className='flex flex-wrap items-center gap-2'>
+          <Tag color='blue'>{typeLabel}</Tag>
+          <Text strong className='break-all' copyable={{ content: value }}>
+            {state?.user ? `${state.user.username} (#${state.user.id})` : value}
+          </Text>
+        </div>
+        <Space wrap spacing={4}>
           {state?.user && <RiskUserState state={state.user} />}
+          {type === 'ip' && state && activeBans.length > 0 && (
+            <Tag color='red'>{t('封禁中')}</Tag>
+          )}
+          {type === 'ip' && state && !activeBans.length && (
+            <Tag color='green'>{t('未封禁')}</Tag>
+          )}
+          {state?.blacklist_blocked && (
+            <Tag color='red'>{t('静态黑名单命中')}</Tag>
+          )}
+          {state?.is_current_ip && <Tag color='blue'>{t('当前登录 IP')}</Tag>}
+        </Space>
+        <Space wrap>
           {state?.user?.can_disable && (
             <Button
               type='danger'
@@ -260,7 +351,7 @@ const RiskSubjectDrawer = ({
               {t('启用用户')}
             </Button>
           )}
-          {type === 'ip' && state && (
+          {type === 'ip' && state && exactBan?.expires_at !== 0 && (
             <Button
               type='danger'
               disabled={state.is_current_ip}
@@ -268,30 +359,32 @@ const RiskSubjectDrawer = ({
                 onDisposition({ type: 'ip', value, action: 'ban_ip' })
               }
             >
-              {t('封禁 IP')}
+              {exactBan ? t('延长封禁') : t('封禁 IP')}
             </Button>
           )}
           <Button onClick={() => onViewEvents(eventFilters)}>
-            {t('查看全部事件')}
+            {t('在事件页查看')}
           </Button>
         </Space>
         {state?.user?.disable_reason && (
-          <Typography.Text>
+          <Text>
             {t('禁用原因')}: {state.user.disable_reason}
-          </Typography.Text>
+          </Text>
         )}
         {state?.blacklist_blocked && (
           <Banner
             type='warning'
             description={
               <>
-                {t('静态黑名单仍在生效，解除动态封禁后仍会被拦截。')}{' '}
-                <Typography.Text code>{state.blacklist_rule}</Typography.Text>
+                {type === 'ip'
+                  ? t('静态黑名单仍在生效，解除动态封禁后仍会被拦截。')
+                  : t('此 UA 命中静态黑名单，请求会被直接拦截。')}{' '}
+                <Text code>{state.blacklist_rule}</Text>
               </>
             }
           />
         )}
-      </Space>
+      </div>
       {error && (
         <Banner
           type='danger'
@@ -307,13 +400,60 @@ const RiskSubjectDrawer = ({
         />
       )}
       <Spin spinning={loading}>
+        {!isNetwork && (
+          <div className='mb-4'>
+            <div className='flex flex-wrap items-center justify-between gap-2 mb-3'>
+              <RadioGroup
+                type='button'
+                value={hours}
+                onChange={(event) => inspect(type, value, event.target.value)}
+                aria-label={t('统计窗口')}
+              >
+                {hourOptions.map((option) => (
+                  <Radio key={option} value={option}>
+                    {hoursLabel(option, t)}
+                  </Radio>
+                ))}
+              </RadioGroup>
+              {excludeWhitelist && (
+                <Tag color='grey'>{t('已排除全局白名单用户')}</Tag>
+              )}
+            </div>
+            <div className='grid grid-cols-2 md:grid-cols-4 gap-3 mb-3'>
+              {stats.map((stat) => (
+                <div
+                  key={stat.label}
+                  className='rounded-lg p-3 bg-[var(--semi-color-fill-0)]'
+                >
+                  <Text type='tertiary' size='small' className='block'>
+                    {stat.label}
+                  </Text>
+                  <Text
+                    strong
+                    type={stat.danger ? 'danger' : undefined}
+                    style={{ fontSize: 20 }}
+                  >
+                    {stat.value}
+                  </Text>
+                  {stat.hint && (
+                    <Text type='tertiary' size='small' className='block'>
+                      {stat.hint}
+                    </Text>
+                  )}
+                </div>
+              ))}
+            </div>
+            <RiskTimelineChart timeline={timeline} hours={hours} />
+          </div>
+        )}
         {type === 'ip' && state && (
           <>
             <Typography.Title heading={6}>{t('当前生效封禁')}</Typography.Title>
             <Table
               columns={banColumns}
-              dataSource={state.ip_bans || []}
+              dataSource={activeBans}
               rowKey='id'
+              size='small'
               pagination={false}
               empty={t('暂无数据')}
               className='mb-4'
@@ -323,13 +463,14 @@ const RiskSubjectDrawer = ({
         <Tabs activeKey={tab} onChange={setTab} keepDOM={false}>
           {!isNetwork && (
             <TabPane
-              tab={type === 'user' ? t('IP 明细') : t('关联用户')}
+              tab={`${type === 'user' ? t('IP 明细') : t('关联用户')} (${countText(related)})`}
               itemKey='items'
             >
               <Table
                 columns={relatedColumns}
-                dataSource={detail.items || []}
+                dataSource={related}
                 rowKey={(row) => row.user_id || row.ip}
+                size='small'
                 pagination={{ pageSize: 10 }}
                 empty={t('暂无数据')}
               />
@@ -337,13 +478,14 @@ const RiskSubjectDrawer = ({
           )}
           {!isNetwork && (
             <TabPane
-              tab={type === 'ua' ? t('IP 明细') : t('UA 明细')}
+              tab={`${type === 'ua' ? t('IP 明细') : t('UA 明细')} (${countText(extra)})`}
               itemKey='extra'
             >
               <Table
-                columns={type === 'ua' ? ipColumns : uaColumns}
-                dataSource={type === 'ua' ? detail.ips || [] : detail.uas || []}
+                columns={extraColumns}
+                dataSource={extra}
                 rowKey={(row) => row.ip || row.ua}
+                size='small'
                 pagination={{ pageSize: 10 }}
                 empty={t('暂无数据')}
               />
@@ -354,6 +496,7 @@ const RiskSubjectDrawer = ({
               {detail.errors_sampled && (
                 <Banner
                   type='info'
+                  className='mb-2'
                   description={t(
                     '错误数量较多,分布基于最近的错误样本统计,不代表窗口内全量。',
                   )}
@@ -367,6 +510,7 @@ const RiskSubjectDrawer = ({
                 ]}
                 dataSource={detail.errors || []}
                 rowKey={(row) => `${row.status_code}:${row.error_code}`}
+                size='small'
                 pagination={{ pageSize: 10 }}
                 empty={t('暂无数据')}
               />
@@ -374,20 +518,21 @@ const RiskSubjectDrawer = ({
           )}
           <TabPane tab={t('风控事件')} itemKey='events'>
             <RiskEvents
-              filters={eventFilters}
-              hideFilters
+              key={`${type}:${value}`}
+              embedded
+              fixedFilters={eventFilters}
               onInspect={onInspect}
               refreshKey={refreshKey}
             />
           </TabPane>
         </Tabs>
-        <Typography.Text type='tertiary' className='block mt-3'>
+        <Text type='tertiary' className='block mt-3'>
           {isNetwork
             ? t('网段详情展示封禁记录；调用证据请查看具体 IP。')
             : t('调用证据统计近 {{hours}} 小时，事件记录可查看全部历史。', {
                 hours,
               })}
-        </Typography.Text>
+        </Text>
       </Spin>
     </SideSheet>
   );
