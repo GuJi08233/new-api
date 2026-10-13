@@ -13,12 +13,24 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// riskOverviewTopLimit 是概览里拦截来源与规则排行的条数。
+const riskOverviewTopLimit = 8
+
+// GetRiskOverview 返回概览:处置统计、活动趋势、拦截来源与规则排行、扫描与本节点状态。
+// query: range=24h|7d(默认 24h),只影响事件统计;日志覆盖始终统计近 24 小时,避免在大日志表上做长窗口扫描。
 func GetRiskOverview(c *gin.Context) {
 	setting := operation_setting.GetRiskControlSetting()
-	since := time.Now().Add(-24 * time.Hour).Unix()
+	rangeKey, rangeHours := "24h", 24
+	if c.Query("range") == "7d" {
+		rangeKey, rangeHours = "7d", 24*7
+	}
+	now := time.Now()
+	since := now.Add(-time.Duration(rangeHours) * time.Hour).Unix()
 	payload := gin.H{"setting": setting, "node": common.NodeName, "is_master": common.IsMasterNode,
 		"runtime": service.GetRiskRuntimeStatus(), "ip_log_enabled": common.IsGlobalRecordIpLogEnabled(),
-		"ua_log_enabled": common.IsGlobalRecordUaLogEnabled(), "consume_log_enabled": common.LogConsumeEnabled}
+		"ua_log_enabled": common.IsGlobalRecordUaLogEnabled(), "consume_log_enabled": common.LogConsumeEnabled,
+		"client_ua": operation_setting.GetClientUaRuleStatus(), "range": rangeKey, "since": since,
+		"bucket_seconds": model.RiskActivityBucketSeconds}
 	// 独立读取主库与日志库；单个分区失败时保留其余信息，不把缺失数据当成零。
 	errors := gin.H{}
 	counts, err := model.GetRiskDispositionCounts()
@@ -39,7 +51,32 @@ func GetRiskOverview(c *gin.Context) {
 	} else {
 		payload["events"] = totals
 	}
-	coverage, err := model.GetRiskLogCoverage(since)
+	activity, err := model.GetRiskActivityBuckets(since)
+	if err != nil {
+		errors["activity"] = err.Error()
+	} else {
+		payload["activity"] = activity
+	}
+	blocked, err := model.GetRiskTopBlockedIps(since, riskOverviewTopLimit)
+	if err != nil {
+		errors["top_blocked_ips"] = err.Error()
+	} else {
+		payload["top_blocked_ips"] = blocked
+	}
+	rules, err := model.GetRiskTopRules(since, riskOverviewTopLimit)
+	if err != nil {
+		errors["top_rules"] = err.Error()
+	} else {
+		payload["top_rules"] = rules
+	}
+	pending, _, err := model.QueryRiskEvents(model.RiskEventQuery{EventType: model.RiskEventAlert,
+		ReviewStatus: model.RiskReviewPending}, 0, 6)
+	if err != nil {
+		errors["pending"] = err.Error()
+	} else {
+		payload["pending"] = pending
+	}
+	coverage, err := model.GetRiskLogCoverage(now.Add(-24 * time.Hour).Unix())
 	if err != nil {
 		errors["coverage"] = err.Error()
 	} else {

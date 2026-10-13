@@ -12,18 +12,39 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// GetIpBans 分页查询动态 IP 封禁列表。
-// query: keyword, p, page_size
+// riskBanHitsWindow 是封禁列表附带的近期拦截次数的统计窗口。
+const riskBanHitsWindow = 24 * time.Hour
+
+// GetIpBans 分页查询动态 IP 封禁列表,每条附带近 24 小时被它拦截的请求次数。
+// query: keyword, status(active|expired|permanent), source, p, page_size
 func GetIpBans(c *gin.Context) {
 	pageInfo, pageErr := riskPageQuery(c)
 	if pageErr != nil {
 		common.ApiError(c, pageErr)
 		return
 	}
-	bans, total, err := model.GetIpBans(c.Query("keyword"), pageInfo.GetStartIdx(), pageInfo.GetPageSize())
+	filter := model.IpBanQuery{Keyword: c.Query("keyword"), Status: c.Query("status"), Source: c.Query("source")}
+	switch filter.Status {
+	case "", model.IpBanStatusActive, model.IpBanStatusExpired, model.IpBanStatusPermanent:
+	default:
+		common.ApiErrorMsg(c, "封禁状态筛选无效")
+		return
+	}
+	bans, total, err := model.GetIpBans(filter, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
 	if err != nil {
 		common.ApiError(c, err)
 		return
+	}
+	targets := make([]string, 0, len(bans))
+	for _, ban := range bans {
+		targets = append(targets, ban.Target)
+	}
+	if hits, err := model.GetRecentBanBlockHits(targets, time.Now().Add(-riskBanHitsWindow).Unix()); err != nil {
+		common.SysError("risk control: failed to load ip ban hits: " + err.Error())
+	} else {
+		for _, ban := range bans {
+			ban.RecentHits = hits[ban.Target]
+		}
 	}
 	pageInfo.SetTotal(int(total))
 	pageInfo.SetItems(bans)

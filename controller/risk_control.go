@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
@@ -226,7 +227,9 @@ func buildMultiAccountQuery(c *gin.Context) model.MultiAccountQuery {
 }
 
 // GetRiskEvents 分页查询风控事件(拦截记录、封禁/解禁记录、告警)。
-// query: event_type, user_id, ip, p, page_size
+// query: event_type, category(block|ban|unban|alert), keyword, user_id, ip, ua, start_timestamp, end_timestamp,
+// rule_id, review_status, assignee_id, unassigned=true, p, page_size。
+// keyword 是数字时按用户 ID 查,是地址或网段时按 IP 查,其余按用户名、UA、规则与原因包含匹配。
 func GetRiskEvents(c *gin.Context) {
 	pageInfo, pageErr := riskPageQuery(c)
 	if pageErr != nil {
@@ -238,10 +241,22 @@ func GetRiskEvents(c *gin.Context) {
 		common.ApiErrorMsg(c, "invalid event type")
 		return
 	}
+	category := c.Query("category")
+	categoryTypes := model.RiskEventCategoryTypes(category)
+	if category != "" && categoryTypes == nil {
+		common.ApiErrorMsg(c, "invalid event category")
+		return
+	}
 	userId, userErr := strconv.Atoi(c.DefaultQuery("user_id", "0"))
 	if userErr != nil || userId < 0 {
 		common.ApiErrorMsg(c, "无效的用户 ID")
 		return
+	}
+	ip, keyword := c.Query("ip"), strings.TrimSpace(c.Query("keyword"))
+	if id, err := strconv.Atoi(keyword); err == nil && id > 0 && userId == 0 {
+		userId, keyword = id, ""
+	} else if target, err := model.NormalizeIpBanTarget(keyword); err == nil && ip == "" {
+		ip, keyword = target, ""
 	}
 	assigneeId, assigneeErr := strconv.Atoi(c.DefaultQuery("assignee_id", "0"))
 	status := c.Query("review_status")
@@ -257,8 +272,9 @@ func GetRiskEvents(c *gin.Context) {
 	}
 
 	events, total, err := model.QueryRiskEvents(model.RiskEventQuery{
-		EventType: eventType, UserId: userId, Ip: c.Query("ip"), Ua: c.Query("ua"), StartAt: startAt, EndAt: endAt,
-		RuleId: c.Query("rule_id"), ReviewStatus: status, AssigneeId: assigneeId,
+		EventType: eventType, EventTypes: categoryTypes, UserId: userId, Ip: ip, Ua: c.Query("ua"), StartAt: startAt, EndAt: endAt,
+		RuleId: c.Query("rule_id"), ReviewStatus: status, AssigneeId: assigneeId, Keyword: keyword,
+		Unassigned: c.Query("unassigned") == "true",
 	}, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
 	if err != nil {
 		common.ApiError(c, err)
@@ -281,7 +297,7 @@ func riskPageQuery(c *gin.Context) (*common.PageInfo, error) {
 // query: type=user|ip|ua, value, hours, exclude_whitelist
 //
 // items 是主关联列表,内容随 type 而变(user→IP、ip→用户、ua→用户),保持既有契约;
-// 另外按维度返回补充分区:uas / ips 为明细列表,errors 为错误状态码分布。
+// 另外按维度返回补充分区:uas / ips 为明细列表,errors 为错误状态码分布,timeline 为按整点的调用与错误次数。
 func GetRiskDetail(c *gin.Context) {
 	hours, _ := strconv.Atoi(c.Query("hours"))
 	excludeWhitelist, _ := strconv.ParseBool(c.Query("exclude_whitelist"))
@@ -341,6 +357,14 @@ func GetRiskDetail(c *gin.Context) {
 	}
 	payload["errors"] = errorItems
 	payload["errors_sampled"] = sampled
+
+	// 时间线只是辅助判读,读取失败时不影响其余明细
+	if timeline, err := model.GetRiskDetailTimeline(target); err != nil {
+		common.SysError("risk control: failed to load detail timeline: " + err.Error())
+	} else {
+		payload["timeline"] = timeline
+		payload["bucket_seconds"] = model.RiskActivityBucketSeconds
+	}
 
 	common.ApiSuccess(c, payload)
 }

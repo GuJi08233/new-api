@@ -41,9 +41,11 @@ func GetLatestRiskScan() (*RiskScanRun, error) {
 }
 
 type RiskDispositionCounts struct {
-	DisabledUsers int64 `json:"disabled_users"`
-	ActiveIpBans  int64 `json:"active_ip_bans"`
-	PendingAlerts int64 `json:"pending_alerts"`
+	DisabledUsers          int64 `json:"disabled_users"`
+	TemporaryDisabledUsers int64 `json:"temporary_disabled_users"`
+	ActiveIpBans           int64 `json:"active_ip_bans"`
+	PermanentIpBans        int64 `json:"permanent_ip_bans"`
+	PendingAlerts          int64 `json:"pending_alerts"`
 }
 
 func GetRiskDispositionCounts() (*RiskDispositionCounts, error) {
@@ -51,7 +53,14 @@ func GetRiskDispositionCounts() (*RiskDispositionCounts, error) {
 	if err := DB.Model(&User{}).Where("status = ?", common.UserStatusDisabled).Count(&counts.DisabledUsers).Error; err != nil {
 		return nil, err
 	}
+	if err := DB.Model(&User{}).Where("status = ? AND disable_expires_at > 0", common.UserStatusDisabled).
+		Count(&counts.TemporaryDisabledUsers).Error; err != nil {
+		return nil, err
+	}
 	if err := DB.Model(&IpBan{}).Where("expires_at = 0 OR expires_at > ?", common.GetTimestamp()).Count(&counts.ActiveIpBans).Error; err != nil {
+		return nil, err
+	}
+	if err := DB.Model(&IpBan{}).Where("expires_at = 0").Count(&counts.PermanentIpBans).Error; err != nil {
 		return nil, err
 	}
 	if err := DB.Model(&RiskEvent{}).Where("event_type = ?", RiskEventAlert).

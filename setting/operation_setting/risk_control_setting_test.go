@@ -12,7 +12,7 @@ func TestValidateRiskControlOptionAcceptsValidValues(t *testing.T) {
 
 	validOptions := map[string]string{
 		RiskControlSettingPrefix + "enabled":                    "true",
-		RiskControlSettingPrefix + "ua_blacklist":               `["curl","^Go-http-client"]`,
+		RiskControlSettingPrefix + "ua_blacklist":               `["curl","re:^Go-http-client"]`,
 		RiskControlSettingPrefix + "ua_blacklist_action":        RiskUaActionDisableUser,
 		RiskControlSettingPrefix + "ip_blacklist":               `["192.0.2.1","10.0.0.0/8","2001:db8::/32"]`,
 		RiskControlSettingPrefix + "scan_minutes":               "10",

@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -18,8 +17,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// riskRegexCache 缓存已编译的 UA 黑名单正则,避免每次请求重复编译。
-var riskRegexCache sync.Map // map[string]*regexp.Regexp
+// riskUaPatternCache 缓存已编译的 UA 黑名单条目,避免每次请求重复编译。
+var riskUaPatternCache sync.Map // map[string]*operation_setting.UaPattern,非法条目存 nil
 
 // riskCidrCache 缓存已解析的 IP 黑名单条目(*net.IPNet),避免每次请求重复解析。
 var riskCidrCache sync.Map // map[string]*net.IPNet
@@ -30,34 +29,26 @@ const riskScanLimit = 500
 // ErrRiskBlocked 表示请求因命中风控黑名单(UA 或 IP)被拦截。
 var ErrRiskBlocked = errors.New("request blocked by risk control")
 
-// looksLikeRegex 粗略判断一条黑名单条目是否应按正则处理。
-// 不含正则元字符的条目一律走大小写不敏感子串匹配,更符合直觉。
-func looksLikeRegex(pattern string) bool {
-	return strings.ContainsAny(pattern, `\^$.|?*+()[]{}`)
-}
-
-// matchUaEntry 判断 UA 是否命中单条黑名单规则。
-func matchUaEntry(entry string, ua string) bool {
+// matchUaEntry 判断已转小写的 UA 是否命中单条黑名单条目。写法与客户端 UA 准入规则一致:
+// 默认按子串匹配,以 re: 开头时按正则匹配,都不区分大小写。保存入口会拒绝非法正则,
+// 手工改库留下的非法条目不命中任何请求。
+func matchUaEntry(entry string, lowerUA string) bool {
 	entry = strings.TrimSpace(entry)
 	if entry == "" {
 		return false
 	}
-	if looksLikeRegex(entry) {
-		compiled, ok := riskRegexCache.Load(entry)
-		if !ok {
-			re, err := regexp.Compile(entry)
-			if err != nil {
-				// 正则非法时退化为子串匹配,避免整条规则失效
-				return strings.Contains(strings.ToLower(ua), strings.ToLower(entry))
-			}
-			compiled, _ = riskRegexCache.LoadOrStore(entry, re)
+	cached, ok := riskUaPatternCache.Load(entry)
+	if !ok {
+		var pattern *operation_setting.UaPattern
+		if compiled, err := operation_setting.CompileUaPattern(entry); err == nil {
+			pattern = &compiled
+		} else {
+			common.SysError(fmt.Sprintf("risk control: ua blacklist entry %q is invalid and never matches: %s", entry, err.Error()))
 		}
-		if re, ok := compiled.(*regexp.Regexp); ok {
-			return re.MatchString(ua)
-		}
-		return false
+		cached, _ = riskUaPatternCache.LoadOrStore(entry, pattern)
 	}
-	return strings.Contains(strings.ToLower(ua), strings.ToLower(entry))
+	pattern, _ := cached.(*operation_setting.UaPattern)
+	return pattern != nil && pattern.Match(lowerUA)
 }
 
 // MatchUaBlacklist 返回 UA 是否命中黑名单,以及命中的规则。
@@ -72,8 +63,9 @@ func matchUaBlacklist(setting *operation_setting.RiskControlSetting, ua string) 
 	if setting == nil || !setting.Enabled || len(setting.UaBlacklist) == 0 {
 		return false, ""
 	}
+	lowerUA := strings.ToLower(ua)
 	for _, entry := range setting.UaBlacklist {
-		if matchUaEntry(entry, ua) {
+		if matchUaEntry(entry, lowerUA) {
 			return true, strings.TrimSpace(entry)
 		}
 	}
@@ -678,9 +670,9 @@ func hasIpActivitySinceLastBan(target string, ip string, exemptUserIds []int) bo
 	return active
 }
 
-// hasUserActivitySinceLastBan 判断账号在上次被自动禁用之后是否还有新的日志活动。
-// 与 IP 侧同理:扫描规则的证据是窗口内的日志行,账号的临时禁用到期恢复后同一批行
-// 仍会命中,只有恢复之后仍在活动才算新的违规。从未被自动禁用过的账号视为有活动;
+// hasUserActivitySinceLastBan 判断账号在上次被禁用(自动或手动)之后是否还有新的日志活动。
+// 与 IP 侧同理:扫描规则的证据是窗口内的日志行,账号的临时禁用到期恢复、或被管理员重新启用后,
+// 同一批行仍会命中,只有之后仍在活动才算新的违规。从未被禁用过的账号视为有活动;
 // 查询失败按有活动处理,让处置照常执行——保护机制不该让一次日志库抖动等于风控停摆。
 func hasUserActivitySinceLastBan(userId int) bool {
 	lastBanAt, err := model.LastUserBanEventAt(userId)

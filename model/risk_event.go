@@ -155,6 +155,7 @@ func GetRiskEvents(eventType string, userId int, ip string, startIdx int, num in
 
 type RiskEventQuery struct {
 	EventType    string
+	EventTypes   []string // 事件大类展开后的类型,与 EventType 同时给出时取交集
 	UserId       int
 	Ip           string
 	Ua           string
@@ -163,12 +164,17 @@ type RiskEventQuery struct {
 	RuleId       string
 	ReviewStatus string
 	AssigneeId   int
+	Unassigned   bool   // 只看尚未分配负责人的事件
+	Keyword      string // 按用户名、UA、规则与原因做包含匹配
 }
 
 func QueryRiskEvents(filter RiskEventQuery, startIdx int, num int) ([]*RiskEvent, int64, error) {
 	query := DB.Model(&RiskEvent{})
 	if filter.EventType != "" {
 		query = query.Where("event_type = ?", filter.EventType)
+	}
+	if len(filter.EventTypes) > 0 {
+		query = query.Where("event_type IN ?", filter.EventTypes)
 	}
 	if filter.UserId > 0 {
 		query = query.Where("user_id = ?", filter.UserId)
@@ -207,6 +213,14 @@ func QueryRiskEvents(filter RiskEventQuery, startIdx int, num int) ([]*RiskEvent
 	}
 	if filter.AssigneeId > 0 {
 		query = query.Where("assignee_id = ?", filter.AssigneeId)
+	} else if filter.Unassigned {
+		query = query.Where("COALESCE(assignee_id, 0) = 0")
+	}
+	if filter.Keyword != "" {
+		// LOWER 让三库都不区分大小写(PostgreSQL 的 LIKE 区分大小写)
+		pattern := riskKeywordPattern(strings.ToLower(filter.Keyword))
+		query = query.Where("LOWER(username) LIKE ? ESCAPE '!' OR LOWER(ua) LIKE ? ESCAPE '!' OR LOWER(rule) LIKE ? ESCAPE '!' OR LOWER(reason) LIKE ? ESCAPE '!'",
+			pattern, pattern, pattern, pattern)
 	}
 
 	var total int64
@@ -231,7 +245,16 @@ func QueryRiskEvents(filter RiskEventQuery, startIdx int, num int) ([]*RiskEvent
 
 // ReviewRiskEvent 以版本检查防止管理员覆盖彼此的备注，更新与历史记录同一事务提交。
 func ReviewRiskEvent(id, version int, status, note string, assigneeId, operatorId int) (*RiskEvent, error) {
-	if id <= 0 || version < 0 || !IsValidRiskReviewStatus(status) || utf8.RuneCountInString(note) > 2000 || assigneeId < 0 {
+	if utf8.RuneCountInString(note) > 2000 || assigneeId < 0 {
+		return nil, errors.New("事件处理参数无效")
+	}
+	return reviewRiskEvent(id, version, status, &note, &assigneeId, operatorId)
+}
+
+// reviewRiskEvent 是单条与批量处理共用的实现。note、assigneeId 为 nil 时保留事件原有的值，
+// 历史记录写入处理后的实际值。
+func reviewRiskEvent(id, version int, status string, note *string, assigneeId *int, operatorId int) (*RiskEvent, error) {
+	if id <= 0 || version < 0 || !IsValidRiskReviewStatus(status) {
 		return nil, errors.New("事件处理参数无效")
 	}
 	var event RiskEvent
@@ -242,9 +265,9 @@ func ReviewRiskEvent(id, version int, status, note string, assigneeId, operatorI
 		if event.ReviewVersion != version {
 			return ErrRiskReviewChanged
 		}
-		if assigneeId > 0 {
+		if assigneeId != nil && *assigneeId > 0 && *assigneeId != event.AssigneeId {
 			var assignee User
-			if err := tx.Select("id", "role", "status").First(&assignee, assigneeId).Error; err != nil {
+			if err := tx.Select("id", "role", "status").First(&assignee, *assigneeId).Error; err != nil {
 				return errors.New("负责人不存在")
 			}
 			if assignee.Role < common.RoleAdminUser || assignee.Status != common.UserStatusEnabled {
@@ -252,22 +275,39 @@ func ReviewRiskEvent(id, version int, status, note string, assigneeId, operatorI
 			}
 		}
 		now := common.GetTimestamp()
-		result := tx.Model(&RiskEvent{}).Where("id = ? AND COALESCE(review_version, 0) = ?", id, version).
-			Updates(map[string]interface{}{"review_status": status, "review_note": note,
-				"assignee_id": assigneeId, "reviewed_by": operatorId, "reviewed_at": now, "review_version": version + 1})
+		updates := map[string]interface{}{"review_status": status, "reviewed_by": operatorId,
+			"reviewed_at": now, "review_version": version + 1}
+		effectiveNote, effectiveAssignee := event.ReviewNote, event.AssigneeId
+		if note != nil {
+			effectiveNote = *note
+			updates["review_note"] = effectiveNote
+		}
+		if assigneeId != nil {
+			effectiveAssignee = *assigneeId
+			updates["assignee_id"] = effectiveAssignee
+		}
+		result := tx.Model(&RiskEvent{}).Where("id = ? AND COALESCE(review_version, 0) = ?", id, version).Updates(updates)
 		if result.Error != nil {
 			return result.Error
 		}
 		if result.RowsAffected != 1 {
 			return ErrRiskReviewChanged
 		}
-		if err := tx.Create(&RiskEventReview{EventId: id, Status: status, Note: note,
-			AssigneeId: assigneeId, OperatorId: operatorId, CreatedAt: now}).Error; err != nil {
+		if err := tx.Create(&RiskEventReview{EventId: id, Status: status, Note: effectiveNote,
+			AssigneeId: effectiveAssignee, OperatorId: operatorId, CreatedAt: now}).Error; err != nil {
 			return err
 		}
 		return tx.First(&event, id).Error
 	})
-	return &event, err
+	if err != nil {
+		return nil, err
+	}
+	if event.RuleSnapshot != "" {
+		if decodeErr := common.UnmarshalJsonStr(event.RuleSnapshot, &event.Evidence); decodeErr != nil {
+			common.SysError("risk control: invalid rule snapshot: " + decodeErr.Error())
+		}
+	}
+	return &event, nil
 }
 
 func GetRiskEventReviews(eventId int) ([]RiskEventReview, error) {

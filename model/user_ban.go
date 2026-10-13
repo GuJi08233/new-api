@@ -64,12 +64,13 @@ func CountRecentUserBanEvents(userId int, since int64) (int64, error) {
 	return count, err
 }
 
-// LastUserBanEventAt 返回某账号最近一次被自动禁用的时间,从未被自动禁用过时为 0。
-// 扫描规则用它判断窗口内的证据是否早于上次处置。
+// LastUserBanEventAt 返回某账号最近一次被禁用(自动或手动)的时间,从未被禁用过时为 0。
+// 扫描规则用它判断窗口内的证据是否早于上次处置。与 IP 侧一致,手动禁用也算一次处置:
+// 管理员禁用后又启用的账号,只有启用之后仍在活动,扫描才会按窗口内的证据再次处置。
 func LastUserBanEventAt(userId int) (int64, error) {
 	var latest []int64
 	err := DB.Model(&RiskEvent{}).
-		Where("event_type = ?", RiskEventBanAuto).
+		Where("event_type IN ?", []string{RiskEventBanAuto, RiskEventBanManual}).
 		Where("user_id = ?", userId).
 		Order("created_at desc").
 		Limit(1).

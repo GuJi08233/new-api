@@ -329,6 +329,9 @@ func migrateDB() error {
 	if err := migratePrefillGroupUniqueness(DB); err != nil {
 		return err
 	}
+	if err := migrateIpBanTargetUniqueness(DB); err != nil {
+		return err
+	}
 
 	// Migrate price_amount column from float/double to decimal for existing tables
 	migrateSubscriptionPlanPriceAmount()
@@ -421,6 +424,9 @@ func migrateDB() error {
 	if err := migrateGameCoinUnits(); err != nil {
 		return err
 	}
+	if err := migrateRiskUaPatternSyntax(); err != nil {
+		return err
+	}
 	if common.UsingMainDatabase(common.DatabaseTypeSQLite) {
 		if err := ensureSubscriptionPlanTableSQLite(); err != nil {
 			return err
@@ -443,6 +449,9 @@ func migrateDBFast() error {
 		return err
 	}
 	if err := migratePrefillGroupUniqueness(DB); err != nil {
+		return err
+	}
+	if err := migrateIpBanTargetUniqueness(DB); err != nil {
 		return err
 	}
 
@@ -553,6 +562,9 @@ func migrateDBFast() error {
 		return err
 	}
 	if err := migrateGameCoinUnits(); err != nil {
+		return err
+	}
+	if err := migrateRiskUaPatternSyntax(); err != nil {
 		return err
 	}
 	if common.UsingMainDatabase(common.DatabaseTypeSQLite) {

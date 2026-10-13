@@ -157,6 +157,31 @@ func TestMigrationSchemaStability(t *testing.T) {
 				assert.Empty(t, recorder.schemaMutations())
 			})
 
+			// 旧库的 ip_bans.target 只有普通索引,可能已有重复行:先合并再建唯一索引,之后重启不再改表。
+			t.Run("ip_ban_target_uniqueness", func(t *testing.T) {
+				t.Cleanup(func() { _ = db.Migrator().DropTable(&IpBan{}) })
+				require.NoError(t, db.Migrator().DropTable(&IpBan{}))
+				require.NoError(t, db.AutoMigrate(&legacyIpBan{}))
+				for _, ban := range []legacyIpBan{
+					{Target: "198.51.100.1", Reason: "short", ExpiresAt: 100},
+					{Target: "198.51.100.1", Reason: "permanent", ExpiresAt: 0},
+					{Target: "198.51.100.2", Reason: "single", ExpiresAt: 100},
+				} {
+					require.NoError(t, db.Create(&ban).Error)
+				}
+				require.NoError(t, migrateIpBanTargetUniqueness(db))
+				require.NoError(t, db.AutoMigrate(&IpBan{}))
+				var bans []IpBan
+				require.NoError(t, db.Order("target asc").Find(&bans).Error)
+				require.Len(t, bans, 2)
+				assert.Equal(t, "permanent", bans[0].Reason)
+				assert.Error(t, db.Create(&IpBan{Target: "198.51.100.2"}).Error)
+				recorder.reset()
+				require.NoError(t, migrateIpBanTargetUniqueness(db))
+				require.NoError(t, db.AutoMigrate(&IpBan{}))
+				assert.Empty(t, recorder.schemaMutations())
+			})
+
 			if dialect == "postgres" {
 				t.Run("renamed_unique_constraints", func(t *testing.T) {
 					const table = "migration_renamed_unique"

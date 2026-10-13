@@ -10,6 +10,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // 动态 IP 封禁表:与风控设置里的静态 IP 黑名单(配置项)互补,
@@ -30,13 +31,15 @@ const (
 
 type IpBan struct {
 	Id        int    `json:"id" gorm:"primaryKey"`
-	Target    string `json:"target" gorm:"type:varchar(128);index:idx_ip_bans_target"` // 归一化的 IP 或 CIDR
+	Target    string `json:"target" gorm:"type:varchar(128);uniqueIndex:uidx_ip_bans_target"` // 归一化的 IP 或 CIDR,每个目标只有一条
 	Reason    string `json:"reason" gorm:"type:varchar(512)"`
 	ExpiresAt int64  `json:"expires_at" gorm:"bigint;index:idx_ip_bans_expires_at"` // 0 表示永久
 	Source    string `json:"source" gorm:"type:varchar(32)"`
 	CreatedBy int    `json:"created_by"` // 手动添加时的操作人,自动来源为 0
 	CreatedAt int64  `json:"created_at" gorm:"bigint;index:idx_ip_bans_created_at"`
 	UpdatedAt int64  `json:"updated_at" gorm:"bigint"`
+	// RecentHits 是列表页附带的近期拦截次数,不落库。
+	RecentHits int64 `json:"recent_hits" gorm:"-"`
 }
 
 // NormalizeIpBanTarget 将封禁目标归一化:CIDR 归一化为网段基址,单 IP 统一展开格式。
@@ -224,13 +227,15 @@ func GetIpBanStates(targets []string) (map[string][]*IpBan, error) {
 // UpsertIpBan 写入或更新一条封禁并重载缓存。target 必须已归一化。
 // 已存在同目标封禁时只延长:永久封禁不会被降级为临时,更晚的过期时间覆盖更早的。
 // 返回生效的封禁记录与是否发生了变更(新建或延长)。
+// 目标列有唯一索引:并发封禁同一目标时只有一个能插入,其余锁住那一行后按延长规则处理,
+// 不会写出两条记录(否则解除其中一条后另一条仍然生效)。
 func UpsertIpBan(target string, reason string, expiresAt int64, source string, createdBy int) (*IpBan, bool, error) {
 	now := common.GetTimestamp()
 	reason = strings.TrimSpace(reason)
 
 	var ban IpBan
-	err := DB.Where("target = ?", target).First(&ban).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
+	changed := false
+	err := DB.Transaction(func(tx *gorm.DB) error {
 		ban = IpBan{
 			Target:    target,
 			Reason:    reason,
@@ -240,48 +245,79 @@ func UpsertIpBan(target string, reason string, expiresAt int64, source string, c
 			CreatedAt: now,
 			UpdatedAt: now,
 		}
-		if err := DB.Create(&ban).Error; err != nil {
-			return nil, false, err
+		created := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&ban)
+		if created.Error != nil {
+			return created.Error
 		}
-		if err := ReloadIpBanCache(); err != nil {
-			common.SysLog("failed to reload ip ban cache: " + err.Error())
+		if created.RowsAffected > 0 {
+			changed = true
+			return nil
 		}
-		return &ban, true, nil
-	}
+
+		ban = IpBan{}
+		if err := lockForUpdate(tx).Where("target = ?", target).First(&ban).Error; err != nil {
+			return err
+		}
+		// 已是永久封禁:永不降级,保持原状。
+		if ban.ExpiresAt == 0 {
+			return nil
+		}
+		// 现有为临时封禁:仅当新期限为永久、或晚于现有期限时才更新。
+		// 现有已过期时,新期限(未来时间)必然更晚,自然落入更新分支重新生效。
+		if expiresAt != 0 && expiresAt <= ban.ExpiresAt {
+			return nil
+		}
+		ban.Reason = reason
+		ban.ExpiresAt = expiresAt
+		ban.Source = source
+		ban.CreatedBy = createdBy
+		ban.UpdatedAt = now
+		changed = true
+		return tx.Model(&ban).Select("reason", "expires_at", "source", "created_by", "updated_at").Updates(&ban).Error
+	})
 	if err != nil {
 		return nil, false, err
 	}
-
-	// 已是永久封禁:永不降级,保持原状。
-	if ban.ExpiresAt == 0 {
-		return &ban, false, nil
+	if changed {
+		if err := ReloadIpBanCache(); err != nil {
+			common.SysLog("failed to reload ip ban cache: " + err.Error())
+		}
 	}
-	// 现有为临时封禁:仅当新期限为永久、或晚于现有期限时才更新。
-	// 现有已过期时,新期限(未来时间)必然更晚,自然落入更新分支重新生效。
-	if expiresAt != 0 && expiresAt <= ban.ExpiresAt {
-		return &ban, false, nil
-	}
-
-	ban.Reason = reason
-	ban.ExpiresAt = expiresAt
-	ban.Source = source
-	ban.CreatedBy = createdBy
-	ban.UpdatedAt = now
-	if err := DB.Model(&ban).Select("reason", "expires_at", "source", "created_by", "updated_at").Updates(&ban).Error; err != nil {
-		return nil, false, err
-	}
-	if err := ReloadIpBanCache(); err != nil {
-		common.SysLog("failed to reload ip ban cache: " + err.Error())
-	}
-	return &ban, true, nil
+	return &ban, changed, nil
 }
 
-// GetIpBans 分页查询封禁列表,keyword 对目标与原因做包含匹配。
-func GetIpBans(keyword string, startIdx int, num int) ([]*IpBan, int64, error) {
+// IP 封禁列表的状态筛选。
+const (
+	IpBanStatusActive    = "active"    // 生效中(含永久)
+	IpBanStatusExpired   = "expired"   // 已过期、尚未清理
+	IpBanStatusPermanent = "permanent" // 永久
+)
+
+// IpBanQuery 是封禁列表的筛选条件,空值表示不限。
+type IpBanQuery struct {
+	Keyword string // 对目标与原因做包含匹配
+	Status  string
+	Source  string
+}
+
+// GetIpBans 分页查询封禁列表。
+func GetIpBans(filter IpBanQuery, startIdx int, num int) ([]*IpBan, int64, error) {
 	query := DB.Model(&IpBan{})
-	if keyword = strings.TrimSpace(keyword); keyword != "" {
+	if keyword := strings.TrimSpace(filter.Keyword); keyword != "" {
 		like := "%" + keyword + "%"
 		query = query.Where("target LIKE ? OR reason LIKE ?", like, like)
+	}
+	now := common.GetTimestamp()
+	switch filter.Status {
+	case IpBanStatusActive:
+		query = query.Where("expires_at = 0 OR expires_at > ?", now)
+	case IpBanStatusExpired:
+		query = query.Where("expires_at <> 0 AND expires_at <= ?", now)
+	case IpBanStatusPermanent:
+		query = query.Where("expires_at = 0")
+	}
+	if filter.Source != "" {
+		query = query.Where("source = ?", filter.Source)
 	}
 	var total int64
 	if err := query.Count(&total).Error; err != nil {
@@ -324,20 +360,23 @@ func CleanupExpiredIpBans(graceSeconds int64) (int64, error) {
 	return result.RowsAffected, result.Error
 }
 
-// CountRecentIpBanEvents 统计某 IP 在 since 之后被封禁过的次数(用于累犯升级)。
-// 以风控事件表为准,临时封禁过期删除后历史仍可追溯。
+// CountRecentIpBanEvents 统计某 IP 在 since 之后被风控自动封禁的次数(用于累犯升级)。
+// 以风控事件表为准,临时封禁过期删除后历史仍可追溯。与账号侧一致,只数自动处置:
+// 管理员手动封禁不是规则判定的违规,不该让下一次自动封禁直接升一档。
 func CountRecentIpBanEvents(ip string, since int64) (int64, error) {
 	var count int64
 	err := DB.Model(&RiskEvent{}).
 		Where("event_type = ?", RiskEventBanIp).
 		Where("ip = ?", ip).
+		Where("COALESCE(rule, '') <> ?", RiskBanSourceManual).
 		Where("created_at >= ?", since).
 		Count(&count).Error
 	return count, err
 }
 
-// LastIpBanEventAt 返回某封禁目标最近一次 ban_ip 事件的时间,从未被封禁过时为 0。
-// 扫描规则用它判断窗口内的证据是否早于上次封禁。
+// LastIpBanEventAt 返回某封禁目标最近一次 ban_ip 事件(自动或手动)的时间,从未被封禁过时为 0。
+// 扫描规则用它判断窗口内的证据是否早于上次封禁:手动封禁同样算作一次处置,
+// 它之前的证据已被管理员处理过,不该在封禁到期后再触发自动封禁。
 func LastIpBanEventAt(ip string) (int64, error) {
 	var latest []int64
 	err := DB.Model(&RiskEvent{}).

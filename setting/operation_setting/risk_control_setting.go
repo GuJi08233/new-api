@@ -29,7 +29,7 @@ type RiskAutoBanRule struct {
 // RiskControlSetting 是风控管理的全部可配置项,通过独立 config 快照热更新。
 type RiskControlSetting struct {
 	Enabled           bool     `json:"enabled"`             // 风控总开关,默认关闭
-	UaBlacklist       []string `json:"ua_blacklist"`        // 每条为子串或正则
+	UaBlacklist       []string `json:"ua_blacklist"`        // 每条按 UaPattern 写法：子串，或 re: 开头的正则
 	UaBlacklistAction string   `json:"ua_blacklist_action"` // "block" | "disable_user"
 	IpBlacklist       []string `json:"ip_blacklist"`        // 每条为精确 IP 或 CIDR,命中直接拒绝调用
 	ScanMinutes       int      `json:"scan_minutes"`        // 自动封禁扫描周期(分钟),<=0 时回退默认 10

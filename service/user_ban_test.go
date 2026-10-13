@@ -169,6 +169,46 @@ func TestScanUserRuleEscalatesOnlyOnNewActivity(t *testing.T) {
 	assert.Contains(t, saved.DisableReason, "第 2 次违规")
 }
 
+// TestScanUserRuleRespectsManualReenable 覆盖管理员手动禁用又启用的账号:窗口里的旧证据
+// 不会让下一轮扫描立刻把它再禁用,启用之后仍在活动才按规则处置;手动禁用不计入累犯次数。
+func TestScanUserRuleRespectsManualReenable(t *testing.T) {
+	setupRealtimeGuardTest(t)
+	operation_setting.SetRiskControlSettingForTest(userBanTestSetting())
+
+	user := createRiskTestUser(t, "manual-reenabled")
+	rule := operation_setting.RiskAutoBanRule{
+		Enabled:     true,
+		Metric:      operation_setting.RiskMetricUserErrorBurst,
+		WindowHours: 24,
+		Threshold:   1,
+		Action:      operation_setting.RiskRuleActionDisableUser,
+	}
+	for range 2 {
+		require.NoError(t, model.LOG_DB.Create(&model.Log{
+			UserId:    user.Id,
+			Username:  user.Username,
+			CreatedAt: time.Now().Add(-time.Hour).Unix(),
+			Type:      model.LogTypeError,
+			Ip:        "198.51.100.91",
+		}).Error)
+	}
+	require.NoError(t, model.InsertRiskEvent(&model.RiskEvent{EventType: model.RiskEventBanManual, UserId: user.Id,
+		CreatedAt: time.Now().Add(-30 * time.Minute).Unix()}))
+	require.NoError(t, model.InsertRiskEvent(&model.RiskEvent{EventType: model.RiskEventUnban, UserId: user.Id,
+		CreatedAt: time.Now().Add(-20 * time.Minute).Unix()}))
+
+	scanRiskRule(rule, operation_setting.RiskDefaultTinyRequestMaxTokens, nil)
+	var saved model.User
+	require.NoError(t, model.DB.First(&saved, user.Id).Error)
+	assert.Equal(t, common.UserStatusEnabled, saved.Status, "管理员处理过的旧证据不再触发处置")
+
+	seedUserLog(t, user.Id, time.Now().Unix()+1)
+	scanRiskRule(rule, operation_setting.RiskDefaultTinyRequestMaxTokens, nil)
+	require.NoError(t, model.DB.First(&saved, user.Id).Error)
+	require.Equal(t, common.UserStatusDisabled, saved.Status)
+	assert.Contains(t, saved.DisableReason, "首次违规", "手动禁用不计入累犯次数")
+}
+
 // TestRealtimeGuardBansIpButSparesAccountWhitelistedUser 覆盖两级白名单的分工:
 // 用户级白名单只保护账号,来源 IP 照封 —— 这正是共享密钥场景要的效果。
 func TestRealtimeGuardBansIpButSparesAccountWhitelistedUser(t *testing.T) {

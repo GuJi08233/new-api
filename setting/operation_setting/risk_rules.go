@@ -35,16 +35,32 @@ func NormalizeRiskAutoBanRules(rules []RiskAutoBanRule) []RiskAutoBanRule {
 	return result
 }
 
+// NormalizeRiskControlOption 在保存入口规范化并校验需要整体处理的配置项。
+// 数据库回放不经过这里：回放时 UA 黑名单里一条坏正则只让那一条不生效，不拖垮整份名单。
 func NormalizeRiskControlOption(key, value string) (string, error) {
-	if key != RiskControlSettingPrefix+"auto_ban_rules" {
-		return value, nil
+	switch key {
+	case RiskControlSettingPrefix + "auto_ban_rules":
+		var rules []RiskAutoBanRule
+		if err := common.UnmarshalJsonStr(value, &rules); err != nil || rules == nil {
+			return value, fmt.Errorf("自动封禁规则必须是规则数组")
+		}
+		data, err := common.Marshal(NormalizeRiskAutoBanRules(rules))
+		return string(data), err
+	case RiskControlSettingPrefix + "ua_blacklist":
+		var entries []string
+		if err := common.UnmarshalJsonStr(value, &entries); err != nil || entries == nil {
+			return value, fmt.Errorf("UA 黑名单必须是字符串数组")
+		}
+		for index, entry := range entries {
+			if _, err := CompileUaPattern(entry); err != nil {
+				return value, fmt.Errorf("UA 黑名单第 %d 项%s", index+1, err.Error())
+			}
+			entries[index] = strings.TrimSpace(entry)
+		}
+		data, err := common.Marshal(entries)
+		return string(data), err
 	}
-	var rules []RiskAutoBanRule
-	if err := common.UnmarshalJsonStr(value, &rules); err != nil || rules == nil {
-		return value, fmt.Errorf("自动封禁规则必须是规则数组")
-	}
-	data, err := common.Marshal(NormalizeRiskAutoBanRules(rules))
-	return string(data), err
+	return value, nil
 }
 
 // RiskRuleVersion 是规则配置的内容指纹，用于区分同一规则的不同历史版本。

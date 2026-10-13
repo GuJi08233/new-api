@@ -345,3 +345,66 @@ func TestRiskEventsRejectsInvalidTimeRange(t *testing.T) {
 		assert.Equal(t, "时间范围无效", result.Message)
 	}
 }
+
+// 禁用账号列表附带当前管理权限:普通管理员看得到被禁用的同级管理员,但不能启用他。
+func TestRiskDisabledUsersIncludesPermissions(t *testing.T) {
+	db := riskAdminFixture(t)
+	users := []model.User{
+		{Id: 51, Username: "member", Role: common.RoleCommonUser, Status: common.UserStatusDisabled, AffCode: "u51"},
+		{Id: 52, Username: "peer-admin", Role: common.RoleAdminUser, Status: common.UserStatusDisabled, AffCode: "u52"},
+		{Id: 53, Username: "active", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, AffCode: "u53"},
+	}
+	require.NoError(t, db.Create(&users).Error)
+	recorder := riskAdminRequest(t, GetRiskDisabledUsers, common.RoleAdminUser, http.MethodGet, "/api/risk/disabled_users?p=1&page_size=20", nil)
+	var result struct {
+		Success bool
+		Data    struct {
+			Page struct {
+				Total int
+				Items []model.RiskDisabledUser
+			}
+			UserStates map[int]model.RiskUserState `json:"user_states"`
+		}
+	}
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &result))
+	require.True(t, result.Success)
+	assert.Equal(t, 2, result.Data.Page.Total)
+	assert.True(t, result.Data.UserStates[51].CanEnable)
+	assert.False(t, result.Data.UserStates[52].CanEnable)
+
+	recorder = riskAdminRequest(t, GetRiskDisabledUsers, common.RoleAdminUser, http.MethodGet, "/api/risk/disabled_users?kind=forever", nil)
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &result))
+	assert.False(t, result.Success)
+}
+
+// 批量处理的备注是可选字段:省略时保留每条事件原有备注,显式传空串时清空。
+func TestRiskEventReviewBatchApiKeepsOrClearsNote(t *testing.T) {
+	db := riskAdminFixture(t)
+	require.NoError(t, db.Create(&model.User{Id: 1, Username: "operator", Role: common.RoleAdminUser, Status: common.UserStatusEnabled, AffCode: "op1"}).Error)
+	event := &model.RiskEvent{EventType: model.RiskEventAlert, Reason: "alert"}
+	require.NoError(t, model.InsertRiskEvent(event))
+	_, err := model.ReviewRiskEvent(event.Id, 0, model.RiskReviewPending, "first look", 0, 1)
+	require.NoError(t, err)
+
+	type response struct {
+		Success bool
+		Data    struct{ Results []model.RiskEventReviewResult }
+	}
+	var result response
+	recorder := riskAdminRequest(t, ReviewRiskEventsBatch, common.RoleAdminUser, http.MethodPost, "/api/risk/event_reviews", map[string]any{
+		"items": []model.RiskEventReviewTarget{{Id: event.Id, Version: 1}}, "status": model.RiskReviewConfirmed,
+	})
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &result))
+	require.True(t, result.Success)
+	require.True(t, result.Data.Results[0].Success)
+	assert.Equal(t, "first look", result.Data.Results[0].Event.ReviewNote)
+
+	recorder = riskAdminRequest(t, ReviewRiskEventsBatch, common.RoleAdminUser, http.MethodPost, "/api/risk/event_reviews", map[string]any{
+		"items": []model.RiskEventReviewTarget{{Id: event.Id, Version: 2}}, "status": model.RiskReviewFalsePositive, "note": "",
+	})
+	result = response{}
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &result))
+	require.True(t, result.Data.Results[0].Success)
+	assert.Empty(t, result.Data.Results[0].Event.ReviewNote)
+	assert.Equal(t, model.RiskReviewFalsePositive, result.Data.Results[0].Event.ReviewStatus)
+}

@@ -12,12 +12,9 @@ import (
 
 // 客户端 UA 准入规则：按入站 User-Agent 限制哪些客户端可以调用指定模型/分组/路径/渠道。
 // UA 由客户端任意填写，规则只用于约束正常客户端，不构成安全边界。
+// UA 条目的写法见 UaPattern，与风控 UA 黑名单一致。
 
-const (
-	ClientUaRuleSettingPrefix = "client_ua_rule_setting."
-	// clientUaRegexPrefix 标记一条 UA 条目按正则匹配(自动大小写不敏感)，否则按大小写不敏感子串匹配。
-	clientUaRegexPrefix = "re:"
-)
+const ClientUaRuleSettingPrefix = "client_ua_rule_setting."
 
 type ClientUaRule struct {
 	Name       string   `json:"name"`
@@ -46,18 +43,13 @@ type ClientUaRequest struct {
 	UserAgent string
 }
 
-type clientUaMatcher struct {
-	substring string // 已转小写
-	re        *regexp.Regexp
-}
-
 type compiledClientUaRule struct {
 	rule    ClientUaRule
 	models  []*regexp.Regexp
 	groups  []*regexp.Regexp
 	paths   []*regexp.Regexp
-	allow   []clientUaMatcher
-	deny    []clientUaMatcher
+	allow   []UaPattern
+	deny    []UaPattern
 	channel map[int]struct{}
 }
 
@@ -71,6 +63,23 @@ var clientUaRuleSetting = ClientUaRuleSetting{
 
 // clientUaRuleSnapshot 只保存生效中的已编译规则；总开关关闭时为空切片，请求路径零开销。
 var clientUaRuleSnapshot atomic.Pointer[[]compiledClientUaRule]
+
+// ClientUaRuleStatus 概括客户端 UA 准入规则的生效情况，供风控概览展示。
+type ClientUaRuleStatus struct {
+	Enabled    bool `json:"enabled"`
+	Configured int  `json:"configured"` // 已配置的规则数，含停用与无法编译的规则
+	Active     int  `json:"active"`     // 正在生效的规则数
+}
+
+var clientUaRuleStatus atomic.Pointer[ClientUaRuleStatus]
+
+// GetClientUaRuleStatus 返回最近一次发布的规则生效情况。
+func GetClientUaRuleStatus() ClientUaRuleStatus {
+	if status := clientUaRuleStatus.Load(); status != nil {
+		return *status
+	}
+	return ClientUaRuleStatus{}
+}
 
 func init() {
 	config.GlobalConfig.Register("client_ua_rule_setting", &clientUaRuleSetting)
@@ -104,6 +113,8 @@ func SyncClientUaRuleSetting() {
 		}
 	}
 	clientUaRuleSnapshot.Store(&compiled)
+	clientUaRuleStatus.Store(&ClientUaRuleStatus{Enabled: clientUaRuleSetting.Enabled,
+		Configured: len(clientUaRuleSetting.Rules), Active: len(compiled)})
 }
 
 // SyncConfig lets ConfigManager publish a fresh compiled snapshot after a
@@ -168,13 +179,9 @@ func matchAnyClientUaRegex(patterns []*regexp.Regexp, value string) bool {
 }
 
 // matchAnyClientUa 的 ua 参数必须已转小写。
-func matchAnyClientUa(matchers []clientUaMatcher, ua string) bool {
-	for _, m := range matchers {
-		if m.re != nil {
-			if m.re.MatchString(ua) {
-				return true
-			}
-		} else if strings.Contains(ua, m.substring) {
+func matchAnyClientUa(patterns []UaPattern, ua string) bool {
+	for _, pattern := range patterns {
+		if pattern.Match(ua) {
 			return true
 		}
 	}
@@ -237,28 +244,16 @@ func compileClientUaRegexList(ruleName string, label string, patterns []string) 
 	return compiled, nil
 }
 
-func compileClientUaMatchers(ruleName string, label string, entries []string) ([]clientUaMatcher, error) {
-	matchers := make([]clientUaMatcher, 0, len(entries))
+func compileClientUaMatchers(ruleName string, label string, entries []string) ([]UaPattern, error) {
+	patterns := make([]UaPattern, 0, len(entries))
 	for index, entry := range entries {
-		entry = strings.TrimSpace(entry)
-		if entry == "" {
-			return nil, fmt.Errorf("规则 %q 的 %s第 %d 项不能为空", ruleName, label, index+1)
-		}
-		pattern, isRegex := strings.CutPrefix(entry, clientUaRegexPrefix)
-		if !isRegex {
-			matchers = append(matchers, clientUaMatcher{substring: strings.ToLower(entry)})
-			continue
-		}
-		if strings.TrimSpace(pattern) == "" {
-			return nil, fmt.Errorf("规则 %q 的 %s第 %d 项正则不能为空", ruleName, label, index+1)
-		}
-		re, err := regexp.Compile("(?i)" + pattern)
+		pattern, err := CompileUaPattern(entry)
 		if err != nil {
-			return nil, fmt.Errorf("规则 %q 的 %s第 %d 项不是合法正则: %s", ruleName, label, index+1, err.Error())
+			return nil, fmt.Errorf("规则 %q 的 %s第 %d 项%s", ruleName, label, index+1, err.Error())
 		}
-		matchers = append(matchers, clientUaMatcher{re: re})
+		patterns = append(patterns, pattern)
 	}
-	return matchers, nil
+	return patterns, nil
 }
 
 // ValidateClientUaRuleOption 在保存前校验客户端 UA 规则配置项。

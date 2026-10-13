@@ -2,10 +2,12 @@ package service
 
 import (
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -17,6 +19,8 @@ func setRiskSetting(t *testing.T, setting *operation_setting.RiskControlSetting)
 	operation_setting.SetRiskControlSettingForTest(setting)
 }
 
+// TestMatchUaEntry 覆盖 UA 黑名单条目的写法:默认子串,re: 开头按正则,都不区分大小写。
+// 版本号里的点只是普通字符,不会让条目变成正则;库里残留的非法正则不命中任何请求。
 func TestMatchUaEntry(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -26,17 +30,18 @@ func TestMatchUaEntry(t *testing.T) {
 	}{
 		{name: "substring case-insensitive", entry: "curl", ua: "Curl/8.0.1", want: true},
 		{name: "substring no match", entry: "wget", ua: "curl/8.0.1", want: false},
-		{name: "regex match", entry: `^python-requests/2\.\d+`, ua: "python-requests/2.31.0", want: true},
-		{name: "regex no match", entry: `^python-requests/2\.\d+`, ua: "python-httpx/0.27", want: false},
+		{name: "dots stay literal in substring", entry: "python-requests/2.31", ua: "python-requests/2.31.0", want: true},
+		{name: "dots do not act as wildcards", entry: "python-requests/2.31", ua: "python-requests/2x31.0", want: false},
+		{name: "regex match", entry: `re:^python-requests/2\.\d+`, ua: "python-requests/2.31.0", want: true},
+		{name: "regex case-insensitive", entry: "re:^go-http-client", ua: "Go-http-client/2.0", want: true},
+		{name: "regex no match", entry: `re:^python-requests/2\.\d+`, ua: "python-httpx/0.27", want: false},
 		{name: "empty entry", entry: "", ua: "anything", want: false},
-		{name: "invalid regex falls back to substring", entry: "bad[regex", ua: "some BAD[REGEX client", want: true},
+		{name: "invalid regex never matches", entry: "re:bad[regex", ua: "bad[regex client", want: false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := matchUaEntry(tt.entry, tt.ua); got != tt.want {
-				t.Fatalf("matchUaEntry(%q, %q) = %t, want %t", tt.entry, tt.ua, got, tt.want)
-			}
+			assert.Equal(t, tt.want, matchUaEntry(tt.entry, strings.ToLower(tt.ua)))
 		})
 	}
 }
@@ -44,21 +49,18 @@ func TestMatchUaEntry(t *testing.T) {
 func TestMatchUaBlacklist(t *testing.T) {
 	setRiskSetting(t, &operation_setting.RiskControlSetting{
 		Enabled:     true,
-		UaBlacklist: []string{"curl", `^Go-http-client`},
+		UaBlacklist: []string{"curl", "re:^Go-http-client"},
 	})
 
-	if matched, rule := MatchUaBlacklist("curl/8.0"); !matched || rule != "curl" {
-		t.Fatalf("expected curl to match, got matched=%t rule=%q", matched, rule)
-	}
-	if matched, _ := MatchUaBlacklist("Go-http-client/2.0"); !matched {
-		t.Fatal("expected Go-http-client to match")
-	}
-	if matched, _ := MatchUaBlacklist("Mozilla/5.0"); matched {
-		t.Fatal("expected Mozilla not to match")
-	}
-	if matched, _ := MatchUaBlacklist(""); matched {
-		t.Fatal("expected empty UA not to match")
-	}
+	matched, rule := MatchUaBlacklist("curl/8.0")
+	assert.True(t, matched)
+	assert.Equal(t, "curl", rule)
+	matched, _ = MatchUaBlacklist("go-http-client/2.0")
+	assert.True(t, matched)
+	matched, _ = MatchUaBlacklist("Mozilla/5.0")
+	assert.False(t, matched)
+	matched, _ = MatchUaBlacklist("")
+	assert.False(t, matched)
 }
 
 func TestMatchUaBlacklistDisabled(t *testing.T) {
