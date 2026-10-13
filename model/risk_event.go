@@ -245,16 +245,16 @@ func QueryRiskEvents(filter RiskEventQuery, startIdx int, num int) ([]*RiskEvent
 
 // ReviewRiskEvent 以版本检查防止管理员覆盖彼此的备注，更新与历史记录同一事务提交。
 func ReviewRiskEvent(id, version int, status, note string, assigneeId, operatorId int) (*RiskEvent, error) {
-	if utf8.RuneCountInString(note) > 2000 || assigneeId < 0 {
+	if !IsValidRiskReviewStatus(status) || utf8.RuneCountInString(note) > 2000 || assigneeId < 0 {
 		return nil, errors.New("事件处理参数无效")
 	}
 	return reviewRiskEvent(id, version, status, &note, &assigneeId, operatorId)
 }
 
-// reviewRiskEvent 是单条与批量处理共用的实现。note、assigneeId 为 nil 时保留事件原有的值，
-// 历史记录写入处理后的实际值。
+// reviewRiskEvent 是单条与批量处理共用的实现。status 为空串、note 或 assigneeId 为 nil 时
+// 保留事件原有的值(例如批量"分配给我"只改负责人)，历史记录写入处理后的实际值。
 func reviewRiskEvent(id, version int, status string, note *string, assigneeId *int, operatorId int) (*RiskEvent, error) {
-	if id <= 0 || version < 0 || !IsValidRiskReviewStatus(status) {
+	if id <= 0 || version < 0 || (status != "" && !IsValidRiskReviewStatus(status)) {
 		return nil, errors.New("事件处理参数无效")
 	}
 	var event RiskEvent
@@ -275,6 +275,12 @@ func reviewRiskEvent(id, version int, status string, note *string, assigneeId *i
 			}
 		}
 		now := common.GetTimestamp()
+		if status == "" {
+			status = event.ReviewStatus
+			if status == "" {
+				status = RiskReviewPending
+			}
+		}
 		updates := map[string]interface{}{"review_status": status, "reviewed_by": operatorId,
 			"reviewed_at": now, "review_version": version + 1}
 		effectiveNote, effectiveAssignee := event.ReviewNote, event.AssigneeId

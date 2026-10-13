@@ -212,17 +212,23 @@ func GetRiskDisabledUsers(query RiskDisabledUserQuery) ([]RiskDisabledUser, int6
 	for _, user := range users {
 		ids = append(ids, user.Id)
 	}
-	var events []RiskEvent
-	if err := DB.Model(&RiskEvent{}).Select("user_id", "event_type", "rule", "operator_id", "created_at").
+	// 先按账号取最近一条禁用事件的 ID,再读这些事件:单个账号的大量历史事件不会挤掉其他账号。
+	var latestIds []int
+	if err := DB.Model(&RiskEvent{}).Select("max(id)").
 		Where("user_id IN ?", ids).
 		Where("event_type IN ?", []string{RiskEventBanAuto, RiskEventBanManual}).
-		Order("created_at desc, id desc").Limit(len(ids) * 20).
-		Find(&events).Error; err != nil {
+		Group("user_id").
+		Pluck("max(id)", &latestIds).Error; err != nil {
 		return nil, 0, err
 	}
-	latest := make(map[int]RiskEvent, len(ids))
-	for _, event := range events {
-		if _, ok := latest[event.UserId]; !ok {
+	latest := make(map[int]RiskEvent, len(latestIds))
+	if len(latestIds) > 0 {
+		var events []RiskEvent
+		if err := DB.Select("user_id", "event_type", "rule", "operator_id", "created_at").
+			Where("id IN ?", latestIds).Find(&events).Error; err != nil {
+			return nil, 0, err
+		}
+		for _, event := range events {
 			latest[event.UserId] = event
 		}
 	}
@@ -295,12 +301,13 @@ type RiskEventReviewResult struct {
 }
 
 // ReviewRiskEventsBatch 逐条处理事件,每条单独提交并检查版本:一条被别人改过只让这一条失败。
-// note、assigneeId 为 nil 时保留每条事件原来的备注与负责人。
+// status 为空串、note 或 assigneeId 为 nil 时保留每条事件原来的值,但至少要改一项。
 func ReviewRiskEventsBatch(targets []RiskEventReviewTarget, status string, note *string, assigneeId *int, operatorId int) ([]RiskEventReviewResult, error) {
 	if len(targets) == 0 || len(targets) > 100 {
 		return nil, errors.New("批量处理每次支持 1 到 100 条事件")
 	}
-	if !IsValidRiskReviewStatus(status) || (note != nil && utf8.RuneCountInString(*note) > 2000) || (assigneeId != nil && *assigneeId < 0) {
+	if (status != "" && !IsValidRiskReviewStatus(status)) || (note != nil && utf8.RuneCountInString(*note) > 2000) ||
+		(assigneeId != nil && *assigneeId < 0) || (status == "" && note == nil && assigneeId == nil) {
 		return nil, errors.New("事件处理参数无效")
 	}
 	results := make([]RiskEventReviewResult, 0, len(targets))

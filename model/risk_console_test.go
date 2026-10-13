@@ -155,8 +155,18 @@ func TestReviewRiskEventsBatchChecksEachVersion(t *testing.T) {
 	assert.Equal(t, RiskReviewFalsePositive, reviews[0].Status)
 	assert.Equal(t, "keep this note", reviews[0].Note, "历史记录写入处理后的实际值")
 
+	// 只改负责人:状态与备注保持原样
+	assignee := 1
+	results, err = ReviewRiskEventsBatch([]RiskEventReviewTarget{{Id: first.Id, Version: 1}}, "", nil, &assignee, 1)
+	require.NoError(t, err)
+	require.True(t, results[0].Success)
+	assert.Equal(t, RiskReviewConfirmed, results[0].Event.ReviewStatus)
+	assert.Equal(t, 1, results[0].Event.AssigneeId)
+
 	_, err = ReviewRiskEventsBatch(nil, RiskReviewConfirmed, nil, nil, 1)
 	assert.Error(t, err)
+	_, err = ReviewRiskEventsBatch([]RiskEventReviewTarget{{Id: first.Id, Version: 2}}, "", nil, nil, 1)
+	assert.Error(t, err, "什么都不改的请求无效")
 }
 
 // 事件列表按大类、关键词与未分配负责人筛选。

@@ -98,7 +98,7 @@ type riskEventReviewBatchRequest struct {
 }
 
 // ReviewRiskEventsBatch 批量处理事件:逐条检查版本,返回每条的结果。
-// note、assignee_id 省略时保留每条事件原有的备注与负责人。
+// status 为空、note 或 assignee_id 省略时保留每条事件原有的值(例如只"分配给我"),但至少要改一项。
 func ReviewRiskEventsBatch(c *gin.Context) {
 	var request riskEventReviewBatchRequest
 	if err := common.DecodeJson(c.Request.Body, &request); err != nil {
@@ -125,7 +125,10 @@ func ReviewRiskEventsBatch(c *gin.Context) {
 		}
 	}
 	if len(updated) > 0 {
-		params := map[string]interface{}{"event_ids": updated, "status": request.Status}
+		params := map[string]interface{}{"event_ids": updated}
+		if request.Status != "" {
+			params["status"] = request.Status
+		}
 		if request.AssigneeId != nil {
 			params["assignee_id"] = *request.AssigneeId
 		}
