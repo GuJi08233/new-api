@@ -205,6 +205,16 @@ For commercial licensing, please contact support@quantumnous.com
   width: 100%;
 }
 
+.games-field-row {
+  display: flex;
+  gap: 8px;
+}
+
+.games-field-row .games-field {
+  flex: 1;
+  min-width: 0;
+}
+
 .games-preview {
   display: flex;
   justify-content: space-between;

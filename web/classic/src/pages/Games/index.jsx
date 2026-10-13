@@ -545,26 +545,25 @@ const Games = () => {
                       },
                     )}
                   </Text>
-                  <InputNumber
-                    className='games-field'
-                    value={convertAmount}
-                    min={0}
-                    max={maxConvertAmount}
-                    disabled={maxConvertAmount <= 0}
-                    suffix={
-                      <Button
-                        theme='borderless'
-                        size='small'
-                        disabled={maxConvertAmount <= 0}
-                        onClick={() => setConvertAmount(maxConvertAmount)}
-                      >
-                        {t('全部')}
-                      </Button>
-                    }
-                    onChange={(value) =>
-                      setConvertAmount(typeof value === 'number' ? value : 0)
-                    }
-                  />
+                  {/* “全部”不能放进 InputNumber 的 suffix：点击 suffix 会先聚焦输入框，聚焦中的 InputNumber 收到新的受控值不刷新显示 */}
+                  <div className='games-field-row'>
+                    <InputNumber
+                      className='games-field'
+                      value={convertAmount}
+                      min={0}
+                      max={maxConvertAmount}
+                      disabled={maxConvertAmount <= 0}
+                      onChange={(value) =>
+                        setConvertAmount(typeof value === 'number' ? value : 0)
+                      }
+                    />
+                    <Button
+                      disabled={maxConvertAmount <= 0}
+                      onClick={() => setConvertAmount(maxConvertAmount)}
+                    >
+                      {t('全部')}
+                    </Button>
+                  </div>
                   <div className='games-preview'>
                     {t('可获得额度')}
                     <strong>
