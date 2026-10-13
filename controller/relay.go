@@ -179,9 +179,18 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	// the precise tier is picked. The first getChannel() in the retry loop will
 	// short-circuit on info.ChannelMeta==nil and return whatever channel_id sits
 	// in the context, so updating the context here is enough.
+	needsReroute := common.GetContextKeyBool(c, constant.ContextKeyChannelRouteNeedsReroute)
+	channelBeforeReroute := common.GetContextKeyInt(c, constant.ContextKeyChannelId)
 	if reRouteErr := rerouteByRequestMetrics(c, relayInfo); reRouteErr != nil {
 		newAPIError = reRouteErr
 		return
+	}
+	// Distribute 对待重路由的占位渠道跳过了绑定渠道的客户端 UA 规则，重路由后对最终渠道补判
+	if channelID := common.GetContextKeyInt(c, constant.ContextKeyChannelId); needsReroute || channelID != channelBeforeReroute {
+		if ruleErr := service.RejectByClientUaRule(c, relayInfo.OriginModelName, channelID); ruleErr != nil {
+			newAPIError = ruleErr
+			return
+		}
 	}
 
 	priceData, err := helper.ModelPriceHelper(c, relayInfo, tokens, meta)
@@ -447,6 +456,10 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 			return nil, newChannelRouteRejectedError(c, info.OriginModelName, routeMatch)
 		}
 		if routeMatch.Channel != nil {
+			if ruleErr := clientUaRuleRetryError(c, info, routeMatch.Channel.Id); ruleErr != nil {
+				restoreAutoRouteContext()
+				return nil, ruleErr
+			}
 			if service.IsMultiCandidateGroup(retryParam.TokenGroup) && routeMatch.SelectGroup != "" {
 				common.SetContextKey(c, constant.ContextKeyAutoGroup, routeMatch.SelectGroup)
 			}
@@ -472,6 +485,9 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 	if channel == nil {
 		return nil, types.NewError(fmt.Errorf("分组 %s 下模型 %s 的可用渠道不存在（retry）", selectGroup, info.OriginModelName), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
 	}
+	if ruleErr := clientUaRuleRetryError(c, info, channel.Id); ruleErr != nil {
+		return nil, ruleErr
+	}
 
 	newAPIError := middleware.SetupContextForSelectedChannel(c, channel, info.OriginModelName)
 	if newAPIError != nil {
@@ -479,6 +495,19 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 	}
 	info.PriceData.GroupRatioInfo = helper.HandleGroupRatio(c, info)
 	return channel, nil
+}
+
+// clientUaRuleRetryError 在重试选中受客户端 UA 规则限制的渠道时结束重试。
+// 返回上一次的上游错误，让客户端看到原始失败原因而不是规则拒绝；
+// 只有尚无上游错误时才返回规则拒绝本身。渠道未受限时返回 nil。
+func clientUaRuleRetryError(c *gin.Context, info *relaycommon.RelayInfo, channelID int) *types.NewAPIError {
+	if service.MatchClientUaRule(c, info.OriginModelName, channelID) == nil {
+		return nil
+	}
+	if info.LastError != nil {
+		return info.LastError
+	}
+	return service.RejectByClientUaRule(c, info.OriginModelName, channelID)
 }
 
 // snapshotAutoRouteContext saves the auto-group routing cursor keys and returns
@@ -869,6 +898,15 @@ func RelayTask(c *gin.Context) {
 		respondTaskError(c, taskErr)
 		return
 	}
+	// 续作任务的模型与渠道取自原任务，Distribute 入口处还不知道，在锁定原渠道后补做客户端 UA 判定
+	if lockedCh, ok := relayInfo.LockedChannel.(*model.Channel); ok && lockedCh != nil {
+		for _, channelID := range []int{0, lockedCh.Id} {
+			if ruleErr := service.RejectByClientUaRule(c, relayInfo.OriginModelName, channelID); ruleErr != nil {
+				respondTaskError(c, service.TaskErrorWrapperLocal(ruleErr.Err, string(types.ErrorCodeAccessDenied), ruleErr.StatusCode))
+				return
+			}
+		}
+	}
 
 	var result *relay.TaskSubmitResult
 	var taskErr *dto.TaskError
@@ -905,6 +943,10 @@ func RelayTask(c *gin.Context) {
 			var channelErr *types.NewAPIError
 			channel, channelErr = getChannel(c, relayInfo, retryParam)
 			if channelErr != nil {
+				// 重试命中客户端 UA 规则时 getChannel 原样返回上一次的上游错误，保留原 taskErr
+				if relayInfo.LastError != nil && channelErr == relayInfo.LastError {
+					break
+				}
 				logger.LogError(c, channelErr.Error())
 				taskErr = service.TaskErrorWrapperLocal(channelErr.Err, "get_channel_failed", http.StatusInternalServerError)
 				break
@@ -938,6 +980,7 @@ func RelayTask(c *gin.Context) {
 				model.IncrChannelSuccessCount(channel.Id, model.NewChannelRequestLimitConfig(channelSetting))
 				break
 			}
+			relayInfo.LastError = types.NewOpenAIError(taskErr.Error, types.ErrorCodeBadResponseStatusCode, taskErr.StatusCode)
 
 			if !taskErr.LocalError {
 				processChannelError(c,

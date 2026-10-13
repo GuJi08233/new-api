@@ -27,6 +27,7 @@ import SettingClaudeModel from '../../pages/Setting/Model/SettingClaudeModel';
 import SettingGlobalModel from '../../pages/Setting/Model/SettingGlobalModel';
 import SettingGrokModel from '../../pages/Setting/Model/SettingGrokModel';
 import SettingsChannelRoute from '../../pages/Setting/Model/SettingsChannelRoute';
+import SettingsClientUaRule from '../../pages/Setting/Model/SettingsClientUaRule';
 import SettingsChannelAffinity from '../../pages/Setting/Operation/SettingsChannelAffinity';
 
 const ModelSetting = () => {
@@ -47,6 +48,8 @@ const ModelSetting = () => {
     'global.rewrite_response_model_enabled': false,
     'channel_route_setting.enabled': false,
     'channel_route_setting.rules': '[]',
+    'client_ua_rule_setting.enabled': false,
+    'client_ua_rule_setting.rules': '[]',
     'general_setting.ping_interval_enabled': false,
     'general_setting.ping_interval_seconds': 60,
     'gemini.thinking_adapter_enabled': false,
@@ -71,7 +74,8 @@ const ModelSetting = () => {
           item.key === 'gemini.supported_imagine_models' ||
           item.key === 'global.thinking_model_blacklist' ||
           item.key === 'global.chat_completions_to_responses_policy' ||
-          item.key === 'channel_route_setting.rules'
+          item.key === 'channel_route_setting.rules' ||
+          item.key === 'client_ua_rule_setting.rules'
         ) {
           if (item.value !== '') {
             try {
@@ -122,6 +126,10 @@ const ModelSetting = () => {
         {/* Static channel route */}
         <Card style={{ marginTop: '10px' }}>
           <SettingsChannelRoute options={inputs} refresh={onRefresh} />
+        </Card>
+        {/* Client UA rules */}
+        <Card style={{ marginTop: '10px' }}>
+          <SettingsClientUaRule options={inputs} refresh={onRefresh} />
         </Card>
         {/* Channel affinity */}
         <Card style={{ marginTop: '10px' }}>

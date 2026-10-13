@@ -43,6 +43,7 @@ import RiskEventReviewModal from './RiskEventReviewModal';
 const EVENT_TYPE_META = {
   block_ua: { labelKey: 'UA 拦截', color: 'orange' },
   block_ip: { labelKey: 'IP 拦截', color: 'red' },
+  block_client_ua: { labelKey: '客户端规则拦截', color: 'yellow' },
   ban_auto: { labelKey: '自动封禁', color: 'red' },
   ban_manual: { labelKey: '手动封禁', color: 'purple' },
   unban: { labelKey: '解除封禁', color: 'green' },

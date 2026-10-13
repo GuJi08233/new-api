@@ -298,6 +298,9 @@ func UpdateOption(key string, value string) error {
 	if err := operation_setting.ValidateIpLocationOption(key, value); err != nil {
 		return err
 	}
+	if err := operation_setting.ValidateClientUaRuleOption(key, value); err != nil {
+		return err
+	}
 	if err := operation_setting.ValidateTradeOption(key, value); err != nil {
 		return err
 	}
@@ -458,6 +461,9 @@ func updateOptionsBulkLocked(values map[string]string) error {
 		if err := operation_setting.ValidateIpLocationOption(key, value); err != nil {
 			return err
 		}
+		if err := operation_setting.ValidateClientUaRuleOption(key, value); err != nil {
+			return err
+		}
 		if err := operation_setting.ValidateTradeOption(key, value); err != nil {
 			return err
 		}
@@ -576,6 +582,9 @@ func applyOptionToRuntime(key string, value string) (err error) {
 		return err
 	}
 	if err := operation_setting.ValidateIpLocationOption(key, value); err != nil {
+		return err
+	}
+	if err := operation_setting.ValidateClientUaRuleOption(key, value); err != nil {
 		return err
 	}
 	if err := operation_setting.ValidateTradeOption(key, value); err != nil {
@@ -1055,6 +1064,8 @@ func handleConfigUpdate(key, value string) bool {
 		ratio_setting.InvalidateExposedDataCache()
 	} else if configName == "channel_route_setting" {
 		operation_setting.SyncChannelRouteSetting()
+	} else if configName == "client_ua_rule_setting" {
+		operation_setting.SyncClientUaRuleSetting()
 	}
 	// 游戏、风控与 IP 归属地配置不在这里逐项发布快照，由配置写入与回放入口
 	// 在写完之后整份发布。

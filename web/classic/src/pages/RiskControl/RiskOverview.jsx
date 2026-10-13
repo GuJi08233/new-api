@@ -83,6 +83,7 @@ export default function RiskOverview({ refreshKey, onViewEvents }) {
     alert: t('规则告警'),
     block_ip: t('IP 拦截'),
     block_ua: t('UA 拦截'),
+    block_client_ua: t('客户端规则拦截'),
     ban_auto: t('自动封禁'),
     ban_manual: t('手动封禁'),
     ban_ip: t('IP 封禁'),

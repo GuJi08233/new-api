@@ -159,7 +159,7 @@ export function GroupSelector({ value, onChange }) {
 // ModelNameMatcher
 // ---------------------------------------------------------------------------
 
-export function ModelNameMatcher({ value, onChange }) {
+export function ModelNameMatcher({ value, onChange, required = true }) {
   const { t } = useTranslation();
   const [inputValue, setInputValue] = useState('');
   const [matchMode, setMatchMode] = useState(0);
@@ -191,7 +191,7 @@ export function ModelNameMatcher({ value, onChange }) {
 
   return (
     <div>
-      <Text size='small' strong style={{ display: 'block', marginBottom: 4 }}>{t('模型匹配')} *</Text>
+      <Text size='small' strong style={{ display: 'block', marginBottom: 4 }}>{t('模型匹配')}{required ? ' *' : ''}</Text>
       <Row gutter={8}>
         <Col span={8}>
           <Select value={matchMode} onChange={(v) => setMatchMode(v)} style={{ width: '100%' }} optionList={MATCH_MODES.map((m) => ({ label: t(m.label), value: m.value }))} />
@@ -299,7 +299,7 @@ export function PathSelector({ value, onChange }) {
 // ChannelSelector
 // ---------------------------------------------------------------------------
 
-export function ChannelSelector({ value, onChange, compact = false, modelNames }) {
+export function ChannelSelector({ value, onChange, compact = false, modelNames, label }) {
   const { t } = useTranslation();
   const [channels, setChannels] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -428,7 +428,7 @@ export function ChannelSelector({ value, onChange, compact = false, modelNames }
 
   return (
     <div>
-      <Text size='small' strong style={{ display: 'block', marginBottom: 4 }}>{compact ? t('渠道池') : t('兜底渠道池')}</Text>
+      <Text size='small' strong style={{ display: 'block', marginBottom: 4 }}>{label || (compact ? t('渠道池') : t('兜底渠道池'))}</Text>
       <Text type='tertiary' size='small' style={{ display: 'block', marginBottom: 8 }}>{hintText}</Text>
       <div onClick={() => { setShowList(!showList); if (!modelKey) loadAllChannels(); }} style={{ border: '1px solid var(--semi-color-border)', borderRadius: 4, padding: '8px 12px', cursor: 'pointer', minHeight: 32 }}>
         {selectedIds.length > 0 ? <Text>{t('已选择 {{count}} 个渠道', { count: selectedIds.length })}</Text> : <Text type='tertiary'>{t('点击选择渠道...')}</Text>}

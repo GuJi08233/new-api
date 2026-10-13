@@ -15,21 +15,22 @@ import (
 // 封禁/解禁事件逐条直写。拦截与告警事件按保留天数周期清理,封禁与解禁记录永久保留。
 
 const (
-	RiskEventBlockUa   = "block_ua"   // UA 黑名单拦截
-	RiskEventBlockIp   = "block_ip"   // IP 黑名单/动态封禁拦截
-	RiskEventBanAuto   = "ban_auto"   // 风控自动封禁用户
-	RiskEventBanManual = "ban_manual" // 管理员手动封禁用户
-	RiskEventUnban     = "unban"      // 管理员解除用户封禁
-	RiskEventUnbanAuto = "unban_auto" // 账号的临时禁用到期,后台自动恢复
-	RiskEventBanIp     = "ban_ip"     // IP 被封禁(自动升级或手动添加)
-	RiskEventUnbanIp   = "unban_ip"   // IP 封禁被解除
-	RiskEventAlert     = "alert"      // 自动规则命中告警(动作为仅告警)
+	RiskEventBlockUa       = "block_ua"        // UA 黑名单拦截
+	RiskEventBlockIp       = "block_ip"        // IP 黑名单/动态封禁拦截
+	RiskEventBlockClientUa = "block_client_ua" // 客户端 UA 准入规则拦截
+	RiskEventBanAuto       = "ban_auto"        // 风控自动封禁用户
+	RiskEventBanManual     = "ban_manual"      // 管理员手动封禁用户
+	RiskEventUnban         = "unban"           // 管理员解除用户封禁
+	RiskEventUnbanAuto     = "unban_auto"      // 账号的临时禁用到期,后台自动恢复
+	RiskEventBanIp         = "ban_ip"          // IP 被封禁(自动升级或手动添加)
+	RiskEventUnbanIp       = "unban_ip"        // IP 封禁被解除
+	RiskEventAlert         = "alert"           // 自动规则命中告警(动作为仅告警)
 )
 
 // IsValidRiskEventType 判断字符串是否为已支持的风控事件类型。
 func IsValidRiskEventType(eventType string) bool {
 	switch eventType {
-	case RiskEventBlockUa, RiskEventBlockIp, RiskEventBanAuto,
+	case RiskEventBlockUa, RiskEventBlockIp, RiskEventBlockClientUa, RiskEventBanAuto,
 		RiskEventBanManual, RiskEventUnban, RiskEventUnbanAuto,
 		RiskEventBanIp, RiskEventUnbanIp, RiskEventAlert:
 		return true
@@ -298,12 +299,12 @@ func CleanupRiskEvents(before int64) (int64, error) {
 	var affected int64
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		query := tx.Model(&RiskEvent{}).Where("created_at < ?", before).
-			Where("event_type IN ?", []string{RiskEventBlockUa, RiskEventBlockIp, RiskEventAlert})
+			Where("event_type IN ?", []string{RiskEventBlockUa, RiskEventBlockIp, RiskEventBlockClientUa, RiskEventAlert})
 		if err := tx.Where("event_id IN (?)", query.Select("id")).Delete(&RiskEventReview{}).Error; err != nil {
 			return err
 		}
 		result := tx.Where("created_at < ?", before).
-			Where("event_type IN ?", []string{RiskEventBlockUa, RiskEventBlockIp, RiskEventAlert}).Delete(&RiskEvent{})
+			Where("event_type IN ?", []string{RiskEventBlockUa, RiskEventBlockIp, RiskEventBlockClientUa, RiskEventAlert}).Delete(&RiskEvent{})
 		affected = result.RowsAffected
 		return result.Error
 	})

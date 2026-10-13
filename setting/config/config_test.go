@@ -2,6 +2,9 @@ package config
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type testConfigWithMap struct {
@@ -93,4 +96,28 @@ func TestUpdateConfigFromMap_ScalarFieldsUnchanged(t *testing.T) {
 	if cfg.Modes["m"] != "v" {
 		t.Errorf("Modes should be unchanged, got %v", cfg.Modes)
 	}
+}
+
+type testSliceRule struct {
+	Name       string   `json:"name"`
+	ChannelIDs []int    `json:"channel_ids,omitempty"`
+	Deny       []string `json:"deny,omitempty"`
+}
+
+type testConfigWithSlice struct {
+	Rules []testSliceRule `json:"rules"`
+}
+
+// Removing or reordering slice elements must not leak omitted fields from the
+// element that previously occupied the same index.
+func TestUpdateConfigFromMap_SliceReplacementDoesNotLeakFields(t *testing.T) {
+	cfg := &testConfigWithSlice{Rules: []testSliceRule{
+		{Name: "a", ChannelIDs: []int{5}, Deny: []string{"curl"}},
+		{Name: "b"},
+	}}
+
+	err := UpdateConfigFromMap(cfg, map[string]string{"rules": `[{"name":"b"}]`})
+	require.NoError(t, err)
+
+	assert.Equal(t, []testSliceRule{{Name: "b"}}, cfg.Rules)
 }

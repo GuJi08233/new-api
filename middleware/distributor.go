@@ -48,6 +48,11 @@ func Distribute() func(c *gin.Context) {
 			abortWithOpenAiMessage(c, http.StatusTooManyRequests, i18n.T(c, i18n.MsgRiskProbeGuardBlocked), types.ErrorCodeAccessDenied)
 			return
 		}
+		// 客户端 UA 准入：未绑定渠道的规则在任何选路、亲和与渠道计数之前判定，令牌指定渠道也绕不过
+		if ruleErr := service.RejectByClientUaRule(c, modelRequest.Model, 0); ruleErr != nil {
+			abortWithEntryFormatError(c, ruleErr)
+			return
+		}
 		if ok {
 			id, err := strconv.Atoi(channelId.(string))
 			if err != nil {
@@ -240,6 +245,14 @@ func Distribute() func(c *gin.Context) {
 						return
 					}
 				}
+			}
+		}
+		// 绑定渠道的客户端 UA 规则在渠道确定后、占用渠道计数与多 key 轮询前判定。
+		// 待按 token 重路由时这里只是占位渠道，改由 controller.Relay 对最终渠道判定。
+		if channel != nil && !common.GetContextKeyBool(c, constant.ContextKeyChannelRouteNeedsReroute) {
+			if ruleErr := service.RejectByClientUaRule(c, modelRequest.Model, channel.Id); ruleErr != nil {
+				abortWithEntryFormatError(c, ruleErr)
+				return
 			}
 		}
 		common.SetContextKey(c, constant.ContextKeyRequestStartTime, time.Now())

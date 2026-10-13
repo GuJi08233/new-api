@@ -334,6 +334,7 @@ distributor.group_access_denied: "No permission to access this group"
 distributor.get_channel_failed: "Failed to get available channel for model {{.Model}} under group {{.Group}} (distributor): {{.Error}}"
 distributor.no_available_channel: "No available channel for model {{.Model}} under group {{.Group}} (distributor)"
 distributor.rule_rejected: "Request for model {{.Model}} was rejected by channel routing rule {{.Rule}}"
+distributor.client_ua_rejected: "This client is not allowed to call model {{.Model}} (rule: {{.Rule}})"
 distributor.invalid_midjourney_request: "Invalid Midjourney request: {{.Error}}"
 distributor.invalid_request_parse_model: "Invalid request, unable to parse model"
 

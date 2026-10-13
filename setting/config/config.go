@@ -264,7 +264,17 @@ func updateConfigFromMap(config interface{}, configMap map[string]string) error 
 				continue
 			}
 			field.Set(fresh.Elem())
-		case reflect.Slice, reflect.Struct:
+		case reflect.Slice:
+			// json.Unmarshal reuses the existing backing array, so fields absent
+			// from a new element keep the values of the element that used to sit
+			// at that index (e.g. deleting rule 1 leaks its fields into rule 2).
+			// Decode into a fresh slice instead.
+			fresh := reflect.New(field.Type())
+			if err := json.Unmarshal([]byte(strValue), fresh.Interface()); err != nil {
+				continue
+			}
+			field.Set(fresh.Elem())
+		case reflect.Struct:
 			err := json.Unmarshal([]byte(strValue), field.Addr().Interface())
 			if err != nil {
 				continue
