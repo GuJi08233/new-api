@@ -6206,6 +6206,7 @@
     "拒绝提示": "Rejection message",
     "停用此规则": "Disable this rule",
     "客户端规则拦截": "Client rule block",
-    "限定渠道": "Restrict to channels"
+    "限定渠道": "Restrict to channels",
+    "Playground 请求同样受规则约束；只想限制 API 客户端时，可把路径限定为 ^/v1/。": "Playground requests are subject to these rules too; to restrict API clients only, limit the path to ^/v1/."
   }
 }

@@ -143,6 +143,11 @@ func Distribute() func(c *gin.Context) {
 						// 重试与重路由用 TokenGroup 选渠道（controller/relay.go 的 RetryParam），
 						// 它必须是刚在这里通过鉴权的分组，否则换渠道时会绕开分组权限。
 						common.SetContextKey(c, constant.ContextKeyTokenGroup, usingGroup)
+						// 入口处按用户分组判定过未绑定渠道的客户端 UA 规则，换了分组要按新分组再判一次
+						if ruleErr := service.RejectByClientUaRule(c, modelRequest.Model, 0); ruleErr != nil {
+							abortWithEntryFormatError(c, ruleErr)
+							return
+						}
 					}
 				}
 

@@ -538,6 +538,15 @@ export default function SettingsClientUaRule(props) {
               value={selectorPathRegex}
               onChange={setSelectorPathRegex}
             />
+            <Text
+              type='tertiary'
+              size='small'
+              style={{ display: 'block', marginTop: 4 }}
+            >
+              {t(
+                'Playground 请求同样受规则约束；只想限制 API 客户端时，可把路径限定为 ^/v1/。',
+              )}
+            </Text>
           </div>
           <div style={{ marginBottom: 12 }}>
             <ChannelSelector

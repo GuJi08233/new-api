@@ -6058,6 +6058,7 @@
     "拒绝提示": "Message de refus",
     "停用此规则": "Désactiver cette règle",
     "客户端规则拦截": "Blocage par règle client",
-    "限定渠道": "Limiter aux canaux"
+    "限定渠道": "Limiter aux canaux",
+    "Playground 请求同样受规则约束；只想限制 API 客户端时，可把路径限定为 ^/v1/。": "Les requêtes du Playground sont également soumises à ces règles ; pour ne restreindre que les clients API, limitez le chemin à ^/v1/."
   }
 }

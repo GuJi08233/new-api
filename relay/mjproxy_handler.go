@@ -503,6 +503,10 @@ func RelayMidjourneySubmit(c *gin.Context, relayInfo *relaycommon.RelayInfo) *dt
 			if channel.Status != common.ChannelStatusEnabled {
 				return service.MidjourneyErrorWrapper(constant.MjRequestError, "该任务所属渠道已被禁用")
 			}
+			// Distribute 只判定了随机选中的渠道，换回原任务渠道后补判绑定该渠道的客户端 UA 规则
+			if ruleErr := service.RejectByClientUaRule(c, relayInfo.OriginModelName, originTask.ChannelId); ruleErr != nil {
+				return service.MidjourneyErrorWrapper(constant.MjRequestError, ruleErr.Error())
+			}
 			c.Set("base_url", channel.GetBaseURL())
 			c.Set("channel_id", originTask.ChannelId)
 			common.SetContextKey(c, constant.ContextKeyChannelSetting, channel.GetSetting())

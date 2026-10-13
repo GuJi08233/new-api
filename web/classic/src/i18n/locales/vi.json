@@ -6566,6 +6566,7 @@
     "拒绝提示": "Thông báo từ chối",
     "停用此规则": "Tắt quy tắc này",
     "客户端规则拦截": "Chặn theo quy tắc máy khách",
-    "限定渠道": "Giới hạn kênh"
+    "限定渠道": "Giới hạn kênh",
+    "Playground 请求同样受规则约束；只想限制 API 客户端时，可把路径限定为 ^/v1/。": "Yêu cầu từ Playground cũng chịu các quy tắc này; nếu chỉ muốn giới hạn máy khách API, hãy giới hạn đường dẫn là ^/v1/."
   }
 }

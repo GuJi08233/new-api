@@ -10,6 +10,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/glebarez/sqlite"
@@ -98,4 +99,30 @@ func TestDistributeRejectsClientUaBeforeRouting(t *testing.T) {
 		assert.Equal(t, "SDK 模式不可用 (request id: ua-test-2)", response.Error.Message)
 		assert.Equal(t, string(types.ErrorCodeAccessDenied), response.Error.Code)
 	})
+}
+
+// Playground 对所有登录用户开放，切换到受限分组后必须按新分组判定，不能凭入口时的用户分组放行。
+func TestDistributeRechecksClientUaAfterPlaygroundGroupSwitch(t *testing.T) {
+	db := setupClientUaRuleDB(t)
+	previousGroups := setting.UserUsableGroups2JSONString()
+	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"default":"默认分组","vip":"vip分组"}`))
+	t.Cleanup(func() { require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(previousGroups)) })
+	t.Cleanup(operation_setting.SetClientUaRuleSettingForTest([]operation_setting.ClientUaRule{
+		{Name: "vip-cli-only", GroupRegex: []string{"^vip$"}, UaAllow: []string{"claude-cli/"}},
+	}))
+
+	ctx, recorder := newDocumentRouteTestContext(t, "/pg/chat/completions", `{"model":"claude-opus-4-1","group":"vip","messages":[]}`)
+	ctx.Request.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+	common.SetContextKey(ctx, constant.ContextKeyUsingGroup, "default")
+	common.SetContextKey(ctx, constant.ContextKeyUserGroup, "default")
+	ctx.Set("id", 7)
+
+	Distribute()(ctx)
+
+	assert.True(t, ctx.IsAborted())
+	assert.Equal(t, http.StatusForbidden, recorder.Code)
+	var events []model.RiskEvent
+	require.NoError(t, db.Where("event_type = ?", model.RiskEventBlockClientUa).Find(&events).Error)
+	require.Len(t, events, 1)
+	assert.Equal(t, "vip-cli-only", events[0].Rule)
 }

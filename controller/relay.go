@@ -902,7 +902,7 @@ func RelayTask(c *gin.Context) {
 	if lockedCh, ok := relayInfo.LockedChannel.(*model.Channel); ok && lockedCh != nil {
 		for _, channelID := range []int{0, lockedCh.Id} {
 			if ruleErr := service.RejectByClientUaRule(c, relayInfo.OriginModelName, channelID); ruleErr != nil {
-				respondTaskError(c, service.TaskErrorWrapperLocal(ruleErr.Err, string(types.ErrorCodeAccessDenied), ruleErr.StatusCode))
+				respondTaskError(c, service.TaskErrorFromAPIError(ruleErr))
 				return
 			}
 		}

@@ -584,20 +584,18 @@ func applyOptionToRuntime(key string, value string) (err error) {
 	if err := operation_setting.ValidateIpLocationOption(key, value); err != nil {
 		return err
 	}
-	if err := operation_setting.ValidateClientUaRuleOption(key, value); err != nil {
-		return err
-	}
 	if err := operation_setting.ValidateTradeOption(key, value); err != nil {
 		return err
 	}
 	if err := operation_setting.ValidateGameOption(key, value); err != nil {
 		return err
 	}
-	// 注意：此处不做阶梯计费表达式校验。updateOptionMap 同时服务于写入路径
+	// 注意：此处不做阶梯计费表达式与客户端 UA 规则的校验。updateOptionMap 同时服务于写入路径
 	// （UpdateOption / UpdateOptionsBulk，二者已在入口校验）和 loadOptionsFromDatabase
 	// 的加载回放路径。在加载路径上拒绝一个已存在于库中的值，只会让整张表达式 map
 	// 静默不载入内存，导致所有 tiered_expr 模型退化为"无表达式"而全部请求失败。
 	// 运行期已有 billingexpr.ValidateCost 在预扣费与结算两端兜底，不依赖加载期校验。
+	// 客户端 UA 规则同理：整组拒绝会让全部规则失效，改由 SyncClientUaRuleSetting 逐条跳过坏规则。
 	common.OptionMap[key] = value
 
 	// 检查是否是模型配置 - 使用更规范的方式处理

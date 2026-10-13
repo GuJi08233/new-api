@@ -27,7 +27,7 @@ func TestMatchClientUaRuleRequestContext(t *testing.T) {
 		{name: "single token group is matched", path: "/v1/messages", usingGroup: "vip", userGroup: "default", want: true},
 		{name: "other token group untouched", path: "/v1/messages", usingGroup: "default", userGroup: "vip", want: false},
 		{name: "auto token falls back to user group", path: "/v1/messages", usingGroup: "auto", userGroup: "vip", want: true},
-		{name: "playground is exempt", path: "/pg/chat/completions", usingGroup: "vip", userGroup: "vip", want: false},
+		{name: "playground follows the same rules", path: "/pg/chat/completions", usingGroup: "vip", userGroup: "vip", want: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

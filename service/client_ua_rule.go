@@ -17,9 +17,9 @@ import (
 
 // MatchClientUaRule 返回本次请求违反的客户端 UA 准入规则，无副作用。
 // channelID 为 0 时只评估未绑定渠道的规则(选路前)，大于 0 时只评估绑定了该渠道的规则。
-// 管理端 Playground 走浏览器会话而非 API 客户端，不受客户端规则约束。
+// Playground 对所有登录用户开放，同样受规则约束；需要放行时由规则的路径条件限定(如 ^/v1/)。
 func MatchClientUaRule(c *gin.Context, modelName string, channelID int) *operation_setting.ClientUaRule {
-	if c == nil || c.Request == nil || strings.HasPrefix(c.Request.URL.Path, "/pg/") {
+	if c == nil || c.Request == nil {
 		return nil
 	}
 	return operation_setting.FindViolatedClientUaRule(operation_setting.ClientUaRequest{
