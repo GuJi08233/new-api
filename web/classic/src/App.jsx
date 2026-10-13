@@ -35,7 +35,6 @@ import PasswordResetConfirm from './components/auth/PasswordResetConfirm';
 import Channel from './pages/Channel';
 import Token from './pages/Token';
 import Redemption from './pages/Redemption';
-import RiskControl from './pages/RiskControl';
 import SystemInfo from './pages/SystemInfo';
 import TradeAdmin from './pages/TradeAdmin';
 import GameAdmin from './pages/GameAdmin';
@@ -58,6 +57,7 @@ import SetupCheck from './components/layout/SetupCheck';
 
 const Home = lazy(() => import('./pages/Home'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
+const RiskControl = lazy(() => import('./pages/RiskControl'));
 const About = lazy(() => import('./pages/About'));
 const UserAgreement = lazy(() => import('./pages/UserAgreement'));
 const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy'));
@@ -213,7 +213,12 @@ function App() {
             path='/console/risk_control'
             element={
               <AdminRoute>
-                <RiskControl />
+                <Suspense
+                  fallback={<Loading></Loading>}
+                  key={location.pathname}
+                >
+                  <RiskControl />
+                </Suspense>
               </AdminRoute>
             }
           />

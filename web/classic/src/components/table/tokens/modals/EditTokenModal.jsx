@@ -121,7 +121,7 @@ const EditTokenModal = (props) => {
     const { success, message, data } = res.data;
     if (success) {
       const categories = getModelCategories(t);
-      let localModelOptions = data.map((model) => {
+      let localModelOptions = (data || []).map((model) => {
         let icon = null;
         for (const [key, category] of Object.entries(categories)) {
           if (key !== 'all' && category.filter({ model_name: model })) {
