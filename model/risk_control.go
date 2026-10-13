@@ -108,6 +108,38 @@ type RiskIpDetailItem struct {
 	LastSeen     int64  `json:"last_seen" gorm:"column:last_seen"`
 }
 
+// RiskUserState 是从主库读取的账号当前处置状态，不依赖日志库中的历史角色。
+type RiskUserState struct {
+	Id               int    `json:"id"`
+	Username         string `json:"username"`
+	Role             int    `json:"-"`
+	Status           int    `json:"status"`
+	DisableReason    string `json:"disable_reason"`
+	DisableExpiresAt int64  `json:"disable_expires_at"`
+	CanManage        bool   `json:"can_manage" gorm:"-"`
+	CanDisable       bool   `json:"can_disable" gorm:"-"`
+	CanEnable        bool   `json:"can_enable" gorm:"-"`
+	Whitelisted      bool   `json:"whitelisted" gorm:"-"`
+	AccountExempt    bool   `json:"account_exempt" gorm:"-"`
+}
+
+func GetRiskUserStates(userIds []int) (map[int]RiskUserState, error) {
+	byId := make(map[int]RiskUserState)
+	if len(userIds) == 0 {
+		return byId, nil
+	}
+	var states []RiskUserState
+	if err := DB.Model(&User{}).
+		Select("id", "username", "role", "status", "disable_reason", "disable_expires_at").
+		Where("id IN ?", userIds).Find(&states).Error; err != nil {
+		return nil, err
+	}
+	for _, state := range states {
+		byId[state.Id] = state
+	}
+	return byId, nil
+}
+
 // normalizeRiskWindow 归一化统计窗口(小时)。
 func normalizeRiskWindow(hours int) int64 {
 	if hours <= 0 {
@@ -158,6 +190,8 @@ type MultiAccountQuery struct {
 	MinUsers        int   // 关联账号数下限,低于该值的地址不进榜
 	IncludeRequests bool  // 是否把调用与错误日志也算作证据
 	ExcludeUserIds  []int // 全局白名单账号
+	Keyword         string
+	Offset          int
 }
 
 // MultiAccountIpItem 单个来源地址上的多账号关联项。
@@ -262,6 +296,9 @@ func multiAccountBaseQuery(q MultiAccountQuery) *gorm.DB {
 		Where("type IN ?", multiAccountLogTypes(q.IncludeRequests)).
 		Where("ip <> ''").
 		Where("user_id > 0")
+	if q.Keyword != "" {
+		tx = tx.Where("ip LIKE ? ESCAPE '!'", riskKeywordPattern(q.Keyword))
+	}
 	return riskExcludeUsers(tx, q.ExcludeUserIds)
 }
 
@@ -281,7 +318,8 @@ func GetMultiAccountRanking(q MultiAccountQuery) ([]MultiAccountIpItem, error) {
 		}, ", ")).
 		Group("ip").
 		Having("count(distinct user_id) >= ?", normalizeMultiAccountMinUsers(q.MinUsers)).
-		Order("user_count desc, register_count desc, event_count desc").
+		Order("user_count desc, register_count desc, event_count desc, ip asc").
+		Offset(q.Offset).
 		Limit(normalizeRiskLimit(q.Limit)).
 		Find(&items).Error
 	return items, err
@@ -654,6 +692,8 @@ type RiskOverviewQuery struct {
 	SortBy         string // 排序字段,不在白名单内时回退请求数
 	SortOrder      string // asc | desc,默认 desc
 	ExcludeUserIds []int  // 排除这些用户产生的日志行(风控白名单)
+	Keyword        string
+	Offset         int
 }
 
 // riskOverviewDefaultSort 是合并排行的默认排序字段。
@@ -722,89 +762,100 @@ func riskOverviewOrderBy(exprs map[string]string, sortBy string, sortOrder strin
 	return expr + " " + direction + ", " + tieBreaker + " asc"
 }
 
-// GetUserOverviewRanking 返回窗口内的用户合并排行。
-// 一条 SQL 聚合出全部指标,保证按任一字段取 top N 时同行的其余指标都是真实值。
+// riskOverviewQuery 统一排行与分页总数的口径，按白名单字段构造聚合查询。
+func riskOverviewQuery(metric string, query RiskOverviewQuery, ordered bool) (*gorm.DB, error) {
+	tinyExpr := riskTinyRequestCountExpr(query.TinyMaxTokens)
+	sorts := riskOverviewSharedSortExprs(tinyExpr)
+	selects := riskOverviewSharedSelects(tinyExpr)
+	tx := LOG_DB.Table("logs").Where("created_at >= ?", normalizeRiskWindow(query.Hours)).Where("type IN ?", riskLogTypes())
+	var group string
+	switch metric {
+	case RiskMetricUserOverview:
+		group = "user_id"
+		selects = append(selects, "user_id", "max(username) as username", riskDistinctIpExpr+" as ip_count")
+		sorts["ip_count"] = riskDistinctIpExpr
+		tx = tx.Where("user_id > 0")
+		if query.Keyword != "" {
+			if id, err := strconv.Atoi(query.Keyword); err == nil && id > 0 {
+				tx = tx.Having("user_id = ? OR max(username) LIKE ? ESCAPE '!'", id, riskKeywordPattern(query.Keyword))
+			} else {
+				tx = tx.Having("max(username) LIKE ? ESCAPE '!'", riskKeywordPattern(query.Keyword))
+			}
+		}
+	case RiskMetricIpOverview:
+		group = "ip"
+		selects = append(selects, "ip", riskDistinctUserExpr+" as user_count")
+		sorts["user_count"] = riskDistinctUserExpr
+		tx = tx.Where("ip <> ''")
+	case RiskMetricUa:
+		group = "ua"
+		selects = append(selects, "ua", riskDistinctUserExpr+" as user_count", riskDistinctIpExpr+" as ip_count")
+		sorts["user_count"], sorts["ip_count"] = riskDistinctUserExpr, riskDistinctIpExpr
+		tx = tx.Where("ua <> ''")
+	default:
+		return nil, errors.New("invalid risk overview metric")
+	}
+	if query.Keyword != "" && group != "user_id" {
+		tx = tx.Where(group+" LIKE ? ESCAPE '!'", riskKeywordPattern(query.Keyword))
+	}
+	tx = riskExcludeUsers(tx, query.ExcludeUserIds).Select(strings.Join(selects, ", ")).Group(group)
+	if ordered {
+		tx = tx.Order(riskOverviewOrderBy(sorts, query.SortBy, query.SortOrder, group))
+	}
+	return tx, nil
+}
+
+func riskKeywordPattern(keyword string) string {
+	return "%" + strings.NewReplacer("!", "!!", "%", "!%", "_", "!_").Replace(keyword) + "%"
+}
+
 func GetUserOverviewRanking(query RiskOverviewQuery) ([]UserOverviewItem, error) {
-	tinyExpr := riskTinyRequestCountExpr(query.TinyMaxTokens)
-	sortExprs := riskOverviewSharedSortExprs(tinyExpr)
-	sortExprs["ip_count"] = riskDistinctIpExpr
-
-	selects := append([]string{
-		"user_id",
-		"max(username) as username",
-		riskDistinctIpExpr + " as ip_count",
-	}, riskOverviewSharedSelects(tinyExpr)...)
-
-	tx := LOG_DB.Table("logs").
-		Select(strings.Join(selects, ", ")).
-		Where("created_at >= ?", normalizeRiskWindow(query.Hours)).
-		Where("type IN ?", riskLogTypes()).
-		Where("user_id > 0")
-
+	tx, err := riskOverviewQuery(RiskMetricUserOverview, query, true)
+	if err != nil {
+		return nil, err
+	}
 	var items []UserOverviewItem
-	err := riskExcludeUsers(tx, query.ExcludeUserIds).
-		Group("user_id").
-		Order(riskOverviewOrderBy(sortExprs, query.SortBy, query.SortOrder, "user_id")).
-		Limit(normalizeRiskLimit(query.Limit)).
-		Find(&items).Error
+	err = tx.Offset(query.Offset).Limit(normalizeRiskLimit(query.Limit)).Find(&items).Error
 	return items, err
 }
 
-// GetIpOverviewRanking 返回窗口内的 IP 合并排行。
-// ExcludeUserIds 排除白名单用户产生的日志行:纯由白名单用户使用的 IP 因此完全不上榜,
-// 混合使用的 IP 只统计非白名单部分。
 func GetIpOverviewRanking(query RiskOverviewQuery) ([]IpOverviewItem, error) {
-	tinyExpr := riskTinyRequestCountExpr(query.TinyMaxTokens)
-	sortExprs := riskOverviewSharedSortExprs(tinyExpr)
-	sortExprs["user_count"] = riskDistinctUserExpr
-
-	selects := append([]string{
-		"ip",
-		riskDistinctUserExpr + " as user_count",
-	}, riskOverviewSharedSelects(tinyExpr)...)
-
-	tx := LOG_DB.Table("logs").
-		Select(strings.Join(selects, ", ")).
-		Where("created_at >= ?", normalizeRiskWindow(query.Hours)).
-		Where("type IN ?", riskLogTypes()).
-		Where("ip <> ''")
-
+	tx, err := riskOverviewQuery(RiskMetricIpOverview, query, true)
+	if err != nil {
+		return nil, err
+	}
 	var items []IpOverviewItem
-	err := riskExcludeUsers(tx, query.ExcludeUserIds).
-		Group("ip").
-		Order(riskOverviewOrderBy(sortExprs, query.SortBy, query.SortOrder, "ip")).
-		Limit(normalizeRiskLimit(query.Limit)).
-		Find(&items).Error
+	err = tx.Offset(query.Offset).Limit(normalizeRiskLimit(query.Limit)).Find(&items).Error
 	return items, err
 }
 
-// GetUaOverviewRanking 返回窗口内的 UA 合并排行:同一客户端标识被多少用户、多少 IP 使用。
-// 同一 UA 覆盖大量用户与 IP 通常是脚本或代理工具,也是配置 UA 黑名单的依据。
 func GetUaOverviewRanking(query RiskOverviewQuery) ([]UaOverviewItem, error) {
-	tinyExpr := riskTinyRequestCountExpr(query.TinyMaxTokens)
-	sortExprs := riskOverviewSharedSortExprs(tinyExpr)
-	sortExprs["user_count"] = riskDistinctUserExpr
-	sortExprs["ip_count"] = riskDistinctIpExpr
-
-	selects := append([]string{
-		"ua",
-		riskDistinctUserExpr + " as user_count",
-		riskDistinctIpExpr + " as ip_count",
-	}, riskOverviewSharedSelects(tinyExpr)...)
-
-	tx := LOG_DB.Table("logs").
-		Select(strings.Join(selects, ", ")).
-		Where("created_at >= ?", normalizeRiskWindow(query.Hours)).
-		Where("type IN ?", riskLogTypes()).
-		Where("ua <> ''")
-
+	tx, err := riskOverviewQuery(RiskMetricUa, query, true)
+	if err != nil {
+		return nil, err
+	}
 	var items []UaOverviewItem
-	err := riskExcludeUsers(tx, query.ExcludeUserIds).
-		Group("ua").
-		Order(riskOverviewOrderBy(sortExprs, query.SortBy, query.SortOrder, "ua")).
-		Limit(normalizeRiskLimit(query.Limit)).
-		Find(&items).Error
+	err = tx.Offset(query.Offset).Limit(normalizeRiskLimit(query.Limit)).Find(&items).Error
 	return items, err
+}
+
+// CountRiskOverview 返回全部匹配目标数，不受排行榜的 top N 上限限制。
+func CountRiskOverview(metric string, query RiskOverviewQuery) (int64, error) {
+	tx, err := riskOverviewQuery(metric, query, false)
+	if err != nil {
+		return 0, err
+	}
+	var count int64
+	err = LOG_DB.Table("(?) AS risk_targets", tx.Select("1")).Count(&count).Error
+	return count, err
+}
+
+func CountMultiAccountRanking(query MultiAccountQuery) (int64, error) {
+	grouped := multiAccountBaseQuery(query).Select("ip").Group("ip").
+		Having("count(distinct user_id) >= ?", normalizeMultiAccountMinUsers(query.MinUsers))
+	var total int64
+	err := LOG_DB.Table("(?) AS risk_targets", grouped).Count(&total).Error
+	return total, err
 }
 
 // 下钻详情:围绕单个目标(用户 / IP / UA)展开它的关联对象与错误分布。

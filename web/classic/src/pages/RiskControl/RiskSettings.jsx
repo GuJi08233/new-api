@@ -30,6 +30,8 @@ import {
   Spin,
   Switch,
   Table,
+  Tabs,
+  TabPane,
   TextArea,
   Typography,
 } from '@douyinfe/semi-ui';
@@ -37,6 +39,8 @@ import { IconDelete, IconPlus, IconRefresh } from '@douyinfe/semi-icons';
 import { useTranslation } from 'react-i18next';
 import { API, showError, showSuccess } from '../../helpers';
 import { clearIpInfoCache } from '../../components/common/ui/IpTag';
+import RiskRulePreviewModal from './RiskRulePreviewModal';
+import { riskMetricLabel, riskActionLabel } from './riskLabels';
 
 const { Text, Title } = Typography;
 
@@ -109,10 +113,14 @@ const parseJsonArray = (value, fallback = []) => {
   }
 };
 
-const RiskSettings = () => {
+const RiskSettings = ({ onInspect, onViewEvents, onSaved }) => {
   const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const [section, setSection] = useState('realtime');
+  const [previewRule, setPreviewRule] = useState(null);
 
   const [enabled, setEnabled] = useState(false);
   const [uaBlacklistText, setUaBlacklistText] = useState('');
@@ -148,7 +156,8 @@ const RiskSettings = () => {
   const [clearingCache, setClearingCache] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
 
-  const loadSettings = async () => {
+  const loadSettings = async (appliedValues = {}) => {
+    let didLoad = false;
     setLoading(true);
     try {
       const res = await API.get('/api/option/');
@@ -158,6 +167,7 @@ const RiskSettings = () => {
         data.forEach((item) => {
           optionMap[item.key] = item.value;
         });
+        Object.assign(optionMap, appliedValues);
         setEnabled(optionMap[KEY_ENABLED] === 'true');
         setUaBlacklistText(
           parseJsonArray(optionMap[KEY_UA_BLACKLIST]).join('\n'),
@@ -229,7 +239,7 @@ const RiskSettings = () => {
         setRules(
           parseJsonArray(optionMap[KEY_RULES]).map((r, idx) => ({
             ...r,
-            _id: idx,
+            id: r.id || `legacy-${idx + 1}`,
           })),
         );
         setGiteeApiKey(optionMap[KEY_GITEE_API_KEY] || '');
@@ -241,6 +251,8 @@ const RiskSettings = () => {
         );
         // 未配置时跟随后端默认值(true)，因此只在显式为 false 时关闭。
         setAutoLookup(optionMap[KEY_AUTO_LOOKUP] !== 'false');
+        didLoad = true;
+        setLoaded(true);
       } else {
         showError(message);
       }
@@ -248,6 +260,7 @@ const RiskSettings = () => {
       showError(e.message);
     }
     setLoading(false);
+    return didLoad;
   };
 
   useEffect(() => {
@@ -256,6 +269,35 @@ const RiskSettings = () => {
   }, []);
 
   const saveSettings = async () => {
+    if (saving || !loaded) return;
+    setSaveError('');
+    for (const text of [whitelistText, publicKeyUsersText]) {
+      const invalid = text
+        .split(/[,，\s]+/)
+        .filter(Boolean)
+        .some(
+          (value) =>
+            !/^[1-9]\d*$/.test(value) || !Number.isSafeInteger(Number(value)),
+        );
+      if (invalid) {
+        setSaveError(t('账号 ID 必须为正整数，请检查白名单输入。'));
+        return;
+      }
+    }
+    if (
+      egStatusCodesText
+        .split(/[,，\s]+/)
+        .filter(Boolean)
+        .some(
+          (value) =>
+            !/^\d{3}$/.test(value) ||
+            Number(value) < 400 ||
+            Number(value) > 599,
+        )
+    ) {
+      setSaveError(t('错误状态码必须为 400 到 599 的整数。'));
+      return;
+    }
     const uaBlacklist = uaBlacklistText
       .split('\n')
       .map((s) => s.trim())
@@ -271,7 +313,7 @@ const RiskSettings = () => {
         .filter((n) => Number.isFinite(n) && n > 0);
     const whitelistUserIds = parseUserIds(whitelistText);
     const publicKeyUserIds = parseUserIds(publicKeyUsersText);
-    const cleanRules = rules.map(({ _id, ...rest }) => {
+    const cleanRules = rules.map((rest) => {
       const metric = rest.metric || 'ip_multi_user';
       let action = rest.action || 'alert';
       // 封禁 IP 只对 IP 维度指标有效,指标被改为用户维度后回退为仅告警
@@ -282,6 +324,8 @@ const RiskSettings = () => {
         action = 'alert';
       }
       return {
+        id: rest.id,
+        name: (rest.name || '').trim(),
         enabled: !!rest.enabled,
         metric,
         window_hours: rest.window_hours > 0 ? rest.window_hours : 24,
@@ -338,17 +382,25 @@ const RiskSettings = () => {
 
     setSaving(true);
     try {
-      const results = await Promise.all(
-        updates.map((item) => API.put('/api/option/', item)),
+      const res = await API.put(
+        '/api/option/risk',
+        Object.fromEntries(updates.map(({ key, value }) => [key, value])),
+        { skipErrorHandler: true },
       );
-      const failed = results.filter((res) => !res?.data?.success);
-      if (failed.length > 0) {
-        showError(t('部分保存失败，请重试'));
-      } else {
+      if (!res.data.success) throw new Error(res.data.message);
+      if (await loadSettings(res.data.data?.options)) {
         showSuccess(t('保存成功'));
+      } else {
+        setSaveError(t('配置已保存，但读取生效值失败，请刷新后核对。'));
       }
+      onSaved?.();
     } catch (e) {
-      showError(e.message);
+      const errors = e.response?.data?.data?.field_errors;
+      const message = errors
+        ? Object.values(errors).join('\n')
+        : e.response?.data?.message || e.message;
+      setSaveError(message);
+      showError(message);
     }
     setSaving(false);
   };
@@ -357,7 +409,10 @@ const RiskSettings = () => {
     setRules((currentRules) => [
       ...currentRules,
       {
-        _id: Date.now(),
+        id:
+          globalThis.crypto?.randomUUID?.() ||
+          `rule-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`,
+        name: '',
         enabled: false,
         metric: 'ip_multi_user',
         window_hours: 24,
@@ -369,12 +424,12 @@ const RiskSettings = () => {
 
   const updateRule = (id, patch) => {
     setRules((currentRules) =>
-      currentRules.map((r) => (r._id === id ? { ...r, ...patch } : r)),
+      currentRules.map((r) => (r.id === id ? { ...r, ...patch } : r)),
     );
   };
 
   const removeRule = (id) => {
-    setRules((currentRules) => currentRules.filter((r) => r._id !== id));
+    setRules((currentRules) => currentRules.filter((r) => r.id !== id));
   };
 
   const confirmClearCache = async () => {
@@ -398,13 +453,38 @@ const RiskSettings = () => {
 
   const ruleColumns = [
     {
+      title: t('规则名称'),
+      width: 240,
+      render: (_, record) => (
+        <Space vertical align='start'>
+          <Input
+            value={record.name || ''}
+            maxLength={80}
+            placeholder={riskMetricLabel(record.metric, t)}
+            onChange={(value) => updateRule(record.id, { name: value })}
+          />
+          <Text type='tertiary' size='small'>
+            {record.id}
+          </Text>
+          <Text size='small'>
+            {t('{{hours}} 小时内，{{metric}} > {{threshold}} 时{{action}}', {
+              hours: record.window_hours,
+              metric: riskMetricLabel(record.metric, t),
+              threshold: record.threshold,
+              action: riskActionLabel(record.action, t),
+            })}
+          </Text>
+        </Space>
+      ),
+    },
+    {
       title: t('启用'),
       dataIndex: 'enabled',
       width: 80,
       render: (v, record) => (
         <Switch
           checked={!!v}
-          onChange={(checked) => updateRule(record._id, { enabled: checked })}
+          onChange={(checked) => updateRule(record.id, { enabled: checked })}
         />
       ),
     },
@@ -424,7 +504,7 @@ const RiskSettings = () => {
             ) {
               patch.action = 'alert';
             }
-            updateRule(record._id, patch);
+            updateRule(record.id, patch);
           }}
         >
           <Select.Option value='ip_multi_user'>
@@ -454,7 +534,7 @@ const RiskSettings = () => {
           min={1}
           max={168}
           style={{ width: 100 }}
-          onChange={(val) => updateRule(record._id, { window_hours: val })}
+          onChange={(val) => updateRule(record.id, { window_hours: val })}
         />
       ),
     },
@@ -466,7 +546,7 @@ const RiskSettings = () => {
           value={v}
           min={1}
           style={{ width: 100 }}
-          onChange={(val) => updateRule(record._id, { threshold: val })}
+          onChange={(val) => updateRule(record.id, { threshold: val })}
         />
       ),
     },
@@ -477,7 +557,7 @@ const RiskSettings = () => {
         <Select
           value={v}
           style={{ width: 180 }}
-          onChange={(val) => updateRule(record._id, { action: val })}
+          onChange={(val) => updateRule(record.id, { action: val })}
         >
           <Select.Option value='alert'>{t('仅告警')}</Select.Option>
           <Select.Option value='disable_user'>
@@ -506,7 +586,7 @@ const RiskSettings = () => {
             style={{ width: 110 }}
             placeholder='0'
             onChange={(val) =>
-              updateRule(record._id, { ban_minutes: val > 0 ? val : 0 })
+              updateRule(record.id, { ban_minutes: val > 0 ? val : 0 })
             }
           />
         ) : (
@@ -516,26 +596,45 @@ const RiskSettings = () => {
         ),
     },
     {
-      title: '',
-      width: 60,
+      title: t('操作'),
+      width: 180,
       render: (_, record) => (
-        <Button
-          theme='borderless'
-          type='danger'
-          icon={<IconDelete />}
-          onClick={() => removeRule(record._id)}
-        />
+        <Space vertical>
+          <Button size='small' onClick={() => setPreviewRule({ ...record })}>
+            {t('命中预览')}
+          </Button>
+          <Button
+            size='small'
+            onClick={() => onViewEvents?.({ rule_id: record.id })}
+          >
+            {t('查看事件')}
+          </Button>
+          <Button
+            theme='borderless'
+            type='danger'
+            icon={<IconDelete />}
+            aria-label={t('删除规则')}
+            onClick={() => removeRule(record.id)}
+          />
+        </Space>
       ),
     },
   ];
 
   return (
-    <Spin spinning={loading}>
+    <Spin spinning={loading || saving}>
+      {saveError && (
+        <Banner
+          type='danger'
+          className='mb-4 whitespace-pre-line'
+          description={saveError}
+        />
+      )}
       <Banner
         type='info'
         className='mb-4'
         description={t(
-          '自动封禁规则由后台周期扫描执行,只影响普通用户(管理员与全局白名单账号不会被自动处置)。IP/UA 黑名单在请求时实时拦截。全局白名单账号的流量既不被拦截,也不进入自动封禁的排行统计,因此不会连带封掉它使用的 IP;这些请求仍照常出现在滥用排行榜(可用排行榜上的开关过滤)。每条规则可单独选择处置对象(IP / 账号 / 两者)与封禁时长。',
+          '静态 IP/UA 黑名单实时拦截；自动规则按扫描周期执行。管理员账号不会被自动禁用。全局白名单豁免自动处置，并从扫描统计中排除；动态 IP 封禁独立于总开关生效。',
         )}
       />
 
@@ -543,7 +642,7 @@ const RiskSettings = () => {
         <Space vertical align='start'>
           <Space>
             <Switch checked={enabled} onChange={setEnabled} />
-            <Text>{t('启用风控(UA 黑名单拦截与自动封禁扫描的总开关)')}</Text>
+            <Text>{t('启用自动检测与静态黑名单拦截')}</Text>
           </Space>
           <Space>
             <Text>{t('自动封禁扫描周期(分钟)')}</Text>
@@ -565,430 +664,496 @@ const RiskSettings = () => {
               onChange={(v) => setRetentionDays(v > 0 ? v : 30)}
             />
           </Space>
-          <Space>
-            <Text>{t('全局白名单账号 ID(逗号分隔)')}</Text>
-            <TextArea
-              value={whitelistText}
-              onChange={setWhitelistText}
-              placeholder='1,2,3'
-              rows={1}
-              style={{ width: 320 }}
-            />
-          </Space>
-          <Text type='tertiary' size='small'>
-            {t(
-              '全局白名单账号完全不受风控:请求不被拦截、账号不被自动禁用,且它近 24 小时内使用过的 IP 不会被自动封禁(这些账号的流量也不进入自动封禁扫描的排行统计)。把运营者自己和内部账号填在这里,避免自己的出口地址被自己的规则封掉后连带拦下同出口的其他用户。手动添加的 IP 封禁不受此豁免影响。',
-            )}
-            {t(
-              'IP 豁免依据日志中记录的地址,需要开启 IP 日志(全局或白名单账号自己的设置)才能生效。',
-            )}
-          </Text>
-          {whitelistText.trim() !== '' && !ipLogEnabled && (
-            <Banner
-              type='warning'
-              description={t(
-                '全局 IP 日志已关闭:白名单账号的 IP 豁免依赖日志中的 IP 字段,除非这些账号单独开启了 IP 记录,否则实时防护仍会封禁它们使用的出口地址。',
-              )}
-            />
-          )}
-          <Space>
-            <Text>{t('用户级白名单账号 ID(逗号分隔,仅保护账号)')}</Text>
-            <TextArea
-              value={publicKeyUsersText}
-              onChange={setPublicKeyUsersText}
-              placeholder='1,2,3'
-              rows={1}
-              style={{ width: 320 }}
-            />
-          </Space>
-          <Text type='tertiary' size='small'>
-            {t(
-              '用户级白名单只保证账号永不被自动禁用,来源 IP 的封禁与请求拦截照常生效。适用于对外分享的公开/共享密钥:滥用者不是账号主人,禁用账号会打死所有正常使用者。想封住滥用者又不影响密钥主人时,把账号填在这里,并把处置动作设为「封禁 IP」或「封禁 IP + 禁用账号」。',
-            )}
-          </Text>
         </Space>
       </Card>
 
-      <Card className='mb-4' title={t('UA 黑名单')}>
-        <Space vertical align='start' style={{ width: '100%' }}>
-          <Text type='tertiary'>
-            {t(
-              '每行一条。普通文本按子串匹配(不区分大小写),含正则元字符时按正则匹配。',
-            )}
-          </Text>
-          <TextArea
-            value={uaBlacklistText}
-            onChange={setUaBlacklistText}
-            placeholder={'curl\npython-requests\n^Go-http-client'}
-            rows={6}
-          />
-          <Space>
-            <Text>{t('命中后的动作')}</Text>
-            <Select
-              value={uaAction}
-              onChange={setUaAction}
-              style={{ width: 220 }}
-            >
-              <Select.Option value='block'>
-                {t('仅拒绝请求(403)')}
-              </Select.Option>
-              <Select.Option value='disable_user'>
-                {t('拒绝请求并自动禁用用户')}
-              </Select.Option>
-            </Select>
-          </Space>
-        </Space>
-      </Card>
-
-      <Card className='mb-4' title={t('IP 黑名单')}>
-        <Space vertical align='start' style={{ width: '100%' }}>
-          <Text type='tertiary'>
-            {t(
-              '每行一条,支持精确 IP 或 CIDR 网段(如 1.2.3.4、10.0.0.0/8)。命中后直接拒绝调用。',
-            )}
-          </Text>
-          <TextArea
-            value={ipBlacklistText}
-            onChange={setIpBlacklistText}
-            placeholder={'1.2.3.4\n10.0.0.0/8\n2001:db8::/32'}
-            rows={6}
-          />
-        </Space>
-      </Card>
-
-      <Card className='mb-4' title={t('IP 归属地查询')}>
-        <Space vertical align='start' style={{ width: '100%' }}>
-          <Text type='tertiary'>
-            {t(
-              '用于使用日志与风控页面的 IP 归属地展示。按顺序依次尝试提供方，失败自动切换下一个；结果会缓存到数据库，同一 IP 只查询一次。多选框的选择顺序即查询顺序。',
-            )}
-          </Text>
-          <Space>
-            <Text>{t('Gitee AI 密钥')}</Text>
-            <Input
-              value={giteeApiKey}
-              onChange={setGiteeApiKey}
-              mode='password'
-              placeholder={t('已保存的密钥不会回显；留空表示不修改')}
-              style={{ width: 360 }}
-            />
-          </Space>
-          <Space>
-            <Text>{t('IPv4 查询顺序')}</Text>
-            <Select
-              multiple
-              value={ipv4Order}
-              onChange={setIpv4Order}
-              optionList={IP_PROVIDER_OPTIONS}
-              style={{ minWidth: 420 }}
-            />
-          </Space>
-          <Space>
-            <Text>{t('IPv6 查询顺序')}</Text>
-            <Select
-              multiple
-              value={ipv6Order}
-              onChange={setIpv6Order}
-              optionList={IP_PROVIDER_OPTIONS.filter(
-                (o) => o.value !== 'gitee',
-              )}
-              style={{ minWidth: 420 }}
-            />
-          </Space>
-          <Space>
-            <Text>{t('自动预取新 IP 归属地')}</Text>
-            <Switch checked={autoLookup} onChange={setAutoLookup} />
-          </Space>
-          <Text type='tertiary' size='small'>
-            {t(
-              'relay 请求的新客户端 IP 会在后台自动查询并缓存到数据库，日志展示无需等待。',
-            )}
-          </Text>
-          <Space>
-            <Button
-              type='danger'
-              theme='borderless'
-              icon={<IconRefresh />}
-              loading={clearingCache}
-              onClick={() => setConfirmClear(true)}
-            >
-              {t('清空归属地缓存')}
-            </Button>
-            <Text type='tertiary' size='small'>
-              {t(
-                '清空后下次查询会重新拉取外部接口，可切换数据源或升级后刷新。',
-              )}
-            </Text>
-          </Space>
-        </Space>
-      </Card>
-
-      <Modal
-        title={t('确认清空归属地缓存')}
-        visible={confirmClear}
-        onOk={confirmClearCache}
-        onCancel={() => setConfirmClear(false)}
-        okType='danger'
-        okText={t('确认清空')}
-        cancelText={t('取消')}
+      <Tabs
+        type='button'
+        activeKey={section}
+        onChange={setSection}
+        keepDOM={false}
       >
-        <Text>
-          {t('确认清空所有 IP 归属地缓存？下次查询将重新拉取外部接口。')}
-        </Text>
-      </Modal>
-
-      <Card className='mb-4' title={t('Probe Guard(实时测活防护)')}>
-        <Space vertical align='start' style={{ width: '100%' }}>
-          <Text type='tertiary'>
-            {t(
-              '在请求处理链路中实时检测「单 IP 短时间遍历多个不同模型」的批量测活行为,命中即拒绝请求并执行下方的处置动作(默认只封来源 IP,避免误伤被盗密钥的主人)。私网 IP、全局白名单账号与管理员豁免。建议先以演练模式观察告警,再关闭演练正式启用。',
-            )}
-          </Text>
-          <Space>
-            <Switch checked={pgEnabled} onChange={setPgEnabled} />
-            <Text>{t('启用 Probe Guard')}</Text>
-          </Space>
-          <Space>
-            <Switch checked={pgDryRun} onChange={setPgDryRun} />
-            <Text>{t('演练模式(只记告警事件,不实际封禁)')}</Text>
-          </Space>
-          <Space wrap>
-            <Text>{t('滑动窗口(秒)')}</Text>
-            <InputNumber
-              value={pgWindow}
-              min={10}
-              max={3600}
-              style={{ width: 120 }}
-              onChange={(v) => setPgWindow(v > 0 ? v : 60)}
-            />
-            <Text>{t('不同模型数阈值')}</Text>
-            <InputNumber
-              value={pgModelCount}
-              min={2}
-              max={1000}
-              style={{ width: 120 }}
-              onChange={(v) => setPgModelCount(v > 0 ? v : 5)}
-            />
-          </Space>
-          <Space wrap>
-            <Text>{t('处置动作')}</Text>
-            <Select
-              value={pgAction}
-              style={{ width: 200 }}
-              onChange={setPgAction}
-            >
-              <Select.Option value='alert'>{t('仅告警')}</Select.Option>
-              <Select.Option value='ban_ip'>{t('封禁 IP')}</Select.Option>
-              <Select.Option value='disable_user'>
-                {t('禁用账号')}
-              </Select.Option>
-              <Select.Option value='ban_both'>
-                {t('封禁 IP + 禁用账号')}
-              </Select.Option>
-            </Select>
-            <Text>{t('封禁时长(分钟,0 表示走升级阶梯)')}</Text>
-            <InputNumber
-              value={pgBanMinutes}
-              min={0}
-              max={43200}
-              style={{ width: 120 }}
-              onChange={(v) => setPgBanMinutes(v > 0 ? v : 0)}
-            />
-          </Space>
-        </Space>
-      </Card>
-
-      <Card className='mb-4' title={t('Error Guard(实时错误率防护)')}>
-        <Space vertical align='start' style={{ width: '100%' }}>
-          <Text type='tertiary'>
-            {t(
-              '在响应完成后统计「单 IP 短时间内被拒绝多少次」,只统计指定的状态码,达到阈值即执行下方的处置动作。能抓到反复拿无效密钥试探(401)、乱传参数(400)这类只在响应里才现形的行为。私网 IP、全局白名单账号与管理员豁免,风控自身的拦截不计入,已封禁 IP 的错误也不再累加。建议先以演练模式观察告警,再关闭演练正式启用。',
-            )}
-          </Text>
-          <Space>
-            <Switch checked={egEnabled} onChange={setEgEnabled} />
-            <Text>{t('启用 Error Guard')}</Text>
-          </Space>
-          <Space>
-            <Switch checked={egDryRun} onChange={setEgDryRun} />
-            <Text>{t('演练模式(只记告警事件,不实际封禁)')}</Text>
-          </Space>
-          <Space wrap>
-            <Text>{t('滑动窗口(秒)')}</Text>
-            <InputNumber
-              value={egWindow}
-              min={10}
-              max={3600}
-              style={{ width: 120 }}
-              onChange={(v) => setEgWindow(v > 0 ? v : 60)}
-            />
-            <Text>{t('错误次数阈值')}</Text>
-            <InputNumber
-              value={egThreshold}
-              min={2}
-              max={100000}
-              style={{ width: 120 }}
-              onChange={(v) => setEgThreshold(v > 0 ? v : 5)}
-            />
-          </Space>
-          <Space wrap>
-            <Text>{t('处置动作')}</Text>
-            <Select
-              value={egAction}
-              style={{ width: 200 }}
-              onChange={setEgAction}
-            >
-              <Select.Option value='alert'>{t('仅告警')}</Select.Option>
-              <Select.Option value='ban_ip'>{t('封禁 IP')}</Select.Option>
-              <Select.Option value='disable_user'>
-                {t('禁用账号')}
-              </Select.Option>
-              <Select.Option value='ban_both'>
-                {t('封禁 IP + 禁用账号')}
-              </Select.Option>
-            </Select>
-            <Text>{t('封禁时长(分钟,0 表示走升级阶梯)')}</Text>
-            <InputNumber
-              value={egBanMinutes}
-              min={0}
-              max={43200}
-              style={{ width: 120 }}
-              onChange={(v) => setEgBanMinutes(v > 0 ? v : 0)}
-            />
-          </Space>
-          <Text>{t('统计的状态码(逗号分隔)')}</Text>
-          <Input
-            value={egStatusCodesText}
-            onChange={setEgStatusCodesText}
-            placeholder='400,401,403,404'
-            style={{ width: 320 }}
-          />
-          <Text type='tertiary' size='small'>
-            {t(
-              '留空使用默认集合 400 / 401 / 403 / 404。有意不含 5xx:上游故障期间的服务端错误不该让正常用户被封,确有需要可自行加入。',
-            )}
-          </Text>
-        </Space>
-      </Card>
-
-      <Card
-        className='mb-4'
-        title={t('自动封禁规则')}
-        headerExtraContent={
-          <Button icon={<IconPlus />} onClick={addRule}>
-            {t('添加规则')}
-          </Button>
-        }
-      >
-        <Space vertical align='start' style={{ width: '100%' }}>
-          <Text type='tertiary'>
-            {t(
-              'IP 维度规则(单 IP 关联用户数 / 单 IP 使用令牌数)触发「自动禁用用户」时,会处置该 IP 在窗口内关联的全部用户;「封禁 IP」按升级阶梯只封来源 IP,误伤更小。用户维度规则只处置命中用户。每条规则的封禁时长对 IP 与账号同样生效,留 0 表示走下方的升级阶梯。建议新规则先用「仅告警」观察一段时间再切换为自动处置。',
-            )}
-          </Text>
-          <Space>
-            <Text>{t('微量请求判定阈值(输入与输出 tokens 均不超过该值)')}</Text>
-            <InputNumber
-              value={tinyMaxTokens}
-              min={1}
-              max={1024}
-              style={{ width: 120 }}
-              onChange={(v) => setTinyMaxTokens(v > 0 ? v : 16)}
-            />
-          </Space>
-          <Text>{t('封禁升级阶梯(分钟)')}</Text>
-          <Space wrap align='center'>
-            {banLadder.map((minutes, index) => (
-              <Space key={index} spacing={4} align='center'>
-                <Text type='tertiary' size='small'>
-                  {index === 0
-                    ? t('首次')
-                    : t('第 {{count}} 次', { count: index + 1 })}
+        <TabPane itemKey='realtime' tab={t('实时防护')}>
+          <div className='mt-4'>
+            <Card className='mb-4' title={t('Probe Guard(实时测活防护)')}>
+              <Space vertical align='start' style={{ width: '100%' }}>
+                <Text type='tertiary'>
+                  {t(
+                    '在请求处理链路中实时检测「单 IP 短时间遍历多个不同模型」的批量测活行为,命中即拒绝请求并执行下方的处置动作(默认只封来源 IP,避免误伤被盗密钥的主人)。私网 IP、全局白名单账号与管理员豁免。建议先以演练模式观察告警,再关闭演练正式启用。',
+                  )}
                 </Text>
-                <InputNumber
-                  value={minutes}
-                  min={1}
-                  max={43200}
-                  style={{ width: 100 }}
-                  onChange={(v) =>
-                    setBanLadder((steps) =>
-                      steps.map((step, i) => (i === index ? v || 1 : step)),
-                    )
+                <Space>
+                  <Switch checked={pgEnabled} onChange={setPgEnabled} />
+                  <Text>{t('启用 Probe Guard')}</Text>
+                </Space>
+                <Space>
+                  <Switch checked={pgDryRun} onChange={setPgDryRun} />
+                  <Text>{t('演练模式(只记告警事件,不实际封禁)')}</Text>
+                </Space>
+                <Space wrap>
+                  <Text>{t('滑动窗口(秒)')}</Text>
+                  <InputNumber
+                    value={pgWindow}
+                    min={10}
+                    max={3600}
+                    style={{ width: 120 }}
+                    onChange={(v) => setPgWindow(v > 0 ? v : 60)}
+                  />
+                  <Text>{t('不同模型数阈值')}</Text>
+                  <InputNumber
+                    value={pgModelCount}
+                    min={2}
+                    max={1000}
+                    style={{ width: 120 }}
+                    onChange={(v) => setPgModelCount(v > 0 ? v : 5)}
+                  />
+                </Space>
+                <Space wrap>
+                  <Text>{t('处置动作')}</Text>
+                  <Select
+                    value={pgAction}
+                    style={{ width: 200 }}
+                    onChange={setPgAction}
+                  >
+                    <Select.Option value='alert'>{t('仅告警')}</Select.Option>
+                    <Select.Option value='ban_ip'>{t('封禁 IP')}</Select.Option>
+                    <Select.Option value='disable_user'>
+                      {t('禁用账号')}
+                    </Select.Option>
+                    <Select.Option value='ban_both'>
+                      {t('封禁 IP + 禁用账号')}
+                    </Select.Option>
+                  </Select>
+                  <Text>{t('封禁时长(分钟,0 表示走升级阶梯)')}</Text>
+                  <InputNumber
+                    value={pgBanMinutes}
+                    min={0}
+                    max={43200}
+                    style={{ width: 120 }}
+                    onChange={(v) => setPgBanMinutes(v > 0 ? v : 0)}
+                  />
+                </Space>
+                <Button
+                  onClick={() =>
+                    onViewEvents?.({ rule_id: 'probe_guard', hours: 24 })
                   }
+                >
+                  {t('查看近 24 小时演练与处置事件')}
+                </Button>
+              </Space>
+            </Card>
+
+            <Card className='mb-4' title={t('Error Guard(实时错误率防护)')}>
+              <Space vertical align='start' style={{ width: '100%' }}>
+                <Text type='tertiary'>
+                  {t(
+                    '在响应完成后统计「单 IP 短时间内被拒绝多少次」,只统计指定的状态码,达到阈值即执行下方的处置动作。能抓到反复拿无效密钥试探(401)、乱传参数(400)这类只在响应里才现形的行为。私网 IP、全局白名单账号与管理员豁免,风控自身的拦截不计入,已封禁 IP 的错误也不再累加。建议先以演练模式观察告警,再关闭演练正式启用。',
+                  )}
+                </Text>
+                <Space>
+                  <Switch checked={egEnabled} onChange={setEgEnabled} />
+                  <Text>{t('启用 Error Guard')}</Text>
+                </Space>
+                <Space>
+                  <Switch checked={egDryRun} onChange={setEgDryRun} />
+                  <Text>{t('演练模式(只记告警事件,不实际封禁)')}</Text>
+                </Space>
+                <Space wrap>
+                  <Text>{t('滑动窗口(秒)')}</Text>
+                  <InputNumber
+                    value={egWindow}
+                    min={10}
+                    max={3600}
+                    style={{ width: 120 }}
+                    onChange={(v) => setEgWindow(v > 0 ? v : 60)}
+                  />
+                  <Text>{t('错误次数阈值')}</Text>
+                  <InputNumber
+                    value={egThreshold}
+                    min={2}
+                    max={100000}
+                    style={{ width: 120 }}
+                    onChange={(v) => setEgThreshold(v > 0 ? v : 5)}
+                  />
+                </Space>
+                <Space wrap>
+                  <Text>{t('处置动作')}</Text>
+                  <Select
+                    value={egAction}
+                    style={{ width: 200 }}
+                    onChange={setEgAction}
+                  >
+                    <Select.Option value='alert'>{t('仅告警')}</Select.Option>
+                    <Select.Option value='ban_ip'>{t('封禁 IP')}</Select.Option>
+                    <Select.Option value='disable_user'>
+                      {t('禁用账号')}
+                    </Select.Option>
+                    <Select.Option value='ban_both'>
+                      {t('封禁 IP + 禁用账号')}
+                    </Select.Option>
+                  </Select>
+                  <Text>{t('封禁时长(分钟,0 表示走升级阶梯)')}</Text>
+                  <InputNumber
+                    value={egBanMinutes}
+                    min={0}
+                    max={43200}
+                    style={{ width: 120 }}
+                    onChange={(v) => setEgBanMinutes(v > 0 ? v : 0)}
+                  />
+                </Space>
+                <Text>{t('统计的状态码(逗号分隔)')}</Text>
+                <Input
+                  value={egStatusCodesText}
+                  onChange={setEgStatusCodesText}
+                  placeholder='400,401,403,404'
+                  style={{ width: 320 }}
                 />
-                {banLadder.length > 1 && (
-                  <Button
-                    icon={<IconDelete />}
-                    type='danger'
-                    theme='borderless'
-                    size='small'
-                    aria-label={t('删除该级')}
-                    onClick={() =>
-                      setBanLadder((steps) =>
-                        steps.filter((_, i) => i !== index),
-                      )
-                    }
+                <Text type='tertiary' size='small'>
+                  {t(
+                    '留空使用默认集合 400 / 401 / 403 / 404。有意不含 5xx:上游故障期间的服务端错误不该让正常用户被封,确有需要可自行加入。',
+                  )}
+                </Text>
+                <Button
+                  onClick={() =>
+                    onViewEvents?.({ rule_id: 'error_guard', hours: 24 })
+                  }
+                >
+                  {t('查看近 24 小时演练与处置事件')}
+                </Button>
+              </Space>
+            </Card>
+          </div>
+        </TabPane>
+        <TabPane itemKey='scan' tab={t('扫描规则')}>
+          <div className='mt-4'>
+            <Card
+              className='mb-4'
+              title={t('自动封禁规则')}
+              headerExtraContent={
+                <Button icon={<IconPlus />} onClick={addRule}>
+                  {t('添加规则')}
+                </Button>
+              }
+            >
+              <Space vertical align='start' style={{ width: '100%' }}>
+                <Text type='tertiary'>
+                  {t(
+                    'IP 维度规则(单 IP 关联用户数 / 单 IP 使用令牌数)触发「自动禁用用户」时,会处置该 IP 在窗口内关联的全部用户;「封禁 IP」按升级阶梯只封来源 IP,误伤更小。用户维度规则只处置命中用户。每条规则的封禁时长对 IP 与账号同样生效,留 0 表示走下方的升级阶梯。建议新规则先用「仅告警」观察一段时间再切换为自动处置。',
+                  )}
+                </Text>
+                <Space>
+                  <Text>
+                    {t('微量请求判定阈值(输入与输出 tokens 均不超过该值)')}
+                  </Text>
+                  <InputNumber
+                    value={tinyMaxTokens}
+                    min={1}
+                    max={1024}
+                    style={{ width: 120 }}
+                    onChange={(v) => setTinyMaxTokens(v > 0 ? v : 16)}
+                  />
+                </Space>
+                <Table
+                  columns={ruleColumns}
+                  dataSource={rules}
+                  rowKey='id'
+                  scroll={{ x: 1550 }}
+                  pagination={false}
+                  empty={t('暂无规则')}
+                />
+              </Space>
+            </Card>
+          </div>
+        </TabPane>
+        <TabPane itemKey='blacklist' tab={t('黑名单')}>
+          <div className='mt-4'>
+            <Card className='mb-4' title={t('UA 黑名单')}>
+              <Space vertical align='start' style={{ width: '100%' }}>
+                <Text type='tertiary'>
+                  {t(
+                    '每行一条。普通文本按子串匹配(不区分大小写),含正则元字符时按正则匹配。',
+                  )}
+                </Text>
+                <TextArea
+                  value={uaBlacklistText}
+                  onChange={setUaBlacklistText}
+                  placeholder={'curl\npython-requests\n^Go-http-client'}
+                  rows={6}
+                />
+                <Space>
+                  <Text>{t('命中后的动作')}</Text>
+                  <Select
+                    value={uaAction}
+                    onChange={setUaAction}
+                    style={{ width: 220 }}
+                  >
+                    <Select.Option value='block'>
+                      {t('仅拒绝请求(403)')}
+                    </Select.Option>
+                    <Select.Option value='disable_user'>
+                      {t('拒绝请求并自动禁用用户')}
+                    </Select.Option>
+                  </Select>
+                </Space>
+              </Space>
+            </Card>
+
+            <Card className='mb-4' title={t('IP 黑名单')}>
+              <Space vertical align='start' style={{ width: '100%' }}>
+                <Text type='tertiary'>
+                  {t(
+                    '每行一条,支持精确 IP 或 CIDR 网段(如 1.2.3.4、10.0.0.0/8)。命中后直接拒绝调用。',
+                  )}
+                </Text>
+                <TextArea
+                  value={ipBlacklistText}
+                  onChange={setIpBlacklistText}
+                  placeholder={'1.2.3.4\n10.0.0.0/8\n2001:db8::/32'}
+                  rows={6}
+                />
+              </Space>
+            </Card>
+          </div>
+        </TabPane>
+        <TabPane itemKey='exempt' tab={t('豁免账号')}>
+          <div className='mt-4'>
+            <Card title={t('豁免账号')} className='mb-4'>
+              <Space vertical align='start' style={{ width: '100%' }}>
+                <Space>
+                  <Text>{t('全局白名单账号 ID(逗号分隔)')}</Text>
+                  <TextArea
+                    value={whitelistText}
+                    onChange={setWhitelistText}
+                    placeholder='1,2,3'
+                    rows={1}
+                    style={{ width: 320 }}
+                  />
+                </Space>
+                <Text type='tertiary' size='small'>
+                  {t(
+                    '全局白名单账号完全不受风控:请求不被拦截、账号不被自动禁用,且它近 24 小时内使用过的 IP 不会被自动封禁(这些账号的流量也不进入自动封禁扫描的排行统计)。把运营者自己和内部账号填在这里,避免自己的出口地址被自己的规则封掉后连带拦下同出口的其他用户。手动添加的 IP 封禁不受此豁免影响。',
+                  )}
+                  {t(
+                    'IP 豁免依据日志中记录的地址,需要开启 IP 日志(全局或白名单账号自己的设置)才能生效。',
+                  )}
+                </Text>
+                {whitelistText.trim() !== '' && !ipLogEnabled && (
+                  <Banner
+                    type='warning'
+                    description={t(
+                      '全局 IP 日志已关闭:白名单账号的 IP 豁免依赖日志中的 IP 字段,除非这些账号单独开启了 IP 记录,否则实时防护仍会封禁它们使用的出口地址。',
+                    )}
                   />
                 )}
+                <Space>
+                  <Text>{t('用户级白名单账号 ID(逗号分隔,仅保护账号)')}</Text>
+                  <TextArea
+                    value={publicKeyUsersText}
+                    onChange={setPublicKeyUsersText}
+                    placeholder='1,2,3'
+                    rows={1}
+                    style={{ width: 320 }}
+                  />
+                </Space>
+                <Text type='tertiary' size='small'>
+                  {t(
+                    '用户级白名单只保证账号永不被自动禁用,来源 IP 的封禁与请求拦截照常生效。适用于对外分享的公开/共享密钥:滥用者不是账号主人,禁用账号会打死所有正常使用者。想封住滥用者又不影响密钥主人时,把账号填在这里,并把处置动作设为「封禁 IP」或「封禁 IP + 禁用账号」。',
+                  )}
+                </Text>
               </Space>
-            ))}
-            {banLadder.length < MAX_BAN_LADDER_STEPS && (
-              <Button
-                icon={<IconPlus />}
-                size='small'
-                onClick={() =>
-                  setBanLadder((steps) => [
-                    ...steps,
-                    steps[steps.length - 1] || 10,
-                  ])
-                }
-              >
-                {t('添加一级')}
-              </Button>
-            )}
-          </Space>
-          <Space wrap>
-            <Text>{t('第 N 次起永久封禁(0 表示永不永久)')}</Text>
-            <InputNumber
-              value={ipBanPermanent}
-              min={0}
-              max={100}
-              style={{ width: 90 }}
-              onChange={(v) => setIpBanPermanent(v >= 0 ? v : 3)}
-            />
-            <Text>{t('IPv6 封禁前缀长度')}</Text>
-            <InputNumber
-              value={ipv6PrefixLength}
-              min={32}
-              max={128}
-              style={{ width: 90 }}
-              onChange={(v) => setIpv6PrefixLength(v > 0 ? v : 64)}
-            />
-          </Space>
-          <Text type='tertiary' size='small'>
-            {t(
-              '升级阶梯对 IP 封禁与账号禁用共同生效,自动封禁规则、Probe Guard 与 Error Guard 都用它:第 N 次违规用第 N 级时长,超出阶梯级数则停在最后一级,规则里填了固定时长则用固定值。违规次数分别按该 IP、该账号近 90 天内的封禁事件累计。账号的临时禁用到期后由后台每分钟检查并自动恢复,期间管理员手动封禁的账号不受影响。',
-            )}
-          </Text>
-          <Text type='tertiary' size='small'>
-            {t(
-              '自动封禁 IPv6 地址时归并到该长度的前缀(默认 64)。运营商给客户端的是一整段前缀,客户端可在段内随意换地址,只封单个地址等于没封。128 表示按单地址封禁。IPv4 与手动添加的封禁不受影响。',
-            )}
-          </Text>
-          <Table
-            columns={ruleColumns}
-            dataSource={rules}
-            rowKey='_id'
-            pagination={false}
-            empty={t('暂无规则')}
-          />
-        </Space>
-      </Card>
+            </Card>
+          </div>
+        </TabPane>
+        <TabPane itemKey='ladder' tab={t('处置阶梯')}>
+          <div className='mt-4'>
+            <Card title={t('处置阶梯')} className='mb-4'>
+              <Space vertical align='start' style={{ width: '100%' }}>
+                <Text>{t('封禁升级阶梯(分钟)')}</Text>
+                <Space wrap align='center'>
+                  {banLadder.map((minutes, index) => (
+                    <Space key={index} spacing={4} align='center'>
+                      <Text type='tertiary' size='small'>
+                        {index === 0
+                          ? t('首次')
+                          : t('第 {{count}} 次', { count: index + 1 })}
+                      </Text>
+                      <InputNumber
+                        value={minutes}
+                        min={1}
+                        max={43200}
+                        style={{ width: 100 }}
+                        onChange={(v) =>
+                          setBanLadder((steps) =>
+                            steps.map((step, i) =>
+                              i === index ? v || 1 : step,
+                            ),
+                          )
+                        }
+                      />
+                      {banLadder.length > 1 && (
+                        <Button
+                          icon={<IconDelete />}
+                          type='danger'
+                          theme='borderless'
+                          size='small'
+                          aria-label={t('删除该级')}
+                          onClick={() =>
+                            setBanLadder((steps) =>
+                              steps.filter((_, i) => i !== index),
+                            )
+                          }
+                        />
+                      )}
+                    </Space>
+                  ))}
+                  {banLadder.length < MAX_BAN_LADDER_STEPS && (
+                    <Button
+                      icon={<IconPlus />}
+                      size='small'
+                      onClick={() =>
+                        setBanLadder((steps) => [
+                          ...steps,
+                          steps[steps.length - 1] || 10,
+                        ])
+                      }
+                    >
+                      {t('添加一级')}
+                    </Button>
+                  )}
+                </Space>
+                <Space wrap>
+                  <Text>{t('第 N 次起永久封禁(0 表示永不永久)')}</Text>
+                  <InputNumber
+                    value={ipBanPermanent}
+                    min={0}
+                    max={100}
+                    style={{ width: 90 }}
+                    onChange={(v) => setIpBanPermanent(v >= 0 ? v : 3)}
+                  />
+                  <Text>{t('IPv6 封禁前缀长度')}</Text>
+                  <InputNumber
+                    value={ipv6PrefixLength}
+                    min={32}
+                    max={128}
+                    style={{ width: 90 }}
+                    onChange={(v) => setIpv6PrefixLength(v > 0 ? v : 64)}
+                  />
+                </Space>
+                <Text type='tertiary' size='small'>
+                  {t(
+                    '升级阶梯对 IP 封禁与账号禁用共同生效,自动封禁规则、Probe Guard 与 Error Guard 都用它:第 N 次违规用第 N 级时长,超出阶梯级数则停在最后一级,规则里填了固定时长则用固定值。违规次数分别按该 IP、该账号近 90 天内的封禁事件累计。账号的临时禁用到期后由后台每分钟检查并自动恢复,期间管理员手动封禁的账号不受影响。',
+                  )}
+                </Text>
+                <Text type='tertiary' size='small'>
+                  {t(
+                    '自动封禁 IPv6 地址时归并到该长度的前缀(默认 64)。运营商给客户端的是一整段前缀,客户端可在段内随意换地址,只封单个地址等于没封。128 表示按单地址封禁。IPv4 与手动添加的封禁不受影响。',
+                  )}
+                </Text>
+              </Space>
+            </Card>
+          </div>
+        </TabPane>
+        <TabPane itemKey='location' tab={t('IP 归属地查询')}>
+          <div className='mt-4'>
+            <Card className='mb-4' title={t('IP 归属地查询')}>
+              <Space vertical align='start' style={{ width: '100%' }}>
+                <Text type='tertiary'>
+                  {t(
+                    '用于使用日志与风控页面的 IP 归属地展示。按顺序依次尝试提供方，失败自动切换下一个；结果会缓存到数据库，同一 IP 只查询一次。多选框的选择顺序即查询顺序。',
+                  )}
+                </Text>
+                <Space>
+                  <Text>{t('Gitee AI 密钥')}</Text>
+                  <Input
+                    value={giteeApiKey}
+                    onChange={setGiteeApiKey}
+                    mode='password'
+                    placeholder={t('已保存的密钥不会回显；留空表示不修改')}
+                    style={{ width: 360 }}
+                  />
+                </Space>
+                <Space>
+                  <Text>{t('IPv4 查询顺序')}</Text>
+                  <Select
+                    multiple
+                    value={ipv4Order}
+                    onChange={setIpv4Order}
+                    optionList={IP_PROVIDER_OPTIONS.map((option) => ({
+                      ...option,
+                      label: t(option.label),
+                    }))}
+                    style={{ minWidth: 420 }}
+                  />
+                </Space>
+                <Space>
+                  <Text>{t('IPv6 查询顺序')}</Text>
+                  <Select
+                    multiple
+                    value={ipv6Order}
+                    onChange={setIpv6Order}
+                    optionList={IP_PROVIDER_OPTIONS.filter(
+                      (o) => o.value !== 'gitee',
+                    ).map((option) => ({ ...option, label: t(option.label) }))}
+                    style={{ minWidth: 420 }}
+                  />
+                </Space>
+                <Space>
+                  <Text>{t('自动预取新 IP 归属地')}</Text>
+                  <Switch checked={autoLookup} onChange={setAutoLookup} />
+                </Space>
+                <Text type='tertiary' size='small'>
+                  {t(
+                    'relay 请求的新客户端 IP 会在后台自动查询并缓存到数据库，日志展示无需等待。',
+                  )}
+                </Text>
+                <Space>
+                  <Button
+                    type='danger'
+                    theme='borderless'
+                    icon={<IconRefresh />}
+                    loading={clearingCache}
+                    onClick={() => setConfirmClear(true)}
+                  >
+                    {t('清空归属地缓存')}
+                  </Button>
+                  <Text type='tertiary' size='small'>
+                    {t(
+                      '清空后下次查询会重新拉取外部接口，可切换数据源或升级后刷新。',
+                    )}
+                  </Text>
+                </Space>
+              </Space>
+            </Card>
 
+            <Modal
+              title={t('确认清空归属地缓存')}
+              visible={confirmClear}
+              onOk={confirmClearCache}
+              onCancel={() => setConfirmClear(false)}
+              okType='danger'
+              okText={t('确认清空')}
+              cancelText={t('取消')}
+            >
+              <Text>
+                {t('确认清空所有 IP 归属地缓存？下次查询将重新拉取外部接口。')}
+              </Text>
+            </Modal>
+          </div>
+        </TabPane>
+      </Tabs>
+      {previewRule && (
+        <RiskRulePreviewModal
+          rule={previewRule}
+          tinyMaxTokens={tinyMaxTokens}
+          onClose={() => setPreviewRule(null)}
+          onInspect={onInspect}
+        />
+      )}
       <Button
         theme='solid'
         type='primary'
         loading={saving}
+        disabled={!loaded || loading}
         onClick={saveSettings}
       >
         {t('保存设置')}

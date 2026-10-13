@@ -274,8 +274,8 @@ func recordBlockEvent(eventType string, userId int, ip string, ua string, rule s
 // DisableUserForRisk 因风控原因禁用账号,时长按累犯阶梯升级(见 escalateUserBan)。
 // fixedMinutes > 0 时改用规则配置的固定时长。source 为触发链路(auto_rule / probe_guard 等),
 // sourceIp 为触发处置的来源 IP(扫描规则为命中 IP,请求内处置为客户端 IP),可为空。
-func DisableUserForRisk(userId int, reason string, source string, fixedMinutes int, sourceIp string) error {
-	return escalateUserBan(operation_setting.GetRiskControlSetting(), userId, reason, source, fixedMinutes, sourceIp, "")
+func DisableUserForRisk(userId int, reason string, source string, fixedMinutes int, sourceIp string, evidence ...*model.RiskRuleEvidence) error {
+	return escalateUserBan(operation_setting.GetRiskControlSetting(), userId, reason, source, fixedMinutes, sourceIp, "", evidence...)
 }
 
 // escalateUserBan 禁用账号,时长与 IP 封禁共用同一套累犯阶梯:
@@ -288,14 +288,13 @@ func DisableUserForRisk(userId int, reason string, source string, fixedMinutes i
 //   - 来源是扫描规则,且该账号在上次禁用之后没有新的日志活动。窗口内的旧证据会在
 //     每轮扫描里反复命中,不加这道判断,一次滥用就能在每次到期后把账号再推一级。
 func escalateUserBan(setting *operation_setting.RiskControlSetting, userId int, reason string,
-	source string, fixedMinutes int, sourceIp string, sourceUa string) error {
+	source string, fixedMinutes int, sourceIp string, sourceUa string, evidence ...*model.RiskRuleEvidence) error {
 	if userId <= 0 {
 		return nil
 	}
 	if isAccountBanExempt(setting, userId) {
 		// 豁免不能是静默的:否则规则对着一个永远处置不了的账号空转,你无从发现
-		recordExemptSkipAlert(userId, sourceIp, reason)
-		return nil
+		return recordExemptSkipAlert(userId, sourceIp, reason, evidence...)
 	}
 	if source == model.RiskBanSourceAutoRule && !hasUserActivitySinceLastBan(userId) {
 		return nil
@@ -327,7 +326,7 @@ func escalateUserBan(setting *operation_setting.RiskControlSetting, userId int, 
 		"reason": fullReason,
 	})
 	username, _ := model.GetUsernameById(userId, false)
-	insertRiskEventLogged(model.RiskEvent{
+	event := withRiskEvidence(model.RiskEvent{
 		EventType: model.RiskEventBanAuto,
 		UserId:    userId,
 		Username:  username,
@@ -335,9 +334,15 @@ func escalateUserBan(setting *operation_setting.RiskControlSetting, userId int, 
 		Ua:        sourceUa,
 		Rule:      source,
 		Reason:    fullReason,
-	})
+	}, evidence...)
+	if event.Evidence != nil {
+		snapshot := *event.Evidence
+		snapshot.ExpiresAt, snapshot.Offense = escalation.expiresAt, escalation.offense
+		event.Evidence = &snapshot
+	}
+	auditErr := insertRiskEventLogged(event)
 	common.SysLog(fmt.Sprintf("risk control: disabled user %d, source=%s, reason=%s", userId, source, fullReason))
-	return nil
+	return auditErr
 }
 
 var riskControlDaemonOnce sync.Once
@@ -362,7 +367,12 @@ const expiredIpBanGraceSeconds = 72 * 3600
 // 仅 Master 节点运行到期账号恢复、自动封禁扫描与事件/过期封禁清理。
 func RiskControlDaemon() {
 	riskControlDaemonOnce.Do(func() {
-		if err := model.ReloadIpBanCache(); err != nil {
+		riskRuntimeMu.Lock()
+		riskRuntime.StartedAt = common.GetTimestamp()
+		riskRuntimeMu.Unlock()
+		err := model.ReloadIpBanCache()
+		recordRiskCacheSync(err)
+		if err != nil {
 			common.SysLog("risk control: failed to load ip ban cache: " + err.Error())
 		}
 		go func() {
@@ -374,7 +384,9 @@ func RiskControlDaemon() {
 		go func() {
 			for {
 				time.Sleep(ipBanCacheSyncInterval)
-				if err := model.ReloadIpBanCache(); err != nil {
+				err := model.ReloadIpBanCache()
+				recordRiskCacheSync(err)
+				if err != nil {
 					common.SysLog("risk control: failed to sync ip ban cache: " + err.Error())
 				}
 			}
@@ -407,6 +419,9 @@ func RiskControlDaemon() {
 					common.SysLog("risk control: failed to cleanup expired ip bans: " + err.Error())
 				} else if deleted > 0 {
 					common.SysLog(fmt.Sprintf("risk control: cleaned up %d expired ip bans", deleted))
+				}
+				if err := model.DB.Where("started_at < ?", cutoff).Delete(&model.RiskScanRun{}).Error; err != nil {
+					common.SysError("risk control: failed to cleanup scan history: " + err.Error())
 				}
 				lastCleanup = time.Now()
 			}
@@ -466,43 +481,52 @@ func hasEnabledAutoBanRule(setting *operation_setting.RiskControlSetting) bool {
 // 全局白名单账号的日志行在查询阶段就被剔除,因此它们既不会自己上榜被禁用,
 // 也不会把自己使用的 IP 顶上 IP 维度排行后连带封掉整个出口地址。
 func runRiskScan(setting *operation_setting.RiskControlSetting) {
-	exempt := setting.WhitelistUserIds
-	for _, rule := range setting.AutoBanRules {
+	rules := operation_setting.NormalizeRiskAutoBanRules(setting.AutoBanRules)
+	count := 0
+	for _, rule := range rules {
+		if rule.Enabled {
+			count++
+		}
+	}
+	run, recordErr := model.StartRiskScan(common.NodeName, count)
+	if recordErr != nil {
+		common.SysError("risk control: failed to record scan start: " + recordErr.Error())
+	}
+	hits := 0
+	var failures []error
+	for _, rule := range rules {
 		if !rule.Enabled {
 			continue
 		}
-		window := rule.WindowHours
-		if window <= 0 {
-			window = operation_setting.RiskDefaultWindowHours
+		matched, err := scanRiskRule(rule, setting.ResolvedTinyRequestMaxTokens(), setting.WhitelistUserIds)
+		hits += matched
+		if err != nil {
+			failures = append(failures, fmt.Errorf("%s: %w", rule.Id, err))
 		}
-		switch rule.Metric {
-		case operation_setting.RiskMetricIpMultiUser:
-			scanIpMultiUser(rule, window, exempt)
-		case operation_setting.RiskMetricUserMultiIp:
-			scanUserMultiIp(rule, window, exempt)
-		case operation_setting.RiskMetricIpMultiToken:
-			scanIpMultiToken(rule, window, exempt)
-		case operation_setting.RiskMetricUserTinyRequest:
-			scanUserTinyRequest(rule, window, setting.ResolvedTinyRequestMaxTokens(), exempt)
-		case operation_setting.RiskMetricUserErrorBurst:
-			scanUserErrorBurst(rule, window, exempt)
+	}
+	if recordErr == nil {
+		if err := model.FinishRiskScan(run, hits, errors.Join(failures...)); err != nil {
+			common.SysError("risk control: failed to record scan completion: " + err.Error())
 		}
 	}
 }
 
 // recordRuleAlert 记录一条自动规则告警事件,按 (指标+目标) 长窗口聚合,
 // 避免周期扫描对同一目标反复刷屏。
-func recordRuleAlert(metric string, userId int, username string, ip string, reason string) {
+func recordRuleAlert(metric string, userId int, username string, ip string, reason string, evidence ...*model.RiskRuleEvidence) error {
 	common.SysLog("risk control alert: " + reason)
 	key := model.RiskEventAlert + "\x00" + metric + "\x00" + strconv.Itoa(userId) + "\x00" + ip
-	recordRiskEventThrottled(key, riskAlertEventWindow, model.RiskEvent{
+	if len(evidence) > 0 && evidence[0] != nil {
+		key += "\x00" + evidence[0].RuleId + "\x00" + evidence[0].Version
+	}
+	return recordRiskEventThrottled(key, riskAlertEventWindow, withRiskEvidence(model.RiskEvent{
 		EventType: model.RiskEventAlert,
 		UserId:    userId,
 		Username:  username,
 		Ip:        ip,
 		Rule:      metric,
 		Reason:    reason,
-	}, time.Now())
+	}, evidence...), time.Now())
 }
 
 // RecordGameCheatAlert 记录一条游戏作弊告警(例如操作快过人类极限的对局)，出现在风控事件列表里，
@@ -515,24 +539,27 @@ func RecordGameCheatAlert(game string, userId int, ip string, reason string) {
 // 与其他告警共用聚合窗口,同一账号的反复命中不会刷屏。
 // 有意不查用户名:本函数可能被重试循环反复触发(例如用户级白名单账号命中 UA 黑名单),
 // 而事件已带 user_id,列表页据此展示即可。
-func recordExemptSkipAlert(userId int, sourceIp string, reason string) {
-	recordRuleAlert("exempt:disable_user", userId, "", sourceIp,
-		fmt.Sprintf("用户 #%d 命中处置但已跳过:该账号在白名单内。命中原因:%s", userId, reason))
+func recordExemptSkipAlert(userId int, sourceIp string, reason string, evidence ...*model.RiskRuleEvidence) error {
+	return recordRuleAlert("exempt:disable_user", userId, "", sourceIp,
+		fmt.Sprintf("用户 #%d 命中处置但已跳过:该账号在白名单内。命中原因:%s", userId, reason), evidence...)
 }
 
 // disableIpAssociatedUsers 处置某 IP 在窗口内关联的全部用户(IP 维度规则共用),
 // 每个账号各自走累犯阶梯,fixedMinutes 为规则配置的固定时长。
-func disableIpAssociatedUsers(ip string, window int, fixedMinutes int, reason string) {
+func disableIpAssociatedUsers(ip string, window int, fixedMinutes int, reason string, evidence ...*model.RiskRuleEvidence) error {
 	userIds, err := model.GetIpAssociatedUserIds(ip, window)
 	if err != nil {
 		common.SysLog("risk control: failed to fetch users for ip " + ip + ": " + err.Error())
-		return
+		return err
 	}
+	var failures []error
 	for _, uid := range userIds {
-		if disErr := DisableUserForRisk(uid, reason, model.RiskBanSourceAutoRule, fixedMinutes, ip); disErr != nil {
+		if disErr := DisableUserForRisk(uid, reason, model.RiskBanSourceAutoRule, fixedMinutes, ip, evidence...); disErr != nil {
 			common.SysLog(fmt.Sprintf("risk control: failed to disable user %d: %s", uid, disErr.Error()))
+			failures = append(failures, disErr)
 		}
 	}
+	return errors.Join(failures...)
 }
 
 // banOffenseLookback 累犯计数的回溯窗口:统计该目标(IP 或账号)近 90 天内的封禁事件次数。
@@ -684,7 +711,7 @@ func hasUserActivitySinceLastBan(userId int) bool {
 // IPv6 目标按配置的前缀长度归并(默认 /64),否则客户端换个地址就绕过。
 // 全局白名单账号近期使用过的地址一律跳过,只记告警——这条兜底覆盖实时防护
 // 与扫描规则的全部自动封禁路径;管理员手动封禁不经过本函数,不受影响。
-func EscalateIpBan(ip string, reason string, source string, fixedMinutes int) (string, error) {
+func EscalateIpBan(ip string, reason string, source string, fixedMinutes int, evidence ...*model.RiskRuleEvidence) (string, error) {
 	setting := operation_setting.GetRiskControlSetting()
 	target, err := model.NormalizeAutoBanTarget(ip, setting.ResolvedIpBanIpv6PrefixLength())
 	if err != nil {
@@ -697,10 +724,10 @@ func EscalateIpBan(ip string, reason string, source string, fixedMinutes int) (s
 		return "", nil
 	}
 	if isWhitelistedBanTarget(setting, target) {
-		recordRuleAlert(source, 0, "", target, fmt.Sprintf(
+		auditErr := recordRuleAlert(source, 0, "", target, fmt.Sprintf(
 			"IP %s 命中处置但已跳过封禁:近 %d 小时内有全局白名单账号在使用该地址。命中原因:%s",
-			target, whitelistIpLookbackHours, reason))
-		return "", nil
+			target, whitelistIpLookbackHours, reason), evidence...)
+		return "", auditErr
 	}
 	now := time.Now()
 
@@ -718,32 +745,42 @@ func EscalateIpBan(ip string, reason string, source string, fixedMinutes int) (s
 	if !changed {
 		return "", nil
 	}
-	insertRiskEventLogged(model.RiskEvent{
+	event := withRiskEvidence(model.RiskEvent{
 		EventType: model.RiskEventBanIp,
 		Ip:        target,
 		Rule:      source,
 		Reason:    fmt.Sprintf("%s:%s", action, reason),
-	})
+	}, evidence...)
+	if event.Evidence != nil {
+		snapshot := *event.Evidence
+		snapshot.ExpiresAt, snapshot.Offense = escalation.expiresAt, escalation.offense
+		event.Evidence = &snapshot
+	}
+	auditErr := insertRiskEventLogged(event)
 	common.SysLog(fmt.Sprintf("risk control: ip %s banned (%s), source=%s, ban_id=%d", target, action, source, ban.Id))
-	return action, nil
+	return action, auditErr
 }
 
 // applyIpRuleAction 执行 IP 维度规则命中后的处置动作。
 // ban_both 会同时封禁来源 IP 与该 IP 在窗口内关联的账号;公开密钥账号只会被跳过账号处置,
 // IP 封禁照常生效。规则的固定时长同时作用于两者,为 0 时各自走累犯阶梯。
-func applyIpRuleAction(rule operation_setting.RiskAutoBanRule, ip string, window int, reason string) {
+func applyIpRuleAction(rule operation_setting.RiskAutoBanRule, ip string, window int, reason string, evidence ...*model.RiskRuleEvidence) error {
 	if rule.Action == operation_setting.RiskRuleActionAlert || rule.Action == "" {
-		recordRuleAlert(rule.Metric, 0, "", ip, reason)
-		return
+		return recordRuleAlert(rule.Metric, 0, "", ip, reason, evidence...)
 	}
+	var failures []error
 	if operation_setting.RiskActionBansIp(rule.Action) {
-		if _, err := EscalateIpBan(ip, reason, model.RiskBanSourceAutoRule, rule.BanMinutes); err != nil {
+		if _, err := EscalateIpBan(ip, reason, model.RiskBanSourceAutoRule, rule.BanMinutes, evidence...); err != nil {
 			common.SysLog(fmt.Sprintf("risk control: failed to ban ip %s: %s", ip, err.Error()))
+			failures = append(failures, err)
 		}
 	}
 	if operation_setting.RiskActionDisablesUser(rule.Action) {
-		disableIpAssociatedUsers(ip, window, rule.BanMinutes, reason)
+		if err := disableIpAssociatedUsers(ip, window, rule.BanMinutes, reason, evidence...); err != nil {
+			failures = append(failures, err)
+		}
 	}
+	return errors.Join(failures...)
 }
 
 // applyRealtimeGuardAction 执行实时防护(Probe / Error Guard)命中后的处置:
@@ -751,113 +788,15 @@ func applyIpRuleAction(rule operation_setting.RiskAutoBanRule, ip string, window
 // 账号处置会跳过完全白名单与公开密钥账号,因此对共享密钥的场景可以配 ban_both
 // —— IP 被封,账号主人不受影响。
 func applyRealtimeGuardAction(setting *operation_setting.RiskControlSetting, source string,
-	action string, banMinutes int, userId int, ip string, ua string, reason string) {
+	action string, banMinutes int, userId int, ip string, ua string, reason string, evidence ...*model.RiskRuleEvidence) {
 	if operation_setting.RiskActionBansIp(action) {
-		if _, err := EscalateIpBan(ip, reason, source, banMinutes); err != nil {
+		if _, err := EscalateIpBan(ip, reason, source, banMinutes, evidence...); err != nil {
 			common.SysLog(fmt.Sprintf("%s: failed to ban ip %s: %s", source, ip, err.Error()))
 		}
 	}
 	if operation_setting.RiskActionDisablesUser(action) && userId > 0 {
-		if err := escalateUserBan(setting, userId, reason, source, banMinutes, ip, ua); err != nil {
+		if err := escalateUserBan(setting, userId, reason, source, banMinutes, ip, ua, evidence...); err != nil {
 			common.SysLog(fmt.Sprintf("%s: failed to disable user %d: %s", source, userId, err.Error()))
-		}
-	}
-}
-
-// scanIpMultiUser 处理「单 IP 关联多用户」规则。
-func scanIpMultiUser(rule operation_setting.RiskAutoBanRule, window int, exemptUserIds []int) {
-	items, err := model.GetIpMultiUserRanking(window, riskScanLimit, exemptUserIds)
-	if err != nil {
-		common.SysLog("risk control scan (ip_multi_user) failed: " + err.Error())
-		return
-	}
-	for _, item := range items {
-		if item.UserCount <= rule.Threshold {
-			continue
-		}
-		reason := fmt.Sprintf("IP %s 在 %d 小时内关联 %d 个用户(阈值 %d)", item.Ip, window, item.UserCount, rule.Threshold)
-		applyIpRuleAction(rule, item.Ip, window, reason)
-	}
-}
-
-// scanUserMultiIp 处理「单用户使用多 IP」规则:命中的用户被处置。
-func scanUserMultiIp(rule operation_setting.RiskAutoBanRule, window int, exemptUserIds []int) {
-	items, err := model.GetUserMultiIpRanking(window, riskScanLimit, exemptUserIds)
-	if err != nil {
-		common.SysLog("risk control scan (user_multi_ip) failed: " + err.Error())
-		return
-	}
-	for _, item := range items {
-		if item.IpCount <= rule.Threshold {
-			continue
-		}
-		reason := fmt.Sprintf("用户 %s(#%d)在 %d 小时内使用 %d 个 IP(阈值 %d)", item.Username, item.UserId, window, item.IpCount, rule.Threshold)
-		if !operation_setting.RiskActionDisablesUser(rule.Action) {
-			recordRuleAlert(rule.Metric, item.UserId, item.Username, "", reason)
-			continue
-		}
-		if disErr := DisableUserForRisk(item.UserId, reason, model.RiskBanSourceAutoRule, rule.BanMinutes, ""); disErr != nil {
-			common.SysLog(fmt.Sprintf("risk control: failed to disable user %d: %s", item.UserId, disErr.Error()))
-		}
-	}
-}
-
-// scanIpMultiToken 处理「单 IP 使用多令牌」规则(批量测活)。
-func scanIpMultiToken(rule operation_setting.RiskAutoBanRule, window int, exemptUserIds []int) {
-	items, err := model.GetIpMultiTokenRanking(window, riskScanLimit, exemptUserIds)
-	if err != nil {
-		common.SysLog("risk control scan (ip_multi_token) failed: " + err.Error())
-		return
-	}
-	for _, item := range items {
-		if item.TokenCount <= rule.Threshold {
-			continue
-		}
-		reason := fmt.Sprintf("IP %s 在 %d 小时内使用 %d 个令牌(阈值 %d),疑似批量测活", item.Ip, window, item.TokenCount, rule.Threshold)
-		applyIpRuleAction(rule, item.Ip, window, reason)
-	}
-}
-
-// scanUserTinyRequest 处理「用户微量请求」规则(自动测活):命中的用户被处置。
-func scanUserTinyRequest(rule operation_setting.RiskAutoBanRule, window int, maxTokens int, exemptUserIds []int) {
-	items, err := model.GetUserTinyRequestRanking(window, riskScanLimit, maxTokens, exemptUserIds)
-	if err != nil {
-		common.SysLog("risk control scan (user_tiny_request) failed: " + err.Error())
-		return
-	}
-	for _, item := range items {
-		if item.RequestCount <= rule.Threshold {
-			continue
-		}
-		reason := fmt.Sprintf("用户 %s(#%d)在 %d 小时内发起 %d 次微量请求(输入输出均 ≤ %d tokens,阈值 %d),疑似自动测活", item.Username, item.UserId, window, item.RequestCount, maxTokens, rule.Threshold)
-		if !operation_setting.RiskActionDisablesUser(rule.Action) {
-			recordRuleAlert(rule.Metric, item.UserId, item.Username, "", reason)
-			continue
-		}
-		if disErr := DisableUserForRisk(item.UserId, reason, model.RiskBanSourceAutoRule, rule.BanMinutes, ""); disErr != nil {
-			common.SysLog(fmt.Sprintf("risk control: failed to disable user %d: %s", item.UserId, disErr.Error()))
-		}
-	}
-}
-
-// scanUserErrorBurst 处理「用户错误请求爆发」规则:命中的用户被处置。
-func scanUserErrorBurst(rule operation_setting.RiskAutoBanRule, window int, exemptUserIds []int) {
-	items, err := model.GetUserErrorRanking(window, riskScanLimit, exemptUserIds)
-	if err != nil {
-		common.SysLog("risk control scan (user_error_burst) failed: " + err.Error())
-		return
-	}
-	for _, item := range items {
-		if item.RequestCount <= rule.Threshold {
-			continue
-		}
-		reason := fmt.Sprintf("用户 %s(#%d)在 %d 小时内产生 %d 次错误请求(阈值 %d)", item.Username, item.UserId, window, item.RequestCount, rule.Threshold)
-		if !operation_setting.RiskActionDisablesUser(rule.Action) {
-			recordRuleAlert(rule.Metric, item.UserId, item.Username, "", reason)
-			continue
-		}
-		if disErr := DisableUserForRisk(item.UserId, reason, model.RiskBanSourceAutoRule, rule.BanMinutes, ""); disErr != nil {
-			common.SysLog(fmt.Sprintf("risk control: failed to disable user %d: %s", item.UserId, disErr.Error()))
 		}
 	}
 }

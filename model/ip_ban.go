@@ -189,6 +189,38 @@ func MatchActiveIpBan(clientIP string) (*IpBan, bool) {
 	return nil, false
 }
 
+// GetIpBanStates 为管理页面批量读取生效的封禁，包含覆盖地址的所有网段。
+// 输入为 CIDR 时返回与其重叠的封禁，解除其中一条不会掩盖其他生效记录。
+func GetIpBanStates(targets []string) (map[string][]*IpBan, error) {
+	states := make(map[string][]*IpBan, len(targets))
+	if len(targets) == 0 {
+		return states, nil
+	}
+	var bans []*IpBan
+	if err := DB.Where("expires_at = 0 OR expires_at > ?", common.GetTimestamp()).Find(&bans).Error; err != nil {
+		return nil, err
+	}
+	for _, target := range targets {
+		states[target] = []*IpBan{}
+		prefix, err := netip.ParsePrefix(target)
+		for _, ban := range bans {
+			matched := IpBanTargetCovers(ban.Target, target)
+			if err == nil {
+				banPrefix, parseErr := netip.ParsePrefix(ban.Target)
+				if parseErr == nil {
+					matched = prefix.Overlaps(banPrefix)
+				} else {
+					matched = IpBanTargetCovers(target, ban.Target)
+				}
+			}
+			if matched {
+				states[target] = append(states[target], ban)
+			}
+		}
+	}
+	return states, nil
+}
+
 // UpsertIpBan 写入或更新一条封禁并重载缓存。target 必须已归一化。
 // 已存在同目标封禁时只延长:永久封禁不会被降级为临时,更晚的过期时间覆盖更早的。
 // 返回生效的封禁记录与是否发生了变更(新建或延长)。

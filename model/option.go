@@ -256,6 +256,8 @@ func loadOptionsFromDatabase() {
 	// 模拟盘与游戏中心的配置等所有项回放完再整份发布，读取方不会看到新旧混杂的配置。
 	defer operation_setting.SyncTradeSetting()
 	defer operation_setting.SyncGameSetting()
+	defer operation_setting.SyncRiskControlSetting()
+	defer operation_setting.SyncIpLocationSetting()
 	for _, option := range options {
 		err := applyOptionToRuntime(option.Key, option.Value)
 		if err != nil {
@@ -285,6 +287,11 @@ func UpdateOption(key string, value string) error {
 	}
 	optionWriteMu.Lock()
 	defer optionWriteMu.Unlock()
+	var err error
+	value, err = operation_setting.NormalizeRiskControlOption(key, value)
+	if err != nil {
+		return err
+	}
 	if err := operation_setting.ValidateRiskControlOption(key, value); err != nil {
 		return err
 	}
@@ -440,6 +447,11 @@ func updateOptionsBulkLocked(values map[string]string) error {
 		if isRemovedOptionKey(key) {
 			continue
 		}
+		var err error
+		value, err = operation_setting.NormalizeRiskControlOption(key, value)
+		if err != nil {
+			return err
+		}
 		if err := operation_setting.ValidateRiskControlOption(key, value); err != nil {
 			return err
 		}
@@ -510,6 +522,11 @@ func saveOptionsTx(tx *gorm.DB, values map[string]string) error {
 
 // publishOptions 的调用方持有 optionWriteMu；整批配置提交后才一次发布，读取方不会看到新旧混杂的游戏配置。
 func publishOptions(values map[string]string) error {
+	var hasRiskSettings, hasIpLocationSettings bool
+	for key := range values {
+		hasRiskSettings = hasRiskSettings || strings.HasPrefix(key, operation_setting.RiskControlSettingPrefix)
+		hasIpLocationSettings = hasIpLocationSettings || strings.HasPrefix(key, operation_setting.IpLocationSettingPrefix)
+	}
 	// 相关配置在同一写锁内发布，计费读取不会看见新模式配旧表达式。
 	common.OptionMapRWMutex.Lock()
 	defer common.OptionMapRWMutex.Unlock()
@@ -517,6 +534,12 @@ func publishOptions(values map[string]string) error {
 	// 提现 worker 可能读到新的链和 RPC 配着旧的代币合约。
 	defer operation_setting.SyncTradeSetting()
 	defer operation_setting.SyncGameSetting()
+	if hasRiskSettings {
+		defer operation_setting.SyncRiskControlSetting()
+	}
+	if hasIpLocationSettings {
+		defer operation_setting.SyncIpLocationSetting()
+	}
 	for k, v := range values {
 		if err := applyOptionToRuntime(k, v); err != nil {
 			return err
@@ -533,6 +556,12 @@ func updateOptionMap(key string, value string) (err error) {
 	}
 	if strings.HasPrefix(key, operation_setting.GameSettingPrefix) {
 		defer operation_setting.SyncGameSetting()
+	}
+	if strings.HasPrefix(key, operation_setting.RiskControlSettingPrefix) {
+		defer operation_setting.SyncRiskControlSetting()
+	}
+	if strings.HasPrefix(key, operation_setting.IpLocationSettingPrefix) {
+		defer operation_setting.SyncIpLocationSetting()
 	}
 	return applyOptionToRuntime(key, value)
 }
@@ -1026,12 +1055,8 @@ func handleConfigUpdate(key, value string) bool {
 		ratio_setting.InvalidateExposedDataCache()
 	} else if configName == "channel_route_setting" {
 		operation_setting.SyncChannelRouteSetting()
-	} else if configName == "risk_control_setting" {
-		operation_setting.SyncRiskControlSetting()
-	} else if configName == "ip_location_setting" {
-		operation_setting.SyncIpLocationSetting()
 	}
-	// game_setting 不在这里逐项发布快照，由 updateOptionMap、updateOptionsBulkLocked、loadOptionsFromDatabase
+	// 游戏、风控与 IP 归属地配置不在这里逐项发布快照，由配置写入与回放入口
 	// 在写完之后整份发布。
 
 	return true // 已处理

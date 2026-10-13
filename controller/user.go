@@ -1160,14 +1160,15 @@ func ManageUser(c *gin.Context) {
 	// 事务内先锁定目标用户并确认角色仍是权限判断时读到的值，再只写本次操作改动的列：
 	// 把读出的整行写回，会覆盖掉期间其他请求对分组、绑定、角色等字段的修改。
 	if err := model.DB.Transaction(func(tx *gorm.DB) error {
+		if req.Action == "disable" || req.Action == "enable" {
+			return model.SetManualUserRiskState(tx, user.Id, checkedRole, user.Status, strings.TrimSpace(req.Reason))
+		}
 		if err := model.LockUserRole(tx, user.Id, checkedRole); err != nil {
 			return err
 		}
 		switch req.Action {
 		case "delete":
 			return tx.Delete(&model.User{}, user.Id).Error
-		case "disable", "enable":
-			return tx.Model(&model.User{}).Where("id = ?", user.Id).Update("status", user.Status).Error
 		}
 		if err := tx.Model(&model.User{}).Where("id = ?", user.Id).Update("role", user.Role).Error; err != nil {
 			return err
@@ -1206,13 +1207,8 @@ func ManageUser(c *gin.Context) {
 	// 手动处置一律不带到期时间:管理员封禁就是永久,解禁也要顺手清掉风控留下的到期时间。
 	if req.Action == "disable" || req.Action == "enable" {
 		eventType := model.RiskEventBanManual
-		reasonForUser := strings.TrimSpace(req.Reason)
 		if req.Action == "enable" {
 			eventType = model.RiskEventUnban
-			reasonForUser = ""
-		}
-		if err := model.SetUserManualBanState(user.Id, reasonForUser); err != nil {
-			common.SysLog(fmt.Sprintf("failed to update disable reason for user %d: %s", user.Id, err.Error()))
 		}
 		if err := model.InsertRiskEvent(&model.RiskEvent{
 			EventType:  eventType,

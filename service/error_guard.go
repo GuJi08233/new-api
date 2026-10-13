@@ -64,19 +64,20 @@ func RecordErrorGuardResponse(c *gin.Context, statusCode int) {
 	reason := fmt.Sprintf("IP %s 在 %d 秒内产生 %d 次错误响应(状态码 %v,阈值 %d)",
 		ip, setting.ResolvedErrorGuardWindowSeconds(), count,
 		setting.ResolvedErrorGuardStatusCodes(), setting.ResolvedErrorGuardThreshold())
+	evidence := realtimeGuardEvidence(setting, model.RiskBanSourceErrorGuard, count)
 
 	if setting.ErrorGuardDryRun {
-		recordRuleAlert("error_guard", userId, "", ip, reason+"(演练模式,未封禁)")
+		recordRuleAlert("error_guard", userId, "", ip, reason+"(演练模式,未封禁)", evidence)
 		return
 	}
 	action := setting.ResolvedErrorGuardAction()
 	if action == operation_setting.RiskRuleActionAlert {
-		recordRuleAlert("error_guard", userId, "", ip, reason+"(动作为仅告警,未封禁)")
+		recordRuleAlert("error_guard", userId, "", ip, reason+"(动作为仅告警,未封禁)", evidence)
 		return
 	}
 
 	applyRealtimeGuardAction(setting, model.RiskBanSourceErrorGuard, action,
-		setting.ResolvedErrorGuardBanMinutes(), userId, ip, c.Request.UserAgent(), reason)
+		setting.ResolvedErrorGuardBanMinutes(), userId, ip, c.Request.UserAgent(), reason, evidence)
 	common.SysLog(fmt.Sprintf("error guard: %s, user=%d, action=%s", reason, userId, action))
 }
 

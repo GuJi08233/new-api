@@ -17,12 +17,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Banner,
   Button,
-  InputNumber,
-  Modal,
+  Input,
   Select,
   Space,
   Switch,
@@ -30,447 +29,265 @@ import {
   Tabs,
   TabPane,
   Tag,
-  TextArea,
   Typography,
 } from '@douyinfe/semi-ui';
-import { IconRefresh } from '@douyinfe/semi-icons';
+import { IconRefresh, IconSearch } from '@douyinfe/semi-icons';
 import { useTranslation } from 'react-i18next';
-import { API, showError, showSuccess, timestamp2string } from '../../helpers';
+import { API, timestamp2string } from '../../helpers';
 import IpTag from '../../components/common/ui/IpTag';
+import RiskUserState from './RiskUserState';
+import useRiskFilters, { riskInteger } from './useRiskFilters';
+import { RiskBatchToolbar } from './RiskBatchModal';
 
-const { Text } = Typography;
-
-const HOURS_OPTIONS = [
-  { value: 24, labelKey: '近 1 天' },
-  { value: 72, labelKey: '近 3 天' },
-  { value: 168, labelKey: '近 7 天' },
-];
-
-// 三个排行维度共用同一组数值口径,差别只在分组对象。
-const METRIC_USER = 'user_overview';
-const METRIC_IP = 'ip_overview';
-const METRIC_UA = 'ua';
-
-// 排行榜默认排序:请求数降序。
-const DEFAULT_SORT = { by: 'request_count', order: 'descend' };
-
-// 一次取回的行数。服务端按当前排序字段截断,前端再本地分页,
-// 因此换列排序会重新取数,保证 top N 始终取自被排序的那个维度。
-const RANKING_LIMIT = 200;
-
-// 数值单元格:达到警示/危险阈值时染色,便于横向扫视同一行的多个指标。
-const countCell = (value, warn, danger) => {
-  if (!value) {
-    return <Text type='tertiary'>0</Text>;
-  }
-  const color = value >= danger ? 'red' : value >= warn ? 'orange' : 'blue';
-  return <Tag color={color}>{value}</Tag>;
-};
-
-// 详情各分区的行都能从这些字段里取到稳定的键
-const detailRowKey = (record) =>
-  record.ip ||
-  record.ua ||
-  record.user_id ||
-  `${record.status_code}:${record.error_code}`;
-
-const RiskRankings = () => {
+const RiskRankings = ({ onInspect, onDisposition, onBatch, refreshKey }) => {
   const { t } = useTranslation();
-  const [metric, setMetric] = useState(METRIC_USER);
-  const [hours, setHours] = useState(24);
-  const [excludeWhitelist, setExcludeWhitelist] = useState(false);
-  const [sort, setSort] = useState(DEFAULT_SORT);
+  const [filters, setFilters] = useRiskFilters('r', {
+    metric: 'user_overview',
+    hours: 24,
+    exclude: false,
+    sort: 'request_count',
+    order: 'descend',
+    p: 1,
+    keyword: '',
+  });
+  const metric = ['user_overview', 'ip_overview', 'ua'].includes(filters.metric)
+    ? filters.metric
+    : 'user_overview';
+  const hours = riskInteger(filters.hours, 24, 1, 168);
+  const excludeWhitelist = filters.exclude === 'true';
+  const sort = {
+    by: filters.sort,
+    order: filters.order === 'ascend' ? 'ascend' : 'descend',
+  };
+  const page = riskInteger(filters.p, 1, 1, 1000000);
+  const [keyword, setKeyword] = useState(filters.keyword);
+  const [total, setTotal] = useState(0);
+  const [selected, setSelected] = useState([]);
   const [loading, setLoading] = useState(false);
   const [items, setItems] = useState([]);
   const [meta, setMeta] = useState({});
-
-  // 下钻详情弹窗:主关联列表 + 该维度的补充明细 + 错误状态码分布
-  const [detailVisible, setDetailVisible] = useState(false);
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [detailTitle, setDetailTitle] = useState('');
-  const [detailType, setDetailType] = useState('user');
-  const [detailTab, setDetailTab] = useState('items');
-  const [detailData, setDetailData] = useState({});
-
-  // 带原因的封禁弹窗
-  const [banTarget, setBanTarget] = useState(null); // {user_id, username}
-  const [banReason, setBanReason] = useState('');
-  const [banning, setBanning] = useState(false);
-
-  // 封禁 IP 弹窗
-  const [banIpTarget, setBanIpTarget] = useState(''); // 要封禁的 IP
-  const [banIpReason, setBanIpReason] = useState('');
-  const [banIpMinutes, setBanIpMinutes] = useState(0);
-  const [banningIp, setBanningIp] = useState(false);
-
-  const loadRankings = useCallback(async () => {
-    setLoading(true);
-    try {
-      const params = new URLSearchParams({
-        metric,
-        hours: String(hours),
-        limit: String(RANKING_LIMIT),
-        sort_by: sort.by,
-        sort_order: sort.order === 'ascend' ? 'asc' : 'desc',
-      });
-      if (excludeWhitelist) params.set('exclude_whitelist', 'true');
-
-      const res = await API.get(`/api/risk/rankings?${params.toString()}`);
-      const { success, message, data } = res.data;
-      if (success) {
-        setItems(data?.items || []);
-        setMeta(data?.meta || {});
-      } else {
-        showError(message);
-      }
-    } catch (e) {
-      showError(e.message);
-    }
-    setLoading(false);
-  }, [metric, hours, excludeWhitelist, sort]);
+  const [error, setError] = useState('');
+  const [reload, setReload] = useState(0);
 
   useEffect(() => {
-    loadRankings();
-  }, [loadRankings]);
-
-  const switchMetric = (key) => {
-    // 切换维度时清空数据并重置排序:各维度的可排序字段并不相同
+    const controller = new AbortController();
+    const params = new URLSearchParams({
+      metric,
+      hours: String(hours),
+      paginated: 'true',
+      p: String(page),
+      page_size: '20',
+      keyword: filters.keyword,
+      sort_by: sort.by,
+      sort_order: sort.order === 'ascend' ? 'asc' : 'desc',
+    });
+    if (excludeWhitelist) params.set('exclude_whitelist', 'true');
+    setLoading(true);
     setItems([]);
-    setSort(DEFAULT_SORT);
-    setMetric(key);
-  };
-
-  const handleTableChange = ({ sorter }) => {
-    if (!sorter || !sorter.dataIndex) return;
-    const { dataIndex, sortOrder } = sorter;
-    // 分页等其它变更也会触发 onChange,排序未变时不重复请求
-    if (!sortOrder) {
-      if (sort.by !== DEFAULT_SORT.by || sort.order !== DEFAULT_SORT.order) {
-        setSort(DEFAULT_SORT);
-      }
-      return;
-    }
-    if (sort.by === dataIndex && sort.order === sortOrder) return;
-    setSort({ by: dataIndex, order: sortOrder });
-  };
-
-  const openDetail = async (type, value, title) => {
-    setDetailType(type);
-    setDetailTitle(title);
-    setDetailTab('items');
-    setDetailData({});
-    setDetailVisible(true);
-    setDetailLoading(true);
-    try {
-      const params = new URLSearchParams({
-        type,
-        value: String(value),
-        hours: String(hours),
+    setMeta({});
+    setSelected([]);
+    setError('');
+    API.get(`/api/risk/rankings?${params}`, {
+      signal: controller.signal,
+      skipErrorHandler: true,
+    })
+      .then((res) => {
+        if (controller.signal.aborted) return;
+        if (!res.data.success) throw new Error(res.data.message);
+        setItems(res.data.data?.items || []);
+        setMeta(res.data.data?.meta || {});
+        setTotal(res.data.data?.total || 0);
+      })
+      .catch((e) => {
+        if (!controller.signal.aborted)
+          setError(e.response?.data?.message || e.message);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
       });
-      if (excludeWhitelist) params.set('exclude_whitelist', 'true');
+    return () => controller.abort();
+  }, [
+    metric,
+    hours,
+    excludeWhitelist,
+    sort.by,
+    sort.order,
+    page,
+    filters.keyword,
+    reload,
+    refreshKey,
+  ]);
+  useEffect(() => setKeyword(filters.keyword), [filters.keyword]);
 
-      const res = await API.get(`/api/risk/detail?${params.toString()}`);
-      const { success, message, data } = res.data;
-      if (success) {
-        setDetailData(data || {});
-      } else {
-        showError(message);
-      }
-    } catch (e) {
-      showError(e.message);
-    }
-    setDetailLoading(false);
-  };
-
-  const confirmBan = async () => {
-    if (!banTarget) return;
-    setBanning(true);
-    try {
-      const res = await API.post('/api/user/manage', {
-        id: banTarget.user_id,
-        action: 'disable',
-        reason: banReason.trim(),
-      });
-      const { success, message } = res.data;
-      if (success) {
-        showSuccess(t('用户已禁用'));
-        setBanTarget(null);
-      } else {
-        showError(message);
-      }
-    } catch (e) {
-      showError(e.message);
-    }
-    setBanning(false);
-  };
-
-  const confirmBanIp = async () => {
-    if (!banIpTarget) return;
-    setBanningIp(true);
-    try {
-      const res = await API.post('/api/risk/ip_bans', {
-        target: banIpTarget,
-        reason: banIpReason.trim(),
-        expire_minutes: banIpMinutes > 0 ? banIpMinutes : 0,
-      });
-      const { success, message } = res.data;
-      if (success) {
-        showSuccess(t('IP 已封禁'));
-        setBanIpTarget('');
-      } else {
-        showError(message);
-      }
-    } catch (e) {
-      showError(e.message);
-    }
-    setBanningIp(false);
-  };
-
-  const detailButton = (onClick) => (
-    <Button theme='light' size='small' onClick={onClick}>
-      {t('查看详情')}
-    </Button>
-  );
-
-  const banButton = (userId, username) => (
-    <Button
-      theme='light'
-      type='danger'
-      size='small'
-      onClick={() => {
-        setBanTarget({ user_id: userId, username });
-        setBanReason('');
-      }}
-    >
-      {t('禁用用户')}
-    </Button>
-  );
-
-  // 服务端排序列:sortOrder 受控,点击列头由 handleTableChange 转成新的查询参数。
-  const sortableCount = (dataIndex, title, width, warn, danger) => ({
-    title,
-    dataIndex,
-    width,
-    sorter: true,
-    sortOrder: sort.by === dataIndex ? sort.order : false,
-    render: (v) => countCell(v, warn, danger),
-  });
-
-  const requestCountColumn = {
-    title: t('请求数'),
-    dataIndex: 'request_count',
-    width: 110,
-    sorter: true,
-    sortOrder: sort.by === 'request_count' ? sort.order : false,
-  };
-
-  const lastSeenColumn = {
-    title: t('最近活跃'),
-    dataIndex: 'last_seen',
-    width: 170,
-    sorter: true,
-    sortOrder: sort.by === 'last_seen' ? sort.order : false,
-    render: (v) => (v ? timestamp2string(v) : '-'),
-  };
-
-  const userColumns = [
-    {
-      title: t('用户'),
-      dataIndex: 'username',
-      width: 180,
-      fixed: 'left',
-      render: (v, record) => `${v || '-'} (#${record.user_id})`,
-    },
-    requestCountColumn,
-    sortableCount('ip_count', t('IP 数'), 110, 5, 15),
-    sortableCount('token_count', t('令牌数'), 110, 5, 20),
-    sortableCount('tiny_request_count', t('微量请求'), 120, 20, 100),
-    sortableCount('error_count', t('错误数'), 110, 20, 100),
-    lastSeenColumn,
-    {
-      title: t('操作'),
-      width: 190,
-      fixed: 'right',
-      render: (_, record) => (
-        <Space>
-          {detailButton(() =>
-            openDetail(
-              'user',
-              record.user_id,
-              `${t('用户明细')}: ${record.username || record.user_id}`,
+  const inspect = (type, value) =>
+    onInspect({ type, value: String(value), hours, excludeWhitelist });
+  const firstColumn =
+    metric === 'user_overview'
+      ? {
+          title: t('用户'),
+          dataIndex: 'username',
+          width: 190,
+          fixed: 'left',
+          render: (v, row) => (
+            <Button
+              theme='borderless'
+              onClick={() => inspect('user', row.user_id)}
+            >
+              {v || '-'} (#{row.user_id})
+            </Button>
+          ),
+        }
+      : metric === 'ip_overview'
+        ? {
+            title: 'IP',
+            dataIndex: 'ip',
+            width: 200,
+            fixed: 'left',
+            render: (v) => <IpTag ip={v} />,
+          }
+        : {
+            title: 'User-Agent',
+            dataIndex: 'ua',
+            width: 260,
+            fixed: 'left',
+            ellipsis: { showTitle: true },
+          };
+  const counts = [
+    ['request_count', t('请求数')],
+    [
+      metric === 'user_overview' ? 'ip_count' : 'user_count',
+      metric === 'user_overview' ? t('IP 数') : t('用户数'),
+    ],
+    ...(metric === 'ua' ? [['ip_count', t('IP 数')]] : []),
+    ['token_count', t('令牌数')],
+    ['tiny_request_count', t('微量请求')],
+    ['error_count', t('错误数')],
+  ];
+  const columns = [
+    firstColumn,
+    ...(metric === 'user_overview'
+      ? [
+          {
+            title: t('当前状态'),
+            width: 220,
+            render: (_, row) => (
+              <RiskUserState state={meta.user_states?.[row.user_id]} />
             ),
-          )}
-          {banButton(record.user_id, record.username)}
-        </Space>
-      ),
-    },
-  ];
-
-  const ipColumns = [
-    {
-      title: 'IP',
-      dataIndex: 'ip',
-      width: 200,
-      fixed: 'left',
-      render: (v) => <IpTag ip={v} />,
-    },
-    requestCountColumn,
-    sortableCount('user_count', t('用户数'), 110, 2, 5),
-    sortableCount('token_count', t('令牌数'), 110, 5, 20),
-    sortableCount('tiny_request_count', t('微量请求'), 120, 20, 100),
-    sortableCount('error_count', t('错误数'), 110, 20, 100),
-    lastSeenColumn,
-    {
-      title: t('操作'),
-      width: 190,
-      fixed: 'right',
-      render: (_, record) => (
-        <Space>
-          {detailButton(() =>
-            openDetail('ip', record.ip, `${t('IP 明细')}: ${record.ip}`),
-          )}
-          <Button
-            theme='light'
-            type='danger'
-            size='small'
-            onClick={() => {
-              setBanIpTarget(record.ip);
-              setBanIpReason('');
-              setBanIpMinutes(0);
-            }}
-          >
-            {t('封禁 IP')}
-          </Button>
-        </Space>
-      ),
-    },
-  ];
-
-  const uaColumns = [
-    {
-      title: 'User-Agent',
-      dataIndex: 'ua',
-      width: 260,
-      fixed: 'left',
-      ellipsis: { showTitle: true },
-    },
-    requestCountColumn,
-    sortableCount('user_count', t('用户数'), 110, 3, 10),
-    sortableCount('ip_count', t('IP 数'), 110, 5, 20),
-    sortableCount('token_count', t('令牌数'), 110, 5, 20),
-    sortableCount('tiny_request_count', t('微量请求'), 120, 20, 100),
-    sortableCount('error_count', t('错误数'), 110, 20, 100),
-    lastSeenColumn,
-    {
-      title: t('操作'),
-      width: 120,
-      fixed: 'right',
-      render: (_, record) =>
-        detailButton(() =>
-          openDetail('ua', record.ua, `${t('UA 明细')}: ${record.ua}`),
+          },
+        ]
+      : metric === 'ip_overview'
+        ? [
+            {
+              title: t('动态封禁'),
+              width: 110,
+              render: (_, row) =>
+                meta.ip_states?.[row.ip]?.length ? (
+                  <Tag color='red'>{t('已封禁')}</Tag>
+                ) : (
+                  <Typography.Text type='tertiary'>-</Typography.Text>
+                ),
+            },
+          ]
+        : []),
+    ...counts.map(([key, title]) => ({
+      title,
+      dataIndex: key,
+      width: 110,
+      sorter: true,
+      sortOrder: sort.by === key ? sort.order : false,
+      render: (v) =>
+        v ? (
+          <Tag color='blue'>{v}</Tag>
+        ) : (
+          <Typography.Text type='tertiary'>0</Typography.Text>
         ),
-    },
-  ];
-
-  const columnsMap = {
-    [METRIC_USER]: userColumns,
-    [METRIC_IP]: ipColumns,
-    [METRIC_UA]: uaColumns,
-  };
-
-  const seenColumns = [
+    })),
     {
-      title: t('首次'),
-      dataIndex: 'first_seen',
-      width: 170,
-      render: (v) => timestamp2string(v),
-    },
-    {
-      title: t('最近'),
+      title: t('最近活跃'),
       dataIndex: 'last_seen',
       width: 170,
-      render: (v) => timestamp2string(v),
+      sorter: true,
+      sortOrder: sort.by === 'last_seen' ? sort.order : false,
+      render: (v) => (v ? timestamp2string(v) : '-'),
     },
-  ];
-
-  const detailUserColumns = [
-    {
-      title: t('用户'),
-      dataIndex: 'username',
-      render: (v, record) => `${v || '-'} (#${record.user_id})`,
-    },
-    { title: t('请求数'), dataIndex: 'request_count', width: 110 },
-    ...seenColumns,
     {
       title: t('操作'),
-      width: 120,
-      render: (_, record) => banButton(record.user_id, record.username),
+      width: 200,
+      fixed: 'right',
+      render: (_, row) => {
+        const type =
+          metric === 'user_overview'
+            ? 'user'
+            : metric === 'ip_overview'
+              ? 'ip'
+              : 'ua';
+        const value =
+          type === 'user' ? row.user_id : type === 'ip' ? row.ip : row.ua;
+        const userState = meta.user_states?.[row.user_id];
+        return (
+          <Space>
+            <Button size='small' onClick={() => inspect(type, value)}>
+              {t('查看详情')}
+            </Button>
+            {type === 'ip' && (
+              <Button
+                size='small'
+                type='danger'
+                onClick={() =>
+                  onDisposition({ type, value: row.ip, action: 'ban_ip' })
+                }
+              >
+                {t('封禁 IP')}
+              </Button>
+            )}
+            {type === 'user' && userState?.can_disable && (
+              <Button
+                size='small'
+                type='danger'
+                onClick={() =>
+                  onDisposition({
+                    type,
+                    value: String(row.user_id),
+                    label: row.username,
+                    action: 'disable',
+                  })
+                }
+              >
+                {userState.status === 2 ? t('转为永久禁用') : t('禁用用户')}
+              </Button>
+            )}
+            {type === 'user' && userState?.can_enable && (
+              <Button
+                size='small'
+                onClick={() =>
+                  onDisposition({
+                    type,
+                    value: String(row.user_id),
+                    label: row.username,
+                    action: 'enable',
+                  })
+                }
+              >
+                {t('启用用户')}
+              </Button>
+            )}
+          </Space>
+        );
+      },
     },
   ];
-
-  const detailIpColumns = [
-    { title: 'IP', dataIndex: 'ip', render: (v) => <IpTag ip={v} /> },
-    { title: t('请求数'), dataIndex: 'request_count', width: 110 },
-    ...seenColumns,
-  ];
-
-  const detailUaColumns = [
-    { title: 'User-Agent', dataIndex: 'ua', ellipsis: { showTitle: true } },
-    { title: t('请求数'), dataIndex: 'request_count', width: 110 },
-    ...seenColumns,
-  ];
-
-  const detailErrorColumns = [
-    {
-      title: t('状态码'),
-      dataIndex: 'status_code',
-      width: 120,
-      render: (v) => (
-        <Tag color={v >= 500 ? 'red' : v >= 400 ? 'orange' : 'blue'}>
-          {v || '-'}
-        </Tag>
-      ),
-    },
-    { title: t('错误码'), dataIndex: 'error_code', ellipsis: true },
-    { title: t('次数'), dataIndex: 'count', width: 110 },
-  ];
-
-  // 各维度的详情分区:主关联列表在前,补充明细居中,错误分布收尾
-  const primaryDetailTab = {
-    user: { label: t('IP 明细'), columns: detailIpColumns },
-    ip: { label: t('关联用户'), columns: detailUserColumns },
-    ua: { label: t('关联用户'), columns: detailUserColumns },
-  }[detailType];
-
-  const detailTabs = [
-    { key: 'items', ...primaryDetailTab, rows: detailData.items },
-    detailType === 'ua'
-      ? {
-          key: 'ips',
-          label: t('IP 明细'),
-          columns: detailIpColumns,
-          rows: detailData.ips,
-        }
-      : {
-          key: 'uas',
-          label: t('UA 明细'),
-          columns: detailUaColumns,
-          rows: detailData.uas,
-        },
-    {
-      key: 'errors',
-      label: t('错误状态码'),
-      columns: detailErrorColumns,
-      rows: detailData.errors,
-    },
-  ];
-
-  const showLogWarning =
-    meta && (meta.ip_log_enabled === false || meta.ua_log_enabled === false);
 
   return (
     <>
-      {showLogWarning && (
+      {meta.state_available === false && (
+        <Banner
+          type='warning'
+          className='mb-4'
+          description={t('当前状态暂时无法读取，处置前请重试。')}
+        />
+      )}
+      {error && <Banner type='danger' className='mb-4' description={error} />}
+      {(meta.ip_log_enabled === false || meta.ua_log_enabled === false) && (
         <Banner
           type='warning'
           className='mb-4'
@@ -479,172 +296,111 @@ const RiskRankings = () => {
           )}
         />
       )}
-      <Space className='mb-4' wrap>
-        <Text>{t('时间范围')}</Text>
-        <Select value={hours} onChange={setHours} style={{ width: 140 }}>
-          {HOURS_OPTIONS.map((o) => (
-            <Select.Option key={o.value} value={o.value}>
-              {t(o.labelKey)}
-            </Select.Option>
-          ))}
+      <Space wrap className='mb-4'>
+        <Typography.Text>{t('时间范围')}</Typography.Text>
+        <Select
+          value={hours}
+          onChange={(value) => setFilters({ hours: value })}
+          style={{ width: 140 }}
+        >
+          <Select.Option value={24}>{t('近 1 天')}</Select.Option>
+          <Select.Option value={72}>{t('近 3 天')}</Select.Option>
+          <Select.Option value={168}>{t('近 7 天')}</Select.Option>
         </Select>
-        <Text>{t('过滤全局白名单')}</Text>
+        <Typography.Text>{t('过滤全局白名单')}</Typography.Text>
         <Switch
           checked={excludeWhitelist}
-          onChange={setExcludeWhitelist}
+          onChange={(value) => setFilters({ exclude: value })}
           size='small'
           aria-label={t('过滤全局白名单')}
         />
-        <Text type='tertiary' size='small'>
-          {meta.whitelist_count
-            ? t('已配置 {{count}} 个全局白名单账号', {
-                count: meta.whitelist_count,
-              })
-            : t('风控设置中尚未配置全局白名单账号')}
-        </Text>
-        <Button icon={<IconRefresh />} onClick={loadRankings}>
+        <Input
+          value={keyword}
+          onChange={setKeyword}
+          placeholder={t('搜索用户 ID、用户名、IP 或 UA')}
+          style={{ width: 240 }}
+          onEnterPress={() => setFilters({ keyword: keyword.trim() })}
+        />
+        <Button
+          icon={<IconSearch />}
+          aria-label={t('查询')}
+          onClick={() => setFilters({ keyword: keyword.trim() })}
+        >
+          {t('查询')}
+        </Button>
+        <Button
+          icon={<IconRefresh />}
+          aria-label={t('刷新')}
+          onClick={() => setReload((n) => n + 1)}
+        >
           {t('刷新')}
         </Button>
       </Space>
-
-      <Tabs type='button' activeKey={metric} onChange={switchMetric}>
-        <TabPane tab={t('用户排行')} itemKey={METRIC_USER} />
-        <TabPane tab={t('IP 排行')} itemKey={METRIC_IP} />
-        <TabPane tab={t('UA 排行')} itemKey={METRIC_UA} />
+      <Tabs
+        type='button'
+        activeKey={metric}
+        onChange={(key) => {
+          setFilters({
+            metric: key,
+            sort: 'request_count',
+            order: 'descend',
+            keyword: '',
+          });
+        }}
+      >
+        <TabPane tab={t('用户排行')} itemKey='user_overview' />
+        <TabPane tab={t('IP 排行')} itemKey='ip_overview' />
+        <TabPane tab={t('UA 排行')} itemKey='ua' />
       </Tabs>
-
-      {metric === METRIC_USER && (
-        <Text type='tertiary' size='small' className='block mb-2'>
-          {t(
-            'IP 数明显高于令牌数,说明单个令牌被大量 IP 使用,通常意味着密钥已泄露或被倒卖;微量请求与错误数偏高则是脚本测活的典型特征。微量请求指输入与输出 tokens 均不超过 {{count}} 的成功请求,该阈值可在风控设置中调整。',
-            { count: meta.tiny_request_max_tokens ?? 16 },
-          )}
-        </Text>
-      )}
-      {metric === METRIC_IP && (
-        <Text type='tertiary' size='small' className='block mb-2'>
-          {t(
-            '单个 IP 短时间关联大量用户或令牌,是批量测活、号商倒卖的典型特征;错误数偏高说明大量密钥已失效。',
-          )}
-        </Text>
-      )}
-      {metric === METRIC_UA && (
-        <Text type='tertiary' size='small' className='block mb-2'>
-          {t(
-            '同一客户端标识覆盖大量用户与 IP,通常是脚本或代理工具。确认可疑后可在风控设置中把它加入 UA 黑名单。',
-          )}
-        </Text>
-      )}
-      <Text type='tertiary' size='small' className='block mb-2'>
-        {t('点击列头切换排序,榜单会按该指标重新从服务端取前 {{count}} 名。', {
-          count: RANKING_LIMIT,
-        })}
-      </Text>
-
+      <Typography.Text type='tertiary' className='block mb-2'>
+        {t('数值表示统计结果，是否触发自动处置取决于实际规则。')}
+      </Typography.Text>
+      <Typography.Text type='tertiary' className='block mb-2'>
+        {t('搜索、排序和分页均在服务端执行，筛选条件保存在页面地址中。')}
+      </Typography.Text>
+      <RiskBatchToolbar
+        mode={metric === 'user_overview' ? 'user' : 'ip'}
+        targets={selected.map((value) => ({
+          type: metric === 'user_overview' ? 'user' : 'ip',
+          value: String(value),
+        }))}
+        onBatch={onBatch}
+      />
       <Table
-        columns={columnsMap[metric]}
+        columns={columns}
         dataSource={items}
         loading={loading}
-        onChange={handleTableChange}
-        scroll={{ x: 1240 }}
-        rowKey={(record) =>
-          record.ip || record.user_id || record.ua || JSON.stringify(record)
+        rowKey={(row) => row.user_id || row.ip || row.ua}
+        scroll={{ x: metric === 'ua' ? 1450 : 1550 }}
+        pagination={{
+          pageSize: 20,
+          currentPage: page,
+          total,
+          onPageChange: (value) => setFilters({ p: value }),
+        }}
+        rowSelection={
+          metric === 'ua'
+            ? undefined
+            : {
+                selectedRowKeys: selected,
+                onChange: setSelected,
+                getCheckboxProps: (row) => ({
+                  disabled:
+                    metric === 'user_overview' &&
+                    !meta.user_states?.[row.user_id]?.can_manage,
+                }),
+              }
         }
-        pagination={{ pageSize: 20 }}
         empty={t('暂无数据')}
+        onChange={({ sorter }) => {
+          if (!sorter?.dataIndex) return;
+          const next = sorter.sortOrder
+            ? { by: sorter.dataIndex, order: sorter.sortOrder }
+            : { by: 'request_count', order: 'descend' };
+          if (sort.by !== next.by || sort.order !== next.order)
+            setFilters({ sort: next.by, order: next.order });
+        }}
       />
-
-      <Modal
-        title={detailTitle}
-        visible={detailVisible}
-        onCancel={() => setDetailVisible(false)}
-        footer={null}
-        width={900}
-      >
-        <Tabs type='line' activeKey={detailTab} onChange={setDetailTab}>
-          {detailTabs.map((tab) => (
-            <TabPane tab={tab.label} itemKey={tab.key} key={tab.key}>
-              {tab.key === 'errors' && detailData.errors_sampled && (
-                <Banner
-                  type='info'
-                  className='mb-2'
-                  description={t(
-                    '错误数量较多,分布基于最近的错误样本统计,不代表窗口内全量。',
-                  )}
-                />
-              )}
-              <Table
-                columns={tab.columns}
-                dataSource={tab.rows || []}
-                loading={detailLoading}
-                rowKey={detailRowKey}
-                pagination={{ pageSize: 10 }}
-                empty={t('暂无数据')}
-              />
-            </TabPane>
-          ))}
-        </Tabs>
-      </Modal>
-
-      <Modal
-        title={t('禁用用户')}
-        visible={!!banTarget}
-        onOk={confirmBan}
-        onCancel={() => setBanTarget(null)}
-        okType='danger'
-        okText={t('确认禁用')}
-        cancelText={t('取消')}
-        confirmLoading={banning}
-      >
-        <Space vertical align='start' style={{ width: '100%' }}>
-          <Text>
-            {banTarget
-              ? `${banTarget.username || ''} (#${banTarget.user_id})`
-              : ''}
-          </Text>
-          <Text type='tertiary'>
-            {t('封禁原因将写入风控事件记录,便于日后审计与解封时参考。')}
-          </Text>
-          <TextArea
-            value={banReason}
-            onChange={setBanReason}
-            placeholder={t('封禁原因(可选)')}
-            rows={3}
-          />
-        </Space>
-      </Modal>
-
-      <Modal
-        title={t('封禁 IP')}
-        visible={!!banIpTarget}
-        onOk={confirmBanIp}
-        onCancel={() => setBanIpTarget('')}
-        okType='danger'
-        okText={t('确认封禁')}
-        cancelText={t('取消')}
-        confirmLoading={banningIp}
-      >
-        <Space vertical align='start' style={{ width: '100%' }}>
-          <Text>{banIpTarget}</Text>
-          <Text>{t('封禁时长(分钟,0 或留空为永久)')}</Text>
-          <InputNumber
-            value={banIpMinutes}
-            min={0}
-            max={43200}
-            style={{ width: 160 }}
-            onChange={(v) => setBanIpMinutes(v > 0 ? v : 0)}
-          />
-          <TextArea
-            value={banIpReason}
-            onChange={setBanIpReason}
-            placeholder={t('封禁原因(可选)')}
-            rows={3}
-          />
-          <Text type='tertiary' size='small'>
-            {t('封禁后该 IP 的所有请求将被拒绝,可在「IP 封禁」页解除。')}
-          </Text>
-        </Space>
-      </Modal>
     </>
   );
 };

@@ -17,10 +17,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   Banner,
   Button,
+  Input,
   InputNumber,
   Modal,
   Select,
@@ -28,14 +29,16 @@ import {
   Switch,
   Table,
   Tag,
-  TextArea,
   Tooltip,
   Typography,
 } from '@douyinfe/semi-ui';
-import { IconRefresh } from '@douyinfe/semi-icons';
+import { IconRefresh, IconSearch } from '@douyinfe/semi-icons';
 import { useTranslation } from 'react-i18next';
-import { API, showError, showSuccess, timestamp2string } from '../../helpers';
+import { API, showError, timestamp2string } from '../../helpers';
+import RiskUserState from './RiskUserState';
 import IpTag from '../../components/common/ui/IpTag';
+import useRiskFilters, { riskInteger } from './useRiskFilters';
+import { RiskBatchToolbar } from './RiskBatchModal';
 
 const { Text } = Typography;
 
@@ -52,13 +55,9 @@ const REQUEST_HOURS_OPTIONS = [
   { value: 168, labelKey: '近 7 天' },
 ];
 
-const RANKING_LIMIT = 200;
-
-// 关联账号数染色：2 个可能是家人同网，5 个以上基本是批量注册。
 const userCountCell = (value) => {
   if (!value) return <Text type='tertiary'>0</Text>;
-  const color = value >= 5 ? 'red' : value >= 3 ? 'orange' : 'blue';
-  return <Tag color={color}>{value}</Tag>;
+  return <Tag color='blue'>{value}</Tag>;
 };
 
 const countCell = (value, highlight) => {
@@ -76,29 +75,45 @@ const shortIdentifier = (value) => {
   return value.length > 22 ? `${value.slice(0, 22)}…` : value;
 };
 
-const MultiAccount = () => {
+const MultiAccount = ({ onInspect, onDisposition, onBatch, refreshKey }) => {
   const { t } = useTranslation();
-  const [hours, setHours] = useState(168);
-  const [minUsers, setMinUsers] = useState(2);
-  const [includeRequests, setIncludeRequests] = useState(false);
-  const [excludeWhitelist, setExcludeWhitelist] = useState(true);
+  const [filters, setFilters] = useRiskFilters('m', {
+    hours: 168,
+    min: 2,
+    include: false,
+    exclude: true,
+    p: 1,
+    keyword: '',
+    detail: '',
+  });
+  const includeRequests = filters.include === 'true';
+  const hours = riskInteger(
+    filters.hours,
+    168,
+    1,
+    includeRequests ? 168 : 2160,
+  );
+  const minUsers = riskInteger(filters.min, 2, 2, 1000);
+  const excludeWhitelist = filters.exclude === 'true';
+  const page = riskInteger(filters.p, 1, 1, 1000000);
+  const [keyword, setKeyword] = useState(filters.keyword);
+  const [total, setTotal] = useState(0);
+  const [selected, setSelected] = useState([]);
+  const [detailSelected, setDetailSelected] = useState([]);
   const [loading, setLoading] = useState(false);
   const [items, setItems] = useState([]);
   const [meta, setMeta] = useState({});
 
-  const [detailIp, setDetailIp] = useState('');
+  const detailIp = filters.detail;
+  const setDetailIp = (value) => setFilters({ detail: value, p: page });
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailItems, setDetailItems] = useState([]);
   const [bindingUser, setBindingUser] = useState(null); // 查看某个账号的全部绑定
 
-  const [banTarget, setBanTarget] = useState(null); // {user_id, username}
-  const [banReason, setBanReason] = useState('');
-  const [banning, setBanning] = useState(false);
-
-  const [banIpTarget, setBanIpTarget] = useState('');
-  const [banIpReason, setBanIpReason] = useState('');
-  const [banIpMinutes, setBanIpMinutes] = useState(0);
-  const [banningIp, setBanningIp] = useState(false);
+  const [detailStates, setDetailStates] = useState({});
+  const [detailStateAvailable, setDetailStateAvailable] = useState(true);
+  const rankingRequest = useRef(null);
+  const detailRequest = useRef(null);
 
   const hoursOptions = includeRequests
     ? REQUEST_HOURS_OPTIONS
@@ -115,100 +130,88 @@ const MultiAccount = () => {
   }, [hours, minUsers, includeRequests, excludeWhitelist]);
 
   const loadRanking = useCallback(async () => {
+    rankingRequest.current?.abort();
+    const controller = new AbortController();
+    rankingRequest.current = controller;
     setLoading(true);
+    setItems([]);
+    setSelected([]);
     try {
       const params = buildParams();
-      params.set('limit', String(RANKING_LIMIT));
-      const res = await API.get(`/api/risk/multi_account?${params.toString()}`);
+      params.set('paginated', 'true');
+      params.set('p', String(page));
+      params.set('page_size', '20');
+      params.set('keyword', filters.keyword);
+      const res = await API.get(
+        `/api/risk/multi_account?${params.toString()}`,
+        { signal: controller.signal, skipErrorHandler: true },
+      );
+      if (controller.signal.aborted) return;
       const { success, message, data } = res.data;
       if (success) {
         setItems(data?.items || []);
         setMeta(data?.meta || {});
+        setTotal(data?.total || 0);
       } else {
         showError(message);
       }
     } catch (e) {
-      showError(e.message);
+      if (!controller.signal.aborted) showError(e.message);
     }
-    setLoading(false);
-  }, [buildParams]);
+    if (!controller.signal.aborted) setLoading(false);
+  }, [buildParams, page, filters.keyword]);
+  useEffect(() => setKeyword(filters.keyword), [filters.keyword]);
 
   useEffect(() => {
     loadRanking();
-  }, [loadRanking]);
+    return () => rankingRequest.current?.abort();
+  }, [loadRanking, refreshKey]);
 
   // 切换证据口径时窗口上限会变，把超出新上限的选择拉回最大可选值
   const switchIncludeRequests = (checked) => {
-    setIncludeRequests(checked);
-    if (checked && hours > 168) setHours(168);
+    setFilters({
+      include: checked,
+      hours: checked && hours > 168 ? 168 : hours,
+    });
   };
 
-  const openDetail = async (ip) => {
-    setDetailIp(ip);
-    setDetailItems([]);
-    setDetailLoading(true);
-    try {
-      const params = buildParams();
-      params.set('ip', ip);
-      const res = await API.get(
-        `/api/risk/multi_account/detail?${params.toString()}`,
-      );
-      const { success, message, data } = res.data;
-      if (success) {
-        setDetailItems(data?.items || []);
-      } else {
-        showError(message);
+  const openDetail = useCallback(
+    async (ip) => {
+      detailRequest.current?.abort();
+      const controller = new AbortController();
+      detailRequest.current = controller;
+      setDetailStates({});
+      setDetailSelected([]);
+      setDetailItems([]);
+      setDetailLoading(true);
+      try {
+        const params = buildParams();
+        params.set('ip', ip);
+        const res = await API.get(
+          `/api/risk/multi_account/detail?${params.toString()}`,
+          { signal: controller.signal, skipErrorHandler: true },
+        );
+        if (controller.signal.aborted) return;
+        const { success, message, data } = res.data;
+        if (success) {
+          setDetailItems(data?.items || []);
+          setDetailStates(data?.user_states || {});
+          setDetailStateAvailable(data?.state_available !== false);
+        } else {
+          showError(message);
+        }
+      } catch (e) {
+        if (!controller.signal.aborted) showError(e.message);
       }
-    } catch (e) {
-      showError(e.message);
-    }
-    setDetailLoading(false);
-  };
+      if (!controller.signal.aborted) setDetailLoading(false);
+    },
+    [buildParams],
+  );
 
-  const confirmBan = async () => {
-    if (!banTarget) return;
-    setBanning(true);
-    try {
-      const res = await API.post('/api/user/manage', {
-        id: banTarget.user_id,
-        action: 'disable',
-        reason: banReason.trim(),
-      });
-      const { success, message } = res.data;
-      if (success) {
-        showSuccess(t('用户已禁用'));
-        setBanTarget(null);
-        if (detailIp) openDetail(detailIp);
-      } else {
-        showError(message);
-      }
-    } catch (e) {
-      showError(e.message);
-    }
-    setBanning(false);
-  };
-
-  const confirmBanIp = async () => {
-    if (!banIpTarget) return;
-    setBanningIp(true);
-    try {
-      const res = await API.post('/api/risk/ip_bans', {
-        target: banIpTarget,
-        reason: banIpReason.trim(),
-        expire_minutes: banIpMinutes > 0 ? banIpMinutes : 0,
-      });
-      const { success, message } = res.data;
-      if (success) {
-        showSuccess(t('IP 已封禁'));
-        setBanIpTarget('');
-      } else {
-        showError(message);
-      }
-    } catch (e) {
-      showError(e.message);
-    }
-    setBanningIp(false);
-  };
+  useEffect(() => {
+    if (detailIp) openDetail(detailIp);
+    return () => detailRequest.current?.abort();
+  }, [detailIp, openDetail, refreshKey]);
 
   // 内置绑定的展示名。专有名词不进翻译表，其余显式调用 t 以便提取。
   const bindingTypeNames = {
@@ -336,7 +339,7 @@ const MultiAccount = () => {
           <Button
             theme='light'
             size='small'
-            onClick={() => openDetail(record.ip)}
+            onClick={() => setDetailIp(record.ip)}
           >
             {t('查看账号')}
           </Button>
@@ -345,9 +348,7 @@ const MultiAccount = () => {
             type='danger'
             size='small'
             onClick={() => {
-              setBanIpTarget(record.ip);
-              setBanIpReason('');
-              setBanIpMinutes(0);
+              onDisposition({ type: 'ip', value: record.ip, action: 'ban_ip' });
             }}
           >
             {t('封禁 IP')}
@@ -364,7 +365,7 @@ const MultiAccount = () => {
       render: (v, record) => (
         <Space>
           <Text>{`${v || '-'} (#${record.user_id})`}</Text>
-          {record.status === 2 && <Tag color='red'>{t('已禁用')}</Tag>}
+          <RiskUserState state={detailStates[record.user_id]} />
         </Space>
       ),
     },
@@ -402,25 +403,57 @@ const MultiAccount = () => {
     {
       title: t('操作'),
       width: 120,
-      render: (_, record) =>
-        record.status === 2 ? (
-          <Text type='tertiary'>{t('已禁用')}</Text>
-        ) : (
+      render: (_, record) => (
+        <Space>
           <Button
-            theme='light'
-            type='danger'
             size='small'
             onClick={() => {
-              setBanTarget({
-                user_id: record.user_id,
-                username: record.username,
+              setDetailIp('');
+              onInspect({
+                type: 'user',
+                value: String(record.user_id),
+                hours: Math.min(hours, 168),
+                excludeWhitelist,
               });
-              setBanReason('');
             }}
           >
-            {t('禁用用户')}
+            {t('查看详情')}
           </Button>
-        ),
+          {detailStates[record.user_id]?.can_disable && (
+            <Button
+              size='small'
+              type='danger'
+              onClick={() =>
+                onDisposition({
+                  type: 'user',
+                  value: String(record.user_id),
+                  label: record.username,
+                  action: 'disable',
+                })
+              }
+            >
+              {detailStates[record.user_id]?.status === 2
+                ? t('转为永久禁用')
+                : t('禁用用户')}
+            </Button>
+          )}
+          {detailStates[record.user_id]?.can_enable && (
+            <Button
+              size='small'
+              onClick={() =>
+                onDisposition({
+                  type: 'user',
+                  value: String(record.user_id),
+                  label: record.username,
+                  action: 'enable',
+                })
+              }
+            >
+              {t('启用用户')}
+            </Button>
+          )}
+        </Space>
+      ),
     },
   ];
 
@@ -445,7 +478,11 @@ const MultiAccount = () => {
 
       <Space className='mb-4' wrap>
         <Text>{t('时间范围')}</Text>
-        <Select value={hours} onChange={setHours} style={{ width: 140 }}>
+        <Select
+          value={hours}
+          onChange={(value) => setFilters({ hours: value })}
+          style={{ width: 140 }}
+        >
           {hoursOptions.map((o) => (
             <Select.Option key={o.value} value={o.value}>
               {t(o.labelKey)}
@@ -458,7 +495,7 @@ const MultiAccount = () => {
           min={2}
           max={1000}
           style={{ width: 100 }}
-          onChange={(v) => setMinUsers(v >= 2 ? v : 2)}
+          onChange={(v) => setFilters({ min: v >= 2 ? v : 2 })}
         />
         <Text>{t('计入调用记录')}</Text>
         <Switch
@@ -470,11 +507,29 @@ const MultiAccount = () => {
         <Text>{t('过滤全局白名单')}</Text>
         <Switch
           checked={excludeWhitelist}
-          onChange={setExcludeWhitelist}
+          onChange={(value) => setFilters({ exclude: value })}
           size='small'
           aria-label={t('过滤全局白名单')}
         />
-        <Button icon={<IconRefresh />} onClick={loadRanking}>
+        <Input
+          value={keyword}
+          onChange={setKeyword}
+          style={{ width: 200 }}
+          placeholder={t('搜索 IP')}
+          onEnterPress={() => setFilters({ keyword: keyword.trim() })}
+        />
+        <Button
+          icon={<IconSearch />}
+          aria-label={t('查询')}
+          onClick={() => setFilters({ keyword: keyword.trim() })}
+        >
+          {t('查询')}
+        </Button>
+        <Button
+          icon={<IconRefresh />}
+          aria-label={t('刷新')}
+          onClick={loadRanking}
+        >
           {t('刷新')}
         </Button>
       </Space>
@@ -495,8 +550,22 @@ const MultiAccount = () => {
         loading={loading}
         scroll={{ x: 1180 }}
         rowKey='ip'
-        pagination={{ pageSize: 20 }}
+        pagination={{
+          pageSize: 20,
+          currentPage: page,
+          total,
+          onPageChange: (value) => setFilters({ p: value }),
+        }}
+        rowSelection={{
+          selectedRowKeys: selected,
+          onChange: (keys) => setSelected(keys),
+        }}
         empty={t('暂无数据')}
+      />
+      <RiskBatchToolbar
+        mode='ip'
+        targets={selected.map((value) => ({ type: 'ip', value }))}
+        onBatch={onBatch}
       />
 
       <Modal
@@ -511,14 +580,21 @@ const MultiAccount = () => {
       >
         <Text type='tertiary' size='small' className='block mb-2'>
           {t(
-            '「在此注册」为「是」表示该账号是在这个地址上注册的，是同一人多号最强的证据。',
+            '注册来源、登录行为和账号绑定应结合判断；共享出口地址也可能来自不同用户。',
           )}
         </Text>
         <Text type='tertiary' size='small' className='block mb-2'>
           {t(
-            '「账号绑定」展示该账号的第三方身份，标红的是注册来源；绑定多条时只显示注册来源，点「查看全部」看其余绑定。同一身份来源（同邮箱域名、同一提供商下相邻的账号 ID）比共用出口地址更能说明是同一人。',
+            '「账号绑定」展示第三方身份与注册来源，绑定多条时可查看全部；这些信息用于辅助研判。',
           )}
         </Text>
+        {!detailStateAvailable && (
+          <Banner
+            type='warning'
+            className='mb-3'
+            description={t('当前状态暂时无法读取，处置前请重试。')}
+          />
+        )}
         <Table
           columns={detailColumns}
           dataSource={detailItems}
@@ -526,7 +602,22 @@ const MultiAccount = () => {
           rowKey='user_id'
           scroll={{ x: 1080 }}
           pagination={{ pageSize: 10 }}
+          rowSelection={{
+            selectedRowKeys: detailSelected,
+            onChange: (keys) => setDetailSelected(keys),
+            getCheckboxProps: (row) => ({
+              disabled: !detailStates[row.user_id]?.can_manage,
+            }),
+          }}
           empty={t('暂无数据')}
+        />
+        <RiskBatchToolbar
+          mode='user'
+          targets={detailSelected.map((value) => ({
+            type: 'user',
+            value: String(value),
+          }))}
+          onBatch={onBatch}
         />
       </Modal>
 
@@ -552,66 +643,6 @@ const MultiAccount = () => {
           pagination={false}
           empty={t('暂无数据')}
         />
-      </Modal>
-
-      <Modal
-        title={t('禁用用户')}
-        visible={!!banTarget}
-        onOk={confirmBan}
-        onCancel={() => setBanTarget(null)}
-        okType='danger'
-        okText={t('确认禁用')}
-        cancelText={t('取消')}
-        confirmLoading={banning}
-      >
-        <Space vertical align='start' style={{ width: '100%' }}>
-          <Text>
-            {banTarget
-              ? `${banTarget.username || ''} (#${banTarget.user_id})`
-              : ''}
-          </Text>
-          <Text type='tertiary'>
-            {t('封禁原因将写入风控事件记录,便于日后审计与解封时参考。')}
-          </Text>
-          <TextArea
-            value={banReason}
-            onChange={setBanReason}
-            placeholder={t('封禁原因(可选)')}
-            rows={3}
-          />
-        </Space>
-      </Modal>
-
-      <Modal
-        title={t('封禁 IP')}
-        visible={!!banIpTarget}
-        onOk={confirmBanIp}
-        onCancel={() => setBanIpTarget('')}
-        okType='danger'
-        okText={t('确认封禁')}
-        cancelText={t('取消')}
-        confirmLoading={banningIp}
-      >
-        <Space vertical align='start' style={{ width: '100%' }}>
-          <Text>{banIpTarget}</Text>
-          <Text>{t('封禁时长(分钟,0 或留空为永久)')}</Text>
-          <InputNumber
-            value={banIpMinutes}
-            min={0}
-            max={43200}
-            style={{ width: 160 }}
-            onChange={(v) => setBanIpMinutes(v > 0 ? v : 0)}
-          />
-          <TextArea
-            value={banIpReason}
-            onChange={setBanIpReason}
-            placeholder={t('封禁原因(可选)')}
-            rows={3}
-          />
-          <Text type='tertiary' size='small'>
-            {t('封禁后该 IP 的所有请求将被拒绝,可在「IP 封禁」页解除。')}
-          </Text>
-        </Space>
       </Modal>
     </>
   );

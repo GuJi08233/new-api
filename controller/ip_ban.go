@@ -15,7 +15,11 @@ import (
 // GetIpBans 分页查询动态 IP 封禁列表。
 // query: keyword, p, page_size
 func GetIpBans(c *gin.Context) {
-	pageInfo := common.GetPageQuery(c)
+	pageInfo, pageErr := riskPageQuery(c)
+	if pageErr != nil {
+		common.ApiError(c, pageErr)
+		return
+	}
 	bans, total, err := model.GetIpBans(c.Query("keyword"), pageInfo.GetStartIdx(), pageInfo.GetPageSize())
 	if err != nil {
 		common.ApiError(c, err)
@@ -87,23 +91,9 @@ func DeleteIpBan(c *gin.Context) {
 		common.ApiErrorMsg(c, "invalid ban id")
 		return
 	}
-	ban, err := model.GetIpBanById(id)
-	if err != nil {
+	if _, err := model.ReleaseRiskIpBan(id, c.GetInt("id"), ""); err != nil {
 		common.ApiError(c, err)
 		return
-	}
-	if err := model.DeleteIpBanById(id); err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	if err := model.InsertRiskEvent(&model.RiskEvent{
-		EventType:  model.RiskEventUnbanIp,
-		Ip:         ban.Target,
-		Rule:       ban.Source,
-		Reason:     ban.Reason,
-		OperatorId: c.GetInt("id"),
-	}); err != nil {
-		common.SysLog("failed to record ip unban event: " + err.Error())
 	}
 	common.ApiSuccess(c, nil)
 }

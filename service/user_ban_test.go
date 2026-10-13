@@ -149,7 +149,7 @@ func TestScanUserRuleEscalatesOnlyOnNewActivity(t *testing.T) {
 		Ip:        "198.51.100.90",
 	}).Error)
 
-	scanUserErrorBurst(rule, rule.WindowHours, nil)
+	scanRiskRule(rule, operation_setting.RiskDefaultTinyRequestMaxTokens, nil)
 	var saved model.User
 	require.NoError(t, model.DB.First(&saved, user.Id).Error)
 	require.Equal(t, common.UserStatusDisabled, saved.Status)
@@ -157,13 +157,13 @@ func TestScanUserRuleEscalatesOnlyOnNewActivity(t *testing.T) {
 
 	// 到期恢复后再扫一轮:证据还是那批旧日志,不重新禁用
 	restoreExpiredUserBans(time.Now().Add(11 * time.Minute))
-	scanUserErrorBurst(rule, rule.WindowHours, nil)
+	scanRiskRule(rule, operation_setting.RiskDefaultTinyRequestMaxTokens, nil)
 	require.NoError(t, model.DB.First(&saved, user.Id).Error)
 	assert.Equal(t, common.UserStatusEnabled, saved.Status, "同一批旧证据不构成再犯")
 
 	// 上次处置之后出现新流量:这才是累犯,升到第 2 档
 	seedUserLog(t, user.Id, time.Now().Unix()+1)
-	scanUserErrorBurst(rule, rule.WindowHours, nil)
+	scanRiskRule(rule, operation_setting.RiskDefaultTinyRequestMaxTokens, nil)
 	require.NoError(t, model.DB.First(&saved, user.Id).Error)
 	require.Equal(t, common.UserStatusDisabled, saved.Status)
 	assert.Contains(t, saved.DisableReason, "第 2 次违规")

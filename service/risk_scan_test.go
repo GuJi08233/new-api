@@ -45,7 +45,7 @@ func TestScanIpRuleEscalatesOnlyOnNewActivity(t *testing.T) {
 	// 三个用户在同一 IP 上留下日志,超过阈值 2
 	seedIpLogs(t, ip, []int{101, 102, 103}, time.Now().Add(-time.Hour).Unix())
 
-	scanIpMultiUser(rule, rule.WindowHours, nil)
+	scanRiskRule(rule, operation_setting.RiskDefaultTinyRequestMaxTokens, nil)
 	ban, matched := model.MatchActiveIpBan(ip)
 	require.True(t, matched, "首轮扫描封禁")
 	firstExpiry := ban.ExpiresAt
@@ -55,7 +55,7 @@ func TestScanIpRuleEscalatesOnlyOnNewActivity(t *testing.T) {
 	assert.Contains(t, events[0].Reason, "首次")
 
 	// 封禁未到期再扫一轮:不延长、不记事件
-	scanIpMultiUser(rule, rule.WindowHours, nil)
+	scanRiskRule(rule, operation_setting.RiskDefaultTinyRequestMaxTokens, nil)
 	ban, matched = model.MatchActiveIpBan(ip)
 	require.True(t, matched)
 	assert.Equal(t, firstExpiry, ban.ExpiresAt)
@@ -65,7 +65,7 @@ func TestScanIpRuleEscalatesOnlyOnNewActivity(t *testing.T) {
 
 	// 到期后再扫:证据还是那批旧日志,不重新封禁
 	expireIpBanForTest(t, ip)
-	scanIpMultiUser(rule, rule.WindowHours, nil)
+	scanRiskRule(rule, operation_setting.RiskDefaultTinyRequestMaxTokens, nil)
 	_, matched = model.MatchActiveIpBan(ip)
 	assert.False(t, matched, "同一批旧证据不构成再犯")
 	_, total, err = model.GetRiskEvents(model.RiskEventBanIp, 0, ip, 0, 10)
@@ -74,7 +74,7 @@ func TestScanIpRuleEscalatesOnlyOnNewActivity(t *testing.T) {
 
 	// 上次封禁之后出现新流量:这才是累犯,升到第 2 档
 	seedIpLogs(t, ip, []int{104}, time.Now().Unix()+1)
-	scanIpMultiUser(rule, rule.WindowHours, nil)
+	scanRiskRule(rule, operation_setting.RiskDefaultTinyRequestMaxTokens, nil)
 	ban, matched = model.MatchActiveIpBan(ip)
 	require.True(t, matched, "有新活动后重新封禁")
 	assert.Greater(t, ban.ExpiresAt, firstExpiry)

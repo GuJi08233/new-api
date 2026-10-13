@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
+	"unicode/utf8"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/setting/config"
@@ -13,6 +14,8 @@ import (
 
 // RiskAutoBanRule 定义一条基于滥用指标的自动封禁规则。
 type RiskAutoBanRule struct {
+	Id          string `json:"id"`
+	Name        string `json:"name"`
 	Enabled     bool   `json:"enabled"`
 	Metric      string `json:"metric"`       // ip_multi_user | user_multi_ip | ip_multi_token | user_tiny_request | user_error_burst
 	WindowHours int    `json:"window_hours"` // 统计窗口(小时),<=0 时回退默认 24
@@ -333,7 +336,18 @@ func ValidateRiskControlOption(key string, value string) error {
 		if err := common.UnmarshalJsonStr(value, &rules); err != nil || rules == nil {
 			return fmt.Errorf("自动封禁规则必须是规则数组")
 		}
+		if len(rules) > 100 {
+			return fmt.Errorf("自动封禁规则最多 100 条")
+		}
+		ids := make(map[string]bool, len(rules))
 		for index, rule := range rules {
+			if rule.Id != "" && (!riskRuleIdPattern.MatchString(rule.Id) || ids[rule.Id]) {
+				return fmt.Errorf("自动封禁规则第 %d 项标识无效或重复", index+1)
+			}
+			ids[rule.Id] = rule.Id != ""
+			if utf8.RuneCountInString(rule.Name) > 80 {
+				return fmt.Errorf("自动封禁规则第 %d 项名称最多 80 个字符", index+1)
+			}
 			if !IsValidRiskMetric(rule.Metric) {
 				return fmt.Errorf("自动封禁规则第 %d 项指标无效", index+1)
 			}
@@ -560,13 +574,14 @@ func GetRiskControlSetting() *RiskControlSetting {
 }
 
 // SyncRiskControlSetting 将暂存配置深拷贝后发布为只读快照。
-// 每次更新暂存结构后都必须调用(见 model/option.go 的 handleConfigUpdate)。
+// 单项更新、整批提交或数据库回放完成后调用，避免发布新旧混杂的配置。
 func SyncRiskControlSetting() {
 	snapshot := &RiskControlSetting{}
 	data, err := common.Marshal(riskControlSetting)
 	if err != nil || common.Unmarshal(data, snapshot) != nil {
 		snapshot = &RiskControlSetting{Enabled: riskControlSetting.Enabled}
 	}
+	snapshot.AutoBanRules = NormalizeRiskAutoBanRules(snapshot.AutoBanRules)
 	riskControlSnapshot.Store(snapshot)
 }
 

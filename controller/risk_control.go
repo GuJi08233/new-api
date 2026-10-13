@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -40,11 +41,27 @@ func GetRiskRankings(c *gin.Context) {
 		TinyMaxTokens: setting.ResolvedTinyRequestMaxTokens(),
 		SortBy:        c.Query("sort_by"),
 		SortOrder:     c.Query("sort_order"),
+		Keyword:       c.Query("keyword"),
 	}
 	if excludeWhitelist {
 		overviewQuery.ExcludeUserIds = whitelistUserIds
 	}
 	meta["whitelist_excluded"] = excludeWhitelist && len(whitelistUserIds) > 0
+	var total int64
+	if c.Query("paginated") == "true" {
+		page, pageErr := riskPageQuery(c)
+		if pageErr != nil {
+			common.ApiError(c, pageErr)
+			return
+		}
+		overviewQuery.Limit, overviewQuery.Offset = page.PageSize, page.GetStartIdx()
+		var countErr error
+		total, countErr = model.CountRiskOverview(metric, overviewQuery)
+		if countErr != nil {
+			common.ApiError(c, countErr)
+			return
+		}
+	}
 
 	var (
 		items interface{}
@@ -80,11 +97,37 @@ func GetRiskRankings(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	// 日志统计与账号状态分库读取，避免管理员依据历史状态进行处置。
+	switch rows := items.(type) {
+	case []model.UserOverviewItem:
+		ids := make([]int, 0, len(rows))
+		for _, row := range rows {
+			ids = append(ids, row.UserId)
+		}
+		states, stateErr := riskUserStates(ids, c.GetInt("role"))
+		if stateErr != nil {
+			common.SysError("risk control: failed to load current user states: " + stateErr.Error())
+			meta["state_available"] = false
+		}
+		meta["user_states"] = states
+	case []model.IpOverviewItem:
+		ips := make([]string, 0, len(rows))
+		for _, row := range rows {
+			ips = append(ips, row.Ip)
+		}
+		states, stateErr := model.GetIpBanStates(ips)
+		if stateErr != nil {
+			common.SysError("risk control: failed to load current ip bans: " + stateErr.Error())
+			meta["state_available"] = false
+		}
+		meta["ip_states"] = states
+	}
 
 	common.ApiSuccess(c, gin.H{
 		"metric": metric,
 		"items":  items,
 		"meta":   meta,
+		"total":  total,
 	})
 }
 
@@ -94,6 +137,20 @@ func GetRiskRankings(c *gin.Context) {
 // 纯统计接口,不触发任何处置——研判结果由管理员在页面上人工决定封禁与否。
 func GetMultiAccountRanking(c *gin.Context) {
 	query := buildMultiAccountQuery(c)
+	var total int64
+	if c.Query("paginated") == "true" {
+		page, err := riskPageQuery(c)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		query.Offset, query.Limit = page.GetStartIdx(), page.PageSize
+		total, err = model.CountMultiAccountRanking(query)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+	}
 	items, err := model.GetMultiAccountRanking(query)
 	if err != nil {
 		common.ApiError(c, err)
@@ -103,6 +160,7 @@ func GetMultiAccountRanking(c *gin.Context) {
 	minUsers, maxWindowHours := query.EffectiveLimits()
 	common.ApiSuccess(c, gin.H{
 		"items": items,
+		"total": total,
 		"meta": gin.H{
 			"ip_log_enabled":   common.IsGlobalRecordIpLogEnabled(),
 			"include_requests": query.IncludeRequests,
@@ -129,15 +187,22 @@ func GetMultiAccountDetail(c *gin.Context) {
 		return
 	}
 	model.AttachMultiAccountUserProfiles(items)
-	myRole := c.GetInt("role")
+	ids := make([]int, 0, len(items))
+	for _, item := range items {
+		ids = append(ids, item.UserId)
+	}
+	states, err := riskUserStates(ids, c.GetInt("role"))
+	if err != nil {
+		common.SysError("risk control: failed to load multi-account user states: " + err.Error())
+	}
 	for i := range items {
-		items[i].CanManage = canManageTargetRole(myRole, items[i].Role)
+		items[i].CanManage = states[items[i].UserId].CanManage
 		if !items[i].CanManage {
 			items[i].Bindings = nil
 		}
 	}
 
-	common.ApiSuccess(c, gin.H{"ip": ip, "items": items})
+	common.ApiSuccess(c, gin.H{"ip": ip, "items": items, "user_states": states, "state_available": err == nil})
 }
 
 func buildMultiAccountQuery(c *gin.Context) model.MultiAccountQuery {
@@ -152,6 +217,7 @@ func buildMultiAccountQuery(c *gin.Context) model.MultiAccountQuery {
 		Limit:           limit,
 		MinUsers:        minUsers,
 		IncludeRequests: includeRequests,
+		Keyword:         c.Query("keyword"),
 	}
 	if setting := operation_setting.GetRiskControlSetting(); excludeWhitelist && setting != nil {
 		query.ExcludeUserIds = setting.WhitelistUserIds
@@ -162,16 +228,38 @@ func buildMultiAccountQuery(c *gin.Context) model.MultiAccountQuery {
 // GetRiskEvents 分页查询风控事件(拦截记录、封禁/解禁记录、告警)。
 // query: event_type, user_id, ip, p, page_size
 func GetRiskEvents(c *gin.Context) {
-	pageInfo := common.GetPageQuery(c)
+	pageInfo, pageErr := riskPageQuery(c)
+	if pageErr != nil {
+		common.ApiError(c, pageErr)
+		return
+	}
 	eventType := c.Query("event_type")
 	if eventType != "" && !model.IsValidRiskEventType(eventType) {
 		common.ApiErrorMsg(c, "invalid event type")
 		return
 	}
-	userId, _ := strconv.Atoi(c.Query("user_id"))
-	ip := c.Query("ip")
+	userId, userErr := strconv.Atoi(c.DefaultQuery("user_id", "0"))
+	if userErr != nil || userId < 0 {
+		common.ApiErrorMsg(c, "无效的用户 ID")
+		return
+	}
+	assigneeId, assigneeErr := strconv.Atoi(c.DefaultQuery("assignee_id", "0"))
+	status := c.Query("review_status")
+	if (status != "" && !model.IsValidRiskReviewStatus(status)) || assigneeErr != nil || assigneeId < 0 {
+		common.ApiErrorMsg(c, "事件处理筛选条件无效")
+		return
+	}
+	startAt, startErr := strconv.ParseInt(c.DefaultQuery("start_timestamp", "0"), 10, 64)
+	endAt, endErr := strconv.ParseInt(c.DefaultQuery("end_timestamp", "0"), 10, 64)
+	if startErr != nil || endErr != nil || startAt < 0 || endAt < 0 || (endAt > 0 && startAt > endAt) {
+		common.ApiErrorMsg(c, "时间范围无效")
+		return
+	}
 
-	events, total, err := model.GetRiskEvents(eventType, userId, ip, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
+	events, total, err := model.QueryRiskEvents(model.RiskEventQuery{
+		EventType: eventType, UserId: userId, Ip: c.Query("ip"), Ua: c.Query("ua"), StartAt: startAt, EndAt: endAt,
+		RuleId: c.Query("rule_id"), ReviewStatus: status, AssigneeId: assigneeId,
+	}, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -179,6 +267,14 @@ func GetRiskEvents(c *gin.Context) {
 	pageInfo.SetTotal(int(total))
 	pageInfo.SetItems(events)
 	common.ApiSuccess(c, pageInfo)
+}
+
+func riskPageQuery(c *gin.Context) (*common.PageInfo, error) {
+	page := common.GetPageQuery(c)
+	if page.Page < 1 || page.PageSize < 1 || page.Page > 1000000 {
+		return nil, fmt.Errorf("分页参数无效")
+	}
+	return page, nil
 }
 
 // GetRiskDetail 下钻单个目标(用户 / IP / UA)的明细。

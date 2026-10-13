@@ -56,20 +56,21 @@ func CheckProbeGuard(c *gin.Context, modelName string) error {
 		common.SysLog("probe guard: whitelisted/admin user " + fmt.Sprint(userId) + " exempted, " + reason)
 		return nil
 	}
+	evidence := realtimeGuardEvidence(setting, model.RiskBanSourceProbeGuard, distinct)
 
 	if setting.ProbeGuardDryRun {
-		recordRuleAlert("probe_guard", userId, "", ip, reason+"(演练模式,未封禁)")
+		recordRuleAlert("probe_guard", userId, "", ip, reason+"(演练模式,未封禁)", evidence)
 		return nil
 	}
 	action := setting.ResolvedProbeGuardAction()
 	if action == operation_setting.RiskRuleActionAlert {
-		recordRuleAlert("probe_guard", userId, "", ip, reason+"(动作为仅告警,未封禁)")
+		recordRuleAlert("probe_guard", userId, "", ip, reason+"(动作为仅告警,未封禁)", evidence)
 		return nil
 	}
 
 	// 处置失败不放行请求:检测已确认,拒绝当前请求仍是安全侧
 	applyRealtimeGuardAction(setting, model.RiskBanSourceProbeGuard, action,
-		setting.ResolvedProbeGuardBanMinutes(), userId, ip, c.Request.UserAgent(), reason)
+		setting.ResolvedProbeGuardBanMinutes(), userId, ip, c.Request.UserAgent(), reason, evidence)
 	common.SysLog(fmt.Sprintf("probe guard: blocked request, %s, user=%d, action=%s", reason, userId, action))
 	markRiskBlocked(c)
 	return ErrProbeGuardBlocked

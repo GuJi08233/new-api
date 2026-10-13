@@ -59,6 +59,8 @@ func TestMain(m *testing.M) {
 		&IpInfo{},
 		&IpInfoCacheState{},
 		&RiskEvent{},
+		&RiskEventReview{},
+		&RiskScanRun{},
 		&IpBan{},
 		&CodeUse{},
 		&TradeAccount{},

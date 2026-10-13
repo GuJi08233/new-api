@@ -37,15 +37,24 @@ var (
 	riskEventBuckets = map[string]*riskEventBucket{}
 )
 
-func insertRiskEventLogged(event model.RiskEvent) {
-	if err := model.InsertRiskEvent(&event); err != nil {
+func insertRiskEventLogged(event model.RiskEvent) error {
+	err := model.InsertRiskEvent(&event)
+	riskRuntimeMu.Lock()
+	if err != nil {
+		riskRuntime.EventError, riskRuntime.EventErrorAt = err.Error(), common.GetTimestamp()
+	} else {
+		riskRuntime.EventWrittenAt = common.GetTimestamp()
+	}
+	riskRuntimeMu.Unlock()
+	if err != nil {
 		common.SysLog("risk control: failed to insert risk event: " + err.Error())
 	}
+	return err
 }
 
 // recordRiskEventThrottled 按 key 聚合写入一条风控事件。
 // 窗口内首次命中立即落库(Count 含此前窗口挂起的次数),其余命中仅累加。
-func recordRiskEventThrottled(key string, window time.Duration, event model.RiskEvent, now time.Time) {
+func recordRiskEventThrottled(key string, window time.Duration, event model.RiskEvent, now time.Time) error {
 	riskEventMu.Lock()
 	bucket, ok := riskEventBuckets[key]
 	if !ok || now.Sub(bucket.windowStart) >= bucket.window {
@@ -57,12 +66,12 @@ func recordRiskEventThrottled(key string, window time.Duration, event model.Risk
 		riskEventMu.Unlock()
 
 		event.Count = pending + 1
-		insertRiskEventLogged(event)
-		return
+		return insertRiskEventLogged(event)
 	}
 	bucket.pending++
 	bucket.template = event
 	riskEventMu.Unlock()
+	return nil
 }
 
 // flushStaleRiskEvents 落库所有窗口已过期的挂起计数,并回收空闲桶。
