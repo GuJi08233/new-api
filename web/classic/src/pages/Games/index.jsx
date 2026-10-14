@@ -27,6 +27,7 @@ import {
   InputNumber,
   Modal,
   Spin,
+  Tooltip,
   Typography,
 } from '@douyinfe/semi-ui';
 import {
@@ -632,64 +633,55 @@ const Games = () => {
                           )}
                         />
                       )}
-                      <InputNumber
-                        className='games-field'
-                        value={withdrawAmount}
-                        min={withdraw.min_amount}
-                        max={withdraw.max_amount}
-                        precision={0}
-                        suffix={symbol}
-                        onChange={(value) =>
-                          setWithdrawAmount(
-                            typeof value === 'number' ? value : 0,
-                          )
-                        }
-                      />
-                      <ul className='games-rules'>
-                        <li>
-                          {t(
-                            '链上只能提整数个游戏币，只发往绑定的地址；更换地址后 24 小时内不能提现',
-                          )}
-                        </li>
-                        <li>
-                          {t('单次提现 {{min}} – {{max}} {{symbol}}', {
+                      <div className='games-field-row'>
+                        <InputNumber
+                          className='games-field'
+                          value={withdrawAmount}
+                          min={withdraw.min_amount}
+                          max={withdraw.max_amount}
+                          precision={0}
+                          suffix={symbol}
+                          onChange={(value) =>
+                            setWithdrawAmount(
+                              typeof value === 'number' ? value : 0,
+                            )
+                          }
+                        />
+                        <Button
+                          theme='solid'
+                          type='primary'
+                          loading={withdrawing}
+                          disabled={
+                            !boundAddress ||
+                            withdrawLocked ||
+                            balance < 1 ||
+                            withdraw.daily_remaining < 1
+                          }
+                          onClick={handleWithdraw}
+                        >
+                          {t('提现')}
+                        </Button>
+                      </div>
+                      <Text type='tertiary' size='small'>
+                        {t(
+                          '单次提现 {{min}} – {{max}} {{symbol}}，不收手续费',
+                          {
                             min: withdraw.min_amount,
                             max: withdraw.max_amount,
                             symbol,
-                          })}
-                        </li>
-                        <li>
-                          {t(
-                            '今日全站剩余提现额度 {{remaining}} / {{limit}} {{symbol}}',
-                            {
-                              remaining: withdraw.daily_remaining,
-                              limit: withdraw.daily_limit,
-                              symbol,
-                            },
-                          )}
-                        </li>
-                        <li>
-                          {t(
-                            '全站提现额度由所有用户共用，与个人每日兑换额度独立',
-                          )}
-                        </li>
-                        <li>{t('不收取手续费，链上 gas 由平台承担')}</li>
-                      </ul>
-                      <Button
-                        theme='solid'
-                        type='primary'
-                        block
-                        loading={withdrawing}
-                        disabled={
-                          !boundAddress ||
-                          withdrawLocked ||
-                          balance < 1 ||
-                          withdraw.daily_remaining < 1
-                        }
-                        onClick={handleWithdraw}
-                      >
-                        {t('提现')}
-                      </Button>
+                          },
+                        )}
+                      </Text>
+                      <Text type='tertiary' size='small'>
+                        {t(
+                          '今日全站剩余提现额度 {{remaining}} / {{limit}} {{symbol}}',
+                          {
+                            remaining: withdraw.daily_remaining,
+                            limit: withdraw.daily_limit,
+                            symbol,
+                          },
+                        )}
+                      </Text>
                     </>
                   ) : (
                     <Banner
@@ -700,43 +692,40 @@ const Games = () => {
                   )}
                   {token?.address && (
                     <div className='games-token'>
-                      <div className='games-token-row'>
-                        <span>{t('代币合约')}</span>
-                        <Text
-                          copyable={{ content: token.address }}
-                          ellipsis={{ showTooltip: true }}
-                          style={{ maxWidth: 200 }}
-                        >
-                          {token.address}
-                        </Text>
-                      </div>
-                      <div className='games-token-row'>
-                        <span>{t('链 ID')}</span>
-                        <span>{token.chain_id}</span>
-                      </div>
-                      <div className='games-token-row'>
-                        <span>{t('精度')}</span>
-                        <span>{token.decimals}</span>
-                      </div>
-                      <div className='games-token-actions'>
+                      <span>{t('代币合约')}</span>
+                      <Text
+                        copyable={{ content: token.address }}
+                        ellipsis={{ showTooltip: true }}
+                        className='games-token-address'
+                      >
+                        {token.address}
+                      </Text>
+                      <Tooltip content={t('添加到钱包')}>
                         <Button
                           size='small'
+                          theme='borderless'
                           icon={<Wallet size={14} />}
+                          aria-label={t('添加到钱包')}
                           onClick={handleWatchToken}
-                        >
-                          {t('添加到钱包')}
-                        </Button>
-                        {token.explorer_url && (
-                          <a
-                            href={`${token.explorer_url}/token/${token.address}`}
-                            target='_blank'
-                            rel='noopener noreferrer'
-                          >
-                            {t('在区块浏览器查看')}
-                            <ExternalLink size={12} />
-                          </a>
-                        )}
-                      </div>
+                        />
+                      </Tooltip>
+                      {token.explorer_url && (
+                        <Tooltip content={t('在区块浏览器查看')}>
+                          <Button
+                            size='small'
+                            theme='borderless'
+                            icon={<ExternalLink size={14} />}
+                            aria-label={t('在区块浏览器查看')}
+                            onClick={() =>
+                              window.open(
+                                `${token.explorer_url}/token/${token.address}`,
+                                '_blank',
+                                'noopener,noreferrer',
+                              )
+                            }
+                          />
+                        </Tooltip>
+                      )}
                     </div>
                   )}
                 </div>

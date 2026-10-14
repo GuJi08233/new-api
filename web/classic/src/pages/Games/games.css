@@ -103,7 +103,6 @@ For commercial licensing, please contact support@quantumnous.com
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
   gap: 16px;
-  align-items: start;
 }
 
 .games-card {
@@ -255,39 +254,27 @@ For commercial licensing, please contact support@quantumnous.com
   margin-top: 12px;
 }
 
+/* 代币合约一行：地址占满剩余宽度，后面是添加到钱包与区块浏览器两个图标按钮。 */
 .games-token {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding-top: 12px;
+  align-items: center;
+  gap: 4px;
+  margin-top: auto;
+  padding-top: 10px;
   border-top: 1px solid var(--semi-color-border);
   font-size: 12px;
-}
-
-.games-token-row {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
   color: var(--semi-color-text-2);
 }
 
-.games-token-row > span:last-child {
-  color: var(--semi-color-text-0);
+.games-token > span:first-child {
+  margin-right: 4px;
+  white-space: nowrap;
 }
 
-.games-token-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-top: 4px;
-}
-
-.games-token-actions a {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  color: var(--semi-color-link);
+.games-token-address {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
 }
 
 /* ---------- Sections ---------- */
