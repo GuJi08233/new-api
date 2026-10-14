@@ -176,22 +176,24 @@ const LandlordBoard = ({ state, seat, names, canMove, over, onMove }) => {
               </div>
             ))}
           </div>
-          <div className='pvp-actions'>
-            {[0, 1, 2, 3].map((bid) => (
-              <Button
-                key={bid}
-                theme={bid > 0 ? 'solid' : 'light'}
-                disabled={
-                  !canMove ||
-                  (bid > 0 && bid <= state.high_bid) ||
-                  (bid === 0 && state.must_bid)
-                }
-                onClick={() => onMove({ bid })}
-              >
-                {bid === 0 ? t('不叫') : t('叫 {{bid}} 分', { bid })}
-              </Button>
-            ))}
-          </div>
+          {!over && (
+            <div className='pvp-actions'>
+              {[0, 1, 2, 3].map((bid) => (
+                <Button
+                  key={bid}
+                  theme={bid > 0 ? 'solid' : 'light'}
+                  disabled={
+                    !canMove ||
+                    (bid > 0 && bid <= state.high_bid) ||
+                    (bid === 0 && state.must_bid)
+                  }
+                  onClick={() => onMove({ bid })}
+                >
+                  {bid === 0 ? t('不叫') : t('叫 {{bid}} 分', { bid })}
+                </Button>
+              ))}
+            </div>
+          )}
         </>
       ) : (
         <div className='landlord-table' aria-live='polite'>
