@@ -152,16 +152,20 @@ const GameCoinRecords = ({ version, symbol, explorerUrl, chainId }) => {
           }
           return gameMetaMap[value]?.name || value;
         }
-        // 对战流水的备注是「游戏标识:事件」。
+        // 对战流水的备注是「游戏标识:事件」；人机对战的悔棋费用在标识后面带 _ai。
         if (record.type === 'game_pvp') {
-          const [game, event] = (value || '').split(':');
+          const [key, event] = (value || '').split(':');
+          const ai = key.endsWith('_ai');
+          const name = gameMetaMap[ai ? key.slice(0, -3) : key]?.name || key;
           const events = {
             stake: t('押注'),
             win: t('获胜'),
             draw: t('平局退回'),
             refund: t('房间关闭退回'),
+            undo: t('悔棋'),
           };
-          return `${gameMetaMap[game]?.name || game} · ${events[event] || event}`;
+          const game = ai ? t('{{game}}人机对战', { game: name }) : name;
+          return `${game} · ${events[event] || event}`;
         }
         // 提现退回的备注是失败原因。
         if (record.type === 'withdraw_refund' && value) {

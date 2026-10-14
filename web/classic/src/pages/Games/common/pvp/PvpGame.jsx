@@ -440,6 +440,7 @@ const RoomView = ({
   error,
   onMove,
   onResign,
+  onUndo,
   onAuto,
   onCancel,
   onLeave,
@@ -597,6 +598,7 @@ const RoomView = ({
         busy,
         over: !isRoomOpen(room),
         onMove,
+        onUndo,
       })}
       <StageMessage kind={kind} note={note}>
         {message}
@@ -662,6 +664,7 @@ const AiView = ({
   turnstile,
   onMove,
   onResign,
+  onUndo,
   onRestart,
   onBack,
 }) => {
@@ -715,6 +718,7 @@ const AiView = ({
         busy,
         over: ai.over,
         onMove,
+        onUndo,
       })}
       <StageMessage kind={kind} note={note}>
         {message}
@@ -872,7 +876,7 @@ const PvpSide = ({ info, rules, randomFirst }) => {
 };
 
 // 对战游戏页的外壳：大厅(快速匹配、开房间、邀请好友、加入房间)、押注对局(长轮询、计时、认输或托管)与人机对战，各游戏只提供
-// 棋盘。renderBoard({ state, seat, names, canMove, busy, over, onMove }) 画出棋盘，state 为空时画空棋盘；names 是各座位的
+// 棋盘。renderBoard({ state, seat, names, canMove, busy, over, onMove, onUndo }) 画出棋盘，state 为空时画空棋盘；names 是各座位的
 // 称呼(自己是“我”)；over 表示对局已经结束(含超时、认输，这时引擎的状态不一定是结束的)；玩家落子时调用 onMove(走法)。
 // seatLabels(state) 返回各座位的角色(例如执黑、执白)；
 // statusText({ room, state, seat, myTurn }) 可以按游戏改写对局中的提示(人机对战里 room 为空)；resultNote({ state, seat })
@@ -934,6 +938,17 @@ const PvpGame = ({
       alive = false;
     };
   }, [gameKey, roomId, roomEnded, t, patch]);
+
+  // 对手同意悔棋时是别人替自己付费的那一步：悔棋次数一变就刷新余额，页面上的数字不会停在扣费之前。
+  const undoUsed = room?.state?.undo?.used ?? 0;
+  const undoUsedRef = useRef(undoUsed);
+  useEffect(() => {
+    if (undoUsedRef.current === undoUsed) return;
+    undoUsedRef.current = undoUsed;
+    gameGet(`/api/game/${gameKey}`, t).then((response) => {
+      if (response.data) patch({ balance: response.data.balance });
+    });
+  }, [undoUsed, gameKey, t, patch]);
 
   const loaded = !!info;
   const inLobby = !room && !ai;
@@ -1102,6 +1117,11 @@ const PvpGame = ({
             setRoom,
           )
         }
+        onUndo={(accept) =>
+          accept === undefined
+            ? act(`/api/game/rooms/${room.id}/undo`, {}, setRoom)
+            : act(`/api/game/rooms/${room.id}/undo/answer`, { accept }, setRoom)
+        }
         onResign={() =>
           Modal.confirm({
             title: t('认输'),
@@ -1143,6 +1163,14 @@ const PvpGame = ({
           act(
             `/api/game/${gameKey}/ai/move`,
             { session_id: ai.session_id, version: ai.version, move: value },
+            applyAi,
+            'ai',
+          )
+        }
+        onUndo={() =>
+          act(
+            `/api/game/${gameKey}/ai/undo`,
+            { session_id: ai.session_id, version: ai.version },
             applyAi,
             'ai',
           )

@@ -12,15 +12,19 @@ import (
 //	2 普通：3 层，在差不到 15 分的着法里随机选；
 //	3 困难：4 层，只在分数完全相同的最好着法里随机选。
 //
-// 被将军时多搜一层(将军延伸)。能杀棋时不随机，总是选最快的杀法；要被杀时选撑得最久的。每次思考最多展开 nodeLimit 个节点，
+// 被将军时多搜一层(将军延伸)。能杀棋时不随机，总是选最快的杀法；要被杀时选撑得最久的。搜索中走回了这局里(最近一次吃子
+// 之后)或这条变化里出现过的局面，就当作会一直重复下去，按判局的规则给分：长将的一方输，否则和棋。所以电脑不会长将，占优
+// 时也不会来回走成和棋。每次思考最多展开 nodeLimit 个节点，
 // 到了就用上一轮迭代加深的结果：节点数只由局面决定，同一局面同样的随机数总是走同样的一步，任何局面都能在 1 秒内走完。
 
 const (
 	mateScore = 30000
 	// mateBound 以上的分数都是杀棋分：被将死的一方得 -mateScore+步数，离将死越近分数的绝对值越大。
 	mateBound = mateScore - 2*maxPly
-	infinity  = mateScore + 1
-	maxPly    = 64
+	// perpetualScore 是重复局面里对方长将、判对方输时的分数：高于任何局面评估，低于杀棋。
+	perpetualScore = mateBound - 1
+	infinity       = mateScore + 1
+	maxPly         = 64
 	// maxQuiesce 是吃子静态搜索最多再走几步。
 	maxQuiesce = 8
 	// nodeLimit 是一次思考最多展开的节点数。搜索每秒约展开 190 万个节点，4 层的困难难度实测最多用到 16 万个；
@@ -196,10 +200,19 @@ func unpackMove(packed uint16) Move {
 	return Move{From: int(packed >> 7), To: int(packed & 0x7F)}
 }
 
+// trailEntry 是走过的一个局面：键，以及轮到走的一方是否正被将军(走到这里的一步是不是将军)。
+type trailEntry struct {
+	hash  uint64
+	check bool
+}
+
 // searcher 是一次思考的全部状态。quiet[ply] 是走到这一层时连续没有吃子的步数，用来在搜索里也按和棋规则判和。
+// trail 是这局里最近一次吃子之后走出的局面，接着是搜索中这条变化上的局面：根局面在 trail[root]，第 ply 层在 trail[root+ply]。
 type searcher struct {
 	pos     *Position
 	plies   int
+	root    int
+	trail   []trailEntry
 	nodes   int
 	limit   int
 	aborted bool
@@ -236,6 +249,14 @@ func BestMove(g *Game, level int, pick func(n int) int) (Move, error) {
 	}
 	s := &searcher{pos: pos, plies: g.Plies, limit: nodeLimit, tt: make([]ttEntry, ttSize)}
 	s.quiet[0] = g.Quiet
+	earlier := g.positionsSinceCapture(pos)
+	s.root = len(earlier)
+	s.trail = make([]trailEntry, s.root+maxPly+2)
+	for i := range earlier {
+		back := &earlier[i]
+		s.trail[s.root-1-i] = trailEntry{hash: back.hash, check: back.InCheck()}
+	}
+	s.trail[s.root] = trailEntry{hash: pos.hash, check: pos.InCheck()}
 	root := make([]rootMove, len(legal))
 	for i, m := range legal {
 		root[i] = rootMove{move: m, score: int(s.orderScore(0, m, Move{}, false))}
@@ -339,6 +360,11 @@ func (s *searcher) alphaBeta(depth int, ply int, alpha int, beta int) int {
 		return 0
 	}
 	pos := s.pos
+	inCheck := pos.InCheck()
+	s.trail[s.root+ply] = trailEntry{hash: pos.hash, check: inCheck}
+	if score, repeated := s.repetition(ply); repeated {
+		return score
+	}
 	if s.quiet[ply] >= MaxQuietPlies || s.plies+ply >= MaxPlies {
 		// 到了和棋的步数；这时无子可走仍按输棋算，和 Game.Play 的判定一致。
 		if !pos.hasLegalMove() {
@@ -349,7 +375,7 @@ func (s *searcher) alphaBeta(depth int, ply int, alpha int, beta int) int {
 	if ply >= maxPly {
 		return pos.evaluate()
 	}
-	if pos.InCheck() {
+	if inCheck {
 		depth++
 	}
 	if depth <= 0 {
@@ -441,6 +467,35 @@ func (s *searcher) alphaBeta(depth int, ply int, alpha int, beta int) int {
 	}
 	*entry = ttEntry{key: pos.hash, score: int32(stored), move: packMove(bestMove), depth: int8(depth), flag: flag}
 	return best
+}
+
+// repetition 看第 ply 层的局面是不是走回了最近一次吃子之后出现过的局面(同一方走，所以至少隔 4 步)。重复时从轮到走的一方
+// 看过去：这一段里对方每步都在将军、自己不是，对方长将判负；反过来自己判负；否则和棋。
+func (s *searcher) repetition(ply int) (int, bool) {
+	n := s.root + ply
+	oldest := max(n-s.quiet[ply], 0)
+	for k := n - 4; k >= oldest; k -= 2 {
+		if s.trail[k].hash != s.trail[n].hash {
+			continue
+		}
+		ours, theirs := true, true
+		for j := k + 1; j <= n; j++ {
+			// 第 j 个局面是走到它的一方走出来的：和第 n 个隔偶数步的是对方走的。
+			if (n-j)%2 == 0 {
+				theirs = theirs && s.trail[j].check
+			} else {
+				ours = ours && s.trail[j].check
+			}
+		}
+		switch {
+		case theirs && !ours:
+			return perpetualScore, true
+		case ours && !theirs:
+			return -perpetualScore, true
+		}
+		return 0, true
+	}
+	return 0, false
 }
 
 // quiesce 是吃子静态搜索：没被将军时可以不走(按当前局面评分)或只看吃子，被将军时要搜全部应将，应不了就是被将死。

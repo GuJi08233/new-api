@@ -18,9 +18,12 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import React, { useState } from 'react';
+import { Button } from '@douyinfe/semi-ui';
+import { Undo2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { getGameMetaMap } from '../../../constants';
 import PvpGame from '../common/pvp/PvpGame';
+import { formatCoins } from '../common/api';
 import './xiangqi.css';
 
 // 棋盘按 SVG 的单位画：交叉点间距 CELL，四周留 MARGIN 给边框和边线上的棋子。
@@ -126,11 +129,13 @@ function xiangqiResultText(result, t) {
     stalemate: t('困毙：无子可走判负'),
     no_capture: t('连续 120 步没有吃子，和棋'),
     move_limit: t('总步数达到 300 步，和棋'),
+    repetition: t('同一局面出现三次，和棋'),
+    perpetual_check: t('长将判负'),
   }[result];
 }
 
 // 棋盘：看的人一方在下面。轮到自己走时点自己的棋子选中，再点高亮的落点走棋；标出最后一手与被将军的将帅。
-const XiangqiBoard = ({ state, seat, canMove, over, onMove }) => {
+const XiangqiBoard = ({ state, seat, canMove, over, onMove, onUndo, busy }) => {
   const { t } = useTranslation();
   // 选中的棋子与选中时的步数：局面一变(自己或对手走了一步)，选中自然失效。
   const [selected, setSelected] = useState(null);
@@ -273,10 +278,64 @@ const XiangqiBoard = ({ state, seat, canMove, over, onMove }) => {
           {state.check && !over && (
             <span className='xiangqi-check'>{t('将军！')}</span>
           )}
+          {!over && state.repeat >= 2 && (
+            <span className='xiangqi-check'>
+              {t('局面已重复两次，再出现一次判局')}
+            </span>
+          )}
           {over && state.result && (
             <span className='xiangqi-result'>
               {xiangqiResultText(state.result, t)}
             </span>
+          )}
+        </div>
+      )}
+      {!over && state?.undo && (
+        <div className='xiangqi-undo'>
+          {state.undo.pending_by === seat && (
+            <span className='xiangqi-undo-note'>
+              {t('已提出悔棋，等对方回应')}
+            </span>
+          )}
+          {state.undo.pending_by >= 0 && state.undo.pending_by !== seat && (
+            <>
+              <span className='xiangqi-undo-note'>{t('对方想悔棋')}</span>
+              <Button
+                size='small'
+                theme='solid'
+                type='primary'
+                disabled={busy}
+                onClick={() => onUndo(true)}
+              >
+                {t('同意')}
+              </Button>
+              <Button
+                size='small'
+                disabled={busy}
+                onClick={() => onUndo(false)}
+              >
+                {t('拒绝')}
+              </Button>
+            </>
+          )}
+          {state.undo.pending_by < 0 && !state.undo.declined && (
+            <Button
+              size='small'
+              icon={<Undo2 size={14} />}
+              disabled={busy || !state.undo.available}
+              onClick={() => onUndo()}
+            >
+              {state.undo.free_left > 0
+                ? t('悔棋（免费 {{left}} 次）', {
+                    left: state.undo.free_left,
+                  })
+                : t('悔棋（{{cost}} 游戏币）', {
+                    cost: formatCoins(state.undo.cost),
+                  })}
+            </Button>
+          )}
+          {state.undo.pending_by < 0 && state.undo.declined && (
+            <span className='xiangqi-undo-note'>{t('对方拒绝了悔棋')}</span>
           )}
         </div>
       )}
@@ -364,17 +423,21 @@ const Xiangqi = () => {
           '马走日、蹩马腿，相象走田、塞象眼且不过河，炮隔一个子吃子，兵卒过河后才能横走',
         ),
         t('不能送将；将死对方或让对方无子可走（困毙）就赢了'),
+        t('同一局面出现三次：一方一直在将军时长将的一方判负，否则和棋'),
+        t('连续 120 步（双方合计）没有吃子，或总步数达到 300 步，也判和'),
         t(
-          '连续 120 步（双方合计）没有吃子，或总步数达到 300 步，判和；长将不判负',
+          '每人每局可以免费悔棋 3 次，之后每次 1 个游戏币；房间对局要对方同意，人机对战由电脑直接同意',
         ),
       ]}
-      renderBoard={({ state, seat, canMove, over, onMove }) => (
+      renderBoard={({ state, seat, canMove, busy, over, onMove, onUndo }) => (
         <XiangqiBoard
           state={state}
           seat={seat}
           canMove={canMove}
+          busy={busy}
           over={over}
           onMove={onMove}
+          onUndo={onUndo}
         />
       )}
     />

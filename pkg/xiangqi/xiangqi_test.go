@@ -399,3 +399,106 @@ func TestParsePositionRejectsInvalidBoards(t *testing.T) {
 	_, err = ParsePosition(blackInCheck, Black)
 	assert.NoError(t, err, "轮到被将军的一方走是正常的局面")
 }
+
+// repeatBoard 是重复局面测试用的棋盘：红车 (0,1)、红帅 (5,0)、黑将 (3,9)，红方先走；车平到将所在的一列就是将军。
+func repeatBoard(t *testing.T, deadPawn bool) string {
+	rows := []string{
+		"...k.....",
+		".........",
+		".........",
+		".........",
+		".........",
+		".........",
+		".........",
+		".........",
+		"R........",
+		".....K...",
+	}
+	if deadPawn {
+		rows[1] = ".p......."
+	}
+	return diagram(t, rows...)
+}
+
+// 同一局面出现 RepeatLimit 次时判局：一方每步都在将军、另一方没有时，长将的一方判负(红车在第 3、4 列之间来回将军)；
+// 双方都没有一直将军时和棋(车与将各自在两格之间来回走)。
+func TestRepetitionEndsTheGame(t *testing.T) {
+	perpetual := []Move{move(0, 1, 3, 1)}
+	shuffle := []Move{}
+	for i := 0; i < 2; i++ {
+		perpetual = append(perpetual,
+			move(3, 9, 4, 9), move(3, 1, 4, 1), move(4, 9, 3, 9), move(4, 1, 3, 1))
+		shuffle = append(shuffle,
+			move(0, 1, 1, 1), move(3, 9, 4, 9), move(1, 1, 0, 1), move(4, 9, 3, 9))
+	}
+	for _, c := range []struct {
+		name       string
+		moves      []Move
+		wantResult Result
+		wantWinner Color
+	}{
+		{name: "perpetual check loses", moves: perpetual, wantResult: ResultPerpetualCheck, wantWinner: Black},
+		{name: "shuffling without checks draws", moves: shuffle, wantResult: ResultRepetition, wantWinner: NoColor},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			game := Game{Board: repeatBoard(t, false), Turn: Red, Winner: NoColor}
+			for i, m := range c.moves {
+				require.False(t, game.Over(), "第 %d 步之前就结束了", i)
+				require.NoError(t, game.Play(m), "第 %d 步", i)
+			}
+			assert.Equal(t, c.wantResult, game.Result)
+			assert.Equal(t, c.wantWinner, game.Winner)
+			repeats, _ := game.Repetitions()
+			assert.Equal(t, RepeatLimit, repeats)
+		})
+	}
+
+	t.Run("两次还不判局", func(t *testing.T) {
+		game := Game{Board: repeatBoard(t, false), Turn: Red, Winner: NoColor}
+		for _, m := range shuffle[:4] {
+			require.NoError(t, game.Play(m))
+		}
+		repeats, span := game.Repetitions()
+		assert.Equal(t, 2, repeats)
+		assert.Equal(t, 4, span)
+		assert.Empty(t, game.Result)
+	})
+}
+
+// 悔棋把棋盘、轮到的一方、步数、没有吃子的步数与最后一手都放回那时，被吃掉的子回到原处；撤回吃子后没有吃子的步数重新数。
+func TestUndoRestoresThePosition(t *testing.T) {
+	game := Game{Board: repeatBoard(t, true), Turn: Red, Plies: 10, Quiet: 4, Winner: NoColor}
+	require.NoError(t, game.Play(move(0, 1, 1, 1)))
+	beforeCapture := game
+	require.NoError(t, game.Play(move(3, 9, 4, 9)))
+	require.NoError(t, game.Play(move(1, 1, 1, 8)))
+	require.Equal(t, 0, game.Quiet)
+	require.Equal(t, "p", game.History[len(game.History)-1].Captured)
+
+	undone := game
+	require.NoError(t, undone.Undo(2))
+	assert.Equal(t, beforeCapture.Board, undone.Board)
+	assert.Equal(t, beforeCapture.Turn, undone.Turn)
+	assert.Equal(t, beforeCapture.Plies, undone.Plies)
+	assert.Equal(t, beforeCapture.Quiet, undone.Quiet)
+	assert.Equal(t, beforeCapture.Last, undone.Last)
+	assert.Equal(t, beforeCapture.History, undone.History)
+	// 撤回之后照样能接着走，原来的对局不受影响。
+	require.NoError(t, undone.Play(move(3, 9, 3, 8)))
+	assert.Len(t, game.History, 3)
+
+	all := game
+	require.NoError(t, all.Undo(3))
+	assert.Equal(t, repeatBoard(t, true), all.Board)
+	assert.Equal(t, Red, all.Turn)
+	assert.Equal(t, 10, all.Plies)
+	assert.Nil(t, all.Last)
+
+	assert.ErrorIs(t, game.Undo(4), ErrNothingToUndo, "记录里只有 3 步")
+	assert.ErrorIs(t, game.Undo(0), ErrNothingToUndo)
+
+	over := Game{Board: matedByTwoRooks(t), Turn: Red, Winner: NoColor}
+	require.NoError(t, over.Play(move(8, 7, 8, 9)))
+	require.True(t, over.Over())
+	assert.ErrorIs(t, over.Undo(1), ErrGameOver)
+}

@@ -34,6 +34,19 @@ For commercial licensing, please contact support@quantumnous.com
   align-items: center;
 }
 
+/* 悔棋：棋盘上方的一行，按钮随状态换成"悔棋（免费 N 次）"、等对方回应，或同意/拒绝。 */
+.xiangqi-undo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.xiangqi-undo-note {
+  font-size: 13px;
+  color: var(--semi-color-text-2);
+}
+
 .xiangqi-side {
   padding: 1px 10px;
   border-radius: 999px;

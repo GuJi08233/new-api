@@ -5559,7 +5559,6 @@
     "帅将不出九宫，双方的帅将不能在同一列上直接照面": "Les généraux restent dans le palais et ne peuvent jamais se faire face sur une colonne libre",
     "马走日、蹩马腿，相象走田、塞象眼且不过河，炮隔一个子吃子，兵卒过河后才能横走": "Le cheval se déplace en L et peut être bloqué ; l'éléphant avance de deux points en diagonale, peut être bloqué et ne traverse jamais le fleuve ; le canon capture en sautant exactement une pièce ; le soldat ne se déplace latéralement qu'après avoir traversé le fleuve",
     "不能送将；将死对方或让对方无子可走（困毙）就赢了": "Interdit de laisser son général en échec ; mettez l'adversaire échec et mat ou privez-le de tout coup légal (pat) pour gagner",
-    "连续 120 步（双方合计）没有吃子，或总步数达到 300 步，判和；长将不判负": "La partie est nulle après 120 coups consécutifs (les deux camps confondus) sans prise, ou dès 300 coups ; l'échec perpétuel n'est pas sanctionné",
     "你执红": "Vous jouez les rouges",
     "你执黑": "Vous jouez les noirs",
     "执红": "Rouges",
@@ -6223,6 +6222,20 @@
     "风控总开关关闭": "Interrupteur principal désactivé",
     "风控活动趋势": "Tendance de l’activité des risques",
     "阈值的 {{ratio}}%": "{{ratio}} % du seuil",
-    "数量需是 {{step}} 个游戏币的整数倍": "Le montant doit être un multiple de {{step}} jetons de jeu"
+    "数量需是 {{step}} 个游戏币的整数倍": "Le montant doit être un multiple de {{step}} jetons de jeu",
+    "悔棋": "Annuler un coup",
+    "同意": "Accepter",
+    "拒绝": "Refuser",
+    "对方想悔棋": "Votre adversaire veut annuler un coup",
+    "已提出悔棋，等对方回应": "Annulation demandée, en attente de votre adversaire",
+    "对方拒绝了悔棋": "Votre adversaire a refusé l'annulation",
+    "悔棋（免费 {{left}} 次）": "Annuler ({{left}} gratuites)",
+    "悔棋（{{cost}} 游戏币）": "Annuler ({{cost}} pièces de jeu)",
+    "同一局面出现三次，和棋": "La même position est apparue trois fois, partie nulle",
+    "长将判负": "L'échec perpétuel perd",
+    "局面已重复两次，再出现一次判局": "Cette position est apparue deux fois ; une fois de plus met fin à la partie",
+    "同一局面出现三次：一方一直在将军时长将的一方判负，否则和棋": "La même position trois fois : le camp qui donne échec sans arrêt perd, sinon la partie est nulle",
+    "连续 120 步（双方合计）没有吃子，或总步数达到 300 步，也判和": "La partie est aussi nulle après 120 coups consécutifs (les deux camps confondus) sans prise, ou 300 coups au total",
+    "每人每局可以免费悔棋 3 次，之后每次 1 个游戏币；房间对局要对方同意，人机对战由电脑直接同意": "Chaque joueur peut annuler 3 fois gratuitement par partie, puis 1 pièce de jeu à chaque fois ; en salle l'adversaire doit accepter, contre l'IA elle accepte toujours"
   }
 }

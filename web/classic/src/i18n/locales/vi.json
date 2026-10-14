@@ -6070,7 +6070,6 @@
     "帅将不出九宫，双方的帅将不能在同一列上直接照面": "Tướng không ra khỏi cung, hai tướng không được đối mặt trực tiếp trên cùng một cột",
     "马走日、蹩马腿，相象走田、塞象眼且不过河，炮隔一个子吃子，兵卒过河后才能横走": "Mã đi chữ nhật, bị cản chân thì không đi được; Tượng đi chữ điền, bị cản mắt thì không đi được và không qua sông; Pháo ăn quân phải cách đúng một quân; Tốt qua sông mới được đi ngang",
     "不能送将；将死对方或让对方无子可走（困毙）就赢了": "Không được để tướng mình bị chiếu; chiếu bí đối phương hoặc làm đối phương hết nước đi (bí nước) là thắng",
-    "连续 120 步（双方合计）没有吃子，或总步数达到 300 步，判和；长将不判负": "Hòa khi 120 nước liên tiếp (tính cả hai bên) không có quân nào bị ăn, hoặc tổng số nước đạt 300; chiếu dai không bị xử thua",
     "你执红": "Bạn cầm quân Đỏ",
     "你执黑": "Bạn cầm quân Đen",
     "执红": "Đỏ",
@@ -6728,6 +6727,20 @@
     "风控总开关关闭": "Công tắc chính đang tắt",
     "风控活动趋势": "Xu hướng hoạt động rủi ro",
     "阈值的 {{ratio}}%": "{{ratio}}% ngưỡng",
-    "数量需是 {{step}} 个游戏币的整数倍": "Số lượng phải là bội số nguyên của {{step}} xu trò chơi"
+    "数量需是 {{step}} 个游戏币的整数倍": "Số lượng phải là bội số nguyên của {{step}} xu trò chơi",
+    "悔棋": "Đi lại",
+    "同意": "Đồng ý",
+    "拒绝": "Từ chối",
+    "对方想悔棋": "Đối thủ muốn đi lại",
+    "已提出悔棋，等对方回应": "Đã xin đi lại, đang chờ đối thủ trả lời",
+    "对方拒绝了悔棋": "Đối thủ đã từ chối cho đi lại",
+    "悔棋（免费 {{left}} 次）": "Đi lại (còn {{left}} lần miễn phí)",
+    "悔棋（{{cost}} 游戏币）": "Đi lại ({{cost}} xu game)",
+    "同一局面出现三次，和棋": "Cùng một thế cờ xuất hiện ba lần, hòa",
+    "长将判负": "Chiếu dai bị xử thua",
+    "局面已重复两次，再出现一次判局": "Thế cờ này đã xuất hiện hai lần; thêm một lần nữa sẽ kết thúc ván",
+    "同一局面出现三次：一方一直在将军时长将的一方判负，否则和棋": "Cùng một thế cờ ba lần: bên liên tục chiếu tướng bị xử thua, nếu không thì hòa",
+    "连续 120 步（双方合计）没有吃子，或总步数达到 300 步，也判和": "Cũng hòa khi 120 nước liên tiếp (tính cả hai bên) không ăn quân, hoặc tổng số nước đạt 300",
+    "每人每局可以免费悔棋 3 次，之后每次 1 个游戏币；房间对局要对方同意，人机对战由电脑直接同意": "Mỗi người được đi lại 3 lần miễn phí mỗi ván, sau đó mỗi lần 1 xu game; trong phòng cần đối thủ đồng ý, đấu với AI thì máy luôn đồng ý"
   }
 }

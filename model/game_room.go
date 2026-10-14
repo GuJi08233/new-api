@@ -340,6 +340,49 @@ func UpdateGameRoomState(room *GameRoom, state string, toMove int, deadline int6
 	return nil
 }
 
+// UndoGameRoomState 保存同意悔棋之后的局面并在同一个事务里扣下这次悔棋的费用(前几次免费时 charge 为 0)：撤回几步、
+// 轮到发起悔棋的座位重新走。房间版本已经变过时返回 ErrGameRoomChanged，发起悔棋的人余额不够时返回 ErrGameCoinInsufficient，
+// 两种情况都不会改变任何东西。返回发起悔棋的人付完之后(或没付费时)的余额。
+func UndoGameRoomState(room *GameRoom, state string, toMove int, deadline int64, autoSeats int, payer int, charge GameCoins) (GameCoins, error) {
+	if charge < 0 || charge >= common.MaxQuota {
+		return 0, ErrGameCoinAmountInvalid
+	}
+	var balance GameCoins
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		if err := casGameRoomTx(tx, room, GameRoomStatusPlaying, map[string]interface{}{
+			"state":      state,
+			"to_move":    toMove,
+			"deadline":   deadline,
+			"auto_seats": autoSeats,
+			"version":    room.Version + 1,
+		}); err != nil {
+			return err
+		}
+		var err error
+		if charge == 0 {
+			balance, err = readGameCoinBalanceTx(tx, payer)
+			return err
+		}
+		if balance, err = debitGameCoinsTx(tx, payer, charge, nil); err != nil {
+			return err
+		}
+		return tx.Create(&GameCoinLog{
+			UserId:    payer,
+			Type:      GameCoinLogTypeGamePvp,
+			Amount:    -charge,
+			Balance:   balance,
+			RefId:     gameRoomRef(room.Id),
+			Remark:    gameRoomRemark(room, "undo"),
+			CreatedAt: common.GetTimestamp(),
+		}).Error
+	})
+	if err != nil {
+		return 0, err
+	}
+	room.State, room.ToMove, room.Deadline, room.AutoSeats, room.Version = state, toMove, deadline, autoSeats, room.Version+1
+	return balance, nil
+}
+
 // FinishGameRoom 结束对局并结算：Nets 按座位顺序给出每位玩家的输赢(游戏币，抽成之前)，合计为 0，输的不超过押注。双人
 // 保持原有的奖池抽成，多人按赢家净赢抽成(均向下取整)，每人拿回押注加上净输赢；平局各自退回押注、不抽成。只有
 // room.Version 仍是库里的版本时才会成功，否则返回 ErrGameRoomChanged：同一局只结算一次。
@@ -616,7 +659,7 @@ func settleGameRoomPlayerTx(tx *gorm.DB, room *GameRoom, userId int, net GameCoi
 }
 
 // gameRoomRemark 是对战流水的备注：游戏标识与事件(stake 押注、win 获胜、draw 平局退回、settle 结算退回没输掉的押注、
-// refund 房间关闭或离开退回)，由前端翻译成玩家的语言。
+// refund 房间关闭或离开退回、undo 悔棋费用)，由前端翻译成玩家的语言。
 func gameRoomRemark(room *GameRoom, event string) string {
 	return room.Game + ":" + event
 }

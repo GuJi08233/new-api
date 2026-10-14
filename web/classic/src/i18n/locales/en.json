@@ -5707,7 +5707,6 @@
     "帅将不出九宫，双方的帅将不能在同一列上直接照面": "Generals stay inside the palace and may never face each other on an open file",
     "马走日、蹩马腿，相象走田、塞象眼且不过河，炮隔一个子吃子，兵卒过河后才能横走": "Horses move in an L and are blocked by an adjacent piece; elephants move two points diagonally, can be blocked and never cross the river; cannons capture by jumping exactly one piece; soldiers move sideways only after crossing the river",
     "不能送将；将死对方或让对方无子可走（困毙）就赢了": "You may not leave your general in check; checkmate your opponent or leave them without a legal move (stalemate) to win",
-    "连续 120 步（双方合计）没有吃子，或总步数达到 300 步，判和；长将不判负": "The game is drawn after 120 moves in a row (both sides combined) without a capture, or once it reaches 300 moves; perpetual check is not penalised",
     "你执红": "You play red",
     "你执黑": "You play black",
     "执红": "Red",
@@ -6371,6 +6370,20 @@
     "风控总开关关闭": "Master switch is off",
     "风控活动趋势": "Risk activity trend",
     "阈值的 {{ratio}}%": "{{ratio}}% of threshold",
-    "数量需是 {{step}} 个游戏币的整数倍": "The amount must be a multiple of {{step}} game coins"
+    "数量需是 {{step}} 个游戏币的整数倍": "The amount must be a multiple of {{step}} game coins",
+    "悔棋": "Undo",
+    "同意": "Accept",
+    "拒绝": "Decline",
+    "对方想悔棋": "Your opponent wants to undo a move",
+    "已提出悔棋，等对方回应": "Undo requested, waiting for your opponent",
+    "对方拒绝了悔棋": "Your opponent declined the undo",
+    "悔棋（免费 {{left}} 次）": "Undo ({{left}} free left)",
+    "悔棋（{{cost}} 游戏币）": "Undo ({{cost}} game coins)",
+    "同一局面出现三次，和棋": "The same position occurred three times, draw",
+    "长将判负": "Perpetual check loses",
+    "局面已重复两次，再出现一次判局": "This position has now occurred twice; once more ends the game",
+    "同一局面出现三次：一方一直在将军时长将的一方判负，否则和棋": "The same position three times: the side that keeps giving check loses, otherwise it is a draw",
+    "连续 120 步（双方合计）没有吃子，或总步数达到 300 步，也判和": "A draw is also declared after 120 moves in a row (both sides combined) without a capture, or 300 moves in total",
+    "每人每局可以免费悔棋 3 次，之后每次 1 个游戏币；房间对局要对方同意，人机对战由电脑直接同意": "Each player can undo 3 times for free per game, then 1 game coin each time; in a room your opponent has to agree, against the AI it always agrees"
   }
 }

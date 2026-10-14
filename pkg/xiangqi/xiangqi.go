@@ -10,8 +10,9 @@
 // 必须隔着正好一个棋子(炮架)；兵/卒没过河只能前进一格，过河后也可以左右走一格，永远不能后退。走完之后己方的将帅不能
 // 被对方攻击(不能送将，飞将也算)。
 //
-// 胜负：轮到走的一方没有合法着法就输了，被将死和困毙都算输。和棋：连续 MaxQuietPlies 步(双方合计)没有吃子，或总步数
-// 达到 MaxPlies。一步棋同时将死对方又到了和棋步数时，按将死算。长将、长捉等循环规则不做。
+// 胜负：轮到走的一方没有合法着法就输了，被将死和困毙都算输。同一局面(棋盘与轮到的一方)第 RepeatLimit 次出现时：这几次之间
+// 一方每步都在将军、另一方不是时，长将的一方判负，否则和棋。另外连续 MaxQuietPlies 步(双方合计)没有吃子，或总步数达到
+// MaxPlies 也判和。一步棋同时将死对方又重复了局面或到了和棋步数时，按将死算。长捉等其他循环规则不做。
 package xiangqi
 
 import (
@@ -28,6 +29,8 @@ const (
 	MaxQuietPlies = 120
 	// MaxPlies 是总步数(双方合计)达到多少判和，也限定了一局最长多久。
 	MaxPlies = 300
+	// RepeatLimit 是同一局面第几次出现时判长将负或和棋。
+	RepeatLimit = 3
 )
 
 // StartBoard 是开局的棋盘。
@@ -101,6 +104,17 @@ func (p Piece) letter() byte {
 	return letter
 }
 
+// parsePiece 是 letter 的反面：棋盘字符串里的一个字母对应的棋子，不认识的字母 ok 为假。
+func parsePiece(letter byte) (Piece, bool) {
+	if index := strings.IndexByte(pieceLetters, letter); index >= 0 {
+		return makePiece(Red, Kind(index+1)), true
+	}
+	if index := strings.IndexByte(pieceLetters, letter-('a'-'A')); index >= 0 {
+		return makePiece(Black, Kind(index+1)), true
+	}
+	return Empty, false
+}
+
 // Square 返回 (x,y) 的格子编号 y*9+x。
 func Square(x, y int) int {
 	return y*Width + x
@@ -121,16 +135,20 @@ type Move struct {
 type Result string
 
 const (
-	ResultCheckmate Result = "checkmate"  // 将死
-	ResultStalemate Result = "stalemate"  // 困毙：没被将军但无子可走，同样判负
-	ResultNoCapture Result = "no_capture" // 连续 MaxQuietPlies 步没有吃子，和棋
-	ResultMoveLimit Result = "move_limit" // 总步数达到 MaxPlies，和棋
+	ResultCheckmate      Result = "checkmate"       // 将死
+	ResultStalemate      Result = "stalemate"       // 困毙：没被将军但无子可走，同样判负
+	ResultNoCapture      Result = "no_capture"      // 连续 MaxQuietPlies 步没有吃子，和棋
+	ResultMoveLimit      Result = "move_limit"      // 总步数达到 MaxPlies，和棋
+	ResultRepetition     Result = "repetition"      // 同一局面出现 RepeatLimit 次，和棋
+	ResultPerpetualCheck Result = "perpetual_check" // 同一局面出现 RepeatLimit 次且一方一直在将军，长将的一方判负
 )
 
 var (
 	ErrIllegalMove  = errors.New("xiangqi: illegal move")
 	ErrGameOver     = errors.New("xiangqi: game is over")
 	ErrInvalidState = errors.New("xiangqi: invalid game state")
+	// ErrNothingToUndo 表示记录里没有那么多步可以撤回。
+	ErrNothingToUndo = errors.New("xiangqi: nothing to undo")
 )
 
 // step 是一个有阻挡点的走法：block 是马腿或象眼，to 是落点。
@@ -258,14 +276,11 @@ func ParsePosition(board string, turn Color) (*Position, error) {
 		if ch == '.' {
 			continue
 		}
-		color, index := Red, strings.IndexByte(pieceLetters, ch)
-		if index < 0 {
-			color, index = Black, strings.IndexByte(pieceLetters, ch-('a'-'A'))
-		}
-		if index < 0 {
+		piece, ok := parsePiece(ch)
+		if !ok {
 			return nil, ErrInvalidState
 		}
-		piece := makePiece(color, Kind(index+1))
+		color := piece.Color()
 		if piece.Kind() == King {
 			if pos.kings[color] >= 0 {
 				return nil, ErrInvalidState
@@ -493,16 +508,28 @@ func (p *Position) hasLegalMove() bool {
 	return false
 }
 
+// Step 是走过的一步：走法、吃掉的棋子(悔棋时放回去，没吃子时为空)、走完之后对方是否被将军(判长将用)，以及走这一步之前
+// 连续没有吃子的步数(悔棋时直接放回去，不必从记录里重新数)。
+type Step struct {
+	From     int    `json:"from"`
+	To       int    `json:"to"`
+	Captured string `json:"captured,omitempty"`
+	Check    bool   `json:"check,omitempty"`
+	Quiet    int    `json:"quiet,omitempty"`
+}
+
 // Game 是一局棋，整份以 JSON 存在对局状态里。Plies 是已经走了几步(双方合计)，Quiet 是最近连续几步没有吃子，
-// Winner 在分出胜负时是赢的一方，否则是 NoColor。
+// Winner 在分出胜负时是赢的一方，否则是 NoColor。History 是走过的每一步，悔棋与判重复局面都靠它；记录走法之前开始的对局
+// 只有之后的步，更早的步不能悔，也不参与判重复。
 type Game struct {
-	Board  string `json:"board"`
-	Turn   Color  `json:"turn"`
-	Plies  int    `json:"plies"`
-	Quiet  int    `json:"quiet"`
-	Last   *Move  `json:"last,omitempty"`
-	Result Result `json:"result,omitempty"`
-	Winner Color  `json:"winner"`
+	Board   string `json:"board"`
+	Turn    Color  `json:"turn"`
+	Plies   int    `json:"plies"`
+	Quiet   int    `json:"quiet"`
+	Last    *Move  `json:"last,omitempty"`
+	Result  Result `json:"result,omitempty"`
+	Winner  Color  `json:"winner"`
+	History []Step `json:"history,omitempty"`
 }
 
 // NewGame 返回开局：红方先走。
@@ -521,7 +548,7 @@ func (g *Game) Position() (*Position, error) {
 }
 
 // Play 走一步。不合规则时返回 ErrIllegalMove，这局已经结束时返回 ErrGameOver，g 都不会改变。
-// 走完之后对方无子可走就是走的一方赢(将死或困毙)，否则再看是否到了和棋的步数。
+// 走完之后对方无子可走就是走的一方赢(将死或困毙)，否则再看局面是否重复了 RepeatLimit 次、是否到了和棋的步数。
 func (g *Game) Play(m Move) error {
 	if g.Over() {
 		return ErrGameOver
@@ -544,24 +571,131 @@ func (g *Game) Play(m Move) error {
 		return ErrIllegalMove
 	}
 	mover := pos.turn
+	quietBefore := g.Quiet
 	captured := pos.makeMove(m)
 	g.Board, g.Turn = pos.Board(), pos.turn
 	g.Plies++
 	g.Quiet++
+	step := Step{From: m.From, To: m.To, Check: pos.InCheck(), Quiet: quietBefore}
 	if captured != Empty {
 		g.Quiet = 0
+		step.Captured = string(captured.letter())
 	}
+	// 重新分配一份，不和调用方手里的旧局面共用底层数组。
+	g.History = append(g.History[:len(g.History):len(g.History)], step)
 	g.Last = &m
+	repeats, span := g.Repetitions()
 	switch {
 	case !pos.hasLegalMove():
 		g.Winner, g.Result = mover, ResultStalemate
 		if pos.InCheck() {
 			g.Result = ResultCheckmate
 		}
+	case repeats >= RepeatLimit:
+		g.Result = ResultRepetition
+		switch checker := g.perpetualChecker(span); checker {
+		case mover, mover.Other():
+			g.Winner, g.Result = checker.Other(), ResultPerpetualCheck
+		}
 	case g.Quiet >= MaxQuietPlies:
 		g.Result = ResultNoCapture
 	case g.Plies >= MaxPlies:
 		g.Result = ResultMoveLimit
 	}
+	return nil
+}
+
+// Repetitions 返回当前局面(棋盘与轮到的一方)自最近一次吃子以来一共出现了几次(含现在)，以及其中最早的一次之后走了几步。
+func (g *Game) Repetitions() (count int, span int) {
+	pos, err := g.Position()
+	if err != nil {
+		return 1, 0
+	}
+	count = 1
+	for i, back := range g.positionsSinceCapture(pos) {
+		if back.hash == pos.hash && back.board == pos.board && back.turn == pos.turn {
+			count++
+			span = i + 1
+		}
+	}
+	return count, span
+}
+
+// positionsSinceCapture 返回当前局面 pos 之前、最近一次吃子之后走出过的局面，从近到远：第 i 个是撤回最后 i+1 步的局面。
+// 吃子之前的局面子数不同，不会再出现。
+func (g *Game) positionsSinceCapture(pos *Position) []Position {
+	var positions []Position
+	back := *pos
+	for i := len(g.History) - 1; i >= 0 && g.History[i].Captured == ""; i-- {
+		step := g.History[i]
+		if back.board[step.To] == Empty || back.board[step.From] != Empty {
+			break
+		}
+		back.unmakeMove(Move{From: step.From, To: step.To}, Empty)
+		positions = append(positions, back)
+	}
+	return positions
+}
+
+// perpetualChecker 看最后 span 步：一方每一步都在将军、另一方不是时返回长将的一方，否则返回 NoColor。span 是偶数，双方各走
+// 一半，最后一步是刚走完的一方。
+func (g *Game) perpetualChecker(span int) Color {
+	if span < 2 || span > len(g.History) {
+		return NoColor
+	}
+	checks := [2]bool{true, true}
+	for i, step := range g.History[len(g.History)-span:] {
+		// 第 i 步是谁走的：span 是偶数，最后一步(i = span-1)是刚走完的一方，即现在没轮到的一方。
+		side := (span - 1 - i) % 2
+		checks[side] = checks[side] && step.Check
+	}
+	mover := g.Turn.Other()
+	switch {
+	case checks[0] && !checks[1]:
+		return mover
+	case checks[1] && !checks[0]:
+		return mover.Other()
+	}
+	return NoColor
+}
+
+// Undo 撤回最后 n 步，之后轮到撤回的第一步那一方走。对局已经结束时返回 ErrGameOver，记录里没有这么多步时返回
+// ErrNothingToUndo，g 都不会改变。
+func (g *Game) Undo(n int) error {
+	if g.Over() {
+		return ErrGameOver
+	}
+	if n < 1 || n > len(g.History) {
+		return ErrNothingToUndo
+	}
+	pos, err := g.Position()
+	if err != nil {
+		return err
+	}
+	keep := len(g.History) - n
+	for i := len(g.History) - 1; i >= keep; i-- {
+		step := g.History[i]
+		captured := Empty
+		if step.Captured != "" {
+			piece, ok := parsePiece(step.Captured[0])
+			if !ok || len(step.Captured) != 1 {
+				return ErrInvalidState
+			}
+			captured = piece
+		}
+		if step.From < 0 || step.From >= Squares || step.To < 0 || step.To >= Squares ||
+			pos.board[step.To] == Empty || pos.board[step.From] != Empty || pos.board[step.To].Color() == pos.turn {
+			return ErrInvalidState
+		}
+		pos.unmakeMove(Move{From: step.From, To: step.To}, captured)
+	}
+	// 撤回之后没有吃子的步数就是被撤回的第一步之前的那个数。
+	quiet := g.History[keep].Quiet
+	history := g.History[:keep:keep]
+	var last *Move
+	if keep > 0 {
+		last = &Move{From: history[keep-1].From, To: history[keep-1].To}
+	}
+	g.Board, g.Turn, g.Plies, g.Quiet, g.Last, g.History = pos.Board(), pos.turn, g.Plies-n, quiet, last, history
 	return nil
 }

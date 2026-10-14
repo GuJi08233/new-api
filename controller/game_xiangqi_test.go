@@ -147,3 +147,105 @@ func TestXiangqiAiGameAgainstServer(t *testing.T) {
 	assert.Equal(t, "", result["limited_by"])
 	assert.Equal(t, 2.0, player.balance())
 }
+
+// 人机对战悔棋：撤回玩家上一步和 AI 的应着，局面回到玩家走之前。前 3 次免费，第 4 次收 1 个游戏币，余额不够时拒绝、局面不变；
+// 还没走过棋时没有可以悔的。
+func TestXiangqiAiUndoTakesBackTheLastRound(t *testing.T) {
+	env := newGameTestEnv(t, xiangqiSetting())
+	player := env.player(1, gameTestIpA)
+
+	started := player.ok(http.MethodPost, "/api/game/xiangqi/ai/start", map[string]any{"level": 1})
+	session := started["session"].(map[string]any)
+	undoBody := func(s map[string]any) map[string]any {
+		return map[string]any{"session_id": s["session_id"], "version": s["version"]}
+	}
+	player.fails(http.MethodPost, "/api/game/xiangqi/ai/undo", undoBody(session))
+
+	for round := 1; round <= 4; round++ {
+		state := session["state"].(map[string]any)
+		undo := state["undo"].(map[string]any)
+		assert.EqualValues(t, max(3-(round-1), 0), undo["free_left"], "第 %d 次之前", round)
+		replied := player.ok(http.MethodPost, "/api/game/xiangqi/ai/move", map[string]any{
+			"session_id": session["session_id"], "version": session["version"], "move": state["legal"].([]any)[0],
+		})
+		after := replied["session"].(map[string]any)
+		undone := player.ok(http.MethodPost, "/api/game/xiangqi/ai/undo", undoBody(after))
+		session = undone["session"].(map[string]any)
+		back := session["state"].(map[string]any)
+		assert.Equal(t, state["board"], back["board"], "第 %d 次悔棋回到走之前", round)
+		assert.Equal(t, state["last"], back["last"])
+		assert.Equal(t, state["plies"], back["plies"])
+		assert.Equal(t, session["moves"], started["session"].(map[string]any)["moves"])
+		assert.EqualValues(t, 0, session["to_move"])
+	}
+	assert.Equal(t, 0.0, player.balance(), "第 4 次悔棋收了 1 个游戏币")
+	var fee model.GameCoinLog
+	require.NoError(t, env.db.Where("user_id = ? AND remark = ?", player.user.Id, "xiangqi_ai:undo").First(&fee).Error)
+	assert.Equal(t, -1.0, coinsOf(t, fee.Amount))
+
+	final := session["state"].(map[string]any)
+	cost, err := model.ParseGameCoins(fmt.Sprint(final["undo"].(map[string]any)["cost"]))
+	require.NoError(t, err)
+	assert.Equal(t, 1.0, coinsOf(t, cost), "免费次数用完，下一次要 1 个游戏币")
+	paid := player.ok(http.MethodPost, "/api/game/xiangqi/ai/move", map[string]any{
+		"session_id": session["session_id"], "version": session["version"], "move": final["legal"].([]any)[0],
+	})
+	after := paid["session"].(map[string]any)
+	player.fails(http.MethodPost, "/api/game/xiangqi/ai/undo", undoBody(after))
+	latest := player.ok(http.MethodGet, "/api/game/xiangqi/ai", nil)["session"].(map[string]any)
+	assert.Equal(t, after["version"], latest["version"], "余额不够时局面不变")
+}
+
+// 押注对局悔棋要对方同意：提出的一方不能自己同意；被拒绝后再走一步之前不能再提；同意后撤回到提出的一方走之前，又轮到他。
+// 每人前 3 次免费，第 4 次在同意时从提出的一方扣 1 个游戏币，对方不付钱。
+func TestXiangqiRoomUndoNeedsTheOpponent(t *testing.T) {
+	env := newGameTestEnv(t, xiangqiSetting())
+	host := env.player(50, gameTestIpA)
+	guest := env.player(50, gameTestIpB)
+
+	created := host.ok(http.MethodPost, "/api/game/rooms", map[string]any{"game": gameXiangqi, "stake": 10})
+	roomPath := fmt.Sprintf("/api/game/rooms/%v", created["id"])
+	joined := guest.ok(http.MethodPost, roomPath+"/join", nil)
+	redSeat := int(joined["state"].(map[string]any)["red_seat"].(float64))
+	players := [2]*gamePlayer{host, guest}
+	red, black := players[redSeat], players[1-redSeat]
+	start := red.ok(http.MethodGet, roomPath, nil)
+	startBoard := start["state"].(map[string]any)["board"]
+
+	red.fails(http.MethodPost, roomPath+"/undo", nil)
+	moved := red.ok(http.MethodPost, roomPath+"/move", xiangqiMoveBody(start["version"], 1, 2, 4, 2))
+	asked := red.ok(http.MethodPost, roomPath+"/undo", nil)
+	assert.EqualValues(t, redSeat, asked["state"].(map[string]any)["undo"].(map[string]any)["pending_by"])
+	assert.EqualValues(t, 1-redSeat, asked["to_move"], "提出悔棋不改变轮到谁")
+	red.fails(http.MethodPost, roomPath+"/undo/answer", map[string]any{"accept": true})
+	red.fails(http.MethodPost, roomPath+"/undo", nil)
+
+	declined := black.ok(http.MethodPost, roomPath+"/undo/answer", map[string]any{"accept": false})
+	assert.Equal(t, moved["state"].(map[string]any)["board"], declined["state"].(map[string]any)["board"])
+	assert.Equal(t, true, red.ok(http.MethodGet, roomPath, nil)["state"].(map[string]any)["undo"].(map[string]any)["declined"])
+	red.fails(http.MethodPost, roomPath+"/undo", nil)
+
+	// 黑方应了一步，红方再提：同意后撤回黑方的应着和红方的一步，回到开局、轮到红方。
+	replied := black.ok(http.MethodPost, roomPath+"/move", xiangqiMoveBody(declined["version"], 1, 9, 2, 7))
+	_ = replied
+	red.ok(http.MethodPost, roomPath+"/undo", nil)
+	accepted := black.ok(http.MethodPost, roomPath+"/undo/answer", map[string]any{"accept": true})
+	assert.Equal(t, startBoard, accepted["state"].(map[string]any)["board"])
+	assert.EqualValues(t, redSeat, accepted["to_move"])
+	assert.Nil(t, accepted["state"].(map[string]any)["last"])
+	redUndo := red.ok(http.MethodGet, roomPath, nil)["state"].(map[string]any)["undo"].(map[string]any)
+	assert.EqualValues(t, 1, redUndo["used"])
+	assert.EqualValues(t, 2, redUndo["free_left"])
+
+	for round := 2; round <= 4; round++ {
+		current := red.ok(http.MethodGet, roomPath, nil)
+		red.ok(http.MethodPost, roomPath+"/move", xiangqiMoveBody(current["version"], 1, 2, 4, 2))
+		red.ok(http.MethodPost, roomPath+"/undo", nil)
+		black.ok(http.MethodPost, roomPath+"/undo/answer", map[string]any{"accept": true})
+	}
+	assert.Equal(t, 39.0, red.balance(), "50 - 10 押注 - 第 4 次悔棋 1")
+	assert.Equal(t, 40.0, black.balance())
+	var fee model.GameCoinLog
+	require.NoError(t, env.db.Where("user_id = ? AND remark = ?", red.user.Id, "xiangqi:undo").First(&fee).Error)
+	assert.Equal(t, -1.0, coinsOf(t, fee.Amount))
+}

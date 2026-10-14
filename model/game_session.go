@@ -328,6 +328,56 @@ func UpdateGameSessionState(session *GameSession, state string, detail string) e
 	return nil
 }
 
+// UndoGameSessionState 保存人机对战悔棋之后的局面并在同一个事务里扣下这次悔棋的费用(前几次免费时 charge 为 0)。session.Version
+// 已不是库里的版本时返回 ErrGameRoundChanged，余额不够时返回 ErrGameCoinInsufficient，两种情况都不会改变任何东西。
+func UndoGameSessionState(session *GameSession, state string, charge GameCoins) (GameCoins, error) {
+	if charge < 0 || charge >= common.MaxQuota {
+		return 0, ErrGameCoinAmountInvalid
+	}
+	now := common.GetTimestamp()
+	played := session.PlayedSeconds(now)
+	var balance GameCoins
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		update := tx.Model(&GameSession{}).
+			Where("id = ? AND status = ? AND version = ?", session.Id, GameSessionStatusPlaying, session.Version).
+			Updates(map[string]interface{}{
+				"state":        state,
+				"version":      session.Version + 1,
+				"play_seconds": played,
+				"played_at":    now,
+			})
+		if update.Error != nil {
+			return update.Error
+		}
+		if update.RowsAffected != 1 {
+			return ErrGameRoundChanged
+		}
+		var err error
+		if charge == 0 {
+			balance, err = readGameCoinBalanceTx(tx, session.UserId)
+			return err
+		}
+		if balance, err = debitGameCoinsTx(tx, session.UserId, charge, nil); err != nil {
+			return err
+		}
+		return tx.Create(&GameCoinLog{
+			UserId:    session.UserId,
+			Type:      GameCoinLogTypeGamePvp,
+			Amount:    -charge,
+			Balance:   balance,
+			RefId:     strconv.Itoa(session.Id),
+			Remark:    session.Game + ":undo",
+			CreatedAt: now,
+		}).Error
+	})
+	if err != nil {
+		return 0, err
+	}
+	session.State, session.Version = state, session.Version+1
+	session.PlaySeconds, session.PlayedAt = played, now
+	return balance, nil
+}
+
 // FinishGameSession 结算一局免费游戏：把对局从进行中切换为已结束，同一局只有一次能成功；成绩达标时按账号今天在这个游戏
 // 累计的游戏时长、账号和 IP 今天剩余的领奖次数、技巧游戏与人机对战奖励的合计上限发放奖励。结算和保存每一步一样核对
 // session.Version：同一局的另一步已经保存了新局面时，依据旧局面算出的结算作废，玩家不能同时发几步、挑赢了的那一步结算。

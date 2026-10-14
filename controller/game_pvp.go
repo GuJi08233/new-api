@@ -80,6 +80,14 @@ type pvpState struct {
 
 var errPvpIllegalMove = errors.New("illegal move")
 
+// 悔棋的几种拒绝：没有自己走过的棋可撤或棋局已经结束、已经有一个请求在等、刚被拒绝过、没有等自己回应的请求。
+var (
+	errPvpUndoUnavailable = errors.New("nothing to undo")
+	errPvpUndoPending     = errors.New("undo request pending")
+	errPvpUndoDeclined    = errors.New("undo request declined")
+	errPvpUndoNoRequest   = errors.New("no undo request to answer")
+)
+
 // errPvpAiBusy 表示 AI 搜索名额一直占满，这一步排队超过了 pvpAiQueueTimeout。
 var errPvpAiBusy = errors.New("ai search queue is full")
 
@@ -97,6 +105,24 @@ type pvpSimultaneous interface {
 type pvpDuel interface {
 	// Timeout 返回轮到走的一方超时之后的赢家座位，-1 表示平局(例如双方同时出招都没出)。
 	Timeout(state []byte) (int, error)
+}
+
+// pvpUndoable 由支持悔棋的双人对战引擎实现(象棋)。一方提出，另一方同意后撤回到提出的一方上一次走棋之前，人机对战里电脑
+// 总是同意；悔棋的次数与费用由引擎记在局面里。
+type pvpUndoable interface {
+	// UndoAsk 记下 seat 想悔棋，返回对方同意之后要收 seat 多少游戏币。不能悔棋时返回 errPvpUndo* 之一。
+	UndoAsk(state []byte, seat int) (pvpState, model.GameCoins, error)
+	// UndoAnswer 让 seat 回应对方的悔棋请求，accept 为真时撤回棋步。
+	UndoAnswer(state []byte, seat int, accept bool) (pvpUndo, error)
+}
+
+// pvpUndo 是回应悔棋请求之后的局面。同意时 Payer 是提出悔棋的座位，Cost 是要收他的游戏币(免费时为 0)，Steps 是撤回了几步；
+// 拒绝时 Payer 为 -1。
+type pvpUndo struct {
+	State pvpState
+	Payer int
+	Cost  model.GameCoins
+	Steps int
 }
 
 // pvpMultiplayer 由多人对战的引擎实现。一个人超时不判他的队伍输(队友没有过错)，而是转为托管、由 AI 替他走，多人对局也不能
@@ -179,6 +205,9 @@ func registerPvpGame(key string, name string, engine pvpEngine) {
 			group.POST("/ai/start", middleware.GamePlayRateLimit(key+"-ai-start"), func(c *gin.Context) { startPvpAi(c, game) })
 			group.POST("/ai/move", middleware.GameAiRateLimit(key+"-ai-move"), func(c *gin.Context) { movePvpAi(c, game) })
 			group.POST("/ai/resign", middleware.GamePlayRateLimit(key+"-ai-resign"), func(c *gin.Context) { resignPvpAi(c, game) })
+			if _, ok := engine.(pvpUndoable); ok {
+				group.POST("/ai/undo", middleware.GamePlayRateLimit(key+"-ai-undo"), func(c *gin.Context) { undoPvpAi(c, game) })
+			}
 		},
 	})
 }
@@ -666,6 +695,8 @@ func registerGameRoomRoutes(group *gin.RouterGroup) {
 	group.POST("/:id/move", middleware.GameActionRateLimit("room-move"), MoveGameRoom)
 	group.POST("/:id/resign", middleware.GamePlayRateLimit("room-resign"), ResignGameRoom)
 	group.POST("/:id/auto", middleware.GamePlayRateLimit("room-auto"), AutoGameRoom)
+	group.POST("/:id/undo", middleware.GamePlayRateLimit("room-undo"), AskUndoGameRoom)
+	group.POST("/:id/undo/answer", middleware.GamePlayRateLimit("room-undo"), AnswerUndoGameRoom)
 	group.POST("/:id/cancel", middleware.GamePlayRateLimit("room-cancel"), CancelGameRoom)
 	group.POST("/:id/leave", middleware.GamePlayRateLimit("room-leave"), LeaveGameRoom)
 }
@@ -690,6 +721,10 @@ type gameRoomMoveRequest struct {
 
 type gameRoomAutoRequest struct {
 	Auto *bool `json:"auto"`
+}
+
+type gameRoomUndoAnswerRequest struct {
+	Accept *bool `json:"accept"`
 }
 
 // PreviewGameRoomInvite 只读取邀请码对应的入座条件，不扣币、不占座或暴露私密局面。
@@ -768,6 +803,14 @@ func respondGameRoomError(c *gin.Context, err error) {
 		common.ApiErrorI18n(c, i18n.MsgGameCoinInsufficient)
 	case errors.Is(err, errPvpIllegalMove):
 		common.ApiErrorI18n(c, i18n.MsgGameMoveInvalid)
+	case errors.Is(err, errPvpUndoUnavailable):
+		common.ApiErrorI18n(c, i18n.MsgGameUndoUnavailable)
+	case errors.Is(err, errPvpUndoPending):
+		common.ApiErrorI18n(c, i18n.MsgGameUndoPending)
+	case errors.Is(err, errPvpUndoDeclined):
+		common.ApiErrorI18n(c, i18n.MsgGameUndoDeclined)
+	case errors.Is(err, errPvpUndoNoRequest):
+		common.ApiErrorI18n(c, i18n.MsgGameUndoNoRequest)
 	default:
 		common.SysError(fmt.Sprintf("game room operation failed for user %d: %v", c.GetInt("id"), err))
 		common.ApiErrorI18n(c, i18n.MsgGamePlayFailed)
@@ -1168,6 +1211,100 @@ func AutoGameRoom(c *gin.Context) {
 	respondGameRoom(c, room, nil)
 }
 
+// loadUndoGameRoom 读出可以悔棋的对局中的房间：游戏不支持悔棋时回应错误，房间不在对局中时回应房间现在的样子。返回 nil
+// 时已写好响应。
+func loadUndoGameRoom(c *gin.Context) (*model.GameRoom, pvpUndoable) {
+	room := loadPlayerGameRoom(c)
+	if room == nil {
+		return nil, nil
+	}
+	game := pvpGames[room.Game]
+	undo, ok := pvpUndoable(nil), false
+	if game != nil && room.Seats == game.seats {
+		undo, ok = game.engine.(pvpUndoable)
+	}
+	if !ok {
+		common.ApiErrorI18n(c, i18n.MsgGameUndoUnsupported)
+		return nil, nil
+	}
+	if room.Status != model.GameRoomStatusPlaying {
+		respondGameRoom(c, room, nil)
+		return nil, nil
+	}
+	return room, undo
+}
+
+// AskUndoGameRoom 提出悔棋，等对手同意。要付费时先看余额够不够，免得对手同意了才发现付不起；计时照常，不因为请求暂停。
+func AskUndoGameRoom(c *gin.Context) {
+	room, undo := loadUndoGameRoom(c)
+	if room == nil {
+		return
+	}
+	next, cost, err := undo.UndoAsk([]byte(room.State), c.GetInt("game_room_seat"))
+	if err != nil {
+		respondGameRoomError(c, err)
+		return
+	}
+	if cost > 0 {
+		account, err := model.GetGameCoinAccount(c.GetInt("id"))
+		if err != nil {
+			respondGameRoomError(c, err)
+			return
+		}
+		if account.Balance < cost {
+			respondGameRoomError(c, model.ErrGameCoinInsufficient)
+			return
+		}
+	}
+	if err := model.UpdateGameRoomState(room, string(next.Data), room.ToMove, room.Deadline, room.AutoSeats); err != nil {
+		respondGameRoomError(c, err)
+		return
+	}
+	gameRoomWatch.notify(room.Id)
+	respondGameRoom(c, room, nil)
+}
+
+// AnswerUndoGameRoom 回应对手的悔棋请求。同意时撤回棋步、轮到对手重新走并给他完整的每步限时，同一个事务里扣下他这次悔棋的
+// 费用；他的余额这时已经不够时悔棋不执行，请求留着，可以拒绝或接着走棋。
+func AnswerUndoGameRoom(c *gin.Context) {
+	room, undo := loadUndoGameRoom(c)
+	if room == nil {
+		return
+	}
+	var req gameRoomUndoAnswerRequest
+	if err := decodeGameRequest(c, &req); err != nil || req.Accept == nil {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
+	answer, err := undo.UndoAnswer([]byte(room.State), c.GetInt("game_room_seat"), *req.Accept)
+	if err != nil {
+		respondGameRoomError(c, err)
+		return
+	}
+	next := answer.State
+	if answer.Payer < 0 {
+		err = model.UpdateGameRoomState(room, string(next.Data), room.ToMove, room.Deadline, room.AutoSeats)
+	} else {
+		var seats map[int][]model.GameRoomSeat
+		if seats, err = model.GetGameRoomSeats([]int{room.Id}); err == nil {
+			payer := 0
+			for _, member := range seats[room.Id] {
+				if member.Seat == answer.Payer {
+					payer = member.UserId
+				}
+			}
+			deadline := common.GetTimestamp() + pvpMoveSeconds(room, next.ToMove, room.AutoSeats)
+			_, err = model.UndoGameRoomState(room, string(next.Data), next.ToMove, deadline, room.AutoSeats, payer, answer.Cost)
+		}
+	}
+	if err != nil {
+		respondGameRoomError(c, err)
+		return
+	}
+	gameRoomWatch.notify(room.Id)
+	respondGameRoom(c, room, nil)
+}
+
 // LeaveGameRoom 离开还没开局的房间并退回押注，房主离开时关闭房间。
 func LeaveGameRoom(c *gin.Context) {
 	room := loadPlayerGameRoom(c)
@@ -1541,6 +1678,61 @@ func movePvpAi(c *gin.Context, game *pvpGame) {
 		return
 	}
 	common.ApiSuccess(c, gin.H{"session": view, "ai_move": aiMove})
+}
+
+// undoPvpAi 悔棋：撤回玩家上一步和电脑的应着，又轮到玩家走。电脑总是同意，费用和房间对局一样按次数收，和新局面在同一个
+// 事务里扣下。
+func undoPvpAi(c *gin.Context, game *pvpGame) {
+	rule, ok := pvpAiRule(c, game)
+	if !ok {
+		return
+	}
+	undo := game.engine.(pvpUndoable)
+	var req pvpAiMoveRequest
+	if err := decodeGameRequest(c, &req); err != nil {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
+	session, state := loadPvpAiSession(c, game, rule, req.SessionId)
+	if session == nil {
+		return
+	}
+	if req.Version != session.Version {
+		common.ApiErrorI18n(c, i18n.MsgGameRoundChanged)
+		return
+	}
+	if state.ToMove != 0 {
+		common.ApiErrorI18n(c, i18n.MsgGameRoomNotYourTurn)
+		return
+	}
+	asked, _, err := undo.UndoAsk(state.Board, 0)
+	if err != nil {
+		respondGameRoomError(c, err)
+		return
+	}
+	answer, err := undo.UndoAnswer(asked.Data, 1, true)
+	if err != nil {
+		respondGameRoomError(c, err)
+		return
+	}
+	state.Board, state.ToMove, state.Winner = answer.State.Data, answer.State.ToMove, -1
+	state.Moves = max(state.Moves-answer.Steps, 0)
+	data, err := common.Marshal(state)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	balance, err := model.UndoGameSessionState(session, string(data), answer.Cost)
+	if err != nil {
+		respondGameError(c, pvpAiGame(game.key), err)
+		return
+	}
+	view, err := pvpAiView(game, session)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, gin.H{"session": view, "balance": balance})
 }
 
 // resignPvpAi 认输，这局按输了结算。
