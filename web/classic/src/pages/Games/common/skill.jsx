@@ -47,11 +47,17 @@ export function rewardsLeftText(rule, progress, t) {
   return t('今天还能领 {{left}} 次', { left });
 }
 
-// 领下一个游戏币要累计玩到多久(秒)：已经领到的游戏币也各占一份时长，与服务端的领奖规则一致。不限时长时为 0。
+// 下一次发奖要累计玩到多久(秒)，与服务端的领奖规则一致：已经领到的游戏币也各占一份时长，时长每满一个整币发一次；
+// 待发的游戏币带小数时，玩够已领加待发那么多份就全部发出，不用等到下一个整币。不限时长时为 0。
 export function nextCoinSeconds(rule, progress) {
   const perCoin = rule?.min_seconds_per_coin || 0;
   if (perCoin <= 0) return 0;
-  return ((progress?.earned_today || 0) + 1) * perCoin;
+  const earned = progress?.earned_today || 0;
+  const pending = progress?.pending_reward || 0;
+  const nextWhole = Math.floor(earned) + 1;
+  const coins = pending > 0 ? Math.min(earned + pending, nextWhole) : nextWhole;
+  // 币数是小数，先按 6 位小数取整再向上取整，免得浮点误差多算一秒。
+  return Math.ceil(Number((coins * perCoin).toFixed(6)));
 }
 
 // 规则说明里的时长：写成"3 分钟""45 秒""2 分 30 秒"。
