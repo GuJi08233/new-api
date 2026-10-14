@@ -81,7 +81,8 @@ func (s *xiangqiState) takeback(seat int) (int, model.GameCoins, bool) {
 		// 对方刚应了一步，连自己最后走的那一步一起撤。
 		steps = 2
 	}
-	if steps > plies || (plies-steps)%2 != mine {
+	// 记录走法之前开始的对局，更早的棋步没有记录，撤不回来。
+	if steps > plies || steps > len(s.Game.History) || (plies-steps)%2 != mine {
 		return 0, 0, false
 	}
 	cost, err := s.undoCost(seat)

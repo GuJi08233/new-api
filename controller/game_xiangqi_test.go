@@ -249,3 +249,33 @@ func TestXiangqiRoomUndoNeedsTheOpponent(t *testing.T) {
 	require.NoError(t, env.db.Where("user_id = ? AND remark = ?", red.user.Id, "xiangqi:undo").First(&fee).Error)
 	assert.Equal(t, -1.0, coinsOf(t, fee.Amount))
 }
+
+// 记录走法之前开始的对局(升级前的存档)没有棋步记录：可以照常走棋，但更早的棋步撤不回来，悔棋按钮不可用、请求被拒绝；
+// 升级后走的棋有记录，可以悔。
+func TestXiangqiUndoSkipsMovesFromBeforeHistory(t *testing.T) {
+	env := newGameTestEnv(t, xiangqiSetting())
+	player := env.player(0, gameTestIpA)
+	started := player.ok(http.MethodPost, "/api/game/xiangqi/ai/start", map[string]any{"level": 1})
+	session := started["session"].(map[string]any)
+
+	// 换成旧存档：玩家执红，已经走了 2 步，没有 history。
+	legacy, err := common.Marshal(xiangqiState{RedSeat: 0, Game: xiangqi.Game{Board: xiangqi.StartBoard, Turn: xiangqi.Red, Plies: 2, Quiet: 2, Winner: xiangqi.NoColor}})
+	require.NoError(t, err)
+	aiState, err := common.Marshal(pvpAiState{Level: 1, Board: legacy, ToMove: 0, Winner: -1, Moves: 2})
+	require.NoError(t, err)
+	require.NoError(t, env.db.Model(&model.GameSession{}).Where("id = ?", session["session_id"]).Update("state", string(aiState)).Error)
+
+	current := player.ok(http.MethodGet, "/api/game/xiangqi/ai", nil)["session"].(map[string]any)
+	undo := current["state"].(map[string]any)["undo"].(map[string]any)
+	assert.Equal(t, false, undo["available"])
+	body := map[string]any{"session_id": current["session_id"], "version": current["version"]}
+	player.fails(http.MethodPost, "/api/game/xiangqi/ai/undo", body)
+
+	replied := player.ok(http.MethodPost, "/api/game/xiangqi/ai/move", map[string]any{
+		"session_id": current["session_id"], "version": current["version"], "move": current["state"].(map[string]any)["legal"].([]any)[0],
+	})
+	after := replied["session"].(map[string]any)
+	assert.Equal(t, true, after["state"].(map[string]any)["undo"].(map[string]any)["available"])
+	undone := player.ok(http.MethodPost, "/api/game/xiangqi/ai/undo", map[string]any{"session_id": after["session_id"], "version": after["version"]})
+	assert.Equal(t, current["state"].(map[string]any)["board"], undone["session"].(map[string]any)["state"].(map[string]any)["board"])
+}
