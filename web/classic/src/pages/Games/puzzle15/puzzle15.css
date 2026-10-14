@@ -137,10 +137,3 @@ For commercial licensing, please contact support@quantumnous.com
   margin-right: 8px;
   vertical-align: -3px;
 }
-
-@media (prefers-reduced-motion: reduce) {
-  .puzzle15-tile,
-  .puzzle15-tile-face {
-    transition: none;
-  }
-}

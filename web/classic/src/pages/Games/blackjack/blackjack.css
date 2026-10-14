@@ -291,12 +291,6 @@ body[theme-mode='dark'] .blackjack-card:not(.is-back) {
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .blackjack-card {
-    animation: none;
-  }
-}
-
 @media (max-width: 520px) {
   .blackjack-page {
     --blackjack-card-width: 52px;

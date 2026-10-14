@@ -288,12 +288,8 @@ const Slots = () => {
     motionRef.current = motion;
     setSpinning(true);
     setOutcome(null);
-    const reducedMotion = window.matchMedia?.(
-      '(prefers-reduced-motion: reduce)',
-    ).matches;
-    if (!reducedMotion) {
-      animateSpin(motion, stripRefs.current, () => settleSpin(motion));
-    }
+    // 转动过程就是开奖过程，系统要求减少动态效果时也照常播放，停在服务端选出的结果上。
+    animateSpin(motion, stripRefs.current, () => settleSpin(motion));
 
     let response;
     try {
@@ -327,7 +323,6 @@ const Slots = () => {
       response.result?.stops || motion.reels.map((reel) => reel.start),
       performance.now() / 1000,
     );
-    if (reducedMotion) settleSpin(motion);
   }, [rule, bet, t, settleSpin]);
 
   const canSpin = !spinning && bet >= 1 && bet <= balance;

@@ -153,11 +153,8 @@ body[theme-mode='dark'] .scratch-card {
   }
 }
 
+/* 系统要求减少动态效果时只关掉装饰性的效果；表现过程的动画(发牌、翻牌、落子、滑动、揭开)照常播放。 */
 @media (prefers-reduced-motion: reduce) {
-  .scratch-cell {
-    transition: none;
-  }
-
   .scratch-cell.is-match {
     animation: none;
   }

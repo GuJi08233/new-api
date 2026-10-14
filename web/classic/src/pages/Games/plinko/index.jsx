@@ -374,15 +374,8 @@ const Plinko = () => {
       startedAt: performance.now() / 1000,
       segment: 0,
     };
-    const reducedMotion = window.matchMedia?.(
-      '(prefers-reduced-motion: reduce)',
-    ).matches;
-    if (
-      reducedMotion ||
-      !boardRef.current ||
-      !effectLayerRef.current ||
-      !ballLayerRef.current
-    ) {
+    // 小球沿服务端给出的路径落下，系统要求减少动态效果时也照常播放；只有画板还没挂好时直接落定。
+    if (!boardRef.current || !effectLayerRef.current || !ballLayerRef.current) {
       landBall(ball);
       return;
     }

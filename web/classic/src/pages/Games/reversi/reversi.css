@@ -227,11 +227,3 @@ body[theme-mode='dark'] .reversi-cell.is-legal:hover {
     transform: scaleX(1);
   }
 }
-
-@media (prefers-reduced-motion: reduce) {
-  .reversi-disc.is-new,
-  .reversi-disc.is-flip.is-b,
-  .reversi-disc.is-flip.is-w {
-    animation: none;
-  }
-}

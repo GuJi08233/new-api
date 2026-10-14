@@ -141,9 +141,3 @@ body[theme-mode='dark'] .gomoku-seat-stone {
     opacity: 1;
   }
 }
-
-@media (prefers-reduced-motion: reduce) {
-  .gomoku-stone.is-new {
-    animation: none;
-  }
-}

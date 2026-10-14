@@ -130,9 +130,6 @@ function renderPose(disc, ball, pose) {
   );
 }
 
-const reducedMotion = () =>
-  !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-
 // 轮盘与小球。页面通过 ref 调用 start() 开始旋转，land(number) 让小球落进开出的号码格(返回停稳时完成的 Promise)，
 // stop() 在没有结果时停下并收起小球。动画逐帧直接改 SVG 的 transform，不经过 React 状态。
 // colors[n] 是号码 n 的颜色，number 是已经公布的号码(高亮这一格并显示在中心)，没有时为 null。
@@ -170,13 +167,11 @@ const RouletteWheel = forwardRef(({ colors, number, label }, ref) => {
           start: { ...poseRef.current },
           plan: null,
           frame: 0,
-          animated: !reducedMotion(),
           onLanded: null,
         };
         motionRef.current = motion;
-        // 不播动画时等结果出来再放小球，免得它停在上一次的号码格里像是已经开出。
-        setBallShown(motion.animated);
-        if (!motion.animated) return;
+        // 旋转就是开奖过程，系统要求减少动态效果时也照常播放，小球停在服务端开出的号码格里。
+        setBallShown(true);
         const step = () => {
           const now = performance.now() / 1000;
           if (motion.plan && now >= motion.plan.endsAt) {
@@ -199,10 +194,8 @@ const RouletteWheel = forwardRef(({ colors, number, label }, ref) => {
       land(result) {
         const motion = motionRef.current;
         const pocket = WHEEL_ORDER.indexOf(result);
-        if (!motion || !motion.animated) {
-          // 不播动画：小球直接放进开出的号码格。
-          if (motion) cancelAnimationFrame(motion.frame);
-          motionRef.current = null;
+        if (!motion) {
+          // 没有在转(没调用 start)：小球直接放进开出的号码格。
           const wheel = poseRef.current.wheel;
           poseRef.current = {
             wheel,
@@ -225,9 +218,7 @@ const RouletteWheel = forwardRef(({ colors, number, label }, ref) => {
         if (!motion) return;
         cancelAnimationFrame(motion.frame);
         // 轮盘停在当前角度，小球收起，下次从轨道上开始滚。
-        const pose = motion.animated
-          ? spinPose(motion, performance.now() / 1000)
-          : motion.start;
+        const pose = spinPose(motion, performance.now() / 1000);
         poseRef.current = {
           wheel: mod(pose.wheel, 360),
           ball: mod(pose.ball, 360),

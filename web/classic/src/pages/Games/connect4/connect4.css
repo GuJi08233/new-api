@@ -176,11 +176,16 @@ body[theme-mode='dark'] .connect4-board {
   }
 }
 
+/* 系统要求减少动态效果时只关掉装饰性的效果；表现过程的动画(发牌、翻牌、落子、滑动、揭开)照常播放。 */
 @media (prefers-reduced-motion: reduce) {
-  .connect4-disc.is-new,
-  .connect4-disc.is-line,
-  .connect4-disc.is-new.is-line {
+  .connect4-disc.is-line {
     animation: none;
+  }
+
+  /* 连成一线的最后一子照常落下，只去掉之后的闪动。 */
+  .connect4-disc.is-new.is-line {
+    animation: connect4-drop calc(0.14s + var(--connect4-fall) * 0.05s)
+      cubic-bezier(0.5, 0, 1, 0.6) both;
   }
 }
 

@@ -247,10 +247,3 @@ For commercial licensing, please contact support@quantumnous.com
     border-radius: 9px;
   }
 }
-
-@media (prefers-reduced-motion: reduce) {
-  .memory-card-inner,
-  .memory-card-back {
-    transition: none;
-  }
-}

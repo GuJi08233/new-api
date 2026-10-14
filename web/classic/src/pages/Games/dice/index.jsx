@@ -32,8 +32,8 @@ import './dice.css';
 // 点数的个数：服务端掷出 0 到 SIDES - 1 之间的一个整数，与 pkg/dice 一致。
 const SIDES = 10000;
 // 点击后点数至少跳动这么久才停下(毫秒)；停下后标记滑到点数上，再过 SETTLE_MS 公布结果。
-const ROLL_MIN_MS = 450;
-const SETTLE_MS = 350;
+const ROLL_MIN_MS = 900;
+const SETTLE_MS = 600;
 const SCRAMBLE_MS = 50;
 const HISTORY_SIZE = 10;
 // 点数条下方的刻度。
@@ -128,9 +128,6 @@ const Dice = () => {
     const page = pageRef.current;
     if (!canRoll || !page) return;
     const startedAt = Date.now();
-    const reducedMotion = window.matchMedia?.(
-      '(prefers-reduced-motion: reduce)',
-    ).matches;
     setPhase('rolling');
     setError('');
     const response = await gamePost(
@@ -147,12 +144,11 @@ const Dice = () => {
       return;
     }
     const data = response.data;
-    if (!reducedMotion) {
-      await delay(Math.max(ROLL_MIN_MS - (Date.now() - startedAt), 0), page);
-    }
+    // 跳动与滑动是开奖过程，系统要求减少动态效果时也照常播放，标记停在服务端掷出的点数上。
+    await delay(Math.max(ROLL_MIN_MS - (Date.now() - startedAt), 0), page);
     setOutcome(data);
     setPhase('landing');
-    if (!reducedMotion) await delay(SETTLE_MS, page);
+    await delay(SETTLE_MS, page);
     // 标记停稳后才公布结果、更新余额，免得还在动就剧透。
     setPhase('idle');
     historyIdRef.current += 1;
@@ -289,13 +285,14 @@ const Dice = () => {
               }}
             />
           </div>
-          {outcome && (
-            <div
-              className={tone ? `dice-marker is-${tone}` : 'dice-marker'}
-              style={{ left: `${((outcome.roll + 0.5) / SIDES) * 100}%` }}
-              aria-hidden
-            />
-          )}
+          {/* 还没掷过时标记藏在正中，第一次掷出也从这里滑过去。 */}
+          <div
+            className={`dice-marker${tone ? ` is-${tone}` : ''}${outcome ? '' : ' is-hidden'}`}
+            style={{
+              left: `${outcome ? ((outcome.roll + 0.5) / SIDES) * 100 : 50}%`,
+            }}
+            aria-hidden
+          />
           <div className='dice-scale' aria-hidden>
             {SCALE.map((value) => (
               <span key={value} style={{ left: `${(value / 9999) * 100}%` }}>

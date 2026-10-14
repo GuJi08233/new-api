@@ -81,8 +81,13 @@ For commercial licensing, please contact support@quantumnous.com
   background: var(--semi-color-text-0);
   box-shadow: 0 0 0 2px var(--semi-color-bg-1);
   transition:
-    left 0.35s cubic-bezier(0.2, 0.8, 0.2, 1),
+    left 0.6s cubic-bezier(0.2, 0.8, 0.2, 1),
+    opacity 0.2s ease,
     color 0.2s ease;
+}
+
+.dice-marker.is-hidden {
+  opacity: 0;
 }
 
 .dice-marker::before {
@@ -237,14 +242,6 @@ For commercial licensing, please contact support@quantumnous.com
 .dice-direction:focus-visible {
   outline: 2px solid var(--semi-color-primary);
   outline-offset: 2px;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .dice-readout,
-  .dice-track-zone,
-  .dice-marker {
-    transition: none;
-  }
 }
 
 @media (max-width: 520px) {
