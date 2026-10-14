@@ -6373,6 +6373,7 @@
     "风控总开关": "Master switch",
     "风控总开关关闭": "Master switch is off",
     "风控活动趋势": "Risk activity trend",
-    "阈值的 {{ratio}}%": "{{ratio}}% of threshold"
+    "阈值的 {{ratio}}%": "{{ratio}}% of threshold",
+    "数量需是 {{step}} 个游戏币的整数倍": "The amount must be a multiple of {{step}} game coins"
   }
 }

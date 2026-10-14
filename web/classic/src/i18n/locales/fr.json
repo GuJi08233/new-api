@@ -6225,6 +6225,7 @@
     "风控总开关": "Interrupteur principal du contrôle des risques",
     "风控总开关关闭": "Interrupteur principal désactivé",
     "风控活动趋势": "Tendance de l’activité des risques",
-    "阈值的 {{ratio}}%": "{{ratio}} % du seuil"
+    "阈值的 {{ratio}}%": "{{ratio}} % du seuil",
+    "数量需是 {{step}} 个游戏币的整数倍": "Le montant doit être un multiple de {{step}} jetons de jeu"
   }
 }

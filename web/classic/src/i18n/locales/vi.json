@@ -6730,6 +6730,7 @@
     "风控总开关": "Công tắc chính kiểm soát rủi ro",
     "风控总开关关闭": "Công tắc chính đang tắt",
     "风控活动趋势": "Xu hướng hoạt động rủi ro",
-    "阈值的 {{ratio}}%": "{{ratio}}% ngưỡng"
+    "阈值的 {{ratio}}%": "{{ratio}}% ngưỡng",
+    "数量需是 {{step}} 个游戏币的整数倍": "Số lượng phải là bội số nguyên của {{step}} xu trò chơi"
   }
 }

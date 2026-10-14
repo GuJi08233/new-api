@@ -280,6 +280,16 @@ const Games = () => {
       );
       return;
     }
+    // 游戏币按额度单位记账，数量要正好是整数个单位，例如 1 币 = 500000 单位时最小是 0.000002。
+    const units = convertAmount * quotaPerCoin;
+    if (quotaPerCoin > 0 && Math.abs(units - Math.round(units)) > 1e-6) {
+      showError(
+        t('数量需是 {{step}} 个游戏币的整数倍', {
+          step: formatCoins(1 / quotaPerCoin),
+        }),
+      );
+      return;
+    }
     if (convertAmount > balance) {
       showError(t('游戏币余额不足'));
       return;
