@@ -70,7 +70,9 @@ const BetInput = ({
           aria-label={label || t('下注')}
           disabled={disabled}
           value={draft ?? String(value)}
-          size={Math.max(String(draft ?? value).length, 1)}
+          // 宽度按最大下注留够(整数位、小数点和两位小数)，不随正在输入的文字变化：输入框变宽会把旁边的开局按钮挤到下一行，
+          // 点按钮时输入框先失焦、数量改回范围内，按钮又跳回原处，这一下点击就落空了。
+          style={{ width: `${String(Math.floor(top / 100)).length + 3}ch` }}
           onChange={(event) => setDraft(event.target.value)}
           onBlur={commit}
           onKeyDown={(event) => {
