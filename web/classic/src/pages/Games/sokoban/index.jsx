@@ -310,17 +310,36 @@ const Sokoban = () => {
                               : t('地面')
                       }
                       onClick={() => direction && move(direction)}
-                    >
-                      {box && (
-                        <span
-                          className={`sokoban-box${goal ? ' is-home' : ''}`}
-                        />
-                      )}
-                      {player && <span className='sokoban-player' />}
-                    </button>
+                    />
                   );
                 },
               )}
+              {/* 人物和箱子画在格子上面的一层，换格子时滑过去；箱子按在数组里的位置区分，推动时还是同一个。 */}
+              <div className='sokoban-pieces' aria-hidden>
+                {puzzle.boxes.map((cell, index) => (
+                  <span
+                    key={`box-${index}`}
+                    className='sokoban-piece'
+                    style={{
+                      '--x': cell % puzzle.width,
+                      '--y': Math.floor(cell / puzzle.width),
+                    }}
+                  >
+                    <span
+                      className={`sokoban-box${puzzle.goals.includes(cell) ? ' is-home' : ''}`}
+                    />
+                  </span>
+                ))}
+                <span
+                  className='sokoban-piece'
+                  style={{
+                    '--x': puzzle.player % puzzle.width,
+                    '--y': Math.floor(puzzle.player / puzzle.width),
+                  }}
+                >
+                  <span className='sokoban-player' />
+                </span>
+              </div>
             </div>
           </div>
         )}

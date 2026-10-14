@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { Button } from '@douyinfe/semi-ui';
 import { Crown, Layers, Users } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -87,9 +87,14 @@ const Cards = ({ cards }) => (
   </div>
 );
 
+// 一次刷新里同时出现的几手牌(自己出牌后 AI 或托管接连跟上)依次错开这么久出现，看得出谁先出、出了什么。
+const PLAY_STAGGER_MS = 400;
+
 const LandlordBoard = ({ state, seat, names, canMove, over, onMove }) => {
   const { t } = useTranslation();
   const [selection, setSelection] = useState([]);
+  // 出牌区里每一手第一次出现时排定的入场延迟，之后重新渲染不再改动，免得动画重来。
+  const playDelaysRef = useRef(new Map());
   const hand = [...(state?.hand || [])].sort((left, right) => right - left);
   // 成功出牌后服务端移除手牌，选中牌随新手牌过滤；非法牌型或网络错误保留选择，便于修正重试。
   const selected = selection.filter((card) => hand.includes(card));
@@ -102,6 +107,20 @@ const LandlordBoard = ({ state, seat, names, canMove, over, onMove }) => {
     trick.forEach((action, index) => {
       if (!action.pass) leadIndex = index;
     });
+  }
+  // 每一手的 key 带上这一轮领出的牌、座位和牌面：新一轮领出时换成新的节点，入场动画才会再播一次(牌在一局里不会重复，
+  // 不出没有牌面，靠领出的那手区分是哪一轮)。
+  const trickKey = trick[0]?.cards?.join('.') || '';
+  const playKeys = trick.map(
+    (action, index) =>
+      `${trickKey}/${action.seat}-${action.pass ? 'pass' : action.cards.join('.')}-${index}`,
+  );
+  let freshPlays = 0;
+  for (const key of playKeys) {
+    if (!playDelaysRef.current.has(key)) {
+      playDelaysRef.current.set(key, freshPlays * PLAY_STAGGER_MS);
+      freshPlays += 1;
+    }
   }
   const nameOf = (index) =>
     names?.[index] || t('座位 {{seat}}', { seat: index + 1 });
@@ -208,8 +227,11 @@ const LandlordBoard = ({ state, seat, names, canMove, over, onMove }) => {
             <ol className='landlord-trick'>
               {trick.map((action, index) => (
                 <li
-                  key={index}
+                  key={playKeys[index]}
                   className={index === leadIndex ? 'is-lead' : ''}
+                  style={{
+                    animationDelay: `${playDelaysRef.current.get(playKeys[index])}ms`,
+                  }}
                 >
                   <span className='landlord-caption'>
                     {nameOf(action.seat)}

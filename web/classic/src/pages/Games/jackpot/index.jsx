@@ -38,8 +38,11 @@ import './jackpot.css';
 
 // 页面每隔这么久刷新一次奖池；开奖由服务端在刷新时完成。
 const POLL_MS = 2000;
-// 开奖结果至少展示这么久；之后下一轮有人投入了，就换成下一轮的奖池与倒计时。
-const DRAW_SHOW_MS = 8000;
+// 开奖时指针转这么久(与 jackpot.css 里 .jackpot-pointer 的过渡时长一致)、至少转这么多圈，停在抽中的奖券上才公布赢家。
+const SPIN_MS = 3600;
+const SPIN_TURNS = 4;
+// 开奖结果从指针停下起至少展示这么久；之后下一轮有人投入了，就换成下一轮的奖池与倒计时。
+const DRAW_SHOW_MS = SPIN_MS + 8000;
 const RING_RADIUS = 80;
 const RING_WIDTH = 22;
 // 玩家的颜色依次取用，自己永远是主色；这几种颜色都和主色(蓝)分得清。
@@ -100,6 +103,11 @@ const Jackpot = () => {
   // 上一次看到的一轮：它开奖之后在最近开奖里找到它，公布赢家。
   const lastRoundRef = useRef(null);
   const [drawn, setDrawn] = useState(null);
+  // 指针转完、已经公布赢家的那一轮；指针转动时赢家、余额和最近开奖都先不更新，免得剧透。
+  const [revealedId, setRevealedId] = useState(null);
+  const [pointerAngle, setPointerAngle] = useState(0);
+  // 指针转动期间页面上显示的还是开奖前的信息(余额、今日输赢、最近开奖)。
+  const shownInfoRef = useRef(null);
   // 本地时钟与服务器时钟之差，倒计时按服务器时间算。
   const offsetRef = useRef(0);
   const [now, setNow] = useState(() => Date.now() / 1000);
@@ -198,9 +206,35 @@ const Jackpot = () => {
   const pointer =
     drawn?.exact && drawn.pot > 0 ? (drawn.ticket / drawn.pot) * 360 : null;
   const shownArcs = drawn ? drawnArcs : arcs;
+  const revealed = !!drawn && revealedId === drawn.id;
+  if (!drawn || revealed) shownInfoRef.current = info;
+  const shownInfo = shownInfoRef.current || info;
+
+  // 开奖后指针从正上方转 SPIN_TURNS 圈多，减速停在服务端抽中的奖券上，停稳后再公布。拿不到那一轮的投入(没有指针)时直接公布。
+  useEffect(() => {
+    if (!drawn) return undefined;
+    if (pointer === null) {
+      setRevealedId(drawn.id);
+      return undefined;
+    }
+    setPointerAngle(0);
+    // 先在 0 度画出来，下一帧再改到终点，过渡才会生效。
+    let frame = requestAnimationFrame(() => {
+      frame = requestAnimationFrame(() =>
+        setPointerAngle(SPIN_TURNS * 360 + pointer),
+      );
+    });
+    const timer = setTimeout(() => setRevealedId(drawn.id), SPIN_MS);
+    return () => {
+      cancelAnimationFrame(frame);
+      clearTimeout(timer);
+    };
+  }, [drawn, pointer]);
 
   let status = t('等待第一位玩家投入');
-  if (drawn) {
+  if (drawn && !revealed) {
+    status = t('开奖中…');
+  } else if (drawn) {
     status = drawn.own
       ? t('你赢得了 {{payout}} {{symbol}}！', {
           payout: formatCoins(drawn.payout),
@@ -225,9 +259,11 @@ const Jackpot = () => {
     <>
       <SideBox
         label={t('今日输赢')}
-        value={signed(info.net_today)}
+        value={signed(shownInfo.net_today)}
         unit={symbol}
-        note={t('今天参与了 {{plays}} 轮', { plays: info.plays_today || 0 })}
+        note={t('今天参与了 {{plays}} 轮', {
+          plays: shownInfo.plays_today || 0,
+        })}
       />
       <SideBox label={t('本轮玩家')}>
         {players.length === 0 ? (
@@ -260,11 +296,11 @@ const Jackpot = () => {
         )}
       </SideBox>
       <SideBox label={t('最近开奖')}>
-        {(info.recent || []).length === 0 ? (
+        {(shownInfo.recent || []).length === 0 ? (
           <div className='game-box-note'>{t('还没有开过奖')}</div>
         ) : (
           <ul className='jackpot-recent'>
-            {info.recent.map((item) => (
+            {shownInfo.recent.map((item) => (
               <li key={item.id} className={item.own ? 'is-own' : ''}>
                 <span className='jackpot-recent-winner'>
                   <Trophy size={12} />
@@ -317,11 +353,15 @@ const Jackpot = () => {
       title={t('夺宝奖池')}
       loading={loading}
       unavailable={unavailable}
-      balance={info?.balance}
+      balance={shownInfo?.balance}
       symbol={symbol}
       side={side}
     >
-      <div className={drawn?.own ? 'games-stage is-big-win' : 'games-stage'}>
+      <div
+        className={
+          revealed && drawn.own ? 'games-stage is-big-win' : 'games-stage'
+        }
+      >
         <div className='jackpot-ring'>
           <svg viewBox='-120 -120 240 240' aria-hidden>
             <circle r={RING_RADIUS} className='jackpot-ring-track' />
@@ -338,7 +378,7 @@ const Jackpot = () => {
                   d={arcPath(arc.from, arc.to)}
                   style={{ fill: arc.color }}
                   className={
-                    drawn &&
+                    revealed &&
                     (drawn.exact ? arc.winner : arc.name === drawn.winner)
                       ? 'jackpot-arc is-winner'
                       : 'jackpot-arc'
@@ -348,8 +388,9 @@ const Jackpot = () => {
             )}
             {pointer !== null && (
               <g
+                key={drawn.id}
                 className='jackpot-pointer'
-                style={{ transform: `rotate(${pointer}deg)` }}
+                style={{ transform: `rotate(${pointerAngle}deg)` }}
               >
                 <path
                   d={`M0 ${-RING_RADIUS + 16}L-7 ${-RING_RADIUS + 34}L7 ${-RING_RADIUS + 34}Z`}
@@ -368,7 +409,9 @@ const Jackpot = () => {
           </div>
         </div>
 
-        <StageMessage kind={drawn?.own ? 'big-win' : ''}>{status}</StageMessage>
+        <StageMessage kind={revealed && drawn.own ? 'big-win' : ''}>
+          {status}
+        </StageMessage>
         {message && (
           <StageMessage kind={message.kind}>{message.text}</StageMessage>
         )}

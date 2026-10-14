@@ -192,6 +192,15 @@ button.landlord-card:focus-visible {
   gap: 2px;
   padding: 4px 8px 8px;
   border-radius: 8px;
+  /* 打出的牌从下方滑入；延迟由页面按出牌先后排定。 */
+  animation: landlord-play 0.32s ease-out both;
+}
+
+@keyframes landlord-play {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.96);
+  }
 }
 
 .landlord-trick > li.is-lead {

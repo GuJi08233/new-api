@@ -108,6 +108,44 @@ For commercial licensing, please contact support@quantumnous.com
   cursor: default;
 }
 
+/* 翻开：凸起的格子压平、数字淡入；连锁展开时按 --reveal-delay 从点击处一圈一圈铺开。 */
+.minesweeper-cell.is-open {
+  animation: minesweeper-open 0.22s ease-out var(--reveal-delay, 0ms) both;
+}
+
+/* 结束时公开的雷依次显现，踩中的那颗先弹出来。 */
+.minesweeper-cell.is-mine svg {
+  animation: minesweeper-mine 0.3s ease-out both;
+}
+
+.minesweeper-cell.is-exploded svg {
+  animation: minesweeper-boom 0.4s cubic-bezier(0.3, 1.6, 0.5, 1) both;
+}
+
+@keyframes minesweeper-open {
+  from {
+    color: transparent;
+    background: var(--semi-color-fill-2);
+    transform: scale(0.82);
+  }
+}
+
+@keyframes minesweeper-mine {
+  from {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+}
+
+@keyframes minesweeper-boom {
+  from {
+    transform: scale(0.2);
+  }
+  60% {
+    transform: scale(1.35);
+  }
+}
+
 .minesweeper-cell.is-n1 {
   color: rgba(var(--semi-blue-6), 1);
 }

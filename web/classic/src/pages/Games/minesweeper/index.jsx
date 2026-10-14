@@ -38,6 +38,10 @@ import { useGameInfo } from '../common/useGameInfo';
 import { PlayTurnstile, usePlayTurnstile } from '../common/usePlayTurnstile';
 import './minesweeper.css';
 
+// 连锁展开时每往外一圈晚这么久翻开，最多晚 REVEAL_MAX_DELAY_MS，大片空地也很快铺完。
+const REVEAL_RING_MS = 35;
+const REVEAL_MAX_DELAY_MS = 420;
+
 const STATE_URL = '/api/game/minesweeper/state';
 // 旗子只是玩家自己的记号，服务端不存：按对局存在浏览器里，刷新页面后接着用。
 const FLAGS_KEY = 'game-minesweeper-flags';
@@ -88,6 +92,8 @@ const Minesweeper = () => {
   const [game, setGame] = useState(null);
   // 每格周围的雷数，没翻开为 HIDDEN。
   const [cells, setCells] = useState([]);
+  // 最近一次翻开的格子各自的展开延迟(毫秒)：连锁展开按离点击处的距离一圈一圈铺开。
+  const revealDelayRef = useRef(new Map());
   const [flags, setFlags] = useState(() => new Set());
   // 一局结束：{ status, mines(雷所在的格子), exploded(踩到的那一格), at(结束时刻) }。
   const [end, setEnd] = useState(null);
@@ -237,6 +243,19 @@ const Minesweeper = () => {
       }
       versionRef.current = data.version;
       const opened = data.revealed.map(([x, y]) => y * width + x);
+      const [originX, originY] = data.revealed.length
+        ? [targets[0] % width, Math.floor(targets[0] / width)]
+        : [0, 0];
+      revealDelayRef.current = new Map(
+        data.revealed.map(([x, y]) => [
+          y * width + x,
+          Math.min(
+            Math.max(Math.abs(x - originX), Math.abs(y - originY)) *
+              REVEAL_RING_MS,
+            REVEAL_MAX_DELAY_MS,
+          ),
+        ]),
+      );
       setCells((previous) => {
         const next = previous.slice();
         data.revealed.forEach(([x, y, count]) => {
@@ -488,6 +507,13 @@ const Minesweeper = () => {
                   tabIndex={playing ? 0 : -1}
                   data-index={index}
                   className={`minesweeper-cell ${view.className}`}
+                  style={
+                    revealDelayRef.current.has(index)
+                      ? {
+                          '--reveal-delay': `${revealDelayRef.current.get(index)}ms`,
+                        }
+                      : undefined
+                  }
                 >
                   {view.icon}
                 </button>

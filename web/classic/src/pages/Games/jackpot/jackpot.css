@@ -54,7 +54,8 @@ For commercial licensing, please contact support@quantumnous.com
 
 .jackpot-pointer {
   fill: var(--semi-color-text-0);
-  transition: transform 1.6s cubic-bezier(0.2, 0.8, 0.2, 1);
+  /* 时长与页面里的 SPIN_MS 一致：先快后慢，转几圈停在抽中的奖券上。 */
+  transition: transform 3.6s cubic-bezier(0.12, 0.8, 0.22, 1);
 }
 
 .jackpot-ring-center {
