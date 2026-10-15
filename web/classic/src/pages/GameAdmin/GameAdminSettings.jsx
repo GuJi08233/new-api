@@ -25,6 +25,7 @@ import {
   Input,
   InputNumber,
   Modal,
+  Select,
   Spin,
   Switch,
   Typography,
@@ -33,6 +34,7 @@ import { IconRefresh } from '@douyinfe/semi-icons';
 import { useTranslation } from 'react-i18next';
 import { API, showError, showSuccess, showWarning } from '../../helpers';
 import { StatusContext } from '../../context/Status';
+import { GAME_ORDER, getGameMetaMap } from '../../constants';
 
 const { Text, Title } = Typography;
 
@@ -69,8 +71,13 @@ const GameAdminSettings = () => {
   const loadSetting = async () => {
     const res = await API.get('/api/game/admin/setting');
     if (res.data.success) {
-      setSetting(res.data.data.setting);
-      setSavedSetting(res.data.data.setting);
+      const loaded = {
+        ...res.data.data.setting,
+        play_turnstile_exempt_games:
+          res.data.data.setting.play_turnstile_exempt_games || [],
+      };
+      setSetting(loaded);
+      setSavedSetting(loaded);
       setHotWallet(res.data.data.hot_wallet);
     } else {
       showError(res.data.message);
@@ -109,7 +116,13 @@ const GameAdminSettings = () => {
   const save = async () => {
     const changes = {};
     for (const [key, value] of Object.entries(setting)) {
-      if (value !== null && typeof value === 'object') continue;
+      if (
+        value !== null &&
+        typeof value === 'object' &&
+        key !== 'play_turnstile_exempt_games'
+      ) {
+        continue;
+      }
       if (JSON.stringify(value) !== JSON.stringify(savedSetting?.[key])) {
         changes[key] = value;
       }
@@ -211,6 +224,14 @@ const GameAdminSettings = () => {
     (overview?.status_counts?.pending || 0) +
     (overview?.status_counts?.signed || 0) +
     (overview?.status_counts?.sent || 0);
+  const gameMeta = getGameMetaMap(t);
+  // 与游戏规则页一致，石头剪刀布没有 AI 开局；其他对战游戏即使当前关闭 AI，也能预先设置豁免。
+  const turnstileGames = GAME_ORDER.filter(
+    (game) =>
+      gameMeta[game]?.kind === 'skill' ||
+      (gameMeta[game]?.kind === 'pvp' && game !== 'rps') ||
+      game === 'wheel',
+  );
 
   return (
     <div className='flex flex-col gap-4'>
@@ -356,6 +377,53 @@ const GameAdminSettings = () => {
                   {t('系统设置中未启用 Turnstile，暂不生效')}
                 </Text>
               )}
+          </div>
+        </SettingRow>
+        <SettingRow
+          label={t('免开局验证的游戏')}
+          extra={t(
+            '所选游戏的免费开局免除 Turnstile 验证；对战游戏仅人机对战适用，大转盘仅免费旋转适用。不会改变总开关或系统 Turnstile 设置',
+          )}
+        >
+          <div className='flex flex-col gap-2'>
+            <Select
+              multiple
+              filter
+              showClear
+              maxTagCount={3}
+              style={{ width: '100%' }}
+              aria-label={t('免开局验证的游戏')}
+              placeholder={t('未选择时，全部按开局验证总开关执行')}
+              value={setting.play_turnstile_exempt_games || []}
+              optionList={turnstileGames.map((game) => ({
+                value: game,
+                label:
+                  gameMeta[game].kind === 'pvp'
+                    ? `${gameMeta[game].name} · ${t('人机对战')}`
+                    : game === 'wheel'
+                      ? `${gameMeta[game].name} · ${t('免费旋转')}`
+                      : gameMeta[game].name,
+              }))}
+              onChange={(games) =>
+                setField(
+                  'play_turnstile_exempt_games',
+                  turnstileGames.filter((game) => (games || []).includes(game)),
+                )
+              }
+            />
+            {!setting.play_turnstile_enabled ? (
+              <Text type='tertiary' size='small'>
+                {t(
+                  '开局验证总开关已关闭，当前所有游戏均无需开局验证；免验证名单仍会保留',
+                )}
+              </Text>
+            ) : !statusState?.status?.turnstile_check ? (
+              <Text type='warning' size='small'>
+                {t(
+                  '系统 Turnstile 未启用，当前所有游戏均无需开局验证；免验证名单仍会保留',
+                )}
+              </Text>
+            ) : null}
           </div>
         </SettingRow>
         <SettingRow

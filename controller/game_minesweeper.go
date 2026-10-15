@@ -196,6 +196,9 @@ func RevealMinesweeper(c *gin.Context) {
 
 // GetMinesweeperState 返回玩家进行中的一局扫雷，刷新页面后据此恢复雷区；没有进行中的一局(或已经过期)时 session 为 null。
 func GetMinesweeperState(c *gin.Context) {
+	if !requireGameEnabled(c, gameMinesweeper) {
+		return
+	}
 	session, err := model.GetPlayingGameSession(c.GetInt("id"), gameMinesweeper)
 	if err != nil {
 		common.ApiError(c, err)

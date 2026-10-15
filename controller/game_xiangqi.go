@@ -50,6 +50,21 @@ type xiangqiMove struct {
 	To   []int `json:"to"`
 }
 
+// xiangqiHistoryMove 的步数从 1 开始，棋子沿用棋盘的字母：红方大写、黑方小写。
+type xiangqiHistoryMove struct {
+	Ply      int    `json:"ply"`
+	Color    string `json:"color"`
+	Piece    string `json:"piece"`
+	Captured string `json:"captured,omitempty"`
+	From     []int  `json:"from"`
+	To       []int  `json:"to"`
+}
+
+type xiangqiLastMoves struct {
+	Red   *xiangqiHistoryMove `json:"red"`
+	Black *xiangqiHistoryMove `json:"black"`
+}
+
 // declined 表示上一次悔棋请求在这一步被拒绝了，再走一步之前不能再提。
 func (s *xiangqiState) declined() bool {
 	return s.Undo.Declined != nil && *s.Undo.Declined == s.Game.Plies
@@ -143,6 +158,10 @@ type xiangqiView struct {
 	ToMove int    `json:"to_move"`
 	// Last 是最后一手，开局时为 null。
 	Last *xiangqiMove `json:"last"`
+	// History 只包含存档中已有的走法；旧局更早的走法可能缺失，Ply 仍保留实际步数。
+	History []xiangqiHistoryMove `json:"history"`
+	// LastMoves 是红黑双方各自最近的一手，还没有记录的一方为 null。
+	LastMoves xiangqiLastMoves `json:"last_moves"`
 	// Check 表示轮到走的一方正被将军(将死时也是 true)。
 	Check bool `json:"check"`
 	// Legal 是看的人的全部合法着法，只在轮到他走时给出，否则为空数组。
@@ -313,6 +332,7 @@ func (xiangqiEngine) View(data []byte, seat int) (any, error) {
 		Turn:    "red",
 		Check:   pos.InCheck(),
 		Legal:   []xiangqiMove{},
+		History: make([]xiangqiHistoryMove, len(state.Game.History)),
 		Plies:   state.Game.Plies,
 		Quiet:   state.Game.Quiet,
 		Over:    state.Game.Over(),
@@ -329,6 +349,51 @@ func (xiangqiEngine) View(data []byte, seat int) (any, error) {
 	if state.Game.Last != nil {
 		last := xiangqiMoveView(*state.Game.Last)
 		view.Last = &last
+		// 旧存档可能只有最后一步；保留它的标记，但不补造棋谱或未知的吃子信息。
+		if len(state.Game.History) == 0 {
+			m := state.Game.Last
+			if m.From < 0 || m.From >= xiangqi.Squares || m.To < 0 || m.To >= xiangqi.Squares || state.Game.Board[m.To] == '.' {
+				return nil, xiangqi.ErrInvalidState
+			}
+			piece := state.Game.Board[m.To]
+			entry := &xiangqiHistoryMove{
+				Ply: state.Game.Plies, Color: "red", Piece: string(piece), From: last.From, To: last.To,
+			}
+			if piece >= 'a' && piece <= 'z' {
+				entry.Color = "black"
+				view.LastMoves.Black = entry
+			} else {
+				view.LastMoves.Red = entry
+			}
+		}
+	}
+	// 引擎为悔棋保存了走法和被吃的子，从当前棋盘倒着还原即可知道每一步走的是哪个棋子。
+	// 视图直接派生自这份持久化记录，刷新或悔棋后不会残留已经撤回的走法。
+	board := []byte(state.Game.Board)
+	for i := len(state.Game.History) - 1; i >= 0; i-- {
+		step := state.Game.History[i]
+		if step.From < 0 || step.From >= xiangqi.Squares || step.To < 0 || step.To >= xiangqi.Squares || board[step.To] == '.' {
+			return nil, xiangqi.ErrInvalidState
+		}
+		piece := board[step.To]
+		move := xiangqiMoveView(xiangqi.Move{From: step.From, To: step.To})
+		entry := &view.History[i]
+		*entry = xiangqiHistoryMove{
+			Ply: state.Game.Plies - len(state.Game.History) + i + 1, Color: "red", Piece: string(piece),
+			Captured: step.Captured, From: move.From, To: move.To,
+		}
+		if piece >= 'a' && piece <= 'z' {
+			entry.Color = "black"
+			if view.LastMoves.Black == nil {
+				view.LastMoves.Black = entry
+			}
+		} else if view.LastMoves.Red == nil {
+			view.LastMoves.Red = entry
+		}
+		board[step.From], board[step.To] = piece, '.'
+		if step.Captured != "" {
+			board[step.To] = step.Captured[0]
+		}
 	}
 	if seat >= 0 && seat == view.ToMove {
 		for _, m := range pos.LegalMoves() {

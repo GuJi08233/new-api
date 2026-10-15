@@ -19,10 +19,12 @@ For commercial licensing, please contact support@quantumnous.com
 
 import React, { useRef, useState } from 'react';
 import { Button } from '@douyinfe/semi-ui';
-import { Crown, Layers, Users } from 'lucide-react';
+import { Crown, Layers, Lightbulb, Users } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { isRedSuit, SUIT_ICONS } from '../common/cards';
 import PvpGame from '../common/pvp/PvpGame';
+import { groupPlayedCards } from './cards';
+import useCardSelection from './useCardSelection';
 import './landlord.css';
 
 const RANKS = [
@@ -45,7 +47,13 @@ const SUITS = ['♠', '♥', '♦', '♣'];
 const MAX_DEALS = 3;
 
 // 一张牌。王的牌面像实体牌一样竖写 JOKER，小王黑色、大王红色，读屏与悬停提示用翻译后的名字。
-const PlayingCard = ({ card, selected = false, disabled = false, onClick }) => {
+const PlayingCard = ({
+  card,
+  selected = false,
+  disabled = false,
+  onClick,
+  ...cardProps
+}) => {
   const { t } = useTranslation();
   const joker = card >= 52;
   const suit = card % 4;
@@ -58,6 +66,7 @@ const PlayingCard = ({ card, selected = false, disabled = false, onClick }) => {
   const Element = onClick ? 'button' : 'span';
   return (
     <Element
+      {...cardProps}
       className={`landlord-card ${joker ? 'is-joker' : ''} ${card === 53 || (!joker && isRedSuit(suit)) ? 'is-red' : ''} ${selected ? 'is-selected' : ''}`}
       type={onClick ? 'button' : undefined}
       disabled={onClick ? disabled : undefined}
@@ -72,17 +81,24 @@ const PlayingCard = ({ card, selected = false, disabled = false, onClick }) => {
         <>
           <strong>{RANKS[Math.floor(card / 4)]}</strong>
           <Suit size={18} aria-hidden />
+          <Suit className='landlord-card-pip' size={26} aria-hidden />
         </>
       )}
     </Element>
   );
 };
 
-// 一组牌，从大到小排。
-const Cards = ({ cards }) => (
+// 出牌按主牌与带牌分组，手牌和底牌只按点数从大到小排。
+const Cards = ({ cards, type }) => (
   <div className='landlord-cards'>
-    {[...cards].reverse().map((card) => (
-      <PlayingCard key={card} card={card} />
+    {groupPlayedCards(cards, type).map((group, index) => (
+      <div key={index} className='landlord-card-group'>
+        {group.map((card) => (
+          <span key={card} className='landlord-card-slot'>
+            <PlayingCard card={card} />
+          </span>
+        ))}
+      </div>
     ))}
   </div>
 );
@@ -92,15 +108,22 @@ const PLAY_STAGGER_MS = 400;
 
 const LandlordBoard = ({ state, seat, names, canMove, over, onMove }) => {
   const { t } = useTranslation();
-  const [selection, setSelection] = useState([]);
+  const [hintChoice, setHintChoice] = useState({ key: '', index: -1 });
   // 出牌区里每一手第一次出现时排定的入场延迟，之后重新渲染不再改动，免得动画重来。
   const playDelaysRef = useRef(new Map());
   const hand = [...(state?.hand || [])].sort((left, right) => right - left);
-  // 成功出牌后服务端移除手牌，选中牌随新手牌过滤；非法牌型或网络错误保留选择，便于修正重试。
-  const selected = selection.filter((card) => hand.includes(card));
   const bidding = state?.phase === 'bidding';
   const lastPlay = state?.last_play;
   const trick = state?.trick || [];
+  const hints = state?.hints || [];
+  const selectionKey = `${state?.phase}/${state?.to_move}/${lastPlay?.seat ?? ''}/${lastPlay?.cards?.join('.') || ''}/${hand.join('.')}`;
+  const { selected, selectCards, clearSelection, handProps, getCardProps } =
+    useCardSelection({
+      hand,
+      enabled: canMove && !bidding && !over,
+      resetKey: selectionKey,
+    });
+  const hintIndex = hintChoice.key === selectionKey ? hintChoice.index : -1;
   // 这一轮要压的那一手：最后一次出牌(之后可能还跟着不出)，一轮结束后没有。
   let leadIndex = -1;
   if (lastPlay) {
@@ -124,6 +147,11 @@ const LandlordBoard = ({ state, seat, names, canMove, over, onMove }) => {
   }
   const nameOf = (index) =>
     names?.[index] || t('座位 {{seat}}', { seat: index + 1 });
+  const tableSeats = [
+    { seat: (seat + 2) % 3, position: 'left', label: t('上家') },
+    { seat: (seat + 1) % 3, position: 'right', label: t('下家') },
+    { seat, position: 'self', label: t('我') },
+  ];
   const combinations = {
     single: t('单张'),
     pair: t('对子'),
@@ -177,79 +205,171 @@ const LandlordBoard = ({ state, seat, names, canMove, over, onMove }) => {
         </div>
       )}
       {bidding ? (
-        <>
-          <div className='landlord-bids'>
-            {state.bids.map((bid, index) => (
-              <div
-                key={index}
-                className={index === state.to_move && !over ? 'is-turn' : ''}
-              >
-                <span>{nameOf(index)}</span>
-                <strong>
-                  {bid < 0
-                    ? t('尚未叫分')
-                    : bid === 0
-                      ? t('不叫')
-                      : t('{{bid}} 分', { bid })}
-                </strong>
-              </div>
-            ))}
-          </div>
-          {!over && (
-            <div className='pvp-actions'>
-              {[0, 1, 2, 3].map((bid) => (
-                <Button
-                  key={bid}
-                  theme={bid > 0 ? 'solid' : 'light'}
-                  disabled={
-                    !canMove ||
-                    (bid > 0 && bid <= state.high_bid) ||
-                    (bid === 0 && state.must_bid)
-                  }
-                  onClick={() => onMove({ bid })}
-                >
-                  {bid === 0 ? t('不叫') : t('叫 {{bid}} 分', { bid })}
-                </Button>
-              ))}
+        <div className='landlord-bids'>
+          {state.bids.map((bid, index) => (
+            <div
+              key={index}
+              className={index === state.to_move && !over ? 'is-turn' : ''}
+            >
+              <span>{nameOf(index)}</span>
+              <strong>
+                {bid < 0
+                  ? t('尚未叫分')
+                  : bid === 0
+                    ? t('不叫')
+                    : t('{{bid}} 分', { bid })}
+              </strong>
             </div>
-          )}
-        </>
+          ))}
+        </div>
       ) : (
-        <div className='landlord-table' aria-live='polite'>
-          {trick.length === 0 && (
-            <span className='landlord-caption'>
-              {t('{{name}} 是地主，先出牌', {
-                name: nameOf(state.landlord),
-              })}
-            </span>
-          )}
-          {trick.length > 0 && (
-            <ol className='landlord-trick'>
-              {trick.map((action, index) => (
-                <li
-                  key={playKeys[index]}
-                  className={index === leadIndex ? 'is-lead' : ''}
-                  style={{
-                    animationDelay: `${playDelaysRef.current.get(playKeys[index])}ms`,
-                  }}
-                >
-                  <span className='landlord-caption'>
-                    {nameOf(action.seat)}
-                    {' · '}
-                    {action.pass ? t('不出') : combinations[action.type]}
+        <div
+          className='landlord-table'
+          aria-label={t('出牌区')}
+          aria-live='polite'
+        >
+          <div className='landlord-table-note'>
+            {trick.length === 0
+              ? t('{{name}} 是地主，先出牌', { name: nameOf(state.landlord) })
+              : !lastPlay && !over
+                ? t('两家都不出，{{name}} 领出新一轮', {
+                    name: nameOf(state.to_move),
+                  })
+                : null}
+          </div>
+          {tableSeats.map((player) => {
+            let actionIndex = -1;
+            trick.forEach((action, index) => {
+              if (action.seat === player.seat) actionIndex = index;
+            });
+            const action = trick[actionIndex];
+            return (
+              <div
+                key={player.seat}
+                className={`landlord-table-seat is-${player.position} ${!over && state.to_move === player.seat ? 'is-turn' : ''}`}
+              >
+                <div className='landlord-table-player'>
+                  {player.seat === state.landlord && (
+                    <Crown size={14} aria-hidden />
+                  )}
+                  <span>
+                    {player.position === 'self'
+                      ? nameOf(player.seat)
+                      : `${player.label} · ${nameOf(player.seat)}`}
                   </span>
-                  {!action.pass && <Cards cards={action.cards} />}
-                </li>
-              ))}
-            </ol>
+                  <span className='landlord-table-count'>
+                    <Layers size={12} aria-hidden />
+                    {state.counts[player.seat]}
+                  </span>
+                </div>
+                {action ? (
+                  <div
+                    key={playKeys[actionIndex]}
+                    className={`landlord-seat-play ${actionIndex === leadIndex ? 'is-lead' : ''}`}
+                    style={{
+                      animationDelay: `${playDelaysRef.current.get(playKeys[actionIndex])}ms`,
+                    }}
+                  >
+                    <span className='landlord-caption'>
+                      {action.pass ? t('不出') : combinations[action.type]}
+                    </span>
+                    {!action.pass && (
+                      <Cards cards={action.cards} type={action.type} />
+                    )}
+                  </div>
+                ) : (
+                  <span className='landlord-table-wait'>{t('等待出牌')}</span>
+                )}
+              </div>
+            );
+          })}
+          {trick.length > 0 && (
+            <details className='landlord-trick-history'>
+              <summary>{t('本轮记录')}</summary>
+              <ol className='landlord-trick'>
+                {trick.map((action, index) => (
+                  <li
+                    key={playKeys[index]}
+                    className={index === leadIndex ? 'is-lead' : ''}
+                  >
+                    <span className='landlord-caption'>
+                      {nameOf(action.seat)} ·{' '}
+                      {action.pass ? t('不出') : combinations[action.type]}
+                    </span>
+                    {!action.pass && (
+                      <Cards cards={action.cards} type={action.type} />
+                    )}
+                  </li>
+                ))}
+              </ol>
+            </details>
           )}
-          {trick.length > 0 && !lastPlay && !over && (
-            <span className='landlord-caption'>
-              {t('两家都不出，{{name}} 领出新一轮', {
-                name: nameOf(state.to_move),
-              })}
-            </span>
+        </div>
+      )}
+      {!over && (
+        <div className='pvp-actions landlord-actions'>
+          {bidding ? (
+            [0, 1, 2, 3].map((bid) => (
+              <Button
+                key={bid}
+                theme={bid > 0 ? 'solid' : 'light'}
+                disabled={
+                  !canMove ||
+                  (bid > 0 && bid <= state.high_bid) ||
+                  (bid === 0 && state.must_bid)
+                }
+                onClick={() => onMove({ bid })}
+              >
+                {bid === 0 ? t('不叫') : t('叫 {{bid}} 分', { bid })}
+              </Button>
+            ))
+          ) : (
+            <>
+              <Button
+                disabled={!canMove || !lastPlay || lastPlay.seat === seat}
+                onClick={() => onMove({ pass: true })}
+              >
+                {t('不出')}
+              </Button>
+              <Button
+                icon={<Lightbulb size={16} />}
+                title={t('提示只选牌，不会自动出牌')}
+                disabled={!canMove}
+                onClick={() => {
+                  const next =
+                    hints.length > 0 ? (hintIndex + 1) % hints.length : -2;
+                  selectCards(next >= 0 ? hints[next] : []);
+                  setHintChoice({ key: selectionKey, index: next });
+                }}
+              >
+                {t('提示')}
+                {hintIndex >= 0 && ` ${hintIndex + 1}/${hints.length}`}
+              </Button>
+              <Button
+                theme='solid'
+                disabled={!canMove || selected.length === 0}
+                onClick={() => onMove({ cards: selected })}
+              >
+                {t('出牌')}
+                {selected.length > 0 && ` (${selected.length})`}
+              </Button>
+              <Button
+                disabled={!canMove || selected.length === 0}
+                onClick={clearSelection}
+              >
+                {t('清空选择')}
+              </Button>
+            </>
           )}
+        </div>
+      )}
+      {!bidding && !over && (
+        <div className='landlord-selection-note' role='status'>
+          {hintIndex === -2
+            ? t('没有能压过的牌，可以选择不出')
+            : hintIndex >= 0
+              ? t('再次点击提示切换组合')
+              : t('按住并横向拖动可连续选牌')}
         </div>
       )}
       <div className='landlord-hand'>
@@ -257,49 +377,30 @@ const LandlordBoard = ({ state, seat, names, canMove, over, onMove }) => {
           {t('我的手牌')}
           {' · '}
           {t('剩余 {{count}} 张', { count: hand.length })}
+          {selected.length > 0 && (
+            <span className='landlord-selected-count'>
+              {t('已选 {{count}} 张', { count: selected.length })}
+            </span>
+          )}
         </div>
-        <div className='landlord-cards'>
+        <div
+          {...handProps}
+          className='landlord-hand-row'
+          aria-label={t('我的手牌')}
+          title={t('手牌按点数从大到小排列')}
+        >
           {hand.map((card) => (
-            <PlayingCard
-              key={card}
-              card={card}
-              selected={selected.includes(card)}
-              disabled={!canMove || bidding || over}
-              onClick={() =>
-                setSelection(
-                  selected.includes(card)
-                    ? selected.filter((value) => value !== card)
-                    : [...selected, card],
-                )
-              }
-            />
+            <div key={card} className='landlord-hand-slot'>
+              <PlayingCard
+                {...getCardProps(card)}
+                card={card}
+                selected={selected.includes(card)}
+                disabled={!canMove || bidding || over}
+              />
+            </div>
           ))}
         </div>
       </div>
-      {!bidding && !over && (
-        <div className='pvp-actions'>
-          <Button
-            theme='solid'
-            disabled={!canMove || selected.length === 0}
-            onClick={() => onMove({ cards: selected })}
-          >
-            {t('出牌')}
-            {selected.length > 0 && ` (${selected.length})`}
-          </Button>
-          <Button
-            disabled={!canMove || !lastPlay || lastPlay.seat === seat}
-            onClick={() => onMove({ pass: true })}
-          >
-            {t('不出')}
-          </Button>
-          <Button
-            disabled={!canMove || selected.length === 0}
-            onClick={() => setSelection([])}
-          >
-            {t('清空选择')}
-          </Button>
-        </div>
-      )}
       {over && state.hands && (
         <div className='landlord-reveal'>
           {state.hands.map(
@@ -377,9 +478,9 @@ const Landlord = () => {
         ),
         t('顺子、连对和飞机不能包含 2 或王；炸弹可压普通牌型，王炸最大'),
       ]}
-      renderBoard={({ roomId, state, ...props }) => (
+      renderBoard={({ roomId, sessionId, state, ...props }) => (
         <LandlordBoard
-          key={`${roomId || 'ai'}:${state?.deals || 0}`}
+          key={`${roomId || `ai:${sessionId || ''}`}:${state?.deals || 0}`}
           state={state}
           {...props}
         />

@@ -68,7 +68,7 @@ type wheelDetail struct {
 
 // SpinWheel 转一次大转盘：服务端按权重选出一格，派彩 = 每次花费 × 这一格的倍数，扣币与派彩在同一个事务里完成，
 // 浏览器只负责把转盘转到返回的格子。请求写明这一次是不是用免费次数，服务端不会把玩家以为免费的旋转改成扣币。
-// 免费旋转的奖品全额发放，不受技巧游戏与人机对战的奖励总上限影响，也不占用该上限；同一 IP 下所有账号合计次数，每次都要过人机验证；
+// 免费旋转的奖品全额发放，不受技巧游戏与人机对战的奖励总上限影响，也不占用该上限；同一 IP 下所有账号合计次数，按游戏配置要求验证；
 // 付费旋转按下注游戏结算，理论返还率 80%，不限次数。
 func SpinWheel(c *gin.Context) {
 	setting := operation_setting.GetGameSetting()
@@ -82,7 +82,7 @@ func SpinWheel(c *gin.Context) {
 		return
 	}
 	userId := c.GetInt("id")
-	if req.Free && !passGamePlayTurnstile(c, setting, userId) {
+	if req.Free && !passGamePlayTurnstile(c, setting, gameWheel, userId) {
 		return
 	}
 	cost, err := model.WholeGameCoins(rule.SpinCost)

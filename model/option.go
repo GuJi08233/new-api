@@ -416,9 +416,15 @@ func mergeGameSettingOptions(setting *operation_setting.GameSetting, options map
 	changes := make(map[string]string)
 	for key, value := range options {
 		if field, ok := strings.CutPrefix(key, operation_setting.GameSettingPrefix); ok {
+			var err error
+			value, err = operation_setting.NormalizeGameOption(key, value)
+			if err != nil {
+				return nil, err
+			}
 			if err := operation_setting.ValidateGameOption(key, value); err != nil {
 				return nil, err
 			}
+			options[key] = value
 			changes[field] = value
 		}
 	}
@@ -577,6 +583,10 @@ func updateOptionMap(key string, value string) (err error) {
 func applyOptionToRuntime(key string, value string) (err error) {
 	if isRemovedOptionKey(key) {
 		return nil
+	}
+	value, err = operation_setting.NormalizeGameOption(key, value)
+	if err != nil {
+		return err
 	}
 	if err := operation_setting.ValidateRiskControlOption(key, value); err != nil {
 		return err

@@ -150,6 +150,9 @@ func FinishPuzzle15(c *gin.Context) {
 // GetPuzzle15State 返回玩家进行中的一局数字华容道的开局盘面，刷新页面后浏览器据此和自己记下的步骤恢复局面；没有进行中的一局
 // (或已经过期)时 session 为 null。
 func GetPuzzle15State(c *gin.Context) {
+	if !requireGameEnabled(c, gamePuzzle15) {
+		return
+	}
 	session, err := model.GetPlayingGameSession(c.GetInt("id"), gamePuzzle15)
 	if err != nil {
 		common.ApiError(c, err)

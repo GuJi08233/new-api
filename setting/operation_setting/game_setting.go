@@ -28,6 +28,8 @@ type GameSetting struct {
 	Enabled bool `json:"enabled"` // 游戏中心总开关，关闭时页面入口与用户接口一并下线
 	// PlayTurnstileEnabled 要求每次领免费奖励的对局开始前通过 Turnstile 人机验证，只在站点启用了 Turnstile 时生效。
 	PlayTurnstileEnabled bool `json:"play_turnstile_enabled"`
+	// PlayTurnstileExemptGames 免除指定免费玩法的开局验证，不影响其他游戏或全站验证开关。
+	PlayTurnstileExemptGames []string `json:"play_turnstile_exempt_games"`
 	// FreeDailyLimit 是每人每天从技巧游戏与人机对战合计最多获得的游戏币，同一 IP 下所有账号合计也不超过它；
 	// 大转盘免费旋转不受此上限影响，也不占用它。0 表示不限制，只按各游戏的每日领奖次数计算。
 	FreeDailyLimit int `json:"free_daily_limit"`
@@ -285,6 +287,26 @@ func GameBetSteps(game string) []int {
 	return slices.Clone(gameRuleSpecs[game].BetSteps)
 }
 
+// NormalizeGameOption 整理免验证游戏列表；只接受支持免费玩法的游戏，不把未知标识静默忽略。
+func NormalizeGameOption(key string, value string) (string, error) {
+	if key != GameSettingPrefix+"play_turnstile_exempt_games" {
+		return value, nil
+	}
+	var games []string
+	if err := common.UnmarshalJsonStr(value, &games); err != nil || games == nil {
+		return "", fmt.Errorf("免验证游戏必须是游戏标识数组")
+	}
+	for _, game := range games {
+		spec, ok := gameRuleSpecs[game]
+		if !ok || !(spec.Kind == GameKindSkill || spec.Ai || game == "wheel") {
+			return "", fmt.Errorf("游戏 %q 不支持免费玩法的验证设置", game)
+		}
+	}
+	slices.Sort(games)
+	data, err := common.Marshal(slices.Compact(games))
+	return string(data), err
+}
+
 // ValidateGameOption 校验单个游戏中心配置项，非法值在落库前拒绝。
 // 游戏币数量与 quota 共用 2^53 边界：它们都会以 JSON 数字交给前端，还会按 1:1 美元换成额度。
 func ValidateGameOption(key string, value string) error {
@@ -305,6 +327,9 @@ func ValidateGameOption(key string, value string) error {
 		return validateGameRule(field, spec, value)
 	}
 	switch field {
+	case "play_turnstile_exempt_games":
+		_, err := NormalizeGameOption(key, value)
+		return err
 	case "enabled", "withdraw_enabled", "play_turnstile_enabled":
 		if _, err := strconv.ParseBool(value); err != nil {
 			return fmt.Errorf("%s 必须是 true 或 false", field)
@@ -522,8 +547,9 @@ var gameSetting = *DefaultGameSetting()
 // DefaultGameSetting 返回一份默认配置。数据库里只存管理员改过的项，其余都是默认值，从数据库重建完整配置时以它为底。
 func DefaultGameSetting() *GameSetting {
 	return &GameSetting{
-		Enabled:              false,
-		PlayTurnstileEnabled: true,
+		Enabled:                  false,
+		PlayTurnstileEnabled:     true,
+		PlayTurnstileExemptGames: []string{},
 		// 1 个游戏币就是 1 美元额度：技巧游戏与人机对战再多，每人每天合计也只发这么多；大转盘免费旋转独立发奖。
 		FreeDailyLimit: 10,
 		// 对局与游戏流水每人每天几十条，保留一个季度。
@@ -711,9 +737,13 @@ func GetGameHotWalletPrivateKey() string {
 	return ""
 }
 
-// PlayTurnstileRequired 表示领免费奖励的对局开始前要过 Turnstile 人机验证：游戏中心打开了这一项，且站点已启用 Turnstile。
-func (s *GameSetting) PlayTurnstileRequired() bool {
-	return s != nil && s.PlayTurnstileEnabled && common.TurnstileCheckEnabled
+// PlayTurnstileRequired 表示指定免费玩法开局前需要验证：游戏验证与站点开关都打开，且该玩法未被豁免。
+func (s *GameSetting) PlayTurnstileRequired(game string) bool {
+	if s == nil || !s.PlayTurnstileEnabled || !common.TurnstileCheckEnabled || slices.Contains(s.PlayTurnstileExemptGames, game) {
+		return false
+	}
+	spec, ok := gameRuleSpecs[game]
+	return ok && (spec.Kind == GameKindSkill || spec.Ai || game == "wheel")
 }
 
 // ChainConfigured 表示链与合约已配好，提现 worker 才有地方可发。

@@ -110,7 +110,7 @@ func gameInfoHandler(def *gameDefinition) gin.HandlerFunc {
 		info["balance"] = account.Balance
 		info["symbol"] = ctx.Setting.TokenSymbol
 		info["play_turnstile"] = gin.H{
-			"required": ctx.Setting.PlayTurnstileRequired(),
+			"required": ctx.Setting.PlayTurnstileRequired(def.Key),
 			"site_key": common.TurnstileSiteKey,
 		}
 		common.ApiSuccess(c, info)

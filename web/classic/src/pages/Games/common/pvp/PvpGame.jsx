@@ -713,6 +713,7 @@ const AiView = ({
       {renderBoard({
         state,
         seat: 0,
+        sessionId: ai.session_id,
         names,
         canMove: myTurn && !busy,
         busy,

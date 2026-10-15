@@ -90,6 +90,7 @@ func TestLandlordViewShowsOnlyTheViewersHand(t *testing.T) {
 		assert.NotContains(t, response, "hands")
 		assert.NotContains(t, response, "played")
 		assert.Empty(t, response["bottom"])
+		assert.Equal(t, []any{}, response["hints"], "bidding never exposes play hints")
 		hand := response["hand"].([]any)
 		if seat < 0 {
 			assert.Empty(t, hand, "spectators see no hand")
@@ -99,6 +100,58 @@ func TestLandlordViewShowsOnlyTheViewersHand(t *testing.T) {
 		for i, card := range hand {
 			assert.EqualValues(t, game.Hands[seat][i], card)
 		}
+	}
+}
+
+func TestLandlordHintsAreOnlyVisibleOnThePlayersTurn(t *testing.T) {
+	engine := landlordEngine{}
+	state := landlordTestEndgame(t, 0, 0, [landlord.Players][]int{{0, 1, 4}, {2, 8}, {3, 12}})
+	for seat := -1; seat <= landlord.Players; seat++ {
+		result, err := engine.View(state.Data, seat)
+		require.NoError(t, err)
+		view := result.(landlordView)
+		if seat != state.ToMove {
+			assert.Equal(t, [][]int{}, view.Hints, "seat %d", seat)
+			continue
+		}
+		require.NotEmpty(t, view.Hints)
+		for _, cards := range view.Hints {
+			move, err := common.Marshal(landlordMove{Cards: cards})
+			require.NoError(t, err)
+			_, err = engine.Play(state.Data, seat, move)
+			assert.NoError(t, err)
+		}
+	}
+
+	// 隐藏手牌重新分给另外两家，不改变当前玩家的任何提示。
+	other := landlordTestEndgame(t, 0, 0, [landlord.Players][]int{{0, 1, 4}, {2, 12}, {3, 8}})
+	result, err := engine.View(state.Data, 0)
+	require.NoError(t, err)
+	otherResult, err := engine.View(other.Data, 0)
+	require.NoError(t, err)
+	assert.Equal(t, result.(landlordView).Hints, otherResult.(landlordView).Hints)
+
+	following, err := engine.Play(state.Data, 0, []byte(`{"cards":[0]}`))
+	require.NoError(t, err)
+	result, err = engine.View(following.Data, 1)
+	require.NoError(t, err)
+	assert.Equal(t, [][]int{{8}}, result.(landlordView).Hints)
+
+	// 其他玩家的单张大王压不住时，明确给空数组。
+	unbeatable := landlordTestEndgame(t, 0, 0, [landlord.Players][]int{{landlord.BigJoker, 0}, {1, 8}, {2, 12}})
+	unbeatable, err = engine.Play(unbeatable.Data, 0, []byte(`{"cards":[53]}`))
+	require.NoError(t, err)
+	result, err = engine.View(unbeatable.Data, 1)
+	require.NoError(t, err)
+	assert.Equal(t, [][]int{}, result.(landlordView).Hints)
+
+	finished := landlordTestEndgame(t, 0, 0, [landlord.Players][]int{{0}, {4}, {8}})
+	finished, err = engine.Play(finished.Data, 0, []byte(`{"cards":[0]}`))
+	require.NoError(t, err)
+	for seat := 0; seat < landlord.Players; seat++ {
+		result, err := engine.View(finished.Data, seat)
+		require.NoError(t, err)
+		assert.Equal(t, [][]int{}, result.(landlordView).Hints)
 	}
 }
 

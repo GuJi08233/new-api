@@ -54,6 +54,8 @@ func TestXiangqiRoomStakedGameEndsInResign(t *testing.T) {
 	assert.Equal(t, "rnbakabnr", board[9])
 	assert.Equal(t, "red", redState["turn"])
 	assert.Nil(t, redState["last"])
+	assert.Equal(t, []any{}, redState["history"])
+	assert.Equal(t, map[string]any{"red": nil, "black": nil}, redState["last_moves"])
 	assert.Equal(t, false, redState["check"])
 	assert.Len(t, redState["legal"], 44)
 	blackView := black.ok(http.MethodGet, roomPath, nil)
@@ -82,6 +84,14 @@ func TestXiangqiRoomStakedGameEndsInResign(t *testing.T) {
 	assert.Equal(t, "black", movedState["turn"])
 	assert.EqualValues(t, 1-redSeat, moved["to_move"])
 	assert.Empty(t, movedState["legal"])
+	redMove := map[string]any{
+		"ply": 1.0, "color": "red", "piece": "C", "from": []any{1.0, 2.0}, "to": []any{4.0, 2.0},
+	}
+	assert.Equal(t, []any{redMove}, movedState["history"])
+	assert.Equal(t, map[string]any{"red": redMove, "black": nil}, movedState["last_moves"])
+	refreshedState := black.ok(http.MethodGet, roomPath, nil)["state"].(map[string]any)
+	assert.Equal(t, movedState["history"], refreshedState["history"])
+	assert.Equal(t, movedState["last_moves"], refreshedState["last_moves"])
 
 	resigned := black.ok(http.MethodPost, roomPath+"/resign", nil)
 	assert.Equal(t, model.GameRoomStatusFinished, resigned["status"])
@@ -122,6 +132,20 @@ func TestXiangqiAiGameAgainstServer(t *testing.T) {
 	require.NotNil(t, replied["ai_move"])
 	assert.Equal(t, replied["ai_move"], afterState["last"])
 	assert.NotEmpty(t, afterState["legal"])
+	history := afterState["history"].([]any)
+	require.Len(t, history, openingMoves+2)
+	playerMove := history[len(history)-2].(map[string]any)
+	aiMove := history[len(history)-1].(map[string]any)
+	assert.Equal(t, legal[0].(map[string]any)["from"], playerMove["from"])
+	assert.Equal(t, legal[0].(map[string]any)["to"], playerMove["to"])
+	assert.Equal(t, replied["ai_move"].(map[string]any)["from"], aiMove["from"])
+	assert.Equal(t, replied["ai_move"].(map[string]any)["to"], aiMove["to"])
+	lastMoves := afterState["last_moves"].(map[string]any)
+	assert.Equal(t, playerMove, lastMoves[playerMove["color"].(string)])
+	assert.Equal(t, aiMove, lastMoves[aiMove["color"].(string)])
+	refreshedState := player.ok(http.MethodGet, "/api/game/xiangqi/ai", nil)["session"].(map[string]any)["state"].(map[string]any)
+	assert.Equal(t, afterState["history"], refreshedState["history"])
+	assert.Equal(t, afterState["last_moves"], refreshedState["last_moves"])
 
 	// 玩家执红，车 (8,7) 走到底线就将死黑将。
 	mateInOne := "...K....." + strings.Repeat(".........", 6) + "........R" + "R........" + "....k...."
@@ -174,6 +198,8 @@ func TestXiangqiAiUndoTakesBackTheLastRound(t *testing.T) {
 		back := session["state"].(map[string]any)
 		assert.Equal(t, state["board"], back["board"], "第 %d 次悔棋回到走之前", round)
 		assert.Equal(t, state["last"], back["last"])
+		assert.Equal(t, state["history"], back["history"])
+		assert.Equal(t, state["last_moves"], back["last_moves"])
 		assert.Equal(t, state["plies"], back["plies"])
 		assert.Equal(t, session["moves"], started["session"].(map[string]any)["moves"])
 		assert.EqualValues(t, 0, session["to_move"])
@@ -233,6 +259,8 @@ func TestXiangqiRoomUndoNeedsTheOpponent(t *testing.T) {
 	assert.Equal(t, startBoard, accepted["state"].(map[string]any)["board"])
 	assert.EqualValues(t, redSeat, accepted["to_move"])
 	assert.Nil(t, accepted["state"].(map[string]any)["last"])
+	assert.Equal(t, []any{}, accepted["state"].(map[string]any)["history"])
+	assert.Equal(t, map[string]any{"red": nil, "black": nil}, accepted["state"].(map[string]any)["last_moves"])
 	redUndo := red.ok(http.MethodGet, roomPath, nil)["state"].(map[string]any)["undo"].(map[string]any)
 	assert.EqualValues(t, 1, redUndo["used"])
 	assert.EqualValues(t, 2, redUndo["free_left"])
@@ -266,6 +294,8 @@ func TestXiangqiUndoSkipsMovesFromBeforeHistory(t *testing.T) {
 	require.NoError(t, env.db.Model(&model.GameSession{}).Where("id = ?", session["session_id"]).Update("state", string(aiState)).Error)
 
 	current := player.ok(http.MethodGet, "/api/game/xiangqi/ai", nil)["session"].(map[string]any)
+	assert.Equal(t, []any{}, current["state"].(map[string]any)["history"])
+	assert.Equal(t, map[string]any{"red": nil, "black": nil}, current["state"].(map[string]any)["last_moves"])
 	undo := current["state"].(map[string]any)["undo"].(map[string]any)
 	assert.Equal(t, false, undo["available"])
 	body := map[string]any{"session_id": current["session_id"], "version": current["version"]}
@@ -276,6 +306,108 @@ func TestXiangqiUndoSkipsMovesFromBeforeHistory(t *testing.T) {
 	})
 	after := replied["session"].(map[string]any)
 	assert.Equal(t, true, after["state"].(map[string]any)["undo"].(map[string]any)["available"])
+	history := after["state"].(map[string]any)["history"].([]any)
+	require.Len(t, history, 2)
+	assert.Equal(t, 3.0, history[0].(map[string]any)["ply"])
+	assert.Equal(t, 4.0, history[1].(map[string]any)["ply"])
 	undone := player.ok(http.MethodPost, "/api/game/xiangqi/ai/undo", map[string]any{"session_id": after["session_id"], "version": after["version"]})
-	assert.Equal(t, current["state"].(map[string]any)["board"], undone["session"].(map[string]any)["state"].(map[string]any)["board"])
+	back := undone["session"].(map[string]any)["state"].(map[string]any)
+	assert.Equal(t, current["state"].(map[string]any)["board"], back["board"])
+	assert.Equal(t, []any{}, back["history"])
+	assert.Equal(t, map[string]any{"red": nil, "black": nil}, back["last_moves"])
+}
+
+// 一枚行棋的棋子后来被吃掉，仍能从悔棋记录还原它的原始种类；双方最近一手随撤回和重新落子更新。
+func TestXiangqiHistoryRestoresCapturedPiecesAndUndo(t *testing.T) {
+	engine := xiangqiEngine{}
+	state, err := engine.New(1)
+	require.NoError(t, err)
+	moves := []xiangqiHistoryMove{
+		{Ply: 1, Color: "red", Piece: "C", Captured: "n", From: []int{1, 2}, To: []int{1, 9}},
+		{Ply: 2, Color: "black", Piece: "r", Captured: "C", From: []int{0, 9}, To: []int{1, 9}},
+		{Ply: 3, Color: "red", Piece: "P", From: []int{0, 3}, To: []int{0, 4}},
+		{Ply: 4, Color: "black", Piece: "p", From: []int{2, 6}, To: []int{2, 5}},
+	}
+	for i, move := range moves {
+		body, err := common.Marshal(xiangqiMove{From: move.From, To: move.To})
+		require.NoError(t, err)
+		state, err = engine.Play(state.Data, 1-i%2, body)
+		require.NoError(t, err)
+	}
+	for _, seat := range []int{0, 1} {
+		result, err := engine.View(state.Data, seat)
+		require.NoError(t, err)
+		view := result.(xiangqiView)
+		assert.Equal(t, moves, view.History)
+		assert.Equal(t, &moves[2], view.LastMoves.Red)
+		assert.Equal(t, &moves[3], view.LastMoves.Black)
+	}
+	asked, _, err := engine.UndoAsk(state.Data, 1)
+	require.NoError(t, err)
+	undone, err := engine.UndoAnswer(asked.Data, 0, true)
+	require.NoError(t, err)
+	result, err := engine.View(undone.State.Data, 1)
+	require.NoError(t, err)
+	view := result.(xiangqiView)
+	assert.Equal(t, moves[:2], view.History)
+	assert.Equal(t, &moves[0], view.LastMoves.Red)
+	assert.Equal(t, &moves[1], view.LastMoves.Black)
+
+	body, err := common.Marshal(xiangqiMove{From: []int{2, 3}, To: []int{2, 4}})
+	require.NoError(t, err)
+	replayed, err := engine.Play(undone.State.Data, 1, body)
+	require.NoError(t, err)
+	result, err = engine.View(replayed.Data, 0)
+	require.NoError(t, err)
+	view = result.(xiangqiView)
+	expected := xiangqiHistoryMove{Ply: 3, Color: "red", Piece: "P", From: []int{2, 3}, To: []int{2, 4}}
+	require.Len(t, view.History, 3)
+	assert.Equal(t, moves[:2], view.History[:2])
+	assert.Equal(t, expected, view.History[2])
+	assert.Equal(t, &expected, view.LastMoves.Red)
+	assert.Equal(t, &moves[1], view.LastMoves.Black)
+}
+
+func TestXiangqiLegacyLastMoveKeepsMarkersWithoutInventingHistory(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		moves    []xiangqi.Move
+		expected xiangqiHistoryMove
+	}{
+		{
+			name:     "red",
+			moves:    []xiangqi.Move{{From: xiangqi.Square(1, 2), To: xiangqi.Square(1, 9)}},
+			expected: xiangqiHistoryMove{Ply: 1, Color: "red", Piece: "C", From: []int{1, 2}, To: []int{1, 9}},
+		},
+		{
+			name: "black",
+			moves: []xiangqi.Move{
+				{From: xiangqi.Square(1, 2), To: xiangqi.Square(1, 9)},
+				{From: xiangqi.Square(0, 9), To: xiangqi.Square(1, 9)},
+			},
+			expected: xiangqiHistoryMove{Ply: 2, Color: "black", Piece: "r", From: []int{0, 9}, To: []int{1, 9}},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			game := xiangqi.NewGame()
+			for _, move := range tc.moves {
+				require.NoError(t, game.Play(move))
+			}
+			game.History = nil
+			data, err := common.Marshal(xiangqiState{RedSeat: 1, Game: game})
+			require.NoError(t, err)
+			result, err := (xiangqiEngine{}).View(data, 1)
+			require.NoError(t, err)
+			view := result.(xiangqiView)
+			assert.Equal(t, []xiangqiHistoryMove{}, view.History)
+			assert.Equal(t, &xiangqiMove{From: tc.expected.From, To: tc.expected.To}, view.Last)
+			if tc.name == "red" {
+				assert.Equal(t, &tc.expected, view.LastMoves.Red)
+				assert.Nil(t, view.LastMoves.Black)
+			} else {
+				assert.Equal(t, &tc.expected, view.LastMoves.Black)
+				assert.Nil(t, view.LastMoves.Red)
+			}
+		})
+	}
 }

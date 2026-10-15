@@ -28,7 +28,7 @@ import './xiangqi.css';
 
 // 棋盘按 SVG 的单位画：交叉点间距 CELL，四周留 MARGIN 给边框和边线上的棋子。
 const CELL = 60;
-const MARGIN = 34;
+const MARGIN = 52;
 const WIDTH = CELL * 8 + MARGIN * 2;
 const HEIGHT = CELL * 9 + MARGIN * 2;
 // 连续这么多步(双方合计)没有吃子判和；过半之后在台面上提示。
@@ -104,6 +104,9 @@ const pointStyle = (col, row) => ({
 
 const samePoint = (a, b) => a[0] === b[0] && a[1] === b[1];
 
+// 坐标固定以红方视角编号，执黑时只翻转显示，棋谱中的位置不随座位变化。
+const squareLabel = ([x, y]) => `${String.fromCharCode(65 + x)}${y + 1}`;
+
 // 棋盘上的一个棋子：圆盘、内圈与字，halo 是选中、最后一手、将军时的外圈。
 const PieceArt = ({ letter }) => (
   <svg className='xiangqi-piece' viewBox='0 0 100 100' aria-hidden>
@@ -152,6 +155,9 @@ const XiangqiBoard = ({ state, seat, canMove, over, onMove, onUndo, busy }) => {
     ? legal.filter((move) => samePoint(move.from, active))
     : [];
   const last = state?.last;
+  const history = state?.history || [];
+  const lastMoves = state?.last_moves || {};
+  const myColor = flip ? 'black' : 'red';
   // 被将军的是轮到走的一方的将帅。
   const checkedKing = state?.check ? (state.turn === 'red' ? 'K' : 'k') : '';
 
@@ -169,13 +175,17 @@ const XiangqiBoard = ({ state, seat, canMove, over, onMove, onUndo, busy }) => {
       const movable = legal.some((item) => samePoint(item.from, point));
       const target = targets.some((item) => samePoint(item.to, point));
       const moved = last && samePoint(last.to, point);
+      const color = letter === letter.toUpperCase() ? 'red' : 'black';
       const classes = [
         'xiangqi-point',
-        letter === letter.toUpperCase() ? 'is-red' : 'is-black',
+        `is-${color}`,
         movable && 'is-movable',
         active && samePoint(active, point) && 'is-selected',
         target && 'is-target',
         moved && 'is-last',
+        lastMoves[color] &&
+          samePoint(lastMoves[color].to, point) &&
+          'is-side-last',
         letter === checkedKing && 'is-check',
       ]
         .filter(Boolean)
@@ -245,19 +255,6 @@ const XiangqiBoard = ({ state, seat, canMove, over, onMove, onUndo, busy }) => {
         </button>,
       );
     });
-  if (last) {
-    const [col, row] = toScreen(last.from);
-    points.push(
-      <span
-        key='from'
-        className='xiangqi-point xiangqi-from'
-        style={pointStyle(col, row)}
-        aria-hidden
-      />,
-    );
-  }
-
-  const myColor = flip ? 'black' : 'red';
   return (
     <div className='xiangqi-stage'>
       {state && (
@@ -339,6 +336,35 @@ const XiangqiBoard = ({ state, seat, canMove, over, onMove, onUndo, busy }) => {
           )}
         </div>
       )}
+      {state && (
+        <div className='xiangqi-last-moves'>
+          {[myColor, myColor === 'red' ? 'black' : 'red'].map((color) => {
+            const previous = lastMoves[color];
+            return (
+              <div key={color} className={`xiangqi-last-move is-${color}`}>
+                <span className='xiangqi-move-side'>
+                  <i aria-hidden />
+                  {color === myColor ? t('己方上一步') : t('对方上一步')}
+                </span>
+                {previous ? (
+                  <span className='xiangqi-move-detail'>
+                    <span>{PIECE_GLYPHS[previous.piece]}</span>
+                    <span className='xiangqi-move-coordinates'>
+                      {squareLabel(previous.from)} → {squareLabel(previous.to)}
+                    </span>
+                  </span>
+                ) : (
+                  <span className='xiangqi-move-empty'>
+                    {state.plies > history.length
+                      ? t('早期行棋未记录')
+                      : t('尚未行棋')}
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
       <div
         className='xiangqi-board'
         style={{
@@ -370,6 +396,61 @@ const XiangqiBoard = ({ state, seat, canMove, over, onMove, onUndo, busy }) => {
           />
           <path className='xiangqi-grid' d={GRID_PATH} />
           <path className='xiangqi-marks' d={MARK_PATH} />
+          {Array.from({ length: 9 }, (_, x) => {
+            const [col] = toScreen([x, 0]);
+            return (
+              <text
+                key={`file-${x}`}
+                className='xiangqi-coordinate'
+                x={pointX(col)}
+                y={HEIGHT - 9}
+                textAnchor='middle'
+              >
+                {String.fromCharCode(65 + x)}
+              </text>
+            );
+          })}
+          {Array.from({ length: 10 }, (_, y) => {
+            const [, row] = toScreen([0, y]);
+            return (
+              <text
+                key={`rank-${y}`}
+                className='xiangqi-coordinate'
+                x='12'
+                y={pointY(row)}
+                dy='0.36em'
+                textAnchor='middle'
+              >
+                {y + 1}
+              </text>
+            );
+          })}
+          {['red', 'black'].map((color) => {
+            const previous = lastMoves[color];
+            if (!previous) return null;
+            const [fromCol, fromRow] = toScreen(previous.from);
+            const [toCol, toRow] = toScreen(previous.to);
+            // 两方先后落在同一点时，用不同尺寸保留双方的标记。
+            const radius = color === 'red' ? 28 : 32;
+            return (
+              <g key={color} className={`xiangqi-move-marker is-${color}`}>
+                <circle
+                  className='xiangqi-move-from'
+                  cx={pointX(fromCol)}
+                  cy={pointY(fromRow)}
+                  r={radius}
+                />
+                <rect
+                  className='xiangqi-move-to'
+                  x={pointX(toCol) - radius}
+                  y={pointY(toRow) - radius}
+                  width={radius * 2}
+                  height={radius * 2}
+                  rx='7'
+                />
+              </g>
+            );
+          })}
           <text
             className='xiangqi-river'
             x={pointX(2)}
@@ -391,6 +472,63 @@ const XiangqiBoard = ({ state, seat, canMove, over, onMove, onUndo, busy }) => {
         </svg>
         {points}
       </div>
+      {state && (
+        <>
+          <div className='xiangqi-coordinate-note'>
+            <span>{t('起点虚线，落点实线')}</span>
+            <span>{t('坐标以红方视角为准')}</span>
+          </div>
+          <section className='xiangqi-history' aria-label={t('行棋记录')}>
+            <div className='xiangqi-history-heading'>
+              <h3>{t('行棋记录')}</h3>
+              <span>{t('共 {{count}} 步', { count: history.length })}</span>
+            </div>
+            {state.plies > history.length && (
+              <p className='xiangqi-history-note'>
+                {history.length > 0
+                  ? t('仅显示第 {{ply}} 步起的记录', { ply: history[0].ply })
+                  : t('早期行棋未记录')}
+              </p>
+            )}
+            {history.length > 0 ? (
+              <ol className='xiangqi-history-list'>
+                {history
+                  .slice()
+                  .reverse()
+                  .map((entry) => (
+                    <li key={entry.ply} className={`is-${entry.color}`}>
+                      <span
+                        className='xiangqi-history-ply'
+                        aria-label={t('第 {{ply}} 步', { ply: entry.ply })}
+                      >
+                        {entry.ply}
+                      </span>
+                      <span className='xiangqi-move-side'>
+                        <i aria-hidden />
+                        {entry.color === myColor ? t('己方') : t('对方')}
+                      </span>
+                      <span className='xiangqi-history-piece'>
+                        {PIECE_GLYPHS[entry.piece]}
+                      </span>
+                      <span className='xiangqi-move-coordinates'>
+                        {squareLabel(entry.from)} → {squareLabel(entry.to)}
+                      </span>
+                      {entry.captured && (
+                        <span className='xiangqi-history-capture'>
+                          {t('吃{{piece}}', {
+                            piece: PIECE_GLYPHS[entry.captured],
+                          })}
+                        </span>
+                      )}
+                    </li>
+                  ))}
+              </ol>
+            ) : (
+              <p className='xiangqi-history-note'>{t('暂无行棋记录')}</p>
+            )}
+          </section>
+        </>
+      )}
     </div>
   );
 };

@@ -338,10 +338,12 @@ const Minesweeper = () => {
   };
 
   const onBoardPointerDown = (event) => {
-    if (event.pointerType !== 'touch' || !playing) return;
+    if (event.pointerType !== 'touch' || event.isPrimary === false || !playing)
+      return;
     const index = cellAt(event);
     if (index === null || cells[index] !== HIDDEN) return;
-    const press = { index };
+    if (pressRef.current) clearTimeout(pressRef.current.timer);
+    const press = { index, pointerId: event.pointerId };
     press.timer = setTimeout(() => {
       guardUntilRef.current = Date.now() + PRESS_GUARD_MS;
       pressRef.current = null;
@@ -350,8 +352,9 @@ const Minesweeper = () => {
     pressRef.current = press;
   };
 
-  const cancelPress = () => {
+  const cancelPress = (event) => {
     if (!pressRef.current) return;
+    if (event && event.pointerId !== pressRef.current.pointerId) return;
     clearTimeout(pressRef.current.timer);
     pressRef.current = null;
   };

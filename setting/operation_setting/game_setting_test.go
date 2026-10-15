@@ -218,3 +218,52 @@ func TestGameSettingCloneIsDeep(t *testing.T) {
 	assert.Equal(t, 5000, original.Tetris.Tiers[0].Score)
 	assert.Equal(t, 1, clone.Tetris.Tiers[0].Score)
 }
+
+func TestGameTurnstileExemptionsValidateAndNormalize(t *testing.T) {
+	key := GameSettingPrefix + "play_turnstile_exempt_games"
+	for _, invalid := range []string{`null`, `{}`, `"tetris"`, `[1]`, `["unknown"]`, `["rps"]`, `["slots"]`, `["jackpot"]`, `["tetris_ai"]`} {
+		assert.Error(t, ValidateGameOption(key, invalid), invalid)
+	}
+	for game, spec := range gameRuleSpecs {
+		value, err := common.Marshal([]string{game})
+		require.NoError(t, err)
+		err = ValidateGameOption(key, string(value))
+		if spec.Kind == GameKindSkill || spec.Ai || game == "wheel" {
+			assert.NoError(t, err, game)
+		} else {
+			assert.Error(t, err, game)
+		}
+	}
+	value, err := NormalizeGameOption(key, `["wheel","tetris","wheel","2048"]`)
+	require.NoError(t, err)
+	assert.Equal(t, `["2048","tetris","wheel"]`, value)
+	value, err = NormalizeGameOption(key, `[]`)
+	require.NoError(t, err)
+	assert.Equal(t, `[]`, value)
+	assert.Equal(t, []string{}, DefaultGameSetting().PlayTurnstileExemptGames)
+}
+
+func TestGameTurnstileRequirementUsesTheActualFreeGame(t *testing.T) {
+	previous := common.TurnstileCheckEnabled
+	common.TurnstileCheckEnabled = true
+	t.Cleanup(func() { common.TurnstileCheckEnabled = previous })
+	setting := DefaultGameSetting()
+	for game, spec := range gameRuleSpecs {
+		want := spec.Kind == GameKindSkill || spec.Ai || game == "wheel"
+		assert.Equal(t, want, setting.PlayTurnstileRequired(game), game)
+	}
+	assert.False(t, setting.PlayTurnstileRequired("unknown"))
+	setting.PlayTurnstileExemptGames = []string{"tetris", "gomoku", "wheel"}
+	for _, game := range setting.PlayTurnstileExemptGames {
+		assert.False(t, setting.PlayTurnstileRequired(game), game)
+	}
+	assert.True(t, setting.PlayTurnstileRequired("2048"))
+	clone := setting.Clone()
+	clone.PlayTurnstileExemptGames[0] = "snake"
+	assert.Equal(t, "tetris", setting.PlayTurnstileExemptGames[0])
+	setting.PlayTurnstileEnabled = false
+	assert.False(t, setting.PlayTurnstileRequired("2048"))
+	setting.PlayTurnstileEnabled = true
+	common.TurnstileCheckEnabled = false
+	assert.False(t, setting.PlayTurnstileRequired("2048"))
+}

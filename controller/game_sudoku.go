@@ -180,6 +180,9 @@ func AbandonSudoku(c *gin.Context) {
 // GetSudokuState 返回玩家进行中的一局数独，刷新页面后据此恢复题目；没有进行中的一局(或已经过期)时 session 为 null。
 // 玩家填到一半的数字只在浏览器里。
 func GetSudokuState(c *gin.Context) {
+	if !requireGameEnabled(c, gameSudoku) {
+		return
+	}
 	session, err := model.GetPlayingGameSession(c.GetInt("id"), gameSudoku)
 	if err != nil {
 		common.ApiError(c, err)

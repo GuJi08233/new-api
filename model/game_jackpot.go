@@ -117,6 +117,10 @@ func EnterGameJackpot(userId int, amount GameCoins, rule GameJackpotEntryRule, i
 		if round == nil {
 			return errors.New("jackpot round was not created")
 		}
+		// 每人的投入上限不能约束多人合计的奖池；总额也必须能由钱包和 JSON 数字精确表示。
+		if round.Pot < 0 || round.Pot >= common.MaxQuota || amount >= common.MaxQuota-round.Pot {
+			return ErrGameCoinAmountInvalid
+		}
 		if round.Deadline != 0 && round.Deadline <= now {
 			return ErrGameJackpotClosed
 		}
@@ -198,6 +202,9 @@ func DrawGameJackpot(pick func(tickets int) (int, error), day string) (*GameJack
 		round, err := lockOpenGameJackpotRoundTx(tx, false, 0, now)
 		if err != nil || round == nil || round.Deadline == 0 || round.Deadline > now {
 			return err
+		}
+		if round.Pot <= 0 || round.Pot >= common.MaxQuota || round.RakePercent < 0 || round.RakePercent > 100 {
+			return ErrGameCoinAmountInvalid
 		}
 		var entries []GameJackpotEntry
 		if err := tx.Where("round_id = ?", round.Id).Order("id asc").Find(&entries).Error; err != nil {

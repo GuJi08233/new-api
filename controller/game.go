@@ -65,9 +65,9 @@ func gameRewardIpKey(ip string) string {
 }
 
 // passGamePlayTurnstile 在要求人机验证时校验请求带的 Turnstile 令牌(查询参数 turnstile)，没通过时写好错误响应并返回 false。
-// 白送游戏币的操作(俄罗斯方块开局、大转盘的免费旋转)每次都要带一个新令牌，不经浏览器直接调接口的脚本领不到。
-func passGamePlayTurnstile(c *gin.Context, setting *operation_setting.GameSetting, userId int) bool {
-	if !setting.PlayTurnstileRequired() {
+// 未豁免的免费开局与转盘免费旋转每次都要带一个新令牌。
+func passGamePlayTurnstile(c *gin.Context, setting *operation_setting.GameSetting, game string, userId int) bool {
+	if !setting.PlayTurnstileRequired(game) {
 		return true
 	}
 	token := c.Query("turnstile")

@@ -21,6 +21,9 @@ import (
 
 var ErrInvalidLevel = errors.New("landlord: invalid ai level")
 
+// MaxHints 限制一次提示的备选数量，前端可以按返回顺序循环选牌。
+const MaxHints = 12
+
 // Move 是一步：叫分阶段是 Bid，出牌阶段是 Cards 或 Pass。
 type Move struct {
 	Bid   *int
@@ -317,6 +320,14 @@ func kickers(c counts, exclude []int, n int, pair bool) ([]int, bool) {
 			picked = append(picked, rank)
 		}
 	}
+	// 飞机带单牌、四带二允许带一对；不同点数不够时再从已挑的点数里补第二张。
+	if !pair && len(picked) < n {
+		for _, rank := range slices.Clone(picked) {
+			if c[rank] >= 2 && len(picked) < n {
+				picked = append(picked, rank)
+			}
+		}
+	}
 	if len(picked) < n {
 		return nil, false
 	}
@@ -498,6 +509,105 @@ func BestMove(k Knowledge, level int, rng *rand.Rand) (Move, error) {
 		return newSeatTable(k, level, rng).play(), nil
 	}
 	return Move{}, ErrIllegalMove
+}
+
+// HintMoves 只根据本座位已知的信息列出有限个合法选牌，顺序固定，不会提交出牌或修改手牌。
+// 调用方负责确认轮到本座位；队友出牌也提供能压过的选牌，由玩家决定是否不出。
+func HintMoves(k Knowledge) [][]int {
+	hints := make([][]int, 0, MaxHints)
+	if k.Phase != PhasePlaying || k.Seat < 0 || k.Seat >= Players || len(k.Hand) == 0 {
+		return hints
+	}
+	t := newSeatTable(k, 2, nil)
+	var groups []group
+	var preferred []int
+	if k.LastPlay != nil {
+		groups = beatingGroups(t.hand, k.LastPlay.Combination)
+	} else {
+		preferred = t.cards(t.lead().ranks)
+		for mode := 0; mode < planModes; mode++ {
+			groups = append(groups, buildPlan(t.hand, mode)...)
+		}
+		// 拆好的整组之外，也给单张、对子、三张的备选；炸弹和王炸由同一候选器补齐。
+		for _, kind := range []string{Single, Pair, Triple} {
+			groups = append(groups, beatingGroups(t.hand, Combination{Type: kind, Rank: 2, Chain: 1})...)
+		}
+	}
+	if combo, err := Classify(k.Hand); err == nil && (k.LastPlay == nil || combo.Beats(k.LastPlay.Combination)) {
+		ranks := make([]int, len(k.Hand))
+		for i, card := range k.Hand {
+			ranks[i] = Rank(card)
+		}
+		groups = append(groups, group{Combination: combo, ranks: ranks})
+	}
+	type option struct {
+		cards     []int
+		bomb      bool
+		preferred bool
+		rank      int
+		cost      int
+	}
+	options := make([]option, 0, len(groups))
+	base := len(planHand(t.hand))
+	for _, g := range groups {
+		cards := t.cards(g.ranks)
+		combo, err := Classify(cards)
+		if err != nil || len(cards) != len(g.ranks) || k.LastPlay != nil && !combo.Beats(k.LastPlay.Combination) {
+			continue
+		}
+		cost := (g.Rank-g.Chain+1)*10 - len(cards)
+		if k.LastPlay != nil {
+			rest := planHand(t.hand.without(g.ranks))
+			penalty := (len(rest) - (base - 1)) * 100
+			if g.isControl() {
+				if base > 4 {
+					penalty += 120
+				} else {
+					penalty += 40
+				}
+			}
+			cost = penalty*10 + rest.cost() + g.Rank
+		} else if g.isControl() {
+			cost += 300
+		}
+		options = append(options, option{cards: cards, bomb: g.isBomb(), preferred: slices.Equal(cards, preferred), rank: g.Rank, cost: cost})
+	}
+	sort.SliceStable(options, func(i, j int) bool {
+		a, b := options[i], options[j]
+		// 能一次出完优先，其次领出时的普通 AI 推荐；其余先普通牌，炸弹和王炸留后。
+		if (len(a.cards) == len(k.Hand)) != (len(b.cards) == len(k.Hand)) {
+			return len(a.cards) == len(k.Hand)
+		}
+		if a.preferred != b.preferred {
+			return a.preferred
+		}
+		if a.bomb != b.bomb {
+			return !a.bomb
+		}
+		if a.bomb && a.rank != b.rank {
+			return a.rank < b.rank
+		}
+		if a.cost != b.cost {
+			return a.cost < b.cost
+		}
+		return slices.Compare(a.cards, b.cards) < 0
+	})
+	for _, candidate := range options {
+		duplicate := false
+		for _, existing := range hints {
+			if slices.Equal(existing, candidate.cards) {
+				duplicate = true
+				break
+			}
+		}
+		if !duplicate {
+			hints = append(hints, candidate.cards)
+			if len(hints) == MaxHints {
+				break
+			}
+		}
+	}
+	return hints
 }
 
 // bidStrength 估计一手牌当地主的把握：王、2 与炸弹是大牌，手数越少越好出完。

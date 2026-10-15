@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import Turnstile from 'react-turnstile';
 import { useTranslation } from 'react-i18next';
 
@@ -26,38 +26,76 @@ import { useTranslation } from 'react-i18next';
 // 放在开局按钮下方。
 export function usePlayTurnstile(config) {
   const required = !!config?.required;
-  const [token, setToken] = useState('');
-  const [key, setKey] = useState(0);
-  const [failed, setFailed] = useState(false);
+  const scope = `${required ? 'required' : 'optional'}:${config?.site_key || ''}`;
+  const [verification, setVerification] = useState({
+    scope,
+    generation: 0,
+    token: '',
+    failed: false,
+  });
+  let current = verification;
+  if (verification.scope !== scope) {
+    // 配置变了就换一份验证状态，豁免后不留下错误，重新要求验证或更换 site key 时也不能沿用旧令牌。
+    current = {
+      scope,
+      generation: verification.generation + 1,
+      token: '',
+      failed: false,
+    };
+    setVerification(current);
+  }
+  const verificationRef = useRef(current);
+  verificationRef.current = current;
+  const generation = current.generation;
+  const updateVerification = useCallback(
+    (changes) => {
+      setVerification((previous) =>
+        previous.scope === scope && previous.generation === generation
+          ? { ...previous, ...changes }
+          : previous,
+      );
+    },
+    [scope, generation],
+  );
 
   const take = useCallback(() => {
     if (!required) return '';
-    const value = token;
-    setToken('');
-    setKey((previous) => previous + 1);
-    return value;
-  }, [required, token]);
+    const previous = verificationRef.current;
+    const next = {
+      scope,
+      generation: previous.generation + 1,
+      token: '',
+      failed: false,
+    };
+    verificationRef.current = next;
+    setVerification(next);
+    return previous.token;
+  }, [required, scope]);
 
   const widget = required ? (
     <div className='game-turnstile'>
       <Turnstile
-        key={key}
+        key={`${scope}:${generation}`}
         sitekey={config.site_key}
         appearance='interaction-only'
         onVerify={(value) => {
-          setToken(value);
-          setFailed(false);
+          updateVerification({ token: value, failed: false });
         }}
-        onExpire={() => setToken('')}
+        onExpire={() => updateVerification({ token: '' })}
         onError={() => {
-          setToken('');
-          setFailed(true);
+          updateVerification({ token: '', failed: true });
         }}
       />
     </div>
   ) : null;
 
-  return { required, ready: !required || !!token, failed, take, widget };
+  return {
+    required,
+    ready: !required || !!current.token,
+    failed: required && current.failed,
+    take,
+    widget,
+  };
 }
 
 // PlayTurnstile 放在开局按钮下方：usePlayTurnstile 的验证组件，加载失败时提示刷新页面。

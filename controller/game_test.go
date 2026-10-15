@@ -382,4 +382,16 @@ func TestUpdateGameAdminSettingWritesOnlySubmittedFields(t *testing.T) {
 	assert.Equal(t, 5, operation_setting.GetGameSetting().Tetris.DailyRewards)
 	_, staleCross := accountRequest(t, router, http.MethodPut, "/api/game/admin/setting", nil, map[string]any{"withdraw_min_amount": 50}, "")
 	assert.Equal(t, false, staleCross["success"], "单次最少大于库里的单次最多")
+
+	_, exemptions := accountRequest(t, router, http.MethodPut, "/api/game/admin/setting", nil,
+		map[string]any{"play_turnstile_exempt_games": []string{"wheel", "tetris", "wheel"}}, "")
+	require.Equal(t, true, exemptions["success"], exemptions["message"])
+	assert.Equal(t, []string{"tetris", "wheel"}, operation_setting.GetGameSetting().PlayTurnstileExemptGames)
+	var exemptionOption model.Option
+	require.NoError(t, db.Where(&model.Option{Key: operation_setting.GameSettingPrefix + "play_turnstile_exempt_games"}).First(&exemptionOption).Error)
+	assert.Equal(t, `["tetris","wheel"]`, exemptionOption.Value)
+	_, badExemption := accountRequest(t, router, http.MethodPut, "/api/game/admin/setting", nil,
+		map[string]any{"play_turnstile_exempt_games": []string{"rps"}}, "")
+	assert.Equal(t, false, badExemption["success"])
+	assert.Equal(t, []string{"tetris", "wheel"}, operation_setting.GetGameSetting().PlayTurnstileExemptGames)
 }

@@ -17,39 +17,41 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
+.landlord-page {
+  --game-main-width: 820px;
+}
+
 .landlord-page .pvp-players {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-.landlord-seat-label {
+.landlord-seat-label,
+.landlord-seat-count {
   display: inline-flex;
   align-items: center;
   gap: 4px;
 }
 
 .landlord-seat-count {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
   font-variant-numeric: tabular-nums;
   color: var(--semi-color-text-2);
 }
 
-/* 三个座位并排时名字至少留出几个字，放不下就换到下一行，不缩成省略号。 */
 .landlord-page .pvp-player {
   flex-wrap: wrap;
 }
 
 .landlord-page .pvp-player-name {
-  min-width: 72px;
+  min-width: 60px;
 }
 
 .landlord-board,
 .landlord-reveal {
-  width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 14px;
+  width: 100%;
+  min-width: 0;
 }
 
 .landlord-empty {
@@ -74,29 +76,70 @@ For commercial licensing, please contact support@quantumnous.com
   font-size: 13px;
 }
 
+/* 桌上出的牌适度叠放；主牌和附件分组，长牌型可换行。 */
 .landlord-cards {
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-start;
   justify-content: center;
-  gap: 5px;
-  padding-top: 10px;
+  align-items: flex-start;
+  gap: 6px 12px;
+  padding-top: 6px;
+  max-width: 100%;
+}
+
+.landlord-card-group {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px 0;
+  max-width: 100%;
+  padding-right: 18px;
+}
+
+.landlord-card-slot {
+  display: block;
+  width: 20px;
+  flex: 0 0 20px;
 }
 
 .landlord-card {
+  position: relative;
   display: inline-flex;
-  width: 44px;
-  min-height: 65px;
   flex-direction: column;
-  align-items: center;
-  justify-content: space-around;
-  padding: 5px 3px;
-  border: 1px solid var(--semi-color-border);
-  border-radius: 6px;
-  color: var(--semi-color-text-0);
-  background: var(--semi-color-bg-2);
-  font-size: 17px;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 1px;
+  width: 38px;
+  height: 58px;
+  padding: 3px;
   flex-shrink: 0;
+  border: 1px solid #c8c5bc;
+  border-radius: 5px;
+  background: #fffdf6;
+  color: #25262b;
+  font-size: 15px;
+  line-height: 1;
+  box-shadow: 0 1px 2px #00000020;
+}
+
+.landlord-card strong {
+  position: relative;
+  z-index: 1;
+  line-height: 1;
+  letter-spacing: -0.6px;
+}
+
+.landlord-card > svg:not(.landlord-card-pip) {
+  width: 12px;
+  height: 12px;
+}
+
+.landlord-card-pip {
+  position: absolute;
+  right: 3px;
+  bottom: 5px;
+  opacity: 0.85;
+  pointer-events: none;
 }
 
 button.landlord-card {
@@ -104,44 +147,46 @@ button.landlord-card {
   transition:
     transform 120ms,
     box-shadow 120ms;
+  -webkit-tap-highlight-color: transparent;
 }
 
 button.landlord-card:disabled {
   cursor: default;
 }
 
-button.landlord-card:not(:disabled):hover,
 .landlord-card.is-selected {
-  transform: translateY(-8px);
+  transform: translateY(-15px);
   border-color: var(--semi-color-primary);
-  box-shadow: 0 0 0 1px var(--semi-color-primary);
+  box-shadow:
+    inset 0 0 0 1px var(--semi-color-primary),
+    0 3px 7px #00000030;
 }
 
 button.landlord-card:focus-visible {
   outline: 2px solid var(--semi-color-primary);
-  outline-offset: 3px;
+  outline-offset: -3px;
 }
 
 .landlord-card.is-red {
-  color: var(--semi-color-danger);
+  color: #c43a32;
 }
 
 .landlord-card.is-joker strong {
   writing-mode: vertical-rl;
   text-orientation: upright;
-  font-size: 9px;
+  font-size: 8px;
   letter-spacing: -1px;
-  line-height: 1;
 }
 
 .landlord-card.is-back {
   background: repeating-linear-gradient(
     45deg,
-    var(--semi-color-primary-light-default),
-    var(--semi-color-primary-light-default) 4px,
-    var(--semi-color-fill-1) 4px,
-    var(--semi-color-fill-1) 8px
+    #567aa8,
+    #567aa8 4px,
+    #6e91bd 4px,
+    #6e91bd 8px
   );
+  border: 3px solid #fffdf6;
 }
 
 .landlord-bids {
@@ -159,41 +204,114 @@ button.landlord-card:focus-visible {
   border-radius: 8px;
   background: var(--semi-color-fill-0);
   font-size: 13px;
+  overflow-wrap: anywhere;
 }
 
 .landlord-bids > .is-turn {
   background: var(--semi-color-primary-light-default);
 }
 
+/* 牌桌方位固定：上家左、下家右、自己下方，与出牌的座位顺序一致。 */
 .landlord-table {
-  min-height: 135px;
-  padding: 16px;
-  border-radius: 12px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  min-height: 240px;
+  padding: 14px;
+  border: 1px solid rgba(var(--semi-green-6), 0.18);
+  border-radius: 16px;
+  background: radial-gradient(
+      ellipse at center,
+      rgba(var(--semi-green-3), 0.16),
+      transparent 80%
+    ),
+    var(--semi-color-success-light-default);
+}
+
+.landlord-table-note {
+  grid-column: 1 / -1;
+  min-height: 16px;
+  color: var(--semi-color-text-2);
   text-align: center;
-  background: var(--semi-color-success-light-default);
+  font-size: 12px;
 }
 
-/* 这一轮的出牌：按先后排开，要压的那一手描边。 */
-.landlord-trick {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  justify-content: center;
-  gap: 10px 18px;
-  margin: 0 0 8px;
-  padding: 0;
-  list-style: none;
-}
-
-.landlord-trick > li {
+.landlord-table-seat {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2px;
-  padding: 4px 8px 8px;
+  gap: 8px;
+  min-width: 0;
+  min-height: 100px;
+}
+
+.landlord-table-seat.is-left {
+  grid-column: 1;
+}
+
+.landlord-table-seat.is-right {
+  grid-column: 2;
+}
+
+.landlord-table-seat.is-self {
+  grid-column: 1 / -1;
+  width: 80%;
+  justify-self: center;
+  min-height: 90px;
+}
+
+.landlord-table-player {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  max-width: 100%;
+  border: 1px solid transparent;
   border-radius: 8px;
-  /* 打出的牌从下方滑入；延迟由页面按出牌先后排定。 */
+  font-size: 12px;
+  color: var(--semi-color-text-1);
+  overflow-wrap: anywhere;
+}
+
+.landlord-table-player > svg {
+  color: #c38c20;
+}
+
+.landlord-table-seat.is-turn .landlord-table-player {
+  border-color: var(--semi-color-primary);
+  background: var(--semi-color-bg-1);
+}
+
+.landlord-table-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.landlord-table-wait {
+  padding: 14px 0;
+  color: var(--semi-color-text-2);
+  font-size: 12px;
+}
+
+.landlord-seat-play {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 6px 8px 8px;
+  border-radius: 8px;
   animation: landlord-play 0.32s ease-out both;
+}
+
+.landlord-seat-play.is-lead {
+  box-shadow: 0 0 0 1px var(--semi-color-primary);
+  background: var(--semi-color-bg-1);
 }
 
 @keyframes landlord-play {
@@ -203,35 +321,210 @@ button.landlord-card:focus-visible {
   }
 }
 
+.landlord-trick-history {
+  grid-column: 1 / -1;
+  min-width: 0;
+  color: var(--semi-color-text-2);
+  font-size: 12px;
+}
+
+.landlord-trick-history summary {
+  width: fit-content;
+  padding: 4px 0;
+  cursor: pointer;
+}
+
+.landlord-trick {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 12px;
+  max-height: 260px;
+  margin: 8px 0 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.landlord-trick > li {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  max-width: 100%;
+  padding: 4px 8px 8px;
+  border-radius: 8px;
+}
+
 .landlord-trick > li.is-lead {
-  box-shadow: 0 0 0 1px var(--semi-color-primary);
   background: var(--semi-color-bg-1);
 }
 
-.landlord-trick .landlord-cards {
-  padding-top: 4px;
-  gap: 3px;
+.landlord-board .landlord-actions {
+  gap: 8px;
+  margin-top: 0;
 }
 
-.landlord-trick .landlord-card {
-  width: 34px;
-  min-height: 50px;
-  font-size: 14px;
+.landlord-selection-note {
+  min-height: 18px;
+  margin-top: -6px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--semi-color-text-2);
 }
 
 .landlord-hand,
 .landlord-reveal {
+  min-width: 0;
   text-align: center;
 }
 
+.landlord-hand > .landlord-caption {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+}
+
+.landlord-selected-count {
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--semi-color-primary-light-default);
+  color: var(--semi-color-primary);
+  font-size: 12px;
+}
+
+/* 每个槽位只占露出的边缘，最后一个留出完整牌宽；20 张也能在窄屏保持一行。 */
+.landlord-hand-row {
+  --hand-card-width: 56px;
+  --hand-card-height: 82px;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  width: 100%;
+  min-height: calc(var(--hand-card-height) + 24px);
+  padding: 20px 0 4px;
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.landlord-hand-slot {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 32px;
+  height: var(--hand-card-height);
+}
+
+.landlord-hand-slot:last-child {
+  flex: 0 0 var(--hand-card-width);
+  max-width: none;
+}
+
+.landlord-hand-row .landlord-card {
+  width: var(--hand-card-width);
+  height: var(--hand-card-height);
+  font-size: 20px;
+  padding: 5px;
+}
+
+.landlord-hand-row .landlord-card > svg:not(.landlord-card-pip) {
+  width: 17px;
+  height: 17px;
+}
+
+.landlord-hand-row .landlord-card-pip {
+  width: 30px;
+  height: 30px;
+}
+
+.landlord-hand-row .landlord-card.is-joker strong {
+  font-size: 11px;
+}
+
 @media (max-width: 520px) {
-  .landlord-page .pvp-players {
-    grid-template-columns: minmax(0, 1fr);
+  .landlord-page .games-stage {
+    padding-inline: 10px;
   }
 
-  .landlord-card {
-    width: 36px;
-    min-height: 56px;
-    font-size: 15px;
+  .landlord-page .pvp-players {
+    gap: 6px;
+  }
+
+  .landlord-page .pvp-player {
+    gap: 4px;
+    padding: 8px 6px;
+  }
+
+  .landlord-page .pvp-player-name {
+    min-width: 0;
+    width: 100%;
+    flex: 1 0 100%;
+    font-size: 12px;
+  }
+
+  .landlord-page .pvp-player-seat {
+    padding-inline: 4px;
+  }
+
+  .landlord-seat-label {
+    flex-wrap: wrap;
+    gap: 2px;
+  }
+
+  .landlord-table {
+    gap: 8px;
+    padding: 10px 6px;
+  }
+
+  .landlord-table-player {
+    padding-inline: 3px;
+    font-size: 11px;
+  }
+
+  .landlord-seat-play {
+    padding-inline: 4px;
+  }
+
+  .landlord-table-seat.is-self {
+    width: 100%;
+  }
+
+  .landlord-board .landlord-actions {
+    gap: 6px;
+  }
+
+  .landlord-actions .semi-button {
+    padding-inline: 9px;
+  }
+
+  .landlord-hand-row {
+    --hand-card-width: 40px;
+    --hand-card-height: 64px;
+  }
+
+  .landlord-hand-row .landlord-card {
+    padding: 3px 1px;
+    font-size: 13px;
+  }
+
+  .landlord-hand-row .landlord-card strong {
+    letter-spacing: -1.2px;
+  }
+
+  .landlord-hand-row .landlord-card > svg:not(.landlord-card-pip) {
+    width: 10px;
+    height: 10px;
+  }
+
+  .landlord-hand-row .landlord-card.is-joker strong {
+    font-size: 9px;
+  }
+
+  .landlord-hand-row .landlord-card-pip {
+    width: 23px;
+    height: 23px;
   }
 }

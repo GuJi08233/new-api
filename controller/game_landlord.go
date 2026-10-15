@@ -25,6 +25,11 @@ type landlordMove struct {
 	Pass  *bool `json:"pass,omitempty"`
 }
 
+type landlordView struct {
+	landlord.View
+	Hints [][]int `json:"hints"`
+}
+
 // loadLandlord 读出保存的一局并检查前后一致，损坏的牌局不能继续出牌，也不能拿去结算。
 func loadLandlord(data []byte) (*landlord.Game, error) {
 	var game landlord.Game
@@ -90,7 +95,11 @@ func (landlordEngine) View(data []byte, seat int) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	return game.View(seat), nil
+	view := landlordView{View: game.View(seat), Hints: [][]int{}}
+	if game.Phase == landlord.PhasePlaying && !game.Over() && seat >= 0 && seat < landlord.Players && game.ToMove == seat {
+		view.Hints = landlord.HintMoves(game.Knowledge(seat))
+	}
+	return view, nil
 }
 
 // MaxLoss 是两倍：地主最多输两倍底注，而谁当地主要叫完分才知道，所以每人入座时都押两倍，农民结算时退回没输掉的一倍。

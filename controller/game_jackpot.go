@@ -227,6 +227,9 @@ func EnterJackpot(c *gin.Context) {
 		RakePercent:  rule.RakePercent,
 	}, gameRewardIpKey(c.ClientIP()))
 	switch {
+	case errors.Is(err, model.ErrGameCoinAmountInvalid):
+		common.ApiErrorI18n(c, i18n.MsgGameCoinAmountInvalid)
+		return
 	case errors.Is(err, model.ErrGameJackpotClosed):
 		common.ApiErrorI18n(c, i18n.MsgGameJackpotClosed)
 		return

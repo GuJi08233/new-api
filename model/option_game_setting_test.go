@@ -70,6 +70,35 @@ func readGameSettingOptionsTest(t *testing.T) *operation_setting.GameSetting {
 	return setting
 }
 
+func TestGameTurnstileExemptionsPersistAcrossWritePathsAndReload(t *testing.T) {
+	setupGameSettingOptionsTest(t)
+	key := operation_setting.GameSettingPrefix + "play_turnstile_exempt_games"
+	for name, write := range map[string]func() error{
+		"bulk": func() error { return UpdateOptionsBulk(map[string]string{key: `["wheel","tetris","wheel"]`}) },
+		"partial admin": func() error {
+			return UpdateGameSettingFields(func(*operation_setting.GameSetting) (map[string]string, error) {
+				return map[string]string{key: `["wheel","tetris","wheel"]`}, nil
+			})
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			require.NoError(t, write())
+			var option Option
+			require.NoError(t, DB.Where(&Option{Key: key}).First(&option).Error)
+			assert.Equal(t, `["tetris","wheel"]`, option.Value)
+			assert.Equal(t, []string{"tetris", "wheel"}, operation_setting.GetGameSetting().PlayTurnstileExemptGames)
+		})
+	}
+	require.NoError(t, DB.Save(&Option{Key: key, Value: `["wheel","tetris","wheel"]`}).Error)
+	loadOptionsFromDatabase()
+	assert.Equal(t, []string{"tetris", "wheel"}, operation_setting.GetGameSetting().PlayTurnstileExemptGames)
+	before := operation_setting.GetGameSetting()
+	assert.Error(t, UpdateOptionsBulk(map[string]string{
+		key: `["rps"]`, operation_setting.GameSettingPrefix + "free_daily_limit": "17",
+	}))
+	assert.Equal(t, before, operation_setting.GetGameSetting(), "invalid exemption rolls back the entire patch")
+}
+
 func TestGameSettingPatchSerializesRuleEditsAcrossConnections(t *testing.T) {
 	for _, persisted := range []bool{true, false} {
 		name := "defaults only"

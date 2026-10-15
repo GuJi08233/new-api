@@ -32,9 +32,9 @@ import {
 } from '@douyinfe/semi-illustrations';
 import { ArrowLeft } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import Turnstile from 'react-turnstile';
 import { API, getLogo, showError } from '../../../helpers';
 import { signed } from '../common/api';
+import { usePlayTurnstile } from '../common/usePlayTurnstile';
 import '../games.css';
 import './wheel.css';
 
@@ -160,9 +160,6 @@ const Wheel = () => {
   // 上一次旋转的结果 { result } 或失败原因 { error }。
   const [outcome, setOutcome] = useState(null);
   const [playTurnstile, setPlayTurnstile] = useState({ required: false });
-  const [turnstileToken, setTurnstileToken] = useState('');
-  const [turnstileKey, setTurnstileKey] = useState(0);
-  const [turnstileFailed, setTurnstileFailed] = useState(false);
   // 转盘中心显示站点 Logo，加载失败时改为显示游戏币符号。
   const [logoFailed, setLogoFailed] = useState(false);
 
@@ -258,8 +255,14 @@ const Wheel = () => {
       )
     : 0;
   const free = freeLeft > 0;
-  const needTurnstile = free && playTurnstile.required;
-  const waitingTurnstile = needTurnstile && !turnstileToken;
+  const {
+    required: needTurnstile,
+    ready: turnstileReady,
+    failed: turnstileFailed,
+    take: takeTurnstile,
+    widget: turnstileWidget,
+  } = usePlayTurnstile(free ? playTurnstile : { required: false });
+  const waitingTurnstile = !turnstileReady;
   const canSpin =
     !!rule &&
     !spinning &&
@@ -267,12 +270,7 @@ const Wheel = () => {
 
   const spin = useCallback(async () => {
     if (!canSpin || motionRef.current) return;
-    const token = turnstileToken;
-    if (needTurnstile) {
-      // 令牌只能用一次，无论成败都换一个新的。
-      setTurnstileToken('');
-      setTurnstileKey((key) => key + 1);
-    }
+    const token = takeTurnstile();
     const motion = {
       startedAt: performance.now() / 1000,
       start: angleRef.current,
@@ -321,7 +319,7 @@ const Wheel = () => {
       ? segmentAngle(response.result.segment, rule.segments.length)
       : motion.start;
     planStop(motion, target, performance.now() / 1000);
-  }, [canSpin, free, needTurnstile, turnstileToken, rule, t, settleSpin]);
+  }, [canSpin, free, needTurnstile, takeTurnstile, rule, t, settleSpin]);
 
   // 空格键旋转；焦点在按钮上时交给按钮自己处理，免得触发两次。
   useEffect(() => {
@@ -558,22 +556,7 @@ const Wheel = () => {
               {hint && <div className='games-stage-hint'>{hint}</div>}
               {/* 平时不可见，Cloudflare 需要玩家操作时才在这里展开。 */}
               {needTurnstile && (
-                <div className='wheel-turnstile'>
-                  <Turnstile
-                    key={turnstileKey}
-                    sitekey={playTurnstile.site_key}
-                    appearance='interaction-only'
-                    onVerify={(value) => {
-                      setTurnstileToken(value);
-                      setTurnstileFailed(false);
-                    }}
-                    onExpire={() => setTurnstileToken('')}
-                    onError={() => {
-                      setTurnstileToken('');
-                      setTurnstileFailed(true);
-                    }}
-                  />
-                </div>
+                <div className='wheel-turnstile'>{turnstileWidget}</div>
               )}
             </div>
           </div>

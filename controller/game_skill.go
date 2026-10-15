@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
@@ -80,7 +81,8 @@ func skillInfo(ctx *gameContext, game string, rule operation_setting.SkillRule) 
 // 不需要状态)，然后作废旧局、记下新的一局。返回 nil 时已写好错误响应。
 func startSkillSession(c *gin.Context, game string, prepare func(seed uint32) (string, error)) *model.GameSession {
 	userId := c.GetInt("id")
-	if !passGamePlayTurnstile(c, operation_setting.GetGameSetting(), userId) {
+	// 人机对战的存档键带 _ai 后缀，验证策略仍按服务端选择的游戏本身匹配。
+	if !passGamePlayTurnstile(c, operation_setting.GetGameSetting(), strings.TrimSuffix(game, "_ai"), userId) {
 		return nil
 	}
 	seed, err := newGameSeed()
