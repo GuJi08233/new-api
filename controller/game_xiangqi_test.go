@@ -86,6 +86,7 @@ func TestXiangqiRoomStakedGameEndsInResign(t *testing.T) {
 	assert.Empty(t, movedState["legal"])
 	redMove := map[string]any{
 		"ply": 1.0, "color": "red", "piece": "C", "from": []any{1.0, 2.0}, "to": []any{4.0, 2.0},
+		"notation": "炮八平五",
 	}
 	assert.Equal(t, []any{redMove}, movedState["history"])
 	assert.Equal(t, map[string]any{"red": redMove, "black": nil}, movedState["last_moves"])
@@ -310,6 +311,8 @@ func TestXiangqiUndoSkipsMovesFromBeforeHistory(t *testing.T) {
 	require.Len(t, history, 2)
 	assert.Equal(t, 3.0, history[0].(map[string]any)["ply"])
 	assert.Equal(t, 4.0, history[1].(map[string]any)["ply"])
+	assert.NotEmpty(t, history[0].(map[string]any)["notation"])
+	assert.NotEmpty(t, history[1].(map[string]any)["notation"])
 	undone := player.ok(http.MethodPost, "/api/game/xiangqi/ai/undo", map[string]any{"session_id": after["session_id"], "version": after["version"]})
 	back := undone["session"].(map[string]any)["state"].(map[string]any)
 	assert.Equal(t, current["state"].(map[string]any)["board"], back["board"])
@@ -323,10 +326,10 @@ func TestXiangqiHistoryRestoresCapturedPiecesAndUndo(t *testing.T) {
 	state, err := engine.New(1)
 	require.NoError(t, err)
 	moves := []xiangqiHistoryMove{
-		{Ply: 1, Color: "red", Piece: "C", Captured: "n", From: []int{1, 2}, To: []int{1, 9}},
-		{Ply: 2, Color: "black", Piece: "r", Captured: "C", From: []int{0, 9}, To: []int{1, 9}},
-		{Ply: 3, Color: "red", Piece: "P", From: []int{0, 3}, To: []int{0, 4}},
-		{Ply: 4, Color: "black", Piece: "p", From: []int{2, 6}, To: []int{2, 5}},
+		{Ply: 1, Color: "red", Piece: "C", Notation: "炮八进七", Captured: "n", From: []int{1, 2}, To: []int{1, 9}},
+		{Ply: 2, Color: "black", Piece: "r", Notation: "车1平2", Captured: "C", From: []int{0, 9}, To: []int{1, 9}},
+		{Ply: 3, Color: "red", Piece: "P", Notation: "兵九进一", From: []int{0, 3}, To: []int{0, 4}},
+		{Ply: 4, Color: "black", Piece: "p", Notation: "卒3进1", From: []int{2, 6}, To: []int{2, 5}},
 	}
 	for i, move := range moves {
 		body, err := common.Marshal(xiangqiMove{From: move.From, To: move.To})
@@ -360,12 +363,80 @@ func TestXiangqiHistoryRestoresCapturedPiecesAndUndo(t *testing.T) {
 	result, err = engine.View(replayed.Data, 0)
 	require.NoError(t, err)
 	view = result.(xiangqiView)
-	expected := xiangqiHistoryMove{Ply: 3, Color: "red", Piece: "P", From: []int{2, 3}, To: []int{2, 4}}
+	expected := xiangqiHistoryMove{Ply: 3, Color: "red", Piece: "P", Notation: "兵七进一", From: []int{2, 3}, To: []int{2, 4}}
 	require.Len(t, view.History, 3)
 	assert.Equal(t, moves[:2], view.History[:2])
 	assert.Equal(t, expected, view.History[2])
 	assert.Equal(t, &expected, view.LastMoves.Red)
 	assert.Equal(t, &moves[1], view.LastMoves.Black)
+}
+
+// 接口从只含坐标的既有存档派生标准记谱，两个座位刷新后看到相同的六步开局。
+func TestXiangqiHistoryNotationMatchesCompetitionOpening(t *testing.T) {
+	engine := xiangqiEngine{}
+	state, err := engine.New(0)
+	require.NoError(t, err)
+	expected := []xiangqiHistoryMove{
+		{Ply: 1, Color: "red", Piece: "C", Notation: "炮二平五", From: []int{7, 2}, To: []int{4, 2}},
+		{Ply: 2, Color: "black", Piece: "n", Notation: "马8进7", From: []int{7, 9}, To: []int{6, 7}},
+		{Ply: 3, Color: "red", Piece: "N", Notation: "马二进三", From: []int{7, 0}, To: []int{6, 2}},
+		{Ply: 4, Color: "black", Piece: "r", Notation: "车9平8", From: []int{8, 9}, To: []int{7, 9}},
+		{Ply: 5, Color: "red", Piece: "R", Notation: "车一平二", From: []int{8, 0}, To: []int{7, 0}},
+		{Ply: 6, Color: "black", Piece: "c", Notation: "炮8进4", From: []int{7, 7}, To: []int{7, 3}},
+	}
+	for i, move := range expected {
+		body, err := common.Marshal(xiangqiMove{From: move.From, To: move.To})
+		require.NoError(t, err)
+		state, err = engine.Play(state.Data, i%2, body)
+		require.NoError(t, err)
+	}
+	assert.NotContains(t, string(state.Data), "notation", "存档继续只保存原始棋步，无需迁移")
+	for _, seat := range []int{0, 1} {
+		result, err := engine.View(state.Data, seat)
+		require.NoError(t, err)
+		view := result.(xiangqiView)
+		assert.Equal(t, expected, view.History)
+		assert.Equal(t, &expected[4], view.LastMoves.Red)
+		assert.Equal(t, &expected[5], view.LastMoves.Black)
+	}
+}
+
+// 前车移出原路后当前棋盘已无双车同路，记谱仍须使用走前局面的“前车”；悔棋后改走后车同样正确。
+func TestXiangqiHistoryNotationUsesBoardBeforeMoveAndUndo(t *testing.T) {
+	board := []byte(strings.Repeat(".", xiangqi.Squares))
+	board[xiangqi.Square(3, 0)], board[xiangqi.Square(5, 9)] = 'K', 'k'
+	board[xiangqi.Square(2, 3)], board[xiangqi.Square(2, 6)] = 'R', 'R'
+	data, err := common.Marshal(xiangqiState{RedSeat: 0, Game: xiangqi.Game{
+		Board: string(board), Turn: xiangqi.Red, Plies: 10, Winner: xiangqi.NoColor,
+	}})
+	require.NoError(t, err)
+	engine := xiangqiEngine{}
+	body, err := common.Marshal(xiangqiMove{From: []int{2, 6}, To: []int{4, 6}})
+	require.NoError(t, err)
+	moved, err := engine.Play(data, 0, body)
+	require.NoError(t, err)
+	result, err := engine.View(moved.Data, 0)
+	require.NoError(t, err)
+	view := result.(xiangqiView)
+	require.Len(t, view.History, 1)
+	assert.Equal(t, "前车平五", view.History[0].Notation)
+	assert.Equal(t, 11, view.History[0].Ply)
+
+	asked, _, err := engine.UndoAsk(moved.Data, 0)
+	require.NoError(t, err)
+	undone, err := engine.UndoAnswer(asked.Data, 1, true)
+	require.NoError(t, err)
+	body, err = common.Marshal(xiangqiMove{From: []int{2, 3}, To: []int{4, 3}})
+	require.NoError(t, err)
+	replayed, err := engine.Play(undone.State.Data, 0, body)
+	require.NoError(t, err)
+	result, err = engine.View(replayed.Data, 1)
+	require.NoError(t, err)
+	view = result.(xiangqiView)
+	require.Len(t, view.History, 1)
+	assert.Equal(t, "后车平五", view.History[0].Notation)
+	assert.Equal(t, &view.History[0], view.LastMoves.Red)
+	assert.Nil(t, view.LastMoves.Black)
 }
 
 func TestXiangqiLegacyLastMoveKeepsMarkersWithoutInventingHistory(t *testing.T) {
@@ -401,6 +472,9 @@ func TestXiangqiLegacyLastMoveKeepsMarkersWithoutInventingHistory(t *testing.T) 
 			view := result.(xiangqiView)
 			assert.Equal(t, []xiangqiHistoryMove{}, view.History)
 			assert.Equal(t, &xiangqiMove{From: tc.expected.From, To: tc.expected.To}, view.Last)
+			encoded, err := common.Marshal(view)
+			require.NoError(t, err)
+			assert.NotContains(t, string(encoded), "notation", "旧存档缺少走前局面时，仅返回坐标")
 			if tc.name == "red" {
 				assert.Equal(t, &tc.expected, view.LastMoves.Red)
 				assert.Nil(t, view.LastMoves.Black)

@@ -55,6 +55,7 @@ type xiangqiHistoryMove struct {
 	Ply      int    `json:"ply"`
 	Color    string `json:"color"`
 	Piece    string `json:"piece"`
+	Notation string `json:"notation,omitempty"`
 	Captured string `json:"captured,omitempty"`
 	From     []int  `json:"from"`
 	To       []int  `json:"to"`
@@ -367,20 +368,29 @@ func (xiangqiEngine) View(data []byte, seat int) (any, error) {
 			}
 		}
 	}
-	// 引擎为悔棋保存了走法和被吃的子，从当前棋盘倒着还原即可知道每一步走的是哪个棋子。
+	// 引擎为悔棋保存了走法和被吃的子，从当前棋盘倒着还原走前局面，才能正确区分前后子并生成记谱。
 	// 视图直接派生自这份持久化记录，刷新或悔棋后不会残留已经撤回的走法。
 	board := []byte(state.Game.Board)
 	for i := len(state.Game.History) - 1; i >= 0; i-- {
 		step := state.Game.History[i]
-		if step.From < 0 || step.From >= xiangqi.Squares || step.To < 0 || step.To >= xiangqi.Squares || board[step.To] == '.' {
+		if step.From < 0 || step.From >= xiangqi.Squares || step.To < 0 || step.To >= xiangqi.Squares ||
+			board[step.To] == '.' || board[step.From] != '.' || len(step.Captured) > 1 {
 			return nil, xiangqi.ErrInvalidState
 		}
 		piece := board[step.To]
+		board[step.From], board[step.To] = piece, '.'
+		if step.Captured != "" {
+			board[step.To] = step.Captured[0]
+		}
+		notation, err := xiangqi.Notation(string(board), xiangqi.Move{From: step.From, To: step.To})
+		if err != nil {
+			return nil, err
+		}
 		move := xiangqiMoveView(xiangqi.Move{From: step.From, To: step.To})
 		entry := &view.History[i]
 		*entry = xiangqiHistoryMove{
 			Ply: state.Game.Plies - len(state.Game.History) + i + 1, Color: "red", Piece: string(piece),
-			Captured: step.Captured, From: move.From, To: move.To,
+			Notation: notation, Captured: step.Captured, From: move.From, To: move.To,
 		}
 		if piece >= 'a' && piece <= 'z' {
 			entry.Color = "black"
@@ -389,10 +399,6 @@ func (xiangqiEngine) View(data []byte, seat int) (any, error) {
 			}
 		} else if view.LastMoves.Red == nil {
 			view.LastMoves.Red = entry
-		}
-		board[step.From], board[step.To] = piece, '.'
-		if step.Captured != "" {
-			board[step.To] = step.Captured[0]
 		}
 	}
 	if seat >= 0 && seat == view.ToMove {

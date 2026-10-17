@@ -17,13 +17,23 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Button } from '@douyinfe/semi-ui';
-import { Undo2 } from 'lucide-react';
+import { Copy, Undo2, Volume2, VolumeX } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { getGameMetaMap } from '../../../constants';
+import { copy, showError, showSuccess } from '../../../helpers';
 import PvpGame from '../common/pvp/PvpGame';
 import { formatCoins } from '../common/api';
+import {
+  PIECE_GLYPHS,
+  formatXiangqiRecord,
+  getXiangqiCaptures,
+  groupXiangqiHistory,
+  squareLabel,
+  xiangqiMoveLabel,
+} from './records';
+import { useXiangqiSounds } from './useXiangqiSounds';
 import './xiangqi.css';
 
 // 棋盘按 SVG 的单位画：交叉点间距 CELL，四周留 MARGIN 给边框和边线上的棋子。
@@ -34,23 +44,7 @@ const HEIGHT = CELL * 9 + MARGIN * 2;
 // 连续这么多步(双方合计)没有吃子判和；过半之后在台面上提示。
 const QUIET_DRAW_PLIES = 120;
 
-// 棋子字母对应的字：红方大写、黑方小写。棋子上的字和楚河汉界一样是棋具本身的图案，各种语言都一样。
-const PIECE_GLYPHS = {
-  K: '帅',
-  A: '仕',
-  B: '相',
-  N: '马',
-  R: '车',
-  C: '炮',
-  P: '兵',
-  k: '将',
-  a: '士',
-  b: '象',
-  n: '马',
-  r: '车',
-  c: '炮',
-  p: '卒',
-};
+const CHINESE_FILES = '一二三四五六七八九';
 
 // 交叉点在屏幕上第 col 列、第 row 行(从左上角数)的 SVG 坐标。
 const pointX = (col) => MARGIN + col * CELL;
@@ -104,9 +98,6 @@ const pointStyle = (col, row) => ({
 
 const samePoint = (a, b) => a[0] === b[0] && a[1] === b[1];
 
-// 坐标固定以红方视角编号，执黑时只翻转显示，棋谱中的位置不随座位变化。
-const squareLabel = ([x, y]) => `${String.fromCharCode(65 + x)}${y + 1}`;
-
 // 棋盘上的一个棋子：圆盘、内圈与字，halo 是选中、最后一手、将军时的外圈。
 const PieceArt = ({ letter }) => (
   <svg className='xiangqi-piece' viewBox='0 0 100 100' aria-hidden>
@@ -138,10 +129,24 @@ function xiangqiResultText(result, t) {
 }
 
 // 棋盘：看的人一方在下面。轮到自己走时点自己的棋子选中，再点高亮的落点走棋；标出最后一手与被将军的将帅。
-const XiangqiBoard = ({ state, seat, canMove, over, onMove, onUndo, busy }) => {
+const XiangqiBoard = ({
+  state,
+  gameId,
+  seat,
+  canMove,
+  over,
+  onMove,
+  onUndo,
+  busy,
+}) => {
   const { t } = useTranslation();
   // 选中的棋子与选中时的步数：局面一变(自己或对手走了一步)，选中自然失效。
   const [selected, setSelected] = useState(null);
+  const historyScroll = useRef(null);
+  const { soundEnabled, toggleSound, unlockSound } = useXiangqiSounds(
+    state,
+    gameId,
+  );
 
   const flip = !!state && seat !== state.red_seat;
   // 棋盘坐标 (x,y) 在屏幕上的列与行：红方的 y=0 一侧在下面，执黑时整个棋盘旋转 180 度。
@@ -156,10 +161,32 @@ const XiangqiBoard = ({ state, seat, canMove, over, onMove, onUndo, busy }) => {
     : [];
   const last = state?.last;
   const history = state?.history || [];
+  const rounds = groupXiangqiHistory(history);
+  const captures = getXiangqiCaptures(history);
   const lastMoves = state?.last_moves || {};
   const myColor = flip ? 'black' : 'red';
   // 被将军的是轮到走的一方的将帅。
   const checkedKing = state?.check ? (state.turn === 'red' ? 'K' : 'k') : '';
+
+  useEffect(() => {
+    if (historyScroll.current) {
+      historyScroll.current.scrollTop = historyScroll.current.scrollHeight;
+    }
+  }, [state?.plies]);
+
+  const copyRecord = async () => {
+    const lines = [
+      `${t('中国象棋')} · ${t('红方')} / ${t('黑方')}`,
+      ...(state.plies > history.length
+        ? [t('仅显示第 {{ply}} 步起的记录', { ply: history[0].ply })]
+        : []),
+      formatXiangqiRecord(history, (piece) =>
+        t('吃{{piece}}', { piece: PIECE_GLYPHS[piece] }),
+      ),
+    ];
+    if (await copy(lines.join('\n'))) showSuccess(t('复制成功'));
+    else showError(t('复制失败，请手动选择文本复制'));
+  };
 
   const move = (to) => {
     setSelected(null);
@@ -256,7 +283,22 @@ const XiangqiBoard = ({ state, seat, canMove, over, onMove, onUndo, busy }) => {
       );
     });
   return (
-    <div className='xiangqi-stage'>
+    <div
+      className='xiangqi-stage'
+      onPointerDownCapture={unlockSound}
+      onKeyDownCapture={unlockSound}
+    >
+      <div className='xiangqi-sound-controls'>
+        <Button
+          size='small'
+          theme='borderless'
+          icon={soundEnabled ? <Volume2 size={15} /> : <VolumeX size={15} />}
+          aria-pressed={soundEnabled}
+          onClick={toggleSound}
+        >
+          {soundEnabled ? t('音效已开启') : t('音效已关闭')}
+        </Button>
+      </div>
       {state && (
         <div className='game-hud xiangqi-hud'>
           <span className={`xiangqi-side is-${myColor}`}>
@@ -348,10 +390,16 @@ const XiangqiBoard = ({ state, seat, canMove, over, onMove, onUndo, busy }) => {
                 </span>
                 {previous ? (
                   <span className='xiangqi-move-detail'>
-                    <span>{PIECE_GLYPHS[previous.piece]}</span>
-                    <span className='xiangqi-move-coordinates'>
-                      {squareLabel(previous.from)} → {squareLabel(previous.to)}
+                    <span className='xiangqi-move-notation'>
+                      {xiangqiMoveLabel(previous)}
                     </span>
+                    {previous.captured && (
+                      <span className='xiangqi-history-capture'>
+                        {t('吃{{piece}}', {
+                          piece: PIECE_GLYPHS[previous.captured],
+                        })}
+                      </span>
+                    )}
                   </span>
                 ) : (
                   <span className='xiangqi-move-empty'>
@@ -396,35 +444,23 @@ const XiangqiBoard = ({ state, seat, canMove, over, onMove, onUndo, busy }) => {
           />
           <path className='xiangqi-grid' d={GRID_PATH} />
           <path className='xiangqi-marks' d={MARK_PATH} />
-          {Array.from({ length: 9 }, (_, x) => {
-            const [col] = toScreen([x, 0]);
-            return (
-              <text
-                key={`file-${x}`}
-                className='xiangqi-coordinate'
-                x={pointX(col)}
-                y={HEIGHT - 9}
-                textAnchor='middle'
-              >
-                {String.fromCharCode(65 + x)}
-              </text>
-            );
-          })}
-          {Array.from({ length: 10 }, (_, y) => {
-            const [, row] = toScreen([0, y]);
-            return (
-              <text
-                key={`rank-${y}`}
-                className='xiangqi-coordinate'
-                x='12'
-                y={pointY(row)}
-                dy='0.36em'
-                textAnchor='middle'
-              >
-                {y + 1}
-              </text>
-            );
-          })}
+          {['red', 'black'].flatMap((color) =>
+            Array.from({ length: 9 }, (_, x) => {
+              const [col] = toScreen([x, 0]);
+              const below = color === myColor;
+              return (
+                <text
+                  key={`${color}-file-${x}`}
+                  className={`xiangqi-coordinate is-${color}`}
+                  x={pointX(col)}
+                  y={below ? HEIGHT - 10 : 22}
+                  textAnchor='middle'
+                >
+                  {color === 'red' ? CHINESE_FILES[8 - x] : x + 1}
+                </text>
+              );
+            }),
+          )}
           {['red', 'black'].map((color) => {
             const previous = lastMoves[color];
             if (!previous) return null;
@@ -476,13 +512,84 @@ const XiangqiBoard = ({ state, seat, canMove, over, onMove, onUndo, busy }) => {
         <>
           <div className='xiangqi-coordinate-note'>
             <span>{t('起点虚线，落点实线')}</span>
-            <span>{t('坐标以红方视角为准')}</span>
+            <span>{t('双方路数均从各自右侧起算')}</span>
           </div>
+          <section className='xiangqi-captures' aria-label={t('吃子记录')}>
+            <div className='xiangqi-history-heading'>
+              <h3>{t('吃子记录')}</h3>
+              {state.plies > history.length && (
+                <span className='xiangqi-captures-note'>
+                  {t('仅统计已记录的吃子')}
+                </span>
+              )}
+            </div>
+            <div className='xiangqi-captured-sides'>
+              {['red', 'black'].map((color) => (
+                <div
+                  key={color}
+                  className={`xiangqi-captured-side is-${color}`}
+                >
+                  <div className='xiangqi-captured-heading'>
+                    <span className='xiangqi-move-side'>
+                      <i aria-hidden />
+                      {color === 'red' ? t('红方吃子') : t('黑方吃子')}
+                    </span>
+                    <span>
+                      {t('共 {{count}} 子', { count: captures[color].length })}
+                    </span>
+                  </div>
+                  {captures[color].length > 0 ? (
+                    <ol className='xiangqi-captured-pieces'>
+                      {captures[color].map((entry) => {
+                        const description = t(
+                          '第 {{round}} 回合：{{move}}，吃{{piece}}',
+                          {
+                            round: Math.ceil(entry.ply / 2),
+                            move: xiangqiMoveLabel(entry),
+                            piece: PIECE_GLYPHS[entry.captured],
+                          },
+                        );
+                        return (
+                          <li
+                            key={entry.ply}
+                            title={description}
+                            aria-label={description}
+                          >
+                            <span
+                              className={`xiangqi-captured-piece is-${color === 'red' ? 'black' : 'red'}`}
+                            >
+                              {PIECE_GLYPHS[entry.captured]}
+                            </span>
+                          </li>
+                        );
+                      })}
+                    </ol>
+                  ) : (
+                    <p className='xiangqi-captured-empty'>{t('尚无吃子')}</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </section>
           <section className='xiangqi-history' aria-label={t('行棋记录')}>
             <div className='xiangqi-history-heading'>
               <h3>{t('行棋记录')}</h3>
-              <span>{t('共 {{count}} 步', { count: history.length })}</span>
+              <div className='xiangqi-history-actions'>
+                <span>{t('共 {{count}} 步', { count: history.length })}</span>
+                <Button
+                  size='small'
+                  theme='borderless'
+                  icon={<Copy size={14} />}
+                  disabled={history.length === 0}
+                  onClick={copyRecord}
+                >
+                  {t('复制棋谱')}
+                </Button>
+              </div>
             </div>
+            <p className='xiangqi-notation-note'>
+              {t('红方用中文数字，黑方用阿拉伯数字，进退以行棋方为准')}
+            </p>
             {state.plies > history.length && (
               <p className='xiangqi-history-note'>
                 {history.length > 0
@@ -491,38 +598,61 @@ const XiangqiBoard = ({ state, seat, canMove, over, onMove, onUndo, busy }) => {
               </p>
             )}
             {history.length > 0 ? (
-              <ol className='xiangqi-history-list'>
-                {history
-                  .slice()
-                  .reverse()
-                  .map((entry) => (
-                    <li key={entry.ply} className={`is-${entry.color}`}>
-                      <span
-                        className='xiangqi-history-ply'
-                        aria-label={t('第 {{ply}} 步', { ply: entry.ply })}
+              <div className='xiangqi-history-scroll' ref={historyScroll}>
+                <table className='xiangqi-history-table'>
+                  <thead>
+                    <tr>
+                      <th scope='col'>{t('回合')}</th>
+                      <th scope='col' className='is-red'>
+                        {t('红方')}
+                      </th>
+                      <th scope='col' className='is-black'>
+                        {t('黑方')}
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rounds.map((round) => (
+                      <tr
+                        key={round.number}
+                        className={
+                          round.number === Math.ceil(state.plies / 2)
+                            ? 'is-current'
+                            : undefined
+                        }
                       >
-                        {entry.ply}
-                      </span>
-                      <span className='xiangqi-move-side'>
-                        <i aria-hidden />
-                        {entry.color === myColor ? t('己方') : t('对方')}
-                      </span>
-                      <span className='xiangqi-history-piece'>
-                        {PIECE_GLYPHS[entry.piece]}
-                      </span>
-                      <span className='xiangqi-move-coordinates'>
-                        {squareLabel(entry.from)} → {squareLabel(entry.to)}
-                      </span>
-                      {entry.captured && (
-                        <span className='xiangqi-history-capture'>
-                          {t('吃{{piece}}', {
-                            piece: PIECE_GLYPHS[entry.captured],
-                          })}
-                        </span>
-                      )}
-                    </li>
-                  ))}
-              </ol>
+                        <th scope='row'>{round.number}</th>
+                        {['red', 'black'].map((color) => {
+                          const entry = round[color];
+                          return (
+                            <td key={color} className={`is-${color}`}>
+                              {entry ? (
+                                <>
+                                  <span
+                                    className='xiangqi-history-notation'
+                                    title={`${squareLabel(entry.from)} → ${squareLabel(entry.to)}`}
+                                  >
+                                    {xiangqiMoveLabel(entry)}
+                                  </span>
+                                  {entry.captured && (
+                                    <span className='xiangqi-history-capture'>
+                                      {t('吃{{piece}}', {
+                                        piece: PIECE_GLYPHS[entry.captured],
+                                      })}
+                                    </span>
+                                  )}
+                                </>
+                              ) : (
+                                <span className='xiangqi-move-empty'>—</span>
+                              )}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             ) : (
               <p className='xiangqi-history-note'>{t('暂无行棋记录')}</p>
             )}
@@ -567,9 +697,20 @@ const Xiangqi = () => {
           '每人每局可以免费悔棋 3 次，之后每次 1 个游戏币；房间对局要对方同意，人机对战由电脑直接同意',
         ),
       ]}
-      renderBoard={({ state, seat, canMove, busy, over, onMove, onUndo }) => (
+      renderBoard={({
+        state,
+        sessionId,
+        roomId,
+        seat,
+        canMove,
+        busy,
+        over,
+        onMove,
+        onUndo,
+      }) => (
         <XiangqiBoard
           state={state}
+          gameId={sessionId || (roomId != null ? `room:${roomId}` : undefined)}
           seat={seat}
           canMove={canMove}
           busy={busy}

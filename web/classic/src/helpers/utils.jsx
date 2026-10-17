@@ -99,7 +99,7 @@ export async function copy(text) {
       textarea.style.top = '-9999px';
       window.document.body.appendChild(textarea);
       textarea.select();
-      window.document.execCommand('copy');
+      okay = window.document.execCommand('copy');
       window.document.body.removeChild(textarea);
     } catch (e) {
       okay = false;
