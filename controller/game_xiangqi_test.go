@@ -485,3 +485,45 @@ func TestXiangqiLegacyLastMoveKeepsMarkersWithoutInventingHistory(t *testing.T) 
 		})
 	}
 }
+
+// 悔棋被拒绝之后只有提出的一方要等到下一步才能再提；拒绝的一方既不该看到"对方拒绝了悔棋"，也不该连自己的悔棋一起被锁住。
+func TestXiangqiDeclinedUndoOnlyBlocksTheAsker(t *testing.T) {
+	env := newGameTestEnv(t, xiangqiSetting())
+	host := env.player(50, gameTestIpA)
+	guest := env.player(50, gameTestIpB)
+
+	created := host.ok(http.MethodPost, "/api/game/rooms", map[string]any{"game": gameXiangqi, "stake": 10})
+	roomPath := fmt.Sprintf("/api/game/rooms/%v", created["id"])
+	joined := guest.ok(http.MethodPost, roomPath+"/join", nil)
+	redSeat := int(joined["state"].(map[string]any)["red_seat"].(float64))
+	players := [2]*gamePlayer{host, guest}
+	red, black := players[redSeat], players[1-redSeat]
+
+	start := red.ok(http.MethodGet, roomPath, nil)
+	red.ok(http.MethodPost, roomPath+"/move", xiangqiMoveBody(start["version"], 1, 0, 2, 2))
+	afterRed := black.ok(http.MethodGet, roomPath, nil)
+	black.ok(http.MethodPost, roomPath+"/move", xiangqiMoveBody(afterRed["version"], 1, 9, 2, 7))
+
+	red.ok(http.MethodPost, roomPath+"/undo", nil)
+	black.ok(http.MethodPost, roomPath+"/undo/answer", map[string]any{"accept": false})
+
+	asker := red.ok(http.MethodGet, roomPath, nil)["state"].(map[string]any)["undo"].(map[string]any)
+	assert.Equal(t, true, asker["declined"], "提出的一方知道自己被拒绝")
+	assert.Equal(t, false, asker["available"], "提出的一方要走一步之后才能再提")
+	red.fails(http.MethodPost, roomPath+"/undo", nil)
+
+	decliner := black.ok(http.MethodGet, roomPath, nil)["state"].(map[string]any)["undo"].(map[string]any)
+	assert.Equal(t, false, decliner["declined"], "拒绝的一方没有被拒绝过")
+	assert.Equal(t, true, decliner["available"], "拒绝的一方还可以悔自己刚走的一步")
+	black.ok(http.MethodPost, roomPath+"/undo", nil)
+}
+
+// 升级前的存档把 declined 存成一个数字(被拒绝时的步数)。读旧存档不能失败，也不该把双方都锁住。
+func TestXiangqiLoadsLegacyDeclinedUndo(t *testing.T) {
+	legacy := `{"red_seat":0,"game":{"board":"` + xiangqi.StartBoard + `","turn":0,"plies":3,"quiet":3,"winner":-1,"history":[]},"undo":{"declined":3}}`
+	state, err := loadXiangqiState([]byte(legacy))
+	require.NoError(t, err)
+	assert.EqualValues(t, 3, state.Undo.Declined.Plies)
+	assert.False(t, state.declinedBy(0))
+	assert.False(t, state.declinedBy(1))
+}

@@ -33,8 +33,24 @@ type xiangqiEngine struct{}
 type xiangqiUndoState struct {
 	Used    [2]int `json:"used,omitempty"`
 	Pending *int   `json:"pending,omitempty"`
-	// Declined 是上一次被拒绝时的步数：再走一步之前不能再提，免得一直向对方发请求。
-	Declined *int `json:"declined,omitempty"`
+	// Declined 是上一次被拒绝时提出悔棋的座位与当时的步数：这个座位再走一步之前不能再提，免得一直向对方发请求。
+	Declined *xiangqiUndoDecline `json:"declined,omitempty"`
+}
+
+type xiangqiUndoDecline struct {
+	Seat  int `json:"seat"`
+	Plies int `json:"plies"`
+}
+
+// UnmarshalJSON 兼容旧存档：之前的 declined 只记了步数，没有记是谁提的。读出来当作未知座位，双方都不因此被锁住。
+func (d *xiangqiUndoDecline) UnmarshalJSON(data []byte) error {
+	var plies int
+	if err := common.Unmarshal(data, &plies); err == nil {
+		*d = xiangqiUndoDecline{Seat: -1, Plies: plies}
+		return nil
+	}
+	type plain xiangqiUndoDecline
+	return common.Unmarshal(data, (*plain)(d))
 }
 
 // xiangqiState 是房间或人机对局里保存的状态：一局棋、执红的座位与悔棋的进度。
@@ -66,9 +82,10 @@ type xiangqiLastMoves struct {
 	Black *xiangqiHistoryMove `json:"black"`
 }
 
-// declined 表示上一次悔棋请求在这一步被拒绝了，再走一步之前不能再提。
-func (s *xiangqiState) declined() bool {
-	return s.Undo.Declined != nil && *s.Undo.Declined == s.Game.Plies
+// declinedBy 表示 seat 上一次的悔棋请求在现在这一步被拒绝了，再走一步之前不能再提。拒绝的一方不受影响。
+func (s *xiangqiState) declinedBy(seat int) bool {
+	decline := s.Undo.Declined
+	return decline != nil && decline.Seat == seat && decline.Plies == s.Game.Plies
 }
 
 // undoFreeLeft 返回 seat 这一方还剩几次免费悔棋。
@@ -125,14 +142,6 @@ func (s *xiangqiState) colorOf(seat int) int {
 		return int(xiangqi.Black)
 	}
 	return -1
-}
-
-// colorOffset 返回拍在棋盘下方(先走)的是哪个座位对应的先手偏移。
-func (s *xiangqiState) colorOffset(seat int) int {
-	if seat == s.RedSeat {
-		return 0
-	}
-	return 1
 }
 
 // xiangqiUndoView 是悔棋的状态：看的人还剩几次免费悔棋、下一次要花多少游戏币、现在能不能悔，以及有没有人在等他回应。
@@ -273,7 +282,7 @@ func (xiangqiEngine) UndoAsk(data []byte, seat int) (pvpState, model.GameCoins, 
 	switch {
 	case state.Undo.Pending != nil:
 		return pvpState{}, 0, errPvpUndoPending
-	case state.declined():
+	case state.declinedBy(seat):
 		return pvpState{}, 0, errPvpUndoDeclined
 	case state.Game.Over():
 		return pvpState{}, 0, errPvpUndoUnavailable
@@ -300,8 +309,7 @@ func (xiangqiEngine) UndoAnswer(data []byte, seat int, accept bool) (pvpUndo, er
 	asker := *state.Undo.Pending
 	state.Undo.Pending = nil
 	if !accept {
-		plies := state.Game.Plies
-		state.Undo.Declined = &plies
+		state.Undo.Declined = &xiangqiUndoDecline{Seat: asker, Plies: state.Game.Plies}
 		next, err := state.pvp()
 		return pvpUndo{State: next, Payer: -1}, err
 	}
@@ -419,7 +427,7 @@ func (s *xiangqiState) undoView(seat int) xiangqiUndoView {
 	if s.Undo.Pending != nil {
 		view.PendingBy = *s.Undo.Pending
 	}
-	view.Declined = s.declined()
+	view.Declined = s.declinedBy(seat)
 	_, _, ok := s.takeback(seat)
 	view.FreeLeft = s.undoFreeLeft(seat)
 	view.Cost, _ = s.undoCost(seat)
