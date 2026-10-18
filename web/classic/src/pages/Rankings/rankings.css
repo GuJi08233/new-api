@@ -243,6 +243,10 @@ For commercial licensing, please contact support@quantumnous.com
   border: 1px solid var(--semi-color-border);
   background: var(--semi-color-bg-1);
   overflow: hidden;
+  /* Rows react to the card's own width rather than the viewport's: the same
+     board sits in a 340px column on one breakpoint and a 720px full-width
+     card on another, so viewport queries cannot tell them apart. */
+  container-type: inline-size;
 }
 
 .rankings-section-header {
@@ -326,6 +330,18 @@ For commercial licensing, please contact support@quantumnous.com
   background: var(--semi-color-fill-0);
 }
 
+/* Wrappers keep the fixed-width columns from being squeezed by flex shrink.
+   Without them the name column — the only flexible one — collapsed to zero
+   width on phones and the model name disappeared entirely. */
+.rankings-row-icon,
+.rankings-row-spark,
+.rankings-row-delta,
+.rankings-row-growth {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
 .rankings-rank-badge {
   display: inline-flex;
   align-items: center;
@@ -385,8 +401,11 @@ For commercial licensing, please contact support@quantumnous.com
 }
 
 .rankings-row-main {
-  flex: 1;
-  min-width: 0;
+  flex: 1 1 auto;
+  /* A hard floor keeps the row readable when the value and growth columns are
+     wide; below it the row drops columns instead of shrinking the name. */
+  min-width: 96px;
+  overflow: hidden;
 }
 
 .rankings-row-name {
@@ -446,6 +465,13 @@ For commercial licensing, please contact support@quantumnous.com
   font-family: 'JetBrains Mono', 'SF Mono', monospace;
   color: var(--semi-color-text-0);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* The perf boards reuse the row shell, so their metric keeps the row layout
+   but drops the 'tokens' caption styling. */
+.rankings-row-value-num.rankings-perf-value {
+  font-size: 13px;
 }
 
 .rankings-row-value-label {
@@ -509,6 +535,58 @@ For commercial licensing, please contact support@quantumnous.com
   background: var(--semi-color-fill-0);
   border-radius: 4px;
   opacity: 0.4;
+}
+
+/* ---------- Compact trend legend (phones) ---------- */
+
+/* One scrolling row of chips. VChart's own legend forces one entry per row at
+   ~330px (each entry adds a row before the pager kicks in), which is what used
+   to eat the plot area; a scrolling row costs a fixed 28px instead. */
+.rankings-legend {
+  display: flex;
+  gap: 6px;
+  margin: 4px 0 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.rankings-legend::-webkit-scrollbar {
+  display: none;
+}
+
+.rankings-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
+  padding: 3px 9px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 999px;
+  background: var(--semi-color-fill-0);
+  color: var(--semi-color-text-1);
+  font-size: 11px;
+  line-height: 16px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    opacity 0.15s,
+    background 0.15s;
+}
+
+.rankings-legend-item:hover {
+  background: var(--semi-color-fill-1);
+}
+
+.rankings-legend-item.is-off {
+  opacity: 0.45;
+}
+
+.rankings-legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
 }
 
 /* ---------- Misc ---------- */
@@ -627,6 +705,34 @@ For commercial licensing, please contact support@quantumnous.com
   animation-delay: 0.1s;
 }
 
+/* ---------- Show more ---------- */
+
+.rankings-show-more {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  padding: 9px 12px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 8px;
+  background: var(--semi-color-fill-0);
+  color: var(--semi-color-text-1);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+
+.rankings-show-more:hover {
+  background: var(--semi-color-fill-1);
+  color: var(--semi-color-text-0);
+}
+
+.rankings-show-more:active {
+  transform: scale(0.995);
+}
+
 /* ---------- Responsive ---------- */
 
 @media (max-width: 640px) {
@@ -634,15 +740,166 @@ For commercial licensing, please contact support@quantumnous.com
     padding: 20px 14px 40px;
   }
 
+  .rankings-hero-head {
+    gap: 10px;
+  }
+
   .rankings-hero-title {
     font-size: 22px;
   }
 
-  .rankings-row-value {
-    min-width: 60px;
+  .rankings-hero-sub {
+    font-size: 13px;
   }
 
+  /* Stat cards: a one-column stack of full-width cards costs three screens
+     of scrolling for three numbers. Two per row keeps the numbers readable
+     and the page short. */
+  .rankings-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .rankings-stat-card {
+    padding: 14px 14px 12px;
+    border-radius: 12px;
+  }
+
+  .rankings-stat-label {
+    font-size: 11px;
+    letter-spacing: 0.3px;
+  }
+
+  .rankings-stat-value {
+    font-size: 20px;
+    overflow-wrap: anywhere;
+  }
+
+  .rankings-stat-hint {
+    font-size: 10px;
+  }
+
+  /* An odd card count leaves the last one full-width instead of a gap. */
+  .rankings-stats > .rankings-stat-card:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+
+  .rankings-section-header {
+    padding: 13px 14px;
+    gap: 10px;
+  }
+
+  .rankings-section-icon {
+    width: 30px;
+    height: 30px;
+    font-size: 15px;
+  }
+
+  .rankings-section-title {
+    font-size: 14px;
+  }
+
+  .rankings-section-subtitle {
+    font-size: 11px;
+  }
+
+  .rankings-section-body {
+    padding: 8px 14px 12px;
+  }
+
+  /* Rows: tighter padding and gaps so the name column keeps real width. */
+  .rankings-row {
+    gap: 8px;
+    padding: 10px 6px;
+    margin: 0 -6px;
+  }
+
+  .rankings-rank-badge {
+    width: 24px;
+    height: 24px;
+    font-size: 11px;
+  }
+
+  .rankings-vendor-icon,
+  .rankings-avatar {
+    width: 28px;
+    height: 28px;
+  }
+
+  .rankings-row-name {
+    font-size: 12.5px;
+  }
+
+  .rankings-row-value {
+    min-width: 0;
+  }
+
+  .rankings-row-value-num {
+    font-size: 12px;
+  }
+
+  .rankings-row-value-label {
+    font-size: 9.5px;
+  }
+
+  .rankings-growth {
+    min-width: 0;
+    padding: 2px 6px;
+    font-size: 10px;
+  }
+
+  .rankings-sparkline {
+    width: 56px;
+    height: 22px;
+  }
+
+  /* A minmax floor wider than the phone (340px in a 292px column at 320px
+     wide) pushes the card outside the viewport; let the tracks shrink. */
+  .rankings-grid-2,
+  .rankings-grid-3 {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  /* Boards scroll as part of the page on phones: a fixed 480px inner scroll
+     box nests two scroll directions inside a touch surface. The 480px cap
+     lives on desktop only; overriding it here keeps the page scroll as one
+     surface while the row count stays capped by `MOBILE_BOARD_ROWS`. */
+  .rankings-scroll {
+    max-height: none;
+    overflow: visible;
+    padding: 0;
+    margin: 0;
+  }
+
+  /* The chart's height comes from the `height` prop (the SVG/canvas is sized
+     to this box), so the mobile override is applied in JSX, not here — a CSS
+     `height` on the wrapper would not resize the rendered chart. */
   .rankings-trend-chart {
     margin-bottom: 8px;
+  }
+
+  .rankings-show-more {
+    margin-top: 6px;
+  }
+}
+
+/* Narrow boards — a phone screen, or a board sharing a row with two others —
+   keep the identity columns and drop the fixed-width extras: the growth pill
+   (the bar already carries that comparison) and the sparkline (decorative on
+   the perf boards). The rank-delta chip on the movers boards stays: it is the
+   reason that board exists. */
+@container (max-width: 400px) {
+  .rankings-row-growth,
+  .rankings-row-spark {
+    display: none;
+  }
+
+  .rankings-row-main {
+    min-width: 76px;
+  }
+
+  .rankings-row {
+    gap: 8px;
   }
 }

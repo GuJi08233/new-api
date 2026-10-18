@@ -41,6 +41,7 @@ import { VChart } from '@visactor/react-vchart';
 import { initVChartSemiTheme } from '@visactor/vchart-semi-theme';
 import { useTranslation } from 'react-i18next';
 import { API, showError, getLobeHubIcon, renderQuota } from '../../helpers';
+import { useIsMobile } from '../../hooks/common/useIsMobile';
 import './rankings.css';
 
 const { Text } = Typography;
@@ -102,6 +103,29 @@ function formatTrendTime(ts) {
   });
 }
 
+// Long model names would each take most of a phone-width legend line, leaving
+// room for one entry per row. The compact legend keeps the head of the name
+// so two entries fit per line; the full name stays in the tooltip.
+function truncateLegendLabel(text, max = 14) {
+  const label = String(text ?? '');
+  return label.length > max ? `${label.slice(0, max - 1)}…` : label;
+}
+
+// VChart's default categorical palette. The compact legend draws its dots in
+// the DOM, so it needs the same colors to stay in step with the lines.
+const SERIES_COLORS = [
+  '#1664FF',
+  '#1AC6FF',
+  '#FF8A00',
+  '#3CC780',
+  '#7442D4',
+  '#FFC400',
+  '#304D77',
+  '#B48DEB',
+  '#009488',
+  '#FF7DDA',
+];
+
 function fillTrendSeries(points, seriesField, valueField, fillMissing = true) {
   if (!fillMissing) return points;
 
@@ -140,25 +164,70 @@ function buildMetricTrendData(models, metric, allowZero = false) {
   return fillTrendSeries(points, 'Model', 'Value', false);
 }
 
+/**
+ * Trend chart with a built-in legend. On a phone VChart lays the legend out
+ * one entry per row — the canvas is only ~330px wide and every model name eats
+ * a full line — which cut the plot area down to a few rows. The compact layout
+ * therefore hides VChart's legend and renders the entries as a single
+ * horizontally scrollable chip row above the chart; tapping a chip hides that
+ * series, matching the legend behaviour it replaces.
+ */
 function TrendChart({
   data,
   yField,
   seriesField,
   formatValue = formatNumber,
-  height = 240,
+  compact = false,
 }) {
+  // A phone-width chart is shorter so two of them fit one screen; the height
+  // has to be passed to the chart, not set in CSS, because the renderer sizes
+  // its canvas to the wrapper at mount.
+  const height = compact ? 200 : 240;
+  const series = useMemo(
+    () => [...new Set(data.map((point) => point[seriesField]))],
+    [data, seriesField],
+  );
+  const [hiddenSeries, setHiddenSeries] = useState(() => new Set());
+
+  // Filtering the data (rather than the hidden legend component) is what makes
+  // the toggle work: with `legends.visible: false` there is no legend
+  // component for the imperative setLegendSelectedData API to reach.
+  const visibleData = useMemo(
+    () =>
+      hiddenSeries.size === 0
+        ? data
+        : data.filter((point) => !hiddenSeries.has(point[seriesField])),
+    [data, hiddenSeries, seriesField],
+  );
+
+  const toggleSeries = (name) => {
+    setHiddenSeries((previous) => {
+      const next = new Set(previous);
+      if (next.has(name)) {
+        next.delete(name);
+      } else if (next.size < series.length - 1) {
+        // Keep at least one series on the chart; an empty chart reads as a
+        // loading failure rather than a filter.
+        next.add(name);
+      }
+      return next;
+    });
+  };
+
   const spec = useMemo(
     () => ({
       type: 'line',
-      data: [{ id: 'rankingsTrendData', values: data }],
+      data: [{ id: 'rankingsTrendData', values: visibleData }],
       xField: 'Time',
       yField,
       seriesField,
-      legends: {
-        visible: true,
-        orient: 'top',
-        selectMode: 'single',
-      },
+      // Pinning the palette keeps the DOM legend's dots in step with the
+      // lines; the theme's generated palette is not readable from here.
+      color: SERIES_COLORS,
+      // The compact legend lives in the DOM above the chart.
+      legends: compact
+        ? { visible: false }
+        : { visible: true, orient: 'top', selectMode: 'single' },
       line: { style: { lineWidth: 2, curveType: 'monotone' } },
       point: { visible: false },
       axes: [
@@ -178,13 +247,40 @@ function TrendChart({
         },
       },
     }),
-    [data, formatValue, seriesField, yField],
+    [visibleData, formatValue, seriesField, yField, compact],
   );
 
   return (
-    <div className='rankings-trend-chart' style={{ height }}>
-      <VChart spec={spec} />
-    </div>
+    <>
+      {compact && series.length > 1 && (
+        <div className='rankings-legend' role='group'>
+          {series.map((name, index) => {
+            const hidden = hiddenSeries.has(name);
+            return (
+              <button
+                type='button'
+                key={name}
+                className={`rankings-legend-item${hidden ? ' is-off' : ''}`}
+                aria-pressed={!hidden}
+                title={name}
+                onClick={() => toggleSeries(name)}
+              >
+                <span
+                  className='rankings-legend-dot'
+                  style={{
+                    background: SERIES_COLORS[index % SERIES_COLORS.length],
+                  }}
+                />
+                {truncateLegendLabel(name, 11)}
+              </button>
+            );
+          })}
+        </div>
+      )}
+      <div className='rankings-trend-chart' style={{ height }}>
+        <VChart spec={spec} />
+      </div>
+    </>
   );
 }
 
@@ -388,6 +484,8 @@ function LeaderboardRow({
   sub,
   value,
   valueLabel,
+  valueClassName = '',
+  valueStyle,
   growth,
   sparkline,
   percent,
@@ -396,7 +494,7 @@ function LeaderboardRow({
   return (
     <div className='rankings-row'>
       <RankBadge rank={rank} />
-      {icon}
+      {icon && <span className='rankings-row-icon'>{icon}</span>}
       <div className='rankings-row-main'>
         <div className='rankings-row-name'>{name}</div>
         {sub && <div className='rankings-row-sub'>{sub}</div>}
@@ -409,15 +507,51 @@ function LeaderboardRow({
           </div>
         )}
       </div>
-      {sparkline}
+      {sparkline && <span className='rankings-row-spark'>{sparkline}</span>}
       <div className='rankings-row-value'>
-        <div className='rankings-row-value-num'>{value}</div>
+        <div
+          className={`rankings-row-value-num ${valueClassName}`.trim()}
+          style={valueStyle}
+        >
+          {value}
+        </div>
         {valueLabel && (
           <div className='rankings-row-value-label'>{valueLabel}</div>
         )}
       </div>
-      {growth !== undefined && growth !== null && <GrowthPill value={growth} />}
+
+      {growth !== undefined && growth !== null && (
+        <span className='rankings-row-growth'>
+          <GrowthPill value={growth} />
+        </span>
+      )}
     </div>
+  );
+}
+
+// ============================================================================
+// Mobile board paging
+// ============================================================================
+
+// The inner 480px scroll box is disabled on phones (nested scrolling on touch
+// is unusable), so an uncapped board would push the page several screens long.
+// Phones get the first screenful of every board, with the rest one tap away.
+const MOBILE_BOARD_ROWS = 10;
+
+function useBoardRows(rows, isMobile, limit = MOBILE_BOARD_ROWS) {
+  const [expanded, setExpanded] = useState(false);
+  const canToggle = isMobile && rows.length > limit;
+  const visibleRows = canToggle && !expanded ? rows.slice(0, limit) : rows;
+  const toggle = useCallback(() => setExpanded((value) => !value), []);
+  return { visibleRows, canToggle, expanded, toggle };
+}
+
+function ShowMore({ expanded, onClick }) {
+  const { t } = useTranslation();
+  return (
+    <button type='button' className='rankings-show-more' onClick={onClick}>
+      {expanded ? t('收起') : t('显示更多')}
+    </button>
   );
 }
 
@@ -449,6 +583,7 @@ function ListSkeleton({ rows = 6 }) {
 
 function LLMRankings({ period, onRange }) {
   const { t } = useTranslation();
+  const isMobile = useIsMobile();
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState(null);
 
@@ -567,6 +702,9 @@ function LLMRankings({ period, onRange }) {
     );
   }, [data]);
 
+  const tokenBoard = useBoardRows(data?.models || [], isMobile);
+  const requestBoard = useBoardRows(data?.models_by_requests || [], isMobile);
+
   if (loading) {
     return <ListSkeleton />;
   }
@@ -625,6 +763,7 @@ function LLMRankings({ period, onRange }) {
               yField='Tokens'
               seriesField='Model'
               formatValue={formatNumber}
+              compact={isMobile}
             />
           ) : (
             <Empty description={t('暂无数据')} />
@@ -646,6 +785,7 @@ function LLMRankings({ period, onRange }) {
               yField='Share'
               seriesField='Vendor'
               formatValue={formatPercentValue}
+              compact={isMobile}
             />
           ) : (
             <Empty description={t('暂无数据')} />
@@ -661,7 +801,7 @@ function LLMRankings({ period, onRange }) {
           title={t('模型排行')}
           subtitle={t('按 Token 用量排名的热门模型')}
         >
-          {(data.models || []).map((m) => (
+          {tokenBoard.visibleRows.map((m) => (
             <LeaderboardRow
               key={m.model_name}
               rank={m.rank}
@@ -685,6 +825,12 @@ function LLMRankings({ period, onRange }) {
               }
             />
           ))}
+          {tokenBoard.canToggle && (
+            <ShowMore
+              expanded={tokenBoard.expanded}
+              onClick={tokenBoard.toggle}
+            />
+          )}
         </SectionCard>
       </div>
 
@@ -696,7 +842,7 @@ function LLMRankings({ period, onRange }) {
           title={t('调用次数排行')}
           subtitle={t('按请求次数排名的热门模型')}
         >
-          {(data.models_by_requests || []).map((m) => (
+          {requestBoard.visibleRows.map((m) => (
             <LeaderboardRow
               key={m.model_name}
               rank={m.rank}
@@ -713,6 +859,12 @@ function LLMRankings({ period, onRange }) {
               }
             />
           ))}
+          {requestBoard.canToggle && (
+            <ShowMore
+              expanded={requestBoard.expanded}
+              onClick={requestBoard.toggle}
+            />
+          )}
         </SectionCard>
       </div>
 
@@ -728,26 +880,32 @@ function LLMRankings({ period, onRange }) {
             >
               {data.top_movers.map((m) => (
                 <div className='rankings-row' key={m.model_name}>
-                  <VendorIcon icon={m.vendor_icon} />
+                  <span className='rankings-row-icon'>
+                    <VendorIcon icon={m.vendor_icon} />
+                  </span>
                   <div className='rankings-row-main'>
                     <div className='rankings-row-name'>{m.model_name}</div>
                     {m.vendor && (
                       <div className='rankings-row-sub'>{m.vendor}</div>
                     )}
                   </div>
-                  <Tag
-                    color='green'
-                    size='small'
-                    shape='circle'
-                    style={{
-                      fontWeight: 600,
-                      fontFamily: MONO_FONT,
-                      flexShrink: 0,
-                    }}
-                  >
-                    ↑ {Math.abs(m.rank_delta)}
-                  </Tag>
-                  <GrowthPill value={m.growth_pct} />
+                  <span className='rankings-row-delta'>
+                    <Tag
+                      color='green'
+                      size='small'
+                      shape='circle'
+                      style={{
+                        fontWeight: 600,
+                        fontFamily: MONO_FONT,
+                        flexShrink: 0,
+                      }}
+                    >
+                      ↑ {Math.abs(m.rank_delta)}
+                    </Tag>
+                  </span>
+                  <span className='rankings-row-growth'>
+                    <GrowthPill value={m.growth_pct} />
+                  </span>
                 </div>
               ))}
             </SectionCard>
@@ -761,26 +919,32 @@ function LLMRankings({ period, onRange }) {
             >
               {data.top_droppers.map((m) => (
                 <div className='rankings-row' key={m.model_name}>
-                  <VendorIcon icon={m.vendor_icon} />
+                  <span className='rankings-row-icon'>
+                    <VendorIcon icon={m.vendor_icon} />
+                  </span>
                   <div className='rankings-row-main'>
                     <div className='rankings-row-name'>{m.model_name}</div>
                     {m.vendor && (
                       <div className='rankings-row-sub'>{m.vendor}</div>
                     )}
                   </div>
-                  <Tag
-                    color='red'
-                    size='small'
-                    shape='circle'
-                    style={{
-                      fontWeight: 600,
-                      fontFamily: MONO_FONT,
-                      flexShrink: 0,
-                    }}
-                  >
-                    ↓ {Math.abs(m.rank_delta)}
-                  </Tag>
-                  <GrowthPill value={m.growth_pct} />
+                  <span className='rankings-row-delta'>
+                    <Tag
+                      color='red'
+                      size='small'
+                      shape='circle'
+                      style={{
+                        fontWeight: 600,
+                        fontFamily: MONO_FONT,
+                        flexShrink: 0,
+                      }}
+                    >
+                      ↓ {Math.abs(m.rank_delta)}
+                    </Tag>
+                  </span>
+                  <span className='rankings-row-growth'>
+                    <GrowthPill value={m.growth_pct} />
+                  </span>
                 </div>
               ))}
             </SectionCard>
@@ -833,8 +997,42 @@ const USER_BOARDS = [
   },
 ];
 
+function UserBoard({ rows, board, maxValue, isMobile }) {
+  const { t } = useTranslation();
+  const list = useBoardRows(rows, isMobile);
+
+  if (rows.length === 0) {
+    return <Empty description={t('暂无数据')} style={{ padding: 24 }} />;
+  }
+
+  return (
+    <>
+      <div className='rankings-scroll'>
+        {list.visibleRows.map((u, idx) => (
+          // Rows are grouped by (user_id, username), so a user who renamed
+          // inside the window appears twice — key on both.
+          <LeaderboardRow
+            key={`${u.user_id}-${u.username}`}
+            rank={idx + 1}
+            icon={<UserAvatar name={u.username} />}
+            name={u.username}
+            value={board.value(u)}
+            valueLabel={board.valueLabel(t)}
+            percent={maxValue > 0 ? (board.metricOf(u) / maxValue) * 100 : null}
+            barTone={board.barTone}
+          />
+        ))}
+      </div>
+      {list.canToggle && (
+        <ShowMore expanded={list.expanded} onClick={list.toggle} />
+      )}
+    </>
+  );
+}
+
 function UserRankings({ period, onRange }) {
   const { t } = useTranslation();
+  const isMobile = useIsMobile();
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState(null);
 
@@ -961,30 +1159,12 @@ function UserRankings({ period, onRange }) {
               title={t(board.title)}
               subtitle={t(board.subtitle)}
             >
-              <div className='rankings-scroll'>
-                {rows.length === 0 ? (
-                  <Empty description={t('暂无数据')} style={{ padding: 24 }} />
-                ) : (
-                  rows.map((u, idx) => (
-                    // Rows are grouped by (user_id, username), so a user who
-                    // renamed inside the window appears twice — key on both.
-                    <LeaderboardRow
-                      key={`${u.user_id}-${u.username}`}
-                      rank={idx + 1}
-                      icon={<UserAvatar name={u.username} />}
-                      name={u.username}
-                      value={board.value(u)}
-                      valueLabel={board.valueLabel(t)}
-                      percent={
-                        maxValue > 0
-                          ? (board.metricOf(u) / maxValue) * 100
-                          : null
-                      }
-                      barTone={board.barTone}
-                    />
-                  ))
-                )}
-              </div>
+              <UserBoard
+                rows={rows}
+                board={board}
+                maxValue={maxValue}
+                isMobile={isMobile}
+              />
             </SectionCard>
           );
         })}
@@ -1031,6 +1211,7 @@ function latencyMetric(row) {
 
 function ModelRankings({ period, onRange }) {
   const { t } = useTranslation();
+  const isMobile = useIsMobile();
   const [loading, setLoading] = useState(false);
   const [models, setModels] = useState([]);
 
@@ -1091,6 +1272,10 @@ function ModelRankings({ period, onRange }) {
     [sampled],
   );
 
+  const successBoard = useBoardRows(successSorted, isMobile);
+  const tpsBoard = useBoardRows(tpsSorted, isMobile);
+  const latencyBoard = useBoardRows(latencySorted, isMobile);
+
   if (loading) {
     return <ListSkeleton rows={8} />;
   }
@@ -1123,32 +1308,32 @@ function ModelRankings({ period, onRange }) {
           subtitle={t('按请求成功率排序')}
         >
           <div className='rankings-scroll'>
-            {successSorted.map((m, idx) => (
-              <div className='rankings-row' key={m.model_name}>
-                <RankBadge rank={idx + 1} />
-                <div className='rankings-row-main'>
-                  <div className='rankings-row-name' style={{ fontSize: 12 }}>
-                    {m.model_name}
-                  </div>
-                  <div className='rankings-row-sub'>
-                    {m.request_count || 0} {t('次请求')}
-                  </div>
-                </div>
-                <Sparkline
-                  series={m.recent_series}
-                  metric='success_rate'
-                  allowZero
-                  color={successRateColor(m.success_rate)}
-                />
-                <span
-                  className='rankings-perf-value'
-                  style={{ color: successRateColor(m.success_rate) }}
-                >
-                  {m.success_rate.toFixed(1)}%
-                </span>
-              </div>
+            {successBoard.visibleRows.map((m, idx) => (
+              <LeaderboardRow
+                key={m.model_name}
+                rank={idx + 1}
+                name={m.model_name}
+                sub={`${m.request_count || 0} ${t('次请求')}`}
+                value={`${m.success_rate.toFixed(1)}%`}
+                valueClassName='rankings-perf-value'
+                valueStyle={{ color: successRateColor(m.success_rate) }}
+                sparkline={
+                  <Sparkline
+                    series={m.recent_series}
+                    metric='success_rate'
+                    allowZero
+                    color={successRateColor(m.success_rate)}
+                  />
+                }
+              />
             ))}
           </div>
+          {successBoard.canToggle && (
+            <ShowMore
+              expanded={successBoard.expanded}
+              onClick={successBoard.toggle}
+            />
+          )}
         </SectionCard>
 
         {/* TPS */}
@@ -1159,29 +1344,29 @@ function ModelRankings({ period, onRange }) {
           subtitle={t('按平均输出速度排序 (t/s)')}
         >
           <div className='rankings-scroll'>
-            {tpsSorted.map((m, idx) => (
-              <div className='rankings-row' key={m.model_name}>
-                <RankBadge rank={idx + 1} />
-                <div className='rankings-row-main'>
-                  <div className='rankings-row-name' style={{ fontSize: 12 }}>
-                    {m.model_name}
-                  </div>
-                  <div className='rankings-row-sub'>
-                    {m.request_count || 0} {t('次请求')}
-                    {m.tps_from_stream === false && ` · ${t('非流式')}`}
-                  </div>
-                </div>
-                <Sparkline
-                  series={m.recent_series}
-                  metric='avg_tps'
-                  color='var(--semi-color-primary)'
-                />
-                <span className='rankings-perf-value'>
-                  {m.avg_tps?.toFixed(1)} t/s
-                </span>
-              </div>
+            {tpsBoard.visibleRows.map((m, idx) => (
+              <LeaderboardRow
+                key={m.model_name}
+                rank={idx + 1}
+                name={m.model_name}
+                sub={`${m.request_count || 0} ${t('次请求')}${
+                  m.tps_from_stream === false ? ` · ${t('非流式')}` : ''
+                }`}
+                value={`${m.avg_tps?.toFixed(1)} t/s`}
+                valueClassName='rankings-perf-value'
+                sparkline={
+                  <Sparkline
+                    series={m.recent_series}
+                    metric='avg_tps'
+                    color='var(--semi-color-primary)'
+                  />
+                }
+              />
             ))}
           </div>
+          {tpsBoard.canToggle && (
+            <ShowMore expanded={tpsBoard.expanded} onClick={tpsBoard.toggle} />
+          )}
         </SectionCard>
 
         {/* Latency */}
@@ -1192,33 +1377,33 @@ function ModelRankings({ period, onRange }) {
           subtitle={t('按首字延迟排序 (越低越好)')}
         >
           <div className='rankings-scroll'>
-            {latencySorted.map((entry, idx) => (
-              <div className='rankings-row' key={entry.row.model_name}>
-                <RankBadge rank={idx + 1} />
-                <div className='rankings-row-main'>
-                  <div className='rankings-row-name' style={{ fontSize: 12 }}>
-                    {entry.row.model_name}
-                  </div>
-                  <div className='rankings-row-sub'>
-                    {entry.latency.isTtft ? t('首字延迟') : t('总延迟')}
-                  </div>
-                </div>
-                <Sparkline
-                  series={entry.row.recent_series}
-                  metric={
-                    entry.latency.isTtft ? 'avg_ttft_ms' : 'avg_latency_ms'
-                  }
-                  color={latencyColor(entry.latency.value)}
-                />
-                <span
-                  className='rankings-perf-value'
-                  style={{ color: latencyColor(entry.latency.value) }}
-                >
-                  {formatLatency(entry.latency.value)}
-                </span>
-              </div>
+            {latencyBoard.visibleRows.map((entry, idx) => (
+              <LeaderboardRow
+                key={entry.row.model_name}
+                rank={idx + 1}
+                name={entry.row.model_name}
+                sub={entry.latency.isTtft ? t('首字延迟') : t('总延迟')}
+                value={formatLatency(entry.latency.value)}
+                valueClassName='rankings-perf-value'
+                valueStyle={{ color: latencyColor(entry.latency.value) }}
+                sparkline={
+                  <Sparkline
+                    series={entry.row.recent_series}
+                    metric={
+                      entry.latency.isTtft ? 'avg_ttft_ms' : 'avg_latency_ms'
+                    }
+                    color={latencyColor(entry.latency.value)}
+                  />
+                }
+              />
             ))}
           </div>
+          {latencyBoard.canToggle && (
+            <ShowMore
+              expanded={latencyBoard.expanded}
+              onClick={latencyBoard.toggle}
+            />
+          )}
         </SectionCard>
       </div>
     </div>
