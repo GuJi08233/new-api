@@ -6430,6 +6430,15 @@
     "未选择时，全部按开局验证总开关执行": "Leave empty to follow the global start verification setting for every game",
     "开局验证总开关已关闭，当前所有游戏均无需开局验证；免验证名单仍会保留": "Start verification is disabled globally, so no games currently require it. The exemption list is kept.",
     "系统 Turnstile 未启用，当前所有游戏均无需开局验证；免验证名单仍会保留": "System Turnstile is disabled, so no games currently require start verification. The exemption list is kept.",
-    "免费旋转": "Free spins"
+    "免费旋转": "Free spins",
+    "求和": "Offer draw",
+    "已提出和棋，等对方回应": "Draw offered, waiting for your opponent",
+    "对方想和棋": "Your opponent offers a draw",
+    "双方同意和棋": "Draw by agreement",
+    "电脑不同意和棋，对局继续": "The computer declined the draw offer; the game continues",
+    "轮到自己时可以向对手提议和棋，对手同意就按和棋结算；人机对战里电脑只在没占优时同意": "You can offer a draw when it is your turn; if your opponent accepts, the game ends in a draw. Against the computer, it only accepts when it is not ahead.",
+    "只显示最近 {{count}} 回合": "Showing the last {{count}} rounds",
+    "展开全部 {{count}} 回合": "Show all {{count}} rounds",
+    "只看最近 {{count}} 回合": "Show only the last {{count}} rounds"
   }
 }

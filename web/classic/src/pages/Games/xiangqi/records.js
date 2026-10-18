@@ -53,6 +53,12 @@ export function groupXiangqiHistory(history) {
   return [...rounds.values()].sort((a, b) => a.number - b.number);
 }
 
+// 棋谱默认只列最近 recent 回合(手机上整页不必被长棋谱拉长)，其余收起；回合数不多时原样返回。
+export function recentXiangqiRounds(rounds, recent, expanded) {
+  if (expanded || rounds.length <= recent) return rounds;
+  return rounds.slice(-recent);
+}
+
 // 汇总以已记录的实际吃子为准，悔棋删掉的记录不会继续计入，旧局缺失的棋步也不补猜。
 export function getXiangqiCaptures(history) {
   const captures = { red: [], black: [] };

@@ -36,7 +36,12 @@ import {
   Users,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { copy, showSuccess, timestamp2string } from '../../../../helpers';
+import {
+  copy,
+  showInfo,
+  showSuccess,
+  timestamp2string,
+} from '../../../../helpers';
 import { getGameLevelNames } from '../../../../constants';
 import GameLayout from '../GameLayout';
 import { RuleList, SideBox, StageMessage } from '../SideBox';
@@ -441,6 +446,7 @@ const RoomView = ({
   onMove,
   onResign,
   onUndo,
+  onDraw,
   onAuto,
   onCancel,
   onLeave,
@@ -599,6 +605,7 @@ const RoomView = ({
         over: !isRoomOpen(room),
         onMove,
         onUndo,
+        onDraw,
       })}
       <StageMessage kind={kind} note={note}>
         {message}
@@ -665,6 +672,7 @@ const AiView = ({
   onMove,
   onResign,
   onUndo,
+  onDraw,
   onRestart,
   onBack,
 }) => {
@@ -720,6 +728,7 @@ const AiView = ({
         over: ai.over,
         onMove,
         onUndo,
+        onDraw,
       })}
       <StageMessage kind={kind} note={note}>
         {message}
@@ -1123,6 +1132,11 @@ const PvpGame = ({
             ? act(`/api/game/rooms/${room.id}/undo`, {}, setRoom)
             : act(`/api/game/rooms/${room.id}/undo/answer`, { accept }, setRoom)
         }
+        onDraw={(accept) =>
+          accept === undefined
+            ? act(`/api/game/rooms/${room.id}/draw`, {}, setRoom)
+            : act(`/api/game/rooms/${room.id}/draw/answer`, { accept }, setRoom)
+        }
         onResign={() =>
           Modal.confirm({
             title: t('认输'),
@@ -1173,6 +1187,22 @@ const PvpGame = ({
             `/api/game/${gameKey}/ai/undo`,
             { session_id: ai.session_id, version: ai.version },
             applyAi,
+            'ai',
+          )
+        }
+        onDraw={() =>
+          act(
+            `/api/game/${gameKey}/ai/draw`,
+            { session_id: ai.session_id, version: ai.version },
+            (data) => {
+              // 电脑拒绝时请求已经撤回，这一局照旧；接受时走正常的结算路径。
+              if (data.accepted === false) {
+                setAi(data.session);
+                showInfo(t('电脑不同意和棋，对局继续'));
+                return;
+              }
+              applyAi(data);
+            },
             'ai',
           )
         }

@@ -20,6 +20,10 @@ const (
 	gameUndoCostCoins = 1
 )
 
+// aiDrawMargin 是电脑接受和棋的分差上限：自己比对方高出这么多分(约一个马)以上才拒绝求和，否则接受。人机对战里玩家落后时
+// 求和会被拒绝，均势或占优时电脑愿意和棋。
+const aiDrawMargin = 250
+
 func init() {
 	registerPvpGame(gameXiangqi, "中国象棋", xiangqiEngine{})
 }
@@ -28,19 +32,35 @@ func init() {
 // 以及走法、视图在接口里的格式。
 type xiangqiEngine struct{}
 
-// xiangqiUndoState 是悔棋的状态：每一方已经悔过几次(前 gameUndoFreePlays 次免费)，以及在等对方回应的悔棋请求是哪个座位
-// 提的。走了一步棋请求就作废。
+// xiangqiUndoState 是悔棋与求和的状态：每一方已经悔过几次(前 gameUndoFreePlays 次免费)，在等对方回应的悔棋请求是哪个
+// 座位提的，以及在等对方回应的求和请求是哪个座位提的。走了一步棋两个请求都作废。
 type xiangqiUndoState struct {
 	Used    [2]int `json:"used,omitempty"`
 	Pending *int   `json:"pending,omitempty"`
-	// Declined 是上一次被拒绝时提出悔棋的座位与当时的步数：这个座位再走一步之前不能再提，免得一直向对方发请求。
+	// Decline 是上一次被拒绝时提出悔棋的座位与当时的步数：这个座位再走一步之前不能再提，免得一直向对方发请求。
 	Declined *xiangqiUndoDecline `json:"declined,omitempty"`
+	// Draw 是正在等对方回应的求和请求：提出的一方与提出时的步数。拒绝只撤回请求，同一方可以再提，下棋本身没有费用。
+	Draw *xiangqiDrawOffer `json:"draw,omitempty"`
+}
+
+// xiangqiDrawOffer 是一份等待回应的求和请求。Plies 只用来核对请求提出时的那一步还没被悔棋撤掉。
+type xiangqiDrawOffer struct {
+	Seat  int `json:"seat"`
+	Plies int `json:"plies"`
 }
 
 type xiangqiUndoDecline struct {
 	Seat  int `json:"seat"`
 	Plies int `json:"plies"`
 }
+
+// 求和请求在等回应、没有等待回应的请求、以及对局已经结束时不能求和。这几个错误只由象棋使用，和悔棋的几种拒绝分开，页面
+// 与日志里能看出是求和被拒。
+var (
+	errPvpDrawPending     = errors.New("draw offer pending")
+	errPvpDrawNoRequest   = errors.New("no draw offer to answer")
+	errPvpDrawUnavailable = errors.New("draw offer unavailable")
+)
 
 // UnmarshalJSON 兼容旧存档：之前的 declined 只记了步数，没有记是谁提的。读出来当作未知座位，双方都不因此被锁住。
 func (d *xiangqiUndoDecline) UnmarshalJSON(data []byte) error {
@@ -86,6 +106,13 @@ type xiangqiLastMoves struct {
 func (s *xiangqiState) declinedBy(seat int) bool {
 	decline := s.Undo.Declined
 	return decline != nil && decline.Seat == seat && decline.Plies == s.Game.Plies
+}
+
+// dropStaleDraw 丢掉和当前步数对不上的求和请求：悔棋撤掉了提出请求时的那一步，请求不能跟着退回去再复活。
+func (s *xiangqiState) dropStaleDraw() {
+	if s.Undo.Draw != nil && s.Undo.Draw.Plies != s.Game.Plies {
+		s.Undo.Draw = nil
+	}
 }
 
 // undoFreeLeft 返回 seat 这一方还剩几次免费悔棋。
@@ -154,6 +181,10 @@ type xiangqiUndoView struct {
 	Declined  bool `json:"declined"`
 	// Used 是看的人已经悔过几次，页面据此知道自己的悔棋被执行了(对手同意后由对手的请求执行)。
 	Used int `json:"used"`
+	// DrawBy 是提出了求和、在等对方回应的座位，没有请求时为 -1；CanOffer 表示看的人现在可以提议和棋(轮到他走、对局
+	// 还没结束、没有请求在等回应)。
+	DrawBy   int  `json:"draw_by"`
+	CanOffer bool `json:"can_offer"`
 }
 
 // xiangqiView 是给一个座位看的棋局。象棋没有隐藏信息，只有轮到看的人走时才附上他的全部合法着法，方便页面提示落点。
@@ -248,7 +279,7 @@ func (xiangqiEngine) New(first int) (pvpState, error) {
 	return state.pvp()
 }
 
-// Play 落子。走了棋之后之前提出、还没人回应的悔棋请求就作废了。
+// Play 落子。走了棋之后之前提出、还没人回应的悔棋与求和请求就作废了。
 func (xiangqiEngine) Play(data []byte, seat int, move json.RawMessage) (pvpState, error) {
 	state, err := loadXiangqiState(data)
 	if err != nil {
@@ -269,6 +300,7 @@ func (xiangqiEngine) Play(data []byte, seat int, move json.RawMessage) (pvpState
 		return pvpState{}, err
 	}
 	state.Undo.Pending = nil
+	state.Undo.Draw = nil
 	return state.pvp()
 }
 
@@ -322,8 +354,75 @@ func (xiangqiEngine) UndoAnswer(data []byte, seat int, accept bool) (pvpUndo, er
 	}
 	state.Undo.Used[asker]++
 	state.Undo.Declined = nil
+	// 撤回之后步数变了，提出时那一步已经不在棋谱里，求和请求随之作废。
+	state.dropStaleDraw()
 	next, err := state.pvp()
 	return pvpUndo{State: next, Payer: asker, Cost: cost, Steps: steps}, err
+}
+
+// DrawOffer 记下 seat 提议和棋，等对方回应，不收费也不改动棋局。不是这个房间的座位、还没轮到他走、对局已经结束、已经有
+// 一个悔棋或求和请求在等回应时返回错误，状态不变。只许轮到的一方提议，对手在对方思考时就不能反复发请求。
+func (xiangqiEngine) DrawOffer(data []byte, seat int) (pvpState, error) {
+	state, err := loadXiangqiState(data)
+	if err != nil {
+		return pvpState{}, err
+	}
+	if state.colorOf(seat) < 0 {
+		return pvpState{}, errPvpIllegalMove
+	}
+	switch {
+	case state.Game.Over():
+		return pvpState{}, errPvpDrawUnavailable
+	case state.Undo.Draw != nil:
+		return pvpState{}, errPvpDrawPending
+	case state.Undo.Pending != nil:
+		return pvpState{}, errPvpUndoPending
+	}
+	if toMove, _ := state.seats(); toMove != seat {
+		return pvpState{}, errPvpDrawUnavailable
+	}
+	state.Undo.Draw = &xiangqiDrawOffer{Seat: seat, Plies: state.Game.Plies}
+	return state.pvp()
+}
+
+// DrawAnswer 让 seat 回应对方的求和请求：同意时这局按和棋结束，拒绝时只清掉请求，双方都可以接着提。没有对方提出的请求时
+// 返回 errPvpDrawNoRequest。
+func (xiangqiEngine) DrawAnswer(data []byte, seat int, accept bool) (pvpState, error) {
+	state, err := loadXiangqiState(data)
+	if err != nil {
+		return pvpState{}, err
+	}
+	draw := state.Undo.Draw
+	if draw == nil || draw.Seat == seat || state.colorOf(seat) < 0 {
+		return pvpState{}, errPvpDrawNoRequest
+	}
+	state.Undo.Draw = nil
+	if !accept {
+		return state.pvp()
+	}
+	if err := state.Game.DrawAgreed(); err != nil {
+		return pvpState{}, errPvpDrawUnavailable
+	}
+	state.Undo.Pending = nil
+	return state.pvp()
+}
+
+// AiAcceptsDraw 让电脑 seat 判断要不要接受求和：它自己按 colorOf(seat) 一方的局面分数看，落后或分不出高下时接受，
+// 只有确实占优(高出 aiDrawMargin 分)才拒绝。分数只由局面决定，同一个局面总是同一个答案。
+func (xiangqiEngine) AiAcceptsDraw(data []byte, seat int) (bool, error) {
+	state, err := loadXiangqiState(data)
+	if err != nil {
+		return false, err
+	}
+	color := state.colorOf(seat)
+	if color < 0 || state.Game.Over() {
+		return false, errPvpDrawUnavailable
+	}
+	pos, err := state.Game.Position()
+	if err != nil {
+		return false, err
+	}
+	return pos.Score(xiangqi.Color(color)) <= aiDrawMargin, nil
 }
 
 func (xiangqiEngine) View(data []byte, seat int) (any, error) {
@@ -418,9 +517,9 @@ func (xiangqiEngine) View(data []byte, seat int) (any, error) {
 	return view, nil
 }
 
-// undoView 汇总看的人此刻能做的悔棋：还剩几次免费、下一次多少钱、能不能提，以及有没有人在等他回应。
+// undoView 汇总看的人此刻能做的悔棋与求和：还剩几次免费、下一次多少钱、能不能提、有没有人在等他回应，以及能不能提议和棋。
 func (s *xiangqiState) undoView(seat int) xiangqiUndoView {
-	view := xiangqiUndoView{PendingBy: -1}
+	view := xiangqiUndoView{PendingBy: -1, DrawBy: -1}
 	if seat >= 0 && seat <= 1 {
 		view.Used = s.Undo.Used[seat]
 	}
@@ -432,6 +531,12 @@ func (s *xiangqiState) undoView(seat int) xiangqiUndoView {
 	view.FreeLeft = s.undoFreeLeft(seat)
 	view.Cost, _ = s.undoCost(seat)
 	view.Available = ok && s.Undo.Pending == nil && !view.Declined && !s.Game.Over()
+	if draw := s.Undo.Draw; draw != nil {
+		view.DrawBy = draw.Seat
+	}
+	// 求和要有对手：只有一个座位时无从谈起。
+	toMove, _ := s.seats()
+	view.CanOffer = s.colorOf(seat) >= 0 && !s.Game.Over() && toMove == seat && s.Undo.Draw == nil && s.Undo.Pending == nil
 	return view
 }
 

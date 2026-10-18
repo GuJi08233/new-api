@@ -125,6 +125,22 @@ type pvpUndo struct {
 	Steps int
 }
 
+// pvpDrawable 由支持求和的双人对战引擎实现(象棋)。一方提出、另一方同意时这局按和棋结束，房间结算走 draw。求和本身不
+// 收游戏币也不改动棋局；同一时间只能有一个请求在等回应。
+type pvpDrawable interface {
+	// DrawOffer 记下 seat 提议和棋，等对方回应。对局已经结束、已有请求在等回应时返回错误。
+	DrawOffer(state []byte, seat int) (pvpState, error)
+	// DrawAnswer 让 seat 回应对方的求和请求，accept 为真时这局按和棋结束；拒绝时只清掉请求。
+	DrawAnswer(state []byte, seat int, accept bool) (pvpState, error)
+}
+
+// pvpDrawAi 由能自己判断要不要接受和棋的引擎实现(象棋)。人机对战里玩家提议和棋时用它替电脑决定，只有电脑确实占优时才
+// 拒绝。
+type pvpDrawAi interface {
+	// AiAcceptsDraw 让 seat 这个 AI 座位判断要不要接受对方的求和。看不清胜负、落后或已经难分胜负时接受。
+	AiAcceptsDraw(state []byte, seat int) (bool, error)
+}
+
 // pvpMultiplayer 由多人对战的引擎实现。一个人超时不判他的队伍输(队友没有过错)，而是转为托管、由 AI 替他走，多人对局也不能
 // 认输，要离开可以托管。
 type pvpMultiplayer interface {
@@ -207,6 +223,9 @@ func registerPvpGame(key string, name string, engine pvpEngine) {
 			group.POST("/ai/resign", middleware.GamePlayRateLimit(key+"-ai-resign"), func(c *gin.Context) { resignPvpAi(c, game) })
 			if _, ok := engine.(pvpUndoable); ok {
 				group.POST("/ai/undo", middleware.GamePlayRateLimit(key+"-ai-undo"), func(c *gin.Context) { undoPvpAi(c, game) })
+			}
+			if _, ok := engine.(pvpDrawable); ok {
+				group.POST("/ai/draw", middleware.GamePlayRateLimit(key+"-ai-draw"), func(c *gin.Context) { drawPvpAi(c, game) })
 			}
 		},
 	})
@@ -697,6 +716,8 @@ func registerGameRoomRoutes(group *gin.RouterGroup) {
 	group.POST("/:id/auto", middleware.GamePlayRateLimit("room-auto"), AutoGameRoom)
 	group.POST("/:id/undo", middleware.GamePlayRateLimit("room-undo"), AskUndoGameRoom)
 	group.POST("/:id/undo/answer", middleware.GamePlayRateLimit("room-undo"), AnswerUndoGameRoom)
+	group.POST("/:id/draw", middleware.GamePlayRateLimit("room-draw"), OfferDrawGameRoom)
+	group.POST("/:id/draw/answer", middleware.GamePlayRateLimit("room-draw"), AnswerDrawGameRoom)
 	group.POST("/:id/cancel", middleware.GamePlayRateLimit("room-cancel"), CancelGameRoom)
 	group.POST("/:id/leave", middleware.GamePlayRateLimit("room-leave"), LeaveGameRoom)
 }
@@ -811,6 +832,12 @@ func respondGameRoomError(c *gin.Context, err error) {
 		common.ApiErrorI18n(c, i18n.MsgGameUndoDeclined)
 	case errors.Is(err, errPvpUndoNoRequest):
 		common.ApiErrorI18n(c, i18n.MsgGameUndoNoRequest)
+	case errors.Is(err, errPvpDrawPending):
+		common.ApiErrorI18n(c, i18n.MsgGameDrawPending)
+	case errors.Is(err, errPvpDrawNoRequest):
+		common.ApiErrorI18n(c, i18n.MsgGameDrawNoRequest)
+	case errors.Is(err, errPvpDrawUnavailable):
+		common.ApiErrorI18n(c, i18n.MsgGameDrawUnavailable)
 	default:
 		common.SysError(fmt.Sprintf("game room operation failed for user %d: %v", c.GetInt("id"), err))
 		common.ApiErrorI18n(c, i18n.MsgGamePlayFailed)
@@ -1234,6 +1261,29 @@ func loadUndoGameRoom(c *gin.Context) (*model.GameRoom, pvpUndoable) {
 	return room, undo
 }
 
+// loadDrawGameRoom 读出可以求和的对局中的房间：游戏不支持求和时回应错误，房间不在对局中时回应房间现在的样子。返回 nil
+// 时已写好响应。
+func loadDrawGameRoom(c *gin.Context) (*model.GameRoom, pvpDrawable) {
+	room := loadPlayerGameRoom(c)
+	if room == nil {
+		return nil, nil
+	}
+	game := pvpGames[room.Game]
+	draw, ok := pvpDrawable(nil), false
+	if game != nil && room.Seats == game.seats {
+		draw, ok = game.engine.(pvpDrawable)
+	}
+	if !ok {
+		common.ApiErrorI18n(c, i18n.MsgGameDrawUnsupported)
+		return nil, nil
+	}
+	if room.Status != model.GameRoomStatusPlaying {
+		respondGameRoom(c, room, nil)
+		return nil, nil
+	}
+	return room, draw
+}
+
 // AskUndoGameRoom 提出悔棋，等对手同意。要付费时先看余额够不够，免得对手同意了才发现付不起；计时照常，不因为请求暂停。
 func AskUndoGameRoom(c *gin.Context) {
 	room, undo := loadUndoGameRoom(c)
@@ -1296,6 +1346,55 @@ func AnswerUndoGameRoom(c *gin.Context) {
 			deadline := common.GetTimestamp() + pvpMoveSeconds(room, next.ToMove, room.AutoSeats)
 			_, err = model.UndoGameRoomState(room, string(next.Data), next.ToMove, deadline, room.AutoSeats, payer, answer.Cost)
 		}
+	}
+	if err != nil {
+		respondGameRoomError(c, err)
+		return
+	}
+	gameRoomWatch.notify(room.Id)
+	respondGameRoom(c, room, nil)
+}
+
+// OfferDrawGameRoom 提议和棋，等对手回应。求和本身不收费也不改动棋局，每步限时照常走。
+func OfferDrawGameRoom(c *gin.Context) {
+	room, draw := loadDrawGameRoom(c)
+	if room == nil {
+		return
+	}
+	next, err := draw.DrawOffer([]byte(room.State), c.GetInt("game_room_seat"))
+	if err != nil {
+		respondGameRoomError(c, err)
+		return
+	}
+	if err := model.UpdateGameRoomState(room, string(next.Data), room.ToMove, room.Deadline, room.AutoSeats); err != nil {
+		respondGameRoomError(c, err)
+		return
+	}
+	gameRoomWatch.notify(room.Id)
+	respondGameRoom(c, room, nil)
+}
+
+// AnswerDrawGameRoom 回应对手的求和请求。同意时这局按和棋结束并结算(押注退回)，拒绝时只清掉请求，双方接着下、之后都能
+// 再提。
+func AnswerDrawGameRoom(c *gin.Context) {
+	room, draw := loadDrawGameRoom(c)
+	if room == nil {
+		return
+	}
+	var req gameRoomUndoAnswerRequest
+	if err := decodeGameRequest(c, &req); err != nil || req.Accept == nil {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
+	next, err := draw.DrawAnswer([]byte(room.State), c.GetInt("game_room_seat"), *req.Accept)
+	if err != nil {
+		respondGameRoomError(c, err)
+		return
+	}
+	if next.Over {
+		err = settlePvpRoom(room, pvpGames[room.Game], next)
+	} else {
+		err = model.UpdateGameRoomState(room, string(next.Data), room.ToMove, room.Deadline, room.AutoSeats)
 	}
 	if err != nil {
 		respondGameRoomError(c, err)
@@ -1486,7 +1585,7 @@ func getPvpAi(c *gin.Context, game *pvpGame) {
 	}
 	if session != nil && session.Status == model.GameSessionStatusFinished {
 		rule, _ := operation_setting.GetGameSetting().PvpRuleOf(game.key)
-		respondPvpAiSettled(c, game, rule.Ai, session, nil, nil)
+		respondPvpAiSettled(c, game, rule.Ai, session, nil, nil, nil)
 		return
 	}
 	if session == nil || session.Status != model.GameSessionStatusPlaying || common.GetTimestamp()-session.CreatedAt > skillSessionTTL {
@@ -1565,7 +1664,7 @@ func loadPvpAiSession(c *gin.Context, game *pvpGame, rule operation_setting.Skil
 		return nil, nil
 	}
 	if session.Status != model.GameSessionStatusPlaying {
-		respondPvpAiSettled(c, game, rule, session, nil, nil)
+		respondPvpAiSettled(c, game, rule, session, nil, nil, nil)
 		return nil, nil
 	}
 	if common.GetTimestamp()-session.CreatedAt > skillSessionTTL {
@@ -1581,7 +1680,7 @@ func loadPvpAiSession(c *gin.Context, game *pvpGame, rule operation_setting.Skil
 }
 
 // respondPvpAiSettled 回应一局已经结束的人机对战：最后的局面加上结算结果。result 为空时按对局记录重新组装。
-func respondPvpAiSettled(c *gin.Context, game *pvpGame, rule operation_setting.SkillRule, session *model.GameSession, result gin.H, aiMove json.RawMessage) {
+func respondPvpAiSettled(c *gin.Context, game *pvpGame, rule operation_setting.SkillRule, session *model.GameSession, result gin.H, aiMove json.RawMessage, extra gin.H) {
 	var err error
 	if result == nil {
 		if result, err = skillSettledView(c, session, rule); err != nil {
@@ -1594,11 +1693,16 @@ func respondPvpAiSettled(c *gin.Context, game *pvpGame, rule operation_setting.S
 		common.ApiError(c, err)
 		return
 	}
-	common.ApiSuccess(c, gin.H{"session": view, "ai_move": aiMove, "result": result})
+	response := gin.H{"session": view, "ai_move": aiMove, "result": result}
+	for key, value := range extra {
+		response[key] = value
+	}
+	common.ApiSuccess(c, response)
 }
 
-// settlePvpAi 结算结束的一局人机对战：赢了按难度领奖，输了或和棋成绩为 0，seconds 只计已验证的玩家操作时长。
-func settlePvpAi(c *gin.Context, game *pvpGame, rule operation_setting.SkillRule, session *model.GameSession, state *pvpAiState, aiMove json.RawMessage, seconds int) {
+// settlePvpAi 结算结束的一局人机对战：赢了按难度领奖，输了或和棋成绩为 0，seconds 只计已验证的玩家操作时长。extra 是
+// 附加在成功响应里的字段(求和时告诉页面电脑接不接受)。
+func settlePvpAi(c *gin.Context, game *pvpGame, rule operation_setting.SkillRule, session *model.GameSession, state *pvpAiState, aiMove json.RawMessage, seconds int, extra gin.H) {
 	data, err := common.Marshal(state)
 	if err != nil {
 		common.ApiError(c, err)
@@ -1618,7 +1722,7 @@ func settlePvpAi(c *gin.Context, game *pvpGame, rule operation_setting.SkillRule
 		return
 	}
 	session.Status, session.State = model.GameSessionStatusFinished, string(data)
-	respondPvpAiSettled(c, game, rule, session, result, aiMove)
+	respondPvpAiSettled(c, game, rule, session, result, aiMove, extra)
 }
 
 // movePvpAi 玩家走一步，没结束时 AI 接着走，都在这一个请求里完成。
@@ -1660,7 +1764,7 @@ func movePvpAi(c *gin.Context, game *pvpGame) {
 		return
 	}
 	if state.Over {
-		settlePvpAi(c, game, rule, session, state, aiMove, session.PlayedSeconds(common.GetTimestamp()))
+		settlePvpAi(c, game, rule, session, state, aiMove, session.PlayedSeconds(common.GetTimestamp()), nil)
 		return
 	}
 	data, err := common.Marshal(state)
@@ -1735,6 +1839,66 @@ func undoPvpAi(c *gin.Context, game *pvpGame) {
 	common.ApiSuccess(c, gin.H{"session": view, "balance": balance})
 }
 
+// drawPvpAi 向电脑提议和棋。电脑按自己的判断回应：明显占优时不接受，玩家接着下；其余情况接受，这局按和棋结算(成绩 0，
+// 不发奖励)。接受与拒绝都走引擎的 DrawAnswer，和房间对局里对手回应求和是同一套规则。
+func drawPvpAi(c *gin.Context, game *pvpGame) {
+	rule, ok := pvpAiRule(c, game)
+	if !ok {
+		return
+	}
+	draw := game.engine.(pvpDrawable)
+	judge, ok := game.engine.(pvpDrawAi)
+	if !ok {
+		common.ApiErrorI18n(c, i18n.MsgGameDrawUnsupported)
+		return
+	}
+	var req pvpAiMoveRequest
+	if err := decodeGameRequest(c, &req); err != nil {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
+	session, state := loadPvpAiSession(c, game, rule, req.SessionId)
+	if session == nil {
+		return
+	}
+	if req.Version != session.Version {
+		common.ApiErrorI18n(c, i18n.MsgGameRoundChanged)
+		return
+	}
+	if state.Over || state.ToMove != 0 {
+		common.ApiErrorI18n(c, i18n.MsgGameDrawUnavailable)
+		return
+	}
+	asked, err := draw.DrawOffer(state.Board, 0)
+	if err != nil {
+		respondGameRoomError(c, err)
+		return
+	}
+	accept, err := judge.AiAcceptsDraw(asked.Data, 1)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	answered, err := draw.DrawAnswer(asked.Data, 1, accept)
+	if err != nil {
+		respondGameRoomError(c, err)
+		return
+	}
+	if !answered.Over {
+		// 电脑不接受，请求已经撤回，玩家接着下。
+		view, err := pvpAiView(game, session)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		common.ApiSuccess(c, gin.H{"accepted": false, "session": view})
+		return
+	}
+	state.Board, state.Over, state.Winner, state.Result = answered.Data, true, -1, "draw"
+	// 求和不是走棋，只保留之前合法操作已经计入的时长。
+	settlePvpAi(c, game, rule, session, state, nil, session.PlaySeconds, gin.H{"accepted": true})
+}
+
 // resignPvpAi 认输，这局按输了结算。
 func resignPvpAi(c *gin.Context, game *pvpGame) {
 	rule, ok := pvpAiRule(c, game)
@@ -1752,5 +1916,5 @@ func resignPvpAi(c *gin.Context, game *pvpGame) {
 	}
 	state.Over, state.Winner, state.Result = true, 1, "loss"
 	// 认输不是走棋，只保留之前合法操作已经计入的时长，开局或末步之后的挂机时间不算。
-	settlePvpAi(c, game, rule, session, state, nil, session.PlaySeconds)
+	settlePvpAi(c, game, rule, session, state, nil, session.PlaySeconds, nil)
 }

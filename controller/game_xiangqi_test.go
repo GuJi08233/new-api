@@ -527,3 +527,120 @@ func TestXiangqiLoadsLegacyDeclinedUndo(t *testing.T) {
 	assert.False(t, state.declinedBy(0))
 	assert.False(t, state.declinedBy(1))
 }
+
+// 房间对局求和：轮到的一方可以提，提出后请求在等对手回应、棋盘与轮次都不变；提出的一方不能自己同意、也不能再提一个；
+// 对手拒绝后只撤回请求，对局继续；对手同意时这局按和棋结束，两份押注原样退回。
+func TestXiangqiRoomDrawOfferEndsInADraw(t *testing.T) {
+	env := newGameTestEnv(t, xiangqiSetting())
+	host := env.player(50, gameTestIpA)
+	guest := env.player(50, gameTestIpB)
+
+	created := host.ok(http.MethodPost, "/api/game/rooms", map[string]any{"game": gameXiangqi, "stake": 10})
+	roomPath := fmt.Sprintf("/api/game/rooms/%v", created["id"])
+	joined := guest.ok(http.MethodPost, roomPath+"/join", nil)
+	redSeat := int(joined["state"].(map[string]any)["red_seat"].(float64))
+	players := [2]*gamePlayer{host, guest}
+	red, black := players[redSeat], players[1-redSeat]
+
+	// 红方先走，走完之后轮到黑方：只有轮到的黑方可以提议和棋，红方这时提议会被拒绝。
+	start := red.ok(http.MethodGet, roomPath, nil)
+	moved := red.ok(http.MethodPost, roomPath+"/move", xiangqiMoveBody(start["version"], 1, 2, 4, 2))
+	assert.NotEmpty(t, red.fails(http.MethodPost, roomPath+"/draw", nil), "没轮到的一方不能提议")
+	offered := black.ok(http.MethodPost, roomPath+"/draw", nil)
+	offerState := offered["state"].(map[string]any)
+	assert.EqualValues(t, 1-redSeat, offerState["undo"].(map[string]any)["draw_by"])
+	assert.Equal(t, moved["state"].(map[string]any)["board"], offerState["board"], "求和不改动棋局")
+	assert.EqualValues(t, 1-redSeat, offered["to_move"], "求和之后还是轮到同一个人走")
+	assert.Equal(t, false, offerState["undo"].(map[string]any)["can_offer"], "有请求在等回应时不能再提")
+
+	// 提出的一方不能自己同意，也不能再提一个。
+	black.fails(http.MethodPost, roomPath+"/draw/answer", map[string]any{"accept": true})
+	black.fails(http.MethodPost, roomPath+"/draw", nil)
+
+	declined := red.ok(http.MethodPost, roomPath+"/draw/answer", map[string]any{"accept": false})
+	assert.Equal(t, moved["state"].(map[string]any)["board"], declined["state"].(map[string]any)["board"])
+	assert.EqualValues(t, -1, declined["state"].(map[string]any)["undo"].(map[string]any)["draw_by"])
+	assert.Equal(t, model.GameRoomStatusPlaying, declined["status"], "拒绝求和之后对局继续")
+
+	// 还是轮到黑方，黑方再提；红方同意，这局按和棋结束，两份押注各退回。
+	blackOffer := black.ok(http.MethodPost, roomPath+"/draw", nil)
+	assert.EqualValues(t, 1-redSeat, blackOffer["state"].(map[string]any)["undo"].(map[string]any)["draw_by"])
+	finished := red.ok(http.MethodPost, roomPath+"/draw/answer", map[string]any{"accept": true})
+	assert.Equal(t, model.GameRoomStatusFinished, finished["status"])
+	assert.Equal(t, model.GameRoomEndDraw, finished["end_reason"])
+	assert.Equal(t, "agreement", finished["state"].(map[string]any)["result"])
+	assert.Equal(t, moved["state"].(map[string]any)["board"], finished["state"].(map[string]any)["board"], "和棋的棋盘停在同意时的局面")
+	assert.Equal(t, 50.0, red.balance(), "和棋退回押注")
+	assert.Equal(t, 50.0, black.balance())
+}
+
+// 人机对战求和：电脑按局面分数决定。玩家把局面换成自己明显占优(电脑少一个车)，电脑拒绝，这局接着下；换成电脑占优，
+// 电脑接受，这局按和棋结算，成绩 0、不发奖励。
+func TestXiangqiAiDrawOfferFollowsTheEvaluation(t *testing.T) {
+	env := newGameTestEnv(t, xiangqiSetting())
+	player := env.player(0, gameTestIpA)
+	started := player.ok(http.MethodPost, "/api/game/xiangqi/ai/start", map[string]any{"level": 2})
+	session := started["session"].(map[string]any)
+
+	// 玩家执红，电脑执黑。黑方多一个车时电脑明显占优，拒绝求和；红方多两个车时电脑落后，愿意和棋。
+	aiAhead := "....k...." + "....r...." + strings.Repeat(".........", 7) + "...K....."
+	aiBehind := "....k...." + strings.Repeat(".........", 7) + "R.......R" + "...K....."
+	offer := func(board string) map[string]any {
+		boardState, err := common.Marshal(xiangqiState{RedSeat: 0, Game: xiangqi.Game{Board: board, Turn: xiangqi.Red, Plies: 20, Quiet: 20, Winner: xiangqi.NoColor}})
+		require.NoError(t, err)
+		aiState, err := common.Marshal(pvpAiState{Level: 2, Board: boardState, ToMove: 0, Winner: -1, Moves: 20})
+		require.NoError(t, err)
+		require.NoError(t, env.db.Model(&model.GameSession{}).Where("id = ?", session["session_id"]).
+			Updates(map[string]any{"state": string(aiState), "created_at": common.GetTimestamp() - 200, "play_seconds": 200}).Error)
+		current := player.ok(http.MethodGet, "/api/game/xiangqi/ai", nil)["session"].(map[string]any)
+		return player.ok(http.MethodPost, "/api/game/xiangqi/ai/draw", map[string]any{
+			"session_id": current["session_id"], "version": current["version"],
+		})
+	}
+
+	refused := offer(aiAhead)
+	assert.Equal(t, false, refused["accepted"], "黑方多一个车，电脑不接受和棋")
+	assert.Equal(t, model.GameSessionStatusPlaying, refused["session"].(map[string]any)["status"])
+	assert.EqualValues(t, -1, refused["session"].(map[string]any)["state"].(map[string]any)["undo"].(map[string]any)["draw_by"], "拒绝之后请求撤回")
+
+	// 换成红方多两个车，电脑落后，接受求和。
+	accepted := offer(aiBehind)
+	assert.Equal(t, true, accepted["accepted"], "红方多两个车，电脑接受和棋")
+	final := accepted["session"].(map[string]any)
+	assert.Equal(t, model.GameSessionStatusFinished, final["status"])
+	assert.Equal(t, "draw", final["result"])
+	assert.EqualValues(t, 0, accepted["result"].(map[string]any)["score"])
+	assert.Equal(t, 0.0, accepted["result"].(map[string]any)["reward"])
+	assert.Equal(t, 0.0, player.balance(), "和棋不发奖励")
+
+	// 已经结束的这局求和无从谈起：读回的是结算后的这一局，不会多出一个 accepted。
+	after := player.ok(http.MethodPost, "/api/game/xiangqi/ai/draw", map[string]any{"session_id": final["session_id"], "version": final["version"]})
+	assert.Nil(t, after["accepted"], "结束的对局不再接受求和")
+	assert.Equal(t, model.GameSessionStatusFinished, after["session"].(map[string]any)["status"])
+}
+
+// 求和与悔棋共用一个请求位：有悔棋请求在等回应时不能求和，有求和请求在等回应时也不能提悔棋。
+func TestXiangqiDrawAndUndoDoNotOverlap(t *testing.T) {
+	env := newGameTestEnv(t, xiangqiSetting())
+	host, guest := env.player(50, gameTestIpA), env.player(50, gameTestIpB)
+
+	created := host.ok(http.MethodPost, "/api/game/rooms", map[string]any{"game": gameXiangqi, "stake": 10})
+	roomPath := fmt.Sprintf("/api/game/rooms/%v", created["id"])
+	joined := guest.ok(http.MethodPost, roomPath+"/join", nil)
+	redSeat := int(joined["state"].(map[string]any)["red_seat"].(float64))
+	red := [2]*gamePlayer{host, guest}[redSeat]
+	black := [2]*gamePlayer{host, guest}[1-redSeat]
+	playing := red.ok(http.MethodGet, roomPath, nil)
+	red.ok(http.MethodPost, roomPath+"/move", xiangqiMoveBody(playing["version"], 1, 2, 4, 2))
+	// 黑方也应一步，这才有自己的棋可以悔，而且又轮到红方走。
+	afterRed := black.ok(http.MethodGet, roomPath, nil)
+	black.ok(http.MethodPost, roomPath+"/move", xiangqiMoveBody(afterRed["version"], 1, 9, 2, 7))
+
+	// 轮到红方。红方提出悔棋之后不能再求和：两个请求位一次只放一个。
+	red.ok(http.MethodPost, roomPath+"/undo", nil)
+	red.fails(http.MethodPost, roomPath+"/draw", nil)
+	// 黑方拒绝悔棋，红方改成求和：求和请求在等回应时，红方再提悔棋被拒绝。
+	black.ok(http.MethodPost, roomPath+"/undo/answer", map[string]any{"accept": false})
+	red.ok(http.MethodPost, roomPath+"/draw", nil)
+	red.fails(http.MethodPost, roomPath+"/undo", nil)
+}

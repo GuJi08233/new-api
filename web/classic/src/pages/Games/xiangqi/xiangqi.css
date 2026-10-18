@@ -33,11 +33,16 @@ body[theme-mode='dark'] .xiangqi-page {
   --xiangqi-ink: #4d301a;
 }
 
+/* stage 是棋子的尺寸参照：棋盘的宽度可能先被视口高度卡住，棋子字号要跟着棋盘本身变，用 cqw 时参照物得是
+   与棋盘同宽的那个盒子，因此棋盘自己也声明一个容器。 */
 .xiangqi-stage {
   display: flex;
   flex-direction: column;
   align-items: center;
+  box-sizing: border-box;
   width: 100%;
+  max-width: 100%;
+  container-type: inline-size;
 }
 
 .xiangqi-hud {
@@ -45,6 +50,7 @@ body[theme-mode='dark'] .xiangqi-page {
 }
 
 .xiangqi-sound-controls {
+  box-sizing: border-box;
   display: flex;
   justify-content: flex-end;
   width: min(100%, 520px);
@@ -52,6 +58,7 @@ body[theme-mode='dark'] .xiangqi-page {
 }
 
 .xiangqi-last-moves {
+  box-sizing: border-box;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
@@ -118,7 +125,18 @@ body[theme-mode='dark'] .xiangqi-page {
   color: var(--semi-color-text-2);
 }
 
+/* 记谱字比较宽，极窄屏上允许在卡片内折行，不把整页撑出横向滚动。 */
+.xiangqi-move-detail,
+.xiangqi-move-notation {
+  min-width: 0;
+}
+
+.xiangqi-move-notation {
+  overflow-wrap: anywhere;
+}
+
 .xiangqi-coordinate-note {
+  box-sizing: border-box;
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
@@ -141,6 +159,7 @@ body[theme-mode='dark'] .xiangqi-page {
 
 .xiangqi-history,
 .xiangqi-captures {
+  box-sizing: border-box;
   width: min(100%, 520px);
   margin-top: 4px;
   overflow: hidden;
@@ -285,10 +304,26 @@ body[theme-mode='dark'] .xiangqi-page {
   line-height: 1.6;
 }
 
+/* 桌面把棋谱限高、自己滚，台面不会被长棋谱撑长；手机上不再套一层滚动，整页往下滑，手指不用先滚进小框。 */
 .xiangqi-history-scroll {
   max-height: 280px;
   overflow: auto;
   overscroll-behavior: contain;
+}
+
+/* 棋谱收起时只列最近几回合，展开/收起放在表格下面。 */
+.xiangqi-history-more {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 10px;
+  padding: 8px 12px 10px;
+  border-top: 1px solid var(--semi-color-border);
+}
+
+.xiangqi-history-more .xiangqi-history-note {
+  padding: 0;
 }
 
 .xiangqi-history-table {
@@ -389,10 +424,14 @@ body[theme-mode='dark'] .xiangqi-history-capture {
 }
 
 /* 悔棋：棋盘上方的一行，按钮随状态换成"悔棋（免费 N 次）"、等对方回应，或同意/拒绝。 */
+/* 悔棋与求和两个按钮，加上"等对方回应"的提示，窄屏上一行放不下就换行。 */
 .xiangqi-undo {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  justify-content: center;
   gap: 8px;
+  max-width: 100%;
   margin-bottom: 8px;
 }
 
@@ -432,9 +471,21 @@ body[theme-mode='dark'] .xiangqi-history-capture {
   color: var(--semi-color-text-0);
 }
 
+/* 棋盘宽度同时受容器宽度与可用高度约束：手机横屏、矮窗口里整块棋盘都放得下，不用滚动就能看到自己的棋子。
+   --xiangqi-cells-w/h 是棋盘按格子数算出的宽高比(10.93 / 12.07)，--xiangqi-board-h 是留给棋盘的高度。
+   宽度用 100% 而不是 cqw：父级是居中的 flex 容器，百分比能拿到实际可用宽度，cqw 会退回视口宽度。 */
 .xiangqi-board {
   position: relative;
-  width: min(100%, 520px);
+  box-sizing: border-box;
+  width: min(
+    100%,
+    520px,
+    calc(
+      var(--xiangqi-board-h, 78vh) / var(--xiangqi-cells-h) *
+        var(--xiangqi-cells-w)
+    )
+  );
+  aspect-ratio: var(--xiangqi-cells-w) / var(--xiangqi-cells-h);
   border: 1px solid #ae7e42;
   border-radius: 12px;
   background-color: var(--xiangqi-wood);
@@ -539,14 +590,15 @@ body[theme-mode='dark'] .xiangqi-board {
   fill: var(--xiangqi-ink);
 }
 
-/* 每个交叉点一格大小，棋子、落点和上一手的起点都放在这一格里。 */
+/* 每个交叉点占满一整格，相邻交叉点严丝合缝地铺满棋盘：9 列在 320px 屏上只有 26px 一格，圆角会在四角留下点不到
+   的死角，所以命中区做成方形，棋子与落点的圆形由里面的元素画。触屏上手指落点就近落进某一格，不会被邻格挡住。 */
 .xiangqi-point {
   position: absolute;
   width: var(--xiangqi-cell-w);
   height: var(--xiangqi-cell-h);
   padding: 0;
   border: none;
-  border-radius: 50%;
+  border-radius: 0;
   background: none;
   -webkit-tap-highlight-color: transparent;
 }
@@ -589,11 +641,45 @@ button.xiangqi-point:focus-visible {
   stroke-width: 2;
 }
 
+/* 棋子字用 SVG 的 viewBox 单位，50 是原设计（一格 60）。窄屏上棋盘按比例缩小，字的 viewBox 值不变就只剩十几个
+   屏幕像素，所以小屏把字号往上抬到 54，视觉上约等于一格的 0.83。字号在 SVG 里写 px 是 viewBox 单位，不是屏幕像素。 */
 .xiangqi-piece-glyph {
   font-family: 'KaiTi', 'STKaiti', 'Kaiti SC', 'Songti SC', serif;
   font-size: 50px;
   font-weight: 700;
   filter: drop-shadow(0 1px 0 #fff9e9);
+}
+
+/* 宽而矮的屏幕(手机横屏、矮窗口)：顶部控件收成一条，把高度让给棋盘；棋盘按 88vh 反推，一屏能看到整个棋盘。 */
+@media (orientation: landscape) and (max-height: 560px) {
+  .xiangqi-page {
+    --game-main-width: 100%;
+  }
+
+  .xiangqi-stage {
+    gap: 0;
+  }
+
+  .xiangqi-sound-controls,
+  .xiangqi-coordinate-note,
+  .xiangqi-notation-note,
+  .xiangqi-last-moves {
+    display: none;
+  }
+
+  .xiangqi-board {
+    width: min(
+      100%,
+      520px,
+      calc(88vh / var(--xiangqi-cells-h) * var(--xiangqi-cells-w))
+    );
+  }
+}
+
+@media (max-width: 640px), (max-height: 720px) {
+  .xiangqi-piece-glyph {
+    font-size: 54px;
+  }
 }
 
 .xiangqi-point.is-red .xiangqi-piece-ring {
@@ -715,6 +801,46 @@ body[theme-mode='dark'] .xiangqi-piece-disc {
   }
 }
 
+/* 手机与窄窗口：棋盘整块放进视口高度，外围留白收紧，棋谱改成跟随页面滚动。 */
+@media (max-width: 640px), (max-height: 720px) {
+  /* 手机上棋谱默认只列最近几回合，展开后就让整页滚：不再套一个 280px 的小滚动框，手指不用先滚进框里。 */
+  .xiangqi-history-scroll {
+    max-height: none;
+    overflow: visible;
+    overscroll-behavior: auto;
+  }
+
+  .xiangqi-captured-sides {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .xiangqi-captured-side + .xiangqi-captured-side {
+    border-left: none;
+    border-top: 1px solid var(--semi-color-border);
+  }
+}
+
+/* 棋盘自身占满可用宽度时，四周的装饰边不必再留 520px 的宽。 */
+@media (max-width: 520px) {
+  .xiangqi-board {
+    border-radius: 10px;
+  }
+
+  /* 极窄屏(折叠屏外屏、280px 宽)：棋盘几乎顶满宽度，边框与棋盘外的留白再收一点，给棋子多留几个像素。 */
+  .xiangqi-page {
+    --xiangqi-edge: 0;
+  }
+
+  .xiangqi-coordinate {
+    font-size: 15px;
+  }
+
+  .xiangqi-river {
+    font-size: 26px;
+    letter-spacing: 7px;
+  }
+}
+
 @media (max-width: 420px) {
   .xiangqi-last-moves {
     gap: 6px;
@@ -757,6 +883,7 @@ body[theme-mode='dark'] .xiangqi-piece-disc {
     width: 44px;
   }
 
+  /* 记谱字比正文大一号更好读，但窄到 280px 以下时会把单元格撑破，逐级收到能放下的字号。 */
   .xiangqi-history-notation {
     font-size: 16px;
   }
@@ -769,6 +896,31 @@ body[theme-mode='dark'] .xiangqi-piece-disc {
   .xiangqi-undo {
     flex-wrap: wrap;
     justify-content: center;
+  }
+}
+
+/* 240-320px 的窄屏(折叠屏外屏)：记谱与表格内边距再收一点，两列的棋谱不会被撑破。 */
+@media (max-width: 360px) {
+  .xiangqi-history-table th,
+  .xiangqi-history-table td {
+    padding: 7px 2px;
+  }
+
+  .xiangqi-history-table th:first-child {
+    width: 34px;
+  }
+
+  .xiangqi-history-notation {
+    font-size: 14px;
+  }
+
+  .xiangqi-history-table .xiangqi-history-capture {
+    font-size: 11px;
+  }
+
+  /* nowrap 让记谱在极窄屏上撑破卡片，这里允许折行。 */
+  .xiangqi-move-notation {
+    white-space: normal;
   }
 }
 

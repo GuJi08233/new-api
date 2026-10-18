@@ -141,6 +141,7 @@ const (
 	ResultMoveLimit      Result = "move_limit"      // 总步数达到 MaxPlies，和棋
 	ResultRepetition     Result = "repetition"      // 同一局面出现 RepeatLimit 次，和棋
 	ResultPerpetualCheck Result = "perpetual_check" // 同一局面出现 RepeatLimit 次且一方一直在将军，长将的一方判负
+	ResultAgreement      Result = "agreement"       // 双方同意和棋
 )
 
 var (
@@ -475,6 +476,15 @@ func (p *Position) InCheck() bool {
 	return p.attacked(p.kings[p.turn], p.turn.Other())
 }
 
+// Score 从 color 一方看局面分数：子力加位置表，正数表示这一方占优。回合与将帅状态不计入，只用来判断局面好坏
+// (例如电脑要不要接受和棋)。
+func (p *Position) Score(color Color) int {
+	if color != Red && color != Black {
+		return 0
+	}
+	return p.score[color] - p.score[color.Other()]
+}
+
 // legalAfter 走一步看看己方将帅会不会被攻击，再退回来。
 func (p *Position) legalAfter(m Move) bool {
 	us := p.turn
@@ -697,5 +707,14 @@ func (g *Game) Undo(n int) error {
 		last = &Move{From: history[keep-1].From, To: history[keep-1].To}
 	}
 	g.Board, g.Turn, g.Plies, g.Quiet, g.Last, g.History = pos.Board(), pos.turn, g.Plies-n, quiet, last, history
+	return nil
+}
+
+// DrawAgreed 是双方同意和棋：轮到谁走都一样，Winners 与 Result 记成和棋。对局已经结束时返回 ErrGameOver，g 不变。
+func (g *Game) DrawAgreed() error {
+	if g.Over() {
+		return ErrGameOver
+	}
+	g.Winner, g.Result = NoColor, ResultAgreement
 	return nil
 }

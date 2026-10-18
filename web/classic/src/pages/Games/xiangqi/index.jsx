@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Button } from '@douyinfe/semi-ui';
-import { Copy, Undo2, Volume2, VolumeX } from 'lucide-react';
+import { Copy, Handshake, Undo2, Volume2, VolumeX } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { getGameMetaMap } from '../../../constants';
 import { copy, showError, showSuccess } from '../../../helpers';
@@ -30,19 +30,24 @@ import {
   formatXiangqiRecord,
   getXiangqiCaptures,
   groupXiangqiHistory,
+  recentXiangqiRounds,
   squareLabel,
   xiangqiMoveLabel,
 } from './records';
 import { useXiangqiSounds } from './useXiangqiSounds';
 import './xiangqi.css';
 
-// 棋盘按 SVG 的单位画：交叉点间距 CELL，四周留 MARGIN 给边框和边线上的棋子。
+// 棋盘按 SVG 的单位画：交叉点间距 CELL，四周留 MARGIN 给边框和边线上的棋子。格子按视口高度收窄，棋盘才能整块放进
+// 手机横屏与矮窗口；宽高比跟着格子一起变，棋子仍然落在交叉点上。
 const CELL = 60;
 const MARGIN = 52;
 const WIDTH = CELL * 8 + MARGIN * 2;
 const HEIGHT = CELL * 9 + MARGIN * 2;
+
 // 连续这么多步(双方合计)没有吃子判和；过半之后在台面上提示。
 const QUIET_DRAW_PLIES = 120;
+// 棋谱默认只显示最近这么多回合(手机上整页不必为长棋谱拉长)，展开后显示全部。
+const RECENT_ROUNDS = 6;
 
 const CHINESE_FILES = '一二三四五六七八九';
 
@@ -125,6 +130,7 @@ function xiangqiResultText(result, t) {
     move_limit: t('总步数达到 300 步，和棋'),
     repetition: t('同一局面出现三次，和棋'),
     perpetual_check: t('长将判负'),
+    agreement: t('双方同意和棋'),
   }[result];
 }
 
@@ -137,11 +143,13 @@ const XiangqiBoard = ({
   over,
   onMove,
   onUndo,
+  onDraw,
   busy,
 }) => {
   const { t } = useTranslation();
   // 选中的棋子与选中时的步数：局面一变(自己或对手走了一步)，选中自然失效。
   const [selected, setSelected] = useState(null);
+  const [showAllRounds, setShowAllRounds] = useState(false);
   const historyScroll = useRef(null);
   const { soundEnabled, toggleSound, unlockSound } = useXiangqiSounds(
     state,
@@ -162,6 +170,13 @@ const XiangqiBoard = ({
   const last = state?.last;
   const history = state?.history || [];
   const rounds = groupXiangqiHistory(history);
+  // 只收起回合数很多的棋谱；刚开局不必给一个"展开"按钮。
+  const canCollapse = rounds.length > RECENT_ROUNDS;
+  const visibleRounds = recentXiangqiRounds(
+    rounds,
+    RECENT_ROUNDS,
+    showAllRounds,
+  );
   const captures = getXiangqiCaptures(history);
   const lastMoves = state?.last_moves || {};
   const myColor = flip ? 'black' : 'red';
@@ -376,6 +391,42 @@ const XiangqiBoard = ({
           {state.undo.pending_by < 0 && state.undo.declined && (
             <span className='xiangqi-undo-note'>{t('对方拒绝了悔棋')}</span>
           )}
+          {state.undo.draw_by === seat && (
+            <span className='xiangqi-undo-note'>
+              {t('已提出和棋，等对方回应')}
+            </span>
+          )}
+          {state.undo.draw_by >= 0 && state.undo.draw_by !== seat && (
+            <>
+              <span className='xiangqi-undo-note'>{t('对方想和棋')}</span>
+              <Button
+                size='small'
+                theme='solid'
+                type='primary'
+                disabled={busy}
+                onClick={() => onDraw(true)}
+              >
+                {t('同意')}
+              </Button>
+              <Button
+                size='small'
+                disabled={busy}
+                onClick={() => onDraw(false)}
+              >
+                {t('拒绝')}
+              </Button>
+            </>
+          )}
+          {state.undo.draw_by < 0 && state.undo.can_offer && (
+            <Button
+              size='small'
+              icon={<Handshake size={14} />}
+              disabled={busy}
+              onClick={() => onDraw()}
+            >
+              {t('求和')}
+            </Button>
+          )}
         </div>
       )}
       {state && (
@@ -413,10 +464,12 @@ const XiangqiBoard = ({
           })}
         </div>
       )}
+      {/* 棋盘宽高比与格子尺寸由 CSS 算：宽高比随视口高度收窄，--xiangqi-cell-* 决定每个交叉点占多大一块。 */}
       <div
         className='xiangqi-board'
         style={{
-          aspectRatio: `${WIDTH} / ${HEIGHT}`,
+          '--xiangqi-cells-w': (CELL * 8 + MARGIN * 2) / CELL,
+          '--xiangqi-cells-h': (CELL * 9 + MARGIN * 2) / CELL,
           '--xiangqi-cell-w': `${(CELL / WIDTH) * 100}%`,
           '--xiangqi-cell-h': `${(CELL / HEIGHT) * 100}%`,
         }}
@@ -612,7 +665,7 @@ const XiangqiBoard = ({
                     </tr>
                   </thead>
                   <tbody>
-                    {rounds.map((round) => (
+                    {visibleRounds.map((round) => (
                       <tr
                         key={round.number}
                         className={
@@ -656,6 +709,24 @@ const XiangqiBoard = ({
             ) : (
               <p className='xiangqi-history-note'>{t('暂无行棋记录')}</p>
             )}
+            {canCollapse && (
+              <div className='xiangqi-history-more'>
+                {!showAllRounds && (
+                  <span className='xiangqi-history-note'>
+                    {t('只显示最近 {{count}} 回合', { count: RECENT_ROUNDS })}
+                  </span>
+                )}
+                <Button
+                  size='small'
+                  theme='borderless'
+                  onClick={() => setShowAllRounds((shown) => !shown)}
+                >
+                  {showAllRounds
+                    ? t('只看最近 {{count}} 回合', { count: RECENT_ROUNDS })
+                    : t('展开全部 {{count}} 回合', { count: rounds.length })}
+                </Button>
+              </div>
+            )}
           </section>
         </>
       )}
@@ -696,6 +767,9 @@ const Xiangqi = () => {
         t(
           '每人每局可以免费悔棋 3 次，之后每次 1 个游戏币；房间对局要对方同意，人机对战由电脑直接同意',
         ),
+        t(
+          '轮到自己时可以向对手提议和棋，对手同意就按和棋结算；人机对战里电脑只在没占优时同意',
+        ),
       ]}
       renderBoard={({
         state,
@@ -707,6 +781,7 @@ const Xiangqi = () => {
         over,
         onMove,
         onUndo,
+        onDraw,
       }) => (
         <XiangqiBoard
           state={state}
@@ -717,6 +792,7 @@ const Xiangqi = () => {
           over={over}
           onMove={onMove}
           onUndo={onUndo}
+          onDraw={onDraw}
         />
       )}
     />

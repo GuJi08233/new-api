@@ -6282,6 +6282,15 @@
     "未选择时，全部按开局验证总开关执行": "Sans sélection, tous les jeux suivent le réglage global de vérification au démarrage",
     "开局验证总开关已关闭，当前所有游戏均无需开局验证；免验证名单仍会保留": "La vérification au démarrage est désactivée globalement : aucun jeu ne l’exige actuellement. La liste des exemptions est conservée.",
     "系统 Turnstile 未启用，当前所有游戏均无需开局验证；免验证名单仍会保留": "Turnstile est désactivé dans le système : aucun jeu n’exige actuellement de vérification au démarrage. La liste des exemptions est conservée.",
-    "免费旋转": "Tours gratuits"
+    "免费旋转": "Tours gratuits",
+    "求和": "Proposer la nulle",
+    "已提出和棋，等对方回应": "Nulle proposée, en attente de l'adversaire",
+    "对方想和棋": "Votre adversaire propose la nulle",
+    "双方同意和棋": "Nulle par accord mutuel",
+    "电脑不同意和棋，对局继续": "L'ordinateur refuse la nulle, la partie continue",
+    "轮到自己时可以向对手提议和棋，对手同意就按和棋结算；人机对战里电脑只在没占优时同意": "Vous pouvez proposer la nulle à votre tour ; si l'adversaire accepte, la partie se termine par une nulle. Contre l'ordinateur, il n'accepte que lorsqu'il n'est pas en avance.",
+    "只显示最近 {{count}} 回合": "Seuls les {{count}} derniers coups sont affichés",
+    "展开全部 {{count}} 回合": "Afficher les {{count}} coups",
+    "只看最近 {{count}} 回合": "Afficher seulement les {{count}} derniers coups"
   }
 }

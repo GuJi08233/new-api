@@ -502,3 +502,31 @@ func TestUndoRestoresThePosition(t *testing.T) {
 	require.True(t, over.Over())
 	assert.ErrorIs(t, over.Undo(1), ErrGameOver)
 }
+
+// 双方同意和棋：对局按和棋结束，棋盘与步数都不变，之后不能再走也不能再撤回。
+func TestDrawAgreedEndsTheGameAsADraw(t *testing.T) {
+	game := NewGame()
+	require.NoError(t, game.Play(move(1, 2, 4, 2)))
+	board, plies, turn := game.Board, game.Plies, game.Turn
+
+	require.NoError(t, game.DrawAgreed())
+	assert.True(t, game.Over())
+	assert.Equal(t, ResultAgreement, game.Result)
+	assert.Equal(t, NoColor, game.Winner, "和棋没有赢家")
+	assert.Equal(t, board, game.Board)
+	assert.Equal(t, plies, game.Plies)
+	assert.Equal(t, turn, game.Turn, "求和不改动轮到谁走")
+
+	assert.ErrorIs(t, game.DrawAgreed(), ErrGameOver)
+	assert.ErrorIs(t, game.Play(move(1, 9, 1, 8)), ErrGameOver)
+	assert.ErrorIs(t, game.Undo(1), ErrGameOver)
+}
+
+// 一步将死对方的棋之后同时按和棋结束没有意义：先结束的一方为准，之后的求和被拒绝。
+func TestDrawAgreedRefusesAFinishedGame(t *testing.T) {
+	game := Game{Board: matedByTwoRooks(t), Turn: Red, Winner: NoColor}
+	require.NoError(t, game.Play(move(8, 7, 8, 9)))
+	require.Equal(t, ResultCheckmate, game.Result)
+	assert.ErrorIs(t, game.DrawAgreed(), ErrGameOver)
+	assert.Equal(t, ResultCheckmate, game.Result, "将死的原因不变")
+}

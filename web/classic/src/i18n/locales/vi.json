@@ -6787,6 +6787,15 @@
     "未选择时，全部按开局验证总开关执行": "Để trống để mọi trò chơi dùng cài đặt xác minh khi bắt đầu chung",
     "开局验证总开关已关闭，当前所有游戏均无需开局验证；免验证名单仍会保留": "Xác minh khi bắt đầu đã tắt cho toàn bộ trò chơi. Danh sách miễn xác minh vẫn được giữ lại.",
     "系统 Turnstile 未启用，当前所有游戏均无需开局验证；免验证名单仍会保留": "Turnstile của hệ thống chưa bật nên hiện không trò chơi nào cần xác minh khi bắt đầu. Danh sách miễn xác minh vẫn được giữ lại.",
-    "免费旋转": "Lượt quay miễn phí"
+    "免费旋转": "Lượt quay miễn phí",
+    "求和": "Đề nghị hòa",
+    "已提出和棋，等对方回应": "Đã đề nghị hòa, đang chờ đối thủ phản hồi",
+    "对方想和棋": "Đối thủ muốn hòa",
+    "双方同意和棋": "Hòa theo thỏa thuận",
+    "电脑不同意和棋，对局继续": "Máy không đồng ý hòa, ván đấu tiếp tục",
+    "轮到自己时可以向对手提议和棋，对手同意就按和棋结算；人机对战里电脑只在没占优时同意": "Bạn có thể đề nghị hòa khi đến lượt mình; nếu đối thủ đồng ý, ván đấu kết thúc hòa. Với máy, nó chỉ đồng ý khi không chiếm ưu thế.",
+    "只显示最近 {{count}} 回合": "Chỉ hiển thị {{count}} nước gần nhất",
+    "展开全部 {{count}} 回合": "Hiện tất cả {{count}} nước",
+    "只看最近 {{count}} 回合": "Chỉ hiện {{count}} nước gần nhất"
   }
 }

@@ -22,6 +22,7 @@ import {
   formatXiangqiRecord,
   getXiangqiCaptures,
   groupXiangqiHistory,
+  recentXiangqiRounds,
   xiangqiMoveLabel,
 } from './records';
 
@@ -89,5 +90,22 @@ describe('中国象棋回合棋谱', () => {
       black: [],
     });
     expect(getXiangqiCaptures([])).toEqual({ red: [], black: [] });
+  });
+});
+
+describe('棋谱默认只列最近几回合', () => {
+  const rounds = groupXiangqiHistory(opening);
+
+  test('回合数不超过上限时原样返回，不必出现展开按钮', () => {
+    expect(recentXiangqiRounds(rounds, 3, false)).toEqual(rounds);
+    expect(recentXiangqiRounds(rounds, 3, true)).toEqual(rounds);
+  });
+
+  test('收起时保留最近的回合并维持先后顺序，展开后回到全部', () => {
+    const recent = recentXiangqiRounds(rounds, 2, false);
+    expect(recent.map((round) => round.number)).toEqual([2, 3]);
+    expect(recent[recent.length - 1]).toEqual(rounds[rounds.length - 1]);
+    expect(recentXiangqiRounds(rounds, 2, true)).toEqual(rounds);
+    expect(recentXiangqiRounds([], 6, false)).toEqual([]);
   });
 });
