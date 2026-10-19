@@ -6291,6 +6291,16 @@
     "轮到自己时可以向对手提议和棋，对手同意就按和棋结算；人机对战里电脑只在没占优时同意": "Vous pouvez proposer la nulle à votre tour ; si l'adversaire accepte, la partie se termine par une nulle. Contre l'ordinateur, il n'accepte que lorsqu'il n'est pas en avance.",
     "只显示最近 {{count}} 回合": "Seuls les {{count}} derniers coups sont affichés",
     "展开全部 {{count}} 回合": "Afficher les {{count}} coups",
-    "只看最近 {{count}} 回合": "Afficher seulement les {{count}} derniers coups"
+    "只看最近 {{count}} 回合": "Afficher seulement les {{count}} derniers coups",
+    "提示（免费 {{left}} 次）": "Indice ({{left}} gratuit(s) restant(s))",
+    "提示（{{cost}} 游戏币）": "Indice ({{cost}} jetons)",
+    "推荐着法": "Coup suggéré",
+    "看棋盘上的提示标记": "Repérez l'indice sur le plateau",
+    "约 {{moves}} 步内将死对方": "Mat en environ {{moves}} coups",
+    "约 {{moves}} 步内被将死": "Mat subi en environ {{moves}} coups",
+    "优势约 {{pieces}} 个子": "Avance d’environ {{pieces}} pièce(s)",
+    "落后约 {{pieces}} 个子": "Retard d’environ {{pieces}} pièce(s)",
+    "大致均势": "Position à peu près équilibrée",
+    "人机对战里可以让电脑提示一步：每人每局免费 3 次，之后每次 1 个游戏币；押注对局不提供提示": "Contre l'ordinateur, vous pouvez demander un indice : 3 gratuits par partie, puis 1 jeton chacun. Les parties avec mise n'en proposent pas"
   }
 }

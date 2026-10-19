@@ -328,9 +328,10 @@ func UpdateGameSessionState(session *GameSession, state string, detail string) e
 	return nil
 }
 
-// UndoGameSessionState 保存人机对战悔棋之后的局面并在同一个事务里扣下这次悔棋的费用(前几次免费时 charge 为 0)。session.Version
-// 已不是库里的版本时返回 ErrGameRoundChanged，余额不够时返回 ErrGameCoinInsufficient，两种情况都不会改变任何东西。
-func UndoGameSessionState(session *GameSession, state string, charge GameCoins) (GameCoins, error) {
+// ChargeGameSessionState 保存人机对战一次操作(悔棋、提示)之后的局面，并在同一个事务里扣下这次操作的费用(免费时 charge 为 0)。
+// remark 是流水里的后缀，用来区分是哪种操作。session.Version 已不是库里的版本时返回 ErrGameRoundChanged，余额不够时返回
+// ErrGameCoinInsufficient，两种情况都不会改变任何东西。
+func ChargeGameSessionState(session *GameSession, state string, charge GameCoins, remark string) (GameCoins, error) {
 	if charge < 0 || charge >= common.MaxQuota {
 		return 0, ErrGameCoinAmountInvalid
 	}
@@ -366,7 +367,7 @@ func UndoGameSessionState(session *GameSession, state string, charge GameCoins) 
 			Amount:    -charge,
 			Balance:   balance,
 			RefId:     strconv.Itoa(session.Id),
-			Remark:    session.Game + ":undo",
+			Remark:    session.Game + ":" + remark,
 			CreatedAt: now,
 		}).Error
 	})

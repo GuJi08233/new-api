@@ -19,12 +19,20 @@ For commercial licensing, please contact support@quantumnous.com
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Button } from '@douyinfe/semi-ui';
-import { Copy, Handshake, Undo2, Volume2, VolumeX } from 'lucide-react';
+import {
+  Copy,
+  Handshake,
+  Lightbulb,
+  Undo2,
+  Volume2,
+  VolumeX,
+} from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { getGameMetaMap } from '../../../constants';
 import { copy, showError, showSuccess } from '../../../helpers';
 import PvpGame from '../common/pvp/PvpGame';
 import { formatCoins } from '../common/api';
+import { formatEvaluation, hintForPlies, hintMarker } from './analysis';
 import {
   PIECE_GLYPHS,
   formatXiangqiRecord,
@@ -141,6 +149,9 @@ const XiangqiBoard = ({
   seat,
   canMove,
   over,
+  hint,
+  hintStatus,
+  onHint,
   onMove,
   onUndo,
   onDraw,
@@ -182,6 +193,13 @@ const XiangqiBoard = ({
   const myColor = flip ? 'black' : 'red';
   // 被将军的是轮到走的一方的将帅。
   const checkedKing = state?.check ? (state.turn === 'red' ? 'K' : 'k') : '';
+  // 提示只在它分析的那个局面上有效：走了一步或悔棋之后局面变了，旧的分析就不能再标在棋盘上。
+  const shownHint = hintForPlies(hint, state);
+  const marker = hintMarker(shownHint);
+  // 同一个局面分析出来的着法总是一样的，已经提示过就不再让玩家为同一个答案再付一次钱。
+  const hintAvailable =
+    !!onHint && !!hintStatus?.available && canMove && !shownHint;
+  const hintCost = hintStatus?.cost ?? 0;
 
   useEffect(() => {
     if (historyScroll.current) {
@@ -228,6 +246,8 @@ const XiangqiBoard = ({
         lastMoves[color] &&
           samePoint(lastMoves[color].to, point) &&
           'is-side-last',
+        marker && samePoint(marker.from, point) && 'is-hint-from',
+        marker && samePoint(marker.to, point) && 'is-hint-to',
         letter === checkedKing && 'is-check',
       ]
         .filter(Boolean)
@@ -297,6 +317,24 @@ const XiangqiBoard = ({
         </button>,
       );
     });
+  // 提示的落点可能是空位，那里没有棋子、也还没被选中，单独画一个标记，否则棋盘上看不出该走到哪里。
+  const hintTo =
+    marker && state?.board ? state.board[marker.to[1]]?.[marker.to[0]] : null;
+  if (
+    marker &&
+    hintTo === '.' &&
+    !targets.some((item) => samePoint(item.to, marker.to))
+  ) {
+    const [col, row] = toScreen(marker.to);
+    points.push(
+      <div
+        key={`hint-${marker.to[0]}-${marker.to[1]}`}
+        className='xiangqi-point xiangqi-hint-point'
+        style={pointStyle(col, row)}
+        aria-hidden
+      />,
+    );
+  }
   return (
     <div
       className='xiangqi-stage'
@@ -426,6 +464,46 @@ const XiangqiBoard = ({
             >
               {t('求和')}
             </Button>
+          )}
+          {onHint && hintStatus && (
+            <Button
+              size='small'
+              icon={<Lightbulb size={14} />}
+              disabled={busy || !hintAvailable}
+              onClick={onHint}
+            >
+              {hintStatus.free_left > 0
+                ? t('提示（免费 {{left}} 次）', {
+                    left: hintStatus.free_left,
+                  })
+                : t('提示（{{cost}} 游戏币）', {
+                    cost: formatCoins(hintCost),
+                  })}
+            </Button>
+          )}
+        </div>
+      )}
+      {shownHint && (
+        <div className='xiangqi-hint' role='status'>
+          <span className='xiangqi-hint-title'>
+            <Lightbulb size={14} aria-hidden />
+            {t('推荐着法')}
+          </span>
+          <span className='xiangqi-hint-move'>
+            {shownHint.line?.notation || t('看棋盘上的提示标记')}
+          </span>
+          <span className='xiangqi-hint-eval'>
+            {formatEvaluation(shownHint.line?.score, shownHint.line?.mate, t)}
+          </span>
+          {(shownHint.lines || []).length > 1 && (
+            <ol className='xiangqi-hint-lines'>
+              {shownHint.lines.slice(1).map((line, index) => (
+                <li key={`${line.from}-${line.to}-${index}`}>
+                  <span className='xiangqi-hint-move'>{line.notation}</span>
+                  <span>{formatEvaluation(line.score, line.mate, t)}</span>
+                </li>
+              ))}
+            </ol>
           )}
         </div>
       )}
@@ -770,6 +848,9 @@ const Xiangqi = () => {
         t(
           '轮到自己时可以向对手提议和棋，对手同意就按和棋结算；人机对战里电脑只在没占优时同意',
         ),
+        t(
+          '人机对战里可以让电脑提示一步：每人每局免费 3 次，之后每次 1 个游戏币；押注对局不提供提示',
+        ),
       ]}
       renderBoard={({
         state,
@@ -779,6 +860,9 @@ const Xiangqi = () => {
         canMove,
         busy,
         over,
+        hint,
+        hintStatus,
+        onHint,
         onMove,
         onUndo,
         onDraw,
@@ -790,6 +874,9 @@ const Xiangqi = () => {
           canMove={canMove}
           busy={busy}
           over={over}
+          hint={hint}
+          hintStatus={hintStatus}
+          onHint={onHint}
           onMove={onMove}
           onUndo={onUndo}
           onDraw={onDraw}

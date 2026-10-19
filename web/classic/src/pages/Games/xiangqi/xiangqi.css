@@ -440,6 +440,67 @@ body[theme-mode='dark'] .xiangqi-history-capture {
   color: var(--semi-color-text-2);
 }
 
+/* 提示：按钮和其他操作排在同一行，分析结果单独一块，写明推荐着法与局面判断。 */
+.xiangqi-hint {
+  box-sizing: border-box;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  width: min(100%, 520px);
+  margin-bottom: 8px;
+  padding: 8px 12px;
+  border: 1px solid rgba(var(--semi-amber-5), 0.55);
+  border-radius: 8px;
+  background: rgba(var(--semi-amber-5), 0.1);
+  color: var(--semi-color-text-0);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.xiangqi-hint-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--semi-color-text-1);
+  white-space: nowrap;
+}
+
+.xiangqi-hint-move {
+  font-family: 'KaiTi', 'STKaiti', 'Kaiti SC', 'Songti SC', serif;
+  font-size: 17px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.xiangqi-hint-eval {
+  color: var(--semi-color-text-1);
+}
+
+/* 另外几条推荐着法：只列着法与判断，不再重复标题。 */
+.xiangqi-hint-lines {
+  flex-basis: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 2px 0 0;
+  padding: 0 0 0 2px;
+  list-style: none;
+  color: var(--semi-color-text-2);
+  font-size: 12px;
+}
+
+.xiangqi-hint-lines li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+}
+
+.xiangqi-hint-lines .xiangqi-hint-move {
+  font-size: 15px;
+}
+
 .xiangqi-side {
   padding: 1px 10px;
   border-radius: 999px;
@@ -740,6 +801,31 @@ body[theme-mode='dark'] .xiangqi-piece-disc {
 .xiangqi-point.is-target .xiangqi-piece-halo {
   stroke: #c82e24;
   stroke-dasharray: 9 6;
+}
+
+/* 提示：推荐的起点与落点各画一圈琥珀色，和最后一手、选中、将军的标记都不重色。 */
+.xiangqi-point.is-hint-from .xiangqi-piece-halo,
+.xiangqi-point.is-hint-to .xiangqi-piece-halo {
+  stroke: #b8791a;
+}
+
+.xiangqi-point.is-hint-to .xiangqi-piece-halo {
+  stroke-width: 6;
+}
+
+/* 提示的落点是空位时那里没有棋子可以画圈，单独画一个空心的琥珀色圆圈。 */
+.xiangqi-hint-point::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 62%;
+  height: 62%;
+  border: 3px solid #b8791a;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 0 2px rgba(255, 246, 216, 0.75);
+  pointer-events: none;
 }
 
 .xiangqi-point.is-check .xiangqi-piece-halo {

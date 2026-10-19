@@ -141,6 +141,33 @@ type pvpDrawAi interface {
 	AiAcceptsDraw(state []byte, seat int) (bool, error)
 }
 
+// pvpHintAi 由能在人机对战里给玩家提示的引擎实现(象棋)。提示只为轮到走的玩家分析局面，不会出现在押注房间里：那里有真人
+// 对手，给出引擎的判断等于让一方看别人的棋。前几次免费，之后按次收游戏币。
+type pvpHintAi interface {
+	// HintStatus 返回 seat 现在能不能用提示、还剩几次免费、已经用了几次、下一次要花多少游戏币。
+	HintStatus(state []byte, seat int) (pvpHintStatus, error)
+	// Hint 为 seat 分析当前局面，返回提示本身、记下次数之后的新局面，以及这一次的收费(免费时为 0)。
+	Hint(state []byte, seat int) (pvpHint, error)
+}
+
+// pvpHintStatus 是一个座位此刻的提示额度：能不能用、还剩几次免费、已经用了几次、下一次要花多少游戏币。
+type pvpHintStatus struct {
+	Available bool            `json:"available"`
+	FreeLeft  int             `json:"free_left"`
+	Used      int             `json:"used"`
+	Cost      model.GameCoins `json:"cost"`
+}
+
+// pvpHint 是一次提示的结果：Hint 是给页面看的分析内容，State 是记下次数之后的局面，Cost 是这一次要收的游戏币。
+type pvpHint struct {
+	Hint  json.RawMessage
+	State pvpState
+	Cost  model.GameCoins
+}
+
+// errPvpHintUnavailable 表示现在没有可以提示的着法：对局已经结束，或还没轮到这个人走。
+var errPvpHintUnavailable = errors.New("hint unavailable")
+
 // pvpMultiplayer 由多人对战的引擎实现。一个人超时不判他的队伍输(队友没有过错)，而是转为托管、由 AI 替他走，多人对局也不能
 // 认输，要离开可以托管。
 type pvpMultiplayer interface {
@@ -226,6 +253,9 @@ func registerPvpGame(key string, name string, engine pvpEngine) {
 			}
 			if _, ok := engine.(pvpDrawable); ok {
 				group.POST("/ai/draw", middleware.GamePlayRateLimit(key+"-ai-draw"), func(c *gin.Context) { drawPvpAi(c, game) })
+			}
+			if _, ok := engine.(pvpHintAi); ok {
+				group.POST("/ai/hint", middleware.GameAiRateLimit(key+"-ai-hint"), func(c *gin.Context) { hintPvpAi(c, game) })
 			}
 		},
 	})
@@ -1519,23 +1549,36 @@ func (s *pvpAiState) aiReply(ctx context.Context, game *pvpGame) (json.RawMessag
 	return move, nil
 }
 
-// pvpAiSearchMove 占一个 pvpAiSearches 名额让 AI 替 seat 想一步。名额占满时排队，最多等 pvpAiQueueTimeout，请求取消时不再等；
-// 名额在搜索结束时归还，引擎出错甚至 panic 也不会少掉一个。
-func pvpAiSearchMove(ctx context.Context, engine pvpEngine, board []byte, seat int, level int) (json.RawMessage, error) {
+// acquirePvpAiSlot 占一个 pvpAiSearches 名额，名额占满时排队，最多等 pvpAiQueueTimeout，请求取消时不再等。占到了返回
+// true，调用方用完必须调用 releasePvpAiSlot。
+func acquirePvpAiSlot(ctx context.Context) bool {
 	queued := time.NewTimer(pvpAiQueueTimeout)
 	defer queued.Stop()
 	select {
 	case pvpAiSearches <- struct{}{}:
+		return true
 	case <-queued.C:
-		return nil, errPvpAiBusy
+		return false
 	case <-ctx.Done():
-		return nil, ctx.Err()
+		return false
 	}
-	defer func() { <-pvpAiSearches }()
+}
+
+func releasePvpAiSlot() {
+	<-pvpAiSearches
+}
+
+// pvpAiSearchMove 占一个名额让 AI 替 seat 想一步。名额在搜索结束时归还，引擎出错甚至 panic 也不会少掉一个。
+func pvpAiSearchMove(ctx context.Context, engine pvpEngine, board []byte, seat int, level int) (json.RawMessage, error) {
+	if !acquirePvpAiSlot(ctx) {
+		return nil, errPvpAiBusy
+	}
+	defer releasePvpAiSlot()
 	return engine.AiMove(board, seat, level)
 }
 
-// pvpAiView 是人机对战一局给玩家看的样子。
+// pvpAiView 是人机对战一局给玩家看的样子。支持提示的游戏(象棋)另外给出提示的额度：引擎的视图不知道这一局是人机对战还是
+// 房间对战，提示只在人机对战里有接口，所以额度挂在这一局的会话上而不是局面里。
 func pvpAiView(game *pvpGame, session *model.GameSession) (gin.H, error) {
 	var state pvpAiState
 	if err := common.UnmarshalJsonStr(session.State, &state); err != nil {
@@ -1545,7 +1588,7 @@ func pvpAiView(game *pvpGame, session *model.GameSession) (gin.H, error) {
 	if err != nil {
 		return nil, err
 	}
-	return gin.H{
+	view := gin.H{
 		"session_id": session.Id,
 		"version":    session.Version,
 		"status":     session.Status,
@@ -1558,7 +1601,13 @@ func pvpAiView(game *pvpGame, session *model.GameSession) (gin.H, error) {
 		"result":     state.Result,
 		"moves":      state.Moves,
 		"state":      board,
-	}, nil
+	}
+	if hint, ok := game.engine.(pvpHintAi); ok {
+		if view["hint"], err = hint.HintStatus(state.Board, 0); err != nil {
+			return nil, err
+		}
+	}
+	return view, nil
 }
 
 func getPvpAi(c *gin.Context, game *pvpGame) {
@@ -1826,7 +1875,7 @@ func undoPvpAi(c *gin.Context, game *pvpGame) {
 		common.ApiError(c, err)
 		return
 	}
-	balance, err := model.UndoGameSessionState(session, string(data), answer.Cost)
+	balance, err := model.ChargeGameSessionState(session, string(data), answer.Cost, "undo")
 	if err != nil {
 		respondGameError(c, pvpAiGame(game.key), err)
 		return
@@ -1897,6 +1946,69 @@ func drawPvpAi(c *gin.Context, game *pvpGame) {
 	state.Board, state.Over, state.Winner, state.Result = answered.Data, true, -1, "draw"
 	// 求和不是走棋，只保留之前合法操作已经计入的时长。
 	settlePvpAi(c, game, rule, session, state, nil, session.PlaySeconds, gin.H{"accepted": true})
+}
+
+// hintPvpAi 给玩家一个提示：分析当前局面并返回引擎推荐的着法与评分。提示不落子、不改动棋盘，只把用掉的提示次数写进这一
+// 局，要付费时和新局面在同一个事务里扣下。没轮到玩家走或对局已经结束时不分析，免得白花一次。
+func hintPvpAi(c *gin.Context, game *pvpGame) {
+	rule, ok := pvpAiRule(c, game)
+	if !ok {
+		return
+	}
+	hintEngine, ok := game.engine.(pvpHintAi)
+	if !ok {
+		common.ApiErrorI18n(c, i18n.MsgGameHintUnsupported)
+		return
+	}
+	var req pvpAiMoveRequest
+	if err := decodeGameRequest(c, &req); err != nil {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
+	session, state := loadPvpAiSession(c, game, rule, req.SessionId)
+	if session == nil {
+		return
+	}
+	if req.Version != session.Version {
+		common.ApiErrorI18n(c, i18n.MsgGameRoundChanged)
+		return
+	}
+	if state.Over || state.ToMove != 0 {
+		common.ApiErrorI18n(c, i18n.MsgGameHintUnavailable)
+		return
+	}
+	// 一次分析要占满一个 CPU 核几百毫秒，和 AI 走棋排队同一份额度，人多时不会把服务器压满。
+	if !acquirePvpAiSlot(c.Request.Context()) {
+		common.ApiErrorI18n(c, i18n.MsgGamePlayFailed)
+		return
+	}
+	defer releasePvpAiSlot()
+	answered, err := hintEngine.Hint(state.Board, 0)
+	if err != nil {
+		if errors.Is(err, errPvpHintUnavailable) {
+			common.ApiErrorI18n(c, i18n.MsgGameHintUnavailable)
+			return
+		}
+		respondGameRoomError(c, err)
+		return
+	}
+	state.Board = answered.State.Data
+	data, err := common.Marshal(state)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	balance, err := model.ChargeGameSessionState(session, string(data), answered.Cost, "hint")
+	if err != nil {
+		respondGameError(c, pvpAiGame(game.key), err)
+		return
+	}
+	view, err := pvpAiView(game, session)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, gin.H{"hint": answered.Hint, "session": view, "balance": balance})
 }
 
 // resignPvpAi 认输，这局按输了结算。

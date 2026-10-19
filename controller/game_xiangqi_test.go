@@ -486,6 +486,109 @@ func TestXiangqiLegacyLastMoveKeepsMarkersWithoutInventingHistory(t *testing.T) 
 	}
 }
 
+// 人机战提示：分析当前局面并返回一条合法着法，不落子、不改动棋盘与轮次。前 3 次免费，第 4 次收 1 个游戏币，余额不够时
+// 拒绝且次数不变；对局结束之后不再提示。
+func TestXiangqiAiHintAnalysesWithoutMoving(t *testing.T) {
+	env := newGameTestEnv(t, xiangqiSetting())
+	player := env.player(1, gameTestIpA)
+	started := player.ok(http.MethodPost, "/api/game/xiangqi/ai/start", map[string]any{"level": 2})
+	session := started["session"].(map[string]any)
+	assert.EqualValues(t, 3, session["hint"].(map[string]any)["free_left"])
+
+	body := func(s map[string]any) map[string]any {
+		return map[string]any{"session_id": s["session_id"], "version": s["version"]}
+	}
+	state := session["state"].(map[string]any)
+	legal := state["legal"].([]any)
+	require.NotEmpty(t, legal)
+	legalMoves := map[string]bool{}
+	for _, m := range legal {
+		encoded, err := common.Marshal(m)
+		require.NoError(t, err)
+		legalMoves[string(encoded)] = true
+	}
+
+	for round := 1; round <= 3; round++ {
+		current := session["state"].(map[string]any)
+		replied := player.ok(http.MethodPost, "/api/game/xiangqi/ai/hint", body(session))
+		hint := replied["hint"].(map[string]any)
+		line := hint["line"].(map[string]any)
+		move, err := common.Marshal(map[string]any{"from": line["from"], "to": line["to"]})
+		require.NoError(t, err)
+		assert.True(t, legalMoves[string(move)], "第 %d 次的推荐着法 %s 是合法的一步", round, move)
+		assert.NotEmpty(t, line["notation"])
+		assert.EqualValues(t, state["plies"], hint["plies"])
+		after := replied["session"].(map[string]any)
+		assert.Equal(t, current, after["state"], "提示不改动棋盘与轮次")
+		assert.EqualValues(t, 3-round, after["hint"].(map[string]any)["free_left"], "第 %d 次之后", round)
+		assert.Equal(t, 1.0, player.balance(), "免费提示不收费")
+		session = after
+	}
+
+	// 第 4 次要 1 个游戏币，玩家正好有 1 个。
+	paid := player.ok(http.MethodPost, "/api/game/xiangqi/ai/hint", body(session))
+	after := paid["session"].(map[string]any)
+	assert.EqualValues(t, 0, after["hint"].(map[string]any)["free_left"])
+	assert.Equal(t, 0.0, player.balance(), "第 4 次提示收了 1 个游戏币")
+	var fee model.GameCoinLog
+	require.NoError(t, env.db.Where("user_id = ? AND remark = ?", player.user.Id, "xiangqi_ai:hint").First(&fee).Error)
+	assert.Equal(t, -1.0, coinsOf(t, fee.Amount))
+
+	// 余额不够时拒绝，次数与局面都不变。
+	session = after
+	player.fails(http.MethodPost, "/api/game/xiangqi/ai/hint", body(session))
+	latest := player.ok(http.MethodGet, "/api/game/xiangqi/ai", nil)["session"].(map[string]any)
+	assert.Equal(t, session["version"], latest["version"])
+
+	// 换成已经结束的一局(红方一步将死黑方)：不再提示，也不再扣次数。
+	finished := xiangqi.Game{Board: matedByTwoRooksForTest(), Turn: xiangqi.Red, Plies: 40, Quiet: 4, Winner: xiangqi.NoColor}
+	require.NoError(t, finished.Play(xiangqi.Move{From: xiangqi.Square(8, 7), To: xiangqi.Square(8, 9)}))
+	over, err := common.Marshal(xiangqiState{RedSeat: 0, Game: finished})
+	require.NoError(t, err)
+	overState, err := common.Marshal(pvpAiState{Level: 2, Board: over, ToMove: 0, Winner: -1, Moves: 41})
+	require.NoError(t, err)
+	require.NoError(t, env.db.Model(&model.GameSession{}).Where("id = ?", session["session_id"]).Update("state", string(overState)).Error)
+	current := player.ok(http.MethodGet, "/api/game/xiangqi/ai", nil)["session"].(map[string]any)
+	assert.Equal(t, false, current["hint"].(map[string]any)["available"])
+	player.fails(http.MethodPost, "/api/game/xiangqi/ai/hint", map[string]any{
+		"session_id": current["session_id"], "version": current["version"],
+	})
+}
+
+// matedByTwoRooksForTest 是红方一步杀的局面：车 (8,7) 走到底线将军，另一只车封住 y=8，黑将无处可逃。
+func matedByTwoRooksForTest() string {
+	rows := []string{
+		"....k....",
+		"R........",
+		"........R",
+		".........",
+		".........",
+		".........",
+		".........",
+		".........",
+		".........",
+		"...K.....",
+	}
+	var board strings.Builder
+	for y := 0; y < xiangqi.Height; y++ {
+		board.WriteString(rows[xiangqi.Height-1-y])
+	}
+	return board.String()
+}
+
+// 房间对局没有提示接口：押注对局里给出引擎的判断等于让一方看别人的棋。
+func TestXiangqiRoomHasNoHints(t *testing.T) {
+	env := newGameTestEnv(t, xiangqiSetting())
+	host := env.player(50, gameTestIpA)
+	guest := env.player(50, gameTestIpB)
+	created := host.ok(http.MethodPost, "/api/game/rooms", map[string]any{"game": gameXiangqi, "stake": 10})
+	roomPath := fmt.Sprintf("/api/game/rooms/%v", created["id"])
+	guest.ok(http.MethodPost, roomPath+"/join", nil)
+	// 路由没注册就是 404，不会给出任何分析。
+	recorder := host.send(http.MethodPost, roomPath+"/hint", nil)
+	assert.Equal(t, http.StatusNotFound, recorder.Code)
+}
+
 // 悔棋被拒绝之后只有提出的一方要等到下一步才能再提；拒绝的一方既不该看到"对方拒绝了悔棋"，也不该连自己的悔棋一起被锁住。
 func TestXiangqiDeclinedUndoOnlyBlocksTheAsker(t *testing.T) {
 	env := newGameTestEnv(t, xiangqiSetting())

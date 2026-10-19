@@ -669,6 +669,8 @@ const AiView = ({
   busy,
   error,
   turnstile,
+  hint,
+  onHint,
   onMove,
   onResign,
   onUndo,
@@ -726,6 +728,11 @@ const AiView = ({
         canMove: myTurn && !busy,
         busy,
         over: ai.over,
+        // 提示只在人机对战里有：押注房间里是真人对手，不向任何一方透露引擎的判断。hint 是最近一次分析，局面一变由
+        // 页面自己判作废。
+        hint,
+        hintStatus: ai.hint,
+        onHint,
         onMove,
         onUndo,
         onDraw,
@@ -891,6 +898,8 @@ const PvpSide = ({ info, rules, randomFirst }) => {
 // seatLabels(state) 返回各座位的角色(例如执黑、执白)；
 // statusText({ room, state, seat, myTurn }) 可以按游戏改写对局中的提示(人机对战里 room 为空)；resultNote({ state, seat })
 // 说明正常下完的一局为什么结束(例如将死、困毙)；rules 是信息栏里的规则，randomFirst 为假时(双方同时出招)不写先走的规则。
+// 支持提示的游戏(象棋)在人机对战里另外拿到 hint(最近一次分析，走棋或悔棋后由页面清空)、hintStatus(还剩几次免费、下一次
+// 多少钱)与 onHint()；押注对局的 renderBoard 没有这几项，房间里不会出现提示。
 const PvpGame = ({
   gameKey,
   title,
@@ -908,6 +917,8 @@ const PvpGame = ({
   const { room, setRoom, clockOffset } = usePvpRoom(t);
   const [ai, setAi] = useState(null);
   const [aiResult, setAiResult] = useState(null);
+  // aiHint 是人机对战里最近一次提示的分析结果，局面一变(自己走棋、悔棋)就作废；换局时清掉。
+  const [aiHint, setAiHint] = useState(null);
   const [lobby, setLobby] = useState(null);
   const [stake, setStake] = useState(0);
   const [aiLevel, setAiLevel] = useState(2);
@@ -1051,6 +1062,7 @@ const PvpGame = ({
     setRoom(null);
     setAi(null);
     setAiResult(null);
+    setAiHint(null);
     setError('');
     const latest = await reload(true);
     if (latest) setLobby(latest.lobby);
@@ -1103,6 +1115,7 @@ const PvpGame = ({
       (data) => {
         setAi(data.session);
         setAiResult(null);
+        setAiHint(null);
       },
       'ai',
     );
@@ -1174,11 +1187,27 @@ const PvpGame = ({
         busy={busy}
         error={error}
         turnstile={turnstile}
+        hint={aiHint}
+        onHint={() =>
+          act(
+            `/api/game/${gameKey}/ai/hint`,
+            { session_id: ai.session_id, version: ai.version },
+            (data) => {
+              setAi(data.session);
+              // 提示不改动局面，但会消耗免费次数；分析结果留在页面上，直到走出下一步。
+              setAiHint(data.hint || null);
+            },
+            'ai',
+          )
+        }
         onMove={(value) =>
           act(
             `/api/game/${gameKey}/ai/move`,
             { session_id: ai.session_id, version: ai.version, move: value },
-            applyAi,
+            (data) => {
+              applyAi(data);
+              setAiHint(null);
+            },
             'ai',
           )
         }
@@ -1186,7 +1215,10 @@ const PvpGame = ({
           act(
             `/api/game/${gameKey}/ai/undo`,
             { session_id: ai.session_id, version: ai.version },
-            applyAi,
+            (data) => {
+              applyAi(data);
+              setAiHint(null);
+            },
             'ai',
           )
         }

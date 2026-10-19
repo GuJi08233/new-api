@@ -6796,6 +6796,16 @@
     "轮到自己时可以向对手提议和棋，对手同意就按和棋结算；人机对战里电脑只在没占优时同意": "Bạn có thể đề nghị hòa khi đến lượt mình; nếu đối thủ đồng ý, ván đấu kết thúc hòa. Với máy, nó chỉ đồng ý khi không chiếm ưu thế.",
     "只显示最近 {{count}} 回合": "Chỉ hiển thị {{count}} nước gần nhất",
     "展开全部 {{count}} 回合": "Hiện tất cả {{count}} nước",
-    "只看最近 {{count}} 回合": "Chỉ hiện {{count}} nước gần nhất"
+    "只看最近 {{count}} 回合": "Chỉ hiện {{count}} nước gần nhất",
+    "提示（免费 {{left}} 次）": "Gợi ý (còn {{left}} lượt miễn phí)",
+    "提示（{{cost}} 游戏币）": "Gợi ý ({{cost}} xu)",
+    "推荐着法": "Nước đi gợi ý",
+    "看棋盘上的提示标记": "Xem dấu gợi ý trên bàn cờ",
+    "约 {{moves}} 步内将死对方": "Chiếu hết trong khoảng {{moves}} nước",
+    "约 {{moves}} 步内被将死": "Bị chiếu hết trong khoảng {{moves}} nước",
+    "优势约 {{pieces}} 个子": "Ưu thế khoảng {{pieces}} quân",
+    "落后约 {{pieces}} 个子": "Kém khoảng {{pieces}} quân",
+    "大致均势": "Thế cờ tương đối cân bằng",
+    "人机对战里可以让电脑提示一步：每人每局免费 3 次，之后每次 1 个游戏币；押注对局不提供提示": "Khi đấu với máy bạn có thể xin gợi ý: 3 lần miễn phí mỗi ván, sau đó 1 xu mỗi lần. Phòng có cược không cung cấp gợi ý"
   }
 }

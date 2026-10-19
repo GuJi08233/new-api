@@ -104,3 +104,49 @@ func TestAiRejectsUnknownLevelAndFinishedGame(t *testing.T) {
 	_, err := BestMove(&mated, 3, pickFirst)
 	assert.ErrorIs(t, err, ErrGameOver)
 }
+
+// 分析给出困难难度的推荐着法：一步杀的局面里推荐的就是杀着，杀棋步数是 1；推荐着法一定合法，按分数从高到低排列，而且
+// 同一个局面总是同样的结论。
+func TestAnalyseRecommendsTheBestMove(t *testing.T) {
+	game := Game{Board: matedByTwoRooks(t), Turn: Red, Plies: 40, Quiet: 3, Winner: NoColor}
+	analysis, err := Analyse(&game)
+	require.NoError(t, err)
+	assert.Equal(t, 1, analysis.Mate, "一步杀")
+	assert.Positive(t, analysis.Score)
+	require.NotEmpty(t, analysis.Lines)
+	assert.Equal(t, analysis.Lines[0].Move, analysis.Move)
+	assert.Equal(t, analysis.Lines[0].Score, analysis.Score)
+
+	require.NoError(t, game.Play(analysis.Move))
+	assert.True(t, game.Over())
+	assert.Equal(t, Red, game.Winner)
+
+	opening := NewGame()
+	first, err := Analyse(&opening)
+	require.NoError(t, err)
+	again, err := Analyse(&opening)
+	require.NoError(t, err)
+	assert.Equal(t, first, again, "同一个局面总是同样的分析")
+	assert.Zero(t, first.Mate)
+	legal := map[Move]bool{}
+	pos, err := opening.Position()
+	require.NoError(t, err)
+	for _, m := range pos.LegalMoves() {
+		legal[m] = true
+	}
+	require.NotEmpty(t, first.Lines)
+	for _, line := range first.Lines {
+		assert.True(t, legal[line.Move], "推荐的 %v 是一步合法着法", line.Move)
+	}
+	for i := 1; i < len(first.Lines); i++ {
+		assert.GreaterOrEqual(t, first.Lines[i-1].Score, first.Lines[i].Score, "按分数从高到低")
+	}
+}
+
+// 对局已经结束、或轮到的一方无子可走时没有可分析的着法。
+func TestAnalyseRejectsFinishedGame(t *testing.T) {
+	game := NewGame()
+	require.NoError(t, game.DrawAgreed())
+	_, err := Analyse(&game)
+	assert.ErrorIs(t, err, ErrGameOver)
+}

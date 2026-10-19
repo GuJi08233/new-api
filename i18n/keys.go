@@ -283,6 +283,8 @@ const (
 	MsgGameDrawUnavailable           = "game.draw_unavailable"
 	MsgGameDrawPending               = "game.draw_pending"
 	MsgGameDrawNoRequest             = "game.draw_no_request"
+	MsgGameHintUnsupported           = "game.hint_unsupported"
+	MsgGameHintUnavailable           = "game.hint_unavailable"
 	MsgGameAiDisabled                = "game.ai_disabled"
 	MsgGameAiLevelInvalid            = "game.ai_level_invalid"
 	MsgGameJackpotClosed             = "game.jackpot_closed"

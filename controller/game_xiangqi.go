@@ -20,6 +20,12 @@ const (
 	gameUndoCostCoins = 1
 )
 
+// 提示：人机对战里每人每局前 gameHintFreePlays 次免费，之后每次 gameHintCostCoins 个游戏币，和悔棋同一套计数方式。
+const (
+	gameHintFreePlays = 3
+	gameHintCostCoins = 1
+)
+
 // aiDrawMargin 是电脑接受和棋的分差上限：自己比对方高出这么多分(约一个马)以上才拒绝求和，否则接受。人机对战里玩家落后时
 // 求和会被拒绝，均势或占优时电脑愿意和棋。
 const aiDrawMargin = 250
@@ -78,6 +84,8 @@ type xiangqiState struct {
 	RedSeat int              `json:"red_seat"`
 	Game    xiangqi.Game     `json:"game"`
 	Undo    xiangqiUndoState `json:"undo,omitempty"`
+	// Hints 是用掉了几个提示，人机对战里前 gameHintFreePlays 个免费，之后每个 gameHintCostCoins 个游戏币。
+	Hints int `json:"hints,omitempty"`
 }
 
 // xiangqiMove 是一步棋在接口里的样子：{"from":[x,y],"to":[x,y]}。x 是列 0-8，y 是行 0-9，红方在 y 0-4 一侧(见 pkg/xiangqi)。
@@ -158,6 +166,35 @@ func (s *xiangqiState) undoCost(seat int) (model.GameCoins, error) {
 		return 0, nil
 	}
 	return model.WholeGameCoins(gameUndoCostCoins)
+}
+
+// hintFreeLeft 返回人机对战里还剩几次免费提示。
+func (s *xiangqiState) hintFreeLeft() int {
+	return max(gameHintFreePlays-s.Hints, 0)
+}
+
+// hintCost 是下一次提示要付的游戏币：免费次数用完之前为 0。提示只用在人机对战，所以不按座位分开计。
+func (s *xiangqiState) hintCost() (model.GameCoins, error) {
+	if s.hintFreeLeft() > 0 {
+		return 0, nil
+	}
+	return model.WholeGameCoins(gameHintCostCoins)
+}
+
+// hintView 汇总看的人此刻能不能用提示、还剩几次免费、下一次要花多少游戏币：轮到看的人走、对局还没结束时才能用。提示只在
+// 人机对战里有接口(见 pvpHintAi)，房间对局不调用它，押注对局里的一方不会看到引擎的判断。
+func (s *xiangqiState) hintView(seat int) (pvpHintStatus, error) {
+	toMove, _ := s.seats()
+	cost, err := s.hintCost()
+	if err != nil {
+		return pvpHintStatus{}, err
+	}
+	return pvpHintStatus{
+		Available: !s.Game.Over() && toMove == seat,
+		FreeLeft:  s.hintFreeLeft(),
+		Used:      s.Hints,
+		Cost:      cost,
+	}, nil
 }
 
 // colorOf 返回 seat 执的一方(红 0、黑 1)，seat 不是这个房间里的座位时返回 -1。
@@ -573,4 +610,73 @@ func (xiangqiEngine) AiMove(data []byte, seat int, level int) (json.RawMessage, 
 		return nil, err
 	}
 	return common.Marshal(xiangqiMoveView(m))
+}
+
+// xiangqiHintLine 是提示里的一条着法：落点、评分、杀棋步数与中文记谱。
+type xiangqiHintLine struct {
+	From     []int  `json:"from"`
+	To       []int  `json:"to"`
+	Notation string `json:"notation"`
+	Score    int    `json:"score"`
+	// Mate 正数是这一方多少步内将死对方，负数是自己多少步内被将死，0 表示没看到杀棋。
+	Mate int `json:"mate,omitempty"`
+}
+
+// xiangqiHint 是一次提示：分析时的步数(局面一变提示就作废)、推荐的着法与按分数排好的前几条着法。
+type xiangqiHint struct {
+	Plies int               `json:"plies"`
+	Line  xiangqiHintLine   `json:"line"`
+	Lines []xiangqiHintLine `json:"lines"`
+}
+
+// hintLine 把引擎的一条着法换成接口里的样子，记谱用分析时的棋盘生成。
+func hintLine(board string, line xiangqi.Line) xiangqiHintLine {
+	notation, _ := xiangqi.Notation(board, line.Move)
+	move := xiangqiMoveView(line.Move)
+	return xiangqiHintLine{From: move.From, To: move.To, Notation: notation, Score: line.Score, Mate: line.Mate}
+}
+
+// HintStatus 返回这个座位现在能不能用提示、还剩几次免费、已经用了几次、下一次要花多少游戏币。
+func (xiangqiEngine) HintStatus(data []byte, seat int) (pvpHintStatus, error) {
+	state, err := loadXiangqiState(data)
+	if err != nil {
+		return pvpHintStatus{}, err
+	}
+	return state.hintView(seat)
+}
+
+// Hint 为 seat 分析当前局面：推荐自己走的一步、评测分数与杀棋步数，同时把用掉的提示次数记进状态。提示不改动棋局，
+// 轮不到 seat 走或对局已经结束时返回 errPvpHintUnavailable。
+func (xiangqiEngine) Hint(data []byte, seat int) (pvpHint, error) {
+	state, err := loadXiangqiState(data)
+	if err != nil {
+		return pvpHint{}, err
+	}
+	toMove, _ := state.seats()
+	if state.Game.Over() || toMove != seat {
+		return pvpHint{}, errPvpHintUnavailable
+	}
+	analysis, err := xiangqi.Analyse(&state.Game)
+	if err != nil {
+		return pvpHint{}, err
+	}
+	hint := xiangqiHint{Plies: state.Game.Plies}
+	for _, line := range analysis.Lines {
+		hint.Lines = append(hint.Lines, hintLine(state.Game.Board, line))
+	}
+	hint.Line = hint.Lines[0]
+	cost, err := state.hintCost()
+	if err != nil {
+		return pvpHint{}, err
+	}
+	state.Hints++
+	next, err := state.pvp()
+	if err != nil {
+		return pvpHint{}, err
+	}
+	content, err := common.Marshal(hint)
+	if err != nil {
+		return pvpHint{}, err
+	}
+	return pvpHint{Hint: content, State: next, Cost: cost}, nil
 }

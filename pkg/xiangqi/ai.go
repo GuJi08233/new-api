@@ -236,16 +236,106 @@ func BestMove(g *Game, level int, pick func(n int) int) (Move, error) {
 	if level < 1 || level > AiLevels {
 		return Move{}, errUnknownLevel
 	}
-	if g.Over() {
-		return Move{}, ErrGameOver
-	}
-	pos, err := g.Position()
+	found, err := searchRoots(g, aiLevels[level])
 	if err != nil {
 		return Move{}, err
 	}
+	if len(found.completed) == 0 {
+		return found.fallback, nil
+	}
+	params := aiLevels[level]
+	best, margin := found.completed[0].score, params.margin
+	if best >= mateBound || best <= -mateBound {
+		margin = 0
+	}
+	candidates := 1
+	for candidates < len(found.completed) && found.completed[candidates].score >= best-margin {
+		candidates++
+	}
+	choice := pick(candidates)
+	if choice < 0 || choice >= candidates {
+		choice = 0
+	}
+	return found.completed[choice].move, nil
+}
+
+// Analysis 是一次局面分析的结论，都从轮到走的一方看：推荐的着法、评分(正数表示这一方占优，一个马约 270 分、一个车约
+// 600 分)、杀棋步数(正数是自己多少步内将死对方，负数是被将死，0 表示没看到杀棋)，以及按分数排好的前几条着法。
+type Analysis struct {
+	Move  Move   `json:"move"`
+	Score int    `json:"score"`
+	Mate  int    `json:"mate,omitempty"`
+	Lines []Line `json:"lines,omitempty"`
+}
+
+// Line 是分析里的一条推荐着法及其评分与杀棋步数。
+type Line struct {
+	Move  Move `json:"move"`
+	Score int  `json:"score"`
+	Mate  int  `json:"mate,omitempty"`
+}
+
+const (
+	// analyseLines 是分析最多列出几条着法。
+	analyseLines = 3
+	// analyseMargin 是分析时根节点着法的准确度窗口：比最好的着法差不到这么多分的着法都搜出准确分数，更差的只够知道
+	// 它不够好。提示只需要前几条，不必为每一步都花满搜索。
+	analyseMargin = 200
+)
+
+// Analyse 为轮到走的一方分析局面，用困难难度的搜索给出推荐着法与评分。它不看随机数，同一个局面总是同样的结论；对局
+// 已经结束或没有合法着法时返回错误。
+func Analyse(g *Game) (Analysis, error) {
+	params := aiLevels[AiLevels]
+	found, err := searchRoots(g, aiLevel{depth: params.depth, margin: analyseMargin})
+	if err != nil {
+		return Analysis{}, err
+	}
+	if len(found.completed) == 0 {
+		line := Line{Move: found.fallback}
+		return Analysis{Move: line.Move, Lines: []Line{line}}, nil
+	}
+	analysis := Analysis{}
+	for i := 0; i < len(found.completed) && i < analyseLines; i++ {
+		root := found.completed[i]
+		analysis.Lines = append(analysis.Lines, Line{Move: root.move, Score: root.score, Mate: matePlies(root.score)})
+	}
+	analysis.Move, analysis.Score, analysis.Mate = analysis.Lines[0].Move, analysis.Lines[0].Score, analysis.Lines[0].Mate
+	return analysis, nil
+}
+
+// matePlies 把杀棋分换成离将死的步数：正数是这一方多少步内将死对方，负数是自己多少步内被将死，0 表示不是杀棋分。
+// 叶子节点的杀棋分带着层数(-mateScore+ply)，反过来就是还有几步。
+func matePlies(score int) int {
+	switch {
+	case score >= mateBound:
+		return mateScore - score
+	case score <= -mateBound:
+		return -(mateScore + score)
+	}
+	return 0
+}
+
+// rootSearch 是一轮迭代加深之后的根节点着法：completed 是最后一次完整搜完的那一轮的分数(按分数从高到低)，节点数用完的
+// 那一轮作废；连第一轮都没搜完时 completed 为空，fallback 是排序最前的一步。
+type rootSearch struct {
+	completed []rootMove
+	fallback  Move
+}
+
+// searchRoots 建立一次搜索并逐层加深到 params.depth：根节点的全部合法着法先按排序分数排好，每轮搜完再按分数重排。
+// 搜索的节点数上限由参数决定，同一局面同样的参数总是搜出同样的结果。
+func searchRoots(g *Game, params aiLevel) (rootSearch, error) {
+	if g.Over() {
+		return rootSearch{}, ErrGameOver
+	}
+	pos, err := g.Position()
+	if err != nil {
+		return rootSearch{}, err
+	}
 	legal := pos.LegalMoves()
 	if len(legal) == 0 {
-		return Move{}, ErrGameOver
+		return rootSearch{}, ErrGameOver
 	}
 	s := &searcher{pos: pos, plies: g.Plies, limit: nodeLimit, tt: make([]ttEntry, ttSize)}
 	s.quiet[0] = g.Quiet
@@ -262,33 +352,15 @@ func BestMove(g *Game, level int, pick func(n int) int) (Move, error) {
 		root[i] = rootMove{move: m, score: int(s.orderScore(0, m, Move{}, false))}
 	}
 	sort.SliceStable(root, func(i, j int) bool { return root[i].score > root[j].score })
-
-	// 迭代加深：每一轮按上一轮的分数排好根节点，节点数用完的那一轮作废。连第一轮都没搜完时走排序最前的一步。
-	params := aiLevels[level]
-	var completed []rootMove
+	found := rootSearch{fallback: root[0].move}
 	for depth := 1; depth <= params.depth; depth++ {
 		if !s.searchRoot(root, depth, params.margin) {
 			break
 		}
 		sort.SliceStable(root, func(i, j int) bool { return root[i].score > root[j].score })
-		completed = append(completed[:0], root...)
+		found.completed = append(found.completed[:0], root...)
 	}
-	if len(completed) == 0 {
-		return root[0].move, nil
-	}
-	best, margin := completed[0].score, params.margin
-	if best >= mateBound || best <= -mateBound {
-		margin = 0
-	}
-	candidates := 1
-	for candidates < len(completed) && completed[candidates].score >= best-margin {
-		candidates++
-	}
-	choice := pick(candidates)
-	if choice < 0 || choice >= candidates {
-		choice = 0
-	}
-	return completed[choice].move, nil
+	return found, nil
 }
 
 // searchRoot 把根节点的每一步搜到 depth 层并记下分数。分数不比目前最好的差 margin 分以上的着法要得到准确的分数，

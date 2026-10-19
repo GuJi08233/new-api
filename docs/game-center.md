@@ -57,6 +57,16 @@
 - 人机对战里电脑自己不提议求和。玩家提议时，电脑按局面分数（子力加位置表，`pkg/xiangqi` 的 `Position.Score`）判断：自己高出 `aiDrawMargin`（250 分，约一个马）以上才拒绝，均势或落后时同意。这个分数只由局面决定，不看搜索，同一个局面总是同一个答案。
 - 视图 `undo` 对象新增 `draw_by`（在等回应的座位，没有请求时为 -1）与 `can_offer`（轮到看的人、没有请求在等回应时可以提议），页面的求和按钮只在 `can_offer` 为真时出现。
 
+### 提示与局面分析
+
+人机对战里可以让电脑分析当前局面（`POST /api/game/xiangqi/ai/hint`）：返回引擎推荐的着法、中文记谱、评分排序的前三条着法与分数，页面在棋盘上用琥珀色标出推荐着法的起点与落点，另外写明“优势约 N 个子”“约 N 步内将死对方”之类的结论。提示不落子、不改动棋盘、步数与轮次，只消耗次数。
+
+- 每人每局前 3 次免费，之后每次 1 个游戏币，扣费与新版本在同一个事务里完成；余额不够时拒绝，次数与局面都不变。
+- 只在轮到玩家走、对局还没结束时分析。视图 `session.hint` 给出 `available`、`free_left`、`used` 与 `cost`，页面据此显示“提示（免费 N 次）”或“提示（N 游戏币）”。
+- 分析结果带着当时的步数（`plies`）。走了一步或悔棋之后局面变了，页面就把旧提示丢掉，不会把过期结论继续标在棋盘上。
+- 提示只在人机对战里有接口：押注对局的房间里是真人对手，向任何一方透露引擎的判断都等于开外挂，所以房间路由下没有 `/hint`，`renderBoard` 也拿不到 `hintStatus`。
+- 一次分析和 AI 走棋一样要占一个 CPU 搜索名额，排队共享 `pvpAiQueueTimeout`，并单独限流（`GameAiRateLimit`）。
+
 参考：[世界象棋联合会《世界象棋规则》](https://www.wxf-xiangqi.org/images/wxf-rules/2018_World_Xiangqi_Rules_Chinese_2018.pdf)的棋盘与路数规定、[《中国象棋竞赛规则（2020版）》第 7.5 条](https://qizhe.org.cn/home/wp-content/uploads/2025/04/2020%E4%B8%AD%E5%9B%BD%E8%B1%A1%E6%A3%8B%E7%AB%9E%E8%B5%9B%E8%A7%84%E5%88%99-2-1.pdf)的回合记录示例，以及[象棋百科全书《象棋着法表示方法》](https://www.xqbase.com/protocol/cchess_move.htm)的消歧记法。
 
 ## 斗地主
@@ -88,6 +98,6 @@ AI 只读取一个座位能看到的信息(自己的手牌、各家剩余张数�
 - `pvpMultiplayer.MaxLoss()` 返回一个座位最多输掉几倍押注，入座时按它预扣。
 - `pvpMultiplayer.Scores(state)` 返回自然结束的一局里每个座位输赢几倍押注，合计为 0。
 
-可选接口：支持悔棋的游戏实现 `pvpUndoable`（`UndoAsk`/`UndoAnswer`），支持求和的实现 `pvpDrawable`（`DrawOffer`/`DrawAnswer`）；人机对战里如果要让 AI 自己决定接不接受求和，再实现 `pvpDrawAi`（`AiAcceptsDraw`）。引擎不需要实现可选接口时对应的接口与页面入口都不出现。
+可选接口：支持悔棋的游戏实现 `pvpUndoable`（`UndoAsk`/`UndoAnswer`），支持求和的实现 `pvpDrawable`（`DrawOffer`/`DrawAnswer`）；人机对战里如果要让 AI 自己决定接不接受求和，再实现 `pvpDrawAi`（`AiAcceptsDraw`）；要给人机对战提供提示的再实现 `pvpHintAi`（`HintStatus`/`Hint`），押注房间不会被调用。引擎不需要实现可选接口时对应的接口与页面入口都不出现。
 
 结算统一按每个座位输赢几倍押注计算，双人游戏是赢家 1 倍、输家 -1 倍；分数超出预扣范围时拒绝结算。多人游戏的 AI 选步也用于托管，要在几毫秒内算完。框架统一处理密码、匹配、入座、长轮询、版本冲突、托管、结算和恢复。JSON 编解码使用 `common` 包；数据操作通过 GORM，并使用项目的数据库锁辅助函数。

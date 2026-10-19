@@ -6439,6 +6439,16 @@
     "轮到自己时可以向对手提议和棋，对手同意就按和棋结算；人机对战里电脑只在没占优时同意": "You can offer a draw when it is your turn; if your opponent accepts, the game ends in a draw. Against the computer, it only accepts when it is not ahead.",
     "只显示最近 {{count}} 回合": "Showing the last {{count}} rounds",
     "展开全部 {{count}} 回合": "Show all {{count}} rounds",
-    "只看最近 {{count}} 回合": "Show only the last {{count}} rounds"
+    "只看最近 {{count}} 回合": "Show only the last {{count}} rounds",
+    "提示（免费 {{left}} 次）": "Hint ({{left}} free left)",
+    "提示（{{cost}} 游戏币）": "Hint ({{cost}} coins)",
+    "推荐着法": "Suggested move",
+    "看棋盘上的提示标记": "See the hint marker on the board",
+    "约 {{moves}} 步内将死对方": "Mate in about {{moves}}",
+    "约 {{moves}} 步内被将死": "Mated in about {{moves}}",
+    "优势约 {{pieces}} 个子": "About {{pieces}} piece(s) ahead",
+    "落后约 {{pieces}} 个子": "About {{pieces}} piece(s) behind",
+    "大致均势": "Roughly level",
+    "人机对战里可以让电脑提示一步：每人每局免费 3 次，之后每次 1 个游戏币；押注对局不提供提示": "Against the computer you can ask for a hint: 3 free per game, then 1 coin each. Staked rooms never offer hints"
   }
 }
