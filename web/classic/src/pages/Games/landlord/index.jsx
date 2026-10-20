@@ -24,6 +24,7 @@ import { useTranslation } from 'react-i18next';
 import { isRedSuit, SUIT_ICONS } from '../common/cards';
 import PvpGame from '../common/pvp/PvpGame';
 import { groupPlayedCards } from './cards';
+import { selectedHintIndex, selectionFeedback } from './selection';
 import useCardSelection from './useCardSelection';
 import './landlord.css';
 
@@ -123,7 +124,17 @@ const LandlordBoard = ({ state, seat, names, canMove, over, onMove }) => {
       enabled: canMove && !bidding && !over,
       resetKey: selectionKey,
     });
-  const hintIndex = hintChoice.key === selectionKey ? hintChoice.index : -1;
+  const hintIndex = selectedHintIndex(
+    selected,
+    hints,
+    hintChoice,
+    selectionKey,
+  );
+  const feedback = selectionFeedback(selected, lastPlay);
+  const noHint =
+    hintChoice.key === selectionKey &&
+    hintChoice.index === -2 &&
+    selected.length === 0;
   // 这一轮要压的那一手：最后一次出牌(之后可能还跟着不出)，一轮结束后没有。
   let leadIndex = -1;
   if (lastPlay) {
@@ -168,6 +179,22 @@ const LandlordBoard = ({ state, seat, names, canMove, over, onMove }) => {
     bomb: t('炸弹'),
     rocket: t('王炸'),
   };
+  let selectionNote = t('按住并横向拖动可连续选牌');
+  if (selected.length > 0) {
+    if (feedback.reason === 'invalid') {
+      selectionNote = t('这些牌还未组成合法牌型');
+    } else if (feedback.reason === 'shape') {
+      selectionNote = t('所选牌型或长度不匹配，请选同类同长度的牌或炸弹');
+    } else if (feedback.reason === 'rank') {
+      selectionNote = t('所选牌还不能压过上一手');
+    } else {
+      selectionNote = t('已选 {{type}}，可以出牌', {
+        type: combinations[feedback.combination.type],
+      });
+    }
+  } else if (noHint) {
+    selectionNote = t('没有能压过的牌，可以选择不出');
+  }
   if (!state) {
     return (
       <div className='landlord-empty'>
@@ -257,7 +284,12 @@ const LandlordBoard = ({ state, seat, names, canMove, over, onMove }) => {
                       ? nameOf(player.seat)
                       : `${player.label} · ${nameOf(player.seat)}`}
                   </span>
-                  <span className='landlord-table-count'>
+                  <span
+                    className={`landlord-table-count ${!over && state.counts[player.seat] > 0 && state.counts[player.seat] <= 2 ? 'is-low' : ''}`}
+                    title={t('剩余 {{count}} 张', {
+                      count: state.counts[player.seat],
+                    })}
+                  >
                     <Layers size={12} aria-hidden />
                     {state.counts[player.seat]}
                   </span>
@@ -347,7 +379,7 @@ const LandlordBoard = ({ state, seat, names, canMove, over, onMove }) => {
               </Button>
               <Button
                 theme='solid'
-                disabled={!canMove || selected.length === 0}
+                disabled={!canMove || feedback.reason !== null}
                 onClick={() => onMove({ cards: selected })}
               >
                 {t('出牌')}
@@ -355,7 +387,10 @@ const LandlordBoard = ({ state, seat, names, canMove, over, onMove }) => {
               </Button>
               <Button
                 disabled={!canMove || selected.length === 0}
-                onClick={clearSelection}
+                onClick={() => {
+                  clearSelection();
+                  setHintChoice({ key: selectionKey, index: -1 });
+                }}
               >
                 {t('清空选择')}
               </Button>
@@ -364,12 +399,16 @@ const LandlordBoard = ({ state, seat, names, canMove, over, onMove }) => {
         </div>
       )}
       {!bidding && !over && (
-        <div className='landlord-selection-note' role='status'>
-          {hintIndex === -2
-            ? t('没有能压过的牌，可以选择不出')
-            : hintIndex >= 0
-              ? t('再次点击提示切换组合')
-              : t('按住并横向拖动可连续选牌')}
+        <div
+          className={`landlord-selection-note ${selected.length > 0 && feedback.reason ? 'is-warning' : ''}`}
+          role='status'
+        >
+          <span>{selectionNote}</span>
+          {hintIndex >= 0 && (
+            <span className='landlord-selection-detail'>
+              {t('再次点击提示切换组合')}
+            </span>
+          )}
         </div>
       )}
       <div className='landlord-hand'>

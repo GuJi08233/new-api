@@ -29,6 +29,7 @@ export default defineConfig({
     ignoredAttributes: [
       'accept',
       'align',
+      'aria-keyshortcuts',
       'aria-label',
       'autoComplete',
       'className',

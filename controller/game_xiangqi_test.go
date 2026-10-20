@@ -1,6 +1,8 @@
 package controller
 
 import (
+	"bytes"
+	"context"
 	"fmt"
 	"net/http"
 	"strings"
@@ -553,6 +555,28 @@ func TestXiangqiAiHintAnalysesWithoutMoving(t *testing.T) {
 	player.fails(http.MethodPost, "/api/game/xiangqi/ai/hint", map[string]any{
 		"session_id": current["session_id"], "version": current["version"],
 	})
+}
+
+// 取消的电脑搜索和提示都不返回可落库的新状态，也不消耗提示次数。
+func TestXiangqiEngineCanceledSearchKeepsState(t *testing.T) {
+	engine := xiangqiEngine{}
+	initial, err := engine.New(0)
+	require.NoError(t, err)
+	before := bytes.Clone(initial.Data)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	m, err := engine.AiMoveContext(ctx, initial.Data, 0, 3)
+	assert.ErrorIs(t, err, context.Canceled)
+	assert.Empty(t, m)
+	hint, err := engine.HintContext(ctx, initial.Data, 0)
+	assert.ErrorIs(t, err, context.Canceled)
+	assert.Empty(t, hint)
+	assert.Equal(t, before, initial.Data)
+	status, err := engine.HintStatus(initial.Data, 0)
+	require.NoError(t, err)
+	assert.Zero(t, status.Used)
+	assert.Equal(t, gameHintFreePlays, status.FreeLeft)
 }
 
 // matedByTwoRooksForTest 是红方一步杀的局面：车 (8,7) 走到底线将军，另一只车封住 y=8，黑将无处可逃。

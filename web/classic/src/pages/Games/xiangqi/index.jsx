@@ -17,12 +17,17 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@douyinfe/semi-ui';
 import {
   Copy,
+  ChevronLeft,
+  ChevronRight,
   Handshake,
   Lightbulb,
+  RotateCw,
+  SkipBack,
+  SkipForward,
   Undo2,
   Volume2,
   VolumeX,
@@ -43,6 +48,11 @@ import {
   xiangqiMoveLabel,
 } from './records';
 import { useXiangqiSounds } from './useXiangqiSounds';
+import {
+  buildXiangqiReplay,
+  resolveXiangqiReview,
+  xiangqiReplayPosition,
+} from './replay';
 import './xiangqi.css';
 
 // 棋盘按 SVG 的单位画：交叉点间距 CELL，四周留 MARGIN 给边框和边线上的棋子。格子按视口高度收窄，棋盘才能整块放进
@@ -161,24 +171,40 @@ const XiangqiBoard = ({
   // 选中的棋子与选中时的步数：局面一变(自己或对手走了一步)，选中自然失效。
   const [selected, setSelected] = useState(null);
   const [showAllRounds, setShowAllRounds] = useState(false);
+  const [review, setReview] = useState(null);
+  const [flipped, setFlipped] = useState(false);
   const historyScroll = useRef(null);
+  const replayControls = useRef(null);
+  const replay = useMemo(() => buildXiangqiReplay(state), [state]);
+  const reviewPly = resolveXiangqiReview(replay, review, gameId);
+  const reviewing = reviewPly !== null;
+  // 悔棋撤掉所看局面时立即回到实盘，并清掉游标，之后重新走到同一步也不会意外重新进入回看。
+  if (review && !reviewing) setReview(null);
+  if (selected && selected.plies !== state?.plies) setSelected(null);
+  const position = reviewing
+    ? xiangqiReplayPosition(state, replay, reviewPly)
+    : state;
   const { soundEnabled, toggleSound, unlockSound } = useXiangqiSounds(
     state,
     gameId,
   );
 
-  const flip = !!state && seat !== state.red_seat;
+  const myColor = state && seat !== state.red_seat ? 'black' : 'red';
+  const flip = (myColor === 'black') !== flipped;
+  const displayedPly = position?.plies ?? 0;
+  const canReview = replay.firstPly < replay.lastPly;
+  const liveCanMove = canMove && !busy && !reviewing;
   // 棋盘坐标 (x,y) 在屏幕上的列与行：红方的 y=0 一侧在下面，执黑时整个棋盘旋转 180 度。
   const toScreen = ([x, y]) => (flip ? [8 - x, y] : [x, 9 - y]);
-  const legal = canMove ? state?.legal || [] : [];
+  const legal = liveCanMove ? state?.legal || [] : [];
   const active =
-    selected && selected.plies === state?.plies && canMove
+    selected && selected.plies === state?.plies && liveCanMove
       ? selected.point
       : null;
   const targets = active
     ? legal.filter((move) => samePoint(move.from, active))
     : [];
-  const last = state?.last;
+  const last = position?.last;
   const history = state?.history || [];
   const rounds = groupXiangqiHistory(history);
   // 只收起回合数很多的棋谱；刚开局不必给一个"展开"按钮。
@@ -186,26 +212,70 @@ const XiangqiBoard = ({
   const visibleRounds = recentXiangqiRounds(
     rounds,
     RECENT_ROUNDS,
-    showAllRounds,
+    showAllRounds || reviewing,
   );
-  const captures = getXiangqiCaptures(history);
-  const lastMoves = state?.last_moves || {};
-  const myColor = flip ? 'black' : 'red';
+  const captures = getXiangqiCaptures(position?.history || []);
+  const lastMoves = position?.last_moves || {};
   // 被将军的是轮到走的一方的将帅。
-  const checkedKing = state?.check ? (state.turn === 'red' ? 'K' : 'k') : '';
+  const checkedKing = position?.check
+    ? position.turn === 'red'
+      ? 'K'
+      : 'k'
+    : '';
   // 提示只在它分析的那个局面上有效：走了一步或悔棋之后局面变了，旧的分析就不能再标在棋盘上。
-  const shownHint = hintForPlies(hint, state);
+  const shownHint = reviewing ? null : hintForPlies(hint, state);
   const marker = hintMarker(shownHint);
   // 同一个局面分析出来的着法总是一样的，已经提示过就不再让玩家为同一个答案再付一次钱。
   const hintAvailable =
-    !!onHint && !!hintStatus?.available && canMove && !shownHint;
+    !!onHint && !!hintStatus?.available && liveCanMove && !shownHint;
   const hintCost = hintStatus?.cost ?? 0;
 
   useEffect(() => {
-    if (historyScroll.current) {
-      historyScroll.current.scrollTop = historyScroll.current.scrollHeight;
+    const container = historyScroll.current;
+    if (!container) return;
+    if (!reviewing) {
+      container.scrollTop = container.scrollHeight;
+      return;
     }
-  }, [state?.plies]);
+    const current = container.querySelector('[aria-current="step"]');
+    if (!current || container.scrollHeight <= container.clientHeight) return;
+    const bounds = container.getBoundingClientRect();
+    const item = current.getBoundingClientRect();
+    if (item.top < bounds.top + 40)
+      container.scrollTop -= bounds.top + 40 - item.top;
+    else if (item.bottom > bounds.bottom)
+      container.scrollTop += item.bottom - bounds.bottom;
+  }, [state?.plies, reviewPly, reviewing]);
+
+  const goToPly = (ply, reveal = false) => {
+    if (!replay.positions.has(ply)) return;
+    setSelected(null);
+    setReview(
+      ply === replay.lastPly
+        ? null
+        : { gameId, ply, board: replay.positions.get(ply) },
+    );
+    if (reveal) replayControls.current?.scrollIntoView({ block: 'start' });
+  };
+
+  const replayKeyDown = (event) => {
+    if (
+      event.altKey ||
+      event.ctrlKey ||
+      event.metaKey ||
+      event.target.matches('input, textarea, select, [contenteditable="true"]')
+    )
+      return;
+    const target = {
+      ArrowLeft: Math.max(replay.firstPly, displayedPly - 1),
+      ArrowRight: Math.min(replay.lastPly, displayedPly + 1),
+      Home: replay.firstPly,
+      End: replay.lastPly,
+    }[event.key];
+    if (target === undefined) return;
+    event.preventDefault();
+    goToPly(target);
+  };
 
   const copyRecord = async () => {
     const lines = [
@@ -222,12 +292,13 @@ const XiangqiBoard = ({
   };
 
   const move = (to) => {
+    if (!liveCanMove || !active) return;
     setSelected(null);
     onMove({ from: active, to });
   };
 
   const points = [];
-  (state?.board || []).forEach((line, y) => {
+  (position?.board || []).forEach((line, y) => {
     [...line].forEach((letter, x) => {
       if (letter === '.') return;
       const point = [x, y];
@@ -236,6 +307,11 @@ const XiangqiBoard = ({
       const target = targets.some((item) => samePoint(item.to, point));
       const moved = last && samePoint(last.to, point);
       const color = letter === letter.toUpperCase() ? 'red' : 'black';
+      const description = t('{{side}}{{piece}}，{{square}}', {
+        side: color === 'red' ? t('红方') : t('黑方'),
+        piece: PIECE_GLYPHS[letter],
+        square: squareLabel(point),
+      });
       const classes = [
         'xiangqi-point',
         `is-${color}`,
@@ -260,10 +336,16 @@ const XiangqiBoard = ({
         style['--xiangqi-dy'] = fromRow - row;
       }
       // 刚走的棋子带上步数作 key，下一手落在同一格时也重新播放滑动。
-      const key = moved ? `m${x}-${y}-${state.plies}` : `p${x}-${y}`;
+      const key = moved ? `m${x}-${y}-${displayedPly}` : `p${x}-${y}`;
       if (!movable && !target) {
         points.push(
-          <div key={key} className={classes} style={style}>
+          <div
+            key={key}
+            className={classes}
+            style={style}
+            role='img'
+            aria-label={description}
+          >
             <PieceArt letter={letter} />
           </div>,
         );
@@ -275,7 +357,7 @@ const XiangqiBoard = ({
           type='button'
           className={classes}
           style={style}
-          aria-label={PIECE_GLYPHS[letter]}
+          aria-label={description}
           aria-pressed={
             movable ? !!active && samePoint(active, point) : undefined
           }
@@ -307,7 +389,7 @@ const XiangqiBoard = ({
           type='button'
           className='xiangqi-point xiangqi-target'
           style={pointStyle(col, row)}
-          aria-label={t('走到这里')}
+          aria-label={t('走到 {{square}}', { square: squareLabel(item.to) })}
           onClick={(event) => {
             event.stopPropagation();
             move(item.to);
@@ -319,7 +401,9 @@ const XiangqiBoard = ({
     });
   // 提示的落点可能是空位，那里没有棋子、也还没被选中，单独画一个标记，否则棋盘上看不出该走到哪里。
   const hintTo =
-    marker && state?.board ? state.board[marker.to[1]]?.[marker.to[0]] : null;
+    marker && position?.board
+      ? position.board[marker.to[1]]?.[marker.to[0]]
+      : null;
   if (
     marker &&
     hintTo === '.' &&
@@ -345,6 +429,18 @@ const XiangqiBoard = ({
         <Button
           size='small'
           theme='borderless'
+          icon={<RotateCw size={15} />}
+          aria-pressed={flipped}
+          onClick={() => {
+            setSelected(null);
+            setFlipped((value) => !value);
+          }}
+        >
+          {t('翻转棋盘')}
+        </Button>
+        <Button
+          size='small'
+          theme='borderless'
           icon={soundEnabled ? <Volume2 size={15} /> : <VolumeX size={15} />}
           aria-pressed={soundEnabled}
           onClick={toggleSound}
@@ -359,30 +455,30 @@ const XiangqiBoard = ({
           </span>
           <span>
             {t('步数')}
-            <strong>{state.plies}</strong>
+            <strong>{displayedPly}</strong>
           </span>
-          {!state.over && state.quiet * 2 >= QUIET_DRAW_PLIES && (
+          {!reviewing && !state.over && state.quiet * 2 >= QUIET_DRAW_PLIES && (
             <span>
               {t('未吃子')}
               <strong>{`${state.quiet} / ${QUIET_DRAW_PLIES}`}</strong>
             </span>
           )}
-          {state.check && !over && (
+          {!reviewing && state.check && !over && (
             <span className='xiangqi-check'>{t('将军！')}</span>
           )}
-          {!over && state.repeat >= 2 && (
+          {!reviewing && !over && state.repeat >= 2 && (
             <span className='xiangqi-check'>
               {t('局面已重复两次，再出现一次判局')}
             </span>
           )}
-          {over && state.result && (
+          {!reviewing && over && state.result && (
             <span className='xiangqi-result'>
               {xiangqiResultText(state.result, t)}
             </span>
           )}
         </div>
       )}
-      {!over && state?.undo && (
+      {!reviewing && !over && state?.undo && (
         <div className='xiangqi-undo'>
           {state.undo.pending_by === seat && (
             <span className='xiangqi-undo-note'>
@@ -532,7 +628,7 @@ const XiangqiBoard = ({
                   </span>
                 ) : (
                   <span className='xiangqi-move-empty'>
-                    {state.plies > history.length
+                    {position.plies > position.history?.length
                       ? t('早期行棋未记录')
                       : t('尚未行棋')}
                   </span>
@@ -542,9 +638,117 @@ const XiangqiBoard = ({
           })}
         </div>
       )}
+      {state && canReview && (
+        <section
+          className={`xiangqi-replay${reviewing ? ' is-reviewing' : ''}`}
+          aria-label={t('棋谱回看')}
+          aria-keyshortcuts='ArrowLeft ArrowRight Home End'
+          tabIndex={0}
+          ref={replayControls}
+          onKeyDown={replayKeyDown}
+        >
+          <div className='xiangqi-replay-status' role='status'>
+            <strong>
+              {reviewing
+                ? displayedPly === 0
+                  ? t('初始局面')
+                  : t('回看第 {{ply}} 步', { ply: displayedPly })
+                : t('当前局面')}
+            </strong>
+            <span>
+              {reviewing
+                ? t('当前对局已到第 {{ply}} 步', { ply: state.plies })
+                : t('点击棋谱或拖动滑条回看')}
+            </span>
+          </div>
+          <div className='xiangqi-replay-buttons'>
+            <Button
+              size='small'
+              icon={<SkipBack size={15} />}
+              aria-label={t('最早局面')}
+              disabled={displayedPly <= replay.firstPly}
+              onClick={() => goToPly(replay.firstPly)}
+            >
+              {t('最早')}
+            </Button>
+            <Button
+              size='small'
+              icon={<ChevronLeft size={15} />}
+              disabled={displayedPly <= replay.firstPly}
+              onClick={() => goToPly(displayedPly - 1)}
+            >
+              {t('上一步')}
+            </Button>
+            <Button
+              size='small'
+              icon={<ChevronRight size={15} />}
+              disabled={displayedPly >= replay.lastPly}
+              onClick={() => goToPly(displayedPly + 1)}
+            >
+              {t('下一步')}
+            </Button>
+            <Button
+              size='small'
+              theme={reviewing ? 'solid' : 'light'}
+              type={reviewing ? 'primary' : 'tertiary'}
+              icon={<SkipForward size={15} />}
+              disabled={!reviewing}
+              onClick={() => goToPly(replay.lastPly)}
+            >
+              {t('返回对局')}
+            </Button>
+          </div>
+          <input
+            type='range'
+            className='xiangqi-replay-range'
+            min={replay.firstPly}
+            max={replay.lastPly}
+            step={1}
+            value={displayedPly}
+            aria-label={t('选择回看步数')}
+            aria-valuetext={t('第 {{ply}} 步，共 {{total}} 步', {
+              ply: displayedPly,
+              total: state.plies,
+            })}
+            onChange={(event) => goToPly(Number(event.target.value))}
+          />
+          {replay.firstPly > 0 && (
+            <p className='xiangqi-replay-note'>
+              {t('早期棋步未记录，可从第 {{ply}} 步的局面开始回看', {
+                ply: replay.firstPly,
+              })}
+            </p>
+          )}
+          <p className='xiangqi-replay-keyboard'>
+            {t('← → 逐步回看，Home / End 跳到首尾')}
+          </p>
+        </section>
+      )}
+      {state && (
+        <p className='xiangqi-board-guidance' role='status'>
+          {reviewing
+            ? t('回看不暂停对局，返回后才能走棋')
+            : over
+              ? t('对局已结束，可以回看棋谱')
+              : busy
+                ? t('正在处理，请稍候')
+                : active
+                  ? t('已选{{piece}}，点击高亮位置走棋，再次点击取消选择', {
+                      piece: PIECE_GLYPHS[state.board[active[1]][active[0]]],
+                    })
+                  : liveCanMove
+                    ? t('轮到你走棋，先点击己方棋子')
+                    : t('等待对方走棋，可以回看棋谱')}
+        </p>
+      )}
       {/* 棋盘宽高比与格子尺寸由 CSS 算：宽高比随视口高度收窄，--xiangqi-cell-* 决定每个交叉点占多大一块。 */}
       <div
-        className='xiangqi-board'
+        className={`xiangqi-board${reviewing ? ' is-reviewing' : ''}`}
+        role='group'
+        aria-label={t('中国象棋棋盘，第 {{ply}} 步，{{side}}走棋', {
+          ply: displayedPly,
+          side: position?.turn === 'black' ? t('黑方') : t('红方'),
+        })}
         style={{
           '--xiangqi-cells-w': (CELL * 8 + MARGIN * 2) / CELL,
           '--xiangqi-cells-h': (CELL * 9 + MARGIN * 2) / CELL,
@@ -578,7 +782,7 @@ const XiangqiBoard = ({
           {['red', 'black'].flatMap((color) =>
             Array.from({ length: 9 }, (_, x) => {
               const [col] = toScreen([x, 0]);
-              const below = color === myColor;
+              const below = color === (flip ? 'black' : 'red');
               return (
                 <text
                   key={`${color}-file-${x}`}
@@ -648,7 +852,7 @@ const XiangqiBoard = ({
           <section className='xiangqi-captures' aria-label={t('吃子记录')}>
             <div className='xiangqi-history-heading'>
               <h3>{t('吃子记录')}</h3>
-              {state.plies > history.length && (
+              {position.plies > position.history?.length && (
                 <span className='xiangqi-captures-note'>
                   {t('仅统计已记录的吃子')}
                 </span>
@@ -747,7 +951,7 @@ const XiangqiBoard = ({
                       <tr
                         key={round.number}
                         className={
-                          round.number === Math.ceil(state.plies / 2)
+                          round.number === Math.ceil(displayedPly / 2)
                             ? 'is-current'
                             : undefined
                         }
@@ -758,7 +962,21 @@ const XiangqiBoard = ({
                           return (
                             <td key={color} className={`is-${color}`}>
                               {entry ? (
-                                <>
+                                <button
+                                  type='button'
+                                  className='xiangqi-history-move'
+                                  disabled={!replay.positions.has(entry.ply)}
+                                  aria-current={
+                                    entry.ply === displayedPly
+                                      ? 'step'
+                                      : undefined
+                                  }
+                                  aria-label={t('回看第 {{ply}} 步：{{move}}', {
+                                    ply: entry.ply,
+                                    move: xiangqiMoveLabel(entry),
+                                  })}
+                                  onClick={() => goToPly(entry.ply, true)}
+                                >
                                   <span
                                     className='xiangqi-history-notation'
                                     title={`${squareLabel(entry.from)} → ${squareLabel(entry.to)}`}
@@ -772,7 +990,7 @@ const XiangqiBoard = ({
                                       })}
                                     </span>
                                   )}
-                                </>
+                                </button>
                               ) : (
                                 <span className='xiangqi-move-empty'>—</span>
                               )}
@@ -787,7 +1005,7 @@ const XiangqiBoard = ({
             ) : (
               <p className='xiangqi-history-note'>{t('暂无行棋记录')}</p>
             )}
-            {canCollapse && (
+            {canCollapse && !reviewing && (
               <div className='xiangqi-history-more'>
                 {!showAllRounds && (
                   <span className='xiangqi-history-note'>
@@ -868,6 +1086,7 @@ const Xiangqi = () => {
         onDraw,
       }) => (
         <XiangqiBoard
+          key={sessionId || (roomId != null ? `room:${roomId}` : 'empty')}
           state={state}
           gameId={sessionId || (roomId != null ? `room:${roomId}` : undefined)}
           seat={seat}

@@ -1,6 +1,7 @@
 package xiangqi
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -40,6 +41,38 @@ func TestAiTakesMateInOne(t *testing.T) {
 			assert.Equal(t, Red, game.Winner, "level %d played %v", level, m)
 		}
 	}
+}
+
+// 没有将军的困毙也立即获胜，不能在搜索叶子里当成普通子力优势。所有难度与提示都应找到一步获胜。
+func TestAiRecognizesStalemateWin(t *testing.T) {
+	board := diagram(t,
+		"...k.....",
+		".........",
+		".........",
+		".........",
+		"...P....R",
+		".........",
+		".........",
+		".........",
+		".........",
+		"....K....",
+	)
+	for level := 1; level <= AiLevels; level++ {
+		for _, pick := range []func(int) int{pickFirst, pickLast} {
+			game := Game{Board: board, Turn: Red, Winner: NoColor}
+			m, err := BestMove(&game, level, pick)
+			require.NoError(t, err)
+			require.NoError(t, game.Play(m))
+			assert.Equal(t, ResultStalemate, game.Result, "level %d played %v", level, m)
+			assert.Equal(t, Red, game.Winner)
+		}
+	}
+	game := Game{Board: board, Turn: Red, Winner: NoColor}
+	analysis, err := Analyse(&game)
+	require.NoError(t, err)
+	assert.Equal(t, 1, analysis.Mate)
+	require.NoError(t, game.Play(analysis.Move))
+	assert.Equal(t, ResultStalemate, game.Result)
 }
 
 // 黑方车可以白吃红马，但吃了之后红车 (8,7) 走到底线就是杀棋(红仕挡住了黑车将军的路)。普通与困难看得到这一步杀，
@@ -149,4 +182,53 @@ func TestAnalyseRejectsFinishedGame(t *testing.T) {
 	require.NoError(t, game.DrawAgreed())
 	_, err := Analyse(&game)
 	assert.ErrorIs(t, err, ErrGameOver)
+}
+
+// cancelSearchContext 在搜索已经检查过上下文后发出取消，避免靠睡眠和 CPU 速度猜测取消发生的时机。
+type cancelSearchContext struct {
+	context.Context
+	cancel context.CancelFunc
+	checks int
+}
+
+func (c *cancelSearchContext) Err() error {
+	c.checks++
+	if c.checks >= 4 {
+		c.cancel()
+	}
+	return c.Context.Err()
+}
+
+// 已取消和搜索中途取消都必须返回上下文错误，不能把合法的兜底着法或上一轮分析当成成功；输入棋局始终不变。
+func TestSearchHonorsCancellation(t *testing.T) {
+	for _, operation := range []string{"move", "analysis"} {
+		for _, duringSearch := range []bool{false, true} {
+			name := operation + "/already_canceled"
+			if duringSearch {
+				name = operation + "/during_search"
+			}
+			t.Run(name, func(t *testing.T) {
+				base, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				var ctx context.Context = base
+				if duringSearch {
+					ctx = &cancelSearchContext{Context: base, cancel: cancel}
+				} else {
+					cancel()
+				}
+				game := NewGame()
+				before := game
+				if operation == "move" {
+					m, err := BestMoveContext(ctx, &game, AiLevels, pickFirst)
+					assert.ErrorIs(t, err, context.Canceled)
+					assert.Empty(t, m)
+				} else {
+					analysis, err := AnalyseContext(ctx, &game)
+					assert.ErrorIs(t, err, context.Canceled)
+					assert.Empty(t, analysis)
+				}
+				assert.Equal(t, before, game)
+			})
+		}
+	}
 }

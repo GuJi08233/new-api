@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/json"
 	"errors"
@@ -592,6 +593,14 @@ func (xiangqiEngine) Timeout(data []byte) (int, error) {
 
 // AiMove 让电脑棋手为 seat 选一步。分数差不多的几步之间用密码学安全的随机数挑选。
 func (xiangqiEngine) AiMove(data []byte, seat int, level int) (json.RawMessage, error) {
+	return (xiangqiEngine{}).AiMoveContext(context.Background(), data, seat, level)
+}
+
+// AiMoveContext 在客户端取消请求后停止电脑棋手搜索。
+func (xiangqiEngine) AiMoveContext(ctx context.Context, data []byte, seat int, level int) (json.RawMessage, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	state, err := loadXiangqiState(data)
 	if err != nil {
 		return nil, err
@@ -599,7 +608,7 @@ func (xiangqiEngine) AiMove(data []byte, seat int, level int) (json.RawMessage, 
 	if toMove, _ := state.seats(); toMove != seat {
 		return nil, errPvpIllegalMove
 	}
-	m, err := xiangqi.BestMove(&state.Game, level, func(n int) int {
+	m, err := xiangqi.BestMoveContext(ctx, &state.Game, level, func(n int) int {
 		choice, err := rand.Int(rand.Reader, big.NewInt(int64(n)))
 		if err != nil {
 			return 0
@@ -648,6 +657,14 @@ func (xiangqiEngine) HintStatus(data []byte, seat int) (pvpHintStatus, error) {
 // Hint 为 seat 分析当前局面：推荐自己走的一步、评测分数与杀棋步数，同时把用掉的提示次数记进状态。提示不改动棋局，
 // 轮不到 seat 走或对局已经结束时返回 errPvpHintUnavailable。
 func (xiangqiEngine) Hint(data []byte, seat int) (pvpHint, error) {
+	return (xiangqiEngine{}).HintContext(context.Background(), data, seat)
+}
+
+// HintContext 在客户端取消请求后停止分析，不产生用于增加次数或收费的新状态。
+func (xiangqiEngine) HintContext(ctx context.Context, data []byte, seat int) (pvpHint, error) {
+	if err := ctx.Err(); err != nil {
+		return pvpHint{}, err
+	}
 	state, err := loadXiangqiState(data)
 	if err != nil {
 		return pvpHint{}, err
@@ -656,7 +673,7 @@ func (xiangqiEngine) Hint(data []byte, seat int) (pvpHint, error) {
 	if state.Game.Over() || toMove != seat {
 		return pvpHint{}, errPvpHintUnavailable
 	}
-	analysis, err := xiangqi.Analyse(&state.Game)
+	analysis, err := xiangqi.AnalyseContext(ctx, &state.Game)
 	if err != nil {
 		return pvpHint{}, err
 	}
@@ -667,6 +684,9 @@ func (xiangqiEngine) Hint(data []byte, seat int) (pvpHint, error) {
 	hint.Line = hint.Lines[0]
 	cost, err := state.hintCost()
 	if err != nil {
+		return pvpHint{}, err
+	}
+	if err := ctx.Err(); err != nil {
 		return pvpHint{}, err
 	}
 	state.Hints++

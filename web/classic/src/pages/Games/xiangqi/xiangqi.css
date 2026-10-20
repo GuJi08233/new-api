@@ -52,9 +52,120 @@ body[theme-mode='dark'] .xiangqi-page {
 .xiangqi-sound-controls {
   box-sizing: border-box;
   display: flex;
-  justify-content: flex-end;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px;
   width: min(100%, 520px);
   margin-bottom: 6px;
+}
+
+.xiangqi-replay {
+  box-sizing: border-box;
+  width: min(100%, 520px);
+  margin: 0 0 8px;
+  padding: 10px 12px 6px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 10px;
+  background: var(--semi-color-fill-0);
+  scroll-margin-top: 80px;
+}
+
+.xiangqi-replay.is-reviewing {
+  border-color: var(--semi-color-primary);
+  background: var(--semi-color-primary-light-default);
+}
+
+.xiangqi-replay:focus-visible,
+.xiangqi-history-move:focus-visible,
+.xiangqi-replay-range:focus-visible {
+  outline: 2px solid var(--semi-color-primary);
+  outline-offset: 2px;
+}
+
+.xiangqi-replay-status {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 10px;
+  margin-bottom: 8px;
+  color: var(--semi-color-text-2);
+  font-size: 12px;
+  line-height: 1.6;
+  font-variant-numeric: tabular-nums;
+}
+
+.xiangqi-replay-status strong {
+  color: var(--semi-color-text-0);
+  font-size: 13px;
+}
+
+.xiangqi-replay-buttons {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.xiangqi-replay-buttons .semi-button {
+  min-width: 0;
+  height: 36px;
+  padding: 0 6px;
+}
+
+.xiangqi-replay-range {
+  display: block;
+  width: 100%;
+  height: 28px;
+  margin: 4px 0 0;
+  padding: 0;
+  accent-color: var(--semi-color-primary);
+  cursor: pointer;
+}
+
+.xiangqi-replay-note,
+.xiangqi-replay-keyboard {
+  margin: 0 0 4px;
+  color: var(--semi-color-text-2);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.xiangqi-board-guidance {
+  box-sizing: border-box;
+  width: min(100%, 520px);
+  margin: 0 0 8px;
+  color: var(--semi-color-text-1);
+  font-size: 13px;
+  line-height: 1.6;
+  text-align: center;
+}
+
+.xiangqi-history-move {
+  box-sizing: border-box;
+  display: block;
+  width: 100%;
+  min-height: 38px;
+  padding: 4px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+
+.xiangqi-history-move[aria-current='step'] {
+  border-color: var(--semi-color-primary);
+  background: var(--semi-color-primary-light-default);
+}
+
+.xiangqi-history-move:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+@media (hover: hover) {
+  .xiangqi-history-move:hover:not(:disabled) {
+    background: var(--semi-color-fill-1);
+  }
 }
 
 .xiangqi-last-moves {
@@ -579,6 +690,16 @@ body[theme-mode='dark'] .xiangqi-board {
     0 4px 16px rgba(0, 0, 0, 0.25);
 }
 
+/* 回看只切换盘面，不重播落子动画，也不把历史将军状态当作实盘警报。 */
+.xiangqi-board.is-reviewing {
+  outline: 2px dashed var(--semi-color-primary);
+  outline-offset: 3px;
+}
+
+.xiangqi-board.is-reviewing .xiangqi-point.is-last .xiangqi-piece {
+  animation: none;
+}
+
 .xiangqi-lines {
   position: absolute;
   inset: 0;
@@ -738,6 +859,14 @@ button.xiangqi-point:focus-visible {
 }
 
 @media (max-width: 640px), (max-height: 720px) {
+  .xiangqi-replay-keyboard {
+    display: none;
+  }
+
+  .xiangqi-replay-buttons .semi-button {
+    height: 40px;
+  }
+
   .xiangqi-piece-glyph {
     font-size: 54px;
   }
@@ -908,6 +1037,15 @@ body[theme-mode='dark'] .xiangqi-piece-disc {
 
 /* 棋盘自身占满可用宽度时，四周的装饰边不必再留 520px 的宽。 */
 @media (max-width: 520px) {
+  .xiangqi-page .game-topbar {
+    flex-wrap: wrap;
+  }
+
+  .xiangqi-page .game-title {
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+
   .xiangqi-board {
     border-radius: 10px;
   }
@@ -928,6 +1066,23 @@ body[theme-mode='dark'] .xiangqi-piece-disc {
 }
 
 @media (max-width: 420px) {
+  .xiangqi-replay {
+    padding: 8px 8px 4px;
+  }
+
+  .xiangqi-replay-buttons {
+    gap: 4px;
+  }
+
+  .xiangqi-replay-buttons .semi-button {
+    padding: 0 2px;
+    font-size: 12px;
+  }
+
+  .xiangqi-replay-buttons svg {
+    display: none;
+  }
+
   .xiangqi-last-moves {
     gap: 6px;
   }

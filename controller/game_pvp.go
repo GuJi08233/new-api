@@ -68,6 +68,11 @@ type pvpEngine interface {
 	AiMove(state []byte, seat int, level int) (json.RawMessage, error)
 }
 
+// pvpContextAi 让需要搜索的引擎在请求取消后及时停止计算；轻量引擎继续使用 AiMove。
+type pvpContextAi interface {
+	AiMoveContext(ctx context.Context, state []byte, seat int, level int) (json.RawMessage, error)
+}
+
 // pvpState 是引擎给出的一个局面。
 type pvpState struct {
 	Data []byte
@@ -148,6 +153,10 @@ type pvpHintAi interface {
 	HintStatus(state []byte, seat int) (pvpHintStatus, error)
 	// Hint 为 seat 分析当前局面，返回提示本身、记下次数之后的新局面，以及这一次的收费(免费时为 0)。
 	Hint(state []byte, seat int) (pvpHint, error)
+}
+
+type pvpContextHintAi interface {
+	HintContext(ctx context.Context, state []byte, seat int) (pvpHint, error)
 }
 
 // pvpHintStatus 是一个座位此刻的提示额度：能不能用、还剩几次免费、已经用了几次、下一次要花多少游戏币。
@@ -1552,10 +1561,17 @@ func (s *pvpAiState) aiReply(ctx context.Context, game *pvpGame) (json.RawMessag
 // acquirePvpAiSlot 占一个 pvpAiSearches 名额，名额占满时排队，最多等 pvpAiQueueTimeout，请求取消时不再等。占到了返回
 // true，调用方用完必须调用 releasePvpAiSlot。
 func acquirePvpAiSlot(ctx context.Context) bool {
+	if ctx.Err() != nil {
+		return false
+	}
 	queued := time.NewTimer(pvpAiQueueTimeout)
 	defer queued.Stop()
 	select {
 	case pvpAiSearches <- struct{}{}:
+		if ctx.Err() != nil {
+			releasePvpAiSlot()
+			return false
+		}
 		return true
 	case <-queued.C:
 		return false
@@ -1571,10 +1587,23 @@ func releasePvpAiSlot() {
 // pvpAiSearchMove 占一个名额让 AI 替 seat 想一步。名额在搜索结束时归还，引擎出错甚至 panic 也不会少掉一个。
 func pvpAiSearchMove(ctx context.Context, engine pvpEngine, board []byte, seat int, level int) (json.RawMessage, error) {
 	if !acquirePvpAiSlot(ctx) {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		return nil, errPvpAiBusy
 	}
 	defer releasePvpAiSlot()
-	return engine.AiMove(board, seat, level)
+	var move json.RawMessage
+	var err error
+	if contextual, ok := engine.(pvpContextAi); ok {
+		move, err = contextual.AiMoveContext(ctx, board, seat, level)
+	} else {
+		move, err = engine.AiMove(board, seat, level)
+	}
+	if canceled := ctx.Err(); canceled != nil {
+		return nil, canceled
+	}
+	return move, err
 }
 
 // pvpAiView 是人机对战一局给玩家看的样子。支持提示的游戏(象棋)另外给出提示的额度：引擎的视图不知道这一局是人机对战还是
@@ -1978,12 +2007,26 @@ func hintPvpAi(c *gin.Context, game *pvpGame) {
 		return
 	}
 	// 一次分析要占满一个 CPU 核几百毫秒，和 AI 走棋排队同一份额度，人多时不会把服务器压满。
-	if !acquirePvpAiSlot(c.Request.Context()) {
+	ctx := c.Request.Context()
+	if !acquirePvpAiSlot(ctx) {
+		if ctx.Err() != nil {
+			return
+		}
 		common.ApiErrorI18n(c, i18n.MsgGamePlayFailed)
 		return
 	}
 	defer releasePvpAiSlot()
-	answered, err := hintEngine.Hint(state.Board, 0)
+	var answered pvpHint
+	var err error
+	if contextual, ok := hintEngine.(pvpContextHintAi); ok {
+		answered, err = contextual.HintContext(ctx, state.Board, 0)
+	} else {
+		answered, err = hintEngine.Hint(state.Board, 0)
+	}
+	// 已经取消的分析不能消耗免费次数或游戏币，即使引擎恰好已经算完。
+	if ctx.Err() != nil {
+		return
+	}
 	if err != nil {
 		if errors.Is(err, errPvpHintUnavailable) {
 			common.ApiErrorI18n(c, i18n.MsgGameHintUnavailable)
@@ -1996,6 +2039,9 @@ func hintPvpAi(c *gin.Context, game *pvpGame) {
 	data, err := common.Marshal(state)
 	if err != nil {
 		common.ApiError(c, err)
+		return
+	}
+	if ctx.Err() != nil {
 		return
 	}
 	balance, err := model.ChargeGameSessionState(session, string(data), answered.Cost, "hint")

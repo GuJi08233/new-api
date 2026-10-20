@@ -292,6 +292,13 @@ button.landlord-card:focus-visible {
   font-variant-numeric: tabular-nums;
 }
 
+.landlord-table-count.is-low {
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: var(--semi-color-danger-light-default);
+  color: var(--semi-color-danger);
+}
+
 .landlord-table-wait {
   padding: 14px 0;
   color: var(--semi-color-text-2);
@@ -366,10 +373,21 @@ button.landlord-card:focus-visible {
 }
 
 .landlord-selection-note {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
   min-height: 18px;
   margin-top: -6px;
   text-align: center;
   font-size: 12px;
+  color: var(--semi-color-text-2);
+}
+
+.landlord-selection-note.is-warning {
+  color: var(--semi-color-warning);
+}
+
+.landlord-selection-detail {
   color: var(--semi-color-text-2);
 }
 
@@ -493,10 +511,15 @@ button.landlord-card:focus-visible {
   }
 
   .landlord-board .landlord-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 6px;
   }
 
   .landlord-actions .semi-button {
+    width: 100%;
+    min-width: 0;
+    min-height: 40px;
     padding-inline: 9px;
   }
 
@@ -526,5 +549,15 @@ button.landlord-card:focus-visible {
   .landlord-hand-row .landlord-card-pip {
     width: 23px;
     height: 23px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landlord-seat-play {
+    animation: none;
+  }
+
+  button.landlord-card {
+    transition: none;
   }
 }

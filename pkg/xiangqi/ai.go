@@ -1,6 +1,7 @@
 package xiangqi
 
 import (
+	"context"
 	"errors"
 	"sort"
 )
@@ -15,7 +16,7 @@ import (
 // 被将军时多搜一层(将军延伸)。能杀棋时不随机，总是选最快的杀法；要被杀时选撑得最久的。搜索中走回了这局里(最近一次吃子
 // 之后)或这条变化里出现过的局面，就当作会一直重复下去，按判局的规则给分：长将的一方输，否则和棋。所以电脑不会长将，占优
 // 时也不会来回走成和棋。每次思考最多展开 nodeLimit 个节点，
-// 到了就用上一轮迭代加深的结果：节点数只由局面决定，同一局面同样的随机数总是走同样的一步，任何局面都能在 1 秒内走完。
+// 到了就用上一轮迭代加深的结果：节点数只由局面决定，同一局面同样的随机数总是走同样的一步，请求也可以通过上下文取消。
 
 const (
 	mateScore = 30000
@@ -27,8 +28,7 @@ const (
 	maxPly         = 64
 	// maxQuiesce 是吃子静态搜索最多再走几步。
 	maxQuiesce = 8
-	// nodeLimit 是一次思考最多展开的节点数。搜索每秒约展开 190 万个节点，4 层的困难难度实测最多用到 16 万个；
-	// 40 万个约 0.2 秒，服务器慢几倍也在 1 秒以内。
+	// nodeLimit 是一次思考最多展开的节点数；实际耗时还取决于局面与服务器速度。
 	nodeLimit = 400_000
 	ttBits    = 16
 	ttSize    = 1 << ttBits
@@ -209,6 +209,7 @@ type trailEntry struct {
 // searcher 是一次思考的全部状态。quiet[ply] 是走到这一层时连续没有吃子的步数，用来在搜索里也按和棋规则判和。
 // trail 是这局里最近一次吃子之后走出的局面，接着是搜索中这条变化上的局面：根局面在 trail[root]，第 ply 层在 trail[root+ply]。
 type searcher struct {
+	ctx     context.Context
 	pos     *Position
 	plies   int
 	root    int
@@ -233,10 +234,18 @@ type rootMove struct {
 // BestMove 为轮到走的一方选一步。level 1 简单、2 普通、3 困难；pick(n) 返回 [0,n) 里的随机数，用来在几步差不多好的
 // 着法里随机选一步，电脑就不会每局都下得一模一样。
 func BestMove(g *Game, level int, pick func(n int) int) (Move, error) {
+	return BestMoveContext(context.Background(), g, level, pick)
+}
+
+// BestMoveContext 与 BestMove 一样选棋，请求取消时终止搜索并返回上下文错误，不返回尚未完成的着法。
+func BestMoveContext(ctx context.Context, g *Game, level int, pick func(n int) int) (Move, error) {
+	if err := ctx.Err(); err != nil {
+		return Move{}, err
+	}
 	if level < 1 || level > AiLevels {
 		return Move{}, errUnknownLevel
 	}
-	found, err := searchRoots(g, aiLevels[level])
+	found, err := searchRoots(ctx, g, aiLevels[level])
 	if err != nil {
 		return Move{}, err
 	}
@@ -253,6 +262,9 @@ func BestMove(g *Game, level int, pick func(n int) int) (Move, error) {
 		candidates++
 	}
 	choice := pick(candidates)
+	if err := ctx.Err(); err != nil {
+		return Move{}, err
+	}
 	if choice < 0 || choice >= candidates {
 		choice = 0
 	}
@@ -286,8 +298,13 @@ const (
 // Analyse 为轮到走的一方分析局面，用困难难度的搜索给出推荐着法与评分。它不看随机数，同一个局面总是同样的结论；对局
 // 已经结束或没有合法着法时返回错误。
 func Analyse(g *Game) (Analysis, error) {
+	return AnalyseContext(context.Background(), g)
+}
+
+// AnalyseContext 与 Analyse 一样分析局面，请求取消时返回上下文错误，不把上一轮结果当作成功提示。
+func AnalyseContext(ctx context.Context, g *Game) (Analysis, error) {
 	params := aiLevels[AiLevels]
-	found, err := searchRoots(g, aiLevel{depth: params.depth, margin: analyseMargin})
+	found, err := searchRoots(ctx, g, aiLevel{depth: params.depth, margin: analyseMargin})
 	if err != nil {
 		return Analysis{}, err
 	}
@@ -325,7 +342,10 @@ type rootSearch struct {
 
 // searchRoots 建立一次搜索并逐层加深到 params.depth：根节点的全部合法着法先按排序分数排好，每轮搜完再按分数重排。
 // 搜索的节点数上限由参数决定，同一局面同样的参数总是搜出同样的结果。
-func searchRoots(g *Game, params aiLevel) (rootSearch, error) {
+func searchRoots(ctx context.Context, g *Game, params aiLevel) (rootSearch, error) {
+	if err := ctx.Err(); err != nil {
+		return rootSearch{}, err
+	}
 	if g.Over() {
 		return rootSearch{}, ErrGameOver
 	}
@@ -337,7 +357,7 @@ func searchRoots(g *Game, params aiLevel) (rootSearch, error) {
 	if len(legal) == 0 {
 		return rootSearch{}, ErrGameOver
 	}
-	s := &searcher{pos: pos, plies: g.Plies, limit: nodeLimit, tt: make([]ttEntry, ttSize)}
+	s := &searcher{ctx: ctx, pos: pos, plies: g.Plies, limit: nodeLimit, tt: make([]ttEntry, ttSize)}
 	s.quiet[0] = g.Quiet
 	earlier := g.positionsSinceCapture(pos)
 	s.root = len(earlier)
@@ -359,6 +379,9 @@ func searchRoots(g *Game, params aiLevel) (rootSearch, error) {
 		}
 		sort.SliceStable(root, func(i, j int) bool { return root[i].score > root[j].score })
 		found.completed = append(found.completed[:0], root...)
+	}
+	if err := ctx.Err(); err != nil {
+		return rootSearch{}, err
 	}
 	return found, nil
 }
@@ -419,6 +442,11 @@ func nextMove(moves []Move, orders []int32, i int) Move {
 }
 
 func (s *searcher) spend() bool {
+	// 每 256 个节点查看一次取消，避免给每个节点增加同步开销；节点预算仍按原来的固定上限计算。
+	if s.nodes&255 == 0 && s.ctx.Err() != nil {
+		s.aborted = true
+		return false
+	}
 	if s.nodes >= s.limit {
 		s.aborted = true
 		return false
@@ -577,6 +605,10 @@ func (s *searcher) quiesce(ply int, alpha int, beta int, depth int) int {
 	}
 	pos := s.pos
 	inCheck := pos.InCheck()
+	// 象棋困毙和将死一样判负，必须先于静态估值与 beta 截断判断；没有吃子着法不代表还能走安静着。
+	if !pos.hasLegalMove() {
+		return -mateScore + ply
+	}
 	best := -mateScore + ply
 	if !inCheck || depth >= maxQuiesce || ply >= maxPly {
 		stand := pos.evaluate()
@@ -598,7 +630,6 @@ func (s *searcher) quiesce(ply int, alpha int, beta int, depth int) int {
 	}
 	s.orders[ply] = orders
 
-	legal := 0
 	for i := range moves {
 		m := nextMove(moves, orders, i)
 		us := pos.turn
@@ -607,7 +638,6 @@ func (s *searcher) quiesce(ply int, alpha int, beta int, depth int) int {
 			pos.unmakeMove(m, captured)
 			continue
 		}
-		legal++
 		score := -s.quiesce(ply+1, -beta, -alpha, depth+1)
 		pos.unmakeMove(m, captured)
 		if s.aborted {
@@ -622,9 +652,6 @@ func (s *searcher) quiesce(ply int, alpha int, beta int, depth int) int {
 				}
 			}
 		}
-	}
-	if inCheck && legal == 0 {
-		return -mateScore + ply
 	}
 	return best
 }
