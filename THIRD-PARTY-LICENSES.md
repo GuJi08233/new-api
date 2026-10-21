@@ -116,7 +116,7 @@ Transitive dependencies should be audited before a final external release.
 | web/classic | development | npm       | `typescript`                                          | `4.4.2`                              | Apache-2.0                                         |
 | web/classic | development | npm       | `vite`                                                | `5.4.11`                             | MIT                                                |
 | electron    | development | npm       | `cross-env`                                           | `7.0.3`                              | MIT                                                |
-| electron    | development | npm       | `electron`                                            | `39.8.5`                             | MIT                                                |
+| electron    | development | npm       | `electron`                                            | `44.9.3`                             | MIT                                                |
 | electron    | development | npm       | `electron-builder`                                    | `26.7.0`                             | MIT                                                |
 
 ## License Texts
