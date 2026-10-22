@@ -30,21 +30,13 @@ import {
   IllustrationConstruction,
   IllustrationConstructionDark,
 } from '@douyinfe/semi-illustrations';
-import {
-  ArrowLeft,
-  Bot,
-  BrainCircuit,
-  Cpu,
-  KeyRound,
-  Minus,
-  Plus,
-  Zap,
-} from 'lucide-react';
+import { ArrowLeft, Bot, BrainCircuit, Cpu, KeyRound, Zap } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { API, showError } from '../../../helpers';
 import { percent } from '../common/api';
 import { SideBox } from '../common/SideBox';
 import { WagerStats } from '../common/wager';
+import BetInput from '../common/BetInput';
 import '../games.css';
 import './slots.css';
 
@@ -325,7 +317,8 @@ const Slots = () => {
     );
   }, [rule, bet, t, settleSpin]);
 
-  const canSpin = !spinning && bet >= 1 && bet <= balance;
+  const canSpin =
+    !spinning && bet >= 0.01 && bet <= balance && bet <= rule?.max_bet;
 
   // 空格键旋转；焦点在按钮上时交给按钮自己处理，免得触发两次。
   useEffect(() => {
@@ -454,41 +447,14 @@ const Slots = () => {
             </div>
 
             <div className='slots-controls'>
-              <div className='slots-bet'>
-                <span className='slots-bet-label'>{t('下注')}</span>
-                <button
-                  type='button'
-                  className='slots-bet-button'
-                  aria-label={t('减少下注')}
-                  disabled={spinning || bet <= 1}
-                  onClick={() => setBet((value) => Math.max(value - 1, 1))}
-                >
-                  <Minus size={16} />
-                </button>
-                <span className='slots-bet-value'>
-                  {bet}
-                  <small>{symbol}</small>
-                </span>
-                <button
-                  type='button'
-                  className='slots-bet-button'
-                  aria-label={t('增加下注')}
-                  disabled={spinning || bet >= rule.max_bet}
-                  onClick={() =>
-                    setBet((value) => Math.min(value + 1, rule.max_bet))
-                  }
-                >
-                  <Plus size={16} />
-                </button>
-                <button
-                  type='button'
-                  className='slots-bet-max'
-                  disabled={spinning || bet >= rule.max_bet}
-                  onClick={() => setBet(rule.max_bet)}
-                >
-                  {t('最大下注')}
-                </button>
-              </div>
+              <BetInput
+                value={bet}
+                min={rule.min_bet || 0.01}
+                max={rule.max_bet}
+                symbol={symbol}
+                disabled={spinning}
+                onChange={setBet}
+              />
               <button
                 type='button'
                 className='games-play-button'

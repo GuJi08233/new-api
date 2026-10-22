@@ -21,10 +21,11 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Button, Modal, Spin } from '@douyinfe/semi-ui';
 import { Flag, Pause, Play, Trophy } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { API } from '../../../helpers';
 import { getGameMetaMap } from '../../../constants';
 import { useActualTheme } from '../../../context/Theme';
 import GameLayout from '../common/GameLayout';
+import { usePendingReplay } from '../common/usePendingReplay';
+import PendingReplay from '../common/PendingReplay';
 import { RuleList, SideBox, StageMessage } from '../common/SideBox';
 import { formatNumber, gamePost, withTurnstile } from '../common/api';
 import {
@@ -56,7 +57,6 @@ import {
 import './flappy.css';
 
 const START_URL = '/api/game/flappy/start';
-const FINISH_URL = '/api/game/flappy/finish';
 
 const TICK_MS = 1000 / TICKS_PER_SECOND;
 // 页面卡顿或切回前台时，一帧最多补推 0.25 秒，多出的时间直接丢弃：游戏内时长只会慢于真实时间，
@@ -250,6 +250,16 @@ const Flappy = () => {
   // 确认框打开期间不响应游戏按键，免得在确认框后面继续游戏。
   const confirmingRef = useRef(false);
   const mountedRef = useRef(false);
+  const replay = usePendingReplay('flappy', {
+    snapshot: () => {
+      const run = runRef.current;
+      return run && !run.submitted && run.game.ticks > 0
+        ? finishPayload(run)
+        : null;
+    },
+    onSettled: () => reload(true),
+  });
+  const sendReplay = replay.send;
   const symbol = info?.symbol || '';
   const running = phase === 'ready' || phase === 'playing';
   const active = running || phase === 'paused';
@@ -259,7 +269,7 @@ const Flappy = () => {
     if (!run || run.submitting || run.submitted) return;
     run.submitting = true;
     setPhase('submitting');
-    const response = await gamePost(FINISH_URL, finishPayload(run), t);
+    const response = await sendReplay(finishPayload(run));
     run.submitting = false;
     if (!mountedRef.current || runRef.current !== run) return;
     // 没有得到答复或被限流时整局记录还在，可以重新提交；已经结算过的话，服务端会返回第一次的结果。
@@ -286,7 +296,7 @@ const Flappy = () => {
       best_score: data.best_score,
     });
     setPhase('result');
-  }, [patch, t]);
+  }, [patch, sendReplay]);
 
   // 拍一下翅膀，在下一帧生效；一帧里拍几下都只算一下。第一次拍翅膀让鸟起飞。
   const flap = useCallback(() => {
@@ -302,6 +312,10 @@ const Flappy = () => {
 
   const start = async () => {
     if (phase === 'starting' || !turnstile.ready) return;
+    if (replay.hasPending()) {
+      replay.release();
+      return;
+    }
     setPhase('starting');
     setNotice(null);
     const response = await gamePost(
@@ -323,6 +337,7 @@ const Flappy = () => {
       elapsed: 0,
       previousBest: info?.best_score || 0,
     };
+    replay.beginSession(response.data.session_id);
     setResult(null);
     // 开始按钮保留焦点时，空格和回车会再次触发它。
     document.activeElement?.blur?.();
@@ -346,6 +361,7 @@ const Flappy = () => {
 
   // 放弃没有得到答复的结算。结算可能已经完成，重新读一次余额与今日进度。
   const abandon = () => {
+    replay.release();
     runRef.current = null;
     setPhase('idle');
     reload(true);
@@ -447,18 +463,10 @@ const Flappy = () => {
     };
   }, [active, pause]);
 
-  // 离开本页时把进行中的一局按当前成绩结算，成绩不会白白作废。页面已经不在了，不等答复，结果以游戏币明细为准。
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
-      const run = runRef.current;
-      if (!run || run.submitting || run.submitted || run.game.ticks === 0) {
-        return;
-      }
-      API.post(FINISH_URL, finishPayload(run), {
-        skipErrorHandler: true,
-      }).catch(() => {});
     };
   }, []);
 
@@ -570,7 +578,7 @@ const Flappy = () => {
         </Button>
       </>
     );
-  } else if (phase !== 'submitting') {
+  } else if (phase !== 'submitting' && replay.pending.length === 0) {
     controls = (
       <ReplayRunControls
         phase={phase}
@@ -615,11 +623,12 @@ const Flappy = () => {
       side={side}
       className='flappy-page'
     >
+      <PendingReplay replay={replay} />
       <div className='games-stage'>
         <div
           className={running ? 'flappy-board is-running' : 'flappy-board'}
           onPointerDown={(event) => {
-            if (!running) return;
+            if (!running || event.isPrimary === false) return;
             event.preventDefault();
             flap();
           }}

@@ -25,7 +25,7 @@ import React, {
   useState,
 } from 'react';
 import { Modal } from '@douyinfe/semi-ui';
-import { Eraser, Flag, PencilLine, Play, Send } from 'lucide-react';
+import { Eraser, Flag, PencilLine, Play, Send, Undo2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { getGameLevelNames, getGameMetaMap } from '../../../constants';
 import GameLayout from '../common/GameLayout';
@@ -42,6 +42,8 @@ import {
 } from '../common/skill';
 import { useGameInfo } from '../common/useGameInfo';
 import { PlayTurnstile, usePlayTurnstile } from '../common/usePlayTurnstile';
+import { writeGameStorage, removeGameStorage } from '../common/gameStorage';
+import { SudokuHistory } from './history';
 import './sudoku.css';
 
 const STATE_URL = '/api/game/sudoku/state';
@@ -109,12 +111,17 @@ const Sudoku = () => {
   const [end, setEnd] = useState(null);
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
+  const [storageWarning, setStorageWarning] = useState(false);
   const [busy, setBusy] = useState(false);
   const [checked, setChecked] = useState(false);
   const busyRef = useRef(false);
   const keyRef = useRef(null);
+  const historyRef = useRef(new SudokuHistory());
+  const [undoCount, setUndoCount] = useState(0);
 
   const restore = useCallback((view) => {
+    historyRef.current.clear();
+    setUndoCount(0);
     const given = [...view.puzzle].map(Number);
     const saved = savedProgress(view.session_id);
     // 题目给出的数字总以服务端为准，存下来的只补空格。
@@ -136,6 +143,8 @@ const Sudoku = () => {
   }, []);
 
   const clearBoard = () => {
+    historyRef.current.clear();
+    setUndoCount(0);
     setGame(null);
     setValues(EMPTY_GRID);
     setNotes(EMPTY_GRID);
@@ -161,10 +170,14 @@ const Sudoku = () => {
   const playing = !!game && !end;
   useEffect(() => {
     if (!sessionId || over) return;
-    localStorage.setItem(
-      PROGRESS_KEY,
-      JSON.stringify({ session_id: sessionId, values: values.join(''), notes }),
-    );
+    if (
+      !writeGameStorage(PROGRESS_KEY, {
+        session_id: sessionId,
+        values: values.join(''),
+        notes,
+      }).ok
+    )
+      setStorageWarning(true);
   }, [sessionId, over, values, notes]);
 
   const conflicts = useMemo(() => conflictsOf(values), [values]);
@@ -184,7 +197,7 @@ const Sudoku = () => {
       progress: settled.progress,
       best_score: settled.best_score,
     });
-    localStorage.removeItem(PROGRESS_KEY);
+    if (!removeGameStorage(PROGRESS_KEY).ok) setStorageWarning(true);
   };
 
   // 对局已被新开的一局作废、或者网络中断之后，重新读取进行中的一局。
@@ -237,7 +250,7 @@ const Sudoku = () => {
       setError(response.error);
       return;
     }
-    localStorage.removeItem(PROGRESS_KEY);
+    if (!removeGameStorage(PROGRESS_KEY).ok) setStorageWarning(true);
     restore(response.data);
     setNotesMode(false);
   };
@@ -246,8 +259,10 @@ const Sudoku = () => {
   // 填满且没有冲突就是解出来了，直接交卷。
   const write = (digit) => {
     if (!playing || busy || selected === null || isGiven(selected)) return;
+    if (notesMode && digit > 0 && values[selected]) return;
+    historyRef.current.record(values, notes);
+    setUndoCount(historyRef.current.size);
     if (notesMode && digit > 0) {
-      if (values[selected]) return;
       setNotes((previous) => {
         const next = previous.slice();
         next[selected] ^= 1 << digit;
@@ -273,6 +288,15 @@ const Sudoku = () => {
     }
   };
 
+  const undo = () => {
+    if (!playing || busyRef.current) return;
+    const previous = historyRef.current.undo();
+    if (!previous) return;
+    setValues(previous.values);
+    setNotes(previous.notes);
+    setUndoCount(historyRef.current.size);
+  };
+
   const confirmAbandon = () => {
     Modal.confirm({
       title: t('放弃这一局'),
@@ -283,6 +307,16 @@ const Sudoku = () => {
 
   // 键盘：数字填数，退格、Delete 或 0 擦掉，方向键移动，N 切换笔记模式。
   const onKey = (event) => {
+    if (
+      (event.ctrlKey || event.metaKey) &&
+      event.key.toLowerCase() === 'z' &&
+      !event.shiftKey &&
+      !event.target.closest?.('input, textarea, [contenteditable="true"]')
+    ) {
+      event.preventDefault();
+      undo();
+      return;
+    }
     if (event.ctrlKey || event.metaKey || event.altKey) return;
     if (event.target.closest?.('input, textarea, [contenteditable="true"]')) {
       return;
@@ -470,9 +504,25 @@ const Sudoku = () => {
           </StageMessage>
         )}
         {error && <StageMessage kind='error'>{error}</StageMessage>}
+        {storageWarning && (
+          <StageMessage>
+            {t(
+              '浏览器无法保存游戏进度，请在本页完成结算，刷新或离开可能丢失进度',
+            )}
+          </StageMessage>
+        )}
 
         {playing && (
           <div className='game-controls'>
+            <button
+              type='button'
+              className='game-chip'
+              disabled={busy || !undoCount}
+              onClick={undo}
+            >
+              <Undo2 size={14} className='sudoku-chip-icon' />
+              {t('撤销')}
+            </button>
             <button
               type='button'
               className='game-chip'

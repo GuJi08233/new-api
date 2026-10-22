@@ -63,6 +63,8 @@ import {
   skillRuleSummary,
 } from '../common/skill';
 import { withTurnstile } from '../common/api';
+import { usePendingReplay } from '../common/usePendingReplay';
+import PendingReplay from '../common/PendingReplay';
 import { usePlayTurnstile } from '../common/usePlayTurnstile';
 import '../games.css';
 import './tetris.css';
@@ -321,6 +323,21 @@ const Tetris = () => {
   const turnstile = usePlayTurnstile(rule?.play_turnstile);
   // 结束、离开的确认框打开期间忽略游戏按键，免得在确认框后面按 P 继续玩。
   const confirmingRef = useRef(false);
+  const touchPointersRef = useRef(new Map());
+  const replay = usePendingReplay('tetris', {
+    snapshot: () => {
+      const run = runRef.current;
+      return run && !run.submitted && run.game.ticks > 0
+        ? {
+            session_id: run.sessionId,
+            ticks: run.game.ticks,
+            inputs: run.recorder.inputs,
+          }
+        : null;
+    },
+    onSettled: (data) => setRule((previous) => ({ ...previous, ...data })),
+  });
+  const sendReplay = replay.send;
 
   useEffect(() => {
     const load = async () => {
@@ -355,26 +372,28 @@ const Tetris = () => {
 
   const submitResult = useCallback(async () => {
     const run = runRef.current;
-    // 同一局只提交一次；网络出错时放开，让玩家重新提交。
-    if (run.submitting) return;
+    if (!run || run.submitting || run.submitted) return;
     run.submitting = true;
     releaseAllControls(run);
     setPhase('submitting');
     setSubmitError('');
-    try {
-      // 对局编号放在查询参数里：服务端先读出对局，不必解析整局的操作记录就能回应已经结算过的一局。
-      const res = await API.post(
-        '/api/game/tetris/finish',
-        { ticks: run.game.ticks, inputs: run.recorder.inputs },
-        { params: { session_id: run.sessionId }, skipErrorHandler: true },
-      );
-      if (!res.data.success) {
-        // 服务端明确拒绝(对局过期、记录无效等)，重新提交也不会成功。
-        setResult({ rejected: res.data.message });
-        setPhase('result');
-        return;
-      }
-      const data = res.data.data;
+    const response = await sendReplay({
+      session_id: run.sessionId,
+      ticks: run.game.ticks,
+      inputs: run.recorder.inputs,
+    });
+    run.submitting = false;
+    if (runRef.current !== run) return;
+    if (response.network || response.limited) {
+      setSubmitError(response.error);
+      setPhase('error');
+      return;
+    }
+    run.submitted = true;
+    if (response.error) {
+      setResult({ rejected: response.error });
+    } else {
+      const data = response.data;
       setResult({
         ...data,
         lines: data.detail?.lines || 0,
@@ -383,41 +402,17 @@ const Tetris = () => {
         localScore: run.game.score,
         newRecord: data.score > 0 && data.score > run.previousBest,
       });
-      setRule((previous) => ({
-        ...previous,
-        rule: data.rule,
-        progress: data.progress,
-        free_daily_limit: data.free_daily_limit,
-        best_score: data.best_score,
-      }));
-      setPhase('result');
-    } catch (error) {
-      const status = error?.response?.status;
-      // 登录已过期：交给全局处理，跳转到登录页。
-      if (status === 401) {
-        showError(error);
-        return;
-      }
-      // 服务端给出了拒绝原因(例如 IP 已被风控封禁)，重新提交也不会成功。
-      const reason = error?.response?.data?.message;
-      if (status !== 429 && status < 500 && reason) {
-        setResult({ rejected: reason });
-        setPhase('result');
-        return;
-      }
-      // 网络错误、限流或服务端出错：整局记录还在，可以重新提交；已经结算过的话，服务端会返回第一次的结果。
-      run.submitting = false;
-      setSubmitError(
-        status === 429
-          ? t('请求过于频繁，请稍后重新提交')
-          : t('网络异常，结算没有完成，可以重新提交'),
-      );
-      setPhase('error');
+      setRule((previous) => ({ ...previous, ...data }));
     }
-  }, [t]);
+    setPhase('result');
+  }, [sendReplay]);
 
   const startGame = async () => {
-    if (!turnstile.ready) return;
+    if (!turnstile.ready || phase === 'starting') return;
+    if (replay.hasPending()) {
+      replay.release();
+      return;
+    }
     setPhase('starting');
     // 令牌只能用一次，无论开局成败都换一个新的。
     const token = turnstile.take();
@@ -441,6 +436,7 @@ const Tetris = () => {
         softDrop: { held: false, ticks: 0 },
         previousBest: rule?.best_score || 0,
       };
+      replay.beginSession(sessionId);
       setStats({ score: 0, lines: 0, level: 1 });
       setResult(null);
       // 开始按钮保留焦点时，空格键会再次触发它。
@@ -481,7 +477,7 @@ const Tetris = () => {
     });
   };
 
-  // 对局进行中离开本页，这一局就不会结算：返回按钮、顶栏和侧栏的站内链接、浏览器的后退与前进都先确认一次。
+  // 对局进行中离开本页，先保存录像供返回后提交：返回按钮、顶栏和侧栏的站内链接、浏览器的后退与前进都先确认一次。
   // 站点用的是 BrowserRouter，没有 useBlocker，对局期间由这里接管路由的跳转；浏览器后退、前进时地址已经变了，
   // 先把本页压回去，确认离开再退到玩家要去的那一页。刷新和关闭页面由 beforeunload 确认。
   const inProgress = phase === 'playing' || phase === 'paused';
@@ -494,7 +490,7 @@ const Tetris = () => {
       if (confirmingRef.current) return;
       confirmWhilePaused({
         title: t('离开游戏'),
-        content: t('本局尚未结算，离开后成绩作废。'),
+        content: t('本局尚未结算，离开后可返回这里恢复提交。'),
         onOk: () => {
           leaving = true;
           leave();
@@ -525,6 +521,13 @@ const Tetris = () => {
     let frame = 0;
     let last = performance.now();
     let elapsed = 0;
+    let previousHold = '';
+    let previousNext = '';
+    let previewsResized = true;
+    const onResize = () => {
+      previewsResized = true;
+    };
+    window.addEventListener('resize', onResize);
     const loop = (now) => {
       elapsed += Math.min(now - last, MAX_FRAME_MS);
       last = now;
@@ -534,8 +537,18 @@ const Tetris = () => {
         elapsed -= TICK_MS;
       }
       drawBoard(boardRef.current, game);
-      drawPreview(holdRef.current, [game.hold], 1, game.holdUsed);
-      drawPreview(nextRef.current, game.preview(), PREVIEW_SIZE, false);
+      const holdKey = `${game.hold}:${game.holdUsed}`;
+      if (holdKey !== previousHold || previewsResized) {
+        drawPreview(holdRef.current, [game.hold], 1, game.holdUsed);
+        previousHold = holdKey;
+      }
+      const preview = game.preview();
+      const nextKey = preview.join(',');
+      if (nextKey !== previousNext || previewsResized) {
+        drawPreview(nextRef.current, preview, PREVIEW_SIZE, false);
+        previousNext = nextKey;
+      }
+      previewsResized = false;
       setStats((previous) =>
         previous.score === game.score &&
         previous.lines === game.lines &&
@@ -550,7 +563,10 @@ const Tetris = () => {
       frame = requestAnimationFrame(loop);
     };
     frame = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(frame);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener('resize', onResize);
+    };
   }, [phase, submitResult]);
 
   useEffect(() => {
@@ -583,7 +599,7 @@ const Tetris = () => {
     const onVisibilityChange = () => {
       if (document.hidden) pauseGame();
     };
-    // 游戏进行中关闭或刷新页面，本局就不会结算，先让浏览器确认一次。
+    // 游戏进行中关闭或刷新页面时先保存检查点，并让浏览器确认一次。
     const onBeforeUnload = (event) => {
       event.preventDefault();
       event.returnValue = '';
@@ -666,7 +682,7 @@ const Tetris = () => {
           theme='solid'
           size='large'
           icon={<Play size={16} />}
-          disabled={waitingTurnstile}
+          disabled={waitingTurnstile || replay.pending.length > 0}
           onClick={startGame}
         >
           {t('开始游戏')}
@@ -709,7 +725,15 @@ const Tetris = () => {
         <Button theme='solid' onClick={submitResult}>
           {t('重新提交')}
         </Button>
-        <Button onClick={() => setPhase('idle')}>{t('放弃本局')}</Button>
+        <Button
+          onClick={() => {
+            replay.release();
+            runRef.current = null;
+            setPhase('idle');
+          }}
+        >
+          {t('稍后恢复提交')}
+        </Button>
       </div>
     );
   } else if (phase === 'result') {
@@ -763,7 +787,7 @@ const Tetris = () => {
           theme='solid'
           size='large'
           icon={<Play size={16} />}
-          disabled={waitingTurnstile}
+          disabled={waitingTurnstile || replay.pending.length > 0}
           onClick={startGame}
         >
           {t('再来一局')}
@@ -800,6 +824,7 @@ const Tetris = () => {
           <h1 className='tetris-title'>{t('俄罗斯方块')}</h1>
         </div>
 
+        <PendingReplay replay={replay} />
         <div className='tetris-layout'>
           <div className='tetris-panel tetris-left'>
             <div className='tetris-box'>
@@ -920,16 +945,34 @@ const Tetris = () => {
               aria-label={label}
               onPointerDown={(event) => {
                 event.preventDefault();
-                if (phase === 'playing') pressControl(runRef.current, control);
+                if (
+                  phase !== 'playing' ||
+                  touchPointersRef.current.has(event.pointerId)
+                )
+                  return;
+                touchPointersRef.current.set(event.pointerId, control);
+                event.currentTarget.setPointerCapture?.(event.pointerId);
+                pressControl(runRef.current, control);
               }}
-              onPointerUp={() => {
-                if (runRef.current) releaseControl(runRef.current, control);
+              onPointerUp={(event) => {
+                if (touchPointersRef.current.get(event.pointerId) !== control)
+                  return;
+                touchPointersRef.current.delete(event.pointerId);
+                if (
+                  ![...touchPointersRef.current.values()].includes(control) &&
+                  runRef.current
+                )
+                  releaseControl(runRef.current, control);
               }}
-              onPointerLeave={() => {
-                if (runRef.current) releaseControl(runRef.current, control);
-              }}
-              onPointerCancel={() => {
-                if (runRef.current) releaseControl(runRef.current, control);
+              onPointerCancel={(event) => {
+                if (touchPointersRef.current.get(event.pointerId) !== control)
+                  return;
+                touchPointersRef.current.delete(event.pointerId);
+                if (
+                  ![...touchPointersRef.current.values()].includes(control) &&
+                  runRef.current
+                )
+                  releaseControl(runRef.current, control);
               }}
               onContextMenu={(event) => event.preventDefault()}
             >

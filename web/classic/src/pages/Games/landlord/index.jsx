@@ -107,7 +107,17 @@ const Cards = ({ cards, type }) => (
 // 一次刷新里同时出现的几手牌(自己出牌后 AI 或托管接连跟上)依次错开这么久出现，看得出谁先出、出了什么。
 const PLAY_STAGGER_MS = 400;
 
-const LandlordBoard = ({ state, seat, names, canMove, over, onMove }) => {
+const LandlordBoard = ({
+  state,
+  seat,
+  names,
+  canMove,
+  over,
+  onMove,
+  actions,
+  actionVersion,
+  sessionId,
+}) => {
   const { t } = useTranslation();
   const [hintChoice, setHintChoice] = useState({ key: '', index: -1 });
   // 出牌区里每一手第一次出现时排定的入场延迟，之后重新渲染不再改动，免得动画重来。
@@ -205,6 +215,34 @@ const LandlordBoard = ({ state, seat, names, canMove, over, onMove }) => {
   }
   return (
     <div className='landlord-board'>
+      {actions?.length > 0 && (
+        <div className='landlord-action-history' aria-live='polite'>
+          <span className='landlord-caption'>{t('本次操作')}</span>
+          <ol key={`${sessionId}/${actionVersion}`}>
+            {actions.map((action, index) => (
+              <li
+                key={index}
+                style={{ animationDelay: `${index * PLAY_STAGGER_MS}ms` }}
+              >
+                <span className='landlord-action-name'>
+                  {nameOf(action.seat)}
+                </span>
+                {action.move.cards ? (
+                  <Cards cards={action.move.cards} />
+                ) : action.move.pass ? (
+                  <span>{t('不出')}</span>
+                ) : (
+                  <span>
+                    {action.move.bid === 0
+                      ? t('不叫')
+                      : t('{{bid}} 分', { bid: action.move.bid })}
+                  </span>
+                )}
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
       <div className='landlord-bottom'>
         <span className='landlord-caption'>{t('底牌')}</span>
         {bidding ? (
@@ -520,6 +558,7 @@ const Landlord = () => {
       renderBoard={({ roomId, sessionId, state, ...props }) => (
         <LandlordBoard
           key={`${roomId || `ai:${sessionId || ''}`}:${state?.deals || 0}`}
+          sessionId={sessionId}
           state={state}
           {...props}
         />

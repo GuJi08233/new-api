@@ -111,7 +111,7 @@ func loadSkillSession(c *gin.Context, game string, rule operation_setting.SkillR
 		return nil
 	}
 	if err != nil {
-		common.ApiError(c, err)
+		respondGameFinishRetry(c)
 		return nil
 	}
 	if session.Status != model.GameSessionStatusPlaying {
@@ -221,7 +221,7 @@ func settleSkillSession(c *gin.Context, name string, rule operation_setting.Skil
 func respondSettledSkill(c *gin.Context, session *model.GameSession, rule operation_setting.SkillRule) {
 	view, err := skillSettledView(c, session, rule)
 	if err != nil {
-		common.ApiError(c, err)
+		respondGameFinishRetry(c)
 		return
 	}
 	common.ApiSuccess(c, view)

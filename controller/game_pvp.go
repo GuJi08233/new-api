@@ -151,6 +151,8 @@ type pvpDrawAi interface {
 type pvpHintAi interface {
 	// HintStatus 返回 seat 现在能不能用提示、还剩几次免费、已经用了几次、下一次要花多少游戏币。
 	HintStatus(state []byte, seat int) (pvpHintStatus, error)
+	// CachedHint 返回当前局面已经取得的分析；读取不消耗次数或游戏币，没有时返回 nil。
+	CachedHint(state []byte, seat int) (json.RawMessage, error)
 	// Hint 为 seat 分析当前局面，返回提示本身、记下次数之后的新局面，以及这一次的收费(免费时为 0)。
 	Hint(state []byte, seat int) (pvpHint, error)
 }
@@ -1492,6 +1494,13 @@ type pvpAiState struct {
 	Winner int             `json:"winner"`
 	Result string          `json:"result,omitempty"`
 	Moves  int             `json:"moves"`
+	// Actions 保存本次玩家操作和多人 AI 应着的公开动作，跨轮次时也能完整展示；不含手牌或下一步计划。
+	Actions []pvpAiAction `json:"actions,omitempty"`
+}
+
+type pvpAiAction struct {
+	Seat int             `json:"seat"`
+	Move json.RawMessage `json:"move"`
 }
 
 // pvpAiDetail 是人机对战一局的成绩明细。
@@ -1550,6 +1559,9 @@ func (s *pvpAiState) aiReply(ctx context.Context, game *pvpGame) (json.RawMessag
 		next, err := game.engine.Play(s.Board, s.ToMove, move)
 		if err != nil {
 			return nil, fmt.Errorf("ai chose an illegal move %s: %w", move, err)
+		}
+		if game.table != nil {
+			s.Actions = append(s.Actions, pvpAiAction{Seat: s.ToMove, Move: move})
 		}
 		if err := s.apply(game, next); err != nil {
 			return nil, err
@@ -1631,9 +1643,17 @@ func pvpAiView(game *pvpGame, session *model.GameSession) (gin.H, error) {
 		"moves":      state.Moves,
 		"state":      board,
 	}
+	if game.table != nil {
+		view["actions"] = state.Actions
+	}
 	if hint, ok := game.engine.(pvpHintAi); ok {
 		if view["hint"], err = hint.HintStatus(state.Board, 0); err != nil {
 			return nil, err
+		}
+		if !state.Over {
+			if view["hint_result"], err = hint.CachedHint(state.Board, 0); err != nil {
+				return nil, err
+			}
 		}
 	}
 	return view, nil
@@ -1675,7 +1695,13 @@ func getPvpAi(c *gin.Context, game *pvpGame) {
 		common.ApiError(c, err)
 		return
 	}
-	common.ApiSuccess(c, gin.H{"session": view})
+	// 恢复的操作可能已经扣过提示或悔棋费用，余额与局面一起刷新。
+	account, err := model.GetGameCoinAccount(session.UserId)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, gin.H{"session": view, "balance": account.Balance})
 }
 
 // pvpAiRule 读出人机对战的领奖规则：游戏没开放或没开放人机对战时写好错误响应并返回 false。
@@ -1831,6 +1857,9 @@ func movePvpAi(c *gin.Context, game *pvpGame) {
 		respondGameRoomError(c, err)
 		return
 	}
+	if game.table != nil {
+		state.Actions = []pvpAiAction{{Seat: 0, Move: req.Move}}
+	}
 	if err := state.apply(game, next); err != nil {
 		common.ApiError(c, err)
 		return
@@ -1977,8 +2006,22 @@ func drawPvpAi(c *gin.Context, game *pvpGame) {
 	settlePvpAi(c, game, rule, session, state, nil, session.PlaySeconds, gin.H{"accepted": true})
 }
 
-// hintPvpAi 给玩家一个提示：分析当前局面并返回引擎推荐的着法与评分。提示不落子、不改动棋盘，只把用掉的提示次数写进这一
-// 局，要付费时和新局面在同一个事务里扣下。没轮到玩家走或对局已经结束时不分析，免得白花一次。
+// respondPvpAiHint 同时返回已保存的提示、局面与余额，首次成功和重试恢复使用同一个响应。
+func respondPvpAiHint(c *gin.Context, game *pvpGame, session *model.GameSession, hint json.RawMessage) {
+	view, err := pvpAiView(game, session)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	account, err := model.GetGameCoinAccount(session.UserId)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, gin.H{"hint": hint, "session": view, "balance": account.Balance})
+}
+
+// hintPvpAi 优先返回当前局面已保存的提示；首次分析把结果、次数与费用一起提交，重试不重复收费。
 func hintPvpAi(c *gin.Context, game *pvpGame) {
 	rule, ok := pvpAiRule(c, game)
 	if !ok {
@@ -1996,6 +2039,16 @@ func hintPvpAi(c *gin.Context, game *pvpGame) {
 	}
 	session, state := loadPvpAiSession(c, game, rule, req.SessionId)
 	if session == nil {
+		return
+	}
+	// 已提交提示的旧版本重试是读取操作：返回当前局面已保存的结果，不再计算或收费。
+	cached, err := hintEngine.CachedHint(state.Board, 0)
+	if err != nil {
+		respondGameRoomError(c, err)
+		return
+	}
+	if !state.Over && len(cached) > 0 {
+		respondPvpAiHint(c, game, session, cached)
 		return
 	}
 	if req.Version != session.Version {
@@ -2017,7 +2070,6 @@ func hintPvpAi(c *gin.Context, game *pvpGame) {
 	}
 	defer releasePvpAiSlot()
 	var answered pvpHint
-	var err error
 	if contextual, ok := hintEngine.(pvpContextHintAi); ok {
 		answered, err = contextual.HintContext(ctx, state.Board, 0)
 	} else {
@@ -2044,17 +2096,38 @@ func hintPvpAi(c *gin.Context, game *pvpGame) {
 	if ctx.Err() != nil {
 		return
 	}
-	balance, err := model.ChargeGameSessionState(session, string(data), answered.Cost, "hint")
+	_, err = model.ChargeGameSessionState(session, string(data), answered.Cost, "hint")
+	if errors.Is(err, model.ErrGameRoundChanged) {
+		// 并发的另一份提示可能已先提交；只返回它保存的当前分析，不用本次计算结果补写或补收费。
+		current, readErr := model.GetUserGameSession(session.UserId, session.Game, session.Id)
+		if readErr != nil {
+			respondGameError(c, pvpAiGame(game.key), readErr)
+			return
+		}
+		var latest pvpAiState
+		if decodeErr := common.UnmarshalJsonStr(current.State, &latest); decodeErr != nil {
+			respondGameError(c, pvpAiGame(game.key), decodeErr)
+			return
+		}
+		if current.Status != model.GameSessionStatusPlaying || latest.Over {
+			respondGameError(c, pvpAiGame(game.key), err)
+			return
+		}
+		hint, hintErr := hintEngine.CachedHint(latest.Board, 0)
+		if hintErr != nil {
+			respondGameError(c, pvpAiGame(game.key), hintErr)
+			return
+		}
+		if len(hint) > 0 {
+			respondPvpAiHint(c, game, current, hint)
+			return
+		}
+	}
 	if err != nil {
 		respondGameError(c, pvpAiGame(game.key), err)
 		return
 	}
-	view, err := pvpAiView(game, session)
-	if err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	common.ApiSuccess(c, gin.H{"hint": answered.Hint, "session": view, "balance": balance})
+	respondPvpAiHint(c, game, session, answered.Hint)
 }
 
 // resignPvpAi 认输，这局按输了结算。

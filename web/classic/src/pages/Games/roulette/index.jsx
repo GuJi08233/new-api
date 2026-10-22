@@ -33,7 +33,7 @@ import './roulette.css';
 // 号码的个数：0–36。
 const POCKETS = 37;
 // 筹码面值，超过单次下注上限的不显示。
-const CHIP_VALUES = [1, 5, 10, 50, 100, 500];
+const CHIP_VALUES = [0.01, 0.1, 0.5, 1, 5, 10, 50, 100, 500];
 const HISTORY_SIZE = 12;
 // 撤销最多退回这么多步。
 const UNDO_LIMIT = 50;
@@ -94,10 +94,14 @@ const Roulette = () => {
   const chips = CHIP_VALUES.filter((value) => value <= maxBet);
   const chipValue = chips.includes(chip) ? chip : chips[0];
   const count = Object.keys(bets).length;
-  const total = Object.values(bets).reduce((sum, amount) => sum + amount, 0);
+  const totalCents = Object.values(bets).reduce(
+    (sum, amount) => sum + Math.round(amount * 100),
+    0,
+  );
+  const total = totalCents / 100;
   const canSpin =
     !spinning &&
-    total >= 1 &&
+    totalCents >= 1 &&
     total <= maxBet &&
     count <= maxBets &&
     total <= info.balance;
@@ -113,7 +117,7 @@ const Roulette = () => {
   };
 
   const place = (spot) => {
-    if (total + chipValue > maxBet) {
+    if (totalCents + Math.round(chipValue * 100) > Math.round(maxBet * 100)) {
       setHint(overLimit);
       return;
     }
@@ -121,7 +125,13 @@ const Roulette = () => {
       setHint(t('一局最多下 {{count}} 注', { count: maxBets }));
       return;
     }
-    changeBets({ ...bets, [spot.key]: (bets[spot.key] || 0) + chipValue });
+    changeBets({
+      ...bets,
+      [spot.key]:
+        (Math.round((bets[spot.key] || 0) * 100) +
+          Math.round(chipValue * 100)) /
+        100,
+    });
   };
 
   const double = () => {
@@ -131,7 +141,10 @@ const Roulette = () => {
     }
     changeBets(
       Object.fromEntries(
-        Object.entries(bets).map(([key, amount]) => [key, amount * 2]),
+        Object.entries(bets).map(([key, amount]) => [
+          key,
+          (Math.round(amount * 100) * 2) / 100,
+        ]),
       ),
     );
   };

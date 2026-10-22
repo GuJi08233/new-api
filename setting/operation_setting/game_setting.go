@@ -64,6 +64,8 @@ type GameSetting struct {
 	Pairlink    SkillRule `json:"pairlink"`
 	Breakout    SkillRule `json:"breakout"`
 	Sokoban     SkillRule `json:"sokoban"`
+	Lightsout   SkillRule `json:"lightsout"`
+	Hanoi       SkillRule `json:"hanoi"`
 
 	Slots     WagerRule `json:"slots"`
 	Wheel     WheelRule `json:"wheel"`
@@ -248,6 +250,8 @@ var gameRuleSpecs = map[string]gameRuleSpec{
 	"pairlink":    {Kind: GameKindSkill, MaxTierScore: 3},
 	"breakout":    {Kind: GameKindSkill},
 	"sokoban":     {Kind: GameKindSkill, MaxTierScore: 1},
+	"lightsout":   {Kind: GameKindSkill, MaxTierScore: 3},
+	"hanoi":       {Kind: GameKindSkill, MaxTierScore: 3},
 
 	"slots":     {Kind: GameKindWager, MinBet: 1, MaxBet: 1000},
 	"wheel":     {Kind: GameKindWager},
@@ -580,6 +584,8 @@ func DefaultGameSetting() *GameSetting {
 		Pairlink:    dailyCoinRule(2, 120),
 		Breakout:    dailyCoinRule(300, 120),
 		Sokoban:     dailyCoinRule(1, 180),
+		Lightsout:   dailyCoinRule(2, 180),
+		Hanoi:       dailyCoinRule(2, 180),
 
 		Slots:     WagerRule{MaxBet: 10},
 		Wheel:     WheelRule{FreeSpins: 1, SpinCost: 1},
@@ -653,6 +659,10 @@ func (s *GameSetting) SkillRuleOf(game string) (SkillRule, bool) {
 		return s.Breakout, true
 	case "sokoban":
 		return s.Sokoban, true
+	case "lightsout":
+		return s.Lightsout, true
+	case "hanoi":
+		return s.Hanoi, true
 	}
 	return SkillRule{}, false
 }

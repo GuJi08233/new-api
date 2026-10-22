@@ -13,7 +13,7 @@ import (
 
 func TestGameTurnstileExemptionsMatchInfoAndFreeStartRoutes(t *testing.T) {
 	games := []string{
-		"tetris", "2048", "snake", "flappy", "minesweeper", "sudoku", "memory", "puzzle15", "pairlink", "breakout", "sokoban",
+		"tetris", "2048", "snake", "flappy", "minesweeper", "sudoku", "memory", "puzzle15", "pairlink", "breakout", "sokoban", "lightsout", "hanoi",
 		"gomoku", "connect4", "reversi", "xiangqi", "landlord", "wheel",
 	}
 	setting := gameSetting(nil)
@@ -40,7 +40,7 @@ func TestGameTurnstileExemptionsMatchInfoAndFreeStartRoutes(t *testing.T) {
 			start := path + "/start"
 			var body any
 			switch game {
-			case "minesweeper", "sudoku", "memory", "puzzle15", "pairlink":
+			case "minesweeper", "sudoku", "memory", "puzzle15", "pairlink", "lightsout", "hanoi":
 				body = map[string]int{"difficulty": 1}
 			case "gomoku", "connect4", "reversi", "xiangqi", "landlord":
 				start = path + "/ai/start"

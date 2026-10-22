@@ -87,6 +87,8 @@ type xiangqiState struct {
 	Undo    xiangqiUndoState `json:"undo,omitempty"`
 	// Hints 是用掉了几个提示，人机对战里前 gameHintFreePlays 个免费，之后每个 gameHintCostCoins 个游戏币。
 	Hints int `json:"hints,omitempty"`
+	// Hint 随局面保存最近一次分析，响应丢失或刷新后仍能取回；走棋、悔棋与和棋时清除。
+	Hint *xiangqiHint `json:"hint,omitempty"`
 }
 
 // xiangqiMove 是一步棋在接口里的样子：{"from":[x,y],"to":[x,y]}。x 是列 0-8，y 是行 0-9，红方在 y 0-4 一侧(见 pkg/xiangqi)。
@@ -339,6 +341,7 @@ func (xiangqiEngine) Play(data []byte, seat int, move json.RawMessage) (pvpState
 	}
 	state.Undo.Pending = nil
 	state.Undo.Draw = nil
+	state.Hint = nil
 	return state.pvp()
 }
 
@@ -392,6 +395,7 @@ func (xiangqiEngine) UndoAnswer(data []byte, seat int, accept bool) (pvpUndo, er
 	}
 	state.Undo.Used[asker]++
 	state.Undo.Declined = nil
+	state.Hint = nil
 	// 撤回之后步数变了，提出时那一步已经不在棋谱里，求和请求随之作废。
 	state.dropStaleDraw()
 	next, err := state.pvp()
@@ -442,6 +446,7 @@ func (xiangqiEngine) DrawAnswer(data []byte, seat int, accept bool) (pvpState, e
 		return pvpState{}, errPvpDrawUnavailable
 	}
 	state.Undo.Pending = nil
+	state.Hint = nil
 	return state.pvp()
 }
 
@@ -634,6 +639,7 @@ type xiangqiHintLine struct {
 // xiangqiHint 是一次提示：分析时的步数(局面一变提示就作废)、推荐的着法与按分数排好的前几条着法。
 type xiangqiHint struct {
 	Plies int               `json:"plies"`
+	Board string            `json:"board"`
 	Line  xiangqiHintLine   `json:"line"`
 	Lines []xiangqiHintLine `json:"lines"`
 }
@@ -652,6 +658,19 @@ func (xiangqiEngine) HintStatus(data []byte, seat int) (pvpHintStatus, error) {
 		return pvpHintStatus{}, err
 	}
 	return state.hintView(seat)
+}
+
+// CachedHint 只返回当前真实盘面、当前行棋方已经取得的分析。步数相同但盘面不同不能复用。
+func (xiangqiEngine) CachedHint(data []byte, seat int) (json.RawMessage, error) {
+	state, err := loadXiangqiState(data)
+	if err != nil {
+		return nil, err
+	}
+	toMove, _ := state.seats()
+	if state.Game.Over() || toMove != seat || state.Hint == nil || state.Hint.Plies != state.Game.Plies || state.Hint.Board != state.Game.Board {
+		return nil, nil
+	}
+	return common.Marshal(state.Hint)
 }
 
 // Hint 为 seat 分析当前局面：推荐自己走的一步、评测分数与杀棋步数，同时把用掉的提示次数记进状态。提示不改动棋局，
@@ -677,7 +696,7 @@ func (xiangqiEngine) HintContext(ctx context.Context, data []byte, seat int) (pv
 	if err != nil {
 		return pvpHint{}, err
 	}
-	hint := xiangqiHint{Plies: state.Game.Plies}
+	hint := xiangqiHint{Plies: state.Game.Plies, Board: state.Game.Board}
 	for _, line := range analysis.Lines {
 		hint.Lines = append(hint.Lines, hintLine(state.Game.Board, line))
 	}
@@ -690,6 +709,7 @@ func (xiangqiEngine) HintContext(ctx context.Context, data []byte, seat int) (pv
 		return pvpHint{}, err
 	}
 	state.Hints++
+	state.Hint = &hint
 	next, err := state.pvp()
 	if err != nil {
 		return pvpHint{}, err

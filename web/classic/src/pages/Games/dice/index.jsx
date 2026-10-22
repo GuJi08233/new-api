@@ -232,6 +232,9 @@ const Dice = () => {
               '胜率 = 理论返还率 ÷ 倍数，理论返还率 {{rate}}%，玩家长期是输的',
               { rate: info.rtp_percent },
             ),
+            t('中奖点数向下取整，当前档位实际返还率为 {{rate}}%', {
+              rate: Number(((threshold * choice.multiplier) / 100).toFixed(2)),
+            }),
             t('单次最多下注 {{max}} {{symbol}}，不限次数', {
               max: maxBet,
               symbol,

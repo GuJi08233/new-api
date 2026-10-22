@@ -36,6 +36,7 @@ import {
 } from '../common/skill';
 import { useGameInfo } from '../common/useGameInfo';
 import { PlayTurnstile, usePlayTurnstile } from '../common/usePlayTurnstile';
+import { writeGameStorage, removeGameStorage } from '../common/gameStorage';
 import './puzzle15.css';
 
 const STATE_URL = '/api/game/puzzle15/state';
@@ -123,6 +124,7 @@ const Puzzle15 = () => {
   const [end, setEnd] = useState(null);
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
+  const [storageWarning, setStorageWarning] = useState(false);
   const [busy, setBusy] = useState(false);
   const [checked, setChecked] = useState(false);
   const busyRef = useRef(false);
@@ -172,10 +174,8 @@ const Puzzle15 = () => {
   const playing = !!game && !end;
   useEffect(() => {
     if (!sessionId || over) return;
-    localStorage.setItem(
-      MOVES_KEY,
-      JSON.stringify({ session_id: sessionId, moves }),
-    );
+    if (!writeGameStorage(MOVES_KEY, { session_id: sessionId, moves }).ok)
+      setStorageWarning(true);
   }, [sessionId, over, moves]);
 
   // 对局已被新开的一局作废、或者网络中断之后，重新读取进行中的一局。
@@ -217,7 +217,7 @@ const Puzzle15 = () => {
       progress: settled.progress,
       best_score: settled.best_score,
     });
-    localStorage.removeItem(MOVES_KEY);
+    if (!removeGameStorage(MOVES_KEY).ok) setStorageWarning(true);
   };
 
   const start = async () => {
@@ -236,14 +236,16 @@ const Puzzle15 = () => {
       setError(response.error);
       return;
     }
-    localStorage.removeItem(MOVES_KEY);
+    if (!removeGameStorage(MOVES_KEY).ok) setStorageWarning(true);
     restore(response.data);
   };
 
   // 空格按 directions 走，排好了就交卷。
   const move = (directions) => {
     if (!playing || busy || isSolved(board)) return;
-    const moved = slideAll(board, game.size, directions);
+    const remaining = Math.max(0, maxMoves - moves.length);
+    if (!remaining) return;
+    const moved = slideAll(board, game.size, directions.slice(0, remaining));
     if (!moved.applied) return;
     const allMoves = moves + moved.applied;
     setBoard(moved.board);
@@ -285,6 +287,13 @@ const Puzzle15 = () => {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [playing]);
+
+  const undoMove = () => {
+    if (!playing || busy || !moves) return;
+    const reverse = { U: 'D', D: 'U', L: 'R', R: 'L' }[moves.at(-1)];
+    setBoard(slide(board, game.size, reverse));
+    setMoves(moves.slice(0, -1));
+  };
 
   const confirmRestart = () => {
     if (!moves) {
@@ -412,17 +421,32 @@ const Puzzle15 = () => {
             {reward.text}
           </StageMessage>
         )}
-        {playing && maxMoves > 0 && moves.length > maxMoves && (
+        {playing && maxMoves > 0 && moves.length >= maxMoves && (
           <StageMessage kind='error'>
-            {t('步数超过 {{max}}，这一局没法结算了，请重新开局', {
+            {t('已达到 {{max}} 步上限，请撤销或重新开局', {
               max: maxMoves,
             })}
           </StageMessage>
         )}
         {error && <StageMessage kind='error'>{error}</StageMessage>}
+        {storageWarning && (
+          <StageMessage>
+            {t(
+              '浏览器无法保存游戏进度，请在本页完成结算，刷新或离开可能丢失进度',
+            )}
+          </StageMessage>
+        )}
 
         {playing && (
           <div className='game-controls'>
+            <button
+              type='button'
+              className='game-chip'
+              disabled={busy || !moves || solvedNow}
+              onClick={undoMove}
+            >
+              {t('撤销')}
+            </button>
             {solvedNow && (
               <button
                 type='button'

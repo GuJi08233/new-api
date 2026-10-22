@@ -11,10 +11,54 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/landlord"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestPvpAiMultiplayerActionsRemainOrderedAndRecoverable(t *testing.T) {
+	env := newGameTestEnv(t, gameSetting(func(s *operation_setting.GameSetting) {
+		s.Landlord.Enabled = true
+		s.Landlord.Ai.Enabled = true
+	}))
+	player := env.player(2, gameTestIpA)
+	initial := landlordTestEndgame(t, 0, 0, [landlord.Players][]int{{0, 4}, {8, 12}, {16, 20}})
+	data, err := common.Marshal(pvpAiState{Level: 2, Board: initial.Data, ToMove: 0, Winner: -1})
+	require.NoError(t, err)
+	session, err := model.CreateGameSession(player.user.Id, pvpAiGame(gameLandlord), 1, string(data))
+	require.NoError(t, err)
+	replied := player.ok(http.MethodPost, "/api/game/landlord/ai/move", map[string]any{
+		"session_id": session.Id, "version": session.Version, "move": map[string]any{"cards": []int{4}},
+	})["session"].(map[string]any)
+	actions := replied["actions"].([]any)
+	require.Len(t, actions, 3)
+	next := initial
+	for seat, entry := range actions {
+		action := entry.(map[string]any)
+		assert.EqualValues(t, seat, action["seat"])
+		assert.Len(t, action, 2, "动作列表不带任何人的隐藏手牌")
+		move, err := common.Marshal(action["move"])
+		require.NoError(t, err)
+		next, err = (landlordEngine{}).Play(next.Data, seat, move)
+		require.NoError(t, err)
+	}
+	view, err := (landlordEngine{}).View(next.Data, 0)
+	require.NoError(t, err)
+	want, err := common.Marshal(view)
+	require.NoError(t, err)
+	got, err := common.Marshal(replied["state"])
+	require.NoError(t, err)
+	assert.JSONEq(t, string(want), string(got), "记录中的顺序可以重建实际返回的局面")
+	restored := player.ok(http.MethodGet, fmt.Sprintf("/api/game/landlord/ai?session_id=%d", session.Id), nil)
+	assert.Equal(t, actions, restored["session"].(map[string]any)["actions"])
+	second := player.ok(http.MethodPost, "/api/game/landlord/ai/move", map[string]any{
+		"session_id": session.Id, "version": replied["version"], "move": map[string]any{"pass": true},
+	})["session"].(map[string]any)
+	newActions := second["actions"].([]any)
+	require.NotEmpty(t, newActions)
+	assert.Equal(t, map[string]any{"pass": true}, newActions[0].(map[string]any)["move"], "下一次只保留新的动作批次")
+}
 
 func TestPvpInvitePreviewShowsStakeWithoutJoining(t *testing.T) {
 	env := newGameTestEnv(t, gameSetting(func(s *operation_setting.GameSetting) {

@@ -219,6 +219,8 @@ const Plinko = () => {
   // 同一时间只发一个投球请求：服务端依次结算，每颗球带回的余额也就依次更新。连点时状态还没来得及刷新，用它挡住。
   const requestingRef = useRef(false);
   const nextBallRef = useRef(0);
+  const snapshotRef = useRef(0);
+  const shownSnapshotRef = useRef(0);
   const [loading, setLoading] = useState(true);
   const [unavailable, setUnavailable] = useState('');
   const [rule, setRule] = useState(null);
@@ -243,6 +245,8 @@ const Plinko = () => {
           return;
         }
         const plinko = res.data.data;
+        if (!aliveRef.current) return;
+        shownSnapshotRef.current = ++snapshotRef.current;
         setRule(plinko);
         // 默认选第一个开放的档。
         setStake(
@@ -285,13 +289,16 @@ const Plinko = () => {
   // 球落进格子才公布结果、更新余额和今日输赢。
   const landBall = useCallback((ball) => {
     const { result, tier } = ball;
-    setShownBalance(result.balance);
-    setRule((previous) => ({
-      ...previous,
-      net_today: result.net_today,
-      plays_today: result.plays_today,
-      best_win: Math.max(previous.best_win || 0, result.win),
-    }));
+    if (ball.snapshot >= shownSnapshotRef.current) {
+      shownSnapshotRef.current = ball.snapshot;
+      setShownBalance(result.balance);
+      setRule((previous) => ({
+        ...previous,
+        net_today: result.net_today,
+        plays_today: result.plays_today,
+        best_win: Math.max(previous.best_win || 0, result.win),
+      }));
+    }
     setOutcome({ result, tier });
     setHistory((previous) =>
       [
@@ -352,21 +359,24 @@ const Plinko = () => {
       }
       response = { error: message };
     }
-    requestingRef.current = false;
     if (!aliveRef.current) return;
-    setRequesting(false);
     if (response.error) {
       // 投球被拒绝或请求没有得到答复：页面上的余额与次数可能已经过时(请求也可能已经结算)，重新读取。
       setOutcome(response);
-      loadInfo(true);
+      await loadInfo(true);
+      requestingRef.current = false;
+      if (aliveRef.current) setRequesting(false);
       return;
     }
+    requestingRef.current = false;
+    setRequesting(false);
     const { result } = response;
     // 能不能再投以服务端的余额为准，余额的显示等球落下再更新。
     setBalance(result.balance);
     setOutcome((previous) => (previous?.error ? null : previous));
     setFlying((count) => count + 1);
     const ball = {
+      snapshot: ++snapshotRef.current,
       id: nextBallRef.current++,
       result,
       tier: droppedTier,

@@ -1,6 +1,7 @@
 package reversi
 
 import (
+	"context"
 	"errors"
 	"math/bits"
 	"math/rand/v2"
@@ -126,6 +127,7 @@ func finalScore(me, opp uint64) int {
 }
 
 type searcher struct {
+	ctx      context.Context
 	evaluate func(me, opp uint64) int
 	nodes    int
 	// limit 是最多展开的节点数，0 表示不限。展开得更多时 aborted 为真，搜索中止，算出的分数都不能用。
@@ -135,6 +137,9 @@ type searcher struct {
 
 // negamax 返回 me 这一方(轮到它走)在 depth 步以内能保证的分数。depth 为负表示一直搜到终局。
 func (s *searcher) negamax(me, opp uint64, depth int, alpha int, beta int) int {
+	if s.ctx.Err() != nil {
+		return 0
+	}
 	s.nodes++
 	if s.limit > 0 && s.nodes > s.limit {
 		s.aborted = true
@@ -192,6 +197,14 @@ func (s *searcher) orderMoves(me, opp uint64, moves uint64, exact bool, order *[
 
 // BestMove 为轮到走的一方选一步。level 为 1 简单、2 普通、3 困难；rng 用来在差不多好的几步里随机挑一步。
 func BestMove(g *Game, level int, rng *rand.Rand) (Point, error) {
+	return BestMoveContext(context.Background(), g, level, rng)
+}
+
+// BestMoveContext 保留中局和终局搜索预算，请求取消后不再降深重搜。
+func BestMoveContext(ctx context.Context, g *Game, level int, rng *rand.Rand) (Point, error) {
+	if err := ctx.Err(); err != nil {
+		return Point{}, err
+	}
 	if g.Over() {
 		return Point{}, ErrIllegalMove
 	}
@@ -201,15 +214,18 @@ func BestMove(g *Game, level int, rng *rand.Rand) (Point, error) {
 	case 1:
 		square = easyMove(me, opp, rng)
 	case 2:
-		square = searchMove(evaluateNormal, me, opp, normalDepth, normalTolerance, rng)
+		square = searchMove(ctx, evaluateNormal, me, opp, normalDepth, normalTolerance, rng)
 	case 3:
 		depth := hardDepth
 		if bits.OnesCount64(^(me | opp)) <= hardExactEmpties {
 			depth = -1
 		}
-		square = searchMove(evaluateHard, me, opp, depth, hardTolerance, rng)
+		square = searchMove(ctx, evaluateHard, me, opp, depth, hardTolerance, rng)
 	default:
 		return Point{}, ErrInvalidLevel
+	}
+	if err := ctx.Err(); err != nil {
+		return Point{}, err
 	}
 	return Point{X: square % Size, Y: square / Size}, nil
 }
@@ -230,8 +246,8 @@ func easyMove(me, opp uint64, rng *rand.Rand) int {
 // searchMove 用 evaluate 搜 depth 步(为负时搜到终局)，给每一步算出分数，在不比最好一步差 tolerance 以上的几步里随机
 // 挑一步。已经算出输赢时不留容差。展开的节点超过 nodeLimit 时这次的分数作废：算终局的改搜 hardDepth 步，其余的少搜
 // 两步重来；只搜两步时不设上限，展开的节点不过几百个，总能算完。
-func searchMove(evaluate func(me, opp uint64) int, me, opp uint64, depth int, tolerance int, rng *rand.Rand) int {
-	s := &searcher{evaluate: evaluate}
+func searchMove(ctx context.Context, evaluate func(me, opp uint64) int, me, opp uint64, depth int, tolerance int, rng *rand.Rand) int {
+	s := &searcher{ctx: ctx, evaluate: evaluate}
 	if depth < 0 || depth > 2 {
 		s.limit = nodeLimit
 	}
@@ -241,6 +257,9 @@ func searchMove(evaluate func(me, opp uint64) int, me, opp uint64, depth int, to
 	scores := make([]int, 0, count)
 	best := -infinity
 	for _, square := range order[:count] {
+		if ctx.Err() != nil {
+			return 0
+		}
 		// 比最好一步差出容差的着法只需知道它更差，窗口下沿之下的分数不必算准。
 		alpha := -infinity
 		if best > -infinity {
@@ -257,7 +276,7 @@ func searchMove(evaluate func(me, opp uint64) int, me, opp uint64, depth int, to
 		if depth < 0 {
 			next = hardDepth
 		}
-		return searchMove(evaluate, me, opp, next, tolerance, rng)
+		return searchMove(ctx, evaluate, me, opp, next, tolerance, rng)
 	}
 	if depth < 0 || best >= decidedScore-Squares || best <= -decidedScore+Squares {
 		tolerance = 0

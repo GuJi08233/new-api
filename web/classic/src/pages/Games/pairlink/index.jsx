@@ -61,13 +61,12 @@ const Pairlink = () => {
   const [notice, setNotice] = useState('');
   const busyRef = useRef(false);
   const actionRef = useRef(null);
-  const expiryRef = useRef(null);
   const names = getGameLevelNames(t).pairlink;
   const playing = game?.status === 'playing';
 
   const accept = useCallback((view) => {
-    // 服务端的 elapsed 按整秒计，最多比实际少算一秒；倒计时提前一秒到点，显示还有时间时发出的一步一定来得及。
-    setGame({ ...view, since: Date.now() - (view.elapsed + 1) * 1000 });
+    // 计时仅用于显示；自然超时由服务端核实，不主动放弃仍可进行的对局。
+    setGame({ ...view, since: Date.now() - view.elapsed * 1000 });
     setNow(Date.now());
     setDifficulty(view.difficulty);
     setSelected(-1);
@@ -179,15 +178,10 @@ const Pairlink = () => {
       )
     : 0;
   useEffect(() => {
-    if (
-      playing &&
-      left === 0 &&
-      !busy &&
-      expiryRef.current !== game.session_id
-    ) {
-      expiryRef.current = game.session_id;
-      actionRef.current('finish');
-    }
+    if (!playing || left !== 0 || busy) return undefined;
+    // 服务端保留整秒取整的宽限；失败或尚未超时则稍后重查，避免紧循环。
+    const timer = setTimeout(() => actionRef.current('timeout'), 1000);
+    return () => clearTimeout(timer);
   }, [playing, left, busy, game?.session_id]);
 
   const choose = (index) => {

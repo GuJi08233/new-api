@@ -56,6 +56,12 @@ describe('提示只在当时的局面上有效', () => {
     expect(hintForPlies(null, state)).toBeNull();
   });
 
+  test('相同步数的另一盘面不能复用保存的提示', () => {
+    const saved = { ...hint, board: 'r...K' };
+    expect(hintForPlies(saved, { ...state, board: ['r..', '.K'] })).toBe(saved);
+    expect(hintForPlies(saved, { ...state, board: ['.r.', '.K'] })).toBeNull();
+  });
+
   test('棋盘上标出起点与落点，内容不全时什么也不标', () => {
     expect(hintMarker(hint)).toEqual({ from: [1, 2], to: [4, 2] });
     expect(hintMarker(null)).toBeNull();

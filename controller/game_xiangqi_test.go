@@ -9,9 +9,11 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/xiangqi"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -500,18 +502,14 @@ func TestXiangqiAiHintAnalysesWithoutMoving(t *testing.T) {
 	body := func(s map[string]any) map[string]any {
 		return map[string]any{"session_id": s["session_id"], "version": s["version"]}
 	}
-	state := session["state"].(map[string]any)
-	legal := state["legal"].([]any)
-	require.NotEmpty(t, legal)
-	legalMoves := map[string]bool{}
-	for _, m := range legal {
-		encoded, err := common.Marshal(m)
-		require.NoError(t, err)
-		legalMoves[string(encoded)] = true
-	}
-
 	for round := 1; round <= 3; round++ {
 		current := session["state"].(map[string]any)
+		legalMoves := map[string]bool{}
+		for _, m := range current["legal"].([]any) {
+			encoded, err := common.Marshal(m)
+			require.NoError(t, err)
+			legalMoves[string(encoded)] = true
+		}
 		replied := player.ok(http.MethodPost, "/api/game/xiangqi/ai/hint", body(session))
 		hint := replied["hint"].(map[string]any)
 		line := hint["line"].(map[string]any)
@@ -519,12 +517,20 @@ func TestXiangqiAiHintAnalysesWithoutMoving(t *testing.T) {
 		require.NoError(t, err)
 		assert.True(t, legalMoves[string(move)], "第 %d 次的推荐着法 %s 是合法的一步", round, move)
 		assert.NotEmpty(t, line["notation"])
-		assert.EqualValues(t, state["plies"], hint["plies"])
+		assert.EqualValues(t, current["plies"], hint["plies"])
 		after := replied["session"].(map[string]any)
 		assert.Equal(t, current, after["state"], "提示不改动棋盘与轮次")
 		assert.EqualValues(t, 3-round, after["hint"].(map[string]any)["free_left"], "第 %d 次之后", round)
 		assert.Equal(t, 1.0, player.balance(), "免费提示不收费")
-		session = after
+		repeated := player.ok(http.MethodPost, "/api/game/xiangqi/ai/hint", body(session))
+		assert.Equal(t, replied["hint"], repeated["hint"])
+		assert.Equal(t, after["version"], repeated["session"].(map[string]any)["version"])
+		// 真正走到下一盘面才消耗下一次提示。
+		session = player.ok(http.MethodPost, "/api/game/xiangqi/ai/move", map[string]any{
+			"session_id": after["session_id"], "version": after["version"],
+			"move": map[string]any{"from": line["from"], "to": line["to"]},
+		})["session"].(map[string]any)
+		assert.Nil(t, session["hint_result"])
 	}
 
 	// 第 4 次要 1 个游戏币，玩家正好有 1 个。
@@ -536,8 +542,11 @@ func TestXiangqiAiHintAnalysesWithoutMoving(t *testing.T) {
 	require.NoError(t, env.db.Where("user_id = ? AND remark = ?", player.user.Id, "xiangqi_ai:hint").First(&fee).Error)
 	assert.Equal(t, -1.0, coinsOf(t, fee.Amount))
 
-	// 余额不够时拒绝，次数与局面都不变。
-	session = after
+	// 换到新的局面后余额不够，次数与局面都不变。
+	nextMove := after["state"].(map[string]any)["legal"].([]any)[0]
+	session = player.ok(http.MethodPost, "/api/game/xiangqi/ai/move", map[string]any{
+		"session_id": after["session_id"], "version": after["version"], "move": nextMove,
+	})["session"].(map[string]any)
 	player.fails(http.MethodPost, "/api/game/xiangqi/ai/hint", body(session))
 	latest := player.ok(http.MethodGet, "/api/game/xiangqi/ai", nil)["session"].(map[string]any)
 	assert.Equal(t, session["version"], latest["version"])
@@ -555,6 +564,86 @@ func TestXiangqiAiHintAnalysesWithoutMoving(t *testing.T) {
 	player.fails(http.MethodPost, "/api/game/xiangqi/ai/hint", map[string]any{
 		"session_id": current["session_id"], "version": current["version"],
 	})
+}
+
+// 在本次分析完成后提交另一份相同请求的结果，确定性地覆盖“读到旧版本、竞争方先落库”的窗口。
+type committingXiangqiHintEngine struct {
+	xiangqiEngine
+	commit func(pvpHint)
+}
+
+func (e committingXiangqiHintEngine) HintContext(ctx context.Context, data []byte, seat int) (pvpHint, error) {
+	answer, err := e.xiangqiEngine.HintContext(ctx, data, seat)
+	if err == nil {
+		e.commit(answer)
+	}
+	return answer, err
+}
+
+func TestXiangqiPaidHintRestoresAndChargesOnce(t *testing.T) {
+	for _, competing := range []bool{false, true} {
+		name := "lost_response"
+		if competing {
+			name = "competing_commit"
+		}
+		t.Run(name, func(t *testing.T) {
+			env := newGameTestEnv(t, xiangqiSetting())
+			player := env.player(4, gameTestIpA)
+			initial, err := (xiangqiEngine{}).New(0)
+			require.NoError(t, err)
+			board, err := loadXiangqiState(initial.Data)
+			require.NoError(t, err)
+			board.Hints = gameHintFreePlays
+			data, err := common.Marshal(board)
+			require.NoError(t, err)
+			state := pvpAiState{Level: 1, Board: data, ToMove: 0, Winner: -1}
+			encoded, err := common.Marshal(state)
+			require.NoError(t, err)
+			session, err := model.CreateGameSession(player.user.Id, pvpAiGame(gameXiangqi), 1, string(encoded))
+			require.NoError(t, err)
+			request := map[string]any{"session_id": session.Id, "version": session.Version}
+			path := "/api/game/xiangqi/ai/hint"
+			if competing {
+				game := *pvpGames[gameXiangqi]
+				game.engine = committingXiangqiHintEngine{commit: func(answer pvpHint) {
+					state.Board = answer.State.Data
+					data, err := common.Marshal(state)
+					require.NoError(t, err)
+					_, err = model.ChargeGameSessionState(session, string(data), answer.Cost, "hint")
+					require.NoError(t, err)
+				}}
+				path = "/competing-hint"
+				env.router.POST(path, middleware.UserAuth(), func(c *gin.Context) { hintPvpAi(c, &game) })
+			}
+			paid := player.ok(http.MethodPost, path, request)
+			require.NotNil(t, paid["hint"])
+			assert.Equal(t, 3.0, player.balance())
+			current := paid["session"].(map[string]any)
+			assert.Equal(t, paid["hint"], current["hint_result"])
+			for _, version := range []any{request["version"], current["version"]} {
+				retry := player.ok(http.MethodPost, "/api/game/xiangqi/ai/hint", map[string]any{"session_id": session.Id, "version": version})
+				assert.Equal(t, paid["hint"], retry["hint"])
+				assert.Equal(t, current["version"], retry["session"].(map[string]any)["version"])
+			}
+			restored := player.ok(http.MethodGet, fmt.Sprintf("/api/game/xiangqi/ai?session_id=%d", session.Id), nil)
+			assert.Equal(t, paid["hint"], restored["session"].(map[string]any)["hint_result"])
+			assert.Equal(t, 3.0, restored["balance"], "恢复响应刷新已扣费的余额")
+			page := player.ok(http.MethodGet, "/api/game/xiangqi", nil)
+			assert.Equal(t, paid["hint"], page["ai"].(map[string]any)["session"].(map[string]any)["hint_result"])
+			assert.Equal(t, 3.0, player.balance())
+			var fees int64
+			require.NoError(t, env.db.Model(&model.GameCoinLog{}).Where("user_id = ? AND remark = ?", player.user.Id, "xiangqi_ai:hint").Count(&fees).Error)
+			assert.EqualValues(t, 1, fees)
+			// 走棋后不再显示旧提示；悔棋回到相同步数也不能复活已经撤掉的分析。
+			moved := player.ok(http.MethodPost, "/api/game/xiangqi/ai/move", map[string]any{
+				"session_id": session.Id, "version": current["version"], "move": current["state"].(map[string]any)["legal"].([]any)[0],
+			})["session"].(map[string]any)
+			assert.Nil(t, moved["hint_result"])
+			undone := player.ok(http.MethodPost, "/api/game/xiangqi/ai/undo", map[string]any{"session_id": session.Id, "version": moved["version"]})["session"].(map[string]any)
+			assert.Equal(t, current["state"].(map[string]any)["board"], undone["state"].(map[string]any)["board"])
+			assert.Nil(t, undone["hint_result"])
+		})
+	}
 }
 
 // 取消的电脑搜索和提示都不返回可落库的新状态，也不消耗提示次数。

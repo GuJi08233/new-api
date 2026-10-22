@@ -20,8 +20,9 @@ For commercial licensing, please contact support@quantumnous.com
 import React, { useEffect, useRef, useState } from 'react';
 import { Button } from '@douyinfe/semi-ui';
 import { useTranslation } from 'react-i18next';
-import { API } from '../../../helpers';
 import GameLayout from '../common/GameLayout';
+import { usePendingReplay } from '../common/usePendingReplay';
+import PendingReplay from '../common/PendingReplay';
 import { RuleList, SideBox, StageMessage } from '../common/SideBox';
 import { gamePost, withTurnstile } from '../common/api';
 import { SkillSide, skillResultMessage, formatClock } from '../common/skill';
@@ -113,7 +114,7 @@ function drawGame(ctx, game) {
 
 const Breakout = () => {
   const { t } = useTranslation();
-  const { info, loading, unavailable, patch } = useGameInfo('breakout');
+  const { info, loading, unavailable, patch, reload } = useGameInfo('breakout');
   const turnstile = usePlayTurnstile(info?.play_turnstile);
   const [phase, setPhase] = useState('idle');
   const [session, setSession] = useState(null);
@@ -131,6 +132,17 @@ const Breakout = () => {
   // sessionRef 与 submittedRef 给离开本页时的结算用：这一局有没有交过成绩(或被服务端明确拒绝)。
   const sessionRef = useRef(null);
   const submittedRef = useRef(false);
+  const pointerRef = useRef(null);
+  const replay = usePendingReplay('breakout', {
+    snapshot: () =>
+      !submittedRef.current && sessionRef.current && inputsRef.current.length
+        ? {
+            session_id: sessionRef.current.session_id,
+            inputs: inputsRef.current,
+          }
+        : null,
+    onSettled: () => reload(true),
+  });
   if (!engineRef.current) engineRef.current = createGame(1);
 
   const finish = async () => {
@@ -152,11 +164,10 @@ const Breakout = () => {
       broken: game.broken,
       ticks: game.ticks,
     });
-    const response = await gamePost(
-      '/api/game/breakout/finish',
-      { session_id: session.session_id, inputs: inputsRef.current },
-      t,
-    );
+    const response = await replay.send({
+      session_id: session.session_id,
+      inputs: inputsRef.current,
+    });
     busyRef.current = false;
     setBusy(false);
     if (response.error) {
@@ -282,28 +293,12 @@ const Breakout = () => {
     };
   }, [phase]);
 
-  // 离开本页时把进行中的一局按当前成绩结算，成绩和游戏时长不会白白作废。页面已经不在了，不等答复，结果以游戏币明细为准。
-  useEffect(
-    () => () => {
-      const current = sessionRef.current;
-      if (
-        !current ||
-        busyRef.current ||
-        submittedRef.current ||
-        !inputsRef.current.length
-      )
-        return;
-      API.post(
-        '/api/game/breakout/finish',
-        { session_id: current.session_id, inputs: inputsRef.current },
-        { skipErrorHandler: true },
-      ).catch(() => {});
-    },
-    [],
-  );
-
   const start = async () => {
     if (busyRef.current || !turnstile.ready) return;
+    if (replay.hasPending()) {
+      replay.release();
+      return;
+    }
     busyRef.current = true;
     setBusy(true);
     setError('');
@@ -320,6 +315,7 @@ const Breakout = () => {
     }
     engineRef.current = createGame(response.data.seed);
     sessionRef.current = response.data;
+    replay.beginSession(response.data.session_id);
     submittedRef.current = false;
     inputsRef.current = [];
     targetRef.current = WIDTH / 2;
@@ -332,7 +328,13 @@ const Breakout = () => {
   };
 
   const pointer = (event) => {
-    if (phase !== 'playing') return;
+    if (
+      phase !== 'playing' ||
+      event.isPrimary === false ||
+      (pointerRef.current !== null && pointerRef.current !== event.pointerId)
+    )
+      return;
+    if (event.type === 'pointerdown') pointerRef.current = event.pointerId;
     const bounds = event.currentTarget.getBoundingClientRect();
     targetRef.current = Math.max(
       0,
@@ -373,6 +375,7 @@ const Breakout = () => {
         )
       }
     >
+      <PendingReplay replay={replay} />
       <div className='games-stage'>
         <div className='game-hud'>
           <span>
@@ -401,6 +404,14 @@ const Breakout = () => {
             aria-label={t('打砖块游戏区域')}
             onPointerDown={pointer}
             onPointerMove={pointer}
+            onPointerUp={(event) => {
+              if (pointerRef.current === event.pointerId)
+                pointerRef.current = null;
+            }}
+            onPointerCancel={(event) => {
+              if (pointerRef.current === event.pointerId)
+                pointerRef.current = null;
+            }}
           />
           {phase !== 'playing' && (
             <div className='breakout-overlay'>
@@ -419,7 +430,7 @@ const Breakout = () => {
             <Button
               theme='solid'
               loading={busy}
-              disabled={!turnstile.ready}
+              disabled={!turnstile.ready || replay.pending.length > 0}
               onClick={start}
             >
               {t('开始游戏')}

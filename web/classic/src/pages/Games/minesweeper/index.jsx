@@ -36,6 +36,7 @@ import {
 } from '../common/skill';
 import { useGameInfo } from '../common/useGameInfo';
 import { PlayTurnstile, usePlayTurnstile } from '../common/usePlayTurnstile';
+import { writeGameStorage, removeGameStorage } from '../common/gameStorage';
 import './minesweeper.css';
 
 // 连锁展开时每往外一圈晚这么久翻开，最多晚 REVEAL_MAX_DELAY_MS，大片空地也很快铺完。
@@ -71,7 +72,9 @@ function neighbors(index, width, height) {
 function savedFlags(sessionId) {
   try {
     const saved = JSON.parse(localStorage.getItem(FLAGS_KEY) || 'null');
-    return saved?.session_id === sessionId ? saved.flags : [];
+    return saved?.session_id === sessionId && Array.isArray(saved.flags)
+      ? saved.flags
+      : [];
   } catch {
     return [];
   }
@@ -99,6 +102,7 @@ const Minesweeper = () => {
   const [end, setEnd] = useState(null);
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
+  const [storageWarning, setStorageWarning] = useState(false);
   const [busy, setBusy] = useState(false);
   const [checked, setChecked] = useState(false);
   const [flagMode, setFlagMode] = useState(false);
@@ -155,10 +159,11 @@ const Minesweeper = () => {
   const over = !!end;
   useEffect(() => {
     if (!sessionId || over) return;
-    localStorage.setItem(
-      FLAGS_KEY,
-      JSON.stringify({ session_id: sessionId, flags: [...flags] }),
-    );
+    if (
+      !writeGameStorage(FLAGS_KEY, { session_id: sessionId, flags: [...flags] })
+        .ok
+    )
+      setStorageWarning(true);
   }, [sessionId, over, flags]);
 
   useEffect(
@@ -176,7 +181,7 @@ const Minesweeper = () => {
       progress: settled.progress,
       best_score: settled.best_score,
     });
-    localStorage.removeItem(FLAGS_KEY);
+    if (!removeGameStorage(FLAGS_KEY).ok) setStorageWarning(true);
   };
 
   // 局面和服务端对不上时(版本冲突、网络中断、这局已被新开的一局作废)重新读取进行中的一局。
@@ -206,7 +211,7 @@ const Minesweeper = () => {
       setError(response.error);
       return;
     }
-    localStorage.removeItem(FLAGS_KEY);
+    if (!removeGameStorage(FLAGS_KEY).ok) setStorageWarning(true);
     restore(response.data);
     setFlagMode(false);
   };
@@ -214,6 +219,8 @@ const Minesweeper = () => {
   const reveal = async (targets) => {
     if (busyRef.current || !game || end) return;
     busyRef.current = true;
+    if (pressRef.current) clearTimeout(pressRef.current.timer);
+    pressRef.current = null;
     setBusy(true);
     setError('');
     const { width } = game;
@@ -338,7 +345,12 @@ const Minesweeper = () => {
   };
 
   const onBoardPointerDown = (event) => {
-    if (event.pointerType !== 'touch' || event.isPrimary === false || !playing)
+    if (
+      event.pointerType !== 'touch' ||
+      event.isPrimary === false ||
+      !playing ||
+      busyRef.current
+    )
       return;
     const index = cellAt(event);
     if (index === null || cells[index] !== HIDDEN) return;
@@ -509,6 +521,17 @@ const Minesweeper = () => {
                   type='button'
                   tabIndex={playing ? 0 : -1}
                   data-index={index}
+                  aria-label={t('第 {{row}} 行第 {{col}} 列，{{state}}', {
+                    row: Math.floor(index / width) + 1,
+                    col: (index % width) + 1,
+                    state: end?.mines?.has(index)
+                      ? t('地雷')
+                      : flags.has(index)
+                        ? t('已插旗')
+                        : count === HIDDEN
+                          ? t('未翻开')
+                          : t('周围 {{count}} 颗雷', { count }),
+                  })}
                   className={`minesweeper-cell ${view.className}`}
                   style={
                     revealDelayRef.current.has(index)
@@ -534,6 +557,13 @@ const Minesweeper = () => {
           </StageMessage>
         )}
         {error && <StageMessage kind='error'>{error}</StageMessage>}
+        {storageWarning && (
+          <StageMessage>
+            {t(
+              '浏览器无法保存游戏进度，请在本页完成结算，刷新或离开可能丢失进度',
+            )}
+          </StageMessage>
+        )}
 
         {playing && (
           <div className='game-controls'>

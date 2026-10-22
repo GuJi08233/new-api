@@ -96,6 +96,8 @@ type GameJackpotEntryRule struct {
 	MaxBet       GameCoins
 	RoundSeconds int
 	RakePercent  int
+	// ExpectedRoundId 为页面确认的轮次；0 只允许尚无投入的新奖池。
+	ExpectedRoundId *int
 }
 
 // EnterGameJackpot 往开放中的一轮投入 amount 个游戏币，没有开放的一轮时新开一轮。玩家在一轮里的投入合计不超过 rule.MaxBet；
@@ -111,8 +113,12 @@ func EnterGameJackpot(userId int, amount GameCoins, rule GameJackpotEntryRule, i
 	var balance GameCoins
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		var err error
-		if round, err = lockOpenGameJackpotRoundTx(tx, true, rule.RakePercent, now); err != nil {
+		create := rule.ExpectedRoundId == nil || *rule.ExpectedRoundId == 0
+		if round, err = lockOpenGameJackpotRoundTx(tx, create, rule.RakePercent, now); err != nil {
 			return err
+		}
+		if rule.ExpectedRoundId != nil && (round == nil || (*rule.ExpectedRoundId > 0 && round.Id != *rule.ExpectedRoundId) || (*rule.ExpectedRoundId == 0 && round.Pot > 0)) {
+			return ErrGameJackpotClosed
 		}
 		if round == nil {
 			return errors.New("jackpot round was not created")

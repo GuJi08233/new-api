@@ -68,6 +68,9 @@ func hiloRoundView(session *model.GameSession, round *hilo.Round) (gin.H, error)
 	if err != nil {
 		return nil, err
 	}
+	if limit := big.NewRat(hilo.MaxMultiplier, 1); multiplier.Cmp(limit) > 0 {
+		multiplier = limit
+	}
 	history := make([]gin.H, 0, len(round.Moves))
 	for i, move := range round.Moves {
 		history = append(history, gin.H{
@@ -94,6 +97,9 @@ func hiloRoundView(session *model.GameSession, round *hilo.Round) (gin.H, error)
 	for _, guess := range hilo.Guesses(rank) {
 		hits := hilo.Hits(rank, guess)
 		next := new(big.Rat).Mul(multiplier, hilo.StepMultiplier(round.RtpPercent, hits))
+		if limit := big.NewRat(hilo.MaxMultiplier, 1); next.Cmp(limit) > 0 {
+			next = limit
+		}
 		options = append(options, gin.H{
 			"guess":      guess,
 			"hits":       hits,

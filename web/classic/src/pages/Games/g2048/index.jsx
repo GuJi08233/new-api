@@ -21,9 +21,11 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Button, Modal, Spin } from '@douyinfe/semi-ui';
 import { Flag, Trophy } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { API } from '../../../helpers';
 import { getGameMetaMap } from '../../../constants';
 import GameLayout from '../common/GameLayout';
+import { usePendingReplay } from '../common/usePendingReplay';
+import PendingReplay from '../common/PendingReplay';
+import { beginSwipe, finishSwipe } from '../common/pointer';
 import { RuleList, SideBox, StageMessage } from '../common/SideBox';
 import { formatNumber, gamePost, withTurnstile } from '../common/api';
 import {
@@ -45,7 +47,6 @@ import {
 import './g2048.css';
 
 const START_URL = '/api/game/2048/start';
-const FINISH_URL = '/api/game/2048/finish';
 
 // 按 KeyboardEvent.code 匹配，不受输入法和键盘布局影响。
 const KEY_MOVES = {
@@ -134,6 +135,16 @@ const G2048 = () => {
   // 确认框打开期间不响应方向键，免得在确认框后面挪动方块。
   const confirmingRef = useRef(false);
   const mountedRef = useRef(false);
+  const replay = usePendingReplay('2048', {
+    snapshot: () => {
+      const run = runRef.current;
+      return run && !run.submitted && run.game.moves > 0
+        ? finishPayload(run)
+        : null;
+    },
+    onSettled: () => reload(true),
+  });
+  const sendReplay = replay.send;
   const symbol = info?.symbol || '';
   const playing = phase === 'playing';
 
@@ -147,7 +158,7 @@ const G2048 = () => {
     if (!run || run.submitting || run.submitted) return;
     run.submitting = true;
     setPhase('submitting');
-    const response = await gamePost(FINISH_URL, finishPayload(run), t);
+    const response = await sendReplay(finishPayload(run));
     run.submitting = false;
     if (!mountedRef.current || runRef.current !== run) return;
     // 没有得到答复或被限流时整局记录还在，可以重新提交；已经结算过的话，服务端会返回第一次的结果。
@@ -174,7 +185,7 @@ const G2048 = () => {
       best_score: data.best_score,
     });
     setPhase('result');
-  }, [patch, t]);
+  }, [patch, sendReplay]);
 
   const applyMove = useCallback(
     (direction) => {
@@ -202,6 +213,10 @@ const G2048 = () => {
 
   const start = async () => {
     if (phase === 'starting' || !turnstile.ready) return;
+    if (replay.hasPending()) {
+      replay.release();
+      return;
+    }
     setPhase('starting');
     setNotice(null);
     const response = await gamePost(
@@ -225,6 +240,7 @@ const G2048 = () => {
     };
     setTiles(boardTiles(game.board, newTileId));
     setStats({ score: 0, maxTile: game.maxTile, moves: 0 });
+    replay.beginSession(response.data.session_id);
     setResult(null);
     // 开始按钮保留焦点时，回车会再次触发它。
     document.activeElement?.blur?.();
@@ -247,6 +263,7 @@ const G2048 = () => {
 
   // 放弃没有得到答复的结算。结算可能已经完成，重新读一次余额与今日进度。
   const abandon = () => {
+    replay.release();
     runRef.current = null;
     setTiles([]);
     setPhase('idle');
@@ -287,42 +304,30 @@ const G2048 = () => {
     };
   }, [phase, playing, applyMove]);
 
-  // 离开本页时把进行中的一局按当前成绩结算，成绩不会白白作废。页面已经不在了，不等答复，结果以游戏币明细为准。
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
-      const run = runRef.current;
-      if (!run || run.submitting || run.submitted || run.game.moves === 0) {
-        return;
-      }
-      API.post(FINISH_URL, finishPayload(run), {
-        skipErrorHandler: true,
-      }).catch(() => {});
     };
   }, []);
 
   const onPointerDown = (event) => {
     if (!playing) return;
-    swipeRef.current = {
-      id: event.pointerId,
-      x: event.clientX,
-      y: event.clientY,
-    };
-    event.currentTarget.setPointerCapture?.(event.pointerId);
+    const previous = swipeRef.current;
+    swipeRef.current = beginSwipe(previous, event);
+    if (swipeRef.current !== previous)
+      event.currentTarget.setPointerCapture?.(event.pointerId);
   };
 
   const onPointerUp = (event) => {
-    const swipe = swipeRef.current;
-    swipeRef.current = null;
-    if (!playing || !swipe || swipe.id !== event.pointerId) return;
-    const dx = event.clientX - swipe.x;
-    const dy = event.clientY - swipe.y;
-    if (Math.max(Math.abs(dx), Math.abs(dy)) < SWIPE_PX) return;
-    if (Math.abs(dx) > Math.abs(dy)) {
-      applyMove(dx > 0 ? MOVE.RIGHT : MOVE.LEFT);
+    const swipe = finishSwipe(swipeRef.current, event, SWIPE_PX);
+    swipeRef.current = swipe.current;
+    if (!playing || !swipe.delta) return;
+    const { x, y } = swipe.delta;
+    if (Math.abs(x) > Math.abs(y)) {
+      applyMove(x > 0 ? MOVE.RIGHT : MOVE.LEFT);
     } else {
-      applyMove(dy > 0 ? MOVE.DOWN : MOVE.UP);
+      applyMove(y > 0 ? MOVE.DOWN : MOVE.UP);
     }
   };
 
@@ -399,7 +404,7 @@ const G2048 = () => {
         {t('结束本局')}
       </Button>
     );
-  } else if (phase !== 'submitting') {
+  } else if (phase !== 'submitting' && replay.pending.length === 0) {
     controls = (
       <ReplayRunControls
         phase={phase}
@@ -441,6 +446,7 @@ const G2048 = () => {
       side={side}
       className='g2048-page'
     >
+      <PendingReplay replay={replay} />
       <div className='games-stage'>
         <div className='game-hud'>
           <span>
@@ -460,8 +466,9 @@ const G2048 = () => {
           className={playing ? 'g2048-board is-playing' : 'g2048-board'}
           onPointerDown={onPointerDown}
           onPointerUp={onPointerUp}
-          onPointerCancel={() => {
-            swipeRef.current = null;
+          onPointerCancel={(event) => {
+            if (swipeRef.current?.id === event.pointerId)
+              swipeRef.current = null;
           }}
         >
           <div className='g2048-grid' aria-hidden>

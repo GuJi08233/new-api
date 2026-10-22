@@ -1,0 +1,186 @@
+.logic-stage {
+  padding: clamp(20px, 4vw, 40px);
+}
+.logic-heading {
+  text-align: center;
+  margin-bottom: 24px;
+}
+.logic-eyebrow {
+  color: var(--semi-color-primary);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  font-weight: 700;
+}
+.logic-heading h2 {
+  margin: 8px 0;
+  font-size: 28px;
+  font-weight: 750;
+  color: var(--semi-color-text-0);
+}
+.logic-heading p,
+.logic-help {
+  color: var(--semi-color-text-2);
+  font-size: 13px;
+  text-align: center;
+}
+.logic-stats {
+  display: flex;
+  justify-content: center;
+  gap: clamp(24px, 6vw, 56px);
+  margin: 24px 0;
+}
+.logic-stats > span {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--semi-color-text-2);
+  text-align: center;
+}
+.logic-stats strong {
+  color: var(--semi-color-text-0);
+  font-size: 22px;
+  font-variant-numeric: tabular-nums;
+}
+.lights-grid {
+  display: grid;
+  width: 100%;
+  box-sizing: border-box;
+  grid-template-columns: repeat(var(--lights-size), minmax(0, 1fr));
+  gap: clamp(6px, 1.6vw, 12px);
+  max-width: 420px;
+  margin: 0 auto 24px;
+  padding: 16px;
+  border-radius: 22px;
+  background: #0e1728;
+  box-shadow: inset 0 0 0 1px #ffffff10;
+}
+.lights-cell {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  border: 1px solid #334155;
+  border-radius: 12px;
+  background: #1e293b;
+  color: #64748b;
+  transition:
+    background 0.16s,
+    color 0.16s,
+    box-shadow 0.16s;
+  cursor: pointer;
+}
+.lights-cell.is-on {
+  color: #fff7d6;
+  background: #ad790b;
+  border-color: #f5c65d;
+  box-shadow:
+    0 0 22px #ffc24738,
+    inset 0 1px 0 #ffffff40;
+}
+.lights-cell:disabled {
+  cursor: default;
+}
+.lights-cell:focus-visible,
+.hanoi-tower:focus-visible {
+  outline: 3px solid var(--semi-color-primary);
+  outline-offset: 3px;
+}
+.hanoi-board {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: clamp(6px, 2vw, 16px);
+  margin: 34px auto 24px;
+  width: 100%;
+  max-width: 580px;
+}
+.hanoi-tower {
+  height: 228px;
+  position: relative;
+  border: 0;
+  border-radius: 16px;
+  border-bottom: 8px solid #64748b;
+  background: var(--semi-color-fill-0);
+  padding: 0 4px 8px;
+  cursor: pointer;
+}
+.hanoi-tower.is-selected {
+  background: var(--semi-color-primary-light-default);
+  border-bottom-color: var(--semi-color-primary);
+}
+.hanoi-tower:disabled {
+  cursor: default;
+}
+.hanoi-pole {
+  position: absolute;
+  width: 7px;
+  background: #94a3b8;
+  left: calc(50% - 3.5px);
+  top: 24px;
+  bottom: 0;
+  border-radius: 8px 8px 0 0;
+}
+.hanoi-disks {
+  position: absolute;
+  bottom: 8px;
+  left: 4px;
+  right: 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+}
+.hanoi-disk {
+  position: relative;
+  display: grid;
+  place-items: center;
+  height: 27px;
+  border-radius: 8px;
+  background: hsl(var(--disk-hue) 64% 49%);
+  color: white;
+  font-weight: 700;
+  font-size: 12px;
+  box-shadow:
+    inset 0 1px 0 #ffffff50,
+    0 2px 5px #0002;
+}
+.hanoi-label {
+  position: absolute;
+  top: -24px;
+  left: 0;
+  right: 0;
+  font-size: 12px;
+  color: var(--semi-color-text-2);
+}
+.logic-help {
+  min-height: 20px;
+  margin: 14px 0;
+}
+.logic-controls {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin: 20px 0;
+}
+.logic-controls .semi-select {
+  min-width: 140px;
+}
+@media (max-width: 430px) {
+  .logic-stage {
+    padding: 18px 12px;
+  }
+  .lights-grid {
+    padding: 10px;
+  }
+  .lights-cell svg {
+    width: 23px;
+  }
+  .hanoi-tower {
+    height: 207px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lights-cell {
+    transition: none;
+  }
+}

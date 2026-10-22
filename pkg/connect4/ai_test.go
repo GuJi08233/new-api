@@ -1,6 +1,7 @@
 package connect4
 
 import (
+	"context"
 	"math/rand/v2"
 	"testing"
 
@@ -76,4 +77,46 @@ func TestBestMoveRejectsBadLevelAndFinishedGame(t *testing.T) {
 	require.NoError(t, err)
 	_, err = BestMove(won, 3, seeded(1))
 	assert.ErrorIs(t, err, ErrIllegalMove)
+}
+
+// 用可控的上下文在搜索中取消，避免依赖机器速度或 sleep；输入棋局必须保持不变。
+type cancelSearchContext struct {
+	context.Context
+	cancel context.CancelFunc
+	checks int
+}
+
+func (c *cancelSearchContext) Err() error {
+	c.checks++
+	if c.checks >= 4 {
+		c.cancel()
+	}
+	return c.Context.Err()
+}
+
+func TestBestMoveContextHonorsCancellation(t *testing.T) {
+	for _, during := range []bool{false, true} {
+		name := "before_search"
+		if during {
+			name = "during_search"
+		}
+		t.Run(name, func(t *testing.T) {
+			base, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			var ctx context.Context = base
+			if during {
+				ctx = &cancelSearchContext{Context: base, cancel: cancel}
+			} else {
+				cancel()
+			}
+			game := New()
+			before := game.Board()
+			moves := game.Moves()
+			move, err := BestMoveContext(ctx, game, 3, seeded(7))
+			require.ErrorIs(t, err, context.Canceled)
+			assert.Equal(t, 0, move)
+			assert.Equal(t, before, game.Board())
+			assert.Equal(t, moves, game.Moves())
+		})
+	}
 }

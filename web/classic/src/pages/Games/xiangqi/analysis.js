@@ -48,6 +48,7 @@ export function formatEvaluation(score, mate, t) {
 export function hintForPlies(hint, state) {
   if (!hint || !state) return null;
   if (!Number.isInteger(hint.plies) || hint.plies !== state.plies) return null;
+  if (hint.board && hint.board !== state.board?.join('')) return null;
   return hint;
 }
 

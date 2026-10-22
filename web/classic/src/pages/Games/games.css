@@ -1116,3 +1116,85 @@ For commercial licensing, please contact support@quantumnous.com
     min-width: 40px;
   }
 }
+.games-discovery {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+.games-discovery > .semi-input-wrapper {
+  flex: 1;
+  min-width: 220px;
+  max-width: 420px;
+}
+.games-library-tabs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.games-library-tabs .game-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.games-card-shell {
+  position: relative;
+  min-width: 0;
+}
+.games-card-shell .games-list-card {
+  width: 100%;
+  height: 100%;
+  padding-right: 44px;
+}
+.games-favorite {
+  position: absolute;
+  top: 12px;
+  right: 10px;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--semi-color-text-2);
+  cursor: pointer;
+}
+.games-favorite:hover {
+  background: var(--semi-color-fill-1);
+}
+.games-favorite.is-active {
+  color: #d69d23;
+}
+.games-favorite:focus-visible {
+  outline: 2px solid var(--semi-color-primary);
+  outline-offset: 2px;
+}
+.games-search-empty {
+  padding: 42px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  color: var(--semi-color-text-2);
+  text-align: center;
+}
+.games-search-empty strong {
+  color: var(--semi-color-text-0);
+}
+.cover-lightsout {
+  background: linear-gradient(135deg, #b0780c, #f0ba45);
+}
+.cover-hanoi {
+  background: linear-gradient(135deg, #186b89, #43b8a8);
+}
+@media (max-width: 520px) {
+  .games-discovery > .semi-input-wrapper {
+    max-width: none;
+  }
+  .games-library-tabs {
+    width: 100%;
+  }
+}

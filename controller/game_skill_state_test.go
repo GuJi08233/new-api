@@ -11,7 +11,7 @@ import (
 )
 
 func TestSkillStateRestorationRespectsGameAndCenterSwitches(t *testing.T) {
-	games := []string{"minesweeper", "sudoku", "memory", "puzzle15", "pairlink", "sokoban"}
+	games := []string{"minesweeper", "sudoku", "memory", "puzzle15", "pairlink", "sokoban", "lightsout", "hanoi"}
 	setting := gameSetting(nil)
 	enabled := make(map[string]any)
 	for _, game := range games {

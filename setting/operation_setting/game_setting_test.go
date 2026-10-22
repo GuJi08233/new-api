@@ -207,7 +207,7 @@ func TestDefaultFreeGameRulesPayOneCoinADay(t *testing.T) {
 		assert.GreaterOrEqual(t, rule.MinSecondsPerCoin, 120, game)
 		assert.LessOrEqual(t, rule.MinSecondsPerCoin, 300, game)
 	}
-	assert.Equal(t, 16, checked, "11 个技巧游戏与 5 个人机对战")
+	assert.Equal(t, 18, checked, "13 个技巧游戏与 5 个人机对战")
 }
 
 // 快照是只读的：Clone 出来的配置改奖励档位不会写进原来的快照。

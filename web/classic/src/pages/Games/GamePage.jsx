@@ -17,14 +17,19 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Navigate, useParams } from 'react-router-dom';
 import { GAME_PAGES } from './registry';
+import { useGameLibrary } from './common/useGameLibrary';
 
 // /games/:game 的页面：按游戏标识找到对应的游戏页，未知的游戏回到游戏中心。只认 GAME_PAGES 自己的键：constructor、
 // toString 这类从原型继承来的属性也能取到值，拿去渲染会报错，而不是回到游戏中心。
 const GamePage = () => {
   const { game } = useParams();
+  const { recordRecent } = useGameLibrary();
+  useEffect(() => {
+    recordRecent(game);
+  }, [game, recordRecent]);
   const Page = Object.prototype.hasOwnProperty.call(GAME_PAGES, game)
     ? GAME_PAGES[game]
     : null;

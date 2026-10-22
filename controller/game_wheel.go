@@ -7,6 +7,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/wheel"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -51,11 +52,19 @@ func wheelInfo(ctx *gameContext) (gin.H, error) {
 	info["ip_free_used_today"] = progress.IpRewards
 	info["segments"] = wheel.Segments
 	info["payback"] = float64(paid) / float64(total)
+	start, err := time.ParseInLocation("2006-01-02", ctx.Day, time.Local)
+	if err != nil {
+		return nil, err
+	}
+	info["day"] = ctx.Day
+	info["server_time"] = common.GetTimestamp()
+	info["day_ends_at"] = start.AddDate(0, 0, 1).Unix()
 	return info, nil
 }
 
 type wheelSpinRequest struct {
-	Free bool `json:"free"`
+	Free bool   `json:"free"`
+	Day  string `json:"day"`
 }
 
 // wheelDetail 是大转盘一次旋转的明细，存在对局的 Detail 里供事后核查。Cost 是每次花费：免费旋转不扣币，奖品同样按它计算。
@@ -82,6 +91,10 @@ func SpinWheel(c *gin.Context) {
 		return
 	}
 	userId := c.GetInt("id")
+	if req.Day != "" && req.Day != gameCenterDay() {
+		common.ApiErrorI18n(c, i18n.MsgGameRoundChanged)
+		return
+	}
 	if req.Free && !passGamePlayTurnstile(c, setting, gameWheel, userId) {
 		return
 	}
@@ -134,6 +147,7 @@ func SpinWheel(c *gin.Context) {
 	}
 	// 统计与派彩取同一次结算的结果，提交后的查询失败不能把已成功的旋转变成失败响应。
 	view["free"] = req.Free
+	view["day"] = day
 	view["segment"] = segment
 	view["multiplier"] = wheel.Segments[segment].Multiplier
 	common.ApiSuccess(c, view)

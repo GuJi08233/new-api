@@ -432,6 +432,26 @@ const Lobby = ({
   );
 };
 
+// 时钟自己更新，半秒一次的刻度不触发棋盘、棋谱和手牌重新渲染。
+const RoomClock = ({ deadline, moveSeconds, clockOffset }) => {
+  const [now, setNow] = useState(() => Date.now() / 1000);
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now() / 1000), 500);
+    return () => clearInterval(timer);
+  }, []);
+  const seconds = deadline
+    ? Math.min(
+        Math.max(Math.ceil(deadline - (now + clockOffset())), 0),
+        moveSeconds || Infinity,
+      )
+    : 0;
+  return (
+    <span className={seconds <= 10 ? 'pvp-clock is-low' : 'pvp-clock'}>
+      {seconds}s
+    </span>
+  );
+};
+
 // 押注对局：各座位、计时、棋盘、结果与操作。多人对局(超过两个座位)不能认输，可以托管：轮到托管的座位时由 AI 代打。
 const RoomView = ({
   room,
@@ -454,29 +474,28 @@ const RoomView = ({
   onBack,
 }) => {
   const { t } = useTranslation();
-  const [now, setNow] = useState(() => Date.now() / 1000);
+  const [expiredDeadline, setExpiredDeadline] = useState(0);
   const playing = room.status === 'playing';
   const table = room.seats > 2;
-  // 对局中每半秒走一次钟，显示这一步还剩多少秒。
+  // 只在截止时更新棋盘可操作状态；每秒数字变化留给 RoomClock。
   useEffect(() => {
-    if (!playing) return undefined;
-    const timer = setInterval(() => setNow(Date.now() / 1000), 500);
-    return () => clearInterval(timer);
-  }, [playing]);
+    if (!playing || !room.deadline) return undefined;
+    const delay = Math.max(
+      (room.deadline - clockOffset()) * 1000 - Date.now(),
+      0,
+    );
+    const timer = setTimeout(() => setExpiredDeadline(room.deadline), delay);
+    return () => clearTimeout(timer);
+  }, [playing, room.deadline, clockOffset]);
 
   const seat = room.seat;
   const state = room.state;
-  // 服务器时间只精确到秒，刚走完一步时算出来可能比每步限时多一秒。
-  const secondsLeft = room.deadline
-    ? Math.min(
-        Math.max(Math.ceil(room.deadline - (now + clockOffset())), 0),
-        room.move_seconds || Infinity,
-      )
-    : 0;
+  const expired =
+    room.deadline > 0 &&
+    (expiredDeadline === room.deadline ||
+      Date.now() / 1000 + clockOffset() >= room.deadline);
   const myTurn =
-    playing &&
-    (!room.deadline || secondsLeft > 0) &&
-    (room.to_move === seat || room.to_move === -1);
+    playing && !expired && (room.to_move === seat || room.to_move === -1);
   const members = room.members;
   const players = Array.from({ length: room.seats }, (_, index) =>
     members.find((member) => member.seat === index),
@@ -530,7 +549,12 @@ const RoomView = ({
           : t('你输了');
     }
     if (room.end_reason === 'timeout') {
-      note = won ? t('对手超时') : t('你超时了');
+      note =
+        me?.result === 'draw'
+          ? t('双方均未出拳，超时判和')
+          : won
+            ? t('对手超时')
+            : t('你超时了');
     } else if (room.end_reason === 'resign') {
       note = won ? t('对手认输') : t('你认输了');
     } else {
@@ -560,9 +584,11 @@ const RoomView = ({
         </span>
       )}
       {playing && (room.to_move === index || room.to_move === -1) && (
-        <span className={secondsLeft <= 10 ? 'pvp-clock is-low' : 'pvp-clock'}>
-          {secondsLeft}s
-        </span>
+        <RoomClock
+          deadline={room.deadline}
+          moveSeconds={room.move_seconds}
+          clockOffset={clockOffset}
+        />
       )}
     </React.Fragment>
   ));
@@ -724,6 +750,8 @@ const AiView = ({
         state,
         seat: 0,
         sessionId: ai.session_id,
+        actions: ai.actions,
+        actionVersion: ai.version,
         names,
         canMove: myTurn && !busy,
         busy,
@@ -917,8 +945,6 @@ const PvpGame = ({
   const { room, setRoom, clockOffset } = usePvpRoom(t);
   const [ai, setAi] = useState(null);
   const [aiResult, setAiResult] = useState(null);
-  // aiHint 是人机对战里最近一次提示的分析结果，局面一变(自己走棋、悔棋)就作废；换局时清掉。
-  const [aiHint, setAiHint] = useState(null);
   const [lobby, setLobby] = useState(null);
   const [stake, setStake] = useState(0);
   const [aiLevel, setAiLevel] = useState(2);
@@ -1062,7 +1088,6 @@ const PvpGame = ({
     setRoom(null);
     setAi(null);
     setAiResult(null);
-    setAiHint(null);
     setError('');
     const latest = await reload(true);
     if (latest) setLobby(latest.lobby);
@@ -1115,7 +1140,6 @@ const PvpGame = ({
       (data) => {
         setAi(data.session);
         setAiResult(null);
-        setAiHint(null);
       },
       'ai',
     );
@@ -1187,15 +1211,14 @@ const PvpGame = ({
         busy={busy}
         error={error}
         turnstile={turnstile}
-        hint={aiHint}
+        hint={ai.hint_result}
         onHint={() =>
           act(
             `/api/game/${gameKey}/ai/hint`,
             { session_id: ai.session_id, version: ai.version },
             (data) => {
               setAi(data.session);
-              // 提示不改动局面，但会消耗免费次数；分析结果留在页面上，直到走出下一步。
-              setAiHint(data.hint || null);
+              // 已保存的分析随 session 返回，刷新和响应丢失后的恢复也使用同一份结果。
             },
             'ai',
           )
@@ -1206,7 +1229,6 @@ const PvpGame = ({
             { session_id: ai.session_id, version: ai.version, move: value },
             (data) => {
               applyAi(data);
-              setAiHint(null);
             },
             'ai',
           )
@@ -1217,7 +1239,6 @@ const PvpGame = ({
             { session_id: ai.session_id, version: ai.version },
             (data) => {
               applyAi(data);
-              setAiHint(null);
             },
             'ai',
           )

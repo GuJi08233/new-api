@@ -401,6 +401,20 @@ const Memory = () => {
                 type='button'
                 tabIndex={playing ? 0 : -1}
                 className={classes.join(' ')}
+                disabled={
+                  busy ||
+                  !playing ||
+                  isMatched ||
+                  (!missing && faceUp.includes(index))
+                }
+                aria-busy={busy}
+                aria-label={t('第 {{row}} 行第 {{col}} 列，{{state}}', {
+                  row: Math.floor(index / cols) + 1,
+                  col: (index % cols) + 1,
+                  state: up
+                    ? `${t('图案 {{number}}', { number: face + 1 })}${isMatched ? `，${t('已配对')}` : ''}`
+                    : t('未翻开'),
+                })}
                 onClick={() => flip(index)}
               >
                 <span className='memory-card-inner'>
@@ -414,6 +428,11 @@ const Memory = () => {
           })}
         </div>
 
+        {busy && playing && (
+          <div role='status' className='games-stage-counter'>
+            {t('正在翻牌，请稍候')}
+          </div>
+        )}
         {outcome && (
           <StageMessage kind={outcome.kind}>{outcome.text}</StageMessage>
         )}

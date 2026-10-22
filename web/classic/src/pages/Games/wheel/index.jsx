@@ -149,6 +149,8 @@ const Wheel = () => {
   const discRef = useRef(null);
   // 进行中的一次旋转：动画状态与服务端结果。渲染循环直接读写它，不经过 React 状态。
   const motionRef = useRef(null);
+  const infoRequestRef = useRef(0);
+  const dayEndsRef = useRef(0);
   // 转盘停下时的角度，下一次旋转从这里开始。
   const angleRef = useRef(null);
   const [loading, setLoading] = useState(true);
@@ -166,13 +168,19 @@ const Wheel = () => {
   // refresh 为真时是旋转没有结果后重新读取：这时读不到就保留页面上的内容，失败原因已经显示在转盘下方。
   const loadInfo = useCallback(
     async (refresh = false) => {
+      if (motionRef.current) return;
+      const request = ++infoRequestRef.current;
       try {
         const res = await API.get('/api/game/wheel');
+        if (request !== infoRequestRef.current || motionRef.current) return;
         if (!res.data.success) {
           if (!refresh) setUnavailable(res.data.message);
           return;
         }
         const wheel = res.data.data;
+        dayEndsRef.current =
+          Date.now() +
+          Math.max(0, wheel.day_ends_at - wheel.server_time) * 1000;
         // 第一次加载时转盘停在随机的角度，只为了好看。
         if (angleRef.current === null) {
           angleRef.current = Math.random() * 360;
@@ -196,6 +204,25 @@ const Wheel = () => {
 
   useEffect(() => {
     loadInfo();
+  }, [loadInfo]);
+
+  useEffect(() => {
+    const visible = () => {
+      if (!document.hidden) loadInfo(true);
+    };
+    const timer = setInterval(() => {
+      if (
+        !document.hidden &&
+        dayEndsRef.current &&
+        Date.now() >= dayEndsRef.current
+      )
+        loadInfo(true);
+    }, 1000);
+    document.addEventListener('visibilitychange', visible);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', visible);
+    };
   }, [loadInfo]);
 
   // 转盘渲染出来后、浏览器绘制之前转到当前角度，免得先闪一下初始角度。
@@ -270,6 +297,11 @@ const Wheel = () => {
 
   const spin = useCallback(async () => {
     if (!canSpin || motionRef.current) return;
+    if (dayEndsRef.current && Date.now() >= dayEndsRef.current) {
+      await loadInfo(true);
+      return;
+    }
+    infoRequestRef.current += 1;
     const token = takeTurnstile();
     const motion = {
       startedAt: performance.now() / 1000,
@@ -292,7 +324,7 @@ const Wheel = () => {
         needTurnstile
           ? `/api/game/wheel/spin?turnstile=${encodeURIComponent(token)}`
           : '/api/game/wheel/spin',
-        { free },
+        { free, day: rule.day },
         { skipErrorHandler: true },
       );
       response = res.data.success
@@ -319,7 +351,16 @@ const Wheel = () => {
       ? segmentAngle(response.result.segment, rule.segments.length)
       : motion.start;
     planStop(motion, target, performance.now() / 1000);
-  }, [canSpin, free, needTurnstile, takeTurnstile, rule, t, settleSpin]);
+  }, [
+    canSpin,
+    free,
+    needTurnstile,
+    takeTurnstile,
+    rule,
+    t,
+    settleSpin,
+    loadInfo,
+  ]);
 
   // 空格键旋转；焦点在按钮上时交给按钮自己处理，免得触发两次。
   useEffect(() => {

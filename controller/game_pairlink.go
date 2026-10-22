@@ -94,6 +94,12 @@ func ActPairlink(c *gin.Context) {
 		return
 	}
 	elapsed := max(int64(0), common.GetTimestamp()-session.CreatedAt)
+	// 客户端倒计时只能请求核实超时，不能把正常的时间误差当作玩家主动放弃。
+	// 未到服务端截止时间时不保存、不累计操作时长，直接返回当前局面。
+	if req.Action == "timeout" && elapsed <= int64(game.Seconds) {
+		common.ApiSuccess(c, pairlinkView(session, &game))
+		return
+	}
 	var path []pairlink.Point
 	var hint []int
 	shuffled := false

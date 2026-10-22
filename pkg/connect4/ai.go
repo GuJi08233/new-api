@@ -1,6 +1,7 @@
 package connect4
 
 import (
+	"context"
 	"errors"
 	"math/bits"
 	"math/rand/v2"
@@ -181,6 +182,7 @@ type ttEntry struct {
 }
 
 type searcher struct {
+	ctx   context.Context
 	table []ttEntry
 	nodes int
 	// limit 是最多展开的节点数，0 表示不限。展开得更多时 aborted 为真，搜索中止，算出的分数和置换表都不能用。
@@ -189,12 +191,15 @@ type searcher struct {
 }
 
 func newSearcher() *searcher {
-	return &searcher{table: make([]ttEntry, 1<<ttBits)}
+	return &searcher{ctx: context.Background(), table: make([]ttEntry, 1<<ttBits)}
 }
 
 // negamax 返回轮到走的一方在 depth 步以内能保证的分数。ply 是离搜索起点的步数：同一个局面不论从哪条路走到，棋子数都
 // 一样，ply 也一样，所以置换表里的赢棋分数不用换算。
 func (s *searcher) negamax(p position, depth int, alpha int, beta int, ply int) int {
+	if s.ctx.Err() != nil {
+		return 0
+	}
 	s.nodes++
 	if s.limit > 0 && s.nodes > s.limit {
 		s.aborted = true
@@ -298,6 +303,14 @@ func orderMoves(p position, moves uint64, hashMove int, order *[Cols]int) int {
 
 // BestMove 为轮到走的一方选一列。level 为 1 简单、2 普通、3 困难；rng 用来在差不多好的几步里随机挑一步。
 func BestMove(g *Game, level int, rng *rand.Rand) (int, error) {
+	return BestMoveContext(context.Background(), g, level, rng)
+}
+
+// BestMoveContext 保留原搜索预算，并在请求取消时结束计算。
+func BestMoveContext(ctx context.Context, g *Game, level int, rng *rand.Rand) (int, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
 	if g.Over() {
 		return 0, ErrIllegalMove
 	}
@@ -305,19 +318,25 @@ func BestMove(g *Game, level int, rng *rand.Rand) (int, error) {
 	if wins := winningCells(p.cur, p.mask) & p.possible(); wins != 0 {
 		return bits.TrailingZeros64(wins) / colStride, nil
 	}
+	var col int
 	switch level {
 	case 1:
-		return easyMove(p, rng), nil
+		col = easyMove(p, rng)
 	case 2:
-		return searchMove(p, normalDepth, normalTolerance, rng), nil
+		col = searchMove(ctx, p, normalDepth, normalTolerance, rng)
 	case 3:
 		depth := hardDepth
 		if Cells-p.moves <= hardExactEmpties {
 			depth = Cells - p.moves
 		}
-		return searchMove(p, depth, hardTolerance, rng), nil
+		col = searchMove(ctx, p, depth, hardTolerance, rng)
+	default:
+		return 0, ErrInvalidLevel
 	}
-	return 0, ErrInvalidLevel
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	return col, nil
 }
 
 // easyMove 只看自己这一步：走完之后的局面分加上随机扰动，挑最高的一列。
@@ -342,13 +361,17 @@ func easyMove(p position, rng *rand.Rand) int {
 // searchMove 搜 depth 步，给根局面的每一步算出分数，在不比最好一步差 tolerance 以上的几步里随机挑一步。已经算出输赢时
 // 不留容差：能赢就挑最快赢的，要输就挑拖得最久的。展开的节点超过 nodeLimit 时这次的分数作废：算终局的改搜 hardDepth
 // 步，其余的少搜两步重来；只搜一两步时不设上限，展开的节点不过几十个，总能算完。
-func searchMove(p position, depth int, tolerance int, rng *rand.Rand) int {
+func searchMove(ctx context.Context, p position, depth int, tolerance int, rng *rand.Rand) int {
 	s := newSearcher()
+	s.ctx = ctx
 	if depth > 2 {
 		s.limit = nodeLimit
 	}
 	// 迭代加深：浅层的结果存进置换表，给深一层的搜索排好着法顺序。
 	for d := 1; d < depth; d++ {
+		if ctx.Err() != nil {
+			return 0
+		}
 		s.negamax(p, d, -infinity, infinity, 0)
 	}
 	possible := p.possible()
@@ -356,6 +379,9 @@ func searchMove(p position, depth int, tolerance int, rng *rand.Rand) int {
 	scores := make([]int, 0, Cols)
 	best := -infinity
 	for _, col := range columnOrder {
+		if ctx.Err() != nil {
+			return 0
+		}
 		move := possible & columnMask(col)
 		if move == 0 {
 			continue
@@ -373,7 +399,7 @@ func searchMove(p position, depth int, tolerance int, rng *rand.Rand) int {
 		best = max(best, score)
 	}
 	if s.aborted {
-		return searchMove(p, min(depth-2, hardDepth), tolerance, rng)
+		return searchMove(ctx, p, min(depth-2, hardDepth), tolerance, rng)
 	}
 	if best >= decidedScore || best <= -decidedScore {
 		tolerance = 0

@@ -1,6 +1,7 @@
 package gomoku
 
 import (
+	"context"
 	"errors"
 	"math/rand/v2"
 	"slices"
@@ -260,6 +261,7 @@ type scanResult struct {
 
 // searcher 是 AI 用的棋盘：codes 是每一格四个方向的线码，near 记着每一格两格以内有几颗棋子，候选点只在有棋子的地方附近。
 type searcher struct {
+	ctx   context.Context
 	board [cellCount]int8
 	codes [cellCount][4]uint16
 	near  [cellCount]int8
@@ -275,7 +277,7 @@ type searcher struct {
 }
 
 func newSearcher(g *Game) *searcher {
-	s := &searcher{failed: map[uint64]int{}}
+	s := &searcher{ctx: context.Background(), failed: map[uint64]int{}}
 	for cell := range s.board {
 		s.board[cell] = wall
 	}
@@ -426,6 +428,9 @@ func bestBlock(r scanResult) int {
 
 // negamax 返回轮到 color 走时在 depth 步以内能保证的分数。
 func (s *searcher) negamax(color int8, depth int, alpha int, beta int, ply int) int {
+	if s.ctx.Err() != nil {
+		return 0
+	}
 	s.nodes++
 	r := s.scan(color, ply)
 	if r.myFive >= 0 {
@@ -509,6 +514,10 @@ func (s *searcher) fiveCellsAround(cell int, color int8, found []int) []int {
 // vcf 找 color(轮到它走)的连续冲四取胜：每一步都冲四，对方只能堵在唯一的成五点，直到能成五或走出活四。找到时返回
 // 第一步，找不到返回 -1。
 func (s *searcher) vcf(color int8, depth int, ply int) int {
+	if s.ctx.Err() != nil {
+		s.vcfAborted = true
+		return -1
+	}
 	s.nodes++
 	key := s.hash ^ uint64(color)
 	if tried, ok := s.failed[key]; ok && tried >= depth {
@@ -552,6 +561,14 @@ func (s *searcher) vcf(color int8, depth int, ply int) int {
 
 // BestMove 为轮到走的一方选一步。level 为 1 简单、2 普通、3 困难；rng 用来在差不多好的几步里随机挑一步。
 func BestMove(g *Game, level int, rng *rand.Rand) (Point, error) {
+	return BestMoveContext(context.Background(), g, level, rng)
+}
+
+// BestMoveContext 在请求取消时停止搜索，不返回未完成搜索的着法，也不改变输入棋局。
+func BestMoveContext(ctx context.Context, g *Game, level int, rng *rand.Rand) (Point, error) {
+	if err := ctx.Err(); err != nil {
+		return Point{}, err
+	}
 	if g.Over() {
 		return Point{}, ErrIllegalMove
 	}
@@ -562,6 +579,7 @@ func BestMove(g *Game, level int, rng *rand.Rand) (Point, error) {
 		return Point{X: Size / 2, Y: Size / 2}, nil
 	}
 	s := newSearcher(g)
+	s.ctx = ctx
 	color := int8(g.Turn())
 	var cell int
 	switch level {
@@ -571,6 +589,9 @@ func BestMove(g *Game, level int, rng *rand.Rand) (Point, error) {
 		cell = s.normalMove(color, rng)
 	default:
 		cell = s.hardMove(color, rng)
+	}
+	if err := ctx.Err(); err != nil {
+		return Point{}, err
 	}
 	square := toSquare(cell)
 	return Point{X: square % Size, Y: square / Size}, nil
@@ -643,6 +664,9 @@ func (s *searcher) hardMove(color int8, rng *rand.Rand) int {
 	scores := make([]int, len(moves))
 	best := -infinity
 	for i, move := range moves {
+		if s.ctx.Err() != nil {
+			return -1
+		}
 		// 比最好一步差出容差的着法只需知道它更差，窗口下沿之下的分数不必算准。
 		alpha := -infinity
 		if best > -infinity {
@@ -667,6 +691,9 @@ func (s *searcher) hardMove(color int8, rng *rand.Rand) int {
 	picks := make([]int, 0, len(order))
 	bestSafe := -infinity
 	for checked, i := range order {
+		if s.ctx.Err() != nil {
+			return -1
+		}
 		if bestSafe > -infinity && scores[i] < bestSafe-tolerance {
 			break
 		}

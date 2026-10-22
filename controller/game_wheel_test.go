@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -11,6 +12,22 @@ import (
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
+
+func TestWheelRejectsPaidSpinFromPreviousAccountingDay(t *testing.T) {
+	env := newGameTestEnv(t, gameSetting(func(s *operation_setting.GameSetting) {
+		s.Wheel = operation_setting.WheelRule{Enabled: true, FreeSpins: 1, SpinCost: 1}
+	}))
+	player := env.player(5, gameTestIpA)
+	info := player.ok(http.MethodGet, "/api/game/wheel", nil)
+	assert.Equal(t, gameCenterDay(), info["day"])
+	assert.Greater(t, info["day_ends_at"], info["server_time"])
+	yesterday := model.GameCenterDay(time.Now().AddDate(0, 0, -1))
+	player.fails(http.MethodPost, "/api/game/wheel/spin", map[string]any{"free": false, "day": yesterday})
+	assert.Equal(t, 5.0, player.balance())
+	stopWheelAt(t, 3)
+	player.ok(http.MethodPost, "/api/game/wheel/spin", map[string]any{"free": true, "day": info["day"]})
+	assert.Equal(t, 5.0, player.balance())
+}
 
 // stopWheelAt 让接下来的旋转都停在给定的格子上。
 func stopWheelAt(t *testing.T, segment int) {

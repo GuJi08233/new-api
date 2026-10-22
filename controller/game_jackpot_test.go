@@ -22,8 +22,8 @@ func TestJackpotRefreshSettlesOnlyDueRounds(t *testing.T) {
 	t.Cleanup(func() { pickJackpotTicket = previous })
 	first := env.player(50, gameTestIpA)
 	second := env.player(50, gameTestIpB)
-	first.ok(http.MethodPost, "/api/game/jackpot/enter", map[string]any{"amount": 30})
-	second.ok(http.MethodPost, "/api/game/jackpot/enter", map[string]any{"amount": 10})
+	opened := first.ok(http.MethodPost, "/api/game/jackpot/enter", map[string]any{"amount": 30, "round_id": 0})
+	second.ok(http.MethodPost, "/api/game/jackpot/enter", map[string]any{"amount": 10, "round_id": opened["round"].(map[string]any)["id"]})
 
 	info := first.ok(http.MethodGet, "/api/game/jackpot", nil)
 	round := info["round"].(map[string]any)
@@ -41,7 +41,7 @@ func TestJackpotRefreshSettlesOnlyDueRounds(t *testing.T) {
 	assert.Equal(t, 56.0, first.balance(), "第一张奖券属于先投入的玩家")
 	assert.Equal(t, 40.0, second.balance())
 
-	first.ok(http.MethodPost, "/api/game/jackpot/enter", map[string]any{"amount": 6})
+	first.ok(http.MethodPost, "/api/game/jackpot/enter", map[string]any{"amount": 6, "round_id": 0})
 	info = first.ok(http.MethodGet, "/api/game/jackpot", nil)
 	round = info["round"].(map[string]any)
 	assert.Equal(t, 6.0, round["pot"], "只有一位玩家、还没放够时间，奖池还开着")
@@ -52,4 +52,28 @@ func TestJackpotRefreshSettlesOnlyDueRounds(t *testing.T) {
 	info = second.ok(http.MethodGet, "/api/game/jackpot", nil)
 	assert.Nil(t, info["round"], "放太久之后的刷新退回投入")
 	assert.Equal(t, 56.0, first.balance())
+}
+
+func TestJackpotLateEntryNeverChangesTargetRound(t *testing.T) {
+	env := newGameTestEnv(t, gameSetting(func(s *operation_setting.GameSetting) {
+		s.Jackpot = operation_setting.JackpotRule{Enabled: true, MaxBet: 100, RoundSeconds: 60, RakePercent: 5}
+	}))
+	first, second, late := env.player(10, gameTestIpA), env.player(10, gameTestIpB), env.player(10, "192.0.2.19")
+	opened := first.ok(http.MethodPost, "/api/game/jackpot/enter", map[string]any{"amount": 1, "round_id": 0})
+	id := opened["round"].(map[string]any)["id"]
+	late.fails(http.MethodPost, "/api/game/jackpot/enter", map[string]any{"amount": 1})
+	late.fails(http.MethodPost, "/api/game/jackpot/enter", map[string]any{"amount": 1, "round_id": 0})
+	assert.Equal(t, 10.0, late.balance())
+	second.ok(http.MethodPost, "/api/game/jackpot/enter", map[string]any{"amount": 1, "round_id": id})
+	require.NoError(t, env.db.Model(&model.GameJackpotRound{}).Where("id = ?", id).Update("deadline", common.GetTimestamp()-1).Error)
+	late.fails(http.MethodPost, "/api/game/jackpot/enter", map[string]any{"amount": 1, "round_id": id})
+	assert.Equal(t, 10.0, late.balance(), "轮次过期不能把钱扣入下一轮")
+	var count int64
+	require.NoError(t, env.db.Model(&model.GameJackpotEntry{}).Where("user_id = ?", late.user.Id).Count(&count).Error)
+	assert.Zero(t, count)
+	info := late.ok(http.MethodGet, "/api/game/jackpot", nil)
+	assert.Nil(t, info["round"])
+	created := late.ok(http.MethodPost, "/api/game/jackpot/enter", map[string]any{"amount": 1, "round_id": 0})
+	assert.NotEqual(t, id, created["round"].(map[string]any)["id"])
+	assert.Equal(t, 9.0, late.balance())
 }

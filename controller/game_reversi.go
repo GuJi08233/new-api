@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 
@@ -147,6 +148,10 @@ func (reversiEngine) Timeout(data []byte) (int, error) {
 }
 
 func (reversiEngine) AiMove(data []byte, seat int, level int) (json.RawMessage, error) {
+	return (reversiEngine{}).AiMoveContext(context.Background(), data, seat, level)
+}
+
+func (reversiEngine) AiMoveContext(ctx context.Context, data []byte, seat int, level int) (json.RawMessage, error) {
 	state, game, err := loadReversi(data)
 	if err != nil {
 		return nil, err
@@ -158,7 +163,7 @@ func (reversiEngine) AiMove(data []byte, seat int, level int) (json.RawMessage, 
 	if err != nil {
 		return nil, err
 	}
-	point, err := reversi.BestMove(game, level, rng)
+	point, err := reversi.BestMoveContext(ctx, game, level, rng)
 	if err != nil {
 		return nil, err
 	}

@@ -43,6 +43,7 @@ import {
   Worm,
   Circle,
   Hash,
+  Lightbulb,
 } from 'lucide-react';
 
 // 每个游戏的页面组件(按需加载)与在游戏中心里的图标。键与 constants/game.constants.js 的游戏标识一致，
@@ -59,6 +60,8 @@ export const GAME_PAGES = {
   pairlink: lazy(() => import('./pairlink')),
   breakout: lazy(() => import('./breakout')),
   sokoban: lazy(() => import('./sokoban')),
+  lightsout: lazy(() => import('./lightsout')),
+  hanoi: lazy(() => import('./hanoi')),
   gomoku: lazy(() => import('./gomoku')),
   connect4: lazy(() => import('./connect4')),
   reversi: lazy(() => import('./reversi')),
@@ -90,6 +93,8 @@ export const GAME_ICONS = {
   pairlink: Gem,
   breakout: Blocks,
   sokoban: Grid2x2,
+  lightsout: Lightbulb,
+  hanoi: Layers,
   gomoku: Circle,
   connect4: LayoutGrid,
   reversi: Layers,

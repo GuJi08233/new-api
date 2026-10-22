@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 
@@ -137,6 +138,10 @@ func (connect4Engine) Timeout(data []byte) (int, error) {
 }
 
 func (connect4Engine) AiMove(data []byte, seat int, level int) (json.RawMessage, error) {
+	return (connect4Engine{}).AiMoveContext(context.Background(), data, seat, level)
+}
+
+func (connect4Engine) AiMoveContext(ctx context.Context, data []byte, seat int, level int) (json.RawMessage, error) {
 	state, game, err := loadConnect4(data)
 	if err != nil {
 		return nil, err
@@ -148,7 +153,7 @@ func (connect4Engine) AiMove(data []byte, seat int, level int) (json.RawMessage,
 	if err != nil {
 		return nil, err
 	}
-	col, err := connect4.BestMove(game, level, rng)
+	col, err := connect4.BestMoveContext(ctx, game, level, rng)
 	if err != nil {
 		return nil, err
 	}

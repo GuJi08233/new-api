@@ -30,10 +30,12 @@ import {
   Trophy,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { API } from '../../../helpers';
 import { getGameMetaMap } from '../../../constants';
 import { useActualTheme } from '../../../context/Theme';
 import GameLayout from '../common/GameLayout';
+import { usePendingReplay } from '../common/usePendingReplay';
+import PendingReplay from '../common/PendingReplay';
+import { beginSwipe, finishSwipe } from '../common/pointer';
 import { RuleList, SideBox, StageMessage } from '../common/SideBox';
 import { formatNumber, gamePost, withTurnstile } from '../common/api';
 import {
@@ -57,7 +59,6 @@ import {
 import './snake.css';
 
 const START_URL = '/api/game/snake/start';
-const FINISH_URL = '/api/game/snake/finish';
 
 const CELL = 24;
 const BOARD_PX = WIDTH * CELL;
@@ -227,6 +228,16 @@ const Snake = () => {
   // 确认框打开期间不响应游戏按键，免得在确认框后面继续游戏。
   const confirmingRef = useRef(false);
   const mountedRef = useRef(false);
+  const replay = usePendingReplay('snake', {
+    snapshot: () => {
+      const run = runRef.current;
+      return run && !run.submitted && run.game.steps > 0
+        ? finishPayload(run)
+        : null;
+    },
+    onSettled: () => reload(true),
+  });
+  const sendReplay = replay.send;
   const symbol = info?.symbol || '';
   const steering = phase === 'ready' || phase === 'playing';
   const active = steering || phase === 'paused';
@@ -236,7 +247,7 @@ const Snake = () => {
     if (!run || run.submitting || run.submitted) return;
     run.submitting = true;
     setPhase('submitting');
-    const response = await gamePost(FINISH_URL, finishPayload(run), t);
+    const response = await sendReplay(finishPayload(run));
     run.submitting = false;
     if (!mountedRef.current || runRef.current !== run) return;
     // 没有得到答复或被限流时整局记录还在，可以重新提交；已经结算过的话，服务端会返回第一次的结果。
@@ -263,7 +274,7 @@ const Snake = () => {
       best_score: data.best_score,
     });
     setPhase('result');
-  }, [patch, t]);
+  }, [patch, sendReplay]);
 
   // 玩家按下一个方向：与队尾的方向(没有排队时是蛇头当前的方向)相同或相反的不排，每一步用掉一个。
   // 开局后的第一个方向让蛇动起来。
@@ -284,6 +295,10 @@ const Snake = () => {
 
   const start = async () => {
     if (phase === 'starting' || !turnstile.ready) return;
+    if (replay.hasPending()) {
+      replay.release();
+      return;
+    }
     setPhase('starting');
     setNotice(null);
     const response = await gamePost(
@@ -307,6 +322,7 @@ const Snake = () => {
       previousBest: info?.best_score || 0,
     };
     setStats({ score: 0, length: game.length });
+    replay.beginSession(response.data.session_id);
     setResult(null);
     // 开始按钮保留焦点时，空格和回车会再次触发它。
     document.activeElement?.blur?.();
@@ -330,6 +346,7 @@ const Snake = () => {
 
   // 放弃没有得到答复的结算。结算可能已经完成，重新读一次余额与今日进度。
   const abandon = () => {
+    replay.release();
     runRef.current = null;
     setPhase('idle');
     reload(true);
@@ -345,6 +362,13 @@ const Snake = () => {
     const run = runRef.current;
     let frame = 0;
     let last = performance.now();
+    let drawnSteps = -1;
+    let drawnPalette = null;
+    let resized = true;
+    const onResize = () => {
+      resized = true;
+    };
+    window.addEventListener('resize', onResize);
     const loop = (now) => {
       run.elapsed += Math.min(now - last, MAX_FRAME_MS);
       last = now;
@@ -359,7 +383,16 @@ const Snake = () => {
         const turn = run.queue.length > 0 ? run.queue.shift() : NO_TURN;
         if (game.step(turn)) run.recorder.record(step, turn);
       }
-      drawBoard(canvasRef.current, game, paletteRef.current);
+      if (
+        game.steps !== drawnSteps ||
+        drawnPalette !== paletteRef.current ||
+        resized
+      ) {
+        drawBoard(canvasRef.current, game, paletteRef.current);
+        drawnSteps = game.steps;
+        drawnPalette = paletteRef.current;
+        resized = false;
+      }
       setStats((previous) =>
         previous.score === game.score && previous.length === game.length
           ? previous
@@ -372,7 +405,10 @@ const Snake = () => {
       frame = requestAnimationFrame(loop);
     };
     frame = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(frame);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener('resize', onResize);
+    };
   }, [phase, submit]);
 
   // 不在推进时画一次当前的盘面，窗口大小或主题变了再画一次。
@@ -450,42 +486,30 @@ const Snake = () => {
     };
   }, [active, pause]);
 
-  // 离开本页时把进行中的一局按当前成绩结算，成绩不会白白作废。页面已经不在了，不等答复，结果以游戏币明细为准。
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
-      const run = runRef.current;
-      if (!run || run.submitting || run.submitted || run.game.steps === 0) {
-        return;
-      }
-      API.post(FINISH_URL, finishPayload(run), {
-        skipErrorHandler: true,
-      }).catch(() => {});
     };
   }, []);
 
   const onPointerDown = (event) => {
     if (!steering) return;
-    swipeRef.current = {
-      id: event.pointerId,
-      x: event.clientX,
-      y: event.clientY,
-    };
-    event.currentTarget.setPointerCapture?.(event.pointerId);
+    const previous = swipeRef.current;
+    swipeRef.current = beginSwipe(previous, event);
+    if (swipeRef.current !== previous)
+      event.currentTarget.setPointerCapture?.(event.pointerId);
   };
 
   const onPointerUp = (event) => {
-    const swipe = swipeRef.current;
-    swipeRef.current = null;
-    if (!steering || !swipe || swipe.id !== event.pointerId) return;
-    const dx = event.clientX - swipe.x;
-    const dy = event.clientY - swipe.y;
-    if (Math.max(Math.abs(dx), Math.abs(dy)) < SWIPE_PX) return;
-    if (Math.abs(dx) > Math.abs(dy)) {
-      steer(dx > 0 ? DIRECTION.RIGHT : DIRECTION.LEFT);
+    const swipe = finishSwipe(swipeRef.current, event, SWIPE_PX);
+    swipeRef.current = swipe.current;
+    if (!steering || !swipe.delta) return;
+    const { x, y } = swipe.delta;
+    if (Math.abs(x) > Math.abs(y)) {
+      steer(x > 0 ? DIRECTION.RIGHT : DIRECTION.LEFT);
     } else {
-      steer(dy > 0 ? DIRECTION.DOWN : DIRECTION.UP);
+      steer(y > 0 ? DIRECTION.DOWN : DIRECTION.UP);
     }
   };
 
@@ -623,7 +647,7 @@ const Snake = () => {
         </Button>
       </>
     );
-  } else if (phase !== 'submitting') {
+  } else if (phase !== 'submitting' && replay.pending.length === 0) {
     controls = (
       <ReplayRunControls
         phase={phase}
@@ -666,6 +690,7 @@ const Snake = () => {
       side={side}
       className='snake-page'
     >
+      <PendingReplay replay={replay} />
       <div className='games-stage'>
         <div className='game-hud'>
           <span>
@@ -685,8 +710,9 @@ const Snake = () => {
           className={steering ? 'snake-board is-steering' : 'snake-board'}
           onPointerDown={onPointerDown}
           onPointerUp={onPointerUp}
-          onPointerCancel={() => {
-            swipeRef.current = null;
+          onPointerCancel={(event) => {
+            if (swipeRef.current?.id === event.pointerId)
+              swipeRef.current = null;
           }}
         >
           <canvas ref={canvasRef} />

@@ -43,6 +43,27 @@ For commercial licensing, please contact support@quantumnous.com
   cursor: pointer;
 }
 
+.gomoku-board:focus-visible {
+  outline: 2px solid var(--semi-color-primary);
+  outline-offset: 3px;
+}
+
+.gomoku-focus-cell {
+  fill: transparent;
+  pointer-events: none;
+}
+
+.gomoku-focus-cell.is-active {
+  stroke: var(--semi-color-primary);
+  stroke-width: 2px;
+  vector-effect: non-scaling-stroke;
+}
+
+.gomoku-keyboard-help {
+  font-size: 12px;
+  color: var(--semi-color-text-2);
+}
+
 .gomoku-grid line {
   stroke: var(--semi-color-text-2);
   stroke-width: 1px;

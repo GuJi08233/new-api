@@ -178,7 +178,15 @@ const Mines = () => {
                 type='button'
                 className={`mines-cell is-${state}`}
                 disabled={!playing || state !== 'hidden' || busy}
-                aria-label={t('第 {{index}} 格', { index: index + 1 })}
+                aria-label={t('第 {{index}} 格，{{state}}', {
+                  index: index + 1,
+                  state:
+                    state === 'hidden'
+                      ? t('未翻开')
+                      : state === 'mine' || state === 'exploded'
+                        ? t('地雷')
+                        : t('宝石'),
+                })}
                 onClick={() => send('pick', { index })}
               >
                 {(state === 'gem' || state === 'spare') && <Gem />}
@@ -209,6 +217,16 @@ const Mines = () => {
                   })}
             </button>
             <div className='games-stage-counter'>
+              {t('下一格安全概率 {{chance}}%', {
+                chance: Number(
+                  (
+                    ((CELLS - mines - revealed.size) /
+                      (CELLS - revealed.size)) *
+                    100
+                  ).toFixed(1),
+                ),
+              })}
+              {' · '}
               {t('再挖一颗宝石可兑现 {{amount}} {{symbol}}', {
                 amount: round.next_cashout,
                 symbol,

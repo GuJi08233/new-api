@@ -42,6 +42,9 @@ import {
   Users,
   Send,
   Wallet,
+  Search,
+  Star,
+  History,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { API, showError, showSuccess, timestamp2string } from '../../helpers';
@@ -62,6 +65,7 @@ import {
 import GameCoinRecords from './GameCoinRecords';
 import { GAME_ICONS } from './registry';
 import { formatCoins, signed } from './common/api';
+import { useGameLibrary } from './common/useGameLibrary';
 import './games.css';
 
 const { Text } = Typography;
@@ -167,6 +171,9 @@ const Games = () => {
   const [binding, setBinding] = useState(false);
   const [recordsVersion, setRecordsVersion] = useState(0);
   const [kindFilter, setKindFilter] = useState('all');
+  const [query, setQuery] = useState('');
+  const [collection, setCollection] = useState('all');
+  const { favorites, recent, toggleFavorite } = useGameLibrary();
 
   const loadInfo = useCallback(async () => {
     try {
@@ -224,10 +231,22 @@ const Games = () => {
   const kinds = GAME_KINDS.filter((kind) =>
     games.some((game) => game.kind === kind),
   );
-  const shownGames =
-    kindFilter === 'all'
-      ? games
-      : games.filter((game) => game.kind === kindFilter);
+  const searchText = query.trim().toLocaleLowerCase();
+  const shownGames = games.filter((game) => {
+    if (kindFilter !== 'all' && game.kind !== kindFilter) return false;
+    if (collection === 'favorites' && !favorites.includes(game.key))
+      return false;
+    if (collection === 'recent' && !recent.includes(game.key)) return false;
+    const meta = gameMetaMap[game.key];
+    return (
+      !searchText ||
+      `${game.key} ${meta.name} ${meta.description}`
+        .toLocaleLowerCase()
+        .includes(searchText)
+    );
+  });
+  if (collection === 'recent')
+    shownGames.sort((a, b) => recent.indexOf(a.key) - recent.indexOf(b.key));
   // 下注、对战与奖池的累计输赢不计入累计获得，单独列出；没开放这些游戏、也没玩过时不显示。
   const wagerNet = account?.total_wager_net || 0;
   const showWagerNet =
@@ -761,6 +780,34 @@ const Games = () => {
             )}
             {games.length > 0 ? (
               <>
+                <div className='games-discovery'>
+                  <Input
+                    prefix={<Search size={17} />}
+                    value={query}
+                    onChange={setQuery}
+                    showClear
+                    placeholder={t('搜索游戏名称或玩法')}
+                    aria-label={t('搜索游戏')}
+                  />
+                  <div className='games-library-tabs'>
+                    {[
+                      ['all', t('全部游戏'), Gamepad2],
+                      ['favorites', t('我的收藏'), Star],
+                      ['recent', t('最近游玩'), History],
+                    ].map(([value, label, Icon]) => (
+                      <button
+                        key={value}
+                        type='button'
+                        className={`game-chip ${collection === value ? 'is-active' : ''}`}
+                        aria-pressed={collection === value}
+                        onClick={() => setCollection(value)}
+                      >
+                        <Icon size={14} />
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 {kinds.length > 1 && (
                   <div className='games-kind-filter'>
                     {['all', ...kinds].map((kind) => (
@@ -784,6 +831,30 @@ const Games = () => {
                     {kindMap[kindFilter].description}
                   </div>
                 )}
+                {shownGames.length === 0 && (
+                  <div className='games-search-empty'>
+                    <Search size={28} />
+                    <strong>
+                      {collection === 'favorites' && !query
+                        ? t('还没有收藏游戏')
+                        : t('没有找到匹配的游戏')}
+                    </strong>
+                    <p>
+                      {collection === 'favorites'
+                        ? t('点击游戏卡片上的星标，把喜欢的游戏放在一起')
+                        : t('换个关键词或清除筛选再试试')}
+                    </p>
+                    <Button
+                      onClick={() => {
+                        setQuery('');
+                        setKindFilter('all');
+                        setCollection('all');
+                      }}
+                    >
+                      {t('查看全部游戏')}
+                    </Button>
+                  </div>
+                )}
                 {GAME_SECTIONS.map((section) => {
                   const sectionGames = shownGames.filter((game) =>
                     section.games.includes(game.key),
@@ -803,38 +874,67 @@ const Games = () => {
                           const meta = gameMetaMap[game.key];
                           const Icon = GAME_ICONS[game.key] || Gamepad2;
                           return (
-                            <button
-                              type='button'
+                            <article
+                              className='games-card-shell'
                               key={game.key}
-                              className='games-list-card'
-                              onClick={() => navigate(`/games/${game.key}`)}
                             >
-                              <span
-                                className={`games-list-cover cover-${game.key}`}
+                              <button
+                                type='button'
+                                key={game.key}
+                                className='games-list-card'
+                                onClick={() => navigate(`/games/${game.key}`)}
                               >
-                                <Icon size={28} />
-                              </span>
-                              <span className='games-list-body'>
-                                <span className='games-list-head'>
-                                  <span className='games-list-title'>
-                                    {meta.name}
+                                <span
+                                  className={`games-list-cover cover-${game.key}`}
+                                >
+                                  <Icon size={28} />
+                                </span>
+                                <span className='games-list-body'>
+                                  <span className='games-list-head'>
+                                    <span className='games-list-title'>
+                                      {meta.name}
+                                    </span>
+                                    <span
+                                      className={`games-kind-tag kind-${game.kind}`}
+                                    >
+                                      {kindMap[game.kind]?.name}
+                                    </span>
                                   </span>
-                                  <span
-                                    className={`games-kind-tag kind-${game.kind}`}
-                                  >
-                                    {kindMap[game.kind]?.name}
+                                  <span className='games-list-desc'>
+                                    {meta.description}
+                                  </span>
+                                  <span className='games-list-meta'>
+                                    {gameProgress(game, t, symbol).map(
+                                      (line) => (
+                                        <span key={line}>{line}</span>
+                                      ),
+                                    )}
                                   </span>
                                 </span>
-                                <span className='games-list-desc'>
-                                  {meta.description}
-                                </span>
-                                <span className='games-list-meta'>
-                                  {gameProgress(game, t, symbol).map((line) => (
-                                    <span key={line}>{line}</span>
-                                  ))}
-                                </span>
-                              </span>
-                            </button>
+                              </button>
+                              <button
+                                type='button'
+                                className={`games-favorite ${favorites.includes(game.key) ? 'is-active' : ''}`}
+                                aria-pressed={favorites.includes(game.key)}
+                                aria-label={
+                                  favorites.includes(game.key)
+                                    ? t('取消收藏 {{name}}', {
+                                        name: meta.name,
+                                      })
+                                    : t('收藏 {{name}}', { name: meta.name })
+                                }
+                                onClick={() => toggleFavorite(game.key)}
+                              >
+                                <Star
+                                  size={17}
+                                  fill={
+                                    favorites.includes(game.key)
+                                      ? 'currentColor'
+                                      : 'none'
+                                  }
+                                />
+                              </button>
+                            </article>
                           );
                         })}
                       </div>

@@ -105,8 +105,13 @@ const CrashFlight = ({
 
   useEffect(() => {
     if (!flying) return undefined;
+    let last = 0;
     let frame = requestAnimationFrame(function tick() {
-      setNow(Date.now());
+      const next = Date.now();
+      if (next - last >= 33) {
+        last = next;
+        setNow(next);
+      }
       frame = requestAnimationFrame(tick);
     });
     return () => cancelAnimationFrame(frame);
@@ -145,6 +150,7 @@ const CrashFlight = ({
   );
   const angle = (slope * 180) / Math.PI + 45;
   const lit = state === 'cashed' ? cashedAt : end;
+  const flightPath = lit > 0 ? curvePath(0, lit, growth, scale) : '';
   const guides = guideLines(top);
   const autoLine =
     flying && round.auto_cashout > 0 && round.auto_cashout / 100 < top
@@ -200,12 +206,9 @@ const CrashFlight = ({
             <>
               <path
                 className='crash-area'
-                d={`${curvePath(0, lit, growth, scale)}L${scale.x(lit).toFixed(1)} ${scale.y(1)}L${scale.x(0)} ${scale.y(1)}Z`}
+                d={`${flightPath}L${scale.x(lit).toFixed(1)} ${scale.y(1)}L${scale.x(0)} ${scale.y(1)}Z`}
               />
-              <path
-                className='crash-curve'
-                d={curvePath(0, lit, growth, scale)}
-              />
+              <path className='crash-curve' d={flightPath} />
             </>
           )}
           {state === 'cashed' && end > cashedAt && (

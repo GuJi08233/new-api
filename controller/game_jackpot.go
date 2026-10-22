@@ -195,7 +195,8 @@ func jackpotRecentRounds(userId int) ([]gin.H, error) {
 }
 
 type jackpotEnterRequest struct {
-	Amount model.GameCoins `json:"amount"`
+	Amount  model.GameCoins `json:"amount"`
+	RoundId *int            `json:"round_id"`
 }
 
 // EnterJackpot 往当前一轮的奖池里投入游戏币，可以有两位小数。每人每轮的投入合计不超过每轮上限。
@@ -205,7 +206,7 @@ func EnterJackpot(c *gin.Context) {
 	}
 	rule := operation_setting.GetGameSetting().Jackpot
 	var req jackpotEnterRequest
-	if err := decodeGameRequest(c, &req); err != nil {
+	if err := decodeGameRequest(c, &req); err != nil || req.RoundId == nil || *req.RoundId < 0 {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
@@ -222,9 +223,10 @@ func EnterJackpot(c *gin.Context) {
 		return
 	}
 	_, _, err = model.EnterGameJackpot(c.GetInt("id"), req.Amount, model.GameJackpotEntryRule{
-		MaxBet:       maxBet,
-		RoundSeconds: rule.RoundSeconds,
-		RakePercent:  rule.RakePercent,
+		MaxBet:          maxBet,
+		RoundSeconds:    rule.RoundSeconds,
+		RakePercent:     rule.RakePercent,
+		ExpectedRoundId: req.RoundId,
 	}, gameRewardIpKey(c.ClientIP()))
 	switch {
 	case errors.Is(err, model.ErrGameCoinAmountInvalid):

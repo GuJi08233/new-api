@@ -8,9 +8,26 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/hilo"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestHiloOptionMultiplierMatchesCappedPayout(t *testing.T) {
+	bet, err := model.WholeGameCoins(1)
+	require.NoError(t, err)
+	round := hilo.NewRound(96, hilo.Card{Rank: 1})
+	round.Multiplier = "200"
+	view, err := hiloRoundView(&model.GameSession{Status: model.GameSessionStatusPlaying, Bet: bet}, &round)
+	require.NoError(t, err)
+	options := view["options"].([]gin.H)
+	for _, option := range options {
+		if option["guess"] == hilo.Same {
+			assert.Equal(t, "1000.00", option["multiplier"])
+			assert.Equal(t, bet*1000, option["payout"])
+		}
+	}
+}
 
 // dealHiloCards 让接下来翻开的牌依次是 cards，翻完之后再翻就让测试失败。
 func dealHiloCards(t *testing.T, cards ...hilo.Card) {
@@ -123,6 +140,7 @@ func TestHiloAutoCashoutAtCap(t *testing.T) {
 	capped := player.ok(http.MethodPost, "/api/game/hilo/guess", roundRequest(t, data, map[string]any{"guess": hilo.Same}))
 	assert.Equal(t, model.GameSessionStatusFinished, roundOf(t, capped)["status"])
 	assert.Equal(t, 1000.0, roundOf(t, capped)["win"])
+	assert.Equal(t, "1000.00", roundOf(t, capped)["multiplier"])
 	assert.Equal(t, 1099.0, capped["balance"])
 
 	var bigWinLogs int64

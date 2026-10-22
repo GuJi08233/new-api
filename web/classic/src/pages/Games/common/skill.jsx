@@ -333,7 +333,7 @@ export const ReplayRunControls = ({
         >
           {t('重新提交')}
         </Button>
-        <Button onClick={onAbandon}>{t('放弃本局')}</Button>
+        <Button onClick={onAbandon}>{t('稍后恢复提交')}</Button>
       </>
     );
   }

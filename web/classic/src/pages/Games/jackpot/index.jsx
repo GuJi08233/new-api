@@ -99,6 +99,9 @@ const Jackpot = () => {
   const { loading, unavailable, info, setInfo } = useGameInfo('jackpot');
   const [amount, setAmount] = useState(1);
   const [entering, setEntering] = useState(false);
+  const enteringRef = useRef(false);
+  const pollingRef = useRef(false);
+  const epochRef = useRef(0);
   const [message, setMessage] = useState(null);
   // 上一次看到的一轮：它开奖之后在最近开奖里找到它，公布赢家。
   const lastRoundRef = useRef(null);
@@ -147,8 +150,15 @@ const Jackpot = () => {
 
   // 拿到信息之后定时刷新，开奖、别人的投入都靠它看到；页面在后台时不刷新。
   const poll = useCallback(async () => {
-    const response = await gameGet('/api/game/jackpot', t);
-    if (response.data) apply(response.data);
+    if (pollingRef.current || enteringRef.current) return;
+    pollingRef.current = true;
+    const epoch = epochRef.current;
+    try {
+      const response = await gameGet('/api/game/jackpot', t);
+      if (response.data && epoch === epochRef.current) apply(response.data);
+    } finally {
+      pollingRef.current = false;
+    }
   }, [apply, t]);
   useVisiblePolling(poll, POLL_MS, !!info);
 
@@ -179,10 +189,21 @@ const Jackpot = () => {
   const closing = secondsLeft === 0;
 
   const enter = async () => {
-    if (entering) return;
+    if (enteringRef.current) return;
+    enteringRef.current = true;
+    epochRef.current += 1;
     setEntering(true);
     setMessage(null);
-    const response = await gamePost('/api/game/jackpot/enter', { amount }, t);
+    const response = await gamePost(
+      '/api/game/jackpot/enter',
+      { amount, round_id: round?.id || 0 },
+      t,
+    );
+    if (response.error) {
+      const refreshed = await gameGet('/api/game/jackpot', t);
+      if (refreshed.data) apply(refreshed.data);
+    }
+    enteringRef.current = false;
     setEntering(false);
     if (response.error) {
       setMessage({ kind: 'error', text: response.error });

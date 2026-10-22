@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import PvpGame from '../common/pvp/PvpGame';
 import './gomoku.css';
@@ -66,6 +66,9 @@ const GomokuBoard = ({ state, seat, canMove, busy, over, onMove }) => {
   const [released, setReleased] = useState(null);
   const [hover, setHover] = useState(-1);
   const [selected, setSelected] = useState(-1);
+  const [keyboardSquare, setKeyboardSquare] = useState(112);
+  const [keyboardActive, setKeyboardActive] = useState(false);
+  const boardId = useId();
   useEffect(() => {
     if (!pending) return undefined;
     const timer = setTimeout(() => setReleased(pending), HOLD_MS);
@@ -86,7 +89,11 @@ const GomokuBoard = ({ state, seat, canMove, busy, over, onMove }) => {
   }
 
   const playable = canMove && !waiting && !over;
-  const target = selected >= 0 ? selected : hover;
+  const target = keyboardActive
+    ? keyboardSquare
+    : selected >= 0
+      ? selected
+      : hover;
   const ghost = playable && target >= 0 && shown[target] === '.' ? target : -1;
   const line = new Set(
     waiting ? [] : (state?.line || []).map((p) => p.y * SIZE + p.x),
@@ -100,6 +107,17 @@ const GomokuBoard = ({ state, seat, canMove, busy, over, onMove }) => {
     if (square !== hover) setHover(square);
   };
 
+  const place = (square) => {
+    if (!playable || square < 0 || shown[square] !== '.') return;
+    setSelected(-1);
+    setPending({
+      square,
+      from: board,
+      board: `${board.slice(0, square)}${mine}${board.slice(square + 1)}`,
+    });
+    onMove({ x: square % SIZE, y: Math.floor(square / SIZE) });
+  };
+
   const handleUp = (event) => {
     if (!playable || (event.pointerType === 'mouse' && event.button !== 0)) {
       return;
@@ -110,13 +128,30 @@ const GomokuBoard = ({ state, seat, canMove, busy, over, onMove }) => {
       setSelected(square);
       return;
     }
-    setSelected(-1);
-    setPending({
-      square,
-      from: board,
-      board: `${board.slice(0, square)}${mine}${board.slice(square + 1)}`,
-    });
-    onMove({ x: square % SIZE, y: Math.floor(square / SIZE) });
+    place(square);
+  };
+
+  const handleKeyDown = (event) => {
+    if (event.altKey || event.ctrlKey || event.metaKey) return;
+    const row = Math.floor(keyboardSquare / SIZE);
+    const col = keyboardSquare % SIZE;
+    const next = {
+      ArrowLeft: row * SIZE + Math.max(col - 1, 0),
+      ArrowRight: row * SIZE + Math.min(col + 1, SIZE - 1),
+      ArrowUp: Math.max(row - 1, 0) * SIZE + col,
+      ArrowDown: Math.min(row + 1, SIZE - 1) * SIZE + col,
+      Home: row * SIZE,
+      End: row * SIZE + SIZE - 1,
+    }[event.key];
+    if (next !== undefined) {
+      event.preventDefault();
+      setKeyboardActive(true);
+      setKeyboardSquare(next);
+    } else if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      setKeyboardActive(true);
+      if (!event.repeat) place(keyboardSquare);
+    }
   };
 
   const stones = [];
@@ -148,8 +183,16 @@ const GomokuBoard = ({ state, seat, canMove, busy, over, onMove }) => {
       <svg
         className={playable ? 'gomoku-board is-playable' : 'gomoku-board'}
         viewBox={`0 0 ${SIZE} ${SIZE}`}
-        role='img'
+        role='grid'
+        tabIndex={0}
         aria-label={t('五子棋')}
+        aria-rowcount={SIZE}
+        aria-colcount={SIZE}
+        aria-activedescendant={`${boardId}-${keyboardSquare}`}
+        aria-describedby={`${boardId}-help`}
+        onKeyDown={handleKeyDown}
+        onBlur={() => setKeyboardActive(false)}
+        onPointerDown={() => setKeyboardActive(false)}
         onPointerMove={handleMove}
         onPointerLeave={() => setHover(-1)}
         onPointerUp={handleUp}
@@ -172,6 +215,42 @@ const GomokuBoard = ({ state, seat, canMove, busy, over, onMove }) => {
           />
         ))}
         {stones}
+        {GRID_LINES.map((_, row) => (
+          <g key={row} role='row' aria-rowindex={row + 1}>
+            {GRID_LINES.map((_, col) => {
+              const square = row * SIZE + col;
+              const stone =
+                shown[square] === 'b'
+                  ? t('黑子')
+                  : shown[square] === 'w'
+                    ? t('白子')
+                    : t('空位');
+              return (
+                <rect
+                  key={col}
+                  id={`${boardId}-${square}`}
+                  role='gridcell'
+                  aria-colindex={col + 1}
+                  aria-label={t('第 {{row}} 行，第 {{col}} 列，{{stone}}', {
+                    row: row + 1,
+                    col: col + 1,
+                    stone,
+                  })}
+                  aria-disabled={!playable || shown[square] !== '.'}
+                  x={col}
+                  y={row}
+                  width={1}
+                  height={1}
+                  className={
+                    keyboardActive && square === keyboardSquare
+                      ? 'gomoku-focus-cell is-active'
+                      : 'gomoku-focus-cell'
+                  }
+                />
+              );
+            })}
+          </g>
+        ))}
         {ghost >= 0 && (
           <circle
             cx={(ghost % SIZE) + 0.5}
@@ -183,6 +262,9 @@ const GomokuBoard = ({ state, seat, canMove, busy, over, onMove }) => {
       </svg>
       <div className='gomoku-hint'>
         {ghost >= 0 && ghost === selected && t('再点一次同一位置落子')}
+      </div>
+      <div id={`${boardId}-help`} className='gomoku-keyboard-help'>
+        {t('方向键移动，Enter 或空格落子')}
       </div>
     </div>
   );

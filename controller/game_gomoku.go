@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	crand "crypto/rand"
 	"encoding/json"
 	"fmt"
@@ -148,6 +149,10 @@ func (gomokuEngine) Timeout(data []byte) (int, error) {
 }
 
 func (gomokuEngine) AiMove(data []byte, seat int, level int) (json.RawMessage, error) {
+	return (gomokuEngine{}).AiMoveContext(context.Background(), data, seat, level)
+}
+
+func (gomokuEngine) AiMoveContext(ctx context.Context, data []byte, seat int, level int) (json.RawMessage, error) {
 	state, game, err := loadGomoku(data)
 	if err != nil {
 		return nil, err
@@ -159,7 +164,7 @@ func (gomokuEngine) AiMove(data []byte, seat int, level int) (json.RawMessage, e
 	if err != nil {
 		return nil, err
 	}
-	point, err := gomoku.BestMove(game, level, rng)
+	point, err := gomoku.BestMoveContext(ctx, game, level, rng)
 	if err != nil {
 		return nil, err
 	}

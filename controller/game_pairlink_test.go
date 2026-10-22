@@ -12,6 +12,31 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestPairlinkNaturalTimeoutDoesNotAbandonAnOpenRound(t *testing.T) {
+	env := newGameTestEnv(t, gameSetting(func(s *operation_setting.GameSetting) { s.Pairlink.Enabled = true }))
+	player := env.player(0, gameTestIpA)
+	view := player.ok(http.MethodPost, "/api/game/pairlink/start", map[string]any{"difficulty": 1})
+	id := int(view["session_id"].(float64))
+	before, err := model.GetUserGameSession(player.user.Id, gamePairlink, id)
+	require.NoError(t, err)
+	checked := player.ok(http.MethodPost, "/api/game/pairlink/action", map[string]any{"session_id": id, "version": view["version"], "action": "timeout"})
+	assert.Equal(t, "playing", checked["status"])
+	assert.Equal(t, view["board"], checked["board"])
+	after, err := model.GetUserGameSession(player.user.Id, gamePairlink, id)
+	require.NoError(t, err)
+	assert.Equal(t, before.Version, after.Version)
+	assert.Equal(t, before.PlaySeconds, after.PlaySeconds, "时间核实不算游戏操作，也不发放游戏时长")
+	// 自然超时只有服务端截止时间过去后才能结算。
+	require.NoError(t, env.db.Model(&model.GameSession{}).Where("id = ?", id).Update("created_at", common.GetTimestamp()-int64(pairlink.Levels[0].Seconds)-5).Error)
+	ended := player.ok(http.MethodPost, "/api/game/pairlink/action", map[string]any{"session_id": id, "version": view["version"], "action": "timeout"})
+	assert.Equal(t, "lost", ended["status"])
+	assert.EqualValues(t, 0, ended["result"].(map[string]any)["reward"])
+	// 玩家主动结束仍可立即放弃，不改变既有经济规则。
+	view = player.ok(http.MethodPost, "/api/game/pairlink/start", map[string]any{"difficulty": 1})
+	ended = player.ok(http.MethodPost, "/api/game/pairlink/action", map[string]any{"session_id": view["session_id"], "version": view["version"], "action": "finish"})
+	assert.Equal(t, "lost", ended["status"])
+}
+
 // matchPairlinkTestPair 仅从公开棋盘找一对，再通过真实接口消除。
 func matchPairlinkTestPair(t *testing.T, player *gamePlayer, view map[string]any) map[string]any {
 	t.Helper()

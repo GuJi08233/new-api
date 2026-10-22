@@ -61,6 +61,8 @@ export const getGameLevelNames = (t) => ({
   memory: ['4×4', '4×6', '6×6'],
   puzzle15: ['3×3', '4×4', '5×5'],
   pairlink: ['6×6', '6×8', '8×8'],
+  lightsout: ['3×3', '4×4', '5×5'],
+  hanoi: [t('3 个圆盘'), t('4 个圆盘'), t('5 个圆盘')],
   ai: [t('简单'), t('普通'), t('困难')],
 });
 
@@ -77,6 +79,8 @@ export const GAME_ORDER = [
   'pairlink',
   'breakout',
   'sokoban',
+  'lightsout',
+  'hanoi',
   'gomoku',
   'connect4',
   'reversi',
@@ -109,6 +113,8 @@ export const GAME_SECTIONS = [
       'puzzle15',
       'pairlink',
       'sokoban',
+      'lightsout',
+      'hanoi',
     ],
   },
   { key: 'board', games: ['gomoku', 'connect4', 'reversi', 'xiangqi'] },
@@ -234,6 +240,20 @@ export const getGameMetaMap = (t) => ({
     kind: 'pvp',
     name: t('五子棋'),
     description: t('横竖斜先连成五子者胜，可押注对战或挑战 AI'),
+  },
+  lightsout: {
+    kind: 'skill',
+    name: t('熄灯挑战'),
+    description: t('切换十字相邻的灯光，让整块棋盘归于宁静'),
+    score: 'level',
+    scoreName: t('难度'),
+  },
+  hanoi: {
+    kind: 'skill',
+    name: t('汉诺塔'),
+    description: t('小盘在上，大盘在下，把圆盘有序搬到目标塔'),
+    score: 'level',
+    scoreName: t('难度'),
   },
   connect4: {
     kind: 'pvp',
