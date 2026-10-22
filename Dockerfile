@@ -1,4 +1,4 @@
-FROM oven/bun:1@sha256:0733e50325078969732ebe3b15ce4c4be5082f18c4ac1a0f0ca4839c2e4e42a7 AS builder-classic
+FROM oven/bun:1.4.4@sha256:1d22548f177f4ff38e0c15baa3c2c46c6c2060ba2d1bc573bb4720b407548f1d AS builder-classic
 
 WORKDIR /build/web/classic
 ENV NODE_OPTIONS=--max-old-space-size=6144
@@ -8,7 +8,7 @@ COPY ./web/classic ./
 COPY ./VERSION /build/VERSION
 RUN VITE_REACT_APP_VERSION=$(cat /build/VERSION) bun run build
 
-FROM golang:1.26.10-alpine@sha256:9ce231b28998b32e116927c61aa5c406183061d4f3f2d61b292c88e7f6bdf7ca AS builder2
+FROM golang:1.27.3-alpine@sha256:d530cf60723abf1ffae0cd16bb546b379ec0550d2f3815e5b16ed69dbc00fba4 AS builder2
 ENV GO111MODULE=on CGO_ENABLED=0
 
 ARG TARGETOS

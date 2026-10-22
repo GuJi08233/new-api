@@ -32,7 +32,7 @@ Transitive dependencies should be audited before a final external release.
 | backend     | production  | Go        | `github.com/go-webauthn/webauthn`                     | `v0.14.0`                            | BSD-3-Clause                                       |
 | backend     | production  | Go        | `github.com/golang-jwt/jwt/v5`                        | `v5.3.0`                             | MIT                                                |
 | backend     | production  | Go        | `github.com/google/uuid`                              | `v1.6.0`                             | BSD-3-Clause                                       |
-| backend     | production  | Go        | `github.com/gorilla/websocket`                        | `v1.5.0`                             | BSD-2-Clause                                       |
+| backend     | production  | Go        | `github.com/gorilla/websocket`                        | `v1.5.3`                             | BSD-2-Clause                                       |
 | backend     | production  | Go        | `github.com/grafana/pyroscope-go`                     | `v1.2.7`                             | Apache-2.0                                         |
 | backend     | production  | Go        | `github.com/jfreymuth/oggvorbis`                      | `v1.0.5`                             | MIT                                                |
 | backend     | production  | Go        | `github.com/jinzhu/copier`                            | `v0.4.0`                             | MIT                                                |
@@ -54,12 +54,12 @@ Transitive dependencies should be audited before a final external release.
 | backend     | production  | Go        | `github.com/tiktoken-go/tokenizer`                    | `v0.6.2`                             | MIT                                                |
 | backend     | production  | Go        | `github.com/waffo-com/waffo-go`                       | `v1.3.1`                             | MIT                                                |
 | backend     | production  | Go        | `github.com/yapingcat/gomedia`                        | `v0.0.0-20240906162731-17feea57090c` | MIT                                                |
-| backend     | production  | Go        | `golang.org/x/crypto`                                 | `v0.45.0`                            | BSD-3-Clause                                       |
-| backend     | production  | Go        | `golang.org/x/image`                                  | `v0.38.0`                            | BSD-3-Clause                                       |
-| backend     | production  | Go        | `golang.org/x/net`                                    | `v0.47.0`                            | BSD-3-Clause                                       |
-| backend     | production  | Go        | `golang.org/x/sync`                                   | `v0.20.0`                            | BSD-3-Clause                                       |
-| backend     | production  | Go        | `golang.org/x/sys`                                    | `v0.38.0`                            | BSD-3-Clause                                       |
-| backend     | production  | Go        | `golang.org/x/text`                                   | `v0.35.0`                            | BSD-3-Clause                                       |
+| backend     | production  | Go        | `golang.org/x/crypto`                                 | `v0.57.0`                            | BSD-3-Clause                                       |
+| backend     | production  | Go        | `golang.org/x/image`                                  | `v0.45.0`                            | BSD-3-Clause                                       |
+| backend     | production  | Go        | `golang.org/x/net`                                    | `v0.60.0`                            | BSD-3-Clause                                       |
+| backend     | production  | Go        | `golang.org/x/sync`                                   | `v0.23.0`                            | BSD-3-Clause                                       |
+| backend     | production  | Go        | `golang.org/x/sys`                                    | `v0.48.0`                            | BSD-3-Clause                                       |
+| backend     | production  | Go        | `golang.org/x/text`                                   | `v0.42.0`                            | BSD-3-Clause                                       |
 | backend     | production  | Go        | `gopkg.in/yaml.v3`                                    | `v3.0.1`                             | Apache-2.0 OR MIT                                  |
 | backend     | production  | Go        | `gorm.io/driver/mysql`                                | `v1.4.3`                             | MIT                                                |
 | backend     | production  | Go        | `gorm.io/driver/postgres`                             | `v1.5.2`                             | MIT                                                |
@@ -77,10 +77,10 @@ Transitive dependencies should be audited before a final external release.
 | web/classic | production  | npm       | `history`                                             | `5.3.0`                              | MIT                                                |
 | web/classic | production  | npm       | `i18next`                                             | `23.16.8`                            | MIT                                                |
 | web/classic | production  | npm       | `i18next-browser-languagedetector`                    | `7.2.2`                              | MIT                                                |
-| web/classic | production  | npm       | `katex`                                               | `0.16.22`                            | MIT                                                |
+| web/classic | production  | npm       | `katex`                                               | `0.18.2`                            | MIT                                                |
 | web/classic | production  | npm       | `lucide-react`                                        | `0.511.0`                            | ISC                                                |
 | web/classic | production  | npm       | `marked`                                              | `4.3.0`                              | MIT                                                |
-| web/classic | production  | npm       | `mermaid`                                             | `11.6.0`                             | MIT                                                |
+| web/classic | production  | npm       | `mermaid`                                             | `11.17.2`                             | MIT                                                |
 | web/classic | production  | npm       | `qrcode.react`                                        | `4.2.0`                              | ISC                                                |
 | web/classic | production  | npm       | `react`                                               | `18.3.1`                             | MIT                                                |
 | web/classic | production  | npm       | `react-dom`                                           | `18.3.1`                             | MIT                                                |
@@ -89,7 +89,7 @@ Transitive dependencies should be audited before a final external release.
 | web/classic | production  | npm       | `react-i18next`                                       | `13.5.0`                             | MIT                                                |
 | web/classic | production  | npm       | `react-icons`                                         | `5.5.0`                              | MIT                                                |
 | web/classic | production  | npm       | `react-markdown`                                      | `10.1.0`                             | MIT                                                |
-| web/classic | production  | npm       | `react-router-dom`                                    | `6.28.1`                             | MIT                                                |
+| web/classic | production  | npm       | `react-router-dom`                                    | `7.18.4`                             | MIT                                                |
 | web/classic | production  | npm       | `react-telegram-login`                                | `1.1.2`                              | MIT                                                |
 | web/classic | production  | npm       | `react-toastify`                                      | `9.1.3`                              | MIT                                                |
 | web/classic | production  | npm       | `react-turnstile`                                     | `1.1.4`                              | MIT                                                |
@@ -110,11 +110,11 @@ Transitive dependencies should be audited before a final external release.
 | web/classic | development | npm       | `eslint-plugin-header`                                | `3.1.1`                              | MIT                                                |
 | web/classic | development | npm       | `eslint-plugin-react-hooks`                           | `5.2.0`                              | MIT                                                |
 | web/classic | development | npm       | `i18next-cli`                                         | `1.15.0`                             | MIT                                                |
-| web/classic | development | npm       | `postcss`                                             | `8.5.3`                              | MIT                                                |
+| web/classic | development | npm       | `postcss`                                             | `8.5.31`                              | MIT                                                |
 | web/classic | development | npm       | `prettier`                                            | `3.4.2`                              | MIT                                                |
 | web/classic | development | npm       | `tailwindcss`                                         | `3.4.17`                             | MIT                                                |
 | web/classic | development | npm       | `typescript`                                          | `4.4.2`                              | Apache-2.0                                         |
-| web/classic | development | npm       | `vite`                                                | `5.4.11`                             | MIT                                                |
+| web/classic | development | npm       | `vite`                                                | `6.4.5`                             | MIT                                                |
 | electron    | development | npm       | `cross-env`                                           | `7.0.3`                              | MIT                                                |
 | electron    | development | npm       | `electron`                                            | `44.9.3`                             | MIT                                                |
 | electron    | development | npm       | `electron-builder`                                    | `26.7.0`                             | MIT                                                |

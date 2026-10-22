@@ -7,6 +7,7 @@
     "postinstall": "install-electron",
     "start-app": "electron .",
     "dev-app": "cross-env NODE_ENV=development electron .",
+    "test": "node --test build-security.test.cjs",
     "build": "electron-builder",
     "build:mac": "electron-builder --mac",
     "build:win": "electron-builder --win",
@@ -20,6 +21,9 @@
     "claude"
   ],
   "author": "QuantumNous",
+  "engines": {
+    "node": "^24.22.1"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/QuantumNous/new-api"
@@ -33,6 +37,8 @@
     "appId": "com.newapi.desktop",
     "productName": "New-API-App",
     "publish": null,
+    "beforePack": "./build-security.cjs",
+    "afterPack": "./build-security.cjs",
     "directories": {
       "output": "dist"
     },

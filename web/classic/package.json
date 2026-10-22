@@ -2,8 +2,23 @@
   "name": "react-template",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "bun@1.4.4",
   "overrides": {
-    "dompurify": "3.4.13"
+    "@walletconnect/jsonrpc-ws-connection": {
+      "ws": "7.5.13"
+    },
+    "axios": "1.20.0",
+    "decode-uri-component": "0.5.0",
+    "dompurify": "3.4.17",
+    "i18next-cli": {
+      "glob": "11.1.0",
+      "minimatch": "10.2.6"
+    },
+    "katex": "0.18.2",
+    "lodash-es": "4.18.1",
+    "minimist": "1.2.8",
+    "postcss-selector-parser": "7.1.6",
+    "ws": "8.22.0"
   },
   "type": "module",
   "dependencies": {
@@ -19,16 +34,16 @@
     "axios": "1.20.0",
     "clsx": "^2.1.1",
     "dayjs": "^1.11.11",
-    "dompurify": "3.4.13",
+    "dompurify": "3.4.17",
     "ethers": "^6.16.0",
     "history": "^5.3.0",
     "i18next": "^23.16.8",
     "i18next-browser-languagedetector": "^7.2.0",
-    "katex": "^0.16.22",
+    "katex": "0.18.2",
     "lightweight-charts": "^5.2.1",
     "lucide-react": "^0.511.0",
     "marked": "^4.1.1",
-    "mermaid": "^11.6.0",
+    "mermaid": "^11.17.2",
     "qrcode.react": "^4.2.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
@@ -37,7 +52,7 @@
     "react-i18next": "^13.0.0",
     "react-icons": "^5.5.0",
     "react-markdown": "^10.1.0",
-    "react-router-dom": "^6.3.0",
+    "react-router-dom": "^7.18.4",
     "react-telegram-login": "^1.1.2",
     "react-toastify": "^9.0.8",
     "react-turnstile": "^1.0.5",
@@ -91,11 +106,11 @@
     "eslint-plugin-header": "^3.1.1",
     "eslint-plugin-react-hooks": "^5.2.0",
     "i18next-cli": "^1.10.3",
-    "postcss": "^8.5.3",
+    "postcss": "^8.5.31",
     "prettier": "^3.0.0",
     "tailwindcss": "^3",
     "typescript": "4.4.2",
-    "vite": "^5.2.0"
+    "vite": "^6.4.5"
   },
   "prettier": {
     "singleQuote": true,
