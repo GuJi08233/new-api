@@ -63,6 +63,7 @@ export const OptimizedSettingsPanel = React.memo(
   SettingsPanel,
   (prevProps, nextProps) => {
     return (
+      prevProps.storageUserId === nextProps.storageUserId &&
       JSON.stringify(prevProps.inputs) === JSON.stringify(nextProps.inputs) &&
       JSON.stringify(prevProps.parameterEnabled) ===
         JSON.stringify(nextProps.parameterEnabled) &&

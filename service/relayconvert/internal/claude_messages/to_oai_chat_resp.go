@@ -13,12 +13,15 @@ import (
 )
 
 type ClaudeResponseInfo struct {
-	ResponseId   string
-	Created      int64
-	Model        string
-	ResponseText strings.Builder
-	Usage        *dto.Usage
-	Done         bool
+	ResponseId           string
+	Created              int64
+	Model                string
+	ResponseText         strings.Builder
+	Usage                *dto.Usage
+	Done                 bool
+	RawUsage             *dto.ClaudeUsage
+	InputTokensReported  bool
+	OutputTokensReported bool
 }
 
 func StopReasonClaudeToOpenAI(reason string) string {
@@ -231,20 +234,20 @@ func buildOpenAIStyleUsageFromClaudeUsage(usage *dto.Usage) dto.Usage {
 func BuildMessageDeltaPatchUsage(claudeResponse *dto.ClaudeResponse, claudeInfo *ClaudeResponseInfo) *dto.ClaudeUsage {
 	usage := &dto.ClaudeUsage{}
 	if claudeResponse != nil && claudeResponse.Usage != nil {
-		*usage = *claudeResponse.Usage
+		usage = dto.MergeClaudeUsage(nil, claudeResponse.Usage)
 	}
 
 	if claudeInfo == nil || claudeInfo.Usage == nil {
 		return usage
 	}
 
-	if usage.InputTokens == 0 && claudeInfo.Usage.PromptTokens > 0 {
+	if !usage.HasInputTokens() && claudeInfo.Usage.PromptTokens > 0 {
 		usage.InputTokens = claudeInfo.Usage.PromptTokens
 	}
-	if usage.CacheReadInputTokens == 0 && claudeInfo.Usage.PromptTokensDetails.CachedTokens > 0 {
+	if !usage.HasCacheReadTokens() && claudeInfo.Usage.PromptTokensDetails.CachedTokens > 0 {
 		usage.CacheReadInputTokens = claudeInfo.Usage.PromptTokensDetails.CachedTokens
 	}
-	if usage.CacheCreationInputTokens == 0 && claudeInfo.Usage.PromptTokensDetails.CachedCreationTokens > 0 {
+	if !usage.HasCacheCreationTokens() && claudeInfo.Usage.PromptTokensDetails.CachedCreationTokens > 0 {
 		usage.CacheCreationInputTokens = claudeInfo.Usage.PromptTokensDetails.CachedCreationTokens
 	}
 	cacheCreation5m := 0
@@ -271,30 +274,6 @@ func BuildMessageDeltaPatchUsage(claudeResponse *dto.ClaudeResponse, claudeInfo 
 	return usage
 }
 
-func claudeBillingUsageFromSemanticUsage(usage *dto.Usage) *dto.BillingUsage {
-	if usage == nil {
-		return nil
-	}
-	cacheCreation5m, cacheCreation1h := sharedclaude.NormalizeCacheCreationSplit(
-		usage.PromptTokensDetails.CachedCreationTokens,
-		usage.ClaudeCacheCreation5mTokens,
-		usage.ClaudeCacheCreation1hTokens,
-	)
-	claudeUsage := &dto.ClaudeUsage{
-		InputTokens:              usage.PromptTokens,
-		CacheCreationInputTokens: usage.PromptTokensDetails.CachedCreationTokens,
-		CacheReadInputTokens:     usage.PromptTokensDetails.CachedTokens,
-		OutputTokens:             usage.CompletionTokens,
-	}
-	if cacheCreation5m > 0 || cacheCreation1h > 0 {
-		claudeUsage.CacheCreation = &dto.ClaudeCacheCreationUsage{
-			Ephemeral5mInputTokens: cacheCreation5m,
-			Ephemeral1hInputTokens: cacheCreation1h,
-		}
-	}
-	return dto.NewClaudeMessagesBillingUsage(claudeUsage)
-}
-
 func PatchClaudeMessageDeltaUsageData(data string, usage *dto.ClaudeUsage) string {
 	if data == "" || usage == nil {
 		return data
@@ -318,7 +297,7 @@ func setMessageDeltaUsageInt(data string, path string, localValue int) string {
 	}
 
 	upstreamValue := gjson.Get(data, path)
-	if upstreamValue.Exists() && upstreamValue.Int() > 0 {
+	if upstreamValue.Exists() && upstreamValue.Type != gjson.Null {
 		return data
 	}
 
@@ -343,6 +322,9 @@ func FormatClaudeResponseInfo(claudeResponse *dto.ClaudeResponse, oaiResponse *d
 		}
 
 		if claudeResponse.Message != nil && claudeResponse.Message.Usage != nil {
+			claudeInfo.RawUsage = dto.MergeClaudeUsage(nil, claudeResponse.Message.Usage)
+			claudeInfo.InputTokensReported = claudeResponse.Message.Usage.HasInputTokens()
+			claudeInfo.OutputTokensReported = claudeResponse.Message.Usage.HasOutputTokens()
 			claudeInfo.Usage.PromptTokens = claudeResponse.Message.Usage.InputTokens
 			claudeInfo.Usage.UsageSemantic = "anthropic"
 			claudeInfo.Usage.PromptTokensDetails.CachedTokens = claudeResponse.Message.Usage.CacheReadInputTokens
@@ -350,7 +332,7 @@ func FormatClaudeResponseInfo(claudeResponse *dto.ClaudeResponse, oaiResponse *d
 			claudeInfo.Usage.ClaudeCacheCreation5mTokens = claudeResponse.Message.Usage.GetCacheCreation5mTokens()
 			claudeInfo.Usage.ClaudeCacheCreation1hTokens = claudeResponse.Message.Usage.GetCacheCreation1hTokens()
 			claudeInfo.Usage.CompletionTokens = claudeResponse.Message.Usage.OutputTokens
-			claudeInfo.Usage.BillingUsage = claudeBillingUsageFromSemanticUsage(claudeInfo.Usage)
+			claudeInfo.Usage.BillingUsage = dto.NewClaudeMessagesBillingUsage(claudeInfo.RawUsage)
 		}
 	} else if claudeResponse.Type == "content_block_delta" {
 		if claudeResponse.Delta != nil {
@@ -360,32 +342,55 @@ func FormatClaudeResponseInfo(claudeResponse *dto.ClaudeResponse, oaiResponse *d
 			if claudeResponse.Delta.Thinking != nil {
 				claudeInfo.ResponseText.WriteString(*claudeResponse.Delta.Thinking)
 			}
+			if claudeResponse.Delta.PartialJson != nil {
+				claudeInfo.ResponseText.WriteString(*claudeResponse.Delta.PartialJson)
+			}
 		}
 	} else if claudeResponse.Type == "message_delta" {
 		if claudeResponse.Usage != nil {
+			claudeInfo.RawUsage = dto.MergeClaudeUsage(claudeInfo.RawUsage, claudeResponse.Usage)
 			claudeInfo.Usage.UsageSemantic = "anthropic"
-			if claudeResponse.Usage.InputTokens > 0 {
+			if claudeResponse.Usage.HasInputTokens() {
 				claudeInfo.Usage.PromptTokens = claudeResponse.Usage.InputTokens
+				claudeInfo.InputTokensReported = true
 			}
-			if claudeResponse.Usage.CacheReadInputTokens > 0 {
+			if claudeResponse.Usage.HasCacheReadTokens() {
 				claudeInfo.Usage.PromptTokensDetails.CachedTokens = claudeResponse.Usage.CacheReadInputTokens
 			}
-			if claudeResponse.Usage.CacheCreationInputTokens > 0 {
+			if claudeResponse.Usage.HasCacheCreationTokens() {
 				claudeInfo.Usage.PromptTokensDetails.CachedCreationTokens = claudeResponse.Usage.CacheCreationInputTokens
+				if claudeResponse.Usage.CacheCreationInputTokens == 0 && claudeResponse.Usage.CacheCreation == nil {
+					claudeInfo.Usage.ClaudeCacheCreation5mTokens = 0
+					claudeInfo.Usage.ClaudeCacheCreation1hTokens = 0
+				}
 			}
 			if claudeResponse.Usage.CacheCreation != nil {
 				claudeInfo.Usage.ClaudeCacheCreation5mTokens = claudeResponse.Usage.GetCacheCreation5mTokens()
 				claudeInfo.Usage.ClaudeCacheCreation1hTokens = claudeResponse.Usage.GetCacheCreation1hTokens()
 			}
-			if claudeResponse.Usage.OutputTokens > 0 {
+			if claudeResponse.Usage.HasOutputTokens() {
 				claudeInfo.Usage.CompletionTokens = claudeResponse.Usage.OutputTokens
+				claudeInfo.OutputTokensReported = true
 			}
 			claudeInfo.Usage.TotalTokens = claudeInfo.Usage.PromptTokens + claudeInfo.Usage.CompletionTokens
-			claudeInfo.Usage.BillingUsage = claudeBillingUsageFromSemanticUsage(claudeInfo.Usage)
+			claudeInfo.Usage.BillingUsage = dto.NewClaudeMessagesBillingUsage(claudeInfo.RawUsage)
 		}
 
 		claudeInfo.Done = true
 	} else if claudeResponse.Type == "content_block_start" {
+		if block := claudeResponse.ContentBlock; block != nil {
+			if block.Text != nil {
+				claudeInfo.ResponseText.WriteString(*block.Text)
+			}
+			if block.Type == "tool_use" {
+				claudeInfo.ResponseText.WriteString(block.Name)
+				if block.Input != nil {
+					if data, err := common.Marshal(block.Input); err == nil {
+						claudeInfo.ResponseText.Write(data)
+					}
+				}
+			}
+		}
 	} else {
 		return false
 	}

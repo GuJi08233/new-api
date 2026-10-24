@@ -34,11 +34,14 @@ func NewClaudeMessagesBillingUsage(usage *ClaudeUsage) *BillingUsage {
 }
 
 // HasClaudeUsageTokens mirrors HasOpenAIUsageTokens/HasGeminiUsageMetadataTokens:
-// an all-zero ClaudeUsage must not become a BillingUsage, otherwise it would take
-// precedence during settlement and zero out a non-zero top-level usage.
+// an empty programmatic placeholder must not override real usage. Counters
+// explicitly reported as zero by the upstream remain authoritative.
 func HasClaudeUsageTokens(usage *ClaudeUsage) bool {
 	if usage == nil {
 		return false
+	}
+	if usage.HasInputTokens() || usage.HasOutputTokens() || usage.HasCacheReadTokens() || usage.HasCacheCreationTokens() {
+		return true
 	}
 	if usage.InputTokens != 0 ||
 		usage.OutputTokens != 0 ||

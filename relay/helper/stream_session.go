@@ -78,6 +78,7 @@ func startStreamSession(
 		}
 		return func() {}
 	}
+	StopStreamKeepAlive(c)
 
 	// doRequest normally copies these headers first. Repeating the guarded copy
 	// here keeps the ordering invariant explicit for every custom stream entry.

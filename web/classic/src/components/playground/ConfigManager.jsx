@@ -27,6 +27,7 @@ import {
   clearConfig,
   hasStoredConfig,
   getConfigTimestamp,
+  saveConfig,
 } from './configStorage';
 
 const ConfigManager = ({
@@ -35,6 +36,7 @@ const ConfigManager = ({
   onConfigReset,
   styleState,
   messages,
+  storageUserId,
 }) => {
   const { t } = useTranslation();
   const fileInputRef = useRef(null);
@@ -42,16 +44,9 @@ const ConfigManager = ({
   const handleExport = () => {
     try {
       // 在导出前先保存当前配置，确保导出的是最新内容
-      const configWithTimestamp = {
-        ...currentConfig,
-        timestamp: new Date().toISOString(),
-      };
-      localStorage.setItem(
-        'playground_config',
-        JSON.stringify(configWithTimestamp),
-      );
+      saveConfig(currentConfig, storageUserId);
 
-      exportConfig(currentConfig, messages);
+      exportConfig(currentConfig, messages, storageUserId);
       Toast.success({
         content: t('配置已导出到下载文件夹'),
         duration: 3,
@@ -73,7 +68,7 @@ const ConfigManager = ({
     if (!file) return;
 
     try {
-      const importedConfig = await importConfig(file);
+      const importedConfig = await importConfig(file, storageUserId);
 
       Modal.confirm({
         title: t('确认导入配置'),
@@ -123,7 +118,7 @@ const ConfigManager = ({
             type: 'danger',
           },
           onOk: () => {
-            clearConfig();
+            clearConfig(storageUserId);
             onConfigReset({ resetMessages: true });
             Toast.success({
               content: t('配置和消息已全部重置'),
@@ -131,7 +126,7 @@ const ConfigManager = ({
             });
           },
           onCancel: () => {
-            clearConfig();
+            clearConfig(storageUserId);
             onConfigReset({ resetMessages: false });
             Toast.success({
               content: t('配置已重置，对话消息已保留'),
@@ -144,8 +139,8 @@ const ConfigManager = ({
   };
 
   const getConfigStatus = () => {
-    if (hasStoredConfig()) {
-      const timestamp = getConfigTimestamp();
+    if (hasStoredConfig(storageUserId)) {
+      const timestamp = getConfigTimestamp(storageUserId);
       if (timestamp) {
         const date = new Date(timestamp);
         return t('上次保存: ') + date.toLocaleString();

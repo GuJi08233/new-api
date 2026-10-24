@@ -1047,6 +1047,7 @@
     "刷新缓存统计": "Actualiser les statistiques du cache",
     "刷新缓存统计失败": "Échec de l'actualisation des statistiques du cache",
     "刷新页面": "Recharger la page",
+    "登录状态已改变，请刷新页面": "Votre session a changé. Actualisez cette page.",
     "前：": "Avant :",
     "前往 io.net API Keys": "Go to io.net API Keys",
     "前往设置": "Go to Settings",

@@ -581,6 +581,86 @@ type ClaudeUsage struct {
 	ClaudeCacheCreation1hTokens int                  `json:"claude_cache_creation_1_h_tokens"`
 	ServerToolUse               *ClaudeServerToolUse `json:"server_tool_use,omitempty"`
 	BillingUsage                *BillingUsage        `json:"billing_usage,omitempty"`
+	inputTokensPresent          bool
+	outputTokensPresent         bool
+	cacheReadTokensPresent      bool
+	cacheCreationTokensPresent  bool
+}
+
+func (u *ClaudeUsage) UnmarshalJSON(data []byte) error {
+	type alias ClaudeUsage
+	var parsed alias
+	if err := common.Unmarshal(data, &parsed); err != nil {
+		return err
+	}
+	var fields map[string]json.RawMessage
+	if err := common.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	*u = ClaudeUsage(parsed)
+	u.inputTokensPresent = len(fields["input_tokens"]) > 0 && string(fields["input_tokens"]) != "null"
+	u.outputTokensPresent = len(fields["output_tokens"]) > 0 && string(fields["output_tokens"]) != "null"
+	u.cacheReadTokensPresent = len(fields["cache_read_input_tokens"]) > 0 && string(fields["cache_read_input_tokens"]) != "null"
+	u.cacheCreationTokensPresent = len(fields["cache_creation_input_tokens"]) > 0 && string(fields["cache_creation_input_tokens"]) != "null"
+	return nil
+}
+
+func (u *ClaudeUsage) HasInputTokens() bool {
+	return u != nil && (u.inputTokensPresent || u.InputTokens != 0)
+}
+
+func (u *ClaudeUsage) HasOutputTokens() bool {
+	return u != nil && (u.outputTokensPresent || u.OutputTokens != 0)
+}
+
+func (u *ClaudeUsage) HasCacheReadTokens() bool {
+	return u != nil && (u.cacheReadTokensPresent || u.CacheReadInputTokens != 0)
+}
+
+func (u *ClaudeUsage) HasCacheCreationTokens() bool {
+	return u != nil && (u.cacheCreationTokensPresent || u.CacheCreationInputTokens != 0)
+}
+
+// MergeClaudeUsage combines cumulative message_start/message_delta counters.
+// Missing counters retain their previous value; an explicit zero replaces it.
+func MergeClaudeUsage(current, delta *ClaudeUsage) *ClaudeUsage {
+	if delta == nil {
+		return cloneClaudeUsage(current)
+	}
+	if current == nil {
+		return cloneClaudeUsage(delta)
+	}
+	merged := cloneClaudeUsage(current)
+	if delta.HasInputTokens() {
+		merged.InputTokens = delta.InputTokens
+		merged.inputTokensPresent = true
+	}
+	if delta.HasOutputTokens() {
+		merged.OutputTokens = delta.OutputTokens
+		merged.outputTokensPresent = true
+	}
+	if delta.HasCacheReadTokens() {
+		merged.CacheReadInputTokens = delta.CacheReadInputTokens
+		merged.cacheReadTokensPresent = true
+	}
+	if delta.HasCacheCreationTokens() {
+		merged.CacheCreationInputTokens = delta.CacheCreationInputTokens
+		merged.cacheCreationTokensPresent = true
+		if delta.CacheCreationInputTokens == 0 && delta.CacheCreation == nil {
+			merged.CacheCreation = nil
+			merged.ClaudeCacheCreation5mTokens = 0
+			merged.ClaudeCacheCreation1hTokens = 0
+		}
+	}
+	if delta.CacheCreation != nil {
+		cache := *delta.CacheCreation
+		merged.CacheCreation = &cache
+	}
+	if delta.ServerToolUse != nil {
+		tools := *delta.ServerToolUse
+		merged.ServerToolUse = &tools
+	}
+	return merged
 }
 
 type ClaudeCacheCreationUsage struct {

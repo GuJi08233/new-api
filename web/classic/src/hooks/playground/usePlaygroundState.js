@@ -31,16 +31,17 @@ import {
   saveConfig,
   loadMessages,
   saveMessages,
+  clearMessages,
 } from '../../components/playground/configStorage';
 import { processIncompleteThinkTags } from '../../helpers';
 
-export const usePlaygroundState = () => {
+export const usePlaygroundState = (storageUserId) => {
   const { t } = useTranslation();
 
   // 使用惰性初始化，确保只在组件首次挂载时加载配置和消息
-  const [savedConfig] = useState(() => loadConfig());
+  const [savedConfig] = useState(() => loadConfig(storageUserId));
   const [initialMessages] = useState(() => {
-    const loaded = loadMessages();
+    const loaded = loadMessages(storageUserId);
     // 检查是否是旧的中文默认消息，如果是则清除
     if (
       loaded &&
@@ -55,7 +56,7 @@ export const usePlaygroundState = () => {
 
       if (hasOldChinese) {
         // 清除旧的默认消息
-        localStorage.removeItem('playground_messages');
+        clearMessages(storageUserId);
         return null;
       }
     }
@@ -135,9 +136,9 @@ export const usePlaygroundState = () => {
   const saveMessagesImmediately = useCallback(
     (messagesToSave) => {
       // 如果提供了参数，使用参数；否则使用当前状态
-      saveMessages(messagesToSave || message);
+      saveMessages(messagesToSave || message, storageUserId);
     },
-    [message],
+    [message, storageUserId],
   );
 
   // 配置保存
@@ -154,7 +155,7 @@ export const usePlaygroundState = () => {
         customRequestMode,
         customRequestBody,
       };
-      saveConfig(configToSave);
+      saveConfig(configToSave, storageUserId);
     }, 1000);
   }, [
     inputs,
@@ -162,6 +163,7 @@ export const usePlaygroundState = () => {
     showDebugPanel,
     customRequestMode,
     customRequestBody,
+    storageUserId,
   ]);
 
   // 配置导入/重置
@@ -220,6 +222,10 @@ export const usePlaygroundState = () => {
     return () => {
       if (saveConfigTimeoutRef.current) {
         clearTimeout(saveConfigTimeoutRef.current);
+      }
+      if (sseSourceRef.current) {
+        sseSourceRef.current.close();
+        sseSourceRef.current = null;
       }
     };
   }, []);

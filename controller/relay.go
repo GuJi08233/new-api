@@ -79,6 +79,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	var (
 		newAPIError *types.NewAPIError
 		ws          *websocket.Conn
+		relayInfo   *relaycommon.RelayInfo
 	)
 
 	if relayFormat == types.RelayFormatOpenAIRealtime {
@@ -97,6 +98,31 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			// 后端日志与错误日志（processChannelError）都已在此之前落库，保留上游原文；
 			// 只有发给客户端的这一份把上游模型名换回用户请求的模型名。
 			newAPIError.SetMessage(common.MessageWithRequestId(service.MaskUpstreamModelInText(c, newAPIError.Error()), requestId))
+			if relayFormat != types.RelayFormatOpenAIRealtime && c.Writer.Written() &&
+				strings.HasPrefix(c.Writer.Header().Get("Content-Type"), "text/event-stream") {
+				var status *relaycommon.StreamStatus
+				if relayInfo != nil {
+					status = relayInfo.StreamStatus
+				}
+				if status == nil {
+					status = relaycommon.NewStreamStatus()
+					if relayInfo != nil {
+						relayInfo.StreamStatus = status
+					}
+				}
+				status.RecordError(newAPIError.Error())
+				status.SetEndReason(relaycommon.StreamEndReasonHandlerStop, newAPIError)
+				if relayFormat == types.RelayFormatClaude {
+					_ = helper.ClaudeData(c, dto.ClaudeResponse{Type: "error", Error: newAPIError.ToClaudeError()})
+				} else {
+					_ = helper.ObjectData(c, gin.H{"error": newAPIError.ToOpenAIError()})
+					helper.Done(c)
+				}
+				return
+			}
+			if relayFormat != types.RelayFormatOpenAIRealtime {
+				helper.ResetEventStreamHeaders(c)
+			}
 			switch relayFormat {
 			case types.RelayFormatOpenAIRealtime:
 				helper.WssError(c, ws, newAPIError.ToOpenAIError())
@@ -124,7 +150,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		return
 	}
 
-	relayInfo, err := relaycommon.GenRelayInfo(c, relayFormat, request, ws)
+	relayInfo, err = relaycommon.GenRelayInfo(c, relayFormat, request, ws)
 	if err != nil {
 		newAPIError = types.NewError(err, types.ErrorCodeGenRelayInfoFailed)
 		return
@@ -137,6 +163,12 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	if endpointErr := checkModelEndpointProtection(c, relayInfo.OriginModelName, c.Request.URL.Path); endpointErr != nil {
 		newAPIError = endpointErr
 		return
+	}
+	generalSettings := operation_setting.GetGeneralSetting()
+	initialChannelSetting, _ := common.GetContextKeyType[dto.ChannelSettings](c, constant.ContextKeyChannelSetting)
+	if relayFormat == types.RelayFormatClaude && relayInfo.IsStream && generalSettings.PingIntervalEnabled && !initialChannelSetting.PassThroughHeadersEnabled {
+		stopKeepAlive := helper.StartStreamKeepAlive(c, time.Duration(generalSettings.PingIntervalSeconds)*time.Second)
+		defer stopKeepAlive()
 	}
 
 	needSensitiveCheck := setting.ShouldCheckPromptSensitive()

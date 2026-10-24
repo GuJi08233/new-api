@@ -45,6 +45,7 @@ const SettingsPanel = ({
   onCustomRequestBodyChange,
   previewPayload,
   messages,
+  storageUserId,
 }) => {
   const { t } = useTranslation();
 
@@ -94,6 +95,7 @@ const SettingsPanel = ({
       {styleState.isMobile && (
         <div className='mb-4 flex-shrink-0'>
           <ConfigManager
+            storageUserId={storageUserId}
             currentConfig={currentConfig}
             onConfigImport={onConfigImport}
             onConfigReset={onConfigReset}
@@ -230,6 +232,7 @@ const SettingsPanel = ({
       {!styleState.isMobile && (
         <div className='flex-shrink-0 pt-3'>
           <ConfigManager
+            storageUserId={storageUserId}
             currentConfig={currentConfig}
             onConfigImport={onConfigImport}
             onConfigReset={onConfigReset}

@@ -47,6 +47,39 @@ func TestReserveBillingForPaidGroupCreatesSessionAndRejectsInsufficientQuota(t *
 	}
 }
 
+func TestTaskRetryReservationChecksWalletAndKeepsOriginalHold(t *testing.T) {
+	for _, wallet := range []int{100, 40} {
+		t.Run(strconv.Itoa(wallet), func(t *testing.T) {
+			truncate(t)
+			seedUser(t, 857, wallet)
+			seedToken(t, 857, 857, "retry-reservation", 100)
+			ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+			info := &relaycommon.RelayInfo{
+				UserId: 857, TokenId: 857, TokenKey: "retry-reservation",
+				UsingGroup: "default", UserGroup: "default", ForcePreConsume: true,
+				UserSetting: dto.UserSetting{BillingPreference: "wallet_only"},
+			}
+			require.Nil(t, ReserveBillingForRequest(ctx, info, 20))
+			err := ReserveBillingForRequest(ctx, info, 60)
+			if wallet < 60 {
+				require.NotNil(t, err)
+				assert.Equal(t, http.StatusForbidden, err.StatusCode)
+				assert.Equal(t, 20, info.Billing.GetPreConsumedQuota())
+				assert.Equal(t, wallet-20, getUserQuota(t, 857))
+				assert.Equal(t, 80, getTokenRemainQuota(t, 857))
+			} else {
+				require.Nil(t, err)
+				assert.Equal(t, 60, info.Billing.GetPreConsumedQuota())
+				assert.Equal(t, 40, getUserQuota(t, 857))
+				assert.Equal(t, 40, getTokenRemainQuota(t, 857))
+			}
+			require.NoError(t, SettleBilling(ctx, info, 0))
+			assert.Equal(t, wallet, getUserQuota(t, 857))
+			assert.Equal(t, 100, getTokenRemainQuota(t, 857))
+		})
+	}
+}
+
 func TestTaskRefundRestoresUsageAndClearsPersistentQuota(t *testing.T) {
 	truncate(t)
 	seedUser(t, 852, 40)

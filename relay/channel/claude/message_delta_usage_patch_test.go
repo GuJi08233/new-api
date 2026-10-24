@@ -30,7 +30,7 @@ func TestPatchClaudeMessageDeltaUsageDataPreserveUnknownFields(t *testing.T) {
 	require.EqualValues(t, 50, gjson.Get(patchedData, "usage.cache_creation_input_tokens").Int())
 }
 
-func TestPatchClaudeMessageDeltaUsageDataZeroValueChecks(t *testing.T) {
+func TestPatchClaudeMessageDeltaUsageDataPreservesExplicitZero(t *testing.T) {
 	originalData := `{"type":"message_delta","usage":{"output_tokens":53,"input_tokens":9,"cache_read_input_tokens":0}}`
 	usage := &dto.ClaudeUsage{
 		InputTokens:              100,
@@ -41,7 +41,7 @@ func TestPatchClaudeMessageDeltaUsageDataZeroValueChecks(t *testing.T) {
 	patchedData := patchClaudeMessageDeltaUsageData(originalData, usage)
 
 	require.EqualValues(t, 9, gjson.Get(patchedData, "usage.input_tokens").Int())
-	require.EqualValues(t, 30, gjson.Get(patchedData, "usage.cache_read_input_tokens").Int())
+	require.EqualValues(t, 0, gjson.Get(patchedData, "usage.cache_read_input_tokens").Int())
 	assert.False(t, gjson.Get(patchedData, "usage.cache_creation_input_tokens").Exists())
 }
 

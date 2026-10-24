@@ -213,7 +213,8 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
 					},
 				})
 				info.ClaudeConvertInfo.LastMessagesType = relaycommon.LastMessageTypeThinking
-			} else if content != "" {
+			}
+			if content != "" {
 				if info.ClaudeConvertInfo.LastMessagesType != relaycommon.LastMessageTypeText {
 					stopOpenBlocksAndAdvance()
 				}
@@ -306,9 +307,6 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
 			}
 		}
 
-		var claudeResponse dto.ClaudeResponse
-		var isEmpty bool
-		claudeResponse.Type = "content_block_delta"
 		if len(chosenChoice.Delta.ToolCalls) > 0 {
 			toolCalls := chosenChoice.Delta.ToolCalls
 			if info.ClaudeConvertInfo.LastMessagesType != relaycommon.LastMessageTypeTools {
@@ -362,52 +360,34 @@ func StreamResponseOpenAI2Claude(openAIResponse *dto.ChatCompletionsStreamRespon
 		} else {
 			reasoning := chosenChoice.Delta.GetReasoningContent()
 			textContent := chosenChoice.Delta.GetContentString()
-			if reasoning != "" || textContent != "" {
-				if reasoning != "" {
-					if info.ClaudeConvertInfo.LastMessagesType != relaycommon.LastMessageTypeThinking {
-						stopOpenBlocksAndAdvance()
-						idx := info.ClaudeConvertInfo.Index
-						claudeResponses = append(claudeResponses, &dto.ClaudeResponse{
-							Index: &idx,
-							Type:  "content_block_start",
-							ContentBlock: &dto.ClaudeMediaMessage{
-								Type:     "thinking",
-								Thinking: common.GetPointer[string](""),
-							},
-						})
-					}
-					info.ClaudeConvertInfo.LastMessagesType = relaycommon.LastMessageTypeThinking
-					claudeResponse.Delta = &dto.ClaudeMediaMessage{
-						Type:     "thinking_delta",
-						Thinking: &reasoning,
-					}
-				} else {
-					if info.ClaudeConvertInfo.LastMessagesType != relaycommon.LastMessageTypeText {
-						stopOpenBlocksAndAdvance()
-						idx := info.ClaudeConvertInfo.Index
-						claudeResponses = append(claudeResponses, &dto.ClaudeResponse{
-							Index: &idx,
-							Type:  "content_block_start",
-							ContentBlock: &dto.ClaudeMediaMessage{
-								Type: "text",
-								Text: common.GetPointer[string](""),
-							},
-						})
-					}
-					info.ClaudeConvertInfo.LastMessagesType = relaycommon.LastMessageTypeText
-					claudeResponse.Delta = &dto.ClaudeMediaMessage{
-						Type: "text_delta",
-						Text: common.GetPointer[string](textContent),
-					}
+			if reasoning != "" {
+				if info.ClaudeConvertInfo.LastMessagesType != relaycommon.LastMessageTypeThinking {
+					stopOpenBlocksAndAdvance()
+					claudeResponses = append(claudeResponses, &dto.ClaudeResponse{
+						Index: common.GetPointer(info.ClaudeConvertInfo.Index), Type: "content_block_start",
+						ContentBlock: &dto.ClaudeMediaMessage{Type: "thinking", Thinking: common.GetPointer("")},
+					})
 				}
-			} else {
-				isEmpty = true
+				info.ClaudeConvertInfo.LastMessagesType = relaycommon.LastMessageTypeThinking
+				claudeResponses = append(claudeResponses, &dto.ClaudeResponse{
+					Index: common.GetPointer(info.ClaudeConvertInfo.Index), Type: "content_block_delta",
+					Delta: &dto.ClaudeMediaMessage{Type: "thinking_delta", Thinking: &reasoning},
+				})
 			}
-		}
-
-		claudeResponse.Index = common.GetPointer[int](info.ClaudeConvertInfo.Index)
-		if !isEmpty && claudeResponse.Delta != nil {
-			claudeResponses = append(claudeResponses, &claudeResponse)
+			if textContent != "" {
+				if info.ClaudeConvertInfo.LastMessagesType != relaycommon.LastMessageTypeText {
+					stopOpenBlocksAndAdvance()
+					claudeResponses = append(claudeResponses, &dto.ClaudeResponse{
+						Index: common.GetPointer(info.ClaudeConvertInfo.Index), Type: "content_block_start",
+						ContentBlock: &dto.ClaudeMediaMessage{Type: "text", Text: common.GetPointer("")},
+					})
+				}
+				info.ClaudeConvertInfo.LastMessagesType = relaycommon.LastMessageTypeText
+				claudeResponses = append(claudeResponses, &dto.ClaudeResponse{
+					Index: common.GetPointer(info.ClaudeConvertInfo.Index), Type: "content_block_delta",
+					Delta: &dto.ClaudeMediaMessage{Type: "text_delta", Text: common.GetPointer(textContent)},
+				})
+			}
 		}
 
 		if doneChunk || info.ClaudeConvertInfo.Done {

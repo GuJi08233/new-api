@@ -3,6 +3,7 @@ package helper
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -32,6 +33,7 @@ const (
 	// but connected client (full TCP buffer, no server WriteTimeout) could hang
 	// the handler forever.
 	streamWriteTimeout               = 30 * time.Second
+	streamMinClientRate              = 8 << 10
 	upstreamResponseHeadersCopiedKey = "upstream_response_headers_copied"
 	upstreamResponseHeaderNamesKey   = "upstream_response_header_names"
 )
@@ -122,7 +124,57 @@ func ExtendWriteDeadline(c *gin.Context) {
 	if c == nil || c.Writer == nil {
 		return
 	}
-	_ = http.NewResponseController(c.Writer).SetWriteDeadline(time.Now().Add(streamWriteTimeout))
+	now := time.Now()
+	deadline := now.Add(streamWriteTimeout)
+	var writer http.ResponseWriter = c.Writer
+	for {
+		if stream, ok := writer.(*streamResponseWriter); ok {
+			deadline = stream.budget.Deadline(now, 0)
+			break
+		}
+		unwrapper, ok := writer.(interface{ Unwrap() http.ResponseWriter })
+		if !ok {
+			break
+		}
+		writer = unwrapper.Unwrap()
+	}
+	_ = http.NewResponseController(c.Writer).SetWriteDeadline(deadline)
+}
+
+// StreamWriteBudget allows a slow reader to drain large events while keeping
+// writes bounded if the client stops reading altogether.
+type StreamWriteBudget struct {
+	mutex   sync.Mutex
+	drainBy time.Time
+}
+
+func (b *StreamWriteBudget) Deadline(now time.Time, bytes int) time.Time {
+	b.mutex.Lock()
+	defer b.mutex.Unlock()
+	if b.drainBy.Before(now) {
+		b.drainBy = now
+	}
+	b.drainBy = b.drainBy.Add(time.Duration(bytes) * time.Second / streamMinClientRate)
+	return b.drainBy.Add(streamWriteTimeout)
+}
+
+type streamResponseWriter struct {
+	gin.ResponseWriter
+	budget StreamWriteBudget
+}
+
+func (w *streamResponseWriter) Write(data []byte) (int, error) {
+	_ = http.NewResponseController(w.ResponseWriter).SetWriteDeadline(w.budget.Deadline(time.Now(), len(data)))
+	return w.ResponseWriter.Write(data)
+}
+
+func (w *streamResponseWriter) WriteString(data string) (int, error) {
+	_ = http.NewResponseController(w.ResponseWriter).SetWriteDeadline(w.budget.Deadline(time.Now(), len(data)))
+	return w.ResponseWriter.WriteString(data)
+}
+
+func (w *streamResponseWriter) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
 }
 
 func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo, dataHandler func(data string, sr *StreamResult)) {
@@ -130,6 +182,7 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 	if resp == nil || info == nil || dataHandler == nil {
 		return
 	}
+	StopStreamKeepAlive(c)
 
 	info.StreamStatus = relaycommon.NewStreamStatus()
 
@@ -233,6 +286,7 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 					}()
 					if err != nil {
 						logger.LogError(c, "ping data error: "+err.Error())
+						info.StreamStatus.RecordError(err.Error())
 						info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonPingFail, err)
 						stop()
 						return
@@ -254,6 +308,7 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 	}
 
 	dataChan := make(chan string, 10)
+	sr := newStreamResult(info.StreamStatus)
 
 	wg.Add(1)
 	gopool.Go(func() {
@@ -265,7 +320,6 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 			stop()
 			wg.Done()
 		}()
-		sr := newStreamResult(info.StreamStatus)
 		for data := range dataChan {
 			sr.reset()
 			func() {
@@ -337,9 +391,13 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 			}
 		}
 
+		if ctx.Err() != nil {
+			return
+		}
 		if err := scanner.Err(); err != nil {
 			if err != io.EOF {
 				logger.LogError(c, "scanner error: "+err.Error())
+				info.StreamStatus.RecordError(err.Error())
 				info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonScannerErr, err)
 			}
 		}
@@ -359,6 +417,14 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 	}
 
 	cleanup()
+	// A delivered completion can race the client's normal disconnect. Only
+	// reconcile after every worker joined, and never hide actual stream errors.
+	if sr.done && !info.StreamStatus.HasErrors() &&
+		info.StreamStatus.EndReason == relaycommon.StreamEndReasonClientGone &&
+		errors.Is(info.StreamStatus.EndError, context.Canceled) {
+		info.StreamStatus.EndReason = relaycommon.StreamEndReasonDone
+		info.StreamStatus.EndError = nil
+	}
 	if info.StreamStatus.IsNormalEnd() && !info.StreamStatus.HasErrors() {
 		logger.LogInfo(c, fmt.Sprintf("stream ended: %s", info.StreamStatus.Summary()))
 	} else {

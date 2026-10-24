@@ -113,6 +113,9 @@ func SetEventStreamHeaders(c *gin.Context) {
 	}
 
 	c.Set(eventStreamHeadersSetKey, true)
+	if _, ok := c.Writer.(*streamResponseWriter); !ok {
+		c.Writer = &streamResponseWriter{ResponseWriter: c.Writer}
+	}
 
 	c.Writer.Header().Set("Content-Type", "text/event-stream")
 	c.Writer.Header().Set("Cache-Control", "no-cache")

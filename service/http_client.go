@@ -8,10 +8,12 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 
 	"golang.org/x/net/proxy"
@@ -55,9 +57,13 @@ func applyKeepAliveSetting(transport *http.Transport, options ProxyClientOptions
 }
 
 func checkRedirect(req *http.Request, via []*http.Request) error {
+	if err := protectRedirectCredentials(req, via); err != nil {
+		return err
+	}
 	urlStr := req.URL.String()
 	if err := validateURLWithCurrentFetchSetting(urlStr, true); err != nil {
-		return fmt.Errorf("redirect to %s blocked: %v", urlStr, err)
+		logURL := relaycommon.SanitizeURLForLog(urlStr)
+		return fmt.Errorf("redirect to %s blocked: %s", logURL, strings.ReplaceAll(err.Error(), urlStr, logURL))
 	}
 	if len(via) >= 10 {
 		return fmt.Errorf("stopped after 10 redirects")
@@ -66,14 +72,77 @@ func checkRedirect(req *http.Request, via []*http.Request) error {
 }
 
 func checkProtectedFetchRedirect(req *http.Request, via []*http.Request) error {
+	if err := protectRedirectCredentials(req, via); err != nil {
+		return err
+	}
 	urlStr := req.URL.String()
 	if err := ValidateSSRFProtectedFetchURL(urlStr); err != nil {
-		return fmt.Errorf("redirect to %s blocked: %v", urlStr, err)
+		logURL := relaycommon.SanitizeURLForLog(urlStr)
+		return fmt.Errorf("redirect to %s blocked: %s", logURL, strings.ReplaceAll(err.Error(), urlStr, logURL))
 	}
 	if len(via) >= 10 {
 		return fmt.Errorf("stopped after 10 redirects")
 	}
 	return nil
+}
+
+// protectRedirectCredentials 保留匿名跨站媒体跳转，但不让渠道自定义凭据跨越来源边界。
+// 从完整跳转链推导状态，避免复用的 HTTP client 在不同请求间共享凭据状态。
+func protectRedirectCredentials(req *http.Request, via []*http.Request) error {
+	if len(via) == 0 {
+		return nil
+	}
+	if strings.EqualFold(via[len(via)-1].URL.Scheme, "https") && !strings.EqualFold(req.URL.Scheme, "https") {
+		return fmt.Errorf("redirect cannot downgrade HTTPS")
+	}
+
+	origin := via[0].URL
+	trusted := sameCredentialOrigin(origin, req.URL)
+	for _, previous := range via[1:] {
+		trusted = trusted && sameCredentialOrigin(origin, previous.URL)
+	}
+	if trusted {
+		return nil
+	}
+	if req.Body != nil && req.Body != http.NoBody {
+		return fmt.Errorf("redirect cannot replay a body outside the credential origin")
+	}
+	for name := range req.Header {
+		switch http.CanonicalHeaderKey(name) {
+		case "Accept", "Accept-Language":
+		default:
+			delete(req.Header, name)
+		}
+	}
+	req.Host = ""
+	req.URL.User = nil
+	return nil
+}
+
+// sameCredentialOrigin 按精确主机和有效端口限定凭据接收方；仅允许默认端口的 HTTPS 升级。
+func sameCredentialOrigin(origin, target *url.URL) bool {
+	if !strings.EqualFold(origin.Hostname(), target.Hostname()) {
+		return false
+	}
+	originPort, targetPort := origin.Port(), target.Port()
+	if originPort == "" {
+		if strings.EqualFold(origin.Scheme, "https") {
+			originPort = "443"
+		} else {
+			originPort = "80"
+		}
+	}
+	if targetPort == "" {
+		if strings.EqualFold(target.Scheme, "https") {
+			targetPort = "443"
+		} else {
+			targetPort = "80"
+		}
+	}
+	if strings.EqualFold(origin.Scheme, target.Scheme) {
+		return originPort == targetPort
+	}
+	return strings.EqualFold(origin.Scheme, "http") && strings.EqualFold(target.Scheme, "https") && originPort == "80" && targetPort == "443"
 }
 
 func validateURLWithCurrentFetchSetting(urlStr string, applyDomainIPFilter bool) error {

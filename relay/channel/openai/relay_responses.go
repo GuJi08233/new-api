@@ -120,6 +120,13 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		}
 		if err := helper.ResponseChunkData(c, streamResponse, data); err != nil {
 			sr.Stop(err)
+			return
+		}
+		if (streamResponse.Type == "response.completed" || streamResponse.Type == "response.done") && streamResponse.Response != nil {
+			var status string
+			if common.Unmarshal(streamResponse.Response.Status, &status) == nil && status == "completed" {
+				sr.Done()
+			}
 		}
 	})
 

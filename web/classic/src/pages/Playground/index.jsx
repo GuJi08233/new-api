@@ -17,10 +17,16 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React, { useContext, useEffect, useCallback, useRef } from 'react';
+import React, {
+  useContext,
+  useEffect,
+  useCallback,
+  useRef,
+  useSyncExternalStore,
+} from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Layout, Toast, Modal } from '@douyinfe/semi-ui';
+import { Button, Layout, Toast, Modal } from '@douyinfe/semi-ui';
 
 // Context
 import { UserContext } from '../../context/User';
@@ -60,6 +66,15 @@ import {
 import ChatArea from '../../components/playground/ChatArea';
 import FloatingButtons from '../../components/playground/FloatingButtons';
 import { PlaygroundProvider } from '../../contexts/PlaygroundContext';
+import { getPlaygroundUserId } from '../../components/playground/configStorage';
+
+function subscribeToPlaygroundUser(onChange) {
+  const handleStorage = (event) => {
+    if (event.key === 'user' || event.key === null) onChange();
+  };
+  window.addEventListener('storage', handleStorage);
+  return () => window.removeEventListener('storage', handleStorage);
+}
 
 // 生成头像
 const generateAvatarDataUrl = (username) => {
@@ -77,14 +92,14 @@ const generateAvatarDataUrl = (username) => {
   return `data:image/svg+xml;base64,${encodeToBase64(svg)}`;
 };
 
-const Playground = () => {
+const PlaygroundSession = ({ storageUserId }) => {
   const { t } = useTranslation();
   const [userState] = useContext(UserContext);
   const isMobile = useIsMobile();
   const styleState = { isMobile };
   const [searchParams] = useSearchParams();
 
-  const state = usePlaygroundState();
+  const state = usePlaygroundState(storageUserId);
   const {
     inputs,
     parameterEnabled,
@@ -474,6 +489,7 @@ const Playground = () => {
               width={isMobile ? '100%' : 320}
             >
               <OptimizedSettingsPanel
+                storageUserId={storageUserId}
                 inputs={inputs}
                 parameterEnabled={parameterEnabled}
                 models={models}
@@ -559,6 +575,29 @@ const Playground = () => {
         </Layout>
       </div>
     </PlaygroundProvider>
+  );
+};
+
+const Playground = () => {
+  const { t } = useTranslation();
+  const [userState] = useContext(UserContext);
+  const userId = userState.user?.id ?? null;
+  const storedUserId = useSyncExternalStore(
+    subscribeToPlaygroundUser,
+    getPlaygroundUserId,
+  );
+  if (userId !== storedUserId) {
+    return (
+      <div className='flex flex-col items-center gap-4 p-8' role='alert'>
+        <p>{t('登录状态已改变，请刷新页面')}</p>
+        <Button onClick={() => window.location.reload()}>
+          {t('刷新页面')}
+        </Button>
+      </div>
+    );
+  }
+  return (
+    <PlaygroundSession key={userId ?? 'anonymous'} storageUserId={userId} />
   );
 };
 
