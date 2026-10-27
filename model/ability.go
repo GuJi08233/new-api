@@ -3,6 +3,7 @@ package model
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 
@@ -110,17 +111,21 @@ func getChannelQuery(group string, model string, retry int) (*gorm.DB, error) {
 	return channelQuery, nil
 }
 
-func GetChannel(group string, model string, retry int, requestPath string) (*Channel, error) {
+func GetChannel(group string, model string, retry int, requestPath string, filters ...dto.ChannelFilter) (*Channel, error) {
 	var abilities []Ability
 
 	var err error = nil
-	channelQuery, err := getChannelQuery(group, model, retry)
-	if err != nil {
-		return nil, err
-	}
-	if common.UsingMainDatabase(common.DatabaseTypeSQLite) || common.UsingMainDatabase(common.DatabaseTypePostgreSQL) {
-		err = channelQuery.Order("weight DESC").Find(&abilities).Error
+	if len(filters) > 0 {
+		// Channel filters (such as task plugin identity) must run before the
+		// priority tier is chosen, otherwise an excluded higher-priority
+		// channel would empty the tier and hide eligible lower-priority ones.
+		abilities, err = getFilteredPriorityAbilities(group, model, retry, filters)
 	} else {
+		var channelQuery *gorm.DB
+		channelQuery, err = getChannelQuery(group, model, retry)
+		if err != nil {
+			return nil, err
+		}
 		err = channelQuery.Order("weight DESC").Find(&abilities).Error
 	}
 	if err != nil {
@@ -156,6 +161,76 @@ func GetChannel(group string, model string, retry int, requestPath string) (*Cha
 	}
 	err = ReadDB().First(&channel, "id = ?", channel.Id).Error
 	return &channel, err
+}
+
+// getFilteredPriorityAbilities returns the abilities of the retry's priority
+// tier among the channels that pass the request's channel filters.
+func getFilteredPriorityAbilities(group string, model string, retry int, filters []dto.ChannelFilter) ([]Ability, error) {
+	var abilities []Ability
+	err := ReadDB().Where(commonGroupCol+" = ? and model = ? and enabled = ?", group, model, true).
+		Order("priority DESC, weight DESC").Find(&abilities).Error
+	if err != nil {
+		return nil, err
+	}
+	abilities = filterAbilitiesByChannelFilters(abilities, model, filters)
+	if len(abilities) == 0 {
+		return abilities, nil
+	}
+	priorities := make([]int64, 0)
+	seen := make(map[int64]bool)
+	for _, ability := range abilities {
+		priority := int64(0)
+		if ability.Priority != nil {
+			priority = *ability.Priority
+		}
+		if !seen[priority] {
+			seen[priority] = true
+			priorities = append(priorities, priority)
+		}
+	}
+	sort.Slice(priorities, func(i, j int) bool { return priorities[i] > priorities[j] })
+	if retry >= len(priorities) {
+		retry = len(priorities) - 1
+	}
+	targetPriority := priorities[retry]
+	tier := make([]Ability, 0, len(abilities))
+	for _, ability := range abilities {
+		priority := int64(0)
+		if ability.Priority != nil {
+			priority = *ability.Priority
+		}
+		if priority == targetPriority {
+			tier = append(tier, ability)
+		}
+	}
+	return tier, nil
+}
+
+// filterAbilitiesByChannelFilters applies request channel filters (such as
+// task plugin identity) on the DB selection path.
+func filterAbilitiesByChannelFilters(abilities []Ability, model string, filters []dto.ChannelFilter) []Ability {
+	if len(filters) == 0 || len(abilities) == 0 {
+		return abilities
+	}
+	channelIds := make([]int, 0, len(abilities))
+	for _, ability := range abilities {
+		channelIds = append(channelIds, ability.ChannelId)
+	}
+	var channels []*Channel
+	if err := ReadDB().Where("id IN ?", channelIds).Find(&channels).Error; err != nil {
+		return nil
+	}
+	allowed := make(map[int]bool, len(channels))
+	for _, channel := range channels {
+		allowed[channel.Id], _ = ChannelSatisfiesFilters(channel, model, filters)
+	}
+	filtered := make([]Ability, 0, len(abilities))
+	for _, ability := range abilities {
+		if allowed[ability.ChannelId] {
+			filtered = append(filtered, ability)
+		}
+	}
+	return filtered
 }
 
 // filterAbilitiesByRequestPathAndModel restricts candidates by request path and

@@ -37,8 +37,20 @@ export const API_ENDPOINTS = [
   '/v1/audio/translations',
 ];
 
-export const TASK_ACTION_GENERATE = 'generate';
-export const TASK_ACTION_TEXT_GENERATE = 'textGenerate';
-export const TASK_ACTION_FIRST_TAIL_GENERATE = 'firstTailGenerate';
-export const TASK_ACTION_REFERENCE_GENERATE = 'referenceGenerate';
-export const TASK_ACTION_REMIX_GENERATE = 'remixGenerate';
+export const TASK_ACTION_GENERATE = 'image_to_video';
+export const TASK_ACTION_TEXT_GENERATE = 'text_to_video';
+export const TASK_ACTION_FIRST_TAIL_GENERATE = 'first_tail_to_video';
+export const TASK_ACTION_REFERENCE_GENERATE = 'reference_to_video';
+export const TASK_ACTION_REMIX_GENERATE = 'remix';
+
+// 升级前写入的任务仍是旧动作名，展示前统一映射到规范名
+const LEGACY_TASK_ACTIONS = {
+  generate: TASK_ACTION_GENERATE,
+  textGenerate: TASK_ACTION_TEXT_GENERATE,
+  firstTailGenerate: TASK_ACTION_FIRST_TAIL_GENERATE,
+  referenceGenerate: TASK_ACTION_REFERENCE_GENERATE,
+  remixGenerate: TASK_ACTION_REMIX_GENERATE,
+};
+
+export const normalizeTaskAction = (action) =>
+  LEGACY_TASK_ACTIONS[action] || action;

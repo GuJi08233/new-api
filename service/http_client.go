@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/dto"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 
@@ -381,4 +382,10 @@ func newProxyTransport(parsedURL *url.URL, options ProxyClientOptions) (*http.Tr
 	applyKeepAliveSetting(transport, options)
 
 	return transport, nil
+}
+
+// GetHttpClientWithProxySettings returns the outbound client for a channel's
+// proxy and connection-reuse settings.
+func GetHttpClientWithProxySettings(proxyURL string, settings dto.ChannelSettings) (*http.Client, error) {
+	return GetChannelHttpClient(proxyURL, settings.DisableKeepAlive)
 }

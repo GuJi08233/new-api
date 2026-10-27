@@ -55,6 +55,7 @@ export const DEFAULT_ADMIN_CONFIG = {
     risk_control: true,
     trade_admin: true,
     game_admin: true,
+    task_plugin: true,
     system_info: true,
     setting: true,
   },

@@ -27,9 +27,10 @@ func ParseExprVersion(exprStr string) (version int, body string) {
 }
 
 type cachedEntry struct {
-	prog     *vm.Program
-	usedVars map[string]bool
-	version  int
+	prog          *vm.Program
+	usedVars      map[string]bool
+	usedUsageKeys map[string]bool
+	version       int
 }
 
 var (
@@ -39,30 +40,31 @@ var (
 
 // compileEnvPrototypeV1 is the v1 type-checking prototype used at compile time.
 var compileEnvPrototypeV1 = map[string]interface{}{
-	"p":    float64(0),
-	"c":    float64(0),
-	"len":  float64(0),
-	"cr":   float64(0),
-	"cc":   float64(0),
-	"cc1h": float64(0),
-	"img":  float64(0),
-	"img_o": float64(0),
-	"ai":   float64(0),
-	"ao":   float64(0),
-	"tier":                   func(string, float64) float64 { return 0 },
-	"header":                 func(string) string { return "" },
-	"param":                  func(string) interface{} { return nil },
-	"has":                    func(interface{}, string) bool { return false },
-	"hour":                   func(string) int { return 0 },
-	"minute":                 func(string) int { return 0 },
-	"weekday":                func(string) int { return 0 },
-	"month":                  func(string) int { return 0 },
-	"day":                    func(string) int { return 0 },
-	"max":                    math.Max,
-	"min":                    math.Min,
-	"abs":                    math.Abs,
-	"ceil":                   math.Ceil,
-	"floor":                  math.Floor,
+	"p":       float64(0),
+	"c":       float64(0),
+	"len":     float64(0),
+	"cr":      float64(0),
+	"cc":      float64(0),
+	"cc1h":    float64(0),
+	"img":     float64(0),
+	"img_o":   float64(0),
+	"ai":      float64(0),
+	"ao":      float64(0),
+	"tier":    func(string, float64) float64 { return 0 },
+	"header":  func(string) string { return "" },
+	"param":   func(string) interface{} { return nil },
+	"u":       func(string) interface{} { return nil },
+	"has":     func(interface{}, string) bool { return false },
+	"hour":    func(string) int { return 0 },
+	"minute":  func(string) int { return 0 },
+	"weekday": func(string) int { return 0 },
+	"month":   func(string) int { return 0 },
+	"day":     func(string) int { return 0 },
+	"max":     math.Max,
+	"min":     math.Min,
+	"abs":     math.Abs,
+	"ceil":    math.Ceil,
+	"floor":   math.Floor,
 }
 
 func getCompileEnv(version int) map[string]interface{} {
@@ -104,7 +106,7 @@ func compileFromCacheByHash(exprStr, hash string) (*vm.Program, error) {
 	if len(cache) >= maxCacheSize {
 		cache = make(map[string]*cachedEntry, 64)
 	}
-	cache[hash] = &cachedEntry{prog: prog, usedVars: vars, version: version}
+	cache[hash] = &cachedEntry{prog: prog, usedVars: vars, usedUsageKeys: extractUsedUsageKeys(prog), version: version}
 	cacheMu.Unlock()
 
 	return prog, nil
@@ -137,6 +139,45 @@ func extractUsedVars(prog *vm.Program) map[string]bool {
 		return false
 	})
 	return vars
+}
+
+// extractUsedUsageKeys collects the literal keys read through u("key").
+func extractUsedUsageKeys(prog *vm.Program) map[string]bool {
+	keys := make(map[string]bool)
+	ast.Find(prog.Node(), func(node ast.Node) bool {
+		call, ok := node.(*ast.CallNode)
+		if !ok || len(call.Arguments) != 1 {
+			return false
+		}
+		callee, ok := call.Callee.(*ast.IdentifierNode)
+		if !ok || callee.Value != "u" {
+			return false
+		}
+		literal, ok := call.Arguments[0].(*ast.StringNode)
+		if !ok {
+			return false
+		}
+		keys[strings.TrimSpace(literal.Value)] = true
+		return false
+	})
+	return keys
+}
+
+// UsedUsageKeys returns the usage fact keys an expression reads through u().
+func UsedUsageKeys(exprStr string) map[string]bool {
+	if exprStr == "" {
+		return nil
+	}
+	hash := ExprHashString(exprStr)
+	if _, err := compileFromCacheByHash(exprStr, hash); err != nil {
+		return nil
+	}
+	cacheMu.RLock()
+	defer cacheMu.RUnlock()
+	if entry, ok := cache[hash]; ok {
+		return entry.usedUsageKeys
+	}
+	return nil
 }
 
 // UsedVars returns the set of identifier names referenced by an expression.

@@ -13,6 +13,8 @@ type RequestInput struct {
 	Headers     map[string]string
 	Body        []byte
 	EvaluatedAt time.Time
+	// Usage carries task plugin usage facts read by u(name).
+	Usage map[string]any
 }
 
 // ValidateCost rejects expression outputs that cannot represent a charge.
@@ -71,6 +73,10 @@ type BillingSnapshot struct {
 	EstimatedTier             string  `json:"estimated_tier"`
 	QuotaPerUnit              float64 `json:"quota_per_unit"`
 	ExprVersion               int     `json:"expr_version"`
+	// TaskUsageBilling marks a task usage expression: its output is a price in
+	// quota units per request rather than a $/1M token price.
+	TaskUsageBilling bool           `json:"task_usage_billing,omitempty"`
+	UsageFacts       map[string]any `json:"usage_facts,omitempty"`
 }
 
 // TieredResult holds everything needed after running tiered settlement.

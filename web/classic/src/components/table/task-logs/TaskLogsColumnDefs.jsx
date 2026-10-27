@@ -40,6 +40,7 @@ import {
   TASK_ACTION_REFERENCE_GENERATE,
   TASK_ACTION_TEXT_GENERATE,
   TASK_ACTION_REMIX_GENERATE,
+  normalizeTaskAction,
 } from '../../../constants/common.constant';
 import { CHANNEL_OPTIONS } from '../../../constants/channel.constants';
 import { stringToColor } from '../../../helpers/render';
@@ -162,9 +163,10 @@ const renderPlatform = (platform, t) => {
         </Tag>
       );
     default:
+      // 任务插件渠道（类型 61）以插件标识作为平台，直接展示
       return (
         <Tag color='white' shape='circle'>
-          {t('未知')}
+          {platform && Number.isNaN(Number(platform)) ? platform : t('未知')}
         </Tag>
       );
   }
@@ -301,15 +303,10 @@ export const getTaskLogsColumns = ({
         const displayText = String(record.username || userId || '?');
         return (
           <Space>
-            <Avatar
-              size='extra-small'
-              color={stringToColor(displayText)}
-            >
+            <Avatar size='extra-small' color={stringToColor(displayText)}>
               {displayText.slice(0, 1)}
             </Avatar>
-            <Typography.Text>
-              {displayText}
-            </Typography.Text>
+            <Typography.Text>{displayText}</Typography.Text>
           </Space>
         );
       },
@@ -327,7 +324,7 @@ export const getTaskLogsColumns = ({
       title: t('类型'),
       dataIndex: 'action',
       render: (text, record, index) => {
-        return <div>{renderType(text, t)}</div>;
+        return <div>{renderType(normalizeTaskAction(text), t)}</div>;
       },
     },
     {
@@ -408,15 +405,17 @@ export const getTaskLogsColumns = ({
         }
 
         // 视频预览：优先使用 result_url，兼容旧数据 fail_reason 中的 URL
+        const action = normalizeTaskAction(record.action);
         const isVideoTask =
-          record.action === TASK_ACTION_GENERATE ||
-          record.action === TASK_ACTION_TEXT_GENERATE ||
-          record.action === TASK_ACTION_FIRST_TAIL_GENERATE ||
-          record.action === TASK_ACTION_REFERENCE_GENERATE ||
-          record.action === TASK_ACTION_REMIX_GENERATE;
+          action === TASK_ACTION_GENERATE ||
+          action === TASK_ACTION_TEXT_GENERATE ||
+          action === TASK_ACTION_FIRST_TAIL_GENERATE ||
+          action === TASK_ACTION_REFERENCE_GENERATE ||
+          action === TASK_ACTION_REMIX_GENERATE;
         const isSuccess = record.status === 'SUCCESS';
         const resultUrl = record.result_url;
-        const hasResultUrl = typeof resultUrl === 'string' && /^https?:\/\//.test(resultUrl);
+        const hasResultUrl =
+          typeof resultUrl === 'string' && /^https?:\/\//.test(resultUrl);
         if (isSuccess && isVideoTask && hasResultUrl) {
           return (
             <a

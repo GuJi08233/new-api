@@ -161,17 +161,30 @@ func TestMidjourneyChargeAndRefundIncludeTokenAndUsage(t *testing.T) {
 	assert.Equal(t, 1, user.RequestCount)
 }
 
+// sunoFailureBillingAdaptor is a batch-mode task adaptor whose upstream reports
+// the task as failed, the shape the sunoapi plugin uses.
 type sunoFailureBillingAdaptor struct{}
 
 func (sunoFailureBillingAdaptor) Init(*relaycommon.RelayInfo) {}
-func (sunoFailureBillingAdaptor) FetchTask(string, string, map[string]any, string, bool) (*http.Response, error) {
-	return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewBufferString(`{"code":"success","data":[{"task_id":"suno-refund","status":"FAILURE","fail_reason":"failed"}]}`))}, nil
+func (sunoFailureBillingAdaptor) FetchTask(string, string, *model.Task, string) (*http.Response, error) {
+	return nil, nil
 }
-func (sunoFailureBillingAdaptor) ParseTaskResult([]byte) (*relaycommon.TaskInfo, error) {
+func (sunoFailureBillingAdaptor) ParseTaskResult(*model.Task, *http.Response, []byte) (*relaycommon.TaskInfo, error) {
 	return nil, nil
 }
 func (sunoFailureBillingAdaptor) AdjustBillingOnComplete(*model.Task, *relaycommon.TaskInfo) int {
 	return 0
+}
+func (sunoFailureBillingAdaptor) FetchMode() string { return "batch" }
+func (sunoFailureBillingAdaptor) FetchBatchTasks(string, string, []*model.Task, string) (*http.Response, error) {
+	return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewBufferString(`{}`))}, nil
+}
+func (sunoFailureBillingAdaptor) ParseBatchResult(tasks []*model.Task, _ *http.Response, _ []byte) (map[string]*BatchTaskResult, error) {
+	results := make(map[string]*BatchTaskResult, len(tasks))
+	for _, task := range tasks {
+		results[task.GetUpstreamTaskID()] = &BatchTaskResult{TaskInfo: relaycommon.TaskInfo{Status: model.TaskStatusFailure, Reason: "failed"}}
+	}
+	return results, nil
 }
 
 func TestSunoStalePollingSnapshotRefundsOnlyOnce(t *testing.T) {
@@ -188,8 +201,9 @@ func TestSunoStalePollingSnapshotRefundsOnlyOnce(t *testing.T) {
 	old := GetTaskAdaptorFunc
 	GetTaskAdaptorFunc = func(constant.TaskPlatform) TaskPollingAdaptor { return sunoFailureBillingAdaptor{} }
 	t.Cleanup(func() { GetTaskAdaptorFunc = old })
-	require.NoError(t, updateSunoTasks(context.Background(), 856, []string{"suno-refund"}, map[string]*model.Task{"suno-refund": task}))
-	require.NoError(t, updateSunoTasks(context.Background(), 856, []string{"suno-refund"}, map[string]*model.Task{"suno-refund": &stale}))
+	adaptor := sunoFailureBillingAdaptor{}
+	require.NoError(t, updateBatchTasks(context.Background(), adaptor, 856, []string{"suno-refund"}, map[string]*model.Task{"suno-refund": task}))
+	require.NoError(t, updateBatchTasks(context.Background(), adaptor, 856, []string{"suno-refund"}, map[string]*model.Task{"suno-refund": &stale}))
 	assert.Equal(t, 100, getUserQuota(t, 856))
 	assert.Equal(t, 100, getTokenRemainQuota(t, 856))
 	var saved model.Task

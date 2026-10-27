@@ -69,6 +69,14 @@ func TestRealtimeFetchRefundsFailedGeminiTaskOnlyOnce(t *testing.T) {
 	})
 	require.NoError(t, database.AutoMigrate(&model.Task{}, &model.User{}, &model.Channel{}, &model.Log{}))
 	service.InitHttpClient()
+	previousFactory := service.GetTaskAdaptorFunc
+	service.GetTaskAdaptorFunc = func(platform constant.TaskPlatform) service.TaskPollingAdaptor {
+		if adaptor := GetTaskAdaptor(platform); adaptor != nil {
+			return adaptor
+		}
+		return nil
+	}
+	t.Cleanup(func() { service.GetTaskAdaptorFunc = previousFactory })
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"name":"operations/task-1","done":true,"error":{"code":3,"message":"blocked by safety"}}`))
 	}))

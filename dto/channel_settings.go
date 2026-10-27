@@ -12,6 +12,8 @@ import (
 )
 
 type ChannelSettings struct {
+	// TaskPluginKey 绑定的任务插件（仅任务插件渠道类型 61 使用）
+	TaskPluginKey          string `json:"task_plugin_key,omitempty"`
 	ForceFormat            bool   `json:"force_format,omitempty"`
 	ThinkingToContent      bool   `json:"thinking_to_content,omitempty"`
 	Proxy                  string `json:"proxy"`
@@ -67,6 +69,19 @@ type ChannelSettings struct {
 	// 不复用连接池中的空闲连接（同时禁用 HTTP/2，避免并发请求多路复用同一条连接）。
 	// 用于代理池入口按连接分配不同出口 IP 的场景：不开启时同一出口会被连续复用。
 	DisableKeepAlive bool `json:"disable_keep_alive,omitempty"`
+}
+
+// BindsTaskPlugin reports whether the channel is bound to the task plugin.
+func (s ChannelSettings) BindsTaskPlugin(key string) bool {
+	return key != "" && s.TaskPluginKey == key
+}
+
+// TaskPluginBindings returns the task plugins the channel binds.
+func (s ChannelSettings) TaskPluginBindings() []string {
+	if s.TaskPluginKey == "" {
+		return []string{}
+	}
+	return []string{s.TaskPluginKey}
 }
 
 const (

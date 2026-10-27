@@ -23,6 +23,7 @@ import (
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/oauth"
+	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
 	"github.com/QuantumNous/new-api/relay"
 	"github.com/QuantumNous/new-api/router"
@@ -51,6 +52,10 @@ var classicBuildFS embed.FS
 var classicIndexPage []byte
 
 func main() {
+	// `new-api plugin lint|test` checks a task plugin without starting the server.
+	if len(os.Args) > 1 && os.Args[1] == "plugin" {
+		os.Exit(jsplugin.RunCLI(os.Args[2:], os.Stdout, os.Stderr))
+	}
 	startTime := time.Now()
 
 	err := InitResources()
@@ -106,6 +111,7 @@ func main() {
 
 	// 热更新配置
 	go model.SyncOptions(common.SyncFrequency)
+	go controller.SyncTaskPlugins()
 
 	// 周期性重载授权策略，保证多节点/多 master 部署下权限变更能传播到每个实例
 	go authz.StartPolicySync(common.SyncFrequency)
@@ -260,23 +266,11 @@ func configureTrustedProxies(server *gin.Engine) error {
 	if server == nil {
 		return errors.New("gin engine is nil")
 	}
-	raw := strings.TrimSpace(os.Getenv("TRUSTED_PROXIES"))
-	if raw == "" {
-		// Gin trusts all forwarding proxies by default. Disable that unsafe
-		// default so IP restrictions and risk-control data cannot be spoofed.
-		return server.SetTrustedProxies(nil)
+	proxies, err := common.ResolveTrustedProxies(os.Getenv("TRUSTED_PROXIES"))
+	if err != nil {
+		return err
 	}
-	parts := strings.Split(raw, ",")
-	proxies := make([]string, 0, len(parts))
-	for _, part := range parts {
-		if proxy := strings.TrimSpace(part); proxy != "" {
-			proxies = append(proxies, proxy)
-		}
-	}
-	if len(proxies) == 0 {
-		return server.SetTrustedProxies(nil)
-	}
-	return server.SetTrustedProxies(proxies)
+	return common.ConfigureTrustedProxies(server, proxies)
 }
 
 func InjectUmamiAnalytics() {

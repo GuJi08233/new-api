@@ -211,10 +211,12 @@ func processHeaderOverride(info *common.RelayInfo, c *gin.Context) (map[string]s
 	}
 
 	headerOverrideSource := common.GetEffectiveHeaderOverride(info)
+	// Background task polling has no client request from which to copy headers.
+	hasClientRequest := !info.IsChannelTest && c != nil && c.Request != nil
 
 	passAll := false
 	var passthroughRegex []*regexp.Regexp
-	if !info.IsChannelTest {
+	if hasClientRequest {
 		// 全局或渠道级"透传请求头"开关等价于配置了 "*" 透传规则,复用同一套敏感头过滤逻辑
 		if model_setting.GetGlobalSettings().PassThroughHeadersEnabled ||
 			(info.ChannelMeta != nil && info.ChannelSetting.PassThroughHeadersEnabled) {
@@ -253,9 +255,6 @@ func processHeaderOverride(info *common.RelayInfo, c *gin.Context) (map[string]s
 	}
 
 	if passAll || len(passthroughRegex) > 0 {
-		if c == nil || c.Request == nil {
-			return nil, types.NewError(fmt.Errorf("missing request context for header passthrough"), types.ErrorCodeChannelHeaderOverrideInvalid)
-		}
 		connectionHeaderNames := make(map[string]struct{})
 		for _, value := range c.Request.Header.Values("Connection") {
 			for _, name := range strings.Split(value, ",") {
@@ -305,7 +304,9 @@ func processHeaderOverride(info *common.RelayInfo, c *gin.Context) (map[string]s
 		if !ok {
 			return nil, types.NewError(nil, types.ErrorCodeChannelHeaderOverrideInvalid)
 		}
-		if info.IsChannelTest && strings.HasPrefix(strings.TrimSpace(str), clientHeaderPlaceholderPrefix) {
+		// Channel tests and background task polling have no client request to
+		// read client_header placeholders from, so those overrides are skipped.
+		if !hasClientRequest && strings.HasPrefix(strings.TrimSpace(str), clientHeaderPlaceholderPrefix) {
 			continue
 		}
 
@@ -337,6 +338,12 @@ func applyHeaderOverrideToRequest(req *http.Request, headerOverride map[string]s
 			req.Host = value
 		}
 	}
+}
+
+// ApplyHeaderOverride applies channel overrides after the adaptor's headers.
+// Without a client request, passthrough rules are skipped.
+func ApplyHeaderOverride(info *common.RelayInfo, c *gin.Context, req *http.Request) error {
+	return ApplyHeaderOverrideToRequest(info, c, req)
 }
 
 func ApplyHeaderOverrideToRequest(info *common.RelayInfo, c *gin.Context, req *http.Request) error {

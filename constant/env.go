@@ -19,6 +19,17 @@ var ErrorLogEnabled bool
 var TaskQueryLimit int
 var TaskTimeoutMinutes int
 
+// TaskPollMaxFailures fails a task after this many consecutive unrecognized or
+// transient poll outcomes. Zero or negative disables the cutoff.
+var TaskPollMaxFailures = 20
+
+// Task plugin protocol bridges (Responses / Images) observe a task until it
+// finishes; these bound the wait and the observation cadence.
+var TaskPluginProtocolTimeoutSeconds = 600
+var TaskPluginProtocolTickMilliseconds = 2000
+var TaskPluginProtocolTickJitterMilliseconds = 500
+var TaskPluginProtocolHeartbeatSeconds = 15
+
 // temporary variable for sora patch, will be removed in future
 var TaskPricePatches []string
 

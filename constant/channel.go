@@ -58,6 +58,7 @@ const (
 	ChannelTypeOA2            = 58 // OA2 四合一渠道 (OpenAI + Codex + Anthropic + Gemini)
 	ChannelTypeAdvancedCustom = 59
 	ChannelTypeTypeSafe       = 60
+	ChannelTypeTaskPlugin     = 61
 	ChannelTypeDummy          // this one is only for count, do not add any channel after this
 
 )
@@ -124,6 +125,14 @@ var ChannelBaseURLs = []string{
 	"",                                          //58
 	"",                                          //59
 	"https://api.typesafe.ai",                   //60
+	"",                                          //61
+}
+
+func GetChannelBaseURL(channelType int) string {
+	if channelType < 0 || channelType >= len(ChannelBaseURLs) {
+		return ""
+	}
+	return ChannelBaseURLs[channelType]
 }
 
 var ChannelTypeNames = map[int]string{
@@ -184,6 +193,7 @@ var ChannelTypeNames = map[int]string{
 	ChannelTypeOA2:            "OA2",
 	ChannelTypeAdvancedCustom: "Advanced Custom",
 	ChannelTypeTypeSafe:       "TypeSafe",
+	ChannelTypeTaskPlugin:     "Task Plugin",
 }
 
 func GetChannelTypeName(channelType int) string {

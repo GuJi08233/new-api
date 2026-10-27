@@ -19,14 +19,12 @@ type WebAssets struct {
 	IndexPage []byte
 }
 
-func SetWebRouter(router *gin.Engine, assets WebAssets) {
+// SetWebRouter serves the dashboard on unmatched paths. Task plugin routes
+// are tried first so plugin-declared vendor APIs bypass the web middlewares.
+func SetWebRouter(router *gin.Engine, assets WebAssets, pluginDispatcher gin.HandlerFunc) {
 	webFS := common.EmbedFolder(assets.BuildFS, "web/classic/dist")
 
-	router.Use(gzip.Gzip(gzip.DefaultCompression))
-	router.Use(middleware.GlobalWebRateLimit())
-	router.Use(middleware.Cache())
-	router.Use(static.Serve("/", webFS))
-	router.NoRoute(func(c *gin.Context) {
+	router.NoRoute(pluginDispatcher, gzip.Gzip(gzip.DefaultCompression), middleware.GlobalWebRateLimit(), middleware.Cache(), static.Serve("/", webFS), func(c *gin.Context) {
 		c.Set(middleware.RouteTagKey, "web")
 		if strings.HasPrefix(c.Request.RequestURI, "/v1") || strings.HasPrefix(c.Request.RequestURI, "/api") || strings.HasPrefix(c.Request.RequestURI, "/assets") {
 			controller.RelayNotFound(c)

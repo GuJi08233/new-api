@@ -8,3 +8,5 @@ var WorkerAllowHttpImageRequestEnabled = false
 func EnableWorker() bool {
 	return WorkerUrl != ""
 }
+
+var TaskPublicAddress = ""

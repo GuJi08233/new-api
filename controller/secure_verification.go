@@ -2,6 +2,11 @@ package controller
 
 import (
 	"errors"
+	"net/http"
+	"net/url"
+	"strings"
+	"time"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
@@ -10,10 +15,6 @@ import (
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
-	"net/http"
-	"net/url"
-	"strings"
-	"time"
 )
 
 type UniversalVerifyRequest struct {

@@ -31,8 +31,8 @@ type taskPollingFetchAdaptor struct {
 
 func (a *taskPollingFetchAdaptor) Init(_ *relaycommon.RelayInfo) {}
 
-func (a *taskPollingFetchAdaptor) FetchTask(_ string, _ string, body map[string]any, _ string, _ bool) (*http.Response, error) {
-	taskID, _ := body["task_id"].(string)
+func (a *taskPollingFetchAdaptor) FetchTask(_ string, _ string, task *model.Task, _ string) (*http.Response, error) {
+	taskID := task.GetUpstreamTaskID()
 	if taskID == a.blockTaskID && a.releaseBlock != nil {
 		a.blockOnce.Do(func() {
 			if a.blockStarted != nil {
@@ -70,7 +70,7 @@ func (a *taskPollingFetchAdaptor) FetchTask(_ string, _ string, body map[string]
 	}, nil
 }
 
-func (a *taskPollingFetchAdaptor) ParseTaskResult([]byte) (*relaycommon.TaskInfo, error) {
+func (a *taskPollingFetchAdaptor) ParseTaskResult(*model.Task, *http.Response, []byte) (*relaycommon.TaskInfo, error) {
 	return &relaycommon.TaskInfo{Status: model.TaskStatusInProgress}, nil
 }
 
@@ -112,7 +112,7 @@ func seedPollingTask(t *testing.T, channelID int, publicID string, upstreamID st
 		Platform:  constant.TaskPlatform("kling"),
 		UserId:    1,
 		ChannelId: channelID,
-		Action:    constant.TaskActionGenerate,
+		Action:    constant.TaskActionImageToVideo,
 		Status:    model.TaskStatusInProgress,
 		Progress:  "30%",
 		CreatedAt: time.Now().Unix(),

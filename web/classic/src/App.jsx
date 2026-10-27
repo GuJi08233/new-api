@@ -58,6 +58,7 @@ import SetupCheck from './components/layout/SetupCheck';
 const Home = lazy(() => import('./pages/Home'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const RiskControl = lazy(() => import('./pages/RiskControl'));
+const TaskPlugin = lazy(() => import('./pages/TaskPlugin'));
 const About = lazy(() => import('./pages/About'));
 const UserAgreement = lazy(() => import('./pages/UserAgreement'));
 const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy'));
@@ -243,6 +244,19 @@ function App() {
             element={
               <RootRoute>
                 <GameAdmin />
+              </RootRoute>
+            }
+          />
+          <Route
+            path='/console/task_plugin'
+            element={
+              <RootRoute>
+                <Suspense
+                  fallback={<Loading></Loading>}
+                  key={location.pathname}
+                >
+                  <TaskPlugin />
+                </Suspense>
               </RootRoute>
             }
           />

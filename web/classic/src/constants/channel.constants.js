@@ -199,6 +199,11 @@ export const CHANNEL_OPTIONS = [
     color: 'cyan',
     label: 'TypeSafe (System One)',
   },
+  {
+    value: 61,
+    color: 'violet',
+    label: '任务插件',
+  },
 ];
 
 // Channel types that support upstream model list fetching in UI.

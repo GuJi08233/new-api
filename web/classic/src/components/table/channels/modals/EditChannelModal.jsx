@@ -208,6 +208,8 @@ const EditChannelModal = (props) => {
     proxy: '',
     // 每个请求新建连接并立即断开，不复用连接池（用于代理池按连接分配出口 IP）
     disable_keep_alive: false,
+    // 仅任务插件渠道（类型 61）：驱动该渠道的插件
+    task_plugin_key: '',
     pass_through_body_enabled: false,
     pass_through_headers_enabled: false,
     pass_through_rewrite_model_enabled: false,
@@ -300,6 +302,18 @@ const EditChannelModal = (props) => {
   const [keyMode, setKeyMode] = useState('append'); // 密钥模式：replace（覆盖）或 append（追加）
   const [isEnterpriseAccount, setIsEnterpriseAccount] = useState(false); // 是否为企业账户
   const [doubaoApiEditUnlocked, setDoubaoApiEditUnlocked] = useState(false); // 豆包渠道自定义 API 地址隐藏入口
+  const [taskPluginOptions, setTaskPluginOptions] = useState([]);
+
+  useEffect(() => {
+    if (inputs.type !== 61) return;
+    API.get('/api/task_plugin_options').then((res) => {
+      if (res.data.success) {
+        setTaskPluginOptions(res.data.data || []);
+      } else {
+        showError(res.data.message);
+      }
+    });
+  }, [inputs.type]);
   const redirectModelList = useMemo(() => {
     const mapping = inputs.model_mapping;
     if (typeof mapping !== 'string') return [];
@@ -1004,6 +1018,7 @@ const EditChannelModal = (props) => {
             parsedSettings.thinking_to_content || false;
           data.proxy = parsedSettings.proxy || '';
           data.disable_keep_alive = parsedSettings.disable_keep_alive === true;
+          data.task_plugin_key = parsedSettings.task_plugin_key || '';
           data.pass_through_body_enabled =
             parsedSettings.pass_through_body_enabled || false;
           data.pass_through_headers_enabled =
@@ -1047,6 +1062,7 @@ const EditChannelModal = (props) => {
           data.thinking_to_content = false;
           data.proxy = '';
           data.disable_keep_alive = false;
+          data.task_plugin_key = '';
           data.pass_through_body_enabled = false;
           data.pass_through_headers_enabled = false;
           data.pass_through_rewrite_model_enabled = false;
@@ -1072,6 +1088,7 @@ const EditChannelModal = (props) => {
         data.thinking_to_content = false;
         data.proxy = '';
         data.disable_keep_alive = false;
+        data.task_plugin_key = '';
         data.pass_through_body_enabled = false;
         data.pass_through_headers_enabled = false;
         data.pass_through_rewrite_model_enabled = false;
@@ -2068,6 +2085,10 @@ const EditChannelModal = (props) => {
       thinking_to_content: localInputs.thinking_to_content || false,
       proxy: localInputs.proxy || '',
       disable_keep_alive: localInputs.disable_keep_alive === true,
+      // 后端拒绝非任务插件渠道携带插件绑定，只在类型 61 时写入
+      ...(localInputs.type === 61 && localInputs.task_plugin_key
+        ? { task_plugin_key: localInputs.task_plugin_key }
+        : {}),
       pass_through_body_enabled: localInputs.pass_through_body_enabled || false,
       pass_through_headers_enabled:
         localInputs.pass_through_headers_enabled || false,
@@ -3603,6 +3624,38 @@ const EditChannelModal = (props) => {
                         onChange={(value) => handleInputChange('type', value)}
                         disabled={isIonetLocked}
                       />
+
+                      {inputs.type === 61 && (
+                        <Form.Select
+                          field='task_plugin_key'
+                          label={t('任务插件')}
+                          placeholder={t('请选择任务插件')}
+                          rules={[
+                            { required: true, message: t('请选择任务插件') },
+                          ]}
+                          optionList={taskPluginOptions.map((plugin) => ({
+                            value: plugin.key,
+                            label: `${plugin.name} (${plugin.key})`,
+                          }))}
+                          style={{ width: '100%' }}
+                          filter
+                          onChange={(value) => {
+                            handleInputChange('task_plugin_key', value);
+                            const plugin = taskPluginOptions.find(
+                              (item) => item.key === value,
+                            );
+                            if (
+                              plugin?.models?.length &&
+                              (!inputs.models || inputs.models.length === 0)
+                            ) {
+                              handleInputChange('models', plugin.models);
+                            }
+                          }}
+                          extraText={t(
+                            '由所选插件处理该渠道的请求与轮询；API 地址留空时使用插件默认地址',
+                          )}
+                        />
+                      )}
 
                       {inputs.type === 57 && (
                         <Banner

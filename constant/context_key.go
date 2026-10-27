@@ -22,6 +22,10 @@ const (
 	// ContextKeyRiskBlocked marks a request rejected by risk control itself, so the
 	// error-rate guard does not count its own rejections and extend the ban forever.
 	ContextKeyRiskBlocked ContextKey = "risk_blocked"
+	// ContextKeyOriginTasks carries the public tasks a task plugin request depends on.
+	ContextKeyOriginTasks ContextKey = "origin_tasks"
+	// ContextKeyChannelConstraints carries channel pins and filters for selection.
+	ContextKeyChannelConstraints ContextKey = "channel_constraints"
 
 	/* token related keys */
 	ContextKeyTokenUnlimited         ContextKey = "token_unlimited_quota"

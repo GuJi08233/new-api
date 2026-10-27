@@ -86,6 +86,12 @@ func runProgram(prog *vm.Program, params TokenParams, request RequestInput) (flo
 			}
 			return result.Value()
 		},
+		"u": func(name string) interface{} {
+			if request.Usage == nil {
+				return nil
+			}
+			return request.Usage[strings.TrimSpace(name)]
+		},
 		"has": func(source interface{}, substr string) bool {
 			if source == nil || substr == "" {
 				return false

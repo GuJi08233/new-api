@@ -89,6 +89,7 @@ import {
   ShieldAlert,
   ChartCandlestick,
   Gamepad2,
+  Puzzle,
 } from 'lucide-react';
 import {
   SiAtlassian,
@@ -167,6 +168,8 @@ export function getLucideIcon(key, selected = false) {
       return <ChartCandlestick {...commonProps} color={iconColor} />;
     case 'game_admin':
       return <Gamepad2 {...commonProps} color={iconColor} />;
+    case 'task_plugin':
+      return <Puzzle {...commonProps} color={iconColor} />;
     case 'setting':
       return <Settings {...commonProps} color={iconColor} />;
     default:

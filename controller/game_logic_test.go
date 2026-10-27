@@ -2,12 +2,13 @@ package controller
 
 import (
 	"fmt"
+	"net/http"
+	"testing"
+
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"net/http"
-	"testing"
 )
 
 func TestLogicPuzzleRecoveryOwnershipAndVersions(t *testing.T) {

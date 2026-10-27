@@ -7,6 +7,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/console_setting"
@@ -201,6 +202,19 @@ func UpdateOption(c *gin.Context) {
 				"message": err.Error(),
 			})
 			return
+		}
+	case billing_setting.PluginBillingExprOption:
+		err = billing_setting.ValidatePluginExprMapJSONString(option.Value.(string))
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
+			return
+		}
+	case "TaskPublicAddress":
+		if value := option.Value.(string); value != "" {
+			if err = service.ValidateTaskArtifactBaseURL(value); err != nil {
+				c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
+				return
+			}
 		}
 	case billing_setting.BillingExprOptionKey:
 		err = billing_setting.ValidateExprMapJSONString(option.Value.(string))

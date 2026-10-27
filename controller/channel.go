@@ -15,6 +15,7 @@ import (
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	relaychannel "github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/gemini"
 	"github.com/QuantumNous/new-api/relay/channel/ollama"
@@ -501,6 +502,9 @@ func validateChannel(channel *model.Channel, isAdd bool) error {
 	// 校验 channel settings
 	if err := channel.ValidateSettings(); err != nil {
 		return fmt.Errorf("渠道额外设置[channel setting] 格式错误：%s", err.Error())
+	}
+	if err := validateTaskPluginChannel(channel); err != nil {
+		return err
 	}
 
 	// 如果是添加操作，检查 channel 和 key 是否为空
@@ -2515,4 +2519,36 @@ func equalStringPtr(a, b *string) bool {
 		return false
 	}
 	return *a == *b
+}
+
+// validateTaskPluginChannel checks the plugin a Task Plugin (type 61) channel
+// binds. When the base URL is empty the plugin default is persisted onto the
+// channel, so the destination host stays an auditable channel property.
+func validateTaskPluginChannel(channel *model.Channel) error {
+	setting := channel.GetSetting()
+	pluginKey := strings.TrimSpace(setting.TaskPluginKey)
+	if channel.Type != constant.ChannelTypeTaskPlugin {
+		if pluginKey != "" {
+			return fmt.Errorf("仅任务插件渠道可以绑定任务插件")
+		}
+		return nil
+	}
+	if pluginKey == "" {
+		return fmt.Errorf("任务插件渠道必须选择任务插件")
+	}
+	if len(pluginKey) > 30 {
+		return fmt.Errorf("任务插件标识不能超过 30 个字符")
+	}
+	plugin, ok := jsplugin.DefaultRegistry.Get(pluginKey)
+	if !ok {
+		return fmt.Errorf("任务插件 %q 未注册或未启用", pluginKey)
+	}
+	if channel.BaseURL == nil || strings.TrimSpace(*channel.BaseURL) == "" {
+		if plugin.Meta.BaseURL == "" {
+			return fmt.Errorf("任务插件渠道必须填写 Base URL")
+		}
+		defaultBaseURL := plugin.Meta.BaseURL
+		channel.BaseURL = &defaultBaseURL
+	}
+	return nil
 }

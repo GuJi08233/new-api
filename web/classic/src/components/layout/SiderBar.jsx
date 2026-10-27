@@ -46,6 +46,7 @@ const routerMap = {
   system_info: '/console/system_info',
   trade_admin: '/console/trade',
   game_admin: '/console/game',
+  task_plugin: '/console/task_plugin',
   about: '/about',
   detail: '/console',
   pricing: '/pricing',
@@ -210,6 +211,12 @@ const SiderBar = ({ onNavigate = () => {} }) => {
         text: t('游戏管理'),
         itemKey: 'game_admin',
         to: '/game',
+        className: isRoot() ? '' : 'tableHiddle',
+      },
+      {
+        text: t('任务插件'),
+        itemKey: 'task_plugin',
+        to: '/task_plugin',
         className: isRoot() ? '' : 'tableHiddle',
       },
       {

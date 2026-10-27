@@ -855,10 +855,12 @@ type mockAdaptor struct {
 }
 
 func (m *mockAdaptor) Init(_ *relaycommon.RelayInfo) {}
-func (m *mockAdaptor) FetchTask(string, string, map[string]any, string, bool) (*http.Response, error) {
+func (m *mockAdaptor) FetchTask(string, string, *model.Task, string) (*http.Response, error) {
 	return nil, nil
 }
-func (m *mockAdaptor) ParseTaskResult([]byte) (*relaycommon.TaskInfo, error) { return nil, nil }
+func (m *mockAdaptor) ParseTaskResult(*model.Task, *http.Response, []byte) (*relaycommon.TaskInfo, error) {
+	return nil, nil
+}
 func (m *mockAdaptor) AdjustBillingOnComplete(_ *model.Task, _ *relaycommon.TaskInfo) int {
 	return m.adjustReturn
 }
@@ -951,4 +953,45 @@ func TestSettle_NonPerCallBilling_AppliesAdaptorAdjustment(t *testing.T) {
 	log := getLastLog(t)
 	require.NotNil(t, log)
 	assert.Equal(t, model.LogTypeRefund, log.Type)
+}
+
+// Audio-driven Wan video is pre-charged at a 20 second upper bound; the actual
+// duration reported on completion refunds the unused share and never charges more.
+func TestSettle_SpeechVideoRefundsUnusedSeconds(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		reported      any
+		wantQuota     int
+		wantUserQuota int
+	}{
+		{name: "shorter output refunds the difference", reported: float64(5), wantQuota: 1000, wantUserQuota: 13000},
+		{name: "full length keeps the reservation", reported: float64(20), wantQuota: 4000, wantUserQuota: 10000},
+		{name: "longer output is never charged more", reported: float64(30), wantQuota: 4000, wantUserQuota: 10000},
+		{name: "missing duration keeps the reservation", reported: nil, wantQuota: 4000, wantUserQuota: 10000},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			truncate(t)
+			const userID, tokenID, channelID = 40, 40, 40
+			seedUser(t, userID, 10000)
+			seedToken(t, tokenID, userID, "sk-s2v", 10000)
+			seedChannel(t, channelID)
+			task := makeTask(userID, channelID, 4000, tokenID, BillingSourceWallet, 0)
+			task.Status = model.TaskStatusSuccess
+			task.Properties.UpstreamModelName = "wan2.2-s2v"
+			task.PrivateData.BillingContext.PerCallBilling = true
+			task.PrivateData.BillingContext.OtherRatios = map[string]float64{"seconds": 20}
+			require.NoError(t, model.DB.Create(task).Error)
+			result := &relaycommon.TaskInfo{Status: model.TaskStatusSuccess, UsageFacts: map[string]any{}}
+			if tc.reported != nil {
+				result.UsageFacts["seconds"] = tc.reported
+			}
+
+			settleTaskBillingOnComplete(context.Background(), &mockAdaptor{}, task, result)
+
+			var saved model.Task
+			require.NoError(t, model.DB.First(&saved, task.ID).Error)
+			assert.Equal(t, tc.wantQuota, saved.Quota)
+			assert.Equal(t, tc.wantUserQuota, getUserQuota(t, userID))
+		})
+	}
 }
