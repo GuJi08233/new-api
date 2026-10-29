@@ -1366,6 +1366,7 @@ const EditChannelModal = (props) => {
             base_url: inputs['base_url'],
             type: inputs['type'],
             key: inputs['key'],
+            header_override: inputs['header_override'] || '',
           };
 
           // OA2 渠道：发送各格式 URL

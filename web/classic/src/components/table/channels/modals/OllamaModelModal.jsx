@@ -227,6 +227,7 @@ const OllamaModelModal = ({
             base_url: resolvedBaseUrl,
             type: CHANNEL_TYPE_OLLAMA,
             key: channelInfo?.key || '',
+            header_override: channelInfo?.header_override || '',
           };
 
           const res = await API.post('/api/channel/fetch_models', payload, {

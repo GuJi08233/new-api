@@ -106,7 +106,7 @@ func fetchOA2OpenAIModels(channel *model.Channel, url string) ([]string, error) 
 	}
 	key = strings.TrimSpace(key)
 
-	headers, err := buildFetchModelsHeaders(channel, key)
+	headers, err := buildFetchModelsHeaders(channel.GetHeaderOverride(), channel.Type, key)
 	if err != nil {
 		return nil, err
 	}
@@ -355,7 +355,11 @@ func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 			attemptedSources++
 			key := strings.TrimSpace(strings.Split(channel.Key, "\n")[0])
 			channelProxySettings := channel.GetSetting()
-			if geminiModels, err := gemini.FetchGeminiModels(otherSettings.OA2BaseURLGemini, key, channelProxySettings.Proxy, channelProxySettings.DisableKeepAlive); err != nil {
+			headers, err := buildFetchModelsHeaders(channel.GetHeaderOverride(), constant.ChannelTypeGemini, key)
+			if err != nil {
+				return nil, err
+			}
+			if geminiModels, err := gemini.FetchGeminiModels(otherSettings.OA2BaseURLGemini, channelProxySettings.Proxy, channelProxySettings.DisableKeepAlive, headers); err != nil {
 				errorMessages = append(errorMessages, fmt.Sprintf("Gemini: %v", err))
 			} else {
 				succeededSources++
@@ -407,7 +411,11 @@ func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 
 	if channel.Type == constant.ChannelTypeOllama {
 		key := strings.TrimSpace(strings.Split(channel.Key, "\n")[0])
-		models, err := ollama.FetchOllamaModels(baseURL, key)
+		headers, err := buildFetchModelsHeaders(channel.GetHeaderOverride(), channel.Type, key)
+		if err != nil {
+			return nil, err
+		}
+		models, err := ollama.FetchOllamaModels(baseURL, headers)
 		if err != nil {
 			return nil, err
 		}
@@ -422,8 +430,12 @@ func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 			return nil, fmt.Errorf("获取渠道密钥失败: %w", apiErr)
 		}
 		key = strings.TrimSpace(key)
+		headers, err := buildFetchModelsHeaders(channel.GetHeaderOverride(), channel.Type, key)
+		if err != nil {
+			return nil, err
+		}
 		channelProxySettings := channel.GetSetting()
-		models, err := gemini.FetchGeminiModels(baseURL, key, channelProxySettings.Proxy, channelProxySettings.DisableKeepAlive)
+		models, err := gemini.FetchGeminiModels(baseURL, channelProxySettings.Proxy, channelProxySettings.DisableKeepAlive, headers)
 		if err != nil {
 			return nil, err
 		}
@@ -462,7 +474,7 @@ func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 	}
 	key = strings.TrimSpace(key)
 
-	headers, err := buildFetchModelsHeaders(channel, key)
+	headers, err := buildFetchModelsHeaders(channel.GetHeaderOverride(), channel.Type, key)
 	if err != nil {
 		return nil, err
 	}

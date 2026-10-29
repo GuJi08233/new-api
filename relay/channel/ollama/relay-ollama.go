@@ -342,7 +342,8 @@ func ollamaEmbeddingHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *h
 	return usage, nil
 }
 
-func FetchOllamaModels(baseURL, apiKey string) ([]OllamaModel, error) {
+// FetchOllamaModels 拉取 /api/tags；headers 由调用方组装好鉴权头与渠道请求头覆盖。
+func FetchOllamaModels(baseURL string, headers http.Header) ([]OllamaModel, error) {
 	url := fmt.Sprintf("%s/api/tags", baseURL)
 
 	client := &http.Client{}
@@ -351,10 +352,7 @@ func FetchOllamaModels(baseURL, apiKey string) ([]OllamaModel, error) {
 		return nil, fmt.Errorf("创建请求失败: %v", err)
 	}
 
-	// Ollama 通常不需要 Bearer token，但为了兼容性保留
-	if apiKey != "" {
-		request.Header.Set("Authorization", "Bearer "+apiKey)
-	}
+	service.SetRequestHeaders(request, headers)
 
 	response, err := client.Do(request)
 	if err != nil {

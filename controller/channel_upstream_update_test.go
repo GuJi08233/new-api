@@ -11,6 +11,7 @@ import (
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -86,6 +87,138 @@ func TestFetchChannelUpstreamModelIDsOA2SupportsLegacyBaseURL(t *testing.T) {
 	models, err := fetchChannelUpstreamModelIDs(channel)
 	require.NoError(t, err)
 	require.Equal(t, []string{"legacy-model"}, models)
+}
+
+// newHostCheckingModelListServer 只在请求带着覆盖后的 Host 时返回模型列表，
+// 同时提供 OpenAI、Gemini、Ollama 三种模型列表接口。
+func newHostCheckingModelListServer(t *testing.T, wantHost string) *httptest.Server {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Host != wantHost {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/v1/models":
+			_, _ = w.Write([]byte(`{"data":[{"id":"openai-model"}]}`))
+		case "/v1beta/models":
+			_, _ = w.Write([]byte(`{"models":[{"name":"models/gemini-model"}]}`))
+		case "/api/tags":
+			_, _ = w.Write([]byte(`{"models":[{"name":"ollama-model"}]}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
+func TestFetchChannelUpstreamModelIDsAppliesHostHeaderOverride(t *testing.T) {
+	server := newHostCheckingModelListServer(t, "upstream.example.com")
+	for _, tt := range []struct {
+		name        string
+		channelType int
+		settings    dto.ChannelOtherSettings
+		want        []string
+	}{
+		{name: "openai", channelType: constant.ChannelTypeOpenAI, want: []string{"openai-model"}},
+		{name: "gemini", channelType: constant.ChannelTypeGemini, want: []string{"gemini-model"}},
+		{name: "ollama", channelType: constant.ChannelTypeOllama, want: []string{"ollama-model"}},
+		{
+			name:        "oa2",
+			channelType: constant.ChannelTypeOA2,
+			settings: dto.ChannelOtherSettings{
+				OA2OpenAIEnabled: true,
+				OA2BaseURLOpenAI: server.URL,
+				OA2GeminiEnabled: true,
+				OA2BaseURLGemini: server.URL,
+			},
+			want: []string{"openai-model", "gemini-model"},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			settingsJSON, err := common.Marshal(tt.settings)
+			require.NoError(t, err)
+			channel := &model.Channel{
+				Type:           tt.channelType,
+				Key:            "test-key",
+				BaseURL:        common.GetPointer(server.URL),
+				HeaderOverride: common.GetPointer(`{"Host":"upstream.example.com"}`),
+				OtherSettings:  string(settingsJSON),
+			}
+
+			models, err := fetchChannelUpstreamModelIDs(channel)
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, models)
+		})
+	}
+}
+
+func TestFetchModelsAppliesHostHeaderOverride(t *testing.T) {
+	server := newHostCheckingModelListServer(t, "upstream.example.com")
+	for _, tt := range []struct {
+		name    string
+		payload map[string]any
+		want    []string
+	}{
+		{name: "openai", payload: map[string]any{"type": constant.ChannelTypeOpenAI, "base_url": server.URL}, want: []string{"openai-model"}},
+		{name: "gemini", payload: map[string]any{"type": constant.ChannelTypeGemini, "base_url": server.URL}, want: []string{"gemini-model"}},
+		{name: "ollama", payload: map[string]any{"type": constant.ChannelTypeOllama, "base_url": server.URL}, want: []string{"ollama-model"}},
+		{
+			name: "oa2",
+			payload: map[string]any{
+				"type":                constant.ChannelTypeOA2,
+				"oa2_base_url_openai": server.URL,
+				"oa2_base_url_gemini": server.URL,
+			},
+			want: []string{"openai-model", "gemini-model"},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.payload["key"] = "test-key"
+			tt.payload["header_override"] = `{"Host":"upstream.example.com"}`
+			response := callFetchModels(t, tt.payload)
+
+			require.True(t, response.Success, response.Message)
+			assert.Equal(t, tt.want, response.Data)
+		})
+	}
+}
+
+func TestFetchModelsRejectsInvalidHeaderOverride(t *testing.T) {
+	response := callFetchModels(t, map[string]any{
+		"type":            constant.ChannelTypeOpenAI,
+		"key":             "test-key",
+		"base_url":        "http://127.0.0.1:1",
+		"header_override": `{"Host":`,
+	})
+
+	assert.False(t, response.Success)
+	assert.Contains(t, response.Message, "请求头覆盖")
+}
+
+type fetchModelsResponse struct {
+	Success bool     `json:"success"`
+	Message string   `json:"message"`
+	Data    []string `json:"data"`
+}
+
+func callFetchModels(t *testing.T, payload map[string]any) fetchModelsResponse {
+	t.Helper()
+	body, err := common.Marshal(payload)
+	require.NoError(t, err)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/channel/fetch_models", strings.NewReader(string(body)))
+	ctx.Request.Header.Set("Content-Type", "application/json")
+
+	FetchModels(ctx)
+
+	var response fetchModelsResponse
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+	return response
 }
 
 func TestFetchModelsOA2SupportsLegacyBaseURL(t *testing.T) {

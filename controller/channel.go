@@ -202,16 +202,22 @@ func GetAllChannels(c *gin.Context) {
 	return
 }
 
-func buildFetchModelsHeaders(channel *model.Channel, key string) (http.Header, error) {
+// buildFetchModelsHeaders 按 authType 对应的上游格式生成鉴权头，再叠加渠道请求头覆盖。
+// OA2 的 Gemini 来源需要 Gemini 鉴权头，所以 authType 不一定等于渠道类型。
+func buildFetchModelsHeaders(headerOverride map[string]interface{}, authType int, key string) (http.Header, error) {
 	var headers http.Header
-	switch channel.Type {
+	switch authType {
 	case constant.ChannelTypeAnthropic:
 		headers = GetClaudeAuthHeader(key)
+	case constant.ChannelTypeGemini:
+		headers = http.Header{}
+		if key != "" {
+			headers.Set("x-goog-api-key", key)
+		}
 	default:
 		headers = GetAuthHeader(key)
 	}
 
-	headerOverride := channel.GetHeaderOverride()
 	for k, v := range headerOverride {
 		if relaychannel.IsHeaderPassthroughRuleKey(k) {
 			continue
@@ -1309,7 +1315,7 @@ func UpdateChannel(c *gin.Context) {
 }
 
 // fetchOpenAIStyleModels 获取 OpenAI 格式的模型列表
-func fetchOpenAIStyleModels(baseURL, key string) ([]string, error) {
+func fetchOpenAIStyleModels(baseURL string, headers http.Header) ([]string, error) {
 	client := &http.Client{
 		Timeout: 10 * time.Second,
 	}
@@ -1320,9 +1326,7 @@ func fetchOpenAIStyleModels(baseURL, key string) ([]string, error) {
 		return nil, err
 	}
 
-	if key != "" {
-		request.Header.Set("Authorization", "Bearer "+key)
-	}
+	service.SetRequestHeaders(request, headers)
 
 	response, err := client.Do(request)
 	if err != nil {
@@ -1341,7 +1345,7 @@ func fetchOpenAIStyleModels(baseURL, key string) ([]string, error) {
 		} `json:"data"`
 	}
 
-	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+	if err := common.DecodeJson(response.Body, &result); err != nil {
 		return nil, err
 	}
 
@@ -1354,19 +1358,43 @@ func fetchOpenAIStyleModels(baseURL, key string) ([]string, error) {
 
 func FetchModels(c *gin.Context) {
 	var req struct {
-		BaseURL      string `json:"base_url"`
-		Type         int    `json:"type"`
-		Key          string `json:"key"`
-		OA2OpenAIURL string `json:"oa2_base_url_openai,omitempty"`
-		OA2ClaudeURL string `json:"oa2_base_url_claude,omitempty"`
-		OA2CodexURL  string `json:"oa2_base_url_codex,omitempty"`
-		OA2GeminiURL string `json:"oa2_base_url_gemini,omitempty"`
+		BaseURL        string `json:"base_url"`
+		Type           int    `json:"type"`
+		Key            string `json:"key"`
+		HeaderOverride string `json:"header_override,omitempty"`
+		OA2OpenAIURL   string `json:"oa2_base_url_openai,omitempty"`
+		OA2ClaudeURL   string `json:"oa2_base_url_claude,omitempty"`
+		OA2CodexURL    string `json:"oa2_base_url_codex,omitempty"`
+		OA2GeminiURL   string `json:"oa2_base_url_gemini,omitempty"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
 			"message": "Invalid request",
+		})
+		return
+	}
+
+	// 新建渠道尚未保存，请求头覆盖由表单直接传入；格式错误要明确报出，不能静默忽略。
+	var headerOverride map[string]interface{}
+	if strings.TrimSpace(req.HeaderOverride) != "" {
+		if err := common.UnmarshalJsonStr(req.HeaderOverride, &headerOverride); err != nil {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": "请求头覆盖不是合法的 JSON 对象: " + err.Error(),
+			})
+			return
+		}
+	}
+
+	// 批量添加时密钥为多行，只用第一把；OA2 留空表示对接无认证上游。
+	key := strings.TrimSpace(strings.Split(strings.TrimSpace(req.Key), "\n")[0])
+	headers, err := buildFetchModelsHeaders(headerOverride, req.Type, key)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": err.Error(),
 		})
 		return
 	}
@@ -1385,8 +1413,6 @@ func FetchModels(c *gin.Context) {
 			}
 		}
 
-		// 批量添加时密钥为多行，只用第一把；留空表示对接无认证上游。
-		key := strings.TrimSpace(strings.Split(strings.TrimSpace(req.Key), "\n")[0])
 		allModels := make([]string, 0)
 		modelSet := make(map[string]bool)
 		errorMessages := make([]string, 0)
@@ -1401,7 +1427,7 @@ func FetchModels(c *gin.Context) {
 
 		// 获取 OpenAI 格式的模型
 		if req.OA2OpenAIURL != "" {
-			openAIModels, err := fetchOpenAIStyleModels(req.OA2OpenAIURL, key)
+			openAIModels, err := fetchOpenAIStyleModels(req.OA2OpenAIURL, headers)
 			if err != nil {
 				errorMessages = append(errorMessages, fmt.Sprintf("OpenAI格式: %s", err.Error()))
 			} else {
@@ -1411,7 +1437,7 @@ func FetchModels(c *gin.Context) {
 
 		// 获取 Codex(Responses)格式的模型(上游通常也提供 OpenAI 兼容接口)
 		if req.OA2CodexURL != "" {
-			codexModels, err := fetchOpenAIStyleModels(req.OA2CodexURL, key)
+			codexModels, err := fetchOpenAIStyleModels(req.OA2CodexURL, headers)
 			if err != nil {
 				errorMessages = append(errorMessages, fmt.Sprintf("Codex格式: %s", err.Error()))
 			} else {
@@ -1421,7 +1447,7 @@ func FetchModels(c *gin.Context) {
 
 		// 获取 Claude 格式的模型（大部分中转也用 OpenAI 兼容接口）
 		if req.OA2ClaudeURL != "" {
-			claudeModels, err := fetchOpenAIStyleModels(req.OA2ClaudeURL, key)
+			claudeModels, err := fetchOpenAIStyleModels(req.OA2ClaudeURL, headers)
 			if err != nil {
 				errorMessages = append(errorMessages, fmt.Sprintf("Claude格式: %s", err.Error()))
 			} else {
@@ -1431,11 +1457,14 @@ func FetchModels(c *gin.Context) {
 
 		// 获取 Gemini 格式的模型(Gemini 原生 /v1beta/models 接口)
 		if req.OA2GeminiURL != "" {
-			geminiModels, err := gemini.FetchGeminiModels(req.OA2GeminiURL, key, "", false)
+			geminiHeaders, err := buildFetchModelsHeaders(headerOverride, constant.ChannelTypeGemini, key)
+			if err == nil {
+				var geminiModels []string
+				geminiModels, err = gemini.FetchGeminiModels(req.OA2GeminiURL, "", false, geminiHeaders)
+				appendModels(geminiModels)
+			}
 			if err != nil {
 				errorMessages = append(errorMessages, fmt.Sprintf("Gemini格式: %s", err.Error()))
-			} else {
-				appendModels(geminiModels)
 			}
 		}
 
@@ -1464,12 +1493,8 @@ func FetchModels(c *gin.Context) {
 		baseURL = constant.ChannelBaseURLs[req.Type]
 	}
 
-	// remove line breaks and extra spaces.
-	key := strings.TrimSpace(req.Key)
-	key = strings.Split(key, "\n")[0]
-
 	if req.Type == constant.ChannelTypeOllama {
-		models, err := ollama.FetchOllamaModels(baseURL, key)
+		models, err := ollama.FetchOllamaModels(baseURL, headers)
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
@@ -1491,7 +1516,7 @@ func FetchModels(c *gin.Context) {
 	}
 
 	if req.Type == constant.ChannelTypeGemini {
-		models, err := gemini.FetchGeminiModels(baseURL, key, "", false)
+		models, err := gemini.FetchGeminiModels(baseURL, "", false, headers)
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
@@ -1507,55 +1532,13 @@ func FetchModels(c *gin.Context) {
 		return
 	}
 
-	client := &http.Client{}
-	url := fmt.Sprintf("%s/v1/models", baseURL)
-
-	request, err := http.NewRequest("GET", url, nil)
+	models, err := fetchOpenAIStyleModels(baseURL, headers)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
+		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": err.Error(),
+			"message": fmt.Sprintf("获取模型失败: %s", err.Error()),
 		})
 		return
-	}
-
-	request.Header.Set("Authorization", "Bearer "+key)
-
-	response, err := client.Do(request)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"message": err.Error(),
-		})
-		return
-	}
-	//check status code
-	if response.StatusCode != http.StatusOK {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"message": "Failed to fetch models",
-		})
-		return
-	}
-	defer response.Body.Close()
-
-	var result struct {
-		Data []struct {
-			ID string `json:"id"`
-		} `json:"data"`
-	}
-
-	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"message": err.Error(),
-		})
-		return
-	}
-
-	var models []string
-	for _, model := range result.Data {
-		models = append(models, model.ID)
 	}
 
 	c.JSON(http.StatusOK, gin.H{

@@ -245,6 +245,17 @@ func GetChannelHttpClient(proxyURL string, disableKeepAlive bool) (*http.Client,
 	return NewProxyHttpClientOptions(proxyURL, ProxyClientOptions{DisableKeepAlive: disableKeepAlive})
 }
 
+// SetRequestHeaders 把 headers 写入请求。net/http 发送时会忽略 Header 里的 Host，
+// 渠道请求头覆盖中的 Host 必须同时写到 req.Host 才会生效。
+func SetRequestHeaders(req *http.Request, headers http.Header) {
+	for key := range headers {
+		req.Header.Set(key, headers.Get(key))
+	}
+	if host := headers.Get("Host"); host != "" {
+		req.Host = host
+	}
+}
+
 // ResetProxyClientCache 清空代理客户端缓存，确保下次使用时重新初始化
 func ResetProxyClientCache() {
 	proxyClientLock.Lock()

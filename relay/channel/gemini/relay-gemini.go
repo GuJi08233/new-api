@@ -526,7 +526,8 @@ type GeminiModelsResponse struct {
 	NextPageToken string            `json:"nextPageToken"`
 }
 
-func FetchGeminiModels(baseURL, apiKey, proxyURL string, disableKeepAlive bool) ([]string, error) {
+// FetchGeminiModels 分页拉取 /v1beta/models；headers 由调用方组装好鉴权头与渠道请求头覆盖。
+func FetchGeminiModels(baseURL, proxyURL string, disableKeepAlive bool, headers http.Header) ([]string, error) {
 	client, err := service.GetChannelHttpClient(proxyURL, disableKeepAlive)
 	if err != nil {
 		return nil, fmt.Errorf("创建HTTP客户端失败: %v", err)
@@ -549,9 +550,7 @@ func FetchGeminiModels(baseURL, apiKey, proxyURL string, disableKeepAlive bool) 
 			return nil, fmt.Errorf("创建请求失败: %v", err)
 		}
 
-		if apiKey != "" {
-			request.Header.Set("x-goog-api-key", apiKey)
-		}
+		service.SetRequestHeaders(request, headers)
 
 		response, err := client.Do(request)
 		if err != nil {

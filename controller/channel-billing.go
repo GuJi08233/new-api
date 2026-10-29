@@ -145,9 +145,7 @@ func GetResponseBody(method, url string, channel *model.Channel, headers http.He
 	if err != nil {
 		return nil, err
 	}
-	for k := range headers {
-		req.Header.Add(k, headers.Get(k))
-	}
+	service.SetRequestHeaders(req, headers)
 	channelSettings := channel.GetSetting()
 	client, err := service.GetChannelHttpClient(channelSettings.Proxy, channelSettings.DisableKeepAlive)
 	if err != nil {
