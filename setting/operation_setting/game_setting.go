@@ -66,6 +66,9 @@ type GameSetting struct {
 	Sokoban     SkillRule `json:"sokoban"`
 	Lightsout   SkillRule `json:"lightsout"`
 	Hanoi       SkillRule `json:"hanoi"`
+	Twentyfour  SkillRule `json:"twentyfour"`
+	Bulls       SkillRule `json:"bulls"`
+	Nonogram    SkillRule `json:"nonogram"`
 
 	Slots     WagerRule `json:"slots"`
 	Wheel     WheelRule `json:"wheel"`
@@ -77,6 +80,8 @@ type GameSetting struct {
 	Hilo      WagerRule `json:"hilo"`
 	Crash     WagerRule `json:"crash"`
 	Scratch   WagerRule `json:"scratch"`
+	Baccarat  WagerRule `json:"baccarat"`
+	Keno      WagerRule `json:"keno"`
 
 	Gomoku   PvpRule `json:"gomoku"`
 	Connect4 PvpRule `json:"connect4"`
@@ -84,6 +89,7 @@ type GameSetting struct {
 	Xiangqi  PvpRule `json:"xiangqi"`
 	Rps      PvpRule `json:"rps"`
 	Landlord PvpRule `json:"landlord"`
+	Dots     PvpRule `json:"dots"`
 
 	Jackpot JackpotRule `json:"jackpot"`
 }
@@ -252,6 +258,9 @@ var gameRuleSpecs = map[string]gameRuleSpec{
 	"sokoban":     {Kind: GameKindSkill, MaxTierScore: 1},
 	"lightsout":   {Kind: GameKindSkill, MaxTierScore: 3},
 	"hanoi":       {Kind: GameKindSkill, MaxTierScore: 3},
+	"twentyfour":  {Kind: GameKindSkill, MaxTierScore: 3},
+	"bulls":       {Kind: GameKindSkill, MaxTierScore: 3},
+	"nonogram":    {Kind: GameKindSkill, MaxTierScore: 3},
 
 	"slots":     {Kind: GameKindWager, MinBet: 1, MaxBet: 1000},
 	"wheel":     {Kind: GameKindWager},
@@ -263,6 +272,8 @@ var gameRuleSpecs = map[string]gameRuleSpec{
 	"hilo":      {Kind: GameKindWager, MinBet: 1, MaxBet: 1000, Rtp: true},
 	"crash":     {Kind: GameKindWager, MinBet: 1, MaxBet: 1000, Rtp: true},
 	"scratch":   {Kind: GameKindWager, BetSteps: []int{1, 5, 20}},
+	"baccarat":  {Kind: GameKindWager, MinBet: 1, MaxBet: 1000},
+	"keno":      {Kind: GameKindWager, MinBet: 1, MaxBet: 1000},
 
 	"gomoku":   {Kind: GameKindPvp, Ai: true},
 	"connect4": {Kind: GameKindPvp, Ai: true},
@@ -270,6 +281,7 @@ var gameRuleSpecs = map[string]gameRuleSpec{
 	"xiangqi":  {Kind: GameKindPvp, Ai: true},
 	"rps":      {Kind: GameKindPvp},
 	"landlord": {Kind: GameKindPvp, Ai: true},
+	"dots":     {Kind: GameKindPvp, Ai: true},
 
 	"jackpot": {Kind: GameKindParty},
 }
@@ -586,6 +598,9 @@ func DefaultGameSetting() *GameSetting {
 		Sokoban:     dailyCoinRule(1, 180),
 		Lightsout:   dailyCoinRule(2, 180),
 		Hanoi:       dailyCoinRule(2, 180),
+		Twentyfour:  dailyCoinRule(2, 180),
+		Bulls:       dailyCoinRule(2, 120),
+		Nonogram:    dailyCoinRule(2, 240),
 
 		Slots:     WagerRule{MaxBet: 10},
 		Wheel:     WheelRule{FreeSpins: 1, SpinCost: 1},
@@ -597,6 +612,8 @@ func DefaultGameSetting() *GameSetting {
 		Hilo:      WagerRule{MaxBet: 10, RtpPercent: 96},
 		Crash:     WagerRule{MaxBet: 10, RtpPercent: 96},
 		Scratch:   WagerRule{MaxBet: 20},
+		Baccarat:  WagerRule{MaxBet: 10},
+		Keno:      WagerRule{MaxBet: 10},
 
 		Gomoku:   PvpRule{MaxStake: 100, RakePercent: 5, MoveSeconds: 60, Ai: aiRule(180)},
 		Connect4: PvpRule{MaxStake: 100, RakePercent: 5, MoveSeconds: 30, Ai: aiRule(120)},
@@ -604,6 +621,7 @@ func DefaultGameSetting() *GameSetting {
 		Xiangqi:  PvpRule{MaxStake: 100, RakePercent: 5, MoveSeconds: 120, Ai: aiRule(300)},
 		Rps:      PvpRule{MaxStake: 100, RakePercent: 5, MoveSeconds: 20},
 		Landlord: PvpRule{MaxStake: 100, RakePercent: 5, MoveSeconds: 45, Ai: aiRule(180)},
+		Dots:     PvpRule{MaxStake: 100, RakePercent: 5, MoveSeconds: 30, Ai: aiRule(150)},
 
 		Jackpot: JackpotRule{MaxBet: 100, RoundSeconds: 60, RakePercent: 5},
 	}
@@ -663,6 +681,12 @@ func (s *GameSetting) SkillRuleOf(game string) (SkillRule, bool) {
 		return s.Lightsout, true
 	case "hanoi":
 		return s.Hanoi, true
+	case "twentyfour":
+		return s.Twentyfour, true
+	case "bulls":
+		return s.Bulls, true
+	case "nonogram":
+		return s.Nonogram, true
 	}
 	return SkillRule{}, false
 }
@@ -688,6 +712,10 @@ func (s *GameSetting) WagerRuleOf(game string) (WagerRule, bool) {
 		return s.Crash, true
 	case "scratch":
 		return s.Scratch, true
+	case "baccarat":
+		return s.Baccarat, true
+	case "keno":
+		return s.Keno, true
 	}
 	return WagerRule{}, false
 }
@@ -707,6 +735,8 @@ func (s *GameSetting) PvpRuleOf(game string) (PvpRule, bool) {
 		return s.Rps, true
 	case "landlord":
 		return s.Landlord, true
+	case "dots":
+		return s.Dots, true
 	}
 	return PvpRule{}, false
 }

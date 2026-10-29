@@ -41,10 +41,13 @@ import { formatNumber, gamePost, withTurnstile } from '../common/api';
 import {
   ReplayRunControls,
   SkillSide,
+  playSkillFeedback,
   skillResultMessage,
   skillRuleSummary,
 } from '../common/skill';
 import { useGameInfo } from '../common/useGameInfo';
+import { Floaters, useFloaters } from '../common/effects';
+import { playSound } from '../common/sound';
 import { usePlayTurnstile } from '../common/usePlayTurnstile';
 import {
   DIRECTION,
@@ -125,7 +128,8 @@ function prepareCanvas(canvas, width, height) {
 }
 
 // 画出场地、食物和蛇；game 为空时只画场地。蛇身每节是一个圆角方块，相邻两节之间补上缝隙，连成一条。
-function drawBoard(canvas, game, palette) {
+// now 是动画时钟(毫秒)：豆子随它一呼一吸，吃到豆子的地方扩散一圈光环(eaten 记着位置与时刻)。
+function drawBoard(canvas, game, palette, now = 0, eaten = null) {
   if (!canvas) return;
   const ctx = prepareCanvas(canvas, BOARD_PX, BOARD_PX);
   ctx.fillStyle = palette.grid;
@@ -138,16 +142,33 @@ function drawBoard(canvas, game, palette) {
 
   const food = game.foodCell();
   if (food) {
+    const pulse = game.over ? 0 : Math.sin(now / 180) * 0.04;
     ctx.fillStyle = palette.food;
     ctx.beginPath();
     ctx.arc(
       (food[0] + 0.5) * CELL,
       (food[1] + 0.5) * CELL,
-      CELL * 0.32,
+      CELL * (0.32 + pulse),
       0,
       Math.PI * 2,
     );
     ctx.fill();
+  }
+  if (eaten && now - eaten.at < 400) {
+    const progress = (now - eaten.at) / 400;
+    ctx.strokeStyle = palette.food;
+    ctx.globalAlpha = 1 - progress;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(
+      (eaten.x + 0.5) * CELL,
+      (eaten.y + 0.5) * CELL,
+      CELL * (0.35 + progress * 0.9),
+      0,
+      Math.PI * 2,
+    );
+    ctx.stroke();
+    ctx.globalAlpha = 1;
   }
 
   const inset = 3;
@@ -217,7 +238,7 @@ const Snake = () => {
   // idle 还没开局，starting 开局中，ready 等玩家按第一个方向，playing 对局中，paused 暂停，
   // submitting 结算中，result 已结算(或被拒绝)，error 结算没有得到答复。
   const [phase, setPhase] = useState('idle');
-  const [stats, setStats] = useState({ score: 0, length: 0 });
+  const [stats, setStats] = useState({ score: 0, length: 0, speed: 1 });
   const [result, setResult] = useState(null);
   const [notice, setNotice] = useState(null);
   const canvasRef = useRef(null);
@@ -225,6 +246,7 @@ const Snake = () => {
   const runRef = useRef(null);
   const paletteRef = useRef(palette);
   const swipeRef = useRef(null);
+  const [floaters, float] = useFloaters();
   // 确认框打开期间不响应游戏按键，免得在确认框后面继续游戏。
   const confirmingRef = useRef(false);
   const mountedRef = useRef(false);
@@ -262,12 +284,14 @@ const Snake = () => {
       return;
     }
     const data = response.data;
+    const newRecord = data.score > 0 && data.score > run.previousBest;
     setResult({
       ...data,
       over: run.game.over,
       localScore: run.game.score,
-      newRecord: data.score > 0 && data.score > run.previousBest,
+      newRecord,
     });
+    playSkillFeedback(data, newRecord);
     patch({
       balance: data.balance,
       progress: data.progress,
@@ -321,8 +345,9 @@ const Snake = () => {
       elapsed: 0,
       previousBest: info?.best_score || 0,
     };
-    setStats({ score: 0, length: game.length });
+    setStats({ score: 0, length: game.length, speed: 1 });
     replay.beginSession(response.data.session_id);
+    playSound('start');
     setResult(null);
     // 开始按钮保留焦点时，空格和回车会再次触发它。
     document.activeElement?.blur?.();
@@ -362,13 +387,6 @@ const Snake = () => {
     const run = runRef.current;
     let frame = 0;
     let last = performance.now();
-    let drawnSteps = -1;
-    let drawnPalette = null;
-    let resized = true;
-    const onResize = () => {
-      resized = true;
-    };
-    window.addEventListener('resize', onResize);
     const loop = (now) => {
       run.elapsed += Math.min(now - last, MAX_FRAME_MS);
       last = now;
@@ -381,22 +399,26 @@ const Snake = () => {
         run.elapsed -= game.stepMs();
         const step = game.steps;
         const turn = run.queue.length > 0 ? run.queue.shift() : NO_TURN;
+        const food = game.foodCell();
+        const score = game.score;
         if (game.step(turn)) run.recorder.record(step, turn);
+        if (game.score > score && food) {
+          // 吃到豆子：音调随得分升高，豆子的位置扩散一圈光环、飘出 +1。
+          run.eaten = { x: food[0], y: food[1], at: now };
+          playSound('eat', { pitch: 1 + Math.min(game.score, 40) / 60 });
+          float('+1', {
+            x: ((food[0] + 0.5) / WIDTH) * 100,
+            y: ((food[1] + 0.5) / HEIGHT) * 100,
+          });
+        }
       }
-      if (
-        game.steps !== drawnSteps ||
-        drawnPalette !== paletteRef.current ||
-        resized
-      ) {
-        drawBoard(canvasRef.current, game, paletteRef.current);
-        drawnSteps = game.steps;
-        drawnPalette = paletteRef.current;
-        resized = false;
-      }
+      // 豆子一直在呼吸，每一帧都重画；20×20 的场地画一次花不了多少时间。
+      drawBoard(canvasRef.current, game, paletteRef.current, now, run.eaten);
+      const speed = Math.round((150 / game.stepMs()) * 10) / 10;
       setStats((previous) =>
         previous.score === game.score && previous.length === game.length
           ? previous
-          : { score: game.score, length: game.length },
+          : { score: game.score, length: game.length, speed },
       );
       if (game.over || game.steps >= MAX_STEPS) {
         submit();
@@ -405,11 +427,8 @@ const Snake = () => {
       frame = requestAnimationFrame(loop);
     };
     frame = requestAnimationFrame(loop);
-    return () => {
-      cancelAnimationFrame(frame);
-      window.removeEventListener('resize', onResize);
-    };
-  }, [phase, submit]);
+    return () => cancelAnimationFrame(frame);
+  }, [phase, submit, float]);
 
   // 不在推进时画一次当前的盘面，窗口大小或主题变了再画一次。
   useEffect(() => {
@@ -702,6 +721,10 @@ const Snake = () => {
             <strong>{stats.length || '-'}</strong>
           </span>
           <span>
+            {t('速度')}
+            <strong>×{stats.speed}</strong>
+          </span>
+          <span>
             {t('最高分')}
             <strong>{info?.best_score || '-'}</strong>
           </span>
@@ -716,6 +739,7 @@ const Snake = () => {
           }}
         >
           <canvas ref={canvasRef} />
+          <Floaters items={floaters} />
           {overlay}
         </div>
         <StageMessage kind={message.kind} note={message.note}>

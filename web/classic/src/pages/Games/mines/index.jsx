@@ -17,15 +17,20 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { InputNumber } from '@douyinfe/semi-ui';
-import { Bomb, Gem } from 'lucide-react';
+import { Bomb, Dices, Gem } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { getGameMetaMap } from '../../../constants';
 import GameLayout from '../common/GameLayout';
 import BetInput from '../common/BetInput';
 import { RuleList, SideBox, StageMessage } from '../common/SideBox';
-import { WagerStats, wagerResultMessage } from '../common/wager';
+import {
+  WagerStats,
+  playWagerFeedback,
+  wagerResultMessage,
+} from '../common/wager';
+import { playSound } from '../common/sound';
 import { useGameInfo } from '../common/useGameInfo';
 import { useWagerRound } from '../common/useWagerRound';
 import './mines.css';
@@ -70,6 +75,27 @@ const Mines = () => {
   );
   const [bet, setBet] = useState(1);
   const [mineCount, setMineCount] = useState(3);
+  // 挖出宝石一声比一声高，踩雷一声爆炸，兑现时揭晓派彩。只在同一局里比较，刷新页面读回来的一局不响。
+  const seenRef = useRef({ session: 0, revealed: 0, status: '' });
+  useEffect(() => {
+    if (!round) return;
+    const previous = seenRef.current;
+    const count = round.revealed?.length || 0;
+    if (previous.session === round.session_id) {
+      if (count > previous.revealed) {
+        playSound('reveal', { pitch: 1 + Math.min(count, 20) * 0.04 });
+      }
+      if (previous.status === 'playing' && round.status === 'finished') {
+        if (round.exploded !== undefined) playSound('bomb');
+        else playWagerFeedback({ bet: round.bet, win: round.win });
+      }
+    }
+    seenRef.current = {
+      session: round.session_id,
+      revealed: count,
+      status: round.status,
+    };
+  }, [round]);
 
   // 拿到游戏信息后读出没结束的一局，刷新页面、游戏关闭之后都能接着挖。
   const loaded = !!info;
@@ -113,6 +139,18 @@ const Mines = () => {
   }
 
   const start = () => send('start', { bet: stake, mines: mineCount }, false);
+  // 随机挖一格：在还没翻开的格子里随便挑一个，和自己点一样请求服务端。
+  const pickRandom = () => {
+    const hidden = Array.from({ length: CELLS }, (_, index) => index).filter(
+      (index) => !revealed.has(index),
+    );
+    if (hidden.length === 0) return;
+    send('pick', { index: hidden[Math.floor(Math.random() * hidden.length)] });
+  };
+  const currentMultiplier =
+    playing && revealed.size > 0 && round.bet > 0
+      ? round.cashout / round.bet
+      : 0;
 
   const side = info && (
     <>
@@ -161,6 +199,12 @@ const Mines = () => {
             {t('宝石')}
             <strong>
               {revealed.size} / {CELLS - mines}
+            </strong>
+          </span>
+          <span>
+            {t('当前倍数')}
+            <strong>
+              {currentMultiplier > 0 ? `×${currentMultiplier.toFixed(2)}` : '-'}
             </strong>
           </span>
         </div>
@@ -215,6 +259,15 @@ const Mines = () => {
                     amount: round.cashout,
                     symbol,
                   })}
+            </button>
+            <button
+              type='button'
+              className='game-chip mines-random'
+              disabled={busy}
+              onClick={pickRandom}
+            >
+              <Dices size={14} />
+              {t('随机挖一格')}
             </button>
             <div className='games-stage-counter'>
               {t('下一格安全概率 {{chance}}%', {

@@ -20,6 +20,8 @@ For commercial licensing, please contact support@quantumnous.com
 import React, { useEffect, useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import PvpGame from '../common/pvp/PvpGame';
+import { BoardAssist, currentHint } from '../common/pvp/BoardAssist';
+import { playSound } from '../common/sound';
 import './gomoku.css';
 
 const SIZE = 15;
@@ -58,7 +60,18 @@ function newStones(before, after) {
 
 // 五子棋盘：15×15 交叉点。轮到自己时鼠标悬停处预览棋子、点击落子；触屏上先点一下选中、再点同一处落子，免得点歪。
 // 落子请求还没回来时先把这一子画上去(请求失败就撤掉)，服务端的局面回来后以它为准。
-const GomokuBoard = ({ state, seat, canMove, busy, over, onMove }) => {
+const GomokuBoard = ({
+  state,
+  seat,
+  canMove,
+  busy,
+  over,
+  onMove,
+  onUndo,
+  hint,
+  hintStatus,
+  onHint,
+}) => {
   const { t } = useTranslation();
   const board = state?.board || EMPTY_BOARD;
   const mine = stoneOf(state, seat);
@@ -87,6 +100,10 @@ const GomokuBoard = ({ state, seat, canMove, busy, over, onMove }) => {
     setSeen({ board: shown, placed: newStones(seen.board, shown) });
     setSelected(-1);
   }
+  useEffect(() => {
+    if (seen.placed.length > 0) playSound('place');
+  }, [seen]);
+  const shownHint = waiting ? null : currentHint(hint, state);
 
   const playable = canMove && !waiting && !over;
   const target = keyboardActive
@@ -251,6 +268,14 @@ const GomokuBoard = ({ state, seat, canMove, busy, over, onMove }) => {
             })}
           </g>
         ))}
+        {shownHint && (
+          <circle
+            cx={shownHint.x + 0.5}
+            cy={shownHint.y + 0.5}
+            r={0.4}
+            className='board-hint-mark'
+          />
+        )}
         {ghost >= 0 && (
           <circle
             cx={(ghost % SIZE) + 0.5}
@@ -266,6 +291,16 @@ const GomokuBoard = ({ state, seat, canMove, busy, over, onMove }) => {
       <div id={`${boardId}-help`} className='gomoku-keyboard-help'>
         {t('方向键移动，Enter 或空格落子')}
       </div>
+      <BoardAssist
+        state={state}
+        seat={seat}
+        busy={busy}
+        over={over}
+        onUndo={onUndo}
+        hintStatus={hintStatus}
+        onHint={onHint}
+        hintShown={!!shownHint}
+      />
     </div>
   );
 };
@@ -302,6 +337,8 @@ const Gomoku = () => {
         t('15×15 棋盘，黑先，双方轮流在交叉点上落子'),
         t('横、竖、斜任一方向连成五子或以上获胜，没有禁手'),
         t('棋盘下满仍未分出胜负为和棋'),
+        t('每局前 3 次悔棋免费，之后每次 1 游戏币；房间里悔棋要对方同意'),
+        t('人机对战可以请电脑分析下一步，每局前 3 次提示免费'),
       ]}
       renderBoard={(props) => <GomokuBoard {...props} />}
     />

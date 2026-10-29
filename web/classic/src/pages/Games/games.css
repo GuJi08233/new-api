@@ -1198,3 +1198,83 @@ For commercial licensing, please contact support@quantumnous.com
     width: 100%;
   }
 }
+
+/* 顶栏的音效开关，和余额挨在一起；没有余额的页面靠右。 */
+.game-sound-toggle {
+  margin-left: auto;
+  flex: none;
+}
+
+.game-topbar-balance + .game-sound-toggle,
+.game-sound-toggle + .game-topbar-balance {
+  margin-left: 0;
+}
+
+/* 获胜时撒的彩带：铺满屏幕、不挡点击。 */
+.game-confetti {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 2000;
+  pointer-events: none;
+}
+
+/* 盘面上飘起的得分字，容器要是 position: relative。 */
+.game-floaters {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.game-floater {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  font-size: 18px;
+  font-weight: 800;
+  white-space: nowrap;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  animation: game-float-up 1s ease-out forwards;
+}
+
+.game-floater.is-gain {
+  color: var(--semi-color-success);
+}
+
+.game-floater.is-gold {
+  font-size: 22px;
+  color: rgba(var(--semi-amber-6), 1);
+}
+
+.game-floater.is-bad {
+  color: var(--semi-color-danger);
+}
+
+@keyframes game-float-up {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -30%) scale(0.8);
+  }
+  15% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1.08);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -160%) scale(1);
+  }
+}
+
+/* 下注游戏的自动连玩：局数、开始按钮与"中大奖停止"排成一行。 */
+.game-auto {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  margin-top: 4px;
+  font-size: 13px;
+}

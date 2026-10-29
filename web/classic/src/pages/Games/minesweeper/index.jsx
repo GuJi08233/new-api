@@ -29,6 +29,7 @@ import {
   formatClock,
   GameClock,
   levelReward,
+  playSkillFeedback,
   rewardsLeftText,
   skillResultMessage,
   skillRuleSummary,
@@ -37,6 +38,9 @@ import {
 import { useGameInfo } from '../common/useGameInfo';
 import { PlayTurnstile, usePlayTurnstile } from '../common/usePlayTurnstile';
 import { writeGameStorage, removeGameStorage } from '../common/gameStorage';
+import { LocalBestBox, localBestNote } from '../common/LocalBest';
+import { useLocalBest } from '../common/useLocalBest';
+import { playSound } from '../common/sound';
 import './minesweeper.css';
 
 // 连锁展开时每往外一圈晚这么久翻开，最多晚 REVEAL_MAX_DELAY_MS，大片空地也很快铺完。
@@ -111,6 +115,7 @@ const Minesweeper = () => {
   const versionRef = useRef(0);
   const pressRef = useRef(null);
   const guardUntilRef = useRef(0);
+  const { bests, record } = useLocalBest('minesweeper');
 
   const restore = useCallback((view) => {
     const next = new Array(view.width * view.height).fill(HIDDEN);
@@ -174,7 +179,18 @@ const Minesweeper = () => {
   );
 
   const settle = (settled, finished) => {
-    setEnd({ ...finished, at: Date.now() });
+    const at = Date.now();
+    const won = finished.status === 'won';
+    // 赢下的一局记进本机最佳用时；踩雷时一声爆炸。
+    const improved =
+      won && game
+        ? record(game.difficulty, {
+            time: Math.round((at - game.since) / 1000),
+          })
+        : null;
+    if (won) playSkillFeedback(settled, true);
+    else playSound('bomb');
+    setEnd({ ...finished, at, improved });
     setResult(settled);
     patch({
       balance: settled.balance,
@@ -250,6 +266,9 @@ const Minesweeper = () => {
       }
       versionRef.current = data.version;
       const opened = data.revealed.map(([x, y]) => y * width + x);
+      if (data.status === 'playing' && opened.length > 0) {
+        playSound(opened.length > 1 ? 'flip' : 'reveal');
+      }
       const [originX, originY] = data.revealed.length
         ? [targets[0] % width, Math.floor(targets[0] / width)]
         : [0, 0];
@@ -292,6 +311,7 @@ const Minesweeper = () => {
   };
 
   const toggleFlag = (index) => {
+    playSound('click');
     setFlags((previous) => {
       const next = new Set(previous);
       if (next.has(index)) {
@@ -435,6 +455,7 @@ const Minesweeper = () => {
       text: t('扫雷成功，用时 {{time}}', {
         time: formatClock((end.at - game.since) / 1000),
       }),
+      note: localBestNote(end.improved, t),
     };
   } else if (end) {
     outcome = { kind: 'loss', text: t('踩到雷了，这局结束') };
@@ -461,6 +482,16 @@ const Minesweeper = () => {
             ]}
           />
         </SideBox>
+      }
+      after={
+        <LocalBestBox
+          bests={bests}
+          levels={levels.map((level) => ({
+            key: level.difficulty,
+            name: levelNames[level.difficulty - 1],
+          }))}
+          columns={['time']}
+        />
       }
     />
   );
@@ -549,7 +580,9 @@ const Minesweeper = () => {
         </div>
 
         {outcome && (
-          <StageMessage kind={outcome.kind}>{outcome.text}</StageMessage>
+          <StageMessage kind={outcome.kind} note={outcome.note}>
+            {outcome.text}
+          </StageMessage>
         )}
         {reward && (
           <StageMessage kind={reward.kind} note={reward.note}>

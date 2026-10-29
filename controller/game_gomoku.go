@@ -8,6 +8,7 @@ import (
 	"math/rand/v2"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/gomoku"
 )
 
@@ -33,6 +34,7 @@ var boardAiRandom = func() (*rand.Rand, error) {
 type gomokuState struct {
 	Black int   `json:"black"`
 	Moves []int `json:"moves"`
+	boardAssist
 }
 
 // gomokuMove 是一步落子 {"x":0-14,"y":0-14}。字段用指针，缺了哪个都不是合法的一步，不会被当成 0。
@@ -53,6 +55,7 @@ type gomokuView struct {
 	Over   bool           `json:"over"`
 	Winner int            `json:"winner"`
 	Line   []gomoku.Point `json:"line"`
+	Undo   boardUndoView  `json:"undo"`
 }
 
 type gomokuEngine struct{}
@@ -112,6 +115,7 @@ func (gomokuEngine) Play(data []byte, seat int, move json.RawMessage) (pvpState,
 		return pvpState{}, errPvpIllegalMove
 	}
 	state.Moves = game.Moves()
+	state.played()
 	return gomokuPvpState(state, game)
 }
 
@@ -129,6 +133,7 @@ func (gomokuEngine) View(data []byte, seat int) (any, error) {
 		Over:   game.Over(),
 		Winner: state.seatOf(game.Winner()),
 		Line:   append([]gomoku.Point{}, game.Line()...),
+		Undo:   state.undoView(state.movers(), seat, game.Over()),
 	}
 	if last, ok := game.Last(); ok {
 		view.Last = &last
@@ -169,4 +174,97 @@ func (gomokuEngine) AiMoveContext(ctx context.Context, data []byte, seat int, le
 		return nil, err
 	}
 	return common.Marshal(point)
+}
+
+// movers 返回每一步落子的座位：黑先，双方轮流。
+func (s gomokuState) movers() []int {
+	movers := make([]int, len(s.Moves))
+	for i := range movers {
+		movers[i] = s.Black
+		if i%2 == 1 {
+			movers[i] = 1 - s.Black
+		}
+	}
+	return movers
+}
+
+// UndoAsk 记下 seat 想悔棋，返回对方同意之后要收的游戏币。
+func (gomokuEngine) UndoAsk(data []byte, seat int) (pvpState, model.GameCoins, error) {
+	state, game, err := loadGomoku(data)
+	if err != nil {
+		return pvpState{}, 0, err
+	}
+	cost, err := state.askUndo(state.movers(), seat, game.Over())
+	if err != nil {
+		return pvpState{}, 0, err
+	}
+	next, err := gomokuPvpState(state, game)
+	return next, cost, err
+}
+
+// UndoAnswer 让 seat 回应对方的悔棋请求：同意时撤回到提出的一方最后一次落子之前。
+func (gomokuEngine) UndoAnswer(data []byte, seat int, accept bool) (pvpUndo, error) {
+	state, game, err := loadGomoku(data)
+	if err != nil {
+		return pvpUndo{}, err
+	}
+	asker, steps, cost, err := state.answerUndo(state.movers(), seat, accept, game.Over())
+	if err != nil {
+		return pvpUndo{}, err
+	}
+	if steps > 0 {
+		state.Moves = state.Moves[:len(state.Moves)-steps]
+		if game, err = gomoku.Replay(state.Moves); err != nil {
+			return pvpUndo{}, err
+		}
+	} else {
+		asker = -1
+	}
+	next, err := gomokuPvpState(state, game)
+	return pvpUndo{State: next, Payer: asker, Cost: cost, Steps: steps}, err
+}
+
+func (gomokuEngine) HintStatus(data []byte, seat int) (pvpHintStatus, error) {
+	state, game, err := loadGomoku(data)
+	if err != nil {
+		return pvpHintStatus{}, err
+	}
+	return state.hintStatus(seat, state.seatOf(game.Turn()), game.Over())
+}
+
+func (gomokuEngine) CachedHint(data []byte, seat int) (json.RawMessage, error) {
+	state, game, err := loadGomoku(data)
+	if err != nil {
+		return nil, err
+	}
+	return state.cachedHint(seat, state.seatOf(game.Turn()), game.Over(), len(state.Moves))
+}
+
+func (gomokuEngine) Hint(data []byte, seat int) (pvpHint, error) {
+	return (gomokuEngine{}).HintContext(context.Background(), data, seat)
+}
+
+// HintContext 用困难难度的 AI 替 seat 找一步好棋，记下用掉的提示次数。提示不落子。
+func (gomokuEngine) HintContext(ctx context.Context, data []byte, seat int) (pvpHint, error) {
+	state, game, err := loadGomoku(data)
+	if err != nil {
+		return pvpHint{}, err
+	}
+	if game.Over() || state.seatOf(game.Turn()) != seat {
+		return pvpHint{}, errPvpHintUnavailable
+	}
+	rng, err := boardAiRandom()
+	if err != nil {
+		return pvpHint{}, err
+	}
+	point, err := gomoku.BestMoveContext(ctx, game, boardHintLevel, rng)
+	if err != nil {
+		return pvpHint{}, err
+	}
+	content, cost, err := state.recordHint(boardHint{Moves: len(state.Moves), X: point.X, Y: point.Y})
+	if err != nil {
+		return pvpHint{}, err
+	}
+	next, err := gomokuPvpState(state, game)
+	return pvpHint{Hint: content, State: next, Cost: cost}, err
 }

@@ -17,18 +17,26 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React, { useEffect, useState } from 'react';
-import { ChevronsUp, Hand, Plus, Split } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Switch } from '@douyinfe/semi-ui';
+import { ChevronsUp, Hand, Lightbulb, Plus, Split } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { getGameMetaMap } from '../../../constants';
 import GameLayout from '../common/GameLayout';
 import BetInput from '../common/BetInput';
 import { RuleList, SideBox, StageMessage } from '../common/SideBox';
 import { percent } from '../common/api';
-import { WagerStats, wagerResultMessage } from '../common/wager';
+import {
+  WagerStats,
+  playWagerFeedback,
+  wagerResultMessage,
+} from '../common/wager';
+import { readGameStorage, writeGameStorage } from '../common/gameStorage';
+import { playSound } from '../common/sound';
 import { useGameInfo } from '../common/useGameInfo';
 import { RANK_LABELS, SUIT_ICONS, isRedSuit } from '../common/cards';
 import { useWagerRound } from '../common/useWagerRound';
+import { basicStrategy } from './strategy';
 import './blackjack.css';
 
 // 一张牌：左上角是点数与小花色(牌叠在一起时也看得见)，右下角是大花色，红心与方块是红色。faceDown 时画成牌背
@@ -121,6 +129,16 @@ const BlackjackHand = ({ hand, title, symbol }) => {
   );
 };
 
+// 策略提示的开关保存在浏览器里。
+const ADVICE_KEY = 'game-blackjack-advice';
+// 键盘操作：H 要牌、S 停牌、D 加倍、P 分牌。
+const ACTION_KEYS = {
+  KeyH: 'hit',
+  KeyS: 'stand',
+  KeyD: 'double',
+  KeyP: 'split',
+};
+
 // 一局结束后的提示。只有一手时说明输在哪里；分牌后按两手合计的派彩提示。
 function blackjackResultMessage(round, t, symbol) {
   const dealer = round.dealer;
@@ -164,6 +182,35 @@ const Blackjack = () => {
     reload,
   );
   const [bet, setBet] = useState(2);
+  const [advice, setAdvice] = useState(
+    () => readGameStorage(ADVICE_KEY).value === true,
+  );
+  const toggleAdvice = (checked) => {
+    setAdvice(checked);
+    writeGameStorage(ADVICE_KEY, checked);
+  };
+  // 发出的牌变多时响一声发牌；同一局从进行中变成结束时揭晓输赢。
+  const seenRef = useRef({ session: 0, cards: 0, status: '' });
+  useEffect(() => {
+    if (!round) return;
+    const cards =
+      round.dealer.cards.length +
+      round.hands.reduce((sum, item) => sum + item.cards.length, 0);
+    const previous = seenRef.current;
+    const same = previous.session === round.session_id;
+    if (!same || cards > previous.cards) playSound('deal');
+    if (same && previous.status === 'playing' && round.status === 'finished') {
+      playWagerFeedback({ bet: round.bet, win: round.win });
+    } else if (!same && round.status === 'finished' && previous.session) {
+      // 发牌就结束(黑杰克)的一局：同样揭晓。
+      playWagerFeedback({ bet: round.bet, win: round.win });
+    }
+    seenRef.current = {
+      session: round.session_id,
+      cards,
+      status: round.status,
+    };
+  }, [round]);
 
   // 拿到游戏信息后读出没结束的一局，刷新页面、游戏关闭之后都能接着打。
   const loaded = !!info;
@@ -206,12 +253,45 @@ const Blackjack = () => {
     message = blackjackResultMessage(round, t, symbol);
   }
 
+  const suggested =
+    advice && playing && hand && round.dealer.cards[0]
+      ? basicStrategy(hand, round.dealer.cards[0], actions)
+      : '';
+
+  // 键盘：H/S/D/P 对应要牌、停牌、加倍、分牌，焦点在输入框里时不响应。
+  const keyRef = useRef(null);
+  keyRef.current = (event) => {
+    if (event.ctrlKey || event.metaKey || event.altKey || event.repeat) return;
+    if (event.target.closest?.('input, textarea, [contenteditable="true"]')) {
+      return;
+    }
+    const action = ACTION_KEYS[event.code];
+    if (!action || !playing || busy || !actions.includes(action)) return;
+    if ((action === 'double' || action === 'split') && !canRaise) return;
+    event.preventDefault();
+    send('action', { action });
+  };
+  useEffect(() => {
+    const onKeyDown = (event) => keyRef.current(event);
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
   const buttons = [
-    { action: 'hit', Icon: Plus, label: t('要牌') },
-    { action: 'stand', Icon: Hand, label: t('停牌') },
-    { action: 'double', Icon: ChevronsUp, label: t('加倍'), raise: true },
-    { action: 'split', Icon: Split, label: t('分牌'), raise: true },
+    { action: 'hit', Icon: Plus, label: t('要牌'), key: 'H' },
+    { action: 'stand', Icon: Hand, label: t('停牌'), key: 'S' },
+    {
+      action: 'double',
+      Icon: ChevronsUp,
+      label: t('加倍'),
+      raise: true,
+      key: 'D',
+    },
+    { action: 'split', Icon: Split, label: t('分牌'), raise: true, key: 'P' },
   ];
+  const actionNames = Object.fromEntries(
+    buttons.map((item) => [item.action, item.label]),
+  );
 
   const side = info && (
     <>
@@ -229,6 +309,9 @@ const Blackjack = () => {
             ),
             t('庄家明牌是 A 或 10 点时先查看底牌，是黑杰克就直接结算'),
             t('分牌后的 21 点不算黑杰克；没有保险和投降'),
+            t(
+              '键盘 H 要牌、S 停牌、D 加倍、P 分牌；打开策略提示会按基本策略给出建议',
+            ),
             info.payback &&
               t('按基本策略玩，理论返还率约 {{rate}}', {
                 rate: percent(info.payback, 1),
@@ -323,21 +406,31 @@ const Blackjack = () => {
         {playing ? (
           <div className='game-controls'>
             <div className='blackjack-actions'>
-              {buttons.map(({ action, Icon, label, raise }) => (
+              {buttons.map(({ action, Icon, label, raise, key }) => (
                 <button
                   key={action}
                   type='button'
-                  className='blackjack-action'
+                  className={`blackjack-action${suggested === action ? ' is-suggested' : ''}`}
                   disabled={
                     busy || !actions.includes(action) || (raise && !canRaise)
                   }
+                  aria-keyshortcuts={key}
                   onClick={() => send('action', { action })}
                 >
                   <Icon size={16} />
                   {label}
+                  <kbd className='blackjack-key'>{key}</kbd>
                 </button>
               ))}
             </div>
+            {suggested && (
+              <div className='blackjack-advice' role='status'>
+                <Lightbulb size={14} />
+                {t('基本策略建议：{{action}}', {
+                  action: actionNames[suggested],
+                })}
+              </div>
+            )}
             {!canRaise &&
               (actions.includes('double') || actions.includes('split')) && (
                 <div className='games-stage-hint'>
@@ -373,6 +466,10 @@ const Blackjack = () => {
             )}
           </div>
         )}
+        <label className='blackjack-advice-toggle'>
+          <Switch size='small' checked={advice} onChange={toggleAdvice} />
+          {t('策略提示')}
+        </label>
       </div>
     </GameLayout>
   );

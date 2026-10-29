@@ -20,6 +20,8 @@ For commercial licensing, please contact support@quantumnous.com
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import PvpGame from '../common/pvp/PvpGame';
+import { BoardAssist, currentHint } from '../common/pvp/BoardAssist';
+import { playSound } from '../common/sound';
 import './connect4.css';
 
 const COLS = 7;
@@ -57,7 +59,18 @@ function newDiscs(before, after) {
 
 // 四子棋盘：7 列 × 6 行。轮到自己时点一列投子，棋盘上方预览这一子；请求还没回来时先让这一子落下去(请求失败就撤掉)，
 // 服务端的局面回来后以它为准。
-const Connect4Board = ({ state, seat, canMove, busy, over, onMove }) => {
+const Connect4Board = ({
+  state,
+  seat,
+  canMove,
+  busy,
+  over,
+  onMove,
+  onUndo,
+  hint,
+  hintStatus,
+  onHint,
+}) => {
   const { t } = useTranslation();
   const board = state?.board || EMPTY_BOARD;
   const mine = discOf(state, seat);
@@ -81,6 +94,10 @@ const Connect4Board = ({ state, seat, canMove, busy, over, onMove }) => {
   if (seen.board !== shown) {
     setSeen({ board: shown, placed: newDiscs(seen.board, shown) });
   }
+  useEffect(() => {
+    if (seen.placed.length > 0) playSound('drop');
+  }, [seen]);
+  const shownHint = waiting ? null : currentHint(hint, state);
 
   const playable = canMove && !waiting && !over;
   const line = new Set(
@@ -108,6 +125,9 @@ const Connect4Board = ({ state, seat, canMove, busy, over, onMove }) => {
           <span key={col} className='connect4-slot'>
             {playable && hover === col && landingRow(shown, col) >= 0 && (
               <span className={`connect4-disc is-${mine} is-ghost`} />
+            )}
+            {shownHint?.x === col && hover !== col && (
+              <span className='connect4-hint-arrow'>▼</span>
             )}
           </span>
         ))}
@@ -149,6 +169,16 @@ const Connect4Board = ({ state, seat, canMove, busy, over, onMove }) => {
           );
         })}
       </div>
+      <BoardAssist
+        state={state}
+        seat={seat}
+        busy={busy}
+        over={over}
+        onUndo={onUndo}
+        hintStatus={hintStatus}
+        onHint={onHint}
+        hintShown={!!shownHint}
+      />
     </div>
   );
 };
@@ -185,6 +215,8 @@ const Connect4 = () => {
         t('7 列 × 6 行，选一列投子，棋子落到这一列最低的空位'),
         t('横、竖、斜任一方向连成四子获胜'),
         t('棋盘下满仍未分出胜负为和棋'),
+        t('每局前 3 次悔棋免费，之后每次 1 游戏币；房间里悔棋要对方同意'),
+        t('人机对战可以请电脑分析下一步，每局前 3 次提示免费'),
       ]}
       renderBoard={(props) => <Connect4Board {...props} />}
     />

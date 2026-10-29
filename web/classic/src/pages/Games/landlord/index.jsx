@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Button } from '@douyinfe/semi-ui';
 import { Crown, Layers, Lightbulb, Users } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -26,6 +26,7 @@ import PvpGame from '../common/pvp/PvpGame';
 import { groupPlayedCards } from './cards';
 import { selectedHintIndex, selectionFeedback } from './selection';
 import useCardSelection from './useCardSelection';
+import { playSound } from '../common/sound';
 import './landlord.css';
 
 const RANKS = [
@@ -104,6 +105,52 @@ const Cards = ({ cards, type }) => (
   </div>
 );
 
+// 记牌器里的点数从大到小：大王、小王、2、A……3。牌的编号 0-51 每 4 张一个点数(从 3 起)，52 小王、53 大王。
+const COUNTER_RANKS = [
+  { key: 'big', label: 'BJ', cards: [53] },
+  { key: 'small', label: 'SJ', cards: [52] },
+  ...RANKS.map((label, rank) => ({
+    key: label,
+    label,
+    cards: [0, 1, 2, 3].map((suit) => rank * 4 + suit),
+  })).reverse(),
+];
+
+// 记牌器：每个点数还有几张在另外两家手里(总数减去自己的手牌和已经打出的牌)。全部出完的点数变灰，还剩四张的炸弹点数标出来。
+const CardCounter = ({ hand, played }) => {
+  const { t } = useTranslation();
+  const known = new Set([...hand, ...played]);
+  return (
+    <div className='landlord-counter' aria-label={t('记牌器')}>
+      <span className='landlord-caption'>{t('记牌器')}</span>
+      <div className='landlord-counter-ranks'>
+        {COUNTER_RANKS.map((rank) => {
+          const left = rank.cards.filter((card) => !known.has(card)).length;
+          const name =
+            rank.key === 'big'
+              ? t('大王')
+              : rank.key === 'small'
+                ? t('小王')
+                : rank.label;
+          return (
+            <span
+              key={rank.key}
+              className={`landlord-counter-rank ${left === 0 ? 'is-out' : ''} ${left === 4 ? 'is-bomb' : ''}`}
+              title={t('{{name}} 还有 {{count}} 张在别人手里', {
+                name,
+                count: left,
+              })}
+            >
+              <span className='landlord-counter-label'>{rank.label}</span>
+              <strong>{left}</strong>
+            </span>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
 // 一次刷新里同时出现的几手牌(自己出牌后 AI 或托管接连跟上)依次错开这么久出现，看得出谁先出、出了什么。
 const PLAY_STAGGER_MS = 400;
 
@@ -166,6 +213,26 @@ const LandlordBoard = ({
       freshPlays += 1;
     }
   }
+  // 新出现的每一手配上声音，和入场动画一样依次错开：出牌一声，炸弹、王炸一声爆炸，不出轻响一下。
+  const soundKeysRef = useRef(new Set());
+  const playSignature = playKeys.join('|');
+  useEffect(() => {
+    const timers = [];
+    playKeys.forEach((key, index) => {
+      if (soundKeysRef.current.has(key)) return;
+      soundKeysRef.current.add(key);
+      const action = trick[index];
+      const delay = playDelaysRef.current.get(key) || 0;
+      const sound = action.pass
+        ? 'click'
+        : action.type === 'bomb' || action.type === 'rocket'
+          ? 'bomb'
+          : 'deal';
+      timers.push(setTimeout(() => playSound(sound), delay));
+    });
+    return () => timers.forEach(clearTimeout);
+    // playKeys 每次渲染都是新数组，按它拼成的内容决定要不要重新检查。
+  }, [playSignature]);
   const nameOf = (index) =>
     names?.[index] || t('座位 {{seat}}', { seat: index + 1 });
   const tableSeats = [
@@ -268,6 +335,9 @@ const LandlordBoard = ({
               )
             : t('都不叫，已重新发牌（第 {{deal}} 次）', { deal: state.deals })}
         </div>
+      )}
+      {!bidding && state.played && (
+        <CardCounter hand={hand} played={state.played} />
       )}
       {bidding ? (
         <div className='landlord-bids'>

@@ -63,6 +63,9 @@ export const getGameLevelNames = (t) => ({
   pairlink: ['6×6', '6×8', '8×8'],
   lightsout: ['3×3', '4×4', '5×5'],
   hanoi: [t('3 个圆盘'), t('4 个圆盘'), t('5 个圆盘')],
+  twentyfour: [t('简单'), t('普通'), t('困难')],
+  bulls: [t('3 位数'), t('4 位数'), t('4 位数 · 6 次')],
+  nonogram: ['5×5', '8×8', '10×10'],
   ai: [t('简单'), t('普通'), t('困难')],
 });
 
@@ -81,12 +84,16 @@ export const GAME_ORDER = [
   'sokoban',
   'lightsout',
   'hanoi',
+  'twentyfour',
+  'bulls',
+  'nonogram',
   'gomoku',
   'connect4',
   'reversi',
   'xiangqi',
   'rps',
   'landlord',
+  'dots',
   'slots',
   'wheel',
   'plinko',
@@ -97,6 +104,8 @@ export const GAME_ORDER = [
   'hilo',
   'crash',
   'scratch',
+  'baccarat',
+  'keno',
   'jackpot',
 ];
 
@@ -115,10 +124,16 @@ export const GAME_SECTIONS = [
       'sokoban',
       'lightsout',
       'hanoi',
+      'twentyfour',
+      'bulls',
+      'nonogram',
     ],
   },
-  { key: 'board', games: ['gomoku', 'connect4', 'reversi', 'xiangqi'] },
-  { key: 'cards', games: ['landlord', 'rps', 'blackjack', 'hilo'] },
+  {
+    key: 'board',
+    games: ['gomoku', 'connect4', 'reversi', 'xiangqi', 'dots'],
+  },
+  { key: 'cards', games: ['landlord', 'rps', 'blackjack', 'hilo', 'baccarat'] },
   {
     key: 'chance',
     games: [
@@ -130,6 +145,7 @@ export const GAME_SECTIONS = [
       'mines',
       'crash',
       'scratch',
+      'keno',
     ],
   },
   { key: 'jackpot', games: ['jackpot'] },
@@ -255,6 +271,32 @@ export const getGameMetaMap = (t) => ({
     score: 'level',
     scoreName: t('难度'),
   },
+  twentyfour: {
+    kind: 'skill',
+    name: t('24 点'),
+    description: t('用加减乘除把四张牌凑成 24，连续解出五道题'),
+    score: 'level',
+    scoreName: t('难度'),
+  },
+  bulls: {
+    kind: 'skill',
+    name: t('猜数字'),
+    description: t('根据几 A 几 B 的提示推理，限定次数内猜中答案'),
+    score: 'level',
+    scoreName: t('难度'),
+  },
+  nonogram: {
+    kind: 'skill',
+    name: t('数织'),
+    description: t('按行列数字提示涂黑格子，画出隐藏的图案'),
+    score: 'level',
+    scoreName: t('难度'),
+  },
+  dots: {
+    kind: 'pvp',
+    name: t('点格棋'),
+    description: t('轮流连线，围住格子就再走一步，占格多的一方获胜'),
+  },
   connect4: {
     kind: 'pvp',
     name: t('四子棋'),
@@ -335,6 +377,16 @@ export const getGameMetaMap = (t) => ({
     kind: 'wager',
     name: t('刮刮乐'),
     description: t('买一张刮开，三个相同的金额就中这个金额'),
+  },
+  baccarat: {
+    kind: 'wager',
+    name: t('百家乐'),
+    description: t('押闲、庄、和或对子，点数更接近 9 的一方获胜'),
+  },
+  keno: {
+    kind: 'wager',
+    name: t('基诺'),
+    description: t('从 40 个号码里选几个，开出 10 个，中得越多倍数越高'),
   },
   jackpot: {
     kind: 'party',

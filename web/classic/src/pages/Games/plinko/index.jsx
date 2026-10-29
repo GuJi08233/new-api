@@ -28,6 +28,9 @@ import { ArrowLeft } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { API, showError } from '../../../helpers';
 import { formatCoins, signed } from '../common/api';
+import { AutoPlayControls, useAutoPlay } from '../common/autoPlay';
+import { SoundToggle, celebrate } from '../common/effects';
+import { playSound } from '../common/sound';
 import '../games.css';
 import './plinko.css';
 
@@ -159,6 +162,7 @@ function animateBalls(stage, onLand) {
       ) {
         const row = segment - 1;
         if (row < 0 || row >= points.length - 2) continue;
+        playSound('peg', { pitch: 0.8 + row * 0.04 });
         const peg = points[segment].x + (row + 2) / 2;
         const x = pegX(width, points[segment].x).toFixed(2);
         const y = pegY(row);
@@ -234,6 +238,8 @@ const Plinko = () => {
   // 最近落下的一颗球 { result, tier } 或投球失败的原因 { error }。
   const [outcome, setOutcome] = useState(null);
   const [history, setHistory] = useState([]);
+  const auto = useAutoPlay();
+  const autoBigWin = auto.bigWin;
 
   // refresh 为真时是投球没有结果后重新读取：这时读不到就保留页面上的内容，失败原因已经显示在钉板下方。
   const loadInfo = useCallback(
@@ -287,38 +293,53 @@ const Plinko = () => {
   }, []);
 
   // 球落进格子才公布结果、更新余额和今日输赢。
-  const landBall = useCallback((ball) => {
-    const { result, tier } = ball;
-    if (ball.snapshot >= shownSnapshotRef.current) {
-      shownSnapshotRef.current = ball.snapshot;
-      setShownBalance(result.balance);
-      setRule((previous) => ({
-        ...previous,
-        net_today: result.net_today,
-        plays_today: result.plays_today,
-        best_win: Math.max(previous.best_win || 0, result.win),
-      }));
-    }
-    setOutcome({ result, tier });
-    setHistory((previous) =>
-      [
-        {
-          id: ball.id,
-          label: payoutLabel(tier, result.win),
-          slot: result.slot,
-        },
-        ...previous,
-      ].slice(0, HISTORY_SIZE),
-    );
-    setFlying((count) => count - 1);
-    boardRef.current?.querySelector(`[data-slot='${result.slot}']`)?.animate?.(
-      [
-        { transform: 'translateY(5px)', filter: 'brightness(1.35)' },
-        { transform: 'translateY(0)', filter: 'brightness(1)' },
-      ],
-      { duration: 450, easing: 'ease-out' },
-    );
-  }, []);
+  const landBall = useCallback(
+    (ball) => {
+      const { result, tier } = ball;
+      if (ball.snapshot >= shownSnapshotRef.current) {
+        shownSnapshotRef.current = ball.snapshot;
+        setShownBalance(result.balance);
+        setRule((previous) => ({
+          ...previous,
+          net_today: result.net_today,
+          plays_today: result.plays_today,
+          best_win: Math.max(previous.best_win || 0, result.win),
+        }));
+      }
+      setOutcome({ result, tier });
+      setHistory((previous) =>
+        [
+          {
+            id: ball.id,
+            label: payoutLabel(tier, result.win),
+            slot: result.slot,
+          },
+          ...previous,
+        ].slice(0, HISTORY_SIZE),
+      );
+      setFlying((count) => count - 1);
+      // 球落进格子时揭晓：大奖撒彩带(设了大奖停止时停下自动连玩)，赢了响金币，输了一声轻响。
+      if (result.win >= BIG_WIN_MULTIPLIER * tier.cost) {
+        playSound('bigWin');
+        celebrate(1.5);
+        autoBigWin();
+      } else if (result.win > tier.cost) {
+        playSound('coin');
+      } else {
+        playSound('drop', { pitch: 1.4 });
+      }
+      boardRef.current
+        ?.querySelector(`[data-slot='${result.slot}']`)
+        ?.animate?.(
+          [
+            { transform: 'translateY(5px)', filter: 'brightness(1.35)' },
+            { transform: 'translateY(0)', filter: 'brightness(1)' },
+          ],
+          { duration: 450, easing: 'ease-out' },
+        );
+    },
+    [autoBigWin],
+  );
 
   const tier = rule?.tiers.find((item) => item.stake === stake);
   const canDrop =
@@ -363,6 +384,7 @@ const Plinko = () => {
     if (response.error) {
       // 投球被拒绝或请求没有得到答复：页面上的余额与次数可能已经过时(请求也可能已经结算)，重新读取。
       setOutcome(response);
+      auto.after(false);
       await loadInfo(true);
       requestingRef.current = false;
       if (aliveRef.current) setRequesting(false);
@@ -375,6 +397,8 @@ const Plinko = () => {
     setBalance(result.balance);
     setOutcome((previous) => (previous?.error ? null : previous));
     setFlying((count) => count + 1);
+    playSound('click');
+    auto.after(true);
     const ball = {
       snapshot: ++snapshotRef.current,
       id: nextBallRef.current++,
@@ -403,7 +427,8 @@ const Plinko = () => {
     stage.effects = effectLayerRef.current;
     stage.balls.push(ball);
     animateBalls(stage, landBall);
-  }, [canDrop, tier, rule, t, loadInfo, landBall]);
+  }, [canDrop, tier, rule, t, loadInfo, landBall, auto.after]);
+  auto.bind(() => (canDrop ? drop() : auto.stop()));
 
   // 空格键投球；焦点在按钮上时交给按钮自己处理，免得触发两次。
   useEffect(() => {
@@ -503,6 +528,7 @@ const Plinko = () => {
             {t('游戏中心')}
           </Button>
           <h1 className='plinko-title'>{t('Plinko')}</h1>
+          <SoundToggle />
         </div>
 
         <div className='plinko-layout'>
@@ -620,6 +646,7 @@ const Plinko = () => {
               >
                 {t('投 {{stake}} {{symbol}}', { stake: tier.stake, symbol })}
               </button>
+              <AutoPlayControls auto={auto} disabled={!canDrop} />
               <div className='games-stage-counter'>
                 {t('今日已投 {{plays}} 颗', { plays: rule.plays_today || 0 })}
               </div>

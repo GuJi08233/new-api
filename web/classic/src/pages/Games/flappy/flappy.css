@@ -131,3 +131,41 @@ For commercial licensing, please contact support@quantumnous.com
     animation: none;
   }
 }
+
+/* 结算时的奖牌：按穿过的管道数给一个评价。 */
+.flappy-medal {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 12px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+  animation: games-pop 0.5s ease-out;
+}
+
+.flappy-medal.is-bronze {
+  color: #9a5b2b;
+  background: rgba(205, 127, 50, 0.18);
+}
+
+.flappy-medal.is-silver {
+  color: #52606d;
+  background: rgba(148, 163, 184, 0.25);
+}
+
+.flappy-medal.is-gold {
+  color: rgba(var(--semi-amber-7), 1);
+  background: rgba(var(--semi-amber-5), 0.2);
+}
+
+.flappy-medal.is-platinum {
+  color: #0e7490;
+  background: rgba(34, 211, 238, 0.2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flappy-medal {
+    animation: none;
+  }
+}

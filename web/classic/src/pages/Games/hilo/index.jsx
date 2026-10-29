@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ArrowDown, ArrowUp, Equal, SkipForward } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { getGameMetaMap } from '../../../constants';
@@ -25,11 +25,24 @@ import GameLayout from '../common/GameLayout';
 import BetInput from '../common/BetInput';
 import { RuleList, SideBox, StageMessage } from '../common/SideBox';
 import { percent } from '../common/api';
-import { WagerStats, wagerResultMessage } from '../common/wager';
+import {
+  WagerStats,
+  playWagerFeedback,
+  wagerResultMessage,
+} from '../common/wager';
+import { playSound } from '../common/sound';
 import { useGameInfo } from '../common/useGameInfo';
 import { RANK_LABELS, SUIT_ICONS, isRedSuit } from '../common/cards';
 import { useWagerRound } from '../common/useWagerRound';
 import './hilo.css';
+
+// 键盘猜牌：↑ 猜大、↓ 猜小、= 猜相同、→ 换一张，C 兑现。
+const GUESS_KEYS = {
+  ArrowUp: 'higher',
+  ArrowDown: 'lower',
+  Equal: 'same',
+  ArrowRight: 'skip',
+};
 
 const GUESS_ICONS = {
   higher: ArrowUp,
@@ -104,6 +117,37 @@ const Hilo = () => {
     reload,
   );
   const [bet, setBet] = useState(1);
+  // 每翻开一张牌响一声，猜对再响一声金币(连对越多越高)，猜错一声低音，兑现时揭晓派彩。只在同一局里比较。
+  const seenRef = useRef({ session: 0, steps: 0, status: '' });
+  useEffect(() => {
+    if (!round) return;
+    const previous = seenRef.current;
+    const steps = round.history?.length || 0;
+    if (previous.session === round.session_id && steps > previous.steps) {
+      const move = round.history[steps - 1];
+      playSound('flip');
+      if (move.guess !== 'skip') {
+        if (move.correct) {
+          playSound('chip', { pitch: 1 + Math.min(round.wins, 10) * 0.06 });
+        } else {
+          playSound('error');
+        }
+      }
+    }
+    if (
+      previous.session === round.session_id &&
+      previous.status === 'playing' &&
+      round.status === 'finished' &&
+      round.win > 0
+    ) {
+      playWagerFeedback({ bet: round.bet, win: round.win });
+    }
+    seenRef.current = {
+      session: round.session_id,
+      steps,
+      status: round.status,
+    };
+  }, [round]);
 
   // 拿到游戏信息后读出没结束的一局，刷新页面、游戏关闭之后都能接着猜。
   const loaded = !!info;
@@ -143,6 +187,37 @@ const Hilo = () => {
     message = hiloResultMessage(round, lost, maxMultiplier, t, symbol);
   }
 
+  // 键盘操作，焦点在输入框里时不响应。
+  const keyRef = useRef(null);
+  keyRef.current = (event) => {
+    if (event.ctrlKey || event.metaKey || event.altKey || event.repeat) return;
+    if (event.target.closest?.('input, textarea, [contenteditable="true"]')) {
+      return;
+    }
+    if (!playing || busy) return;
+    if (event.code === 'KeyC') {
+      if (round.wins > 0) {
+        event.preventDefault();
+        send('cashout');
+      }
+      return;
+    }
+    const guess = GUESS_KEYS[event.code];
+    if (!guess) return;
+    const allowed =
+      guess === 'skip'
+        ? round.skips_left > 0
+        : round.options.some((option) => option.guess === guess);
+    if (!allowed) return;
+    event.preventDefault();
+    send('guess', { guess });
+  };
+  useEffect(() => {
+    const onKeyDown = (event) => keyRef.current(event);
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
   const side = info && (
     <>
       <WagerStats info={info} symbol={symbol} />
@@ -164,6 +239,7 @@ const Hilo = () => {
               { max: maxMultiplier },
             ),
             t('每猜一次的理论返还率都是 {{rate}}%', { rate: info.rtp_percent }),
+            t('键盘 ↑ 猜大、↓ 猜小、= 猜相同、→ 换一张、C 兑现'),
             t('单次最多下注 {{max}} {{symbol}}', { max: maxBet, symbol }),
           ]}
         />

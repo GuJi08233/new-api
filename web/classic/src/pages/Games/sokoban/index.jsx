@@ -31,7 +31,15 @@ import {
 import GameLayout from '../common/GameLayout';
 import { RuleList, SideBox, StageMessage } from '../common/SideBox';
 import { gameGet, gamePost, withTurnstile } from '../common/api';
-import { SkillSide, skillResultMessage, GameClock } from '../common/skill';
+import {
+  SkillSide,
+  playSkillFeedback,
+  skillResultMessage,
+  GameClock,
+} from '../common/skill';
+import { localBestNote } from '../common/LocalBest';
+import { useLocalBest } from '../common/useLocalBest';
+import { playSound } from '../common/sound';
 import { useGameInfo } from '../common/useGameInfo';
 import { PlayTurnstile, usePlayTurnstile } from '../common/usePlayTurnstile';
 import { movePuzzle, replayPuzzle, solved } from './engine';
@@ -63,6 +71,9 @@ const Sokoban = () => {
   const [error, setError] = useState('');
   const busyRef = useRef(false);
   const moveRef = useRef(null);
+  // 每天一张图，本机最佳按日期记。
+  const { bests, record } = useLocalBest('sokoban');
+  const [improved, setImproved] = useState(null);
   const playing = !!session && !result;
   const won = puzzle && solved(puzzle);
 
@@ -138,8 +149,18 @@ const Sokoban = () => {
       }
       return;
     }
+    const at = Date.now();
+    if (!abandon && session) {
+      setImproved(
+        record(session.puzzle.day || info?.day || 'today', {
+          moves: allMoves.length,
+          time: Math.round((at - session.since) / 1000),
+        }),
+      );
+    }
+    playSkillFeedback(response.data, !abandon);
     setResult(response.data);
-    setEnd(Date.now());
+    setEnd(at);
     patch({
       balance: response.data.balance,
       progress: response.data.progress,
@@ -168,7 +189,9 @@ const Sokoban = () => {
       setError(response.error);
       return;
     }
+    setImproved(null);
     restore(response.data);
+    playSound('start');
   };
 
   const move = (direction) => {
@@ -182,6 +205,15 @@ const Sokoban = () => {
     const next = movePuzzle(puzzle, direction);
     if (!next) return;
     const allMoves = moves + direction;
+    const homeBefore = puzzle.boxes.filter((box) =>
+      puzzle.goals.includes(box),
+    ).length;
+    const homeAfter = next.boxes.filter((box) =>
+      next.goals.includes(box),
+    ).length;
+    if (homeAfter > homeBefore) playSound('clear');
+    else if (next.pushes > (puzzle.pushes || 0)) playSound('place');
+    else playSound('move');
     setPuzzle(next);
     setMoves(allMoves);
     if (solved(next)) submit(allMoves);
@@ -216,6 +248,7 @@ const Sokoban = () => {
     setPuzzle(replayed.puzzle);
     setMoves(replayed.moves);
     setError('');
+    playSound('click');
   };
 
   const reward = result && skillResultMessage(result, t, info?.symbol);
@@ -258,6 +291,30 @@ const Sokoban = () => {
           <span>
             {t('步数')}
             <strong>{moves.length}</strong>
+          </span>
+          <span>
+            {t('推动')}
+            <strong>{puzzle?.pushes || 0}</strong>
+          </span>
+          <span>
+            {t('已归位')}
+            <strong>
+              {puzzle
+                ? puzzle.boxes.filter((box) => puzzle.goals.includes(box))
+                    .length
+                : 0}{' '}
+              / {puzzle?.boxes.length || 3}
+            </strong>
+          </span>
+          <span>
+            {t('今日最佳')}
+            <strong>
+              {bests[puzzle?.day || info?.day]?.moves !== undefined
+                ? t('{{moves}} 步', {
+                    moves: bests[puzzle?.day || info?.day].moves,
+                  })
+                : '-'}
+            </strong>
           </span>
           <span>
             {t('用时')}
@@ -419,7 +476,11 @@ const Sokoban = () => {
             {error || reward?.text}
           </StageMessage>
         )}
-        {won && <p className='puzzle-intro'>{t('所有箱子已归位！')}</p>}
+        {won && (
+          <p className='puzzle-intro'>
+            {t('所有箱子已归位！')} {localBestNote(improved, t)}
+          </p>
+        )}
       </div>
     </GameLayout>
   );

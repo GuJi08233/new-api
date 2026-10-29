@@ -21,6 +21,8 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { formatNumber, signed } from './api';
 import { SideBox } from './SideBox';
+import { celebrate } from './effects';
+import { playSound } from './sound';
 
 // 下注游戏共用的部分。info 是 GET /api/game/<key> 返回的 wagerInfo 部分：max_bet、net_today、plays_today、best_win。
 
@@ -49,6 +51,21 @@ export function wagerResultMessage(result, t, symbol) {
     kind: result.win >= BIG_WIN_MULTIPLIER * result.bet ? 'big-win' : 'win',
     text: t('赢得 {{win}} {{symbol}}', { win: result.win, symbol }),
   };
+}
+
+// 一局下注揭晓结果时的音效与彩带：大奖撒彩带，赢了响一声金币，没中或少收回时一声低音。开奖动画停下之后再调用。
+export function playWagerFeedback(result) {
+  if (!result) return;
+  if (result.win >= BIG_WIN_MULTIPLIER * result.bet && result.win > 0) {
+    playSound('bigWin');
+    celebrate(1.5);
+  } else if (result.win > result.bet) {
+    playSound('coin');
+  } else if (result.win === result.bet) {
+    playSound('chip');
+  } else {
+    playSound('lose', { pitch: 1.5 });
+  }
 }
 
 // 下注游戏信息栏里的今日输赢与单局最高派彩。

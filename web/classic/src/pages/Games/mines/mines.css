@@ -190,3 +190,9 @@ For commercial licensing, please contact support@quantumnous.com
     border-radius: 10px;
   }
 }
+
+.mines-random {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}

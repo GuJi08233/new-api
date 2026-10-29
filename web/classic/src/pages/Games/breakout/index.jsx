@@ -25,7 +25,14 @@ import { usePendingReplay } from '../common/usePendingReplay';
 import PendingReplay from '../common/PendingReplay';
 import { RuleList, SideBox, StageMessage } from '../common/SideBox';
 import { gamePost, withTurnstile } from '../common/api';
-import { SkillSide, skillResultMessage, formatClock } from '../common/skill';
+import {
+  SkillSide,
+  playSkillFeedback,
+  skillResultMessage,
+  formatClock,
+} from '../common/skill';
+import { Floaters, useFloaters } from '../common/effects';
+import { playSound } from '../common/sound';
 import { useGameInfo } from '../common/useGameInfo';
 import { PlayTurnstile, usePlayTurnstile } from '../common/usePlayTurnstile';
 import {
@@ -55,6 +62,83 @@ const COLORS = [
   '#38bdf8',
   '#a78bfa',
 ];
+
+// 碎砖飞散的碎片：位置、速度与剩余寿命(帧)。只是画面效果，不进引擎。
+function spawnShards(shards, index) {
+  const x = BRICK_LEFT + (index % COLUMNS) * (BRICK_WIDTH + BRICK_GAP);
+  const y =
+    BRICK_TOP + Math.floor(index / COLUMNS) * (BRICK_HEIGHT + BRICK_GAP);
+  const color = COLORS[Math.floor(index / COLUMNS)];
+  for (let i = 0; i < 10; i++) {
+    shards.push({
+      x: x + Math.random() * BRICK_WIDTH,
+      y: y + Math.random() * BRICK_HEIGHT,
+      vx: (Math.random() - 0.5) * 4,
+      vy: (Math.random() - 0.7) * 3,
+      life: 30 + Math.random() * 15,
+      color,
+    });
+  }
+}
+
+function drawShards(ctx, shards) {
+  for (let i = shards.length - 1; i >= 0; i--) {
+    const shard = shards[i];
+    shard.x += shard.vx;
+    shard.y += shard.vy;
+    shard.vy += 0.15;
+    shard.life--;
+    if (shard.life <= 0) {
+      shards.splice(i, 1);
+      continue;
+    }
+    ctx.globalAlpha = Math.min(1, shard.life / 20);
+    ctx.fillStyle = shard.color;
+    ctx.fillRect(shard.x, shard.y, 3, 3);
+  }
+  ctx.globalAlpha = 1;
+}
+
+// 推进一帧之后和推进之前比较，给击中、碎砖、接球、加宽、掉球配上音效与碎片；连续碎砖不碰挡板算连击，飘字提示。
+// 连击只是画面上的鼓励，分数仍按引擎的规则计算。
+function stepFeedback(before, game, effects, float) {
+  let hits = 0;
+  game.bricks.forEach((hp, index) => {
+    if (hp >= before.bricks[index]) return;
+    hits++;
+    if (hp === 0) spawnShards(effects.shards, index);
+  });
+  const broke = game.broken - before.broken;
+  if (broke > 0) {
+    effects.combo += broke;
+    playSound('break', { pitch: 1 + Math.min(effects.combo, 12) / 24 });
+    if (effects.combo >= 3) {
+      float(`×${effects.combo}`, {
+        x: 50,
+        y: 40,
+        kind: effects.combo >= 8 ? 'gold' : 'gain',
+      });
+    }
+  } else if (hits > 0) {
+    playSound('hit');
+  }
+  const caught = game.balls.some(
+    (ball, index) =>
+      ball.vy < 0 &&
+      ball.y === PADDLE_Y - RADIUS &&
+      before.balls[index]?.vy > 0,
+  );
+  if (caught) {
+    effects.combo = 0;
+    playSound('peg');
+  }
+  if (game.wide > before.wide + 1) playSound('levelUp');
+  if (game.balls.length > before.balls.length) playSound('reveal');
+  if (game.lives < before.lives) {
+    effects.combo = 0;
+    playSound('error');
+  }
+}
 
 function drawGame(ctx, game) {
   ctx.fillStyle = '#0b1326';
@@ -133,6 +217,9 @@ const Breakout = () => {
   const sessionRef = useRef(null);
   const submittedRef = useRef(false);
   const pointerRef = useRef(null);
+  // 画面效果：碎片与连击数，跟着一局重置。
+  const effectsRef = useRef({ shards: [], combo: 0 });
+  const [floaters, float] = useFloaters();
   const replay = usePendingReplay('breakout', {
     snapshot: () =>
       !submittedRef.current && sessionRef.current && inputsRef.current.length
@@ -182,6 +269,7 @@ const Breakout = () => {
     }
     submittedRef.current = true;
     setResult(response.data);
+    playSkillFeedback(response.data, game.won);
     setPhase('done');
     patch({
       balance: response.data.balance,
@@ -221,10 +309,19 @@ const Breakout = () => {
           );
         const target = Math.round(targetRef.current);
         inputsRef.current.push(target);
+        const before = {
+          bricks: game.bricks.slice(),
+          broken: game.broken,
+          balls: game.balls,
+          lives: game.lives,
+          wide: game.wide,
+        };
         step(game, target);
+        stepFeedback(before, game, effectsRef.current, float);
         accumulator -= 1000 / FPS;
       }
       drawGame(ctx, game);
+      drawShards(ctx, effectsRef.current.shards);
       if (game.ticks % 12 === 0 || game.over)
         setHud({
           score: game.score,
@@ -240,7 +337,7 @@ const Breakout = () => {
     };
     frame = requestAnimationFrame(animate);
     return () => cancelAnimationFrame(frame);
-  }, [loading, unavailable, phase]);
+  }, [loading, unavailable, phase, float]);
 
   useEffect(() => {
     const down = (event) => {
@@ -320,6 +417,8 @@ const Breakout = () => {
     inputsRef.current = [];
     targetRef.current = WIDTH / 2;
     keysRef.current.clear();
+    effectsRef.current = { shards: [], combo: 0 };
+    playSound('start');
     setSession(response.data);
     setResult(null);
     setHud({ score: 0, lives: 3, broken: 0, ticks: 0 });
@@ -413,6 +512,7 @@ const Breakout = () => {
                 pointerRef.current = null;
             }}
           />
+          <Floaters items={floaters} />
           {phase !== 'playing' && (
             <div className='breakout-overlay'>
               {phase === 'paused'

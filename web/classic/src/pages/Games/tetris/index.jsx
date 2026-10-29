@@ -57,11 +57,14 @@ import {
   WIDTH,
 } from './engine';
 import {
+  playSkillFeedback,
   playTimeNote,
   rewardsLeftText,
   skillResultMessage,
   skillRuleSummary,
 } from '../common/skill';
+import { Floaters, SoundToggle, useFloaters } from '../common/effects';
+import { playSound } from '../common/sound';
 import { withTurnstile } from '../common/api';
 import { usePendingReplay } from '../common/usePendingReplay';
 import PendingReplay from '../common/PendingReplay';
@@ -302,6 +305,49 @@ function drawPreview(canvas, pieces, slots, dimmed) {
 
 const formatNumber = (value) => Number(value || 0).toLocaleString();
 
+// 一帧推进之后和上一帧比较，给这一帧发生的事配上音效与飘字：移动、旋转、暂存、落下、消行与升级。只看引擎的计数，
+// 不改动引擎和上传的操作记录。
+function tickFeedback(previous, game, float, t) {
+  if (game.pieces !== previous.pieces) {
+    const cleared = game.lines - previous.lines;
+    if (cleared > 0) {
+      const names = [t('单消'), t('双消'), t('三消'), t('四消！')];
+      playSound(cleared >= 4 ? 'combo' : 'clear');
+      float(
+        `${names[cleared - 1]} +${formatNumber(game.score - previous.score)}`,
+        {
+          y: 45,
+          kind: cleared >= 4 ? 'gold' : 'gain',
+        },
+      );
+    } else {
+      playSound('place');
+    }
+    if (game.level > previous.level) {
+      playSound('levelUp');
+      float(t('升到 {{level}} 级', { level: game.level }), {
+        y: 30,
+        kind: 'gold',
+      });
+    }
+  } else if (game.hold !== previous.hold) {
+    playSound('click');
+  } else if (game.rotation !== previous.rotation) {
+    playSound('rotate');
+  } else if (game.x !== previous.x) {
+    playSound('move');
+  }
+  return {
+    pieces: game.pieces,
+    lines: game.lines,
+    score: game.score,
+    level: game.level,
+    hold: game.hold,
+    rotation: game.rotation,
+    x: game.x,
+  };
+}
+
 const Tetris = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -324,6 +370,7 @@ const Tetris = () => {
   // 结束、离开的确认框打开期间忽略游戏按键，免得在确认框后面按 P 继续玩。
   const confirmingRef = useRef(false);
   const touchPointersRef = useRef(new Map());
+  const [floaters, float] = useFloaters();
   const replay = usePendingReplay('tetris', {
     snapshot: () => {
       const run = runRef.current;
@@ -394,14 +441,16 @@ const Tetris = () => {
       setResult({ rejected: response.error });
     } else {
       const data = response.data;
+      const newRecord = data.score > 0 && data.score > run.previousBest;
       setResult({
         ...data,
         lines: data.detail?.lines || 0,
         level: data.detail?.level || 1,
         over: run.game.over,
         localScore: run.game.score,
-        newRecord: data.score > 0 && data.score > run.previousBest,
+        newRecord,
       });
+      playSkillFeedback(data, newRecord);
       setRule((previous) => ({ ...previous, ...data }));
     }
     setPhase('result');
@@ -437,6 +486,7 @@ const Tetris = () => {
         previousBest: rule?.best_score || 0,
       };
       replay.beginSession(sessionId);
+      playSound('start');
       setStats({ score: 0, lines: 0, level: 1 });
       setResult(null);
       // 开始按钮保留焦点时，空格键会再次触发它。
@@ -524,6 +574,7 @@ const Tetris = () => {
     let previousHold = '';
     let previousNext = '';
     let previewsResized = true;
+    let feedback = tickFeedback({}, run.game, () => {}, t);
     const onResize = () => {
       previewsResized = true;
     };
@@ -535,6 +586,7 @@ const Tetris = () => {
       while (elapsed >= TICK_MS && !game.over && game.ticks < MAX_TICKS) {
         advanceTick(run);
         elapsed -= TICK_MS;
+        feedback = tickFeedback(feedback, game, float, t);
       }
       drawBoard(boardRef.current, game);
       const holdKey = `${game.hold}:${game.holdUsed}`;
@@ -567,7 +619,7 @@ const Tetris = () => {
       cancelAnimationFrame(frame);
       window.removeEventListener('resize', onResize);
     };
-  }, [phase, submitResult]);
+  }, [phase, submitResult, float, t]);
 
   useEffect(() => {
     if (phase !== 'playing' && phase !== 'paused') return undefined;
@@ -822,6 +874,7 @@ const Tetris = () => {
             {t('游戏中心')}
           </Button>
           <h1 className='tetris-title'>{t('俄罗斯方块')}</h1>
+          <SoundToggle />
         </div>
 
         <PendingReplay replay={replay} />
@@ -853,6 +906,7 @@ const Tetris = () => {
 
           <div className='tetris-board'>
             <canvas ref={boardRef} />
+            <Floaters items={floaters} />
             {overlay}
           </div>
 

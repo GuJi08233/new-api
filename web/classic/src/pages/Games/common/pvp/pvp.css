@@ -318,3 +318,66 @@ For commercial licensing, please contact support@quantumnous.com
   color: var(--semi-color-warning);
   background: var(--semi-color-warning-light-default);
 }
+
+/* 五子棋、四子棋、黑白棋棋盘下方的悔棋与提示。 */
+.board-assist {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.board-assist-note {
+  font-size: 13px;
+  color: var(--semi-color-text-2);
+}
+
+/* 提示推荐的落点：琥珀色的一圈，轻轻闪动。 */
+.board-hint-mark {
+  fill: rgba(var(--semi-amber-4), 0.35);
+  stroke: rgba(var(--semi-amber-6), 1);
+  stroke-width: 0.08;
+  animation: board-hint-pulse 1.2s ease-in-out infinite;
+}
+
+.board-hint-cell {
+  position: absolute;
+  inset: 12%;
+  border-radius: 50%;
+  border: 3px solid rgba(var(--semi-amber-6), 1);
+  background: rgba(var(--semi-amber-4), 0.3);
+  pointer-events: none;
+  animation: board-hint-pulse 1.2s ease-in-out infinite;
+}
+
+.connect4-hint-arrow {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  font-size: 18px;
+  line-height: 1;
+  color: rgba(var(--semi-amber-6), 1);
+  animation: board-hint-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes board-hint-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .board-hint-mark,
+  .board-hint-cell,
+  .connect4-hint-arrow {
+    animation: none;
+  }
+}

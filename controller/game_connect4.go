@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/connect4"
 )
 
@@ -21,6 +22,7 @@ func init() {
 type connect4State struct {
 	First int   `json:"first"`
 	Moves []int `json:"moves"`
+	boardAssist
 }
 
 // connect4Move 是一步 {"col":0-6}。
@@ -41,6 +43,7 @@ type connect4View struct {
 	Over   bool            `json:"over"`
 	Winner int             `json:"winner"`
 	Line   []connect4.Cell `json:"line"`
+	Undo   boardUndoView   `json:"undo"`
 }
 
 type connect4Engine struct{}
@@ -100,6 +103,7 @@ func (connect4Engine) Play(data []byte, seat int, move json.RawMessage) (pvpStat
 		return pvpState{}, errPvpIllegalMove
 	}
 	state.Moves = game.Moves()
+	state.played()
 	return connect4PvpState(state, game)
 }
 
@@ -118,6 +122,7 @@ func (connect4Engine) View(data []byte, seat int) (any, error) {
 		Over:   game.Over(),
 		Winner: state.seatOf(game.Winner()),
 		Line:   append([]connect4.Cell{}, game.Line()...),
+		Undo:   state.undoView(state.movers(), seat, game.Over()),
 	}
 	if last, ok := game.Last(); ok {
 		view.Last = &last
@@ -158,4 +163,97 @@ func (connect4Engine) AiMoveContext(ctx context.Context, data []byte, seat int, 
 		return nil, err
 	}
 	return common.Marshal(connect4Move{Col: &col})
+}
+
+// movers 返回每一步落子的座位：先手执红，双方轮流。
+func (s connect4State) movers() []int {
+	movers := make([]int, len(s.Moves))
+	for i := range movers {
+		movers[i] = s.First
+		if i%2 == 1 {
+			movers[i] = 1 - s.First
+		}
+	}
+	return movers
+}
+
+// UndoAsk 记下 seat 想悔棋，返回对方同意之后要收的游戏币。
+func (connect4Engine) UndoAsk(data []byte, seat int) (pvpState, model.GameCoins, error) {
+	state, game, err := loadConnect4(data)
+	if err != nil {
+		return pvpState{}, 0, err
+	}
+	cost, err := state.askUndo(state.movers(), seat, game.Over())
+	if err != nil {
+		return pvpState{}, 0, err
+	}
+	next, err := connect4PvpState(state, game)
+	return next, cost, err
+}
+
+// UndoAnswer 让 seat 回应对方的悔棋请求：同意时撤回到提出的一方最后一次落子之前。
+func (connect4Engine) UndoAnswer(data []byte, seat int, accept bool) (pvpUndo, error) {
+	state, game, err := loadConnect4(data)
+	if err != nil {
+		return pvpUndo{}, err
+	}
+	asker, steps, cost, err := state.answerUndo(state.movers(), seat, accept, game.Over())
+	if err != nil {
+		return pvpUndo{}, err
+	}
+	if steps > 0 {
+		state.Moves = state.Moves[:len(state.Moves)-steps]
+		if game, err = connect4.Replay(state.Moves); err != nil {
+			return pvpUndo{}, err
+		}
+	} else {
+		asker = -1
+	}
+	next, err := connect4PvpState(state, game)
+	return pvpUndo{State: next, Payer: asker, Cost: cost, Steps: steps}, err
+}
+
+func (connect4Engine) HintStatus(data []byte, seat int) (pvpHintStatus, error) {
+	state, game, err := loadConnect4(data)
+	if err != nil {
+		return pvpHintStatus{}, err
+	}
+	return state.hintStatus(seat, state.seatOf(game.Turn()), game.Over())
+}
+
+func (connect4Engine) CachedHint(data []byte, seat int) (json.RawMessage, error) {
+	state, game, err := loadConnect4(data)
+	if err != nil {
+		return nil, err
+	}
+	return state.cachedHint(seat, state.seatOf(game.Turn()), game.Over(), len(state.Moves))
+}
+
+func (connect4Engine) Hint(data []byte, seat int) (pvpHint, error) {
+	return (connect4Engine{}).HintContext(context.Background(), data, seat)
+}
+
+// HintContext 用困难难度的 AI 替 seat 找一步好棋，记下用掉的提示次数。提示不落子。
+func (connect4Engine) HintContext(ctx context.Context, data []byte, seat int) (pvpHint, error) {
+	state, game, err := loadConnect4(data)
+	if err != nil {
+		return pvpHint{}, err
+	}
+	if game.Over() || state.seatOf(game.Turn()) != seat {
+		return pvpHint{}, errPvpHintUnavailable
+	}
+	rng, err := boardAiRandom()
+	if err != nil {
+		return pvpHint{}, err
+	}
+	col, err := connect4.BestMoveContext(ctx, game, boardHintLevel, rng)
+	if err != nil {
+		return pvpHint{}, err
+	}
+	content, cost, err := state.recordHint(boardHint{Moves: len(state.Moves), X: col})
+	if err != nil {
+		return pvpHint{}, err
+	}
+	next, err := connect4PvpState(state, game)
+	return pvpHint{Hint: content, State: next, Cost: cost}, err
 }

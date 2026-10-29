@@ -25,7 +25,15 @@ import React, {
   useState,
 } from 'react';
 import { Modal } from '@douyinfe/semi-ui';
-import { Eraser, Flag, PencilLine, Play, Send, Undo2 } from 'lucide-react';
+import {
+  Eraser,
+  Flag,
+  PencilLine,
+  Play,
+  Send,
+  Sparkles,
+  Undo2,
+} from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { getGameLevelNames, getGameMetaMap } from '../../../constants';
 import GameLayout from '../common/GameLayout';
@@ -35,6 +43,7 @@ import {
   formatClock,
   GameClock,
   levelReward,
+  playSkillFeedback,
   rewardsLeftText,
   skillResultMessage,
   skillRuleSummary,
@@ -43,6 +52,9 @@ import {
 import { useGameInfo } from '../common/useGameInfo';
 import { PlayTurnstile, usePlayTurnstile } from '../common/usePlayTurnstile';
 import { writeGameStorage, removeGameStorage } from '../common/gameStorage';
+import { LocalBestBox, localBestNote } from '../common/LocalBest';
+import { useLocalBest } from '../common/useLocalBest';
+import { playSound } from '../common/sound';
 import { SudokuHistory } from './history';
 import './sudoku.css';
 
@@ -78,6 +90,33 @@ function conflictsOf(values) {
     }
   });
   return conflicts;
+}
+
+// index 所在的行、列、宫(各 9 格)，用来判断填下一个数之后哪几组刚好填满。
+function unitsOf(index) {
+  const row = Math.floor(index / 9);
+  const col = index % 9;
+  const boxRow = Math.floor(row / 3) * 3;
+  const boxCol = Math.floor(col / 3) * 3;
+  return [
+    DIGITS.map((_, i) => row * 9 + i),
+    DIGITS.map((_, i) => i * 9 + col),
+    DIGITS.map((_, i) => (boxRow + Math.floor(i / 3)) * 9 + boxCol + (i % 3)),
+  ];
+}
+
+// 每个空格的候选数字：同行、同列、同宫里没出现过的数字，按笔记的位图格式返回；已填的格子为 0。
+function candidateNotes(values) {
+  return values.map((value, index) => {
+    if (value) return 0;
+    let mask = 0;
+    for (const digit of DIGITS) {
+      if (!PEERS[index].some((peer) => values[peer] === digit)) {
+        mask |= 1 << digit;
+      }
+    }
+    return mask;
+  });
 }
 
 // 浏览器里存的这一局的进度，只认同一局的。
@@ -118,6 +157,11 @@ const Sudoku = () => {
   const keyRef = useRef(null);
   const historyRef = useRef(new SudokuHistory());
   const [undoCount, setUndoCount] = useState(0);
+  // 刚填满的行、列、宫闪一下。
+  const [flash, setFlash] = useState(() => new Set());
+  const flashTimerRef = useRef(null);
+  const { bests, record } = useLocalBest('sudoku');
+  useEffect(() => () => clearTimeout(flashTimerRef.current), []);
 
   const restore = useCallback((view) => {
     historyRef.current.clear();
@@ -186,9 +230,19 @@ const Sudoku = () => {
   const isGiven = (index) => !!puzzle[index] && puzzle[index] !== '0';
 
   const settle = (settled) => {
+    const at = Date.now();
+    const solved = !!settled.detail?.solved;
+    const improved =
+      solved && game
+        ? record(game.difficulty, {
+            time: Math.round((at - game.since) / 1000),
+          })
+        : null;
+    if (solved) playSkillFeedback(settled, true);
     setEnd({
-      status: settled.detail?.solved ? 'solved' : 'abandoned',
-      at: Date.now(),
+      status: solved ? 'solved' : 'abandoned',
+      at,
+      improved,
     });
     setResult(settled);
     setSelected(null);
@@ -263,6 +317,7 @@ const Sudoku = () => {
     historyRef.current.record(values, notes);
     setUndoCount(historyRef.current.size);
     if (notesMode && digit > 0) {
+      playSound('click');
       setNotes((previous) => {
         const next = previous.slice();
         next[selected] ^= 1 << digit;
@@ -273,6 +328,25 @@ const Sudoku = () => {
     const next = values.slice();
     next[selected] = digit;
     setValues(next);
+    if (digit > 0) {
+      const clash = PEERS[selected].some((peer) => next[peer] === digit);
+      const completed = clash
+        ? []
+        : unitsOf(selected).filter((unit) => {
+            const digits = new Set(unit.map((index) => next[index]));
+            return !digits.has(0) && digits.size === 9;
+          });
+      if (clash) {
+        playSound('error');
+      } else if (completed.length > 0) {
+        playSound('clear', { pitch: 1 + completed.length * 0.12 });
+        setFlash(new Set(completed.flat()));
+        clearTimeout(flashTimerRef.current);
+        flashTimerRef.current = setTimeout(() => setFlash(new Set()), 700);
+      } else {
+        playSound('place');
+      }
+    }
     setNotes((previous) => {
       const nextNotes = previous.slice();
       nextNotes[selected] = 0;
@@ -286,6 +360,15 @@ const Sudoku = () => {
     if (digit > 0 && next.every(Boolean) && conflictsOf(next).size === 0) {
       send('/api/game/sudoku/finish', { grid: next.join('') });
     }
+  };
+
+  // 一键给所有空格记下候选数字(覆盖原来的笔记)，可以撤销。
+  const fillNotes = () => {
+    if (!playing || busyRef.current) return;
+    historyRef.current.record(values, notes);
+    setUndoCount(historyRef.current.size);
+    setNotes(candidateNotes(values));
+    playSound('flip');
   };
 
   const undo = () => {
@@ -377,6 +460,7 @@ const Sudoku = () => {
       classes.push('is-same');
     }
     if (conflicts.has(index)) classes.push('is-conflict');
+    if (flash.has(index)) classes.push('is-flash');
     return classes.join(' ');
   };
 
@@ -389,6 +473,7 @@ const Sudoku = () => {
       text: t('解出来了，用时 {{time}}', {
         time: formatClock((end.at - game.since) / 1000),
       }),
+      note: localBestNote(end.improved, t),
     };
   } else if (end) {
     outcome = { kind: '', text: t('已放弃这一局') };
@@ -412,9 +497,20 @@ const Sudoku = () => {
               t('打开笔记模式(键盘 N)可以在格子里记下候选数字'),
               t('同行、同列或同宫里重复的数字标成红色'),
               t('填满且没有冲突就自动交卷'),
+              t('「自动笔记」给所有空格记下候选数字，填数时会自动划掉'),
             ]}
           />
         </SideBox>
+      }
+      after={
+        <LocalBestBox
+          bests={bests}
+          levels={levels.map((level) => ({
+            key: level.difficulty,
+            name: levelNames[level.difficulty - 1],
+          }))}
+          columns={['time']}
+        />
       }
     />
   );
@@ -485,13 +581,18 @@ const Sudoku = () => {
                 onClick={() => write(digit)}
               >
                 {digit}
+                <span className='sudoku-pad-left'>
+                  {Math.max(9 - placed[digit - 1], 0)}
+                </span>
               </button>
             ))}
           </div>
         )}
 
         {outcome && (
-          <StageMessage kind={outcome.kind}>{outcome.text}</StageMessage>
+          <StageMessage kind={outcome.kind} note={outcome.note}>
+            {outcome.text}
+          </StageMessage>
         )}
         {reward && (
           <StageMessage kind={reward.kind} note={reward.note}>
@@ -540,6 +641,15 @@ const Sudoku = () => {
             >
               <PencilLine size={14} className='sudoku-chip-icon' />
               {t('笔记')}
+            </button>
+            <button
+              type='button'
+              className='game-chip'
+              disabled={busy}
+              onClick={fillNotes}
+            >
+              <Sparkles size={14} className='sudoku-chip-icon' />
+              {t('自动笔记')}
             </button>
             {full && (
               <button

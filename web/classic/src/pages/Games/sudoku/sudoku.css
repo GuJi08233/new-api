@@ -221,3 +221,42 @@ For commercial licensing, please contact support@quantumnous.com
     transition: none;
   }
 }
+
+/* 数字键角上的小字：这个数字还要填几个。 */
+.sudoku-pad-key {
+  position: relative;
+}
+
+.sudoku-pad-left {
+  position: absolute;
+  top: 2px;
+  right: 5px;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--semi-color-text-2);
+}
+
+.sudoku-pad-key.is-done .sudoku-pad-left {
+  visibility: hidden;
+}
+
+/* 刚填满的一行、一列或一宫闪一下。 */
+.sudoku-cell.is-flash {
+  animation: sudoku-flash 0.7s ease-out;
+}
+
+@keyframes sudoku-flash {
+  0% {
+    background: rgba(var(--semi-green-4), 0.55);
+  }
+  100% {
+    background: transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sudoku-cell.is-flash {
+    animation: none;
+  }
+}

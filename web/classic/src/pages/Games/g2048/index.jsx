@@ -31,9 +31,12 @@ import { formatNumber, gamePost, withTurnstile } from '../common/api';
 import {
   ReplayRunControls,
   SkillSide,
+  playSkillFeedback,
   skillResultMessage,
   skillRuleSummary,
 } from '../common/skill';
+import { Floaters, celebrate, useFloaters } from '../common/effects';
+import { playSound } from '../common/sound';
 import { useGameInfo } from '../common/useGameInfo';
 import { usePlayTurnstile } from '../common/usePlayTurnstile';
 import {
@@ -62,6 +65,8 @@ const KEY_MOVES = {
 // 手指或鼠标至少拖动这么远(像素)才算一次滑动。
 const SWIPE_PX = 24;
 const CELLS = Array.from({ length: SIZE * SIZE }, (_, index) => index);
+// 最大方块第一次到达这些数时飘字庆祝，到 2048 时撒彩带。
+const MILESTONES = [256, 512, 1024, 2048, 4096, 8192];
 
 // 一局开始时盘面上的方块。newId 给每个方块一个不变的标识：同一个方块移动前后是同一个元素，CSS 过渡才画得出滑动。
 function boardTiles(board, newId) {
@@ -135,6 +140,7 @@ const G2048 = () => {
   // 确认框打开期间不响应方向键，免得在确认框后面挪动方块。
   const confirmingRef = useRef(false);
   const mountedRef = useRef(false);
+  const [floaters, float] = useFloaters();
   const replay = usePendingReplay('2048', {
     snapshot: () => {
       const run = runRef.current;
@@ -173,12 +179,14 @@ const G2048 = () => {
       return;
     }
     const data = response.data;
+    const newRecord = data.score > 0 && data.score > run.previousBest;
     setResult({
       ...data,
       over: run.game.over,
       localScore: run.game.score,
-      newRecord: data.score > 0 && data.score > run.previousBest,
+      newRecord,
     });
+    playSkillFeedback(data, newRecord);
     patch({
       balance: data.balance,
       progress: data.progress,
@@ -200,15 +208,37 @@ const G2048 = () => {
       if (game.moves >= Math.floor((elapsed + 1) * MAX_MOVES_PER_SECOND)) {
         return;
       }
+      const before = { score: game.score, maxTile: game.maxTile };
       if (!game.move(direction)) return;
       run.recorder.record(direction);
       const move = game.lastMove;
+      // 合并越大的方块音调越高；得分飘在盘面上方，最大方块到了新的里程碑再飘一行。
+      const gained = game.score - before.score;
+      if (gained > 0) {
+        playSound('merge', {
+          pitch: Math.min(1 + Math.log2(game.maxTile) / 16, 1.8),
+        });
+        float(`+${gained}`, { y: 12 });
+      } else {
+        playSound('move');
+      }
+      const milestone = MILESTONES.find(
+        (value) => before.maxTile < value && game.maxTile >= value,
+      );
+      if (milestone) {
+        playSound('levelUp');
+        float(t('合成 {{value}}！', { value: milestone }), {
+          y: 45,
+          kind: 'gold',
+        });
+        if (milestone >= 2048) celebrate();
+      }
       const board = game.board.slice();
       setTiles((previous) => movedTiles(previous, move, board, newTileId));
       setStats({ score: game.score, maxTile: game.maxTile, moves: game.moves });
       if (game.over || game.moves >= MAX_MOVES) submit();
     },
-    [newTileId, submit],
+    [newTileId, submit, float, t],
   );
 
   const start = async () => {
@@ -240,6 +270,7 @@ const G2048 = () => {
     };
     setTiles(boardTiles(game.board, newTileId));
     setStats({ score: 0, maxTile: game.maxTile, moves: 0 });
+    playSound('start');
     replay.beginSession(response.data.session_id);
     setResult(null);
     // 开始按钮保留焦点时，回车会再次触发它。
@@ -461,6 +492,10 @@ const G2048 = () => {
             {t('步数')}
             <strong>{stats.moves}</strong>
           </span>
+          <span>
+            {t('最高分')}
+            <strong>{formatNumber(info?.best_score || 0)}</strong>
+          </span>
         </div>
         <div
           className={playing ? 'g2048-board is-playing' : 'g2048-board'}
@@ -490,6 +525,7 @@ const G2048 = () => {
               </div>
             ))}
           </div>
+          <Floaters items={floaters} />
           {overlay}
         </div>
         <StageMessage kind={message.kind} note={message.note}>

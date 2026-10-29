@@ -112,7 +112,7 @@ type pvpDuel interface {
 	Timeout(state []byte) (int, error)
 }
 
-// pvpUndoable 由支持悔棋的双人对战引擎实现(象棋)。一方提出，另一方同意后撤回到提出的一方上一次走棋之前，人机对战里电脑
+// pvpUndoable 由支持悔棋的双人对战引擎实现(象棋、五子棋、四子棋、黑白棋、点格棋)。一方提出，另一方同意后撤回到提出的一方上一次走棋之前，人机对战里电脑
 // 总是同意；悔棋的次数与费用由引擎记在局面里。
 type pvpUndoable interface {
 	// UndoAsk 记下 seat 想悔棋，返回对方同意之后要收 seat 多少游戏币。不能悔棋时返回 errPvpUndo* 之一。
@@ -146,7 +146,7 @@ type pvpDrawAi interface {
 	AiAcceptsDraw(state []byte, seat int) (bool, error)
 }
 
-// pvpHintAi 由能在人机对战里给玩家提示的引擎实现(象棋)。提示只为轮到走的玩家分析局面，不会出现在押注房间里：那里有真人
+// pvpHintAi 由能在人机对战里给玩家提示的引擎实现(象棋、五子棋、四子棋、黑白棋、点格棋)。提示只为轮到走的玩家分析局面，不会出现在押注房间里：那里有真人
 // 对手，给出引擎的判断等于让一方看别人的棋。前几次免费，之后按次收游戏币。
 type pvpHintAi interface {
 	// HintStatus 返回 seat 现在能不能用提示、还剩几次免费、已经用了几次、下一次要花多少游戏币。

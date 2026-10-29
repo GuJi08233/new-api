@@ -73,7 +73,8 @@ func TestLandlordMoveCarriesExactlyOneAction(t *testing.T) {
 	assert.Equal(t, 1, next.ToMove)
 }
 
-// 给玩家的局面里只有自己的手牌：别人的牌和底牌不出现在响应的任何地方，正常打完之后才公开剩下的牌。
+// 给玩家的局面里只有自己的手牌：别人的牌和底牌不出现在响应的任何地方，正常打完之后才公开剩下的牌。打出过的牌是公开的
+// (记牌器用)，叫分时还没有。
 func TestLandlordViewShowsOnlyTheViewersHand(t *testing.T) {
 	engine := landlordEngine{}
 	state, err := engine.New(2)
@@ -88,7 +89,7 @@ func TestLandlordViewShowsOnlyTheViewersHand(t *testing.T) {
 		var response map[string]any
 		require.NoError(t, common.Unmarshal(encoded, &response))
 		assert.NotContains(t, response, "hands")
-		assert.NotContains(t, response, "played")
+		assert.Equal(t, []any{}, response["played"], "nothing has been played while bidding")
 		assert.Empty(t, response["bottom"])
 		assert.Equal(t, []any{}, response["hints"], "bidding never exposes play hints")
 		hand := response["hand"].([]any)

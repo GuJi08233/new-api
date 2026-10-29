@@ -21,6 +21,7 @@ For commercial licensing, please contact support@quantumnous.com
    暗色主题下调色板整体翻转，图标照样清楚。 */
 
 .memory-board {
+  position: relative;
   display: grid;
   gap: 10px;
   width: min(100%, 420px);

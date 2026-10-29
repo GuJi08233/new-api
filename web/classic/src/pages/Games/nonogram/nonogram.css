@@ -1,0 +1,141 @@
+/*
+Copyright (C) 2025 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+
+.nonogram-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+.nonogram-board {
+  --nonogram-cell: clamp(
+    24px,
+    calc((100vw - 120px) / (var(--nonogram-size) + 3)),
+    40px
+  );
+  display: grid;
+  grid-template-columns: auto repeat(var(--nonogram-size), var(--nonogram-cell));
+  grid-auto-rows: var(--nonogram-cell);
+  grid-template-rows: auto;
+  width: max-content;
+  margin: 0 auto 16px;
+  user-select: none;
+}
+.nonogram-corner {
+  display: block;
+}
+.nonogram-col-clue,
+.nonogram-row-clue {
+  display: flex;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--semi-color-text-1);
+  font-variant-numeric: tabular-nums;
+  transition: color 0.2s;
+}
+.nonogram-col-clue {
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 2px;
+  padding-bottom: 6px;
+  min-height: calc(var(--nonogram-clues) * 16px + 6px);
+}
+.nonogram-row-clue {
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 8px;
+}
+.nonogram-col-clue.is-done,
+.nonogram-row-clue.is-done {
+  color: rgba(var(--semi-green-5), 1);
+}
+.nonogram-cell {
+  position: relative;
+  border: 0 solid var(--semi-color-border);
+  border-width: 0 1px 1px 0;
+  background: var(--semi-color-bg-2);
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.12s;
+}
+.nonogram-cell.is-top {
+  border-top-width: 1px;
+}
+.nonogram-cell.is-left {
+  border-left-width: 1px;
+}
+.nonogram-cell.is-edge-right {
+  border-right: 2px solid var(--semi-color-text-2);
+}
+.nonogram-cell.is-edge-bottom {
+  border-bottom: 2px solid var(--semi-color-text-2);
+}
+.nonogram-cell:not(:disabled):hover {
+  background: var(--semi-color-fill-1);
+}
+.nonogram-cell.is-on {
+  background: #1e293b;
+  animation: nonogram-fill 0.18s ease-out;
+}
+.nonogram-cell.is-on:not(:disabled):hover {
+  background: #334155;
+}
+.nonogram-cell.is-marked::before,
+.nonogram-cell.is-marked::after {
+  content: '';
+  position: absolute;
+  left: 22%;
+  right: 22%;
+  top: 50%;
+  height: 2px;
+  background: var(--semi-color-text-3);
+  transform: rotate(45deg);
+}
+.nonogram-cell.is-marked::after {
+  transform: rotate(-45deg);
+}
+.nonogram-cell:disabled {
+  cursor: default;
+}
+.nonogram-cell:focus-visible {
+  outline: 3px solid var(--semi-color-primary);
+  outline-offset: -2px;
+  z-index: 1;
+}
+.nonogram-board.is-won .nonogram-cell.is-on {
+  background: rgba(var(--semi-blue-6), 1);
+}
+.nonogram-board.is-won .nonogram-cell:not(.is-on) {
+  border-color: transparent;
+}
+.nonogram-tools {
+  display: flex;
+  justify-content: center;
+}
+@keyframes nonogram-fill {
+  from {
+    transform: scale(0.7);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nonogram-cell.is-on {
+    animation: none;
+  }
+}

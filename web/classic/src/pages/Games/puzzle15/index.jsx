@@ -29,6 +29,7 @@ import {
   formatClock,
   GameClock,
   levelReward,
+  playSkillFeedback,
   rewardsLeftText,
   skillResultMessage,
   skillRuleSummary,
@@ -37,6 +38,9 @@ import {
 import { useGameInfo } from '../common/useGameInfo';
 import { PlayTurnstile, usePlayTurnstile } from '../common/usePlayTurnstile';
 import { writeGameStorage, removeGameStorage } from '../common/gameStorage';
+import { LocalBestBox, localBestNote } from '../common/LocalBest';
+import { useLocalBest } from '../common/useLocalBest';
+import { playSound } from '../common/sound';
 import './puzzle15.css';
 
 const STATE_URL = '/api/game/puzzle15/state';
@@ -129,6 +133,7 @@ const Puzzle15 = () => {
   const [checked, setChecked] = useState(false);
   const busyRef = useRef(false);
   const keyRef = useRef(null);
+  const { bests, record } = useLocalBest('puzzle15');
 
   const restore = useCallback((view) => {
     const replayed = slideAll(
@@ -210,7 +215,13 @@ const Puzzle15 = () => {
       return;
     }
     const settled = response.data;
-    setEnd({ at: Date.now() });
+    const at = Date.now();
+    const improved = record(game.difficulty, {
+      moves: allMoves.length,
+      time: Math.round((at - game.since) / 1000),
+    });
+    playSkillFeedback(settled, true);
+    setEnd({ at, improved });
     setResult(settled);
     patch({
       balance: settled.balance,
@@ -248,6 +259,9 @@ const Puzzle15 = () => {
     const moved = slideAll(board, game.size, directions.slice(0, remaining));
     if (!moved.applied) return;
     const allMoves = moves + moved.applied;
+    playSound('move', {
+      pitch: 1 + Math.min(moved.applied.length - 1, 4) * 0.1,
+    });
     setBoard(moved.board);
     setMoves(allMoves);
     if (isSolved(moved.board)) submit(allMoves);
@@ -293,6 +307,7 @@ const Puzzle15 = () => {
     const reverse = { U: 'D', D: 'U', L: 'R', R: 'L' }[moves.at(-1)];
     setBoard(slide(board, game.size, reverse));
     setMoves(moves.slice(0, -1));
+    playSound('click');
   };
 
   const confirmRestart = () => {
@@ -319,6 +334,10 @@ const Puzzle15 = () => {
     positions[tile] = index;
   });
   const solvedNow = playing && isSolved(board);
+  // 已经在自己位置上的方块数，空格不算。
+  const homeCount = positions
+    .slice(1)
+    .filter((index, offset) => index === offset).length;
 
   const leftText = rewardsLeftText(info?.rule, info?.progress, t);
 
@@ -328,6 +347,7 @@ const Puzzle15 = () => {
       moves: moves.length,
       time: formatClock((end.at - game.since) / 1000),
     }),
+    note: localBestNote(end.improved, t),
   };
   let reward = null;
   if (end && result) {
@@ -351,6 +371,15 @@ const Puzzle15 = () => {
           />
         </SideBox>
       }
+      after={
+        <LocalBestBox
+          bests={bests}
+          levels={levels.map((level) => ({
+            key: level.difficulty,
+            name: levelNames[level.difficulty - 1],
+          }))}
+        />
+      }
     />
   );
 
@@ -369,6 +398,12 @@ const Puzzle15 = () => {
           <span>
             {t('步数')}
             <strong>{moves.length}</strong>
+          </span>
+          <span>
+            {t('已归位')}
+            <strong>
+              {game ? homeCount : 0} / {size * size - 1}
+            </strong>
           </span>
           <span>
             {t('用时')}
@@ -414,7 +449,9 @@ const Puzzle15 = () => {
           </div>
         )}
         {outcome && (
-          <StageMessage kind={outcome.kind}>{outcome.text}</StageMessage>
+          <StageMessage kind={outcome.kind} note={outcome.note}>
+            {outcome.text}
+          </StageMessage>
         )}
         {reward && (
           <StageMessage kind={reward.kind} note={reward.note}>

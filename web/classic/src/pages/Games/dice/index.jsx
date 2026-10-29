@@ -26,7 +26,14 @@ import GameLayout from '../common/GameLayout';
 import { RuleList, SideBox, StageMessage } from '../common/SideBox';
 import { formatCoins, gamePost, percent } from '../common/api';
 import { useGameInfo } from '../common/useGameInfo';
-import { WagerStats, wagerResultMessage } from '../common/wager';
+import {
+  BIG_WIN_MULTIPLIER,
+  WagerStats,
+  playWagerFeedback,
+  wagerResultMessage,
+} from '../common/wager';
+import { AutoPlayControls, useAutoPlay } from '../common/autoPlay';
+import { playSound } from '../common/sound';
 import './dice.css';
 
 // 点数的个数：服务端掷出 0 到 SIDES - 1 之间的一个整数，与 pkg/dice 一致。
@@ -92,6 +99,7 @@ const Dice = () => {
   const historyIdRef = useRef(0);
   // 页面开着时是 { timer }，timer 是正在等待的定时器；卸载时清掉定时器并置空，进行中的掷骰不再更新页面。
   const pageRef = useRef(null);
+  const auto = useAutoPlay();
 
   useEffect(() => {
     const page = { timer: 0 };
@@ -126,10 +134,14 @@ const Dice = () => {
 
   const roll = async () => {
     const page = pageRef.current;
-    if (!canRoll || !page) return;
+    if (!canRoll || !page) {
+      auto.stop();
+      return;
+    }
     const startedAt = Date.now();
     setPhase('rolling');
     setError('');
+    playSound('deal');
     const response = await gamePost(
       '/api/game/dice/roll',
       { bet: stake, multiplier: choice.multiplier, direction },
@@ -139,6 +151,7 @@ const Dice = () => {
     if (response.error) {
       setPhase('idle');
       setError(response.error);
+      auto.stop();
       // 余额或规则可能已经变了(没有得到答复时这一注也可能已经结算)，重新读取。
       reload(true);
       return;
@@ -148,6 +161,7 @@ const Dice = () => {
     await delay(Math.max(ROLL_MIN_MS - (Date.now() - startedAt), 0), page);
     setOutcome(data);
     setPhase('landing');
+    playSound('reveal');
     await delay(SETTLE_MS, page);
     // 标记停稳后才公布结果、更新余额，免得还在动就剧透。
     setPhase('idle');
@@ -164,7 +178,12 @@ const Dice = () => {
       plays_today: data.plays_today,
       best_win: Math.max(info.best_win || 0, data.win),
     });
+    playWagerFeedback(data);
+    auto.after(true, {
+      bigWin: data.win >= BIG_WIN_MULTIPLIER * data.bet,
+    });
   };
+  auto.bind(roll);
 
   const settled = phase === 'idle' && outcome;
   let tone = '';
@@ -379,11 +398,12 @@ const Dice = () => {
           <button
             type='button'
             className='games-play-button'
-            disabled={!canRoll}
+            disabled={!canRoll || auto.active}
             onClick={roll}
           >
             {busy ? t('掷骰中…') : t('掷骰子')}
           </button>
+          <AutoPlayControls auto={auto} disabled={!canRoll} />
           {hint && <div className='games-stage-hint'>{hint}</div>}
         </div>
       </div>

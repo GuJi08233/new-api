@@ -24,7 +24,12 @@ import GameLayout from '../common/GameLayout';
 import { RuleList, SideBox, StageMessage } from '../common/SideBox';
 import { gamePost, percent } from '../common/api';
 import { useGameInfo } from '../common/useGameInfo';
-import { WagerStats, wagerResultMessage } from '../common/wager';
+import {
+  WagerStats,
+  playWagerFeedback,
+  wagerResultMessage,
+} from '../common/wager';
+import { playSound } from '../common/sound';
 import ScratchCard, { CELL_COUNT } from './ScratchCard';
 import './scratch.css';
 
@@ -55,6 +60,7 @@ const Scratch = () => {
   }, []);
 
   const revealCell = useCallback((cell) => {
+    playSound('scratch');
     setRevealed((previous) =>
       previous[cell]
         ? previous
@@ -76,6 +82,7 @@ const Scratch = () => {
       plays_today: result.plays_today,
       best_win: Math.max(bestWin, result.win),
     });
+    playWagerFeedback(result);
   }, [finished, ticket, bestWin, patch]);
 
   if (!info) {

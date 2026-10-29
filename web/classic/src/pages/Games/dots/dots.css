@@ -1,0 +1,185 @@
+/*
+Copyright (C) 2025 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+
+/* 点格棋：5 × 5 个点，连上的边描深，占下的格子按主人上色；鼠标停在空边上时预览这一笔。 */
+
+.dots-board-wrap {
+  --dots-blue: #2f6fe4;
+  --dots-red: #e0483d;
+  width: min(100%, 440px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.dots-board {
+  width: 100%;
+  height: auto;
+  border-radius: 16px;
+  background: var(--semi-color-bg-2);
+  box-shadow: inset 0 0 0 1px var(--semi-color-border);
+  user-select: none;
+}
+
+.dots-dot {
+  fill: var(--semi-color-text-0);
+  pointer-events: none;
+}
+
+.dots-edge {
+  cursor: pointer;
+  outline: none;
+}
+
+.dots-edge[aria-disabled='true'] {
+  cursor: default;
+}
+
+.dots-edge-hit {
+  stroke: transparent;
+  stroke-width: 26;
+  stroke-linecap: round;
+}
+
+.dots-edge-line {
+  stroke: var(--semi-color-fill-1);
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-dasharray: 2 10;
+  transition:
+    stroke 0.15s,
+    stroke-width 0.15s;
+}
+
+.dots-edge.is-on .dots-edge-line {
+  stroke: var(--semi-color-text-1);
+  stroke-width: 7;
+  stroke-dasharray: none;
+}
+
+.dots-edge.is-fresh .dots-edge-line {
+  animation: dots-draw 0.35s ease-out both;
+}
+
+.dots-edge.is-last .dots-edge-line {
+  stroke: var(--semi-color-warning);
+}
+
+.dots-edge.is-hover .dots-edge-line,
+.dots-edge:focus-visible .dots-edge-line {
+  stroke-width: 7;
+  stroke-dasharray: none;
+  opacity: 0.55;
+}
+
+.dots-board.is-blue .dots-edge.is-hover .dots-edge-line,
+.dots-board.is-blue .dots-edge:focus-visible .dots-edge-line {
+  stroke: var(--dots-blue);
+}
+
+.dots-board.is-red .dots-edge.is-hover .dots-edge-line,
+.dots-board.is-red .dots-edge:focus-visible .dots-edge-line {
+  stroke: var(--dots-red);
+}
+
+.dots-edge.is-hint .dots-edge-line {
+  stroke: var(--semi-color-success);
+  stroke-width: 7;
+  stroke-dasharray: none;
+  animation: dots-hint 1s ease-in-out infinite alternate;
+}
+
+.dots-box rect {
+  opacity: 0.22;
+}
+
+.dots-box text {
+  font-size: 22px;
+  text-anchor: middle;
+  dominant-baseline: central;
+}
+
+.dots-box.is-blue rect,
+.dots-box.is-blue text {
+  fill: var(--dots-blue);
+}
+
+.dots-box.is-red rect,
+.dots-box.is-red text {
+  fill: var(--dots-red);
+}
+
+.dots-box.is-new {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: games-pop 0.4s ease-out both;
+}
+
+.dots-effect {
+  min-height: 20px;
+  margin: 10px 0 0;
+  font-size: 13px;
+  color: var(--semi-color-text-2);
+  text-align: center;
+}
+
+.dots-seat-mark {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 6px;
+  border-radius: 3px;
+  vertical-align: middle;
+}
+
+.dots-seat-mark.is-blue {
+  background: #2f6fe4;
+}
+
+.dots-seat-mark.is-red {
+  background: #e0483d;
+}
+
+.dots-seat-score {
+  margin-left: 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes dots-draw {
+  from {
+    stroke-dasharray: 0 100;
+  }
+  to {
+    stroke-dasharray: 100 0;
+  }
+}
+
+@keyframes dots-hint {
+  from {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dots-edge.is-fresh .dots-edge-line,
+  .dots-edge.is-hint .dots-edge-line,
+  .dots-box.is-new {
+    animation: none;
+  }
+}

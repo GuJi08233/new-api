@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Button, Modal, Spin } from '@douyinfe/semi-ui';
-import { Flag, Pause, Play, Trophy } from 'lucide-react';
+import { Flag, Medal, Pause, Play, Trophy } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { getGameMetaMap } from '../../../constants';
 import { useActualTheme } from '../../../context/Theme';
@@ -31,10 +31,13 @@ import { formatNumber, gamePost, withTurnstile } from '../common/api';
 import {
   ReplayRunControls,
   SkillSide,
+  playSkillFeedback,
   skillResultMessage,
   skillRuleSummary,
 } from '../common/skill';
 import { useGameInfo } from '../common/useGameInfo';
+import { Floaters, useFloaters } from '../common/effects';
+import { playSound } from '../common/sound';
 import { usePlayTurnstile } from '../common/usePlayTurnstile';
 import {
   BIRD_HEIGHT,
@@ -100,6 +103,14 @@ const PALETTES = {
 };
 
 // 按画布在页面上的实际大小与设备像素比设置分辨率，返回按逻辑坐标绘制的上下文。
+// 结算时按穿过的管道数发的奖牌，只是给玩家看的评价，和奖励档位无关。
+const MEDALS = [
+  { score: 40, tone: 'platinum' },
+  { score: 30, tone: 'gold' },
+  { score: 20, tone: 'silver' },
+  { score: 10, tone: 'bronze' },
+];
+
 function prepareCanvas(canvas, width, height) {
   const ratio =
     (window.devicePixelRatio || 1) * ((canvas.clientWidth || width) / width);
@@ -250,6 +261,7 @@ const Flappy = () => {
   // 确认框打开期间不响应游戏按键，免得在确认框后面继续游戏。
   const confirmingRef = useRef(false);
   const mountedRef = useRef(false);
+  const [floaters, float] = useFloaters();
   const replay = usePendingReplay('flappy', {
     snapshot: () => {
       const run = runRef.current;
@@ -284,12 +296,14 @@ const Flappy = () => {
       return;
     }
     const data = response.data;
+    const newRecord = data.score > 0 && data.score > run.previousBest;
     setResult({
       ...data,
       over: run.game.over,
       localScore: run.game.score,
-      newRecord: data.score > 0 && data.score > run.previousBest,
+      newRecord,
     });
+    playSkillFeedback(data, newRecord);
     patch({
       balance: data.balance,
       progress: data.progress,
@@ -386,7 +400,17 @@ const Flappy = () => {
         const flapped = run.flap;
         run.flap = false;
         if (flapped) run.recorder.record(game.ticks);
+        const score = game.score;
         game.tick(flapped);
+        if (flapped) playSound('flap');
+        if (game.score > score) {
+          playSound('score');
+          float('+1', {
+            x: (BIRD_X / SCREEN_WIDTH) * 100,
+            y: Math.max((game.y / SCALE / SCREEN_HEIGHT) * 100 - 6, 6),
+          });
+        }
+        if (game.over) playSound('hit');
       }
       drawScene(canvasRef.current, game, now, paletteRef.current);
       if (game.over || game.ticks >= MAX_TICKS) {
@@ -397,7 +421,7 @@ const Flappy = () => {
     };
     frame = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(frame);
-  }, [running, submit]);
+  }, [running, submit, float]);
 
   // 不在推进时画一次当前的画面，窗口大小或主题变了再画一次。
   useEffect(() => {
@@ -530,6 +554,13 @@ const Flappy = () => {
       </div>
     );
   } else if (phase === 'result') {
+    const medal = MEDALS.find((item) => result.score >= item.score);
+    const medalNames = {
+      platinum: t('白金奖牌'),
+      gold: t('金牌'),
+      silver: t('银牌'),
+      bronze: t('铜牌'),
+    };
     overlay = (
       <div className='flappy-overlay is-result'>
         <div className='flappy-overlay-title'>
@@ -543,6 +574,12 @@ const Flappy = () => {
         )}
         <div className='flappy-overlay-score'>{formatNumber(result.score)}</div>
         <div className='flappy-overlay-text'>{meta.scoreName}</div>
+        {medal && (
+          <div className={`flappy-medal is-${medal.tone}`}>
+            <Medal size={16} />
+            {medalNames[medal.tone]}
+          </div>
+        )}
         {result.score !== result.localScore && (
           <div className='flappy-overlay-text'>
             {t('成绩以服务器重放结果为准')}

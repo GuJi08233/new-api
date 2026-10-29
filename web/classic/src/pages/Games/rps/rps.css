@@ -296,3 +296,18 @@ For commercial licensing, please contact support@quantumnous.com
     font-size: 36px;
   }
 }
+
+.rps-extra {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.rps-extra .game-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}

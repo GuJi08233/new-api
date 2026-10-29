@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { InputNumber } from '@douyinfe/semi-ui';
 import { Flame, Rocket } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -26,7 +26,12 @@ import GameLayout from '../common/GameLayout';
 import BetInput from '../common/BetInput';
 import { RuleList, SideBox, StageMessage } from '../common/SideBox';
 import { formatCoins, gameGet } from '../common/api';
-import { WagerStats, wagerResultMessage } from '../common/wager';
+import {
+  WagerStats,
+  playWagerFeedback,
+  wagerResultMessage,
+} from '../common/wager';
+import { playSound } from '../common/sound';
 import { useGameInfo } from '../common/useGameInfo';
 import { useWagerRound } from '../common/useWagerRound';
 import './crash.css';
@@ -317,6 +322,27 @@ const Crash = () => {
   const [auto, setAuto] = useState(null);
   // 服务器时钟减本地时钟(毫秒)：动画按服务器时间推进。
   const [offset, setOffset] = useState(0);
+  // 起飞、爆炸、兑现各响一声。只在同一局从飞行中变成结束时揭晓，刷新页面读回来的一局不响。
+  const seenRef = useRef({ session: 0, status: '' });
+  useEffect(() => {
+    if (!round) return;
+    const previous = seenRef.current;
+    if (previous.session !== round.session_id && round.status === 'playing') {
+      playSound('start');
+    }
+    if (
+      previous.session === round.session_id &&
+      previous.status === 'playing' &&
+      round.status === 'finished'
+    ) {
+      if (round.cashout_multiplier > 0) {
+        playWagerFeedback({ bet: round.bet, win: round.win });
+      } else {
+        playSound('bomb');
+      }
+    }
+    seenRef.current = { session: round.session_id, status: round.status };
+  }, [round]);
 
   // 拿到游戏信息后读出没结束的一局：还在飞就接着播放，已经过了爆点或自动兑现的时刻，服务端在这时结算。
   const loaded = !!info;
@@ -402,6 +428,27 @@ const Crash = () => {
     send('start', { bet: stake, auto_cashout: autoCashout }, false);
   };
 
+  // 空格键：飞行中兑现，没在飞时起飞。焦点在输入框或按钮上时交给它们自己处理。
+  const keyRef = useRef(null);
+  keyRef.current = (event) => {
+    if (
+      event.code !== 'Space' ||
+      event.repeat ||
+      event.target !== document.body
+    ) {
+      return;
+    }
+    event.preventDefault();
+    if (busy) return;
+    if (flying) send('cashout');
+    else if (!closed && stake <= balance) start();
+  };
+  useEffect(() => {
+    const onKeyDown = (event) => keyRef.current(event);
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
   const side = info && (
     <>
       <WagerStats info={info} symbol={symbol} />
@@ -418,6 +465,7 @@ const Crash = () => {
               '可以设自动兑现：倍数涨到设定值时自动兑现，设定值高于这一局的爆点就等不到',
             ),
             t('派彩 = 下注 × 兑现倍数，可以有小数'),
+            t('空格键起飞，飞行中按空格兑现'),
             t('理论返还率 {{rate}}%', { rate: info.rtp_percent }),
             t('单次最多下注 {{max}} {{symbol}}', { max: maxBet, symbol }),
           ]}

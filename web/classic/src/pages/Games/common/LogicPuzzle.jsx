@@ -17,130 +17,85 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { Button, Modal, Select } from '@douyinfe/semi-ui';
-import { Lightbulb, RotateCcw, Undo2 } from 'lucide-react';
+import { Lightbulb, RotateCcw, Star, Undo2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import GameLayout from './GameLayout';
 import { RuleList, SideBox, StageMessage } from './SideBox';
-import { SkillSide, skillResultMessage } from './skill';
-import { gameGet, gamePost, withTurnstile } from './api';
-import { useGameInfo } from './useGameInfo';
-import { PlayTurnstile, usePlayTurnstile } from './usePlayTurnstile';
+import { playSkillFeedback, SkillSide, skillResultMessage } from './skill';
+import { LocalBestBox, localBestNote } from './LocalBest';
+import { useLocalBest } from './useLocalBest';
+import { lightsMinimum } from './lightsout';
+import { playSound } from './sound';
+import { useStepPuzzle } from './useStepPuzzle';
+import { PlayTurnstile } from './usePlayTurnstile';
 import './logic-puzzles.css';
+
+// 过关的评价：用了理论最少步数得三星，不超过一倍半得两星，其余一星。不知道最少步数时不评。
+export function starsFor(moves, minimum) {
+  if (!(minimum > 0) || !(moves > 0)) return 0;
+  if (moves <= minimum) return 3;
+  if (moves <= Math.ceil(minimum * 1.5)) return 2;
+  return 1;
+}
 
 // 这两款公开盘面的解谜游戏每步由服务端保存，刷新与请求响应丢失后均从同一对局恢复。
 export default function LogicPuzzle({ gameKey }) {
   const { t } = useTranslation();
-  const { info, loading, unavailable, patch } = useGameInfo(gameKey);
-  const turnstile = usePlayTurnstile(info?.play_turnstile);
-  const [round, setRound] = useState(null);
-  const [difficulty, setDifficulty] = useState(1);
   const [selected, setSelected] = useState(null);
-  const [busy, setBusy] = useState(false);
-  const [checked, setChecked] = useState(false);
-  const [error, setError] = useState('');
-  const busyRef = useRef(false);
-  const aliveRef = useRef(true);
-  const currentRef = useRef(null);
   const lights = gameKey === 'lightsout';
+  const { bests, record } = useLocalBest(gameKey);
+  // 熄灯开局时的最少步数：只有从第 0 步看到的盘面才知道，刷新到一半的对局不评星。按对局编号记。
+  const startMinimumRef = useRef({ session: 0, minimum: 0 });
+  const [finish, setFinish] = useState(null);
   const names = [t('简单'), t('普通'), t('困难')];
   const title = lights ? t('熄灯挑战') : t('汉诺塔');
-  const playing = round?.status === 'playing';
-
-  const accept = useCallback(
-    (next) => {
-      if (!aliveRef.current) return;
-      const current = currentRef.current;
-      if (
-        current &&
-        next &&
-        current.session_id === next.session_id &&
-        current.version > next.version
-      )
-        return;
-      currentRef.current = next;
-      setRound(next);
+  const {
+    info,
+    loading,
+    unavailable,
+    turnstile,
+    round,
+    playing,
+    difficulty,
+    setDifficulty,
+    busy,
+    checked,
+    error,
+    send,
+    restore,
+  } = useStepPuzzle(gameKey, {
+    // 和上一个局面比较，给这一步配上音效；同一局刚结束时评星、记本机最佳、放彩带。
+    onStep: (current, next) => {
       setSelected(null);
-      if (next) setDifficulty(next.difficulty);
-      if (next?.result) {
-        const result = next.result;
-        patch({
-          balance: result.balance,
-          progress: result.progress,
-          best_score: result.best_score,
-        });
+      const sameRound =
+        current && next && current.session_id === next.session_id;
+      if (sameRound && next.moves !== current.moves) {
+        if (next.moves < current.moves) playSound('click');
+        else playSound(lights ? 'reveal' : 'place');
+      } else if (next && !sameRound && next.status === 'playing') {
+        playSound('start');
       }
-    },
-    [patch],
-  );
-
-  const restore = useCallback(
-    async (id = 0) => {
-      const response = await gameGet(
-        `/api/game/${gameKey}/state${id ? `?session_id=${id}` : ''}`,
-        t,
+      if (!sameRound || current.status !== 'playing' || !next.result) return;
+      const won = !!next.result.detail?.won || !!next.won;
+      const minimum = lights
+        ? startMinimumRef.current.session === next.session_id
+          ? startMinimumRef.current.minimum
+          : 0
+        : next.minimum_moves;
+      setFinish(
+        won
+          ? {
+              session: next.session_id,
+              stars: starsFor(next.moves, minimum),
+              improved: record(next.difficulty, { moves: next.moves }),
+            }
+          : null,
       );
-      if (!aliveRef.current) return;
-      if (response.data) {
-        accept(response.data.session);
-        setError('');
-      } else setError(response.error);
-      setChecked(true);
+      playSkillFeedback(next.result, won);
     },
-    [gameKey, accept, t],
-  );
-
-  useEffect(() => {
-    aliveRef.current = true;
-    return () => {
-      aliveRef.current = false;
-    };
-  }, []);
-
-  const loaded = !!info;
-  useEffect(() => {
-    if (loaded) restore();
-  }, [loaded, restore]);
-
-  const send = async (action, fields = {}) => {
-    if (busyRef.current || (action === 'start' && !turnstile.ready)) return;
-    const current = currentRef.current;
-    if (action !== 'start' && current?.status !== 'playing') return;
-    busyRef.current = true;
-    setBusy(true);
-    setError('');
-    try {
-      const starting = action === 'start';
-      const response = await gamePost(
-        starting
-          ? withTurnstile(`/api/game/${gameKey}/start`, turnstile.take())
-          : `/api/game/${gameKey}/action`,
-        starting
-          ? { difficulty }
-          : {
-              ...fields,
-              action,
-              session_id: current.session_id,
-              version: current.version,
-            },
-        t,
-      );
-      if (!aliveRef.current) return;
-      if (response.data) {
-        // 重交已结束的一局时公共结算接口直接返回 result。
-        if (response.data.progress)
-          accept({ ...current, status: 'finished', result: response.data });
-        else accept(response.data);
-      } else {
-        await restore(starting ? 0 : current.session_id);
-        if (aliveRef.current) setError(response.error);
-      }
-    } finally {
-      busyRef.current = false;
-      if (aliveRef.current) setBusy(false);
-    }
-  };
+  });
 
   const confirm = (action) =>
     Modal.confirm({
@@ -164,6 +119,24 @@ export default function LogicPuzzle({ gameKey }) {
     false,
   ];
   const towers = round?.towers || [[3, 2, 1], [], []];
+  // 熄灯盘面现在最少还要按几下，每一步之后重新算。
+  const lightsLeft = useMemo(
+    () => (lights && round ? lightsMinimum(round.board, round.size) : -1),
+    [lights, round],
+  );
+  if (
+    lights &&
+    round?.status === 'playing' &&
+    round.moves === 0 &&
+    startMinimumRef.current.session !== round.session_id
+  ) {
+    startMinimumRef.current = {
+      session: round.session_id,
+      minimum: lightsLeft,
+    };
+  }
+  const shownFinish =
+    finish && finish.session === round?.session_id ? finish : null;
   const result =
     round?.result &&
     skillResultMessage(round.result, t, info?.symbol, { byLevel: true });
@@ -171,7 +144,7 @@ export default function LogicPuzzle({ gameKey }) {
   return (
     <GameLayout
       title={title}
-      loading={loading || (loaded && !checked)}
+      loading={loading}
       unavailable={unavailable}
       balance={info?.balance}
       symbol={info?.symbol}
@@ -191,6 +164,9 @@ export default function LogicPuzzle({ gameKey }) {
                           t('点击一盏灯，会同时切换它和上下左右相邻灯的状态'),
                           t('让所有灯熄灭即可过关，每个初始盘面都保证有解'),
                           t('可以撤销或重置；每一步都会保存，刷新后可继续'),
+                          t(
+                            '「最少还需」是当前盘面最少还要按几下；用开局时的最少步数过关得三星',
+                          ),
                         ]
                       : [
                           t(
@@ -200,10 +176,18 @@ export default function LogicPuzzle({ gameKey }) {
                             '大圆盘不能放在小圆盘上，把所有圆盘移到最右侧即可过关',
                           ),
                           t('可以撤销或重置；每一步都会保存，刷新后可继续'),
+                          t('用理论最少步数过关得三星'),
                         ]
                   }
                 />
               </SideBox>
+            }
+            after={
+              <LocalBestBox
+                bests={bests}
+                levels={names.map((name, index) => ({ key: index + 1, name }))}
+                columns={['moves']}
+              />
             }
           />
         )
@@ -234,6 +218,12 @@ export default function LogicPuzzle({ gameKey }) {
                 : round?.minimum_moves || 7}
             </strong>
           </span>
+          {lights && (
+            <span>
+              {t('最少还需')}
+              <strong>{lightsLeft >= 0 ? lightsLeft : '-'}</strong>
+            </span>
+          )}
           <span>
             {t('难度')}
             <strong>{names[difficulty - 1]}</strong>
@@ -373,6 +363,28 @@ export default function LogicPuzzle({ gameKey }) {
           )}
         </div>
         {!playing && <PlayTurnstile turnstile={turnstile} />}
+        {shownFinish && (
+          <div className='logic-finish' role='status'>
+            {shownFinish.stars > 0 && (
+              <span
+                className='logic-stars'
+                aria-label={t('{{count}} 星', { count: shownFinish.stars })}
+              >
+                {[1, 2, 3].map((index) => (
+                  <Star
+                    key={index}
+                    size={26}
+                    className={index <= shownFinish.stars ? 'is-lit' : ''}
+                  />
+                ))}
+              </span>
+            )}
+            <span>
+              {t('过关，用了 {{moves}} 步', { moves: round.moves })}{' '}
+              {localBestNote(shownFinish.improved, t)}
+            </span>
+          </div>
+        )}
         {result && (
           <StageMessage kind={result.kind} note={result.note}>
             {result.text}

@@ -1,0 +1,128 @@
+/*
+Copyright (C) 2025 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+
+/* 基诺：8 × 5 的号码盘，选中的号码描边，开出的号码变灰，选中又开出的号码亮起。 */
+
+.keno-board {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 8px;
+  width: 100%;
+  max-width: 520px;
+}
+
+.keno-number {
+  aspect-ratio: 1;
+  border: 2px solid var(--semi-color-border);
+  border-radius: 12px;
+  background: var(--semi-color-bg-2);
+  color: var(--semi-color-text-0);
+  font-size: 16px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition:
+    transform 0.12s,
+    background 0.15s,
+    border-color 0.15s;
+}
+
+.keno-number:not(:disabled):hover {
+  transform: translateY(-2px);
+  border-color: var(--semi-color-primary);
+}
+
+.keno-number:disabled {
+  cursor: default;
+}
+
+.keno-number:disabled:not(.is-picked):not(.is-drawn) {
+  opacity: 0.55;
+}
+
+.keno-number.is-picked {
+  border-color: var(--semi-color-primary);
+  background: var(--semi-color-primary-light-default);
+  color: var(--semi-color-primary);
+}
+
+.keno-number.is-drawn {
+  background: var(--semi-color-fill-2);
+  color: var(--semi-color-text-2);
+  animation: games-pop 0.25s ease-out;
+}
+
+.keno-number.is-hit {
+  border-color: rgba(var(--semi-amber-5), 1);
+  background: rgba(var(--semi-amber-4), 1);
+  color: #fff;
+  box-shadow: 0 0 16px rgba(var(--semi-amber-4), 0.6);
+  animation: games-pop 0.35s ease-out;
+}
+
+.keno-number:focus-visible,
+.keno-action:focus-visible {
+  outline: 3px solid var(--semi-color-primary);
+  outline-offset: 2px;
+}
+
+.keno-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.keno-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 8px;
+  background: var(--semi-color-bg-2);
+  color: var(--semi-color-text-1);
+  cursor: pointer;
+}
+
+.keno-action:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.keno-paytable tr.is-hit td {
+  background: rgba(var(--semi-amber-1), 1);
+  font-weight: 700;
+}
+
+@media (max-width: 430px) {
+  .keno-board {
+    gap: 5px;
+  }
+
+  .keno-number {
+    font-size: 13px;
+    border-radius: 9px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .keno-number {
+    transition: none;
+  }
+}

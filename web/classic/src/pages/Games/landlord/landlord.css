@@ -613,3 +613,48 @@ button.landlord-card:focus-visible {
     transition: none;
   }
 }
+
+/* 记牌器：每个点数还有几张在别人手里。 */
+.landlord-counter {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 10px 0;
+}
+
+.landlord-counter-ranks {
+  display: grid;
+  grid-template-columns: repeat(15, minmax(0, 1fr));
+  gap: 3px;
+}
+
+.landlord-counter-rank {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 3px 0;
+  border-radius: 6px;
+  font-size: 11px;
+  color: var(--semi-color-text-2);
+  background: var(--semi-color-fill-0);
+}
+
+.landlord-counter-rank strong {
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  color: var(--semi-color-text-0);
+}
+
+.landlord-counter-rank.is-out {
+  opacity: 0.4;
+}
+
+.landlord-counter-rank.is-bomb strong {
+  color: var(--semi-color-danger);
+}
+
+@media (max-width: 520px) {
+  .landlord-counter-ranks {
+    grid-template-columns: repeat(8, minmax(0, 1fr));
+  }
+}

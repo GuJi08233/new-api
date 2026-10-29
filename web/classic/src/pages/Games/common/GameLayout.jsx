@@ -26,6 +26,7 @@ import {
 } from '@douyinfe/semi-illustrations';
 import { ArrowLeft, Coins } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { SoundToggle } from './effects';
 import '../games.css';
 
 const ILLUSTRATION_SIZE = { width: 150, height: 150 };
@@ -93,6 +94,7 @@ const GameLayout = ({
               <span>{symbol}</span>
             </div>
           )}
+          <SoundToggle />
         </div>
         {body}
       </div>

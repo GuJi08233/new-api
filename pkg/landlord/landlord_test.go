@@ -350,6 +350,10 @@ func TestPlayChecksOwnershipAndKeepsTheTrickVisible(t *testing.T) {
 	require.NoError(t, game.Pass(0))
 	require.NoError(t, game.Validate())
 	assert.Equal(t, 1, game.ToMove, "the trick returns to its last player, not to the landlord")
+	// 每个座位都看得到这一局打出过的全部牌(记牌器用)，最近打出的三张排在最后。
+	played := game.View(2).Played
+	assert.Equal(t, game.Played, played)
+	assert.Equal(t, []int{4, 0, 9}, played[len(played)-3:])
 }
 
 func TestLandlordWinsDoubleAndFarmersWinTogether(t *testing.T) {

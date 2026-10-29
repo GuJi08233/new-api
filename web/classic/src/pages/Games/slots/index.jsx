@@ -35,7 +35,10 @@ import { useTranslation } from 'react-i18next';
 import { API, showError } from '../../../helpers';
 import { percent } from '../common/api';
 import { SideBox } from '../common/SideBox';
-import { WagerStats } from '../common/wager';
+import { WagerStats, playWagerFeedback } from '../common/wager';
+import { AutoPlayControls, useAutoPlay } from '../common/autoPlay';
+import { SoundToggle } from '../common/effects';
+import { playSound } from '../common/sound';
 import BetInput from '../common/BetInput';
 import '../games.css';
 import './slots.css';
@@ -120,6 +123,19 @@ function planStops(motion, stops, now) {
   });
 }
 
+// 每个转轮停下的那一刻响一声，最后一个转轮停下时声音更重。返回定时器，换下一次旋转或离开页面时清掉。
+function scheduleStopSounds(motion, now) {
+  return motion.reels.map((reel, index) =>
+    setTimeout(
+      () =>
+        playSound(index === motion.reels.length - 1 ? 'drop' : 'place', {
+          pitch: 1 + index * 0.1,
+        }),
+      Math.max((reel.plan.decelAt + STOP_DURATION - now) * 1000, 0),
+    ),
+  );
+}
+
 // 把转轮画在 position：条带上重复三遍符号，中线停在中间那一遍的 position 格上。
 function renderReel(strip, position, speed, size) {
   if (!strip) return;
@@ -170,6 +186,7 @@ const Slots = () => {
   const [spinning, setSpinning] = useState(false);
   // 上一次旋转的结果 { result } 或失败原因 { error }。
   const [outcome, setOutcome] = useState(null);
+  const auto = useAutoPlay();
 
   // refresh 为真时是旋转没有结果后重新读取：这时读不到就保留页面上的内容，失败原因已经显示在转轮下方。
   const loadInfo = useCallback(
@@ -224,7 +241,10 @@ const Slots = () => {
   // 离开页面时停掉动画；还没回来的结果不再处理，余额以服务端为准。
   useEffect(
     () => () => {
-      if (motionRef.current) cancelAnimationFrame(motionRef.current.frame);
+      if (motionRef.current) {
+        cancelAnimationFrame(motionRef.current.frame);
+        motionRef.current.sounds?.forEach(clearTimeout);
+      }
       motionRef.current = null;
     },
     [],
@@ -261,8 +281,16 @@ const Slots = () => {
       }
       setOutcome(motion.response);
       setSpinning(false);
+      if (result) {
+        playWagerFeedback({ ...result, bet: motion.bet });
+        auto.after(true, {
+          bigWin: result.multiplier >= BIG_WIN_MULTIPLIER,
+        });
+      } else {
+        auto.after(false);
+      }
     },
-    [loadInfo],
+    [loadInfo, auto.after],
   );
 
   const spin = useCallback(async () => {
@@ -276,8 +304,10 @@ const Slots = () => {
       })),
       frame: 0,
       response: null,
+      bet,
     };
     motionRef.current = motion;
+    playSound('start');
     setSpinning(true);
     setOutcome(null);
     // 转动过程就是开奖过程，系统要求减少动态效果时也照常播放，停在服务端选出的结果上。
@@ -310,15 +340,18 @@ const Slots = () => {
     if (motionRef.current !== motion) return;
     motion.response = response;
     // 没有结果时转轮转回原来的位置，不会停在一排看起来像中奖的图案上。
+    const now = performance.now() / 1000;
     planStops(
       motion,
       response.result?.stops || motion.reels.map((reel) => reel.start),
-      performance.now() / 1000,
+      now,
     );
+    motion.sounds = scheduleStopSounds(motion, now);
   }, [rule, bet, t, settleSpin]);
 
   const canSpin =
     !spinning && bet >= 0.01 && bet <= balance && bet <= rule?.max_bet;
+  auto.bind(() => (canSpin ? spin() : auto.stop()));
 
   // 空格键旋转；焦点在按钮上时交给按钮自己处理，免得触发两次。
   useEffect(() => {
@@ -389,6 +422,7 @@ const Slots = () => {
             {t('游戏中心')}
           </Button>
           <h1 className='slots-title'>{t('老虎机')}</h1>
+          <SoundToggle />
         </div>
 
         <div className='slots-layout'>
@@ -458,11 +492,12 @@ const Slots = () => {
               <button
                 type='button'
                 className='games-play-button'
-                disabled={!canSpin}
+                disabled={!canSpin || auto.active}
                 onClick={spin}
               >
                 {spinning ? t('转动中…') : t('旋转')}
               </button>
+              <AutoPlayControls auto={auto} disabled={!canSpin} />
               {hint && <div className='games-stage-hint'>{hint}</div>}
             </div>
           </div>

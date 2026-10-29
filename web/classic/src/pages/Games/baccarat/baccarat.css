@@ -1,0 +1,375 @@
+/*
+Copyright (C) 2025 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+
+/* 百家乐：绿色台面上闲、庄两手牌，下面是五个押注区、珠盘路和筹码。 */
+
+.baccarat-page {
+  --baccarat-player: #2563eb;
+  --baccarat-banker: #dc2626;
+  --baccarat-tie: #16a34a;
+  --baccarat-card-width: 58px;
+}
+
+.baccarat-felt {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  width: 100%;
+  max-width: 560px;
+  padding: 16px;
+  border-radius: 18px;
+  background: radial-gradient(circle at 50% 0%, #1f7a4d, #0f4d2f);
+  box-shadow: inset 0 0 0 2px #ffffff1a;
+}
+
+.baccarat-hand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 14px;
+  border: 2px solid transparent;
+  transition:
+    border-color 0.2s,
+    background 0.2s;
+}
+
+.baccarat-hand.is-winner {
+  background: #ffffff14;
+}
+
+.baccarat-hand.is-player.is-winner {
+  border-color: #93c5fd;
+}
+
+.baccarat-hand.is-banker.is-winner {
+  border-color: #fca5a5;
+}
+
+.baccarat-hand-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #ecfdf5;
+  font-weight: 700;
+}
+
+.baccarat-hand-title strong {
+  display: grid;
+  place-items: center;
+  min-width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+}
+
+.baccarat-hand.is-player .baccarat-hand-title strong {
+  background: var(--baccarat-player);
+}
+
+.baccarat-hand.is-banker .baccarat-hand-title strong {
+  background: var(--baccarat-banker);
+}
+
+.baccarat-cards {
+  display: flex;
+  justify-content: center;
+  min-height: calc(var(--baccarat-card-width) * 1.4);
+}
+
+.baccarat-card {
+  position: relative;
+  flex-shrink: 0;
+  width: var(--baccarat-card-width);
+  aspect-ratio: 5 / 7;
+  border-radius: 8px;
+  background: #fff;
+  color: #0f172a;
+  box-shadow: 0 4px 10px -4px #0008;
+  animation: baccarat-flip 0.32s ease-out both;
+}
+
+.baccarat-card + .baccarat-card {
+  margin-left: calc(var(--baccarat-card-width) * -0.3);
+}
+
+.baccarat-card:nth-child(3) {
+  transform: rotate(90deg);
+  margin-left: calc(var(--baccarat-card-width) * -0.1);
+}
+
+.baccarat-card.is-red {
+  color: #dc2626;
+}
+
+.baccarat-card-rank {
+  position: absolute;
+  top: 5px;
+  left: 7px;
+  font-size: calc(var(--baccarat-card-width) * 0.3);
+  font-weight: 800;
+  line-height: 1;
+}
+
+.baccarat-card-suit {
+  position: absolute;
+  right: 10%;
+  bottom: 10%;
+  width: 42%;
+  height: auto;
+  fill: currentColor;
+}
+
+.baccarat-spots {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+  width: 100%;
+  max-width: 560px;
+}
+
+.baccarat-spot {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: 74px;
+  border: 2px solid var(--spot-color, var(--semi-color-border));
+  border-radius: 14px;
+  background: var(--semi-color-bg-2);
+  color: var(--spot-color, var(--semi-color-text-0));
+  cursor: pointer;
+  transition:
+    transform 0.12s,
+    box-shadow 0.2s;
+}
+
+.baccarat-spot.is-player,
+.baccarat-spot.is-banker {
+  grid-column: span 3;
+  min-height: 88px;
+}
+
+.baccarat-spot.is-tie,
+.baccarat-spot.is-player_pair,
+.baccarat-spot.is-banker_pair {
+  grid-column: span 2;
+}
+
+.baccarat-spot.is-player,
+.baccarat-spot.is-player_pair {
+  --spot-color: var(--baccarat-player);
+}
+
+.baccarat-spot.is-banker,
+.baccarat-spot.is-banker_pair {
+  --spot-color: var(--baccarat-banker);
+}
+
+.baccarat-spot.is-tie {
+  --spot-color: var(--baccarat-tie);
+}
+
+.baccarat-spot:not(:disabled):hover {
+  transform: translateY(-2px);
+}
+
+.baccarat-spot:disabled {
+  cursor: default;
+}
+
+.baccarat-spot:focus-visible,
+.baccarat-chip:focus-visible {
+  outline: 3px solid var(--semi-color-primary);
+  outline-offset: 3px;
+}
+
+.baccarat-spot-name {
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.baccarat-spot small {
+  font-size: 12px;
+  color: var(--semi-color-text-2);
+}
+
+.baccarat-spot-bet {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  min-width: 26px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--spot-color);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  animation: games-pop 0.25s ease-out;
+}
+
+.baccarat-spot.is-win {
+  box-shadow: 0 0 0 4px rgba(var(--semi-green-3), 0.7);
+}
+
+.baccarat-spot.is-push {
+  box-shadow: 0 0 0 4px var(--semi-color-fill-2);
+}
+
+.baccarat-spot.is-loss .baccarat-spot-bet {
+  opacity: 0.4;
+}
+
+.baccarat-road {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 560px;
+  padding: 8px;
+  border-radius: 12px;
+  background: var(--semi-color-fill-0);
+}
+
+.baccarat-road:empty {
+  display: none;
+}
+
+.baccarat-road span {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.baccarat-road .is-player {
+  background: var(--baccarat-player);
+}
+
+.baccarat-road .is-banker {
+  background: var(--baccarat-banker);
+}
+
+.baccarat-road .is-tie {
+  background: var(--baccarat-tie);
+}
+
+.baccarat-chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+}
+
+.baccarat-chip {
+  width: 44px;
+  height: 44px;
+  border: 3px dashed #ffffffbf;
+  border-radius: 50%;
+  background: #475569;
+  box-shadow: 0 0 0 2px #475569;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: transform 0.15s;
+}
+
+.baccarat-chip.is-active {
+  transform: translateY(-3px);
+  background: var(--semi-color-primary);
+  box-shadow:
+    0 0 0 2px var(--semi-color-primary),
+    0 6px 12px -4px #0006;
+}
+
+.baccarat-total {
+  font-size: 13px;
+  color: var(--semi-color-text-2);
+}
+
+.baccarat-total strong {
+  margin: 0 4px;
+  font-size: 16px;
+  color: var(--semi-color-text-0);
+}
+
+.baccarat-clear {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 8px;
+  background: var(--semi-color-bg-2);
+  color: var(--semi-color-text-1);
+  cursor: pointer;
+}
+
+.baccarat-clear:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+@keyframes baccarat-flip {
+  from {
+    opacity: 0;
+    transform: translateY(-14px) rotateY(80deg);
+  }
+}
+
+.baccarat-card:nth-child(3) {
+  animation-name: baccarat-flip-side;
+}
+
+@keyframes baccarat-flip-side {
+  from {
+    opacity: 0;
+    transform: translateY(-14px) rotate(90deg) rotateY(80deg);
+  }
+}
+
+@media (max-width: 480px) {
+  .baccarat-page {
+    --baccarat-card-width: 46px;
+  }
+
+  .baccarat-felt {
+    padding: 10px;
+    gap: 8px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .baccarat-card,
+  .baccarat-spot-bet {
+    animation: none;
+  }
+}

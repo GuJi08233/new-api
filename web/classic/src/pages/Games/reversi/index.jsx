@@ -21,6 +21,8 @@ import React, { useEffect, useState } from 'react';
 import { SkipForward } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import PvpGame from '../common/pvp/PvpGame';
+import { BoardAssist, currentHint } from '../common/pvp/BoardAssist';
+import { playSound } from '../common/sound';
 import './reversi.css';
 
 const SIZE = 8;
@@ -91,7 +93,18 @@ function boardChanges(before, after) {
 
 // 黑白棋盘：8×8。轮到自己时标出能下的格子(来自视图的 legal)，悬停预览；请求还没回来时先画出自己这一步和翻过来的子
 // (请求失败就撤掉)，服务端的局面回来后以它为准。上方是双方子数和"无子可下、跳过"的提示。
-const ReversiBoard = ({ state, seat, canMove, busy, over, onMove }) => {
+const ReversiBoard = ({
+  state,
+  seat,
+  canMove,
+  busy,
+  over,
+  onMove,
+  onUndo,
+  hint,
+  hintStatus,
+  onHint,
+}) => {
   const { t } = useTranslation();
   const board = state?.board || OPENING_BOARD;
   const mine = discOf(state, seat);
@@ -116,6 +129,18 @@ const ReversiBoard = ({ state, seat, canMove, busy, over, onMove }) => {
   if (seen.board !== shown) {
     setSeen({ board: shown, ...boardChanges(seen.board, shown) });
   }
+  // 落子一声，翻得越多翻子声越高。
+  useEffect(() => {
+    if (seen.placed.length === 0) return;
+    playSound('place');
+    if (seen.flipped.length > 0) {
+      playSound('flip', {
+        pitch: 1 + Math.min(seen.flipped.length, 10) * 0.05,
+      });
+    }
+  }, [seen]);
+  const shownHint = waiting ? null : currentHint(hint, state);
+  const hintSquare = shownHint ? shownHint.y * SIZE + shownHint.x : -1;
 
   const playable = canMove && !waiting && !over;
   const legal = new Set(
@@ -199,10 +224,21 @@ const ReversiBoard = ({ state, seat, canMove, busy, over, onMove }) => {
                 />
               )}
               {index === last && <span className='reversi-last' />}
+              {index === hintSquare && <span className='board-hint-cell' />}
             </button>
           );
         })}
       </div>
+      <BoardAssist
+        state={state}
+        seat={seat}
+        busy={busy}
+        over={over}
+        onUndo={onUndo}
+        hintStatus={hintStatus}
+        onHint={onHint}
+        hintShown={!!shownHint}
+      />
     </div>
   );
 };
@@ -242,6 +278,8 @@ const Reversi = () => {
         t('8×8 棋盘，黑先；落子必须夹住并翻转对方至少一子'),
         t('一方无子可下时自动跳过，由对方接着走'),
         t('双方都无子可下时结束，子多者胜，子数相同为和棋'),
+        t('每局前 3 次悔棋免费，之后每次 1 游戏币；房间里悔棋要对方同意'),
+        t('人机对战可以请电脑分析下一步，每局前 3 次提示免费'),
       ]}
       renderBoard={(props) => <ReversiBoard {...props} />}
     />

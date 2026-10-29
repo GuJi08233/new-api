@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/reversi"
 )
 
@@ -22,6 +23,7 @@ func init() {
 type reversiState struct {
 	Black int   `json:"black"`
 	Moves []int `json:"moves"`
+	boardAssist
 }
 
 // reversiMove 是一步落子 {"x":0-7,"y":0-7}，不需要 pass：无子可下的一方由引擎自动跳过。
@@ -47,6 +49,7 @@ type reversiView struct {
 	WhiteDiscs int             `json:"white_discs"`
 	Over       bool            `json:"over"`
 	Winner     int             `json:"winner"`
+	Undo       boardUndoView   `json:"undo"`
 }
 
 type reversiEngine struct{}
@@ -106,6 +109,7 @@ func (reversiEngine) Play(data []byte, seat int, move json.RawMessage) (pvpState
 		return pvpState{}, errPvpIllegalMove
 	}
 	state.Moves = game.Moves()
+	state.played()
 	return reversiPvpState(state, game)
 }
 
@@ -128,6 +132,7 @@ func (reversiEngine) View(data []byte, seat int) (any, error) {
 		WhiteDiscs: white,
 		Over:       game.Over(),
 		Winner:     state.seatOf(game.Winner()),
+		Undo:       state.undoView(state.movers(), seat, game.Over()),
 	}
 	if last, ok := game.Last(); ok {
 		view.Last = &last
@@ -168,4 +173,99 @@ func (reversiEngine) AiMoveContext(ctx context.Context, data []byte, seat int, l
 		return nil, err
 	}
 	return common.Marshal(point)
+}
+
+// movers 返回每一步落子的座位。一方无子可下时被跳过，对方会连走几步，所以要从开局重放一遍看每一步轮到谁；保存的棋谱
+// 读出时已经重放校验过。
+func (s reversiState) movers() []int {
+	movers := make([]int, 0, len(s.Moves))
+	game := reversi.New()
+	for _, square := range s.Moves {
+		movers = append(movers, s.seatOf(game.Turn()))
+		if game.Play(square%reversi.Size, square/reversi.Size) != nil {
+			break
+		}
+	}
+	return movers
+}
+
+// UndoAsk 记下 seat 想悔棋，返回对方同意之后要收的游戏币。
+func (reversiEngine) UndoAsk(data []byte, seat int) (pvpState, model.GameCoins, error) {
+	state, game, err := loadReversi(data)
+	if err != nil {
+		return pvpState{}, 0, err
+	}
+	cost, err := state.askUndo(state.movers(), seat, game.Over())
+	if err != nil {
+		return pvpState{}, 0, err
+	}
+	next, err := reversiPvpState(state, game)
+	return next, cost, err
+}
+
+// UndoAnswer 让 seat 回应对方的悔棋请求：同意时撤回到提出的一方最后一次落子之前。
+func (reversiEngine) UndoAnswer(data []byte, seat int, accept bool) (pvpUndo, error) {
+	state, game, err := loadReversi(data)
+	if err != nil {
+		return pvpUndo{}, err
+	}
+	asker, steps, cost, err := state.answerUndo(state.movers(), seat, accept, game.Over())
+	if err != nil {
+		return pvpUndo{}, err
+	}
+	if steps > 0 {
+		state.Moves = state.Moves[:len(state.Moves)-steps]
+		if game, err = reversi.Replay(state.Moves); err != nil {
+			return pvpUndo{}, err
+		}
+	} else {
+		asker = -1
+	}
+	next, err := reversiPvpState(state, game)
+	return pvpUndo{State: next, Payer: asker, Cost: cost, Steps: steps}, err
+}
+
+func (reversiEngine) HintStatus(data []byte, seat int) (pvpHintStatus, error) {
+	state, game, err := loadReversi(data)
+	if err != nil {
+		return pvpHintStatus{}, err
+	}
+	return state.hintStatus(seat, state.seatOf(game.Turn()), game.Over())
+}
+
+func (reversiEngine) CachedHint(data []byte, seat int) (json.RawMessage, error) {
+	state, game, err := loadReversi(data)
+	if err != nil {
+		return nil, err
+	}
+	return state.cachedHint(seat, state.seatOf(game.Turn()), game.Over(), len(state.Moves))
+}
+
+func (reversiEngine) Hint(data []byte, seat int) (pvpHint, error) {
+	return (reversiEngine{}).HintContext(context.Background(), data, seat)
+}
+
+// HintContext 用困难难度的 AI 替 seat 找一步好棋，记下用掉的提示次数。提示不落子。
+func (reversiEngine) HintContext(ctx context.Context, data []byte, seat int) (pvpHint, error) {
+	state, game, err := loadReversi(data)
+	if err != nil {
+		return pvpHint{}, err
+	}
+	if game.Over() || state.seatOf(game.Turn()) != seat {
+		return pvpHint{}, errPvpHintUnavailable
+	}
+	rng, err := boardAiRandom()
+	if err != nil {
+		return pvpHint{}, err
+	}
+	point, err := reversi.BestMoveContext(ctx, game, boardHintLevel, rng)
+	if err != nil {
+		return pvpHint{}, err
+	}
+	content, cost, err := state.recordHint(boardHint{Moves: len(state.Moves), X: point.X, Y: point.Y})
+	if err != nil {
+		return pvpHint{}, err
+	}
+	next, err := reversiPvpState(state, game)
+	return pvpHint{Hint: content, State: next, Cost: cost}, err
 }

@@ -35,6 +35,9 @@ import { useTranslation } from 'react-i18next';
 import { API, getLogo, showError } from '../../../helpers';
 import { signed } from '../common/api';
 import { usePlayTurnstile } from '../common/usePlayTurnstile';
+import { AutoPlayControls, useAutoPlay } from '../common/autoPlay';
+import { SoundToggle, celebrate } from '../common/effects';
+import { playSound } from '../common/sound';
 import '../games.css';
 import './wheel.css';
 
@@ -125,11 +128,16 @@ function renderWheel(disc, angle) {
   if (disc) disc.style.transform = `rotate(${angle}deg)`;
 }
 
-// 逐帧驱动一次旋转，停稳后调用 onSettled。
+// 逐帧驱动一次旋转，停稳后调用 onSettled。指针每划过一道格子分界响一下，越转越慢，声音也越来越疏。
 function animateSpin(motion, disc, onSettled) {
+  let lastSegment = null;
   const step = () => {
     const now = performance.now() / 1000;
-    renderWheel(disc, wheelAngle(motion, now));
+    const angle = wheelAngle(motion, now);
+    renderWheel(disc, angle);
+    const segment = Math.floor(mod(angle, 360) / (360 / motion.count));
+    if (lastSegment !== null && segment !== lastSegment) playSound('tick');
+    lastSegment = segment;
     if (motion.plan && now >= motion.plan.decelAt + motion.plan.duration) {
       onSettled();
       return;
@@ -158,6 +166,7 @@ const Wheel = () => {
   const [rule, setRule] = useState(null);
   const [symbol, setSymbol] = useState('');
   const [balance, setBalance] = useState(0);
+  const auto = useAutoPlay();
   const [spinning, setSpinning] = useState(false);
   // 上一次旋转的结果 { result } 或失败原因 { error }。
   const [outcome, setOutcome] = useState(null);
@@ -266,8 +275,22 @@ const Wheel = () => {
       }
       setOutcome(motion.response);
       setSpinning(false);
+      if (result) {
+        const big = result.multiplier >= BIG_WIN_MULTIPLIER;
+        if (big) {
+          playSound('bigWin');
+          celebrate(1.5);
+        } else if (result.win > 0) {
+          playSound('coin');
+        } else {
+          playSound('lose', { pitch: 1.5 });
+        }
+        auto.after(true, { bigWin: big });
+      } else {
+        auto.after(false);
+      }
     },
-    [loadInfo],
+    [loadInfo, auto.after],
   );
 
   // 免费次数按账号和同一 IP 分别计算，两边都有剩余才能免费转。
@@ -309,6 +332,7 @@ const Wheel = () => {
       plan: null,
       frame: 0,
       response: null,
+      count: rule.segments.length,
     };
     motionRef.current = motion;
     setSpinning(true);
@@ -361,6 +385,9 @@ const Wheel = () => {
     settleSpin,
     loadInfo,
   ]);
+
+  // 自动连玩只用于付费旋转：轮到免费旋转(例如过了零点)时停下，免费那一次由玩家自己转。
+  auto.bind(() => (canSpin && !free ? spin() : auto.stop()));
 
   // 空格键旋转；焦点在按钮上时交给按钮自己处理，免得触发两次。
   useEffect(() => {
@@ -472,6 +499,7 @@ const Wheel = () => {
             {t('游戏中心')}
           </Button>
           <h1 className='wheel-title'>{t('大转盘')}</h1>
+          <SoundToggle />
         </div>
 
         <div className='wheel-layout'>
@@ -589,6 +617,9 @@ const Wheel = () => {
                   !free &&
                   t('花 {{cost}} {{symbol}} 转一次', { cost, symbol })}
               </button>
+              {(!free || auto.active) && (
+                <AutoPlayControls auto={auto} disabled={!canSpin || free} />
+              )}
               <div className='games-stage-counter'>
                 {t('今日已转 {{plays}} 次', { plays: rule.plays_today })}
                 {rule.free_spins > 0 &&

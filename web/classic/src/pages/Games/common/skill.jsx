@@ -24,6 +24,8 @@ import { useTranslation } from 'react-i18next';
 import { formatNumber } from './api';
 import { RuleList, SideBox } from './SideBox';
 import { PlayTurnstile } from './usePlayTurnstile';
+import { celebrate } from './effects';
+import { playSound } from './sound';
 
 // 免费游戏(技巧游戏与人机对战)共用的领奖规则展示与结算提示。info 是 GET /api/game/<key> 返回的 skillInfo 部分：
 // rule { daily_rewards, tiers, min_seconds_per_coin }、free_daily_limit、progress、best_score。
@@ -155,6 +157,18 @@ export function skillResultMessage(result, t, symbol, { byLevel } = {}) {
   return { kind: 'loss', text: t('没有达到奖励档位，再接再厉') };
 }
 
+// 一局免费游戏结算之后的音效与彩带：赢下(解开谜题、破了纪录)或拿到奖励时撒彩带，否则一声结束音。won 表示这一局
+// 过关或打出了新纪录，由各游戏判断。
+export function playSkillFeedback(result, won) {
+  if (!result || result.rejected) return;
+  if (won || result.reward > 0) {
+    playSound('win');
+    celebrate(result.reward > 0 ? 1.2 : 1);
+    return;
+  }
+  playSound('lose');
+}
+
 // 难度的奖励：成绩达到的最高一档，与服务端的领奖规则一致。
 export function levelReward(tiers, level) {
   let coins = 0;
@@ -185,8 +199,15 @@ export const GameClock = ({ since, stoppedAt }) => {
 };
 
 // 免费游戏信息栏里的领奖规则：今天还能领几次与今天的游戏时长、奖励档位、时长要求与合计上限、最高成绩。
-// levelNames 不为空时成绩按难度显示；scoreName 是成绩一列的标题。
-export const SkillSide = ({ info, symbol, scoreName, levelNames, extra }) => {
+// levelNames 不为空时成绩按难度显示；scoreName 是成绩一列的标题。extra 放在奖励规则之后，after 放在最后(本机最佳)。
+export const SkillSide = ({
+  info,
+  symbol,
+  scoreName,
+  levelNames,
+  extra,
+  after,
+}) => {
   const { t } = useTranslation();
   const rule = info?.rule || {};
   const progress = info?.progress || {};
@@ -269,6 +290,7 @@ export const SkillSide = ({ info, symbol, scoreName, levelNames, extra }) => {
             : '-'
         }
       />
+      {after}
     </>
   );
 };

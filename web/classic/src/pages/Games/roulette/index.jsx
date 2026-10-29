@@ -25,7 +25,14 @@ import GameLayout from '../common/GameLayout';
 import { RuleList, SideBox, StageMessage } from '../common/SideBox';
 import { gamePost, percent } from '../common/api';
 import { useGameInfo } from '../common/useGameInfo';
-import { WagerStats, wagerResultMessage } from '../common/wager';
+import {
+  BIG_WIN_MULTIPLIER,
+  WagerStats,
+  playWagerFeedback,
+  wagerResultMessage,
+} from '../common/wager';
+import { AutoPlayControls, useAutoPlay } from '../common/autoPlay';
+import { playSound } from '../common/sound';
 import RouletteTable, { SPOTS } from './RouletteTable';
 import RouletteWheel from './RouletteWheel';
 import './roulette.css';
@@ -58,6 +65,7 @@ const Roulette = () => {
   const [hint, setHint] = useState('');
   // 本次打开页面以来开出的号码，最新的在前。
   const [history, setHistory] = useState([]);
+  const auto = useAutoPlay();
 
   useEffect(() => {
     aliveRef.current = true;
@@ -111,6 +119,7 @@ const Roulette = () => {
   });
 
   const changeBets = (next) => {
+    playSound('chip');
     setUndoStack((stack) => [...stack, bets].slice(-UNDO_LIMIT));
     setBets(next);
     setHint('');
@@ -157,7 +166,10 @@ const Roulette = () => {
   };
 
   const spin = async () => {
-    if (!canSpin) return;
+    if (!canSpin) {
+      auto.stop();
+      return;
+    }
     const placed = bets;
     const slip = SPOTS.filter((spot) => placed[spot.key]).map((spot) => ({
       type: spot.type,
@@ -168,6 +180,7 @@ const Roulette = () => {
     setError('');
     setHint('');
     setLastSpin(null);
+    playSound('start');
     wheelRef.current.start();
     const response = await gamePost(
       '/api/game/roulette/spin',
@@ -180,6 +193,7 @@ const Roulette = () => {
       wheelRef.current.stop();
       setSpinning(false);
       setError(response.error);
+      auto.stop();
       // 余额或规则可能已经变了(没有得到答复时这一局也可能已经结算)，重新读取。
       reload(true);
       return;
@@ -203,7 +217,11 @@ const Roulette = () => {
       plays_today: data.plays_today,
       best_win: Math.max(info.best_win || 0, data.win),
     });
+    playSound('drop');
+    playWagerFeedback(data);
+    auto.after(true, { bigWin: data.win >= BIG_WIN_MULTIPLIER * data.bet });
   };
+  auto.bind(spin);
 
   const hit = lastSpin ? lastSpin.data.number : null;
   const wins =
@@ -384,11 +402,12 @@ const Roulette = () => {
           <button
             type='button'
             className='games-play-button'
-            disabled={!canSpin}
+            disabled={!canSpin || auto.active}
             onClick={spin}
           >
             {spinning ? t('转动中…') : t('旋转')}
           </button>
+          <AutoPlayControls auto={auto} disabled={!canSpin} />
           {shownHint && <div className='games-stage-hint'>{shownHint}</div>}
         </div>
       </div>

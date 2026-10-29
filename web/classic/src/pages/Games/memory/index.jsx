@@ -50,6 +50,7 @@ import {
   formatClock,
   GameClock,
   levelReward,
+  playSkillFeedback,
   rewardsLeftText,
   skillResultMessage,
   skillRuleSummary,
@@ -57,6 +58,10 @@ import {
 } from '../common/skill';
 import { useGameInfo } from '../common/useGameInfo';
 import { PlayTurnstile, usePlayTurnstile } from '../common/usePlayTurnstile';
+import { Floaters, useFloaters } from '../common/effects';
+import { LocalBestBox, localBestNote } from '../common/LocalBest';
+import { useLocalBest } from '../common/useLocalBest';
+import { playSound } from '../common/sound';
 import './memory.css';
 
 const STATE_URL = '/api/game/memory/state';
@@ -114,6 +119,10 @@ const Memory = () => {
   // 最新的局面版本：收到回应之后、页面重绘之前的点击也要带上它。
   const versionRef = useRef(0);
   const missTimerRef = useRef(null);
+  // 连续配上的对数：没配上就清零，只用来飘字鼓励，不影响成绩。
+  const [streak, setStreak] = useState(0);
+  const [floaters, float] = useFloaters();
+  const { bests, record } = useLocalBest('memory');
 
   const hideMiss = useCallback(() => {
     clearTimeout(missTimerRef.current);
@@ -145,6 +154,7 @@ const Memory = () => {
       setFaceUp(view.face_up ? [view.face_up.index] : []);
       setMoves(view.moves);
       setDifficulty(view.difficulty);
+      setStreak(0);
       setEnd(null);
       setResult(null);
     },
@@ -175,11 +185,20 @@ const Memory = () => {
 
   useEffect(() => () => clearTimeout(missTimerRef.current), []);
 
-  const settle = (settled, status) => {
+  const settle = (settled, status, finalMoves = moves) => {
     clearTimeout(missTimerRef.current);
     missTimerRef.current = null;
     setMissing(false);
-    setEnd({ status, at: Date.now() });
+    const at = Date.now();
+    const improved =
+      status === 'won' && game
+        ? record(game.difficulty, {
+            moves: finalMoves,
+            time: Math.round((at - game.since) / 1000),
+          })
+        : null;
+    playSkillFeedback(settled, status === 'won');
+    setEnd({ status, at, improved });
     setResult(settled);
     patch({
       balance: settled.balance,
@@ -254,13 +273,25 @@ const Memory = () => {
         return next;
       });
       if (data.first) {
+        playSound('flip');
         setFaceUp([index]);
       } else if (data.matched) {
+        const next = streak + 1;
+        setStreak(next);
+        playSound('merge', { pitch: 1 + Math.min(next - 1, 8) * 0.08 });
+        if (next >= 2) {
+          float(t('连对 ×{{count}}', { count: next }), {
+            y: 45,
+            kind: next >= 4 ? 'gold' : 'gain',
+          });
+        }
         setMatched((previous) =>
           new Set(previous).add(index).add(data.previous.index),
         );
         setFaceUp([]);
       } else {
+        setStreak(0);
+        playSound('flip', { pitch: 0.7 });
         setFaceUp([data.previous.index, index]);
         setMissing(true);
         if (data.status === 'playing') {
@@ -270,7 +301,7 @@ const Memory = () => {
       if (data.status === 'playing') return;
       // 结束后公开整副牌。
       setSymbols(data.layout);
-      settle(data.result, data.status);
+      settle(data.result, data.status, data.moves);
     } finally {
       busyRef.current = false;
       setBusy(false);
@@ -306,6 +337,7 @@ const Memory = () => {
     outcome = {
       kind: 'win',
       text: t('全部配对成功，用了 {{moves}} 步', { moves }),
+      note: localBestNote(end.improved, t),
     };
   } else if (end) {
     outcome = {
@@ -337,6 +369,15 @@ const Memory = () => {
           />
         </SideBox>
       }
+      after={
+        <LocalBestBox
+          bests={bests}
+          levels={levels.map((level) => ({
+            key: level.difficulty,
+            name: levelNames[level.difficulty - 1],
+          }))}
+        />
+      }
     />
   );
 
@@ -367,6 +408,10 @@ const Memory = () => {
             <strong>
               {matched.size / 2} / {pairs}
             </strong>
+          </span>
+          <span>
+            {t('连对')}
+            <strong>{streak}</strong>
           </span>
           <span>
             {t('用时')}
@@ -426,6 +471,7 @@ const Memory = () => {
               </button>
             );
           })}
+          <Floaters items={floaters} />
         </div>
 
         {busy && playing && (
@@ -434,7 +480,9 @@ const Memory = () => {
           </div>
         )}
         {outcome && (
-          <StageMessage kind={outcome.kind}>{outcome.text}</StageMessage>
+          <StageMessage kind={outcome.kind} note={outcome.note}>
+            {outcome.text}
+          </StageMessage>
         )}
         {reward && (
           <StageMessage kind={reward.kind} note={reward.note}>

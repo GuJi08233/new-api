@@ -542,7 +542,7 @@ func (g *Game) validateTrick() error {
 }
 
 // View 是给 seat 看的局面：自己的手牌、各家剩余张数与桌上公开的牌；seat 不是座位时(旁观)看不到任何手牌。叫分时底牌不公开，
-// 正常结束后公开各家剩下的牌。
+// 正常结束后公开各家剩下的牌。Played 是这一局打出过的全部牌(人人都看见过)，页面据此做记牌器。
 type View struct {
 	Phase    string          `json:"phase"`
 	Hand     []int           `json:"hand"`
@@ -556,6 +556,7 @@ type View struct {
 	ToMove   int             `json:"to_move"`
 	LastPlay *Play           `json:"last_play"`
 	Trick    []Action        `json:"trick"`
+	Played   []int           `json:"played"`
 	Over     bool            `json:"over"`
 	Winner   int             `json:"winner"`
 	Hands    *[Players][]int `json:"hands,omitempty"`
@@ -565,7 +566,7 @@ func (g *Game) View(seat int) View {
 	view := View{
 		Phase: g.Phase, Hand: []int{}, Bottom: []int{}, Bids: g.Bids, HighBid: g.HighBid, MustBid: g.MustBid(),
 		Deals: g.Deals, Landlord: g.Landlord, ToMove: g.ToMove, LastPlay: g.LastPlay, Trick: g.Trick,
-		Over: g.Over(), Winner: g.Winner,
+		Played: append([]int{}, g.Played...), Over: g.Over(), Winner: g.Winner,
 	}
 	for member, hand := range g.Hands {
 		view.Counts[member] = len(hand)

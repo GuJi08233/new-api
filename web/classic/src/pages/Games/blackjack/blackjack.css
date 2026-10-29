@@ -305,3 +305,37 @@ body[theme-mode='dark'] .blackjack-card:not(.is-back) {
     min-width: 0;
   }
 }
+
+/* 基本策略建议的动作按钮描一圈琥珀色，下方写出建议。 */
+.blackjack-action.is-suggested {
+  box-shadow: 0 0 0 2px rgba(var(--semi-amber-5), 1);
+}
+
+.blackjack-key {
+  margin-left: 4px;
+  padding: 0 4px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-family: inherit;
+  color: var(--semi-color-text-2);
+  background: var(--semi-color-fill-1);
+}
+
+.blackjack-advice {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 13px;
+  color: rgba(var(--semi-amber-7), 1);
+}
+
+.blackjack-advice-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--semi-color-text-2);
+  cursor: pointer;
+}

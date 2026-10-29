@@ -34,6 +34,8 @@ import {
 } from '../common/api';
 import { useGameInfo } from '../common/useGameInfo';
 import { useVisiblePolling } from '../common/useVisiblePolling';
+import { celebrate } from '../common/effects';
+import { playSound } from '../common/sound';
 import './jackpot.css';
 
 // 页面每隔这么久刷新一次奖池；开奖由服务端在刷新时完成。
@@ -250,6 +252,27 @@ const Jackpot = () => {
       cancelAnimationFrame(frame);
       clearTimeout(timer);
     };
+  }, [drawn, pointer]);
+
+  // 指针停稳揭晓时：自己中奖撒彩带，别人中奖一声落定。倒计时最后 5 秒每秒响一下。
+  const revealedShown = revealed ? drawn.id : null;
+  const drawnOwn = !!drawn?.own;
+  useEffect(() => {
+    if (revealedShown === null) return;
+    if (drawnOwn) {
+      playSound('bigWin');
+      celebrate(1.5);
+    } else {
+      playSound('drop');
+    }
+  }, [revealedShown, drawnOwn]);
+  useEffect(() => {
+    if (secondsLeft !== null && secondsLeft > 0 && secondsLeft <= 5) {
+      playSound('tick');
+    }
+  }, [secondsLeft]);
+  useEffect(() => {
+    if (drawn && pointer !== null) playSound('start');
   }, [drawn, pointer]);
 
   let status = t('等待第一位玩家投入');

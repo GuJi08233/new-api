@@ -18,10 +18,19 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Check, Grab, Hand, Hourglass, Scissors, Swords } from 'lucide-react';
+import {
+  Check,
+  Dices,
+  Grab,
+  Hand,
+  Hourglass,
+  Scissors,
+  Swords,
+} from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { getGameMetaMap } from '../../../constants';
 import PvpGame from '../common/pvp/PvpGame';
+import { playSound } from '../common/sound';
 import './rps.css';
 
 // 一回合公开之后，双方的拳在台面上停留这么久，然后回到这一回合的出拳。
@@ -30,6 +39,15 @@ const REVEAL_MS = 2200;
 // 三种拳的图标，也是按钮的顺序。
 const CHOICE_ICONS = { rock: Grab, scissors: Scissors, paper: Hand };
 const CHOICES = Object.keys(CHOICE_ICONS);
+// 键盘出拳：1 石头、2 剪刀、3 布，也可以按拳名的首字母。
+const CHOICE_KEYS = {
+  Digit1: 'rock',
+  Digit2: 'scissors',
+  Digit3: 'paper',
+  KeyR: 'rock',
+  KeyS: 'scissors',
+  KeyP: 'paper',
+};
 
 // 一个座位这一回合的拳：公开的拳画出图标；对手已经出了但还没公开时只显示"已出拳"，绝不猜它出了什么。
 const HandCard = ({ choice, ready, result, reveal, label, names }) => {
@@ -88,6 +106,12 @@ const RpsBoard = ({ state, seat, canMove, over, onMove }) => {
     seenRef.current = count;
     if (!fresh) return undefined;
     setReveal(count - 1);
+    const round = rounds[count - 1];
+    if (round) {
+      playSound(
+        round.winner === -1 ? 'click' : round.winner === me ? 'coin' : 'error',
+      );
+    }
     const timer = setTimeout(() => setReveal(null), REVEAL_MS);
     return () => clearTimeout(timer);
   }, [count]);
@@ -105,6 +129,30 @@ const RpsBoard = ({ state, seat, canMove, over, onMove }) => {
     draw: state?.over ? t('这一回合平局') : t('平局，这一回合重来'),
   };
   const badges = { win: t('胜'), loss: t('负'), draw: t('平') };
+  const canChoose = canMove && !state?.choice;
+  const choose = (choice) => {
+    if (!canChoose) return;
+    playSound('chip');
+    onMove({ choice, round: state.round });
+  };
+  const chooseRef = useRef(choose);
+  chooseRef.current = choose;
+  useEffect(() => {
+    if (!canChoose) return undefined;
+    const onKeyDown = (event) => {
+      if (event.ctrlKey || event.metaKey || event.altKey || event.repeat)
+        return;
+      if (event.target.closest?.('input, textarea, [contenteditable="true"]')) {
+        return;
+      }
+      const choice = CHOICE_KEYS[event.code];
+      if (!choice) return;
+      event.preventDefault();
+      chooseRef.current(choice);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [canChoose]);
 
   return (
     <div className='rps-board'>
@@ -169,9 +217,9 @@ const RpsBoard = ({ state, seat, canMove, over, onMove }) => {
               key={choice}
               type='button'
               className={picked ? 'rps-choice is-picked' : 'rps-choice'}
-              disabled={!canMove || !!state?.choice}
+              disabled={!canChoose}
               aria-pressed={picked}
-              onClick={() => onMove({ choice, round: state.round })}
+              onClick={() => choose(choice)}
             >
               <Icon size={40} strokeWidth={1.6} />
               <span>{names[choice]}</span>
@@ -179,6 +227,23 @@ const RpsBoard = ({ state, seat, canMove, over, onMove }) => {
           );
         })}
       </div>
+      {canChoose && (
+        <div className='rps-extra'>
+          <button
+            type='button'
+            className='game-chip'
+            onClick={() =>
+              choose(CHOICES[Math.floor(Math.random() * CHOICES.length)])
+            }
+          >
+            <Dices size={14} />
+            {t('随机出拳')}
+          </button>
+          <span className='games-stage-counter'>
+            {t('键盘 1 石头、2 剪刀、3 布')}
+          </span>
+        </div>
+      )}
 
       {count > 0 && (
         <ol className='rps-history'>

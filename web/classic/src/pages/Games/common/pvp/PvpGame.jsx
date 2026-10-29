@@ -44,6 +44,7 @@ import {
 } from '../../../../helpers';
 import { getGameLevelNames } from '../../../../constants';
 import GameLayout from '../GameLayout';
+import { useOutcomeFeedback } from '../effects';
 import { RuleList, SideBox, StageMessage } from '../SideBox';
 import { formatCoins, gameGet, gamePost, withTurnstile } from '../api';
 import {
@@ -502,6 +503,11 @@ const RoomView = ({
   );
   const me = players[seat];
   const auto = !!me?.auto;
+  useOutcomeFeedback(
+    room.id,
+    room.status === 'finished' ? me?.result || null : null,
+    { big: room.stake > 0 },
+  );
   const pot = room.escrow * room.player_count;
   const labels = seatLabels(state);
 
@@ -708,6 +714,7 @@ const AiView = ({
   const levelNames = getGameLevelNames(t).ai;
   const state = ai.state;
   const myTurn = !ai.over && ai.to_move === 0;
+  useOutcomeFeedback(ai.session_id, ai.over ? ai.result || 'draw' : null);
   // 几个 AI 时编上号，出牌记录里分得清是哪一个。
   const seats = ai.seats || 2;
   const names = Array.from({ length: seats }, (_, index) => {

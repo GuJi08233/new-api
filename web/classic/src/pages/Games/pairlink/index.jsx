@@ -23,7 +23,16 @@ import { useTranslation } from 'react-i18next';
 import GameLayout from '../common/GameLayout';
 import { RuleList, SideBox, StageMessage } from '../common/SideBox';
 import { gameGet, gamePost, withTurnstile } from '../common/api';
-import { formatClock, SkillSide, skillResultMessage } from '../common/skill';
+import {
+  formatClock,
+  playSkillFeedback,
+  SkillSide,
+  skillResultMessage,
+} from '../common/skill';
+import { Floaters, useFloaters } from '../common/effects';
+import { LocalBestBox, localBestNote } from '../common/LocalBest';
+import { useLocalBest } from '../common/useLocalBest';
+import { playSound } from '../common/sound';
 import { useGameInfo } from '../common/useGameInfo';
 import { PlayTurnstile, usePlayTurnstile } from '../common/usePlayTurnstile';
 import { getGameLevelNames } from '../../../constants/game.constants';
@@ -44,6 +53,11 @@ const SYMBOLS = [
   '🍊',
 ];
 
+// 两次消除间隔不超过这么久(毫秒)算连击，只用来飘字鼓励，不影响成绩。
+const COMBO_MS = 3000;
+// 剩余时间少于这么多秒时，计时条变红、每秒响一下。
+const HURRY_SECONDS = 10;
+
 const Pairlink = () => {
   const { t } = useTranslation();
   const { info, loading, unavailable, patch, reload } = useGameInfo('pairlink');
@@ -61,6 +75,10 @@ const Pairlink = () => {
   const [notice, setNotice] = useState('');
   const busyRef = useRef(false);
   const actionRef = useRef(null);
+  const comboRef = useRef({ count: 0, at: 0 });
+  const [floaters, float] = useFloaters();
+  const { bests, record } = useLocalBest('pairlink');
+  const [improved, setImproved] = useState(null);
   const names = getGameLevelNames(t).pairlink;
   const playing = game?.status === 'playing';
 
@@ -97,7 +115,16 @@ const Pairlink = () => {
     return () => clearTimeout(timer);
   }, [path]);
 
-  const settle = (value) => {
+  const settle = (value, view = game) => {
+    const won = !!value.detail?.won || view?.status === 'won';
+    if (won && view) {
+      setImproved(
+        record(view.difficulty, {
+          time: Math.round((Date.now() - view.since) / 1000),
+        }),
+      );
+    }
+    playSkillFeedback(value, won);
     setResult(value);
     patch({
       balance: value.balance,
@@ -124,9 +151,12 @@ const Pairlink = () => {
     }
     accept(response.data);
     setResult(null);
+    setImproved(null);
     setHint([]);
     setPath([]);
     setNotice('');
+    comboRef.current = { count: 0, at: 0 };
+    playSound('start');
   };
 
   const action = async (kind, first, second) => {
@@ -158,11 +188,36 @@ const Pairlink = () => {
         reload(true);
       }
     } else if (response.data.board) {
-      accept(response.data);
-      setPath(response.data.path || []);
-      setHint(response.data.hint || []);
-      if (response.data.shuffled) setNotice(t('牌面已重新排列'));
-      if (response.data.result) settle(response.data.result);
+      const view = response.data;
+      accept(view);
+      setPath(view.path || []);
+      setHint(view.hint || []);
+      if (kind === 'match' && view.path?.length) {
+        const now = Date.now();
+        const combo = comboRef.current;
+        combo.count = now - combo.at <= COMBO_MS ? combo.count + 1 : 1;
+        combo.at = now;
+        playSound('merge', { pitch: 1 + Math.min(combo.count - 1, 8) * 0.07 });
+        if (combo.count >= 2) {
+          const end = view.path[Math.floor(view.path.length / 2)];
+          float(t('连击 ×{{count}}', { count: combo.count }), {
+            x: ((end.col + 0.5) / (view.cols + 2)) * 100,
+            y: ((end.row + 0.5) / (view.rows + 2)) * 100,
+            kind: combo.count >= 5 ? 'gold' : 'gain',
+          });
+        }
+      } else if (kind === 'hint') {
+        playSound('reveal');
+      } else if (kind === 'shuffle' || view.shuffled) {
+        playSound('deal');
+      }
+      if (view.shuffled) setNotice(t('牌面已重新排列'));
+      if (view.result) {
+        settle(view.result, {
+          ...view,
+          since: Date.now() - view.elapsed * 1000,
+        });
+      }
     } else {
       settle(response.data);
       setGame((previous) => ({ ...previous, status: 'finished' }));
@@ -177,6 +232,10 @@ const Pairlink = () => {
         game.seconds - Math.floor(Math.max(0, now - game.since) / 1000),
       )
     : 0;
+  // 最后几秒每秒响一下，提醒玩家抓紧。
+  useEffect(() => {
+    if (playing && left > 0 && left <= HURRY_SECONDS) playSound('tick');
+  }, [playing, left]);
   useEffect(() => {
     if (!playing || left !== 0 || busy) return undefined;
     // 服务端保留整秒取整的宽限；失败或尚未超时则稍后重查，避免紧循环。
@@ -192,6 +251,7 @@ const Pairlink = () => {
     }
     // 图案不同的两张连不上，不必问服务端：改选新点的这一张。
     if (selected < 0 || game.board[selected] !== game.board[index]) {
+      playSound('click');
       setSelected(index);
       return;
     }
@@ -213,9 +273,17 @@ const Pairlink = () => {
               t('选择两个相同图案，连线最多拐两次弯，可以绕过棋盘外沿'),
               t('限时内消除所有图案即可获胜，每局有三次提示和三次洗牌'),
               t('没有可消除的图案时会自动重新排列'),
+              t('3 秒内接连消除算连击'),
             ]}
           />
         </SideBox>
+      }
+      after={
+        <LocalBestBox
+          bests={bests}
+          levels={names.map((name, index) => ({ key: index + 1, name }))}
+          columns={['time']}
+        />
       }
     />
   );
@@ -240,6 +308,14 @@ const Pairlink = () => {
             <strong>{formatClock(left)}</strong>
           </span>
         </div>
+        {playing && (
+          <div
+            className={`pairlink-timebar ${left <= HURRY_SECONDS ? 'is-hurry' : ''}`}
+            aria-hidden
+          >
+            <span style={{ width: `${(left / game.seconds) * 100}%` }} />
+          </div>
+        )}
         {!game && (
           <p className='puzzle-intro'>
             {t('眼疾手快，找到可以连起来的相同图案')}
@@ -297,6 +373,7 @@ const Pairlink = () => {
                   />
                 </svg>
               )}
+              <Floaters items={floaters} />
             </div>
           </div>
         )}
@@ -347,7 +424,9 @@ const Pairlink = () => {
           </StageMessage>
         )}
         {game?.status === 'won' && (
-          <p className='puzzle-intro'>{t('全部消除，挑战成功！')}</p>
+          <p className='puzzle-intro'>
+            {t('全部消除，挑战成功！')} {localBestNote(improved, t)}
+          </p>
         )}
         {game?.status === 'lost' && (
           <p className='puzzle-intro'>{t('本局结束，再试一次吧')}</p>
