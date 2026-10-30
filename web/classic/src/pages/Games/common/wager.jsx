@@ -21,7 +21,7 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { formatNumber, signed } from './api';
 import { SideBox } from './SideBox';
-import { celebrate } from './effects';
+import { NICE_WIN_MULTIPLIER, announceWin, celebrate } from './effects';
 import { playSound } from './sound';
 
 // 下注游戏共用的部分。info 是 GET /api/game/<key> 返回的 wagerInfo 部分：max_bet、net_today、plays_today、best_win。
@@ -53,12 +53,17 @@ export function wagerResultMessage(result, t, symbol) {
   };
 }
 
-// 一局下注揭晓结果时的音效与彩带：大奖撒彩带，赢了响一声金币，没中或少收回时一声低音。开奖动画停下之后再调用。
+// 一局下注揭晓结果时的音效、彩带与结果卡：大奖撒彩带并亮出大奖卡，赢到三倍以上亮出大赢卡，赢了响一声金币，没中或
+// 少收回时一声低音。开奖动画停下之后再调用。
 export function playWagerFeedback(result) {
   if (!result) return;
   if (result.win >= BIG_WIN_MULTIPLIER * result.bet && result.win > 0) {
     playSound('bigWin');
     celebrate(1.5);
+    announceWin({ win: result.win, bet: result.bet, big: true });
+  } else if (result.win >= NICE_WIN_MULTIPLIER * result.bet && result.win > 0) {
+    playSound('coin');
+    announceWin({ win: result.win, bet: result.bet, big: false });
   } else if (result.win > result.bet) {
     playSound('coin');
   } else if (result.win === result.bet) {

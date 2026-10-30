@@ -1278,3 +1278,271 @@ For commercial licensing, please contact support@quantumnous.com
   margin-top: 4px;
   font-size: 13px;
 }
+
+/* 下注游戏的结果卡：大赢、大奖。主题色渐变，缓入缓出，不闪烁。 */
+.game-win-banner {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(circle, #0f172a55, transparent 70%);
+  animation: game-win-fade 0.3s ease-out;
+  cursor: pointer;
+}
+.game-win-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: 220px;
+  padding: 22px 34px;
+  overflow: hidden;
+  border-radius: 22px;
+  color: #fff;
+  background: linear-gradient(
+    135deg,
+    var(--semi-color-primary),
+    color-mix(in srgb, var(--semi-color-primary) 55%, #a855f7)
+  );
+  box-shadow:
+    0 24px 60px -20px var(--semi-color-primary),
+    inset 0 1px 0 #ffffff55;
+  animation: game-win-pop 0.45s cubic-bezier(0.3, 1.5, 0.6, 1);
+}
+.game-win-banner.is-big .game-win-card {
+  padding: 30px 46px;
+  background: linear-gradient(135deg, #f59e0b, #ea580c 55%, #db2777);
+  box-shadow:
+    0 30px 70px -20px #ea580c,
+    inset 0 1px 0 #ffffff66;
+}
+.game-win-rays {
+  position: absolute;
+  inset: -60%;
+  background: repeating-conic-gradient(
+    #ffffff1f 0 10deg,
+    transparent 10deg 30deg
+  );
+  animation: game-win-spin 8s linear infinite;
+  pointer-events: none;
+}
+.game-win-title {
+  position: relative;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.3em;
+  opacity: 0.9;
+}
+.game-win-amount {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: clamp(30px, 6vw, 44px);
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 3px 0 #0003;
+}
+.game-win-banner.is-big .game-win-amount {
+  font-size: clamp(38px, 8vw, 58px);
+}
+.game-win-amount small {
+  font-size: 0.45em;
+  opacity: 0.85;
+}
+.game-win-multiplier {
+  position: relative;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: #ffffff2b;
+  font-size: 12px;
+  font-weight: 700;
+}
+@keyframes game-win-fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes game-win-pop {
+  from {
+    transform: scale(0.5) translateY(30px);
+    opacity: 0;
+  }
+}
+@keyframes game-win-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 顶栏余额：滚动到新值，旁边飘出这次的增减。 */
+.game-balance-value {
+  position: relative;
+  display: inline-flex;
+  font-variant-numeric: tabular-nums;
+}
+.game-balance-value strong.is-up {
+  animation: game-balance-up 0.9s ease-out;
+}
+.game-balance-value strong.is-down {
+  animation: game-balance-down 0.9s ease-out;
+}
+@keyframes game-balance-up {
+  20% {
+    color: var(--semi-color-success);
+    transform: scale(1.12);
+  }
+}
+@keyframes game-balance-down {
+  20% {
+    color: var(--semi-color-danger);
+  }
+}
+.game-balance-delta {
+  position: absolute;
+  right: 0;
+  top: -4px;
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+  pointer-events: none;
+  animation: game-balance-float 1.2s ease-out forwards;
+}
+.game-balance-delta.is-up {
+  color: var(--semi-color-success);
+}
+.game-balance-delta.is-down {
+  color: var(--semi-color-danger);
+}
+@keyframes game-balance-float {
+  from {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateY(-22px);
+    opacity: 0;
+  }
+}
+
+/* 游戏中心卡片：悬停时封面图标浮起、掠过一道高光；新游戏带"新"角标。 */
+.games-list-cover {
+  position: relative;
+  overflow: hidden;
+}
+.games-list-cover::after {
+  content: '';
+  position: absolute;
+  inset: -40%;
+  background: linear-gradient(
+    115deg,
+    transparent 40%,
+    #ffffff70 50%,
+    transparent 60%
+  );
+  transform: translateX(-100%);
+  pointer-events: none;
+}
+.games-list-cover svg {
+  transition: transform 0.25s cubic-bezier(0.3, 1.6, 0.6, 1);
+}
+.games-list-card:hover .games-list-cover::after,
+.games-list-card:focus-visible .games-list-cover::after {
+  transform: translateX(100%);
+  transition: transform 0.7s ease;
+}
+.games-list-card:hover .games-list-cover svg,
+.games-list-card:focus-visible .games-list-cover svg {
+  transform: translateY(-3px) scale(1.12) rotate(-6deg);
+}
+.games-new-badge {
+  flex-shrink: 0;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 18px;
+  color: #fff;
+  background: linear-gradient(135deg, #f43f5e, #f59e0b);
+}
+.cover-pairlink {
+  --cover-from: #f472b6;
+  --cover-to: #0ea5e9;
+}
+.cover-breakout {
+  --cover-from: #fb7185;
+  --cover-to: #f59e0b;
+}
+.cover-sokoban {
+  --cover-from: #d6a46a;
+  --cover-to: #92400e;
+}
+.cover-twentyfour {
+  --cover-from: #38bdf8;
+  --cover-to: #7c3aed;
+}
+.cover-bulls {
+  --cover-from: #34d399;
+  --cover-to: #4338ca;
+}
+.cover-nonogram {
+  --cover-from: #94a3b8;
+  --cover-to: #1e293b;
+}
+.cover-watersort {
+  --cover-from: #22d3ee;
+  --cover-to: #ec4899;
+}
+.cover-onestroke {
+  --cover-from: #a5f3fc;
+  --cover-to: #6366f1;
+}
+.cover-match3 {
+  --cover-from: #c084fc;
+  --cover-to: #db2777;
+}
+.cover-landlord {
+  --cover-from: #fca5a5;
+  --cover-to: #991b1b;
+}
+.cover-dots {
+  --cover-from: #60a5fa;
+  --cover-to: #dc2626;
+}
+.cover-mancala {
+  --cover-from: #d6a46a;
+  --cover-to: #15803d;
+}
+.cover-baccarat {
+  --cover-from: #10b981;
+  --cover-to: #1e3a8a;
+}
+.cover-keno {
+  --cover-from: #fbbf24;
+  --cover-to: #7c3aed;
+}
+.cover-horserace {
+  --cover-from: #4ade80;
+  --cover-to: #b45309;
+}
+@media (prefers-reduced-motion: reduce) {
+  .game-win-banner,
+  .game-win-card,
+  .game-win-rays,
+  .game-balance-value strong,
+  .game-balance-delta {
+    animation: none !important;
+  }
+  .games-list-cover::after,
+  .games-list-cover svg {
+    transition: none !important;
+  }
+}
+.game-win-banner.is-reward .game-win-card {
+  background: linear-gradient(135deg, #10b981, #0891b2);
+  box-shadow:
+    0 24px 60px -20px #0891b2,
+    inset 0 1px 0 #ffffff55;
+}

@@ -248,3 +248,19 @@ For commercial licensing, please contact support@quantumnous.com
     border-radius: 9px;
   }
 }
+
+/* 配对成功的两张牌弹一下并泛起柔光。 */
+.memory-card.is-matched .memory-card-inner {
+  animation: memory-matched 0.5s ease-out;
+}
+@keyframes memory-matched {
+  40% {
+    transform: rotateY(180deg) scale(1.08);
+    filter: drop-shadow(0 0 10px #34d399aa);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .memory-card.is-matched .memory-card-inner {
+    animation: none;
+  }
+}

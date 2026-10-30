@@ -1,0 +1,219 @@
+/*
+Copyright (C) 2025 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+
+.mancala-wrap {
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+}
+.mancala-board {
+  display: grid;
+  grid-template-columns: minmax(52px, 0.9fr) 6fr minmax(52px, 0.9fr);
+  gap: clamp(6px, 1.4vw, 12px);
+  padding: clamp(10px, 2vw, 18px);
+  border-radius: 999px / 120px;
+  background: radial-gradient(ellipse at 50% 0%, #fde68a22, transparent 60%),
+    linear-gradient(180deg, #8b5a2b, #6b4423 55%, #4a2f18);
+  box-shadow:
+    inset 0 2px 0 #ffffff30,
+    inset 0 -6px 12px #0006,
+    0 20px 34px -22px #3b2412;
+}
+.mancala-rows {
+  display: grid;
+  grid-template-rows: 1fr 1fr;
+  gap: clamp(8px, 1.6vw, 14px);
+}
+.mancala-row {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: clamp(5px, 1.2vw, 10px);
+}
+.mancala-pit,
+.mancala-store {
+  position: relative;
+  border: 0;
+  padding: 0;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 35%, #3b2412, #2a190c 70%);
+  box-shadow:
+    inset 0 6px 10px #000a,
+    0 1px 0 #ffffff26;
+  color: #fef3c7;
+}
+.mancala-pit {
+  aspect-ratio: 1;
+}
+.mancala-store {
+  border-radius: 999px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  padding-bottom: 10px;
+  min-height: 150px;
+}
+.mancala-store span {
+  position: relative;
+  z-index: 1;
+  font-size: 11px;
+  opacity: 0.7;
+}
+.mancala-store.is-mine {
+  box-shadow:
+    inset 0 6px 10px #000a,
+    0 0 0 2px #fbbf2466;
+}
+.mancala-pit strong,
+.mancala-store strong {
+  position: absolute;
+  right: 8%;
+  bottom: 4%;
+  z-index: 1;
+  font-size: 12px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 1px 2px #000;
+}
+.mancala-store strong {
+  position: relative;
+  right: auto;
+  bottom: auto;
+  font-size: 22px;
+}
+.mancala-pebbles {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.mancala-pebble {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  box-shadow:
+    inset -2px -2px 3px #0005,
+    inset 2px 2px 2px #ffffff80,
+    0 1px 2px #0008;
+  animation: mancala-drop 0.25s cubic-bezier(0.3, 1.6, 0.6, 1);
+}
+/* 只有刚落过子的坑里的子做落下的动画，其余的坑换局面时不动。 */
+.mancala-pit:not(.is-trail) .mancala-pebble,
+.mancala-store:not(.is-trail) .mancala-pebble {
+  animation: none;
+}
+@keyframes mancala-drop {
+  from {
+    transform: translateY(-14px) scale(0.6);
+    opacity: 0;
+  }
+}
+.mancala-pit.is-open {
+  cursor: pointer;
+  transition:
+    transform 0.15s,
+    box-shadow 0.15s;
+}
+.mancala-pit.is-open:hover,
+.mancala-pit.is-open:focus-visible {
+  transform: translateY(-3px);
+  outline: none;
+  box-shadow:
+    inset 0 6px 10px #000a,
+    0 0 0 3px #fbbf24,
+    0 0 18px #fbbf2488;
+}
+.mancala-pit:disabled {
+  cursor: default;
+}
+.mancala-pit.is-trail,
+.mancala-store.is-trail {
+  animation: mancala-glow 0.6s ease-out var(--trail-delay, 0ms) both;
+}
+@keyframes mancala-glow {
+  from {
+    box-shadow:
+      inset 0 6px 10px #000a,
+      0 0 0 3px #fde68a,
+      0 0 22px #fde68a;
+  }
+}
+.mancala-pit.is-active {
+  box-shadow:
+    inset 0 6px 10px #000a,
+    0 0 0 3px #fde68a,
+    0 0 22px #fde68a;
+}
+.mancala-pit.is-captured {
+  animation: mancala-captured 0.7s ease-out;
+}
+@keyframes mancala-captured {
+  30% {
+    transform: scale(1.12);
+    box-shadow:
+      inset 0 6px 10px #000a,
+      0 0 0 3px #f87171,
+      0 0 26px #f87171;
+  }
+}
+.mancala-pit.is-hint {
+  box-shadow:
+    inset 0 6px 10px #000a,
+    0 0 0 3px #38bdf8,
+    0 0 18px #38bdf8;
+}
+.mancala-board.is-over .mancala-store.is-mine strong {
+  color: #fde68a;
+}
+.mancala-note {
+  min-height: 20px;
+  margin: 12px 0 4px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--semi-color-text-1);
+}
+.mancala-seat-score {
+  margin-left: 6px;
+  font-variant-numeric: tabular-nums;
+}
+@media (max-width: 560px) {
+  .mancala-board {
+    grid-template-columns: 1fr;
+    border-radius: 28px;
+  }
+  .mancala-store {
+    min-height: 64px;
+    flex-direction: row;
+    justify-content: center;
+    gap: 8px;
+    padding: 0;
+  }
+  .mancala-pebble {
+    width: 9px;
+    height: 9px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mancala-pebble,
+  .mancala-pit.is-trail,
+  .mancala-store.is-trail,
+  .mancala-pit.is-captured {
+    animation: none;
+  }
+}

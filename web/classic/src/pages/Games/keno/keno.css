@@ -126,3 +126,43 @@ For commercial licensing, please contact support@quantumnous.com
     transition: none;
   }
 }
+
+/* 开出的号码弹出来，选中的号码被开出时外圈扩散一圈光。 */
+.keno-number.is-drawn,
+.keno-number.is-hit {
+  animation: keno-pop 0.28s cubic-bezier(0.3, 1.7, 0.6, 1);
+}
+.keno-number.is-hit {
+  position: relative;
+}
+.keno-number.is-hit::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  border: 2px solid #f59e0b;
+  animation: keno-ring 0.6s ease-out forwards;
+  pointer-events: none;
+}
+@keyframes keno-pop {
+  from {
+    transform: scale(0.6);
+  }
+}
+@keyframes keno-ring {
+  from {
+    transform: scale(1);
+    opacity: 1;
+  }
+  to {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .keno-number.is-drawn,
+  .keno-number.is-hit,
+  .keno-number.is-hit::after {
+    animation: none;
+  }
+}

@@ -105,6 +105,20 @@ const TONES = {
     { freq: 880, at: 0.07, dur: 0.07, type: 'square', gain: 0.1 },
     { freq: 1319, at: 0.14, dur: 0.18, type: 'square', gain: 0.1 },
   ],
+  pour: [
+    { noise: true, dur: 0.32, gain: 0.07, filter: 1400 },
+    { freq: 300, slide: 620, dur: 0.32, type: 'sine', gain: 0.12 },
+  ],
+  gallop: [
+    { freq: 110, slide: 70, dur: 0.06, type: 'sine', gain: 0.35 },
+    { freq: 120, slide: 70, at: 0.09, dur: 0.06, type: 'sine', gain: 0.3 },
+  ],
+  whoosh: [{ noise: true, dur: 0.22, gain: 0.1, filter: 700 }],
+  sparkle: [
+    { freq: 1568, dur: 0.05, type: 'sine', gain: 0.12 },
+    { freq: 2093, at: 0.05, dur: 0.05, type: 'sine', gain: 0.12 },
+    { freq: 2637, at: 0.1, dur: 0.12, type: 'sine', gain: 0.1 },
+  ],
 };
 
 // 同一种音效这么短的间隔内只响一次：一帧里碰了好几块砖、一次落了好几颗球，不会叠成一声刺耳的爆音。

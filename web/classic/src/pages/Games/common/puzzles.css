@@ -227,3 +227,33 @@ For commercial licensing, please contact support@quantumnous.com
 .pairlink-timebar.is-hurry span {
   background: var(--semi-color-danger);
 }
+
+/* 连连看：连线像电光一样画出来；选中的图案轻轻浮起。 */
+.pairlink-path polyline {
+  stroke-dasharray: 40;
+  stroke-dashoffset: 40;
+  filter: drop-shadow(0 0 0.06px #34d399);
+  animation: pairlink-draw 0.22s ease-out forwards;
+}
+@keyframes pairlink-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+.pairlink-tile.is-selected {
+  animation: pairlink-lift 0.2s ease-out forwards;
+}
+@keyframes pairlink-lift {
+  to {
+    transform: translateY(-2px) scale(1.06);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pairlink-path polyline {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+  .pairlink-tile.is-selected {
+    animation: none;
+  }
+}

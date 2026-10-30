@@ -24,7 +24,7 @@ import { useTranslation } from 'react-i18next';
 import { formatNumber } from './api';
 import { RuleList, SideBox } from './SideBox';
 import { PlayTurnstile } from './usePlayTurnstile';
-import { celebrate } from './effects';
+import { announceWin, celebrate } from './effects';
 import { playSound } from './sound';
 
 // 免费游戏(技巧游戏与人机对战)共用的领奖规则展示与结算提示。info 是 GET /api/game/<key> 返回的 skillInfo 部分：
@@ -164,6 +164,7 @@ export function playSkillFeedback(result, won) {
   if (won || result.reward > 0) {
     playSound('win');
     celebrate(result.reward > 0 ? 1.2 : 1);
+    if (result.reward > 0) announceWin({ win: result.reward, reward: true });
     return;
   }
   playSound('lose');

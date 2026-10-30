@@ -7,11 +7,15 @@ import (
 
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/bulls"
+	"github.com/QuantumNous/new-api/pkg/match3"
 	"github.com/QuantumNous/new-api/pkg/nonogram"
+	"github.com/QuantumNous/new-api/pkg/onestroke"
 	"github.com/QuantumNous/new-api/pkg/twentyfour"
+	"github.com/QuantumNous/new-api/pkg/watersort"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 // puzzleRule 是测试里解谜游戏的领奖规则：赢下简单难度就奖励 1 个游戏币，不限游戏时长。
@@ -22,6 +26,7 @@ func puzzleRule() operation_setting.SkillRule {
 func puzzleSettings() *operation_setting.GameSetting {
 	return gameSetting(func(s *operation_setting.GameSetting) {
 		s.Twentyfour, s.Bulls, s.Nonogram = puzzleRule(), puzzleRule(), puzzleRule()
+		s.Watersort, s.Onestroke, s.Match3 = puzzleRule(), puzzleRule(), puzzleRule()
 	})
 }
 
@@ -198,4 +203,183 @@ func runsForTest(line []bool) []int {
 		result = append(result, count)
 	}
 	return result
+}
+
+// ageSession 把对局的开局时间往前挪 seconds 秒：接口按开局以来的秒数限制步数，测试里一口气走完需要先"玩"一会儿。
+func ageSession(t *testing.T, env *gameTestEnv, id any, seconds int64) {
+	t.Helper()
+	require.NoError(t, env.db.Model(&model.GameSession{}).Where("id = ?", int(id.(float64))).
+		Update("created_at", gorm.Expr("created_at - ?", seconds)).Error)
+}
+
+// puzzleAction 拼出一步操作的请求体，带上局面的编号与版本。
+func puzzleAction(view map[string]any, fields map[string]any) map[string]any {
+	body := map[string]any{"session_id": view["session_id"], "version": view["version"]}
+	for key, value := range fields {
+		body[key] = value
+	}
+	return body
+}
+
+// 倒水排序走真实接口：倒不了的一步被拒绝、版本不变；可以撤销；照着解法倒完就过关领奖。
+func TestWatersortSolvesThroughTheApi(t *testing.T) {
+	env := newGameTestEnv(t, puzzleSettings())
+	player := env.player(0, gameTestIpA)
+	path := "/api/game/watersort"
+	view := player.ok(http.MethodPost, path+"/start", map[string]any{"difficulty": 1})
+	ageSession(t, env, view["session_id"], 120)
+	assert.Len(t, view["tubes"], watersort.Colors[1]+watersort.EmptyTubes)
+	game, err := watersort.New(1, sessionSeed(t, env, view["session_id"]))
+	require.NoError(t, err)
+
+	empty := len(game.Tubes) - 1
+	player.fails(http.MethodPost, path+"/action", puzzleAction(view, map[string]any{"action": "move", "from": empty, "to": 0}))
+	player.fails(http.MethodPost, path+"/action", puzzleAction(view, map[string]any{"action": "move", "from": 0, "to": 16}))
+	view = player.ok(http.MethodPost, path+"/action", puzzleAction(view, map[string]any{"action": "move", "from": 0, "to": empty}))
+	assert.EqualValues(t, 1, view["moves"])
+	assert.EqualValues(t, 0, view["last"].(map[string]any)["from"])
+	view = player.ok(http.MethodPost, path+"/action", puzzleAction(view, map[string]any{"action": "undo"}))
+	assert.EqualValues(t, 0, view["moves"])
+
+	for _, move := range solveWatersortForTest(t, game) {
+		view = player.ok(http.MethodPost, path+"/action", puzzleAction(view, map[string]any{"action": "move", "from": move[0], "to": move[1]}))
+	}
+	assert.Equal(t, true, view["won"])
+	assert.Equal(t, 1.0, view["result"].(map[string]any)["reward"])
+}
+
+// solveWatersortForTest 深度优先找一组倒法(简单难度只有 6 支试管，很快)。
+func solveWatersortForTest(t *testing.T, game *watersort.Game) [][2]int {
+	t.Helper()
+	seen := map[string]bool{}
+	var moves [][2]int
+	var search func(g *watersort.Game) bool
+	search = func(g *watersort.Game) bool {
+		if g.Solved() {
+			return true
+		}
+		key := fmt.Sprint(g.Tubes)
+		if seen[key] {
+			return false
+		}
+		seen[key] = true
+		for from := range g.Tubes {
+			for to := range g.Tubes {
+				next := &watersort.Game{Difficulty: g.Difficulty, Tubes: make([][]int8, len(g.Tubes))}
+				for i, tube := range g.Tubes {
+					next.Tubes[i] = append([]int8{}, tube...)
+				}
+				if _, err := next.Pour(from, to); err != nil {
+					continue
+				}
+				moves = append(moves, [2]int{from, to})
+				if search(next) {
+					return true
+				}
+				moves = moves[:len(moves)-1]
+			}
+		}
+		return false
+	}
+	require.True(t, search(game))
+	return moves
+}
+
+// 一笔画走真实接口：一次可以连走好几格，有一格不合规则整段被拒绝；一次可以撤回好几步，但不能撤到起点之前；走遍所有
+// 空格就过关领奖。
+func TestOnestrokeAcceptsABatchOfCells(t *testing.T) {
+	env := newGameTestEnv(t, puzzleSettings())
+	player := env.player(0, gameTestIpA)
+	path := "/api/game/onestroke"
+	view := player.ok(http.MethodPost, path+"/start", map[string]any{"difficulty": 1})
+	ageSession(t, env, view["session_id"], 120)
+	game, err := onestroke.New(1, sessionSeed(t, env, view["session_id"]))
+	require.NoError(t, err)
+	assert.Equal(t, []any{float64(game.Path[0])}, view["path"])
+
+	route := routeOnestrokeForTest(t, game)
+	player.fails(http.MethodPost, path+"/action", puzzleAction(view, map[string]any{"action": "move", "cells": []int{route[1], route[1]}}))
+	player.fails(http.MethodPost, path+"/action", puzzleAction(view, map[string]any{"action": "move", "cells": []int{}}))
+	view = player.ok(http.MethodPost, path+"/action", puzzleAction(view, map[string]any{"action": "move", "cells": route[1:4]}))
+	assert.Len(t, view["path"], 4)
+	player.fails(http.MethodPost, path+"/action", puzzleAction(view, map[string]any{"action": "undo", "steps": 4}))
+	view = player.ok(http.MethodPost, path+"/action", puzzleAction(view, map[string]any{"action": "undo", "steps": 2}))
+	assert.Len(t, view["path"], 2)
+	view = player.ok(http.MethodPost, path+"/action", puzzleAction(view, map[string]any{"action": "move", "cells": route[2:]}))
+	assert.Equal(t, true, view["won"])
+	assert.Equal(t, 1.0, view["result"].(map[string]any)["reward"])
+}
+
+// routeOnestrokeForTest 回溯找一条走遍空格的路线(5×5 很快)。
+func routeOnestrokeForTest(t *testing.T, game *onestroke.Game) []int {
+	t.Helper()
+	path := append([]int{}, game.Path...)
+	var search func() bool
+	search = func() bool {
+		g := &onestroke.Game{Size: game.Size, Stones: game.Stones, Path: append([]int{}, path...)}
+		if g.Solved() {
+			return true
+		}
+		for cell := range game.Stones {
+			probe := &onestroke.Game{Size: game.Size, Stones: game.Stones, Path: append([]int{}, path...)}
+			if probe.Step(cell) != nil {
+				continue
+			}
+			path = append(path, cell)
+			if search() {
+				return true
+			}
+			path = path[:len(path)-1]
+		}
+		return false
+	}
+	require.True(t, search())
+	return path
+}
+
+// 宝石消除走真实接口：连不成三颗的交换被拒绝；不能撤销；步数用完还没到目标就按 0 分结算，不发奖励。
+func TestMatch3EndsWhenMovesRunOut(t *testing.T) {
+	env := newGameTestEnv(t, puzzleSettings())
+	player := env.player(0, gameTestIpA)
+	path := "/api/game/match3"
+	view := player.ok(http.MethodPost, path+"/start", map[string]any{"difficulty": 3})
+	ageSession(t, env, view["session_id"], 120)
+	assert.EqualValues(t, match3.Levels[3].Moves, view["moves_left"])
+	seed := sessionSeed(t, env, view["session_id"])
+
+	player.fails(http.MethodPost, path+"/action", puzzleAction(view, map[string]any{"action": "move", "cell": 7, "dir": 0}))
+	player.fails(http.MethodPost, path+"/action", puzzleAction(view, map[string]any{"action": "move", "cell": 0, "dir": 2}))
+	player.fails(http.MethodPost, path+"/action", puzzleAction(view, map[string]any{"action": "undo"}))
+
+	// 每一步挑第一个能消的交换，玩到结束(过关或步数用完)。本地按同样的交换重放，核对分数。
+	replay := func(played [][2]int) *match3.Game {
+		g, err := match3.New(3, seed)
+		require.NoError(t, err)
+		for _, m := range played {
+			require.NoError(t, g.Swap(m[0], m[1]))
+		}
+		return g
+	}
+	var played [][2]int
+	for view["status"] != model.GameSessionStatusFinished {
+		moved := false
+		for cell := 0; cell < match3.Cells && !moved; cell++ {
+			for dir := 0; dir < 2 && !moved; dir++ {
+				if replay(played).Swap(cell, dir) != nil {
+					continue
+				}
+				played = append(played, [2]int{cell, dir})
+				view = player.ok(http.MethodPost, path+"/action", puzzleAction(view, map[string]any{"action": "move", "cell": cell, "dir": dir}))
+				moved = true
+			}
+		}
+		require.True(t, moved)
+	}
+	game := replay(played)
+	assert.EqualValues(t, game.Score, view["score"])
+	assert.Equal(t, game.Won(), view["won"])
+	if !game.Won() {
+		assert.EqualValues(t, 0, view["moves_left"])
+		assert.Equal(t, 0.0, view["result"].(map[string]any)["reward"])
+	}
 }

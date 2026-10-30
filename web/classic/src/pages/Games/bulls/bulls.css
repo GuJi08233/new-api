@@ -186,3 +186,47 @@ For commercial licensing, please contact support@quantumnous.com
     animation: none;
   }
 }
+
+/* 每次猜测的记录滑进来，A、B 提示珠依次弹出；猜中的一行亮一下。 */
+.bulls-history li.is-done {
+  animation: bulls-row 0.3s ease-out;
+}
+.bulls-pegs i {
+  animation: bulls-peg 0.3s cubic-bezier(0.3, 1.8, 0.6, 1) both;
+}
+.bulls-pegs i:nth-child(2) {
+  animation-delay: 0.08s;
+}
+.bulls-pegs i:nth-child(3) {
+  animation-delay: 0.16s;
+}
+.bulls-pegs i:nth-child(4) {
+  animation-delay: 0.24s;
+}
+.bulls-history li.is-hit {
+  animation: bulls-hit 0.9s ease-out;
+}
+@keyframes bulls-row {
+  from {
+    transform: translateX(-16px);
+    opacity: 0;
+  }
+}
+@keyframes bulls-peg {
+  from {
+    transform: scale(0);
+  }
+}
+@keyframes bulls-hit {
+  30% {
+    box-shadow:
+      0 0 0 3px #34d399,
+      0 0 22px #34d39988;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bulls-history li,
+  .bulls-pegs i {
+    animation: none !important;
+  }
+}

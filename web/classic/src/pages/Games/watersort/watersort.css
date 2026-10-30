@@ -1,0 +1,211 @@
+/*
+Copyright (C) 2025 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+
+.watersort-rack {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: clamp(10px, 2.4vw, 22px) clamp(8px, 2vw, 18px);
+  max-width: 640px;
+  margin: 40px auto 20px;
+  padding: 26px 18px 18px;
+  border-radius: 24px;
+  background: radial-gradient(circle at 50% 0%, #38bdf81f, transparent 60%),
+    linear-gradient(180deg, #0f172a, #111c33);
+  box-shadow:
+    inset 0 0 0 1px #ffffff12,
+    0 18px 40px -24px #0f172a;
+}
+.watersort-tube {
+  position: relative;
+  width: clamp(38px, 8vw, 50px);
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  transform-origin: 50% 20%;
+  transition:
+    transform 0.26s cubic-bezier(0.3, 1.4, 0.6, 1),
+    filter 0.2s;
+}
+.watersort-tube:disabled {
+  cursor: default;
+}
+.watersort-tube:focus-visible {
+  outline: none;
+}
+.watersort-tube:focus-visible .watersort-glass {
+  box-shadow: 0 0 0 3px var(--semi-color-primary);
+}
+.watersort-tube.is-selected {
+  transform: translateY(-22px);
+  filter: drop-shadow(0 10px 14px #38bdf855);
+}
+.watersort-tube.is-pouring-right,
+.watersort-tube.is-pouring-left {
+  z-index: 3;
+  transition: transform 0.24s ease-out;
+}
+.watersort-tube.is-pouring-right {
+  transform: translate(var(--pour-x), var(--pour-y)) rotate(72deg);
+}
+.watersort-tube.is-pouring-left {
+  transform: translate(var(--pour-x), var(--pour-y)) rotate(-72deg);
+}
+.watersort-glass {
+  position: relative;
+  display: flex;
+  flex-direction: column-reverse;
+  height: clamp(132px, 26vw, 168px);
+  padding: 4px 4px 6px;
+  box-sizing: border-box;
+  overflow: hidden;
+  border: 2px solid #cbd5e1aa;
+  border-top-color: transparent;
+  border-radius: 6px 6px 26px 26px;
+  background: linear-gradient(90deg, #ffffff10, #ffffff05 40%, #ffffff18);
+}
+.watersort-glass::after {
+  content: '';
+  position: absolute;
+  top: 8px;
+  bottom: 14px;
+  left: 6px;
+  width: 4px;
+  border-radius: 4px;
+  background: #ffffff38;
+  pointer-events: none;
+}
+.watersort-layer {
+  flex: 1;
+  border-radius: 2px;
+  transition:
+    background 0.3s,
+    transform 0.3s;
+}
+.watersort-layer:first-child {
+  border-radius: 2px 2px 20px 20px;
+}
+.watersort-layer.is-filled {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--liquid) 80%, #000),
+    var(--liquid) 45%,
+    color-mix(in srgb, var(--liquid) 75%, #fff)
+  );
+  animation: watersort-fill 0.36s ease-out;
+}
+.watersort-layer.is-filled.is-top {
+  box-shadow: inset 0 3px 0 color-mix(in srgb, var(--liquid) 55%, #fff);
+}
+@keyframes watersort-fill {
+  from {
+    transform: scaleY(0.2);
+    transform-origin: bottom;
+    opacity: 0.4;
+  }
+}
+.watersort-tube.is-done .watersort-glass {
+  border-color: #fde68a;
+  border-top-color: transparent;
+  box-shadow: 0 0 22px #fde68a55;
+  animation: watersort-done 0.7s ease-out;
+}
+@keyframes watersort-done {
+  30% {
+    transform: scale(1.08);
+    box-shadow: 0 0 40px #fde68aaa;
+  }
+}
+.watersort-cork {
+  position: absolute;
+  top: 0;
+  left: 18%;
+  right: 18%;
+  height: 12px;
+  border-radius: 4px 4px 2px 2px;
+  background: linear-gradient(180deg, #d6a46a, #a16a35);
+  animation: watersort-cork 0.4s cubic-bezier(0.3, 1.6, 0.6, 1);
+}
+@keyframes watersort-cork {
+  from {
+    transform: translateY(-30px);
+    opacity: 0;
+  }
+}
+.watersort-stream {
+  position: absolute;
+  top: -58px;
+  left: calc(50% - 3px);
+  width: 6px;
+  height: 64px;
+  border-radius: 3px;
+  background: var(--liquid);
+  box-shadow: 0 0 10px var(--liquid);
+  transform-origin: top;
+  animation: watersort-stream 0.52s ease-in-out forwards;
+  pointer-events: none;
+}
+@keyframes watersort-stream {
+  0%,
+  35% {
+    transform: scaleY(0);
+    opacity: 0;
+  }
+  45% {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+  85% {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+  100% {
+    transform: scaleY(0.2) translateY(60px);
+    opacity: 0;
+  }
+}
+.watersort-rack.is-won .watersort-tube {
+  animation: watersort-cheer 0.9s ease-in-out;
+}
+.watersort-rack.is-won .watersort-tube:nth-child(2n) {
+  animation-delay: 0.08s;
+}
+.watersort-rack.is-won .watersort-tube:nth-child(3n) {
+  animation-delay: 0.16s;
+}
+@keyframes watersort-cheer {
+  30% {
+    transform: translateY(-16px) rotate(-4deg);
+  }
+  60% {
+    transform: translateY(0) rotate(3deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .watersort-tube,
+  .watersort-layer.is-filled,
+  .watersort-cork,
+  .watersort-stream,
+  .watersort-rack.is-won .watersort-tube,
+  .watersort-tube.is-done .watersort-glass {
+    animation: none;
+    transition: none;
+  }
+}

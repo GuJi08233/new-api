@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/pkg/baccarat"
+	"github.com/QuantumNous/new-api/pkg/horserace"
 	"github.com/QuantumNous/new-api/pkg/keno"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/stretchr/testify/assert"
@@ -92,4 +93,48 @@ func TestPlayKenoPaysByTheTable(t *testing.T) {
 	assert.EqualValues(t, 0, lost["hits"])
 	assert.Equal(t, 0.0, lost["win"])
 	assert.Equal(t, 181.0, player.balance())
+}
+
+// raceHorsesAs 让接下来的赛马都按 order 排名次。
+func raceHorsesAs(t *testing.T, order []int) {
+	t.Helper()
+	previous := runHorserace
+	runHorserace = func() ([]int, error) { return order, nil }
+	t.Cleanup(func() { runHorserace = previous })
+}
+
+// 赛马一次押多注：独赢只认第一名，位置认前两名，按各自赔率派彩。同一匹马同一种玩法押两次、合计超过上限、不存在的马
+// 或玩法都被拒绝，不扣游戏币。
+func TestRunHorseracePaysWinAndPlace(t *testing.T) {
+	env := newGameTestEnv(t, gameSetting(func(s *operation_setting.GameSetting) {
+		s.Horserace = operation_setting.WagerRule{Enabled: true, MaxBet: 10}
+	}))
+	player := env.player(100, gameTestIpA)
+	info := player.ok(http.MethodGet, "/api/game/horserace", nil)
+	horses := info["horses"].([]any)
+	require.Len(t, horses, horserace.Horses)
+	assert.EqualValues(t, horserace.Odds[horserace.BetWin][0], horses[0].(map[string]any)["win_odds"])
+
+	for _, bets := range [][]map[string]any{
+		{{"kind": "win", "horse": 1, "amount": 1}, {"kind": "win", "horse": 1, "amount": 1}},
+		{{"kind": "win", "horse": 1, "amount": 6}, {"kind": "place", "horse": 1, "amount": 5}},
+		{{"kind": "show", "horse": 1, "amount": 1}},
+		{{"kind": "win", "horse": 6, "amount": 1}},
+		{},
+	} {
+		player.fails(http.MethodPost, "/api/game/horserace/race", map[string]any{"bets": bets})
+	}
+	assert.Equal(t, 100.0, player.balance())
+
+	raceHorsesAs(t, []int{4, 1, 0, 2, 3, 5})
+	won := player.ok(http.MethodPost, "/api/game/horserace/race", map[string]any{"bets": []map[string]any{
+		{"kind": "win", "horse": 4, "amount": 2},
+		{"kind": "place", "horse": 1, "amount": 3},
+		{"kind": "win", "horse": 1, "amount": 1},
+		{"kind": "place", "horse": 0, "amount": 1},
+	}})
+	assert.Equal(t, 7.0, won["bet"])
+	assert.Equal(t, 25.51, won["win"], "独赢 4 号 2×9.5 + 位置 1 号 3×2.17")
+	assert.Equal(t, []any{4.0, 1.0, 0.0, 2.0, 3.0, 5.0}, won["order"])
+	assert.Equal(t, 118.51, player.balance())
 }

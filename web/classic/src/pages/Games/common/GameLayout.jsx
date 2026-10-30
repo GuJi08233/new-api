@@ -26,7 +26,7 @@ import {
 } from '@douyinfe/semi-illustrations';
 import { ArrowLeft, Coins } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { SoundToggle } from './effects';
+import { AnimatedBalance, SoundToggle, WinBanner } from './effects';
 import '../games.css';
 
 const ILLUSTRATION_SIZE = { width: 150, height: 150 };
@@ -90,7 +90,7 @@ const GameLayout = ({
           {!loading && !unavailable && balance !== undefined && (
             <div className='game-topbar-balance' title={t('游戏币余额')}>
               <Coins size={16} />
-              <strong>{balance}</strong>
+              <AnimatedBalance value={balance} />
               <span>{symbol}</span>
             </div>
           )}
@@ -98,6 +98,7 @@ const GameLayout = ({
         </div>
         {body}
       </div>
+      <WinBanner symbol={symbol} />
     </div>
   );
 };

@@ -49,6 +49,11 @@ import {
   Circle,
   Hash,
   Lightbulb,
+  FlaskConical,
+  PenLine,
+  Sparkle,
+  Sprout,
+  Flag,
 } from 'lucide-react';
 
 // 每个游戏的页面组件(按需加载)与在游戏中心里的图标。键与 constants/game.constants.js 的游戏标识一致，
@@ -70,6 +75,9 @@ export const GAME_PAGES = {
   twentyfour: lazy(() => import('./twentyfour')),
   bulls: lazy(() => import('./bulls')),
   nonogram: lazy(() => import('./nonogram')),
+  watersort: lazy(() => import('./watersort')),
+  onestroke: lazy(() => import('./onestroke')),
+  match3: lazy(() => import('./match3')),
   gomoku: lazy(() => import('./gomoku')),
   connect4: lazy(() => import('./connect4')),
   reversi: lazy(() => import('./reversi')),
@@ -77,6 +85,7 @@ export const GAME_PAGES = {
   rps: lazy(() => import('./rps')),
   landlord: lazy(() => import('./landlord')),
   dots: lazy(() => import('./dots')),
+  mancala: lazy(() => import('./mancala')),
   slots: lazy(() => import('./slots')),
   wheel: lazy(() => import('./wheel')),
   plinko: lazy(() => import('./plinko')),
@@ -89,6 +98,7 @@ export const GAME_PAGES = {
   scratch: lazy(() => import('./scratch')),
   baccarat: lazy(() => import('./baccarat')),
   keno: lazy(() => import('./keno')),
+  horserace: lazy(() => import('./horserace')),
   jackpot: lazy(() => import('./jackpot')),
 };
 
@@ -109,6 +119,9 @@ export const GAME_ICONS = {
   twentyfour: Calculator,
   bulls: Binary,
   nonogram: Grid3x3,
+  watersort: FlaskConical,
+  onestroke: PenLine,
+  match3: Sparkle,
   gomoku: Circle,
   connect4: LayoutGrid,
   reversi: Layers,
@@ -116,6 +129,7 @@ export const GAME_ICONS = {
   rps: Hand,
   landlord: Spade,
   dots: Waypoints,
+  mancala: Sprout,
   slots: Sparkles,
   wheel: ChartPie,
   plinko: Network,
@@ -128,5 +142,6 @@ export const GAME_ICONS = {
   scratch: Ticket,
   baccarat: Diamond,
   keno: CircleDot,
+  horserace: Flag,
   jackpot: Trophy,
 };

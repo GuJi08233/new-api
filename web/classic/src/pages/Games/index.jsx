@@ -894,6 +894,11 @@ const Games = () => {
                                     <span className='games-list-title'>
                                       {meta.name}
                                     </span>
+                                    {meta.isNew && (
+                                      <span className='games-new-badge'>
+                                        {t('新')}
+                                      </span>
+                                    )}
                                     <span
                                       className={`games-kind-tag kind-${game.kind}`}
                                     >

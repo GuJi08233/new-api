@@ -69,6 +69,9 @@ type GameSetting struct {
 	Twentyfour  SkillRule `json:"twentyfour"`
 	Bulls       SkillRule `json:"bulls"`
 	Nonogram    SkillRule `json:"nonogram"`
+	Watersort   SkillRule `json:"watersort"`
+	Onestroke   SkillRule `json:"onestroke"`
+	Match3      SkillRule `json:"match3"`
 
 	Slots     WagerRule `json:"slots"`
 	Wheel     WheelRule `json:"wheel"`
@@ -82,6 +85,7 @@ type GameSetting struct {
 	Scratch   WagerRule `json:"scratch"`
 	Baccarat  WagerRule `json:"baccarat"`
 	Keno      WagerRule `json:"keno"`
+	Horserace WagerRule `json:"horserace"`
 
 	Gomoku   PvpRule `json:"gomoku"`
 	Connect4 PvpRule `json:"connect4"`
@@ -90,6 +94,7 @@ type GameSetting struct {
 	Rps      PvpRule `json:"rps"`
 	Landlord PvpRule `json:"landlord"`
 	Dots     PvpRule `json:"dots"`
+	Mancala  PvpRule `json:"mancala"`
 
 	Jackpot JackpotRule `json:"jackpot"`
 }
@@ -261,6 +266,9 @@ var gameRuleSpecs = map[string]gameRuleSpec{
 	"twentyfour":  {Kind: GameKindSkill, MaxTierScore: 3},
 	"bulls":       {Kind: GameKindSkill, MaxTierScore: 3},
 	"nonogram":    {Kind: GameKindSkill, MaxTierScore: 3},
+	"watersort":   {Kind: GameKindSkill, MaxTierScore: 3},
+	"onestroke":   {Kind: GameKindSkill, MaxTierScore: 3},
+	"match3":      {Kind: GameKindSkill, MaxTierScore: 3},
 
 	"slots":     {Kind: GameKindWager, MinBet: 1, MaxBet: 1000},
 	"wheel":     {Kind: GameKindWager},
@@ -274,6 +282,7 @@ var gameRuleSpecs = map[string]gameRuleSpec{
 	"scratch":   {Kind: GameKindWager, BetSteps: []int{1, 5, 20}},
 	"baccarat":  {Kind: GameKindWager, MinBet: 1, MaxBet: 1000},
 	"keno":      {Kind: GameKindWager, MinBet: 1, MaxBet: 1000},
+	"horserace": {Kind: GameKindWager, MinBet: 1, MaxBet: 1000},
 
 	"gomoku":   {Kind: GameKindPvp, Ai: true},
 	"connect4": {Kind: GameKindPvp, Ai: true},
@@ -282,6 +291,7 @@ var gameRuleSpecs = map[string]gameRuleSpec{
 	"rps":      {Kind: GameKindPvp},
 	"landlord": {Kind: GameKindPvp, Ai: true},
 	"dots":     {Kind: GameKindPvp, Ai: true},
+	"mancala":  {Kind: GameKindPvp, Ai: true},
 
 	"jackpot": {Kind: GameKindParty},
 }
@@ -601,6 +611,9 @@ func DefaultGameSetting() *GameSetting {
 		Twentyfour:  dailyCoinRule(2, 180),
 		Bulls:       dailyCoinRule(2, 120),
 		Nonogram:    dailyCoinRule(2, 240),
+		Watersort:   dailyCoinRule(2, 180),
+		Onestroke:   dailyCoinRule(2, 150),
+		Match3:      dailyCoinRule(2, 180),
 
 		Slots:     WagerRule{MaxBet: 10},
 		Wheel:     WheelRule{FreeSpins: 1, SpinCost: 1},
@@ -614,6 +627,7 @@ func DefaultGameSetting() *GameSetting {
 		Scratch:   WagerRule{MaxBet: 20},
 		Baccarat:  WagerRule{MaxBet: 10},
 		Keno:      WagerRule{MaxBet: 10},
+		Horserace: WagerRule{MaxBet: 10},
 
 		Gomoku:   PvpRule{MaxStake: 100, RakePercent: 5, MoveSeconds: 60, Ai: aiRule(180)},
 		Connect4: PvpRule{MaxStake: 100, RakePercent: 5, MoveSeconds: 30, Ai: aiRule(120)},
@@ -622,6 +636,7 @@ func DefaultGameSetting() *GameSetting {
 		Rps:      PvpRule{MaxStake: 100, RakePercent: 5, MoveSeconds: 20},
 		Landlord: PvpRule{MaxStake: 100, RakePercent: 5, MoveSeconds: 45, Ai: aiRule(180)},
 		Dots:     PvpRule{MaxStake: 100, RakePercent: 5, MoveSeconds: 30, Ai: aiRule(150)},
+		Mancala:  PvpRule{MaxStake: 100, RakePercent: 5, MoveSeconds: 30, Ai: aiRule(150)},
 
 		Jackpot: JackpotRule{MaxBet: 100, RoundSeconds: 60, RakePercent: 5},
 	}
@@ -687,6 +702,12 @@ func (s *GameSetting) SkillRuleOf(game string) (SkillRule, bool) {
 		return s.Bulls, true
 	case "nonogram":
 		return s.Nonogram, true
+	case "watersort":
+		return s.Watersort, true
+	case "onestroke":
+		return s.Onestroke, true
+	case "match3":
+		return s.Match3, true
 	}
 	return SkillRule{}, false
 }
@@ -716,6 +737,8 @@ func (s *GameSetting) WagerRuleOf(game string) (WagerRule, bool) {
 		return s.Baccarat, true
 	case "keno":
 		return s.Keno, true
+	case "horserace":
+		return s.Horserace, true
 	}
 	return WagerRule{}, false
 }
@@ -737,6 +760,8 @@ func (s *GameSetting) PvpRuleOf(game string) (PvpRule, bool) {
 		return s.Landlord, true
 	case "dots":
 		return s.Dots, true
+	case "mancala":
+		return s.Mancala, true
 	}
 	return PvpRule{}, false
 }

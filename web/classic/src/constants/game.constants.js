@@ -66,6 +66,9 @@ export const getGameLevelNames = (t) => ({
   twentyfour: [t('简单'), t('普通'), t('困难')],
   bulls: [t('3 位数'), t('4 位数'), t('4 位数 · 6 次')],
   nonogram: ['5×5', '8×8', '10×10'],
+  watersort: [t('4 种颜色'), t('6 种颜色'), t('8 种颜色')],
+  onestroke: ['5×5', '6×6', '7×7'],
+  match3: [t('简单'), t('普通'), t('困难')],
   ai: [t('简单'), t('普通'), t('困难')],
 });
 
@@ -87,6 +90,9 @@ export const GAME_ORDER = [
   'twentyfour',
   'bulls',
   'nonogram',
+  'watersort',
+  'onestroke',
+  'match3',
   'gomoku',
   'connect4',
   'reversi',
@@ -94,6 +100,7 @@ export const GAME_ORDER = [
   'rps',
   'landlord',
   'dots',
+  'mancala',
   'slots',
   'wheel',
   'plinko',
@@ -106,6 +113,7 @@ export const GAME_ORDER = [
   'scratch',
   'baccarat',
   'keno',
+  'horserace',
   'jackpot',
 ];
 
@@ -127,11 +135,14 @@ export const GAME_SECTIONS = [
       'twentyfour',
       'bulls',
       'nonogram',
+      'watersort',
+      'onestroke',
+      'match3',
     ],
   },
   {
     key: 'board',
-    games: ['gomoku', 'connect4', 'reversi', 'xiangqi', 'dots'],
+    games: ['gomoku', 'connect4', 'reversi', 'xiangqi', 'dots', 'mancala'],
   },
   { key: 'cards', games: ['landlord', 'rps', 'blackjack', 'hilo', 'baccarat'] },
   {
@@ -146,6 +157,7 @@ export const GAME_SECTIONS = [
       'crash',
       'scratch',
       'keno',
+      'horserace',
     ],
   },
   { key: 'jackpot', games: ['jackpot'] },
@@ -292,10 +304,40 @@ export const getGameMetaMap = (t) => ({
     score: 'level',
     scoreName: t('难度'),
   },
+  watersort: {
+    kind: 'skill',
+    name: t('倒水排序'),
+    description: t('把颜色倒来倒去，让每支试管只装一种颜色'),
+    score: 'level',
+    scoreName: t('难度'),
+    isNew: true,
+  },
+  onestroke: {
+    kind: 'skill',
+    name: t('一笔画'),
+    description: t('从起点出发一笔走完所有空格，不能重复也不能跳格'),
+    score: 'level',
+    scoreName: t('难度'),
+    isNew: true,
+  },
+  match3: {
+    kind: 'skill',
+    name: t('宝石消除'),
+    description: t('交换相邻宝石连成三颗，连锁消除，在步数内冲到目标分'),
+    score: 'level',
+    scoreName: t('难度'),
+    isNew: true,
+  },
   dots: {
     kind: 'pvp',
     name: t('点格棋'),
     description: t('轮流连线，围住格子就再走一步，占格多的一方获胜'),
+  },
+  mancala: {
+    kind: 'pvp',
+    name: t('播棋'),
+    description: t('轮流播撒棋子，落进大仓再走一次，空坑吃子，大仓多者胜'),
+    isNew: true,
   },
   connect4: {
     kind: 'pvp',
@@ -387,6 +429,12 @@ export const getGameMetaMap = (t) => ({
     kind: 'wager',
     name: t('基诺'),
     description: t('从 40 个号码里选几个，开出 10 个，中得越多倍数越高'),
+  },
+  horserace: {
+    kind: 'wager',
+    name: t('赛马'),
+    description: t('押独赢或位置，看六匹马冲线，赔率随实力公示'),
+    isNew: true,
   },
   jackpot: {
     kind: 'party',

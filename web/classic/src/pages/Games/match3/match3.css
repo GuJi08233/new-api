@@ -1,0 +1,389 @@
+/*
+Copyright (C) 2025 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+
+.match3-progress {
+  height: 8px;
+  max-width: 460px;
+  margin: -8px auto 18px;
+  border-radius: 8px;
+  background: var(--semi-color-fill-1);
+  overflow: hidden;
+}
+.match3-progress span {
+  display: block;
+  height: 100%;
+  border-radius: 8px;
+  background: linear-gradient(90deg, #22d3ee, #a855f7, #f59e0b);
+  background-size: 200% 100%;
+  animation: match3-shimmer 2.4s linear infinite;
+  transition: width 0.4s ease-out;
+}
+@keyframes match3-shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+.match3-score.is-rolling {
+  color: #f59e0b;
+}
+.match3-moves.is-low {
+  color: #ef4444;
+}
+.match3-board-wrap {
+  position: relative;
+  width: min(100%, 460px);
+  margin: 0 auto 20px;
+}
+.match3-board {
+  --m3-gap: clamp(3px, 0.8vw, 5px);
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: var(--m3-gap);
+  padding: 10px;
+  border-radius: 22px;
+  overflow: hidden;
+  background: radial-gradient(circle at 50% -10%, #a855f733, transparent 60%),
+    linear-gradient(180deg, #170f2e, #0e1728);
+  box-shadow:
+    inset 0 0 0 1px #ffffff14,
+    0 20px 40px -26px #4c1d95;
+  touch-action: none;
+  user-select: none;
+}
+.match3-gem {
+  position: relative;
+  aspect-ratio: 1;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: #ffffff08;
+  cursor: pointer;
+}
+.match3-gem:disabled {
+  cursor: default;
+}
+.match3-gem:focus-visible {
+  outline: 2px solid #f0abfc;
+  outline-offset: 1px;
+}
+/* 宝石占格子的 76%(四边各留 12%)，动画里一格的位移是宝石自身尺寸的 131.6% 再加一个间距。 */
+.match3-jewel {
+  position: absolute;
+  inset: 12%;
+  background: radial-gradient(
+    circle at 32% 28%,
+    #ffffffd0 0 8%,
+    var(--gem-light) 20%,
+    var(--gem) 60%,
+    var(--gem-dark)
+  );
+  filter: drop-shadow(0 3px 3px #0008);
+  transition: transform 0.15s;
+}
+.match3-gem.is-c1 {
+  --gem: #ef4444;
+  --gem-light: #fca5a5;
+  --gem-dark: #7f1d1d;
+}
+.match3-gem.is-c1 .match3-jewel {
+  border-radius: 50%;
+}
+.match3-gem.is-c2 {
+  --gem: #3b82f6;
+  --gem-light: #93c5fd;
+  --gem-dark: #1e3a8a;
+}
+.match3-gem.is-c2 .match3-jewel {
+  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+}
+.match3-gem.is-c3 {
+  --gem: #22c55e;
+  --gem-light: #86efac;
+  --gem-dark: #14532d;
+}
+.match3-gem.is-c3 .match3-jewel {
+  clip-path: polygon(25% 3%, 75% 3%, 100% 50%, 75% 97%, 25% 97%, 0 50%);
+}
+.match3-gem.is-c4 {
+  --gem: #eab308;
+  --gem-light: #fde68a;
+  --gem-dark: #713f12;
+}
+.match3-gem.is-c4 .match3-jewel {
+  clip-path: polygon(50% 2%, 98% 92%, 2% 92%);
+}
+.match3-gem.is-c5 {
+  --gem: #a855f7;
+  --gem-light: #e9d5ff;
+  --gem-dark: #4c1d95;
+}
+.match3-gem.is-c5 .match3-jewel {
+  border-radius: 24%;
+}
+.match3-gem.is-c6 {
+  --gem: #f97316;
+  --gem-light: #fed7aa;
+  --gem-dark: #7c2d12;
+}
+.match3-gem.is-c6 .match3-jewel {
+  clip-path: polygon(
+    30% 0,
+    70% 0,
+    100% 30%,
+    100% 70%,
+    70% 100%,
+    30% 100%,
+    0 70%,
+    0 30%
+  );
+}
+.match3-gem.is-selected {
+  background: #ffffff22;
+  box-shadow: 0 0 0 2px #f0abfc;
+}
+.match3-gem.is-selected .match3-jewel {
+  animation: match3-bob 0.6s ease-in-out infinite;
+}
+@keyframes match3-bob {
+  50% {
+    transform: scale(1.12) rotate(6deg);
+  }
+}
+/* 特殊宝石：直线宝石带一道发光的条纹，炸弹外圈有脉动的光环。 */
+.match3-gem.is-row .match3-jewel::after,
+.match3-gem.is-col .match3-jewel::after {
+  content: '';
+  position: absolute;
+  background: #fffffff0;
+  box-shadow: 0 0 6px #fff;
+}
+.match3-gem.is-row .match3-jewel::after {
+  left: 0;
+  right: 0;
+  top: 44%;
+  height: 12%;
+}
+.match3-gem.is-col .match3-jewel::after {
+  top: 0;
+  bottom: 0;
+  left: 44%;
+  width: 12%;
+}
+.match3-gem.is-row,
+.match3-gem.is-col,
+.match3-gem.is-bomb {
+  animation: match3-special 1.4s ease-in-out infinite;
+}
+.match3-gem.is-bomb::before {
+  content: '';
+  position: absolute;
+  inset: 4%;
+  border-radius: 50%;
+  border: 2px dashed #fff;
+  animation: match3-spin 3s linear infinite;
+}
+@keyframes match3-special {
+  50% {
+    box-shadow: 0 0 14px 2px var(--gem);
+  }
+}
+@keyframes match3-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.match3-gem.is-swapping .match3-jewel {
+  animation: match3-swap 0.18s ease-out;
+}
+@keyframes match3-swap {
+  from {
+    transform: var(--swap-from);
+  }
+}
+.match3-gem.is-denied .match3-jewel {
+  animation: match3-deny 0.3s ease-in-out;
+}
+@keyframes match3-deny {
+  25% {
+    transform: translateX(-12%);
+  }
+  75% {
+    transform: translateX(12%);
+  }
+}
+.match3-gem.is-clearing .match3-jewel {
+  animation: match3-burst 0.26s ease-in forwards;
+}
+@keyframes match3-burst {
+  40% {
+    transform: scale(1.3);
+    filter: brightness(2) drop-shadow(0 0 10px #fff);
+  }
+  to {
+    transform: scale(0);
+    opacity: 0;
+    filter: brightness(3);
+  }
+}
+.match3-gem.is-falling .match3-jewel {
+  animation: match3-fall 0.3s cubic-bezier(0.45, 0, 0.8, 0.6);
+}
+@keyframes match3-fall {
+  from {
+    transform: translateY(calc(var(--drop) * -1 * (131.6% + var(--m3-gap))));
+  }
+  85% {
+    transform: translateY(4%);
+  }
+}
+.match3-gem.is-created .match3-jewel {
+  animation: match3-born 0.4s cubic-bezier(0.3, 1.8, 0.6, 1);
+}
+@keyframes match3-born {
+  from {
+    transform: scale(0.2) rotate(-90deg);
+    filter: brightness(3);
+  }
+}
+/* 引爆的光束：直线宝石扫过整行或整列，炸弹在原地扩散一圈冲击波。格子的位置按 8 等分算。 */
+.match3-beam {
+  position: absolute;
+  pointer-events: none;
+  z-index: 2;
+}
+.match3-beam.is-k1 {
+  left: 0;
+  right: 0;
+  top: calc(10px + (100% - 20px) * var(--row) / 8);
+  height: calc((100% - 20px) / 8);
+  background: linear-gradient(90deg, transparent, #fff, transparent);
+  animation: match3-beam-x 0.26s ease-out forwards;
+}
+.match3-beam.is-k2 {
+  top: 0;
+  bottom: 0;
+  left: calc(10px + (100% - 20px) * var(--col) / 8);
+  width: calc((100% - 20px) / 8);
+  background: linear-gradient(180deg, transparent, #fff, transparent);
+  animation: match3-beam-y 0.26s ease-out forwards;
+}
+.match3-beam.is-k3 {
+  left: calc(10px + (100% - 20px) * (var(--col) - 1) / 8);
+  top: calc(10px + (100% - 20px) * (var(--row) - 1) / 8);
+  width: calc((100% - 20px) * 3 / 8);
+  height: calc((100% - 20px) * 3 / 8);
+  border-radius: 50%;
+  background: radial-gradient(circle, #fff, #fbbf24aa 40%, transparent 70%);
+  animation: match3-shock 0.3s ease-out forwards;
+}
+@keyframes match3-beam-x {
+  from {
+    transform: scaleX(0.1);
+    opacity: 1;
+  }
+  to {
+    transform: scaleX(1.2);
+    opacity: 0;
+  }
+}
+@keyframes match3-beam-y {
+  from {
+    transform: scaleY(0.1);
+    opacity: 1;
+  }
+  to {
+    transform: scaleY(1.2);
+    opacity: 0;
+  }
+}
+@keyframes match3-shock {
+  from {
+    transform: scale(0.3);
+    opacity: 1;
+  }
+  to {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+}
+.match3-board.is-shuffling .match3-jewel {
+  animation: match3-shuffle 0.5s ease-in-out;
+}
+@keyframes match3-shuffle {
+  50% {
+    transform: scale(0.4) rotate(180deg);
+    opacity: 0.4;
+  }
+}
+.match3-board.is-won .match3-jewel {
+  animation: match3-bob 0.8s ease-in-out 2;
+}
+.match3-cheer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 3;
+  animation: match3-cheer 0.7s ease-out forwards;
+}
+.match3-cheer strong {
+  font-size: clamp(28px, 7vw, 44px);
+  font-weight: 900;
+  color: #fff;
+  -webkit-text-stroke: 1px #7c3aed;
+  text-shadow:
+    0 0 18px #a855f7,
+    0 4px 0 #4c1d95;
+}
+.match3-cheer span {
+  font-size: 20px;
+  font-weight: 800;
+  color: #fde68a;
+  text-shadow: 0 2px 0 #92400e;
+}
+@keyframes match3-cheer {
+  from {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+  30% {
+    transform: scale(1.15);
+    opacity: 1;
+  }
+  80% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  to {
+    transform: scale(1.1) translateY(-20px);
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .match3-gem,
+  .match3-jewel,
+  .match3-progress span,
+  .match3-gem.is-bomb::before {
+    animation: none !important;
+  }
+}

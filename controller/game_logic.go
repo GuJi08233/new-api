@@ -11,14 +11,17 @@ import (
 	"github.com/QuantumNous/new-api/pkg/bulls"
 	"github.com/QuantumNous/new-api/pkg/hanoi"
 	"github.com/QuantumNous/new-api/pkg/lightsout"
+	"github.com/QuantumNous/new-api/pkg/match3"
 	"github.com/QuantumNous/new-api/pkg/nonogram"
+	"github.com/QuantumNous/new-api/pkg/onestroke"
 	"github.com/QuantumNous/new-api/pkg/twentyfour"
+	"github.com/QuantumNous/new-api/pkg/watersort"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
 )
 
 // logicPuzzleState 只保存难度与合法操作，局面从会话种子重建；撤销和重置不相信客户端传来的盘面。Inputs 是格子、走法这类
-// 数字操作(熄灯、汉诺塔、数织)，Answers 是文字操作(24 点的算式与跳过、猜数字的每一次猜测)。
+// 数字操作(熄灯、汉诺塔、数织、倒水排序、一笔画、宝石消除)，Answers 是文字操作(24 点的算式与跳过、猜数字的每一次猜测)。
 type logicPuzzleState struct {
 	Difficulty int      `json:"difficulty"`
 	Inputs     []int    `json:"inputs"`
@@ -26,7 +29,8 @@ type logicPuzzleState struct {
 }
 
 // logicPuzzle 是一款按步保存的解谜游戏：写进审计与流水的名字、能不能撤销重置、每一步最多算几秒有效游玩时长。
-// 24 点和猜数字的一步要想很久，按步封顶的时长放宽；它们也不能撤销，否则可以把猜错的一次撤回再猜。
+// 24 点和猜数字的一步要想很久，按步封顶的时长放宽；它们也不能撤销，否则可以把猜错的一次撤回再猜。宝石消除补上来的宝石
+// 来自同一条随机数序列，撤销后重走能看到下一批宝石，所以也不能撤销。
 type logicPuzzle struct {
 	name           string
 	undoable       bool
@@ -39,17 +43,28 @@ var logicPuzzles = map[string]logicPuzzle{
 	"nonogram":   {name: "数织", undoable: true, secondsPerStep: 5},
 	"twentyfour": {name: "24 点", secondsPerStep: 60},
 	"bulls":      {name: "猜数字", secondsPerStep: 40},
+	"watersort":  {name: "倒水排序", undoable: true, secondsPerStep: 6},
+	"onestroke":  {name: "一笔画", undoable: true, secondsPerStep: 6},
+	"match3":     {name: "宝石消除", secondsPerStep: 20},
 }
+
+// onestrokeMaxBatch 是一笔画一次请求最多连走几格：页面在手指划过时先画在本地，松手后把这一段一起提交。
+const onestrokeMaxBatch = onestroke.MaxSize * onestroke.MaxSize
 
 // twentyfourSkip 是 Answers 里表示跳过一题的记号，算式里不会出现。
 const twentyfourSkip = "skip"
 
 func init() {
-	for _, key := range []string{"lightsout", "hanoi", "nonogram", "twentyfour", "bulls"} {
+	for _, key := range []string{"lightsout", "hanoi", "nonogram", "twentyfour", "bulls", "watersort", "onestroke", "match3"} {
 		registerGame(&gameDefinition{Key: key, Kind: operation_setting.GameKindSkill,
 			Info: func(ctx *gameContext) (gin.H, error) {
 				rule, _ := ctx.Setting.SkillRuleOf(key)
-				return skillInfo(ctx, key, rule)
+				info, err := skillInfo(ctx, key, rule)
+				if err == nil && key == "match3" {
+					// 各难度的颜色数、步数与目标分，页面选难度时列出来。
+					info["levels"] = match3.Levels
+				}
+				return info, err
 			},
 			Routes: func(group *gin.RouterGroup) {
 				group.GET("/state", func(c *gin.Context) { getLogicPuzzle(c, key) })
@@ -103,6 +118,51 @@ func logicPuzzleView(key string, session *model.GameSession, state logicPuzzleSt
 		}
 		view["size"], view["rows"], view["cols"] = game.Size, game.Rows, game.Cols
 		view["filled"], view["won"], view["max_moves"] = game.Filled, game.Solved(), nonogram.MaxMoves
+	case "watersort":
+		game, err := watersort.New(state.Difficulty, uint64(session.Seed))
+		if err != nil || len(state.Inputs) > watersort.MaxMoves {
+			return nil, watersort.ErrMove
+		}
+		// last 是最后一次倒水，页面据此播放倾倒的动画。
+		var last gin.H
+		for _, move := range state.Inputs {
+			amount, err := game.Pour(move/16, move%16)
+			if err != nil {
+				return nil, err
+			}
+			last = gin.H{"from": move / 16, "to": move % 16, "amount": amount}
+		}
+		view["tubes"], view["capacity"], view["won"], view["last"] = game.Tubes, watersort.Capacity, game.Solved(), last
+		view["stuck"], view["max_moves"] = !game.Solved() && !game.HasMove(), watersort.MaxMoves
+	case "onestroke":
+		game, err := onestroke.New(state.Difficulty, uint64(session.Seed))
+		if err != nil {
+			return nil, err
+		}
+		for _, cell := range state.Inputs {
+			if err := game.Step(cell); err != nil {
+				return nil, err
+			}
+		}
+		view["size"], view["stones"], view["path"], view["open"] = game.Size, game.Stones, game.Path, game.Open()
+		view["won"], view["stuck"] = game.Solved(), game.Stuck()
+	case "match3":
+		game, err := match3.New(state.Difficulty, uint64(session.Seed))
+		if err != nil {
+			return nil, err
+		}
+		for _, move := range state.Inputs {
+			if err := game.Swap(move/2, move%2); err != nil {
+				return nil, err
+			}
+		}
+		level := match3.Levels[state.Difficulty]
+		view["board"], view["score"], view["target"], view["moves_left"] = game.Board, game.Score, level.Target, game.MovesLeft()
+		view["move_limit"], view["phases"], view["shuffled"] = level.Moves, game.Phases, game.Shuffled
+		view["won"], view["over"] = game.Won(), game.Over()
+		if n := len(state.Inputs); n > 0 {
+			view["swap"] = gin.H{"cell": state.Inputs[n-1] / 2, "dir": state.Inputs[n-1] % 2}
+		}
 	case "twentyfour":
 		game, err := twentyfour.New(state.Difficulty, uint64(session.Seed))
 		if err != nil {
@@ -239,6 +299,10 @@ func actLogicPuzzle(c *gin.Context, key string) {
 		Cell      *int   `json:"cell"`
 		From      *int   `json:"from"`
 		To        *int   `json:"to"`
+		// Cells 是一笔画一次连走的几格，Dir 是宝石消除交换的方向(0 右边、1 下面)，Steps 是一次撤销几步(默认一步)。
+		Cells []int `json:"cells"`
+		Dir   *int  `json:"dir"`
+		Steps *int  `json:"steps"`
 		// Answer 是 24 点的算式或猜数字的一次猜测。
 		Answer string `json:"answer"`
 	}
@@ -276,6 +340,25 @@ func actLogicPuzzle(c *gin.Context, key string) {
 				return
 			}
 			state.Inputs = append(state.Inputs, *req.From*3+*req.To)
+		case "watersort":
+			// 试管编号由规则引擎核对，这里只挡住会编码越界的数字。
+			if req.From == nil || req.To == nil || *req.From < 0 || *req.From > 15 || *req.To < 0 || *req.To > 15 {
+				common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+				return
+			}
+			state.Inputs = append(state.Inputs, *req.From*16+*req.To)
+		case "onestroke":
+			if len(req.Cells) == 0 || len(req.Cells) > onestrokeMaxBatch {
+				common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+				return
+			}
+			state.Inputs = append(state.Inputs, req.Cells...)
+		case "match3":
+			if req.Cell == nil || req.Dir == nil || *req.Cell < 0 || *req.Cell >= match3.Cells || *req.Dir < 0 || *req.Dir > 1 {
+				common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+				return
+			}
+			state.Inputs = append(state.Inputs, *req.Cell*2+*req.Dir)
 		default:
 			common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 			return
@@ -298,11 +381,15 @@ func actLogicPuzzle(c *gin.Context, key string) {
 			common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 			return
 		}
-		if len(state.Inputs) == 0 {
+		steps := 1
+		if req.Steps != nil {
+			steps = *req.Steps
+		}
+		if steps < 1 || steps > len(state.Inputs) {
 			common.ApiErrorI18n(c, i18n.MsgGameMoveInvalid)
 			return
 		}
-		state.Inputs = state.Inputs[:len(state.Inputs)-1]
+		state.Inputs = state.Inputs[:len(state.Inputs)-steps]
 	case "reset":
 		if !puzzle.undoable {
 			common.ApiErrorI18n(c, i18n.MsgInvalidParams)
@@ -331,7 +418,7 @@ func actLogicPuzzle(c *gin.Context, key string) {
 		return
 	}
 	won := view["won"].(bool)
-	// 猜数字用完次数也结束：成绩为 0，按已经玩过的时长结算。
+	// 猜数字用完次数、宝石消除用完步数也结束：成绩为 0，按已经玩过的时长结算。
 	over := won || view["over"].(bool)
 	if over || req.Action == "finish" {
 		score, seconds := 0, session.PlaySeconds
