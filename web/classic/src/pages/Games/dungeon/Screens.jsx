@@ -48,13 +48,13 @@ export const RewardScreen = ({ run, busy, send }) => {
           ? t('首领倒下了')
           : reward.cards.length
             ? t('战斗胜利')
-            : t('打开宝箱')}
+            : t('收取宝藏')}
       </h3>
       <div className='dg-loot'>
         {reward.gold > 0 && (
           <span className='dg-loot-item'>
             <Coins size={16} />
-            {t('金币 +{{n}}', { n: reward.gold })}
+            {t('灵珠 +{{n}}', { n: reward.gold })}
           </span>
         )}
         {reward.relic && <RelicChip id={reward.relic} fresh />}
@@ -64,7 +64,7 @@ export const RewardScreen = ({ run, busy, send }) => {
           >
             <FlaskConical size={16} />
             {text.potions[reward.potion]?.name}
-            {reward.potion_lost && <small>{t('药水栏已满，没有拿到')}</small>}
+            {reward.potion_lost && <small>{t('丹符栏已满，没有拿到')}</small>}
           </span>
         )}
       </div>
@@ -90,7 +90,7 @@ export const RewardScreen = ({ run, busy, send }) => {
       </Button>
       {reward.boss && (
         <p className='dg-screen-note'>
-          {t('离开后进入下一幕，并回复一部分已损失的生命')}
+          {t('离开后进入下一重，并回复一部分已损失的生命')}
         </p>
       )}
     </div>
@@ -104,9 +104,9 @@ export const ShopScreen = ({ run, busy, send }) => {
   const [removing, setRemoving] = useState(false);
   return (
     <div className='dg-screen dg-shop'>
-      <h3>{t('商店')}</h3>
+      <h3>{t('坊市')}</h3>
       <p className='dg-screen-note'>
-        {t('你有 {{gold}} 金币', { gold: run.gold })}
+        {t('你有 {{gold}} 灵珠', { gold: run.gold })}
       </p>
       <div className='dg-offers'>
         {shop.offers.map((offer, index) => {
@@ -154,10 +154,10 @@ export const ShopScreen = ({ run, busy, send }) => {
         >
           {shop.removed
             ? t('本店已移除过一张牌')
-            : t('移除一张牌（{{price}} 金币）', { price: shop.remove_price })}
+            : t('移除一张牌（{{price}} 灵珠）', { price: shop.remove_price })}
         </Button>
         <Button theme='solid' disabled={busy} onClick={() => send('leave')}>
-          {t('离开商店')}
+          {t('离开坊市')}
         </Button>
       </div>
       <DeckPicker
@@ -180,7 +180,7 @@ export const RestScreen = ({ run, busy, send }) => {
   const canUpgrade = run.deck.some((card) => card.upgrade);
   return (
     <div className='dg-screen dg-rest'>
-      <h3>{t('营火')}</h3>
+      <h3>{t('打坐')}</h3>
       <p className='dg-screen-note'>{t('在火堆旁歇一歇，二选一')}</p>
       <div className='dg-rest-options'>
         <button
@@ -273,9 +273,9 @@ export const EndScreen = ({ round, symbol, levelNames, onBack }) => {
     !trial &&
     round.result &&
     skillResultMessage(round.result, t, symbol, { byLevel: true });
-  let title = t('倒在了深渊里');
+  let title = t('倒在了秘境里');
   if (trial) title = run.phase === 'won' ? t('试炼过关！') : t('试炼失败');
-  else if (detail.abandoned) title = t('远征已放弃');
+  else if (detail.abandoned) title = t('本轮已放弃');
   return (
     <div className={`dg-screen dg-end ${won ? 'is-won' : 'is-lost'}`}>
       {won ? <Trophy size={44} /> : <Skull size={44} />}
@@ -293,7 +293,7 @@ export const EndScreen = ({ round, symbol, levelNames, onBack }) => {
       ) : (
         <p className='dg-screen-note'>
           {t(
-            '{{class}} · 深渊 {{abyss}} · 第 {{act}} 幕 · 到达第 {{floor}} 层',
+            '{{class}} · 劫数 {{abyss}} · 第 {{act}} 重 · 到达第 {{floor}} 层',
             {
               class: classes[run.class]?.name,
               abyss: run.abyss,
@@ -324,7 +324,7 @@ export const EndScreen = ({ round, symbol, levelNames, onBack }) => {
         ) : (
           <>
             <span>
-              {t('精英')}
+              {t('强敌')}
               <strong>{run.elites}</strong>
             </span>
             <span>
@@ -336,9 +336,9 @@ export const EndScreen = ({ round, symbol, levelNames, onBack }) => {
       </div>
       <div className='dg-crystals-gain'>
         <Gem size={18} />
-        {t('获得魂晶 {{n}}', { n: detail.crystals ?? 0 })}
+        {t('获得道韵 {{n}}', { n: detail.crystals ?? 0 })}
         {detail.bonus > 0 && (
-          <small>{t('含首次打通前三幕奖励 {{n}}', { n: detail.bonus })}</small>
+          <small>{t('含首次打通前三重奖励 {{n}}', { n: detail.bonus })}</small>
         )}
         {trial && !detail.crystals && run.phase === 'won' && (
           <small>{t('这些星以前已经拿过')}</small>

@@ -73,16 +73,16 @@ function useOutsideFloaters() {
         let kind = 'gold';
         switch (ev.k) {
           case 'relic':
-            line = t('获得遗物：{{name}}', { name: text.relics[ev.s]?.name });
+            line = t('获得法宝：{{name}}', { name: text.relics[ev.s]?.name });
             playSound('sparkle');
             break;
           case 'gold':
-            line = ev.n > 0 ? `+${ev.n} ${t('金币')}` : `${ev.n} ${t('金币')}`;
+            line = ev.n > 0 ? `+${ev.n} ${t('灵珠')}` : `${ev.n} ${t('灵珠')}`;
             kind = ev.n > 0 ? 'gold' : 'bad';
             playSound('coin');
             break;
           case 'card':
-            line = t('获得卡牌：{{name}}', { name: text.cards[ev.s] });
+            line = t('获得功法：{{name}}', { name: text.cards[ev.s] });
             playSound('flip');
             break;
           case 'upgrade':
@@ -290,11 +290,11 @@ const DungeonPage = () => {
 
   const confirmAbandon = () =>
     Modal.confirm({
-      title: active === 'trial' ? t('放弃试炼') : t('放弃远征'),
+      title: active === 'trial' ? t('放弃试炼') : t('放弃本轮'),
       content:
         active === 'trial'
           ? t('放弃后本次挑战按未过关结算。')
-          : t('放弃后按当前进度结算魂晶与奖励，不能继续。'),
+          : t('放弃后按当前进度结算道韵与奖励，不能继续。'),
       onOk: () => send('abandon'),
     });
 
@@ -394,14 +394,14 @@ const DungeonPage = () => {
 
   const showHud = active && run && !finished;
   const modeNames = {
-    endless: t('无尽远征'),
+    endless: t('无尽幽冥'),
     trial: t('试炼'),
     practice: t('练习'),
   };
 
   return (
     <GameLayout
-      title={t('深渊远征')}
+      title={t('九幽秘境')}
       loading={loading || (loaded && !checked)}
       unavailable={unavailable}
       balance={info?.balance}
@@ -417,7 +417,7 @@ const DungeonPage = () => {
             extra={
               <>
                 <SideBox
-                  label={t('魂晶')}
+                  label={t('道韵')}
                   value={info.meta?.crystals ?? 0}
                   note={t('累计获得 {{n}}', { n: info.meta?.earned ?? 0 })}
                 />
@@ -425,11 +425,11 @@ const DungeonPage = () => {
                   <RuleList
                     items={[
                       t(
-                        '无尽远征：一幕接一幕往下打，打败首领进入下一幕，第四幕起敌人越来越强；按打通的幕数领游戏币',
+                        '无尽幽冥：一重接一重往下打，打败首领进入下一重，第四重起敌人越来越强；按打通的重数领游戏币',
                       ),
-                      t('试炼：固定牌组的关卡，按星级奖励魂晶，不发游戏币'),
+                      t('试炼：固定牌组的关卡，按星级奖励道韵，不发游戏币'),
                       t('练习：自由组牌、选敌人，测试伤害与数值，没有奖励'),
-                      t('魂晶用来解锁职业与天赋；打通前三幕解锁下一个深渊等级'),
+                      t('道韵用来解锁流派与天赋；打通前三重解锁下一个劫数'),
                       t(
                         '道具商店用游戏币买一次性道具，三种模式里都能用；花掉的游戏币不退回',
                       ),
@@ -453,9 +453,9 @@ const DungeonPage = () => {
               <strong>{classes[run.class]?.name}</strong>
               {active === 'endless' && (
                 <>
-                  <span>{t('深渊 {{abyss}}', { abyss: run.abyss })}</span>
+                  <span>{t('劫数 {{abyss}}', { abyss: run.abyss })}</span>
                   <span>
-                    {t('第 {{act}} 幕 · 第 {{floor}} 层', {
+                    {t('第 {{act}} 重 · 第 {{floor}} 层', {
                       act: run.act,
                       floor: run.floor,
                     })}
@@ -574,7 +574,7 @@ const DungeonPage = () => {
                     </Dropdown.Item>
                     {bagItems.length === 0 && (
                       <Dropdown.Item disabled>
-                        {t('背包是空的，可以在营地的道具商店购买')}
+                        {t('背包是空的，可以在秘境入口的道具商店购买')}
                       </Dropdown.Item>
                     )}
                     {bagItems.map((id) => {

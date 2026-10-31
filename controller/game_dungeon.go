@@ -14,7 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// 深渊远征是一款长期玩的卡牌肉鸽，有三种模式，各自是独立的对局(开一种模式不会作废另一种模式进行中的一局)：
+// 九幽秘境(原深渊远征)是问道的卡牌肉鸽板块，有三种模式，各自是独立的对局(开一种模式不会作废另一种模式进行中的一局)：
 //   - 无尽远征按免费游戏结算，成绩是打通的幕数，按领奖规则发游戏币；
 //   - 试炼是固定牌组的关卡，按星级发魂晶，不发游戏币；
 //   - 练习用来测试牌与敌人的数值，不结算。
@@ -398,9 +398,9 @@ func actDungeonRun(c *gin.Context) {
 			"abandoned": req.Action == "abandon", "crystals": preview.Crystals, "bonus": preview.Bonus},
 		Save: save,
 	}
-	name := "深渊远征"
+	name := "九幽秘境"
 	if game == dungeonTrialGame {
-		name = "深渊远征试炼"
+		name = "九幽秘境试炼"
 		outcome.Score = preview.Stars
 		outcome.Detail = gin.H{"trial": run.Trial, "stars": preview.Stars, "turns": run.Turns,
 			"abandoned": req.Action == "abandon", "crystals": preview.Crystals}

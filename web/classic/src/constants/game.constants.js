@@ -70,9 +70,9 @@ export const getGameLevelNames = (t) => ({
   watersort: [t('4 种颜色'), t('6 种颜色'), t('8 种颜色')],
   onestroke: ['5×5', '6×6', '7×7'],
   match3: [t('简单'), t('普通'), t('困难')],
-  // 深渊远征的成绩是打通的幕数，读作「赢下第 3 幕」。
+  // 九幽秘境的成绩是打通的重数，读作「打通第 3 重」。
   dungeon: Array.from({ length: 30 }, (_, i) =>
-    t('第 {{act}} 幕', { act: i + 1 }),
+    t('第 {{act}} 重', { act: i + 1 }),
   ),
   ai: [t('简单'), t('普通'), t('困难')],
 });
@@ -342,9 +342,9 @@ export const getGameMetaMap = (t) => ({
   },
   dungeon: {
     kind: 'skill',
-    name: t('深渊远征'),
+    name: t('九幽秘境'),
     description: t(
-      '卡牌肉鸽：组牌闯关、解锁职业与天赋，无尽远征、试炼与练习三种模式',
+      '修仙卡牌肉鸽：以体修、法修、剑修闯秘境，无尽幽冥、试炼与练习三种模式',
     ),
     score: 'level',
     scoreName: t('打通'),

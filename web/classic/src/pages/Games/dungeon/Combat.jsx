@@ -58,7 +58,7 @@ const IntentBadge = ({ intent }) => {
         : t('攻击，造成 {{dmg}} 点伤害', intent),
     );
   }
-  if (intent.block) notes.push(t('获得护甲'));
+  if (intent.block) notes.push(t('获得护体'));
   if (intent.buff) notes.push(t('强化自己'));
   if (intent.debuff) notes.push(t('削弱你'));
   if (intent.heal) notes.push(t('回复生命'));
@@ -155,7 +155,7 @@ const Combat = ({ run, busy, send, events, targeting, setTargeting }) => {
             break;
           case 'block':
             playSound('chip');
-            addFloater(t('护甲 +{{n}}', { n: ev.n }), {
+            addFloater(t('护体 +{{n}}', { n: ev.n }), {
               ...where,
               kind: 'gain',
             });
@@ -184,7 +184,7 @@ const Combat = ({ run, busy, send, events, targeting, setTargeting }) => {
             playSound('deal');
             break;
           case 'energy':
-            addFloater(t('能量 +{{n}}', { n: ev.n }), {
+            addFloater(t('灵力 +{{n}}', { n: ev.n }), {
               ...where,
               kind: 'gold',
             });
@@ -289,7 +289,7 @@ const Combat = ({ run, busy, send, events, targeting, setTargeting }) => {
         ))}
       </div>
       <div className={`dg-player ${pulses.p ? `is-${pulses.p}` : ''}`}>
-        <Tooltip content={t('能量：打出卡牌要花费的点数，每回合回满')}>
+        <Tooltip content={t('灵力：施展功法要花费的点数，每回合回满')}>
           <span className='dg-energy'>
             <Zap size={16} />
             <strong>{combat.energy}</strong>

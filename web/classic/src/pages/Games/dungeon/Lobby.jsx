@@ -100,7 +100,7 @@ const EndlessTab = ({
         <div className='dg-resume'>
           <span>
             {t(
-              '你有一轮进行中的远征：{{class}} · 第 {{act}} 幕 · 第 {{floor}} 层',
+              '你有一轮进行中的秘境：{{class}} · 第 {{act}} 重 · 第 {{floor}} 层',
               {
                 class: classes[round.run.class]?.name,
                 act: round.run.act,
@@ -109,11 +109,11 @@ const EndlessTab = ({
             )}
           </span>
           <Button theme='solid' onClick={() => onResume('endless')}>
-            {t('继续远征')}
+            {t('继续闯秘境')}
           </Button>
         </div>
       )}
-      <h4>{t('选择职业')}</h4>
+      <h4>{t('选择流派')}</h4>
       <div className='dg-classes'>
         {CLASSES.map((id) => {
           const unlocked = meta.classes?.includes(id);
@@ -133,7 +133,7 @@ const EndlessTab = ({
               <span>{classes[id].desc}</span>
               {unlocked ? (
                 <small>
-                  {t('最多打通 {{acts}} 幕 · 深渊可选到 {{abyss}}', {
+                  {t('最多打通 {{acts}} 重 · 劫数可选到 {{abyss}}', {
                     acts: meta.records?.[id]?.best_acts || 0,
                     abyss: meta.max_abyss?.[id] || 0,
                   })}
@@ -148,7 +148,7 @@ const EndlessTab = ({
                     onUnlock(`class:${id}`);
                   }}
                 >
-                  {t('{{n}} 魂晶解锁', { n: cost })}
+                  {t('{{n}} 道韵解锁', { n: cost })}
                 </Button>
               )}
             </div>
@@ -159,14 +159,14 @@ const EndlessTab = ({
         <Select
           value={abyss}
           onChange={setAbyss}
-          aria-label={t('深渊等级')}
+          aria-label={t('劫数')}
           style={{ width: 160 }}
           optionList={Array.from({ length: maxAbyss + 1 }, (_, level) => ({
             value: level,
             label:
               level === 0
-                ? t('深渊 0（标准）')
-                : t('深渊 {{abyss}}', { abyss: level }),
+                ? t('无劫（标准）')
+                : t('第 {{abyss}} 劫', { abyss: level }),
           }))}
         />
         <Button
@@ -176,7 +176,7 @@ const EndlessTab = ({
           disabled={playing || !turnstile.ready}
           onClick={() => onStart('endless', { class: klass, abyss })}
         >
-          {t('开始远征')}
+          {t('进入秘境')}
         </Button>
       </div>
       <PlayTurnstile turnstile={turnstile} />
@@ -186,13 +186,13 @@ const EndlessTab = ({
             .slice(0, abyss)
             .map(
               (rule, index) =>
-                `${t('深渊 {{abyss}}', { abyss: index + 1 })}：${rule}`,
+                `${t('第 {{abyss}} 劫', { abyss: index + 1 })}：${rule}`,
             )}
         />
       )}
       <p className='dg-tab-note'>
         {t(
-          '这个职业：远征 {{runs}} 次，打通前三幕 {{wins}} 次，最远到达第 {{floor}} 层',
+          '这个流派：闯秘境 {{runs}} 次，打通前三重 {{wins}} 次，最远到达第 {{floor}} 层',
           {
             runs: record.runs || 0,
             wins: record.wins || 0,
@@ -229,7 +229,7 @@ const EndlessTab = ({
                 disabled={busy || maxed || meta.crystals < cost}
                 onClick={() => onUnlock(`talent:${talent.id}`)}
               >
-                {maxed ? t('已满级') : t('{{n}} 魂晶', { n: cost })}
+                {maxed ? t('已满级') : t('{{n}} 道韵', { n: cost })}
               </Button>
             </div>
           );
@@ -258,7 +258,7 @@ const TrialTab = ({ info, round, busy, onStart, onResume }) => {
       )}
       <p className='dg-tab-note'>
         {t(
-          '每关用固定的牌组挑战。过关得一星，回合数与剩余生命达标各再得一星；第一次拿到的每颗星奖励魂晶。',
+          '每关用固定的牌组挑战。过关得一星，回合数与剩余生命达标各再得一星；第一次拿到的每颗星奖励道韵。',
         )}
       </p>
       <div className='dg-trials'>
@@ -287,7 +287,7 @@ const TrialTab = ({ info, round, busy, onStart, onResume }) => {
                     pct: trial.hp_pct,
                   })}
                   {' · '}
-                  {t('每星 {{n}} 魂晶', { n: trial.crystals })}
+                  {t('每星 {{n}} 道韵', { n: trial.crystals })}
                 </small>
               </div>
               <Button
@@ -355,7 +355,7 @@ const PracticeTab = ({ info, round, busy, onStart, onResume }) => {
       </p>
       <div className='dg-practice-grid'>
         <label>
-          {t('职业')}
+          {t('流派')}
           <Select
             value={setup.class}
             onChange={(value) => update({ class: value })}
@@ -376,13 +376,13 @@ const PracticeTab = ({ info, round, busy, onStart, onResume }) => {
               value: enemy.id,
               label:
                 enemy.act > 0
-                  ? `${enemyNames[enemy.id]} · ${t('第 {{act}} 幕', { act: enemy.act })}`
+                  ? `${enemyNames[enemy.id]} · ${t('第 {{act}} 重', { act: enemy.act })}`
                   : t('训练木桩（不会行动）'),
             }))}
           />
         </label>
         <label>
-          {t('敌人强度（按第几幕放大）')}
+          {t('敌人强度（按第几重放大）')}
           <InputNumber
             min={1}
             max={catalog.practice_max_stage}
@@ -391,7 +391,7 @@ const PracticeTab = ({ info, round, busy, onStart, onResume }) => {
           />
         </label>
         <label>
-          {t('最大生命（0 为职业默认）')}
+          {t('最大生命（0 为流派默认）')}
           <InputNumber
             min={0}
             max={999}
@@ -400,7 +400,7 @@ const PracticeTab = ({ info, round, busy, onStart, onResume }) => {
           />
         </label>
         <label>
-          {t('遗物')}
+          {t('法宝')}
           <Select
             multiple
             value={setup.relics}
@@ -417,7 +417,7 @@ const PracticeTab = ({ info, round, busy, onStart, onResume }) => {
               checked={setup.infinite_energy}
               onChange={(value) => update({ infinite_energy: value })}
             />
-            {t('无限能量')}
+            {t('无限灵力')}
           </label>
           <label>
             <Switch
@@ -545,11 +545,11 @@ const Lobby = ({
     <div className='dg-lobby'>
       <div className='logic-heading'>
         <span className='logic-eyebrow'>{t('卡牌肉鸽')}</span>
-        <h2>{t('深渊远征')}</h2>
+        <h2>{t('九幽秘境')}</h2>
         <p>{t('组牌、闯关、越走越深')}</p>
       </div>
       <Tabs type='line' activeKey={tab} onChange={setTab}>
-        <TabPane itemKey='endless' tab={t('无尽远征')}>
+        <TabPane itemKey='endless' tab={t('无尽幽冥')}>
           <EndlessTab
             info={info}
             round={rounds.endless}

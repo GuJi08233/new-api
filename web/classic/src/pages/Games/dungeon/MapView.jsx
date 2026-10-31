@@ -64,7 +64,7 @@ const MapView = ({ run, busy, onPick }) => {
   return (
     <div className='dg-map-wrap'>
       <div className='dg-map-title'>
-        {t('第 {{act}} 幕', { act: run.act })}
+        {t('第 {{act}} 重', { act: run.act })}
         <span>
           {choices.size
             ? t('选择下一个要去的地点')
