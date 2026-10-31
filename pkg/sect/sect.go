@@ -116,6 +116,8 @@ type Sect struct {
 	NextEventAt int64          `json:"next_event_at"`
 	Log         []Ev           `json:"log"`
 	Stats       Stats          `json:"stats"`
+	// Items 是用游戏币买来、还没用掉的符箓。
+	Items map[string]int `json:"items,omitempty"`
 }
 
 // NewSect 开宗立派：主殿、灵田、聚灵阵各一级，两名弟子(上品与良品资质)，一些灵石灵草与两颗回春丹。第一件奇遇半小时后出现。
@@ -132,6 +134,7 @@ func NewSect(seed uint64, now int64) *Sect {
 		Missions:    []*Mission{},
 		NextEventAt: now + 30*60,
 		Log:         []Ev{},
+		Items:       map[string]int{},
 	}
 	for _, talent := range []int{3, 2} {
 		c := s.newCandidate()
@@ -156,6 +159,9 @@ func ParseSect(data string) (*Sect, error) {
 	}
 	if s.Pills == nil {
 		s.Pills = map[string]int{}
+	}
+	if s.Items == nil {
+		s.Items = map[string]int{}
 	}
 	return s, nil
 }
@@ -418,6 +424,7 @@ type Action struct {
 	Index    int    `json:"index"`
 	Choice   int    `json:"choice"`
 	UsePill  bool   `json:"use_pill"`
+	Item     string `json:"item"`
 }
 
 // Apply 先结算到 now，再执行操作，返回这期间发生的事。出错时存档可能已经改了一部分，调用方不要保存。
@@ -454,6 +461,8 @@ func (s *Sect) Apply(a Action, now int64) ([]Ev, error) {
 		more, err = s.dismiss(a.Disciple)
 	case "event":
 		more, err = s.resolveEvent(a.Choice, now)
+	case "item":
+		more, err = s.useItem(a.Item, now)
 	default:
 		err = ErrAction
 	}

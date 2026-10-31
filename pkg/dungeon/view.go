@@ -113,6 +113,9 @@ type View struct {
 	Score        int           `json:"score"`
 	Crystals     int           `json:"crystals"`
 	PhoenixUsed  bool          `json:"phoenix_used,omitempty"`
+	ItemsUsed    int           `json:"items_used"`
+	Ward         bool          `json:"ward,omitempty"`
+	WardUsed     bool          `json:"ward_used,omitempty"`
 	// 试炼：哪一关、正在打第几场、一共几场、已经用了几回合、星级(过关后)。
 	Trial  string `json:"trial,omitempty"`
 	Fight  int    `json:"fight"`
@@ -182,6 +185,7 @@ func (r *Run) View() View {
 		Deck: deckViews(r.Deck), Relics: r.Relics, Potions: r.Potions, PotionSlots: r.PotionSlots(),
 		Map: r.Map, Path: r.Path, Choices: r.Choices(), Events: r.Events,
 		Kills: r.Kills, Elites: r.Elites, Bosses: r.Bosses, Score: r.Score(), Crystals: r.Crystals(), PhoenixUsed: r.PhoenixUsed,
+		ItemsUsed: r.ItemsUsed, Ward: r.Ward, WardUsed: r.WardUsed,
 		Mode: r.Mode, Trial: r.Trial, Fight: r.Fight, Turns: r.Turns, Stars: r.Stars(), Practice: r.Practice, Result: r.Result,
 	}
 	if index := TrialIndex(r.Trial); index >= 0 {

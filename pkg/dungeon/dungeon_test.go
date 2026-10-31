@@ -402,3 +402,61 @@ func TestPracticeSetupAndReset(t *testing.T) {
 	assert.Equal(t, 140*hp/100, scaled.Combat.Enemies[0].MaxHP)
 	assert.False(t, scaled.Over(), "practice never settles")
 }
+
+// 护命符挂在身上，倒下时在不死鸟羽毛之后生效，以一半生命复活，每轮只救一次；用掉之后不能再挂第二张。
+func TestWardRevivesOnceAfterThePhoenix(t *testing.T) {
+	r := newTestRun(t, 7, ClassWarrior, 0)
+	enterCombat(t, r)
+	r.Relics = append(r.Relics, RelicPhoenix)
+	require.NoError(t, r.UseItem(ItemWard))
+	assert.ErrorIs(t, r.UseItem(ItemWard), ErrItemLimit, "one ward at a time")
+
+	r.loseHP(r.HP, "test")
+	assert.True(t, r.PhoenixUsed)
+	assert.True(t, r.Ward, "the phoenix feather saves first")
+	assert.Equal(t, r.MaxHP*30/100, r.HP)
+
+	r.loseHP(r.HP, "test")
+	assert.False(t, r.Ward)
+	assert.True(t, r.WardUsed)
+	assert.Equal(t, r.MaxHP*50/100, r.HP)
+	assert.ErrorIs(t, r.UseItem(ItemWard), ErrItemLimit, "a run is saved by at most one ward")
+
+	r.loseHP(r.HP, "test")
+	assert.Equal(t, PhaseLost, r.Phase)
+	assert.ErrorIs(t, r.UseItem(ItemGold), ErrAction, "items cannot be used once the run is over")
+}
+
+// 每轮最多用 ItemsPerRun 件道具；用了没有效果的道具(满血喝药剂、药水栏已满)不算次数。
+func TestItemsPerRunAndUselessItems(t *testing.T) {
+	r := newTestRun(t, 3, ClassWarrior, 0)
+	assert.ErrorIs(t, r.UseItem(ItemElixir), ErrItemLimit)
+	for len(r.Potions) < r.PotionSlots() {
+		require.NoError(t, r.UseItem(ItemPotion))
+	}
+	assert.ErrorIs(t, r.UseItem(ItemPotion), ErrItemLimit)
+	potions := r.ItemsUsed
+	assert.Equal(t, r.PotionSlots(), potions)
+
+	relics := len(r.Relics)
+	for r.ItemsUsed < ItemsPerRun {
+		require.NoError(t, r.UseItem(ItemRelic))
+	}
+	assert.Len(t, r.Relics, relics+ItemsPerRun-potions)
+	assert.ErrorIs(t, r.UseItem(ItemGold), ErrItemLimit)
+	assert.ErrorIs(t, r.UseItem("crown"), ErrAction)
+}
+
+// 背包每种道具最多 MaxItemStack 件，拿完就从背包里去掉。
+func TestMetaItems(t *testing.T) {
+	m, err := ParseMeta("")
+	require.NoError(t, err)
+	require.NoError(t, m.AddItem(ItemWard, MaxItemStack))
+	assert.ErrorIs(t, m.AddItem(ItemWard, 1), ErrItemLimit)
+	assert.ErrorIs(t, m.AddItem("crown", 1), ErrAction)
+	assert.ErrorIs(t, m.TakeItem(ItemGold), ErrNoItem)
+	for range MaxItemStack {
+		require.NoError(t, m.TakeItem(ItemWard))
+	}
+	assert.Empty(t, m.Items)
+}

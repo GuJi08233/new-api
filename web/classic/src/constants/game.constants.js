@@ -26,6 +26,7 @@ export const getGameCoinLogTypeMap = (t) => ({
   game_reward: { text: t('游戏奖励'), color: 'amber' },
   game_wager: { text: t('游戏输赢'), color: 'pink' },
   game_pvp: { text: t('对战'), color: 'cyan' },
+  game_shop: { text: t('道具商店'), color: 'lime' },
   trade_out: { text: t('转入模拟盘'), color: 'indigo' },
   trade_in: { text: t('从模拟盘转回'), color: 'teal' },
   trade_cover: { text: t('补模拟盘亏空'), color: 'red' },

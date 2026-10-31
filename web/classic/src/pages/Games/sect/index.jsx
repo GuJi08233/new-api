@@ -35,6 +35,7 @@ import Disciples from './Disciples';
 import Missions from './Missions';
 import Alchemy from './Alchemy';
 import Tournament from './Tournament';
+import Shop from './Shop';
 import {
   SectTextProvider,
   eventSentence,
@@ -132,6 +133,14 @@ const SectPage = () => {
           case 'layer':
             float(eventSentence(ev, text, t), 'gain');
             break;
+          case 'item':
+            playSound('sparkle');
+            lines.push(t('使用：{{name}}', { name: text.items[ev.s]?.name }));
+            float(
+              t('使用：{{name}}', { name: text.items[ev.s]?.name }),
+              'gain',
+            );
+            break;
           default:
         }
         if (ev.k !== 'res' && ev.k !== 'pill' && ev.k !== 'layer') {
@@ -175,6 +184,15 @@ const SectPage = () => {
     accept(data);
     showEvents(data.events || []);
     return true;
+  };
+
+  const buyItem = async (item, count) => {
+    setNotice(null);
+    const data = await post('/api/game/sect/shop/buy', { item, count });
+    if (!data) return;
+    playSound('coin');
+    accept(data);
+    patch({ balance: data.balance });
   };
 
   const sync = useCallback(async () => {
@@ -403,6 +421,15 @@ const SectPage = () => {
                   onStart={startTournament}
                   onMove={move}
                   onBack={backFromTournament}
+                />
+              </TabPane>
+              <TabPane tab={t('商店')} itemKey='shop'>
+                <Shop
+                  info={info}
+                  sect={sect}
+                  busy={busy}
+                  act={act}
+                  onBuy={buyItem}
                 />
               </TabPane>
             </Tabs>

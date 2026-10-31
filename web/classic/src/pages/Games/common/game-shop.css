@@ -1,0 +1,81 @@
+/* 长期游戏的道具商店：卡片网格，贴合站点主题。 */
+.game-shop {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.game-shop-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.game-shop-title span {
+  color: var(--semi-color-text-2);
+  font-size: 12px;
+}
+
+.game-shop-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.game-shop-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 12px;
+  background: var(--semi-color-bg-1);
+}
+
+.game-shop-card p {
+  flex: 1;
+  margin: 0;
+  color: var(--semi-color-text-2);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.game-shop-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.game-shop-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--semi-color-primary-light-default);
+  color: var(--semi-color-primary);
+}
+
+.game-shop-owned {
+  margin-left: auto;
+  color: var(--semi-color-text-2);
+  font-size: 12px;
+}
+
+.game-shop-card-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.game-shop-price {
+  margin-right: auto;
+  font-weight: 600;
+}
+
+.game-shop-price small {
+  margin-left: 2px;
+  color: var(--semi-color-text-2);
+}

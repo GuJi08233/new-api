@@ -113,6 +113,36 @@ export const getPillText = (t) => ({
   marrow: { name: t('洗髓丹'), desc: t('资质提升一档') },
 });
 
+// 商店道具：符箓进背包，丹药买了直接放进丹房。标识与 pkg/sect 的 ShopItems 一致。
+export const TALISMANS = ['spirit_talisman', 'recruit_order', 'swift_talisman'];
+
+export const getItemText = (t) => ({
+  spirit_talisman: {
+    name: t('聚灵符'),
+    desc: t('马上得到按现在产量算的 2 小时灵石、灵草与玄铁'),
+  },
+  recruit_order: {
+    name: t('招贤令'),
+    desc: t('不花灵石，马上换一批候选弟子'),
+  },
+  swift_talisman: {
+    name: t('神行符'),
+    desc: t('在外历练的队伍马上回到宗门，回来后照常领取收获'),
+  },
+  pill_heal: {
+    name: t('回春丹'),
+    desc: t('直接放进丹房：治好伤势；大比中服下回复 35% 生命'),
+  },
+  pill_qi: {
+    name: t('聚气丹'),
+    desc: t('直接放进丹房：立刻得到 3 小时闭关的修为，每 6 小时只能服一颗'),
+  },
+  pill_break: {
+    name: t('破境丹'),
+    desc: t('直接放进丹房：突破时服下，成功率 +25%'),
+  },
+});
+
 export const getMissionText = (t) => ({
   patrol: { name: t('巡山'), desc: t('在宗门附近巡视，顺手收些灵石灵草') },
   herbs: { name: t('采药'), desc: t('入山采集灵草，木灵根更得心应手') },

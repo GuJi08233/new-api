@@ -463,6 +463,32 @@ const GameAdminSettings = () => {
             onChange={numberField('record_retention_days')}
           />
         </SettingRow>
+        <SettingRow
+          label={t('开放道具商店')}
+          extra={t(
+            '深渊远征与问道宗门里用游戏币购买一次性道具，花掉的游戏币直接销毁；关闭后不能再买，已买到的道具照常能用',
+          )}
+        >
+          <Switch
+            checked={setting.shop_enabled}
+            onChange={(value) => setField('shop_enabled', value)}
+          />
+        </SettingRow>
+        <SettingRow
+          label={t('道具价格比例')}
+          extra={t(
+            '所有道具按原价乘以这个比例出售，100 为原价，范围 10 到 1000',
+          )}
+        >
+          <InputNumber
+            value={setting.shop_price_percent}
+            min={10}
+            max={1000}
+            precision={0}
+            suffix='%'
+            onChange={numberField('shop_price_percent')}
+          />
+        </SettingRow>
       </Card>
 
       <Card title={t('链上提现')}>

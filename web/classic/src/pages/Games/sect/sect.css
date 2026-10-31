@@ -792,3 +792,32 @@
     margin-left: 0;
   }
 }
+
+/* 商店页的背包：每种符箓一行，点“使用”就用掉一张。 */
+.sc-bag {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.sc-bag-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 12px;
+  background: var(--semi-color-bg-1);
+}
+
+.sc-bag-item > div {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sc-shop .game-shop {
+  margin-top: 8px;
+}

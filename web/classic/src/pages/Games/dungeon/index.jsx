@@ -19,7 +19,13 @@ For commercial licensing, please contact support@quantumnous.com
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Button, Dropdown, Modal } from '@douyinfe/semi-ui';
-import { Coins, FlaskConical, Layers } from 'lucide-react';
+import {
+  Backpack,
+  Coins,
+  FlaskConical,
+  Layers,
+  ShieldPlus,
+} from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import GameLayout from '../common/GameLayout';
 import { RuleList, SideBox, StageMessage } from '../common/SideBox';
@@ -42,6 +48,7 @@ import {
 import {
   DungeonTextProvider,
   HpBar,
+  ITEM_ICONS,
   PileModal,
   RelicChip,
   useDungeonText,
@@ -93,6 +100,11 @@ function useOutsideFloaters() {
           case 'max_hp':
             line = t('最大生命 +{{n}}', { n: ev.n });
             kind = 'gain';
+            break;
+          case 'item':
+            line = t('使用：{{name}}', { name: text.items[ev.s]?.name });
+            kind = 'gain';
+            playSound('sparkle');
             break;
           case 'hit':
             if (ev.n > 0) {
@@ -157,7 +169,12 @@ const DungeonPage = () => {
       if (list.length) {
         eventKey.current += 1;
         setEvents({ key: eventKey.current, list });
+        // 战斗里的伤害、回复由战斗台面播放；用道具拿到的金币、遗物在台面中央另外提示。
         if (!next.run.combat) showOutside(list);
+        else
+          showOutside(
+            list.filter((ev) => ['item', 'gold', 'relic'].includes(ev.k)),
+          );
         if (list.some((ev) => ev.k === 'win')) playSound('win');
         if (list.some((ev) => ev.k === 'victory')) celebrate(1);
         if (list.some((ev) => ev.k === 'defeat')) playSound('lose');
@@ -251,7 +268,16 @@ const DungeonPage = () => {
       active,
     );
     if (!data) await restore(active, current.session_id);
+    if (data?.meta) patch({ meta: data.meta });
     return !!data;
+  };
+
+  const buyItem = async (item, count) => {
+    const data = await post('/api/game/dungeon/shop/buy', { item, count });
+    if (data) {
+      playSound('coin');
+      patch({ meta: data.meta, balance: data.balance });
+    }
   };
 
   const unlock = async (item) => {
@@ -290,6 +316,11 @@ const DungeonPage = () => {
     send('potion', { potion: slot, target: alive[0] ?? -1 });
   };
 
+  // 背包里有的道具，按商店里的顺序。
+  const bagItems = (info?.shop?.items || [])
+    .map((item) => item.id)
+    .filter((id) => info?.meta?.items?.[id] > 0);
+
   const finished = round?.status === 'finished';
   const practiceDone = run?.phase === 'done';
 
@@ -306,6 +337,7 @@ const DungeonPage = () => {
         onStart={start}
         onResume={(mode) => setActive(mode)}
         onUnlock={unlock}
+        onBuy={buyItem}
       />
     );
   } else if (finished) {
@@ -398,6 +430,9 @@ const DungeonPage = () => {
                       t('试炼：固定牌组的关卡，按星级奖励魂晶，不发游戏币'),
                       t('练习：自由组牌、选敌人，测试伤害与数值，没有奖励'),
                       t('魂晶用来解锁职业与天赋；打通前三幕解锁下一个深渊等级'),
+                      t(
+                        '道具商店用游戏币买一次性道具，三种模式里都能用；花掉的游戏币不退回',
+                      ),
                       t('每一步都保存在服务器上，刷新或换设备都能继续'),
                     ]}
                   />
@@ -520,6 +555,48 @@ const DungeonPage = () => {
                   );
                 })}
               </span>
+              {run.ward && (
+                <span className='dg-ward' title={text.items.ward?.desc}>
+                  <ShieldPlus size={14} />
+                  {text.items.ward?.name}
+                </span>
+              )}
+              <Dropdown
+                trigger='click'
+                position='bottom'
+                render={
+                  <Dropdown.Menu>
+                    <Dropdown.Item disabled>
+                      {t('本轮已用 {{used}} / {{max}} 件', {
+                        used: run.items_used || 0,
+                        max: info?.catalog?.items_per_run || 5,
+                      })}
+                    </Dropdown.Item>
+                    {bagItems.length === 0 && (
+                      <Dropdown.Item disabled>
+                        {t('背包是空的，可以在营地的道具商店购买')}
+                      </Dropdown.Item>
+                    )}
+                    {bagItems.map((id) => {
+                      const Icon = ITEM_ICONS[id];
+                      return (
+                        <Dropdown.Item
+                          key={id}
+                          disabled={busy}
+                          icon={Icon && <Icon size={14} />}
+                          onClick={() => send('item', { item: id })}
+                        >
+                          {text.items[id]?.name} × {info.meta.items[id]}
+                        </Dropdown.Item>
+                      );
+                    })}
+                  </Dropdown.Menu>
+                }
+              >
+                <Button size='small' icon={<Backpack size={14} />}>
+                  {t('道具')}
+                </Button>
+              </Dropdown>
               <Button
                 size='small'
                 icon={<Layers size={14} />}

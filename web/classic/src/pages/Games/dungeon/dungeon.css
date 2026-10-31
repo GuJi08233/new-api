@@ -75,6 +75,17 @@
   color: var(--semi-color-warning);
 }
 
+.dg-ward {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--semi-color-success-light-default);
+  color: var(--semi-color-success);
+  font-size: 12px;
+}
+
 .dg-potions {
   display: inline-flex;
   gap: 6px;

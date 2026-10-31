@@ -39,6 +39,8 @@ import {
 } from '../../constants';
 import { TxHashLink } from './common/TxHashLink';
 import { formatCoins, signed } from './common/api';
+import { getItemText as getDungeonItemText } from './dungeon/text';
+import { getItemText as getSectItemText } from './sect/text';
 
 const { Text } = Typography;
 
@@ -102,6 +104,10 @@ const GameCoinRecords = ({ version, symbol, explorerUrl, chainId }) => {
   const statusMap = getGameCoinWithdrawalStatusMap(t);
   const failReasons = getGameCoinWithdrawFailReasonMap(t);
   const gameMetaMap = getGameMetaMap(t);
+  const shopItemNames = {
+    dungeon: getDungeonItemText(t),
+    sect: getSectItemText(t),
+  };
 
   const logColumns = [
     {
@@ -166,6 +172,13 @@ const GameCoinRecords = ({ version, symbol, explorerUrl, chainId }) => {
           };
           const game = ai ? t('{{game}}人机对战', { game: name }) : name;
           return `${game} · ${events[event] || event}`;
+        }
+        // 道具商店的备注是「游戏标识:道具×件数」。
+        if (record.type === 'game_shop') {
+          const [key, rest = ''] = (value || '').split(':');
+          const [item, count] = rest.split('×');
+          const name = shopItemNames[key]?.[item]?.name || item;
+          return `${gameMetaMap[key]?.name || key} · ${name} × ${count}`;
         }
         // 提现退回的备注是失败原因。
         if (record.type === 'withdraw_refund' && value) {

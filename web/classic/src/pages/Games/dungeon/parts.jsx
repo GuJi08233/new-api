@@ -19,11 +19,20 @@ For commercial licensing, please contact support@quantumnous.com
 
 import React, { createContext, useContext, useMemo, useState } from 'react';
 import { Modal, Tooltip } from '@douyinfe/semi-ui';
-import { ArrowRight, Gem } from 'lucide-react';
+import {
+  ArrowRight,
+  Coins,
+  FlaskConical,
+  Gem,
+  HeartPulse,
+  Package,
+  ShieldPlus,
+} from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import {
   fxText,
   getCardNames,
+  getItemText,
   getPotionText,
   getRelicText,
   getStatusNames,
@@ -41,6 +50,7 @@ export function DungeonTextProvider({ children }) {
       statuses: getStatusNames(t),
       relics: getRelicText(t),
       potions: getPotionText(t),
+      items: getItemText(t),
     }),
     [t],
   );
@@ -48,6 +58,15 @@ export function DungeonTextProvider({ children }) {
 }
 
 export const useDungeonText = () => useContext(TextContext);
+
+// 商店道具的图标。
+export const ITEM_ICONS = {
+  elixir: HeartPulse,
+  potion_crate: FlaskConical,
+  gold_pouch: Coins,
+  relic_box: Package,
+  ward: ShieldPlus,
+};
 
 export function cardName(card, text) {
   return `${text.cards[card.id] || card.id}${card.up ? '+' : ''}`;

@@ -28,9 +28,10 @@ import {
 } from '@douyinfe/semi-ui';
 import { Gem, Lock, Star, Trash2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import GameShop from '../common/GameShop';
 import { RuleList } from '../common/SideBox';
 import { PlayTurnstile } from '../common/usePlayTurnstile';
-import { CardFace, cardName, useDungeonText } from './parts';
+import { CardFace, cardName, ITEM_ICONS, useDungeonText } from './parts';
 import {
   CLASSES,
   getAbyssRules,
@@ -535,8 +536,10 @@ const Lobby = ({
   onStart,
   onResume,
   onUnlock,
+  onBuy,
 }) => {
   const { t } = useTranslation();
+  const text = useDungeonText();
   if (!info?.meta) return null;
   return (
     <div className='dg-lobby'>
@@ -573,6 +576,22 @@ const Lobby = ({
             busy={busy}
             onStart={onStart}
             onResume={onResume}
+          />
+        </TabPane>
+        <TabPane itemKey='shop' tab={t('道具商店')}>
+          <GameShop
+            shop={info.shop}
+            texts={text.items}
+            icons={ITEM_ICONS}
+            owned={info.meta.items}
+            maxStack={info.catalog?.max_item_stack || 99}
+            symbol={info.symbol}
+            busy={busy}
+            note={t(
+              '道具在三种模式里都能用，用掉一件少一件；每轮最多用 {{n}} 件',
+              { n: info.catalog?.items_per_run || 5 },
+            )}
+            onBuy={onBuy}
           />
         </TabPane>
       </Tabs>

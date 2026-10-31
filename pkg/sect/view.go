@@ -60,6 +60,7 @@ type View struct {
 	Res          Cost             `json:"res"`
 	Rates        Rates            `json:"rates"`
 	Pills        map[string]int   `json:"pills"`
+	Items        map[string]int   `json:"items"`
 	Recipes      []PillSpec       `json:"recipes"`
 	Disciples    []DiscipleView   `json:"disciples"`
 	Cap          int              `json:"cap"`
@@ -79,7 +80,7 @@ type View struct {
 // View 返回 now 时刻(已经 Tick 过)的宗门。
 func (s *Sect) View(now int64) View {
 	v := View{
-		Now: now, Created: s.Created, Res: s.Res, Rates: s.Rates(now), Pills: s.Pills, Recipes: Pills,
+		Now: now, Created: s.Created, Res: s.Res, Rates: s.Rates(now), Pills: s.Pills, Items: s.Items, Recipes: Pills,
 		Cap: s.Cap(), Missions: s.Missions, MissionSlots: s.MissionSlots(), RecruitAt: s.RecruitAt,
 		NextEventAt: s.NextEventAt, Log: s.Log, Stats: s.Stats, HallPower: int(math.Round(HallPower(s.Buildings[BuildingHall]))),
 	}

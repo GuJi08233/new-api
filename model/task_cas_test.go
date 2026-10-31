@@ -92,6 +92,7 @@ func TestMain(m *testing.M) {
 		&GameRoomSeat{},
 		&GameJackpotRound{},
 		&GameJackpotEntry{},
+		&GameSave{},
 	); err != nil {
 		panic("failed to migrate: " + err.Error())
 	}
@@ -159,6 +160,7 @@ func truncateTables(t *testing.T) {
 		DB.Exec("DELETE FROM game_room_seats")
 		DB.Exec("DELETE FROM game_jackpot_rounds")
 		DB.Exec("DELETE FROM game_jackpot_entries")
+		DB.Exec("DELETE FROM game_saves")
 	})
 }
 

@@ -133,6 +133,10 @@ type Run struct {
 	Bosses      int      `json:"bosses"`
 	Removals    int      `json:"removals"`
 	PhoenixUsed bool     `json:"phoenix_used,omitempty"`
+	// ItemsUsed 是这一轮用了几件商店道具；Ward 是身上有一张还没生效的护命符，WardUsed 是护命符已经救过一次。
+	ItemsUsed int  `json:"items_used,omitempty"`
+	Ward      bool `json:"ward,omitempty"`
+	WardUsed  bool `json:"ward_used,omitempty"`
 	// Trial 是试炼的标识，Fight 是正在打第几场(从 0 开始)，Turns 是已经打完的几场一共用了几回合。
 	Trial string `json:"trial,omitempty"`
 	Fight int    `json:"fight,omitempty"`

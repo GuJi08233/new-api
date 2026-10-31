@@ -44,6 +44,14 @@ func init() {
 				"daily_reward_runs": sect.DailyRewardRuns,
 			}
 			info["offline_cap"] = sect.OfflineCap
+			info["max_item_stack"] = sect.MaxItemStack
+			ids, cents := make([]string, 0, len(sect.ShopItems)), make([]int, 0, len(sect.ShopItems))
+			for _, item := range sect.ShopItems {
+				ids, cents = append(ids, item.Id), append(cents, item.Price)
+			}
+			if info["shop"], err = gameShopInfo(ctx.Setting, ids, cents); err != nil {
+				return nil, err
+			}
 			return info, nil
 		},
 		Routes: func(group *gin.RouterGroup) {
@@ -51,6 +59,7 @@ func init() {
 			group.GET("/tournament", getSectTournament)
 			group.POST("/tournament/start", middleware.GamePlayRateLimit("sect-tournament-start"), startSectTournament)
 			group.POST("/tournament/action", middleware.GameActionRateLimit("sect-tournament-action"), actSectTournament)
+			group.POST("/shop/buy", middleware.GamePlayRateLimit("sect-shop"), buySectItem)
 		},
 	})
 }
@@ -74,6 +83,10 @@ func respondSectError(c *gin.Context, err error) {
 		common.ApiErrorI18n(c, i18n.MsgGameSectUnavailable)
 	case errors.Is(err, sect.ErrAction):
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+	case errors.Is(err, sect.ErrNoItem):
+		common.ApiErrorI18n(c, i18n.MsgGameShopNoItem)
+	case errors.Is(err, sect.ErrItemLimit):
+		common.ApiErrorI18n(c, i18n.MsgGameShopItemLimit)
 	default:
 		common.ApiError(c, err)
 	}
@@ -353,4 +366,43 @@ func actSectTournament(c *gin.Context) {
 	}
 	view["status"], view["result"], view["version"] = model.GameSessionStatusFinished, result, session.Version+1
 	common.ApiSuccess(c, view)
+}
+
+// buySectItem 用游戏币买宗门道具：丹药直接进丹房，符箓进背包。还没有宗门时先开宗立派。
+func buySectItem(c *gin.Context) {
+	if !requireGameEnabled(c, sectGame) {
+		return
+	}
+	priceOf := func(id string) (int, bool) {
+		item, ok := sect.ShopItemOf(id)
+		return item.Price, ok
+	}
+	now := common.GetTimestamp()
+	add := func(data string, id string, count int) (string, error) {
+		s, err := sect.ParseSect(data)
+		if err != nil {
+			return "", err
+		}
+		if s == nil {
+			seed, err := newSectSeed()
+			if err != nil {
+				return "", err
+			}
+			s = sect.NewSect(seed, now)
+		}
+		if err := s.AddItem(id, count); err != nil {
+			return "", err
+		}
+		return s.Encode()
+	}
+	data, balance, ok := buyGameShopItem(c, sectGame, priceOf, add, sect.ErrItemLimit)
+	if !ok {
+		return
+	}
+	s, err := sect.ParseSect(data)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, gin.H{"sect": s.View(now), "events": []sect.Ev{}, "balance": balance})
 }

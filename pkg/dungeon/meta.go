@@ -58,6 +58,8 @@ type Meta struct {
 	Records  map[string]*ClassRecord `json:"records"`
 	// Trials 是每关试炼拿到过的最高星级。
 	Trials map[string]int `json:"trials"`
+	// Items 是用游戏币买来、还没用掉的商店道具。
+	Items map[string]int `json:"items"`
 }
 
 // ParseMeta 读出存档，空字符串是一份新存档。
@@ -76,6 +78,9 @@ func ParseMeta(data string) (*Meta, error) {
 	}
 	if m.Trials == nil {
 		m.Trials = map[string]int{}
+	}
+	if m.Items == nil {
+		m.Items = map[string]int{}
 	}
 	if !slices.Contains(m.Classes, ClassWarrior) {
 		m.Classes = append([]string{ClassWarrior}, m.Classes...)

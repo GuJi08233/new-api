@@ -358,3 +358,32 @@ func TestSectEncodeRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, empty)
 }
+
+// 聚灵符按现在的产量给两小时的资源；招贤令不花灵石换一批候选；丹药买了直接进丹房，超过上限不收。
+func TestShopItems(t *testing.T) {
+	s := NewSect(9, 0)
+	rates := s.Rates(0)
+	res := s.Res
+	require.NoError(t, s.AddItem(ItemSpirit, 1))
+	require.NoError(t, s.AddItem(ItemRecruit, 1))
+	evs, err := s.Apply(Action{Type: "item", Item: ItemSpirit}, 0)
+	require.NoError(t, err)
+	assert.Equal(t, res.Stone+int(rates.Stone*spiritHours), s.Res.Stone)
+	assert.Equal(t, res.Herb+int(rates.Herb*spiritHours), s.Res.Herb)
+	assert.Equal(t, Ev{K: "item", S: ItemSpirit}, evs[len(evs)-1])
+	_, err = s.Apply(Action{Type: "item", Item: ItemSpirit}, 0)
+	assert.ErrorIs(t, err, ErrNoItem)
+
+	recruits := s.Recruits
+	_, err = s.Apply(Action{Type: "item", Item: ItemRecruit}, 0)
+	require.NoError(t, err)
+	assert.NotSame(t, recruits[0], s.Recruits[0])
+	assert.Equal(t, res.Stone+int(rates.Stone*spiritHours), s.Res.Stone, "the recruit order costs no spirit stones")
+	assert.Empty(t, s.Items)
+
+	_, err = s.Apply(Action{Type: "item", Item: "pill_" + PillHeal}, 0)
+	assert.ErrorIs(t, err, ErrAction, "pills go straight to the alchemy room and are used as pills")
+	require.NoError(t, s.AddItem("pill_"+PillHeal, MaxItemStack-s.Pills[PillHeal]))
+	assert.ErrorIs(t, s.AddItem("pill_"+PillHeal, 1), ErrItemLimit)
+	assert.Equal(t, MaxItemStack, s.Pills[PillHeal])
+}

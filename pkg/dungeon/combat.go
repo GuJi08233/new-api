@@ -479,7 +479,7 @@ func (r *Run) damagePlayer(damage int, source string) int {
 	return damage - blocked
 }
 
-// loseHP 玩家失去生命(无视护甲)。生命归零时有不死鸟羽毛就复活，否则这一轮远征失败。
+// loseHP 玩家失去生命(无视护甲)。生命归零时有不死鸟羽毛或护命符就复活(羽毛先生效)，否则这一轮远征失败。
 func (r *Run) loseHP(n int, source string) {
 	if n < 0 {
 		n = 0
@@ -497,6 +497,12 @@ func (r *Run) loseHP(n int, source string) {
 		r.PhoenixUsed = true
 		r.HP = max(r.MaxHP*30/100, 1)
 		r.emit("revive", playerTarget, r.HP, RelicPhoenix)
+		return
+	}
+	if r.Ward {
+		r.Ward, r.WardUsed = false, true
+		r.HP = max(r.MaxHP*50/100, 1)
+		r.emit("revive", playerTarget, r.HP, ItemWard)
 		return
 	}
 	r.HP = 0

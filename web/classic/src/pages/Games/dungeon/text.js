@@ -268,6 +268,26 @@ export const getPotionText = (t) => ({
   weakness: { name: t('虚弱药剂'), desc: t('给予所有敌人 3 层虚弱') },
 });
 
+// 商店道具：用游戏币买，在远征里用掉一件少一件。标识与 pkg/dungeon 的 Item* 一致。
+export const getItemText = (t) => ({
+  elixir: {
+    name: t('回春药剂'),
+    desc: t('回复 40% 最大生命，战斗内外都能用'),
+  },
+  potion_crate: {
+    name: t('药水补给'),
+    desc: t('随机得到一瓶药水，药水栏要有空位'),
+  },
+  gold_pouch: { name: t('金币袋'), desc: t('获得 100 金币') },
+  relic_box: { name: t('遗物匣'), desc: t('随机得到一件还没有的遗物') },
+  ward: {
+    name: t('护命符'),
+    desc: t(
+      '本轮第一次倒下时以 50% 生命复活，在不死鸟之羽之后生效；每轮最多一张',
+    ),
+  },
+});
+
 export const getEnemyNames = (t) => ({
   slime: t('腐化史莱姆'),
   goblin: t('地精斥候'),

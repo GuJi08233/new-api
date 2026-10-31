@@ -67,6 +67,15 @@ func init() {
 				"practice_max_stage":   dungeon.PracticeMaxStage,
 				"practice_max_deck":    dungeon.PracticeMaxDeck,
 				"practice_max_enemies": dungeon.PracticeMaxEnemies,
+				"items_per_run":        dungeon.ItemsPerRun,
+				"max_item_stack":       dungeon.MaxItemStack,
+			}
+			ids, cents := make([]string, 0, len(dungeon.ShopItems)), make([]int, 0, len(dungeon.ShopItems))
+			for _, item := range dungeon.ShopItems {
+				ids, cents = append(ids, item.Id), append(cents, item.Price)
+			}
+			if info["shop"], err = gameShopInfo(ctx.Setting, ids, cents); err != nil {
+				return nil, err
 			}
 			return info, nil
 		},
@@ -75,6 +84,7 @@ func init() {
 			group.POST("/start", middleware.GamePlayRateLimit("dungeon-start"), startDungeonRun)
 			group.POST("/action", middleware.GameActionRateLimit("dungeon-action"), actDungeonRun)
 			group.POST("/unlock", middleware.GamePlayRateLimit("dungeon-unlock"), unlockDungeon)
+			group.POST("/shop/buy", middleware.GamePlayRateLimit("dungeon-shop"), buyDungeonItem)
 		},
 	})
 }
@@ -102,6 +112,7 @@ func dungeonMetaView(meta *dungeon.Meta) gin.H {
 		"talents":   meta.Talents,
 		"records":   meta.Records,
 		"trials":    meta.Trials,
+		"items":     meta.Items,
 		"max_abyss": maxAbyss,
 	}
 }
@@ -273,6 +284,7 @@ func actDungeonRun(c *gin.Context) {
 		Target    *int   `json:"target"`
 		Choice    *int   `json:"choice"`
 		Potion    *int   `json:"potion"`
+		Item      string `json:"item"`
 	}
 	if decodeGameRequest(c, &req) != nil || req.Action == "" {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
@@ -313,6 +325,11 @@ func actDungeonRun(c *gin.Context) {
 				return -1
 			}
 			return *v
+		}
+		if req.Action == "item" {
+			// 用背包里的道具：道具从存档里拿走与这一步的新局面在同一个事务里保存，道具不会白扣也不会白用。
+			useDungeonItem(c, game, session, state, req.Item)
+			return
 		}
 		action := dungeon.Action{Type: req.Action, Node: orNone(req.Node), Card: orNone(req.Card), Target: orNone(req.Target),
 			Choice: orNone(req.Choice), Potion: orNone(req.Potion)}
@@ -429,4 +446,88 @@ func unlockDungeon(c *gin.Context) {
 		return
 	}
 	common.ApiSuccess(c, gin.H{"meta": dungeonMetaView(meta)})
+}
+
+// useDungeonItem 在进行中的一轮里用掉背包里的一件道具。道具不会让一轮结束(护命符只是挂在身上)，所以只保存新局面，不结算。
+func useDungeonItem(c *gin.Context, game string, session *model.GameSession, state *dungeonState, item string) {
+	meta, err := loadDungeonMeta(session.UserId)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if meta.Items[item] < 1 {
+		common.ApiErrorI18n(c, i18n.MsgGameShopNoItem)
+		return
+	}
+	switch err := state.Run.UseItem(item); {
+	case errors.Is(err, dungeon.ErrItemLimit):
+		common.ApiErrorI18n(c, i18n.MsgGameShopItemLimit)
+		return
+	case err != nil:
+		common.ApiErrorI18n(c, i18n.MsgGameMoveInvalid)
+		return
+	}
+	data, err := common.Marshal(state)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	var saved string
+	err = model.UpdateGameSessionAndSave(session, string(data), "", dungeonGame, func(save string) (string, error) {
+		current, err := dungeon.ParseMeta(save)
+		if err != nil {
+			return "", err
+		}
+		if err := current.TakeItem(item); err != nil {
+			return "", err
+		}
+		saved, err = current.Encode()
+		return saved, err
+	})
+	if errors.Is(err, dungeon.ErrNoItem) {
+		common.ApiErrorI18n(c, i18n.MsgGameShopNoItem)
+		return
+	}
+	if err != nil {
+		respondGameError(c, game, err)
+		return
+	}
+	meta, err = dungeon.ParseMeta(saved)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	view := dungeonRunView(session, state)
+	view["meta"] = dungeonMetaView(meta)
+	common.ApiSuccess(c, view)
+}
+
+func buyDungeonItem(c *gin.Context) {
+	if !requireGameEnabled(c, dungeonGame) {
+		return
+	}
+	priceOf := func(id string) (int, bool) {
+		item, ok := dungeon.ShopItemOf(id)
+		return item.Price, ok
+	}
+	add := func(data string, id string, count int) (string, error) {
+		meta, err := dungeon.ParseMeta(data)
+		if err != nil {
+			return "", err
+		}
+		if err := meta.AddItem(id, count); err != nil {
+			return "", err
+		}
+		return meta.Encode()
+	}
+	data, balance, ok := buyGameShopItem(c, dungeonGame, priceOf, add, dungeon.ErrItemLimit)
+	if !ok {
+		return
+	}
+	meta, err := dungeon.ParseMeta(data)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, gin.H{"meta": dungeonMetaView(meta), "balance": balance})
 }
