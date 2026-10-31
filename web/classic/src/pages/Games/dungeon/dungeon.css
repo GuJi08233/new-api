@@ -638,98 +638,20 @@
   animation: dg-fade 0.4s ease-out;
 }
 
+/* 敌人的水墨画像见 wendao/art/EnemyArt.jsx；首领画得大一些。 */
 .dg-enemy-art {
+  display: block;
   align-self: center;
-  width: 74px;
-  height: 74px;
-  border-radius: 40% 40% 46% 46%;
-  background: radial-gradient(
-    circle at 35% 30%,
-    rgba(var(--semi-grey-3), 1),
-    rgba(var(--semi-grey-7), 1)
-  );
-  box-shadow: inset 0 -8px 14px rgba(0, 0, 0, 0.25);
+  width: 92px;
+  height: 92px;
 }
-
-/* 敌人的外形只用颜色区分大类：史莱姆绿、亡灵灰白、火焰橙、虚空紫、首领更大。 */
-.dg-enemy-art.is-slime,
-.dg-enemy-art.is-slime_king {
-  border-radius: 50% 50% 38% 38%;
-  background: radial-gradient(
-    circle at 35% 30%,
-    rgba(var(--semi-lime-3), 1),
-    rgba(var(--semi-green-6), 1)
-  );
-}
-
-.dg-enemy-art.is-goblin,
-.dg-enemy-art.is-goblin_chief,
-.dg-enemy-art.is-werewolf,
-.dg-enemy-art.is-troll {
-  background: radial-gradient(
-    circle at 35% 30%,
-    rgba(var(--semi-amber-3), 1),
-    rgba(var(--semi-brown-6, var(--semi-orange-7)), 1)
-  );
-}
-
-.dg-enemy-art.is-skeleton,
-.dg-enemy-art.is-death_knight,
-.dg-enemy-art.is-lich {
-  background: radial-gradient(circle at 35% 30%, #f1f5f9, #94a3b8);
-}
-
-.dg-enemy-art.is-moth,
-.dg-enemy-art.is-shade_mage,
-.dg-enemy-art.is-void_walker,
-.dg-enemy-art.is-soul_eater {
-  background: radial-gradient(
-    circle at 35% 30%,
-    rgba(var(--semi-violet-3), 1),
-    rgba(var(--semi-violet-7), 1)
-  );
-}
-
-.dg-enemy-art.is-lava_elemental,
-.dg-enemy-art.is-flame_lord {
-  background: radial-gradient(
-    circle at 35% 30%,
-    rgba(var(--semi-yellow-3), 1),
-    rgba(var(--semi-red-6), 1)
-  );
-}
-
-.dg-enemy-art.is-gargoyle,
-.dg-enemy-art.is-crystal_golem,
-.dg-enemy-art.is-beetle,
-.dg-enemy-art.is-abyss_guard {
-  border-radius: 22%;
-  background: radial-gradient(
-    circle at 35% 30%,
-    rgba(var(--semi-cyan-3), 1),
-    rgba(var(--semi-blue-7), 1)
-  );
-}
-
-.dg-enemy-art.is-abyss_drake,
-.dg-enemy-art.is-abyss_lord {
-  background: radial-gradient(
-    circle at 35% 30%,
-    rgba(var(--semi-pink-4), 1),
-    #1e1b4b
-  );
-}
-
-.dg-enemy-art.is-dummy {
-  border-radius: 12px 12px 4px 4px;
-  background: repeating-linear-gradient(0deg, #a16207 0 8px, #ca8a04 8px 16px);
-}
-
 .dg-enemy-art.is-slime_king,
 .dg-enemy-art.is-flame_lord,
-.dg-enemy-art.is-abyss_lord {
-  width: 104px;
-  height: 104px;
+.dg-enemy-art.is-abyss_lord,
+.dg-enemy-art.is-abyss_drake,
+.dg-enemy-art.is-lich {
+  width: 120px;
+  height: 120px;
 }
 
 .dg-enemy-name {

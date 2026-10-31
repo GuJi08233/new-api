@@ -29,7 +29,7 @@ import {
   realmLabel,
   useSectText,
 } from '../../sect/parts';
-import { CLASS_ICONS } from './CreateHero';
+import Portrait from '../art/Portrait';
 import { getKeyText } from './text';
 
 // 主角：流派、境界与修为条(两次同步之间按闭关速度往前推)、生命与力量；第九层圆满时可以突破。
@@ -39,7 +39,6 @@ const HeroCard = ({ hero, pills, elapsed, now, busy, onBreak, onQi }) => {
   const classes = getClassText(t);
   const keys = getKeyText(t);
   const [usePill, setUsePill] = useState(false);
-  const Icon = CLASS_ICONS[hero.class];
   const exp = hero.bottleneck
     ? hero.need
     : Math.min(hero.exp + (hero.rate * elapsed) / 3600, hero.need);
@@ -51,8 +50,8 @@ const HeroCard = ({ hero, pills, elapsed, now, busy, onBreak, onQi }) => {
   return (
     <section className='jn-hero'>
       <div className='jn-hero-head'>
-        <span className={`jn-hero-icon is-${hero.class}`}>
-          <Icon size={20} />
+        <span className='jn-hero-face'>
+          <Portrait who={`hero_${hero.class}`} />
         </span>
         <div className='jn-hero-title'>
           <strong>{realmLabel(sectText, t, hero.realm, hero.layer)}</strong>

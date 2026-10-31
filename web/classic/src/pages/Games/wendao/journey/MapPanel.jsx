@@ -34,6 +34,8 @@ import {
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useDungeonText, RelicChip } from '../../dungeon/parts';
+import ChapterScene from '../art/Scene';
+import EnemyArt from '../art/EnemyArt';
 import { getEnemyNames } from '../../dungeon/text';
 import {
   CostChips,
@@ -77,6 +79,7 @@ const MapPanel = ({
   onSelect,
   onVisit,
   onFight,
+  onStory,
 }) => {
   const { t } = useTranslation();
   const chapters = getChapterText(t);
@@ -104,6 +107,7 @@ const MapPanel = ({
             key={index}
             className={`jn-chapter ${chapter === index ? 'is-active' : ''}`}
             disabled={index > reached}
+            title={index >= info.chapters ? t('敬请期待') : undefined}
             onClick={() => setChapter(index)}
           >
             {index > reached && <Lock size={12} />}
@@ -112,6 +116,7 @@ const MapPanel = ({
         ))}
       </div>
       <div className={`jn-map is-ch${chapter + 1}`}>
+        <ChapterScene chapter={chapter} className='jn-map-scene' />
         <svg
           className='jn-map-lines'
           viewBox='0 0 100 100'
@@ -165,6 +170,7 @@ const MapPanel = ({
       {current && (
         <NodeDetail
           key={current.id}
+          onStory={onStory}
           info={info}
           node={current}
           hero={hero}
@@ -180,6 +186,7 @@ const MapPanel = ({
 };
 
 const NodeDetail = ({
+  onStory,
   info,
   node,
   hero,
@@ -242,19 +249,14 @@ const NodeDetail = ({
           </span>
         )}
       </header>
-      {own.lines ? (
-        <div className='jn-lines'>
-          {own.lines.map((line, index) => (
-            <p key={index}>{line}</p>
-          ))}
-        </div>
-      ) : (
-        <p className='jn-desc'>{own.desc}</p>
-      )}
+      <p className='jn-desc'>{own.desc || own.lines?.[0]?.text}</p>
       {fights && (
         <div className='jn-enemies'>
           {node.enemies.map((id, index) => (
             <span key={index} className='jn-enemy'>
+              <span className='jn-enemy-art'>
+                <EnemyArt id={id} />
+              </span>
               {enemyNames[id]}
             </span>
           ))}
@@ -353,9 +355,32 @@ const NodeDetail = ({
           <Button
             theme='solid'
             disabled={busy}
-            onClick={() => onVisit(node.id)}
+            onClick={() =>
+              onStory({
+                lines: own.lines,
+                chapter: node.chapter,
+                title: own.name,
+                doneLabel: t('继续'),
+                onDone: () => onVisit(node.id),
+              })
+            }
           >
             {t('前往')}
+          </Button>
+        )}
+        {node.kind === 'story' && state === 'done' && (
+          <Button
+            disabled={busy}
+            onClick={() =>
+              onStory({
+                lines: own.lines,
+                chapter: node.chapter,
+                title: own.name,
+                doneLabel: t('合上'),
+              })
+            }
+          >
+            {t('回顾')}
           </Button>
         )}
         {node.kind === 'gather' && (state === 'open' || state === 'repeat') && (
@@ -372,14 +397,23 @@ const NodeDetail = ({
             theme='solid'
             type={node.kind === 'boss' ? 'danger' : 'primary'}
             disabled={busy || hero.deck.length < 8}
-            onClick={() =>
-              onFight(
-                node.id,
-                team.filter((id) =>
-                  hero.companions.some((d) => d.id === id && d.ready),
-                ),
-              )
-            }
+            onClick={() => {
+              const members = team.filter((id) =>
+                hero.companions.some((d) => d.id === id && d.ready),
+              );
+              const fight = () => onFight(node.id, members);
+              if (first && own.intro) {
+                onStory({
+                  lines: own.intro,
+                  chapter: node.chapter,
+                  title: own.name,
+                  doneLabel: t('开战'),
+                  onDone: fight,
+                });
+                return;
+              }
+              fight();
+            }}
           >
             {first ? t('开战') : t('再战')}
           </Button>

@@ -18,6 +18,8 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import React, { useState } from 'react';
+import Portrait from '../art/Portrait';
+import StoryDialog from './StoryDialog';
 import { Button } from '@douyinfe/semi-ui';
 import { Flame, Shield, Swords } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -32,15 +34,21 @@ const CreateHero = ({ busy, onCreate }) => {
   const { t } = useTranslation();
   const classes = getClassText(t);
   const [picked, setPicked] = useState('warrior');
+  const [heard, setHeard] = useState(false);
+  if (!heard) {
+    return (
+      <StoryDialog
+        lines={getPrologue(t)}
+        chapter={0}
+        title={t('序章 · 宗主令')}
+        doneLabel={t('选择道途')}
+        onDone={() => setHeard(true)}
+      />
+    );
+  }
   return (
     <div className='jn-create'>
-      <div className='jn-prologue'>
-        {getPrologue(t).map((line, index) => (
-          <p key={index} style={{ '--i': index }}>
-            {line}
-          </p>
-        ))}
-      </div>
+      <h3 className='jn-create-title'>{t('选择道途')}</h3>
       <div className='jn-classes' role='radiogroup' aria-label={t('选择流派')}>
         {CLASSES.map((cls) => {
           const Icon = CLASS_ICONS[cls];
@@ -53,8 +61,13 @@ const CreateHero = ({ busy, onCreate }) => {
               className={`jn-class ${picked === cls ? 'is-picked' : ''}`}
               onClick={() => setPicked(cls)}
             >
-              <Icon size={22} />
-              <strong>{classes[cls].name}</strong>
+              <span className='jn-class-face'>
+                <Portrait who={`hero_${cls}`} />
+              </span>
+              <strong>
+                <Icon size={15} />
+                {classes[cls].name}
+              </strong>
               <span>{classes[cls].desc}</span>
             </button>
           );

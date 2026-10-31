@@ -34,6 +34,7 @@ import MapPanel from './MapPanel';
 import Collection from './Collection';
 import Gear from './Gear';
 import BattleStage from './BattleStage';
+import StoryDialog from './StoryDialog';
 import { heroEventLines } from './lines';
 import '../../common/logic-puzzles.css';
 import '../../dungeon/dungeon.css';
@@ -57,6 +58,8 @@ const JourneyPage = () => {
   const [notice, setNotice] = useState(null);
   const [ended, setEnded] = useState(null);
   const [battleEvents, setBattleEvents] = useState(null);
+  // story 是正在播放的一段剧情：lines、chapter、title、doneLabel 与播完后做什么(onDone)。
+  const [story, setStory] = useState(null);
   const busyRef = useRef(false);
   const eventKey = useRef(0);
   const [, setTick] = useState(0);
@@ -150,6 +153,21 @@ const JourneyPage = () => {
   let body;
   if (!state) {
     body = null;
+  } else if (story) {
+    body = (
+      <StoryDialog
+        key={story.key}
+        lines={story.lines}
+        chapter={story.chapter}
+        title={story.title}
+        doneLabel={story.doneLabel}
+        onDone={async () => {
+          const next = story.onDone;
+          setStory(null);
+          if (next) await next();
+        }}
+      />
+    );
   } else if (!hero) {
     body = (
       <CreateHero
@@ -195,6 +213,7 @@ const JourneyPage = () => {
               busy={busy}
               selected={selected}
               onSelect={setSelected}
+              onStory={(next) => setStory({ ...next, key: Date.now() })}
               onVisit={(node) => act('visit', { node })}
               onFight={async (node, team) => {
                 const data = await act('fight', { node, team });

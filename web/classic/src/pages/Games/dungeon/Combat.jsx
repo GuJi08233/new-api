@@ -33,6 +33,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import { Floaters, useFloaters } from '../common/effects';
 import { playSound } from '../common/sound';
+import EnemyArt from '../wendao/art/EnemyArt';
 import {
   CardFace,
   HpBar,
@@ -279,7 +280,9 @@ const Combat = ({ run, busy, send, events, targeting, setTargeting }) => {
             aria-label={enemyNames[enemy.id] || enemy.id}
           >
             {!enemy.dead && <IntentBadge intent={enemy.intent} />}
-            <span className={`dg-enemy-art is-${enemy.id}`} aria-hidden />
+            <span className={`dg-enemy-art is-${enemy.id}`} aria-hidden>
+              <EnemyArt id={enemy.id} />
+            </span>
             <span className='dg-enemy-name'>
               {enemyNames[enemy.id] || enemy.id}
             </span>
