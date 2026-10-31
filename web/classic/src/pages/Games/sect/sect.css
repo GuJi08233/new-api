@@ -887,3 +887,27 @@
   color: var(--semi-color-text-2);
   text-align: right;
 }
+
+/* 仙盟：公告、妖王血条、待领奖励与捐献。 */
+.sc-alliance-notice {
+  margin: 10px 0 0;
+  padding: 8px 12px;
+  border-left: 3px solid var(--semi-color-primary);
+  border-radius: 4px;
+  background: var(--semi-color-fill-0);
+  white-space: pre-wrap;
+}
+
+.sc-boss-hp {
+  margin-bottom: 10px;
+}
+
+.sc-alliance-pending {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--semi-color-warning-light-default);
+}
+
+.sc-donate {
+  flex-wrap: wrap;
+}

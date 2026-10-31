@@ -95,6 +95,8 @@ func TestMain(m *testing.M) {
 		&GameSave{},
 		&SectArena{},
 		&SectArenaBattle{},
+		&SectAlliance{},
+		&SectAllianceMember{},
 	); err != nil {
 		panic("failed to migrate: " + err.Error())
 	}
@@ -165,6 +167,8 @@ func truncateTables(t *testing.T) {
 		DB.Exec("DELETE FROM game_saves")
 		DB.Exec("DELETE FROM sect_arenas")
 		DB.Exec("DELETE FROM sect_arena_battles")
+		DB.Exec("DELETE FROM sect_alliances")
+		DB.Exec("DELETE FROM sect_alliance_members")
 	})
 }
 

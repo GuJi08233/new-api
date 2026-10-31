@@ -68,6 +68,15 @@ func init() {
 			group.GET("/arena/battle", getSectArenaBattle)
 			group.POST("/arena/start", middleware.GamePlayRateLimit("sect-arena-start"), startSectArena)
 			group.POST("/arena/action", middleware.GameActionRateLimit("sect-arena-action"), actSectArena)
+			group.GET("/alliance", getSectAlliance)
+			group.POST("/alliance/create", middleware.GamePlayRateLimit("sect-alliance"), createSectAlliance)
+			group.POST("/alliance/join", middleware.GamePlayRateLimit("sect-alliance"), joinSectAlliance)
+			group.POST("/alliance/leave", middleware.GamePlayRateLimit("sect-alliance"), leaveSectAlliance)
+			group.POST("/alliance/donate", middleware.GameActionRateLimit("sect-alliance-donate"), donateSectAlliance)
+			group.POST("/alliance/upgrade", middleware.GamePlayRateLimit("sect-alliance"), upgradeSectAlliance)
+			group.POST("/alliance/notice", middleware.GamePlayRateLimit("sect-alliance"), setSectAllianceNotice)
+			group.POST("/alliance/attack", middleware.GamePlayRateLimit("sect-alliance-attack"), attackSectAlliance)
+			group.POST("/alliance/claim", middleware.GamePlayRateLimit("sect-alliance"), claimSectAlliance)
 		},
 	})
 }
@@ -112,9 +121,15 @@ func actSect(c *gin.Context) {
 		return
 	}
 	now := common.GetTimestamp()
+	// 仙盟等级给产出加成：每次操作前按仙盟表刷新，结算这段时间的产出时用上。
+	allianceLevel, err := model.GetSectAllianceLevel(c.GetInt("id"))
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	var evs []sect.Ev
 	var current *sect.Sect
-	_, err := model.UpdateGameSave(c.GetInt("id"), sectGame, func(data string) (string, error) {
+	_, err = model.UpdateGameSave(c.GetInt("id"), sectGame, func(data string) (string, error) {
 		s, err := sect.ParseSect(data)
 		if err != nil {
 			return "", err
@@ -126,6 +141,7 @@ func actSect(c *gin.Context) {
 			}
 			s = sect.NewSect(seed, now)
 		}
+		s.AllianceLevel = allianceLevel
 		evs, err = s.Apply(req, now)
 		if err != nil {
 			return "", err

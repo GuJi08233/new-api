@@ -37,6 +37,7 @@ import Alchemy from './Alchemy';
 import Tournament from './Tournament';
 import Shop from './Shop';
 import Arena from './Arena';
+import Alliance from './Alliance';
 import {
   SectTextProvider,
   eventSentence,
@@ -448,6 +449,16 @@ const SectPage = () => {
                   round={arenaRound}
                   setRound={setArenaRound}
                   onSettled={sync}
+                />
+              </TabPane>
+              <TabPane tab={t('仙盟')} itemKey='alliance'>
+                <Alliance
+                  sect={sect}
+                  now={now}
+                  busy={busy}
+                  post={post}
+                  onSect={(next) => accept({ sect: next })}
+                  onEvents={showEvents}
                 />
               </TabPane>
               <TabPane tab={t('商店')} itemKey='shop'>

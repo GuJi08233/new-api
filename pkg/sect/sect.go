@@ -121,6 +121,8 @@ type Sect struct {
 	Items map[string]int `json:"items,omitempty"`
 	// Arena 是论剑战绩。
 	Arena ArenaStats `json:"arena"`
+	// AllianceLevel 是宗门所在仙盟的等级(没有入盟为 0)，每级给产出加成 AllianceBonusPerLevel。每次经营操作前由调用方按仙盟表刷新。
+	AllianceLevel int `json:"alliance_level,omitempty"`
 }
 
 // NewSect 开宗立派：主殿、灵田、聚灵阵各一级，两名弟子(上品与良品资质)，一些灵石灵草与两颗回春丹。第一件奇遇半小时后出现。
@@ -279,10 +281,11 @@ func (s *Sect) Rates(at int64) Rates {
 		bonus[d.Job] += b
 	}
 	level := func(b string) float64 { return float64(s.Buildings[b]) }
+	alliance := 1 + AllianceBonusPerLevel*float64(s.AllianceLevel)
 	return Rates{
-		Stone: hallStonePerLevel*level(BuildingHall) + arrayStonePerLevel*level(BuildingArray)*(1+bonus[JobArray]),
-		Herb:  fieldHerbPerLevel * level(BuildingField) * (1 + bonus[JobField]),
-		Ore:   mineOrePerLevel * level(BuildingMine) * (1 + bonus[JobMine]),
+		Stone: (hallStonePerLevel*level(BuildingHall) + arrayStonePerLevel*level(BuildingArray)*(1+bonus[JobArray])) * alliance,
+		Herb:  fieldHerbPerLevel * level(BuildingField) * (1 + bonus[JobField]) * alliance,
+		Ore:   mineOrePerLevel * level(BuildingMine) * (1 + bonus[JobMine]) * alliance,
 	}
 }
 
