@@ -13,16 +13,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// sectSettings 打开问道宗门：大比连胜三场奖励 1 个游戏币，不限游戏时长。
+// sectSettings 打开问道与宗门大比：大比连胜三场奖励 1 个游戏币，不限游戏时长。
 func sectSettings() *operation_setting.GameSetting {
 	return gameSetting(func(s *operation_setting.GameSetting) {
-		s.Sect = operation_setting.SkillRule{Enabled: true, DailyRewards: 1, Tiers: []operation_setting.RewardTier{{Score: 3, Coins: 1}}}
+		s.Wendao = operation_setting.SkillRule{Enabled: true}
+		s.WendaoTournament = operation_setting.SkillRule{Enabled: true, DailyRewards: 1, Tiers: []operation_setting.RewardTier{{Score: 3, Coins: 1}}}
 	})
 }
 
 func sectView(t *testing.T, player *gamePlayer, body map[string]any) map[string]any {
 	t.Helper()
-	return player.ok(http.MethodPost, "/api/game/sect/action", body)["sect"].(map[string]any)
+	return player.ok(http.MethodPost, "/api/game/wendao/sect/action", body)["sect"].(map[string]any)
 }
 
 func editSect(t *testing.T, player *gamePlayer, edit func(s *wendao.Sect)) {
@@ -58,9 +59,9 @@ func TestSectActionsPersistInTheSave(t *testing.T) {
 	require.Len(t, disciples, 2)
 	assert.Nil(t, view["rng"], "the random state never reaches the browser")
 
-	message := player.fails(http.MethodPost, "/api/game/sect/action", map[string]any{"action": "upgrade", "building": wendao.BuildingHall})
+	message := player.fails(http.MethodPost, "/api/game/wendao/sect/action", map[string]any{"action": "upgrade", "building": wendao.BuildingHall})
 	assert.Equal(t, i18n.Translate(i18n.LangEn, i18n.MsgGameSectResources), message)
-	player.fails(http.MethodPost, "/api/game/sect/action", map[string]any{"action": "fly"})
+	player.fails(http.MethodPost, "/api/game/wendao/sect/action", map[string]any{"action": "fly"})
 
 	first := disciples[0].(map[string]any)["id"]
 	sectView(t, player, map[string]any{"action": "assign", "disciple": first, "job": wendao.JobField})
@@ -74,7 +75,7 @@ func TestSectTournamentSettlesOnce(t *testing.T) {
 	require.NoError(t, i18n.Init())
 	env := newGameTestEnv(t, sectSettings())
 	player := env.player(0, gameTestIpA)
-	path := "/api/game/sect/tournament"
+	path := "/api/game/wendao/sect/tournament"
 	view := sectView(t, player, map[string]any{"action": "sync"})
 	first := view["disciples"].([]any)[0].(map[string]any)["id"]
 	second := view["disciples"].([]any)[1].(map[string]any)["id"]

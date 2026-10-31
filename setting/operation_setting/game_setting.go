@@ -36,7 +36,7 @@ type GameSetting struct {
 	// RecordRetentionDays 是对局、对战房间、奖池、每日计数与游戏币明细里的游戏流水保留的天数，过了就由系统任务清理；
 	// 每个玩家在每个游戏里的最高成绩留着，兑换、提现与管理员调整的流水不清理。0 表示一直保留。
 	RecordRetentionDays int `json:"record_retention_days"`
-	// ShopEnabled 开放长期游戏(深渊远征、问道宗门)里的道具商店：花游戏币买一次性道具，花掉的币直接销毁。关闭后不能再买，
+	// ShopEnabled 开放问道(九幽秘境与宗门)里的道具商店：花游戏币买一次性道具，花掉的币直接销毁。关闭后不能再买，
 	// 已经买到背包里的道具照常能用。ShopPricePercent 按百分比统一调整所有道具的价格，100 为原价。
 	ShopEnabled      bool `json:"shop_enabled"`
 	ShopPricePercent int  `json:"shop_price_percent"`
@@ -76,8 +76,9 @@ type GameSetting struct {
 	Watersort   SkillRule `json:"watersort"`
 	Onestroke   SkillRule `json:"onestroke"`
 	Match3      SkillRule `json:"match3"`
-	Dungeon     SkillRule `json:"dungeon"`
-	Sect        SkillRule `json:"sect"`
+	// Wendao 是问道的开关与九幽秘境无尽模式的领奖规则；WendaoTournament 是问道里宗门大比的开关与领奖规则。
+	Wendao           SkillRule `json:"wendao"`
+	WendaoTournament SkillRule `json:"wendao_tournament"`
 
 	Slots     WagerRule `json:"slots"`
 	Wheel     WheelRule `json:"wheel"`
@@ -278,10 +279,10 @@ var gameRuleSpecs = map[string]gameRuleSpec{
 	"watersort":   {Kind: GameKindSkill, MaxTierScore: 3},
 	"onestroke":   {Kind: GameKindSkill, MaxTierScore: 3},
 	"match3":      {Kind: GameKindSkill, MaxTierScore: 3},
-	// 深渊远征无尽模式的成绩是打通的幕数，奖励档位最多填到 30 幕，与 pkg/dungeon.MaxTierScore 一致。
-	"dungeon": {Kind: GameKindSkill, MaxTierScore: 30},
-	// 问道宗门的成绩是宗门大比的连胜场数，最多五场，与 pkg/sect.MaxTierScore 一致。
-	"sect": {Kind: GameKindSkill, MaxTierScore: 5},
+	// 问道：九幽秘境无尽模式的成绩是打通的重数，奖励档位最多填到 30 重，与 pkg/dungeon.MaxTierScore 一致；
+	// 宗门大比的成绩是连胜场数，最多五场，与 pkg/wendao.MaxTierScore 一致。
+	"wendao":            {Kind: GameKindSkill, MaxTierScore: 30},
+	"wendao_tournament": {Kind: GameKindSkill, MaxTierScore: 5},
 
 	"slots":     {Kind: GameKindWager, MinBet: 1, MaxBet: 1000},
 	"wheel":     {Kind: GameKindWager},
@@ -577,6 +578,13 @@ func dailyCoinRule(score int, seconds int) SkillRule {
 	return SkillRule{DailyRewards: 1, Tiers: []RewardTier{{Score: score, Coins: 1}}, MinSecondsPerCoin: seconds}
 }
 
+// wendaoTournamentRule 是问道宗门大比的默认规则：随问道一起开放，连胜三场领 1 个游戏币。
+func wendaoTournamentRule() SkillRule {
+	rule := dailyCoinRule(3, 180)
+	rule.Enabled = true
+	return rule
+}
+
 // aiRule 是人机对战的默认领奖规则：赢下普通或困难难度领 1 个游戏币，简单难度只用来练手。
 func aiRule(seconds int) SkillRule {
 	rule := dailyCoinRule(2, seconds)
@@ -635,10 +643,10 @@ func DefaultGameSetting() *GameSetting {
 		Watersort:   dailyCoinRule(2, 180),
 		Onestroke:   dailyCoinRule(2, 150),
 		Match3:      dailyCoinRule(2, 180),
-		// 深渊远征一轮要玩很久，打败第一幕首领就能领，时长按免费游戏的上限 5 分钟。
-		Dungeon: dailyCoinRule(1, 300),
-		// 宗门大比连胜三场领 1 个游戏币：照着对手亮出的招式应对基本都能做到，乱点很难。
-		Sect: dailyCoinRule(3, 180),
+		// 问道的秘境一轮要玩很久，打败第一重首领就能领，时长按免费游戏的上限 5 分钟。问道本身默认关闭；宗门大比随问道
+		// 一起开放，连胜三场领 1 个游戏币：照着对手亮出的招式应对基本都能做到，乱点很难。
+		Wendao:           dailyCoinRule(1, 300),
+		WendaoTournament: wendaoTournamentRule(),
 
 		Slots:     WagerRule{MaxBet: 10},
 		Wheel:     WheelRule{FreeSpins: 1, SpinCost: 1},
@@ -733,10 +741,10 @@ func (s *GameSetting) SkillRuleOf(game string) (SkillRule, bool) {
 		return s.Onestroke, true
 	case "match3":
 		return s.Match3, true
-	case "dungeon":
-		return s.Dungeon, true
-	case "sect":
-		return s.Sect, true
+	case "wendao":
+		return s.Wendao, true
+	case "wendao_tournament":
+		return s.WendaoTournament, true
 	}
 	return SkillRule{}, false
 }
@@ -805,6 +813,9 @@ func (s *GameSetting) GameEnabled(game string) bool {
 		return s.Wheel.Enabled
 	case "jackpot":
 		return s.Jackpot.Enabled
+	case "wendao_tournament":
+		// 宗门大比是问道里的玩法，问道关闭时大比也关闭。
+		return s.Wendao.Enabled && s.WendaoTournament.Enabled
 	}
 	if rule, ok := s.SkillRuleOf(game); ok {
 		return rule.Enabled

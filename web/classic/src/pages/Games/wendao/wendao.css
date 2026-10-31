@@ -1,0 +1,51 @@
+/* 问道：顶上的板块切换。颜色跟随站点主题。 */
+.wd-parts {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 14px;
+  padding: 4px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 12px;
+  background: var(--semi-color-bg-1);
+}
+.wd-part {
+  position: relative;
+  display: inline-flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--semi-color-text-1);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
+}
+.wd-part:hover {
+  background: var(--semi-color-fill-0);
+  color: var(--semi-color-text-0);
+}
+.wd-part.is-active {
+  background: var(--semi-color-primary-light-default);
+  color: var(--semi-color-primary);
+}
+.wd-part:focus-visible {
+  outline: 2px solid var(--semi-color-primary);
+  outline-offset: 1px;
+}
+.wd-part-dot {
+  position: absolute;
+  top: 6px;
+  right: 10px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--semi-color-danger);
+}

@@ -21,13 +21,12 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { TabPane, Tabs } from '@douyinfe/semi-ui';
 import { Gem, Hammer, Leaf, Star } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import GameLayout from '../common/GameLayout';
 import { RuleList, SideBox, StageMessage } from '../common/SideBox';
 import { playSkillFeedback, SkillSide } from '../common/skill';
 import { Floaters, celebrate, useFloaters } from '../common/effects';
 import { playSound } from '../common/sound';
 import { gameGet, gamePost, withTurnstile } from '../common/api';
-import { useGameInfo } from '../common/useGameInfo';
+import { WendaoLayout, useWendaoPart } from '../wendao/shell';
 import { usePlayTurnstile } from '../common/usePlayTurnstile';
 import { useVisiblePolling } from '../common/useVisiblePolling';
 import Overview from './Overview';
@@ -71,7 +70,7 @@ function useServerClock(serverNow, receivedAt) {
 const SectPage = () => {
   const { t } = useTranslation();
   const text = useSectText();
-  const { info, loading, unavailable, patch, reload } = useGameInfo('sect');
+  const { info, patch, reload } = useWendaoPart('sect');
   const turnstile = usePlayTurnstile(info?.play_turnstile);
   const [sect, setSect] = useState(null);
   const [receivedAt, setReceivedAt] = useState(0);
@@ -182,7 +181,10 @@ const SectPage = () => {
 
   const act = async (action, fields = {}) => {
     setNotice(null);
-    const data = await post('/api/game/sect/action', { action, ...fields });
+    const data = await post('/api/game/wendao/sect/action', {
+      action,
+      ...fields,
+    });
     if (!data) return false;
     accept(data);
     showEvents(data.events || []);
@@ -191,7 +193,7 @@ const SectPage = () => {
 
   const buyItem = async (item, count) => {
     setNotice(null);
-    const data = await post('/api/game/sect/shop/buy', { item, count });
+    const data = await post('/api/game/wendao/sect/shop/buy', { item, count });
     if (!data) return;
     playSound('coin');
     accept(data);
@@ -201,7 +203,7 @@ const SectPage = () => {
   const sync = useCallback(async () => {
     if (busyRef.current) return;
     const response = await gamePost(
-      '/api/game/sect/action',
+      '/api/game/wendao/sect/action',
       { action: 'sync' },
       t,
     );
@@ -216,14 +218,14 @@ const SectPage = () => {
   useEffect(() => {
     if (!loaded) return;
     sync();
-    gameGet('/api/game/sect/tournament', t).then((response) => {
+    gameGet('/api/game/wendao/sect/tournament', t).then((response) => {
       const session = response.data?.session;
       if (session?.status === 'playing') {
         setRound(session);
         setTab('tournament');
       }
     });
-    gameGet('/api/game/sect/arena/battle', t).then((response) => {
+    gameGet('/api/game/wendao/sect/arena/battle', t).then((response) => {
       const session = response.data?.session;
       if (session?.status === 'playing') {
         setArenaRound(session);
@@ -237,7 +239,7 @@ const SectPage = () => {
 
   const startTournament = async (team) => {
     const data = await post(
-      withTurnstile('/api/game/sect/tournament/start', turnstile.take()),
+      withTurnstile('/api/game/wendao/sect/tournament/start', turnstile.take()),
       { team },
     );
     if (!data) return;
@@ -248,7 +250,7 @@ const SectPage = () => {
 
   const move = async (action, index = 0) => {
     if (!round || round.status !== 'playing') return;
-    const data = await post('/api/game/sect/tournament/action', {
+    const data = await post('/api/game/wendao/sect/tournament/action', {
       session_id: round.session_id,
       version: round.version,
       action,
@@ -256,7 +258,7 @@ const SectPage = () => {
     });
     if (!data) {
       const response = await gameGet(
-        `/api/game/sect/tournament?session_id=${round.session_id}`,
+        `/api/game/wendao/sect/tournament?session_id=${round.session_id}`,
         t,
       );
       if (response.data?.session) setRound(response.data.session);
@@ -294,12 +296,8 @@ const SectPage = () => {
   const pills = sect?.pills || {};
 
   return (
-    <GameLayout
-      title={t('问道宗门')}
-      loading={loading || (loaded && !sect && !error)}
-      unavailable={unavailable}
-      balance={info?.balance}
-      symbol={info?.symbol}
+    <WendaoLayout
+      loading={loaded && !sect && !error}
       className='sc-page'
       side={
         info && (
@@ -415,7 +413,7 @@ const SectPage = () => {
                 />
               </TabPane>
               <TabPane
-                tab={readyMissions > 0 ? `${t('历练')} ●` : t('历练')}
+                tab={readyMissions > 0 ? `${t('派遣')} ●` : t('派遣')}
                 itemKey='missions'
               >
                 <Missions sect={sect} now={now} busy={busy} act={act} />
@@ -482,7 +480,7 @@ const SectPage = () => {
         </div>
         {error && <StageMessage kind='error'>{error}</StageMessage>}
       </div>
-    </GameLayout>
+    </WendaoLayout>
   );
 };
 

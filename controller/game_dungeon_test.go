@@ -14,16 +14,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// dungeonSettings 打开深渊远征：打败一个首领奖励 1 个游戏币，不限游戏时长。
+// dungeonSettings 打开问道：秘境打败一个首领奖励 1 个游戏币，不限游戏时长。
 func dungeonSettings() *operation_setting.GameSetting {
 	return gameSetting(func(s *operation_setting.GameSetting) {
-		s.Dungeon = puzzleRule()
+		s.Wendao = puzzleRule()
 	})
 }
 
 func dungeonMeta(t *testing.T, player *gamePlayer) map[string]any {
 	t.Helper()
-	return player.ok(http.MethodGet, "/api/game/dungeon", nil)["meta"].(map[string]any)
+	return player.ok(http.MethodGet, "/api/game/wendao", nil)["abyss"].(map[string]any)["meta"].(map[string]any)
 }
 
 // editDungeonRun 直接改写进行中那一轮的状态，用来造出打败首领之类要玩很久才能到的局面。
@@ -43,7 +43,7 @@ func editDungeonRun(t *testing.T, env *gameTestEnv, id any, edit func(run *dunge
 func TestDungeonRunSettlesCoinsAndCrystalsOnce(t *testing.T) {
 	env := newGameTestEnv(t, dungeonSettings())
 	player := env.player(0, gameTestIpA)
-	path := "/api/game/dungeon"
+	path := "/api/game/wendao/abyss"
 	view := player.ok(http.MethodPost, path+"/start", map[string]any{"class": dungeon.ClassWarrior, "abyss": 0})
 	player.fails(http.MethodPost, path+"/start", map[string]any{"class": dungeon.ClassWarrior, "abyss": 0})
 
@@ -81,7 +81,7 @@ func TestDungeonUnlockSpendsCrystals(t *testing.T) {
 	message := func(key string) string { return i18n.Translate(i18n.LangEn, key) }
 	env := newGameTestEnv(t, dungeonSettings())
 	player := env.player(0, gameTestIpA)
-	path := "/api/game/dungeon"
+	path := "/api/game/wendao/abyss"
 	assert.Equal(t, message(i18n.MsgGameDungeonLocked), player.fails(http.MethodPost, path+"/start", map[string]any{"class": dungeon.ClassMage, "abyss": 0}))
 	player.fails(http.MethodPost, path+"/start", map[string]any{"class": dungeon.ClassWarrior, "abyss": 1})
 	assert.Equal(t, message(i18n.MsgGameDungeonCrystals), player.fails(http.MethodPost, path+"/unlock", map[string]any{"item": "class:" + dungeon.ClassMage}))
@@ -106,7 +106,7 @@ func TestDungeonUnlockSpendsCrystals(t *testing.T) {
 func TestDungeonTrialAwardsStarsWithoutTouchingEndlessRun(t *testing.T) {
 	env := newGameTestEnv(t, dungeonSettings())
 	player := env.player(0, gameTestIpA)
-	path := "/api/game/dungeon"
+	path := "/api/game/wendao/abyss"
 	endless := player.ok(http.MethodPost, path+"/start", map[string]any{"class": dungeon.ClassWarrior})
 	player.fails(http.MethodPost, path+"/start", map[string]any{"mode": dungeon.ModeTrial, "trial": dungeon.Trials[1].Id})
 
@@ -140,7 +140,7 @@ func TestDungeonTrialAwardsStarsWithoutTouchingEndlessRun(t *testing.T) {
 func TestDungeonPracticeResetsAndNeverSettles(t *testing.T) {
 	env := newGameTestEnv(t, dungeonSettings())
 	player := env.player(0, gameTestIpA)
-	path := "/api/game/dungeon"
+	path := "/api/game/wendao/abyss"
 	setup := map[string]any{"class": dungeon.ClassRanger, "deck": []map[string]any{{"id": "r_shoot"}, {"id": "r_volley", "up": true}},
 		"enemies": []string{dungeon.DummyEnemy}, "stage": 1, "infinite_energy": true}
 	invalid := map[string]any{"class": dungeon.ClassRanger, "deck": []map[string]any{}, "enemies": []string{dungeon.DummyEnemy}, "stage": 1}

@@ -23,9 +23,9 @@ import (
 // 不能换成游戏币。
 
 const (
-	dungeonGame         = "dungeon"
-	dungeonTrialGame    = "dungeon_trial"
-	dungeonPracticeGame = "dungeon_practice"
+	dungeonGame         = wendaoGame
+	dungeonTrialGame    = "wendao_trial"
+	dungeonPracticeGame = "wendao_practice"
 )
 
 // dungeonSessionGames 是各模式的对局存在哪个游戏标识下。领奖次数、最高成绩只算无尽远征(dungeon)。
@@ -47,47 +47,47 @@ type dungeonState struct {
 	Run   *dungeon.Run `json:"run"`
 }
 
-func init() {
-	registerGame(&gameDefinition{Key: dungeonGame, Kind: operation_setting.GameKindSkill,
-		Info: func(ctx *gameContext) (gin.H, error) {
-			rule, _ := ctx.Setting.SkillRuleOf(dungeonGame)
-			info, err := skillInfo(ctx, dungeonGame, rule)
-			if err != nil {
-				return nil, err
-			}
-			meta, err := loadDungeonMeta(ctx.UserId)
-			if err != nil {
-				return nil, err
-			}
-			info["meta"] = dungeonMetaView(meta)
-			info["catalog"] = gin.H{
-				"class_costs":          dungeon.ClassCosts,
-				"talents":              dungeon.Talents,
-				"max_abyss":            dungeon.MaxAbyss,
-				"content":              dungeon.NewCatalog(),
-				"practice_max_stage":   dungeon.PracticeMaxStage,
-				"practice_max_deck":    dungeon.PracticeMaxDeck,
-				"practice_max_enemies": dungeon.PracticeMaxEnemies,
-				"items_per_run":        dungeon.ItemsPerRun,
-				"max_item_stack":       dungeon.MaxItemStack,
-			}
-			ids, cents := make([]string, 0, len(dungeon.ShopItems)), make([]int, 0, len(dungeon.ShopItems))
-			for _, item := range dungeon.ShopItems {
-				ids, cents = append(ids, item.Id), append(cents, item.Price)
-			}
-			if info["shop"], err = gameShopInfo(ctx.Setting, ids, cents); err != nil {
-				return nil, err
-			}
-			return info, nil
-		},
-		Routes: func(group *gin.RouterGroup) {
-			group.GET("/state", getDungeonRun)
-			group.POST("/start", middleware.GamePlayRateLimit("dungeon-start"), startDungeonRun)
-			group.POST("/action", middleware.GameActionRateLimit("dungeon-action"), actDungeonRun)
-			group.POST("/unlock", middleware.GamePlayRateLimit("dungeon-unlock"), unlockDungeon)
-			group.POST("/shop/buy", middleware.GamePlayRateLimit("dungeon-shop"), buyDungeonItem)
-		},
-	})
+// abyssInfo 是问道页里秘境板块的规则：局外成长、解锁价格、牌与敌人的图鉴、商店，附上无尽模式的领奖规则与今天的进度。
+func abyssInfo(ctx *gameContext) (gin.H, error) {
+	rule, _ := ctx.Setting.SkillRuleOf(dungeonGame)
+	info, err := skillInfo(ctx, dungeonGame, rule)
+	if err != nil {
+		return nil, err
+	}
+	meta, err := loadDungeonMeta(ctx.UserId)
+	if err != nil {
+		return nil, err
+	}
+	wendaoPartGate(ctx, info, dungeonGame)
+	info["meta"] = dungeonMetaView(meta)
+	info["catalog"] = gin.H{
+		"class_costs":          dungeon.ClassCosts,
+		"talents":              dungeon.Talents,
+		"max_abyss":            dungeon.MaxAbyss,
+		"content":              dungeon.NewCatalog(),
+		"practice_max_stage":   dungeon.PracticeMaxStage,
+		"practice_max_deck":    dungeon.PracticeMaxDeck,
+		"practice_max_enemies": dungeon.PracticeMaxEnemies,
+		"items_per_run":        dungeon.ItemsPerRun,
+		"max_item_stack":       dungeon.MaxItemStack,
+	}
+	ids, cents := make([]string, 0, len(dungeon.ShopItems)), make([]int, 0, len(dungeon.ShopItems))
+	for _, item := range dungeon.ShopItems {
+		ids, cents = append(ids, item.Id), append(cents, item.Price)
+	}
+	if info["shop"], err = gameShopInfo(ctx.Setting, ids, cents); err != nil {
+		return nil, err
+	}
+	return info, nil
+}
+
+// registerAbyssRoutes 在 /api/game/wendao/abyss 下注册秘境板块的接口。
+func registerAbyssRoutes(group *gin.RouterGroup) {
+	group.GET("/state", getDungeonRun)
+	group.POST("/start", middleware.GamePlayRateLimit("dungeon-start"), startDungeonRun)
+	group.POST("/action", middleware.GameActionRateLimit("dungeon-action"), actDungeonRun)
+	group.POST("/unlock", middleware.GamePlayRateLimit("dungeon-unlock"), unlockDungeon)
+	group.POST("/shop/buy", middleware.GamePlayRateLimit("dungeon-shop"), buyDungeonItem)
 }
 
 func loadDungeonMeta(userId int) (*dungeon.Meta, error) {
@@ -502,7 +502,7 @@ func buyDungeonItem(c *gin.Context) {
 	add := func(data string, id string, count int) (string, error) {
 		return updateAbyssSave(data, func(meta *dungeon.Meta) error { return meta.AddItem(id, count) })
 	}
-	data, balance, ok := buyGameShopItem(c, dungeonGame, wendao.SaveKey, priceOf, add, dungeon.ErrItemLimit)
+	data, balance, ok := buyGameShopItem(c, "wendao_abyss", wendao.SaveKey, priceOf, add, dungeon.ErrItemLimit)
 	if !ok {
 		return
 	}

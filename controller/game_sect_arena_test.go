@@ -18,7 +18,7 @@ func TestSectArenaChallengeMovesRatingsOnce(t *testing.T) {
 	env := newGameTestEnv(t, sectSettings())
 	defender := env.player(0, gameTestIpA)
 	attacker := env.player(0, gameTestIpB)
-	path := "/api/game/sect/arena"
+	path := "/api/game/wendao/sect/arena"
 
 	view := sectView(t, defender, map[string]any{"action": "sync"})
 	guard := view["disciples"].([]any)[0].(map[string]any)["id"]

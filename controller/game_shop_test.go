@@ -25,14 +25,14 @@ func shopLogs(t *testing.T, env *gameTestEnv, userId int) []model.GameCoinLog {
 func TestDungeonShopChargesCoinsIntoTheBag(t *testing.T) {
 	require.NoError(t, i18n.Init())
 	env := newGameTestEnv(t, gameSetting(func(s *operation_setting.GameSetting) {
-		s.Dungeon = puzzleRule()
+		s.Wendao = puzzleRule()
 		s.ShopPricePercent = 50
 	}))
 	player := env.player(2, gameTestIpA)
-	path := "/api/game/dungeon/shop/buy"
+	path := "/api/game/wendao/abyss/shop/buy"
 
-	info := player.ok(http.MethodGet, "/api/game/dungeon", nil)
-	shop := info["shop"].(map[string]any)
+	info := player.ok(http.MethodGet, "/api/game/wendao", nil)
+	shop := info["abyss"].(map[string]any)["shop"].(map[string]any)
 	assert.Equal(t, true, shop["enabled"])
 	assert.Equal(t, map[string]any{"id": dungeon.ItemWard, "price": 0.5}, shop["items"].([]any)[4], "half of the 1-coin list price")
 
@@ -41,7 +41,7 @@ func TestDungeonShopChargesCoinsIntoTheBag(t *testing.T) {
 	assert.Equal(t, map[string]any{dungeon.ItemElixir: float64(3)}, bought["meta"].(map[string]any)["items"])
 	logs := shopLogs(t, env, player.user.Id)
 	require.Len(t, logs, 1)
-	assert.Equal(t, "dungeon:elixir×3", logs[0].Remark)
+	assert.Equal(t, "wendao_abyss:elixir×3", logs[0].Remark)
 	assert.Equal(t, -0.3, coinsOf(t, logs[0].Amount))
 
 	message := player.fails(http.MethodPost, path, map[string]any{"item": dungeon.ItemWard, "count": 4})
@@ -66,10 +66,10 @@ func TestDungeonItemsAreConsumedInsideARun(t *testing.T) {
 	require.NoError(t, i18n.Init())
 	env := newGameTestEnv(t, dungeonSettings())
 	player := env.player(5, gameTestIpA)
-	player.ok(http.MethodPost, "/api/game/dungeon/shop/buy", map[string]any{"item": dungeon.ItemGold, "count": 6})
-	player.ok(http.MethodPost, "/api/game/dungeon/shop/buy", map[string]any{"item": dungeon.ItemElixir, "count": 1})
+	player.ok(http.MethodPost, "/api/game/wendao/abyss/shop/buy", map[string]any{"item": dungeon.ItemGold, "count": 6})
+	player.ok(http.MethodPost, "/api/game/wendao/abyss/shop/buy", map[string]any{"item": dungeon.ItemElixir, "count": 1})
 
-	path := "/api/game/dungeon"
+	path := "/api/game/wendao/abyss"
 	view := player.ok(http.MethodPost, path+"/start", map[string]any{"class": dungeon.ClassWarrior, "abyss": 0})
 	ageSession(t, env, view["session_id"], 60)
 	message := player.fails(http.MethodPost, path+"/action", puzzleAction(view, map[string]any{"action": "item", "item": dungeon.ItemWard}))
@@ -95,7 +95,7 @@ func TestSectShopPillsAndTalismans(t *testing.T) {
 	require.NoError(t, i18n.Init())
 	env := newGameTestEnv(t, sectSettings())
 	player := env.player(3, gameTestIpA)
-	path := "/api/game/sect/shop/buy"
+	path := "/api/game/wendao/sect/shop/buy"
 
 	bought := player.ok(http.MethodPost, path, map[string]any{"item": "pill_" + wendao.PillBreak, "count": 2})
 	assert.Equal(t, 2.0, bought["balance"])
@@ -103,16 +103,16 @@ func TestSectShopPillsAndTalismans(t *testing.T) {
 	bought = player.ok(http.MethodPost, path, map[string]any{"item": wendao.ItemSwift, "count": 1})
 	assert.Equal(t, map[string]any{wendao.ItemSwift: float64(1)}, bought["sect"].(map[string]any)["items"])
 
-	message := player.fails(http.MethodPost, "/api/game/sect/action", map[string]any{"action": "item", "item": wendao.ItemSwift})
+	message := player.fails(http.MethodPost, "/api/game/wendao/sect/action", map[string]any{"action": "item", "item": wendao.ItemSwift})
 	assert.Equal(t, i18n.Translate(i18n.LangEn, i18n.MsgGameShopItemLimit), message)
-	message = player.fails(http.MethodPost, "/api/game/sect/action", map[string]any{"action": "item", "item": wendao.ItemSpirit})
+	message = player.fails(http.MethodPost, "/api/game/wendao/sect/action", map[string]any{"action": "item", "item": wendao.ItemSpirit})
 	assert.Equal(t, i18n.Translate(i18n.LangEn, i18n.MsgGameShopNoItem), message)
 
 	view := sectView(t, player, map[string]any{"action": "sync"})
 	first := view["disciples"].([]any)[0].(map[string]any)["id"]
 	view = sectView(t, player, map[string]any{"action": "dispatch", "mission": wendao.Missions[0].Key, "team": []any{first}})
 	mission := view["missions"].([]any)[0].(map[string]any)
-	player.fails(http.MethodPost, "/api/game/sect/action", map[string]any{"action": "claim", "id": mission["id"]})
+	player.fails(http.MethodPost, "/api/game/wendao/sect/action", map[string]any{"action": "claim", "id": mission["id"]})
 	view = sectView(t, player, map[string]any{"action": "item", "item": wendao.ItemSwift})
 	assert.Equal(t, map[string]any{}, view["items"])
 	sectView(t, player, map[string]any{"action": "claim", "id": mission["id"]})

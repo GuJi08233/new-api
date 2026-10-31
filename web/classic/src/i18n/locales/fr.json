@@ -6977,7 +6977,6 @@
     "报名大比": "S'inscrire au tournoi",
     "认输后按已经连胜的场数结算。": "L'abandon est réglé selon les victoires déjà obtenues.",
     "宗门大比 · 第 {{round}} / {{rounds}} 轮": "Tournoi des sectes · Manche {{round}} / {{rounds}}",
-    "问道宗门": "La Secte du Dao",
     "大比连胜": "Victoires au tournoi",
     "宗门战绩": "Palmarès de la secte",
     "大比 {{n}} 次 · 夺魁 {{champions}} 次 · 突破 {{breaks}} 次": "{{n}} tournois · {{champions}} titres · {{breaks}} percées",
@@ -7158,7 +7157,6 @@
     "灵兽山": "Mont des Bêtes spirituelles",
     "碧水阁": "Pavillon de l'Eau de jade",
     "金刚寺": "Monastère du Vajra",
-    "修仙宗门经营：建造灵田丹房、培养弟子突破境界、派遣历练，参加宗门大比赢游戏币": "Dirigez une secte de cultivation : construisez champs et salle d'alchimie, faites percer vos disciples, envoyez-les en expédition et gagnez des pièces au tournoi",
     "已有 {{n}}": "Possédés : {{n}}",
     "已放满": "Plein",
     "购买": "Acheter",
@@ -7509,6 +7507,10 @@
     "劫数 {{abyss}}": "Tribulation {{abyss}}",
     "第 {{act}} 重 · 第 {{floor}} 层": "Palier {{act}} · Étage {{floor}}",
     "背包是空的，可以在秘境入口的道具商店购买": "Votre sac est vide — achetez des objets à la boutique à l'entrée du royaume secret",
-    "修仙卡牌肉鸽：以体修、法修、剑修闯秘境，无尽幽冥、试炼与练习三种模式": "Roguelike de cartes de cultivation : affrontez le royaume secret en cultivateur corporel, des arts ou d'épée, en modes Sans fin, Épreuves et Entraînement"
+    "问道": "Wendao",
+    "秘境": "Royaume secret",
+    "长线修仙：历练主线闯关、经营宗门培养弟子、闯九幽秘境卡牌肉鸽，秘境无尽与宗门大比赢游戏币": "Cultivation au long cours : suivez l'histoire principale, dirigez une secte et formez des disciples, affrontez le roguelike de cartes des Neuf Enfers ; gagnez des jetons dans le royaume secret sans fin et les tournois de secte",
+    "问道 · 宗门大比": "Wendao · Tournoi de secte",
+    "问道宗门板块里的大比：带弟子打擂台，按连胜场数领奖": "Le tournoi de la partie secte de Wendao : menez vos disciples dans l'arène, récompenses selon les victoires d'affilée"
   }
 }

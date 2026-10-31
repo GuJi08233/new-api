@@ -148,7 +148,7 @@ func sectAllianceView(userId int) (gin.H, error) {
 }
 
 func getSectAlliance(c *gin.Context) {
-	if !requireGameEnabled(c, sectGame) {
+	if !requireGameEnabled(c, wendaoGame) {
 		return
 	}
 	view, err := sectAllianceView(c.GetInt("id"))
@@ -197,7 +197,7 @@ func cleanAllianceText(text string, maxRunes int) (string, bool) {
 
 // createSectAlliance 建一个仙盟：主殿要到 AllianceMinHall 级，花费从宗门里扣。
 func createSectAlliance(c *gin.Context) {
-	if !requireGameEnabled(c, sectGame) {
+	if !requireGameEnabled(c, wendaoGame) {
 		return
 	}
 	var req struct {
@@ -236,7 +236,7 @@ func createSectAlliance(c *gin.Context) {
 }
 
 func joinSectAlliance(c *gin.Context) {
-	if !requireGameEnabled(c, sectGame) {
+	if !requireGameEnabled(c, wendaoGame) {
 		return
 	}
 	var req struct {
@@ -266,7 +266,7 @@ func joinSectAlliance(c *gin.Context) {
 
 // leaveSectAlliance 退出仙盟(user_id 为空或是自己)，或者由盟主把一名成员请出仙盟。
 func leaveSectAlliance(c *gin.Context) {
-	if !requireGameEnabled(c, sectGame) {
+	if !requireGameEnabled(c, wendaoGame) {
 		return
 	}
 	var req struct {
@@ -290,7 +290,7 @@ func leaveSectAlliance(c *gin.Context) {
 
 // donateSectAlliance 把宗门的灵石、灵草与玄铁捐给仙盟，折成盟资与自己的贡献。
 func donateSectAlliance(c *gin.Context) {
-	if !requireGameEnabled(c, sectGame) {
+	if !requireGameEnabled(c, wendaoGame) {
 		return
 	}
 	var req wendao.Cost
@@ -317,7 +317,7 @@ func donateSectAlliance(c *gin.Context) {
 }
 
 func upgradeSectAlliance(c *gin.Context) {
-	if !requireGameEnabled(c, sectGame) {
+	if !requireGameEnabled(c, wendaoGame) {
 		return
 	}
 	if _, err := model.UpgradeSectAlliance(c.GetInt("id"), wendao.AllianceUpgradeFunds); err != nil {
@@ -328,7 +328,7 @@ func upgradeSectAlliance(c *gin.Context) {
 }
 
 func setSectAllianceNotice(c *gin.Context) {
-	if !requireGameEnabled(c, sectGame) {
+	if !requireGameEnabled(c, wendaoGame) {
 		return
 	}
 	var req struct {
@@ -352,7 +352,7 @@ func setSectAllianceNotice(c *gin.Context) {
 
 // attackSectAlliance 派弟子讨伐本周的 Boss(每人每天一次)，伤害按出战弟子的生命总和算，奖励先记在仙盟里待领。
 func attackSectAlliance(c *gin.Context) {
-	if !requireGameEnabled(c, sectGame) {
+	if !requireGameEnabled(c, wendaoGame) {
 		return
 	}
 	var req struct {
@@ -387,7 +387,7 @@ func attackSectAlliance(c *gin.Context) {
 
 // claimSectAlliance 把讨伐与击杀攒下的奖励领进宗门。
 func claimSectAlliance(c *gin.Context) {
-	if !requireGameEnabled(c, sectGame) {
+	if !requireGameEnabled(c, wendaoGame) {
 		return
 	}
 	now := common.GetTimestamp()

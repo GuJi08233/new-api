@@ -345,7 +345,7 @@ const Alliance = ({ sect, now, busy, post, onSect, onEvents }) => {
   const [view, setView] = useState(null);
 
   const load = useCallback(async () => {
-    const response = await gameGet('/api/game/sect/alliance', t);
+    const response = await gameGet('/api/game/wendao/sect/alliance', t);
     if (response.data) setView(response.data);
   }, [t]);
   useEffect(() => {
@@ -353,7 +353,7 @@ const Alliance = ({ sect, now, busy, post, onSect, onEvents }) => {
   }, [load]);
 
   const act = async (action, body = {}) => {
-    const data = await post(`/api/game/sect/alliance/${action}`, body);
+    const data = await post(`/api/game/wendao/sect/alliance/${action}`, body);
     if (!data) return false;
     setView(data);
     if (data.sect) onSect(data.sect);

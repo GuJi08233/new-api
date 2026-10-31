@@ -14,11 +14,12 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// 问道宗门是一款长期经营的修仙游戏：宗门存在玩家的局外存档(model.GameSave)里，产出与修炼由服务端按时间结算，所有经营
+// 宗门是问道的经营板块：宗门存在玩家的局外存档(model.GameSave)里，产出与修炼由服务端按时间结算，所有经营
 // 操作都锁住存档改写，不发游戏币。游戏币只从「宗门大比」来：大比是一局免费游戏，成绩是连胜场数，按领奖规则发放；大比
 // 给宗门的声望、灵石与没用完的回春丹在结算的同一个事务里写回存档。
 
-const sectGame = "sect"
+// sectTournamentGame 是宗门大比的对局与领奖规则用的游戏标识：大比有自己的开关与领奖规则，关掉它不影响问道的其他玩法。
+const sectTournamentGame = "wendao_tournament"
 
 // sectSecondsPerStep 是大比每一步最多算几秒有效游玩时长：要看对手的下一招、算伤害与五行。
 const sectSecondsPerStep = 15
@@ -31,54 +32,54 @@ type sectTournamentState struct {
 	Defender int `json:"defender,omitempty"`
 }
 
-func init() {
-	registerGame(&gameDefinition{Key: sectGame, Kind: operation_setting.GameKindSkill,
-		Info: func(ctx *gameContext) (gin.H, error) {
-			rule, _ := ctx.Setting.SkillRuleOf(sectGame)
-			info, err := skillInfo(ctx, sectGame, rule)
-			if err != nil {
-				return nil, err
-			}
-			info["tournament"] = gin.H{
-				"rounds":            wendao.TournamentRounds,
-				"team_size":         wendao.TeamSize,
-				"pouch_pills":       wendao.PouchPills,
-				"turns":             wendao.DuelTurns,
-				"daily_reward_runs": wendao.DailyRewardRuns,
-			}
-			info["offline_cap"] = wendao.OfflineCap
-			info["max_item_stack"] = wendao.MaxItemStack
-			ids, cents := make([]string, 0, len(wendao.ShopItems)), make([]int, 0, len(wendao.ShopItems))
-			for _, item := range wendao.ShopItems {
-				ids, cents = append(ids, item.Id), append(cents, item.Price)
-			}
-			if info["shop"], err = gameShopInfo(ctx.Setting, ids, cents); err != nil {
-				return nil, err
-			}
-			return info, nil
-		},
-		Routes: func(group *gin.RouterGroup) {
-			group.POST("/action", middleware.GameActionRateLimit("sect-action"), actSect)
-			group.GET("/tournament", getSectTournament)
-			group.POST("/tournament/start", middleware.GamePlayRateLimit("sect-tournament-start"), startSectTournament)
-			group.POST("/tournament/action", middleware.GameActionRateLimit("sect-tournament-action"), actSectTournament)
-			group.POST("/shop/buy", middleware.GamePlayRateLimit("sect-shop"), buySectItem)
-			group.GET("/arena", getSectArena)
-			group.POST("/arena/defense", middleware.GamePlayRateLimit("sect-arena-defense"), setSectArenaDefense)
-			group.GET("/arena/battle", getSectArenaBattle)
-			group.POST("/arena/start", middleware.GamePlayRateLimit("sect-arena-start"), startSectArena)
-			group.POST("/arena/action", middleware.GameActionRateLimit("sect-arena-action"), actSectArena)
-			group.GET("/alliance", getSectAlliance)
-			group.POST("/alliance/create", middleware.GamePlayRateLimit("sect-alliance"), createSectAlliance)
-			group.POST("/alliance/join", middleware.GamePlayRateLimit("sect-alliance"), joinSectAlliance)
-			group.POST("/alliance/leave", middleware.GamePlayRateLimit("sect-alliance"), leaveSectAlliance)
-			group.POST("/alliance/donate", middleware.GameActionRateLimit("sect-alliance-donate"), donateSectAlliance)
-			group.POST("/alliance/upgrade", middleware.GamePlayRateLimit("sect-alliance"), upgradeSectAlliance)
-			group.POST("/alliance/notice", middleware.GamePlayRateLimit("sect-alliance"), setSectAllianceNotice)
-			group.POST("/alliance/attack", middleware.GamePlayRateLimit("sect-alliance-attack"), attackSectAlliance)
-			group.POST("/alliance/claim", middleware.GamePlayRateLimit("sect-alliance"), claimSectAlliance)
-		},
-	})
+// sectInfo 是问道页里宗门板块的规则：大比、离线收益上限与宗门商店，附上宗门大比的领奖规则与今天的进度。
+func sectInfo(ctx *gameContext) (gin.H, error) {
+	rule, _ := ctx.Setting.SkillRuleOf(sectTournamentGame)
+	info, err := skillInfo(ctx, sectTournamentGame, rule)
+	if err != nil {
+		return nil, err
+	}
+	info["tournament"] = gin.H{
+		"rounds":            wendao.TournamentRounds,
+		"team_size":         wendao.TeamSize,
+		"pouch_pills":       wendao.PouchPills,
+		"turns":             wendao.DuelTurns,
+		"daily_reward_runs": wendao.DailyRewardRuns,
+	}
+	wendaoPartGate(ctx, info, sectTournamentGame)
+	info["offline_cap"] = wendao.OfflineCap
+	info["max_item_stack"] = wendao.MaxItemStack
+	ids, cents := make([]string, 0, len(wendao.ShopItems)), make([]int, 0, len(wendao.ShopItems))
+	for _, item := range wendao.ShopItems {
+		ids, cents = append(ids, item.Id), append(cents, item.Price)
+	}
+	if info["shop"], err = gameShopInfo(ctx.Setting, ids, cents); err != nil {
+		return nil, err
+	}
+	return info, nil
+}
+
+// registerSectRoutes 在 /api/game/wendao/sect 下注册宗门板块的接口。
+func registerSectRoutes(group *gin.RouterGroup) {
+	group.POST("/action", middleware.GameActionRateLimit("sect-action"), actSect)
+	group.GET("/tournament", getSectTournament)
+	group.POST("/tournament/start", middleware.GamePlayRateLimit("sect-tournament-start"), startSectTournament)
+	group.POST("/tournament/action", middleware.GameActionRateLimit("sect-tournament-action"), actSectTournament)
+	group.POST("/shop/buy", middleware.GamePlayRateLimit("sect-shop"), buySectItem)
+	group.GET("/arena", getSectArena)
+	group.POST("/arena/defense", middleware.GamePlayRateLimit("sect-arena-defense"), setSectArenaDefense)
+	group.GET("/arena/battle", getSectArenaBattle)
+	group.POST("/arena/start", middleware.GamePlayRateLimit("sect-arena-start"), startSectArena)
+	group.POST("/arena/action", middleware.GameActionRateLimit("sect-arena-action"), actSectArena)
+	group.GET("/alliance", getSectAlliance)
+	group.POST("/alliance/create", middleware.GamePlayRateLimit("sect-alliance"), createSectAlliance)
+	group.POST("/alliance/join", middleware.GamePlayRateLimit("sect-alliance"), joinSectAlliance)
+	group.POST("/alliance/leave", middleware.GamePlayRateLimit("sect-alliance"), leaveSectAlliance)
+	group.POST("/alliance/donate", middleware.GameActionRateLimit("sect-alliance-donate"), donateSectAlliance)
+	group.POST("/alliance/upgrade", middleware.GamePlayRateLimit("sect-alliance"), upgradeSectAlliance)
+	group.POST("/alliance/notice", middleware.GamePlayRateLimit("sect-alliance"), setSectAllianceNotice)
+	group.POST("/alliance/attack", middleware.GamePlayRateLimit("sect-alliance-attack"), attackSectAlliance)
+	group.POST("/alliance/claim", middleware.GamePlayRateLimit("sect-alliance"), claimSectAlliance)
 }
 
 // newSectSeed 是新宗门随机数的种子：两次 32 位安全随机数拼成 64 位。
@@ -125,7 +126,7 @@ func foundSect(save *wendao.Save, now int64) error {
 // actSect 执行一次经营操作：锁住存档，先结算到现在，再执行操作。还没有宗门时先开宗立派(任何操作都会建好宗门，页面打开时
 // 发一次 sync)。
 func actSect(c *gin.Context) {
-	if !requireGameEnabled(c, sectGame) {
+	if !requireGameEnabled(c, wendaoGame) {
 		return
 	}
 	var req wendao.Action
@@ -189,11 +190,11 @@ func sectDuelRule(game string) operation_setting.SkillRule {
 	return rule
 }
 
-func getSectTournament(c *gin.Context) { getSectDuel(c, sectGame) }
+func getSectTournament(c *gin.Context) { getSectDuel(c, sectTournamentGame) }
 
 // getSectDuel 读出进行中(或按 session_id 指定)的一场大比或论剑，game 是对局存在哪个游戏标识下。
 func getSectDuel(c *gin.Context, game string) {
-	if !requireGameEnabled(c, sectGame) {
+	if !requireGameEnabled(c, wendaoGame) {
 		return
 	}
 	var session *model.GameSession
@@ -235,7 +236,7 @@ func getSectDuel(c *gin.Context, game string) {
 
 // startSectTournament 带选好的弟子参加大比。
 func startSectTournament(c *gin.Context) {
-	if !requireGameEnabled(c, sectGame) {
+	if !requireGameEnabled(c, wendaoGame) || !requireGameEnabled(c, sectTournamentGame) {
 		return
 	}
 	var req struct {
@@ -245,7 +246,7 @@ func startSectTournament(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
-	startSectDuel(c, sectGame, 0, func(seed uint64, s *wendao.Sect, now int64) (*wendao.Tournament, error) {
+	startSectDuel(c, sectTournamentGame, 0, func(seed uint64, s *wendao.Sect, now int64) (*wendao.Tournament, error) {
 		return wendao.NewTournament(seed, s, req.Team, now)
 	})
 }
@@ -310,12 +311,12 @@ func startSectDuel(c *gin.Context, game string, defender int, build func(seed ui
 	common.ApiSuccess(c, sectTournamentView(session, state))
 }
 
-func actSectTournament(c *gin.Context) { actSectDuel(c, sectGame) }
+func actSectTournament(c *gin.Context) { actSectDuel(c, sectTournamentGame) }
 
 // actSectDuel 在一场大比或论剑里走一步(选人上场、出招或认输)。结束时按连胜场数结算，并在同一个事务里把声望、灵石与没用完的
 // 回春丹记进宗门；论剑另外按 Elo 改双方积分。
 func actSectDuel(c *gin.Context, game string) {
-	if !requireGameEnabled(c, sectGame) {
+	if !requireGameEnabled(c, wendaoGame) {
 		return
 	}
 	var req struct {
@@ -432,7 +433,7 @@ func actSectDuel(c *gin.Context, game string) {
 
 // buySectItem 用游戏币买宗门道具：丹药直接进丹房，符箓进背包。还没有宗门时先开宗立派。
 func buySectItem(c *gin.Context) {
-	if !requireGameEnabled(c, sectGame) {
+	if !requireGameEnabled(c, wendaoGame) {
 		return
 	}
 	priceOf := func(id string) (int, bool) {
@@ -448,7 +449,7 @@ func buySectItem(c *gin.Context) {
 			return save.Sect.AddItem(id, count)
 		})
 	}
-	data, balance, ok := buyGameShopItem(c, sectGame, wendao.SaveKey, priceOf, add, wendao.ErrItemLimit)
+	data, balance, ok := buyGameShopItem(c, "wendao_sect", wendao.SaveKey, priceOf, add, wendao.ErrItemLimit)
 	if !ok {
 		return
 	}

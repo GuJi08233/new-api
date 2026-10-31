@@ -283,7 +283,7 @@ const Arena = ({ sect, now, busy, post, round, setRound, onSettled }) => {
   const [overview, setOverview] = useState(null);
 
   const load = useCallback(async () => {
-    const response = await gameGet('/api/game/sect/arena', t);
+    const response = await gameGet('/api/game/wendao/sect/arena', t);
     if (response.data) setOverview(response.data);
   }, [t]);
   useEffect(() => {
@@ -291,12 +291,12 @@ const Arena = ({ sect, now, busy, post, round, setRound, onSettled }) => {
   }, [load]);
 
   const defend = async (team) => {
-    const data = await post('/api/game/sect/arena/defense', { team });
+    const data = await post('/api/game/wendao/sect/arena/defense', { team });
     if (data) load();
   };
 
   const challenge = async (opponent, team) => {
-    const data = await post('/api/game/sect/arena/start', { opponent, team });
+    const data = await post('/api/game/wendao/sect/arena/start', { opponent, team });
     if (!data) return;
     setRound(data);
     onSettled();
@@ -304,7 +304,7 @@ const Arena = ({ sect, now, busy, post, round, setRound, onSettled }) => {
 
   const move = async (action, index = 0) => {
     if (!round || round.status !== 'playing') return;
-    const data = await post('/api/game/sect/arena/action', {
+    const data = await post('/api/game/wendao/sect/arena/action', {
       session_id: round.session_id,
       version: round.version,
       action,
@@ -312,7 +312,7 @@ const Arena = ({ sect, now, busy, post, round, setRound, onSettled }) => {
     });
     if (!data) {
       const response = await gameGet(
-        `/api/game/sect/arena/battle?session_id=${round.session_id}`,
+        `/api/game/wendao/sect/arena/battle?session_id=${round.session_id}`,
         t,
       );
       if (response.data?.session) setRound(response.data.session);

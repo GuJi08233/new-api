@@ -54,7 +54,6 @@ import {
   Sparkle,
   Sprout,
   Flag,
-  Castle,
   MountainSnow,
 } from 'lucide-react';
 
@@ -80,8 +79,7 @@ export const GAME_PAGES = {
   watersort: lazy(() => import('./watersort')),
   onestroke: lazy(() => import('./onestroke')),
   match3: lazy(() => import('./match3')),
-  dungeon: lazy(() => import('./dungeon')),
-  sect: lazy(() => import('./sect')),
+  wendao: lazy(() => import('./wendao')),
   gomoku: lazy(() => import('./gomoku')),
   connect4: lazy(() => import('./connect4')),
   reversi: lazy(() => import('./reversi')),
@@ -126,8 +124,7 @@ export const GAME_ICONS = {
   watersort: FlaskConical,
   onestroke: PenLine,
   match3: Sparkle,
-  dungeon: Castle,
-  sect: MountainSnow,
+  wendao: MountainSnow,
   gomoku: Circle,
   connect4: LayoutGrid,
   reversi: Layers,

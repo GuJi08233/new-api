@@ -43,7 +43,7 @@ type skillOutcome struct {
 	Save *model.GameSaveUpdate
 }
 
-// skillSessionTTLOf 是一局免费游戏从开局到结算的最长时间(秒)。深渊远征一轮可以分几天玩完。
+// skillSessionTTLOf 是一局免费游戏从开局到结算的最长时间(秒)。问道的秘境一轮可以分几天玩完。
 func skillSessionTTLOf(game string) int64 {
 	if game == dungeonGame || game == dungeonTrialGame || game == dungeonPracticeGame {
 		return dungeonRunTTL

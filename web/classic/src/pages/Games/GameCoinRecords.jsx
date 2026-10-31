@@ -105,8 +105,8 @@ const GameCoinRecords = ({ version, symbol, explorerUrl, chainId }) => {
   const failReasons = getGameCoinWithdrawFailReasonMap(t);
   const gameMetaMap = getGameMetaMap(t);
   const shopItemNames = {
-    dungeon: getDungeonItemText(t),
-    sect: getSectItemText(t),
+    wendao_abyss: getDungeonItemText(t),
+    wendao_sect: getSectItemText(t),
   };
 
   const logColumns = [

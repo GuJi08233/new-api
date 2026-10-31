@@ -7125,7 +7125,6 @@
     "报名大比": "Enter the tournament",
     "认输后按已经连胜的场数结算。": "Conceding settles with the wins you already have.",
     "宗门大比 · 第 {{round}} / {{rounds}} 轮": "Sect Tournament · Round {{round}} / {{rounds}}",
-    "问道宗门": "Sect of the Dao",
     "大比连胜": "Tournament wins",
     "宗门战绩": "Sect record",
     "大比 {{n}} 次 · 夺魁 {{champions}} 次 · 突破 {{breaks}} 次": "{{n}} tournaments · {{champions}} titles · {{breaks}} breakthroughs",
@@ -7306,7 +7305,6 @@
     "灵兽山": "Spirit Beast Mountain",
     "碧水阁": "Jade Water Pavilion",
     "金刚寺": "Vajra Monastery",
-    "修仙宗门经营：建造灵田丹房、培养弟子突破境界、派遣历练，参加宗门大比赢游戏币": "Run a cultivation sect: build fields and an alchemy room, train disciples to break through realms, send them on expeditions, and win coins in the Sect Tournament",
     "已有 {{n}}": "Owned {{n}}",
     "已放满": "Full",
     "购买": "Buy",
@@ -7657,6 +7655,10 @@
     "劫数 {{abyss}}": "Tribulation {{abyss}}",
     "第 {{act}} 重 · 第 {{floor}} 层": "Tier {{act}} · Floor {{floor}}",
     "背包是空的，可以在秘境入口的道具商店购买": "Your bag is empty — buy items at the item shop by the secret realm entrance",
-    "修仙卡牌肉鸽：以体修、法修、剑修闯秘境，无尽幽冥、试炼与练习三种模式": "Cultivation card roguelike: brave the secret realm as a Body, Spell or Sword Cultivator in Endless, Trial and Practice modes"
+    "问道": "Wendao",
+    "秘境": "Secret Realm",
+    "长线修仙：历练主线闯关、经营宗门培养弟子、闯九幽秘境卡牌肉鸽，秘境无尽与宗门大比赢游戏币": "Long-term cultivation: follow the main story on your journey, run a sect and train disciples, and brave the Netherworld card roguelike; win game coins in the endless secret realm and sect tournaments",
+    "问道 · 宗门大比": "Wendao · Sect Tournament",
+    "问道宗门板块里的大比：带弟子打擂台，按连胜场数领奖": "The tournament in Wendao's sect part: lead disciples through the arena and earn rewards by consecutive wins"
   }
 }

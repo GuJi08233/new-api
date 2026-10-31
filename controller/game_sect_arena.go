@@ -11,7 +11,7 @@ import (
 // 问道宗门的论剑：掌门之间的异步对战。守擂阵容与积分存在 sect_arenas 表里，一场挑战是一局存在 sect_arena 标识下的对局，
 // 规则与大比的斗法相同(见 pkg/sect/arena.go)。论剑不发游戏币，只发宗门资源；积分只用来排名与匹配对手。
 
-const sectArenaGame = "sect_arena"
+const sectArenaGame = "wendao_arena"
 
 const (
 	// sectArenaOpponents 是论剑页列出几个积分相近的对手。
@@ -53,7 +53,7 @@ func loadSectArenaDefenders(row *model.SectArena) ([]*wendao.Fighter, error) {
 
 // getSectArena 是论剑页：自己的积分与守擂阵容、积分相近的对手(连同他们的守擂弟子)、论剑榜与最近战报。
 func getSectArena(c *gin.Context) {
-	if !requireGameEnabled(c, sectGame) {
+	if !requireGameEnabled(c, wendaoGame) {
 		return
 	}
 	userId := c.GetInt("id")
@@ -133,7 +133,7 @@ func getSectArena(c *gin.Context) {
 
 // setSectArenaDefense 设置守擂阵容：一到三名宗门里的弟子(在外历练或受伤也照常守擂)。第一次设置时上论剑榜。
 func setSectArenaDefense(c *gin.Context) {
-	if !requireGameEnabled(c, sectGame) {
+	if !requireGameEnabled(c, wendaoGame) {
 		return
 	}
 	var req struct {
@@ -180,7 +180,7 @@ func getSectArenaBattle(c *gin.Context) { getSectDuel(c, sectArenaGame) }
 
 // startSectArena 带选好的弟子挑战另一个宗门的守擂阵容。守擂弟子按对方宗门现在的实力上场。
 func startSectArena(c *gin.Context) {
-	if !requireGameEnabled(c, sectGame) {
+	if !requireGameEnabled(c, wendaoGame) {
 		return
 	}
 	var req struct {

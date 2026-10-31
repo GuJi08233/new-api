@@ -7479,7 +7479,6 @@
     "报名大比": "Đăng ký tỷ thí",
     "认输后按已经连胜的场数结算。": "Nhận thua sẽ kết toán theo số trận đã thắng liên tiếp.",
     "宗门大比 · 第 {{round}} / {{rounds}} 轮": "Đại tỷ thí tông môn · Vòng {{round}} / {{rounds}}",
-    "问道宗门": "Vấn Đạo Tông Môn",
     "大比连胜": "Thắng liên tiếp tỷ thí",
     "宗门战绩": "Thành tích tông môn",
     "大比 {{n}} 次 · 夺魁 {{champions}} 次 · 突破 {{breaks}} 次": "Tỷ thí {{n}} lần · Quán quân {{champions}} lần · Đột phá {{breaks}} lần",
@@ -7660,7 +7659,6 @@
     "灵兽山": "Linh Thú Sơn",
     "碧水阁": "Bích Thủy Các",
     "金刚寺": "Kim Cương Tự",
-    "修仙宗门经营：建造灵田丹房、培养弟子突破境界、派遣历练，参加宗门大比赢游戏币": "Kinh doanh tông môn tu tiên: xây linh điền đan phòng, bồi dưỡng đệ tử đột phá cảnh giới, phái đi lịch luyện, tham gia đại tỷ thí để thắng xu",
     "已有 {{n}}": "Đang có {{n}}",
     "已放满": "Đã đầy",
     "购买": "Mua",
@@ -8010,6 +8008,10 @@
     "劫数 {{abyss}}": "Kiếp số {{abyss}}",
     "第 {{act}} 重 · 第 {{floor}} 层": "Trọng {{act}} · Tầng {{floor}}",
     "背包是空的，可以在秘境入口的道具商店购买": "Túi đồ trống, có thể mua ở cửa hàng đạo cụ trước cửa bí cảnh",
-    "修仙卡牌肉鸽：以体修、法修、剑修闯秘境，无尽幽冥、试炼与练习三种模式": "Roguelike thẻ bài tu tiên: xông bí cảnh bằng Thể tu, Pháp tu, Kiếm tu, ba chế độ U Minh Vô Tận, Thử luyện và Luyện tập"
+    "问道": "Vấn Đạo",
+    "秘境": "Bí cảnh",
+    "长线修仙：历练主线闯关、经营宗门培养弟子、闯九幽秘境卡牌肉鸽，秘境无尽与宗门大比赢游戏币": "Tu tiên dài hạn: lịch luyện theo cốt truyện chính, kinh doanh tông môn bồi dưỡng đệ tử, xông Cửu U Bí Cảnh roguelike thẻ bài; thắng xu trò chơi ở bí cảnh vô tận và đại bỉ tông môn",
+    "问道 · 宗门大比": "Vấn Đạo · Đại bỉ tông môn",
+    "问道宗门板块里的大比：带弟子打擂台，按连胜场数领奖": "Đại bỉ trong phần tông môn của Vấn Đạo: dẫn đệ tử lên lôi đài, nhận thưởng theo số trận thắng liên tiếp"
   }
 }

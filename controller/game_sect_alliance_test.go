@@ -18,7 +18,7 @@ func TestSectAllianceLifecycle(t *testing.T) {
 	env := newGameTestEnv(t, sectSettings())
 	leader := env.player(0, gameTestIpA)
 	member := env.player(0, gameTestIpB)
-	path := "/api/game/sect/alliance"
+	path := "/api/game/wendao/sect/alliance"
 	sectView(t, leader, map[string]any{"action": "sync"})
 	sectView(t, member, map[string]any{"action": "sync"})
 

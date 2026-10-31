@@ -70,8 +70,8 @@ export const getGameLevelNames = (t) => ({
   watersort: [t('4 种颜色'), t('6 种颜色'), t('8 种颜色')],
   onestroke: ['5×5', '6×6', '7×7'],
   match3: [t('简单'), t('普通'), t('困难')],
-  // 九幽秘境的成绩是打通的重数，读作「打通第 3 重」。
-  dungeon: Array.from({ length: 30 }, (_, i) =>
+  // 问道的成绩是九幽秘境打通的重数，读作「打通第 3 重」。
+  wendao: Array.from({ length: 30 }, (_, i) =>
     t('第 {{act}} 重', { act: i + 1 }),
   ),
   ai: [t('简单'), t('普通'), t('困难')],
@@ -98,8 +98,8 @@ export const GAME_ORDER = [
   'watersort',
   'onestroke',
   'match3',
-  'dungeon',
-  'sect',
+  'wendao',
+  'wendao_tournament',
   'gomoku',
   'connect4',
   'reversi',
@@ -127,7 +127,7 @@ export const GAME_ORDER = [
 // 玩法分区与结算类型独立：卡牌区也可以包含下注游戏，每个游戏只属于一个分区。
 export const GAME_SECTIONS = [
   { key: 'arcade', games: ['tetris', 'snake', 'flappy', 'breakout'] },
-  { key: 'adventure', games: ['dungeon', 'sect'] },
+  { key: 'adventure', games: ['wendao'] },
   {
     key: 'puzzles',
     games: [
@@ -340,25 +340,23 @@ export const getGameMetaMap = (t) => ({
     scoreName: t('难度'),
     isNew: true,
   },
-  dungeon: {
+  // 问道的领奖规则是九幽秘境无尽模式的，成绩是打通的重数；宗门大比另有一条领奖规则，只在管理端出现。
+  wendao: {
     kind: 'skill',
-    name: t('九幽秘境'),
+    name: t('问道'),
     description: t(
-      '修仙卡牌肉鸽：以体修、法修、剑修闯秘境，无尽幽冥、试炼与练习三种模式',
+      '长线修仙：历练主线闯关、经营宗门培养弟子、闯九幽秘境卡牌肉鸽，秘境无尽与宗门大比赢游戏币',
     ),
     score: 'level',
     scoreName: t('打通'),
     isNew: true,
   },
-  sect: {
+  wendao_tournament: {
     kind: 'skill',
-    name: t('问道宗门'),
-    description: t(
-      '修仙宗门经营：建造灵田丹房、培养弟子突破境界、派遣历练，参加宗门大比赢游戏币',
-    ),
+    name: t('问道 · 宗门大比'),
+    description: t('问道宗门板块里的大比：带弟子打擂台，按连胜场数领奖'),
     score: 'points',
     scoreName: t('大比连胜'),
-    isNew: true,
   },
   dots: {
     kind: 'pvp',

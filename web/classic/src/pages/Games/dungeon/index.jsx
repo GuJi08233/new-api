@@ -27,13 +27,12 @@ import {
   ShieldPlus,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import GameLayout from '../common/GameLayout';
 import { RuleList, SideBox, StageMessage } from '../common/SideBox';
 import { playSkillFeedback, SkillSide } from '../common/skill';
 import { Floaters, celebrate, useFloaters } from '../common/effects';
 import { playSound } from '../common/sound';
 import { gameGet, gamePost, withTurnstile } from '../common/api';
-import { useGameInfo } from '../common/useGameInfo';
+import { WendaoLayout, useWendaoPart } from '../wendao/shell';
 import { usePlayTurnstile } from '../common/usePlayTurnstile';
 import Combat from './Combat';
 import Lobby from './Lobby';
@@ -129,7 +128,7 @@ function useOutsideFloaters() {
 const DungeonPage = () => {
   const { t } = useTranslation();
   const text = useDungeonText();
-  const { info, loading, unavailable, patch, reload } = useGameInfo('dungeon');
+  const { info, patch, reload } = useWendaoPart('abyss');
   const turnstile = usePlayTurnstile(info?.play_turnstile);
   // 每种模式各自的一局；active 是正在台面上的模式，为空时显示营地。
   const [rounds, setRounds] = useState({});
@@ -196,7 +195,10 @@ const DungeonPage = () => {
   const restore = useCallback(
     async (mode, id = 0) => {
       const query = `mode=${mode}${id ? `&session_id=${id}` : ''}`;
-      const response = await gameGet(`/api/game/dungeon/state?${query}`, t);
+      const response = await gameGet(
+        `/api/game/wendao/abyss/state?${query}`,
+        t,
+      );
       if (response.data) {
         setRounds((previous) => ({
           ...previous,
@@ -243,8 +245,8 @@ const DungeonPage = () => {
   const start = async (mode, fields) => {
     const url =
       mode === 'endless'
-        ? withTurnstile('/api/game/dungeon/start', turnstile.take())
-        : '/api/game/dungeon/start';
+        ? withTurnstile('/api/game/wendao/abyss/start', turnstile.take())
+        : '/api/game/wendao/abyss/start';
     const data = await post(url, { mode, ...fields }, mode);
     if (data) {
       playSound('start');
@@ -257,7 +259,7 @@ const DungeonPage = () => {
     const current = rounds[active];
     if (!current || current.status !== 'playing') return false;
     const data = await post(
-      '/api/game/dungeon/action',
+      '/api/game/wendao/abyss/action',
       {
         ...fields,
         action,
@@ -273,7 +275,7 @@ const DungeonPage = () => {
   };
 
   const buyItem = async (item, count) => {
-    const data = await post('/api/game/dungeon/shop/buy', { item, count });
+    const data = await post('/api/game/wendao/abyss/shop/buy', { item, count });
     if (data) {
       playSound('coin');
       patch({ meta: data.meta, balance: data.balance });
@@ -281,7 +283,7 @@ const DungeonPage = () => {
   };
 
   const unlock = async (item) => {
-    const data = await post('/api/game/dungeon/unlock', { item });
+    const data = await post('/api/game/wendao/abyss/unlock', { item });
     if (data) {
       playSound('sparkle');
       patch({ meta: data.meta });
@@ -400,12 +402,8 @@ const DungeonPage = () => {
   };
 
   return (
-    <GameLayout
-      title={t('九幽秘境')}
-      loading={loading || (loaded && !checked)}
-      unavailable={unavailable}
-      balance={info?.balance}
-      symbol={info?.symbol}
+    <WendaoLayout
+      loading={loaded && !checked}
       className='dg-page'
       side={
         info && (
@@ -657,7 +655,7 @@ const DungeonPage = () => {
           />
         )}
       </div>
-    </GameLayout>
+    </WendaoLayout>
   );
 };
 
