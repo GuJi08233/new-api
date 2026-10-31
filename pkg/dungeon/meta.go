@@ -70,6 +70,12 @@ func ParseMeta(data string) (*Meta, error) {
 			return nil, err
 		}
 	}
+	m.Normalize()
+	return m, nil
+}
+
+// Normalize 补上存档里省略的空表、初始职业与各职业的战绩，读出存档之后调用。
+func (m *Meta) Normalize() {
 	if m.Talents == nil {
 		m.Talents = map[string]int{}
 	}
@@ -90,7 +96,6 @@ func ParseMeta(data string) (*Meta, error) {
 			m.Records[class] = &ClassRecord{}
 		}
 	}
-	return m, nil
 }
 
 // Encode 把存档序列化。

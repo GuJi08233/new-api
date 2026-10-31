@@ -9,6 +9,7 @@ import (
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/dungeon"
+	"github.com/QuantumNous/new-api/pkg/wendao"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
 )
@@ -90,11 +91,20 @@ func init() {
 }
 
 func loadDungeonMeta(userId int) (*dungeon.Meta, error) {
-	data, err := model.GetGameSave(userId, dungeonGame)
+	data, err := model.GetGameSave(userId, wendao.SaveKey)
 	if err != nil {
 		return nil, err
 	}
-	return dungeon.ParseMeta(data)
+	save, err := wendao.ParseSave(data)
+	if err != nil {
+		return nil, err
+	}
+	return save.Abyss, nil
+}
+
+// updateAbyssSave 改写问道存档里的秘境局外成长。
+func updateAbyssSave(data string, edit func(meta *dungeon.Meta) error) (string, error) {
+	return wendao.UpdateSave(data, func(save *wendao.Save) error { return edit(save.Abyss) })
 }
 
 // dungeonMetaView 是局外存档在页面上的样子，附上每个职业现在能选的最高深渊等级。
@@ -374,13 +384,11 @@ func actDungeonRun(c *gin.Context) {
 		return m.Record(run)
 	}
 	preview := record(meta)
-	save := &model.GameSaveUpdate{Game: dungeonGame, Update: func(data string) (string, error) {
-		current, err := dungeon.ParseMeta(data)
-		if err != nil {
-			return "", err
-		}
-		record(current)
-		return current.Encode()
+	save := &model.GameSaveUpdate{Game: wendao.SaveKey, Update: func(data string) (string, error) {
+		return updateAbyssSave(data, func(current *dungeon.Meta) error {
+			record(current)
+			return nil
+		})
 	}}
 	outcome := skillOutcome{
 		Score:   run.Score(),
@@ -416,15 +424,12 @@ func unlockDungeon(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
-	data, err := model.UpdateGameSave(c.GetInt("id"), dungeonGame, func(data string) (string, error) {
-		meta, err := dungeon.ParseMeta(data)
-		if err != nil {
-			return "", err
-		}
-		if err := meta.Buy(req.Item); err != nil {
-			return "", err
-		}
-		return meta.Encode()
+	var meta *dungeon.Meta
+	_, err := model.UpdateGameSave(c.GetInt("id"), wendao.SaveKey, func(data string) (string, error) {
+		return updateAbyssSave(data, func(current *dungeon.Meta) error {
+			meta = current
+			return current.Buy(req.Item)
+		})
 	})
 	switch {
 	case errors.Is(err, dungeon.ErrCrystals):
@@ -437,11 +442,6 @@ func unlockDungeon(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	case err != nil:
-		common.ApiError(c, err)
-		return
-	}
-	meta, err := dungeon.ParseMeta(data)
-	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
@@ -472,17 +472,11 @@ func useDungeonItem(c *gin.Context, game string, session *model.GameSession, sta
 		common.ApiError(c, err)
 		return
 	}
-	var saved string
-	err = model.UpdateGameSessionAndSave(session, string(data), "", dungeonGame, func(save string) (string, error) {
-		current, err := dungeon.ParseMeta(save)
-		if err != nil {
-			return "", err
-		}
-		if err := current.TakeItem(item); err != nil {
-			return "", err
-		}
-		saved, err = current.Encode()
-		return saved, err
+	err = model.UpdateGameSessionAndSave(session, string(data), "", wendao.SaveKey, func(save string) (string, error) {
+		return updateAbyssSave(save, func(current *dungeon.Meta) error {
+			meta = current
+			return current.TakeItem(item)
+		})
 	})
 	if errors.Is(err, dungeon.ErrNoItem) {
 		common.ApiErrorI18n(c, i18n.MsgGameShopNoItem)
@@ -490,11 +484,6 @@ func useDungeonItem(c *gin.Context, game string, session *model.GameSession, sta
 	}
 	if err != nil {
 		respondGameError(c, game, err)
-		return
-	}
-	meta, err = dungeon.ParseMeta(saved)
-	if err != nil {
-		common.ApiError(c, err)
 		return
 	}
 	view := dungeonRunView(session, state)
@@ -511,23 +500,16 @@ func buyDungeonItem(c *gin.Context) {
 		return item.Price, ok
 	}
 	add := func(data string, id string, count int) (string, error) {
-		meta, err := dungeon.ParseMeta(data)
-		if err != nil {
-			return "", err
-		}
-		if err := meta.AddItem(id, count); err != nil {
-			return "", err
-		}
-		return meta.Encode()
+		return updateAbyssSave(data, func(meta *dungeon.Meta) error { return meta.AddItem(id, count) })
 	}
-	data, balance, ok := buyGameShopItem(c, dungeonGame, priceOf, add, dungeon.ErrItemLimit)
+	data, balance, ok := buyGameShopItem(c, dungeonGame, wendao.SaveKey, priceOf, add, dungeon.ErrItemLimit)
 	if !ok {
 		return
 	}
-	meta, err := dungeon.ParseMeta(data)
+	save, err := wendao.ParseSave(data)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	common.ApiSuccess(c, gin.H{"meta": dungeonMetaView(meta), "balance": balance})
+	common.ApiSuccess(c, gin.H{"meta": dungeonMetaView(save.Abyss), "balance": balance})
 }

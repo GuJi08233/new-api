@@ -8,6 +8,7 @@ import (
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/dungeon"
+	"github.com/QuantumNous/new-api/pkg/wendao"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -85,13 +86,11 @@ func TestDungeonUnlockSpendsCrystals(t *testing.T) {
 	player.fails(http.MethodPost, path+"/start", map[string]any{"class": dungeon.ClassWarrior, "abyss": 1})
 	assert.Equal(t, message(i18n.MsgGameDungeonCrystals), player.fails(http.MethodPost, path+"/unlock", map[string]any{"item": "class:" + dungeon.ClassMage}))
 
-	_, err := model.UpdateGameSave(player.user.Id, dungeonGame, func(string) (string, error) {
-		meta, err := dungeon.ParseMeta("")
-		if err != nil {
-			return "", err
-		}
-		meta.Crystals = 60
-		return meta.Encode()
+	_, err := model.UpdateGameSave(player.user.Id, wendao.SaveKey, func(data string) (string, error) {
+		return updateAbyssSave(data, func(meta *dungeon.Meta) error {
+			meta.Crystals = 60
+			return nil
+		})
 	})
 	require.NoError(t, err)
 	meta := player.ok(http.MethodPost, path+"/unlock", map[string]any{"item": "class:" + dungeon.ClassMage})["meta"].(map[string]any)

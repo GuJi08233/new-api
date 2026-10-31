@@ -7,7 +7,7 @@ import (
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/dungeon"
-	"github.com/QuantumNous/new-api/pkg/sect"
+	"github.com/QuantumNous/new-api/pkg/wendao"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -97,23 +97,23 @@ func TestSectShopPillsAndTalismans(t *testing.T) {
 	player := env.player(3, gameTestIpA)
 	path := "/api/game/sect/shop/buy"
 
-	bought := player.ok(http.MethodPost, path, map[string]any{"item": "pill_" + sect.PillBreak, "count": 2})
+	bought := player.ok(http.MethodPost, path, map[string]any{"item": "pill_" + wendao.PillBreak, "count": 2})
 	assert.Equal(t, 2.0, bought["balance"])
-	assert.Equal(t, float64(2), bought["sect"].(map[string]any)["pills"].(map[string]any)[sect.PillBreak])
-	bought = player.ok(http.MethodPost, path, map[string]any{"item": sect.ItemSwift, "count": 1})
-	assert.Equal(t, map[string]any{sect.ItemSwift: float64(1)}, bought["sect"].(map[string]any)["items"])
+	assert.Equal(t, float64(2), bought["sect"].(map[string]any)["pills"].(map[string]any)[wendao.PillBreak])
+	bought = player.ok(http.MethodPost, path, map[string]any{"item": wendao.ItemSwift, "count": 1})
+	assert.Equal(t, map[string]any{wendao.ItemSwift: float64(1)}, bought["sect"].(map[string]any)["items"])
 
-	message := player.fails(http.MethodPost, "/api/game/sect/action", map[string]any{"action": "item", "item": sect.ItemSwift})
+	message := player.fails(http.MethodPost, "/api/game/sect/action", map[string]any{"action": "item", "item": wendao.ItemSwift})
 	assert.Equal(t, i18n.Translate(i18n.LangEn, i18n.MsgGameShopItemLimit), message)
-	message = player.fails(http.MethodPost, "/api/game/sect/action", map[string]any{"action": "item", "item": sect.ItemSpirit})
+	message = player.fails(http.MethodPost, "/api/game/sect/action", map[string]any{"action": "item", "item": wendao.ItemSpirit})
 	assert.Equal(t, i18n.Translate(i18n.LangEn, i18n.MsgGameShopNoItem), message)
 
 	view := sectView(t, player, map[string]any{"action": "sync"})
 	first := view["disciples"].([]any)[0].(map[string]any)["id"]
-	view = sectView(t, player, map[string]any{"action": "dispatch", "mission": sect.Missions[0].Key, "team": []any{first}})
+	view = sectView(t, player, map[string]any{"action": "dispatch", "mission": wendao.Missions[0].Key, "team": []any{first}})
 	mission := view["missions"].([]any)[0].(map[string]any)
 	player.fails(http.MethodPost, "/api/game/sect/action", map[string]any{"action": "claim", "id": mission["id"]})
-	view = sectView(t, player, map[string]any{"action": "item", "item": sect.ItemSwift})
+	view = sectView(t, player, map[string]any{"action": "item", "item": wendao.ItemSwift})
 	assert.Equal(t, map[string]any{}, view["items"])
 	sectView(t, player, map[string]any{"action": "claim", "id": mission["id"]})
 }

@@ -1,4 +1,4 @@
-package sect
+package wendao
 
 import (
 	"math"

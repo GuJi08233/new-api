@@ -1,7 +1,9 @@
-package sect
+package wendao
 
 import (
 	"testing"
+
+	"github.com/QuantumNous/new-api/pkg/dungeon"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -344,19 +346,22 @@ func TestRecordTournament(t *testing.T) {
 	assert.Equal(t, 3, s.Stats.BestRounds)
 }
 
-// 存档读写往返不丢东西，空存档读出 nil。
-func TestSectEncodeRoundTrip(t *testing.T) {
+// 存档读写往返不丢东西；空存档还没有宗门，秘境的局外成长是一份新的。
+func TestSaveEncodeRoundTrip(t *testing.T) {
 	s := NewSect(13, 100)
 	s.Tick(5 * hour)
-	data, err := s.Encode()
+	save, err := ParseSave("")
 	require.NoError(t, err)
-	back, err := ParseSect(data)
-	require.NoError(t, err)
-	assert.Equal(t, s, back)
+	assert.Nil(t, save.Sect)
+	assert.Equal(t, []string{dungeon.ClassWarrior}, save.Abyss.Classes)
 
-	empty, err := ParseSect("")
+	save.Sect = s
+	save.Abyss.Crystals = 7
+	data, err := save.Encode()
 	require.NoError(t, err)
-	assert.Nil(t, empty)
+	back, err := ParseSave(data)
+	require.NoError(t, err)
+	assert.Equal(t, save, back)
 }
 
 // 聚灵符按现在的产量给两小时的资源；招贤令不花灵石换一批候选；丹药买了直接进丹房，超过上限不收。

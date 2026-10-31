@@ -11,7 +11,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/pkg/sect"
+	"github.com/QuantumNous/new-api/pkg/wendao"
 	"github.com/gin-gonic/gin"
 )
 
@@ -27,10 +27,10 @@ const (
 
 // sectAllianceBoss 是周 Boss 的规则(血量与击杀奖励)，来自 pkg/sect。
 var sectAllianceBoss = model.SectAllianceBoss{
-	Hp: sect.AllianceBossHp,
+	Hp: wendao.AllianceBossHp,
 	Kill: func(level int) (int, int, int) {
-		reward := sect.AllianceKillReward(level)
-		return reward.Stone, reward.Rep, sect.AllianceKillPills
+		reward := wendao.AllianceKillReward(level)
+		return reward.Stone, reward.Rep, wendao.AllianceKillPills
 	},
 }
 
@@ -65,18 +65,13 @@ func respondAllianceError(c *gin.Context, err error) {
 }
 
 // updateSectSave 是改写宗门存档的一步：还没有宗门时报 ErrUnavailable(仙盟的操作都要先有宗门)。
-func updateSectSave(data string, edit func(s *sect.Sect) error) (string, error) {
-	s, err := sect.ParseSect(data)
-	if err != nil {
-		return "", err
-	}
-	if s == nil {
-		return "", sect.ErrUnavailable
-	}
-	if err := edit(s); err != nil {
-		return "", err
-	}
-	return s.Encode()
+func updateSectSave(data string, edit func(s *wendao.Sect) error) (string, error) {
+	return wendao.UpdateSave(data, func(save *wendao.Save) error {
+		if save.Sect == nil {
+			return wendao.ErrUnavailable
+		}
+		return edit(save.Sect)
+	})
 }
 
 // sectAllianceView 是仙盟页：自己所在的仙盟(成员、周 Boss、升级要的盟资)，没有入盟时列出现有的仙盟。
@@ -86,11 +81,11 @@ func sectAllianceView(userId int) (gin.H, error) {
 		return nil, err
 	}
 	rules := gin.H{
-		"create_cost":     sect.AllianceCreateCost,
-		"min_hall":        sect.AllianceMinHall,
-		"max_level":       sect.AllianceMaxLevel,
-		"bonus_per_level": sect.AllianceBonusPerLevel,
-		"name_max":        sect.AllianceNameMaxRunes,
+		"create_cost":     wendao.AllianceCreateCost,
+		"min_hall":        wendao.AllianceMinHall,
+		"max_level":       wendao.AllianceMaxLevel,
+		"bonus_per_level": wendao.AllianceBonusPerLevel,
+		"name_max":        wendao.AllianceNameMaxRunes,
 		"notice_max":      sectAllianceNoticeRunes,
 	}
 	view := gin.H{"rules": rules, "self": userId, "day": gameCenterDay(), "week": sectAllianceWeek()}
@@ -109,7 +104,7 @@ func sectAllianceView(userId int) (gin.H, error) {
 		}
 		caps := make([]int, 0, len(list))
 		for _, row := range list {
-			caps = append(caps, sect.AllianceCap(row.Level))
+			caps = append(caps, wendao.AllianceCap(row.Level))
 		}
 		view["list"], view["names"], view["caps"] = list, names, caps
 		return view, nil
@@ -134,7 +129,7 @@ func sectAllianceView(userId int) (gin.H, error) {
 		if alliance.Week != "" && alliance.BossHp <= 0 {
 			level++
 		}
-		hp := sect.AllianceBossHp(level, alliance.Members)
+		hp := wendao.AllianceBossHp(level, alliance.Members)
 		boss["level"], boss["hp"], boss["max_hp"] = level, hp, hp
 	}
 	for i := range members {
@@ -147,8 +142,8 @@ func sectAllianceView(userId int) (gin.H, error) {
 	view["members"] = members
 	view["names"] = names
 	view["boss"] = boss
-	view["cap"] = sect.AllianceCap(alliance.Level)
-	view["upgrade_cost"] = sect.AllianceUpgradeFunds(alliance.Level)
+	view["cap"] = wendao.AllianceCap(alliance.Level)
+	view["upgrade_cost"] = wendao.AllianceUpgradeFunds(alliance.Level)
 	return view, nil
 }
 
@@ -175,12 +170,12 @@ func respondSectAlliance(c *gin.Context, extra gin.H) {
 	for key, value := range extra {
 		view[key] = value
 	}
-	data, err := model.GetGameSave(userId, sectGame)
+	data, err := model.GetGameSave(userId, wendao.SaveKey)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	if s, err := sect.ParseSect(data); err == nil && s != nil {
+	if s, err := wendao.ParseSect(data); err == nil && s != nil {
 		view["sect"] = s.View(common.GetTimestamp())
 	}
 	common.ApiSuccess(c, view)
@@ -212,7 +207,7 @@ func createSectAlliance(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
-	name, ok := cleanAllianceText(req.Name, sect.AllianceNameMaxRunes)
+	name, ok := cleanAllianceText(req.Name, wendao.AllianceNameMaxRunes)
 	if !ok || name == "" {
 		common.ApiErrorI18n(c, i18n.MsgGameAllianceName)
 		return
@@ -228,7 +223,7 @@ func createSectAlliance(c *gin.Context) {
 	}
 	now := common.GetTimestamp()
 	_, err := model.CreateSectAlliance(userId, name, sectAllianceWeek(), sectAllianceBoss, func(data string) (string, error) {
-		return updateSectSave(data, func(s *sect.Sect) error {
+		return updateSectSave(data, func(s *wendao.Sect) error {
 			s.Tick(now)
 			return s.FoundAlliance()
 		})
@@ -253,16 +248,16 @@ func joinSectAlliance(c *gin.Context) {
 	}
 	userId := c.GetInt("id")
 	// 要先有宗门才能入盟：仙盟的加成、捐献与讨伐都落在宗门上。
-	data, err := model.GetGameSave(userId, sectGame)
+	data, err := model.GetGameSave(userId, wendao.SaveKey)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	if s, err := sect.ParseSect(data); err != nil || s == nil {
+	if s, err := wendao.ParseSect(data); err != nil || s == nil {
 		common.ApiErrorI18n(c, i18n.MsgGameSectUnavailable)
 		return
 	}
-	if err := model.JoinSectAlliance(userId, req.Id, sectAllianceWeek(), sectAllianceBoss, sect.AllianceCap); err != nil {
+	if err := model.JoinSectAlliance(userId, req.Id, sectAllianceWeek(), sectAllianceBoss, wendao.AllianceCap); err != nil {
 		respondAllianceError(c, err)
 		return
 	}
@@ -298,15 +293,15 @@ func donateSectAlliance(c *gin.Context) {
 	if !requireGameEnabled(c, sectGame) {
 		return
 	}
-	var req sect.Cost
-	if decodeGameRequest(c, &req) != nil || sect.DonationFunds(req) <= 0 {
+	var req wendao.Cost
+	if decodeGameRequest(c, &req) != nil || wendao.DonationFunds(req) <= 0 {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
 	now := common.GetTimestamp()
 	_, err := model.DonateSectAlliance(c.GetInt("id"), func(data string) (string, int64, error) {
 		var funds int64
-		updated, err := updateSectSave(data, func(s *sect.Sect) error {
+		updated, err := updateSectSave(data, func(s *wendao.Sect) error {
 			s.Tick(now)
 			var err error
 			funds, err = s.Donate(req)
@@ -325,7 +320,7 @@ func upgradeSectAlliance(c *gin.Context) {
 	if !requireGameEnabled(c, sectGame) {
 		return
 	}
-	if _, err := model.UpgradeSectAlliance(c.GetInt("id"), sect.AllianceUpgradeFunds); err != nil {
+	if _, err := model.UpgradeSectAlliance(c.GetInt("id"), wendao.AllianceUpgradeFunds); err != nil {
 		respondAllianceError(c, err)
 		return
 	}
@@ -363,7 +358,7 @@ func attackSectAlliance(c *gin.Context) {
 	var req struct {
 		Team []int `json:"team"`
 	}
-	if decodeGameRequest(c, &req) != nil || len(req.Team) == 0 || len(req.Team) > sect.TeamSize {
+	if decodeGameRequest(c, &req) != nil || len(req.Team) == 0 || len(req.Team) > wendao.TeamSize {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
@@ -371,7 +366,7 @@ func attackSectAlliance(c *gin.Context) {
 	result, err := model.AttackSectAllianceBoss(c.GetInt("id"), gameCenterDay(), sectAllianceWeek(), sectAllianceBoss,
 		func(data string) (string, int64, error) {
 			var damage int64
-			updated, err := updateSectSave(data, func(s *sect.Sect) error {
+			updated, err := updateSectSave(data, func(s *wendao.Sect) error {
 				s.Tick(now)
 				var err error
 				damage, err = s.AllianceAttack(req.Team, now)
@@ -380,7 +375,7 @@ func attackSectAlliance(c *gin.Context) {
 			return updated, damage, err
 		},
 		func(damage int64) (int, int) {
-			reward := sect.AllianceAttackReward(damage)
+			reward := wendao.AllianceAttackReward(damage)
 			return reward.Stone, reward.Rep
 		})
 	if err != nil {
@@ -396,11 +391,11 @@ func claimSectAlliance(c *gin.Context) {
 		return
 	}
 	now := common.GetTimestamp()
-	var evs []sect.Ev
+	var evs []wendao.Ev
 	err := model.ClaimSectAllianceRewards(c.GetInt("id"), func(data string, stone int, rep int, pills int) (string, error) {
-		return updateSectSave(data, func(s *sect.Sect) error {
+		return updateSectSave(data, func(s *wendao.Sect) error {
 			s.Tick(now)
-			evs = s.ClaimAlliance(sect.Cost{Stone: stone, Rep: rep}, pills)
+			evs = s.ClaimAlliance(wendao.Cost{Stone: stone, Rep: rep}, pills)
 			return nil
 		})
 	})
@@ -409,7 +404,7 @@ func claimSectAlliance(c *gin.Context) {
 		return
 	}
 	if evs == nil {
-		evs = []sect.Ev{}
+		evs = []wendao.Ev{}
 	}
 	respondSectAlliance(c, gin.H{"events": evs})
 }

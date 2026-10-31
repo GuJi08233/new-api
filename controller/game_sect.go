@@ -9,7 +9,7 @@ import (
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/pkg/sect"
+	"github.com/QuantumNous/new-api/pkg/wendao"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
 )
@@ -25,8 +25,8 @@ const sectSecondsPerStep = 15
 
 // sectTournamentState 是保存在对局里的大比状态与已经走了几步(用来判断操作是否快过人类)。
 type sectTournamentState struct {
-	Steps      int              `json:"steps"`
-	Tournament *sect.Tournament `json:"tournament"`
+	Steps      int                `json:"steps"`
+	Tournament *wendao.Tournament `json:"tournament"`
 	// Defender 是论剑的守擂方，大比为 0。
 	Defender int `json:"defender,omitempty"`
 }
@@ -40,16 +40,16 @@ func init() {
 				return nil, err
 			}
 			info["tournament"] = gin.H{
-				"rounds":            sect.TournamentRounds,
-				"team_size":         sect.TeamSize,
-				"pouch_pills":       sect.PouchPills,
-				"turns":             sect.DuelTurns,
-				"daily_reward_runs": sect.DailyRewardRuns,
+				"rounds":            wendao.TournamentRounds,
+				"team_size":         wendao.TeamSize,
+				"pouch_pills":       wendao.PouchPills,
+				"turns":             wendao.DuelTurns,
+				"daily_reward_runs": wendao.DailyRewardRuns,
 			}
-			info["offline_cap"] = sect.OfflineCap
-			info["max_item_stack"] = sect.MaxItemStack
-			ids, cents := make([]string, 0, len(sect.ShopItems)), make([]int, 0, len(sect.ShopItems))
-			for _, item := range sect.ShopItems {
+			info["offline_cap"] = wendao.OfflineCap
+			info["max_item_stack"] = wendao.MaxItemStack
+			ids, cents := make([]string, 0, len(wendao.ShopItems)), make([]int, 0, len(wendao.ShopItems))
+			for _, item := range wendao.ShopItems {
 				ids, cents = append(ids, item.Id), append(cents, item.Price)
 			}
 			if info["shop"], err = gameShopInfo(ctx.Setting, ids, cents); err != nil {
@@ -94,19 +94,32 @@ func newSectSeed() (uint64, error) {
 // respondSectError 把规则包的错误写成响应。
 func respondSectError(c *gin.Context, err error) {
 	switch {
-	case errors.Is(err, sect.ErrCost):
+	case errors.Is(err, wendao.ErrCost):
 		common.ApiErrorI18n(c, i18n.MsgGameSectResources)
-	case errors.Is(err, sect.ErrUnavailable):
+	case errors.Is(err, wendao.ErrUnavailable):
 		common.ApiErrorI18n(c, i18n.MsgGameSectUnavailable)
-	case errors.Is(err, sect.ErrAction):
+	case errors.Is(err, wendao.ErrAction):
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
-	case errors.Is(err, sect.ErrNoItem):
+	case errors.Is(err, wendao.ErrNoItem):
 		common.ApiErrorI18n(c, i18n.MsgGameShopNoItem)
-	case errors.Is(err, sect.ErrItemLimit):
+	case errors.Is(err, wendao.ErrItemLimit):
 		common.ApiErrorI18n(c, i18n.MsgGameShopItemLimit)
 	default:
 		common.ApiError(c, err)
 	}
+}
+
+// foundSect 在还没有宗门时开宗立派。
+func foundSect(save *wendao.Save, now int64) error {
+	if save.Sect != nil {
+		return nil
+	}
+	seed, err := newSectSeed()
+	if err != nil {
+		return err
+	}
+	save.Sect = wendao.NewSect(seed, now)
+	return nil
 }
 
 // actSect 执行一次经营操作：锁住存档，先结算到现在，再执行操作。还没有宗门时先开宗立派(任何操作都会建好宗门，页面打开时
@@ -115,7 +128,7 @@ func actSect(c *gin.Context) {
 	if !requireGameEnabled(c, sectGame) {
 		return
 	}
-	var req sect.Action
+	var req wendao.Action
 	if decodeGameRequest(c, &req) != nil || req.Type == "" {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
@@ -127,34 +140,29 @@ func actSect(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	var evs []sect.Ev
-	var current *sect.Sect
-	_, err = model.UpdateGameSave(c.GetInt("id"), sectGame, func(data string) (string, error) {
-		s, err := sect.ParseSect(data)
-		if err != nil {
-			return "", err
-		}
-		if s == nil {
-			seed, err := newSectSeed()
-			if err != nil {
-				return "", err
+	var evs []wendao.Ev
+	var current *wendao.Sect
+	_, err = model.UpdateGameSave(c.GetInt("id"), wendao.SaveKey, func(data string) (string, error) {
+		return wendao.UpdateSave(data, func(save *wendao.Save) error {
+			if err := foundSect(save, now); err != nil {
+				return err
 			}
-			s = sect.NewSect(seed, now)
-		}
-		s.AllianceLevel = allianceLevel
-		evs, err = s.Apply(req, now)
-		if err != nil {
-			return "", err
-		}
-		current = s
-		return s.Encode()
+			s := save.Sect
+			s.AllianceLevel = allianceLevel
+			var err error
+			if evs, err = s.Apply(req, now); err != nil {
+				return err
+			}
+			current = s
+			return nil
+		})
 	})
 	if err != nil {
 		respondSectError(c, err)
 		return
 	}
 	if evs == nil {
-		evs = []sect.Ev{}
+		evs = []wendao.Ev{}
 	}
 	common.ApiSuccess(c, gin.H{"sect": current.View(now), "events": evs})
 }
@@ -233,18 +241,18 @@ func startSectTournament(c *gin.Context) {
 	var req struct {
 		Team []int `json:"team"`
 	}
-	if decodeGameRequest(c, &req) != nil || len(req.Team) == 0 || len(req.Team) > sect.TeamSize {
+	if decodeGameRequest(c, &req) != nil || len(req.Team) == 0 || len(req.Team) > wendao.TeamSize {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
-	startSectDuel(c, sectGame, 0, func(seed uint64, s *sect.Sect, now int64) (*sect.Tournament, error) {
-		return sect.NewTournament(seed, s, req.Team, now)
+	startSectDuel(c, sectGame, 0, func(seed uint64, s *wendao.Sect, now int64) (*wendao.Tournament, error) {
+		return wendao.NewTournament(seed, s, req.Team, now)
 	})
 }
 
 // startSectDuel 开一场大比或论剑：build 按宗门存档建出斗法(seed 为 0 时只用来检查报名的弟子)。回春丹在开局时从库存里拿走，
 // 结算时把没用完的放回去；开局之后对局没能建起来、或者斗法超时没有结算，带走的丹药不退。defender 是论剑的守擂方(大比为 0)。
-func startSectDuel(c *gin.Context, game string, defender int, build func(seed uint64, s *sect.Sect, now int64) (*sect.Tournament, error)) {
+func startSectDuel(c *gin.Context, game string, defender int, build func(seed uint64, s *wendao.Sect, now int64) (*wendao.Tournament, error)) {
 	userId := c.GetInt("id")
 	// 还有一场没打完时不能开新的：新的一局会作废旧的，旧的带走的回春丹就没了。
 	playing, err := model.GetPlayingGameSession(userId, game)
@@ -257,12 +265,12 @@ func startSectDuel(c *gin.Context, game string, defender int, build func(seed ui
 		return
 	}
 	// 先按当前存档检查报名的弟子，让「弟子受伤、外出」这类问题得到明确的提示，而不是笼统的开局失败。
-	data, err := model.GetGameSave(userId, sectGame)
+	data, err := model.GetGameSave(userId, wendao.SaveKey)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	s, err := sect.ParseSect(data)
+	s, err := wendao.ParseSect(data)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -278,22 +286,17 @@ func startSectDuel(c *gin.Context, game string, defender int, build func(seed ui
 	}
 	var state *sectTournamentState
 	session := startSkillSession(c, game, func(seed uint32) (string, error) {
-		_, err := model.UpdateGameSave(userId, sectGame, func(data string) (string, error) {
-			s, err := sect.ParseSect(data)
-			if err != nil {
-				return "", err
-			}
-			if s == nil {
-				return "", sect.ErrUnavailable
-			}
-			s.Tick(now)
-			tournament, err := build(uint64(seed), s, now)
-			if err != nil {
-				return "", err
-			}
-			s.Pills[sect.PillHeal] -= tournament.Taken
-			state = &sectTournamentState{Tournament: tournament, Defender: defender}
-			return s.Encode()
+		_, err := model.UpdateGameSave(userId, wendao.SaveKey, func(data string) (string, error) {
+			return updateSectSave(data, func(s *wendao.Sect) error {
+				s.Tick(now)
+				tournament, err := build(uint64(seed), s, now)
+				if err != nil {
+					return err
+				}
+				s.Pills[wendao.PillHeal] -= tournament.Taken
+				state = &sectTournamentState{Tournament: tournament, Defender: defender}
+				return nil
+			})
 		})
 		if err != nil {
 			return "", err
@@ -372,7 +375,7 @@ func actSectDuel(c *gin.Context, game string) {
 	// 斗法结束(输了一场、全胜或认输)：奖励先按结算前读到的存档算好写进明细，事务里再按锁住的存档记一遍：同一玩家同一种斗法
 	// 同时只有一场，两次结果相同。
 	arena := game == sectArenaGame
-	record := func(s *sect.Sect, day string, now int64) sect.Cost {
+	record := func(s *wendao.Sect, day string, now int64) wendao.Cost {
 		if arena {
 			return s.RecordArena(tournament, day, now)
 		}
@@ -380,27 +383,22 @@ func actSectDuel(c *gin.Context, game string) {
 	}
 	now := common.GetTimestamp()
 	day := gameCenterDay()
-	saved, err := model.GetGameSave(session.UserId, sectGame)
+	saved, err := model.GetGameSave(session.UserId, wendao.SaveKey)
 	if err != nil {
 		respondGameFinishRetry(c)
 		return
 	}
-	preview, err := sect.ParseSect(saved)
+	preview, err := wendao.ParseSect(saved)
 	if err != nil || preview == nil {
 		respondGameFinishRetry(c)
 		return
 	}
 	gained := record(preview, day, now)
-	save := &model.GameSaveUpdate{Game: sectGame, Update: func(data string) (string, error) {
-		s, err := sect.ParseSect(data)
-		if err != nil {
-			return "", err
-		}
-		if s == nil {
-			return "", sect.ErrUnavailable
-		}
-		record(s, day, now)
-		return s.Encode()
+	save := &model.GameSaveUpdate{Game: wendao.SaveKey, Update: func(data string) (string, error) {
+		return updateSectSave(data, func(s *wendao.Sect) error {
+			record(s, day, now)
+			return nil
+		})
 	}}
 	outcome := skillOutcome{
 		Score:   tournament.Score(),
@@ -438,35 +436,26 @@ func buySectItem(c *gin.Context) {
 		return
 	}
 	priceOf := func(id string) (int, bool) {
-		item, ok := sect.ShopItemOf(id)
+		item, ok := wendao.ShopItemOf(id)
 		return item.Price, ok
 	}
 	now := common.GetTimestamp()
 	add := func(data string, id string, count int) (string, error) {
-		s, err := sect.ParseSect(data)
-		if err != nil {
-			return "", err
-		}
-		if s == nil {
-			seed, err := newSectSeed()
-			if err != nil {
-				return "", err
+		return wendao.UpdateSave(data, func(save *wendao.Save) error {
+			if err := foundSect(save, now); err != nil {
+				return err
 			}
-			s = sect.NewSect(seed, now)
-		}
-		if err := s.AddItem(id, count); err != nil {
-			return "", err
-		}
-		return s.Encode()
+			return save.Sect.AddItem(id, count)
+		})
 	}
-	data, balance, ok := buyGameShopItem(c, sectGame, priceOf, add, sect.ErrItemLimit)
+	data, balance, ok := buyGameShopItem(c, sectGame, wendao.SaveKey, priceOf, add, wendao.ErrItemLimit)
 	if !ok {
 		return
 	}
-	s, err := sect.ParseSect(data)
+	s, err := wendao.ParseSect(data)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	common.ApiSuccess(c, gin.H{"sect": s.View(now), "events": []sect.Ev{}, "balance": balance})
+	common.ApiSuccess(c, gin.H{"sect": s.View(now), "events": []wendao.Ev{}, "balance": balance})
 }

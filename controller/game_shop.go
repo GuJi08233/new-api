@@ -45,7 +45,7 @@ func gameShopInfo(setting *operation_setting.GameSetting, ids []string, cents []
 
 // buyGameShopItem 处理一次购买：请求是 {item, count}。priceOf 返回道具的原价(不在商店里时 ok 为 false)，add 把 count 件道具放进
 // 存档(背包放不下时返回 limitErr)。成功时返回新的存档内容与余额；返回 false 时已写好错误响应。
-func buyGameShopItem(c *gin.Context, game string, priceOf func(id string) (int, bool), add func(data string, id string, count int) (string, error), limitErr error) (string, model.GameCoins, bool) {
+func buyGameShopItem(c *gin.Context, game string, saveKey string, priceOf func(id string) (int, bool), add func(data string, id string, count int) (string, error), limitErr error) (string, model.GameCoins, bool) {
 	setting := operation_setting.GetGameSetting()
 	if !setting.ShopEnabled {
 		common.ApiErrorI18n(c, i18n.MsgGameShopDisabled)
@@ -76,7 +76,7 @@ func buyGameShopItem(c *gin.Context, game string, priceOf func(id string) (int, 
 	}
 	cost := price * model.GameCoins(req.Count)
 	remark := fmt.Sprintf("%s:%s×%d", game, req.Item, req.Count)
-	balance, data, err := model.BuyGameItem(c.GetInt("id"), game, cost, remark, func(data string) (string, error) {
+	balance, data, err := model.BuyGameItem(c.GetInt("id"), saveKey, cost, remark, func(data string) (string, error) {
 		return add(data, req.Item, req.Count)
 	})
 	switch {

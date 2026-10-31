@@ -1,11 +1,9 @@
-package sect
+package wendao
 
 import (
 	"errors"
 	"math"
 	"slices"
-
-	"github.com/QuantumNous/new-api/common"
 )
 
 var (
@@ -150,15 +148,17 @@ func NewSect(seed uint64, now int64) *Sect {
 	return s
 }
 
-// ParseSect 读出存档，还没有存档时返回 nil。
+// ParseSect 从问道的存档里读出宗门，还没有宗门时返回 nil。只读的地方用它；要改写存档用 ParseSave 再 Save.Encode。
 func ParseSect(data string) (*Sect, error) {
-	if data == "" {
-		return nil, nil
-	}
-	s := &Sect{}
-	if err := common.UnmarshalJsonStr(data, s); err != nil {
+	save, err := ParseSave(data)
+	if err != nil {
 		return nil, err
 	}
+	return save.Sect, nil
+}
+
+// normalize 补上存档里省略的空表。
+func (s *Sect) normalize() {
 	if s.Buildings == nil {
 		s.Buildings = map[string]int{}
 	}
@@ -168,13 +168,6 @@ func ParseSect(data string) (*Sect, error) {
 	if s.Items == nil {
 		s.Items = map[string]int{}
 	}
-	return s, nil
-}
-
-// Encode 把存档写成 JSON。
-func (s *Sect) Encode() (string, error) {
-	data, err := common.Marshal(s)
-	return string(data), err
 }
 
 // Cap 是弟子上限：主殿每级多一名。

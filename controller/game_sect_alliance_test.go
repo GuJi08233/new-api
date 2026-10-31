@@ -6,7 +6,7 @@ import (
 
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/pkg/sect"
+	"github.com/QuantumNous/new-api/pkg/wendao"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -24,9 +24,9 @@ func TestSectAllianceLifecycle(t *testing.T) {
 
 	message := leader.fails(http.MethodPost, path+"/create", map[string]any{"name": "青云盟"})
 	assert.Equal(t, i18n.Translate(i18n.LangEn, i18n.MsgGameSectUnavailable), message, "the main hall must reach level 2")
-	editSect(t, leader, func(s *sect.Sect) {
-		s.Buildings[sect.BuildingHall] = 2
-		s.Res = sect.Cost{Stone: 5000, Herb: 500, Ore: 100, Rep: 100}
+	editSect(t, leader, func(s *wendao.Sect) {
+		s.Buildings[wendao.BuildingHall] = 2
+		s.Res = wendao.Cost{Stone: 5000, Herb: 500, Ore: 100, Rep: 100}
 	})
 	leader.fails(http.MethodPost, path+"/create", map[string]any{"name": "   "})
 	created := leader.ok(http.MethodPost, path+"/create", map[string]any{"name": " 青云盟 "})
@@ -35,9 +35,9 @@ func TestSectAllianceLifecycle(t *testing.T) {
 	assert.Equal(t, float64(4000), created["sect"].(map[string]any)["res"].(map[string]any)["stone"])
 	id := alliance["id"]
 
-	editSect(t, member, func(s *sect.Sect) {
-		s.Buildings[sect.BuildingHall] = 2
-		s.Res = sect.Cost{Stone: 2000, Herb: 200, Ore: 50, Rep: 100}
+	editSect(t, member, func(s *wendao.Sect) {
+		s.Buildings[wendao.BuildingHall] = 2
+		s.Res = wendao.Cost{Stone: 2000, Herb: 200, Ore: 50, Rep: 100}
 	})
 	message = member.fails(http.MethodPost, path+"/create", map[string]any{"name": "青云盟"})
 	assert.Equal(t, i18n.Translate(i18n.LangEn, i18n.MsgGameAllianceName), message)
@@ -56,12 +56,12 @@ func TestSectAllianceLifecycle(t *testing.T) {
 	assert.Equal(t, i18n.Translate(i18n.LangEn, i18n.MsgGameAllianceNotLeader), message)
 	message = leader.fails(http.MethodPost, path+"/upgrade", nil)
 	assert.Equal(t, i18n.Translate(i18n.LangEn, i18n.MsgGameAllianceFunds), message)
-	require.NoError(t, env.db.Model(&model.SectAlliance{}).Where("id = ?", int(id.(float64))).Update("funds", sect.AllianceUpgradeFunds(1)).Error)
+	require.NoError(t, env.db.Model(&model.SectAlliance{}).Where("id = ?", int(id.(float64))).Update("funds", wendao.AllianceUpgradeFunds(1)).Error)
 	upgraded := leader.ok(http.MethodPost, path+"/upgrade", nil)
 	assert.Equal(t, float64(2), upgraded["alliance"].(map[string]any)["level"])
 	assert.Equal(t, float64(0), upgraded["alliance"].(map[string]any)["funds"])
 	rates := sectView(t, member, map[string]any{"action": "sync"})["rates"].(map[string]any)
-	assert.InDelta(t, 2*20*(1+2*sect.AllianceBonusPerLevel)+30*(1+2*sect.AllianceBonusPerLevel), rates["stone"], 1e-9)
+	assert.InDelta(t, 2*20*(1+2*wendao.AllianceBonusPerLevel)+30*(1+2*wendao.AllianceBonusPerLevel), rates["stone"], 1e-9)
 
 	team := func(player *gamePlayer) []any {
 		disciples := sectView(t, player, map[string]any{"action": "sync"})["disciples"].([]any)
@@ -81,17 +81,17 @@ func TestSectAllianceLifecycle(t *testing.T) {
 
 	_, row, err := model.GetSectAllianceOf(member.user.Id)
 	require.NoError(t, err)
-	attackReward := sect.AllianceAttackReward(int64(damage))
-	killReward := sect.AllianceKillReward(1)
+	attackReward := wendao.AllianceAttackReward(int64(damage))
+	killReward := wendao.AllianceKillReward(1)
 	assert.Equal(t, attackReward.Stone+killReward.Stone, row.PendingStone)
 	assert.Equal(t, attackReward.Rep+killReward.Rep, row.PendingRep)
-	assert.Equal(t, sect.AllianceKillPills, row.PendingPills)
+	assert.Equal(t, wendao.AllianceKillPills, row.PendingPills)
 
 	before := sectView(t, member, map[string]any{"action": "sync"})
 	claimed := member.ok(http.MethodPost, path+"/claim", nil)
 	after := claimed["sect"].(map[string]any)
 	assert.Equal(t, before["res"].(map[string]any)["rep"].(float64)+float64(row.PendingRep), after["res"].(map[string]any)["rep"])
-	assert.Equal(t, float64(sect.AllianceKillPills), after["pills"].(map[string]any)[sect.PillBreak])
+	assert.Equal(t, float64(wendao.AllianceKillPills), after["pills"].(map[string]any)[wendao.PillBreak])
 	message = member.fails(http.MethodPost, path+"/claim", nil)
 	assert.Equal(t, i18n.Translate(i18n.LangEn, i18n.MsgGameAllianceNothing), message)
 	assert.Equal(t, 0.0, member.balance(), "alliances never pay game coins")

@@ -13,8 +13,8 @@ import (
 // 这里只管把仙盟、成员与掌门的宗门存档在同一个事务里改对。加锁顺序固定为宗门存档、仙盟、成员，同时发生的操作不会互相等待。
 // 仙盟只发宗门资源与丹药，不发游戏币。
 
-// sectGameKey 是问道宗门的存档标识(与 controller 里的游戏标识一致)：仙盟的花费与奖励记在掌门的宗门存档里。
-const sectGameKey = "sect"
+// sectGameKey 是问道的存档标识(与 pkg/wendao.SaveKey 一致)：仙盟的花费与奖励记在掌门存档里的宗门上。
+const sectGameKey = "wendao"
 
 const (
 	SectAllianceRoleLeader = "leader"

@@ -1,4 +1,4 @@
-package sect
+package wendao
 
 // Rng 是可以序列化的确定性随机数发生器(SplitMix64)，状态随存档或大比一起保存，只有服务端知道。
 type Rng struct {

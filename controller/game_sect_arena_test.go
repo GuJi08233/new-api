@@ -6,7 +6,7 @@ import (
 
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/pkg/sect"
+	"github.com/QuantumNous/new-api/pkg/wendao"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -44,10 +44,10 @@ func TestSectArenaChallengeMovesRatingsOnce(t *testing.T) {
 
 	ageSession(t, env, round["session_id"], 60)
 	round = attacker.ok(http.MethodPost, path+"/action", puzzleAction(round, map[string]any{"action": "pick", "index": 0}))
-	editSectTournament(t, env, round["session_id"], func(tour *sect.Tournament) {
-		tour.Opponent.Hp, tour.Intent = 1, sect.MoveGuard
+	editSectTournament(t, env, round["session_id"], func(tour *wendao.Tournament) {
+		tour.Opponent.Hp, tour.Intent = 1, wendao.MoveGuard
 	})
-	finished := attacker.ok(http.MethodPost, path+"/action", puzzleAction(round, map[string]any{"action": sect.MoveStrike}))
+	finished := attacker.ok(http.MethodPost, path+"/action", puzzleAction(round, map[string]any{"action": wendao.MoveStrike}))
 	assert.Equal(t, model.GameSessionStatusFinished, finished["status"])
 	detail := finished["result"].(map[string]any)["detail"].(map[string]any)
 	assert.Equal(t, true, detail["champion"])

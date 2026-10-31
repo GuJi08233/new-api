@@ -4,7 +4,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
-	"github.com/QuantumNous/new-api/pkg/sect"
+	"github.com/QuantumNous/new-api/pkg/wendao"
 	"github.com/gin-gonic/gin"
 )
 
@@ -35,16 +35,16 @@ func sectArenaLineup(row *model.SectArena) []int {
 }
 
 // loadSectArenaDefenders 按守擂宗门现在的实力排出它的守擂弟子。没有宗门、没设阵容或阵容里的弟子都走了时返回空。
-func loadSectArenaDefenders(row *model.SectArena) ([]*sect.Fighter, error) {
+func loadSectArenaDefenders(row *model.SectArena) ([]*wendao.Fighter, error) {
 	ids := sectArenaLineup(row)
 	if len(ids) == 0 {
 		return nil, nil
 	}
-	data, err := model.GetGameSave(row.UserId, sectGame)
+	data, err := model.GetGameSave(row.UserId, wendao.SaveKey)
 	if err != nil {
 		return nil, err
 	}
-	s, err := sect.ParseSect(data)
+	s, err := wendao.ParseSect(data)
 	if err != nil || s == nil {
 		return nil, err
 	}
@@ -72,7 +72,7 @@ func getSectArena(c *gin.Context) {
 			return
 		}
 		// 自己的守擂战力按现在的实力刷新，别人在榜上看到的是最近一次算出的值。
-		if power := sect.ArenaPower(defenders); power != me.Power && len(defenders) > 0 {
+		if power := wendao.ArenaPower(defenders); power != me.Power && len(defenders) > 0 {
 			if err := model.UpdateSectArenaPower(userId, power); err != nil {
 				common.ApiError(c, err)
 				return
@@ -127,7 +127,7 @@ func getSectArena(c *gin.Context) {
 		"top":        top,
 		"battles":    battles,
 		"names":      names,
-		"daily_runs": sect.ArenaDailyRuns,
+		"daily_runs": wendao.ArenaDailyRuns,
 	})
 }
 
@@ -139,17 +139,17 @@ func setSectArenaDefense(c *gin.Context) {
 	var req struct {
 		Team []int `json:"team"`
 	}
-	if decodeGameRequest(c, &req) != nil || len(req.Team) == 0 || len(req.Team) > sect.TeamSize {
+	if decodeGameRequest(c, &req) != nil || len(req.Team) == 0 || len(req.Team) > wendao.TeamSize {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
 	userId := c.GetInt("id")
-	data, err := model.GetGameSave(userId, sectGame)
+	data, err := model.GetGameSave(userId, wendao.SaveKey)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	s, err := sect.ParseSect(data)
+	s, err := wendao.ParseSect(data)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -168,7 +168,7 @@ func setSectArenaDefense(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	row, err := model.SetSectArenaDefense(userId, string(encoded), sect.ArenaPower(s.ArenaDefenders(lineup)))
+	row, err := model.SetSectArenaDefense(userId, string(encoded), wendao.ArenaPower(s.ArenaDefenders(lineup)))
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -187,7 +187,7 @@ func startSectArena(c *gin.Context) {
 		Opponent int   `json:"opponent"`
 		Team     []int `json:"team"`
 	}
-	if decodeGameRequest(c, &req) != nil || len(req.Team) == 0 || len(req.Team) > sect.TeamSize ||
+	if decodeGameRequest(c, &req) != nil || len(req.Team) == 0 || len(req.Team) > wendao.TeamSize ||
 		req.Opponent <= 0 || req.Opponent == c.GetInt("id") {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
@@ -206,8 +206,8 @@ func startSectArena(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgGameSectUnavailable)
 		return
 	}
-	startSectDuel(c, sectArenaGame, req.Opponent, func(seed uint64, s *sect.Sect, now int64) (*sect.Tournament, error) {
-		return sect.NewArenaBattle(seed, s, req.Team, defenders, now)
+	startSectDuel(c, sectArenaGame, req.Opponent, func(seed uint64, s *wendao.Sect, now int64) (*wendao.Tournament, error) {
+		return wendao.NewArenaBattle(seed, s, req.Team, defenders, now)
 	})
 }
 
