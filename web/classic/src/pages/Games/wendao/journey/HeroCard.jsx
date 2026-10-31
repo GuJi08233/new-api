@@ -22,12 +22,18 @@ import { Button, Checkbox, Tooltip } from '@douyinfe/semi-ui';
 import { Heart, Sparkles, Swords } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { getClassText } from '../../dungeon/text';
-import { Bar, formatAmount, realmLabel, useSectText } from '../../sect/parts';
+import {
+  Bar,
+  formatAmount,
+  formatLeft,
+  realmLabel,
+  useSectText,
+} from '../../sect/parts';
 import { CLASS_ICONS } from './CreateHero';
 import { getKeyText } from './text';
 
 // 主角：流派、境界与修为条(两次同步之间按闭关速度往前推)、生命与力量；第九层圆满时可以突破。
-const HeroCard = ({ hero, pills, elapsed, busy, onBreak }) => {
+const HeroCard = ({ hero, pills, elapsed, now, busy, onBreak, onQi }) => {
   const { t } = useTranslation();
   const sectText = useSectText();
   const classes = getClassText(t);
@@ -40,6 +46,8 @@ const HeroCard = ({ hero, pills, elapsed, busy, onBreak }) => {
   const key = hero.break_key;
   const hasKey = key && (hero.keys[key] || 0) > 0;
   const pillCount = pills?.break || 0;
+  const qiCount = pills?.qi || 0;
+  const qiWait = hero.qi_ready > now ? hero.qi_ready - now : 0;
   return (
     <section className='jn-hero'>
       <div className='jn-hero-head'>
@@ -64,10 +72,31 @@ const HeroCard = ({ hero, pills, elapsed, busy, onBreak }) => {
       </div>
       <div className='jn-exp'>
         <Bar value={exp} max={hero.need} kind='exp' />
-        <span>
-          {formatAmount(exp)} / {formatAmount(hero.need)}
-          {!hero.bottleneck &&
-            ` · ${t('闭关 +{{n}}/时', { n: Math.round(hero.rate) })}`}
+        <span className='jn-exp-row'>
+          <span>
+            {formatAmount(exp)} / {formatAmount(hero.need)}
+            {!hero.bottleneck &&
+              ` · ${t('闭关 +{{n}}/时', { n: Math.round(hero.rate) })}`}
+          </span>
+          {!hero.bottleneck && (
+            <Tooltip
+              content={
+                qiWait > 0
+                  ? t('丹力还没化开，{{left}}后能服下一颗', {
+                      left: formatLeft(qiWait, t),
+                    })
+                  : t('服一颗宗门丹房的聚气丹，马上得到三小时闭关的修为')
+              }
+            >
+              <Button
+                size='small'
+                disabled={busy || qiCount < 1 || qiWait > 0}
+                onClick={onQi}
+              >
+                {t('服聚气丹（剩 {{n}}）', { n: qiCount })}
+              </Button>
+            </Tooltip>
+          )}
         </span>
       </div>
       {hero.bottleneck && (

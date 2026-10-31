@@ -8155,6 +8155,23 @@
     "攻伐": "Công phạt",
     "秘术": "Bí thuật",
     "心法": "Tâm pháp",
-    "心法：持续整场战斗": "Tâm pháp: kéo dài cả trận"
+    "心法：持续整场战斗": "Tâm pháp: kéo dài cả trận",
+    "丹房炼丹符（宗门丹房 {{n}} 级）": "Luyện đan phù (đan phòng tông môn cấp {{n}})",
+    "用宗门库房的资源给主角炼战斗用的丹符，每种最多存 {{n}} 份": "Dùng tài nguyên kho tông môn luyện đan phù chiến đấu cho nhân vật, mỗi loại tối đa {{n}} phần",
+    "丹房 {{n}} 级": "Đan phòng cấp {{n}}",
+    "炼一份": "Luyện một phần",
+    "丹力还没化开，{{left}}后能服下一颗": "Dược lực chưa tan, sau {{left}} mới dùng viên tiếp",
+    "服一颗宗门丹房的聚气丹，马上得到三小时闭关的修为": "Dùng một viên Tụ khí đan của đan phòng tông môn, lập tức nhận tu vi ba giờ bế quan",
+    "服聚气丹（剩 {{n}}）": "Dùng Tụ khí đan (còn {{n}})",
+    "随行弟子（最多 {{n}} 名，各带一张援护牌）": "Đệ tử đi cùng (tối đa {{n}} người, mỗi người mang một lá viện hộ)",
+    "宗门里还没有弟子": "Tông môn chưa có đệ tử",
+    "外出或受伤": "Đang ra ngoài hoặc bị thương",
+    "带回宗门：灵石 {{stone}} · 灵草 {{herb}} · 玄铁 {{ore}}": "Mang về tông môn: linh thạch {{stone}} · linh thảo {{herb}} · huyền thiết {{ore}}",
+    "今天带回宗门的材料已经够了，明天再来": "Hôm nay đã mang đủ vật liệu về tông môn, mai lại đến",
+    "金灵剑": "Kim linh kiếm",
+    "回春术": "Hồi xuân thuật",
+    "寒潭护体": "Hàn đàm hộ thể",
+    "赤焰符": "Xích diễm phù",
+    "厚土诀": "Hậu thổ quyết"
   }
 }

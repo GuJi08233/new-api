@@ -54,6 +54,32 @@ func EnemyScale(n *JourneyNode) (hp, dmg int) {
 // BreakKeys 是主角从境界 r 突破到 r+1 要用掉的机缘，由第 r+1 章的首领掉落；空字符串表示还没有开放。
 var BreakKeys = [...]string{"foundation_dew", "core_fire", "nascent_lotus", ""}
 
+// 宗门与历练互通：随行弟子、丹房炼丹符、聚气丹。
+const (
+	// CompanionMax 是一场仗最多带几名弟子随行，每人带来一张按灵根的援护牌(dungeon.AllyCards)，弟子到了筑基就是升级后的。
+	CompanionMax = 2
+	// companionInjury 是输了(或退走)时随行弟子受伤多久。
+	companionInjury = 60 * 60
+)
+
+// PotionRecipe 是在宗门丹房给主角炼一份丹符：丹房要几级、花多少。
+type PotionRecipe struct {
+	Potion  string `json:"potion"`
+	Alchemy int    `json:"alchemy"`
+	Cost    Cost   `json:"cost"`
+}
+
+// PotionRecipes 是丹房能炼的丹符，按丹房等级排列。
+var PotionRecipes = []PotionRecipe{
+	{Potion: dungeon.PotionHeal, Alchemy: 1, Cost: Cost{Stone: 20, Herb: 40}},
+	{Potion: dungeon.PotionFire, Alchemy: 1, Cost: Cost{Stone: 40, Ore: 10}},
+	{Potion: dungeon.PotionIron, Alchemy: 2, Cost: Cost{Stone: 30, Ore: 30}},
+	{Potion: dungeon.PotionWeakness, Alchemy: 2, Cost: Cost{Herb: 40, Ore: 20}},
+	{Potion: dungeon.PotionStrength, Alchemy: 2, Cost: Cost{Herb: 60, Ore: 20}},
+	{Potion: dungeon.PotionSwift, Alchemy: 3, Cost: Cost{Stone: 50, Herb: 50}},
+	{Potion: dungeon.PotionEnergy, Alchemy: 3, Cost: Cost{Stone: 60, Herb: 80}},
+}
+
 // UpgradeCost 是参悟一张功法(升级)要花的灵石，按稀有度：初始、普通、罕见、稀有。
 var UpgradeCost = [...]int{30, 60, 150, 300}
 

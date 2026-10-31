@@ -22,10 +22,11 @@ import { Button } from '@douyinfe/semi-ui';
 import { FlaskConical, Gem, KeyRound } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useDungeonText } from '../../dungeon/parts';
+import { CostChips, canAfford } from '../../sect/parts';
 import { getKeyText } from './text';
 
 // 法宝与行囊：戴上或摘下法宝(数量有上限)，看行囊里的丹符与机缘。丹符开战时自动带上，没用掉的打完放回来。
-const Gear = ({ hero, busy, act }) => {
+const Gear = ({ info, hero, res, busy, act }) => {
   const { t } = useTranslation();
   const text = useDungeonText();
   const keys = getKeyText(t);
@@ -88,6 +89,49 @@ const Gear = ({ hero, busy, act }) => {
           ))}
         </div>
       )}
+      <h5>{t('丹房炼丹符（宗门丹房 {{n}} 级）', { n: hero.alchemy })}</h5>
+      <p className='jn-muted'>
+        {t('用宗门库房的资源给主角炼战斗用的丹符，每种最多存 {{n}} 份', {
+          n: info.max_potion_stack,
+        })}
+      </p>
+      <div className='jn-recipes'>
+        {info.potion_recipes.map((recipe) => {
+          const locked = hero.alchemy < recipe.alchemy;
+          const full =
+            (hero.potions[recipe.potion] || 0) >= info.max_potion_stack;
+          return (
+            <div
+              key={recipe.potion}
+              className={locked ? 'jn-recipe is-locked' : 'jn-recipe'}
+            >
+              <FlaskConical size={15} />
+              <div>
+                <strong>{text.potions[recipe.potion]?.name}</strong>
+                <span>{text.potions[recipe.potion]?.desc}</span>
+              </div>
+              {locked ? (
+                <span className='jn-muted'>
+                  {t('丹房 {{n}} 级', { n: recipe.alchemy })}
+                </span>
+              ) : (
+                <>
+                  <CostChips cost={recipe.cost} have={res} />
+                  <Button
+                    size='small'
+                    disabled={busy || full || !canAfford(recipe.cost, res)}
+                    onClick={() =>
+                      act('craft', { item: recipe.potion, count: 1 })
+                    }
+                  >
+                    {t('炼一份')}
+                  </Button>
+                </>
+              )}
+            </div>
+          );
+        })}
+      </div>
       <h5>{t('机缘')}</h5>
       {owned.length === 0 ? (
         <p className='jn-muted'>

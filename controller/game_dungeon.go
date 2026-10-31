@@ -370,23 +370,34 @@ func actDungeonRun(c *gin.Context) {
 		return
 	}
 
-	// 一局结束(倒下、试炼过关或放弃)：按成绩结算，并在同一个事务里把魂晶与战绩记进存档。记录先按结算前读到的存档算好写进
-	// 明细，事务里再按锁住的存档重算：同一玩家同一模式同时只有一局，两次结果相同。
-	meta, err := loadDungeonMeta(session.UserId)
+	// 一局结束(倒下、试炼过关或放弃)：按成绩结算，并在同一个事务里把魂晶、战绩与带回宗门的材料记进存档。记录先按结算前
+	// 读到的存档算好写进明细，事务里再按锁住的存档重算：同一玩家同一模式同时只有一局，两次结果相同。
+	saved, err := model.GetGameSave(session.UserId, wendao.SaveKey)
 	if err != nil {
 		respondGameFinishRetry(c)
 		return
 	}
-	record := func(m *dungeon.Meta) dungeon.RunRecord {
-		if game == dungeonTrialGame {
-			return m.RecordTrial(run)
-		}
-		return m.Record(run)
+	previewSave, err := wendao.ParseSave(saved)
+	if err != nil {
+		respondGameFinishRetry(c)
+		return
 	}
-	preview := record(meta)
+	day := gameCenterDay()
+	record := func(sv *wendao.Save) (dungeon.RunRecord, wendao.Cost) {
+		if game == dungeonTrialGame {
+			return sv.Abyss.RecordTrial(run), wendao.Cost{}
+		}
+		return sv.Abyss.Record(run), sv.GrantAbyssLoot(run, day)
+	}
+	preview, loot := record(previewSave)
+	// 还没有宗门时没有库房可放，明细里不提带回的材料。
+	var lootDetail any
+	if previewSave.Sect != nil {
+		lootDetail = loot
+	}
 	save := &model.GameSaveUpdate{Game: wendao.SaveKey, Update: func(data string) (string, error) {
-		return updateAbyssSave(data, func(current *dungeon.Meta) error {
-			record(current)
+		return wendao.UpdateSave(data, func(sv *wendao.Save) error {
+			record(sv)
 			return nil
 		})
 	}}
@@ -395,7 +406,7 @@ func actDungeonRun(c *gin.Context) {
 		Seconds: min(session.PlayedSeconds(common.GetTimestamp()), state.Steps*dungeonSecondsPerStep),
 		State:   string(data),
 		Detail: gin.H{"class": run.Class, "abyss": run.Abyss, "floor": run.Floor, "acts": run.Bosses,
-			"abandoned": req.Action == "abandon", "crystals": preview.Crystals, "bonus": preview.Bonus},
+			"abandoned": req.Action == "abandon", "crystals": preview.Crystals, "bonus": preview.Bonus, "loot": lootDetail},
 		Save: save,
 	}
 	name := "九幽秘境"

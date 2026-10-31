@@ -19,6 +19,42 @@ type Save struct {
 	Sect  *Sect         `json:"sect,omitempty"`
 	Hero  *Hero         `json:"hero,omitempty"`
 	Abyss *dungeon.Meta `json:"abyss"`
+	// AbyssLoot 记今天九幽秘境无尽模式已经往宗门带回几次材料。
+	AbyssLoot LootDay `json:"abyss_loot"`
+}
+
+// LootDay 是某一天已经领了几次。
+type LootDay struct {
+	Day  string `json:"day"`
+	Runs int    `json:"runs"`
+}
+
+// AbyssLootRuns 是每天前几轮无尽秘境(倒下或放弃都算)会往宗门库房带回材料。
+const AbyssLootRuns = 3
+
+// AbyssLootOf 是一轮无尽秘境带回宗门的材料：按到达的层数、打败的强敌与首领，劫数每高一级多一成。秘境给的是宗门资源，
+// 不影响秘境自己的游戏币奖励，宗门的强弱也带不进秘境。
+func AbyssLootOf(r *dungeon.Run) Cost {
+	base := Cost{Stone: 15*r.Floor + 60*r.Bosses, Herb: 6*r.Floor + 20*r.Bosses, Ore: 25*r.Elites + 30*r.Bosses}
+	return base.scale(1 + 0.1*float64(r.Abyss))
+}
+
+// GrantAbyssLoot 把一轮无尽秘境带回的材料放进宗门库房，返回放进去的数量：还没有宗门、不是无尽模式，或者今天已经带回
+// AbyssLootRuns 次时什么都不给。
+func (s *Save) GrantAbyssLoot(r *dungeon.Run, day string) Cost {
+	if s.Sect == nil || r.Mode != dungeon.ModeEndless {
+		return Cost{}
+	}
+	if s.AbyssLoot.Day != day {
+		s.AbyssLoot = LootDay{Day: day}
+	}
+	loot := AbyssLootOf(r)
+	if s.AbyssLoot.Runs >= AbyssLootRuns || loot == (Cost{}) {
+		return Cost{}
+	}
+	s.AbyssLoot.Runs++
+	s.Sect.gain(loot)
+	return loot
 }
 
 // ParseSave 读出存档，空字符串是一份新存档。

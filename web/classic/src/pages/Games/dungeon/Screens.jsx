@@ -344,6 +344,17 @@ export const EndScreen = ({ round, symbol, levelNames, onBack }) => {
           <small>{t('这些星以前已经拿过')}</small>
         )}
       </div>
+      {!trial && detail.loot && (
+        <p className='dg-screen-note'>
+          {Object.values(detail.loot).some((n) => n > 0)
+            ? t('带回宗门：灵石 {{stone}} · 灵草 {{herb}} · 玄铁 {{ore}}', {
+                stone: detail.loot.stone || 0,
+                herb: detail.loot.herb || 0,
+                ore: detail.loot.ore || 0,
+              })
+            : t('今天带回宗门的材料已经够了，明天再来')}
+        </p>
+      )}
       {message && (
         <StageMessage kind={message.kind} note={message.note}>
           {message.text}

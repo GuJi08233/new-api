@@ -7802,6 +7802,23 @@
     "攻伐": "Attack",
     "秘术": "Art",
     "心法": "Mantra",
-    "心法：持续整场战斗": "Mantra: lasts the whole battle"
+    "心法：持续整场战斗": "Mantra: lasts the whole battle",
+    "丹房炼丹符（宗门丹房 {{n}} 级）": "Craft elixirs (sect alchemy room level {{n}})",
+    "用宗门库房的资源给主角炼战斗用的丹符，每种最多存 {{n}} 份": "Spend the sect storehouse's resources on battle elixirs for your hero; up to {{n}} of each",
+    "丹房 {{n}} 级": "Alchemy room level {{n}}",
+    "炼一份": "Craft one",
+    "丹力还没化开，{{left}}后能服下一颗": "The last pill is still working; you can take another in {{left}}",
+    "服一颗宗门丹房的聚气丹，马上得到三小时闭关的修为": "Take a Qi-Gathering Pill from the sect's alchemy room to gain three hours of seclusion at once",
+    "服聚气丹（剩 {{n}}）": "Take Qi Pill ({{n}} left)",
+    "随行弟子（最多 {{n}} 名，各带一张援护牌）": "Companions (up to {{n}}, each brings a support card)",
+    "宗门里还没有弟子": "The sect has no disciples yet",
+    "外出或受伤": "Away or injured",
+    "带回宗门：灵石 {{stone}} · 灵草 {{herb}} · 玄铁 {{ore}}": "Brought back to the sect: spirit stones {{stone}} · spirit herbs {{herb}} · black iron {{ore}}",
+    "今天带回宗门的材料已经够了，明天再来": "You've brought back enough materials for the sect today; come back tomorrow",
+    "金灵剑": "Metal Spirit Sword",
+    "回春术": "Spring Revival Art",
+    "寒潭护体": "Cold Pool Guard",
+    "赤焰符": "Crimson Flame Talisman",
+    "厚土诀": "Deep Earth Incantation"
   }
 }

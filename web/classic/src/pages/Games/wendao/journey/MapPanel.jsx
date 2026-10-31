@@ -35,7 +35,13 @@ import {
 import { useTranslation } from 'react-i18next';
 import { useDungeonText, RelicChip } from '../../dungeon/parts';
 import { getEnemyNames } from '../../dungeon/text';
-import { CostChips, formatLeft, useSectText } from '../../sect/parts';
+import {
+  CostChips,
+  ElementTag,
+  formatLeft,
+  realmLabel,
+  useSectText,
+} from '../../sect/parts';
 import {
   getChapterText,
   getKeyText,
@@ -158,6 +164,8 @@ const MapPanel = ({
       </div>
       {current && (
         <NodeDetail
+          key={current.id}
+          info={info}
           node={current}
           hero={hero}
           now={now}
@@ -171,8 +179,25 @@ const MapPanel = ({
   );
 };
 
-const NodeDetail = ({ node, hero, now, busy, state, onVisit, onFight }) => {
+const NodeDetail = ({
+  info,
+  node,
+  hero,
+  now,
+  busy,
+  state,
+  onVisit,
+  onFight,
+}) => {
   const { t } = useTranslation();
+  const [team, setTeam] = useState([]);
+  const toggleMember = (id) =>
+    setTeam((current) => {
+      if (current.includes(id))
+        return current.filter((member) => member !== id);
+      if (current.length >= info.companion_max) return current;
+      return [...current, id];
+    });
   const text = useDungeonText();
   const sectText = useSectText();
   const texts = getNodeText(t);
@@ -275,6 +300,39 @@ const NodeDetail = ({ node, hero, now, busy, state, onVisit, onFight }) => {
           </span>
         )}
       </div>
+      {fights && (state === 'open' || state === 'repeat') && (
+        <div className='jn-team'>
+          <span className='jn-reward-label'>
+            {t('随行弟子（最多 {{n}} 名，各带一张援护牌）', {
+              n: info.companion_max,
+            })}
+          </span>
+          {hero.companions.length === 0 && (
+            <span className='jn-muted'>{t('宗门里还没有弟子')}</span>
+          )}
+          {hero.companions.map((d) => {
+            const picked = team.includes(d.id);
+            return (
+              <button
+                type='button'
+                key={d.id}
+                className={picked ? 'jn-member is-picked' : 'jn-member'}
+                disabled={!d.ready}
+                aria-pressed={picked}
+                onClick={() => toggleMember(d.id)}
+              >
+                <ElementTag element={d.element} />
+                <strong>{sectText.name(d.name)}</strong>
+                <span>
+                  {d.ready
+                    ? realmLabel(sectText, t, d.realm, d.layer)
+                    : t('外出或受伤')}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
       {!first && node.kind !== 'story' && (
         <p className='jn-muted'>
           {repeatsLeft > 0
@@ -314,7 +372,14 @@ const NodeDetail = ({ node, hero, now, busy, state, onVisit, onFight }) => {
             theme='solid'
             type={node.kind === 'boss' ? 'danger' : 'primary'}
             disabled={busy || hero.deck.length < 8}
-            onClick={() => onFight(node.id)}
+            onClick={() =>
+              onFight(
+                node.id,
+                team.filter((id) =>
+                  hero.companions.some((d) => d.id === id && d.ready),
+                ),
+              )
+            }
           >
             {first ? t('开战') : t('再战')}
           </Button>

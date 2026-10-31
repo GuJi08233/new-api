@@ -24,6 +24,8 @@ type Hero struct {
 	Keys    map[string]int `json:"keys"`
 	// Nodes 是走过的节点：通过次数与上次通过的时间(采集按它算间隔)。
 	Nodes map[string]*NodeRecord `json:"nodes"`
+	// QiReady 是下一颗聚气丹什么时候能服(与弟子相同，服一颗要等丹力化开)。
+	QiReady int64 `json:"qi_ready,omitempty"`
 	// Day 与 DayRepeats 记今天重复通过节点拿了几次资源。
 	Day        string      `json:"day"`
 	DayRepeats int         `json:"day_repeats"`
@@ -42,6 +44,8 @@ type HeroBattle struct {
 	Node    string       `json:"node"`
 	Run     *dungeon.Run `json:"run"`
 	Carried []string     `json:"carried"`
+	// Team 是随行的弟子编号。
+	Team []int `json:"team,omitempty"`
 }
 
 // HeroStats 是主角的战绩。
@@ -51,11 +55,15 @@ type HeroStats struct {
 	Breakthroughs int `json:"breakthroughs"`
 }
 
-// HeroAction 是历练里的一次操作。Move、Card、Target、Choice、Potion 是战斗里的一步(与九幽秘境相同)。
+// HeroAction 是历练里的一次操作。Move、Card、Target、Choice、Potion 是战斗里的一步(与九幽秘境相同)；Team 是开战时
+// 随行的弟子；Item、Count 是在丹房炼的丹符与份数。
 type HeroAction struct {
 	Type    string   `json:"action"`
 	Class   string   `json:"class"`
 	Node    string   `json:"node"`
+	Team    []int    `json:"team"`
+	Item    string   `json:"item"`
+	Count   int      `json:"count"`
 	Deck    []int    `json:"deck"`
 	Relics  []string `json:"relics"`
 	Card    int      `json:"card"`
@@ -257,13 +265,18 @@ func (sv *Save) HeroApply(a HeroAction, now int64, day string, seed uint64) ([]E
 	case "visit":
 		more, err = h.visit(s, a.Node, now)
 	case "fight":
-		err = h.fight(a.Node, seed)
+		err = h.fight(s, a.Node, a.Team, seed, now)
+	case "craft":
+		more, err = h.craft(s, a.Item, a.Count)
+	case "qi":
+		more, err = h.takeQi(s, now)
 	case "battle":
 		more, err = h.battleStep(s, a, now)
 	case "flee":
 		if h.Battle == nil {
 			return nil, ErrUnavailable
 		}
+		more = h.injureTeam(s, now)
 		h.endBattle()
 		h.Stats.Losses++
 	default:
@@ -434,8 +447,8 @@ func (h *Hero) clear(s *Sect, n *JourneyNode, now int64) []Ev {
 	return evs
 }
 
-// fight 在一个战斗节点开战：带上牌组、佩戴的法宝与行囊里的丹符(按丹符栏格数，从行囊里拿出来)。
-func (h *Hero) fight(id string, seed uint64) error {
+// fight 在一个战斗节点开战：带上牌组、佩戴的法宝、行囊里的丹符(按丹符栏格数，从行囊里拿出来)与随行弟子的援护牌。
+func (h *Hero) fight(s *Sect, id string, team []int, seed uint64, now int64) error {
 	n := JourneyNodeOf(id)
 	if n == nil || (n.Kind != NodeCombat && n.Kind != NodeElite && n.Kind != NodeBoss) {
 		return ErrAction
@@ -445,6 +458,20 @@ func (h *Hero) fight(id string, seed uint64) error {
 	}
 	if len(h.Deck) < DeckMin {
 		return ErrUnavailable
+	}
+	if len(team) > CompanionMax {
+		return ErrAction
+	}
+	allies := []dungeon.Card{}
+	for i, id := range team {
+		d := s.disciple(id)
+		if d == nil || slices.Contains(team[:i], id) {
+			return ErrAction
+		}
+		if !d.home(now) {
+			return ErrUnavailable
+		}
+		allies = append(allies, dungeon.Card{Id: dungeon.AllyCards[d.Element], Up: d.Realm >= 1})
 	}
 	carried := []string{}
 	slots := dungeon.PotionSlotsWith(h.Worn)
@@ -464,13 +491,67 @@ func (h *Hero) fight(id string, seed uint64) error {
 	hp, dmg := EnemyScale(n)
 	run, err := dungeon.NewBattle(seed, dungeon.BattleSetup{
 		Class: h.Class, Deck: h.deckCards(), Relics: h.Worn, Potions: carried, MaxHP: h.MaxHP(), Strength: h.Strength(),
-		Kind: n.Kind, Enemies: n.Enemies, HP: hp, Dmg: dmg, Rewards: rewards,
+		Kind: n.Kind, Enemies: n.Enemies, HP: hp, Dmg: dmg, Rewards: rewards, Allies: allies,
 	})
 	if err != nil {
 		return err
 	}
-	h.Battle = &HeroBattle{Node: id, Run: run, Carried: carried}
+	h.Battle = &HeroBattle{Node: id, Run: run, Carried: carried, Team: slices.Clone(team)}
 	return nil
+}
+
+// injureTeam 让随行的弟子受伤(输了或退走)。已经离开宗门的弟子不管。
+func (h *Hero) injureTeam(s *Sect, now int64) []Ev {
+	var evs []Ev
+	for _, id := range h.Battle.Team {
+		if d := s.disciple(id); d != nil {
+			d.Injured = max(d.Injured, now+companionInjury)
+			evs = append(evs, Ev{K: "injured", Who: &d.Name, N: companionInjury / 3600})
+		}
+	}
+	return evs
+}
+
+// craft 在宗门丹房给主角炼丹符，花宗门的资源；每种丹符最多存 MaxPotionStack 份。
+func (h *Hero) craft(s *Sect, potion string, count int) ([]Ev, error) {
+	index := slices.IndexFunc(PotionRecipes, func(r PotionRecipe) bool { return r.Potion == potion })
+	if index < 0 || count < 1 || count > MaxPotionStack {
+		return nil, ErrAction
+	}
+	recipe := PotionRecipes[index]
+	if s.Buildings[BuildingAlchemy] < recipe.Alchemy || h.Potions[potion]+count > MaxPotionStack {
+		return nil, ErrUnavailable
+	}
+	cost := recipe.Cost.scale(float64(count))
+	if err := s.pay(cost); err != nil {
+		return nil, err
+	}
+	h.Potions[potion] += count
+	var evs []Ev
+	for _, spent := range []struct {
+		key string
+		n   int
+	}{{"stone", cost.Stone}, {"herb", cost.Herb}, {"ore", cost.Ore}} {
+		if spent.n > 0 {
+			evs = append(evs, Ev{K: "res", S: spent.key, N: -spent.n})
+		}
+	}
+	return append(evs, Ev{K: "hero_potion", S: potion, N: count}), nil
+}
+
+// takeQi 服一颗宗门的聚气丹：马上得到几个小时闭关的修为，要等丹力化开才能服下一颗。
+func (h *Hero) takeQi(s *Sect, now int64) ([]Ev, error) {
+	if h.Bottleneck() || h.QiReady > now {
+		return nil, ErrUnavailable
+	}
+	if s.Pills[PillQi] < 1 {
+		return nil, ErrCost
+	}
+	s.Pills[PillQi]--
+	h.QiReady = now + qiPillCooldown
+	gain := h.CultivateRate(s) * qiPillHours
+	evs := []Ev{{K: "pill", S: PillQi, N: -1}, {K: "hero_exp", N: int(math.Round(gain))}}
+	return append(evs, h.addExp(gain)...), nil
 }
 
 // endBattle 结束这一场：没用掉的丹符放回行囊。
@@ -495,13 +576,22 @@ func (h *Hero) battleStep(s *Sect, a HeroAction, now int64) ([]Ev, error) {
 	}
 	n := JourneyNodeOf(h.Battle.Node)
 	won := run.Result == dungeon.PhaseWon
-	h.endBattle()
+	team := h.Battle.Team
 	if !won {
+		evs := append([]Ev{{K: "hero_lost", S: n.Id}}, h.injureTeam(s, now)...)
+		h.endBattle()
 		h.Stats.Losses++
-		return []Ev{{K: "hero_lost", S: n.Id}}, nil
+		return evs, nil
 	}
+	h.endBattle()
 	h.Stats.Wins++
 	evs := h.clear(s, n, now)
+	// 随行的弟子也有所得：节点修为的一半。
+	for _, id := range team {
+		if d := s.disciple(id); d != nil {
+			evs = append(evs, s.addExp(d, float64(n.Exp)/2)...)
+		}
+	}
 	if run.Picked != nil && len(h.Cards) < MaxCards {
 		h.Cards = append(h.Cards, *run.Picked)
 		if len(h.Deck) < DeckMax {
@@ -540,12 +630,28 @@ type HeroView struct {
 	Stats       HeroStats              `json:"stats"`
 	Battle      *HeroBattleView        `json:"battle,omitempty"`
 	Now         int64                  `json:"now"`
+	QiReady     int64                  `json:"qi_ready"`
+	// Alchemy 是宗门丹房的等级，决定能炼哪些丹符。
+	Alchemy int `json:"alchemy"`
+	// Companions 是宗门里的弟子，Ready 表示现在能随行(在宗门里、没受伤)。
+	Companions []CompanionView `json:"companions"`
+}
+
+// CompanionView 是一名可以随行的弟子。
+type CompanionView struct {
+	Id      int    `json:"id"`
+	Name    [3]int `json:"name"`
+	Element int    `json:"element"`
+	Realm   int    `json:"realm"`
+	Layer   int    `json:"layer"`
+	Ready   bool   `json:"ready"`
 }
 
 // HeroBattleView 是正在打的一场仗。
 type HeroBattleView struct {
 	Node string       `json:"node"`
 	Run  dungeon.View `json:"run"`
+	Team []int        `json:"team"`
 }
 
 // View 返回主角在 now 时刻的样子，s 是宗门(闭关速度看聚灵阵)。
@@ -556,7 +662,12 @@ func (h *Hero) View(s *Sect, now int64, day string) HeroView {
 		MaxHP: h.MaxHP(), Strength: h.Strength(), RelicSlots: h.RelicSlots(), PotionSlots: dungeon.PotionSlotsWith(h.Worn),
 		Cards: dungeon.DeckViews(h.Cards), Deck: h.Deck, Relics: h.Relics, Worn: h.Worn, Potions: h.Potions, Keys: h.Keys,
 		Nodes: h.Nodes, Open: []string{}, Ready: map[string]int64{}, Stats: h.Stats, Now: now,
-		RepeatsLeft: DailyRepeatRewards,
+		RepeatsLeft: DailyRepeatRewards, QiReady: h.QiReady, Companions: []CompanionView{},
+		Alchemy: s.Buildings[BuildingAlchemy],
+	}
+	for _, d := range s.Disciples {
+		v.Companions = append(v.Companions, CompanionView{Id: d.Id, Name: d.Name, Element: d.Element, Realm: d.Realm,
+			Layer: d.Layer, Ready: d.home(now)})
 	}
 	if h.Realm < MaxRealm {
 		v.BreakKey = BreakKeys[h.Realm]
@@ -575,7 +686,7 @@ func (h *Hero) View(s *Sect, now int64, day string) HeroView {
 		}
 	}
 	if h.Battle != nil {
-		v.Battle = &HeroBattleView{Node: h.Battle.Node, Run: h.Battle.Run.View()}
+		v.Battle = &HeroBattleView{Node: h.Battle.Node, Run: h.Battle.Run.View(), Team: h.Battle.Team}
 	}
 	return v
 }

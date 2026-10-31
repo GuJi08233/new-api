@@ -14,7 +14,8 @@ const (
 )
 
 // BattleSetup 是一场战斗的设置。Kind 是遭遇、强敌或首领(combat、elite、boss)，决定奖励功法的稀有度；敌人的生命与伤害按
-// HP、Dmg(百分比，100 为原样)放大；Strength 是开战时就有的力量；Rewards 是赢了以后几选一，0 表示不给功法。
+// HP、Dmg(百分比，100 为原样)放大；Strength 是开战时就有的力量；Rewards 是赢了以后几选一，0 表示不给功法；Allies 是随行
+// 弟子带来的援护牌，只能是 AllyCards 里的，洗进这一场的牌组。
 type BattleSetup struct {
 	Class    string   `json:"class"`
 	Deck     []Card   `json:"deck"`
@@ -27,6 +28,7 @@ type BattleSetup struct {
 	HP       int      `json:"hp"`
 	Dmg      int      `json:"dmg"`
 	Rewards  int      `json:"rewards,omitempty"`
+	Allies   []Card   `json:"allies,omitempty"`
 }
 
 func validBattle(s BattleSetup) bool {
@@ -43,6 +45,14 @@ func validBattle(s BattleSetup) bool {
 	}
 	for _, c := range s.Deck {
 		if cardDefs[c.Id] == nil || c.def().Rarity == RaritySpecial {
+			return false
+		}
+	}
+	if len(s.Allies) > len(AllyCards) {
+		return false
+	}
+	for _, c := range s.Allies {
+		if !slices.Contains(AllyCards[:], c.Id) {
 			return false
 		}
 	}
@@ -73,6 +83,7 @@ func NewBattle(seed uint64, s BattleSetup) (*Run, error) {
 	}
 	setup := s
 	setup.Deck, setup.Relics, setup.Potions, setup.Enemies = slices.Clone(s.Deck), slices.Clone(s.Relics), slices.Clone(s.Potions), slices.Clone(s.Enemies)
+	setup.Allies = slices.Clone(s.Allies)
 	r := &Run{
 		Version: StateVersion,
 		Rng:     Rng{S: seed},
@@ -82,7 +93,7 @@ func NewBattle(seed uint64, s BattleSetup) (*Run, error) {
 		Act:     1,
 		MaxHP:   s.MaxHP,
 		HP:      s.MaxHP,
-		Deck:    slices.Clone(s.Deck),
+		Deck:    append(slices.Clone(s.Deck), s.Allies...),
 		Relics:  []string{},
 		Potions: slices.Clone(s.Potions),
 		Path:    []int{},

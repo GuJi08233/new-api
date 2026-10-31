@@ -499,3 +499,70 @@
 .jn-result {
   margin: 4px 0 12px;
 }
+
+/* ---------- 随行弟子与丹房 ---------- */
+.jn-team {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.jn-member {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 10px;
+  background: var(--semi-color-bg-0);
+  color: var(--semi-color-text-1);
+  font-size: 12px;
+  cursor: pointer;
+}
+.jn-member strong {
+  color: var(--semi-color-text-0);
+  font-size: 13px;
+}
+.jn-member.is-picked {
+  border-color: var(--semi-color-primary);
+  background: var(--semi-color-primary-light-default);
+}
+.jn-member:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.jn-exp-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.jn-recipes {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 8px;
+}
+.jn-recipe {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 12px;
+  background: var(--semi-color-bg-1);
+}
+.jn-recipe > div {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 140px;
+}
+.jn-recipe span {
+  font-size: 12px;
+  color: var(--semi-color-text-2);
+}
+.jn-recipe.is-locked {
+  opacity: 0.6;
+}

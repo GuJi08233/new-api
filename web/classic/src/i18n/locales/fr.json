@@ -7654,6 +7654,23 @@
     "攻伐": "Attaque",
     "秘术": "Art",
     "心法": "Mantra",
-    "心法：持续整场战斗": "Mantra : dure tout le combat"
+    "心法：持续整场战斗": "Mantra : dure tout le combat",
+    "丹房炼丹符（宗门丹房 {{n}} 级）": "Fabriquer des élixirs (alchimie de la secte niv. {{n}})",
+    "用宗门库房的资源给主角炼战斗用的丹符，每种最多存 {{n}} 份": "Utilisez les ressources du magasin de la secte pour des élixirs de combat ; {{n}} maximum par type",
+    "丹房 {{n}} 级": "Alchimie niv. {{n}}",
+    "炼一份": "En fabriquer un",
+    "丹力还没化开，{{left}}后能服下一颗": "La pilule précédente agit encore ; une autre dans {{left}}",
+    "服一颗宗门丹房的聚气丹，马上得到三小时闭关的修为": "Prenez une pilule de rassemblement du qi de la secte pour gagner tout de suite trois heures de retraite",
+    "服聚气丹（剩 {{n}}）": "Pilule de qi (reste {{n}})",
+    "随行弟子（最多 {{n}} 名，各带一张援护牌）": "Compagnons ({{n}} max, chacun apporte une carte de soutien)",
+    "宗门里还没有弟子": "La secte n'a pas encore de disciples",
+    "外出或受伤": "Absent ou blessé",
+    "带回宗门：灵石 {{stone}} · 灵草 {{herb}} · 玄铁 {{ore}}": "Rapporté à la secte : pierres spirituelles {{stone}} · herbes spirituelles {{herb}} · fer noir {{ore}}",
+    "今天带回宗门的材料已经够了，明天再来": "Vous avez rapporté assez de matériaux à la secte aujourd'hui ; revenez demain",
+    "金灵剑": "Épée de l'esprit du métal",
+    "回春术": "Art du renouveau",
+    "寒潭护体": "Garde de l'étang froid",
+    "赤焰符": "Talisman de flamme pourpre",
+    "厚土诀": "Formule de la terre profonde"
   }
 }

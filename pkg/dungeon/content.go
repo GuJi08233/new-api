@@ -133,6 +133,9 @@ func exhaust(d *CardDef, base, up bool) *CardDef {
 	return d
 }
 
+// AllyCards 是五行灵根(金、木、水、火、土)的援护牌，下标与灵根编号一致。
+var AllyCards = [...]string{"ally_metal", "ally_wood", "ally_water", "ally_fire", "ally_earth"}
+
 // KnifeCard 与诅咒牌在战斗中生成或由事件加入，不会出现在奖励里。
 const (
 	KnifeCard = "knife"
@@ -210,6 +213,13 @@ var cardList = []*CardDef{
 	exhaust(card("n_inspire", ClassAny, RarityUncommon, TypeSkill, 0, 0, TargetNone, fx(FxEnergy, 1, 2)), true, true),
 	card("n_tactics", ClassAny, RarityUncommon, TypeSkill, 1, 1, TargetNone, fx(FxDraw, 2, 3)),
 	exhaust(card("n_flash", ClassAny, RarityCommon, TypeSkill, 0, 0, TargetAll, fxStatus(FxApplyAll, StWeak, 1, 2)), true, true),
+
+	// 援护牌：问道历练里随行弟子带来的一张牌，按弟子的灵根(金木水火土)；弟子到了筑基就是升级后的样子。
+	card(AllyCards[0], ClassAny, RaritySpecial, TypeAttack, 1, 1, TargetEnemy, fx(FxDamage, 9, 13)),
+	exhaust(card(AllyCards[1], ClassAny, RaritySpecial, TypeSkill, 1, 1, TargetNone, fx(FxHeal, 6, 9)), true, true),
+	card(AllyCards[2], ClassAny, RaritySpecial, TypeSkill, 1, 1, TargetNone, fx(FxBlock, 7, 10), fx(FxDraw, 1, 1)),
+	card(AllyCards[3], ClassAny, RaritySpecial, TypeSkill, 1, 1, TargetAll, fxStatus(FxApplyAll, StBurn, 3, 5)),
+	card(AllyCards[4], ClassAny, RaritySpecial, TypeSkill, 1, 1, TargetNone, fx(FxBlock, 10, 14)),
 
 	// 生成牌与诅咒
 	exhaust(card(KnifeCard, ClassAny, RaritySpecial, TypeAttack, 0, 0, TargetEnemy, fx(FxDamage, 4, 6)), true, true),

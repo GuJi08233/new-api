@@ -44,6 +44,7 @@ func TestDungeonRunSettlesCoinsAndCrystalsOnce(t *testing.T) {
 	env := newGameTestEnv(t, dungeonSettings())
 	player := env.player(0, gameTestIpA)
 	path := "/api/game/wendao/abyss"
+	stone := player.ok(http.MethodPost, "/api/game/wendao/sect/action", map[string]any{"action": "sync"})["sect"].(map[string]any)["res"].(map[string]any)["stone"].(float64)
 	view := player.ok(http.MethodPost, path+"/start", map[string]any{"class": dungeon.ClassWarrior, "abyss": 0})
 	player.fails(http.MethodPost, path+"/start", map[string]any{"class": dungeon.ClassWarrior, "abyss": 0})
 
@@ -64,6 +65,11 @@ func TestDungeonRunSettlesCoinsAndCrystalsOnce(t *testing.T) {
 	crystals := float64(1 + 10) // 到达一层、打败一个首领
 	assert.Equal(t, crystals, result["detail"].(map[string]any)["crystals"])
 	assert.Equal(t, crystals, dungeonMeta(t, player)["crystals"])
+	// 带回宗门的材料：到达一层、打败一个首领。
+	loot := result["detail"].(map[string]any)["loot"].(map[string]any)
+	assert.Equal(t, float64(15+60), loot["stone"])
+	after := player.ok(http.MethodPost, "/api/game/wendao/sect/action", map[string]any{"action": "sync"})["sect"].(map[string]any)["res"].(map[string]any)["stone"].(float64)
+	assert.GreaterOrEqual(t, after, stone+15+60, "the loot lands in the sect storehouse")
 
 	again := player.ok(http.MethodPost, path+"/action", abandon)
 	assert.Equal(t, result["session_id"], again["session_id"])

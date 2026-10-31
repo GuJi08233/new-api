@@ -182,7 +182,9 @@ const JourneyPage = () => {
           pills={state.pills}
           elapsed={elapsed}
           busy={busy}
+          now={now}
           onBreak={(usePill) => act('breakthrough', { use_pill: usePill })}
+          onQi={() => act('qi')}
         />
         <Tabs type='button' activeKey={tab} onChange={setTab} size='small'>
           <TabPane tab={t('地图')} itemKey='map'>
@@ -194,8 +196,8 @@ const JourneyPage = () => {
               selected={selected}
               onSelect={setSelected}
               onVisit={(node) => act('visit', { node })}
-              onFight={async (node) => {
-                const data = await act('fight', { node });
+              onFight={async (node, team) => {
+                const data = await act('fight', { node, team });
                 if (data) playSound('start');
               }}
             />
@@ -213,7 +215,13 @@ const JourneyPage = () => {
             />
           </TabPane>
           <TabPane tab={t('法宝与行囊')} itemKey='gear'>
-            <Gear hero={hero} busy={busy} act={act} />
+            <Gear
+              info={info}
+              hero={hero}
+              res={state.res}
+              busy={busy}
+              act={act}
+            />
           </TabPane>
         </Tabs>
       </>
