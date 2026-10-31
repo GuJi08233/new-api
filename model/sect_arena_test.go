@@ -52,3 +52,23 @@ func TestListSectArenaOpponentsBalancesAboveAndBelow(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []int{2, 5}, ids(list))
 }
+
+// 一局论剑只记一次积分(按对局编号去重)，两边的积分与战绩一起变；挑战方没设过守擂阵容时先按初始积分上榜。
+func TestRecordSectArenaBattleOncePerSession(t *testing.T) {
+	truncateTables(t)
+	require.NoError(t, DB.Create(&SectArena{UserId: 2, Rating: 1000, Lineup: "[1]"}).Error)
+	battle, err := RecordSectArenaBattle(77, 1, 2, true, 1)
+	require.NoError(t, err)
+	assert.Equal(t, 16, battle.AttackerDelta)
+	assert.Equal(t, -16, battle.DefenderDelta)
+	_, err = RecordSectArenaBattle(77, 1, 2, true, 1)
+	assert.ErrorIs(t, err, ErrSectArenaBattleRecorded)
+
+	attacker, err := GetSectArena(1)
+	require.NoError(t, err)
+	defender, err := GetSectArena(2)
+	require.NoError(t, err)
+	assert.Equal(t, []int{1016, 1, 0}, []int{attacker.Rating, attacker.Wins, attacker.Losses})
+	assert.Equal(t, []int{984, 0, 1}, []int{defender.Rating, defender.DefendWins, defender.DefendLosses})
+	assert.Empty(t, attacker.Lineup)
+}

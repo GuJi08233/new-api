@@ -149,7 +149,8 @@ func TestMigrationSchemaStability(t *testing.T) {
 					&TradeFuturesFundingState{}, &TradeFuturesExposure{},
 					&GameCoinAccount{}, &GameCoinLog{}, &TradeSpotMargin{}, &TradeSpotAssetLoan{}, &TradePredictionRound{}, &TradePredictionPosition{},
 					&GameCoinWithdrawal{}, &GameCoinWithdrawDay{}, &GameCoinConvertDay{}, &GameSession{}, &GameRewardDay{}, &GameRewardIpDay{},
-					&GameRoom{}, &GameRoomSeat{}, &GameJackpotRound{}, &GameJackpotEntry{}}
+					&GameRoom{}, &GameRoomSeat{}, &GameJackpotRound{}, &GameJackpotEntry{},
+					&GameSave{}, &SectArena{}, &SectArenaBattle{}, &SectAlliance{}, &SectAllianceMember{}}
 				t.Cleanup(func() { _ = db.Migrator().DropTable(tables...) })
 				require.NoError(t, db.AutoMigrate(tables...))
 				recorder.reset()
