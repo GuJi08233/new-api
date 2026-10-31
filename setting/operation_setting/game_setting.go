@@ -73,6 +73,7 @@ type GameSetting struct {
 	Onestroke   SkillRule `json:"onestroke"`
 	Match3      SkillRule `json:"match3"`
 	Dungeon     SkillRule `json:"dungeon"`
+	Sect        SkillRule `json:"sect"`
 
 	Slots     WagerRule `json:"slots"`
 	Wheel     WheelRule `json:"wheel"`
@@ -272,6 +273,8 @@ var gameRuleSpecs = map[string]gameRuleSpec{
 	"match3":      {Kind: GameKindSkill, MaxTierScore: 3},
 	// 深渊远征无尽模式的成绩是打通的幕数，奖励档位最多填到 30 幕，与 pkg/dungeon.MaxTierScore 一致。
 	"dungeon": {Kind: GameKindSkill, MaxTierScore: 30},
+	// 问道宗门的成绩是宗门大比的连胜场数，最多五场，与 pkg/sect.MaxTierScore 一致。
+	"sect": {Kind: GameKindSkill, MaxTierScore: 5},
 
 	"slots":     {Kind: GameKindWager, MinBet: 1, MaxBet: 1000},
 	"wheel":     {Kind: GameKindWager},
@@ -619,6 +622,8 @@ func DefaultGameSetting() *GameSetting {
 		Match3:      dailyCoinRule(2, 180),
 		// 深渊远征一轮要玩很久，打败第一幕首领就能领，时长按免费游戏的上限 5 分钟。
 		Dungeon: dailyCoinRule(1, 300),
+		// 宗门大比连胜三场领 1 个游戏币：照着对手亮出的招式应对基本都能做到，乱点很难。
+		Sect: dailyCoinRule(3, 180),
 
 		Slots:     WagerRule{MaxBet: 10},
 		Wheel:     WheelRule{FreeSpins: 1, SpinCost: 1},
@@ -715,6 +720,8 @@ func (s *GameSetting) SkillRuleOf(game string) (SkillRule, bool) {
 		return s.Match3, true
 	case "dungeon":
 		return s.Dungeon, true
+	case "sect":
+		return s.Sect, true
 	}
 	return SkillRule{}, false
 }

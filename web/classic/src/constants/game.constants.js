@@ -98,6 +98,7 @@ export const GAME_ORDER = [
   'onestroke',
   'match3',
   'dungeon',
+  'sect',
   'gomoku',
   'connect4',
   'reversi',
@@ -125,7 +126,7 @@ export const GAME_ORDER = [
 // 玩法分区与结算类型独立：卡牌区也可以包含下注游戏，每个游戏只属于一个分区。
 export const GAME_SECTIONS = [
   { key: 'arcade', games: ['tetris', 'snake', 'flappy', 'breakout'] },
-  { key: 'adventure', games: ['dungeon'] },
+  { key: 'adventure', games: ['dungeon', 'sect'] },
   {
     key: 'puzzles',
     games: [
@@ -346,6 +347,16 @@ export const getGameMetaMap = (t) => ({
     ),
     score: 'level',
     scoreName: t('打通'),
+    isNew: true,
+  },
+  sect: {
+    kind: 'skill',
+    name: t('问道宗门'),
+    description: t(
+      '修仙宗门经营：建造灵田丹房、培养弟子突破境界、派遣历练，参加宗门大比赢游戏币',
+    ),
+    score: 'points',
+    scoreName: t('大比连胜'),
     isNew: true,
   },
   dots: {

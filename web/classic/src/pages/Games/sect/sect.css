@@ -1,0 +1,794 @@
+/* 问道宗门。颜色跟随站点主题，五行与资质用柔和的色调区分；斗法里的受击抖动、伤害飘字与生命条变化是过程动画，始终播放。 */
+
+.sc-page .game-main {
+  min-width: 0;
+}
+
+.sc-stage {
+  align-items: stretch;
+  padding: clamp(14px, 2.4vw, 24px);
+  gap: 12px;
+}
+
+.sc-body {
+  position: relative;
+  min-width: 0;
+}
+
+.sc-muted {
+  color: var(--semi-color-text-2);
+  font-size: 12px;
+}
+
+.sc-hint {
+  display: block;
+  margin-top: 6px;
+  color: var(--semi-color-warning);
+  font-size: 12px;
+}
+
+.sc-spacer {
+  flex: 1;
+}
+
+.sc-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 18px 0 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--semi-color-text-0);
+}
+
+.sc-heading:first-child {
+  margin-top: 4px;
+}
+
+/* ---------- 资源栏 ---------- */
+
+.sc-resources {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 10px 14px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 14px;
+  background: var(--semi-color-bg-1);
+}
+
+.sc-res {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--semi-color-text-1);
+}
+
+.sc-res strong {
+  font-variant-numeric: tabular-nums;
+  color: var(--semi-color-text-0);
+}
+
+.sc-res.is-stone svg {
+  color: var(--semi-color-primary);
+}
+
+.sc-res.is-herb svg {
+  color: var(--semi-color-success);
+}
+
+.sc-res.is-ore svg {
+  color: var(--semi-color-text-2);
+}
+
+.sc-res.is-rep svg {
+  color: var(--semi-color-warning);
+}
+
+.sc-res.is-pills {
+  flex-wrap: wrap;
+  margin-left: auto;
+  gap: 4px 10px;
+}
+
+.sc-pill-count {
+  font-size: 12px;
+  color: var(--semi-color-text-2);
+}
+
+.sc-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--semi-color-primary-light-active);
+  background: var(--semi-color-primary-light-default);
+  font-size: 13px;
+  color: var(--semi-color-text-0);
+}
+
+.sc-notice > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.sc-notice p {
+  margin: 0;
+}
+
+.sc-notice-close {
+  border: 0;
+  background: none;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--semi-color-text-2);
+}
+
+/* ---------- 资源与标签 ---------- */
+
+.sc-cost {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.sc-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  background: var(--semi-color-fill-0);
+  color: var(--semi-color-text-1);
+}
+
+.sc-chip.is-short {
+  background: var(--semi-color-danger-light-default);
+  color: var(--semi-color-danger);
+}
+
+.sc-chip.is-pill {
+  background: var(--semi-color-success-light-default);
+  color: var(--semi-color-success);
+}
+
+.sc-element,
+.sc-talent,
+.sc-trait,
+.sc-edge {
+  display: inline-block;
+  padding: 0 6px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+/* 五行：金、木、水、火、土 */
+.sc-element.is-e0 {
+  background: rgba(var(--semi-amber-2), 0.35);
+  color: rgb(var(--semi-amber-7));
+}
+
+.sc-element.is-e1 {
+  background: rgba(var(--semi-green-2), 0.35);
+  color: rgb(var(--semi-green-7));
+}
+
+.sc-element.is-e2 {
+  background: rgba(var(--semi-blue-2), 0.35);
+  color: rgb(var(--semi-blue-7));
+}
+
+.sc-element.is-e3 {
+  background: rgba(var(--semi-red-2), 0.35);
+  color: rgb(var(--semi-red-7));
+}
+
+.sc-element.is-e4 {
+  background: rgba(var(--semi-orange-2), 0.3);
+  color: rgb(var(--semi-orange-8));
+}
+
+.sc-talent {
+  background: var(--semi-color-fill-0);
+  color: var(--semi-color-text-1);
+}
+
+.sc-talent.is-t3 {
+  background: var(--semi-color-primary-light-default);
+  color: var(--semi-color-primary);
+}
+
+.sc-talent.is-t4 {
+  background: rgba(var(--semi-violet-2), 0.4);
+  color: rgb(var(--semi-violet-7));
+}
+
+.sc-talent.is-t5 {
+  background: var(--semi-color-warning-light-default);
+  color: var(--semi-color-warning);
+}
+
+.sc-trait {
+  border: 1px solid var(--semi-color-border);
+  color: var(--semi-color-text-1);
+  cursor: help;
+}
+
+.sc-edge.is-good {
+  background: var(--semi-color-success-light-default);
+  color: var(--semi-color-success);
+}
+
+.sc-edge.is-bad {
+  background: var(--semi-color-danger-light-default);
+  color: var(--semi-color-danger);
+}
+
+.sc-power {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--semi-color-text-1);
+}
+
+.sc-level,
+.sc-stock {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--semi-color-text-2);
+}
+
+/* ---------- 进度条 ---------- */
+
+.sc-bar {
+  position: relative;
+  display: block;
+  flex: 1;
+  min-width: 60px;
+  height: 6px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--semi-color-fill-1);
+}
+
+.sc-bar-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: inherit;
+  background: var(--semi-color-primary);
+  transition: width 0.45s ease;
+}
+
+.sc-bar.is-peak .sc-bar-fill {
+  background: var(--semi-color-warning);
+}
+
+.sc-bar.is-hp {
+  height: 8px;
+}
+
+.sc-bar.is-hp .sc-bar-fill {
+  background: var(--semi-color-success);
+}
+
+/* ---------- 卡片 ---------- */
+
+.sc-event,
+.sc-building,
+.sc-disciple,
+.sc-recruit,
+.sc-mission,
+.sc-recipe,
+.sc-fighter,
+.sc-pick-fighter {
+  padding: 12px 14px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 12px;
+  background: var(--semi-color-bg-1);
+}
+
+.sc-event {
+  border-color: var(--semi-color-warning-light-active);
+  background: var(--semi-color-warning-light-default);
+}
+
+.sc-event.is-quiet {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-color: var(--semi-color-border);
+  background: var(--semi-color-bg-1);
+  font-size: 13px;
+  color: var(--semi-color-text-2);
+}
+
+.sc-event-head,
+.sc-building-head,
+.sc-mission-head,
+.sc-disciple-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.sc-event p {
+  margin: 6px 0;
+  font-size: 13px;
+  color: var(--semi-color-text-0);
+}
+
+.sc-event-fight {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sc-event-choices {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.sc-event-choice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.sc-event-effects {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.sc-buildings,
+.sc-recruits {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 10px;
+}
+
+.sc-building.is-empty {
+  border-style: dashed;
+}
+
+.sc-building-desc {
+  margin: 6px 0 8px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--semi-color-text-2);
+}
+
+.sc-building-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.sc-log {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+}
+
+.sc-log li {
+  display: flex;
+  gap: 10px;
+  padding: 5px 0;
+  border-bottom: 1px dashed var(--semi-color-border);
+  color: var(--semi-color-text-1);
+}
+
+.sc-log li > .sc-muted {
+  flex: 0 0 72px;
+}
+
+.sc-foot-note {
+  margin-top: 12px;
+}
+
+/* ---------- 弟子 ---------- */
+
+.sc-disciple-list,
+.sc-mission-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sc-disciple.is-away {
+  opacity: 0.8;
+}
+
+.sc-disciple.is-hurt {
+  border-color: var(--semi-color-danger-light-active);
+}
+
+.sc-disciple.is-peak,
+.sc-disciple.is-ready {
+  border-color: var(--semi-color-warning-light-active);
+}
+
+.sc-disciple-realm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 4px;
+  font-size: 13px;
+  color: var(--semi-color-text-0);
+}
+
+.sc-status {
+  font-size: 12px;
+  color: var(--semi-color-text-2);
+}
+
+.sc-status.is-hurt {
+  color: var(--semi-color-danger);
+}
+
+.sc-status.is-peak,
+.sc-status.is-ready {
+  color: var(--semi-color-warning);
+  font-weight: 600;
+}
+
+.sc-status.is-away {
+  color: var(--semi-color-primary);
+}
+
+.sc-disciple-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.sc-recruit {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sc-recruit.is-empty {
+  align-items: center;
+  justify-content: center;
+  min-height: 92px;
+  border-style: dashed;
+  color: var(--semi-color-text-2);
+  font-size: 13px;
+}
+
+/* ---------- 历练与丹房 ---------- */
+
+.sc-mission.is-locked,
+.sc-recipe.is-locked {
+  opacity: 0.6;
+}
+
+.sc-mission.is-active {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sc-mission.is-ready {
+  border-color: var(--semi-color-warning-light-active);
+}
+
+.sc-mission-head .sc-muted {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.sc-mission-reward {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.sc-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.sc-pick-name {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ---------- 大比 ---------- */
+
+.sc-signup,
+.sc-tournament,
+.sc-pick,
+.sc-duel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sc-tour-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.sc-rounds {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.sc-rounds > span {
+  width: 18px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--semi-color-fill-1);
+}
+
+.sc-rounds > span.is-won {
+  background: var(--semi-color-success);
+}
+
+.sc-rounds > span.is-now {
+  background: var(--semi-color-primary);
+}
+
+.sc-arena {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 12px;
+}
+
+.sc-versus {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  color: var(--semi-color-text-2);
+}
+
+.sc-fighter {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sc-fighter.is-them {
+  border-color: var(--semi-color-danger-light-active);
+}
+
+.sc-fighter.is-hit {
+  animation: sc-shake 0.38s ease;
+}
+
+.sc-fighter-hp {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--semi-color-text-1);
+}
+
+.sc-qi {
+  display: inline-flex;
+  gap: 3px;
+}
+
+.sc-qi > span {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1px solid var(--semi-color-primary-light-active);
+  background: transparent;
+}
+
+.sc-qi > span.is-on {
+  background: var(--semi-color-primary);
+  border-color: var(--semi-color-primary);
+}
+
+.sc-pop {
+  position: absolute;
+  top: 8px;
+  right: 14px;
+  font-size: 18px;
+  font-weight: 700;
+  pointer-events: none;
+  animation: sc-pop 1s ease-out forwards;
+}
+
+.sc-pop.is-hit {
+  color: var(--semi-color-danger);
+}
+
+.sc-pop.is-heal {
+  top: 34px;
+  color: var(--semi-color-success);
+}
+
+.sc-intent {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 13px;
+  background: var(--semi-color-fill-0);
+  color: var(--semi-color-text-0);
+}
+
+.sc-intent.is-charge,
+.sc-intent.is-heavy {
+  background: var(--semi-color-danger-light-default);
+  color: var(--semi-color-danger);
+}
+
+.sc-intent.is-guard {
+  background: var(--semi-color-primary-light-default);
+}
+
+.sc-turn-log {
+  margin: 0;
+  font-size: 13px;
+  color: var(--semi-color-text-1);
+}
+
+.sc-moves {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+.sc-move,
+.sc-pick-fighter {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 12px;
+  background: var(--semi-color-bg-1);
+  color: var(--semi-color-text-0);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+
+.sc-move span {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--semi-color-text-2);
+}
+
+.sc-move:hover:not(:disabled),
+.sc-pick-fighter:hover:not(:disabled) {
+  border-color: var(--semi-color-primary);
+  background: var(--semi-color-primary-light-default);
+}
+
+.sc-move:disabled,
+.sc-pick-fighter:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.sc-pick-fighter {
+  width: 100%;
+}
+
+.sc-pick-fighter .sc-fighter-hp {
+  width: 100%;
+}
+
+.sc-fighter.is-preview {
+  border-color: var(--semi-color-danger-light-active);
+}
+
+.sc-end {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 24px 12px;
+  text-align: center;
+}
+
+.sc-end h3 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.sc-end.is-won svg {
+  color: var(--semi-color-warning);
+}
+
+.sc-end.is-lost svg {
+  color: var(--semi-color-text-2);
+}
+
+.sc-end-gains {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+@keyframes sc-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-5px);
+  }
+  50% {
+    transform: translateX(4px);
+  }
+  75% {
+    transform: translateX(-2px);
+  }
+}
+
+@keyframes sc-pop {
+  0% {
+    opacity: 0;
+    transform: translateY(6px) scale(0.9);
+  }
+  20% {
+    opacity: 1;
+    transform: translateY(0) scale(1.1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-22px) scale(1);
+  }
+}
+
+@media (max-width: 640px) {
+  .sc-arena {
+    grid-template-columns: 1fr;
+  }
+
+  .sc-versus {
+    flex-direction: row;
+    justify-content: center;
+  }
+
+  .sc-res.is-pills {
+    margin-left: 0;
+  }
+}

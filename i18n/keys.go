@@ -264,6 +264,8 @@ const (
 	MsgGameDungeonCrystals           = "game.dungeon_crystals"
 	MsgGameDungeonMaxed              = "game.dungeon_maxed"
 	MsgGameDungeonOutdated           = "game.dungeon_outdated"
+	MsgGameSectResources             = "game.sect_resources"
+	MsgGameSectUnavailable           = "game.sect_unavailable"
 	MsgGameRoomNotFound              = "game.room_not_found"
 	MsgGameRoomActive                = "game.room_active"
 	MsgGameRoomChanged               = "game.room_changed"
