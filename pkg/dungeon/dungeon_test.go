@@ -460,3 +460,57 @@ func TestMetaItems(t *testing.T) {
 	}
 	assert.Empty(t, m.Items)
 }
+
+// 单场战斗：开战时带上法宝、丹符与境界给的力量；赢了以后从几张功法里选一张收下再结束，输了直接结束，都不能再操作。
+func TestBattleRewardsOneCardAndEnds(t *testing.T) {
+	setup := BattleSetup{Class: ClassWarrior, Deck: []Card{{Id: "w_strike"}, {Id: "w_defend"}}, Relics: []string{RelicWhetstone},
+		Potions: []string{PotionFire}, MaxHP: 90, Strength: 2, Kind: NodeElite, Enemies: []string{"goblin", "goblin"}, HP: 150, Dmg: 100, Rewards: 3}
+	invalid := []BattleSetup{
+		{Class: ClassWarrior, Deck: setup.Deck, MaxHP: 90, Kind: "shop", Enemies: setup.Enemies, HP: 100, Dmg: 100},
+		{Class: ClassWarrior, Deck: []Card{{Id: KnifeCard}}, MaxHP: 90, Kind: NodeCombat, Enemies: setup.Enemies, HP: 100, Dmg: 100},
+		{Class: ClassWarrior, Deck: setup.Deck, MaxHP: 90, Kind: NodeCombat, Enemies: []string{DummyEnemy}, HP: 100, Dmg: 100},
+		{Class: ClassWarrior, Deck: setup.Deck, MaxHP: 90, Kind: NodeCombat, Enemies: setup.Enemies, HP: 10, Dmg: 100},
+		{Class: ClassWarrior, Deck: setup.Deck, MaxHP: 0, Kind: NodeCombat, Enemies: setup.Enemies, HP: 100, Dmg: 100},
+	}
+	for i, s := range invalid {
+		_, err := NewBattle(1, s)
+		assert.ErrorIs(t, err, ErrAction, "setup %d", i)
+	}
+
+	r, err := NewBattle(3, setup)
+	require.NoError(t, err)
+	assert.Equal(t, 90, r.HP)
+	assert.Equal(t, []string{PotionFire}, r.Potions)
+	assert.Equal(t, 2+1, r.Combat.St[StStrength], "realm strength plus the whetstone")
+	for _, e := range r.Combat.Enemies {
+		assert.GreaterOrEqual(t, e.MaxHP, 18*150/100)
+		e.HP = 1
+	}
+	none := Action{Node: -1, Card: -1, Target: -1, Choice: -1, Potion: -1}
+	r.Combat.Hand = []Card{{Id: "w_strike"}, {Id: "w_strike"}}
+	r.Combat.Energy = 3
+	play := none
+	play.Type, play.Card, play.Target = "play", 0, 0
+	require.NoError(t, r.Apply(play))
+	play.Target = 1
+	require.NoError(t, r.Apply(play))
+	assert.Equal(t, PhaseReward, r.Phase)
+	assert.Equal(t, PhaseWon, r.Result)
+	assert.Len(t, r.Reward.Cards, 3)
+	assert.False(t, r.Finished())
+
+	pick := none
+	pick.Type, pick.Choice = "reward", 1
+	want := r.Reward.Cards[1]
+	require.NoError(t, r.Apply(pick))
+	assert.True(t, r.Finished())
+	assert.Equal(t, &want, r.Picked)
+	assert.ErrorIs(t, r.Apply(play), ErrAction, "a finished battle takes no more actions")
+
+	lost, err := NewBattle(4, setup)
+	require.NoError(t, err)
+	lost.loseHP(lost.HP, "test")
+	assert.True(t, lost.Finished())
+	assert.Equal(t, PhaseLost, lost.Result)
+	assert.Nil(t, lost.Picked)
+}

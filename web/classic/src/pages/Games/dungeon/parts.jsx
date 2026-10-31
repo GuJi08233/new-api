@@ -87,10 +87,10 @@ export const CardFace = ({
   const { t } = useTranslation();
   const text = useDungeonText();
   const typeNames = {
-    attack: t('攻击'),
-    skill: t('技能'),
-    power: t('能力'),
-    curse: t('诅咒'),
+    attack: t('攻伐'),
+    skill: t('秘术'),
+    power: t('心法'),
+    curse: t('心魔'),
   };
   const classes = [
     'dg-card',
@@ -112,7 +112,7 @@ export const CardFace = ({
     </span>
   ));
   if (card.type === 'power')
-    lines.push(<em key='power'>{t('能力：持续整场战斗')}</em>);
+    lines.push(<em key='power'>{t('心法：持续整场战斗')}</em>);
   if (card.exhaust) lines.push(<em key='exhaust'>{t('消耗')}</em>);
   if (card.type === 'curse') lines.push(<em key='curse'>{t('无法打出')}</em>);
   const Tag = onClick ? 'button' : 'div';

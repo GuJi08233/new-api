@@ -125,6 +125,8 @@ type View struct {
 	// 练习：设置与这一场的胜负。
 	Practice *PracticeSetup `json:"practice,omitempty"`
 	Result   string         `json:"result,omitempty"`
+	// 单场战斗：赢了以后收下的功法。
+	Picked *Card `json:"picked,omitempty"`
 }
 
 func cardView(c Card) CardView {
@@ -187,6 +189,7 @@ func (r *Run) View() View {
 		Kills: r.Kills, Elites: r.Elites, Bosses: r.Bosses, Score: r.Score(), Crystals: r.Crystals(), PhoenixUsed: r.PhoenixUsed,
 		ItemsUsed: r.ItemsUsed, Ward: r.Ward, WardUsed: r.WardUsed,
 		Mode: r.Mode, Trial: r.Trial, Fight: r.Fight, Turns: r.Turns, Stars: r.Stars(), Practice: r.Practice, Result: r.Result,
+		Picked: r.Picked,
 	}
 	if index := TrialIndex(r.Trial); index >= 0 {
 		v.Fights = len(Trials[index].Fights)

@@ -181,7 +181,7 @@ export const RestScreen = ({ run, busy, send }) => {
   return (
     <div className='dg-screen dg-rest'>
       <h3>{t('打坐')}</h3>
-      <p className='dg-screen-note'>{t('在火堆旁歇一歇，二选一')}</p>
+      <p className='dg-screen-note'>{t('寻一处清净地打坐，二选一')}</p>
       <div className='dg-rest-options'>
         <button
           type='button'
@@ -190,7 +190,7 @@ export const RestScreen = ({ run, busy, send }) => {
           onClick={() => send('rest')}
         >
           <HeartPulse size={30} />
-          <strong>{t('休息')}</strong>
+          <strong>{t('调息')}</strong>
           <span>{t('回复 {{n}} 点生命', { n: run.rest_heal || 0 })}</span>
         </button>
         <button
@@ -200,13 +200,13 @@ export const RestScreen = ({ run, busy, send }) => {
           onClick={() => setSmithing(true)}
         >
           <Hammer size={30} />
-          <strong>{t('锻造')}</strong>
-          <span>{t('升级牌组里的一张牌')}</span>
+          <strong>{t('参悟')}</strong>
+          <span>{t('参悟牌组里的一张功法')}</span>
         </button>
       </div>
       <DeckPicker
         visible={smithing}
-        title={t('选择要升级的牌')}
+        title={t('选择要参悟的功法')}
         deck={run.deck}
         upgrade
         filter={(card) => !!card.upgrade}

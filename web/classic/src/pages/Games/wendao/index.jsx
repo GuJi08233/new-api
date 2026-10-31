@@ -24,9 +24,10 @@ import GameLayout from '../common/GameLayout';
 import { useGameInfo } from '../common/useGameInfo';
 import Dungeon from '../dungeon';
 import Sect from '../sect';
+import Journey from './journey';
 import { WENDAO_PARTS, WendaoContext } from './shell';
 
-const PARTS = { sect: Sect, abyss: Dungeon };
+const PARTS = { journey: Journey, sect: Sect, abyss: Dungeon };
 
 // 问道：历练、宗门与九幽秘境三个板块共用一份存档，页面顶上切换板块，地址里的 ?part= 记住当前板块。
 const Wendao = () => {
@@ -34,7 +35,7 @@ const Wendao = () => {
   const { info, setInfo, loading, unavailable, reload } = useGameInfo('wendao');
   const [params, setParams] = useSearchParams();
   const requested = params.get('part');
-  const part = PARTS[requested] ? requested : 'sect';
+  const part = PARTS[requested] ? requested : 'journey';
   const [badges, setBadges] = useState({});
 
   const setPart = useCallback(

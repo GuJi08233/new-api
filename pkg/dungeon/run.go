@@ -30,6 +30,8 @@ const (
 	ModeEndless  = "endless"
 	ModeTrial    = "trial"
 	ModePractice = "practice"
+	// ModeBattle 是问道历练里的一场仗，见 battle.go。
+	ModeBattle = "battle"
 )
 
 // 路线图：每幕 Rows 层、每层最多 Cols 个节点，最后是首领。前 Acts 幕各有自己的敌人，之后进入无尽深渊。
@@ -144,6 +146,9 @@ type Run struct {
 	// Practice 是练习模式的设置，重来时按它重新开战；Result 是练习一场战斗的胜负。
 	Practice *PracticeSetup `json:"practice,omitempty"`
 	Result   string         `json:"result,omitempty"`
+	// Battle 是单场战斗的设置，Picked 是赢了以后收下的功法(没有选为空)。
+	Battle *BattleSetup `json:"battle,omitempty"`
+	Picked *Card        `json:"picked,omitempty"`
 	// Events 是最近一次操作里发生的事，只用于这一次的回应，不保存。
 	Events []Ev `json:"-"`
 }
@@ -463,6 +468,9 @@ func (r *Run) winCombat() {
 		r.Phase, r.Result = PhaseDone, PhaseWon
 		r.emit("win", playerTarget, 0, kind)
 		return
+	case ModeBattle:
+		r.winBattle(kind)
+		return
 	case ModeTrial:
 		r.Turns += r.Combat.Turn
 		r.Combat = nil
@@ -716,6 +724,10 @@ func (r *Run) chooseEvent(choice, cardIndex int) error {
 func (r *Run) finishReward() {
 	boss := r.Reward.Boss
 	r.Reward = nil
+	if r.Mode == ModeBattle {
+		r.Phase = PhaseDone
+		return
+	}
 	r.Phase = PhaseMap
 	if !boss {
 		return
@@ -767,6 +779,9 @@ func (r *Run) Apply(a Action) error {
 			card := r.Reward.Cards[a.Choice]
 			r.Deck = append(r.Deck, card)
 			r.emit("card", playerTarget, 0, card.Id)
+			if r.Mode == ModeBattle {
+				r.Picked = &card
+			}
 		}
 		r.finishReward()
 	case PhaseShop + ":buy":

@@ -13,9 +13,11 @@ import (
 // 一个板块的产出另一个板块马上能用，跨板块的改动在同一次改写里完成。
 const SaveKey = "wendao"
 
-// Save 是玩家在问道里的全部局外进度。Sect 在开宗立派之前为 nil；Abyss 是秘境的局外成长(魂晶、职业、天赋、试炼星级)。
+// Save 是玩家在问道里的全部局外进度。Sect 在开宗立派之前为 nil；Hero 是历练的主角，创建之前为 nil；Abyss 是秘境的
+// 局外成长(魂晶、职业、天赋、试炼星级)。
 type Save struct {
 	Sect  *Sect         `json:"sect,omitempty"`
+	Hero  *Hero         `json:"hero,omitempty"`
 	Abyss *dungeon.Meta `json:"abyss"`
 }
 
@@ -29,6 +31,9 @@ func ParseSave(data string) (*Save, error) {
 	}
 	if save.Sect != nil {
 		save.Sect.normalize()
+	}
+	if save.Hero != nil {
+		save.Hero.normalize()
 	}
 	if save.Abyss == nil {
 		save.Abyss = &dungeon.Meta{}
@@ -47,6 +52,13 @@ func UpdateSave(data string, edit func(save *Save) error) (string, error) {
 		return "", err
 	}
 	return save.Encode()
+}
+
+// TickHero 结算主角到 now 为止的闭关修为。宗门的操作也调用它，主角不会因为一直只经营宗门而少算离线修为。
+func (s *Save) TickHero(now int64) {
+	if s.Hero != nil && s.Sect != nil {
+		s.Hero.tick(s.Sect, now)
+	}
 }
 
 // Encode 把存档写成 JSON。

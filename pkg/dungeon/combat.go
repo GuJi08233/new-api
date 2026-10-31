@@ -507,8 +507,8 @@ func (r *Run) loseHP(n int, source string) {
 	}
 	r.HP = 0
 	r.emit("defeat", playerTarget, 0, "")
-	if r.Mode == ModePractice {
-		// 练习留着战斗，页面还要显示这一场的伤害统计。
+	if r.Mode == ModePractice || r.Mode == ModeBattle {
+		// 练习与单场战斗留着战斗，页面还要显示这一场的伤害统计。
 		r.Phase, r.Result = PhaseDone, PhaseLost
 		return
 	}

@@ -148,6 +148,8 @@ func actSect(c *gin.Context) {
 			if err := foundSect(save, now); err != nil {
 				return err
 			}
+			// 主角的闭关修为跟宗门一起结算，只经营宗门不会让主角的离线修为超过上限白白浪费。
+			save.TickHero(now)
 			s := save.Sect
 			s.AllianceLevel = allianceLevel
 			var err error

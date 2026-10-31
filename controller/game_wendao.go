@@ -36,9 +36,10 @@ func init() {
 			if err != nil {
 				return nil, err
 			}
-			return gin.H{"abyss": abyss, "sect": sect}, nil
+			return gin.H{"abyss": abyss, "sect": sect, "journey": journeyInfo()}, nil
 		},
 		Routes: func(group *gin.RouterGroup) {
+			registerHeroRoutes(group.Group("/hero"))
 			registerAbyssRoutes(group.Group("/abyss"))
 			registerSectRoutes(group.Group("/sect"))
 		},
