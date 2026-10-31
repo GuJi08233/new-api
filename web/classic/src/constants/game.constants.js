@@ -69,6 +69,10 @@ export const getGameLevelNames = (t) => ({
   watersort: [t('4 种颜色'), t('6 种颜色'), t('8 种颜色')],
   onestroke: ['5×5', '6×6', '7×7'],
   match3: [t('简单'), t('普通'), t('困难')],
+  // 深渊远征的成绩是打通的幕数，读作「赢下第 3 幕」。
+  dungeon: Array.from({ length: 30 }, (_, i) =>
+    t('第 {{act}} 幕', { act: i + 1 }),
+  ),
   ai: [t('简单'), t('普通'), t('困难')],
 });
 
@@ -93,6 +97,7 @@ export const GAME_ORDER = [
   'watersort',
   'onestroke',
   'match3',
+  'dungeon',
   'gomoku',
   'connect4',
   'reversi',
@@ -120,6 +125,7 @@ export const GAME_ORDER = [
 // 玩法分区与结算类型独立：卡牌区也可以包含下注游戏，每个游戏只属于一个分区。
 export const GAME_SECTIONS = [
   { key: 'arcade', games: ['tetris', 'snake', 'flappy', 'breakout'] },
+  { key: 'adventure', games: ['dungeon'] },
   {
     key: 'puzzles',
     games: [
@@ -167,6 +173,10 @@ export const getGameSectionMap = (t) => ({
   arcade: {
     name: t('街机挑战'),
     description: t('反应、操作与节奏，挑战自己的最高成绩'),
+  },
+  adventure: {
+    name: t('长线冒险'),
+    description: t('存档长期保留，一次次挑战、越走越远'),
   },
   puzzles: {
     name: t('益智解谜'),
@@ -326,6 +336,16 @@ export const getGameMetaMap = (t) => ({
     description: t('交换相邻宝石连成三颗，连锁消除，在步数内冲到目标分'),
     score: 'level',
     scoreName: t('难度'),
+    isNew: true,
+  },
+  dungeon: {
+    kind: 'skill',
+    name: t('深渊远征'),
+    description: t(
+      '卡牌肉鸽：组牌闯关、解锁职业与天赋，无尽远征、试炼与练习三种模式',
+    ),
+    score: 'level',
+    scoreName: t('打通'),
     isNew: true,
   },
   dots: {

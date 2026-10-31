@@ -72,6 +72,7 @@ type GameSetting struct {
 	Watersort   SkillRule `json:"watersort"`
 	Onestroke   SkillRule `json:"onestroke"`
 	Match3      SkillRule `json:"match3"`
+	Dungeon     SkillRule `json:"dungeon"`
 
 	Slots     WagerRule `json:"slots"`
 	Wheel     WheelRule `json:"wheel"`
@@ -269,6 +270,8 @@ var gameRuleSpecs = map[string]gameRuleSpec{
 	"watersort":   {Kind: GameKindSkill, MaxTierScore: 3},
 	"onestroke":   {Kind: GameKindSkill, MaxTierScore: 3},
 	"match3":      {Kind: GameKindSkill, MaxTierScore: 3},
+	// 深渊远征无尽模式的成绩是打通的幕数，奖励档位最多填到 30 幕，与 pkg/dungeon.MaxTierScore 一致。
+	"dungeon": {Kind: GameKindSkill, MaxTierScore: 30},
 
 	"slots":     {Kind: GameKindWager, MinBet: 1, MaxBet: 1000},
 	"wheel":     {Kind: GameKindWager},
@@ -614,6 +617,8 @@ func DefaultGameSetting() *GameSetting {
 		Watersort:   dailyCoinRule(2, 180),
 		Onestroke:   dailyCoinRule(2, 150),
 		Match3:      dailyCoinRule(2, 180),
+		// 深渊远征一轮要玩很久，打败第一幕首领就能领，时长按免费游戏的上限 5 分钟。
+		Dungeon: dailyCoinRule(1, 300),
 
 		Slots:     WagerRule{MaxBet: 10},
 		Wheel:     WheelRule{FreeSpins: 1, SpinCost: 1},
@@ -708,6 +713,8 @@ func (s *GameSetting) SkillRuleOf(game string) (SkillRule, bool) {
 		return s.Onestroke, true
 	case "match3":
 		return s.Match3, true
+	case "dungeon":
+		return s.Dungeon, true
 	}
 	return SkillRule{}, false
 }

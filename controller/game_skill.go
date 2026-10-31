@@ -39,6 +39,16 @@ type skillOutcome struct {
 	State string
 	// Cheat 不为空时判定为脚本：不发奖励、记一条风控告警，内容是告警原因。
 	Cheat string
+	// Save 不为空时在结算的同一个事务里改写玩家的局外存档。
+	Save *model.GameSaveUpdate
+}
+
+// skillSessionTTLOf 是一局免费游戏从开局到结算的最长时间(秒)。深渊远征一轮可以分几天玩完。
+func skillSessionTTLOf(game string) int64 {
+	if game == dungeonGame || game == dungeonTrialGame || game == dungeonPracticeGame {
+		return dungeonRunTTL
+	}
+	return skillSessionTTL
 }
 
 // newGameSeed 返回密码学安全的 32 位随机种子。
@@ -118,7 +128,7 @@ func loadSkillSession(c *gin.Context, game string, rule operation_setting.SkillR
 		respondSettledSkill(c, session, rule)
 		return nil
 	}
-	if common.GetTimestamp()-session.CreatedAt > skillSessionTTL {
+	if common.GetTimestamp()-session.CreatedAt > skillSessionTTLOf(game) {
 		common.ApiErrorI18n(c, i18n.MsgGameSessionExpired)
 		return nil
 	}
@@ -177,6 +187,7 @@ func settleSkillSession(c *gin.Context, name string, rule operation_setting.Skil
 		FreeDailyLimit: freeDailyLimit,
 		Day:            gameCenterDay(),
 		Ip:             gameRewardIpKey(ip),
+		Save:           outcome.Save,
 	})
 	switch {
 	case errors.Is(err, model.ErrGameSessionClosed):

@@ -177,6 +177,9 @@ type GameSettlement struct {
 	FreeDailyLimit GameCoins
 	Day            string
 	Ip             string
+	// Save 不为空时在同一个事务里改写玩家的局外存档，例如把这一局获得的魂晶记进去：结算与存档要么都成功，要么都不变，
+	// 重复提交只会拿到第一次结算的结果，不会重复改写存档。
+	Save *GameSaveUpdate
 }
 
 // GameRewardProgress 是账号某天在一个免费游戏里的进度：Plays 是结算了几局，Rewards、IpRewards 是账号、同一 IP 下所有账号
@@ -445,6 +448,11 @@ func FinishGameSession(session *GameSession, settlement GameSettlement) (*GameSe
 		}
 		if newer > 0 {
 			return ErrGameSessionSuperseded
+		}
+		if settlement.Save != nil {
+			if _, err := updateGameSaveTx(tx, session.UserId, settlement.Save.Game, settlement.Save.Update); err != nil {
+				return err
+			}
 		}
 
 		if err := counters.record(tx, claimed, granted, played, pending, settlement); err != nil {

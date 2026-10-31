@@ -54,6 +54,7 @@ import {
   Sparkle,
   Sprout,
   Flag,
+  Castle,
 } from 'lucide-react';
 
 // 每个游戏的页面组件(按需加载)与在游戏中心里的图标。键与 constants/game.constants.js 的游戏标识一致，
@@ -78,6 +79,7 @@ export const GAME_PAGES = {
   watersort: lazy(() => import('./watersort')),
   onestroke: lazy(() => import('./onestroke')),
   match3: lazy(() => import('./match3')),
+  dungeon: lazy(() => import('./dungeon')),
   gomoku: lazy(() => import('./gomoku')),
   connect4: lazy(() => import('./connect4')),
   reversi: lazy(() => import('./reversi')),
@@ -122,6 +124,7 @@ export const GAME_ICONS = {
   watersort: FlaskConical,
   onestroke: PenLine,
   match3: Sparkle,
+  dungeon: Castle,
   gomoku: Circle,
   connect4: LayoutGrid,
   reversi: Layers,

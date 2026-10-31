@@ -1,0 +1,1370 @@
+/* 深渊远征。颜色跟随站点主题，卡牌按类型区分色调；过程动画(出牌、受击、敌人出招)始终播放，只有装饰性的闪动跟随减少动态效果。 */
+
+.dg-page .game-main {
+  min-width: 0;
+}
+
+.dg-stage {
+  align-items: stretch;
+  padding: clamp(14px, 2.4vw, 28px);
+}
+
+.dg-stage-body {
+  position: relative;
+}
+
+/* ---------- 顶栏 ---------- */
+
+.dg-hud {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 14px;
+  background: var(--semi-color-bg-1);
+}
+
+.dg-hud-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--semi-color-text-1);
+}
+
+.dg-hud-row > strong {
+  color: var(--semi-color-text-0);
+}
+
+.dg-hud-spacer {
+  flex: 1;
+}
+
+.dg-mode {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--semi-color-primary-light-default);
+  color: var(--semi-color-primary);
+}
+
+.dg-mode.is-trial {
+  background: var(--semi-color-warning-light-default);
+  color: var(--semi-color-warning);
+}
+
+.dg-mode.is-practice {
+  background: var(--semi-color-success-light-default);
+  color: var(--semi-color-success);
+}
+
+.dg-hud-hp {
+  flex: 1 1 200px;
+  max-width: 320px;
+}
+
+.dg-gold {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 600;
+  color: var(--semi-color-warning);
+}
+
+.dg-potions {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.dg-potion {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1px dashed var(--semi-color-border);
+  background: transparent;
+  color: var(--semi-color-text-2);
+  cursor: pointer;
+}
+
+.dg-potion:not(.is-empty) {
+  border-style: solid;
+  color: #fff;
+  background: rgba(var(--semi-violet-5), 1);
+}
+
+.dg-potion.is-heal {
+  background: rgba(var(--semi-green-5), 1);
+}
+
+.dg-potion.is-fire {
+  background: rgba(var(--semi-red-5), 1);
+}
+
+.dg-potion.is-iron {
+  background: rgba(var(--semi-grey-5), 1);
+}
+
+.dg-potion.is-strength {
+  background: rgba(var(--semi-orange-5), 1);
+}
+
+.dg-potion.is-swift,
+.dg-potion.is-energy {
+  background: rgba(var(--semi-blue-5), 1);
+}
+
+.dg-potion.is-empty {
+  cursor: default;
+}
+
+.dg-relics {
+  gap: 6px;
+}
+
+.dg-relic {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  background: rgba(var(--semi-amber-5), 0.14);
+  color: rgba(var(--semi-amber-7), 1);
+  cursor: help;
+}
+
+.dg-relic.is-fresh {
+  animation: dg-pop 0.5s ease-out;
+}
+
+.dg-meter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--semi-color-border);
+  font-size: 12px;
+  color: var(--semi-color-text-2);
+}
+
+.dg-meter span {
+  display: flex;
+  flex-direction: column;
+}
+
+.dg-meter strong {
+  font-size: 18px;
+  color: var(--semi-color-text-0);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 生命条与状态 ---------- */
+
+.dg-hp {
+  position: relative;
+  display: block;
+  height: 18px;
+  border-radius: 9px;
+  overflow: hidden;
+  background: var(--semi-color-fill-1);
+}
+
+.dg-hp-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: linear-gradient(
+    90deg,
+    rgba(var(--semi-red-6), 1),
+    rgba(var(--semi-red-4), 1)
+  );
+  transition: width 0.35s ease-out;
+}
+
+.dg-hp-text {
+  position: relative;
+  display: block;
+  text-align: center;
+  font-size: 11px;
+  line-height: 18px;
+  font-weight: 700;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  font-variant-numeric: tabular-nums;
+}
+
+.dg-hp-block {
+  position: absolute;
+  top: 0;
+  left: 0;
+  min-width: 26px;
+  padding: 0 6px;
+  height: 18px;
+  line-height: 18px;
+  border-radius: 9px;
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+  color: #fff;
+  background: rgba(var(--semi-blue-5), 1);
+}
+
+.dg-statuses {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.dg-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-size: 11px;
+  background: rgba(var(--semi-green-5), 0.14);
+  color: rgba(var(--semi-green-7), 1);
+  cursor: help;
+}
+
+.dg-status.is-debuff {
+  background: rgba(var(--semi-red-5), 0.14);
+  color: rgba(var(--semi-red-6), 1);
+}
+
+.dg-status strong {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 卡牌 ---------- */
+
+.dg-card {
+  --dg-tone: var(--semi-red-5);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  width: 132px;
+  min-height: 160px;
+  padding: 10px 10px 12px;
+  border: 1px solid rgba(var(--dg-tone), 0.45);
+  border-radius: 12px;
+  background: linear-gradient(
+      180deg,
+      rgba(var(--dg-tone), 0.14),
+      transparent 42%
+    ),
+    var(--semi-color-bg-2);
+  color: var(--semi-color-text-0);
+  text-align: left;
+  font: inherit;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+  transition:
+    transform 0.16s ease-out,
+    box-shadow 0.16s,
+    opacity 0.16s;
+}
+
+.dg-card.is-skill {
+  --dg-tone: var(--semi-blue-5);
+}
+
+.dg-card.is-power {
+  --dg-tone: var(--semi-violet-5);
+}
+
+.dg-card.is-curse {
+  --dg-tone: var(--semi-grey-5);
+}
+
+.dg-card.rarity-2 {
+  border-width: 2px;
+}
+
+.dg-card.rarity-3 {
+  border-width: 2px;
+  box-shadow:
+    0 0 0 2px rgba(var(--semi-amber-5), 0.35),
+    0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.dg-card.is-clickable {
+  cursor: pointer;
+}
+
+.dg-card.is-clickable:not(:disabled):hover {
+  transform: translateY(-6px);
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.16);
+}
+
+.dg-card.is-selected {
+  transform: translateY(-10px);
+  box-shadow:
+    0 0 0 3px var(--semi-color-primary),
+    0 10px 20px rgba(0, 0, 0, 0.18);
+}
+
+.dg-card.is-dim {
+  opacity: 0.5;
+}
+
+.dg-card:disabled {
+  cursor: not-allowed;
+}
+
+.dg-card.is-small {
+  width: 118px;
+  min-height: 150px;
+  padding: 8px 8px 10px;
+}
+
+.dg-card-cost {
+  position: absolute;
+  top: -8px;
+  left: -8px;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  font-weight: 800;
+  font-size: 14px;
+  color: #fff;
+  background: rgba(var(--dg-tone), 1);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.dg-card-name {
+  margin: 2px 0 0 12px;
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.dg-card.is-up .dg-card-name {
+  color: rgba(var(--semi-green-6), 1);
+}
+
+.dg-card-type {
+  margin: 2px 0 8px 12px;
+  font-size: 11px;
+  color: var(--semi-color-text-2);
+}
+
+.dg-card-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--semi-color-text-1);
+}
+
+.dg-card-text em {
+  font-style: normal;
+  font-size: 11px;
+  color: var(--semi-color-text-2);
+}
+
+.dg-card-text .is-buffed {
+  color: rgba(var(--semi-green-6), 1);
+  font-weight: 600;
+}
+
+.dg-card-text .is-nerfed {
+  color: rgba(var(--semi-red-6), 1);
+  font-weight: 600;
+}
+
+.dg-deck-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  padding: 8px 4px;
+}
+
+.dg-upgrade-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  min-height: 190px;
+  margin-bottom: 12px;
+  color: var(--semi-color-text-2);
+}
+
+.dg-modal-note {
+  color: var(--semi-color-text-2);
+  font-size: 13px;
+}
+
+/* ---------- 路线图 ---------- */
+
+.dg-map-wrap {
+  max-width: 560px;
+  margin: 0 auto;
+}
+
+.dg-map-title {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--semi-color-text-0);
+}
+
+.dg-map-title span {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--semi-color-text-2);
+}
+
+.dg-map {
+  position: relative;
+  height: min(70vh, 620px);
+  margin: 12px 0;
+  border-radius: 18px;
+  background: radial-gradient(
+      circle at 50% 0%,
+      rgba(var(--semi-red-5), 0.1),
+      transparent 60%
+    ),
+    var(--semi-color-fill-0);
+}
+
+.dg-map-lines {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.dg-map-lines line {
+  stroke: var(--semi-color-border);
+  stroke-width: 2;
+  stroke-dasharray: 5 5;
+}
+
+.dg-map-lines line.is-open {
+  stroke: var(--semi-color-primary);
+  stroke-dasharray: none;
+}
+
+.dg-map-lines line.is-walked {
+  stroke: var(--semi-color-text-2);
+  stroke-dasharray: none;
+  stroke-width: 3;
+}
+
+.dg-node {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  margin: -19px 0 0 -19px;
+  border-radius: 50%;
+  border: 2px solid var(--semi-color-border);
+  background: var(--semi-color-bg-2);
+  color: var(--semi-color-text-1);
+  cursor: default;
+  transition:
+    transform 0.16s,
+    box-shadow 0.16s;
+}
+
+.dg-node.is-elite {
+  color: rgba(var(--semi-red-6), 1);
+}
+
+.dg-node.is-boss {
+  width: 56px;
+  height: 56px;
+  margin: -28px 0 0 -28px;
+  color: rgba(var(--semi-red-6), 1);
+  border-color: rgba(var(--semi-red-5), 0.6);
+}
+
+.dg-node.is-rest {
+  color: rgba(var(--semi-orange-6), 1);
+}
+
+.dg-node.is-shop,
+.dg-node.is-treasure {
+  color: rgba(var(--semi-amber-6), 1);
+}
+
+.dg-node.is-event {
+  color: rgba(var(--semi-violet-5), 1);
+}
+
+.dg-node.is-visited {
+  background: var(--semi-color-fill-2);
+  opacity: 0.75;
+}
+
+.dg-node.is-current {
+  opacity: 1;
+  box-shadow: 0 0 0 4px var(--semi-color-primary-light-default);
+  border-color: var(--semi-color-primary);
+}
+
+.dg-node.is-choice {
+  cursor: pointer;
+  border-color: var(--semi-color-primary);
+  animation: dg-beckon 1.4s ease-in-out infinite;
+}
+
+.dg-node.is-choice:hover {
+  transform: scale(1.15);
+}
+
+.dg-map-legend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--semi-color-text-2);
+}
+
+.dg-map-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* ---------- 战斗 ---------- */
+
+.dg-combat {
+  position: relative;
+  container-type: inline-size;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.dg-enemies {
+  display: flex;
+  justify-content: space-around;
+  gap: 12px;
+  min-height: 220px;
+  padding: 18px 8px 8px;
+  border-radius: 18px;
+  background: radial-gradient(
+      ellipse at 50% 100%,
+      rgba(var(--semi-red-5), 0.1),
+      transparent 70%
+    ),
+    var(--semi-color-fill-0);
+}
+
+.dg-combat.is-boss .dg-enemies {
+  background: radial-gradient(
+      ellipse at 50% 100%,
+      rgba(var(--semi-red-5), 0.22),
+      transparent 70%
+    ),
+    var(--semi-color-fill-0);
+}
+
+.dg-enemy {
+  position: relative;
+  display: flex;
+  flex: 0 1 190px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  padding: 34px 10px 10px;
+  border: 2px solid transparent;
+  border-radius: 14px;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  transition:
+    transform 0.2s,
+    opacity 0.4s,
+    border-color 0.16s;
+}
+
+.dg-enemy:disabled {
+  cursor: default;
+}
+
+.dg-enemy.is-targetable {
+  cursor: crosshair;
+  border-color: rgba(var(--semi-red-5), 0.5);
+}
+
+.dg-enemy.is-targetable:hover {
+  border-color: rgba(var(--semi-red-5), 1);
+  background: rgba(var(--semi-red-5), 0.06);
+}
+
+.dg-enemy.is-dead {
+  opacity: 0.25;
+  filter: grayscale(1);
+}
+
+.dg-enemy.is-act {
+  animation: dg-lunge 0.36s ease-out;
+}
+
+.dg-enemy.is-hit .dg-enemy-art,
+.dg-player.is-hit {
+  animation: dg-shake 0.32s ease-out;
+}
+
+.dg-enemy.is-die {
+  animation: dg-fade 0.4s ease-out;
+}
+
+.dg-enemy-art {
+  align-self: center;
+  width: 74px;
+  height: 74px;
+  border-radius: 40% 40% 46% 46%;
+  background: radial-gradient(
+    circle at 35% 30%,
+    rgba(var(--semi-grey-3), 1),
+    rgba(var(--semi-grey-7), 1)
+  );
+  box-shadow: inset 0 -8px 14px rgba(0, 0, 0, 0.25);
+}
+
+/* 敌人的外形只用颜色区分大类：史莱姆绿、亡灵灰白、火焰橙、虚空紫、首领更大。 */
+.dg-enemy-art.is-slime,
+.dg-enemy-art.is-slime_king {
+  border-radius: 50% 50% 38% 38%;
+  background: radial-gradient(
+    circle at 35% 30%,
+    rgba(var(--semi-lime-3), 1),
+    rgba(var(--semi-green-6), 1)
+  );
+}
+
+.dg-enemy-art.is-goblin,
+.dg-enemy-art.is-goblin_chief,
+.dg-enemy-art.is-werewolf,
+.dg-enemy-art.is-troll {
+  background: radial-gradient(
+    circle at 35% 30%,
+    rgba(var(--semi-amber-3), 1),
+    rgba(var(--semi-brown-6, var(--semi-orange-7)), 1)
+  );
+}
+
+.dg-enemy-art.is-skeleton,
+.dg-enemy-art.is-death_knight,
+.dg-enemy-art.is-lich {
+  background: radial-gradient(circle at 35% 30%, #f1f5f9, #94a3b8);
+}
+
+.dg-enemy-art.is-moth,
+.dg-enemy-art.is-shade_mage,
+.dg-enemy-art.is-void_walker,
+.dg-enemy-art.is-soul_eater {
+  background: radial-gradient(
+    circle at 35% 30%,
+    rgba(var(--semi-violet-3), 1),
+    rgba(var(--semi-violet-7), 1)
+  );
+}
+
+.dg-enemy-art.is-lava_elemental,
+.dg-enemy-art.is-flame_lord {
+  background: radial-gradient(
+    circle at 35% 30%,
+    rgba(var(--semi-yellow-3), 1),
+    rgba(var(--semi-red-6), 1)
+  );
+}
+
+.dg-enemy-art.is-gargoyle,
+.dg-enemy-art.is-crystal_golem,
+.dg-enemy-art.is-beetle,
+.dg-enemy-art.is-abyss_guard {
+  border-radius: 22%;
+  background: radial-gradient(
+    circle at 35% 30%,
+    rgba(var(--semi-cyan-3), 1),
+    rgba(var(--semi-blue-7), 1)
+  );
+}
+
+.dg-enemy-art.is-abyss_drake,
+.dg-enemy-art.is-abyss_lord {
+  background: radial-gradient(
+    circle at 35% 30%,
+    rgba(var(--semi-pink-4), 1),
+    #1e1b4b
+  );
+}
+
+.dg-enemy-art.is-dummy {
+  border-radius: 12px 12px 4px 4px;
+  background: repeating-linear-gradient(0deg, #a16207 0 8px, #ca8a04 8px 16px);
+}
+
+.dg-enemy-art.is-slime_king,
+.dg-enemy-art.is-flame_lord,
+.dg-enemy-art.is-abyss_lord {
+  width: 104px;
+  height: 104px;
+}
+
+.dg-enemy-name {
+  text-align: center;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.dg-intent {
+  position: absolute;
+  top: 4px;
+  left: 50%;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  transform: translateX(-50%);
+  font-size: 13px;
+  white-space: nowrap;
+  background: var(--semi-color-bg-2);
+  border: 1px solid var(--semi-color-border);
+  color: var(--semi-color-text-1);
+}
+
+.dg-intent.is-attack {
+  color: rgba(var(--semi-red-6), 1);
+  border-color: rgba(var(--semi-red-5), 0.5);
+}
+
+.dg-intent small {
+  margin-left: 2px;
+  font-size: 11px;
+}
+
+.dg-player {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  max-width: 520px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.dg-player-body {
+  flex: 1;
+}
+
+.dg-energy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  color: #fff;
+  background: radial-gradient(
+    circle at 35% 30%,
+    rgba(var(--semi-amber-4), 1),
+    rgba(var(--semi-orange-6), 1)
+  );
+  box-shadow: 0 0 0 3px rgba(var(--semi-amber-5), 0.25);
+  font-size: 20px;
+}
+
+.dg-turn {
+  font-size: 12px;
+  color: var(--semi-color-text-2);
+  white-space: nowrap;
+}
+
+.dg-help {
+  margin: 0;
+  text-align: center;
+  font-size: 12px;
+  color: var(--semi-color-text-2);
+}
+
+/* 手牌排成一行：牌多时互相叠住一部分，悬停或选中的牌浮到最上面。 */
+.dg-hand {
+  display: flex;
+  justify-content: center;
+  min-height: 180px;
+  padding: 14px 24px 0;
+}
+
+.dg-hand-card {
+  flex: none;
+  margin-inline: clamp(
+    -46px,
+    calc((100cqw - var(--hand) * 140px) / (2 * var(--hand))),
+    4px
+  );
+  animation: dg-draw 0.32s ease-out backwards;
+  animation-delay: calc(var(--i) * 45ms);
+}
+
+.dg-hand-card:hover,
+.dg-hand-card.is-selected {
+  z-index: 2;
+}
+
+.dg-combat-bar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+.dg-end-turn {
+  min-width: 120px;
+}
+
+/* ---------- 奖励、商店、营火、事件、结束 ---------- */
+
+.dg-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 0 8px;
+  text-align: center;
+}
+
+.dg-screen h3 {
+  margin: 0;
+  font-size: 24px;
+  color: var(--semi-color-text-0);
+}
+
+.dg-screen-note {
+  margin: 0;
+  font-size: 13px;
+  color: var(--semi-color-text-2);
+}
+
+.dg-screen-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+}
+
+.dg-loot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+}
+
+.dg-loot-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: var(--semi-color-fill-0);
+  font-size: 13px;
+}
+
+.dg-loot-item.is-lost {
+  opacity: 0.6;
+}
+
+.dg-loot-item small {
+  color: var(--semi-color-text-2);
+}
+
+.dg-choices {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 18px;
+}
+
+.dg-deal {
+  animation: dg-deal 0.42s ease-out backwards;
+  animation-delay: calc(var(--i) * 110ms);
+}
+
+.dg-offers {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 16px;
+}
+
+.dg-offer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.dg-offer.is-sold {
+  opacity: 0.4;
+}
+
+.dg-offer-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 140px;
+  min-height: 150px;
+  padding: 10px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 12px;
+  background: var(--semi-color-bg-2);
+}
+
+.dg-offer-item small {
+  font-size: 12px;
+  color: var(--semi-color-text-2);
+}
+
+.dg-rest-options {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 18px;
+}
+
+.dg-rest-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 190px;
+  padding: 22px 16px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 16px;
+  background: var(--semi-color-bg-2);
+  color: var(--semi-color-text-0);
+  font: inherit;
+  cursor: pointer;
+  transition:
+    transform 0.16s,
+    border-color 0.16s;
+}
+
+.dg-rest-option svg {
+  color: rgba(var(--semi-orange-5), 1);
+}
+
+.dg-rest-option span {
+  font-size: 12px;
+  color: var(--semi-color-text-2);
+}
+
+.dg-rest-option:not(:disabled):hover {
+  transform: translateY(-3px);
+  border-color: var(--semi-color-primary);
+}
+
+.dg-rest-option:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.dg-event-text {
+  max-width: 460px;
+  margin: 0;
+  line-height: 1.7;
+  color: var(--semi-color-text-1);
+}
+
+.dg-event-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(100%, 420px);
+}
+
+.dg-end svg {
+  color: rgba(var(--semi-grey-5), 1);
+}
+
+.dg-end.is-won svg {
+  color: rgba(var(--semi-amber-5), 1);
+}
+
+.dg-end-stats {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 28px;
+}
+
+.dg-end-stats span {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--semi-color-text-2);
+}
+
+.dg-end-stats strong {
+  font-size: 20px;
+  color: var(--semi-color-text-0);
+}
+
+.dg-crystals-gain {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: 999px;
+  font-weight: 700;
+  color: rgba(var(--semi-violet-6), 1);
+  background: rgba(var(--semi-violet-5), 0.12);
+}
+
+.dg-crystals-gain small {
+  font-weight: 400;
+}
+
+/* ---------- 营地 ---------- */
+
+.dg-lobby h4 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 18px 0 10px;
+  font-size: 15px;
+  color: var(--semi-color-text-0);
+}
+
+.dg-h4-actions {
+  display: inline-flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.dg-crystals {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  color: rgba(var(--semi-violet-6), 1);
+}
+
+.dg-tab-note {
+  margin: 10px 0;
+  font-size: 13px;
+  color: var(--semi-color-text-2);
+}
+
+.dg-resume {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 12px 0;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: var(--semi-color-primary-light-default);
+  font-size: 13px;
+}
+
+.dg-classes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
+}
+
+.dg-class {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 14px;
+  border: 2px solid var(--semi-color-border);
+  border-radius: 14px;
+  background: var(--semi-color-bg-2);
+  cursor: pointer;
+  transition: border-color 0.16s;
+}
+
+.dg-class strong {
+  font-size: 16px;
+}
+
+.dg-class span,
+.dg-class small {
+  font-size: 12px;
+  color: var(--semi-color-text-2);
+}
+
+.dg-class.is-selected {
+  border-color: var(--semi-color-primary);
+}
+
+.dg-class.is-locked {
+  cursor: default;
+  opacity: 0.75;
+}
+
+.dg-start-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin: 16px 0 8px;
+}
+
+.dg-talents {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px;
+}
+
+.dg-talent {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 12px;
+}
+
+.dg-talent.is-owned {
+  border-color: rgba(var(--semi-violet-5), 0.5);
+}
+
+.dg-talent strong {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+}
+
+.dg-talent small {
+  font-weight: 400;
+  color: var(--semi-color-text-2);
+}
+
+.dg-talent span {
+  font-size: 12px;
+  color: var(--semi-color-text-2);
+}
+
+.dg-trials {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dg-trial {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 12px;
+}
+
+.dg-trial.is-locked {
+  opacity: 0.55;
+}
+
+.dg-trial-index {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border-radius: 50%;
+  font-weight: 700;
+  background: var(--semi-color-fill-1);
+}
+
+.dg-trial-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.dg-trial-body strong {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dg-trial-body small {
+  color: var(--semi-color-text-2);
+}
+
+.dg-stars {
+  display: inline-flex;
+  gap: 1px;
+  color: var(--semi-color-fill-2);
+}
+
+.dg-stars .is-lit {
+  color: rgba(var(--semi-amber-5), 1);
+  fill: rgba(var(--semi-amber-5), 1);
+}
+
+.dg-practice-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.dg-practice-grid > label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--semi-color-text-2);
+}
+
+.dg-switches {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.dg-switches label,
+.dg-pool-head label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.dg-practice-deck {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 34px;
+}
+
+.dg-deck-chip {
+  padding: 3px 10px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 999px;
+  background: var(--semi-color-bg-2);
+  color: var(--semi-color-text-0);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.dg-deck-chip:hover {
+  border-color: rgba(var(--semi-red-5), 0.8);
+  text-decoration: line-through;
+}
+
+.dg-pool-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+/* ---------- 动画 ---------- */
+
+@keyframes dg-draw {
+  from {
+    opacity: 0;
+    transform: translateY(30px) scale(0.92);
+  }
+}
+
+@keyframes dg-deal {
+  from {
+    opacity: 0;
+    transform: translateY(-24px) rotate(-4deg);
+  }
+}
+
+@keyframes dg-lunge {
+  40% {
+    transform: translateY(18px) scale(1.04);
+  }
+}
+
+@keyframes dg-shake {
+  20% {
+    transform: translateX(-6px);
+  }
+  50% {
+    transform: translateX(5px);
+  }
+  80% {
+    transform: translateX(-3px);
+  }
+}
+
+@keyframes dg-fade {
+  from {
+    opacity: 1;
+    filter: none;
+    transform: scale(1);
+  }
+  to {
+    transform: scale(0.9);
+  }
+}
+
+@keyframes dg-pop {
+  from {
+    transform: scale(0.6);
+    opacity: 0;
+  }
+}
+
+@keyframes dg-beckon {
+  50% {
+    box-shadow: 0 0 0 6px var(--semi-color-primary-light-default);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dg-node.is-choice {
+    animation: none;
+  }
+  .dg-relic.is-fresh {
+    animation: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .dg-card {
+    width: 112px;
+    min-height: 156px;
+  }
+  .dg-enemy-art {
+    width: 56px;
+    height: 56px;
+  }
+}
+
+.dg-stars.is-large {
+  gap: 6px;
+}
