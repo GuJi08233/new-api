@@ -7653,6 +7653,8 @@
     "折合 {{n}} 盟资（玄铁一份折 3 点）": "Worth {{n}} funds (dark iron counts triple)",
     "贡献 {{n}}": "Contribution {{n}}",
     "本周伤害 {{n}}": "Damage this week {{n}}",
-    "请出": "Remove"
+    "请出": "Remove",
+    "论剑：设好守擂阵容登上论剑榜，挑战别的宗门按积分排名；仙盟：结盟捐资源升级，每周合力讨伐妖王": "Duels: set a defense lineup to join the ladder and challenge other sects for rating. Alliances: donate resources to level up together and raid a demon king every week",
+    "商店里可以用游戏币买一次性的符箓与丹药，花掉的游戏币不退回": "The shop sells single-use talismans and pills for game coins; spent coins are not refunded"
   }
 }
