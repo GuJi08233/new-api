@@ -66,7 +66,7 @@ export function useWendaoPart(part) {
 
 const PartNav = () => {
   const { t } = useTranslation();
-  const { part, setPart, badges, parts } = useContext(WendaoContext);
+  const { part, setPart, parts } = useContext(WendaoContext);
   const names = getPartNames(t);
   return (
     <nav className='wd-parts' aria-label={t('问道')}>
@@ -80,7 +80,6 @@ const PartNav = () => {
         >
           <Icon size={16} />
           <span>{names[key]}</span>
-          {badges?.[key] && <i className='wd-part-dot' aria-hidden />}
         </button>
       ))}
     </nav>

@@ -104,9 +104,14 @@ const GameCoinRecords = ({ version, symbol, explorerUrl, chainId }) => {
   const statusMap = getGameCoinWithdrawalStatusMap(t);
   const failReasons = getGameCoinWithdrawFailReasonMap(t);
   const gameMetaMap = getGameMetaMap(t);
+  // 问道的两家商店：备注里的标识是 wendao_abyss(九幽秘境)与 wendao_sect(宗门)。
   const shopItemNames = {
     wendao_abyss: getDungeonItemText(t),
     wendao_sect: getSectItemText(t),
+  };
+  const shopNames = {
+    wendao_abyss: `${t('问道')} · ${t('九幽秘境')}`,
+    wendao_sect: `${t('问道')} · ${t('宗门')}`,
   };
 
   const logColumns = [
@@ -178,7 +183,8 @@ const GameCoinRecords = ({ version, symbol, explorerUrl, chainId }) => {
           const [key, rest = ''] = (value || '').split(':');
           const [item, count] = rest.split('×');
           const name = shopItemNames[key]?.[item]?.name || item;
-          return `${gameMetaMap[key]?.name || key} · ${name} × ${count}`;
+          const shop = shopNames[key] || gameMetaMap[key]?.name || key;
+          return `${shop} · ${name} × ${count}`;
         }
         // 提现退回的备注是失败原因。
         if (record.type === 'withdraw_refund' && value) {

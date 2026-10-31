@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import GameLayout from '../common/GameLayout';
@@ -36,7 +36,6 @@ const Wendao = () => {
   const [params, setParams] = useSearchParams();
   const requested = params.get('part');
   const part = PARTS[requested] ? requested : 'journey';
-  const [badges, setBadges] = useState({});
 
   const setPart = useCallback(
     (next) => {
@@ -60,10 +59,8 @@ const Wendao = () => {
       part,
       setPart,
       parts: WENDAO_PARTS.filter(({ key }) => PARTS[key]),
-      badges,
-      setBadges,
     }),
-    [info, setInfo, reload, part, setPart, badges],
+    [info, setInfo, reload, part, setPart],
   );
 
   if (loading || unavailable || !info) {

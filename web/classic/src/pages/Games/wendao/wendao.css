@@ -40,12 +40,3 @@
   outline: 2px solid var(--semi-color-primary);
   outline-offset: 1px;
 }
-.wd-part-dot {
-  position: absolute;
-  top: 6px;
-  right: 10px;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--semi-color-danger);
-}
