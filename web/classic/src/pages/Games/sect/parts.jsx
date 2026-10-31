@@ -230,6 +230,8 @@ export function eventSentence(ev, text, t) {
       return ev.n
         ? t('宗门大比连胜 {{n}} 场', { n: ev.n })
         : t('宗门大比首轮落败');
+    case 'arena':
+      return ev.n ? t('论剑获胜') : t('论剑落败');
     default:
       return '';
   }

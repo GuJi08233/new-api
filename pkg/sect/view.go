@@ -61,6 +61,7 @@ type View struct {
 	Rates        Rates            `json:"rates"`
 	Pills        map[string]int   `json:"pills"`
 	Items        map[string]int   `json:"items"`
+	Arena        ArenaStats       `json:"arena"`
 	Recipes      []PillSpec       `json:"recipes"`
 	Disciples    []DiscipleView   `json:"disciples"`
 	Cap          int              `json:"cap"`
@@ -82,7 +83,7 @@ func (s *Sect) View(now int64) View {
 	v := View{
 		Now: now, Created: s.Created, Res: s.Res, Rates: s.Rates(now), Pills: s.Pills, Items: s.Items, Recipes: Pills,
 		Cap: s.Cap(), Missions: s.Missions, MissionSlots: s.MissionSlots(), RecruitAt: s.RecruitAt,
-		NextEventAt: s.NextEventAt, Log: s.Log, Stats: s.Stats, HallPower: int(math.Round(HallPower(s.Buildings[BuildingHall]))),
+		NextEventAt: s.NextEventAt, Log: s.Log, Stats: s.Stats, Arena: s.Arena, HallPower: int(math.Round(HallPower(s.Buildings[BuildingHall]))),
 	}
 	hall := s.Buildings[BuildingHall]
 	for _, key := range BuildingOrder {
@@ -155,10 +156,12 @@ type TournamentView struct {
 	Turn     int        `json:"turn"`
 	Turns    int        `json:"turns"`
 	Last     *Turn      `json:"last"`
+	// Arena 是论剑时守擂宗门的全部出场弟子(按出场顺序)，大比时为空。
+	Arena []*Fighter `json:"arena,omitempty"`
 }
 
 func (t *Tournament) View() TournamentView {
-	v := TournamentView{Round: t.Round, Rounds: TournamentRounds, Wins: t.Wins, Phase: t.Phase, Fighters: t.Fighters,
+	v := TournamentView{Round: t.Round, Rounds: t.Rounds(), Arena: t.Arena, Wins: t.Wins, Phase: t.Phase, Fighters: t.Fighters,
 		Current: t.Current, Opponent: t.Opponent, Pills: t.Pills, Turn: t.Turn, Turns: DuelTurns, Last: t.Last}
 	if t.Phase != PhaseOver {
 		v.Intent = t.Intent

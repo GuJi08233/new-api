@@ -36,6 +36,7 @@ import Missions from './Missions';
 import Alchemy from './Alchemy';
 import Tournament from './Tournament';
 import Shop from './Shop';
+import Arena from './Arena';
 import {
   SectTextProvider,
   eventSentence,
@@ -75,6 +76,7 @@ const SectPage = () => {
   const [receivedAt, setReceivedAt] = useState(0);
   const [tab, setTab] = useState('overview');
   const [round, setRound] = useState(null);
+  const [arenaRound, setArenaRound] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [floaters, addFloater] = useFloaters();
@@ -218,6 +220,13 @@ const SectPage = () => {
       if (session?.status === 'playing') {
         setRound(session);
         setTab('tournament');
+      }
+    });
+    gameGet('/api/game/sect/arena/battle', t).then((response) => {
+      const session = response.data?.session;
+      if (session?.status === 'playing') {
+        setArenaRound(session);
+        setTab('arena');
       }
     });
     // 只在第一次读到游戏信息时执行。
@@ -421,6 +430,24 @@ const SectPage = () => {
                   onStart={startTournament}
                   onMove={move}
                   onBack={backFromTournament}
+                />
+              </TabPane>
+              <TabPane
+                tab={
+                  arenaRound?.status === 'playing'
+                    ? `${t('论剑')} ●`
+                    : t('论剑')
+                }
+                itemKey='arena'
+              >
+                <Arena
+                  sect={sect}
+                  now={now}
+                  busy={busy}
+                  post={post}
+                  round={arenaRound}
+                  setRound={setArenaRound}
+                  onSettled={sync}
                 />
               </TabPane>
               <TabPane tab={t('商店')} itemKey='shop'>

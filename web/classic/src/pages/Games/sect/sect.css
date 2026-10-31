@@ -821,3 +821,69 @@
 .sc-shop .game-shop {
   margin-top: 8px;
 }
+
+/* 论剑：自己的积分一行、对手的守擂弟子、论剑榜。 */
+.sc-arena-me {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.sc-arena-me > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 12px;
+  background: var(--semi-color-bg-1);
+  color: var(--semi-color-text-2);
+  font-size: 12px;
+}
+
+.sc-arena-me strong {
+  color: var(--semi-color-text-0);
+  font-size: 18px;
+}
+
+.sc-defenders {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin-top: 8px;
+}
+
+.sc-defender {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.sc-ladder {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sc-ladder li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 8px;
+}
+
+.sc-ladder li.is-me {
+  background: var(--semi-color-primary-light-default);
+}
+
+.sc-ladder-rank {
+  width: 24px;
+  color: var(--semi-color-text-2);
+  text-align: right;
+}

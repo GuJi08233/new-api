@@ -27,6 +27,8 @@ type GameCleanupResult struct {
 	Rooms    int `json:"rooms"`
 	Jackpots int `json:"jackpots"`
 	Tasks    int `json:"tasks"`
+	// ArenaBattles 是删掉的论剑记录：积分已经记在论剑榜上，记录只用于页面上的最近战报。
+	ArenaBattles int `json:"arena_battles"`
 }
 
 // PruneGameRecords 删掉 before 之前的游戏记录：结束了的对局、游戏币明细里的游戏流水、每日计数、结束了的对战房间，以及开完奖
@@ -55,6 +57,9 @@ func PruneGameRecords(ctx context.Context, before time.Time) (GameCleanupResult,
 		}
 	}
 	if result.Rooms, err = deleteGameRoomsBefore(ctx, cutoff); err != nil {
+		return result, err
+	}
+	if result.ArenaBattles, err = deleteGameRowsBefore(ctx, &SectArenaBattle{}, cutoff, "1 = 1"); err != nil {
 		return result, err
 	}
 	// 开放中的一轮只会是最近开的(一位玩家的一轮十分钟就退回，两位玩家的一轮几分钟就开奖)，排除它只是以防万一。

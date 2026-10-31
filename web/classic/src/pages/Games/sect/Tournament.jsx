@@ -99,7 +99,7 @@ function turnSummary(last, text, t) {
   return parts.join(t('，'));
 }
 
-const Duel = ({ tour, busy, onMove }) => {
+export const Duel = ({ tour, busy, onMove, opponentLabel }) => {
   const { t } = useTranslation();
   const text = useSectText();
   const intents = getIntentText(t);
@@ -136,7 +136,7 @@ const Duel = ({ tour, busy, onMove }) => {
         <FighterPanel
           fighter={opponent}
           side='them'
-          sectName={text.sects[opponent.sect]}
+          sectName={opponentLabel ?? text.sects[opponent.sect]}
           hit={last ? last.dealt + last.counter : 0}
           turnKey={turnKey}
         />
@@ -170,7 +170,7 @@ const Duel = ({ tour, busy, onMove }) => {
   );
 };
 
-const Pick = ({ tour, busy, onMove }) => {
+export const Pick = ({ tour, busy, onMove, opponentLabel }) => {
   const { t } = useTranslation();
   const text = useSectText();
   const opponent = tour.opponent;
@@ -184,7 +184,7 @@ const Pick = ({ tour, busy, onMove }) => {
       <div className='sc-fighter is-them is-preview'>
         <span className='sc-muted'>
           {t('第 {{round}} 轮对手', { round: tour.round + 1 })} ·{' '}
-          {text.sects[opponent.sect]}
+          {opponentLabel ?? text.sects[opponent.sect]}
         </span>
         <div className='sc-disciple-head'>
           <strong>{text.name(opponent.name)}</strong>
@@ -272,23 +272,14 @@ const EndScreen = ({ round, symbol, onBack }) => {
   );
 };
 
-// 报名：选出战的弟子(默认战力最高的几名)，带上回春丹。
-const Signup = ({ info, sect, now, busy, turnstile, onStart }) => {
+// 选出战弟子：candidates 是能选的弟子(按战力从高到低)，最多选 size 名。返回 [选中的编号, 勾选列表]。
+export function useTeamPicker(candidates, size, initial) {
   const { t } = useTranslation();
   const text = useSectText();
-  const rules = info?.tournament || {};
-  const size = rules.team_size || 3;
-  const home = useMemo(
-    () =>
-      sect.disciples
-        .filter((d) => !d.mission && d.injured <= now)
-        .sort((a, b) => b.power - a.power),
-    // 只在弟子名单变了时重新排序，倒计时每秒刷新不影响勾选。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [sect.disciples],
+  const [team, setTeam] = useState(
+    () => initial || candidates.slice(0, size).map((d) => d.id),
   );
-  const [team, setTeam] = useState(() => home.slice(0, size).map((d) => d.id));
-  const chosen = team.filter((id) => home.some((d) => d.id === id));
+  const chosen = team.filter((id) => candidates.some((d) => d.id === id));
   const toggle = (id) =>
     setTeam((previous) =>
       previous.includes(id)
@@ -297,6 +288,49 @@ const Signup = ({ info, sect, now, busy, turnstile, onStart }) => {
           ? [...previous, id]
           : previous,
     );
+  const list = (
+    <div className='sc-picker'>
+      {candidates.map((d) => (
+        <Checkbox
+          key={d.id}
+          checked={team.includes(d.id)}
+          onChange={() => toggle(d.id)}
+        >
+          <span className='sc-pick-name'>
+            {text.name(d.name)}
+            <ElementTag element={d.element} />
+            <span className='sc-muted'>
+              {realmLabel(text, t, d.realm, d.layer)} ·{' '}
+              {t('战力 {{power}}', { power: d.power })}
+            </span>
+          </span>
+        </Checkbox>
+      ))}
+    </div>
+  );
+  return [chosen, list];
+}
+
+// 宗门里能出战的弟子(不在外历练、没受伤)，按战力从高到低。
+export function useHomeDisciples(sect, now) {
+  return useMemo(
+    () =>
+      sect.disciples
+        .filter((d) => !d.mission && d.injured <= now)
+        .sort((a, b) => b.power - a.power),
+    // 只在弟子名单变了时重新排序，倒计时每秒刷新不影响勾选。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [sect.disciples],
+  );
+}
+
+// 报名：选出战的弟子(默认战力最高的几名)，带上回春丹。
+const Signup = ({ info, sect, now, busy, turnstile, onStart }) => {
+  const { t } = useTranslation();
+  const rules = info?.tournament || {};
+  const size = rules.team_size || 3;
+  const home = useHomeDisciples(sect, now);
+  const [chosen, picker] = useTeamPicker(home, size);
   const pills = Math.min(sect.pills?.heal || 0, rules.pouch_pills || 3);
   return (
     <div className='sc-signup'>
@@ -328,24 +362,7 @@ const Signup = ({ info, sect, now, busy, turnstile, onStart }) => {
           {t('宗门里没有能出战的弟子：都在外历练或受了伤')}
         </p>
       )}
-      <div className='sc-picker'>
-        {home.map((d) => (
-          <Checkbox
-            key={d.id}
-            checked={team.includes(d.id)}
-            onChange={() => toggle(d.id)}
-          >
-            <span className='sc-pick-name'>
-              {text.name(d.name)}
-              <ElementTag element={d.element} />
-              <span className='sc-muted'>
-                {realmLabel(text, t, d.realm, d.layer)} ·{' '}
-                {t('战力 {{power}}', { power: d.power })}
-              </span>
-            </span>
-          </Checkbox>
-        ))}
-      </div>
+      {picker}
       <div className='sc-building-foot'>
         <span className='sc-muted'>
           {t('随身带 {{n}} 颗回春丹', { n: pills })}
@@ -394,21 +411,40 @@ const Tournament = ({
     );
   }
   const tour = round.tournament;
+  return (
+    <DuelBoard
+      tour={tour}
+      busy={busy}
+      onMove={onMove}
+      title={t('宗门大比 · 第 {{round}} / {{rounds}} 轮', {
+        round: Math.min(tour.round + 1, tour.rounds),
+        rounds: tour.rounds,
+      })}
+      abandonContent={t('认输后按已经连胜的场数结算。')}
+    />
+  );
+};
+
+// 进行中的一场斗法：标题与每轮的进度、认输，以及选人上场或出招。opponentLabel 是对手名字上方的一行(大比是门派名)。
+export const DuelBoard = ({
+  tour,
+  busy,
+  onMove,
+  title,
+  abandonContent,
+  opponentLabel,
+}) => {
+  const { t } = useTranslation();
   const confirmAbandon = () =>
     Modal.confirm({
       title: t('认输'),
-      content: t('认输后按已经连胜的场数结算。'),
+      content: abandonContent,
       onOk: () => onMove('abandon'),
     });
   return (
     <div className='sc-tournament'>
       <div className='sc-tour-head'>
-        <strong>
-          {t('宗门大比 · 第 {{round}} / {{rounds}} 轮', {
-            round: Math.min(tour.round + 1, tour.rounds),
-            rounds: tour.rounds,
-          })}
-        </strong>
+        <strong>{title}</strong>
         <span className='sc-rounds'>
           {Array.from({ length: tour.rounds }, (_, i) => (
             <span
@@ -430,9 +466,19 @@ const Tournament = ({
         </Button>
       </div>
       {tour.phase === 'pick' ? (
-        <Pick tour={tour} busy={busy} onMove={onMove} />
+        <Pick
+          tour={tour}
+          busy={busy}
+          onMove={onMove}
+          opponentLabel={opponentLabel}
+        />
       ) : (
-        <Duel tour={tour} busy={busy} onMove={onMove} />
+        <Duel
+          tour={tour}
+          busy={busy}
+          onMove={onMove}
+          opponentLabel={opponentLabel}
+        />
       )}
     </div>
   );

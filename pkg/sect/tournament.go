@@ -116,6 +116,8 @@ type Tournament struct {
 	Charged  bool       `json:"charged"`
 	Turn     int        `json:"turn"`
 	Last     *Turn      `json:"last"`
+	// Arena 不为空时这是一场论剑：对手是守擂宗门的弟子(满血上场)，按顺序一个个打，全部打败就赢，输一场就结束。
+	Arena []*Fighter `json:"arena,omitempty"`
 }
 
 const (
@@ -127,23 +129,14 @@ const (
 // NewTournament 让宗门里的 team(一到 TeamSize 名没受伤的弟子)报名大比，带上最多三颗回春丹(调用方从库存里扣掉 Taken 颗)。
 // 有弟子不在宗门或受伤时返回 ErrUnavailable。
 func NewTournament(seed uint64, s *Sect, team []int, now int64) (*Tournament, error) {
-	if len(team) < 1 || len(team) > TeamSize {
-		return nil, ErrAction
+	fighters, err := s.teamFighters(team, now)
+	if err != nil {
+		return nil, err
 	}
-	t := &Tournament{Version: StateVersion, Rng: Rng{S: seed}, Hall: s.Buildings[BuildingHall], Phase: PhasePick}
+	t := &Tournament{Version: StateVersion, Rng: Rng{S: seed}, Hall: s.Buildings[BuildingHall], Phase: PhasePick, Fighters: fighters}
 	sum := 0
-	for i, id := range team {
-		d := s.disciple(id)
-		if d == nil || slices.Contains(team[:i], id) {
-			return nil, ErrAction
-		}
-		if !d.home(now) {
-			return nil, ErrUnavailable
-		}
-		power := s.Power(d)
-		sum += power
-		t.Fighters = append(t.Fighters, &Fighter{Id: d.Id, Name: d.Name, Element: d.Element, Realm: d.Realm, Layer: d.Layer,
-			Power: power, Hp: power * hpPerPower, MaxHp: power * hpPerPower})
+	for _, f := range fighters {
+		sum += f.Power
 	}
 	// 对手主要跟着出战弟子的平均战力走，比同级门派强的宗门只占一点便宜：大比比的是临场应对，不是挂机攒的战力。
 	t.Base = math.Pow(float64(sum)/float64(len(team)), 0.75) * math.Pow(HallPower(t.Hall), 0.25)
@@ -153,7 +146,48 @@ func NewTournament(seed uint64, s *Sect, team []int, now int64) (*Tournament, er
 	return t, nil
 }
 
+// teamFighters 是宗门里出战的 team(一到 TeamSize 名在宗门里、没受伤的弟子)，满血上场。
+func (s *Sect) teamFighters(team []int, now int64) ([]*Fighter, error) {
+	if len(team) < 1 || len(team) > TeamSize {
+		return nil, ErrAction
+	}
+	var fighters []*Fighter
+	for i, id := range team {
+		d := s.disciple(id)
+		if d == nil || slices.Contains(team[:i], id) {
+			return nil, ErrAction
+		}
+		if !d.home(now) {
+			return nil, ErrUnavailable
+		}
+		fighters = append(fighters, s.fighter(d))
+	}
+	return fighters, nil
+}
+
+func (s *Sect) fighter(d *Disciple) *Fighter {
+	power := s.Power(d)
+	return &Fighter{Id: d.Id, Name: d.Name, Element: d.Element, Realm: d.Realm, Layer: d.Layer,
+		Power: power, Hp: power * hpPerPower, MaxHp: power * hpPerPower}
+}
+
+// Rounds 是这一场要打几轮：大比五轮，论剑是守擂弟子的人数。
+func (t *Tournament) Rounds() int {
+	if len(t.Arena) > 0 {
+		return len(t.Arena)
+	}
+	return TournamentRounds
+}
+
 func (t *Tournament) nextOpponent() {
+	if len(t.Arena) > 0 {
+		opponent := *t.Arena[t.Round]
+		opponent.Hp, opponent.Qi = opponent.MaxHp, 0
+		t.Opponent = &opponent
+		t.Charged = false
+		t.chooseIntent()
+		return
+	}
 	power := max(1, int(math.Round(t.Base*roundMult[t.Round]*float64(t.Rng.Range(95, 105))/100)))
 	realm := 0
 	for realm < MaxRealm && realmPower[realm+1] <= float64(power) {
@@ -188,8 +222,8 @@ func (t *Tournament) chooseIntent() {
 // Over 表示大比结束了。
 func (t *Tournament) Over() bool { return t.Phase == PhaseOver }
 
-// Champion 表示五轮全胜。
-func (t *Tournament) Champion() bool { return t.Wins == TournamentRounds }
+// Champion 表示五轮全胜(论剑是打败了全部守擂弟子)。
+func (t *Tournament) Champion() bool { return t.Wins == t.Rounds() }
 
 // Play 执行一步：pick 选第 index 名弟子上场，或者在斗法里出一招。
 func (t *Tournament) Play(move string, index int) error {
@@ -312,7 +346,7 @@ func (t *Tournament) resolve(move string) {
 				f.Hp = min(f.Hp+f.MaxHp*roundRegen/100, f.MaxHp)
 			}
 		}
-		if t.Round == TournamentRounds {
+		if t.Round == t.Rounds() {
 			t.Phase = PhaseOver
 			return
 		}

@@ -66,6 +66,7 @@ type Event struct {
 //   - layer：Who 升了 N 层；bottleneck：Who 修到第九层圆满；realm：Who 突破到 N 境界；break_fail：Who 突破失败
 //   - injured：Who 受伤 N 小时；healed：Who 伤愈；talent：Who 资质升到 N
 //   - mission：S 是历练，N 是 0 失败 / 1 成功 / 2 大获全胜；event：S 是奇遇，N 是选项，Win 是比斗胜负(没有比斗为空)
+//   - tournament：大比连胜 N 场；arena：论剑 N 为 1 赢 / 0 输；item：用掉符箓 S
 type Ev struct {
 	K   string  `json:"k"`
 	S   string  `json:"s,omitempty"`
@@ -77,7 +78,7 @@ type Ev struct {
 
 // logKinds 是要记进大事记的事。
 var logKinds = map[string]bool{"built": true, "joined": true, "left": true, "bottleneck": true, "realm": true,
-	"break_fail": true, "talent": true, "mission": true, "event": true, "tournament": true}
+	"break_fail": true, "talent": true, "mission": true, "event": true, "tournament": true, "arena": true}
 
 // Stats 是宗门的战绩。Day 与 DayRuns 记今天参加了几次大比：每天前几次大比才有声望与灵石。
 type Stats struct {
@@ -118,6 +119,8 @@ type Sect struct {
 	Stats       Stats          `json:"stats"`
 	// Items 是用游戏币买来、还没用掉的符箓。
 	Items map[string]int `json:"items,omitempty"`
+	// Arena 是论剑战绩。
+	Arena ArenaStats `json:"arena"`
 }
 
 // NewSect 开宗立派：主殿、灵田、聚灵阵各一级，两名弟子(上品与良品资质)，一些灵石灵草与两颗回春丹。第一件奇遇半小时后出现。
