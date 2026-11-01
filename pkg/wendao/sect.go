@@ -121,6 +121,9 @@ type Sect struct {
 	Arena ArenaStats `json:"arena"`
 	// AllianceLevel 是宗门所在仙盟的等级(没有入盟为 0)，每级给产出加成 AllianceBonusPerLevel。每次经营操作前由调用方按仙盟表刷新。
 	AllianceLevel int `json:"alliance_level,omitempty"`
+	// Garden 是掌门亲手打理的灵田，Rare 是灵田种出来的灵药。
+	Garden Garden         `json:"garden"`
+	Rare   map[string]int `json:"rare,omitempty"`
 }
 
 // NewSect 开宗立派：主殿、灵田、聚灵阵各一级，两名弟子(上品与良品资质)，一些灵石灵草与两颗回春丹。第一件奇遇半小时后出现。
@@ -138,7 +141,9 @@ func NewSect(seed uint64, now int64) *Sect {
 		NextEventAt: now + 30*60,
 		Log:         []Ev{},
 		Items:       map[string]int{},
+		Rare:        map[string]int{},
 	}
+	s.normalizeGarden()
 	for _, talent := range []int{3, 2} {
 		c := s.newCandidate()
 		c.Talent, c.Layer = talent, 1
@@ -168,6 +173,10 @@ func (s *Sect) normalize() {
 	if s.Items == nil {
 		s.Items = map[string]int{}
 	}
+	if s.Rare == nil {
+		s.Rare = map[string]int{}
+	}
+	s.normalizeGarden()
 }
 
 // Cap 是弟子上限：主殿每级多一名。
@@ -424,6 +433,7 @@ type Action struct {
 	Choice   int    `json:"choice"`
 	UsePill  bool   `json:"use_pill"`
 	Item     string `json:"item"`
+	Crop     string `json:"crop"`
 }
 
 // Apply 先结算到 now，再执行操作，返回这期间发生的事。出错时存档可能已经改了一部分，调用方不要保存。
@@ -462,6 +472,16 @@ func (s *Sect) Apply(a Action, now int64) ([]Ev, error) {
 		more, err = s.resolveEvent(a.Choice, now)
 	case "item":
 		more, err = s.useItem(a.Item, now)
+	case "plant":
+		more, err = s.plant(a.Index, a.Crop, now)
+	case "plant_all":
+		more, err = s.plantAll(a.Crop, now)
+	case "harvest":
+		more, err = s.harvest(a.Index, now)
+	case "harvest_all":
+		more, err = s.harvestAll(now)
+	case "uproot":
+		err = s.uproot(a.Index)
 	default:
 		err = ErrAction
 	}
@@ -516,8 +536,9 @@ func (s *Sect) assign(id int, job string, now int64) error {
 	return nil
 }
 
-func (s *Sect) craft(key string, count int) ([]Ev, error) {
-	spec, ok := pillSpec(key)
+// craft 按丹方 id 炼 count 颗：花资源，要灵药的丹方再扣灵药；丹房每级有几率每颗多出一颗。
+func (s *Sect) craft(id string, count int) ([]Ev, error) {
+	spec, ok := pillSpec(id)
 	if !ok || count < 1 || count > MaxCraft {
 		return nil, ErrAction
 	}
@@ -525,8 +546,16 @@ func (s *Sect) craft(key string, count int) ([]Ev, error) {
 	if alchemy < spec.Alchemy {
 		return nil, ErrUnavailable
 	}
+	if spec.Rare != "" && s.Rare[spec.Rare] < spec.RareN*count {
+		return nil, ErrCost
+	}
 	if err := s.pay(spec.Cost.scale(float64(count))); err != nil {
 		return nil, err
+	}
+	var evs []Ev
+	if spec.Rare != "" {
+		s.Rare[spec.Rare] -= spec.RareN * count
+		evs = append(evs, Ev{K: "rare", S: spec.Rare, N: -spec.RareN * count})
 	}
 	made := count
 	for range count {
@@ -534,8 +563,8 @@ func (s *Sect) craft(key string, count int) ([]Ev, error) {
 			made++
 		}
 	}
-	s.Pills[key] += made
-	return []Ev{{K: "pill", S: key, N: made}}, nil
+	s.Pills[spec.Key] += made
+	return append(evs, Ev{K: "pill", S: spec.Key, N: made}), nil
 }
 
 func (s *Sect) usePill(key string, id int, now int64) ([]Ev, error) {
@@ -554,12 +583,12 @@ func (s *Sect) usePill(key string, id int, now int64) ([]Ev, error) {
 		}
 		d.Injured = 0
 		evs = append(evs, Ev{K: "healed", Who: &d.Name})
-	case PillQi:
+	case PillQi, PillPeiyuan:
 		if d.Mission != 0 || d.Bottleneck() || d.QiReady > now {
 			return nil, ErrUnavailable
 		}
 		d.QiReady = now + qiPillCooldown
-		evs = append(evs, s.addExp(d, s.cultivateRate(d, JobCultivate)*qiPillHours)...)
+		evs = append(evs, s.addExp(d, s.cultivateRate(d, JobCultivate)*float64(QiPillHours(key)))...)
 	case PillMarrow:
 		if d.Talent >= len(talentMult)-1 {
 			return nil, ErrUnavailable

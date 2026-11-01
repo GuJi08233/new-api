@@ -210,7 +210,7 @@ const JourneyPage = () => {
           busy={busy}
           now={now}
           onBreak={(usePill) => act('breakthrough', { use_pill: usePill })}
-          onQi={() => act('qi')}
+          onQi={(item) => act('qi', { item })}
         />
         <Tabs type='button' activeKey={tab} onChange={setTab} size='small'>
           <TabPane tab={t('地图')} itemKey='map'>

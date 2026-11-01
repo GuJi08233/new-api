@@ -40,11 +40,18 @@ const Recipe = ({ recipe, sect, alchemy, busy, act }) => {
   const unlocked = alchemy >= recipe.alchemy;
   const cost = scaleCost(recipe.cost, count);
   const info = text.pills[recipe.key];
+  const rareHave = recipe.rare ? sect.rare?.[recipe.rare] || 0 : 0;
+  const rareNeed = recipe.rare ? recipe.rare_n * count : 0;
   return (
     <div className={`sc-recipe${unlocked ? '' : ' is-locked'}`}>
       <div className='sc-mission-head'>
         {unlocked ? <FlaskConical size={16} /> : <Lock size={16} />}
         <strong>{info?.name}</strong>
+        {recipe.rare && (
+          <span className='sc-muted'>
+            {t('以{{rare}}入药', { rare: text.rares[recipe.rare] })}
+          </span>
+        )}
         <span className='sc-stock'>
           {t('库存 {{n}}', { n: sect.pills?.[recipe.key] || 0 })}
         </span>
@@ -53,6 +60,13 @@ const Recipe = ({ recipe, sect, alchemy, busy, act }) => {
       {unlocked ? (
         <div className='sc-building-foot'>
           <CostChips cost={cost} have={sect.res} />
+          {recipe.rare && (
+            <span
+              className={`sc-chip is-rare${rareHave < rareNeed ? ' is-short' : ''}`}
+            >
+              {text.rares[recipe.rare]} {rareNeed} / {rareHave}
+            </span>
+          )}
           <span className='sc-spacer' />
           <InputNumber
             size='small'
@@ -67,8 +81,8 @@ const Recipe = ({ recipe, sect, alchemy, busy, act }) => {
           <Button
             size='small'
             theme='solid'
-            disabled={busy || !canAfford(cost, sect.res)}
-            onClick={() => act('craft', { pill: recipe.key, count })}
+            disabled={busy || !canAfford(cost, sect.res) || rareHave < rareNeed}
+            onClick={() => act('craft', { pill: recipe.id, count })}
           >
             {t('炼制')}
           </Button>
@@ -99,7 +113,7 @@ const Alchemy = ({ sect, busy, act }) => {
       <div className='sc-mission-list'>
         {sect.recipes.map((recipe) => (
           <Recipe
-            key={recipe.key}
+            key={recipe.id}
             recipe={recipe}
             sect={sect}
             alchemy={alchemy}

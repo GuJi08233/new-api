@@ -109,8 +109,34 @@ export const getPillText = (t) => ({
     name: t('聚气丹'),
     desc: t('立刻得到 3 小时闭关的修为，每 6 小时只能服一颗'),
   },
+  peiyuan: {
+    name: t('培元丹'),
+    desc: t('立刻得到 5 小时闭关的修为，与聚气丹共用 6 小时的丹力冷却'),
+  },
   break: { name: t('破境丹'), desc: t('突破时服下，成功率 +25%') },
   marrow: { name: t('洗髓丹'), desc: t('资质提升一档') },
+});
+
+// 丹药在页面上的顺序，与 pkg/wendao 的 PillKeys 一致。
+export const PILLS = ['heal', 'qi', 'peiyuan', 'break', 'marrow'];
+
+// 灵田的灵种。标识与 pkg/wendao 的 Crops 一致。
+export const getCropText = (t) => ({
+  qingcao: { name: t('青灵草'), desc: t('长得最快的灵草，收成直接进库房') },
+  xueshen: { name: t('赤血参'), desc: t('参果能直接入药，一茬两颗回春丹') },
+  tieteng: { name: t('玄铁藤'), desc: t('藤蔓里长出玄铁，收成进库房') },
+  zhuguo: { name: t('朱果'), desc: t('灵药：丹房用它炼培元丹') },
+  lingzhi: { name: t('九叶灵芝'), desc: t('灵药：丹房用它另炼破境丹') },
+  lotus: { name: t('七彩莲'), desc: t('灵药：丹房用它另炼洗髓丹') },
+});
+
+// 灵药：灵田种出来的稀罕材料。
+export const RARES = ['zhuguo', 'lingzhi', 'lotus'];
+
+export const getRareText = (t) => ({
+  zhuguo: t('朱果'),
+  lingzhi: t('九叶灵芝'),
+  lotus: t('七彩莲'),
 });
 
 // 商店道具：符箓进背包，丹药买了直接放进丹房。标识与 pkg/sect 的 ShopItems 一致。

@@ -37,6 +37,7 @@ import Tournament from './Tournament';
 import Shop from './Shop';
 import Arena from './Arena';
 import Alliance from './Alliance';
+import Garden from './Garden';
 import {
   SectTextProvider,
   eventSentence,
@@ -44,6 +45,7 @@ import {
   pillName,
   useSectText,
 } from './parts';
+import { PILLS, RARES } from './text';
 import './sect.css';
 
 const RESOURCE_BAR = [
@@ -104,6 +106,21 @@ const SectPage = () => {
               ev.n > 0 ? 'gold' : 'bad',
             );
             break;
+          case 'rare':
+            gains.push(`${text.rares[ev.s]} ${ev.n > 0 ? '+' : ''}${ev.n}`);
+            float(
+              `${text.rares[ev.s]} ${ev.n > 0 ? '+' : ''}${ev.n}`,
+              ev.n > 0 ? 'gain' : 'bad',
+            );
+            break;
+          case 'harvest':
+            playSound(ev.n === 2 ? 'win' : 'coin');
+            float(eventSentence(ev, text, t), 'gold');
+            break;
+          case 'garden_water':
+          case 'garden_pick':
+            playSound('sparkle');
+            break;
           case 'pill':
             gains.push(`${pillName(text, ev.s)} ${ev.n > 0 ? '+' : ''}${ev.n}`);
             float(
@@ -145,7 +162,7 @@ const SectPage = () => {
             break;
           default:
         }
-        if (ev.k !== 'res' && ev.k !== 'pill' && ev.k !== 'layer') {
+        if (!['res', 'pill', 'rare', 'layer'].includes(ev.k)) {
           const line = eventSentence(ev, text, t);
           if (line) lines.push(line);
         }
@@ -294,6 +311,10 @@ const SectPage = () => {
     ? sect.missions.filter((m) => m.end <= now).length
     : 0;
   const pills = sect?.pills || {};
+  const rares = sect?.rare || {};
+  const ripePlots = sect
+    ? sect.garden.plots.filter((plot) => plot.crop && plot.ripe <= now).length
+    : 0;
 
   return (
     <WendaoLayout
@@ -331,6 +352,9 @@ const SectPage = () => {
                         '派弟子外出历练带回资源与丹药，处理奇遇；修到第九层圆满要突破，失败会受伤',
                       ),
                       t(
+                        '灵田种下灵种，熟了收获灵草、玄铁、丹药或灵药；可以去道友的灵田浇灌、顺手摘取',
+                      ),
+                      t(
                         '游戏币只来自宗门大比：按连胜场数领奖，挂机产出的资源不能换游戏币',
                       ),
                       t(
@@ -365,9 +389,16 @@ const SectPage = () => {
               </span>
             ))}
             <span className='sc-res is-pills'>
-              {['heal', 'qi', 'break', 'marrow'].map((pill) => (
+              {PILLS.filter(
+                (pill) => pill !== 'peiyuan' || pills.peiyuan > 0,
+              ).map((pill) => (
                 <span key={pill} className='sc-pill-count'>
                   {pillName(text, pill)} {pills[pill] || 0}
+                </span>
+              ))}
+              {RARES.filter((rare) => rares[rare] > 0).map((rare) => (
+                <span key={rare} className='sc-pill-count is-rare'>
+                  {text.rares[rare]} {rares[rare]}
                 </span>
               ))}
             </span>
@@ -417,6 +448,20 @@ const SectPage = () => {
                 itemKey='missions'
               >
                 <Missions sect={sect} now={now} busy={busy} act={act} />
+              </TabPane>
+              <TabPane
+                tab={ripePlots > 0 ? `${t('灵田')} ●` : t('灵田')}
+                itemKey='garden'
+              >
+                <Garden
+                  sect={sect}
+                  now={now}
+                  busy={busy}
+                  act={act}
+                  post={post}
+                  onEvents={showEvents}
+                  onSync={sync}
+                />
               </TabPane>
               <TabPane tab={t('丹房')} itemKey='alchemy'>
                 <Alchemy sect={sect} busy={busy} act={act} />

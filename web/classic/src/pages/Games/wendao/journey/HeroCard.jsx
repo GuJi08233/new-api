@@ -47,6 +47,7 @@ const HeroCard = ({ hero, pills, elapsed, now, busy, onBreak, onQi }) => {
   const hasKey = key && (hero.keys[key] || 0) > 0;
   const pillCount = pills?.break || 0;
   const qiCount = pills?.qi || 0;
+  const peiyuanCount = pills?.peiyuan || 0;
   const qiWait = hero.qi_ready > now ? hero.qi_ready - now : 0;
   const title = getHeroTitle(t, hero);
   return (
@@ -93,9 +94,24 @@ const HeroCard = ({ hero, pills, elapsed, now, busy, onBreak, onQi }) => {
               <Button
                 size='small'
                 disabled={busy || qiCount < 1 || qiWait > 0}
-                onClick={onQi}
+                onClick={() => onQi('qi')}
               >
                 {t('服聚气丹（剩 {{n}}）', { n: qiCount })}
+              </Button>
+            </Tooltip>
+          )}
+          {!hero.bottleneck && peiyuanCount > 0 && (
+            <Tooltip
+              content={t(
+                '服一颗灵田朱果炼成的培元丹，马上得到五小时闭关的修为，与聚气丹共用冷却',
+              )}
+            >
+              <Button
+                size='small'
+                disabled={busy || qiWait > 0}
+                onClick={() => onQi('peiyuan')}
+              >
+                {t('服培元丹（剩 {{n}}）', { n: peiyuanCount })}
               </Button>
             </Tooltip>
           )}

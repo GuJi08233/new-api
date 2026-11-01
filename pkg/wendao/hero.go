@@ -276,7 +276,7 @@ func (sv *Save) HeroApply(a HeroAction, now int64, day string, seed uint64) ([]E
 	case "craft":
 		more, err = h.craft(s, a.Item, a.Count)
 	case "qi":
-		more, err = h.takeQi(s, now)
+		more, err = h.takeQi(s, a.Item, now)
 	case "battle":
 		more, err = h.battleStep(s, a, now)
 	case "flee":
@@ -579,18 +579,24 @@ func (h *Hero) craft(s *Sect, potion string, count int) ([]Ev, error) {
 	return append(evs, Ev{K: "hero_potion", S: potion, N: count}), nil
 }
 
-// takeQi 服一颗宗门的聚气丹：马上得到几个小时闭关的修为，要等丹力化开才能服下一颗。
-func (h *Hero) takeQi(s *Sect, now int64) ([]Ev, error) {
+// takeQi 服一颗宗门的聚气丹(pill 为空或 qi)或培元丹：马上得到几个小时闭关的修为，要等丹力化开才能服下一颗。
+func (h *Hero) takeQi(s *Sect, pill string, now int64) ([]Ev, error) {
+	if pill == "" {
+		pill = PillQi
+	}
+	if pill != PillQi && pill != PillPeiyuan {
+		return nil, ErrAction
+	}
 	if h.Bottleneck() || h.QiReady > now {
 		return nil, ErrUnavailable
 	}
-	if s.Pills[PillQi] < 1 {
+	if s.Pills[pill] < 1 {
 		return nil, ErrCost
 	}
-	s.Pills[PillQi]--
+	s.Pills[pill]--
 	h.QiReady = now + qiPillCooldown
-	gain := h.CultivateRate(s) * qiPillHours
-	evs := []Ev{{K: "pill", S: PillQi, N: -1}, {K: "hero_exp", N: int(math.Round(gain))}}
+	gain := h.CultivateRate(s) * float64(QiPillHours(pill))
+	evs := []Ev{{K: "pill", S: pill, N: -1}, {K: "hero_exp", N: int(math.Round(gain))}}
 	return append(evs, h.addExp(gain)...), nil
 }
 

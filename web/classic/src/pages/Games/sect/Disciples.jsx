@@ -154,6 +154,17 @@ const DiscipleCard = ({ d, sect, now, elapsed, busy, act }) => {
               : t('服聚气丹')}
           </Button>
         )}
+        {pills.peiyuan > 0 && !d.mission && !(d.break_chance > 0) && (
+          <Button
+            size='small'
+            disabled={busy || qiWait > 0}
+            onClick={() => act('use_pill', { disciple: d.id, pill: 'peiyuan' })}
+          >
+            {qiWait > 0
+              ? t('培元丹 {{time}}', { time: formatLeft(qiWait, t) })
+              : t('服培元丹')}
+          </Button>
+        )}
         {pills.heal > 0 && d.injured > now && (
           <Button
             size='small'

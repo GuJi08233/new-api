@@ -911,3 +911,122 @@
 .sc-donate {
   flex-wrap: wrap;
 }
+
+/* 灵田：一格一块地，上面画着作物；灵种图鉴左边是长成的样子。 */
+.sc-plots {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.sc-plot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 10px 12px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 12px;
+  background: var(--semi-color-bg-1);
+  text-align: center;
+  font-size: 12px;
+}
+
+.sc-plot.is-stage3 {
+  border-color: var(--semi-color-warning-light-active);
+  background: var(--semi-color-warning-light-default);
+}
+
+.sc-plot .wd-crop {
+  width: 84px;
+  height: 84px;
+}
+
+.sc-plot .sc-bar {
+  flex: none;
+  width: 100%;
+}
+
+.sc-plot-name {
+  font-size: 13px;
+  color: var(--semi-color-text-0);
+}
+
+.sc-plot-ripe {
+  color: var(--semi-color-warning);
+  font-weight: 600;
+}
+
+.sc-plot-drops {
+  display: inline-flex;
+  gap: 2px;
+  color: var(--semi-color-primary);
+}
+
+.sc-plot-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  margin-top: 4px;
+}
+
+.sc-seed {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.sc-seed .wd-crop {
+  flex: none;
+  width: 64px;
+  height: 64px;
+}
+
+.sc-seed-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.sc-chip.is-rare {
+  background: color-mix(in srgb, var(--wd-acc-violet) 14%, transparent);
+  color: var(--wd-acc-violet);
+}
+
+.sc-pill-count.is-rare {
+  color: var(--wd-acc-violet);
+}
+
+.sc-chip.is-water {
+  background: var(--semi-color-primary-light-default);
+  color: var(--semi-color-primary);
+}
+
+.sc-chip.is-pick {
+  background: var(--semi-color-warning-light-default);
+  color: var(--semi-color-warning);
+}
+
+.sc-neighbors {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sc-neighbor {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 10px;
+  background: var(--semi-color-bg-1);
+}
+
+.sc-garden-tip {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+}

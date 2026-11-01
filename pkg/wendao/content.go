@@ -168,35 +168,56 @@ const (
 	PillQi     = "qi"     // 聚气丹：马上得到三小时闭关的修为
 	PillBreak  = "break"  // 破境丹：突破时服下，成功率 +25%
 	PillMarrow = "marrow" // 洗髓丹：资质提高一档
+	// PillPeiyuan 是培元丹：与聚气丹一样马上得到闭关修为，药力更足，用灵田的朱果炼。
+	PillPeiyuan = "peiyuan"
 )
 
-// PillSpec 是一种丹药的丹方：丹房要几级、一颗花多少。
+// PillKeys 是全部丹药，按页面上的顺序。
+var PillKeys = []string{PillHeal, PillQi, PillPeiyuan, PillBreak, PillMarrow}
+
+// PillSpec 是一张丹方：丹房要几级、一颗花多少，炼出哪种丹药(Key)。Id 是丹方的标识，同一种丹药可以有几张丹方；Rare 不为空
+// 时每颗还要 RareN 份灵田种出来的灵药。
 type PillSpec struct {
+	Id      string `json:"id"`
 	Key     string `json:"key"`
 	Alchemy int    `json:"alchemy"`
 	Cost    Cost   `json:"cost"`
+	Rare    string `json:"rare,omitempty"`
+	RareN   int    `json:"rare_n,omitempty"`
 }
 
 var Pills = []PillSpec{
-	{Key: PillHeal, Alchemy: 1, Cost: Cost{Stone: 20, Herb: 40}},
-	{Key: PillQi, Alchemy: 2, Cost: Cost{Stone: 40, Herb: 80}},
-	{Key: PillBreak, Alchemy: 3, Cost: Cost{Stone: 150, Herb: 200, Ore: 60}},
-	{Key: PillMarrow, Alchemy: 5, Cost: Cost{Stone: 600, Herb: 600, Ore: 300}},
+	{Id: PillHeal, Key: PillHeal, Alchemy: 1, Cost: Cost{Stone: 20, Herb: 40}},
+	{Id: PillQi, Key: PillQi, Alchemy: 2, Cost: Cost{Stone: 40, Herb: 80}},
+	{Id: PillPeiyuan, Key: PillPeiyuan, Alchemy: 2, Cost: Cost{Stone: 40}, Rare: RareFruit, RareN: 1},
+	{Id: PillBreak, Key: PillBreak, Alchemy: 3, Cost: Cost{Stone: 150, Herb: 200, Ore: 60}},
+	{Id: "break_" + RareLingzhi, Key: PillBreak, Alchemy: 3, Cost: Cost{Stone: 100}, Rare: RareLingzhi, RareN: 1},
+	{Id: PillMarrow, Key: PillMarrow, Alchemy: 5, Cost: Cost{Stone: 600, Herb: 600, Ore: 300}},
+	{Id: "marrow_" + RareLotus, Key: PillMarrow, Alchemy: 5, Cost: Cost{Stone: 300, Ore: 100}, Rare: RareLotus, RareN: 1},
 }
 
-func pillSpec(key string) (PillSpec, bool) {
+func pillSpec(id string) (PillSpec, bool) {
 	for _, spec := range Pills {
-		if spec.Key == key {
+		if spec.Id == id {
 			return spec, true
 		}
 	}
 	return PillSpec{}, false
 }
 
+// QiPillHours 是服一颗聚气丹或培元丹马上得到几个小时闭关的修为；两种丹共用丹力化开的冷却。
+func QiPillHours(pill string) int {
+	if pill == PillPeiyuan {
+		return peiyuanPillHours
+	}
+	return qiPillHours
+}
+
 const (
-	qiPillHours    = 3
-	qiPillCooldown = 6 * 60 * 60
-	healPillPct    = 35
+	qiPillHours      = 3
+	peiyuanPillHours = 5
+	qiPillCooldown   = 6 * 60 * 60
+	healPillPct      = 35
 )
 
 // Drop 是历练成功时有几率带回的丹药。

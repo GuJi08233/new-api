@@ -25,6 +25,7 @@ import {
   RESOURCES,
   discipleName,
   getBuildingText,
+  getCropText,
   getElementNames,
   getEventText,
   getItemText,
@@ -32,6 +33,7 @@ import {
   getMissionText,
   getMoveText,
   getPillText,
+  getRareText,
   getRealmNames,
   getResourceNames,
   getSectNames,
@@ -55,6 +57,8 @@ export function SectTextProvider({ children }) {
       jobs: getJobNames(t),
       buildings: getBuildingText(t),
       pills: getPillText(t),
+      crops: getCropText(t),
+      rares: getRareText(t),
       items: getItemText(t),
       missions: getMissionText(t),
       events: getEventText(t),
@@ -232,6 +236,14 @@ export function eventSentence(ev, text, t) {
         : t('宗门大比首轮落败');
     case 'arena':
       return ev.n ? t('论剑获胜') : t('论剑落败');
+    case 'harvest':
+      return ev.n === 2
+        ? t('{{name}}丰收，收成翻倍！', { name: text.crops[ev.s]?.name })
+        : t('收获{{name}}', { name: text.crops[ev.s]?.name });
+    case 'garden_water':
+      return t('帮道友浇灌了一块灵田');
+    case 'garden_pick':
+      return t('从道友的灵田里顺手摘了一些');
     default:
       return '';
   }
