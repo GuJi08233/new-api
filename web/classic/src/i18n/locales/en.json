@@ -8071,6 +8071,24 @@
     "在万宝阁把{{goods}} ×{{n}}赠给了道友": "Gave {{goods}} ×{{n}} to a fellow cultivator at the Treasure Pavilion",
     "万宝阁卖出{{goods}} ×{{n}}，得灵石 {{stone}}": "Sold {{goods}} ×{{n}} at the Treasure Pavilion for {{stone}} Spirit Stones",
     "收下道友赠送的{{goods}} ×{{n}}": "Received {{goods}} ×{{n}} as a gift from a fellow cultivator",
-    "在万宝阁买到{{goods}} ×{{n}}，花灵石 {{stone}}": "Bought {{goods}} ×{{n}} at the Treasure Pavilion for {{stone}} Spirit Stones"
+    "在万宝阁买到{{goods}} ×{{n}}，花灵石 {{stone}}": "Bought {{goods}} ×{{n}} at the Treasure Pavilion for {{stone}} Spirit Stones",
+    "每日功课": "Daily Chores",
+    "已连续 {{n}} 天开宝箱": "Chest opened {{n}} days in a row",
+    "已领": "Claimed",
+    "换一件": "Swap",
+    "三件都领了可以开宝箱：聚气丹与一份灵药；连续 {{n}} 天开宝箱另得一颗洗髓丹": "Claim all three to open the chest: a Qi Gathering Pill and a rare herb. Open it {{n}} days in a row for an extra Marrow Cleansing Pill.",
+    "今天的宝箱已开": "Today's chest is open",
+    "开宝箱": "Open chest",
+    "功课完成：{{name}}": "Chore done: {{name}}",
+    "打开了今天的功课宝箱（已连续 {{n}} 天）": "Opened today's chore chest ({{n}} days in a row)",
+    "收获 {{n}} 块灵田": "Harvest {{n}} garden plots",
+    "帮道友浇灌 {{n}} 次": "Water fellow cultivators' crops {{n}} times",
+    "在丹房炼丹 {{n}} 炉": "Refine {{n}} batches in the alchemy room",
+    "领取派遣收获 {{n}} 次": "Collect {{n}} dispatch rewards",
+    "处理奇遇 {{n}} 件": "Handle {{n}} encounters",
+    "升级建筑 {{n}} 次": "Upgrade buildings {{n}} times",
+    "历练中打赢 {{n}} 场": "Win {{n}} battles on the journey",
+    "走完九幽秘境 {{n}} 轮": "Finish {{n}} runs of the Netherworld Secret Realm",
+    "在万宝阁成交 {{n}} 笔": "Complete {{n}} trades at the Treasure Pavilion"
   }
 }

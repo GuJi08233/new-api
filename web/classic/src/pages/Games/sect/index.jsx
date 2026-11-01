@@ -39,6 +39,7 @@ import Arena from './Arena';
 import Alliance from './Alliance';
 import Garden from './Garden';
 import Market from './Market';
+import { dailyPending } from './DailyPanel';
 import {
   SectTextProvider,
   eventSentence,
@@ -120,7 +121,12 @@ const SectPage = () => {
             break;
           case 'garden_water':
           case 'garden_pick':
+          case 'daily':
             playSound('sparkle');
+            break;
+          case 'daily_chest':
+            playSound('win');
+            celebrate(1);
             break;
           case 'pill':
             gains.push(`${pillName(text, ev.s)} ${ev.n > 0 ? '+' : ''}${ev.n}`);
@@ -430,7 +436,11 @@ const SectPage = () => {
           {sect && (
             <Tabs type='button' activeKey={tab} onChange={setTab} size='small'>
               <TabPane
-                tab={sect.event ? `${t('宗门')} ●` : t('宗门')}
+                tab={
+                  sect.event || dailyPending(sect.daily)
+                    ? `${t('宗门')} ●`
+                    : t('宗门')
+                }
                 itemKey='overview'
               >
                 <Overview sect={sect} now={now} busy={busy} act={act} />

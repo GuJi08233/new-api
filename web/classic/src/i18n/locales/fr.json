@@ -7923,6 +7923,24 @@
     "在万宝阁把{{goods}} ×{{n}}赠给了道友": "Vous avez offert {{goods}} ×{{n}} à un autre cultivateur au Pavillon des trésors",
     "万宝阁卖出{{goods}} ×{{n}}，得灵石 {{stone}}": "Vendu {{goods}} ×{{n}} au Pavillon des trésors pour {{stone}} pierres spirituelles",
     "收下道友赠送的{{goods}} ×{{n}}": "Reçu en cadeau d'un autre cultivateur : {{goods}} ×{{n}}",
-    "在万宝阁买到{{goods}} ×{{n}}，花灵石 {{stone}}": "Acheté {{goods}} ×{{n}} au Pavillon des trésors pour {{stone}} pierres spirituelles"
+    "在万宝阁买到{{goods}} ×{{n}}，花灵石 {{stone}}": "Acheté {{goods}} ×{{n}} au Pavillon des trésors pour {{stone}} pierres spirituelles",
+    "每日功课": "Tâches du jour",
+    "已连续 {{n}} 天开宝箱": "Coffre ouvert {{n}} jours d'affilée",
+    "已领": "Réclamé",
+    "换一件": "Changer",
+    "三件都领了可以开宝箱：聚气丹与一份灵药；连续 {{n}} 天开宝箱另得一颗洗髓丹": "Réclamez les trois pour ouvrir le coffre : une pilule de rassemblement du Qi et une herbe rare. Ouvrez-le {{n}} jours d'affilée pour une pilule de purification de la moelle en plus.",
+    "今天的宝箱已开": "Coffre du jour ouvert",
+    "开宝箱": "Ouvrir le coffre",
+    "功课完成：{{name}}": "Tâche accomplie : {{name}}",
+    "打开了今天的功课宝箱（已连续 {{n}} 天）": "Coffre des tâches du jour ouvert ({{n}} jours d'affilée)",
+    "收获 {{n}} 块灵田": "Récolter {{n}} parcelles",
+    "帮道友浇灌 {{n}} 次": "Arroser les cultures d'autres cultivateurs {{n}} fois",
+    "在丹房炼丹 {{n}} 炉": "Raffiner {{n}} fournées à la salle d'alchimie",
+    "领取派遣收获 {{n}} 次": "Récupérer {{n}} fois le butin d'une mission",
+    "处理奇遇 {{n}} 件": "Régler {{n}} rencontres fortuites",
+    "升级建筑 {{n}} 次": "Améliorer des bâtiments {{n}} fois",
+    "历练中打赢 {{n}} 场": "Gagner {{n}} combats en expédition",
+    "走完九幽秘境 {{n}} 轮": "Terminer {{n}} parcours du Royaume secret des Neuf Enfers",
+    "在万宝阁成交 {{n}} 笔": "Conclure {{n}} échanges au Pavillon des trésors"
   }
 }

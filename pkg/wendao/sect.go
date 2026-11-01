@@ -67,6 +67,7 @@ type Event struct {
 //   - tournament：大比连胜 N 场；arena：论剑 N 为 1 赢 / 0 输；item：用掉符箓 S
 //   - harvest：收获作物 S，N 为 2 是丰收；rare：灵药 S 增减 N
 //   - sold/bought：在万宝阁卖出、买到 N 份货物 S，V 是灵石
+//   - daily：领了功课 S(要做 N 次)的奖励；daily_chest：开了今天的宝箱，N 是连续天数
 type Ev struct {
 	K   string  `json:"k"`
 	S   string  `json:"s,omitempty"`
@@ -129,6 +130,9 @@ type Sect struct {
 	// Garden 是掌门亲手打理的灵田，Rare 是灵田种出来的灵药。
 	Garden Garden         `json:"garden"`
 	Rare   map[string]int `json:"rare,omitempty"`
+	// Daily 是今天的功课；hasHero 是最近一次 RollDaily 时存档里有没有主角(换功课时用，不存档)。
+	Daily   Daily `json:"daily"`
+	hasHero bool
 }
 
 // NewSect 开宗立派：主殿、灵田、聚灵阵各一级，两名弟子(上品与良品资质)，一些灵石灵草与两颗回春丹。第一件奇遇半小时后出现。
@@ -487,12 +491,19 @@ func (s *Sect) Apply(a Action, now int64) ([]Ev, error) {
 		more, err = s.harvestAll(now)
 	case "uproot":
 		err = s.uproot(a.Index)
+	case "daily_claim":
+		more, err = s.claimDaily(a.Index)
+	case "daily_chest":
+		more, err = s.openDailyChest()
+	case "daily_reroll":
+		err = s.rerollDaily(a.Index)
 	default:
 		err = ErrAction
 	}
 	if err != nil {
 		return nil, err
 	}
+	s.trackDaily(a.Type, more)
 	s.record(now, more)
 	return append(evs, more...), nil
 }

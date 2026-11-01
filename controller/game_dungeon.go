@@ -384,6 +384,10 @@ func actDungeonRun(c *gin.Context) {
 	}
 	day := gameCenterDay()
 	record := func(sv *wendao.Save) (dungeon.RunRecord, wendao.Cost) {
+		rollWendaoDaily(sv)
+		if sv.Sect != nil {
+			sv.Sect.Progress(wendao.TaskAbyss, 1)
+		}
 		if game == dungeonTrialGame {
 			return sv.Abyss.RecordTrial(run), wendao.Cost{}
 		}

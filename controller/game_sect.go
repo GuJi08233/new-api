@@ -152,6 +152,7 @@ func actSect(c *gin.Context) {
 			}
 			// 主角的闭关修为跟宗门一起结算，只经营宗门不会让主角的离线修为超过上限白白浪费。
 			save.TickHero(now)
+			rollWendaoDaily(save)
 			s := save.Sect
 			s.AllianceLevel = allianceLevel
 			var err error

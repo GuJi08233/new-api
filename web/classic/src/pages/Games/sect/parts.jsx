@@ -26,6 +26,7 @@ import {
   discipleName,
   getBuildingText,
   getCropText,
+  getDailyTaskText,
   getElementNames,
   getEventText,
   getItemText,
@@ -58,6 +59,7 @@ export function SectTextProvider({ children }) {
       buildings: getBuildingText(t),
       pills: getPillText(t),
       crops: getCropText(t),
+      daily: getDailyTaskText(t),
       rares: getRareText(t),
       items: getItemText(t),
       missions: getMissionText(t),
@@ -262,6 +264,12 @@ export function eventSentence(ev, text, t) {
         n: ev.n,
         stone: ev.v || 0,
       });
+    case 'daily':
+      return t('功课完成：{{name}}', {
+        name: text.daily[ev.s]?.(ev.n || 1) || ev.s,
+      });
+    case 'daily_chest':
+      return t('打开了今天的功课宝箱（已连续 {{n}} 天）', { n: ev.n });
     case 'garden_water':
       return t('帮道友浇灌了一块灵田');
     case 'garden_pick':

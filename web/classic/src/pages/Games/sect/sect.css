@@ -1067,3 +1067,55 @@
   justify-content: center;
   margin-top: 10px;
 }
+
+/* 每日功课。 */
+.sc-daily-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sc-daily-task {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 10px;
+  background: var(--semi-color-bg-1);
+  font-size: 13px;
+}
+
+.sc-daily-task .sc-bar {
+  flex: none;
+  width: 80px;
+  min-width: 0;
+}
+
+.sc-daily-task.is-done {
+  border-color: var(--semi-color-warning-light-active);
+}
+
+.sc-daily-task.is-claimed {
+  opacity: 0.65;
+}
+
+.sc-daily-claimed {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--semi-color-success);
+  font-size: 12px;
+}
+
+.sc-daily-chest {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 8px 12px;
+  border: 1px dashed var(--semi-color-warning-light-active);
+  border-radius: 10px;
+}

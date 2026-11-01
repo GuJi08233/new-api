@@ -204,6 +204,10 @@ func visitGarden(c *gin.Context) {
 		if evs, err = visitorSave.Sect.GardenThanks(req.Kind, got, day); err != nil {
 			return "", "", err
 		}
+		if req.Kind == "water" {
+			rollWendaoDaily(visitorSave)
+			visitorSave.Sect.Progress(wendao.TaskWater, 1)
+		}
 		plots, mine = ownerSave.Sect.VisitView(visitor, now), visitorSave.Sect
 		ownerEncoded, err := ownerSave.Encode()
 		if err != nil {

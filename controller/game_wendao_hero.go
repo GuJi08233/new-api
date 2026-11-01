@@ -116,6 +116,7 @@ func actHero(c *gin.Context) {
 					return err
 				}
 			}
+			rollWendaoDaily(save)
 			var running *dungeon.Run
 			if save.Hero != nil && save.Hero.Battle != nil {
 				running = save.Hero.Battle.Run

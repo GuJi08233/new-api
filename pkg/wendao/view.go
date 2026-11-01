@@ -78,6 +78,7 @@ type View struct {
 	HallPower    int              `json:"hall_power"`
 	Garden       GardenView       `json:"garden"`
 	Rare         map[string]int   `json:"rare"`
+	Daily        DailyView        `json:"daily"`
 }
 
 // View 返回 now 时刻(已经 Tick 过)的宗门。
@@ -86,7 +87,7 @@ func (s *Sect) View(now int64) View {
 		Now: now, Created: s.Created, Res: s.Res, Rates: s.Rates(now), Pills: s.Pills, Items: s.Items, Recipes: Pills,
 		Cap: s.Cap(), Missions: s.Missions, MissionSlots: s.MissionSlots(), RecruitAt: s.RecruitAt,
 		NextEventAt: s.NextEventAt, Log: s.Log, Stats: s.Stats, Arena: s.Arena, HallPower: int(math.Round(HallPower(s.Buildings[BuildingHall]))),
-		Garden: s.gardenView(now), Rare: s.Rare,
+		Garden: s.gardenView(now), Rare: s.Rare, Daily: s.dailyView(),
 	}
 	hall := s.Buildings[BuildingHall]
 	for _, key := range BuildingOrder {

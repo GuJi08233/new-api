@@ -30,6 +30,7 @@ import {
   Swords,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import DailyPanel from './DailyPanel';
 import {
   CostChips,
   canAfford,
@@ -130,6 +131,7 @@ const Overview = ({ sect, now, busy, act }) => {
   return (
     <div className='sc-overview'>
       <EventCard sect={sect} now={now} busy={busy} act={act} />
+      <DailyPanel sect={sect} busy={busy} act={act} />
       <h4 className='sc-heading'>
         <Building2 size={16} />
         {t('宗门建筑')}

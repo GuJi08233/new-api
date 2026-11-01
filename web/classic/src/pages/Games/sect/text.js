@@ -130,6 +130,19 @@ export const getCropText = (t) => ({
   lotus: { name: t('七彩莲'), desc: t('灵药：丹房用它另炼洗髓丹') },
 });
 
+// 每日功课的名字，按要做几次写。标识与 pkg/wendao 的 DailyTasks 一致。
+export const getDailyTaskText = (t) => ({
+  harvest: (n) => t('收获 {{n}} 块灵田', { n }),
+  water: (n) => t('帮道友浇灌 {{n}} 次', { n }),
+  craft: (n) => t('在丹房炼丹 {{n}} 炉', { n }),
+  claim: (n) => t('领取派遣收获 {{n}} 次', { n }),
+  event: (n) => t('处理奇遇 {{n}} 件', { n }),
+  build: (n) => t('升级建筑 {{n}} 次', { n }),
+  journey: (n) => t('历练中打赢 {{n}} 场', { n }),
+  abyss: (n) => t('走完九幽秘境 {{n}} 轮', { n }),
+  trade: (n) => t('在万宝阁成交 {{n}} 笔', { n }),
+});
+
 // 灵药：灵田种出来的稀罕材料。
 export const RARES = ['zhuguo', 'lingzhi', 'lotus'];
 

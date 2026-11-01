@@ -630,6 +630,7 @@ func (h *Hero) battleStep(s *Sect, a HeroAction, now int64) ([]Ev, error) {
 	}
 	h.endBattle()
 	h.Stats.Wins++
+	s.Progress(TaskJourney, 1)
 	var evs []Ev
 	var exp int
 	if battle.Step > 0 {

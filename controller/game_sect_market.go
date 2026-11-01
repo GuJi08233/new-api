@@ -248,6 +248,10 @@ func buySectMarket(c *gin.Context) {
 		if err != nil {
 			return "", "", 0, err
 		}
+		for _, sv := range []*wendao.Save{sellerSave, buyerSave} {
+			rollWendaoDaily(sv)
+			sv.Sect.Progress(wendao.TaskTrade, 1)
+		}
 		sellerEncoded, err := sellerSave.Encode()
 		if err != nil {
 			return "", "", 0, err

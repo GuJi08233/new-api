@@ -8423,6 +8423,24 @@
     "在万宝阁把{{goods}} ×{{n}}赠给了道友": "Đã tặng {{goods}} ×{{n}} cho đạo hữu ở Vạn Bảo Các",
     "万宝阁卖出{{goods}} ×{{n}}，得灵石 {{stone}}": "Vạn Bảo Các bán được {{goods}} ×{{n}}, nhận {{stone}} linh thạch",
     "收下道友赠送的{{goods}} ×{{n}}": "Nhận {{goods}} ×{{n}} đạo hữu tặng",
-    "在万宝阁买到{{goods}} ×{{n}}，花灵石 {{stone}}": "Mua {{goods}} ×{{n}} ở Vạn Bảo Các, tốn {{stone}} linh thạch"
+    "在万宝阁买到{{goods}} ×{{n}}，花灵石 {{stone}}": "Mua {{goods}} ×{{n}} ở Vạn Bảo Các, tốn {{stone}} linh thạch",
+    "每日功课": "Công khóa hằng ngày",
+    "已连续 {{n}} 天开宝箱": "Đã mở rương {{n}} ngày liên tiếp",
+    "已领": "Đã nhận",
+    "换一件": "Đổi việc khác",
+    "三件都领了可以开宝箱：聚气丹与一份灵药；连续 {{n}} 天开宝箱另得一颗洗髓丹": "Nhận đủ ba phần thưởng thì mở được rương: Tụ Khí Đan và một phần linh dược; mở rương {{n}} ngày liên tiếp được thêm một viên Tẩy Tủy Đan",
+    "今天的宝箱已开": "Rương hôm nay đã mở",
+    "开宝箱": "Mở rương",
+    "功课完成：{{name}}": "Hoàn thành công khóa: {{name}}",
+    "打开了今天的功课宝箱（已连续 {{n}} 天）": "Đã mở rương công khóa hôm nay (liên tiếp {{n}} ngày)",
+    "收获 {{n}} 块灵田": "Thu hoạch {{n}} ô linh điền",
+    "帮道友浇灌 {{n}} 次": "Tưới giúp đạo hữu {{n}} lần",
+    "在丹房炼丹 {{n}} 炉": "Luyện {{n}} lò đan ở đan phòng",
+    "领取派遣收获 {{n}} 次": "Nhận thành quả phái đi {{n}} lần",
+    "处理奇遇 {{n}} 件": "Xử lý {{n}} kỳ ngộ",
+    "升级建筑 {{n}} 次": "Nâng cấp công trình {{n}} lần",
+    "历练中打赢 {{n}} 场": "Thắng {{n}} trận khi lịch luyện",
+    "走完九幽秘境 {{n}} 轮": "Đi hết {{n}} lượt Cửu U Bí Cảnh",
+    "在万宝阁成交 {{n}} 笔": "Giao dịch thành công {{n}} lần ở Vạn Bảo Các"
   }
 }

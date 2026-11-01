@@ -1,7 +1,11 @@
 package controller
 
 import (
+	"time"
+
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/wendao"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
 )
@@ -15,6 +19,12 @@ import (
 // 世界设定与发游戏币的规则见 pkg/wendao/world.md。
 
 const wendaoGame = "wendao"
+
+// rollWendaoDaily 把存档里宗门的每日功课换到今天(还没有宗门时什么都不做)。改写问道存档、可能记功课的地方都先调用它。
+func rollWendaoDaily(save *wendao.Save) {
+	now := time.Now()
+	save.RollSaveDaily(model.GameCenterDay(now), model.GameCenterDay(now.AddDate(0, 0, -1)))
+}
 
 // wendaoPartGate 是问道里一个发游戏币的玩法(秘境无尽、宗门大比)自己的开关与开局人机验证，页面按它显示开局按钮。
 func wendaoPartGate(ctx *gameContext, info gin.H, game string) {
