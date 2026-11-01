@@ -83,32 +83,37 @@ func writeGameSaveTx(tx *gorm.DB, save *GameSave, data string) error {
 // UpdateTwoGameSaves 在一个事务里一起改写两位玩家(first 与 second 不同)的同一个游戏存档：update 拿到两份当前内容，返回
 // 两份新内容。按玩家编号从小到大加锁，两位玩家互相操作对方时不会互相等待。update 返回错误时什么都不改。
 func UpdateTwoGameSaves(first int, second int, game string, update func(firstData string, secondData string) (string, string, error)) error {
+	return DB.Transaction(func(tx *gorm.DB) error {
+		return updateTwoGameSavesTx(tx, first, second, game, update)
+	})
+}
+
+// updateTwoGameSavesTx 是 UpdateTwoGameSaves 在已有事务里的做法。
+func updateTwoGameSavesTx(tx *gorm.DB, first int, second int, game string, update func(firstData string, secondData string) (string, string, error)) error {
 	if first == second {
 		return errors.New("game save: the two players must differ")
 	}
-	return DB.Transaction(func(tx *gorm.DB) error {
-		low, high := min(first, second), max(first, second)
-		lowSave, err := lockGameSaveTx(tx, low, game)
-		if err != nil {
-			return err
-		}
-		highSave, err := lockGameSaveTx(tx, high, game)
-		if err != nil {
-			return err
-		}
-		firstSave, secondSave := lowSave, highSave
-		if first != low {
-			firstSave, secondSave = highSave, lowSave
-		}
-		firstData, secondData, err := update(firstSave.Data, secondSave.Data)
-		if err != nil {
-			return err
-		}
-		if err := writeGameSaveTx(tx, firstSave, firstData); err != nil {
-			return err
-		}
-		return writeGameSaveTx(tx, secondSave, secondData)
-	})
+	low, high := min(first, second), max(first, second)
+	lowSave, err := lockGameSaveTx(tx, low, game)
+	if err != nil {
+		return err
+	}
+	highSave, err := lockGameSaveTx(tx, high, game)
+	if err != nil {
+		return err
+	}
+	firstSave, secondSave := lowSave, highSave
+	if first != low {
+		firstSave, secondSave = highSave, lowSave
+	}
+	firstData, secondData, err := update(firstSave.Data, secondSave.Data)
+	if err != nil {
+		return err
+	}
+	if err := writeGameSaveTx(tx, firstSave, firstData); err != nil {
+		return err
+	}
+	return writeGameSaveTx(tx, secondSave, secondData)
 }
 
 // ListGameSaves 返回这些玩家在某个游戏里的存档，没有存档的玩家不在结果里。

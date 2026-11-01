@@ -240,6 +240,28 @@ export function eventSentence(ev, text, t) {
       return ev.n === 2
         ? t('{{name}}丰收，收成翻倍！', { name: text.crops[ev.s]?.name })
         : t('收获{{name}}', { name: text.crops[ev.s]?.name });
+    case 'sold':
+      if (!ev.v)
+        return t('在万宝阁把{{goods}} ×{{n}}赠给了道友', {
+          goods: goodsName(text, ev.s),
+          n: ev.n,
+        });
+      return t('万宝阁卖出{{goods}} ×{{n}}，得灵石 {{stone}}', {
+        goods: goodsName(text, ev.s),
+        n: ev.n,
+        stone: ev.v || 0,
+      });
+    case 'bought':
+      if (!ev.v)
+        return t('收下道友赠送的{{goods}} ×{{n}}', {
+          goods: goodsName(text, ev.s),
+          n: ev.n,
+        });
+      return t('在万宝阁买到{{goods}} ×{{n}}，花灵石 {{stone}}', {
+        goods: goodsName(text, ev.s),
+        n: ev.n,
+        stone: ev.v || 0,
+      });
     case 'garden_water':
       return t('帮道友浇灌了一块灵田');
     case 'garden_pick':
@@ -255,4 +277,11 @@ export function moveName(text, move) {
 
 export function pillName(text, pill) {
   return text.pills[pill]?.name || pill;
+}
+
+// 万宝阁的货物名：灵草、玄铁是资源，pill_ 开头是丹药，rare_ 开头是灵药。
+export function goodsName(text, goods) {
+  if (goods?.startsWith('pill_')) return pillName(text, goods.slice(5));
+  if (goods?.startsWith('rare_')) return text.rares[goods.slice(5)] || goods;
+  return text.resources[goods] || goods;
 }

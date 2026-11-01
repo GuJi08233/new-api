@@ -1030,3 +1030,40 @@
   font-size: 12px;
   line-height: 1.6;
 }
+
+/* 万宝阁：一行一单，右边是剩余时间与按钮。 */
+.sc-listings {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sc-listing {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 10px;
+  background: var(--semi-color-bg-1);
+  font-size: 13px;
+}
+
+.sc-chip.is-stone {
+  background: var(--semi-color-primary-light-default);
+  color: var(--semi-color-primary);
+  font-weight: 600;
+}
+
+.sc-market-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.sc-market-pager {
+  justify-content: center;
+  margin-top: 10px;
+}

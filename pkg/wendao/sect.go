@@ -65,6 +65,8 @@ type Event struct {
 //   - injured：Who 受伤 N 小时；healed：Who 伤愈；talent：Who 资质升到 N
 //   - mission：S 是历练，N 是 0 失败 / 1 成功 / 2 大获全胜；event：S 是奇遇，N 是选项，Win 是比斗胜负(没有比斗为空)
 //   - tournament：大比连胜 N 场；arena：论剑 N 为 1 赢 / 0 输；item：用掉符箓 S
+//   - harvest：收获作物 S，N 为 2 是丰收；rare：灵药 S 增减 N
+//   - sold/bought：在万宝阁卖出、买到 N 份货物 S，V 是灵石
 type Ev struct {
 	K   string  `json:"k"`
 	S   string  `json:"s,omitempty"`
@@ -72,11 +74,14 @@ type Ev struct {
 	Who *[3]int `json:"who,omitempty"`
 	Win *bool   `json:"win,omitempty"`
 	At  int64   `json:"at,omitempty"`
+	// V 是附带的数目，sold/bought 是成交的灵石。
+	V int `json:"v,omitempty"`
 }
 
 // logKinds 是要记进大事记的事。
 var logKinds = map[string]bool{"built": true, "joined": true, "left": true, "bottleneck": true, "realm": true,
-	"break_fail": true, "talent": true, "mission": true, "event": true, "tournament": true, "arena": true}
+	"break_fail": true, "talent": true, "mission": true, "event": true, "tournament": true, "arena": true,
+	"sold": true, "bought": true}
 
 // Stats 是宗门的战绩。Day 与 DayRuns 记今天参加了几次大比：每天前几次大比才有声望与灵石。
 type Stats struct {

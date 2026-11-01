@@ -97,6 +97,7 @@ func TestMain(m *testing.M) {
 		&SectArenaBattle{},
 		&SectAlliance{},
 		&SectAllianceMember{},
+		&WendaoListing{},
 	); err != nil {
 		panic("failed to migrate: " + err.Error())
 	}

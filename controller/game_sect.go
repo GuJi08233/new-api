@@ -81,6 +81,7 @@ func registerSectRoutes(group *gin.RouterGroup) {
 	group.POST("/alliance/attack", middleware.GamePlayRateLimit("sect-alliance-attack"), attackSectAlliance)
 	group.POST("/alliance/claim", middleware.GamePlayRateLimit("sect-alliance"), claimSectAlliance)
 	registerSectGardenRoutes(group.Group("/garden"))
+	registerSectMarketRoutes(group.Group("/market"))
 }
 
 // newSectSeed 是新宗门随机数的种子：两次 32 位安全随机数拼成 64 位。

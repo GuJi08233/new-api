@@ -38,6 +38,7 @@ import Shop from './Shop';
 import Arena from './Arena';
 import Alliance from './Alliance';
 import Garden from './Garden';
+import Market from './Market';
 import {
   SectTextProvider,
   eventSentence,
@@ -361,6 +362,9 @@ const SectPage = () => {
                         '论剑：设好守擂阵容登上论剑榜，挑战别的宗门按积分排名；仙盟：结盟捐资源升级，每周合力讨伐妖王',
                       ),
                       t(
+                        '万宝阁：掌门之间用灵石买卖灵草、玄铁、丹药与灵药，也能指名赠送道友',
+                      ),
+                      t(
                         '商店里可以用游戏币买一次性的符箓与丹药，花掉的游戏币不退回',
                       ),
                       t('宗门存档保存在服务器上，换设备也能继续'),
@@ -508,6 +512,14 @@ const SectPage = () => {
                   post={post}
                   onSect={(next) => accept({ sect: next })}
                   onEvents={showEvents}
+                />
+              </TabPane>
+              <TabPane tab={t('万宝阁')} itemKey='market'>
+                <Market
+                  sect={sect}
+                  busy={busy}
+                  post={post}
+                  onSect={(next) => accept({ sect: next })}
                 />
               </TabPane>
               <TabPane tab={t('商店')} itemKey='shop'>
