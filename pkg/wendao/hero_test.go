@@ -236,7 +236,13 @@ func TestHeroCultivatesOffline(t *testing.T) {
 func TestJourneyContentIsWellFormed(t *testing.T) {
 	seen := map[string]bool{}
 	keys := map[string]bool{}
-	for _, n := range JourneyNodes {
+	first, last := map[int]*JourneyNode{}, map[int]*JourneyNode{}
+	for i := range JourneyNodes {
+		n := JourneyNodes[i]
+		if first[n.Chapter] == nil {
+			first[n.Chapter] = &JourneyNodes[i]
+		}
+		last[n.Chapter] = &JourneyNodes[i]
 		assert.False(t, seen[n.Id], "duplicate %s", n.Id)
 		for _, r := range n.Requires {
 			assert.True(t, seen[r], "%s requires %s which comes later or is unknown", n.Id, r)
@@ -257,11 +263,85 @@ func TestJourneyContentIsWellFormed(t *testing.T) {
 			assert.True(t, dungeon.IsPotion(p), n.Id)
 		}
 		if n.Key != "" {
+			assert.Equal(t, BreakKeys[n.Chapter], n.Key, "%s drops its own chapter's key", n.Id)
+			assert.Equal(t, NodeBoss, n.Kind, n.Id)
 			keys[n.Key] = true
 		}
 	}
-	for realm := 0; realm < Chapters; realm++ {
+	// 每个境界一章；第 r+1 章的首领掉落突破境界 r 的机缘，化神是最高境界，最后一章不再掉机缘。
+	assert.Equal(t, MaxRealm+1, Chapters)
+	assert.Len(t, BreakKeys, MaxRealm)
+	for realm := 0; realm < MaxRealm; realm++ {
 		assert.True(t, keys[BreakKeys[realm]], "chapter %d drops the key to break realm %d", realm+1, realm)
+	}
+	assert.Len(t, keys, MaxRealm)
+	// 五章连成一条主线：每章的第一个节点接在上一章的最后一个节点后面，最后一个节点是剧情收尾。
+	for chapter := 1; chapter < Chapters; chapter++ {
+		assert.Equal(t, []string{last[chapter-1].Id}, first[chapter].Requires, "chapter %d", chapter+1)
+		assert.Equal(t, NodeStory, last[chapter].Kind, "chapter %d ends with a story", chapter+1)
+	}
+}
+
+// 元婴第九层圆满、拿到天狐灵心以后能突破到化神，进入最后一章；化神已是最高境界，再没有可以突破的了，也没有对应的机缘。
+func TestHeroReachesTheTopRealm(t *testing.T) {
+	save := newHeroSave(t, dungeon.ClassRanger)
+	h := save.Hero
+	for _, n := range JourneyNodes {
+		if n.Chapter <= 3 {
+			h.Nodes[n.Id] = &NodeRecord{Clears: 1}
+		}
+	}
+	h.Realm, h.Layer, h.Exp = 3, MaxLayer, ExpNeed(3, MaxLayer)
+	h.Keys[BreakKeys[3]] = 1
+	assert.False(t, h.Unlocked(JourneyNodeOf("c5_arrive")), "the last chapter needs the top realm")
+
+	for h.Realm == 3 {
+		h.Layer, h.Exp = MaxLayer, ExpNeed(3, MaxLayer)
+		heroAct(t, save, HeroAction{Type: "breakthrough"})
+	}
+	assert.Equal(t, MaxRealm, h.Realm)
+	assert.Empty(t, h.Keys)
+	assert.True(t, h.Unlocked(JourneyNodeOf("c5_arrive")))
+
+	h.Layer, h.Exp = MaxLayer, ExpNeed(MaxRealm, MaxLayer)
+	h.Keys["fox_heart"] = 1
+	_, err := save.HeroApply(HeroAction{Type: "breakthrough"}, 0, "d1", 0)
+	assert.ErrorIs(t, err, ErrUnavailable, "nothing lies beyond the top realm")
+	assert.Empty(t, save.Hero.View(save.Sect, 0, "d1").BreakKey)
+}
+
+// 第四章首领掉落天狐灵心与法宝；最后一章的首领战不再掉机缘，只给法宝。
+func TestChapterBossesDrop(t *testing.T) {
+	cases := []struct {
+		realm int
+		boss  string
+		relic string
+		key   string
+	}{
+		{3, "c4_boss", dungeon.RelicFlame, BreakKeys[3]},
+		{4, "c5_taixu", dungeon.RelicTome, ""},
+		{4, "c5_boss", dungeon.RelicCrown, ""},
+	}
+	for _, c := range cases {
+		save := newHeroSave(t, dungeon.ClassWarrior)
+		h := save.Hero
+		h.Realm = c.realm
+		for _, n := range JourneyNodes {
+			if n.Id == c.boss {
+				break
+			}
+			h.Nodes[n.Id] = &NodeRecord{Clears: 1}
+		}
+		heroAct(t, save, HeroAction{Type: "fight", Node: c.boss})
+		evs := winHeroBattle(t, save, -1)
+		assert.Contains(t, h.Relics, c.relic, c.boss)
+		assert.Contains(t, h.Worn, c.relic, c.boss)
+		assert.Equal(t, c.key != "", hasEv(evs, "hero_key"), c.boss)
+		if c.key != "" {
+			assert.Equal(t, 1, h.Keys[c.key], c.boss)
+		} else {
+			assert.Empty(t, h.Keys, c.boss)
+		}
 	}
 }
 

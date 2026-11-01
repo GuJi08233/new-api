@@ -102,7 +102,7 @@ const HeroCard = ({ hero, pills, elapsed, now, busy, onBreak, onQi }) => {
         <div className='jn-break'>
           <Sparkles size={16} />
           {!key ? (
-            <span>{t('下一个境界的机缘还没有现世，敬请期待')}</span>
+            <span>{t('已修至化神圆满，沧澜界再没有更高的境界')}</span>
           ) : !hasKey ? (
             <span>
               {t('第九层圆满。突破需要{{key}}：{{desc}}', {

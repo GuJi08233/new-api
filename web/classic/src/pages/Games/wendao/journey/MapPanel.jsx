@@ -107,7 +107,6 @@ const MapPanel = ({
             key={index}
             className={`jn-chapter ${chapter === index ? 'is-active' : ''}`}
             disabled={index > reached}
-            title={index >= info.chapters ? t('敬请期待') : undefined}
             onClick={() => setChapter(index)}
           >
             {index > reached && <Lock size={12} />}

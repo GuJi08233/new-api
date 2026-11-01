@@ -313,6 +313,18 @@ export const getEnemyNames = (t) => ({
   abyss_drake: t('幽冥蛟'),
   lich: t('白骨尊者'),
   abyss_lord: t('幽冥老祖'),
+  treant: t('树妖'),
+  viper: t('蛇妖'),
+  fox_guard: t('妖狐卫'),
+  bear: t('熊罴'),
+  spider: t('蛛妖'),
+  fox_emperor: t('玄狐妖皇'),
+  nether_hound: t('冥犬'),
+  hungry_ghost: t('饿鬼'),
+  judge: t('九幽判官'),
+  soul_lord: t('噬魂魔君'),
+  taixu: t('太虚真人·入魔'),
+  patriarch: t('幽冥老祖·本体'),
   dummy: t('木人桩'),
 });
 

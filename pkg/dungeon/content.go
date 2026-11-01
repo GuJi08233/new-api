@@ -372,9 +372,32 @@ var enemyList = []*EnemyDef{
 // DummyEnemy 是训练木桩，只在练习模式出现。
 const DummyEnemy = "dummy"
 
+// journeyEnemyList 是问道历练第四、五章专有的敌人(万妖林与九幽深处)。它们不在九幽秘境的幕里出现，也不进练习与试炼的
+// 敌人表，只能由历练的节点调用。数值是未放大的基础值，历练再按节点种类与章节放大(见 pkg/wendao 的 EnemyScale)。
+var journeyEnemyList = []*EnemyDef{
+	// 第四章 · 万妖林
+	{Id: "treant", HP: [2]int{50, 56}, Start: map[string]int{StThorns: 2}, Moves: []Move{{Id: "vine", Dmg: 9, Foe: map[string]int{StWeak: 1}}, {Id: "bloom", Block: 10, Heal: 6}}, Weights: []int{3, 2}},
+	{Id: "viper", HP: [2]int{40, 44}, Moves: []Move{{Id: "fang", Dmg: 6, Times: 2, Foe: map[string]int{StVuln: 1}}, {Id: "venom", Dmg: 5, Wounds: 1, Foe: map[string]int{StWeak: 1}}}, Weights: []int{3, 2}},
+	{Id: "fox_guard", HP: [2]int{50, 54}, Moves: []Move{{Id: "claw", Dmg: 6, Times: 2}, {Id: "charm", Self: map[string]int{StDodge: 1}, Foe: map[string]int{StWeak: 2, StVuln: 1}}}, Weights: []int{3, 2}},
+	{Id: "bear", HP: [2]int{135, 145}, Moves: []Move{{Id: "maul", Dmg: 19}, {Id: "roar", Block: 14, Self: map[string]int{StStrength: 2}}, {Id: "stomp", Dmg: 8, Times: 2, Foe: map[string]int{StWeak: 1}}}, Cycle: []int{2, 0, 1, 0}},
+	{Id: "spider", HP: [2]int{150, 160}, Moves: []Move{{Id: "web", Block: 12, Self: map[string]int{StStrength: 1}, Foe: map[string]int{StWeak: 2, StVuln: 2}}, {Id: "venom", Dmg: 15, Wounds: 2}, {Id: "bite", Dmg: 10, Times: 2}}, Cycle: []int{0, 1, 2, 1}},
+	{Id: "fox_emperor", HP: [2]int{250, 260}, Moves: []Move{{Id: "tails", Dmg: 9, Times: 3}, {Id: "illusion", Block: 20, Self: map[string]int{StDodge: 2}, Foe: map[string]int{StWeak: 2}}, {Id: "soulfire", Dmg: 15, Foe: map[string]int{StBurn: 5}}, {Id: "frenzy", Wounds: 2, Self: map[string]int{StStrength: 3}}}, Cycle: []int{0, 2, 3, 1}},
+
+	// 第五章 · 九幽深处
+	{Id: "nether_hound", HP: [2]int{48, 52}, Moves: []Move{{Id: "pounce", Dmg: 5, Times: 3}, {Id: "howl", Self: map[string]int{StStrength: 2}, Foe: map[string]int{StWeak: 1}}}, Weights: []int{7, 3}},
+	{Id: "hungry_ghost", HP: [2]int{54, 60}, Moves: []Move{{Id: "gnaw", Dmg: 8, Lifesteal: true}, {Id: "famine", Block: 6, Self: map[string]int{StStrength: 2}}}, Weights: []int{3, 2}},
+	{Id: "judge", HP: [2]int{125, 133}, Moves: []Move{{Id: "verdict", Dmg: 25}, {Id: "ledger", Block: 18, Foe: map[string]int{StWeak: 1, StVuln: 1}}, {Id: "shackle", Dmg: 9, Times: 2, Foe: map[string]int{StVuln: 2}}}, Weights: []int{2, 2, 3}},
+	{Id: "soul_lord", HP: [2]int{160, 170}, Moves: []Move{{Id: "devour", Dmg: 20, Lifesteal: true}, {Id: "dread", Wounds: 2, Foe: map[string]int{StWeak: 2, StVuln: 2}}, {Id: "ward", Block: 24, Self: map[string]int{StStrength: 2}}}, Cycle: []int{0, 1, 0, 2}},
+	{Id: "taixu", HP: [2]int{270, 280}, Moves: []Move{{Id: "sword_rain", Dmg: 7, Times: 4}, {Id: "array", Block: 26, Self: map[string]int{StStrength: 2}}, {Id: "thunder", Dmg: 30}, {Id: "siphon", Dmg: 13, Lifesteal: true, Foe: map[string]int{StWeak: 2}}}, Cycle: []int{0, 3, 1, 2}},
+	{Id: "patriarch", HP: [2]int{230, 240}, Moves: []Move{{Id: "corrode", Wounds: 3, Foe: map[string]int{StWeak: 2, StVuln: 2}}, {Id: "lash", Dmg: 8, Times: 4}, {Id: "bulwark", Block: 30, Self: map[string]int{StStrength: 2}}, {Id: "annihilate", Dmg: 40}}, Cycle: []int{0, 1, 2, 3}},
+}
+
 var enemyDefs = func() map[string]*EnemyDef {
-	defs := make(map[string]*EnemyDef, len(enemyList))
+	defs := make(map[string]*EnemyDef, len(enemyList)+len(journeyEnemyList))
 	for _, d := range enemyList {
+		defs[d.Id] = d
+	}
+	for _, d := range journeyEnemyList {
 		defs[d.Id] = d
 	}
 	return defs

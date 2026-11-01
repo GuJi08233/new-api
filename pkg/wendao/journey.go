@@ -16,8 +16,9 @@ const (
 
 // 历练的上限与节奏。
 const (
-	// Chapters 是现在开放的章节数，第 c 章(从 0 起)对应境界 c，敌人是九幽秘境第 c+1 重的。
-	Chapters = 3
+	// Chapters 是现在开放的章节数，第 c 章(从 0 起)对应境界 c。前三章的敌人是九幽秘境第 c+1 重的，第四、五章的敌人是
+	// 历练专有的(dungeon 的 journeyEnemyList)。
+	Chapters = 5
 	// DeckMin、DeckMax 是牌组的张数范围，MaxCards 是功法收藏最多几张(满了以后赢了也不能再收下功法)。
 	DeckMin  = 8
 	DeckMax  = 30
@@ -51,8 +52,8 @@ func EnemyScale(n *JourneyNode) (hp, dmg int) {
 	return scale[0] + chapterScaleHP*n.Chapter, scale[1] + chapterScaleDmg*n.Chapter
 }
 
-// BreakKeys 是主角从境界 r 突破到 r+1 要用掉的机缘，由第 r+1 章的首领掉落；空字符串表示还没有开放。
-var BreakKeys = [...]string{"foundation_dew", "core_fire", "nascent_lotus", ""}
+// BreakKeys 是主角从境界 r 突破到 r+1 要用掉的机缘，由第 r+1 章的首领掉落。化神是最高的境界，没有再往上的机缘。
+var BreakKeys = [...]string{"foundation_dew", "core_fire", "nascent_lotus", "fox_heart"}
 
 // 宗门与历练互通：随行弟子、丹房炼丹符、聚气丹。
 const (
@@ -171,6 +172,32 @@ var JourneyNodes = []JourneyNode{
 	withPotions(node("c3_patrol", 2, NodeCombat, req("c3_golem", "c3_lich"), []string{"abyss_guard", "void_walker"}, Cost{Stone: 500, Ore: 220}, Cost{Stone: 110, Ore: 50}), dungeon.PotionSwift),
 	withKey(withRelic(node("c3_drake", 2, NodeBoss, req("c3_patrol"), []string{"abyss_drake"}, Cost{Stone: 2400, Herb: 900, Ore: 700, Rep: 80}, Cost{Stone: 450, Herb: 180, Ore: 140}), dungeon.RelicCrystal), BreakKeys[2]),
 	node("c3_epilogue", 2, NodeStory, req("c3_drake"), nil, Cost{Rep: 40}, Cost{}),
+
+	// 第四章 · 万妖(元婴)：西荒万妖林。
+	node("c4_arrive", 3, NodeStory, req("c3_epilogue"), nil, Cost{Stone: 1000}, Cost{}),
+	node("c4_trees", 3, NodeCombat, req("c4_arrive"), []string{"treant"}, Cost{Stone: 1000, Herb: 400}, Cost{Stone: 230, Herb: 90}),
+	node("c4_vipers", 3, NodeCombat, req("c4_trees"), []string{"viper", "viper"}, Cost{Stone: 1050, Ore: 400}, Cost{Stone: 240, Ore: 90}),
+	withPotions(node("c4_foxes", 3, NodeCombat, req("c4_trees"), []string{"fox_guard"}, Cost{Stone: 1050, Herb: 450}, Cost{Stone: 240, Herb: 100}), dungeon.PotionWeakness),
+	gather("c4_grove", 3, req("c4_foxes"), Cost{Stone: 300, Herb: 450}, 4),
+	node("c4_runes", 3, NodeStory, req("c4_vipers", "c4_foxes"), nil, Cost{Rep: 20}, Cost{}),
+	withRelic(node("c4_bear", 3, NodeElite, req("c4_vipers"), []string{"bear"}, Cost{Stone: 2400, Ore: 700, Rep: 40}, Cost{Stone: 520, Ore: 150}), dungeon.RelicSpikedMail),
+	withRelic(node("c4_spider", 3, NodeElite, req("c4_runes"), []string{"spider"}, Cost{Stone: 2500, Herb: 600, Rep: 40}, Cost{Stone: 540, Herb: 130}), dungeon.RelicScroll),
+	node("c4_ambush", 3, NodeCombat, req("c4_bear", "c4_spider"), []string{"treant", "fox_guard"}, Cost{Stone: 1200, Ore: 500}, Cost{Stone: 270, Ore: 110}),
+	withKey(withRelic(node("c4_boss", 3, NodeBoss, req("c4_ambush"), []string{"fox_emperor"}, Cost{Stone: 6000, Herb: 2200, Ore: 1800, Rep: 160}, Cost{Stone: 1100, Herb: 420, Ore: 330}), dungeon.RelicFlame), BreakKeys[3]),
+	node("c4_epilogue", 3, NodeStory, req("c4_boss"), nil, Cost{Rep: 80}, Cost{}),
+
+	// 第五章 · 幽冥(化神)：九幽深处。最后的两场首领战不再给机缘：化神之上没有更高的境界。
+	node("c5_arrive", 4, NodeStory, req("c4_epilogue"), nil, Cost{Stone: 2400}, Cost{}),
+	node("c5_hounds", 4, NodeCombat, req("c5_arrive"), []string{"nether_hound", "nether_hound"}, Cost{Stone: 2400, Herb: 1000}, Cost{Stone: 540, Herb: 220}),
+	withPotions(node("c5_ghosts", 4, NodeCombat, req("c5_arrive"), []string{"hungry_ghost"}, Cost{Stone: 2400, Ore: 1000}, Cost{Stone: 540, Ore: 220}), dungeon.PotionHeal),
+	gather("c5_spring", 4, req("c5_ghosts"), Cost{Stone: 700, Herb: 900}, 4),
+	withPotions(node("c5_legion", 4, NodeCombat, req("c5_hounds"), []string{"abyss_guard", "soul_eater"}, Cost{Stone: 2600, Ore: 1100}, Cost{Stone: 580, Ore: 240}), dungeon.PotionIron),
+	withRelic(node("c5_judge", 4, NodeElite, req("c5_legion"), []string{"judge"}, Cost{Stone: 6000, Ore: 1800, Rep: 80}, Cost{Stone: 1300, Ore: 400}), dungeon.RelicPotionBelt),
+	withRelic(node("c5_lord", 4, NodeElite, req("c5_ghosts"), []string{"soul_lord"}, Cost{Stone: 6200, Herb: 1500, Rep: 80}, Cost{Stone: 1350, Herb: 330}), dungeon.RelicPhoenix),
+	node("c5_city", 4, NodeStory, req("c5_judge", "c5_lord"), nil, Cost{Rep: 60}, Cost{}),
+	withRelic(node("c5_taixu", 4, NodeBoss, req("c5_city"), []string{"taixu"}, Cost{Stone: 12000, Herb: 4000, Ore: 3000, Rep: 200}, Cost{Stone: 2200, Herb: 800, Ore: 600}), dungeon.RelicTome),
+	withRelic(node("c5_boss", 4, NodeBoss, req("c5_taixu"), []string{"patriarch"}, Cost{Stone: 16000, Herb: 6000, Ore: 5000, Rep: 300}, Cost{Stone: 3000, Herb: 1100, Ore: 900}), dungeon.RelicCrown),
+	node("c5_epilogue", 4, NodeStory, req("c5_boss"), nil, Cost{Rep: 150}, Cost{}),
 }
 
 var journeyNodeIndex = func() map[string]*JourneyNode {

@@ -385,6 +385,365 @@ const ART = {
       </g>
     </>
   ),
+  // —— 第四章 · 万妖林 ——
+  treant: () => (
+    <>
+      <path
+        d='M44 112 C46 92 40 70 44 52 L76 52 C80 70 74 92 76 112 L66 112 L60 96 L54 112 Z'
+        style={ink('mtn-3', 0.95)}
+      />
+      <path
+        d='M44 66 C30 62 20 68 14 84 M76 66 C90 62 100 68 106 84'
+        style={stroke('mtn-3', 7)}
+      />
+      <path
+        d='M14 84 L8 94 M14 84 L20 96 M106 84 L100 96 M106 84 L112 94'
+        style={stroke('mtn-3', 3)}
+      />
+      <ellipse cx='60' cy='32' rx='36' ry='20' style={ink('acc-green', 0.85)} />
+      <ellipse cx='32' cy='44' rx='18' ry='12' style={ink('acc-green', 0.7)} />
+      <ellipse cx='88' cy='44' rx='18' ry='12' style={ink('acc-green', 0.7)} />
+      <ellipse cx='60' cy='64' rx='13' ry='15' style={ink('ink', 0.92)} />
+      <Eyes y={60} gap={6} r={2.4} />
+      <path d='M53 72 Q60 77 67 72' style={stroke('paper', 2, 0.7)} />
+      <path d='M48 82 L52 96 M72 84 L68 100' style={stroke('ink', 1.6, 0.5)} />
+    </>
+  ),
+  viper: () => (
+    <>
+      <path
+        d='M24 106 C8 92 28 78 52 88 C78 98 100 88 92 72 C86 58 58 62 58 46'
+        style={stroke('acc-green', 15, 0.92)}
+      />
+      <path
+        d='M24 106 C8 92 28 78 52 88 C78 98 100 88 92 72 C86 58 58 62 58 46'
+        style={stroke('ink', 4, 0.4)}
+      />
+      <path
+        d='M40 92 L46 88 L50 94 L44 98 Z M64 96 L70 92 L74 98 L68 102 Z M86 86 L92 82 L96 88 L90 92 Z'
+        style={ink('ink', 0.6)}
+      />
+      <path
+        d='M36 40 C32 20 84 20 80 40 C78 54 68 62 58 62 C48 62 38 54 36 40 Z'
+        style={ink('acc-green')}
+      />
+      <path d='M44 38 C46 28 70 28 72 38' style={stroke('ink', 2.5, 0.55)} />
+      <path
+        d='M46 44 L56 47 L47 49 Z M70 44 L60 47 L69 49 Z'
+        style={ink('red')}
+      />
+      <path
+        d='M58 62 L58 72 M58 72 L52 80 M58 72 L64 80'
+        style={stroke('red', 2)}
+      />
+    </>
+  ),
+  fox_guard: () => (
+    <>
+      <path
+        d='M86 104 C110 100 114 72 100 58 C104 78 98 90 80 94 Z'
+        style={ink('acc-fire', 0.85)}
+      />
+      <path
+        d='M32 112 L36 78 L28 62 L92 62 L84 78 L88 112 Z'
+        style={ink('ink', 0.92)}
+      />
+      <path d='M44 68 L76 68 L72 82 L48 82 Z' style={ink('acc-stone', 0.85)} />
+      <path
+        d='M34 52 L28 20 L50 40 Z M86 52 L92 20 L70 40 Z'
+        style={ink('acc-fire', 0.92)}
+      />
+      <path
+        d='M38 56 C38 32 82 32 82 56 C82 64 70 72 60 80 C50 72 38 64 38 56 Z'
+        style={ink('acc-fire', 0.92)}
+      />
+      <path
+        d='M50 66 L60 80 L70 66 C65 71 55 71 50 66 Z'
+        style={ink('paper', 0.92)}
+      />
+      <SlitEyes y={52} gap={10} />
+      <path d='M60 32 L60 18' style={stroke('red', 3)} />
+      <path d='M102 22 L102 112' style={stroke('mtn-2', 4)} />
+      <path d='M96 28 L102 12 L108 28 Z' style={ink('mtn-3')} />
+    </>
+  ),
+  bear: () => (
+    <>
+      <path
+        d='M18 112 C12 76 26 52 60 50 C94 52 108 76 102 112 Z'
+        style={ink('ink', 0.92)}
+      />
+      <circle cx='36' cy='36' r='11' style={ink('ink', 0.92)} />
+      <circle cx='84' cy='36' r='11' style={ink('ink', 0.92)} />
+      <ellipse cx='60' cy='52' rx='28' ry='24' style={ink('ink', 0.96)} />
+      <path
+        d='M44 62 C44 54 76 54 76 62 C76 72 68 78 60 78 C52 78 44 72 44 62 Z'
+        style={ink('bone', 0.82)}
+      />
+      <ellipse cx='60' cy='61' rx='5' ry='3.5' style={ink('ink')} />
+      <Eyes y={46} gap={11} r={2.8} />
+      <path d='M40 88 C46 100 74 100 80 88' style={stroke('mtn-3', 3, 0.7)} />
+      <path
+        d='M12 110 L16 96 L21 110 Z M23 110 L27 96 L32 110 Z M88 110 L93 96 L97 110 Z M99 110 L104 96 L108 110 Z'
+        style={ink('bone')}
+      />
+      <path
+        d='M106 70 C116 76 116 88 106 94 M102 94 L116 102'
+        style={stroke('acc-stone', 4)}
+      />
+    </>
+  ),
+  spider: () => (
+    <>
+      <path d='M60 0 L60 44' style={stroke('ink-3', 1.5, 0.7)} />
+      <g style={stroke('ink', 4)}>
+        <path d='M48 62 C30 52 20 58 12 78 M46 70 C28 66 18 78 14 96 M48 78 C34 84 28 96 28 110 M52 84 C46 94 44 102 44 112' />
+        <path d='M72 62 C90 52 100 58 108 78 M74 70 C92 66 102 78 106 96 M72 78 C86 84 92 96 92 110 M68 84 C74 94 76 102 76 112' />
+      </g>
+      <ellipse cx='60' cy='84' rx='22' ry='26' style={ink('ink', 0.94)} />
+      <path
+        d='M60 62 L60 108 M48 72 L72 72 M46 84 L74 84 M48 96 L72 96'
+        style={stroke('acc-violet', 2, 0.75)}
+      />
+      <ellipse cx='60' cy='56' rx='15' ry='12' style={ink('mtn-3')} />
+      <g style={ink('red')}>
+        <circle cx='54' cy='52' r='2.4' />
+        <circle cx='66' cy='52' r='2.4' />
+        <circle cx='49' cy='57' r='1.8' />
+        <circle cx='71' cy='57' r='1.8' />
+      </g>
+      <path d='M54 65 L50 74 M66 65 L70 74' style={stroke('bone', 2.5)} />
+    </>
+  ),
+  fox_emperor: () => (
+    <>
+      <g style={stroke('acc-violet', 6, 0.8)}>
+        <path d='M60 98 C20 96 6 64 12 28' />
+        <path d='M60 98 C26 98 16 70 24 38' />
+        <path d='M60 98 C34 98 28 76 36 48' />
+        <path d='M60 98 C44 96 42 76 48 54' />
+        <path d='M60 98 C76 96 78 76 72 54' />
+        <path d='M60 98 C86 98 92 76 84 48' />
+        <path d='M60 98 C94 98 104 70 96 38' />
+        <path d='M60 98 C100 96 114 64 108 28' />
+      </g>
+      <g style={ink('acc-ice', 0.9)}>
+        <circle cx='12' cy='26' r='4.5' />
+        <circle cx='24' cy='36' r='4.5' />
+        <circle cx='36' cy='46' r='4.5' />
+        <circle cx='84' cy='46' r='4.5' />
+        <circle cx='96' cy='36' r='4.5' />
+        <circle cx='108' cy='26' r='4.5' />
+      </g>
+      <path
+        d='M30 114 C32 92 44 82 60 80 C76 82 88 92 90 114 Z'
+        style={ink('ink', 0.94)}
+      />
+      <path d='M48 82 L60 100 L72 82' style={stroke('red', 3, 0.85)} />
+      <path
+        d='M34 58 L28 14 L52 40 Z M86 58 L92 14 L68 40 Z'
+        style={ink('ink')}
+      />
+      <path
+        d='M38 58 C38 34 82 34 82 58 C82 68 72 80 60 88 C48 80 38 68 38 58 Z'
+        style={ink('paper', 0.94)}
+      />
+      <path
+        d='M38 52 C40 40 52 36 60 40 C68 36 80 40 82 52 C72 44 48 44 38 52 Z'
+        style={ink('ink', 0.9)}
+      />
+      <path d='M60 34 L57 42 L63 42 Z' style={ink('red')} />
+      <SlitEyes y={58} gap={12} />
+      <path d='M54 76 L60 82 L66 76' style={stroke('ink', 2, 0.8)} />
+    </>
+  ),
+
+  // —— 第五章 · 九幽深处 ——
+  nether_hound: () => (
+    <>
+      <path
+        d='M12 98 C10 78 24 62 46 60 C62 58 74 62 80 68 L80 92 L70 92 L68 82 C58 84 44 84 36 82 L32 106 L22 106 L24 94 Z'
+        style={ink('ink', 0.93)}
+      />
+      <path
+        d='M70 70 C72 50 88 42 100 46 C108 48 114 56 114 62 L102 64 L112 76 L96 74 C90 80 80 82 72 80 Z'
+        style={ink('ink', 0.96)}
+      />
+      <path d='M82 48 L80 26 L96 44 Z' style={ink('ink')} />
+      <path
+        d='M98 65 L100 71 L104 66 M106 67 L108 73 L111 68'
+        style={stroke('paper', 1.6, 0.9)}
+      />
+      <circle cx='94' cy='54' r='2.8' style={ink('red')} />
+      <path
+        d='M26 62 C22 48 34 44 30 32 C42 40 40 50 46 58 M48 58 C46 46 56 42 54 30 C64 40 60 50 66 58'
+        style={stroke('acc-violet', 4, 0.85)}
+      />
+      <path d='M12 92 C2 88 0 76 6 70' style={stroke('ink', 5, 0.9)} />
+    </>
+  ),
+  hungry_ghost: () => (
+    <>
+      <g style={stroke('ink-2', 5)}>
+        <path d='M32 64 C18 72 14 88 18 100 M88 64 C102 72 106 88 102 100' />
+        <path d='M48 100 L44 114 M72 100 L76 114' />
+      </g>
+      <path
+        d='M60 42 C30 44 24 70 28 88 C32 106 88 106 92 88 C96 70 90 44 60 42 Z'
+        style={ink('ink-3', 0.8)}
+      />
+      <path
+        d='M40 64 C50 72 70 72 80 64 M38 76 C50 86 70 86 82 76'
+        style={stroke('ink', 2, 0.55)}
+      />
+      <ellipse cx='60' cy='30' rx='13' ry='15' style={ink('bone')} />
+      <Eyes y={27} gap={6} r={3.2} />
+      <path d='M50 38 Q60 46 70 38 Z' style={ink('ink', 0.9)} />
+      <path
+        d='M53 38 L55 42 L57 38 M60 38 L62 43 L64 38'
+        style={stroke('bone', 1.5)}
+      />
+    </>
+  ),
+  judge: () => (
+    <>
+      <path
+        d='M24 114 C26 86 40 72 60 70 C80 72 94 86 96 114 Z'
+        style={ink('robe-red', 0.95)}
+      />
+      <path d='M50 72 L60 92 L70 72' style={stroke('paper', 3, 0.85)} />
+      <path d='M38 100 L82 100' style={stroke('ink', 3, 0.6)} />
+      <ellipse cx='60' cy='52' rx='15' ry='17' style={ink('ink', 0.92)} />
+      <path
+        d='M50 62 C52 76 56 84 60 88 C64 84 68 76 70 62 C64 68 56 68 50 62 Z'
+        style={ink('paper', 0.9)}
+      />
+      <path
+        d='M44 42 L76 42 L72 28 L48 28 Z M44 38 L22 32 L22 40 L44 44 Z M76 38 L98 32 L98 40 L76 44 Z'
+        style={ink('ink')}
+      />
+      <path d='M46 36 L74 36' style={stroke('red', 2.5)} />
+      <SlitEyes y={52} gap={8} />
+      <path d='M98 72 L106 38' style={stroke('mtn-3', 3)} />
+      <path d='M104 44 L110 34 L100 38 Z' style={ink('red')} />
+      <rect
+        x='8'
+        y='76'
+        width='22'
+        height='28'
+        rx='2'
+        style={ink('bone', 0.92)}
+      />
+      <path
+        d='M13 84 L25 84 M13 91 L25 91 M13 98 L21 98'
+        style={stroke('ink', 1.5, 0.7)}
+      />
+    </>
+  ),
+  soul_lord: () => (
+    <>
+      <path
+        d='M12 114 C8 70 30 40 60 38 C90 40 112 70 108 114 C94 104 86 114 74 106 C64 114 54 114 46 106 C34 114 26 104 12 114 Z'
+        style={ink('ink', 0.94)}
+      />
+      <path
+        d='M34 46 C24 38 22 22 28 10 C30 24 38 32 44 40 Z M86 46 C96 38 98 22 92 10 C90 24 82 32 76 40 Z'
+        style={ink('ink')}
+      />
+      <path
+        d='M34 80 C44 102 76 102 86 80 C76 92 44 92 34 80 Z'
+        style={ink('red', 0.82)}
+      />
+      <path
+        d='M40 84 L44 94 L48 86 Z M52 90 L56 100 L60 92 Z M62 92 L66 100 L70 90 Z M72 86 L76 94 L80 84 Z'
+        style={ink('paper', 0.92)}
+      />
+      <SlitEyes y={58} gap={16} color='acc-violet' />
+      <g style={ink('acc-violet', 0.8)}>
+        <circle cx='18' cy='50' r='7' />
+        <circle cx='102' cy='46' r='7' />
+        <circle cx='60' cy='18' r='6' />
+      </g>
+      <g style={ink('paper', 0.9)}>
+        <circle cx='16' cy='49' r='1.4' />
+        <circle cx='21' cy='49' r='1.4' />
+        <circle cx='100' cy='45' r='1.4' />
+        <circle cx='105' cy='45' r='1.4' />
+        <circle cx='58' cy='17' r='1.3' />
+        <circle cx='62' cy='17' r='1.3' />
+      </g>
+    </>
+  ),
+  taixu: () => (
+    <>
+      <path
+        d='M12 66 C6 46 18 36 14 18 M108 66 C114 46 102 36 106 18'
+        style={stroke('acc-violet', 3, 0.75)}
+      />
+      <path
+        d='M24 114 C26 86 38 72 60 70 C82 72 94 86 96 114 Z'
+        style={ink('robe-white')}
+      />
+      <path
+        d='M24 114 L24 100 C34 106 40 96 48 102 C58 110 66 98 74 104 C84 110 90 100 96 100 L96 114 Z'
+        style={ink('ink', 0.92)}
+      />
+      <path d='M52 72 L60 90 L68 72' style={stroke('ink', 2.5, 0.7)} />
+      <ellipse cx='60' cy='52' rx='14' ry='17' style={ink('skin')} />
+      <path
+        d='M47 60 C49 78 55 90 60 96 C65 90 71 78 73 60 C67 68 53 68 47 60 Z'
+        style={ink('white-hair')}
+      />
+      <path
+        d='M46 38 L46 22 L53 28 L60 12 L67 28 L74 22 L74 38 Z'
+        style={ink('ink')}
+      />
+      <path d='M44 33 L76 33' style={stroke('red', 2)} />
+      <path
+        d='M49 50 L56 52 L55 55 Z M71 50 L64 52 L65 55 Z'
+        style={ink('red')}
+      />
+      <path d='M102 28 L102 108' style={stroke('mtn-2', 4)} />
+      <path d='M95 38 L109 38' style={stroke('red', 3)} />
+    </>
+  ),
+  patriarch: () => (
+    <>
+      <circle cx='60' cy='50' r='42' style={stroke('red', 2.5, 0.7)} />
+      <circle cx='60' cy='50' r='36' style={ink('ink', 0.16)} />
+      <path
+        d='M6 118 C8 74 26 44 60 34 C94 44 112 74 114 118 C98 110 90 118 78 112 C68 118 52 118 42 112 C28 118 22 110 6 118 Z'
+        style={ink('ink', 0.96)}
+      />
+      <path
+        d='M44 26 L44 12 L52 20 L60 6 L68 20 L76 12 L76 26 Z'
+        style={ink('ink')}
+      />
+      <path d='M42 24 L78 24' style={stroke('red', 2.5)} />
+      <path
+        d='M48 24 L48 34 M56 24 L56 32 M64 24 L64 32 M72 24 L72 34'
+        style={stroke('red', 1.6, 0.85)}
+      />
+      <path
+        d='M42 56 C42 38 78 38 78 56 C78 70 70 80 60 84 C50 80 42 70 42 56 Z'
+        style={ink('bone', 0.94)}
+      />
+      <SlitEyes y={56} gap={9} />
+      <path
+        d='M52 72 L56 76 L60 72 L64 76 L68 72'
+        style={stroke('ink', 2, 0.8)}
+      />
+      <circle cx='60' cy='98' r='11' style={ink('ink')} />
+      <circle cx='60' cy='98' r='11' style={stroke('red', 2.5, 0.9)} />
+      <path
+        d='M30 100 C38 94 46 96 50 100 M90 100 C82 94 74 96 70 100'
+        style={stroke('bone', 4)}
+      />
+      <g style={stroke('acc-violet', 2, 0.6)}>
+        <path d='M18 80 C28 70 30 58 24 48 M102 80 C92 70 90 58 96 48' />
+      </g>
+    </>
+  ),
   dummy: () => (
     <>
       <path d='M56 112 L56 34 L64 34 L64 112 Z' style={ink('mtn-3')} />
