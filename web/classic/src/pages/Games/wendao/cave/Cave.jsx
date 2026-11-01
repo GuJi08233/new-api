@@ -17,12 +17,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React from 'react';
+import React, { useState } from 'react';
 import { Button } from '@douyinfe/semi-ui';
 import { Anvil, Droplets, Flame, Wind } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { CostChips, canAfford } from '../../sect/parts';
 import CaveArt from '../art/CaveArt';
+import Forge from './Forge';
 import { getRoomText, roomEffect } from './text';
 import './cave.css';
 
@@ -92,20 +93,53 @@ const Rooms = ({ info, hero, res, busy, act }) => {
   );
 };
 
-// 洞府：宗主本人修行的地方。顶上一幅洞府图，开辟了的屋子点亮。
-const Cave = ({ info, hero, res, busy, act }) => {
+// 洞府：宗主本人修行的地方。顶上一幅洞府图，开辟了的屋子点亮；下面分屋子、器室几块。
+const Cave = ({ info, hero, res, rare, busy, act }) => {
   const { t } = useTranslation();
+  const [view, setView] = useState('rooms');
+  const views = [
+    { key: 'rooms', label: t('屋子') },
+    { key: 'forge', label: t('器室') },
+  ];
   return (
     <div className='cv-cave'>
       <div className='cv-hero-art'>
         <CaveArt levels={hero.cave} />
       </div>
-      <p className='jn-muted'>
-        {t(
-          '洞府的屋子花宗门库房的资源扩建，境界越高能建得越高；洞府给的加成只在历练里生效，带不进九幽秘境',
-        )}
-      </p>
-      <Rooms info={info} hero={hero} res={res} busy={busy} act={act} />
+      <div className='cv-views' role='tablist'>
+        {views.map(({ key, label }) => (
+          <button
+            type='button'
+            role='tab'
+            key={key}
+            aria-selected={view === key}
+            className={`cv-view ${view === key ? 'is-active' : ''}`}
+            onClick={() => setView(key)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {view === 'rooms' && (
+        <>
+          <p className='jn-muted'>
+            {t(
+              '洞府的屋子花宗门库房的资源扩建，境界越高能建得越高；洞府给的加成只在历练里生效，带不进九幽秘境',
+            )}
+          </p>
+          <Rooms info={info} hero={hero} res={res} busy={busy} act={act} />
+        </>
+      )}
+      {view === 'forge' && (
+        <Forge
+          info={info}
+          hero={hero}
+          res={res}
+          rare={rare}
+          busy={busy}
+          act={act}
+        />
+      )}
     </div>
   );
 };

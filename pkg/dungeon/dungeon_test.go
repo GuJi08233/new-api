@@ -483,16 +483,21 @@ func TestMetaItems(t *testing.T) {
 	assert.Empty(t, m.Items)
 }
 
-// 单场战斗：开战时带上法宝、丹符与境界给的力量；赢了以后从几张功法里选一张收下再结束，输了直接结束，都不能再操作。
+// 单场战斗：开战时带上法宝、丹符与境界给的力量、护甲；赢了以后从几张功法里选一张收下再结束，输了直接结束，都不能再操作。
 func TestBattleRewardsOneCardAndEnds(t *testing.T) {
 	setup := BattleSetup{Class: ClassWarrior, Deck: []Card{{Id: "w_strike"}, {Id: "w_defend"}}, Relics: []string{RelicWhetstone},
-		Potions: []string{PotionFire}, MaxHP: 90, Strength: 2, Kind: NodeElite, Enemies: []string{"goblin", "goblin"}, HP: 150, Dmg: 100, Rewards: 3}
+		Potions: []string{PotionFire}, MaxHP: 90, Strength: 2, Block: 12, Kind: NodeElite, Enemies: []string{"goblin", "goblin"}, HP: 150, Dmg: 100,
+		Rewards: 3}
 	invalid := []BattleSetup{
 		{Class: ClassWarrior, Deck: setup.Deck, MaxHP: 90, Kind: "shop", Enemies: setup.Enemies, HP: 100, Dmg: 100},
 		{Class: ClassWarrior, Deck: []Card{{Id: KnifeCard}}, MaxHP: 90, Kind: NodeCombat, Enemies: setup.Enemies, HP: 100, Dmg: 100},
 		{Class: ClassWarrior, Deck: setup.Deck, MaxHP: 90, Kind: NodeCombat, Enemies: []string{DummyEnemy}, HP: 100, Dmg: 100},
 		{Class: ClassWarrior, Deck: setup.Deck, MaxHP: 90, Kind: NodeCombat, Enemies: setup.Enemies, HP: 10, Dmg: 100},
 		{Class: ClassWarrior, Deck: setup.Deck, MaxHP: 0, Kind: NodeCombat, Enemies: setup.Enemies, HP: 100, Dmg: 100},
+		{Class: ClassWarrior, Deck: setup.Deck, MaxHP: 90, Strength: BattleMaxStrength + 1, Kind: NodeCombat, Enemies: setup.Enemies,
+			HP: 100, Dmg: 100},
+		{Class: ClassWarrior, Deck: setup.Deck, MaxHP: 90, Block: BattleMaxBlock + 1, Kind: NodeCombat, Enemies: setup.Enemies, HP: 100,
+			Dmg: 100},
 	}
 	for i, s := range invalid {
 		_, err := NewBattle(1, s)
@@ -504,6 +509,7 @@ func TestBattleRewardsOneCardAndEnds(t *testing.T) {
 	assert.Equal(t, 90, r.HP)
 	assert.Equal(t, []string{PotionFire}, r.Potions)
 	assert.Equal(t, 2+1, r.Combat.St[StStrength], "realm strength plus the whetstone")
+	assert.Equal(t, 12, r.Combat.Block, "block from the setup lasts through the first turn")
 	for _, e := range r.Combat.Enemies {
 		assert.GreaterOrEqual(t, e.MaxHP, 18*150/100)
 		e.HP = 1

@@ -30,6 +30,9 @@ type Hero struct {
 	QiReady int64 `json:"qi_ready,omitempty"`
 	// Cave 是洞府里每间屋子的等级(cave.go)。
 	Cave map[string]int `json:"cave,omitempty"`
+	// Refine 是每件法宝祭炼到几级，Bless 是祭炼失败攒下的祝福(下一次成功率多几个百分点)，见 forge.go。
+	Refine map[string]int `json:"refine,omitempty"`
+	Bless  map[string]int `json:"bless,omitempty"`
 	// Day 与 DayRepeats 记今天重复通过节点拿了几次资源。
 	Day        string      `json:"day"`
 	DayRepeats int         `json:"day_repeats"`
@@ -106,6 +109,12 @@ func (h *Hero) normalize() {
 	if h.Cave == nil {
 		h.Cave = map[string]int{}
 	}
+	if h.Refine == nil {
+		h.Refine = map[string]int{}
+	}
+	if h.Bless == nil {
+		h.Bless = map[string]int{}
+	}
 }
 
 // NewHero 按流派创建主角：初始牌组全部放进牌组，本命法宝戴在身上，炼气一层。
@@ -124,13 +133,20 @@ func NewHero(class string, now int64) (*Hero, error) {
 	return h, nil
 }
 
-// MaxHP 是主角的最大生命：流派的初始生命，每多一层、每高一个境界都更多，洞府的灵泉再加。
+// MaxHP 是主角的最大生命：流派的初始生命，每多一层、每高一个境界都更多，洞府的灵泉与祭炼过的法宝再加。
 func (h *Hero) MaxHP() int {
-	return dungeon.ClassHP(h.Class) + heroLayerHP*(h.Layer-1) + heroRealmHP*h.Realm + springHP*h.Cave[RoomSpring]
+	hp := dungeon.ClassHP(h.Class) + heroLayerHP*(h.Layer-1) + heroRealmHP*h.Realm + springHP*h.Cave[RoomSpring] +
+		h.refineBonus().HP
+	return min(hp, dungeon.BattleMaxHP)
 }
 
-// Strength 是主角开战时的力量：每高一个境界多一点。
-func (h *Hero) Strength() int { return h.Realm }
+// Strength 是主角开战时的力量：每高一个境界多一点，祭炼过的锋路法宝再加。
+func (h *Hero) Strength() int {
+	return min(h.Realm+h.refineBonus().Strength, dungeon.BattleMaxStrength)
+}
+
+// Block 是主角开战时的护体：祭炼过的御路法宝给的。
+func (h *Hero) Block() int { return min(h.refineBonus().Block, dungeon.BattleMaxBlock) }
 
 // RelicSlots 是能同时佩戴几件法宝。
 func (h *Hero) RelicSlots() int { return 2 + h.Realm }
@@ -285,6 +301,8 @@ func (sv *Save) HeroApply(a HeroAction, now int64, day string, seed uint64) ([]E
 		more, err = h.takeQi(s, a.Item, now)
 	case "room":
 		more, err = h.buildRoom(s, a.Item)
+	case "refine":
+		more, err = h.refine(s, a.Item)
 	case "battle":
 		more, err = h.battleStep(s, a, now)
 	case "flee":
@@ -538,7 +556,7 @@ func (h *Hero) startBattle(s *Sect, battle *HeroBattle, kind string, enemies []s
 	}
 	run, err := dungeon.NewBattle(seed, dungeon.BattleSetup{
 		Class: h.Class, Deck: h.deckCards(), Relics: h.Worn, Potions: carried, MaxHP: h.MaxHP(), Strength: h.Strength(),
-		Kind: kind, Enemies: enemies, HP: hp, Dmg: dmg, Rewards: rewards, Allies: allies,
+		Block: h.Block(), Kind: kind, Enemies: enemies, HP: hp, Dmg: dmg, Rewards: rewards, Allies: allies,
 	})
 	if err != nil {
 		return err
@@ -694,6 +712,11 @@ type HeroView struct {
 	// Cave 是洞府每间屋子的等级，RoomCap 是现在的境界能建到几级。
 	Cave    map[string]int `json:"cave"`
 	RoomCap int            `json:"room_cap"`
+	// Block 是开战时的护体；Refine、Bless 是法宝的祭炼等级与祝福，RefineBonus 是戴着的法宝祭炼给的加成。
+	Block       int            `json:"block"`
+	Refine      map[string]int `json:"refine"`
+	Bless       map[string]int `json:"bless"`
+	RefineBonus RefineBonus    `json:"refine_bonus"`
 }
 
 // CompanionView 是一名可以随行的弟子。
@@ -724,7 +747,8 @@ func (h *Hero) View(s *Sect, now int64, day string) HeroView {
 		Nodes: h.Nodes, Open: []string{}, Ready: map[string]int64{}, Stats: h.Stats, Now: now,
 		RepeatsLeft: DailyRepeatRewards, QiReady: h.QiReady, Companions: []CompanionView{},
 		Alchemy: s.Buildings[BuildingAlchemy], StepsOpen: h.StepsOpen(), Steps: h.Steps,
-		Cave: h.Cave, RoomCap: RoomCap(h.Realm),
+		Cave: h.Cave, RoomCap: RoomCap(h.Realm), Block: h.Block(), Refine: h.Refine, Bless: h.Bless,
+		RefineBonus: h.refineBonus(),
 	}
 	for _, d := range s.Disciples {
 		v.Companions = append(v.Companions, CompanionView{Id: d.Id, Name: d.Name, Element: d.Element, Realm: d.Realm,

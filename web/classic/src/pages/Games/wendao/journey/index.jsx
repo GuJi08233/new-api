@@ -72,7 +72,12 @@ const JourneyPage = () => {
   }, []);
 
   const accept = useCallback((data) => {
-    setState({ hero: data.hero, res: data.res, pills: data.pills });
+    setState({
+      hero: data.hero,
+      res: data.res,
+      pills: data.pills,
+      rare: data.rare,
+    });
     setReceivedAt(Date.now());
     const events = data.hero?.battle?.run?.events;
     if (events?.length) {
@@ -258,6 +263,7 @@ const JourneyPage = () => {
               info={info}
               hero={hero}
               res={state.res}
+              rare={state.rare}
               busy={busy}
               act={act}
             />

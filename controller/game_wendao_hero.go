@@ -43,6 +43,7 @@ func journeyInfo() gin.H {
 		"steps":                wendao.Steps(),
 		"steps_unlock":         wendao.StepsUnlock,
 		"cave":                 wendao.CaveRulesOf(),
+		"refine":               wendao.RefineRulesOf(),
 	}
 }
 
@@ -52,12 +53,12 @@ func registerHeroRoutes(group *gin.RouterGroup) {
 	group.POST("/action", middleware.GameActionRateLimit("wendao-hero-action"), actHero)
 }
 
-// heroView 是历练页要的东西：主角(还没有创建为空)、宗门的资源与丹药。ended 是这一步刚打完的那一场，页面要播放最后
+// heroView 是历练页要的东西：主角(还没有创建为空)、宗门的资源、丹药与灵药。ended 是这一步刚打完的那一场，页面要播放最后
 // 几下与胜负。
 func heroView(save *wendao.Save, now int64, day string, ended *dungeon.Run) gin.H {
-	view := gin.H{"hero": nil, "res": nil, "pills": nil}
+	view := gin.H{"hero": nil, "res": nil, "pills": nil, "rare": nil}
 	if save.Sect != nil {
-		view["res"], view["pills"] = save.Sect.Res, save.Sect.Pills
+		view["res"], view["pills"], view["rare"] = save.Sect.Res, save.Sect.Pills, save.Sect.Rare
 	}
 	if save.Hero != nil && save.Sect != nil {
 		view["hero"] = save.Hero.View(save.Sect, now, day)

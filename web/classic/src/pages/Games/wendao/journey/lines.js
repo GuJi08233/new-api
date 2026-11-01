@@ -43,6 +43,25 @@ export function heroEventLines(events, t, text, sectText) {
           `${sectText.pills[ev.s]?.name} ${ev.n > 0 ? '+' : ''}${ev.n}`,
         );
         break;
+      case 'rare':
+        gains.push(`${sectText.rares[ev.s]} ${ev.n > 0 ? '+' : ''}${ev.n}`);
+        break;
+      case 'hero_refine':
+        lines.push(
+          t('祭炼成功：{{name}} +{{n}}', {
+            name: text.relics[ev.s]?.name,
+            n: ev.n,
+          }),
+        );
+        break;
+      case 'hero_refine_fail':
+        lines.push(
+          t('祭炼未成：{{name}}，下一次成功率 +{{n}}%', {
+            name: text.relics[ev.s]?.name,
+            n: ev.n,
+          }),
+        );
+        break;
       case 'hero_layer':
         lines.push(t('修为精进，连破 {{n}} 层', { n: ev.n }));
         break;

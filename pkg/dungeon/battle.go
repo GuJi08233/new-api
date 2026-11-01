@@ -11,11 +11,14 @@ const (
 	BattleMaxEnemies = 3
 	BattleMaxScale   = 2000
 	BattleMaxHP      = 999
+	// BattleMaxStrength、BattleMaxBlock 是开战时力量与护甲的上限。
+	BattleMaxStrength = 10
+	BattleMaxBlock    = 99
 )
 
 // BattleSetup 是一场战斗的设置。Kind 是遭遇、强敌或首领(combat、elite、boss)，决定奖励功法的稀有度；敌人的生命与伤害按
-// HP、Dmg(百分比，100 为原样)放大；Strength 是开战时就有的力量；Rewards 是赢了以后几选一，0 表示不给功法；Allies 是随行
-// 弟子带来的援护牌，只能是 AllyCards 里的，洗进这一场的牌组。
+// HP、Dmg(百分比，100 为原样)放大；Strength、Block 是开战时就有的力量与护甲；Rewards 是赢了以后几选一，0 表示不给功法；
+// Allies 是随行弟子带来的援护牌，只能是 AllyCards 里的，洗进这一场的牌组。
 type BattleSetup struct {
 	Class    string   `json:"class"`
 	Deck     []Card   `json:"deck"`
@@ -23,6 +26,7 @@ type BattleSetup struct {
 	Potions  []string `json:"potions"`
 	MaxHP    int      `json:"max_hp"`
 	Strength int      `json:"strength,omitempty"`
+	Block    int      `json:"block,omitempty"`
 	Kind     string   `json:"kind"`
 	Enemies  []string `json:"enemies"`
 	HP       int      `json:"hp"`
@@ -39,7 +43,8 @@ func validBattle(s BattleSetup) bool {
 		return false
 	}
 	if len(s.Deck) == 0 || len(s.Deck) > BattleMaxDeck || len(s.Enemies) == 0 || len(s.Enemies) > BattleMaxEnemies ||
-		s.MaxHP < 1 || s.MaxHP > BattleMaxHP || s.Strength < 0 || s.Strength > 10 || s.Rewards < 0 || s.Rewards > 3 ||
+		s.MaxHP < 1 || s.MaxHP > BattleMaxHP || s.Strength < 0 || s.Strength > BattleMaxStrength ||
+		s.Block < 0 || s.Block > BattleMaxBlock || s.Rewards < 0 || s.Rewards > 3 ||
 		s.HP < 50 || s.HP > BattleMaxScale || s.Dmg < 50 || s.Dmg > BattleMaxScale || len(s.Potions) > 4 {
 		return false
 	}
@@ -113,6 +118,7 @@ func NewBattle(seed uint64, s BattleSetup) (*Run, error) {
 	if s.Strength > 0 {
 		r.Combat.St[StStrength] += s.Strength
 	}
+	r.gainBlock(s.Block)
 	return r, nil
 }
 

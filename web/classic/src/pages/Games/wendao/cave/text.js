@@ -54,3 +54,33 @@ export function roomEffect(t, cave, room, level) {
       return '';
   }
 }
+
+// 法宝的祭炼路数：命加生命，御加开战护体，锋每几级加一点力量。
+export const getRefineKindText = (t, rules) => ({
+  vital: { name: t('命'), desc: t('每级最大生命 +{{n}}', { n: rules.hp }) },
+  guard: {
+    name: t('御'),
+    desc: t('每级开战护体 +{{n}}', { n: rules.block }),
+  },
+  edge: {
+    name: t('锋'),
+    desc: t('每 {{n}} 级开战力量 +1', { n: rules.edge_step }),
+  },
+});
+
+// refineEffect 是一件法宝祭炼到 level 级给的加成(戴着才生效)。
+export function refineEffect(t, rules, kind, level) {
+  if (level <= 0) return t('未祭炼');
+  switch (kind) {
+    case 'guard':
+      return t('开战护体 +{{n}}', { n: rules.block * level });
+    case 'edge': {
+      const n = Math.floor(level / rules.edge_step);
+      const left = rules.edge_step - (level % rules.edge_step);
+      if (level >= rules.steps.length) return t('开战力量 +{{n}}', { n });
+      return t('开战力量 +{{n}}（再祭炼 {{left}} 级 +1）', { n, left });
+    }
+    default:
+      return t('最大生命 +{{n}}', { n: rules.hp * level });
+  }
+}
