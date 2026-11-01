@@ -19,13 +19,15 @@ For commercial licensing, please contact support@quantumnous.com
 
 import { formatAmount } from '../../sect/parts';
 import { getKeyText, getNodeText } from './text';
-import { getRoomText } from '../cave/text';
+import { getElixirText, getGradeNames, getRoomText } from '../cave/text';
 
 // 历练之外的事(通过节点、登上问心阶、突破、参悟)写成几句话，显示在台面上方。
 export function heroEventLines(events, t, text, sectText) {
   const nodes = getNodeText(t);
   const keys = getKeyText(t);
   const rooms = getRoomText(t);
+  const elixirs = getElixirText(t, {}, 0);
+  const grades = getGradeNames(t);
   const lines = [];
   const gains = [];
   for (const ev of events || []) {
@@ -60,6 +62,49 @@ export function heroEventLines(events, t, text, sectText) {
             name: text.relics[ev.s]?.name,
             n: ev.n,
           }),
+        );
+        break;
+      case 'hero_brew':
+        lines.push(t('{{name}}开炉了', { name: elixirs[ev.s]?.name }));
+        break;
+      case 'hero_stoke':
+        lines.push(
+          t('调过了火，{{name}}的品质会更好', { name: elixirs[ev.s]?.name }),
+        );
+        break;
+      case 'hero_elixir':
+        lines.push(
+          t('丹成：{{grade}}{{name}} × {{n}}', {
+            grade: grades[ev.v || 0],
+            name: elixirs[ev.s]?.name,
+            n: ev.n,
+          }),
+        );
+        break;
+      case 'hero_brew_fail':
+        lines.push(
+          t('武火太旺，{{name}}炸炉了，材料化作一缕青烟', {
+            name: elixirs[ev.s]?.name,
+          }),
+        );
+        break;
+      case 'hero_take':
+        lines.push(
+          t('服下{{grade}}{{name}}', {
+            grade: grades[ev.v || 0],
+            name: elixirs[ev.s]?.name,
+          }),
+        );
+        break;
+      case 'hero_temper':
+        gains.push(t('最大生命 +{{n}}', { n: ev.n }));
+        break;
+      case 'hero_buff':
+        gains.push(t('药力持续 {{n}} 场', { n: ev.n }));
+        break;
+      case 'hero_golden':
+        lines.push(
+          t('金丹九转，开战力量永久 +1（已服 {{n}} 颗）', { n: ev.n }),
         );
         break;
       case 'hero_layer':

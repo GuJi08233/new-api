@@ -331,3 +331,134 @@
     transform: translateY(-16px);
   }
 }
+
+/* 丹室 */
+.cv-furnace {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.cv-title {
+  margin: 6px 0 0;
+  font-family: var(--wd-serif);
+  font-size: 15px;
+  letter-spacing: 1px;
+}
+.cv-buffs,
+.cv-bag {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.cv-buff {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--wd-red-soft);
+  color: var(--wd-red);
+  font-size: 12px;
+}
+.cv-brews {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 8px;
+}
+.cv-brew {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 12px;
+  background: var(--wd-paper-2);
+}
+.cv-brew.is-done {
+  border-color: var(--wd-acc-fire);
+}
+.cv-brew.is-free {
+  border-style: dashed;
+  opacity: 0.75;
+}
+.cv-brew-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.wd-furnace-art {
+  flex: none;
+  width: 72px;
+  height: 72px;
+  overflow: visible;
+}
+.wd-furnace-glow {
+  transform-box: fill-box;
+  transform-origin: 50% 50%;
+  animation: wd-cave-ripple 1.8s ease-out infinite;
+}
+.cv-fire {
+  padding: 0 7px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--wd-paper);
+  background: var(--wd-acc-fire);
+}
+.cv-fire.is-gentle {
+  background: var(--wd-acc-green);
+}
+.cv-fire.is-fierce {
+  background: var(--wd-red);
+}
+.cv-fires {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.cv-fires-label {
+  color: var(--wd-ink-2);
+  font-size: 13px;
+}
+.cv-fire-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.cv-odds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.cv-grade {
+  padding: 0 6px;
+  border-radius: 6px;
+  font-size: 12px;
+  border: 1px solid var(--semi-color-border);
+  color: var(--wd-ink-2);
+}
+.cv-grade.is-g2 {
+  border-color: #d9a441;
+  color: #b07d1c;
+}
+.cv-grade.is-g1 {
+  border-color: var(--wd-acc-ice);
+  color: var(--wd-acc-ice);
+}
+.cv-relic.is-locked {
+  opacity: 0.6;
+}
+.cv-bag-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 10px;
+  background: var(--wd-paper-2);
+}
+.cv-bag-item strong {
+  font-family: var(--wd-serif);
+}

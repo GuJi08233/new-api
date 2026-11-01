@@ -24,6 +24,7 @@ import { useTranslation } from 'react-i18next';
 import { CostChips, canAfford } from '../../sect/parts';
 import CaveArt from '../art/CaveArt';
 import Forge from './Forge';
+import Furnace from './Furnace';
 import { getRoomText, roomEffect } from './text';
 import './cave.css';
 
@@ -59,11 +60,11 @@ const Rooms = ({ info, hero, res, busy, act }) => {
             </div>
             <p className='cv-room-desc'>{rooms[room].desc}</p>
             <p className='cv-room-effect'>
-              {roomEffect(t, cave, room, level)}
+              {roomEffect(t, info, room, level)}
               {!maxed && (
                 <span className='cv-next'>
                   {' → '}
-                  {roomEffect(t, cave, room, next)}
+                  {roomEffect(t, info, room, next)}
                 </span>
               )}
             </p>
@@ -93,12 +94,13 @@ const Rooms = ({ info, hero, res, busy, act }) => {
   );
 };
 
-// 洞府：宗主本人修行的地方。顶上一幅洞府图，开辟了的屋子点亮；下面分屋子、器室几块。
-const Cave = ({ info, hero, res, rare, busy, act }) => {
+// 洞府：宗主本人修行的地方。顶上一幅洞府图，开辟了的屋子点亮；下面分屋子、丹室、器室几块。
+const Cave = ({ info, hero, res, rare, now, busy, act }) => {
   const { t } = useTranslation();
   const [view, setView] = useState('rooms');
   const views = [
     { key: 'rooms', label: t('屋子') },
+    { key: 'furnace', label: t('丹室') },
     { key: 'forge', label: t('器室') },
   ];
   return (
@@ -129,6 +131,17 @@ const Cave = ({ info, hero, res, rare, busy, act }) => {
           </p>
           <Rooms info={info} hero={hero} res={res} busy={busy} act={act} />
         </>
+      )}
+      {view === 'furnace' && (
+        <Furnace
+          info={info}
+          hero={hero}
+          res={res}
+          rare={rare}
+          now={now}
+          busy={busy}
+          act={act}
+        />
       )}
       {view === 'forge' && (
         <Forge

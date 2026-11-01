@@ -33,6 +33,14 @@ type Hero struct {
 	// Refine 是每件法宝祭炼到几级，Bless 是祭炼失败攒下的祝福(下一次成功率多几个百分点)，见 forge.go。
 	Refine map[string]int `json:"refine,omitempty"`
 	Bless  map[string]int `json:"bless,omitempty"`
+	// Furnaces 是丹室里正在炼的几炉，Elixirs 是炼好的丹(按下品、中品、上品)，Buffs 是服下还有药力的金刚丹、龙虎丹，
+	// Mastery 是每张丹方炼成过几炉；Tempered 是淬体丹加了多少生命，Golden 是服了几颗九转金丹。见 elixir.go。
+	Furnaces []*Brew           `json:"furnaces,omitempty"`
+	Elixirs  map[string][3]int `json:"elixirs,omitempty"`
+	Buffs    map[string]*Buff  `json:"buffs,omitempty"`
+	Mastery  map[string]int    `json:"mastery,omitempty"`
+	Tempered int               `json:"tempered,omitempty"`
+	Golden   int               `json:"golden,omitempty"`
 	// Day 与 DayRepeats 记今天重复通过节点拿了几次资源。
 	Day        string      `json:"day"`
 	DayRepeats int         `json:"day_repeats"`
@@ -65,7 +73,8 @@ type HeroStats struct {
 }
 
 // HeroAction 是历练里的一次操作。Move、Card、Target、Choice、Potion 是战斗里的一步(与九幽秘境相同)；Team 是开战(或登
-// 问心阶)时随行的弟子；Item、Count 是在丹房炼的丹符与份数。
+// 问心阶)时随行的弟子；Item、Count 是在丹房炼的丹符与份数(洞府的操作里 Item 是屋子、法宝或丹方)；Fire 是开炉的火候，
+// Index 是第几座丹炉，Grade 是服哪个品质的丹。
 type HeroAction struct {
 	Type    string   `json:"action"`
 	Class   string   `json:"class"`
@@ -81,6 +90,9 @@ type HeroAction struct {
 	Target  int      `json:"target"`
 	Choice  int      `json:"choice"`
 	Potion  int      `json:"potion"`
+	Fire    string   `json:"fire"`
+	Index   int      `json:"index"`
+	Grade   int      `json:"grade"`
 }
 
 // normalize 补上存档里省略的空表。
@@ -115,6 +127,18 @@ func (h *Hero) normalize() {
 	if h.Bless == nil {
 		h.Bless = map[string]int{}
 	}
+	if h.Furnaces == nil {
+		h.Furnaces = []*Brew{}
+	}
+	if h.Elixirs == nil {
+		h.Elixirs = map[string][3]int{}
+	}
+	if h.Buffs == nil {
+		h.Buffs = map[string]*Buff{}
+	}
+	if h.Mastery == nil {
+		h.Mastery = map[string]int{}
+	}
 }
 
 // NewHero 按流派创建主角：初始牌组全部放进牌组，本命法宝戴在身上，炼气一层。
@@ -133,16 +157,16 @@ func NewHero(class string, now int64) (*Hero, error) {
 	return h, nil
 }
 
-// MaxHP 是主角的最大生命：流派的初始生命，每多一层、每高一个境界都更多，洞府的灵泉与祭炼过的法宝再加。
+// MaxHP 是主角的最大生命：流派的初始生命，每多一层、每高一个境界都更多，洞府的灵泉、祭炼过的法宝与淬体丹再加。
 func (h *Hero) MaxHP() int {
 	hp := dungeon.ClassHP(h.Class) + heroLayerHP*(h.Layer-1) + heroRealmHP*h.Realm + springHP*h.Cave[RoomSpring] +
-		h.refineBonus().HP
+		h.refineBonus().HP + h.Tempered
 	return min(hp, dungeon.BattleMaxHP)
 }
 
-// Strength 是主角开战时的力量：每高一个境界多一点，祭炼过的锋路法宝再加。
+// Strength 是主角开战时的力量：每高一个境界多一点，祭炼过的锋路法宝与九转金丹再加(金刚丹、龙虎丹的药力另算)。
 func (h *Hero) Strength() int {
-	return min(h.Realm+h.refineBonus().Strength, dungeon.BattleMaxStrength)
+	return min(h.Realm+h.refineBonus().Strength+h.Golden, dungeon.BattleMaxStrength)
 }
 
 // Block 是主角开战时的护体：祭炼过的御路法宝给的。
@@ -303,6 +327,14 @@ func (sv *Save) HeroApply(a HeroAction, now int64, day string, seed uint64) ([]E
 		more, err = h.buildRoom(s, a.Item)
 	case "refine":
 		more, err = h.refine(s, a.Item)
+	case "brew":
+		more, err = h.brew(s, a.Item, a.Fire, now)
+	case "stoke":
+		more, err = h.stoke(a.Index, now)
+	case "collect":
+		more, err = h.collect(s, a.Index, now)
+	case "elixir":
+		more, err = h.takeElixir(s, a.Item, a.Grade, now)
 	case "battle":
 		more, err = h.battleStep(s, a, now)
 	case "flee":
@@ -554,13 +586,17 @@ func (h *Hero) startBattle(s *Sect, battle *HeroBattle, kind string, enemies []s
 	if len(h.Cards) >= MaxCards {
 		rewards = 0
 	}
+	buffBlock, buffStrength := h.buffPower()
 	run, err := dungeon.NewBattle(seed, dungeon.BattleSetup{
-		Class: h.Class, Deck: h.deckCards(), Relics: h.Worn, Potions: carried, MaxHP: h.MaxHP(), Strength: h.Strength(),
-		Block: h.Block(), Kind: kind, Enemies: enemies, HP: hp, Dmg: dmg, Rewards: rewards, Allies: allies,
+		Class: h.Class, Deck: h.deckCards(), Relics: h.Worn, Potions: carried, MaxHP: h.MaxHP(),
+		Strength: min(h.Strength()+buffStrength, dungeon.BattleMaxStrength),
+		Block:    min(h.Block()+buffBlock, dungeon.BattleMaxBlock),
+		Kind:     kind, Enemies: enemies, HP: hp, Dmg: dmg, Rewards: rewards, Allies: allies,
 	})
 	if err != nil {
 		return err
 	}
+	h.spendBuffs()
 	battle.Run, battle.Carried, battle.Team = run, carried, slices.Clone(team)
 	h.Battle = battle
 	return nil
@@ -717,6 +753,23 @@ type HeroView struct {
 	Refine      map[string]int `json:"refine"`
 	Bless       map[string]int `json:"bless"`
 	RefineBonus RefineBonus    `json:"refine_bonus"`
+	// 丹室：正在炼的几炉(Score 是不含随机数的品质分)、丹炉数、炼好的丹、身上的药力、熟练、淬体与九转金丹。
+	Furnaces     []BrewView        `json:"furnaces"`
+	FurnaceSlots int               `json:"furnace_slots"`
+	Elixirs      map[string][3]int `json:"elixirs"`
+	Buffs        map[string]*Buff  `json:"buffs"`
+	Mastery      map[string]int    `json:"mastery"`
+	Tempered     int               `json:"tempered"`
+	TemperCap    int               `json:"temper_cap"`
+	Golden       int               `json:"golden"`
+}
+
+// BrewView 是丹室里正在炼的一炉：StokeFrom、StokeTo 是能调火的时间段。
+type BrewView struct {
+	Brew
+	StokeFrom int64 `json:"stoke_from"`
+	StokeTo   int64 `json:"stoke_to"`
+	Score     int   `json:"score"`
 }
 
 // CompanionView 是一名可以随行的弟子。
@@ -748,7 +801,13 @@ func (h *Hero) View(s *Sect, now int64, day string) HeroView {
 		RepeatsLeft: DailyRepeatRewards, QiReady: h.QiReady, Companions: []CompanionView{},
 		Alchemy: s.Buildings[BuildingAlchemy], StepsOpen: h.StepsOpen(), Steps: h.Steps,
 		Cave: h.Cave, RoomCap: RoomCap(h.Realm), Block: h.Block(), Refine: h.Refine, Bless: h.Bless,
-		RefineBonus: h.refineBonus(),
+		RefineBonus: h.refineBonus(), Furnaces: []BrewView{}, FurnaceSlots: FurnaceSlots(h.Cave[RoomFurnace]),
+		Elixirs: h.Elixirs, Buffs: h.Buffs, Mastery: h.Mastery, Tempered: h.Tempered, TemperCap: TemperCap(h.Realm),
+		Golden: h.Golden,
+	}
+	for _, b := range h.Furnaces {
+		from, to := b.StokeWindow()
+		v.Furnaces = append(v.Furnaces, BrewView{Brew: *b, StokeFrom: from, StokeTo: to, Score: h.QualityScore(b)})
 	}
 	for _, d := range s.Disciples {
 		v.Companions = append(v.Companions, CompanionView{Id: d.Id, Name: d.Name, Element: d.Element, Realm: d.Realm,
