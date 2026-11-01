@@ -19,11 +19,13 @@ For commercial licensing, please contact support@quantumnous.com
 
 import { formatAmount } from '../../sect/parts';
 import { getKeyText, getNodeText } from './text';
+import { getRoomText } from '../cave/text';
 
 // 历练之外的事(通过节点、登上问心阶、突破、参悟)写成几句话，显示在台面上方。
 export function heroEventLines(events, t, text, sectText) {
   const nodes = getNodeText(t);
   const keys = getKeyText(t);
+  const rooms = getRoomText(t);
   const lines = [];
   const gains = [];
   for (const ev of events || []) {
@@ -75,6 +77,16 @@ export function heroEventLines(events, t, text, sectText) {
         break;
       case 'hero_step':
         lines.unshift(t('登上问心阶第 {{n}} 级', { n: ev.n }));
+        break;
+      case 'hero_room':
+        lines.push(
+          ev.n === 1
+            ? t('洞府开辟了{{name}}', { name: rooms[ev.s]?.name })
+            : t('{{name}}扩建到 {{n}} 级', {
+                name: rooms[ev.s]?.name,
+                n: ev.n,
+              }),
+        );
         break;
       case 'hero_steps_open':
         lines.push(t('宗主令背面亮起一道新的纹路：山门后的问心阶开放了'));

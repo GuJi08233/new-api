@@ -34,6 +34,7 @@ import MapPanel from './MapPanel';
 import StepsPanel from './StepsPanel';
 import Collection from './Collection';
 import Gear from './Gear';
+import Cave from '../cave/Cave';
 import BattleStage from './BattleStage';
 import StoryDialog from './StoryDialog';
 import { heroEventLines } from './lines';
@@ -252,6 +253,15 @@ const JourneyPage = () => {
               act={act}
             />
           </TabPane>
+          <TabPane tab={t('洞府')} itemKey='cave'>
+            <Cave
+              info={info}
+              hero={hero}
+              res={state.res}
+              busy={busy}
+              act={act}
+            />
+          </TabPane>
           <TabPane tab={t('法宝与行囊')} itemKey='gear'>
             <Gear
               info={info}
@@ -311,6 +321,9 @@ const JourneyPage = () => {
                 ),
                 t(
                   '奖励的灵石、灵草、玄铁直接进宗门库房，参悟功法也花宗门的灵石',
+                ),
+                t(
+                  '洞府是宗主本人的修行之所：静室加快闭关，灵泉增加生命，丹室开炉炼丹，器室祭炼法宝',
                 ),
                 t('历练不发游戏币'),
               ]}

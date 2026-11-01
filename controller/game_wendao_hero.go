@@ -42,6 +42,7 @@ func journeyInfo() gin.H {
 		"companion_max":        wendao.CompanionMax,
 		"steps":                wendao.Steps(),
 		"steps_unlock":         wendao.StepsUnlock,
+		"cave":                 wendao.CaveRulesOf(),
 	}
 }
 

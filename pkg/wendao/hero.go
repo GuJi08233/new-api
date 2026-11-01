@@ -28,6 +28,8 @@ type Hero struct {
 	Steps int `json:"steps,omitempty"`
 	// QiReady 是下一颗聚气丹什么时候能服(与弟子相同，服一颗要等丹力化开)。
 	QiReady int64 `json:"qi_ready,omitempty"`
+	// Cave 是洞府里每间屋子的等级(cave.go)。
+	Cave map[string]int `json:"cave,omitempty"`
 	// Day 与 DayRepeats 记今天重复通过节点拿了几次资源。
 	Day        string      `json:"day"`
 	DayRepeats int         `json:"day_repeats"`
@@ -101,6 +103,9 @@ func (h *Hero) normalize() {
 	if h.Nodes == nil {
 		h.Nodes = map[string]*NodeRecord{}
 	}
+	if h.Cave == nil {
+		h.Cave = map[string]int{}
+	}
 }
 
 // NewHero 按流派创建主角：初始牌组全部放进牌组，本命法宝戴在身上，炼气一层。
@@ -119,9 +124,9 @@ func NewHero(class string, now int64) (*Hero, error) {
 	return h, nil
 }
 
-// MaxHP 是主角的最大生命：流派的初始生命，每多一层、每高一个境界都更多。
+// MaxHP 是主角的最大生命：流派的初始生命，每多一层、每高一个境界都更多，洞府的灵泉再加。
 func (h *Hero) MaxHP() int {
-	return dungeon.ClassHP(h.Class) + heroLayerHP*(h.Layer-1) + heroRealmHP*h.Realm
+	return dungeon.ClassHP(h.Class) + heroLayerHP*(h.Layer-1) + heroRealmHP*h.Realm + springHP*h.Cave[RoomSpring]
 }
 
 // Strength 是主角开战时的力量：每高一个境界多一点。
@@ -136,9 +141,10 @@ func (h *Hero) Bottleneck() bool {
 }
 
 // CultivateRate 是主角闭关每小时的修为：每高一个大境界快一倍(境界越高每层要的修为越多，主角靠它跟上章节)，聚灵阵每级
-// 再加快，与弟子相同。
+// 再加快(与弟子相同)，洞府的静室也加快，两者相加。
 func (h *Hero) CultivateRate(s *Sect) float64 {
-	return heroExpPerHour * float64(int(1)<<h.Realm) * (1 + arrayCultivate*float64(s.Buildings[BuildingArray]))
+	bonus := arrayCultivate*float64(s.Buildings[BuildingArray]) + quietCultivate*float64(h.Cave[RoomQuiet])
+	return heroExpPerHour * float64(int(1)<<h.Realm) * (1 + bonus)
 }
 
 // addExp 加修为并自动升层；第九层修满后修为不再增加，等突破。
@@ -277,6 +283,8 @@ func (sv *Save) HeroApply(a HeroAction, now int64, day string, seed uint64) ([]E
 		more, err = h.craft(s, a.Item, a.Count)
 	case "qi":
 		more, err = h.takeQi(s, a.Item, now)
+	case "room":
+		more, err = h.buildRoom(s, a.Item)
 	case "battle":
 		more, err = h.battleStep(s, a, now)
 	case "flee":
@@ -567,16 +575,7 @@ func (h *Hero) craft(s *Sect, potion string, count int) ([]Ev, error) {
 		return nil, err
 	}
 	h.Potions[potion] += count
-	var evs []Ev
-	for _, spent := range []struct {
-		key string
-		n   int
-	}{{"stone", cost.Stone}, {"herb", cost.Herb}, {"ore", cost.Ore}} {
-		if spent.n > 0 {
-			evs = append(evs, Ev{K: "res", S: spent.key, N: -spent.n})
-		}
-	}
-	return append(evs, Ev{K: "hero_potion", S: potion, N: count}), nil
+	return append(spentEvs(cost), Ev{K: "hero_potion", S: potion, N: count}), nil
 }
 
 // takeQi 服一颗宗门的聚气丹(pill 为空或 qi)或培元丹：马上得到几个小时闭关的修为，要等丹力化开才能服下一颗。
@@ -692,6 +691,9 @@ type HeroView struct {
 	Alchemy int `json:"alchemy"`
 	// Companions 是宗门里的弟子，Ready 表示现在能随行(在宗门里、没受伤)。
 	Companions []CompanionView `json:"companions"`
+	// Cave 是洞府每间屋子的等级，RoomCap 是现在的境界能建到几级。
+	Cave    map[string]int `json:"cave"`
+	RoomCap int            `json:"room_cap"`
 }
 
 // CompanionView 是一名可以随行的弟子。
@@ -722,6 +724,7 @@ func (h *Hero) View(s *Sect, now int64, day string) HeroView {
 		Nodes: h.Nodes, Open: []string{}, Ready: map[string]int64{}, Stats: h.Stats, Now: now,
 		RepeatsLeft: DailyRepeatRewards, QiReady: h.QiReady, Companions: []CompanionView{},
 		Alchemy: s.Buildings[BuildingAlchemy], StepsOpen: h.StepsOpen(), Steps: h.Steps,
+		Cave: h.Cave, RoomCap: RoomCap(h.Realm),
 	}
 	for _, d := range s.Disciples {
 		v.Companions = append(v.Companions, CompanionView{Id: d.Id, Name: d.Name, Element: d.Element, Realm: d.Realm,
