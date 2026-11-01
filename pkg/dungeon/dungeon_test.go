@@ -319,16 +319,23 @@ func TestContentIsWellFormed(t *testing.T) {
 	}
 }
 
-// 历练专有的敌人不进九幽秘境的幕，也不进练习的敌人表(练习页把没有出身幕的敌人当训练木桩)，但单场战斗认得它们。
-func TestJourneyEnemiesStayOutOfSecretRealm(t *testing.T) {
-	inCatalog := map[string]bool{}
+// 历练专有的敌人不进九幽秘境的幕；练习的敌人表里有它们，没有出身的幕、标着出自历练第几章(页面靠它与训练木桩区分)；
+// 单场战斗与练习都认得它们。
+func TestJourneyEnemiesStayOutOfTheActs(t *testing.T) {
+	inCatalog := map[string]CatalogEnemy{}
 	for _, e := range NewCatalog().Enemies {
-		inCatalog[e.Id] = true
+		inCatalog[e.Id] = e
 	}
+	assert.Zero(t, inCatalog[DummyEnemy].Chapter)
 	for _, d := range journeyEnemyList {
 		assert.Zero(t, NativeAct(d.Id), d.Id)
-		assert.False(t, inCatalog[d.Id], d.Id)
-		_, err := NewBattle(1, BattleSetup{Class: ClassWarrior, Deck: StarterDeck(ClassWarrior), MaxHP: 100, Kind: NodeCombat,
+		entry := inCatalog[d.Id]
+		assert.Zero(t, entry.Act, d.Id)
+		assert.Contains(t, []int{4, 5}, entry.Chapter, d.Id)
+		assert.Contains(t, []string{NodeCombat, NodeElite, NodeBoss}, entry.Kind, d.Id)
+		_, err := NewPractice(1, PracticeSetup{Class: ClassMage, Deck: StarterDeck(ClassMage), Enemies: []string{d.Id}, Stage: 1})
+		assert.NoError(t, err, d.Id)
+		_, err = NewBattle(1, BattleSetup{Class: ClassWarrior, Deck: StarterDeck(ClassWarrior), MaxHP: 100, Kind: NodeCombat,
 			Enemies: []string{d.Id}, HP: 100, Dmg: 100})
 		assert.NoError(t, err, d.Id)
 	}

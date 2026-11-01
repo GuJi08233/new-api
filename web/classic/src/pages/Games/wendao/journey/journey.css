@@ -654,3 +654,145 @@
 .jn-result {
   margin: 4px 0 12px;
 }
+
+/* ---------- 称号与问心阶 ---------- */
+.jn-hero-seal {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 0 6px;
+  border: 1px solid var(--wd-red);
+  border-radius: 3px;
+  color: var(--wd-red);
+  font-family: var(--wd-serif);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 600;
+  letter-spacing: 1px;
+  transform: rotate(-2deg);
+}
+.jn-detail.jn-steps-head {
+  flex-direction: row;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.jn-steps-head h4 {
+  margin: 0 0 4px;
+  font-family: var(--wd-serif);
+  font-size: 17px;
+  letter-spacing: 2px;
+}
+.jn-steps-count {
+  flex: none;
+  font-family: var(--wd-serif);
+  font-size: 13px;
+  color: var(--wd-ink-3);
+}
+.jn-steps-count strong {
+  font-size: 26px;
+  color: var(--wd-red);
+}
+.jn-steps-summit {
+  margin: 0;
+  padding: 8px 12px;
+  border-left: 3px solid var(--wd-red);
+  border-radius: 6px;
+  background: var(--wd-red-soft);
+  font-family: var(--wd-serif);
+  color: var(--wd-ink);
+}
+/* 石阶从下往上，越往上越窄，像一道上山的台阶。 */
+.jn-steps {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 14px 10px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 14px;
+  background: linear-gradient(to top, var(--wd-paper-3), transparent 70%),
+    var(--wd-paper-2);
+}
+.jn-steps-row {
+  display: grid;
+  grid-template-columns: repeat(10, minmax(0, 1fr));
+  gap: 4px;
+  width: 100%;
+}
+.jn-steps-row:nth-child(1) {
+  width: 76%;
+}
+.jn-steps-row:nth-child(2) {
+  width: 82%;
+}
+.jn-steps-row:nth-child(3) {
+  width: 88%;
+}
+.jn-steps-row:nth-child(4) {
+  width: 94%;
+}
+.jn-step {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: 0;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--wd-ink-3);
+  border-radius: 4px;
+  background: var(--wd-paper);
+  color: var(--wd-ink-3);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.jn-step.is-done {
+  border-color: var(--wd-ink-2);
+  background: var(--wd-ink-2);
+  color: var(--wd-paper);
+}
+.jn-step.is-open {
+  border-color: var(--wd-red);
+  color: var(--wd-red);
+  box-shadow: 0 0 0 2px var(--wd-red-soft);
+}
+.jn-step.is-locked {
+  opacity: 0.55;
+}
+.jn-step.is-elite,
+.jn-step.is-boss {
+  border-width: 2px;
+}
+.jn-step.is-selected {
+  outline: 2px solid var(--wd-red);
+  outline-offset: 1px;
+}
+.jn-step:focus-visible {
+  outline: 2px solid var(--wd-red);
+  outline-offset: 2px;
+}
+.jn-step-check {
+  position: absolute;
+  top: 1px;
+  right: 2px;
+}
+.jn-enemy.is-demon .jn-enemy-art,
+.jn-demon .dg-enemy-art {
+  filter: grayscale(1) contrast(1.15) drop-shadow(0 0 4px var(--wd-acc-violet));
+  opacity: 0.85;
+}
+@media (max-width: 560px) {
+  .jn-steps-row,
+  .jn-steps-row:nth-child(n) {
+    width: 100%;
+  }
+  .jn-step {
+    height: 26px;
+    font-size: 11px;
+  }
+  .jn-step svg {
+    display: none;
+  }
+}

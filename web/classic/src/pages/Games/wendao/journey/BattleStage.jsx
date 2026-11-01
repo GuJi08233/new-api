@@ -33,7 +33,8 @@ import { useSectText } from '../../sect/parts';
 import { heroEventLines } from './lines';
 import { getNodeText } from './text';
 
-// 历练里的一场仗：顶上是生命、丹符与法宝，台面用九幽秘境的战斗；打完显示胜负与这一场的收获。
+// 历练里的一场仗(地图节点或问心阶)：顶上是生命、丹符与法宝，台面用九幽秘境的战斗；打完显示胜负与这一场的收获。问心阶
+// 的敌人是心魔，画成褪了色的墨影。
 const BattleStage = ({ hero, busy, ended, events, send, onFlee, onBack }) => {
   const { t } = useTranslation();
   const text = useDungeonText();
@@ -98,7 +99,11 @@ const BattleStage = ({ hero, busy, ended, events, send, onFlee, onBack }) => {
     <>
       <div className='dg-hud'>
         <div className='dg-hud-row'>
-          <span className='dg-mode is-trial'>{nodes[battle.node]?.name}</span>
+          <span className='dg-mode is-trial'>
+            {battle.step
+              ? t('问心阶 · 第 {{n}} 级', { n: battle.step })
+              : nodes[battle.node]?.name}
+          </span>
           <span className='dg-hud-spacer' />
           <Button
             size='small'
@@ -149,7 +154,7 @@ const BattleStage = ({ hero, busy, ended, events, send, onFlee, onBack }) => {
           </div>
         )}
       </div>
-      <div className='dg-stage-body'>
+      <div className={`dg-stage-body ${battle.step ? 'jn-demon' : ''}`}>
         {run.phase === 'combat' && (
           <Combat
             run={run}

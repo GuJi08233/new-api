@@ -741,9 +741,24 @@ export const getNodeText = (t) => ({
           '宗门大比、论剑与仙盟照常进行。九幽秘境留了下来，成了后辈修行的历练之地。',
         ),
       ),
+      line(
+        'narrator',
+        t(
+          '宗主令的背面，亮起一道从未见过的纹路。山门后荒废百年的问心阶，重新为宗主敞开。',
+        ),
+      ),
     ],
   },
 });
+
+// 通关(重铸封印)以后主角的称号，随问心阶登到的级数变；还没通关时没有称号。
+export const getHeroTitle = (t, hero) => {
+  if (!hero.steps_open) return '';
+  if (hero.steps >= 50) return t('问心无愧');
+  if (hero.steps >= 30) return t('道心通明');
+  if (hero.steps >= 10) return t('道心坚定');
+  return t('重铸封印');
+};
 
 export const getNodeKindNames = (t) => ({
   story: t('剧情'),

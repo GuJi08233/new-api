@@ -12,7 +12,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// 创建主角时一起开宗立派；历练的奖励进宗门的库房；开战后存档里有这一场，逃跑后结束并把丹符放回行囊；问道关闭时不能操作。
+// 创建主角时一起开宗立派；历练的奖励进宗门的库房；开战后存档里有这一场，逃跑后结束并把丹符放回行囊；通关之前不能登问心阶；
+// 问道关闭时不能操作。
 func TestHeroJourneyThroughTheApi(t *testing.T) {
 	require.NoError(t, i18n.Init())
 	env := newGameTestEnv(t, sectSettings())
@@ -48,6 +49,8 @@ func TestHeroJourneyThroughTheApi(t *testing.T) {
 	fled := player.ok(http.MethodPost, path+"/action", map[string]any{"action": "flee"})
 	assert.Nil(t, fled["hero"].(map[string]any)["battle"])
 	assert.Equal(t, dungeon.PhaseCombat, fled["ended"].(map[string]any)["phase"], "the page gets the last view of the fight")
+	assert.Equal(t, false, fled["hero"].(map[string]any)["steps_open"])
+	player.fails(http.MethodPost, path+"/action", map[string]any{"action": "climb"})
 
 	setting := sectSettings()
 	setting.Wendao.Enabled = false

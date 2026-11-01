@@ -265,11 +265,13 @@ func (r *Run) View() View {
 	return v
 }
 
-// CatalogEnemy 是练习模式里能选的一个敌人。
+// CatalogEnemy 是练习模式里能选的一个敌人。Act 是出身的幕(训练木桩为 0)；历练专有的敌人没有幕，Chapter 是它出自
+// 历练的第几章。
 type CatalogEnemy struct {
-	Id   string `json:"id"`
-	Act  int    `json:"act"`
-	Kind string `json:"kind"`
+	Id      string `json:"id"`
+	Act     int    `json:"act"`
+	Chapter int    `json:"chapter,omitempty"`
+	Kind    string `json:"kind"`
 }
 
 // Catalog 是练习模式与试炼页面要用的全部内容：能放进牌组的牌(附升级预览)、遗物、敌人与试炼。
@@ -292,6 +294,10 @@ func NewCatalog() Catalog {
 	}
 	for _, d := range enemyList {
 		c.Enemies = append(c.Enemies, CatalogEnemy{Id: d.Id, Act: NativeAct(d.Id), Kind: encounterKind([]string{d.Id})})
+	}
+	for _, d := range journeyEnemyList {
+		origin := journeyEnemyOrigin[d.Id]
+		c.Enemies = append(c.Enemies, CatalogEnemy{Id: d.Id, Chapter: origin.Chapter, Kind: origin.Kind})
 	}
 	return c
 }

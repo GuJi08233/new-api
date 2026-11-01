@@ -372,8 +372,9 @@ var enemyList = []*EnemyDef{
 // DummyEnemy 是训练木桩，只在练习模式出现。
 const DummyEnemy = "dummy"
 
-// journeyEnemyList 是问道历练第四、五章专有的敌人(万妖林与九幽深处)。它们不在九幽秘境的幕里出现，也不进练习与试炼的
-// 敌人表，只能由历练的节点调用。数值是未放大的基础值，历练再按节点种类与章节放大(见 pkg/wendao 的 EnemyScale)。
+// journeyEnemyList 是问道历练第四、五章专有的敌人(万妖林与九幽深处)。它们不在九幽秘境的幕里出现，也不进试炼，由历练的
+// 节点与问心阶调用；练习的敌人表里也有它们，按 journeyEnemyOrigin 标出自历练第几章。数值是未放大的基础值，历练再按节点
+// 种类与章节放大(见 pkg/wendao 的 EnemyScale)。
 var journeyEnemyList = []*EnemyDef{
 	// 第四章 · 万妖林
 	{Id: "treant", HP: [2]int{50, 56}, Start: map[string]int{StThorns: 2}, Moves: []Move{{Id: "vine", Dmg: 9, Foe: map[string]int{StWeak: 1}}, {Id: "bloom", Block: 10, Heal: 6}}, Weights: []int{3, 2}},
@@ -390,6 +391,17 @@ var journeyEnemyList = []*EnemyDef{
 	{Id: "soul_lord", HP: [2]int{160, 170}, Moves: []Move{{Id: "devour", Dmg: 20, Lifesteal: true}, {Id: "dread", Wounds: 2, Foe: map[string]int{StWeak: 2, StVuln: 2}}, {Id: "ward", Block: 24, Self: map[string]int{StStrength: 2}}}, Cycle: []int{0, 1, 0, 2}},
 	{Id: "taixu", HP: [2]int{270, 280}, Moves: []Move{{Id: "sword_rain", Dmg: 7, Times: 4}, {Id: "array", Block: 26, Self: map[string]int{StStrength: 2}}, {Id: "thunder", Dmg: 30}, {Id: "siphon", Dmg: 13, Lifesteal: true, Foe: map[string]int{StWeak: 2}}}, Cycle: []int{0, 3, 1, 2}},
 	{Id: "patriarch", HP: [2]int{230, 240}, Moves: []Move{{Id: "corrode", Wounds: 3, Foe: map[string]int{StWeak: 2, StVuln: 2}}, {Id: "lash", Dmg: 8, Times: 4}, {Id: "bulwark", Block: 30, Self: map[string]int{StStrength: 2}}, {Id: "annihilate", Dmg: 40}}, Cycle: []int{0, 1, 2, 3}},
+}
+
+// journeyEnemyOrigin 是历练专有的敌人出自历练第几章、在那里是哪种对手。
+var journeyEnemyOrigin = map[string]struct {
+	Chapter int
+	Kind    string
+}{
+	"treant": {4, NodeCombat}, "viper": {4, NodeCombat}, "fox_guard": {4, NodeCombat}, "bear": {4, NodeElite},
+	"spider": {4, NodeElite}, "fox_emperor": {4, NodeBoss},
+	"nether_hound": {5, NodeCombat}, "hungry_ghost": {5, NodeCombat}, "judge": {5, NodeElite}, "soul_lord": {5, NodeElite},
+	"taixu": {5, NodeBoss}, "patriarch": {5, NodeBoss},
 }
 
 var enemyDefs = func() map[string]*EnemyDef {

@@ -39,11 +39,11 @@ import EnemyArt from '../art/EnemyArt';
 import { getEnemyNames } from '../../dungeon/text';
 import {
   CostChips,
-  ElementTag,
+  formatAmount,
   formatLeft,
-  realmLabel,
   useSectText,
 } from '../../sect/parts';
+import TeamPicker, { readyTeam } from './TeamPicker';
 import {
   getChapterText,
   getKeyText,
@@ -197,13 +197,6 @@ const NodeDetail = ({
 }) => {
   const { t } = useTranslation();
   const [team, setTeam] = useState([]);
-  const toggleMember = (id) =>
-    setTeam((current) => {
-      if (current.includes(id))
-        return current.filter((member) => member !== id);
-      if (current.length >= info.companion_max) return current;
-      return [...current, id];
-    });
   const text = useDungeonText();
   const sectText = useSectText();
   const texts = getNodeText(t);
@@ -267,72 +260,49 @@ const NodeDetail = ({
           </span>
         </div>
       )}
-      <div className='jn-rewards'>
-        <span className='jn-reward-label'>
-          {first ? t('首次奖励') : t('再次奖励')}
-        </span>
-        {node.exp > 0 && (
-          <span className='jn-reward'>
-            <Sparkles size={13} />
-            {t('修为 +{{n}}', {
-              n: first ? node.exp : Math.round(node.exp / 2),
-            })}
-          </span>
-        )}
-        <CostChips cost={reward} sign='+' />
-        {first && node.relic && <RelicChip id={node.relic} />}
-        {first &&
-          (node.potions || []).map((id, index) => (
-            <span key={index} className='jn-reward'>
-              <FlaskConical size={13} />
-              {text.potions[id]?.name}
-            </span>
-          ))}
-        {first && node.key && (
-          <span className='jn-reward is-key'>
-            <KeyRound size={13} />
-            {keys[node.key]?.name}
-          </span>
-        )}
-        {fights && (
-          <span className='jn-reward'>
-            <Gem size={13} />
-            {t('功法三选一')}
-          </span>
-        )}
-      </div>
-      {fights && (state === 'open' || state === 'repeat') && (
-        <div className='jn-team'>
+      {(first || node.kind !== 'story') && (
+        <div className='jn-rewards'>
           <span className='jn-reward-label'>
-            {t('随行弟子（最多 {{n}} 名，各带一张援护牌）', {
-              n: info.companion_max,
-            })}
+            {first ? t('首次奖励') : t('再次奖励')}
           </span>
-          {hero.companions.length === 0 && (
-            <span className='jn-muted'>{t('宗门里还没有弟子')}</span>
+          {node.exp > 0 && (
+            <span className='jn-reward'>
+              <Sparkles size={13} />
+              {t('修为 +{{n}}', {
+                n: formatAmount(first ? node.exp : Math.round(node.exp / 2)),
+              })}
+            </span>
           )}
-          {hero.companions.map((d) => {
-            const picked = team.includes(d.id);
-            return (
-              <button
-                type='button'
-                key={d.id}
-                className={picked ? 'jn-member is-picked' : 'jn-member'}
-                disabled={!d.ready}
-                aria-pressed={picked}
-                onClick={() => toggleMember(d.id)}
-              >
-                <ElementTag element={d.element} />
-                <strong>{sectText.name(d.name)}</strong>
-                <span>
-                  {d.ready
-                    ? realmLabel(sectText, t, d.realm, d.layer)
-                    : t('外出或受伤')}
-                </span>
-              </button>
-            );
-          })}
+          <CostChips cost={reward} sign='+' />
+          {first && node.relic && <RelicChip id={node.relic} />}
+          {first &&
+            (node.potions || []).map((id, index) => (
+              <span key={index} className='jn-reward'>
+                <FlaskConical size={13} />
+                {text.potions[id]?.name}
+              </span>
+            ))}
+          {first && node.key && (
+            <span className='jn-reward is-key'>
+              <KeyRound size={13} />
+              {keys[node.key]?.name}
+            </span>
+          )}
+          {fights && (
+            <span className='jn-reward'>
+              <Gem size={13} />
+              {t('功法三选一')}
+            </span>
+          )}
         </div>
+      )}
+      {fights && (state === 'open' || state === 'repeat') && (
+        <TeamPicker
+          companions={hero.companions}
+          max={info.companion_max}
+          team={team}
+          onChange={setTeam}
+        />
       )}
       {!first && node.kind !== 'story' && (
         <p className='jn-muted'>
@@ -397,10 +367,8 @@ const NodeDetail = ({
             type={node.kind === 'boss' ? 'danger' : 'primary'}
             disabled={busy || hero.deck.length < 8}
             onClick={() => {
-              const members = team.filter((id) =>
-                hero.companions.some((d) => d.id === id && d.ready),
-              );
-              const fight = () => onFight(node.id, members);
+              const fight = () =>
+                onFight(node.id, readyTeam(team, hero.companions));
               if (first && own.intro) {
                 onStory({
                   lines: own.intro,

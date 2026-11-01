@@ -24,6 +24,8 @@ type Hero struct {
 	Keys    map[string]int `json:"keys"`
 	// Nodes 是走过的节点：通过次数与上次通过的时间(采集按它算间隔)。
 	Nodes map[string]*NodeRecord `json:"nodes"`
+	// Steps 是问心阶已经登到第几级。
+	Steps int `json:"steps,omitempty"`
 	// QiReady 是下一颗聚气丹什么时候能服(与弟子相同，服一颗要等丹力化开)。
 	QiReady int64 `json:"qi_ready,omitempty"`
 	// Day 与 DayRepeats 记今天重复通过节点拿了几次资源。
@@ -39,9 +41,11 @@ type NodeRecord struct {
 	Last   int64 `json:"last"`
 }
 
-// HeroBattle 是主角正在打的一场仗：在哪个节点、这一场的局面，以及从行囊里带出来的丹符(打完把没用掉的放回去)。
+// HeroBattle 是主角正在打的一场仗：在哪个节点(或问心阶的第几级)、这一场的局面，以及从行囊里带出来的丹符(打完把没用掉的
+// 放回去)。
 type HeroBattle struct {
 	Node    string       `json:"node"`
+	Step    int          `json:"step,omitempty"`
 	Run     *dungeon.Run `json:"run"`
 	Carried []string     `json:"carried"`
 	// Team 是随行的弟子编号。
@@ -55,8 +59,8 @@ type HeroStats struct {
 	Breakthroughs int `json:"breakthroughs"`
 }
 
-// HeroAction 是历练里的一次操作。Move、Card、Target、Choice、Potion 是战斗里的一步(与九幽秘境相同)；Team 是开战时
-// 随行的弟子；Item、Count 是在丹房炼的丹符与份数。
+// HeroAction 是历练里的一次操作。Move、Card、Target、Choice、Potion 是战斗里的一步(与九幽秘境相同)；Team 是开战(或登
+// 问心阶)时随行的弟子；Item、Count 是在丹房炼的丹符与份数。
 type HeroAction struct {
 	Type    string   `json:"action"`
 	Class   string   `json:"class"`
@@ -131,9 +135,10 @@ func (h *Hero) Bottleneck() bool {
 	return h.Layer == MaxLayer && h.Exp >= ExpNeed(h.Realm, h.Layer)
 }
 
-// CultivateRate 是主角闭关每小时的修为：聚灵阵每级加快，与弟子相同。
+// CultivateRate 是主角闭关每小时的修为：每高一个大境界快一倍(境界越高每层要的修为越多，主角靠它跟上章节)，聚灵阵每级
+// 再加快，与弟子相同。
 func (h *Hero) CultivateRate(s *Sect) float64 {
-	return heroExpPerHour * (1 + arrayCultivate*float64(s.Buildings[BuildingArray]))
+	return heroExpPerHour * float64(int(1)<<h.Realm) * (1 + arrayCultivate*float64(s.Buildings[BuildingArray]))
 }
 
 // addExp 加修为并自动升层；第九层修满后修为不再增加，等突破。
@@ -266,6 +271,8 @@ func (sv *Save) HeroApply(a HeroAction, now int64, day string, seed uint64) ([]E
 		more, err = h.visit(s, a.Node, now)
 	case "fight":
 		err = h.fight(s, a.Node, a.Team, seed, now)
+	case "climb":
+		err = h.climb(s, a.Team, seed, now)
 	case "craft":
 		more, err = h.craft(s, a.Item, a.Count)
 	case "qi":
@@ -444,10 +451,26 @@ func (h *Hero) clear(s *Sect, n *JourneyNode, now int64) []Ev {
 		h.Keys[n.Key]++
 		evs = append(evs, Ev{K: "hero_key", S: n.Key})
 	}
+	if n.Id == StepsUnlock {
+		evs = append(evs, Ev{K: "hero_steps_open"})
+	}
 	return evs
 }
 
-// fight 在一个战斗节点开战：带上牌组、佩戴的法宝、行囊里的丹符(按丹符栏格数，从行囊里拿出来)与随行弟子的援护牌。
+// clearStep 记下登上问心阶的一级并发奖励：修为、宗门资源，强敌与首领那一级另给丹药。
+func (h *Hero) clearStep(s *Sect, st Step) []Ev {
+	h.Steps = st.Step
+	evs := []Ev{{K: "hero_step", N: st.Step}, {K: "hero_exp", N: st.Exp}}
+	evs = append(evs, h.addExp(float64(st.Exp))...)
+	evs = append(evs, s.gain(st.Reward)...)
+	if st.Pill != "" {
+		s.Pills[st.Pill]++
+		evs = append(evs, Ev{K: "pill", S: st.Pill, N: 1})
+	}
+	return evs
+}
+
+// fight 在一个战斗节点开战。
 func (h *Hero) fight(s *Sect, id string, team []int, seed uint64, now int64) error {
 	n := JourneyNodeOf(id)
 	if n == nil || (n.Kind != NodeCombat && n.Kind != NodeElite && n.Kind != NodeBoss) {
@@ -456,6 +479,23 @@ func (h *Hero) fight(s *Sect, id string, team []int, seed uint64, now int64) err
 	if !h.Unlocked(n) {
 		return ErrUnavailable
 	}
+	hp, dmg := EnemyScale(n)
+	return h.startBattle(s, &HeroBattle{Node: id}, n.Kind, n.Enemies, hp, dmg, team, seed, now)
+}
+
+// climb 挑战问心阶的下一级。
+func (h *Hero) climb(s *Sect, team []int, seed uint64, now int64) error {
+	if !h.StepsOpen() || h.Steps >= MaxSteps {
+		return ErrUnavailable
+	}
+	st := StepOf(h.Steps + 1)
+	return h.startBattle(s, &HeroBattle{Step: st.Step}, st.Kind, st.Enemies, st.HP, st.Dmg, team, seed, now)
+}
+
+// startBattle 开始一场仗：带上牌组、佩戴的法宝、行囊里的丹符(按丹符栏格数，从行囊里拿出来)与随行弟子的援护牌。battle
+// 记着这一场打的是哪个节点或问心阶的哪一级。
+func (h *Hero) startBattle(s *Sect, battle *HeroBattle, kind string, enemies []string, hp, dmg int, team []int, seed uint64,
+	now int64) error {
 	if len(h.Deck) < DeckMin {
 		return ErrUnavailable
 	}
@@ -488,15 +528,15 @@ func (h *Hero) fight(s *Sect, id string, team []int, seed uint64, now int64) err
 	if len(h.Cards) >= MaxCards {
 		rewards = 0
 	}
-	hp, dmg := EnemyScale(n)
 	run, err := dungeon.NewBattle(seed, dungeon.BattleSetup{
 		Class: h.Class, Deck: h.deckCards(), Relics: h.Worn, Potions: carried, MaxHP: h.MaxHP(), Strength: h.Strength(),
-		Kind: n.Kind, Enemies: n.Enemies, HP: hp, Dmg: dmg, Rewards: rewards, Allies: allies,
+		Kind: kind, Enemies: enemies, HP: hp, Dmg: dmg, Rewards: rewards, Allies: allies,
 	})
 	if err != nil {
 		return err
 	}
-	h.Battle = &HeroBattle{Node: id, Run: run, Carried: carried, Team: slices.Clone(team)}
+	battle.Run, battle.Carried, battle.Team = run, carried, slices.Clone(team)
+	h.Battle = battle
 	return nil
 }
 
@@ -562,7 +602,8 @@ func (h *Hero) endBattle() {
 	h.Battle = nil
 }
 
-// battleStep 在战斗里走一步；分出胜负并选完奖励后结束这一场，赢了按节点发奖励，收下的功法进收藏(牌组没满时也放进牌组)。
+// battleStep 在战斗里走一步；分出胜负并选完奖励后结束这一场，赢了按节点(或问心阶的那一级)发奖励，收下的功法进收藏
+// (牌组没满时也放进牌组)。
 func (h *Hero) battleStep(s *Sect, a HeroAction, now int64) ([]Ev, error) {
 	if h.Battle == nil {
 		return nil, ErrUnavailable
@@ -574,22 +615,28 @@ func (h *Hero) battleStep(s *Sect, a HeroAction, now int64) ([]Ev, error) {
 	if !run.Finished() {
 		return nil, nil
 	}
-	n := JourneyNodeOf(h.Battle.Node)
-	won := run.Result == dungeon.PhaseWon
-	team := h.Battle.Team
-	if !won {
-		evs := append([]Ev{{K: "hero_lost", S: n.Id}}, h.injureTeam(s, now)...)
+	battle := h.Battle
+	if run.Result != dungeon.PhaseWon {
+		evs := append([]Ev{{K: "hero_lost", S: battle.Node, N: battle.Step}}, h.injureTeam(s, now)...)
 		h.endBattle()
 		h.Stats.Losses++
 		return evs, nil
 	}
 	h.endBattle()
 	h.Stats.Wins++
-	evs := h.clear(s, n, now)
-	// 随行的弟子也有所得：节点修为的一半。
-	for _, id := range team {
+	var evs []Ev
+	var exp int
+	if battle.Step > 0 {
+		st := StepOf(battle.Step)
+		evs, exp = h.clearStep(s, st), st.Exp
+	} else {
+		n := JourneyNodeOf(battle.Node)
+		evs, exp = h.clear(s, n, now), n.Exp
+	}
+	// 随行的弟子也有所得：这一场修为的一半。
+	for _, id := range battle.Team {
 		if d := s.disciple(id); d != nil {
-			evs = append(evs, s.addExp(d, float64(n.Exp)/2)...)
+			evs = append(evs, s.addExp(d, float64(exp)/2)...)
 		}
 	}
 	if run.Picked != nil && len(h.Cards) < MaxCards {
@@ -628,9 +675,12 @@ type HeroView struct {
 	Ready       map[string]int64       `json:"ready"`
 	RepeatsLeft int                    `json:"repeats_left"`
 	Stats       HeroStats              `json:"stats"`
-	Battle      *HeroBattleView        `json:"battle,omitempty"`
-	Now         int64                  `json:"now"`
-	QiReady     int64                  `json:"qi_ready"`
+	// StepsOpen 表示问心阶已经开放，Steps 是登到了第几级。
+	StepsOpen bool            `json:"steps_open"`
+	Steps     int             `json:"steps"`
+	Battle    *HeroBattleView `json:"battle,omitempty"`
+	Now       int64           `json:"now"`
+	QiReady   int64           `json:"qi_ready"`
 	// Alchemy 是宗门丹房的等级，决定能炼哪些丹符。
 	Alchemy int `json:"alchemy"`
 	// Companions 是宗门里的弟子，Ready 表示现在能随行(在宗门里、没受伤)。
@@ -650,6 +700,7 @@ type CompanionView struct {
 // HeroBattleView 是正在打的一场仗。
 type HeroBattleView struct {
 	Node string       `json:"node"`
+	Step int          `json:"step,omitempty"`
 	Run  dungeon.View `json:"run"`
 	Team []int        `json:"team"`
 }
@@ -663,7 +714,7 @@ func (h *Hero) View(s *Sect, now int64, day string) HeroView {
 		Cards: dungeon.DeckViews(h.Cards), Deck: h.Deck, Relics: h.Relics, Worn: h.Worn, Potions: h.Potions, Keys: h.Keys,
 		Nodes: h.Nodes, Open: []string{}, Ready: map[string]int64{}, Stats: h.Stats, Now: now,
 		RepeatsLeft: DailyRepeatRewards, QiReady: h.QiReady, Companions: []CompanionView{},
-		Alchemy: s.Buildings[BuildingAlchemy],
+		Alchemy: s.Buildings[BuildingAlchemy], StepsOpen: h.StepsOpen(), Steps: h.Steps,
 	}
 	for _, d := range s.Disciples {
 		v.Companions = append(v.Companions, CompanionView{Id: d.Id, Name: d.Name, Element: d.Element, Realm: d.Realm,
@@ -686,7 +737,7 @@ func (h *Hero) View(s *Sect, now int64, day string) HeroView {
 		}
 	}
 	if h.Battle != nil {
-		v.Battle = &HeroBattleView{Node: h.Battle.Node, Run: h.Battle.Run.View(), Team: h.Battle.Team}
+		v.Battle = &HeroBattleView{Node: h.Battle.Node, Step: h.Battle.Step, Run: h.Battle.Run.View(), Team: h.Battle.Team}
 	}
 	return v
 }

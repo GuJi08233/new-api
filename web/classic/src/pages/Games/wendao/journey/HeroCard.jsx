@@ -30,9 +30,10 @@ import {
   useSectText,
 } from '../../sect/parts';
 import Portrait from '../art/Portrait';
-import { getKeyText } from './text';
+import { getHeroTitle, getKeyText } from './text';
 
-// 主角：流派、境界与修为条(两次同步之间按闭关速度往前推)、生命与力量；第九层圆满时可以突破。
+// 主角：流派、境界与修为条(两次同步之间按闭关速度往前推)、生命与力量；第九层圆满时可以突破。通关以后名字旁多一方称号
+// 印，随问心阶登到的级数变。
 const HeroCard = ({ hero, pills, elapsed, now, busy, onBreak, onQi }) => {
   const { t } = useTranslation();
   const sectText = useSectText();
@@ -47,6 +48,7 @@ const HeroCard = ({ hero, pills, elapsed, now, busy, onBreak, onQi }) => {
   const pillCount = pills?.break || 0;
   const qiCount = pills?.qi || 0;
   const qiWait = hero.qi_ready > now ? hero.qi_ready - now : 0;
+  const title = getHeroTitle(t, hero);
   return (
     <section className='jn-hero'>
       <div className='jn-hero-head'>
@@ -57,6 +59,7 @@ const HeroCard = ({ hero, pills, elapsed, now, busy, onBreak, onQi }) => {
           <strong>{realmLabel(sectText, t, hero.realm, hero.layer)}</strong>
           <span>
             {t('{{class}}宗主', { class: classes[hero.class]?.name })}
+            {title && <em className='jn-hero-seal'>{title}</em>}
           </span>
         </div>
         <span className='jn-hero-stat' title={t('最大生命')}>

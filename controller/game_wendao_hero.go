@@ -13,7 +13,7 @@ import (
 // 历练是问道的主线板块：主角存在问道存档里(wendao.Save.Hero)，所有操作都锁住存档改写，战斗的每一步也一样。历练不发
 // 游戏币，奖励是修为、功法、法宝、丹符与宗门的资源。
 
-// journeyInfo 是问道页里历练板块的规则：章节节点(带上敌人强度)、突破要的机缘、参悟价格与各种上限。
+// journeyInfo 是问道页里历练板块的规则：章节节点(带上敌人强度)、问心阶的每一级、突破要的机缘、参悟价格与各种上限。
 func journeyInfo() gin.H {
 	nodes := make([]gin.H, 0, len(wendao.JourneyNodes))
 	for i := range wendao.JourneyNodes {
@@ -40,6 +40,8 @@ func journeyInfo() gin.H {
 		"potion_recipes":       wendao.PotionRecipes,
 		"max_potion_stack":     wendao.MaxPotionStack,
 		"companion_max":        wendao.CompanionMax,
+		"steps":                wendao.Steps(),
+		"steps_unlock":         wendao.StepsUnlock,
 	}
 }
 
@@ -96,7 +98,7 @@ func actHero(c *gin.Context) {
 		return
 	}
 	var seed uint64
-	if req.Type == "fight" {
+	if req.Type == "fight" || req.Type == "climb" {
 		var err error
 		if seed, err = newSectSeed(); err != nil {
 			common.ApiError(c, err)

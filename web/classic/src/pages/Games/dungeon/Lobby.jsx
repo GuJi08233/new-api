@@ -372,13 +372,15 @@ const PracticeTab = ({ info, round, busy, onStart, onResume }) => {
             max={catalog.practice_max_enemies}
             value={setup.enemies}
             onChange={(value) => update({ enemies: value })}
-            optionList={content.enemies.map((enemy) => ({
-              value: enemy.id,
-              label:
-                enemy.act > 0
-                  ? `${enemyNames[enemy.id]} · ${t('第 {{act}} 重', { act: enemy.act })}`
-                  : t('训练木桩（不会行动）'),
-            }))}
+            optionList={content.enemies.map((enemy) => {
+              let label = t('训练木桩（不会行动）');
+              if (enemy.act > 0) {
+                label = `${enemyNames[enemy.id]} · ${t('第 {{act}} 重', { act: enemy.act })}`;
+              } else if (enemy.chapter > 0) {
+                label = `${enemyNames[enemy.id]} · ${t('历练第 {{n}} 章', { n: enemy.chapter })}`;
+              }
+              return { value: enemy.id, label };
+            })}
           />
         </label>
         <label>

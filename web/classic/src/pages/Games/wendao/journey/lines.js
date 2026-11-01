@@ -17,9 +17,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
+import { formatAmount } from '../../sect/parts';
 import { getKeyText, getNodeText } from './text';
 
-// 历练之外的事(通过节点、突破、参悟)写成几句话，显示在台面上方。
+// 历练之外的事(通过节点、登上问心阶、突破、参悟)写成几句话，显示在台面上方。
 export function heroEventLines(events, t, text, sectText) {
   const nodes = getNodeText(t);
   const keys = getKeyText(t);
@@ -28,10 +29,12 @@ export function heroEventLines(events, t, text, sectText) {
   for (const ev of events || []) {
     switch (ev.k) {
       case 'hero_exp':
-        gains.push(t('修为 +{{n}}', { n: ev.n }));
+        gains.push(t('修为 +{{n}}', { n: formatAmount(ev.n) }));
         break;
       case 'res':
-        gains.push(`${sectText.resources[ev.s]} ${ev.n > 0 ? '+' : ''}${ev.n}`);
+        gains.push(
+          `${sectText.resources[ev.s]} ${ev.n > 0 ? '+' : '-'}${formatAmount(Math.abs(ev.n))}`,
+        );
         break;
       case 'pill':
         gains.push(
@@ -69,6 +72,12 @@ export function heroEventLines(events, t, text, sectText) {
         break;
       case 'hero_clear':
         if (nodes[ev.s]) lines.unshift(nodes[ev.s].name);
+        break;
+      case 'hero_step':
+        lines.unshift(t('登上问心阶第 {{n}} 级', { n: ev.n }));
+        break;
+      case 'hero_steps_open':
+        lines.push(t('宗主令背面亮起一道新的纹路：山门后的问心阶开放了'));
         break;
       default:
     }

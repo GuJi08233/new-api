@@ -218,7 +218,7 @@ func TestHeroDeckForgetAndUpgrade(t *testing.T) {
 	assert.ErrorIs(t, err, ErrCost)
 }
 
-// 闭关修为按聚灵阵加快，离线最多结算 OfflineCap 秒；宗门的操作也会结算主角的修为。
+// 闭关修为按聚灵阵加快、每高一个大境界快一倍，离线最多结算 OfflineCap 秒；宗门的操作也会结算主角的修为。
 func TestHeroCultivatesOffline(t *testing.T) {
 	save := newHeroSave(t, dungeon.ClassWarrior)
 	rate := save.Hero.CultivateRate(save.Sect)
@@ -230,6 +230,9 @@ func TestHeroCultivatesOffline(t *testing.T) {
 		total += ExpNeed(0, l)
 	}
 	assert.InDelta(t, rate*12, total, 1e-6, "capped at twelve hours")
+
+	h.Realm = 3
+	assert.InDelta(t, rate*8, h.CultivateRate(save.Sect), 1e-9, "each major realm doubles the pace")
 }
 
 // 每个节点的前置都存在且在它前面，敌人都存在，机缘是突破要用的，奖励的法宝与丹符都认识。
@@ -430,4 +433,99 @@ func TestAbyssLootDailyCap(t *testing.T) {
 	trial, err := dungeon.NewTrial(1, dungeon.Trials[0].Id)
 	require.NoError(t, err)
 	assert.Equal(t, Cost{}, save.GrantAbyssLoot(trial, "d3"))
+}
+
+// 问心阶：第五章的尾声走过之后才开放，开放时有提示；只能挑战下一级，赢了登上一级并拿到修为、宗门资源，强敌那一级给破境丹、
+// 首领那一级给洗髓丹，随行弟子分一半修为；输了停在原地；登顶以后不能再挑战。
+func TestHeroClimbsTheSteps(t *testing.T) {
+	save := newHeroSave(t, dungeon.ClassMage)
+	h, s := save.Hero, save.Sect
+	for _, n := range JourneyNodes {
+		if n.Id != StepsUnlock {
+			h.Nodes[n.Id] = &NodeRecord{Clears: 1}
+		}
+	}
+	h.Realm = MaxRealm
+	_, err := save.HeroApply(HeroAction{Type: "climb"}, 0, "d1", 1)
+	assert.ErrorIs(t, err, ErrUnavailable, "the steps open after the epilogue")
+	assert.False(t, save.Hero.View(s, 0, "d1").StepsOpen)
+
+	evs := heroAct(t, save, HeroAction{Type: "visit", Node: StepsUnlock})
+	assert.True(t, hasEv(evs, "hero_steps_open"))
+	assert.True(t, save.Hero.View(s, 0, "d1").StepsOpen)
+
+	d := s.Disciples[0]
+	d.Realm = MaxRealm
+	heroAct(t, save, HeroAction{Type: "climb", Team: []int{d.Id}})
+	require.NotNil(t, h.Battle)
+	first := StepOf(1)
+	assert.Equal(t, 1, h.Battle.Step)
+	assert.Empty(t, h.Battle.Node)
+	assert.Equal(t, h.Battle.Run.Battle.Enemies, first.Enemies)
+	assert.Equal(t, first.HP, h.Battle.Run.Battle.HP)
+
+	res, exp, dExp := s.Res, h.Exp, d.Exp
+	evs = winHeroBattle(t, save, -1)
+	assert.True(t, hasEv(evs, "hero_step"))
+	assert.Equal(t, 1, h.Steps)
+	assert.Equal(t, res.Stone+first.Reward.Stone, s.Res.Stone)
+	assert.Equal(t, res.Ore+first.Reward.Ore, s.Res.Ore)
+	assert.Equal(t, exp+float64(first.Exp), h.Exp)
+	assert.Equal(t, dExp+float64(first.Exp)/2, d.Exp, "a companion gets half")
+	assert.Equal(t, 1, save.Hero.View(s, 0, "d1").Steps)
+
+	heroAct(t, save, HeroAction{Type: "climb"})
+	assert.Equal(t, 2, h.Battle.Step, "only the next step")
+	heroAct(t, save, HeroAction{Type: "flee"})
+	assert.Equal(t, 1, h.Steps, "a loss keeps the climber where they were")
+
+	for _, c := range []struct {
+		step int
+		pill string
+	}{{5, PillBreak}, {10, PillMarrow}} {
+		h.Steps = c.step - 1
+		pills := s.Pills[c.pill]
+		heroAct(t, save, HeroAction{Type: "climb"})
+		winHeroBattle(t, save, -1)
+		assert.Equal(t, c.step, h.Steps)
+		assert.Equal(t, pills+1, s.Pills[c.pill], "step %d", c.step)
+	}
+
+	h.Steps = MaxSteps
+	_, err = save.HeroApply(HeroAction{Type: "climb"}, 0, "d1", 1)
+	assert.ErrorIs(t, err, ErrUnavailable, "nothing above the top step")
+}
+
+// 问心阶的每一级都能开战：强敌在第 5、15…级，首领在第 10、20…级，各出现一次；同一种的一级越往上越强、奖励越多。
+func TestStepsAreWellFormed(t *testing.T) {
+	steps := Steps()
+	require.Len(t, steps, MaxSteps)
+	seen := map[string]bool{}
+	last := map[string]Step{}
+	for i, st := range steps {
+		assert.Equal(t, i+1, st.Step)
+		want := NodeCombat
+		if st.Step%10 == 0 {
+			want = NodeBoss
+		} else if st.Step%5 == 0 {
+			want = NodeElite
+		}
+		assert.Equal(t, want, st.Kind, "step %d", st.Step)
+		_, err := dungeon.NewBattle(1, dungeon.BattleSetup{Class: dungeon.ClassWarrior, Deck: dungeon.StarterDeck(dungeon.ClassWarrior),
+			MaxHP: 80, Kind: st.Kind, Enemies: st.Enemies, HP: st.HP, Dmg: st.Dmg})
+		assert.NoError(t, err, "step %d", st.Step)
+		if st.Kind != NodeCombat {
+			id := st.Enemies[0]
+			assert.False(t, seen[id], "%s guards one step", id)
+			seen[id] = true
+		}
+		if prev, ok := last[st.Kind]; ok {
+			assert.Greater(t, st.HP, prev.HP, "step %d", st.Step)
+			assert.Greater(t, st.Dmg, prev.Dmg, "step %d", st.Step)
+			assert.Greater(t, st.Reward.Stone, prev.Reward.Stone, "step %d", st.Step)
+		}
+		last[st.Kind] = st
+		assert.Positive(t, st.Exp)
+	}
+	assert.Equal(t, []string{"patriarch"}, steps[MaxSteps-1].Enemies, "the patriarch waits at the top")
 }
