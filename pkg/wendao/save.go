@@ -90,10 +90,12 @@ func UpdateSave(data string, edit func(save *Save) error) (string, error) {
 	return save.Encode()
 }
 
-// TickHero 结算主角到 now 为止的闭关修为。宗门的操作也调用它，主角不会因为一直只经营宗门而少算离线修为。
+// TickHero 结算主角到 now 为止的闭关修为，并孵出到时间的灵兽蛋。宗门的操作也调用它，主角不会因为一直只经营宗门而
+// 少算离线修为。
 func (s *Save) TickHero(now int64) {
 	if s.Hero != nil && s.Sect != nil {
 		s.Hero.tick(s.Sect, now)
+		s.Hero.hatchBeasts(now)
 	}
 }
 

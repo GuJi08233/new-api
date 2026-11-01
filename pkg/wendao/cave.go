@@ -7,6 +7,7 @@ import "math"
 //   - 灵泉：最大生命更多。
 //   - 丹室：开炉炼主角自己服的丹(elixir.go)，等级决定能炼哪些丹方、品质与几座丹炉。
 //   - 器室：祭炼法宝(forge.go)，法宝最多祭炼到器室的等级。
+//   - 兽苑：养灵兽(beast.go)，等级决定能养几只、灵兽最多练到几级。
 // 洞府只管主角，不发游戏币；它给的生命、力量与护体只在历练(含问心阶)里生效，带不进九幽秘境。
 
 const (
@@ -22,7 +23,7 @@ const (
 )
 
 // RoomOrder 是洞府的屋子，按页面上的顺序。
-var RoomOrder = []string{RoomQuiet, RoomSpring, RoomFurnace, RoomForge}
+var RoomOrder = []string{RoomQuiet, RoomSpring, RoomFurnace, RoomForge, RoomDen}
 
 type roomSpec struct {
 	// Base 是建到 1 级的花费：建到 L 级花 Base × Growth^(L-1)。
@@ -35,6 +36,7 @@ var roomSpecs = map[string]roomSpec{
 	RoomSpring:  {Base: Cost{Stone: 160, Herb: 120}, Growth: 1.8},
 	RoomFurnace: {Base: Cost{Stone: 180, Herb: 100, Ore: 40}, Growth: 1.8},
 	RoomForge:   {Base: Cost{Stone: 180, Ore: 120}, Growth: 1.8},
+	RoomDen:     {Base: Cost{Stone: 220, Herb: 160}, Growth: 1.8},
 }
 
 // RoomCost 返回把洞府的一间屋子建到 level 级要花多少。

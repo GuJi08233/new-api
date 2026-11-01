@@ -32,6 +32,8 @@ import {
 import { useSectText } from '../../sect/parts';
 import { heroEventLines } from './lines';
 import { getNodeText } from './text';
+import BeastArt from '../art/BeastArt';
+import { beastMove, getBeastText } from '../cave/text';
 
 // 历练里的一场仗(地图节点或问心阶)：顶上是生命、丹符与法宝，台面用九幽秘境的战斗；打完显示胜负与这一场的收获。问心阶
 // 的敌人是心魔，画成褪了色的墨影。
@@ -40,6 +42,7 @@ const BattleStage = ({ hero, busy, ended, events, send, onFlee, onBack }) => {
   const text = useDungeonText();
   const sectText = useSectText();
   const nodes = getNodeText(t);
+  const beasts = getBeastText(t);
   const [targeting, setTargeting] = useState(null);
   const [deckOpen, setDeckOpen] = useState(false);
 
@@ -146,6 +149,20 @@ const BattleStage = ({ hero, busy, ended, events, send, onFlee, onBack }) => {
             })}
           </span>
         </div>
+        {battle.beast && (
+          <div className='dg-hud-row cv-battle-beast'>
+            <BeastArt kind={battle.beast.kind} active />
+            <span>
+              <strong>
+                {hero.beasts.find((b) => b.id === hero.beast_out)?.name ||
+                  beasts[battle.beast.kind]?.name}
+              </strong>
+              <span className='cv-room-desc'>
+                {beastMove(t, battle.beast.kind, battle.beast.power)}
+              </span>
+            </span>
+          </div>
+        )}
         {run.relics.length > 0 && (
           <div className='dg-hud-row dg-relics'>
             {run.relics.map((id) => (

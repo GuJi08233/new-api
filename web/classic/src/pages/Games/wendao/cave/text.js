@@ -36,6 +36,10 @@ export const getRoomText = (t) => ({
     name: t('器室'),
     desc: t('祭炼法宝的地方，法宝最多祭炼到器室的等级'),
   },
+  den: {
+    name: t('兽苑'),
+    desc: t('养灵兽的地方，等级越高能养的灵兽越多，灵兽也能练得越高'),
+  },
 });
 
 // roomEffect 是一间屋子在 level 级的效果，写成一句短话；0 级是还没建。
@@ -54,6 +58,14 @@ export function roomEffect(t, info, room, level) {
       });
     case 'forge':
       return t('法宝最多祭炼到 +{{n}}', { n: level });
+    case 'den':
+      return t('灵兽 {{n}} 只 · 等级上限 {{cap}}', {
+        n: info.beast.slots[level],
+        cap: Math.min(
+          info.beast.den_level_cap * level,
+          info.beast.stage_levels[info.beast.stage_levels.length - 1],
+        ),
+      });
     default:
       return '';
   }
@@ -151,3 +163,52 @@ export function gradeOdds(score, rules) {
   const mid = atLeast(rules.grade_mid) - high;
   return [100 - high - mid, mid, high];
 }
+
+// 灵兽：种类的名字与招式说明(n 是这只灵兽现在的效果)，阶数，饵料与喂养。标识与 pkg/wendao/beast.go 一致。
+export const getBeastText = (t) => ({
+  baihu: { name: t('白虎'), element: 0 },
+  lu: { name: t('青鹿'), element: 1 },
+  gui: { name: t('玄龟'), element: 2 },
+  que: { name: t('赤雀'), element: 3 },
+  yuan: { name: t('石猿'), element: 4 },
+  hu: { name: t('九尾灵狐'), element: -1 },
+});
+
+// beastMove 是灵兽出手的说明，力道 power 换算成这一招实际的数目(与 pkg/dungeon/beast.go 一致)。
+export function beastMove(t, kind, power) {
+  const half = Math.max(Math.floor(power / 2), 1);
+  switch (kind) {
+    case 'baihu':
+      return t('每回合结束扑击一个敌人，造成 {{n}} 点伤害', { n: power });
+    case 'lu':
+      return t('每回合结束为主角回复 {{n}} 点生命', { n: half });
+    case 'gui':
+      return t('每回合结束给主角 {{n}} 点护体', { n: power });
+    case 'que':
+      return t('每回合结束给所有敌人 {{n}} 层真火', {
+        n: Math.max(Math.floor(power / 4), 1),
+      });
+    case 'yuan':
+      return t('每回合结束重击一个敌人 {{n}} 点伤害，并让它虚弱', {
+        n: half,
+      });
+    case 'hu':
+      return t('每回合结束以狐火灼伤所有敌人，各 {{n}} 点伤害', { n: half });
+    default:
+      return '';
+  }
+}
+
+export const getBeastStageNames = (t) => [t('幼兽'), t('成兽'), t('圣兽')];
+
+export const getBaitText = (t) => ({
+  plain: { name: t('寻常饵料'), desc: t('五行灵兽机会均等') },
+  fruit: { name: t('朱果饵'), desc: t('资质更好，偶尔引来九尾灵狐') },
+  lotus: { name: t('七彩莲饵'), desc: t('资质最好，常引来九尾灵狐') },
+});
+
+export const getFeedText = (t) => ({
+  herb: t('喂灵草'),
+  qi: t('喂聚气丹'),
+  peiyuan: t('喂培元丹'),
+});

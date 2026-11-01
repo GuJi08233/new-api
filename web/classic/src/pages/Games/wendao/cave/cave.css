@@ -462,3 +462,147 @@
 .cv-bag-item strong {
   font-family: var(--wd-serif);
 }
+
+/* 灵兽 */
+.cv-beasts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 8px;
+}
+.cv-beast {
+  display: flex;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 12px;
+  background: var(--wd-paper-2);
+}
+.cv-beast.is-out {
+  border-color: var(--wd-red);
+}
+.cv-beast.is-egg {
+  border-style: dashed;
+  align-items: center;
+}
+.cv-beast-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+.wd-beast-art {
+  flex: none;
+  width: 96px;
+  height: 80px;
+  overflow: visible;
+}
+.wd-beast-body {
+  animation: wd-beast-breathe 3.2s ease-in-out infinite;
+  transform-box: fill-box;
+}
+.wd-beast-art.is-active .wd-beast-body {
+  animation-duration: 1.6s;
+}
+.wd-beast-aura {
+  transform-box: fill-box;
+  transform-origin: 50% 50%;
+  animation: wd-beast-aura 3s ease-in-out infinite;
+}
+.wd-beast-egg {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+  animation: wd-beast-wobble 2.6s ease-in-out infinite;
+}
+@keyframes wd-beast-breathe {
+  0%,
+  100% {
+    translate: 0 0;
+  }
+  50% {
+    translate: 0 -1.5px;
+  }
+}
+@keyframes wd-beast-aura {
+  0%,
+  100% {
+    opacity: 0.7;
+    transform: scale(0.96);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.04);
+  }
+}
+@keyframes wd-beast-wobble {
+  0%,
+  70%,
+  100% {
+    transform: rotate(0);
+  }
+  78% {
+    transform: rotate(-6deg);
+  }
+  86% {
+    transform: rotate(5deg);
+  }
+  94% {
+    transform: rotate(-2deg);
+  }
+}
+.cv-icon-btn {
+  display: inline-flex;
+  padding: 2px;
+  border: none;
+  background: none;
+  color: var(--wd-ink-3);
+  cursor: pointer;
+}
+.cv-stage {
+  padding: 0 7px;
+  border: 1px solid var(--wd-ink-3);
+  border-radius: 6px;
+  color: var(--wd-ink-2);
+  font-family: var(--wd-serif);
+  font-size: 12px;
+}
+.cv-naming {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.cv-beast-stat {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  align-items: center;
+  gap: 8px;
+  color: var(--wd-ink-2);
+  font-size: 12px;
+}
+.cv-beast-stat > span:first-child {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.cv-beast-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.cv-evolve {
+  padding: 6px 8px;
+  border-radius: 10px;
+  background: var(--wd-red-soft);
+}
+.cv-battle-beast {
+  gap: 8px;
+}
+.cv-battle-beast .wd-beast-art {
+  width: 48px;
+  height: 40px;
+}
+.cv-battle-beast > span {
+  display: flex;
+  flex-direction: column;
+  font-size: 13px;
+}

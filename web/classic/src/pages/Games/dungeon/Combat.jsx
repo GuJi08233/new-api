@@ -199,6 +199,11 @@ const Combat = ({ run, busy, send, events, targeting, setTargeting }) => {
           case 'potion':
             playSound('pour');
             break;
+          case 'beast':
+            pulse('p', 'act');
+            playSound('whoosh');
+            addFloater(t('灵兽出手'), { ...where, kind: 'gold' });
+            break;
           case 'revive':
             playSound('sparkle');
             addFloater(t('涅槃重生'), { ...where, kind: 'gold' });

@@ -263,6 +263,7 @@ const JourneyPage = () => {
               info={info}
               hero={hero}
               res={state.res}
+              pills={state.pills}
               rare={state.rare}
               now={now}
               busy={busy}

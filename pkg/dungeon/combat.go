@@ -524,8 +524,14 @@ func (r *Run) dealt(n int) {
 
 func (r *Run) infiniteEnergy() bool { return r.Practice != nil && r.Practice.InfiniteEnergy }
 
-// endTurn 结束玩家回合：回合结束效果、弃掉手牌，然后敌人依次行动，再开始玩家的下一回合。
+// endTurn 结束玩家回合：出战的灵兽先出手，然后是回合结束效果、弃掉手牌，敌人依次行动，再开始玩家的下一回合。
 func (r *Run) endTurn() {
+	if r.Battle != nil && r.Battle.Beast != nil {
+		r.beastTurn(r.Battle.Beast)
+		if r.Phase != PhaseCombat {
+			return
+		}
+	}
 	c := r.Combat
 	if c.St[StPlate] > 0 {
 		r.gainBlock(c.St[StPlate])

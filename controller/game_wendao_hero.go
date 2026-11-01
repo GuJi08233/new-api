@@ -45,6 +45,7 @@ func journeyInfo() gin.H {
 		"cave":                 wendao.CaveRulesOf(),
 		"refine":               wendao.RefineRulesOf(),
 		"elixir":               wendao.ElixirRulesOf(),
+		"beast":                wendao.BeastRulesOf(),
 	}
 }
 

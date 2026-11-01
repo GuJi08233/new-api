@@ -41,6 +41,12 @@ type Hero struct {
 	Mastery  map[string]int    `json:"mastery,omitempty"`
 	Tempered int               `json:"tempered,omitempty"`
 	Golden   int               `json:"golden,omitempty"`
+	// Beasts 是兽苑里的灵兽(含还没孵出来的蛋)，BeastOut 是出战的那只(0 为不带)，NextBeast 是上一只的编号，LureReady
+	// 是下一次能引兽的时间。见 beast.go。
+	Beasts    []*Beast `json:"beasts,omitempty"`
+	BeastOut  int      `json:"beast_out,omitempty"`
+	NextBeast int      `json:"next_beast,omitempty"`
+	LureReady int64    `json:"lure_ready,omitempty"`
 	// Day 与 DayRepeats 记今天重复通过节点拿了几次资源。
 	Day        string      `json:"day"`
 	DayRepeats int         `json:"day_repeats"`
@@ -61,8 +67,9 @@ type HeroBattle struct {
 	Step    int          `json:"step,omitempty"`
 	Run     *dungeon.Run `json:"run"`
 	Carried []string     `json:"carried"`
-	// Team 是随行的弟子编号。
-	Team []int `json:"team,omitempty"`
+	// Team 是随行的弟子编号，Beast 是出战的灵兽编号(没有为 0)。
+	Team  []int `json:"team,omitempty"`
+	Beast int   `json:"beast,omitempty"`
 }
 
 // HeroStats 是主角的战绩。
@@ -74,7 +81,7 @@ type HeroStats struct {
 
 // HeroAction 是历练里的一次操作。Move、Card、Target、Choice、Potion 是战斗里的一步(与九幽秘境相同)；Team 是开战(或登
 // 问心阶)时随行的弟子；Item、Count 是在丹房炼的丹符与份数(洞府的操作里 Item 是屋子、法宝或丹方)；Fire 是开炉的火候，
-// Index 是第几座丹炉，Grade 是服哪个品质的丹。
+// Index 是第几座丹炉，Grade 是服哪个品质的丹；Beast 是灵兽的编号，Name 是给灵兽起的名字。
 type HeroAction struct {
 	Type    string   `json:"action"`
 	Class   string   `json:"class"`
@@ -93,6 +100,8 @@ type HeroAction struct {
 	Fire    string   `json:"fire"`
 	Index   int      `json:"index"`
 	Grade   int      `json:"grade"`
+	Beast   int      `json:"beast"`
+	Name    string   `json:"name"`
 }
 
 // normalize 补上存档里省略的空表。
@@ -138,6 +147,9 @@ func (h *Hero) normalize() {
 	}
 	if h.Mastery == nil {
 		h.Mastery = map[string]int{}
+	}
+	if h.Beasts == nil {
+		h.Beasts = []*Beast{}
 	}
 }
 
@@ -295,7 +307,7 @@ func (sv *Save) HeroApply(a HeroAction, now int64, day string, seed uint64) ([]E
 	if h.Day != day {
 		h.Day, h.DayRepeats = day, 0
 	}
-	evs := h.tick(s, now)
+	evs := append(h.tick(s, now), h.hatchBeasts(now)...)
 	if h.Battle != nil && a.Type != "sync" && a.Type != "battle" && a.Type != "flee" {
 		return nil, ErrUnavailable
 	}
@@ -335,6 +347,20 @@ func (sv *Save) HeroApply(a HeroAction, now int64, day string, seed uint64) ([]E
 		more, err = h.collect(s, a.Index, now)
 	case "elixir":
 		more, err = h.takeElixir(s, a.Item, a.Grade, now)
+	case "lure":
+		more, err = h.lure(s, a.Item, now)
+	case "feed":
+		more, err = h.feedBeast(s, a.Beast, a.Item, day)
+	case "play":
+		more, err = h.playBeast(a.Beast, day)
+	case "evolve":
+		more, err = h.evolveBeast(s, a.Beast)
+	case "summon":
+		err = h.summonBeast(a.Beast)
+	case "rename":
+		err = h.renameBeast(a.Beast, a.Name)
+	case "release":
+		more, err = h.releaseBeast(s, a.Beast)
 	case "battle":
 		more, err = h.battleStep(s, a, now)
 	case "flee":
@@ -591,13 +617,16 @@ func (h *Hero) startBattle(s *Sect, battle *HeroBattle, kind string, enemies []s
 		Class: h.Class, Deck: h.deckCards(), Relics: h.Worn, Potions: carried, MaxHP: h.MaxHP(),
 		Strength: min(h.Strength()+buffStrength, dungeon.BattleMaxStrength),
 		Block:    min(h.Block()+buffBlock, dungeon.BattleMaxBlock),
-		Kind:     kind, Enemies: enemies, HP: hp, Dmg: dmg, Rewards: rewards, Allies: allies,
+		Kind:     kind, Enemies: enemies, HP: hp, Dmg: dmg, Rewards: rewards, Allies: allies, Beast: h.battleBeast(),
 	})
 	if err != nil {
 		return err
 	}
 	h.spendBuffs()
 	battle.Run, battle.Carried, battle.Team = run, carried, slices.Clone(team)
+	if run.Battle.Beast != nil {
+		battle.Beast = h.BeastOut
+	}
 	h.Battle = battle
 	return nil
 }
@@ -689,9 +718,11 @@ func (h *Hero) battleStep(s *Sect, a HeroAction, now int64) ([]Ev, error) {
 	if battle.Step > 0 {
 		st := StepOf(battle.Step)
 		evs, exp = h.clearStep(s, st), st.Exp
+		evs = append(evs, h.rewardBeast(battle.Beast, st.Kind, Chapters-1)...)
 	} else {
 		n := JourneyNodeOf(battle.Node)
 		evs, exp = h.clear(s, n, now), n.Exp
+		evs = append(evs, h.rewardBeast(battle.Beast, n.Kind, n.Chapter)...)
 	}
 	// 随行的弟子也有所得：这一场修为的一半。
 	for _, id := range battle.Team {
@@ -762,6 +793,20 @@ type HeroView struct {
 	Tempered     int               `json:"tempered"`
 	TemperCap    int               `json:"temper_cap"`
 	Golden       int               `json:"golden"`
+	// 兽苑：灵兽、出战的那只、下一次能引兽的时间与能养几只。
+	Beasts     []BeastView `json:"beasts"`
+	BeastOut   int         `json:"beast_out"`
+	LureReady  int64       `json:"lure_ready"`
+	BeastSlots int         `json:"beast_slots"`
+}
+
+// BeastView 是一只灵兽：Power 是出手的力道，Cap 是现在的等级上限，FedToday、PlayedToday 是今天喂了几次、嬉戏过没有。
+type BeastView struct {
+	Beast
+	Power       int  `json:"power"`
+	Cap         int  `json:"cap"`
+	FedToday    int  `json:"fed_today"`
+	PlayedToday bool `json:"played_today"`
 }
 
 // BrewView 是丹室里正在炼的一炉：StokeFrom、StokeTo 是能调火的时间段。
@@ -788,6 +833,8 @@ type HeroBattleView struct {
 	Step int          `json:"step,omitempty"`
 	Run  dungeon.View `json:"run"`
 	Team []int        `json:"team"`
+	// Beast 是这一场出战的灵兽(没有为空)。
+	Beast *dungeon.BattleBeast `json:"beast,omitempty"`
 }
 
 // View 返回主角在 now 时刻的样子，s 是宗门(闭关速度看聚灵阵)。
@@ -801,9 +848,14 @@ func (h *Hero) View(s *Sect, now int64, day string) HeroView {
 		RepeatsLeft: DailyRepeatRewards, QiReady: h.QiReady, Companions: []CompanionView{},
 		Alchemy: s.Buildings[BuildingAlchemy], StepsOpen: h.StepsOpen(), Steps: h.Steps,
 		Cave: h.Cave, RoomCap: RoomCap(h.Realm), Block: h.Block(), Refine: h.Refine, Bless: h.Bless,
-		RefineBonus: h.refineBonus(), Furnaces: []BrewView{}, FurnaceSlots: FurnaceSlots(h.Cave[RoomFurnace]),
+		RefineBonus: h.refineBonus(), Beasts: []BeastView{}, BeastOut: h.BeastOut, LureReady: h.LureReady,
+		BeastSlots: BeastSlots(h.Cave[RoomDen]), Furnaces: []BrewView{}, FurnaceSlots: FurnaceSlots(h.Cave[RoomFurnace]),
 		Elixirs: h.Elixirs, Buffs: h.Buffs, Mastery: h.Mastery, Tempered: h.Tempered, TemperCap: TemperCap(h.Realm),
 		Golden: h.Golden,
+	}
+	for _, b := range h.Beasts {
+		v.Beasts = append(v.Beasts, BeastView{Beast: *b, Power: b.Power(), Cap: b.LevelCap(h.Cave[RoomDen]),
+			FedToday: b.Fed * boolInt(b.FedDay == day), PlayedToday: b.Played == day})
 	}
 	for _, b := range h.Furnaces {
 		from, to := b.StokeWindow()
@@ -830,7 +882,8 @@ func (h *Hero) View(s *Sect, now int64, day string) HeroView {
 		}
 	}
 	if h.Battle != nil {
-		v.Battle = &HeroBattleView{Node: h.Battle.Node, Step: h.Battle.Step, Run: h.Battle.Run.View(), Team: h.Battle.Team}
+		v.Battle = &HeroBattleView{Node: h.Battle.Node, Step: h.Battle.Step, Run: h.Battle.Run.View(), Team: h.Battle.Team,
+			Beast: h.Battle.Run.Battle.Beast}
 	}
 	return v
 }
