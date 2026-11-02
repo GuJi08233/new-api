@@ -155,6 +155,9 @@ const Hair = ({ c }) => {
   }
 };
 
+// hasPortrait 表示画过这个人物。不认识的人物会画成体修主角，内容检查(../content.test.js)用它核对说话的人都有立绘。
+export const hasPortrait = (who) => Object.hasOwn(CAST, who);
+
 const Portrait = ({ who, className = '' }) => {
   const c = CAST[who] || CAST.hero_warrior;
   const eye = c.eyes === 'red' ? 'red' : 'ink';

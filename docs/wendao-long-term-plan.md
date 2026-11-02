@@ -181,6 +181,7 @@
 - 后端清单优先由规则数据导出，避免只用脆弱正则理解整段 Go；前端清单读取真实文本函数或稳定导出，不执行任意用户脚本。
 - 验收：当前 55 个节点全部可对应；重复 ID、缺失依赖、未知敌人或缺文案会报出具体位置并使检查失败；新增章节有新增样本。允许刻意使用通用画像时必须显式声明。
 - 将稳定检查接入现有 CI；翻译缺失和已知历史问题分开记录，不能以全量改写所有语言文件作为单个任务的附带工作。
+- 进度（2026-11-03）：已交付第一版。`pkg/wendao` 的 `TestContentManifestIsCurrent` 从规则导出内容清单 `pkg/wendao/testdata/content.json`：节点的标识、章节、种类、前置、敌人、法宝、丹符、机缘，问心阶的敌人，以及天象、洞府屋子、祭炼路数、丹方、灵兽、饵料、丹药、灵药、灵种、丹符配方的标识。清单只含前端要对上的部分，不含数值，调数值不用重新生成；规则改了而清单没跟上时测试失败，并提示用 `UPDATE_CONTENT=1` 重新生成。前端 `web/classic/src/pages/Games/wendao/content.test.js`（在 `web/classic` 下 `bun test src/pages/Games/wendao`）读这份清单，核对每个节点的名字、坐标、对白或说明、说话人，同章节点在地图上是否叠在一起，敌人的名字与画像，人物立绘，以及机缘、法宝、丹符、洞府等文案；缺了就列出全部具体位置。画像靠 `art/EnemyArt.jsx` 的 `hasEnemyArt`、`art/Portrait.jsx` 的 `hasPortrait` 判断。后端自身的一致性（重复标识、前置顺序、敌人能开战、法宝丹符认识、机缘与首领）仍由 `TestJourneyContentIsWellFormed` 负责。仓库目前没有跑测试的 CI 工作流，这两条检查还没有接进 CI。
 
 **A5｜建立奖励与经济核对表｜2–3 人日｜后端主责，策划验收**
 
@@ -486,7 +487,7 @@ go test ./controller -run '^TestGardenVisitThroughTheApi$' -count=1
 | `dgcheck/sim_local_test.go` | 秘境平衡模拟材料 | 审查规则适用版本，整理可复现入口和样本 |
 | `sectcheck/sim_local_test.go` | 宗门平衡模拟材料 | 纳入大比与成长对比，去掉本机依赖 |
 | `wdsteps/sim_base.go`、`sim_local_test.go` | 历练/问心阶相关模拟；文件中的包为 `dungeon` | 不能按路径直接当正式测试运行，先整理依赖与输出 |
-| `wd-art/check_text.mjs` | 历练节点、坐标、说话人、敌人文案/画像检查 | 当前写死仓库和输出路径，改为相对路径与显式参数 |
+| `wd-art/check_text.mjs` | 历练节点、坐标、说话人、敌人文案/画像检查 | 已由 A4 的内容清单与 `content.test.js` 取代（2026-11-03） |
 | `wd-art/sheet.mjs` 与素材预览 | SVG 素材预览材料 | 按需保留生成入口，预览文件不自动视为正式素材 |
 | `upgrade/upgrade_2623.py` | 声明覆盖 v2.16.22 至当前问道功能的 SQLite/MySQL/PostgreSQL 升级检查 | 脚本存在不等于本轮已执行；审查后改造为可丢弃环境运行 |
 | `upgrade/upgrade_2618.py` 至 `upgrade_2622.py`、`upgrade_games.py` | 历史升级检查材料 | 只提取当前仍有效的样本和流程，避免照搬过期二进制假设 |

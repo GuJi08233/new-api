@@ -757,6 +757,9 @@ const ART = {
   ),
 };
 
+// hasEnemyArt 表示这个敌人画过。内容检查(../content.test.js)用它找出只能画成一团墨影的敌人。
+export const hasEnemyArt = (id) => Object.hasOwn(ART, id);
+
 // EnemyArt 是一个敌人的画像；不认识的敌人画一团墨影。
 const EnemyArt = ({ id, className = '' }) => {
   const Art = ART[id];
