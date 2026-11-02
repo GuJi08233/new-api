@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 
 import React, { useState } from 'react';
 import { Button, Checkbox, Tooltip } from '@douyinfe/semi-ui';
-import { Heart, Sparkles, Swords } from 'lucide-react';
+import { ChevronDown, Heart, Shield, Sparkles, Swords } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { getClassText } from '../../dungeon/text';
 import {
@@ -30,16 +30,21 @@ import {
   useSectText,
 } from '../../sect/parts';
 import Portrait from '../art/Portrait';
+import StatSheet, { sheetTotal } from './StatSheet';
 import { getHeroTitle, getKeyText } from './text';
 
-// 主角：流派、境界与修为条(两次同步之间按闭关速度往前推)、生命与力量；第九层圆满时可以突破。通关以后名字旁多一方称号
-// 印，随问心阶登到的级数变。
+// 主角：流派、境界与修为条(两次同步之间按闭关速度往前推)、生命与开战的力量、护体(含药力)，点开看各自的来源；第九层
+// 圆满时可以突破。通关以后名字旁多一方称号印，随问心阶登到的级数变。
 const HeroCard = ({ hero, pills, elapsed, now, busy, onBreak, onQi }) => {
   const { t } = useTranslation();
   const sectText = useSectText();
   const classes = getClassText(t);
   const keys = getKeyText(t);
   const [usePill, setUsePill] = useState(false);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const sheet = hero.sheet;
+  const strength = sheetTotal(sheet.strength, sheet.strength_cap);
+  const block = sheetTotal(sheet.block, sheet.block_cap);
   const exp = hero.bottleneck
     ? hero.need
     : Math.min(hero.exp + (hero.rate * elapsed) / 3600, hero.need);
@@ -63,16 +68,30 @@ const HeroCard = ({ hero, pills, elapsed, now, busy, onBreak, onQi }) => {
             {title && <em className='jn-hero-seal'>{title}</em>}
           </span>
         </div>
-        <span className='jn-hero-stat' title={t('最大生命')}>
-          <Heart size={14} />
-          {hero.max_hp}
-        </span>
-        <Tooltip content={t('境界带来的开战力量')}>
-          <span className='jn-hero-stat'>
-            <Swords size={14} />+{hero.strength}
+        <button
+          type='button'
+          className='jn-hero-stats'
+          aria-expanded={sheetOpen}
+          aria-label={t('属性来源')}
+          onClick={() => setSheetOpen(!sheetOpen)}
+        >
+          <span className='jn-hero-stat' title={t('最大生命')}>
+            <Heart size={14} />
+            {hero.max_hp}
           </span>
-        </Tooltip>
+          <span className='jn-hero-stat' title={t('开战力量')}>
+            <Swords size={14} />+{strength}
+          </span>
+          {block > 0 && (
+            <span className='jn-hero-stat' title={t('开战护体')}>
+              <Shield size={14} />
+              {block}
+            </span>
+          )}
+          <ChevronDown size={14} className='jn-hero-stats-more' />
+        </button>
       </div>
+      {sheetOpen && <StatSheet sheet={sheet} rate={hero.rate} />}
       <div className='jn-exp'>
         <Bar value={exp} max={hero.need} kind='exp' />
         <span className='jn-exp-row'>

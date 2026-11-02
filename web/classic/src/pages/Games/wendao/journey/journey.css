@@ -269,6 +269,7 @@
 }
 .jn-hero-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 12px;
 }
@@ -281,9 +282,10 @@
   background: var(--wd-paper);
   box-shadow: 0 0 0 2px var(--wd-red);
 }
+/* 名字至少留 160px，窄屏上放不下时生命、力量那一排折到下一行靠右。 */
 .jn-hero-title {
   display: flex;
-  flex: 1;
+  flex: 1 1 160px;
   flex-direction: column;
   min-width: 0;
 }
@@ -304,6 +306,86 @@
   font-size: 13px;
   font-weight: 600;
   color: var(--wd-ink-2);
+}
+/* 点生命、力量、护体那一排展开属性来源。 */
+.jn-hero-stats {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+}
+.jn-hero-stats:hover {
+  background: var(--wd-paper-3);
+}
+.jn-hero-stats:focus-visible {
+  outline: 2px solid var(--wd-red);
+  outline-offset: 1px;
+}
+.jn-hero-stats-more {
+  color: var(--wd-ink-3);
+  transition: transform 0.15s ease;
+}
+.jn-hero-stats[aria-expanded='true'] .jn-hero-stats-more {
+  transform: rotate(180deg);
+}
+.jn-sheet {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  border-top: 1px solid var(--semi-color-border);
+}
+.jn-sheet-row {
+  display: grid;
+  grid-template-columns: 72px 72px 1fr;
+  gap: 8px;
+  align-items: baseline;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--semi-color-border);
+  font-size: 12px;
+}
+.jn-sheet-row dt {
+  color: var(--wd-ink-2);
+  font-family: var(--wd-serif);
+  font-weight: 600;
+}
+.jn-sheet-row dd {
+  margin: 0;
+}
+.jn-sheet-total {
+  color: var(--wd-ink);
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.jn-sheet-parts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  color: var(--wd-ink-2);
+}
+.jn-sheet-part {
+  font-variant-numeric: tabular-nums;
+}
+.jn-sheet-part em {
+  margin-left: 4px;
+  color: var(--wd-ink-3);
+  font-style: normal;
+}
+.jn-sheet-cap {
+  color: var(--wd-red);
+}
+@media (max-width: 520px) {
+  .jn-sheet-row {
+    grid-template-columns: 64px 1fr;
+  }
+  .jn-sheet-parts {
+    grid-column: 1 / -1;
+  }
 }
 .jn-exp {
   display: flex;

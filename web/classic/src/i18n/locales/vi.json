@@ -8782,6 +8782,18 @@
     "当时的抉择：{{label}}": "Lựa chọn khi ấy: {{label}}",
     "这一段要做一个抉择，选哪一边各有所得": "Đoạn này phải đưa ra một lựa chọn, chọn bên nào cũng có cái được",
     "抉择": "Lựa chọn",
-    "{{n}} 段支线可以接着走": "{{n}} truyện phụ có thể đi tiếp"
+    "{{n}} 段支线可以接着走": "{{n}} truyện phụ có thể đi tiếp",
+    "开战力量": "Lực khi khai chiến",
+    "开战护体": "Hộ thể khi khai chiến",
+    "戴着才有": "khi đeo",
+    "还管 {{n}} 场": "còn {{n}} trận",
+    "上限 {{cap}}，多出的 {{n}} 不生效": "Giới hạn {{cap}}, phần dư {{n}} không có tác dụng",
+    "闭关": "Bế quan",
+    "{{n}}/时": "{{n}}/giờ",
+    "基数 {{base}} × 境界 {{mult}} 倍 × (1 + 聚灵阵 {{array}}% + 静室 {{quiet}}%)": "Cơ số {{base}} × cảnh giới ×{{mult}} × (1 + Tụ Linh Trận {{array}}% + Tĩnh thất {{quiet}}%)",
+    "属性来源": "Nguồn thuộc tính",
+    "层数": "Số tầng",
+    "境界": "Cảnh giới",
+    "法宝祭炼": "Tế luyện pháp bảo"
   }
 }

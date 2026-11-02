@@ -8430,6 +8430,18 @@
     "当时的抉择：{{label}}": "Your choice: {{label}}",
     "这一段要做一个抉择，选哪一边各有所得": "This part asks for a choice; either way you gain something",
     "抉择": "Choice",
-    "{{n}} 段支线可以接着走": "{{n}} side stories to continue"
+    "{{n}} 段支线可以接着走": "{{n}} side stories to continue",
+    "开战力量": "Starting strength",
+    "开战护体": "Starting guard",
+    "戴着才有": "while worn",
+    "还管 {{n}} 场": "{{n}} more battles",
+    "上限 {{cap}}，多出的 {{n}} 不生效": "Capped at {{cap}}; the extra {{n}} has no effect",
+    "闭关": "Meditation",
+    "{{n}}/时": "{{n}}/h",
+    "基数 {{base}} × 境界 {{mult}} 倍 × (1 + 聚灵阵 {{array}}% + 静室 {{quiet}}%)": "Base {{base}} × realm ×{{mult}} × (1 + Spirit Array {{array}}% + Meditation Chamber {{quiet}}%)",
+    "属性来源": "Where stats come from",
+    "层数": "Layers",
+    "境界": "Realm",
+    "法宝祭炼": "Relic refining"
   }
 }

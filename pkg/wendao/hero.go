@@ -178,20 +178,81 @@ func NewHero(class string, now int64) (*Hero, error) {
 	return h, nil
 }
 
-// MaxHP 是主角的最大生命：流派的初始生命，每多一层、每高一个境界都更多，洞府的灵泉、祭炼过的法宝与淬体丹再加。
-func (h *Hero) MaxHP() int {
-	hp := dungeon.ClassHP(h.Class) + heroLayerHP*(h.Layer-1) + heroRealmHP*h.Realm + springHP*h.Cave[RoomSpring] +
-		h.refineBonus().HP + h.Tempered
-	return min(hp, dungeon.BattleMaxHP)
+// StatPart 是一项属性的一份来源，N 是这一份给了多少。Key：
+//   - 永久的：class 流派、layer 层数、realm 境界、spring 灵泉、temper 淬体丹、golden 九转金丹、array 聚灵阵、quiet 静室
+//   - 戴着才有的：refine 祭炼过的法宝
+//   - 药力：jingang 金刚丹、longhu 龙虎丹，Left 是还管几场
+//   - 闭关速度另有 base 每小时的基数
+type StatPart struct {
+	Key  string `json:"key"`
+	N    int    `json:"n"`
+	Left int    `json:"left,omitempty"`
 }
 
-// Strength 是主角开战时的力量：每高一个境界多一点，祭炼过的锋路法宝与九转金丹再加(金刚丹、龙虎丹的药力另算)。
-func (h *Hero) Strength() int {
-	return min(h.Realm+h.refineBonus().Strength+h.Golden, dungeon.BattleMaxStrength)
+func partsSum(parts []StatPart) int {
+	sum := 0
+	for _, p := range parts {
+		sum += p.N
+	}
+	return sum
 }
 
-// Block 是主角开战时的护体：祭炼过的御路法宝给的。
+// hpParts 是最大生命的来源：流派的初始生命，每多一层、每高一个境界都更多，洞府的灵泉、戴着的命路法宝与淬体丹再加。
+func (h *Hero) hpParts() []StatPart {
+	return []StatPart{
+		{Key: "class", N: dungeon.ClassHP(h.Class)}, {Key: "layer", N: heroLayerHP * (h.Layer - 1)},
+		{Key: "realm", N: heroRealmHP * h.Realm}, {Key: "spring", N: springHP * h.Cave[RoomSpring]},
+		{Key: "refine", N: h.refineBonus().HP}, {Key: "temper", N: h.Tempered},
+	}
+}
+
+// strengthParts 是开战力量的来源：每高一个境界多一点，戴着的锋路法宝与九转金丹再加。龙虎丹的药力另算(StatSheet)。
+func (h *Hero) strengthParts() []StatPart {
+	return []StatPart{{Key: "realm", N: h.Realm}, {Key: "refine", N: h.refineBonus().Strength}, {Key: "golden", N: h.Golden}}
+}
+
+// MaxHP 是主角的最大生命，不超过战斗的上限。
+func (h *Hero) MaxHP() int { return min(partsSum(h.hpParts()), dungeon.BattleMaxHP) }
+
+// Strength 是主角开战时的力量(不含药力)，不超过战斗的上限。
+func (h *Hero) Strength() int { return min(partsSum(h.strengthParts()), dungeon.BattleMaxStrength) }
+
+// Block 是主角开战时的护体：戴着的御路法宝给的(金刚丹的药力另算)。
 func (h *Hero) Block() int { return min(h.refineBonus().Block, dungeon.BattleMaxBlock) }
+
+// StatSheet 是主角的属性与来源，页面拿它解释数字是怎么来的。生命、开战力量、开战护体是各来源加起来再按战斗的上限
+// (Cap)截断，力量与护体含下一场开战会用上的药力；闭关每小时的修为是 base × 2^境界 × (1 + 聚灵阵 + 静室)，Rate 里
+// realm 是这个倍数，array、quiet 是百分点。
+type StatSheet struct {
+	HP          []StatPart `json:"hp"`
+	HPCap       int        `json:"hp_cap"`
+	Strength    []StatPart `json:"strength"`
+	StrengthCap int        `json:"strength_cap"`
+	Block       []StatPart `json:"block"`
+	BlockCap    int        `json:"block_cap"`
+	Rate        []StatPart `json:"rate"`
+}
+
+// Sheet 返回主角现在的属性与来源，s 是宗门(闭关速度看聚灵阵)。
+func (h *Hero) Sheet(s *Sect) StatSheet {
+	sheet := StatSheet{
+		HP: h.hpParts(), HPCap: dungeon.BattleMaxHP,
+		Strength: h.strengthParts(), StrengthCap: dungeon.BattleMaxStrength,
+		Block: []StatPart{{Key: "refine", N: h.refineBonus().Block}}, BlockCap: dungeon.BattleMaxBlock,
+		Rate: []StatPart{
+			{Key: "base", N: heroExpPerHour}, {Key: "realm", N: 1 << h.Realm},
+			{Key: "array", N: int(math.Round(arrayCultivate * 100 * float64(s.Buildings[BuildingArray])))},
+			{Key: "quiet", N: int(math.Round(quietCultivate * 100 * float64(h.Cave[RoomQuiet])))},
+		},
+	}
+	if buff := h.Buffs[ElixirTiger]; buff != nil {
+		sheet.Strength = append(sheet.Strength, StatPart{Key: ElixirTiger, N: buff.Power, Left: buff.Left})
+	}
+	if buff := h.Buffs[ElixirGuard]; buff != nil {
+		sheet.Block = append(sheet.Block, StatPart{Key: ElixirGuard, N: buff.Power, Left: buff.Left})
+	}
+	return sheet
+}
 
 // RelicSlots 是能同时佩戴几件法宝。
 func (h *Hero) RelicSlots() int { return 2 + h.Realm }
@@ -857,6 +918,8 @@ type HeroView struct {
 	BeastSlots int         `json:"beast_slots"`
 	// Weekly 是这一周的周天试炼，还没开放时为空。
 	Weekly *WeeklyView `json:"weekly,omitempty"`
+	// Sheet 是生命、开战力量与护体、闭关速度的来源。
+	Sheet StatSheet `json:"sheet"`
 }
 
 // BeastView 是一只灵兽：Power 是出手的力道，Cap 是现在的等级上限，FedToday、PlayedToday 是今天喂了几次、嬉戏过没有。
@@ -916,7 +979,7 @@ func (h *Hero) View(s *Sect, now int64, day string) HeroView {
 		RefineBonus: h.refineBonus(), Beasts: []BeastView{}, BeastOut: h.BeastOut, LureReady: h.LureReady,
 		BeastSlots: BeastSlots(h.Cave[RoomDen]), Furnaces: []BrewView{}, FurnaceSlots: FurnaceSlots(h.Cave[RoomFurnace]),
 		Elixirs: h.Elixirs, Buffs: h.Buffs, Mastery: h.Mastery, Tempered: h.Tempered, TemperCap: TemperCap(h.Realm),
-		Golden: h.Golden,
+		Golden: h.Golden, Sheet: h.Sheet(s),
 	}
 	for _, b := range h.Beasts {
 		v.Beasts = append(v.Beasts, BeastView{Beast: *b, Power: b.Power(), Cap: b.LevelCap(h.Cave[RoomDen]),

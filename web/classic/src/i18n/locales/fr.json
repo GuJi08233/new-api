@@ -8282,6 +8282,18 @@
     "当时的抉择：{{label}}": "Votre choix : {{label}}",
     "这一段要做一个抉择，选哪一边各有所得": "Ce passage demande un choix ; chaque voie apporte quelque chose",
     "抉择": "Choix",
-    "{{n}} 段支线可以接着走": "Récits annexes à poursuivre : {{n}}"
+    "{{n}} 段支线可以接着走": "Récits annexes à poursuivre : {{n}}",
+    "开战力量": "Force au combat",
+    "开战护体": "Garde au combat",
+    "戴着才有": "si porté",
+    "还管 {{n}} 场": "encore {{n}} combats",
+    "上限 {{cap}}，多出的 {{n}} 不生效": "Plafond {{cap}} : les {{n}} de trop ne comptent pas",
+    "闭关": "Méditation",
+    "{{n}}/时": "{{n}}/h",
+    "基数 {{base}} × 境界 {{mult}} 倍 × (1 + 聚灵阵 {{array}}% + 静室 {{quiet}}%)": "Base {{base}} × royaume ×{{mult}} × (1 + Formation spirituelle {{array}} % + Salle de méditation {{quiet}} %)",
+    "属性来源": "Origine des attributs",
+    "层数": "Couches",
+    "境界": "Royaume",
+    "法宝祭炼": "Raffinage des trésors"
   }
 }

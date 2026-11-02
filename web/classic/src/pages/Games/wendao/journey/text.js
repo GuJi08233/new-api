@@ -1033,6 +1033,19 @@ export const getHeroTitle = (t, hero) => {
   return t('重铸封印');
 };
 
+// 属性来源的名字，标识与 pkg/wendao 的 StatPart 一致。
+export const getStatPartNames = (t) => ({
+  class: t('流派'),
+  layer: t('层数'),
+  realm: t('境界'),
+  spring: t('灵泉'),
+  refine: t('法宝祭炼'),
+  temper: t('淬体丹'),
+  golden: t('九转金丹'),
+  jingang: t('金刚丹'),
+  longhu: t('龙虎丹'),
+});
+
 export const getNodeKindNames = (t) => ({
   story: t('剧情'),
   combat: t('遭遇'),
