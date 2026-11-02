@@ -82,11 +82,18 @@ const Wendao = () => {
   }, [loaded, part, loadAgenda]);
   useVisiblePolling(loadAgenda, AGENDA_INTERVAL, loaded);
 
-  // 点了目标或待办：切到那个板块，板块页面按 focus 打开页签。
+  // 点了目标或待办：切到那个板块，板块页面按 focus 打开页签。自己点板块按钮时清掉 focus，回到板块不会又跳到上次的页签。
   const go = useCallback(
     (target) => {
       setFocus({ ...target, seq: Date.now() });
       setPart(target.part);
+    },
+    [setPart],
+  );
+  const choosePart = useCallback(
+    (key) => {
+      setFocus(null);
+      setPart(key);
     },
     [setPart],
   );
@@ -97,14 +104,14 @@ const Wendao = () => {
       setInfo,
       reload,
       part,
-      setPart,
+      setPart: choosePart,
       parts: WENDAO_PARTS.filter(({ key }) => PARTS[key]),
       agenda,
       refreshAgenda,
       focus,
       go,
     }),
-    [info, setInfo, reload, part, setPart, agenda, refreshAgenda, focus, go],
+    [info, setInfo, reload, part, choosePart, agenda, refreshAgenda, focus, go],
   );
 
   if (loading || unavailable || !info) {
