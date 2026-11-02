@@ -52,7 +52,7 @@ const JourneyPage = () => {
   const text = useDungeonText();
   const sectText = useSectText();
   const { info } = useWendaoPart('journey');
-  const { focus, refreshAgenda } = useWendaoShell();
+  const { focus, go, refreshAgenda } = useWendaoShell();
   const focused = focus?.part === 'journey' ? focus : null;
   const [state, setState] = useState(null);
   const [receivedAt, setReceivedAt] = useState(0);
@@ -218,6 +218,7 @@ const JourneyPage = () => {
         send={battle}
         onFlee={() => act('flee')}
         onBack={() => setEnded(null)}
+        onGo={(target) => go({ part: 'journey', ...target })}
         onCards={() => {
           setEnded(null);
           setTab('cards');

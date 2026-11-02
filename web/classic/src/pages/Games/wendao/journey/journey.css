@@ -888,6 +888,66 @@
   margin: 4px 0 12px;
 }
 
+/* 落败复盘：输法一句、四个数、几条能去变强的路，左对齐放在结果页中间。 */
+.jn-review {
+  width: min(100%, 460px);
+  text-align: left;
+}
+.jn-review-cause {
+  margin: 0 0 10px;
+  font-family: var(--wd-serif);
+  line-height: 1.8;
+  color: var(--wd-ink);
+}
+.jn-review-facts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0 0 10px;
+  padding: 8px 0;
+  border-top: 1px solid var(--wd-paper-3);
+  border-bottom: 1px solid var(--wd-paper-3);
+}
+.jn-review-facts dt {
+  color: var(--wd-ink-3);
+  font-size: 12px;
+}
+.jn-review-facts dd {
+  margin: 2px 0 0;
+  color: var(--wd-ink);
+  font-variant-numeric: tabular-nums;
+}
+.jn-review-head {
+  margin: 12px 0 2px;
+  color: var(--wd-ink-2);
+  font-family: var(--wd-serif);
+  font-size: 14px;
+}
+.jn-review-tips {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.jn-review-tips li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px dashed var(--wd-paper-3);
+  color: var(--wd-ink-2);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.jn-review-tips li .semi-button {
+  flex: none;
+}
+@media (max-width: 480px) {
+  .jn-review-facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 /* ---------- 称号与问心阶 ---------- */
 .jn-hero-seal {
   display: inline-block;

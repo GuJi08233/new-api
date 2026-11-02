@@ -29,10 +29,10 @@ import './wendao.css';
 export const WendaoContext = createContext(null);
 
 // useWendaoShell 是外壳给板块页面的东西：focus 是从待办点过来时要打开的页签({ part, tab, view, node, seq })，
-// 板块页面按它切页签；refreshAgenda 在操作成功后调用，让顶上的待办跟着变。
+// 板块页面按它切页签；go 与点待办一样跳到某个板块的页签；refreshAgenda 在操作成功后调用，让顶上的待办跟着变。
 export function useWendaoShell() {
-  const { focus, refreshAgenda } = useContext(WendaoContext);
-  return { focus, refreshAgenda };
+  const { focus, go, refreshAgenda } = useContext(WendaoContext);
+  return { focus, go, refreshAgenda };
 }
 
 export const WENDAO_PARTS = [

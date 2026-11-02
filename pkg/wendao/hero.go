@@ -820,7 +820,7 @@ func (h *Hero) battleStep(s *Sect, a HeroAction, now int64) ([]Ev, error) {
 		evs := append([]Ev{{K: "hero_lost", S: battle.Node, N: battle.Step}}, h.injureTeam(s, now)...)
 		h.endBattle()
 		h.Stats.Losses++
-		return evs, nil
+		return append(evs, h.reviewDefeat(s, battle, now)...), nil
 	}
 	h.endBattle()
 	h.Stats.Wins++
