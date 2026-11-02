@@ -170,6 +170,15 @@ body[theme-mode='dark'] .wd-page {
   outline: 2px solid var(--wd-red);
   outline-offset: 1px;
 }
+/* 窄屏上收紧字距与留白，英文的板块名(Expeditions、Secret Realm)加上待办角标也不把页面撑宽，放不下时换行。 */
+@media (max-width: 480px) {
+  .wd-part {
+    min-width: 0;
+    gap: 4px;
+    padding: 6px 4px;
+    letter-spacing: 0;
+  }
+}
 /* 别的板块里有几件待办。 */
 .wd-part-badge {
   min-width: 18px;

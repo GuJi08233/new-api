@@ -782,7 +782,7 @@ For commercial licensing, please contact support@quantumnous.com
 /* ---------- Game page shell ----------
    所有游戏页共用：顶栏、左边台面右边信息栏的布局、信息栏里的格子、下注控件与规则表。 */
 
-/* 顶栏与下面的台面、信息栏同宽，余额和信息栏右边对齐。 */
+/* 顶栏与下面的台面、信息栏同宽，余额和信息栏右边对齐。窄屏放不下时(英文的「Game Center」更宽)标题收成省略号，不把页面撑宽。 */
 .game-topbar {
   display: flex;
   align-items: center;
@@ -796,17 +796,22 @@ For commercial licensing, please contact support@quantumnous.com
 }
 
 .game-title {
+  min-width: 0;
   margin: 0;
+  overflow: hidden;
   font-size: 22px;
   font-weight: 700;
   letter-spacing: -0.3px;
   color: var(--semi-color-text-0);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .game-topbar-balance {
   display: inline-flex;
   align-items: baseline;
   gap: 4px;
+  flex: none;
   margin-left: auto;
   padding: 6px 12px;
   border-radius: 999px;
