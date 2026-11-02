@@ -25,6 +25,7 @@ import {
   FlaskConical,
   Gem,
   HeartPulse,
+  Hourglass,
   Package,
   ShieldPlus,
 } from 'lucide-react';
@@ -140,13 +141,14 @@ export const CardFace = ({
   );
 };
 
-// 状态标记：状态名与层数，悬停看说明。
+// 状态标记：状态名与层数，悬停(触屏上点一下)看说明。虚弱、易伤的数是还剩几回合，数前面画个沙漏，和层数分开。
 export const StatusList = ({ st }) => {
   const { t } = useTranslation();
   const text = useDungeonText();
   const entries = Object.entries(st || {}).filter(([, n]) => n > 0);
   if (!entries.length) return null;
   const debuffs = ['weak', 'vuln', 'burn'];
+  const timed = ['weak', 'vuln'];
   return (
     <span className='dg-statuses'>
       {entries.map(([status, n]) => (
@@ -155,6 +157,9 @@ export const StatusList = ({ st }) => {
             className={`dg-status ${debuffs.includes(status) ? 'is-debuff' : ''} is-${status}`}
           >
             {text.statuses[status] || status}
+            {timed.includes(status) && (
+              <Hourglass size={10} className='dg-status-timed' aria-hidden />
+            )}
             {status !== 'fortify' && <strong>{n}</strong>}
           </span>
         </Tooltip>

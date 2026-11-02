@@ -125,6 +125,7 @@ const Combat = ({ run, busy, send, events, targeting, setTargeting }) => {
   const [log, setLog] = useState([]);
   const [logOpen, setLogOpen] = useState(false);
   const logEnd = useRef(null);
+  const enemiesRef = useRef(null);
   const timers = useRef([]);
   const [keyboard] = useState(hasKeyboard);
   const [shortcuts, setShortcuts] = useState(
@@ -316,6 +317,12 @@ const Combat = ({ run, busy, send, events, targeting, setTargeting }) => {
     if (logOpen) logEnd.current?.scrollIntoView({ block: 'end' });
   }, [logOpen, log]);
 
+  // 要选目标时把焦点移到第一个能选的敌人上：键盘接着按回车或方向上的 Tab 就能选，横屏或窄屏上敌人滚出去了也会滚回来。
+  useEffect(() => {
+    if (!targeting) return;
+    enemiesRef.current?.querySelector('.dg-enemy:not(:disabled)')?.focus();
+  }, [targeting]);
+
   if (!combat) {
     keyHandler.current = null;
     return null;
@@ -441,7 +448,7 @@ const Combat = ({ run, busy, send, events, targeting, setTargeting }) => {
 
   return (
     <div className={`dg-combat is-${combat.kind}`}>
-      <div className='dg-enemies'>
+      <div className='dg-enemies' ref={enemiesRef}>
         {combat.enemies.map((enemy, index) => {
           const loss = !enemy.dead ? aimed?.preview?.[index] : undefined;
           return (
@@ -514,15 +521,15 @@ const Combat = ({ run, busy, send, events, targeting, setTargeting }) => {
           )}
         </div>
       </div>
-      <div className='dg-log'>
-        <ol aria-live='polite'>
-          {latest.map((line, index) => (
-            <li key={`${log.length}-${index}`}>
-              <CombatLine line={line} />
-            </li>
-          ))}
-        </ol>
-        {log.length > 0 && (
+      {log.length > 0 && (
+        <div className='dg-log'>
+          <ol aria-live='polite'>
+            {latest.map((line, index) => (
+              <li key={`${log.length}-${index}`}>
+                <CombatLine line={line} />
+              </li>
+            ))}
+          </ol>
           <Button
             size='small'
             theme='borderless'
@@ -531,8 +538,8 @@ const Combat = ({ run, busy, send, events, targeting, setTargeting }) => {
           >
             {t('战况')}
           </Button>
-        )}
-      </div>
+        </div>
+      )}
       <p className='dg-help' aria-live='polite'>
         {endArmed
           ? t('还有能打出的功法，再按一次 E 结束回合')

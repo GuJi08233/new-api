@@ -298,6 +298,10 @@
 .dg-status strong {
   font-variant-numeric: tabular-nums;
 }
+.dg-status-timed {
+  margin-left: 1px;
+  opacity: 0.75;
+}
 
 /* ---------- 卡牌 ---------- */
 
@@ -908,8 +912,19 @@
 }
 
 .dg-hand-card:hover,
+.dg-hand-card:focus-visible,
 .dg-hand-card.is-selected {
   z-index: 2;
+}
+
+/* 键盘焦点：手牌叠着放，焦点所在的那张浮到最上面再描边；敌人滚进视口时让开顶上固定的导航栏。 */
+.dg-hand-card:focus-visible,
+.dg-enemy:focus-visible {
+  outline: 2px solid rgba(var(--semi-blue-5), 1);
+  outline-offset: 2px;
+}
+.dg-enemy {
+  scroll-margin-top: 72px;
 }
 
 .dg-combat-bar {
@@ -1457,4 +1472,66 @@
 
 .dg-stars.is-large {
   gap: 6px;
+}
+
+/* 手机横放(矮屏)：缩小画像、牌与间距，让敌人、自己和手牌尽量同在一屏，选目标不用来回滚；说明那行藏起来，战况只摆一行。 */
+@media (max-height: 480px) and (orientation: landscape) {
+  .dg-combat {
+    gap: 6px;
+  }
+  .dg-enemies {
+    min-height: 0;
+    padding: 6px 6px 4px;
+  }
+  .dg-enemy {
+    gap: 3px;
+    padding: 26px 8px 4px;
+  }
+  .dg-enemy-art,
+  .dg-enemy-art.is-slime_king,
+  .dg-enemy-art.is-flame_lord,
+  .dg-enemy-art.is-abyss_lord,
+  .dg-enemy-art.is-abyss_drake,
+  .dg-enemy-art.is-lich {
+    width: 44px;
+    height: 44px;
+  }
+  .dg-enemy-name {
+    font-size: 12px;
+  }
+  .dg-combat .dg-hp {
+    height: 14px;
+  }
+  .dg-combat .dg-hp-text,
+  .dg-combat .dg-hp-block {
+    height: 14px;
+    line-height: 14px;
+    font-size: 10px;
+  }
+  .dg-statuses {
+    margin-top: 2px;
+  }
+  .dg-preview {
+    top: 26px;
+  }
+  .dg-energy {
+    width: 40px;
+    height: 40px;
+    font-size: 16px;
+  }
+  .dg-help {
+    display: none;
+  }
+  .dg-log li:nth-last-child(n + 2) {
+    display: none;
+  }
+  .dg-hand {
+    min-height: 0;
+    padding-top: 6px;
+  }
+  .dg-hand .dg-card {
+    width: 112px;
+    min-height: 118px;
+    padding: 8px 8px 8px;
+  }
 }
