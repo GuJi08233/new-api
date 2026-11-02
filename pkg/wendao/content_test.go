@@ -17,7 +17,7 @@ import (
 // `bun test src/pages/Games/wendao`。
 const contentManifestPath = "testdata/content.json"
 
-// manifestNode 是清单里的一个历练节点：只有前端要对上的部分，数值不在里面，调数值不用重新生成清单。
+// manifestNode 是清单里的一个历练节点：只有前端要对上的部分(含支线与抉择的标识)，数值不在里面，调数值不用重新生成清单。
 type manifestNode struct {
 	Id       string   `json:"id"`
 	Chapter  int      `json:"chapter"`
@@ -27,6 +27,8 @@ type manifestNode struct {
 	Relic    string   `json:"relic,omitempty"`
 	Potions  []string `json:"potions,omitempty"`
 	Key      string   `json:"key,omitempty"`
+	Side     string   `json:"side,omitempty"`
+	Options  []string `json:"options,omitempty"`
 }
 
 // 内容清单跟规则一致：前端的内容检查读的是这份清单，规则改了清单没跟上，前端的检查就查不到新加的内容。
@@ -42,8 +44,12 @@ func TestContentManifestIsCurrent(t *testing.T) {
 
 	nodes := make([]string, 0, len(JourneyNodes))
 	for _, n := range JourneyNodes {
+		var options []string
+		for _, o := range n.Options {
+			options = append(options, o.Key)
+		}
 		data, err := common.Marshal(manifestNode{Id: n.Id, Chapter: n.Chapter, Kind: n.Kind, Requires: n.Requires,
-			Enemies: n.Enemies, Relic: n.Relic, Potions: n.Potions, Key: n.Key})
+			Enemies: n.Enemies, Relic: n.Relic, Potions: n.Potions, Key: n.Key, Side: n.Side, Options: options})
 		require.NoError(t, err)
 		nodes = append(nodes, "    "+string(data))
 	}

@@ -36,6 +36,7 @@ export const getCast = (t) => ({
   patriarch: { name: t('幽冥老祖'), portrait: 'patriarch' },
   judge: { name: t('九幽判官'), enemy: 'judge' },
   bone: { name: t('白骨尊者'), enemy: 'lich' },
+  shenyan: { name: t('沈砚'), enemy: 'death_knight' },
   slime_king: { name: t('泥沼妖王'), enemy: 'slime_king' },
 });
 
@@ -749,7 +750,279 @@ export const getNodeText = (t) => ({
       ),
     ],
   },
+
+  // 支线 · 苏青禾「药香」(第一章)。还阳草的抉择：送去落枫镇(town)或带回宗门丹房(sect)，「医者」按它讲。
+  qh_garden: {
+    x: 66,
+    y: 90,
+    name: t('药圃'),
+    lines: [
+      line(
+        'narrator',
+        t('后山的药圃荒了几十年。苏青禾上山以后，把它一垄一垄重新翻了出来。'),
+      ),
+      line(
+        'qinghe',
+        t(
+          '宗主，落枫镇捎信来了。泥沼退了以后，镇上好些孩子染了寒热症，白天发冷，夜里烧得说胡话。',
+        ),
+      ),
+      line(
+        'qinghe',
+        t('是泥沼里散出来的阴气入了体。寻常的退热草药压不住，得用还阳草。'),
+      ),
+      line(
+        'qinghe',
+        t(
+          '黑松林最深处有一片毒瘴谷，小时候阿婆带我在谷口见过一株。只是谷里的毒蛾……我一个人进不去。',
+        ),
+      ),
+      line('narrator', t('她把药篓背好，站在山门口等你。')),
+    ],
+  },
+  qh_miasma: {
+    x: 86,
+    y: 80,
+    name: t('毒瘴谷'),
+    desc: t('谷里终年飘着毒瘴，成群的毒蛾在瘴气里扑腾。'),
+    intro: [
+      line('qinghe', t('屏住气，别吸瘴气。毒蛾的鳞粉沾上了，半天都抬不起手。')),
+    ],
+  },
+  qh_herb: {
+    x: 92,
+    y: 60,
+    name: t('还阳草'),
+    lines: [
+      line(
+        'narrator',
+        t(
+          '瘴气散开，谷底的石缝里长着一株还阳草，叶背泛着淡淡的金光。四下找遍，只有这一株。',
+        ),
+      ),
+      line('qinghe', t('有它就够了。熬成汤药分下去，镇上的孩子都能退烧。')),
+      line(
+        'qinghe',
+        t(
+          '可是……还阳草几十年才长一株。拿回丹房，能炼两颗上好的培元丹，宗门眼下正缺这个。',
+        ),
+      ),
+      line('qinghe', t('宗主，你来定吧。')),
+    ],
+    options: {
+      town: {
+        label: t('送去落枫镇'),
+        after: [
+          line('qinghe', t('嗯！我这就下山熬药。')),
+          line('narrator', t('她一路小跑下山，药篓在背上颠个不停。')),
+        ],
+      },
+      sect: {
+        label: t('带回宗门丹房'),
+        after: [
+          line('qinghe', t('……好。宗门要紧。')),
+          line(
+            'narrator',
+            t('她把还阳草小心包好。回山的路上，她一句话也没说。'),
+          ),
+        ],
+      },
+    },
+  },
+  qh_cure: {
+    x: 76,
+    y: 64,
+    name: t('医者'),
+    lines: [line('narrator', t('半个月后，落枫镇的镇长亲自上了山。'))],
+    branch: {
+      from: 'qh_herb',
+      lines: {
+        town: [
+          line(
+            'mayor',
+            t('仙师，孩子们都好了！还阳草熬的汤，喝下去当晚就退了烧。'),
+          ),
+          line(
+            'mayor',
+            t(
+              '镇东那片河滩地，往后就是问道宗的药田。镇上的人都说，问道宗的事，就是落枫镇的事。',
+            ),
+          ),
+          line(
+            'qinghe',
+            t('宗主，我想学炼丹。阿婆说过，草药救一时，丹道能救一方。'),
+          ),
+          line('narrator', t('从那天起，丹房的灯常常亮到深夜。')),
+        ],
+        sect: [
+          line(
+            'mayor',
+            t(
+              '仙师，孩子们熬过来了。苏姑娘这半个月夜夜下山，拿寻常草药一副一副地配，总算把寒热压了下去。',
+            ),
+          ),
+          line(
+            'qinghe',
+            t('我想明白了。一株还阳草救得了这一回，救不了下一回。'),
+          ),
+          line(
+            'qinghe',
+            t('宗主，我想学炼丹。下回再有这种事，宗门和镇上，我要两头都顾上。'),
+          ),
+          line('narrator', t('从那天起，丹房的灯常常亮到深夜。')),
+        ],
+      },
+    },
+  },
+
+  // 支线 · 林牧「剑庐旧事」(第二章，最后一节在第四章)。断剑的抉择：葬回剑冢(bury)或让林牧带着(carry)，
+  // 「一百三十七」按它讲，接第五章林牧对太虚真人的那一问。
+  lm_letter: {
+    x: 66,
+    y: 82,
+    name: t('剑鸣'),
+    lines: [
+      line(
+        'narrator',
+        t('离开火云岭那晚，林牧一个人坐在火堆边，手里攥着一封揉皱的信。'),
+      ),
+      line(
+        'linmu',
+        t('赤霞原上的散修捎来的。说落霞崖上的剑庐旧址，这阵子夜夜有剑鸣。'),
+      ),
+      line('linmu', t('落霞剑庐，我的师门。十年前那一夜之后，我再没回去过。')),
+      line('linmu', t('宗主，陪我走一趟。这回的赏金我出——不对半了。')),
+      line('narrator', t('他说得轻巧，攥着信的手却一直没有松开。')),
+    ],
+  },
+  lm_cliff: {
+    x: 80,
+    y: 90,
+    name: t('落霞崖'),
+    desc: t('剑庐的废墟上，两个阴魂修士正掘地三尺，翻找剑冢里的旧剑。'),
+    intro: [line('linmu', t('连死人的剑都不放过……滚开！'))],
+  },
+  lm_tomb: {
+    x: 92,
+    y: 76,
+    name: t('剑冢'),
+    desc: t('剑冢前立着一具披甲的尸将，手里握着一柄剑庐的制式长剑。'),
+    intro: [
+      line(
+        'narrator',
+        t('尸将缓缓转过头。它的面甲裂了一半，露出一张年轻的脸。'),
+      ),
+      line('linmu', t('……沈师兄？')),
+      line('linmu', t('宗主，别留手。他要是还清醒，也不会想这样站着。')),
+    ],
+  },
+  lm_sword: {
+    x: 78,
+    y: 74,
+    name: t('断剑'),
+    lines: [
+      line(
+        'narrator',
+        t('尸将倒下，死气从甲缝里散尽。那张脸上，竟露出一丝清明。'),
+      ),
+      line('shenyan', t('师弟……你长高了。')),
+      line('shenyan', t('那一夜……来的人……穿着……')),
+      line(
+        'narrator',
+        t(
+          '话没说完，他便化作一捧灰，散在剑冢前。土里只剩一柄断剑——林牧师父的佩剑「断水」。',
+        ),
+      ),
+      line('linmu', t('师父的剑……宗主，你说，该把它留在这里，还是让我带着？')),
+    ],
+    options: {
+      bury: {
+        label: t('随师父葬入剑冢'),
+        after: [
+          line('linmu', t('也好。剑在这里，剑庐就还在。')),
+          line(
+            'narrator',
+            t(
+              '林牧在剑冢前磕了三个头，把断水插回土里，又从废墟下翻出师父藏着的一匣灵石，塞到你手里。',
+            ),
+          ),
+          line('linmu', t('说好了，赏金我出。')),
+        ],
+      },
+      carry: {
+        label: t('让林牧带在身上'),
+        after: [
+          line('linmu', t('好。等我查清那一夜的事，就拿它去讨个说法。')),
+          line(
+            'narrator',
+            t(
+              '他用布条把断剑缠好，负在背后，又撬开剑庐的旧剑炉，把里面剩下的玄铁都给了你。',
+            ),
+          ),
+          line('linmu', t('说好了，赏金我出。')),
+        ],
+      },
+    },
+  },
+  lm_vow: {
+    x: 88,
+    y: 34,
+    name: t('一百三十七'),
+    lines: [
+      line('narrator', t('万妖林的夜里，篝火噼啪作响。林牧很久都没有说话。')),
+      line('linmu', t('白色的道袍……大师兄那天没说完的话，原来是这个。')),
+    ],
+    branch: {
+      from: 'lm_sword',
+      lines: {
+        bury: [
+          line(
+            'linmu',
+            t(
+              '师父的剑还在剑冢里等着。等这件事了了，我回去告诉他，害了剑庐一百三十七口人的是谁。',
+            ),
+          ),
+          line(
+            'narrator',
+            t('他往火里添了一根柴。火光映着他的脸，看不出是什么神色。'),
+          ),
+        ],
+        carry: [
+          line(
+            'narrator',
+            t('他解下背后的断剑，用衣袖一点一点擦去上面的锈迹。'),
+          ),
+          line(
+            'linmu',
+            t(
+              '剑庐一百三十七口人。见到那件白袍，我要用师父的剑，问他一句认不认。',
+            ),
+          ),
+        ],
+      },
+    },
+  },
 });
+
+// 支线：名字与主角是谁。标识与 pkg/wendao/journey.go 里节点的 side 一致。
+export const getSideText = (t) => ({
+  qinghe: { name: t('药香'), who: 'qinghe' },
+  linmu: { name: t('剑庐旧事'), who: 'linmu' },
+});
+
+// storyLines 是剧情节点 id 要播的对白(text 是它的文案，nodes 是主角的通过记录)：有抉择的节点选过以后接上所选那一支
+// 的后话(回顾时)；按之前某个抉择换一段话的节点(branch)接上那一支，万一没有记录就用第一支。
+export function storyLines(id, text, nodes) {
+  const lines = [...(text.lines || [])];
+  const picked = text.options?.[nodes[id]?.pick];
+  if (picked) lines.push(...picked.after);
+  if (text.branch) {
+    const pick = nodes[text.branch.from]?.pick;
+    const branches = text.branch.lines;
+    lines.push(...(branches[pick] || Object.values(branches)[0]));
+  }
+  return lines;
+}
 
 // 通关(重铸封印)以后主角的称号，随问心阶登到的级数变；还没通关时没有称号。
 export const getHeroTitle = (t, hero) => {

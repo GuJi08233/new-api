@@ -20,7 +20,7 @@ func journeyInfo() gin.H {
 		n := &wendao.JourneyNodes[i]
 		view := gin.H{"id": n.Id, "chapter": n.Chapter, "kind": n.Kind, "requires": n.Requires, "enemies": n.Enemies,
 			"exp": n.Exp, "first": n.First, "repeat": n.Repeat, "relic": n.Relic, "potions": n.Potions, "key": n.Key,
-			"cooldown": n.Cooldown}
+			"cooldown": n.Cooldown, "side": n.Side, "options": n.Options}
 		if len(n.Enemies) > 0 {
 			hp, dmg := wendao.EnemyScale(n)
 			view["scale"] = []int{hp, dmg}

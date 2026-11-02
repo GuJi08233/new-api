@@ -29,13 +29,15 @@ type Goal struct {
 //   - 宗门：event 奇遇、missions 派遣回山、garden 灵田成熟、daily 功课可领(含宝箱)、disciple_break 弟子可突破、
 //     garden_empty 灵田空着
 //   - 历练：furnace_done 丹炉出丹、hero_break 主角可突破、furnace_stoke 可以调火、qi 可以服聚气丹或培元丹、
-//     beast_play 灵兽可以嬉戏、lure 可以引兽、furnace_idle 丹炉空着、gather 采集点可以去、trial 周天试炼还有几关没过
+//     beast_play 灵兽可以嬉戏、lure 可以引兽、furnace_idle 丹炉空着、gather 采集点可以去、trial 周天试炼还有几关没过、
+//     side 有几段支线能接着走(S 是其中第一个能去的节点)
 //   - 发游戏币的玩法(由控制器按领奖规则补上)：abyss_reward 秘境、tournament_reward 大比今天的奖励还没领满
 type Todo struct {
 	Key  string `json:"key"`
 	Part string `json:"part"`
 	Tab  string `json:"tab,omitempty"`
 	View string `json:"view,omitempty"`
+	S    string `json:"s,omitempty"`
 	N    int    `json:"n"`
 }
 
@@ -50,7 +52,7 @@ func (sv *Save) Agenda(now int64, day string) Agenda {
 	return Agenda{Goal: sv.heroGoal(), Todos: sv.todos(now, day)}
 }
 
-// heroGoal 是主角的主目标：先走主线上还没走过的节点(采集不算)；本章都走完了就修到圆满、突破进下一章；五章走完登问心阶。
+// heroGoal 是主角的主目标：先走主线上还没走过的节点(采集、支线不算)；本章都走完了就修到圆满、突破进下一章；五章走完登问心阶。
 func (sv *Save) heroGoal() Goal {
 	h := sv.Hero
 	if h == nil {
@@ -61,7 +63,7 @@ func (sv *Save) heroGoal() Goal {
 	}
 	for i := range JourneyNodes {
 		n := &JourneyNodes[i]
-		if n.Kind != NodeGather && h.cleared(n.Id) == 0 && h.Unlocked(n) {
+		if n.Side == "" && n.Kind != NodeGather && h.cleared(n.Id) == 0 && h.Unlocked(n) {
 			return Goal{Key: "node", Part: PartJourney, Tab: "map", S: n.Id, N: n.Chapter}
 		}
 	}
@@ -131,8 +133,26 @@ func (sv *Save) todos(now int64, day string) []Todo {
 		if w := h.weeklyAt(day); w != nil {
 			add(w.left(), Todo{Key: "trial", Part: PartJourney, Tab: "trial"})
 		}
+		stories, first := h.openSideStories()
+		add(stories, Todo{Key: "side", Part: PartJourney, Tab: "map", S: first})
 	}
 	return todos
+}
+
+// openSideStories 是有节点现在就能去的支线段数，first 是按节点顺序第一个能去的支线节点。
+func (h *Hero) openSideStories() (stories int, first string) {
+	seen := map[string]bool{}
+	for i := range JourneyNodes {
+		n := &JourneyNodes[i]
+		if n.Side == "" || seen[n.Side] || h.cleared(n.Id) > 0 || !h.Unlocked(n) {
+			continue
+		}
+		seen[n.Side] = true
+		if first == "" {
+			first = n.Id
+		}
+	}
+	return len(seen), first
 }
 
 // canBreak 表示主角修到了圆满、手里有本境界要的机缘，可以冲击下一个境界。

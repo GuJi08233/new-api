@@ -235,22 +235,45 @@ func TestHeroCultivatesOffline(t *testing.T) {
 	assert.InDelta(t, rate*8, h.CultivateRate(save.Sect), 1e-9, "each major realm doubles the pace")
 }
 
-// 每个节点的前置都存在且在它前面，敌人都存在，机缘是突破要用的，奖励的法宝与丹符都认识。
+// 每个节点的前置都存在且在它前面，敌人都存在，机缘是突破要用的，奖励的法宝与丹符都认识。支线接在主线后面、只接本支线的
+// 节点，不掉机缘与法宝；抉择只在剧情节点上，至少两个、标识不重复，给的丹药都认识。
 func TestJourneyContentIsWellFormed(t *testing.T) {
 	seen := map[string]bool{}
+	sideOf := map[string]string{}
 	keys := map[string]bool{}
 	first, last := map[int]*JourneyNode{}, map[int]*JourneyNode{}
 	for i := range JourneyNodes {
 		n := JourneyNodes[i]
-		if first[n.Chapter] == nil {
-			first[n.Chapter] = &JourneyNodes[i]
+		if n.Side == "" {
+			if first[n.Chapter] == nil {
+				first[n.Chapter] = &JourneyNodes[i]
+			}
+			last[n.Chapter] = &JourneyNodes[i]
 		}
-		last[n.Chapter] = &JourneyNodes[i]
 		assert.False(t, seen[n.Id], "duplicate %s", n.Id)
 		for _, r := range n.Requires {
 			assert.True(t, seen[r], "%s requires %s which comes later or is unknown", n.Id, r)
+			assert.True(t, sideOf[r] == "" || sideOf[r] == n.Side, "%s requires %s from another story", n.Id, r)
 		}
 		seen[n.Id] = true
+		sideOf[n.Id] = n.Side
+		if n.Side != "" {
+			assert.Empty(t, n.Key, n.Id)
+			assert.Empty(t, n.Relic, n.Id)
+			assert.NotEqual(t, NodeBoss, n.Kind, n.Id)
+		}
+		if len(n.Options) > 0 {
+			assert.Equal(t, NodeStory, n.Kind, "%s: only story nodes ask for a choice", n.Id)
+			assert.GreaterOrEqual(t, len(n.Options), 2, n.Id)
+			picks := map[string]bool{}
+			for _, o := range n.Options {
+				assert.False(t, o.Key == "" || picks[o.Key], "%s: option %q", n.Id, o.Key)
+				picks[o.Key] = true
+				for pill := range o.Pills {
+					assert.Contains(t, PillKeys, pill, n.Id)
+				}
+			}
+		}
 		assert.Less(t, n.Chapter, Chapters)
 		fights := n.Kind == NodeCombat || n.Kind == NodeElite || n.Kind == NodeBoss
 		assert.Equal(t, fights, len(n.Enemies) > 0, n.Id)
@@ -278,7 +301,7 @@ func TestJourneyContentIsWellFormed(t *testing.T) {
 		assert.True(t, keys[BreakKeys[realm]], "chapter %d drops the key to break realm %d", realm+1, realm)
 	}
 	assert.Len(t, keys, MaxRealm)
-	// 五章连成一条主线：每章的第一个节点接在上一章的最后一个节点后面，最后一个节点是剧情收尾。
+	// 五章连成一条主线：每章主线的第一个节点接在上一章主线的最后一个节点后面，最后一个节点是剧情收尾。
 	for chapter := 1; chapter < Chapters; chapter++ {
 		assert.Equal(t, []string{last[chapter-1].Id}, first[chapter].Requires, "chapter %d", chapter+1)
 		assert.Equal(t, NodeStory, last[chapter].Kind, "chapter %d ends with a story", chapter+1)

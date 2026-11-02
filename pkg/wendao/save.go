@@ -19,7 +19,9 @@ const SaveKey = "wendao"
 //
 // 程序读到比自己新的存档时拒绝(ErrNewerSave)：退回旧版本时宁可报错，也不把新版本的进度写丢。v2.16.23 及以前的程序
 // 还不认识这个字段，它们写的存档没有 schema(读出来是 0)，缺的字段由 normalize 补成空的。
-const SaveSchema = 1
+//
+// 各版本：1 是加上 schema 本身；2 是历练节点的通过记录多了支线剧情的抉择(NodeRecord.Pick)。
+const SaveSchema = 2
 
 // ErrNewerSave 表示存档是更新版本的程序写的，这个程序不认识其中的一部分，不能读也不能改写。
 var ErrNewerSave = errors.New("wendao: the save was written by a newer version")
@@ -81,7 +83,8 @@ func ParseSave(data string) (*Save, error) {
 	if save.Schema > SaveSchema {
 		return nil, ErrNewerSave
 	}
-	// 第 0 版(还没有 schema 的存档)到第 1 版只多了这个字段，没有要迁移的内容。
+	// 第 0 版(还没有 schema 的存档)到第 1 版只多了这个字段；第 1 版到第 2 版多的抉择只出现在新加的支线节点上，旧存档
+	// 还没走过支线。都没有要迁移的内容。
 	save.Schema = SaveSchema
 	if save.Sect != nil {
 		save.Sect.normalize()

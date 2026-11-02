@@ -63,7 +63,8 @@ const JourneyPage = () => {
   const [notice, setNotice] = useState(null);
   const [ended, setEnded] = useState(null);
   const [battleEvents, setBattleEvents] = useState(null);
-  // story 是正在播放的一段剧情：lines、chapter、title、doneLabel 与播完后做什么(onDone)。
+  // story 是正在播放的一段剧情：lines、chapter、title、doneLabel、抉择 choices 与播完后做什么(onDone，有抉择时收到所选
+  // 的 key)。
   const [story, setStory] = useState(null);
   const busyRef = useRef(false);
   const eventKey = useRef(0);
@@ -188,10 +189,11 @@ const JourneyPage = () => {
         chapter={story.chapter}
         title={story.title}
         doneLabel={story.doneLabel}
-        onDone={async () => {
+        choices={story.choices}
+        onDone={async (choice) => {
           const next = story.onDone;
           setStory(null);
-          if (next) await next();
+          if (next) await next(choice);
         }}
       />
     );
@@ -245,7 +247,7 @@ const JourneyPage = () => {
               selected={selected}
               onSelect={setSelected}
               onStory={(next) => setStory({ ...next, key: Date.now() })}
-              onVisit={(node) => act('visit', { node })}
+              onVisit={(node, option) => act('visit', { node, option })}
               onFight={async (node, team) => {
                 const data = await act('fight', { node, team });
                 if (data) playSound('start');

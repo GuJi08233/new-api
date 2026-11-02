@@ -123,7 +123,7 @@ func (h *Hero) trialChapter() int {
 	for c := Chapters - 1; c >= 0; c-- {
 		last := ""
 		for i := range JourneyNodes {
-			if n := &JourneyNodes[i]; n.Chapter == c && n.Kind == NodeBoss {
+			if n := &JourneyNodes[i]; n.Side == "" && n.Chapter == c && n.Kind == NodeBoss {
 				last = n.Id
 			}
 		}
@@ -134,14 +134,14 @@ func (h *Hero) trialChapter() int {
 	return -1
 }
 
-// newWeekly 按第 index 周与章节 chapter 定下这一周的三关：每关取这一章同种节点里轮到的那一个，天象按周数轮流取。
+// newWeekly 按第 index 周与章节 chapter 定下这一周的三关：每关取这一章主线上同种节点里轮到的那一个，天象按周数轮流取。
 func newWeekly(week string, index int, chapter int) *Weekly {
 	w := &Weekly{Week: week, Chapter: chapter, Cleared: make([]bool, WeeklyTrials)}
 	var first string
 	for k, kind := range trialKinds {
 		var nodes []*JourneyNode
 		for i := range JourneyNodes {
-			if n := &JourneyNodes[i]; n.Chapter == chapter && n.Kind == kind {
+			if n := &JourneyNodes[i]; n.Side == "" && n.Chapter == chapter && n.Kind == kind {
 				nodes = append(nodes, n)
 			}
 		}

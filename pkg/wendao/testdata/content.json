@@ -56,7 +56,16 @@
     {"id":"c5_city","chapter":4,"kind":"story","requires":["c5_judge","c5_lord"]},
     {"id":"c5_taixu","chapter":4,"kind":"boss","requires":["c5_city"],"enemies":["taixu"],"relic":"sage_tome"},
     {"id":"c5_boss","chapter":4,"kind":"boss","requires":["c5_taixu"],"enemies":["patriarch"],"relic":"crown"},
-    {"id":"c5_epilogue","chapter":4,"kind":"story","requires":["c5_boss"]}
+    {"id":"c5_epilogue","chapter":4,"kind":"story","requires":["c5_boss"]},
+    {"id":"qh_garden","chapter":0,"kind":"story","requires":["c1_rift"],"side":"qinghe"},
+    {"id":"qh_miasma","chapter":0,"kind":"combat","requires":["qh_garden"],"enemies":["moth","moth"],"side":"qinghe"},
+    {"id":"qh_herb","chapter":0,"kind":"story","requires":["qh_miasma"],"side":"qinghe","options":["town","sect"]},
+    {"id":"qh_cure","chapter":0,"kind":"story","requires":["qh_herb"],"side":"qinghe"},
+    {"id":"lm_letter","chapter":1,"kind":"story","requires":["c2_epilogue"],"side":"linmu"},
+    {"id":"lm_cliff","chapter":1,"kind":"combat","requires":["lm_letter"],"enemies":["shade_mage","shade_mage"],"side":"linmu"},
+    {"id":"lm_tomb","chapter":1,"kind":"elite","requires":["lm_cliff"],"enemies":["death_knight"],"side":"linmu"},
+    {"id":"lm_sword","chapter":1,"kind":"story","requires":["lm_tomb"],"side":"linmu","options":["bury","carry"]},
+    {"id":"lm_vow","chapter":3,"kind":"story","requires":["c4_epilogue","lm_sword"],"side":"linmu"}
   ],
   "step_enemies": ["treant","viper","nether_hound","fox_guard","hungry_ghost","abyss_guard","void_walker","lich","crystal_golem","soul_eater","flame_lord","bear","abyss_drake","spider","fox_emperor","judge","taixu","soul_lord","patriarch"],
   "signs": ["iron","fury","horde","bare","blessed"],

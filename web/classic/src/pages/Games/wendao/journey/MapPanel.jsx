@@ -49,6 +49,8 @@ import {
   getKeyText,
   getNodeKindNames,
   getNodeText,
+  getSideText,
+  storyLines,
 } from './text';
 
 const KIND_ICONS = {
@@ -69,7 +71,8 @@ function nodeState(node, hero, now) {
   return 'locked';
 }
 
-// 历练地图：一章一张图，节点之间连着前置关系的线；点一个节点在下面看详情、开战或前往。
+// 历练地图：一章一张图，节点之间连着前置关系的线；点一个节点在下面看详情、开战或前往。支线的节点小一号、描双圈，
+// 只连本支线里的线，从主线进支线的那一条不画(前置写在详情里)，免得一条线横穿整张图。
 const MapPanel = ({
   info,
   hero,
@@ -131,7 +134,11 @@ const MapPanel = ({
         >
           {shown.flatMap((node) =>
             node.requires
-              .filter((id) => byId[id]?.chapter === chapter)
+              .filter(
+                (id) =>
+                  byId[id]?.chapter === chapter &&
+                  (byId[id].side || '') === (node.side || ''),
+              )
               .map((id) => {
                 const from = texts[id];
                 const to = texts[node.id];
@@ -143,7 +150,7 @@ const MapPanel = ({
                     y1={from.y}
                     x2={to.x}
                     y2={to.y}
-                    className={lit ? 'is-lit' : ''}
+                    className={`${lit ? 'is-lit' : ''} ${node.side ? 'is-side' : ''}`}
                   />
                 );
               }),
@@ -157,7 +164,7 @@ const MapPanel = ({
             <button
               type='button'
               key={node.id}
-              className={`jn-node is-${node.kind} is-${state} ${current?.id === node.id ? 'is-selected' : ''}`}
+              className={`jn-node is-${node.kind} is-${state} ${node.side ? 'is-side' : ''} ${current?.id === node.id ? 'is-selected' : ''}`}
               style={{ left: `${pos.x}%`, top: `${pos.y}%` }}
               aria-label={pos.name}
               onClick={() => onSelect(node.id)}
@@ -211,9 +218,12 @@ const NodeDetail = ({
   const keys = getKeyText(t);
   const chapters = getChapterText(t);
   const enemyNames = getEnemyNames(t);
+  const sides = getSideText(t);
   const own = texts[node.id];
   const clears = hero.nodes[node.id]?.clears || 0;
   const first = clears === 0;
+  const picked = own.options?.[hero.nodes[node.id]?.pick];
+  const lines = storyLines(node.id, own, hero.nodes);
   const fights = ['combat', 'elite', 'boss'].includes(node.kind);
   const Icon = KIND_ICONS[node.kind];
 
@@ -235,6 +245,12 @@ const NodeDetail = ({
   }
 
   const reward = first ? node.first : node.repeat;
+  // 什么都不给的剧情节点(比如只做抉择的)不摆空的奖励行。
+  const rewarded =
+    fights ||
+    node.exp > 0 ||
+    Object.values(reward).some((n) => n > 0) ||
+    (first && (node.relic || node.potions?.length || node.key));
   const repeatsLeft = hero.repeats_left;
   return (
     <section className={`jn-detail is-${node.kind}`}>
@@ -242,6 +258,11 @@ const NodeDetail = ({
         <Icon size={18} />
         <h4>{own.name}</h4>
         <span className='jn-kind'>{kinds[node.kind]}</span>
+        {node.side && (
+          <span className='jn-kind is-side'>
+            {t('支线 · {{name}}', { name: sides[node.side]?.name })}
+          </span>
+        )}
         {clears > 0 && (
           <span className='jn-muted'>
             {t('已通过 {{n}} 次', { n: clears })}
@@ -249,6 +270,13 @@ const NodeDetail = ({
         )}
       </header>
       <p className='jn-desc'>{own.desc || own.lines?.[0]?.text}</p>
+      {node.options?.length > 0 && (
+        <p className='jn-muted'>
+          {picked
+            ? t('当时的抉择：{{label}}', { label: picked.label })
+            : t('这一段要做一个抉择，选哪一边各有所得')}
+        </p>
+      )}
       {fights && (
         <div className='jn-enemies'>
           {node.enemies.map((id, index) => (
@@ -267,7 +295,7 @@ const NodeDetail = ({
           </span>
         </div>
       )}
-      {(first || node.kind !== 'story') && (
+      {(first || node.kind !== 'story') && rewarded && (
         <div className='jn-rewards'>
           <span className='jn-reward-label'>
             {first ? t('首次奖励') : t('再次奖励')}
@@ -333,11 +361,37 @@ const NodeDetail = ({
             disabled={busy}
             onClick={() =>
               onStory({
-                lines: own.lines,
+                lines,
                 chapter: node.chapter,
                 title: own.name,
                 doneLabel: t('继续'),
-                onDone: () => onVisit(node.id),
+                // 有抉择的剧情播到最后一句时换成几个选项，选了才算走过，再接着播所选那一支的后话。
+                choices: node.options?.map((option) => ({
+                  key: option.key,
+                  label: own.options?.[option.key]?.label,
+                  hint: [
+                    ...Object.entries(option.reward)
+                      .filter(([, n]) => n > 0)
+                      .map(
+                        ([res, n]) =>
+                          `${sectText.resources[res]} +${formatAmount(n)}`,
+                      ),
+                    ...Object.entries(option.pills || {}).map(
+                      ([pill, n]) => `${sectText.pills[pill]?.name} ×${n}`,
+                    ),
+                  ].join(' · '),
+                })),
+                onDone: async (choice) => {
+                  const data = await onVisit(node.id, choice);
+                  if (data && choice) {
+                    onStory({
+                      lines: own.options[choice].after,
+                      chapter: node.chapter,
+                      title: own.name,
+                      doneLabel: t('继续'),
+                    });
+                  }
+                },
               })
             }
           >
@@ -349,7 +403,7 @@ const NodeDetail = ({
             disabled={busy}
             onClick={() =>
               onStory({
-                lines: own.lines,
+                lines,
                 chapter: node.chapter,
                 title: own.name,
                 doneLabel: t('合上'),

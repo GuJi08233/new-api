@@ -58,10 +58,11 @@ type Hero struct {
 	Stats      HeroStats   `json:"stats"`
 }
 
-// NodeRecord 是一个节点的通过记录。
+// NodeRecord 是一个节点的通过记录。Pick 是剧情抉择选了哪一个(JourneyOption.Key)，没有抉择的节点为空。
 type NodeRecord struct {
-	Clears int   `json:"clears"`
-	Last   int64 `json:"last"`
+	Clears int    `json:"clears"`
+	Last   int64  `json:"last"`
+	Pick   string `json:"pick,omitempty"`
 }
 
 // HeroBattle 是主角正在打的一场仗：在哪个节点(或问心阶的第几级、周天试炼哪一周的第几关)、这一场的局面，以及从行囊里
@@ -88,7 +89,7 @@ type HeroStats struct {
 // HeroAction 是历练里的一次操作。Move、Card、Target、Choice、Potion 是战斗里的一步(与九幽秘境相同)；Team 是开战(或登
 // 问心阶)时随行的弟子；Item、Count 是在丹房炼的丹符与份数(洞府的操作里 Item 是屋子、法宝或丹方)；Fire 是开炉的火候，
 // Index 是第几座丹炉(牌组预设的操作里是第几格)，Grade 是服哪个品质的丹；Beast 是灵兽的编号，Name 是给灵兽或牌组预设
-// 起的名字。
+// 起的名字；Option 是走剧情节点时选的抉择。
 type HeroAction struct {
 	Type    string   `json:"action"`
 	Class   string   `json:"class"`
@@ -109,6 +110,7 @@ type HeroAction struct {
 	Grade   int      `json:"grade"`
 	Beast   int      `json:"beast"`
 	Name    string   `json:"name"`
+	Option  string   `json:"option"`
 }
 
 // normalize 补上存档里省略的空表。
@@ -340,7 +342,7 @@ func (sv *Save) HeroApply(a HeroAction, now int64, day string, seed uint64) ([]E
 	case "breakthrough":
 		more, err = h.breakthrough(s, a.UsePill)
 	case "visit":
-		more, err = h.visit(s, a.Node, now)
+		more, err = h.visit(s, a.Node, a.Option, now)
 	case "fight":
 		err = h.fight(s, a.Node, a.Team, seed, now)
 	case "climb":
@@ -488,11 +490,15 @@ func (h *Hero) breakthrough(s *Sect, pill bool) ([]Ev, error) {
 	return append(evs, Ev{K: "hero_realm", N: h.Realm}), nil
 }
 
-// visit 走过一个剧情或采集节点。剧情只走一次；采集隔 Cooldown 秒可以再去。
-func (h *Hero) visit(s *Sect, id string, now int64) ([]Ev, error) {
+// visit 走过一个剧情或采集节点。剧情只走一次，有抉择的要选一个(option)；采集隔 Cooldown 秒可以再去。
+func (h *Hero) visit(s *Sect, id, option string, now int64) ([]Ev, error) {
 	n := JourneyNodeOf(id)
 	if n == nil || (n.Kind != NodeStory && n.Kind != NodeGather) {
 		return nil, ErrAction
+	}
+	pick, err := n.option(option)
+	if err != nil {
+		return nil, err
 	}
 	if !h.Unlocked(n) {
 		return nil, ErrUnavailable
@@ -503,7 +509,20 @@ func (h *Hero) visit(s *Sect, id string, now int64) ([]Ev, error) {
 	if h.GatherReady(n, now) > 0 {
 		return nil, ErrUnavailable
 	}
-	return h.clear(s, n, now), nil
+	evs := h.clear(s, n, now)
+	if pick == nil {
+		return evs, nil
+	}
+	// 抉择只在第一次走过时做(剧情只走一次)：记下选了哪一个，再加给它的奖励。
+	h.Nodes[n.Id].Pick = pick.Key
+	evs = append(evs, s.gain(pick.Reward)...)
+	for _, pill := range PillKeys {
+		if count := pick.Pills[pill]; count > 0 {
+			s.Pills[pill] += count
+			evs = append(evs, Ev{K: "pill", S: pill, N: count})
+		}
+	}
+	return evs, nil
 }
 
 // clear 记下通过一个节点并发奖励：第一次给全部修为、资源与法宝丹符机缘，之后修为减半、资源按每天的次数。

@@ -36,6 +36,7 @@ import {
   getChapterText,
   getKeyText,
   getNodeText,
+  getSideText,
   getSignText,
 } from './journey/text';
 
@@ -72,6 +73,67 @@ describe('问道的内容在前端都有文案与画像', () => {
           problems.push(`${node.id}: 不认识说话的人 ${line.who}`);
         if (!line.text) problems.push(`${node.id}: 有一句空对白`);
       }
+    }
+    expect(problems).toEqual([]);
+  });
+
+  test('剧情抉择的每个选项都有文字与后话，按抉择换话的节点每一支都写了，说话的人都在人物表里', () => {
+    const byId = Object.fromEntries(
+      content.nodes.map((node) => [node.id, node]),
+    );
+    // before(id, from) 表示 from 是 id 的前置(隔几层也算)：按抉择换话时，抉择一定已经做过。
+    const before = (id, from) =>
+      (byId[id]?.requires || []).some((r) => r === from || before(r, from));
+    const problems = [];
+    const checkLines = (where, lines) => {
+      if (!lines?.length) problems.push(`${where}: 没有对白`);
+      for (const line of lines || []) {
+        if (!cast[line.who])
+          problems.push(`${where}: 不认识说话的人 ${line.who}`);
+        if (!line.text) problems.push(`${where}: 有一句空对白`);
+      }
+    };
+    for (const node of content.nodes) {
+      const text = nodes[node.id];
+      if (!text) continue;
+      const want = node.options || [];
+      const got = Object.keys(text.options || {});
+      if (want.join() !== got.join()) {
+        problems.push(`${node.id}: 选项 ${got.join()}，规则是 ${want.join()}`);
+      }
+      for (const key of got) {
+        if (!text.options[key].label)
+          problems.push(`${node.id}.${key}: 没有选项文字`);
+        checkLines(`${node.id}.${key}`, text.options[key].after);
+      }
+      if (!text.branch) continue;
+      const from = byId[text.branch.from];
+      if (!from?.options || !before(node.id, from.id)) {
+        problems.push(
+          `${node.id}: 按 ${text.branch.from} 换话，但它不是走到这里之前的抉择`,
+        );
+        continue;
+      }
+      const branches = Object.keys(text.branch.lines);
+      if (from.options.join() !== branches.join()) {
+        problems.push(
+          `${node.id}: 分支 ${branches.join()}，抉择是 ${from.options.join()}`,
+        );
+      }
+      for (const key of branches) {
+        checkLines(`${node.id}.${key}`, text.branch.lines[key]);
+      }
+    }
+    expect(problems).toEqual([]);
+  });
+
+  test('每段支线都有名字，主角在人物表里', () => {
+    const sides = getSideText(t);
+    const problems = [];
+    for (const side of new Set(content.nodes.map((node) => node.side))) {
+      if (!side) continue;
+      if (!sides[side]?.name) problems.push(`${side}: 没有名字`);
+      if (!cast[sides[side]?.who]) problems.push(`${side}: 不认识主角`);
     }
     expect(problems).toEqual([]);
   });

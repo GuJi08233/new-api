@@ -33,8 +33,9 @@ const reducedMotion = () =>
   window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
 // 一段剧情：章节底图上一个对话框，左边是说话人的画像，台词逐字出现；点对话框(或按回车、空格)先补全这一句，再翻到
-// 下一句。最后一句显示完后出现 doneLabel 按钮。可以随时跳到最后一句。
-const StoryDialog = ({ lines, chapter, title, doneLabel, onDone }) => {
+// 下一句。最后一句显示完后出现 doneLabel 按钮；有抉择(choices：key、label 与一句奖励说明 hint)时换成几个选项，
+// 选了以后 onDone 收到所选的 key。可以随时跳到最后一句。
+const StoryDialog = ({ lines, chapter, title, doneLabel, choices, onDone }) => {
   const { t } = useTranslation();
   const cast = getCast(t);
   const [index, setIndex] = useState(0);
@@ -109,6 +110,21 @@ const StoryDialog = ({ lines, chapter, title, doneLabel, onDone }) => {
           </span>
         )}
       </div>
+      {last && !typing && choices?.length > 0 && (
+        <div className='wd-story-choices' role='group' aria-label={t('抉择')}>
+          {choices.map((choice) => (
+            <button
+              type='button'
+              key={choice.key}
+              className='wd-story-choice'
+              onClick={() => onDone(choice.key)}
+            >
+              <strong>{choice.label}</strong>
+              {choice.hint && <span>{choice.hint}</span>}
+            </button>
+          ))}
+        </div>
+      )}
       <div className='wd-story-actions'>
         <span className='wd-story-count'>
           {index + 1} / {lines.length}
@@ -123,8 +139,8 @@ const StoryDialog = ({ lines, chapter, title, doneLabel, onDone }) => {
             {t('跳过')}
           </Button>
         )}
-        {last && !typing && (
-          <Button theme='solid' onClick={onDone}>
+        {last && !typing && !choices?.length && (
+          <Button theme='solid' onClick={() => onDone()}>
             {doneLabel}
           </Button>
         )}

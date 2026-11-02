@@ -128,6 +128,45 @@
     transform: translateY(3px);
   }
 }
+/* 剧情抉择：对话框下面一排选项，写着选什么、得什么。 */
+.wd-story-choices {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 12px 16px 0;
+}
+.wd-story-choice {
+  display: flex;
+  flex: 1 1 200px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 10px 14px;
+  border: 1px solid var(--wd-ink-3);
+  border-left: 4px solid var(--wd-red);
+  border-radius: 10px;
+  background: var(--wd-paper);
+  color: var(--wd-ink);
+  text-align: left;
+  cursor: pointer;
+}
+.wd-story-choice:hover {
+  border-color: var(--wd-red);
+}
+.wd-story-choice:focus-visible {
+  outline: 2px solid var(--wd-red);
+  outline-offset: 2px;
+}
+.wd-story-choice strong {
+  font-family: var(--wd-serif);
+  font-size: 15px;
+  letter-spacing: 1px;
+}
+.wd-story-choice span {
+  color: var(--wd-ink-2);
+  font-size: 12px;
+}
 .wd-story-actions {
   position: relative;
   display: flex;
@@ -357,6 +396,11 @@
   stroke-opacity: 0.75;
   stroke-dasharray: none;
 }
+/* 支线的线点得更碎。 */
+.jn-map-lines line.is-side {
+  stroke-dasharray: 1 5;
+  stroke-linecap: round;
+}
 .jn-node {
   position: absolute;
   display: flex;
@@ -389,6 +433,13 @@
   width: 46px;
   height: 46px;
   border-width: 3px;
+}
+/* 支线的节点小一号、描双圈。 */
+.jn-node.is-side .jn-node-dot {
+  width: 32px;
+  height: 32px;
+  border-style: double;
+  border-width: 4px;
 }
 .jn-node-name {
   max-width: 96px;
@@ -487,6 +538,11 @@
 .jn-detail.is-boss .jn-kind {
   background: var(--wd-red);
   color: var(--wd-paper);
+}
+.jn-detail .jn-kind.is-side {
+  border: 1px dashed var(--wd-ink-3);
+  background: transparent;
+  color: var(--wd-ink-2);
 }
 .jn-desc,
 .jn-result p {

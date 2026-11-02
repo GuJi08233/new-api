@@ -86,19 +86,46 @@ var UpgradeCost = [...]int{30, 60, 150, 300}
 
 // JourneyNode 是历练地图上的一个节点。Requires 里的节点都走过才能去；Exp 与 First 是第一次通过的修为与资源，之后每次
 // 修为减半、资源按 Repeat(每天前 DailyRepeatRewards 次)。Relic、Potions、Key 只在第一次通过时给。Cooldown 是采集的间隔。
+// Side 是支线的标识，主线节点为空；Options 是剧情节点里的抉择，第一次走过时选一个，再加给那一个的奖励。
 type JourneyNode struct {
-	Id       string   `json:"id"`
-	Chapter  int      `json:"chapter"`
-	Kind     string   `json:"kind"`
-	Requires []string `json:"requires"`
-	Enemies  []string `json:"enemies,omitempty"`
-	Exp      int      `json:"exp"`
-	First    Cost     `json:"first"`
-	Repeat   Cost     `json:"repeat"`
-	Relic    string   `json:"relic,omitempty"`
-	Potions  []string `json:"potions,omitempty"`
-	Key      string   `json:"key,omitempty"`
-	Cooldown int64    `json:"cooldown,omitempty"`
+	Id       string          `json:"id"`
+	Chapter  int             `json:"chapter"`
+	Kind     string          `json:"kind"`
+	Requires []string        `json:"requires"`
+	Enemies  []string        `json:"enemies,omitempty"`
+	Exp      int             `json:"exp"`
+	First    Cost            `json:"first"`
+	Repeat   Cost            `json:"repeat"`
+	Relic    string          `json:"relic,omitempty"`
+	Potions  []string        `json:"potions,omitempty"`
+	Key      string          `json:"key,omitempty"`
+	Cooldown int64           `json:"cooldown,omitempty"`
+	Side     string          `json:"side,omitempty"`
+	Options  []JourneyOption `json:"options,omitempty"`
+}
+
+// JourneyOption 是剧情里的一个抉择：Key 是标识(前端按它写选项与后话，之后的剧情也按它讲)，Reward 与 Pills 是选了它
+// 额外给的宗门资源与丹药。
+type JourneyOption struct {
+	Key    string         `json:"key"`
+	Reward Cost           `json:"reward"`
+	Pills  map[string]int `json:"pills,omitempty"`
+}
+
+// option 返回剧情节点的抉择 key；没有抉择的节点只认空的 key，有抉择的节点必须选一个认识的。
+func (n *JourneyNode) option(key string) (*JourneyOption, error) {
+	if len(n.Options) == 0 {
+		if key != "" {
+			return nil, ErrAction
+		}
+		return nil, nil
+	}
+	for i := range n.Options {
+		if n.Options[i].Key == key {
+			return &n.Options[i], nil
+		}
+	}
+	return nil, ErrAction
 }
 
 // 各种节点第一次通过的修为，乘上章节对应境界的修为倍数 realmExp。
@@ -121,6 +148,16 @@ func withPotions(n JourneyNode, potions ...string) JourneyNode {
 
 func withKey(n JourneyNode, key string) JourneyNode {
 	n.Key = key
+	return n
+}
+
+func onSide(side string, n JourneyNode) JourneyNode {
+	n.Side = side
+	return n
+}
+
+func withOptions(n JourneyNode, options ...JourneyOption) JourneyNode {
+	n.Options = options
 	return n
 }
 
@@ -198,6 +235,22 @@ var JourneyNodes = []JourneyNode{
 	withRelic(node("c5_taixu", 4, NodeBoss, req("c5_city"), []string{"taixu"}, Cost{Stone: 12000, Herb: 4000, Ore: 3000, Rep: 200}, Cost{Stone: 2200, Herb: 800, Ore: 600}), dungeon.RelicTome),
 	withRelic(node("c5_boss", 4, NodeBoss, req("c5_taixu"), []string{"patriarch"}, Cost{Stone: 16000, Herb: 6000, Ore: 5000, Rep: 300}, Cost{Stone: 3000, Herb: 1100, Ore: 900}), dungeon.RelicCrown),
 	node("c5_epilogue", 4, NodeStory, req("c5_boss"), nil, Cost{Rep: 150}, Cost{}),
+
+	// 支线：围绕人物的短篇，放在主线之后。第一个节点接在主线的某个节点后面，之后只接本支线的节点；不掉机缘与法宝，主目标与
+	// 周天试炼都不算它们。剧情见 story.md。
+	// 苏青禾 · 药香(第一章)：后山药圃、毒瘴谷、还阳草(把它送去落枫镇，还是带回丹房)、医者。
+	onSide("qinghe", node("qh_garden", 0, NodeStory, req("c1_rift"), nil, Cost{Herb: 40}, Cost{})),
+	onSide("qinghe", node("qh_miasma", 0, NodeCombat, req("qh_garden"), []string{"moth", "moth"}, Cost{Stone: 60, Herb: 50}, Cost{Stone: 14, Herb: 12})),
+	onSide("qinghe", withOptions(node("qh_herb", 0, NodeStory, req("qh_miasma"), nil, Cost{}, Cost{}),
+		JourneyOption{Key: "town", Reward: Cost{Rep: 20}}, JourneyOption{Key: "sect", Pills: map[string]int{PillPeiyuan: 2}})),
+	onSide("qinghe", node("qh_cure", 0, NodeStory, req("qh_herb"), nil, Cost{Stone: 80, Herb: 80}, Cost{})),
+	// 林牧 · 剑庐旧事(第二章，最后一节在第四章的尾声之后)：旧信、落霞崖、剑冢、断剑(葬回剑冢，还是让林牧带着)、一百三十七。
+	onSide("linmu", node("lm_letter", 1, NodeStory, req("c2_epilogue"), nil, Cost{Stone: 100}, Cost{})),
+	onSide("linmu", node("lm_cliff", 1, NodeCombat, req("lm_letter"), []string{"shade_mage", "shade_mage"}, Cost{Stone: 180, Herb: 80}, Cost{Stone: 40, Herb: 18})),
+	onSide("linmu", node("lm_tomb", 1, NodeElite, req("lm_cliff"), []string{"death_knight"}, Cost{Stone: 420, Ore: 140, Rep: 10}, Cost{Stone: 95, Ore: 32})),
+	onSide("linmu", withOptions(node("lm_sword", 1, NodeStory, req("lm_tomb"), nil, Cost{Rep: 20}, Cost{}),
+		JourneyOption{Key: "bury", Reward: Cost{Stone: 300}}, JourneyOption{Key: "carry", Reward: Cost{Ore: 300}})),
+	onSide("linmu", node("lm_vow", 3, NodeStory, req("c4_epilogue", "lm_sword"), nil, Cost{Stone: 500, Rep: 40}, Cost{})),
 }
 
 var journeyNodeIndex = func() map[string]*JourneyNode {
