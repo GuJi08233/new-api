@@ -112,11 +112,14 @@ const Combat = ({ run, busy, send, events, targeting, setTargeting }) => {
   // endArmed：按过一次 E、还有牌能出，等第二次确认。
   const [endArmed, setEndArmed] = useState(false);
   const endTimer = useRef(null);
+  // aim 是鼠标停着或键盘焦点所在的那张手牌，敌人的生命条上预览它的伤害；选目标时预览选中的那张。
+  const [aim, setAim] = useState(-1);
   useEffect(() => () => clearTimeout(endTimer.current), []);
-  // 局面一变(出了牌、敌人行动过)就不再等第二次 E。
+  // 局面一变(出了牌、敌人行动过)就不再等第二次 E，手牌换了也不再预览原来那一张。
   useEffect(() => {
     clearTimeout(endTimer.current);
     setEndArmed(false);
+    setAim(-1);
   }, [combat]);
   // keyHandler 每次渲染换成拿着最新局面的那一个，键盘监听只在开关变化时挂一次。
   const keyHandler = useRef(null);
@@ -355,6 +358,13 @@ const Combat = ({ run, busy, send, events, targeting, setTargeting }) => {
     }
   };
 
+  // 伤害预览由服务端在局面的副本上试打得出(CardView.preview)；随机伤害的牌没有预览，灵力不够的牌不预览。
+  const aimedCard = combat.hand[targeting?.card ?? aim];
+  const aimed =
+    aimedCard && aimedCard.cost >= 0 && aimedCard.cost <= combat.energy
+      ? aimedCard
+      : null;
+
   const piles = {
     draw: {
       title: t('抽牌堆'),
@@ -368,34 +378,52 @@ const Combat = ({ run, busy, send, events, targeting, setTargeting }) => {
   return (
     <div className={`dg-combat is-${combat.kind}`}>
       <div className='dg-enemies'>
-        {combat.enemies.map((enemy, index) => (
-          <button
-            key={index}
-            type='button'
-            className={[
-              'dg-enemy',
-              enemy.dead ? 'is-dead' : '',
-              targeting && !enemy.dead ? 'is-targetable' : '',
-              pulses[`e${index}`] ? `is-${pulses[`e${index}`]}` : '',
-            ].join(' ')}
-            disabled={!targeting || enemy.dead || busy}
-            onClick={() => pickEnemy(index)}
-            aria-label={enemyNames[enemy.id] || enemy.id}
-          >
-            {!enemy.dead && <IntentBadge intent={enemy.intent} />}
-            {keysOn && targeting && !enemy.dead && index < 10 && (
-              <kbd className='dg-hotkey'>{(index + 1) % 10}</kbd>
-            )}
-            <span className={`dg-enemy-art is-${enemy.id}`} aria-hidden>
-              <EnemyArt id={enemy.id} />
-            </span>
-            <span className='dg-enemy-name'>
-              {enemyNames[enemy.id] || enemy.id}
-            </span>
-            <HpBar hp={enemy.hp} max={enemy.max_hp} block={enemy.block} />
-            <StatusList st={enemy.st} />
-          </button>
-        ))}
+        {combat.enemies.map((enemy, index) => {
+          const loss = !enemy.dead ? aimed?.preview?.[index] : undefined;
+          return (
+            <button
+              key={index}
+              type='button'
+              className={[
+                'dg-enemy',
+                enemy.dead ? 'is-dead' : '',
+                targeting && !enemy.dead ? 'is-targetable' : '',
+                pulses[`e${index}`] ? `is-${pulses[`e${index}`]}` : '',
+              ].join(' ')}
+              disabled={!targeting || enemy.dead || busy}
+              onClick={() => pickEnemy(index)}
+              aria-label={enemyNames[enemy.id] || enemy.id}
+            >
+              {!enemy.dead && <IntentBadge intent={enemy.intent} />}
+              {keysOn && targeting && !enemy.dead && index < 10 && (
+                <kbd className='dg-hotkey'>{(index + 1) % 10}</kbd>
+              )}
+              <span className={`dg-enemy-art is-${enemy.id}`} aria-hidden>
+                <EnemyArt id={enemy.id} />
+              </span>
+              <span className='dg-enemy-name'>
+                {enemyNames[enemy.id] || enemy.id}
+              </span>
+              {loss && (
+                <span className='dg-preview'>
+                  <strong>
+                    {loss.hp >= enemy.hp ? t('击败') : `−${loss.hp}`}
+                  </strong>
+                  {loss.block > 0 && (
+                    <small>{t('破护体 {{n}}', { n: loss.block })}</small>
+                  )}
+                </span>
+              )}
+              <HpBar
+                hp={enemy.hp}
+                max={enemy.max_hp}
+                block={enemy.block}
+                loss={loss}
+              />
+              <StatusList st={enemy.st} />
+            </button>
+          );
+        })}
       </div>
       <div className={`dg-player ${pulses.p ? `is-${pulses.p}` : ''}`}>
         <Tooltip content={t('灵力：施展功法要花费的点数，每回合回满')}>
@@ -454,6 +482,10 @@ const Combat = ({ run, busy, send, events, targeting, setTargeting }) => {
             disabled={busy}
             hotkey={keysOn && index < 10 ? (index + 1) % 10 : undefined}
             onClick={() => playCard(index)}
+            onMouseEnter={() => setAim(index)}
+            onMouseLeave={() =>
+              setAim((current) => (current === index ? -1 : current))
+            }
           />
         ))}
       </div>

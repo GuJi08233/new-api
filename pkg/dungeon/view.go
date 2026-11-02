@@ -1,6 +1,7 @@
 package dungeon
 
 import (
+	"maps"
 	"slices"
 	"strings"
 )
@@ -18,6 +19,15 @@ type CardView struct {
 	Fx      []FxView `json:"fx"`
 	// Upgrade 是牌组里这张牌升级之后的样子，营火锻造与事件升级前给玩家预览；已经升级或不能升级时为空。
 	Upgrade *CardView `json:"upgrade,omitempty"`
+	// Preview 是手牌里会伤到敌人的牌现在打出去的结果，第 i 项是第 i 个敌人失去的生命与护体：要选目标的牌是以它为目标时
+	// 它自己的，不选目标的牌是打出后它的。带随机伤害的牌不给。
+	Preview []Hit `json:"preview,omitempty"`
+}
+
+// Hit 是一个敌人会失去的生命与护体。
+type Hit struct {
+	HP    int `json:"hp"`
+	Block int `json:"block,omitempty"`
 }
 
 // FxView 是牌面上的一条效果。
@@ -180,6 +190,69 @@ func (r *Run) handView(c Card) CardView {
 	return v
 }
 
+// handPreview 是手牌第 index 张的伤害预览(见 CardView.Preview)：在局面的副本上真的打一次，所以闪避、护体、易伤、反震、
+// 连击中途打死目标都和规则一致。随机挑目标的伤害事先说不准，带这种效果的牌不预览。
+func (r *Run) handPreview(index int) []Hit {
+	card := r.Combat.Hand[index]
+	d := card.def()
+	damaging := false
+	for _, f := range d.Effects(card.Up) {
+		switch f.Kind {
+		case FxDamageRand:
+			return nil
+		case FxDamage, FxDamageAll, FxDamageBlock, FxPerCard, FxBurst:
+			damaging = true
+		}
+	}
+	if !damaging || cardCost(card) < 0 {
+		return nil
+	}
+	if d.Target != TargetEnemy {
+		return r.tryCard(index, playerTarget)
+	}
+	hits := make([]Hit, len(r.Combat.Enemies))
+	for i := range hits {
+		if tried := r.tryCard(index, i); tried != nil {
+			hits[i] = tried[i]
+		}
+	}
+	return hits
+}
+
+// tryCard 在副本上把手牌第 index 张打向 target，返回每个敌人失去的生命与护体；打不出去时为空。副本只拷贝战斗，胜负按
+// 练习处理(不发奖励、不进下一场)，随机数发生器是副本自己的一份，真实的局面不会因此用掉随机数；灵力不够也照算。
+func (r *Run) tryCard(index, target int) []Hit {
+	c := r.Combat
+	if target != playerTarget && !r.aliveEnemy(target) {
+		return nil
+	}
+	cc := *c
+	cc.St = maps.Clone(c.St)
+	cc.Draw = slices.Clone(c.Draw)
+	cc.Hand = slices.Clone(c.Hand)
+	cc.Discard = slices.Clone(c.Discard)
+	cc.Exhaust = slices.Clone(c.Exhaust)
+	cc.Energy = max(c.Energy, cardCost(c.Hand[index]))
+	cc.Enemies = make([]*Enemy, len(c.Enemies))
+	for i, e := range c.Enemies {
+		ec := *e
+		ec.St = maps.Clone(e.St)
+		ec.Last = slices.Clone(e.Last)
+		cc.Enemies[i] = &ec
+	}
+	cp := *r
+	cp.Mode, cp.Combat, cp.Events = ModePractice, &cc, nil
+	if cp.playCard(index, target) != nil {
+		return nil
+	}
+	hits := make([]Hit, len(c.Enemies))
+	for i, e := range c.Enemies {
+		after := cc.Enemies[i]
+		hits[i] = Hit{HP: e.HP - max(after.HP, 0), Block: e.Block - after.Block}
+	}
+	return hits
+}
+
 // View 返回页面上的样子，附带最近一次操作里发生的事。
 func (r *Run) View() View {
 	v := View{
@@ -200,8 +273,12 @@ func (r *Run) View() View {
 	if c := r.Combat; c != nil {
 		cv := &CombatView{Kind: c.Kind, Turn: c.Turn, Energy: c.Energy, Block: c.Block, St: c.St,
 			Discard: cardViews(c.Discard), Exhaust: cardViews(c.Exhaust), Dealt: c.Dealt, TurnDealt: c.TurnDealt, MaxHit: c.MaxHit}
-		for _, card := range c.Hand {
-			cv.Hand = append(cv.Hand, r.handView(card))
+		for i, card := range c.Hand {
+			hv := r.handView(card)
+			if r.Phase == PhaseCombat {
+				hv.Preview = r.handPreview(i)
+			}
+			cv.Hand = append(cv.Hand, hv)
 		}
 		if cv.Hand == nil {
 			cv.Hand = []CardView{}

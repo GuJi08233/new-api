@@ -8860,6 +8860,8 @@
     "今天的拆解已用完，明天再来": "Hôm nay đã hết lượt phân giải, mai quay lại",
     "拆解：{{name}}": "Phân giải: {{name}}",
     "不在牌组里的功法可以拆解换灵石，每天 {{n}} 张；参悟过的另退一半参悟花的灵石": "Công pháp ngoài bộ bài có thể phân giải lấy linh thạch, mỗi ngày {{n}} lá; lá đã tham ngộ hoàn thêm một nửa linh thạch tham ngộ",
-    "收藏已满 {{n}} 张，之后赢了也不能收下新的功法，先去拆解或丢掉几张不用的。": "Sưu tập đã đầy {{n}} lá, sau này thắng cũng không nhận được công pháp mới, hãy phân giải hoặc bỏ bớt vài lá không dùng."
+    "收藏已满 {{n}} 张，之后赢了也不能收下新的功法，先去拆解或丢掉几张不用的。": "Sưu tập đã đầy {{n}} lá, sau này thắng cũng không nhận được công pháp mới, hãy phân giải hoặc bỏ bớt vài lá không dùng.",
+    "击败": "Hạ gục",
+    "破护体 {{n}}": "Phá {{n}} hộ thể"
   }
 }

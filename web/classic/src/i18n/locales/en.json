@@ -8508,6 +8508,8 @@
     "今天的拆解已用完，明天再来": "No salvages left today; come back tomorrow",
     "拆解：{{name}}": "Salvaged: {{name}}",
     "不在牌组里的功法可以拆解换灵石，每天 {{n}} 张；参悟过的另退一半参悟花的灵石": "Techniques outside your deck can be salvaged for Spirit Stones, {{n}} a day; studied ones also refund half the study cost",
-    "收藏已满 {{n}} 张，之后赢了也不能收下新的功法，先去拆解或丢掉几张不用的。": "Your collection is full at {{n}}; later wins won't add new techniques. Salvage or discard some you don't use first."
+    "收藏已满 {{n}} 张，之后赢了也不能收下新的功法，先去拆解或丢掉几张不用的。": "Your collection is full at {{n}}; later wins won't add new techniques. Salvage or discard some you don't use first.",
+    "击败": "Lethal",
+    "破护体 {{n}}": "Breaks {{n}} Guard"
   }
 }

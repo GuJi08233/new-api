@@ -225,6 +225,51 @@
   background: rgba(var(--semi-blue-5), 1);
 }
 
+/* 伤害预览：这一下会失去的那一段生命画成斜纹虚影，护体被打穿的部分写成「现在 → 之后」。 */
+.dg-hp-loss {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: repeating-linear-gradient(
+    -45deg,
+    rgba(var(--semi-red-5), 0.55) 0 4px,
+    rgba(var(--semi-red-3), 0.35) 4px 8px
+  );
+}
+.dg-hp.is-preview {
+  box-shadow: 0 0 0 1px rgba(var(--semi-red-5), 0.7);
+}
+.dg-hp-block.is-breaking {
+  text-decoration: line-through;
+  background: rgba(var(--semi-blue-3), 1);
+  color: rgba(var(--semi-blue-8), 1);
+}
+/* 预览的数目压在敌人画像的右上角，不挤动下面的生命条与状态。 */
+.dg-preview {
+  position: absolute;
+  top: 34px;
+  right: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+  padding: 2px 7px;
+  border-radius: 8px;
+  background: var(--semi-color-bg-2);
+  border: 1px solid rgba(var(--semi-red-5), 0.6);
+  color: rgba(var(--semi-red-6), 1);
+  line-height: 1.2;
+  pointer-events: none;
+}
+.dg-preview strong {
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+.dg-preview small {
+  font-size: 11px;
+  color: rgba(var(--semi-blue-6), 1);
+}
+
 .dg-statuses {
   display: flex;
   flex-wrap: wrap;

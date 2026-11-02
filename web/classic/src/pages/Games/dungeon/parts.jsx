@@ -83,6 +83,7 @@ export const CardFace = ({
   className = '',
   style,
   onMouseEnter,
+  onMouseLeave,
   hotkey,
 }) => {
   const { t } = useTranslation();
@@ -127,6 +128,8 @@ export const CardFace = ({
       onClick={onClick}
       onMouseEnter={onMouseEnter}
       onFocus={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+      onBlur={onMouseLeave}
     >
       {card.cost >= 0 && <span className='dg-card-cost'>{card.cost}</span>}
       {hotkey !== undefined && <kbd className='dg-hotkey'>{hotkey}</kbd>}
@@ -160,18 +163,32 @@ export const StatusList = ({ st }) => {
   );
 };
 
-export const HpBar = ({ hp, max, block = 0 }) => (
-  <span className='dg-hp'>
-    <span
-      className='dg-hp-fill'
-      style={{ width: `${max > 0 ? (Math.max(hp, 0) / max) * 100 : 0}%` }}
-    />
-    <span className='dg-hp-text'>
-      {Math.max(hp, 0)} / {max}
+// 生命条。loss 是伤害预览：这一下会失去的生命与护体(见 pkg/dungeon 的 Hit)，失去的那一段生命画成虚影，会被打穿的护体
+// 划掉；具体数目由调用方另外写出来。
+export const HpBar = ({ hp, max, block = 0, loss }) => {
+  const now = Math.max(hp, 0);
+  const pct = (n) => `${max > 0 ? (n / max) * 100 : 0}%`;
+  const left = loss ? Math.max(now - loss.hp, 0) : now;
+  return (
+    <span className={`dg-hp${loss ? ' is-preview' : ''}`}>
+      <span className='dg-hp-fill' style={{ width: pct(left) }} />
+      {left < now && (
+        <span
+          className='dg-hp-loss'
+          style={{ left: pct(left), width: pct(now - left) }}
+        />
+      )}
+      <span className='dg-hp-text'>
+        {now} / {max}
+      </span>
+      {block > 0 && (
+        <span className={`dg-hp-block${loss?.block > 0 ? ' is-breaking' : ''}`}>
+          {block}
+        </span>
+      )}
     </span>
-    {block > 0 && <span className='dg-hp-block'>{block}</span>}
-  </span>
-);
+  );
+};
 
 export const RelicChip = ({ id, fresh = false }) => {
   const text = useDungeonText();

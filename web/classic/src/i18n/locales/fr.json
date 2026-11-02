@@ -8360,6 +8360,8 @@
     "今天的拆解已用完，明天再来": "Plus de démantèlement aujourd'hui ; revenez demain",
     "拆解：{{name}}": "Démantelée : {{name}}",
     "不在牌组里的功法可以拆解换灵石，每天 {{n}} 张；参悟过的另退一半参悟花的灵石": "Les techniques hors du deck peuvent être démantelées contre des pierres spirituelles, {{n}} par jour ; celles étudiées rendent en plus la moitié du coût d'étude",
-    "收藏已满 {{n}} 张，之后赢了也不能收下新的功法，先去拆解或丢掉几张不用的。": "Votre collection est pleine ({{n}}) ; les prochaines victoires n'ajouteront pas de techniques. Démantelez ou jetez d'abord celles que vous n'utilisez pas."
+    "收藏已满 {{n}} 张，之后赢了也不能收下新的功法，先去拆解或丢掉几张不用的。": "Votre collection est pleine ({{n}}) ; les prochaines victoires n'ajouteront pas de techniques. Démantelez ou jetez d'abord celles que vous n'utilisez pas.",
+    "击败": "Fatal",
+    "破护体 {{n}}": "Brise {{n}} de Garde"
   }
 }
