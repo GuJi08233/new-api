@@ -32,7 +32,7 @@ import { playSkillFeedback, SkillSide } from '../common/skill';
 import { Floaters, celebrate, useFloaters } from '../common/effects';
 import { playSound } from '../common/sound';
 import { gameGet, gamePost, withTurnstile } from '../common/api';
-import { WendaoLayout, useWendaoPart } from '../wendao/shell';
+import { WendaoLayout, useWendaoPart, useWendaoShell } from '../wendao/shell';
 import { usePlayTurnstile } from '../common/usePlayTurnstile';
 import Combat from './Combat';
 import Lobby from './Lobby';
@@ -129,6 +129,7 @@ const DungeonPage = () => {
   const { t } = useTranslation();
   const text = useDungeonText();
   const { info, patch, reload } = useWendaoPart('abyss');
+  const { refreshAgenda } = useWendaoShell();
   const turnstile = usePlayTurnstile(info?.play_turnstile);
   // 每种模式各自的一局；active 是正在台面上的模式，为空时显示营地。
   const [rounds, setRounds] = useState({});
@@ -187,9 +188,10 @@ const DungeonPage = () => {
         if (mode === 'endless')
           playSkillFeedback(next.result, next.run.bosses > 0);
         reload(true);
+        refreshAgenda();
       }
     },
-    [patch, reload, showOutside],
+    [patch, reload, showOutside, refreshAgenda],
   );
 
   const restore = useCallback(

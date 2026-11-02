@@ -27,7 +27,7 @@ import { celebrate } from '../../common/effects';
 import { useVisiblePolling } from '../../common/useVisiblePolling';
 import { DungeonTextProvider, useDungeonText } from '../../dungeon/parts';
 import { SectTextProvider, useSectText } from '../../sect/parts';
-import { WendaoLayout, useWendaoPart } from '../shell';
+import { WendaoLayout, useWendaoPart, useWendaoShell } from '../shell';
 import CreateHero from './CreateHero';
 import HeroCard from './HeroCard';
 import MapPanel from './MapPanel';
@@ -51,12 +51,14 @@ const JourneyPage = () => {
   const text = useDungeonText();
   const sectText = useSectText();
   const { info } = useWendaoPart('journey');
+  const { focus, refreshAgenda } = useWendaoShell();
+  const focused = focus?.part === 'journey' ? focus : null;
   const [state, setState] = useState(null);
   const [receivedAt, setReceivedAt] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [tab, setTab] = useState('map');
-  const [selected, setSelected] = useState(null);
+  const [tab, setTab] = useState(focused?.tab || 'map');
+  const [selected, setSelected] = useState(focused?.node || null);
   const [notice, setNotice] = useState(null);
   const [ended, setEnded] = useState(null);
   const [battleEvents, setBattleEvents] = useState(null);
@@ -70,6 +72,15 @@ const JourneyPage = () => {
     const timer = setInterval(() => setTick((n) => n + 1), 1000);
     return () => clearInterval(timer);
   }, []);
+
+  // 从顶上的目标或待办点过来：收起剧情与战报，打开要去的页签(地图上选中那个节点)。
+  useEffect(() => {
+    if (!focused) return;
+    setStory(null);
+    setEnded(null);
+    if (focused.tab) setTab(focused.tab);
+    if (focused.node) setSelected(focused.node);
+  }, [focused]);
 
   const accept = useCallback((data) => {
     setState({
@@ -120,6 +131,7 @@ const JourneyPage = () => {
       }
       const data = response.data;
       accept(data);
+      if (action !== 'battle' || data.ended) refreshAgenda();
       if (data.ended) {
         const won = data.ended.result === 'won';
         playSound(won ? 'win' : 'lose');
@@ -268,6 +280,7 @@ const JourneyPage = () => {
               now={now}
               busy={busy}
               act={act}
+              focus={focused}
             />
           </TabPane>
           <TabPane tab={t('法宝与行囊')} itemKey='gear'>

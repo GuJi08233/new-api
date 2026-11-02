@@ -26,7 +26,7 @@ import { playSkillFeedback, SkillSide } from '../common/skill';
 import { Floaters, celebrate, useFloaters } from '../common/effects';
 import { playSound } from '../common/sound';
 import { gameGet, gamePost, withTurnstile } from '../common/api';
-import { WendaoLayout, useWendaoPart } from '../wendao/shell';
+import { WendaoLayout, useWendaoPart, useWendaoShell } from '../wendao/shell';
 import { usePlayTurnstile } from '../common/usePlayTurnstile';
 import { useVisiblePolling } from '../common/useVisiblePolling';
 import Overview from './Overview';
@@ -75,10 +75,12 @@ const SectPage = () => {
   const { t } = useTranslation();
   const text = useSectText();
   const { info, patch, reload } = useWendaoPart('sect');
+  const { focus, refreshAgenda } = useWendaoShell();
+  const focused = focus?.part === 'sect' ? focus : null;
   const turnstile = usePlayTurnstile(info?.play_turnstile);
   const [sect, setSect] = useState(null);
   const [receivedAt, setReceivedAt] = useState(0);
-  const [tab, setTab] = useState('overview');
+  const [tab, setTab] = useState(focused?.tab || 'overview');
   const [round, setRound] = useState(null);
   const [arenaRound, setArenaRound] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -186,6 +188,11 @@ const SectPage = () => {
     setReceivedAt(Date.now());
   }, []);
 
+  // 从顶上的待办点过来：打开要去的页签。
+  useEffect(() => {
+    if (focused?.tab) setTab(focused.tab);
+  }, [focused]);
+
   const post = async (url, body) => {
     if (busyRef.current) return null;
     busyRef.current = true;
@@ -193,7 +200,10 @@ const SectPage = () => {
     setError('');
     try {
       const response = await gamePost(url, body, t);
-      if (response.data) return response.data;
+      if (response.data) {
+        refreshAgenda();
+        return response.data;
+      }
       playSound('error');
       setError(response.error);
       return null;

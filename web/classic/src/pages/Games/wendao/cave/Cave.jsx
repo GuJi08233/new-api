@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Button } from '@douyinfe/semi-ui';
 import { Anvil, Droplets, Flame, PawPrint, Wind } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -96,10 +96,14 @@ const Rooms = ({ info, hero, res, busy, act }) => {
   );
 };
 
-// 洞府：宗主本人修行的地方。顶上一幅洞府图，开辟了的屋子点亮；下面分屋子、丹室、器室、灵兽几块。
-const Cave = ({ info, hero, res, pills, rare, now, busy, act }) => {
+// 洞府：宗主本人修行的地方。顶上一幅洞府图，开辟了的屋子点亮；下面分屋子、丹室、器室、灵兽几块。focus 是从顶上的
+// 待办点过来时要打开的那一块。
+const Cave = ({ info, hero, res, pills, rare, now, busy, act, focus }) => {
   const { t } = useTranslation();
-  const [view, setView] = useState('rooms');
+  const [view, setView] = useState(focus?.view || 'rooms');
+  useEffect(() => {
+    if (focus?.view) setView(focus.view);
+  }, [focus]);
   const views = [
     { key: 'rooms', label: t('屋子') },
     { key: 'furnace', label: t('丹室') },

@@ -170,6 +170,116 @@ body[theme-mode='dark'] .wd-page {
   outline: 2px solid var(--wd-red);
   outline-offset: 1px;
 }
+/* 别的板块里有几件待办。 */
+.wd-part-badge {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--wd-red);
+  color: var(--wd-paper);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 18px;
+}
+
+/* ---------- 当前目标与待办 ---------- */
+.wd-agenda {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: -4px 0 14px;
+}
+.wd-goal {
+  display: inline-flex;
+  flex: 1 1 280px;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 36px;
+  padding: 6px 12px;
+  border: 1px solid var(--semi-color-border);
+  border-left: 3px solid var(--wd-red);
+  border-radius: 8px;
+  background: var(--wd-paper);
+  color: var(--wd-ink);
+  text-align: left;
+  cursor: pointer;
+}
+.wd-goal > svg:first-child {
+  flex: none;
+  color: var(--wd-red);
+}
+.wd-goal-label {
+  flex: none;
+  color: var(--wd-ink-3);
+  font-size: 12px;
+}
+.wd-goal-text {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--wd-serif);
+  font-weight: 600;
+}
+.wd-goal-go {
+  flex: none;
+  color: var(--wd-ink-3);
+}
+.wd-goal:hover .wd-goal-go {
+  color: var(--wd-red);
+}
+.wd-todos {
+  display: flex;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.wd-todo,
+.wd-todo-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 30px;
+  padding: 4px 10px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 15px;
+  background: var(--wd-paper-2);
+  color: var(--wd-ink);
+  font-size: 13px;
+  cursor: pointer;
+}
+.wd-todo > svg {
+  flex: none;
+  color: var(--wd-ink-2);
+}
+.wd-todo.is-journey > svg {
+  color: var(--wd-acc-green);
+}
+.wd-todo.is-sect > svg {
+  color: var(--wd-red);
+}
+.wd-todo.is-abyss > svg {
+  color: var(--wd-acc-violet);
+}
+.wd-todo:hover,
+.wd-todo-more:hover {
+  border-color: var(--wd-ink-3);
+}
+.wd-todo-more {
+  color: var(--wd-ink-2);
+}
+.wd-goal:focus-visible,
+.wd-todo:focus-visible,
+.wd-todo-more:focus-visible {
+  outline: 2px solid var(--wd-red);
+  outline-offset: 1px;
+}
 
 /* ---------- 素材 ---------- */
 .wd-scene {

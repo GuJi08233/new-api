@@ -79,3 +79,46 @@ func TestNewerWendaoSaveIsNotOverwritten(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, newer, stored)
 }
+
+// 问道页顶上的目标与待办：按存档算，只读不写；大比今天的奖励没领满时提醒，大比不发奖励时不提。
+func TestWendaoAgendaThroughTheApi(t *testing.T) {
+	require.NoError(t, i18n.Init())
+	env := newGameTestEnv(t, sectSettings())
+	player := env.player(0, gameTestIpA)
+	path := "/api/game/wendao/agenda"
+	todoKeys := func(agenda map[string]any) []string {
+		keys := []string{}
+		for _, todo := range agenda["todos"].([]any) {
+			keys = append(keys, todo.(map[string]any)["key"].(string))
+		}
+		return keys
+	}
+
+	empty := player.ok(http.MethodGet, path, nil)
+	assert.Equal(t, "create", empty["goal"].(map[string]any)["key"])
+	assert.Empty(t, empty["todos"], "nothing to do before the sect exists")
+
+	player.ok(http.MethodPost, "/api/game/wendao/hero/action", map[string]any{"action": "create", "class": dungeon.ClassWarrior})
+	editSect(t, player, func(s *wendao.Sect) {
+		s.Missions = []*wendao.Mission{{Id: 1, Key: "patrol", Start: 1, End: 2}}
+	})
+	before, err := model.GetGameSave(player.user.Id, wendao.SaveKey)
+	require.NoError(t, err)
+	agenda := player.ok(http.MethodGet, path, nil)
+	goal := agenda["goal"].(map[string]any)
+	assert.Equal(t, "node", goal["key"])
+	assert.Equal(t, "c1_oath", goal["s"])
+	assert.Equal(t, []string{"missions", "garden_empty", "tournament_reward"}, todoKeys(agenda))
+	after, err := model.GetGameSave(player.user.Id, wendao.SaveKey)
+	require.NoError(t, err)
+	assert.Equal(t, before, after, "reading the agenda does not write the save")
+
+	setting := sectSettings()
+	setting.WendaoTournament.DailyRewards = 0
+	operation_setting.SetGameSettingForTest(setting)
+	assert.Equal(t, []string{"missions", "garden_empty"}, todoKeys(player.ok(http.MethodGet, path, nil)))
+
+	setting.Wendao.Enabled = false
+	operation_setting.SetGameSettingForTest(setting)
+	player.fails(http.MethodGet, path, nil)
+}

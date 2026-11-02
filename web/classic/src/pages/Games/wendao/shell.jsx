@@ -21,11 +21,19 @@ import React, { createContext, useCallback, useContext, useMemo } from 'react';
 import { Castle, Footprints, MountainSnow } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import GameLayout from '../common/GameLayout';
+import Agenda from './Agenda';
 import './wendao.css';
 
 // 问道页的外壳：一次读出整个问道的规则(GET /api/game/wendao)，三个板块各取自己的那一份。板块页面用 WendaoLayout
-// 代替 GameLayout，顶上多一排板块切换。
+// 代替 GameLayout，顶上多一排板块切换和一条「当前目标与待办」。
 export const WendaoContext = createContext(null);
+
+// useWendaoShell 是外壳给板块页面的东西：focus 是从待办点过来时要打开的页签({ part, tab, view, node, seq })，
+// 板块页面按它切页签；refreshAgenda 在操作成功后调用，让顶上的待办跟着变。
+export function useWendaoShell() {
+  const { focus, refreshAgenda } = useContext(WendaoContext);
+  return { focus, refreshAgenda };
+}
 
 export const WENDAO_PARTS = [
   { key: 'journey', Icon: Footprints },
@@ -64,10 +72,15 @@ export function useWendaoPart(part) {
   return { info, patch, reload };
 }
 
+// 板块切换：别的板块里有待办时，按钮上标出件数。
 const PartNav = () => {
   const { t } = useTranslation();
-  const { part, setPart, parts } = useContext(WendaoContext);
+  const { part, setPart, parts, agenda } = useContext(WendaoContext);
   const names = getPartNames(t);
+  const pending = {};
+  for (const todo of agenda?.todos || []) {
+    pending[todo.part] = (pending[todo.part] || 0) + 1;
+  }
   return (
     <nav className='wd-parts' aria-label={t('问道')}>
       {parts.map(({ key, Icon }) => (
@@ -80,6 +93,14 @@ const PartNav = () => {
         >
           <Icon size={16} />
           <span>{names[key]}</span>
+          {part !== key && pending[key] > 0 && (
+            <span
+              className='wd-part-badge'
+              aria-label={t('{{n}} 件待办', { n: pending[key] })}
+            >
+              {pending[key]}
+            </span>
+          )}
         </button>
       ))}
     </nav>
@@ -89,7 +110,7 @@ const PartNav = () => {
 // WendaoLayout 是板块页面的外框：loading 为真时显示加载中；side 是右边的信息栏。
 export const WendaoLayout = ({ loading, className = '', side, children }) => {
   const { t } = useTranslation();
-  const { info } = useContext(WendaoContext);
+  const { info, agenda, go } = useContext(WendaoContext);
   return (
     <GameLayout
       title={t('问道')}
@@ -100,6 +121,7 @@ export const WendaoLayout = ({ loading, className = '', side, children }) => {
       side={side}
     >
       <PartNav />
+      <Agenda agenda={agenda} onGo={go} />
       {children}
     </GameLayout>
   );

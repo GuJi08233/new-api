@@ -86,8 +86,15 @@ const MapPanel = ({
   const texts = getNodeText(t);
   const nodes = info.nodes;
   const reached = Math.min(hero.realm, info.chapters - 1);
-  const [chapter, setChapter] = useState(reached);
+  const selectedChapter = nodes.find((node) => node.id === selected)?.chapter;
+  const [chapter, setChapter] = useState(selectedChapter ?? reached);
   useEffect(() => setChapter(reached), [reached]);
+  // 从顶上的目标点过来时选中的节点可能在前面的章节里，翻到那一章。只在选中的节点变了时翻，突破以后照常翻到新的一章。
+  useEffect(() => {
+    if (selectedChapter !== undefined && selectedChapter <= reached)
+      setChapter(selectedChapter);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected]);
 
   const shown = nodes.filter((node) => node.chapter === chapter);
   const byId = Object.fromEntries(nodes.map((node) => [node.id, node]));

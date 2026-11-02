@@ -54,9 +54,62 @@ func init() {
 			return gin.H{"abyss": abyss, "sect": sect, "journey": journeyInfo()}, nil
 		},
 		Routes: func(group *gin.RouterGroup) {
+			group.GET("/agenda", getWendaoAgenda)
 			registerHeroRoutes(group.Group("/hero"))
 			registerAbyssRoutes(group.Group("/abyss"))
 			registerSectRoutes(group.Group("/sect"))
 		},
 	})
+}
+
+// wendaoRewardTodos 是两个发游戏币的玩法(秘境无尽、宗门大比)今天的奖励还没领满时的待办。玩法关着、不发奖励时不提。
+var wendaoRewardTodos = []struct {
+	game string
+	todo wendao.Todo
+}{
+	{dungeonGame, wendao.Todo{Key: "abyss_reward", Part: wendao.PartAbyss}},
+	{sectTournamentGame, wendao.Todo{Key: "tournament_reward", Part: wendao.PartSect, Tab: "tournament"}},
+}
+
+// getWendaoAgenda 是问道页顶上的当前目标与待办：按现在的存档结算出来给页面看，只读不写，下一次操作时再记进存档。
+func getWendaoAgenda(c *gin.Context) {
+	if !requireGameEnabled(c, wendaoGame) {
+		return
+	}
+	ctx := newGameContext(c)
+	data, err := model.GetGameSave(ctx.UserId, wendao.SaveKey)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	save, err := wendao.ParseSave(data)
+	if err != nil {
+		respondSectError(c, err)
+		return
+	}
+	now := common.GetTimestamp()
+	rollWendaoDaily(save)
+	if save.Sect != nil {
+		save.Sect.Tick(now)
+	}
+	save.TickHero(now)
+	agenda := save.Agenda(now, ctx.Day)
+	for _, reward := range wendaoRewardTodos {
+		rule, _ := ctx.Setting.SkillRuleOf(reward.game)
+		if !ctx.Setting.GameEnabled(reward.game) || rule.DailyRewards <= 0 || rule.MaxReward() <= 0 ||
+			(reward.todo.Part == wendao.PartSect && save.Sect == nil) {
+			continue
+		}
+		progress, err := model.GetGameRewardProgress(ctx.UserId, ctx.Ip, reward.game, ctx.Day)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		todo := reward.todo
+		todo.N = rule.DailyRewards - max(progress.Rewards, progress.IpRewards)
+		if todo.N > 0 {
+			agenda.Todos = append(agenda.Todos, todo)
+		}
+	}
+	common.ApiSuccess(c, agenda)
 }
