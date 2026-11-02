@@ -234,6 +234,7 @@ game.dungeon_outdated: "This secret realm run was started under older rules and 
 game.sect_resources: "Not enough resources or pills"
 game.wendao_newer_save: "Your Wendao progress was saved by a newer version of the site. Ask the administrator to upgrade before playing on"
 game.wendao_request_reused: "This request number was already used for a different action. Refresh the page and try again"
+game.wendao_battle_moved: "This battle already moved on in another page; the latest state has been loaded"
 game.sect_unavailable: "You cannot do that right now: it may still be locked or already full, or the disciple is away or injured"
 game.shop_disabled: "The item shop is closed"
 game.shop_no_item: "You do not have this item"

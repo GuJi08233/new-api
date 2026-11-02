@@ -235,6 +235,7 @@ game.dungeon_outdated: "這一輪秘境是按舊版規則開始的，不能繼�
 game.sect_resources: "資源或丹藥不夠"
 game.wendao_newer_save: "問道存檔是更新版本的站點寫的，這個版本讀不全。請管理員升級後再繼續"
 game.wendao_request_reused: "這個請求編號已經用在另一次操作上了，請重新整理頁面再試"
+game.wendao_battle_moved: "這一場已經在別的頁面裡往下打了，已換成最新的局面"
 game.sect_unavailable: "現在還不能這樣做：可能還沒解鎖、已經滿了，或者弟子在外歷練、受了傷"
 game.shop_disabled: "道具商店已關閉"
 game.shop_no_item: "背包裡沒有這件道具"

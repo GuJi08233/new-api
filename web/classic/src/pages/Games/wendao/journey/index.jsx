@@ -132,8 +132,9 @@ const JourneyPage = () => {
       );
       if (!response.data) {
         playSound('error');
+        // 战斗里的一步被拒绝多半是局面已经变了(另一个页面往下打了)，读一次现在的样子；读完再写出原因，免得被读取清掉。
+        if (response.network || action === 'battle') await sync();
         setError(response.error);
-        if (response.network) sync();
         return null;
       }
       const data = response.data;
@@ -172,6 +173,7 @@ const JourneyPage = () => {
     }
   };
 
+  // moves 是页面看到的这一场走到了第几步，另一个页面已经往下打了时服务端拒绝，不会按旧的下标出牌。
   const battle = (move, fields = {}) =>
     act('battle', {
       move,
@@ -179,6 +181,7 @@ const JourneyPage = () => {
       target: fields.target ?? -1,
       choice: fields.choice ?? -1,
       potion: fields.potion ?? -1,
+      moves: state?.hero?.battle?.moves,
     });
 
   const hero = state?.hero;

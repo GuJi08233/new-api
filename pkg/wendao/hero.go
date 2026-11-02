@@ -78,6 +78,9 @@ type HeroBattle struct {
 	// Team 是随行的弟子编号，Beast 是出战的灵兽编号(没有为 0)。
 	Team  []int `json:"team,omitempty"`
 	Beast int   `json:"beast,omitempty"`
+	// Moves 是这一场已经走了几步(出牌、服丹符、结束回合、选奖励)。页面出牌时带上它看到的步数，另一个页面已经往下打了
+	// 就对不上，不会按旧的手牌下标打出另一张牌。
+	Moves int `json:"moves,omitempty"`
 }
 
 // HeroStats 是主角的战绩。
@@ -114,6 +117,8 @@ type HeroAction struct {
 	Option  string   `json:"option"`
 	// RequestId 是页面给这次操作的编号，见 Save.Admit。
 	RequestId string `json:"request_id,omitempty"`
+	// Moves 是战斗里的一步时页面看到的步数(HeroBattle.Moves)，与存档里的不一样时拒绝；不带时不核对。
+	Moves *int `json:"moves,omitempty"`
 }
 
 // normalize 补上存档里省略的空表。
@@ -850,10 +855,14 @@ func (h *Hero) battleStep(s *Sect, a HeroAction, now int64) ([]Ev, error) {
 	if h.Battle == nil {
 		return nil, ErrUnavailable
 	}
+	if a.Moves != nil && *a.Moves != h.Battle.Moves {
+		return nil, ErrBattleMoved
+	}
 	run := h.Battle.Run
 	if err := run.Apply(dungeon.Action{Type: a.Move, Node: -1, Card: a.Card, Target: a.Target, Choice: a.Choice, Potion: a.Potion}); err != nil {
 		return nil, ErrAction
 	}
+	h.Battle.Moves++
 	if !run.Finished() {
 		return nil, nil
 	}
@@ -1003,6 +1012,8 @@ type HeroBattleView struct {
 	Team  []int        `json:"team"`
 	// Beast 是这一场出战的灵兽(没有为空)。
 	Beast *dungeon.BattleBeast `json:"beast,omitempty"`
+	// Moves 是这一场已经走了几步，战斗里的一步要原样带回来(HeroAction.Moves)。
+	Moves int `json:"moves"`
 }
 
 // View 返回主角在 now 时刻的样子，s 是宗门(闭关速度看聚灵阵)。
@@ -1062,7 +1073,7 @@ func (h *Hero) View(s *Sect, now int64, day string) HeroView {
 	}
 	if h.Battle != nil {
 		v.Battle = &HeroBattleView{Node: h.Battle.Node, Step: h.Battle.Step, Trial: h.Battle.Trial, Run: h.Battle.Run.View(),
-			Team: h.Battle.Team, Beast: h.Battle.Run.Battle.Beast}
+			Team: h.Battle.Team, Beast: h.Battle.Run.Battle.Beast, Moves: h.Battle.Moves}
 	}
 	if w := h.weeklyAt(day); w != nil {
 		v.Weekly = &WeeklyView{Weekly: w, Ends: WeekEnd(day)}

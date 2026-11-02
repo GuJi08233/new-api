@@ -111,6 +111,8 @@ func respondSectError(c *gin.Context, err error) {
 		common.ApiErrorI18n(c, i18n.MsgGameWendaoNewerSave)
 	case errors.Is(err, wendao.ErrRequestReused):
 		common.ApiErrorI18n(c, i18n.MsgGameWendaoRequestReused)
+	case errors.Is(err, wendao.ErrBattleMoved):
+		common.ApiErrorI18n(c, i18n.MsgGameWendaoBattleMoved)
 	default:
 		common.ApiError(c, err)
 	}

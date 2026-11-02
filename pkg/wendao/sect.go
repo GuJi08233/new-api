@@ -14,6 +14,8 @@ var (
 	ErrCost = errors.New("sect: not enough resources")
 	// ErrUnavailable 表示现在不能这样做：还没解锁、已满、弟子在外历练或受伤。
 	ErrUnavailable = errors.New("sect: not available now")
+	// ErrBattleMoved 表示历练的这一场已经在别处往下打了，页面看到的局面是旧的(HeroAction.Moves)。
+	ErrBattleMoved = errors.New("wendao: the battle has moved on")
 )
 
 // Disciple 是一名弟子。Mission 是正在进行的历练编号(0 为在宗门里)，Injured 是伤好的时间。
