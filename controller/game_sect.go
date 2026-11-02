@@ -109,9 +109,20 @@ func respondSectError(c *gin.Context, err error) {
 		common.ApiErrorI18n(c, i18n.MsgGameShopItemLimit)
 	case errors.Is(err, wendao.ErrNewerSave):
 		common.ApiErrorI18n(c, i18n.MsgGameWendaoNewerSave)
+	case errors.Is(err, wendao.ErrRequestReused):
+		common.ApiErrorI18n(c, i18n.MsgGameWendaoRequestReused)
 	default:
 		common.ApiError(c, err)
 	}
+}
+
+// loadWendaoSave 读出玩家的问道存档，只读不写。
+func loadWendaoSave(userId int) (*wendao.Save, error) {
+	data, err := model.GetGameSave(userId, wendao.SaveKey)
+	if err != nil {
+		return nil, err
+	}
+	return wendao.ParseSave(data)
 }
 
 // foundSect 在还没有宗门时开宗立派。
@@ -138,6 +149,13 @@ func actSect(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
+	requestId := req.RequestId
+	req.RequestId = ""
+	sum, err := wendao.RequestSum(req)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	now := common.GetTimestamp()
 	// 仙盟等级给产出加成：每次操作前按仙盟表刷新，结算这段时间的产出时用上。
 	allianceLevel, err := model.GetSectAllianceLevel(c.GetInt("id"))
@@ -149,6 +167,9 @@ func actSect(c *gin.Context) {
 	var current *wendao.Sect
 	_, err = model.UpdateGameSave(c.GetInt("id"), wendao.SaveKey, func(data string) (string, error) {
 		return wendao.UpdateSave(data, func(save *wendao.Save) error {
+			if err := save.Admit(requestId, sum, now); err != nil {
+				return err
+			}
 			if err := foundSect(save, now); err != nil {
 				return err
 			}
@@ -165,6 +186,19 @@ func actSect(c *gin.Context) {
 			return nil
 		})
 	})
+	if errors.Is(err, wendao.ErrReplayed) {
+		// 这一步上次已经做完了，只是页面没收到回应：交回现在的样子，不再做一遍。
+		save, err := loadWendaoSave(c.GetInt("id"))
+		if err == nil && save.Sect == nil {
+			err = wendao.ErrUnavailable
+		}
+		if err != nil {
+			respondSectError(c, err)
+			return
+		}
+		common.ApiSuccess(c, gin.H{"sect": save.Sect.View(now), "events": []wendao.Ev{}, "replayed": true})
+		return
+	}
 	if err != nil {
 		respondSectError(c, err)
 		return
@@ -456,14 +490,17 @@ func buySectItem(c *gin.Context) {
 			return save.Sect.AddItem(id, count)
 		})
 	}
-	data, balance, ok := buyGameShopItem(c, "wendao_sect", wendao.SaveKey, priceOf, add, wendao.ErrItemLimit)
+	data, balance, replayed, ok := buyGameShopItem(c, "wendao_sect", wendao.SaveKey, priceOf, add, wendao.ErrItemLimit)
 	if !ok {
 		return
 	}
 	s, err := wendao.ParseSect(data)
+	if err == nil && s == nil {
+		err = wendao.ErrUnavailable
+	}
 	if err != nil {
 		respondSectError(c, err)
 		return
 	}
-	common.ApiSuccess(c, gin.H{"sect": s.View(now), "events": []wendao.Ev{}, "balance": balance})
+	common.ApiSuccess(c, gin.H{"sect": s.View(now), "events": []wendao.Ev{}, "balance": balance, "replayed": replayed})
 }

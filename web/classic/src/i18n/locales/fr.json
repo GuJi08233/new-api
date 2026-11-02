@@ -8392,6 +8392,7 @@
     "现在服下{{name}}回复不了生命，丹符照样用掉。": "Prendre {{name}} maintenant ne rend aucun PV, et il sera quand même consommé.",
     "仍要服下": "Le prendre quand même",
     "来袭是敌人这回合公开的攻击合计，没扣护体与身法；心形后面是现在结束回合、到下一回合开始最多会失去的生命，护体、身法、铜皮与真火都算上了，灵兽出手只会让它更少，没算进去": "Attaque est le total des attaques annoncées ce tour, avant Garde et Jeu de jambes. Après le cœur : le maximum de PV que vous pouvez perdre en finissant le tour maintenant, jusqu'au début du prochain, en comptant Garde, Jeu de jambes, Peau de bronze et Feu véritable ; l'action de votre bête ne peut que le réduire et n'est pas comptée",
-    "无伤": "Aucun dégât"
+    "无伤": "Aucun dégât",
+    "网络刚才断了一下，这一步上次已经做完了": "La connexion a sauté un instant ; cette action était déjà passée"
   }
 }

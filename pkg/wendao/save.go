@@ -21,7 +21,7 @@ const SaveKey = "wendao"
 // 还不认识这个字段，它们写的存档没有 schema(读出来是 0)，缺的字段由 normalize 补成空的。
 //
 // 各版本：1 是加上 schema 本身；2 是历练节点的通过记录多了支线剧情的抉择(NodeRecord.Pick)；3 是宗门记下离开很久
-// 以后回来的那一次结算(Sect.Back)。
+// 以后回来的那一次结算(Sect.Back)，以及同一版里还没发布时加上的功法拆解次数(Hero.Salvaged)与请求收据(Receipts)。
 const SaveSchema = 3
 
 // ErrNewerSave 表示存档是更新版本的程序写的，这个程序不认识其中的一部分，不能读也不能改写。
@@ -37,6 +37,8 @@ type Save struct {
 	Abyss  *dungeon.Meta `json:"abyss"`
 	// AbyssLoot 记今天九幽秘境无尽模式已经往宗门带回几次材料。
 	AbyssLoot LootDay `json:"abyss_loot"`
+	// Receipts 是最近做过的几次操作的请求收据，重发同一次请求时不做第二遍，见 Admit。
+	Receipts []Receipt `json:"receipts,omitempty"`
 }
 
 // LootDay 是某一天已经领了几次。

@@ -1,0 +1,65 @@
+package controller
+
+import (
+	"net/http"
+	"testing"
+
+	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/pkg/dungeon"
+	"github.com/QuantumNous/new-api/pkg/wendao"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// 带请求编号的操作重发时不做第二遍：页面没收到回应、拿同一个编号再发一次，历练不会再给一次资源，宗门不会再派一次，
+// 商店不会再扣一次币，回应里写明 replayed 并带上现在的样子；同一个编号换了内容要拒绝；不带编号照旧每次都做。
+func TestWendaoRetriedRequestsAreDoneOnce(t *testing.T) {
+	require.NoError(t, i18n.Init())
+	env := newGameTestEnv(t, sectSettings())
+	player := env.player(3, gameTestIpA)
+	hero := "/api/game/wendao/hero/action"
+
+	create := map[string]any{"action": "create", "class": dungeon.ClassRanger, "request_id": "create-1"}
+	created := player.ok(http.MethodPost, hero, create)
+	again := player.ok(http.MethodPost, hero, create)
+	assert.Equal(t, true, again["replayed"])
+	assert.Equal(t, []any{}, again["events"])
+	assert.Equal(t, created["hero"].(map[string]any)["class"], again["hero"].(map[string]any)["class"])
+	message := player.fails(http.MethodPost, hero, map[string]any{"action": "create", "class": dungeon.ClassMage, "request_id": "create-1"})
+	assert.Equal(t, i18n.Translate(i18n.LangEn, i18n.MsgGameWendaoRequestReused), message)
+
+	stone := func(view map[string]any) float64 { return view["res"].(map[string]any)["stone"].(float64) }
+	visit := map[string]any{"action": "visit", "node": "c1_oath", "request_id": "visit-1"}
+	visited := player.ok(http.MethodPost, hero, visit)
+	assert.Equal(t, stone(created)+50, stone(visited))
+	retried := player.ok(http.MethodPost, hero, visit)
+	assert.Equal(t, true, retried["replayed"])
+	assert.Equal(t, stone(visited), stone(retried), "the first visit reward is not paid twice")
+	assert.Nil(t, visited["replayed"])
+
+	sect := "/api/game/wendao/sect/action"
+	first := sectView(t, player, map[string]any{"action": "sync"})["disciples"].([]any)[0].(map[string]any)["id"]
+	dispatch := map[string]any{"action": "dispatch", "mission": wendao.Missions[0].Key, "team": []any{first}, "request_id": "dispatch-1"}
+	sent := player.ok(http.MethodPost, sect, dispatch)
+	resent := player.ok(http.MethodPost, sect, dispatch)
+	assert.Equal(t, true, resent["replayed"])
+	assert.Len(t, resent["sect"].(map[string]any)["missions"], len(sent["sect"].(map[string]any)["missions"].([]any)))
+
+	shop := "/api/game/wendao/sect/shop/buy"
+	buy := map[string]any{"item": "pill_" + wendao.PillBreak, "count": 1, "request_id": "buy-1"}
+	bought := player.ok(http.MethodPost, shop, buy)
+	rebought := player.ok(http.MethodPost, shop, buy)
+	assert.Equal(t, true, rebought["replayed"])
+	assert.Equal(t, bought["balance"], rebought["balance"], "the coins are taken once")
+	pills := func(view map[string]any) any {
+		return view["sect"].(map[string]any)["pills"].(map[string]any)[wendao.PillBreak]
+	}
+	assert.Equal(t, pills(bought), pills(rebought))
+	message = player.fails(http.MethodPost, shop, map[string]any{"item": "pill_" + wendao.PillBreak, "count": 2, "request_id": "buy-1"})
+	assert.Equal(t, i18n.Translate(i18n.LangEn, i18n.MsgGameWendaoRequestReused), message)
+
+	plain := map[string]any{"item": "pill_" + wendao.PillBreak, "count": 1}
+	once := player.ok(http.MethodPost, shop, plain)
+	twice := player.ok(http.MethodPost, shop, plain)
+	assert.Equal(t, pills(once).(float64)+1, pills(twice), "without a request id every purchase goes through")
+}

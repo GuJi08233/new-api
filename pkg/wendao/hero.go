@@ -112,6 +112,8 @@ type HeroAction struct {
 	Beast   int      `json:"beast"`
 	Name    string   `json:"name"`
 	Option  string   `json:"option"`
+	// RequestId 是页面给这次操作的编号，见 Save.Admit。
+	RequestId string `json:"request_id,omitempty"`
 }
 
 // normalize 补上存档里省略的空表。

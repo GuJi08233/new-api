@@ -462,6 +462,8 @@ type Action struct {
 	UsePill  bool   `json:"use_pill"`
 	Item     string `json:"item"`
 	Crop     string `json:"crop"`
+	// RequestId 是页面给这次操作的编号，见 Save.Admit。
+	RequestId string `json:"request_id,omitempty"`
 }
 
 // Apply 先结算到 now，再执行操作，返回这期间发生的事。出错时存档可能已经改了一部分，调用方不要保存。

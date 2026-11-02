@@ -1,6 +1,8 @@
 package controller
 
 import (
+	"errors"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/middleware"
@@ -80,12 +82,7 @@ func getHero(c *gin.Context) {
 	if !requireGameEnabled(c, wendaoGame) {
 		return
 	}
-	data, err := model.GetGameSave(c.GetInt("id"), wendao.SaveKey)
-	if err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	save, err := wendao.ParseSave(data)
+	save, err := loadWendaoSave(c.GetInt("id"))
 	if err != nil {
 		respondSectError(c, err)
 		return
@@ -105,6 +102,13 @@ func actHero(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
+	requestId := req.RequestId
+	req.RequestId = ""
+	sum, err := wendao.RequestSum(req)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	var seed uint64
 	if req.Type == "fight" || req.Type == "climb" || req.Type == "trial" {
 		var err error
@@ -117,8 +121,11 @@ func actHero(c *gin.Context) {
 	day := gameCenterDay()
 	var evs []wendao.Ev
 	var view gin.H
-	_, err := model.UpdateGameSave(c.GetInt("id"), wendao.SaveKey, func(data string) (string, error) {
+	_, err = model.UpdateGameSave(c.GetInt("id"), wendao.SaveKey, func(data string) (string, error) {
 		return wendao.UpdateSave(data, func(save *wendao.Save) error {
+			if err := save.Admit(requestId, sum, now); err != nil {
+				return err
+			}
 			if req.Type == "create" {
 				if err := foundSect(save, now); err != nil {
 					return err
@@ -137,6 +144,19 @@ func actHero(c *gin.Context) {
 			return nil
 		})
 	})
+	if errors.Is(err, wendao.ErrReplayed) {
+		// 这一步上次已经做完了，只是页面没收到回应：交回现在的样子，不再做一遍。
+		save, err := loadWendaoSave(c.GetInt("id"))
+		if err != nil {
+			respondSectError(c, err)
+			return
+		}
+		save.TickHero(now)
+		view = heroView(save, now, day, nil)
+		view["events"], view["replayed"] = []wendao.Ev{}, true
+		common.ApiSuccess(c, view)
+		return
+	}
 	if err != nil {
 		respondSectError(c, err)
 		return

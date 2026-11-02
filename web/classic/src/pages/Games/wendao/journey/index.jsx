@@ -18,10 +18,10 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { TabPane, Tabs } from '@douyinfe/semi-ui';
+import { TabPane, Tabs, Toast } from '@douyinfe/semi-ui';
 import { useTranslation } from 'react-i18next';
 import { RuleList, SideBox, StageMessage } from '../../common/SideBox';
-import { gameGet, gamePost } from '../../common/api';
+import { gameGet, gamePostOnce } from '../../common/api';
 import { playSound } from '../../common/sound';
 import { celebrate } from '../../common/effects';
 import { useVisiblePolling } from '../../common/useVisiblePolling';
@@ -99,8 +99,12 @@ const JourneyPage = () => {
     }
   }, []);
 
+  // writes 是发出过几次操作：读取发出以后又有操作发出，这次读到的就可能比操作的回应旧，不拿它覆盖。
+  const writes = useRef(0);
   const sync = useCallback(async () => {
+    const at = writes.current;
     const response = await gameGet('/api/game/wendao/hero', t);
+    if (writes.current !== at) return;
     if (response.data) {
       accept(response.data);
       setError('');
@@ -117,10 +121,11 @@ const JourneyPage = () => {
   const act = async (action, fields = {}) => {
     if (busyRef.current) return null;
     busyRef.current = true;
+    writes.current += 1;
     setBusy(true);
     setError('');
     try {
-      const response = await gamePost(
+      const response = await gamePostOnce(
         '/api/game/wendao/hero/action',
         { action, ...fields },
         t,
@@ -133,6 +138,8 @@ const JourneyPage = () => {
       }
       const data = response.data;
       accept(data);
+      if (data.replayed)
+        Toast.info(t('网络刚才断了一下，这一步上次已经做完了'));
       if (action !== 'battle' || data.ended) refreshAgenda();
       if (data.ended) {
         const won = data.ended.result === 'won';

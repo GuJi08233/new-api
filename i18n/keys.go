@@ -267,6 +267,7 @@ const (
 	MsgGameSectResources             = "game.sect_resources"
 	MsgGameSectUnavailable           = "game.sect_unavailable"
 	MsgGameWendaoNewerSave           = "game.wendao_newer_save"
+	MsgGameWendaoRequestReused       = "game.wendao_request_reused"
 	MsgGameShopDisabled              = "game.shop_disabled"
 	MsgGameShopNoItem                = "game.shop_no_item"
 	MsgGameShopItemLimit             = "game.shop_item_limit"

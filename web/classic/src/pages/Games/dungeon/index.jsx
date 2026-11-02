@@ -31,7 +31,7 @@ import { RuleList, SideBox, StageMessage } from '../common/SideBox';
 import { playSkillFeedback, SkillSide } from '../common/skill';
 import { Floaters, celebrate, useFloaters } from '../common/effects';
 import { playSound } from '../common/sound';
-import { gameGet, gamePost, withTurnstile } from '../common/api';
+import { gameGet, gamePost, gamePostOnce, withTurnstile } from '../common/api';
 import { WendaoLayout, useWendaoPart, useWendaoShell } from '../wendao/shell';
 import { usePlayTurnstile } from '../common/usePlayTurnstile';
 import Combat from './Combat';
@@ -224,13 +224,14 @@ const DungeonPage = () => {
     });
   }, [loaded, restore]);
 
-  const post = async (url, body, mode) => {
+  // send 默认是 gamePost；商店购买用 gamePostOnce，网络断了重发不会买两次。
+  const post = async (url, body, mode, send = gamePost) => {
     if (busyRef.current) return false;
     busyRef.current = true;
     setBusy(true);
     setError('');
     try {
-      const response = await gamePost(url, body, t);
+      const response = await send(url, body, t);
       if (response.data) {
         if (mode) accept(mode, response.data);
         return response.data;
@@ -277,7 +278,12 @@ const DungeonPage = () => {
   };
 
   const buyItem = async (item, count) => {
-    const data = await post('/api/game/wendao/abyss/shop/buy', { item, count });
+    const data = await post(
+      '/api/game/wendao/abyss/shop/buy',
+      { item, count },
+      undefined,
+      gamePostOnce,
+    );
     if (data) {
       playSound('coin');
       patch({ meta: data.meta, balance: data.balance });

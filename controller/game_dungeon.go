@@ -517,7 +517,7 @@ func buyDungeonItem(c *gin.Context) {
 	add := func(data string, id string, count int) (string, error) {
 		return updateAbyssSave(data, func(meta *dungeon.Meta) error { return meta.AddItem(id, count) })
 	}
-	data, balance, ok := buyGameShopItem(c, "wendao_abyss", wendao.SaveKey, priceOf, add, dungeon.ErrItemLimit)
+	data, balance, replayed, ok := buyGameShopItem(c, "wendao_abyss", wendao.SaveKey, priceOf, add, dungeon.ErrItemLimit)
 	if !ok {
 		return
 	}
@@ -526,5 +526,5 @@ func buyDungeonItem(c *gin.Context) {
 		respondSectError(c, err)
 		return
 	}
-	common.ApiSuccess(c, gin.H{"meta": dungeonMetaView(save.Abyss), "balance": balance})
+	common.ApiSuccess(c, gin.H{"meta": dungeonMetaView(save.Abyss), "balance": balance, "replayed": replayed})
 }

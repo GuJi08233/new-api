@@ -8892,6 +8892,7 @@
     "现在服下{{name}}回复不了生命，丹符照样用掉。": "Dùng {{name}} lúc này không hồi được máu mà vẫn mất đan phù.",
     "仍要服下": "Vẫn dùng",
     "来袭是敌人这回合公开的攻击合计，没扣护体与身法；心形后面是现在结束回合、到下一回合开始最多会失去的生命，护体、身法、铜皮与真火都算上了，灵兽出手只会让它更少，没算进去": "Sắp đánh là tổng các đòn kẻ địch đã báo trong lượt này, chưa trừ hộ thể và thân pháp. Sau hình trái tim là lượng máu tối đa bạn có thể mất nếu kết thúc lượt bây giờ cho tới đầu lượt sau, đã tính hộ thể, thân pháp, đồng bì và chân hỏa; linh thú ra tay chỉ làm con số này nhỏ đi nên không tính",
-    "无伤": "Không mất máu"
+    "无伤": "Không mất máu",
+    "网络刚才断了一下，这一步上次已经做完了": "Mạng vừa chập chờn, bước này lần trước đã thực hiện xong"
   }
 }

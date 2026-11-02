@@ -58,6 +58,28 @@ export function gamePost(url, body, t) {
   return gameResult(API.post(url, body, { skipErrorHandler: true }), t);
 }
 
+// 没有得到答复时隔这么久(毫秒)用同一个请求编号重发一次。
+const RETRY_DELAY = 800;
+
+// 一次写操作的请求编号：安全上下文里用 randomUUID，普通 http 页面没有它，退回 getRandomValues 拼一个。
+function newRequestId() {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+  const bytes = new Uint8Array(16);
+  globalThis.crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+// gamePostOnce 是带请求编号的写操作，只给服务端认得请求收据的接口用(问道的历练、宗门操作与两个商店，见
+// pkg/wendao/receipt.go)：同一个编号服务端只做一次。没有得到答复(network)时用同一个编号重发一次，上一次其实已经做完的，
+// 服务端不再做，交回现在的样子并标上 replayed；还没做的这一次照常做。
+export async function gamePostOnce(url, body, t) {
+  const payload = { ...body, request_id: newRequestId() };
+  const first = await gamePost(url, payload, t);
+  if (!first.network) return first;
+  await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY));
+  return gamePost(url, payload, t);
+}
+
 export function gameGet(url, t, config = {}) {
   return gameResult(API.get(url, { ...config, skipErrorHandler: true }), t);
 }

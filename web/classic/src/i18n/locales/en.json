@@ -8540,6 +8540,7 @@
     "现在服下{{name}}回复不了生命，丹符照样用掉。": "Taking {{name}} now restores nothing, and it is used up all the same.",
     "仍要服下": "Take it anyway",
     "来袭是敌人这回合公开的攻击合计，没扣护体与身法；心形后面是现在结束回合、到下一回合开始最多会失去的生命，护体、身法、铜皮与真火都算上了，灵兽出手只会让它更少，没算进去": "Incoming is the total of the enemies' announced attacks this turn, before Guard and Footwork. After the heart is the most HP you can lose if you end the turn now, up to the start of your next turn, counting Guard, Footwork, Bronze Skin and True Fire; your spirit beast's move can only lower it and is left out",
-    "无伤": "No damage"
+    "无伤": "No damage",
+    "网络刚才断了一下，这一步上次已经做完了": "The connection dropped for a moment; this step had already gone through"
   }
 }

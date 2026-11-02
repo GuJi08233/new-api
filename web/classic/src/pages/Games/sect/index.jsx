@@ -18,14 +18,14 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { TabPane, Tabs } from '@douyinfe/semi-ui';
+import { TabPane, Tabs, Toast } from '@douyinfe/semi-ui';
 import { Gem, Hammer, Leaf, Star } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { RuleList, SideBox, StageMessage } from '../common/SideBox';
 import { playSkillFeedback, SkillSide } from '../common/skill';
 import { Floaters, celebrate, useFloaters } from '../common/effects';
 import { playSound } from '../common/sound';
-import { gameGet, gamePost, withTurnstile } from '../common/api';
+import { gameGet, gamePost, gamePostOnce, withTurnstile } from '../common/api';
 import { WendaoLayout, useWendaoPart, useWendaoShell } from '../wendao/shell';
 import { usePlayTurnstile } from '../common/usePlayTurnstile';
 import { useVisiblePolling } from '../common/useVisiblePolling';
@@ -197,15 +197,22 @@ const SectPage = () => {
     if (focused?.tab) setTab(focused.tab);
   }, [focused]);
 
-  const post = async (url, body) => {
+  // writes 是发出过几次操作：定时同步发出以后又有操作发出，同步的回应就可能比操作的旧，不拿它覆盖。send 默认是
+  // gamePost；经营操作与商店购买用 gamePostOnce，网络断了重发不会做两次。
+  const writes = useRef(0);
+  const post = async (url, body, send = gamePost) => {
     if (busyRef.current) return null;
     busyRef.current = true;
+    writes.current += 1;
     setBusy(true);
     setError('');
     try {
-      const response = await gamePost(url, body, t);
+      const response = await send(url, body, t);
       if (response.data) {
         refreshAgenda();
+        if (response.data.replayed) {
+          Toast.info(t('网络刚才断了一下，这一步上次已经做完了'));
+        }
         return response.data;
       }
       playSound('error');
@@ -219,10 +226,11 @@ const SectPage = () => {
 
   const act = async (action, fields = {}) => {
     setNotice(null);
-    const data = await post('/api/game/wendao/sect/action', {
-      action,
-      ...fields,
-    });
+    const data = await post(
+      '/api/game/wendao/sect/action',
+      { action, ...fields },
+      gamePostOnce,
+    );
     if (!data) return false;
     accept(data);
     showEvents(data.events || []);
@@ -231,7 +239,11 @@ const SectPage = () => {
 
   const buyItem = async (item, count) => {
     setNotice(null);
-    const data = await post('/api/game/wendao/sect/shop/buy', { item, count });
+    const data = await post(
+      '/api/game/wendao/sect/shop/buy',
+      { item, count },
+      gamePostOnce,
+    );
     if (!data) return;
     playSound('coin');
     accept(data);
@@ -240,11 +252,13 @@ const SectPage = () => {
 
   const sync = useCallback(async () => {
     if (busyRef.current) return;
+    const at = writes.current;
     const response = await gamePost(
       '/api/game/wendao/sect/action',
       { action: 'sync' },
       t,
     );
+    if (writes.current !== at) return;
     if (response.data) {
       accept(response.data);
       showEvents(response.data.events || []);

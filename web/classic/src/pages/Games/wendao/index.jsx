@@ -68,9 +68,13 @@ const Wendao = () => {
   const [focus, setFocus] = useState(null);
   const settleTimer = useRef(null);
   const loaded = !!info;
+  // 只采用最后发出的那一次读取：定时读取与操作后的读取前后脚发出时，先发后到的旧结果不盖掉新的。
+  const agendaSeq = useRef(0);
   const loadAgenda = useCallback(async () => {
+    agendaSeq.current += 1;
+    const mine = agendaSeq.current;
     const response = await gameGet('/api/game/wendao/agenda', t);
-    if (response.data) setAgenda(response.data);
+    if (mine === agendaSeq.current && response.data) setAgenda(response.data);
   }, [t]);
   const refreshAgenda = useCallback(() => {
     clearTimeout(settleTimer.current);
