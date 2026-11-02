@@ -848,6 +848,7 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  cursor: help;
   padding: 1px 7px;
   border: 1px solid var(--semi-color-border);
   border-radius: 999px;
@@ -855,6 +856,27 @@
   font-size: 12px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+/* 来袭后面是现在结束回合最多掉多少血：挡得住是灰的，会掉血是红的，掉了就倒下加粗。 */
+.dg-end-loss {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--semi-color-text-2);
+}
+.dg-incoming > svg + .dg-end-loss,
+.dg-incoming > .dg-end-loss:not(:first-child) {
+  margin-left: 4px;
+  padding-left: 6px;
+  border-left: 1px solid var(--semi-color-border);
+}
+.dg-end-loss.is-hurt {
+  color: rgba(var(--semi-red-6), 1);
+}
+.dg-end-loss.is-lethal {
+  color: rgba(var(--semi-red-6), 1);
+  font-weight: 700;
 }
 
 /* 快捷键的键位：牌的左下角(手牌叠着放，右边会被下一张盖住)、选目标时敌人的左上角、结束回合按钮里。 */

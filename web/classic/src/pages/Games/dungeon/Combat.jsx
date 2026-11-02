@@ -20,6 +20,7 @@ For commercial licensing, please contact support@quantumnous.com
 import React, { useEffect, useRef, useState } from 'react';
 import { Button, Modal, Tooltip } from '@douyinfe/semi-ui';
 import {
+  HeartCrack,
   HeartPulse,
   Hourglass,
   Keyboard,
@@ -371,6 +372,7 @@ const Combat = ({ run, busy, send, events, targeting, setTargeting }) => {
     send('end');
   };
   // 敌人这回合公开的攻击合计(公布的伤害已经算上双方的力量、虚弱与易伤)；护体与身法没扣，敌人出手前被真火烧死也不管。
+  // 扣完以后最多掉多少血由服务端试算(combat.end_loss)。
   const incoming = combat.enemies.reduce(
     (sum, enemy) =>
       !enemy.dead && enemy.intent?.dmg > 0
@@ -509,13 +511,25 @@ const Combat = ({ run, busy, send, events, targeting, setTargeting }) => {
           <span className='dg-turn'>
             {t('第 {{turn}} 回合', { turn: combat.turn })}
           </span>
-          {incoming > 0 && (
+          {(incoming > 0 || combat.end_loss > 0) && (
             <Tooltip
-              content={t('敌人这回合公开的攻击合计，护体与身法还没算进去')}
+              content={t(
+                '来袭是敌人这回合公开的攻击合计，没扣护体与身法；心形后面是现在结束回合、到下一回合开始最多会失去的生命，护体、身法、铜皮与真火都算上了，灵兽出手只会让它更少，没算进去',
+              )}
             >
               <span className='dg-incoming'>
-                <Swords size={13} />
-                {t('来袭 {{n}}', { n: incoming })}
+                {incoming > 0 && (
+                  <>
+                    <Swords size={13} />
+                    {t('来袭 {{n}}', { n: incoming })}
+                  </>
+                )}
+                <span
+                  className={`dg-end-loss${combat.end_loss >= run.hp ? ' is-lethal' : combat.end_loss > 0 ? ' is-hurt' : ''}`}
+                >
+                  <HeartCrack size={13} />
+                  {combat.end_loss > 0 ? `−${combat.end_loss}` : t('无伤')}
+                </span>
               </span>
             </Tooltip>
           )}

@@ -74,6 +74,8 @@ type CombatView struct {
 	Dealt     int `json:"dealt"`
 	TurnDealt int `json:"turn_dealt"`
 	MaxHit    int `json:"max_hit"`
+	// EndLoss 是现在结束回合最多会失去的生命(不算灵兽，见 Run.endLoss)。
+	EndLoss int `json:"end_loss"`
 }
 
 // OfferView 是商店里的一件商品。
@@ -219,20 +221,16 @@ func (r *Run) handPreview(index int) []Hit {
 	return hits
 }
 
-// tryCard 在副本上把手牌第 index 张打向 target，返回每个敌人失去的生命与护体；打不出去时为空。副本只拷贝战斗，胜负按
-// 练习处理(不发奖励、不进下一场)，随机数发生器是副本自己的一份，真实的局面不会因此用掉随机数；灵力不够也照算。
-func (r *Run) tryCard(index, target int) []Hit {
+// sandbox 是试算用的副本：只深拷贝战斗(状态、牌堆与敌人)，胜负按练习处理(不发奖励、不进下一场)，随机数发生器是副本
+// 自己的一份，真实的局面不会因此用掉随机数。
+func (r *Run) sandbox() *Run {
 	c := r.Combat
-	if target != playerTarget && !r.aliveEnemy(target) {
-		return nil
-	}
 	cc := *c
 	cc.St = maps.Clone(c.St)
 	cc.Draw = slices.Clone(c.Draw)
 	cc.Hand = slices.Clone(c.Hand)
 	cc.Discard = slices.Clone(c.Discard)
 	cc.Exhaust = slices.Clone(c.Exhaust)
-	cc.Energy = max(c.Energy, cardCost(c.Hand[index]))
 	cc.Enemies = make([]*Enemy, len(c.Enemies))
 	for i, e := range c.Enemies {
 		ec := *e
@@ -242,6 +240,18 @@ func (r *Run) tryCard(index, target int) []Hit {
 	}
 	cp := *r
 	cp.Mode, cp.Combat, cp.Events = ModePractice, &cc, nil
+	return &cp
+}
+
+// tryCard 在副本上把手牌第 index 张打向 target，返回每个敌人失去的生命与护体；打不出去时为空。灵力不够也照算。
+func (r *Run) tryCard(index, target int) []Hit {
+	c := r.Combat
+	if target != playerTarget && !r.aliveEnemy(target) {
+		return nil
+	}
+	cp := r.sandbox()
+	cc := cp.Combat
+	cc.Energy = max(c.Energy, cardCost(c.Hand[index]))
 	if cp.playCard(index, target) != nil {
 		return nil
 	}
@@ -251,6 +261,26 @@ func (r *Run) tryCard(index, target int) []Hit {
 		hits[i] = Hit{HP: e.HP - max(after.HP, 0), Block: e.Block - after.Block}
 	}
 	return hits
+}
+
+// endLoss 是现在结束回合、到下一回合开始，主角最多会失去的生命：在副本上把回合结束效果、敌人受真火与出手、下一回合开始
+// 的真火真走一遍，护体、身法、铜皮、反震、敌人出手前被烧死都照规则算。出战的灵兽不算：它挑谁打是随机的，算进去就提前
+// 泄露了随机结果，而它出手只会让主角少掉血，所以这个数是上限。
+func (r *Run) endLoss() int {
+	cp := r.sandbox()
+	if cp.Battle != nil && cp.Battle.Beast != nil {
+		setup := *cp.Battle
+		setup.Beast = nil
+		cp.Battle = &setup
+	}
+	cp.endTurn()
+	loss := 0
+	for _, ev := range cp.Events {
+		if ev.Kind == "hit" && ev.T == playerTarget {
+			loss += ev.N
+		}
+	}
+	return loss
 }
 
 // View 返回页面上的样子，附带最近一次操作里发生的事。
@@ -279,6 +309,9 @@ func (r *Run) View() View {
 				hv.Preview = r.handPreview(i)
 			}
 			cv.Hand = append(cv.Hand, hv)
+		}
+		if r.Phase == PhaseCombat {
+			cv.EndLoss = r.endLoss()
 		}
 		if cv.Hand == nil {
 			cv.Hand = []CardView{}

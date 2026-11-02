@@ -8465,7 +8465,6 @@
     "入门 {{done}}/{{total}}": "Basics {{done}}/{{total}}",
     "入门指引": "Getting started",
     "去做": "Go",
-    "敌人这回合公开的攻击合计，护体与身法还没算进去": "Total of the attacks the enemies have shown for this turn, before your Guard and Footwork are counted",
     "来袭 {{n}}": "Incoming {{n}}",
     "还有能打出的功法，再按一次 E 结束回合": "You can still play a card. Press E again to end the turn",
     "选择一个敌人作为目标(数字键选第几个)，再点一次这张牌或按 Esc 取消": "Pick an enemy as the target (number keys pick by position), or tap the card again or press Esc to cancel",
@@ -8539,6 +8538,8 @@
     "{{name}}{{mark}}": "{{name}} {{mark}}",
     "生命是满的": "Your HP is full",
     "现在服下{{name}}回复不了生命，丹符照样用掉。": "Taking {{name}} now restores nothing, and it is used up all the same.",
-    "仍要服下": "Take it anyway"
+    "仍要服下": "Take it anyway",
+    "来袭是敌人这回合公开的攻击合计，没扣护体与身法；心形后面是现在结束回合、到下一回合开始最多会失去的生命，护体、身法、铜皮与真火都算上了，灵兽出手只会让它更少，没算进去": "Incoming is the total of the enemies' announced attacks this turn, before Guard and Footwork. After the heart is the most HP you can lose if you end the turn now, up to the start of your next turn, counting Guard, Footwork, Bronze Skin and True Fire; your spirit beast's move can only lower it and is left out",
+    "无伤": "No damage"
   }
 }

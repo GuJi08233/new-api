@@ -8817,7 +8817,6 @@
     "入门 {{done}}/{{total}}": "Nhập môn {{done}}/{{total}}",
     "入门指引": "Hướng dẫn nhập môn",
     "去做": "Đi làm",
-    "敌人这回合公开的攻击合计，护体与身法还没算进去": "Tổng các đòn kẻ địch đã báo trước cho lượt này, chưa tính Hộ thể và Thân pháp",
     "来袭 {{n}}": "Sắp đánh {{n}}",
     "还有能打出的功法，再按一次 E 结束回合": "Vẫn còn công pháp đánh được, bấm E lần nữa để kết thúc lượt",
     "选择一个敌人作为目标(数字键选第几个)，再点一次这张牌或按 Esc 取消": "Chọn một kẻ địch làm mục tiêu (phím số chọn theo thứ tự), bấm lại lá bài hoặc Esc để hủy",
@@ -8891,6 +8890,8 @@
     "{{name}}{{mark}}": "{{name}} {{mark}}",
     "生命是满的": "Máu đang đầy",
     "现在服下{{name}}回复不了生命，丹符照样用掉。": "Dùng {{name}} lúc này không hồi được máu mà vẫn mất đan phù.",
-    "仍要服下": "Vẫn dùng"
+    "仍要服下": "Vẫn dùng",
+    "来袭是敌人这回合公开的攻击合计，没扣护体与身法；心形后面是现在结束回合、到下一回合开始最多会失去的生命，护体、身法、铜皮与真火都算上了，灵兽出手只会让它更少，没算进去": "Sắp đánh là tổng các đòn kẻ địch đã báo trong lượt này, chưa trừ hộ thể và thân pháp. Sau hình trái tim là lượng máu tối đa bạn có thể mất nếu kết thúc lượt bây giờ cho tới đầu lượt sau, đã tính hộ thể, thân pháp, đồng bì và chân hỏa; linh thú ra tay chỉ làm con số này nhỏ đi nên không tính",
+    "无伤": "Không mất máu"
   }
 }

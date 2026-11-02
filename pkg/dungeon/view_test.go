@@ -92,3 +92,50 @@ func TestPotionEventNamesItsTarget(t *testing.T) {
 	require.NoError(t, r.Apply(Action{Type: "potion", Node: -1, Card: -1, Target: 1, Choice: -1, Potion: 0}))
 	assert.Contains(t, r.Events, Ev{Kind: "potion", T: 1, N: 0, S: PotionFire})
 }
+
+// 「结束回合最多掉多少血」与真的结束回合一样：护体、身法、铜皮、主角身上的真火都算上；带着灵兽时真掉的只会更少；
+// 算这个数不改动局面。
+func TestEndLossMatchesTheEnemyTurn(t *testing.T) {
+	hpLost := func(r *Run) int {
+		lost := 0
+		for _, ev := range r.Events {
+			if ev.Kind == "hit" && ev.T == playerTarget {
+				lost += ev.N
+			}
+		}
+		return lost
+	}
+	cases := []struct {
+		name   string
+		block  int
+		player map[string]int
+	}{
+		{"bare", 0, map[string]int{}},
+		{"guard and dodge", 5, map[string]int{StDodge: 1}},
+		{"plate and burn", 0, map[string]int{StPlate: 4, StBurn: 3}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := previewBattle(t, []Card{{Id: "w_defend"}}, tc.player,
+				Enemy{HP: 40, St: map[string]int{}}, Enemy{HP: 40, St: map[string]int{StBurn: 2}})
+			r.Combat.Block = tc.block
+			before, err := common.Marshal(r)
+			require.NoError(t, err)
+			want := r.View().Combat.EndLoss
+			after, err := common.Marshal(r)
+			require.NoError(t, err)
+			assert.Equal(t, string(before), string(after))
+			require.NoError(t, r.Apply(Action{Type: "end", Node: -1, Card: -1, Target: -1, Choice: -1, Potion: -1}))
+			assert.Equal(t, want, hpLost(r))
+		})
+	}
+
+	r := beastBattle(t, &BattleBeast{Kind: "baihu", Move: BeastStrike, Power: 99})
+	for _, e := range r.Combat.Enemies {
+		e.HP = 50
+	}
+	bound := r.View().Combat.EndLoss
+	require.NoError(t, r.Apply(Action{Type: "end", Node: -1, Card: -1, Target: -1, Choice: -1, Potion: -1}))
+	assert.Positive(t, bound)
+	assert.Less(t, hpLost(r), bound, "the beast kills one goblin before it attacks, the bound ignores that")
+}
