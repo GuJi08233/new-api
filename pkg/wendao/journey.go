@@ -27,6 +27,9 @@ const (
 	MaxPotionStack = 9
 	// DailyRepeatRewards 是每天前几次重复通过节点(战斗或采集)还有资源；修为不限次数。
 	DailyRepeatRewards = 10
+	// SalvageDaily 是每天最多拆解几张功法：赢一场就能收下一张，不设上限的话反复打同一个节点再拆就成了刷灵石。超过了
+	// 还能丢掉，只是不再给灵石。
+	SalvageDaily = 5
 	// BattleRewardChoices 是赢下一场之后几选一的功法。
 	BattleRewardChoices = 3
 	// heroLayerHP、heroRealmHP 是主角每多一层、每高一个境界多出的最大生命；境界还给开战时的力量。
@@ -83,6 +86,9 @@ var PotionRecipes = []PotionRecipe{
 
 // UpgradeCost 是参悟一张功法(升级)要花的灵石，按稀有度：初始、普通、罕见、稀有。
 var UpgradeCost = [...]int{30, 60, 150, 300}
+
+// SalvageStone 是拆解一张功法得的灵石，按稀有度；参悟过的另退一半参悟花的灵石，退的比花的少，参悟了再拆不会赚。
+var SalvageStone = [...]int{5, 15, 40, 100}
 
 // JourneyNode 是历练地图上的一个节点。Requires 里的节点都走过才能去；Exp 与 First 是第一次通过的修为与资源，之后每次
 // 修为减半、资源按 Repeat(每天前 DailyRepeatRewards 次)。Relic、Potions、Key 只在第一次通过时给。Cooldown 是采集的间隔。

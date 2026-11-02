@@ -169,6 +169,13 @@ export function heroEventLines(events, t, text, sectText) {
       case 'hero_card':
         lines.push(t('收下功法：{{name}}', { name: text.cards[ev.s] }));
         break;
+      case 'hero_salvage':
+        lines.push(
+          t('拆解：{{name}}', {
+            name: `${text.cards[ev.s]}${ev.v ? '+' : ''}`,
+          }),
+        );
+        break;
       case 'hero_upgrade':
         lines.push(t('参悟：{{name}}', { name: `${text.cards[ev.s]}+` }));
         break;

@@ -88,7 +88,7 @@ const BattleStage = ({
         {won && full && (
           <p className='dg-screen-note'>
             {t(
-              '收藏已满 {{n}} 张，之后赢了也不能收下新的功法，先去丢掉几张不用的。',
+              '收藏已满 {{n}} 张，之后赢了也不能收下新的功法，先去拆解或丢掉几张不用的。',
               { n: info.max_cards },
             )}
           </p>

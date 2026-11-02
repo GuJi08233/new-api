@@ -145,8 +145,8 @@ const Presets = ({ info, hero, busy, act }) => {
   );
 };
 
-// 功法：收藏里的所有功法，牌组里的高亮。上面是牌组预设与筛选；选中一张后可以放进或拿出牌组、花灵石参悟，或者丢掉
-// 不在牌组里的。
+// 功法：收藏里的所有功法，牌组里的高亮。上面是牌组预设与筛选；选中一张后可以放进或拿出牌组、花灵石参悟；不在牌组里的
+// 可以拆解换灵石(每天有张数上限，每张得多少由服务端给，hero.salvage 与收藏同下标)，或者丢掉。
 const Collection = ({ info, hero, res, busy, act }) => {
   const { t } = useTranslation();
   const text = useDungeonText();
@@ -157,6 +157,7 @@ const Collection = ({ info, hero, res, busy, act }) => {
   const deckFull = hero.deck.length >= info.deck_max;
   const deckMin = hero.deck.length <= info.deck_min;
   const cost = card ? info.upgrade_cost[card.rarity] : 0;
+  const salvageStone = card ? (hero.salvage?.[picked] ?? -1) : -1;
   const full = hero.cards.length >= info.max_cards;
   const setField = (key, value) =>
     setFilter((previous) => ({ ...previous, [key]: value }));
@@ -223,6 +224,29 @@ const Collection = ({ info, hero, res, busy, act }) => {
     });
   };
 
+  const salvage = () => {
+    const presets = presetsWith(picked);
+    Modal.confirm({
+      title: t('拆解这张功法？'),
+      content: [
+        t('拆解后这张功法就没了，换回 {{n}} 灵石；今天还能拆解 {{left}} 张。', {
+          n: salvageStone,
+          left: hero.salvage_left,
+        }),
+        presets.length > 0 &&
+          t('牌组预设「{{names}}」里也有这张，会一起拿掉。', {
+            names: presets.join('、'),
+          }),
+      ]
+        .filter(Boolean)
+        .join(' '),
+      onOk: async () => {
+        const data = await act('salvage', { card: picked });
+        if (data) setPicked(-1);
+      },
+    });
+  };
+
   const query = filter.query.trim().toLowerCase();
   const matches = (index) => {
     const c = hero.cards[index];
@@ -277,7 +301,7 @@ const Collection = ({ info, hero, res, busy, act }) => {
         <div className='jn-full-note' role='status'>
           <span>
             {t(
-              '收藏满了：赢下战斗不能再收下新的功法。丢掉几张不在牌组里的，给新的功法腾地方。',
+              '收藏满了：赢下战斗不能再收下新的功法。拆解或丢掉几张不在牌组里的，给新的功法腾地方。',
             )}
           </span>
           <Button
@@ -387,10 +411,29 @@ const Collection = ({ info, hero, res, busy, act }) => {
               <CostChips cost={{ stone: cost }} have={res} />
             </>
           )}
+          {!inDeck && salvageStone >= 0 && (
+            <Button
+              size='small'
+              disabled={busy || hero.salvage_left < 1}
+              onClick={salvage}
+            >
+              {t('拆解 +{{n}} 灵石', { n: salvageStone })}
+            </Button>
+          )}
           {!inDeck && (
             <Button size='small' type='danger' disabled={busy} onClick={forget}>
               {t('丢掉')}
             </Button>
+          )}
+          {!inDeck && (
+            <span className='jn-muted'>
+              {hero.salvage_left > 0
+                ? t('今天还能拆解 {{n}} / {{max}} 张', {
+                    n: hero.salvage_left,
+                    max: info.salvage_daily,
+                  })
+                : t('今天的拆解已用完，明天再来')}
+            </span>
           )}
         </div>
       )}

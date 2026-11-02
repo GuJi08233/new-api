@@ -8641,7 +8641,6 @@
     "起个名字（可以不填）": "Đặt tên (có thể bỏ trống)",
     "牌组预设「{{names}}」里也有这张，会一起拿掉。": "Bộ cài sẵn「{{names}}」cũng có lá này, sẽ bị bỏ cùng.",
     "牌组里攻伐 {{attack}} · 秘术 {{skill}} · 心法 {{power}}，平均 {{energy}} 点灵力": "Bộ bài: công phạt {{attack}} · bí thuật {{skill}} · tâm pháp {{power}}, trung bình {{energy}} linh lực",
-    "收藏满了：赢下战斗不能再收下新的功法。丢掉几张不在牌组里的，给新的功法腾地方。": "Sưu tập đã đầy: thắng trận cũng không nhận thêm công pháp mới. Bỏ vài lá không nằm trong bộ bài để có chỗ.",
     "看牌组外的重复功法": "Xem công pháp trùng ngoài bộ bài",
     "搜索功法": "Tìm công pháp",
     "牌组里": "Trong bộ bài",
@@ -8654,7 +8653,6 @@
     "清除筛选": "Bỏ lọc",
     "收藏里有 {{n}} 张": "Sưu tập có {{n}} lá",
     "筛出 {{n}} 张": "Lọc được {{n}} lá",
-    "收藏已满 {{n}} 张，之后赢了也不能收下新的功法，先去丢掉几张不用的。": "Sưu tập đã đầy {{n}} lá, sau này thắng cũng không nhận được công pháp mới, hãy bỏ bớt vài lá không dùng.",
     "去整理功法": "Đi sắp xếp công pháp",
     "第 {{n}} 关": "Ải {{n}}",
     "已过": "Đã qua",
@@ -8853,6 +8851,15 @@
     "可以从这里变强": "Có thể mạnh lên từ đây",
     "去看看": "Xem thử",
     "最后一回合受到": "Nhận ở lượt cuối",
-    "{{n}} 伤害": "{{n}} sát thương"
+    "{{n}} 伤害": "{{n}} sát thương",
+    "拆解这张功法？": "Phân giải công pháp này?",
+    "拆解后这张功法就没了，换回 {{n}} 灵石；今天还能拆解 {{left}} 张。": "Phân giải xong công pháp sẽ mất, đổi lại {{n}} linh thạch; hôm nay còn phân giải được {{left}} lá.",
+    "收藏满了：赢下战斗不能再收下新的功法。拆解或丢掉几张不在牌组里的，给新的功法腾地方。": "Sưu tập đã đầy: thắng trận cũng không nhận thêm công pháp mới. Phân giải hoặc bỏ vài lá không nằm trong bộ bài để có chỗ.",
+    "拆解 +{{n}} 灵石": "Phân giải +{{n}} linh thạch",
+    "今天还能拆解 {{n}} / {{max}} 张": "Hôm nay còn phân giải được {{n}} / {{max}} lá",
+    "今天的拆解已用完，明天再来": "Hôm nay đã hết lượt phân giải, mai quay lại",
+    "拆解：{{name}}": "Phân giải: {{name}}",
+    "不在牌组里的功法可以拆解换灵石，每天 {{n}} 张；参悟过的另退一半参悟花的灵石": "Công pháp ngoài bộ bài có thể phân giải lấy linh thạch, mỗi ngày {{n}} lá; lá đã tham ngộ hoàn thêm một nửa linh thạch tham ngộ",
+    "收藏已满 {{n}} 张，之后赢了也不能收下新的功法，先去拆解或丢掉几张不用的。": "Sưu tập đã đầy {{n}} lá, sau này thắng cũng không nhận được công pháp mới, hãy phân giải hoặc bỏ bớt vài lá không dùng."
   }
 }

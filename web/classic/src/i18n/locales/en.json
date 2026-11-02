@@ -8289,7 +8289,6 @@
     "起个名字（可以不填）": "Name (optional)",
     "牌组预设「{{names}}」里也有这张，会一起拿掉。": "The deck preset(s) “{{names}}” also include this card; it will be removed from them too.",
     "牌组里攻伐 {{attack}} · 秘术 {{skill}} · 心法 {{power}}，平均 {{energy}} 点灵力": "Deck: {{attack}} Attack · {{skill}} Art · {{power}} Mantra, {{energy}} Qi on average",
-    "收藏满了：赢下战斗不能再收下新的功法。丢掉几张不在牌组里的，给新的功法腾地方。": "Your collection is full: winning battles won't add new techniques. Discard a few that aren't in your deck to make room.",
     "看牌组外的重复功法": "Show duplicates outside the deck",
     "搜索功法": "Search techniques",
     "牌组里": "In deck",
@@ -8302,7 +8301,6 @@
     "清除筛选": "Clear filters",
     "收藏里有 {{n}} 张": "{{n}} in collection",
     "筛出 {{n}} 张": "{{n}} match",
-    "收藏已满 {{n}} 张，之后赢了也不能收下新的功法，先去丢掉几张不用的。": "Your collection is full at {{n}}; later wins won't add new techniques. Discard some you don't use first.",
     "去整理功法": "Tidy techniques",
     "第 {{n}} 关": "Trial {{n}}",
     "已过": "Cleared",
@@ -8501,6 +8499,15 @@
     "可以从这里变强": "Where to grow stronger",
     "去看看": "Take a look",
     "最后一回合受到": "Taken in the final turn",
-    "{{n}} 伤害": "{{n}} damage"
+    "{{n}} 伤害": "{{n}} damage",
+    "拆解这张功法？": "Salvage this technique?",
+    "拆解后这张功法就没了，换回 {{n}} 灵石；今天还能拆解 {{left}} 张。": "The technique is gone once salvaged and you get {{n}} Spirit Stones back. You can salvage {{left}} more today.",
+    "收藏满了：赢下战斗不能再收下新的功法。拆解或丢掉几张不在牌组里的，给新的功法腾地方。": "Your collection is full: winning battles won't add new techniques. Salvage or discard a few that aren't in your deck to make room.",
+    "拆解 +{{n}} 灵石": "Salvage +{{n}} Spirit Stones",
+    "今天还能拆解 {{n}} / {{max}} 张": "Salvages left today: {{n}} / {{max}}",
+    "今天的拆解已用完，明天再来": "No salvages left today; come back tomorrow",
+    "拆解：{{name}}": "Salvaged: {{name}}",
+    "不在牌组里的功法可以拆解换灵石，每天 {{n}} 张；参悟过的另退一半参悟花的灵石": "Techniques outside your deck can be salvaged for Spirit Stones, {{n}} a day; studied ones also refund half the study cost",
+    "收藏已满 {{n}} 张，之后赢了也不能收下新的功法，先去拆解或丢掉几张不用的。": "Your collection is full at {{n}}; later wins won't add new techniques. Salvage or discard some you don't use first."
   }
 }

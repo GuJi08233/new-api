@@ -51,9 +51,10 @@ type Hero struct {
 	LureReady int64    `json:"lure_ready,omitempty"`
 	// Weekly 是这一周的周天试炼(weekly.go)，打败第一章首领之前为 nil。
 	Weekly *Weekly `json:"weekly,omitempty"`
-	// Day 与 DayRepeats 记今天重复通过节点拿了几次资源。
+	// Day 与 DayRepeats、Salvaged 记今天重复通过节点拿了几次资源、拆解了几张功法。
 	Day        string      `json:"day"`
 	DayRepeats int         `json:"day_repeats"`
+	Salvaged   int         `json:"salvaged,omitempty"`
 	Battle     *HeroBattle `json:"battle,omitempty"`
 	Stats      HeroStats   `json:"stats"`
 }
@@ -375,7 +376,7 @@ func (sv *Save) HeroApply(a HeroAction, now int64, day string, seed uint64) ([]E
 		return nil, ErrUnavailable
 	}
 	if h.Day != day {
-		h.Day, h.DayRepeats = day, 0
+		h.Day, h.DayRepeats, h.Salvaged = day, 0, 0
 	}
 	evs := append(h.tick(s, now), h.hatchBeasts(now)...)
 	h.rollWeekly(day)
@@ -400,6 +401,8 @@ func (sv *Save) HeroApply(a HeroAction, now int64, day string, seed uint64) ([]E
 		more, err = h.upgrade(s, a.Card)
 	case "forget":
 		err = h.forget(a.Card)
+	case "salvage":
+		more, err = h.salvage(s, a.Card)
 	case "breakthrough":
 		more, err = h.breakthrough(s, a.UsePill)
 	case "visit":
@@ -501,6 +504,43 @@ func (h *Hero) upgrade(s *Sect, index int) ([]Ev, error) {
 	}
 	h.Cards[index].Up = true
 	return []Ev{{K: "res", S: "stone", N: -cost.Stone}, {K: "hero_upgrade", S: h.Cards[index].Id}}, nil
+}
+
+// SalvageYield 是拆解这张功法得的灵石：按稀有度，参悟过的另退一半参悟的灵石。不认识的功法为 -1。
+func SalvageYield(c dungeon.Card) int {
+	rarity := dungeon.CardRarity(c.Id)
+	if rarity < 0 || rarity >= len(SalvageStone) {
+		return -1
+	}
+	if c.Up {
+		return SalvageStone[rarity] + UpgradeCost[rarity]/2
+	}
+	return SalvageStone[rarity]
+}
+
+// salvage 拆解一张不在牌组里的功法换灵石(与丢掉一样，牌组预设里有这张的一起拿掉)，每天最多 SalvageDaily 张。事件
+// hero_salvage 的 N 是得的灵石，V 为 1 表示拆的是参悟过的。
+func (h *Hero) salvage(s *Sect, index int) ([]Ev, error) {
+	if index < 0 || index >= len(h.Cards) || slices.Contains(h.Deck, index) {
+		return nil, ErrAction
+	}
+	card := h.Cards[index]
+	stone := SalvageYield(card)
+	if stone < 0 {
+		return nil, ErrAction
+	}
+	if h.Salvaged >= SalvageDaily {
+		return nil, ErrUnavailable
+	}
+	if err := h.forget(index); err != nil {
+		return nil, err
+	}
+	h.Salvaged++
+	ev := Ev{K: "hero_salvage", S: card.Id, N: stone}
+	if card.Up {
+		ev.V = 1
+	}
+	return append([]Ev{ev}, s.gain(Cost{Stone: stone})...), nil
 }
 
 // forget 从收藏里丢掉一张不在牌组里的功法，给新的功法腾地方；牌组预设里有这张的一起拿掉。
@@ -883,7 +923,10 @@ type HeroView struct {
 	Open        []string               `json:"open"`
 	Ready       map[string]int64       `json:"ready"`
 	RepeatsLeft int                    `json:"repeats_left"`
-	Stats       HeroStats              `json:"stats"`
+	// SalvageLeft 是今天还能拆解几张功法，Salvage 是收藏里每张功法拆解得的灵石(与 Cards 同下标)。
+	SalvageLeft int       `json:"salvage_left"`
+	Salvage     []int     `json:"salvage"`
+	Stats       HeroStats `json:"stats"`
 	// StepsOpen 表示问心阶已经开放，Steps 是登到了第几级。
 	StepsOpen bool            `json:"steps_open"`
 	Steps     int             `json:"steps"`
@@ -996,8 +1039,14 @@ func (h *Hero) View(s *Sect, now int64, day string) HeroView {
 	if h.Realm < MaxRealm {
 		v.BreakKey = BreakKeys[h.Realm]
 	}
+	v.SalvageLeft = SalvageDaily
 	if h.Day == day {
 		v.RepeatsLeft = max(DailyRepeatRewards-h.DayRepeats, 0)
+		v.SalvageLeft = max(SalvageDaily-h.Salvaged, 0)
+	}
+	v.Salvage = make([]int, len(h.Cards))
+	for i, c := range h.Cards {
+		v.Salvage[i] = SalvageYield(c)
 	}
 	for i := range JourneyNodes {
 		n := &JourneyNodes[i]

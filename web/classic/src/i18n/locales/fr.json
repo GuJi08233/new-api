@@ -8141,7 +8141,6 @@
     "起个名字（可以不填）": "Nom (facultatif)",
     "牌组预设「{{names}}」里也有这张，会一起拿掉。": "Le(s) préréglage(s) « {{names}} » contiennent aussi cette carte ; elle en sera retirée.",
     "牌组里攻伐 {{attack}} · 秘术 {{skill}} · 心法 {{power}}，平均 {{energy}} 点灵力": "Deck : {{attack}} Attaque · {{skill}} Art · {{power}} Mantra, {{energy}} Qi en moyenne",
-    "收藏满了：赢下战斗不能再收下新的功法。丢掉几张不在牌组里的，给新的功法腾地方。": "Votre collection est pleine : gagner des combats n'ajoutera plus de techniques. Jetez-en quelques-unes hors du deck pour faire de la place.",
     "看牌组外的重复功法": "Voir les doublons hors du deck",
     "搜索功法": "Rechercher une technique",
     "牌组里": "Dans le deck",
@@ -8154,7 +8153,6 @@
     "清除筛选": "Effacer les filtres",
     "收藏里有 {{n}} 张": "{{n}} dans la collection",
     "筛出 {{n}} 张": "{{n}} trouvée(s)",
-    "收藏已满 {{n}} 张，之后赢了也不能收下新的功法，先去丢掉几张不用的。": "Votre collection est pleine ({{n}}) ; les prochaines victoires n'ajouteront pas de techniques. Jetez d'abord celles que vous n'utilisez pas.",
     "去整理功法": "Trier les techniques",
     "第 {{n}} 关": "Épreuve {{n}}",
     "已过": "Réussie",
@@ -8353,6 +8351,15 @@
     "可以从这里变强": "Pour devenir plus fort",
     "去看看": "Voir",
     "最后一回合受到": "Subi au dernier tour",
-    "{{n}} 伤害": "{{n}} dégâts"
+    "{{n}} 伤害": "{{n}} dégâts",
+    "拆解这张功法？": "Démanteler cette technique ?",
+    "拆解后这张功法就没了，换回 {{n}} 灵石；今天还能拆解 {{left}} 张。": "Une fois démantelée, la technique disparaît et vous récupérez {{n}} pierres spirituelles. Encore {{left}} possibles aujourd'hui.",
+    "收藏满了：赢下战斗不能再收下新的功法。拆解或丢掉几张不在牌组里的，给新的功法腾地方。": "Votre collection est pleine : gagner des combats n'ajoutera plus de techniques. Démantelez ou jetez-en quelques-unes hors du deck pour faire de la place.",
+    "拆解 +{{n}} 灵石": "Démanteler +{{n}} pierres spirituelles",
+    "今天还能拆解 {{n}} / {{max}} 张": "Démantèlements restants aujourd'hui : {{n}} / {{max}}",
+    "今天的拆解已用完，明天再来": "Plus de démantèlement aujourd'hui ; revenez demain",
+    "拆解：{{name}}": "Démantelée : {{name}}",
+    "不在牌组里的功法可以拆解换灵石，每天 {{n}} 张；参悟过的另退一半参悟花的灵石": "Les techniques hors du deck peuvent être démantelées contre des pierres spirituelles, {{n}} par jour ; celles étudiées rendent en plus la moitié du coût d'étude",
+    "收藏已满 {{n}} 张，之后赢了也不能收下新的功法，先去拆解或丢掉几张不用的。": "Votre collection est pleine ({{n}}) ; les prochaines victoires n'ajouteront pas de techniques. Démantelez ou jetez d'abord celles que vous n'utilisez pas."
   }
 }

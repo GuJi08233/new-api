@@ -37,6 +37,7 @@ func journeyInfo() gin.H {
 		"max_presets":          wendao.MaxPresets,
 		"max_preset_name":      wendao.MaxPresetName,
 		"max_cards":            wendao.MaxCards,
+		"salvage_daily":        wendao.SalvageDaily,
 		"daily_repeat_rewards": wendao.DailyRepeatRewards,
 		"classes":              dungeon.Classes,
 		"potion_recipes":       wendao.PotionRecipes,
