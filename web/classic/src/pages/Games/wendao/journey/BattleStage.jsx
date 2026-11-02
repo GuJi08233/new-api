@@ -114,7 +114,19 @@ const BattleStage = ({
       setTargeting({ potion: slot });
       return;
     }
-    send('potion', { potion: slot, target: alive[0] ?? -1 });
+    // 生命满着服疗伤丹只会白白用掉一颗，先问一句。
+    if (potion === 'heal' && run.hp >= run.max_hp) {
+      Modal.confirm({
+        title: t('生命是满的'),
+        content: t('现在服下{{name}}回复不了生命，丹符照样用掉。', {
+          name: text.potions.heal?.name,
+        }),
+        okText: t('仍要服下'),
+        onOk: () => send('potion', { potion: slot, target: -1 }),
+      });
+      return;
+    }
+    send('potion', { potion: slot, target: potion === 'fire' ? alive[0] : -1 });
   };
   const flee = () =>
     Modal.confirm({

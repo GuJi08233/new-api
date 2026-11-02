@@ -18,12 +18,13 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Button, Tooltip } from '@douyinfe/semi-ui';
+import { Button, Modal, Tooltip } from '@douyinfe/semi-ui';
 import {
   HeartPulse,
   Hourglass,
   Keyboard,
   Layers,
+  ScrollText,
   Shield,
   Swords,
   Trash2,
@@ -36,6 +37,7 @@ import { Floaters, useFloaters } from '../common/effects';
 import { readGameStorage, writeGameStorage } from '../common/gameStorage';
 import { playSound } from '../common/sound';
 import EnemyArt from '../wendao/art/EnemyArt';
+import { getBeastText } from '../wendao/cave/text';
 import {
   CardFace,
   HpBar,
@@ -43,7 +45,7 @@ import {
   StatusList,
   useDungeonText,
 } from './parts';
-import { getEnemyNames } from './text';
+import { combatLog, getEnemyNames } from './text';
 
 // 一次操作里的事件逐个播放的间隔(毫秒)；敌人出招之间多停一会儿，看得清是谁打的。
 const EVENT_GAP = 110;
@@ -56,6 +58,9 @@ const hasKeyboard = () =>
   !!window.matchMedia?.('(hover: hover) and (pointer: fine)').matches;
 // 还有能打出的牌时，E 要连按两次才结束回合，两次之间不超过这么久(毫秒)。
 const END_CONFIRM_MS = 2500;
+// 战况最多记这么多步；台面上只摆最近一步的最后几行，全部的在「战况」里看。
+const LOG_STEPS = 80;
+const LOG_SHOWN = 3;
 
 // 敌人公布的下一招：攻击带伤害数字，其余用图标表示，悬停看说明。
 const IntentBadge = ({ intent }) => {
@@ -95,6 +100,18 @@ const IntentBadge = ({ intent }) => {
   );
 };
 
+// 战况的一行：起因加冒号，后面是它带来的变化。
+const CombatLine = ({ line }) => {
+  const { t } = useTranslation();
+  return (
+    <>
+      {line.cause && <strong>{line.cause}</strong>}
+      {line.cause && line.effects.length > 0 && t('：')}
+      {line.effects.join(t('，'))}
+    </>
+  );
+};
+
 // 战斗：敌人、玩家与手牌。targeting 是正在选目标的牌或药水，由页面持有(药水在顶栏里点)。
 const Combat = ({ run, busy, send, events, targeting, setTargeting }) => {
   const { t } = useTranslation();
@@ -104,6 +121,10 @@ const Combat = ({ run, busy, send, events, targeting, setTargeting }) => {
   const [floaters, addFloater] = useFloaters();
   const [pulses, setPulses] = useState({});
   const [pile, setPile] = useState(null);
+  // log 是这场战斗的战况，每步一项 { key, lines }，新开一场(第 1 回合)时清空。
+  const [log, setLog] = useState([]);
+  const [logOpen, setLogOpen] = useState(false);
+  const logEnd = useRef(null);
   const timers = useRef([]);
   const [keyboard] = useState(hasKeyboard);
   const [shortcuts, setShortcuts] = useState(
@@ -138,9 +159,39 @@ const Combat = ({ run, busy, send, events, targeting, setTargeting }) => {
     [],
   );
 
-  // 播放这一步里发生的事：伤害与护甲飘字、受击与出招的动作、音效。
+  // 同名的敌人按出场顺序加上甲乙丙丁，台面上与战况里叫法一样。
+  const marks = [t('甲'), t('乙'), t('丙'), t('丁'), t('戊')];
+  const enemyLabels = (combat?.enemies || []).map((enemy, index, all) => {
+    const name = enemyNames[enemy.id] || enemy.id;
+    if (all.filter((other) => other.id === enemy.id).length < 2) return name;
+    const nth = all
+      .slice(0, index)
+      .filter((other) => other.id === enemy.id).length;
+    return t('{{name}}{{mark}}', { name, mark: marks[nth] ?? nth + 1 });
+  });
+  const beastNames = getBeastText(t);
+  const names = {
+    enemy: (i) => enemyLabels[i] || '',
+    card: (id) => text.cards[id] || id,
+    status: (id) => text.statuses[id] || id,
+    potion: (id) => text.potions[id]?.name || id,
+    item: (id) => text.items[id]?.name || id,
+    relic: (id) => text.relics[id]?.name || id,
+    beast: (kind) => beastNames[kind]?.name || kind,
+  };
+
+  // 播放这一步里发生的事：伤害与护甲飘字、受击与出招的动作、音效，并记进战况。
   useEffect(() => {
     if (!events?.list?.length) return;
+    const lines = combatLog(events.list, names, t);
+    const fresh = events.list.some((ev) => ev.k === 'turn' && ev.n === 1);
+    setLog((previous) =>
+      previous[previous.length - 1]?.key === events.key
+        ? previous
+        : [...(fresh ? [] : previous), { key: events.key, lines }].slice(
+            -LOG_STEPS,
+          ),
+    );
     timers.current.forEach(clearTimeout);
     timers.current = [];
     const count = Math.max(combat?.enemies?.length || 1, 1);
@@ -233,11 +284,15 @@ const Combat = ({ run, busy, send, events, targeting, setTargeting }) => {
             break;
           case 'potion':
             playSound('pour');
+            addFloater(names.potion(ev.s), { x: 50, y: 62, kind: 'gold' });
             break;
           case 'beast':
             pulse('p', 'act');
             playSound('whoosh');
-            addFloater(t('灵兽出手'), { ...where, kind: 'gold' });
+            addFloater(t('{{name}}出手', { name: names.beast(ev.s) }), {
+              ...where,
+              kind: 'gold',
+            });
             break;
           case 'revive':
             playSound('sparkle');
@@ -256,6 +311,10 @@ const Combat = ({ run, busy, send, events, targeting, setTargeting }) => {
     // 只在新的一步到来时播放一次。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [events?.key]);
+
+  useEffect(() => {
+    if (logOpen) logEnd.current?.scrollIntoView({ block: 'end' });
+  }, [logOpen, log]);
 
   if (!combat) {
     keyHandler.current = null;
@@ -365,6 +424,11 @@ const Combat = ({ run, busy, send, events, targeting, setTargeting }) => {
       ? aimedCard
       : null;
 
+  // 台面上只摆最近一步的最后几行，什么也没发生的新回合与回合结束不占地方。
+  const latest = (log[log.length - 1]?.lines || [])
+    .filter((line) => line.effects.length > 0 || !line.quiet)
+    .slice(-LOG_SHOWN);
+
   const piles = {
     draw: {
       title: t('抽牌堆'),
@@ -392,7 +456,7 @@ const Combat = ({ run, busy, send, events, targeting, setTargeting }) => {
               ].join(' ')}
               disabled={!targeting || enemy.dead || busy}
               onClick={() => pickEnemy(index)}
-              aria-label={enemyNames[enemy.id] || enemy.id}
+              aria-label={enemyLabels[index]}
             >
               {!enemy.dead && <IntentBadge intent={enemy.intent} />}
               {keysOn && targeting && !enemy.dead && index < 10 && (
@@ -401,9 +465,7 @@ const Combat = ({ run, busy, send, events, targeting, setTargeting }) => {
               <span className={`dg-enemy-art is-${enemy.id}`} aria-hidden>
                 <EnemyArt id={enemy.id} />
               </span>
-              <span className='dg-enemy-name'>
-                {enemyNames[enemy.id] || enemy.id}
-              </span>
+              <span className='dg-enemy-name'>{enemyLabels[index]}</span>
               {loss && (
                 <span className='dg-preview'>
                   <strong>
@@ -451,6 +513,25 @@ const Combat = ({ run, busy, send, events, targeting, setTargeting }) => {
             </Tooltip>
           )}
         </div>
+      </div>
+      <div className='dg-log'>
+        <ol aria-live='polite'>
+          {latest.map((line, index) => (
+            <li key={`${log.length}-${index}`}>
+              <CombatLine line={line} />
+            </li>
+          ))}
+        </ol>
+        {log.length > 0 && (
+          <Button
+            size='small'
+            theme='borderless'
+            icon={<ScrollText size={14} />}
+            onClick={() => setLogOpen(true)}
+          >
+            {t('战况')}
+          </Button>
+        )}
       </div>
       <p className='dg-help' aria-live='polite'>
         {endArmed
@@ -533,6 +614,30 @@ const Combat = ({ run, busy, send, events, targeting, setTargeting }) => {
         </Button>
       </div>
       <Floaters items={floaters} />
+      <Modal
+        visible={logOpen}
+        title={t('战况')}
+        footer={null}
+        onCancel={() => setLogOpen(false)}
+        width={560}
+        bodyStyle={{ paddingBottom: 20 }}
+      >
+        <ol className='dg-log-full'>
+          {log.flatMap((step) =>
+            step.lines.map((line, index) =>
+              line.quiet && !line.turn && !line.effects.length ? null : (
+                <li
+                  key={`${step.key}-${index}`}
+                  className={line.turn ? 'is-turn' : undefined}
+                >
+                  <CombatLine line={line} />
+                </li>
+              ),
+            ),
+          )}
+        </ol>
+        <span ref={logEnd} />
+      </Modal>
       <PileModal
         visible={!!pile}
         title={pile ? piles[pile].title : ''}

@@ -415,3 +415,134 @@ export const getAbyssRules = (t) => [
   t('击败首领后只回复四分之一已损失的生命'),
   t('所有敌人伤害再 +10%'),
 ];
+
+// combatLog 把一步操作里发生的事整理成战况，关掉动画与声音也能看清这一步的结果。每件「起因」(新回合、出牌、丹符、道具、
+// 灵兽出手、回合结束、敌人受真火或出手)开一行，后面跟着它带来的伤害、护体与状态变化；第一件起因之前的变化单独成一行。
+// 行的 turn 是新回合的回合数(其余行为 0)；quiet 的行(新回合、回合结束)后面什么也没有时只是个分隔。names 给出名字：
+// enemy(下标)、card、status、potion、item、relic、beast(种类)。
+export function combatLog(events, names, t) {
+  const lines = [];
+  let line = null;
+  // repeat 记着这一行最后一条变化原样出现了几次，连击「−5，−5」写成「−5 ×2」。
+  let repeat = { effect: '', times: 0 };
+  const open = (cause, { turn = 0, quiet = false } = {}) => {
+    line = { cause, turn, quiet, effects: [] };
+    lines.push(line);
+    repeat = { effect: '', times: 0 };
+  };
+  const add = (effect) => {
+    if (!line) open('');
+    if (effect === repeat.effect) {
+      repeat.times += 1;
+      line.effects[line.effects.length - 1] = `${effect} ×${repeat.times}`;
+      return;
+    }
+    repeat = { effect, times: 1 };
+    line.effects.push(effect);
+  };
+  const who = (target) => (target < 0 ? t('你') : names.enemy(target));
+  for (const ev of events) {
+    switch (ev.k) {
+      case 'turn':
+        open(t('第 {{turn}} 回合', { turn: ev.n }), {
+          turn: ev.n,
+          quiet: true,
+        });
+        break;
+      case 'end':
+        open(t('回合结束'), { quiet: true });
+        break;
+      case 'play':
+        open(
+          ev.t >= 0
+            ? t('施展{{card}} → {{target}}', {
+                card: names.card(ev.s),
+                target: names.enemy(ev.t),
+              })
+            : t('施展{{card}}', { card: names.card(ev.s) }),
+        );
+        break;
+      case 'potion':
+        open(
+          ev.t >= 0
+            ? t('用{{name}} → {{target}}', {
+                name: names.potion(ev.s),
+                target: names.enemy(ev.t),
+              })
+            : t('用{{name}}', { name: names.potion(ev.s) }),
+        );
+        break;
+      case 'item':
+        open(t('用{{name}}', { name: names.item(ev.s) }));
+        break;
+      case 'beast':
+        open(t('{{name}}出手', { name: names.beast(ev.s) }));
+        break;
+      case 'act':
+        open(t('{{name}}出手', { name: names.enemy(ev.t) }));
+        break;
+      case 'hit':
+        // 敌人行动前先受真火，记成它自己的一行，不算到上一个出手的头上。
+        if (ev.t >= 0 && ev.s === 'burn') {
+          open(t('{{name}}受真火灼烧', { name: names.enemy(ev.t) }));
+          add(t('{{who}} −{{n}}', { who: who(ev.t), n: ev.n }));
+        } else if (ev.n > 0 && (ev.s === 'burn' || ev.s === 'thorns')) {
+          add(
+            t('{{who}} {{what}} −{{n}}', {
+              who: who(ev.t),
+              what: names.status(ev.s),
+              n: ev.n,
+            }),
+          );
+        } else if (ev.n > 0) {
+          add(t('{{who}} −{{n}}', { who: who(ev.t), n: ev.n }));
+        } else {
+          add(t('{{who}} 挡下了', { who: who(ev.t) }));
+        }
+        break;
+      case 'block':
+        add(t('{{who}} 护体 +{{n}}', { who: who(ev.t), n: ev.n }));
+        break;
+      case 'heal':
+        add(t('{{who}} 生命 +{{n}}', { who: who(ev.t), n: ev.n }));
+        break;
+      case 'apply':
+        add(
+          t('{{who}} {{what}} +{{n}}', {
+            who: who(ev.t),
+            what: names.status(ev.s),
+            n: ev.n,
+          }),
+        );
+        break;
+      case 'dodge':
+        add(t('{{who}} 闪开了', { who: who(ev.t) }));
+        break;
+      case 'die':
+        add(t('{{who}} 倒下', { who: who(ev.t) }));
+        break;
+      case 'energy':
+        add(t('灵力 +{{n}}', { n: ev.n }));
+        break;
+      case 'wound':
+        add(t('{{n}} 张伤口混入弃牌堆', { n: ev.n }));
+        break;
+      case 'shuffle':
+        add(t('弃牌堆洗回抽牌堆'));
+        break;
+      case 'revive':
+        add(
+          t('{{name}}生效，生命回到 {{n}}', {
+            name: ev.s === 'ward' ? names.item(ev.s) : names.relic(ev.s),
+            n: ev.n,
+          }),
+        );
+        break;
+      case 'defeat':
+        add(t('你倒下了'));
+        break;
+      default:
+    }
+  }
+  return lines;
+}

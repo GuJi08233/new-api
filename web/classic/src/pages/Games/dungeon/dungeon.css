@@ -776,6 +776,63 @@
   color: var(--semi-color-text-2);
 }
 
+/* 战况：台面上只摆最近一步的最后几行(窄屏两行)，旧的在「战况」弹窗里。关掉动画与声音时靠它看清这一步发生了什么。 */
+.dg-log {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  max-width: 520px;
+  width: 100%;
+  min-height: 22px;
+  margin: 0 auto;
+}
+.dg-log ol {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--semi-color-text-1);
+}
+.dg-log li {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dg-log li strong,
+.dg-log-full li strong {
+  font-weight: 600;
+  color: var(--semi-color-text-0);
+}
+.dg-log .semi-button {
+  flex: none;
+}
+.dg-log-full {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--semi-color-text-1);
+}
+.dg-log-full li.is-turn {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--semi-color-border);
+}
+.dg-log-full li.is-turn:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+@media (max-width: 640px) {
+  .dg-log li:nth-last-child(n + 3) {
+    display: none;
+  }
+}
+
 /* 回合数与下面敌人这回合公开的攻击合计，竖着放在玩家一行的右边，窄屏上也不挤血条。 */
 .dg-player-side {
   display: flex;

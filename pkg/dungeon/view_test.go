@@ -81,3 +81,14 @@ func TestHandPreviewMatchesThePlay(t *testing.T) {
 		})
 	}
 }
+
+// 丹符的事件只有火符记在敌人身上：页面顺手带上的目标不会让战况写成「疗伤丹 → 敌人」。
+func TestPotionEventNamesItsTarget(t *testing.T) {
+	r := previewBattle(t, []Card{{Id: "w_defend"}}, map[string]int{},
+		Enemy{HP: 40, St: map[string]int{}}, Enemy{HP: 40, St: map[string]int{}})
+	r.Potions = []string{PotionIron, PotionFire}
+	require.NoError(t, r.Apply(Action{Type: "potion", Node: -1, Card: -1, Target: 0, Choice: -1, Potion: 0}))
+	assert.Contains(t, r.Events, Ev{Kind: "potion", T: playerTarget, N: 0, S: PotionIron})
+	require.NoError(t, r.Apply(Action{Type: "potion", Node: -1, Card: -1, Target: 1, Choice: -1, Potion: 0}))
+	assert.Contains(t, r.Events, Ev{Kind: "potion", T: 1, N: 0, S: PotionFire})
+}

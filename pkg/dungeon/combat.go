@@ -121,10 +121,12 @@ func (r *Run) chooseMove(e *Enemy) {
 	e.Move = pickWeighted(&r.Rng, weights)
 }
 
-// startTurn 开始玩家的回合：清护甲、结算灼烧、回满能量、抽牌，以及遗物与能力的回合开始效果。
+// startTurn 开始玩家的回合：清护甲、结算灼烧、回满能量、抽牌，以及遗物与能力的回合开始效果。回合开始的事件排在这些效果
+// 前面，页面的战况把它们记在新回合名下。
 func (r *Run) startTurn() {
 	c := r.Combat
 	c.Turn++
+	r.emit("turn", playerTarget, c.Turn, "")
 	c.Played = 0
 	c.TurnDealt = 0
 	if c.St[StFortify] == 0 {
@@ -161,7 +163,6 @@ func (r *Run) startTurn() {
 		draw += 2
 	}
 	r.draw(draw)
-	r.emit("turn", playerTarget, c.Turn, "")
 }
 
 func (r *Run) combatStartRelics() {
@@ -524,7 +525,8 @@ func (r *Run) dealt(n int) {
 
 func (r *Run) infiniteEnergy() bool { return r.Practice != nil && r.Practice.InfiniteEnergy }
 
-// endTurn 结束玩家回合：出战的灵兽先出手，然后是回合结束效果、弃掉手牌，敌人依次行动，再开始玩家的下一回合。
+// endTurn 结束玩家回合：出战的灵兽先出手，然后是回合结束效果、弃掉手牌，敌人依次行动，再开始玩家的下一回合。回合结束
+// 效果前有一个 end 事件，页面的战况把铜皮、离火这些记在它名下，不算到灵兽头上。
 func (r *Run) endTurn() {
 	if r.Battle != nil && r.Battle.Beast != nil {
 		r.beastTurn(r.Battle.Beast)
@@ -533,6 +535,7 @@ func (r *Run) endTurn() {
 		}
 	}
 	c := r.Combat
+	r.emit("end", playerTarget, c.Turn, "")
 	if c.St[StPlate] > 0 {
 		r.gainBlock(c.St[StPlate])
 	}
@@ -676,6 +679,10 @@ func (r *Run) usePotion(slot, target int) error {
 		return ErrAction
 	}
 	r.Potions = slices.Delete(r.Potions, slot, slot+1)
+	// 只有火符打在敌人身上，其余的事件记在玩家身上(页面有时会顺手带上第一个敌人作目标)。
+	if potion != PotionFire {
+		target = playerTarget
+	}
 	r.emit("potion", target, slot, potion)
 	switch potion {
 	case PotionHeal:
