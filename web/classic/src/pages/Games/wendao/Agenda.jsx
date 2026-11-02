@@ -21,6 +21,7 @@ import React, { useMemo, useState } from 'react';
 import {
   BookOpen,
   CalendarDays,
+  Check,
   Castle,
   ChevronRight,
   ClipboardCheck,
@@ -37,7 +38,10 @@ import {
   Zap,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { getRealmNames } from '../sect/text';
+import { getUserIdFromLocalStorage } from '../../../helpers/utils';
+import { readGameStorage, writeGameStorage } from '../common/gameStorage';
+import { formatAmount, formatLeft } from '../sect/parts';
+import { getRealmNames, getResourceNames, RESOURCES } from '../sect/text';
 import { getChapterText, getKeyText, getNodeText } from './journey/text';
 
 // 问道页顶上的一条：主角眼下的主目标，和三个板块里现在就能处理的几件事(GET /api/game/wendao/agenda，按急迫程度排好)。
@@ -141,6 +145,64 @@ const goalText = (goal, t, text) => {
   }
 };
 
+// 入门指引的每一步：short 是步骤条上的短名，title 与 desc 是轮到这一步时的说明。说明里分几次讲清灵石、灵珠、道韵与
+// 游戏币各是什么。标识与 pkg/wendao 的 GuideStep 一致。
+export const getGuideText = (t) => ({
+  hero: {
+    short: t('选道途'),
+    title: t('选一条道途'),
+    desc: t(
+      '体修、法修、剑修任选其一。主角就是宗主本人，历练、宗门与秘境都围着他转。',
+    ),
+  },
+  win: {
+    short: t('首胜'),
+    title: t('在历练里打赢一场'),
+    desc: t(
+      '战斗用功法牌组。赢了可以从三张功法里收下一张，第一次通过一个节点给全部奖励。',
+    ),
+  },
+  build: {
+    short: t('升建筑'),
+    title: t('升级一座宗门建筑'),
+    desc: t(
+      '建筑每小时产出灵石、灵草、玄铁，离线最多补算 12 小时；升级花这些资源，主殿还要声望。',
+    ),
+  },
+  dispatch: {
+    short: t('派遣'),
+    title: t('派弟子出去历练'),
+    desc: t(
+      '派遣回山带回资源与丹药，失败时会有弟子受伤；队伍回来以后到派遣页结算收获。',
+    ),
+  },
+  garden: {
+    short: t('种灵田'),
+    title: t('在灵田种下一茬'),
+    desc: t(
+      '灵草、玄铁收了直接进库房；朱果、九叶灵芝、七彩莲是炼丹与祭炼要用的灵药。',
+    ),
+  },
+  break: {
+    short: t('筑基'),
+    title: t('突破到筑基'),
+    desc: t(
+      '修到炼气九层圆满，带上第一章首领掉的筑基灵液突破。每个大境界开放一章新地图。',
+    ),
+  },
+  abyss: {
+    short: t('秘境'),
+    title: t('走完一轮九幽秘境'),
+    desc: t(
+      '灵珠只在这一局里花，道韵是秘境自己的成长，都带不进历练。秘境无尽与宗门大比按规则发游戏币，其他玩法都不发。',
+    ),
+  },
+});
+
+// 入门指引收起、回来的说明看过，都按账号记在浏览器里。
+const guideHiddenKey = (uid) => `wendao-guide-hidden:${uid}`;
+const backSeenKey = (uid) => `wendao-back-seen:${uid}`;
+
 // target 是点了以后去哪里：板块、页签、页签里的分区与地图上的节点。
 const goalTarget = (goal) => ({
   part: goal.part,
@@ -156,16 +218,67 @@ const Agenda = ({ agenda, onGo }) => {
       nodes: getNodeText(t),
       keys: getKeyText(t),
       realms: getRealmNames(t),
+      guide: getGuideText(t),
+      resources: getResourceNames(t),
     }),
     [t],
   );
+  const uid = getUserIdFromLocalStorage();
   const [expanded, setExpanded] = useState(false);
+  // 收起或展开过就照那次的来；没动过时，主角已经筑基的老玩家默认收着，只留一枚「入门 n/7」。
+  const [guideHidden, setGuideHidden] = useState(
+    () => readGameStorage(guideHiddenKey(uid)).value,
+  );
+  const [backSeen, setBackSeen] = useState(
+    () => readGameStorage(backSeenKey(uid)).value,
+  );
   if (!agenda) return null;
   const { goal, todos } = agenda;
   const shown = expanded ? todos : todos.slice(0, SHOWN);
   const more = todos.length - shown.length;
+  // 离开超过离线结算上限刚回来：说明离开了多久、只补算了多少；看过的那一次(按离开的时间认)不再提。
+  const back =
+    agenda.back && agenda.back.since !== backSeen ? agenda.back : null;
+  const guide = agenda.guide || [];
+  const next = guide.find((step) => !step.done);
+  const doneSteps = guide.filter((step) => step.done).length;
+  const guideCollapsed =
+    guideHidden ?? guide.some((step) => step.key === 'break' && step.done);
+  const toggleGuide = (hidden) => {
+    writeGameStorage(guideHiddenKey(uid), hidden);
+    setGuideHidden(hidden);
+  };
   return (
     <div className='wd-agenda'>
+      {back && (
+        <div className='wd-back' role='status'>
+          <span className='wd-back-text'>
+            {t(
+              '离开了 {{time}}，闭关修为与宗门产出最多补算 12 小时。这一次补算：{{gains}}',
+              {
+                time: formatLeft(back.at - back.since, t),
+                gains:
+                  RESOURCES.filter((key) => back.res?.[key] > 0)
+                    .map(
+                      (key) =>
+                        `${text.resources[key]} +${formatAmount(back.res[key])}`,
+                    )
+                    .join(' · ') || t('没有'),
+              },
+            )}
+          </span>
+          <button
+            type='button'
+            className='wd-back-close'
+            onClick={() => {
+              writeGameStorage(backSeenKey(uid), back.since);
+              setBackSeen(back.since);
+            }}
+          >
+            {t('知道了')}
+          </button>
+        </div>
+      )}
       <button
         type='button'
         className='wd-goal'
@@ -212,6 +325,60 @@ const Agenda = ({ agenda, onGo }) => {
             </li>
           )}
         </ul>
+      )}
+      {next && guideCollapsed && (
+        <button
+          type='button'
+          className='wd-todo-more'
+          onClick={() => toggleGuide(false)}
+        >
+          {t('入门 {{done}}/{{total}}', {
+            done: doneSteps,
+            total: guide.length,
+          })}
+        </button>
+      )}
+      {next && !guideCollapsed && (
+        <section className='wd-guide' aria-label={t('入门指引')}>
+          <header className='wd-guide-head'>
+            <strong>{t('入门指引')}</strong>
+            <span className='wd-guide-count'>
+              {doneSteps}/{guide.length}
+            </span>
+            <ol className='wd-guide-steps'>
+              {guide.map((step) => (
+                <li
+                  key={step.key}
+                  className={`wd-guide-step${step.done ? ' is-done' : ''}${step === next ? ' is-current' : ''}`}
+                >
+                  {step.done && <Check size={12} aria-hidden />}
+                  {text.guide[step.key]?.short}
+                </li>
+              ))}
+            </ol>
+            <button
+              type='button'
+              className='wd-guide-hide'
+              onClick={() => toggleGuide(true)}
+            >
+              {t('收起')}
+            </button>
+          </header>
+          <div className='wd-guide-next'>
+            <div>
+              <strong>{text.guide[next.key]?.title}</strong>
+              <p>{text.guide[next.key]?.desc}</p>
+            </div>
+            <button
+              type='button'
+              className='wd-guide-go'
+              onClick={() => onGo({ part: next.part, tab: next.tab })}
+            >
+              {t('去做')}
+              <ChevronRight size={14} aria-hidden />
+            </button>
+          </div>
+        </section>
       )}
     </div>
   );

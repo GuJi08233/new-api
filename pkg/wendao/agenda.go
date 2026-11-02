@@ -41,15 +41,57 @@ type Todo struct {
 	N    int    `json:"n"`
 }
 
-// Agenda 是目标与按急迫程度排好的待办。
+// Agenda 是目标与按急迫程度排好的待办，加上入门指引(Guide)；离开很久刚回来时 Back 是这一次补算的说明。
 type Agenda struct {
-	Goal  Goal   `json:"goal"`
-	Todos []Todo `json:"todos"`
+	Goal  Goal        `json:"goal"`
+	Todos []Todo      `json:"todos"`
+	Guide []GuideStep `json:"guide"`
+	Back  *Comeback   `json:"back,omitempty"`
 }
 
-// Agenda 按 now 时刻的存档算出目标与待办，不改存档。调用方先把存档结算到 now(Sect.Tick、TickHero、RollSaveDaily)。
+// comebackShown 是回来以后多久之内还在问道页顶上说明补算了多少。
+const comebackShown = 30 * 60
+
+// Agenda 按 now 时刻的存档算出目标与待办，不改存档。调用方先把存档结算到 now(Sect.Tick、TickHero、RollSaveDaily)，
+// 离开超过离线结算上限的那一次结算会记下 Sect.Back。
 func (sv *Save) Agenda(now int64, day string) Agenda {
-	return Agenda{Goal: sv.heroGoal(), Todos: sv.todos(now, day)}
+	agenda := Agenda{Goal: sv.heroGoal(), Todos: sv.todos(now, day), Guide: sv.guide()}
+	if s := sv.Sect; s != nil && s.Back != nil && now-s.Back.At <= comebackShown {
+		agenda.Back = s.Back
+	}
+	return agenda
+}
+
+// GuideStep 是入门指引的一步：Done 表示存档里已经做到了，Part、Tab 是去哪里做。Key：hero 创建主角、win 历练里打赢
+// 一场、build 升级一座宗门建筑、dispatch 派弟子出去一趟、garden 在灵田种下一茬、break 主角突破筑基、abyss 走完一轮
+// 九幽秘境。
+type GuideStep struct {
+	Key  string `json:"key"`
+	Done bool   `json:"done"`
+	Part string `json:"part"`
+	Tab  string `json:"tab,omitempty"`
+}
+
+// guide 是入门指引：七步串起主角、历练、宗门经营与秘境，每一步都按存档里已经做到的事打勾，刷新以后不会从头再来。
+func (sv *Save) guide() []GuideStep {
+	s, h := sv.Sect, sv.Hero
+	built, dispatched, planted := false, false, false
+	if s != nil {
+		for building, level := range s.Buildings {
+			built = built || level > startBuildings[building]
+		}
+		dispatched = s.Stats.Missions > 0 || len(s.Missions) > 0
+		planted = len(s.Garden.Harvests) > 0 || s.plotsWhere(func(p *Plot) bool { return p.Crop != "" }) > 0
+	}
+	return []GuideStep{
+		{Key: "hero", Done: h != nil, Part: PartJourney},
+		{Key: "win", Done: h != nil && h.Stats.Wins > 0, Part: PartJourney, Tab: "map"},
+		{Key: "build", Done: built, Part: PartSect, Tab: "overview"},
+		{Key: "dispatch", Done: dispatched, Part: PartSect, Tab: "missions"},
+		{Key: "garden", Done: planted, Part: PartSect, Tab: "garden"},
+		{Key: "break", Done: h != nil && h.Realm >= 1, Part: PartJourney},
+		{Key: "abyss", Done: sv.Abyss.Runs > 0, Part: PartAbyss},
+	}
 }
 
 // heroGoal 是主角的主目标：先走主线上还没走过的节点(采集、支线不算)；本章都走完了就修到圆满、突破进下一章；五章走完登问心阶。

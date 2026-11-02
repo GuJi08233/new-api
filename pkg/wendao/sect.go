@@ -2,6 +2,7 @@ package wendao
 
 import (
 	"errors"
+	"maps"
 	"math"
 	"slices"
 )
@@ -133,7 +134,20 @@ type Sect struct {
 	// Daily 是今天的功课；hasHero 是最近一次 RollDaily 时存档里有没有主角(换功课时用，不存档)。
 	Daily   Daily `json:"daily"`
 	hasHero bool
+	// Back 是最近一次离开超过离线结算上限以后回来的那一次，问道页顶上据此说明补算了多少(见 Agenda)。
+	Back *Comeback `json:"back,omitempty"`
 }
+
+// Comeback 是离开很久以后回来的一次结算：Since 是离开前最后一次结算的时间，At 是回来结算的时间；离线最多补算
+// OfflineCap，Res 是这一次补算的宗门产出。主角的闭关修为也同样只补算 OfflineCap。
+type Comeback struct {
+	Since int64 `json:"since"`
+	At    int64 `json:"at"`
+	Res   Cost  `json:"res"`
+}
+
+// startBuildings 是开宗立派时的建筑：主殿、灵田、聚灵阵各一级。
+var startBuildings = map[string]int{BuildingHall: 1, BuildingField: 1, BuildingArray: 1}
 
 // NewSect 开宗立派：主殿、灵田、聚灵阵各一级，两名弟子(上品与良品资质)，一些灵石灵草与两颗回春丹。第一件奇遇半小时后出现。
 func NewSect(seed uint64, now int64) *Sect {
@@ -142,7 +156,7 @@ func NewSect(seed uint64, now int64) *Sect {
 		Rng:         Rng{S: seed},
 		Created:     now,
 		Last:        now,
-		Buildings:   map[string]int{BuildingHall: 1, BuildingField: 1, BuildingArray: 1},
+		Buildings:   maps.Clone(startBuildings),
 		Res:         Cost{Stone: 200, Herb: 100},
 		Pills:       map[string]int{PillHeal: 2},
 		NextId:      1,
@@ -309,6 +323,7 @@ func (s *Sect) Tick(now int64) []Ev {
 	from := now - elapsed
 	hours := float64(elapsed) / 3600
 	rates := s.Rates(from)
+	before := s.Res
 	gain := func(stock *int, frac *float64, rate float64) {
 		*frac += rate * hours
 		// 留一点余量：每秒结算一次累加几千次，浮点误差会让刚好满一个的零头差一丝。
@@ -319,6 +334,10 @@ func (s *Sect) Tick(now int64) []Ev {
 	gain(&s.Res.Stone, &s.Carry.Stone, rates.Stone)
 	gain(&s.Res.Herb, &s.Carry.Herb, rates.Herb)
 	gain(&s.Res.Ore, &s.Carry.Ore, rates.Ore)
+	if now-s.Last > OfflineCap {
+		s.Back = &Comeback{Since: s.Last, At: now,
+			Res: Cost{Stone: s.Res.Stone - before.Stone, Herb: s.Res.Herb - before.Herb, Ore: s.Res.Ore - before.Ore}}
+	}
 
 	var evs []Ev
 	for _, d := range s.Disciples {

@@ -116,3 +116,58 @@ func TestAgendaTodosListWhatCanBeDoneNow(t *testing.T) {
 	assert.Equal(t, []string{"daily", "disciple_break", "garden_empty"}, todoKeys(save.Agenda(now, "d1").Todos),
 		"the journey waits until the battle is over")
 }
+
+// 离开超过离线结算的上限再回来：这一次结算记下离开前的时间与补算的宗门产出，回来半小时内问道页顶上说明；离开没那么久
+// 不记，回来以后再结算也不覆盖。
+func TestComebackAfterALongAbsence(t *testing.T) {
+	save, err := ParseSave("")
+	require.NoError(t, err)
+	save.Sect = NewSect(1, 0)
+	s := save.Sect
+
+	s.Tick(6 * hour)
+	assert.Nil(t, s.Back, "six hours away is settled in full")
+
+	back := 6*hour + 30*hour
+	before := s.Res
+	s.Tick(back)
+	require.NotNil(t, s.Back)
+	assert.Equal(t, int64(6*hour), s.Back.Since)
+	assert.Equal(t, back, s.Back.At)
+	assert.Equal(t, Cost{Stone: s.Res.Stone - before.Stone, Herb: s.Res.Herb - before.Herb, Ore: s.Res.Ore - before.Ore}, s.Back.Res)
+	assert.Positive(t, s.Back.Res.Stone)
+
+	s.Tick(back + 10*60)
+	assert.Equal(t, int64(6*hour), s.Back.Since, "a later settlement keeps the comeback")
+	assert.Equal(t, s.Back, save.Agenda(back+10*60, "d1").Back)
+	assert.Nil(t, save.Agenda(back+comebackShown+1, "d1").Back, "the note goes away after half an hour")
+}
+
+// 入门指引按存档里已经做到的事打勾：创建主角、打赢一场、升级建筑、派遣、种灵田、突破筑基、走完一轮秘境。
+func TestGuideFollowsProgress(t *testing.T) {
+	done := func(save *Save) []string {
+		keys := []string{}
+		for _, step := range save.Agenda(0, "d1").Guide {
+			if step.Done {
+				keys = append(keys, step.Key)
+			}
+		}
+		return keys
+	}
+	save, err := ParseSave("")
+	require.NoError(t, err)
+	save.Sect = NewSect(1, 0)
+	assert.Len(t, save.Agenda(0, "d1").Guide, 7)
+	assert.Empty(t, done(save), "a new sect has done nothing yet")
+
+	save = newHeroSave(t, dungeon.ClassWarrior)
+	s, h := save.Sect, save.Hero
+	assert.Equal(t, []string{"hero"}, done(save))
+	h.Stats.Wins = 1
+	s.Buildings[BuildingField] = 2
+	require.NoError(t, s.dispatch("patrol", []int{s.Disciples[0].Id}, 0))
+	s.Garden.Plots[0].Crop = Crops[0].Key
+	h.Realm = 1
+	save.Abyss.Runs = 1
+	assert.Equal(t, []string{"hero", "win", "build", "dispatch", "garden", "break", "abyss"}, done(save))
+}
