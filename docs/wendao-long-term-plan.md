@@ -181,7 +181,7 @@
 - 后端清单优先由规则数据导出，避免只用脆弱正则理解整段 Go；前端清单读取真实文本函数或稳定导出，不执行任意用户脚本。
 - 验收：当前 55 个节点全部可对应；重复 ID、缺失依赖、未知敌人或缺文案会报出具体位置并使检查失败；新增章节有新增样本。允许刻意使用通用画像时必须显式声明。
 - 将稳定检查接入现有 CI；翻译缺失和已知历史问题分开记录，不能以全量改写所有语言文件作为单个任务的附带工作。
-- 进度（2026-11-03）：已交付第一版。`pkg/wendao` 的 `TestContentManifestIsCurrent` 从规则导出内容清单 `pkg/wendao/testdata/content.json`：节点的标识、章节、种类、前置、敌人、法宝、丹符、机缘，问心阶的敌人，以及天象、洞府屋子、祭炼路数、丹方、灵兽、饵料、丹药、灵药、灵种、丹符配方的标识。清单只含前端要对上的部分，不含数值，调数值不用重新生成；规则改了而清单没跟上时测试失败，并提示用 `UPDATE_CONTENT=1` 重新生成。前端 `web/classic/src/pages/Games/wendao/content.test.js`（在 `web/classic` 下 `bun test src/pages/Games/wendao`）读这份清单，核对每个节点的名字、坐标、对白或说明、说话人，同章节点在地图上是否叠在一起，敌人的名字与画像，人物立绘，以及机缘、法宝、丹符、洞府等文案；缺了就列出全部具体位置。画像靠 `art/EnemyArt.jsx` 的 `hasEnemyArt`、`art/Portrait.jsx` 的 `hasPortrait` 判断。后端自身的一致性（重复标识、前置顺序、敌人能开战、法宝丹符认识、机缘与首领）仍由 `TestJourneyContentIsWellFormed` 负责。仓库目前没有跑测试的 CI 工作流，这两条检查还没有接进 CI。
+- 进度（2026-11-03）：已交付第一版。`pkg/wendao` 的 `TestContentManifestIsCurrent` 从规则导出内容清单 `pkg/wendao/testdata/content.json`：节点的标识、章节、种类、前置、敌人、法宝、丹符、机缘，问心阶的敌人，以及天象、洞府屋子、祭炼路数、丹方、灵兽、饵料、丹药、灵药、灵种、丹符配方的标识。清单只含前端要对上的部分，不含数值，调数值不用重新生成；规则改了而清单没跟上时测试失败，并提示用 `UPDATE_CONTENT=1` 重新生成。前端 `web/classic/src/pages/Games/wendao/content.test.js`（在 `web/classic` 下 `bun test src/pages/Games/wendao`）读这份清单，核对每个节点的名字、坐标、对白或说明、说话人，同章节点在地图上是否叠在一起，敌人的名字与画像，人物立绘，以及机缘、法宝、丹符、洞府等文案；缺了就列出全部具体位置。画像靠 `art/EnemyArt.jsx` 的 `hasEnemyArt`、`art/Portrait.jsx` 的 `hasPortrait` 判断。后端自身的一致性（重复标识、前置顺序、敌人能开战、法宝丹符认识、机缘与首领）仍由 `TestJourneyContentIsWellFormed` 负责。两条检查都已接进 CI：`.github/workflows/game-check.yml`（Game Checks）在推送 main 与 PR 改到规则包、游戏接口或前端时跑 `go test ./pkg/...`、问道相关的接口测试与 web/classic 的全部 `bun test`。
 
 **A5｜建立奖励与经济核对表｜2–3 人日｜后端主责，策划验收**
 

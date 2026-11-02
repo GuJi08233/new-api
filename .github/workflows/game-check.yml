@@ -1,0 +1,67 @@
+name: Game Checks
+
+# 游戏的规则包测试与前端测试。问道的内容检查也在里面：pkg/wendao 核对内容清单(testdata/content.json)跟规则一致，
+# 前端 Games/wendao/content.test.js 按这份清单核对节点文案、地图坐标、说话人、画像、抉择与分支。
+permissions:
+  contents: read
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'pkg/**'
+      - 'controller/game_*.go'
+      - 'web/classic/src/**'
+      - 'web/classic/package.json'
+      - 'web/classic/bun.lock'
+      - 'go.mod'
+      - 'go.sum'
+      - '.github/workflows/game-check.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'pkg/**'
+      - 'controller/game_*.go'
+      - 'web/classic/src/**'
+      - 'web/classic/package.json'
+      - 'web/classic/bun.lock'
+      - 'go.mod'
+      - 'go.sum'
+      - '.github/workflows/game-check.yml'
+
+concurrency:
+  group: game-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    name: Go rule packages
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: '1.27.3'
+      - name: Test rule packages
+        run: go test ./pkg/...
+      - name: Test Wendao endpoints
+        # 问道(历练、宗门、秘境)的接口测试，各自用临时目录里的 SQLite。
+        run: go test ./controller -run 'Test(HeroJourneyThroughTheApi|Wendao|Dungeon|Sect|Garden)'
+
+  web:
+    name: Frontend tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: '1.4.4'
+      - name: Install and test
+        working-directory: web/classic
+        run: |
+          bun install --frozen-lockfile
+          bun test
