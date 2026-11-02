@@ -29,7 +29,7 @@ import {
   Wheat,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { gameGet } from '../common/api';
+import { gameGet, gamePostOnce } from '../common/api';
 import CropArt from '../wendao/art/CropArt';
 import {
   Bar,
@@ -258,11 +258,11 @@ const Neighbors = ({ now, busy, post, onEvents, onSync }) => {
   };
 
   const onVisit = async (index, kind) => {
-    const data = await post('/api/game/wendao/sect/garden/visit', {
-      user_id: visiting.user_id,
-      index,
-      kind,
-    });
+    const data = await post(
+      '/api/game/wendao/sect/garden/visit',
+      { user_id: visiting.user_id, index, kind },
+      gamePostOnce,
+    );
     if (!data) return;
     setVisiting((previous) => ({ ...previous, plots: data.plots }));
     setLeft({ water: data.water_left, pick: data.pick_left });

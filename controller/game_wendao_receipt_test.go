@@ -63,3 +63,48 @@ func TestWendaoRetriedRequestsAreDoneOnce(t *testing.T) {
 	twice := player.ok(http.MethodPost, shop, plain)
 	assert.Equal(t, pills(once).(float64)+1, pills(twice), "without a request id every purchase goes through")
 }
+
+// 万宝阁挂单、仙盟捐献与串门浇灌重发同一次请求时也只做一次：不会多押一份货多挂一单、多捐一份，也不会因为「这块地浇过了」
+// 报错，而是交回现在的样子。
+func TestWendaoRetriedTradesAndVisitsAreDoneOnce(t *testing.T) {
+	require.NoError(t, i18n.Init())
+	env := newGameTestEnv(t, sectSettings())
+	seller := env.player(0, gameTestIpA)
+	member := env.player(0, gameTestIpB)
+	for _, p := range []*gamePlayer{seller, member} {
+		sectView(t, p, map[string]any{"action": "sync"})
+		editSect(t, p, func(s *wendao.Sect) {
+			s.Buildings[wendao.BuildingHall] = 2
+			s.Res = wendao.Cost{Stone: 5000, Herb: 500, Ore: 100, Rep: 100}
+			s.Pills[wendao.PillHeal] = 5
+		})
+	}
+
+	market := "/api/game/wendao/sect/market/list"
+	list := map[string]any{"goods": "pill_heal", "count": 2, "price": 100, "request_id": "list-1"}
+	listed := seller.ok(http.MethodPost, market, list)
+	relisted := seller.ok(http.MethodPost, market, list)
+	assert.Equal(t, true, relisted["replayed"])
+	assert.Len(t, relisted["mine"], 1, "one listing, not two")
+	assert.Equal(t, listed["sect"].(map[string]any)["pills"], relisted["sect"].(map[string]any)["pills"])
+
+	alliance := "/api/game/wendao/sect/alliance"
+	created := seller.ok(http.MethodPost, alliance+"/create", map[string]any{"name": "青云盟"})
+	member.ok(http.MethodPost, alliance+"/join", map[string]any{"id": created["alliance"].(map[string]any)["id"]})
+	donate := map[string]any{"stone": 100, "ore": 10, "request_id": "donate-1"}
+	donated := member.ok(http.MethodPost, alliance+"/donate", donate)
+	redonated := member.ok(http.MethodPost, alliance+"/donate", donate)
+	assert.Equal(t, true, redonated["replayed"])
+	funds := func(view map[string]any) any { return view["alliance"].(map[string]any)["funds"] }
+	assert.Equal(t, funds(donated), funds(redonated), "the donation is counted once")
+	message := member.fails(http.MethodPost, alliance+"/donate", map[string]any{"stone": 200, "request_id": "donate-1"})
+	assert.Equal(t, i18n.Translate(i18n.LangEn, i18n.MsgGameWendaoRequestReused), message)
+
+	sectView(t, seller, map[string]any{"action": "plant", "index": 0, "crop": "qingcao"})
+	visit := map[string]any{"user_id": seller.user.Id, "index": 0, "kind": "water", "request_id": "water-1"}
+	watered := member.ok(http.MethodPost, "/api/game/wendao/sect/garden/visit", visit)
+	rewatered := member.ok(http.MethodPost, "/api/game/wendao/sect/garden/visit", visit)
+	assert.Equal(t, true, rewatered["replayed"])
+	assert.Equal(t, watered["water_left"], rewatered["water_left"])
+	assert.Equal(t, watered["plots"], rewatered["plots"])
+}

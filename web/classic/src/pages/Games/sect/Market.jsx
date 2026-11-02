@@ -22,7 +22,7 @@ import { Button, InputNumber, Select, Tag } from '@douyinfe/semi-ui';
 import { Gift, History, Package, Store } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { RuleList } from '../common/SideBox';
-import { gameGet } from '../common/api';
+import { gameGet, gamePostOnce } from '../common/api';
 import { playSound } from '../common/sound';
 import { formatAmount, formatLeft, goodsName, useSectText } from './parts';
 
@@ -187,8 +187,13 @@ const Market = ({ sect, busy, post, onSect }) => {
     );
   }, [t]);
 
+  // 挂单带请求编号，网络断了重发不会多挂一单；撤单与买单本来就按单子的状态挡住了重复。
   const act = async (action, body) => {
-    const data = await post(`/api/game/wendao/sect/market/${action}`, body);
+    const data = await post(
+      `/api/game/wendao/sect/market/${action}`,
+      body,
+      action === 'list' ? gamePostOnce : undefined,
+    );
     if (!data) {
       load();
       return;

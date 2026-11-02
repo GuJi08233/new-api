@@ -113,12 +113,15 @@ func getSectMarket(c *gin.Context) {
 }
 
 // respondSectMarket 在一次万宝阁操作之后回应第一页的万宝阁与自己最新的宗门。
-func respondSectMarket(c *gin.Context) {
+func respondSectMarket(c *gin.Context, replayed bool) {
 	userId := c.GetInt("id")
 	view, err := sectMarketView(userId, "", 0)
 	if err != nil {
 		common.ApiError(c, err)
 		return
+	}
+	if replayed {
+		view["replayed"] = true
 	}
 	data, err := model.GetGameSave(userId, wendao.SaveKey)
 	if err != nil {
@@ -147,15 +150,23 @@ func listSectMarket(c *gin.Context) {
 		return
 	}
 	var req struct {
-		Goods  string `json:"goods"`
-		Count  int    `json:"count"`
-		Price  int64  `json:"price"`
-		Target int    `json:"target"`
+		Goods     string `json:"goods"`
+		Count     int    `json:"count"`
+		Price     int64  `json:"price"`
+		Target    int    `json:"target"`
+		RequestId string `json:"request_id,omitempty"`
 	}
 	userId := c.GetInt("id")
 	if decodeGameRequest(c, &req) != nil || req.Target < 0 || req.Target == userId ||
 		!wendao.ValidListing(req.Goods, req.Count, req.Price, req.Target > 0) {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
+	requestId := req.RequestId
+	req.RequestId = ""
+	sum, err := wendao.RequestSum(req)
+	if err != nil {
+		common.ApiError(c, err)
 		return
 	}
 	if req.Target > 0 {
@@ -172,8 +183,12 @@ func listSectMarket(c *gin.Context) {
 	now := common.GetTimestamp()
 	listing := &model.WendaoListing{SellerId: userId, TargetId: req.Target, Goods: req.Goods, Count: req.Count, Price: req.Price,
 		UnitPrice: req.Price * 1000 / int64(req.Count), CreatedAt: now, ExpiresAt: now + wendao.MarketListingSeconds}
-	err := model.CreateWendaoListing(listing, wendao.MarketMaxListings, func(data string) (string, error) {
+	// 收据与挂单在同一个事务里：网络断了重发同一单时不会再押一份货、多挂一单。
+	err = model.CreateWendaoListing(listing, wendao.MarketMaxListings, func(data string) (string, error) {
 		return wendao.UpdateSave(data, func(save *wendao.Save) error {
+			if err := save.Admit(requestId, sum, now); err != nil {
+				return err
+			}
 			s, err := tradingSect(save, now)
 			if err != nil {
 				return err
@@ -181,11 +196,12 @@ func listSectMarket(c *gin.Context) {
 			return s.TakeGoods(req.Goods, req.Count)
 		})
 	})
-	if err != nil {
+	replayed := errors.Is(err, wendao.ErrReplayed)
+	if err != nil && !replayed {
 		respondMarketError(c, err)
 		return
 	}
-	respondSectMarket(c)
+	respondSectMarket(c, replayed)
 }
 
 // cancelSectMarket 撤下自己的一单，过期的单也这样取回；货物放回宗门。
@@ -212,7 +228,7 @@ func cancelSectMarket(c *gin.Context) {
 		respondMarketError(c, err)
 		return
 	}
-	respondSectMarket(c)
+	respondSectMarket(c, false)
 }
 
 // buySectMarket 买下一单：买家付灵石拿货，卖家收灵石(扣掉抽成)，两边的大事记都记一笔。
@@ -263,5 +279,5 @@ func buySectMarket(c *gin.Context) {
 		respondMarketError(c, err)
 		return
 	}
-	respondSectMarket(c)
+	respondSectMarket(c, false)
 }

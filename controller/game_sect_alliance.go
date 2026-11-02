@@ -293,22 +293,41 @@ func donateSectAlliance(c *gin.Context) {
 	if !requireGameEnabled(c, wendaoGame) {
 		return
 	}
-	var req wendao.Cost
-	if decodeGameRequest(c, &req) != nil || wendao.DonationFunds(req) <= 0 {
+	var req struct {
+		wendao.Cost
+		RequestId string `json:"request_id,omitempty"`
+	}
+	if decodeGameRequest(c, &req) != nil || wendao.DonationFunds(req.Cost) <= 0 {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
+	sum, err := wendao.RequestSum(req.Cost)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	now := common.GetTimestamp()
-	_, err := model.DonateSectAlliance(c.GetInt("id"), func(data string) (string, int64, error) {
+	// 收据与捐献在同一个事务里：网络断了重发同一次捐献时不会再捐一份。
+	_, err = model.DonateSectAlliance(c.GetInt("id"), func(data string) (string, int64, error) {
 		var funds int64
-		updated, err := updateSectSave(data, func(s *wendao.Sect) error {
-			s.Tick(now)
+		updated, err := wendao.UpdateSave(data, func(save *wendao.Save) error {
+			if err := save.Admit(req.RequestId, sum, now); err != nil {
+				return err
+			}
+			if save.Sect == nil {
+				return wendao.ErrUnavailable
+			}
+			save.Sect.Tick(now)
 			var err error
-			funds, err = s.Donate(req)
+			funds, err = save.Sect.Donate(req.Cost)
 			return err
 		})
 		return updated, funds, err
 	})
+	if errors.Is(err, wendao.ErrReplayed) {
+		respondSectAlliance(c, gin.H{"replayed": true})
+		return
+	}
 	if err != nil {
 		respondAllianceError(c, err)
 		return

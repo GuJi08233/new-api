@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"errors"
 	"strconv"
 
 	"github.com/QuantumNous/new-api/common"
@@ -157,12 +158,20 @@ func visitGarden(c *gin.Context) {
 		return
 	}
 	var req struct {
-		UserId int    `json:"user_id"`
-		Index  int    `json:"index"`
-		Kind   string `json:"kind"`
+		UserId    int    `json:"user_id"`
+		Index     int    `json:"index"`
+		Kind      string `json:"kind"`
+		RequestId string `json:"request_id,omitempty"`
 	}
 	if decodeGameRequest(c, &req) != nil || (req.Kind != "water" && req.Kind != "pick") {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
+	requestId := req.RequestId
+	req.RequestId = ""
+	sum, err := wendao.RequestSum(req)
+	if err != nil {
+		common.ApiError(c, err)
 		return
 	}
 	owner, ok := gardenOwner(c, strconv.Itoa(req.UserId))
@@ -187,6 +196,10 @@ func visitGarden(c *gin.Context) {
 		}
 		visitorSave, err := wendao.ParseSave(visitorData)
 		if err != nil {
+			return "", "", err
+		}
+		// 收据记在来访者自己的存档里，和道友的灵田在同一个事务里：重发同一次浇灌或摘取不会再做一遍。
+		if err := visitorSave.Admit(requestId, sum, now); err != nil {
 			return "", "", err
 		}
 		if ownerSave.Sect == nil || visitorSave.Sect == nil {
@@ -216,6 +229,26 @@ func visitGarden(c *gin.Context) {
 		visitorEncoded, err := visitorSave.Encode()
 		return ownerEncoded, visitorEncoded, err
 	})
+	if errors.Is(err, wendao.ErrReplayed) {
+		// 上一次已经做完了：交回道友灵田与自己今天剩下次数的现在的样子。
+		ownerSave, err := loadWendaoSave(owner)
+		if err != nil {
+			respondSectError(c, err)
+			return
+		}
+		visitorSave, err := loadWendaoSave(visitor)
+		if err == nil && (ownerSave.Sect == nil || visitorSave.Sect == nil) {
+			err = wendao.ErrUnavailable
+		}
+		if err != nil {
+			respondSectError(c, err)
+			return
+		}
+		water, pick := visitorSave.Sect.GardenDayLeft(day)
+		common.ApiSuccess(c, gin.H{"plots": ownerSave.Sect.VisitView(visitor, now), "events": []wendao.Ev{}, "water_left": water,
+			"pick_left": pick, "now": now, "replayed": true})
+		return
+	}
 	if err != nil {
 		respondSectError(c, err)
 		return

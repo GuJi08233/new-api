@@ -22,7 +22,7 @@ import { Button, Input, InputNumber, Modal } from '@douyinfe/semi-ui';
 import { Crown, Flame, Gift, Users } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { RuleList } from '../common/SideBox';
-import { gameGet } from '../common/api';
+import { gameGet, gamePostOnce } from '../common/api';
 import { playSound } from '../common/sound';
 import { celebrate } from '../common/effects';
 import { Bar, CostChips, formatAmount, useSectText } from './parts';
@@ -352,8 +352,13 @@ const Alliance = ({ sect, now, busy, post, onSect, onEvents }) => {
     load();
   }, [load]);
 
+  // 捐献带请求编号，网络断了重发不会多捐一份。
   const act = async (action, body = {}) => {
-    const data = await post(`/api/game/wendao/sect/alliance/${action}`, body);
+    const data = await post(
+      `/api/game/wendao/sect/alliance/${action}`,
+      body,
+      action === 'donate' ? gamePostOnce : undefined,
+    );
     if (!data) return false;
     setView(data);
     if (data.sect) onSect(data.sect);
