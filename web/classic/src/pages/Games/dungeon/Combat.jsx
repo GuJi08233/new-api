@@ -22,6 +22,7 @@ import { Button, Tooltip } from '@douyinfe/semi-ui';
 import {
   HeartPulse,
   Hourglass,
+  Keyboard,
   Layers,
   Shield,
   Swords,
@@ -32,6 +33,7 @@ import {
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Floaters, useFloaters } from '../common/effects';
+import { readGameStorage, writeGameStorage } from '../common/gameStorage';
 import { playSound } from '../common/sound';
 import EnemyArt from '../wendao/art/EnemyArt';
 import {
@@ -46,6 +48,14 @@ import { getEnemyNames } from './text';
 // 一次操作里的事件逐个播放的间隔(毫秒)；敌人出招之间多停一会儿，看得清是谁打的。
 const EVENT_GAP = 110;
 const ACT_GAP = 420;
+
+// 键盘快捷键只在有鼠标的桌面上有：数字键出第几张牌(选目标时选第几个敌人)、E 结束回合、Esc 取消。可以关掉，记在浏览器里。
+const SHORTCUTS_KEY = 'dungeon-shortcuts';
+const hasKeyboard = () =>
+  typeof window !== 'undefined' &&
+  !!window.matchMedia?.('(hover: hover) and (pointer: fine)').matches;
+// 还有能打出的牌时，E 要连按两次才结束回合，两次之间不超过这么久(毫秒)。
+const END_CONFIRM_MS = 2500;
 
 // 敌人公布的下一招：攻击带伤害数字，其余用图标表示，悬停看说明。
 const IntentBadge = ({ intent }) => {
@@ -95,6 +105,28 @@ const Combat = ({ run, busy, send, events, targeting, setTargeting }) => {
   const [pulses, setPulses] = useState({});
   const [pile, setPile] = useState(null);
   const timers = useRef([]);
+  const [keyboard] = useState(hasKeyboard);
+  const [shortcuts, setShortcuts] = useState(
+    () => readGameStorage(SHORTCUTS_KEY).value !== false,
+  );
+  // endArmed：按过一次 E、还有牌能出，等第二次确认。
+  const [endArmed, setEndArmed] = useState(false);
+  const endTimer = useRef(null);
+  useEffect(() => () => clearTimeout(endTimer.current), []);
+  // 局面一变(出了牌、敌人行动过)就不再等第二次 E。
+  useEffect(() => {
+    clearTimeout(endTimer.current);
+    setEndArmed(false);
+  }, [combat]);
+  // keyHandler 每次渲染换成拿着最新局面的那一个，键盘监听只在开关变化时挂一次。
+  const keyHandler = useRef(null);
+  const keysOn = keyboard && shortcuts;
+  useEffect(() => {
+    if (!keysOn) return undefined;
+    const onKey = (event) => keyHandler.current?.(event);
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [keysOn]);
 
   useEffect(
     () => () => {
@@ -222,7 +254,10 @@ const Combat = ({ run, busy, send, events, targeting, setTargeting }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [events?.key]);
 
-  if (!combat) return null;
+  if (!combat) {
+    keyHandler.current = null;
+    return null;
+  }
   const alive = combat.enemies
     .map((enemy, index) => (!enemy.dead ? index : -1))
     .filter((index) => index >= 0);
@@ -257,6 +292,69 @@ const Combat = ({ run, busy, send, events, targeting, setTargeting }) => {
     send(fields.action, fields);
   };
 
+  const playable = combat.hand.some(
+    (card) => card.cost >= 0 && card.cost <= combat.energy,
+  );
+  const endTurn = () => {
+    clearTimeout(endTimer.current);
+    setEndArmed(false);
+    setTargeting(null);
+    send('end');
+  };
+  // 敌人这回合公开的攻击合计(公布的伤害已经算上双方的力量、虚弱与易伤)；护体与身法没扣，敌人出手前被真火烧死也不管。
+  const incoming = combat.enemies.reduce(
+    (sum, enemy) =>
+      !enemy.dead && enemy.intent?.dmg > 0
+        ? sum + enemy.intent.dmg * Math.max(enemy.intent.times, 1)
+        : sum,
+    0,
+  );
+
+  // 快捷键按键位认(event.code)，换了键盘布局也是那几个键；按住不放的连发、输入法组字、输入框、弹窗打开着、
+  // 请求还没回来时不响应。
+  keyHandler.current = (event) => {
+    if (event.repeat || event.isComposing || busy) return;
+    if (event.altKey || event.ctrlKey || event.metaKey) return;
+    if (
+      event.target?.closest?.(
+        'input, textarea, select, [contenteditable="true"]',
+      ) ||
+      document.querySelector('.semi-modal-wrap')
+    ) {
+      return;
+    }
+    const digit = /^(Digit|Numpad)[0-9]$/.test(event.code)
+      ? (Number(event.code.slice(-1)) + 9) % 10
+      : -1;
+    if (digit >= 0) {
+      event.preventDefault();
+      if (targeting) {
+        if (combat.enemies[digit] && !combat.enemies[digit].dead) {
+          pickEnemy(digit);
+        }
+      } else if (combat.hand[digit]) {
+        playCard(digit);
+      }
+      return;
+    }
+    if (event.key === 'Escape') {
+      setTargeting(null);
+      setEndArmed(false);
+      return;
+    }
+    if (event.code === 'KeyE') {
+      event.preventDefault();
+      if (!playable || endArmed) {
+        endTurn();
+        return;
+      }
+      playSound('tick');
+      setEndArmed(true);
+      clearTimeout(endTimer.current);
+      endTimer.current = setTimeout(() => setEndArmed(false), END_CONFIRM_MS);
+    }
+  };
+
   const piles = {
     draw: {
       title: t('抽牌堆'),
@@ -285,6 +383,9 @@ const Combat = ({ run, busy, send, events, targeting, setTargeting }) => {
             aria-label={enemyNames[enemy.id] || enemy.id}
           >
             {!enemy.dead && <IntentBadge intent={enemy.intent} />}
+            {keysOn && targeting && !enemy.dead && index < 10 && (
+              <kbd className='dg-hotkey'>{(index + 1) % 10}</kbd>
+            )}
             <span className={`dg-enemy-art is-${enemy.id}`} aria-hidden>
               <EnemyArt id={enemy.id} />
             </span>
@@ -307,16 +408,41 @@ const Combat = ({ run, busy, send, events, targeting, setTargeting }) => {
           <HpBar hp={run.hp} max={run.max_hp} block={combat.block} />
           <StatusList st={combat.st} />
         </div>
-        <span className='dg-turn'>
-          {t('第 {{turn}} 回合', { turn: combat.turn })}
-        </span>
+        <div className='dg-player-side'>
+          <span className='dg-turn'>
+            {t('第 {{turn}} 回合', { turn: combat.turn })}
+          </span>
+          {incoming > 0 && (
+            <Tooltip
+              content={t('敌人这回合公开的攻击合计，护体与身法还没算进去')}
+            >
+              <span className='dg-incoming'>
+                <Swords size={13} />
+                {t('来袭 {{n}}', { n: incoming })}
+              </span>
+            </Tooltip>
+          )}
+        </div>
       </div>
       <p className='dg-help' aria-live='polite'>
-        {targeting
-          ? t('选择一个敌人作为目标，再点一次这张牌取消')
-          : t('点击手牌打出；需要目标的牌再点选一个敌人')}
+        {endArmed
+          ? t('还有能打出的功法，再按一次 E 结束回合')
+          : targeting
+            ? keysOn
+              ? t(
+                  '选择一个敌人作为目标(数字键选第几个)，再点一次这张牌或按 Esc 取消',
+                )
+              : t('选择一个敌人作为目标，再点一次这张牌取消')
+            : keysOn
+              ? t(
+                  '点击手牌或按数字键打出；需要目标的牌再选一个敌人；E 结束回合',
+                )
+              : t('点击手牌打出；需要目标的牌再点选一个敌人')}
       </p>
-      <div className='dg-hand' style={{ '--hand': combat.hand.length }}>
+      <div
+        className={`dg-hand${targeting ? ' is-targeting' : ''}`}
+        style={{ '--hand': combat.hand.length }}
+      >
         {combat.hand.map((card, index) => (
           <CardFace
             key={`${events?.key || 0}-${index}-${card.id}`}
@@ -326,6 +452,7 @@ const Combat = ({ run, busy, send, events, targeting, setTargeting }) => {
             selected={targeting?.card === index}
             dim={card.cost < 0 || card.cost > combat.energy}
             disabled={busy}
+            hotkey={keysOn && index < 10 ? (index + 1) % 10 : undefined}
             onClick={() => playCard(index)}
           />
         ))}
@@ -348,17 +475,29 @@ const Combat = ({ run, busy, send, events, targeting, setTargeting }) => {
             {t('消耗堆 {{n}}', { n: combat.exhaust.length })}
           </Button>
         )}
+        {keyboard && (
+          <Button
+            icon={<Keyboard size={15} />}
+            theme={shortcuts ? 'light' : 'borderless'}
+            aria-pressed={shortcuts}
+            onClick={() => {
+              writeGameStorage(SHORTCUTS_KEY, !shortcuts);
+              setShortcuts(!shortcuts);
+              setEndArmed(false);
+            }}
+          >
+            {shortcuts ? t('快捷键：开') : t('快捷键：关')}
+          </Button>
+        )}
         <Button
           theme='solid'
           type='primary'
           className='dg-end-turn'
           loading={busy}
-          onClick={() => {
-            setTargeting(null);
-            send('end');
-          }}
+          onClick={endTurn}
         >
           {t('结束回合')}
+          {keysOn && <kbd className='dg-hotkey is-inline'>E</kbd>}
         </Button>
       </div>
       <Floaters items={floaters} />

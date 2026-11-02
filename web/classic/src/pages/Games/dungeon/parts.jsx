@@ -83,6 +83,7 @@ export const CardFace = ({
   className = '',
   style,
   onMouseEnter,
+  hotkey,
 }) => {
   const { t } = useTranslation();
   const text = useDungeonText();
@@ -101,6 +102,7 @@ export const CardFace = ({
     dim ? 'is-dim' : '',
     small ? 'is-small' : '',
     onClick ? 'is-clickable' : '',
+    hotkey !== undefined ? 'has-hotkey' : '',
     className,
   ];
   const lines = card.fx.map((fx, index) => (
@@ -127,6 +129,7 @@ export const CardFace = ({
       onFocus={onMouseEnter}
     >
       {card.cost >= 0 && <span className='dg-card-cost'>{card.cost}</span>}
+      {hotkey !== undefined && <kbd className='dg-hotkey'>{hotkey}</kbd>}
       <span className='dg-card-name'>{cardName(card, text)}</span>
       <span className='dg-card-type'>{typeNames[card.type]}</span>
       <span className='dg-card-text'>{lines}</span>

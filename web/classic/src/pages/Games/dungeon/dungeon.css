@@ -731,6 +731,61 @@
   color: var(--semi-color-text-2);
 }
 
+/* 回合数与下面敌人这回合公开的攻击合计，竖着放在玩家一行的右边，窄屏上也不挤血条。 */
+.dg-player-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+.dg-incoming {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 7px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 999px;
+  color: var(--semi-color-text-1);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* 快捷键的键位：牌的左下角(手牌叠着放，右边会被下一张盖住)、选目标时敌人的左上角、结束回合按钮里。 */
+.dg-hotkey {
+  position: absolute;
+  bottom: 6px;
+  left: 8px;
+  min-width: 16px;
+  padding: 0 4px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 4px;
+  background: var(--semi-color-bg-1);
+  color: var(--semi-color-text-2);
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 16px;
+  text-align: center;
+}
+.dg-card.has-hotkey {
+  padding-bottom: 30px;
+}
+/* 选目标时数字键选的是敌人，手牌上的键位先藏起来。 */
+.dg-hand.is-targeting .dg-hotkey {
+  visibility: hidden;
+}
+.dg-enemy .dg-hotkey {
+  top: 8px;
+  bottom: auto;
+}
+.dg-hotkey.is-inline {
+  position: static;
+  margin-left: 6px;
+  border-color: rgba(255, 255, 255, 0.5);
+  background: transparent;
+  color: inherit;
+}
+
 /* 手牌排成一行：牌多时互相叠住一部分，悬停或选中的牌浮到最上面。 */
 .dg-hand {
   display: flex;
