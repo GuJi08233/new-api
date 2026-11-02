@@ -3,6 +3,7 @@
 package wendao
 
 import (
+	"errors"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -13,12 +14,24 @@ import (
 // 一个板块的产出另一个板块马上能用，跨板块的改动在同一次改写里完成。
 const SaveKey = "wendao"
 
+// SaveSchema 是问道存档的格式版本。往存档里加了旧程序不认识的字段(旧程序读的时候会忽略，写回去就把它丢了)，或者改了
+// 已有字段的含义，就把它加一，并在 ParseSave 里写好从上一版迁移过来的做法。
+//
+// 程序读到比自己新的存档时拒绝(ErrNewerSave)：退回旧版本时宁可报错，也不把新版本的进度写丢。v2.16.23 及以前的程序
+// 还不认识这个字段，它们写的存档没有 schema(读出来是 0)，缺的字段由 normalize 补成空的。
+const SaveSchema = 1
+
+// ErrNewerSave 表示存档是更新版本的程序写的，这个程序不认识其中的一部分，不能读也不能改写。
+var ErrNewerSave = errors.New("wendao: the save was written by a newer version")
+
 // Save 是玩家在问道里的全部局外进度。Sect 在开宗立派之前为 nil；Hero 是历练的主角，创建之前为 nil；Abyss 是秘境的
 // 局外成长(魂晶、职业、天赋、试炼星级)。
 type Save struct {
-	Sect  *Sect         `json:"sect,omitempty"`
-	Hero  *Hero         `json:"hero,omitempty"`
-	Abyss *dungeon.Meta `json:"abyss"`
+	// Schema 是写这份存档的程序的 SaveSchema。
+	Schema int           `json:"schema"`
+	Sect   *Sect         `json:"sect,omitempty"`
+	Hero   *Hero         `json:"hero,omitempty"`
+	Abyss  *dungeon.Meta `json:"abyss"`
 	// AbyssLoot 记今天九幽秘境无尽模式已经往宗门带回几次材料。
 	AbyssLoot LootDay `json:"abyss_loot"`
 }
@@ -57,7 +70,7 @@ func (s *Save) GrantAbyssLoot(r *dungeon.Run, day string) Cost {
 	return loot
 }
 
-// ParseSave 读出存档，空字符串是一份新存档。
+// ParseSave 读出存档，空字符串是一份新存档；更新版本的程序写的存档返回 ErrNewerSave。
 func ParseSave(data string) (*Save, error) {
 	save := &Save{}
 	if strings.TrimSpace(data) != "" {
@@ -65,6 +78,11 @@ func ParseSave(data string) (*Save, error) {
 			return nil, err
 		}
 	}
+	if save.Schema > SaveSchema {
+		return nil, ErrNewerSave
+	}
+	// 第 0 版(还没有 schema 的存档)到第 1 版只多了这个字段，没有要迁移的内容。
+	save.Schema = SaveSchema
 	if save.Sect != nil {
 		save.Sect.normalize()
 	}
@@ -99,8 +117,9 @@ func (s *Save) TickHero(now int64) {
 	}
 }
 
-// Encode 把存档写成 JSON。
+// Encode 把存档写成 JSON，记上这个程序的格式版本。
 func (s *Save) Encode() (string, error) {
+	s.Schema = SaveSchema
 	data, err := common.Marshal(s)
 	return string(data), err
 }

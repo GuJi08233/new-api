@@ -107,6 +107,8 @@ func respondSectError(c *gin.Context, err error) {
 		common.ApiErrorI18n(c, i18n.MsgGameShopNoItem)
 	case errors.Is(err, wendao.ErrItemLimit):
 		common.ApiErrorI18n(c, i18n.MsgGameShopItemLimit)
+	case errors.Is(err, wendao.ErrNewerSave):
+		common.ApiErrorI18n(c, i18n.MsgGameWendaoNewerSave)
 	default:
 		common.ApiError(c, err)
 	}
@@ -278,7 +280,7 @@ func startSectDuel(c *gin.Context, game string, defender int, build func(seed ui
 	}
 	s, err := wendao.ParseSect(data)
 	if err != nil {
-		common.ApiError(c, err)
+		respondSectError(c, err)
 		return
 	}
 	if s == nil {
@@ -460,7 +462,7 @@ func buySectItem(c *gin.Context) {
 	}
 	s, err := wendao.ParseSect(data)
 	if err != nil {
-		common.ApiError(c, err)
+		respondSectError(c, err)
 		return
 	}
 	common.ApiSuccess(c, gin.H{"sect": s.View(now), "events": []wendao.Ev{}, "balance": balance})

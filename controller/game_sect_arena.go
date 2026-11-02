@@ -151,7 +151,7 @@ func setSectArenaDefense(c *gin.Context) {
 	}
 	s, err := wendao.ParseSect(data)
 	if err != nil {
-		common.ApiError(c, err)
+		respondSectError(c, err)
 		return
 	}
 	if s == nil {

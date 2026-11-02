@@ -83,7 +83,7 @@ func getHero(c *gin.Context) {
 	}
 	save, err := wendao.ParseSave(data)
 	if err != nil {
-		common.ApiError(c, err)
+		respondSectError(c, err)
 		return
 	}
 	now := common.GetTimestamp()

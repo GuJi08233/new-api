@@ -1,10 +1,12 @@
 package controller
 
 import (
+	"fmt"
 	"net/http"
 	"testing"
 
 	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/dungeon"
 	"github.com/QuantumNous/new-api/pkg/wendao"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -56,4 +58,24 @@ func TestHeroJourneyThroughTheApi(t *testing.T) {
 	setting.Wendao.Enabled = false
 	operation_setting.SetGameSettingForTest(setting)
 	player.fails(http.MethodPost, path+"/action", map[string]any{"action": "sync"})
+}
+
+// 退回旧版本时遇到更新版本写的存档：读的接口给出明确提示，改写的接口拒绝，存档原样不动。
+func TestNewerWendaoSaveIsNotOverwritten(t *testing.T) {
+	require.NoError(t, i18n.Init())
+	env := newGameTestEnv(t, sectSettings())
+	player := env.player(0, gameTestIpA)
+	newer := fmt.Sprintf(`{"schema":%d,"sect":{"res":{"stone":5}},"hero":{"class":"mage"},"future":{"x":1}}`, wendao.SaveSchema+1)
+	_, err := model.UpdateGameSave(player.user.Id, wendao.SaveKey, func(string) (string, error) { return newer, nil })
+	require.NoError(t, err)
+
+	refused := i18n.Translate(i18n.DefaultLang, i18n.MsgGameWendaoNewerSave)
+	assert.Equal(t, refused, player.fails(http.MethodGet, "/api/game/wendao", nil))
+	assert.Equal(t, refused, player.fails(http.MethodGet, "/api/game/wendao/hero", nil))
+	assert.Equal(t, refused, player.fails(http.MethodPost, "/api/game/wendao/hero/action", map[string]any{"action": "sync"}))
+	assert.Equal(t, refused, player.fails(http.MethodPost, "/api/game/wendao/sect/action", map[string]any{"action": "sync"}))
+
+	stored, err := model.GetGameSave(player.user.Id, wendao.SaveKey)
+	require.NoError(t, err)
+	assert.Equal(t, newer, stored)
 }

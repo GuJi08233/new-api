@@ -225,7 +225,7 @@ func startDungeonRun(c *gin.Context) {
 	userId := c.GetInt("id")
 	meta, err := loadDungeonMeta(userId)
 	if err != nil {
-		common.ApiError(c, err)
+		respondSectError(c, err)
 		return
 	}
 	var newRun func(seed uint64) (*dungeon.Run, error)
@@ -467,7 +467,7 @@ func unlockDungeon(c *gin.Context) {
 func useDungeonItem(c *gin.Context, game string, session *model.GameSession, state *dungeonState, item string) {
 	meta, err := loadDungeonMeta(session.UserId)
 	if err != nil {
-		common.ApiError(c, err)
+		respondSectError(c, err)
 		return
 	}
 	if meta.Items[item] < 1 {
@@ -523,7 +523,7 @@ func buyDungeonItem(c *gin.Context) {
 	}
 	save, err := wendao.ParseSave(data)
 	if err != nil {
-		common.ApiError(c, err)
+		respondSectError(c, err)
 		return
 	}
 	common.ApiSuccess(c, gin.H{"meta": dungeonMetaView(save.Abyss), "balance": balance})

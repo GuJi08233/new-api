@@ -1,9 +1,11 @@
 package controller
 
 import (
+	"errors"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/wendao"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -39,6 +41,9 @@ func init() {
 	registerGame(&gameDefinition{Key: wendaoGame, Kind: operation_setting.GameKindSkill,
 		Info: func(ctx *gameContext) (gin.H, error) {
 			abyss, err := abyssInfo(ctx)
+			if errors.Is(err, wendao.ErrNewerSave) {
+				return nil, errors.New(i18n.T(ctx.Context, i18n.MsgGameWendaoNewerSave))
+			}
 			if err != nil {
 				return nil, err
 			}
