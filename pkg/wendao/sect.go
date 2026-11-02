@@ -466,6 +466,8 @@ func (s *Sect) Apply(a Action, now int64) ([]Ev, error) {
 		err = s.dispatch(a.Mission, a.Team, now)
 	case "claim":
 		more, err = s.claim(a.Id, now)
+	case "claim_all":
+		more, err = s.claimAll(now)
 	case "recall":
 		err = s.recall(a.Id)
 	case "recruit":
@@ -769,6 +771,29 @@ func (s *Sect) claim(id int, now int64) ([]Ev, error) {
 		evs = append(evs, Ev{K: "injured", Who: &hurt.Name, N: missionInjury / 3600})
 	}
 	s.Stats.Missions++
+	return evs, nil
+}
+
+// claimAll 按出发的先后结算所有已经回来的派遣，每支的成败与收获和一支支结算一样；一支都没回来时报错。结算过的派遣
+// 已经不在了，重复的请求不会再拿一份。
+func (s *Sect) claimAll(now int64) ([]Ev, error) {
+	var ready []int
+	for _, m := range s.Missions {
+		if m.End <= now {
+			ready = append(ready, m.Id)
+		}
+	}
+	if len(ready) == 0 {
+		return nil, ErrUnavailable
+	}
+	var evs []Ev
+	for _, id := range ready {
+		more, err := s.claim(id, now)
+		if err != nil {
+			return nil, err
+		}
+		evs = append(evs, more...)
+	}
 	return evs, nil
 }
 

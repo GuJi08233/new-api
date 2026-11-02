@@ -233,6 +233,8 @@ const MissionCard = ({ spec, sect, now, busy, act, library }) => {
 const Missions = ({ sect, now, busy, act }) => {
   const { t } = useTranslation();
   const library = sect.buildings.find((b) => b.key === 'library')?.level || 0;
+  // 有两支以上回来了，标题旁多一个一键结算，结果与一支支结算一样。
+  const ready = sect.missions.filter((m) => m.end <= now).length;
   return (
     <div className='sc-missions'>
       <h4 className='sc-heading'>
@@ -241,6 +243,19 @@ const Missions = ({ sect, now, busy, act }) => {
           n: sect.missions.length,
           slots: sect.mission_slots,
         })}
+        {ready > 1 && (
+          <>
+            <span className='sc-spacer' />
+            <Button
+              size='small'
+              theme='solid'
+              disabled={busy}
+              onClick={() => act('claim_all')}
+            >
+              {t('全部结算（{{n}}）', { n: ready })}
+            </Button>
+          </>
+        )}
       </h4>
       {sect.missions.length === 0 ? (
         <p className='sc-muted'>

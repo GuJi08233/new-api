@@ -91,11 +91,14 @@ const SectPage = () => {
   const busyRef = useRef(false);
   const { now, elapsed } = useServerClock(sect?.now, receivedAt);
 
-  // 一次操作里发生的事：资源与丹药的增减飘字，重要的事写成一句话飘出来，并配上音效。
+  // 一次操作里发生的事：资源与丹药的增减飘字，重要的事写成一句话飘出来，并配上音效。一键收获、一键结算这类一次办几件
+  // 的操作，资源与丹药按种类合计成一笔。
   const showEvents = useCallback(
     (events) => {
       const lines = [];
       const gains = [];
+      // totals 按出现的先后记每种资源、灵药、丹药的合计：资源写成「+60 灵石」，灵药与丹药写成「回春丹 +2」。
+      const totals = new Map();
       let row = 0;
       const float = (line, kind) => {
         addFloater(line, { x: 50, y: 18 + row * 8, kind });
@@ -104,19 +107,14 @@ const SectPage = () => {
       for (const ev of events) {
         switch (ev.k) {
           case 'res':
-            gains.push(`${ev.n > 0 ? '+' : ''}${ev.n} ${text.resources[ev.s]}`);
-            float(
-              `${ev.n > 0 ? '+' : ''}${ev.n} ${text.resources[ev.s]}`,
-              ev.n > 0 ? 'gold' : 'bad',
-            );
-            break;
           case 'rare':
-            gains.push(`${text.rares[ev.s]} ${ev.n > 0 ? '+' : ''}${ev.n}`);
-            float(
-              `${text.rares[ev.s]} ${ev.n > 0 ? '+' : ''}${ev.n}`,
-              ev.n > 0 ? 'gain' : 'bad',
-            );
+          case 'pill': {
+            const key = `${ev.k}:${ev.s}`;
+            const total = totals.get(key) || { kind: ev.k, s: ev.s, n: 0 };
+            total.n += ev.n;
+            totals.set(key, total);
             break;
+          }
           case 'harvest':
             playSound(ev.n === 2 ? 'win' : 'coin');
             float(eventSentence(ev, text, t), 'gold');
@@ -129,13 +127,6 @@ const SectPage = () => {
           case 'daily_chest':
             playSound('win');
             celebrate(1);
-            break;
-          case 'pill':
-            gains.push(`${pillName(text, ev.s)} ${ev.n > 0 ? '+' : ''}${ev.n}`);
-            float(
-              `${pillName(text, ev.s)} ${ev.n > 0 ? '+' : ''}${ev.n}`,
-              ev.n > 0 ? 'gain' : 'bad',
-            );
             break;
           case 'realm':
             playSound('win');
@@ -175,6 +166,19 @@ const SectPage = () => {
           const line = eventSentence(ev, text, t);
           if (line) lines.push(line);
         }
+      }
+      for (const total of totals.values()) {
+        if (total.n === 0) continue;
+        const amount = `${total.n > 0 ? '+' : ''}${total.n}`;
+        const gain =
+          total.kind === 'res'
+            ? `${amount} ${text.resources[total.s]}`
+            : `${total.kind === 'pill' ? pillName(text, total.s) : text.rares[total.s]} ${amount}`;
+        gains.push(gain);
+        float(
+          gain,
+          total.n < 0 ? 'bad' : total.kind === 'res' ? 'gold' : 'gain',
+        );
       }
       if (lines.length || gains.length) {
         setNotice({ lines, gains: gains.join(' · ') });

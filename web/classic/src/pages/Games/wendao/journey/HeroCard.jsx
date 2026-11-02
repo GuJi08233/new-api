@@ -99,6 +99,11 @@ const HeroCard = ({ hero, pills, elapsed, now, busy, onBreak, onQi }) => {
             {formatAmount(exp)} / {formatAmount(hero.need)}
             {!hero.bottleneck &&
               ` · ${t('闭关 +{{n}}/时', { n: Math.round(hero.rate) })}`}
+            {!hero.bottleneck &&
+              qiWait > 0 &&
+              ` · ${t('丹力还没化开，{{left}}后能服下一颗', {
+                left: formatLeft(qiWait, t),
+              })}`}
           </span>
           {!hero.bottleneck && (
             <Tooltip

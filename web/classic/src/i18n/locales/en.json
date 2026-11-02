@@ -8442,6 +8442,7 @@
     "属性来源": "Where stats come from",
     "层数": "Layers",
     "境界": "Realm",
-    "法宝祭炼": "Relic refining"
+    "法宝祭炼": "Relic refining",
+    "全部结算（{{n}}）": "Collect all ({{n}})"
   }
 }

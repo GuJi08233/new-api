@@ -161,6 +161,38 @@ func TestMissionRoundTrip(t *testing.T) {
 	assert.Equal(t, 1, s.Stats.Missions)
 }
 
+// 一键结算：只结算已经回来的派遣，每支各算成败与收获，功课按结算了几支记；没有回来的照旧在外，重复点不会再拿一份。
+func TestClaimAllReturnedMissions(t *testing.T) {
+	s := NewSect(3, 0)
+	s.Buildings[BuildingHall] = 6
+	a, b := s.Disciples[0], s.Disciples[1]
+	c := s.addDisciple(&Candidate{Layer: 1}, 0)
+	_, err := s.Apply(Action{Type: "claim_all"}, 0)
+	require.ErrorIs(t, err, ErrUnavailable, "nothing to claim")
+
+	require.NoError(t, s.dispatch("patrol", []int{a.Id}, 0))
+	require.NoError(t, s.dispatch("herbs", []int{b.Id}, 0))
+	require.NoError(t, s.dispatch("ore", []int{c.Id}, 0))
+	s.Daily.Tasks = []DailyTask{{Key: TaskClaim, Need: 3}}
+
+	evs, err := s.Apply(Action{Type: "claim_all"}, hour)
+	require.NoError(t, err)
+	assert.Equal(t, 2, countEvs(evs, "mission"), "patrol and herbs are back")
+	require.Len(t, s.Missions, 1)
+	assert.Equal(t, "ore", s.Missions[0].Key)
+	assert.Zero(t, a.Mission)
+	assert.Zero(t, b.Mission)
+	assert.NotZero(t, c.Mission)
+	assert.Equal(t, 2, s.Stats.Missions)
+	assert.Equal(t, 2, s.Daily.Tasks[0].Have)
+
+	res := s.Res
+	_, err = s.Apply(Action{Type: "claim_all"}, hour)
+	require.ErrorIs(t, err, ErrUnavailable, "a repeated request finds nothing left")
+	assert.Equal(t, res, s.Res)
+	assert.Equal(t, 2, s.Stats.Missions)
+}
+
 // 叫回的队伍没有收获。
 func TestRecallReturnsTeamWithoutReward(t *testing.T) {
 	s := NewSect(3, 0)

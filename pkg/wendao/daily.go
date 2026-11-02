@@ -126,25 +126,28 @@ func (s *Sect) Progress(task string, n int) {
 	}
 }
 
-// trackDaily 按一次经营操作记功课。
+// countEvs 是 evs 里有几件 kind。
+func countEvs(evs []Ev, kind string) int {
+	n := 0
+	for _, ev := range evs {
+		n += boolInt(ev.K == kind)
+	}
+	return n
+}
+
+// trackDaily 按一次经营操作记功课：一次结算几支派遣、收几块地就算几次。
 func (s *Sect) trackDaily(action string, evs []Ev) {
 	switch action {
 	case "upgrade":
 		s.Progress(TaskBuild, 1)
 	case "craft":
 		s.Progress(TaskCraft, 1)
-	case "claim":
-		s.Progress(TaskClaim, 1)
+	case "claim", "claim_all":
+		s.Progress(TaskClaim, countEvs(evs, "mission"))
 	case "event":
 		s.Progress(TaskEvent, 1)
 	case "harvest", "harvest_all":
-		n := 0
-		for _, ev := range evs {
-			if ev.K == "harvest" {
-				n++
-			}
-		}
-		s.Progress(TaskHarvest, n)
+		s.Progress(TaskHarvest, countEvs(evs, "harvest"))
 	}
 }
 
