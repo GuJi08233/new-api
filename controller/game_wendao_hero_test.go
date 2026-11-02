@@ -34,6 +34,12 @@ func TestHeroJourneyThroughTheApi(t *testing.T) {
 	stone := created["res"].(map[string]any)["stone"].(float64)
 	player.fails(http.MethodPost, path+"/action", map[string]any{"action": "create", "class": dungeon.ClassMage})
 
+	assert.Equal(t, []any{}, hero["presets"])
+	saved := player.ok(http.MethodPost, path+"/action", map[string]any{"action": "preset_save", "index": 0, "name": "首领"})
+	preset := saved["hero"].(map[string]any)["presets"].([]any)[0].(map[string]any)
+	assert.Equal(t, "首领", preset["name"])
+	assert.Len(t, preset["deck"], len(hero["deck"].([]any)))
+
 	visited := player.ok(http.MethodPost, path+"/action", map[string]any{"action": "visit", "node": "c1_oath"})
 	assert.Equal(t, stone+50, visited["res"].(map[string]any)["stone"])
 	assert.NotEmpty(t, visited["events"])

@@ -15,9 +15,11 @@ type Hero struct {
 	Layer int     `json:"layer"`
 	Exp   float64 `json:"exp"`
 	// Last 是上次结算闭关修为的时间。
-	Last    int64          `json:"last"`
-	Cards   []dungeon.Card `json:"cards"`
-	Deck    []int          `json:"deck"`
+	Last  int64          `json:"last"`
+	Cards []dungeon.Card `json:"cards"`
+	Deck  []int          `json:"deck"`
+	// Presets 是存起来的几套牌组(presets.go)，没存过的格子为 nil。
+	Presets []*DeckPreset  `json:"presets,omitempty"`
 	Relics  []string       `json:"relics"`
 	Worn    []string       `json:"worn"`
 	Potions map[string]int `json:"potions"`
@@ -81,7 +83,8 @@ type HeroStats struct {
 
 // HeroAction 是历练里的一次操作。Move、Card、Target、Choice、Potion 是战斗里的一步(与九幽秘境相同)；Team 是开战(或登
 // 问心阶)时随行的弟子；Item、Count 是在丹房炼的丹符与份数(洞府的操作里 Item 是屋子、法宝或丹方)；Fire 是开炉的火候，
-// Index 是第几座丹炉，Grade 是服哪个品质的丹；Beast 是灵兽的编号，Name 是给灵兽起的名字。
+// Index 是第几座丹炉(牌组预设的操作里是第几格)，Grade 是服哪个品质的丹；Beast 是灵兽的编号，Name 是给灵兽或牌组预设
+// 起的名字。
 type HeroAction struct {
 	Type    string   `json:"action"`
 	Class   string   `json:"class"`
@@ -317,6 +320,12 @@ func (sv *Save) HeroApply(a HeroAction, now int64, day string, seed uint64) ([]E
 	case "sync":
 	case "deck":
 		err = h.setDeck(a.Deck)
+	case "preset_save":
+		err = h.savePreset(a.Index, a.Name)
+	case "preset_load":
+		err = h.loadPreset(a.Index)
+	case "preset_delete":
+		err = h.deletePreset(a.Index)
 	case "wear":
 		err = h.wear(a.Relics)
 	case "upgrade":
@@ -424,7 +433,7 @@ func (h *Hero) upgrade(s *Sect, index int) ([]Ev, error) {
 	return []Ev{{K: "res", S: "stone", N: -cost.Stone}, {K: "hero_upgrade", S: h.Cards[index].Id}}, nil
 }
 
-// forget 从收藏里丢掉一张不在牌组里的功法，给新的功法腾地方。
+// forget 从收藏里丢掉一张不在牌组里的功法，给新的功法腾地方；牌组预设里有这张的一起拿掉。
 func (h *Hero) forget(index int) error {
 	if index < 0 || index >= len(h.Cards) || slices.Contains(h.Deck, index) {
 		return ErrAction
@@ -435,6 +444,7 @@ func (h *Hero) forget(index int) error {
 			h.Deck[i] = d - 1
 		}
 	}
+	h.dropFromPresets(index)
 	return nil
 }
 
@@ -757,6 +767,7 @@ type HeroView struct {
 	PotionSlots int                    `json:"potion_slots"`
 	Cards       []dungeon.CardView     `json:"cards"`
 	Deck        []int                  `json:"deck"`
+	Presets     []*DeckPreset          `json:"presets"`
 	Relics      []string               `json:"relics"`
 	Worn        []string               `json:"worn"`
 	Potions     map[string]int         `json:"potions"`
@@ -839,11 +850,16 @@ type HeroBattleView struct {
 
 // View 返回主角在 now 时刻的样子，s 是宗门(闭关速度看聚灵阵)。
 func (h *Hero) View(s *Sect, now int64, day string) HeroView {
+	presets := h.Presets
+	if presets == nil {
+		presets = []*DeckPreset{}
+	}
 	v := HeroView{
 		Class: h.Class, Realm: h.Realm, Layer: h.Layer, Exp: h.Exp, Need: ExpNeed(h.Realm, h.Layer), Rate: h.CultivateRate(s),
 		Bottleneck: h.Bottleneck(), BreakChance: [2]int{h.BreakChance(false), h.BreakChance(true)},
 		MaxHP: h.MaxHP(), Strength: h.Strength(), RelicSlots: h.RelicSlots(), PotionSlots: dungeon.PotionSlotsWith(h.Worn),
-		Cards: dungeon.DeckViews(h.Cards), Deck: h.Deck, Relics: h.Relics, Worn: h.Worn, Potions: h.Potions, Keys: h.Keys,
+		Cards: dungeon.DeckViews(h.Cards), Deck: h.Deck, Presets: presets, Relics: h.Relics, Worn: h.Worn, Potions: h.Potions,
+		Keys:  h.Keys,
 		Nodes: h.Nodes, Open: []string{}, Ready: map[string]int64{}, Stats: h.Stats, Now: now,
 		RepeatsLeft: DailyRepeatRewards, QiReady: h.QiReady, Companions: []CompanionView{},
 		Alchemy: s.Buildings[BuildingAlchemy], StepsOpen: h.StepsOpen(), Steps: h.Steps,

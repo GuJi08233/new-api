@@ -578,6 +578,101 @@
 .jn-upgrade-preview {
   margin: 0;
 }
+/* 牌组预设：几格并排，正在用的那一格描朱砂边。 */
+.jn-presets {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+}
+.jn-preset {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 10px;
+  background: var(--wd-paper);
+}
+.jn-preset.is-empty {
+  border-style: dashed;
+  background: transparent;
+}
+.jn-preset.is-current {
+  border-color: var(--wd-red);
+  box-shadow: inset 0 0 0 1px var(--wd-red);
+}
+.jn-preset-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.jn-preset-head > svg {
+  flex: none;
+  color: var(--wd-red);
+}
+.jn-preset-head strong {
+  overflow: hidden;
+  font-family: var(--wd-serif);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.jn-preset-head .jn-muted {
+  margin-left: auto;
+  flex: none;
+  font-size: 12px;
+}
+.jn-preset-note {
+  color: var(--wd-red);
+  font-size: 12px;
+}
+.jn-preset-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+/* 收藏的筛选：选中的一项用朱砂。 */
+.jn-filters {
+  --semi-color-primary: var(--wd-red);
+  --semi-color-primary-hover: var(--wd-red);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+.jn-filter-search {
+  width: 180px;
+}
+.jn-full-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--wd-red);
+  border-radius: 10px;
+  background: var(--wd-red-soft);
+  font-size: 13px;
+}
+/* 收藏里同样的功法有几张。 */
+.jn-card-cell {
+  position: relative;
+}
+.jn-card-copies {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 22px;
+  padding: 1px 5px;
+  border-radius: 10px;
+  background: var(--wd-ink);
+  color: var(--wd-paper);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+  pointer-events: none;
+}
 .jn-gear h5 {
   margin: 6px 0 0;
   font-family: var(--wd-serif);

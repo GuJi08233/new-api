@@ -35,9 +35,19 @@ import { getNodeText } from './text';
 import BeastArt from '../art/BeastArt';
 import { beastMove, getBeastText } from '../cave/text';
 
-// 历练里的一场仗(地图节点或问心阶)：顶上是生命、丹符与法宝，台面用九幽秘境的战斗；打完显示胜负与这一场的收获。问心阶
-// 的敌人是心魔，画成褪了色的墨影。
-const BattleStage = ({ hero, busy, ended, events, send, onFlee, onBack }) => {
+// 历练里的一场仗(地图节点或问心阶)：顶上是生命、丹符与法宝，台面用九幽秘境的战斗；打完显示胜负与这一场的收获，收藏满了
+// 提醒去整理(onCards)。问心阶的敌人是心魔，画成褪了色的墨影。
+const BattleStage = ({
+  info,
+  hero,
+  busy,
+  ended,
+  events,
+  send,
+  onFlee,
+  onBack,
+  onCards,
+}) => {
   const { t } = useTranslation();
   const text = useDungeonText();
   const sectText = useSectText();
@@ -48,6 +58,7 @@ const BattleStage = ({ hero, busy, ended, events, send, onFlee, onBack }) => {
 
   if (ended) {
     const won = ended.run.result === 'won';
+    const full = hero.cards.length >= info.max_cards;
     const summary = heroEventLines(ended.events, t, text, sectText);
     let title = t('败下阵来');
     if (won) title = t('战斗胜利');
@@ -69,7 +80,16 @@ const BattleStage = ({ hero, busy, ended, events, send, onFlee, onBack }) => {
             {t('没有奖励，也没有损失。修为、参悟功法或换一换牌组之后再来。')}
           </p>
         )}
+        {won && full && (
+          <p className='dg-screen-note'>
+            {t(
+              '收藏已满 {{n}} 张，之后赢了也不能收下新的功法，先去丢掉几张不用的。',
+              { n: info.max_cards },
+            )}
+          </p>
+        )}
         <div className='dg-screen-actions'>
+          {won && full && <Button onClick={onCards}>{t('去整理功法')}</Button>}
           <Button theme='solid' onClick={onBack}>
             {t('返回地图')}
           </Button>

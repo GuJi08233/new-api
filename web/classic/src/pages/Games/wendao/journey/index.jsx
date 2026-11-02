@@ -215,6 +215,10 @@ const JourneyPage = () => {
         send={battle}
         onFlee={() => act('flee')}
         onBack={() => setEnded(null)}
+        onCards={() => {
+          setEnded(null);
+          setTab('cards');
+        }}
       />
     );
   } else {

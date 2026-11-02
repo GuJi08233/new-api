@@ -34,6 +34,8 @@ func journeyInfo() gin.H {
 		"upgrade_cost":         wendao.UpgradeCost,
 		"deck_min":             wendao.DeckMin,
 		"deck_max":             wendao.DeckMax,
+		"max_presets":          wendao.MaxPresets,
+		"max_preset_name":      wendao.MaxPresetName,
 		"max_cards":            wendao.MaxCards,
 		"daily_repeat_rewards": wendao.DailyRepeatRewards,
 		"classes":              dungeon.Classes,
