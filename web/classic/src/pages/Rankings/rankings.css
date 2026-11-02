@@ -18,508 +18,735 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 /* ==========================================================================
-   Rankings page — scoped styles (all classes prefixed with `rankings-`)
-   Theme-aware via Semi CSS variables, works in light & dark mode.
+   Rankings page — scoped styles (all classes prefixed with `rankings-`).
+
+   Borrowed from the Wendao game's ink-wash look (Games/wendao/wendao.css):
+   rice paper, ink, a touch of cinnabar; the dark theme switches to night
+   paper. Standings are hairline-ruled tables with tabular figures; serif type
+   is kept for headings and rank marks, numbers stay in the UI font. Color is
+   spent on meaning only — growth direction and degraded readings.
    ========================================================================== */
 
 .rankings-page {
-  position: relative;
+  --rk-paper: #f3eee3;
+  --rk-sheet: #fbf8f1;
+  --rk-sheet-2: #f1ebdf;
+  --rk-ink: #2b2824;
+  --rk-ink-2: #5c5750;
+  --rk-ink-3: #948f84;
+  --rk-line: rgba(43, 40, 36, 0.09);
+  --rk-line-2: rgba(43, 40, 36, 0.2);
+  --rk-red: #b23a2a;
+  --rk-red-soft: rgba(178, 58, 42, 0.08);
+  --rk-jade: #4f7a4a;
+  --rk-amber: #b07a22;
+  --rk-tint: #6e8f78;
+  --rk-mtn: #a39e93;
+  --rk-mtn-2: #6a665e;
+  --rk-mist: #fbf8f1;
+  --rk-serif: 'Noto Serif SC', 'Source Han Serif SC', 'Songti SC', 'STSong',
+    'SimSun', serif;
+
   min-height: 100%;
   padding-top: 64px;
+  background: var(--rk-paper);
+  color: var(--rk-ink);
 }
 
-/* Decorative gradient glow bleeding from the top of the page */
-.rankings-glow {
-  pointer-events: none;
-  position: absolute;
-  inset: 0 0 auto 0;
-  height: 560px;
-  background: radial-gradient(
-      ellipse 55% 45% at 18% 12%,
-      rgba(var(--semi-blue-5), 1) 0%,
-      transparent 70%
-    ),
-    radial-gradient(
-      ellipse 45% 40% at 82% 8%,
-      rgba(var(--semi-cyan-5), 1) 0%,
-      transparent 70%
-    ),
-    radial-gradient(
-      ellipse 40% 35% at 55% 55%,
-      rgba(var(--semi-violet-5), 1) 0%,
-      transparent 70%
-    );
-  opacity: 0.14;
-  -webkit-mask-image: linear-gradient(to bottom, black 30%, transparent 100%);
-  mask-image: linear-gradient(to bottom, black 30%, transparent 100%);
+body[theme-mode='dark'] .rankings-page {
+  --rk-paper: #191815;
+  --rk-sheet: #211f1b;
+  --rk-sheet-2: #2a2823;
+  --rk-ink: #e9e2d3;
+  --rk-ink-2: #bdb5a6;
+  --rk-ink-3: #847e74;
+  --rk-line: rgba(233, 226, 211, 0.08);
+  --rk-line-2: rgba(233, 226, 211, 0.18);
+  --rk-red: #e06a55;
+  --rk-red-soft: rgba(224, 106, 85, 0.12);
+  --rk-jade: #8fb07a;
+  --rk-amber: #d9a24a;
+  --rk-tint: #6e8f78;
+  --rk-mtn: #3f3c37;
+  --rk-mtn-2: #6b665d;
+  --rk-mist: #211f1b;
+}
+
+/* The layout's content area and footer are painted in the same paper while
+   this page is open, so the page does not end in a white band above the
+   footer. :has() keeps it to this page even though the stylesheet stays
+   loaded after navigating away. The colors repeat --rk-paper because the
+   variables live on .rankings-page, below these elements. */
+body:has(.rankings-page) .semi-layout-content,
+body:has(.rankings-page) .semi-layout-footer {
+  background: #f3eee3;
+}
+
+body[theme-mode='dark']:has(.rankings-page) .semi-layout-content,
+body[theme-mode='dark']:has(.rankings-page) .semi-layout-footer {
+  background: #191815;
 }
 
 .rankings-container {
-  position: relative;
-  max-width: 1400px;
+  max-width: 1320px;
   margin: 0 auto;
-  padding: 28px 24px 48px;
+  padding: 28px 24px 56px;
 }
 
-/* ---------- Hero ---------- */
+/* ---------- Banner (榜文) ---------- */
 
-.rankings-hero {
-  margin-bottom: 24px;
-}
-
-.rankings-hero-head {
+.rankings-banner {
+  position: relative;
   display: flex;
-  align-items: center;
-  gap: 14px;
+  align-items: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px 24px;
+  min-height: 176px;
+  padding: 28px 32px 24px;
+  overflow: hidden;
+  border: 1px solid var(--rk-line);
+  border-radius: 4px;
+  background: var(--rk-sheet);
 }
 
-.rankings-hero-icon {
+/* The landscape sits on the right and fades out toward the title. */
+.rankings-banner-art {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: min(68%, 820px);
+  height: 100%;
+  pointer-events: none;
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 40%);
+  mask-image: linear-gradient(to right, transparent, #000 40%);
+}
+
+.rankings-art-sun {
+  fill: var(--rk-red);
+  opacity: 0.72;
+}
+
+.rankings-art-far {
+  fill: var(--rk-tint);
+  opacity: 0.3;
+}
+
+.rankings-art-mid {
+  fill: var(--rk-mtn);
+  opacity: 0.6;
+}
+
+.rankings-art-near {
+  fill: var(--rk-mtn-2);
+  opacity: 0.5;
+}
+
+.rankings-art-pine {
+  fill: var(--rk-ink);
+  opacity: 0.6;
+}
+
+.rankings-mist-edge {
+  stop-color: var(--rk-mist);
+  stop-opacity: 0;
+}
+
+.rankings-mist-core {
+  stop-color: var(--rk-mist);
+  stop-opacity: 0.7;
+}
+
+.rankings-banner-text,
+.rankings-period {
+  position: relative;
+}
+
+.rankings-banner-text {
+  min-width: 0;
+}
+
+.rankings-title {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 44px;
-  height: 44px;
-  border-radius: 12px;
-  flex-shrink: 0;
-  color: #fff;
-  font-size: 22px;
-  background: linear-gradient(135deg, #f59e0b 0%, #f97316 100%);
-  box-shadow: 0 6px 16px rgba(249, 115, 22, 0.35);
-}
-
-.rankings-hero-title {
+  gap: 14px;
   margin: 0;
-  font-size: 28px;
+  font-family: var(--rk-serif);
+  font-size: 32px;
   font-weight: 700;
-  letter-spacing: -0.5px;
-  line-height: 1.25;
-  color: var(--semi-color-text-0);
+  line-height: 1.2;
+  letter-spacing: 8px;
+  color: var(--rk-ink);
 }
 
-.rankings-hero-sub {
-  margin: 8px 0 0;
-  font-size: 14px;
-  color: var(--semi-color-text-2);
-  max-width: 560px;
+/* A square cinnabar seal beside the title, the same mark the Wendao title
+   carries. */
+.rankings-title::after {
+  content: '';
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 3px;
+  background:
+    linear-gradient(var(--rk-sheet), var(--rk-sheet)) 50% 50% / 11px 2px
+      no-repeat,
+    linear-gradient(var(--rk-sheet), var(--rk-sheet)) 50% 50% / 2px 11px
+      no-repeat,
+    var(--rk-red);
+  box-shadow:
+    inset 0 0 0 2px var(--rk-red),
+    inset 0 0 0 3px var(--rk-sheet);
+  transform: rotate(-4deg);
+}
+
+.rankings-tagline {
+  margin: 10px 0 0;
+  font-family: var(--rk-serif);
+  font-size: 15px;
+  letter-spacing: 3px;
+  color: var(--rk-ink-2);
 }
 
 /* Resolved statistics window for the selected period */
 .rankings-range {
-  margin-top: 10px;
+  margin-top: 8px;
+  min-height: 18px;
   font-size: 12px;
-  color: var(--semi-color-text-2);
+  line-height: 18px;
+  color: var(--rk-ink-3);
   font-variant-numeric: tabular-nums;
 }
 
-/* Period segmented control */
+/* Period switch */
 .rankings-period {
   display: inline-flex;
-  align-items: center;
   gap: 2px;
-  margin-top: 20px;
   padding: 3px;
-  border-radius: 10px;
-  background: var(--semi-color-fill-0);
-  border: 1px solid var(--semi-color-border);
+  border: 1px solid var(--rk-line-2);
+  border-radius: 4px;
+  background: var(--rk-sheet);
 }
 
 .rankings-period-btn {
-  position: relative;
-  padding: 5px 16px;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--semi-color-text-2);
+  padding: 4px 14px;
+  border: 0;
+  border-radius: 2px;
   background: transparent;
-  border: none;
-  border-radius: 8px;
+  color: var(--rk-ink-2);
+  font-family: var(--rk-serif);
+  font-size: 14px;
+  line-height: 20px;
+  letter-spacing: 1px;
   cursor: pointer;
   transition:
     color 0.15s,
-    background 0.15s,
-    box-shadow 0.15s;
+    background 0.15s;
 }
 
 .rankings-period-btn:hover {
-  color: var(--semi-color-text-0);
+  color: var(--rk-ink);
 }
 
-.rankings-period-btn.active {
-  color: var(--semi-color-text-0);
-  font-weight: 600;
-  background: var(--semi-color-bg-1);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+.rankings-period-btn.is-active {
+  background: var(--rk-red);
+  color: var(--rk-sheet);
 }
 
 /* ---------- Tabs ---------- */
 
-.rankings-tabs .semi-tabs-bar {
-  margin-bottom: 4px;
+.rankings-tabs {
+  display: flex;
+  gap: 4px;
+  margin: 18px 0 20px;
+  border-bottom: 1px solid var(--rk-line-2);
+  overflow-x: auto;
+  scrollbar-width: none;
 }
 
-/* ---------- Stat cards ---------- */
+.rankings-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.rankings-tab {
+  position: relative;
+  flex: none;
+  padding: 10px 18px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--rk-ink-3);
+  font-family: var(--rk-serif);
+  font-size: 16px;
+  letter-spacing: 2px;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.rankings-tab:hover {
+  color: var(--rk-ink);
+}
+
+.rankings-tab.is-active {
+  color: var(--rk-ink);
+  font-weight: 700;
+}
+
+/* A stroke of cinnabar under the open tab. */
+.rankings-tab.is-active::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 50%;
+  width: 32px;
+  height: 3px;
+  border-radius: 3px 1px 3px 1px;
+  background: var(--rk-red);
+  transform: translateX(-50%) skewX(-20deg);
+}
+
+.rankings-tab:focus-visible,
+.rankings-period-btn:focus-visible,
+.rankings-sort-btn:focus-visible,
+.rankings-show-more:focus-visible,
+.rankings-legend-item:focus-visible {
+  outline: 2px solid var(--rk-red);
+  outline-offset: 1px;
+}
+
+/* ---------- Layout ---------- */
+
+.rankings-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.rankings-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 20px;
+}
+
+/* ---------- Stat strip ---------- */
 
 .rankings-stats {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border: 1px solid var(--rk-line);
+  border-radius: 4px;
+  background: var(--rk-sheet);
 }
 
-.rankings-stat-card {
-  position: relative;
-  overflow: hidden;
-  border-radius: 14px;
-  padding: 18px 20px;
-  background: var(--semi-color-bg-1);
-  border: 1px solid var(--semi-color-border);
-  transition:
-    transform 0.18s ease,
-    box-shadow 0.18s ease;
+.rankings-stat {
+  display: grid;
+  grid-template-areas:
+    'label'
+    'value'
+    'hint';
+  align-content: start;
+  min-width: 0;
+  padding: 16px 22px;
 }
 
-.rankings-stat-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
-}
-
-.rankings-stat-glow {
-  position: absolute;
-  top: -32px;
-  right: -32px;
-  width: 110px;
-  height: 110px;
-  border-radius: 50%;
-  opacity: 0.12;
-  filter: blur(6px);
-  pointer-events: none;
-}
-
-.rankings-stat-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 10px;
-}
-
-.rankings-stat-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
-  color: #fff;
-  font-size: 14px;
-  flex-shrink: 0;
+.rankings-stat + .rankings-stat {
+  border-left: 1px solid var(--rk-line);
 }
 
 .rankings-stat-label {
-  font-size: 12px;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: var(--semi-color-text-2);
+  grid-area: label;
+  font-family: var(--rk-serif);
+  font-size: 14px;
+  letter-spacing: 1px;
+  color: var(--rk-ink-2);
 }
 
 .rankings-stat-value {
-  font-size: 26px;
-  font-weight: 700;
-  font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
-  color: var(--semi-color-text-0);
-  line-height: 1.2;
+  grid-area: value;
+  margin-top: 6px;
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 1.15;
+  color: var(--rk-ink);
   font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
 }
 
 .rankings-stat-hint {
+  grid-area: hint;
   margin-top: 6px;
-  font-size: 11px;
-  color: var(--semi-color-text-2);
+  font-size: 12px;
+  color: var(--rk-ink-3);
   font-variant-numeric: tabular-nums;
 }
 
 /* ---------- Section cards ---------- */
 
 .rankings-section {
-  border-radius: 14px;
-  border: 1px solid var(--semi-color-border);
-  background: var(--semi-color-bg-1);
+  min-width: 0;
+  border: 1px solid var(--rk-line);
+  border-radius: 4px;
+  background: var(--rk-sheet);
   overflow: hidden;
-  /* Rows react to the card's own width rather than the viewport's: the same
-     board sits in a 340px column on one breakpoint and a 720px full-width
-     card on another, so viewport queries cannot tell them apart. */
-  container-type: inline-size;
+  /* Columns react to the card's own width rather than the viewport's: a
+     board can sit full-width or in half a row, and viewport queries cannot
+     tell those apart. */
+  container: rk-section / inline-size;
 }
 
 .rankings-section-header {
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--semi-color-border);
   display: flex;
-  align-items: center;
-  gap: 12px;
+  align-items: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  padding: 16px 20px 12px;
+  /* A double rule under the heading, as on a printed notice. */
+  border-bottom: 3px double var(--rk-line-2);
 }
 
-.rankings-section-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 34px;
-  height: 34px;
-  border-radius: 9px;
-  font-size: 17px;
-  flex-shrink: 0;
-}
-
-.rankings-section-icon.tone-primary {
-  background: var(--semi-color-primary-light-default);
-  color: var(--semi-color-primary);
-}
-
-.rankings-section-icon.tone-green {
-  background: var(--semi-color-success-light-default);
-  color: var(--semi-color-success);
-}
-
-.rankings-section-icon.tone-red {
-  background: var(--semi-color-danger-light-default);
-  color: var(--semi-color-danger);
-}
-
-.rankings-section-icon.tone-amber {
-  background: var(--semi-color-warning-light-default);
-  color: var(--semi-color-warning);
-}
-
-.rankings-section-icon.tone-violet {
-  background: var(--semi-color-primary-light-default);
-  color: var(--semi-color-primary);
+.rankings-section-heading {
+  min-width: 0;
 }
 
 .rankings-section-title {
-  font-weight: 600;
-  font-size: 15px;
-  color: var(--semi-color-text-0);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  font-family: var(--rk-serif);
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.4;
+  letter-spacing: 2px;
+  color: var(--rk-ink);
+}
+
+/* A short brush stroke of cinnabar leading the title. */
+.rankings-section-title::before {
+  content: '';
+  flex: none;
+  width: 4px;
+  height: 16px;
+  border-radius: 1px 3px 1px 3px;
+  background: var(--rk-red);
+  transform: skewY(-12deg);
 }
 
 .rankings-section-subtitle {
-  font-size: 12px;
-  color: var(--semi-color-text-2);
   margin-top: 2px;
+  padding-left: 14px;
+  font-size: 12px;
+  color: var(--rk-ink-3);
 }
 
 .rankings-section-body {
-  padding: 12px 20px 16px;
+  padding: 4px 20px 8px;
 }
 
-/* ---------- Leaderboard rows ---------- */
-
-.rankings-row {
-  display: flex;
+/* Sort switch: words split by hairlines, the active one in cinnabar. */
+.rankings-sort {
+  display: inline-flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px 10px;
-  margin: 0 -10px;
-  border-radius: 10px;
-  border-bottom: 1px solid var(--semi-color-fill-0);
-  transition: background 0.15s;
 }
 
-.rankings-row:last-child {
+.rankings-sort-btn {
+  position: relative;
+  padding: 2px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--rk-ink-3);
+  font-size: 13px;
+  line-height: 20px;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.rankings-sort-btn + .rankings-sort-btn {
+  border-left: 1px solid var(--rk-line-2);
+}
+
+.rankings-sort-btn:hover {
+  color: var(--rk-ink);
+}
+
+.rankings-sort-btn.is-active {
+  color: var(--rk-red);
+  font-weight: 600;
+}
+
+/* ---------- Standings table ---------- */
+
+.rankings-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.rankings-table th {
+  padding: 10px 12px 8px;
+  border-bottom: 1px solid var(--rk-line);
+  color: var(--rk-ink-3);
+  font-size: 12px;
+  font-weight: 500;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.rankings-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--rk-line);
+  color: var(--rk-ink-2);
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.rankings-table tbody tr:last-child td {
   border-bottom: none;
 }
 
-.rankings-row:hover {
-  background: var(--semi-color-fill-0);
+.rankings-table tbody tr {
+  transition: background 0.15s;
 }
 
-/* Wrappers keep the fixed-width columns from being squeezed by flex shrink.
-   Without them the name column — the only flexible one — collapsed to zero
-   width on phones and the model name disappeared entirely. */
-.rankings-row-icon,
-.rankings-row-spark,
-.rankings-row-delta,
-.rankings-row-growth {
-  display: inline-flex;
-  align-items: center;
-  flex-shrink: 0;
+.rankings-table tbody tr:hover {
+  background: var(--rk-sheet-2);
 }
 
-.rankings-rank-badge {
+.rankings-table th:first-child,
+.rankings-table td:first-child {
+  padding-left: 4px;
+}
+
+.rankings-table th:last-child,
+.rankings-table td:last-child {
+  padding-right: 4px;
+}
+
+.rankings-table .is-num {
+  text-align: right;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.rankings-table th.is-num {
+  font-size: 12px;
+}
+
+.rankings-table .is-chart {
+  width: 80px;
+}
+
+/* The column the board is sorted by. */
+.rankings-table th.is-sorted {
+  color: var(--rk-red);
+}
+
+.rankings-table td.is-sorted {
+  color: var(--rk-ink);
+  font-weight: 600;
+}
+
+.rk-col-rank {
+  width: 40px;
+  text-align: center;
+}
+
+.rankings-table th.rk-col-rank {
+  text-align: center;
+}
+
+/* The name column takes whatever is left; max-width: 0 lets a long model
+   name ellipsize instead of widening the table. */
+.rk-col-name {
+  width: 100%;
+  max-width: 0;
+}
+
+/* Rank: a seal for the top three, a plain serif numeral below. */
+.rankings-rank,
+.rankings-seal {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  font-size: 12px;
+  width: 24px;
+  height: 24px;
+  font-family: var(--rk-serif);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.rankings-rank {
+  color: var(--rk-ink-3);
+}
+
+.rankings-seal {
+  border-radius: 3px;
   font-weight: 700;
-  font-family: 'JetBrains Mono', 'SF Mono', monospace;
-  flex-shrink: 0;
-  background: var(--semi-color-fill-1);
-  color: var(--semi-color-text-2);
 }
 
-.rankings-rank-badge.rank-1 {
-  background: linear-gradient(135deg, #ffd700 0%, #ffb800 100%);
-  color: #fff;
-  box-shadow: 0 2px 10px rgba(255, 184, 0, 0.45);
+/* 白文印: cinnabar ground, the numeral left in paper. */
+.rankings-seal.rank-1 {
+  background: var(--rk-red);
+  color: var(--rk-sheet);
+  box-shadow:
+    inset 0 0 0 2px var(--rk-red),
+    inset 0 0 0 3px var(--rk-sheet);
+  transform: rotate(-4deg);
 }
 
-.rankings-rank-badge.rank-2 {
-  background: linear-gradient(135deg, #d5d9e0 0%, #a8adb8 100%);
-  color: #fff;
-  box-shadow: 0 2px 10px rgba(168, 173, 184, 0.45);
+/* 朱文印: the numeral and frame in cinnabar on paper. */
+.rankings-seal.rank-2,
+.rankings-seal.rank-3 {
+  color: var(--rk-red);
+  box-shadow: inset 0 0 0 1.5px var(--rk-red);
 }
 
-.rankings-rank-badge.rank-3 {
-  background: linear-gradient(135deg, #e0995c 0%, #b87333 100%);
-  color: #fff;
-  box-shadow: 0 2px 10px rgba(184, 115, 51, 0.45);
+.rankings-seal.rank-3 {
+  transform: rotate(3deg);
+}
+
+.rankings-who {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.rankings-who-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.rankings-who-name {
+  overflow: hidden;
+  color: var(--rk-ink);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rankings-who-sub {
+  overflow: hidden;
+  color: var(--rk-ink-3);
+  font-size: 12px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Relative bar — how far a row is behind the leader, as an ink stroke that
+   thins out toward its tail. */
+.rankings-bar {
+  max-width: 360px;
+  height: 4px;
+  margin-top: 5px;
+}
+
+.rankings-bar-fill {
+  height: 100%;
+  border-radius: 1px 4px 4px 1px;
+  background: var(--rk-tint);
+  opacity: 0.8;
+  -webkit-mask-image: linear-gradient(90deg, #000 30%, rgba(0, 0, 0, 0.35));
+  mask-image: linear-gradient(90deg, #000 30%, rgba(0, 0, 0, 0.35));
+  transition: width 0.3s ease;
 }
 
 .rankings-vendor-icon {
   display: inline-flex;
+  flex: none;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
-  background: var(--semi-color-fill-0);
-  border: 1px solid var(--semi-color-border);
-  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
 }
 
 .rankings-avatar {
   display: inline-flex;
+  flex: none;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--rk-line-2);
   border-radius: 50%;
-  color: #fff;
+  background: var(--rk-sheet-2);
+  color: var(--rk-ink-2);
+  font-family: var(--rk-serif);
   font-size: 13px;
   font-weight: 700;
-  flex-shrink: 0;
 }
 
-.rankings-row-main {
-  flex: 1 1 auto;
-  /* A hard floor keeps the row readable when the value and growth columns are
-     wide; below it the row drops columns instead of shrinking the name. */
-  min-width: 96px;
-  overflow: hidden;
-}
-
-.rankings-row-name {
+/* Growth — signed figure, colored by direction */
+.rankings-growth {
   font-size: 13px;
-  font-weight: 600;
-  color: var(--semi-color-text-0);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-family: 'JetBrains Mono', 'SF Mono', monospace;
-}
-
-.rankings-row-sub {
-  font-size: 11px;
-  color: var(--semi-color-text-2);
-  margin-top: 2px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* Relative share bar — one glance tells how far a row is behind the leader.
-   fill-1 (not fill-0) so the track stays visible on .rankings-row:hover. */
-.rankings-row-bar {
-  margin-top: 6px;
-  height: 4px;
-  border-radius: 2px;
-  background: var(--semi-color-fill-1);
-  overflow: hidden;
-}
-
-.rankings-row-bar-fill {
-  height: 100%;
-  border-radius: 2px;
-  background: var(--semi-color-primary);
-  opacity: 0.75;
-  transition: width 0.3s ease;
-}
-
-.rankings-row-bar-fill.tone-amber {
-  background: var(--semi-color-warning);
-}
-
-.rankings-row-bar-fill.tone-green {
-  background: var(--semi-color-success);
-}
-
-.rankings-row-value {
-  text-align: right;
-  flex-shrink: 0;
-  min-width: 76px;
-}
-
-.rankings-row-value-num {
-  font-size: 13px;
-  font-weight: 700;
-  font-family: 'JetBrains Mono', 'SF Mono', monospace;
-  color: var(--semi-color-text-0);
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
-/* The perf boards reuse the row shell, so their metric keeps the row layout
-   but drops the 'tokens' caption styling. */
-.rankings-row-value-num.rankings-perf-value {
-  font-size: 13px;
+.rankings-growth.up,
+.rankings-rank-shift.up {
+  color: var(--rk-jade);
 }
 
-.rankings-row-value-label {
-  font-size: 10px;
-  color: var(--semi-color-text-2);
-  margin-top: 1px;
-}
-
-/* Growth pill */
-.rankings-growth {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  padding: 2px 8px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 600;
-  font-family: 'JetBrains Mono', 'SF Mono', monospace;
-  flex-shrink: 0;
-  min-width: 64px;
-  justify-content: center;
-}
-
-.rankings-growth.up {
-  color: var(--semi-color-success);
-  background: var(--semi-color-success-light-default);
-}
-
-.rankings-growth.down {
-  color: var(--semi-color-danger);
-  background: var(--semi-color-danger-light-default);
+.rankings-growth.down,
+.rankings-rank-shift.down {
+  color: var(--rk-red);
 }
 
 .rankings-growth.flat {
-  color: var(--semi-color-text-2);
-  background: var(--semi-color-fill-0);
+  color: var(--rk-ink-3);
 }
 
-/* ---------- Perf metric rows ---------- */
+/* Degraded performance readings */
+.rankings-table .is-warn {
+  color: var(--rk-amber);
+}
 
-.rankings-perf-value {
+.rankings-table .is-bad {
+  color: var(--rk-red);
+}
+
+/* Which latency a figure is: first token or the whole request. */
+.rankings-cell-note {
+  display: block;
+  color: var(--rk-ink-3);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 14px;
+}
+
+/* ---------- Movers ---------- */
+
+.rankings-movers {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rankings-mover {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--rk-line);
+}
+
+.rankings-mover:last-child {
+  border-bottom: none;
+}
+
+.rankings-mover .rankings-growth {
+  min-width: 56px;
   text-align: right;
+}
+
+.rankings-rank-shift {
+  flex: none;
   font-size: 13px;
-  font-weight: 700;
-  font-family: 'JetBrains Mono', 'SF Mono', monospace;
-  flex-shrink: 0;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
-  white-space: nowrap;
 }
 
 /* ---------- Inline sparkline ---------- */
@@ -527,25 +754,25 @@ For commercial licensing, please contact support@quantumnous.com
 .rankings-sparkline {
   display: inline-block;
   width: 72px;
-  height: 26px;
-  flex-shrink: 0;
+  height: 24px;
+  vertical-align: middle;
 }
 
-.rankings-sparkline-empty {
-  background: var(--semi-color-fill-0);
-  border-radius: 4px;
-  opacity: 0.4;
+/* ---------- Trend charts ---------- */
+
+.rankings-trend-chart {
+  width: 100%;
+  min-width: 0;
+  margin: 8px 0 12px;
 }
 
-/* ---------- Compact trend legend (phones) ---------- */
-
-/* One scrolling row of chips. VChart's own legend forces one entry per row at
-   ~330px (each entry adds a row before the pager kicks in), which is what used
-   to eat the plot area; a scrolling row costs a fixed 28px instead. */
+/* One scrolling row of chips on phones. VChart's own legend forces one entry
+   per row at ~330px (each entry adds a row before the pager kicks in), which
+   is what used to eat the plot area; a scrolling row costs a fixed 28px. */
 .rankings-legend {
   display: flex;
-  gap: 6px;
-  margin: 4px 0 2px;
+  gap: 4px;
+  margin: 10px 0 2px;
   overflow-x: auto;
   scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
@@ -557,25 +784,19 @@ For commercial licensing, please contact support@quantumnous.com
 
 .rankings-legend-item {
   display: inline-flex;
+  flex: 0 0 auto;
   align-items: center;
   gap: 5px;
-  flex: 0 0 auto;
-  padding: 3px 9px;
-  border: 1px solid var(--semi-color-border);
-  border-radius: 999px;
-  background: var(--semi-color-fill-0);
-  color: var(--semi-color-text-1);
+  padding: 2px 8px;
+  border: 1px solid var(--rk-line-2);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--rk-ink-2);
   font-size: 11px;
   line-height: 16px;
   white-space: nowrap;
   cursor: pointer;
-  transition:
-    opacity 0.15s,
-    background 0.15s;
-}
-
-.rankings-legend-item:hover {
-  background: var(--semi-color-fill-1);
+  transition: opacity 0.15s;
 }
 
 .rankings-legend-item.is-off {
@@ -583,95 +804,16 @@ For commercial licensing, please contact support@quantumnous.com
 }
 
 .rankings-legend-dot {
+  flex-shrink: 0;
   width: 8px;
   height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
+  border-radius: 2px;
 }
 
 /* ---------- Misc ---------- */
 
-.rankings-trend-chart {
-  width: 100%;
-  min-width: 0;
-  margin: 4px 0 16px;
-}
-
-.rankings-grid-2 {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-  gap: 16px;
-}
-
-.rankings-grid-3 {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
-  gap: 24px;
-}
-
-.rankings-scroll {
-  max-height: 480px;
-  /* Bleed 10px into the section padding on both sides and add matching
-     horizontal padding, so a row's hover background (.rankings-row uses
-     margin: 0 -10px) stays fully painted inside the scroll box — same look
-     as the boards that have no scroll container. */
-  padding: 0 10px;
-  margin: 0 -10px;
-  overflow-y: auto;
-  /* Safety net against residual horizontal overflow: clip, never show a
-     phantom horizontal scrollbar. */
-  overflow-x: hidden;
-  /* Narrow the scrollbar on every device. Engines that understand this
-     standard property (Firefox, Chrome 121+, Safari 18.2+) then ignore all
-     ::-webkit-scrollbar rules below; older WebKit/Blink use those instead. */
-  scrollbar-width: thin;
-}
-
-/* Old WebKit/Blink branch (Chrome <121, Safari <18.2) */
-.rankings-scroll::-webkit-scrollbar {
-  width: 6px;
-}
-
-/*
- * Hide the thumb until the board is hovered or focused within. Thumb colors
- * use the theme-aware fill tokens (light in dark mode, dark in light mode);
- * the static grey palette would nearly vanish in dark mode. scrollbar-color
- * takes thumb and track colors in that order.
- * Gated by any-hover/any-pointer, which describe whether the device HAS a
- * mouse-like input; plain hover/pointer only describe the primary input and
- * would exclude e.g. an iPad with a mouse attached. Touch-only devices keep
- * their platform default (transient overlay) scrollbar rather than a
- * permanently transparent thumb. Safari 18.2–26.1 has scrollbar-width but
- * not scrollbar-color, so there it shows a default always-visible thin
- * scrollbar — acceptable degradation.
- */
-@media (any-hover: hover) and (any-pointer: fine) {
-  .rankings-scroll {
-    scrollbar-color: transparent transparent;
-  }
-
-  .rankings-scroll:hover,
-  .rankings-scroll:focus-within {
-    scrollbar-color: var(--semi-color-fill-2) transparent;
-  }
-
-  .rankings-scroll::-webkit-scrollbar-track {
-    background: transparent;
-  }
-
-  .rankings-scroll::-webkit-scrollbar-thumb {
-    background: transparent;
-    border-radius: 2px;
-  }
-
-  .rankings-scroll:hover::-webkit-scrollbar-thumb,
-  .rankings-scroll:focus-within::-webkit-scrollbar-thumb {
-    background: var(--semi-color-fill-2);
-  }
-
-  .rankings-scroll::-webkit-scrollbar-thumb:hover {
-    background: var(--semi-color-text-2);
-  }
+.rankings-skeleton {
+  padding-top: 16px;
 }
 
 .rankings-skeleton-row {
@@ -681,225 +823,164 @@ For commercial licensing, please contact support@quantumnous.com
   padding: 10px 0;
 }
 
-/* Entrance animation */
-@keyframes rankings-fade-slide-in {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.rankings-fade-in {
-  animation: rankings-fade-slide-in 0.35s ease both;
-}
-
-.rankings-fade-in.delay-1 {
-  animation-delay: 0.05s;
-}
-
-.rankings-fade-in.delay-2 {
-  animation-delay: 0.1s;
-}
-
-/* ---------- Show more ---------- */
-
 .rankings-show-more {
   display: block;
   width: 100%;
-  margin-top: 8px;
-  padding: 9px 12px;
-  border: 1px solid var(--semi-color-border);
-  border-radius: 8px;
-  background: var(--semi-color-fill-0);
-  color: var(--semi-color-text-1);
-  font-size: 13px;
-  font-weight: 500;
+  padding: 10px 0 6px;
+  border: 0;
+  border-top: 1px solid var(--rk-line);
+  background: none;
+  color: var(--rk-red);
+  font-family: var(--rk-serif);
+  font-size: 14px;
+  letter-spacing: 1px;
   cursor: pointer;
-  transition:
-    background 0.15s,
-    color 0.15s;
 }
 
 .rankings-show-more:hover {
-  background: var(--semi-color-fill-1);
-  color: var(--semi-color-text-0);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
-.rankings-show-more:active {
-  transform: scale(0.995);
+/* ---------- Narrow boards ---------- */
+
+/* Mid width (a board in half a row, a tablet): keep the metrics, drop the
+   trend and share columns. */
+@container rk-section (max-width: 720px) {
+  .rankings-table .rk-p3 {
+    display: none;
+  }
+}
+
+/* Phone width: rank, name, the sorted metric and growth. */
+@container rk-section (max-width: 480px) {
+  .rankings-table .rk-p2 {
+    display: none;
+  }
+
+  .rankings-table th,
+  .rankings-table td {
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+
+  .rk-col-rank {
+    width: 32px;
+  }
+
+  .rankings-who {
+    gap: 8px;
+  }
 }
 
 /* ---------- Responsive ---------- */
 
 @media (max-width: 640px) {
   .rankings-container {
-    padding: 20px 14px 40px;
+    padding: 16px 12px 40px;
   }
 
-  .rankings-hero-head {
+  .rankings-banner {
+    min-height: 0;
+    padding: 20px 18px 16px;
+  }
+
+  .rankings-banner-art {
+    width: 100%;
+    opacity: 0.55;
+  }
+
+  .rankings-title {
     gap: 10px;
+    font-size: 24px;
+    letter-spacing: 5px;
   }
 
-  .rankings-hero-title {
-    font-size: 22px;
+  .rankings-title::after {
+    width: 20px;
+    height: 20px;
   }
 
-  .rankings-hero-sub {
+  .rankings-tagline {
+    margin-top: 6px;
     font-size: 13px;
+    letter-spacing: 2px;
   }
 
-  /* Stat cards: a one-column stack of full-width cards costs three screens
-     of scrolling for three numbers. Two per row keeps the numbers readable
-     and the page short. */
-  .rankings-stats {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 10px;
+  .rankings-period {
+    width: 100%;
   }
 
-  .rankings-stat-card {
-    padding: 14px 14px 12px;
-    border-radius: 12px;
+  .rankings-period-btn {
+    flex: 1;
+    padding: 5px 0;
   }
 
-  .rankings-stat-label {
-    font-size: 11px;
-    letter-spacing: 0.3px;
+  .rankings-tabs {
+    margin: 12px 0 14px;
   }
 
-  .rankings-stat-value {
-    font-size: 20px;
-    overflow-wrap: anywhere;
-  }
-
-  .rankings-stat-hint {
-    font-size: 10px;
-  }
-
-  /* An odd card count leaves the last one full-width instead of a gap. */
-  .rankings-stats > .rankings-stat-card:last-child:nth-child(odd) {
-    grid-column: 1 / -1;
-  }
-
-  .rankings-section-header {
-    padding: 13px 14px;
-    gap: 10px;
-  }
-
-  .rankings-section-icon {
-    width: 30px;
-    height: 30px;
+  .rankings-tab {
+    flex: 1;
+    padding: 9px 6px 11px;
     font-size: 15px;
+    letter-spacing: 1px;
   }
 
-  .rankings-section-title {
-    font-size: 14px;
-  }
-
-  .rankings-section-subtitle {
-    font-size: 11px;
-  }
-
-  .rankings-section-body {
-    padding: 8px 14px 12px;
-  }
-
-  /* Rows: tighter padding and gaps so the name column keeps real width. */
-  .rankings-row {
-    gap: 8px;
-    padding: 10px 6px;
-    margin: 0 -6px;
-  }
-
-  .rankings-rank-badge {
-    width: 24px;
-    height: 24px;
-    font-size: 11px;
-  }
-
-  .rankings-vendor-icon,
-  .rankings-avatar {
-    width: 28px;
-    height: 28px;
-  }
-
-  .rankings-row-name {
-    font-size: 12.5px;
-  }
-
-  .rankings-row-value {
-    min-width: 0;
-  }
-
-  .rankings-row-value-num {
-    font-size: 12px;
-  }
-
-  .rankings-row-value-label {
-    font-size: 9.5px;
-  }
-
-  .rankings-growth {
-    min-width: 0;
-    padding: 2px 6px;
-    font-size: 10px;
-  }
-
-  .rankings-sparkline {
-    width: 56px;
-    height: 22px;
-  }
-
-  /* A minmax floor wider than the phone (340px in a 292px column at 320px
-     wide) pushes the card outside the viewport; let the tracks shrink. */
-  .rankings-grid-2,
-  .rankings-grid-3 {
-    grid-template-columns: minmax(0, 1fr);
+  .rankings-stack,
+  .rankings-grid-2 {
     gap: 12px;
   }
 
-  /* Boards scroll as part of the page on phones: a fixed 480px inner scroll
-     box nests two scroll directions inside a touch surface. The 480px cap
-     lives on desktop only; overriding it here keeps the page scroll as one
-     surface while the row count stays capped by `MOBILE_BOARD_ROWS`. */
-  .rankings-scroll {
-    max-height: none;
-    overflow: visible;
-    padding: 0;
-    margin: 0;
+  .rankings-grid-2 {
+    grid-template-columns: minmax(0, 1fr);
   }
 
-  /* The chart's height comes from the `height` prop (the SVG/canvas is sized
-     to this box), so the mobile override is applied in JSX, not here — a CSS
-     `height` on the wrapper would not resize the rendered chart. */
+  /* The strip stacks into label/value lines: three short rows instead of a
+     tall card per number. */
+  .rankings-stats {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .rankings-stat {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      'label value'
+      'hint value';
+    align-items: center;
+    column-gap: 12px;
+    padding: 12px 14px;
+  }
+
+  .rankings-stat + .rankings-stat {
+    border-left: none;
+    border-top: 1px solid var(--rk-line);
+  }
+
+  .rankings-stat-value {
+    margin-top: 0;
+    font-size: 20px;
+    text-align: right;
+  }
+
+  .rankings-stat-hint {
+    margin-top: 2px;
+    font-size: 11px;
+  }
+
+  .rankings-section-header {
+    padding: 12px 14px 10px;
+  }
+
+  .rankings-section-title {
+    font-size: 16px;
+  }
+
+  .rankings-section-body {
+    padding: 2px 10px 6px;
+  }
+
   .rankings-trend-chart {
     margin-bottom: 8px;
-  }
-
-  .rankings-show-more {
-    margin-top: 6px;
-  }
-}
-
-/* Narrow boards — a phone screen, or a board sharing a row with two others —
-   keep the identity columns and drop the fixed-width extras: the growth pill
-   (the bar already carries that comparison) and the sparkline (decorative on
-   the perf boards). The rank-delta chip on the movers boards stays: it is the
-   reason that board exists. */
-@container (max-width: 400px) {
-  .rankings-row-growth,
-  .rankings-row-spark {
-    display: none;
-  }
-
-  .rankings-row-main {
-    min-width: 76px;
-  }
-
-  .rankings-row {
-    gap: 8px;
   }
 }
