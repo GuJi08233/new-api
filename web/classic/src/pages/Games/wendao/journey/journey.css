@@ -891,3 +891,51 @@
     display: none;
   }
 }
+
+/* ---------- 周天试炼 ---------- */
+.jn-trial-sign {
+  padding: 1px 8px;
+  border: 1px solid currentColor;
+  border-radius: 10px;
+  font-family: var(--wd-serif);
+  font-size: 12px;
+  font-weight: 600;
+}
+.jn-trial-sign.is-iron {
+  color: var(--wd-acc-stone);
+}
+.jn-trial-sign.is-fury {
+  color: var(--wd-red);
+}
+.jn-trial-sign.is-horde {
+  color: var(--wd-acc-violet);
+}
+.jn-trial-sign.is-bare {
+  color: var(--wd-acc-ice);
+}
+.jn-trial-sign.is-blessed {
+  color: var(--wd-acc-green);
+}
+.jn-trial-ends {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.jn-trial-ends > svg {
+  flex: none;
+}
+.jn-trial-done {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  color: var(--wd-acc-green);
+  font-size: 13px;
+  font-weight: 600;
+}
+.jn-trial.is-cleared {
+  opacity: 0.78;
+}
+.jn-trial-chest > header > svg {
+  color: var(--wd-red);
+}

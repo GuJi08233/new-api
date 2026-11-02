@@ -767,3 +767,30 @@ export const getNodeKindNames = (t) => ({
   boss: t('首领'),
   gather: t('采集'),
 });
+
+// 天象：名字与一句话说明哪种打法占便宜。数值取自规则(info.weekly.signs)。
+export const getSignText = (t, sign = {}) => ({
+  iron: {
+    name: t('金石'),
+    desc: t('敌人皮糙肉厚、出手较轻：持续的真火与叠起来的力量更占便宜'),
+  },
+  fury: {
+    name: t('血月'),
+    desc: t('敌人出手凶狠、身子却脆：多叠护体，或者抢在它们出手前打倒'),
+  },
+  horde: {
+    name: t('百鬼'),
+    desc: t('多来一个敌人，各自弱一些：群攻的功法更占便宜'),
+  },
+  bare: {
+    name: t('空明'),
+    desc: t('不带丹符、随行弟子与灵兽，只凭牌组与法宝'),
+  },
+  blessed: {
+    name: t('天助'),
+    desc: t('开战力量 +{{strength}}、护体 +{{block}}，敌人也更强', {
+      strength: sign.strength,
+      block: sign.block,
+    }),
+  },
+});

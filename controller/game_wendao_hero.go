@@ -48,6 +48,7 @@ func journeyInfo() gin.H {
 		"refine":               wendao.RefineRulesOf(),
 		"elixir":               wendao.ElixirRulesOf(),
 		"beast":                wendao.BeastRulesOf(),
+		"weekly":               wendao.WeeklyRulesOf(),
 	}
 }
 
@@ -104,7 +105,7 @@ func actHero(c *gin.Context) {
 		return
 	}
 	var seed uint64
-	if req.Type == "fight" || req.Type == "climb" {
+	if req.Type == "fight" || req.Type == "climb" || req.Type == "trial" {
 		var err error
 		if seed, err = newSectSeed(); err != nil {
 			common.ApiError(c, err)

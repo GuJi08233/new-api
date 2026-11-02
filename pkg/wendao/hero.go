@@ -49,6 +49,8 @@ type Hero struct {
 	BeastOut  int      `json:"beast_out,omitempty"`
 	NextBeast int      `json:"next_beast,omitempty"`
 	LureReady int64    `json:"lure_ready,omitempty"`
+	// Weekly 是这一周的周天试炼(weekly.go)，打败第一章首领之前为 nil。
+	Weekly *Weekly `json:"weekly,omitempty"`
 	// Day 与 DayRepeats 记今天重复通过节点拿了几次资源。
 	Day        string      `json:"day"`
 	DayRepeats int         `json:"day_repeats"`
@@ -62,11 +64,13 @@ type NodeRecord struct {
 	Last   int64 `json:"last"`
 }
 
-// HeroBattle 是主角正在打的一场仗：在哪个节点(或问心阶的第几级)、这一场的局面，以及从行囊里带出来的丹符(打完把没用掉的
-// 放回去)。
+// HeroBattle 是主角正在打的一场仗：在哪个节点(或问心阶的第几级、周天试炼哪一周的第几关)、这一场的局面，以及从行囊里
+// 带出来的丹符(打完把没用掉的放回去)。
 type HeroBattle struct {
 	Node    string       `json:"node"`
 	Step    int          `json:"step,omitempty"`
+	Trial   int          `json:"trial,omitempty"`
+	Week    string       `json:"week,omitempty"`
 	Run     *dungeon.Run `json:"run"`
 	Carried []string     `json:"carried"`
 	// Team 是随行的弟子编号，Beast 是出战的灵兽编号(没有为 0)。
@@ -311,6 +315,7 @@ func (sv *Save) HeroApply(a HeroAction, now int64, day string, seed uint64) ([]E
 		h.Day, h.DayRepeats = day, 0
 	}
 	evs := append(h.tick(s, now), h.hatchBeasts(now)...)
+	h.rollWeekly(day)
 	if h.Battle != nil && a.Type != "sync" && a.Type != "battle" && a.Type != "flee" {
 		return nil, ErrUnavailable
 	}
@@ -340,6 +345,8 @@ func (sv *Save) HeroApply(a HeroAction, now int64, day string, seed uint64) ([]E
 		err = h.fight(s, a.Node, a.Team, seed, now)
 	case "climb":
 		err = h.climb(s, a.Team, seed, now)
+	case "trial":
+		err = h.trial(s, a.Index, a.Team, seed, now)
 	case "craft":
 		more, err = h.craft(s, a.Item, a.Count)
 	case "qi":
@@ -574,7 +581,7 @@ func (h *Hero) fight(s *Sect, id string, team []int, seed uint64, now int64) err
 		return ErrUnavailable
 	}
 	hp, dmg := EnemyScale(n)
-	return h.startBattle(s, &HeroBattle{Node: id}, n.Kind, n.Enemies, hp, dmg, team, seed, now)
+	return h.startBattle(s, &HeroBattle{Node: id}, n.Kind, n.Enemies, hp, dmg, team, battleRules{}, seed, now)
 }
 
 // climb 挑战问心阶的下一级。
@@ -583,13 +590,21 @@ func (h *Hero) climb(s *Sect, team []int, seed uint64, now int64) error {
 		return ErrUnavailable
 	}
 	st := StepOf(h.Steps + 1)
-	return h.startBattle(s, &HeroBattle{Step: st.Step}, st.Kind, st.Enemies, st.HP, st.Dmg, team, seed, now)
+	return h.startBattle(s, &HeroBattle{Step: st.Step}, st.Kind, st.Enemies, st.HP, st.Dmg, team, battleRules{}, seed, now)
 }
 
-// startBattle 开始一场仗：带上牌组、佩戴的法宝、行囊里的丹符(按丹符栏格数，从行囊里拿出来)与随行弟子的援护牌。battle
-// 记着这一场打的是哪个节点或问心阶的哪一级。
-func (h *Hero) startBattle(s *Sect, battle *HeroBattle, kind string, enemies []string, hp, dmg int, team []int, seed uint64,
-	now int64) error {
+// battleRules 是周天试炼的天象对主角这一边的改动：Bare 不带丹符、随行弟子与灵兽，Strength、Block 是开战多的力量与护体。
+// 主线节点与问心阶为零值。
+type battleRules struct {
+	Bare     bool
+	Strength int
+	Block    int
+}
+
+// startBattle 开始一场仗：带上牌组、佩戴的法宝、行囊里的丹符(按丹符栏格数，从行囊里拿出来)、随行弟子的援护牌与出战的
+// 灵兽，再按 rules 改。battle 记着这一场打的是哪个节点、问心阶的哪一级或周天试炼的哪一关。
+func (h *Hero) startBattle(s *Sect, battle *HeroBattle, kind string, enemies []string, hp, dmg int, team []int,
+	rules battleRules, seed uint64, now int64) error {
 	if len(h.Deck) < DeckMin {
 		return ErrUnavailable
 	}
@@ -609,6 +624,9 @@ func (h *Hero) startBattle(s *Sect, battle *HeroBattle, kind string, enemies []s
 	}
 	carried := []string{}
 	slots := dungeon.PotionSlotsWith(h.Worn)
+	if rules.Bare {
+		slots = 0
+	}
 	for _, p := range dungeon.Potions() {
 		for h.Potions[p] > 0 && len(carried) < slots {
 			h.Potions[p]--
@@ -623,11 +641,15 @@ func (h *Hero) startBattle(s *Sect, battle *HeroBattle, kind string, enemies []s
 		rewards = 0
 	}
 	buffBlock, buffStrength := h.buffPower()
+	beast := h.battleBeast()
+	if rules.Bare {
+		beast = nil
+	}
 	run, err := dungeon.NewBattle(seed, dungeon.BattleSetup{
 		Class: h.Class, Deck: h.deckCards(), Relics: h.Worn, Potions: carried, MaxHP: h.MaxHP(),
-		Strength: min(h.Strength()+buffStrength, dungeon.BattleMaxStrength),
-		Block:    min(h.Block()+buffBlock, dungeon.BattleMaxBlock),
-		Kind:     kind, Enemies: enemies, HP: hp, Dmg: dmg, Rewards: rewards, Allies: allies, Beast: h.battleBeast(),
+		Strength: min(h.Strength()+buffStrength+rules.Strength, dungeon.BattleMaxStrength),
+		Block:    min(h.Block()+buffBlock+rules.Block, dungeon.BattleMaxBlock),
+		Kind:     kind, Enemies: enemies, HP: hp, Dmg: dmg, Rewards: rewards, Allies: allies, Beast: beast,
 	})
 	if err != nil {
 		return err
@@ -729,6 +751,11 @@ func (h *Hero) battleStep(s *Sect, a HeroAction, now int64) ([]Ev, error) {
 		st := StepOf(battle.Step)
 		evs, exp = h.clearStep(s, st), st.Exp
 		evs = append(evs, h.rewardBeast(battle.Beast, st.Kind, Chapters-1)...)
+	} else if battle.Trial > 0 {
+		var kind string
+		var chapter int
+		evs, kind, chapter = h.clearTrial(s, battle)
+		evs = append(evs, h.rewardBeast(battle.Beast, kind, chapter)...)
 	} else {
 		n := JourneyNodeOf(battle.Node)
 		evs, exp = h.clear(s, n, now), n.Exp
@@ -809,6 +836,8 @@ type HeroView struct {
 	BeastOut   int         `json:"beast_out"`
 	LureReady  int64       `json:"lure_ready"`
 	BeastSlots int         `json:"beast_slots"`
+	// Weekly 是这一周的周天试炼，还没开放时为空。
+	Weekly *WeeklyView `json:"weekly,omitempty"`
 }
 
 // BeastView 是一只灵兽：Power 是出手的力道，Cap 是现在的等级上限，FedToday、PlayedToday 是今天喂了几次、嬉戏过没有。
@@ -840,10 +869,11 @@ type CompanionView struct {
 
 // HeroBattleView 是正在打的一场仗。
 type HeroBattleView struct {
-	Node string       `json:"node"`
-	Step int          `json:"step,omitempty"`
-	Run  dungeon.View `json:"run"`
-	Team []int        `json:"team"`
+	Node  string       `json:"node"`
+	Step  int          `json:"step,omitempty"`
+	Trial int          `json:"trial,omitempty"`
+	Run   dungeon.View `json:"run"`
+	Team  []int        `json:"team"`
 	// Beast 是这一场出战的灵兽(没有为空)。
 	Beast *dungeon.BattleBeast `json:"beast,omitempty"`
 }
@@ -898,8 +928,11 @@ func (h *Hero) View(s *Sect, now int64, day string) HeroView {
 		}
 	}
 	if h.Battle != nil {
-		v.Battle = &HeroBattleView{Node: h.Battle.Node, Step: h.Battle.Step, Run: h.Battle.Run.View(), Team: h.Battle.Team,
-			Beast: h.Battle.Run.Battle.Beast}
+		v.Battle = &HeroBattleView{Node: h.Battle.Node, Step: h.Battle.Step, Trial: h.Battle.Trial, Run: h.Battle.Run.View(),
+			Team: h.Battle.Team, Beast: h.Battle.Run.Battle.Beast}
+	}
+	if w := h.weeklyAt(day); w != nil {
+		v.Weekly = &WeeklyView{Weekly: w, Ends: WeekEnd(day)}
 	}
 	return v
 }

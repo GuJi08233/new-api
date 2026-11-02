@@ -123,9 +123,11 @@ const BattleStage = ({
       <div className='dg-hud'>
         <div className='dg-hud-row'>
           <span className='dg-mode is-trial'>
-            {battle.step
-              ? t('问心阶 · 第 {{n}} 级', { n: battle.step })
-              : nodes[battle.node]?.name}
+            {battle.trial
+              ? t('周天试炼 · 第 {{n}} 关', { n: battle.trial })
+              : battle.step
+                ? t('问心阶 · 第 {{n}} 级', { n: battle.step })
+                : nodes[battle.node]?.name}
           </span>
           <span className='dg-hud-spacer' />
           <Button

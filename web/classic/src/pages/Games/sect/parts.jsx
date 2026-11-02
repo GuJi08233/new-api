@@ -122,9 +122,15 @@ export function formatLeft(seconds, t) {
       seconds: left % 60,
     });
   }
-  return t('{{hours}} 小时 {{minutes}} 分', {
-    hours: Math.floor(left / 3600),
-    minutes: Math.floor((left % 3600) / 60),
+  if (left < 86400) {
+    return t('{{hours}} 小时 {{minutes}} 分', {
+      hours: Math.floor(left / 3600),
+      minutes: Math.floor((left % 3600) / 60),
+    });
+  }
+  return t('{{days}} 天 {{hours}} 小时', {
+    days: Math.floor(left / 86400),
+    hours: Math.floor((left % 86400) / 3600),
   });
 }
 

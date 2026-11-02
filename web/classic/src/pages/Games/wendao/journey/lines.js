@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import { formatAmount } from '../../sect/parts';
-import { getKeyText, getNodeText } from './text';
+import { getKeyText, getNodeText, getSignText } from './text';
 import {
   getBeastStageNames,
   getBeastText,
@@ -36,6 +36,7 @@ export function heroEventLines(events, t, text, sectText) {
   const grades = getGradeNames(t);
   const beasts = getBeastText(t);
   const stages = getBeastStageNames(t);
+  const signs = getSignText(t);
   const lines = [];
   const gains = [];
   for (const ev of events || []) {
@@ -184,6 +185,19 @@ export function heroEventLines(events, t, text, sectText) {
         break;
       case 'hero_step':
         lines.unshift(t('登上问心阶第 {{n}} 级', { n: ev.n }));
+        break;
+      case 'hero_trial':
+        lines.unshift(
+          t('周天试炼第 {{n}} 关「{{sign}}」过关', {
+            n: ev.n,
+            sign: signs[ev.s]?.name,
+          }),
+        );
+        break;
+      case 'hero_trial_week':
+        lines.push(
+          t('本周三关全过，开启周天宝箱（已有 {{n}} 周全过）', { n: ev.n }),
+        );
         break;
       case 'hero_room':
         lines.push(

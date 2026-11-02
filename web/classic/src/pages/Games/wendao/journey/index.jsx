@@ -32,6 +32,7 @@ import CreateHero from './CreateHero';
 import HeroCard from './HeroCard';
 import MapPanel from './MapPanel';
 import StepsPanel from './StepsPanel';
+import TrialsPanel from './TrialsPanel';
 import Collection from './Collection';
 import Gear from './Gear';
 import Cave from '../cave/Cave';
@@ -258,6 +259,18 @@ const JourneyPage = () => {
               busy={busy}
               onClimb={async (team) => {
                 const data = await act('climb', { team });
+                if (data) playSound('start');
+              }}
+            />
+          </TabPane>
+          <TabPane tab={t('周天试炼')} itemKey='trial'>
+            <TrialsPanel
+              info={info}
+              hero={hero}
+              now={now}
+              busy={busy}
+              onTrial={async (index, team) => {
+                const data = await act('trial', { index, team });
                 if (data) playSound('start');
               }}
             />

@@ -128,3 +128,39 @@ func TestWendaoAgendaThroughTheApi(t *testing.T) {
 	operation_setting.SetGameSettingForTest(setting)
 	player.fails(http.MethodGet, path, nil)
 }
+
+// 周天试炼通过接口：打败第一章首领之前没有；之后读主角能看到这一周的三关，开战记着是第几关，规则里有天象表。
+func TestWendaoTrialThroughTheApi(t *testing.T) {
+	require.NoError(t, i18n.Init())
+	env := newGameTestEnv(t, sectSettings())
+	player := env.player(0, gameTestIpA)
+	path := "/api/game/wendao/hero"
+
+	created := player.ok(http.MethodPost, path+"/action", map[string]any{"action": "create", "class": dungeon.ClassWarrior})
+	assert.Nil(t, created["hero"].(map[string]any)["weekly"])
+	player.fails(http.MethodPost, path+"/action", map[string]any{"action": "trial", "index": 1})
+
+	_, err := model.UpdateGameSave(player.user.Id, wendao.SaveKey, func(data string) (string, error) {
+		return wendao.UpdateSave(data, func(save *wendao.Save) error {
+			for i := range wendao.JourneyNodes {
+				if n := &wendao.JourneyNodes[i]; n.Chapter == 0 {
+					save.Hero.Nodes[n.Id] = &wendao.NodeRecord{Clears: 1}
+				}
+			}
+			return nil
+		})
+	})
+	require.NoError(t, err)
+	weekly := player.ok(http.MethodGet, path, nil)["hero"].(map[string]any)["weekly"].(map[string]any)
+	assert.Len(t, weekly["trials"], wendao.WeeklyTrials)
+	assert.Equal(t, float64(0), weekly["chapter"])
+	assert.Greater(t, weekly["ends"], float64(0))
+
+	fight := player.ok(http.MethodPost, path+"/action", map[string]any{"action": "trial", "index": 2})
+	battle := fight["hero"].(map[string]any)["battle"].(map[string]any)
+	assert.Equal(t, float64(2), battle["trial"])
+	player.ok(http.MethodPost, path+"/action", map[string]any{"action": "flee"})
+
+	journey := player.ok(http.MethodGet, "/api/game/wendao", nil)["journey"].(map[string]any)
+	assert.Len(t, journey["weekly"].(map[string]any)["signs"], len(wendao.WeeklySigns))
+}

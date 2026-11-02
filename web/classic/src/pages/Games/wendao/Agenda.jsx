@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 
 import React, { useMemo, useState } from 'react';
 import {
+  CalendarDays,
   Castle,
   ChevronRight,
   ClipboardCheck,
@@ -59,6 +60,7 @@ const TODO_ICONS = {
   furnace_idle: Flame,
   garden_empty: Sprout,
   gather: Pickaxe,
+  trial: CalendarDays,
   abyss_reward: Castle,
   tournament_reward: Trophy,
 };
@@ -94,6 +96,8 @@ const todoText = (todo, t) => {
       return t('{{n}} 块灵田空着', { n });
     case 'gather':
       return t('{{n}} 处采集点可以去', { n });
+    case 'trial':
+      return t('周天试炼还有 {{n}} 关没过', { n });
     case 'abyss_reward':
       return t('今天的秘境奖励还能领 {{n}} 次', { n });
     case 'tournament_reward':

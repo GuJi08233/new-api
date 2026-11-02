@@ -29,7 +29,7 @@ type Goal struct {
 //   - 宗门：event 奇遇、missions 派遣回山、garden 灵田成熟、daily 功课可领(含宝箱)、disciple_break 弟子可突破、
 //     garden_empty 灵田空着
 //   - 历练：furnace_done 丹炉出丹、hero_break 主角可突破、furnace_stoke 可以调火、qi 可以服聚气丹或培元丹、
-//     beast_play 灵兽可以嬉戏、lure 可以引兽、furnace_idle 丹炉空着、gather 采集点可以去
+//     beast_play 灵兽可以嬉戏、lure 可以引兽、furnace_idle 丹炉空着、gather 采集点可以去、trial 周天试炼还有几关没过
 //   - 发游戏币的玩法(由控制器按领奖规则补上)：abyss_reward 秘境、tournament_reward 大比今天的奖励还没领满
 type Todo struct {
 	Key  string `json:"key"`
@@ -128,6 +128,9 @@ func (sv *Save) todos(now int64, day string) []Todo {
 	}
 	if h != nil {
 		add(h.gatherReady(now), Todo{Key: "gather", Part: PartJourney, Tab: "map"})
+		if w := h.weeklyAt(day); w != nil {
+			add(w.left(), Todo{Key: "trial", Part: PartJourney, Tab: "trial"})
+		}
 	}
 	return todos
 }
