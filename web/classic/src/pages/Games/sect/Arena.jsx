@@ -157,7 +157,9 @@ const ArenaLobby = ({ overview, sect, now, busy, onDefend, onChallenge }) => {
         <Shield size={15} />
         {t('守擂阵容 {{n}} / 3', { n: defense.length })}
         <span className='sc-muted'>
-          {t('按选择的顺序出场；在外历练或受伤也照常守擂')}
+          {t(
+            '按选择的顺序由虚影守擂，不占用实际弟子；外出、驻守或受伤也可设防',
+          )}
         </span>
       </h4>
       {defensePicker}
@@ -296,7 +298,10 @@ const Arena = ({ sect, now, busy, post, round, setRound, onSettled }) => {
   };
 
   const challenge = async (opponent, team) => {
-    const data = await post('/api/game/wendao/sect/arena/start', { opponent, team });
+    const data = await post('/api/game/wendao/sect/arena/start', {
+      opponent,
+      team,
+    });
     if (!data) return;
     setRound(data);
     onSettled();

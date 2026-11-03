@@ -32,6 +32,7 @@ import { useVisiblePolling } from '../common/useVisiblePolling';
 import Overview from './Overview';
 import Disciples from './Disciples';
 import Missions from './Missions';
+import Outposts from './Outposts';
 import Alchemy from './Alchemy';
 import Tournament from './Tournament';
 import Shop from './Shop';
@@ -80,6 +81,7 @@ const SectPage = () => {
   const focused = focus?.part === 'sect' ? focus : null;
   const turnstile = usePlayTurnstile(info?.play_turnstile);
   const [sect, setSect] = useState(null);
+  const [outposts, setOutposts] = useState(null);
   // standing 是主角的身份({ identity, path, realm, stipend_ready })：宗门操作与身份操作的回应里带着，商店这些不带的
   // 回应不改它。
   const [standing, setStanding] = useState(null);
@@ -142,6 +144,9 @@ const SectPage = () => {
             playSound('lose');
             float(eventSentence(ev, text, t), 'bad');
             break;
+          case 'outpost_build':
+          case 'outpost_station':
+          case 'outpost_recall':
           case 'built':
           case 'joined':
           case 'talent':
@@ -208,6 +213,7 @@ const SectPage = () => {
   const accept = useCallback((data) => {
     setSect(data.sect);
     if (data.standing) setStanding(data.standing);
+    if ('outposts' in data) setOutposts(data.outposts);
     setReceivedAt(Date.now());
   }, []);
 
@@ -251,6 +257,22 @@ const SectPage = () => {
       gamePostOnce,
     );
     if (!data) return false;
+    accept(data);
+    showEvents(data.events || []);
+    return true;
+  };
+
+  const actOutpost = async (action, fields = {}) => {
+    setNotice(null);
+    const data = await post(
+      '/api/game/wendao/sect/outpost',
+      { action, ...fields },
+      gamePostOnce,
+    );
+    if (!data) {
+      await sync();
+      return false;
+    }
     accept(data);
     showEvents(data.events || []);
     return true;
@@ -603,6 +625,17 @@ const SectPage = () => {
                   elapsed={elapsed}
                   busy={busy}
                   act={act}
+                />
+              </TabPane>
+              <TabPane tab={t('下院')} itemKey='outposts'>
+                <Outposts
+                  outposts={outposts}
+                  sect={sect}
+                  standing={standing}
+                  now={now}
+                  busy={busy}
+                  act={actOutpost}
+                  focus={focused}
                 />
               </TabPane>
               <TabPane

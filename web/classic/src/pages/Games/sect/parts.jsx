@@ -22,6 +22,7 @@ import { Tooltip } from '@douyinfe/semi-ui';
 import { Gem, Hammer, Leaf, Star } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { formatAmount } from './format';
+import { REGION_IDS, getRegionText } from '../wendao/duel/text';
 export { formatAmount, formatLeft } from './format';
 import {
   getSkillNames,
@@ -60,6 +61,7 @@ export function SectTextProvider({ children }) {
   const text = useMemo(
     () => ({
       resources: getResourceNames(t),
+      regions: getRegionText(t),
       realms: getRealmNames(t),
       talents: getTalentNames(t),
       elements: getElementNames(t),
@@ -208,6 +210,20 @@ export function eventSentence(ev, text, t) {
       });
     case 'layer':
       return t('{{who}}修为精进 {{n}} 层', { who, n: ev.n });
+    case 'outpost_build':
+      return t('在{{region}}建起下院', {
+        region: text.regions[REGION_IDS[ev.n]]?.name,
+      });
+    case 'outpost_station':
+      return t('{{who}}前往{{region}}下院驻守', {
+        who,
+        region: text.regions[REGION_IDS[ev.n]]?.name,
+      });
+    case 'outpost_recall':
+      return t('{{who}}从{{region}}下院回到本宗', {
+        who,
+        region: text.regions[REGION_IDS[ev.n]]?.name,
+      });
     case 'mission': {
       const name = text.missions[ev.s]?.name;
       if (ev.n === 2) return t('{{name}}大获全胜', { name });

@@ -30,7 +30,10 @@ type Disciple struct {
 	Exp     float64 `json:"exp"`
 	Job     string  `json:"job"`
 	Mission int     `json:"mission"`
-	Injured int64   `json:"injured"`
+	// Outpost 为驻守的地域（0 为本宗），Token 用于拒绝旧页面召回后来重新开始的驻守。
+	Outpost      int    `json:"outpost,omitempty"`
+	OutpostToken string `json:"outpost_token,omitempty"`
+	Injured      int64  `json:"injured"`
 	// QiReady 是下一颗聚气丹什么时候能服：服一颗要等丹力化开，免得灵草堆起来就能一口气吃到化神。
 	QiReady int64 `json:"qi_ready"`
 	Joined  int64 `json:"joined"`
@@ -85,7 +88,7 @@ type Ev struct {
 // logKinds 是要记进大事记的事。
 var logKinds = map[string]bool{"built": true, "joined": true, "left": true, "bottleneck": true, "realm": true,
 	"break_fail": true, "talent": true, "mission": true, "event": true, "tournament": true, "arena": true,
-	"sold": true, "bought": true, "path_found": true}
+	"sold": true, "bought": true, "path_found": true, "outpost_build": true, "outpost_station": true, "outpost_recall": true}
 
 // Stats 是宗门的战绩。Day 与 DayRuns 记今天参加了几次大比：每天前几次大比才有声望与灵石。
 type Stats struct {
@@ -118,6 +121,7 @@ type Sect struct {
 	Disciples   []*Disciple    `json:"disciples"`
 	NextId      int            `json:"next_id"`
 	Missions    []*Mission     `json:"missions"`
+	Outposts    []Outpost      `json:"outposts,omitempty"`
 	Recruits    []*Candidate   `json:"recruits"`
 	RecruitAt   int64          `json:"recruit_at"`
 	Event       *Event         `json:"event"`
@@ -220,7 +224,7 @@ func (s *Sect) disciple(id int) *Disciple {
 }
 
 // home 表示弟子在宗门里且没有受伤，可以派去历练、比斗或突破。
-func (d *Disciple) home(now int64) bool { return d.Mission == 0 && d.Injured <= now }
+func (d *Disciple) home(now int64) bool { return d.Mission == 0 && d.Outpost == 0 && d.Injured <= now }
 
 // Power 是弟子的战力：境界与层数，乘资质、藏经阁与好战的加成。
 func (s *Sect) Power(d *Disciple) int {
@@ -237,7 +241,7 @@ func (s *Sect) cultivateRate(d *Disciple, job string) float64 {
 	if d.Trait == TraitDiligent {
 		rate *= diligentExp
 	}
-	if job != JobCultivate {
+	if job != JobCultivate || d.Outpost != 0 {
 		rate *= workExp
 	}
 	return rate
@@ -309,11 +313,18 @@ func (s *Sect) Rates(at int64) Rates {
 	}
 	level := func(b string) float64 { return float64(s.Buildings[b]) }
 	alliance := 1 + AllianceBonusPerLevel*float64(s.AllianceLevel)
-	return Rates{
+	rate := Rates{
 		Stone: (hallStonePerLevel*level(BuildingHall) + arrayStonePerLevel*level(BuildingArray)*(1+bonus[JobArray])) * alliance,
 		Herb:  fieldHerbPerLevel * level(BuildingField) * (1 + bonus[JobField]) * alliance,
 		Ore:   mineOrePerLevel * level(BuildingMine) * (1 + bonus[JobMine]) * alliance,
 	}
+	for region := 1; region < len(Regions); region++ {
+		outpost := s.outpostRate(region, at)
+		rate.Stone += outpost.Stone
+		rate.Herb += outpost.Herb
+		rate.Ore += outpost.Ore
+	}
+	return rate
 }
 
 // Tick 结算从上次到 now 的产出与修炼(最多 OfflineCap 秒)，到点换招募候选、出现新的奇遇。
@@ -561,6 +572,9 @@ func (s *Sect) assign(id int, job string, now int64) error {
 	if d == nil || !slices.Contains(Jobs, job) {
 		return ErrAction
 	}
+	if d.Outpost != 0 {
+		return ErrUnavailable
+	}
 	if job == d.Job {
 		return nil
 	}
@@ -570,7 +584,7 @@ func (s *Sect) assign(id int, job string, now int64) error {
 		}
 		workers := 0
 		for _, other := range s.Disciples {
-			if other.Job == job {
+			if other.Job == job && other.Outpost == 0 {
 				workers++
 			}
 		}
@@ -617,6 +631,9 @@ func (s *Sect) usePill(key string, id int, now int64) ([]Ev, error) {
 	d := s.disciple(id)
 	if d == nil {
 		return nil, ErrAction
+	}
+	if d.Outpost != 0 {
+		return nil, ErrUnavailable
 	}
 	if s.Pills[key] <= 0 {
 		return nil, ErrCost
@@ -847,7 +864,7 @@ func (s *Sect) dismiss(id int) ([]Ev, error) {
 	if d == nil {
 		return nil, ErrAction
 	}
-	if d.Mission != 0 || len(s.Disciples) <= 1 {
+	if d.Mission != 0 || d.Outpost != 0 || len(s.Disciples) <= 1 {
 		return nil, ErrUnavailable
 	}
 	s.Disciples = slices.DeleteFunc(s.Disciples, func(other *Disciple) bool { return other.Id == id })

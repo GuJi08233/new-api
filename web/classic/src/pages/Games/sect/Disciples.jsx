@@ -22,6 +22,8 @@ import { Button, Modal, Select } from '@douyinfe/semi-ui';
 import { RefreshCw, UserPlus, Users } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { JOBS } from './text';
+import { useWendaoShell } from '../wendao/shell';
+import { REGION_IDS } from '../wendao/duel/text';
 import {
   Bar,
   CostChips,
@@ -38,6 +40,14 @@ const RECRUIT_REFRESH_COST = { stone: 50 };
 
 // 弟子现在在做什么：历练途中、受伤、修到瓶颈或者按差事修炼。
 function discipleStatus(d, sect, now, text, t) {
+  if (d.outpost) {
+    return {
+      kind: 'away',
+      label: t('驻守{{region}}下院', {
+        region: text.regions[REGION_IDS[d.outpost]]?.name,
+      }),
+    };
+  }
   if (d.mission) {
     const mission = sect.missions.find((m) => m.id === d.mission);
     const name = text.missions[mission?.key]?.name;
@@ -68,7 +78,8 @@ const DiscipleCard = ({ d, sect, now, elapsed, busy, act }) => {
   const { t } = useTranslation();
   const text = useSectText();
   const pills = sect.pills || {};
-  const home = !d.mission && d.injured <= now;
+  const { go } = useWendaoShell();
+  const home = !d.mission && !d.outpost && d.injured <= now;
   const status = discipleStatus(d, sect, now, text, t);
   // 两次同步之间按修炼速度把修为条往前推，到下一次同步时由服务端校准。
   const exp = Math.min(d.need, d.exp + (d.rate * elapsed) / 3600);
@@ -103,11 +114,25 @@ const DiscipleCard = ({ d, sect, now, elapsed, busy, act }) => {
       <div className={`sc-status is-${status.kind || 'idle'}`}>
         {status.label}
       </div>
+      {d.outpost > 0 && (
+        <p className='sc-hint'>
+          {t('驻守时半速修炼，普通差事、服丹、突破与出战需先召回。')}
+          <Button
+            size='small'
+            theme='borderless'
+            onClick={() =>
+              go({ part: 'sect', tab: 'outposts', region: d.outpost })
+            }
+          >
+            {t('前往下院')}
+          </Button>
+        </p>
+      )}
       <div className='sc-disciple-actions'>
         <Select
           size='small'
           value={d.job}
-          disabled={busy}
+          disabled={busy || !!d.outpost}
           onChange={(job) => act('assign', { disciple: d.id, job })}
           optionList={JOBS.map((job) => ({
             value: job,
@@ -121,7 +146,7 @@ const DiscipleCard = ({ d, sect, now, elapsed, busy, act }) => {
               size='small'
               theme='solid'
               type='warning'
-              disabled={busy}
+              disabled={busy || !!d.outpost}
               onClick={() => act('breakthrough', { disciple: d.id })}
             >
               {t('突破 {{chance}}%', { chance: d.break_chance })}
@@ -131,7 +156,7 @@ const DiscipleCard = ({ d, sect, now, elapsed, busy, act }) => {
                 size='small'
                 theme='solid'
                 type='warning'
-                disabled={busy}
+                disabled={busy || !!d.outpost}
                 onClick={() =>
                   act('breakthrough', { disciple: d.id, use_pill: true })
                 }
@@ -143,7 +168,7 @@ const DiscipleCard = ({ d, sect, now, elapsed, busy, act }) => {
             )}
           </>
         )}
-        {pills.qi > 0 && !d.mission && !(d.break_chance > 0) && (
+        {pills.qi > 0 && !d.mission && !d.outpost && !(d.break_chance > 0) && (
           <Button
             size='small'
             disabled={busy || qiWait > 0}
@@ -154,21 +179,26 @@ const DiscipleCard = ({ d, sect, now, elapsed, busy, act }) => {
               : t('服聚气丹')}
           </Button>
         )}
-        {pills.peiyuan > 0 && !d.mission && !(d.break_chance > 0) && (
-          <Button
-            size='small'
-            disabled={busy || qiWait > 0}
-            onClick={() => act('use_pill', { disciple: d.id, pill: 'peiyuan' })}
-          >
-            {qiWait > 0
-              ? t('培元丹 {{time}}', { time: formatLeft(qiWait, t) })
-              : t('服培元丹')}
-          </Button>
-        )}
+        {pills.peiyuan > 0 &&
+          !d.mission &&
+          !d.outpost &&
+          !(d.break_chance > 0) && (
+            <Button
+              size='small'
+              disabled={busy || qiWait > 0}
+              onClick={() =>
+                act('use_pill', { disciple: d.id, pill: 'peiyuan' })
+              }
+            >
+              {qiWait > 0
+                ? t('培元丹 {{time}}', { time: formatLeft(qiWait, t) })
+                : t('服培元丹')}
+            </Button>
+          )}
         {pills.heal > 0 && d.injured > now && (
           <Button
             size='small'
-            disabled={busy}
+            disabled={busy || !!d.outpost}
             onClick={() => act('use_pill', { disciple: d.id, pill: 'heal' })}
           >
             {t('服回春丹')}
@@ -177,19 +207,19 @@ const DiscipleCard = ({ d, sect, now, elapsed, busy, act }) => {
         {pills.marrow > 0 && d.talent < 5 && (
           <Button
             size='small'
-            disabled={busy}
+            disabled={busy || !!d.outpost}
             onClick={() => act('use_pill', { disciple: d.id, pill: 'marrow' })}
           >
             {t('服洗髓丹')}
           </Button>
         )}
         <span className='sc-spacer' />
-        {!d.mission && sect.disciples.length > 1 && (
+        {!d.mission && !d.outpost && sect.disciples.length > 1 && (
           <Button
             size='small'
             type='tertiary'
             theme='borderless'
-            disabled={busy}
+            disabled={busy || !!d.outpost}
             onClick={confirmDismiss}
           >
             {t('下山')}

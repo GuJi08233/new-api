@@ -187,7 +187,7 @@ func (s *Sect) resolveEvent(choice int, now int64) ([]Ev, error) {
 		evs = append(evs, s.addExp(target, s.cultivateRate(target, JobCultivate)*insightHours)...)
 	case pick{"insight", 1}:
 		for _, d := range s.Disciples {
-			if d.Mission == 0 {
+			if d.Mission == 0 && d.Outpost == 0 {
 				evs = append(evs, s.addExp(d, s.cultivateRate(d, JobCultivate)*insightShareHour)...)
 			}
 		}

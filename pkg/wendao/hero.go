@@ -1078,12 +1078,14 @@ type BrewView struct {
 
 // CompanionView 是一名可以随行的弟子。
 type CompanionView struct {
-	Id      int    `json:"id"`
-	Name    [3]int `json:"name"`
-	Element int    `json:"element"`
-	Realm   int    `json:"realm"`
-	Layer   int    `json:"layer"`
-	Ready   bool   `json:"ready"`
+	Id           int    `json:"id"`
+	Name         [3]int `json:"name"`
+	Element      int    `json:"element"`
+	Realm        int    `json:"realm"`
+	Layer        int    `json:"layer"`
+	Ready        bool   `json:"ready"`
+	Outpost      int    `json:"outpost,omitempty"`
+	OutpostToken string `json:"outpost_token,omitempty"`
 }
 
 // HeroBattleView 是正在打的一场仗。
@@ -1138,7 +1140,7 @@ func (h *Hero) View(s *Sect, now int64, day string) HeroView {
 	}
 	for _, d := range s.Disciples {
 		v.Companions = append(v.Companions, CompanionView{Id: d.Id, Name: d.Name, Element: d.Element, Realm: d.Realm,
-			Layer: d.Layer, Ready: d.home(now)})
+			Layer: d.Layer, Ready: d.home(now), Outpost: d.Outpost, OutpostToken: d.OutpostToken})
 	}
 	if h.Realm < MaxRealm {
 		v.BreakKey = BreakKeys[h.Realm]

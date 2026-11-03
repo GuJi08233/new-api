@@ -112,7 +112,9 @@ const MissionCard = ({ spec, sect, now, busy, act, library }) => {
   const [team, setTeam] = useState([]);
   const running = sect.missions.some((m) => m.key === spec.key);
   const slotsFull = sect.missions.length >= sect.mission_slots;
-  const home = sect.disciples.filter((d) => !d.mission && d.injured <= now);
+  const home = sect.disciples.filter(
+    (d) => !d.mission && !d.outpost && d.injured <= now,
+  );
   const chosen = home.filter((d) => team.includes(d.id));
   const info = text.missions[spec.key];
 
@@ -136,7 +138,13 @@ const MissionCard = ({ spec, sect, now, busy, act, library }) => {
           : previous,
     );
   const dispatch = async () => {
-    if (await act('dispatch', { mission: spec.key, team })) setPicking(false);
+    if (
+      await act('dispatch', {
+        mission: spec.key,
+        team: chosen.map((d) => d.id),
+      })
+    )
+      setPicking(false);
   };
 
   return (

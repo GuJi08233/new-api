@@ -13,21 +13,23 @@ type BuildingView struct {
 }
 
 type DiscipleView struct {
-	Id      int     `json:"id"`
-	Name    [3]int  `json:"name"`
-	Element int     `json:"element"`
-	Talent  int     `json:"talent"`
-	Trait   string  `json:"trait"`
-	Realm   int     `json:"realm"`
-	Layer   int     `json:"layer"`
-	Exp     int     `json:"exp"`
-	Need    int     `json:"need"`
-	Rate    float64 `json:"rate"`
-	Power   int     `json:"power"`
-	Job     string  `json:"job"`
-	Mission int     `json:"mission"`
-	Injured int64   `json:"injured"`
-	QiReady int64   `json:"qi_ready"`
+	Id           int     `json:"id"`
+	Name         [3]int  `json:"name"`
+	Element      int     `json:"element"`
+	Talent       int     `json:"talent"`
+	Trait        string  `json:"trait"`
+	Realm        int     `json:"realm"`
+	Layer        int     `json:"layer"`
+	Exp          int     `json:"exp"`
+	Need         int     `json:"need"`
+	Rate         float64 `json:"rate"`
+	Power        int     `json:"power"`
+	Job          string  `json:"job"`
+	Mission      int     `json:"mission"`
+	Outpost      int     `json:"outpost,omitempty"`
+	OutpostToken string  `json:"outpost_token,omitempty"`
+	Injured      int64   `json:"injured"`
+	QiReady      int64   `json:"qi_ready"`
 	// BreakChance 是现在突破(不服丹)的成功率，没到瓶颈或已是最高境界为 0。
 	BreakChance int `json:"break_chance"`
 }
@@ -112,7 +114,7 @@ func (s *Sect) View(now int64) View {
 		}
 		view := DiscipleView{Id: d.Id, Name: d.Name, Element: d.Element, Talent: d.Talent, Trait: d.Trait, Realm: d.Realm,
 			Layer: d.Layer, Exp: int(d.Exp), Need: int(ExpNeed(d.Realm, d.Layer)), Rate: math.Round(rate*10) / 10,
-			Power: s.Power(d), Job: d.Job, Mission: d.Mission, Injured: d.Injured, QiReady: d.QiReady}
+			Power: s.Power(d), Job: d.Job, Mission: d.Mission, Outpost: d.Outpost, OutpostToken: d.OutpostToken, Injured: d.Injured, QiReady: d.QiReady}
 		if d.Bottleneck() {
 			view.BreakChance = BreakChance(d, false)
 		}

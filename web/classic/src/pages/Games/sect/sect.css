@@ -46,6 +46,66 @@
   margin-top: 4px;
 }
 
+.sc-outposts {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sc-outpost {
+  padding: 14px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 12px;
+  background: var(--semi-color-bg-1);
+  scroll-margin-block: 18px;
+}
+
+.sc-outpost-head,
+.sc-outpost-head h3,
+.sc-outpost-members h4,
+.sc-outpost-station h4,
+.sc-outpost-total,
+.sc-outpost-rate,
+.sc-outpost-member,
+.sc-outpost-build {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.sc-outpost-head,
+.sc-outpost-member {
+  justify-content: space-between;
+}
+
+.sc-outpost-head h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.sc-outpost-head p {
+  margin: 6px 0;
+}
+
+.sc-outpost-build {
+  margin-top: 8px;
+}
+
+.sc-outpost-build .sc-building-desc {
+  flex-basis: 100%;
+}
+
+.sc-outpost-members,
+.sc-outpost-station {
+  margin-top: 12px;
+}
+
+.sc-outpost-member {
+  padding: 5px 0;
+  gap: 6px 12px;
+}
+
 /* ---------- 资源栏 ---------- */
 
 .sc-resources {

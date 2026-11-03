@@ -283,6 +283,23 @@ const WorldPage = () => {
           </p>
         )}
         <ul className='dl-features'>
+          {state.standing?.identity === 'master' && (
+            <li>
+              <span>
+                {here === 0
+                  ? t('青岚山是本宗山门，下院建在其他地域')
+                  : t('{{region}}下院', { region: regions[id].name })}
+              </span>
+              <Button
+                size='small'
+                onClick={() =>
+                  go({ part: 'sect', tab: 'outposts', region: here })
+                }
+              >
+                {t('前往下院')}
+              </Button>
+            </li>
+          )}
           <li>
             <span>{t('历练主线：第 {{n}} 章', { n: here + 1 })}</span>
             <Button

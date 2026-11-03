@@ -316,7 +316,7 @@ export function useHomeDisciples(sect, now) {
   return useMemo(
     () =>
       sect.disciples
-        .filter((d) => !d.mission && d.injured <= now)
+        .filter((d) => !d.mission && !d.outpost && d.injured <= now)
         .sort((a, b) => b.power - a.power),
     // 只在弟子名单变了时重新排序，倒计时每秒刷新不影响勾选。
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -359,7 +359,7 @@ const Signup = ({ info, sect, now, busy, turnstile, onStart }) => {
       </h4>
       {home.length === 0 && (
         <p className='sc-hint'>
-          {t('宗门里没有能出战的弟子：都在外历练或受了伤')}
+          {t('宗门里没有能出战的弟子：都在外历练、下院驻守或受了伤')}
         </p>
       )}
       {picker}

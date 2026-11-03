@@ -69,6 +69,8 @@ func sectInfo(ctx *gameContext) (gin.H, error) {
 func registerSectRoutes(group *gin.RouterGroup) {
 	group.POST("/action", middleware.GameActionRateLimit("sect-action"), actSect)
 	group.POST("/path", middleware.GameActionRateLimit("sect-path"), actSectPath)
+	group.GET("/outpost", getSectOutpost)
+	group.POST("/outpost", middleware.GameActionRateLimit("sect-outpost"), actSectOutpost)
 	group.GET("/tournament", getSectTournament)
 	group.POST("/tournament/start", middleware.GamePlayRateLimit("sect-tournament-start"), startSectTournament)
 	group.POST("/tournament/action", middleware.GameActionRateLimit("sect-tournament-action"), actSectTournament)
@@ -215,18 +217,14 @@ func actSect(c *gin.Context) {
 			respondSectError(c, err)
 			return
 		}
-		common.ApiSuccess(c, gin.H{"sect": save.Sect.View(now), "standing": save.PathView(gameCenterDay()), "events": []wendao.Ev{},
-			"replayed": true})
+		respondSectManagement(c, save, now, nil, true)
 		return
 	}
 	if err != nil {
 		respondSectError(c, err)
 		return
 	}
-	if evs == nil {
-		evs = []wendao.Ev{}
-	}
-	common.ApiSuccess(c, gin.H{"sect": current.Sect.View(now), "standing": current.PathView(gameCenterDay()), "events": evs})
+	respondSectManagement(c, current, now, evs, false)
 }
 
 func sectTournamentView(session *model.GameSession, state *sectTournamentState) gin.H {
@@ -312,8 +310,8 @@ func startSectTournament(c *gin.Context) {
 	})
 }
 
-// startSectDuel 开一场大比或论剑：build 按宗门存档建出斗法(seed 为 0 时只用来检查报名的弟子)。回春丹在开局时从库存里拿走，
-// 结算时把没用完的放回去；开局之后对局没能建起来、或者斗法超时没有结算，带走的丹药不退。defender 是论剑的守擂方(大比为 0)。
+// startSectDuel 开一场大比或论剑：build 按宗门存档建出斗法(seed 为 0 时只检查报名弟子)。校验队伍、扣丹与创建会话在同一
+// 存档锁事务里，派驻下院不会穿插在开局中间；开局失败不扣丹，已开局超时的丹药不退。defender 是论剑守擂方(大比为 0)。
 func startSectDuel(c *gin.Context, game string, defender int, build func(seed uint64, s *wendao.Sect, now int64) (*wendao.Tournament, error)) {
 	userId := c.GetInt("id")
 	// 还有一场没打完时不能开新的：新的一局会作废旧的，旧的带走的回春丹就没了。
@@ -346,27 +344,39 @@ func startSectDuel(c *gin.Context, game string, defender int, build func(seed ui
 		respondSectError(c, err)
 		return
 	}
+	if !passGamePlayTurnstile(c, operation_setting.GetGameSetting(), game, userId) {
+		return
+	}
+	seed, err := newGameSeed()
+	if err != nil {
+		common.ApiErrorI18n(c, i18n.MsgGameStartFailed)
+		return
+	}
 	var state *sectTournamentState
-	session := startSkillSession(c, game, func(seed uint32) (string, error) {
-		_, err := model.UpdateGameSave(userId, wendao.SaveKey, func(data string) (string, error) {
-			return updateSectSave(data, func(s *wendao.Sect) error {
-				s.Tick(now)
-				tournament, err := build(uint64(seed), s, now)
-				if err != nil {
-					return err
-				}
-				s.Pills[wendao.PillHeal] -= tournament.Taken
-				state = &sectTournamentState{Tournament: tournament, Defender: defender}
-				return nil
-			})
+	session, err := model.CreateGameSessionAndSave(userId, game, seed, common.GetTimestamp()-skillSessionTTL, wendao.SaveKey, func(data string) (string, string, error) {
+		saveData, err := updateSectSave(data, func(s *wendao.Sect) error {
+			now := common.GetTimestamp()
+			s.Tick(now)
+			tournament, err := build(uint64(seed), s, now)
+			if err != nil {
+				return err
+			}
+			s.Pills[wendao.PillHeal] -= tournament.Taken
+			state = &sectTournamentState{Tournament: tournament, Defender: defender}
+			return nil
 		})
 		if err != nil {
-			return "", err
+			return "", "", err
 		}
 		encoded, err := common.Marshal(state)
-		return string(encoded), err
+		return string(encoded), saveData, err
 	})
-	if session == nil {
+	if errors.Is(err, model.ErrGameRoundOpen) {
+		common.ApiErrorI18n(c, i18n.MsgGameRoundOpen)
+		return
+	}
+	if err != nil {
+		respondSectError(c, err)
 		return
 	}
 	common.ApiSuccess(c, sectTournamentView(session, state))

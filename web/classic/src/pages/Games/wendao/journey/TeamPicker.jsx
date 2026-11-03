@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 
 import React from 'react';
 import { useTranslation } from 'react-i18next';
+import { REGION_IDS } from '../duel/text';
 import { ElementTag, realmLabel, useSectText } from '../../sect/parts';
 
 // readyTeam 是开战时真正带得上的弟子：选了以后又外出或受伤的去掉。
@@ -60,7 +61,11 @@ const TeamPicker = ({ companions, max, team, onChange }) => {
             <span>
               {d.ready
                 ? realmLabel(sectText, t, d.realm, d.layer)
-                : t('外出或受伤')}
+                : d.outpost
+                  ? t('驻守{{region}}下院', {
+                      region: sectText.regions[REGION_IDS[d.outpost]]?.name,
+                    })
+                  : t('外出或受伤')}
             </span>
           </button>
         );
