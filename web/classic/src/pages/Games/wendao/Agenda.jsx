@@ -17,7 +17,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React, { useMemo, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   BookOpen,
   CalendarDays,
@@ -41,8 +47,10 @@ import {
 import { useTranslation } from 'react-i18next';
 import { getUserIdFromLocalStorage } from '../../../helpers/utils';
 import { readGameStorage, writeGameStorage } from '../common/gameStorage';
-import { formatAmount, formatLeft } from '../sect/parts';
-import { getRealmNames, getResourceNames, RESOURCES } from '../sect/text';
+import { gamePost } from '../common/api';
+import { REGION_IDS, getRegionText } from './duel/text';
+import { getRealmNames, getResourceNames } from '../sect/text';
+import { ReturnReport, agendaTarget } from './AgendaReport';
 import { getChapterText, getKeyText, getNodeText } from './journey/text';
 
 // 问道页顶上的一条：主角眼下的主目标，和三个板块里现在就能处理的几件事(GET /api/game/wendao/agenda，按急迫程度排好)。
@@ -52,6 +60,9 @@ import { getChapterText, getKeyText, getNodeText } from './journey/text';
 const SHOWN = 3;
 
 const TODO_ICONS = {
+  travel_ready: Compass,
+  bounties: Flag,
+  sect_tasks: ClipboardCheck,
   event: Sparkles,
   furnace_done: Flame,
   missions: Flag,
@@ -76,6 +87,12 @@ const TODO_ICONS = {
 const todoText = (todo, t) => {
   const n = todo.n;
   switch (todo.key) {
+    case 'travel_ready':
+      return t('游历收益已满 12 小时，可以结束领取了');
+    case 'bounties':
+      return t('悬赏榜还有 {{n}} 张契约可接', { n });
+    case 'sect_tasks':
+      return t('宗门还有 {{n}} 张斗法任务可接', { n });
     case 'event':
       return t('有一件奇遇等你拿主意');
     case 'furnace_done':
@@ -121,6 +138,16 @@ const todoText = (todo, t) => {
 
 const goalText = (goal, t, text) => {
   switch (goal.key) {
+    case 'travel':
+      return t('正在{{region}}游历，结束后领取收获', {
+        region: text.regions[REGION_IDS[goal.region ?? 0]]?.name,
+      });
+    case 'meditation':
+      return t('正在{{region}}灵脉打坐，离座后继续历练', {
+        region: text.regions[REGION_IDS[goal.region ?? 0]]?.name,
+      });
+    case 'duel':
+      return t('有一场斗法契约尚未结束');
     case 'create':
       return t('选一条道途，开始历练');
     case 'battle':
@@ -214,13 +241,6 @@ export const getGuideText = (t) => ({
 const guideHiddenKey = (uid) => `wendao-guide-hidden:${uid}`;
 const backSeenKey = (uid) => `wendao-back-seen:${uid}`;
 
-// target 是点了以后去哪里：板块、页签、页签里的分区与地图上的节点。
-const goalTarget = (goal) => ({
-  part: goal.part,
-  tab: goal.tab,
-  node: goal.key === 'node' ? goal.s : undefined,
-});
-
 const Agenda = ({ agenda, onGo }) => {
   const { t } = useTranslation();
   const text = useMemo(
@@ -231,6 +251,7 @@ const Agenda = ({ agenda, onGo }) => {
       realms: getRealmNames(t),
       guide: getGuideText(t),
       resources: getResourceNames(t),
+      regions: getRegionText(t),
     }),
     [t],
   );
@@ -243,13 +264,32 @@ const Agenda = ({ agenda, onGo }) => {
   const [backSeen, setBackSeen] = useState(
     () => readGameStorage(backSeenKey(uid)).value,
   );
+  const ackInFlight = useRef(new Set());
+  const acked = useRef(new Set());
+  const acknowledge = useCallback(
+    async (id) => {
+      if (!id || ackInFlight.current.has(id) || acked.current.has(id)) return;
+      ackInFlight.current.add(id);
+      const response = await gamePost('/api/game/wendao/agenda/ack', { id }, t);
+      ackInFlight.current.delete(id);
+      if (response.data) acked.current.add(id);
+    },
+    [t],
+  );
+  // 浏览器已经收起、上一次确认却断网时，下一次同步或重新进入仍补交同一个报告 id。
+  useEffect(() => {
+    if (agenda?.back?.id && agenda.back.id === backSeen && !agenda.back.seen)
+      acknowledge(backSeen);
+  }, [agenda?.back, backSeen, acknowledge]);
   if (!agenda) return null;
   const { goal, todos } = agenda;
   const shown = expanded ? todos : todos.slice(0, SHOWN);
   const more = todos.length - shown.length;
-  // 离开超过离线结算上限刚回来：说明离开了多久、只补算了多少；看过的那一次(按离开的时间认)不再提。
+  // 服务端只给半小时内未确认的报告，本地按报告 id 去重，不让断网重试重新弹出。
   const back =
-    agenda.back && agenda.back.since !== backSeen ? agenda.back : null;
+    agenda.back?.id && !agenda.back.seen && agenda.back.id !== backSeen
+      ? agenda.back
+      : null;
   const guide = agenda.guide || [];
   const next = guide.find((step) => !step.done);
   const doneSteps = guide.filter((step) => step.done).length;
@@ -262,38 +302,21 @@ const Agenda = ({ agenda, onGo }) => {
   return (
     <div className='wd-agenda'>
       {back && (
-        <div className='wd-back' role='status'>
-          <span className='wd-back-text'>
-            {t(
-              '离开了 {{time}}，闭关修为与宗门产出最多补算 12 小时。这一次补算：{{gains}}',
-              {
-                time: formatLeft(back.at - back.since, t),
-                gains:
-                  RESOURCES.filter((key) => back.res?.[key] > 0)
-                    .map(
-                      (key) =>
-                        `${text.resources[key]} +${formatAmount(back.res[key])}`,
-                    )
-                    .join(' · ') || t('没有'),
-              },
-            )}
-          </span>
-          <button
-            type='button'
-            className='wd-back-close'
-            onClick={() => {
-              writeGameStorage(backSeenKey(uid), back.since);
-              setBackSeen(back.since);
-            }}
-          >
-            {t('知道了')}
-          </button>
-        </div>
+        <ReturnReport
+          report={back}
+          text={text}
+          t={t}
+          onClose={() => {
+            writeGameStorage(backSeenKey(uid), back.id);
+            setBackSeen(back.id);
+            acknowledge(back.id);
+          }}
+        />
       )}
       <button
         type='button'
         className='wd-goal'
-        onClick={() => onGo(goalTarget(goal))}
+        onClick={() => onGo(agendaTarget(goal))}
       >
         <Compass size={16} aria-hidden />
         <span className='wd-goal-label'>{t('当前目标')}</span>
@@ -309,14 +332,7 @@ const Agenda = ({ agenda, onGo }) => {
                 <button
                   type='button'
                   className={`wd-todo is-${todo.part}`}
-                  onClick={() =>
-                    onGo({
-                      part: todo.part,
-                      tab: todo.tab,
-                      view: todo.view,
-                      node: todo.s,
-                    })
-                  }
+                  onClick={() => onGo(agendaTarget(todo))}
                 >
                   <Icon size={14} aria-hidden />
                   <span>{todoText(todo, t)}</span>

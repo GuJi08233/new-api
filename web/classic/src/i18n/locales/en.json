@@ -8851,6 +8851,24 @@
     "先结束游历，再到灵脉打坐。": "End your journey before meditating at a spirit vein.",
     "先完成或退出进行中的斗法，再开始打坐。": "Finish or leave your current duel before meditating.",
     "九幽秘境还有一轮未结束，先打完或放弃这一轮再来打坐。": "A Nine Hells Rift run is still open. Finish or abandon it before meditating.",
-    "在{{region}}灵脉打坐": "Meditate at the {{region}} spirit vein"
+    "在{{region}}灵脉打坐": "Meditate at the {{region}} spirit vein",
+    "游历收益已满 12 小时，可以结束领取了": "Travel rewards have reached 12 hours. End the journey to collect.",
+    "悬赏榜还有 {{n}} 张契约可接": "{{n}} bounty contracts are available",
+    "宗门还有 {{n}} 张斗法任务可接": "{{n}} sect duel tasks are available",
+    "正在{{region}}游历，结束后领取收获": "Traveling in {{region}}; collect rewards when you finish",
+    "正在{{region}}灵脉打坐，离座后继续历练": "Meditating at the {{region}} spirit vein; leave to continue adventuring",
+    "有一场斗法契约尚未结束": "A duel contract is still in progress",
+    "离开了 {{time}}，这次回流结算如下：": "You were away for {{time}}. Return settlement:",
+    "{{region}}灵脉闭关（已入账）": "{{region}} spirit vein cultivation (credited)",
+    "洞府闭关（已入账）": "Cave seclusion (credited)",
+    "补算 {{time}} · 修为 +{{n}}": "Settled {{time}} · cultivation +{{n}}",
+    "已达 {{time}}补算上限": "{{time}} settlement cap reached",
+    "宗门产出（已入账）": "Sect production (credited)",
+    "补算 {{time}} · {{gains}}": "Settled {{time}} · {{gains}}",
+    "{{region}}游历（累计待领取）": "{{region}} travel (accumulated, unclaimed)",
+    "累计 {{time}} · 修为 +{{n}} · {{gains}}": "Accumulated {{time}} · cultivation +{{n}} · {{gains}}",
+    "已达本次行程上限，结束游历后入账": "Journey cap reached; credited when you end the journey",
+    "结束游历后入账": "Credited when you end the journey",
+    "这次没有可入账或待领取的收益。": "There are no credited or pending rewards this time."
   }
 }

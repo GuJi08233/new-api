@@ -206,7 +206,7 @@ func TestWendaoAgendaThroughTheApi(t *testing.T) {
 	goal := agenda["goal"].(map[string]any)
 	assert.Equal(t, "node", goal["key"])
 	assert.Equal(t, "c1_oath", goal["s"])
-	assert.Equal(t, []string{"missions", "garden_empty", "tournament_reward"}, todoKeys(agenda))
+	assert.Equal(t, []string{"missions", "garden_empty", "bounties", "tournament_reward"}, todoKeys(agenda))
 	after, err := model.GetGameSave(player.user.Id, wendao.SaveKey)
 	require.NoError(t, err)
 	assert.Equal(t, before, after, "reading the agenda does not write the save")
@@ -214,7 +214,7 @@ func TestWendaoAgendaThroughTheApi(t *testing.T) {
 	setting := sectSettings()
 	setting.WendaoTournament.DailyRewards = 0
 	operation_setting.SetGameSettingForTest(setting)
-	assert.Equal(t, []string{"missions", "garden_empty"}, todoKeys(player.ok(http.MethodGet, path, nil)))
+	assert.Equal(t, []string{"missions", "garden_empty", "bounties"}, todoKeys(player.ok(http.MethodGet, path, nil)))
 
 	setting.Wendao.Enabled = false
 	operation_setting.SetGameSettingForTest(setting)

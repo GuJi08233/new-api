@@ -26,8 +26,9 @@ import React, {
 } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { Button } from '@douyinfe/semi-ui';
 import GameLayout from '../common/GameLayout';
-import { gameGet } from '../common/api';
+import { gamePost } from '../common/api';
 import { useGameInfo } from '../common/useGameInfo';
 import { useVisiblePolling } from '../common/useVisiblePolling';
 import Abyss from './doufa/Abyss';
@@ -64,8 +65,10 @@ const Wendao = () => {
     [setParams],
   );
 
-  // 当前目标与待办：打开页面、切换板块时读一次，之后每分钟一次，板块里操作成功后再读一次。
+  // 先持久化回流结算再挂载板块，避免子页的只读预览抢先吞掉回流说明；之后按分钟和操作同步。
   const [agenda, setAgenda] = useState(null);
+  const [agendaReady, setAgendaReady] = useState(false);
+  const [agendaError, setAgendaError] = useState('');
   const [focus, setFocus] = useState(null);
   const settleTimer = useRef(null);
   const loaded = !!info;
@@ -74,8 +77,16 @@ const Wendao = () => {
   const loadAgenda = useCallback(async () => {
     agendaSeq.current += 1;
     const mine = agendaSeq.current;
-    const response = await gameGet('/api/game/wendao/agenda', t);
-    if (mine === agendaSeq.current && response.data) setAgenda(response.data);
+    setAgendaError('');
+    const response = await gamePost('/api/game/wendao/agenda/sync', {}, t);
+    if (mine !== agendaSeq.current) return;
+    if (response.data) {
+      setAgenda(response.data);
+      setAgendaReady(true);
+      setAgendaError('');
+    } else {
+      setAgendaError(response.error);
+    }
   }, [t]);
   const refreshAgenda = useCallback(() => {
     clearTimeout(settleTimer.current);
@@ -126,6 +137,16 @@ const Wendao = () => {
         loading={loading}
         unavailable={unavailable}
       />
+    );
+  }
+  if (!agendaReady) {
+    return (
+      <GameLayout title={t('问道')} loading={!agendaError}>
+        <div className='games-stage'>
+          <p role='alert'>{agendaError}</p>
+          <Button onClick={loadAgenda}>{t('重试')}</Button>
+        </div>
+      </GameLayout>
     );
   }
   const Part = PARTS[part];

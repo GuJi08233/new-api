@@ -117,32 +117,6 @@ func TestAgendaTodosListWhatCanBeDoneNow(t *testing.T) {
 		"the journey waits until the battle is over")
 }
 
-// 离开超过离线结算的上限再回来：这一次结算记下离开前的时间与补算的宗门产出，回来半小时内问道页顶上说明；离开没那么久
-// 不记，回来以后再结算也不覆盖。
-func TestComebackAfterALongAbsence(t *testing.T) {
-	save, err := ParseSave("")
-	require.NoError(t, err)
-	save.Sect = NewSect(1, 0)
-	s := save.Sect
-
-	s.Tick(6 * hour)
-	assert.Nil(t, s.Back, "six hours away is settled in full")
-
-	back := 6*hour + 30*hour
-	before := s.Res
-	s.Tick(back)
-	require.NotNil(t, s.Back)
-	assert.Equal(t, int64(6*hour), s.Back.Since)
-	assert.Equal(t, back, s.Back.At)
-	assert.Equal(t, Cost{Stone: s.Res.Stone - before.Stone, Herb: s.Res.Herb - before.Herb, Ore: s.Res.Ore - before.Ore}, s.Back.Res)
-	assert.Positive(t, s.Back.Res.Stone)
-
-	s.Tick(back + 10*60)
-	assert.Equal(t, int64(6*hour), s.Back.Since, "a later settlement keeps the comeback")
-	assert.Equal(t, s.Back, save.Agenda(back+10*60, "d1").Back)
-	assert.Nil(t, save.Agenda(back+comebackShown+1, "d1").Back, "the note goes away after half an hour")
-}
-
 // 入门指引按存档里已经做到的事打勾：创建主角、打赢一场、升级建筑、派遣、种灵田、突破筑基、走完一轮秘境。
 func TestGuideFollowsProgress(t *testing.T) {
 	done := func(save *Save) []string {
@@ -170,4 +144,70 @@ func TestGuideFollowsProgress(t *testing.T) {
 	h.Realm = 1
 	save.Rift.Runs = 1
 	assert.Equal(t, []string{"hero", "win", "build", "dispatch", "garden", "break", "abyss"}, done(save))
+}
+
+// 进行中的世界活动优先于主线目标；满额游历引导领取，契约中的玩家不会被催着接另一张。
+func TestAgendaTracksIdleAndWorldActivities(t *testing.T) {
+	save := newHeroSave(t, dungeon.ClassWarrior)
+	save.Sect = NewStorehouse(1, 0)
+	h := save.Hero
+	h.Realm = 2
+	clearChapters(h, 3)
+	save.Duels = &DuelBook{Day: "d1", Rng: 12345,
+		Bounties: []*Contract{{Id: "b1", Kind: DuelBounty, Region: 2, Tier: 1, Tries: 1}},
+		Tasks:    []*Contract{{Id: "t1", Kind: DuelTask, Region: 2, Tier: 1, Tries: 1}}}
+	require.NoError(t, save.StartTravel(2, 0))
+	agenda := save.Agenda(OfflineCap, "d1")
+	assert.Equal(t, Goal{Key: "travel", Part: PartWorld, Region: 2}, agenda.Goal)
+	assert.Contains(t, agenda.Todos, Todo{Key: "travel_ready", Part: PartWorld, View: "travel", N: 1, Region: 2})
+	assert.NotContains(t, todoKeys(agenda.Todos), "bounties")
+	assert.NotContains(t, todoKeys(agenda.Todos), "sect_tasks")
+	assert.NotContains(t, todoKeys(agenda.Todos), "trial")
+	_, err := save.FinishTravel(h.Travel.Token, OfflineCap)
+	require.NoError(t, err)
+	require.NoError(t, save.StartMeditation(2, OfflineCap))
+	agenda = save.Agenda(OfflineCap, "d1")
+	assert.Equal(t, Goal{Key: "meditation", Part: PartWorld, Region: 2}, agenda.Goal)
+	assert.NotContains(t, todoKeys(agenda.Todos), "bounties")
+	require.NoError(t, save.LeaveMeditation(h.Meditation.Token, OfflineCap))
+	_, err = save.StartDuel(DuelBounty, "b1", 7, OfflineCap)
+	require.NoError(t, err)
+	agenda = save.Agenda(OfflineCap, "d1")
+	assert.Equal(t, Goal{Key: "duel", Part: PartWorld, Region: 2}, agenda.Goal)
+	assert.NotContains(t, todoKeys(agenda.Todos), "bounties")
+	require.NoError(t, save.GiveUpDuel())
+	h.Path = &Path{Sect: "tianjian"}
+	_, err = save.StartDuel(DuelTask, "t1", 7, OfflineCap)
+	require.NoError(t, err)
+	assert.Equal(t, Goal{Key: "duel", Part: PartSect, Tab: "overview"}, save.Agenda(OfflineCap, "d1").Goal)
+}
+
+// 待办只计未完成、次数未用尽且地域已开放的契约，给第一张可接悬赏的地图定位。
+func TestAgendaOnlyOffersAvailableContracts(t *testing.T) {
+	save := newHeroSave(t, dungeon.ClassMage)
+	save.Sect = NewStorehouse(1, 0)
+	save.Hero.Realm = 1
+	save.Hero.Path = &Path{Sect: "taixu"}
+	save.Duels = &DuelBook{Day: "d1", Bounties: []*Contract{
+		{Id: "done", Done: true, Tries: 1}, {Id: "spent", Tries: 0}, {Id: "locked", Region: 2, Tries: 1},
+		{Id: "ready1", Region: 1, Tries: 1}, {Id: "ready2", Region: 0, Tries: 2},
+	}, Tasks: []*Contract{{Id: "task1", Tries: 1}, {Id: "task2", Done: true, Tries: 1}}}
+	agenda := save.Agenda(0, "d1")
+	assert.Contains(t, agenda.Todos, Todo{Key: "bounties", Part: PartWorld, View: "bounties", Region: 1, N: 2})
+	assert.Contains(t, agenda.Todos, Todo{Key: "sect_tasks", Part: PartSect, Tab: "overview", N: 1})
+	save.Hero.Path = nil
+	assert.NotContains(t, todoKeys(save.Agenda(0, "d1").Todos), "sect_tasks", "a loose cultivator cannot take sect tasks")
+}
+
+// 宗门弟子在历练斗法中仍能读取待办；隐藏暂时不能处理的历练事务不应使俸禄提示解引用空主角。
+func TestAgendaKeepsTheDiscipleStipendDuringBattle(t *testing.T) {
+	save := newHeroSave(t, dungeon.ClassWarrior)
+	save.Sect = NewStorehouse(1, 0)
+	save.Hero.Path = &Path{Sect: "tianjian"}
+	heroAct(t, save, HeroAction{Type: "visit", Node: "c1_oath"})
+	heroAct(t, save, HeroAction{Type: "fight", Node: "c1_backhill"})
+	agenda := save.Agenda(0, "d1")
+	assert.Equal(t, "battle", agenda.Goal.Key)
+	assert.Contains(t, agenda.Todos, Todo{Key: "stipend", Part: PartSect, N: 1})
+	assert.NotContains(t, todoKeys(agenda.Todos), "bounties")
 }

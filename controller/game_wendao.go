@@ -6,6 +6,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/wendao"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -55,6 +56,8 @@ func init() {
 		},
 		Routes: func(group *gin.RouterGroup) {
 			group.GET("/agenda", getWendaoAgenda)
+			group.POST("/agenda/sync", middleware.GameActionRateLimit("wendao-resume"), syncWendaoAgenda)
+			group.POST("/agenda/ack", middleware.GameActionRateLimit("wendao-return-ack"), acknowledgeWendaoReturn)
 			registerHeroRoutes(group.Group("/hero"))
 			registerRiftRoutes(group.Group("/rift"))
 			registerDuelRoutes(group.Group("/duel"))
@@ -96,6 +99,69 @@ func getWendaoAgenda(c *gin.Context) {
 		save.Sect.Tick(now)
 	}
 	save.TickHero(now)
+	respondWendaoAgenda(c, save, now)
+}
+
+// syncWendaoAgenda 是可见页面的进入与心跳：实际保存自然产出、修为和稳定的回流报告，子页面在第一次同步后再挂载。
+func syncWendaoAgenda(c *gin.Context) {
+	if !requireGameEnabled(c, wendaoGame) {
+		return
+	}
+	now := common.GetTimestamp()
+	allianceLevel, err := model.GetSectAllianceLevel(c.GetInt("id"))
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	var current *wendao.Save
+	_, err = model.UpdateGameSave(c.GetInt("id"), wendao.SaveKey, func(data string) (string, error) {
+		return wendao.UpdateSave(data, func(save *wendao.Save) error {
+			rollWendaoDaily(save)
+			if save.Sect != nil {
+				save.Sect.AllianceLevel = allianceLevel
+			}
+			save.Resume(now)
+			current = save
+			return nil
+		})
+	})
+	if err != nil {
+		respondSectError(c, err)
+		return
+	}
+	respondWendaoAgenda(c, current, now)
+}
+
+// acknowledgeWendaoReturn 只关闭当前 id 对应的报告；旧页面延迟到达的确认不能关闭后来的一次回流。
+func acknowledgeWendaoReturn(c *gin.Context) {
+	if !requireGameEnabled(c, wendaoGame) {
+		return
+	}
+	var req struct {
+		Id string `json:"id"`
+	}
+	if decodeGameRequest(c, &req) != nil || req.Id == "" || len(req.Id) > wendao.RequestIdMaxLen {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
+	var current *wendao.Save
+	_, err := model.UpdateGameSave(c.GetInt("id"), wendao.SaveKey, func(data string) (string, error) {
+		return wendao.UpdateSave(data, func(save *wendao.Save) error {
+			save.AcknowledgeReturn(req.Id)
+			current = save
+			return nil
+		})
+	})
+	if err != nil {
+		respondSectError(c, err)
+		return
+	}
+	respondWendaoAgenda(c, current, common.GetTimestamp())
+}
+
+// respondWendaoAgenda 将规则待办与当天可领奖次数合在一起，读取、心跳、确认都使用同一回应形状。
+func respondWendaoAgenda(c *gin.Context, save *wendao.Save, now int64) {
+	ctx := newGameContext(c)
 	agenda := save.Agenda(now, ctx.Day)
 	for _, reward := range wendaoRewardTodos {
 		rule, _ := ctx.Setting.SkillRuleOf(reward.game)

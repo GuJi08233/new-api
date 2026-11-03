@@ -9203,6 +9203,24 @@
     "先结束游历，再到灵脉打坐。": "Kết thúc du lịch trước khi đả tọa tại linh mạch.",
     "先完成或退出进行中的斗法，再开始打坐。": "Hoàn thành hoặc rời trận đấu pháp hiện tại trước khi đả tọa.",
     "九幽秘境还有一轮未结束，先打完或放弃这一轮再来打坐。": "Một lượt bí cảnh Cửu U vẫn chưa kết thúc. Hãy hoàn thành hoặc từ bỏ lượt đó trước khi đả tọa.",
-    "在{{region}}灵脉打坐": "Đả tọa tại linh mạch {{region}}"
+    "在{{region}}灵脉打坐": "Đả tọa tại linh mạch {{region}}",
+    "游历收益已满 12 小时，可以结束领取了": "Phần thưởng du lịch đã đủ 12 giờ. Có thể kết thúc để nhận.",
+    "悬赏榜还有 {{n}} 张契约可接": "Còn {{n}} khế ước treo thưởng có thể nhận",
+    "宗门还有 {{n}} 张斗法任务可接": "Tông môn còn {{n}} nhiệm vụ đấu pháp có thể nhận",
+    "正在{{region}}游历，结束后领取收获": "Đang du lịch tại {{region}}; kết thúc để nhận thu hoạch",
+    "正在{{region}}灵脉打坐，离座后继续历练": "Đang đả tọa tại linh mạch {{region}}; rời chỗ ngồi để tiếp tục lịch luyện",
+    "有一场斗法契约尚未结束": "Có một khế ước đấu pháp chưa kết thúc",
+    "离开了 {{time}}，这次回流结算如下：": "Bạn đã rời đi {{time}}. Kết toán lần trở lại này:",
+    "{{region}}灵脉闭关（已入账）": "Bế quan linh mạch {{region}} (đã nhận)",
+    "洞府闭关（已入账）": "Bế quan động phủ (đã nhận)",
+    "补算 {{time}} · 修为 +{{n}}": "Bù {{time}} · Tu vi +{{n}}",
+    "已达 {{time}}补算上限": "Đã đạt giới hạn bù {{time}}",
+    "宗门产出（已入账）": "Sản lượng tông môn (đã nhận)",
+    "补算 {{time}} · {{gains}}": "Bù {{time}} · {{gains}}",
+    "{{region}}游历（累计待领取）": "Du lịch {{region}} (tích lũy chờ nhận)",
+    "累计 {{time}} · 修为 +{{n}} · {{gains}}": "Tích lũy {{time}} · Tu vi +{{n}} · {{gains}}",
+    "已达本次行程上限，结束游历后入账": "Đã đạt giới hạn chuyến đi; kết thúc du lịch để nhận",
+    "结束游历后入账": "Nhận sau khi kết thúc du lịch",
+    "这次没有可入账或待领取的收益。": "Lần này không có lợi ích đã nhận hay chờ nhận."
   }
 }

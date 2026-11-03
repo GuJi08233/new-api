@@ -27,8 +27,9 @@ const SaveKey = "wendao"
 // 主角的宗门身份(Hero.Path)，以及散修、宗门弟子没有主殿的储物处(Sect 的主殿为 0 级)；5 是秘境换成斗法以后的局外成长
 // (Rift：道韵、天赋、战绩与道具背包)，旧版卡牌秘境的 Abyss 在读出时并进去；6 是斗法契约(Duels：悬赏、宗门任务、入门试炼
 // 与进行中的一场)；7 是藏经阁法宝、法术与出战配置(Hero.Arms)；8 是历练改斗法(HeroBattle.Fight)，旧卡牌战斗退还未用丹符后结束；
-// 9 是主角游历(Hero.Travel)，旧存档默认没有行程，闭关与已有进度照旧；10 是地域灵脉打坐(Hero.Meditation)，旧存档默认未入座。
-const SaveSchema = 10
+// 9 是主角游历(Hero.Travel)，旧存档默认没有行程，闭关与已有进度照旧；10 是地域灵脉打坐(Hero.Meditation)，旧存档默认未入座；
+// 11 是可见页面心跳(Seen)与持久化的分项回流说明(Back)，旧存档从最近一次结算起算。
+const SaveSchema = 11
 
 // ErrNewerSave 表示存档是更新版本的程序写的，这个程序不认识其中的一部分，不能读也不能改写。
 var ErrNewerSave = errors.New("wendao: the save was written by a newer version")
@@ -49,6 +50,9 @@ type Save struct {
 	AbyssLoot LootDay `json:"abyss_loot"`
 	// Receipts 是最近做过的几次操作的请求收据，重发同一次请求时不做第二遍，见 Admit。
 	Receipts []Receipt `json:"receipts,omitempty"`
+	// Seen 是最近一次可见页面心跳；Back 是这一次长时间离开后回来的结算说明，见 Resume。
+	Seen int64         `json:"seen,omitempty"`
+	Back *ReturnReport `json:"back,omitempty"`
 }
 
 // LootDay 是某一天已经领了几次。

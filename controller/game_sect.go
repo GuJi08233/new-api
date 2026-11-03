@@ -182,6 +182,12 @@ func actSect(c *gin.Context) {
 			if err := ensureStorehouse(save, now); err != nil {
 				return err
 			}
+			// 恢复可见时宗门页和顶部会同时心跳：先拿到锁的一方保存同一份真实回流结算。
+			// 在 Resume 前刷新仙盟等级，沿用宗门同步按当前仙盟加成结算的规则。
+			if req.Type == "sync" {
+				save.Sect.AllianceLevel = allianceLevel
+				save.Resume(now)
+			}
 			// 主角的闭关修为跟宗门一起结算，只经营宗门不会让主角的离线修为超过上限白白浪费。
 			save.TickHero(now)
 			rollWendaoDaily(save)

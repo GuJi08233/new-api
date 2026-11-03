@@ -8703,6 +8703,24 @@
     "先结束游历，再到灵脉打坐。": "Terminez votre voyage avant de méditer sur une veine spirituelle.",
     "先完成或退出进行中的斗法，再开始打坐。": "Terminez ou quittez le combat en cours avant de méditer.",
     "九幽秘境还有一轮未结束，先打完或放弃这一轮再来打坐。": "Une expédition dans la Faille des Neuf Enfers est encore en cours. Terminez-la ou abandonnez-la avant de méditer.",
-    "在{{region}}灵脉打坐": "Méditer sur la veine de {{region}}"
+    "在{{region}}灵脉打坐": "Méditer sur la veine de {{region}}",
+    "游历收益已满 12 小时，可以结束领取了": "Les gains de voyage ont atteint 12 heures. Terminez le voyage pour les récupérer.",
+    "悬赏榜还有 {{n}} 张契约可接": "{{n}} contrats de prime disponibles",
+    "宗门还有 {{n}} 张斗法任务可接": "{{n}} missions de combat de secte disponibles",
+    "正在{{region}}游历，结束后领取收获": "Voyage en {{region}} ; récupérez vos gains à la fin",
+    "正在{{region}}灵脉打坐，离座后继续历练": "Méditation sur la veine de {{region}} ; quittez-la pour reprendre l’aventure",
+    "有一场斗法契约尚未结束": "Un contrat de combat est encore en cours",
+    "离开了 {{time}}，这次回流结算如下：": "Vous êtes parti pendant {{time}}. Bilan du retour :",
+    "{{region}}灵脉闭关（已入账）": "Cultivation sur la veine de {{region}} (créditée)",
+    "洞府闭关（已入账）": "Retraite dans la demeure (créditée)",
+    "补算 {{time}} · 修为 +{{n}}": "{{time}} calculées · cultivation +{{n}}",
+    "已达 {{time}}补算上限": "Limite de calcul de {{time}} atteinte",
+    "宗门产出（已入账）": "Production de secte (créditée)",
+    "补算 {{time}} · {{gains}}": "{{time}} calculées · {{gains}}",
+    "{{region}}游历（累计待领取）": "Voyage en {{region}} (cumulé, à récupérer)",
+    "累计 {{time}} · 修为 +{{n}} · {{gains}}": "{{time}} cumulées · cultivation +{{n}} · {{gains}}",
+    "已达本次行程上限，结束游历后入账": "Limite du voyage atteinte ; gains crédités à la fin du voyage",
+    "结束游历后入账": "Crédité à la fin du voyage",
+    "这次没有可入账或待领取的收益。": "Aucun gain crédité ou à récupérer cette fois."
   }
 }

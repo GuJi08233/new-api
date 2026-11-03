@@ -41,9 +41,10 @@ const WorldPage = () => {
   const { t } = useTranslation();
   const text = useSectText();
   const { info } = useWendaoPart('world');
-  const { go, refreshAgenda } = useWendaoShell();
+  const { go, refreshAgenda, focus } = useWendaoShell();
+  const focused = focus?.part === 'world' ? focus : null;
   const [state, setState] = useState(null);
-  const [region, setRegion] = useState(null);
+  const [region, setRegion] = useState(focused?.region ?? null);
   const [duel, setDuel] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -75,6 +76,19 @@ const WorldPage = () => {
   useVisiblePolling(load, 60 * 1000, !!state && !duel && !busy);
 
   const book = state?.book;
+  const ready = !!book;
+  useEffect(() => {
+    if (!focused) return;
+    setRegion(
+      Math.max(0, Math.min(REGION_IDS.length - 1, focused.region ?? 0)),
+    );
+  }, [focused]);
+  useEffect(() => {
+    if (!ready || !focused?.view) return;
+    document
+      .getElementById(`wd-world-${focused.view}`)
+      ?.scrollIntoView({ block: 'start' });
+  }, [ready, focused]);
   // 默认停在主角够得着的最远一个地域。
   const here = region ?? Math.max(0, (book?.open || []).lastIndexOf(true));
 
@@ -223,34 +237,40 @@ const WorldPage = () => {
           </button>
         ))}
       </div>
-      <TravelPanel
-        travel={state.travel}
-        region={here}
-        receivedAt={receivedAt}
-        blocked={!!book.active || !!state.hero?.battle}
-        riftActive={state.rift_active}
-        meditation={state.meditation?.active}
-        busy={busy}
-        loot={loot}
-        onStart={(target) =>
-          idleAction('travel', { action: 'start', region: target })
-        }
-        onFinish={(token) => idleAction('travel', { action: 'finish', token })}
-      />
-      <MeditationPanel
-        meditation={state.meditation}
-        region={here}
-        travel={state.travel?.active}
-        blocked={!!book.active || !!state.hero?.battle}
-        riftActive={state.rift_active}
-        busy={busy}
-        onStart={(target) =>
-          idleAction('meditation', { action: 'start', region: target })
-        }
-        onLeave={(token) =>
-          idleAction('meditation', { action: 'leave', token })
-        }
-      />
+      <div id='wd-world-travel'>
+        <TravelPanel
+          travel={state.travel}
+          region={here}
+          receivedAt={receivedAt}
+          blocked={!!book.active || !!state.hero?.battle}
+          riftActive={state.rift_active}
+          meditation={state.meditation?.active}
+          busy={busy}
+          loot={loot}
+          onStart={(target) =>
+            idleAction('travel', { action: 'start', region: target })
+          }
+          onFinish={(token) =>
+            idleAction('travel', { action: 'finish', token })
+          }
+        />
+      </div>
+      <div id='wd-world-meditation'>
+        <MeditationPanel
+          meditation={state.meditation}
+          region={here}
+          travel={state.travel?.active}
+          blocked={!!book.active || !!state.hero?.battle}
+          riftActive={state.rift_active}
+          busy={busy}
+          onStart={(target) =>
+            idleAction('meditation', { action: 'start', region: target })
+          }
+          onLeave={(token) =>
+            idleAction('meditation', { action: 'leave', token })
+          }
+        />
+      </div>
       <div className='df-card'>
         <div className='df-title'>{regions[id].name}</div>
         <p className='df-lead'>{regions[id].desc}</p>
@@ -294,7 +314,9 @@ const WorldPage = () => {
             </li>
           )}
         </ul>
-        <div className='dl-heading'>{t('悬赏榜')}</div>
+        <div id='wd-world-bounties' className='dl-heading'>
+          {t('悬赏榜')}
+        </div>
         <p className='df-muted'>
           {t(
             '悬赏榜每天换一批，每张最多挑战 {{n}} 次；打赢给宗门资源，敌人随地域与难度变强。',

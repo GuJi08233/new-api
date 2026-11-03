@@ -306,6 +306,30 @@ body[theme-mode='dark'] .wd-page {
 }
 .wd-back-text {
   flex: 1 1 260px;
+  min-width: 0;
+}
+.wd-back-items {
+  display: grid;
+  gap: 5px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  line-height: 1.6;
+}
+.wd-back-items li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+}
+.wd-back-label {
+  color: var(--wd-ink);
+  font-weight: 600;
+}
+.wd-back-items em {
+  color: var(--wd-ink-3);
+  font-size: 12px;
+  font-style: normal;
 }
 .wd-back-close,
 .wd-guide-hide {
