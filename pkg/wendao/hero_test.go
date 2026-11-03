@@ -21,24 +21,21 @@ func newHeroSave(t *testing.T, class string) *Save {
 
 func heroAct(t *testing.T, save *Save, a HeroAction) []Ev {
 	t.Helper()
+	if a.Type == "flee" && save.Hero != nil && save.Hero.Battle != nil {
+		a.BattleToken = save.Hero.Battle.Token
+	}
+
 	evs, err := save.HeroApply(a, 0, "d1", 7)
 	require.NoError(t, err)
 	return evs
 }
 
-// winHeroBattle 把敌人都压到 1 点生命再用初始的攻击功法打倒，赢了以后收下第一张奖励功法。
+// winHeroBattle 单独验证历练结算；斗法重放的可信边界由接口与双端引擎测试覆盖。
 func winHeroBattle(t *testing.T, save *Save, pick int) []Ev {
 	t.Helper()
-	run := save.Hero.Battle.Run
-	attack := dungeon.StarterDeck(save.Hero.Class)[0]
-	for i, e := range run.Combat.Enemies {
-		e.HP = 1
-		run.Combat.Hand = []dungeon.Card{attack}
-		run.Combat.Energy = 3
-		heroAct(t, save, HeroAction{Type: "battle", Move: "play", Card: 0, Target: i, Choice: -1, Potion: -1})
-	}
-	require.Equal(t, dungeon.PhaseReward, run.Phase)
-	return heroAct(t, save, HeroAction{Type: "battle", Move: "reward", Card: -1, Target: -1, Choice: pick, Potion: -1})
+	evs, err := save.FinishHeroFight(&doufa.Fight{Over: true, Won: true}, 0)
+	require.NoError(t, err)
+	return evs
 }
 
 func hasEv(evs []Ev, kind string) bool {
@@ -70,7 +67,7 @@ func TestNewHero(t *testing.T) {
 	assert.ErrorIs(t, err, ErrAction)
 }
 
-// 剧情节点按顺序解锁、只走一次；第一次通过战斗节点发全部奖励，收下的功法进收藏和牌组，带出去没用的丹符放回行囊。
+// 剧情节点按顺序解锁、只走一次；首次斗法通关给修为、资源与节点掉落，开局丹符消耗，不再给卡牌奖励。
 func TestJourneyFirstClearRewards(t *testing.T) {
 	save := newHeroSave(t, dungeon.ClassWarrior)
 	h := save.Hero
@@ -94,11 +91,11 @@ func TestJourneyFirstClearRewards(t *testing.T) {
 	stone = save.Sect.Res.Stone
 	evs := winHeroBattle(t, save, 0)
 	assert.Nil(t, h.Battle)
-	assert.True(t, hasEv(evs, "hero_card"))
-	assert.Len(t, h.Cards, 11)
-	assert.Len(t, h.Deck, 11, "a picked card joins the deck while it has room")
+	assert.False(t, hasEv(evs, "hero_card"))
+	assert.Len(t, h.Cards, 10)
+	assert.Len(t, h.Deck, 10, "duels no longer issue card rewards")
 	assert.Equal(t, stone+40, save.Sect.Res.Stone)
-	assert.Equal(t, 1, h.Potions[dungeon.PotionFire], "the unused fire talisman is back")
+	assert.Zero(t, h.Potions[dungeon.PotionFire], "the talisman took effect at the opening")
 	assert.Equal(t, 1, h.Potions[dungeon.PotionHeal], "first-clear potion")
 	assert.Equal(t, float64(40), h.Exp)
 	assert.Equal(t, 1, h.Stats.Wins)
@@ -193,7 +190,7 @@ func TestHeroBreakthroughGatesChapters(t *testing.T) {
 	assert.Equal(t, 3, h.RelicSlots())
 }
 
-// 牌组的张数与下标要合法；丢掉收藏里的功法时牌组的下标跟着移动，牌组里的功法不能丢；参悟花宗门的灵石。
+// 旧牌组接口仍校验下标，收藏整理后兼容索引跟随移动；参悟花灵石并为斗法提供常驻加成。
 func TestHeroDeckForgetAndUpgrade(t *testing.T) {
 	save := newHeroSave(t, dungeon.ClassWarrior)
 	h := save.Hero
@@ -202,8 +199,8 @@ func TestHeroDeckForgetAndUpgrade(t *testing.T) {
 		assert.ErrorIs(t, err, ErrAction, "%v", deck)
 	}
 	heroAct(t, save, HeroAction{Type: "deck", Deck: []int{9, 1, 2, 3, 4, 5, 6, 7}})
-	_, err := save.HeroApply(HeroAction{Type: "forget", Card: 1}, 0, "d1", 0)
-	assert.ErrorIs(t, err, ErrAction, "cards in the deck stay")
+	_, err := save.HeroApply(HeroAction{Type: "forget", Card: 99}, 0, "d1", 0)
+	assert.ErrorIs(t, err, ErrAction, "unknown manuals are refused")
 	heroAct(t, save, HeroAction{Type: "forget", Card: 0})
 	assert.Equal(t, []int{8, 0, 1, 2, 3, 4, 5, 6}, h.Deck)
 	assert.Len(t, h.Cards, 9)
@@ -279,8 +276,8 @@ func TestJourneyContentIsWellFormed(t *testing.T) {
 		fights := n.Kind == NodeCombat || n.Kind == NodeElite || n.Kind == NodeBoss
 		assert.Equal(t, fights, len(n.Enemies) > 0, n.Id)
 		if fights {
-			_, err := dungeon.NewBattle(1, dungeon.BattleSetup{Class: dungeon.ClassWarrior, Deck: dungeon.StarterDeck(dungeon.ClassWarrior),
-				MaxHP: 80, Kind: n.Kind, Enemies: n.Enemies, HP: 100, Dmg: 100})
+			hero, _ := NewHero(dungeon.ClassWarrior, 0)
+			_, err := doufa.New(1, hero.JourneySetup(n.Kind, n.Enemies, 100, 100, n.Chapter))
 			assert.NoError(t, err, n.Id)
 		}
 		if n.Relic != "" {
@@ -372,7 +369,7 @@ func TestChapterBossesDrop(t *testing.T) {
 	}
 }
 
-// 随行弟子：最多两名、要在宗门里没受伤，各带一张按灵根的援护牌(筑基起是升级后的)；赢了弟子也涨修为，输了或退走会受伤。
+// 随行弟子最多两名，必须在宗门里且未受伤，按境界提供斗法被动；赢了涨修为，输了或退走会受伤。
 func TestHeroCompanions(t *testing.T) {
 	save := newHeroSave(t, dungeon.ClassWarrior)
 	h, s := save.Hero, save.Sect
@@ -390,10 +387,9 @@ func TestHeroCompanions(t *testing.T) {
 	a.Injured = 0
 
 	heroAct(t, save, HeroAction{Type: "fight", Node: "c1_backhill", Team: []int{a.Id, b.Id}})
-	deck := h.Battle.Run.Deck
-	assert.Len(t, deck, 12)
-	assert.Equal(t, dungeon.Card{Id: dungeon.AllyCards[3]}, deck[10])
-	assert.Equal(t, dungeon.Card{Id: dungeon.AllyCards[0], Up: true}, deck[11], "a foundation disciple brings the upgraded card")
+	assert.Equal(t, []int{a.Id, b.Id}, h.Battle.Team)
+	assert.Equal(t, 7, h.Battle.Fight.Setup.Mods.Damage)
+	assert.Equal(t, 12, h.Battle.Fight.Setup.Mods.Vigor)
 	expA, expB := a.Exp, b.Exp
 	winHeroBattle(t, save, -1)
 	assert.Equal(t, expA+20, a.Exp, "half of the node's cultivation")
@@ -485,8 +481,8 @@ func TestHeroClimbsTheSteps(t *testing.T) {
 	first := StepOf(1)
 	assert.Equal(t, 1, h.Battle.Step)
 	assert.Empty(t, h.Battle.Node)
-	assert.Equal(t, h.Battle.Run.Battle.Enemies, first.Enemies)
-	assert.Equal(t, first.HP, h.Battle.Run.Battle.HP)
+	assert.Equal(t, first.Enemies[0], h.Battle.Fight.Setup.Waves[1][0].Foe)
+	assert.Equal(t, first.HP, h.Battle.Fight.Setup.Scale.HP)
 
 	res, exp, dExp := s.Res, h.Exp, d.Exp
 	evs = winHeroBattle(t, save, -1)
@@ -535,8 +531,8 @@ func TestStepsAreWellFormed(t *testing.T) {
 			want = NodeElite
 		}
 		assert.Equal(t, want, st.Kind, "step %d", st.Step)
-		_, err := dungeon.NewBattle(1, dungeon.BattleSetup{Class: dungeon.ClassWarrior, Deck: dungeon.StarterDeck(dungeon.ClassWarrior),
-			MaxHP: 80, Kind: st.Kind, Enemies: st.Enemies, HP: st.HP, Dmg: st.Dmg})
+		hero, _ := NewHero(dungeon.ClassWarrior, 0)
+		_, err := doufa.New(1, hero.JourneySetup(st.Kind, st.Enemies, st.HP, st.Dmg, Chapters-1))
 		assert.NoError(t, err, "step %d", st.Step)
 		if st.Kind != NodeCombat {
 			id := st.Enemies[0]

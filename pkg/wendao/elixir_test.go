@@ -174,13 +174,13 @@ func TestBattleBuffsFromElixirs(t *testing.T) {
 	for battle := 1; battle <= 3; battle++ {
 		heroAct(t, save, HeroAction{Type: "fight", Node: "c1_backhill"})
 		require.NotNil(t, h.Battle)
-		assert.Equal(t, 8, h.Battle.Run.Combat.Block, "battle %d", battle)
-		assert.Equal(t, 1+1, h.Battle.Run.Combat.St[dungeon.StStrength], "the warrior's own treasure plus the tiger pill")
+		assert.Equal(t, max(h.MaxHP()-dungeon.ClassHP(h.Class), 0)+8, h.Battle.Fight.Setup.Mods.Vigor, "battle %d", battle)
+		assert.Equal(t, 5, h.Battle.Fight.Setup.Mods.Damage, "the tiger pill adds duel damage")
 		heroAct(t, save, HeroAction{Type: "flee"})
 	}
 	assert.NotContains(t, h.Buffs, ElixirGuard, "three battles used it up")
 	assert.Equal(t, 2, h.Buffs[ElixirTiger].Left)
 
 	heroAct(t, save, HeroAction{Type: "fight", Node: "c1_backhill"})
-	assert.Equal(t, 0, h.Battle.Run.Combat.Block)
+	assert.Zero(t, h.Battle.Fight.Setup.Mods.Ward)
 }

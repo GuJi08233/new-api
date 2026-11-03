@@ -19,25 +19,19 @@ const (
 
 func trialAct(t *testing.T, save *Save, a HeroAction, day string) []Ev {
 	t.Helper()
+	if a.Type == "flee" && save.Hero != nil && save.Hero.Battle != nil {
+		a.BattleToken = save.Hero.Battle.Token
+	}
+
 	evs, err := save.HeroApply(a, 0, day, 7)
 	require.NoError(t, err)
 	return evs
 }
 
-// winTrial 把这一场的敌人都压到 1 点生命打倒，跳过功法奖励。
+// winTrial 验证跨周与首次奖励结算；输入重放在接口中核对。
 func winTrial(t *testing.T, save *Save, day string) []Ev {
 	t.Helper()
-	run := save.Hero.Battle.Run
-	attack := dungeon.StarterDeck(save.Hero.Class)[0]
-	for i, e := range run.Combat.Enemies {
-		e.HP, e.Block = 1, 0
-		delete(e.St, dungeon.StDodge)
-		run.Combat.Hand = []dungeon.Card{attack}
-		run.Combat.Energy = 3
-		trialAct(t, save, HeroAction{Type: "battle", Move: "play", Card: 0, Target: i, Choice: -1, Potion: -1}, day)
-	}
-	require.Equal(t, dungeon.PhaseReward, run.Phase)
-	return trialAct(t, save, HeroAction{Type: "battle", Move: "reward", Card: -1, Target: -1, Choice: -1, Potion: -1}, day)
+	return winHeroBattle(t, save, -1)
 }
 
 // 周按服务器本地日期的 ISO 周算，周一换周；不是日期时没有周。
@@ -74,11 +68,11 @@ func TestWeeklyTrialsOpenAfterTheFirstBoss(t *testing.T) {
 	assert.Equal(t, "2026-W45", w.Week)
 	assert.Equal(t, 0, w.Chapter)
 	assert.Equal(t, []bool{false, false, false}, w.Cleared)
-	assert.Equal(t, WeeklyTrial{Kind: NodeCombat, Node: "c1_backhill", Enemies: []string{"slime"}, HP: 135, Dmg: 117,
+	assert.Equal(t, WeeklyTrial{Kind: NodeCombat, Node: "c1_backhill", Enemies: []string{"slime"}, HP: 90, Dmg: 85,
 		Sign: SignBare, Reward: Cost{Stone: 60}}, w.Trials[0])
-	assert.Equal(t, WeeklyTrial{Kind: NodeElite, Node: "c1_chief", Enemies: []string{"goblin_chief"}, HP: 280, Dmg: 128,
+	assert.Equal(t, WeeklyTrial{Kind: NodeElite, Node: "c1_chief", Enemies: []string{"goblin_chief"}, HP: 140, Dmg: 80,
 		Sign: SignIron, Reward: Cost{Stone: 120, Ore: 30, Rep: 5}, Pill: PillQi}, w.Trials[1])
-	assert.Equal(t, WeeklyTrial{Kind: NodeBoss, Node: "c1_boss", Enemies: []string{"slime_king", "slime"}, HP: 91, Dmg: 97,
+	assert.Equal(t, WeeklyTrial{Kind: NodeBoss, Node: "c1_boss", Enemies: []string{"slime_king", "slime"}, HP: 63, Dmg: 72,
 		Sign: SignHorde, Reward: Cost{Stone: 180, Herb: 90, Ore: 48, Rep: 12}, Pill: PillBreak}, w.Trials[2])
 
 	view := h.View(save.Sect, 0, weekMonday).Weekly
@@ -175,13 +169,13 @@ func TestWeeklySignsChangeTheHeroSide(t *testing.T) {
 	trialAct(t, save, HeroAction{Type: "trial", Index: 1}, weekMonday)
 	assert.Empty(t, h.Battle.Carried, "potions stay in the bag")
 	assert.Equal(t, 1, h.Potions[dungeon.PotionFire])
-	assert.Nil(t, h.Battle.Run.Battle.Beast)
+	assert.Zero(t, h.Battle.Beast)
 	trialAct(t, save, HeroAction{Type: "flee"}, weekMonday)
 
 	h.Weekly = newWeekly(week, index+1, 0)
 	require.Equal(t, SignBlessed, h.Weekly.Trials[0].Sign)
 	trialAct(t, save, HeroAction{Type: "trial", Index: 1}, weekMonday)
-	assert.Equal(t, h.Strength()+2, h.Battle.Run.Battle.Strength)
-	assert.Equal(t, h.Block()+12, h.Battle.Run.Battle.Block)
+	assert.Equal(t, 5*(h.Strength()+2)+10, h.Battle.Fight.Setup.Mods.Damage)
+	assert.Equal(t, h.Block()+12, h.Battle.Fight.Setup.Mods.Vigor)
 	assert.Equal(t, []string{dungeon.PotionFire}, h.Battle.Carried, "other signs carry potions as usual")
 }

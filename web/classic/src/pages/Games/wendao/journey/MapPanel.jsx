@@ -24,7 +24,6 @@ import {
   Check,
   Crown,
   FlaskConical,
-  Gem,
   KeyRound,
   Leaf,
   Lock,
@@ -323,12 +322,6 @@ const NodeDetail = ({
               {keys[node.key]?.name}
             </span>
           )}
-          {fights && (
-            <span className='jn-reward'>
-              <Gem size={13} />
-              {t('功法三选一')}
-            </span>
-          )}
         </div>
       )}
       {fights && (state === 'open' || state === 'repeat') && (
@@ -426,7 +419,7 @@ const NodeDetail = ({
           <Button
             theme='solid'
             type={node.kind === 'boss' ? 'danger' : 'primary'}
-            disabled={busy || hero.deck.length < 8}
+            disabled={busy}
             onClick={() => {
               const fight = () =>
                 onFight(node.id, readyTeam(team, hero.companions));

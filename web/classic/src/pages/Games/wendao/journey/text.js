@@ -1073,7 +1073,7 @@ export const getSignText = (t, sign = {}) => ({
   },
   bare: {
     name: t('空明'),
-    desc: t('不带丹符、随行弟子与灵兽，只凭牌组与法宝'),
+    desc: t('不带丹符、随行弟子与灵兽，只凭自身修为与法宝'),
   },
   blessed: {
     name: t('天助'),

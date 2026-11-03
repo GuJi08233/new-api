@@ -23,7 +23,6 @@ import {
   Check,
   Crown,
   FlaskConical,
-  Gem,
   Lock,
   Skull,
   Sparkles,
@@ -185,10 +184,6 @@ const StepDetail = ({ info, step, hero, busy, next, onClimb }) => {
             {pillName(sectText, step.pill)}
           </span>
         )}
-        <span className='jn-reward'>
-          <Gem size={13} />
-          {t('功法三选一')}
-        </span>
       </div>
       {open && (
         <TeamPicker
@@ -208,7 +203,7 @@ const StepDetail = ({ info, step, hero, busy, next, onClimb }) => {
           <Button
             theme='solid'
             type={step.kind === 'boss' ? 'danger' : 'primary'}
-            disabled={busy || hero.deck.length < info.deck_min}
+            disabled={busy}
             onClick={() => onClimb(readyTeam(team, hero.companions))}
           >
             {t('登阶')}

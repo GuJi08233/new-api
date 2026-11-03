@@ -56,7 +56,7 @@ func TestCaveRoomEffects(t *testing.T) {
 	heroAct(t, save, HeroAction{Type: "visit", Node: "c1_oath"})
 	heroAct(t, save, HeroAction{Type: "fight", Node: "c1_backhill"})
 	require.NotNil(t, h.Battle)
-	assert.Equal(t, hp+4*springHP, h.Battle.Run.MaxHP)
+	assert.Equal(t, hp+4*springHP-dungeon.ClassHP(h.Class), h.Battle.Fight.Setup.Mods.Vigor)
 }
 
 // 旧存档没有洞府：读出来是空的，屋子都是 0 级。

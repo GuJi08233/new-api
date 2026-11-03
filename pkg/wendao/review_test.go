@@ -3,27 +3,18 @@ package wendao
 import (
 	"testing"
 
+	"github.com/QuantumNous/new-api/pkg/doufa"
 	"github.com/QuantumNous/new-api/pkg/dungeon"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// loseHeroBattle 把主角压到 1 点生命，一直结束回合到输掉，返回输掉那一下的事件。
+// loseHeroBattle 验证重放结果进入落败结算后的复盘与进度。
 func loseHeroBattle(t *testing.T, save *Save, day string) []Ev {
 	t.Helper()
-	save.Hero.Battle.Run.HP = 1
-	for range 10 {
-		combat := save.Hero.Battle.Run.Combat
-		combat.Block = 0
-		delete(combat.St, dungeon.StDodge)
-		evs, err := save.HeroApply(HeroAction{Type: "battle", Move: "end", Card: -1, Target: -1, Choice: -1, Potion: -1}, 0, day, 7)
-		require.NoError(t, err)
-		if save.Hero.Battle == nil {
-			return evs
-		}
-	}
-	require.FailNow(t, "the hero should have fallen within ten turns")
-	return nil
+	evs, err := save.FinishHeroFight(&doufa.Fight{Over: true, Tick: 5 * doufa.FPS, Foes: []*doufa.Foe{{HP: 100, MaxHP: 100}}}, 0)
+	require.NoError(t, err)
+	return evs
 }
 
 // reviewOf 取出复盘：输法与变强的路(按顺序)。
@@ -60,38 +51,22 @@ func TestDefeatIsReviewed(t *testing.T) {
 	assert.False(t, hasEv(evs, "hero_review"), "fleeing is not a defeat to review")
 }
 
-// 输法：敌人剩下不到四分之一是差一点(哪怕自己被一下打穿)；否则最后一回合受到的伤害达到最大生命一半或撑不过两回合是被打得
-// 太快；其余是输出跟不上。打在敌人身上的伤害不算主角受到的。
+// 接近胜利必须到最后一波，前几波剩血低不能掩盖后续敌人；短时间倒下归为承伤不足。
 func TestDefeatCause(t *testing.T) {
-	cases := []struct {
-		name        string
-		enemyHP     int // 敌人剩下的生命占最大生命的百分比
-		turn        int
-		lostPercent int // 最后一回合受到的伤害占最大生命的百分比
-		want        string
+	for _, tc := range []struct {
+		name            string
+		hp, ticks, wave int
+		want            string
 	}{
-		{"nearly won", 20, 6, 10, CauseClose},
-		{"nearly won but crushed", 5, 2, 100, CauseClose},
-		{"one heavy turn", 100, 5, 50, CauseBurst},
-		{"fell in two turns", 80, 2, 10, CauseBurst},
-		{"worn down", 60, 6, 40, CauseSlow},
-	}
-	for _, tc := range cases {
+		{"almost won", 20, 30 * doufa.FPS, 2, CauseClose},
+		{"later wave remains", 20, 30 * doufa.FPS, 1, CauseSlow},
+		{"fell quickly", 80, 5 * doufa.FPS, 1, CauseBurst},
+		{"worn down", 60, 30 * doufa.FPS, 2, CauseSlow},
+	} {
 		t.Run(tc.name, func(t *testing.T) {
 			save := newHeroSave(t, dungeon.ClassWarrior)
-			h := save.Hero
-			heroAct(t, save, HeroAction{Type: "visit", Node: "c1_oath"})
-			heroAct(t, save, HeroAction{Type: "fight", Node: "c1_backhill"})
-			run := h.Battle.Run
-			for _, e := range run.Combat.Enemies {
-				e.HP = e.MaxHP * tc.enemyHP / 100
-			}
-			run.Combat.Turn = tc.turn
-			run.Events = []dungeon.Ev{
-				{Kind: "hit", T: 0, N: 999},
-				{Kind: "hit", T: -1, N: run.MaxHP * tc.lostPercent / 100},
-			}
-			cause, _ := reviewOf(h.reviewDefeat(save.Sect, h.Battle, 0))
+			fight := &doufa.Fight{Tick: tc.ticks, Wave: tc.wave, Waves: make([][]doufa.Group, 2), Foes: []*doufa.Foe{{HP: tc.hp, MaxHP: 100}}}
+			cause, _ := reviewOf(save.Hero.reviewDefeat(save.Sect, &HeroBattle{}, fight, 0))
 			assert.Equal(t, tc.want, cause)
 		})
 	}
@@ -116,24 +91,25 @@ func TestDefeatTipsFollowTheHero(t *testing.T) {
 	}
 	heroAct(t, save, HeroAction{Type: "fight", Node: "c1_backhill"})
 	battle := h.Battle
+	fight := &doufa.Fight{Tick: 5 * doufa.FPS, Foes: []*doufa.Foe{{HP: 100, MaxHP: 100}}}
 
-	_, tips := reviewOf(h.reviewDefeat(s, battle, 0))
+	_, tips := reviewOf(h.reviewDefeat(s, battle, fight, 0))
 	assert.Equal(t, []Ev{tip("break", 1), tip(ElixirGuard, 8), tip("refine_"+RefineGuard, RefineBlock)}, tips,
 		"burst: break through, then guard")
 
 	h.Buffs = map[string]*Buff{ElixirGuard: {Power: 8, Left: 2}}
-	battle.Run.Combat.Turn = 6
-	_, tips = reviewOf(h.reviewDefeat(s, battle, 0))
+	fight.Tick = 30 * doufa.FPS
+	_, tips = reviewOf(h.reviewDefeat(s, battle, fight, 0))
 	assert.Equal(t, []Ev{tip("break", 1), tip("upgrade", 2), tip("wear", 1)}, tips,
 		"slow: no tiger elixir below furnace 4, no edge relic worn")
 
 	h.Elixirs = map[string][Grades]int{ElixirTiger: {0, 1, 0}}
-	_, tips = reviewOf(h.reviewDefeat(s, battle, 0))
+	_, tips = reviewOf(h.reviewDefeat(s, battle, fight, 0))
 	assert.Equal(t, []Ev{tip("break", 1), tip(ElixirTiger, 1), tip("upgrade", 2)}, tips,
 		"a tiger elixir in stock counts even without the furnace level")
 }
 
-// 差一点时先提下一场马上能带上的：丹符(行囊空了、丹房能炼)、灵兽、随行弟子；空明天象本来就不让带，换成别的路。
+// 空明天象禁用的丹符、随行与灵兽不会出现在变强建议中。
 func TestDefeatTipsRespectTheBareSign(t *testing.T) {
 	save := newHeroSave(t, dungeon.ClassWarrior)
 	s, h := save.Sect, save.Hero
@@ -143,21 +119,15 @@ func TestDefeatTipsRespectTheBareSign(t *testing.T) {
 	for i := range h.Cards {
 		h.Cards[i].Up = true
 	}
-
+	fight := &doufa.Fight{Tick: 30 * doufa.FPS, Wave: 2, Waves: make([][]doufa.Group, 2), Foes: []*doufa.Foe{{HP: 1, MaxHP: 100}}}
 	trialAct(t, save, HeroAction{Type: "fight", Node: "c1_backhill"}, weekMonday)
-	for _, e := range h.Battle.Run.Combat.Enemies {
-		e.HP = 1
-	}
-	cause, tips := reviewOf(loseHeroBattle(t, save, weekMonday))
+	cause, tips := reviewOf(h.reviewDefeat(s, h.Battle, fight, 0))
 	assert.Equal(t, CauseClose, cause)
 	assert.Equal(t, []Ev{tip("potions", 0), tip("beast", 0), tip("team", 2)}, tips)
-
+	trialAct(t, save, HeroAction{Type: "flee"}, weekMonday)
 	require.Equal(t, SignBare, h.Weekly.Trials[0].Sign)
 	trialAct(t, save, HeroAction{Type: "trial", Index: 1}, weekMonday)
-	for _, e := range h.Battle.Run.Combat.Enemies {
-		e.HP = 1
-	}
-	cause, tips = reviewOf(loseHeroBattle(t, save, weekMonday))
+	cause, tips = reviewOf(h.reviewDefeat(s, h.Battle, fight, 0))
 	assert.Equal(t, CauseClose, cause)
 	assert.Equal(t, []Ev{tip("cultivate", heroLayerHP), tip("spring", springHP)}, tips)
 }

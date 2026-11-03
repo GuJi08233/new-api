@@ -40,6 +40,7 @@ import DoufaPractice from '../doufa';
 import BattleStage from './BattleStage';
 import StoryDialog from './StoryDialog';
 import { heroEventLines } from './lines';
+import { encodeInputs } from '../doufa/engine';
 import '../../common/logic-puzzles.css';
 import '../../dungeon/dungeon.css';
 import '../../sect/sect.css';
@@ -63,12 +64,11 @@ const JourneyPage = () => {
   const [selected, setSelected] = useState(focused?.node || null);
   const [notice, setNotice] = useState(null);
   const [ended, setEnded] = useState(null);
-  const [battleEvents, setBattleEvents] = useState(null);
+  const [fight, setFight] = useState(null);
   // story 是正在播放的一段剧情：lines、chapter、title、doneLabel、抉择 choices 与播完后做什么(onDone，有抉择时收到所选
   // 的 key)。
   const [story, setStory] = useState(null);
   const busyRef = useRef(false);
-  const eventKey = useRef(0);
   const [, setTick] = useState(0);
 
   useEffect(() => {
@@ -93,11 +93,12 @@ const JourneyPage = () => {
       rare: data.rare,
     });
     setReceivedAt(Date.now());
-    const events = data.hero?.battle?.run?.events;
-    if (events?.length) {
-      eventKey.current += 1;
-      setBattleEvents({ key: eventKey.current, list: events });
-    }
+    // 种子与开局只由开战回应发一次；轮询或重读概况不会把本页正在打的房间抹掉。
+    setFight(
+      (current) =>
+        data.fight ||
+        (data.hero?.battle?.token === current?.token ? current : null),
+    );
   }, []);
 
   // writes 是发出过几次操作：读取发出以后又有操作发出，这次读到的就可能比操作的回应旧，不拿它覆盖。
@@ -127,14 +128,16 @@ const JourneyPage = () => {
     setError('');
     try {
       const response = await gamePostOnce(
-        '/api/game/wendao/hero/action',
-        { action, ...fields },
+        action === 'clear'
+          ? '/api/game/wendao/hero/clear'
+          : '/api/game/wendao/hero/action',
+        action === 'clear' ? fields : { action, ...fields },
         t,
       );
       if (!response.data) {
         playSound('error');
-        // 战斗里的一步被拒绝多半是局面已经变了(另一个页面往下打了)，读一次现在的样子；读完再写出原因，免得被读取清掉。
-        if (response.network || action === 'battle') await sync();
+        if (response.network || action === 'clear' || action === 'flee')
+          await sync();
         setError(response.error);
         return null;
       }
@@ -142,9 +145,9 @@ const JourneyPage = () => {
       accept(data);
       if (data.replayed)
         Toast.info(t('网络刚才断了一下，这一步上次已经做完了'));
-      if (action !== 'battle' || data.ended) refreshAgenda();
+      refreshAgenda();
       if (data.ended) {
-        const won = data.ended.result === 'won';
+        const won = data.ended.won;
         playSound(won ? 'win' : 'lose');
         const milestone = data.events.some(
           (ev) =>
@@ -152,11 +155,11 @@ const JourneyPage = () => {
         );
         if (won && milestone) celebrate(1);
         setEnded({
-          run: data.ended,
-          events: data.events,
-          fled: action === 'flee',
+          ...data.ended,
+          events: data.events || [],
+          fled: data.ended.fled || action === 'flee',
         });
-      } else if (action !== 'battle' && data.events.length) {
+      } else if (data.events?.length) {
         const summary = heroEventLines(data.events, t, text, sectText);
         if (summary.lines.length || summary.gains.length) setNotice(summary);
         const milestone = data.events.some(
@@ -174,15 +177,13 @@ const JourneyPage = () => {
     }
   };
 
-  // moves 是页面看到的这一场走到了第几步，另一个页面已经往下打了时服务端拒绝，不会按旧的下标出牌。
-  const battle = (move, fields = {}) =>
-    act('battle', {
-      move,
-      card: fields.card ?? -1,
-      target: fields.target ?? -1,
-      choice: fields.choice ?? -1,
-      potion: fields.potion ?? -1,
-      moves: state?.hero?.battle?.moves,
+  const clear = (run) =>
+    act('clear', {
+      inputs: encodeInputs(run.inputs),
+      seed: run.seed,
+      issued: run.issued,
+      battle_token: run.token,
+      request_id: run.requestId,
     });
 
   const hero = state?.hero;
@@ -221,19 +222,15 @@ const JourneyPage = () => {
   } else if (hero.battle || ended) {
     body = (
       <BattleStage
-        info={info}
+        key={hero.battle?.token || 'ended'}
         hero={hero}
         busy={busy}
+        fight={fight}
         ended={ended}
-        events={battleEvents}
-        send={battle}
-        onFlee={() => act('flee')}
+        onClear={clear}
+        onFlee={() => act('flee', { battle_token: hero.battle.token })}
         onBack={() => setEnded(null)}
         onGo={(target) => go({ part: 'journey', ...target })}
-        onCards={() => {
-          setEnded(null);
-          setTab('cards');
-        }}
       />
     );
   } else {
@@ -364,7 +361,7 @@ const JourneyPage = () => {
                   '历练是主角本人的修仙路：沿着主线一章章往下走，每章对应一个大境界',
                 ),
                 t(
-                  '战斗用功法牌组，每场都满血开打；赢了能从三张功法里选一张收下',
+                  '章节、问心阶与周天试炼都用斗法，每场满血开打；走位、攻击、法术与身法决定胜负',
                 ),
                 t('第一次通过节点有全部奖励；之后修为减半，资源每天只有前几次'),
                 t(
@@ -375,10 +372,9 @@ const JourneyPage = () => {
                   '重铸封印之后开放问心阶：五十级心魔一级比一级强，第一次登上每一级有修为、资源与丹药',
                 ),
                 t('奖励的灵石、灵草、玄铁直接进库房，参悟功法也花库房里的灵石'),
-                t(
-                  '不在牌组里的功法可以拆解换灵石，每天 {{n}} 张；参悟过的另退一半参悟花的灵石',
-                  { n: info.salvage_daily },
-                ),
+                t('已参悟的功法提高斗法伤害，不再需要编排牌组'),
+                t('丹符开战时自动消耗，转成本场加成；随行弟子与灵兽也提供加成'),
+                t('在世界的斗法配置里挑选法宝与法术，历练也沿用这套配置'),
                 t(
                   '洞府是主角本人的修行之所：静室加快闭关，灵泉增加生命，丹室开炉炼丹，器室祭炼法宝',
                 ),

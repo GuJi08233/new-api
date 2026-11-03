@@ -176,26 +176,17 @@ export const getBeastText = (t) => ({
   hu: { name: t('九尾灵狐'), element: -1 },
 });
 
-// beastMove 是灵兽出手的说明，力道 power 换算成这一招实际的数目(与 pkg/dungeon/beast.go 一致)。
+// beastMove 是灵兽给历练斗法的开局加成，与 pkg/wendao 的斗法配置对应。
 export function beastMove(t, kind, power) {
-  const half = Math.max(Math.floor(power / 2), 1);
   switch (kind) {
-    case 'baihu':
-      return t('每回合结束扑击一个敌人，造成 {{n}} 点伤害', { n: power });
     case 'lu':
-      return t('每回合结束为主角回复 {{n}} 点生命', { n: half });
     case 'gui':
-      return t('每回合结束给主角 {{n}} 点护体', { n: power });
+      return t('本场斗法生命上限 +{{n}}', { n: power });
+    case 'baihu':
     case 'que':
-      return t('每回合结束给所有敌人 {{n}} 层真火', {
-        n: Math.max(Math.floor(power / 4), 1),
-      });
     case 'yuan':
-      return t('每回合结束重击一个敌人 {{n}} 点伤害，并让它虚弱', {
-        n: half,
-      });
     case 'hu':
-      return t('每回合结束以狐火灼伤所有敌人，各 {{n}} 点伤害', { n: half });
+      return t('本场斗法伤害 +{{n}}%', { n: 2 + Math.floor(power / 4) });
     default:
       return '';
   }

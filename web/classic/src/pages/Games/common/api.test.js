@@ -62,6 +62,27 @@ describe('gamePostOnce', () => {
     expect(sent[1].body).toEqual(sent[0].body);
   });
 
+  // 玩家手动重交同一场斗法：即使上次回应已经丢失，也沿用记录里的收据编号，避免结算两次。
+  test('manually resubmitting a fight keeps its explicit request id', async () => {
+    replies = [
+      { success: true, data: { ended: { won: true } } },
+      { success: true, data: { replayed: true } },
+    ];
+    const replay = {
+      inputs: 'same-fight-inputs',
+      battle_token: 'same-fight-token',
+      seed: 123,
+      issued: 456,
+      request_id: 'same-fight-receipt',
+    };
+    await gamePostOnce('/api/game/wendao/hero/clear', replay, t);
+    const retry = await gamePostOnce('/api/game/wendao/hero/clear', replay, t);
+    expect(retry).toEqual({ data: { replayed: true } });
+    expect(sent).toHaveLength(2);
+    expect(sent[0].body).toEqual(replay);
+    expect(sent[1].body).toEqual(replay);
+  });
+
   // 服务端答复了拒绝原因就不重发；每次操作都换一个新编号。
   test('a refusal is not retried and every action gets its own id', async () => {
     replies = [

@@ -36,12 +36,11 @@ func TestStatSheetMatchesTheNextBattle(t *testing.T) {
 	assert.InDelta(t, h.CultivateRate(s), float64(heroExpPerHour*16)*(1+0.36), 1e-9)
 
 	heroAct(t, save, HeroAction{Type: "fight", Node: "c1_backhill"})
-	setup := h.Battle.Run.Battle
+	setup := &h.Battle.Fight.Setup
 	require.NotNil(t, setup)
-	assert.Equal(t, min(partsSum(sheet.HP), sheet.HPCap), setup.MaxHP)
-	assert.Equal(t, min(partsSum(sheet.Strength), sheet.StrengthCap), setup.Strength)
-	assert.Equal(t, min(partsSum(sheet.Block), sheet.BlockCap), setup.Block)
-	assert.Equal(t, 76, setup.Block)
+	assert.Equal(t, min(500, min(partsSum(sheet.HP), sheet.HPCap)-dungeon.ClassHP(h.Class)+76), setup.Mods.Vigor)
+	assert.Equal(t, 5*min(partsSum(sheet.Strength), sheet.StrengthCap), setup.Mods.Damage)
+	assert.Equal(t, min(5, min(partsSum(sheet.Block), sheet.BlockCap)/12), setup.Mods.Ward)
 	assert.Equal(t, 2, h.Buffs[ElixirTiger].Left, "a battle uses up one charge")
 
 	// 御路法宝再祭炼到满，护体超过上限：页面上的来源照实写，开战按上限截断。
@@ -52,7 +51,7 @@ func TestStatSheetMatchesTheNextBattle(t *testing.T) {
 	sheet = h.Sheet(s)
 	assert.Equal(t, 80+16, partsSum(sheet.Block))
 	heroAct(t, save, HeroAction{Type: "fight", Node: "c1_backhill"})
-	assert.Equal(t, 96, h.Battle.Run.Battle.Block)
+	assert.Equal(t, 5, h.Battle.Fight.Setup.Mods.Ward)
 	h.Battle = nil
 	h.Refine[dungeon.RelicMetronome] = 10
 	h.Relics = append(h.Relics, dungeon.RelicMetronome)
@@ -60,5 +59,5 @@ func TestStatSheetMatchesTheNextBattle(t *testing.T) {
 	sheet = h.Sheet(s)
 	require.Greater(t, partsSum(sheet.Block), sheet.BlockCap)
 	heroAct(t, save, HeroAction{Type: "fight", Node: "c1_backhill"})
-	assert.Equal(t, dungeon.BattleMaxBlock, h.Battle.Run.Battle.Block)
+	assert.Equal(t, 5, h.Battle.Fight.Setup.Mods.Ward)
 }

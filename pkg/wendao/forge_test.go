@@ -113,5 +113,5 @@ func TestRefineBonusFromWornRelics(t *testing.T) {
 	heroAct(t, save, HeroAction{Type: "visit", Node: "c1_oath"})
 	heroAct(t, save, HeroAction{Type: "fight", Node: "c1_backhill"})
 	require.NotNil(t, h.Battle)
-	assert.Equal(t, 8+7*RefineBlock, h.Battle.Run.Combat.Block, "the iron plate's own block plus its refinement")
+	assert.Equal(t, (7*RefineBlock)/12, h.Battle.Fight.Setup.Mods.Ward, "guard refinement provides opening protection")
 }

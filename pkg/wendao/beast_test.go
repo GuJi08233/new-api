@@ -176,7 +176,7 @@ func TestPlayRenameRelease(t *testing.T) {
 	assert.Equal(t, rep+4, save.Sect.Res.Rep)
 }
 
-// 出战的灵兽跟着进战斗，回合结束时出手；打赢了得经验与亲密。
+// 出战灵兽为斗法提供被动加成；打赢后继续得到经验与亲密。
 func TestBeastJoinsBattle(t *testing.T) {
 	save := newDenSave(t, MaxRoomLevel)
 	h := save.Hero
@@ -188,10 +188,10 @@ func TestBeastJoinsBattle(t *testing.T) {
 	heroAct(t, save, HeroAction{Type: "visit", Node: "c1_oath"})
 	heroAct(t, save, HeroAction{Type: "fight", Node: "c1_backhill"})
 	require.NotNil(t, h.Battle)
-	assert.Equal(t, &dungeon.BattleBeast{Kind: BeastTurtle, Move: dungeon.BeastGuard, Power: b.Power()}, h.Battle.Run.Battle.Beast)
+	assert.Equal(t, max(h.MaxHP()-dungeon.ClassHP(h.Class), 0)+b.Power(), h.Battle.Fight.Setup.Mods.Vigor)
 	assert.Equal(t, 1, h.Battle.Beast)
 	view := h.View(save.Sect, 0, "d1")
-	require.NotNil(t, view.Battle.Beast)
+	assert.Equal(t, 1, view.Battle.Beast)
 
 	evs := winHeroBattle(t, save, 0)
 	assert.True(t, hasEv(evs, "hero_clear"))

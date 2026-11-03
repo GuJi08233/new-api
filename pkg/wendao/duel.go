@@ -29,8 +29,7 @@ const (
 )
 
 // Region 是世界地图上的一个地域：第 i 个地域在主角到第 i 个境界时开放，对应第 i+1 章。Sect 是山门在这里的正道宗门，
-// Rooms、Foes、Elite、Boss 是这里的契约用的房间模板与敌人(都是 pkg/doufa 里有的，后面的地域暂时沿用前面的敌人，换上自己的
-// 敌人表以后只改这里)。
+// Rooms、Foes、Elite、Boss 是这里的契约用的房间模板与敌人，五个地域与历练共用自己的敌人表。
 type Region struct {
 	Id    string   `json:"id"`
 	Sect  string   `json:"sect,omitempty"`
@@ -46,12 +45,12 @@ var Regions = [...]Region{
 		Elite: "goblin_chief", Boss: "slime_king"},
 	{Id: "chixia", Sect: "jingang", Rooms: []string{"cavern", "ruins"}, Foes: []string{"werewolf", "shade_mage", "lava_elemental", "beetle", "goblin"},
 		Elite: "troll", Boss: "flame_lord"},
-	{Id: "beiming", Sect: "taixu", Rooms: []string{"ruins", "glade"}, Foes: []string{"skeleton", "shade_mage", "gargoyle", "beetle", "werewolf"},
-		Elite: "troll", Boss: "slime_king"},
-	{Id: "wanyao", Sect: "wanhua", Rooms: []string{"glade", "cavern"}, Foes: []string{"werewolf", "moth", "goblin", "slime", "beetle"},
-		Elite: "goblin_chief", Boss: "flame_lord"},
-	{Id: "jiuyou", Rooms: []string{"ruins", "cavern"}, Foes: []string{"shade_mage", "skeleton", "lava_elemental", "gargoyle", "werewolf"},
-		Elite: "troll", Boss: "flame_lord"},
+	{Id: "beiming", Sect: "taixu", Rooms: []string{"ruins", "glade"}, Foes: []string{"abyss_guard", "void_walker", "soul_eater", "crystal_golem"},
+		Elite: "lich", Boss: "abyss_drake"},
+	{Id: "wanyao", Sect: "wanhua", Rooms: []string{"glade", "cavern"}, Foes: []string{"treant", "viper", "fox_guard"},
+		Elite: "bear", Boss: "fox_emperor"},
+	{Id: "jiuyou", Rooms: []string{"ruins", "cavern"}, Foes: []string{"nether_hound", "hungry_ghost", "abyss_guard", "soul_eater"},
+		Elite: "judge", Boss: "patriarch"},
 }
 
 // trialWaves 是各宗门的入门试炼：一间房、两波敌人，按各宗的路数挑的敌人。敌人强度按第一个地域的一档算。
@@ -178,7 +177,7 @@ func (b *DuelBook) contract(kind, id string) *Contract {
 // 宗门以后的等待里；宗门任务要是宗门弟子；悬赏要主角够得着那个地域。seed 是这一场的随机数种子，由调用方取安全随机数。
 func (sv *Save) StartDuel(kind, id string, seed uint32, now int64) (*Duel, error) {
 	b := sv.book()
-	if sv.Hero == nil || b.Active != nil {
+	if sv.Hero == nil || b.Active != nil || sv.Hero.Battle != nil {
 		return nil, ErrUnavailable
 	}
 	var contract *Contract

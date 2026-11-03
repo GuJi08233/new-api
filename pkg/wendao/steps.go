@@ -21,12 +21,13 @@ var (
 	stepBosses = [][]string{{"flame_lord"}, {"abyss_drake"}, {"fox_emperor"}, {"taixu"}, {"patriarch"}}
 )
 
-// stepScale 是心魔的生命与伤害(百分比)：第 s 级是 基数 + 每级的增量 × s。第一级与第五章的遭遇差不多，按贪心机器人模拟
-// (化神、通关第五章时的牌组，每级最多试十次)，三种流派的中位数能登到第 34~49 级；最后一级的首领一次只有一到三成胜算。
+// stepScale 是斗法心魔的生命与伤害百分比：第 s 级是基数 + 每级增量 × s。
+// scripts/wendao-balance 覆盖三流派的基础、合理培养与毕业样本，逐级各跑十个固定种子；
+// 合理培养在第 40、50 级出现明显难点，毕业样本三流派的五十级均有胜例。完整条件与机器人局限见工具 README。
 var stepScale = map[string][4]int{
-	NodeCombat: {236, 159, 14, 5},
-	NodeElite:  {256, 169, 14, 5},
-	NodeBoss:   {217, 129, 7, 3},
+	NodeCombat: {125, 100, 3, 2},
+	NodeElite:  {135, 110, 3, 2},
+	NodeBoss:   {110, 85, 1, 1},
 }
 
 // stepRewardKind 是各种一级的资源倍数与声望。

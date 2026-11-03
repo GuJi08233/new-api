@@ -25,10 +25,19 @@ import { useDungeonText } from '../../dungeon/parts';
 import { CostChips, canAfford } from '../../sect/parts';
 import { getKeyText } from './text';
 
-// 法宝与行囊：戴上或摘下法宝(数量有上限)，看行囊里的丹符与机缘。丹符开战时自动带上，没用掉的打完放回来。
+// 旧法宝的祭炼与丹符转为历练斗法加成；出战武器另在世界配置。
 const Gear = ({ info, hero, res, busy, act }) => {
   const { t } = useTranslation();
   const text = useDungeonText();
+  const potionEffects = {
+    heal: t('本场生命上限 +20'),
+    fire: t('本场伤害 +10%'),
+    strength: t('本场伤害 +10%'),
+    iron: t('开局护心 +1，抵挡一次伤害'),
+    weakness: t('本场敌人伤害降低 10%'),
+    swift: t('本场移速 +8%，身法冷却缩短 5%'),
+    energy: t('本场灵力回复 +25%'),
+  };
   const keys = getKeyText(t);
   const full = hero.worn.length >= hero.relic_slots;
   const toggle = (id) => {
@@ -48,6 +57,11 @@ const Gear = ({ info, hero, res, busy, act }) => {
         })}
       </h5>
       <p className='jn-muted'>{t('境界每高一层大境界，多戴一件法宝')}</p>
+      <p className='jn-muted'>
+        {t(
+          '佩戴后的祭炼加成计入历练斗法；出战武器与法术在世界的斗法配置里选择。',
+        )}
+      </p>
       <div className='jn-relics'>
         {hero.relics.map((id) => {
           const worn = hero.worn.includes(id);
@@ -56,7 +70,7 @@ const Gear = ({ info, hero, res, busy, act }) => {
               <Gem size={16} />
               <div>
                 <strong>{text.relics[id]?.name}</strong>
-                <span>{text.relics[id]?.desc}</span>
+                <span>{t('祭炼 {{n}} 级', { n: hero.refine[id] || 0 })}</span>
               </div>
               <Button
                 size='small'
@@ -71,6 +85,9 @@ const Gear = ({ info, hero, res, busy, act }) => {
         })}
       </div>
       <h5>{t('丹符（开战时带 {{n}} 份）', { n: hero.potion_slots })}</h5>
+      <p className='jn-muted'>
+        {t('开战时按栏位自动消耗丹符并获得本场加成；落败或退走也不退回。')}
+      </p>
       {potions.length === 0 ? (
         <p className='jn-muted'>
           {t('行囊里没有丹符，第一次通过一些节点会得到')}
@@ -78,13 +95,9 @@ const Gear = ({ info, hero, res, busy, act }) => {
       ) : (
         <div className='jn-bag'>
           {potions.map(([id, n]) => (
-            <span
-              key={id}
-              className='jn-bag-item'
-              title={text.potions[id]?.desc}
-            >
+            <span key={id} className='jn-bag-item' title={potionEffects[id]}>
               <FlaskConical size={14} />
-              {text.potions[id]?.name} × {n}
+              {text.potions[id]?.name} × {n} · {potionEffects[id]}
             </span>
           ))}
         </div>
@@ -109,7 +122,7 @@ const Gear = ({ info, hero, res, busy, act }) => {
               <FlaskConical size={15} />
               <div>
                 <strong>{text.potions[recipe.potion]?.name}</strong>
-                <span>{text.potions[recipe.potion]?.desc}</span>
+                <span>{potionEffects[recipe.potion]}</span>
               </div>
               {locked ? (
                 <span className='jn-muted'>

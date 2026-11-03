@@ -8,8 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// 拆解不在牌组里的功法换灵石：按稀有度给，参悟过的另退一半参悟的灵石；拆掉的功法从收藏里拿走，牌组与预设的下标跟着前移。
-// 牌组里的、不存在的拆不了。
+// 拆解功法按稀有度给灵石，参悟过的另退一半参悟花费；兼容保留的旧牌组与预设索引一起前移，非法下标拒绝。
 func TestSalvageCards(t *testing.T) {
 	save := newHeroSave(t, dungeon.ClassWarrior)
 	s, h := save.Sect, save.Hero
@@ -17,8 +16,8 @@ func TestSalvageCards(t *testing.T) {
 	h.Presets = []*DeckPreset{{Deck: []int{0, 1, 2, 3, 4, 5, 6, 12}}}
 	assert.Equal(t, []int{5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 15, 115, 15}, h.View(s, 0, "d1").Salvage)
 
-	_, err := save.HeroApply(HeroAction{Type: "salvage", Card: 0}, 0, "d1", 0)
-	assert.ErrorIs(t, err, ErrAction, "cards in the deck stay")
+	_, err := save.HeroApply(HeroAction{Type: "salvage", Card: -1}, 0, "d1", 0)
+	assert.ErrorIs(t, err, ErrAction, "negative manual indices are refused")
 	_, err = save.HeroApply(HeroAction{Type: "salvage", Card: 13}, 0, "d1", 0)
 	assert.ErrorIs(t, err, ErrAction)
 

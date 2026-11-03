@@ -5,7 +5,7 @@ import "github.com/QuantumNous/new-api/pkg/dungeon"
 // 历练的数值表：章节、地图上的节点与它们的奖励。节点的名字、位置与剧情都在前端 Games/wendao/journey/text.js，
 // 标识与这里一致。世界设定见 world.md。
 
-// 节点种类。剧情看完就算走过；遭遇、强敌与首领是卡牌战斗；采集隔一段时间可以再去一次。
+// 节点种类。剧情看完就算走过；遭遇、强敌与首领用即时斗法；采集隔一段时间可以再去一次。
 const (
 	NodeStory  = "story"
 	NodeCombat = dungeon.NodeCombat
@@ -30,8 +30,6 @@ const (
 	// SalvageDaily 是每天最多拆解几张功法：赢一场就能收下一张，不设上限的话反复打同一个节点再拆就成了刷灵石。超过了
 	// 还能丢掉，只是不再给灵石。
 	SalvageDaily = 5
-	// BattleRewardChoices 是赢下一场之后几选一的功法。
-	BattleRewardChoices = 3
 	// heroLayerHP、heroRealmHP 是主角每多一层、每高一个境界多出的最大生命；境界还给开战时的力量。
 	heroLayerHP = 5
 	heroRealmHP = 30
@@ -39,14 +37,14 @@ const (
 	heroExpPerHour = baseExpPerHour
 )
 
-// nodeScale 是历练敌人的生命与伤害(百分比)：主角每一场都满血开打，还有境界给的生命与力量，所以敌人比九幽秘境里同一重
-// 的强；章节每往后一章再加 chapterScaleHP、chapterScaleDmg。按贪心机器人模拟，遭遇战基本必胜，强敌与首领第一次挑战
-// 五到九成能赢，打不过的可以回头刷修为、参悟功法再来。
-var nodeScale = map[string][2]int{NodeCombat: {150, 130}, NodeElite: {200, 160}, NodeBoss: {130, 115}}
+// nodeScale 是历练斗法敌人的生命与伤害百分比，每章再加 chapterScaleHP、chapterScaleDmg。
+// 数值按 scripts/wendao-balance 的固定种子模拟重新确定：同境合理培养、起手法宝的三流派均能通过五章首领；
+// 第五章末首领对体修与法修更难，继续养成能提高胜算。模拟样本与局限见该工具的 README。
+var nodeScale = map[string][2]int{NodeCombat: {100, 95}, NodeElite: {100, 100}, NodeBoss: {90, 85}}
 
 const (
-	chapterScaleHP  = 20
-	chapterScaleDmg = 10
+	chapterScaleHP  = 8
+	chapterScaleDmg = 5
 )
 
 // EnemyScale 返回一个战斗节点敌人的生命与伤害百分比。
@@ -60,7 +58,7 @@ var BreakKeys = [...]string{"foundation_dew", "core_fire", "nascent_lotus", "fox
 
 // 宗门与历练互通：随行弟子、丹房炼丹符、聚气丹。
 const (
-	// CompanionMax 是一场仗最多带几名弟子随行，每人带来一张按灵根的援护牌(dungeon.AllyCards)，弟子到了筑基就是升级后的。
+	// CompanionMax 是一场仗最多带几名弟子随行，每人按境界增加本场斗法的伤害与生命。
 	CompanionMax = 2
 	// companionInjury 是输了(或退走)时随行弟子受伤多久。
 	companionInjury = 60 * 60

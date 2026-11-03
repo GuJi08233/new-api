@@ -28,7 +28,7 @@ import {
 } from '../doufa/text';
 
 // ArmsPanel 配置出战：从手上有的法宝里挑一到两件(先挑的先拿在手上)，从手上有的法术里挑一个。法宝与法术在宗门藏经阁用贡献换，
-// 流派起手的不用换。配置只在悬赏、宗门任务与入门试炼里带，九幽秘境里不带。
+// 流派起手的不用换。配置在历练与世界契约里带，九幽秘境里不带。
 export default function ArmsPanel({ arms, busy, onEquip }) {
   const { t } = useTranslation();
   const [weapons, setWeapons] = useState(arms.loadout.weapons);
@@ -60,7 +60,7 @@ export default function ArmsPanel({ arms, busy, onEquip }) {
       <div className='df-title'>{t('斗法配置')}</div>
       <p className='df-lead'>
         {t(
-          '带哪两件法宝、用哪个法术出战。法宝与法术在宗门藏经阁用贡献换，永久属于你；只在悬赏、宗门任务与入门试炼里带，九幽秘境里不带。',
+          '带哪两件法宝、用哪个法术出战。法宝与法术在宗门藏经阁用贡献换，永久属于你；历练与世界契约沿用这套配置，九幽秘境里不带。',
         )}
       </p>
       <div className='dl-heading'>{t('法宝')}</div>

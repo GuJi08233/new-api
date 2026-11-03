@@ -55,10 +55,16 @@ export function makeBot(style, seed) {
     }
     for (const e of f.foes) {
       const spec = content.foes[e.kind];
-      if ((spec.ai === 'charge' && (e.state === 1 || e.state === 2)) || (spec.ai === 'boss' && e.state >= 3)) {
+      if (
+        (spec.ai === 'charge' && (e.state === 1 || e.state === 2)) ||
+        (spec.ai === 'boss' && e.state >= 3)
+      ) {
         const d = (p.x - e.x) ** 2 + (p.y - e.y) ** 2;
         if (d < 22000 * 22000 && d < threatD) {
-          threat = { vx: Math.cos((e.a * Math.PI) / 32), vy: Math.sin((e.a * Math.PI) / 32) };
+          threat = {
+            vx: Math.cos((e.a * Math.PI) / 32),
+            vy: Math.sin((e.a * Math.PI) / 32),
+          };
           threatD = d;
         }
       }
@@ -70,7 +76,10 @@ export function makeBot(style, seed) {
       wander--;
       move = wanderDir;
     } else if (threat) {
-      const across = (angleOf(Math.round(threat.vx * 1000), Math.round(threat.vy * 1000)) + 16 * side) & 63;
+      const across =
+        (angleOf(Math.round(threat.vx * 1000), Math.round(threat.vy * 1000)) +
+          16 * side) &
+        63;
       move = across;
       if (p.dodgeCool === 0 && rnd() < style.dodge) buttons |= BTN_DODGE;
       if (rnd() < 0.02) side = -side;
@@ -79,7 +88,8 @@ export function makeBot(style, seed) {
       const dy = target.y - p.y;
       const d = Math.sqrt(dx * dx + dy * dy) / 100;
       const a = angleOf(dx, dy);
-      const range = content.weapons[p.weapons[p.slot]].kind === 'melee' ? 30 : style.range;
+      const range =
+        content.weapons[p.weapons[p.slot]].kind === 'melee' ? 30 : style.range;
       if (d > range + 30) move = a;
       else if (d < range - 30) move = (a + 32) & 63;
       else move = (a + 16 * side) & 63;
@@ -95,21 +105,41 @@ export function makeBot(style, seed) {
     if (target) {
       buttons |= BTN_ATTACK;
       if (style.manualAim) aim = angleOf(target.x - p.x, target.y - p.y);
-      const crowd = f.foes.filter((e) => (e.x - p.x) ** 2 + (e.y - p.y) ** 2 < 15000 * 15000).length;
+      const crowd = f.foes.filter(
+        (e) => (e.x - p.x) ** 2 + (e.y - p.y) ** 2 < 15000 * 15000,
+      ).length;
       const bossNear = f.foes.some((e) => content.foes[e.kind].ai === 'boss');
-      if (p.skillCool === 0 && (crowd >= 2 || bossNear) && !(prevButtons & BTN_SKILL)) buttons |= BTN_SKILL;
+      if (
+        p.skillCool === 0 &&
+        (crowd >= 2 || bossNear) &&
+        !(prevButtons & BTN_SKILL)
+      )
+        buttons |= BTN_SKILL;
     }
     const weapon = content.weapons[p.weapons[p.slot]];
-    const other = p.weapons.length > 1 ? content.weapons[p.weapons[1 - p.slot]] : null;
+    const other =
+      p.weapons.length > 1 ? content.weapons[p.weapons[1 - p.slot]] : null;
     const wantMelee = weapon.kind === 'shot' && p.mp < weapon.cost * 100 * 2;
-    const wantRanged = weapon.kind === 'melee' && other && p.mp > p.maxMp * 0.7 && style.range > 60;
-    if (other && (wantMelee || wantRanged) && !(prevButtons & BTN_SWAP)) buttons |= BTN_SWAP;
+    const wantRanged =
+      weapon.kind === 'melee' &&
+      other &&
+      p.mp > p.maxMp * 0.7 &&
+      style.range > 60;
+    if (other && (wantMelee || wantRanged) && !(prevButtons & BTN_SWAP))
+      buttons |= BTN_SWAP;
     prevButtons = buttons;
     return pack(move, aim, buttons);
   };
 }
 
-export function play(cls, seed, style, botSeed, limit = MAX_TICKS, setup = trialSetup(cls)) {
+export function play(
+  cls,
+  seed,
+  style,
+  botSeed,
+  limit = MAX_TICKS,
+  setup = trialSetup(cls),
+) {
   const f = createFight(seed, setup);
   const bot = makeBot(style, botSeed);
   const inputs = [];
@@ -122,10 +152,34 @@ export function play(cls, seed, style, botSeed, limit = MAX_TICKS, setup = trial
 }
 
 const runs = [
-  { name: 'warrior-melee', cls: 'warrior', seed: 1, style: { range: 36, dodge: 0.6 }, botSeed: 7 },
-  { name: 'mage-manual-aim', cls: 'mage', seed: 20261103, style: { range: 150, dodge: 0.7, manualAim: true }, botSeed: 3 },
-  { name: 'ranger-unsigned-seed', cls: 'ranger', seed: 4294967295, style: { range: 140, dodge: 0.8 }, botSeed: 2 },
-  { name: 'warrior-careless', cls: 'warrior', seed: 99, style: { range: 20, dodge: 0 }, botSeed: 17 },
+  {
+    name: 'warrior-melee',
+    cls: 'warrior',
+    seed: 1,
+    style: { range: 36, dodge: 0.6 },
+    botSeed: 7,
+  },
+  {
+    name: 'mage-manual-aim',
+    cls: 'mage',
+    seed: 20261103,
+    style: { range: 150, dodge: 0.7, manualAim: true },
+    botSeed: 3,
+  },
+  {
+    name: 'ranger-unsigned-seed',
+    cls: 'ranger',
+    seed: 4294967295,
+    style: { range: 140, dodge: 0.8 },
+    botSeed: 2,
+  },
+  {
+    name: 'warrior-careless',
+    cls: 'warrior',
+    seed: 99,
+    style: { range: 20, dodge: 0 },
+    botSeed: 17,
+  },
   // 秘境斗法第二重的一间房：祝福全上、敌人加强、长枪与雷印(溅射)、护心挡第一下、赤炎魔君。
   {
     name: 'rift-floor-two',
@@ -138,23 +192,127 @@ const runs = [
       weapons: ['thunder', 'spear'],
       room: 'cavern',
       waves: [
-        [{ foe: 'werewolf', n: 2 }, { foe: 'shade_mage', n: 1 }],
-        [{ foe: 'beetle', n: 1 }, { foe: 'lava_elemental', n: 1 }, { foe: 'troll', n: 1 }],
+        [
+          { foe: 'werewolf', n: 2 },
+          { foe: 'shade_mage', n: 1 },
+        ],
+        [
+          { foe: 'beetle', n: 1 },
+          { foe: 'lava_elemental', n: 1 },
+          { foe: 'troll', n: 1 },
+        ],
         [{ foe: 'flame_lord', n: 1 }],
       ],
       hp: 90,
       mp: 100,
-      mods: { damage: 20, speed: 12, haste: 18, pierce: 1, regen: 60, vigor: 25, dodge: 35, focus: 30, reach: 25, ward: 1 },
+      mods: {
+        damage: 20,
+        speed: 12,
+        haste: 18,
+        pierce: 1,
+        regen: 60,
+        vigor: 25,
+        dodge: 35,
+        focus: 30,
+        reach: 25,
+        ward: 1,
+      },
       scale: { hp: 130, dmg: 112 },
     },
   },
+  // 历练后三章与尸将：沿用同一套 AI，但每种敌人的弹形、冲撞与首领召唤不同，新增内容也要过两端重放。
+  ...[
+    {
+      name: 'journey-beiming',
+      room: 'glade',
+      waves: [
+        [
+          { foe: 'abyss_guard', n: 1 },
+          { foe: 'void_walker', n: 2 },
+          { foe: 'soul_eater', n: 1 },
+        ],
+        [
+          { foe: 'crystal_golem', n: 1 },
+          { foe: 'lich', n: 1 },
+          { foe: 'death_knight', n: 1 },
+        ],
+        [{ foe: 'abyss_drake', n: 1 }],
+      ],
+    },
+    {
+      name: 'journey-wanyao',
+      room: 'glade',
+      waves: [
+        [
+          { foe: 'treant', n: 1 },
+          { foe: 'viper', n: 2 },
+          { foe: 'fox_guard', n: 1 },
+        ],
+        [
+          { foe: 'bear', n: 1 },
+          { foe: 'spider', n: 1 },
+        ],
+        [{ foe: 'fox_emperor', n: 1 }],
+      ],
+    },
+    {
+      name: 'journey-jiuyou',
+      room: 'ruins',
+      waves: [
+        [
+          { foe: 'nether_hound', n: 2 },
+          { foe: 'hungry_ghost', n: 1 },
+        ],
+        [
+          { foe: 'judge', n: 1 },
+          { foe: 'soul_lord', n: 1 },
+        ],
+        [{ foe: 'taixu', n: 1 }],
+        [{ foe: 'patriarch', n: 1 }],
+      ],
+    },
+  ].map(({ name, room, waves }, i) => ({
+    name,
+    cls: 'ranger',
+    seed: 804 + i,
+    style: { range: 140, dodge: 0.8, manualAim: true },
+    botSeed: 41,
+    setup: {
+      cls: 'ranger',
+      weapons: ['flying_sword', 'sword'],
+      room,
+      waves,
+      mods: { vigor: 400, damage: 150, regen: 60 },
+      scale: { hp: 100, dmg: 100 },
+    },
+  })),
 ];
 
 if (import.meta.main) {
-  const records = runs.map(({ name, cls, seed, style, botSeed, setup = trialSetup(cls) }) => {
-    const { f, inputs } = play(cls, seed, style, botSeed, MAX_TICKS, setup);
-    return { name, seed, setup, inputs: encodeInputs(inputs), summary: summary(f) };
-  });
-  writeFileSync(new URL('./golden.json', import.meta.url), JSON.stringify(records, null, 1) + '\n');
-  console.log(records.map(({ name, summary: s }) => ({ name, won: s.won, seconds: Math.round(s.tick / 60), hp: s.hp, kills: s.kills, taken: s.taken })));
+  const records = runs.map(
+    ({ name, cls, seed, style, botSeed, setup = trialSetup(cls) }) => {
+      const { f, inputs } = play(cls, seed, style, botSeed, MAX_TICKS, setup);
+      return {
+        name,
+        seed,
+        setup,
+        inputs: encodeInputs(inputs),
+        summary: summary(f),
+      };
+    },
+  );
+  writeFileSync(
+    new URL('./golden.json', import.meta.url),
+    JSON.stringify(records, null, 1) + '\n',
+  );
+  console.log(
+    records.map(({ name, summary: s }) => ({
+      name,
+      won: s.won,
+      seconds: Math.round(s.tick / 60),
+      hp: s.hp,
+      kills: s.kills,
+      taken: s.taken,
+    })),
+  );
 }

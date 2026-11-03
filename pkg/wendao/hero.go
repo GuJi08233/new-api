@@ -4,11 +4,13 @@ import (
 	"math"
 	"slices"
 
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/pkg/doufa"
 	"github.com/QuantumNous/new-api/pkg/dungeon"
 )
 
-// Hero 是玩家在历练里的主角，也就是宗主本人。主角的境界与弟子用同一张表；功法(卡牌)攒在收藏里，从中挑出牌组带进战斗；
-// 法宝要佩戴才生效，佩戴数随境界增加；丹符与机缘放在行囊里。资源与丹药用宗门的(Save.Sect)。
+// Hero 是玩家在历练里的主角。境界与弟子共用一张表；历史收藏里的功法参悟后提供斗法伤害加成，旧牌组与预设只兼容保存。
+// 佩戴法宝的祭炼提供养成加成，斗法使用 Arms 配置的武器与法术；丹符开战生效，机缘用于突破，资源与丹药用 Save.Sect。
 type Hero struct {
 	Class string  `json:"class"`
 	Realm int     `json:"realm"`
@@ -70,21 +72,22 @@ type NodeRecord struct {
 	Pick   string `json:"pick,omitempty"`
 }
 
-// HeroBattle 是主角正在打的一场仗：在哪个节点(或问心阶的第几级、周天试炼哪一周的第几关)、这一场的局面，以及从行囊里
-// 带出来的丹符(打完把没用掉的放回去)。
+// HeroBattle 记下历练斗法所在节点、问心阶级数或周天试炼的周与关卡，以及服务端发出的开局快照。
+// Carried 是已经生效并消耗的丹符，Team 与 Beast 用于结算经验和落败受伤。
 type HeroBattle struct {
-	Node    string       `json:"node"`
-	Step    int          `json:"step,omitempty"`
-	Trial   int          `json:"trial,omitempty"`
-	Week    string       `json:"week,omitempty"`
-	Run     *dungeon.Run `json:"run"`
-	Carried []string     `json:"carried"`
+	Node  string `json:"node"`
+	Step  int    `json:"step,omitempty"`
+	Trial int    `json:"trial,omitempty"`
+	Week  string `json:"week,omitempty"`
+	// Run 只在迁移旧版卡牌战斗时读取；新战斗只保存 Fight。
+	Run       *dungeon.Run `json:"run,omitempty"`
+	Fight     *Duel        `json:"fight,omitempty"`
+	RequestId string       `json:"request_id,omitempty"`
+	Token     string       `json:"token,omitempty"`
+	Carried   []string     `json:"carried"`
 	// Team 是随行的弟子编号，Beast 是出战的灵兽编号(没有为 0)。
 	Team  []int `json:"team,omitempty"`
 	Beast int   `json:"beast,omitempty"`
-	// Moves 是这一场已经走了几步(出牌、服丹符、结束回合、选奖励)。页面出牌时带上它看到的步数，另一个页面已经往下打了
-	// 就对不上，不会按旧的手牌下标打出另一张牌。
-	Moves int `json:"moves,omitempty"`
 }
 
 // HeroStats 是主角的战绩。
@@ -94,7 +97,7 @@ type HeroStats struct {
 	Breakthroughs int `json:"breakthroughs"`
 }
 
-// HeroAction 是历练里的一次操作。Move、Card、Target、Choice、Potion 是战斗里的一步(与九幽秘境相同)；Team 是开战(或登
+// HeroAction 是历练里的一次操作。Move、Target、Choice、Potion、Moves 只兼容旧请求形状，旧出牌操作会拒绝；Team 是开战(或登
 // 问心阶)时随行的弟子；Item、Count 是在丹房炼的丹符与份数(洞府的操作里 Item 是屋子、法宝或丹方)；Fire 是开炉的火候，
 // Index 是第几座丹炉(牌组预设的操作里是第几格)，Grade 是服哪个品质的丹；Beast 是灵兽的编号，Name 是给灵兽或牌组预设
 // 起的名字；Option 是走剧情节点时选的抉择。
@@ -120,8 +123,9 @@ type HeroAction struct {
 	Name    string   `json:"name"`
 	Option  string   `json:"option"`
 	// RequestId 是页面给这次操作的编号，见 Save.Admit。
-	RequestId string `json:"request_id,omitempty"`
-	// Moves 是战斗里的一步时页面看到的步数(HeroBattle.Moves)，与存档里的不一样时拒绝；不带时不核对。
+	RequestId   string `json:"request_id,omitempty"`
+	BattleToken string `json:"battle_token,omitempty"`
+	// Moves 只兼容旧页面请求，不再用于推进战斗。
 	Moves *int `json:"moves,omitempty"`
 }
 
@@ -371,15 +375,6 @@ func (h *Hero) GatherReady(n *JourneyNode, now int64) int64 {
 	return r.Last + n.Cooldown
 }
 
-// deckCards 是牌组里的功法。
-func (h *Hero) deckCards() []dungeon.Card {
-	cards := make([]dungeon.Card, 0, len(h.Deck))
-	for _, i := range h.Deck {
-		cards = append(cards, h.Cards[i])
-	}
-	return cards
-}
-
 // HeroApply 执行一次历练操作：先结算闭关修为，再执行操作，返回这期间发生的事。还没有主角时只能创建；资源与丹药用宗门的，
 // 宗门要已经建好。seed 只在开战时用到。出错时存档可能已经改了一部分，调用方不要保存。
 func (sv *Save) HeroApply(a HeroAction, now int64, day string, seed uint64) ([]Ev, error) {
@@ -407,7 +402,10 @@ func (sv *Save) HeroApply(a HeroAction, now int64, day string, seed uint64) ([]E
 	}
 	evs := append(h.tick(s, now), h.hatchBeasts(now)...)
 	h.rollWeekly(day)
-	if h.Battle != nil && a.Type != "sync" && a.Type != "battle" && a.Type != "flee" {
+	if h.Battle != nil && a.Type != "sync" && a.Type != "flee" {
+		return nil, ErrUnavailable
+	}
+	if sv.Duels != nil && sv.Duels.Active != nil && (a.Type == "fight" || a.Type == "climb" || a.Type == "trial") {
 		return nil, ErrUnavailable
 	}
 	var more []Ev
@@ -470,11 +468,12 @@ func (sv *Save) HeroApply(a HeroAction, now int64, day string, seed uint64) ([]E
 		err = h.renameBeast(a.Beast, a.Name)
 	case "release":
 		more, err = h.releaseBeast(s, a.Beast)
-	case "battle":
-		more, err = h.battleStep(s, a, now)
 	case "flee":
 		if h.Battle == nil {
 			return nil, ErrUnavailable
+		}
+		if a.BattleToken != h.Battle.Token {
+			return nil, ErrBattleMoved
 		}
 		more = h.injureTeam(s, now)
 		h.endBattle()
@@ -545,10 +544,10 @@ func SalvageYield(c dungeon.Card) int {
 	return SalvageStone[rarity]
 }
 
-// salvage 拆解一张不在牌组里的功法换灵石(与丢掉一样，牌组预设里有这张的一起拿掉)，每天最多 SalvageDaily 张。事件
+// salvage 拆解一张收藏里的功法换灵石(与丢掉一样，牌组预设里有这张的一起拿掉)，每天最多 SalvageDaily 张。事件
 // hero_salvage 的 N 是得的灵石，V 为 1 表示拆的是参悟过的。
 func (h *Hero) salvage(s *Sect, index int) ([]Ev, error) {
-	if index < 0 || index >= len(h.Cards) || slices.Contains(h.Deck, index) {
+	if index < 0 || index >= len(h.Cards) {
 		return nil, ErrAction
 	}
 	card := h.Cards[index]
@@ -570,12 +569,13 @@ func (h *Hero) salvage(s *Sect, index int) ([]Ev, error) {
 	return append([]Ev{ev}, s.gain(Cost{Stone: stone})...), nil
 }
 
-// forget 从收藏里丢掉一张不在牌组里的功法，给新的功法腾地方；牌组预设里有这张的一起拿掉。
+// forget 从收藏里丢掉一张功法，给新的功法腾地方；牌组预设里有这张的一起拿掉。
 func (h *Hero) forget(index int) error {
-	if index < 0 || index >= len(h.Cards) || slices.Contains(h.Deck, index) {
+	if index < 0 || index >= len(h.Cards) {
 		return ErrAction
 	}
 	h.Cards = slices.Delete(h.Cards, index, index+1)
+	h.Deck = slices.DeleteFunc(h.Deck, func(i int) bool { return i == index })
 	for i, d := range h.Deck {
 		if d > index {
 			h.Deck[i] = d - 1
@@ -748,17 +748,48 @@ type battleRules struct {
 	Block    int
 }
 
-// startBattle 开始一场仗：带上牌组、佩戴的法宝、行囊里的丹符(按丹符栏格数，从行囊里拿出来)、随行弟子的援护牌与出战的
-// 灵兽，再按 rules 改。battle 记着这一场打的是哪个节点、问心阶的哪一级或周天试炼的哪一关。
+// JourneySetup 把主角养成与一组历练敌人换成斗法开局。境界、层数、洞府、祭炼、丹药与参悟均在此生效，
+// 不影响九幽秘境；普通敌人分两波，精英与首领前有一波地域敌人。
+func (h *Hero) JourneySetup(kind string, enemies []string, hp, dmg, chapter int) doufa.Setup {
+	region := Regions[min(max(chapter, 0), len(Regions)-1)]
+	waves := [][]doufa.Group{{{Foe: region.Foes[0], N: 3}}}
+	var last []doufa.Group
+	for _, enemy := range enemies {
+		count := 1
+		if kind == NodeCombat {
+			count = 3
+		}
+		last = append(last, doufa.Group{Foe: enemy, N: count})
+	}
+	waves = append(waves, last)
+	setup := h.duelSetup(doufa.Setup{Room: region.Rooms[0], Waves: waves, Scale: doufa.FoeScale{HP: hp, Dmg: dmg}})
+	block, strength := h.buffPower()
+	setup.Mods = doufa.Mods{
+		Vigor:  max(h.MaxHP()-dungeon.ClassHP(h.Class), 0) + h.Block() + block,
+		Damage: 5 * (h.Strength() + strength), Ward: (h.Block() + block) / 12,
+	}
+	// 参悟的功法作为常驻修行所得，不再依赖牌组或出牌。
+	for _, card := range h.Cards {
+		if card.Up {
+			setup.Mods.Damage++
+		}
+	}
+	setup.Mods.Damage = min(setup.Mods.Damage, 300)
+	setup.Mods.Vigor = min(setup.Mods.Vigor, 500)
+	setup.Mods.Ward = min(setup.Mods.Ward, 5)
+	return setup
+}
+
+// startBattle 开始一场斗法：先验证随行弟子，再把丹符与灵兽折成本场加成。丹符在开战时生效并消耗；
+// 退走不退已生效的丹符。种子与开局只在发起操作的回应里交给浏览器，读取状态只给战斗概况。
 func (h *Hero) startBattle(s *Sect, battle *HeroBattle, kind string, enemies []string, hp, dmg int, team []int,
 	rules battleRules, seed uint64, now int64) error {
-	if len(h.Deck) < DeckMin {
-		return ErrUnavailable
-	}
 	if len(team) > CompanionMax {
 		return ErrAction
 	}
-	allies := []dungeon.Card{}
+	if rules.Bare && len(team) > 0 {
+		return ErrAction
+	}
 	for i, id := range team {
 		d := s.disciple(id)
 		if d == nil || slices.Contains(team[:i], id) {
@@ -767,45 +798,73 @@ func (h *Hero) startBattle(s *Sect, battle *HeroBattle, kind string, enemies []s
 		if !d.home(now) {
 			return ErrUnavailable
 		}
-		allies = append(allies, dungeon.Card{Id: dungeon.AllyCards[d.Element], Up: d.Realm >= 1})
 	}
+	chapter := Chapters - 1
+	if n := JourneyNodeOf(battle.Node); n != nil {
+		chapter = n.Chapter
+	}
+	if battle.Trial > 0 && h.Weekly != nil {
+		chapter = h.Weekly.Chapter
+	}
+	setup := h.JourneySetup(kind, enemies, hp, dmg, chapter)
+	setup.Mods.Damage += 5 * rules.Strength
+	setup.Mods.Vigor += rules.Block
+	setup.Mods.Ward += rules.Block / 12
 	carried := []string{}
-	slots := dungeon.PotionSlotsWith(h.Worn)
-	if rules.Bare {
-		slots = 0
-	}
-	for _, p := range dungeon.Potions() {
-		for h.Potions[p] > 0 && len(carried) < slots {
-			h.Potions[p]--
-			carried = append(carried, p)
+	if !rules.Bare {
+		for _, id := range team {
+			d := s.disciple(id)
+			setup.Mods.Damage += 3 + d.Realm
+			setup.Mods.Vigor += 5 + 2*d.Realm
 		}
-		if h.Potions[p] == 0 {
-			delete(h.Potions, p)
+		if beast := h.battleBeast(); beast != nil {
+			battle.Beast = h.BeastOut
+			switch beast.Move {
+			case dungeon.BeastGuard, dungeon.BeastHeal:
+				setup.Mods.Vigor += beast.Power
+			default:
+				setup.Mods.Damage += 2 + beast.Power/4
+			}
+		}
+		slots := dungeon.PotionSlotsWith(h.Worn)
+		for _, potion := range dungeon.Potions() {
+			for h.Potions[potion] > 0 && len(carried) < slots {
+				carried = append(carried, potion)
+				switch potion {
+				case dungeon.PotionHeal:
+					setup.Mods.Vigor += 20
+				case dungeon.PotionFire, dungeon.PotionStrength:
+					setup.Mods.Damage += 10
+				case dungeon.PotionIron:
+					setup.Mods.Ward++
+				case dungeon.PotionWeakness:
+					setup.Scale.Dmg = max(1, setup.Scale.Dmg*90/100)
+				case dungeon.PotionSwift:
+					setup.Mods.Speed += 8
+					setup.Mods.Dodge += 5
+				case dungeon.PotionEnergy:
+					setup.Mods.Regen += 25
+				}
+				h.Potions[potion]--
+			}
+			if h.Potions[potion] == 0 {
+				delete(h.Potions, potion)
+			}
 		}
 	}
-	rewards := BattleRewardChoices
-	if len(h.Cards) >= MaxCards {
-		rewards = 0
-	}
-	buffBlock, buffStrength := h.buffPower()
-	beast := h.battleBeast()
-	if rules.Bare {
-		beast = nil
-	}
-	run, err := dungeon.NewBattle(seed, dungeon.BattleSetup{
-		Class: h.Class, Deck: h.deckCards(), Relics: h.Worn, Potions: carried, MaxHP: h.MaxHP(),
-		Strength: min(h.Strength()+buffStrength+rules.Strength, dungeon.BattleMaxStrength),
-		Block:    min(h.Block()+buffBlock+rules.Block, dungeon.BattleMaxBlock),
-		Kind:     kind, Enemies: enemies, HP: hp, Dmg: dmg, Rewards: rewards, Allies: allies, Beast: beast,
-	})
-	if err != nil {
+	setup.Mods.Damage = min(setup.Mods.Damage, 300)
+	setup.Mods.Vigor = min(setup.Mods.Vigor, 500)
+	setup.Mods.Ward = min(setup.Mods.Ward, 5)
+	setup.Mods.Speed = min(setup.Mods.Speed, 300)
+	setup.Mods.Dodge = min(setup.Mods.Dodge, 80)
+	setup.Mods.Regen = min(setup.Mods.Regen, 300)
+	if _, err := doufa.New(uint32(seed), setup); err != nil {
 		return err
 	}
 	h.spendBuffs()
-	battle.Run, battle.Carried, battle.Team = run, carried, slices.Clone(team)
-	if run.Battle.Beast != nil {
-		battle.Beast = h.BeastOut
-	}
+	battle.Fight = &Duel{Kind: kind, Id: battle.Node, Seed: uint32(seed), Setup: setup, Issued: now}
+	battle.Token = common.GetUUID()
+	battle.Carried, battle.Team = carried, slices.Clone(team)
 	h.Battle = battle
 	return nil
 }
@@ -866,37 +925,21 @@ func (h *Hero) takeQi(s *Sect, pill string, now int64) ([]Ev, error) {
 	return append(evs, h.addExp(gain)...), nil
 }
 
-// endBattle 结束这一场：没用掉的丹符放回行囊。
-func (h *Hero) endBattle() {
-	for _, p := range h.Battle.Run.Potions {
-		h.Potions[p] = min(h.Potions[p]+1, MaxPotionStack)
-	}
-	h.Battle = nil
-}
+// endBattle 结束这一场。斗法丹符已在开局生效；旧卡牌战斗只由迁移流程退还未使用的丹符。
+func (h *Hero) endBattle() { h.Battle = nil }
 
-// battleStep 在战斗里走一步；分出胜负并选完奖励后结束这一场，赢了按节点(或问心阶的那一级)发奖励，收下的功法进收藏
-// (牌组没满时也放进牌组)。
-func (h *Hero) battleStep(s *Sect, a HeroAction, now int64) ([]Ev, error) {
-	if h.Battle == nil {
+// FinishHeroFight 结算服务端重放出来的一场历练斗法；浏览器不能通过 HeroApply 自报胜负。
+func (sv *Save) FinishHeroFight(f *doufa.Fight, now int64) ([]Ev, error) {
+	h, s := sv.Hero, sv.Sect
+	if h == nil || s == nil || h.Battle == nil || h.Battle.Fight == nil || f == nil || !f.Over {
 		return nil, ErrUnavailable
 	}
-	if a.Moves != nil && *a.Moves != h.Battle.Moves {
-		return nil, ErrBattleMoved
-	}
-	run := h.Battle.Run
-	if err := run.Apply(dungeon.Action{Type: a.Move, Node: -1, Card: a.Card, Target: a.Target, Choice: a.Choice, Potion: a.Potion}); err != nil {
-		return nil, ErrAction
-	}
-	h.Battle.Moves++
-	if !run.Finished() {
-		return nil, nil
-	}
 	battle := h.Battle
-	if run.Result != dungeon.PhaseWon {
+	if !f.Won {
 		evs := append([]Ev{{K: "hero_lost", S: battle.Node, N: battle.Step}}, h.injureTeam(s, now)...)
 		h.endBattle()
 		h.Stats.Losses++
-		return append(evs, h.reviewDefeat(s, battle, now)...), nil
+		return append(evs, h.reviewDefeat(s, battle, f, now)...), nil
 	}
 	h.endBattle()
 	h.Stats.Wins++
@@ -917,18 +960,10 @@ func (h *Hero) battleStep(s *Sect, a HeroAction, now int64) ([]Ev, error) {
 		evs, exp = h.clear(s, n, now), n.Exp
 		evs = append(evs, h.rewardBeast(battle.Beast, n.Kind, n.Chapter)...)
 	}
-	// 随行的弟子也有所得：这一场修为的一半。
 	for _, id := range battle.Team {
 		if d := s.disciple(id); d != nil {
 			evs = append(evs, s.addExp(d, float64(exp)/2)...)
 		}
-	}
-	if run.Picked != nil && len(h.Cards) < MaxCards {
-		h.Cards = append(h.Cards, *run.Picked)
-		if len(h.Deck) < DeckMax {
-			h.Deck = append(h.Deck, len(h.Cards)-1)
-		}
-		evs = append(evs, Ev{K: "hero_card", S: run.Picked.Id})
 	}
 	return evs, nil
 }
@@ -936,18 +971,21 @@ func (h *Hero) battleStep(s *Sect, a HeroAction, now int64) ([]Ev, error) {
 // HeroView 是主角在页面上的样子。Open 是现在能去的节点；Ready 是采集节点下一次能去的时间。
 type HeroView struct {
 	// Identity 是身份：master 掌门、disciple 宗门弟子、loose 散修；Path 是宗门身份的细节。
-	Identity    string                 `json:"identity"`
-	Path        *Path                  `json:"path,omitempty"`
-	Class       string                 `json:"class"`
-	Realm       int                    `json:"realm"`
-	Layer       int                    `json:"layer"`
-	Exp         float64                `json:"exp"`
-	Need        float64                `json:"need"`
-	Rate        float64                `json:"rate"`
-	Bottleneck  bool                   `json:"bottleneck"`
-	BreakKey    string                 `json:"break_key"`
-	BreakChance [2]int                 `json:"break_chance"`
-	MaxHP       int                    `json:"max_hp"`
+	Identity    string  `json:"identity"`
+	Path        *Path   `json:"path,omitempty"`
+	Class       string  `json:"class"`
+	Realm       int     `json:"realm"`
+	Layer       int     `json:"layer"`
+	Exp         float64 `json:"exp"`
+	Need        float64 `json:"need"`
+	Rate        float64 `json:"rate"`
+	Bottleneck  bool    `json:"bottleneck"`
+	BreakKey    string  `json:"break_key"`
+	BreakChance [2]int  `json:"break_chance"`
+	MaxHP       int     `json:"max_hp"`
+	// FightMaxHP 与 FightMods 是实际斗法的基础属性，包含修行与丹药药力；未计本场丹符、随行和灵兽。
+	FightMaxHP  int                    `json:"fight_max_hp"`
+	FightMods   doufa.Mods             `json:"fight_mods"`
 	Strength    int                    `json:"strength"`
 	RelicSlots  int                    `json:"relic_slots"`
 	PotionSlots int                    `json:"potion_slots"`
@@ -1033,15 +1071,15 @@ type CompanionView struct {
 
 // HeroBattleView 是正在打的一场仗。
 type HeroBattleView struct {
-	Node  string       `json:"node"`
-	Step  int          `json:"step,omitempty"`
-	Trial int          `json:"trial,omitempty"`
-	Run   dungeon.View `json:"run"`
-	Team  []int        `json:"team"`
-	// Beast 是这一场出战的灵兽(没有为空)。
-	Beast *dungeon.BattleBeast `json:"beast,omitempty"`
-	// Moves 是这一场已经走了几步，战斗里的一步要原样带回来(HeroAction.Moves)。
-	Moves int `json:"moves"`
+	Token   string   `json:"token"`
+	Node    string   `json:"node"`
+	Step    int      `json:"step,omitempty"`
+	Trial   int      `json:"trial,omitempty"`
+	Week    string   `json:"week,omitempty"`
+	Team    []int    `json:"team"`
+	Beast   int      `json:"beast,omitempty"`
+	Issued  int64    `json:"issued"`
+	Carried []string `json:"carried"`
 }
 
 // View 返回主角在 now 时刻的样子，s 是宗门(闭关速度看聚灵阵)。
@@ -1064,6 +1102,10 @@ func (h *Hero) View(s *Sect, now int64, day string) HeroView {
 		BeastSlots: BeastSlots(h.Cave[RoomDen]), Furnaces: []BrewView{}, FurnaceSlots: FurnaceSlots(h.Cave[RoomFurnace]),
 		Elixirs: h.Elixirs, Buffs: h.Buffs, Mastery: h.Mastery, Tempered: h.Tempered, TemperCap: TemperCap(h.Realm),
 		Golden: h.Golden, Sheet: h.Sheet(s),
+	}
+	base := h.JourneySetup(NodeCombat, []string{"slime"}, 100, 100, 0)
+	if fight, err := doufa.New(1, base); err == nil {
+		v.FightMaxHP, v.FightMods = fight.P.MaxHP, base.Mods
 	}
 	for _, b := range h.Beasts {
 		v.Beasts = append(v.Beasts, BeastView{Beast: *b, Power: b.Power(), Cap: b.LevelCap(h.Cave[RoomDen]),
@@ -1100,8 +1142,11 @@ func (h *Hero) View(s *Sect, now int64, day string) HeroView {
 		}
 	}
 	if h.Battle != nil {
-		v.Battle = &HeroBattleView{Node: h.Battle.Node, Step: h.Battle.Step, Trial: h.Battle.Trial, Run: h.Battle.Run.View(),
-			Team: h.Battle.Team, Beast: h.Battle.Run.Battle.Beast, Moves: h.Battle.Moves}
+		v.Battle = &HeroBattleView{Node: h.Battle.Node, Step: h.Battle.Step, Trial: h.Battle.Trial, Week: h.Battle.Week,
+			Token: h.Battle.Token, Team: h.Battle.Team, Beast: h.Battle.Beast, Carried: h.Battle.Carried}
+		if h.Battle.Fight != nil {
+			v.Battle.Issued = h.Battle.Fight.Issued
+		}
 	}
 	if w := h.weeklyAt(day); w != nil {
 		v.Weekly = &WeeklyView{Weekly: w, Ends: WeekEnd(day)}

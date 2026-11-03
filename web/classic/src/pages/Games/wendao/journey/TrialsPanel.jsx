@@ -24,7 +24,6 @@ import {
   Check,
   Crown,
   FlaskConical,
-  Gem,
   Gift,
   Lock,
   Skull,
@@ -93,10 +92,6 @@ const TrialCard = ({ info, hero, trial, index, cleared, busy, onTrial }) => {
             {pillName(sectText, trial.pill)}
           </span>
         )}
-        <span className='jn-reward'>
-          <Gem size={13} />
-          {t('功法三选一')}
-        </span>
       </div>
       {!cleared && !sign.bare && (
         <TeamPicker
@@ -111,7 +106,7 @@ const TrialCard = ({ info, hero, trial, index, cleared, busy, onTrial }) => {
           <Button
             theme='solid'
             type={trial.kind === 'boss' ? 'danger' : 'primary'}
-            disabled={busy || hero.deck.length < info.deck_min}
+            disabled={busy}
             onClick={() =>
               onTrial(number, sign.bare ? [] : readyTeam(team, hero.companions))
             }

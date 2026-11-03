@@ -54,25 +54,14 @@ func receiptIds(save *Save) []string {
 	return ids
 }
 
-// 两个页面打同一场：出牌带上页面看到的步数，另一个页面已经往下打了就对不上，拒绝，局面不动；不带步数的旧页面照旧。
-func TestStaleBattleMovesAreRefused(t *testing.T) {
+// 旧页面的出牌操作不能推进斗法，也不能把另一页正在打的战斗结算掉。
+func TestCardMovesCannotAdvanceAJourneyFight(t *testing.T) {
 	save := newHeroSave(t, dungeon.ClassWarrior)
 	heroAct(t, save, HeroAction{Type: "visit", Node: "c1_oath"})
 	heroAct(t, save, HeroAction{Type: "fight", Node: "c1_backhill"})
-	end := func(moves *int) error {
-		_, err := save.HeroApply(HeroAction{Type: "battle", Move: "end", Card: -1, Target: -1, Choice: -1, Potion: -1, Moves: moves}, 0, "d1", 7)
-		return err
-	}
-	seen := save.Hero.View(save.Sect, 0, "d1").Battle.Moves
-	assert.Equal(t, 0, seen)
-	require.NoError(t, end(&seen))
-	assert.Equal(t, 1, save.Hero.Battle.Moves)
-
-	turn := save.Hero.Battle.Run.Combat.Turn
-	assert.ErrorIs(t, end(&seen), ErrBattleMoved, "the other page still shows the first turn")
-	assert.Equal(t, turn, save.Hero.Battle.Run.Combat.Turn)
-	assert.Equal(t, 1, save.Hero.Battle.Moves)
-
-	require.NoError(t, end(nil), "a page that sends no count is not checked")
-	assert.Equal(t, 2, save.Hero.Battle.Moves)
+	running := save.Hero.Battle
+	_, err := save.HeroApply(HeroAction{Type: "battle", Move: "end"}, 0, "d1", 7)
+	assert.ErrorIs(t, err, ErrUnavailable)
+	assert.Same(t, running, save.Hero.Battle)
+	assert.Zero(t, save.Hero.Stats.Wins)
 }

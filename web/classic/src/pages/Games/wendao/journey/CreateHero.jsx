@@ -18,21 +18,16 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import React, { useState } from 'react';
-import Portrait from '../art/Portrait';
 import StoryDialog from './StoryDialog';
 import { Button } from '@douyinfe/semi-ui';
-import { Flame, Shield, Swords } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { getClassText } from '../../dungeon/text';
+import ClassPicker from '../doufa/ClassPicker';
+import '../doufa/doufa.css';
 import { getPrologue } from './text';
-
-export const CLASS_ICONS = { warrior: Shield, mage: Flame, ranger: Swords };
-const CLASSES = ['warrior', 'mage', 'ranger'];
 
 // 第一次进历练：序章与选流派。流派一旦选定不能更改。
 const CreateHero = ({ busy, onCreate }) => {
   const { t } = useTranslation();
-  const classes = getClassText(t);
   const [picked, setPicked] = useState('warrior');
   const [heard, setHeard] = useState(false);
   if (!heard) {
@@ -49,32 +44,9 @@ const CreateHero = ({ busy, onCreate }) => {
   return (
     <div className='jn-create'>
       <h3 className='jn-create-title'>{t('选择道途')}</h3>
-      <div className='jn-classes' role='radiogroup' aria-label={t('选择流派')}>
-        {CLASSES.map((cls) => {
-          const Icon = CLASS_ICONS[cls];
-          return (
-            <button
-              type='button'
-              key={cls}
-              role='radio'
-              aria-checked={picked === cls}
-              className={`jn-class ${picked === cls ? 'is-picked' : ''}`}
-              onClick={() => setPicked(cls)}
-            >
-              <span className='jn-class-face'>
-                <Portrait who={`hero_${cls}`} />
-              </span>
-              <strong>
-                <Icon size={15} />
-                {classes[cls].name}
-              </strong>
-              <span>{classes[cls].desc}</span>
-            </button>
-          );
-        })}
-      </div>
+      <ClassPicker value={picked} onChange={setPicked} />
       <p className='jn-muted'>
-        {t('流派选定后不能更改，九幽秘境里的流派另外解锁')}
+        {t('主角流派选定后不能更改，九幽秘境每轮可以另选流派')}
       </p>
       <Button
         theme='solid'

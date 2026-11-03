@@ -25,7 +25,7 @@ import { ElementTag, realmLabel, useSectText } from '../../sect/parts';
 export const readyTeam = (team, companions) =>
   team.filter((id) => companions.some((d) => d.id === id && d.ready));
 
-// 随行弟子：最多 max 名，各带一张援护牌；外出或受伤的不能选。地图节点与问心阶共用。
+// 随行弟子：最多 max 名，给本场斗法加成；外出或受伤的不能选。地图节点与问心阶共用。
 const TeamPicker = ({ companions, max, team, onChange }) => {
   const { t } = useTranslation();
   const sectText = useSectText();
@@ -39,7 +39,7 @@ const TeamPicker = ({ companions, max, team, onChange }) => {
   return (
     <div className='jn-team'>
       <span className='jn-reward-label'>
-        {t('随行弟子（最多 {{n}} 名，各带一张援护牌）', { n: max })}
+        {t('随行弟子（最多 {{n}} 名，提供斗法加成）', { n: max })}
       </span>
       {companions.length === 0 && (
         <span className='jn-muted'>{t('宗门里还没有弟子')}</span>

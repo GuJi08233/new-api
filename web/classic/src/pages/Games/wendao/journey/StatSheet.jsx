@@ -22,30 +22,23 @@ import { useTranslation } from 'react-i18next';
 import { formatAmount } from '../../sect/parts';
 import { getStatPartNames } from './text';
 
-// sheetTotal 是一项属性实际生效的数：各来源加起来，不超过战斗的上限。
-export const sheetTotal = (parts, cap) =>
-  Math.min(
-    parts.reduce((sum, part) => sum + part.n, 0),
-    cap,
-  );
-
 // 属性来源：最大生命、开战力量与护体、闭关速度各由哪些来源加起来。数与来源都来自服务端(hero.sheet、hero.rate)，这里只
 // 负责写出来：祭炼标「佩戴」(换下法宝就没有)，丹药的药力标还管几场，没标的都是永久的；超过战斗上限的部分不生效，单独
 // 写一句。
-const StatSheet = ({ sheet, rate }) => {
+const StatSheet = ({ sheet, rate, hp, mods }) => {
   const { t } = useTranslation();
   const names = getStatPartNames(t);
   const rows = [
-    { key: 'hp', label: t('最大生命'), parts: sheet.hp, cap: sheet.hp_cap },
+    { key: 'hp', label: t('修行生命'), parts: sheet.hp, cap: sheet.hp_cap },
     {
       key: 'strength',
-      label: t('开战力量'),
+      label: t('修行力量'),
       parts: sheet.strength,
       cap: sheet.strength_cap,
     },
     {
       key: 'block',
-      label: t('开战护体'),
+      label: t('修行护体'),
       parts: sheet.block,
       cap: sheet.block_cap,
     },
@@ -53,6 +46,23 @@ const StatSheet = ({ sheet, rate }) => {
   const pace = Object.fromEntries(sheet.rate.map((part) => [part.key, part.n]));
   return (
     <dl className='jn-sheet'>
+      <div className='jn-sheet-row'>
+        <dt>{t('斗法基础')}</dt>
+        <dd className='jn-sheet-parts' style={{ gridColumn: '1 / -1' }}>
+          <span>
+            {t('生命 {{hp}} · 伤害 +{{damage}}% · 护心 {{ward}} 次', {
+              hp,
+              damage: mods.damage || 0,
+              ward: mods.ward || 0,
+            })}
+          </span>
+          <span className='jn-muted'>
+            {t(
+              '下面是修行来源原值，折算为斗法加成；本场丹符、随行弟子与灵兽另计。',
+            )}
+          </span>
+        </dd>
+      </div>
       {rows.map((row) => {
         const sum = row.parts.reduce((total, part) => total + part.n, 0);
         return (

@@ -1,5 +1,5 @@
-// Package wendao 是问道的规则包：宗门经营、主角历练与三个板块共用的存档。秘境(即时斗法肉鸽)的规则在 pkg/doufa，
-// 历练里的卡牌战斗在 pkg/dungeon。
+// Package wendao 是问道的规则包：宗门经营、主角历练与世界共用的存档。秘境与历练的即时斗法规则在 pkg/doufa；
+// pkg/dungeon 只用于兼容历史功法、法宝与旧存档。
 // 世界设定、名词对照与发游戏币的规则见同目录的 world.md。
 package wendao
 
@@ -26,8 +26,8 @@ const SaveKey = "wendao"
 // 以后回来的那一次结算(Sect.Back)，以及同一版里还没发布时加上的功法拆解次数(Hero.Salvaged)与请求收据(Receipts)；4 是
 // 主角的宗门身份(Hero.Path)，以及散修、宗门弟子没有主殿的储物处(Sect 的主殿为 0 级)；5 是秘境换成斗法以后的局外成长
 // (Rift：道韵、天赋、战绩与道具背包)，旧版卡牌秘境的 Abyss 在读出时并进去；6 是斗法契约(Duels：悬赏、宗门任务、入门试炼
-// 与进行中的一场)；7 是主角在藏经阁换来的法宝与法术和出战配置(Hero.Arms，没有时就是流派的默认，不用迁移)。
-const SaveSchema = 7
+// 与进行中的一场)；7 是藏经阁法宝、法术与出战配置(Hero.Arms)；8 是历练改斗法(HeroBattle.Fight)，旧卡牌战斗退还未用丹符后结束。
+const SaveSchema = 8
 
 // ErrNewerSave 表示存档是更新版本的程序写的，这个程序不认识其中的一部分，不能读也不能改写。
 var ErrNewerSave = errors.New("wendao: the save was written by a newer version")
@@ -94,6 +94,7 @@ func ParseSave(data string) (*Save, error) {
 	if save.Schema > SaveSchema {
 		return nil, ErrNewerSave
 	}
+	oldSchema := save.Schema
 	// 第 0 版(还没有 schema 的存档)到第 1 版只多了这个字段；第 1 版到第 2 版多的抉择只出现在新加的支线节点上，旧存档
 	// 还没走过支线；第 2 版到第 3 版多的回来记录在下一次离开很久以后才有。都没有要迁移的内容。
 	save.Schema = SaveSchema
@@ -102,6 +103,27 @@ func ParseSave(data string) (*Save, error) {
 	}
 	if save.Hero != nil {
 		save.Hero.normalize()
+		// 本周的卡牌强度不能直接用于斗法；保留本周的敌人、天象、报酬和已完成记录，只重算强度。
+		if oldSchema < 8 && save.Hero.Weekly != nil {
+			for i := range save.Hero.Weekly.Trials {
+				trial := &save.Hero.Weekly.Trials[i]
+				if node := JourneyNodeOf(trial.Node); node != nil {
+					hp, dmg := EnemyScale(node)
+					sign := weeklySign(trial.Sign)
+					trial.HP = min(max(hp*sign.HP/100, 50), 1000)
+					trial.Dmg = min(max(dmg*sign.Dmg/100, 50), 1000)
+				}
+			}
+		}
+		// 第八版把历练换成斗法：旧战斗不能接着出牌，退还尚未使用的丹符，保留全部已取得的进度与养成。
+		if battle := save.Hero.Battle; battle != nil && battle.Fight == nil {
+			if battle.Run != nil {
+				for _, potion := range battle.Run.Potions {
+					save.Hero.Potions[potion] = min(save.Hero.Potions[potion]+1, MaxPotionStack)
+				}
+			}
+			save.Hero.Battle = nil
+		}
 	}
 	if save.Rift == nil {
 		save.Rift = riftFromAbyss(save.Abyss)

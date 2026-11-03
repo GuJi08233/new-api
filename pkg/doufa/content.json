@@ -337,6 +337,368 @@
           "ticks": 30
         }
       }
+    },
+    "death_knight": {
+      "ai": "charge",
+      "hp": 170,
+      "radius": 18,
+      "speed": 85,
+      "touch": 18,
+      "range": 260,
+      "windup": 34,
+      "dash": 620,
+      "dash_ticks": 28,
+      "rest": 50
+    },
+    "abyss_guard": {
+      "ai": "charge",
+      "hp": 60,
+      "radius": 13,
+      "speed": 85,
+      "touch": 14,
+      "range": 230,
+      "windup": 40,
+      "dash": 560,
+      "dash_ticks": 24,
+      "rest": 55
+    },
+    "void_walker": {
+      "ai": "chase",
+      "hp": 32,
+      "radius": 12,
+      "speed": 175,
+      "touch": 10
+    },
+    "soul_eater": {
+      "ai": "shoot",
+      "hp": 42,
+      "radius": 11,
+      "speed": 90,
+      "touch": 6,
+      "range": 180,
+      "cooldown": 125,
+      "windup": 30,
+      "shot": {
+        "damage": 9,
+        "speed": 230,
+        "radius": 6,
+        "count": 3,
+        "spread": 7
+      }
+    },
+    "crystal_golem": {
+      "ai": "turret",
+      "hp": 95,
+      "radius": 15,
+      "speed": 0,
+      "touch": 12,
+      "cooldown": 160,
+      "spin": 2,
+      "shot": {
+        "damage": 9,
+        "speed": 180,
+        "radius": 6,
+        "count": 12,
+        "spread": 0
+      }
+    },
+    "lich": {
+      "ai": "shoot",
+      "hp": 190,
+      "radius": 17,
+      "speed": 65,
+      "touch": 6,
+      "range": 240,
+      "cooldown": 100,
+      "windup": 32,
+      "shot": {
+        "damage": 10,
+        "speed": 240,
+        "radius": 6,
+        "count": 7,
+        "spread": 4
+      }
+    },
+    "abyss_drake": {
+      "ai": "boss",
+      "hp": 950,
+      "radius": 28,
+      "speed": 85,
+      "touch": 18,
+      "boss": {
+        "gap": 75,
+        "gap2": 50,
+        "spray": {
+          "volleys": 3,
+          "every": 26,
+          "count": 3,
+          "count2": 5,
+          "spread": 5,
+          "damage": 11,
+          "speed": 310,
+          "radius": 7
+        },
+        "ring": {
+          "volleys": 3,
+          "every": 34,
+          "count": 12,
+          "count2": 16,
+          "turn": 2,
+          "damage": 9,
+          "speed": 190,
+          "radius": 7
+        },
+        "summon": {
+          "kind": "void_walker",
+          "count": 2,
+          "cap": 5
+        },
+        "charge": {
+          "windup": 46,
+          "dash": 650,
+          "ticks": 28
+        }
+      }
+    },
+    "treant": {
+      "ai": "chase",
+      "hp": 85,
+      "radius": 16,
+      "speed": 55,
+      "touch": 15
+    },
+    "viper": {
+      "ai": "shoot",
+      "hp": 30,
+      "radius": 10,
+      "speed": 135,
+      "touch": 6,
+      "range": 185,
+      "cooldown": 120,
+      "windup": 30,
+      "shot": {
+        "damage": 8,
+        "speed": 310,
+        "radius": 5,
+        "count": 3,
+        "spread": 3
+      }
+    },
+    "fox_guard": {
+      "ai": "charge",
+      "hp": 48,
+      "radius": 13,
+      "speed": 110,
+      "touch": 14,
+      "range": 230,
+      "windup": 32,
+      "dash": 640,
+      "dash_ticks": 22,
+      "rest": 60
+    },
+    "bear": {
+      "ai": "charge",
+      "hp": 260,
+      "radius": 20,
+      "speed": 75,
+      "touch": 23,
+      "range": 260,
+      "windup": 44,
+      "dash": 560,
+      "dash_ticks": 26,
+      "rest": 55
+    },
+    "spider": {
+      "ai": "turret",
+      "hp": 210,
+      "radius": 19,
+      "speed": 0,
+      "touch": 8,
+      "cooldown": 135,
+      "spin": 5,
+      "shot": {
+        "damage": 9,
+        "speed": 180,
+        "radius": 7,
+        "count": 14,
+        "spread": 0
+      }
+    },
+    "fox_emperor": {
+      "ai": "boss",
+      "hp": 1050,
+      "radius": 30,
+      "speed": 95,
+      "touch": 17,
+      "boss": {
+        "gap": 75,
+        "gap2": 52,
+        "spray": {
+          "volleys": 3,
+          "every": 22,
+          "count": 5,
+          "count2": 7,
+          "spread": 5,
+          "damage": 10,
+          "speed": 260,
+          "radius": 7
+        },
+        "ring": {
+          "volleys": 3,
+          "every": 30,
+          "count": 12,
+          "count2": 18,
+          "turn": 3,
+          "damage": 8,
+          "speed": 220,
+          "radius": 7
+        },
+        "summon": {
+          "kind": "fox_guard",
+          "count": 2,
+          "cap": 5
+        },
+        "charge": {
+          "windup": 44,
+          "dash": 650,
+          "ticks": 25
+        }
+      }
+    },
+    "nether_hound": {
+      "ai": "chase",
+      "hp": 45,
+      "radius": 12,
+      "speed": 165,
+      "touch": 12
+    },
+    "hungry_ghost": {
+      "ai": "shoot",
+      "hp": 55,
+      "radius": 11,
+      "speed": 100,
+      "touch": 6,
+      "range": 175,
+      "cooldown": 130,
+      "windup": 28,
+      "shot": {
+        "damage": 10,
+        "speed": 240,
+        "radius": 6,
+        "count": 3,
+        "spread": 6
+      }
+    },
+    "judge": {
+      "ai": "charge",
+      "hp": 240,
+      "radius": 18,
+      "speed": 80,
+      "touch": 22,
+      "range": 260,
+      "windup": 45,
+      "dash": 640,
+      "dash_ticks": 28,
+      "rest": 50
+    },
+    "soul_lord": {
+      "ai": "shoot",
+      "hp": 250,
+      "radius": 17,
+      "speed": 75,
+      "touch": 6,
+      "range": 240,
+      "cooldown": 110,
+      "windup": 34,
+      "shot": {
+        "damage": 11,
+        "speed": 260,
+        "radius": 6,
+        "count": 9,
+        "spread": 3
+      }
+    },
+    "taixu": {
+      "ai": "boss",
+      "hp": 1100,
+      "radius": 30,
+      "speed": 90,
+      "touch": 18,
+      "boss": {
+        "gap": 80,
+        "gap2": 52,
+        "spray": {
+          "volleys": 4,
+          "every": 28,
+          "count": 5,
+          "count2": 7,
+          "spread": 4,
+          "damage": 10,
+          "speed": 330,
+          "radius": 7
+        },
+        "ring": {
+          "volleys": 3,
+          "every": 34,
+          "count": 16,
+          "count2": 20,
+          "turn": 1,
+          "damage": 9,
+          "speed": 200,
+          "radius": 7
+        },
+        "summon": {
+          "kind": "abyss_guard",
+          "count": 2,
+          "cap": 5
+        },
+        "charge": {
+          "windup": 44,
+          "dash": 620,
+          "ticks": 28
+        }
+      }
+    },
+    "patriarch": {
+      "ai": "boss",
+      "hp": 1250,
+      "radius": 32,
+      "speed": 70,
+      "touch": 20,
+      "boss": {
+        "gap": 80,
+        "gap2": 52,
+        "spray": {
+          "volleys": 3,
+          "every": 28,
+          "count": 7,
+          "count2": 9,
+          "spread": 3,
+          "damage": 11,
+          "speed": 270,
+          "radius": 7
+        },
+        "ring": {
+          "volleys": 4,
+          "every": 32,
+          "count": 16,
+          "count2": 20,
+          "turn": 2,
+          "damage": 10,
+          "speed": 200,
+          "radius": 7
+        },
+        "summon": {
+          "kind": "hungry_ghost",
+          "count": 2,
+          "cap": 5
+        },
+        "charge": {
+          "windup": 50,
+          "dash": 580,
+          "ticks": 28
+        }
+      }
     }
   },
   "rooms": {

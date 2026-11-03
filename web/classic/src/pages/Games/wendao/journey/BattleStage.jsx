@@ -18,83 +18,79 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import React, { useState } from 'react';
-import { Button, Modal, Tooltip } from '@douyinfe/semi-ui';
-import { FlaskConical, Layers } from 'lucide-react';
+import { Button, Modal } from '@douyinfe/semi-ui';
 import { useTranslation } from 'react-i18next';
-import Combat from '../../dungeon/Combat';
-import { RewardScreen } from '../../dungeon/Screens';
-import {
-  HpBar,
-  PileModal,
-  RelicChip,
-  useDungeonText,
-} from '../../dungeon/parts';
+import { useDungeonText } from '../../dungeon/parts';
 import { useSectText } from '../../sect/parts';
+import { newRequestId } from '../../common/api';
+import Fight from '../doufa/Fight';
+import { FPS } from '../doufa/engine';
 import { heroEventLines } from './lines';
 import DefeatReview from './DefeatReview';
 import { getNodeText } from './text';
-import BeastArt from '../art/BeastArt';
-import { beastMove, getBeastText } from '../cave/text';
+import '../doufa/doufa.css';
 
-// 历练里的一场仗(地图节点或问心阶)：顶上是生命、丹符与法宝，台面用九幽秘境的战斗；打完显示胜负与这一场的收获，收藏满了
-// 提醒去整理(onCards)，输了复盘输在哪里、能去哪里变强(onGo 跳过去)。问心阶的敌人是心魔，画成褪了色的墨影。
+// 种子只在开战时发给本页，刷新后只剩概况。打完保留操作记录，核对失败时可以原样重新提交。
 const BattleStage = ({
-  info,
   hero,
   busy,
+  fight,
   ended,
-  events,
-  send,
+  onClear,
   onFlee,
   onBack,
   onGo,
-  onCards,
 }) => {
   const { t } = useTranslation();
   const text = useDungeonText();
   const sectText = useSectText();
   const nodes = getNodeText(t);
-  const beasts = getBeastText(t);
-  const [targeting, setTargeting] = useState(null);
-  const [deckOpen, setDeckOpen] = useState(false);
+  const [replay, setReplay] = useState(null);
+  const flee = () => {
+    if (document.fullscreenElement) document.exitFullscreen?.();
+    Modal.confirm({
+      title: t('退出这场战斗？'),
+      content: t('退走算作落败，没有奖励；开战时消耗的丹符不退。'),
+      onOk: onFlee,
+    });
+  };
 
   if (ended) {
-    const won = ended.run.result === 'won';
-    const full = hero.cards.length >= info.max_cards;
     const summary = heroEventLines(ended.events, t, text, sectText);
-    const reviewed = ended.events.some((ev) => ev.k === 'hero_review');
-    let title = t('败下阵来');
-    if (won) title = t('战斗胜利');
-    else if (ended.fled) title = t('暂且退走');
+    const seconds = Math.floor((ended.ticks || 0) / FPS);
     return (
-      <div className={`dg-screen dg-end ${won ? 'is-won' : 'is-lost'}`}>
-        <h3>{title}</h3>
-        {won ? (
-          <div className='jn-result'>
-            {summary.lines.map((line, index) => (
-              <p key={index}>{line}</p>
-            ))}
-            {summary.gains.length > 0 && (
-              <p className='jn-muted'>{summary.gains.join(' · ')}</p>
-            )}
-          </div>
-        ) : reviewed ? (
-          <DefeatReview run={ended.run} events={ended.events} onGo={onGo} />
-        ) : (
-          <p className='dg-screen-note'>
-            {t('没有奖励，也没有损失。修为、参悟功法或换一换牌组之后再来。')}
-          </p>
+      <div className={`df-card df-result ${ended.won ? 'is-won' : ''}`}>
+        <h3>
+          {ended.won
+            ? t('战斗胜利')
+            : ended.fled
+              ? t('暂且退走')
+              : t('败下阵来')}
+        </h3>
+        {!ended.fled && (
+          <ul className='df-stats'>
+            <li>
+              {t('用时 {{time}}', {
+                time: `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`,
+              })}
+            </li>
+            <li>{t('击败 {{n}}', { n: ended.kills || 0 })}</li>
+            <li>{t('打出伤害 {{n}}', { n: ended.damage_dealt || 0 })}</li>
+            <li>{t('受到伤害 {{n}}', { n: ended.damage_taken || 0 })}</li>
+          </ul>
         )}
-        {won && full && (
-          <p className='dg-screen-note'>
-            {t(
-              '收藏已满 {{n}} 张，之后赢了也不能收下新的功法，先去拆解或丢掉几张不用的。',
-              { n: info.max_cards },
-            )}
-          </p>
+        <div className='jn-result'>
+          {summary.lines.map((line, index) => (
+            <p key={index}>{line}</p>
+          ))}
+          {summary.gains.length > 0 && (
+            <p className='jn-muted'>{summary.gains.join(' · ')}</p>
+          )}
+        </div>
+        {!ended.won && !ended.fled && (
+          <DefeatReview events={ended.events} onGo={onGo} />
         )}
-        <div className='dg-screen-actions'>
-          {won && full && <Button onClick={onCards}>{t('去整理功法')}</Button>}
+        <div className='df-actions'>
           <Button theme='solid' onClick={onBack}>
             {t('返回地图')}
           </Button>
@@ -104,134 +100,72 @@ const BattleStage = ({
   }
 
   const battle = hero.battle;
-  const run = battle.run;
-  const drink = (slot) => {
-    const potion = run.potions[slot];
-    const alive = (run.combat?.enemies || [])
-      .map((enemy, index) => (!enemy.dead ? index : -1))
-      .filter((index) => index >= 0);
-    if (potion === 'fire' && alive.length > 1) {
-      setTargeting({ potion: slot });
-      return;
-    }
-    // 生命满着服疗伤丹只会白白用掉一颗，先问一句。
-    if (potion === 'heal' && run.hp >= run.max_hp) {
-      Modal.confirm({
-        title: t('生命是满的'),
-        content: t('现在服下{{name}}回复不了生命，丹符照样用掉。', {
-          name: text.potions.heal?.name,
-        }),
-        okText: t('仍要服下'),
-        onOk: () => send('potion', { potion: slot, target: -1 }),
-      });
-      return;
-    }
-    send('potion', { potion: slot, target: potion === 'fire' ? alive[0] : -1 });
+  const title = battle.trial
+    ? t('周天试炼 · 第 {{n}} 关', { n: battle.trial })
+    : battle.step
+      ? t('问心阶 · 第 {{n}} 级', { n: battle.step })
+      : nodes[battle.node]?.name;
+  const submit = (run) => {
+    const recorded = {
+      ...run,
+      seed: fight.seed,
+      issued: fight.issued,
+      token: fight.token,
+      requestId: replay?.requestId || newRequestId(),
+    };
+    setReplay(recorded);
+    onClear(recorded);
   };
-  const flee = () =>
-    Modal.confirm({
-      title: t('退出这场战斗？'),
-      content: t('退走算作落败，没有奖励；没用掉的丹符会放回行囊。'),
-      onOk: onFlee,
-    });
 
   return (
-    <>
-      <div className='dg-hud'>
-        <div className='dg-hud-row'>
-          <span className='dg-mode is-trial'>
-            {battle.trial
-              ? t('周天试炼 · 第 {{n}} 关', { n: battle.trial })
-              : battle.step
-                ? t('问心阶 · 第 {{n}} 级', { n: battle.step })
-                : nodes[battle.node]?.name}
-          </span>
-          <span className='dg-hud-spacer' />
-          <Button
-            size='small'
-            icon={<Layers size={14} />}
-            onClick={() => setDeckOpen(true)}
-          >
-            {t('牌组 {{n}}', { n: run.deck.length })}
-          </Button>
-          {run.phase === 'combat' && (
-            <Button size='small' type='danger' disabled={busy} onClick={flee}>
+    <div className='df-panel'>
+      <h4>{title}</h4>
+      {replay ? (
+        <div className='df-card'>
+          <p className='df-muted'>
+            {busy
+              ? t('正在核对这一间房…')
+              : t('操作记录已保留，可以重新提交核对。')}
+          </p>
+          <div className='df-actions'>
+            <Button
+              theme='solid'
+              disabled={busy}
+              onClick={() => onClear(replay)}
+            >
+              {t('重新提交')}
+            </Button>
+            <Button disabled={busy} onClick={flee}>
               {t('退走')}
             </Button>
-          )}
-        </div>
-        <div className='dg-hud-row'>
-          <span className='dg-hud-hp'>
-            <HpBar hp={run.hp} max={run.max_hp} />
-          </span>
-          <span className='dg-potions'>
-            {Array.from({ length: run.potion_slots }, (_, slot) => {
-              const potion = run.potions[slot];
-              if (!potion)
-                return <span key={slot} className='dg-potion is-empty' />;
-              return (
-                <Tooltip
-                  key={slot}
-                  content={`${text.potions[potion]?.name}：${text.potions[potion]?.desc}`}
-                >
-                  <button
-                    type='button'
-                    className={`dg-potion is-${potion}`}
-                    aria-label={text.potions[potion]?.name}
-                    disabled={busy || run.phase !== 'combat'}
-                    onClick={() => drink(slot)}
-                  >
-                    <FlaskConical size={15} />
-                  </button>
-                </Tooltip>
-              );
-            })}
-          </span>
-        </div>
-        {battle.beast && (
-          <div className='dg-hud-row cv-battle-beast'>
-            <BeastArt kind={battle.beast.kind} active />
-            <span>
-              <strong>
-                {hero.beasts.find((b) => b.id === hero.beast_out)?.name ||
-                  beasts[battle.beast.kind]?.name}
-              </strong>
-              <span className='cv-room-desc'>
-                {beastMove(t, battle.beast.kind, battle.beast.power)}
-              </span>
-            </span>
           </div>
-        )}
-        {run.relics.length > 0 && (
-          <div className='dg-hud-row dg-relics'>
-            {run.relics.map((id) => (
-              <RelicChip key={id} id={id} />
-            ))}
-          </div>
-        )}
-      </div>
-      <div className={`dg-stage-body ${battle.step ? 'jn-demon' : ''}`}>
-        {run.phase === 'combat' && (
-          <Combat
-            run={run}
-            busy={busy}
-            send={send}
-            events={events}
-            targeting={targeting}
-            setTargeting={setTargeting}
+        </div>
+      ) : fight ? (
+        <>
+          <Fight
+            key={fight.token}
+            seed={fight.seed}
+            setup={fight.setup}
+            onEnd={submit}
+            onExit={flee}
+            exitLabel={t('退走')}
           />
-        )}
-        {run.phase === 'reward' && (
-          <RewardScreen run={run} busy={busy} send={send} />
-        )}
-      </div>
-      <PileModal
-        visible={deckOpen}
-        title={t('牌组')}
-        cards={run.deck}
-        onCancel={() => setDeckOpen(false)}
-      />
-    </>
+          <p className='df-muted'>
+            {t('离开或刷新后只能退走；打完的操作记录会交给服务端核对。')}
+          </p>
+        </>
+      ) : (
+        <div className='df-card'>
+          <p className='df-lead'>{t('这一场已经开始过了，只能放弃')}</p>
+          <p className='df-muted'>
+            {t('离开或刷新后只能退走；打完的操作记录会交给服务端核对。')}
+          </p>
+          <Button disabled={busy} onClick={flee}>
+            {t('退走')}
+          </Button>
+        </div>
+      )}
+    </div>
   );
 };
 

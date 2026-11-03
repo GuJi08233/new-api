@@ -65,6 +65,25 @@ const foeColor = (pal, kind) =>
     moth: pal.violet,
     gargoyle: pal.stone,
     slime_king: pal.tint,
+    death_knight: pal.bone,
+    abyss_guard: pal.ice,
+    void_walker: pal.violet,
+    soul_eater: pal.violet,
+    crystal_golem: pal.ice,
+    lich: pal.bone,
+    abyss_drake: pal.ice,
+    treant: pal.green,
+    viper: pal.green,
+    fox_guard: pal.fire,
+    bear: pal.brown,
+    spider: pal.violet,
+    fox_emperor: pal.fire,
+    nether_hound: pal.violet,
+    hungry_ghost: pal.bone,
+    judge: pal.red,
+    soul_lord: pal.violet,
+    taixu: pal.ice,
+    patriarch: pal.violet,
   })[kind] || pal.stone;
 
 // 同一格子每次画出同样的笔触。
@@ -406,13 +425,43 @@ export function createRenderer(canvas, options) {
       e.kind === 'goblin' ||
       e.kind === 'goblin_chief' ||
       e.kind === 'troll' ||
-      e.kind === 'werewolf'
+      e.kind === 'werewolf' ||
+      e.kind === 'fox_guard' ||
+      e.kind === 'nether_hound' ||
+      e.kind === 'bear'
     ) {
       ctx.beginPath();
       ctx.moveTo(-r * 0.6, -r * 0.7);
       ctx.lineTo(-r * 0.9, -r * 1.35);
       ctx.moveTo(r * 0.6, -r * 0.7);
       ctx.lineTo(r * 0.9, -r * 1.35);
+      ctx.stroke();
+    }
+    if (e.kind === 'treant') {
+      ctx.beginPath();
+      for (const side of [-1, 1]) {
+        ctx.moveTo(side * r * 0.6, -r * 0.5);
+        ctx.lineTo(side * r * 1.35, -r * 1.1);
+        ctx.lineTo(side * r * 1.15, -r * 1.55);
+      }
+      ctx.stroke();
+    } else if (e.kind === 'spider') {
+      ctx.beginPath();
+      for (const side of [-1, 1]) {
+        for (let k = -1; k <= 1; k++) {
+          ctx.moveTo(side * r * 0.7, k * r * 0.5);
+          ctx.lineTo(side * r * 1.5, k * r * 0.9);
+          ctx.lineTo(side * r * 1.7, k * r * 0.9 + r * 0.35);
+        }
+      }
+      ctx.stroke();
+    } else if (e.kind === 'crystal_golem' || e.kind === 'abyss_guard') {
+      ctx.beginPath();
+      ctx.moveTo(0, -r * 0.65);
+      ctx.lineTo(r * 0.45, 0);
+      ctx.lineTo(0, r * 0.65);
+      ctx.lineTo(-r * 0.45, 0);
+      ctx.closePath();
       ctx.stroke();
     }
     if (spec.ai === 'boss') {

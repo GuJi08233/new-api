@@ -30,10 +30,10 @@ import {
   useSectText,
 } from '../../sect/parts';
 import Portrait from '../art/Portrait';
-import StatSheet, { sheetTotal } from './StatSheet';
+import StatSheet from './StatSheet';
 import { getHeroTitle, getKeyText } from './text';
 
-// 主角：流派、境界与修为条(两次同步之间按闭关速度往前推)、生命与开战的力量、护体(含药力)，点开看各自的来源；第九层
+// 主角：流派、境界与修为条(两次同步之间按闭关速度往前推)、斗法基础属性(含药力)，点开看各自的来源；第九层
 // 圆满时可以突破。通关以后名字旁多一方称号印，随问心阶登到的级数变。
 const HeroCard = ({ hero, pills, elapsed, now, busy, onBreak, onQi }) => {
   const { t } = useTranslation();
@@ -43,8 +43,7 @@ const HeroCard = ({ hero, pills, elapsed, now, busy, onBreak, onQi }) => {
   const [usePill, setUsePill] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
   const sheet = hero.sheet;
-  const strength = sheetTotal(sheet.strength, sheet.strength_cap);
-  const block = sheetTotal(sheet.block, sheet.block_cap);
+  const mods = hero.fight_mods || {};
   const exp = hero.bottleneck
     ? hero.need
     : Math.min(hero.exp + (hero.rate * elapsed) / 3600, hero.need);
@@ -89,21 +88,28 @@ const HeroCard = ({ hero, pills, elapsed, now, busy, onBreak, onQi }) => {
         >
           <span className='jn-hero-stat' title={t('最大生命')}>
             <Heart size={14} />
-            {hero.max_hp}
+            {hero.fight_max_hp}
           </span>
-          <span className='jn-hero-stat' title={t('开战力量')}>
-            <Swords size={14} />+{strength}
+          <span className='jn-hero-stat' title={t('斗法伤害加成')}>
+            <Swords size={14} />+{mods.damage || 0}%
           </span>
-          {block > 0 && (
-            <span className='jn-hero-stat' title={t('开战护体')}>
+          {mods.ward > 0 && (
+            <span className='jn-hero-stat' title={t('开局护心')}>
               <Shield size={14} />
-              {block}
+              {mods.ward}
             </span>
           )}
           <ChevronDown size={14} className='jn-hero-stats-more' />
         </button>
       </div>
-      {sheetOpen && <StatSheet sheet={sheet} rate={hero.rate} />}
+      {sheetOpen && (
+        <StatSheet
+          sheet={sheet}
+          rate={hero.rate}
+          hp={hero.fight_max_hp}
+          mods={mods}
+        />
+      )}
       <div className='jn-exp'>
         <Bar value={exp} max={hero.need} kind='exp' />
         <span className='jn-exp-row'>

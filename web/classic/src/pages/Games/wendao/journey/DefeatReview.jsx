@@ -41,32 +41,17 @@ const TIP_TARGETS = {
   upgrade: { tab: 'cards' },
 };
 
-// 输掉一场之后的复盘：服务端随这一下的事件给出输法(hero_review)与几条变强的路(hero_tip)，这一场打了几回合、打出多少、
-// 敌人还剩多少、最后一回合受到多少伤害从打完的战斗里读。点一条路就跳到历练页对应的地方(onGo)。
-const DefeatReview = ({ run, events, onGo }) => {
+// 输法与变强建议都由服务端重放结果给出；点建议跳到对应的养成页面。
+const DefeatReview = ({ events, onGo }) => {
   const { t } = useTranslation();
   const review = events.find((ev) => ev.k === 'hero_review');
-  const combat = run.combat;
-  if (!review || !combat) return null;
+  if (!review) return null;
   const realms = getRealmNames(t);
   const tips = events.filter((ev) => ev.k === 'hero_tip');
-  let left = 0;
-  let total = 0;
-  for (const enemy of combat.enemies) {
-    total += enemy.max_hp;
-    if (!enemy.dead) left += Math.max(enemy.hp, 0);
-  }
-  // 最后一下操作里受到的伤害(护体挡掉的不算，打穿的部分全算)：打在主角身上(t 为 -1)的 hit。
-  const lost = (run.events || []).reduce(
-    (sum, ev) => (ev.k === 'hit' && ev.t < 0 ? sum + (ev.n || 0) : sum),
-    0,
-  );
-  const unused = (run.potions || []).filter(Boolean).length;
-
   const causes = {
     close: t('差一点就赢了：敌人只剩不到四分之一的生命，补上一点就能翻过来。'),
     burst: t('被打得太快：生命和护体扛不住敌人的攻势，先把这两样补上。'),
-    slow: t('输出跟不上：敌人还很健康，自己先被拖垮了，先把力量和功法补上。'),
+    slow: t('输出跟不上：先提升伤害，试着换一套法宝与法术。'),
   };
   const tipText = ({ s: key, n }) => {
     switch (key) {
@@ -97,13 +82,13 @@ const DefeatReview = ({ run, events, onGo }) => {
       case 'potions':
         return t('行囊里没有丹符：到丹房炼几枚，开战时会自动带上');
       case 'team':
-        return t('带上随行弟子(现在有 {{n}} 名能去)，他们会给你援护牌', {
+        return t('带上随行弟子(现在有 {{n}} 名能去)，他们会给斗法加成', {
           n,
         });
       case 'beast':
-        return t('让一只灵兽出战，每回合结束时它会先出手');
+        return t('让一只灵兽出战，为整场斗法提供加成');
       case 'upgrade':
-        return t('牌组里还有 {{n}} 张功法没升级', { n });
+        return t('还有 {{n}} 张功法可以参悟，提高斗法伤害', { n });
       default:
         return null;
     }
@@ -112,33 +97,6 @@ const DefeatReview = ({ run, events, onGo }) => {
   return (
     <div className='jn-review'>
       <p className='jn-review-cause'>{causes[review.s]}</p>
-      <dl className='jn-review-facts'>
-        <div>
-          <dt>{t('撑了')}</dt>
-          <dd>{t('{{n}} 回合', { n: combat.turn })}</dd>
-        </div>
-        <div>
-          <dt>{t('打出伤害')}</dt>
-          <dd>{combat.dealt}</dd>
-        </div>
-        <div>
-          <dt>{t('敌人剩余生命')}</dt>
-          <dd>
-            {left} / {total}
-          </dd>
-        </div>
-        <div>
-          <dt>{t('最后一回合受到')}</dt>
-          <dd>{t('{{n}} 伤害', { n: lost })}</dd>
-        </div>
-      </dl>
-      {unused > 0 && (
-        <p className='jn-muted'>
-          {t('还有 {{n}} 枚丹符没用就倒下了，危急时先服下再说。', {
-            n: unused,
-          })}
-        </p>
-      )}
       {tips.length > 0 && (
         <>
           <h4 className='jn-review-head'>{t('可以从这里变强')}</h4>
