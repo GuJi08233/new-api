@@ -175,3 +175,46 @@ func TestDodgeAndMeleeArc(t *testing.T) {
 	assert.Less(t, ahead.HP, ahead.MaxHP)
 	assert.Equal(t, behind.MaxHP, behind.HP)
 }
+
+// 法术可以换：Setup.Skill 指定种类时用那一种(世界里的契约让主角换用别家的法术)，不指定就是流派自己的；种类不认识开不了局。
+func TestSetupCanSwapTheClassSkill(t *testing.T) {
+	cast := func(skill string) *Fight {
+		setup := TrialSetup("warrior")
+		setup.Skill = skill
+		f, err := New(5, setup)
+		require.NoError(t, err)
+		f.Step(Pack(-1, -1, BtnSkill))
+		return f
+	}
+	own := cast("")
+	assert.Equal(t, content.Classes["warrior"].Skill, own.P.Skill)
+	assert.Empty(t, own.Shots, "a quake throws nothing")
+	warrior := content.Classes["warrior"]
+	assert.Equal(t, (warrior.MP-warrior.Skill.Cost)*100, own.P.MP, "the quake costs its own mana")
+
+	nova := cast("nova")
+	assert.Equal(t, "nova", nova.P.Skill.Kind)
+	var fireballs int
+	for _, shot := range nova.Shots {
+		if !shot.Hostile && shot.Kind == "fire" {
+			fireballs++
+		}
+	}
+	assert.Equal(t, content.Classes["mage"].Skill.Count, fireballs)
+	assert.Equal(t, "warrior", nova.P.Class, "only the spell changes")
+
+	blades := cast("blades")
+	assert.Positive(t, blades.P.Blades)
+
+	setup := TrialSetup("warrior")
+	setup.Skill = "teleport"
+	_, err := New(5, setup)
+	assert.ErrorIs(t, err, ErrSetup)
+	assert.Equal(t, "quake", ClassSkill("warrior"))
+	assert.Equal(t, "", ClassSkill("monk"))
+	spec, ok := SkillOfKind("blades")
+	assert.True(t, ok)
+	assert.Equal(t, content.Classes["ranger"].Skill, spec)
+	_, ok = SkillOfKind("teleport")
+	assert.False(t, ok)
+}

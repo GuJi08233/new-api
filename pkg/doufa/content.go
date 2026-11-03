@@ -193,6 +193,19 @@ func TrialSetup(class string) Setup {
 	return setup
 }
 
+// SkillOfKind 找种类为 kind 的法术(哪个流派的都行)：每个流派一种法术，种类各不相同。
+func SkillOfKind(kind string) (SkillSpec, bool) {
+	for _, class := range content.Classes {
+		if class.Skill.Kind == kind {
+			return class.Skill, true
+		}
+	}
+	return SkillSpec{}, false
+}
+
+// ClassSkill 是流派自己的法术种类，不认识的流派返回空。
+func ClassSkill(class string) string { return content.Classes[class].Skill.Kind }
+
 // StartingWeapons 是流派起手的两件法宝(新切片)，不认识的流派返回 nil。
 func StartingWeapons(class string) []string {
 	spec, ok := content.Classes[class]

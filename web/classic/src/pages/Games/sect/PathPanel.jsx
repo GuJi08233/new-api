@@ -33,7 +33,9 @@ import {
   canAfford,
   formatAmount,
   formatLeft,
+  goodsDesc,
   goodsName,
+  isLibraryGoods,
   useSectText,
 } from './parts';
 
@@ -182,7 +184,43 @@ const LoosePath = ({
   );
 };
 
-// 宗门弟子：身份与贡献、下一级身份的要求、每天的俸禄、宗门任务(斗法)、上交资源换贡献、宝库换东西，以及退出宗门。
+// 宝库或藏经阁里的一排货物：说明、要的身份与贡献，和「换取」；owned 里的(藏经阁里已经换到的)标上已有。
+const GoodsList = ({ goods, rank, merit, busy, onExchange, owned }) => {
+  const { t } = useTranslation();
+  const text = useSectText();
+  return (
+    <div className='sc-listings'>
+      {goods.map((item) => {
+        const locked = rank < item.rank;
+        const have = owned?.includes(item.id);
+        return (
+          <div key={item.id} className='sc-listing'>
+            <strong>{goodsName(text, item.id)}</strong>
+            <span className='sc-muted'>{goodsDesc(text, item.id)}</span>
+            <span className='sc-spacer' />
+            {locked && (
+              <span className='sc-path-short'>
+                {t('{{rank}}可换', { rank: text.path.ranks[item.rank] })}
+              </span>
+            )}
+            <span className='sc-chip is-stone'>
+              {t('{{n}} 贡献', { n: item.merit })}
+            </span>
+            <Button
+              size='small'
+              disabled={busy || have || locked || merit < item.merit}
+              onClick={() => onExchange(item.id)}
+            >
+              {have ? t('已有') : t('换取')}
+            </Button>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
+// 宗门弟子：身份与贡献、下一级身份的要求、每天的俸禄、宗门任务(斗法)、上交资源换贡献、宝库与藏经阁换东西，以及退出宗门。
 const DisciplePath = ({
   rules,
   sect,
@@ -193,15 +231,25 @@ const DisciplePath = ({
   actPath,
   onTask,
   onGiveUp,
+  reloadBook,
 }) => {
   const { t } = useTranslation();
   const text = useSectText();
   const [gift, setGift] = useState(NO_GIFT);
+  // 换到法宝或法术以后重新读一遍契约，藏经阁里已有的标出来。
+  const exchange = async (id) => {
+    if (await actPath('exchange', { goods: id })) reloadBook();
+  };
   const path = standing.path;
   const npc = rules.sects.find((item) => item.id === path.sect);
   const rank = path.rank || 0;
   const merit = path.merit || 0;
   const earned = path.earned || 0;
+  // 藏经阁里已经换到的货物标识(法宝 arm_、法术 skill_)，换到的不能再换。
+  const owned = [
+    ...(book?.arms?.weapons || []).map((w) => `arm_${w}`),
+    ...(book?.arms?.skills || []).map((s) => `skill_${s}`),
+  ];
   const next = rank + 1 < rules.rank_merit.length ? rank + 1 : 0;
   const rate = rules.donate_rate;
   const giftMerit =
@@ -358,38 +406,27 @@ const DisciplePath = ({
       </p>
 
       <h4 className='sc-heading'>{t('宗门宝库')}</h4>
-      <div className='sc-listings'>
-        {(npc?.goods || []).map((goods) => {
-          const locked = rank < goods.rank;
-          const kind = goods.id.slice(0, 5);
-          const desc =
-            kind === 'pill_'
-              ? text.pills[goods.id.slice(5)]?.desc
-              : text.crops[goods.id.slice(5)]?.desc;
-          return (
-            <div key={goods.id} className='sc-listing'>
-              <strong>{goodsName(text, goods.id)}</strong>
-              <span className='sc-muted'>{desc}</span>
-              <span className='sc-spacer' />
-              {locked && (
-                <span className='sc-path-short'>
-                  {t('{{rank}}可换', { rank: text.path.ranks[goods.rank] })}
-                </span>
-              )}
-              <span className='sc-chip is-stone'>
-                {t('{{n}} 贡献', { n: goods.merit })}
-              </span>
-              <Button
-                size='small'
-                disabled={busy || locked || merit < goods.merit}
-                onClick={() => actPath('exchange', { goods: goods.id })}
-              >
-                {t('换取')}
-              </Button>
-            </div>
-          );
-        })}
-      </div>
+      <GoodsList
+        goods={(npc?.goods || []).filter((g) => !isLibraryGoods(g.id))}
+        rank={rank}
+        merit={merit}
+        busy={busy}
+        onExchange={exchange}
+      />
+      <h4 className='sc-heading'>{t('藏经阁')}</h4>
+      <p className='sc-muted'>
+        {t(
+          '换来的斗法法宝与法术永久属于你，退出宗门也在；到「世界」里配置出战，只在悬赏、宗门任务与入门试炼里带，九幽秘境里不带。',
+        )}
+      </p>
+      <GoodsList
+        goods={(npc?.goods || []).filter((g) => isLibraryGoods(g.id))}
+        rank={rank}
+        merit={merit}
+        busy={busy}
+        onExchange={exchange}
+        owned={owned}
+      />
     </>
   );
 };
@@ -460,6 +497,7 @@ const PathPanel = ({
           actPath={actPath}
           onTask={(c) => setDuel({ kind: c.kind, id: c.id })}
           onGiveUp={giveUp}
+          reloadBook={loadBook}
         />
       )}
       {standing.identity === 'loose' && (

@@ -124,6 +124,15 @@ const unpack = (input) => [
   (input >> 14) & 15,
 ];
 
+// skillOf 是这一局用的法术：setup.skill 是法术的种类(quake、nova、blades)，没有时用流派自己的；种类不认识时返回 null。
+export function skillOf(setup) {
+  if (!setup.skill) return content.classes[setup.cls].skill;
+  for (const spec of Object.values(content.classes)) {
+    if (spec.skill.kind === setup.skill) return spec.skill;
+  }
+  return null;
+}
+
 // trialSetup 是试剑台的那一间房。
 export function trialSetup(cls) {
   const spec = content.classes[cls];
@@ -160,6 +169,8 @@ export function createFight(seed, setup) {
     return null;
   }
   if (setup.weapons.some((w) => !content.weapons[w])) return null;
+  const skill = skillOf(setup);
+  if (!skill) return null;
   for (const wave of setup.waves) {
     if (wave.length < 1) return null;
     for (const g of wave) {
@@ -229,6 +240,7 @@ export function createFight(seed, setup) {
     speed: div(pxs(cls.speed) * (100 + mods.speed), 100),
     face: 48,
     cls: setup.cls,
+    skill,
     weapons: setup.weapons.slice(),
     slot: 0,
     cool: 0,
@@ -477,7 +489,7 @@ function stepPlayer(f, input) {
     ev(f, 'swap', p.x, p.y, p.slot);
   }
   if ((buttons & BTN_ATTACK) !== 0 && p.cool === 0 && p.dash === 0) fire(f);
-  const skill = content.classes[p.cls].skill;
+  const skill = p.skill;
   if ((pressed & BTN_SKILL) !== 0 && p.skillCool === 0 && p.dash === 0) {
     if (p.mp >= skill.cost * 100) cast(f, skill);
     else ev(f, 'dry', p.x, p.y, 0);
@@ -626,7 +638,7 @@ function cast(f, s) {
 // bladePoints 是剑阵几把飞剑现在的位置(画面也用)。
 export function bladePoints(f) {
   const p = f.p;
-  const s = content.classes[p.cls].skill;
+  const s = p.skill;
   const orbit = px(s.orbit || 0);
   const points = [];
   for (let k = 0; k < (s.count || 0); k++) {

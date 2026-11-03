@@ -120,3 +120,46 @@
   font-size: 15px;
   font-weight: 700;
 }
+.dl-picks {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 6px;
+  margin-top: 6px;
+}
+.dl-pick {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.dl-pick strong {
+  font-family: var(--wd-serif);
+}
+.dl-pick small {
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: var(--wd-red);
+  color: var(--wd-paper);
+  font-size: 11px;
+}
+.dl-pick span {
+  color: var(--wd-ink-2);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.dl-pick.is-on {
+  border-color: var(--wd-red);
+  box-shadow: inset 0 0 0 1px var(--wd-red);
+}
+.dl-pick:focus-visible {
+  outline: 2px solid var(--wd-red);
+  outline-offset: 2px;
+}

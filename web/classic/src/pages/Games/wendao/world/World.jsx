@@ -21,11 +21,13 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Button } from '@douyinfe/semi-ui';
 import { Lock } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { gameGet, gamePostOnce } from '../../common/api';
+import { gameGet, gamePost, gamePostOnce } from '../../common/api';
+import { playSound } from '../../common/sound';
 import { SectTextProvider, useSectText } from '../../sect/parts';
 import { WendaoLayout, useWendaoPart, useWendaoShell } from '../shell';
 import { ActiveDuelNotice, ContractList } from '../duel/Contracts';
 import DuelRun from '../duel/DuelRun';
+import ArmsPanel from './ArmsPanel';
 import { REGION_IDS, getRegionText } from '../duel/text';
 import '../../sect/sect.css';
 import '../doufa/doufa.css';
@@ -70,6 +72,19 @@ const WorldPage = () => {
       setError(res.error);
       return;
     }
+    setState(res.data);
+  };
+
+  const equip = async (weapons, skill) => {
+    setBusy(true);
+    setError('');
+    const res = await gamePost(`${API}/arms`, { weapons, skill }, t);
+    setBusy(false);
+    if (res.error) {
+      setError(res.error);
+      return;
+    }
+    playSound('sparkle');
     setState(res.data);
   };
 
@@ -201,6 +216,7 @@ const WorldPage = () => {
         )}
         {error && <div className='df-error'>{error}</div>}
       </div>
+      <ArmsPanel arms={book.arms} busy={busy} onEquip={equip} />
     </div>
   );
 };

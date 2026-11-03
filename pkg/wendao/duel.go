@@ -216,10 +216,15 @@ func (sv *Save) StartDuel(kind, id string, seed uint32, now int64) (*Duel, error
 	return b.Active, nil
 }
 
-// duelSetup 补上主角这一边：流派、起手的两件法宝，以及境界给的生命与伤害；敌人与房间是 base 里排好的。
+// duelSetup 补上主角这一边：流派、配置的法宝与法术(没换过法术时不写，用流派自己的)，以及境界给的生命与伤害；敌人与房间是
+// base 里排好的。
 func (h *Hero) duelSetup(base doufa.Setup) doufa.Setup {
 	base.Class = h.Class
-	base.Weapons = doufa.StartingWeapons(h.Class)
+	loadout := h.Loadout()
+	base.Weapons = loadout.Weapons
+	if loadout.Skill != doufa.ClassSkill(h.Class) {
+		base.Skill = loadout.Skill
+	}
 	base.Mods = doufa.Mods{Vigor: duelRealmVigor * h.Realm, Damage: duelRealmDamage * h.Realm}
 	return base
 }
@@ -302,7 +307,7 @@ func (sv *Save) GiveUpDuel() error {
 }
 
 // DuelView 是契约在页面上的样子：今天的悬赏、宗门任务(宗门弟子才有)、每个宗门的入门试炼用了几次、进行中的是哪一张(不带
-// 种子与开局：只有接下契约的那次回应里有)，以及每个地域主角够不够得着。
+// 种子与开局：只有接下契约的那次回应里有)，每个地域主角够不够得着，以及出战的法宝与法术。
 type DuelView struct {
 	Day      string         `json:"day"`
 	Bounties []*Contract    `json:"bounties"`
@@ -310,6 +315,7 @@ type DuelView struct {
 	Trials   map[string]int `json:"trials"`
 	Active   *ActiveDuel    `json:"active,omitempty"`
 	Open     []bool         `json:"open"`
+	Arms     ArmsView       `json:"arms"`
 }
 
 // ActiveDuel 是进行中那一场的概况。
@@ -324,7 +330,7 @@ func (sv *Save) DuelView() *DuelView {
 		return nil
 	}
 	b := sv.book()
-	v := &DuelView{Day: b.Day, Bounties: b.Bounties, Tasks: []*Contract{}, Trials: b.Trials, Open: make([]bool, len(Regions))}
+	v := &DuelView{Day: b.Day, Bounties: b.Bounties, Tasks: []*Contract{}, Trials: b.Trials, Open: make([]bool, len(Regions)), Arms: sv.Hero.ArmsView()}
 	if sv.Identity() == "disciple" {
 		v.Tasks = b.Tasks
 	}

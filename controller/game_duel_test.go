@@ -191,3 +191,43 @@ func TestWendaoDuelTaskGivesMerit(t *testing.T) {
 	assert.Equal(t, float64(merit), won["standing"].(map[string]any)["path"].(map[string]any)["merit"])
 	assert.Contains(t, won["events"], map[string]any{"k": "path_merit", "n": float64(merit)})
 }
+
+// 藏经阁换来的法宝与法术：用贡献在宝库里换(身份不够、已经有的不行)，配置出战要手上有的；配置以后契约开局用它，法术写进开局。
+func TestWendaoDuelUsesTheLoadoutBoughtInTheLibrary(t *testing.T) {
+	require.NoError(t, i18n.Init())
+	env := newGameTestEnv(t, sectSettings())
+	player := env.player(0, gameTestIpA)
+	duelHero(t, player)
+	player.fails(http.MethodPost, duelBase+"/arms", map[string]any{"weapons": []string{"sword"}, "skill": "nova"})
+	joinThroughTrial(t, player, "taixu")
+	editWendao(t, player, func(save *wendao.Save) {
+		save.Hero.Path.Merit, save.Hero.Path.Earned = 1000, 1000
+		save.Hero.Path.Rank = wendao.RankHeir
+	})
+
+	path := "/api/game/wendao/sect/path"
+	player.fails(http.MethodPost, path, map[string]any{"action": "exchange", "goods": "arm_spear"}) // 太虚观没有
+	bought := player.ok(http.MethodPost, path, map[string]any{"action": "exchange", "goods": "skill_nova"})
+	assert.Equal(t, 520.0, bought["standing"].(map[string]any)["path"].(map[string]any)["merit"])
+	player.ok(http.MethodPost, path, map[string]any{"action": "exchange", "goods": "arm_thunder"})
+	player.fails(http.MethodPost, path, map[string]any{"action": "exchange", "goods": "arm_thunder"})
+
+	arms := player.ok(http.MethodGet, duelBase+"/state", nil)["book"].(map[string]any)["arms"].(map[string]any)
+	assert.Equal(t, []any{"sword", "talisman", "thunder"}, arms["weapons"])
+	assert.Equal(t, []any{"quake", "nova"}, arms["skills"])
+	player.fails(http.MethodPost, duelBase+"/arms", map[string]any{"weapons": []string{"spear"}, "skill": "nova"})
+	equipped := player.ok(http.MethodPost, duelBase+"/arms", map[string]any{"weapons": []string{"thunder", "sword"}, "skill": "nova"})
+	assert.Equal(t, map[string]any{"weapons": []any{"thunder", "sword"}, "skill": "nova"}, equipped["book"].(map[string]any)["arms"].(map[string]any)["loadout"])
+
+	var id string
+	editWendao(t, player, func(save *wendao.Save) {
+		save.Duels.Bounties[0].Region = 0
+		id = save.Duels.Bounties[0].Id
+	})
+	started := player.ok(http.MethodPost, duelBase+"/start", map[string]any{"kind": wendao.DuelBounty, "id": id})
+	setup := started["duel"].(map[string]any)["setup"].(map[string]any)
+	assert.Equal(t, []any{"thunder", "sword"}, setup["weapons"])
+	assert.Equal(t, "nova", setup["skill"])
+	won := player.ok(http.MethodPost, duelBase+"/clear", map[string]any{"inputs": rigDuel(t, player, true)})
+	assert.Equal(t, true, won["won"])
+}

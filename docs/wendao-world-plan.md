@@ -174,3 +174,12 @@
   `TestEntryTrialGatesJoiningASect`、`TestWendaoDuelEntryTrialDecidesJoining`、`TestWendaoDuelBountyPaysOnce`、`TestWendaoDuelTaskGivesMerit`。
   浏览器里看过桌面浅色与手机深色：世界地图、接下悬赏、暂停层放弃、身份页的入门试炼与结果、宗门弟子的任务列表。还没做：藏经阁换法宝法术
   (下一步)、各地域自己的敌人表(S4 一起做)。
+- S3b 第二步（2026-11-03）：已交付藏经阁与出战配置。每家正道宗门的货物里多了两件法宝与一个法术(头一件法宝外门 180 贡献、第二件内门 260、
+  法术真传 480，万花谷丹道没有法术)，在宗门页的「藏经阁」用贡献换，换到的永久属于主角(`Hero.Arms`，退出宗门也在，`SaveSchema` 升到 7)；世界页的「斗法配置」
+  挑带哪一到两件法宝、用哪个法术(`POST /api/game/wendao/duel/arms`)。配置只在入门试炼、宗门任务与悬赏里带，**九幽秘境不带**，换来的东西
+  不会让发游戏币的秘境更好过。引擎加了 `Setup.Skill`(覆盖流派自带的法术，没写时与从前一样)，Go 与浏览器两边同步，黄金回放没动。测试
+  `TestEveryLibraryGoodOpensInTheFightRules`、`TestArmsStartAtTheClassDefaults`、`TestLibraryExchangeUnlocksArms`、
+  `TestEquipSetsTheLoadoutContractsUse`、`TestSetupCanSwapTheClassSkill`、`TestWendaoDuelUsesTheLoadoutBoughtInTheLibrary` 与前端引擎的同名一条。
+  浏览器里看过桌面浅色与手机深色：藏经阁的货物与已有、换取、世界页的配置挑选与保存、刷新后配置还在。**S3b 完成**。**防不了的**：契约里
+  浏览器拿到种子，离线把引擎跑几遍再提交赢的那一次，重放核对拦不住(与九幽秘境同一个边界；契约的报酬是宗门资源，不是游戏币)；还没做：
+  各地域自己的敌人表(S4 一起做)、契约进入待办与入门指引(`agenda.go`)、三库升级实测(发版前按流程跑)。

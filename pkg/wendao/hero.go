@@ -59,6 +59,8 @@ type Hero struct {
 	Stats      HeroStats   `json:"stats"`
 	// Path 是主角的宗门身份(拜入了哪个正道宗门、身份与贡献)，见 path.go。
 	Path *Path `json:"path,omitempty"`
+	// Arms 是在宗门藏经阁换来的斗法法宝与法术，以及出战的配置，见 arms.go。
+	Arms *Arms `json:"arms,omitempty"`
 }
 
 // NodeRecord 是一个节点的通过记录。Pick 是剧情抉择选了哪一个(JourneyOption.Key)，没有抉择的节点为空。

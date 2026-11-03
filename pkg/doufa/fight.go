@@ -100,9 +100,11 @@ func unpack(in int) (move, aim, buttons int) {
 	return (in & 127) - 1, (in>>7)&127 - 1, (in >> 14) & 15
 }
 
-// Setup 是开一间房要的东西：流派、两件法宝、房间模板与各波敌人；HP、MP 为 0 时满状态开局(都是点数，不是单位)。
+// Setup 是开一间房要的东西：流派、两件法宝、房间模板与各波敌人；HP、MP 为 0 时满状态开局(都是点数，不是单位)。Skill 是
+// 法术的种类(quake、nova、blades)，为空时用流派自己的；世界里的契约让主角换用换来的别家法术。
 type Setup struct {
 	Class   string    `json:"cls"`
+	Skill   string    `json:"skill,omitempty"`
 	Weapons []string  `json:"weapons"`
 	Room    string    `json:"room"`
 	Waves   [][]Group `json:"waves"`
@@ -157,6 +159,7 @@ type Player struct {
 	Speed     int
 	Face      int
 	Class     string
+	Skill     SkillSpec
 	Weapons   []string
 	Slot      int
 	Cool      int
@@ -271,6 +274,12 @@ func New(seed uint32, setup Setup) (*Fight, error) {
 		setup.Scale.HP < 0 || setup.Scale.HP > 1000 || setup.Scale.Dmg < 0 || setup.Scale.Dmg > 1000 {
 		return nil, ErrSetup
 	}
+	skill := class.Skill
+	if setup.Skill != "" {
+		if skill, ok = SkillOfKind(setup.Skill); !ok {
+			return nil, ErrSetup
+		}
+	}
 	for _, w := range setup.Weapons {
 		if _, ok := content.Weapons[w]; !ok {
 			return nil, ErrSetup
@@ -319,7 +328,7 @@ func New(seed uint32, setup Setup) (*Fight, error) {
 	f.P = Player{
 		X: px0*Tile + Tile/2, Y: py0*Tile + Tile/2, R: px(content.Player.Radius),
 		HP: maxHP, MaxHP: maxHP, MP: class.MP * 100, MaxMP: class.MP * 100,
-		Speed: pxs(class.Speed) * (100 + mods.Speed) / 100, Face: 48, Class: setup.Class,
+		Speed: pxs(class.Speed) * (100 + mods.Speed) / 100, Face: 48, Class: setup.Class, Skill: skill,
 		Weapons: append([]string(nil), setup.Weapons...),
 		Regen:   (content.Player.MPRegen * 100 / FPS) * (100 + mods.Regen) / 100, Ward: mods.Ward,
 	}
@@ -555,7 +564,7 @@ func (f *Fight) stepPlayer(in int) {
 	if buttons&BtnAttack != 0 && p.Cool == 0 && p.Dash == 0 {
 		f.fire()
 	}
-	skill := content.Classes[p.Class].Skill
+	skill := p.Skill
 	if pressed&BtnSkill != 0 && p.SkillCool == 0 && p.Dash == 0 {
 		if p.MP >= skill.Cost*100 {
 			f.cast(skill)

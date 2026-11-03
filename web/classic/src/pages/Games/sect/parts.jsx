@@ -22,6 +22,12 @@ import { Tooltip } from '@douyinfe/semi-ui';
 import { Gem, Hammer, Leaf, Star } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import {
+  getSkillNames,
+  getSkillText,
+  getWeaponNames,
+  getWeaponText,
+} from '../wendao/doufa/text';
+import {
   RESOURCES,
   discipleName,
   getBuildingText,
@@ -68,6 +74,10 @@ export function SectTextProvider({ children }) {
       moves: getMoveText(t),
       sects: getSectNames(t),
       path: getPathText(t),
+      weapons: getWeaponNames(t),
+      weaponDescs: getWeaponText(t),
+      skills: getSkillNames(t),
+      skillDescs: getSkillText(t),
       name: (name) => discipleName(name, language),
     }),
     [t, language],
@@ -314,9 +324,23 @@ export function pillName(text, pill) {
   return text.pills[pill]?.name || pill;
 }
 
-// 万宝阁的货物名：灵草、玄铁是资源，pill_ 开头是丹药，rare_ 开头是灵药。
+// 万宝阁与宗门宝库的货物名：灵草、玄铁是资源，pill_ 开头是丹药，rare_ 开头是灵药，arm_ 开头是斗法法宝，skill_ 开头是斗法法术。
 export function goodsName(text, goods) {
   if (goods?.startsWith('pill_')) return pillName(text, goods.slice(5));
   if (goods?.startsWith('rare_')) return text.rares[goods.slice(5)] || goods;
+  if (goods?.startsWith('arm_')) return text.weapons[goods.slice(4)] || goods;
+  if (goods?.startsWith('skill_')) return text.skills[goods.slice(6)] || goods;
   return text.resources[goods] || goods;
 }
+
+// 宝库货物的说明。
+export function goodsDesc(text, goods) {
+  if (goods.startsWith('pill_')) return text.pills[goods.slice(5)]?.desc;
+  if (goods.startsWith('arm_')) return text.weaponDescs[goods.slice(4)];
+  if (goods.startsWith('skill_')) return text.skillDescs[goods.slice(6)];
+  return text.crops[goods.slice(5)]?.desc;
+}
+
+// 藏经阁里的货物(法宝与法术)，宝库里的是丹药与灵药。
+export const isLibraryGoods = (goods) =>
+  goods.startsWith('arm_') || goods.startsWith('skill_');

@@ -1,6 +1,10 @@
 package wendao
 
-import "github.com/QuantumNous/new-api/pkg/dungeon"
+import (
+	"strings"
+
+	"github.com/QuantumNous/new-api/pkg/dungeon"
+)
 
 // 身份：主角是散修，还是拜入了哪个正道宗门的弟子，还是自己开宗立派的掌门。
 //
@@ -35,7 +39,8 @@ const (
 	perkAlchemy = 15
 )
 
-// SectGoods 是宗门宝库里的一样东西：Id 是丹药(pill_ 前缀)或灵药(rare_ 前缀)，Rank 是要到的身份。
+// SectGoods 是宗门宝库里的一样东西：Id 是丹药(pill_ 前缀)、灵药(rare_ 前缀)，或藏经阁里的斗法法宝(arm_)与法术(skill_)，
+// Rank 是要到的身份。
 type SectGoods struct {
 	Id    string `json:"id"`
 	Merit int    `json:"merit"`
@@ -58,15 +63,23 @@ var commonGoods = []SectGoods{
 	{Id: "rare_" + RareFruit, Merit: 120, Rank: RankInner},
 }
 
+// 藏经阁里的法宝与法术(见 arms.go)：每个宗门两件法宝(外门、内门可换)与一个法术(真传才能换)，各宗拿手的不同，想凑齐要换几家门下。
 var NpcSects = []NpcSect{
 	{Id: "tianjian", Style: dungeon.ClassRanger, Perk: PerkStrength, Goods: append(append([]SectGoods(nil), commonGoods...),
-		SectGoods{Id: "rare_" + RareLingzhi, Merit: 300, Rank: RankHeir})},
+		SectGoods{Id: "rare_" + RareLingzhi, Merit: 300, Rank: RankHeir},
+		SectGoods{Id: goodsArm + "flying_sword", Merit: 180}, SectGoods{Id: goodsArm + "spear", Merit: 260, Rank: RankInner},
+		SectGoods{Id: goodsSkill + "blades", Merit: 480, Rank: RankHeir})},
 	{Id: "jingang", Style: dungeon.ClassWarrior, Perk: PerkVitality, Goods: append(append([]SectGoods(nil), commonGoods...),
-		SectGoods{Id: "pill_" + PillMarrow, Merit: 400, Rank: RankHeir})},
+		SectGoods{Id: "pill_" + PillMarrow, Merit: 400, Rank: RankHeir},
+		SectGoods{Id: goodsArm + "spear", Merit: 180}, SectGoods{Id: goodsArm + "thunder", Merit: 260, Rank: RankInner},
+		SectGoods{Id: goodsSkill + "quake", Merit: 480, Rank: RankHeir})},
 	{Id: "taixu", Style: dungeon.ClassMage, Perk: PerkInsight, Goods: append(append([]SectGoods(nil), commonGoods...),
-		SectGoods{Id: "pill_" + PillPeiyuan, Merit: 120, Rank: RankInner})},
+		SectGoods{Id: "pill_" + PillPeiyuan, Merit: 120, Rank: RankInner},
+		SectGoods{Id: goodsArm + "thunder", Merit: 180}, SectGoods{Id: goodsArm + "talisman", Merit: 260, Rank: RankInner},
+		SectGoods{Id: goodsSkill + "nova", Merit: 480, Rank: RankHeir})},
 	{Id: "wanhua", Perk: PerkAlchemy, Goods: append(append([]SectGoods(nil), commonGoods...),
-		SectGoods{Id: "rare_" + RareLingzhi, Merit: 260, Rank: RankInner}, SectGoods{Id: "rare_" + RareLotus, Merit: 600, Rank: RankElder})},
+		SectGoods{Id: "rare_" + RareLingzhi, Merit: 260, Rank: RankInner}, SectGoods{Id: "rare_" + RareLotus, Merit: 600, Rank: RankElder},
+		SectGoods{Id: goodsArm + "talisman", Merit: 180}, SectGoods{Id: goodsArm + "flying_sword", Merit: 260, Rank: RankInner})},
 }
 
 // RankMerit、RankRealm 是晋升到各身份要的累计贡献与主角境界；RankStipend 是各身份每天的俸禄。
@@ -286,6 +299,10 @@ func (sv *Save) Exchange(id string) ([]Ev, error) {
 			s.Pills[id[5:]]++
 		case len(id) > 5 && id[:5] == "rare_":
 			s.Rare[id[5:]]++
+		case strings.HasPrefix(id, goodsArm) || strings.HasPrefix(id, goodsSkill):
+			if err := sv.Hero.unlockArm(id); err != nil {
+				return nil, err
+			}
 		default:
 			return nil, ErrAction
 		}

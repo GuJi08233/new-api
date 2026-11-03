@@ -21,6 +21,7 @@ func registerDuelRoutes(group *gin.RouterGroup) {
 	group.POST("/start", middleware.GameActionRateLimit("duel-start"), startDuel)
 	group.POST("/clear", middleware.GameActionRateLimit("duel-clear"), clearDuel)
 	group.POST("/giveup", middleware.GameActionRateLimit("duel-giveup"), giveUpDuel)
+	group.POST("/arms", middleware.GameActionRateLimit("duel-arms"), equipArms)
 }
 
 // duelWorldInfo 是游戏信息里世界的部分：地域与契约的规则，页面写说明用。
@@ -254,4 +255,40 @@ func giveUpDuel(c *gin.Context) {
 		answer["replayed"] = true
 	}
 	common.ApiSuccess(c, answer)
+}
+
+// equipArms 配置出战的法宝与法术(规则见 pkg/wendao/arms.go)：weapons 是一到两件法宝，skill 是法术，都得是主角有的。配置用在
+// 悬赏、宗门任务与入门试炼里，带不进九幽秘境。
+func equipArms(c *gin.Context) {
+	if !requireGameEnabled(c, wendaoGame) {
+		return
+	}
+	var req struct {
+		Weapons []string `json:"weapons"`
+		Skill   string   `json:"skill"`
+	}
+	if decodeGameRequest(c, &req) != nil {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
+	now := common.GetTimestamp()
+	_, err := model.UpdateGameSave(c.GetInt("id"), wendao.SaveKey, func(data string) (string, error) {
+		return wendao.UpdateSave(data, func(save *wendao.Save) error {
+			if save.Hero == nil {
+				return wendao.ErrUnavailable
+			}
+			return save.Hero.Equip(req.Weapons, req.Skill)
+		})
+	})
+	if err != nil {
+		respondSectError(c, err)
+		return
+	}
+	save, err := loadWendaoSave(c.GetInt("id"))
+	if err != nil {
+		respondSectError(c, err)
+		return
+	}
+	rollWendaoDaily(save)
+	common.ApiSuccess(c, duelAnswer(save, now))
 }

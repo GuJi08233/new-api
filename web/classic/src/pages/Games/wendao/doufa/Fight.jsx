@@ -31,8 +31,8 @@ import {
   BTN_SWAP,
   FPS,
   angleOf,
-  content,
   createFight,
+  skillOf,
   step,
   summary,
 } from './engine';
@@ -239,7 +239,7 @@ export default function Fight({ setup, seed, onEnd, onExit, exitLabel }) {
 
   const weapons = getWeaponNames(t);
   const skills = getSkillNames(t);
-  const skill = content.classes[setup.cls].skill;
+  const skill = skillOf(setup);
   const other = setup.weapons.length > 1 ? setup.weapons[1 - hud.slot] : null;
 
   return (

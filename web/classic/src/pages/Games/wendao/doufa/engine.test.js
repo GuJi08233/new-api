@@ -23,11 +23,13 @@ import goContent from '../../../../../../../pkg/doufa/content.json';
 import {
   BTN_ATTACK,
   BTN_DODGE,
+  BTN_SKILL,
   content,
   createFight,
   decodeInputs,
   encodeInputs,
   pack,
+  skillOf,
   step,
   summary,
   trialSetup,
@@ -64,6 +66,27 @@ describe('doufa engine', () => {
     ];
     expect(decodeInputs(encodeInputs(inputs))).toEqual(inputs);
     expect(encodeInputs([])).toBe('');
+  });
+
+  test('swaps the class skill when the setup names one', () => {
+    const cast = (skill) => {
+      const fight = createFight(5, { ...trialSetup('warrior'), skill });
+      expect(fight).not.toBeNull();
+      step(fight, pack(-1, -1, BTN_SKILL));
+      return fight;
+    };
+    expect(cast(undefined).p.skill.kind).toBe('quake');
+    const nova = cast('nova');
+    expect(nova.p.skill.kind).toBe('nova');
+    expect(nova.p.cls).toBe('warrior');
+    expect(
+      nova.shots.filter((s) => !s.hostile && s.kind === 'fire'),
+    ).toHaveLength(content.classes.mage.skill.count);
+    expect(cast('blades').p.blades).toBeGreaterThan(0);
+    expect(skillOf(trialSetup('ranger')).kind).toBe('blades');
+    expect(
+      createFight(1, { ...trialSetup('warrior'), skill: 'teleport' }),
+    ).toBeNull();
   });
 
   test('rejects an unknown class or room', () => {
