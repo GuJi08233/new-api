@@ -1,0 +1,269 @@
+/* 斗法：画布外的版面、触屏摇杆与按键、暂停层。颜色都取 wendao.css 的 --wd-* 变量。 */
+.df-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 4px;
+}
+.df-card {
+  padding: 14px 16px;
+  border: 1px solid var(--semi-color-border);
+  border-left: 3px solid var(--wd-red);
+  border-radius: 8px;
+  background: var(--wd-paper);
+  color: var(--wd-ink);
+}
+.df-title {
+  margin-bottom: 6px;
+  font-family: var(--wd-serif);
+  font-size: 17px;
+  font-weight: 700;
+}
+.df-lead {
+  margin: 0 0 12px;
+  line-height: 1.7;
+}
+.df-muted {
+  margin: 10px 0 0;
+  color: var(--wd-ink-3);
+  font-size: 12px;
+  line-height: 1.7;
+}
+.df-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.df-classes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 8px;
+}
+.df-class {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.df-class:hover {
+  border-color: var(--wd-ink-3);
+}
+.df-class.is-active {
+  border-color: var(--wd-red);
+  box-shadow: inset 0 0 0 1px var(--wd-red);
+}
+.df-class:focus-visible {
+  outline: 2px solid var(--wd-red);
+  outline-offset: 2px;
+}
+.df-class-name {
+  font-family: var(--wd-serif);
+  font-size: 15px;
+  font-weight: 700;
+}
+.df-class-line {
+  color: var(--wd-ink-2, var(--wd-ink));
+  font-size: 12px;
+  line-height: 1.6;
+}
+.df-class-line b {
+  font-family: var(--wd-serif);
+  color: var(--wd-ink);
+}
+.df-result.is-won {
+  border-left-color: var(--wd-tint);
+}
+.df-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+  font-family: var(--wd-serif);
+}
+
+.df-stage {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 25 / 17;
+  max-height: 72vh;
+  min-height: 280px;
+  overflow: hidden;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 8px;
+  background: var(--wd-paper);
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+.df-stage.is-touch {
+  aspect-ratio: auto;
+  height: min(74vh, 118vw);
+}
+.df-stage.is-full,
+.df-stage:fullscreen {
+  width: 100vw;
+  height: 100vh;
+  max-height: none;
+  aspect-ratio: auto;
+  border: 0;
+  border-radius: 0;
+}
+@media (orientation: landscape) and (max-height: 520px) {
+  .df-stage,
+  .df-stage.is-touch {
+    aspect-ratio: auto;
+    height: calc(100vh - 76px);
+    max-height: none;
+    min-height: 260px;
+  }
+}
+.df-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: crosshair;
+  touch-action: none;
+}
+.df-tools {
+  position: absolute;
+  top: 34px;
+  right: 8px;
+  display: flex;
+  gap: 6px;
+}
+.df-tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 6px;
+  background: var(--wd-mist);
+  color: var(--wd-ink);
+  cursor: pointer;
+}
+.df-tool:focus-visible {
+  outline: 2px solid var(--wd-red);
+  outline-offset: 1px;
+}
+
+.df-stick-zone {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 50%;
+  height: 72%;
+  touch-action: none;
+}
+.df-stick {
+  position: absolute;
+  width: 96px;
+  height: 96px;
+  margin: -48px 0 0 -48px;
+  border: 2px solid var(--wd-ink);
+  border-radius: 50%;
+  opacity: 0.35;
+  pointer-events: none;
+}
+.df-knob {
+  position: absolute;
+  top: 26px;
+  left: 26px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--wd-ink);
+}
+.df-pad {
+  position: absolute;
+  right: 10px;
+  bottom: 14px;
+  display: grid;
+  grid-template-columns: 56px 76px;
+  grid-template-rows: 56px 56px 56px;
+  gap: 6px;
+  align-items: center;
+  justify-items: center;
+  touch-action: none;
+}
+.df-btn {
+  width: 56px;
+  height: 56px;
+  padding: 0;
+  border: 1.5px solid var(--wd-ink);
+  border-radius: 50%;
+  background: var(--wd-mist);
+  color: var(--wd-ink);
+  font-family: var(--wd-serif);
+  font-size: 13px;
+  font-weight: 700;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.df-btn:active {
+  background: var(--wd-red-soft);
+}
+.df-btn-attack {
+  grid-column: 2;
+  grid-row: 2 / span 2;
+  width: 76px;
+  height: 76px;
+  border-color: var(--wd-red);
+  font-size: 15px;
+}
+.df-btn-skill {
+  grid-column: 2;
+  grid-row: 1;
+}
+.df-btn-dodge {
+  grid-column: 1;
+  grid-row: 3;
+}
+.df-btn-swap {
+  grid-column: 1;
+  grid-row: 2;
+  font-size: 12px;
+}
+.df-btn.is-cooling {
+  opacity: 0.5;
+}
+
+.df-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--wd-mist);
+}
+.df-overlay-card {
+  min-width: 200px;
+  padding: 16px 20px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 8px;
+  background: var(--wd-paper);
+  text-align: center;
+}
+.df-overlay-title {
+  margin-bottom: 12px;
+  font-family: var(--wd-serif);
+  font-size: 16px;
+  font-weight: 700;
+}
+.df-overlay-actions {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}

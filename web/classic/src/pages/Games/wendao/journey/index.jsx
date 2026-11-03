@@ -36,6 +36,7 @@ import TrialsPanel from './TrialsPanel';
 import Collection from './Collection';
 import Gear from './Gear';
 import Cave from '../cave/Cave';
+import DoufaPractice from '../doufa';
 import BattleStage from './BattleStage';
 import StoryDialog from './StoryDialog';
 import { heroEventLines } from './lines';
@@ -264,6 +265,9 @@ const JourneyPage = () => {
                 if (data) playSound('start');
               }}
             />
+          </TabPane>
+          <TabPane tab={t('试剑')} itemKey='doufa'>
+            {tab === 'doufa' && <DoufaPractice hero={hero} />}
           </TabPane>
           <TabPane tab={t('问心阶')} itemKey='steps'>
             <StepsPanel
