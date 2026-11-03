@@ -53,6 +53,7 @@ const MOVE_KEYS = {
 
 export function createControls({ canvas, onPause }) {
   const keys = new Set();
+  const pointers = new Map();
   let held = 0;
   let latched = 0;
   let stick = -1;
@@ -85,9 +86,13 @@ export function createControls({ canvas, onPause }) {
   };
   const onBlur = () => {
     keys.clear();
+    pointers.clear();
     mouseButtons = 0;
     held = 0;
+    latched = 0;
     stick = -1;
+    mouse = null;
+    mouseAim = false;
   };
   const point = (e) => {
     const box = canvas.getBoundingClientRect();
@@ -150,13 +155,21 @@ export function createControls({ canvas, onPause }) {
     },
     setStick(angle) {
       stick = angle;
+      mouseAim = false;
     },
-    press(bit) {
+    press(bit, pointerId = bit) {
+      if (pointers.has(pointerId)) return;
+      pointers.set(pointerId, bit);
       held |= bit;
       latched |= bit;
+      mouseAim = false;
     },
-    release(bit) {
-      held &= ~bit;
+    release(bit, pointerId = bit, cancelled = false) {
+      if (pointers.get(pointerId) !== bit) return;
+      pointers.delete(pointerId);
+      held = 0;
+      for (const pressed of pointers.values()) held |= pressed;
+      if (cancelled && !(held & bit)) latched &= ~bit;
     },
     reset: onBlur,
     dispose() {

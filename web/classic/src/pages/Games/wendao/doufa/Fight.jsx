@@ -79,6 +79,8 @@ export default function Fight({ setup, seed, onEnd, onExit, exitLabel }) {
     pausedRef.current = next;
     setPaused(next);
     controlsRef.current?.reset();
+    stickRef.current = null;
+    setKnob(null);
   }, []);
 
   useEffect(() => {
@@ -107,6 +109,7 @@ export default function Fight({ setup, seed, onEnd, onExit, exitLabel }) {
     let acc = 0;
     let frames = 0;
     let done = false;
+    let endTimer = null;
     let shown = { skill: -1, slot: -1, mp: -1 };
 
     const size = () => {
@@ -128,7 +131,11 @@ export default function Fight({ setup, seed, onEnd, onExit, exitLabel }) {
     const onVisibility = () => {
       if (document.hidden && !done) setPause(true);
     };
+    const onBlur = () => {
+      if (!done) setPause(true);
+    };
     document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('blur', onBlur);
 
     const frame = (now) => {
       raf = requestAnimationFrame(frame);
@@ -166,15 +173,20 @@ export default function Fight({ setup, seed, onEnd, onExit, exitLabel }) {
       if (fight.over && !done) {
         done = true;
         playSound(fight.won ? 'win' : 'lose');
-        setTimeout(() => onEndRef.current({ ...summary(fight), inputs }), 900);
+        endTimer = setTimeout(
+          () => onEndRef.current({ ...summary(fight), inputs }),
+          900,
+        );
       }
     };
     raf = requestAnimationFrame(frame);
     return () => {
       cancelAnimationFrame(raf);
+      clearTimeout(endTimer);
       resizeObserver.disconnect();
       themeObserver.disconnect();
       document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('blur', onBlur);
       controls.dispose();
       controlsRef.current = null;
     };
@@ -195,6 +207,8 @@ export default function Fight({ setup, seed, onEnd, onExit, exitLabel }) {
   };
 
   const stickDown = (e) => {
+    if (pausedRef.current || stickRef.current) return;
+    e.preventDefault();
     e.currentTarget.setPointerCapture?.(e.pointerId);
     const box = e.currentTarget.getBoundingClientRect();
     stickRef.current = {
@@ -228,12 +242,16 @@ export default function Fight({ setup, seed, onEnd, onExit, exitLabel }) {
   };
   const button = (bit) => ({
     onPointerDown: (e) => {
+      if (pausedRef.current) return;
       e.preventDefault();
       e.currentTarget.setPointerCapture?.(e.pointerId);
-      controlsRef.current?.press(bit);
+      controlsRef.current?.press(bit, e.pointerId);
     },
-    onPointerUp: () => controlsRef.current?.release(bit),
-    onPointerCancel: () => controlsRef.current?.release(bit),
+    onPointerUp: (e) => controlsRef.current?.release(bit, e.pointerId),
+    onPointerCancel: (e) =>
+      controlsRef.current?.release(bit, e.pointerId, true),
+    onLostPointerCapture: (e) =>
+      controlsRef.current?.release(bit, e.pointerId, true),
     onContextMenu: (e) => e.preventDefault(),
   });
 
@@ -276,6 +294,7 @@ export default function Fight({ setup, seed, onEnd, onExit, exitLabel }) {
             onPointerMove={stickMove}
             onPointerUp={stickUp}
             onPointerCancel={stickUp}
+            onLostPointerCapture={stickUp}
           >
             {knob && (
               <div className='df-stick' style={{ left: knob.x, top: knob.y }}>
