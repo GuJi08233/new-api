@@ -49,6 +49,12 @@ func sectInfo(ctx *gameContext) (gin.H, error) {
 	wendaoPartGate(ctx, info, sectTournamentGame)
 	info["offline_cap"] = wendao.OfflineCap
 	info["max_item_stack"] = wendao.MaxItemStack
+	info["path"] = gin.H{
+		"sects": wendao.NpcSects, "rank_merit": wendao.RankMerit, "rank_realm": wendao.RankRealm,
+		"rank_stipend": wendao.RankStipend, "found_realm": wendao.FoundRealm, "found_cost": wendao.FoundCost,
+		"rejoin_wait": wendao.PathRejoinWait, "daily_merit": wendao.PathDailyMerit, "donate_rate": wendao.DonateRate,
+		"perks": wendao.PerkValues,
+	}
 	ids, cents := make([]string, 0, len(wendao.ShopItems)), make([]int, 0, len(wendao.ShopItems))
 	for _, item := range wendao.ShopItems {
 		ids, cents = append(ids, item.Id), append(cents, item.Price)
@@ -62,6 +68,7 @@ func sectInfo(ctx *gameContext) (gin.H, error) {
 // registerSectRoutes 在 /api/game/wendao/sect 下注册宗门板块的接口。
 func registerSectRoutes(group *gin.RouterGroup) {
 	group.POST("/action", middleware.GameActionRateLimit("sect-action"), actSect)
+	group.POST("/path", middleware.GameActionRateLimit("sect-path"), actSectPath)
 	group.GET("/tournament", getSectTournament)
 	group.POST("/tournament/start", middleware.GamePlayRateLimit("sect-tournament-start"), startSectTournament)
 	group.POST("/tournament/action", middleware.GameActionRateLimit("sect-tournament-action"), actSectTournament)
@@ -127,8 +134,8 @@ func loadWendaoSave(userId int) (*wendao.Save, error) {
 	return wendao.ParseSave(data)
 }
 
-// foundSect 在还没有宗门时开宗立派。
-func foundSect(save *wendao.Save, now int64) error {
+// ensureStorehouse 在还没有储物处时给主角一个(散修的储物处：没有主殿与弟子)。开宗立派另走 path 接口。
+func ensureStorehouse(save *wendao.Save, now int64) error {
 	if save.Sect != nil {
 		return nil
 	}
@@ -136,7 +143,7 @@ func foundSect(save *wendao.Save, now int64) error {
 	if err != nil {
 		return err
 	}
-	save.Sect = wendao.NewSect(seed, now)
+	save.Sect = wendao.NewStorehouse(seed, now)
 	return nil
 }
 
@@ -166,13 +173,13 @@ func actSect(c *gin.Context) {
 		return
 	}
 	var evs []wendao.Ev
-	var current *wendao.Sect
+	var current *wendao.Save
 	_, err = model.UpdateGameSave(c.GetInt("id"), wendao.SaveKey, func(data string) (string, error) {
 		return wendao.UpdateSave(data, func(save *wendao.Save) error {
 			if err := save.Admit(requestId, sum, now); err != nil {
 				return err
 			}
-			if err := foundSect(save, now); err != nil {
+			if err := ensureStorehouse(save, now); err != nil {
 				return err
 			}
 			// 主角的闭关修为跟宗门一起结算，只经营宗门不会让主角的离线修为超过上限白白浪费。
@@ -184,7 +191,11 @@ func actSect(c *gin.Context) {
 			if evs, err = s.Apply(req, now); err != nil {
 				return err
 			}
-			current = s
+			// 宗门弟子领一件每日功课，宗门多记一笔贡献。
+			if req.Type == "daily_claim" {
+				evs = append(evs, save.GrantMerit(wendao.PathDailyMerit)...)
+			}
+			current = save
 			return nil
 		})
 	})
@@ -198,7 +209,8 @@ func actSect(c *gin.Context) {
 			respondSectError(c, err)
 			return
 		}
-		common.ApiSuccess(c, gin.H{"sect": save.Sect.View(now), "events": []wendao.Ev{}, "replayed": true})
+		common.ApiSuccess(c, gin.H{"sect": save.Sect.View(now), "standing": save.PathView(gameCenterDay()), "events": []wendao.Ev{},
+			"replayed": true})
 		return
 	}
 	if err != nil {
@@ -208,7 +220,7 @@ func actSect(c *gin.Context) {
 	if evs == nil {
 		evs = []wendao.Ev{}
 	}
-	common.ApiSuccess(c, gin.H{"sect": current.View(now), "events": evs})
+	common.ApiSuccess(c, gin.H{"sect": current.Sect.View(now), "standing": current.PathView(gameCenterDay()), "events": evs})
 }
 
 func sectTournamentView(session *model.GameSession, state *sectTournamentState) gin.H {
@@ -486,7 +498,7 @@ func buySectItem(c *gin.Context) {
 	now := common.GetTimestamp()
 	add := func(data string, id string, count int) (string, error) {
 		return wendao.UpdateSave(data, func(save *wendao.Save) error {
-			if err := foundSect(save, now); err != nil {
+			if err := ensureStorehouse(save, now); err != nil {
 				return err
 			}
 			return save.Sect.AddItem(id, count)

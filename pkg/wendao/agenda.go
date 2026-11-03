@@ -75,6 +75,17 @@ type GuideStep struct {
 // guide 是入门指引：七步串起主角、历练、宗门经营与秘境，每一步都按存档里已经做到的事打勾，刷新以后不会从头再来。
 func (sv *Save) guide() []GuideStep {
 	s, h := sv.Sect, sv.Hero
+	if s != nil && !s.IsFounded() {
+		// 散修与宗门弟子还没有建筑、派遣与灵田(开宗立派以后才有)，这三步换成"选一条路"：拜入一个正道宗门。
+		joined := h != nil && h.Path != nil && h.Path.Sect != ""
+		return []GuideStep{
+			{Key: "hero", Done: h != nil, Part: PartJourney},
+			{Key: "win", Done: h != nil && h.Stats.Wins > 0, Part: PartJourney, Tab: "map"},
+			{Key: "path", Done: joined, Part: PartSect},
+			{Key: "break", Done: h != nil && h.Realm >= 1, Part: PartJourney},
+			{Key: "abyss", Done: sv.Abyss.Runs > 0, Part: PartAbyss},
+		}
+	}
 	built, dispatched, planted := false, false, false
 	if s != nil {
 		for building, level := range s.Buildings {
@@ -149,6 +160,9 @@ func (sv *Save) todos(now int64, day string) []Todo {
 		add(boolInt(h.canBreak()), Todo{Key: "hero_break", Part: PartJourney})
 	}
 	add(s.dailyClaimable(), Todo{Key: "daily", Part: PartSect, Tab: "overview"})
+	if sv.Identity() == "disciple" {
+		add(boolInt(h.Path.Stipend != day), Todo{Key: "stipend", Part: PartSect})
+	}
 	if h != nil {
 		add(h.brewsWhere(func(b *Brew) bool {
 			from, to := b.StokeWindow()

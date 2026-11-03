@@ -67,7 +67,8 @@ func respondAllianceError(c *gin.Context, err error) {
 // updateSectSave 是改写宗门存档的一步：还没有宗门时报 ErrUnavailable(仙盟的操作都要先有宗门)。
 func updateSectSave(data string, edit func(s *wendao.Sect) error) (string, error) {
 	return wendao.UpdateSave(data, func(save *wendao.Save) error {
-		if save.Sect == nil {
+		// 仙盟只收开了宗的掌门，散修与宗门弟子的储物处不算。
+		if save.Sect == nil || !save.Sect.IsFounded() {
 			return wendao.ErrUnavailable
 		}
 		return edit(save.Sect)

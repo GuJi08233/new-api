@@ -379,6 +379,24 @@ const Neighbors = ({ now, busy, post, onEvents, onSync }) => {
 const Garden = ({ sect, now, busy, act, post, onEvents, onSync }) => {
   const { t } = useTranslation();
   const text = useSectText();
+  if (!sect.founded) {
+    return (
+      <div className='sc-garden'>
+        <p className='sc-muted sc-garden-tip'>
+          {t(
+            '散修与宗门弟子没有自己的灵田，开宗立派以后才有；可以先去道友的灵田帮忙浇灌，收些谢礼',
+          )}
+        </p>
+        <Neighbors
+          now={now}
+          busy={busy}
+          post={post}
+          onEvents={onEvents}
+          onSync={onSync}
+        />
+      </div>
+    );
+  }
   const garden = sect.garden;
   const field = sect.buildings.find((b) => b.key === 'field')?.level || 0;
   const ripe = garden.plots.filter((plot) => plot.crop && now >= plot.ripe);

@@ -57,6 +57,8 @@ type Hero struct {
 	Salvaged   int         `json:"salvaged,omitempty"`
 	Battle     *HeroBattle `json:"battle,omitempty"`
 	Stats      HeroStats   `json:"stats"`
+	// Path 是主角的宗门身份(拜入了哪个正道宗门、身份与贡献)，见 path.go。
+	Path *Path `json:"path,omitempty"`
 }
 
 // NodeRecord 是一个节点的通过记录。Pick 是剧情抉择选了哪一个(JourneyOption.Key)，没有抉择的节点为空。
@@ -205,18 +207,28 @@ func partsSum(parts []StatPart) int {
 	return sum
 }
 
-// hpParts 是最大生命的来源：流派的初始生命，每多一层、每高一个境界都更多，洞府的灵泉、戴着的命路法宝与淬体丹再加。
+// hpParts 是最大生命的来源：流派的初始生命，每多一层、每高一个境界都更多，洞府的灵泉、戴着的命路法宝与淬体丹再加；
+// 金刚寺的弟子另有门派加成。
 func (h *Hero) hpParts() []StatPart {
-	return []StatPart{
+	parts := []StatPart{
 		{Key: "class", N: dungeon.ClassHP(h.Class)}, {Key: "layer", N: heroLayerHP * (h.Layer - 1)},
 		{Key: "realm", N: heroRealmHP * h.Realm}, {Key: "spring", N: springHP * h.Cave[RoomSpring]},
 		{Key: "refine", N: h.refineBonus().HP}, {Key: "temper", N: h.Tempered},
 	}
+	if h.npcPerk() == PerkVitality {
+		parts = append(parts, StatPart{Key: "sect", N: perkHP})
+	}
+	return parts
 }
 
-// strengthParts 是开战力量的来源：每高一个境界多一点，戴着的锋路法宝与九转金丹再加。龙虎丹的药力另算(StatSheet)。
+// strengthParts 是开战力量的来源：每高一个境界多一点，戴着的锋路法宝与九转金丹再加；天剑宗的弟子另有门派加成。
+// 龙虎丹的药力另算(StatSheet)。
 func (h *Hero) strengthParts() []StatPart {
-	return []StatPart{{Key: "realm", N: h.Realm}, {Key: "refine", N: h.refineBonus().Strength}, {Key: "golden", N: h.Golden}}
+	parts := []StatPart{{Key: "realm", N: h.Realm}, {Key: "refine", N: h.refineBonus().Strength}, {Key: "golden", N: h.Golden}}
+	if h.npcPerk() == PerkStrength {
+		parts = append(parts, StatPart{Key: "sect", N: 1})
+	}
+	return parts
 }
 
 // MaxHP 是主角的最大生命，不超过战斗的上限。
@@ -253,6 +265,9 @@ func (h *Hero) Sheet(s *Sect) StatSheet {
 			{Key: "quiet", N: int(math.Round(quietCultivate * 100 * float64(h.Cave[RoomQuiet])))},
 		},
 	}
+	if h.npcPerk() == PerkInsight {
+		sheet.Rate = append(sheet.Rate, StatPart{Key: "sect", N: int(math.Round(perkInsight * 100))})
+	}
 	if buff := h.Buffs[ElixirTiger]; buff != nil {
 		sheet.Strength = append(sheet.Strength, StatPart{Key: ElixirTiger, N: buff.Power, Left: buff.Left})
 	}
@@ -271,9 +286,12 @@ func (h *Hero) Bottleneck() bool {
 }
 
 // CultivateRate 是主角闭关每小时的修为：每高一个大境界快一倍(境界越高每层要的修为越多，主角靠它跟上章节)，聚灵阵每级
-// 再加快(与弟子相同)，洞府的静室也加快，两者相加。
+// 再加快(与弟子相同)，洞府的静室与太虚观的门派加成也加快，几项相加。
 func (h *Hero) CultivateRate(s *Sect) float64 {
 	bonus := arrayCultivate*float64(s.Buildings[BuildingArray]) + quietCultivate*float64(h.Cave[RoomQuiet])
+	if h.npcPerk() == PerkInsight {
+		bonus += perkInsight
+	}
 	return heroExpPerHour * float64(int(1)<<h.Realm) * (1 + bonus)
 }
 
@@ -802,14 +820,19 @@ func (h *Hero) injureTeam(s *Sect, now int64) []Ev {
 	return evs
 }
 
-// craft 在宗门丹房给主角炼丹符，花宗门的资源；每种丹符最多存 MaxPotionStack 份。
+// alchemyLevel 是主角炼丹符能用的丹房等级：宗门丹房与洞府丹室取高的，散修靠洞府丹室也能炼。
+func (h *Hero) alchemyLevel(s *Sect) int {
+	return max(s.Buildings[BuildingAlchemy], h.Cave[RoomFurnace])
+}
+
+// craft 在丹房给主角炼丹符(等级见 alchemyLevel)，花库房的资源；每种丹符最多存 MaxPotionStack 份。
 func (h *Hero) craft(s *Sect, potion string, count int) ([]Ev, error) {
 	index := slices.IndexFunc(PotionRecipes, func(r PotionRecipe) bool { return r.Potion == potion })
 	if index < 0 || count < 1 || count > MaxPotionStack {
 		return nil, ErrAction
 	}
 	recipe := PotionRecipes[index]
-	if s.Buildings[BuildingAlchemy] < recipe.Alchemy || h.Potions[potion]+count > MaxPotionStack {
+	if h.alchemyLevel(s) < recipe.Alchemy || h.Potions[potion]+count > MaxPotionStack {
 		return nil, ErrUnavailable
 	}
 	cost := recipe.Cost.scale(float64(count))
@@ -910,6 +933,9 @@ func (h *Hero) battleStep(s *Sect, a HeroAction, now int64) ([]Ev, error) {
 
 // HeroView 是主角在页面上的样子。Open 是现在能去的节点；Ready 是采集节点下一次能去的时间。
 type HeroView struct {
+	// Identity 是身份：master 掌门、disciple 宗门弟子、loose 散修；Path 是宗门身份的细节。
+	Identity    string                 `json:"identity"`
+	Path        *Path                  `json:"path,omitempty"`
 	Class       string                 `json:"class"`
 	Realm       int                    `json:"realm"`
 	Layer       int                    `json:"layer"`
@@ -1022,7 +1048,7 @@ func (h *Hero) View(s *Sect, now int64, day string) HeroView {
 	if presets == nil {
 		presets = []*DeckPreset{}
 	}
-	v := HeroView{
+	v := HeroView{Identity: heroIdentity(h, s), Path: h.Path,
 		Class: h.Class, Realm: h.Realm, Layer: h.Layer, Exp: h.Exp, Need: ExpNeed(h.Realm, h.Layer), Rate: h.CultivateRate(s),
 		Bottleneck: h.Bottleneck(), BreakChance: [2]int{h.BreakChance(false), h.BreakChance(true)},
 		MaxHP: h.MaxHP(), Strength: h.Strength(), RelicSlots: h.RelicSlots(), PotionSlots: dungeon.PotionSlotsWith(h.Worn),
@@ -1030,7 +1056,7 @@ func (h *Hero) View(s *Sect, now int64, day string) HeroView {
 		Keys:  h.Keys,
 		Nodes: h.Nodes, Open: []string{}, Ready: map[string]int64{}, Stats: h.Stats, Now: now,
 		RepeatsLeft: DailyRepeatRewards, QiReady: h.QiReady, Companions: []CompanionView{},
-		Alchemy: s.Buildings[BuildingAlchemy], StepsOpen: h.StepsOpen(), Steps: h.Steps,
+		Alchemy: h.alchemyLevel(s), StepsOpen: h.StepsOpen(), Steps: h.Steps,
 		Cave: h.Cave, RoomCap: RoomCap(h.Realm), Block: h.Block(), Refine: h.Refine, Bless: h.Bless,
 		RefineBonus: h.refineBonus(), Beasts: []BeastView{}, BeastOut: h.BeastOut, LureReady: h.LureReady,
 		BeastSlots: BeastSlots(h.Cave[RoomDen]), Furnaces: []BrewView{}, FurnaceSlots: FurnaceSlots(h.Cave[RoomFurnace]),
@@ -1079,4 +1105,15 @@ func (h *Hero) View(s *Sect, now int64, day string) HeroView {
 		v.Weekly = &WeeklyView{Weekly: w, Ends: WeekEnd(day)}
 	}
 	return v
+}
+
+// heroIdentity 是主角在储物处(或宗门) s 之下的身份，与 Save.Identity 一样。
+func heroIdentity(h *Hero, s *Sect) string {
+	switch {
+	case s.IsFounded():
+		return "master"
+	case h.Path != nil && h.Path.Sect != "":
+		return "disciple"
+	}
+	return "loose"
 }

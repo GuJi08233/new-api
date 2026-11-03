@@ -55,6 +55,18 @@ const HeroCard = ({ hero, pills, elapsed, now, busy, onBreak, onQi }) => {
   const peiyuanCount = pills?.peiyuan || 0;
   const qiWait = hero.qi_ready > now ? hero.qi_ready - now : 0;
   const title = getHeroTitle(t, hero);
+  const className = classes[hero.class]?.name;
+  // 身份：开了宗的是宗主，拜入正道宗门的写宗门与身份，其余是散修。
+  const identity =
+    hero.identity === 'master'
+      ? t('{{class}}宗主', { class: className })
+      : hero.identity === 'disciple'
+        ? t('{{class}} · {{sect}}{{rank}}', {
+            class: className,
+            sect: sectText.path.sects[hero.path?.sect]?.name,
+            rank: sectText.path.ranks[hero.path?.rank || 0],
+          })
+        : t('{{class}}散修', { class: className });
   return (
     <section className='jn-hero'>
       <div className='jn-hero-head'>
@@ -64,7 +76,7 @@ const HeroCard = ({ hero, pills, elapsed, now, busy, onBreak, onQi }) => {
         <div className='jn-hero-title'>
           <strong>{realmLabel(sectText, t, hero.realm, hero.layer)}</strong>
           <span>
-            {t('{{class}}宗主', { class: classes[hero.class]?.name })}
+            {identity}
             {title && <em className='jn-hero-seal'>{title}</em>}
           </span>
         </div>
@@ -112,7 +124,7 @@ const HeroCard = ({ hero, pills, elapsed, now, busy, onBreak, onQi }) => {
                   ? t('丹力还没化开，{{left}}后能服下一颗', {
                       left: formatLeft(qiWait, t),
                     })
-                  : t('服一颗宗门丹房的聚气丹，马上得到三小时闭关的修为')
+                  : t('服一颗库房里的聚气丹，马上得到三小时闭关的修为')
               }
             >
               <Button

@@ -33,6 +33,7 @@ import {
   getJobNames,
   getMissionText,
   getMoveText,
+  getPathText,
   getPillText,
   getRareText,
   getRealmNames,
@@ -66,6 +67,7 @@ export function SectTextProvider({ children }) {
       events: getEventText(t),
       moves: getMoveText(t),
       sects: getSectNames(t),
+      path: getPathText(t),
       name: (name) => discipleName(name, language),
     }),
     [t, language],
@@ -280,6 +282,25 @@ export function eventSentence(ev, text, t) {
       return t('帮道友浇灌了一块灵田');
     case 'garden_pick':
       return t('从道友的灵田里顺手摘了一些');
+    case 'path_join':
+      return t('拜入{{sect}}，从外门弟子做起', {
+        sect: text.path.sects[ev.s]?.name,
+      });
+    case 'path_leave':
+      return t('退出了{{sect}}', { sect: text.path.sects[ev.s]?.name });
+    case 'path_found':
+      return t('开宗立派，山门落成');
+    case 'path_stipend':
+      return t('领到今天的俸禄');
+    case 'path_merit':
+      return t('宗门贡献 +{{n}}', { n: ev.n });
+    case 'path_rank':
+      return t('晋升为{{rank}}', { rank: text.path.ranks[ev.n] });
+    case 'path_exchange':
+      return t('用 {{n}} 贡献换到{{goods}}', {
+        n: ev.n,
+        goods: goodsName(text, ev.s),
+      });
     default:
       return '';
   }

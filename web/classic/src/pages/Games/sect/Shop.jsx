@@ -42,6 +42,7 @@ const ITEM_ICONS = {
 };
 
 // 商店页：上面是背包里的符箓(点一下就用)，下面是用游戏币买道具的商店。丹药买了直接进丹房，在丹房页里看数量。
+// 三种符箓都只对宗门有用：没开宗时不列背包，商店也只卖丹药(服务端同样不收)。
 const Shop = ({ info, sect, busy, act, onBuy }) => {
   const { t } = useTranslation();
   const text = useSectText();
@@ -51,10 +52,17 @@ const Shop = ({ info, sect, busy, act, onBuy }) => {
   for (const pill of ['heal', 'qi', 'break'])
     owned[`pill_${pill}`] = sect.pills?.[pill] || 0;
   const bag = TALISMANS.filter((id) => items[id] > 0);
+  const shop =
+    sect.founded || !info?.shop
+      ? info?.shop
+      : {
+          ...info.shop,
+          items: info.shop.items.filter((item) => item.id.startsWith('pill_')),
+        };
   return (
     <div className='sc-shop'>
-      <h4 className='sc-heading'>{t('背包')}</h4>
-      {bag.length === 0 ? (
+      {sect.founded && <h4 className='sc-heading'>{t('背包')}</h4>}
+      {!sect.founded ? null : bag.length === 0 ? (
         <p className='sc-muted'>{t('背包里还没有符箓')}</p>
       ) : (
         <div className='sc-bag'>
@@ -83,14 +91,18 @@ const Shop = ({ info, sect, busy, act, onBuy }) => {
         </div>
       )}
       <GameShop
-        shop={info?.shop}
+        shop={shop}
         texts={text.items}
         icons={ITEM_ICONS}
         owned={owned}
         maxStack={info?.max_item_stack || 99}
         symbol={info?.symbol}
         busy={busy}
-        note={t('符箓放进背包，丹药直接放进丹房；用掉一件少一件')}
+        note={
+          sect.founded
+            ? t('符箓放进背包，丹药直接放进丹房；用掉一件少一件')
+            : t('丹药直接放进库房；符箓只对自己的宗门有用，开宗立派以后才卖')
+        }
         onBuy={onBuy}
       />
     </div>

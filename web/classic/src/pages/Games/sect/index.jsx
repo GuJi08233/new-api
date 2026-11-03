@@ -39,6 +39,7 @@ import Arena from './Arena';
 import Alliance from './Alliance';
 import Garden from './Garden';
 import Market from './Market';
+import PathPanel from './PathPanel';
 import { dailyPending } from './DailyPanel';
 import {
   SectTextProvider,
@@ -79,6 +80,9 @@ const SectPage = () => {
   const focused = focus?.part === 'sect' ? focus : null;
   const turnstile = usePlayTurnstile(info?.play_turnstile);
   const [sect, setSect] = useState(null);
+  // standing 是主角的身份({ identity, path, realm, stipend_ready })：宗门操作与身份操作的回应里带着，商店这些不带的
+  // 回应不改它。
+  const [standing, setStanding] = useState(null);
   const [receivedAt, setReceivedAt] = useState(0);
   const [tab, setTab] = useState(focused?.tab || 'overview');
   const [round, setRound] = useState(null);
@@ -152,6 +156,20 @@ const SectPage = () => {
           case 'layer':
             float(eventSentence(ev, text, t), 'gain');
             break;
+          case 'path_found':
+            playSound('win');
+            celebrate(1);
+            float(eventSentence(ev, text, t), 'gain');
+            break;
+          case 'path_join':
+          case 'path_rank':
+            playSound('sparkle');
+            float(eventSentence(ev, text, t), 'gain');
+            break;
+          case 'path_stipend':
+          case 'path_exchange':
+            playSound('coin');
+            break;
           case 'item':
             playSound('sparkle');
             lines.push(t('使用：{{name}}', { name: text.items[ev.s]?.name }));
@@ -189,6 +207,7 @@ const SectPage = () => {
 
   const accept = useCallback((data) => {
     setSect(data.sect);
+    if (data.standing) setStanding(data.standing);
     setReceivedAt(Date.now());
   }, []);
 
@@ -237,6 +256,20 @@ const SectPage = () => {
     return true;
   };
 
+  // 身份操作：拜入、退出、开宗立派、领俸禄、上交、换宝库。开宗以后页签换成宗门经营的那一套。
+  const actPath = async (action, fields = {}) => {
+    setNotice(null);
+    const data = await post(
+      '/api/game/wendao/sect/path',
+      { action, ...fields },
+      gamePostOnce,
+    );
+    if (!data) return false;
+    accept(data);
+    showEvents(data.events || []);
+    return true;
+  };
+
   const buyItem = async (item, count) => {
     setNotice(null);
     const data = await post(
@@ -265,7 +298,7 @@ const SectPage = () => {
     }
   }, [accept, showEvents, t]);
 
-  // 打开页面时同步宗门(第一次会开宗立派)，并读出进行中的大比。
+  // 打开页面时同步储物处(第一次会建一个)，并读出进行中的大比。
   const loaded = !!info;
   useEffect(() => {
     if (!loaded) return;
@@ -350,6 +383,33 @@ const SectPage = () => {
   const ripePlots = sect
     ? sect.garden.plots.filter((plot) => plot.crop && plot.ripe <= now).length
     : 0;
+  const founded = !!sect?.founded;
+  // 灵田与商店两个页签开没开宗都有：没开宗时灵田只能去道友那里串门，商店只卖丹药。
+  const gardenPane = (
+    <TabPane
+      tab={ripePlots > 0 ? `${t('灵田')} ●` : t('灵田')}
+      itemKey='garden'
+    >
+      {sect && (
+        <Garden
+          sect={sect}
+          now={now}
+          busy={busy}
+          act={act}
+          post={post}
+          onEvents={showEvents}
+          onSync={sync}
+        />
+      )}
+    </TabPane>
+  );
+  const shopPane = (
+    <TabPane tab={t('商店')} itemKey='shop'>
+      {sect && (
+        <Shop info={info} sect={sect} busy={busy} act={act} onBuy={buyItem} />
+      )}
+    </TabPane>
+  );
 
   return (
     <WendaoLayout
@@ -363,7 +423,7 @@ const SectPage = () => {
             scoreName={t('大比连胜')}
             extra={
               <>
-                {sect && (
+                {founded && (
                   <SideBox
                     label={t('宗门战绩')}
                     value={sect.stats.best_rounds}
@@ -378,32 +438,58 @@ const SectPage = () => {
                   />
                 )}
                 <SideBox label={t('玩法说明')}>
-                  <RuleList
-                    items={[
-                      t(
-                        '建筑每小时产出灵石、灵草与玄铁，弟子按资质与性格闭关修炼；离线最多结算 12 小时',
-                      ),
-                      t(
-                        '派弟子外出历练带回资源与丹药，处理奇遇；修到第九层圆满要突破，失败会受伤',
-                      ),
-                      t(
-                        '灵田种下灵种，熟了收获灵草、玄铁、丹药或灵药；可以去道友的灵田浇灌、顺手摘取',
-                      ),
-                      t(
-                        '游戏币只来自宗门大比：按连胜场数领奖，挂机产出的资源不能换游戏币',
-                      ),
-                      t(
-                        '论剑：设好守擂阵容登上论剑榜，挑战别的宗门按积分排名；仙盟：结盟捐资源升级，每周合力讨伐妖王',
-                      ),
-                      t(
-                        '万宝阁：掌门之间用灵石买卖灵草、玄铁、丹药与灵药，也能指名赠送道友',
-                      ),
-                      t(
-                        '商店里可以用游戏币买一次性的符箓与丹药，花掉的游戏币不退回',
-                      ),
-                      t('宗门存档保存在服务器上，换设备也能继续'),
-                    ]}
-                  />
+                  {sect && !founded ? (
+                    <RuleList
+                      items={[
+                        t(
+                          '散修无门无派：历练、闭关与秘境照常，资源放在自己的储物处',
+                        ),
+                        t(
+                          '拜入正道宗门：每天领俸禄，上交资源或做每日功课攒贡献，在宗门宝库换丹药与灵药；累计贡献与境界够了自动晋升',
+                        ),
+                        t(
+                          '每个宗门有一样门派加成；退出宗门身份与贡献清零，七天内不能再拜入',
+                        ),
+                        t(
+                          '修到{{realm}}、攒够 {{n}} 灵石可以开宗立派：建起主殿与灵田，收下两名弟子，之后经营自己的宗门',
+                          {
+                            realm: text.realms[info.path?.found_realm],
+                            n: info.path?.found_cost,
+                          },
+                        ),
+                        t(
+                          '游戏币只来自宗门大比与秘境；商店里丹药都能买，符箓只对自己的宗门有用，开宗以后才卖',
+                        ),
+                      ]}
+                    />
+                  ) : (
+                    <RuleList
+                      items={[
+                        t(
+                          '建筑每小时产出灵石、灵草与玄铁，弟子按资质与性格闭关修炼；离线最多结算 12 小时',
+                        ),
+                        t(
+                          '派弟子外出历练带回资源与丹药，处理奇遇；修到第九层圆满要突破，失败会受伤',
+                        ),
+                        t(
+                          '灵田种下灵种，熟了收获灵草、玄铁、丹药或灵药；可以去道友的灵田浇灌、顺手摘取',
+                        ),
+                        t(
+                          '游戏币只来自宗门大比：按连胜场数领奖，挂机产出的资源不能换游戏币',
+                        ),
+                        t(
+                          '论剑：设好守擂阵容登上论剑榜，挑战别的宗门按积分排名；仙盟：结盟捐资源升级，每周合力讨伐妖王',
+                        ),
+                        t(
+                          '万宝阁：掌门之间用灵石买卖灵草、玄铁、丹药与灵药，也能指名赠送道友',
+                        ),
+                        t(
+                          '商店里可以用游戏币买一次性的符箓与丹药，花掉的游戏币不退回',
+                        ),
+                        t('宗门存档保存在服务器上，换设备也能继续'),
+                      ]}
+                    />
+                  )}
                 </SideBox>
               </>
             }
@@ -461,7 +547,36 @@ const SectPage = () => {
           </div>
         )}
         <div className='sc-body'>
-          {sect && (
+          {sect && !founded && (
+            <Tabs
+              type='button'
+              activeKey={['garden', 'shop'].includes(tab) ? tab : 'overview'}
+              onChange={setTab}
+              size='small'
+            >
+              <TabPane
+                tab={
+                  standing?.stipend_ready || dailyPending(sect.daily)
+                    ? `${t('身份')} ●`
+                    : t('身份')
+                }
+                itemKey='overview'
+              >
+                <PathPanel
+                  rules={info?.path}
+                  sect={sect}
+                  standing={standing}
+                  now={now}
+                  busy={busy}
+                  act={act}
+                  actPath={actPath}
+                />
+              </TabPane>
+              {gardenPane}
+              {shopPane}
+            </Tabs>
+          )}
+          {founded && (
             <Tabs type='button' activeKey={tab} onChange={setTab} size='small'>
               <TabPane
                 tab={
@@ -491,20 +606,7 @@ const SectPage = () => {
               >
                 <Missions sect={sect} now={now} busy={busy} act={act} />
               </TabPane>
-              <TabPane
-                tab={ripePlots > 0 ? `${t('灵田')} ●` : t('灵田')}
-                itemKey='garden'
-              >
-                <Garden
-                  sect={sect}
-                  now={now}
-                  busy={busy}
-                  act={act}
-                  post={post}
-                  onEvents={showEvents}
-                  onSync={sync}
-                />
-              </TabPane>
+              {gardenPane}
               <TabPane tab={t('丹房')} itemKey='alchemy'>
                 <Alchemy sect={sect} busy={busy} act={act} />
               </TabPane>
@@ -560,15 +662,7 @@ const SectPage = () => {
                   onSect={(next) => accept({ sect: next })}
                 />
               </TabPane>
-              <TabPane tab={t('商店')} itemKey='shop'>
-                <Shop
-                  info={info}
-                  sect={sect}
-                  busy={busy}
-                  act={act}
-                  onBuy={buyItem}
-                />
-              </TabPane>
+              {shopPane}
             </Tabs>
           )}
           <Floaters items={floaters} />

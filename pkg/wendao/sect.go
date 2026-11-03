@@ -85,7 +85,7 @@ type Ev struct {
 // logKinds 是要记进大事记的事。
 var logKinds = map[string]bool{"built": true, "joined": true, "left": true, "bottleneck": true, "realm": true,
 	"break_fail": true, "talent": true, "mission": true, "event": true, "tournament": true, "arena": true,
-	"sold": true, "bought": true}
+	"sold": true, "bought": true, "path_found": true}
 
 // Stats 是宗门的战绩。Day 与 DayRuns 记今天参加了几次大比：每天前几次大比才有声望与灵石。
 type Stats struct {
@@ -350,10 +350,11 @@ func (s *Sect) Tick(now int64) []Ev {
 		rate := s.cultivateRate(d, d.Job)
 		evs = append(evs, s.addExp(d, rate*(float64(elapsed-injured)+injuredExp*float64(injured))/3600)...)
 	}
-	if now >= s.RecruitAt {
+	// 散修与宗门弟子的储物处(没开宗)不招人、不出奇遇。
+	if now >= s.RecruitAt && s.IsFounded() {
 		s.refreshRecruits(now)
 	}
-	if s.Event == nil && now >= s.NextEventAt {
+	if s.Event == nil && now >= s.NextEventAt && s.IsFounded() {
 		s.spawnEvent(now)
 	}
 	s.Last = now
@@ -471,6 +472,10 @@ type Action struct {
 // Apply 先结算到 now，再执行操作，返回这期间发生的事。出错时存档可能已经改了一部分，调用方不要保存。
 func (s *Sect) Apply(a Action, now int64) ([]Ev, error) {
 	evs := s.Tick(now)
+	// 还没开宗时只能看看、做每日功课；建筑、弟子、派遣、灵田这些要开宗立派以后才有。
+	if !s.IsFounded() && a.Type != "sync" && a.Type != "daily_claim" && a.Type != "daily_chest" && a.Type != "daily_reroll" {
+		return nil, ErrUnavailable
+	}
 	var more []Ev
 	var err error
 	switch a.Type {

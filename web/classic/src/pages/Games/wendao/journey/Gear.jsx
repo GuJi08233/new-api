@@ -89,11 +89,12 @@ const Gear = ({ info, hero, res, busy, act }) => {
           ))}
         </div>
       )}
-      <h5>{t('丹房炼丹符（宗门丹房 {{n}} 级）', { n: hero.alchemy })}</h5>
+      <h5>{t('丹房炼丹符（丹房 {{n}} 级）', { n: hero.alchemy })}</h5>
       <p className='jn-muted'>
-        {t('用宗门库房的资源给主角炼战斗用的丹符，每种最多存 {{n}} 份', {
-          n: info.max_potion_stack,
-        })}
+        {t(
+          '用库房的资源给主角炼战斗用的丹符，每种最多存 {{n}} 份；宗门丹房与洞府丹室按高的那一级算',
+          { n: info.max_potion_stack },
+        )}
       </p>
       <div className='jn-recipes'>
         {info.potion_recipes.map((recipe) => {

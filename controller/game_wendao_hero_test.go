@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// 创建主角时一起开宗立派；历练的奖励进宗门的库房；开战后存档里有这一场，逃跑后结束并把丹符放回行囊；通关之前不能登问心阶；
+// 创建主角时得到一个储物处(散修，还没开宗)；历练的奖励进储物处；开战后存档里有这一场，逃跑后结束并把丹符放回行囊；通关之前不能登问心阶；
 // 问道关闭时不能操作。
 func TestHeroJourneyThroughTheApi(t *testing.T) {
 	require.NoError(t, i18n.Init())

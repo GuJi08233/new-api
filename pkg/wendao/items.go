@@ -51,11 +51,15 @@ func ShopItemOf(id string) (ShopItem, bool) {
 	return ShopItems[index], true
 }
 
-// AddItem 把买来的 n 件道具放进宗门：丹药进丹房，符箓进背包，超过上限时返回 ErrItemLimit。
+// AddItem 把买来的 n 件道具放进宗门：丹药进丹房，符箓进背包，超过上限时返回 ErrItemLimit。三种符箓都只对宗门有用，
+// 散修与宗门弟子的储物处(没开宗)不收，也返回 ErrItemLimit，免得花了游戏币买到用不了的东西。
 func (s *Sect) AddItem(id string, n int) error {
 	item, ok := ShopItemOf(id)
 	if !ok || n < 1 {
 		return ErrAction
+	}
+	if item.Pill == "" && !s.IsFounded() {
+		return ErrItemLimit
 	}
 	if item.Pill != "" {
 		if s.Pills[item.Pill]+n > MaxItemStack {

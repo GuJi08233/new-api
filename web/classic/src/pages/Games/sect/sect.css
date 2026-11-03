@@ -1119,3 +1119,58 @@
   border: 1px dashed var(--semi-color-warning-light-active);
   border-radius: 10px;
 }
+
+/* 身份页：散修拜入宗门或开宗立派，宗门弟子领俸禄、上交与换宝库。 */
+.sc-path-me {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 12px;
+  background: var(--semi-color-bg-1);
+}
+
+.sc-path-me > strong {
+  font-size: 16px;
+  color: var(--semi-color-text-0);
+}
+
+.sc-path-me > p {
+  flex: 1 1 260px;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--semi-color-text-1);
+}
+
+.sc-path-line {
+  margin: 0 0 4px;
+  font-size: 12px;
+  color: var(--semi-color-text-1);
+}
+
+.sc-path-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 10px;
+  background: var(--semi-color-bg-1);
+  font-size: 13px;
+}
+
+.sc-path-row .sc-bar {
+  flex: none;
+  width: 120px;
+  min-width: 0;
+}
+
+.sc-path-short {
+  color: var(--semi-color-warning);
+  font-size: 12px;
+}

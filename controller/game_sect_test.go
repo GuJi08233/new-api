@@ -23,11 +23,37 @@ func sectSettings() *operation_setting.GameSetting {
 
 func sectView(t *testing.T, player *gamePlayer, body map[string]any) map[string]any {
 	t.Helper()
+	if body["action"] == "sync" {
+		foundTestSect(t, player)
+	}
 	return player.ok(http.MethodPost, "/api/game/wendao/sect/action", body)["sect"].(map[string]any)
 }
 
+// foundTestSect 让玩家有一个开过宗的宗门(测试夹具)：经营类测试从宗门开始，不走散修、金丹、灵石这些开宗条件。已经有
+// 储物处的保留里面的资源、丹药与道具。
+func foundTestSect(t *testing.T, player *gamePlayer) {
+	t.Helper()
+	now := common.GetTimestamp()
+	_, err := model.UpdateGameSave(player.user.Id, wendao.SaveKey, func(data string) (string, error) {
+		return wendao.UpdateSave(data, func(save *wendao.Save) error {
+			if save.Sect != nil && save.Sect.IsFounded() {
+				return nil
+			}
+			sect := wendao.NewSect(uint64(player.user.Id)+7, now)
+			if old := save.Sect; old != nil {
+				sect.Res, sect.Pills, sect.Rare, sect.Items, sect.Daily = old.Res, old.Pills, old.Rare, old.Items, old.Daily
+			}
+			save.Sect = sect
+			return nil
+		})
+	})
+	require.NoError(t, err)
+}
+
+// editSect 改玩家的宗门(还没开宗的先开宗)。
 func editSect(t *testing.T, player *gamePlayer, edit func(s *wendao.Sect)) {
 	t.Helper()
+	foundTestSect(t, player)
 	_, err := model.UpdateGameSave(player.user.Id, wendao.SaveKey, func(data string) (string, error) {
 		return updateSectSave(data, func(s *wendao.Sect) error {
 			edit(s)
@@ -49,7 +75,7 @@ func editSectTournament(t *testing.T, env *gameTestEnv, id any, edit func(tour *
 	require.NoError(t, env.db.Model(&session).Update("state", string(data)).Error)
 }
 
-// 第一次操作开宗立派；经营操作改写存档并保留下来，资源不够时什么都不改。
+// 开过宗的宗门：经营操作改写存档并保留下来，资源不够时什么都不改。
 func TestSectActionsPersistInTheSave(t *testing.T) {
 	require.NoError(t, i18n.Init())
 	env := newGameTestEnv(t, sectSettings())

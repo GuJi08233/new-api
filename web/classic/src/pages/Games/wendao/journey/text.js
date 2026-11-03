@@ -54,7 +54,9 @@ export const getPrologue = (t) => [
   line('master', t('宗主令交给你。问道宗不能断在你手里——问道于心，莫忘。')),
   line(
     'narrator',
-    t('师尊坐化。山门残破，殿里只剩两名弟子。选一条道途，重振问道宗。'),
+    t(
+      '师尊坐化，弟子们各自散去，问道宗只剩一块宗主令。你从散修做起：可以先投身正道大宗，也可以等修为够了，亲手重立山门。',
+    ),
   ),
 ];
 
@@ -1044,6 +1046,7 @@ export const getStatPartNames = (t) => ({
   golden: t('九转金丹'),
   jingang: t('金刚丹'),
   longhu: t('龙虎丹'),
+  sect: t('门派加成'),
 });
 
 export const getNodeKindNames = (t) => ({

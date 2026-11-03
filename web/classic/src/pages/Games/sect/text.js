@@ -291,6 +291,37 @@ export const getIntentText = (t) => ({
   heavy: t('重击！2.6 倍伤害'),
 });
 
+// 身份：能拜入的正道宗门、宗门弟子的身份与门派加成。标识与 pkg/wendao/path.go 一致；加成的数值来自服务端
+// (info.path.perks)。
+export const getPathText = (t) => ({
+  sects: {
+    tianjian: {
+      name: t('天剑宗'),
+      desc: t('剑修大派，门人御剑行走四方，讲究以快制敌'),
+    },
+    jingang: {
+      name: t('金刚寺'),
+      desc: t('体修古刹，僧众日夜打熬筋骨，铜皮铁骨'),
+    },
+    taixu: {
+      name: t('太虚观'),
+      desc: t('法修道观，观中藏经万卷，最重静坐参玄'),
+    },
+    wanhua: {
+      name: t('万花谷'),
+      desc: t('丹道世家，谷中遍植灵药，炉火百年不熄'),
+    },
+  },
+  ranks: [t('外门弟子'), t('内门弟子'), t('真传弟子'), t('长老')],
+  perks: {
+    strength: (n) => t('开战力量 +{{n}}', { n }),
+    vitality: (n) => t('最大生命 +{{n}}', { n }),
+    insight: (n) => t('闭关速度 +{{n}}%', { n: Math.round(n * 100) }),
+    alchemy: (n) => t('炼丹品质 +{{n}}', { n }),
+  },
+  alchemy: t('丹道'),
+});
+
 export const getSectNames = (t) => [
   t('青云门'),
   t('天剑宗'),

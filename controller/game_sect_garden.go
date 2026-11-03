@@ -83,8 +83,9 @@ func getGardenNeighbors(c *gin.Context) {
 	list := make([]neighbor, 0, len(saves))
 	userIds := make([]int, 0, len(saves))
 	for _, save := range saves {
+		// 散修与宗门弟子没有灵田，不列出来。
 		s, err := wendao.ParseSect(save.Data)
-		if err != nil || s == nil {
+		if err != nil || s == nil || !s.IsFounded() {
 			continue
 		}
 		water, pick := s.GardenNeeds(userId, now)

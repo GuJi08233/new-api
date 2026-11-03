@@ -106,7 +106,12 @@ type Garden struct {
 }
 
 // PlotCount 是灵田建筑某一级时有几块灵田。
-func PlotCount(field int) int { return min(2+field/2, MaxPlots) }
+func PlotCount(field int) int {
+	if field <= 0 {
+		return 0
+	}
+	return min(2+field/2, MaxPlots)
+}
 
 // normalizeGarden 补上空表，灵田建筑升级之后补上新开出来的地。
 func (s *Sect) normalizeGarden() {

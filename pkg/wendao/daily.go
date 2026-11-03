@@ -80,6 +80,10 @@ func (s *Sect) dailyPool(hasHero bool, exclude []DailyTask) []DailyTaskSpec {
 		if (spec.Key == TaskJourney && !hasHero) || (spec.Key == TaskTrade && s.CanTrade() != nil) {
 			continue
 		}
+		// 没开宗时只抽不用宗门的：历练、秘境、帮道友浇灌。
+		if !s.IsFounded() && spec.Key != TaskJourney && spec.Key != TaskAbyss && spec.Key != TaskWater {
+			continue
+		}
 		if slices.ContainsFunc(exclude, func(t DailyTask) bool { return t.Key == spec.Key }) {
 			continue
 		}
@@ -88,18 +92,18 @@ func (s *Sect) dailyPool(hasHero bool, exclude []DailyTask) []DailyTaskSpec {
 	return pool
 }
 
-// RollDaily 换到 day 这一天的功课：已经是这一天时什么都不做。昨天没开宝箱(或者上一次开宝箱不是昨天)时连续天数清零。
+// RollDaily 换到 day 这一天的功课。昨天没开宝箱(或者上一次开宝箱不是昨天)时连续天数清零。已经是这一天时只在功课不够
+// 三件、宝箱还没开时补上：散修的功课只有历练、秘境、浇灌三种，还没有主角时抽不到历练，有了主角再补一件。
 func (s *Sect) RollDaily(day string, yesterday string, hasHero bool) {
 	s.hasHero = hasHero
 	d := &s.Daily
-	if d.Day == day {
-		return
+	if d.Day != day {
+		if !(d.Day == yesterday && d.Chest) {
+			d.Streak = 0
+		}
+		d.Day, d.Chest, d.Rerolls, d.Tasks = day, false, 0, nil
 	}
-	if !(d.Day == yesterday && d.Chest) {
-		d.Streak = 0
-	}
-	d.Day, d.Chest, d.Rerolls, d.Tasks = day, false, 0, nil
-	for range DailyTaskCount {
+	for len(d.Tasks) < DailyTaskCount && !d.Chest {
 		pool := s.dailyPool(hasHero, d.Tasks)
 		if len(pool) == 0 {
 			break
@@ -218,6 +222,11 @@ func (s *Sect) dailyView() DailyView {
 	}
 	d := s.Daily
 	d.Tasks = tasks
+	left := max(DailyRerolls-s.Daily.Rerolls, 0)
+	// 没有别的功课可换时(散修的三种都抽到了)不给换。
+	if len(s.dailyPool(s.hasHero, tasks)) == 0 {
+		left = 0
+	}
 	return DailyView{Daily: d, Reward: DailyTaskReward(s.Buildings[BuildingHall]), StreakBonus: DailyStreakBonus,
-		RerollsLeft: max(DailyRerolls-s.Daily.Rerolls, 0)}
+		RerollsLeft: left}
 }

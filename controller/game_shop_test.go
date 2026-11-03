@@ -95,6 +95,7 @@ func TestSectShopPillsAndTalismans(t *testing.T) {
 	require.NoError(t, i18n.Init())
 	env := newGameTestEnv(t, sectSettings())
 	player := env.player(3, gameTestIpA)
+	foundTestSect(t, player)
 	path := "/api/game/wendao/sect/shop/buy"
 
 	bought := player.ok(http.MethodPost, path, map[string]any{"item": "pill_" + wendao.PillBreak, "count": 2})

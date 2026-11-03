@@ -127,7 +127,7 @@ func actHero(c *gin.Context) {
 				return err
 			}
 			if req.Type == "create" {
-				if err := foundSect(save, now); err != nil {
+				if err := ensureStorehouse(save, now); err != nil {
 					return err
 				}
 			}

@@ -21,8 +21,9 @@ const SaveKey = "wendao"
 // 还不认识这个字段，它们写的存档没有 schema(读出来是 0)，缺的字段由 normalize 补成空的。
 //
 // 各版本：1 是加上 schema 本身；2 是历练节点的通过记录多了支线剧情的抉择(NodeRecord.Pick)；3 是宗门记下离开很久
-// 以后回来的那一次结算(Sect.Back)，以及同一版里还没发布时加上的功法拆解次数(Hero.Salvaged)与请求收据(Receipts)。
-const SaveSchema = 3
+// 以后回来的那一次结算(Sect.Back)，以及同一版里还没发布时加上的功法拆解次数(Hero.Salvaged)与请求收据(Receipts)；4 是
+// 主角的宗门身份(Hero.Path)，以及散修、宗门弟子没有主殿的储物处(Sect 的主殿为 0 级)。
+const SaveSchema = 4
 
 // ErrNewerSave 表示存档是更新版本的程序写的，这个程序不认识其中的一部分，不能读也不能改写。
 var ErrNewerSave = errors.New("wendao: the save was written by a newer version")

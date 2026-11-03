@@ -95,7 +95,7 @@ const DefeatReview = ({ run, events, onGo }) => {
       case 'wear':
         return t('法宝栏还空着 {{n}} 格，把收着的法宝戴上', { n });
       case 'potions':
-        return t('行囊里没有丹符：用宗门丹房炼几枚，开战时会自动带上');
+        return t('行囊里没有丹符：到丹房炼几枚，开战时会自动带上');
       case 'team':
         return t('带上随行弟子(现在有 {{n}} 名能去)，他们会给你援护牌', {
           n,

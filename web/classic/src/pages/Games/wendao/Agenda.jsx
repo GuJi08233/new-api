@@ -28,6 +28,7 @@ import {
   Compass,
   Flag,
   Flame,
+  Landmark,
   Pickaxe,
   Pill,
   PawPrint,
@@ -57,6 +58,7 @@ const TODO_ICONS = {
   garden: Sprout,
   hero_break: Zap,
   daily: ClipboardCheck,
+  stipend: Landmark,
   furnace_stoke: Flame,
   qi: Pill,
   disciple_break: Users,
@@ -86,6 +88,8 @@ const todoText = (todo, t) => {
       return t('机缘在手，可以突破了');
     case 'daily':
       return t('功课有 {{n}} 份奖励可领', { n });
+    case 'stipend':
+      return t('今天的宗门俸禄还没领');
     case 'furnace_stoke':
       return t('{{n}} 炉丹可以调火', { n });
     case 'qi':
@@ -152,7 +156,7 @@ export const getGuideText = (t) => ({
     short: t('选道途'),
     title: t('选一条道途'),
     desc: t(
-      '体修、法修、剑修任选其一。主角就是宗主本人，历练、宗门与秘境都围着他转。',
+      '体修、法修、剑修任选其一。你从散修做起：可以拜入正道宗门，也可以修到金丹以后开宗立派。',
     ),
   },
   win: {
@@ -160,6 +164,13 @@ export const getGuideText = (t) => ({
     title: t('在历练里打赢一场'),
     desc: t(
       '战斗用功法牌组。赢了可以从三张功法里收下一张，第一次通过一个节点给全部奖励。',
+    ),
+  },
+  path: {
+    short: t('择路'),
+    title: t('拜入一个正道宗门'),
+    desc: t(
+      '到宗门页的身份里挑一家拜入：每天领俸禄，攒贡献换丹药，还有门派加成。也可以一直做散修，修到金丹以后开宗立派。',
     ),
   },
   build: {

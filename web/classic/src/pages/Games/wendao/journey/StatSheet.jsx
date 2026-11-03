@@ -92,15 +92,26 @@ const StatSheet = ({ sheet, rate }) => {
         </dd>
         <dd className='jn-sheet-parts'>
           <span className='jn-sheet-part'>
-            {t(
-              '基数 {{base}} × 境界 {{mult}} 倍 × (1 + 聚灵阵 {{array}}% + 静室 {{quiet}}%)',
-              {
-                base: pace.base,
-                mult: pace.realm,
-                array: pace.array,
-                quiet: pace.quiet,
-              },
-            )}
+            {pace.sect > 0
+              ? t(
+                  '基数 {{base}} × 境界 {{mult}} 倍 × (1 + 聚灵阵 {{array}}% + 静室 {{quiet}}% + 门派 {{sect}}%)',
+                  {
+                    base: pace.base,
+                    mult: pace.realm,
+                    array: pace.array,
+                    quiet: pace.quiet,
+                    sect: pace.sect,
+                  },
+                )
+              : t(
+                  '基数 {{base}} × 境界 {{mult}} 倍 × (1 + 聚灵阵 {{array}}% + 静室 {{quiet}}%)',
+                  {
+                    base: pace.base,
+                    mult: pace.realm,
+                    array: pace.array,
+                    quiet: pace.quiet,
+                  },
+                )}
           </span>
         </dd>
       </div>

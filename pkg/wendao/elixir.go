@@ -200,6 +200,9 @@ func (h *Hero) QualityScore(b *Brew) int {
 	if b.Stoked {
 		score += stokeBonus
 	}
+	if h.npcPerk() == PerkAlchemy {
+		score += perkAlchemy
+	}
 	return score
 }
 

@@ -117,8 +117,8 @@ func (h *Hero) reviewDefeat(s *Sect, battle *HeroBattle, now int64) []Ev {
 	}
 	setup := run.Battle
 	if !bare {
-		// 行囊里有丹符会自动带上，没带就是行囊空了；宗门丹房能炼才提。
-		if len(setup.Potions) == 0 && s.Buildings[BuildingAlchemy] >= PotionRecipes[0].Alchemy {
+		// 行囊里有丹符会自动带上，没带就是行囊空了；丹房(宗门丹房或洞府丹室)能炼才提。
+		if len(setup.Potions) == 0 && h.alchemyLevel(s) >= PotionRecipes[0].Alchemy {
 			open["potions"] = 0
 		}
 		if len(setup.Allies) == 0 {
