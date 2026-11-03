@@ -17,13 +17,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React from 'react';
+import React, { useState } from 'react';
 import { Button, Modal, Select } from '@douyinfe/semi-ui';
 import { RefreshCw, UserPlus, Users } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { JOBS } from './text';
 import { useWendaoShell } from '../wendao/shell';
 import { REGION_IDS } from '../wendao/duel/text';
+import LineageDetails from './LineageDetails';
 import {
   Bar,
   CostChips,
@@ -114,6 +115,12 @@ const DiscipleCard = ({ d, sect, now, elapsed, busy, act }) => {
       <div className={`sc-status is-${status.kind || 'idle'}`}>
         {status.label}
       </div>
+      <LineageDetails
+        disciple={d}
+        disciples={sect.disciples}
+        name={text.name}
+        t={t}
+      />
       {d.outpost > 0 && (
         <p className='sc-hint'>
           {t('驻守时半速修炼，普通差事、服丹、突破与出战需先召回。')}
@@ -230,7 +237,97 @@ const DiscipleCard = ({ d, sect, now, elapsed, busy, act }) => {
   );
 };
 
-const Disciples = ({ sect, now, elapsed, busy, act }) => {
+const CandidateCard = ({
+  candidate,
+  index,
+  sect,
+  lineage,
+  now,
+  busy,
+  act,
+  actLineage,
+}) => {
+  const { t } = useTranslation();
+  const text = useSectText();
+  const [teacherId, setTeacherId] = useState(null);
+  const teachers = (lineage?.teachers || [])
+    .filter((teacher) => teacher.students.length < lineage.slots)
+    .map((teacher) => sect.disciples.find((d) => d.id === teacher.id))
+    .filter(
+      (d) =>
+        d &&
+        !d.mission &&
+        !d.outpost &&
+        d.injured <= now &&
+        d.realm >= lineage.min_realm &&
+        !lineage.busy?.includes(d.id),
+    );
+  const teacher = teachers.find((d) => d.id === teacherId);
+  const full = sect.disciples.length >= sect.cap;
+  const affordable = canAfford(candidate.cost, sect.res);
+  return (
+    <div className='sc-recruit'>
+      <div className='sc-disciple-head'>
+        <strong>{text.name(candidate.name)}</strong>
+        <ElementTag element={candidate.element} />
+        <TalentTag talent={candidate.talent} />
+        <TraitTag trait={candidate.trait} />
+      </div>
+      <span className='sc-muted'>
+        {realmLabel(text, t, 0, candidate.layer)} ·{' '}
+        {t('战力 {{power}}', { power: candidate.power })}
+      </span>
+      <div className='sc-building-foot'>
+        <CostChips cost={candidate.cost} have={sect.res} />
+        <Button
+          size='small'
+          theme='solid'
+          disabled={busy || full || !affordable}
+          onClick={() => act('recruit', { index })}
+        >
+          {t('收为弟子')}
+        </Button>
+      </div>
+      {lineage && (
+        <div className='sc-lineage-recruit'>
+          <Select
+            aria-label={t('选择授业师长')}
+            placeholder={t('选择授业师长')}
+            value={teacher?.id ?? null}
+            disabled={busy || teachers.length === 0}
+            onChange={setTeacherId}
+            optionList={teachers.map((d) => ({
+              value: d.id,
+              label: `${text.name(d.name)} · ${realmLabel(text, t, d.realm, d.layer)}`,
+            }))}
+            style={{ width: '100%' }}
+          />
+          <Button
+            size='small'
+            theme='light'
+            disabled={busy || full || !affordable || !teacher || !candidate.sum}
+            onClick={() =>
+              actLineage('recruit', {
+                index,
+                teacher: teacher.id,
+                candidate_sum: candidate.sum,
+              })
+            }
+          >
+            {t('收为亲传')}
+          </Button>
+          {teachers.length === 0 && (
+            <p className='sc-muted'>
+              {t('暂无可收徒的师长，请等金丹弟子空闲并回到本宗。')}
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+const Disciples = ({ sect, lineage, now, elapsed, busy, act, actLineage }) => {
   const { t } = useTranslation();
   const text = useSectText();
   const full = sect.disciples.length >= sect.cap;
@@ -279,32 +376,32 @@ const Disciples = ({ sect, now, elapsed, busy, act }) => {
           {t('弟子已满，升级主殿可以多收弟子，或者让一名弟子下山')}
         </p>
       )}
+      {lineage && (
+        <p className='sc-muted'>
+          {t(
+            '金丹以上师长最多收 {{slots}} 名在宗亲传，占用原有弟子名额并支付相同招募费。',
+            { slots: lineage.slots },
+          )}{' '}
+          {t(
+            '师徒都在本宗、未受伤且师长境界更高时，徒弟自然修为 +{{pct}}%；丹药与派遣修为不加成。',
+            { pct: lineage.bonus_pct },
+          )}
+        </p>
+      )}
       <div className='sc-recruits'>
         {sect.recruits.map((c, index) =>
           c ? (
-            <div key={index} className='sc-recruit'>
-              <div className='sc-disciple-head'>
-                <strong>{text.name(c.name)}</strong>
-                <ElementTag element={c.element} />
-                <TalentTag talent={c.talent} />
-                <TraitTag trait={c.trait} />
-              </div>
-              <span className='sc-muted'>
-                {realmLabel(text, t, 0, c.layer)} ·{' '}
-                {t('战力 {{power}}', { power: c.power })}
-              </span>
-              <div className='sc-building-foot'>
-                <CostChips cost={c.cost} have={sect.res} />
-                <Button
-                  size='small'
-                  theme='solid'
-                  disabled={busy || full || !canAfford(c.cost, sect.res)}
-                  onClick={() => act('recruit', { index })}
-                >
-                  {t('收为弟子')}
-                </Button>
-              </div>
-            </div>
+            <CandidateCard
+              key={c.sum || index}
+              candidate={c}
+              index={index}
+              sect={sect}
+              lineage={lineage}
+              now={now}
+              busy={busy}
+              act={act}
+              actLineage={actLineage}
+            />
           ) : (
             <div key={index} className='sc-recruit is-empty'>
               {t('已收入门下')}

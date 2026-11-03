@@ -82,6 +82,7 @@ const SectPage = () => {
   const turnstile = usePlayTurnstile(info?.play_turnstile);
   const [sect, setSect] = useState(null);
   const [outposts, setOutposts] = useState(null);
+  const [lineage, setLineage] = useState(null);
   // standing 是主角的身份({ identity, path, realm, stipend_ready })：宗门操作与身份操作的回应里带着，商店这些不带的
   // 回应不改它。
   const [standing, setStanding] = useState(null);
@@ -147,6 +148,7 @@ const SectPage = () => {
           case 'outpost_build':
           case 'outpost_station':
           case 'outpost_recall':
+          case 'lineage_recruit':
           case 'built':
           case 'joined':
           case 'talent':
@@ -214,6 +216,7 @@ const SectPage = () => {
     setSect(data.sect);
     if (data.standing) setStanding(data.standing);
     if ('outposts' in data) setOutposts(data.outposts);
+    if ('lineage' in data) setLineage(data.lineage);
     setReceivedAt(Date.now());
   }, []);
 
@@ -266,6 +269,22 @@ const SectPage = () => {
     setNotice(null);
     const data = await post(
       '/api/game/wendao/sect/outpost',
+      { action, ...fields },
+      gamePostOnce,
+    );
+    if (!data) {
+      await sync();
+      return false;
+    }
+    accept(data);
+    showEvents(data.events || []);
+    return true;
+  };
+
+  const actLineage = async (action, fields = {}) => {
+    setNotice(null);
+    const data = await post(
+      '/api/game/wendao/sect/lineage',
       { action, ...fields },
       gamePostOnce,
     );
@@ -621,10 +640,12 @@ const SectPage = () => {
               >
                 <Disciples
                   sect={sect}
+                  lineage={lineage}
                   now={now}
                   elapsed={elapsed}
                   busy={busy}
                   act={act}
+                  actLineage={actLineage}
                 />
               </TabPane>
               <TabPane tab={t('下院')} itemKey='outposts'>

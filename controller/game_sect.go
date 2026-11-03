@@ -71,6 +71,8 @@ func registerSectRoutes(group *gin.RouterGroup) {
 	group.POST("/path", middleware.GameActionRateLimit("sect-path"), actSectPath)
 	group.GET("/outpost", getSectOutpost)
 	group.POST("/outpost", middleware.GameActionRateLimit("sect-outpost"), actSectOutpost)
+	group.GET("/lineage", getSectLineage)
+	group.POST("/lineage", middleware.GameActionRateLimit("sect-lineage"), actSectLineage)
 	group.GET("/tournament", getSectTournament)
 	group.POST("/tournament/start", middleware.GamePlayRateLimit("sect-tournament-start"), startSectTournament)
 	group.POST("/tournament/action", middleware.GameActionRateLimit("sect-tournament-action"), actSectTournament)

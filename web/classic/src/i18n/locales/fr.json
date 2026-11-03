@@ -8751,6 +8751,18 @@
     "下院合计": "Total des établissements",
     "每小时": "Par heure",
     "{{region}}下院": "Établissement de {{region}}",
-    "宗门里没有能出战的弟子：都在外历练、下院驻守或受了伤": "Aucun disciple ne peut combattre : tous sont en mission, en poste ou blessés"
+    "宗门里没有能出战的弟子：都在外历练、下院驻守或受了伤": "Aucun disciple ne peut combattre : tous sont en mission, en poste ou blessés",
+    "第 {{n}} 代弟子": "Disciple de génération {{n}}",
+    "师承：{{name}}": "Maître : {{name}}",
+    "师承记录保留": "Filiation conservée",
+    "授业生效，自然修为 +{{pct}}%": "Enseignement actif : cultivation naturelle +{{pct}} %",
+    "授业暂未生效": "Enseignement actuellement inactif",
+    "师长已离宗，师承记录保留": "Le maître a quitté la secte ; la filiation est conservée",
+    "选择授业师长": "Choisir un maître",
+    "收为亲传": "Accepter comme disciple direct",
+    "暂无可收徒的师长，请等金丹弟子空闲并回到本宗。": "Aucun maître disponible. Attendez qu’un disciple au Noyau d’or soit libre et de retour à la secte principale.",
+    "金丹以上师长最多收 {{slots}} 名在宗亲传，占用原有弟子名额并支付相同招募费。": "Les maîtres au Noyau d’or ou plus peuvent avoir {{slots}} disciples directs présents dans la secte, aux mêmes frais et dans la limite habituelle de disciples.",
+    "师徒都在本宗、未受伤且师长境界更高时，徒弟自然修为 +{{pct}}%；丹药与派遣修为不加成。": "Si maître et disciple sont indemnes dans la secte principale et que le maître a un royaume supérieur, le disciple gagne +{{pct}} % de cultivation naturelle ; les pilules et missions n’en bénéficient pas.",
+    "{{who}}成为第 {{n}} 代亲传弟子": "{{who}} est devenu un disciple direct de génération {{n}}"
   }
 }

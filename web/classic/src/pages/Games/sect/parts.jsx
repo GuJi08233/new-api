@@ -224,6 +224,8 @@ export function eventSentence(ev, text, t) {
         who,
         region: text.regions[REGION_IDS[ev.n]]?.name,
       });
+    case 'lineage_recruit':
+      return t('{{who}}成为第 {{n}} 代亲传弟子', { who, n: ev.n });
     case 'mission': {
       const name = text.missions[ev.s]?.name;
       if (ev.n === 2) return t('{{name}}大获全胜', { name });

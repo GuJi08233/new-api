@@ -30,14 +30,19 @@ type DiscipleView struct {
 	OutpostToken string  `json:"outpost_token,omitempty"`
 	Injured      int64   `json:"injured"`
 	QiReady      int64   `json:"qi_ready"`
+	TeacherId    int     `json:"teacher_id,omitempty"`
+	TeacherName  *[3]int `json:"teacher_name,omitempty"`
+	Generation   int     `json:"generation"`
+	TeachingPct  int     `json:"teaching_pct"`
 	// BreakChance 是现在突破(不服丹)的成功率，没到瓶颈或已是最高境界为 0。
 	BreakChance int `json:"break_chance"`
 }
 
 type CandidateView struct {
 	*Candidate
-	Power int  `json:"power"`
-	Cost  Cost `json:"cost"`
+	Power int    `json:"power"`
+	Cost  Cost   `json:"cost"`
+	Sum   string `json:"sum"`
 }
 
 type EventView struct {
@@ -106,6 +111,8 @@ func (s *Sect) View(now int64) View {
 	}
 	for _, d := range s.Disciples {
 		rate := s.cultivateRate(d, d.Job)
+		teaching := s.teachingPct(d, now)
+		rate *= 1 + float64(teaching)/100
 		if d.Injured > now {
 			rate *= injuredExp
 		}
@@ -114,7 +121,8 @@ func (s *Sect) View(now int64) View {
 		}
 		view := DiscipleView{Id: d.Id, Name: d.Name, Element: d.Element, Talent: d.Talent, Trait: d.Trait, Realm: d.Realm,
 			Layer: d.Layer, Exp: int(d.Exp), Need: int(ExpNeed(d.Realm, d.Layer)), Rate: math.Round(rate*10) / 10,
-			Power: s.Power(d), Job: d.Job, Mission: d.Mission, Outpost: d.Outpost, OutpostToken: d.OutpostToken, Injured: d.Injured, QiReady: d.QiReady}
+			Power: s.Power(d), Job: d.Job, Mission: d.Mission, Outpost: d.Outpost, OutpostToken: d.OutpostToken, Injured: d.Injured, QiReady: d.QiReady,
+			TeacherId: d.TeacherId, TeacherName: d.TeacherName, Generation: max(d.Generation, 1), TeachingPct: teaching}
 		if d.Bottleneck() {
 			view.BreakChance = BreakChance(d, false)
 		}
@@ -130,7 +138,9 @@ func (s *Sect) View(now int64) View {
 			continue
 		}
 		d := &Disciple{Talent: c.Talent, Trait: c.Trait, Layer: c.Layer}
-		v.Recruits = append(v.Recruits, &CandidateView{Candidate: c, Power: s.Power(d), Cost: RecruitCost(c)})
+		// 候选只有固定长度数组、整数和字符串，JSON 编码不会失败。
+		sum, _ := RequestSum(c)
+		v.Recruits = append(v.Recruits, &CandidateView{Candidate: c, Power: s.Power(d), Cost: RecruitCost(c), Sum: sum})
 	}
 	if s.Event != nil {
 		e := &EventView{Event: s.Event, Choices: s.EventChoices(now)}

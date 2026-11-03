@@ -37,6 +37,10 @@ type Disciple struct {
 	// QiReady 是下一颗聚气丹什么时候能服：服一颗要等丹力化开，免得灵草堆起来就能一口气吃到化神。
 	QiReady int64 `json:"qi_ready"`
 	Joined  int64 `json:"joined"`
+	// 师长姓名和代数在收徒时记下；师长离宗后保留谱系，授业加成停止。
+	TeacherId   int     `json:"teacher_id,omitempty"`
+	TeacherName *[3]int `json:"teacher_name,omitempty"`
+	Generation  int     `json:"generation"`
 }
 
 // Candidate 是招募处的一个候选弟子。
@@ -88,7 +92,8 @@ type Ev struct {
 // logKinds 是要记进大事记的事。
 var logKinds = map[string]bool{"built": true, "joined": true, "left": true, "bottleneck": true, "realm": true,
 	"break_fail": true, "talent": true, "mission": true, "event": true, "tournament": true, "arena": true,
-	"sold": true, "bought": true, "path_found": true, "outpost_build": true, "outpost_station": true, "outpost_recall": true}
+	"sold": true, "bought": true, "path_found": true, "outpost_build": true, "outpost_station": true, "outpost_recall": true,
+	"lineage_recruit": true}
 
 // Stats 是宗门的战绩。Day 与 DayRuns 记今天参加了几次大比：每天前几次大比才有声望与灵石。
 type Stats struct {
@@ -204,6 +209,11 @@ func (s *Sect) normalize() {
 	}
 	if s.Rare == nil {
 		s.Rare = map[string]int{}
+	}
+	for _, d := range s.Disciples {
+		if d.Generation < 1 {
+			d.Generation = 1
+		}
 	}
 	s.normalizeGarden()
 }
@@ -359,7 +369,13 @@ func (s *Sect) Tick(now int64) []Ev {
 		}
 		injured := min(max(d.Injured-from, 0), elapsed)
 		rate := s.cultivateRate(d, d.Job)
-		evs = append(evs, s.addExp(d, rate*(float64(elapsed-injured)+injuredExp*float64(injured))/3600)...)
+		exp := rate * (float64(elapsed-injured) + injuredExp*float64(injured)) / 3600
+		if teacher := s.teachingTeacher(d); teacher != nil {
+			// 只有师徒同时痊愈后的交集时段有授业，分段结算与整段结算一致。
+			healthy := max(now-max(from, d.Injured, teacher.Injured), 0)
+			exp += rate * float64(healthy) / 3600 * TeachingBonus / 100
+		}
+		evs = append(evs, s.addExp(d, exp)...)
 	}
 	// 散修与宗门弟子的储物处(没开宗)不招人、不出奇遇。
 	if now >= s.RecruitAt && s.IsFounded() {
@@ -449,7 +465,7 @@ func (s *Sect) refreshRecruits(now int64) {
 
 func (s *Sect) addDisciple(c *Candidate, now int64) *Disciple {
 	d := &Disciple{Id: s.NextId, Name: c.Name, Element: c.Element, Talent: c.Talent, Trait: c.Trait,
-		Layer: c.Layer, Job: JobCultivate, Joined: now}
+		Layer: c.Layer, Job: JobCultivate, Joined: now, Generation: 1}
 	s.NextId++
 	s.Disciples = append(s.Disciples, d)
 	return d

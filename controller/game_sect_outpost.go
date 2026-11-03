@@ -39,17 +39,24 @@ func respondSectManagement(c *gin.Context, save *wendao.Save, now int64, events 
 		return
 	}
 	view := save.OutpostView(now)
-	if view != nil {
-		view.Busy, err = sectOccupiedDisciples(save, sessions)
-		if err != nil {
-			common.ApiError(c, err)
+	lineage := save.LineageView(now)
+	if view != nil || lineage != nil {
+		busy, busyErr := sectOccupiedDisciples(save, sessions)
+		if busyErr != nil {
+			common.ApiError(c, busyErr)
 			return
+		}
+		if view != nil {
+			view.Busy = busy
+		}
+		if lineage != nil {
+			lineage.Busy = busy
 		}
 	}
 	if events == nil {
 		events = []wendao.Ev{}
 	}
-	answer := gin.H{"sect": nil, "standing": save.PathView(gameCenterDay()), "outposts": view, "events": events}
+	answer := gin.H{"sect": nil, "standing": save.PathView(gameCenterDay()), "outposts": view, "lineage": lineage, "events": events}
 	if save.Sect != nil {
 		answer["sect"] = save.Sect.View(now)
 	}
@@ -69,6 +76,7 @@ func getSectOutpost(c *gin.Context) {
 		return
 	}
 	now := common.GetTimestamp()
+	rollWendaoDaily(save)
 	if save.Sect != nil {
 		save.Sect.Tick(now)
 	}

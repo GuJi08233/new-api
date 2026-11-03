@@ -886,7 +886,8 @@ func (h *Hero) startBattle(s *Sect, battle *HeroBattle, kind string, enemies []s
 
 // injureTeam 让随行的弟子受伤(输了或退走)。已经离开宗门的弟子不管。
 func (h *Hero) injureTeam(s *Sect, now int64) []Ev {
-	var evs []Ev
+	// 先结清受伤之前的自然修为与授业，避免新的伤势追溯覆盖此前的健康时段。
+	evs := s.Tick(now)
 	for _, id := range h.Battle.Team {
 		if d := s.disciple(id); d != nil {
 			d.Injured = max(d.Injured, now+companionInjury)
