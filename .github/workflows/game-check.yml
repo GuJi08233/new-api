@@ -13,6 +13,7 @@ on:
       - 'controller/game_*.go'
       - 'model/game_*.go'
       - 'scripts/wendao-upgrade/**'
+      - 'scripts/wendao-site-upgrade/**'
       - 'web/classic/src/**'
       - 'web/classic/package.json'
       - 'web/classic/bun.lock'
@@ -27,6 +28,7 @@ on:
       - 'controller/game_*.go'
       - 'model/game_*.go'
       - 'scripts/wendao-upgrade/**'
+      - 'scripts/wendao-site-upgrade/**'
       - 'web/classic/src/**'
       - 'web/classic/package.json'
       - 'web/classic/bun.lock'
@@ -54,6 +56,10 @@ jobs:
       - name: Test disposable upgrade rehearsal
         # 默认只运行临时 SQLite，不读取站点 DSN；外库演练需显式提供全新可丢弃库。
         run: go test ./scripts/wendao-upgrade/... -count=1
+      - name: Check full-site rehearsal isolation
+        run: |
+          go test ./scripts/wendao-site-upgrade
+          python -B -I scripts/wendao-site-upgrade/check_test.py
       - name: Test Wendao endpoints
         # 问道(历练、宗门、秘境)的接口测试，各自用临时目录里的 SQLite。
         run: go test ./controller -run 'Test(HeroJourneyThroughTheApi|Wendao|Dungeon|Sect|Garden)'
