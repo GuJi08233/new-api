@@ -113,11 +113,16 @@ func getRiftRun(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	if session == nil || common.GetTimestamp()-session.CreatedAt > riftRunTTL {
-		common.ApiSuccess(c, gin.H{"session": nil, "best": best})
+	save, err := loadWendaoSave(userId)
+	if err != nil {
+		respondSectError(c, err)
 		return
 	}
-	common.ApiSuccess(c, gin.H{"session": riftView(session, parseRiftState(session).Run, false), "best": best})
+	answer := gin.H{"session": nil, "best": best, "travel": save.TravelView(common.GetTimestamp())}
+	if session != nil && common.GetTimestamp()-session.CreatedAt <= riftRunTTL {
+		answer["session"] = riftView(session, parseRiftState(session).Run, false)
+	}
+	common.ApiSuccess(c, answer)
 }
 
 func startRiftRun(c *gin.Context) {
@@ -146,26 +151,36 @@ func startRiftRun(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgGameRoundOpen)
 		return
 	}
-	data, err := model.GetGameSave(userId, wendao.SaveKey)
-	if err != nil {
-		common.ApiError(c, err)
+	if !passGamePlayTurnstile(c, operation_setting.GetGameSetting(), riftGame, userId) {
 		return
 	}
-	save, err := wendao.ParseSave(data)
+	seed, err := newGameSeed()
 	if err != nil {
-		respondSectError(c, err)
+		common.ApiErrorI18n(c, i18n.MsgGameStartFailed)
 		return
 	}
 	var run *doufa.Run
-	session := startSkillSession(c, riftGame, func(seed uint32) (string, error) {
-		var err error
-		if run, err = doufa.NewRun(seed, req.Class, save.Rift.Talents); err != nil {
+	session, err := model.CreateGameSessionWithSave(userId, riftGame, seed, common.GetTimestamp()-riftRunTTL, wendao.SaveKey, func(data string) (string, error) {
+		save, err := wendao.ParseSave(data)
+		if err != nil {
 			return "", err
 		}
-		data, err := common.Marshal(riftState{Run: run})
-		return string(data), err
+		if save.Hero != nil && save.Hero.Travel != nil {
+			return "", wendao.ErrUnavailable
+		}
+		run, err = doufa.NewRun(seed, req.Class, save.Rift.Talents)
+		if err != nil {
+			return "", err
+		}
+		encoded, err := common.Marshal(riftState{Run: run})
+		return string(encoded), err
 	})
-	if session == nil {
+	if errors.Is(err, model.ErrGameRoundOpen) {
+		common.ApiErrorI18n(c, i18n.MsgGameRoundOpen)
+		return
+	}
+	if err != nil {
+		respondSectError(c, err)
 		return
 	}
 	common.ApiSuccess(c, gin.H{"session": riftView(session, run, false)})
@@ -239,6 +254,17 @@ func actRiftRun(c *gin.Context) {
 	if req.Action == "item" {
 		useRiftItem(c, session, state, req.Item)
 		return
+	}
+	if req.Action == "enter" || req.Action == "retreat" {
+		save, err := loadWendaoSave(c.GetInt("id"))
+		if err != nil {
+			respondSectError(c, err)
+			return
+		}
+		if save.Hero != nil && save.Hero.Travel != nil {
+			respondSectError(c, wendao.ErrUnavailable)
+			return
+		}
 	}
 	now := common.GetTimestamp()
 	var err error

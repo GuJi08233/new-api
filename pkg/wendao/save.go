@@ -26,8 +26,9 @@ const SaveKey = "wendao"
 // 以后回来的那一次结算(Sect.Back)，以及同一版里还没发布时加上的功法拆解次数(Hero.Salvaged)与请求收据(Receipts)；4 是
 // 主角的宗门身份(Hero.Path)，以及散修、宗门弟子没有主殿的储物处(Sect 的主殿为 0 级)；5 是秘境换成斗法以后的局外成长
 // (Rift：道韵、天赋、战绩与道具背包)，旧版卡牌秘境的 Abyss 在读出时并进去；6 是斗法契约(Duels：悬赏、宗门任务、入门试炼
-// 与进行中的一场)；7 是藏经阁法宝、法术与出战配置(Hero.Arms)；8 是历练改斗法(HeroBattle.Fight)，旧卡牌战斗退还未用丹符后结束。
-const SaveSchema = 8
+// 与进行中的一场)；7 是藏经阁法宝、法术与出战配置(Hero.Arms)；8 是历练改斗法(HeroBattle.Fight)，旧卡牌战斗退还未用丹符后结束；
+// 9 是主角游历(Hero.Travel)，旧存档默认没有行程，闭关与已有进度照旧。
+const SaveSchema = 9
 
 // ErrNewerSave 表示存档是更新版本的程序写的，这个程序不认识其中的一部分，不能读也不能改写。
 var ErrNewerSave = errors.New("wendao: the save was written by a newer version")

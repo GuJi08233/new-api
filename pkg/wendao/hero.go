@@ -63,6 +63,8 @@ type Hero struct {
 	Path *Path `json:"path,omitempty"`
 	// Arms 是在宗门藏经阁换来的斗法法宝与法术，以及出战的配置，见 arms.go。
 	Arms *Arms `json:"arms,omitempty"`
+	// Travel 是正在进行、等待结束领取的游历；这期间暂停普通闭关，见 travel.go。
+	Travel *Travel `json:"travel,omitempty"`
 }
 
 // NodeRecord 是一个节点的通过记录。Pick 是剧情抉择选了哪一个(JourneyOption.Key)，没有抉择的节点为空。
@@ -331,6 +333,9 @@ func (h *Hero) tick(s *Sect, now int64) []Ev {
 	}
 	elapsed := min(now-h.Last, OfflineCap)
 	h.Last = now
+	if h.Travel != nil {
+		return nil
+	}
 	return h.addExp(h.CultivateRate(s) * float64(elapsed) / 3600)
 }
 
@@ -406,6 +411,9 @@ func (sv *Save) HeroApply(a HeroAction, now int64, day string, seed uint64) ([]E
 		return nil, ErrUnavailable
 	}
 	if sv.Duels != nil && sv.Duels.Active != nil && (a.Type == "fight" || a.Type == "climb" || a.Type == "trial") {
+		return nil, ErrUnavailable
+	}
+	if h.Travel != nil && (a.Type == "fight" || a.Type == "climb" || a.Type == "trial") {
 		return nil, ErrUnavailable
 	}
 	var more []Ev
@@ -971,18 +979,19 @@ func (sv *Save) FinishHeroFight(f *doufa.Fight, now int64) ([]Ev, error) {
 // HeroView 是主角在页面上的样子。Open 是现在能去的节点；Ready 是采集节点下一次能去的时间。
 type HeroView struct {
 	// Identity 是身份：master 掌门、disciple 宗门弟子、loose 散修；Path 是宗门身份的细节。
-	Identity    string  `json:"identity"`
-	Path        *Path   `json:"path,omitempty"`
-	Class       string  `json:"class"`
-	Realm       int     `json:"realm"`
-	Layer       int     `json:"layer"`
-	Exp         float64 `json:"exp"`
-	Need        float64 `json:"need"`
-	Rate        float64 `json:"rate"`
-	Bottleneck  bool    `json:"bottleneck"`
-	BreakKey    string  `json:"break_key"`
-	BreakChance [2]int  `json:"break_chance"`
-	MaxHP       int     `json:"max_hp"`
+	Identity    string          `json:"identity"`
+	Path        *Path           `json:"path,omitempty"`
+	Class       string          `json:"class"`
+	Realm       int             `json:"realm"`
+	Layer       int             `json:"layer"`
+	Exp         float64         `json:"exp"`
+	Need        float64         `json:"need"`
+	Rate        float64         `json:"rate"`
+	Travel      *TravelProgress `json:"travel,omitempty"`
+	Bottleneck  bool            `json:"bottleneck"`
+	BreakKey    string          `json:"break_key"`
+	BreakChance [2]int          `json:"break_chance"`
+	MaxHP       int             `json:"max_hp"`
 	// FightMaxHP 与 FightMods 是实际斗法的基础属性，包含修行与丹药药力；未计本场丹符、随行和灵兽。
 	FightMaxHP  int                    `json:"fight_max_hp"`
 	FightMods   doufa.Mods             `json:"fight_mods"`
@@ -1102,6 +1111,9 @@ func (h *Hero) View(s *Sect, now int64, day string) HeroView {
 		BeastSlots: BeastSlots(h.Cave[RoomDen]), Furnaces: []BrewView{}, FurnaceSlots: FurnaceSlots(h.Cave[RoomFurnace]),
 		Elixirs: h.Elixirs, Buffs: h.Buffs, Mastery: h.Mastery, Tempered: h.Tempered, TemperCap: TemperCap(h.Realm),
 		Golden: h.Golden, Sheet: h.Sheet(s),
+	}
+	if h.Travel != nil {
+		v.Travel, v.Rate = h.travelProgress(now), 0
 	}
 	base := h.JourneySetup(NodeCombat, []string{"slime"}, 100, 100, 0)
 	if fight, err := doufa.New(1, base); err == nil {

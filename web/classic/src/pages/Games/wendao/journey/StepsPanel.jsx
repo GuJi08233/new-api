@@ -203,7 +203,7 @@ const StepDetail = ({ info, step, hero, busy, next, onClimb }) => {
           <Button
             theme='solid'
             type={step.kind === 'boss' ? 'danger' : 'primary'}
-            disabled={busy}
+            disabled={busy || !!hero.travel}
             onClick={() => onClimb(readyTeam(team, hero.companions))}
           >
             {t('登阶')}

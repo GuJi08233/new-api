@@ -115,8 +115,10 @@ const HeroCard = ({ hero, pills, elapsed, now, busy, onBreak, onQi }) => {
         <span className='jn-exp-row'>
           <span>
             {formatAmount(exp)} / {formatAmount(hero.need)}
-            {!hero.bottleneck &&
-              ` · ${t('闭关 +{{n}}/时', { n: Math.round(hero.rate) })}`}
+            {hero.travel
+              ? ` · ${t('游历中，闭关暂停')}`
+              : !hero.bottleneck &&
+                ` · ${t('闭关 +{{n}}/时', { n: Math.round(hero.rate) })}`}
             {!hero.bottleneck &&
               qiWait > 0 &&
               ` · ${t('丹力还没化开，{{left}}后能服下一颗', {

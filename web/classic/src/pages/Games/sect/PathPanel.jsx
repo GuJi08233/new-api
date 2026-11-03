@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Button, InputNumber, Modal } from '@douyinfe/semi-ui';
 import { Check } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -26,6 +26,7 @@ import { getClassText } from '../dungeon/text';
 import { useWendaoPart } from '../wendao/shell';
 import { ActiveDuelNotice, ContractList } from '../wendao/duel/Contracts';
 import DuelRun from '../wendao/duel/DuelRun';
+import TravelNotice from '../wendao/world/TravelNotice';
 import DailyPanel from './DailyPanel';
 import {
   Bar,
@@ -50,6 +51,7 @@ const LoosePath = ({
   now,
   busy,
   book,
+  blocked,
   trialTries,
   actPath,
   onTrial,
@@ -144,6 +146,7 @@ const LoosePath = ({
                     busy ||
                     wait > 0 ||
                     !!book?.active ||
+                    blocked ||
                     (book?.trials?.[npc.id] || 0) >= trialTries
                   }
                   onClick={() => onTrial(npc.id)}
@@ -227,6 +230,7 @@ const DisciplePath = ({
   standing,
   busy,
   book,
+  blocked,
   taskTries,
   actPath,
   onTask,
@@ -354,6 +358,7 @@ const DisciplePath = ({
         contracts={book?.tasks}
         open={book?.open}
         active={book?.active}
+        blocked={blocked}
         busy={busy}
         maxTries={taskTries}
         onStart={onTask}
@@ -446,29 +451,43 @@ const PathPanel = ({
   const { t } = useTranslation();
   const { info: world } = useWendaoPart('world');
   const [book, setBook] = useState(null);
+  const [travel, setTravel] = useState(null);
+  const bookSeq = useRef(0);
   const [duel, setDuel] = useState(null);
   const [duelBusy, setDuelBusy] = useState(false);
   const identity = standing?.identity;
 
   const loadBook = useCallback(async () => {
+    const mine = ++bookSeq.current;
     const res = await gameGet('/api/game/wendao/duel/state', t);
-    if (res.data) setBook(res.data.book);
+    if (mine !== bookSeq.current) return;
+    if (res.data) {
+      setBook(res.data.book);
+      setTravel(res.data.travel?.active || null);
+    }
   }, [t]);
   useEffect(() => {
     if (identity === 'loose' || identity === 'disciple') loadBook();
   }, [identity, loadBook]);
 
   const giveUp = async () => {
+    bookSeq.current += 1;
     setDuelBusy(true);
     const res = await gamePostOnce('/api/game/wendao/duel/giveup', {}, t);
     setDuelBusy(false);
-    if (res.data) setBook(res.data.book);
+    bookSeq.current += 1;
+    if (res.data) {
+      setBook(res.data.book);
+      setTravel(res.data.travel?.active || null);
+    }
   };
   // 打完回来：契约、身份与宗门都按回应里的新样子换上；放弃或出错时重新读一遍契约。
   const finished = (answer) => {
     setDuel(null);
     if (answer?.book) {
+      bookSeq.current += 1;
       setBook(answer.book);
+      setTravel(answer.travel?.active || null);
       onDuelDone(answer);
     } else {
       loadBook();
@@ -486,6 +505,7 @@ const PathPanel = ({
   const taskBusy = busy || duelBusy;
   return (
     <div className='sc-path'>
+      <TravelNotice active={travel} />
       {standing.identity === 'disciple' && (
         <DisciplePath
           rules={rules}
@@ -493,6 +513,7 @@ const PathPanel = ({
           standing={standing}
           busy={taskBusy}
           book={book}
+          blocked={!book || !!travel}
           taskTries={world?.contract_tries ?? 2}
           actPath={actPath}
           onTask={(c) => setDuel({ kind: c.kind, id: c.id })}
@@ -508,6 +529,7 @@ const PathPanel = ({
           now={now}
           busy={taskBusy}
           book={book}
+          blocked={!book || !!travel}
           trialTries={world?.trial_tries ?? 5}
           actPath={actPath}
           onTrial={(id) => setDuel({ kind: 'trial', id })}

@@ -17,11 +17,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Button, Dropdown, Modal, TabPane, Tabs } from '@douyinfe/semi-ui';
 import { Backpack, Gem } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import GameShop from '../../common/GameShop';
+import { useVisiblePolling } from '../../common/useVisiblePolling';
+import TravelNotice from '../world/TravelNotice';
 import { StageMessage } from '../../common/SideBox';
 import {
   gameGet,
@@ -167,6 +169,7 @@ const Talents = ({ info, busy, onBuy }) => {
 export default function RiftPanel({ info, patch, reload, refreshAgenda }) {
   const { t } = useTranslation();
   const [state, setState] = useState(null);
+  const requestSeq = useRef(0);
   const [cls, setCls] = useState('warrior');
   const [tab, setTab] = useState('go');
   const [busy, setBusy] = useState(false);
@@ -183,7 +186,9 @@ export default function RiftPanel({ info, patch, reload, refreshAgenda }) {
   const itemTexts = getItemText(t);
 
   const load = useCallback(async () => {
+    const mine = ++requestSeq.current;
     const res = await gameGet(`${API}/state`, t);
+    if (mine !== requestSeq.current) return;
     if (res.error) {
       setError(res.error);
       return;
@@ -198,12 +203,14 @@ export default function RiftPanel({ info, patch, reload, refreshAgenda }) {
   const session = state?.session;
   const run = session?.run;
   const meta = info.meta;
+  useVisiblePolling(load, 60 * 1000, !!state && !session && !busy);
 
   // 一轮结束：记下结果、放音效，并让奖励进度、余额、道韵与待办跟着更新。
   const finish = (next) => {
     setFinished(next);
     setFightRoom(null);
     setState((prev) => ({
+      ...prev,
       session: null,
       best: Math.max(prev?.best || 0, next.floors),
     }));
@@ -218,6 +225,7 @@ export default function RiftPanel({ info, patch, reload, refreshAgenda }) {
   };
 
   const act = async (body) => {
+    requestSeq.current += 1;
     setBusy(true);
     setError('');
     const res = await postRetrying(
@@ -231,6 +239,7 @@ export default function RiftPanel({ info, patch, reload, refreshAgenda }) {
       await load();
       return null;
     }
+    requestSeq.current += 1;
     const next = res.data.session;
     if (next.status === 'finished') {
       finish(next);
@@ -244,6 +253,7 @@ export default function RiftPanel({ info, patch, reload, refreshAgenda }) {
   };
 
   const start = async () => {
+    requestSeq.current += 1;
     setBusy(true);
     setError('');
     const res = await gamePost(
@@ -257,6 +267,7 @@ export default function RiftPanel({ info, patch, reload, refreshAgenda }) {
       await load();
       return;
     }
+    requestSeq.current += 1;
     setFinished(null);
     setFightRoom(null);
     setState((prev) => ({ ...prev, session: res.data.session }));
@@ -380,13 +391,16 @@ export default function RiftPanel({ info, patch, reload, refreshAgenda }) {
                     {t('最多打通 {{n}} 重', { n: state.best })}
                   </p>
                 )}
+                <TravelNotice active={state.travel?.active} />
                 <ClassPicker value={cls} onChange={setCls} />
                 {error && <div className='df-error'>{error}</div>}
                 <div className='df-actions'>
                   <Button
                     theme='solid'
                     loading={busy}
-                    disabled={!turnstile.ready}
+                    disabled={
+                      busy || !turnstile.ready || !!state.travel?.active
+                    }
                     onClick={start}
                   >
                     {t('入秘境')}

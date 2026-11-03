@@ -419,7 +419,7 @@ const NodeDetail = ({
           <Button
             theme='solid'
             type={node.kind === 'boss' ? 'danger' : 'primary'}
-            disabled={busy}
+            disabled={busy || !!hero.travel}
             onClick={() => {
               const fight = () =>
                 onFight(node.id, readyTeam(team, hero.companions));

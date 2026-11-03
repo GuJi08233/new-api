@@ -28,6 +28,7 @@ import { useVisiblePolling } from '../../common/useVisiblePolling';
 import { DungeonTextProvider, useDungeonText } from '../../dungeon/parts';
 import { SectTextProvider, useSectText } from '../../sect/parts';
 import { WendaoLayout, useWendaoPart, useWendaoShell } from '../shell';
+import TravelNotice from '../world/TravelNotice';
 import CreateHero from './CreateHero';
 import HeroCard from './HeroCard';
 import MapPanel from './MapPanel';
@@ -236,6 +237,7 @@ const JourneyPage = () => {
   } else {
     body = (
       <>
+        <TravelNotice active={hero.travel} />
         <HeroCard
           hero={hero}
           info={info}
@@ -365,7 +367,7 @@ const JourneyPage = () => {
                 ),
                 t('第一次通过节点有全部奖励；之后修为减半，资源每天只有前几次'),
                 t(
-                  '主角随时在闭关，离线最多结算 12 小时；境界每高一重闭关快一倍，宗门的聚灵阵也让修炼更快',
+                  '主角平时自动闭关，游历时暂停；离线最多结算 12 小时，境界与聚灵阵提高闭关速度',
                 ),
                 t('第九层圆满后，用本章首领掉落的机缘突破，才能进入下一章'),
                 t(

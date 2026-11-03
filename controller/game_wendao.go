@@ -58,6 +58,7 @@ func init() {
 			registerHeroRoutes(group.Group("/hero"))
 			registerRiftRoutes(group.Group("/rift"))
 			registerDuelRoutes(group.Group("/duel"))
+			registerTravelRoutes(group.Group("/travel"))
 			registerSectRoutes(group.Group("/sect"))
 		},
 	})

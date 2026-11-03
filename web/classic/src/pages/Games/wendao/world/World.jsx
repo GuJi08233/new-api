@@ -17,17 +17,19 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '@douyinfe/semi-ui';
 import { Lock } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { gameGet, gamePost, gamePostOnce } from '../../common/api';
 import { playSound } from '../../common/sound';
+import { useVisiblePolling } from '../../common/useVisiblePolling';
 import { SectTextProvider, useSectText } from '../../sect/parts';
 import { WendaoLayout, useWendaoPart, useWendaoShell } from '../shell';
 import { ActiveDuelNotice, ContractList } from '../duel/Contracts';
 import DuelRun from '../duel/DuelRun';
 import ArmsPanel from './ArmsPanel';
+import TravelPanel from './TravelPanel';
 import { REGION_IDS, getRegionText } from '../duel/text';
 import '../../sect/sect.css';
 import '../doufa/doufa.css';
@@ -44,54 +46,119 @@ const WorldPage = () => {
   const [duel, setDuel] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [receivedAt, setReceivedAt] = useState(0);
+  const [loot, setLoot] = useState(null);
+  const requestSeq = useRef(0);
+  const busyRef = useRef(false);
   const regions = getRegionText(t);
 
   const load = useCallback(async () => {
-    const res = await gameGet(`${API}/state`, t);
-    if (res.error) {
-      setError(res.error);
+    const mine = ++requestSeq.current;
+    const [world, travel] = await Promise.all([
+      gameGet(`${API}/state`, t),
+      gameGet('/api/game/wendao/travel', t),
+    ]);
+    if (mine !== requestSeq.current) return;
+    if (world.error || travel.error) {
+      setError(world.error || travel.error);
       return;
     }
-    setState(res.data);
+    setState({ ...world.data, ...travel.data });
+    setError('');
+    setReceivedAt(Date.now());
   }, [t]);
 
   useEffect(() => {
     load();
   }, [load]);
+  useVisiblePolling(load, 60 * 1000, !!state && !duel && !busy);
 
   const book = state?.book;
   // 默认停在主角够得着的最远一个地域。
   const here = region ?? Math.max(0, (book?.open || []).lastIndexOf(true));
 
   const giveUp = async () => {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    requestSeq.current += 1;
     setBusy(true);
     setError('');
-    const res = await gamePostOnce(`${API}/giveup`, {}, t);
-    setBusy(false);
-    if (res.error) {
-      setError(res.error);
-      return;
+    try {
+      const res = await gamePostOnce(`${API}/giveup`, {}, t);
+      requestSeq.current += 1;
+      if (res.error) {
+        await load();
+        setError(res.error);
+        return;
+      }
+      setState((prev) => ({ ...prev, ...res.data }));
+      setReceivedAt(Date.now());
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
     }
-    setState(res.data);
   };
 
   const equip = async (weapons, skill) => {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    requestSeq.current += 1;
     setBusy(true);
     setError('');
-    const res = await gamePost(`${API}/arms`, { weapons, skill }, t);
-    setBusy(false);
-    if (res.error) {
-      setError(res.error);
-      return;
+    try {
+      const res = await gamePost(`${API}/arms`, { weapons, skill }, t);
+      requestSeq.current += 1;
+      if (res.error) {
+        await load();
+        setError(res.error);
+        return;
+      }
+      playSound('sparkle');
+      setState((prev) => ({ ...prev, ...res.data }));
+      setReceivedAt(Date.now());
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
     }
-    playSound('sparkle');
-    setState(res.data);
+  };
+
+  const travelAction = async (fields) => {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    requestSeq.current += 1;
+    setBusy(true);
+    setError('');
+    setLoot(null);
+    try {
+      const res = await gamePostOnce(
+        '/api/game/wendao/travel/action',
+        fields,
+        t,
+      );
+      requestSeq.current += 1;
+      if (res.error) {
+        await load();
+        setError(res.error);
+        return;
+      }
+      setState((prev) => ({ ...prev, ...res.data }));
+      setReceivedAt(Date.now());
+      setLoot(res.data.loot || null);
+      playSound(fields.action === 'finish' ? 'coin' : 'start');
+      refreshAgenda();
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
   };
 
   const finished = (answer) => {
     setDuel(null);
-    if (answer?.book) setState(answer);
-    else load();
+    if (answer?.book) {
+      requestSeq.current += 1;
+      setState((prev) => ({ ...prev, ...answer }));
+      setReceivedAt(Date.now());
+    } else load();
     refreshAgenda();
   };
 
@@ -149,6 +216,17 @@ const WorldPage = () => {
           </button>
         ))}
       </div>
+      <TravelPanel
+        travel={state.travel}
+        region={here}
+        receivedAt={receivedAt}
+        blocked={!!book.active || !!state.hero?.battle}
+        riftActive={state.rift_active}
+        busy={busy}
+        loot={loot}
+        onStart={(target) => travelAction({ action: 'start', region: target })}
+        onFinish={(token) => travelAction({ action: 'finish', token })}
+      />
       <div className='df-card'>
         <div className='df-title'>{regions[id].name}</div>
         <p className='df-lead'>{regions[id].desc}</p>
@@ -209,6 +287,7 @@ const WorldPage = () => {
             contracts={todays}
             open={book.open}
             active={book.active}
+            blocked={!!state.travel?.active}
             busy={busy}
             maxTries={info?.contract_tries ?? 2}
             onStart={(c) => setDuel({ kind: c.kind, id: c.id })}

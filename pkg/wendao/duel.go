@@ -177,7 +177,7 @@ func (b *DuelBook) contract(kind, id string) *Contract {
 // 宗门以后的等待里；宗门任务要是宗门弟子；悬赏要主角够得着那个地域。seed 是这一场的随机数种子，由调用方取安全随机数。
 func (sv *Save) StartDuel(kind, id string, seed uint32, now int64) (*Duel, error) {
 	b := sv.book()
-	if sv.Hero == nil || b.Active != nil || sv.Hero.Battle != nil {
+	if sv.Hero == nil || b.Active != nil || sv.Hero.Battle != nil || sv.Hero.Travel != nil {
 		return nil, ErrUnavailable
 	}
 	var contract *Contract

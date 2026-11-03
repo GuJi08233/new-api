@@ -46,6 +46,7 @@ export function ContractList({
   contracts,
   open,
   active,
+  blocked,
   busy,
   maxTries,
   onStart,
@@ -76,7 +77,7 @@ export function ContractList({
             <Button
               size='small'
               theme='solid'
-              disabled={busy || !!active || spent || !reachable}
+              disabled={busy || blocked || !!active || spent || !reachable}
               onClick={() => onStart(c)}
             >
               {t('接下')}
