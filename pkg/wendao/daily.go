@@ -118,6 +118,7 @@ func (sv *Save) RollSaveDaily(day string, yesterday string) {
 	if sv.Sect != nil {
 		sv.Sect.RollDaily(day, yesterday, sv.Hero != nil)
 	}
+	sv.RollDuels(day)
 }
 
 // Progress 给今天的功课 task 记上 n 次，做满为止。今天没有这件功课时什么都不做。

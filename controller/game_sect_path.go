@@ -10,16 +10,15 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// actSectPath 改主角的身份(规则见 pkg/wendao/path.go)：join 拜入 sect 这个正道宗门，leave 退出，found 开宗立派，
-// stipend 领今天的俸禄，donate 上交 stone/herb/ore 换贡献，exchange 用贡献换宝库里的 goods。带 request_id 时重发同一次
-// 请求不做第二遍(见 wendao.Save.Admit)。回应里是储物处(或宗门)、身份(standing)与这次发生的事。
+// actSectPath 改主角的身份(规则见 pkg/wendao/path.go)：leave 退出宗门，found 开宗立派，stipend 领今天的俸禄，donate
+// 上交 stone/herb/ore 换贡献，exchange 用贡献换宝库里的 goods。拜入宗门要先过入门试炼，走斗法契约的接口(game_duel.go)。
+// 带 request_id 时重发同一次请求不做第二遍(见 wendao.Save.Admit)。回应里是储物处(或宗门)、身份(standing)与这次发生的事。
 func actSectPath(c *gin.Context) {
 	if !requireGameEnabled(c, wendaoGame) {
 		return
 	}
 	var req struct {
 		Action    string `json:"action"`
-		Sect      string `json:"sect"`
 		Goods     string `json:"goods"`
 		Stone     int    `json:"stone"`
 		Herb      int    `json:"herb"`
@@ -56,10 +55,6 @@ func actSectPath(c *gin.Context) {
 			save.Sect.Tick(now)
 			var err error
 			switch req.Action {
-			case "join":
-				if err = save.JoinSect(req.Sect, now); err == nil {
-					evs = []wendao.Ev{{K: "path_join", S: req.Sect}}
-				}
 			case "leave":
 				left := save.PathView(day)
 				if err = save.LeaveSect(now); err == nil {

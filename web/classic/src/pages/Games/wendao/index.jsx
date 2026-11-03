@@ -33,15 +33,16 @@ import { useVisiblePolling } from '../common/useVisiblePolling';
 import Abyss from './doufa/Abyss';
 import Sect from '../sect';
 import Journey from './journey';
+import World from './world/World';
 import { WENDAO_PARTS, WendaoContext } from './shell';
 
-const PARTS = { journey: Journey, sect: Sect, abyss: Abyss };
+const PARTS = { journey: Journey, world: World, sect: Sect, abyss: Abyss };
 
 // 顶上的待办每分钟与服务端同步一次；操作之后等这么久再读，连着几步操作只读一次。
 const AGENDA_INTERVAL = 60 * 1000;
 const AGENDA_SETTLE = 800;
 
-// 问道：历练、宗门与九幽秘境三个板块共用一份存档，页面顶上切换板块，地址里的 ?part= 记住当前板块。
+// 问道：历练、世界、宗门与九幽秘境四个板块共用一份存档，页面顶上切换板块，地址里的 ?part= 记住当前板块。
 const Wendao = () => {
   const { t } = useTranslation();
   const { info, setInfo, loading, unavailable, reload } = useGameInfo('wendao');

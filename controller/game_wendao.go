@@ -51,12 +51,13 @@ func init() {
 			if err != nil {
 				return nil, err
 			}
-			return gin.H{"abyss": abyss, "sect": sect, "journey": journeyInfo()}, nil
+			return gin.H{"abyss": abyss, "sect": sect, "journey": journeyInfo(), "world": duelWorldInfo()}, nil
 		},
 		Routes: func(group *gin.RouterGroup) {
 			group.GET("/agenda", getWendaoAgenda)
 			registerHeroRoutes(group.Group("/hero"))
 			registerRiftRoutes(group.Group("/rift"))
+			registerDuelRoutes(group.Group("/duel"))
 			registerSectRoutes(group.Group("/sect"))
 		},
 	})

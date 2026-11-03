@@ -18,13 +18,13 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import React, { createContext, useCallback, useContext, useMemo } from 'react';
-import { Castle, Footprints, MountainSnow } from 'lucide-react';
+import { Castle, Footprints, Map as MapIcon, MountainSnow } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import GameLayout from '../common/GameLayout';
 import Agenda from './Agenda';
 import './wendao.css';
 
-// 问道页的外壳：一次读出整个问道的规则(GET /api/game/wendao)，三个板块各取自己的那一份。板块页面用 WendaoLayout
+// 问道页的外壳：一次读出整个问道的规则(GET /api/game/wendao)，四个板块各取自己的那一份。板块页面用 WendaoLayout
 // 代替 GameLayout，顶上多一排板块切换和一条「当前目标与待办」。
 export const WendaoContext = createContext(null);
 
@@ -37,12 +37,14 @@ export function useWendaoShell() {
 
 export const WENDAO_PARTS = [
   { key: 'journey', Icon: Footprints },
+  { key: 'world', Icon: MapIcon },
   { key: 'sect', Icon: MountainSnow },
   { key: 'abyss', Icon: Castle },
 ];
 
 export const getPartNames = (t) => ({
   journey: t('历练'),
+  world: t('世界'),
   sect: t('宗门'),
   abyss: t('秘境'),
 });

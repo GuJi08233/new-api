@@ -192,3 +192,12 @@ func TrialSetup(class string) Setup {
 	}
 	return setup
 }
+
+// StartingWeapons 是流派起手的两件法宝(新切片)，不认识的流派返回 nil。
+func StartingWeapons(class string) []string {
+	spec, ok := content.Classes[class]
+	if !ok {
+		return nil
+	}
+	return append([]string(nil), spec.Weapons...)
+}

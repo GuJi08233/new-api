@@ -1,0 +1,122 @@
+/* 斗法契约与世界地图：颜色取 wendao.css 的 --wd-* 变量。 */
+.dl-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+.dl-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 8px;
+}
+.dl-row.is-done {
+  opacity: 0.6;
+}
+.dl-tier {
+  min-width: 44px;
+  padding: 1px 8px;
+  border: 1px solid var(--wd-red);
+  border-radius: 10px;
+  color: var(--wd-red);
+  font-family: var(--wd-serif);
+  font-size: 12px;
+  text-align: center;
+}
+.dl-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.dl-body strong {
+  font-family: var(--wd-serif);
+}
+.dl-body small {
+  color: var(--wd-ink-3);
+  line-height: 1.5;
+}
+.dl-tries {
+  color: var(--wd-ink-2);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.dl-active {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--wd-red);
+  border-radius: 8px;
+  color: var(--wd-ink);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.dl-regions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 6px;
+}
+.dl-region {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.dl-region strong {
+  font-family: var(--wd-serif);
+  font-size: 15px;
+}
+.dl-region small {
+  color: var(--wd-ink-3);
+  font-size: 12px;
+}
+.dl-region.is-active {
+  border-color: var(--wd-red);
+  box-shadow: inset 0 0 0 1px var(--wd-red);
+}
+.dl-region.is-locked {
+  opacity: 0.55;
+}
+.dl-region:focus-visible {
+  outline: 2px solid var(--wd-red);
+  outline-offset: 2px;
+}
+.dl-features {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.dl-features li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px dashed var(--semi-color-border);
+  line-height: 1.6;
+}
+.dl-heading {
+  margin: 14px 0 0;
+  font-family: var(--wd-serif);
+  font-size: 15px;
+  font-weight: 700;
+}

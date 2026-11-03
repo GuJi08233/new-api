@@ -570,6 +570,11 @@ const SectPage = () => {
                   busy={busy}
                   act={act}
                   actPath={actPath}
+                  onDuelDone={(answer) => {
+                    accept(answer);
+                    showEvents(answer.events || []);
+                    refreshAgenda();
+                  }}
                 />
               </TabPane>
               {gardenPane}

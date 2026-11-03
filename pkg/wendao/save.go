@@ -25,8 +25,9 @@ const SaveKey = "wendao"
 // 各版本：1 是加上 schema 本身；2 是历练节点的通过记录多了支线剧情的抉择(NodeRecord.Pick)；3 是宗门记下离开很久
 // 以后回来的那一次结算(Sect.Back)，以及同一版里还没发布时加上的功法拆解次数(Hero.Salvaged)与请求收据(Receipts)；4 是
 // 主角的宗门身份(Hero.Path)，以及散修、宗门弟子没有主殿的储物处(Sect 的主殿为 0 级)；5 是秘境换成斗法以后的局外成长
-// (Rift：道韵、天赋、战绩与道具背包)，旧版卡牌秘境的 Abyss 在读出时并进去。
-const SaveSchema = 5
+// (Rift：道韵、天赋、战绩与道具背包)，旧版卡牌秘境的 Abyss 在读出时并进去；6 是斗法契约(Duels：悬赏、宗门任务、入门试炼
+// 与进行中的一场)。
+const SaveSchema = 6
 
 // ErrNewerSave 表示存档是更新版本的程序写的，这个程序不认识其中的一部分，不能读也不能改写。
 var ErrNewerSave = errors.New("wendao: the save was written by a newer version")
@@ -41,6 +42,8 @@ type Save struct {
 	// Abyss 是旧版卡牌秘境的局外成长，只在读旧存档时用一次(见 riftFromAbyss)，读出以后就置空，不再写回。
 	Abyss *dungeon.Meta `json:"abyss,omitempty"`
 	Rift  *doufa.Meta   `json:"rift"`
+	// Duels 是主角手上的斗法契约(悬赏、宗门任务、入门试炼)，见 duel.go。
+	Duels *DuelBook `json:"duels,omitempty"`
 	// AbyssLoot 记今天九幽秘境无尽模式已经往宗门带回几次材料。
 	AbyssLoot LootDay `json:"abyss_loot"`
 	// Receipts 是最近做过的几次操作的请求收据，重发同一次请求时不做第二遍，见 Admit。
@@ -105,6 +108,7 @@ func ParseSave(data string) (*Save, error) {
 	}
 	save.Abyss = nil
 	save.Rift.Normalize()
+	save.book()
 	return save, nil
 }
 

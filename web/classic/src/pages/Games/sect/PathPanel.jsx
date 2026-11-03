@@ -17,11 +17,15 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Button, InputNumber, Modal } from '@douyinfe/semi-ui';
 import { Check } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { gameGet, gamePostOnce } from '../common/api';
 import { getClassText } from '../dungeon/text';
+import { useWendaoPart } from '../wendao/shell';
+import { ActiveDuelNotice, ContractList } from '../wendao/duel/Contracts';
+import DuelRun from '../wendao/duel/DuelRun';
 import DailyPanel from './DailyPanel';
 import {
   Bar,
@@ -35,9 +39,20 @@ import {
 
 const NO_GIFT = { stone: 0, herb: 0, ore: 0 };
 
-// 散修：四个正道宗门任选一个拜入(退出不满七天时不能)，或者境界与灵石够了自己开宗立派。规则(rules)来自服务端的
-// info.path，这里只负责写出来。
-const LoosePath = ({ rules, sect, standing, now, busy, actPath }) => {
+// 散修：四个正道宗门任选一个，过了入门试炼(一场斗法)就拜入(退出不满七天时不能)，或者境界与灵石够了自己开宗立派。规则
+// (rules)来自服务端的 info.path，book 是斗法契约(今天各宗门的试炼用了几次、有没有没打完的一场)，这里只负责写出来。
+const LoosePath = ({
+  rules,
+  sect,
+  standing,
+  now,
+  busy,
+  book,
+  trialTries,
+  actPath,
+  onTrial,
+  onGiveUp,
+}) => {
   const { t } = useTranslation();
   const text = useSectText();
   const classes = getClassText(t);
@@ -67,6 +82,13 @@ const LoosePath = ({ rules, sect, standing, now, busy, actPath }) => {
         </p>
       </div>
       <h4 className='sc-heading'>{t('拜入宗门')}</h4>
+      <p className='sc-hint'>
+        {t(
+          '拜入宗门要先过入门试炼：一间房、两波敌人，打赢才算入门；每个宗门每天最多试 {{n}} 次，输了或中途离开也用掉一次。',
+          { n: trialTries },
+        )}
+      </p>
+      <ActiveDuelNotice active={book?.active} busy={busy} onGiveUp={onGiveUp} />
       {wait > 0 && (
         <p className='sc-hint'>
           {t('退出宗门不满七天，{{left}}后才能再拜入', {
@@ -106,14 +128,25 @@ const LoosePath = ({ rules, sect, standing, now, busy, actPath }) => {
                 })}
               </p>
               <div className='sc-building-foot'>
+                <span className='sc-muted'>
+                  {t('今天已试 {{n}}/{{max}}', {
+                    n: book?.trials?.[npc.id] || 0,
+                    max: trialTries,
+                  })}
+                </span>
                 <span className='sc-spacer' />
                 <Button
                   size='small'
                   theme='solid'
-                  disabled={busy || wait > 0}
-                  onClick={() => actPath('join', { sect: npc.id })}
+                  disabled={
+                    busy ||
+                    wait > 0 ||
+                    !!book?.active ||
+                    (book?.trials?.[npc.id] || 0) >= trialTries
+                  }
+                  onClick={() => onTrial(npc.id)}
                 >
-                  {t('拜入')}
+                  {t('入门试炼')}
                 </Button>
               </div>
             </div>
@@ -149,8 +182,18 @@ const LoosePath = ({ rules, sect, standing, now, busy, actPath }) => {
   );
 };
 
-// 宗门弟子：身份与贡献、下一级身份的要求、每天的俸禄、上交资源换贡献、宝库换东西，以及退出宗门。
-const DisciplePath = ({ rules, sect, standing, busy, actPath }) => {
+// 宗门弟子：身份与贡献、下一级身份的要求、每天的俸禄、宗门任务(斗法)、上交资源换贡献、宝库换东西，以及退出宗门。
+const DisciplePath = ({
+  rules,
+  sect,
+  standing,
+  busy,
+  book,
+  taskTries,
+  actPath,
+  onTask,
+  onGiveUp,
+}) => {
   const { t } = useTranslation();
   const text = useSectText();
   const [gift, setGift] = useState(NO_GIFT);
@@ -251,6 +294,23 @@ const DisciplePath = ({ rules, sect, standing, busy, actPath }) => {
         <p className='sc-muted'>{t('已是长老，宗门里最高的身份')}</p>
       )}
 
+      <h4 className='sc-heading'>{t('宗门任务')}</h4>
+      <p className='sc-muted'>
+        {t(
+          '每天换一批，每张最多挑战 {{n}} 次；打赢给贡献与一点灵石，敌人随境界、地域与难度变强。',
+          { n: taskTries },
+        )}
+      </p>
+      <ActiveDuelNotice active={book?.active} busy={busy} onGiveUp={onGiveUp} />
+      <ContractList
+        contracts={book?.tasks}
+        open={book?.open}
+        active={book?.active}
+        busy={busy}
+        maxTries={taskTries}
+        onStart={onTask}
+      />
+
       <h4 className='sc-heading'>{t('上交')}</h4>
       <div className='sc-building-foot sc-donate'>
         {['stone', 'herb', 'ore'].map((key) => (
@@ -336,9 +396,57 @@ const DisciplePath = ({ rules, sect, standing, busy, actPath }) => {
 
 // 身份页：没开宗时宗门页的第一个页签。散修在这里拜入宗门或开宗立派，宗门弟子领俸禄、上交、换宝库；下面照常是每日功课。
 // standing 是服务端给的身份({ identity, path, realm, stipend_ready })。
-const PathPanel = ({ rules, sect, standing, now, busy, act, actPath }) => {
+const PathPanel = ({
+  rules,
+  sect,
+  standing,
+  now,
+  busy,
+  act,
+  actPath,
+  onDuelDone,
+}) => {
   const { t } = useTranslation();
+  const { info: world } = useWendaoPart('world');
+  const [book, setBook] = useState(null);
+  const [duel, setDuel] = useState(null);
+  const [duelBusy, setDuelBusy] = useState(false);
+  const identity = standing?.identity;
+
+  const loadBook = useCallback(async () => {
+    const res = await gameGet('/api/game/wendao/duel/state', t);
+    if (res.data) setBook(res.data.book);
+  }, [t]);
+  useEffect(() => {
+    if (identity === 'loose' || identity === 'disciple') loadBook();
+  }, [identity, loadBook]);
+
+  const giveUp = async () => {
+    setDuelBusy(true);
+    const res = await gamePostOnce('/api/game/wendao/duel/giveup', {}, t);
+    setDuelBusy(false);
+    if (res.data) setBook(res.data.book);
+  };
+  // 打完回来：契约、身份与宗门都按回应里的新样子换上；放弃或出错时重新读一遍契约。
+  const finished = (answer) => {
+    setDuel(null);
+    if (answer?.book) {
+      setBook(answer.book);
+      onDuelDone(answer);
+    } else {
+      loadBook();
+    }
+  };
+
   if (!rules || !standing) return null;
+  if (duel) {
+    return (
+      <div className='sc-path'>
+        <DuelRun kind={duel.kind} id={duel.id} onDone={finished} />
+      </div>
+    );
+  }
+  const taskBusy = busy || duelBusy;
   return (
     <div className='sc-path'>
       {standing.identity === 'disciple' && (
@@ -346,8 +454,12 @@ const PathPanel = ({ rules, sect, standing, now, busy, act, actPath }) => {
           rules={rules}
           sect={sect}
           standing={standing}
-          busy={busy}
+          busy={taskBusy}
+          book={book}
+          taskTries={world?.contract_tries ?? 2}
           actPath={actPath}
+          onTask={(c) => setDuel({ kind: c.kind, id: c.id })}
+          onGiveUp={giveUp}
         />
       )}
       {standing.identity === 'loose' && (
@@ -356,8 +468,12 @@ const PathPanel = ({ rules, sect, standing, now, busy, act, actPath }) => {
           sect={sect}
           standing={standing}
           now={now}
-          busy={busy}
+          busy={taskBusy}
+          book={book}
+          trialTries={world?.trial_tries ?? 5}
           actPath={actPath}
+          onTrial={(id) => setDuel({ kind: 'trial', id })}
+          onGiveUp={giveUp}
         />
       )}
       {!standing.identity && (

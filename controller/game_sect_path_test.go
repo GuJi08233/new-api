@@ -33,7 +33,7 @@ func TestWendaoPathThroughTheApi(t *testing.T) {
 	path := "/api/game/wendao/sect/path"
 	action := "/api/game/wendao/sect/action"
 	shop := "/api/game/wendao/sect/shop/buy"
-	player.fails(http.MethodPost, path, map[string]any{"action": "join", "sect": "jingang"})
+	player.fails(http.MethodPost, duelBase+"/start", map[string]any{"kind": wendao.DuelTrial, "id": "jingang"})
 
 	player.ok(http.MethodPost, "/api/game/wendao/hero/action", map[string]any{"action": "create", "class": dungeon.ClassWarrior})
 	synced := player.ok(http.MethodPost, action, map[string]any{"action": "sync"})
@@ -47,10 +47,11 @@ func TestWendaoPathThroughTheApi(t *testing.T) {
 	assert.Equal(t, i18n.Translate(i18n.LangEn, i18n.MsgGameShopItemLimit), message)
 	assert.Equal(t, 3.0, player.balance(), "a refused talisman takes no coins")
 
-	joined := player.ok(http.MethodPost, path, map[string]any{"action": "join", "sect": "jingang"})
+	player.fails(http.MethodPost, path, map[string]any{"action": "join", "sect": "jingang"})
+	joined := joinThroughTrial(t, player, "jingang")
 	assert.Equal(t, "disciple", joined["standing"].(map[string]any)["identity"])
 	assert.Equal(t, "jingang", joined["standing"].(map[string]any)["path"].(map[string]any)["sect"])
-	assert.Equal(t, []any{map[string]any{"k": "path_join", "s": "jingang"}}, joined["events"])
+	assert.Contains(t, joined["events"], map[string]any{"k": "path_join", "s": "jingang"})
 	assert.Equal(t, true, joined["standing"].(map[string]any)["stipend_ready"])
 	paid := player.ok(http.MethodPost, path, map[string]any{"action": "stipend"})
 	assert.Equal(t, false, paid["standing"].(map[string]any)["stipend_ready"])
@@ -76,7 +77,7 @@ func TestWendaoPathThroughTheApi(t *testing.T) {
 	player.fails(http.MethodPost, path, map[string]any{"action": "found"})
 	left := player.ok(http.MethodPost, path, map[string]any{"action": "leave"})
 	assert.Equal(t, "loose", left["standing"].(map[string]any)["identity"])
-	player.fails(http.MethodPost, path, map[string]any{"action": "join", "sect": "taixu"})
+	player.fails(http.MethodPost, duelBase+"/start", map[string]any{"kind": wendao.DuelTrial, "id": "taixu"})
 	player.fails(http.MethodPost, path, map[string]any{"action": "found"})
 	editWendao(t, player, func(save *wendao.Save) {
 		save.Hero.Realm = wendao.FoundRealm
