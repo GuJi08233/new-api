@@ -31,6 +31,7 @@ export default function TravelPanel({
   receivedAt,
   blocked,
   riftActive,
+  meditation,
   busy,
   loot,
   onStart,
@@ -126,6 +127,9 @@ export default function TravelPanel({
               {t('先在历练中通过这个地域的任意节点，才能到这里游历。')}
             </p>
           )}
+          {meditation && (
+            <p className='df-muted'>{t('先离开灵脉，再开始游历。')}</p>
+          )}
           {blocked && (
             <p className='df-muted'>
               {t('先完成或退出进行中的斗法，再开始游历。')}
@@ -145,7 +149,9 @@ export default function TravelPanel({
             <Button
               theme='solid'
               loading={busy}
-              disabled={busy || !available || blocked || riftActive}
+              disabled={
+                busy || !available || blocked || riftActive || !!meditation
+              }
               onClick={() => onStart(region)}
             >
               {t('在{{region}}开始游历', {

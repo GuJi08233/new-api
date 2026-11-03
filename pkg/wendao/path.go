@@ -183,6 +183,8 @@ func (sv *Save) JoinSect(id string, now int64) error {
 	if h.Path != nil {
 		left = h.Path.Left
 	}
+	// 先结清原身份的修为，不能用刚得到的门派加成追溯此前的闭关或打坐。
+	sv.TickHero(now)
 	h.Path = &Path{Sect: id, Joined: now, Left: left}
 	return nil
 }
@@ -192,6 +194,7 @@ func (sv *Save) LeaveSect(now int64) error {
 	if sv.Identity() != "disciple" {
 		return ErrUnavailable
 	}
+	sv.TickHero(now)
 	sv.Hero.Path = &Path{Left: now}
 	return nil
 }
@@ -207,6 +210,8 @@ func (sv *Save) FoundSect(now int64) ([]Ev, error) {
 	if err := s.pay(Cost{Stone: FoundCost}); err != nil {
 		return nil, err
 	}
+	// 开宗会建起聚灵阵，旧时段仍按开宗前的速度结算。
+	sv.TickHero(now)
 	for building, level := range startBuildings {
 		s.Buildings[building] = level
 	}

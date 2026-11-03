@@ -123,6 +123,13 @@ const StatSheet = ({ sheet, rate, hp, mods }) => {
                   },
                 )}
           </span>
+          {sheet.meditation_pct > 0 && (
+            <span className='jn-sheet-part'>
+              {t('基础闭关公式 × (1 + 灵脉 {{pct}}%)', {
+                pct: sheet.meditation_pct,
+              })}
+            </span>
+          )}
         </dd>
       </div>
     </dl>

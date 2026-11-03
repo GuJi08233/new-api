@@ -391,7 +391,10 @@ export default function RiftPanel({ info, patch, reload, refreshAgenda }) {
                     {t('最多打通 {{n}} 重', { n: state.best })}
                   </p>
                 )}
-                <TravelNotice active={state.travel?.active} />
+                <TravelNotice
+                  active={state.travel?.active}
+                  meditation={state.meditation?.active}
+                />
                 <ClassPicker value={cls} onChange={setCls} />
                 {error && <div className='df-error'>{error}</div>}
                 <div className='df-actions'>
@@ -399,7 +402,10 @@ export default function RiftPanel({ info, patch, reload, refreshAgenda }) {
                     theme='solid'
                     loading={busy}
                     disabled={
-                      busy || !turnstile.ready || !!state.travel?.active
+                      busy ||
+                      !turnstile.ready ||
+                      !!state.travel?.active ||
+                      !!state.meditation?.active
                     }
                     onClick={start}
                   >

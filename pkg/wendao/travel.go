@@ -120,7 +120,7 @@ func (sv *Save) TravelView(now int64) *TravelView {
 // StartTravel 先结清出发前的闭关，再开始一次游历。秘境会话不在 Save 中，由接口在同一事务里核对互斥。
 func (sv *Save) StartTravel(region int, now int64) error {
 	h := sv.Hero
-	if h == nil || sv.Sect == nil || h.Travel != nil || h.Battle != nil || (sv.Duels != nil && sv.Duels.Active != nil) || now < h.Last {
+	if h == nil || sv.Sect == nil || h.Travel != nil || h.Meditation != nil || h.Battle != nil || (sv.Duels != nil && sv.Duels.Active != nil) || now < h.Last {
 		return ErrUnavailable
 	}
 	if region < 0 || region >= len(Regions) {

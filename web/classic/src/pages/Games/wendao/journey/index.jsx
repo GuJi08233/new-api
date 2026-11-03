@@ -237,7 +237,7 @@ const JourneyPage = () => {
   } else {
     body = (
       <>
-        <TravelNotice active={hero.travel} />
+        <TravelNotice active={hero.travel} meditation={hero.meditation} />
         <HeroCard
           hero={hero}
           info={info}

@@ -8833,6 +8833,24 @@
     "游历已结束，修为 +{{n}}，材料已放入储物处。": "Journey complete: cultivation +{{n}}. Materials have been placed in storage.",
     "游历中，闭关暂停": "Traveling; seclusion paused",
     "主角平时自动闭关，游历时暂停；离线最多结算 12 小时，境界与聚灵阵提高闭关速度": "Your hero cultivates automatically when not traveling. Offline gains are capped at 12 hours; higher realms and the Spirit Gathering Array increase the rate.",
-    "游历": "Travel"
+    "游历": "Travel",
+    "灵脉打坐期间不能进入斗法，请先回到世界离座。": "You cannot enter duels while meditating at a spirit vein. Return to the world and leave the vein first.",
+    "去离座": "Leave the vein",
+    "先离开灵脉，再开始游历。": "Leave the spirit vein before starting a journey.",
+    "基础闭关公式 × (1 + 灵脉 {{pct}}%)": "Base seclusion formula × (1 + spirit vein {{pct}}%)",
+    "灵脉打坐 +{{pct}}%": "Spirit vein meditation +{{pct}}%",
+    "灵脉打坐": "Spirit vein meditation",
+    "在已到达地域的灵脉打坐，持续提高自然闭关速度；每次离线补算最多 12 小时。": "Meditate at a spirit vein in a region you have reached to increase passive cultivation. Each offline settlement covers up to 12 hours.",
+    "加成只用于自然闭关，不提高丹药或游历收益。打坐期间不能游历或进入斗法；离座后可切换地域。": "The bonus applies only to passive cultivation, not pills or travel rewards. You cannot travel or enter duels while meditating. Leave the vein before changing regions.",
+    "正在{{region}}灵脉打坐": "Meditating at the {{region}} spirit vein",
+    "基础闭关 {{base}}/时 × (1 + 灵脉 {{pct}}%) = {{rate}}/时": "Base cultivation {{base}}/h × (1 + spirit vein {{pct}}%) = {{rate}}/h",
+    "修为已随闭关自动结算，离座不会重复领取。": "Cultivation is settled automatically with seclusion. Leaving the vein does not grant a second payout.",
+    "离开灵脉": "Leave spirit vein",
+    "灵脉加成 +{{pct}}% · 自然闭关 {{rate}}/时": "Spirit vein bonus +{{pct}}% · passive cultivation {{rate}}/h",
+    "先在历练中通过这个地域的任意节点，才能使用这里的灵脉。": "Clear any journey node in this region before using its spirit vein.",
+    "先结束游历，再到灵脉打坐。": "End your journey before meditating at a spirit vein.",
+    "先完成或退出进行中的斗法，再开始打坐。": "Finish or leave your current duel before meditating.",
+    "九幽秘境还有一轮未结束，先打完或放弃这一轮再来打坐。": "A Nine Hells Rift run is still open. Finish or abandon it before meditating.",
+    "在{{region}}灵脉打坐": "Meditate at the {{region}} spirit vein"
   }
 }

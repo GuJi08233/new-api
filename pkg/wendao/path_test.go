@@ -160,3 +160,62 @@ func TestLooseCultivatorCraftsPotionsInTheCave(t *testing.T) {
 	_, err = sv.Hero.craft(sv.Sect, dungeon.PotionIron, 1)
 	assert.ErrorIs(t, err, ErrUnavailable, "the iron potion needs a level-2 furnace")
 }
+
+// 拜入和退出太虚观在身份变化前结清自然修为，入门试炼直接调用规则时也不能追溯获得门派加成。
+func TestSectIdentityChangesSettleCultivationBeforeThePerkChanges(t *testing.T) {
+	for _, meditate := range []bool{false, true} {
+		name := "ordinary"
+		if meditate {
+			name = "meditating"
+		}
+		t.Run(name, func(t *testing.T) {
+			save := looseSave(t)
+			if meditate {
+				require.NoError(t, save.StartMeditation(0, 1000))
+			}
+			require.NoError(t, save.JoinSect("taixu", 2800))
+			beforeJoin, beforeLeave, afterLeave := 25.0, 55.0, 80.0
+			if meditate {
+				beforeJoin, beforeLeave, afterLeave = 41.25, 90.75, 132
+			}
+			assert.InDelta(t, beforeJoin, save.Hero.Exp, 1e-9)
+			require.NoError(t, save.LeaveSect(4600))
+			assert.InDelta(t, beforeLeave, save.Hero.Exp, 1e-9)
+			save.TickHero(6400)
+			if meditate {
+				assert.Equal(t, 2, save.Hero.Layer)
+				assert.InDelta(t, afterLeave-100, save.Hero.Exp, 1e-9)
+			} else {
+				assert.Equal(t, 1, save.Hero.Layer)
+				assert.InDelta(t, afterLeave, save.Hero.Exp, 1e-9)
+			}
+		})
+	}
+}
+
+// 开宗会建聚灵阵，开宗前的闭关或灵脉打坐不能带新建筑的加成。
+func TestFoundingSettlesCultivationBeforeBuildingTheArray(t *testing.T) {
+	for _, meditate := range []bool{false, true} {
+		name := "ordinary"
+		if meditate {
+			name = "meditating"
+		}
+		t.Run(name, func(t *testing.T) {
+			save := looseSave(t)
+			save.Hero.Realm = FoundRealm
+			save.Sect.Res.Stone = FoundCost
+			if meditate {
+				require.NoError(t, save.StartMeditation(0, 1000))
+			}
+			_, err := save.FoundSect(2800)
+			require.NoError(t, err)
+			before, after := 100.0, 206.0
+			if meditate {
+				before, after = 165, 339.9
+			}
+			assert.InDelta(t, before, save.Hero.Exp, 1e-9)
+			save.TickHero(4600)
+			assert.InDelta(t, after, save.Hero.Exp, 1e-9)
+		})
+	}
+}

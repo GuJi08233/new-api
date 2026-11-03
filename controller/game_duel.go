@@ -38,6 +38,7 @@ func duelWorldInfo() gin.H {
 // duelAnswer 是每个契约接口回应里共有的部分：契约、身份，以及(有储物处时)宗门，页面据此更新。
 func duelAnswer(save *wendao.Save, now int64) gin.H {
 	answer := gin.H{"book": save.DuelView(), "standing": save.PathView(gameCenterDay()), "travel": save.TravelView(now)}
+	answer["meditation"] = save.MeditationView(now)
 	if save.Sect != nil {
 		answer["sect"] = save.Sect.View(now)
 	}
@@ -55,7 +56,8 @@ func getDuelState(c *gin.Context) {
 	}
 	// 只读：在这份副本上把榜单排到今天，下一次改写存档时再记下来，两次排出来的相同。
 	rollWendaoDaily(save)
-	common.ApiSuccess(c, gin.H{"book": save.DuelView(), "standing": save.PathView(gameCenterDay()), "travel": save.TravelView(common.GetTimestamp())})
+	now := common.GetTimestamp()
+	common.ApiSuccess(c, gin.H{"book": save.DuelView(), "standing": save.PathView(gameCenterDay()), "travel": save.TravelView(now), "meditation": save.MeditationView(now)})
 }
 
 // startDuel 接下一张契约：kind 是 trial、task 或 bounty，id 是宗门(入门试炼)或契约编号。回应里带着刚发出的房间(种子与开局)，

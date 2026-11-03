@@ -452,6 +452,7 @@ const PathPanel = ({
   const { info: world } = useWendaoPart('world');
   const [book, setBook] = useState(null);
   const [travel, setTravel] = useState(null);
+  const [meditation, setMeditation] = useState(null);
   const bookSeq = useRef(0);
   const [duel, setDuel] = useState(null);
   const [duelBusy, setDuelBusy] = useState(false);
@@ -464,6 +465,7 @@ const PathPanel = ({
     if (res.data) {
       setBook(res.data.book);
       setTravel(res.data.travel?.active || null);
+      setMeditation(res.data.meditation?.active || null);
     }
   }, [t]);
   useEffect(() => {
@@ -479,6 +481,7 @@ const PathPanel = ({
     if (res.data) {
       setBook(res.data.book);
       setTravel(res.data.travel?.active || null);
+      setMeditation(res.data.meditation?.active || null);
     }
   };
   // 打完回来：契约、身份与宗门都按回应里的新样子换上；放弃或出错时重新读一遍契约。
@@ -488,6 +491,7 @@ const PathPanel = ({
       bookSeq.current += 1;
       setBook(answer.book);
       setTravel(answer.travel?.active || null);
+      setMeditation(answer.meditation?.active || null);
       onDuelDone(answer);
     } else {
       loadBook();
@@ -505,7 +509,7 @@ const PathPanel = ({
   const taskBusy = busy || duelBusy;
   return (
     <div className='sc-path'>
-      <TravelNotice active={travel} />
+      <TravelNotice active={travel} meditation={meditation} />
       {standing.identity === 'disciple' && (
         <DisciplePath
           rules={rules}
@@ -513,7 +517,7 @@ const PathPanel = ({
           standing={standing}
           busy={taskBusy}
           book={book}
-          blocked={!book || !!travel}
+          blocked={!book || !!travel || !!meditation}
           taskTries={world?.contract_tries ?? 2}
           actPath={actPath}
           onTask={(c) => setDuel({ kind: c.kind, id: c.id })}
@@ -529,7 +533,7 @@ const PathPanel = ({
           now={now}
           busy={taskBusy}
           book={book}
-          blocked={!book || !!travel}
+          blocked={!book || !!travel || !!meditation}
           trialTries={world?.trial_tries ?? 5}
           actPath={actPath}
           onTrial={(id) => setDuel({ kind: 'trial', id })}

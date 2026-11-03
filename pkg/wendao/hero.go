@@ -65,6 +65,8 @@ type Hero struct {
 	Arms *Arms `json:"arms,omitempty"`
 	// Travel 是正在进行、等待结束领取的游历；这期间暂停普通闭关，见 travel.go。
 	Travel *Travel `json:"travel,omitempty"`
+	// Meditation 是正在打坐的灵脉，自然闭关获得独立倍率，见 meditation.go。
+	Meditation *Meditation `json:"meditation,omitempty"`
 }
 
 // NodeRecord 是一个节点的通过记录。Pick 是剧情抉择选了哪一个(JourneyOption.Key)，没有抉择的节点为空。
@@ -259,6 +261,8 @@ type StatSheet struct {
 	Block       []StatPart `json:"block"`
 	BlockCap    int        `json:"block_cap"`
 	Rate        []StatPart `json:"rate"`
+	// MeditationPct 是自然闭关额外相乘的灵脉百分点，不混入 Rate 中相加的聚灵阵、静室与门派来源。
+	MeditationPct int `json:"meditation_pct"`
 }
 
 // Sheet 返回主角现在的属性与来源，s 是宗门(闭关速度看聚灵阵)。
@@ -275,6 +279,9 @@ func (h *Hero) Sheet(s *Sect) StatSheet {
 	}
 	if h.npcPerk() == PerkInsight {
 		sheet.Rate = append(sheet.Rate, StatPart{Key: "sect", N: int(math.Round(perkInsight * 100))})
+	}
+	if h.Meditation != nil {
+		sheet.MeditationPct = MeditationBonus(h.Meditation.Region)
 	}
 	if buff := h.Buffs[ElixirTiger]; buff != nil {
 		sheet.Strength = append(sheet.Strength, StatPart{Key: ElixirTiger, N: buff.Power, Left: buff.Left})
@@ -336,7 +343,7 @@ func (h *Hero) tick(s *Sect, now int64) []Ev {
 	if h.Travel != nil {
 		return nil
 	}
-	return h.addExp(h.CultivateRate(s) * float64(elapsed) / 3600)
+	return h.addExp(h.IdleRate(s) * float64(elapsed) / 3600)
 }
 
 // BreakChance 是主角现在突破的成功率(%)，pill 表示服破境丹。
@@ -413,7 +420,7 @@ func (sv *Save) HeroApply(a HeroAction, now int64, day string, seed uint64) ([]E
 	if sv.Duels != nil && sv.Duels.Active != nil && (a.Type == "fight" || a.Type == "climb" || a.Type == "trial") {
 		return nil, ErrUnavailable
 	}
-	if h.Travel != nil && (a.Type == "fight" || a.Type == "climb" || a.Type == "trial") {
+	if (h.Travel != nil || h.Meditation != nil) && (a.Type == "fight" || a.Type == "climb" || a.Type == "trial") {
 		return nil, ErrUnavailable
 	}
 	var more []Ev
@@ -979,19 +986,20 @@ func (sv *Save) FinishHeroFight(f *doufa.Fight, now int64) ([]Ev, error) {
 // HeroView 是主角在页面上的样子。Open 是现在能去的节点；Ready 是采集节点下一次能去的时间。
 type HeroView struct {
 	// Identity 是身份：master 掌门、disciple 宗门弟子、loose 散修；Path 是宗门身份的细节。
-	Identity    string          `json:"identity"`
-	Path        *Path           `json:"path,omitempty"`
-	Class       string          `json:"class"`
-	Realm       int             `json:"realm"`
-	Layer       int             `json:"layer"`
-	Exp         float64         `json:"exp"`
-	Need        float64         `json:"need"`
-	Rate        float64         `json:"rate"`
-	Travel      *TravelProgress `json:"travel,omitempty"`
-	Bottleneck  bool            `json:"bottleneck"`
-	BreakKey    string          `json:"break_key"`
-	BreakChance [2]int          `json:"break_chance"`
-	MaxHP       int             `json:"max_hp"`
+	Identity    string              `json:"identity"`
+	Path        *Path               `json:"path,omitempty"`
+	Class       string              `json:"class"`
+	Realm       int                 `json:"realm"`
+	Layer       int                 `json:"layer"`
+	Exp         float64             `json:"exp"`
+	Need        float64             `json:"need"`
+	Rate        float64             `json:"rate"`
+	Travel      *TravelProgress     `json:"travel,omitempty"`
+	Meditation  *MeditationProgress `json:"meditation,omitempty"`
+	Bottleneck  bool                `json:"bottleneck"`
+	BreakKey    string              `json:"break_key"`
+	BreakChance [2]int              `json:"break_chance"`
+	MaxHP       int                 `json:"max_hp"`
 	// FightMaxHP 与 FightMods 是实际斗法的基础属性，包含修行与丹药药力；未计本场丹符、随行和灵兽。
 	FightMaxHP  int                    `json:"fight_max_hp"`
 	FightMods   doufa.Mods             `json:"fight_mods"`
@@ -1098,7 +1106,7 @@ func (h *Hero) View(s *Sect, now int64, day string) HeroView {
 		presets = []*DeckPreset{}
 	}
 	v := HeroView{Identity: heroIdentity(h, s), Path: h.Path,
-		Class: h.Class, Realm: h.Realm, Layer: h.Layer, Exp: h.Exp, Need: ExpNeed(h.Realm, h.Layer), Rate: h.CultivateRate(s),
+		Class: h.Class, Realm: h.Realm, Layer: h.Layer, Exp: h.Exp, Need: ExpNeed(h.Realm, h.Layer), Rate: h.IdleRate(s),
 		Bottleneck: h.Bottleneck(), BreakChance: [2]int{h.BreakChance(false), h.BreakChance(true)},
 		MaxHP: h.MaxHP(), Strength: h.Strength(), RelicSlots: h.RelicSlots(), PotionSlots: dungeon.PotionSlotsWith(h.Worn),
 		Cards: dungeon.DeckViews(h.Cards), Deck: h.Deck, Presets: presets, Relics: h.Relics, Worn: h.Worn, Potions: h.Potions,
@@ -1115,6 +1123,7 @@ func (h *Hero) View(s *Sect, now int64, day string) HeroView {
 	if h.Travel != nil {
 		v.Travel, v.Rate = h.travelProgress(now), 0
 	}
+	v.Meditation = h.meditationProgress(s)
 	base := h.JourneySetup(NodeCombat, []string{"slime"}, 100, 100, 0)
 	if fight, err := doufa.New(1, base); err == nil {
 		v.FightMaxHP, v.FightMods = fight.P.MaxHP, base.Mods

@@ -12,18 +12,19 @@ import (
 )
 
 func registerTravelRoutes(group *gin.RouterGroup) {
-	group.GET("", getTravel)
+	group.GET("", getWorldActivities)
 	group.POST("/action", middleware.GameActionRateLimit("wendao-travel"), actTravel)
 }
 
-// travelAnswer 与历练共用主角和储物处概况，游历只预览收益，结束时才真正入账。
-func travelAnswer(save *wendao.Save, now int64, riftActive bool) gin.H {
+// worldActivityAnswer 与历练共用主角和储物处概况，游历只预览收益，结束时才真正入账。
+func worldActivityAnswer(save *wendao.Save, now int64, riftActive bool) gin.H {
 	answer := heroView(save, now, gameCenterDay())
 	answer["travel"], answer["rift_active"] = save.TravelView(now), riftActive
+	answer["meditation"] = save.MeditationView(now)
 	return answer
 }
 
-func getTravel(c *gin.Context) {
+func getWorldActivities(c *gin.Context) {
 	if !requireGameEnabled(c, wendaoGame) {
 		return
 	}
@@ -39,7 +40,7 @@ func getTravel(c *gin.Context) {
 	}
 	now := common.GetTimestamp()
 	save.TickHero(now)
-	common.ApiSuccess(c, travelAnswer(save, now, playing != nil && now-playing.CreatedAt <= riftRunTTL))
+	common.ApiSuccess(c, worldActivityAnswer(save, now, playing != nil && now-playing.CreatedAt <= riftRunTTL))
 }
 
 // actTravel 的奖励、行程 token 与请求收据在同一个事务里改写；开始游历与九幽开局还锁住同一份存档，堵住双页面同时出发。
@@ -120,7 +121,7 @@ func actTravel(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	answer := travelAnswer(current, now, playing != nil && now-playing.CreatedAt <= riftRunTTL)
+	answer := worldActivityAnswer(current, now, playing != nil && now-playing.CreatedAt <= riftRunTTL)
 	if replayed {
 		answer["replayed"] = true
 	} else if loot != nil {

@@ -119,6 +119,7 @@ func getRiftRun(c *gin.Context) {
 		return
 	}
 	answer := gin.H{"session": nil, "best": best, "travel": save.TravelView(common.GetTimestamp())}
+	answer["meditation"] = save.MeditationView(common.GetTimestamp())
 	if session != nil && common.GetTimestamp()-session.CreatedAt <= riftRunTTL {
 		answer["session"] = riftView(session, parseRiftState(session).Run, false)
 	}
@@ -165,7 +166,7 @@ func startRiftRun(c *gin.Context) {
 		if err != nil {
 			return "", err
 		}
-		if save.Hero != nil && save.Hero.Travel != nil {
+		if save.Hero != nil && (save.Hero.Travel != nil || save.Hero.Meditation != nil) {
 			return "", wendao.ErrUnavailable
 		}
 		run, err = doufa.NewRun(seed, req.Class, save.Rift.Talents)
@@ -261,7 +262,7 @@ func actRiftRun(c *gin.Context) {
 			respondSectError(c, err)
 			return
 		}
-		if save.Hero != nil && save.Hero.Travel != nil {
+		if save.Hero != nil && (save.Hero.Travel != nil || save.Hero.Meditation != nil) {
 			respondSectError(c, wendao.ErrUnavailable)
 			return
 		}

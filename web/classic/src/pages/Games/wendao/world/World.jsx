@@ -30,6 +30,7 @@ import { ActiveDuelNotice, ContractList } from '../duel/Contracts';
 import DuelRun from '../duel/DuelRun';
 import ArmsPanel from './ArmsPanel';
 import TravelPanel from './TravelPanel';
+import MeditationPanel from './MeditationPanel';
 import { REGION_IDS, getRegionText } from '../duel/text';
 import '../../sect/sect.css';
 import '../doufa/doufa.css';
@@ -122,7 +123,7 @@ const WorldPage = () => {
     }
   };
 
-  const travelAction = async (fields) => {
+  const idleAction = async (kind, fields) => {
     if (busyRef.current) return;
     busyRef.current = true;
     requestSeq.current += 1;
@@ -131,7 +132,7 @@ const WorldPage = () => {
     setLoot(null);
     try {
       const res = await gamePostOnce(
-        '/api/game/wendao/travel/action',
+        `/api/game/wendao/${kind}/action`,
         fields,
         t,
       );
@@ -144,7 +145,13 @@ const WorldPage = () => {
       setState((prev) => ({ ...prev, ...res.data }));
       setReceivedAt(Date.now());
       setLoot(res.data.loot || null);
-      playSound(fields.action === 'finish' ? 'coin' : 'start');
+      playSound(
+        fields.action === 'start'
+          ? 'start'
+          : kind === 'travel'
+            ? 'coin'
+            : 'sparkle',
+      );
       refreshAgenda();
     } finally {
       busyRef.current = false;
@@ -222,10 +229,27 @@ const WorldPage = () => {
         receivedAt={receivedAt}
         blocked={!!book.active || !!state.hero?.battle}
         riftActive={state.rift_active}
+        meditation={state.meditation?.active}
         busy={busy}
         loot={loot}
-        onStart={(target) => travelAction({ action: 'start', region: target })}
-        onFinish={(token) => travelAction({ action: 'finish', token })}
+        onStart={(target) =>
+          idleAction('travel', { action: 'start', region: target })
+        }
+        onFinish={(token) => idleAction('travel', { action: 'finish', token })}
+      />
+      <MeditationPanel
+        meditation={state.meditation}
+        region={here}
+        travel={state.travel?.active}
+        blocked={!!book.active || !!state.hero?.battle}
+        riftActive={state.rift_active}
+        busy={busy}
+        onStart={(target) =>
+          idleAction('meditation', { action: 'start', region: target })
+        }
+        onLeave={(token) =>
+          idleAction('meditation', { action: 'leave', token })
+        }
       />
       <div className='df-card'>
         <div className='df-title'>{regions[id].name}</div>
@@ -287,7 +311,7 @@ const WorldPage = () => {
             contracts={todays}
             open={book.open}
             active={book.active}
-            blocked={!!state.travel?.active}
+            blocked={!!state.travel?.active || !!state.meditation?.active}
             busy={busy}
             maxTries={info?.contract_tries ?? 2}
             onStart={(c) => setDuel({ kind: c.kind, id: c.id })}

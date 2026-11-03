@@ -8685,6 +8685,24 @@
     "游历已结束，修为 +{{n}}，材料已放入储物处。": "Voyage terminé : cultivation +{{n}}. Les matériaux ont été déposés dans la réserve.",
     "游历中，闭关暂停": "En voyage ; retraite suspendue",
     "主角平时自动闭关，游历时暂停；离线最多结算 12 小时，境界与聚灵阵提高闭关速度": "Le héros cultive automatiquement hors des voyages. Les gains hors ligne sont limités à 12 heures ; les royaumes supérieurs et la formation spirituelle augmentent la vitesse.",
-    "游历": "Voyage"
+    "游历": "Voyage",
+    "灵脉打坐期间不能进入斗法，请先回到世界离座。": "Impossible de combattre pendant la méditation sur une veine spirituelle. Retournez dans le monde et quittez la veine.",
+    "去离座": "Quitter la veine",
+    "先离开灵脉，再开始游历。": "Quittez la veine spirituelle avant de partir en voyage.",
+    "基础闭关公式 × (1 + 灵脉 {{pct}}%)": "Formule de retraite de base × (1 + veine spirituelle {{pct}} %)",
+    "灵脉打坐 +{{pct}}%": "Méditation sur une veine +{{pct}} %",
+    "灵脉打坐": "Méditation sur une veine spirituelle",
+    "在已到达地域的灵脉打坐，持续提高自然闭关速度；每次离线补算最多 12 小时。": "Méditez sur une veine spirituelle d’une région déjà atteinte pour accélérer la cultivation passive. Chaque calcul hors ligne couvre au maximum 12 heures.",
+    "加成只用于自然闭关，不提高丹药或游历收益。打坐期间不能游历或进入斗法；离座后可切换地域。": "Le bonus s’applique uniquement à la cultivation passive, sans améliorer les pilules ni les gains de voyage. Pendant la méditation, voyages et combats sont bloqués. Quittez la veine pour changer de région.",
+    "正在{{region}}灵脉打坐": "Méditation sur la veine de {{region}}",
+    "基础闭关 {{base}}/时 × (1 + 灵脉 {{pct}}%) = {{rate}}/时": "Cultivation de base {{base}}/h × (1 + veine spirituelle {{pct}} %) = {{rate}}/h",
+    "修为已随闭关自动结算，离座不会重复领取。": "La cultivation est calculée automatiquement avec la retraite. Quitter la veine ne donne pas un second gain.",
+    "离开灵脉": "Quitter la veine spirituelle",
+    "灵脉加成 +{{pct}}% · 自然闭关 {{rate}}/时": "Bonus de veine +{{pct}} % · cultivation passive {{rate}}/h",
+    "先在历练中通过这个地域的任意节点，才能使用这里的灵脉。": "Terminez un nœud d’aventure de cette région pour utiliser sa veine spirituelle.",
+    "先结束游历，再到灵脉打坐。": "Terminez votre voyage avant de méditer sur une veine spirituelle.",
+    "先完成或退出进行中的斗法，再开始打坐。": "Terminez ou quittez le combat en cours avant de méditer.",
+    "九幽秘境还有一轮未结束，先打完或放弃这一轮再来打坐。": "Une expédition dans la Faille des Neuf Enfers est encore en cours. Terminez-la ou abandonnez-la avant de méditer.",
+    "在{{region}}灵脉打坐": "Méditer sur la veine de {{region}}"
   }
 }

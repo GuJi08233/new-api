@@ -106,7 +106,7 @@ const TrialCard = ({ info, hero, trial, index, cleared, busy, onTrial }) => {
           <Button
             theme='solid'
             type={trial.kind === 'boss' ? 'danger' : 'primary'}
-            disabled={busy || !!hero.travel}
+            disabled={busy || !!hero.travel || !!hero.meditation}
             onClick={() =>
               onTrial(number, sign.bare ? [] : readyTeam(team, hero.companions))
             }

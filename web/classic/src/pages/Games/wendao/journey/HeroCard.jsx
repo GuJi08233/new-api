@@ -119,6 +119,8 @@ const HeroCard = ({ hero, pills, elapsed, now, busy, onBreak, onQi }) => {
               ? ` · ${t('游历中，闭关暂停')}`
               : !hero.bottleneck &&
                 ` · ${t('闭关 +{{n}}/时', { n: Math.round(hero.rate) })}`}
+            {hero.meditation &&
+              ` · ${t('灵脉打坐 +{{pct}}%', { pct: hero.meditation.bonus_pct })}`}
             {!hero.bottleneck &&
               qiWait > 0 &&
               ` · ${t('丹力还没化开，{{left}}后能服下一颗', {

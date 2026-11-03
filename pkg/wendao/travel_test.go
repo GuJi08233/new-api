@@ -188,7 +188,7 @@ func TestTravelExcludesJourneyAndWorldFights(t *testing.T) {
 func TestTravelSaveUpgradeAndRoundTrip(t *testing.T) {
 	save, err := ParseSave(`{"schema":8,"hero":{"class":"warrior","layer":1,"last":123},"sect":{"buildings":{},"res":{"stone":42}}}`)
 	require.NoError(t, err)
-	assert.Equal(t, 9, save.Schema)
+	assert.Equal(t, SaveSchema, save.Schema)
 	assert.Nil(t, save.Hero.Travel)
 	assert.Equal(t, int64(123), save.Hero.Last)
 	assert.Equal(t, 42, save.Sect.Res.Stone)

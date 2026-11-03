@@ -23,15 +23,19 @@ import { useTranslation } from 'react-i18next';
 import { useWendaoShell } from '../shell';
 import '../duel/duel.css';
 
-export default function TravelNotice({ active }) {
+export default function TravelNotice({ active, meditation }) {
   const { t } = useTranslation();
   const { go } = useWendaoShell();
-  if (!active) return null;
+  if (!active && !meditation) return null;
   return (
     <div className='dl-active' role='status'>
-      <span>{t('游历期间不能进入斗法，请先回到世界结束游历。')}</span>
+      <span>
+        {meditation
+          ? t('灵脉打坐期间不能进入斗法，请先回到世界离座。')
+          : t('游历期间不能进入斗法，请先回到世界结束游历。')}
+      </span>
       <Button size='small' onClick={() => go({ part: 'world' })}>
-        {t('去结束游历')}
+        {meditation ? t('去离座') : t('去结束游历')}
       </Button>
     </div>
   );

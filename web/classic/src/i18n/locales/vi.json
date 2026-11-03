@@ -9185,6 +9185,24 @@
     "游历已结束，修为 +{{n}}，材料已放入储物处。": "Đã kết thúc du lịch: tu vi +{{n}}. Nguyên liệu đã đưa vào kho.",
     "游历中，闭关暂停": "Đang du lịch; tạm dừng bế quan",
     "主角平时自动闭关，游历时暂停；离线最多结算 12 小时，境界与聚灵阵提高闭关速度": "Nhân vật tự động bế quan khi không du lịch. Tích lũy ngoại tuyến tối đa 12 giờ; cảnh giới và Tụ Linh Trận tăng tốc bế quan.",
-    "游历": "Du lịch"
+    "游历": "Du lịch",
+    "灵脉打坐期间不能进入斗法，请先回到世界离座。": "Không thể đấu pháp khi đang đả tọa tại linh mạch. Hãy trở về thế giới và rời chỗ ngồi trước.",
+    "去离座": "Rời linh mạch",
+    "先离开灵脉，再开始游历。": "Rời linh mạch trước khi bắt đầu du lịch.",
+    "基础闭关公式 × (1 + 灵脉 {{pct}}%)": "Công thức bế quan cơ bản × (1 + linh mạch {{pct}}%)",
+    "灵脉打坐 +{{pct}}%": "Đả tọa linh mạch +{{pct}}%",
+    "灵脉打坐": "Đả tọa linh mạch",
+    "在已到达地域的灵脉打坐，持续提高自然闭关速度；每次离线补算最多 12 小时。": "Đả tọa tại linh mạch ở vùng đã đến để tăng tốc tu luyện tự nhiên. Mỗi lần bù ngoại tuyến tối đa 12 giờ.",
+    "加成只用于自然闭关，不提高丹药或游历收益。打坐期间不能游历或进入斗法；离座后可切换地域。": "Hiệu quả chỉ áp dụng cho bế quan tự nhiên, không tăng lợi ích đan dược hay du lịch. Khi đả tọa không thể du lịch hoặc đấu pháp; rời chỗ ngồi để đổi vùng.",
+    "正在{{region}}灵脉打坐": "Đang đả tọa tại linh mạch {{region}}",
+    "基础闭关 {{base}}/时 × (1 + 灵脉 {{pct}}%) = {{rate}}/时": "Bế quan cơ bản {{base}}/giờ × (1 + linh mạch {{pct}}%) = {{rate}}/giờ",
+    "修为已随闭关自动结算，离座不会重复领取。": "Tu vi được tự động kết toán cùng bế quan. Rời chỗ ngồi không nhận thêm lần nữa.",
+    "离开灵脉": "Rời linh mạch",
+    "灵脉加成 +{{pct}}% · 自然闭关 {{rate}}/时": "Linh mạch +{{pct}}% · Bế quan tự nhiên {{rate}}/giờ",
+    "先在历练中通过这个地域的任意节点，才能使用这里的灵脉。": "Vượt qua một điểm lịch luyện bất kỳ trong vùng này trước khi dùng linh mạch tại đây.",
+    "先结束游历，再到灵脉打坐。": "Kết thúc du lịch trước khi đả tọa tại linh mạch.",
+    "先完成或退出进行中的斗法，再开始打坐。": "Hoàn thành hoặc rời trận đấu pháp hiện tại trước khi đả tọa.",
+    "九幽秘境还有一轮未结束，先打完或放弃这一轮再来打坐。": "Một lượt bí cảnh Cửu U vẫn chưa kết thúc. Hãy hoàn thành hoặc từ bỏ lượt đó trước khi đả tọa.",
+    "在{{region}}灵脉打坐": "Đả tọa tại linh mạch {{region}}"
   }
 }
