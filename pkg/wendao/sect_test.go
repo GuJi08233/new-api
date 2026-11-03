@@ -3,8 +3,6 @@ package wendao
 import (
 	"testing"
 
-	"github.com/QuantumNous/new-api/pkg/dungeon"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -378,17 +376,18 @@ func TestRecordTournament(t *testing.T) {
 	assert.Equal(t, 3, s.Stats.BestRounds)
 }
 
-// 存档读写往返不丢东西；空存档还没有宗门，秘境的局外成长是一份新的。
+// 存档读写往返不丢东西；空存档还没有宗门，秘境斗法的局外成长是一份新的。
 func TestSaveEncodeRoundTrip(t *testing.T) {
 	s := NewSect(13, 100)
 	s.Tick(5 * hour)
 	save, err := ParseSave("")
 	require.NoError(t, err)
 	assert.Nil(t, save.Sect)
-	assert.Equal(t, []string{dungeon.ClassWarrior}, save.Abyss.Classes)
+	assert.Zero(t, save.Rift.Crystals)
+	assert.Contains(t, save.Rift.Records, "warrior")
 
 	save.Sect = s
-	save.Abyss.Crystals = 7
+	save.Rift.Crystals = 7
 	data, err := save.Encode()
 	require.NoError(t, err)
 	back, err := ParseSave(data)

@@ -76,7 +76,7 @@ type GameSetting struct {
 	Watersort   SkillRule `json:"watersort"`
 	Onestroke   SkillRule `json:"onestroke"`
 	Match3      SkillRule `json:"match3"`
-	// Wendao 是问道的开关与九幽秘境无尽模式的领奖规则；WendaoTournament 是问道里宗门大比的开关与领奖规则。
+	// Wendao 是问道的开关与九幽秘境的领奖规则；WendaoTournament 是问道里宗门大比的开关与领奖规则。
 	Wendao           SkillRule `json:"wendao"`
 	WendaoTournament SkillRule `json:"wendao_tournament"`
 
@@ -279,7 +279,7 @@ var gameRuleSpecs = map[string]gameRuleSpec{
 	"watersort":   {Kind: GameKindSkill, MaxTierScore: 3},
 	"onestroke":   {Kind: GameKindSkill, MaxTierScore: 3},
 	"match3":      {Kind: GameKindSkill, MaxTierScore: 3},
-	// 问道：九幽秘境无尽模式的成绩是打通的重数，奖励档位最多填到 30 重，与 pkg/dungeon.MaxTierScore 一致；
+	// 问道：九幽秘境的成绩是打通的重数，奖励档位最多填到 30 重；
 	// 宗门大比的成绩是连胜场数，最多五场，与 pkg/wendao.MaxTierScore 一致。
 	"wendao":            {Kind: GameKindSkill, MaxTierScore: 30},
 	"wendao_tournament": {Kind: GameKindSkill, MaxTierScore: 5},

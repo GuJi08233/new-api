@@ -58,9 +58,9 @@ const reducedMotion = () =>
 const coarsePointer = () =>
   window.matchMedia?.('(hover: none), (pointer: coarse)').matches ?? false;
 
-// Fight 打一间房：画布、逐帧取样操作、固定 60 帧走规则、画画面。打完把要点和逐帧输入交给 onEnd(以后交给服务端核对)。
-// 切到后台自动暂停；Esc 暂停；手机上左边摇杆、右边四个键。
-export default function Fight({ setup, seed, onEnd, onExit }) {
+// Fight 打一间房：画布、逐帧取样操作、固定 60 帧走规则、画画面。打完把要点和逐帧输入交给 onEnd(交给服务端核对)。
+// 切到后台自动暂停；Esc 暂停；手机上左边摇杆、右边四个键。暂停层上的退出键叫 exitLabel(秘境里是「撤退」)。
+export default function Fight({ setup, seed, onEnd, onExit, exitLabel }) {
   const { t } = useTranslation();
   const stageRef = useRef(null);
   const canvasRef = useRef(null);
@@ -328,7 +328,7 @@ export default function Fight({ setup, seed, onEnd, onExit }) {
               <Button theme='solid' onClick={() => setPause(false)}>
                 {t('继续')}
               </Button>
-              <Button onClick={onExit}>{t('退出')}</Button>
+              <Button onClick={onExit}>{exitLabel || t('退出')}</Button>
             </div>
           </div>
         </div>

@@ -14,13 +14,13 @@ func won(hp, mp int) *Fight {
 
 // 一轮从满状态开始，第一步只有一间战斗房；进去以后按这一重的敌人与房间开局，带上生命、灵力、法宝与祝福。
 func TestRunStartsWithAFightRoom(t *testing.T) {
-	run, err := NewRun(7, "ranger")
+	run, err := NewRun(7, "ranger", nil)
 	require.NoError(t, err)
 	spec := content.Classes["ranger"]
 	assert.Equal(t, spec.HP, run.HP)
 	assert.Equal(t, spec.Weapons, run.Weapons)
 	assert.Equal(t, []string{"fight"}, run.Choices)
-	_, err = NewRun(7, "monk")
+	_, err = NewRun(7, "monk", nil)
 	assert.ErrorIs(t, err, ErrSetup)
 
 	require.NoError(t, run.Enter(0, 1000))
@@ -47,12 +47,12 @@ func TestRunStartsWithAFightRoom(t *testing.T) {
 
 // 打赢一间房记下剩下的生命与灵力、击杀和灵石，然后给出下一步；倒下就结束这一轮。没打完的房不能记。
 func TestRunClearsRooms(t *testing.T) {
-	run, err := NewRun(11, "warrior")
+	run, err := NewRun(11, "warrior", nil)
 	require.NoError(t, err)
-	assert.ErrorIs(t, run.Clear(won(10, 10)), ErrRunAction, "no room to clear")
+	assert.ErrorIs(t, run.Clear(won(10, 10), 0), ErrRunAction, "no room to clear")
 	require.NoError(t, run.Enter(0, 0))
-	assert.ErrorIs(t, run.Clear(&Fight{}), ErrRunAction, "the room is not over")
-	require.NoError(t, run.Clear(won(77, 40)))
+	assert.ErrorIs(t, run.Clear(&Fight{}, 0), ErrRunAction, "the room is not over")
+	require.NoError(t, run.Clear(won(77, 40), 0))
 	assert.Equal(t, 77, run.HP)
 	assert.Equal(t, 40, run.MP)
 	assert.Equal(t, 1, run.Cleared)
@@ -72,7 +72,7 @@ func TestRunClearsRooms(t *testing.T) {
 		require.GreaterOrEqual(t, i, 0, "every step offers a fight: %v", run.Choices)
 		require.NoError(t, run.Enter(i, 0))
 	}
-	require.NoError(t, run.Clear(&Fight{Over: true, Tick: 300, P: Player{HP: 0}}))
+	require.NoError(t, run.Clear(&Fight{Over: true, Tick: 300, P: Player{HP: 0}}, 0))
 	assert.True(t, run.Over)
 	assert.Zero(t, run.HP)
 	assert.ErrorIs(t, run.Enter(0, 0), ErrRunAction)
@@ -90,7 +90,7 @@ func indexOf(list []string, v string) int {
 
 // 每重最后一步只有首领；打倒首领回血、进下一重，并给三选一的祝福；下一重的敌人换成赤炎窟的，强度更高。
 func TestRunBossLeadsToTheNextFloor(t *testing.T) {
-	run, err := NewRun(5, "mage")
+	run, err := NewRun(5, "mage", nil)
 	require.NoError(t, err)
 	run.Step = FloorSteps - 2
 	run.Choices = nil
@@ -100,7 +100,7 @@ func TestRunBossLeadsToTheNextFloor(t *testing.T) {
 	assert.Equal(t, [][]Group{{{Foe: "slime_king", N: 1}}}, run.Room.Setup.Waves)
 	assert.Equal(t, "glade", run.Room.Setup.Room)
 
-	require.NoError(t, run.Clear(won(20, 0)))
+	require.NoError(t, run.Clear(won(20, 0), 0))
 	assert.Equal(t, 2, run.Floor)
 	assert.Equal(t, min(run.MaxHP(), 20+run.MaxHP()*bossHeal/100), run.HP)
 	require.NotNil(t, run.Offer)
@@ -131,7 +131,7 @@ func TestRunBossLeadsToTheNextFloor(t *testing.T) {
 
 // 祝福叠成加成并进到开局里，生命上限跟着变；宝库的法宝换掉指定的那一件；静修回血；不要也可以。
 func TestRunOffersAndRest(t *testing.T) {
-	run, err := NewRun(3, "warrior")
+	run, err := NewRun(3, "warrior", nil)
 	require.NoError(t, err)
 	run.Blessings = []string{"edge", "vigor", "ward"}
 	assert.Equal(t, Mods{Damage: 20, Vigor: 25, Ward: 1}, run.Mods())
@@ -170,7 +170,7 @@ func TestRunOffersAndRest(t *testing.T) {
 // 同一个种子走同样的一轮：房间、敌人、选项都一样，服务端重启以后读回来的状态接着走也一样。
 func TestRunIsDeterministic(t *testing.T) {
 	play := func() []string {
-		run, err := NewRun(99, "ranger")
+		run, err := NewRun(99, "ranger", nil)
 		require.NoError(t, err)
 		var trace []string
 		for step := 0; step < 12 && !run.Over; step++ {
@@ -181,7 +181,7 @@ func TestRunIsDeterministic(t *testing.T) {
 			require.NoError(t, run.Enter(0, 0))
 			if run.Room != nil {
 				trace = append(trace, run.Room.Setup.Room)
-				require.NoError(t, run.Clear(won(50, 50)))
+				require.NoError(t, run.Clear(won(50, 50), 0))
 			}
 			trace = append(trace, run.Choices...)
 		}
@@ -209,7 +209,10 @@ func TestRunContentIsKnown(t *testing.T) {
 		all.Reach += b.Mods.Reach
 		all.Ward += b.Mods.Ward
 	}
-	assert.True(t, all.valid(), "every blessing together stays within the rules")
+	for _, talent := range content.Talents {
+		all.add(talent.Mods, len(talent.Costs))
+	}
+	assert.True(t, all.valid(), "every blessing and every talent level together stay within the rules")
 	for _, w := range content.WeaponPool {
 		assert.Contains(t, content.Weapons, w)
 	}

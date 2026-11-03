@@ -277,17 +277,17 @@ export const getPotionText = (t) => ({
 export const getItemText = (t) => ({
   elixir: {
     name: t('续命丹'),
-    desc: t('回复 40% 最大生命，战斗内外都能用'),
+    desc: t('两间房之间服用，回复 40% 生命上限'),
   },
   potion_crate: {
     name: t('丹符补给'),
     desc: t('随机得到一份丹符，丹符栏要有空位'),
   },
   gold_pouch: { name: t('灵珠袋'), desc: t('获得 100 灵珠') },
-  relic_box: { name: t('法宝匣'), desc: t('随机得到一件还没有的法宝') },
+  relic_box: { name: t('福缘匣'), desc: t('随机得到一样还没有的祝福') },
   ward: {
     name: t('护命符'),
-    desc: t('本轮第一次倒下时以 50% 生命复活，在涅槃羽之后生效；每轮最多一张'),
+    desc: t('本轮第一次倒下时以半条命复活，同一间房重新打；一次只能挂一张'),
   },
 });
 

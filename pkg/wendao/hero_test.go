@@ -3,6 +3,7 @@ package wendao
 import (
 	"testing"
 
+	"github.com/QuantumNous/new-api/pkg/doufa"
 	"github.com/QuantumNous/new-api/pkg/dungeon"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -434,28 +435,28 @@ func TestHeroCraftAndQiPill(t *testing.T) {
 	assert.ErrorIs(t, err, ErrUnavailable, "the last pill is still working")
 }
 
-// 无尽秘境每天前 AbyssLootRuns 轮往宗门带回材料；试炼与还没有宗门时不给。
-func TestAbyssLootDailyCap(t *testing.T) {
-	run, err := dungeon.NewRun(1, dungeon.Options{Class: dungeon.ClassWarrior})
+// 秘境斗法每天前 AbyssLootRuns 轮往宗门带回材料；还没有宗门、一间房也没打通时不给。
+func TestRiftLootDailyCap(t *testing.T) {
+	run, err := doufa.NewRun(1, "warrior", nil)
 	require.NoError(t, err)
-	run.Floor, run.Elites, run.Bosses = 12, 2, 1
+	run.Floor, run.Cleared = 3, 9
 	save, err := ParseSave("")
 	require.NoError(t, err)
-	assert.Equal(t, Cost{}, save.GrantAbyssLoot(run, "d1"), "no sect yet")
+	assert.Equal(t, Cost{}, save.GrantRiftLoot(run, "d1"), "no sect yet")
 
 	save.Sect = NewSect(1, 0)
-	want := Cost{Stone: 15*12 + 60, Herb: 6*12 + 20, Ore: 25*2 + 30}
+	want := Cost{Stone: 12*9 + 150*2, Herb: 5*9 + 50*2, Ore: 3*9 + 60*2}
 	stone := save.Sect.Res.Stone
 	for i := 0; i < AbyssLootRuns; i++ {
-		assert.Equal(t, want, save.GrantAbyssLoot(run, "d1"))
+		assert.Equal(t, want, save.GrantRiftLoot(run, "d1"))
 	}
-	assert.Equal(t, Cost{}, save.GrantAbyssLoot(run, "d1"), "daily cap")
+	assert.Equal(t, Cost{}, save.GrantRiftLoot(run, "d1"), "daily cap")
 	assert.Equal(t, stone+AbyssLootRuns*want.Stone, save.Sect.Res.Stone)
-	assert.Equal(t, want, save.GrantAbyssLoot(run, "d2"), "a new day")
+	assert.Equal(t, want, save.GrantRiftLoot(run, "d2"), "a new day")
 
-	trial, err := dungeon.NewTrial(1, dungeon.Trials[0].Id)
+	empty, err := doufa.NewRun(1, "mage", nil)
 	require.NoError(t, err)
-	assert.Equal(t, Cost{}, save.GrantAbyssLoot(trial, "d3"))
+	assert.Equal(t, Cost{}, save.GrantRiftLoot(empty, "d3"), "a run that cleared nothing brings nothing back")
 }
 
 // 问心阶：第五章的尾声走过之后才开放，开放时有提示；只能挑战下一级，赢了登上一级并拿到修为、宗门资源，强敌那一级给破境丹、

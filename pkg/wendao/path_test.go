@@ -3,6 +3,7 @@ package wendao
 import (
 	"testing"
 
+	"github.com/QuantumNous/new-api/pkg/doufa"
 	"github.com/QuantumNous/new-api/pkg/dungeon"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -12,7 +13,7 @@ func looseSave(t *testing.T) *Save {
 	t.Helper()
 	hero, err := NewHero(dungeon.ClassWarrior, 1000)
 	require.NoError(t, err)
-	return &Save{Sect: NewStorehouse(7, 1000), Hero: hero, Abyss: &dungeon.Meta{}}
+	return &Save{Sect: NewStorehouse(7, 1000), Hero: hero, Rift: &doufa.Meta{}}
 }
 
 // 新主角是散修：储物处里有些灵石灵草，没有主殿、弟子与灵田，宗门经营的操作都做不了，每日功课只抽不用宗门的。

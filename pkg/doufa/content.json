@@ -509,5 +509,50 @@
       }
     }
   ],
+  "talents": [
+    {
+      "id": "vitality",
+      "costs": [20, 40, 60],
+      "mods": {
+        "vigor": 8
+      }
+    },
+    {
+      "id": "might",
+      "costs": [30, 60, 90],
+      "mods": {
+        "damage": 4
+      }
+    },
+    {
+      "id": "fleet",
+      "costs": [25, 50],
+      "mods": {
+        "speed": 3
+      }
+    },
+    {
+      "id": "spirit",
+      "costs": [20, 40],
+      "mods": {
+        "regen": 15
+      }
+    },
+    {
+      "id": "anchor",
+      "costs": [40],
+      "retreats": 1
+    },
+    {
+      "id": "medic",
+      "costs": [40],
+      "rest": 10
+    },
+    {
+      "id": "fortune",
+      "costs": [80],
+      "blessings": 1
+    }
+  ],
   "weapon_pool": ["sword", "flying_sword", "talisman", "spear", "thunder"]
 }

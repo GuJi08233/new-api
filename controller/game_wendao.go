@@ -15,9 +15,9 @@ import (
 // 问道是游戏中心里的一款长线修仙游戏，由三个板块组成，共用一份存档(pkg/wendao.Save)：
 //   - 历练：主角的修仙路，主线剧情与卡牌战斗，见 game_wendao_hero.go；
 //   - 宗门：经营、大比、论剑与仙盟，见 game_sect*.go；
-//   - 九幽秘境：卡牌肉鸽，见 game_dungeon.go。
+//   - 九幽秘境：即时斗法的肉鸽，见 game_rift.go。
 //
-// 游戏标识 wendao 的开关管整个问道，它的领奖规则是秘境无尽模式的；宗门大比另有开关与领奖规则(wendao_tournament)。
+// 游戏标识 wendao 的开关管整个问道，它的领奖规则是九幽秘境的(成绩是打通的重数)；宗门大比另有开关与领奖规则(wendao_tournament)。
 // 世界设定与发游戏币的规则见 pkg/wendao/world.md。
 
 const wendaoGame = "wendao"
@@ -28,7 +28,7 @@ func rollWendaoDaily(save *wendao.Save) {
 	save.RollSaveDaily(model.GameCenterDay(now), model.GameCenterDay(now.AddDate(0, 0, -1)))
 }
 
-// wendaoPartGate 是问道里一个发游戏币的玩法(秘境无尽、宗门大比)自己的开关与开局人机验证，页面按它显示开局按钮。
+// wendaoPartGate 是问道里一个发游戏币的玩法(九幽秘境、宗门大比)自己的开关与开局人机验证，页面按它显示开局按钮。
 func wendaoPartGate(ctx *gameContext, info gin.H, game string) {
 	info["enabled"] = ctx.Setting.GameEnabled(game)
 	info["play_turnstile"] = gin.H{
@@ -40,7 +40,7 @@ func wendaoPartGate(ctx *gameContext, info gin.H, game string) {
 func init() {
 	registerGame(&gameDefinition{Key: wendaoGame, Kind: operation_setting.GameKindSkill,
 		Info: func(ctx *gameContext) (gin.H, error) {
-			abyss, err := abyssInfo(ctx)
+			abyss, err := riftInfo(ctx)
 			if errors.Is(err, wendao.ErrNewerSave) {
 				return nil, errors.New(i18n.T(ctx.Context, i18n.MsgGameWendaoNewerSave))
 			}
@@ -56,19 +56,18 @@ func init() {
 		Routes: func(group *gin.RouterGroup) {
 			group.GET("/agenda", getWendaoAgenda)
 			registerHeroRoutes(group.Group("/hero"))
-			registerAbyssRoutes(group.Group("/abyss"))
 			registerRiftRoutes(group.Group("/rift"))
 			registerSectRoutes(group.Group("/sect"))
 		},
 	})
 }
 
-// wendaoRewardTodos 是两个发游戏币的玩法(秘境无尽、宗门大比)今天的奖励还没领满时的待办。玩法关着、不发奖励时不提。
+// wendaoRewardTodos 是两个发游戏币的玩法(九幽秘境、宗门大比)今天的奖励还没领满时的待办。玩法关着、不发奖励时不提。
 var wendaoRewardTodos = []struct {
 	game string
 	todo wendao.Todo
 }{
-	{dungeonGame, wendao.Todo{Key: "abyss_reward", Part: wendao.PartAbyss}},
+	{riftGame, wendao.Todo{Key: "abyss_reward", Part: wendao.PartAbyss}},
 	{sectTournamentGame, wendao.Todo{Key: "tournament_reward", Part: wendao.PartSect, Tab: "tournament"}},
 }
 

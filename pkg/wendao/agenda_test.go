@@ -168,6 +168,6 @@ func TestGuideFollowsProgress(t *testing.T) {
 	require.NoError(t, s.dispatch("patrol", []int{s.Disciples[0].Id}, 0))
 	s.Garden.Plots[0].Crop = Crops[0].Key
 	h.Realm = 1
-	save.Abyss.Runs = 1
+	save.Rift.Runs = 1
 	assert.Equal(t, []string{"hero", "win", "build", "dispatch", "garden", "break", "abyss"}, done(save))
 }

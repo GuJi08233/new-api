@@ -65,6 +65,35 @@ export const getRoomText = (t) => ({
   boss: { name: t('首领'), desc: t('这一重的首领，打倒后回血进下一重') },
 });
 
+// 道韵天赋：数值取自 content.json，与服务端算的加成一致。名字沿用旧版秘境的「筑体」「调息」「福缘」。
+export const getTalentText = (t) => {
+  const talents = Object.fromEntries(content.talents.map((x) => [x.id, x]));
+  return {
+    vitality: {
+      name: t('筑体'),
+      desc: t('每级生命上限 +{{n}}', { n: talents.vitality.mods.vigor }),
+    },
+    might: {
+      name: t('锋芒'),
+      desc: t('每级伤害 +{{n}}%', { n: talents.might.mods.damage }),
+    },
+    fleet: {
+      name: t('轻身'),
+      desc: t('每级移速 +{{n}}%', { n: talents.fleet.mods.speed }),
+    },
+    spirit: {
+      name: t('聚气'),
+      desc: t('每级灵力回复 +{{n}}%', { n: talents.spirit.mods.regen }),
+    },
+    anchor: { name: t('定魂'), desc: t('每级多一次退路') },
+    medic: {
+      name: t('调息'),
+      desc: t('静修多回复 {{n}}% 生命上限', { n: talents.medic.rest }),
+    },
+    fortune: { name: t('福缘'), desc: t('开局获得一样随机祝福') },
+  };
+};
+
 // 祝福：数值取自 content.json，与服务端算的加成一致。
 export const getBlessingText = (t) => {
   const mods = Object.fromEntries(content.blessings.map((b) => [b.id, b.mods]));

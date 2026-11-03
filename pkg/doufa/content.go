@@ -134,7 +134,19 @@ type Blessing struct {
 	Mods Mods   `json:"mods"`
 }
 
-// Content 是 content.json 的全部内容。Blessings 与 WeaponPool 是数组，按固定的先后抽取，两边一致。
+// Talent 是一种道韵天赋：用道韵升级，Costs[i] 是升到第 i+1 级要花的道韵。每升一级给下面这些东西，N 级就是 N 倍：
+// Mods 是整轮生效的加成(与祝福叠在一起)，Retreats 是多几次退路，Rest 是静修多回生命上限的百分之几，Blessings 是开局
+// 多送几样随机祝福。天赋只在开局时生效，一轮开始以后买的天赋下一轮才有。
+type Talent struct {
+	Id        string `json:"id"`
+	Costs     []int  `json:"costs"`
+	Mods      Mods   `json:"mods"`
+	Retreats  int    `json:"retreats,omitempty"`
+	Rest      int    `json:"rest,omitempty"`
+	Blessings int    `json:"blessings,omitempty"`
+}
+
+// Content 是 content.json 的全部内容。Blessings、Talents 与 WeaponPool 是数组，按固定的先后抽取或排列，两边一致。
 type Content struct {
 	Version int `json:"version"`
 	Player  struct {
@@ -153,6 +165,7 @@ type Content struct {
 	Foes       map[string]FoeSpec    `json:"foes"`
 	Rooms      map[string][]string   `json:"rooms"`
 	Blessings  []Blessing            `json:"blessings"`
+	Talents    []Talent              `json:"talents"`
 	WeaponPool []string              `json:"weapon_pool"`
 	Trial      struct {
 		Room  string    `json:"room"`

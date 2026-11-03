@@ -30,12 +30,12 @@ import GameLayout from '../common/GameLayout';
 import { gameGet } from '../common/api';
 import { useGameInfo } from '../common/useGameInfo';
 import { useVisiblePolling } from '../common/useVisiblePolling';
-import Dungeon from '../dungeon';
+import Abyss from './doufa/Abyss';
 import Sect from '../sect';
 import Journey from './journey';
 import { WENDAO_PARTS, WendaoContext } from './shell';
 
-const PARTS = { journey: Journey, sect: Sect, abyss: Dungeon };
+const PARTS = { journey: Journey, sect: Sect, abyss: Abyss };
 
 // 顶上的待办每分钟与服务端同步一次；操作之后等这么久再读，连着几步操作只读一次。
 const AGENDA_INTERVAL = 60 * 1000;

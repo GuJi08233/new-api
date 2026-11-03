@@ -83,7 +83,7 @@ func (sv *Save) guide() []GuideStep {
 			{Key: "win", Done: h != nil && h.Stats.Wins > 0, Part: PartJourney, Tab: "map"},
 			{Key: "path", Done: joined, Part: PartSect},
 			{Key: "break", Done: h != nil && h.Realm >= 1, Part: PartJourney},
-			{Key: "abyss", Done: sv.Abyss.Runs > 0, Part: PartAbyss},
+			{Key: "abyss", Done: sv.Rift.Runs > 0, Part: PartAbyss},
 		}
 	}
 	built, dispatched, planted := false, false, false
@@ -101,7 +101,7 @@ func (sv *Save) guide() []GuideStep {
 		{Key: "dispatch", Done: dispatched, Part: PartSect, Tab: "missions"},
 		{Key: "garden", Done: planted, Part: PartSect, Tab: "garden"},
 		{Key: "break", Done: h != nil && h.Realm >= 1, Part: PartJourney},
-		{Key: "abyss", Done: sv.Abyss.Runs > 0, Part: PartAbyss},
+		{Key: "abyss", Done: sv.Rift.Runs > 0, Part: PartAbyss},
 	}
 }
 

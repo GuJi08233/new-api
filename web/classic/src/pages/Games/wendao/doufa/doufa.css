@@ -424,3 +424,55 @@ button.df-choice:hover:not(:disabled) {
   outline: 2px solid var(--wd-red);
   outline-offset: 1px;
 }
+.df-crystals {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 10px;
+  color: var(--wd-red);
+  font-size: 13px;
+  font-weight: 400;
+}
+.df-run-tools {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.df-tag.is-ward {
+  border-color: var(--wd-red);
+  color: var(--wd-red);
+}
+.df-talents {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 8px;
+}
+.df-talent {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 8px;
+}
+.df-talent.is-owned {
+  border-left: 3px solid var(--wd-red);
+}
+.df-talent strong {
+  font-family: var(--wd-serif);
+  font-size: 15px;
+}
+.df-talent small {
+  margin-left: 6px;
+  color: var(--wd-ink-3);
+  font-size: 12px;
+  font-weight: 400;
+}
+.df-talent span {
+  flex: 1;
+  color: var(--wd-ink-2);
+  font-size: 12px;
+  line-height: 1.6;
+}

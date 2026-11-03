@@ -53,3 +53,33 @@ func TestNewerSaveIsRefused(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, SaveSchema, current.Schema)
 }
+
+// 旧版卡牌秘境的局外成长并进秘境斗法：道韵连同花在旧天赋与解锁流派上的一起退回，丹符补给与灵珠袋折成续命丹，其余道具接着用；
+// 读出以后旧的 abyss 不再写回，再读一遍不会重复退还。
+func TestOldAbyssBecomesTheRift(t *testing.T) {
+	old := `{"schema":4,"abyss":{"crystals":30,"earned":200,"runs":9,"classes":["warrior","mage"],` +
+		`"talents":{"vitality":2,"relic":1,"purse":1},` +
+		`"items":{"elixir":2,"potion_crate":3,"gold_pouch":1,"relic_box":4,"ward":1}}}`
+	save, err := ParseSave(old)
+	require.NoError(t, err)
+	assert.Nil(t, save.Abyss)
+	spent := 20 + 40 + 80 + 15 + 40 // 筑体两级、福缘、储物袋，加上解锁法师
+	assert.Equal(t, 30+spent, save.Rift.Crystals)
+	assert.Equal(t, 200, save.Rift.Earned)
+	assert.Equal(t, 9, save.Rift.Runs)
+	assert.Empty(t, save.Rift.Talents, "the old talents are gone; the crystals went back")
+	assert.Equal(t, map[string]int{"elixir": 2 + 3 + 1, "relic_box": 4, "ward": 1}, save.Rift.Items)
+
+	data, err := save.Encode()
+	require.NoError(t, err)
+	var raw map[string]any
+	require.NoError(t, common.UnmarshalJsonStr(data, &raw))
+	assert.NotContains(t, raw, "abyss")
+	again, err := ParseSave(data)
+	require.NoError(t, err)
+	assert.Equal(t, save.Rift, again.Rift, "reading it again does not refund twice")
+
+	capped, err := ParseSave(`{"abyss":{"items":{"elixir":99,"gold_pouch":99}}}`)
+	require.NoError(t, err)
+	assert.Equal(t, 99, capped.Rift.Items["elixir"], "folded items stay within the bag limit")
+}
