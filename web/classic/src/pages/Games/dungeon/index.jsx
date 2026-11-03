@@ -34,6 +34,7 @@ import { playSound } from '../common/sound';
 import { gameGet, gamePost, gamePostOnce, withTurnstile } from '../common/api';
 import { WendaoLayout, useWendaoPart, useWendaoShell } from '../wendao/shell';
 import { usePlayTurnstile } from '../common/usePlayTurnstile';
+import RiftPanel from '../wendao/doufa/RiftPanel';
 import Combat from './Combat';
 import Lobby from './Lobby';
 import MapView from './MapView';
@@ -141,6 +142,8 @@ const DungeonPage = () => {
   const [events, setEvents] = useState(null);
   const [targeting, setTargeting] = useState(null);
   const [deckOpen, setDeckOpen] = useState(false);
+  // 秘境板块现在有两种玩法：即时的斗法秘境(新)与卡牌秘境(发游戏币的无尽、试炼与练习还在这里)。
+  const [view, setView] = useState('rift');
   const [floaters, showOutside] = useOutsideFloaters();
   const busyRef = useRef(false);
   const eventKey = useRef(0);
@@ -426,6 +429,8 @@ const DungeonPage = () => {
       loading={loaded && !checked}
       className='dg-page'
       side={
+        // 斗法秘境不发游戏币，右边的领奖规则与道韵只属于卡牌秘境；不摆侧栏，战斗画面也更宽。
+        view === 'cards' &&
         info && (
           <SkillSide
             info={info}
@@ -461,220 +466,241 @@ const DungeonPage = () => {
         )
       }
     >
-      <div className='games-stage dg-stage'>
-        {showHud && (
-          <div className='dg-hud'>
-            <div className='dg-hud-row'>
-              <span className={`dg-mode is-${active}`}>
-                {modeNames[active]}
-              </span>
-              <strong>{classes[run.class]?.name}</strong>
-              {active === 'endless' && (
-                <>
-                  <span>{t('劫数 {{abyss}}', { abyss: run.abyss })}</span>
+      <div className='df-switch' role='tablist' aria-label={t('秘境')}>
+        {[
+          ['rift', t('斗法秘境')],
+          ['cards', t('卡牌秘境')],
+        ].map(([key, label]) => (
+          <button
+            key={key}
+            type='button'
+            role='tab'
+            aria-selected={view === key}
+            className='df-switch-tab'
+            onClick={() => setView(key)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {view === 'rift' ? (
+        <RiftPanel />
+      ) : (
+        <div className='games-stage dg-stage'>
+          {showHud && (
+            <div className='dg-hud'>
+              <div className='dg-hud-row'>
+                <span className={`dg-mode is-${active}`}>
+                  {modeNames[active]}
+                </span>
+                <strong>{classes[run.class]?.name}</strong>
+                {active === 'endless' && (
+                  <>
+                    <span>{t('劫数 {{abyss}}', { abyss: run.abyss })}</span>
+                    <span>
+                      {t('第 {{act}} 重 · 第 {{floor}} 层', {
+                        act: run.act,
+                        floor: run.floor,
+                      })}
+                    </span>
+                  </>
+                )}
+                {active === 'trial' && (
                   <span>
-                    {t('第 {{act}} 重 · 第 {{floor}} 层', {
-                      act: run.act,
-                      floor: run.floor,
+                    {t('第 {{fight}} / {{fights}} 场 · 已用 {{turns}} 回合', {
+                      fight: run.fight + 1,
+                      fights: run.fights,
+                      turns: run.turns + (run.combat?.turn || 0),
                     })}
                   </span>
-                </>
-              )}
-              {active === 'trial' && (
-                <span>
-                  {t('第 {{fight}} / {{fights}} 场 · 已用 {{turns}} 回合', {
-                    fight: run.fight + 1,
-                    fights: run.fights,
-                    turns: run.turns + (run.combat?.turn || 0),
+                )}
+                <span className='dg-hud-spacer' />
+                {active === 'practice' ? (
+                  <>
+                    <Button
+                      size='small'
+                      disabled={busy}
+                      onClick={() => send('reset')}
+                    >
+                      {t('重新开始')}
+                    </Button>
+                    <Button size='small' onClick={backToCamp}>
+                      {t('修改设置')}
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Button size='small' onClick={backToCamp}>
+                      {t('回到营地')}
+                    </Button>
+                    <Button
+                      size='small'
+                      type='danger'
+                      disabled={busy}
+                      onClick={confirmAbandon}
+                    >
+                      {t('放弃')}
+                    </Button>
+                  </>
+                )}
+              </div>
+              <div className='dg-hud-row'>
+                <span className='dg-hud-hp'>
+                  <HpBar hp={run.hp} max={run.max_hp} />
+                </span>
+                {active === 'endless' && (
+                  <span className='dg-gold'>
+                    <Coins size={15} />
+                    {run.gold}
+                  </span>
+                )}
+                <span className='dg-potions'>
+                  {Array.from({ length: run.potion_slots }, (_, slot) => {
+                    const potion = run.potions[slot];
+                    if (!potion)
+                      return <span key={slot} className='dg-potion is-empty' />;
+                    const usable =
+                      !busy && (run.phase === 'combat' || potion === 'heal');
+                    return (
+                      <Dropdown
+                        key={slot}
+                        trigger='click'
+                        position='bottom'
+                        render={
+                          <Dropdown.Menu>
+                            <Dropdown.Item disabled>
+                              {text.potions[potion]?.desc}
+                            </Dropdown.Item>
+                            <Dropdown.Item
+                              disabled={!usable}
+                              onClick={() => drinkPotion(slot)}
+                            >
+                              {t('使用')}
+                            </Dropdown.Item>
+                            <Dropdown.Item
+                              type='danger'
+                              disabled={busy}
+                              onClick={() => send('toss', { potion: slot })}
+                            >
+                              {t('丢弃')}
+                            </Dropdown.Item>
+                          </Dropdown.Menu>
+                        }
+                      >
+                        <button
+                          type='button'
+                          className={`dg-potion is-${potion}`}
+                          aria-label={text.potions[potion]?.name}
+                        >
+                          <FlaskConical size={15} />
+                        </button>
+                      </Dropdown>
+                    );
                   })}
                 </span>
-              )}
-              <span className='dg-hud-spacer' />
-              {active === 'practice' ? (
-                <>
-                  <Button
-                    size='small'
-                    disabled={busy}
-                    onClick={() => send('reset')}
-                  >
-                    {t('重新开始')}
-                  </Button>
-                  <Button size='small' onClick={backToCamp}>
-                    {t('修改设置')}
-                  </Button>
-                </>
-              ) : (
-                <>
-                  <Button size='small' onClick={backToCamp}>
-                    {t('回到营地')}
-                  </Button>
-                  <Button
-                    size='small'
-                    type='danger'
-                    disabled={busy}
-                    onClick={confirmAbandon}
-                  >
-                    {t('放弃')}
-                  </Button>
-                </>
-              )}
-            </div>
-            <div className='dg-hud-row'>
-              <span className='dg-hud-hp'>
-                <HpBar hp={run.hp} max={run.max_hp} />
-              </span>
-              {active === 'endless' && (
-                <span className='dg-gold'>
-                  <Coins size={15} />
-                  {run.gold}
-                </span>
-              )}
-              <span className='dg-potions'>
-                {Array.from({ length: run.potion_slots }, (_, slot) => {
-                  const potion = run.potions[slot];
-                  if (!potion)
-                    return <span key={slot} className='dg-potion is-empty' />;
-                  const usable =
-                    !busy && (run.phase === 'combat' || potion === 'heal');
-                  return (
-                    <Dropdown
-                      key={slot}
-                      trigger='click'
-                      position='bottom'
-                      render={
-                        <Dropdown.Menu>
-                          <Dropdown.Item disabled>
-                            {text.potions[potion]?.desc}
-                          </Dropdown.Item>
-                          <Dropdown.Item
-                            disabled={!usable}
-                            onClick={() => drinkPotion(slot)}
-                          >
-                            {t('使用')}
-                          </Dropdown.Item>
-                          <Dropdown.Item
-                            type='danger'
-                            disabled={busy}
-                            onClick={() => send('toss', { potion: slot })}
-                          >
-                            {t('丢弃')}
-                          </Dropdown.Item>
-                        </Dropdown.Menu>
-                      }
-                    >
-                      <button
-                        type='button'
-                        className={`dg-potion is-${potion}`}
-                        aria-label={text.potions[potion]?.name}
-                      >
-                        <FlaskConical size={15} />
-                      </button>
-                    </Dropdown>
-                  );
-                })}
-              </span>
-              {run.ward && (
-                <span className='dg-ward' title={text.items.ward?.desc}>
-                  <ShieldPlus size={14} />
-                  {text.items.ward?.name}
-                </span>
-              )}
-              <Dropdown
-                trigger='click'
-                position='bottom'
-                render={
-                  <Dropdown.Menu>
-                    <Dropdown.Item disabled>
-                      {t('本轮已用 {{used}} / {{max}} 件', {
-                        used: run.items_used || 0,
-                        max: info?.catalog?.items_per_run || 5,
-                      })}
-                    </Dropdown.Item>
-                    {bagItems.length === 0 && (
+                {run.ward && (
+                  <span className='dg-ward' title={text.items.ward?.desc}>
+                    <ShieldPlus size={14} />
+                    {text.items.ward?.name}
+                  </span>
+                )}
+                <Dropdown
+                  trigger='click'
+                  position='bottom'
+                  render={
+                    <Dropdown.Menu>
                       <Dropdown.Item disabled>
-                        {t('背包是空的，可以在秘境入口的道具商店购买')}
+                        {t('本轮已用 {{used}} / {{max}} 件', {
+                          used: run.items_used || 0,
+                          max: info?.catalog?.items_per_run || 5,
+                        })}
                       </Dropdown.Item>
-                    )}
-                    {bagItems.map((id) => {
-                      const Icon = ITEM_ICONS[id];
-                      return (
-                        <Dropdown.Item
-                          key={id}
-                          disabled={busy}
-                          icon={Icon && <Icon size={14} />}
-                          onClick={() => send('item', { item: id })}
-                        >
-                          {text.items[id]?.name} × {info.meta.items[id]}
+                      {bagItems.length === 0 && (
+                        <Dropdown.Item disabled>
+                          {t('背包是空的，可以在秘境入口的道具商店购买')}
                         </Dropdown.Item>
-                      );
-                    })}
-                  </Dropdown.Menu>
-                }
-              >
-                <Button size='small' icon={<Backpack size={14} />}>
-                  {t('道具')}
+                      )}
+                      {bagItems.map((id) => {
+                        const Icon = ITEM_ICONS[id];
+                        return (
+                          <Dropdown.Item
+                            key={id}
+                            disabled={busy}
+                            icon={Icon && <Icon size={14} />}
+                            onClick={() => send('item', { item: id })}
+                          >
+                            {text.items[id]?.name} × {info.meta.items[id]}
+                          </Dropdown.Item>
+                        );
+                      })}
+                    </Dropdown.Menu>
+                  }
+                >
+                  <Button size='small' icon={<Backpack size={14} />}>
+                    {t('道具')}
+                  </Button>
+                </Dropdown>
+                <Button
+                  size='small'
+                  icon={<Layers size={14} />}
+                  onClick={() => setDeckOpen(true)}
+                >
+                  {t('牌组 {{n}}', { n: run.deck.length })}
                 </Button>
-              </Dropdown>
-              <Button
-                size='small'
-                icon={<Layers size={14} />}
-                onClick={() => setDeckOpen(true)}
-              >
-                {t('牌组 {{n}}', { n: run.deck.length })}
-              </Button>
+              </div>
+              {run.relics.length > 0 && (
+                <div className='dg-hud-row dg-relics'>
+                  {run.relics.map((id) => (
+                    <RelicChip key={id} id={id} />
+                  ))}
+                </div>
+              )}
+              {active === 'practice' && run.combat && (
+                <div className='dg-meter'>
+                  <span>
+                    {t('本场伤害')}
+                    <strong>{run.combat.dealt}</strong>
+                  </span>
+                  <span>
+                    {t('本回合伤害')}
+                    <strong>{run.combat.turn_dealt}</strong>
+                  </span>
+                  <span>
+                    {t('单次最高')}
+                    <strong>{run.combat.max_hit}</strong>
+                  </span>
+                  <span>
+                    {t('平均每回合')}
+                    <strong>
+                      {Math.round(
+                        run.combat.dealt / Math.max(run.combat.turn, 1),
+                      )}
+                    </strong>
+                  </span>
+                </div>
+              )}
             </div>
-            {run.relics.length > 0 && (
-              <div className='dg-hud-row dg-relics'>
-                {run.relics.map((id) => (
-                  <RelicChip key={id} id={id} />
-                ))}
-              </div>
-            )}
-            {active === 'practice' && run.combat && (
-              <div className='dg-meter'>
-                <span>
-                  {t('本场伤害')}
-                  <strong>{run.combat.dealt}</strong>
-                </span>
-                <span>
-                  {t('本回合伤害')}
-                  <strong>{run.combat.turn_dealt}</strong>
-                </span>
-                <span>
-                  {t('单次最高')}
-                  <strong>{run.combat.max_hit}</strong>
-                </span>
-                <span>
-                  {t('平均每回合')}
-                  <strong>
-                    {Math.round(
-                      run.combat.dealt / Math.max(run.combat.turn, 1),
-                    )}
-                  </strong>
-                </span>
-              </div>
-            )}
+          )}
+          {round?.outdated && (
+            <StageMessage kind='error'>
+              {t('这一局是按旧版规则开始的，不能继续，请放弃后结算')}
+            </StageMessage>
+          )}
+          <div className='dg-stage-body'>
+            {stage}
+            <Floaters items={floaters} />
           </div>
-        )}
-        {round?.outdated && (
-          <StageMessage kind='error'>
-            {t('这一局是按旧版规则开始的，不能继续，请放弃后结算')}
-          </StageMessage>
-        )}
-        <div className='dg-stage-body'>
-          {stage}
-          <Floaters items={floaters} />
+          {error && <StageMessage kind='error'>{error}</StageMessage>}
+          {run && (
+            <PileModal
+              visible={deckOpen}
+              title={t('牌组')}
+              cards={run.deck}
+              onCancel={() => setDeckOpen(false)}
+            />
+          )}
         </div>
-        {error && <StageMessage kind='error'>{error}</StageMessage>}
-        {run && (
-          <PileModal
-            visible={deckOpen}
-            title={t('牌组')}
-            cards={run.deck}
-            onCancel={() => setDeckOpen(false)}
-          />
-        )}
-      </div>
+      )}
     </WendaoLayout>
   );
 };

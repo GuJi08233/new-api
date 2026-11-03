@@ -108,6 +108,44 @@ type Setup struct {
 	Waves   [][]Group `json:"waves"`
 	HP      int       `json:"hp"`
 	MP      int       `json:"mp"`
+	Mods    Mods      `json:"mods"`
+	Scale   FoeScale  `json:"scale"`
+}
+
+// Mods 是一轮里祝福叠出来的加成：百分数(伤害、移速、回灵、近战范围加多少，法宝、身法、法术冷却减多少)或点数(生命上限、
+// 飞弹多穿几个敌人、每间房挡掉几次伤害)。全是 0 就是没有加成。
+type Mods struct {
+	Damage int `json:"damage,omitempty"`
+	Speed  int `json:"speed,omitempty"`
+	Haste  int `json:"haste,omitempty"`
+	Pierce int `json:"pierce,omitempty"`
+	Regen  int `json:"regen,omitempty"`
+	Vigor  int `json:"vigor,omitempty"`
+	Dodge  int `json:"dodge,omitempty"`
+	Focus  int `json:"focus,omitempty"`
+	Reach  int `json:"reach,omitempty"`
+	Ward   int `json:"ward,omitempty"`
+}
+
+// valid 限住加成的范围：百分数不超过三倍，冷却最多减八成，点数也有上限。开局的 Setup 只由服务端给出，这是兜底。
+func (m Mods) valid() bool {
+	for _, v := range []int{m.Damage, m.Speed, m.Regen, m.Reach} {
+		if v < 0 || v > 300 {
+			return false
+		}
+	}
+	for _, v := range []int{m.Haste, m.Dodge, m.Focus} {
+		if v < 0 || v > 80 {
+			return false
+		}
+	}
+	return m.Pierce >= 0 && m.Pierce <= 5 && m.Vigor >= 0 && m.Vigor <= 500 && m.Ward >= 0 && m.Ward <= 5
+}
+
+// FoeScale 是这间房敌人的强度：生命与伤害的百分数，0 按 100 算。
+type FoeScale struct {
+	HP  int `json:"hp,omitempty"`
+	Dmg int `json:"dmg,omitempty"`
 }
 
 // Player 是主角。MP 以百分之一点计(灵力 100 点存成 10000)，速度是单位每帧。
@@ -130,6 +168,8 @@ type Player struct {
 	Swing     int
 	Blades    int
 	Spin      int
+	Regen     int
+	Ward      int
 }
 
 // Foe 是一个敌人。State、T、A、N 由各自的行为解释(蓄力、冲撞方向、招式里第几发)；KX、KY 是被击退的速度。
@@ -156,6 +196,7 @@ type Shot struct {
 	Hostile             bool
 	Life                int
 	Pierce              int
+	Splash              int
 	Hit                 []int
 	Kind                string
 }
@@ -208,6 +249,9 @@ type Fight struct {
 	Won    bool
 	Hash   uint32
 	Events []Ev
+	Mods   Mods
+	FoeHP  int
+	FoeDmg int
 }
 
 // markTicks 是出怪标记亮多久；autoAimRange 是自动瞄准最远多少像素。
@@ -223,7 +267,8 @@ const (
 func New(seed uint32, setup Setup) (*Fight, error) {
 	class, ok := content.Classes[setup.Class]
 	rows, roomOk := content.Rooms[setup.Room]
-	if !ok || !roomOk || len(setup.Weapons) < 1 || len(setup.Weapons) > 2 || len(setup.Waves) < 1 {
+	if !ok || !roomOk || len(setup.Weapons) < 1 || len(setup.Weapons) > 2 || len(setup.Waves) < 1 || !setup.Mods.valid() ||
+		setup.Scale.HP < 0 || setup.Scale.HP > 1000 || setup.Scale.Dmg < 0 || setup.Scale.Dmg > 1000 {
 		return nil, ErrSetup
 	}
 	for _, w := range setup.Weapons {
@@ -269,12 +314,24 @@ func New(seed uint32, setup Setup) (*Fight, error) {
 	if px0 < 0 {
 		return nil, ErrSetup
 	}
+	mods := setup.Mods
+	maxHP := class.HP + mods.Vigor
 	f.P = Player{
 		X: px0*Tile + Tile/2, Y: py0*Tile + Tile/2, R: px(content.Player.Radius),
-		HP: class.HP, MaxHP: class.HP, MP: class.MP * 100, MaxMP: class.MP * 100,
-		Speed: pxs(class.Speed), Face: 48, Class: setup.Class, Weapons: append([]string(nil), setup.Weapons...),
+		HP: maxHP, MaxHP: maxHP, MP: class.MP * 100, MaxMP: class.MP * 100,
+		Speed: pxs(class.Speed) * (100 + mods.Speed) / 100, Face: 48, Class: setup.Class,
+		Weapons: append([]string(nil), setup.Weapons...),
+		Regen:   (content.Player.MPRegen * 100 / FPS) * (100 + mods.Regen) / 100, Ward: mods.Ward,
 	}
-	if setup.HP > 0 && setup.HP < class.HP {
+	f.Mods = mods
+	f.FoeHP, f.FoeDmg = 100, 100
+	if setup.Scale.HP > 0 {
+		f.FoeHP = setup.Scale.HP
+	}
+	if setup.Scale.Dmg > 0 {
+		f.FoeDmg = setup.Scale.Dmg
+	}
+	if setup.HP > 0 && setup.HP < maxHP {
 		f.P.HP = setup.HP
 	}
 	if setup.MP > 0 && setup.MP < class.MP {
@@ -388,7 +445,8 @@ func (f *Fight) freeSpot() (int, int) {
 
 func (f *Fight) spawn(kind string, x, y int) *Foe {
 	spec := content.Foes[kind]
-	e := &Foe{Id: f.NextId, Kind: kind, X: x, Y: y, R: px(spec.Radius), HP: spec.HP, MaxHP: spec.HP}
+	hp := max(1, spec.HP*f.FoeHP/100)
+	e := &Foe{Id: f.NextId, Kind: kind, X: x, Y: y, R: px(spec.Radius), HP: hp, MaxHP: hp}
 	f.NextId++
 	e.N = e.Id % 2
 	e.Cool = 40 + f.rand(60)
@@ -466,7 +524,7 @@ func (f *Fight) stepPlayer(in int) {
 			*t--
 		}
 	}
-	p.MP = min(p.MaxMP, p.MP+content.Player.MPRegen*100/FPS)
+	p.MP = min(p.MaxMP, p.MP+p.Regen)
 	if aim >= 0 {
 		p.Face = aim
 	} else if e := f.nearestFoe(); e != nil {
@@ -476,7 +534,7 @@ func (f *Fight) stepPlayer(in int) {
 	}
 	dodge := content.Player.Dodge
 	if pressed&BtnDodge != 0 && p.DodgeCool == 0 && p.Dash == 0 {
-		p.Dash, p.DashDir, p.DodgeCool = dodge.Ticks, p.Face, dodge.Cooldown
+		p.Dash, p.DashDir, p.DodgeCool = dodge.Ticks, p.Face, dodge.Cooldown*(100-f.Mods.Dodge)/100
 		if moveDir >= 0 {
 			p.DashDir = moveDir
 		}
@@ -529,17 +587,19 @@ func (f *Fight) nearestFoe() *Foe {
 func (f *Fight) fire() {
 	p := &f.P
 	w := content.Weapons[p.Weapons[p.Slot]]
+	dmg := w.Damage * (100 + f.Mods.Damage) / 100
+	cool := max(4, w.Cooldown*(100-f.Mods.Haste)/100)
 	if w.Kind == "melee" {
-		p.Cool, p.Swing = w.Cooldown, 10
+		p.Cool, p.Swing = cool, 10
 		f.ev("swing", p.X, p.Y, p.Face)
-		reach := px(w.Range)
+		reach := px(w.Range) * (100 + f.Mods.Reach) / 100
 		for _, e := range f.Foes {
 			if e.HP <= 0 || !near(e.X, e.Y, p.X, p.Y, reach+e.R) {
 				continue
 			}
 			a := angleOf(e.X-p.X, e.Y-p.Y)
 			if angleGap(a, p.Face) <= w.Arc || near(e.X, e.Y, p.X, p.Y, p.R+e.R) {
-				f.hitFoe(e, w.Damage, a, w.Knock)
+				f.hitFoe(e, dmg, a, w.Knock)
 			}
 		}
 		kept := f.Shots[:0]
@@ -559,38 +619,41 @@ func (f *Fight) fire() {
 		return
 	}
 	p.MP -= w.Cost * 100
-	p.Cool = w.Cooldown
+	p.Cool = cool
 	kind := p.Weapons[p.Slot]
 	for i := 0; i < w.Count; i++ {
 		a := (p.Face + (2*i-(w.Count-1))*w.Spread/2) & (Dirs - 1)
-		f.shoot(p.X, p.Y, p.R, a, w.Speed, w.Radius, w.Damage, w.Life, w.Pierce, false, kind)
+		f.shoot(p.X, p.Y, p.R, a, w.Speed, w.Radius, dmg, w.Life, w.Pierce+f.Mods.Pierce, false, kind).Splash = px(w.Splash)
 	}
 	f.ev("shoot", p.X, p.Y, p.Face)
 }
 
 // shoot 从半径 r 的身体边上朝方向 a 放一发飞弹。
-func (f *Fight) shoot(x, y, r, a, speed, radius, dmg, life, pierce int, hostile bool, kind string) {
+func (f *Fight) shoot(x, y, r, a, speed, radius, dmg, life, pierce int, hostile bool, kind string) *Shot {
 	sp := pxs(speed)
 	off := r + px(2)
-	f.Shots = append(f.Shots, &Shot{
+	s := &Shot{
 		Id: f.NextId, X: x + off*cosOf(a)/trig, Y: y + off*sinOf(a)/trig, VX: sp * cosOf(a) / trig, VY: sp * sinOf(a) / trig,
 		R: px(radius), A: a, Dmg: dmg, Hostile: hostile, Life: life, Pierce: pierce, Kind: kind,
-	})
+	}
+	f.Shots = append(f.Shots, s)
 	f.NextId++
+	return s
 }
 
 // cast 放流派法术。
 func (f *Fight) cast(s SkillSpec) {
 	p := &f.P
 	p.MP -= s.Cost * 100
-	p.SkillCool = s.Cooldown
+	p.SkillCool = s.Cooldown * (100 - f.Mods.Focus) / 100
+	dmg := s.Damage * (100 + f.Mods.Damage) / 100
 	f.ev("cast", p.X, p.Y, 0)
 	switch s.Kind {
 	case "quake":
 		reach := px(s.Radius)
 		for _, e := range f.Foes {
 			if e.HP > 0 && near(e.X, e.Y, p.X, p.Y, reach+e.R) {
-				f.hitFoe(e, s.Damage, angleOf(e.X-p.X, e.Y-p.Y), s.Knock)
+				f.hitFoe(e, dmg, angleOf(e.X-p.X, e.Y-p.Y), s.Knock)
 			}
 		}
 		kept := f.Shots[:0]
@@ -604,7 +667,7 @@ func (f *Fight) cast(s SkillSpec) {
 		p.Hurt = max(p.Hurt, 20)
 	case "nova":
 		for i := 0; i < s.Count; i++ {
-			f.shoot(p.X, p.Y, p.R, i*Dirs/s.Count, s.Speed, s.Radius, s.Damage, s.Life, 0, false, "fire")
+			f.shoot(p.X, p.Y, p.R, i*Dirs/s.Count, s.Speed, s.Radius, dmg, s.Life, 0, false, "fire")
 		}
 	case "blades":
 		p.Blades = s.Ticks
@@ -617,12 +680,13 @@ func (f *Fight) stepBlades(s SkillSpec) {
 	p.Blades--
 	p.Spin = (p.Spin + 2) & (Dirs - 1)
 	orbit, br := px(s.Orbit), px(s.Radius)
+	dmg := s.Damage * (100 + f.Mods.Damage) / 100
 	for k := 0; k < s.Count; k++ {
 		a := (p.Spin + k*Dirs/s.Count) & (Dirs - 1)
 		bx, by := p.X+orbit*cosOf(a)/trig, p.Y+orbit*sinOf(a)/trig
 		for _, e := range f.Foes {
 			if e.HP > 0 && e.BladeHit == 0 && near(bx, by, e.X, e.Y, br+e.R) {
-				f.hitFoe(e, s.Damage, a, 0)
+				f.hitFoe(e, dmg, a, 0)
 				e.BladeHit = s.Rehit
 			}
 		}
@@ -658,6 +722,12 @@ func (f *Fight) hurt(dmg int) bool {
 	if p.Hurt > 0 || p.Dash > 0 {
 		return false
 	}
+	if p.Ward > 0 {
+		p.Ward--
+		p.Hurt = content.Player.Iframes
+		f.ev("ward", p.X, p.Y, 0)
+		return true
+	}
 	p.HP = max(p.HP-dmg, 0)
 	f.Taken += dmg
 	p.Hurt = content.Player.Iframes
@@ -689,6 +759,14 @@ func (f *Fight) stepShots() {
 				continue
 			}
 			f.hitFoe(e, s.Dmg, s.A, 0)
+			if s.Splash > 0 {
+				for _, o := range f.Foes {
+					if o != e && o.HP > 0 && near(s.X, s.Y, o.X, o.Y, s.Splash+o.R) {
+						f.hitFoe(o, s.Dmg/2, s.A, 0)
+					}
+				}
+				f.ev("blast", s.X, s.Y, 0)
+			}
 			if s.Pierce <= 0 {
 				alive = false
 				break

@@ -109,8 +109,8 @@ export function makeBot(style, seed) {
   };
 }
 
-export function play(cls, seed, style, botSeed, limit = MAX_TICKS) {
-  const f = createFight(seed, trialSetup(cls));
+export function play(cls, seed, style, botSeed, limit = MAX_TICKS, setup = trialSetup(cls)) {
+  const f = createFight(seed, setup);
   const bot = makeBot(style, botSeed);
   const inputs = [];
   while (!f.over && inputs.length < limit) {
@@ -126,12 +126,34 @@ const runs = [
   { name: 'mage-manual-aim', cls: 'mage', seed: 20261103, style: { range: 150, dodge: 0.7, manualAim: true }, botSeed: 3 },
   { name: 'ranger-unsigned-seed', cls: 'ranger', seed: 4294967295, style: { range: 140, dodge: 0.8 }, botSeed: 2 },
   { name: 'warrior-careless', cls: 'warrior', seed: 99, style: { range: 20, dodge: 0 }, botSeed: 17 },
+  // 秘境斗法第二重的一间房：祝福全上、敌人加强、长枪与雷印(溅射)、护心挡第一下、赤炎魔君。
+  {
+    name: 'rift-floor-two',
+    cls: 'mage',
+    seed: 777,
+    style: { range: 140, dodge: 0.8 },
+    botSeed: 5,
+    setup: {
+      cls: 'mage',
+      weapons: ['thunder', 'spear'],
+      room: 'cavern',
+      waves: [
+        [{ foe: 'werewolf', n: 2 }, { foe: 'shade_mage', n: 1 }],
+        [{ foe: 'beetle', n: 1 }, { foe: 'lava_elemental', n: 1 }, { foe: 'troll', n: 1 }],
+        [{ foe: 'flame_lord', n: 1 }],
+      ],
+      hp: 90,
+      mp: 100,
+      mods: { damage: 20, speed: 12, haste: 18, pierce: 1, regen: 60, vigor: 25, dodge: 35, focus: 30, reach: 25, ward: 1 },
+      scale: { hp: 130, dmg: 112 },
+    },
+  },
 ];
 
 if (import.meta.main) {
-  const records = runs.map(({ name, cls, seed, style, botSeed }) => {
-    const { f, inputs } = play(cls, seed, style, botSeed);
-    return { name, seed, setup: trialSetup(cls), inputs: encodeInputs(inputs), summary: summary(f) };
+  const records = runs.map(({ name, cls, seed, style, botSeed, setup = trialSetup(cls) }) => {
+    const { f, inputs } = play(cls, seed, style, botSeed, MAX_TICKS, setup);
+    return { name, seed, setup, inputs: encodeInputs(inputs), summary: summary(f) };
   });
   writeFileSync(new URL('./golden.json', import.meta.url), JSON.stringify(records, null, 1) + '\n');
   console.log(records.map(({ name, summary: s }) => ({ name, won: s.won, seconds: Math.round(s.tick / 60), hp: s.hp, kills: s.kills, taken: s.taken })));

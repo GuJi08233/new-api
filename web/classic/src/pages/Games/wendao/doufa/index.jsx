@@ -21,15 +21,9 @@ import React, { useState } from 'react';
 import { Button } from '@douyinfe/semi-ui';
 import { useTranslation } from 'react-i18next';
 import { playSound } from '../../common/sound';
-import { CLASSES, getClassText } from '../../dungeon/text';
+import ClassPicker from './ClassPicker';
 import { FPS, content, trialSetup } from './engine';
 import Fight from './Fight';
-import {
-  getSkillNames,
-  getSkillText,
-  getWeaponNames,
-  getWeaponText,
-} from './text';
 import './doufa.css';
 
 const coarsePointer = () =>
@@ -53,11 +47,6 @@ export default function DoufaPractice({ hero }) {
   const [seed, setSeed] = useState(0);
   const [result, setResult] = useState(null);
   const [touch] = useState(coarsePointer);
-  const classText = getClassText(t);
-  const weaponNames = getWeaponNames(t);
-  const weaponText = getWeaponText(t);
-  const skillNames = getSkillNames(t);
-  const skillText = getSkillText(t);
 
   const start = () => {
     setSeed(newSeed());
@@ -120,35 +109,7 @@ export default function DoufaPractice({ hero }) {
             '斗法是即时的战斗：走位躲开敌人的攻击，近战、远程、法术与身法配合着用。这里是练手的地方，一间房四波敌人，最后一波是首领，不发奖励。',
           )}
         </p>
-        <div className='df-classes' role='radiogroup' aria-label={t('流派')}>
-          {CLASSES.map((key) => {
-            const spec = content.classes[key];
-            return (
-              <button
-                key={key}
-                type='button'
-                role='radio'
-                aria-checked={cls === key}
-                className={`df-class ${cls === key ? 'is-active' : ''}`}
-                onClick={() => setCls(key)}
-              >
-                <span className='df-class-name'>{classText[key].name}</span>
-                <span className='df-class-line'>
-                  {t('生命 {{hp}} · 灵力 {{mp}}', { hp: spec.hp, mp: spec.mp })}
-                </span>
-                <span className='df-class-line'>
-                  <b>{skillNames[spec.skill.kind]}</b>{' '}
-                  {skillText[spec.skill.kind]}
-                </span>
-                {spec.weapons.map((w) => (
-                  <span key={w} className='df-class-line'>
-                    <b>{weaponNames[w]}</b> {weaponText[w]}
-                  </span>
-                ))}
-              </button>
-            );
-          })}
-        </div>
+        <ClassPicker value={cls} onChange={setCls} />
         <p className='df-muted'>
           {touch
             ? t(

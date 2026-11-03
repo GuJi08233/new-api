@@ -55,6 +55,12 @@ const foeColor = (pal, kind) =>
     slime: pal.green,
     goblin: pal.brown,
     goblin_chief: pal.brown,
+    werewolf: pal.stone,
+    shade_mage: pal.violet,
+    lava_elemental: pal.fire,
+    beetle: pal.brown,
+    troll: pal.brown,
+    flame_lord: pal.fire,
     skeleton: pal.bone,
     moth: pal.violet,
     gargoyle: pal.stone,
@@ -129,6 +135,13 @@ export function createRenderer(canvas, options) {
     g.scale(scale, scale);
     g.fillStyle = pal.paper;
     g.fillRect(0, 0, f.w * TILE_PX, f.h * TILE_PX);
+    // 赤炎窟的地面淡淡一层赭红。
+    if (f.room === 'cavern') {
+      g.globalAlpha = 0.07;
+      g.fillStyle = pal.fire;
+      g.fillRect(0, 0, f.w * TILE_PX, f.h * TILE_PX);
+      g.globalAlpha = 1;
+    }
     g.strokeStyle = pal.ink;
     g.lineCap = 'round';
     for (let y = 0; y < f.h; y++) {
@@ -240,6 +253,29 @@ export function createRenderer(canvas, options) {
           hurtFlash = 1;
           if (!reduced) shake = 8;
           float(x, y - 16, `-${e.n}`, pal.red);
+          break;
+        case 'blast':
+          bits.push({
+            ring: true,
+            x,
+            y,
+            life: 16,
+            max: 16,
+            size: 6,
+            color: pal.violet,
+          });
+          burst(x, y, 6, pal.violet, 1.8, 14);
+          break;
+        case 'ward':
+          bits.push({
+            ring: true,
+            x,
+            y,
+            life: 18,
+            max: 18,
+            size: 12,
+            color: pal.ice,
+          });
           break;
         case 'deflect':
           burst(x, y, 3, pal.paper, 1.8, 10);
@@ -366,7 +402,12 @@ export function createRenderer(canvas, options) {
     ctx.fill();
     ctx.globalAlpha = 1;
     ctx.stroke();
-    if (e.kind === 'goblin' || e.kind === 'goblin_chief') {
+    if (
+      e.kind === 'goblin' ||
+      e.kind === 'goblin_chief' ||
+      e.kind === 'troll' ||
+      e.kind === 'werewolf'
+    ) {
       ctx.beginPath();
       ctx.moveTo(-r * 0.6, -r * 0.7);
       ctx.lineTo(-r * 0.9, -r * 1.35);
@@ -447,6 +488,20 @@ export function createRenderer(canvas, options) {
       ctx.beginPath();
       ctx.arc(x, y, r, 0, Math.PI * 2);
       ctx.fill();
+    } else if (s.kind === 'thunder') {
+      ctx.fillStyle = pal.violet;
+      ctx.globalAlpha = 0.9;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = pal.paper;
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.moveTo(x - r * 0.5, y - r * 0.6);
+      ctx.lineTo(x + r * 0.1, y);
+      ctx.lineTo(x - r * 0.2, y + r * 0.1);
+      ctx.lineTo(x + r * 0.5, y + r * 0.6);
+      ctx.stroke();
     } else if (s.kind === 'talisman') {
       ctx.translate(x, y);
       ctx.rotate(rad(s.a));

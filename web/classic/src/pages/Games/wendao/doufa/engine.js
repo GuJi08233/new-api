@@ -94,6 +94,30 @@ const dist2 = (ax, ay, bx, by) => {
 export const pack = (move, aim, buttons) =>
   (move + 1) | ((aim + 1) << 7) | ((buttons & 15) << 14);
 
+// MODS 是一轮里祝福叠出来的加成，全是 0 就是没有加成(与 Go 的 Mods 同义)。
+const MODS = {
+  damage: 0,
+  speed: 0,
+  haste: 0,
+  pierce: 0,
+  regen: 0,
+  vigor: 0,
+  dodge: 0,
+  focus: 0,
+  reach: 0,
+  ward: 0,
+};
+
+const modsValid = (m) =>
+  [m.damage, m.speed, m.regen, m.reach].every((v) => v >= 0 && v <= 300) &&
+  [m.haste, m.dodge, m.focus].every((v) => v >= 0 && v <= 80) &&
+  m.pierce >= 0 &&
+  m.pierce <= 5 &&
+  m.vigor >= 0 &&
+  m.vigor <= 500 &&
+  m.ward >= 0 &&
+  m.ward <= 5;
+
 const unpack = (input) => [
   (input & 127) - 1,
   ((input >> 7) & 127) - 1,
@@ -117,12 +141,21 @@ export function trialSetup(cls) {
 export function createFight(seed, setup) {
   const cls = content.classes[setup.cls];
   const rows = content.rooms[setup.room];
+  const mods = { ...MODS, ...(setup.mods || {}) };
+  const scale = setup.scale || {};
+  const foeHp = scale.hp || 0;
+  const foeDmg = scale.dmg || 0;
   if (
     !cls ||
     !rows ||
     setup.weapons.length < 1 ||
     setup.weapons.length > 2 ||
-    setup.waves.length < 1
+    setup.waves.length < 1 ||
+    !modsValid(mods) ||
+    foeHp < 0 ||
+    foeHp > 1000 ||
+    foeDmg < 0 ||
+    foeDmg > 1000
   ) {
     return null;
   }
@@ -146,6 +179,7 @@ export function createFight(seed, setup) {
     foes: [],
     shots: [],
     drops: [],
+    room: setup.room,
     waves: setup.waves,
     wave: 0,
     marks: [],
@@ -160,6 +194,9 @@ export function createFight(seed, setup) {
     won: false,
     hash: HASH_START,
     events: [],
+    mods,
+    foeHp: foeHp > 0 ? foeHp : 100,
+    foeDmg: foeDmg > 0 ? foeDmg : 100,
   };
   let px0 = -1;
   let py0 = -1;
@@ -180,15 +217,16 @@ export function createFight(seed, setup) {
     }
   }
   if (px0 < 0) return null;
+  const maxHp = cls.hp + mods.vigor;
   f.p = {
     x: px0 * TILE + TILE / 2,
     y: py0 * TILE + TILE / 2,
     r: px(content.player.radius),
-    hp: cls.hp,
-    maxHp: cls.hp,
+    hp: maxHp,
+    maxHp,
     mp: cls.mp * 100,
     maxMp: cls.mp * 100,
-    speed: pxs(cls.speed),
+    speed: div(pxs(cls.speed) * (100 + mods.speed), 100),
     face: 48,
     cls: setup.cls,
     weapons: setup.weapons.slice(),
@@ -202,8 +240,13 @@ export function createFight(seed, setup) {
     swing: 0,
     blades: 0,
     spin: 0,
+    regen: div(
+      div(content.player.mp_regen * 100, FPS) * (100 + mods.regen),
+      100,
+    ),
+    ward: mods.ward,
   };
-  if (setup.hp > 0 && setup.hp < cls.hp) f.p.hp = setup.hp;
+  if (setup.hp > 0 && setup.hp < maxHp) f.p.hp = setup.hp;
   if (setup.mp > 0 && setup.mp < cls.mp) f.p.mp = setup.mp * 100;
   markWave(f);
   return f;
@@ -297,14 +340,15 @@ function freeSpot(f) {
 
 function spawn(f, kind, x, y) {
   const spec = content.foes[kind];
+  const hp = Math.max(1, div(spec.hp * f.foeHp, 100));
   const e = {
     id: f.nextId,
     kind,
     x,
     y,
     r: px(spec.radius),
-    hp: spec.hp,
-    maxHp: spec.hp,
+    hp,
+    maxHp: hp,
     state: 0,
     t: 0,
     a: 0,
@@ -390,7 +434,7 @@ function stepPlayer(f, input) {
   if (p.dodgeCool > 0) p.dodgeCool--;
   if (p.hurt > 0) p.hurt--;
   if (p.swing > 0) p.swing--;
-  p.mp = Math.min(p.maxMp, p.mp + div(content.player.mp_regen * 100, FPS));
+  p.mp = Math.min(p.maxMp, p.mp + p.regen);
   if (aim >= 0) {
     p.face = aim;
   } else {
@@ -402,7 +446,7 @@ function stepPlayer(f, input) {
   if ((pressed & BTN_DODGE) !== 0 && p.dodgeCool === 0 && p.dash === 0) {
     p.dash = dodge.ticks;
     p.dashDir = p.face;
-    p.dodgeCool = dodge.cooldown;
+    p.dodgeCool = div(dodge.cooldown * (100 - f.mods.dodge), 100);
     if (moveDir >= 0) p.dashDir = moveDir;
     ev(f, 'dodge', p.x, p.y, p.dashDir);
   }
@@ -458,16 +502,18 @@ export function nearestFoe(f) {
 function fire(f) {
   const p = f.p;
   const w = content.weapons[p.weapons[p.slot]];
+  const dmg = div(w.damage * (100 + f.mods.damage), 100);
+  const cool = Math.max(4, div(w.cooldown * (100 - f.mods.haste), 100));
   if (w.kind === 'melee') {
-    p.cool = w.cooldown;
+    p.cool = cool;
     p.swing = 10;
     ev(f, 'swing', p.x, p.y, p.face);
-    const reach = px(w.range);
+    const reach = div(px(w.range) * (100 + f.mods.reach), 100);
     for (const e of f.foes) {
       if (e.hp <= 0 || !near(e.x, e.y, p.x, p.y, reach + e.r)) continue;
       const a = angleOf(e.x - p.x, e.y - p.y);
       if (angleGap(a, p.face) <= w.arc || near(e.x, e.y, p.x, p.y, p.r + e.r)) {
-        hitFoe(f, e, w.damage, a, w.knock);
+        hitFoe(f, e, dmg, a, w.knock);
       }
     }
     const kept = [];
@@ -491,7 +537,7 @@ function fire(f) {
     return;
   }
   p.mp -= w.cost * 100;
-  p.cool = w.cooldown;
+  p.cool = cool;
   const kind = p.weapons[p.slot];
   for (let i = 0; i < w.count; i++) {
     const a =
@@ -504,12 +550,12 @@ function fire(f) {
       a,
       w.speed,
       w.radius,
-      w.damage,
+      dmg,
       w.life,
-      w.pierce,
+      w.pierce + f.mods.pierce,
       false,
       kind,
-    );
+    ).splash = px(w.splash || 0);
   }
   ev(f, 'shoot', p.x, p.y, p.face);
 }
@@ -517,7 +563,7 @@ function fire(f) {
 function shoot(f, x, y, r, a, speed, radius, dmg, life, pierce, hostile, kind) {
   const sp = pxs(speed);
   const off = r + px(2);
-  f.shots.push({
+  const shot = {
     id: f.nextId,
     x: x + div(off * cosOf(a), TRIG),
     y: y + div(off * sinOf(a), TRIG),
@@ -531,20 +577,24 @@ function shoot(f, x, y, r, a, speed, radius, dmg, life, pierce, hostile, kind) {
     pierce,
     hit: [],
     kind,
-  });
+    splash: 0,
+  };
+  f.shots.push(shot);
   f.nextId++;
+  return shot;
 }
 
 function cast(f, s) {
   const p = f.p;
   p.mp -= s.cost * 100;
-  p.skillCool = s.cooldown;
+  p.skillCool = div(s.cooldown * (100 - f.mods.focus), 100);
+  const dmg = div(s.damage * (100 + f.mods.damage), 100);
   ev(f, 'cast', p.x, p.y, 0);
   if (s.kind === 'quake') {
     const reach = px(s.radius);
     for (const e of f.foes) {
       if (e.hp > 0 && near(e.x, e.y, p.x, p.y, reach + e.r)) {
-        hitFoe(f, e, s.damage, angleOf(e.x - p.x, e.y - p.y), s.knock);
+        hitFoe(f, e, dmg, angleOf(e.x - p.x, e.y - p.y), s.knock);
       }
     }
     f.shots = f.shots.filter(
@@ -561,7 +611,7 @@ function cast(f, s) {
         div(i * DIRS, s.count),
         s.speed,
         s.radius,
-        s.damage,
+        dmg,
         s.life,
         0,
         false,
@@ -596,13 +646,14 @@ function stepBlades(f, s) {
   p.spin = (p.spin + 2) & (DIRS - 1);
   const orbit = px(s.orbit);
   const br = px(s.radius);
+  const dmg = div(s.damage * (100 + f.mods.damage), 100);
   for (let k = 0; k < s.count; k++) {
     const a = (p.spin + div(k * DIRS, s.count)) & (DIRS - 1);
     const bx = p.x + div(orbit * cosOf(a), TRIG);
     const by = p.y + div(orbit * sinOf(a), TRIG);
     for (const e of f.foes) {
       if (e.hp > 0 && e.bladeHit === 0 && near(bx, by, e.x, e.y, br + e.r)) {
-        hitFoe(f, e, s.damage, a, 0);
+        hitFoe(f, e, dmg, a, 0);
         e.bladeHit = s.rehit;
       }
     }
@@ -628,6 +679,12 @@ function hitFoe(f, e, dmg, a, knock) {
 function hurt(f, dmg) {
   const p = f.p;
   if (p.hurt > 0 || p.dash > 0) return false;
+  if (p.ward > 0) {
+    p.ward--;
+    p.hurt = content.player.iframes;
+    ev(f, 'ward', p.x, p.y, 0);
+    return true;
+  }
   p.hp = Math.max(p.hp - dmg, 0);
   f.taken += dmg;
   p.hurt = content.player.iframes;
@@ -662,6 +719,14 @@ function stepShots(f) {
         continue;
       }
       hitFoe(f, e, s.dmg, s.a, 0);
+      if (s.splash > 0) {
+        for (const o of f.foes) {
+          if (o !== e && o.hp > 0 && near(s.x, s.y, o.x, o.y, s.splash + o.r)) {
+            hitFoe(f, o, div(s.dmg, 2), s.a, 0);
+          }
+        }
+        ev(f, 'blast', s.x, s.y, 0);
+      }
       if (s.pierce <= 0) {
         alive = false;
         break;
@@ -740,9 +805,7 @@ function stepFoe(f, e) {
     return;
   }
   if (spec.ai === 'chase') {
-    if (!near(e.x, e.y, f.p.x, f.p.y, e.r + f.p.r)) {
-      walk(f, e, angleOf(f.p.x - e.x, f.p.y - e.y), pxs(spec.speed));
-    }
+    chaser(f, e, spec);
   } else if (spec.ai === 'shoot') {
     shooter(f, e, spec);
   } else if (spec.ai === 'charge') {
@@ -760,9 +823,30 @@ function touch(f, e, spec) {
     e.touch === 0 &&
     spec.touch > 0 &&
     near(e.x, e.y, f.p.x, f.p.y, e.r + f.p.r) &&
-    hurt(f, spec.touch)
+    hurt(f, div(spec.touch * f.foeDmg, 100))
   ) {
     e.touch = TOUCH_COOL;
+  }
+}
+
+function chaser(f, e, spec) {
+  const p = f.p;
+  if (near(e.x, e.y, p.x, p.y, e.r + p.r)) return;
+  let a = angleOf(p.x - e.x, p.y - e.y);
+  if (e.t > 0) {
+    e.t--;
+    a = (a + 16 - 32 * e.n) & (DIRS - 1);
+  }
+  const x = e.x;
+  const y = e.y;
+  const sp = pxs(spec.speed);
+  if (
+    walk(f, e, a, sp) &&
+    Math.abs(e.x - x) + Math.abs(e.y - y) < div(sp, 2) &&
+    e.t === 0
+  ) {
+    e.t = 30;
+    e.n ^= 1;
   }
 }
 
@@ -791,7 +875,7 @@ function volley(f, e, s, a) {
       dir,
       s.speed,
       s.radius,
-      s.damage,
+      div(s.damage * f.foeDmg, 100),
       SHOT_LIFE,
       0,
       true,
@@ -811,7 +895,7 @@ function ring(f, e, count, offset, speed, radius, dmg) {
       dir,
       speed,
       radius,
-      dmg,
+      div(dmg * f.foeDmg, 100),
       SHOT_LIFE,
       0,
       true,

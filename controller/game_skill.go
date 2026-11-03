@@ -45,7 +45,7 @@ type skillOutcome struct {
 
 // skillSessionTTLOf 是一局免费游戏从开局到结算的最长时间(秒)。问道的秘境一轮可以分几天玩完。
 func skillSessionTTLOf(game string) int64 {
-	if game == dungeonGame || game == dungeonTrialGame || game == dungeonPracticeGame {
+	if game == dungeonGame || game == dungeonTrialGame || game == dungeonPracticeGame || game == riftGame {
 		return dungeonRunTTL
 	}
 	return skillSessionTTL

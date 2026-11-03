@@ -74,7 +74,7 @@ describe('doufa engine', () => {
       createFight(1, { ...trialSetup('warrior'), room: 'cave' }),
     ).toBeNull();
     expect(
-      createFight(1, { ...trialSetup('warrior'), weapons: ['spear'] }),
+      createFight(1, { ...trialSetup('warrior'), weapons: ['halberd'] }),
     ).toBeNull();
   });
 });

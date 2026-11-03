@@ -95,7 +95,11 @@ func TestNewRejectsUnknownSetup(t *testing.T) {
 	good := TrialSetup("warrior")
 	for _, edit := range []func(*Setup){
 		func(s *Setup) { s.Class = "monk" },
-		func(s *Setup) { s.Weapons = []string{"spear"} },
+		func(s *Setup) { s.Weapons = []string{"halberd"} },
+		func(s *Setup) { s.Mods.Haste = 81 },
+		func(s *Setup) { s.Mods.Damage = -1 },
+		func(s *Setup) { s.Mods.Ward = 6 },
+		func(s *Setup) { s.Scale.HP = 1001 },
 		func(s *Setup) { s.Weapons = nil },
 		func(s *Setup) { s.Weapons = []string{"sword", "sword", "sword"} },
 		func(s *Setup) { s.Room = "cave" },

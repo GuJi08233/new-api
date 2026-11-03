@@ -57,6 +57,7 @@ func init() {
 			group.GET("/agenda", getWendaoAgenda)
 			registerHeroRoutes(group.Group("/hero"))
 			registerAbyssRoutes(group.Group("/abyss"))
+			registerRiftRoutes(group.Group("/rift"))
 			registerSectRoutes(group.Group("/sect"))
 		},
 	})

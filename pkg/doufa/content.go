@@ -94,6 +94,7 @@ type WeaponSpec struct {
 	Count    int    `json:"count"`
 	Spread   int    `json:"spread"`
 	Life     int    `json:"life"`
+	Splash   int    `json:"splash"`
 }
 
 // SkillSpec 是流派法术：quake 震地(身边一圈伤害并击退)、nova 焚天(向四周放一圈火球)、blades 剑阵(飞剑绕身旋转)。
@@ -127,7 +128,13 @@ type Group struct {
 	N   int    `json:"n"`
 }
 
-// Content 是 content.json 的全部内容。
+// Blessing 是秘境斗法里的一种祝福：这一轮里一直生效的加成，每种只能拿一次。
+type Blessing struct {
+	Id   string `json:"id"`
+	Mods Mods   `json:"mods"`
+}
+
+// Content 是 content.json 的全部内容。Blessings 与 WeaponPool 是数组，按固定的先后抽取，两边一致。
 type Content struct {
 	Version int `json:"version"`
 	Player  struct {
@@ -141,11 +148,13 @@ type Content struct {
 			Cooldown int `json:"cooldown"`
 		} `json:"dodge"`
 	} `json:"player"`
-	Classes map[string]ClassSpec  `json:"classes"`
-	Weapons map[string]WeaponSpec `json:"weapons"`
-	Foes    map[string]FoeSpec    `json:"foes"`
-	Rooms   map[string][]string   `json:"rooms"`
-	Trial   struct {
+	Classes    map[string]ClassSpec  `json:"classes"`
+	Weapons    map[string]WeaponSpec `json:"weapons"`
+	Foes       map[string]FoeSpec    `json:"foes"`
+	Rooms      map[string][]string   `json:"rooms"`
+	Blessings  []Blessing            `json:"blessings"`
+	WeaponPool []string              `json:"weapon_pool"`
+	Trial      struct {
 		Room  string    `json:"room"`
 		Waves [][]Group `json:"waves"`
 	} `json:"trial"`

@@ -22,9 +22,7 @@ func (f *Fight) stepFoe(e *Foe) {
 	}
 	switch spec.AI {
 	case "chase":
-		if !near(e.X, e.Y, f.P.X, f.P.Y, e.R+f.P.R) {
-			f.walk(e, angleOf(f.P.X-e.X, f.P.Y-e.Y), pxs(spec.Speed))
-		}
+		f.chaser(e, spec)
 	case "shoot":
 		f.shooter(e, spec)
 	case "charge":
@@ -45,8 +43,27 @@ func abs(v int) int {
 }
 
 func (f *Fight) touch(e *Foe, spec FoeSpec) {
-	if e.Touch == 0 && spec.Touch > 0 && near(e.X, e.Y, f.P.X, f.P.Y, e.R+f.P.R) && f.hurt(spec.Touch) {
+	if e.Touch == 0 && spec.Touch > 0 && near(e.X, e.Y, f.P.X, f.P.Y, e.R+f.P.R) && f.hurt(spec.Touch*f.FoeDmg/100) {
 		e.Touch = touchCool
+	}
+}
+
+// chaser 追着主角走，贴上就停；被墙挡住走不动时朝一侧绕 30 帧再接着追(N 记绕哪一侧，每次卡住换一侧)。
+func (f *Fight) chaser(e *Foe, spec FoeSpec) {
+	p := &f.P
+	if near(e.X, e.Y, p.X, p.Y, e.R+p.R) {
+		return
+	}
+	a := angleOf(p.X-e.X, p.Y-e.Y)
+	if e.T > 0 {
+		e.T--
+		a = (a + 16 - 32*e.N) & (Dirs - 1)
+	}
+	x, y := e.X, e.Y
+	sp := pxs(spec.Speed)
+	if f.walk(e, a, sp) && abs(e.X-x)+abs(e.Y-y) < sp/2 && e.T == 0 {
+		e.T = 30
+		e.N ^= 1
 	}
 }
 
@@ -60,14 +77,14 @@ func (f *Fight) walk(e *Foe, a, sp int) bool {
 // volley 朝方向 a 放一排飞弹：Count 发，相邻两发差 Spread 个方向。
 func (f *Fight) volley(e *Foe, s ShotSpec, a int) {
 	for i := 0; i < s.Count; i++ {
-		f.shoot(e.X, e.Y, e.R, (a+(2*i-(s.Count-1))*s.Spread/2)&(Dirs-1), s.Speed, s.Radius, s.Damage, shotLife, 0, true, e.Kind)
+		f.shoot(e.X, e.Y, e.R, (a+(2*i-(s.Count-1))*s.Spread/2)&(Dirs-1), s.Speed, s.Radius, s.Damage*f.FoeDmg/100, shotLife, 0, true, e.Kind)
 	}
 }
 
 // ring 从 offset 起向四周均匀放 count 发飞弹。
 func (f *Fight) ring(e *Foe, count, offset, speed, radius, dmg int) {
 	for i := 0; i < count; i++ {
-		f.shoot(e.X, e.Y, e.R, (offset+i*Dirs/count)&(Dirs-1), speed, radius, dmg, shotLife, 0, true, e.Kind)
+		f.shoot(e.X, e.Y, e.R, (offset+i*Dirs/count)&(Dirs-1), speed, radius, dmg*f.FoeDmg/100, shotLife, 0, true, e.Kind)
 	}
 }
 

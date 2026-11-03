@@ -5,7 +5,11 @@
     "mp_regen": 6,
     "iframes": 45,
     "pickup": 26,
-    "dodge": { "speed": 640, "ticks": 9, "cooldown": 42 }
+    "dodge": {
+      "speed": 640,
+      "ticks": 9,
+      "cooldown": 42
+    }
   },
   "classes": {
     "warrior": {
@@ -88,6 +92,27 @@
       "count": 3,
       "spread": 4,
       "life": 55
+    },
+    "spear": {
+      "kind": "melee",
+      "damage": 24,
+      "cooldown": 26,
+      "range": 74,
+      "arc": 3,
+      "knock": 420
+    },
+    "thunder": {
+      "kind": "shot",
+      "damage": 18,
+      "cooldown": 34,
+      "speed": 430,
+      "radius": 7,
+      "pierce": 0,
+      "cost": 6,
+      "count": 1,
+      "spread": 0,
+      "life": 75,
+      "splash": 46
     }
   },
   "foes": {
@@ -201,8 +226,116 @@
           "speed": 200,
           "radius": 7
         },
-        "summon": { "kind": "slime", "count": 2, "cap": 7 },
-        "charge": { "windup": 40, "dash": 560, "ticks": 30 }
+        "summon": {
+          "kind": "slime",
+          "count": 2,
+          "cap": 7
+        },
+        "charge": {
+          "windup": 40,
+          "dash": 560,
+          "ticks": 30
+        }
+      }
+    },
+    "werewolf": {
+      "ai": "chase",
+      "hp": 42,
+      "radius": 12,
+      "speed": 150,
+      "touch": 12
+    },
+    "shade_mage": {
+      "ai": "shoot",
+      "hp": 34,
+      "radius": 11,
+      "speed": 90,
+      "touch": 6,
+      "range": 210,
+      "cooldown": 120,
+      "windup": 28,
+      "shot": {
+        "damage": 9,
+        "speed": 250,
+        "radius": 6,
+        "count": 5,
+        "spread": 4
+      }
+    },
+    "lava_elemental": {
+      "ai": "turret",
+      "hp": 80,
+      "radius": 15,
+      "speed": 0,
+      "touch": 10,
+      "cooldown": 120,
+      "spin": 4,
+      "shot": {
+        "damage": 9,
+        "speed": 230,
+        "radius": 6,
+        "count": 12,
+        "spread": 0
+      }
+    },
+    "beetle": {
+      "ai": "chase",
+      "hp": 90,
+      "radius": 14,
+      "speed": 70,
+      "touch": 14
+    },
+    "troll": {
+      "ai": "charge",
+      "hp": 240,
+      "radius": 20,
+      "speed": 85,
+      "touch": 20,
+      "range": 260,
+      "windup": 30,
+      "dash": 700,
+      "dash_ticks": 28,
+      "rest": 36
+    },
+    "flame_lord": {
+      "ai": "boss",
+      "hp": 1000,
+      "radius": 30,
+      "speed": 75,
+      "touch": 18,
+      "boss": {
+        "gap": 60,
+        "gap2": 40,
+        "spray": {
+          "volleys": 3,
+          "every": 22,
+          "count": 7,
+          "count2": 9,
+          "spread": 3,
+          "damage": 10,
+          "speed": 280,
+          "radius": 7
+        },
+        "ring": {
+          "volleys": 4,
+          "every": 30,
+          "count": 16,
+          "count2": 20,
+          "turn": 2,
+          "damage": 9,
+          "speed": 210,
+          "radius": 7
+        },
+        "summon": {
+          "kind": "werewolf",
+          "count": 2,
+          "cap": 7
+        },
+        "charge": {
+          "windup": 36,
+          "dash": 600,
+          "ticks": 30
+        }
       }
     }
   },
@@ -225,26 +358,156 @@
       "#.......................#",
       "#.......................#",
       "#########################"
+    ],
+    "cavern": [
+      "#########################",
+      "#.......................#",
+      "#.......................#",
+      "#....oo...........oo....#",
+      "#....o.............o....#",
+      "#...........B...........#",
+      "#.......................#",
+      "#.o......o..o..o......o.#",
+      "#..........ooo..........#",
+      "#.o......o..o..o......o.#",
+      "#.......................#",
+      "#.......................#",
+      "#....o.............o....#",
+      "#....oo.....P.....oo....#",
+      "#.......................#",
+      "#.......................#",
+      "#########################"
+    ],
+    "ruins": [
+      "#########################",
+      "#.......................#",
+      "#..o.................o..#",
+      "#.........##.##.........#",
+      "#.......................#",
+      "#.....#.....B.....#.....#",
+      "#....o#...........#o....#",
+      "#.......................#",
+      "#...........#...........#",
+      "#.......................#",
+      "#....o#...........#o....#",
+      "#.....#...........#.....#",
+      "#.......................#",
+      "#...........P...........#",
+      "#..o.................o..#",
+      "#.......................#",
+      "#########################"
     ]
   },
   "trial": {
     "room": "glade",
     "waves": [
       [
-        { "foe": "slime", "n": 3 },
-        { "foe": "skeleton", "n": 1 }
+        {
+          "foe": "slime",
+          "n": 3
+        },
+        {
+          "foe": "skeleton",
+          "n": 1
+        }
       ],
       [
-        { "foe": "goblin", "n": 1 },
-        { "foe": "slime", "n": 2 },
-        { "foe": "moth", "n": 2 }
+        {
+          "foe": "goblin",
+          "n": 1
+        },
+        {
+          "foe": "slime",
+          "n": 2
+        },
+        {
+          "foe": "moth",
+          "n": 2
+        }
       ],
       [
-        { "foe": "gargoyle", "n": 1 },
-        { "foe": "skeleton", "n": 2 },
-        { "foe": "goblin", "n": 1 }
+        {
+          "foe": "gargoyle",
+          "n": 1
+        },
+        {
+          "foe": "skeleton",
+          "n": 2
+        },
+        {
+          "foe": "goblin",
+          "n": 1
+        }
       ],
-      [{ "foe": "slime_king", "n": 1 }]
+      [
+        {
+          "foe": "slime_king",
+          "n": 1
+        }
+      ]
     ]
-  }
+  },
+  "blessings": [
+    {
+      "id": "edge",
+      "mods": {
+        "damage": 20
+      }
+    },
+    {
+      "id": "swift",
+      "mods": {
+        "speed": 12
+      }
+    },
+    {
+      "id": "haste",
+      "mods": {
+        "haste": 18
+      }
+    },
+    {
+      "id": "pierce",
+      "mods": {
+        "pierce": 1
+      }
+    },
+    {
+      "id": "spring",
+      "mods": {
+        "regen": 60
+      }
+    },
+    {
+      "id": "vigor",
+      "mods": {
+        "vigor": 25
+      }
+    },
+    {
+      "id": "dash",
+      "mods": {
+        "dodge": 35
+      }
+    },
+    {
+      "id": "focus",
+      "mods": {
+        "focus": 30
+      }
+    },
+    {
+      "id": "reach",
+      "mods": {
+        "reach": 25
+      }
+    },
+    {
+      "id": "ward",
+      "mods": {
+        "ward": 1
+      }
+    }
+  ],
+  "weapon_pool": ["sword", "flying_sword", "talisman", "spear", "thunder"]
 }
