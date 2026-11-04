@@ -48,7 +48,6 @@ import { useSubscriptionArchive } from '../../hooks/subscriptions/useSubscriptio
 import {
   formatSubscriptionDuration,
   formatSubscriptionQuotaLabel,
-  formatSubscriptionQuotaResetHint,
   getSubscriptionQuotaLimits,
 } from '../../helpers/subscriptionFormat';
 import {
@@ -640,17 +639,6 @@ const SubscriptionPlansCard = ({
                         tooltip: `${t('原生额度')}：${limit.limit}`,
                       }))
                     : [{ label: t('额度不限') }];
-                if (quotaLimits.length > 1) {
-                  quotaBenefits.push({
-                    label: t('各项额度限制同时生效，不可相加'),
-                  });
-                }
-                const resetHints = new Set(
-                  quotaLimits.map((limit) =>
-                    formatSubscriptionQuotaResetHint(limit, t),
-                  ),
-                );
-                resetHints.forEach((label) => quotaBenefits.push({ label }));
                 const upgradeLabel = plan?.upgrade_group
                   ? `${plan.group_mode === 'attach' ? t('附加分组') : t('升级分组')}: ${plan.upgrade_group}`
                   : null;

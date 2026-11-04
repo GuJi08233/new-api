@@ -22,7 +22,6 @@ import { Progress, Tooltip } from '@douyinfe/semi-ui';
 import { renderQuota } from '../../../helpers/render';
 import {
   formatSubscriptionQuotaLabel,
-  formatSubscriptionQuotaResetHint,
   getSubscriptionQuotaLimits,
   getSubscriptionQuotaUsage,
 } from '../../../helpers/subscriptionFormat';
@@ -106,10 +105,7 @@ const SubscriptionQuotaDetails = ({
                 )}
               </div>
             </Tooltip>
-            <div>{formatSubscriptionQuotaResetHint(limit, t)}</div>
-            {limit.period === 'none' ? (
-              <div>{t('不重置')}</div>
-            ) : showReset && limit.usage_available ? (
+            {showReset && limit.period !== 'none' && limit.usage_available ? (
               <div>
                 {limit.next_reset_time > 0 &&
                 limit.next_reset_time < subscription.end_time
@@ -122,7 +118,6 @@ const SubscriptionQuotaDetails = ({
           </div>
         );
       })}
-      {limits.length > 1 && <div>{t('各项额度限制同时生效，不可相加')}</div>}
     </div>
   );
 };

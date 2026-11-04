@@ -201,6 +201,31 @@ const SubscriptionPurchaseModal = ({
                   </Text>
                 </div>
               ) : null}
+              {purchaseLimit > 0 && (
+                <div className='flex justify-between items-center'>
+                  <Text strong className='text-slate-700 dark:text-slate-200'>
+                    {t('限购')}：
+                  </Text>
+                  <Text className='text-slate-900 dark:text-slate-100'>
+                    {purchaseCount}/{purchaseLimit}
+                  </Text>
+                </div>
+              )}
+              {globalPurchaseLimit > 0 && (
+                <div className='flex justify-between items-center'>
+                  <Text strong className='text-slate-700 dark:text-slate-200'>
+                    {t('全局限购')}：
+                  </Text>
+                  <Text className='text-slate-900 dark:text-slate-100'>
+                    {globalPurchaseCount}/{globalPurchaseLimit}
+                  </Text>
+                </div>
+              )}
+              {plan.disable_balance_deduction && (
+                <Text className='text-slate-700 dark:text-slate-200'>
+                  {t('已禁用余额扣费')}
+                </Text>
+              )}
               <Divider margin={8} />
               <div className='flex justify-between items-center'>
                 <Text strong className='text-slate-700 dark:text-slate-200'>
