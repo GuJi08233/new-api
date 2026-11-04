@@ -48,6 +48,32 @@ func setupStreamTest(t *testing.T, body io.Reader) (*gin.Context, *http.Response
 	return c, resp, info
 }
 
+func TestStreamScannerCapturesResponseModelBeforeConversion(t *testing.T) {
+	tests := []struct {
+		name  string
+		frame string
+		model string
+	}{
+		{name: "openai", frame: `{"model":"gpt-version","choices":[]}`, model: "gpt-version"},
+		{name: "claude", frame: `{"type":"message_start","message":{"model":"claude-version"}}`, model: "claude-version"},
+		{name: "responses", frame: `{"type":"response.completed","response":{"model":"responses-version"}}`, model: "responses-version"},
+		{name: "gemini", frame: `{"modelVersion":"gemini-version","candidates":[]}`, model: "gemini-version"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body := "data: " + tt.frame + "\n\ndata: {\"usage\":{\"total_tokens\":1}}\n\ndata: [DONE]\n\n"
+			c, resp, info := setupStreamTest(t, strings.NewReader(body))
+			var observed []string
+			StreamScannerHandler(c, resp, info, func(data string, sr *StreamResult) {
+				observed = append(observed, common.GetContextKeyString(c, constant.ContextKeyResponseModelName))
+			})
+			require.Len(t, observed, 2)
+			assert.Equal(t, []string{tt.model, tt.model}, observed)
+			assert.Equal(t, tt.model, common.GetContextKeyString(c, constant.ContextKeyResponseModelName))
+		})
+	}
+}
+
 func buildSSEBody(n int) string {
 	var b strings.Builder
 	for i := 0; i < n; i++ {

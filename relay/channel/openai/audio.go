@@ -3,7 +3,6 @@ package openai
 import (
 	"bytes"
 	"fmt"
-	"io"
 	"math"
 	"net/http"
 
@@ -51,7 +50,7 @@ func OpenaiTTSHandler(c *gin.Context, resp *http.Response, info *relaycommon.Rel
 	} else {
 		common.SetContextKey(c, constant.ContextKeyLocalCountTokens, true)
 		// 读取响应体到缓冲区
-		bodyBytes, err := io.ReadAll(resp.Body)
+		bodyBytes, err := service.ReadResponseBody(c, resp)
 		if err != nil {
 			logger.LogError(c, fmt.Sprintf("failed to read TTS response body: %v", err))
 			service.CopyUpstreamHeaders(c, c.Writer.Header(), resp.Header, false)
@@ -109,7 +108,7 @@ func OpenaiTTSHandler(c *gin.Context, resp *http.Response, info *relaycommon.Rel
 func OpenaiSTTHandler(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo, responseFormat string) (*types.NewAPIError, *dto.Usage) {
 	defer service.CloseResponseBodyGracefully(resp)
 
-	responseBody, err := io.ReadAll(resp.Body)
+	responseBody, err := service.ReadResponseBody(c, resp)
 	if err != nil {
 		return types.NewOpenAIError(err, types.ErrorCodeReadResponseBodyFailed, http.StatusInternalServerError), nil
 	}

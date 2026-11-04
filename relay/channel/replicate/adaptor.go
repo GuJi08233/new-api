@@ -180,7 +180,7 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 		return nil, types.NewError(errors.New("replicate adaptor: empty response"), types.ErrorCodeBadResponse)
 	}
 
-	responseBody, err := io.ReadAll(resp.Body)
+	responseBody, err := service.ReadResponseBody(c, resp)
 	if err != nil {
 		return nil, types.NewError(err, types.ErrorCodeReadResponseBodyFailed)
 	}

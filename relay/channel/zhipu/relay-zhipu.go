@@ -3,7 +3,6 @@ package zhipu
 import (
 	"bufio"
 	"context"
-	"io"
 	"net/http"
 	"strings"
 	"sync"
@@ -245,6 +244,7 @@ streamLoop:
 			}
 			if event.kind == "meta" {
 				data := event.data
+				service.CaptureResponseModelName(c, common.StringToByteSlice(data))
 				var zhipuResponse ZhipuStreamMetaResponse
 				err := common.Unmarshal([]byte(data), &zhipuResponse)
 				if err != nil {
@@ -280,7 +280,7 @@ streamLoop:
 
 func zhipuHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
 	var zhipuResponse ZhipuResponse
-	responseBody, err := io.ReadAll(resp.Body)
+	responseBody, err := service.ReadResponseBody(c, resp)
 	if err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeReadResponseBodyFailed, http.StatusInternalServerError)
 	}

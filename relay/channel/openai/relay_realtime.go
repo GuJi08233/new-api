@@ -122,6 +122,7 @@ func OpenaiRealtimeHandler(c *gin.Context, info *relaycommon.RelayInfo) (*types.
 					close(targetClosed)
 					return
 				}
+				service.CaptureResponseModelName(c, message)
 				info.SetFirstResponseTime()
 				realtimeEvent := &dto.RealtimeEvent{}
 				err = common.Unmarshal(message, realtimeEvent)

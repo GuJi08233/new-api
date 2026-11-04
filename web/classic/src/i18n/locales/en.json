@@ -1455,6 +1455,7 @@
     "实付金额": "Actual payment amount",
     "实付金额：": "Actual payment amount: ",
     "实际模型": "Actual model",
+    "渠道模型": "Channel model",
     "实际结算金额：{{symbol}}{{total}}（已包含分组价格调整）": "Actual charge: {{symbol}}{{total}} (group pricing adjustment included)",
     "实际请求体": "Actual request body",
     "审计信息": "Audit Info",

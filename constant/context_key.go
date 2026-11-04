@@ -15,6 +15,9 @@ const (
 
 	ContextKeyOriginalModel    ContextKey = "original_model"
 	ContextKeyRequestStartTime ContextKey = "request_start_time"
+	// ContextKeyResponseModelName is the model ID observed in the raw upstream
+	// response, before format conversion or response model rewriting.
+	ContextKeyResponseModelName ContextKey = "response_model_name"
 	// ContextKeyModelRewrite records the model redirect that actually took effect
 	// for the selected channel, so response bodies and user-facing error messages
 	// can be mapped back to the model name the client asked for.

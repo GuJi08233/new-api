@@ -320,7 +320,7 @@ func requestOpenAI2Embeddings(r dto.EmbeddingRequest) *OllamaEmbeddingRequest {
 
 func ollamaEmbeddingHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
 	var oResp OllamaEmbeddingResponse
-	body, err := io.ReadAll(resp.Body)
+	body, err := service.ReadResponseBody(c, resp)
 	if err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
 	}

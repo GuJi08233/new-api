@@ -217,7 +217,7 @@ func updateTask(c *gin.Context, info *relaycommon.RelayInfo, taskID string) (*Al
 	}
 	defer resp.Body.Close()
 
-	responseBody, err := io.ReadAll(resp.Body)
+	responseBody, err := service.ReadResponseBody(c, resp)
 
 	var response AliResponse
 	err = common.Unmarshal(responseBody, &response)
@@ -304,7 +304,7 @@ func aliImageHandler(a *Adaptor, c *gin.Context, resp *http.Response, info *rela
 	}
 
 	var aliTaskResponse AliResponse
-	responseBody, err := io.ReadAll(resp.Body)
+	responseBody, err := service.ReadResponseBody(c, resp)
 	if err != nil {
 		return types.NewOpenAIError(err, types.ErrorCodeReadResponseBodyFailed, http.StatusInternalServerError), nil
 	}

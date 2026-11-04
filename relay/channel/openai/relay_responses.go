@@ -2,7 +2,6 @@ package openai
 
 import (
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 
@@ -23,7 +22,7 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 
 	// read response body
 	var responsesResponse dto.OpenAIResponsesResponse
-	responseBody, err := io.ReadAll(resp.Body)
+	responseBody, err := service.ReadResponseBody(c, resp)
 	if err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeReadResponseBodyFailed, http.StatusInternalServerError)
 	}

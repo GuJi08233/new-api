@@ -2,7 +2,6 @@ package palm
 
 import (
 	"context"
-	"io"
 	"net/http"
 
 	"github.com/QuantumNous/new-api/common"
@@ -70,7 +69,7 @@ func palmStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.R
 	go func() {
 		defer close(workerDone)
 		defer close(dataChan)
-		responseBody, err := io.ReadAll(resp.Body)
+		responseBody, err := service.ReadResponseBody(c, resp)
 		if err != nil {
 			workerErr = err
 			common.SysLog("error reading stream response: " + err.Error())
@@ -133,7 +132,7 @@ func palmStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.R
 }
 
 func palmHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
-	responseBody, err := io.ReadAll(resp.Body)
+	responseBody, err := service.ReadResponseBody(c, resp)
 	if err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeReadResponseBodyFailed, http.StatusInternalServerError)
 	}

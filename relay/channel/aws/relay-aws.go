@@ -319,6 +319,7 @@ func awsHandler(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor) (*types
 		return types.NewOpenAIError(errors.Wrap(err, "InvokeModel"), types.ErrorCodeAwsInvokeError, statusCode), nil
 	}
 	copyAwsResponseHeaders(c, info, awsResp.ResultMetadata)
+	service.CaptureResponseModelName(c, awsResp.Body)
 
 	claudeInfo := &claude.ClaudeResponseInfo{
 		ResponseId:   helper.GetResponseID(c),
@@ -375,6 +376,7 @@ func awsStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor) (
 		switch v := event.(type) {
 		case *bedrockruntimeTypes.ResponseStreamMemberChunk:
 			info.SetFirstResponseTime()
+			service.CaptureResponseModelName(c, v.Value.Bytes)
 			respErr := claude.HandleStreamResponseData(c, info, claudeInfo, string(v.Value.Bytes))
 			if respErr != nil {
 				if helper.IsStreamWriteError(respErr) {
@@ -431,6 +433,7 @@ func handleNovaRequest(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor) 
 		return types.NewOpenAIError(errors.Wrap(err, "InvokeModel"), types.ErrorCodeAwsInvokeError, statusCode), nil
 	}
 	copyAwsResponseHeaders(c, info, awsResp.ResultMetadata)
+	service.CaptureResponseModelName(c, awsResp.Body)
 
 	// 解析Nova响应
 	var novaResp struct {

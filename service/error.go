@@ -15,6 +15,7 @@ import (
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/types"
+	"github.com/gin-gonic/gin"
 )
 
 func MidjourneyErrorWrapper(code int, desc string) *dto.MidjourneyResponse {
@@ -89,6 +90,9 @@ func RelayErrorHandler(ctx context.Context, resp *http.Response, showBodyWhenFai
 	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return
+	}
+	if c, ok := ctx.(*gin.Context); ok {
+		CaptureResponseModelName(c, responseBody)
 	}
 	CloseResponseBodyGracefully(resp)
 	var errResponse dto.GeneralErrorResponse

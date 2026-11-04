@@ -285,7 +285,7 @@ func difyStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.R
 
 func difyHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
 	var difyResponse DifyChatCompletionResponse
-	responseBody, err := io.ReadAll(resp.Body)
+	responseBody, err := service.ReadResponseBody(c, resp)
 
 	if err != nil {
 		return nil, types.NewError(err, types.ErrorCodeBadResponseBody)

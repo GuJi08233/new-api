@@ -1,14 +1,25 @@
 package common
 
 import (
-	"github.com/gin-gonic/gin"
-	"github.com/stretchr/testify/assert"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/types"
+
+	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestRetryClearsUpstreamResponseModel(t *testing.T) {
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	common.SetContextKey(c, constant.ContextKeyResponseModelName, "previous-attempt-model")
+	info := &RelayInfo{}
+	info.InitChannelMeta(c)
+	assert.Empty(t, common.GetContextKeyString(c, constant.ContextKeyResponseModelName))
+}
 
 func TestRetryResetsOnlyAttemptConversionAndTools(t *testing.T) {
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())

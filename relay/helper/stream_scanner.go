@@ -328,6 +328,7 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 		}()
 		for data := range dataChan {
 			sr.reset()
+			service.CaptureResponseModelName(c, common.StringToByteSlice(data))
 			func() {
 				writeMutex.Lock()
 				defer writeMutex.Unlock()

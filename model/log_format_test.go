@@ -48,6 +48,49 @@ func TestFormatUserLogsStripsLegacyChannelMetadata(t *testing.T) {
 	assert.Empty(t, logs[0].ChannelName)
 }
 
+func TestFormatUserLogsStripsResponseModel(t *testing.T) {
+	original := common.IsHideModelMappingForUserEnabled()
+	t.Cleanup(func() { common.SetHideModelMappingForUser(original) })
+
+	for _, tt := range []struct {
+		name        string
+		hideMapping bool
+		mapped      bool
+	}{
+		{name: "unmapped visible"},
+		{name: "unmapped hidden", hideMapping: true},
+		{name: "mapped visible", mapped: true},
+		{name: "mapped hidden", hideMapping: true, mapped: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			common.SetHideModelMappingForUser(tt.hideMapping)
+			other := map[string]any{
+				"model_ratio": 2.5,
+				"admin_info":  map[string]any{"response_model_name": "provider-model-version"},
+			}
+			if tt.mapped {
+				other["is_model_mapped"] = true
+				other["upstream_model_name"] = "upstream-alias"
+			}
+			logs := []*Log{{ModelName: "request-model", Other: common.MapToJsonStr(other)}}
+
+			formatUserLogs(logs, 0)
+
+			parsed, err := common.StrToMap(logs[0].Other)
+			require.NoError(t, err)
+			assert.NotContains(t, parsed, "admin_info")
+			assert.NotContains(t, logs[0].Other, "provider-model-version")
+			assert.Equal(t, 2.5, parsed["model_ratio"])
+			assert.Equal(t, "request-model", logs[0].ModelName)
+			if tt.mapped && !tt.hideMapping {
+				assert.Equal(t, "upstream-alias", parsed["upstream_model_name"])
+			} else {
+				assert.NotContains(t, parsed, "upstream_model_name")
+			}
+		})
+	}
+}
+
 // TestFormatUserLogsHidesModelMapping locks the user-facing contract of the
 // "hide model mapping" option: with it on, neither the redirect markers in
 // other nor the upstream model name inside the log content may reach a

@@ -2,7 +2,6 @@ package openai
 
 import (
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 
@@ -211,7 +210,7 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 	defer service.CloseResponseBodyGracefully(resp)
 
 	var simpleResponse dto.OpenAITextResponse
-	responseBody, err := io.ReadAll(resp.Body)
+	responseBody, err := service.ReadResponseBody(c, resp)
 	if err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeReadResponseBodyFailed, http.StatusInternalServerError)
 	}
@@ -227,6 +226,7 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 		}
 		if enterpriseResponse.Success {
 			responseBody = enterpriseResponse.Data
+			service.CaptureResponseModelName(c, responseBody)
 			// The enterprise envelope has been removed, so representation metadata
 			// from the original response (length, digest, etag, etc.) no longer
 			// describes the bytes sent below.

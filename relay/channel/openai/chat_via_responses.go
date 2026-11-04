@@ -3,7 +3,6 @@ package openai
 import (
 	"bufio"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -28,7 +27,7 @@ func OaiResponsesToChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	defer service.CloseResponseBodyGracefully(resp)
 
 	var responsesResp dto.OpenAIResponsesResponse
-	body, err := io.ReadAll(resp.Body)
+	body, err := service.ReadResponseBody(c, resp)
 	if err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeReadResponseBodyFailed, http.StatusInternalServerError)
 	}
@@ -103,6 +102,7 @@ func OaiResponsesToChatBufferedStreamHandler(c *gin.Context, info *relaycommon.R
 			continue
 		}
 
+		service.CaptureResponseModelName(c, common.StringToByteSlice(data))
 		var streamResp dto.ResponsesStreamResponse
 		if err := common.UnmarshalJsonStr(data, &streamResp); err != nil {
 			logger.LogError(c, "failed to unmarshal buffered responses stream event: "+err.Error())

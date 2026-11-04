@@ -2,7 +2,6 @@ package ali
 
 import (
 	"encoding/json"
-	"io"
 	"net/http"
 
 	"github.com/QuantumNous/new-api/dto"
@@ -33,7 +32,7 @@ func ConvertRerankRequest(request dto.RerankRequest) *AliRerankRequest {
 }
 
 func RerankHandler(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (*types.NewAPIError, *dto.Usage) {
-	responseBody, err := io.ReadAll(resp.Body)
+	responseBody, err := service.ReadResponseBody(c, resp)
 	if err != nil {
 		return types.NewOpenAIError(err, types.ErrorCodeReadResponseBodyFailed, http.StatusInternalServerError), nil
 	}

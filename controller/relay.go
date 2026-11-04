@@ -807,8 +807,7 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 		if rewrite, ok := service.GetModelRewrite(c); ok {
 			// 记录本次实际请求的上游模型，管理员据此排错；用户侧查询时
 			// formatUserLogs 会用它把正文里的上游模型名替换掉再删除该字段。
-			// 两个前端都要求 is_model_mapped 与 upstream_model_name 同时存在
-			// 才渲染「实际模型」，所以标记必须一起写。
+			// 日志界面通过这两个字段展示渠道模型映射；响应体返回的模型另存于 admin_info。
 			// 取归一化后的实时上游名，与消费日志里的 relayInfo.UpstreamModelName 一致。
 			other["is_model_mapped"] = true
 			other["upstream_model_name"] = rewrite.UpstreamModelName()
@@ -818,6 +817,9 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 		adminInfo["channel_name"] = c.GetString("channel_name")
 		adminInfo["channel_type"] = c.GetInt("channel_type")
 		adminInfo["use_channel"] = c.GetStringSlice("use_channel")
+		if responseModel := common.GetContextKeyString(c, constant.ContextKeyResponseModelName); responseModel != "" {
+			adminInfo["response_model_name"] = responseModel
+		}
 		isMultiKey := common.GetContextKeyBool(c, constant.ContextKeyChannelIsMultiKey)
 		if isMultiKey {
 			adminInfo["is_multi_key"] = true

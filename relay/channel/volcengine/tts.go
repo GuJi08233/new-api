@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 
@@ -14,6 +13,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -145,7 +145,7 @@ func getContentTypeByEncoding(encoding string) string {
 }
 
 func handleTTSResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo, encoding string) (usage any, err *types.NewAPIError) {
-	body, readErr := io.ReadAll(resp.Body)
+	body, readErr := service.ReadResponseBody(c, resp)
 	if readErr != nil {
 		return nil, types.NewErrorWithStatusCode(
 			errors.New("failed to read volcengine response"),

@@ -6,12 +6,15 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -120,6 +123,25 @@ func TestRelayErrorHandlerKeepsOpenAIErrorMessage(t *testing.T) {
 
 	require.NotNil(t, newAPIError)
 	require.Equal(t, message, newAPIError.Error())
+}
+
+func TestRelayErrorHandlerCapturesResponseModel(t *testing.T) {
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Set(string(constant.ContextKeyOriginalModel), "client-model")
+	resp := &http.Response{
+		StatusCode: http.StatusBadRequest,
+		Body: io.NopCloser(strings.NewReader(
+			`{"model":"provider-model-version","error":{"message":"invalid input","type":"invalid_request_error","code":"invalid_input"}}`,
+		)),
+	}
+
+	newAPIError := RelayErrorHandler(c, resp, false)
+
+	require.NotNil(t, newAPIError)
+	assert.Equal(t, http.StatusBadRequest, newAPIError.StatusCode)
+	assert.Equal(t, "invalid input", newAPIError.Error())
+	assert.Equal(t, "provider-model-version", common.GetContextKeyString(c, constant.ContextKeyResponseModelName))
+	assert.Equal(t, "client-model", common.GetContextKeyString(c, constant.ContextKeyOriginalModel))
 }
 
 func TestRelayErrorHandlerKeepsInvalidJSONBodyInDebugLog(t *testing.T) {

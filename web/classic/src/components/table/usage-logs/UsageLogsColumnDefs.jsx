@@ -316,13 +316,19 @@ function renderBillingTag(record, t) {
   return null;
 }
 
-function renderModelName(record, copyText, t) {
-  let other = getLogOther(record.other);
-  let modelMapped =
+function renderModelName(record, copyText, t, isAdminUser) {
+  const other = getLogOther(record.other);
+  const modelMapped =
     other?.is_model_mapped &&
     other?.upstream_model_name &&
     other?.upstream_model_name !== '';
-  if (!modelMapped) {
+  const showResponseModel =
+    isAdminUser && (record.type === 2 || record.type === 5);
+  const responseModel =
+    other?.admin_info?.response_model_name ||
+    (modelMapped ? other.upstream_model_name : record.model_name) ||
+    '-';
+  if (!isAdminUser || (!modelMapped && !showResponseModel)) {
     return renderModelTag(record.model_name, {
       onClick: (event) => {
         copyText(event, record.model_name).then((r) => {});
@@ -346,18 +352,32 @@ function renderModelName(record, copyText, t) {
                       },
                     })}
                   </div>
-                  <div className='flex items-center'>
-                    <Typography.Text strong style={{ marginRight: 8 }}>
-                      {t('实际模型')}:
-                    </Typography.Text>
-                    {renderModelTag(other.upstream_model_name, {
-                      onClick: (event) => {
-                        copyText(event, other.upstream_model_name).then(
-                          (r) => {},
-                        );
-                      },
-                    })}
-                  </div>
+                  {modelMapped && (
+                    <div className='flex items-center'>
+                      <Typography.Text strong style={{ marginRight: 8 }}>
+                        {t('渠道模型')}:
+                      </Typography.Text>
+                      {renderModelTag(other.upstream_model_name, {
+                        onClick: (event) => {
+                          copyText(event, other.upstream_model_name).then(
+                            (r) => {},
+                          );
+                        },
+                      })}
+                    </div>
+                  )}
+                  {showResponseModel && (
+                    <div className='flex items-center'>
+                      <Typography.Text strong style={{ marginRight: 8 }}>
+                        {t('实际模型')}:
+                      </Typography.Text>
+                      {renderModelTag(responseModel, {
+                        onClick: (event) => {
+                          copyText(event, responseModel).then((r) => {});
+                        },
+                      })}
+                    </div>
+                  )}
                 </Space>
               </div>
             }
@@ -366,13 +386,27 @@ function renderModelName(record, copyText, t) {
               onClick: (event) => {
                 copyText(event, record.model_name).then((r) => {});
               },
-              suffixIcon: (
+              suffixIcon: modelMapped ? (
                 <Route
                   style={{ width: '0.9em', height: '0.9em', opacity: 0.75 }}
                 />
+              ) : (
+                <IconHelpCircle style={{ opacity: 0.75 }} />
               ),
             })}
           </Popover>
+          {showResponseModel && (
+            <div className='flex items-center gap-2'>
+              <Typography.Text type='tertiary' size='small'>
+                {t('实际模型')}:
+              </Typography.Text>
+              {renderModelTag(responseModel, {
+                onClick: (event) => {
+                  copyText(event, responseModel).then((r) => {});
+                },
+              })}
+            </div>
+          )}
         </Space>
       </>
     );
@@ -739,7 +773,7 @@ export const getLogsColumns = ({
           record.type === 2 ||
           record.type === 5 ||
           record.type === 6 ? (
-          <>{renderModelName(record, copyText, t)}</>
+          <>{renderModelName(record, copyText, t, isAdminUser)}</>
         ) : (
           <></>
         );

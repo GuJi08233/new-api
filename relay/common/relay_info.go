@@ -244,6 +244,7 @@ type RelayInfo struct {
 }
 
 func (info *RelayInfo) InitChannelMeta(c *gin.Context) {
+	common.SetContextKey(c, constant.ContextKeyResponseModelName, "")
 	info.SendResponseCount = 0
 	info.ReceivedResponseCount = 0
 	if info.ClaudeConvertInfo != nil {

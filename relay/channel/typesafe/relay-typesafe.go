@@ -1,7 +1,6 @@
 package typesafe
 
 import (
-	"io"
 	"net/http"
 
 	"github.com/QuantumNous/new-api/common"
@@ -17,7 +16,7 @@ import (
 // SystemOneHandler forwards a System One response to the client unchanged and
 // reports the upstream token usage for billing.
 func SystemOneHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
-	responseBody, err := io.ReadAll(resp.Body)
+	responseBody, err := service.ReadResponseBody(c, resp)
 	if err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeReadResponseBodyFailed, http.StatusInternalServerError)
 	}

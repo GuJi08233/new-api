@@ -1448,6 +1448,7 @@
     "实付金额": "Montant du paiement réel",
     "实付金额：": "Montant du paiement réel : ",
     "实际模型": "Modèle réel",
+    "渠道模型": "Modèle du canal",
     "实际结算金额：{{symbol}}{{total}}（已包含分组价格调整）": "Montant facturé réel : {{symbol}}{{total}} (ajustement tarifaire de groupe inclus)",
     "实际请求体": "Corps de requête réel",
     "审计信息": "Informations d'audit",

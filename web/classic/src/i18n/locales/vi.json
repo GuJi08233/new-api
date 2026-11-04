@@ -1436,6 +1436,7 @@
     "实付金额": "Số tiền thanh toán thực tế",
     "实付金额：": "Số tiền thanh toán thực tế: ",
     "实际模型": "Mô hình thực tế",
+    "渠道模型": "Mô hình kênh",
     "实际结算金额：{{symbol}}{{total}}（已包含分组价格调整）": "Khoản phí thực tế: {{symbol}}{{total}} (đã bao gồm điều chỉnh giá theo nhóm)",
     "实际请求体": "Thân yêu cầu thực tế",
     "审计信息": "Thông tin kiểm toán",
