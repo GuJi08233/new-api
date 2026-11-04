@@ -57,8 +57,8 @@ const (
 	TierPeriodMonthly = "monthly" // Calendar-aligned: 1st of month
 	TierPeriodWeekly  = "weekly"  // Calendar-aligned: Monday
 	TierPeriodDaily   = "daily"   // Calendar-aligned: midnight
-	TierPeriodHourly  = "hourly"  // Sliding window: N hours from first use
-	TierPeriodCustom  = "custom"  // Sliding window: custom seconds from first use
+	TierPeriodHourly  = "hourly"  // Fixed one-hour window starting with the first request
+	TierPeriodCustom  = "custom"  // Fixed-duration window starting with the first request
 	TierPeriodNone    = "none"    // Never resets, total cap only
 )
 
@@ -72,11 +72,12 @@ type QuotaTier struct {
 
 // TierUsageSnapshot stores the per-tier usage delta for a single pre-consume operation
 type TierUsageSnapshot struct {
-	TierIndex   int    `json:"tier_index"`
-	Delta       int64  `json:"delta"`
-	Period      string `json:"period,omitempty"`
-	PeriodStart int64  `json:"period_start,omitempty"`
-	WindowStart int64  `json:"window_start,omitempty"`
+	TierIndex    int    `json:"tier_index"`
+	Delta        int64  `json:"delta"`
+	Period       string `json:"period,omitempty"`
+	PeriodStart  int64  `json:"period_start,omitempty"`
+	WindowStart  int64  `json:"window_start,omitempty"`
+	ResetVersion *int64 `json:"reset_version,omitempty"`
 }
 
 // 周期快照随请求及异步任务保存，重置后只调整仍属于原周期的计数器。
@@ -302,7 +303,8 @@ type SubscriptionPlan struct {
 	QuotaResetPeriod        string `json:"quota_reset_period" gorm:"type:varchar(16);default:'never'"`
 	QuotaResetCustomSeconds int64  `json:"quota_reset_custom_seconds" gorm:"type:bigint;default:0"`
 
-	// Multi-tier quota configuration (JSON array). When non-empty, overrides single-tier TotalAmount/QuotaResetPeriod.
+	// Multi-tier quota configuration (JSON array). Historical plans may also have
+	// TotalAmount/QuotaResetPeriod; those limits continue to apply together.
 	QuotaTiers string `json:"quota_tiers" gorm:"type:text"`
 
 	// When true, users on this plan cannot use wallet balance for deduction
@@ -634,7 +636,12 @@ func (s *UserSubscription) IsAttachGroupMode() bool {
 }
 
 type SubscriptionSummary struct {
-	Subscription *UserSubscription `json:"subscription"`
+	Subscription            *UserSubscription           `json:"subscription"`
+	PlanTitle               string                      `json:"plan_title"`
+	QuotaResetPeriod        string                      `json:"quota_reset_period"`
+	QuotaResetCustomSeconds int64                       `json:"quota_reset_custom_seconds"`
+	QuotaTiers              string                      `json:"quota_tiers"`
+	TierUsages              []UserSubscriptionTierUsage `json:"tier_usages"`
 }
 
 type SubscriptionResetResult struct {
@@ -1843,7 +1850,7 @@ func GetAllActiveUserSubscriptions(userId int) ([]SubscriptionSummary, error) {
 	if err != nil {
 		return nil, err
 	}
-	return buildSubscriptionSummaries(subs), nil
+	return buildSubscriptionSummaries(subs, now)
 }
 
 // HasActiveUserSubscription returns whether the user has any active subscription.
@@ -1874,21 +1881,96 @@ func GetAllUserSubscriptions(userId int) ([]SubscriptionSummary, error) {
 	if err != nil {
 		return nil, err
 	}
-	return buildSubscriptionSummaries(subs), nil
+	return buildSubscriptionSummaries(subs, common.GetTimestamp())
 }
 
-func buildSubscriptionSummaries(subs []UserSubscription) []SubscriptionSummary {
+func buildSubscriptionSummaries(subs []UserSubscription, now int64) ([]SubscriptionSummary, error) {
 	if len(subs) == 0 {
-		return []SubscriptionSummary{}
+		return []SubscriptionSummary{}, nil
+	}
+	planIds := make([]int, 0, len(subs))
+	subIds := make([]int, 0, len(subs))
+	for _, sub := range subs {
+		planIds = append(planIds, sub.PlanId)
+		subIds = append(subIds, sub.Id)
+	}
+	var plans []SubscriptionPlan
+	if err := ReadDB().Where("id IN ?", planIds).Find(&plans).Error; err != nil {
+		return nil, err
+	}
+	plansById := make(map[int]SubscriptionPlan, len(plans))
+	for _, plan := range plans {
+		plansById[plan.Id] = plan
+	}
+	var usages []UserSubscriptionTierUsage
+	if err := ReadDB().Where("user_subscription_id IN ?", subIds).Order("tier_index asc").Find(&usages).Error; err != nil {
+		return nil, err
+	}
+	usagesBySubId := make(map[int][]UserSubscriptionTierUsage)
+	for _, usage := range usages {
+		usagesBySubId[usage.UserSubscriptionId] = append(usagesBySubId[usage.UserSubscriptionId], usage)
 	}
 	result := make([]SubscriptionSummary, 0, len(subs))
 	for _, sub := range subs {
 		subCopy := sub
-		result = append(result, SubscriptionSummary{
-			Subscription: &subCopy,
-		})
+		plan := plansById[sub.PlanId]
+		summary := SubscriptionSummary{
+			Subscription:            &subCopy,
+			PlanTitle:               plan.Title,
+			QuotaResetPeriod:        NormalizeResetPeriod(plan.QuotaResetPeriod),
+			QuotaResetCustomSeconds: plan.QuotaResetCustomSeconds,
+			QuotaTiers:              plan.QuotaTiers,
+			TierUsages:              usagesBySubId[sub.Id],
+		}
+		if summary.TierUsages == nil {
+			summary.TierUsages = []UserSubscriptionTierUsage{}
+		}
+		// Show the current allowance even when the reset worker has not run yet.
+		// These are response copies: reading subscriptions never changes billing counters.
+		if sub.EndTime > now && (sub.Status == SubscriptionStatusActive || sub.Status == SubscriptionStatusInactive) {
+			if summary.QuotaResetPeriod != SubscriptionResetNever && (sub.NextResetTime == 0 || sub.NextResetTime <= now) {
+				baseUnix := sub.LastResetTime
+				if baseUnix <= 0 {
+					baseUnix = sub.StartTime
+				}
+				base := time.Unix(baseUnix, 0)
+				next := calcNextResetTime(base, &plan, sub.EndTime)
+				if next > baseUnix && next <= now {
+					if summary.QuotaResetPeriod == SubscriptionResetCustom {
+						periods := (now - baseUnix) / plan.QuotaResetCustomSeconds
+						base = time.Unix(baseUnix+periods*plan.QuotaResetCustomSeconds, 0)
+					} else {
+						base, _ = calcTierPeriodBoundaries(time.Unix(now, 0), summary.QuotaResetPeriod)
+					}
+					next = calcNextResetTime(base, &plan, sub.EndTime)
+					subCopy.AmountUsed = 0
+					subCopy.LastResetTime = base.Unix()
+				}
+				subCopy.NextResetTime = next
+			}
+			tiers := plan.GetQuotaTiers()
+			for i := range summary.TierUsages {
+				usage := &summary.TierUsages[i]
+				if usage.TierIndex < 0 || usage.TierIndex >= len(tiers) {
+					continue
+				}
+				tier := tiers[usage.TierIndex]
+				if isCalendarAligned(tier) && usage.NextPeriodStart > 0 && usage.NextPeriodStart <= now {
+					start, end := calcTierPeriodBoundaries(time.Unix(now, 0), tier.Period)
+					usage.PeriodStart = start.Unix()
+					usage.NextPeriodStart = end.Unix()
+					usage.UsageInPeriod = 0
+				}
+				if isSlidingWindow(tier) && (usage.WindowStart == 0 || now-usage.WindowStart >= getSlidingWindowSeconds(tier)) {
+					usage.WindowStart = 0
+					usage.WindowSeconds = getSlidingWindowSeconds(tier)
+					usage.UsageInWindow = 0
+				}
+			}
+		}
+		result = append(result, summary)
 	}
-	return result
+	return result, nil
 }
 
 // AdminInvalidateUserSubscription marks a user subscription as cancelled and ends it immediately.
@@ -1981,6 +2063,9 @@ func resetUserSubscriptionTx(tx *gorm.DB, sub *UserSubscription, plan *Subscript
 	if tx == nil || sub == nil || plan == nil {
 		return errors.New("invalid reset args")
 	}
+	if sub.QuotaResetVersion == math.MaxInt64 {
+		return errors.New("subscription quota reset version exhausted")
+	}
 	sub.AmountUsed = 0
 	sub.QuotaResetVersion++
 	if advanceResetTime {
@@ -1990,6 +2075,41 @@ func resetUserSubscriptionTx(tx *gorm.DB, sub *UserSubscription, plan *Subscript
 			sub.LastResetTime = now
 		} else {
 			sub.LastResetTime = 0
+		}
+	}
+	for i, tier := range plan.GetQuotaTiers() {
+		var usage UserSubscriptionTierUsage
+		err := lockForUpdate(tx).
+			Where("user_subscription_id = ? AND tier_index = ?", sub.Id, i).
+			First(&usage).Error
+		missing := errors.Is(err, gorm.ErrRecordNotFound)
+		if err != nil && !missing {
+			return err
+		}
+		if missing {
+			usage.UserSubscriptionId = sub.Id
+			usage.TierIndex = i
+		}
+		if usage.ResetVersion == math.MaxInt64 {
+			return errors.New("subscription quota tier reset version exhausted")
+		}
+		usage.UsageInPeriod = 0
+		usage.UsageInWindow = 0
+		usage.ResetVersion++
+		if advanceResetTime || missing {
+			if isCalendarAligned(tier) {
+				start, end := calcTierPeriodBoundaries(time.Unix(now, 0), tier.Period)
+				usage.PeriodStart = start.Unix()
+				usage.NextPeriodStart = end.Unix()
+			} else if isSlidingWindow(tier) {
+				usage.WindowSeconds = getSlidingWindowSeconds(tier)
+				if advanceResetTime {
+					usage.WindowStart = now
+				}
+			}
+		}
+		if err := tx.Save(&usage).Error; err != nil {
+			return err
 		}
 	}
 	return tx.Save(sub).Error
@@ -2201,10 +2321,13 @@ type UserSubscriptionTierUsage struct {
 	NextPeriodStart int64 `json:"next_period_start" gorm:"type:bigint;default:0;index"`
 	UsageInPeriod   int64 `json:"usage_in_period" gorm:"type:bigint;default:0"`
 
-	// Sliding window tiers (hourly, custom)
+	// Request-anchored fixed windows (hourly, custom)
 	WindowStart   int64 `json:"window_start" gorm:"type:bigint;default:0"`
 	WindowSeconds int64 `json:"window_seconds" gorm:"type:bigint;default:0"`
 	UsageInWindow int64 `json:"usage_in_window" gorm:"type:bigint;default:0"`
+
+	// Manual resets must isolate in-flight requests even when period anchors stay unchanged.
+	ResetVersion int64 `json:"-" gorm:"type:bigint;not null;default:0"`
 
 	CreatedAt int64 `json:"created_at" gorm:"bigint"`
 	UpdatedAt int64 `json:"updated_at" gorm:"bigint"`
@@ -2758,6 +2881,33 @@ func postConsumeUserSubscriptionDeltaTx(tx *gorm.DB, userSubscriptionId int, del
 			if err := lockForUpdate(tx).Where("user_subscription_id = ? AND tier_index = ?", sub.Id, i).First(&usage).Error; err != nil {
 				return err
 			}
+			var savedTier *TierUsageSnapshot
+			if snapshot.ResetTime != nil {
+				for j := range snapshot.TierUsages {
+					saved := &snapshot.TierUsages[j]
+					if saved.TierIndex == i && saved.Period == tier.Period {
+						savedTier = saved
+						break
+					}
+				}
+			}
+			sameTierVersion := usage.ResetVersion == 0
+			if savedTier != nil && savedTier.ResetVersion != nil {
+				sameTierVersion = *savedTier.ResetVersion == usage.ResetVersion
+			}
+			// Older requests must not even start a fresh window after a manual reset.
+			if !sameTierVersion || snapshot.ResetTime != nil && savedTier == nil {
+				if reserve {
+					return errors.New("subscription quota tier period changed")
+				}
+				continue
+			}
+			if isSlidingWindow(tier) && (usage.WindowStart == 0 || now-usage.WindowStart >= getSlidingWindowSeconds(tier)) {
+				if reserve {
+					return errors.New("subscription quota tier period changed")
+				}
+				continue
+			}
 			if err := resetTierUsageForCurrentPeriod(tx, &usage, tier, now); err != nil {
 				return err
 			}
@@ -2767,15 +2917,8 @@ func postConsumeUserSubscriptionDeltaTx(tx *gorm.DB, userSubscriptionId int, del
 			} else if isSlidingWindow(tier) {
 				sameTierPeriod = usage.WindowStart > 0 && snapshot.CreatedAt > usage.WindowStart
 			}
-			if snapshot.ResetTime != nil {
-				// 新快照只允许调整预扣时实际使用过的档位。
-				sameTierPeriod = false
-				for _, saved := range snapshot.TierUsages {
-					if saved.TierIndex == i && saved.Period == tier.Period {
-						sameTierPeriod = saved.PeriodStart == usage.PeriodStart && saved.WindowStart == usage.WindowStart
-						break
-					}
-				}
+			if savedTier != nil {
+				sameTierPeriod = savedTier.PeriodStart == usage.PeriodStart && savedTier.WindowStart == usage.WindowStart
 			}
 			if !sameTierPeriod {
 				if reserve {
@@ -2865,7 +3008,7 @@ func calcTierPeriodBoundaries(now time.Time, period string) (start, end time.Tim
 	return start, end
 }
 
-// getSlidingWindowSeconds returns the window duration in seconds for a sliding tier
+// getSlidingWindowSeconds returns the duration of a request-anchored fixed window.
 func getSlidingWindowSeconds(tier QuotaTier) int64 {
 	switch tier.Period {
 	case TierPeriodHourly:
@@ -2880,7 +3023,7 @@ func getSlidingWindowSeconds(tier QuotaTier) int64 {
 	}
 }
 
-// isSlidingWindow returns true if the tier uses a sliding window
+// isSlidingWindow identifies request-anchored fixed windows, not rolling usage windows.
 func isSlidingWindow(tier QuotaTier) bool {
 	return tier.Period == TierPeriodHourly || tier.Period == TierPeriodCustom
 }
@@ -2996,6 +3139,7 @@ func incrementTierUsage(tx *gorm.DB, subId int, tiers []QuotaTier, amount int64,
 		snapshots = append(snapshots, TierUsageSnapshot{
 			TierIndex: i, Delta: amount, Period: tier.Period,
 			PeriodStart: usage.PeriodStart, WindowStart: usage.WindowStart,
+			ResetVersion: common.GetPointer(usage.ResetVersion),
 		})
 	}
 	if len(snapshots) == 0 {
@@ -3066,7 +3210,7 @@ func ResetExpiredCalendarTiers(limit int) (int, error) {
 	return resetCount, nil
 }
 
-// ResetExpiredTierWindows resets sliding window tier usages whose windows have expired
+// ResetExpiredTierWindows clears expired fixed windows until the next request starts a new one.
 func ResetExpiredTierWindows(limit int) (int, error) {
 	if limit <= 0 {
 		limit = 200

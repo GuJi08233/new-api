@@ -26,15 +26,11 @@ import {
   Button,
   Select,
   Divider,
-  Tooltip,
 } from '@douyinfe/semi-ui';
-import { Crown, CalendarClock, Package } from 'lucide-react';
-import { renderQuota } from '../../../helpers';
+import { Crown, CalendarClock } from 'lucide-react';
 import { getCurrencyConfig } from '../../../helpers/render';
-import {
-  formatSubscriptionDuration,
-  formatSubscriptionResetPeriod,
-} from '../../../helpers/subscriptionFormat';
+import SubscriptionQuotaDetails from '../../common/ui/SubscriptionQuotaDetails';
+import { formatSubscriptionDuration } from '../../../helpers/subscriptionFormat';
 import {
   SUBSCRIPTION_BALANCE_PAY_METHOD,
   buildSubscriptionPayOptions,
@@ -67,7 +63,6 @@ const SubscriptionPurchaseModal = ({
   onPayBalance,
 }) => {
   const plan = selectedPlan?.plan;
-  const totalAmount = Number(plan?.total_amount || 0);
   const { symbol, rate } = getCurrencyConfig();
   const price = plan ? Number(plan.price_amount || 0) : 0;
   const convertedPrice = price * rate;
@@ -187,34 +182,11 @@ const SubscriptionPurchaseModal = ({
                   </Text>
                 </div>
               </div>
-              {formatSubscriptionResetPeriod(plan, t) !== t('不重置') && (
-                <div className='flex justify-between items-center'>
-                  <Text strong className='text-slate-700 dark:text-slate-200'>
-                    {t('重置周期')}：
-                  </Text>
-                  <Text className='text-slate-900 dark:text-slate-100'>
-                    {formatSubscriptionResetPeriod(plan, t)}
-                  </Text>
-                </div>
-              )}
-              <div className='flex justify-between items-center'>
+              <div className='space-y-2'>
                 <Text strong className='text-slate-700 dark:text-slate-200'>
-                  {t('总额度')}：
+                  {t('额度规则')}
                 </Text>
-                <div className='flex items-center'>
-                  <Package size={14} className='mr-1 text-slate-500' />
-                  {totalAmount > 0 ? (
-                    <Tooltip content={`${t('原生额度')}：${totalAmount}`}>
-                      <Text className='text-slate-900 dark:text-slate-100'>
-                        {renderQuota(totalAmount)}
-                      </Text>
-                    </Tooltip>
-                  ) : (
-                    <Text className='text-slate-900 dark:text-slate-100'>
-                      {t('不限')}
-                    </Text>
-                  )}
-                </div>
+                <SubscriptionQuotaDetails plan={plan} t={t} />
               </div>
               {plan?.upgrade_group ? (
                 <div className='flex justify-between items-center'>

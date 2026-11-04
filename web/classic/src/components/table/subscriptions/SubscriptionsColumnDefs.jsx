@@ -27,11 +27,13 @@ import {
   Popover,
   Divider,
   Badge,
-  Tooltip,
 } from '@douyinfe/semi-ui';
-import { renderQuota } from '../../../helpers';
 import { convertUSDToCurrency } from '../../../helpers/render';
-import { formatTiersSummary } from '../../../helpers/subscriptionFormat';
+import {
+  formatQuotaTierPeriod,
+  getSubscriptionQuotaLimits,
+} from '../../../helpers/subscriptionFormat';
+import SubscriptionQuotaDetails from '../../common/ui/SubscriptionQuotaDetails';
 
 const { Text } = Typography;
 
@@ -48,21 +50,6 @@ function formatDuration(plan, t) {
     hour: t('小时'),
   };
   return `${plan.duration_value || 0}${unitMap[u] || u}`;
-}
-
-function formatResetPeriod(plan, t) {
-  const period = plan?.quota_reset_period || 'never';
-  if (period === 'daily') return t('每天');
-  if (period === 'weekly') return t('每周');
-  if (period === 'monthly') return t('每月');
-  if (period === 'custom') {
-    const seconds = Number(plan?.quota_reset_custom_seconds || 0);
-    if (seconds >= 86400) return `${Math.floor(seconds / 86400)} ${t('天')}`;
-    if (seconds >= 3600) return `${Math.floor(seconds / 3600)} ${t('小时')}`;
-    if (seconds >= 60) return `${Math.floor(seconds / 60)} ${t('分钟')}`;
-    return `${seconds} ${t('秒')}`;
-  }
-  return t('不重置');
 }
 
 function formatGlobalPurchaseResetPeriod(plan, t) {
@@ -84,7 +71,6 @@ function formatGlobalPurchaseResetPeriod(plan, t) {
 const renderPlanTitle = (text, record, t) => {
   const subtitle = record?.plan?.subtitle;
   const plan = record?.plan;
-  const tierSummary = formatTiersSummary(plan?.quota_tiers, t);
   const popoverContent = (
     <div style={{ width: 260 }}>
       <Text strong>{text}</Text>
@@ -99,18 +85,8 @@ const renderPlanTitle = (text, record, t) => {
         <Text strong style={{ color: 'var(--semi-color-success)' }}>
           {convertUSDToCurrency(Number(plan?.price_amount || 0), 2)}
         </Text>
-        <Text type='tertiary'>{t('总额度')}</Text>
-        {tierSummary ? (
-          <Tooltip content={`${t('多周期限额')}：${tierSummary}`}>
-            <Text>{tierSummary}</Text>
-          </Tooltip>
-        ) : plan?.total_amount > 0 ? (
-          <Tooltip content={`${t('原生额度')}：${plan.total_amount}`}>
-            <Text>{renderQuota(plan.total_amount)}</Text>
-          </Tooltip>
-        ) : (
-          <Text>{t('不限')}</Text>
-        )}
+        <Text type='tertiary'>{t('额度规则')}</Text>
+        <SubscriptionQuotaDetails plan={plan} t={t} />
         <Text type='tertiary'>{t('升级分组')}</Text>
         <Text>{plan?.upgrade_group ? plan.upgrade_group : t('不升级')}</Text>
         <Text type='tertiary'>{t('购买上限')}</Text>
@@ -134,7 +110,7 @@ const renderPlanTitle = (text, record, t) => {
         <Text type='tertiary'>{t('有效期')}</Text>
         <Text>{formatDuration(plan, t)}</Text>
         <Text type='tertiary'>{t('重置')}</Text>
-        <Text>{formatResetPeriod(plan, t)}</Text>
+        {renderResetPeriod(undefined, record, t)}
       </div>
     </div>
   );
@@ -208,30 +184,9 @@ const renderEnabled = (text, record, t) => {
   );
 };
 
-const renderTotalAmount = (text, record, t) => {
-  const total = Number(record?.plan?.total_amount || 0);
-  const tierSummary = formatTiersSummary(record?.plan?.quota_tiers, t);
-  if (tierSummary) {
-    return (
-      <Tooltip content={`${t('多周期限额')}：${tierSummary}`}>
-        <Text type='secondary' ellipsis={{ showTooltip: false }}>
-          {tierSummary}
-        </Text>
-      </Tooltip>
-    );
-  }
-  return (
-    <Text type={total > 0 ? 'secondary' : 'tertiary'}>
-      {total > 0 ? (
-        <Tooltip content={`${t('原生额度')}：${total}`}>
-          <span>{renderQuota(total)}</span>
-        </Tooltip>
-      ) : (
-        t('不限')
-      )}
-    </Text>
-  );
-};
+const renderTotalAmount = (text, record, t) => (
+  <SubscriptionQuotaDetails plan={record?.plan} t={t} />
+);
 
 const renderUpgradeGroup = (text, record, t) => {
   const group = record?.plan?.upgrade_group || '';
@@ -243,11 +198,16 @@ const renderUpgradeGroup = (text, record, t) => {
 };
 
 const renderResetPeriod = (text, record, t) => {
-  const period = record?.plan?.quota_reset_period || 'never';
-  const isNever = period === 'never';
+  const periodicLimits = getSubscriptionQuotaLimits(record?.plan).filter(
+    (limit) => limit.period !== 'none',
+  );
   return (
-    <Text type={isNever ? 'tertiary' : 'secondary'}>
-      {formatResetPeriod(record?.plan, t)}
+    <Text type={periodicLimits.length > 0 ? 'secondary' : 'tertiary'}>
+      {periodicLimits.length > 1
+        ? t('按各额度周期重置')
+        : periodicLimits.length === 1
+          ? formatQuotaTierPeriod(periodicLimits[0], t)
+          : t('不重置')}
     </Text>
   );
 };
@@ -399,8 +359,8 @@ export const getSubscriptionsColumns = ({
         renderPaymentConfig(text, record, t, enableEpay),
     },
     {
-      title: t('总额度'),
-      width: 220,
+      title: t('额度规则'),
+      width: 280,
       render: (text, record) => renderTotalAmount(text, record, t),
     },
     {

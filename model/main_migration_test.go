@@ -23,6 +23,10 @@ func TestMigrateDBCreatesUpstreamSupportTables(t *testing.T) {
 
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+	t.Cleanup(func() { require.NoError(t, sqlDB.Close()) })
 	DB = db
 	LOG_DB = db
 	common.SetDatabaseTypes(common.DatabaseTypeSQLite, common.DatabaseTypeSQLite)
@@ -54,4 +58,17 @@ func TestMigrateDBCreatesUpstreamSupportTables(t *testing.T) {
 	}
 	require.True(t, DB.Migrator().HasColumn(&SubscriptionPlan{}, "quota_tiers"))
 	require.True(t, DB.Migrator().HasColumn(&SubscriptionPlan{}, "disable_balance_deduction"))
+
+	// A restart must preserve a plan's chosen quota mode. Adding equivalent
+	// tiers would impose another independent cap on subscriptions and renewals.
+	plan := SubscriptionPlan{Title: "Single quota mode", TotalAmount: 100, QuotaResetPeriod: SubscriptionResetDaily}
+	require.NoError(t, DB.Omit("group_mode").Create(&plan).Error)
+	for _, migrate := range []func() error{migrateDB, migrateDBFast} {
+		require.NoError(t, migrate())
+		var saved SubscriptionPlan
+		require.NoError(t, DB.First(&saved, plan.Id).Error)
+		require.EqualValues(t, 100, saved.TotalAmount)
+		require.Equal(t, SubscriptionResetDaily, saved.QuotaResetPeriod)
+		require.Empty(t, saved.QuotaTiers)
+	}
 }

@@ -17,8 +17,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React, { useEffect, useState } from 'react';
-import { Modal, Space, Switch, Typography } from '@douyinfe/semi-ui';
+import React, { useState } from 'react';
+import { Modal, Space, Typography } from '@douyinfe/semi-ui';
 import { API, showError, showSuccess } from '../../../../helpers';
 
 const { Text } = Typography;
@@ -30,13 +30,8 @@ const ResetSubscriptionQuotaModal = ({
   refresh,
   t,
 }) => {
-  const [advanceResetTime, setAdvanceResetTime] = useState(true);
   const [resetting, setResetting] = useState(false);
   const plan = planRecord?.plan;
-
-  useEffect(() => {
-    if (visible) setAdvanceResetTime(true);
-  }, [visible]);
 
   const resetSubscriptions = async () => {
     if (!plan?.id) return;
@@ -44,7 +39,7 @@ const ResetSubscriptionQuotaModal = ({
     try {
       const res = await API.post(
         `/api/subscription/admin/plans/${plan.id}/subscriptions/reset`,
-        { advance_reset_time: advanceResetTime },
+        { advance_reset_time: false },
       );
       const { success, message, data } = res.data || {};
       if (!success) {
@@ -82,15 +77,14 @@ const ResetSubscriptionQuotaModal = ({
             plan: plan?.title || (plan?.id ? `#${plan.id}` : '-'),
           })}
         </Text>
-        <Space>
-          <Switch checked={advanceResetTime} onChange={setAdvanceResetTime} />
-          <div>
-            <Text>{t('推进下次重置时间')}</Text>
-            <Text type='tertiary' size='small' style={{ display: 'block' }}>
-              {t('开启后会从本次手动重置时间重新计算下一次自动重置时间')}
-            </Text>
-          </div>
-        </Space>
+        <Text type='tertiary' size='small'>
+          {t(
+            '将每档已用额度清零，恢复可用额度；套餐限额、订阅有效期和钱包余额保持不变。',
+          )}
+        </Text>
+        <Text type='tertiary' size='small'>
+          {t('仅清零已用额度，保留各档位原有的自动重置时间。')}
+        </Text>
       </Space>
     </Modal>
   );

@@ -195,6 +195,182 @@ func TestSubscriptionManualResetSeparatesInFlightRequestsWithoutChangingSchedule
 	}
 }
 
+func TestSubscriptionManualTierResetIsolatesOldRequests(t *testing.T) {
+	for _, advance := range []bool{false, true} {
+		for _, snapshotFormat := range []string{"versioned", "unversioned-tiers", "legacy"} {
+			for _, operation := range []string{"refund", "settle-more", "settle-less"} {
+				name := "preserve-schedule/" + snapshotFormat + "/" + operation
+				if advance {
+					name = "advance-schedule/" + snapshotFormat + "/" + operation
+				}
+				t.Run(name, func(t *testing.T) {
+					plan, sub := seedPeriodicBillingSubscription(t, true)
+					_, err := PreConsumeUserSubscription("before-reset", sub.UserId, "test", 0, 60, "default")
+					require.NoError(t, err)
+					if snapshotFormat == "legacy" {
+						require.NoError(t, DB.Model(&SubscriptionPreConsumeRecord{}).Where("request_id = ?", "before-reset").Updates(map[string]interface{}{
+							"quota_snapshot": "", "created_at": GetDBTimestamp() + 1,
+						}).Error)
+					} else if snapshotFormat == "unversioned-tiers" {
+						var record SubscriptionPreConsumeRecord
+						require.NoError(t, DB.Where("request_id = ?", "before-reset").First(&record).Error)
+						var snapshot subscriptionQuotaSnapshot
+						require.NoError(t, common.UnmarshalJsonStr(record.QuotaSnapshot, &snapshot))
+						for i := range snapshot.TierUsages {
+							snapshot.TierUsages[i].ResetVersion = nil
+						}
+						encoded, err := common.Marshal(snapshot)
+						require.NoError(t, err)
+						require.NoError(t, DB.Model(&record).Update("quota_snapshot", string(encoded)).Error)
+					}
+					_, err = AdminResetUserSubscriptionsByPlan(sub.UserId, plan.Id, advance)
+					require.NoError(t, err)
+					_, err = PreConsumeUserSubscription("after-reset", sub.UserId, "test", 0, 40, "default")
+					require.NoError(t, err)
+					require.Error(t, ReserveUserSubscriptionQuota("before-reset", 10))
+					switch operation {
+					case "refund":
+						require.NoError(t, RefundSubscriptionPreConsume("before-reset"))
+					case "settle-more":
+						require.NoError(t, SettleUserSubscription("before-reset", 80))
+					case "settle-less":
+						require.NoError(t, SettleUserSubscription("before-reset", 20))
+					}
+					require.NoError(t, DB.First(sub, sub.Id).Error)
+					assert.EqualValues(t, 40, sub.AmountUsed)
+					var usages []UserSubscriptionTierUsage
+					require.NoError(t, DB.Where("user_subscription_id = ?", sub.Id).Find(&usages).Error)
+					require.Len(t, usages, 3)
+					for _, usage := range usages {
+						assert.EqualValues(t, 40, usage.UsageInPeriod+usage.UsageInWindow)
+					}
+
+					// The new generation still supports normal settlement and refunds.
+					require.NoError(t, SettleUserSubscription("after-reset", 50))
+					_, err = PreConsumeUserSubscription("new-refund", sub.UserId, "test", 0, 10, "default")
+					require.NoError(t, err)
+					require.NoError(t, RefundSubscriptionPreConsume("new-refund"))
+					require.NoError(t, DB.First(sub, sub.Id).Error)
+					assert.EqualValues(t, 50, sub.AmountUsed)
+					require.NoError(t, DB.Where("user_subscription_id = ?", sub.Id).Find(&usages).Error)
+					for _, usage := range usages {
+						assert.EqualValues(t, 50, usage.UsageInPeriod+usage.UsageInWindow)
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestOldRequestCannotStartAnIdleWindowAfterManualReset(t *testing.T) {
+	plan, sub := seedPeriodicBillingSubscription(t, true)
+	_, err := PreConsumeUserSubscription("old-window", sub.UserId, "test", 0, 60, "default")
+	require.NoError(t, err)
+	_, err = AdminResetUserSubscriptionsByPlan(sub.UserId, plan.Id, false)
+	require.NoError(t, err)
+	// The reset window subsequently expires; the worker returns it to the idle state.
+	require.NoError(t, DB.Model(&UserSubscriptionTierUsage{}).
+		Where("user_subscription_id = ? AND tier_index = ?", sub.Id, 1).
+		Update("window_start", GetDBTimestamp()-120).Error)
+	_, err = ResetExpiredTierWindows(10)
+	require.NoError(t, err)
+	require.NoError(t, RefundSubscriptionPreConsume("old-window"))
+	var usage UserSubscriptionTierUsage
+	require.NoError(t, DB.Where("user_subscription_id = ? AND tier_index = ?", sub.Id, 1).First(&usage).Error)
+	assert.Zero(t, usage.WindowStart, "an old refund must not start a new billing window")
+	assert.Zero(t, usage.UsageInWindow)
+}
+
+func TestCurrentGenerationSettlementCannotRestartAnExpiredWindow(t *testing.T) {
+	for _, operation := range []string{"refund", "settle"} {
+		t.Run(operation, func(t *testing.T) {
+			plan, sub := seedPeriodicBillingSubscription(t, true)
+			_, err := AdminResetUserSubscriptionsByPlan(sub.UserId, plan.Id, false)
+			require.NoError(t, err)
+			_, err = PreConsumeUserSubscription("expired-new-generation", sub.UserId, "test", 0, 30, "default")
+			require.NoError(t, err)
+			require.NoError(t, DB.Model(&UserSubscriptionTierUsage{}).
+				Where("user_subscription_id = ? AND tier_index = ?", sub.Id, 1).
+				Update("window_start", GetDBTimestamp()-120).Error)
+			_, err = ResetExpiredTierWindows(10)
+			require.NoError(t, err)
+			if operation == "refund" {
+				require.NoError(t, RefundSubscriptionPreConsume("expired-new-generation"))
+			} else {
+				require.NoError(t, SettleUserSubscription("expired-new-generation", 50))
+			}
+			var usage UserSubscriptionTierUsage
+			require.NoError(t, DB.Where("user_subscription_id = ? AND tier_index = ?", sub.Id, 1).First(&usage).Error)
+			assert.Zero(t, usage.WindowStart, "late adjustments cannot start a new request window")
+			assert.Zero(t, usage.UsageInWindow)
+		})
+	}
+}
+
+func TestRepeatedManualTierResetsInSameSecondKeepLatestUsage(t *testing.T) {
+	plan, sub := seedPeriodicBillingSubscription(t, true)
+	_, err := PreConsumeUserSubscription("before-first-tier-reset", sub.UserId, "test", 0, 60, "default")
+	require.NoError(t, err)
+	resetAt := GetDBTimestamp()
+	require.NoError(t, DB.Transaction(func(tx *gorm.DB) error {
+		_, err := adminResetUserSubscriptionsByPlanTx(tx, sub.UserId, plan, resetAt, false)
+		return err
+	}))
+	_, err = PreConsumeUserSubscription("before-second-tier-reset", sub.UserId, "test", 0, 50, "default")
+	require.NoError(t, err)
+	require.NoError(t, DB.Transaction(func(tx *gorm.DB) error {
+		_, err := adminResetUserSubscriptionsByPlanTx(tx, sub.UserId, plan, resetAt, false)
+		return err
+	}))
+	_, err = PreConsumeUserSubscription("latest-tier-generation", sub.UserId, "test", 0, 40, "default")
+	require.NoError(t, err)
+	require.NoError(t, RefundSubscriptionPreConsume("before-first-tier-reset"))
+	require.NoError(t, SettleUserSubscription("before-second-tier-reset", 20))
+	require.NoError(t, DB.First(sub, sub.Id).Error)
+	assert.EqualValues(t, 40, sub.AmountUsed)
+	var usages []UserSubscriptionTierUsage
+	require.NoError(t, DB.Where("user_subscription_id = ?", sub.Id).Find(&usages).Error)
+	require.Len(t, usages, 3)
+	for _, usage := range usages {
+		assert.EqualValues(t, 40, usage.UsageInPeriod+usage.UsageInWindow)
+		assert.EqualValues(t, 2, usage.ResetVersion)
+	}
+}
+
+func TestBaseAutoResetKeepsUnexpiredTierSettlementsAfterManualReset(t *testing.T) {
+	plan, sub := seedPeriodicBillingSubscription(t, true)
+	tiers := []QuotaTier{
+		{Period: TierPeriodMonthly, Limit: 1000, SortPriority: 10},
+		{Period: TierPeriodNone, Limit: 10000, SortPriority: 20},
+	}
+	encoded, err := common.Marshal(tiers)
+	require.NoError(t, err)
+	plan.QuotaTiers = string(encoded)
+	require.NoError(t, DB.Model(plan).Update("quota_tiers", plan.QuotaTiers).Error)
+	InvalidateSubscriptionPlanCache(plan.Id)
+	require.NoError(t, DB.Where("user_subscription_id = ?", sub.Id).Delete(&UserSubscriptionTierUsage{}).Error)
+	_, err = AdminResetUserSubscriptionsByPlan(sub.UserId, plan.Id, false)
+	require.NoError(t, err)
+	_, err = PreConsumeUserSubscription("before-base-reset", sub.UserId, "test", 0, 60, "default")
+	require.NoError(t, err)
+	require.NoError(t, DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.First(sub, sub.Id).Error; err != nil {
+			return err
+		}
+		return maybeResetUserSubscriptionWithPlanTx(tx, sub, plan, sub.NextResetTime)
+	}))
+	require.NoError(t, SettleUserSubscription("before-base-reset", 80))
+	require.NoError(t, DB.First(sub, sub.Id).Error)
+	assert.Zero(t, sub.AmountUsed, "base-period usage was reset independently")
+	var usages []UserSubscriptionTierUsage
+	require.NoError(t, DB.Where("user_subscription_id = ?", sub.Id).Order("tier_index").Find(&usages).Error)
+	require.Len(t, usages, 2)
+	for _, usage := range usages {
+		assert.EqualValues(t, 80, usage.UsageInPeriod+usage.UsageInWindow,
+			"a base auto-reset must not discard settlement for an unexpired tier")
+	}
+}
+
 func TestLegacySubscriptionRefundDoesNotBorrowCurrentPeriod(t *testing.T) {
 	_, sub := seedPeriodicBillingSubscription(t, true)
 	_, err := PreConsumeUserSubscription("legacy", sub.UserId, "test", 0, 60, "default")

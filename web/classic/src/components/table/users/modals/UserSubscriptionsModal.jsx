@@ -25,7 +25,6 @@ import {
   Select,
   SideSheet,
   Space,
-  Switch,
   Tag,
   Typography,
 } from '@douyinfe/semi-ui';
@@ -38,6 +37,7 @@ import { API, showError, showSuccess } from '../../../../helpers';
 import { convertUSDToCurrency } from '../../../../helpers/render';
 import { useIsMobile } from '../../../../hooks/common/useIsMobile';
 import CardTable from '../../../common/ui/CardTable';
+import SubscriptionQuotaDetails from '../../../common/ui/SubscriptionQuotaDetails';
 
 const { Text } = Typography;
 
@@ -91,7 +91,6 @@ const UserSubscriptionsModal = ({ visible, onCancel, user, t, onSuccess }) => {
   const [plans, setPlans] = useState([]);
   const [selectedPlanId, setSelectedPlanId] = useState(null);
   const [resetTarget, setResetTarget] = useState(null);
-  const [advanceResetTime, setAdvanceResetTime] = useState(true);
   const [resetting, setResetting] = useState(false);
 
   const [subs, setSubs] = useState([]);
@@ -262,7 +261,6 @@ const UserSubscriptionsModal = ({ visible, onCancel, user, t, onSuccess }) => {
 
   const openResetSubscription = (subscription) => {
     setResetTarget(subscription);
-    setAdvanceResetTime(true);
   };
 
   const resetUserSubscriptions = async () => {
@@ -273,7 +271,7 @@ const UserSubscriptionsModal = ({ visible, onCancel, user, t, onSuccess }) => {
         `/api/subscription/admin/users/${user.id}/subscriptions/reset`,
         {
           plan_id: resetTarget.plan_id,
-          advance_reset_time: advanceResetTime,
+          advance_reset_time: false,
         },
       );
       const { success, message, data } = res.data || {};
@@ -312,7 +310,9 @@ const UserSubscriptionsModal = ({ visible, onCancel, user, t, onSuccess }) => {
           const sub = record?.subscription;
           const planId = sub?.plan_id;
           const title =
-            planTitleMap.get(planId) || (planId ? `#${planId}` : '-');
+            record?.plan_title ||
+            planTitleMap.get(planId) ||
+            (planId ? `#${planId}` : '-');
           return (
             <div className='min-w-0'>
               <div className='font-medium truncate'>{title}</div>
@@ -348,19 +348,12 @@ const UserSubscriptionsModal = ({ visible, onCancel, user, t, onSuccess }) => {
         },
       },
       {
-        title: t('总额度'),
+        title: t('额度使用情况'),
         key: 'total',
-        width: 120,
-        render: (_, record) => {
-          const sub = record?.subscription;
-          const total = Number(sub?.amount_total || 0);
-          const used = Number(sub?.amount_used || 0);
-          return (
-            <Text type={total > 0 ? 'secondary' : 'tertiary'}>
-              {total > 0 ? `${used}/${total}` : t('不限')}
-            </Text>
-          );
-        },
+        width: 320,
+        render: (_, record) => (
+          <SubscriptionQuotaDetails summary={record} t={t} />
+        ),
       },
       {
         title: '',
@@ -504,15 +497,14 @@ const UserSubscriptionsModal = ({ visible, onCancel, user, t, onSuccess }) => {
                 (resetTarget?.plan_id ? `#${resetTarget.plan_id}` : '-'),
             })}
           </Text>
-          <Space>
-            <Switch checked={advanceResetTime} onChange={setAdvanceResetTime} />
-            <div>
-              <Text>{t('推进下次重置时间')}</Text>
-              <Text type='tertiary' size='small' style={{ display: 'block' }}>
-                {t('开启后会从本次手动重置时间重新计算下一次自动重置时间')}
-              </Text>
-            </div>
-          </Space>
+          <Text type='tertiary' size='small'>
+            {t(
+              '将每档已用额度清零，恢复可用额度；套餐限额、订阅有效期和钱包余额保持不变。',
+            )}
+          </Text>
+          <Text type='tertiary' size='small'>
+            {t('仅清零已用额度，保留各档位原有的自动重置时间。')}
+          </Text>
         </Space>
       </Modal>
     </SideSheet>

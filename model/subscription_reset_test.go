@@ -5,8 +5,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 func seedSubscriptionResetPlan(t *testing.T, plan *SubscriptionPlan) {
@@ -198,4 +200,143 @@ func TestAdminResetPlanSubscriptionsNoMatchSucceeds(t *testing.T) {
 	assert.Zero(t, result.ResetCount)
 	assert.Zero(t, result.UserCount)
 	assert.Empty(t, result.AffectedUserIds)
+}
+
+func TestAdminResetSubscriptionClearsEveryTierWithoutChangingEntitlements(t *testing.T) {
+	for _, advance := range []bool{false, true} {
+		name := "preserve-schedule"
+		if advance {
+			name = "advance-schedule"
+		}
+		t.Run(name, func(t *testing.T) {
+			truncateTables(t)
+			now := time.Date(2026, time.November, 4, 10, 20, 30, 0, time.Local).Unix()
+			tiers := []QuotaTier{
+				{Period: TierPeriodHourly, Limit: 100, SortPriority: 10},
+				{Period: TierPeriodCustom, CustomSeconds: 5 * 3600, Limit: 200, SortPriority: 20},
+				{Period: TierPeriodDaily, Limit: 500, SortPriority: 30},
+				{Period: TierPeriodWeekly, Limit: 1000, SortPriority: 40},
+				{Period: TierPeriodMonthly, Limit: 2000, SortPriority: 50},
+				{Period: TierPeriodNone, Limit: 10000, SortPriority: 60},
+			}
+			encoded, err := common.Marshal(tiers)
+			require.NoError(t, err)
+			plan := &SubscriptionPlan{
+				Title: "tier reset", DurationUnit: SubscriptionDurationDay, DurationValue: 30,
+				TotalAmount: 50000, QuotaResetPeriod: SubscriptionResetCustom, QuotaResetCustomSeconds: 7200,
+				QuotaTiers: string(encoded),
+			}
+			seedSubscriptionResetPlan(t, plan)
+			user := &User{Username: "tier-reset", Quota: 1234, UsedQuota: 567}
+			require.NoError(t, DB.Create(user).Error)
+			sub := &UserSubscription{
+				UserId: user.Id, PlanId: plan.Id, Status: SubscriptionStatusActive,
+				AmountTotal: plan.TotalAmount, AmountUsed: 321, StartTime: now - 3600, EndTime: now + 30*86400,
+				LastResetTime: now - 1000, NextResetTime: now + 1000,
+			}
+			seedSubscriptionResetSub(t, sub)
+			originalSub := *sub
+			before := make([]UserSubscriptionTierUsage, len(tiers))
+			for i, tier := range tiers {
+				usage := UserSubscriptionTierUsage{
+					UserSubscriptionId: sub.Id, TierIndex: i,
+					UsageInPeriod: int64(11 + i), UsageInWindow: int64(21 + i), ResetVersion: 3,
+				}
+				if isCalendarAligned(tier) {
+					start, end := calcTierPeriodBoundaries(time.Unix(now-40*86400, 0), tier.Period)
+					usage.PeriodStart, usage.NextPeriodStart = start.Unix(), end.Unix()
+				} else if isSlidingWindow(tier) {
+					usage.WindowStart, usage.WindowSeconds = now-300, getSlidingWindowSeconds(tier)
+				}
+				require.NoError(t, DB.Create(&usage).Error)
+				before[i] = usage
+			}
+
+			require.NoError(t, DB.Transaction(func(tx *gorm.DB) error {
+				_, err := adminResetUserSubscriptionsByPlanTx(tx, user.Id, plan, now, advance)
+				return err
+			}))
+
+			updated := getSubscriptionResetSub(t, sub.Id)
+			assert.Zero(t, updated.AmountUsed)
+			assert.Equal(t, originalSub.AmountTotal, updated.AmountTotal)
+			assert.Equal(t, originalSub.StartTime, updated.StartTime)
+			assert.Equal(t, originalSub.EndTime, updated.EndTime)
+			assert.Equal(t, originalSub.Status, updated.Status)
+			if advance {
+				assert.Equal(t, now, updated.LastResetTime)
+				assert.Equal(t, now+7200, updated.NextResetTime)
+			} else {
+				assert.Equal(t, originalSub.LastResetTime, updated.LastResetTime)
+				assert.Equal(t, originalSub.NextResetTime, updated.NextResetTime)
+			}
+			var after []UserSubscriptionTierUsage
+			require.NoError(t, DB.Where("user_subscription_id = ?", sub.Id).Order("tier_index").Find(&after).Error)
+			require.Len(t, after, len(tiers))
+			for i, usage := range after {
+				assert.Zero(t, usage.UsageInPeriod)
+				assert.Zero(t, usage.UsageInWindow)
+				assert.EqualValues(t, 4, usage.ResetVersion)
+				expected := before[i]
+				if advance && isCalendarAligned(tiers[i]) {
+					start, end := calcTierPeriodBoundaries(time.Unix(now, 0), tiers[i].Period)
+					expected.PeriodStart, expected.NextPeriodStart = start.Unix(), end.Unix()
+				} else if advance && isSlidingWindow(tiers[i]) {
+					expected.WindowStart = now
+				}
+				assert.Equal(t, expected.PeriodStart, usage.PeriodStart)
+				assert.Equal(t, expected.NextPeriodStart, usage.NextPeriodStart)
+				assert.Equal(t, expected.WindowStart, usage.WindowStart)
+				assert.Equal(t, expected.WindowSeconds, usage.WindowSeconds)
+			}
+			var savedPlan SubscriptionPlan
+			require.NoError(t, DB.First(&savedPlan, plan.Id).Error)
+			assert.Equal(t, plan.QuotaTiers, savedPlan.QuotaTiers)
+			assert.Equal(t, plan.TotalAmount, savedPlan.TotalAmount)
+			require.NoError(t, DB.First(user, user.Id).Error)
+			assert.Equal(t, 1234, user.Quota)
+			assert.Equal(t, 567, user.UsedQuota)
+		})
+	}
+}
+
+func TestAdminResetInitializesMissingTierUsage(t *testing.T) {
+	for _, advance := range []bool{false, true} {
+		name := "wait-for-first-use"
+		if advance {
+			name = "start-window-now"
+		}
+		t.Run(name, func(t *testing.T) {
+			plan, sub := seedPeriodicBillingSubscription(t, true)
+			require.NoError(t, DB.Where("user_subscription_id = ?", sub.Id).Delete(&UserSubscriptionTierUsage{}).Error)
+			now := GetDBTimestamp()
+			require.NoError(t, DB.Transaction(func(tx *gorm.DB) error {
+				_, err := adminResetUserSubscriptionsByPlanTx(tx, sub.UserId, plan, now, advance)
+				return err
+			}))
+			var usages []UserSubscriptionTierUsage
+			require.NoError(t, DB.Where("user_subscription_id = ?", sub.Id).Order("tier_index").Find(&usages).Error)
+			require.Len(t, usages, 3)
+			start, end := calcTierPeriodBoundaries(time.Unix(now, 0), TierPeriodDaily)
+			assert.Equal(t, start.Unix(), usages[0].PeriodStart)
+			assert.Equal(t, end.Unix(), usages[0].NextPeriodStart)
+			assert.EqualValues(t, 60, usages[1].WindowSeconds)
+			if advance {
+				assert.Equal(t, now, usages[1].WindowStart)
+			} else {
+				assert.Zero(t, usages[1].WindowStart)
+			}
+			for _, usage := range usages {
+				assert.Zero(t, usage.UsageInPeriod+usage.UsageInWindow)
+				assert.EqualValues(t, 1, usage.ResetVersion)
+			}
+			_, err := PreConsumeUserSubscription("newly-initialized", sub.UserId, "test", 0, 30, "default")
+			require.NoError(t, err)
+			require.NoError(t, RefundSubscriptionPreConsume("newly-initialized"))
+			require.NoError(t, DB.Where("user_subscription_id = ?", sub.Id).Find(&usages).Error)
+			for _, usage := range usages {
+				assert.Zero(t, usage.UsageInPeriod+usage.UsageInWindow)
+			}
+		})
+	}
 }
