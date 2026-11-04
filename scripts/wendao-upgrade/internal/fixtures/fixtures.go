@@ -172,6 +172,8 @@ func Build() ([]Sample, error) {
 			if _, err := variant.StartDuel(wendao.DuelBounty, "b1", 731, Now); err != nil {
 				return nil, err
 			}
+			// 同历练、游历与闭关一样固定样本令牌，保持演练载荷可重复生成。
+			variant.Duels.Active.Token = "00000000-0000-4000-8000-000000000735"
 		case "outposts":
 			variant.Sect.Missions = nil
 			for _, d := range variant.Sect.Disciples {
