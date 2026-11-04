@@ -395,18 +395,6 @@ function renderModelName(record, copyText, t, isAdminUser) {
               ),
             })}
           </Popover>
-          {showResponseModel && (
-            <div className='flex items-center gap-2'>
-              <Typography.Text type='tertiary' size='small'>
-                {t('实际模型')}:
-              </Typography.Text>
-              {renderModelTag(responseModel, {
-                onClick: (event) => {
-                  copyText(event, responseModel).then((r) => {});
-                },
-              })}
-            </div>
-          )}
         </Space>
       </>
     );
