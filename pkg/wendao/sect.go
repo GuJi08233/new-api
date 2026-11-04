@@ -344,19 +344,29 @@ func (s *Sect) Tick(now int64) []Ev {
 	}
 	elapsed := min(now-s.Last, OfflineCap)
 	from := now - elapsed
-	hours := float64(elapsed) / 3600
-	rates := s.Rates(from)
 	before := s.Res
-	gain := func(stock *int, frac *float64, rate float64) {
-		*frac += rate * hours
+	gain := func(stock *int, frac *float64, amount float64) {
+		*frac += amount
 		// 留一点余量：每秒结算一次累加几千次，浮点误差会让刚好满一个的零头差一丝。
 		whole := math.Floor(*frac + 1e-9)
 		*stock += int(whole)
 		*frac -= whole
 	}
-	gain(&s.Res.Stone, &s.Carry.Stone, rates.Stone)
-	gain(&s.Res.Herb, &s.Carry.Herb, rates.Herb)
-	gain(&s.Res.Ore, &s.Carry.Ore, rates.Ore)
+	// 伤愈会恢复宗门帮工和下院的产出；按这些边界积分，避免整段离线都套用起点的低速率。
+	for at := from; at < now; {
+		until := now
+		for _, d := range s.Disciples {
+			if d.Injured > at && d.Injured < until {
+				until = d.Injured
+			}
+		}
+		rates := s.Rates(at)
+		hours := float64(until-at) / 3600
+		gain(&s.Res.Stone, &s.Carry.Stone, rates.Stone*hours)
+		gain(&s.Res.Herb, &s.Carry.Herb, rates.Herb*hours)
+		gain(&s.Res.Ore, &s.Carry.Ore, rates.Ore*hours)
+		at = until
+	}
 	if now-s.Last > OfflineCap {
 		s.Back = &Comeback{Since: s.Last, At: now,
 			Res: Cost{Stone: s.Res.Stone - before.Stone, Herb: s.Res.Herb - before.Herb, Ore: s.Res.Ore - before.Ore}}

@@ -122,7 +122,7 @@ func TestWendaoTravelExcludesJourneyContractsAndRift(t *testing.T) {
 	player.ok(http.MethodPost, hero, map[string]any{"action": "flee", "battle_token": fight["fight"].(map[string]any)["token"]})
 	player.ok(http.MethodPost, "/api/game/wendao/duel/start", map[string]any{"kind": "trial", "id": "tianjian"})
 	player.fails(http.MethodPost, travelBase+"/action", map[string]any{"action": "start", "region": 0})
-	player.ok(http.MethodPost, "/api/game/wendao/duel/giveup", map[string]any{})
+	giveUpCurrentDuel(t, player)
 
 	start := map[string]any{"action": "start", "region": 0, "request_id": "trip-before-rift"}
 	trip := player.ok(http.MethodPost, travelBase+"/action", start)

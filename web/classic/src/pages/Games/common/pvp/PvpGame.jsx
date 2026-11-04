@@ -949,7 +949,6 @@ const PvpGame = ({
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { loading, unavailable, info, reload, patch } = useGameInfo(gameKey);
-  const { room, setRoom, clockOffset } = usePvpRoom(t);
   const [ai, setAi] = useState(null);
   const [aiResult, setAiResult] = useState(null);
   const [lobby, setLobby] = useState(null);
@@ -963,6 +962,12 @@ const PvpGame = ({
   const restoredRef = useRef(false);
   const busyRef = useRef(false);
   const lobbyEpochRef = useRef(0);
+  const refreshAfterRoomLost = useCallback(async () => {
+    const epoch = ++lobbyEpochRef.current;
+    const latest = await reload(true);
+    if (latest && epoch === lobbyEpochRef.current) setLobby(latest.lobby);
+  }, [reload]);
+  const { room, setRoom, clockOffset } = usePvpRoom(t, refreshAfterRoomLost);
   const labels = (state) =>
     seatLabels ? seatLabels(state) : [t('先手'), t('后手')];
 

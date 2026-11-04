@@ -223,7 +223,7 @@ func TestDuelViewHidesTheIssuedFight(t *testing.T) {
 	assert.Nil(t, view.Active)
 	_, err := sv.StartDuel(DuelBounty, sv.Duels.Bounties[0].Id, 31, 10)
 	require.NoError(t, err)
-	assert.Equal(t, &ActiveDuel{Kind: DuelBounty, Id: "b1"}, sv.DuelView().Active)
+	assert.Equal(t, &ActiveDuel{Kind: DuelBounty, Id: "b1", Token: sv.Duels.Active.Token}, sv.DuelView().Active)
 	require.NoError(t, sv.JoinSect("jingang", 20))
 	assert.Len(t, sv.DuelView().Tasks, TaskSlots)
 

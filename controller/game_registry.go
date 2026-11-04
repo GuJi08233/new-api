@@ -7,6 +7,7 @@ import (
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/doufa"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/gin-gonic/gin"
@@ -128,6 +129,14 @@ const gameRequestMaxBytes = 16 << 10
 // 不设上限时一个登录用户发一个几百兆的请求就能耗尽内存。
 func decodeGameRequest(c *gin.Context, v any) error {
 	return common.DecodeJson(http.MaxBytesReader(c.Writer, c.Request.Body, gameRequestMaxBytes), v)
+}
+
+// 每帧输入最多 18 位(3 字节 varint)，最坏每帧不同，另占 1 字节记录段长；base64url 扩大到 4/3。
+// 为场次标识等 JSON 字段保留普通请求的空间。不能假定 RLE 一定压缩持续走位与瞄准的合法录像。
+const doufaRequestMaxBytes = (doufa.MaxTicks*4+2)/3*4 + gameRequestMaxBytes
+
+func decodeDoufaRequest(c *gin.Context, v any) error {
+	return common.DecodeJson(http.MaxBytesReader(c.Writer, c.Request.Body, doufaRequestMaxBytes), v)
 }
 
 // requireGameEnabled 在游戏或整个游戏中心关闭时拒绝开局类请求，写好错误响应并返回 false。

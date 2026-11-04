@@ -137,6 +137,14 @@ func ParseSave(data string) (*Save, error) {
 	save.Abyss = nil
 	save.Rift.Normalize()
 	save.book()
+	// 旧契约没有场次令牌；在写回之前也保持相同身份，让刷新后的页面可以安全放弃所见的那一场。
+	if active := save.Duels.Active; active != nil && active.Token == "" {
+		token, err := RequestSum(active)
+		if err != nil {
+			return nil, err
+		}
+		active.Token = token
+	}
 	return save, nil
 }
 

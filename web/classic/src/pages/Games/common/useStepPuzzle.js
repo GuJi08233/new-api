@@ -40,6 +40,7 @@ export function useStepPuzzle(gameKey, { onStep } = {}) {
   const busyRef = useRef(false);
   const aliveRef = useRef(true);
   const currentRef = useRef(null);
+  const restoreSeq = useRef(0);
   const onStepRef = useRef(onStep);
   onStepRef.current = onStep;
   // 在这个页面上从第 0 步看到的对局才知道开局时刻，用来记本机最短用时；刷新到一半的对局不计时。
@@ -53,7 +54,10 @@ export function useStepPuzzle(gameKey, { onStep } = {}) {
         current &&
         next &&
         current.session_id === next.session_id &&
-        current.version > next.version
+        (current.version > next.version ||
+          (current.version === next.version &&
+            current.status === 'finished' &&
+            next.status === 'playing'))
       )
         return;
       if (
@@ -80,11 +84,12 @@ export function useStepPuzzle(gameKey, { onStep } = {}) {
 
   const restore = useCallback(
     async (id = 0) => {
+      const seq = ++restoreSeq.current;
       const response = await gameGet(
         `/api/game/${gameKey}/state${id ? `?session_id=${id}` : ''}`,
         t,
       );
-      if (!aliveRef.current) return;
+      if (!aliveRef.current || seq !== restoreSeq.current) return;
       if (response.data) {
         accept(response.data.session);
         setError('');
@@ -98,6 +103,7 @@ export function useStepPuzzle(gameKey, { onStep } = {}) {
     aliveRef.current = true;
     return () => {
       aliveRef.current = false;
+      restoreSeq.current += 1;
     };
   }, []);
 
@@ -114,6 +120,8 @@ export function useStepPuzzle(gameKey, { onStep } = {}) {
     const current = currentRef.current;
     if (action !== 'start' && current?.status !== 'playing') return false;
     busyRef.current = true;
+    // 开始写操作后，之前发出的恢复请求不能再覆盖这一步或新的一局。
+    restoreSeq.current += 1;
     setBusy(true);
     setError('');
     try {
@@ -134,6 +142,8 @@ export function useStepPuzzle(gameKey, { onStep } = {}) {
       );
       if (!aliveRef.current) return false;
       if (response.data) {
+        restoreSeq.current += 1;
+        setChecked(true);
         // 重交已结束的一局时公共结算接口直接返回 result。
         if (response.data.progress)
           accept({ ...current, status: 'finished', result: response.data });

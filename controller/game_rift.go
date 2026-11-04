@@ -233,7 +233,7 @@ func actRiftRun(c *gin.Context) {
 		Inputs    string `json:"inputs"`
 		Item      string `json:"item"`
 	}
-	if decodeGameRequest(c, &req) != nil || req.Action == "" {
+	if decodeDoufaRequest(c, &req) != nil || req.Action == "" {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}

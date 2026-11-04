@@ -20,7 +20,21 @@ func duelHero(t *testing.T, player *gamePlayer) {
 	t.Helper()
 	player.ok(http.MethodPost, "/api/game/wendao/hero/action", map[string]any{"action": "create", "class": dungeon.ClassWarrior})
 	player.ok(http.MethodPost, "/api/game/wendao/sect/action", map[string]any{"action": "sync"})
-	player.ok(http.MethodPost, duelBase+"/giveup", map[string]any{}) // 排好今天的榜单，没有进行中的一场也不报错
+	player.ok(http.MethodGet, duelBase+"/state", nil)
+}
+
+func duelClearBody(t *testing.T, player *gamePlayer, inputs string) map[string]any {
+	t.Helper()
+	save, err := loadWendaoSave(player.user.Id)
+	require.NoError(t, err)
+	require.NotNil(t, save.Duels.Active)
+	return map[string]any{"inputs": inputs, "battle_token": save.Duels.Active.Token}
+}
+
+func giveUpCurrentDuel(t *testing.T, player *gamePlayer) map[string]any {
+	t.Helper()
+	active := player.ok(http.MethodGet, duelBase+"/state", nil)["book"].(map[string]any)["active"].(map[string]any)
+	return player.ok(http.MethodPost, duelBase+"/giveup", map[string]any{"battle_token": active["token"]})
 }
 
 // rigDuel 把进行中的一场换成好打或必输的房间(站着攻击能打赢一只青泥怪，站着不动被四只青泥怪打倒)，并把发出时间往前挪，
@@ -58,7 +72,7 @@ func rigDuel(t *testing.T, player *gamePlayer, win bool) string {
 func joinThroughTrial(t *testing.T, player *gamePlayer, sect string) map[string]any {
 	t.Helper()
 	player.ok(http.MethodPost, duelBase+"/start", map[string]any{"kind": wendao.DuelTrial, "id": sect})
-	return player.ok(http.MethodPost, duelBase+"/clear", map[string]any{"inputs": rigDuel(t, player, true)})
+	return player.ok(http.MethodPost, duelBase+"/clear", duelClearBody(t, player, rigDuel(t, player, true)))
 }
 
 // bounty 返回今天榜上第 i 张悬赏，并把它挪到第一个地域(新主角只够得着那里)。
@@ -86,12 +100,14 @@ func TestWendaoDuelEntryTrialDecidesJoining(t *testing.T) {
 	duel := started["duel"].(map[string]any)
 	assert.NotZero(t, duel["seed"], "the answer to starting carries the fight")
 	assert.NotNil(t, duel["setup"])
-	assert.Equal(t, map[string]any{"kind": "trial", "id": "jingang"}, started["book"].(map[string]any)["active"])
+	require.NotEmpty(t, duel["token"])
+	expectedActive := map[string]any{"kind": "trial", "id": "jingang", "token": duel["token"]}
+	assert.Equal(t, expectedActive, started["book"].(map[string]any)["active"])
 	assert.Equal(t, float64(1), started["book"].(map[string]any)["trials"].(map[string]any)["jingang"])
 
 	// 读取状态只知道有这么一场，没有种子；另一个页面不能再开一场。
 	state := player.ok(http.MethodGet, duelBase+"/state", nil)
-	assert.Equal(t, map[string]any{"kind": "trial", "id": "jingang"}, state["book"].(map[string]any)["active"])
+	assert.Equal(t, expectedActive, state["book"].(map[string]any)["active"])
 	assert.NotContains(t, state["book"].(map[string]any)["active"], "seed")
 	player.fails(http.MethodPost, duelBase+"/start", map[string]any{"kind": wendao.DuelTrial, "id": "taixu"})
 
@@ -111,21 +127,21 @@ func TestWendaoDuelEntryTrialDecidesJoining(t *testing.T) {
 		inputs = append(inputs, doufa.Pack(-1, -1, doufa.BtnAttack))
 		fight.Step(inputs[len(inputs)-1])
 	}
-	assert.Equal(t, message(i18n.MsgGameReplayInvalid), player.fails(http.MethodPost, duelBase+"/clear", map[string]any{"inputs": doufa.EncodeInputs(inputs)}))
-	assert.Equal(t, message(i18n.MsgGameReplayInvalid), player.fails(http.MethodPost, duelBase+"/clear", map[string]any{"inputs": doufa.EncodeInputs(inputs[:10])}))
-	assert.Equal(t, message(i18n.MsgGameReplayInvalid), player.fails(http.MethodPost, duelBase+"/clear", map[string]any{"inputs": "%%%"}))
+	assert.Equal(t, message(i18n.MsgGameReplayInvalid), player.fails(http.MethodPost, duelBase+"/clear", duelClearBody(t, player, doufa.EncodeInputs(inputs))))
+	assert.Equal(t, message(i18n.MsgGameReplayInvalid), player.fails(http.MethodPost, duelBase+"/clear", duelClearBody(t, player, doufa.EncodeInputs(inputs[:10]))))
+	assert.Equal(t, message(i18n.MsgGameReplayInvalid), player.fails(http.MethodPost, duelBase+"/clear", duelClearBody(t, player, "%%%")))
 
 	// 打输了不拜入，这一场结束、次数用掉。
-	lost := player.ok(http.MethodPost, duelBase+"/clear", map[string]any{"inputs": rigDuel(t, player, false)})
+	lost := player.ok(http.MethodPost, duelBase+"/clear", duelClearBody(t, player, rigDuel(t, player, false)))
 	assert.Equal(t, false, lost["won"])
 	assert.Equal(t, "loose", lost["standing"].(map[string]any)["identity"])
 	assert.Nil(t, lost["book"].(map[string]any)["active"])
 	assert.Equal(t, float64(1), lost["book"].(map[string]any)["trials"].(map[string]any)["jingang"])
-	assert.Equal(t, message(i18n.MsgGameSectUnavailable), player.fails(http.MethodPost, duelBase+"/clear", map[string]any{"inputs": "AA"}), "nothing in progress")
+	assert.Equal(t, message(i18n.MsgGameSectUnavailable), player.fails(http.MethodPost, duelBase+"/clear", map[string]any{"inputs": "AA", "battle_token": duel["token"]}), "nothing in progress")
 
 	// 放弃：一次也不退。
 	player.ok(http.MethodPost, duelBase+"/start", map[string]any{"kind": wendao.DuelTrial, "id": "jingang"})
-	gave := player.ok(http.MethodPost, duelBase+"/giveup", map[string]any{})
+	gave := giveUpCurrentDuel(t, player)
 	assert.Nil(t, gave["book"].(map[string]any)["active"])
 	assert.Equal(t, float64(2), gave["book"].(map[string]any)["trials"].(map[string]any)["jingang"])
 
@@ -154,10 +170,11 @@ func TestWendaoDuelBountyPaysOnce(t *testing.T) {
 	assert.NotNil(t, again["duel"], "a start whose answer was lost gets the fight again, without spending another try")
 	assert.Equal(t, float64(wendao.ContractTries-1), again["book"].(map[string]any)["bounties"].([]any)[0].(map[string]any)["tries"])
 
-	lost := player.ok(http.MethodPost, duelBase+"/clear", map[string]any{"inputs": rigDuel(t, player, false)})
+	lost := player.ok(http.MethodPost, duelBase+"/clear", duelClearBody(t, player, rigDuel(t, player, false)))
 	assert.Equal(t, false, lost["won"])
 	player.ok(http.MethodPost, duelBase+"/start", map[string]any{"kind": wendao.DuelBounty, "id": id})
-	clear := map[string]any{"inputs": rigDuel(t, player, true), "request_id": "clear-1"}
+	clear := duelClearBody(t, player, rigDuel(t, player, true))
+	clear["request_id"] = "clear-1"
 	won := player.ok(http.MethodPost, duelBase+"/clear", clear)
 	assert.Equal(t, true, won["won"])
 	assert.Equal(t, stone+reward, won["sect"].(map[string]any)["res"].(map[string]any)["stone"])
@@ -165,6 +182,9 @@ func TestWendaoDuelBountyPaysOnce(t *testing.T) {
 
 	retried := player.ok(http.MethodPost, duelBase+"/clear", clear)
 	assert.Equal(t, true, retried["replayed"])
+	for _, key := range []string{"won", "kills", "ticks", "events"} {
+		assert.Equal(t, won[key], retried[key], "retry preserves %s", key)
+	}
 	assert.Equal(t, stone+reward, retried["sect"].(map[string]any)["res"].(map[string]any)["stone"], "a retried submission pays once")
 	player.fails(http.MethodPost, duelBase+"/start", map[string]any{"kind": wendao.DuelBounty, "id": id})
 	player.fails(http.MethodPost, duelBase+"/start", map[string]any{"kind": wendao.DuelBounty, "id": "b9"})
@@ -187,7 +207,7 @@ func TestWendaoDuelTaskGivesMerit(t *testing.T) {
 	book := player.ok(http.MethodGet, duelBase+"/state", nil)["book"].(map[string]any)
 	require.Len(t, book["tasks"], wendao.TaskSlots)
 	player.ok(http.MethodPost, duelBase+"/start", map[string]any{"kind": wendao.DuelTask, "id": "t1"})
-	won := player.ok(http.MethodPost, duelBase+"/clear", map[string]any{"inputs": rigDuel(t, player, true)})
+	won := player.ok(http.MethodPost, duelBase+"/clear", duelClearBody(t, player, rigDuel(t, player, true)))
 	assert.Equal(t, float64(merit), won["standing"].(map[string]any)["path"].(map[string]any)["merit"])
 	assert.Contains(t, won["events"], map[string]any{"k": "path_merit", "n": float64(merit)})
 }
@@ -228,6 +248,76 @@ func TestWendaoDuelUsesTheLoadoutBoughtInTheLibrary(t *testing.T) {
 	setup := started["duel"].(map[string]any)["setup"].(map[string]any)
 	assert.Equal(t, []any{"thunder", "sword"}, setup["weapons"])
 	assert.Equal(t, "nova", setup["skill"])
-	won := player.ok(http.MethodPost, duelBase+"/clear", map[string]any{"inputs": rigDuel(t, player, true)})
+	won := player.ok(http.MethodPost, duelBase+"/clear", duelClearBody(t, player, rigDuel(t, player, true)))
 	assert.Equal(t, true, won["won"])
+}
+
+func TestWendaoDuelStaleRequestsKeepLaterAttempt(t *testing.T) {
+	require.NoError(t, i18n.Init())
+	env := newGameTestEnv(t, sectSettings())
+	player := env.player(0, gameTestIpA)
+	duelHero(t, player)
+	start := map[string]any{"kind": wendao.DuelTrial, "id": "tianjian", "request_id": "first-start"}
+	first := player.ok(http.MethodPost, duelBase+"/start", start)["duel"].(map[string]any)
+	giveUp := map[string]any{"battle_token": first["token"], "request_id": "first-giveup"}
+	player.ok(http.MethodPost, duelBase+"/giveup", giveUp)
+	second := player.ok(http.MethodPost, duelBase+"/start", map[string]any{"kind": wendao.DuelTrial, "id": "tianjian", "request_id": "second-start"})
+	active := second["book"].(map[string]any)["active"]
+	assert.NotEqual(t, first["token"], second["duel"].(map[string]any)["token"])
+
+	// 重发第一次开局不能拿到同一契约的第二次种子；第一次放弃的收据也不能再放弃第二次。
+	oldStart := player.ok(http.MethodPost, duelBase+"/start", start)
+	assert.NotContains(t, oldStart, "duel")
+	oldGiveUp := player.ok(http.MethodPost, duelBase+"/giveup", giveUp)
+	assert.Equal(t, true, oldGiveUp["replayed"])
+	assert.Equal(t, active, oldGiveUp["book"].(map[string]any)["active"])
+	player.fails(http.MethodPost, duelBase+"/giveup", map[string]any{"battle_token": first["token"], "request_id": "stale-page-giveup"})
+	player.fails(http.MethodPost, duelBase+"/giveup", map[string]any{"request_id": "unbound-giveup"})
+	player.fails(http.MethodPost, duelBase+"/clear", map[string]any{"battle_token": first["token"], "inputs": "AA", "request_id": "stale-page-clear"})
+	state := player.ok(http.MethodGet, duelBase+"/state", nil)["book"].(map[string]any)
+	assert.Equal(t, active, state["active"])
+	assert.Equal(t, float64(2), state["trials"].(map[string]any)["tianjian"])
+}
+
+func TestWendaoDuelClearRetryKeepsResultAfterNextFight(t *testing.T) {
+	for _, win := range []bool{false, true} {
+		t.Run(map[bool]string{false: "defeat", true: "victory"}[win], func(t *testing.T) {
+			env := newGameTestEnv(t, sectSettings())
+			player := env.player(0, gameTestIpA)
+			duelHero(t, player)
+			firstId, nextId := bountyAt(t, player, 0), bountyAt(t, player, 1)
+			player.ok(http.MethodPost, duelBase+"/start", map[string]any{"kind": wendao.DuelBounty, "id": firstId})
+			request := duelClearBody(t, player, rigDuel(t, player, win))
+			request["request_id"] = "lost-clear-answer"
+			settled := player.ok(http.MethodPost, duelBase+"/clear", request)
+			require.Equal(t, win, settled["won"])
+			require.NotZero(t, settled["ticks"])
+
+			next := player.ok(http.MethodPost, duelBase+"/start", map[string]any{"kind": wendao.DuelBounty, "id": nextId})
+			retry := player.ok(http.MethodPost, duelBase+"/clear", request)
+			assert.Equal(t, true, retry["replayed"])
+			for _, key := range []string{"won", "ticks", "kills", "events"} {
+				assert.Equal(t, settled[key], retry[key], "the original %s survives a new fight", key)
+			}
+			assert.Equal(t, settled["sect"].(map[string]any)["res"], retry["sect"].(map[string]any)["res"], "retry cannot issue resources twice")
+			assert.Equal(t, next["book"].(map[string]any)["active"], retry["book"].(map[string]any)["active"])
+			request["battle_token"] = next["duel"].(map[string]any)["token"]
+			player.fails(http.MethodPost, duelBase+"/clear", request)
+		})
+	}
+}
+
+func TestWendaoLegacyDuelCanBeAbandonedAfterRefresh(t *testing.T) {
+	env := newGameTestEnv(t, sectSettings())
+	player := env.player(0, gameTestIpA)
+	duelHero(t, player)
+	player.ok(http.MethodPost, duelBase+"/start", map[string]any{"kind": wendao.DuelTrial, "id": "tianjian"})
+	editWendao(t, player, func(save *wendao.Save) { save.Duels.Active.Token = "" })
+	first := player.ok(http.MethodGet, duelBase+"/state", nil)["book"].(map[string]any)["active"]
+	second := player.ok(http.MethodGet, duelBase+"/state", nil)["book"].(map[string]any)["active"]
+	assert.Equal(t, first, second, "an old save has a stable battle identity before any write")
+	require.NotEmpty(t, first.(map[string]any)["token"])
+	gaveUp := giveUpCurrentDuel(t, player)
+	assert.Nil(t, gaveUp["book"].(map[string]any)["active"])
+	assert.Equal(t, float64(1), gaveUp["book"].(map[string]any)["trials"].(map[string]any)["tianjian"])
 }

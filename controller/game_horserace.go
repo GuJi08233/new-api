@@ -65,10 +65,10 @@ type horseraceBetView struct {
 	Win    model.GameCoins `json:"win"`
 }
 
-// horseraceDetail 是一场赛马的明细，存在对局的 Detail 里供事后核查。
+// horseraceDetail 是一场赛马的摘要；完整注单存在 TEXT State 中，避免超过 Detail 的 255 字符上限。
 type horseraceDetail struct {
-	Order []int              `json:"order"`
-	Bets  []horseraceBetView `json:"bets"`
+	Order []int `json:"order"`
+	Bets  int   `json:"bets"`
 }
 
 // RunHorserace 跑一场赛马：一次可以押好几注(同一匹马的同一种玩法只能押一次)，各注金额之和是这一场的下注。服务端抽出名次
@@ -101,10 +101,16 @@ func RunHorserace(c *gin.Context) {
 	if !validWagerBet(c, stake, rule.MaxBet) {
 		return
 	}
+	slip, err := common.Marshal(req.Bets)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	var order []int
 	views := make([]horseraceBetView, len(req.Bets))
 	result, err := model.SettleGameWager(c.GetInt("id"), gameHorserace, model.GameWager{
-		Bet: stake,
+		Bet:   stake,
+		State: string(slip),
 		Play: func() (model.GameCoins, string, error) {
 			var err error
 			if order, err = runHorserace(); err != nil {
@@ -116,7 +122,7 @@ func RunHorserace(c *gin.Context) {
 				views[i] = horseraceBetView{Kind: bet.Kind, Horse: bet.Horse, Amount: bet.Amount, Win: bet.Amount * model.GameCoins(multiplier) / 100}
 				win += views[i].Win
 			}
-			detail, err := common.Marshal(horseraceDetail{Order: order, Bets: views})
+			detail, err := common.Marshal(horseraceDetail{Order: order, Bets: len(views)})
 			return win, string(detail), err
 		},
 		Day: gameCenterDay(),

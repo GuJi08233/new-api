@@ -103,6 +103,9 @@ func startDuel(c *gin.Context) {
 			rollWendaoDaily(save)
 			var err error
 			duel, err = save.StartDuel(req.Kind, req.Id, seed, now)
+			if err == nil {
+				duel.RequestId = requestId
+			}
 			return err
 		})
 	})
@@ -117,7 +120,7 @@ func startDuel(c *gin.Context) {
 		return
 	}
 	if replayed {
-		if active := save.Duels.Active; active != nil && active.Kind == req.Kind && active.Id == req.Id {
+		if active := save.Duels.Active; active != nil && active.RequestId == requestId && active.Kind == req.Kind && active.Id == req.Id {
 			duel = active
 		}
 	}
@@ -139,9 +142,10 @@ func clearDuel(c *gin.Context) {
 	}
 	var req struct {
 		Inputs    string `json:"inputs"`
+		Token     string `json:"battle_token"`
 		RequestId string `json:"request_id,omitempty"`
 	}
-	if decodeGameRequest(c, &req) != nil {
+	if decodeDoufaRequest(c, &req) != nil || req.Token == "" {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
@@ -159,23 +163,39 @@ func clearDuel(c *gin.Context) {
 		respondSectError(c, err)
 		return
 	}
-	// 没有进行中的一场时，要么是另一个页面已经放弃或结算了，要么是上一次提交其实已经结算(回应丢了)：后一种带着同一个
-	// request_id 重发，下面的收据认得出来。
-	active := save.Duels.Active
-	var fight *doufa.Fight
-	if active != nil {
-		inputs, err := doufa.DecodeInputs(req.Inputs)
-		if err != nil {
-			common.ApiErrorI18n(c, i18n.MsgGameReplayInvalid)
+	// 先认原请求的收据，避免拿已经结算的录像去核对另一页面新开的战斗。
+	if err := save.Admit(requestId, sum, now); err != nil {
+		if !errors.Is(err, wendao.ErrReplayed) {
+			respondSectError(c, err)
 			return
 		}
-		fight, err = doufa.Replay(active.Seed, active.Setup, inputs)
-		if err != nil || !fight.Over || (now-active.Issued+riftGraceSeconds)*5*doufa.FPS < int64(fight.Tick)*4 {
-			common.ApiErrorI18n(c, i18n.MsgGameReplayInvalid)
-			return
+		var result *wendao.DuelResult
+		if receipt := save.Receipt(requestId); receipt != nil {
+			result = receipt.Duel
 		}
+		common.ApiSuccess(c, duelClearAnswer(save, result, now, true))
+		return
 	}
-	var evs []wendao.Ev
+	active := save.Duels.Active
+	if active == nil {
+		respondSectError(c, wendao.ErrUnavailable)
+		return
+	}
+	if active.Token != req.Token {
+		respondSectError(c, wendao.ErrBattleMoved)
+		return
+	}
+	inputs, err := doufa.DecodeInputs(req.Inputs)
+	if err != nil {
+		common.ApiErrorI18n(c, i18n.MsgGameReplayInvalid)
+		return
+	}
+	fight, err := doufa.Replay(active.Seed, active.Setup, inputs)
+	if err != nil || !fight.Over || (now-active.Issued+riftGraceSeconds)*5*doufa.FPS < int64(fight.Tick)*4 {
+		common.ApiErrorI18n(c, i18n.MsgGameReplayInvalid)
+		return
+	}
+	var result *wendao.DuelResult
 	_, err = model.UpdateGameSave(userId, wendao.SaveKey, func(data string) (string, error) {
 		return wendao.UpdateSave(data, func(sv *wendao.Save) error {
 			if err := sv.Admit(requestId, sum, now); err != nil {
@@ -184,12 +204,18 @@ func clearDuel(c *gin.Context) {
 			rollWendaoDaily(sv)
 			// 重放核对的是读存档时发出的那一场；这一刻存档里的还得是它(另一个页面可能已经放弃或结算了)。
 			current := sv.Duels.Active
-			if sv.Hero == nil || sv.Sect == nil || active == nil || current == nil || current.Seed != active.Seed || current.Issued != active.Issued {
+			if sv.Hero == nil || sv.Sect == nil || current == nil || current.Token != req.Token || current.Seed != active.Seed || current.Issued != active.Issued {
 				return wendao.ErrUnavailable
 			}
-			var err error
-			evs, err = sv.FinishDuel(fight, now)
-			return err
+			evs, err := sv.FinishDuel(fight, now)
+			if err != nil {
+				return err
+			}
+			result = &wendao.DuelResult{Token: req.Token, Won: fight.Won, Kills: fight.Kills, Ticks: fight.Tick, Events: evs}
+			if receipt := sv.Receipt(requestId); receipt != nil {
+				receipt.Duel = result
+			}
+			return nil
 		})
 	})
 	replayed := errors.Is(err, wendao.ErrReplayed)
@@ -202,13 +228,25 @@ func clearDuel(c *gin.Context) {
 		respondSectError(c, err)
 		return
 	}
+	if replayed {
+		result = nil
+		if receipt := save.Receipt(requestId); receipt != nil {
+			result = receipt.Duel
+		}
+	}
+	common.ApiSuccess(c, duelClearAnswer(save, result, now, replayed))
+}
+
+// duelClearAnswer 总是带原场次的结算结果；契约与宗门概况则返回当前存档。
+func duelClearAnswer(save *wendao.Save, result *wendao.DuelResult, now int64, replayed bool) gin.H {
 	answer := duelAnswer(save, now)
+	if result != nil {
+		answer["won"], answer["kills"], answer["ticks"], answer["events"] = result.Won, result.Kills, result.Ticks, result.Events
+	}
 	if replayed {
 		answer["replayed"] = true
-	} else {
-		answer["won"], answer["kills"], answer["ticks"], answer["events"] = fight.Won, fight.Kills, fight.Tick, evs
 	}
-	common.ApiSuccess(c, answer)
+	return answer
 }
 
 // giveUpDuel 放弃进行中的一场：用掉的那次挑战不退。页面关掉重开以后只能走这一步，因为种子只在接下契约的回应里给一次。
@@ -217,13 +255,16 @@ func giveUpDuel(c *gin.Context) {
 		return
 	}
 	var req struct {
+		Token     string `json:"battle_token"`
 		RequestId string `json:"request_id,omitempty"`
 	}
-	if decodeGameRequest(c, &req) != nil {
+	if decodeGameRequest(c, &req) != nil || req.Token == "" {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
-	sum, err := wendao.RequestSum(struct{}{})
+	requestId := req.RequestId
+	req.RequestId = ""
+	sum, err := wendao.RequestSum(req)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -231,13 +272,16 @@ func giveUpDuel(c *gin.Context) {
 	now := common.GetTimestamp()
 	_, err = model.UpdateGameSave(c.GetInt("id"), wendao.SaveKey, func(data string) (string, error) {
 		return wendao.UpdateSave(data, func(save *wendao.Save) error {
-			if err := save.Admit(req.RequestId, sum, now); err != nil {
+			if err := save.Admit(requestId, sum, now); err != nil {
 				return err
 			}
 			rollWendaoDaily(save)
 			// 隔天榜单换了，进行中的一场已经作废，没有什么可放弃的。
 			if save.Duels.Active == nil {
 				return nil
+			}
+			if save.Duels.Active.Token != req.Token {
+				return wendao.ErrBattleMoved
 			}
 			return save.GiveUpDuel()
 		})

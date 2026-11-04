@@ -3,6 +3,7 @@ package wendao
 import (
 	"fmt"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/pkg/doufa"
 )
 
@@ -75,13 +76,15 @@ type Contract struct {
 }
 
 // Duel 是进行中的一场：Kind、Id 指哪张契约(入门试炼的 Id 是宗门)，Seed 与 Setup 是发给浏览器的种子与开局，Issued 是发出的
-// 时间(秒)，提交时不能早于"帧数 ÷ 60"秒的八成。
+// 时间(秒)，提交时不能早于"帧数 ÷ 60"秒的八成。Token 绑定结算与放弃的场次，RequestId 只用于重发该次开局。
 type Duel struct {
-	Kind   string      `json:"kind"`
-	Id     string      `json:"id"`
-	Seed   uint32      `json:"seed"`
-	Setup  doufa.Setup `json:"setup"`
-	Issued int64       `json:"issued"`
+	Kind      string      `json:"kind"`
+	Id        string      `json:"id"`
+	Seed      uint32      `json:"seed"`
+	Setup     doufa.Setup `json:"setup"`
+	Issued    int64       `json:"issued"`
+	Token     string      `json:"token"`
+	RequestId string      `json:"request_id,omitempty"`
 }
 
 // DuelBook 是主角手上的斗法契约：今天的悬赏榜与宗门任务、每个宗门的入门试炼今天用了几次、进行中的一场。Rng 是榜单的随机数。
@@ -211,7 +214,7 @@ func (sv *Save) StartDuel(kind, id string, seed uint32, now int64) (*Duel, error
 		}
 		b.Trials[id]++
 	}
-	b.Active = &Duel{Kind: kind, Id: id, Seed: seed, Setup: setup, Issued: now}
+	b.Active = &Duel{Kind: kind, Id: id, Seed: seed, Setup: setup, Issued: now, Token: common.GetUUID()}
 	return b.Active, nil
 }
 
@@ -319,8 +322,9 @@ type DuelView struct {
 
 // ActiveDuel 是进行中那一场的概况。
 type ActiveDuel struct {
-	Kind string `json:"kind"`
-	Id   string `json:"id"`
+	Kind  string `json:"kind"`
+	Id    string `json:"id"`
+	Token string `json:"token"`
 }
 
 // DuelView 是主角现在的契约；没有主角时为 nil。
@@ -334,7 +338,7 @@ func (sv *Save) DuelView() *DuelView {
 		v.Tasks = b.Tasks
 	}
 	if b.Active != nil {
-		v.Active = &ActiveDuel{Kind: b.Active.Kind, Id: b.Active.Id}
+		v.Active = &ActiveDuel{Kind: b.Active.Kind, Id: b.Active.Id, Token: b.Active.Token}
 	}
 	for i := range Regions {
 		v.Open[i] = sv.Hero.RegionOpen(i)

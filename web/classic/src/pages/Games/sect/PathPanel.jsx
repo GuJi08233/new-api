@@ -475,13 +475,19 @@ const PathPanel = ({
   const giveUp = async () => {
     bookSeq.current += 1;
     setDuelBusy(true);
-    const res = await gamePostOnce('/api/game/wendao/duel/giveup', {}, t);
+    const res = await gamePostOnce(
+      '/api/game/wendao/duel/giveup',
+      { battle_token: book.active.token },
+      t,
+    );
     setDuelBusy(false);
     bookSeq.current += 1;
     if (res.data) {
       setBook(res.data.book);
       setTravel(res.data.travel?.active || null);
       setMeditation(res.data.meditation?.active || null);
+    } else {
+      await loadBook();
     }
   };
   // 打完回来：契约、身份与宗门都按回应里的新样子换上；放弃或出错时重新读一遍契约。

@@ -53,6 +53,40 @@ func TestInjuryOnlySlowsTheInjuredPart(t *testing.T) {
 	assert.InDelta(t, expected, total, 1e-6)
 }
 
+func TestRecoveredWorkersProduceForHealthyOfflineTime(t *testing.T) {
+	for _, job := range []string{JobArray, JobField, JobMine, "outpost"} {
+		t.Run(job, func(t *testing.T) {
+			const start = int64(100000)
+			sect := NewSect(1, start)
+			sect.Res = Cost{}
+			sect.Buildings[BuildingMine] = 1
+			worker := sect.Disciples[0]
+			worker.Job, worker.Injured = job, start+2*hour
+			if job == "outpost" {
+				sect.Outposts = []Outpost{{Region: 1}}
+				worker.Job, worker.Outpost = JobCultivate, 1
+			}
+			for _, d := range sect.Disciples[1:] {
+				d.Job = JobCultivate
+			}
+			before, after := sect.Rates(start), sect.Rates(start+2*hour)
+			raw, err := (&Save{Sect: sect}).Encode()
+			require.NoError(t, err)
+			whole, err := ParseSave(raw)
+			require.NoError(t, err)
+			split, err := ParseSave(raw)
+			require.NoError(t, err)
+			whole.Sect.Tick(start + 4*hour)
+			split.Sect.Tick(start + 2*hour)
+			split.Sect.Tick(start + 4*hour)
+			assert.Equal(t, split.Sect.Res, whole.Sect.Res)
+			assert.InDelta(t, 2*(before.Stone+after.Stone), float64(whole.Sect.Res.Stone)+whole.Sect.Carry.Stone, 1e-9)
+			assert.InDelta(t, 2*(before.Herb+after.Herb), float64(whole.Sect.Res.Herb)+whole.Sect.Carry.Herb, 1e-9)
+			assert.InDelta(t, 2*(before.Ore+after.Ore), float64(whole.Sect.Res.Ore)+whole.Sect.Carry.Ore, 1e-9)
+		})
+	}
+}
+
 // 主殿之外的建筑不能高过主殿；资源不够什么都不扣。
 func TestUpgradeIsCappedByHallAndCost(t *testing.T) {
 	s := NewSect(1, 0)

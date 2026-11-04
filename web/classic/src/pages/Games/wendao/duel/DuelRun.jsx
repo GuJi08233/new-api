@@ -20,7 +20,7 @@ For commercial licensing, please contact support@quantumnous.com
 import React, { useEffect, useRef, useState } from 'react';
 import { Button, Modal } from '@douyinfe/semi-ui';
 import { useTranslation } from 'react-i18next';
-import { gamePostOnce } from '../../common/api';
+import { gamePostOnce, newRequestId } from '../../common/api';
 import { playSound } from '../../common/sound';
 import { eventSentence, useSectText } from '../../sect/parts';
 import { FPS, encodeInputs } from '../doufa/engine';
@@ -46,6 +46,7 @@ export default function DuelRun({ kind, id, onDone }) {
   const [error, setError] = useState('');
   const started = useRef(false);
   const lastRun = useRef(null);
+  const clearRequest = useRef(null);
 
   useEffect(() => {
     if (started.current) return;
@@ -65,16 +66,24 @@ export default function DuelRun({ kind, id, onDone }) {
 
   const submit = async (run) => {
     lastRun.current = run;
+    if (!clearRequest.current) {
+      clearRequest.current = {
+        inputs: encodeInputs(run.inputs),
+        battle_token: room.token,
+        request_id: newRequestId(),
+      };
+    }
     setPhase('check');
     setError('');
-    const res = await gamePostOnce(
-      `${API}/clear`,
-      { inputs: encodeInputs(run.inputs) },
-      t,
-    );
+    const res = await gamePostOnce(`${API}/clear`, clearRequest.current, t);
     if (res.error) {
       setError(res.error);
       setPhase('error');
+      return;
+    }
+    // 升级前已结算的旧收据可能没有胜负快照，回到当前状态，避免把缺少结果当作失败。
+    if (typeof res.data.won !== 'boolean') {
+      onDone(res.data);
       return;
     }
     setAnswer(res.data);
@@ -88,7 +97,16 @@ export default function DuelRun({ kind, id, onDone }) {
       title: t('放弃这一场'),
       content: t('放弃会用掉这次挑战，不能重来。'),
       onOk: async () => {
-        const res = await gamePostOnce(`${API}/giveup`, {}, t);
+        const res = await gamePostOnce(
+          `${API}/giveup`,
+          { battle_token: room.token },
+          t,
+        );
+        if (res.error) {
+          setError(res.error);
+          setPhase('error');
+          return;
+        }
         onDone(res.data || null);
       },
     });

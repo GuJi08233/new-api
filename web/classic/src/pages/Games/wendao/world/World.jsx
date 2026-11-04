@@ -99,7 +99,11 @@ const WorldPage = () => {
     setBusy(true);
     setError('');
     try {
-      const res = await gamePostOnce(`${API}/giveup`, {}, t);
+      const res = await gamePostOnce(
+        `${API}/giveup`,
+        { battle_token: book.active.token },
+        t,
+      );
       requestSeq.current += 1;
       if (res.error) {
         await load();

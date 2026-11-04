@@ -189,7 +189,7 @@ func clearHeroFight(c *gin.Context) {
 		Token     string  `json:"battle_token"`
 		RequestId string  `json:"request_id,omitempty"`
 	}
-	if decodeGameRequest(c, &req) != nil || req.Seed == nil || req.Issued <= 0 || req.Token == "" {
+	if decodeDoufaRequest(c, &req) != nil || req.Seed == nil || req.Issued <= 0 || req.Token == "" {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}

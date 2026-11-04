@@ -21,9 +21,32 @@ const (
 
 // Receipt 是一次做过的操作：请求编号、请求内容的摘要与时间。
 type Receipt struct {
-	Id  string `json:"id"`
-	Sum string `json:"sum"`
-	At  int64  `json:"at"`
+	Id   string      `json:"id"`
+	Sum  string      `json:"sum"`
+	At   int64       `json:"at"`
+	Duel *DuelResult `json:"duel,omitempty"`
+}
+
+// DuelResult 与结算收据一起保存；回应丢失后仍能返回原胜负与奖励说明。
+type DuelResult struct {
+	Token  string `json:"token"`
+	Won    bool   `json:"won"`
+	Kills  int    `json:"kills"`
+	Ticks  int    `json:"ticks"`
+	Events []Ev   `json:"events"`
+}
+
+// Receipt 返回请求收据供读取或补充结果；调用前先用 Admit 校验摘要与有效期。
+func (s *Save) Receipt(id string) *Receipt {
+	if id == "" {
+		return nil
+	}
+	for i := range s.Receipts {
+		if s.Receipts[i].Id == id {
+			return &s.Receipts[i]
+		}
+	}
+	return nil
 }
 
 var (

@@ -230,6 +230,7 @@ func TestPvpLeaveRefundsAndRevokesPrivateRoomPolling(t *testing.T) {
 		var body map[string]any
 		require.NoError(t, common.Unmarshal(response.Body.Bytes(), &body))
 		assert.Equal(t, false, body["success"])
+		assert.Equal(t, "room_not_player", body["code"])
 		assert.Equal(t, i18n.Translate(i18n.DefaultLang, i18n.MsgGameRoomNotPlayer), body["message"])
 	case <-time.After(10 * time.Second):
 		require.FailNow(t, "leaving must wake the poll and revoke access")

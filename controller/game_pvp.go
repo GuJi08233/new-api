@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"net/http"
 	"runtime"
 	"slices"
 	"strconv"
@@ -854,7 +855,7 @@ func validPvpStake(c *gin.Context, stake model.GameCoins, rule operation_setting
 func respondGameRoomError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, model.ErrGameRoomNotFound):
-		common.ApiErrorI18n(c, i18n.MsgGameRoomNotFound)
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": common.TranslateMessage(c, i18n.MsgGameRoomNotFound), "code": "room_not_found"})
 	case errors.Is(err, model.ErrGameRoomActive):
 		common.ApiErrorI18n(c, i18n.MsgGameRoomActive)
 	case errors.Is(err, model.ErrGameRoomChanged), errors.Is(err, model.ErrGameRoomFull):
@@ -1108,7 +1109,7 @@ func loadPlayerGameRoom(c *gin.Context) *model.GameRoom {
 		}
 	}
 	if seat < 0 {
-		common.ApiErrorI18n(c, i18n.MsgGameRoomNotPlayer)
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": common.TranslateMessage(c, i18n.MsgGameRoomNotPlayer), "code": "room_not_player"})
 		return nil
 	}
 	c.Set("game_room_seat", seat)

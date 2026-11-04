@@ -24,15 +24,21 @@ import { API, showError } from '../../../helpers';
 // 把请求结果换成 { data } 或 { error }：服务端的拒绝原因原样给玩家看；登录过期交给全局处理(跳转登录页)；
 // 限流与网络错误给出通用提示。network 为真表示请求没有得到答复或服务端暂时出错，结果可能已经结算或者可以原样重交，
 // 页面要保留这一局、重新读取或让玩家重新提交；limited 为真表示被限流、请求没有执行，稍后可以原样重试。
+// auth 为真表示需要重新登录，应保留本地进度；code 是服务端给出的稳定错误标识，不依赖提示语的语言。
 function gameResult(promise, t) {
   return promise.then(
     (res) =>
-      res.data.success ? { data: res.data.data } : { error: res.data.message },
+      res.data.success
+        ? { data: res.data.data }
+        : {
+            error: res.data.message,
+            ...(res.data.code ? { code: res.data.code } : {}),
+          },
     (error) => {
       const status = error?.response?.status;
       if (status === 401) {
         showError(error);
-        return { error: t('登录已过期，请重新登录') };
+        return { error: t('登录已过期，请重新登录'), auth: true };
       }
       if (status === 429) {
         return { error: t('操作太快了，请稍后再试'), limited: true };
