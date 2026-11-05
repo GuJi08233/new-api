@@ -37,10 +37,10 @@ func GamePlayRateLimit(scope string) gin.HandlerFunc {
 	return userRateLimitFactory(20, 60, "GP:"+scope)
 }
 
-// GameSpinRateLimit 按用户限制老虎机旋转、Plinko 投球这类下注的频率。一次只要两三秒，比开局和结算频繁得多；
-// 每次下注仍要在一个事务里扣注、派彩、写流水，脚本连续请求时要挡住。
+// GameSpinRateLimit 按用户限制老虎机旋转、Plinko 投球这类下注的频率。
+// 每分钟 120 次给自动连玩的连续下注留出余量，同时限制每次都要扣注、派彩、写流水的事务频率。
 func GameSpinRateLimit(scope string) gin.HandlerFunc {
-	return userRateLimitFactory(60, 60, "GP:"+scope)
+	return userRateLimitFactory(120, 60, "GP:"+scope)
 }
 
 // GameActionRateLimit 按用户限制对局中每一步操作的频率，例如扫雷翻开一格、挖宝翻开一块、棋类落一子。

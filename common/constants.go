@@ -253,7 +253,7 @@ var (
 
 	// Per-user search rate limit (applies after authentication, keyed by user ID)
 	SearchRateLimitEnable         = true
-	SearchRateLimitNum            = 10
+	SearchRateLimitNum            = 120
 	SearchRateLimitDuration int64 = 60
 )
 

@@ -55,6 +55,7 @@ func rateLimitFactory(maxRequestNum int, duration int64, mark string) func(c *gi
 	}
 }
 
+// GlobalWebRateLimit 限制网页与静态资源请求，不用于模型调用。
 func GlobalWebRateLimit() func(c *gin.Context) {
 	if common.GlobalWebRateLimitEnable {
 		return rateLimitFactory(common.GlobalWebRateLimitNum, common.GlobalWebRateLimitDuration, "GW")
@@ -62,6 +63,7 @@ func GlobalWebRateLimit() func(c *gin.Context) {
 	return defNext
 }
 
+// GlobalAPIRateLimit 限制控制台、游戏与模拟盘等网页接口；模型调用另用 ModelRequestRateLimit。
 func GlobalAPIRateLimit() func(c *gin.Context) {
 	if common.GlobalApiRateLimitEnable {
 		return rateLimitFactory(common.GlobalApiRateLimitNum, common.GlobalApiRateLimitDuration, "GA")
