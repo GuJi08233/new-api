@@ -127,7 +127,20 @@ func RelayErrorHandler(ctx context.Context, resp *http.Response, showBodyWhenFai
 			return
 		}
 	}
-	newApiErr = types.NewOpenAIError(errors.New(errResponse.ToMessage()), types.ErrorCodeBadResponseStatusCode, resp.StatusCode)
+	// A body with no error/message field still yields the detail message here
+	// (TypeSafe's {"detail": {...}} form), so the reason for a 400/422 reaches
+	// the client instead of a bare status code. Its error_type is carried into
+	// the gateway error code so callers can still tell a validation refusal from
+	// an upstream fault, but only when it cannot collide with the prefixes this
+	// codebase gives its own semantics: "channel:" errors trigger retry and
+	// channel auto-disable, and "violation_fee." drives fee handling.
+	errorCode := types.ErrorCodeBadResponseStatusCode
+	if detailType := errResponse.DetailErrorType(); detailType != "" &&
+		!strings.HasPrefix(detailType, "channel:") &&
+		!strings.HasPrefix(detailType, "violation_fee.") {
+		errorCode = types.ErrorCode(detailType)
+	}
+	newApiErr = types.NewOpenAIError(errors.New(errResponse.ToMessage()), errorCode, resp.StatusCode)
 	if showBodyWhenFail {
 		newApiErr.Err = buildErrWithBody(newApiErr.Error())
 	}

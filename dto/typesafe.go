@@ -1,9 +1,11 @@
 package dto
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"sort"
 	"strings"
 
@@ -31,6 +33,22 @@ const (
 	MaxTypeSafeCriteria  = 256
 )
 
+// TypeSafe image limits mirror what the upstream enforces: at most four images
+// per request, 4 MiB decoded each and 8 MiB decoded in total. Images are billed
+// as input tokens, so the count is bounded before it reaches the token estimate.
+const (
+	MaxTypeSafeImages           = 4
+	MaxTypeSafeImageBytes       = 4 << 20
+	MaxTypeSafeImagesTotalBytes = 8 << 20
+)
+
+// TypeSafeImage is one inline image evaluated alongside state. base64 is the raw
+// file bytes on one line: no URL and no data: prefix.
+type TypeSafeImage struct {
+	MediaType string `json:"mediaType"`
+	Base64    string `json:"base64"`
+}
+
 // TypeSafeQuestion is one typed question in a System One request. Instructions
 // and criteria accept JSON structure (string, object, or array), so both stay
 // raw and are validated per question type.
@@ -44,6 +62,7 @@ type TypeSafeQuestion struct {
 type TypeSafeRequest struct {
 	State     json.RawMessage             `json:"state"`
 	Model     string                      `json:"model"`
+	Images    []TypeSafeImage             `json:"images,omitempty"`
 	Questions map[string]TypeSafeQuestion `json:"questions"`
 }
 
@@ -108,10 +127,22 @@ func (r *TypeSafeRequest) GetTokenCountMeta() *types.TokenCountMeta {
 		}
 	}
 
+	// Images are billed as input tokens whether or not the media itself is
+	// measured locally, so they must reach the estimator as files. Without this,
+	// an image-only request would pre-consume as a text-only one.
+	files := make([]*types.FileMeta, 0, len(r.Images))
+	for _, image := range r.Images {
+		if image.Base64 == "" {
+			continue
+		}
+		files = append(files, types.NewImageFileMeta(types.NewBase64FileSource(image.Base64, image.MediaType), ""))
+	}
+
 	return &types.TokenCountMeta{
 		TokenType:     types.TokenTypeTokenizer,
 		CombineText:   strings.Join(texts, "\n"),
 		MessagesCount: len(questionIds),
+		Files:         files,
 	}
 }
 
@@ -136,6 +167,37 @@ func (r *TypeSafeRequest) Validate() error {
 		}
 		if err := question.validate(id); err != nil {
 			return err
+		}
+	}
+	if len(r.Images) > MaxTypeSafeImages {
+		return fmt.Errorf("images must contain at most %d entries", MaxTypeSafeImages)
+	}
+	totalImageBytes := int64(0)
+	for i, image := range r.Images {
+		switch image.MediaType {
+		case "image/png", "image/jpeg", "image/webp":
+		default:
+			return fmt.Errorf("images[%d]: mediaType must be image/png, image/jpeg, or image/webp", i)
+		}
+		// A data: prefix or URL is rejected by the upstream, and both fail the
+		// decode below. Decoding into io.Discard reports the decoded size without
+		// materializing up to 8 MiB of image bytes per request, and the limit
+		// stops the decode as soon as the per-image bound is known to be exceeded.
+		encoded := strings.TrimSpace(image.Base64)
+		if encoded == "" {
+			return fmt.Errorf("images[%d]: base64 is required", i)
+		}
+		decoder := base64.NewDecoder(base64.StdEncoding, strings.NewReader(encoded))
+		decoded, err := io.Copy(io.Discard, io.LimitReader(decoder, MaxTypeSafeImageBytes+1))
+		if err != nil {
+			return fmt.Errorf("images[%d]: base64 must be the raw file bytes on one line", i)
+		}
+		if decoded > MaxTypeSafeImageBytes {
+			return fmt.Errorf("images[%d]: image over %d MiB", i, MaxTypeSafeImageBytes>>20)
+		}
+		totalImageBytes += decoded
+		if totalImageBytes > MaxTypeSafeImagesTotalBytes {
+			return fmt.Errorf("images: decoded total over %d MiB", MaxTypeSafeImagesTotalBytes>>20)
 		}
 	}
 	return nil

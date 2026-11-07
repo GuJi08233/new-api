@@ -18,6 +18,38 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TypeSafe's System One answers errors as {"detail": {"error_type", "message"}}.
+// Without this shape being understood, the gateway drops the only explanation of
+// a 400/422 and reports a bare status code.
+func TestRelayErrorHandlerKeepsTypeSafeDetailMessage(t *testing.T) {
+	body := `{"detail":{"error_type":"validation_error","message":"questions/queue: must have required property 'criteria'"}}`
+	resp := &http.Response{
+		StatusCode: http.StatusUnprocessableEntity,
+		Body:       io.NopCloser(strings.NewReader(body)),
+	}
+
+	newAPIError := RelayErrorHandler(context.Background(), resp, false)
+
+	require.NotNil(t, newAPIError)
+	require.Equal(t, http.StatusUnprocessableEntity, newAPIError.StatusCode)
+	require.Equal(t, "questions/queue: must have required property 'criteria'", newAPIError.Error())
+}
+
+// A string-valued detail is what OpenAI-compatible error envelopes already use;
+// making detail raw must not regress that form.
+func TestRelayErrorHandlerKeepsStringDetailMessage(t *testing.T) {
+	body := `{"detail":"quota exceeded for this model"}`
+	resp := &http.Response{
+		StatusCode: http.StatusBadRequest,
+		Body:       io.NopCloser(strings.NewReader(body)),
+	}
+
+	newAPIError := RelayErrorHandler(context.Background(), resp, false)
+
+	require.NotNil(t, newAPIError)
+	require.Equal(t, "quota exceeded for this model", newAPIError.Error())
+}
+
 func TestResetStatusCode(t *testing.T) {
 	t.Parallel()
 

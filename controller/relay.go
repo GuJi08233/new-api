@@ -135,6 +135,17 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 					"type":  "error",
 					"error": newAPIError.ToClaudeError(),
 				})
+			case types.RelayFormatTypeSafe:
+				// TypeSafe SDKs read {"detail": {"error_type", "message"}} and have
+				// no fallback for OpenAI's {"error": ...} envelope, so a failure
+				// answered in the shared shape would reach them without a message.
+				openAIError := newAPIError.ToOpenAIError()
+				c.JSON(newAPIError.StatusCode, gin.H{
+					"detail": gin.H{
+						"error_type": string(newAPIError.GetErrorCode()),
+						"message":    openAIError.Message,
+					},
+				})
 			default:
 				c.JSON(newAPIError.StatusCode, gin.H{
 					"error": newAPIError.ToOpenAIError(),

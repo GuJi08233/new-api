@@ -27,8 +27,12 @@ type GeneralErrorResponse struct {
 	Err      string          `json:"err"`
 	ErrorMsg string          `json:"error_msg"`
 	Metadata json.RawMessage `json:"metadata,omitempty"`
-	Detail   string          `json:"detail,omitempty"`
-	Header   struct {
+	// Detail is either a plain string or, for providers such as TypeSafe's
+	// System One, an object carrying error_type and message. Keeping it raw lets
+	// both shapes unmarshal instead of failing the whole error body on the
+	// object form.
+	Detail json.RawMessage `json:"detail,omitempty"`
+	Header struct {
 		Message string `json:"message"`
 	} `json:"header"`
 	Response struct {
@@ -80,8 +84,22 @@ func (e GeneralErrorResponse) ToMessage() string {
 	if e.ErrorMsg != "" {
 		return e.ErrorMsg
 	}
-	if e.Detail != "" {
-		return e.Detail
+	// detail is either a plain string or, for providers such as TypeSafe's System
+	// One, an object of the form {"error_type": "...", "message": "..."} whose
+	// message is the only place the reason for a 400/422 is written down.
+	switch common.GetJsonType(e.Detail) {
+	case "string":
+		var message string
+		if err := common.Unmarshal(e.Detail, &message); err == nil && message != "" {
+			return message
+		}
+	case "object":
+		var nested struct {
+			Message string `json:"message"`
+		}
+		if err := common.Unmarshal(e.Detail, &nested); err == nil && nested.Message != "" {
+			return nested.Message
+		}
 	}
 	if e.Header.Message != "" {
 		return e.Header.Message
@@ -90,4 +108,21 @@ func (e GeneralErrorResponse) ToMessage() string {
 		return e.Response.Error.Message
 	}
 	return ""
+}
+
+// DetailErrorType returns the error_type carried by an object-shaped detail.
+// Providers such as TypeSafe classify failures there (validation_error,
+// insufficient_credits, ...) and that classification is more useful to clients
+// and error logs than a generic status-code code.
+func (e GeneralErrorResponse) DetailErrorType() string {
+	if common.GetJsonType(e.Detail) != "object" {
+		return ""
+	}
+	var nested struct {
+		ErrorType string `json:"error_type"`
+	}
+	if err := common.Unmarshal(e.Detail, &nested); err != nil {
+		return ""
+	}
+	return nested.ErrorType
 }

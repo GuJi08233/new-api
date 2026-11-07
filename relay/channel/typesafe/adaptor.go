@@ -31,7 +31,16 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 	if info.RelayFormat != types.RelayFormatTypeSafe {
 		return "", errUnsupportedFormat
 	}
-	return fmt.Sprintf("%s/v1/systemone", strings.TrimRight(info.ChannelBaseUrl, "/")), nil
+	// Providers implementing the System One API document their base URL both as
+	// https://host and as https://host/v1 (TypeSafe and SubQ both do), and some
+	// channel configurations paste the full endpoint instead. Accepting all three
+	// spellings keeps a single channel setting from 404ing on /v1/v1/systemone.
+	baseURL := strings.TrimRight(info.ChannelBaseUrl, "/")
+	if strings.HasSuffix(baseURL, "/v1/systemone") {
+		return baseURL, nil
+	}
+	baseURL = strings.TrimSuffix(baseURL, "/v1")
+	return fmt.Sprintf("%s/v1/systemone", baseURL), nil
 }
 
 func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *relaycommon.RelayInfo) error {
