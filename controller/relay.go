@@ -332,6 +332,8 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 				newAPIError = geminiRelayHandler(c, relayInfo)
 			case types.RelayFormatTypeSafe:
 				newAPIError = relay.TypeSafeHelper(c, relayInfo)
+			case types.RelayFormatGeminiDecisions, types.RelayFormatOpenAIDecisions:
+				newAPIError = relay.DecisionsHelper(c, relayInfo)
 			default:
 				newAPIError = relayHandler(c, relayInfo)
 			}

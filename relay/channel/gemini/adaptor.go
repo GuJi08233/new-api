@@ -10,6 +10,7 @@ import (
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/relay/channel"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relay/common_handler"
 	"github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/service/relayconvert"
 	"github.com/QuantumNous/new-api/setting/model_setting"
@@ -130,7 +131,22 @@ func (a *Adaptor) Init(info *relaycommon.RelayInfo) {
 
 }
 
+func (a *Adaptor) ConvertDecisionsRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.DecisionsRequest) (any, error) {
+	geminiRequest, ok := request.(*dto.GeminiDecisionsRequest)
+	if !ok || info.RelayFormat != types.RelayFormatGeminiDecisions {
+		return nil, errors.New("Gemini channel only supports the Gemini Decisions format (/v1beta/decisions)")
+	}
+	return geminiRequest, nil
+}
+
 func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
+	if info.RelayFormat == types.RelayFormatGeminiDecisions {
+		baseURL := strings.TrimRight(info.ChannelBaseUrl, "/")
+		if strings.HasSuffix(baseURL, "/decisions") {
+			return baseURL, nil
+		}
+		return relaycommon.GetFullRequestURL(baseURL, "/v1beta/decisions", info.ChannelType), nil
+	}
 
 	if model_setting.GetGeminiSettings().ThinkingAdapterEnabled &&
 		!model_setting.ShouldPreserveThinkingSuffix(info.OriginModelName) {
@@ -257,6 +273,9 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 }
 
 func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (usage any, err *types.NewAPIError) {
+	if info.RelayFormat == types.RelayFormatGeminiDecisions {
+		return common_handler.DecisionsHandler(c, info, resp)
+	}
 	if info.RelayMode == constant.RelayModeResponses {
 		if info.IsStream {
 			return GeminiResponsesStreamHandler(c, info, resp)

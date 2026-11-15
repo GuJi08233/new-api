@@ -64,6 +64,8 @@ const ENDPOINT_TEMPLATE = {
   moderations: { path: '/v1/moderations', method: 'POST' },
   files: { path: '/v1/files', method: 'POST' },
   typesafe: { path: '/v1/systemone', method: 'POST' },
+  'gemini-decisions': { path: '/v1beta/decisions', method: 'POST' },
+  'openai-decisions': { path: '/v1/decisions', method: 'POST' },
 };
 
 const nameRuleOptions = [
@@ -489,7 +491,9 @@ const EditModelModal = (props) => {
                       editorType='object'
                       template={ENDPOINT_TEMPLATE}
                       templateLabel={t('填入模板')}
-                      extraText={t('开启模型端点保护时，留空或 * 表示不限制；嵌入模型请选择 Embeddings/Gemini Embed，重排模型请选择 Rerank。支持 {path, method}')}
+                      extraText={t(
+                        '开启模型端点保护时，留空或 * 表示不限制；嵌入模型请选择 Embeddings/Gemini Embed，重排模型请选择 Rerank。支持 {path, method}',
+                      )}
                       extraFooter={
                         endpointGroups.length > 0 && (
                           <Space wrap>

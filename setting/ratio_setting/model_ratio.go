@@ -24,6 +24,9 @@ const (
 // 1 === ￥0.014 / 1k tokens
 
 var defaultModelRatio = map[string]float64{
+	"gemini-decision-1":    0.05, // $0.10 / 1M input tokens
+	"gpt-6-luna":           0.05,
+	"gpt-6-luna-decisions": 0.05,
 	//"midjourney":                50,
 	"gpt-4-gizmo-*":                             15,
 	"gpt-4o-gizmo-*":                            2.5,
@@ -326,10 +329,13 @@ var modelRatioMap = types.NewRWMap[string, float64]()
 var completionRatioMap = types.NewRWMap[string, float64]()
 
 var defaultCompletionRatio = map[string]float64{
-	"gpt-4-gizmo-*":  2,
-	"gpt-4o-gizmo-*": 3,
-	"gpt-4-all":      2,
-	"gpt-image-1":    8,
+	"gemini-decision-1":    0,
+	"gpt-6-luna-decisions": 0,
+	"gpt-6-luna":           5,
+	"gpt-4-gizmo-*":        2,
+	"gpt-4o-gizmo-*":       3,
+	"gpt-4-all":            2,
+	"gpt-image-1":          8,
 }
 
 // InitRatioSettings initializes all model related settings maps

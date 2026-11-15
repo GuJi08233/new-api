@@ -421,7 +421,8 @@ func modelPriceHelperTiered(c *gin.Context, info *relaycommon.RelayInfo, promptT
 // modelPriceHelperTieredWithExpr 使用指定的表达式进行阶梯计费（用于分组级别配置）
 func modelPriceHelperTieredWithExpr(c *gin.Context, info *relaycommon.RelayInfo, promptTokens int, meta *types.TokenCountMeta, groupRatioInfo types.GroupRatioInfo, exprStr string) (types.PriceData, error) {
 	estimatedCompletionTokens := meta.MaxTokens
-	if estimatedCompletionTokens == 0 && groupRatioInfo.GroupRatio != 0 {
+	if estimatedCompletionTokens == 0 && groupRatioInfo.GroupRatio != 0 &&
+		info.RelayFormat != types.RelayFormatGeminiDecisions && info.RelayFormat != types.RelayFormatOpenAIDecisions {
 		estimatedCompletionTokens = defaultTieredPreConsumeMaxTokens
 	}
 

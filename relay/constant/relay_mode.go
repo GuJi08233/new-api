@@ -56,6 +56,8 @@ const (
 	RelayModeResponsesCompact
 
 	RelayModeTypeSafe
+	RelayModeGeminiDecisions
+	RelayModeOpenAIDecisions
 )
 
 func Path2RelayMode(path string) int {
@@ -90,6 +92,10 @@ func Path2RelayMode(path string) int {
 		relayMode = RelayModeRerank
 	} else if strings.HasPrefix(path, "/v1/systemone") || strings.HasPrefix(path, constant.TypeSafeRoutePrefix+"/v1/systemone") {
 		relayMode = RelayModeTypeSafe
+	} else if path == "/v1beta/decisions" {
+		relayMode = RelayModeGeminiDecisions
+	} else if path == "/v1/decisions" {
+		relayMode = RelayModeOpenAIDecisions
 	} else if strings.HasPrefix(path, "/v1/realtime") {
 		relayMode = RelayModeRealtime
 	} else if strings.HasPrefix(path, "/v1beta/models") || strings.HasPrefix(path, "/v1/models") {

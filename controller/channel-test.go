@@ -61,6 +61,12 @@ func normalizeChannelTestEndpoint(channel *model.Channel, modelName, endpointTyp
 	if channel != nil && channel.Type == constant.ChannelTypeTypeSafe {
 		return string(constant.EndpointTypeTypeSafe)
 	}
+	if channel != nil && channel.Type == constant.ChannelTypeGemini && modelName == constant.GeminiDecisionsModel {
+		return string(constant.EndpointTypeGeminiDecisions)
+	}
+	if modelName == constant.OpenAIDecisionsAlias {
+		return string(constant.EndpointTypeOpenAIDecisions)
+	}
 	if channel != nil && channel.Type == constant.ChannelTypeOA2 {
 		// OA2 多合一渠道自动检测时按已配置的格式挑测试端点：OpenAI 优先，其次 Gemini、Claude、Codex。
 		// 只配置了 Gemini 原生格式的渠道（如聚合 AI Studio 密钥）否则会以 OpenAI 格式打到默认的 api.openai.com。
@@ -241,6 +247,10 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 			relayFormat = types.RelayFormatEmbedding
 		case constant.EndpointTypeTypeSafe:
 			relayFormat = types.RelayFormatTypeSafe
+		case constant.EndpointTypeGeminiDecisions:
+			relayFormat = types.RelayFormatGeminiDecisions
+		case constant.EndpointTypeOpenAIDecisions:
+			relayFormat = types.RelayFormatOpenAIDecisions
 		default:
 			relayFormat = types.RelayFormatOpenAI
 		}
@@ -264,6 +274,12 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 		}
 		if c.Request.URL.Path == "/v1/systemone" {
 			relayFormat = types.RelayFormatTypeSafe
+		}
+		if c.Request.URL.Path == "/v1beta/decisions" {
+			relayFormat = types.RelayFormatGeminiDecisions
+		}
+		if c.Request.URL.Path == "/v1/decisions" {
+			relayFormat = types.RelayFormatOpenAIDecisions
 		}
 		if c.Request.URL.Path == "/v1/responses" {
 			relayFormat = types.RelayFormatOpenAIResponses
@@ -400,6 +416,17 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 			}
 		}
 		convertedRequest, err = converter.ConvertTypeSafeRequest(c, info, typeSafeReq)
+	case relayconstant.RelayModeGeminiDecisions, relayconstant.RelayModeOpenAIDecisions:
+		converter, isConverter := adaptor.(relaychannel.DecisionsConverter)
+		decisionsReq, isDecisionsRequest := request.(dto.DecisionsRequest)
+		if !isConverter || !isDecisionsRequest {
+			return testResult{
+				context:     c,
+				localErr:    fmt.Errorf("channel %s does not support the Decisions endpoint", adaptor.GetChannelName()),
+				newAPIError: types.NewError(errors.New("invalid decisions request type"), types.ErrorCodeConvertRequestFailed),
+			}
+		}
+		convertedRequest, err = converter.ConvertDecisionsRequest(c, info, decisionsReq)
 	case relayconstant.RelayModeResponses:
 		// Response 请求 - request 已经是正确的类型
 		if responseReq, ok := request.(*dto.OpenAIResponsesRequest); ok {
@@ -854,6 +881,22 @@ func buildTestRequest(model string, endpointType string, cacheBustNonce string, 
 						Type:         dto.TypeSafeQuestionNoul,
 						Instructions: json.RawMessage(`"Does this convey urgency?"`),
 					},
+				},
+			}
+		case constant.EndpointTypeGeminiDecisions:
+			return &dto.GeminiDecisionsRequest{
+				Model: model,
+				Input: promptJSON,
+				Questions: map[string]dto.GeminiDecisionQuestion{
+					"is_greeting": {Type: "noul", Instructions: json.RawMessage(`"Is the input a greeting?"`)},
+				},
+			}
+		case constant.EndpointTypeOpenAIDecisions:
+			return &dto.OpenAIDecisionsRequest{
+				Model: model,
+				Input: promptJSON,
+				Questions: []dto.OpenAIDecisionQuestion{
+					{Type: "predicate", Name: lo.ToPtr("is_greeting"), Instructions: json.RawMessage(`"Is the input a greeting?"`)},
 				},
 			}
 		case constant.EndpointTypeOpenAIResponse:

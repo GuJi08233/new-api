@@ -13,6 +13,8 @@ const (
 	EndpointTypeEmbeddings            EndpointType = "embeddings"
 	EndpointTypeOpenAIVideo           EndpointType = "openai-video"
 	EndpointTypeTypeSafe              EndpointType = "typesafe"
+	EndpointTypeGeminiDecisions       EndpointType = "gemini-decisions"
+	EndpointTypeOpenAIDecisions       EndpointType = "openai-decisions"
 	//EndpointTypeMidjourney     EndpointType = "midjourney-proxy"
 	//EndpointTypeSuno           EndpointType = "suno-proxy"
 	//EndpointTypeKling          EndpointType = "kling"
@@ -26,3 +28,9 @@ const (
 // Gemini. Pointing TYPESAFE_BASE_URL at this prefix identifies them by path
 // instead: /typesafe/v1/systemone and /typesafe/v1/models.
 const TypeSafeRoutePrefix = "/typesafe"
+
+const (
+	GeminiDecisionsModel = "gemini-decision-1"
+	OpenAIDecisionsModel = "gpt-6-luna"
+	OpenAIDecisionsAlias = "gpt-6-luna-decisions"
+)

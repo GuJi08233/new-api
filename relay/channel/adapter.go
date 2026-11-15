@@ -140,3 +140,8 @@ type TaskValidatedUsageFactsProvider interface {
 type TypeSafeConverter interface {
 	ConvertTypeSafeRequest(c *gin.Context, info *relaycommon.RelayInfo, request *dto.TypeSafeRequest) (any, error)
 }
+
+// DecisionsConverter 校验渠道支持的原生 Decisions 格式，不进行跨提供商转换。
+type DecisionsConverter interface {
+	ConvertDecisionsRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.DecisionsRequest) (any, error)
+}

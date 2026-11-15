@@ -5,7 +5,9 @@ import (
 	"io"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -19,8 +21,11 @@ func GetPassThroughRequestBody(c *gin.Context, info *RelayInfo) (io.Reader, erro
 	if err != nil {
 		return nil, err
 	}
+	// 网关的 Decisions 专用别名需要恢复成官方模型名，透传仍保留其他字段。
+	rewriteDecisionsAlias := info != nil && info.RelayFormat == types.RelayFormatOpenAIDecisions &&
+		info.OriginModelName == constant.OpenAIDecisionsAlias && info.UpstreamModelName == constant.OpenAIDecisionsModel
 	if info == nil || info.ChannelMeta == nil ||
-		!info.ChannelSetting.PassThroughRewriteModelEnabled ||
+		(!info.ChannelSetting.PassThroughRewriteModelEnabled && !rewriteDecisionsAlias) ||
 		!info.IsModelMapped || info.UpstreamModelName == "" {
 		if common.DebugEnabled {
 			if debugBytes, bErr := storage.Bytes(); bErr == nil {

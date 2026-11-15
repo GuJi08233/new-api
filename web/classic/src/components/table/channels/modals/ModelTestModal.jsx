@@ -64,6 +64,8 @@ const ModelTestModal = ({
     'jina-rerank',
     'openai-response-compact',
     'typesafe',
+    'gemini-decisions',
+    'openai-decisions',
   ].includes(selectedEndpointType);
 
   React.useEffect(() => {
@@ -100,6 +102,11 @@ const ModelTestModal = ({
     },
     { value: 'embeddings', label: 'Embeddings (/v1/embeddings)' },
     { value: 'typesafe', label: 'TypeSafe System One (/v1/systemone)' },
+    {
+      value: 'gemini-decisions',
+      label: `Gemini ${t('决策')} (/v1beta/decisions)`,
+    },
+    { value: 'openai-decisions', label: `OpenAI ${t('决策')} (/v1/decisions)` },
   ];
 
   const handleCopySelected = () => {
@@ -201,7 +208,9 @@ const ModelTestModal = ({
                     theme='light'
                     type='warning'
                     icon={<Settings size={12} />}
-                    onClick={() => window.open('/console/setting?tab=ratio', '_blank')}
+                    onClick={() =>
+                      window.open('/console/setting?tab=ratio', '_blank')
+                    }
                     style={{ width: 'fit-content' }}
                   >
                     {t('前往设置')}

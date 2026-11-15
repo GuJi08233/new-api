@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -76,4 +77,19 @@ func TestGetPassThroughRequestBodyIgnoresBodyWithoutModelField(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, raw, string(data))
+}
+
+func TestDecisionsPassThroughMapsGatewayAliasAndPreservesNativeFields(t *testing.T) {
+	raw := `{"model":"gpt-6-luna-decisions","input":"hello","questions":[{"type":"choice","instructions":"Which?","choices":[{"value":false},{"value":true}]}],"future_option":0}`
+	c := newPassThroughTestContext(t, raw)
+	info := &RelayInfo{
+		RelayFormat:     types.RelayFormatOpenAIDecisions,
+		OriginModelName: "gpt-6-luna-decisions",
+		ChannelMeta:     &ChannelMeta{IsModelMapped: true, UpstreamModelName: "gpt-6-luna"},
+	}
+	reader, err := GetPassThroughRequestBody(c, info)
+	require.NoError(t, err)
+	data, err := io.ReadAll(reader)
+	require.NoError(t, err)
+	assert.JSONEq(t, strings.Replace(raw, "gpt-6-luna-decisions", "gpt-6-luna", 1), string(data))
 }

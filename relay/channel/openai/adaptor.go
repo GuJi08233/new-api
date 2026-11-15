@@ -106,6 +106,13 @@ func (a *Adaptor) Init(info *relaycommon.RelayInfo) {
 }
 
 func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
+	if info.RelayFormat == types.RelayFormatOpenAIDecisions && info.ChannelType != constant.ChannelTypeCustom {
+		baseURL := strings.TrimRight(info.ChannelBaseUrl, "/")
+		if strings.HasSuffix(baseURL, "/decisions") {
+			return baseURL, nil
+		}
+		return relaycommon.GetFullRequestURL(baseURL, "/v1/decisions", info.ChannelType), nil
+	}
 	if info.RelayMode == relayconstant.RelayModeRealtime {
 		if strings.HasPrefix(info.ChannelBaseUrl, "https://") {
 			baseUrl := strings.TrimPrefix(info.ChannelBaseUrl, "https://")
@@ -617,6 +624,14 @@ func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommo
 	return request, nil
 }
 
+func (a *Adaptor) ConvertDecisionsRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.DecisionsRequest) (any, error) {
+	openAIRequest, ok := request.(*dto.OpenAIDecisionsRequest)
+	if !ok || info.RelayFormat != types.RelayFormatOpenAIDecisions || info.ChannelType == constant.ChannelTypeAzure {
+		return nil, errors.New("channel does not support the OpenAI Decisions format (/v1/decisions)")
+	}
+	return openAIRequest, nil
+}
+
 func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (any, error) {
 	if info.RelayMode == relayconstant.RelayModeAudioTranscription ||
 		info.RelayMode == relayconstant.RelayModeAudioTranslation ||
@@ -630,6 +645,9 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 }
 
 func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (usage any, err *types.NewAPIError) {
+	if info.RelayFormat == types.RelayFormatOpenAIDecisions {
+		return common_handler.DecisionsHandler(c, info, resp)
+	}
 	switch info.RelayMode {
 	case relayconstant.RelayModeRealtime:
 		err, usage = OpenaiRealtimeHandler(c, info)

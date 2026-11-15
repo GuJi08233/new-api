@@ -49,6 +49,8 @@ const ENDPOINT_TEMPLATE = {
   'jina-rerank': { path: '/v1/rerank', method: 'POST' },
   'image-generation': { path: '/v1/images/generations', method: 'POST' },
   typesafe: { path: '/v1/systemone', method: 'POST' },
+  'gemini-decisions': { path: '/v1beta/decisions', method: 'POST' },
+  'openai-decisions': { path: '/v1/decisions', method: 'POST' },
 };
 
 const EditPrefillGroupModal = ({

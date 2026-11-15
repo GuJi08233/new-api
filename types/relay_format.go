@@ -14,6 +14,8 @@ const (
 	RelayFormatRerank                                = "rerank"
 	RelayFormatEmbedding                             = "embedding"
 	RelayFormatTypeSafe                              = "typesafe"
+	RelayFormatGeminiDecisions                       = "gemini_decisions"
+	RelayFormatOpenAIDecisions                       = "openai_decisions"
 
 	RelayFormatTask    = "task"
 	RelayFormatMjProxy = "mj_proxy"

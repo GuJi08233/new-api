@@ -78,6 +78,10 @@ func ModelMappedHelper(c *gin.Context, info *relaycommon.RelayInfo, request dto.
 		info.UpstreamModelName = finalUpstreamModelName
 		info.OriginModelName = ratio_setting.WithCompactModelSuffix(finalUpstreamModelName)
 	}
+	if info.RelayMode == relayconstant.RelayModeOpenAIDecisions && info.UpstreamModelName == constant.OpenAIDecisionsAlias {
+		info.UpstreamModelName = constant.OpenAIDecisionsModel
+		info.IsModelMapped = true
+	}
 	// 记录生效的重定向，供响应体模型名回写与错误文案脱敏使用。重试换到不做重定向的
 	// 渠道时要清掉上一个渠道的记录。
 	if info.IsModelMapped {

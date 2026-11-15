@@ -323,7 +323,7 @@ func (info *RelayInfo) InitChannelMeta(c *gin.Context) {
 					channelMeta.ChannelBaseUrl = "https://api.anthropic.com"
 				}
 			}
-		case info.RelayFormat == types.RelayFormatGemini &&
+		case (info.RelayFormat == types.RelayFormatGemini || info.RelayFormat == types.RelayFormatGeminiDecisions) &&
 			channelOtherSettings.OA2GeminiEnabled && channelOtherSettings.OA2BaseURLGemini != "":
 			// Gemini 原生格式 -> 使用 Gemini 适配器
 			channelMeta.ApiType = constant.APITypeGemini
@@ -723,6 +723,9 @@ func GenRelayInfo(c *gin.Context, relayFormat types.RelayFormat, request dto.Req
 		info = GenRelayInfoEmbedding(c, request)
 	case types.RelayFormatTypeSafe:
 		info = GenRelayInfoTypeSafe(c, request)
+	case types.RelayFormatGeminiDecisions, types.RelayFormatOpenAIDecisions:
+		info = genBaseRelayInfo(c, request)
+		info.RelayFormat = relayFormat
 	case types.RelayFormatOpenAIResponses:
 		if request, ok := request.(*dto.OpenAIResponsesRequest); ok {
 			info = GenRelayInfoResponses(c, request)

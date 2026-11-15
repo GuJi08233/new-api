@@ -237,7 +237,7 @@ func EstimateRequestToken(c *gin.Context, meta *types.TokenCountMeta, info *rela
 
 	shouldFetchFiles := true
 
-	if info.RelayFormat == types.RelayFormatGemini {
+	if info.RelayFormat == types.RelayFormatGemini || info.RelayFormat == types.RelayFormatGeminiDecisions {
 		shouldFetchFiles = false
 	}
 
