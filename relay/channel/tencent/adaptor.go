@@ -106,17 +106,17 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 	if err := a.SetupRequestHeader(c, &headers, info); err != nil {
 		return nil, fmt.Errorf("setup request header failed: %w", err)
 	}
-	headerOverride, err := channel.ResolveHeaderOverride(info, c)
+	headerOverride, err := channel.ResolveHeaderOverrideValues(info, c)
 	if err != nil {
 		return nil, err
 	}
-	for key, value := range headerOverride {
+	for key, values := range headerOverride {
 		normalizedKey := strings.ToLower(strings.TrimSpace(key))
 		if normalizedKey == "host" || normalizedKey == "content-type" || normalizedKey == "authorization" ||
 			strings.HasPrefix(normalizedKey, "x-tc-") {
 			continue
 		}
-		req.Header.Set(key, value)
+		req.Header[key] = values
 	}
 	// Request.Host, rather than Header["Host"], controls the actual HTTP Host
 	// field emitted by net/http.

@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/andybalholm/brotli"
 	"github.com/gin-gonic/gin"
@@ -35,11 +36,28 @@ func DecompressRequestMiddleware() gin.HandlerFunc {
 		maxBytes := int64(maxMB) << 20
 
 		origBody := c.Request.Body
+		encoding := c.GetHeader("Content-Encoding")
+		if encoding == "gzip" || encoding == "br" {
+			storage, err := common.CreateBodyStorageFromReader(origBody, c.Request.ContentLength, maxBytes)
+			_ = origBody.Close()
+			if err != nil {
+				status := http.StatusBadRequest
+				if common.IsRequestBodyTooLargeError(err) {
+					status = http.StatusRequestEntityTooLarge
+				}
+				c.AbortWithStatus(status)
+				return
+			}
+			defer storage.Close()
+			c.Set(common.KeyEncodedBodyStorage, storage)
+			c.Set(common.KeyOriginalContentEncoding, encoding)
+			origBody = io.NopCloser(storage)
+		}
 		wrapMaxBytes := func(body io.ReadCloser) io.ReadCloser {
 			return http.MaxBytesReader(c.Writer, body, maxBytes)
 		}
 
-		switch c.GetHeader("Content-Encoding") {
+		switch encoding {
 		case "gzip":
 			gzipReader, err := gzip.NewReader(origBody)
 			if err != nil {

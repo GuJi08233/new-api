@@ -189,12 +189,12 @@ func doAwsClientRequest(c *gin.Context, info *relaycommon.RelayInfo, a *Adaptor,
 	// init empty request.header
 	requestHeader := http.Header{}
 	a.SetupRequestHeader(c, &requestHeader, info)
-	headerOverride, err := channel.ResolveHeaderOverride(info, c)
+	headerOverride, err := channel.ResolveHeaderOverrideValues(info, c)
 	if err != nil {
 		return nil, err
 	}
-	for key, value := range headerOverride {
-		requestHeader.Set(key, value)
+	for key, values := range headerOverride {
+		requestHeader[key] = values
 	}
 	a.RequestHeaders = requestHeader.Clone()
 

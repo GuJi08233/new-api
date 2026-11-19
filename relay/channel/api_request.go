@@ -29,6 +29,9 @@ import (
 // ApplyUpstreamBodyMetadata 补齐包装请求体的长度和独立重放能力。
 // 元数据来自当前 body，不能沿用共享 RelayInfo 中上一轮请求体的长度。
 func ApplyUpstreamBodyMetadata(req *http.Request, body io.Reader) {
+	if encoded, ok := body.(interface{ ContentEncoding() string }); ok {
+		req.Header.Set("Content-Encoding", encoded.ContentEncoding())
+	}
 	replayable, ok := body.(common2.ReplayableBody)
 	if !ok {
 		return
@@ -50,7 +53,7 @@ func SetupApiRequestHeader(info *common.RelayInfo, c *gin.Context, req *http.Hea
 	} else {
 		req.Set("Content-Type", c.Request.Header.Get("Content-Type"))
 		req.Set("Accept", c.Request.Header.Get("Accept"))
-		if info.IsStream && c.Request.Header.Get("Accept") == "" {
+		if info.IsStream && c.Request.Header.Get("Accept") == "" && !PassesAllClientHeaders(info, c) {
 			req.Set("Accept", "text/event-stream")
 		}
 	}
@@ -93,6 +96,7 @@ var passthroughSkipHeaderNamesLower = map[string]struct{}{
 	"mj-api-secret":  {},
 	"new-api-user":   {},
 	"x-api-key":      {},
+	"api-key":        {},
 	"x-goog-api-key": {},
 
 	// Added by reverse proxies/CDNs in front of the gateway, not by the client.
@@ -263,6 +267,8 @@ func resolveHeaderOverrideValues(info *common.RelayInfo, c *gin.Context) (map[st
 	hasClientRequest := !info.IsChannelTest && c != nil && c.Request != nil
 
 	passAll := PassesAllClientHeaders(info, c)
+	passBody := model_setting.GetGlobalSettings().PassThroughRequestEnabled ||
+		(info.ChannelMeta != nil && info.ChannelSetting.PassThroughBodyEnabled)
 	var passthroughRegex []*regexp.Regexp
 	if hasClientRequest {
 		for k := range headerOverrideSource {
@@ -308,7 +314,10 @@ func resolveHeaderOverrideValues(info *common.RelayInfo, c *gin.Context) (map[st
 			}
 		}
 		for name := range c.Request.Header {
-			if shouldSkipPassthroughHeader(name) {
+			lowerName := strings.ToLower(strings.TrimSpace(name))
+			clientEntityHeader := passAll && (lowerName == "accept" || lowerName == "accept-encoding" ||
+				(lowerName == "content-type" && passBody))
+			if shouldSkipPassthroughHeader(name) && !clientEntityHeader {
 				continue
 			}
 			if _, declaredHopByHop := connectionHeaderNames[strings.ToLower(strings.TrimSpace(name))]; declaredHopByHop {
@@ -326,11 +335,7 @@ func resolveHeaderOverrideValues(info *common.RelayInfo, c *gin.Context) (map[st
 					continue
 				}
 			}
-			values := c.Request.Header.Values(name)
-			if strings.TrimSpace(strings.Join(values, "")) == "" {
-				continue
-			}
-			headerOverride[strings.ToLower(strings.TrimSpace(name))] = slices.Clone(values)
+			headerOverride[lowerName] = slices.Clone(c.Request.Header.Values(name))
 		}
 	}
 
@@ -370,6 +375,17 @@ func ResolveHeaderOverride(info *common.RelayInfo, c *gin.Context) (map[string]s
 	return processHeaderOverride(info, c)
 }
 
+// ResolveHeaderOverrideValues preserves repeated fields for SDK/signing paths.
+func ResolveHeaderOverrideValues(info *common.RelayInfo, c *gin.Context) (http.Header, error) {
+	values, err := resolveHeaderOverrideValues(info, c)
+	if err != nil {
+		return nil, err
+	}
+	headers := make(http.Header, len(values))
+	applyHeaderOverrideValues(headers, nil, values)
+	return headers, nil
+}
+
 func applyHeaderOverrideValues(header http.Header, req *http.Request, headerOverride map[string][]string) {
 	for key, values := range headerOverride {
 		header[http.CanonicalHeaderKey(key)] = slices.Clone(values)
@@ -391,6 +407,39 @@ func ApplyHeaderOverrideToRequest(info *common.RelayInfo, c *gin.Context, req *h
 		return err
 	}
 	if req != nil {
+		if req.Header == nil {
+			req.Header = make(http.Header)
+		}
+		if PassesAllClientHeaders(info, c) {
+			passBody := model_setting.GetGlobalSettings().PassThroughRequestEnabled ||
+				(info.ChannelMeta != nil && info.ChannelSetting.PassThroughBodyEnabled)
+			for name := range req.Header {
+				// Keep provider credentials/signing fields and entity metadata for
+				// converted bodies. Everything else must come from the client or
+				// an explicit channel override, not adaptor defaults.
+				lower := strings.ToLower(name)
+				switch lower {
+				case "authorization", "x-api-key", "api-key", "x-goog-api-key", "mj-api-secret",
+					"sec-websocket-protocol":
+					continue
+				case "content-encoding":
+					if original := c.GetString(common2.KeyOriginalContentEncoding); passBody && original != "" && req.Header.Get(name) == original {
+						continue
+					}
+					if !passBody {
+						continue
+					}
+				case "content-type":
+					if !passBody {
+						continue
+					}
+				}
+				if strings.HasPrefix(lower, "x-amz-") || strings.HasPrefix(lower, "x-tc-") {
+					continue
+				}
+				delete(req.Header, name)
+			}
+		}
 		applyHeaderOverrideValues(req.Header, req, headerOverride)
 	}
 	// net/http sends "Go-http-client/1.1" when User-Agent is absent; an
@@ -466,11 +515,10 @@ func DoWssRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 	}
 	// 在 SetupRequestHeader 之后应用 Header Override，确保用户设置优先级最高
 	// 这样可以覆盖默认的 Authorization header 设置
-	headerOverride, err := resolveHeaderOverrideValues(info, c)
-	if err != nil {
+	prepared := &http.Request{Header: targetHeader}
+	if err := ApplyHeaderOverrideToRequest(info, c, prepared); err != nil {
 		return nil, err
 	}
-	applyHeaderOverrideValues(targetHeader, nil, headerOverride)
 	requestCtx := context.Background()
 	if c != nil && c.Request != nil {
 		requestCtx = c.Request.Context()
@@ -539,8 +587,11 @@ func doRequestWithPreparedHeaders(c *gin.Context, req *http.Request, info *commo
 
 	var client *http.Client
 	var err error
-	if info.ChannelSetting.Proxy != "" || info.ChannelSetting.DisableKeepAlive {
-		client, err = service.GetChannelHttpClient(info.ChannelSetting.Proxy, info.ChannelSetting.DisableKeepAlive)
+	if info.ChannelSetting.Proxy != "" || info.ChannelSetting.DisableKeepAlive || PassesAllClientHeaders(info, c) {
+		client, err = service.NewProxyHttpClientOptions(info.ChannelSetting.Proxy, service.ProxyClientOptions{
+			DisableKeepAlive:   info.ChannelSetting.DisableKeepAlive,
+			DisableCompression: PassesAllClientHeaders(info, c),
+		})
 		if err != nil {
 			return nil, fmt.Errorf("new proxy http client failed: %w", err)
 		}
@@ -582,6 +633,15 @@ func doRequestWithPreparedHeaders(c *gin.Context, req *http.Request, info *commo
 			cancelUpstream()
 		}
 		return nil, errors.New("resp is nil")
+	}
+	if PassesAllClientHeaders(info, c) {
+		if err := decodeUpstreamResponse(resp); err != nil {
+			_ = resp.Body.Close()
+			if cancelUpstream != nil {
+				cancelUpstream()
+			}
+			return nil, fmt.Errorf("decode upstream response failed: %w", err)
+		}
 	}
 	if cancelUpstream != nil {
 		resp.Body = &cancelResponseBody{ReadCloser: resp.Body, cancel: cancelUpstream}

@@ -18,7 +18,9 @@ type ChannelSettings struct {
 	ThinkingToContent      bool   `json:"thinking_to_content,omitempty"`
 	Proxy                  string `json:"proxy"`
 	PassThroughBodyEnabled bool   `json:"pass_through_body_enabled,omitempty"`
-	// PassThroughHeadersEnabled 透传客户端请求头(等价于 header override 的 "*" 规则,敏感头仍被过滤)
+	// PassThroughHeadersEnabled 仅转发客户端头、渠道凭据和显式头覆盖，不补充适配器默认头。
+	// 过滤网关凭据、Cookie、代理/CDN 及逐跳头；保留重复头和 Accept-Encoding。
+	// 与请求体透传同时开启且关闭模型重定向时，保留原始请求体及其 Content-Type。
 	PassThroughHeadersEnabled bool `json:"pass_through_headers_enabled,omitempty"`
 	// PassThroughRewriteModelEnabled 透传请求体时按模型重定向仅改写 body 中的 model 字段
 	PassThroughRewriteModelEnabled bool   `json:"pass_through_rewrite_model_enabled,omitempty"`

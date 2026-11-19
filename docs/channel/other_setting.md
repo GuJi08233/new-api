@@ -32,6 +32,35 @@
 
 通过调整上述 JSON 配置中的值，可以灵活控制渠道的额外行为，比如是否进行格式化以及使用特定的网络代理。
 
+## 渠道级请求透传
+
+同协议中转时，开启渠道的「全部透传」（或同时开启「透传请求体」和「透传请求头」），
+关闭「透传时应用模型重定向」，并清除不需要的请求头覆盖。无需打开全局透传开关。
+
+```json
+{
+    "pass_through_body_enabled": true,
+    "pass_through_headers_enabled": true,
+    "pass_through_rewrite_model_enabled": false
+}
+```
+
+请求体保留原始字节，包括 JSON 空白、未知字段、显式 `0`/`false` 和 gzip/br 压缩数据；
+不应用参数覆盖或自动补充请求参数。显式开启模型重定向时仍会改写 `model`。
+请求头保留重复值、空值和客户端的 `Accept-Encoding`；客户端未发送的
+`User-Agent`、`Accept`、`anthropic-version`、组织或品牌头不再自动补充。
+上游压缩响应在网关内流式解码，供协议处理和用量统计使用。
+
+以下差异是中转边界，不属于逐字节网络抓包复制：
+
+- 客户端的网关令牌、Cookie 和 `New-Api-User` 不传给上游；使用渠道配置的上游凭据。
+- 过滤 `CF-*`、`X-Forwarded-*`、`Forwarded`、`Via` 等代理/CDN 头，以及逐跳头和
+  `Connection` 指定的连接级头。无法仅根据头名可靠识别所有代理自定义元数据。
+- `Host` 指向上游，`Content-Length`、传输分块、HTTP/WebSocket 握手由出站连接管理；
+  头名大小写、头顺序、TLS 和出口 IP 不保证与客户端直连相同。
+- 显式请求头覆盖仍优先。SDK 签名渠道（如 AWS、腾讯）仍须生成其协议要求的鉴权/
+  签名头，不能把跨协议转换当作原样中转；应选择与客户端请求格式兼容的渠道。
+
 ## Mistral 协议兼容
 
 Mistral 渠道支持 OpenAI Chat Completions 和 Responses 请求。Chat 请求会转换

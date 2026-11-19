@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	common2 "github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
@@ -92,4 +93,30 @@ func TestDecisionsPassThroughMapsGatewayAliasAndPreservesNativeFields(t *testing
 	data, err := io.ReadAll(reader)
 	require.NoError(t, err)
 	assert.JSONEq(t, strings.Replace(raw, "gpt-6-luna-decisions", "gpt-6-luna", 1), string(data))
+}
+
+func TestChannelBodyPassthroughPreservesDecisionsAliasUnlessRewriteEnabled(t *testing.T) {
+	raw := "{\n \"model\":\"gpt-6-luna-decisions\", \"future_option\":false\n}"
+	for _, rewrite := range []bool{false, true} {
+		c := newPassThroughTestContext(t, raw)
+		t.Cleanup(func() { common2.CleanupBodyStorage(c) })
+		info := &RelayInfo{
+			RelayFormat: types.RelayFormatOpenAIDecisions, OriginModelName: "gpt-6-luna-decisions",
+			ChannelMeta: &ChannelMeta{
+				IsModelMapped: true, UpstreamModelName: "gpt-6-luna",
+				ChannelSetting: dto.ChannelSettings{
+					PassThroughBodyEnabled: true, PassThroughRewriteModelEnabled: rewrite,
+				},
+			},
+		}
+		reader, err := GetPassThroughRequestBody(c, info)
+		require.NoError(t, err)
+		data, err := io.ReadAll(reader)
+		require.NoError(t, err)
+		expected := raw
+		if rewrite {
+			expected = strings.Replace(raw, "gpt-6-luna-decisions", "gpt-6-luna", 1)
+		}
+		assert.Equal(t, expected, string(data))
+	}
 }

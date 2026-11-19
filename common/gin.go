@@ -19,6 +19,8 @@ import (
 
 const KeyRequestBody = "key_request_body"
 const KeyBodyStorage = "key_body_storage"
+const KeyEncodedBodyStorage = "key_encoded_body_storage"
+const KeyOriginalContentEncoding = "key_original_content_encoding"
 
 var ErrRequestBodyTooLarge = errors.New("request body too large")
 

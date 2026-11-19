@@ -20,11 +20,12 @@ import (
 	"golang.org/x/net/proxy"
 )
 
-// proxyClientKey 唯一标识一个缓存的出站客户端：规范化后的代理地址 + 连接复用策略。
+// proxyClientKey 唯一标识缓存的出站客户端：代理地址、连接复用和压缩策略。
 // 同一地址的「复用连接」与「每次新建连接」是两套不同的连接池，必须分开缓存。
 type proxyClientKey struct {
-	proxyURL         string
-	disableKeepAlive bool
+	proxyURL           string
+	disableKeepAlive   bool
+	disableCompression bool
 }
 
 var (
@@ -39,6 +40,8 @@ type ProxyClientOptions struct {
 	// DisableKeepAlive 让每个请求独占一条新建连接，请求结束后立即断开。
 	// 代理池按连接分配出口 IP 时，不开启该选项会让同一出口被连续复用。
 	DisableKeepAlive bool
+	// DisableCompression prevents net/http from adding Accept-Encoding.
+	DisableCompression bool
 }
 
 // applyKeepAliveSetting 按选项配置连接复用。关闭 keep-alive 时同时禁用 HTTP/2：
@@ -249,7 +252,7 @@ func GetChannelHttpClient(proxyURL string, disableKeepAlive bool) (*http.Client,
 // 渠道请求头覆盖中的 Host 必须同时写到 req.Host 才会生效。
 func SetRequestHeaders(req *http.Request, headers http.Header) {
 	for key := range headers {
-		req.Header.Set(key, headers.Get(key))
+		req.Header[http.CanonicalHeaderKey(key)] = append([]string(nil), headers[key]...)
 	}
 	if host := headers.Get("Host"); host != "" {
 		req.Host = host
@@ -295,7 +298,7 @@ func NewProxyHttpClient(proxyURL string) (*http.Client, error) {
 
 // NewProxyHttpClientOptions 创建支持代理的 HTTP 客户端，并应用连接复用策略。
 func NewProxyHttpClientOptions(proxyURL string, options ProxyClientOptions) (*http.Client, error) {
-	if proxyURL == "" && !options.DisableKeepAlive {
+	if proxyURL == "" && !options.DisableKeepAlive && !options.DisableCompression {
 		if client := GetHttpClient(); client != nil {
 			return client, nil
 		}
@@ -306,10 +309,13 @@ func NewProxyHttpClientOptions(proxyURL string, options ProxyClientOptions) (*ht
 	if err != nil {
 		return nil, err
 	}
-	if parsedURL == nil && !options.DisableKeepAlive {
+	if parsedURL == nil && !options.DisableKeepAlive && !options.DisableCompression {
 		return GetHttpClient(), nil
 	}
-	cacheKey := proxyClientKey{disableKeepAlive: options.DisableKeepAlive}
+	cacheKey := proxyClientKey{
+		disableKeepAlive:   options.DisableKeepAlive,
+		disableCompression: options.DisableCompression,
+	}
 	if parsedURL != nil {
 		cacheKey.proxyURL = parsedURL.String()
 	}
@@ -342,6 +348,7 @@ func newProxyTransport(parsedURL *url.URL, options ProxyClientOptions) (*http.Tr
 		TLSHandshakeTimeout:   relayTLSHandshakeTimeout(),
 		ResponseHeaderTimeout: relayResponseHeaderTimeout(),
 		ForceAttemptHTTP2:     true,
+		DisableCompression:    options.DisableCompression,
 	}
 
 	switch {

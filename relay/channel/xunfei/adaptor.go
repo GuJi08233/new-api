@@ -107,15 +107,7 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 // opens its provider connection from the response handler, so it cannot rely
 // on channel.DoApiRequest to prepare these headers.
 func resolveXunfeiWebSocketHeaders(c *gin.Context, info *relaycommon.RelayInfo) (http.Header, error) {
-	headerOverride, err := channel.ResolveHeaderOverride(info, c)
-	if err != nil {
-		return nil, err
-	}
-	headers := make(http.Header, len(headerOverride))
-	for key, value := range headerOverride {
-		headers.Set(key, value)
-	}
-	return headers, nil
+	return channel.ResolveHeaderOverrideValues(info, c)
 }
 
 func (a *Adaptor) GetModelList() []string {

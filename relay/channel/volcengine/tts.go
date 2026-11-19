@@ -333,12 +333,12 @@ func handleTTSWebSocketResponse(c *gin.Context, requestURL string, volcRequest V
 func buildTTSWebSocketHeaders(c *gin.Context, info *relaycommon.RelayInfo, token string) (http.Header, error) {
 	headers := make(http.Header)
 	headers.Set("Authorization", fmt.Sprintf("Bearer;%s", token))
-	headerOverride, err := channel.ResolveHeaderOverride(info, c)
+	headerOverride, err := channel.ResolveHeaderOverrideValues(info, c)
 	if err != nil {
 		return nil, err
 	}
-	for key, value := range headerOverride {
-		headers.Set(key, value)
+	for key, values := range headerOverride {
+		headers[key] = values
 	}
 	return headers, nil
 }

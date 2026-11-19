@@ -449,7 +449,7 @@ func TestProcessHeaderOverride_RuntimeOverrideIsFinalHeaderMap(t *testing.T) {
 	require.False(t, exists)
 }
 
-func TestProcessHeaderOverride_PassthroughSkipsAcceptEncoding(t *testing.T) {
+func TestProcessHeaderOverride_PassthroughPreservesAcceptEncoding(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
@@ -470,8 +470,7 @@ func TestProcessHeaderOverride_PassthroughSkipsAcceptEncoding(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "trace-123", headers["x-trace-id"])
 
-	_, hasAcceptEncoding := headers["accept-encoding"]
-	require.False(t, hasAcceptEncoding)
+	require.Equal(t, "gzip", headers["accept-encoding"])
 }
 
 func TestProcessHeaderOverride_ChannelPassthroughSkipsUnsafeHeaders(t *testing.T) {
@@ -493,8 +492,6 @@ func TestProcessHeaderOverride_ChannelPassthroughSkipsUnsafeHeaders(t *testing.T
 		"Proxy-Connection":         "keep-alive",
 		"Content-Type":             "multipart/form-data; boundary=client-boundary",
 		"Content-Encoding":         "gzip",
-		"Accept":                   "application/problem+json",
-		"Accept-Encoding":          "gzip, br",
 		"Expect":                   "100-continue",
 		"Sec-WebSocket-Accept":     "client-handshake-value",
 		"Sec-WebSocket-Key":        "client-websocket-key",

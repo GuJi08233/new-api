@@ -63,6 +63,29 @@ func TestChannelClientReusesPooledConnectionByDefault(t *testing.T) {
 	assert.Equal(t, int64(1), atomic.LoadInt64(connections), "默认行为应复用同一条空闲连接")
 }
 
+func TestChannelCompressionPolicyDoesNotChangeOtherChannels(t *testing.T) {
+	ResetProxyClientCache()
+	InitHttpClient()
+	t.Cleanup(ResetProxyClientCache)
+	received := make(chan string, 2)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		received <- r.Header.Get("Accept-Encoding")
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	strict, err := NewProxyHttpClientOptions("", ProxyClientOptions{
+		DisableKeepAlive: true, DisableCompression: true,
+	})
+	require.NoError(t, err)
+	normal, err := GetChannelHttpClient("", true)
+	require.NoError(t, err)
+	getAndDrain(t, strict, server.URL)
+	assert.Empty(t, <-received)
+	getAndDrain(t, normal, server.URL)
+	assert.Equal(t, "gzip", <-received)
+}
+
 func TestChannelClientDisableKeepAliveOpensConnectionPerRequest(t *testing.T) {
 	ResetProxyClientCache()
 	InitHttpClient()

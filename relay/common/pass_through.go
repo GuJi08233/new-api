@@ -13,6 +13,15 @@ import (
 	"github.com/tidwall/sjson"
 )
 
+type encodedPassThroughBody struct {
+	common.ReplayableBody
+	encoding string
+}
+
+func (body encodedPassThroughBody) ContentEncoding() string {
+	return body.encoding
+}
+
 // GetPassThroughRequestBody 返回透传模式下发往上游的请求体。
 // 当渠道开启"透传时应用模型重定向"且模型已被映射时,仅改写 body 中的
 // model 字段为映射后的模型名,其余内容原样透传;否则直接透传原始 body。
@@ -21,9 +30,10 @@ func GetPassThroughRequestBody(c *gin.Context, info *RelayInfo) (io.Reader, erro
 	if err != nil {
 		return nil, err
 	}
-	// 网关的 Decisions 专用别名需要恢复成官方模型名，透传仍保留其他字段。
+	// 保留旧的 Decisions 别名兼容；显式渠道透传仅在开启模型重定向时改写。
 	rewriteDecisionsAlias := info != nil && info.RelayFormat == types.RelayFormatOpenAIDecisions &&
-		info.OriginModelName == constant.OpenAIDecisionsAlias && info.UpstreamModelName == constant.OpenAIDecisionsModel
+		info.OriginModelName == constant.OpenAIDecisionsAlias && info.UpstreamModelName == constant.OpenAIDecisionsModel &&
+		!info.ChannelSetting.PassThroughBodyEnabled
 	if info == nil || info.ChannelMeta == nil ||
 		(!info.ChannelSetting.PassThroughRewriteModelEnabled && !rewriteDecisionsAlias) ||
 		!info.IsModelMapped || info.UpstreamModelName == "" {
@@ -34,6 +44,20 @@ func GetPassThroughRequestBody(c *gin.Context, info *RelayInfo) (io.Reader, erro
 		}
 		if info != nil {
 			info.UpstreamRequestBodySize = storage.Size()
+		}
+		if original, ok := c.Get(common.KeyEncodedBodyStorage); ok {
+			if encoded, ok := original.(common.BodyStorage); ok {
+				if _, err := encoded.Seek(0, io.SeekStart); err != nil {
+					return nil, err
+				}
+				if info != nil {
+					info.UpstreamRequestBodySize = encoded.Size()
+				}
+				return encodedPassThroughBody{
+					ReplayableBody: encoded,
+					encoding:       c.GetString(common.KeyOriginalContentEncoding),
+				}, nil
+			}
 		}
 		return common.ReaderOnly(storage), nil
 	}
