@@ -93,6 +93,9 @@ func TestClaudeMessagesViaMistralResponses(t *testing.T) {
 				assert.Equal(t, `"function"`, gjson.GetBytes(upstream.ToolChoice, "type").Raw)
 				assert.Equal(t, "lookup", gjson.GetBytes(upstream.ToolChoice, "name").String())
 				assert.Equal(t, "false", string(upstream.ParallelToolCalls))
+				for _, index := range []string{"0", "2", "5"} {
+					assert.Equal(t, "message", gjson.GetBytes(upstream.Input, index+".type").String())
+				}
 				assert.Equal(t, "reasoning", gjson.GetBytes(upstream.Input, "1.type").String())
 				assert.NotEmpty(t, gjson.GetBytes(upstream.Input, "1.id").String())
 				assert.Equal(t, "[]", gjson.GetBytes(upstream.Input, "1.summary").Raw)
@@ -272,6 +275,56 @@ func TestConvertOpenAIResponsesRequestRejectsStatefulFields(t *testing.T) {
 			tt.request.Model = "mistral-large-latest"
 			_, err := (&Adaptor{}).ConvertOpenAIResponsesRequest(nil, &relaycommon.RelayInfo{RelayMode: relayconstant.RelayModeResponses}, tt.request)
 			assert.ErrorContains(t, err, tt.name)
+		})
+	}
+}
+
+func TestConvertOpenAIResponsesRequestNormalizesMessageTypes(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "string prompt",
+			input: `"hello"`,
+			want:  `"hello"`,
+		},
+		{
+			name:  "easy input messages",
+			input: `[{"role":"system","content":"rules"},{"role":"developer","content":"brief"},{"role":"user","content":[{"type":"input_text","text":"hello"},{"type":"input_image","image_url":"https://example.test/a.png"}]},{"role":"assistant","content":"hi"}]`,
+			want:  `[{"type":"message","role":"system","content":"rules"},{"type":"message","role":"developer","content":"brief"},{"type":"message","role":"user","content":[{"type":"input_text","text":"hello"},{"type":"input_image","image_url":"https://example.test/a.png"}]},{"type":"message","role":"assistant","content":"hi"}]`,
+		},
+		{
+			name:  "assistant output_text replay",
+			input: `[{"role":"user","content":"hi"},{"role":"assistant","content":[{"type":"output_text","text":"ok"}]},{"role":"user","content":"again"}]`,
+			want:  `[{"type":"message","role":"user","content":"hi"},{"type":"message","role":"assistant","content":[{"type":"output_text","text":"ok"}]},{"type":"message","role":"user","content":"again"}]`,
+		},
+		{
+			name:  "null message type",
+			input: `[{"type":null,"role":"user","content":"hello"}]`,
+			want:  `[{"type":"message","role":"user","content":"hello"}]`,
+		},
+		{
+			name:  "history preserves typed items and extra fields",
+			input: `[{"type":"message","id":"msg_1","role":"assistant","status":"completed","content":[{"type":"output_text","text":"checking","annotations":[]}]},{"type":"reasoning","id":"rs_1","summary":[]},{"type":"function_call","call_id":"c1","name":"lookup","arguments":"{}"},{"type":"function_call_output","call_id":"c1","output":"result"},{"role":"user","content":"continue","extra":{"sequence":9007199254740993}}]`,
+			want:  `[{"type":"message","id":"msg_1","role":"assistant","status":"completed","content":[{"type":"output_text","text":"checking","annotations":[]}]},{"type":"reasoning","id":"rs_1","summary":[]},{"type":"function_call","call_id":"c1","name":"lookup","arguments":"{}"},{"type":"function_call_output","call_id":"c1","output":"result"},{"type":"message","role":"user","content":"continue","extra":{"sequence":9007199254740993}}]`,
+		},
+		{
+			name:  "do not infer messages from other items",
+			input: `[{"type":"item_reference","id":"msg_1"},{"id":"unknown"},null,{"role":null,"content":"invalid"}]`,
+			want:  `[{"type":"item_reference","id":"msg_1"},{"id":"unknown"},null,{"role":null,"content":"invalid"}]`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			request := dto.OpenAIResponsesRequest{Model: "mistral-large-latest", Input: json.RawMessage(tt.input)}
+			converted, err := (&Adaptor{}).ConvertOpenAIResponsesRequest(nil, nil, request)
+			require.NoError(t, err)
+			got, ok := converted.(*dto.OpenAIResponsesRequest)
+			require.True(t, ok)
+			assert.JSONEq(t, tt.want, string(got.Input))
+			assert.Equal(t, tt.input, string(request.Input))
 		})
 	}
 }

@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
 )
 
@@ -22,6 +24,29 @@ func requestResponses2Mistral(request dto.OpenAIResponsesRequest) (*dto.OpenAIRe
 	}
 	if isJSONValuePresent(request.Prompt) {
 		return nil, errors.New("mistral responses API does not support prompt templates: send the prompt in input and instructions")
+	}
+
+	if common.GetJsonType(request.Input) == "array" {
+		var items []map[string]json.RawMessage
+		if err := common.Unmarshal(request.Input, &items); err != nil {
+			return nil, fmt.Errorf("invalid mistral responses input: %w", err)
+		}
+		changed := false
+		for _, item := range items {
+			if isJSONValuePresent(item["type"]) || !isJSONValuePresent(item["role"]) || !isJSONValuePresent(item["content"]) {
+				continue
+			}
+			// OpenAI permits easy input messages without type; Mistral needs the discriminator.
+			item["type"] = json.RawMessage(`"message"`)
+			changed = true
+		}
+		if changed {
+			input, err := common.Marshal(items)
+			if err != nil {
+				return nil, fmt.Errorf("failed to encode mistral responses input: %w", err)
+			}
+			request.Input = input
+		}
 	}
 
 	out := &dto.OpenAIResponsesRequest{
