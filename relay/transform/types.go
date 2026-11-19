@@ -799,6 +799,9 @@ func RequestClaudeToOpenAI(body []byte, flags TransformFlags) ([]byte, error) {
 
 	// Tool choice
 	if tc, ok := req["tool_choice"].(map[string]any); ok {
+		if disabled, ok := tc["disable_parallel_tool_use"].(bool); ok {
+			result["parallel_tool_calls"] = !disabled
+		}
 		switch tc["type"] {
 		case "auto", "none":
 			result["tool_choice"] = tc["type"]
@@ -821,7 +824,14 @@ func RequestClaudeToOpenAI(body []byte, flags TransformFlags) ([]byte, error) {
 				result["reasoning_effort"] = "high"
 			} else if typ == "enabled" {
 				result["reasoning_effort"] = "medium"
+			} else if typ == "disabled" {
+				result["reasoning_effort"] = "none"
 			}
+		}
+	}
+	if config, ok := req["output_config"].(map[string]any); ok {
+		if effort, ok := config["effort"].(string); ok && effort != "" {
+			result["reasoning_effort"] = effort
 		}
 	}
 
@@ -848,12 +858,17 @@ func convertClaudeMessageToOpenAI(msg map[string]any) []any {
 	// Array content - may have text, images, tool_use, tool_result
 	if parts, ok := content.([]any); ok {
 		var textContent strings.Builder
+		var reasoningContent strings.Builder
 		var multiModal []any
 		var toolCalls []any
 
 		for _, part := range parts {
 			if p, ok := part.(map[string]any); ok {
 				switch p["type"] {
+				case "thinking":
+					if thinking, ok := p["thinking"].(string); ok && role == "assistant" {
+						reasoningContent.WriteString(thinking)
+					}
 				case "text":
 					if text, ok := p["text"].(string); ok {
 						textContent.WriteString(text)
@@ -896,9 +911,15 @@ func convertClaudeMessageToOpenAI(msg map[string]any) []any {
 					if c, ok := p["content"].(string); ok {
 						contentStr = c
 					} else if c, ok := p["content"].([]any); ok && len(c) > 0 {
-						if first, ok := c[0].(map[string]any); ok && first["type"] == "text" {
-							contentStr, _ = first["text"].(string)
+						var text strings.Builder
+						for _, item := range c {
+							if block, ok := item.(map[string]any); ok && block["type"] == "text" {
+								if value, ok := block["text"].(string); ok {
+									text.WriteString(value)
+								}
+							}
 						}
+						contentStr = text.String()
 					}
 					toolMsg := map[string]any{
 						"role":         "tool",
@@ -936,8 +957,13 @@ func convertClaudeMessageToOpenAI(msg map[string]any) []any {
 		if len(toolCalls) > 0 && role == "assistant" {
 			mainMsg["tool_calls"] = toolCalls
 		}
+		if reasoningContent.Len() > 0 {
+			mainMsg["reasoning_content"] = reasoningContent.String()
+		}
 
-		result = append([]any{mainMsg}, result...)
+		if textContent.Len() > 0 || len(multiModal) > 0 || len(toolCalls) > 0 || reasoningContent.Len() > 0 || len(result) == 0 {
+			result = append(result, mainMsg)
+		}
 	}
 
 	return result

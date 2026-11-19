@@ -4,8 +4,31 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+func TestRequestClaudeToOpenAIReasoningEffort(t *testing.T) {
+	tests := []struct {
+		name     string
+		settings string
+		effort   string
+	}{
+		{name: "disabled", settings: `"thinking":{"type":"disabled"}`, effort: "none"},
+		{name: "enabled", settings: `"thinking":{"type":"enabled","budget_tokens":2048}`, effort: "medium"},
+		{name: "adaptive with explicit effort", settings: `"thinking":{"type":"adaptive"},"output_config":{"effort":"low"}`, effort: "low"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			converted, err := RequestClaudeToOpenAI([]byte(`{"model":"test","messages":[],`+tt.settings+`}`), TransformFlags{})
+			require.NoError(t, err)
+			var request map[string]any
+			require.NoError(t, common.Unmarshal(converted, &request))
+			assert.Equal(t, tt.effort, request["reasoning_effort"])
+		})
+	}
+}
 
 func TestRequestOpenAIToClaude_Basic(t *testing.T) {
 	openAIReq := `{

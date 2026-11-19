@@ -3,12 +3,33 @@ package oaichat
 import (
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 )
+
+func TestChatCompletionsRequestToResponsesRequestReplaysReasoningBeforeToolCalls(t *testing.T) {
+	reasoning := "check before calling"
+	message := assistantMessageWithTool("", "call_1", "lookup", "{}")
+	message.Content = nil
+	message.ReasoningContent = &reasoning
+	got, err := ChatCompletionsRequestToResponsesRequest(&dto.GeneralOpenAIRequest{
+		Model: "mistral-large-4", Messages: []dto.Message{message},
+	})
+	require.NoError(t, err)
+	var items []map[string]any
+	require.NoError(t, common.Unmarshal(got.Input, &items))
+	require.Len(t, items, 3)
+	assert.NotEmpty(t, items[0]["id"])
+	assert.Equal(t, "reasoning", items[0]["type"])
+	assert.Equal(t, reasoning, gjson.GetBytes(got.Input, "0.content.0.text").String())
+	assert.Equal(t, "assistant", items[1]["role"])
+	assert.Equal(t, "function_call", items[2]["type"])
+	assert.Equal(t, "call_1", items[2]["call_id"])
+}
 
 func TestChatCompletionsRequestToResponsesRequestInstructionsAndTools(t *testing.T) {
 	req := &dto.GeneralOpenAIRequest{

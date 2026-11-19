@@ -322,9 +322,20 @@ func (o *OpenAIResponsesResponse) UnmarshalJSON(data []byte) error {
 	aux := struct {
 		*plain
 		CreatedAt json.Number `json:"created_at"`
+		Usage     *struct {
+			Usage
+			OutputTokensDetails *OutputTokenDetails `json:"output_tokens_details"`
+		} `json:"usage"`
 	}{plain: (*plain)(o)}
 	if err := common.Unmarshal(data, &aux); err != nil {
 		return err
+	}
+	o.Usage = nil
+	if aux.Usage != nil {
+		o.Usage = &aux.Usage.Usage
+		if aux.Usage.OutputTokensDetails != nil {
+			o.Usage.CompletionTokenDetails = *aux.Usage.OutputTokensDetails
+		}
 	}
 	o.CreatedAt = 0
 	if aux.CreatedAt == "" {

@@ -12,6 +12,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -84,6 +85,16 @@ func TestOaiResponsesToChatStreamHandlerConvertsSSEOrderAndUsage(t *testing.T) {
 		`"usage":{"prompt_tokens":2,"completion_tokens":3,"total_tokens":5`,
 		`data: [DONE]`,
 	)
+}
+
+func TestOaiResponsesToChatStreamHandlerSurfacesUpstreamError(t *testing.T) {
+	c, recorder, resp, info := newResponsesChatTestContext(t,
+		"data: {\"type\":\"error\",\"code\":\"invalid_request\",\"message\":\"unsupported reasoning effort\"}\n\n", true)
+	info.RelayFormat = types.RelayFormatClaude
+	_, apiErr := OaiResponsesToChatStreamHandler(c, info, resp)
+	require.NotNil(t, apiErr)
+	assert.Contains(t, apiErr.Error(), "unsupported reasoning effort")
+	assert.NotContains(t, recorder.Body.String(), "event: message_stop")
 }
 
 func TestOaiResponsesToChatBufferedStreamHandlerReturnsJSONFromSSE(t *testing.T) {

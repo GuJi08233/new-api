@@ -151,6 +151,16 @@ func ChatCompletionsRequestToResponsesRequest(req *dto.GeneralOpenAIRequest) (*d
 			}
 			continue
 		}
+		if role == "assistant" && msg.GetReasoningContent() != "" {
+			inputItems = append(inputItems, map[string]any{
+				"id":      "rs_" + common.GetUUID(),
+				"type":    "reasoning",
+				"summary": []any{},
+				"content": []map[string]any{
+					{"type": "reasoning_text", "text": msg.GetReasoningContent()},
+				},
+			})
+		}
 
 		item := map[string]any{
 			"role": role,

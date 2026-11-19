@@ -16,8 +16,8 @@ import (
 // moved into `reasoning_content` and text chunks are joined into `content`.
 type mistralContentChunk struct {
 	Type     string                `json:"type"`
-	Text     string                `json:"text"`
-	Thinking []mistralContentChunk `json:"thinking"`
+	Text     string                `json:"text,omitempty"`
+	Thinking []mistralContentChunk `json:"thinking,omitempty"`
 }
 
 func flattenMistralChunks(chunks []mistralContentChunk, text, reasoning *strings.Builder) {

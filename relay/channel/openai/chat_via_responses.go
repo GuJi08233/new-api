@@ -195,9 +195,10 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 	responseId := helper.GetResponseID(c)
 	createAt := time.Now().Unix()
 	state, err := relayconvert.NewResponseStreamState(types.RelayFormatOpenAIResponses, info.RelayFormat, relayconvert.ResponseStreamOptions{
-		ID:      responseId,
-		Model:   info.UpstreamModelName,
-		Created: createAt,
+		ID:           responseId,
+		Model:        info.UpstreamModelName,
+		Created:      createAt,
+		IncludeUsage: info.RelayFormat == types.RelayFormatClaude,
 	})
 	if err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponse, http.StatusInternalServerError)
@@ -289,6 +290,16 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 			return
 		}
 
+		if streamResp.Type == "error" {
+			var upstreamError types.OpenAIError
+			if err := common.UnmarshalJsonStr(data, &upstreamError); err != nil {
+				streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+			} else {
+				streamErr = types.WithOpenAIError(upstreamError, http.StatusInternalServerError)
+			}
+			sr.Stop(streamErr)
+			return
+		}
 		if streamResp.Type == "response.error" || streamResp.Type == "response.failed" {
 			if streamResp.Response != nil {
 				if oaiErr := streamResp.Response.GetOpenAIError(); oaiErr != nil && oaiErr.Type != "" {
