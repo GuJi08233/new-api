@@ -2,6 +2,8 @@ package mistral
 
 import (
 	"encoding/json"
+	"io"
+	"strings"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
@@ -62,4 +64,67 @@ func TestConvertOpenAIResponsesRequestRejectsStatefulFields(t *testing.T) {
 			assert.ErrorContains(t, err, tt.name)
 		})
 	}
+}
+
+func TestNormalizeMistralChatPayloadFlattensContentChunks(t *testing.T) {
+	tests := []struct {
+		name          string
+		payload       string
+		stream        bool
+		wantContent   any
+		wantReasoning any
+	}{
+		{
+			name:          "non-stream thinking and text",
+			payload:       `{"id":"x","created":1795071161,"choices":[{"index":0,"message":{"role":"assistant","content":[{"type":"thinking","thinking":[{"type":"text","text":"think "},{"type":"text","text":"more"}],"closed":true},{"type":"text","text":"Hello"}]}}]}`,
+			wantContent:   "Hello",
+			wantReasoning: "think more",
+		},
+		{
+			name:          "stream thinking-only delta omits content",
+			payload:       `{"id":"x","choices":[{"index":0,"delta":{"index":0,"content":[{"type":"thinking","thinking":[{"type":"text","text":"The"}],"closed":true}]}}]}`,
+			stream:        true,
+			wantReasoning: "The",
+		},
+		{
+			name:        "string content is untouched",
+			payload:     `{"id":"x","choices":[{"index":0,"delta":{"content":"Hey"}}]}`,
+			stream:      true,
+			wantContent: "Hey",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var got struct {
+				Created int64 `json:"created"`
+				Choices []struct {
+					Message map[string]any `json:"message"`
+					Delta   map[string]any `json:"delta"`
+				} `json:"choices"`
+			}
+			require.NoError(t, common.Unmarshal(normalizeMistralChatPayload([]byte(tt.payload), tt.stream), &got))
+			require.Len(t, got.Choices, 1)
+			message := got.Choices[0].Message
+			if tt.stream {
+				message = got.Choices[0].Delta
+			}
+			assert.Equal(t, tt.wantContent, message["content"])
+			assert.Equal(t, tt.wantReasoning, message["reasoning_content"])
+			if !tt.stream {
+				assert.Equal(t, int64(1795071161), got.Created)
+			}
+		})
+	}
+}
+
+func TestNormalizeMistralChatBodyRewritesStreamLines(t *testing.T) {
+	upstream := "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":[{\"type\":\"thinking\",\"thinking\":[{\"type\":\"text\",\"text\":\"hm\"}]}]}}]}\n\n" +
+		"data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"ok\"}}]}\n\ndata: [DONE]\n\n"
+	body, err := normalizeMistralChatBody(io.NopCloser(strings.NewReader(upstream)), true)
+	require.NoError(t, err)
+	defer body.Close()
+	out, err := io.ReadAll(body)
+	require.NoError(t, err)
+	assert.Equal(t, "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"hm\"},\"index\":0}]}\n\n"+
+		"data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"ok\"}}]}\n\ndata: [DONE]\n\n", string(out))
 }

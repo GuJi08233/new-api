@@ -88,10 +88,17 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 		usage, err = openai.OaiResponsesStreamHandler(c, info, resp)
 	case info.RelayMode == relayconstant.RelayModeResponses:
 		usage, err = openai.OaiResponsesHandler(c, info, resp)
-	case info.IsStream:
-		usage, err = openai.OaiStreamHandler(c, info, resp)
 	default:
-		usage, err = openai.OpenaiHandler(c, info, resp)
+		body, normalizeErr := normalizeMistralChatBody(resp.Body, info.IsStream)
+		if normalizeErr != nil {
+			return nil, types.NewOpenAIError(normalizeErr, types.ErrorCodeReadResponseBodyFailed, http.StatusInternalServerError)
+		}
+		resp.Body = body
+		if info.IsStream {
+			usage, err = openai.OaiStreamHandler(c, info, resp)
+		} else {
+			usage, err = openai.OpenaiHandler(c, info, resp)
+		}
 	}
 	return
 }
