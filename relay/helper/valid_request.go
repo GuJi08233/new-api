@@ -167,6 +167,9 @@ func GetAndValidateResponsesRequest(c *gin.Context) (*dto.OpenAIResponsesRequest
 	if exceedsMaxTokensLimit(request.MaxOutputTokens) {
 		return nil, errors.New("max_output_tokens is invalid")
 	}
+	if request.Background != nil && *request.Background {
+		return nil, errors.New("background Responses are not supported: asynchronous polling and settlement are unavailable")
+	}
 	return request, nil
 }
 
@@ -339,6 +342,9 @@ func GetAndValidateTextRequest(c *gin.Context, relayMode int) (*dto.GeneralOpenA
 
 	if exceedsMaxTokensLimit(textRequest.MaxTokens, textRequest.MaxCompletionTokens) {
 		return nil, errors.New("max_tokens is invalid")
+	}
+	if exceedsMaxTokensLimit(textRequest.MinTokens) {
+		return nil, errors.New("min_tokens is invalid")
 	}
 	if textRequest.Model == "" {
 		return nil, errors.New("model is required")

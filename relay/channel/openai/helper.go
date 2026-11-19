@@ -185,6 +185,9 @@ func HandleFinalResponse(c *gin.Context, info *relaycommon.RelayInfo, lastStream
 		info.ClaudeConvertInfo.Usage = usage
 		// EOF 时只补终态，不重放最后一个带文本或工具参数的增量。
 		finishReason := info.FinishReason
+		if len(streamResponse.Choices) > 0 && streamResponse.Choices[0].FinishReason != nil && *streamResponse.Choices[0].FinishReason != "" {
+			finishReason = *streamResponse.Choices[0].FinishReason
+		}
 		if finishReason == "" {
 			finishReason = "stop"
 		}

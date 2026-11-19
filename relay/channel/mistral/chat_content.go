@@ -36,7 +36,7 @@ func flattenMistralChunks(chunks []mistralContentChunk, text, reasoning *strings
 // normalizeMistralChatPayload rewrites array-form content in choices[].message / choices[].delta.
 // It returns the original payload unchanged when nothing needs rewriting or parsing fails.
 func normalizeMistralChatPayload(payload []byte, stream bool) []byte {
-	if !bytes.Contains(payload, []byte(`"content"`)) {
+	if !bytes.Contains(payload, []byte(`"content"`)) && !bytes.Contains(payload, []byte(`"finish_reason"`)) {
 		return payload
 	}
 	var root map[string]json.RawMessage
@@ -53,6 +53,10 @@ func normalizeMistralChatPayload(payload []byte, stream bool) []byte {
 	}
 	changed := false
 	for _, choice := range choices {
+		if bytes.Equal(bytes.TrimSpace(choice["finish_reason"]), []byte(`"model_length"`)) {
+			choice["finish_reason"] = json.RawMessage(`"length"`)
+			changed = true
+		}
 		var message map[string]json.RawMessage
 		if err := common.Unmarshal(choice[messageKey], &message); err != nil || message == nil {
 			continue

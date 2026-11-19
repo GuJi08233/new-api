@@ -102,11 +102,11 @@ func ChatCompletionsRequestToResponsesRequest(req *dto.GeneralOpenAIRequest) (*d
 			} else if msg.IsStringContent() {
 				output = msg.StringContent()
 			} else {
-				if b, err := common.Marshal(msg.Content); err == nil {
-					output = string(b)
-				} else {
-					output = fmt.Sprintf("%v", msg.Content)
+				parts, err := chatContentToResponses(msg.Content, "tool")
+				if err != nil {
+					return nil, fmt.Errorf("convert tool output: %w", err)
 				}
+				output = parts
 			}
 
 			if callID == "" {
@@ -220,44 +220,9 @@ func ChatCompletionsRequestToResponsesRequest(req *dto.GeneralOpenAIRequest) (*d
 			continue
 		}
 
-		parts := msg.ParseContent()
-		contentParts := make([]map[string]any, 0, len(parts))
-		for _, part := range parts {
-			switch part.Type {
-			case dto.ContentTypeText:
-				textType := "input_text"
-				if role == "assistant" {
-					textType = "output_text"
-				}
-				contentParts = append(contentParts, map[string]any{
-					"type": textType,
-					"text": part.Text,
-				})
-			case dto.ContentTypeImageURL:
-				contentParts = append(contentParts, map[string]any{
-					"type":      "input_image",
-					"image_url": normalizeChatImageURLToString(part.ImageUrl),
-				})
-			case dto.ContentTypeInputAudio:
-				contentParts = append(contentParts, map[string]any{
-					"type":        "input_audio",
-					"input_audio": part.InputAudio,
-				})
-			case dto.ContentTypeFile:
-				contentParts = append(contentParts, map[string]any{
-					"type": "input_file",
-					"file": part.File,
-				})
-			case dto.ContentTypeVideoUrl:
-				contentParts = append(contentParts, map[string]any{
-					"type":      "input_video",
-					"video_url": part.VideoUrl,
-				})
-			default:
-				contentParts = append(contentParts, map[string]any{
-					"type": part.Type,
-				})
-			}
+		contentParts, err := chatContentToResponses(msg.Content, role)
+		if err != nil {
+			return nil, err
 		}
 		item["content"] = contentParts
 		inputItems = append(inputItems, item)
@@ -301,12 +266,16 @@ func ChatCompletionsRequestToResponsesRequest(req *dto.GeneralOpenAIRequest) (*d
 		for _, tool := range req.Tools {
 			switch tool.Type {
 			case "function":
-				tools = append(tools, map[string]any{
+				function := map[string]any{
 					"type":        "function",
 					"name":        tool.Function.Name,
 					"description": tool.Function.Description,
 					"parameters":  tool.Function.Parameters,
-				})
+				}
+				if tool.Function.Strict != nil {
+					function["strict"] = *tool.Function.Strict
+				}
+				tools = append(tools, function)
 			default:
 				// Best-effort: keep original tool shape for unknown types.
 				var m map[string]any
@@ -367,15 +336,10 @@ func ChatCompletionsRequestToResponsesRequest(req *dto.GeneralOpenAIRequest) (*d
 
 	textRaw := convertChatResponseFormatToResponsesText(req.ResponseFormat)
 
-	maxOutputTokens := lo.FromPtrOr(req.MaxTokens, uint(0))
-	maxCompletionTokens := lo.FromPtrOr(req.MaxCompletionTokens, uint(0))
-	if maxCompletionTokens > maxOutputTokens {
-		maxOutputTokens = maxCompletionTokens
+	maxOutputTokens := req.MaxTokens
+	if req.MaxCompletionTokens != nil {
+		maxOutputTokens = req.MaxCompletionTokens
 	}
-	// OpenAI Responses API rejects max_output_tokens < 16 when explicitly provided.
-	//if maxOutputTokens > 0 && maxOutputTokens < 16 {
-	//	maxOutputTokens = 16
-	//}
 
 	var topP *float64
 	if req.TopP != nil {
@@ -407,8 +371,8 @@ func ChatCompletionsRequestToResponsesRequest(req *dto.GeneralOpenAIRequest) (*d
 			return nil, fmt.Errorf("marshal prompt_cache_key: %w", err)
 		}
 	}
-	if req.MaxTokens != nil || req.MaxCompletionTokens != nil {
-		out.MaxOutputTokens = lo.ToPtr(maxOutputTokens)
+	if maxOutputTokens != nil {
+		out.MaxOutputTokens = lo.ToPtr(*maxOutputTokens)
 	}
 
 	if req.ReasoningEffort != "" {
@@ -419,4 +383,55 @@ func ChatCompletionsRequestToResponsesRequest(req *dto.GeneralOpenAIRequest) (*d
 	}
 
 	return out, nil
+}
+
+func chatContentToResponses(value any, role string) ([]map[string]any, error) {
+	data, err := common.Marshal(value)
+	if err != nil {
+		return nil, fmt.Errorf("encode Chat content: %w", err)
+	}
+	var parts []dto.MediaContent
+	if err := common.Unmarshal(data, &parts); err != nil {
+		return nil, fmt.Errorf("invalid Chat content: %w", err)
+	}
+	content := make([]map[string]any, 0, len(parts))
+	for _, part := range parts {
+		switch part.Type {
+		case dto.ContentTypeText:
+			textType := "input_text"
+			if role == "assistant" {
+				textType = "output_text"
+			}
+			content = append(content, map[string]any{"type": textType, "text": part.Text})
+		case dto.ContentTypeImageURL:
+			image := map[string]any{"type": "input_image", "image_url": normalizeChatImageURLToString(part.ImageUrl)}
+			if media := part.GetImageMedia(); media != nil && media.Detail != "" {
+				image["detail"] = media.Detail
+			}
+			content = append(content, image)
+		case dto.ContentTypeFile:
+			data, err := common.Marshal(part.File)
+			if err != nil {
+				return nil, fmt.Errorf("encode input file: %w", err)
+			}
+			var fields map[string]json.RawMessage
+			if err := common.Unmarshal(data, &fields); err != nil {
+				return nil, fmt.Errorf("invalid input file: %w", err)
+			}
+			file := map[string]any{"type": "input_file"}
+			for _, name := range []string{"file_id", "file_data", "file_url", "filename"} {
+				if value, ok := fields[name]; ok {
+					file[name] = value
+				}
+			}
+			content = append(content, file)
+		case dto.ContentTypeInputAudio:
+			content = append(content, map[string]any{"type": "input_audio", "input_audio": part.InputAudio})
+		case dto.ContentTypeVideoUrl:
+			content = append(content, map[string]any{"type": "input_video", "video_url": part.VideoUrl})
+		default:
+			return nil, fmt.Errorf("unsupported Chat content type %q for Responses", part.Type)
+		}
+	}
+	return content, nil
 }

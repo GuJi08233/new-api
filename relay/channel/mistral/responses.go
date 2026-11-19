@@ -13,8 +13,7 @@ import (
 
 // requestResponses2Mistral keeps only the fields documented for Mistral's
 // stateless POST /v1/responses: https://docs.mistral.ai/api/endpoint/responses
-// store, truncation, top_logprobs, background and moderation have a single
-// accepted value upstream, so they are omitted and the upstream default applies.
+// Constrained options are validated before using the upstream defaults.
 func requestResponses2Mistral(request dto.OpenAIResponsesRequest) (*dto.OpenAIResponsesRequest, error) {
 	if strings.TrimSpace(request.PreviousResponseID) != "" {
 		return nil, errors.New("mistral responses API is stateless: previous_response_id is not supported, send prior output items in input instead")
@@ -25,18 +24,56 @@ func requestResponses2Mistral(request dto.OpenAIResponsesRequest) (*dto.OpenAIRe
 	if isJSONValuePresent(request.Prompt) {
 		return nil, errors.New("mistral responses API does not support prompt templates: send the prompt in input and instructions")
 	}
+	if isJSONValuePresent(request.Store) && !bytes.Equal(bytes.TrimSpace(request.Store), []byte("false")) {
+		return nil, errors.New("mistral responses API is stateless: store must be false or null")
+	}
+	if isJSONValuePresent(request.Truncation) && !bytes.Equal(bytes.TrimSpace(request.Truncation), []byte(`"disabled"`)) {
+		return nil, errors.New("mistral responses API does not support automatic truncation: truncation must be disabled")
+	}
+	if request.Background != nil && *request.Background {
+		return nil, errors.New("mistral responses API does not support background execution")
+	}
+	if request.TopLogProbs != nil && *request.TopLogProbs != 0 {
+		return nil, errors.New("mistral responses API requires top_logprobs to be zero")
+	}
+	if isJSONValuePresent(request.Moderation) {
+		return nil, errors.New("mistral responses API does not support moderation")
+	}
+	if request.FrequencyPenalty != nil && *request.FrequencyPenalty != 0 {
+		return nil, errors.New("mistral responses API does not support frequency_penalty; use chat completions")
+	}
+	if request.PresencePenalty != nil && *request.PresencePenalty != 0 {
+		return nil, errors.New("mistral responses API does not support presence_penalty; use chat completions")
+	}
 
-	if common.GetJsonType(request.Input) == "array" {
+	switch common.GetJsonType(request.Input) {
+	case "string":
+	case "array":
 		var items []map[string]json.RawMessage
 		if err := common.Unmarshal(request.Input, &items); err != nil {
 			return nil, fmt.Errorf("invalid mistral responses input: %w", err)
 		}
 		changed := false
-		for _, item := range items {
-			if isJSONValuePresent(item["type"]) || !isJSONValuePresent(item["role"]) || !isJSONValuePresent(item["content"]) {
+		for i, item := range items {
+			if isJSONValuePresent(item["type"]) {
+				var itemType string
+				if err := common.Unmarshal(item["type"], &itemType); err != nil {
+					return nil, fmt.Errorf("input[%d].type must be a string", i)
+				}
+				switch itemType {
+				case "message", "reasoning", "function_call", "function_call_output":
+				case "item_reference":
+					return nil, fmt.Errorf("input[%d]: mistral responses API is stateless; send the full referenced item instead of item_reference", i)
+				default:
+					return nil, fmt.Errorf("input[%d]: unsupported mistral responses item type %q", i, itemType)
+				}
 				continue
 			}
-			// OpenAI permits easy input messages without type; Mistral needs the discriminator.
+			if !isJSONValuePresent(item["role"]) || !isJSONValuePresent(item["content"]) {
+				return nil, fmt.Errorf("input[%d]: type is required except for messages with role and content", i)
+			}
+			// Easy messages are allowed, but assistant output_text histories need
+			// the discriminator to avoid Mistral's "type None" validation error.
 			item["type"] = json.RawMessage(`"message"`)
 			changed = true
 		}
@@ -47,6 +84,8 @@ func requestResponses2Mistral(request dto.OpenAIResponsesRequest) (*dto.OpenAIRe
 			}
 			request.Input = input
 		}
+	default:
+		return nil, errors.New("mistral responses input must be a string or an array of complete input items")
 	}
 
 	out := &dto.OpenAIResponsesRequest{

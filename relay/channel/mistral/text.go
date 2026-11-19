@@ -3,6 +3,7 @@ package mistral
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"regexp"
 
 	"github.com/QuantumNous/new-api/common"
@@ -12,6 +13,32 @@ import (
 var mistralToolCallIdRegexp = regexp.MustCompile("^[a-zA-Z0-9]{9}$")
 
 func requestOpenAI2Mistral(request *dto.GeneralOpenAIRequest) (*dto.GeneralOpenAIRequest, error) {
+	randomSeed := request.RandomSeed
+	if request.Seed != nil {
+		seed := *request.Seed
+		if math.IsNaN(seed) || math.IsInf(seed, 0) || math.Trunc(seed) != seed || seed < -1<<63 || seed >= 1<<63 {
+			return nil, fmt.Errorf("seed must be an integer in the int64 range")
+		}
+		if randomSeed != nil && *randomSeed != int64(seed) {
+			return nil, fmt.Errorf("seed and random_seed must match when both are supplied")
+		}
+		randomSeed = common.GetPointer(int64(seed))
+	}
+	if isJSONValuePresent(request.Functions) || isJSONValuePresent(request.FunctionCall) {
+		return nil, fmt.Errorf("mistral chat requires tools/tool_choice instead of legacy functions/function_call")
+	}
+	tools := append([]dto.ToolCallRequest(nil), request.Tools...)
+	for i := range tools {
+		if tools[i].Type != "function" {
+			return nil, fmt.Errorf("mistral chat relay does not support tool type %q; use function tools", tools[i].Type)
+		}
+		if tools[i].Function.Name == "" {
+			return nil, fmt.Errorf("tools[%d].function.name is required", i)
+		}
+		if tools[i].Function.Parameters == nil {
+			tools[i].Function.Parameters = map[string]any{"type": "object", "properties": map[string]any{}}
+		}
+	}
 	messages := make([]dto.Message, 0, len(request.Messages))
 	idMap := make(map[string]string)
 	for _, message := range request.Messages {
@@ -66,7 +93,7 @@ func requestOpenAI2Mistral(request *dto.GeneralOpenAIRequest) (*dto.GeneralOpenA
 			if err := common.Unmarshal(content, &chunks); err != nil {
 				return nil, fmt.Errorf("invalid Mistral message content: %w", err)
 			}
-			for _, chunk := range chunks {
+			for i, chunk := range chunks {
 				var contentType string
 				if err := common.Unmarshal(chunk["type"], &contentType); err != nil {
 					return nil, fmt.Errorf("invalid Mistral content type: %w", err)
@@ -77,6 +104,27 @@ func requestOpenAI2Mistral(request *dto.GeneralOpenAIRequest) (*dto.GeneralOpenA
 						return nil, fmt.Errorf("invalid image_url: %w", err)
 					}
 					chunk["image_url"], _ = common.Marshal(image.Url)
+				}
+				if contentType == dto.ContentTypeFile && isJSONValuePresent(chunk["file"]) {
+					var file map[string]json.RawMessage
+					if err := common.Unmarshal(chunk["file"], &file); err != nil {
+						return nil, fmt.Errorf("invalid file: %w", err)
+					}
+					if isJSONValuePresent(file["file_id"]) {
+						chunks[i] = map[string]json.RawMessage{"type": json.RawMessage(`"file"`), "file_id": file["file_id"]}
+					} else {
+						url := file["file_url"]
+						if !isJSONValuePresent(url) {
+							url = file["file_data"]
+						}
+						if !isJSONValuePresent(url) {
+							return nil, fmt.Errorf("file requires file_id, file_url or file_data")
+						}
+						chunks[i] = map[string]json.RawMessage{"type": json.RawMessage(`"document_url"`), "document_url": url}
+						if isJSONValuePresent(file["filename"]) {
+							chunks[i]["document_name"] = file["filename"]
+						}
+					}
 				}
 			}
 		}
@@ -108,30 +156,43 @@ func requestOpenAI2Mistral(request *dto.GeneralOpenAIRequest) (*dto.GeneralOpenA
 		})
 	}
 	out := &dto.GeneralOpenAIRequest{
-		Model:            request.Model,
-		Stream:           request.Stream,
-		Messages:         messages,
-		Temperature:      request.Temperature,
-		TopP:             request.TopP,
-		Tools:            request.Tools,
-		ToolChoice:       request.ToolChoice,
-		Stop:             request.Stop,
-		N:                request.N,
-		FrequencyPenalty: request.FrequencyPenalty,
-		PresencePenalty:  request.PresencePenalty,
-		ResponseFormat:   request.ResponseFormat,
-		ParallelTooCalls: request.ParallelTooCalls,
-		ReasoningEffort:  request.ReasoningEffort,
-		PromptCacheKey:   request.PromptCacheKey,
-		Prediction:       request.Prediction,
-		Metadata:         request.Metadata,
-		LogProbs:         request.LogProbs,
-		TopLogProbs:      request.TopLogProbs,
+		Model:             request.Model,
+		Stream:            request.Stream,
+		Messages:          messages,
+		Temperature:       request.Temperature,
+		TopP:              request.TopP,
+		Tools:             tools,
+		ToolChoice:        request.ToolChoice,
+		Stop:              request.Stop,
+		N:                 request.N,
+		FrequencyPenalty:  request.FrequencyPenalty,
+		PresencePenalty:   request.PresencePenalty,
+		ResponseFormat:    request.ResponseFormat,
+		ParallelTooCalls:  request.ParallelTooCalls,
+		ReasoningEffort:   request.ReasoningEffort,
+		PromptCacheKey:    request.PromptCacheKey,
+		Prediction:        request.Prediction,
+		Metadata:          request.Metadata,
+		LogProbs:          request.LogProbs,
+		TopLogProbs:       request.TopLogProbs,
+		TopK:              request.TopK,
+		RandomSeed:        randomSeed,
+		MinTokens:         request.MinTokens,
+		RepetitionPenalty: request.RepetitionPenalty,
+		PromptLogProbs:    request.PromptLogProbs,
+		TopPromptLogProbs: request.TopPromptLogProbs,
+		PromptMode:        request.PromptMode,
+		SafePrompt:        request.SafePrompt,
+		Guardrails:        request.Guardrails,
+		ServiceTier:       request.ServiceTier,
 	}
 	if request.MaxCompletionTokens != nil {
 		out.MaxTokens = request.MaxCompletionTokens
 	} else {
 		out.MaxTokens = request.MaxTokens
+	}
+	if out.MinTokens != nil && out.MaxTokens != nil && *out.MinTokens > *out.MaxTokens {
+		return nil, fmt.Errorf("min_tokens must not exceed max_tokens")
 	}
 	return out, nil
 }

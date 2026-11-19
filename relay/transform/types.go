@@ -5,7 +5,9 @@ package transform
 
 import (
 	"context"
+	"fmt"
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/relay/reasonmap"
 	"strings"
 )
 
@@ -337,9 +339,9 @@ func processMessages(messages []any, flags TransformFlags) (systemMessages []any
 		// Tool messages become tool_result items
 		if role == "tool" {
 			toolResult := map[string]any{
-				"type":      "tool_result",
+				"type":        "tool_result",
 				"tool_use_id": m["tool_call_id"],
-				"content":   m["content"],
+				"content":     m["content"],
 			}
 			if len(resultMessages) > 0 {
 				if last, ok := resultMessages[len(resultMessages)-1].(map[string]any); ok && last["role"] == "user" {
@@ -488,7 +490,7 @@ func StreamResponseClaudeToOpenAI(ctx context.Context, body []byte) ([]byte, err
 			result["model"] = msg["model"]
 		}
 		choice := map[string]any{
-			"delta":        map[string]any{"role": "assistant", "content": ""},
+			"delta":         map[string]any{"role": "assistant", "content": ""},
 			"finish_reason": nil,
 		}
 		result["choices"] = []any{choice}
@@ -565,7 +567,7 @@ func StreamResponseClaudeToOpenAI(ctx context.Context, body []byte) ([]byte, err
 		if delta, ok := data["delta"].(map[string]any); ok {
 			finishReason, _ := delta["stop_reason"].(string)
 			choice := map[string]any{
-				"delta":        map[string]any{},
+				"delta":         map[string]any{},
 				"finish_reason": mapClaudeStopReason(finishReason),
 			}
 			result["choices"] = []any{choice}
@@ -718,6 +720,13 @@ func RequestClaudeToOpenAI(body []byte, flags TransformFlags) ([]byte, error) {
 		result["top_p"] = topP
 	}
 
+	if topK, ok := req["top_k"]; ok {
+		result["top_k"] = topK
+	}
+	if metadata, ok := req["metadata"]; ok {
+		result["metadata"] = metadata
+	}
+
 	// Max tokens - handle both field names
 	if maxTokens, ok := req["max_tokens"]; ok {
 		result["max_tokens"] = maxTokens
@@ -770,7 +779,10 @@ func RequestClaudeToOpenAI(body []byte, flags TransformFlags) ([]byte, error) {
 	if claudeMessages, ok := req["messages"].([]any); ok {
 		for _, msg := range claudeMessages {
 			if m, ok := msg.(map[string]any); ok {
-				openAIMsgs := convertClaudeMessageToOpenAI(m)
+				openAIMsgs, err := convertClaudeMessageToOpenAI(m)
+				if err != nil {
+					return nil, err
+				}
 				messages = append(messages, openAIMsgs...)
 			}
 		}
@@ -783,15 +795,20 @@ func RequestClaudeToOpenAI(body []byte, flags TransformFlags) ([]byte, error) {
 		var openAITools []any
 		for _, tool := range tools {
 			if t, ok := tool.(map[string]any); ok {
-				openAITool := map[string]any{
-					"type": "function",
-					"function": map[string]any{
-						"name":        t["name"],
-						"description": t["description"],
-						"parameters":  t["input_schema"],
-					},
+				if typ, _ := t["type"].(string); typ != "" && typ != "custom" {
+					return nil, fmt.Errorf("Claude server tool type %q cannot be converted to an OpenAI function", typ)
 				}
-				openAITools = append(openAITools, openAITool)
+				function := map[string]any{
+					"name":        t["name"],
+					"description": t["description"],
+					"parameters":  t["input_schema"],
+				}
+				if strict, exists := t["strict"]; exists {
+					function["strict"] = strict
+				}
+				openAITools = append(openAITools, map[string]any{"type": "function", "function": function})
+			} else {
+				return nil, fmt.Errorf("Claude tools must be objects")
 			}
 		}
 		result["tools"] = openAITools
@@ -829,9 +846,29 @@ func RequestClaudeToOpenAI(body []byte, flags TransformFlags) ([]byte, error) {
 			}
 		}
 	}
-	if config, ok := req["output_config"].(map[string]any); ok {
+	formatValue := req["output_format"]
+	if value := req["output_config"]; value != nil {
+		config, ok := value.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("Claude output_config must be an object")
+		}
 		if effort, ok := config["effort"].(string); ok && effort != "" {
 			result["reasoning_effort"] = effort
+		}
+		if current, exists := config["format"]; exists {
+			formatValue = current
+		}
+	}
+	if formatValue != nil {
+		format, ok := formatValue.(map[string]any)
+		if !ok || format["type"] != "json_schema" || format["schema"] == nil {
+			return nil, fmt.Errorf("unsupported Claude output format: expected json_schema with schema")
+		}
+		result["response_format"] = map[string]any{
+			"type": "json_schema",
+			"json_schema": map[string]any{
+				"name": "response", "schema": format["schema"], "strict": true,
+			},
 		}
 	}
 
@@ -840,7 +877,7 @@ func RequestClaudeToOpenAI(body []byte, flags TransformFlags) ([]byte, error) {
 
 // convertClaudeMessageToOpenAI converts a single Claude message to OpenAI format(s)
 // Handles: text content, images, tool_use, tool_result
-func convertClaudeMessageToOpenAI(msg map[string]any) []any {
+func convertClaudeMessageToOpenAI(msg map[string]any) ([]any, error) {
 	var result []any
 
 	role, _ := msg["role"].(string)
@@ -852,14 +889,13 @@ func convertClaudeMessageToOpenAI(msg map[string]any) []any {
 			"role":    role,
 			"content": text,
 		})
-		return result
+		return result, nil
 	}
 
 	// Array content - may have text, images, tool_use, tool_result
 	if parts, ok := content.([]any); ok {
-		var textContent strings.Builder
 		var reasoningContent strings.Builder
-		var multiModal []any
+		var contentParts []any
 		var toolCalls []any
 
 		for _, part := range parts {
@@ -869,33 +905,14 @@ func convertClaudeMessageToOpenAI(msg map[string]any) []any {
 					if thinking, ok := p["thinking"].(string); ok && role == "assistant" {
 						reasoningContent.WriteString(thinking)
 					}
-				case "text":
-					if text, ok := p["text"].(string); ok {
-						textContent.WriteString(text)
-					}
-
-				case "image":
-					imgUrl := ""
-					if source, ok := p["source"].(map[string]any); ok {
-						if source["type"] == "url" {
-							imgUrl, _ = source["url"].(string)
-						} else if source["type"] == "base64" {
-							mediaType, _ := source["media_type"].(string)
-							data, _ := source["data"].(string)
-							imgUrl = "data:" + mediaType + ";base64," + data
-						}
-					}
-					if imgUrl != "" {
-						multiModal = append(multiModal, map[string]any{
-							"type": "image_url",
-							"image_url": map[string]any{
-								"url": imgUrl,
-							},
-						})
-					}
+				case "text", "image", "document":
+					contentParts = append(contentParts, p)
 
 				case "tool_use":
-					argsBytes, _ := common.Marshal(p["input"])
+					argsBytes, err := common.Marshal(p["input"])
+					if err != nil {
+						return nil, fmt.Errorf("encode Claude tool arguments: %w", err)
+					}
 					toolCalls = append(toolCalls, map[string]any{
 						"id":   p["id"],
 						"type": "function",
@@ -906,28 +923,40 @@ func convertClaudeMessageToOpenAI(msg map[string]any) []any {
 					})
 
 				case "tool_result":
-					// Tool result becomes a separate tool message
-					var contentStr string
-					if c, ok := p["content"].(string); ok {
-						contentStr = c
-					} else if c, ok := p["content"].([]any); ok && len(c) > 0 {
-						var text strings.Builder
-						for _, item := range c {
-							if block, ok := item.(map[string]any); ok && block["type"] == "text" {
-								if value, ok := block["text"].(string); ok {
-									text.WriteString(value)
-								}
-							}
+					if role != "user" {
+						return nil, fmt.Errorf("Claude tool_result must be in a user message")
+					}
+					if len(contentParts) > 0 {
+						content, err := convertClaudeContentToOpenAI(contentParts)
+						if err != nil {
+							return nil, err
 						}
-						contentStr = text.String()
+						result = append(result, map[string]any{"role": role, "content": content})
+						contentParts = nil
+					}
+					content, err := convertClaudeContentToOpenAI(p["content"])
+					if err != nil {
+						return nil, fmt.Errorf("convert Claude tool_result: %w", err)
+					}
+					if isError, _ := p["is_error"].(bool); isError {
+						const marker = "Tool execution failed (is_error=true): "
+						if text, ok := content.(string); ok {
+							content = marker + text
+						} else if parts, ok := content.([]any); ok {
+							content = append([]any{map[string]any{"type": "text", "text": marker}}, parts...)
+						}
 					}
 					toolMsg := map[string]any{
 						"role":         "tool",
-						"content":      contentStr,
+						"content":      content,
 						"tool_call_id": p["tool_use_id"],
 					}
 					result = append(result, toolMsg)
+				default:
+					return nil, fmt.Errorf("unsupported Claude content block type %q", p["type"])
 				}
+			} else {
+				return nil, fmt.Errorf("Claude content blocks must be objects")
 			}
 		}
 
@@ -936,22 +965,11 @@ func convertClaudeMessageToOpenAI(msg map[string]any) []any {
 			"role": role,
 		}
 
-		// Text + multi-modal content
-		if textContent.Len() > 0 || len(multiModal) > 0 {
-			if len(multiModal) == 0 {
-				mainMsg["content"] = textContent.String()
-			} else {
-				if textContent.Len() > 0 {
-					multiModal = append([]any{map[string]any{
-						"type": "text",
-						"text": textContent.String(),
-					}}, multiModal...)
-				}
-				mainMsg["content"] = multiModal
-			}
-		} else {
-			mainMsg["content"] = ""
+		convertedContent, err := convertClaudeContentToOpenAI(contentParts)
+		if err != nil {
+			return nil, err
 		}
+		mainMsg["content"] = convertedContent
 
 		// Tool calls for assistant messages
 		if len(toolCalls) > 0 && role == "assistant" {
@@ -961,12 +979,91 @@ func convertClaudeMessageToOpenAI(msg map[string]any) []any {
 			mainMsg["reasoning_content"] = reasoningContent.String()
 		}
 
-		if textContent.Len() > 0 || len(multiModal) > 0 || len(toolCalls) > 0 || reasoningContent.Len() > 0 || len(result) == 0 {
+		if len(contentParts) > 0 || len(toolCalls) > 0 || reasoningContent.Len() > 0 || len(result) == 0 {
 			result = append(result, mainMsg)
 		}
+		return result, nil
 	}
 
-	return result
+	return nil, fmt.Errorf("Claude message content must be a string or an array")
+}
+
+func convertClaudeContentToOpenAI(content any) (any, error) {
+	if content == nil {
+		return "", nil
+	}
+	if text, ok := content.(string); ok {
+		return text, nil
+	}
+	blocks, ok := content.([]any)
+	if !ok {
+		return nil, fmt.Errorf("Claude content must be a string or an array")
+	}
+	parts := make([]any, 0, len(blocks))
+	var text strings.Builder
+	hasMedia := false
+	for _, block := range blocks {
+		part, ok := block.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("Claude content blocks must be objects")
+		}
+		switch part["type"] {
+		case "text":
+			value, _ := part["text"].(string)
+			text.WriteString(value)
+			parts = append(parts, map[string]any{"type": "text", "text": value})
+		case "image", "document":
+			hasMedia = true
+			source, ok := part["source"].(map[string]any)
+			if !ok {
+				return nil, fmt.Errorf("Claude %v requires a source", part["type"])
+			}
+			var data string
+			switch source["type"] {
+			case "url":
+				data, _ = source["url"].(string)
+			case "base64":
+				mediaType, _ := source["media_type"].(string)
+				encoded, _ := source["data"].(string)
+				if mediaType != "" && encoded != "" {
+					data = "data:" + mediaType + ";base64," + encoded
+				}
+			case "text":
+				if part["type"] != "document" {
+					return nil, fmt.Errorf("Claude image does not support a text source")
+				}
+				value, _ := source["data"].(string)
+				if value == "" {
+					return nil, fmt.Errorf("Claude document text source must not be empty")
+				}
+				parts = append(parts, map[string]any{"type": "text", "text": value})
+				continue
+			}
+			if data == "" {
+				return nil, fmt.Errorf("unsupported or empty Claude %v source %q", part["type"], source["type"])
+			}
+			if part["type"] == "image" {
+				parts = append(parts, map[string]any{"type": "image_url", "image_url": map[string]any{"url": data}})
+			} else {
+				file := map[string]any{}
+				if source["type"] == "url" {
+					file["file_url"] = data
+				} else {
+					file["file_data"] = data
+				}
+				if title, _ := part["title"].(string); title != "" {
+					file["filename"] = title
+				}
+				parts = append(parts, map[string]any{"type": "file", "file": file})
+			}
+		default:
+			return nil, fmt.Errorf("unsupported Claude content block type %q", part["type"])
+		}
+	}
+	if !hasMedia {
+		return text.String(), nil
+	}
+	return parts, nil
 }
 
 // ResponseOpenAIToClaude converts OpenAI Chat response to Claude Messages format
@@ -978,20 +1075,27 @@ func ResponseOpenAIToClaude(body []byte) ([]byte, error) {
 	}
 
 	result := map[string]any{
-		"id":           resp["id"],
-		"type":         "message",
-		"role":         "assistant",
-		"model":        resp["model"],
-		"stop_reason":  "end_turn",
-		"content":      []any{},
-		"usage":        map[string]any{},
+		"id":          resp["id"],
+		"type":        "message",
+		"role":        "assistant",
+		"model":       resp["model"],
+		"stop_reason": "end_turn",
+		"content":     []any{},
+		"usage":       map[string]any{},
 	}
 
 	// Extract content from choices
 	if choices, ok := resp["choices"].([]any); ok && len(choices) > 0 {
 		choice := choices[0].(map[string]any)
 		if message, ok := choice["message"].(map[string]any); ok {
-			var content []any
+			content := make([]any, 0)
+			reasoning, _ := message["reasoning_content"].(string)
+			if reasoning == "" {
+				reasoning, _ = message["reasoning"].(string)
+			}
+			if reasoning != "" {
+				content = append(content, map[string]any{"type": "thinking", "thinking": reasoning})
+			}
 
 			// Text content
 			if text, ok := message["content"].(string); ok && text != "" {
@@ -1007,7 +1111,13 @@ func ResponseOpenAIToClaude(body []byte) ([]byte, error) {
 					if toolCall, ok := tc.(map[string]any); ok {
 						if function, ok := toolCall["function"].(map[string]any); ok {
 							var args map[string]any
-							_ = common.Unmarshal([]byte(function["arguments"].(string)), &args)
+							arguments, _ := function["arguments"].(string)
+							if err := common.UnmarshalJsonStr(arguments, &args); err != nil {
+								return nil, fmt.Errorf("invalid upstream tool arguments: %w", err)
+							}
+							if args == nil {
+								return nil, fmt.Errorf("upstream tool arguments must be a JSON object")
+							}
 							content = append(content, map[string]any{
 								"type":  "tool_use",
 								"id":    toolCall["id"],
@@ -1023,14 +1133,7 @@ func ResponseOpenAIToClaude(body []byte) ([]byte, error) {
 
 			// Stop reason mapping
 			if finishReason, ok := choice["finish_reason"].(string); ok {
-				switch finishReason {
-				case "stop", "length", "content_filter":
-					result["stop_reason"] = "end_turn"
-				case "tool_calls":
-					result["stop_reason"] = "tool_use"
-				default:
-					result["stop_reason"] = finishReason
-				}
+				result["stop_reason"] = reasonmap.OpenAIFinishReasonToClaudeStopReason(finishReason)
 			}
 		}
 	}
@@ -1086,7 +1189,7 @@ func StreamResponseOpenAIToClaude(body []byte) ([][]byte, error) {
 			// Text content
 			if text, ok := delta["content"].(string); ok && text != "" {
 				contentDelta := map[string]any{
-					"type": "content_block_delta",
+					"type":  "content_block_delta",
 					"index": 0,
 					"delta": map[string]any{
 						"type": "text_delta",

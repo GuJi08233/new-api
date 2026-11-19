@@ -41,6 +41,18 @@ func TestMaxTokensBounds(t *testing.T) {
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "max_tokens is invalid")
 	})
+	t.Run("mistral min_tokens bounded", func(t *testing.T) {
+		for _, value := range []string{hugeN, "1073741824"} {
+			c := newJSONContext(t, `{"model":"mistral-small","messages":[{"role":"user","content":"hi"}],"min_tokens":`+value+`}`)
+			_, err := GetAndValidateTextRequest(c, relayconstant.RelayModeChatCompletions)
+			require.ErrorContains(t, err, "min_tokens is invalid")
+		}
+		c := newJSONContext(t, `{"model":"mistral-small","messages":[{"role":"user","content":"hi"}],"min_tokens":1073741823}`)
+		request, err := GetAndValidateTextRequest(c, relayconstant.RelayModeChatCompletions)
+		require.NoError(t, err)
+		require.NotNil(t, request.MinTokens)
+		require.EqualValues(t, 1073741823, *request.MinTokens)
+	})
 
 	t.Run("claude max_tokens overflow rejected", func(t *testing.T) {
 		c := newJSONContext(t, `{"model":"claude-sonnet-4","messages":[{"role":"user","content":"hi"}],"max_tokens":`+hugeN+`}`)

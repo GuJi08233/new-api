@@ -67,6 +67,26 @@ func TestChatCompletionsRequestToResponsesRequestRejectsMultipleChoices(t *testi
 	assert.Contains(t, err.Error(), "n>1")
 }
 
+func TestChatResponsesOutputLimitPreservesAliasPrecedence(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		old  *uint
+		new  *uint
+		want *uint
+	}{
+		{name: "absent"},
+		{name: "legacy", old: lo.ToPtr(uint(128)), want: lo.ToPtr(uint(128))},
+		{name: "new limit takes precedence", old: lo.ToPtr(uint(128)), new: lo.ToPtr(uint(64)), want: lo.ToPtr(uint(64))},
+		{name: "explicit zero takes precedence", old: lo.ToPtr(uint(128)), new: lo.ToPtr(uint(0)), want: lo.ToPtr(uint(0))},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			response, err := ChatCompletionsRequestToResponsesRequest(&dto.GeneralOpenAIRequest{Model: "test", MaxTokens: tt.old, MaxCompletionTokens: tt.new})
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, response.MaxOutputTokens)
+		})
+	}
+}
+
 func assistantMessageWithTool(content string, id string, name string, args string) dto.Message {
 	msg := dto.Message{Role: "assistant", Content: content}
 	msg.SetToolCalls([]dto.ToolCallRequest{
@@ -80,4 +100,28 @@ func assistantMessageWithTool(content string, id string, name string, args strin
 		},
 	})
 	return msg
+}
+
+func TestChatResponsesPreservesStructuredToolOutputsAndImageDetail(t *testing.T) {
+	var request dto.GeneralOpenAIRequest
+	require.NoError(t, common.UnmarshalJsonStr(`{
+		"model":"test",
+		"tools":[{"type":"function","function":{"name":"lookup","parameters":{"type":"object"},"strict":false}}],
+		"messages":[
+			{"role":"user","content":[{"type":"image_url","image_url":{"url":"https://example.test/a.png","detail":"low"}},{"type":"file","file":{"file_data":"data:application/pdf;base64,cGRm"}}]},
+			{"role":"tool","tool_call_id":"call_1","content":[{"type":"text","text":"result"},{"type":"image_url","image_url":"https://example.test/result.png"},{"type":"file","file":{"file_url":"https://example.test/report.pdf","filename":"report.pdf"}}]}
+		]}`, &request))
+	response, err := ChatCompletionsRequestToResponsesRequest(&request)
+	require.NoError(t, err)
+	assert.Equal(t, "low", gjson.GetBytes(response.Input, "0.content.0.detail").String())
+	assert.Equal(t, "data:application/pdf;base64,cGRm", gjson.GetBytes(response.Input, "0.content.1.file_data").String())
+	assert.False(t, gjson.GetBytes(response.Input, "0.content.1.file").Exists())
+	assert.Equal(t, "function_call_output", gjson.GetBytes(response.Input, "1.type").String())
+	assert.True(t, gjson.GetBytes(response.Input, "1.output").IsArray())
+	assert.Equal(t, "input_text", gjson.GetBytes(response.Input, "1.output.0.type").String())
+	assert.Equal(t, "https://example.test/result.png", gjson.GetBytes(response.Input, "1.output.1.image_url").String())
+	assert.False(t, gjson.GetBytes(response.Input, "1.output.1.detail").Exists())
+	assert.Equal(t, "https://example.test/report.pdf", gjson.GetBytes(response.Input, "1.output.2.file_url").String())
+	assert.Equal(t, "report.pdf", gjson.GetBytes(response.Input, "1.output.2.filename").String())
+	assert.Equal(t, "false", gjson.GetBytes(response.Tools, "0.strict").Raw)
 }

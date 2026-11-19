@@ -108,6 +108,15 @@ type GeneralOpenAIRequest struct {
 	SearchMode             json.RawMessage `json:"search_mode,omitempty"`
 	// Minimax
 	ReasoningSplit json.RawMessage `json:"reasoning_split,omitempty"`
+	// Mistral native Chat parameters.
+	RandomSeed        *int64          `json:"random_seed,omitempty"`
+	MinTokens         *uint           `json:"min_tokens,omitempty"`
+	RepetitionPenalty *float64        `json:"repetition_penalty,omitempty"`
+	PromptLogProbs    *bool           `json:"prompt_logprobs,omitempty"`
+	TopPromptLogProbs *int            `json:"top_prompt_logprobs,omitempty"`
+	PromptMode        *string         `json:"prompt_mode,omitempty"`
+	SafePrompt        *bool           `json:"safe_prompt,omitempty"`
+	Guardrails        json.RawMessage `json:"guardrails,omitempty"`
 }
 
 func (r *GeneralOpenAIRequest) GetTokenCountMeta() *types.TokenCountMeta {
@@ -302,6 +311,7 @@ type FunctionRequest struct {
 	Parameters           any    `json:"parameters,omitempty"`
 	ParametersJsonSchema any    `json:"parametersJsonSchema,omitempty"`
 	Arguments            string `json:"arguments,omitempty"`
+	Strict               *bool  `json:"strict,omitempty"`
 }
 
 type StreamOptions struct {
@@ -930,11 +940,10 @@ type WebSearchOptions struct {
 
 // https://platform.openai.com/docs/api-reference/responses/create
 type OpenAIResponsesRequest struct {
-	Model   string          `json:"model"`
-	Input   json.RawMessage `json:"input,omitempty"`
-	Include json.RawMessage `json:"include,omitempty"`
-	// 在后台运行推理，暂时还不支持依赖的接口
-	// Background         json.RawMessage `json:"background,omitempty"`
+	Model             string          `json:"model"`
+	Input             json.RawMessage `json:"input,omitempty"`
+	Include           json.RawMessage `json:"include,omitempty"`
+	Background        *bool           `json:"background,omitempty"`
 	Conversation      json.RawMessage `json:"conversation,omitempty"`
 	ContextManagement json.RawMessage `json:"context_management,omitempty"`
 	Instructions      json.RawMessage `json:"instructions,omitempty"`

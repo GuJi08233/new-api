@@ -110,6 +110,9 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	}
 
 	defer service.CloseResponseBodyGracefully(resp)
+	if info.RelayFormat == types.RelayFormatClaude && info.ClaudeConvertInfo == nil {
+		info.ClaudeConvertInfo = &relaycommon.ClaudeConvertInfo{LastMessagesType: relaycommon.LastMessageTypeNone}
+	}
 
 	model := info.UpstreamModelName
 	var responseId string
@@ -198,6 +201,26 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	}
 
 	applyUsagePostProcessing(info, usage, common.StringToByteSlice(usageFrame))
+
+	if !writeFailed && info.RelayFormat == types.RelayFormatClaude && lastStreamData != "" {
+		// The scanner keeps one frame pending; it may contain final text or tool
+		// arguments alongside finish_reason, not just an empty terminal delta.
+		var lastChunk dto.ChatCompletionsStreamResponse
+		if err := common.UnmarshalJsonStr(lastStreamData, &lastChunk); err != nil {
+			return nil, types.NewError(err, types.ErrorCodeBadResponse)
+		}
+		lastChunk.Usage = usage
+		data, err := common.Marshal(lastChunk)
+		if err != nil {
+			return nil, types.NewError(err, types.ErrorCodeBadResponse)
+		}
+		if err := HandleStreamFormat(c, info, string(data), info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
+			if !helper.IsStreamWriteError(err) {
+				return nil, types.NewError(err, types.ErrorCodeBadResponse)
+			}
+			writeFailed = true
+		}
+	}
 
 	if !writeFailed {
 		HandleFinalResponse(c, info, lastStreamData, responseId, createAt, model, systemFingerprint, usage, containStreamUsage)

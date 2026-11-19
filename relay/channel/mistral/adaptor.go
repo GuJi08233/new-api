@@ -2,8 +2,10 @@ package mistral
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
@@ -21,6 +23,10 @@ import (
 type Adaptor struct {
 }
 
+func invalidMistralRequest(err error) *types.NewAPIError {
+	return types.NewErrorWithStatusCode(err, types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+}
+
 func (a *Adaptor) ConvertGeminiRequest(*gin.Context, *relaycommon.RelayInfo, *dto.GeminiChatRequest) (any, error) {
 	//TODO implement me
 	return nil, errors.New("not implemented")
@@ -28,7 +34,16 @@ func (a *Adaptor) ConvertGeminiRequest(*gin.Context, *relaycommon.RelayInfo, *dt
 
 func (a *Adaptor) ConvertClaudeRequest(c *gin.Context, info *relaycommon.RelayInfo, request *dto.ClaudeRequest) (any, error) {
 	if request == nil {
-		return nil, errors.New("request is nil")
+		return nil, invalidMistralRequest(errors.New("request is nil"))
+	}
+	for name, value := range map[string][]byte{
+		"context_management": request.ContextManagement,
+		"container":          request.Container,
+		"mcp_servers":        request.McpServers,
+	} {
+		if isJSONValuePresent(value) {
+			return nil, invalidMistralRequest(fmt.Errorf("mistral does not support Claude %s", name))
+		}
 	}
 	body, err := common.Marshal(request)
 	if err != nil {
@@ -36,17 +51,22 @@ func (a *Adaptor) ConvertClaudeRequest(c *gin.Context, info *relaycommon.RelayIn
 	}
 	body, err = transform.RequestClaudeToOpenAI(body, transform.TransformFlags{})
 	if err != nil {
-		return nil, err
+		return nil, invalidMistralRequest(err)
 	}
 	var chat dto.GeneralOpenAIRequest
 	if err := common.Unmarshal(body, &chat); err != nil {
-		return nil, err
+		return nil, invalidMistralRequest(err)
 	}
 	if request.Thinking != nil && request.Thinking.Type == "enabled" && request.GetEfforts() == "" {
 		chat.ReasoningEffort = "high"
 	}
 	info.InitRequestConversionChain()
 	info.AppendRequestConversion(types.RelayFormatOpenAI)
+	// Responses has no stop/top_k controls. Choose Chat before sending rather
+	// than discarding them or retrying a request on a different endpoint.
+	if len(request.StopSequences) > 0 || request.TopK != nil {
+		return a.ConvertOpenAIRequest(c, info, &chat)
+	}
 	result, err := relayconvert.ConvertRequest(c, info, types.RelayFormatOpenAIResponses, &chat)
 	if err != nil {
 		return nil, err
@@ -72,8 +92,13 @@ func (a *Adaptor) Init(info *relaycommon.RelayInfo) {
 }
 
 func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
-	if info.RelayFormat == types.RelayFormatClaude && info.GetFinalRequestRelayFormat() == types.RelayFormatOpenAIResponses {
-		return relaycommon.GetFullRequestURL(info.ChannelBaseUrl, "/v1/responses", info.ChannelType), nil
+	if info.RelayFormat == types.RelayFormatClaude {
+		switch info.GetFinalRequestRelayFormat() {
+		case types.RelayFormatOpenAIResponses:
+			return relaycommon.GetFullRequestURL(info.ChannelBaseUrl, "/v1/responses", info.ChannelType), nil
+		case types.RelayFormatOpenAI:
+			return relaycommon.GetFullRequestURL(info.ChannelBaseUrl, "/v1/chat/completions", info.ChannelType), nil
+		}
 	}
 	return relaycommon.GetFullRequestURL(info.ChannelBaseUrl, info.RequestURLPath, info.ChannelType), nil
 }
@@ -86,9 +111,13 @@ func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *rel
 
 func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayInfo, request *dto.GeneralOpenAIRequest) (any, error) {
 	if request == nil {
-		return nil, errors.New("request is nil")
+		return nil, invalidMistralRequest(errors.New("request is nil"))
 	}
-	return requestOpenAI2Mistral(request)
+	converted, err := requestOpenAI2Mistral(request)
+	if err != nil {
+		return nil, invalidMistralRequest(err)
+	}
+	return converted, nil
 }
 
 func (a *Adaptor) ConvertRerankRequest(c *gin.Context, relayMode int, request dto.RerankRequest) (any, error) {
@@ -102,17 +131,55 @@ func (a *Adaptor) ConvertEmbeddingRequest(c *gin.Context, info *relaycommon.Rela
 
 func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.OpenAIResponsesRequest) (any, error) {
 	if info != nil && info.RelayMode == relayconstant.RelayModeResponsesCompact {
-		return nil, errors.New("mistral does not support /v1/responses/compact")
+		return nil, invalidMistralRequest(errors.New("mistral does not support /v1/responses/compact"))
+	}
+	if info != nil {
+		var chat *dto.GeneralOpenAIRequest
+		switch original := info.Request.(type) {
+		case *dto.ClaudeRequest:
+			if original != nil && (len(original.StopSequences) > 0 || original.TopK != nil) {
+				return nil, invalidMistralRequest(errors.New("mistral Responses cannot preserve Claude stop_sequences/top_k; disable forced Responses conversion"))
+			}
+		case *dto.GeneralOpenAIRequest:
+			chat = original
+		}
+		if chat != nil {
+			var unsupported []string
+			for _, option := range []struct {
+				name     string
+				provided bool
+			}{
+				{"stop", chat.Stop != nil}, {"top_k", chat.TopK != nil},
+				{"seed", chat.Seed != nil}, {"random_seed", chat.RandomSeed != nil},
+				{"min_tokens", chat.MinTokens != nil}, {"repetition_penalty", chat.RepetitionPenalty != nil},
+				{"prompt_logprobs", chat.PromptLogProbs != nil}, {"top_prompt_logprobs", chat.TopPromptLogProbs != nil},
+				{"prompt_mode", chat.PromptMode != nil}, {"safe_prompt", chat.SafePrompt != nil},
+				{"guardrails", isJSONValuePresent(chat.Guardrails)}, {"logprobs", chat.LogProbs != nil},
+				{"top_logprobs", chat.TopLogProbs != nil}, {"prediction", isJSONValuePresent(chat.Prediction)},
+				{"functions", isJSONValuePresent(chat.Functions)}, {"function_call", isJSONValuePresent(chat.FunctionCall)},
+			} {
+				if option.provided {
+					unsupported = append(unsupported, option.name)
+				}
+			}
+			if len(unsupported) > 0 {
+				return nil, invalidMistralRequest(fmt.Errorf("mistral Responses cannot preserve %s; disable forced Responses conversion", strings.Join(unsupported, ", ")))
+			}
+		}
 	}
 	if request.Model == "" && info != nil {
 		request.Model = info.UpstreamModelName
 	}
-	return requestResponses2Mistral(request)
+	converted, err := requestResponses2Mistral(request)
+	if err != nil {
+		return nil, invalidMistralRequest(err)
+	}
+	return converted, nil
 }
 
 func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (any, error) {
-	if info.RelayFormat == types.RelayFormatClaude && info.GetFinalRequestRelayFormat() != types.RelayFormatOpenAIResponses {
-		return nil, errors.New("Mistral /v1/messages requires conversion to Responses; disable pass-through request body")
+	if info.RelayFormat == types.RelayFormatClaude && info.GetFinalRequestRelayFormat() != types.RelayFormatOpenAIResponses && info.GetFinalRequestRelayFormat() != types.RelayFormatOpenAI {
+		return nil, invalidMistralRequest(errors.New("Mistral /v1/messages requires conversion to Chat or Responses; disable pass-through request body"))
 	}
 	return channel.DoApiRequest(a, c, info, requestBody)
 }
@@ -129,6 +196,11 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 	case info.RelayMode == relayconstant.RelayModeResponses:
 		usage, err = openai.OaiResponsesHandler(c, info, resp)
 	default:
+		if info.RelayFormat == types.RelayFormatClaude && info.GetFinalRequestRelayFormat() == types.RelayFormatOpenAI {
+			mode := info.RelayMode
+			info.RelayMode = relayconstant.RelayModeChatCompletions
+			defer func() { info.RelayMode = mode }()
+		}
 		body, normalizeErr := normalizeMistralChatBody(resp.Body, info.IsStream)
 		if normalizeErr != nil {
 			return nil, types.NewOpenAIError(normalizeErr, types.ErrorCodeReadResponseBodyFailed, http.StatusInternalServerError)

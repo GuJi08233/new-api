@@ -62,6 +62,7 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	seenToolIDs := make(map[string]bool)
 	imageCallsBillable := true
 	terminalOutputSeen := false
+	usageSeen := false
 
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
 
@@ -73,21 +74,11 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 			return
 		}
 		switch streamResponse.Type {
-		case "response.completed", "response.done":
+		case "response.completed", "response.done", "response.failed", "response.incomplete", "response.cancelled", "response.canceled":
 			if streamResponse.Response != nil {
 				if streamResponse.Response.Usage != nil {
-					if streamResponse.Response.Usage.InputTokens != 0 {
-						usage.PromptTokens = streamResponse.Response.Usage.InputTokens
-					}
-					if streamResponse.Response.Usage.OutputTokens != 0 {
-						usage.CompletionTokens = streamResponse.Response.Usage.OutputTokens
-					}
-					if streamResponse.Response.Usage.TotalTokens != 0 {
-						usage.TotalTokens = streamResponse.Response.Usage.TotalTokens
-					}
-					if streamResponse.Response.Usage.InputTokensDetails != nil {
-						usage.PromptTokensDetails = dto.MergeInputTokenDetails(usage.PromptTokensDetails, *streamResponse.Response.Usage.InputTokensDetails)
-					}
+					usage = relayconvert.UsageFromResponsesUsage(streamResponse.Response.Usage)
+					usageSeen = true
 				}
 				imageCallsBillable = responsesImageCallsBillable(streamResponse.Response.Status)
 				// 完整终态优先，避免 item.done 与终态重复收费；保留每张图片的实际质量。
@@ -96,8 +87,9 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 					terminalOutputSeen = true
 				}
 			}
-		case "response.failed", "response.incomplete", "response.cancelled", "response.canceled":
-			imageCallsBillable = false
+			if streamResponse.Type != "response.completed" && streamResponse.Type != "response.done" {
+				imageCallsBillable = false
+			}
 		case "response.output_text.delta":
 			// 处理输出文本
 			responseTextBuilder.WriteString(streamResponse.Delta)
@@ -129,7 +121,7 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		}
 	})
 
-	if usage.CompletionTokens == 0 {
+	if !usageSeen && usage.CompletionTokens == 0 {
 		// 计算输出文本的 token 数量
 		tempStr := responseTextBuilder.String()
 		if len(tempStr) > 0 {
@@ -139,7 +131,7 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		}
 	}
 
-	if usage.PromptTokens == 0 && usage.CompletionTokens != 0 {
+	if !usageSeen && usage.PromptTokens == 0 && usage.CompletionTokens != 0 {
 		usage.PromptTokens = info.GetEstimatePromptTokens()
 	}
 

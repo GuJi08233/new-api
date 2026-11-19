@@ -9,6 +9,44 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestResponseOpenAIToClaudePreservesReasoningAndTermination(t *testing.T) {
+	for _, tt := range []struct {
+		finish string
+		stop   string
+	}{
+		{finish: "stop", stop: "end_turn"},
+		{finish: "length", stop: "max_tokens"},
+		{finish: "content_filter", stop: "refusal"},
+	} {
+		t.Run(tt.finish, func(t *testing.T) {
+			body := `{"id":"test","choices":[{"message":{"role":"assistant","content":"answer","reasoning_content":"think"},"finish_reason":"` + tt.finish + `"}],"usage":{"prompt_tokens":10,"completion_tokens":5}}`
+			result, err := ResponseOpenAIToClaude([]byte(body))
+			require.NoError(t, err)
+			var response struct {
+				StopReason string           `json:"stop_reason"`
+				Content    []map[string]any `json:"content"`
+			}
+			require.NoError(t, common.Unmarshal(result, &response))
+			assert.Equal(t, tt.stop, response.StopReason)
+			assert.Equal(t, []map[string]any{
+				{"type": "thinking", "thinking": "think"},
+				{"type": "text", "text": "answer"},
+			}, response.Content)
+		})
+	}
+}
+
+func TestResponseOpenAIToClaudeRejectsInvalidToolArguments(t *testing.T) {
+	for _, arguments := range []any{"{", "null", "[]", nil, 3} {
+		body, err := common.Marshal(map[string]any{"choices": []any{map[string]any{"message": map[string]any{
+			"tool_calls": []any{map[string]any{"id": "test", "function": map[string]any{"name": "lookup", "arguments": arguments}}},
+		}}}})
+		require.NoError(t, err)
+		_, err = ResponseOpenAIToClaude(body)
+		require.ErrorContains(t, err, "arguments")
+	}
+}
+
 func TestRequestClaudeToOpenAIReasoningEffort(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -19,6 +57,7 @@ func TestRequestClaudeToOpenAIReasoningEffort(t *testing.T) {
 		{name: "enabled", settings: `"thinking":{"type":"enabled","budget_tokens":2048}`, effort: "medium"},
 		{name: "adaptive with explicit effort", settings: `"thinking":{"type":"adaptive"},"output_config":{"effort":"low"}`, effort: "low"},
 	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			converted, err := RequestClaudeToOpenAI([]byte(`{"model":"test","messages":[],`+tt.settings+`}`), TransformFlags{})
@@ -28,6 +67,37 @@ func TestRequestClaudeToOpenAIReasoningEffort(t *testing.T) {
 			assert.Equal(t, tt.effort, request["reasoning_effort"])
 		})
 	}
+}
+
+func TestClaudeContentOrderAndToolErrorsArePreserved(t *testing.T) {
+	result, err := RequestClaudeToOpenAI([]byte(`{
+		"model":"test","top_k":0,"messages":[{"role":"user","content":[
+			{"type":"text","text":"before"},
+			{"type":"tool_result","tool_use_id":"tool_1","is_error":true,"content":[{"type":"text","text":"failed"}]},
+			{"type":"text","text":"look"},{"type":"image","source":{"type":"url","url":"https://example.test/a.png"}},
+			{"type":"text","text":"then"},{"type":"document","source":{"type":"text","data":"document body"}}
+		]}]}`), TransformFlags{})
+	require.NoError(t, err)
+	var request struct {
+		TopK     *int `json:"top_k"`
+		Messages []struct {
+			Role    string `json:"role"`
+			Content any    `json:"content"`
+		} `json:"messages"`
+	}
+	require.NoError(t, common.Unmarshal(result, &request))
+	require.NotNil(t, request.TopK)
+	assert.Zero(t, *request.TopK)
+	require.Len(t, request.Messages, 3)
+	assert.Equal(t, "before", request.Messages[0].Content)
+	assert.Equal(t, "tool", request.Messages[1].Role)
+	assert.Equal(t, "Tool execution failed (is_error=true): failed", request.Messages[1].Content)
+	assert.Equal(t, []any{
+		map[string]any{"type": "text", "text": "look"},
+		map[string]any{"type": "image_url", "image_url": map[string]any{"url": "https://example.test/a.png"}},
+		map[string]any{"type": "text", "text": "then"},
+		map[string]any{"type": "text", "text": "document body"},
+	}, request.Messages[2].Content)
 }
 
 func TestRequestOpenAIToClaude_Basic(t *testing.T) {
@@ -160,8 +230,8 @@ func TestRequestOpenAIToClaude_CodexOAuth(t *testing.T) {
 	}`
 
 	flags := TransformFlags{
-		IsCodexOAuth:   true,
-		CodexFastMode:  true,
+		IsCodexOAuth:  true,
+		CodexFastMode: true,
 	}
 
 	result, err := RequestOpenAIToClaude([]byte(openAIReq), flags)
