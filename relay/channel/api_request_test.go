@@ -168,7 +168,7 @@ func TestDoRequest_PassthroughForwardsClientHeadersWithoutGatewayAdditions(t *te
 	defer resp.Body.Close()
 
 	headers := <-received
-	assert.Equal(t, "beta-a, beta-b", headers.Get("Anthropic-Beta"))
+	assert.Equal(t, []string{"beta-a", "beta-b"}, headers.Values("Anthropic-Beta"))
 	assert.Empty(t, headers.Values("User-Agent"))
 	for _, name := range []string{"CF-Connecting-IP", "CF-Ray", "CF-IPCountry", "CDN-Loop", "X-Forwarded-For",
 		"X-Forwarded-Proto", "X-Real-IP", "True-Client-IP", "Forwarded", "Via"} {
@@ -611,7 +611,7 @@ func TestProcessHeaderOverride_PassHeadersTemplateSetsRuntimeHeaders(t *testing.
 	require.False(t, exists)
 
 	upstreamReq := httptest.NewRequest(http.MethodPost, "https://example.com/v1/responses", nil)
-	applyHeaderOverrideToRequest(upstreamReq, headers)
+	require.NoError(t, ApplyHeaderOverrideToRequest(info, ctx, upstreamReq))
 	require.Equal(t, "Codex CLI", upstreamReq.Header.Get("Originator"))
 	require.Equal(t, "sess-123", upstreamReq.Header.Get("Session_id"))
 	require.Empty(t, upstreamReq.Header.Get("X-Codex-Beta-Features"))

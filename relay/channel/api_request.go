@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -238,7 +239,21 @@ func applyHeaderOverridePlaceholders(template string, c *gin.Context, apiKey str
 //
 // Passthrough rules are applied first, then normal overrides are applied, so explicit overrides win.
 func processHeaderOverride(info *common.RelayInfo, c *gin.Context) (map[string]string, error) {
-	headerOverride := make(map[string]string)
+	headerValues, err := resolveHeaderOverrideValues(info, c)
+	if err != nil {
+		return nil, err
+	}
+	headerOverride := make(map[string]string, len(headerValues))
+	for key, values := range headerValues {
+		headerOverride[key] = strings.Join(values, ", ")
+	}
+	return headerOverride, nil
+}
+
+// resolveHeaderOverrideValues keeps every field line of passthrough headers so
+// repeated client headers reach the upstream exactly as the client sent them.
+func resolveHeaderOverrideValues(info *common.RelayInfo, c *gin.Context) (map[string][]string, error) {
+	headerOverride := make(map[string][]string)
 	if info == nil {
 		return headerOverride, nil
 	}
@@ -311,12 +326,11 @@ func processHeaderOverride(info *common.RelayInfo, c *gin.Context) (map[string]s
 					continue
 				}
 			}
-			// Keep every value of repeated headers (e.g. multiple anthropic-beta lines).
-			value := strings.TrimSpace(strings.Join(c.Request.Header.Values(name), ", "))
-			if value == "" {
+			values := c.Request.Header.Values(name)
+			if strings.TrimSpace(strings.Join(values, "")) == "" {
 				continue
 			}
-			headerOverride[strings.ToLower(strings.TrimSpace(name))] = value
+			headerOverride[strings.ToLower(strings.TrimSpace(name))] = slices.Clone(values)
 		}
 	}
 
@@ -347,7 +361,7 @@ func processHeaderOverride(info *common.RelayInfo, c *gin.Context) (map[string]s
 			continue
 		}
 
-		headerOverride[key] = value
+		headerOverride[key] = []string{value}
 	}
 	return headerOverride, nil
 }
@@ -356,15 +370,11 @@ func ResolveHeaderOverride(info *common.RelayInfo, c *gin.Context) (map[string]s
 	return processHeaderOverride(info, c)
 }
 
-func applyHeaderOverrideToRequest(req *http.Request, headerOverride map[string]string) {
-	if req == nil {
-		return
-	}
-	for key, value := range headerOverride {
-		req.Header.Set(key, value)
-		// set Host in req
-		if strings.EqualFold(key, "Host") {
-			req.Host = value
+func applyHeaderOverrideValues(header http.Header, req *http.Request, headerOverride map[string][]string) {
+	for key, values := range headerOverride {
+		header[http.CanonicalHeaderKey(key)] = slices.Clone(values)
+		if req != nil && strings.EqualFold(key, "Host") && len(values) > 0 {
+			req.Host = values[0]
 		}
 	}
 }
@@ -376,11 +386,13 @@ func ApplyHeaderOverride(info *common.RelayInfo, c *gin.Context, req *http.Reque
 }
 
 func ApplyHeaderOverrideToRequest(info *common.RelayInfo, c *gin.Context, req *http.Request) error {
-	headerOverride, err := processHeaderOverride(info, c)
+	headerOverride, err := resolveHeaderOverrideValues(info, c)
 	if err != nil {
 		return err
 	}
-	applyHeaderOverrideToRequest(req, headerOverride)
+	if req != nil {
+		applyHeaderOverrideValues(req.Header, req, headerOverride)
+	}
 	// net/http sends "Go-http-client/1.1" when User-Agent is absent; an
 	// explicitly empty value suppresses it so a client without a UA stays without one.
 	if req == nil {
@@ -454,13 +466,11 @@ func DoWssRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 	}
 	// 在 SetupRequestHeader 之后应用 Header Override，确保用户设置优先级最高
 	// 这样可以覆盖默认的 Authorization header 设置
-	headerOverride, err := processHeaderOverride(info, c)
+	headerOverride, err := resolveHeaderOverrideValues(info, c)
 	if err != nil {
 		return nil, err
 	}
-	for key, value := range headerOverride {
-		targetHeader.Set(key, value)
-	}
+	applyHeaderOverrideValues(targetHeader, nil, headerOverride)
 	requestCtx := context.Background()
 	if c != nil && c.Request != nil {
 		requestCtx = c.Request.Context()
