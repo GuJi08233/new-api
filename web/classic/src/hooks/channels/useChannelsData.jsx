@@ -987,7 +987,7 @@ export const useChannelsData = () => {
         return Promise.resolve();
       }
 
-      const { success, message, time, error_code } = res.data;
+      const { success, message, time, error_code, upstream_model } = res.data;
 
       // 更新测试结果
       setModelTestResults((prev) => ({
@@ -998,6 +998,7 @@ export const useChannelsData = () => {
           time: time || 0,
           timestamp: Date.now(),
           errorCode: error_code || null,
+          upstreamModel: upstream_model || '',
         },
       }));
 
@@ -1038,6 +1039,7 @@ export const useChannelsData = () => {
           time: 0,
           timestamp: Date.now(),
           errorCode: null,
+          upstreamModel: '',
         },
       }));
       showError(error.message || t('测试失败'));

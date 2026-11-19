@@ -22,7 +22,8 @@ func GetAllLogs(c *gin.Context) {
 	group := c.Query("group")
 	requestId := c.Query("request_id")
 	upstreamRequestId := c.Query("upstream_request_id")
-	logs, total, err := model.GetAllLogs(logType, startTimestamp, endTimestamp, modelName, username, tokenName, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), channel, group, requestId, upstreamRequestId)
+	ip := c.Query("ip")
+	logs, total, err := model.GetAllLogs(logType, startTimestamp, endTimestamp, modelName, username, tokenName, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), channel, group, requestId, upstreamRequestId, ip)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -44,7 +45,8 @@ func GetUserLogs(c *gin.Context) {
 	group := c.Query("group")
 	requestId := c.Query("request_id")
 	upstreamRequestId := c.Query("upstream_request_id")
-	logs, total, err := model.GetUserLogs(userId, logType, startTimestamp, endTimestamp, modelName, tokenName, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), group, requestId, upstreamRequestId)
+	ip := c.Query("ip")
+	logs, total, err := model.GetUserLogs(userId, logType, startTimestamp, endTimestamp, modelName, tokenName, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), group, requestId, upstreamRequestId, ip)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -104,7 +106,8 @@ func GetLogsStat(c *gin.Context) {
 	modelName := c.Query("model_name")
 	channel, _ := strconv.Atoi(c.Query("channel"))
 	group := c.Query("group")
-	stat, err := model.SumUsedQuota(logType, startTimestamp, endTimestamp, modelName, username, tokenName, channel, group)
+	ip := c.Query("ip")
+	stat, err := model.SumUsedQuota(logType, startTimestamp, endTimestamp, modelName, username, tokenName, channel, group, ip)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -114,9 +117,13 @@ func GetLogsStat(c *gin.Context) {
 		"success": true,
 		"message": "",
 		"data": gin.H{
-			"quota": stat.Quota,
-			"rpm":   stat.Rpm,
-			"tpm":   stat.Tpm,
+			"quota":            stat.Quota,
+			"rpm":              stat.Rpm,
+			"rpm_total":        stat.RpmTotal,
+			"rpm_success_rate": stat.RpmSuccessRate,
+			"tpm":              stat.Tpm,
+			"input_tpm":        stat.InputTpm,
+			"output_tpm":       stat.OutputTpm,
 		},
 	})
 	return
@@ -131,7 +138,8 @@ func GetLogsSelfStat(c *gin.Context) {
 	modelName := c.Query("model_name")
 	channel, _ := strconv.Atoi(c.Query("channel"))
 	group := c.Query("group")
-	quotaNum, err := model.SumUsedQuota(logType, startTimestamp, endTimestamp, modelName, username, tokenName, channel, group)
+	ip := c.Query("ip")
+	quotaNum, err := model.SumUsedQuota(logType, startTimestamp, endTimestamp, modelName, username, tokenName, channel, group, ip)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -141,9 +149,13 @@ func GetLogsSelfStat(c *gin.Context) {
 		"success": true,
 		"message": "",
 		"data": gin.H{
-			"quota": quotaNum.Quota,
-			"rpm":   quotaNum.Rpm,
-			"tpm":   quotaNum.Tpm,
+			"quota":            quotaNum.Quota,
+			"rpm":              quotaNum.Rpm,
+			"rpm_total":        quotaNum.RpmTotal,
+			"rpm_success_rate": quotaNum.RpmSuccessRate,
+			"tpm":              quotaNum.Tpm,
+			"input_tpm":        quotaNum.InputTpm,
+			"output_tpm":       quotaNum.OutputTpm,
 			//"token": tokenNum,
 		},
 	})

@@ -8981,6 +8981,21 @@
     "暂无可收徒的师长，请等金丹弟子空闲并回到本宗。": "No teacher is available. Wait for an idle Golden Core disciple to return to the main sect.",
     "金丹以上师长最多收 {{slots}} 名在宗亲传，占用原有弟子名额并支付相同招募费。": "Golden Core teachers or above may have up to {{slots}} direct disciples currently in the sect, using the usual disciple capacity and recruitment cost.",
     "师徒都在本宗、未受伤且师长境界更高时，徒弟自然修为 +{{pct}}%；丹药与派遣修为不加成。": "When both are healthy at the main sect and the teacher has a higher realm, the student gains +{{pct}}% natural cultivation; pills and mission experience receive no bonus.",
-    "{{who}}成为第 {{n}} 代亲传弟子": "{{who}} became a generation {{n}} direct disciple"
+    "{{who}}成为第 {{n}} 代亲传弟子": "{{who}} became a generation {{n}} direct disciple",
+    "总": "Total",
+    "思考强度": "Reasoning Effort",
+    "上游模型：{{model}}": "Upstream model: {{model}}",
+    "上游未返回": "Not returned by upstream",
+    "描述会独立保存，不受「用户可选」状态影响": "Descriptions are saved independently and retained regardless of the User Selectable setting",
+    "默认排序": "Default order",
+    "排序依据": "Sort by",
+    "排序方向": "Sort direction",
+    "从低到高": "Low to high",
+    "从高到低": "High to low",
+    "按当前分组价格排序，无对应固定价格的模型置后": "Sorted by current group price; models without a matching fixed price appear last",
+    "单次价格": "Per-call price",
+    "管理员邮件通知": "Admin Email Notifications",
+    "关闭后不再向管理员发送通道禁用、恢复、测试完成及上游模型变更等邮件通知（不影响用户验证邮件及 Webhook/Bark/Gotify 通知）": "When disabled, stops sending admin email alerts for channel disable/recovery, test completion, and upstream model updates (does not affect user verification emails or Webhook/Bark/Gotify notifications)",
+    "关闭通知": "Disable Notifications"
   }
 }

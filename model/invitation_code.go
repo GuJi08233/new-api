@@ -171,6 +171,14 @@ func ReserveInvitationCode(codeStr string) (*InvitationCode, error) {
 		if code.Status != common.InvitationCodeStatusEnabled {
 			return ErrInvitationCodeNotUsable
 		}
+		if code.UserId > 0 {
+			var creator User
+			if err := tx.Unscoped().Select("status, deleted_at").Where("id = ?", code.UserId).First(&creator).Error; err == nil {
+				if creator.Status != common.UserStatusEnabled || creator.DeletedAt.Valid {
+					return ErrInvitationCodeNotUsable
+				}
+			}
+		}
 		maxUses := resolveMaxUses(code.MaxUses)
 		// CAS 递增占用次数,SQLite 等无行锁场景下并发注册同样不会超占
 		result := tx.Model(&InvitationCode{}).

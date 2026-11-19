@@ -11,6 +11,7 @@ const (
 	EndpointTypeJinaRerank            EndpointType = "jina-rerank"
 	EndpointTypeImageGeneration       EndpointType = "image-generation"
 	EndpointTypeEmbeddings            EndpointType = "embeddings"
+	EndpointTypeModerations           EndpointType = "moderations"
 	EndpointTypeOpenAIVideo           EndpointType = "openai-video"
 	EndpointTypeTypeSafe              EndpointType = "typesafe"
 	EndpointTypeGeminiDecisions       EndpointType = "gemini-decisions"

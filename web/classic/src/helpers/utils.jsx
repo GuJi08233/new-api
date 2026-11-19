@@ -253,6 +253,12 @@ export function timestamp2string1(
   if (hour.length === 1) {
     hour = '0' + hour;
   }
+  if (dataExportDefaultTime === 'month') {
+    return year + '-' + month;
+  }
+  if (dataExportDefaultTime === 'year') {
+    return year.toString();
+  }
   // 仅在跨年时显示年份
   let str = showYear ? year + '-' + month + '-' + day : month + '-' + day;
   if (dataExportDefaultTime === 'hour') {
@@ -848,6 +854,9 @@ export const resetPricingFilters = ({
   setFilterTag,
   setCurrentPage,
   setTokenUnit,
+  setSortBy,
+  setSortDirection,
+  setTableSortOrder,
 }) => {
   handleChange?.(DEFAULT_PRICING_FILTERS.search);
   setShowWithRecharge?.(DEFAULT_PRICING_FILTERS.showWithRecharge);
@@ -861,4 +870,7 @@ export const resetPricingFilters = ({
   setFilterVendor?.(DEFAULT_PRICING_FILTERS.filterVendor);
   setFilterTag?.(DEFAULT_PRICING_FILTERS.filterTag);
   setCurrentPage?.(DEFAULT_PRICING_FILTERS.currentPage);
+  setSortBy?.('default');
+  setSortDirection?.('asc');
+  setTableSortOrder?.(false);
 };

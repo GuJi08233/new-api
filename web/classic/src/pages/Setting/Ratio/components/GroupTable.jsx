@@ -25,13 +25,15 @@ function parseJSON(str, fallback) {
   }
 }
 
-function buildRows(groupRatioStr, userUsableGroupsStr) {
+function buildRows(groupRatioStr, userUsableGroupsStr, groupDescriptionsStr) {
   const ratioMap = parseJSON(groupRatioStr, {});
   const usableMap = parseJSON(userUsableGroupsStr, {});
+  const descriptionMap = parseJSON(groupDescriptionsStr, {});
 
   const allNames = new Set([
     ...Object.keys(ratioMap),
     ...Object.keys(usableMap),
+    ...Object.keys(descriptionMap),
   ]);
 
   return Array.from(allNames).map((name) => ({
@@ -39,17 +41,19 @@ function buildRows(groupRatioStr, userUsableGroupsStr) {
     name,
     ratio: ratioMap[name] ?? 1,
     selectable: name in usableMap,
-    description: usableMap[name] ?? '',
+    description: descriptionMap[name] ?? usableMap[name] ?? '',
   }));
 }
 
 export function serializeGroupTable(rows) {
   const groupRatio = {};
   const userUsableGroups = {};
+  const groupDescriptions = {};
 
   rows.forEach((row) => {
     if (!row.name) return;
     groupRatio[row.name] = row.ratio;
+    groupDescriptions[row.name] = row.description;
     if (row.selectable) {
       userUsableGroups[row.name] = row.description;
     }
@@ -58,14 +62,20 @@ export function serializeGroupTable(rows) {
   return {
     GroupRatio: JSON.stringify(groupRatio, null, 2),
     UserUsableGroups: JSON.stringify(userUsableGroups, null, 2),
+    GroupDescriptions: JSON.stringify(groupDescriptions, null, 2),
   };
 }
 
-export default function GroupTable({ groupRatio, userUsableGroups, onChange }) {
+export default function GroupTable({
+  groupRatio,
+  userUsableGroups,
+  groupDescriptions,
+  onChange,
+}) {
   const { t } = useTranslation();
 
   const [rows, setRows] = useState(() =>
-    buildRows(groupRatio, userUsableGroups),
+    buildRows(groupRatio, userUsableGroups, groupDescriptions),
   );
 
   // Use functional setRows to keep updateRow/addRow/removeRow referentially
@@ -188,19 +198,14 @@ export default function GroupTable({ groupRatio, userUsableGroups, onChange }) {
         title: t('描述'),
         dataIndex: 'description',
         key: 'description',
-        render: (_, record) =>
-          record.selectable ? (
-            <Input
-              size='small'
-              value={record.description}
-              placeholder={t('分组描述')}
-              onChange={(v) => updateRow(record._id, 'description', v)}
-            />
-          ) : (
-            <Text type='tertiary' size='small'>
-              -
-            </Text>
-          ),
+        render: (_, record) => (
+          <Input
+            size='small'
+            value={record.description}
+            placeholder={t('分组描述')}
+            onChange={(v) => updateRow(record._id, 'description', v)}
+          />
+        ),
       },
       {
         title: '',

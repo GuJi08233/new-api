@@ -18,7 +18,12 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import { describe, expect, test } from 'bun:test';
-import { calculateModelPrice } from './modelPricing';
+import {
+  calculateModelPrice,
+  getModelPriceSortValue,
+  resolvePricingGroup,
+  sortPricingModels,
+} from './modelPricing';
 
 const pricing = {
   record: {
@@ -92,3 +97,118 @@ describe('分组免费定价', () => {
     expect(result.completionPrice).toBe('$6.0000');
   });
 });
+
+describe('模型广场排序', () => {
+  const groupRatio = { default: 1, vip: 0.5, free: 0 };
+
+  test('resolvePricingGroup 按选中分组或最低可用倍率分组解析', () => {
+    const model = { enable_groups: ['default', 'vip'] };
+    expect(resolvePricingGroup(model, 'default', groupRatio)).toEqual({
+      usedGroup: 'default',
+      usedGroupRatio: 1,
+    });
+    expect(resolvePricingGroup(model, 'all', groupRatio)).toEqual({
+      usedGroup: 'vip',
+      usedGroupRatio: 0.5,
+    });
+    expect(
+      resolvePricingGroup(
+        { enable_groups: ['default', 'free'] },
+        'all',
+        groupRatio,
+      ),
+    ).toEqual({
+      usedGroup: 'free',
+      usedGroupRatio: 0,
+    });
+  });
+
+  test('按输入价格排序并将无固定价格或按次模型置后', () => {
+    const models = [
+      {
+        model_name: 'per-call',
+        quota_type: 1,
+        model_price: 0.1,
+        enable_groups: ['default'],
+      },
+      {
+        model_name: 'expensive',
+        quota_type: 0,
+        model_ratio: 5,
+        completion_ratio: 2,
+        enable_groups: ['default'],
+      },
+      {
+        model_name: 'tiered',
+        quota_type: 0,
+        model_ratio: 1,
+        billing_mode: 'tiered_expr',
+        enable_groups: ['default'],
+      },
+      {
+        model_name: 'cheap',
+        quota_type: 0,
+        model_ratio: 1,
+        completion_ratio: 3,
+        enable_groups: ['default'],
+      },
+    ];
+
+    expect(
+      sortPricingModels(models, {
+        sortBy: 'input_price',
+        sortDirection: 'asc',
+        selectedGroup: 'default',
+        groupRatio,
+      }).map((m) => m.model_name),
+    ).toEqual(['cheap', 'expensive', 'per-call', 'tiered']);
+
+    expect(
+      sortPricingModels(models, {
+        sortBy: 'input_price',
+        sortDirection: 'desc',
+        selectedGroup: 'default',
+        groupRatio,
+      }).map((m) => m.model_name),
+    ).toEqual(['expensive', 'cheap', 'per-call', 'tiered']);
+  });
+
+  test('按模型名称自然排序并支持输出与单次价格计算', () => {
+    const models = [
+      { model_name: 'gpt-10' },
+      { model_name: 'gpt-2' },
+      { model_name: 'claude-3' },
+    ];
+    expect(
+      sortPricingModels(models, {
+        sortBy: 'model_name',
+        sortDirection: 'asc',
+      }).map((m) => m.model_name),
+    ).toEqual(['claude-3', 'gpt-2', 'gpt-10']);
+
+    const tokenModel = {
+      model_name: 'm1',
+      quota_type: 0,
+      model_ratio: 2,
+      completion_ratio: 3,
+      enable_groups: ['vip'],
+    };
+    expect(
+      getModelPriceSortValue(tokenModel, 'output_price', 'vip', groupRatio),
+    ).toBe(6);
+    expect(
+      getModelPriceSortValue(tokenModel, 'per_call_price', 'vip', groupRatio),
+    ).toBeNull();
+
+    const callModel = {
+      model_name: 'm2',
+      quota_type: 1,
+      model_price: 0.4,
+      enable_groups: ['vip'],
+    };
+    expect(
+      getModelPriceSortValue(callModel, 'per_call_price', 'vip', groupRatio),
+    ).toBeCloseTo(0.2);
+  });
+});
+

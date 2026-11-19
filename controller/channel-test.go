@@ -22,6 +22,7 @@ import (
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"github.com/QuantumNous/new-api/relay"
 	relaychannel "github.com/QuantumNous/new-api/relay/channel"
+	"github.com/QuantumNous/new-api/relay/channel/mistral"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
@@ -38,9 +39,10 @@ import (
 )
 
 type testResult struct {
-	context     *gin.Context
-	localErr    error
-	newAPIError *types.NewAPIError
+	context       *gin.Context
+	localErr      error
+	newAPIError   *types.NewAPIError
+	upstreamModel string
 }
 
 // noMultiKeyIndexOverride 表示调用方无需覆写日志里的密钥编号：传入的渠道对象自带
@@ -60,6 +62,9 @@ func normalizeChannelTestEndpoint(channel *model.Channel, modelName, endpointTyp
 	}
 	if channel != nil && channel.Type == constant.ChannelTypeTypeSafe {
 		return string(constant.EndpointTypeTypeSafe)
+	}
+	if channel != nil && channel.Type == constant.ChannelTypeMistral && mistral.IsModerationModel(modelName) {
+		return string(constant.EndpointTypeModerations)
 	}
 	if channel != nil && channel.Type == constant.ChannelTypeGemini && modelName == constant.GeminiDecisionsModel {
 		return string(constant.EndpointTypeGeminiDecisions)
@@ -144,6 +149,9 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 	}
 
 	endpointType = normalizeChannelTestEndpoint(channel, testModel, endpointType)
+	if endpointType == string(constant.EndpointTypeModerations) {
+		isStream = false
+	}
 
 	requestPath := "/v1/chat/completions"
 
@@ -560,6 +568,7 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 			}
 		}
 	}
+	responseCapture := captureTestUpstreamResponse(httpResp)
 	usageA, respErr := adaptor.DoResponse(c, httpResp, info)
 	if respErr != nil {
 		return testResult{
@@ -617,9 +626,10 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 	// 渠道测试与正常请求同口径：测试成功也计入渠道级频率限制的成功次数
 	model.IncrChannelSuccessCount(channel.Id, model.NewChannelRequestLimitConfig(info.ChannelSetting))
 	return testResult{
-		context:     c,
-		localErr:    nil,
-		newAPIError: nil,
+		context:       c,
+		localErr:      nil,
+		newAPIError:   nil,
+		upstreamModel: extractTestUpstreamModel(responseCapture.bytes()),
 	}
 }
 
@@ -854,6 +864,11 @@ func buildTestRequest(model string, endpointType string, cacheBustNonce string, 
 				Model: model,
 				Input: []any{"hello world" + cacheBust},
 			}
+		case constant.EndpointTypeModerations:
+			return &dto.GeneralOpenAIRequest{
+				Model: model,
+				Input: "Have a nice day." + cacheBust,
+			}
 		case constant.EndpointTypeImageGeneration:
 			// 返回 ImageRequest
 			return &dto.ImageRequest{
@@ -1068,9 +1083,10 @@ func TestChannel(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
-		"time":    consumedTime,
+		"success":        true,
+		"message":        "",
+		"time":           consumedTime,
+		"upstream_model": result.upstreamModel,
 	})
 }
 

@@ -23,6 +23,9 @@ import { renderQuota } from '../../../helpers';
 import CompactModeToggle from '../../common/ui/CompactModeToggle';
 import { useMinimumLoadingTime } from '../../../hooks/common/useMinimumLoadingTime';
 
+const formatTpm = (value) =>
+  value === undefined || value === null ? '—' : String(value);
+
 const LogsActions = ({
   stat,
   loadingStat,
@@ -33,19 +36,28 @@ const LogsActions = ({
 }) => {
   const showSkeleton = useMinimumLoadingTime(loadingStat);
   const needSkeleton = !showStat || showSkeleton;
+  const rpmSuccess = stat.rpm ?? 0;
+  const rpmTotal = stat.rpm_total ?? rpmSuccess;
+  const rpmSuccessRate = Number(
+    stat.rpm_success_rate ?? (rpmTotal > 0 ? (rpmSuccess / rpmTotal) * 100 : 0),
+  ).toLocaleString(undefined, {
+    maximumFractionDigits: 2,
+  });
 
   const placeholder = (
-    <Space>
+    <Space wrap>
       <Skeleton.Title style={{ width: 108, height: 21, borderRadius: 6 }} />
-      <Skeleton.Title style={{ width: 65, height: 21, borderRadius: 6 }} />
-      <Skeleton.Title style={{ width: 64, height: 21, borderRadius: 6 }} />
+      <Skeleton.Title style={{ width: 240, height: 21, borderRadius: 6 }} />
+      <Skeleton.Title
+        style={{ width: 300, maxWidth: '100%', height: 21, borderRadius: 6 }}
+      />
     </Space>
   );
 
   return (
     <div className='flex flex-col md:flex-row justify-between items-start md:items-center gap-2 w-full'>
       <Skeleton loading={needSkeleton} active placeholder={placeholder}>
-        <Space>
+        <Space wrap className='max-w-full'>
           <Tag
             color='blue'
             style={{
@@ -66,7 +78,8 @@ const LogsActions = ({
             }}
             className='!rounded-lg'
           >
-            RPM: {stat.rpm}
+            RPM: {t('成功')} {rpmSuccess} / {t('总')} {rpmTotal} / {t('成功率')}{' '}
+            {rpmSuccessRate}%
           </Tag>
           <Tag
             color='white'
@@ -74,11 +87,17 @@ const LogsActions = ({
               border: 'none',
               boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
               fontWeight: 500,
-              padding: 13,
+              padding: '5px 13px',
+              height: 'auto',
+              maxWidth: '100%',
+              whiteSpace: 'normal',
             }}
             className='!rounded-lg'
           >
-            TPM: {stat.tpm}
+            <span style={{ whiteSpace: 'normal', overflowWrap: 'anywhere' }}>
+              TPM：{t('输入')}：{formatTpm(stat.input_tpm)} / {t('输出')}：
+              {formatTpm(stat.output_tpm)} / {t('总')}：{formatTpm(stat.tpm)}
+            </span>
           </Tag>
         </Space>
       </Skeleton>

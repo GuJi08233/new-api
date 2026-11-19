@@ -37,9 +37,10 @@ func GetPassThroughRequestBody(c *gin.Context, info *RelayInfo) (io.Reader, erro
 	if info == nil || info.ChannelMeta == nil ||
 		(!info.ChannelSetting.PassThroughRewriteModelEnabled && !rewriteDecisionsAlias) ||
 		!info.IsModelMapped || info.UpstreamModelName == "" {
-		if common.DebugEnabled {
-			if debugBytes, bErr := storage.Bytes(); bErr == nil {
-				logger.LogDebug(c, "pass-through requestBody: %s", debugBytes)
+		if rawBytes, bErr := storage.Bytes(); bErr == nil {
+			SetReasoningEffortFromRequest(info, rawBytes)
+			if common.DebugEnabled {
+				logger.LogDebug(c, "pass-through requestBody: %s", rawBytes)
 			}
 		}
 		if info != nil {
@@ -72,6 +73,7 @@ func GetPassThroughRequestBody(c *gin.Context, info *RelayInfo) (io.Reader, erro
 			return nil, err
 		}
 	}
+	SetReasoningEffortFromRequest(info, data)
 	if common.DebugEnabled {
 		logger.LogDebug(c, "pass-through requestBody (model rewritten): %s", data)
 	}

@@ -432,6 +432,7 @@ const NotificationSettings = ({
                   <Radio value='webhook'>{t('Webhook通知')}</Radio>
                   <Radio value='bark'>{t('Bark通知')}</Radio>
                   <Radio value='gotify'>{t('Gotify通知')}</Radio>
+                  <Radio value='none'>{t('关闭通知')}</Radio>
                 </Form.RadioGroup>
 
                 <Form.AutoComplete

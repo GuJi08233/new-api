@@ -14,6 +14,8 @@ type MonitorSetting struct {
 	// TestCacheBustEnabled 全局开启后，所有渠道的测试（手动、定时测试、自动恢复）都在提示词里
 	// 注入当前时间。渠道级的同名开关仍然有效，两者任一开启即注入。
 	TestCacheBustEnabled bool `json:"test_cache_bust_enabled"`
+	// AdminEmailNotifyEnabled 控制是否向管理员发送通道告警/恢复/测试/上游模型更新等邮件通知。
+	AdminEmailNotifyEnabled bool `json:"admin_email_notify_enabled"`
 }
 
 const (
@@ -23,9 +25,10 @@ const (
 
 // 默认配置
 var monitorSetting = MonitorSetting{
-	AutoTestChannelEnabled: false,
-	AutoTestChannelMinutes: 10,
-	ChannelTestMode:        ChannelTestModeScheduledAll,
+	AutoTestChannelEnabled:  false,
+	AutoTestChannelMinutes:  10,
+	ChannelTestMode:         ChannelTestModeScheduledAll,
+	AdminEmailNotifyEnabled: true,
 }
 
 func init() {

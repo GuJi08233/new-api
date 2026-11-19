@@ -1,11 +1,13 @@
 package mistral
 
 import (
+	"bytes"
 	"errors"
 	"io"
 	"net/http"
 	"strings"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/openai"
@@ -19,6 +21,7 @@ import (
 )
 
 type Adaptor struct {
+	moderationInputs int
 }
 
 func invalidMistralRequest(err error) *types.NewAPIError {
@@ -79,6 +82,9 @@ func (a *Adaptor) Init(info *relaycommon.RelayInfo) {
 
 func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 	baseURL := strings.TrimSuffix(strings.TrimRight(strings.TrimSpace(info.ChannelBaseUrl), "/"), "/v1")
+	if info.RelayMode == relayconstant.RelayModeModerations {
+		return relaycommon.GetFullRequestURL(baseURL, "/v1/moderations", info.ChannelType), nil
+	}
 	if info.RelayFormat == types.RelayFormatClaude {
 		switch info.GetFinalRequestRelayFormat() {
 		case types.RelayFormatOpenAIResponses:
@@ -97,6 +103,9 @@ func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *rel
 }
 
 func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayInfo, request *dto.GeneralOpenAIRequest) (any, error) {
+	if info != nil && info.RelayMode == relayconstant.RelayModeModerations {
+		return a.convertModerationRequest(request)
+	}
 	if request == nil {
 		return nil, invalidMistralRequest(errors.New("request is nil"))
 	}
@@ -138,6 +147,20 @@ func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommo
 }
 
 func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (any, error) {
+	if info != nil && info.RelayMode == relayconstant.RelayModeModerations {
+		data, err := io.ReadAll(requestBody)
+		if err != nil {
+			return nil, err
+		}
+		var request dto.GeneralOpenAIRequest
+		if err := common.Unmarshal(data, &request); err != nil {
+			return nil, invalidMistralRequest(errors.New("invalid Mistral moderation JSON"))
+		}
+		if _, err := a.convertModerationRequest(&request); err != nil {
+			return nil, err
+		}
+		requestBody = bytes.NewReader(data)
+	}
 	if info.RelayFormat == types.RelayFormatClaude && info.GetFinalRequestRelayFormat() != types.RelayFormatOpenAIResponses && info.GetFinalRequestRelayFormat() != types.RelayFormatOpenAI {
 		return nil, invalidMistralRequest(errors.New("Mistral /v1/messages requires conversion to Chat or Responses; disable pass-through request body"))
 	}
@@ -146,6 +169,8 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 
 func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (usage any, err *types.NewAPIError) {
 	switch {
+	case info.RelayMode == relayconstant.RelayModeModerations:
+		return a.moderationResponse(c, resp, info)
 	case info.RelayMode == relayconstant.RelayModeResponsesInputTokens:
 		defer service.CloseResponseBodyGracefully(resp)
 		body, readErr := service.ReadResponseBody(c, resp)

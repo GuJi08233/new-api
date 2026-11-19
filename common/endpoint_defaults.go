@@ -25,6 +25,7 @@ var defaultEndpointInfoMap = map[constant.EndpointType]EndpointInfo{
 	constant.EndpointTypeJinaRerank:            {Path: "/v1/rerank", Method: "POST"},
 	constant.EndpointTypeImageGeneration:       {Path: "/v1/images/generations", Method: "POST"},
 	constant.EndpointTypeEmbeddings:            {Path: "/v1/embeddings", Method: "POST"},
+	constant.EndpointTypeModerations:           {Path: "/v1/moderations", Method: "POST"},
 	constant.EndpointTypeTypeSafe:              {Path: "/v1/systemone", Method: "POST"},
 	constant.EndpointTypeGeminiDecisions:       {Path: "/v1beta/decisions", Method: "POST"},
 	constant.EndpointTypeOpenAIDecisions:       {Path: "/v1/decisions", Method: "POST"},

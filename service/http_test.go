@@ -213,3 +213,35 @@ func TestCopyUpstreamHeadersRewritesModelHeaders(t *testing.T) {
 	assert.Equal(t, "gpt-4", c.Writer.Header().Get("X-Upstream-Model"))
 	assert.Equal(t, "org-abc", c.Writer.Header().Get("Openai-Organization"))
 }
+
+func TestCopyUpstreamHeadersBlocksProviderTopologyAndRedirectLeaks(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+
+	src := http.Header{
+		"Server":                   []string{"uvicorn"},
+		"Via":                      []string{"1.1 private-edge"},
+		"X-Powered-By":             []string{"Express"},
+		"Location":                 []string{"https://private.example/redirect"},
+		"Content-Location":         []string{"https://private.example/resource"},
+		"Refresh":                  []string{"0; url=https://private.example"},
+		"WWW-Authenticate":         []string{`Bearer realm="private"`},
+		"X-Litellm-Model-Api-Base": []string{"https://private.example/v1"},
+		"X-Litellm-Version":        []string{"1.90.0"},
+		"Llm_provider-Via":         []string{"1.1 Caddy"},
+		"Content-Type":             []string{"application/json"},
+	}
+
+	CopyUpstreamHeaders(c, c.Writer.Header(), src, false)
+
+	for _, name := range []string{
+		"Server", "Via", "X-Powered-By", "Location", "Content-Location",
+		"Refresh", "WWW-Authenticate", "X-Litellm-Model-Api-Base",
+		"X-Litellm-Version", "Llm_provider-Via",
+	} {
+		assert.Empty(t, c.Writer.Header().Values(name), "%s must not leak upstream details", name)
+	}
+	assert.Equal(t, "application/json", c.Writer.Header().Get("Content-Type"))
+}
+

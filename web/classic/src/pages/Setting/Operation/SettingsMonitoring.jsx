@@ -45,6 +45,7 @@ export default function SettingsMonitoring(props) {
     'monitor_setting.auto_test_channel_enabled': false,
     'monitor_setting.auto_test_channel_minutes': 10,
     'monitor_setting.test_cache_bust_enabled': false,
+    'monitor_setting.admin_email_notify_enabled': true,
   });
   const refForm = useRef();
   const [inputsRow, setInputsRow] = useState(inputs);
@@ -217,6 +218,24 @@ export default function SettingsMonitoring(props) {
                     setInputs({
                       ...inputs,
                       QuotaRemindThreshold: String(value),
+                    })
+                  }
+                />
+              </Col>
+              <Col xs={24} sm={12} md={8} lg={8} xl={8}>
+                <Form.Switch
+                  field={'monitor_setting.admin_email_notify_enabled'}
+                  label={t('管理员邮件通知')}
+                  size='default'
+                  checkedText='｜'
+                  uncheckedText='〇'
+                  extraText={t(
+                    '关闭后不再向管理员发送通道禁用、恢复、测试完成及上游模型变更等邮件通知（不影响用户验证邮件及 Webhook/Bark/Gotify 通知）',
+                  )}
+                  onChange={(value) =>
+                    setInputs({
+                      ...inputs,
+                      'monitor_setting.admin_email_notify_enabled': value,
                     })
                   }
                 />

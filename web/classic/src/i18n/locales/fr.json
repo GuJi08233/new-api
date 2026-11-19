@@ -8835,6 +8835,21 @@
     "暂无可收徒的师长，请等金丹弟子空闲并回到本宗。": "Aucun maître disponible. Attendez qu’un disciple au Noyau d’or soit libre et de retour à la secte principale.",
     "金丹以上师长最多收 {{slots}} 名在宗亲传，占用原有弟子名额并支付相同招募费。": "Les maîtres au Noyau d’or ou plus peuvent avoir {{slots}} disciples directs présents dans la secte, aux mêmes frais et dans la limite habituelle de disciples.",
     "师徒都在本宗、未受伤且师长境界更高时，徒弟自然修为 +{{pct}}%；丹药与派遣修为不加成。": "Si maître et disciple sont indemnes dans la secte principale et que le maître a un royaume supérieur, le disciple gagne +{{pct}} % de cultivation naturelle ; les pilules et missions n’en bénéficient pas.",
-    "{{who}}成为第 {{n}} 代亲传弟子": "{{who}} est devenu un disciple direct de génération {{n}}"
+    "{{who}}成为第 {{n}} 代亲传弟子": "{{who}} est devenu un disciple direct de génération {{n}}",
+    "总": "Total",
+    "思考强度": "Effort de raisonnement",
+    "上游模型：{{model}}": "Modèle en amont : {{model}}",
+    "上游未返回": "Non fourni par le fournisseur",
+    "描述会独立保存，不受「用户可选」状态影响": "Les descriptions sont enregistrées séparément et conservées quel que soit le réglage de sélection par l’utilisateur",
+    "默认排序": "Ordre par défaut",
+    "排序依据": "Trier par",
+    "排序方向": "Sens du tri",
+    "从低到高": "Croissant",
+    "从高到低": "Décroissant",
+    "按当前分组价格排序，无对应固定价格的模型置后": "Trié selon le prix du groupe actuel ; les modèles sans prix fixe correspondant apparaissent en dernier",
+    "单次价格": "Prix par appel",
+    "管理员邮件通知": "Notifications par e-mail administrateur",
+    "关闭后不再向管理员发送通道禁用、恢复、测试完成及上游模型变更等邮件通知（不影响用户验证邮件及 Webhook/Bark/Gotify 通知）": "Une fois désactivé, n’envoie plus d’e-mails d’alerte administrateur pour la désactivation/reprise de canal, la fin des tests ou les mises à jour des modèles en amont (n’affecte pas les e-mails de vérification ni Webhook/Bark/Gotify)",
+    "关闭通知": "Désactiver les notifications"
   }
 }

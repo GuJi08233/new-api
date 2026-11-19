@@ -32,7 +32,6 @@ import {
   renderLimitedItems,
   renderDescription,
 } from '../../../../common/ui/RenderUtils';
-import { useIsMobile } from '../../../../../hooks/common/useIsMobile';
 
 function renderQuotaType(type, t) {
   switch (type) {
@@ -104,6 +103,7 @@ function renderSupportedEndpoints(endpoints) {
 
 export const getPricingTableColumns = ({
   t,
+  isMobile,
   selectedGroup,
   groupRatio,
   copyText,
@@ -116,7 +116,6 @@ export const getPricingTableColumns = ({
   showRatio,
   groupPricing = null, // 新增：分组定价数据
 }) => {
-  const isMobile = useIsMobile();
   const priceDataCache = new WeakMap();
 
   const getPriceData = (record) => {
@@ -156,8 +155,6 @@ export const getPricingTableColumns = ({
         },
       });
     },
-    onFilter: (value, record) =>
-      record.model_name.toLowerCase().includes(value.toLowerCase()),
   };
 
   const quotaColumn = {

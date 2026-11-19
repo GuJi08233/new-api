@@ -436,6 +436,9 @@ func checkAndSendQuotaNotify(relayInfo *relaycommon.RelayInfo, quota int, preCon
 			if notifyType == "" {
 				notifyType = dto.NotifyTypeEmail
 			}
+			if notifyType == dto.NotifyTypeNone {
+				return
+			}
 
 			if notifyType == dto.NotifyTypeBark {
 				// Bark推送使用简短文本，不支持HTML
@@ -487,6 +490,9 @@ func checkAndSendSubscriptionQuotaNotify(relayInfo *relaycommon.RelayInfo) {
 		notifyType := userSetting.NotifyType
 		if notifyType == "" {
 			notifyType = dto.NotifyTypeEmail
+		}
+		if notifyType == dto.NotifyTypeNone {
+			return
 		}
 
 		if notifyType == dto.NotifyTypeBark {

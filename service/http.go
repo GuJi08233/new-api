@@ -55,6 +55,16 @@ var unsafeUpstreamResponseHeadersLower = map[string]struct{}{
 	"x-lighttpd-send-file": {},
 	"x-sendfile":           {},
 
+	// Upstream infrastructure and redirect headers leak internal provider
+	// topology or can hijack browser/client navigation.
+	"server":           {},
+	"via":              {},
+	"x-powered-by":     {},
+	"location":         {},
+	"content-location": {},
+	"refresh":          {},
+	"www-authenticate": {},
+
 	// Origin-wide browser policies belong to the gateway. Forwarding these
 	// would let an upstream mutate persistent connection, storage, reporting,
 	// or document security behavior for the gateway's own origin.
@@ -116,6 +126,9 @@ func ShouldCopyUpstreamHeader(c *gin.Context, k string, v []string) bool {
 		return false
 	}
 	if strings.HasPrefix(headerName, "sec-websocket-") {
+		return false
+	}
+	if strings.HasPrefix(headerName, "x-litellm-") || strings.HasPrefix(headerName, "llm_provider-") {
 		return false
 	}
 	return true

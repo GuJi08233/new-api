@@ -23,6 +23,7 @@ import { API, copy, showError, showInfo, showSuccess } from '../../helpers';
 import { Modal } from '@douyinfe/semi-ui';
 import { UserContext } from '../../context/User';
 import { StatusContext } from '../../context/Status';
+import { sortPricingModels } from '../../helpers/modelPricing';
 
 export const useModelPricingData = () => {
   const { t } = useTranslation();
@@ -39,6 +40,9 @@ export const useModelPricingData = () => {
   const [filterEndpointType, setFilterEndpointType] = useState('all'); // 端点类型筛选: 'all' | string
   const [filterVendor, setFilterVendor] = useState('all'); // 供应商筛选: 'all' | 'unknown' | string
   const [filterTag, setFilterTag] = useState('all'); // 模型标签筛选: 'all' | string
+  const [sortBy, setSortBy] = useState('default');
+  const [sortDirection, setSortDirection] = useState('asc');
+  const [tableSortOrder, setTableSortOrder] = useState(false);
   const [pageSize, setPageSize] = useState(20);
   const [currentPage, setCurrentPage] = useState(1);
   const [currency, setCurrency] = useState('USD');
@@ -97,7 +101,7 @@ export const useModelPricingData = () => {
     }
   }, [siteDisplayType]);
 
-  const filteredModels = useMemo(() => {
+  const matchingModels = useMemo(() => {
     let result = models;
 
     // 分组筛选
@@ -169,6 +173,21 @@ export const useModelPricingData = () => {
     filterVendor,
     filterTag,
   ]);
+
+  const filteredModels = useMemo(
+    () =>
+      sortPricingModels(matchingModels, {
+        sortBy,
+        sortDirection,
+        selectedGroup: filterGroup,
+        groupRatio,
+      }),
+    [matchingModels, sortBy, sortDirection, filterGroup, groupRatio],
+  );
+
+  useEffect(() => {
+    if (sortBy !== 'default') setTableSortOrder(false);
+  }, [sortBy]);
 
   const rowSelection = useMemo(
     () => ({
@@ -362,6 +381,8 @@ export const useModelPricingData = () => {
     filterVendor,
     filterTag,
     searchValue,
+    sortBy,
+    sortDirection,
   ]);
 
   return {
@@ -390,6 +411,12 @@ export const useModelPricingData = () => {
     setFilterVendor,
     filterTag,
     setFilterTag,
+    sortBy,
+    setSortBy,
+    sortDirection,
+    setSortDirection,
+    tableSortOrder,
+    setTableSortOrder,
     pageSize,
     setPageSize,
     currentPage,

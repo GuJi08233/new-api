@@ -524,6 +524,7 @@ export const useDashboardCharts = (
         timeQuotaMap,
         timeTokensMap,
         timeCountMap,
+        timeIntervalMap,
       } = processedData;
 
       const trendDataResult = calculateTrendData(
@@ -532,6 +533,7 @@ export const useDashboardCharts = (
         timeTokensMap,
         timeCountMap,
         dataExportDefaultTime,
+        timeIntervalMap,
       );
       setTrendData(trendDataResult);
 

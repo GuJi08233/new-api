@@ -10,12 +10,25 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 )
 
+func shouldSkipAdminEmailNotify(userSetting dto.UserSetting) bool {
+	notifyType := userSetting.NotifyType
+	if notifyType == "" {
+		notifyType = dto.NotifyTypeEmail
+	}
+	return notifyType == dto.NotifyTypeEmail && !operation_setting.GetMonitorSetting().AdminEmailNotifyEnabled
+}
+
 func NotifyRootUser(t string, subject string, content string) {
 	user := model.GetRootUser().ToBaseUser()
-	err := NotifyUser(user.Id, user.Email, user.GetSetting(), dto.NewNotify(t, subject, content, nil))
+	userSetting := user.GetSetting()
+	if shouldSkipAdminEmailNotify(userSetting) {
+		return
+	}
+	err := NotifyUser(user.Id, user.Email, userSetting, dto.NewNotify(t, subject, content, nil))
 	if err != nil {
 		common.SysLog(fmt.Sprintf("failed to notify root user: %s", err.Error()))
 	}
@@ -38,6 +51,9 @@ func NotifyUpstreamModelUpdateWatchers(subject string, content string) {
 		if !userSetting.UpstreamModelUpdateNotifyEnabled {
 			continue
 		}
+		if shouldSkipAdminEmailNotify(userSetting) {
+			continue
+		}
 		if err := NotifyUser(user.Id, user.Email, userSetting, notification); err != nil {
 			common.SysLog(fmt.Sprintf("failed to notify user %d for upstream model update: %s", user.Id, err.Error()))
 			continue
@@ -51,6 +67,9 @@ func NotifyUser(userId int, userEmail string, userSetting dto.UserSetting, data 
 	notifyType := userSetting.NotifyType
 	if notifyType == "" {
 		notifyType = dto.NotifyTypeEmail
+	}
+	if notifyType == dto.NotifyTypeNone {
+		return nil
 	}
 
 	// Check notification limit

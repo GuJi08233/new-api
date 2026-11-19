@@ -9335,6 +9335,21 @@
     "暂无可收徒的师长，请等金丹弟子空闲并回到本宗。": "Chưa có sư trưởng có thể nhận đồ đệ, hãy chờ đệ tử Kim Đan rảnh và trở về bản tông.",
     "金丹以上师长最多收 {{slots}} 名在宗亲传，占用原有弟子名额并支付相同招募费。": "Sư trưởng từ Kim Đan trở lên được nhận tối đa {{slots}} thân truyền còn trong tông, dùng số chỗ đệ tử hiện có và trả phí chiêu mộ như thường.",
     "师徒都在本宗、未受伤且师长境界更高时，徒弟自然修为 +{{pct}}%；丹药与派遣修为不加成。": "Khi cả thầy trò ở bản tông, không bị thương và cảnh giới thầy cao hơn, tu vi tự nhiên của đồ đệ +{{pct}}%; không tăng tu vi từ đan dược hay phái đi.",
-    "{{who}}成为第 {{n}} 代亲传弟子": "{{who}} trở thành thân truyền đời thứ {{n}}"
+    "{{who}}成为第 {{n}} 代亲传弟子": "{{who}} trở thành thân truyền đời thứ {{n}}",
+    "总": "Tổng",
+    "思考强度": "Mức độ suy luận",
+    "上游模型：{{model}}": "Mô hình thượng nguồn: {{model}}",
+    "上游未返回": "Thượng nguồn không trả về",
+    "描述会独立保存，不受「用户可选」状态影响": "Mô tả được lưu độc lập và được giữ lại bất kể cài đặt người dùng có thể chọn",
+    "默认排序": "Thứ tự mặc định",
+    "排序依据": "Sắp xếp theo",
+    "排序方向": "Chiều sắp xếp",
+    "从低到高": "Thấp đến cao",
+    "从高到低": "Cao đến thấp",
+    "按当前分组价格排序，无对应固定价格的模型置后": "Sắp xếp theo giá nhóm hiện tại; mô hình không có giá cố định tương ứng sẽ xếp cuối",
+    "单次价格": "Giá mỗi lần gọi",
+    "管理员邮件通知": "Thông báo email quản trị viên",
+    "关闭后不再向管理员发送通道禁用、恢复、测试完成及上游模型变更等邮件通知（不影响用户验证邮件及 Webhook/Bark/Gotify 通知）": "Khi tắt, hệ thống sẽ không gửi email cảnh báo quản trị khi vô hiệu hóa/khôi phục kênh, hoàn tất kiểm tra hoặc cập nhật mô hình thượng nguồn (không ảnh hưởng đến email xác minh người dùng hoặc Webhook/Bark/Gotify)",
+    "关闭通知": "Tắt thông báo"
   }
 }

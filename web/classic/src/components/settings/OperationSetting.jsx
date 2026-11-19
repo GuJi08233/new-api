@@ -78,6 +78,7 @@ const OperationSetting = () => {
     'monitor_setting.auto_test_channel_enabled': false,
     'monitor_setting.auto_test_channel_minutes': 10,
     'monitor_setting.test_cache_bust_enabled': false,
+    'monitor_setting.admin_email_notify_enabled': true,
 
     /* 签到设置 */
     'checkin_setting.enabled': false,

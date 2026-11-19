@@ -28,7 +28,7 @@ func TestSumUsedQuotaPreservesTotalWhenLoadingRates(t *testing.T) {
 		{Username: "quota-stat", Type: LogTypeConsume, CreatedAt: now, Quota: 30, PromptTokens: 4, CompletionTokens: 6},
 	}
 	require.NoError(t, LOG_DB.Create(&logs).Error)
-	stat, err := SumUsedQuota(LogTypeConsume, 0, 0, "", "quota-stat", "", 0, "")
+	stat, err := SumUsedQuota(LogTypeConsume, 0, 0, "", "quota-stat", "", 0, "", "")
 	require.NoError(t, err)
 	assert.Equal(t, 100, stat.Quota)
 	assert.Equal(t, 1, stat.Rpm)

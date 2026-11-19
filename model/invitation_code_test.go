@@ -241,3 +241,29 @@ func TestGenerateInvitationCodesChargesPerUse(t *testing.T) {
 	require.NoError(t, DB.First(&afterReject, user.Id).Error)
 	assert.Equal(t, 400, afterReject.Quota, "失败不应扣费")
 }
+
+func TestReserveInvitationCodeRejectsDisabledOrDeletedCreator(t *testing.T) {
+	truncateTables(t)
+
+	creator := User{Id: 31, Username: "disabled-creator", Password: "password", Status: common.UserStatusEnabled, AffCode: "aff-31"}
+	require.NoError(t, DB.Create(&creator).Error)
+
+	code := InvitationCode{
+		UserId:      creator.Id,
+		Code:        "creator-status-code",
+		Quota:       100,
+		Status:      common.InvitationCodeStatusEnabled,
+		CreatedTime: common.GetTimestamp(),
+	}
+	require.NoError(t, code.Insert())
+
+	require.NoError(t, DB.Model(&creator).Update("status", common.UserStatusDisabled).Error)
+	_, err := ReserveInvitationCode(code.Code)
+	require.ErrorIs(t, err, ErrInvitationCodeNotUsable)
+
+	require.NoError(t, DB.Model(&creator).Update("status", common.UserStatusEnabled).Error)
+	require.NoError(t, DB.Delete(&creator).Error)
+	_, err = ReserveInvitationCode(code.Code)
+	require.ErrorIs(t, err, ErrInvitationCodeNotUsable)
+}
+

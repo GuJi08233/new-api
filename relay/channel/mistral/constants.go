@@ -1,5 +1,7 @@
 package mistral
 
+import "strings"
+
 var ModelList = []string{
 	"mistral-large-latest",
 	"mistral-large-4",
@@ -17,8 +19,13 @@ var ModelList = []string{
 	"zai-glm-5-3",
 	"zai-glm-5-2",
 	"mistral-embed",
+	"mistral-moderation-latest",
 	"open-mistral-7b",
 	"open-mixtral-8x7b",
 }
 
 var ChannelName = "mistral"
+
+func IsModerationModel(model string) bool {
+	return strings.HasPrefix(strings.ToLower(model), "mistral-moderation-")
+}
