@@ -54,6 +54,7 @@ const (
 	RelayModeGemini
 
 	RelayModeResponsesCompact
+	RelayModeResponsesInputTokens
 
 	RelayModeTypeSafe
 	RelayModeGeminiDecisions
@@ -80,6 +81,8 @@ func Path2RelayMode(path string) int {
 		relayMode = RelayModeEdits
 	} else if strings.HasPrefix(path, "/v1/responses/compact") {
 		relayMode = RelayModeResponsesCompact
+	} else if strings.HasPrefix(path, "/v1/responses/input_tokens") {
+		relayMode = RelayModeResponsesInputTokens
 	} else if strings.HasPrefix(path, "/v1/responses") {
 		relayMode = RelayModeResponses
 	} else if strings.HasPrefix(path, "/v1/audio/speech") {

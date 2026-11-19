@@ -30,10 +30,10 @@ func TestConvertOpenAIRequestAdaptsMessagesAndReplaysReasoning(t *testing.T) {
 		"top_prompt_logprobs":0,"repetition_penalty":0,"prompt_mode":"reasoning","service_tier":"standard_only",
 		"guardrails":[{"name":"test"}],"tools":[{"type":"function","function":{"name":"lookup","parameters":{"type":"object"},"strict":false}}],
 		"messages":[
-			{"role":"developer","content":"rules"},
-			{"role":"user","content":[{"type":"text","text":"look"},{"type":"image_url","image_url":{"url":"https://example.test/a.png","detail":"low"}}]},
-			{"role":"assistant","content":"checking","reasoning_content":"think first","tool_calls":[{"id":"call_openai_long","type":"function","function":{"name":"lookup","arguments":"{}"}}]},
-			{"role":"tool","tool_call_id":"call_openai_long","content":"result"},
+			{"role":"developer","name":"sys","content":"rules"},
+			{"role":"user","name":"alice","content":[{"type":"text","text":"look"},{"type":"image_url","image_url":{"url":"https://example.test/a.png","detail":"low"}}]},
+			{"role":"assistant","name":"bot","content":"checking","reasoning_content":"think first","tool_calls":[{"id":"call_openai_long","type":"function","function":{"name":"lookup","arguments":"{}"}}]},
+			{"role":"tool","name":"lookup","tool_call_id":"call_openai_long","content":"result"},
 			{"role":"assistant","content":[{"type":"thinking","thinking":[{"type":"text","text":"native thinking"}],"closed":true},{"type":"text","text":"native answer"}]},
 			{"role":"assistant","content":null,"reasoning":"reasoning alias"}
 		]
@@ -49,6 +49,10 @@ func TestConvertOpenAIRequestAdaptsMessagesAndReplaysReasoning(t *testing.T) {
 
 	assert.Equal(t, "system", gjson.GetBytes(body, "messages.0.role").String())
 	assert.Equal(t, "rules", gjson.GetBytes(body, "messages.0.content").String())
+	assert.False(t, gjson.GetBytes(body, "messages.0.name").Exists(), "system message must not send name")
+	assert.False(t, gjson.GetBytes(body, "messages.1.name").Exists(), "user message must not send name")
+	assert.False(t, gjson.GetBytes(body, "messages.2.name").Exists(), "assistant message must not send name")
+	assert.Equal(t, "lookup", gjson.GetBytes(body, "messages.3.name").String(), "tool message keeps name")
 	assert.Equal(t, "https://example.test/a.png", gjson.GetBytes(body, "messages.1.content.1.image_url").String())
 	assert.Equal(t, "think first", gjson.GetBytes(body, "messages.2.content.0.thinking.0.text").String())
 	assert.Equal(t, "checking", gjson.GetBytes(body, "messages.2.content.1.text").String())
@@ -166,6 +170,7 @@ func TestClaudeMessagesViaMistralResponses(t *testing.T) {
 			adaptor := &Adaptor{}
 			converted, err := adaptor.ConvertClaudeRequest(c, info, &request)
 			require.NoError(t, err)
+			assert.Equal(t, []types.RelayFormat{types.RelayFormatClaude, types.RelayFormatOpenAIResponses}, info.RequestConversionChain)
 			body, err := common.Marshal(converted)
 			require.NoError(t, err)
 			resp, err := adaptor.DoRequest(c, info, strings.NewReader(string(body)))
@@ -277,20 +282,34 @@ func TestConvertOpenAIResponsesRequestKeepsOnlyMistralFields(t *testing.T) {
 	}, got)
 }
 
-func TestConvertOpenAIResponsesRequestRejectsStatefulFields(t *testing.T) {
+func TestConvertOpenAIResponsesRequestStripsUnsupportedAndStatefulFields(t *testing.T) {
 	tests := []struct {
 		name    string
 		request dto.OpenAIResponsesRequest
 	}{
-		{name: "previous_response_id", request: dto.OpenAIResponsesRequest{PreviousResponseID: "resp_1"}},
-		{name: "conversation", request: dto.OpenAIResponsesRequest{Conversation: json.RawMessage(`"conv_1"`)}},
-		{name: "prompt", request: dto.OpenAIResponsesRequest{Prompt: json.RawMessage(`{"id":"pmpt_1"}`)}},
+		{name: "previous_response_id", request: dto.OpenAIResponsesRequest{Input: json.RawMessage(`"hi"`), PreviousResponseID: "resp_1"}},
+		{name: "conversation", request: dto.OpenAIResponsesRequest{Input: json.RawMessage(`"hi"`), Conversation: json.RawMessage(`"conv_1"`)}},
+		{name: "prompt", request: dto.OpenAIResponsesRequest{Input: json.RawMessage(`"hi"`), Prompt: json.RawMessage(`{"id":"pmpt_1"}`)}},
+		{name: "store_true", request: dto.OpenAIResponsesRequest{Input: json.RawMessage(`"hi"`), Store: json.RawMessage(`true`)}},
+		{name: "truncation_auto", request: dto.OpenAIResponsesRequest{Input: json.RawMessage(`"hi"`), Truncation: json.RawMessage(`"auto"`)}},
+		{name: "background_true", request: dto.OpenAIResponsesRequest{Input: json.RawMessage(`"hi"`), Background: common.GetPointer(true)}},
+		{name: "top_logprobs_nonzero", request: dto.OpenAIResponsesRequest{Input: json.RawMessage(`"hi"`), TopLogProbs: common.GetPointer(2)}},
+		{name: "moderation", request: dto.OpenAIResponsesRequest{Input: json.RawMessage(`"hi"`), Moderation: json.RawMessage(`{}`)}},
+		{name: "penalties", request: dto.OpenAIResponsesRequest{Input: json.RawMessage(`"hi"`), FrequencyPenalty: common.GetPointer(0.5), PresencePenalty: common.GetPointer(0.5)}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tt.request.Model = "mistral-large-latest"
-			_, err := (&Adaptor{}).ConvertOpenAIResponsesRequest(nil, &relaycommon.RelayInfo{RelayMode: relayconstant.RelayModeResponses}, tt.request)
-			assert.ErrorContains(t, err, tt.name)
+			converted, err := (&Adaptor{}).ConvertOpenAIResponsesRequest(nil, &relaycommon.RelayInfo{RelayMode: relayconstant.RelayModeResponses}, tt.request)
+			require.NoError(t, err)
+			body, err := common.Marshal(converted)
+			require.NoError(t, err)
+			var got map[string]any
+			require.NoError(t, common.Unmarshal(body, &got))
+			assert.Equal(t, map[string]any{
+				"model": "mistral-large-latest",
+				"input": "hi",
+			}, got)
 		})
 	}
 }
@@ -322,9 +341,9 @@ func TestConvertOpenAIResponsesRequestNormalizesMessageTypes(t *testing.T) {
 			want:  `[{"type":"message","role":"user","content":"hello"}]`,
 		},
 		{
-			name:  "history preserves typed items and extra fields",
-			input: `[{"type":"message","id":"msg_1","role":"assistant","status":"completed","content":[{"type":"output_text","text":"checking","annotations":[]}]},{"type":"reasoning","id":"rs_1","summary":[]},{"type":"function_call","call_id":"c1","name":"lookup","arguments":"{}"},{"type":"function_call_output","call_id":"c1","output":"result"},{"role":"user","content":"continue","extra":{"sequence":9007199254740993}}]`,
-			want:  `[{"type":"message","id":"msg_1","role":"assistant","status":"completed","content":[{"type":"output_text","text":"checking","annotations":[]}]},{"type":"reasoning","id":"rs_1","summary":[]},{"type":"function_call","call_id":"c1","name":"lookup","arguments":"{}"},{"type":"function_call_output","call_id":"c1","output":"result"},{"type":"message","role":"user","content":"continue","extra":{"sequence":9007199254740993}}]`,
+			name:  "strips encrypted_content and skips opaque reasoning and unsupported items",
+			input: `[{"type":"message","role":"user","content":"hi"},{"type":"reasoning","id":"rs_opaque","summary":[],"encrypted_content":"gAAAA"},{"type":"reasoning","id":"rs_plain","summary":[],"content":[{"type":"reasoning_text","text":"thought"}],"encrypted_content":"gAAAA"},{"type":"item_reference","id":"msg_1"},{"type":"web_search_call","id":"ws_1"},{"type":"function_call","call_id":"c1","name":"lookup","arguments":"{}"},{"type":"function_call_output","call_id":"c1","output":"result"},{"role":"user","content":"continue","extra":{"sequence":9007199254740993}}]`,
+			want:  `[{"type":"message","role":"user","content":"hi"},{"type":"reasoning","id":"rs_plain","summary":[],"content":[{"type":"reasoning_text","text":"thought"}]},{"type":"function_call","call_id":"c1","name":"lookup","arguments":"{}"},{"type":"function_call_output","call_id":"c1","output":"result"},{"type":"message","role":"user","content":"continue","extra":{"sequence":9007199254740993}}]`,
 		},
 	}
 	for _, tt := range tests {
@@ -431,49 +450,104 @@ func TestConvertChatNativeSeedAndStrictFunctions(t *testing.T) {
 	}
 }
 
-func TestMistralRejectsUnsupportedRequestSemanticsWith400(t *testing.T) {
-	for _, field := range []string{
-		`"store":true`, `"truncation":"auto"`, `"background":true`, `"top_logprobs":1`,
-		`"moderation":{}`, `"frequency_penalty":0.5`, `"presence_penalty":0.5`,
-	} {
-		t.Run(field, func(t *testing.T) {
-			var request dto.OpenAIResponsesRequest
-			require.NoError(t, common.UnmarshalJsonStr(`{"model":"test","input":"hi",`+field+`}`, &request))
-			_, err := (&Adaptor{}).ConvertOpenAIResponsesRequest(nil, nil, request)
-			var apiErr *types.NewAPIError
-			require.ErrorAs(t, err, &apiErr)
-			assert.Equal(t, http.StatusBadRequest, apiErr.StatusCode)
-			assert.True(t, types.IsSkipRetryError(apiErr))
-		})
-	}
-	for _, input := range []string{
-		`[{"type":"item_reference","id":"msg_1"}]`, `[{"id":"unknown"}]`, `[null]`,
-		`[{"role":null,"content":"hi"}]`, `[{"type":3}]`, `[{"type":"custom_tool_call"}]`,
-		`{}`, `null`,
-	} {
-		t.Run(input, func(t *testing.T) {
-			_, err := (&Adaptor{}).ConvertOpenAIResponsesRequest(nil, nil, dto.OpenAIResponsesRequest{Model: "test", Input: json.RawMessage(input)})
-			var apiErr *types.NewAPIError
-			require.ErrorAs(t, err, &apiErr)
-			assert.Equal(t, http.StatusBadRequest, apiErr.StatusCode)
-			assert.Contains(t, apiErr.Error(), "input")
-		})
-	}
-	for _, field := range []string{
-		`"seed":1.5`, `"seed":9223372036854775808`, `"seed":-9223372036854777856`,
-		`"seed":1,"random_seed":2`, `"min_tokens":2,"max_tokens":1`,
-		`"tools":[{"type":"web_search"}]`,
-		`"functions":[{"name":"lookup"}]`, `"function_call":{"name":"lookup"}`,
-	} {
-		t.Run(field, func(t *testing.T) {
-			var request dto.GeneralOpenAIRequest
-			require.NoError(t, common.UnmarshalJsonStr(`{"model":"test","messages":[{"role":"user","content":"hi"}],`+field+`}`, &request))
-			_, err := (&Adaptor{}).ConvertOpenAIRequest(nil, nil, &request)
-			var apiErr *types.NewAPIError
-			require.ErrorAs(t, err, &apiErr)
-			assert.Equal(t, http.StatusBadRequest, apiErr.StatusCode)
-		})
-	}
+func TestMistralAdaptsStandardOpenAIAndModelLimitsWithoutRejecting(t *testing.T) {
+	t.Run("chat converts legacy functions and filters unsupported tools and service_tier", func(t *testing.T) {
+		var req dto.GeneralOpenAIRequest
+		require.NoError(t, common.UnmarshalJsonStr(`{
+			"model":"deepseek-v4-1-flash-1017",
+			"messages":[{"role":"user","name":"alice","content":"hi"}],
+			"functions":[{"name":"lookup","description":"find"}],
+			"function_call":{"name":"lookup"},
+			"service_tier":"priority",
+			"min_tokens":0,
+			"top_k":10,
+			"logprobs":true,
+			"top_logprobs":2,
+			"reasoning_effort":"medium"
+		}`, &req))
+		converted, err := (&Adaptor{}).ConvertOpenAIRequest(nil, nil, &req)
+		require.NoError(t, err)
+		body, err := common.Marshal(converted)
+		require.NoError(t, err)
+		assert.Equal(t, "lookup", gjson.GetBytes(body, "tools.0.function.name").String())
+		assert.JSONEq(t, `{"type":"function","function":{"name":"lookup"}}`, gjson.GetBytes(body, "tool_choice").Raw)
+		assert.Equal(t, "auto", gjson.GetBytes(body, "service_tier").String())
+		assert.Equal(t, "high", gjson.GetBytes(body, "reasoning_effort").String())
+		assert.False(t, gjson.GetBytes(body, "min_tokens").Exists())
+		assert.False(t, gjson.GetBytes(body, "top_k").Exists())
+		assert.False(t, gjson.GetBytes(body, "logprobs").Exists())
+		assert.False(t, gjson.GetBytes(body, "messages.0.name").Exists())
+	})
+
+	t.Run("chat drops unknown service_tier and unsupported tools cleanly", func(t *testing.T) {
+		var req dto.GeneralOpenAIRequest
+		require.NoError(t, common.UnmarshalJsonStr(`{
+			"model":"zai-glm-5-3-flash",
+			"messages":[{"role":"user","content":"hi"}],
+			"tools":[{"type":"web_search"}],
+			"tool_choice":"required",
+			"service_tier":"default",
+			"min_tokens":5,
+			"reasoning_effort":"none"
+		}`, &req))
+		converted, err := (&Adaptor{}).ConvertOpenAIRequest(nil, nil, &req)
+		require.NoError(t, err)
+		body, err := common.Marshal(converted)
+		require.NoError(t, err)
+		assert.False(t, gjson.GetBytes(body, "tools").Exists())
+		assert.False(t, gjson.GetBytes(body, "tool_choice").Exists())
+		assert.False(t, gjson.GetBytes(body, "service_tier").Exists())
+		assert.False(t, gjson.GetBytes(body, "min_tokens").Exists())
+		assert.Equal(t, "low", gjson.GetBytes(body, "reasoning_effort").String())
+	})
+
+	t.Run("responses filters built-in tools, normalizes allowed_tools, and stringifies metadata", func(t *testing.T) {
+		var req dto.OpenAIResponsesRequest
+		require.NoError(t, common.UnmarshalJsonStr(`{
+			"model":"zai-glm-5-3-flash",
+			"input":"hi",
+			"store":true,
+			"truncation":"auto",
+			"metadata":{"count":42,"flag":true,"empty":null,"tag":"ok"},
+			"reasoning":{"effort":"medium","summary":"auto"},
+			"tools":[{"type":"web_search"},{"type":"function","name":"lookup","parameters":{"type":"object"}}],
+			"tool_choice":{"type":"allowed_tools","mode":"auto","tools":[{"type":"function","name":"lookup"}]}
+		}`, &req))
+		converted, err := (&Adaptor{}).ConvertOpenAIResponsesRequest(nil, &relaycommon.RelayInfo{RelayMode: relayconstant.RelayModeResponses}, req)
+		require.NoError(t, err)
+		body, err := common.Marshal(converted)
+		require.NoError(t, err)
+		assert.False(t, gjson.GetBytes(body, "store").Exists())
+		assert.False(t, gjson.GetBytes(body, "truncation").Exists())
+		assert.Equal(t, "high", gjson.GetBytes(body, "reasoning.effort").String())
+		assert.Equal(t, int64(1), gjson.GetBytes(body, "tools.#").Int())
+		assert.Equal(t, "lookup", gjson.GetBytes(body, "tools.0.name").String())
+		assert.Equal(t, "auto", gjson.GetBytes(body, "tool_choice").String())
+		assert.JSONEq(t, `{"count":"42","flag":"true","tag":"ok"}`, gjson.GetBytes(body, "metadata").Raw)
+	})
+
+	t.Run("responses input_tokens keeps only documented counting fields", func(t *testing.T) {
+		var req dto.OpenAIResponsesRequest
+		require.NoError(t, common.UnmarshalJsonStr(`{
+			"model":"deepseek-v4-1-flash-1017",
+			"input":[{"role":"user","content":"hi"}],
+			"instructions":"be brief",
+			"max_output_tokens":128,
+			"temperature":0.5,
+			"store":true,
+			"reasoning":{"effort":"medium"}
+		}`, &req))
+		converted, err := (&Adaptor{}).ConvertOpenAIResponsesRequest(nil, &relaycommon.RelayInfo{RelayMode: relayconstant.RelayModeResponsesInputTokens}, req)
+		require.NoError(t, err)
+		body, err := common.Marshal(converted)
+		require.NoError(t, err)
+		assert.Equal(t, "message", gjson.GetBytes(body, "input.0.type").String())
+		assert.Equal(t, "be brief", gjson.GetBytes(body, "instructions").String())
+		assert.Equal(t, "high", gjson.GetBytes(body, "reasoning.effort").String())
+		assert.False(t, gjson.GetBytes(body, "max_output_tokens").Exists())
+		assert.False(t, gjson.GetBytes(body, "temperature").Exists())
+		assert.False(t, gjson.GetBytes(body, "store").Exists())
+	})
 }
 
 func TestClaudeMultimodalAndStructuredOutputViaResponses(t *testing.T) {
@@ -569,6 +643,7 @@ func TestClaudeSamplingControlsUseMistralChat(t *testing.T) {
 			converted, err := adaptor.ConvertClaudeRequest(c, info, &request)
 			require.NoError(t, err)
 			require.IsType(t, &dto.GeneralOpenAIRequest{}, converted)
+			assert.Equal(t, []types.RelayFormat{types.RelayFormatClaude, types.RelayFormatOpenAI}, info.RequestConversionChain)
 			body, err := common.Marshal(converted)
 			require.NoError(t, err)
 			resp, err := adaptor.DoRequest(c, info, strings.NewReader(string(body)))
@@ -590,31 +665,77 @@ func TestClaudeSamplingControlsUseMistralChat(t *testing.T) {
 	}
 }
 
-func TestClaudeRejectsUntranslatableFeatures(t *testing.T) {
+func TestClaudeIgnoresUntranslatableFeaturesWithoutRejecting(t *testing.T) {
 	for _, fields := range []string{
 		`"container":"container_1"`, `"context_management":{"edits":[]}`, `"mcp_servers":[{"type":"url","url":"https://example.test"}]`,
 		`"tools":[{"type":"web_search_20250305","name":"web_search"}]`,
-		`"messages":[{"role":"user","content":[{"type":"image","source":{"type":"unknown"}}]}]`,
-		`"messages":[{"role":"assistant","content":[{"type":"redacted_thinking","data":"opaque"}]}]`,
+		`"messages":[{"role":"user","content":[{"type":"text","text":"hi"},{"type":"image","source":{"type":"unknown"}}]}]`,
+		`"messages":[{"role":"assistant","content":[{"type":"redacted_thinking","data":"opaque"},{"type":"text","text":"ok"}]},{"role":"user","content":"next"}]`,
 		`"output_config":{"format":"json"}`, `"output_format":{"type":"json_object"}`, `"output_config":[]`,
+		`"top_k":10`,
 	} {
 		t.Run(fields, func(t *testing.T) {
 			var request dto.ClaudeRequest
-			require.NoError(t, common.UnmarshalJsonStr(`{"model":"test","max_tokens":256,`+fields+`}`, &request))
-			_, err := (&Adaptor{}).ConvertClaudeRequest(nil, nil, &request)
-			var apiErr *types.NewAPIError
-			require.ErrorAs(t, err, &apiErr)
-			assert.Equal(t, http.StatusBadRequest, apiErr.StatusCode)
+			require.NoError(t, common.UnmarshalJsonStr(`{"model":"deepseek-v4-1-flash-1017","max_tokens":256,"messages":[{"role":"user","content":"hi"}],`+fields+`}`, &request))
+			info := &relaycommon.RelayInfo{RelayFormat: types.RelayFormatClaude}
+			converted, err := (&Adaptor{}).ConvertClaudeRequest(nil, info, &request)
+			require.NoError(t, err)
+			require.IsType(t, &dto.OpenAIResponsesRequest{}, converted)
+			assert.Equal(t, []types.RelayFormat{types.RelayFormatClaude, types.RelayFormatOpenAIResponses}, info.RequestConversionChain)
 		})
 	}
 }
 
-func TestForcedResponsesDoesNotDiscardChatControls(t *testing.T) {
-	request := &dto.GeneralOpenAIRequest{Stop: []string{"STOP"}}
-	info := &relaycommon.RelayInfo{Request: request}
-	_, err := (&Adaptor{}).ConvertOpenAIResponsesRequest(nil, info, dto.OpenAIResponsesRequest{Model: "test", Input: json.RawMessage(`"hi"`)})
-	require.ErrorContains(t, err, "stop")
+func TestForcedResponsesAcceptsChatControlsGracefully(t *testing.T) {
+	info := &relaycommon.RelayInfo{Request: &dto.GeneralOpenAIRequest{Stop: []string{"STOP"}}}
+	converted, err := (&Adaptor{}).ConvertOpenAIResponsesRequest(nil, info, dto.OpenAIResponsesRequest{Model: "deepseek-v4-1-flash-1017", Input: json.RawMessage(`"hi"`)})
+	require.NoError(t, err)
+	require.IsType(t, &dto.OpenAIResponsesRequest{}, converted)
+
 	info.Request = &dto.ClaudeRequest{TopK: common.GetPointer(0)}
-	_, err = (&Adaptor{}).ConvertOpenAIResponsesRequest(nil, info, dto.OpenAIResponsesRequest{Model: "test", Input: json.RawMessage(`"hi"`)})
-	require.ErrorContains(t, err, "top_k")
+	converted, err = (&Adaptor{}).ConvertOpenAIResponsesRequest(nil, info, dto.OpenAIResponsesRequest{Model: "zai-glm-5-3-flash", Input: json.RawMessage(`"hi"`)})
+	require.NoError(t, err)
+	require.IsType(t, &dto.OpenAIResponsesRequest{}, converted)
+}
+
+func TestNormalizeMistralResponsesPayloadTimestamps(t *testing.T) {
+	nonStream := normalizeMistralResponsesPayload([]byte(`{"id":"resp_1","created_at":1795112261.0,"completed_at":1795112265.0,"status":"completed"}`))
+	assert.Equal(t, "1795112261", gjson.GetBytes(nonStream, "created_at").Raw)
+	assert.Equal(t, "1795112265", gjson.GetBytes(nonStream, "completed_at").Raw)
+
+	streamEvent := normalizeMistralResponsesPayload([]byte(`{"type":"response.completed","response":{"id":"resp_1","created_at":1795112261.0}}`))
+	assert.Equal(t, "1795112261", gjson.GetBytes(streamEvent, "response.created_at").Raw)
+}
+
+func TestMistralDeterministicToolCallIDBaseURLAndResponseNormalization(t *testing.T) {
+	// 1. Deterministic 9-char tool call ID across turns preserves prompt cache
+	raw := `{"model":"mistral-large-4","messages":[{"role":"assistant","content":"","tool_calls":[{"id":"call_stable_id_001","type":"function","function":{"name":"lookup","arguments":"{}"}}]},{"role":"tool","tool_call_id":"call_stable_id_001","content":"ok"}]}`
+	var req1, req2 dto.GeneralOpenAIRequest
+	require.NoError(t, common.UnmarshalJsonStr(raw, &req1))
+	require.NoError(t, common.UnmarshalJsonStr(raw, &req2))
+	c1, err := (&Adaptor{}).ConvertOpenAIRequest(nil, nil, &req1)
+	require.NoError(t, err)
+	c2, err := (&Adaptor{}).ConvertOpenAIRequest(nil, nil, &req2)
+	require.NoError(t, err)
+	b1, _ := common.Marshal(c1)
+	b2, _ := common.Marshal(c2)
+	id1 := gjson.GetBytes(b1, "messages.0.tool_calls.0.id").String()
+	id2 := gjson.GetBytes(b2, "messages.0.tool_calls.0.id").String()
+	assert.Regexp(t, `^[a-zA-Z0-9]{9}$`, id1)
+	assert.Equal(t, id1, id2)
+	assert.Equal(t, id1, gjson.GetBytes(b1, "messages.1.tool_call_id").String())
+
+	// 2. BaseURL ending with /v1 or /v1/ does not produce /v1/v1/...
+	url, err := (&Adaptor{}).GetRequestURL(&relaycommon.RelayInfo{
+		ChannelMeta:    &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeMistral, ChannelBaseUrl: "https://api.mistral.ai/v1/"},
+		RelayFormat:    types.RelayFormatOpenAIResponses,
+		RequestURLPath: "/v1/responses",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "https://api.mistral.ai/v1/responses", url)
+
+	// 3. Strips SSE padding "p" and stringifies object tool_calls arguments
+	normalized := normalizeMistralChatPayload([]byte(`{"id":"x","p":"abcdef","choices":[{"index":0,"message":{"role":"assistant","content":"","tool_calls":[{"id":"abc123XYZ","type":"function","function":{"name":"lookup","arguments":{"q":"hi"}}}]}}]}`), false)
+	assert.False(t, gjson.GetBytes(normalized, "p").Exists())
+	assert.Equal(t, `{"q":"hi"}`, gjson.GetBytes(normalized, "choices.0.message.tool_calls.0.function.arguments").String())
 }

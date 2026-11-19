@@ -1,116 +1,417 @@
 package mistral
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
+	"io"
+	"math"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
 )
 
-// requestResponses2Mistral keeps only the fields documented for Mistral's
-// stateless POST /v1/responses: https://docs.mistral.ai/api/endpoint/responses
-// Constrained options are validated before using the upstream defaults.
+// requestResponses2Mistral adapts any standard OpenAI Responses request to
+// Mistral's stateless POST /v1/responses schema without rejecting unsupported
+// OpenAI-only or stateful options.
 func requestResponses2Mistral(request dto.OpenAIResponsesRequest) (*dto.OpenAIResponsesRequest, error) {
-	if strings.TrimSpace(request.PreviousResponseID) != "" {
-		return nil, errors.New("mistral responses API is stateless: previous_response_id is not supported, send prior output items in input instead")
+	input, err := normalizeMistralResponsesInput(request.Input)
+	if err != nil {
+		return nil, err
 	}
-	if isJSONValuePresent(request.Conversation) {
-		return nil, errors.New("mistral responses API is stateless: conversation is not supported, send history in input instead")
-	}
-	if isJSONValuePresent(request.Prompt) {
-		return nil, errors.New("mistral responses API does not support prompt templates: send the prompt in input and instructions")
-	}
-	if isJSONValuePresent(request.Store) && !bytes.Equal(bytes.TrimSpace(request.Store), []byte("false")) {
-		return nil, errors.New("mistral responses API is stateless: store must be false or null")
-	}
-	if isJSONValuePresent(request.Truncation) && !bytes.Equal(bytes.TrimSpace(request.Truncation), []byte(`"disabled"`)) {
-		return nil, errors.New("mistral responses API does not support automatic truncation: truncation must be disabled")
-	}
-	if request.Background != nil && *request.Background {
-		return nil, errors.New("mistral responses API does not support background execution")
-	}
-	if request.TopLogProbs != nil && *request.TopLogProbs != 0 {
-		return nil, errors.New("mistral responses API requires top_logprobs to be zero")
-	}
-	if isJSONValuePresent(request.Moderation) {
-		return nil, errors.New("mistral responses API does not support moderation")
-	}
-	if request.FrequencyPenalty != nil && *request.FrequencyPenalty != 0 {
-		return nil, errors.New("mistral responses API does not support frequency_penalty; use chat completions")
-	}
-	if request.PresencePenalty != nil && *request.PresencePenalty != 0 {
-		return nil, errors.New("mistral responses API does not support presence_penalty; use chat completions")
-	}
-
-	switch common.GetJsonType(request.Input) {
-	case "string":
-	case "array":
-		var items []map[string]json.RawMessage
-		if err := common.Unmarshal(request.Input, &items); err != nil {
-			return nil, fmt.Errorf("invalid mistral responses input: %w", err)
-		}
-		changed := false
-		for i, item := range items {
-			if isJSONValuePresent(item["type"]) {
-				var itemType string
-				if err := common.Unmarshal(item["type"], &itemType); err != nil {
-					return nil, fmt.Errorf("input[%d].type must be a string", i)
-				}
-				switch itemType {
-				case "message", "reasoning", "function_call", "function_call_output":
-				case "item_reference":
-					return nil, fmt.Errorf("input[%d]: mistral responses API is stateless; send the full referenced item instead of item_reference", i)
-				default:
-					return nil, fmt.Errorf("input[%d]: unsupported mistral responses item type %q", i, itemType)
-				}
-				continue
-			}
-			if !isJSONValuePresent(item["role"]) || !isJSONValuePresent(item["content"]) {
-				return nil, fmt.Errorf("input[%d]: type is required except for messages with role and content", i)
-			}
-			// Easy messages are allowed, but assistant output_text histories need
-			// the discriminator to avoid Mistral's "type None" validation error.
-			item["type"] = json.RawMessage(`"message"`)
-			changed = true
-		}
-		if changed {
-			input, err := common.Marshal(items)
-			if err != nil {
-				return nil, fmt.Errorf("failed to encode mistral responses input: %w", err)
-			}
-			request.Input = input
-		}
-	default:
-		return nil, errors.New("mistral responses input must be a string or an array of complete input items")
-	}
+	tools, hasTools := normalizeMistralResponsesTools(request.Tools)
+	toolChoice := normalizeMistralResponsesToolChoice(request.ToolChoice, hasTools)
 
 	out := &dto.OpenAIResponsesRequest{
 		Model:             request.Model,
-		Input:             request.Input,
+		Input:             input,
 		Instructions:      request.Instructions,
 		MaxOutputTokens:   request.MaxOutputTokens,
 		MaxToolCalls:      request.MaxToolCalls,
-		Metadata:          request.Metadata,
+		Metadata:          stringifyMistralMetadata(request.Metadata),
 		ParallelToolCalls: request.ParallelToolCalls,
 		PromptCacheKey:    request.PromptCacheKey,
 		Stream:            request.Stream,
 		Temperature:       request.Temperature,
 		Text:              request.Text,
-		ToolChoice:        request.ToolChoice,
-		Tools:             request.Tools,
+		ToolChoice:        toolChoice,
+		Tools:             tools,
 		TopP:              request.TopP,
 	}
 	if request.Reasoning != nil && request.Reasoning.Effort != "" {
-		out.Reasoning = &dto.Reasoning{Effort: request.Reasoning.Effort}
+		if effort := normalizeMistralReasoningEffort(request.Model, request.Reasoning.Effort); effort != "" {
+			out.Reasoning = &dto.Reasoning{Effort: effort}
+		}
 	}
 	return out, nil
 }
 
-func isJSONValuePresent(raw json.RawMessage) bool {
-	trimmed := bytes.TrimSpace(raw)
-	return len(trimmed) > 0 && !bytes.Equal(trimmed, []byte("null"))
+// requestResponsesInputTokens2Mistral keeps only the fields documented for
+// Mistral's POST /v1/responses/input_tokens endpoint.
+func requestResponsesInputTokens2Mistral(request dto.OpenAIResponsesRequest) (*dto.OpenAIResponsesRequest, error) {
+	input, err := normalizeMistralResponsesInput(request.Input)
+	if err != nil {
+		return nil, err
+	}
+	tools, hasTools := normalizeMistralResponsesTools(request.Tools)
+	toolChoice := normalizeMistralResponsesToolChoice(request.ToolChoice, hasTools)
+
+	out := &dto.OpenAIResponsesRequest{
+		Model:             request.Model,
+		Input:             input,
+		Instructions:      request.Instructions,
+		ParallelToolCalls: request.ParallelToolCalls,
+		Text:              request.Text,
+		ToolChoice:        toolChoice,
+		Tools:             tools,
+	}
+	if request.Reasoning != nil && request.Reasoning.Effort != "" {
+		if effort := normalizeMistralReasoningEffort(request.Model, request.Reasoning.Effort); effort != "" {
+			out.Reasoning = &dto.Reasoning{Effort: effort}
+		}
+	}
+	return out, nil
+}
+
+func normalizeMistralResponsesInput(raw json.RawMessage) (json.RawMessage, error) {
+	switch common.GetJsonType(raw) {
+	case "string":
+		return raw, nil
+	case "array":
+		var items []map[string]json.RawMessage
+		if err := common.Unmarshal(raw, &items); err != nil {
+			return json.RawMessage(`""`), nil
+		}
+		out := make([]map[string]json.RawMessage, 0, len(items))
+		for _, item := range items {
+			if item == nil {
+				continue
+			}
+			itemType := ""
+			if isJSONValuePresent(item["type"]) {
+				if err := common.Unmarshal(item["type"], &itemType); err != nil {
+					continue
+				}
+			}
+			if itemType == "" {
+				switch {
+				case isJSONValuePresent(item["role"]):
+					itemType = "message"
+					item["type"] = json.RawMessage(`"message"`)
+				case isJSONValuePresent(item["call_id"]) && isJSONValuePresent(item["name"]):
+					itemType = "function_call"
+					item["type"] = json.RawMessage(`"function_call"`)
+				case isJSONValuePresent(item["call_id"]) && isJSONValuePresent(item["output"]):
+					itemType = "function_call_output"
+					item["type"] = json.RawMessage(`"function_call_output"`)
+				default:
+					continue
+				}
+			}
+			switch itemType {
+			case "message":
+				if !isJSONValuePresent(item["role"]) {
+					continue
+				}
+				if !isJSONValuePresent(item["content"]) {
+					item["content"] = json.RawMessage(`""`)
+				} else if common.GetJsonType(item["content"]) == "array" {
+					var role string
+					_ = common.Unmarshal(item["role"], &role)
+					item["content"] = normalizeMistralResponsesMessageContent(item["content"], role)
+				}
+				out = append(out, item)
+			case "reasoning":
+				// Mistral rejects encrypted_content with 400; strip it and drop
+				// opaque reasoning items that have no plaintext content or summary.
+				delete(item, "encrypted_content")
+				hasContent := isNonEmptyJSONArray(item["content"])
+				hasSummary := isNonEmptyJSONArray(item["summary"])
+				if !hasContent && !hasSummary {
+					continue
+				}
+				if !isJSONValuePresent(item["summary"]) {
+					item["summary"] = json.RawMessage(`[]`)
+				}
+				out = append(out, item)
+			case "function_call":
+				if !isJSONValuePresent(item["call_id"]) || !isJSONValuePresent(item["name"]) {
+					continue
+				}
+				if !isJSONValuePresent(item["arguments"]) {
+					item["arguments"] = json.RawMessage(`"{}"`)
+				}
+				out = append(out, item)
+			case "function_call_output":
+				if !isJSONValuePresent(item["call_id"]) {
+					continue
+				}
+				if !isJSONValuePresent(item["output"]) {
+					item["output"] = json.RawMessage(`""`)
+				}
+				out = append(out, item)
+			default:
+				// Skip unsupported OpenAI Responses item types (item_reference,
+				// web_search_call, file_search_call, mcp_call, computer_call, etc.).
+			}
+		}
+		encoded, err := common.Marshal(out)
+		if err != nil {
+			return nil, fmt.Errorf("failed to encode mistral responses input: %w", err)
+		}
+		return encoded, nil
+	default:
+		return json.RawMessage(`""`), nil
+	}
+}
+
+func normalizeMistralResponsesMessageContent(raw json.RawMessage, role string) json.RawMessage {
+	var parts []map[string]json.RawMessage
+	if err := common.Unmarshal(raw, &parts); err != nil {
+		return raw
+	}
+	out := make([]map[string]json.RawMessage, 0, len(parts))
+	for _, part := range parts {
+		if part == nil {
+			continue
+		}
+		var partType string
+		if err := common.Unmarshal(part["type"], &partType); err != nil {
+			continue
+		}
+		switch partType {
+		case "input_text", "output_text", "input_image", "input_file", "refusal":
+			out = append(out, part)
+		case "text":
+			if !isJSONValuePresent(part["text"]) {
+				continue
+			}
+			mapped := `"input_text"`
+			if role == "assistant" {
+				mapped = `"output_text"`
+			}
+			out = append(out, map[string]json.RawMessage{
+				"type": json.RawMessage(mapped),
+				"text": part["text"],
+			})
+		case "image_url":
+			var imageURL string
+			if common.GetJsonType(part["image_url"]) == "object" {
+				var image dto.MessageImageUrl
+				if err := common.Unmarshal(part["image_url"], &image); err == nil {
+					imageURL = image.Url
+				}
+			} else {
+				_ = common.Unmarshal(part["image_url"], &imageURL)
+			}
+			if imageURL == "" {
+				continue
+			}
+			encodedURL, _ := common.Marshal(imageURL)
+			out = append(out, map[string]json.RawMessage{
+				"type":      json.RawMessage(`"input_image"`),
+				"image_url": encodedURL,
+			})
+		default:
+			if isJSONValuePresent(part["text"]) {
+				mapped := `"input_text"`
+				if role == "assistant" {
+					mapped = `"output_text"`
+				}
+				out = append(out, map[string]json.RawMessage{
+					"type": json.RawMessage(mapped),
+					"text": part["text"],
+				})
+			}
+		}
+	}
+	encoded, err := common.Marshal(out)
+	if err != nil {
+		return raw
+	}
+	return encoded
+}
+
+func normalizeMistralResponsesTools(raw json.RawMessage) (json.RawMessage, bool) {
+	if !isJSONValuePresent(raw) {
+		return nil, false
+	}
+	var tools []map[string]json.RawMessage
+	if err := common.Unmarshal(raw, &tools); err != nil {
+		return nil, false
+	}
+	filtered := make([]map[string]json.RawMessage, 0, len(tools))
+	for _, tool := range tools {
+		if tool == nil {
+			continue
+		}
+		var typ string
+		if err := common.Unmarshal(tool["type"], &typ); err != nil {
+			continue
+		}
+		switch typ {
+		case "function", "namespace":
+			filtered = append(filtered, tool)
+		}
+	}
+	if len(filtered) == 0 {
+		return nil, false
+	}
+	encoded, err := common.Marshal(filtered)
+	if err != nil {
+		return nil, false
+	}
+	return encoded, true
+}
+
+func normalizeMistralResponsesToolChoice(raw json.RawMessage, hasTools bool) json.RawMessage {
+	if !isJSONValuePresent(raw) {
+		return nil
+	}
+	switch common.GetJsonType(raw) {
+	case "string":
+		var mode string
+		if err := common.Unmarshal(raw, &mode); err != nil {
+			return nil
+		}
+		switch mode {
+		case "none", "auto":
+			return raw
+		case "required":
+			if !hasTools {
+				return nil
+			}
+			return raw
+		default:
+			return nil
+		}
+	case "object":
+		var obj map[string]json.RawMessage
+		if err := common.Unmarshal(raw, &obj); err != nil {
+			return nil
+		}
+		var typ string
+		_ = common.Unmarshal(obj["type"], &typ)
+		switch typ {
+		case "function":
+			if !hasTools || !isJSONValuePresent(obj["name"]) {
+				return nil
+			}
+			return raw
+		case "allowed_tools":
+			var mode string
+			_ = common.Unmarshal(obj["mode"], &mode)
+			mode = strings.ToLower(strings.TrimSpace(mode))
+			if mode == "none" || mode == "auto" || (mode == "required" && hasTools) {
+				encoded, _ := common.Marshal(mode)
+				return encoded
+			}
+			return nil
+		default:
+			return nil
+		}
+	default:
+		return nil
+	}
+}
+
+func isNonEmptyJSONArray(raw json.RawMessage) bool {
+	if common.GetJsonType(raw) != "array" {
+		return false
+	}
+	var items []json.RawMessage
+	return common.Unmarshal(raw, &items) == nil && len(items) > 0
+}
+
+// normalizeMistralResponsesPayload normalizes whole-number floating point
+// timestamps (e.g. "created_at": 1795112261.0) into integers so strict OpenAI
+// Responses SDKs can unmarshal Mistral responses cleanly.
+func normalizeMistralResponsesPayload(payload []byte) []byte {
+	if !bytes.Contains(payload, []byte(`"created_at"`)) && !bytes.Contains(payload, []byte(`"completed_at"`)) {
+		return payload
+	}
+	var root map[string]json.RawMessage
+	if err := common.Unmarshal(payload, &root); err != nil {
+		return payload
+	}
+	changed := normalizeResponseTimestampsInObject(root)
+	if respRaw, ok := root["response"]; ok && common.GetJsonType(respRaw) == "object" {
+		var nested map[string]json.RawMessage
+		if err := common.Unmarshal(respRaw, &nested); err == nil && normalizeResponseTimestampsInObject(nested) {
+			if encoded, err := common.Marshal(nested); err == nil {
+				root["response"] = encoded
+				changed = true
+			}
+		}
+	}
+	if !changed {
+		return payload
+	}
+	out, err := common.Marshal(root)
+	if err != nil {
+		return payload
+	}
+	return out
+}
+
+func normalizeResponseTimestampsInObject(obj map[string]json.RawMessage) bool {
+	changed := false
+	for _, key := range []string{"created_at", "completed_at"} {
+		raw, ok := obj[key]
+		if !ok || !bytes.ContainsRune(raw, '.') {
+			continue
+		}
+		var f float64
+		if err := common.Unmarshal(raw, &f); err != nil || math.IsNaN(f) || math.IsInf(f, 0) {
+			continue
+		}
+		if math.Trunc(f) == f && f >= -1<<53 && f <= 1<<53 {
+			if encoded, err := common.Marshal(int64(f)); err == nil {
+				obj[key] = encoded
+				changed = true
+			}
+		}
+	}
+	return changed
+}
+
+func normalizeMistralResponsesBody(body io.ReadCloser, stream bool) (io.ReadCloser, error) {
+	if !stream {
+		data, err := io.ReadAll(body)
+		_ = body.Close()
+		if err != nil {
+			return nil, err
+		}
+		return io.NopCloser(bytes.NewReader(normalizeMistralResponsesPayload(data))), nil
+	}
+	pr, pw := io.Pipe()
+	go func() {
+		reader := bufio.NewReader(body)
+		for {
+			line, err := reader.ReadBytes('\n')
+			if len(line) > 0 {
+				if data, ok := bytes.CutPrefix(line, []byte("data:")); ok {
+					trimmed := bytes.TrimSpace(data)
+					normalized := normalizeMistralResponsesPayload(trimmed)
+					if !bytes.Equal(normalized, trimmed) {
+						line = append(append([]byte("data: "), normalized...), '\n')
+					}
+				}
+				if _, werr := pw.Write(line); werr != nil {
+					return
+				}
+			}
+			if err != nil {
+				if err == io.EOF {
+					_ = pw.Close()
+				} else {
+					_ = pw.CloseWithError(err)
+				}
+				return
+			}
+		}
+	}()
+	return &normalizedBody{Reader: pr, closers: []io.Closer{pr, body}}, nil
 }

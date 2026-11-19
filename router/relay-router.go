@@ -141,6 +141,7 @@ func SetRelayRouter(router *gin.Engine) {
 		httpRouter.POST("/responses/compact", func(c *gin.Context) {
 			controller.Relay(c, types.RelayFormatOpenAIResponsesCompaction)
 		})
+		httpRouter.POST("/responses/input_tokens", controller.RelayResponsesInputTokens)
 
 		// image related routes
 		httpRouter.POST("/edits", func(c *gin.Context) {

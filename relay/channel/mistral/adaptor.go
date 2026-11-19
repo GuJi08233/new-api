@@ -2,18 +2,16 @@ package mistral
 
 import (
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"strings"
 
-	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/openai"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
-	"github.com/QuantumNous/new-api/relay/transform"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/service/relayconvert"
 	"github.com/QuantumNous/new-api/types"
 
@@ -36,38 +34,25 @@ func (a *Adaptor) ConvertClaudeRequest(c *gin.Context, info *relaycommon.RelayIn
 	if request == nil {
 		return nil, invalidMistralRequest(errors.New("request is nil"))
 	}
-	for name, value := range map[string][]byte{
-		"context_management": request.ContextManagement,
-		"container":          request.Container,
-		"mcp_servers":        request.McpServers,
-	} {
-		if isJSONValuePresent(value) {
-			return nil, invalidMistralRequest(fmt.Errorf("mistral does not support Claude %s", name))
-		}
-	}
-	body, err := common.Marshal(request)
-	if err != nil {
-		return nil, err
-	}
-	body, err = transform.RequestClaudeToOpenAI(body, transform.TransformFlags{})
+	chat, err := claudeRequestToOpenAIChat(request)
 	if err != nil {
 		return nil, invalidMistralRequest(err)
-	}
-	var chat dto.GeneralOpenAIRequest
-	if err := common.Unmarshal(body, &chat); err != nil {
-		return nil, invalidMistralRequest(err)
-	}
-	if request.Thinking != nil && request.Thinking.Type == "enabled" && request.GetEfforts() == "" {
-		chat.ReasoningEffort = "high"
 	}
 	info.InitRequestConversionChain()
-	info.AppendRequestConversion(types.RelayFormatOpenAI)
-	// Responses has no stop/top_k controls. Choose Chat before sending rather
-	// than discarding them or retrying a request on a different endpoint.
-	if len(request.StopSequences) > 0 || request.TopK != nil {
-		return a.ConvertOpenAIRequest(c, info, &chat)
+
+	forceResponses := info != nil && info.ChannelMeta != nil &&
+		service.ShouldChatCompletionsUseResponsesGlobal(info.ChannelId, info.ChannelType, info.OriginModelName)
+	// Responses has no stop parameter. Route to Chat only when stop_sequences
+	// is supplied (and forced Responses conversion is not enabled); keep a
+	// single direct hop in RequestConversionChain either way.
+	if len(request.StopSequences) > 0 && !forceResponses {
+		info.AppendRequestConversion(types.RelayFormatOpenAI)
+		return a.ConvertOpenAIRequest(c, info, chat)
 	}
-	result, err := relayconvert.ConvertRequest(c, info, types.RelayFormatOpenAIResponses, &chat)
+
+	// Pass nil info so the internal Chat->Responses helper does not append an
+	// intermediate OpenAI Compatible hop into the logged conversion chain.
+	result, err := relayconvert.ConvertRequest(c, nil, types.RelayFormatOpenAIResponses, chat)
 	if err != nil {
 		return nil, err
 	}
@@ -75,6 +60,7 @@ func (a *Adaptor) ConvertClaudeRequest(c *gin.Context, info *relaycommon.RelayIn
 	if !ok {
 		return nil, errors.New("expected OpenAI responses request")
 	}
+	info.AppendRequestConversion(types.RelayFormatOpenAIResponses)
 	return a.ConvertOpenAIResponsesRequest(c, info, *responses)
 }
 
@@ -92,15 +78,16 @@ func (a *Adaptor) Init(info *relaycommon.RelayInfo) {
 }
 
 func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
+	baseURL := strings.TrimSuffix(strings.TrimRight(strings.TrimSpace(info.ChannelBaseUrl), "/"), "/v1")
 	if info.RelayFormat == types.RelayFormatClaude {
 		switch info.GetFinalRequestRelayFormat() {
 		case types.RelayFormatOpenAIResponses:
-			return relaycommon.GetFullRequestURL(info.ChannelBaseUrl, "/v1/responses", info.ChannelType), nil
+			return relaycommon.GetFullRequestURL(baseURL, "/v1/responses", info.ChannelType), nil
 		case types.RelayFormatOpenAI:
-			return relaycommon.GetFullRequestURL(info.ChannelBaseUrl, "/v1/chat/completions", info.ChannelType), nil
+			return relaycommon.GetFullRequestURL(baseURL, "/v1/chat/completions", info.ChannelType), nil
 		}
 	}
-	return relaycommon.GetFullRequestURL(info.ChannelBaseUrl, info.RequestURLPath, info.ChannelType), nil
+	return relaycommon.GetFullRequestURL(baseURL, info.RequestURLPath, info.ChannelType), nil
 }
 
 func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *relaycommon.RelayInfo) error {
@@ -133,42 +120,15 @@ func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommo
 	if info != nil && info.RelayMode == relayconstant.RelayModeResponsesCompact {
 		return nil, invalidMistralRequest(errors.New("mistral does not support /v1/responses/compact"))
 	}
-	if info != nil {
-		var chat *dto.GeneralOpenAIRequest
-		switch original := info.Request.(type) {
-		case *dto.ClaudeRequest:
-			if original != nil && (len(original.StopSequences) > 0 || original.TopK != nil) {
-				return nil, invalidMistralRequest(errors.New("mistral Responses cannot preserve Claude stop_sequences/top_k; disable forced Responses conversion"))
-			}
-		case *dto.GeneralOpenAIRequest:
-			chat = original
-		}
-		if chat != nil {
-			var unsupported []string
-			for _, option := range []struct {
-				name     string
-				provided bool
-			}{
-				{"stop", chat.Stop != nil}, {"top_k", chat.TopK != nil},
-				{"seed", chat.Seed != nil}, {"random_seed", chat.RandomSeed != nil},
-				{"min_tokens", chat.MinTokens != nil}, {"repetition_penalty", chat.RepetitionPenalty != nil},
-				{"prompt_logprobs", chat.PromptLogProbs != nil}, {"top_prompt_logprobs", chat.TopPromptLogProbs != nil},
-				{"prompt_mode", chat.PromptMode != nil}, {"safe_prompt", chat.SafePrompt != nil},
-				{"guardrails", isJSONValuePresent(chat.Guardrails)}, {"logprobs", chat.LogProbs != nil},
-				{"top_logprobs", chat.TopLogProbs != nil}, {"prediction", isJSONValuePresent(chat.Prediction)},
-				{"functions", isJSONValuePresent(chat.Functions)}, {"function_call", isJSONValuePresent(chat.FunctionCall)},
-			} {
-				if option.provided {
-					unsupported = append(unsupported, option.name)
-				}
-			}
-			if len(unsupported) > 0 {
-				return nil, invalidMistralRequest(fmt.Errorf("mistral Responses cannot preserve %s; disable forced Responses conversion", strings.Join(unsupported, ", ")))
-			}
-		}
-	}
 	if request.Model == "" && info != nil {
 		request.Model = info.UpstreamModelName
+	}
+	if info != nil && info.RelayMode == relayconstant.RelayModeResponsesInputTokens {
+		converted, err := requestResponsesInputTokens2Mistral(request)
+		if err != nil {
+			return nil, invalidMistralRequest(err)
+		}
+		return converted, nil
 	}
 	converted, err := requestResponses2Mistral(request)
 	if err != nil {
@@ -186,14 +146,32 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 
 func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (usage any, err *types.NewAPIError) {
 	switch {
+	case info.RelayMode == relayconstant.RelayModeResponsesInputTokens:
+		defer service.CloseResponseBodyGracefully(resp)
+		body, readErr := service.ReadResponseBody(c, resp)
+		if readErr != nil {
+			return nil, types.NewOpenAIError(readErr, types.ErrorCodeReadResponseBodyFailed, http.StatusInternalServerError)
+		}
+		service.IOCopyRawBytesGracefully(c, resp, body)
+		return &dto.Usage{}, nil
 	case info.RelayFormat == types.RelayFormatClaude && info.GetFinalRequestRelayFormat() == types.RelayFormatOpenAIResponses:
 		if info.IsStream {
 			return openai.OaiResponsesToChatStreamHandler(c, info, resp)
 		}
 		return openai.OaiResponsesToChatHandler(c, info, resp)
 	case info.RelayMode == relayconstant.RelayModeResponses && info.IsStream:
+		body, normalizeErr := normalizeMistralResponsesBody(resp.Body, true)
+		if normalizeErr != nil {
+			return nil, types.NewOpenAIError(normalizeErr, types.ErrorCodeReadResponseBodyFailed, http.StatusInternalServerError)
+		}
+		resp.Body = body
 		usage, err = openai.OaiResponsesStreamHandler(c, info, resp)
 	case info.RelayMode == relayconstant.RelayModeResponses:
+		body, normalizeErr := normalizeMistralResponsesBody(resp.Body, false)
+		if normalizeErr != nil {
+			return nil, types.NewOpenAIError(normalizeErr, types.ErrorCodeReadResponseBodyFailed, http.StatusInternalServerError)
+		}
+		resp.Body = body
 		usage, err = openai.OaiResponsesHandler(c, info, resp)
 	default:
 		if info.RelayFormat == types.RelayFormatClaude && info.GetFinalRequestRelayFormat() == types.RelayFormatOpenAI {

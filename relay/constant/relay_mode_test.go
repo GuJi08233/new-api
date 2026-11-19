@@ -18,6 +18,9 @@ func TestPath2RelayModeSystemOne(t *testing.T) {
 		{name: "canonical path", path: "/v1/systemone", want: RelayModeTypeSafe},
 		{name: "typesafe prefix alias", path: "/typesafe/v1/systemone", want: RelayModeTypeSafe},
 		{name: "chat completions unaffected", path: "/v1/chat/completions", want: RelayModeChatCompletions},
+		{name: "responses input_tokens", path: "/v1/responses/input_tokens", want: RelayModeResponsesInputTokens},
+		{name: "responses compact", path: "/v1/responses/compact", want: RelayModeResponsesCompact},
+		{name: "responses", path: "/v1/responses", want: RelayModeResponses},
 		{name: "rerank unaffected", path: "/v1/rerank", want: RelayModeRerank},
 	}
 

@@ -1,91 +1,92 @@
 # Mistral protocol compatibility
 
 The Mistral channel adapts three client protocols using Mistral's documented
-[Chat API](https://docs.mistral.ai/api/endpoint/chat) and
-[Responses API](https://docs.mistral.ai/api/endpoint/responses).
+[Chat API](https://docs.mistral.ai/api/endpoint/chat),
+[Responses API](https://docs.mistral.ai/api/endpoint/responses), and
+[Models API](https://docs.mistral.ai/api/endpoint/models).
 Disable request-body pass-through to use these conversions.
 
 | Client endpoint | Upstream endpoint |
 | --- | --- |
 | `/v1/chat/completions` | `/v1/chat/completions` |
 | `/v1/responses` | `/v1/responses` |
-| `/v1/messages` | `/v1/responses`, or `/v1/chat/completions` when `stop_sequences` or `top_k` is supplied |
+| `/v1/responses/input_tokens` | `/v1/responses/input_tokens` |
+| `/v1/messages` | `/v1/responses`, or `/v1/chat/completions` when `stop_sequences` is supplied |
 
 Both streaming and non-streaming requests support text, reasoning, function
-calls, and tool-result replay. Claude requests retain text/image ordering,
-URL/base64 images and documents, function schemas and `strict`, tool choice,
-parallel-tool controls, metadata, and JSON schemas from `output_config.format`
-or legacy `output_format`. Multimodal tool results remain structured content,
-not JSON-encoded text. Claude `is_error` tool results include an explicit
-`Tool execution failed (is_error=true): ` text marker because OpenAI/Mistral
-tool outputs do not have an equivalent boolean field.
+calls, and tool-result replay. Standard OpenAI and Anthropic requests are
+adapted permissively: unsupported client fields, server tools, stateful
+Responses options, and opaque reasoning blocks are sanitized or omitted rather
+than rejected with HTTP 400.
 
 ## Chat parameters
 
-OpenAI `seed` maps to Mistral `random_seed`; it must be an integer representable
-as int64. If both names are supplied, their values must agree. Native
-`random_seed` preserves int64 precision. Native `min_tokens`, `top_k`,
-`repetition_penalty`, `prompt_logprobs`, `top_prompt_logprobs`, `prompt_mode`,
-`safe_prompt`, `guardrails`, and `service_tier` are retained, including explicit
-zero and false values. `min_tokens` has the same relay safety ceiling as
-max-token fields and cannot exceed an explicitly supplied output limit.
-Channel-level disabled-field policies still apply.
+- OpenAI `developer` role maps to `system`, and legacy `function` role maps to
+  `tool`. Because Mistral Chat schemas disallow `name` on `system`/`user`/
+  `assistant` messages, `name` and `tool_call_id` are sent only on `tool`
+  messages, and `prefix`/`tool_calls` only on `assistant` messages.
+- Legacy `functions` and `function_call` are automatically converted to
+  standard `tools` and `tool_choice`; non-function tools are filtered cleanly.
+- `max_completion_tokens` takes precedence over `max_tokens` (including `0`).
+  `seed` maps to `random_seed` when `random_seed` is unset. `service_tier`
+  normalizes `"priority"` to `"auto"`, preserves `"auto"` and `"standard_only"`,
+  and omits unrecognized OpenAI values.
+- Model-specific unsupported controls are automatically omitted to avoid
+  upstream 400 errors (for example, `min_tokens` on `deepseek-v4-*` and
+  `zai-glm-5-3*`, and `top_k` / `logprobs` on `deepseek-v4-*`).
+- OpenAI image/file parts (including `input_text`, `input_image`, `input_file`)
+  are adapted to Mistral `text`, `image_url`, `document_url`, or `file` chunks.
+  Historical tool-call IDs are consistently mapped to Mistral's
+  nine-alphanumeric-character format.
+- Reasoning responses returned as chunk arrays are normalized to standard
+  OpenAI `content` + `reasoning_content`; `finish_reason: "model_length"` maps
+  to `"length"`.
 
-`max_completion_tokens` takes precedence over `max_tokens`, including an
-explicit zero. OpenAI image/file parts are adapted to Mistral image,
-document-URL, or file-ID chunks. Historical tool-call IDs are consistently
-mapped to Mistral's nine-alphanumeric-character format.
+## Responses compatibility
 
-Chat tool definitions currently support function tools, not Mistral-hosted
-document libraries, image generation, or connectors. Use `tools` and
-`tool_choice`; deprecated `functions` and `function_call` are rejected rather
-than silently discarded.
+Mistral Responses is stateless. Standard OpenAI Responses requests are adapted
+without rejecting common client defaults:
 
-## Responses constraints
+- Stateful or OpenAI-only parameters (`store`, `truncation`, `background`,
+  `previous_response_id`, `conversation`, `prompt`, `top_logprobs`,
+  `moderation`, `frequency_penalty`, `presence_penalty`, `include`,
+  `service_tier`, `user`, `safety_identifier`, `prompt_cache_retention`,
+  `reasoning.summary`) are cleanly omitted.
+- Untyped message items in `input` receive `type: "message"`, missing content
+  defaults to `""`, `encrypted_content` is stripped from `reasoning` items
+  (opaque items without plaintext content/summary are dropped), and unsupported
+  input item types (such as `item_reference` or built-in tool calls) are
+  skipped safely.
+- `tools` keeps Mistral-supported `function` and `namespace` tools while
+  filtering out OpenAI built-in tools; `tool_choice` (`allowed_tools` or
+  filtered built-in tool selectors) is normalized safely.
+- `metadata` values are coerced to strings as required by Mistral Responses.
+- Whole-number float timestamps (`created_at`, `completed_at`) returned by
+  Mistral are normalized to JSON integers for strict OpenAI SDKs.
+- `POST /v1/responses/input_tokens` forwards the documented token-counting
+  fields without charging generation quota.
 
-Mistral Responses is stateless. Send complete message, reasoning, function-call,
-and function-result history in `input`. The relay adds `type: "message"` to
-untyped message objects, including assistant `output_text` replay; it does not
-guess types for ID-only or otherwise unidentified objects.
+## Claude Messages compatibility
 
-Unsupported semantics return HTTP 400 before contacting the upstream:
+`/v1/messages` converts directly to Mistral `/v1/responses` (recording a single
+`Claude Messages -> OpenAI Responses` conversion hop in logs), or directly to
+`/v1/chat/completions` when `stop_sequences` is supplied and forced Responses
+conversion is disabled.
 
-- `previous_response_id`, `conversation`, prompt templates, and `item_reference`;
-- `store: true`, automatic truncation, background execution, nonzero
-  `top_logprobs`, moderation, and nonzero frequency/presence penalties;
-- unsupported or unidentified input-item types and `/v1/responses/compact`.
+- Claude text/image/document ordering, URL/base64/text documents, function
+  schemas and `strict`, `tool_choice`, `disable_parallel_tool_use`, `metadata`,
+  and `output_config.format` / `output_format` (`json_schema` and
+  `json_object`) are preserved.
+- Anthropic-only features (`context_management`, `container`, `mcp_servers`,
+  server tools such as `web_search_*`, `redacted_thinking`, and unknown blocks)
+  are ignored safely instead of returning HTTP 400.
 
-Use `store: false` (or omit it), `truncation: "disabled"` (or omit it), and
-complete client-managed history. Background execution is also rejected by
-shared Responses validation: the relay does not provide asynchronous polling
-and settlement.
+## Reasoning effort normalization
 
-Supported Responses tools, including namespace definitions, are forwarded
-without translating them into Chat tools. OpenAI-only hints such as `include`,
-Responses `service_tier`, and reasoning `summary` are filtered; their
-provider-specific behavior is not emulated. Forcing Chat-to-Responses
-conversion with Chat-only controls returns an explicit error instead of
-dropping those controls.
-
-Streamed terminal usage retains cached/reasoning token details, including on
-incomplete or failed responses. An upstream usage snapshot with explicit zero
-tokens is authoritative rather than replaced with a local estimate.
-
-## Provider and model limits
-
-Protocol compatibility does not add capabilities to a model. Vision, document
-input, structured output, tool calling, and accepted reasoning efforts depend
-on the selected upstream model. Model validation errors are returned without
-silently changing effort, removing a schema, or retrying another endpoint.
-For example, the tested `deepseek-v4-1-flash-1017` and `zai-glm-5-3-flash`
-models reject `min_tokens`, even when it is zero; the former also rejects
-`top_k`. Omit these controls for those models rather than relying on the relay
-to silently discard them.
-
-Claude thinking maps to Mistral reasoning effort; an exact Anthropic thinking
-token budget or cryptographic thinking signature cannot be reproduced.
-Claude-hosted tools, MCP servers, containers, context-management operations,
-and opaque/redacted thinking blocks are not transferable and are rejected.
-Mistral Chat does not identify which stop sequence matched, so Claude responses
-cannot manufacture a reliable `stop_sequence` value. Mistral `model_length`
-termination maps to OpenAI `length` and Claude `max_tokens`.
+Mistral-hosted models accept different subsets of `reasoning_effort` values
+(for example, `deepseek-v4-1-flash-1017` rejects `medium`/`minimal`,
+`zai-glm-5-3-flash` accepts only `low`/`high`/`max`, `mistral-large-4` accepts
+only `low`/`medium`/`high`, and `mistral-medium-3-5` / `mistral-small-2603`
+accept only `none`/`high`). Standard effort values from OpenAI or Claude
+clients are automatically mapped to the nearest effort accepted by the target
+model family.
