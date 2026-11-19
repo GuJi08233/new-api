@@ -238,7 +238,8 @@ func (a *Adaptor) SetupRequestHeader(c *gin.Context, header *http.Header, info *
 			header.Set("Authorization", "Bearer "+info.ApiKey)
 		}
 	}
-	if info.ChannelType == constant.ChannelTypeOpenRouter {
+	// Header passthrough forwards the client's request as-is; do not add gateway branding.
+	if info.ChannelType == constant.ChannelTypeOpenRouter && !channel.PassesAllClientHeaders(info, c) {
 		if header.Get("HTTP-Referer") == "" {
 			header.Set("HTTP-Referer", "https://www.newapi.ai")
 		}

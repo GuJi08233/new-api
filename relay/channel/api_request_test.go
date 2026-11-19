@@ -127,6 +127,55 @@ func TestDoRequest_AppliesPassthroughAtSharedHTTPBoundary(t *testing.T) {
 	assert.Empty(t, headers.Get("X-Client-Hop"))
 }
 
+func TestDoRequest_PassthroughForwardsClientHeadersWithoutGatewayAdditions(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	service.InitHttpClient()
+	received := make(chan http.Header, 1)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		received <- r.Header.Clone()
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer upstream.Close()
+
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader("{}"))
+	c.Request.Header.Add("Anthropic-Beta", "beta-a")
+	c.Request.Header.Add("Anthropic-Beta", "beta-b")
+	for name, value := range map[string]string{
+		"CF-Connecting-IP":  "203.0.113.7",
+		"CF-Ray":            "ray-id",
+		"CF-IPCountry":      "CN",
+		"CDN-Loop":          "cloudflare",
+		"X-Forwarded-For":   "203.0.113.7",
+		"X-Forwarded-Proto": "https",
+		"X-Real-IP":         "203.0.113.7",
+		"True-Client-IP":    "203.0.113.7",
+		"Forwarded":         "for=203.0.113.7",
+		"Via":               "1.1 proxy",
+	} {
+		c.Request.Header.Set(name, value)
+	}
+	request, err := http.NewRequest(http.MethodPost, upstream.URL, strings.NewReader("{}"))
+	require.NoError(t, err)
+
+	info := &relaycommon.RelayInfo{
+		ChannelMeta: &relaycommon.ChannelMeta{
+			ChannelSetting: dto.ChannelSettings{PassThroughHeadersEnabled: true},
+		},
+	}
+	resp, err := doRequest(c, request, info)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	headers := <-received
+	assert.Equal(t, "beta-a, beta-b", headers.Get("Anthropic-Beta"))
+	assert.Empty(t, headers.Values("User-Agent"))
+	for _, name := range []string{"CF-Connecting-IP", "CF-Ray", "CF-IPCountry", "CDN-Loop", "X-Forwarded-For",
+		"X-Forwarded-Proto", "X-Real-IP", "True-Client-IP", "Forwarded", "Via"} {
+		assert.Empty(t, headers.Values(name), "%s must not be forwarded", name)
+	}
+}
+
 func TestDoRequestPreResponsePingFailureCancelsUpstream(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	service.InitHttpClient()
