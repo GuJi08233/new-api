@@ -2987,6 +2987,7 @@
     "缓存 {{tokens}} tokens / 1M tokens * {{symbol}}{{price}}": "快取 {{tokens}} tokens / 1M tokens * {{symbol}}{{price}}",
     "缓存 {{tokens}} tokens / 1M tokens * {{symbol}}{{price}} (倍率: {{ratio}})": "快取 {{tokens}} tokens / 1M tokens * {{symbol}}{{price}} (倍率: {{ratio}})",
     "缓存 Tokens": "快取 Tokens",
+    "缓存命中率": "快取命中率",
     "缓存: {{cacheRatio}}": "快取: {{cacheRatio}}",
     "缓存价格：{{symbol}}{{price}} * {{cacheRatio}} = {{symbol}}{{total}} / 1M tokens (缓存倍率: {{cacheRatio}})": "快取價格：{{symbol}}{{price}} * {{cacheRatio}} = {{symbol}}{{total}} / 1M tokens (快取倍率: {{cacheRatio}})",
     "缓存价格：{{symbol}}{{price}} * {{ratio}} = {{symbol}}{{total}} / 1M tokens (缓存倍率: {{cacheRatio}})": "快取價格：{{symbol}}{{price}} * {{ratio}} = {{symbol}}{{total}} / 1M tokens (快取倍率: {{cacheRatio}})",

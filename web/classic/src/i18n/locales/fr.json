@@ -3005,6 +3005,7 @@
     "缓存 {{tokens}} tokens / 1M tokens * {{symbol}}{{price}}": "Cache {{tokens}} tokens / 1M tokens * {{symbol}}{{price}}",
     "缓存 {{tokens}} tokens / 1M tokens * {{symbol}}{{price}} (倍率: {{ratio}})": "Cache {{tokens}} tokens / 1M tokens * {{symbol}}{{price}} (ratio : {{ratio}})",
     "缓存 Tokens": "Jetons de cache",
+    "缓存命中率": "Taux de succès du cache",
     "缓存: {{cacheRatio}}": "Cache : {{cacheRatio}}",
     "缓存价格：{{symbol}}{{price}} * {{cacheRatio}} = {{symbol}}{{total}} / 1M tokens (缓存倍率: {{cacheRatio}})": "Prix du cache : {{symbol}}{{price}} * {{cacheRatio}} = {{symbol}}{{total}} / 1M tokens (taux de cache : {{cacheRatio}})",
     "缓存价格：{{symbol}}{{price}} * {{ratio}} = {{symbol}}{{total}} / 1M tokens (缓存倍率: {{cacheRatio}})": "Prix du cache : {{symbol}}{{price}} * {{ratio}} = {{symbol}}{{total}} / 1M tokens (taux de cache : {{cacheRatio}})",

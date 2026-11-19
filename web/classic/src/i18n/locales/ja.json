@@ -2974,6 +2974,7 @@
     "缓存 {{tokens}} tokens / 1M tokens * {{symbol}}{{price}}": "キャッシュ {{tokens}} tokens / 1M tokens * {{symbol}}{{price}}",
     "缓存 {{tokens}} tokens / 1M tokens * {{symbol}}{{price}} (倍率: {{ratio}})": "Cache {{tokens}} tokens / 1M tokens * {{symbol}}{{price}} (ratio: {{ratio}})",
     "缓存 Tokens": "キャッシュトークン",
+    "缓存命中率": "キャッシュヒット率",
     "缓存: {{cacheRatio}}": "キャッシュ：{{cacheRatio}}",
     "缓存价格：{{symbol}}{{price}} * {{cacheRatio}} = {{symbol}}{{total}} / 1M tokens (缓存倍率: {{cacheRatio}})": "キャッシュ料金：{{symbol}}{{price}} * {{cacheRatio}} = {{symbol}}{{total}} / 1M tokens（キャッシュ倍率：{{cacheRatio}}）",
     "缓存价格：{{symbol}}{{price}} * {{ratio}} = {{symbol}}{{total}} / 1M tokens (缓存倍率: {{cacheRatio}})": "キャッシュ料金：{{symbol}}{{price}} * {{ratio}} = {{symbol}}{{total}} / 1M tokens（キャッシュ倍率：{{cacheRatio}}）",

@@ -3276,6 +3276,7 @@
     "缓存 {{tokens}} tokens / 1M tokens * {{symbol}}{{price}}": "Bộ nhớ đệm {{tokens}} tokens / 1M tokens * {{symbol}}{{price}}",
     "缓存 {{tokens}} tokens / 1M tokens * {{symbol}}{{price}} (倍率: {{ratio}})": "Cache {{tokens}} tokens / 1M tokens * {{symbol}}{{price}} (ratio: {{ratio}})",
     "缓存 Tokens": "Tokens bộ nhớ đệm",
+    "缓存命中率": "Tỷ lệ trúng bộ nhớ đệm",
     "缓存: {{cacheRatio}}": "Bộ nhớ đệm: {{cacheRatio}}",
     "缓存价格：{{symbol}}{{price}} * {{cacheRatio}} = {{symbol}}{{total}} / 1M tokens (缓存倍率: {{cacheRatio}})": "Giá bộ nhớ đệm: {{symbol}}{{price}} * {{cacheRatio}} = {{symbol}}{{total}} / 1M tokens (Tỷ lệ bộ nhớ đệm: {{cacheRatio}})",
     "缓存价格：{{symbol}}{{price}} * {{ratio}} = {{symbol}}{{total}} / 1M tokens (缓存倍率: {{cacheRatio}})": "Giá bộ nhớ đệm: {{symbol}}{{price}} * {{ratio}} = {{symbol}}{{total}} / 1M tokens (Tỷ lệ bộ nhớ đệm: {{cacheRatio}})",

@@ -42,6 +42,11 @@ import {
 import { ITEMS_PER_PAGE } from '../../constants';
 import { useTableCompactMode } from '../common/useTableCompactMode';
 import ParamOverrideEntry from '../../components/table/usage-logs/components/ParamOverrideEntry';
+import {
+  formatCacheHitRate,
+  formatTokenCount,
+  getPromptCacheSummary,
+} from '../../components/table/usage-logs/UsageLogsColumnDefs';
 
 export const useLogsData = () => {
   const { t } = useTranslation();
@@ -420,6 +425,7 @@ export const useLogsData = () => {
           value: other.text_output,
         });
       }
+      const cacheSummary = getPromptCacheSummary(other, logs[i].prompt_tokens);
       if (other?.cache_tokens > 0) {
         expandDataLocal.push({
           key: t('缓存 Tokens'),
@@ -430,6 +436,15 @@ export const useLogsData = () => {
         expandDataLocal.push({
           key: t('缓存创建 Tokens'),
           value: other.cache_creation_tokens,
+        });
+      }
+      if (
+        cacheSummary?.cacheHitRate !== null &&
+        cacheSummary?.cacheHitRate !== undefined
+      ) {
+        expandDataLocal.push({
+          key: t('缓存命中率'),
+          value: `${formatCacheHitRate(cacheSummary.cacheHitRate)} (${formatTokenCount(cacheSummary.cacheReadTokens)} / ${formatTokenCount(cacheSummary.totalInputTokens)})`,
         });
       }
       if (logs[i].type === 2) {

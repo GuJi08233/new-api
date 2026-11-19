@@ -409,11 +409,19 @@ function toTokenNumber(value) {
   return parsed;
 }
 
-function formatTokenCount(value) {
+export function formatTokenCount(value) {
   return toTokenNumber(value).toLocaleString();
 }
 
-function getPromptCacheSummary(other) {
+export function formatCacheHitRate(rate) {
+  if (!Number.isFinite(rate) || rate < 0) {
+    return '-';
+  }
+  const clamped = Math.min(100, rate);
+  return clamped >= 100 ? '100%' : `${clamped.toFixed(1)}%`;
+}
+
+export function getPromptCacheSummary(other, promptTokens) {
   if (!other || typeof other !== 'object') {
     return null;
   }
@@ -433,9 +441,22 @@ function getPromptCacheSummary(other) {
     return null;
   }
 
+  const prompt = toTokenNumber(promptTokens);
+  const isAnthropicSemantic =
+    other.claude === true || other.usage_semantic === 'anthropic';
+  const totalInputTokens = isAnthropicSemantic
+    ? prompt + cacheReadTokens + cacheWriteTokens
+    : Math.max(prompt, cacheReadTokens + cacheWriteTokens);
+  const cacheHitRate =
+    cacheReadTokens > 0 && totalInputTokens > 0
+      ? Math.min(100, (cacheReadTokens / totalInputTokens) * 100)
+      : null;
+
   return {
     cacheReadTokens,
     cacheWriteTokens,
+    totalInputTokens,
+    cacheHitRate,
   };
 }
 
@@ -817,17 +838,26 @@ export const getLogsColumns = ({
       dataIndex: 'prompt_tokens',
       render: (text, record, index) => {
         const other = getLogOther(record.other);
-        const cacheSummary = getPromptCacheSummary(other);
+        const cacheSummary = getPromptCacheSummary(other, record.prompt_tokens);
         const hasCacheRead = (cacheSummary?.cacheReadTokens || 0) > 0;
         const hasCacheWrite = (cacheSummary?.cacheWriteTokens || 0) > 0;
+        const hitRateText =
+          cacheSummary?.cacheHitRate !== null &&
+          cacheSummary?.cacheHitRate !== undefined
+            ? formatCacheHitRate(cacheSummary.cacheHitRate)
+            : '';
         let cacheText = '';
         if (hasCacheRead && hasCacheWrite) {
-          cacheText = `${t('缓存读')} ${formatTokenCount(cacheSummary.cacheReadTokens)} · ${t('写')} ${formatTokenCount(cacheSummary.cacheWriteTokens)}`;
+          cacheText = `${t('缓存读')} ${formatTokenCount(cacheSummary.cacheReadTokens)}${hitRateText ? ` (${hitRateText})` : ''} · ${t('写')} ${formatTokenCount(cacheSummary.cacheWriteTokens)}`;
         } else if (hasCacheRead) {
-          cacheText = `${t('缓存读')} ${formatTokenCount(cacheSummary.cacheReadTokens)}`;
+          cacheText = `${t('缓存读')} ${formatTokenCount(cacheSummary.cacheReadTokens)}${hitRateText ? ` (${hitRateText})` : ''}`;
         } else if (hasCacheWrite) {
           cacheText = `${t('缓存写')} ${formatTokenCount(cacheSummary.cacheWriteTokens)}`;
         }
+
+        const cacheTooltipContent = hitRateText
+          ? `${t('缓存命中率')}：${hitRateText} (${formatTokenCount(cacheSummary.cacheReadTokens)} / ${formatTokenCount(cacheSummary.totalInputTokens)})`
+          : null;
 
         return record.type === 0 ||
           record.type === 2 ||
@@ -843,16 +873,32 @@ export const getLogsColumns = ({
           >
             <span>{text}</span>
             {cacheText ? (
-              <span
-                style={{
-                  marginTop: 2,
-                  fontSize: 11,
-                  color: 'var(--semi-color-text-2)',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {cacheText}
-              </span>
+              cacheTooltipContent ? (
+                <Tooltip content={cacheTooltipContent}>
+                  <span
+                    style={{
+                      marginTop: 2,
+                      fontSize: 11,
+                      color: 'var(--semi-color-text-2)',
+                      whiteSpace: 'nowrap',
+                      cursor: 'help',
+                    }}
+                  >
+                    {cacheText}
+                  </span>
+                </Tooltip>
+              ) : (
+                <span
+                  style={{
+                    marginTop: 2,
+                    fontSize: 11,
+                    color: 'var(--semi-color-text-2)',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {cacheText}
+                </span>
+              )
             ) : null}
           </div>
         ) : (
