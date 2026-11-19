@@ -315,6 +315,35 @@ type OpenAIResponsesResponse struct {
 	Metadata           json.RawMessage    `json:"metadata"`
 }
 
+// UnmarshalJSON accepts created_at as a float (e.g. Mistral sends 1795069013.0),
+// since some OpenAI-compatible Responses upstreams type it as a JSON number.
+func (o *OpenAIResponsesResponse) UnmarshalJSON(data []byte) error {
+	type plain OpenAIResponsesResponse
+	aux := struct {
+		*plain
+		CreatedAt json.Number `json:"created_at"`
+	}{plain: (*plain)(o)}
+	if err := common.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	o.CreatedAt = 0
+	if aux.CreatedAt == "" {
+		return nil
+	}
+	if v, err := aux.CreatedAt.Int64(); err == nil {
+		o.CreatedAt = int(v)
+		return nil
+	}
+	f, err := aux.CreatedAt.Float64()
+	if err != nil {
+		return fmt.Errorf("invalid created_at %q: %w", aux.CreatedAt, err)
+	}
+	if f >= 0 && f < 1<<53 {
+		o.CreatedAt = int(f)
+	}
+	return nil
+}
+
 // GetOpenAIError 从动态错误类型中提取OpenAIError结构
 func (o *OpenAIResponsesResponse) GetOpenAIError() *types.OpenAIError {
 	return GetOpenAIError(o.Error)

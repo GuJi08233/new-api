@@ -9,6 +9,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/openai"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
@@ -68,8 +69,13 @@ func (a *Adaptor) ConvertEmbeddingRequest(c *gin.Context, info *relaycommon.Rela
 }
 
 func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.OpenAIResponsesRequest) (any, error) {
-	// TODO implement me
-	return nil, errors.New("not implemented")
+	if info != nil && info.RelayMode == relayconstant.RelayModeResponsesCompact {
+		return nil, errors.New("mistral does not support /v1/responses/compact")
+	}
+	if request.Model == "" && info != nil {
+		request.Model = info.UpstreamModelName
+	}
+	return requestResponses2Mistral(request)
 }
 
 func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (any, error) {
@@ -77,9 +83,14 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 }
 
 func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (usage any, err *types.NewAPIError) {
-	if info.IsStream {
+	switch {
+	case info.RelayMode == relayconstant.RelayModeResponses && info.IsStream:
+		usage, err = openai.OaiResponsesStreamHandler(c, info, resp)
+	case info.RelayMode == relayconstant.RelayModeResponses:
+		usage, err = openai.OaiResponsesHandler(c, info, resp)
+	case info.IsStream:
 		usage, err = openai.OaiStreamHandler(c, info, resp)
-	} else {
+	default:
 		usage, err = openai.OpenaiHandler(c, info, resp)
 	}
 	return
