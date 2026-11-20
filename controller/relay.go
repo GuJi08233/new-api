@@ -179,6 +179,17 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		newAPIError = endpointErr
 		return
 	}
+	// 单轮内容测活防护：在计费、预扣费与选路之前拦截已知测活负载，避免浪费上游额度
+	if probePayloadErr := service.CheckProbePayloadGuard(c, request, relayInfo.StartTime); probePayloadErr != nil {
+		newAPIError = types.NewErrorWithStatusCode(
+			errors.New(i18n.T(c, i18n.MsgRiskProbeGuardBlocked)),
+			types.ErrorCodeAccessDenied,
+			http.StatusForbidden,
+			types.ErrOptionWithSkipRetry(),
+			types.ErrOptionWithNoRecordErrorLog(),
+		)
+		return
+	}
 	generalSettings := operation_setting.GetGeneralSetting()
 	initialChannelSetting, _ := common.GetContextKeyType[dto.ChannelSettings](c, constant.ContextKeyChannelSetting)
 	if relayFormat == types.RelayFormatClaude && relayInfo.IsStream && generalSettings.PingIntervalEnabled && !initialChannelSetting.PassThroughHeadersEnabled {

@@ -381,7 +381,9 @@ func migrateDB() error {
 		&RiskEvent{},
 		&RiskEventReview{},
 		&RiskScanRun{},
+		&RiskProbeUserState{},
 		&IpBan{},
+		&IpBanUserBan{},
 		&CodeUse{},
 		&TradeAccount{},
 		&TradePosition{},
@@ -504,7 +506,9 @@ func migrateDBFast() error {
 		{&RiskEvent{}, "RiskEvent"},
 		{&RiskEventReview{}, "RiskEventReview"},
 		{&RiskScanRun{}, "RiskScanRun"},
+		{&RiskProbeUserState{}, "RiskProbeUserState"},
 		{&IpBan{}, "IpBan"},
+		{&IpBanUserBan{}, "IpBanUserBan"},
 		{&CodeUse{}, "CodeUse"},
 		{&TradeAccount{}, "TradeAccount"},
 		{&TradePosition{}, "TradePosition"},
@@ -602,8 +606,10 @@ func migrateClickHouseLogDB() error {
 	if err := LOG_DB.Exec(clickHouseLogCreateTableSQL(ttlDays)).Error; err != nil {
 		return err
 	}
-	if err := LOG_DB.Exec("ALTER TABLE logs ADD COLUMN IF NOT EXISTS ua String DEFAULT ''").Error; err != nil {
-		return err
+	for _, column := range []string{"ua", "session_id", "session_source", "session_hash", "cache_key", "cache_source", "cache_hash"} {
+		if err := LOG_DB.Exec("ALTER TABLE logs ADD COLUMN IF NOT EXISTS " + column + " String DEFAULT ''").Error; err != nil {
+			return err
+		}
 	}
 	// 额度上限是 2^53，token 计数同样可以越过 2^31-1。旧表按 Int32 建列，超限的日志会写失败
 	// 或截断，把账务证据丢在日志库里。
@@ -661,6 +667,12 @@ CREATE TABLE IF NOT EXISTS logs (
 	ua String DEFAULT '',
 	request_id String DEFAULT '',
 	upstream_request_id String DEFAULT '',
+	session_id String DEFAULT '',
+	session_source String DEFAULT '',
+	session_hash String DEFAULT '',
+	cache_key String DEFAULT '',
+	cache_source String DEFAULT '',
+	cache_hash String DEFAULT '',
 	other String DEFAULT ''
 )
 ENGINE = MergeTree()

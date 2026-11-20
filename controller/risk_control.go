@@ -8,6 +8,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/gin-gonic/gin"
@@ -77,6 +78,8 @@ func GetRiskRankings(c *gin.Context) {
 		items, err = model.GetUserMultiIpRanking(hours, limit, overviewQuery.ExcludeUserIds)
 	case model.RiskMetricUa:
 		items, err = model.GetUaOverviewRanking(overviewQuery)
+	case model.RiskMetricTokenOverview:
+		items, err = model.GetTokenOverviewRanking(overviewQuery)
 	case model.RiskMetricIpMultiUser:
 		items, err = model.GetIpMultiUserRanking(hours, limit, overviewQuery.ExcludeUserIds)
 	case model.RiskMetricIpMultiToken:
@@ -104,6 +107,19 @@ func GetRiskRankings(c *gin.Context) {
 		ids := make([]int, 0, len(rows))
 		for _, row := range rows {
 			ids = append(ids, row.UserId)
+		}
+		states, stateErr := riskUserStates(ids, c.GetInt("role"))
+		if stateErr != nil {
+			common.SysError("risk control: failed to load current user states: " + stateErr.Error())
+			meta["state_available"] = false
+		}
+		meta["user_states"] = states
+	case []model.TokenOverviewItem:
+		ids := make([]int, 0, len(rows))
+		for _, row := range rows {
+			if row.UserId > 0 {
+				ids = append(ids, row.UserId)
+			}
 		}
 		states, stateErr := riskUserStates(ids, c.GetInt("role"))
 		if stateErr != nil {
@@ -367,4 +383,145 @@ func GetRiskDetail(c *gin.Context) {
 	}
 
 	common.ApiSuccess(c, payload)
+}
+
+// GetSharedSessions 返回跨账号共用会话 ID 或缓存关联键的排行与关联明细。
+// query: kind(session|cache), hours, min_users, exclude_whitelist, keyword, sort_by, sort_order, p, page_size
+func GetSharedSessions(c *gin.Context) {
+	pageInfo, pageErr := riskPageQuery(c)
+	if pageErr != nil {
+		common.ApiError(c, pageErr)
+		return
+	}
+	kind := c.DefaultQuery("kind", model.SharedSessionKindSession)
+	if kind != model.SharedSessionKindSession && kind != model.SharedSessionKindCache {
+		common.ApiErrorMsg(c, "无效的会话关联维度")
+		return
+	}
+	hours, _ := strconv.Atoi(c.Query("hours"))
+	minUsers, _ := strconv.Atoi(c.Query("min_users"))
+	excludeWhitelist, _ := strconv.ParseBool(c.Query("exclude_whitelist"))
+
+	setting := operation_setting.GetRiskControlSetting()
+	query := model.SharedSessionQuery{
+		Kind:      kind,
+		Hours:     hours,
+		MinUsers:  minUsers,
+		Keyword:   c.Query("keyword"),
+		SortBy:    c.Query("sort_by"),
+		SortOrder: c.Query("sort_order"),
+		Offset:    pageInfo.GetStartIdx(),
+		Limit:     pageInfo.GetPageSize(),
+	}
+	if excludeWhitelist && setting != nil {
+		query.ExcludeUserIds = setting.WhitelistUserIds
+	}
+
+	items, total, err := model.GetSharedSessionRanking(query)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	userIds := make([]int, 0)
+	seen := map[int]bool{}
+	for _, item := range items {
+		for _, user := range item.Users {
+			if user.UserId > 0 && !seen[user.UserId] {
+				seen[user.UserId] = true
+				userIds = append(userIds, user.UserId)
+			}
+		}
+	}
+	states, stateErr := riskUserStates(userIds, c.GetInt("role"))
+	if stateErr != nil {
+		common.SysError("risk control: failed to load shared session user states: " + stateErr.Error())
+	}
+
+	common.ApiSuccess(c, gin.H{
+		"items":       items,
+		"total":       total,
+		"user_states": states,
+		"meta": gin.H{
+			"kind":                      kind,
+			"session_recording_enabled": setting != nil && setting.SessionRiskRecordingEnabled,
+			"whitelist_excluded":        excludeWhitelist && setting != nil && len(setting.WhitelistUserIds) > 0,
+			"state_available":           stateErr == nil,
+		},
+	})
+}
+
+// PreviewProbePayloadText 用实时防护相同的归一化与精确匹配逻辑测试单轮测活规则。
+func PreviewProbePayloadText(c *gin.Context) {
+	var req struct {
+		Text  string `json:"text"`
+		Rules string `json:"rules"`
+	}
+	if err := common.DecodeJson(http.MaxBytesReader(c.Writer, c.Request.Body, 1024*1024), &req); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if _, err := operation_setting.ParseProbePayloadTextRules(req.Rules); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if len(req.Text) > 64*1024 {
+		common.ApiErrorMsg(c, "测试文本不能超过 64 KiB")
+		return
+	}
+	match := service.MatchProbePayloadText(req.Text, req.Rules)
+	common.ApiSuccess(c, gin.H{"matched": match != nil, "match": match})
+}
+
+// GetProbePayloadUserState 查看单个账号的单轮内容测活累计状态。
+func GetProbePayloadUserState(c *gin.Context) {
+	userId, err := strconv.Atoi(c.Param("id"))
+	if err != nil || userId <= 0 {
+		common.ApiErrorMsg(c, "无效的用户 ID")
+		return
+	}
+	states, err := riskUserStates([]int{userId}, c.GetInt("role"))
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	userState, ok := states[userId]
+	if !ok {
+		common.ApiErrorMsg(c, "用户不存在")
+		return
+	}
+	probeState, err := model.GetRiskProbeUserState(userId)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, gin.H{"state": probeState, "user_state": userState})
+}
+
+// ResetProbePayloadUserState 清零账号的单轮内容测活计数与待定窗口（不改变账号当前的封禁状态）。
+func ResetProbePayloadUserState(c *gin.Context) {
+	userId, err := strconv.Atoi(c.Param("id"))
+	if err != nil || userId <= 0 {
+		common.ApiErrorMsg(c, "无效的用户 ID")
+		return
+	}
+	states, err := riskUserStates([]int{userId}, c.GetInt("role"))
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	userState, ok := states[userId]
+	if !ok {
+		common.ApiErrorMsg(c, "用户不存在")
+		return
+	}
+	if !userState.CanManage {
+		c.JSON(http.StatusForbidden, gin.H{"success": false, "message": "没有权限管理该账号"})
+		return
+	}
+	if err := model.ResetRiskProbeUserState(userId); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	recordManageAuditFor(c, userId, "risk.probe_payload.reset", map[string]interface{}{"user_id": userId})
+	common.ApiSuccess(c, nil)
 }

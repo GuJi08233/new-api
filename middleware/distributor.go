@@ -19,6 +19,7 @@ import (
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
 
@@ -52,6 +53,20 @@ func Distribute() func(c *gin.Context) {
 		if probeErr := service.CheckProbeGuard(c, modelRequest.Model); probeErr != nil {
 			abortWithOpenAiMessage(c, http.StatusTooManyRequests, i18n.T(c, i18n.MsgRiskProbeGuardBlocked), types.ErrorCodeAccessDenied)
 			return
+		}
+		if riskSetting := operation_setting.GetRiskControlSetting(); riskSetting != nil && riskSetting.SessionRiskRecordingEnabled {
+			var bodyBytes []byte
+			if strings.HasPrefix(strings.ToLower(c.Request.Header.Get("Content-Type")), "application/json") {
+				if storage, storageErr := common.GetBodyStorage(c); storageErr == nil {
+					if raw, readErr := storage.Bytes(); readErr == nil {
+						bodyBytes = raw
+					}
+					if _, seekErr := storage.Seek(0, io.SeekStart); seekErr == nil {
+						c.Request.Body = io.NopCloser(storage)
+					}
+				}
+			}
+			c.Set(common.RequestSessionIdentityKey, common.ExtractRequestSessionIdentity(c.Request.Header, bodyBytes))
 		}
 		// 客户端 UA 准入：未绑定渠道的规则在任何选路、亲和与渠道计数之前判定，令牌指定渠道也绕不过
 		if ruleErr := service.RejectByClientUaRule(c, modelRequest.Model, 0); ruleErr != nil {

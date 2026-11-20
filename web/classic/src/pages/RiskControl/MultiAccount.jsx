@@ -28,6 +28,7 @@ import {
   Space,
   Switch,
   Table,
+  Tabs,
   Tag,
   Tooltip,
   Typography,
@@ -39,6 +40,7 @@ import RiskUserState from './RiskUserState';
 import IpTag from '../../components/common/ui/IpTag';
 import useRiskFilters, { riskInteger } from './useRiskFilters';
 import { RiskBatchToolbar } from './RiskBatchModal';
+import SharedSessionRisk from './SharedSessionRisk';
 
 const { Text } = Typography;
 
@@ -78,6 +80,7 @@ const shortIdentifier = (value) => {
 const MultiAccount = ({ onInspect, onDisposition, onBatch, refreshKey }) => {
   const { t } = useTranslation();
   const [filters, setFilters] = useRiskFilters('m', {
+    mode: 'ip',
     hours: 168,
     min: 2,
     include: false,
@@ -86,6 +89,9 @@ const MultiAccount = ({ onInspect, onDisposition, onBatch, refreshKey }) => {
     keyword: '',
     detail: '',
   });
+  const mode = ['ip', 'session', 'cache'].includes(filters.mode)
+    ? filters.mode
+    : 'ip';
   const includeRequests = filters.include === 'true';
   const hours = riskInteger(
     filters.hours,
@@ -163,9 +169,10 @@ const MultiAccount = ({ onInspect, onDisposition, onBatch, refreshKey }) => {
   useEffect(() => setKeyword(filters.keyword), [filters.keyword]);
 
   useEffect(() => {
+    if (mode !== 'ip') return;
     loadRanking();
     return () => rankingRequest.current?.abort();
-  }, [loadRanking, refreshKey]);
+  }, [loadRanking, refreshKey, mode]);
 
   // 切换证据口径时窗口上限会变，把超出新上限的选择拉回最大可选值
   const switchIncludeRequests = (checked) => {
@@ -457,8 +464,38 @@ const MultiAccount = ({ onInspect, onDisposition, onBatch, refreshKey }) => {
     },
   ];
 
+  const modeTabs = (
+    <Tabs
+      type='button'
+      className='mb-3'
+      activeKey={mode}
+      onChange={(key) => setFilters({ mode: key, detail: '' })}
+      tabList={[
+        { tab: t('按共享 IP'), itemKey: 'ip' },
+        { tab: t('按共享会话 ID'), itemKey: 'session' },
+        { tab: t('按共享缓存标识'), itemKey: 'cache' },
+      ]}
+    />
+  );
+
+  if (mode !== 'ip') {
+    return (
+      <>
+        {modeTabs}
+        <SharedSessionRisk
+          kind={mode}
+          onInspect={onInspect}
+          onDisposition={onDisposition}
+          onBatch={onBatch}
+          refreshKey={refreshKey}
+        />
+      </>
+    );
+  }
+
   return (
     <>
+      {modeTabs}
       {meta.ip_log_enabled === false && includeRequests && (
         <Banner
           type='warning'

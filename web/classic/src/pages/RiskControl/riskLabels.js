@@ -25,10 +25,14 @@ export const riskSourceLabel = (source, t) => {
       return t('自动规则');
     case 'probe_guard':
       return t('测活防护');
+    case 'probe_payload':
+      return t('单轮内容测活防护');
     case 'error_guard':
       return t('错误防护');
     case 'ua_blacklist':
       return t('UA 黑名单');
+    case 'ip_ban_cascade':
+      return t('IP 封禁连带禁用');
     default:
       return source || '-';
   }
@@ -41,6 +45,8 @@ export const riskMetricLabel = (metric, t) => {
     ip_multi_token: t('单 IP 使用令牌数(批量测活)'),
     user_tiny_request: t('用户微量请求数(自动测活)'),
     user_error_burst: t('用户错误请求数'),
+    session_multi_user: t('共享会话关联账号数'),
+    cache_multi_user: t('共享缓存关联账号数'),
   };
   return labels[metric] || riskSourceLabel(metric, t);
 };
@@ -129,7 +135,11 @@ export const riskRemainingTime = (expiresAt) => {
 export const riskRuleLabel = (item, rules, t) => {
   const ruleId = item?.rule_id || item?.evidence?.rule_id || '';
   const rule = item?.rule || '';
-  if (ruleId === 'probe_guard' || ruleId === 'error_guard')
+  if (
+    ruleId === 'probe_guard' ||
+    ruleId === 'probe_payload' ||
+    ruleId === 'error_guard'
+  )
     return riskSourceLabel(ruleId, t);
   const configured = (rules || []).find(
     (entry) => entry.id && entry.id === ruleId,

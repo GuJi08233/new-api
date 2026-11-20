@@ -90,6 +90,9 @@ func ReleaseRiskIpBan(id, operatorId int, reason string) (*IpBan, error) {
 		if err := lockForUpdate(tx).First(&ban, id).Error; err != nil {
 			return err
 		}
+		if err := deleteIpBanUserBansTx(tx, []int{id}); err != nil {
+			return err
+		}
 		if err := tx.Delete(&IpBan{}, id).Error; err != nil {
 			return err
 		}

@@ -17,7 +17,7 @@ import (
 // IP 封禁缓存与配置快照。两个 guard 共享同一套环境需求。
 func setupRealtimeGuardTest(t *testing.T) {
 	t.Helper()
-	require.NoError(t, model.DB.AutoMigrate(&model.RiskEvent{}, &model.IpBan{}, &model.User{}))
+	require.NoError(t, model.DB.AutoMigrate(&model.RiskEvent{}, &model.IpBan{}, &model.IpBanUserBan{}, &model.RiskProbeUserState{}, &model.User{}))
 	require.NoError(t, model.DB.Exec("DELETE FROM risk_events").Error)
 	require.NoError(t, model.DB.Exec("DELETE FROM ip_bans").Error)
 	// 账号处置用例会写 users;不清理会与按固定主键建用户的其它测试冲突

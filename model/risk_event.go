@@ -76,6 +76,7 @@ type RiskRuleEvidence struct {
 	BanMinutes    int    `json:"ban_minutes"`
 	TinyMaxTokens int    `json:"tiny_max_tokens,omitempty"`
 	StatusCodes   []int  `json:"status_codes,omitempty"`
+	MatchedRule   string `json:"matched_rule,omitempty"`
 	ExpiresAt     int64  `json:"expires_at,omitempty"`
 	Offense       int    `json:"offense,omitempty"`
 }

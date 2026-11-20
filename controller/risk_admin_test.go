@@ -159,7 +159,7 @@ func riskAdminFixture(t *testing.T) *gorm.DB {
 	require.NoError(t, err)
 	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "risk-admin.db")), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Option{}, &model.IpBan{}, &model.RiskEvent{}, &model.RiskEventReview{}, &model.RiskScanRun{}, &model.Log{}, &model.Token{}))
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Option{}, &model.IpBan{}, &model.IpBanUserBan{}, &model.RiskEvent{}, &model.RiskEventReview{}, &model.RiskScanRun{}, &model.RiskProbeUserState{}, &model.Log{}, &model.Token{}))
 	model.DB, model.LOG_DB, model.RO_DB = db, db, nil
 	common.OptionMap, common.RedisEnabled = make(map[string]string), false
 	t.Cleanup(func() {

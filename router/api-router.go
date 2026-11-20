@@ -441,6 +441,10 @@ func SetApiRouter(router *gin.Engine) {
 			riskRoute.GET("/state", controller.GetRiskState)
 			riskRoute.GET("/multi_account", controller.GetMultiAccountRanking)
 			riskRoute.GET("/multi_account/detail", controller.GetMultiAccountDetail)
+			riskRoute.GET("/shared_sessions", controller.GetSharedSessions)
+			riskRoute.POST("/probe_payload/preview", controller.PreviewProbePayloadText)
+			riskRoute.GET("/probe_payload/users/:id", controller.GetProbePayloadUserState)
+			riskRoute.POST("/probe_payload/users/:id/reset", controller.ResetProbePayloadUserState)
 			riskRoute.GET("/events", controller.GetRiskEvents)
 			riskRoute.GET("/overview", controller.GetRiskOverview)
 			riskRoute.POST("/batch", controller.ManageRiskBatch)
@@ -454,6 +458,8 @@ func SetApiRouter(router *gin.Engine) {
 			riskRoute.POST("/event_reviews", controller.ReviewRiskEventsBatch)
 			riskRoute.GET("/ip_bans", controller.GetIpBans)
 			riskRoute.POST("/ip_bans", controller.AddIpBan)
+			riskRoute.PUT("/ip_bans/:id", controller.UpdateIpBan)
+			riskRoute.GET("/ip_bans/:id/users", controller.GetIpBanRelatedUsers)
 			riskRoute.DELETE("/ip_bans/:id", controller.DeleteIpBan)
 		}
 

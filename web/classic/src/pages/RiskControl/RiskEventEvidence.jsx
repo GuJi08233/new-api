@@ -164,6 +164,18 @@ export default function RiskEventEvidence({ event, rules, compact = false }) {
               },
             ]
           : []),
+        ...(evidence.matched_rule
+          ? [
+              {
+                key: t('命中规则文本'),
+                value: (
+                  <Text code className='break-all'>
+                    {evidence.matched_rule}
+                  </Text>
+                ),
+              },
+            ]
+          : []),
         {
           key: t('规则标识 / 版本'),
           value: (

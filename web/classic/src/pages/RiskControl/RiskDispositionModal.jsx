@@ -27,6 +27,7 @@ import {
   RadioGroup,
   Space,
   Spin,
+  Switch,
   TextArea,
   Typography,
 } from '@douyinfe/semi-ui';
@@ -38,19 +39,22 @@ import { RISK_MAX_BAN_MINUTES, riskBanDurations } from './riskLabels';
 const RiskDispositionModal = ({ target, onCancel, onSuccess }) => {
   const { t } = useTranslation();
   const [value, setValue] = useState(target.value || '');
-  const [reason, setReason] = useState('');
-  const [duration, setDuration] = useState(0);
-  const [minutes, setMinutes] = useState(120);
+  const [reason, setReason] = useState(target.initialReason || '');
+  const [duration, setDuration] = useState(target.initialDuration ?? 0);
+  const [minutes, setMinutes] = useState(target.initialMinutes || 120);
+  const [autoBanUser, setAutoBanUser] = useState(!!target.initialAutoBanUser);
   const [state, setState] = useState(null);
   const [validatedValue, setValidatedValue] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const isUser = target.type === 'user';
+  const isEditIpBan = !isUser && target.action === 'edit_ip_ban';
   const isRelease = target.action === 'enable' || target.action === 'unban_ip';
   // 同一目标已有临时封禁时,这次操作只能延长它。
   const exactBan = state?.ip_bans?.find((ban) => ban.target === state.value);
-  const extending = !isUser && !isRelease && exactBan?.expires_at > 0;
+  const extending =
+    !isUser && !isRelease && !isEditIpBan && exactBan?.expires_at > 0;
   const title = isUser
     ? isRelease
       ? t('启用用户')
@@ -59,16 +63,20 @@ const RiskDispositionModal = ({ target, onCancel, onSuccess }) => {
         : t('永久禁用用户')
     : isRelease
       ? t('解除封禁')
-      : extending
-        ? t('延长封禁')
-        : t('封禁 IP');
+      : isEditIpBan
+        ? t('编辑 IP 封禁')
+        : extending
+          ? t('延长封禁')
+          : t('封禁 IP');
   const okText = isUser
     ? isRelease
       ? t('确认启用')
       : t('确认禁用')
     : isRelease
       ? t('确认解除')
-      : t('确认封禁');
+      : isEditIpBan
+        ? t('保存修改')
+        : t('确认封禁');
 
   useEffect(() => {
     setState(null);
@@ -117,7 +125,7 @@ const RiskDispositionModal = ({ target, onCancel, onSuccess }) => {
     ? isRelease
       ? state?.user?.can_enable
       : state?.user?.can_disable
-    : isRelease
+    : isRelease || isEditIpBan
       ? state?.ip_bans?.some((ban) => ban.id === target.banId)
       : !state?.is_current_ip;
 
@@ -141,6 +149,16 @@ const RiskDispositionModal = ({ target, onCancel, onSuccess }) => {
         res = await API.delete(`/api/risk/ip_bans/${target.banId}`, {
           skipErrorHandler: true,
         });
+      } else if (isEditIpBan) {
+        res = await API.put(
+          `/api/risk/ip_bans/${target.banId}`,
+          {
+            reason: reason.trim(),
+            expire_minutes: banMinutes,
+            auto_ban_user: autoBanUser,
+          },
+          { skipErrorHandler: true },
+        );
       } else {
         res = await API.post(
           '/api/risk/ip_bans',
@@ -148,6 +166,7 @@ const RiskDispositionModal = ({ target, onCancel, onSuccess }) => {
             target: value.trim(),
             reason: reason.trim(),
             expire_minutes: banMinutes,
+            auto_ban_user: autoBanUser,
           },
           { skipErrorHandler: true },
         );
@@ -263,6 +282,18 @@ const RiskDispositionModal = ({ target, onCancel, onSuccess }) => {
                         Math.floor(Date.now() / 1000) + banMinutes * 60,
                       )}`
                     : t('永久封禁，需手动解除')}
+              </Typography.Text>
+            </Space>
+            <Space>
+              <Switch
+                checked={autoBanUser}
+                onChange={setAutoBanUser}
+                disabled={saving}
+              />
+              <Typography.Text>
+                {t(
+                  '连带自动禁用命中该封禁的普通账号（豁免白名单、公开密钥账号与管理员）',
+                )}
               </Typography.Text>
             </Space>
             <Typography.Text type='tertiary'>

@@ -84,14 +84,17 @@ func GetRecentRiskEventTotals(since int64) ([]RiskEventTotal, error) {
 }
 
 type RiskLogCoverage struct {
-	Requests int64 `json:"requests"`
-	WithIp   int64 `json:"with_ip"`
-	WithUa   int64 `json:"with_ua"`
+	Requests    int64 `json:"requests"`
+	WithIp      int64 `json:"with_ip"`
+	WithUa      int64 `json:"with_ua"`
+	WithSession int64 `json:"with_session"`
+	WithCache   int64 `json:"with_cache"`
 }
 
 func GetRiskLogCoverage(since int64) (*RiskLogCoverage, error) {
 	coverage := &RiskLogCoverage{}
-	err := LOG_DB.Model(&Log{}).Select("count(*) as requests, count(case when ip <> '' then 1 end) as with_ip, count(case when ua <> '' then 1 end) as with_ua").
+	err := LOG_DB.Model(&Log{}).
+		Select("count(*) as requests, count(case when ip <> '' then 1 end) as with_ip, count(case when ua <> '' then 1 end) as with_ua, count(case when session_hash <> '' then 1 end) as with_session, count(case when cache_hash <> '' then 1 end) as with_cache").
 		Where("created_at >= ?", since).Where("type IN ?", riskLogTypes()).Scan(coverage).Error
 	return coverage, err
 }

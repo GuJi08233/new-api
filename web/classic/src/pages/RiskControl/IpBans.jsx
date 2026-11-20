@@ -22,6 +22,7 @@ import {
   Banner,
   Button,
   Input,
+  Modal,
   Select,
   Space,
   Table,
@@ -30,8 +31,9 @@ import {
 } from '@douyinfe/semi-ui';
 import { IconPlus, IconRefresh, IconSearch } from '@douyinfe/semi-icons';
 import { useTranslation } from 'react-i18next';
-import { API, timestamp2string } from '../../helpers';
+import { API, showError, timestamp2string } from '../../helpers';
 import IpTag from '../../components/common/ui/IpTag';
+import RiskUserState from './RiskUserState';
 import {
   riskRelativeTime,
   riskRemainingTime,
@@ -63,6 +65,29 @@ const IpBans = ({ onInspect, onDisposition, onBatch, refreshKey }) => {
   const [items, setItems] = useState([]);
   const [total, setTotal] = useState(0);
   const [error, setError] = useState('');
+  const [relatedBan, setRelatedBan] = useState(null);
+  const [relatedLoading, setRelatedLoading] = useState(false);
+  const [relatedItems, setRelatedItems] = useState([]);
+  const [relatedStates, setRelatedStates] = useState({});
+
+  const openRelatedUsers = async (ban) => {
+    setRelatedBan(ban);
+    setRelatedItems([]);
+    setRelatedStates({});
+    setRelatedLoading(true);
+    try {
+      const res = await API.get(`/api/risk/ip_bans/${ban.id}/users`, {
+        skipErrorHandler: true,
+      });
+      if (!res.data.success) throw new Error(res.data.message);
+      setRelatedItems(res.data.data?.items || []);
+      setRelatedStates(res.data.data?.user_states || {});
+    } catch (e) {
+      showError(e.response?.data?.message || e.message);
+    } finally {
+      setRelatedLoading(false);
+    }
+  };
 
   useEffect(() => {
     const controller = new AbortController();
@@ -164,9 +189,32 @@ const IpBans = ({ onInspect, onDisposition, onBatch, refreshKey }) => {
         ),
     },
     {
+      title: t('连带封号'),
+      dataIndex: 'auto_ban_user',
+      width: 150,
+      render: (value, ban) => (
+        <Space spacing={4}>
+          {value ? (
+            <Tag color='red'>{t('已开启')}</Tag>
+          ) : (
+            <Typography.Text type='tertiary'>{t('未开启')}</Typography.Text>
+          )}
+          {ban.related_users > 0 && (
+            <Button
+              size='small'
+              theme='borderless'
+              onClick={() => openRelatedUsers(ban)}
+            >
+              {t('{{count}} 个账号', { count: ban.related_users })}
+            </Button>
+          )}
+        </Space>
+      ),
+    },
+    {
       title: t('来源'),
       dataIndex: 'source',
-      width: 110,
+      width: 120,
       render: (value) => riskSourceLabel(value, t),
     },
     {
@@ -193,23 +241,53 @@ const IpBans = ({ onInspect, onDisposition, onBatch, refreshKey }) => {
     },
     {
       title: t('操作'),
-      width: 110,
+      width: 170,
       fixed: 'right',
       render: (_, ban) => (
-        <Button
-          size='small'
-          disabled={isExpired(ban)}
-          onClick={() =>
-            onDisposition({
-              type: 'ip',
-              value: ban.target,
-              action: 'unban_ip',
-              banId: ban.id,
-            })
-          }
-        >
-          {t('解除封禁')}
-        </Button>
+        <Space spacing={4}>
+          <Button
+            size='small'
+            disabled={isExpired(ban)}
+            onClick={() => {
+              const remainMinutes =
+                ban.expires_at > 0
+                  ? Math.max(
+                      1,
+                      Math.min(
+                        43200,
+                        Math.ceil((ban.expires_at - Date.now() / 1000) / 60),
+                      ),
+                    )
+                  : 0;
+              onDisposition({
+                type: 'ip',
+                value: ban.target,
+                action: 'edit_ip_ban',
+                banId: ban.id,
+                initialReason: ban.reason || '',
+                initialDuration: remainMinutes > 0 ? 'custom' : 0,
+                initialMinutes: remainMinutes > 0 ? remainMinutes : 120,
+                initialAutoBanUser: !!ban.auto_ban_user,
+              });
+            }}
+          >
+            {t('编辑')}
+          </Button>
+          <Button
+            size='small'
+            disabled={isExpired(ban)}
+            onClick={() =>
+              onDisposition({
+                type: 'ip',
+                value: ban.target,
+                action: 'unban_ip',
+                banId: ban.id,
+              })
+            }
+          >
+            {t('解除封禁')}
+          </Button>
+        </Space>
       ),
     },
   ];
@@ -244,13 +322,17 @@ const IpBans = ({ onInspect, onDisposition, onBatch, refreshKey }) => {
           aria-label={t('封禁来源')}
         >
           <Select.Option value=''>{t('全部来源')}</Select.Option>
-          {['manual', 'auto_rule', 'probe_guard', 'error_guard'].map(
-            (value) => (
-              <Select.Option key={value} value={value}>
-                {riskSourceLabel(value, t)}
-              </Select.Option>
-            ),
-          )}
+          {[
+            'manual',
+            'auto_rule',
+            'probe_guard',
+            'probe_payload',
+            'error_guard',
+          ].map((value) => (
+            <Select.Option key={value} value={value}>
+              {riskSourceLabel(value, t)}
+            </Select.Option>
+          ))}
         </Select>
         <Button icon={<IconSearch />} onClick={search} aria-label={t('查询')}>
           {t('查询')}
@@ -311,6 +393,86 @@ const IpBans = ({ onInspect, onDisposition, onBatch, refreshKey }) => {
         }))}
         onBatch={onBatch}
       />
+      <Modal
+        title={
+          relatedBan
+            ? t('IP 封禁连带禁用的账号 — {{target}}', {
+                target: relatedBan.target,
+              })
+            : ''
+        }
+        visible={!!relatedBan}
+        onCancel={() => setRelatedBan(null)}
+        footer={null}
+        width={760}
+      >
+        <Table
+          loading={relatedLoading}
+          dataSource={relatedItems}
+          rowKey='user_id'
+          pagination={false}
+          empty={t('暂无关联禁用账号')}
+          columns={[
+            {
+              title: t('用户'),
+              dataIndex: 'username',
+              render: (v, row) => (
+                <Space>
+                  <Typography.Text>
+                    {v || '-'} (#{row.user_id})
+                  </Typography.Text>
+                  <RiskUserState state={relatedStates[row.user_id]} />
+                </Space>
+              ),
+            },
+            {
+              title: t('命中 IP'),
+              dataIndex: 'banned_ip',
+              width: 150,
+              render: (v) => (v ? <IpTag ip={v} /> : '-'),
+            },
+            {
+              title: t('关联时间'),
+              dataIndex: 'banned_at',
+              width: 170,
+              render: (v) => (v ? timestamp2string(v) : '-'),
+            },
+            {
+              title: t('操作'),
+              width: 150,
+              render: (_, row) => (
+                <Space>
+                  <Button
+                    size='small'
+                    onClick={() => {
+                      setRelatedBan(null);
+                      onInspect({ type: 'user', value: String(row.user_id) });
+                    }}
+                  >
+                    {t('调查')}
+                  </Button>
+                  {relatedStates[row.user_id]?.can_enable && (
+                    <Button
+                      size='small'
+                      onClick={() => {
+                        setRelatedBan(null);
+                        onDisposition({
+                          type: 'user',
+                          value: String(row.user_id),
+                          label: row.username,
+                          action: 'enable',
+                        });
+                      }}
+                    >
+                      {t('启用用户')}
+                    </Button>
+                  )}
+                </Space>
+              ),
+            },
+          ]}
+        />
+      </Modal>
     </>
   );
 };

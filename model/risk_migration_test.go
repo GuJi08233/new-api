@@ -53,6 +53,7 @@ func TestMigrateIpBanTargetUniquenessMergesDuplicates(t *testing.T) {
 	for range 2 {
 		require.NoError(t, migrateIpBanTargetUniqueness(DB))
 	}
+	require.NoError(t, DB.AutoMigrate(&IpBan{}))
 
 	var bans []IpBan
 	require.NoError(t, DB.Order("target asc").Find(&bans).Error)

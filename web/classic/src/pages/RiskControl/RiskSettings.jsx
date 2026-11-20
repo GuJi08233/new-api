@@ -76,6 +76,18 @@ const KEY_PG_ACTION = `${KEY_PREFIX}probe_guard_action`;
 const KEY_PG_BAN_MINUTES = `${KEY_PREFIX}probe_guard_ban_minutes`;
 const KEY_EG_ACTION = `${KEY_PREFIX}error_guard_action`;
 const KEY_EG_BAN_MINUTES = `${KEY_PREFIX}error_guard_ban_minutes`;
+const KEY_PP_ENABLED = `${KEY_PREFIX}probe_payload_enabled`;
+const KEY_PP_DRY_RUN = `${KEY_PREFIX}probe_payload_dry_run`;
+const KEY_PP_TEXT_RULES = `${KEY_PREFIX}probe_payload_text_rules`;
+const KEY_PP_PING_ENABLED = `${KEY_PREFIX}probe_payload_ping_enabled`;
+const KEY_PP_WINDOW = `${KEY_PREFIX}probe_payload_window_seconds`;
+const KEY_PP_THRESHOLD = `${KEY_PREFIX}probe_payload_threshold`;
+const KEY_PP_ACTION = `${KEY_PREFIX}probe_payload_action`;
+const KEY_PP_BAN_MINUTES = `${KEY_PREFIX}probe_payload_ban_minutes`;
+const KEY_SESSION_RECORDING = `${KEY_PREFIX}session_risk_recording_enabled`;
+
+const DEFAULT_PROBE_PAYLOAD_TEXT_RULES =
+  'Reply with exactly OK\nreply exactly: OK\nReply with exactly: OK\nsay OK\nREPLY `PONG` ONLY\n回复两个字：可用\n请回复"API 连接正常"，并告诉我你的模型名称。';
 
 // 系统设置里的 IP 日志开关。白名单账号的 IP 豁免依据日志中的地址,关闭时豁免不生效。
 const KEY_GLOBAL_IP_LOG = 'GlobalRecordIpLogEnabled';
@@ -236,6 +248,20 @@ const RiskSettings = ({ onInspect, onViewEvents, onSaved }) => {
   const [pgBanMinutes, setPgBanMinutes] = useState(0);
   const [egAction, setEgAction] = useState('ban_ip');
   const [egBanMinutes, setEgBanMinutes] = useState(0);
+  const [ppEnabled, setPpEnabled] = useState(false);
+  const [ppDryRun, setPpDryRun] = useState(true);
+  const [ppTextRules, setPpTextRules] = useState(
+    DEFAULT_PROBE_PAYLOAD_TEXT_RULES,
+  );
+  const [ppPingEnabled, setPpPingEnabled] = useState(true);
+  const [ppWindow, setPpWindow] = useState(30);
+  const [ppThreshold, setPpThreshold] = useState(3);
+  const [ppAction, setPpAction] = useState('disable_user');
+  const [ppBanMinutes, setPpBanMinutes] = useState(0);
+  const [ppSampleText, setPpSampleText] = useState('');
+  const [ppPreviewing, setPpPreviewing] = useState(false);
+  const [ppPreviewResult, setPpPreviewResult] = useState(null);
+  const [sessionRecording, setSessionRecording] = useState(false);
   const [giteeApiKey, setGiteeApiKey] = useState('');
   const [ipv4Order, setIpv4Order] = useState(DEFAULT_IPV4_ORDER);
   const [ipv6Order, setIpv6Order] = useState(DEFAULT_IPV6_ORDER);
@@ -317,6 +343,22 @@ const RiskSettings = ({ onInspect, onViewEvents, onSaved }) => {
         setPgBanMinutes(Number.isFinite(pgBan) && pgBan > 0 ? pgBan : 0);
         const egBan = parseInt(optionMap[KEY_EG_BAN_MINUTES], 10);
         setEgBanMinutes(Number.isFinite(egBan) && egBan > 0 ? egBan : 0);
+        setPpEnabled(optionMap[KEY_PP_ENABLED] === 'true');
+        setPpDryRun(optionMap[KEY_PP_DRY_RUN] !== 'false');
+        setPpTextRules(
+          Object.prototype.hasOwnProperty.call(optionMap, KEY_PP_TEXT_RULES)
+            ? optionMap[KEY_PP_TEXT_RULES]
+            : DEFAULT_PROBE_PAYLOAD_TEXT_RULES,
+        );
+        setPpPingEnabled(optionMap[KEY_PP_PING_ENABLED] !== 'false');
+        const ppWin = parseInt(optionMap[KEY_PP_WINDOW], 10);
+        setPpWindow(Number.isFinite(ppWin) && ppWin > 0 ? ppWin : 30);
+        const ppCount = parseInt(optionMap[KEY_PP_THRESHOLD], 10);
+        setPpThreshold(Number.isFinite(ppCount) && ppCount > 0 ? ppCount : 3);
+        setPpAction(optionMap[KEY_PP_ACTION] || 'disable_user');
+        const ppBan = parseInt(optionMap[KEY_PP_BAN_MINUTES], 10);
+        setPpBanMinutes(Number.isFinite(ppBan) && ppBan > 0 ? ppBan : 0);
+        setSessionRecording(optionMap[KEY_SESSION_RECORDING] === 'true');
         setPublicKeyUsersText(
           parseJsonArray(optionMap[KEY_PUBLIC_KEY_USERS]).join(','),
         );
@@ -491,6 +533,15 @@ const RiskSettings = ({ onInspect, onViewEvents, onSaved }) => {
       { key: KEY_PG_BAN_MINUTES, value: String(pgBanMinutes) },
       { key: KEY_EG_ACTION, value: egAction },
       { key: KEY_EG_BAN_MINUTES, value: String(egBanMinutes) },
+      { key: KEY_PP_ENABLED, value: String(ppEnabled) },
+      { key: KEY_PP_DRY_RUN, value: String(ppDryRun) },
+      { key: KEY_PP_TEXT_RULES, value: ppTextRules },
+      { key: KEY_PP_PING_ENABLED, value: String(ppPingEnabled) },
+      { key: KEY_PP_WINDOW, value: String(ppWindow) },
+      { key: KEY_PP_THRESHOLD, value: String(ppThreshold) },
+      { key: KEY_PP_ACTION, value: ppAction },
+      { key: KEY_PP_BAN_MINUTES, value: String(ppBanMinutes) },
+      { key: KEY_SESSION_RECORDING, value: String(sessionRecording) },
       { key: KEY_PUBLIC_KEY_USERS, value: JSON.stringify(publicKeyUserIds) },
       { key: KEY_WHITELIST, value: JSON.stringify(whitelistUserIds) },
       { key: KEY_RULES, value: JSON.stringify(cleanRules) },
@@ -553,6 +604,24 @@ const RiskSettings = ({ onInspect, onViewEvents, onSaved }) => {
 
   const removeRule = (id) => {
     setRules((currentRules) => currentRules.filter((r) => r.id !== id));
+  };
+
+  const previewProbePayloadText = async () => {
+    setPpPreviewing(true);
+    setPpPreviewResult(null);
+    try {
+      const res = await API.post(
+        '/api/risk/probe_payload/preview',
+        { text: ppSampleText, rules: ppTextRules },
+        { skipErrorHandler: true },
+      );
+      if (!res.data.success) throw new Error(res.data.message);
+      setPpPreviewResult(res.data.data);
+    } catch (e) {
+      showError(e.response?.data?.message || e.message);
+    } finally {
+      setPpPreviewing(false);
+    }
   };
 
   const confirmClearCache = async () => {
@@ -644,6 +713,12 @@ const RiskSettings = ({ onInspect, onViewEvents, onSaved }) => {
           </Select.Option>
           <Select.Option value='user_error_burst'>
             {t('用户错误请求数')}
+          </Select.Option>
+          <Select.Option value='session_multi_user'>
+            {t('共享会话关联账号数')}
+          </Select.Option>
+          <Select.Option value='cache_multi_user'>
+            {t('共享缓存关联账号数')}
           </Select.Option>
         </Select>
       ),
@@ -787,6 +862,17 @@ const RiskSettings = ({ onInspect, onViewEvents, onSaved }) => {
               onChange={(v) => setRetentionDays(v > 0 ? v : 30)}
             />
           </Space>
+          <Space>
+            <Switch checked={sessionRecording} onChange={setSessionRecording} />
+            <Text>
+              {t('记录客户端会话 ID 与缓存关联标识（用于跨账号共享关联排查）')}
+            </Text>
+          </Space>
+          <Text type='tertiary' size='small'>
+            {t(
+              '默认关闭；开启后在调用与错误日志中记录客户端上报的会话 ID 与 prompt_cache_key 等关联键，关闭后保留已有历史记录。',
+            )}
+          </Text>
         </Space>
       </Card>
 
@@ -859,6 +945,115 @@ const RiskSettings = ({ onInspect, onViewEvents, onSaved }) => {
                 <Button
                   onClick={() =>
                     onViewEvents?.({ rule_id: 'probe_guard', hours: 24 })
+                  }
+                >
+                  {t('查看近 24 小时演练与处置事件')}
+                </Button>
+              </Space>
+            </Card>
+
+            <Card
+              className='mb-4'
+              title={t('单轮内容测活防护(Payload Probe Guard)')}
+            >
+              <Space vertical align='start' style={{ width: '100%' }}>
+                <Text type='tertiary'>
+                  {t(
+                    '仅检测单轮纯文本请求（支持 OpenAI / Claude / Responses，允许系统提示与工具定义）；多轮对话、工具消息、会话续接及图片音频请求自动跳过。窗口内累计命中达到阈值后按统一阶梯执行处置，默认禁用账号并自动豁免管理员、全局白名单与公开密钥账号。',
+                  )}
+                </Text>
+                <Space>
+                  <Switch checked={ppEnabled} onChange={setPpEnabled} />
+                  <Text>{t('启用单轮内容测活防护')}</Text>
+                </Space>
+                <Space>
+                  <Switch checked={ppDryRun} onChange={setPpDryRun} />
+                  <Text>{t('演练模式(只记告警事件,不实际封禁)')}</Text>
+                </Space>
+                <Space>
+                  <Switch checked={ppPingEnabled} onChange={setPpPingEnabled} />
+                  <Text>{t('启用 probe_ping 工具探测识别')}</Text>
+                </Space>
+                <Space wrap>
+                  <Text>{t('滑动窗口(秒)')}</Text>
+                  <InputNumber
+                    value={ppWindow}
+                    min={1}
+                    max={3600}
+                    style={{ width: 120 }}
+                    onChange={(v) => setPpWindow(v > 0 ? v : 30)}
+                  />
+                  <Text>{t('命中次数阈值')}</Text>
+                  <InputNumber
+                    value={ppThreshold}
+                    min={1}
+                    max={1000}
+                    style={{ width: 120 }}
+                    onChange={(v) => setPpThreshold(v > 0 ? v : 3)}
+                  />
+                </Space>
+                <Space wrap>
+                  <Text>{t('处置动作')}</Text>
+                  <Select
+                    value={ppAction}
+                    style={{ width: 200 }}
+                    onChange={setPpAction}
+                  >
+                    <Select.Option value='alert'>{t('仅告警')}</Select.Option>
+                    <Select.Option value='disable_user'>
+                      {t('禁用账号')}
+                    </Select.Option>
+                    <Select.Option value='ban_ip'>{t('封禁 IP')}</Select.Option>
+                    <Select.Option value='ban_both'>
+                      {t('封禁 IP + 禁用账号')}
+                    </Select.Option>
+                  </Select>
+                  <Text>{t('封禁时长(分钟,0 表示走升级阶梯)')}</Text>
+                  <InputNumber
+                    value={ppBanMinutes}
+                    min={0}
+                    max={43200}
+                    style={{ width: 120 }}
+                    onChange={(v) => setPpBanMinutes(v > 0 ? v : 0)}
+                  />
+                </Space>
+                <Text>
+                  {t('单轮精确匹配文本规则（每行一条，留空则关闭文本匹配）')}
+                </Text>
+                <TextArea
+                  value={ppTextRules}
+                  onChange={setPpTextRules}
+                  rows={6}
+                  placeholder={DEFAULT_PROBE_PAYLOAD_TEXT_RULES}
+                />
+                <Space wrap className='w-full'>
+                  <Input
+                    value={ppSampleText}
+                    onChange={setPpSampleText}
+                    placeholder={t(
+                      '输入测试文本验证当前规则是否命中（NFKC + 折叠空白）',
+                    )}
+                    style={{ width: 380 }}
+                  />
+                  <Button
+                    loading={ppPreviewing}
+                    onClick={previewProbePayloadText}
+                  >
+                    {t('测试匹配')}
+                  </Button>
+                  {ppPreviewResult && (
+                    <Tag color={ppPreviewResult.matched ? 'red' : 'green'}>
+                      {ppPreviewResult.matched
+                        ? t('命中规则：{{rule}}', {
+                            rule: ppPreviewResult.match?.rule || '-',
+                          })
+                        : t('未命中')}
+                    </Tag>
+                  )}
+                </Space>
+                <Button
+                  onClick={() =>
+                    onViewEvents?.({ rule_id: 'probe_payload', hours: 24 })
                   }
                 >
                   {t('查看近 24 小时演练与处置事件')}

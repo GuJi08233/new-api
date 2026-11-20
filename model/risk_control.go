@@ -41,6 +41,7 @@ const (
 	RiskMetricTokenMultiIp    = "token_multi_ip"
 	RiskMetricUserOverview    = "user_overview"
 	RiskMetricIpOverview      = "ip_overview"
+	RiskMetricTokenOverview   = "token_overview"
 )
 
 // IpRankItem 单 IP 关联多用户排行项。
@@ -684,6 +685,21 @@ type UaOverviewItem struct {
 	LastSeen         int64  `json:"last_seen" gorm:"column:last_seen"`
 }
 
+// TokenOverviewItem 按令牌维度的合并排行项,用于发现密钥泄露/多地共享与异常消耗。
+type TokenOverviewItem struct {
+	TokenId          int    `json:"token_id" gorm:"column:token_id"`
+	TokenName        string `json:"token_name" gorm:"column:token_name"`
+	UserId           int    `json:"user_id" gorm:"column:user_id"`
+	Username         string `json:"username" gorm:"column:username"`
+	IpCount          int    `json:"ip_count" gorm:"column:ip_count"`
+	RequestCount     int    `json:"request_count" gorm:"column:request_count"`
+	TinyRequestCount int    `json:"tiny_request_count" gorm:"column:tiny_request_count"`
+	ErrorCount       int    `json:"error_count" gorm:"column:error_count"`
+	Quota            int64  `json:"quota" gorm:"column:quota"`
+	FirstSeen        int64  `json:"first_seen" gorm:"column:first_seen"`
+	LastSeen         int64  `json:"last_seen" gorm:"column:last_seen"`
+}
+
 // RiskOverviewQuery 是合并排行的查询参数。
 type RiskOverviewQuery struct {
 	Hours          int
@@ -792,10 +808,36 @@ func riskOverviewQuery(metric string, query RiskOverviewQuery, ordered bool) (*g
 		selects = append(selects, "ua", riskDistinctUserExpr+" as user_count", riskDistinctIpExpr+" as ip_count")
 		sorts["user_count"], sorts["ip_count"] = riskDistinctUserExpr, riskDistinctIpExpr
 		tx = tx.Where("ua <> ''")
+	case RiskMetricTokenOverview:
+		group = "token_id"
+		selects = []string{
+			"token_id",
+			"max(token_name) as token_name",
+			"max(user_id) as user_id",
+			"max(username) as username",
+			riskDistinctIpExpr + " as ip_count",
+			"count(*) as request_count",
+			tinyExpr + " as tiny_request_count",
+			riskErrorCountExpr + " as error_count",
+			"COALESCE(sum(quota), 0) as quota",
+			"min(created_at) as first_seen",
+			"max(created_at) as last_seen",
+		}
+		sorts["ip_count"] = riskDistinctIpExpr
+		sorts["quota"] = "COALESCE(sum(quota), 0)"
+		tx = tx.Where("token_id > 0")
+		if query.Keyword != "" {
+			pattern := riskKeywordPattern(query.Keyword)
+			if id, err := strconv.Atoi(query.Keyword); err == nil && id > 0 {
+				tx = tx.Having("token_id = ? OR max(user_id) = ? OR max(token_name) LIKE ? ESCAPE '!' OR max(username) LIKE ? ESCAPE '!'", id, id, pattern, pattern)
+			} else {
+				tx = tx.Having("max(token_name) LIKE ? ESCAPE '!' OR max(username) LIKE ? ESCAPE '!'", pattern, pattern)
+			}
+		}
 	default:
 		return nil, errors.New("invalid risk overview metric")
 	}
-	if query.Keyword != "" && group != "user_id" {
+	if query.Keyword != "" && group != "user_id" && group != "token_id" {
 		tx = tx.Where(group+" LIKE ? ESCAPE '!'", riskKeywordPattern(query.Keyword))
 	}
 	tx = riskExcludeUsers(tx, query.ExcludeUserIds).Select(strings.Join(selects, ", ")).Group(group)
@@ -835,6 +877,16 @@ func GetUaOverviewRanking(query RiskOverviewQuery) ([]UaOverviewItem, error) {
 		return nil, err
 	}
 	var items []UaOverviewItem
+	err = tx.Offset(query.Offset).Limit(normalizeRiskLimit(query.Limit)).Find(&items).Error
+	return items, err
+}
+
+func GetTokenOverviewRanking(query RiskOverviewQuery) ([]TokenOverviewItem, error) {
+	tx, err := riskOverviewQuery(RiskMetricTokenOverview, query, true)
+	if err != nil {
+		return nil, err
+	}
+	var items []TokenOverviewItem
 	err = tx.Offset(query.Offset).Limit(normalizeRiskLimit(query.Limit)).Find(&items).Error
 	return items, err
 }

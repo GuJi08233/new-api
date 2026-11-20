@@ -50,7 +50,12 @@ const RiskRankings = ({ onInspect, onDisposition, onBatch, refreshKey }) => {
     p: 1,
     keyword: '',
   });
-  const metric = ['user_overview', 'ip_overview', 'ua'].includes(filters.metric)
+  const metric = [
+    'user_overview',
+    'ip_overview',
+    'token_overview',
+    'ua',
+  ].includes(filters.metric)
     ? filters.metric
     : 'user_overview';
   const hours = riskInteger(filters.hours, 24, 1, 168);
@@ -145,27 +150,59 @@ const RiskRankings = ({ onInspect, onDisposition, onBatch, refreshKey }) => {
             fixed: 'left',
             render: (v) => <IpTag ip={v} />,
           }
-        : {
-            title: 'User-Agent',
-            dataIndex: 'ua',
-            width: 260,
-            fixed: 'left',
-            ellipsis: { showTitle: true },
-          };
-  const counts = [
-    ['request_count', t('请求数')],
-    [
-      metric === 'user_overview' ? 'ip_count' : 'user_count',
-      metric === 'user_overview' ? t('IP 数') : t('用户数'),
-    ],
-    ...(metric === 'ua' ? [['ip_count', t('IP 数')]] : []),
-    ['token_count', t('令牌数')],
-    ['tiny_request_count', t('微量请求')],
-    ['error_count', t('错误数')],
-  ];
+        : metric === 'token_overview'
+          ? {
+              title: t('令牌'),
+              dataIndex: 'token_name',
+              width: 220,
+              fixed: 'left',
+              render: (v, row) => (
+                <Space vertical align='start' spacing={2}>
+                  <Typography.Text strong>
+                    {v || '-'} (#{row.token_id})
+                  </Typography.Text>
+                  {row.user_id > 0 && (
+                    <Button
+                      size='small'
+                      theme='borderless'
+                      onClick={() => inspect('user', row.user_id)}
+                    >
+                      {row.username || '-'} (#{row.user_id})
+                    </Button>
+                  )}
+                </Space>
+              ),
+            }
+          : {
+              title: 'User-Agent',
+              dataIndex: 'ua',
+              width: 260,
+              fixed: 'left',
+              ellipsis: { showTitle: true },
+            };
+  const counts =
+    metric === 'token_overview'
+      ? [
+          ['ip_count', t('IP 数')],
+          ['request_count', t('请求数')],
+          ['tiny_request_count', t('微量请求')],
+          ['error_count', t('错误数')],
+          ['quota', t('消耗额度')],
+        ]
+      : [
+          ['request_count', t('请求数')],
+          [
+            metric === 'user_overview' ? 'ip_count' : 'user_count',
+            metric === 'user_overview' ? t('IP 数') : t('用户数'),
+          ],
+          ...(metric === 'ua' ? [['ip_count', t('IP 数')]] : []),
+          ['token_count', t('令牌数')],
+          ['tiny_request_count', t('微量请求')],
+          ['error_count', t('错误数')],
+        ];
   const columns = [
     firstColumn,
-    ...(metric === 'user_overview'
+    ...(metric === 'user_overview' || metric === 'token_overview'
       ? [
           {
             title: t('当前状态'),
@@ -216,7 +253,7 @@ const RiskRankings = ({ onInspect, onDisposition, onBatch, refreshKey }) => {
       fixed: 'right',
       render: (_, row) => {
         const type =
-          metric === 'user_overview'
+          metric === 'user_overview' || metric === 'token_overview'
             ? 'user'
             : metric === 'ip_overview'
               ? 'ip'
@@ -342,7 +379,7 @@ const RiskRankings = ({ onInspect, onDisposition, onBatch, refreshKey }) => {
         onChange={(key) => {
           setFilters({
             metric: key,
-            sort: 'request_count',
+            sort: key === 'token_overview' ? 'ip_count' : 'request_count',
             order: 'descend',
             keyword: '',
           });
@@ -350,6 +387,7 @@ const RiskRankings = ({ onInspect, onDisposition, onBatch, refreshKey }) => {
       >
         <TabPane tab={t('用户排行')} itemKey='user_overview' />
         <TabPane tab={t('IP 排行')} itemKey='ip_overview' />
+        <TabPane tab={t('令牌多 IP 排行')} itemKey='token_overview' />
         <TabPane tab={t('UA 排行')} itemKey='ua' />
       </Tabs>
       <Typography.Text type='tertiary' className='block mb-2'>
@@ -358,19 +396,21 @@ const RiskRankings = ({ onInspect, onDisposition, onBatch, refreshKey }) => {
       <Typography.Text type='tertiary' className='block mb-2'>
         {t('搜索、排序和分页均在服务端执行，筛选条件保存在页面地址中。')}
       </Typography.Text>
-      <RiskBatchToolbar
-        mode={metric === 'user_overview' ? 'user' : 'ip'}
-        targets={selected.map((value) => ({
-          type: metric === 'user_overview' ? 'user' : 'ip',
-          value: String(value),
-        }))}
-        onBatch={onBatch}
-      />
+      {metric !== 'ua' && metric !== 'token_overview' && (
+        <RiskBatchToolbar
+          mode={metric === 'user_overview' ? 'user' : 'ip'}
+          targets={selected.map((value) => ({
+            type: metric === 'user_overview' ? 'user' : 'ip',
+            value: String(value),
+          }))}
+          onBatch={onBatch}
+        />
+      )}
       <Table
         columns={columns}
         dataSource={items}
         loading={loading}
-        rowKey={(row) => row.user_id || row.ip || row.ua}
+        rowKey={(row) => row.token_id || row.user_id || row.ip || row.ua}
         scroll={{ x: metric === 'ua' ? 1450 : 1550 }}
         pagination={{
           pageSize: 20,
@@ -379,7 +419,7 @@ const RiskRankings = ({ onInspect, onDisposition, onBatch, refreshKey }) => {
           onPageChange: (value) => setFilters({ p: value }),
         }}
         rowSelection={
-          metric === 'ua'
+          metric === 'ua' || metric === 'token_overview'
             ? undefined
             : {
                 selectedRowKeys: selected,

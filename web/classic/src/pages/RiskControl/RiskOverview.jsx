@@ -196,6 +196,13 @@ export default function RiskOverview({
     'probe_guard_model_count',
     t('个不同模型'),
   );
+  const probePayload = guardState(
+    'probe_payload_enabled',
+    'probe_payload_dry_run',
+    'probe_payload_window_seconds',
+    'probe_payload_threshold',
+    t('次单轮测活'),
+  );
   const errorGuard = guardState(
     'error_guard_enabled',
     'error_guard_dry_run',
@@ -265,7 +272,7 @@ export default function RiskOverview({
       )}
 
       <Card bordered className='mb-4' title={t('防护状态')}>
-        <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6 gap-3'>
+        <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3'>
           <GuardTile
             title={t('风控总开关')}
             status={data ? (setting.enabled ? t('已启用') : t('未启用')) : '-'}
@@ -278,6 +285,13 @@ export default function RiskOverview({
             status={probe.status}
             color={probe.color}
             detail={probe.detail}
+            onConfigure={configure('realtime')}
+          />
+          <GuardTile
+            title={t('单轮内容测活防护')}
+            status={probePayload.status}
+            color={probePayload.color}
+            detail={probePayload.detail}
             onConfigure={configure('realtime')}
           />
           <GuardTile
@@ -306,6 +320,26 @@ export default function RiskOverview({
             }
             detail={scanDetail}
             onConfigure={configure('scan')}
+          />
+          <GuardTile
+            title={t('会话标识记录')}
+            status={
+              data
+                ? setting.session_risk_recording_enabled
+                  ? t('已启用')
+                  : t('未启用')
+                : '-'
+            }
+            color={setting.session_risk_recording_enabled ? 'green' : 'grey'}
+            detail={
+              coverage
+                ? t('近 24 小时含会话 {{session}} / 含缓存 {{cache}}', {
+                    session: coverage.with_session ?? 0,
+                    cache: coverage.with_cache ?? 0,
+                  })
+                : t('用于跨账号会话/缓存关联排查')
+            }
+            onConfigure={configure('general')}
           />
           <GuardTile
             title={t('客户端 UA 准入')}

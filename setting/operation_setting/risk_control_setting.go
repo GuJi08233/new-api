@@ -10,6 +10,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/setting/config"
+	"golang.org/x/text/unicode/norm"
 )
 
 // RiskAutoBanRule 定义一条基于滥用指标的自动封禁规则。
@@ -73,6 +74,22 @@ type RiskControlSetting struct {
 	ErrorGuardStatusCodes   []int  `json:"error_guard_status_codes"`   // 只统计这些状态码,为空时用默认列表
 	ErrorGuardAction        string `json:"error_guard_action"`         // alert | ban_ip | disable_user | ban_both
 	ErrorGuardBanMinutes    int    `json:"error_guard_ban_minutes"`    // 固定封禁时长(分钟),0 表示走全局累犯阶梯
+
+	// Payload Probe Guard:请求内实时检测单轮纯文本测活请求与 probe_ping 工具探测。
+	// 仅检查单轮纯文本(允许系统提示和工具定义),跳过多轮、工具消息、续接与图片/音频请求;
+	// 窗口内累计命中达到阈值后按账号或 IP 执行处置(默认禁用账号,白名单与公开密钥账号豁免)。
+	ProbePayloadEnabled       bool   `json:"probe_payload_enabled"`
+	ProbePayloadDryRun        bool   `json:"probe_payload_dry_run"`
+	ProbePayloadTextRules     string `json:"probe_payload_text_rules"`
+	ProbePayloadPingEnabled   bool   `json:"probe_payload_ping_enabled"`
+	ProbePayloadWindowSeconds int    `json:"probe_payload_window_seconds"`
+	ProbePayloadThreshold     int    `json:"probe_payload_threshold"`
+	ProbePayloadAction        string `json:"probe_payload_action"`
+	ProbePayloadBanMinutes    int    `json:"probe_payload_ban_minutes"`
+
+	// SessionRiskRecordingEnabled 控制是否在调用/错误日志中记录客户端会话 ID 与缓存关联键。
+	// 默认关闭;关闭后仅停止记录新请求,保留已有历史记录供排查。
+	SessionRiskRecordingEnabled bool `json:"session_risk_recording_enabled"`
 }
 
 const (
@@ -81,11 +98,13 @@ const (
 	RiskUaActionBlock       = "block"
 	RiskUaActionDisableUser = "disable_user"
 
-	RiskMetricIpMultiUser     = "ip_multi_user"
-	RiskMetricUserMultiIp     = "user_multi_ip"
-	RiskMetricIpMultiToken    = "ip_multi_token"
-	RiskMetricUserTinyRequest = "user_tiny_request"
-	RiskMetricUserErrorBurst  = "user_error_burst"
+	RiskMetricIpMultiUser      = "ip_multi_user"
+	RiskMetricUserMultiIp      = "user_multi_ip"
+	RiskMetricIpMultiToken     = "ip_multi_token"
+	RiskMetricUserTinyRequest  = "user_tiny_request"
+	RiskMetricUserErrorBurst   = "user_error_burst"
+	RiskMetricSessionMultiUser = "session_multi_user"
+	RiskMetricCacheMultiUser   = "cache_multi_user"
 
 	// 风控只处置账号与 IP 两个层次,不涉及单个密钥
 	RiskRuleActionAlert       = "alert"        // 仅记录告警事件
@@ -130,6 +149,15 @@ const (
 	RiskMinErrorGuardThreshold         = 2
 	RiskMaxErrorGuardThreshold         = 100000
 	RiskMaxErrorGuardStatusCodes       = 20
+
+	RiskDefaultProbePayloadTextRules     = "Reply with exactly OK\nreply exactly: OK\nReply with exactly: OK\nsay OK\nREPLY `PONG` ONLY\n回复两个字：可用\n请回复\"API 连接正常\"，并告诉我你的模型名称。"
+	RiskProbePayloadMaxRulesBytes        = 128 * 1024
+	RiskDefaultProbePayloadWindowSeconds = 30
+	RiskMinProbePayloadWindowSeconds     = 1
+	RiskMaxProbePayloadWindowSeconds     = 3600
+	RiskDefaultProbePayloadThreshold     = 3
+	RiskMinProbePayloadThreshold         = 1
+	RiskMaxProbePayloadThreshold         = 1000
 )
 
 // RiskDefaultErrorGuardStatusCodes 是 Error Guard 未配置状态码时关注的默认集合:
@@ -147,7 +175,8 @@ func IsIpDimensionRiskMetric(metric string) bool {
 func IsValidRiskMetric(metric string) bool {
 	switch metric {
 	case RiskMetricIpMultiUser, RiskMetricUserMultiIp, RiskMetricIpMultiToken,
-		RiskMetricUserTinyRequest, RiskMetricUserErrorBurst:
+		RiskMetricUserTinyRequest, RiskMetricUserErrorBurst,
+		RiskMetricSessionMultiUser, RiskMetricCacheMultiUser:
 		return true
 	}
 	return false
@@ -309,14 +338,36 @@ func ValidateRiskControlOption(key string, value string) error {
 		if err != nil || count < RiskMinErrorGuardThreshold || count > RiskMaxErrorGuardThreshold {
 			return fmt.Errorf("Error Guard 错误次数阈值必须为 %d 到 %d", RiskMinErrorGuardThreshold, RiskMaxErrorGuardThreshold)
 		}
-	case "probe_guard_action", "error_guard_action":
+	case "probe_guard_action", "error_guard_action", "probe_payload_action":
 		if !IsValidRiskRuleAction(value) {
 			return fmt.Errorf("处置动作必须为 alert、ban_ip、disable_user 或 ban_both")
 		}
-	case "probe_guard_ban_minutes", "error_guard_ban_minutes":
+	case "probe_guard_ban_minutes", "error_guard_ban_minutes", "probe_payload_ban_minutes":
 		minutes, err := strconv.Atoi(value)
 		if err != nil || minutes < 0 || minutes > RiskMaxIpBanMinutes {
 			return fmt.Errorf("固定封禁时长必须为 0 到 %d 分钟(0 表示走升级阶梯)", RiskMaxIpBanMinutes)
+		}
+	case "probe_payload_enabled", "probe_payload_dry_run", "probe_payload_ping_enabled":
+		if value != "true" && value != "false" {
+			return fmt.Errorf("单轮内容测活防护开关必须为 true 或 false")
+		}
+	case "probe_payload_window_seconds":
+		seconds, err := strconv.Atoi(value)
+		if err != nil || seconds < RiskMinProbePayloadWindowSeconds || seconds > RiskMaxProbePayloadWindowSeconds {
+			return fmt.Errorf("单轮内容测活防护窗口必须为 %d 到 %d 秒", RiskMinProbePayloadWindowSeconds, RiskMaxProbePayloadWindowSeconds)
+		}
+	case "probe_payload_threshold":
+		count, err := strconv.Atoi(value)
+		if err != nil || count < RiskMinProbePayloadThreshold || count > RiskMaxProbePayloadThreshold {
+			return fmt.Errorf("单轮内容测活防护次数阈值必须为 %d 到 %d", RiskMinProbePayloadThreshold, RiskMaxProbePayloadThreshold)
+		}
+	case "probe_payload_text_rules":
+		if _, err := ParseProbePayloadTextRules(value); err != nil {
+			return err
+		}
+	case "session_risk_recording_enabled":
+		if value != "true" && value != "false" {
+			return fmt.Errorf("会话标识记录开关必须为 true 或 false")
 		}
 	case "error_guard_status_codes":
 		var codes []int
@@ -408,6 +459,16 @@ var riskControlSetting = RiskControlSetting{
 	ErrorGuardStatusCodes:   []int{},
 	ErrorGuardAction:        RiskRuleActionBanIp,
 	ErrorGuardBanMinutes:    0,
+
+	ProbePayloadEnabled:         false,
+	ProbePayloadDryRun:          true,
+	ProbePayloadTextRules:       RiskDefaultProbePayloadTextRules,
+	ProbePayloadPingEnabled:     true,
+	ProbePayloadWindowSeconds:   RiskDefaultProbePayloadWindowSeconds,
+	ProbePayloadThreshold:       RiskDefaultProbePayloadThreshold,
+	ProbePayloadAction:          RiskRuleActionDisableUser,
+	ProbePayloadBanMinutes:      0,
+	SessionRiskRecordingEnabled: false,
 }
 
 // ResolvedIpBanFirstMinutes 返回生效的首次临时封禁时长(分钟)。
@@ -543,6 +604,69 @@ func (s *RiskControlSetting) ResolvedProbeGuardModelCount() int {
 		return RiskDefaultProbeGuardModelCount
 	}
 	return s.ProbeGuardModelCount
+}
+
+// ResolvedProbePayloadWindowSeconds 返回生效的单轮内容测活滑动窗口(秒)。
+func (s *RiskControlSetting) ResolvedProbePayloadWindowSeconds() int {
+	if s == nil || s.ProbePayloadWindowSeconds < RiskMinProbePayloadWindowSeconds || s.ProbePayloadWindowSeconds > RiskMaxProbePayloadWindowSeconds {
+		return RiskDefaultProbePayloadWindowSeconds
+	}
+	return s.ProbePayloadWindowSeconds
+}
+
+// ResolvedProbePayloadThreshold 返回生效的单轮内容测活命中次数阈值。
+func (s *RiskControlSetting) ResolvedProbePayloadThreshold() int {
+	if s == nil || s.ProbePayloadThreshold < RiskMinProbePayloadThreshold || s.ProbePayloadThreshold > RiskMaxProbePayloadThreshold {
+		return RiskDefaultProbePayloadThreshold
+	}
+	return s.ProbePayloadThreshold
+}
+
+// ResolvedProbePayloadAction 返回生效的单轮内容测活处置动作。
+// 默认禁用账号:单轮内容测活通常来自用户自建脚本或客户端自动测活,但仍会跳过白名单与公开密钥账号。
+func (s *RiskControlSetting) ResolvedProbePayloadAction() string {
+	if s == nil || !IsValidRiskRuleAction(s.ProbePayloadAction) {
+		return RiskRuleActionDisableUser
+	}
+	return s.ProbePayloadAction
+}
+
+// ResolvedProbePayloadBanMinutes 返回单轮内容测活的固定封禁时长,0 表示走累犯阶梯。
+func (s *RiskControlSetting) ResolvedProbePayloadBanMinutes() int {
+	if s == nil || s.ProbePayloadBanMinutes < 0 || s.ProbePayloadBanMinutes > RiskMaxIpBanMinutes {
+		return 0
+	}
+	return s.ProbePayloadBanMinutes
+}
+
+// NormalizeProbePayloadText 对单轮测活文本做 NFKC 归一化、转小写并折叠空白,保证全角/半角与空格变体一致匹配。
+func NormalizeProbePayloadText(text string) string {
+	return strings.Join(strings.Fields(strings.ToLower(norm.NFKC.String(text))), " ")
+}
+
+// ParseProbePayloadTextRules 解析按行分隔的测活文本精确匹配规则。
+// 空列表是有意禁用文本匹配,不会回退为默认规则。
+func ParseProbePayloadTextRules(raw string) (map[string]string, error) {
+	if len(raw) > RiskProbePayloadMaxRulesBytes {
+		return nil, fmt.Errorf("测活文本规则不能超过 128 KiB")
+	}
+	rules := make(map[string]string)
+	count := 0
+	for _, line := range strings.Split(raw, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		count++
+		if count > 256 || utf8.RuneCountInString(line) > 1024 {
+			return nil, fmt.Errorf("测活文本规则最多 256 条,每条最多 1024 个字符")
+		}
+		key := NormalizeProbePayloadText(line)
+		if _, exists := rules[key]; !exists {
+			rules[key] = line
+		}
+	}
+	return rules, nil
 }
 
 // ResolvedTinyRequestMaxTokens 返回生效的微量请求判定阈值,未配置或越界时回退默认值。

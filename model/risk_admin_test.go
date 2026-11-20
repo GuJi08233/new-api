@@ -237,7 +237,7 @@ func setupRiskAdminModelTest(t *testing.T) *gorm.DB {
 	require.NoError(t, err)
 	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "risk-admin.db")), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&Option{}, &User{}, &IpBan{}, &RiskEvent{}, &RiskEventReview{}, &RiskScanRun{}, &Log{}))
+	require.NoError(t, db.AutoMigrate(&Option{}, &User{}, &IpBan{}, &IpBanUserBan{}, &RiskEvent{}, &RiskEventReview{}, &RiskScanRun{}, &RiskProbeUserState{}, &Log{}))
 	DB, LOG_DB, RO_DB = db, db, nil
 	common.OptionMap = make(map[string]string)
 	t.Cleanup(func() {

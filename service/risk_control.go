@@ -171,7 +171,7 @@ func checkRequestRisk(c *gin.Context, setting *operation_setting.RiskControlSett
 	ip := c.ClientIP()
 	ua := c.Request.UserAgent()
 
-	if !whitelisted && blockedByIpBan(c, ip, userId, ua) {
+	if !whitelisted && blockedByIpBan(c, setting, ip, userId, ua) {
 		return ErrRiskBlocked
 	}
 
@@ -213,8 +213,9 @@ func checkRequestRisk(c *gin.Context, setting *operation_setting.RiskControlSett
 
 // blockedByIpBan 判断来源地址是否命中生效中的动态封禁,命中时记录拦截事件并打标。
 // 动态封禁独立于风控总开关:它是显式处置记录(手动添加或自动升级产生),
-// 关闭检测开关不应让已生效的封禁失效。
-func blockedByIpBan(c *gin.Context, ip string, userId int, ua string) bool {
+// 关闭检测开关不应让已生效的封禁失效。若封禁开启了连带封号且请求已认证普通账号,
+// 同时自动禁用该账号并记录 ban_id -> user_id 关联(白名单、公开密钥账号与管理员豁免)。
+func blockedByIpBan(c *gin.Context, setting *operation_setting.RiskControlSetting, ip string, userId int, ua string) bool {
 	if ip == "" {
 		return false
 	}
@@ -222,10 +223,65 @@ func blockedByIpBan(c *gin.Context, ip string, userId int, ua string) bool {
 	if !matched {
 		return false
 	}
+	if ban.AutoBanUser && userId > 0 {
+		cascadeDisableUserByIpBan(setting, ban, userId, ip, ua)
+	}
 	common.SysLog(fmt.Sprintf("risk control: blocked request, ip=%q hit active ban target=%q", ip, ban.Target))
 	recordBlockEvent(model.RiskEventBlockIp, userId, ip, ua, "ban:"+ban.Target)
 	markRiskBlocked(c)
 	return true
+}
+
+func cascadeDisableUserByIpBan(setting *operation_setting.RiskControlSetting, ban *model.IpBan, userId int, ip string, ua string) {
+	if ban == nil || userId <= 0 || isAccountBanExempt(setting, userId) {
+		return
+	}
+	reason := strings.TrimSpace(ban.Reason)
+	if reason == "" {
+		reason = fmt.Sprintf("命中封禁 IP [%s] 连带禁用", ban.Target)
+	} else {
+		reason = fmt.Sprintf("命中封禁 IP [%s] 连带禁用:%s", ban.Target, reason)
+	}
+	changed, err := model.DisableRegularUser(userId, reason, ban.ExpiresAt)
+	if err != nil {
+		common.SysLog(fmt.Sprintf("risk control: failed to cascade disable user %d for ip ban #%d: %s", userId, ban.Id, err.Error()))
+		return
+	}
+	if !changed {
+		// 仅对普通用户且已禁用时刷新关联，避免给管理员账号写误导关联记录
+		if !model.IsAdmin(userId) {
+			if recErr := model.RecordIpBanUserBan(ban.Id, userId, ip, reason); recErr != nil {
+				common.SysLog(fmt.Sprintf("risk control: failed to record ip_ban_user_ban ban=%d user=%d: %s", ban.Id, userId, recErr.Error()))
+			}
+		}
+		return
+	}
+	if err := model.InvalidateUserCache(userId); err != nil {
+		common.SysLog(fmt.Sprintf("risk control: failed to invalidate user cache for %d: %s", userId, err.Error()))
+	}
+	if err := model.InvalidateUserTokensCache(userId); err != nil {
+		common.SysLog(fmt.Sprintf("risk control: failed to invalidate tokens cache for %d: %s", userId, err.Error()))
+	}
+	if err := model.RecordIpBanUserBan(ban.Id, userId, ip, reason); err != nil {
+		common.SysLog(fmt.Sprintf("risk control: failed to record ip_ban_user_ban ban=%d user=%d: %s", ban.Id, userId, err.Error()))
+	}
+	model.RecordLogWithAdminInfo(model.NewLogSource(ip, ua), userId, model.LogTypeManage, "[风控] "+reason, map[string]interface{}{
+		"source":    model.RiskBanSourceIpBanCascade,
+		"ip_ban_id": ban.Id,
+		"target":    ban.Target,
+		"reason":    reason,
+	})
+	username, _ := model.GetUsernameById(userId, false)
+	_ = insertRiskEventLogged(model.RiskEvent{
+		EventType: model.RiskEventBanAuto,
+		UserId:    userId,
+		Username:  username,
+		Ip:        ip,
+		Ua:        ua,
+		Rule:      model.RiskBanSourceIpBanCascade,
+		Reason:    reason,
+	})
+	common.SysLog(fmt.Sprintf("risk control: cascade disabled user %d for ip ban #%d target=%s", userId, ban.Id, ban.Target))
 }
 
 // CheckIpBan 只做动态 IP 封禁校验,供中转链路以外的入口(模型列表、注册、验证码)复用。
@@ -237,7 +293,7 @@ func CheckIpBan(c *gin.Context) bool {
 	if userId > 0 && isRiskWhitelisted(setting, userId) {
 		return false
 	}
-	return blockedByIpBan(c, c.ClientIP(), userId, c.Request.UserAgent())
+	return blockedByIpBan(c, setting, c.ClientIP(), userId, c.Request.UserAgent())
 }
 
 // markRiskBlocked 标记本次请求是被风控主动拒绝的,供 Error Guard 排除自身产生的错误响应。

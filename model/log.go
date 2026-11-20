@@ -12,6 +12,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
@@ -62,7 +63,7 @@ func sanitizeClickHouseLikePattern(input string) (string, error) {
 type Log struct {
 	Id                int    `json:"id" gorm:"index:idx_created_at_id,priority:1;index:idx_user_id_id,priority:2"`
 	UserId            int    `json:"user_id" gorm:"index;index:idx_user_id_id,priority:1"`
-	CreatedAt         int64  `json:"created_at" gorm:"bigint;index:idx_created_at_id,priority:2;index:idx_created_at_type"`
+	CreatedAt         int64  `json:"created_at" gorm:"bigint;index:idx_created_at_id,priority:2;index:idx_created_at_type;index:idx_logs_session_time,priority:2;index:idx_logs_cache_time,priority:2"`
 	Type              int    `json:"type" gorm:"index:idx_created_at_type"`
 	Content           string `json:"content"`
 	Username          string `json:"username" gorm:"index;index:index_username_model_name,priority:2;default:''"`
@@ -81,6 +82,12 @@ type Log struct {
 	Ua                string `json:"ua" gorm:"type:varchar(512);default:''"`
 	RequestId         string `json:"request_id,omitempty" gorm:"type:varchar(64);index:idx_logs_request_id;default:''"`
 	UpstreamRequestId string `json:"upstream_request_id,omitempty" gorm:"type:varchar(128);index:idx_logs_upstream_request_id;default:''"`
+	SessionId         string `json:"session_id,omitempty" gorm:"type:text"`
+	SessionSource     string `json:"session_source,omitempty" gorm:"type:varchar(64);default:''"`
+	SessionHash       string `json:"-" gorm:"type:varchar(64);default:'';index:idx_logs_session_time,priority:1"`
+	CacheKey          string `json:"cache_key,omitempty" gorm:"type:text"`
+	CacheSource       string `json:"cache_source,omitempty" gorm:"type:varchar(64);default:''"`
+	CacheHash         string `json:"-" gorm:"type:varchar(64);default:'';index:idx_logs_cache_time,priority:1"`
 	Other             string `json:"other"`
 }
 
@@ -378,6 +385,25 @@ func getRequestLogUa(c *gin.Context) string {
 	return truncateLogUa(c.Request.UserAgent())
 }
 
+func applyLogSessionIdentity(c *gin.Context, log *Log) {
+	if c == nil || log == nil {
+		return
+	}
+	setting := operation_setting.GetRiskControlSetting()
+	if setting == nil || !setting.SessionRiskRecordingEnabled {
+		return
+	}
+	value, ok := c.Get(common.RequestSessionIdentityKey)
+	identity, valid := value.(common.RequestSessionIdentity)
+	if !ok || !valid {
+		return
+	}
+	log.SessionId, log.SessionSource = identity.SessionID, identity.SessionSource
+	log.CacheKey, log.CacheSource = identity.CacheKey, identity.CacheSource
+	log.SessionHash = common.SessionIdentifierHash(identity.SessionID)
+	log.CacheHash = common.SessionIdentifierHash(identity.CacheKey)
+}
+
 // RecordAuditLog 记录一条账号审计日志（注册、签到等），比 RecordLog 多带
 // 结构化的 other 字段。username 为空时按 userId 反查——注册流程已持有用户对象，
 // 直接传入可省掉一次查询。other 写入 Other 字段，普通用户可见。
@@ -437,6 +463,7 @@ func RecordErrorLog(c *gin.Context, userId int, channelId int, modelName string,
 		UpstreamRequestId: upstreamRequestId,
 		Other:             otherStr,
 	}
+	applyLogSessionIdentity(c, log)
 	err := createLog(log)
 	if err != nil {
 		logger.LogError(c, "failed to record log: "+err.Error())
@@ -504,6 +531,7 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 		UpstreamRequestId: upstreamRequestId,
 		Other:             otherStr,
 	}
+	applyLogSessionIdentity(c, log)
 	err := createLog(log)
 	if err != nil {
 		logger.LogError(c, "failed to record log: "+err.Error())

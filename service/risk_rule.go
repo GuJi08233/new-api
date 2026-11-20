@@ -13,6 +13,7 @@ type RiskRuleHit struct {
 	Type     string `json:"type"`
 	Value    string `json:"value"`
 	Username string `json:"username,omitempty"`
+	UserIds  []int  `json:"user_ids,omitempty"`
 	Observed int    `json:"observed"`
 	Reason   string `json:"reason"`
 }
@@ -89,6 +90,37 @@ func PreviewRiskRule(rule operation_setting.RiskAutoBanRule, tinyMaxTokens int, 
 					Reason: fmt.Sprintf("用户 %s(#%d)在 %d 小时内产生 %d 次错误请求(阈值 %d)", item.Username, item.UserId, window, item.RequestCount, rule.Threshold)})
 			}
 		}
+	case operation_setting.RiskMetricSessionMultiUser, operation_setting.RiskMetricCacheMultiUser:
+		kind := model.SharedSessionKindSession
+		label := "会话 ID"
+		if rule.Metric == operation_setting.RiskMetricCacheMultiUser {
+			kind = model.SharedSessionKindCache
+			label = "缓存关联标识"
+		}
+		var items []model.SharedSessionItem
+		items, _, err = model.GetSharedSessionRanking(model.SharedSessionQuery{
+			Kind:           kind,
+			Hours:          window,
+			MinUsers:       2,
+			ExcludeUserIds: exemptUserIds,
+			Limit:          riskScanLimit,
+		})
+		result.Checked = len(items)
+		for _, item := range items {
+			if item.UserCount > rule.Threshold {
+				uids := make([]int, 0, len(item.Users))
+				for _, u := range item.Users {
+					uids = append(uids, u.UserId)
+				}
+				result.Hits = append(result.Hits, RiskRuleHit{
+					Type:     kind,
+					Value:    item.Identifier,
+					UserIds:  uids,
+					Observed: item.UserCount,
+					Reason:   fmt.Sprintf("%s [%s] 在 %d 小时内被 %d 个账号共用(阈值 %d)", label, item.Identifier, window, item.UserCount, rule.Threshold),
+				})
+			}
+		}
 	default:
 		return nil, errors.New("自动封禁规则指标无效")
 	}
@@ -109,9 +141,22 @@ func scanRiskRule(rule operation_setting.RiskAutoBanRule, tinyMaxTokens int, exe
 		if rule.Metric == operation_setting.RiskMetricUserTinyRequest {
 			evidence.TinyMaxTokens = tinyMaxTokens
 		}
-		if hit.Type == "ip" {
+		switch hit.Type {
+		case "ip":
 			err = applyIpRuleAction(rule, hit.Value, rule.WindowHours, hit.Reason, evidence)
-		} else {
+		case model.SharedSessionKindSession, model.SharedSessionKindCache:
+			if operation_setting.RiskActionDisablesUser(rule.Action) {
+				var userFailures []error
+				for _, uid := range hit.UserIds {
+					if disErr := DisableUserForRisk(uid, hit.Reason, model.RiskBanSourceAutoRule, rule.BanMinutes, "", evidence); disErr != nil {
+						userFailures = append(userFailures, disErr)
+					}
+				}
+				err = errors.Join(userFailures...)
+			} else {
+				err = recordRuleAlert(rule.Metric, 0, "", "", hit.Reason, evidence)
+			}
+		default:
 			var id int
 			_, err = fmt.Sscan(hit.Value, &id)
 			if err == nil && operation_setting.RiskActionDisablesUser(rule.Action) {
@@ -138,13 +183,20 @@ func withRiskEvidence(event model.RiskEvent, evidence ...*model.RiskRuleEvidence
 
 func realtimeGuardEvidence(setting *operation_setting.RiskControlSetting, source string, observed int) *model.RiskRuleEvidence {
 	evidence := &model.RiskRuleEvidence{RuleId: source, Name: source, Metric: source, Comparison: ">="}
-	if source == model.RiskBanSourceProbeGuard {
+	switch source {
+	case model.RiskBanSourceProbeGuard:
 		evidence.WindowSeconds = setting.ResolvedProbeGuardWindowSeconds()
 		evidence.Threshold = setting.ResolvedProbeGuardModelCount()
 		evidence.Action = setting.ResolvedProbeGuardAction()
 		evidence.DryRun = setting.ProbeGuardDryRun
 		evidence.BanMinutes = setting.ResolvedProbeGuardBanMinutes()
-	} else {
+	case model.RiskBanSourceProbePayload:
+		evidence.WindowSeconds = setting.ResolvedProbePayloadWindowSeconds()
+		evidence.Threshold = setting.ResolvedProbePayloadThreshold()
+		evidence.Action = setting.ResolvedProbePayloadAction()
+		evidence.DryRun = setting.ProbePayloadDryRun
+		evidence.BanMinutes = setting.ResolvedProbePayloadBanMinutes()
+	default:
 		evidence.WindowSeconds = setting.ResolvedErrorGuardWindowSeconds()
 		evidence.Threshold = setting.ResolvedErrorGuardThreshold()
 		evidence.Action = setting.ResolvedErrorGuardAction()

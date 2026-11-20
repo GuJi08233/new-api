@@ -61,7 +61,9 @@ func TestMain(m *testing.M) {
 		&RiskEvent{},
 		&RiskEventReview{},
 		&RiskScanRun{},
+		&RiskProbeUserState{},
 		&IpBan{},
+		&IpBanUserBan{},
 		&CodeUse{},
 		&TradeAccount{},
 		&TradePosition{},
@@ -134,6 +136,10 @@ func truncateTables(t *testing.T) {
 		DB.Exec("DELETE FROM invitation_codes")
 		DB.Exec("DELETE FROM ip_infos")
 		DB.Exec("DELETE FROM risk_events")
+		DB.Exec("DELETE FROM risk_event_reviews")
+		DB.Exec("DELETE FROM risk_scan_runs")
+		DB.Exec("DELETE FROM risk_probe_user_states")
+		DB.Exec("DELETE FROM ip_ban_user_bans")
 		DB.Exec("DELETE FROM ip_bans")
 		DB.Exec("DELETE FROM code_uses")
 		DB.Exec("DELETE FROM trade_accounts")
