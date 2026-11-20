@@ -172,13 +172,12 @@ export default function SecurityVerificationGate() {
         if (!stateResponse.data.success)
           throw new Error(stateResponse.data.message);
         if (pending.current !== entry || !popup.current || child.closed) return;
-        popup.current.state = stateResponse.data.data;
+        const flow = stateResponse.data.data;
+        popup.current.state = typeof flow === 'string' ? flow : flow.state;
         child.location.replace(
-          securityOAuthUrl(
-            slug,
-            stateResponse.data.data,
-            statusResponse.data.data,
-          ),
+          typeof flow === 'string'
+            ? securityOAuthUrl(slug, flow, statusResponse.data.data)
+            : flow.authorization_url,
         );
         return;
       }

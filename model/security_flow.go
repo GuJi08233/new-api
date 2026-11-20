@@ -88,7 +88,12 @@ func ConsumeSecurityFlow(token, kind string, identity SecurityIdentity, scope, c
 	if flow.UserID != identity.UserID || flow.Version != identity.Version || flow.SessionID != identity.SessionID || flow.Scope != scope || flow.ContextHash != contextHash {
 		return nil, ErrSecurityProof
 	}
-	result := DB.Model(&SecurityFlow{}).Where("id = ? AND consumed = ? AND expires_at > ?", flow.ID, false, time.Now().Unix()).Update("consumed", true)
+	updates := map[string]any{"consumed": true}
+	if kind == "oauth" {
+		// Discard the PKCE verifier atomically with state consumption.
+		updates["payload"] = ""
+	}
+	result := DB.Model(&SecurityFlow{}).Where("id = ? AND consumed = ? AND expires_at > ?", flow.ID, false, time.Now().Unix()).Updates(updates)
 	if result.Error != nil {
 		return nil, result.Error
 	}

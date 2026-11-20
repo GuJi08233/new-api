@@ -24,6 +24,16 @@ func providerParams(name string) map[string]any {
 	return map[string]any{"Provider": name}
 }
 
+type oauthFlowPayload struct {
+	UniversalVerifyRequest
+	CodeVerifier string `json:"code_verifier,omitempty"`
+}
+
+type oauthPKCEStart struct {
+	State            string `json:"state"`
+	AuthorizationURL string `json:"authorization_url"`
+}
+
 // GenerateOAuthCode generates a state code for OAuth CSRF protection
 func GenerateOAuthCode(c *gin.Context) {
 	session := sessions.Default(c)
@@ -68,11 +78,27 @@ func GenerateOAuthCode(c *gin.Context) {
 			}
 		}
 	}
-	if slug == "" || oauth.GetProvider(slug) == nil {
+	provider := oauth.GetProvider(slug)
+	if slug == "" || provider == nil {
 		common.ApiErrorMsg(c, "无效的 OAuth 提供商")
 		return
 	}
-	payload, err := common.Marshal(UniversalVerifyRequest{Scope: c.Query("scope"), ContextHash: c.Query("context_hash")})
+	flowPayload := oauthFlowPayload{UniversalVerifyRequest: UniversalVerifyRequest{
+		Scope: c.Query("scope"), ContextHash: c.Query("context_hash"),
+	}}
+	generic, isCustom := provider.(*oauth.GenericOAuthProvider)
+	enablePKCE := isCustom && generic.GetConfig().EnablePKCE
+	var challenge string
+	if enablePKCE {
+		verifier, generatedChallenge, err := common.GeneratePKCEPair()
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		flowPayload.CodeVerifier = verifier
+		challenge = generatedChallenge
+	}
+	payload, err := common.Marshal(flowPayload)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -82,6 +108,15 @@ func GenerateOAuthCode(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	var response any = state // Keep the existing response contract for non-PKCE clients.
+	if enablePKCE {
+		authURL, err := generic.PKCEAuthorizationURL(state, challenge, mode == "verify")
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		response = oauthPKCEStart{State: state, AuthorizationURL: authURL}
+	}
 	if code := c.Query("invitation_code"); code != "" {
 		session.Set("invitation_code", code)
 	}
@@ -90,7 +125,7 @@ func GenerateOAuthCode(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	common.ApiSuccess(c, state)
+	common.ApiSuccess(c, response)
 }
 
 // HandleOAuth handles OAuth callback for all standard OAuth providers
@@ -129,7 +164,8 @@ func HandleOAuth(c *gin.Context) {
 			return
 		}
 	}
-	if _, err := model.ConsumeSecurityFlow(state, "oauth", identity, flow.Scope, providerName); err != nil {
+	flow, err = model.ConsumeSecurityFlow(state, "oauth", identity, flow.Scope, providerName)
+	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
@@ -138,8 +174,15 @@ func HandleOAuth(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	var payload oauthFlowPayload
+	if _, isCustom := provider.(*oauth.GenericOAuthProvider); isCustom || flow.Scope == "verify" {
+		if err := common.UnmarshalJsonStr(flow.Payload, &payload); err != nil {
+			common.ApiError(c, err)
+			return
+		}
+	}
 	if flow.Scope == "bind" {
-		handleOAuthBind(c, provider)
+		handleOAuthBind(c, provider, payload.CodeVerifier)
 		return
 	}
 	// 3. Check if provider is enabled
@@ -160,8 +203,7 @@ func HandleOAuth(c *gin.Context) {
 	}
 
 	// 5. Exchange code for token
-	code := c.Query("code")
-	token, err := provider.ExchangeToken(c.Request.Context(), code, c)
+	token, err := exchangeOAuthToken(c, provider, payload.CodeVerifier)
 	if err != nil {
 		handleOAuthError(c, err)
 		return
@@ -190,12 +232,7 @@ func HandleOAuth(c *gin.Context) {
 			common.ApiErrorMsg(c, "请验证当前账户已绑定的登录方式")
 			return
 		}
-		var request UniversalVerifyRequest
-		if err := common.UnmarshalJsonStr(flow.Payload, &request); err != nil {
-			common.ApiError(c, err)
-			return
-		}
-		writeSecurityProof(c, identity, request.Scope, request.ContextHash)
+		writeSecurityProof(c, identity, payload.Scope, payload.ContextHash)
 		return
 	}
 	// 7. Find or create user
@@ -225,16 +262,23 @@ func HandleOAuth(c *gin.Context) {
 	setupLogin(user, c)
 }
 
+func exchangeOAuthToken(c *gin.Context, provider oauth.Provider, verifier string) (*oauth.OAuthToken, error) {
+	ctx, code := c.Request.Context(), c.Query("code")
+	if generic, ok := provider.(*oauth.GenericOAuthProvider); ok {
+		return generic.ExchangeTokenWithVerifier(ctx, code, verifier)
+	}
+	return provider.ExchangeToken(ctx, code, c)
+}
+
 // handleOAuthBind handles binding OAuth account to existing user
-func handleOAuthBind(c *gin.Context, provider oauth.Provider) {
+func handleOAuthBind(c *gin.Context, provider oauth.Provider, verifier string) {
 	if !provider.IsEnabled() {
 		common.ApiErrorI18n(c, i18n.MsgOAuthNotEnabled, providerParams(provider.GetName()))
 		return
 	}
 
 	// Exchange code for token
-	code := c.Query("code")
-	token, err := provider.ExchangeToken(c.Request.Context(), code, c)
+	token, err := exchangeOAuthToken(c, provider, verifier)
 	if err != nil {
 		handleOAuthError(c, err)
 		return

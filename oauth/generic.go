@@ -87,18 +87,56 @@ func (p *GenericOAuthProvider) GetConfig() *model.CustomOAuthProvider {
 	return p.config
 }
 
-func (p *GenericOAuthProvider) ExchangeToken(ctx context.Context, code string, c *gin.Context) (*OAuthToken, error) {
+func (p *GenericOAuthProvider) redirectURI() string {
+	return fmt.Sprintf("%s/oauth/%s", system_setting.ServerAddress, p.config.Slug)
+}
+
+func (p *GenericOAuthProvider) PKCEAuthorizationURL(state, challenge string, verify bool) (string, error) {
+	u, err := url.Parse(p.config.AuthorizationEndpoint)
+	if err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") {
+		return "", errors.New("OAuth 配置错误：授权端点必须是完整的 HTTP 或 HTTPS URL")
+	}
+	scope := p.config.Scopes
+	if scope == "" {
+		scope = "openid profile email"
+	}
+	q := u.Query()
+	q.Set("response_type", "code")
+	q.Set("client_id", p.config.ClientId)
+	q.Set("redirect_uri", p.redirectURI())
+	q.Set("scope", scope)
+	q.Set("state", state)
+	q.Set("code_challenge", challenge)
+	q.Set("code_challenge_method", "S256")
+	if verify {
+		q.Set("prompt", "login")
+	}
+	u.RawQuery = q.Encode()
+	return u.String(), nil
+}
+
+func (p *GenericOAuthProvider) ExchangeToken(ctx context.Context, code string, _ *gin.Context) (*OAuthToken, error) {
+	return p.ExchangeTokenWithVerifier(ctx, code, "")
+}
+
+func (p *GenericOAuthProvider) ExchangeTokenWithVerifier(ctx context.Context, code, verifier string) (*OAuthToken, error) {
 	if code == "" {
 		return nil, NewOAuthError(i18n.MsgOAuthInvalidCode, nil)
+	}
+	if p.config.EnablePKCE && verifier == "" {
+		return nil, NewOAuthError(i18n.MsgOAuthStateInvalid, nil)
 	}
 
 	logger.LogDebug(ctx, "[OAuth-Generic-%s] ExchangeToken: code=%s...", p.config.Slug, code[:min(len(code), 10)])
 
-	redirectUri := fmt.Sprintf("%s/oauth/%s", system_setting.ServerAddress, p.config.Slug)
+	redirectUri := p.redirectURI()
 	values := url.Values{}
 	values.Set("grant_type", "authorization_code")
 	values.Set("code", code)
 	values.Set("redirect_uri", redirectUri)
+	if verifier != "" {
+		values.Set("code_verifier", verifier)
+	}
 
 	// Determine auth style
 	authStyle := p.config.AuthStyle

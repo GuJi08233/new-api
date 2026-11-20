@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -68,7 +67,7 @@ func CreateCodexOAuthAuthorizationFlow() (*CodexOAuthAuthorizationFlow, error) {
 	if err != nil {
 		return nil, err
 	}
-	verifier, challenge, err := generatePKCEPair()
+	verifier, challenge, err := common.GeneratePKCEPair()
 	if err != nil {
 		return nil, err
 	}
@@ -239,17 +238,6 @@ func createStateHex(nBytes int) (string, error) {
 		return "", err
 	}
 	return fmt.Sprintf("%x", b), nil
-}
-
-func generatePKCEPair() (verifier string, challenge string, err error) {
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
-		return "", "", err
-	}
-	verifier = base64.RawURLEncoding.EncodeToString(b)
-	sum := sha256.Sum256([]byte(verifier))
-	challenge = base64.RawURLEncoding.EncodeToString(sum[:])
-	return verifier, challenge, nil
 }
 
 func ExtractCodexAccountIDFromJWT(token string) (string, bool) {

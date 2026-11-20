@@ -269,6 +269,7 @@ const CustomOAuthSetting = ({ serverAddress }) => {
       display_name_field: 'name',
       email_field: 'email',
       auth_style: 0,
+      enable_pkce: false,
       access_policy: '',
       access_denied_message: '',
       disable_unbind: false,
@@ -1004,6 +1005,15 @@ const CustomOAuthSetting = ({ serverAddress }) => {
                         {t('开启后用户无法自行解绑该登录方式（管理员仍可操作）；由该方式注册的账号始终不可自行解绑')}
                       </Text>
                     </div>
+                  </Col>
+                </Row>
+
+                <Row gutter={16}>
+                  <Col span={12}>
+                    <Form.Switch
+                      field='enable_pkce'
+                      label={t('启用 PKCE（S256）')}
+                    />
                   </Col>
                 </Row>
 

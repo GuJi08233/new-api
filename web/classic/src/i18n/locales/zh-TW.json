@@ -1265,6 +1265,7 @@
     "启用 io.net 部署": "啟用 io.net 部署",
     "启用 io.net 部署开关": "啟用 io.net 部署開關",
     "启用 io.net 部署时必须填写 API Key": "啟用 io.net 部署時必須填寫 API Key",
+    "启用 PKCE（S256）": "啟用 PKCE（S256）",
     "启用 Prompt 检查": "啟用 Prompt 檢查",
     "启用 Waffo": "",
     "启用2FA失败": "啟用2FA失敗",

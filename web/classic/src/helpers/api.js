@@ -367,13 +367,18 @@ export async function onSteamOAuthClicked(options = { shouldLogout: false }) {
  * @param {boolean} options.shouldLogout - Whether to logout first
  */
 export async function onCustomOAuthClicked(provider, options = {}) {
-  const state = await prepareOAuthState({
+  const flow = await prepareOAuthState({
     ...options,
     provider: provider.slug,
   });
-  if (!state) return;
+  if (!flow) return;
 
   try {
+    if (typeof flow !== 'string') {
+      redirectToOAuthUrl(flow.authorization_url);
+      return;
+    }
+
     const redirect_uri = `${window.location.origin}/oauth/${provider.slug}`;
 
     // Check if authorization_endpoint is a full URL or relative path
@@ -402,7 +407,7 @@ export async function onCustomOAuthClicked(provider, options = {}) {
       'scope',
       provider.scopes || 'openid profile email',
     );
-    authUrl.searchParams.set('state', state);
+    authUrl.searchParams.set('state', flow);
 
     redirectToOAuthUrl(authUrl);
   } catch (error) {
