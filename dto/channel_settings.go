@@ -45,10 +45,15 @@ type ChannelSettings struct {
 	// 由时区数据库自动处理夏令时；非空且可加载时优先于 DailyRequestLimitUTCOffset。
 	// 用于对齐按当地午夜重置的上游免费额度（如 Google AI Studio 的 RPD 按太平洋时间午夜重置）。
 	DailyRequestLimitTimezone string `json:"daily_request_limit_timezone,omitempty"`
+	// DailySuccessLimit 每日成功次数上限，与 DailyRequestLimit 共用日切时区。
+	DailySuccessLimit int64 `json:"daily_success_limit,omitempty"`
+	// ConcurrencyLimit 同时处理的上游请求数上限，0 表示不限制。
+	ConcurrencyLimit int64 `json:"concurrency_limit,omitempty"`
 	// RateLimitPeriodMinutes 渠道级请求频率限制的周期（分钟），0 表示 1 分钟。与用户/分组级的
 	// 模型请求限速同构，但作用于渠道：达到上限后该渠道在本周期内不再参与选路，下一周期自动恢复。
 	RateLimitPeriodMinutes int `json:"rate_limit_period_minutes,omitempty"`
-	// RateLimitMaxRequests 每周期最多承接的请求次数（含失败、重试与渠道测试），0 表示不限制。
+	// RateLimitMaxRequests 每周期最多承接的请求次数（含失败、重试与渠道测试）。
+	// 周期为 1 分钟时即为 RPM 上限，不另设 rpm_limit；0 表示不限制。
 	RateLimitMaxRequests int64 `json:"rate_limit_max_requests,omitempty"`
 	// RateLimitMaxSuccess 每周期最多在该渠道上成功完成的请求次数，0 表示不限制。
 	RateLimitMaxSuccess int64 `json:"rate_limit_max_success,omitempty"`

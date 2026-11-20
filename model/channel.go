@@ -60,6 +60,7 @@ type Channel struct {
 
 	// 运行时统计，不入库：当日已承接请求数，配合每日请求上限（daily_request_limit）在管理端展示
 	TodayRequestCount int64 `json:"today_request_count,omitempty" gorm:"-:all"`
+	TodaySuccessCount int64 `json:"today_success_count,omitempty" gorm:"-:all"`
 
 	// cache info
 	Keys []string `json:"-" gorm:"-"`
@@ -1036,6 +1037,12 @@ func (channel *Channel) ValidateSettings() error {
 	}
 	if channelParams.DailyRequestLimit < 0 {
 		return fmt.Errorf("daily_request_limit must not be negative")
+	}
+	if channelParams.DailySuccessLimit < 0 {
+		return fmt.Errorf("daily_success_limit must not be negative")
+	}
+	if channelParams.ConcurrencyLimit < 0 {
+		return fmt.Errorf("concurrency_limit must not be negative")
 	}
 	if timezone := strings.TrimSpace(channelParams.DailyRequestLimitTimezone); timezone != "" {
 		if _, err := loadChannelDailyLimitLocation(timezone); err != nil {

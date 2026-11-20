@@ -119,7 +119,7 @@ func GetChannel(group string, model string, retry int, requestPath string, filte
 		// Channel filters (such as task plugin identity) must run before the
 		// priority tier is chosen, otherwise an excluded higher-priority
 		// channel would empty the tier and hide eligible lower-priority ones.
-		abilities, err = getFilteredPriorityAbilities(group, model, retry, filters)
+		abilities, err = getFilteredPriorityAbilities(group, model, retry, requestPath, filters)
 	} else {
 		var channelQuery *gorm.DB
 		channelQuery, err = getChannelQuery(group, model, retry)
@@ -131,11 +131,15 @@ func GetChannel(group string, model string, retry int, requestPath string, filte
 	if err != nil {
 		return nil, err
 	}
-	abilities = filterAbilitiesByRequestPathAndModel(abilities, requestPath, model)
-	if len(abilities) > 0 {
+	if len(filters) == 0 {
+		abilities = filterAbilitiesByRequestPathAndModel(abilities, requestPath, model)
 		available := filterAbilitiesByRequestLimit(abilities)
-		if len(available) == 0 {
-			return nil, errors.New("候选渠道均已达每日请求上限")
+		if len(abilities) > 0 && len(available) == 0 {
+			// The fast query only loaded one tier. Look for an eligible lower tier.
+			available, err = getFilteredPriorityAbilities(group, model, retry, requestPath, nil)
+			if err != nil {
+				return nil, err
+			}
 		}
 		abilities = available
 	}
@@ -165,16 +169,22 @@ func GetChannel(group string, model string, retry int, requestPath string, filte
 
 // getFilteredPriorityAbilities returns the abilities of the retry's priority
 // tier among the channels that pass the request's channel filters.
-func getFilteredPriorityAbilities(group string, model string, retry int, filters []dto.ChannelFilter) ([]Ability, error) {
+func getFilteredPriorityAbilities(group string, model string, retry int, requestPath string, filters []dto.ChannelFilter) ([]Ability, error) {
 	var abilities []Ability
-	err := ReadDB().Where(commonGroupCol+" = ? and model = ? and enabled = ?", group, model, true).
+	err := ReadDB().Where(clause.Eq{Column: "group", Value: group}).
+		Where("model = ? and enabled = ?", model, true).
 		Order("priority DESC, weight DESC").Find(&abilities).Error
 	if err != nil {
 		return nil, err
 	}
 	abilities = filterAbilitiesByChannelFilters(abilities, model, filters)
+	abilities = filterAbilitiesByRequestPathAndModel(abilities, requestPath, model)
 	if len(abilities) == 0 {
 		return abilities, nil
+	}
+	abilities = filterAbilitiesByRequestLimit(abilities)
+	if len(abilities) == 0 {
+		return nil, ErrChannelRequestLimited
 	}
 	priorities := make([]int64, 0)
 	seen := make(map[int64]bool)

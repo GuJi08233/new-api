@@ -14,6 +14,8 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	pluginruntime "github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/relay"
@@ -325,6 +327,75 @@ func TestExecuteTaskSubmissionDisconnectBeforeUpstreamAcceptanceSkipsSubmitAndRe
 	assert.Equal(t, []string{"refund"}, events)
 	assert.Equal(t, 1, billing.refunds)
 	assert.False(t, c.Writer.Written())
+}
+
+func TestExecuteTaskSubmissionSkipsBusyChannelUnlessPinned(t *testing.T) {
+	require.NoError(t, i18n.Init())
+	events := make([]string, 0)
+	db := setupTaskSubmissionDatabase(t, true, &events)
+	require.NoError(t, db.AutoMigrate(&model.Channel{}, &model.Ability{}))
+	oldMemory, oldRedis, oldRetries, oldLog := common.MemoryCacheEnabled, common.RedisEnabled, common.RetryTimes, common.LogConsumeEnabled
+	common.MemoryCacheEnabled, common.RedisEnabled, common.RetryTimes, common.LogConsumeEnabled = false, false, 0, false
+	t.Cleanup(func() {
+		common.MemoryCacheEnabled, common.RedisEnabled, common.RetryTimes, common.LogConsumeEnabled = oldMemory, oldRedis, oldRetries, oldLog
+	})
+	primary := &model.Channel{
+		Id: 954101, Type: constant.ChannelTypeOpenAI, Name: "busy", Key: "test-key",
+		Status: common.ChannelStatusEnabled, Group: "default", Models: "plugin-model", Priority: common.GetPointer(int64(2)),
+	}
+	backup := &model.Channel{
+		Id: 954102, Type: constant.ChannelTypeOpenAI, Name: "available", Key: "test-key",
+		Status: common.ChannelStatusEnabled, Group: "default", Models: "plugin-model", Priority: common.GetPointer(int64(1)),
+	}
+	primary.SetSetting(dto.ChannelSettings{ConcurrencyLimit: 1})
+	require.NoError(t, primary.Insert())
+	require.NoError(t, backup.Insert())
+	release, err := model.BeginChannelAttempt(context.Background(), primary.Id, primary.GetRequestLimitConfig())
+	require.NoError(t, err)
+	defer release(false)
+
+	for _, pinned := range []bool{false, true} {
+		name := "alternate channel without retry budget"
+		if pinned {
+			name = "pinned request returns 429"
+		}
+		t.Run(name, func(t *testing.T) {
+			c := taskSubmissionTestContext()
+			info := taskSubmissionRelayInfo(&taskSubmissionTestBilling{events: &events})
+			info.TokenGroup = "default"
+			info.ChannelMeta = nil
+			info.LockedChannel = nil
+			if pinned {
+				info.LockedChannel = primary
+			}
+			require.Nil(t, middleware.SetupContextForSelectedChannel(c, primary, info.OriginModelName))
+			if pinned {
+				// Legacy continuations can retain the original middleware
+				// settings even after switching to the origin task's channel.
+				common.SetContextKey(c, constant.ContextKeyChannelSetting, backup.GetSetting())
+			}
+			var attempted []int
+			outcome, taskErr := executeTaskSubmissionWith(c, info, func(c *gin.Context, info *relaycommon.RelayInfo) (*relay.TaskSubmitResult, *dto.TaskError) {
+				info.InitChannelMeta(c)
+				attempted = append(attempted, info.ChannelId)
+				return &relay.TaskSubmitResult{
+					UpstreamTaskID: "upstream_private",
+					Platform:       constant.TaskPlatform("plugin"),
+				}, nil
+			})
+			if pinned {
+				require.NotNil(t, taskErr)
+				assert.Equal(t, http.StatusTooManyRequests, taskErr.StatusCode)
+				assert.Equal(t, string(types.ErrorCodeChannelRequestLimited), taskErr.Code)
+				assert.Empty(t, attempted)
+				return
+			}
+			require.Nil(t, taskErr)
+			require.NotNil(t, outcome)
+			assert.Equal(t, []int{backup.Id}, attempted)
+			assert.Equal(t, backup.Id, outcome.Task.ChannelId)
+		})
+	}
 }
 
 func TestExecuteTaskSubmissionCallerCancellationDuringSubmitRefundsBeforeDurableBarrier(t *testing.T) {

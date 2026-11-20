@@ -209,6 +209,16 @@ func coverMidjourneyTaskDto(c *gin.Context, originTask *model.Midjourney) (midjo
 	return
 }
 
+func beginMidjourneyAttempt(c *gin.Context) (func(bool), bool) {
+	setting, _ := common.GetContextKeyType[dto.ChannelSettings](c, constant.ContextKeyChannelSetting)
+	finish, err := service.BeginChannelAttempt(c, c.GetInt("channel_id"), setting)
+	if err != nil {
+		c.JSON(err.StatusCode, gin.H{"description": err.Error(), "type": "new_api_error", "code": err.GetErrorCode()})
+		return nil, false
+	}
+	return finish, true
+}
+
 func RelaySwapFace(c *gin.Context, info *relaycommon.RelayInfo) *dto.MidjourneyResponse {
 	var swapFaceRequest dto.SwapFaceRequest
 	err := common.UnmarshalBodyReusable(c, &swapFaceRequest)
@@ -248,7 +258,13 @@ func RelaySwapFace(c *gin.Context, info *relaycommon.RelayInfo) *dto.MidjourneyR
 	requestURL := getMjRequestPath(c.Request.URL.String())
 	baseURL := c.GetString("base_url")
 	fullRequestURL := fmt.Sprintf("%s%s", baseURL, requestURL)
+	finish, allowed := beginMidjourneyAttempt(c)
+	if !allowed {
+		return nil
+	}
+	defer finish(false)
 	mjResp, _, err := service.DoMidjourneyHttpRequest(c, time.Second*60, fullRequestURL)
+	finish(err == nil && mjResp.StatusCode == http.StatusOK && mjResp.Response.Code == 1)
 	if err != nil {
 		return &mjResp.Response
 	}
@@ -561,7 +577,14 @@ func RelayMidjourneySubmit(c *gin.Context, relayInfo *relaycommon.RelayInfo) *dt
 		}
 	}
 
+	finish, allowed := beginMidjourneyAttempt(c)
+	if !allowed {
+		return nil
+	}
+	defer finish(false)
 	midjResponseWithStatus, responseBody, err := service.DoMidjourneyHttpRequest(c, time.Second*60, fullRequestURL)
+	finish(err == nil && midjResponseWithStatus.StatusCode == http.StatusOK &&
+		(midjResponseWithStatus.Response.Code == 1 || midjResponseWithStatus.Response.Code == 21 || midjResponseWithStatus.Response.Code == 22))
 	if err != nil {
 		return &midjResponseWithStatus.Response
 	}

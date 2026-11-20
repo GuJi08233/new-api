@@ -148,10 +148,10 @@ func GetRandomSatisfiedChannel(group string, model string, retry int, requestPat
 		return nil, nil
 	}
 
-	// 剔除已达每日请求上限的渠道；全部超限时返回明确错误而不是笼统的"无可用渠道"
+	// 跳过已达渠道请求上限的候选，再按剩余优先级选路。
 	available := filterChannelsByRequestLimit(channels)
 	if len(available) == 0 {
-		return nil, errors.New("候选渠道均已达每日请求上限")
+		return nil, ErrChannelRequestLimited
 	}
 	channels = available
 

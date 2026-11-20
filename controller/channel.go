@@ -453,7 +453,11 @@ func GetChannel(c *gin.Context) {
 	}
 	if channel != nil {
 		clearChannelInfo(channel)
-		channel.TodayRequestCount = model.GetChannelDailyRequestCount(channel.Id, channel.GetRequestLimitConfig())
+		config := channel.GetRequestLimitConfig()
+		channel.TodayRequestCount = model.GetChannelDailyRequestCount(channel.Id, config)
+		if config.DailySuccessLimit > 0 {
+			channel.TodaySuccessCount = model.GetChannelDailySuccessCount(channel.Id, config)
+		}
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,

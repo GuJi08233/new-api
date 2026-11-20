@@ -35,6 +35,20 @@ func newRetryError(statusCode int) *types.NewAPIError {
 	)
 }
 
+func TestChannelAttemptCompletedForStream(t *testing.T) {
+	c := newTestContext()
+	ctx, cancel := context.WithCancel(context.Background())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil).WithContext(ctx)
+	cancel()
+	incomplete := relaycommon.NewStreamStatus()
+	incomplete.SetEndReason(relaycommon.StreamEndReasonClientGone, ctx.Err())
+	assert.False(t, channelAttemptCompleted(c, incomplete))
+
+	completed := relaycommon.NewStreamStatus()
+	completed.SetEndReason(relaycommon.StreamEndReasonDone, nil)
+	assert.True(t, channelAttemptCompleted(c, completed), "an upstream completion still counts if the client disconnects during the final flush")
+}
+
 func TestShouldRetryWithChannelSetting_NilError(t *testing.T) {
 	c := newTestContext()
 	setting := dto.ChannelSettings{}
@@ -247,7 +261,7 @@ func TestGetChannelLoadsFullPollingChannelForSameChannelRetry(t *testing.T) {
 		ModelName:   "gpt-test",
 		RequestPath: "/v1/chat/completions",
 		Retry:       common.GetPointer(0),
-	})
+	}, nil)
 	require.Nil(t, channelErr)
 	require.True(t, retryChannel.ChannelInfo.IsMultiKey)
 

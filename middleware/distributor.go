@@ -282,6 +282,15 @@ func Distribute() func(c *gin.Context) {
 						RequestPath: c.Request.URL.Path,
 						Retry:       common.GetPointer(0),
 					})
+					if errors.Is(err, model.ErrChannelRequestLimited) {
+						limitErr := service.ChannelRequestLimitedError(c)
+						if !RespondTaskPluginError(c, service.TaskErrorFromAPIError(limitErr)) {
+							abortWithEntryFormatError(c, limitErr)
+						} else {
+							c.Abort()
+						}
+						return
+					}
 					if err != nil {
 						showGroup := usingGroup
 						if usingGroup == "auto" {
@@ -310,7 +319,7 @@ func Distribute() func(c *gin.Context) {
 				}
 			}
 		}
-		// 绑定渠道的客户端 UA 规则在渠道确定后、占用渠道计数与多 key 轮询前判定。
+		// 绑定渠道的客户端 UA 规则在渠道确定后、多 key 轮询前判定。
 		// 待按 token 重路由时这里只是占位渠道，改由 controller.Relay 对最终渠道判定。
 		if channel != nil && !common.GetContextKeyBool(c, constant.ContextKeyChannelRouteNeedsReroute) {
 			if ruleErr := service.RejectByClientUaRule(c, modelRequest.Model, channel.Id); ruleErr != nil {
@@ -322,7 +331,7 @@ func Distribute() func(c *gin.Context) {
 		SetupContextForSelectedChannel(c, channel, modelRequest.Model)
 		c.Next()
 		if channel != nil && c.Writer != nil && c.Writer.Status() < http.StatusBadRequest {
-			service.RecordChannelAffinity(c, channel.Id)
+			service.RecordChannelAffinity(c, common.GetContextKeyInt(c, constant.ContextKeyChannelId))
 		}
 	}
 }
@@ -750,10 +759,6 @@ func SetupContextForSelectedChannel(c *gin.Context, channel *model.Channel, mode
 		c.Set("bot_id", channel.Other)
 	}
 
-	// 渠道每日请求计数：本函数是所有"渠道承接一次上游调用"路径的汇聚点
-	// （初次选路、跨渠道重试、同渠道重试、任务重试、渠道测试），在此统一递增，
-	// 与渠道每日请求上限（daily_request_limit）共用同一口径与日切时区。
-	model.IncrChannelRequestCount(channel.Id, model.NewChannelRequestLimitConfig(channelSetting))
 	return nil
 }
 

@@ -222,6 +222,8 @@ const EditChannelModal = (props) => {
     retry_exhausted_transfer: true,
     // 渠道每日请求上限（0 = 不限制）
     daily_request_limit: 0,
+    daily_success_limit: 0,
+    concurrency_limit: 0,
     // 每日限额日切时区（相对 UTC 的分钟偏移，'' = 跟随服务器时区）
     daily_request_limit_utc_offset: '',
     // 每日限额日切 IANA 时区（'' = 不使用；非空时优先于固定 UTC 偏移，自动处理夏令时）
@@ -557,6 +559,8 @@ const EditChannelModal = (props) => {
     retry_status_codes: '',
     retry_exhausted_transfer: true,
     daily_request_limit: 0,
+    daily_success_limit: 0,
+    concurrency_limit: 0,
     daily_request_limit_utc_offset: '',
     daily_request_limit_timezone: '',
     auto_disable_status_codes: '',
@@ -569,6 +573,7 @@ const EditChannelModal = (props) => {
   });
   // 当日已承接请求数（编辑时由后端返回，仅用于展示）
   const [todayRequestCount, setTodayRequestCount] = useState(0);
+  const [todaySuccessCount, setTodaySuccessCount] = useState(0);
   const dailyLimitUtcOffsetOptions = useMemo(
     () => [
       { value: '', label: t('跟随服务器时区') },
@@ -1035,6 +1040,8 @@ const EditChannelModal = (props) => {
           data.retry_exhausted_transfer =
             parsedSettings.retry_exhausted_transfer !== false;
           data.daily_request_limit = parsedSettings.daily_request_limit || 0;
+          data.daily_success_limit = parsedSettings.daily_success_limit || 0;
+          data.concurrency_limit = parsedSettings.concurrency_limit || 0;
           data.daily_request_limit_utc_offset = Number.isInteger(
             parsedSettings.daily_request_limit_utc_offset,
           )
@@ -1073,6 +1080,8 @@ const EditChannelModal = (props) => {
           data.retry_status_codes = '';
           data.retry_exhausted_transfer = true;
           data.daily_request_limit = 0;
+          data.daily_success_limit = 0;
+          data.concurrency_limit = 0;
           data.daily_request_limit_utc_offset = '';
           data.daily_request_limit_timezone = '';
           data.auto_disable_status_codes = '';
@@ -1099,6 +1108,8 @@ const EditChannelModal = (props) => {
         data.retry_status_codes = '';
         data.retry_exhausted_transfer = true;
         data.daily_request_limit = 0;
+        data.daily_success_limit = 0;
+        data.concurrency_limit = 0;
         data.daily_request_limit_utc_offset = '';
         data.daily_request_limit_timezone = '';
         data.auto_disable_status_codes = '';
@@ -1256,6 +1267,8 @@ const EditChannelModal = (props) => {
         retry_status_codes: data.retry_status_codes || '',
         retry_exhausted_transfer: data.retry_exhausted_transfer !== false,
         daily_request_limit: data.daily_request_limit || 0,
+        daily_success_limit: data.daily_success_limit || 0,
+        concurrency_limit: data.concurrency_limit || 0,
         daily_request_limit_utc_offset: Number.isInteger(
           data.daily_request_limit_utc_offset,
         )
@@ -1272,6 +1285,7 @@ const EditChannelModal = (props) => {
         rate_limit_max_success: data.rate_limit_max_success || 0,
       });
       setTodayRequestCount(data.today_request_count || 0);
+      setTodaySuccessCount(data.today_success_count || 0);
       initialModelsRef.current = (data.models || [])
         .map((model) => (model || '').trim())
         .filter(Boolean);
@@ -1321,6 +1335,8 @@ const EditChannelModal = (props) => {
         (data.retry_times && data.retry_times !== 0) ||
         (data.retry_status_codes && data.retry_status_codes.trim()) ||
         (data.daily_request_limit && data.daily_request_limit !== 0) ||
+        data.daily_success_limit > 0 ||
+        data.concurrency_limit > 0 ||
         (data.daily_request_limit_timezone &&
           data.daily_request_limit_timezone.trim()) ||
         (data.auto_disable_status_codes &&
@@ -1693,6 +1709,8 @@ const EditChannelModal = (props) => {
       retry_status_codes: '',
       retry_exhausted_transfer: true,
       daily_request_limit: 0,
+      daily_success_limit: 0,
+      concurrency_limit: 0,
       daily_request_limit_utc_offset: '',
       daily_request_limit_timezone: '',
       auto_disable_status_codes: '',
@@ -2102,6 +2120,8 @@ const EditChannelModal = (props) => {
       retry_status_codes: localInputs.retry_status_codes || '',
       retry_exhausted_transfer: localInputs.retry_exhausted_transfer !== false,
       daily_request_limit: localInputs.daily_request_limit || 0,
+      daily_success_limit: localInputs.daily_success_limit || 0,
+      concurrency_limit: localInputs.concurrency_limit || 0,
       // 0（UTC）是合法偏移，只有非整数（'' = 跟随服务器时区）才省略该字段
       ...(Number.isInteger(localInputs.daily_request_limit_utc_offset)
         ? {
@@ -2249,6 +2269,8 @@ const EditChannelModal = (props) => {
     delete localInputs.retry_status_codes;
     delete localInputs.retry_exhausted_transfer;
     delete localInputs.daily_request_limit;
+    delete localInputs.daily_success_limit;
+    delete localInputs.concurrency_limit;
     delete localInputs.daily_request_limit_utc_offset;
     delete localInputs.daily_request_limit_timezone;
     delete localInputs.auto_disable_status_codes;
@@ -3435,6 +3457,23 @@ const EditChannelModal = (props) => {
                         : '')
                     }
                   />
+                  <Form.InputNumber
+                    field='daily_success_limit'
+                    label={t('每日成功次数上限')}
+                    placeholder={t('0 = 不限制')}
+                    min={0}
+                    precision={0}
+                    onChange={(value) =>
+                      handleChannelSettingsChange('daily_success_limit', value)
+                    }
+                    style={{ width: '100%' }}
+                    extraText={
+                      t('只统计成功的请求，与每日请求上限共用重置时区') +
+                      (isEdit
+                        ? '，' + t('今日已用') + ': ' + todaySuccessCount
+                        : '')
+                    }
+                  />
                   <Form.Select
                     field='daily_request_limit_timezone'
                     label={t('每日限额重置时区（按地区，自动夏令时）')}
@@ -3494,7 +3533,11 @@ const EditChannelModal = (props) => {
                   />
                   <Form.InputNumber
                     field='rate_limit_max_requests'
-                    label={t('每周期最多请求次数')}
+                    label={
+                      (inputs.rate_limit_period_minutes || 1) === 1
+                        ? t('每分钟最多请求次数（RPM）')
+                        : t('每周期最多请求次数')
+                    }
                     placeholder={t('0 = 不限制')}
                     min={0}
                     onChange={(value) =>
@@ -3523,6 +3566,18 @@ const EditChannelModal = (props) => {
                     extraText={t(
                       '只包括在该渠道上成功完成的次数，0 代表不限制。达到后本周期内自动跳过该渠道',
                     )}
+                  />
+                  <Form.InputNumber
+                    field='concurrency_limit'
+                    label={t('渠道并发上限')}
+                    placeholder={t('0 = 不限制')}
+                    min={0}
+                    precision={0}
+                    onChange={(value) =>
+                      handleChannelSettingsChange('concurrency_limit', value)
+                    }
+                    style={{ width: '100%' }}
+                    extraText={t('同时处理的请求数；流式请求结束后才释放名额')}
                   />
                 </div>
               </div>

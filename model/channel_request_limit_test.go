@@ -1,15 +1,142 @@
 package model
 
 import (
+	"context"
+	"errors"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 	_ "time/tzdata"
 
 	"github.com/QuantumNous/new-api/common"
 
+	"github.com/alicebob/miniredis/v2"
+	"github.com/go-redis/redis/v8"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+var admissionTestChannelSequence atomic.Int32
+
+func nextAdmissionTestChannelID() int {
+	return 950000 + int(admissionTestChannelSequence.Add(1))
+}
+
+func TestChannelAttemptAdmission(t *testing.T) {
+	for _, backend := range []string{"memory", "redis"} {
+		t.Run(backend, func(t *testing.T) {
+			enabled, client := common.RedisEnabled, common.RDB
+			t.Cleanup(func() { common.RedisEnabled, common.RDB = enabled, client })
+			common.RedisEnabled = backend == "redis"
+			if common.RedisEnabled {
+				server := miniredis.RunT(t)
+				common.RDB = redis.NewClient(&redis.Options{Addr: server.Addr()})
+				t.Cleanup(func() { _ = common.RDB.Close() })
+			}
+			// sync.Map-backed memory counters outlive a subtest, including when
+			// the suite is run with -count. Allocate a distinct channel ID.
+			id := nextAdmissionTestChannelID()
+			ctx := context.Background()
+
+			t.Run("success is reserved and failures release it", func(t *testing.T) {
+				config := ChannelRequestLimitConfig{DailySuccessLimit: 1, Timezone: "America/Los_Angeles"}
+				finish, err := BeginChannelAttempt(ctx, id, config)
+				require.NoError(t, err)
+				_, err = BeginChannelAttempt(ctx, id, config)
+				require.ErrorIs(t, err, ErrChannelRequestLimited)
+				finish(false)
+				finish(true) // a deferred release or a second call cannot change the result
+				finish, err = BeginChannelAttempt(ctx, id, config)
+				require.NoError(t, err)
+				finish(true)
+				_, err = BeginChannelAttempt(ctx, id, config)
+				require.ErrorIs(t, err, ErrChannelRequestLimited)
+				assert.EqualValues(t, 1, GetChannelDailySuccessCount(id, config))
+				assert.EqualValues(t, 2, GetChannelDailyRequestCount(id, config))
+			})
+
+			t.Run("concurrent admission is atomic and cancellation releases", func(t *testing.T) {
+				id := nextAdmissionTestChannelID()
+				config := ChannelRequestLimitConfig{ConcurrencyLimit: 2}
+				start := make(chan struct{})
+				results := make(chan struct {
+					finish func(bool)
+					err    error
+				}, 8)
+				var calls sync.WaitGroup
+				for range cap(results) {
+					calls.Go(func() {
+						<-start
+						finish, err := BeginChannelAttempt(ctx, id, config)
+						results <- struct {
+							finish func(bool)
+							err    error
+						}{finish, err}
+					})
+				}
+				close(start)
+				calls.Wait()
+				close(results)
+				var admitted []func(bool)
+				for result := range results {
+					if errors.Is(result.err, ErrChannelRequestLimited) {
+						continue
+					}
+					require.NoError(t, result.err)
+					admitted = append(admitted, result.finish)
+				}
+				require.Len(t, admitted, 2)
+				for _, finish := range admitted {
+					finish(false)
+				}
+				reqCtx, cancel := context.WithCancel(ctx)
+				finish, err := BeginChannelAttempt(reqCtx, id, config)
+				require.NoError(t, err)
+				cancel()
+				finish(false)
+				finish, err = BeginChannelAttempt(ctx, id, ChannelRequestLimitConfig{ConcurrencyLimit: 1})
+				require.NoError(t, err)
+				finish(true)
+			})
+		})
+	}
+}
+
+func TestRedisChannelAttemptRollover(t *testing.T) {
+	server := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+	ctx := context.Background()
+	const id = 940002
+	config := ChannelRequestLimitConfig{DailySuccessLimit: 1, MaxRequests: 1, Timezone: "America/Los_Angeles"}
+	// The day after the spring DST transition starts at 07:00 UTC, not 08:00.
+	midnight := time.Date(2026, 3, 9, 7, 0, 0, 0, time.UTC)
+	before := midnight.Add(-time.Second)
+	finishOld, err := beginRedisChannelAttempt(ctx, rdb, id, config, before)
+	require.NoError(t, err)
+	_, err = beginRedisChannelAttempt(ctx, rdb, id, config, before)
+	require.ErrorIs(t, err, ErrChannelRequestLimited)
+	finishNew, err := beginRedisChannelAttempt(ctx, rdb, id, config, midnight)
+	require.NoError(t, err)
+	finishOld(true)
+	finishNew(false)
+
+	finishNew, err = beginRedisChannelAttempt(ctx, rdb, id, config, midnight.Add(time.Minute))
+	require.NoError(t, err, "the previous day's success must not consume today's quota")
+	finishNew(true)
+	_, err = beginRedisChannelAttempt(ctx, rdb, id, config, midnight.Add(2*time.Minute))
+	require.ErrorIs(t, err, ErrChannelRequestLimited, "daily quota must survive an RPM window reset")
+
+	rpm := ChannelRequestLimitConfig{MaxRequests: 1}
+	legacyKey := channelWindowRedisKey(channelPeriodCountKeyPrefix, rpm.periodWindowAt(before), id+1)
+	require.NoError(t, rdb.Set(ctx, legacyKey, 1, 2*time.Minute).Err())
+	_, err = beginRedisChannelAttempt(ctx, rdb, id+1, rpm, before)
+	require.ErrorIs(t, err, ErrChannelRequestLimited, "RPM must use the existing period counter")
+	finishNextMinute, err := beginRedisChannelAttempt(ctx, rdb, id+1, rpm, midnight)
+	require.NoError(t, err)
+	finishNextMinute(false)
+}
 
 // 内存模式下的每日计数与上限判定契约：达到上限即拦截、0 表示不限、自然日翻转清零。
 func TestChannelDailyRequestLimit(t *testing.T) {

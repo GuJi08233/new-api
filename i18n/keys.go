@@ -421,6 +421,8 @@ const (
 	MsgDistributorGroupAccessDenied            = "distributor.group_access_denied"
 	MsgDistributorGetChannelFailed             = "distributor.get_channel_failed"
 	MsgDistributorNoAvailableChannel           = "distributor.no_available_channel"
+	MsgDistributorChannelRequestLimited        = "distributor.channel_request_limited"
+	MsgDistributorChannelAdmissionFailed       = "distributor.channel_admission_failed"
 	MsgDistributorNoAvailableChannelTaskPlugin = "distributor.no_available_channel_task_plugin"
 	MsgDistributorRuleRejected                 = "distributor.rule_rejected"
 	MsgDistributorClientUaRejected             = "distributor.client_ua_rejected"

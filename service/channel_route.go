@@ -9,6 +9,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
@@ -290,6 +291,15 @@ func getChannelRouteMatchGroup(param *RetryParam) string {
 }
 
 func getRouteSatisfiedChannel(param *RetryParam, channelIDs []int) (*model.Channel, string, bool, error) {
+	var filters []dto.ChannelFilter
+	constraints := GetChannelConstraints(param.Ctx)
+	for _, filter := range constraints.Filters {
+		if filter.Kind == dto.FilterLimitedChannel {
+			// Replacements must still satisfy the original endpoint and plugin constraints.
+			filters = constraints.Filters
+			break
+		}
+	}
 	if len(channelIDs) == 0 {
 		return nil, param.TokenGroup, true, nil
 	}
@@ -319,7 +329,7 @@ func getRouteSatisfiedChannel(param *RetryParam, channelIDs []int) (*model.Chann
 				priorityRetry = 0
 			}
 
-			channel, err := getRouteRandomSatisfiedChannel(autoGroup, param.ModelName, priorityRetry, channelIDs)
+			channel, err := getRouteRandomSatisfiedChannel(autoGroup, param.ModelName, priorityRetry, channelIDs, filters)
 			if err != nil {
 				return nil, autoGroup, false, err
 			}
@@ -344,7 +354,7 @@ func getRouteSatisfiedChannel(param *RetryParam, channelIDs []int) (*model.Chann
 		return nil, selectGroup, true, nil
 	}
 
-	channel, err := getRouteRandomSatisfiedChannel(param.TokenGroup, param.ModelName, param.GetRetry(), channelIDs)
+	channel, err := getRouteRandomSatisfiedChannel(param.TokenGroup, param.ModelName, param.GetRetry(), channelIDs, filters)
 	if err != nil {
 		return nil, param.TokenGroup, false, err
 	}
@@ -354,8 +364,8 @@ func getRouteSatisfiedChannel(param *RetryParam, channelIDs []int) (*model.Chann
 	return channel, param.TokenGroup, false, nil
 }
 
-func getRouteRandomSatisfiedChannel(group string, modelName string, retry int, channelIDs []int) (*model.Channel, error) {
-	channels := collectRouteCandidatesForGroup(group, modelName, channelIDs)
+func getRouteRandomSatisfiedChannel(group string, modelName string, retry int, channelIDs []int, filters []dto.ChannelFilter) (*model.Channel, error) {
+	channels := collectRouteCandidatesForGroup(group, modelName, channelIDs, filters...)
 	if len(channels) == 0 {
 		return nil, nil
 	}
@@ -418,7 +428,7 @@ func getRouteRandomSatisfiedChannel(group string, modelName string, retry int, c
 	return targetChannels[len(targetChannels)-1], nil
 }
 
-func collectRouteCandidatesForGroup(group string, modelName string, channelIDs []int) []*model.Channel {
+func collectRouteCandidatesForGroup(group string, modelName string, channelIDs []int, filters ...dto.ChannelFilter) []*model.Channel {
 	if group == "" || modelName == "" || len(channelIDs) == 0 {
 		return nil
 	}
@@ -436,6 +446,9 @@ func collectRouteCandidatesForGroup(group string, modelName string, channelIDs [
 
 		channelModel, err := model.CacheGetChannel(channelID)
 		if err != nil || channelModel == nil || channelModel.Status != common.ChannelStatusEnabled {
+			continue
+		}
+		if ok, _ := model.ChannelSatisfiesFilters(channelModel, modelName, filters); !ok {
 			continue
 		}
 		if model.IsChannelRequestLimitReached(channelID, channelModel.GetRequestLimitConfig()) {

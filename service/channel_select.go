@@ -126,6 +126,7 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 			return nil, selectGroup, errors.New("当前令牌没有可用的分组")
 		}
 		autoGroups := candidateGroups
+		limited := false
 
 		// startGroupIndex: the group index to start searching from
 		// startGroupIndex: 开始搜索的分组索引
@@ -150,7 +151,8 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 			}
 			logger.LogDebug(param.Ctx, "Auto selecting group: %s, priorityRetry: %d", autoGroup, priorityRetry)
 
-			channel, _ = model.GetRandomSatisfiedChannel(autoGroup, param.ModelName, priorityRetry, param.RequestPath, filters...)
+			channel, err = model.GetRandomSatisfiedChannel(autoGroup, param.ModelName, priorityRetry, param.RequestPath, filters...)
+			limited = limited || errors.Is(err, model.ErrChannelRequestLimited)
 			if channel == nil {
 				// Current group has no available channel for this model, try next group
 				// 当前分组没有该模型的可用渠道，尝试下一个分组
@@ -186,6 +188,9 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 				common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroupIndex, i)
 			}
 			break
+		}
+		if channel == nil && limited {
+			return nil, selectGroup, model.ErrChannelRequestLimited
 		}
 	} else {
 		channel, err = model.GetRandomSatisfiedChannel(param.TokenGroup, param.ModelName, param.GetRetry(), param.RequestPath, filters...)
@@ -333,6 +338,11 @@ func SelectChannelForRequest(c *gin.Context, modelName string, retry *RetryParam
 	if channel == nil {
 		var err error
 		channel, selectGroup, err = CacheGetRandomSatisfiedChannel(retry)
+		if errors.Is(err, model.ErrChannelRequestLimited) {
+			return nil, selectGroup, &ChannelSelectError{
+				StatusCode: http.StatusTooManyRequests, Code: types.ErrorCodeChannelRequestLimited, MessageID: i18n.MsgDistributorChannelRequestLimited,
+			}
+		}
 		if err != nil {
 			showGroup := usingGroup
 			if usingGroup == "auto" {

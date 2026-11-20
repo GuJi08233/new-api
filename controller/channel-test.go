@@ -538,6 +538,11 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 
 	requestBody := bytes.NewBuffer(jsonData)
 	c.Request.Body = io.NopCloser(bytes.NewBuffer(jsonData))
+	finish, admissionErr := service.BeginChannelAttempt(c, channel.Id, info.ChannelSetting)
+	if admissionErr != nil {
+		return testResult{context: c, localErr: admissionErr, newAPIError: admissionErr}
+	}
+	defer finish(false)
 	resp, err := adaptor.DoRequest(c, info, requestBody)
 	if err != nil {
 		return testResult{
@@ -624,7 +629,7 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 	})
 	common.SysLog(fmt.Sprintf("testing channel #%d, response: \n%s", channel.Id, string(respBody)))
 	// 渠道测试与正常请求同口径：测试成功也计入渠道级频率限制的成功次数
-	model.IncrChannelSuccessCount(channel.Id, model.NewChannelRequestLimitConfig(info.ChannelSetting))
+	finish(channelAttemptCompleted(c, info.StreamStatus))
 	return testResult{
 		context:       c,
 		localErr:      nil,
@@ -1065,6 +1070,11 @@ func TestChannel(c *gin.Context) {
 		}
 		if result.newAPIError != nil {
 			resp["error_code"] = result.newAPIError.GetErrorCode()
+			switch result.newAPIError.GetErrorCode() {
+			case types.ErrorCodeChannelRequestLimited, types.ErrorCodeChannelAdmissionFailed:
+				c.JSON(result.newAPIError.StatusCode, resp)
+				return
+			}
 		}
 		c.JSON(http.StatusOK, resp)
 		return
@@ -1135,6 +1145,10 @@ func performChannelTests(ctx context.Context, channels []*model.Channel, testUse
 
 		shouldBanChannel := false
 		newAPIError := result.newAPIError
+		if newAPIError != nil && (newAPIError.GetErrorCode() == types.ErrorCodeChannelRequestLimited ||
+			newAPIError.GetErrorCode() == types.ErrorCodeChannelAdmissionFailed) {
+			continue // There was no upstream test; do not treat it as a channel failure.
+		}
 		// request error disables the channel
 		if newAPIError != nil {
 			shouldBanChannel = service.ShouldDisableChannelWithSetting(result.newAPIError, channel.GetSetting())

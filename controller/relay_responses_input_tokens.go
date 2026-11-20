@@ -117,6 +117,12 @@ func RelayResponsesInputTokens(c *gin.Context) {
 		requestBody = body
 	}
 
+	finish, admissionErr := service.BeginChannelAttempt(c, info.ChannelId, info.ChannelSetting)
+	if admissionErr != nil {
+		newAPIError = admissionErr
+		return
+	}
+	defer finish(false)
 	resp, err := adaptor.DoRequest(c, info, requestBody)
 	if err != nil {
 		newAPIError = types.NewOpenAIError(err, types.ErrorCodeDoRequestFailed, http.StatusInternalServerError)
@@ -137,5 +143,6 @@ func RelayResponsesInputTokens(c *gin.Context) {
 		newAPIError = types.NewOpenAIError(err, types.ErrorCodeReadResponseBodyFailed, http.StatusInternalServerError)
 		return
 	}
+	finish(true)
 	service.IOCopyRawBytesGracefully(c, httpResp, responseBody)
 }

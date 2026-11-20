@@ -292,22 +292,18 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	relayInfo.RetryIndex = 0
 	relayInfo.LastError = nil
 
+	var limitErr *types.NewAPIError
+channelLoop:
 	for retryParam.GetRetry() <= common.RetryTimes {
 		// 客户端已断开时不再换渠道重试；LastError 非空保证首次尝试不受影响
 		if relayInfo.LastError != nil && c.Request.Context().Err() != nil {
 			break
 		}
 		relayInfo.RetryIndex = retryParam.GetRetry()
-		channel, channelErr := getChannel(c, relayInfo, retryParam)
+		channel, channelErr := getChannel(c, relayInfo, retryParam, limitErr)
 		if channelErr != nil {
 			logger.LogError(c, channelErr.Error())
 			newAPIError = channelErr
-			break
-		}
-
-		addUsedChannel(c, channel.Id)
-		if billingErr := helper.PrepareBillingForSelectedGroup(c, relayInfo, tokens, meta); billingErr != nil {
-			newAPIError = billingErr
 			break
 		}
 
@@ -334,25 +330,35 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			}
 			c.Request.Body = io.NopCloser(bodyStorage)
 
-			switch relayFormat {
-			case types.RelayFormatOpenAIRealtime:
-				newAPIError = relay.WssHelper(c, relayInfo)
-			case types.RelayFormatClaude:
-				newAPIError = relay.ClaudeHelper(c, relayInfo)
-			case types.RelayFormatGemini:
-				newAPIError = geminiRelayHandler(c, relayInfo)
-			case types.RelayFormatTypeSafe:
-				newAPIError = relay.TypeSafeHelper(c, relayInfo)
-			case types.RelayFormatGeminiDecisions, types.RelayFormatOpenAIDecisions:
-				newAPIError = relay.DecisionsHelper(c, relayInfo)
-			default:
-				newAPIError = relayHandler(c, relayInfo)
+			if sameChannelRetry == 0 {
+				if billingErr := helper.PrepareBillingForSelectedGroup(c, relayInfo, tokens, meta); billingErr != nil {
+					newAPIError = billingErr
+					break channelLoop
+				}
 			}
+			finish, admissionErr := service.BeginChannelAttempt(c, channel.Id, channelSetting)
+			if admissionErr != nil {
+				newAPIError = admissionErr
+				if admissionErr.GetErrorCode() == types.ErrorCodeChannelRequestLimited &&
+					canTransferAfterChannelLimit(channelSetting, sameChannelRetry) &&
+					service.SkipLimitedChannel(c, channel.Id) {
+					limitErr = admissionErr
+					continue channelLoop
+				}
+				break channelLoop
+			}
+			if sameChannelRetry == 0 {
+				addUsedChannel(c, channel.Id)
+			}
+			func() {
+				defer finish(false)
+				relayInfo.StreamStatus = nil
+				newAPIError = relaySelectedChannel(c, relayInfo, relayFormat)
+				finish(newAPIError == nil && channelAttemptCompleted(c, relayInfo.StreamStatus))
+			}()
 
 			if newAPIError == nil {
 				relayInfo.LastError = nil
-				// 渠道级请求频率限制的成功计数：只有在该渠道上成功完成的调用才计入
-				model.IncrChannelSuccessCount(channel.Id, model.NewChannelRequestLimitConfig(channelSetting))
 				return
 			}
 
@@ -433,6 +439,36 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	}
 }
 
+func relaySelectedChannel(c *gin.Context, info *relaycommon.RelayInfo, format types.RelayFormat) *types.NewAPIError {
+	switch format {
+	case types.RelayFormatOpenAIRealtime:
+		return relay.WssHelper(c, info)
+	case types.RelayFormatClaude:
+		return relay.ClaudeHelper(c, info)
+	case types.RelayFormatGemini:
+		return geminiRelayHandler(c, info)
+	case types.RelayFormatTypeSafe:
+		return relay.TypeSafeHelper(c, info)
+	case types.RelayFormatGeminiDecisions, types.RelayFormatOpenAIDecisions:
+		return relay.DecisionsHelper(c, info)
+	default:
+		return relayHandler(c, info)
+	}
+}
+
+func canTransferAfterChannelLimit(setting dto.ChannelSettings, sameChannelRetry int) bool {
+	return sameChannelRetry == 0 || setting.RetryExhaustedTransfer == nil || *setting.RetryExhaustedTransfer
+}
+
+// Streaming handlers can return nil after a partial response. Use their
+// terminal status to distinguish that from an upstream success.
+func channelAttemptCompleted(c *gin.Context, stream *relaycommon.StreamStatus) bool {
+	if stream == nil {
+		return c.Request.Context().Err() == nil
+	}
+	return stream.IsNormalEnd() && stream.EndError == nil && !stream.HasErrors()
+}
+
 var upgrader = websocket.Upgrader{
 	Subprotocols: []string{"realtime"}, // WS 握手支持的协议，如果有使用 Sec-WebSocket-Protocol，则必须在此声明对应的 Protocol TODO add other protocol
 	CheckOrigin: func(r *http.Request) bool {
@@ -475,8 +511,8 @@ func fastTokenCountMetaForPricing(request dto.Request) *types.TokenCountMeta {
 	return meta
 }
 
-func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service.RetryParam) (*model.Channel, *types.NewAPIError) {
-	if info.ChannelMeta == nil {
+func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service.RetryParam, limitErr *types.NewAPIError) (*model.Channel, *types.NewAPIError) {
+	if limitErr == nil && info.ChannelMeta == nil {
 		channelId := common.GetContextKeyInt(c, constant.ContextKeyChannelId)
 		if setting, ok := common.GetContextKeyType[dto.ChannelSettings](c, constant.ContextKeyChannelSetting); ok && setting.RetryOnSameChannel {
 			channel, err := model.CacheGetChannel(channelId)
@@ -533,16 +569,25 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 		}
 		if routeMatch.Strict && routeMatch.Exhausted && !routeMatch.Deferred {
 			restoreAutoRouteContext()
+			if limitErr != nil {
+				return nil, limitErr
+			}
 			return nil, types.NewError(fmt.Errorf("静态渠道路由规则 %s 命中，但未找到可用渠道", routeMatch.RuleName), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
 		}
 		restoreAutoRouteContext()
 	}
 	channel, selectGroup, err := service.CacheGetRandomSatisfiedChannel(retryParam)
 
+	if errors.Is(err, model.ErrChannelRequestLimited) {
+		return nil, service.ChannelRequestLimitedError(c)
+	}
 	if err != nil {
 		return nil, types.NewError(fmt.Errorf("获取分组 %s 下模型 %s 的可用渠道失败（retry）: %s", selectGroup, info.OriginModelName, err.Error()), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
 	}
 	if channel == nil {
+		if limitErr != nil {
+			return nil, limitErr
+		}
 		return nil, types.NewError(fmt.Errorf("分组 %s 下模型 %s 的可用渠道不存在（retry）", selectGroup, info.OriginModelName), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
 	}
 	if ruleErr := clientUaRuleRetryError(c, info, channel.Id); ruleErr != nil {
@@ -1063,6 +1108,8 @@ func executeTaskSubmissionWith(
 	}
 
 	attempt := 0
+	var limitErr *types.NewAPIError
+channelLoop:
 	for retryParam.GetRetry() <= common.RetryTimes {
 		stage = "select_channel"
 		// 客户端已断开时不再换渠道重试
@@ -1083,21 +1130,28 @@ func executeTaskSubmissionWith(
 			}
 		} else {
 			var channelErr *types.NewAPIError
-			channel, channelErr = getChannel(c, relayInfo, retryParam)
+			channel, channelErr = getChannel(c, relayInfo, retryParam, limitErr)
 			if channelErr != nil {
 				// 重试命中客户端 UA 规则时 getChannel 原样返回上一次的上游错误，保留原 taskErr
 				if relayInfo.LastError != nil && channelErr == relayInfo.LastError {
 					break
 				}
 				logger.LogError(c, channelErr.Error())
-				taskErr = service.TaskErrorWrapperLocal(channelErr.Err, "get_channel_failed", channelErr.StatusCode)
+				code := "get_channel_failed"
+				if channelErr.GetErrorCode() == types.ErrorCodeChannelRequestLimited {
+					code = string(types.ErrorCodeChannelRequestLimited)
+				}
+				taskErr = service.TaskErrorWrapperLocal(channelErr.Err, code, channelErr.StatusCode)
 				break
 			}
 		}
 
-		addUsedChannel(c, channel.Id)
-
 		channelSetting := getChannelRetrySettings(c, channel)
+		if relayInfo.LockedChannel != nil {
+			// A continuation may have replaced the distributed channel after
+			// the middleware populated the context settings.
+			channelSetting = channel.GetSetting()
+		}
 		effectiveRetryTimes := common.RetryTimes
 		if channelSetting.RetryTimes > 0 {
 			effectiveRetryTimes = channelSetting.RetryTimes
@@ -1106,8 +1160,6 @@ func executeTaskSubmissionWith(
 
 		sameChannelRetry := 0
 		for {
-			attempt++
-			diagnostics.attempt(attempt, channel, relayInfo.LockedChannel != nil)
 			bodyStorage, bodyErr := common.GetBodyStorage(c)
 			if bodyErr != nil {
 				stage = "read_body"
@@ -1120,11 +1172,31 @@ func executeTaskSubmissionWith(
 			}
 			c.Request.Body = io.NopCloser(bodyStorage)
 
+			stage = "admit_channel"
+			finish, admissionErr := service.BeginChannelAttempt(c, channel.Id, channelSetting)
+			if admissionErr != nil {
+				if admissionErr.GetErrorCode() == types.ErrorCodeChannelRequestLimited && relayInfo.LockedChannel == nil &&
+					canTransferAfterChannelLimit(channelSetting, sameChannelRetry) &&
+					service.SkipLimitedChannel(c, channel.Id) {
+					limitErr = admissionErr
+					continue channelLoop
+				}
+				taskErr = service.TaskErrorWrapperLocal(admissionErr.Err, string(admissionErr.GetErrorCode()), admissionErr.StatusCode)
+				break channelLoop
+			}
+			if sameChannelRetry == 0 {
+				addUsedChannel(c, channel.Id)
+			}
+			attempt++
+			diagnostics.attempt(attempt, channel, relayInfo.LockedChannel != nil)
 			stage = "submit"
-			result, taskErr = submit(c, relayInfo)
+			func() {
+				defer finish(false)
+				result, taskErr = submit(c, relayInfo)
+				finish(taskErr == nil && result != nil)
+			}()
 			if taskErr == nil {
 				diagnostics.attemptSucceeded(attempt, result)
-				model.IncrChannelSuccessCount(channel.Id, model.NewChannelRequestLimitConfig(channelSetting))
 				break
 			}
 			if requestErr := c.Request.Context().Err(); requestErr != nil {
@@ -1382,7 +1454,7 @@ func respondTaskSubmissionError(c *gin.Context, taskErr *dto.TaskError) {
 
 // respondTaskError 统一输出 Task 错误响应（含 429 限流提示改写）
 func respondTaskError(c *gin.Context, taskErr *dto.TaskError) {
-	if taskErr.StatusCode == http.StatusTooManyRequests {
+	if taskErr.StatusCode == http.StatusTooManyRequests && taskErr.Code != string(types.ErrorCodeChannelRequestLimited) {
 		taskErr.Message = "当前分组上游负载已饱和，请稍后再试"
 	}
 	taskErr.Message = service.MaskUpstreamModelInText(c, taskErr.Message)

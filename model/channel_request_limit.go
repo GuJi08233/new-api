@@ -23,11 +23,12 @@ import (
 // （DailyRequestLimitUTCOffset），都未配置时跟随服务器本地时区。
 // 频率限制按自然周期计数：周期为 N 分钟时，以 unix 时间除以 N 分钟得到的窗口序号为准，
 // 窗口切换即清零；它与用户/分组级的模型请求限速相互独立。
-// Redis 可用时以 Redis 为准（多实例一致、重启不丢），本地仅作短 TTL 缓存；
-// 否则退化为进程内计数，重启后清零（宁可放行也不误杀）。
+// Redis 可用时以 Redis 为准（多实例一致、重启不丢），选路读取可使用短 TTL 缓存。
+// 未配置 Redis 时使用进程内计数。
 
 const (
 	channelDailyCountKeyPrefix    = "channel_daily_req"
+	channelDailySuccessKeyPrefix  = "channel_daily_ok"
 	channelPeriodCountKeyPrefix   = "channel_period_req"
 	channelPeriodSuccessKeyPrefix = "channel_period_ok"
 	// channelCountSyncInterval 是 Redis 计数的本地缓存时长。读取超过该间隔才回源 Redis，
@@ -43,7 +44,9 @@ const (
 // ChannelRequestLimitConfig 渠道请求上限配置（每日 + 频率），从渠道 setting 解析。
 type ChannelRequestLimitConfig struct {
 	// DailyLimit 每日请求次数上限，0 表示不限制。
-	DailyLimit int64
+	DailyLimit        int64
+	DailySuccessLimit int64
+	ConcurrencyLimit  int64
 	// Timezone 日切的 IANA 时区名（如 "America/Los_Angeles"），非空且可加载时优先于 UTCOffsetMinutes。
 	Timezone string
 	// UTCOffsetMinutes 日切时区（相对 UTC 的分钟偏移）；nil 表示跟随服务器本地时区。
@@ -59,18 +62,21 @@ type ChannelRequestLimitConfig struct {
 // NewChannelRequestLimitConfig 从渠道设置构造请求上限配置，计数与判定路径统一由此取窗口与上限。
 func NewChannelRequestLimitConfig(setting dto.ChannelSettings) ChannelRequestLimitConfig {
 	return ChannelRequestLimitConfig{
-		DailyLimit:       setting.DailyRequestLimit,
-		Timezone:         strings.TrimSpace(setting.DailyRequestLimitTimezone),
-		UTCOffsetMinutes: setting.DailyRequestLimitUTCOffset,
-		PeriodMinutes:    setting.RateLimitPeriodMinutes,
-		MaxRequests:      setting.RateLimitMaxRequests,
-		MaxSuccess:       setting.RateLimitMaxSuccess,
+		DailyLimit:        setting.DailyRequestLimit,
+		DailySuccessLimit: setting.DailySuccessLimit,
+		ConcurrencyLimit:  setting.ConcurrencyLimit,
+		Timezone:          strings.TrimSpace(setting.DailyRequestLimitTimezone),
+		UTCOffsetMinutes:  setting.DailyRequestLimitUTCOffset,
+		PeriodMinutes:     setting.RateLimitPeriodMinutes,
+		MaxRequests:       setting.RateLimitMaxRequests,
+		MaxSuccess:        setting.RateLimitMaxSuccess,
 	}
 }
 
 // Enabled 是否有任一上限生效；只有生效的配置才会进入选路过滤缓存。
 func (config ChannelRequestLimitConfig) Enabled() bool {
-	return config.DailyLimit > 0 || config.MaxRequests > 0 || config.MaxSuccess > 0
+	return config.DailyLimit > 0 || config.DailySuccessLimit > 0 || config.ConcurrencyLimit > 0 ||
+		config.MaxRequests > 0 || config.MaxSuccess > 0
 }
 
 // Period 返回频率限制的周期，未配置时为 1 分钟。
@@ -200,9 +206,12 @@ func incrChannelWindowCount(prefix string, channelId int, window string, expirat
 func getChannelWindowCount(prefix string, channelId int, window string) int64 {
 	counter := getChannelWindowCounter(prefix, channelId)
 	counter.mu.Lock()
-	counter.rollover(window)
-	count := counter.count
-	syncedAt := counter.syncedAt
+	var count int64
+	var syncedAt time.Time
+	if counter.window == window {
+		count = counter.count
+		syncedAt = counter.syncedAt
+	}
 	counter.mu.Unlock()
 
 	if !channelCountRedisAvailable() {
@@ -235,7 +244,10 @@ func getChannelWindowCount(prefix string, channelId int, window string) int64 {
 // IncrChannelRequestCount 在渠道被确定承接一次上游调用时递增当日计数与当前周期的请求计数。
 // 当日计数始终记录（管理端展示"今日已用"），周期计数只在配置了请求上限时记录。
 func IncrChannelRequestCount(channelId int, config ChannelRequestLimitConfig) {
-	now := time.Now()
+	incrChannelRequestCountAt(channelId, config, time.Now())
+}
+
+func incrChannelRequestCountAt(channelId int, config ChannelRequestLimitConfig, now time.Time) {
 	incrChannelWindowCount(channelDailyCountKeyPrefix, channelId, config.dailyWindowAt(now), channelDailyCountExpiration)
 	if config.MaxRequests > 0 {
 		incrChannelWindowCount(channelPeriodCountKeyPrefix, channelId, config.periodWindowAt(now), 2*config.Period())
@@ -255,6 +267,10 @@ func GetChannelDailyRequestCount(channelId int, config ChannelRequestLimitConfig
 	return getChannelWindowCount(channelDailyCountKeyPrefix, channelId, config.dailyWindowAt(time.Now()))
 }
 
+func GetChannelDailySuccessCount(channelId int, config ChannelRequestLimitConfig) int64 {
+	return getChannelWindowCount(channelDailySuccessKeyPrefix, channelId, config.dailyWindowAt(time.Now()))
+}
+
 // GetChannelPeriodRequestCount 返回渠道在当前周期内已承接的请求次数。
 func GetChannelPeriodRequestCount(channelId int, config ChannelRequestLimitConfig) int64 {
 	return getChannelWindowCount(channelPeriodCountKeyPrefix, channelId, config.periodWindowAt(time.Now()))
@@ -267,16 +283,16 @@ func GetChannelPeriodSuccessCount(channelId int, config ChannelRequestLimitConfi
 
 // IsChannelRequestLimitReached 判断渠道是否已达任一请求上限；为 0 的上限表示不限制。
 func IsChannelRequestLimitReached(channelId int, config ChannelRequestLimitConfig) bool {
-	if config.DailyLimit > 0 && GetChannelDailyRequestCount(channelId, config) >= config.DailyLimit {
+	return config.countLimitReachedAt(channelId, time.Now())
+}
+
+func (config ChannelRequestLimitConfig) countLimitReachedAt(channelId int, now time.Time) bool {
+	if (config.DailyLimit > 0 && getChannelWindowCount(channelDailyCountKeyPrefix, channelId, config.dailyWindowAt(now)) >= config.DailyLimit) ||
+		(config.DailySuccessLimit > 0 && getChannelWindowCount(channelDailySuccessKeyPrefix, channelId, config.dailyWindowAt(now)) >= config.DailySuccessLimit) {
 		return true
 	}
-	if config.MaxRequests > 0 && GetChannelPeriodRequestCount(channelId, config) >= config.MaxRequests {
-		return true
-	}
-	if config.MaxSuccess > 0 && GetChannelPeriodSuccessCount(channelId, config) >= config.MaxSuccess {
-		return true
-	}
-	return false
+	return (config.MaxRequests > 0 && getChannelWindowCount(channelPeriodCountKeyPrefix, channelId, config.periodWindowAt(now)) >= config.MaxRequests) ||
+		(config.MaxSuccess > 0 && getChannelWindowCount(channelPeriodSuccessKeyPrefix, channelId, config.periodWindowAt(now)) >= config.MaxSuccess)
 }
 
 // GetRequestLimitConfig 返回渠道的请求上限配置。
