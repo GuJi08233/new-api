@@ -25,13 +25,48 @@ const (
 	sectAllianceNoticeRunes = 100
 )
 
-// sectAllianceBoss 是周 Boss 的规则(血量与击杀奖励)，来自 pkg/sect。
+// sectAllianceBoss 是周 Boss 的规则(血量、轮换机制、全盟协作阶段与个人周目标)，来自 pkg/wendao。
 var sectAllianceBoss = model.SectAllianceBoss{
-	Hp: wendao.AllianceBossHp,
+	Hp:   wendao.AllianceBossHp,
+	Kind: wendao.AllianceBossKindForWeek,
 	Kill: func(level int) (int, int, int) {
 		reward := wendao.AllianceKillReward(level)
 		return reward.Stone, reward.Rep, wendao.AllianceKillPills
 	},
+	StageMask: wendao.AllianceStageReachedMask,
+	StageReward: func(level int, stageBit int) (int, int, int) {
+		reward, pills := wendao.AllianceStageReward(level, stageBit)
+		return reward.Stone, reward.Rep, pills
+	},
+	PersonalMask: wendao.AlliancePersonalReachedMask,
+	PersonalReward: func(level int, goalBit int) (int, int, int) {
+		reward, pills := wendao.AlliancePersonalReward(level, goalBit)
+		return reward.Stone, reward.Rep, pills
+	},
+}
+
+func readSectAllianceCarry(data string, week string) (model.SectAllianceCarry, error) {
+	save, err := wendao.ParseSave(data)
+	if err != nil {
+		return model.SectAllianceCarry{}, err
+	}
+	if save.Sect == nil || !save.Sect.IsFounded() {
+		return model.SectAllianceCarry{}, wendao.ErrUnavailable
+	}
+	attackDay, attacks, stageMask, personalMask := save.Sect.AllianceBossState(week)
+	return model.SectAllianceCarry{
+		AttackDay: attackDay, Attacks: attacks, StageMask: stageMask, PersonalMask: personalMask,
+	}, nil
+}
+
+func syncSectAllianceBossSave(data string, m *model.SectAllianceMember) (string, error) {
+	return wendao.UpdateSave(data, func(save *wendao.Save) error {
+		if save.Sect == nil {
+			return nil
+		}
+		save.Sect.SyncAllianceBoss(m.Week, m.AttackDay, m.WeekAttacks, m.WeekStageMask, m.WeekPersonalMask)
+		return nil
+	})
 }
 
 // sectAllianceWeek 是周 Boss 所在的周，按服务器本地时间的 ISO 周计算(与游戏中心按本地 0 点切日一致)。
@@ -122,21 +157,64 @@ func sectAllianceView(userId int) (gin.H, error) {
 	if err != nil {
 		return nil, err
 	}
-	// 页面上按本周显示：还没换周的仙盟，周 Boss 视同已经换过(满血、等级按上周是否击杀)，成员的本周伤害视同清零。
+	// 页面上按本周显示：还没换周的仙盟，周 Boss 视同已经换过(满血、等级按上周是否击杀、轮换新机制)，成员的本周伤害与目标视同清零。
 	week := sectAllianceWeek()
-	boss := gin.H{"level": alliance.BossLevel, "hp": alliance.BossHp, "max_hp": alliance.BossMaxHp, "kills": alliance.BossKills}
+	level, hp, maxHp, kind, stageMask := alliance.BossLevel, alliance.BossHp, alliance.BossMaxHp, alliance.BossKind, alliance.BossStageMask
 	if alliance.Week != week {
-		level := alliance.BossLevel
 		if alliance.Week != "" && alliance.BossHp <= 0 {
 			level++
 		}
-		hp := wendao.AllianceBossHp(level, alliance.Members)
-		boss["level"], boss["hp"], boss["max_hp"] = level, hp, hp
+		hp = wendao.AllianceBossHp(level, alliance.Members)
+		maxHp = hp
+		kind = wendao.AllianceBossKindForWeek(week)
+		stageMask = 0
+	} else {
+		if kind == "" {
+			kind = wendao.AllianceBossKindForWeek(week)
+		}
+		if stageMask == 0 && maxHp > 0 && hp < maxHp {
+			stageMask = wendao.AllianceStageReachedMask(hp, maxHp)
+		}
 	}
+	attackers, otherAttackers := 0, 0
 	for i := range members {
 		if members[i].Week != week {
-			members[i].WeekDamage = 0
+			members[i].WeekDamage, members[i].WeekAttacks, members[i].WeekStageMask, members[i].WeekPersonalMask = 0, 0, 0, 0
 		}
+		if members[i].WeekDamage > 0 {
+			attackers++
+			if members[i].UserId != userId {
+				otherAttackers++
+			}
+		}
+	}
+	myAttacks, myStageMask, myPersonalMask := 0, 0, 0
+	if member.Week == week {
+		myAttacks, myStageMask, myPersonalMask = member.WeekAttacks, member.WeekStageMask, member.WeekPersonalMask
+	}
+	stages := make([]gin.H, 0, len(wendao.AllianceStageGoals))
+	for _, g := range wendao.AllianceStageGoals {
+		cost, pills := wendao.AllianceStageReward(level, g.Bit)
+		stages = append(stages, gin.H{
+			"stage": g.Stage, "damage_pct": g.DamagePct,
+			"stone": cost.Stone, "rep": cost.Rep, "pills": pills,
+			"reached": stageMask&g.Bit != 0, "earned": myStageMask&g.Bit != 0,
+		})
+	}
+	personal := make([]gin.H, 0, len(wendao.AlliancePersonalGoals))
+	for _, g := range wendao.AlliancePersonalGoals {
+		cost, pills := wendao.AlliancePersonalReward(level, g.Bit)
+		personal = append(personal, gin.H{
+			"id": g.Id, "attacks": g.Attacks,
+			"stone": cost.Stone, "rep": cost.Rep, "pills": pills,
+			"done": myAttacks >= g.Attacks, "earned": myPersonalMask&g.Bit != 0,
+		})
+	}
+	boss := gin.H{
+		"level": level, "hp": hp, "max_hp": maxHp, "kills": alliance.BossKills,
+		"kind": kind, "stage_mask": stageMask,
+		"attackers": attackers, "other_attackers": otherAttackers,
+		"my_attacks": myAttacks, "stages": stages, "personal": personal,
 	}
 	view["alliance"] = alliance
 	view["member"] = member
@@ -223,11 +301,21 @@ func createSectAlliance(c *gin.Context) {
 		return
 	}
 	now := common.GetTimestamp()
-	_, err := model.CreateSectAlliance(userId, name, sectAllianceWeek(), sectAllianceBoss, func(data string) (string, error) {
-		return updateSectSave(data, func(s *wendao.Sect) error {
+	week := sectAllianceWeek()
+	_, err := model.CreateSectAlliance(userId, name, week, sectAllianceBoss, func(data string) (string, model.SectAllianceCarry, error) {
+		var carry model.SectAllianceCarry
+		updated, err := updateSectSave(data, func(s *wendao.Sect) error {
 			s.Tick(now)
-			return s.FoundAlliance()
+			if err := s.FoundAlliance(); err != nil {
+				return err
+			}
+			attackDay, attacks, stageMask, personalMask := s.AllianceBossState(week)
+			carry = model.SectAllianceCarry{
+				AttackDay: attackDay, Attacks: attacks, StageMask: stageMask, PersonalMask: personalMask,
+			}
+			return nil
 		})
+		return updated, carry, err
 	})
 	if err != nil {
 		respondAllianceError(c, err)
@@ -248,17 +336,10 @@ func joinSectAlliance(c *gin.Context) {
 		return
 	}
 	userId := c.GetInt("id")
-	// 要先有宗门才能入盟：仙盟的加成、捐献与讨伐都落在宗门上。
-	data, err := model.GetGameSave(userId, wendao.SaveKey)
-	if err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	if s, err := wendao.ParseSect(data); err != nil || s == nil {
-		common.ApiErrorI18n(c, i18n.MsgGameSectUnavailable)
-		return
-	}
-	if err := model.JoinSectAlliance(userId, req.Id, sectAllianceWeek(), sectAllianceBoss, wendao.AllianceCap); err != nil {
+	week := sectAllianceWeek()
+	if err := model.JoinSectAlliance(userId, req.Id, week, sectAllianceBoss, wendao.AllianceCap, func(data string) (model.SectAllianceCarry, error) {
+		return readSectAllianceCarry(data, week)
+	}); err != nil {
 		respondAllianceError(c, err)
 		return
 	}
@@ -282,7 +363,7 @@ func leaveSectAlliance(c *gin.Context) {
 	if target == 0 {
 		target = userId
 	}
-	if err := model.LeaveSectAlliance(userId, target); err != nil {
+	if err := model.LeaveSectAlliance(userId, target, syncSectAllianceBossSave); err != nil {
 		respondAllianceError(c, err)
 		return
 	}
@@ -370,34 +451,68 @@ func setSectAllianceNotice(c *gin.Context) {
 	respondSectAlliance(c, nil)
 }
 
-// attackSectAlliance 派弟子讨伐本周的 Boss(每人每天一次)，伤害按出战弟子的生命总和算，奖励先记在仙盟里待领。
+// attackSectAlliance 派弟子讨伐本周的 Boss(每人每天一次)，伤害按出战弟子的生命总和叠加本周首领机制算，奖励先记在仙盟里待领。
 func attackSectAlliance(c *gin.Context) {
 	if !requireGameEnabled(c, wendaoGame) {
 		return
 	}
 	var req struct {
-		Team []int `json:"team"`
+		Team      []int  `json:"team"`
+		RequestId string `json:"request_id,omitempty"`
 	}
 	if decodeGameRequest(c, &req) != nil || len(req.Team) == 0 || len(req.Team) > wendao.TeamSize {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
+	sum, err := wendao.RequestSum(struct {
+		Action string `json:"action"`
+		Team   []int  `json:"team"`
+	}{Action: "alliance_attack", Team: req.Team})
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	now := common.GetTimestamp()
-	result, err := model.AttackSectAllianceBoss(c.GetInt("id"), gameCenterDay(), sectAllianceWeek(), sectAllianceBoss,
-		func(data string) (string, int64, error) {
-			var damage int64
-			updated, err := updateSectSave(data, func(s *wendao.Sect) error {
-				s.Tick(now)
+	day := gameCenterDay()
+	result, err := model.AttackSectAllianceBoss(c.GetInt("id"), day, sectAllianceWeek(), sectAllianceBoss,
+		func(data string, ctx model.SectAllianceAttackCtx) (model.SectAllianceAttackPlan, error) {
+			var calc wendao.AllianceAttackCalc
+			updated, err := wendao.UpdateSave(data, func(save *wendao.Save) error {
+				if err := save.Admit(req.RequestId, sum, now); err != nil {
+					return err
+				}
+				if ctx.AlreadyAttacked {
+					return model.ErrSectAllianceAttacked
+				}
+				if save.Sect == nil || !save.Sect.IsFounded() {
+					return wendao.ErrUnavailable
+				}
+				if save.Sect.AllianceBoss != nil && save.Sect.AllianceBoss.AttackDay == day {
+					return model.ErrSectAllianceAttacked
+				}
+				save.Sect.Tick(now)
 				var err error
-				damage, err = s.AllianceAttack(req.Team, now)
+				calc, err = save.Sect.AllianceAttackWithBoss(req.Team, now, wendao.AllianceBossContext{
+					Kind:           ctx.BossKind,
+					Hp:             ctx.BossHp,
+					MaxHp:          ctx.BossMaxHp,
+					PriorAttackers: ctx.PriorAttackers,
+				})
 				return err
 			})
-			return updated, damage, err
+			return model.SectAllianceAttackPlan{
+				SaveData: updated, BaseDamage: calc.BaseDamage, BonusPct: calc.BonusPct, Damage: calc.Damage,
+			}, err
 		},
 		func(damage int64) (int, int) {
 			reward := wendao.AllianceAttackReward(damage)
 			return reward.Stone, reward.Rep
-		})
+		},
+		syncSectAllianceBossSave)
+	if errors.Is(err, wendao.ErrReplayed) {
+		respondSectAlliance(c, gin.H{"replayed": true})
+		return
+	}
 	if err != nil {
 		respondAllianceError(c, err)
 		return
@@ -405,20 +520,46 @@ func attackSectAlliance(c *gin.Context) {
 	respondSectAlliance(c, gin.H{"attack": result})
 }
 
-// claimSectAlliance 把讨伐与击杀攒下的奖励领进宗门。
+// claimSectAlliance 把讨伐、全盟协作阶段、个人周目标与击杀攒下的奖励领进宗门。
 func claimSectAlliance(c *gin.Context) {
 	if !requireGameEnabled(c, wendaoGame) {
 		return
 	}
+	var req struct {
+		RequestId string `json:"request_id,omitempty"`
+	}
+	if c.Request.ContentLength > 0 && decodeGameRequest(c, &req) != nil {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
+	sum, err := wendao.RequestSum("alliance_claim")
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	now := common.GetTimestamp()
 	var evs []wendao.Ev
-	err := model.ClaimSectAllianceRewards(c.GetInt("id"), func(data string, stone int, rep int, pills int) (string, error) {
-		return updateSectSave(data, func(s *wendao.Sect) error {
-			s.Tick(now)
-			evs = s.ClaimAlliance(wendao.Cost{Stone: stone, Rep: rep}, pills)
+	err = model.ClaimSectAllianceRewards(c.GetInt("id"), func(data string, m *model.SectAllianceMember) (string, error) {
+		return wendao.UpdateSave(data, func(save *wendao.Save) error {
+			if err := save.Admit(req.RequestId, sum, now); err != nil {
+				return err
+			}
+			if m.PendingStone == 0 && m.PendingRep == 0 && m.PendingPills == 0 {
+				return model.ErrSectAllianceNothing
+			}
+			if save.Sect == nil || !save.Sect.IsFounded() {
+				return wendao.ErrUnavailable
+			}
+			save.Sect.Tick(now)
+			evs = save.Sect.ClaimAlliance(wendao.Cost{Stone: m.PendingStone, Rep: m.PendingRep}, m.PendingPills)
+			save.Sect.SyncAllianceBoss(m.Week, m.AttackDay, m.WeekAttacks, m.WeekStageMask, m.WeekPersonalMask)
 			return nil
 		})
 	})
+	if errors.Is(err, wendao.ErrReplayed) {
+		respondSectAlliance(c, gin.H{"replayed": true, "events": []wendao.Ev{}})
+		return
+	}
 	if err != nil {
 		respondAllianceError(c, err)
 		return

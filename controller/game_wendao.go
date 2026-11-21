@@ -159,10 +159,28 @@ func acknowledgeWendaoReturn(c *gin.Context) {
 	respondWendaoAgenda(c, current, common.GetTimestamp())
 }
 
-// respondWendaoAgenda 将规则待办与当天可领奖次数合在一起，读取、心跳、确认都使用同一回应形状。
+// respondWendaoAgenda 将规则待办、仙盟首领待办与当天可领奖次数合在一起，读取、心跳、确认都使用同一回应形状。
 func respondWendaoAgenda(c *gin.Context, save *wendao.Save, now int64) {
 	ctx := newGameContext(c)
 	agenda := save.Agenda(now, ctx.Day)
+	if save.Sect != nil && save.Sect.IsFounded() {
+		alliance, member, err := model.GetSectAllianceOf(ctx.UserId)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		if alliance != nil && member != nil {
+			if member.PendingStone > 0 || member.PendingRep > 0 || member.PendingPills > 0 {
+				agenda.Todos = append(agenda.Todos, wendao.Todo{Key: "alliance_reward", Part: wendao.PartSect, Tab: "alliance", N: 1})
+			}
+			week := sectAllianceWeek()
+			bossAlive := alliance.Week != week || alliance.BossHp > 0
+			attackedToday := member.AttackDay == ctx.Day || (save.Sect.AllianceBoss != nil && save.Sect.AllianceBoss.AttackDay == ctx.Day)
+			if bossAlive && !attackedToday {
+				agenda.Todos = append(agenda.Todos, wendao.Todo{Key: "alliance_boss", Part: wendao.PartSect, Tab: "alliance", N: 1})
+			}
+		}
+	}
 	for _, reward := range wendaoRewardTodos {
 		rule, _ := ctx.Setting.SkillRuleOf(reward.game)
 		if !ctx.Setting.GameEnabled(reward.game) || rule.DailyRewards <= 0 || rule.MaxReward() <= 0 ||

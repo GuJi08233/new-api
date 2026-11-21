@@ -985,6 +985,112 @@
   margin-bottom: 10px;
 }
 
+.sc-boss-details {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.sc-boss-mechanic {
+  padding: 10px 12px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 10px;
+  background: var(--semi-color-bg-1);
+}
+
+.sc-boss-mechanic-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.sc-boss-mechanic-desc {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--semi-color-text-1);
+}
+
+.sc-boss-preview {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--semi-color-primary);
+}
+
+.sc-boss-feedback {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--semi-color-warning-light-active);
+  border-radius: 10px;
+  background: var(--semi-color-warning-light-default);
+  font-size: 13px;
+}
+
+.sc-boss-goal-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sc-boss-goal-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  font-size: 13px;
+}
+
+.sc-boss-goals {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(175px, 1fr));
+  gap: 8px;
+}
+
+.sc-boss-goal {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 10px;
+  background: var(--semi-color-bg-1);
+  font-size: 12px;
+}
+
+.sc-boss-goal.is-reached {
+  border-color: var(--semi-color-warning-light-active);
+  background: var(--semi-color-warning-light-default);
+}
+
+.sc-boss-goal.is-earned {
+  border-color: var(--semi-color-success-light-active);
+  background: var(--semi-color-success-light-default);
+}
+
+.sc-boss-goal-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.sc-boss-goal-state {
+  font-size: 11px;
+  color: var(--semi-color-text-2);
+}
+
+.sc-boss-goal.is-earned .sc-boss-goal-state {
+  color: var(--semi-color-success);
+}
+
+.sc-boss-goal.is-reached .sc-boss-goal-state {
+  color: var(--semi-color-warning);
+}
+
 .sc-alliance-pending {
   padding: 10px 12px;
   border-radius: 12px;

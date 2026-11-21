@@ -139,6 +139,9 @@ type Sect struct {
 	Arena ArenaStats `json:"arena"`
 	// AllianceLevel 是宗门所在仙盟的等级(没有入盟为 0)，每级给产出加成 AllianceBonusPerLevel。每次经营操作前由调用方按仙盟表刷新。
 	AllianceLevel int `json:"alliance_level,omitempty"`
+	// AllianceBoss 记下掌门本周已取得的仙盟周首领讨伐日期、次数与已获阶段/个人目标位图，防止退盟换盟后在同一天重复讨伐或
+	// 同一周跨盟重复领奖。
+	AllianceBoss *AllianceBossRecord `json:"alliance_boss,omitempty"`
 	// Garden 是掌门亲手打理的灵田，Rare 是灵田种出来的灵药。
 	Garden Garden         `json:"garden"`
 	Rare   map[string]int `json:"rare,omitempty"`

@@ -34,6 +34,7 @@ import {
   Compass,
   Flag,
   Flame,
+  Gift,
   Landmark,
   Pickaxe,
   Pill,
@@ -80,6 +81,8 @@ const TODO_ICONS = {
   gather: Pickaxe,
   trial: CalendarDays,
   side: BookOpen,
+  alliance_reward: Gift,
+  alliance_boss: Flame,
   abyss_reward: Castle,
   tournament_reward: Trophy,
 };
@@ -127,6 +130,10 @@ const todoText = (todo, t) => {
       return t('周天试炼还有 {{n}} 关没过', { n });
     case 'side':
       return t('{{n}} 段支线可以接着走', { n });
+    case 'alliance_reward':
+      return t('仙盟有待领讨伐奖励');
+    case 'alliance_boss':
+      return t('今天可以讨伐仙盟妖王');
     case 'abyss_reward':
       return t('今天的秘境奖励还能领 {{n}} 次', { n });
     case 'tournament_reward':

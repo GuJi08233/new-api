@@ -29,8 +29,9 @@ const SaveKey = "wendao"
 // 与进行中的一场)；7 是藏经阁法宝、法术与出战配置(Hero.Arms)；8 是历练改斗法(HeroBattle.Fight)，旧卡牌战斗退还未用丹符后结束；
 // 9 是主角游历(Hero.Travel)，旧存档默认没有行程，闭关与已有进度照旧；10 是地域灵脉打坐(Hero.Meditation)，旧存档默认未入座；
 // 11 是可见页面心跳(Seen)与持久化的分项回流说明(Back)，旧存档从最近一次结算起算；12 是异地下院与弟子驻守，旧存档默认没有下院；
-// 13 是弟子师承与自然授业，历史弟子默认一代，没有师长。
-const SaveSchema = 13
+// 13 是弟子师承与自然授业，历史弟子默认一代，没有师长；14 是仙盟周首领的掌门个人周期资格记录(Sect.AllianceBoss)，防止跨盟
+// 重复讨伐或重复领取阶段、击杀与个人目标奖励，旧存档读出默认为空。
+const SaveSchema = 14
 
 // ErrNewerSave 表示存档是更新版本的程序写的，这个程序不认识其中的一部分，不能读也不能改写。
 var ErrNewerSave = errors.New("wendao: the save was written by a newer version")

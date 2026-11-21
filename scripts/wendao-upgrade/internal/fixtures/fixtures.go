@@ -80,6 +80,7 @@ func Build() ([]Sample, error) {
 		sect.Garden.Log = append(sect.Garden.Log, wendao.GardenVisit{Name: "问道演练道友", Kind: "water", Crop: "qingcao", At: Now})
 	}
 	sect.RollDaily(Day, "", true)
+	sect.SyncAllianceBoss("2026-W44", Day, 5, 0b111, 0b111)
 	hero, err := wendao.NewHero(dungeon.ClassMage, Now)
 	if err != nil {
 		return nil, err

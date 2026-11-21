@@ -25,8 +25,10 @@ import { RuleList } from '../common/SideBox';
 import { gameGet, gamePostOnce } from '../common/api';
 import { playSound } from '../common/sound';
 import { celebrate } from '../common/effects';
+import { useWendaoShell } from '../wendao/shell';
 import { Bar, CostChips, formatAmount, useSectText } from './parts';
 import { useHomeDisciples, useTeamPicker } from './Tournament';
+import AllianceBossPanel from './AllianceBossPanel';
 
 // 没有入盟时：建一个仙盟，或者加入现有的仙盟。
 const AllianceList = ({ view, sect, busy, act }) => {
@@ -49,7 +51,10 @@ const AllianceList = ({ view, sect, busy, act }) => {
             },
           ),
           t(
-            '每周一只妖王，成员每天可派弟子讨伐一次，按伤害领奖；击败妖王后本周出过力的成员都有一份重赏',
+            '每周一只妖王并轮换玄甲、血怒、灵潮三套机制；成员每天可派弟子讨伐一次，全盟削血达 30%/60%/击杀与个人每周讨伐 1/3/5 次均有额外赏赐',
+          ),
+          t(
+            '退出或更换仙盟时未领奖励作废；当日讨伐次数与本周已领的阶段、击杀与个人目标跨盟保留，不能换盟重复领取',
           ),
           t('仙盟只发宗门资源与丹药，不发游戏币'),
         ]}
@@ -121,8 +126,8 @@ const AllianceList = ({ view, sect, busy, act }) => {
   );
 };
 
-// 已经入盟：仙盟概况、升级与公告、捐献、本周妖王、成员。
-const AllianceHome = ({ view, sect, now, busy, act }) => {
+// 已经入盟：仙盟概况、升级与公告、捐献、本周妖王（机制与协作/个人目标）、成员。
+const AllianceHome = ({ view, sect, now, busy, lastAttack, act }) => {
   const { t } = useTranslation();
   const text = useSectText();
   const { alliance, member, boss } = view;
@@ -131,7 +136,8 @@ const AllianceHome = ({ view, sect, now, busy, act }) => {
   const [gift, setGift] = useState({ stone: 0, herb: 0, ore: 0 });
   const home = useHomeDisciples(sect, now);
   const [team, picker] = useTeamPicker(home, 3);
-  const attacked = member.attack_day === view.day && member.week === view.week;
+  const selectedDisciples = home.filter((d) => team.includes(d.id));
+  const attacked = member.attack_day === view.day;
   const giftFunds = (gift.stone || 0) + (gift.herb || 0) + 3 * (gift.ore || 0);
   const pending =
     member.pending_stone > 0 ||
@@ -144,7 +150,9 @@ const AllianceHome = ({ view, sect, now, busy, act }) => {
         ? t('确定把 {{name}} 请出仙盟？没领的奖励会作废。', {
             name: view.names[target] || target,
           })
-        : t('退出后贡献清零，没领的奖励作废；盟主退出时由贡献最高的成员接任。'),
+        : t(
+            '退出后贡献清零，没领的奖励作废，本周已取得的阶段与个人目标不会在换盟后重发；盟主退出时由贡献最高的成员接任。',
+          ),
       onOk: () => act('leave', target ? { user_id: target } : {}),
     });
   return (
@@ -226,6 +234,14 @@ const AllianceHome = ({ view, sect, now, busy, act }) => {
             : t('本周已击败')}
         </span>
       </div>
+      <AllianceBossPanel
+        boss={boss}
+        selectedDisciples={selectedDisciples}
+        lastAttack={lastAttack}
+        resources={text.resources}
+        breakPillName={text.pills.break?.name}
+        t={t}
+      />
       {picker}
       <div className='sc-building-foot'>
         <span className='sc-muted'>
@@ -342,7 +358,9 @@ const AllianceHome = ({ view, sect, now, busy, act }) => {
 // 仙盟页。post 是宗门页的请求(共用忙碌状态与错误提示)，onSect 收下操作之后的最新宗门。
 const Alliance = ({ sect, now, busy, post, onSect, onEvents }) => {
   const { t } = useTranslation();
+  const { refreshAgenda } = useWendaoShell();
   const [view, setView] = useState(null);
+  const [lastAttack, setLastAttack] = useState(null);
 
   const load = useCallback(async () => {
     const response = await gameGet('/api/game/wendao/sect/alliance', t);
@@ -352,21 +370,27 @@ const Alliance = ({ sect, now, busy, post, onSect, onEvents }) => {
     load();
   }, [load]);
 
-  // 捐献带请求编号，网络断了重发不会多捐一份。
+  // 捐献、讨伐与领奖带请求编号，网络断了重发不会重复扣发。
   const act = async (action, body = {}) => {
+    const idempotent =
+      action === 'donate' || action === 'attack' || action === 'claim';
     const data = await post(
       `/api/game/wendao/sect/alliance/${action}`,
       body,
-      action === 'donate' ? gamePostOnce : undefined,
+      idempotent ? gamePostOnce : undefined,
     );
     if (!data) return false;
     setView(data);
     if (data.sect) onSect(data.sect);
     if (data.events?.length) onEvents(data.events);
-    if (action === 'attack') {
-      playSound(data.attack?.killed ? 'win' : 'hit');
-      if (data.attack?.killed) celebrate(1);
+    if (action === 'attack' && data.attack) {
+      setLastAttack(data.attack);
+      playSound(data.attack.killed ? 'win' : 'hit');
+      if (data.attack.killed) celebrate(1);
+    } else if (action === 'leave' || action === 'join' || action === 'create') {
+      setLastAttack(null);
     }
+    if (action !== 'notice' && action !== 'upgrade') refreshAgenda();
     return true;
   };
 
@@ -381,6 +405,7 @@ const Alliance = ({ sect, now, busy, post, onSect, onEvents }) => {
       sect={sect}
       now={now}
       busy={busy}
+      lastAttack={lastAttack}
       act={act}
     />
   );
