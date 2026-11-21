@@ -140,7 +140,9 @@ export default function Flood() {
   const totalCells = size * size;
   const region = useMemo(() => collectRegion(board, size), [board, size]);
   const captured = round?.captured ?? region.size;
-  const progressPct = totalCells ? Math.round((captured / totalCells) * 100) : 0;
+  const progressPct = totalCells
+    ? Math.round((captured / totalCells) * 100)
+    : 0;
 
   const gains = useMemo(
     () =>
@@ -210,10 +212,16 @@ export default function Flood() {
               <SideBox label={t('操作说明')}>
                 <RuleList
                   items={[
-                    t('以左上角带白点的连通区域为起点，每次选择一种新颜色将整片区域染色'),
+                    t(
+                      '以左上角带白点的连通区域为起点，每次选择一种新颜色将整片区域染色',
+                    ),
                     t('染色后会自动吞并所有上下左右相邻的同色色块'),
-                    t('在步数上限内把整张棋盘染成同一颜色即可过关，每一盘都经过校验保证有解'),
-                    t('可直接点击棋盘上的任意色块、下方色板，或按数字键 1–6 快速选色'),
+                    t(
+                      '在步数上限内把整张棋盘染成同一颜色即可过关，每一盘都经过校验保证有解',
+                    ),
+                    t(
+                      '可直接点击棋盘上的任意色块、下方色板，或按数字键 1–6 快速选色',
+                    ),
                   ]}
                 />
               </SideBox>
@@ -237,9 +245,7 @@ export default function Flood() {
         <div className='logic-stats'>
           <span>
             {t('步数')}
-            <strong>
-              {round ? `${round.moves}/${round.max_moves}` : '-'}
-            </strong>
+            <strong>{round ? `${round.moves}/${round.max_moves}` : '-'}</strong>
           </span>
           <span>
             {t('剩余步数')}
@@ -320,19 +326,6 @@ export default function Flood() {
           </>
         )}
 
-        {error && <StageMessage type='error'>{error}</StageMessage>}
-        {result && (
-          <StageMessage type={round.won ? 'success' : 'info'}>
-            {result}
-            {shownFinish &&
-              localBestNote(shownFinish.improved, {
-                time: shownFinish.seconds,
-                moves: shownFinish.moves,
-                t,
-              })}
-          </StageMessage>
-        )}
-
         <div className='logic-controls'>
           {playing ? (
             <>
@@ -360,6 +353,7 @@ export default function Flood() {
                 value={difficulty}
                 onChange={setDifficulty}
                 disabled={busy}
+                aria-label={t('难度')}
                 optionList={names.map((name, index) => {
                   const level = info?.levels?.[index + 1];
                   return {
@@ -373,23 +367,46 @@ export default function Flood() {
                   };
                 })}
               />
-              <PlayTurnstile turnstile={turnstile} />
               <Button
                 theme='solid'
                 loading={busy}
-                disabled={!checked || turnstile.blocked}
+                disabled={!turnstile.ready || !checked}
                 onClick={() => send('start')}
               >
                 {round ? t('再来一局') : t('开始游戏')}
               </Button>
-              {!checked && (
-                <Button onClick={restore} disabled={busy}>
-                  {t('重新读取对局')}
-                </Button>
-              )}
             </>
           )}
         </div>
+        {!playing && <PlayTurnstile turnstile={turnstile} />}
+        {shownFinish && (
+          <div className='logic-finish' role='status'>
+            <span>
+              {shownFinish.seconds > 0
+                ? t('全盘同色，用了 {{moves}} 步、{{seconds}} 秒', {
+                    moves: shownFinish.moves,
+                    seconds: shownFinish.seconds,
+                  })
+                : t('全盘同色，用了 {{moves}} 步', {
+                    moves: shownFinish.moves,
+                  })}{' '}
+              {localBestNote(shownFinish.improved, t)}
+            </span>
+          </div>
+        )}
+        {result && (
+          <StageMessage kind={result.kind} note={result.note}>
+            {result.text}
+          </StageMessage>
+        )}
+        {error && (
+          <>
+            <StageMessage kind='error'>{error}</StageMessage>
+            <Button disabled={busy} onClick={() => restore(round?.session_id)}>
+              {t('重新读取对局')}
+            </Button>
+          </>
+        )}
       </div>
     </GameLayout>
   );

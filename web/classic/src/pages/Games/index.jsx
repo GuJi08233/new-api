@@ -220,6 +220,11 @@ const Games = () => {
     quotaPerCoin > 0 ? Math.floor((userQuota / quotaPerCoin) * 1e6) / 1e6 : 0;
   const deposit = info?.deposit;
   const convert = info?.convert;
+  const convertEnabled = Boolean(convert?.enabled);
+  const subscription = info?.subscription;
+  const subscriptionEnabled = Boolean(subscription?.enabled);
+  const subscriptionRequiresUnlock =
+    subscriptionEnabled && Boolean(subscription?.require_unlocked);
   const lockedWager = convert?.locked_wager ?? account?.locked_wager ?? 0;
   const convertDailyLimit = convert?.daily_limit || 0;
   const convertRemaining = convert?.daily_remaining || 0;
@@ -230,6 +235,7 @@ const Games = () => {
         ? Math.min(balance, convertRemaining)
         : balance;
   const withdraw = info?.withdraw;
+  const withdrawEnabled = Boolean(withdraw?.enabled);
   const withdrawableBalance =
     withdraw?.withdrawable_balance ?? account?.withdrawable_balance ?? 0;
   const boundAddress = withdraw?.address || '';
@@ -263,10 +269,67 @@ const Games = () => {
   });
   if (collection === 'recent')
     shownGames.sort((a, b) => recent.indexOf(a.key) - recent.indexOf(b.key));
+  const showConverted = convertEnabled || (account?.total_converted || 0) > 0;
   // 下注、对战与奖池的累计输赢不计入累计获得，单独列出；没开放这些游戏、也没玩过时不显示。
   const wagerNet = account?.total_wager_net || 0;
   const showWagerNet =
     wagerNet !== 0 || games.some((game) => game.kind !== 'skill');
+  const depositWagerMultiplier = deposit?.wager_multiplier ?? 0;
+
+  let heroSubtitle = t('玩游戏赚取游戏币，体验各类休闲与竞技玩法。');
+  if (info) {
+    if (convertEnabled && withdrawEnabled) {
+      heroSubtitle = t(
+        '玩游戏赚取游戏币。游戏币可以兑换为账户额度，也可以提现到链上钱包。',
+      );
+    } else if (convertEnabled) {
+      heroSubtitle = t(
+        '玩游戏赚取游戏币。游戏币可以兑换为账户额度，也可以参与更多玩法。',
+      );
+    } else if (withdrawEnabled && subscriptionEnabled) {
+      heroSubtitle = t(
+        '玩游戏赚取游戏币。游戏币可用于购买订阅套餐，也可以提现到链上钱包。',
+      );
+    } else if (withdrawEnabled) {
+      heroSubtitle = t(
+        '玩游戏赚取游戏币。游戏币可参与更多玩法，也可以提现到链上钱包。',
+      );
+    } else if (subscriptionEnabled) {
+      heroSubtitle = t(
+        '玩游戏赚取游戏币。游戏币可用于购买订阅套餐，也可以参与更多玩法。',
+      );
+    }
+  }
+
+  let depositNotice = t(
+    '充入的游戏币不支持链上提现或换回余额，可畅玩刺激玩法或转入模拟盘',
+  );
+  if (convertEnabled) {
+    if (depositWagerMultiplier > 0 && subscriptionEnabled) {
+      depositNotice = t(
+        '充入的游戏币不支持链上提现；完成 {{mult}} 倍有效下注或模拟盘交易后可换回余额或买订阅',
+        { mult: depositWagerMultiplier },
+      );
+    } else if (depositWagerMultiplier > 0) {
+      depositNotice = t(
+        '充入的游戏币不支持链上提现；完成 {{mult}} 倍有效下注或模拟盘交易后可换回余额',
+        { mult: depositWagerMultiplier },
+      );
+    } else {
+      depositNotice = t(
+        '充入的游戏币不支持链上提现，可畅玩刺激玩法或转入模拟盘',
+      );
+    }
+  } else if (depositWagerMultiplier > 0 && subscriptionRequiresUnlock) {
+    depositNotice = t(
+      '充入的游戏币不支持链上提现或换回余额；完成 {{mult}} 倍有效下注或模拟盘交易后可用于购买订阅',
+      { mult: depositWagerMultiplier },
+    );
+  } else if (subscriptionEnabled) {
+    depositNotice = t(
+      '充入的游戏币不支持链上提现或换回余额，可用于游戏玩法、模拟盘或购买订阅',
+    );
+  }
   const free = info?.free;
   const freeEarned = Math.max(
     free?.earned_today || 0,
@@ -330,17 +393,61 @@ const Games = () => {
       return;
     }
     const amount = depositAmount;
+    const depositQuotaText = renderQuota(Math.round(amount * quotaPerCoin));
+    const depositCoinsText = formatCoins(amount);
+    let depositConfirmContent = t(
+      '将扣除 {{quota}} 平台余额换取 {{coins}} {{symbol}}。转入的游戏币不支持链上提现或换回余额，转入后不可撤回。',
+      {
+        quota: depositQuotaText,
+        coins: depositCoinsText,
+        symbol,
+      },
+    );
+    if (convertEnabled) {
+      if (depositWagerMultiplier > 0 && subscriptionEnabled) {
+        depositConfirmContent = t(
+          '将扣除 {{quota}} 平台余额换取 {{coins}} {{symbol}}。转入的游戏币不支持链上提现，完成 {{mult}} 倍有效流水后可兑换回余额或购买订阅。',
+          {
+            quota: depositQuotaText,
+            coins: depositCoinsText,
+            symbol,
+            mult: depositWagerMultiplier,
+          },
+        );
+      } else if (depositWagerMultiplier > 0) {
+        depositConfirmContent = t(
+          '将扣除 {{quota}} 平台余额换取 {{coins}} {{symbol}}。转入的游戏币不支持链上提现，完成 {{mult}} 倍有效流水后可兑换回余额。',
+          {
+            quota: depositQuotaText,
+            coins: depositCoinsText,
+            symbol,
+            mult: depositWagerMultiplier,
+          },
+        );
+      } else {
+        depositConfirmContent = t(
+          '将扣除 {{quota}} 平台余额换取 {{coins}} {{symbol}}。转入的游戏币不支持链上提现，可畅玩刺激玩法或转入模拟盘。',
+          {
+            quota: depositQuotaText,
+            coins: depositCoinsText,
+            symbol,
+          },
+        );
+      }
+    } else if (depositWagerMultiplier > 0 && subscriptionRequiresUnlock) {
+      depositConfirmContent = t(
+        '将扣除 {{quota}} 平台余额换取 {{coins}} {{symbol}}。转入的游戏币不支持链上提现或换回余额，完成 {{mult}} 倍有效流水后可用于购买订阅。',
+        {
+          quota: depositQuotaText,
+          coins: depositCoinsText,
+          symbol,
+          mult: depositWagerMultiplier,
+        },
+      );
+    }
     Modal.confirm({
       title: t('确认转入游戏币'),
-      content: t(
-        '将扣除 {{quota}} 平台余额换取 {{coins}} {{symbol}}。转入的游戏币不支持链上提现，完成 {{mult}} 倍有效流水后可兑换回余额或购买订阅。',
-        {
-          quota: renderQuota(Math.round(amount * quotaPerCoin)),
-          coins: formatCoins(amount),
-          symbol,
-          mult: deposit?.wager_multiplier ?? 1,
-        },
-      ),
+      content: depositConfirmContent,
       onOk: () => {
         submitDeposit(amount);
       },
@@ -374,6 +481,9 @@ const Games = () => {
   };
 
   const handleConvert = () => {
+    if (!convertEnabled) {
+      return;
+    }
     if (
       !(convertAmount > 0) ||
       Number(convertAmount.toFixed(CONVERT_DECIMALS)) !== convertAmount
@@ -592,11 +702,7 @@ const Games = () => {
             </span>
             <h1 className='games-hero-title'>{t('游戏中心')}</h1>
           </div>
-          <p className='games-hero-sub'>
-            {t(
-              '玩游戏赚取游戏币。游戏币可以兑换为账户额度，也可以提现到链上钱包。',
-            )}
-          </p>
+          <p className='games-hero-sub'>{heroSubtitle}</p>
         </div>
 
         <Spin spinning={loading}>
@@ -617,10 +723,12 @@ const Games = () => {
                   <span>{t('累计获得')}</span>
                   <strong>{formatCoins(account?.total_earned)}</strong>
                 </div>
-                <div>
-                  <span>{t('已兑换')}</span>
-                  <strong>{formatCoins(account?.total_converted)}</strong>
-                </div>
+                {showConverted && (
+                  <div>
+                    <span>{t('已兑换')}</span>
+                    <strong>{formatCoins(account?.total_converted)}</strong>
+                  </div>
+                )}
                 <div>
                   <span>{t('已提现')}</span>
                   <strong>{formatCoins(account?.total_withdrawn)}</strong>
@@ -644,6 +752,43 @@ const Games = () => {
                   )}
                 </div>
               )}
+              {!closed &&
+                !convertEnabled &&
+                subscriptionRequiresUnlock &&
+                lockedWager > 0 && (
+                  <Banner
+                    type='warning'
+                    closeIcon={null}
+                    description={
+                      <div className='flex flex-col gap-2 text-xs'>
+                        <span>
+                          {t(
+                            '还需完成 {{wager}} {{symbol}} 有效下注（刺激玩法/对战/奖池）或模拟盘交易流水即可解锁游戏币购买订阅。',
+                            {
+                              wager: formatCoins(lockedWager),
+                              symbol,
+                            },
+                          )}
+                        </span>
+                        <div className='flex flex-wrap gap-2'>
+                          <Button
+                            size='small'
+                            theme='solid'
+                            onClick={() => setKindFilter('wager')}
+                          >
+                            {t('去玩刺激玩法')}
+                          </Button>
+                          <Button
+                            size='small'
+                            onClick={() => navigate('/console/trade')}
+                          >
+                            {t('去模拟盘交易')}
+                          </Button>
+                        </div>
+                      </div>
+                    }
+                  />
+                )}
             </div>
 
             {!closed && (
@@ -665,14 +810,7 @@ const Games = () => {
                       })}
                     </Text>
                     <Text type='tertiary' size='small'>
-                      {deposit.wager_multiplier > 0
-                        ? t(
-                            '充入的游戏币不支持链上提现；完成 {{mult}} 倍有效下注或模拟盘交易后可换回余额或买订阅',
-                            { mult: deposit.wager_multiplier },
-                          )
-                        : t(
-                            '充入的游戏币不支持链上提现，可畅玩刺激玩法或转入模拟盘',
-                          )}
+                      {depositNotice}
                     </Text>
                     <div className='games-field-row'>
                       <InputNumber
@@ -706,103 +844,116 @@ const Games = () => {
                   </div>
                 )}
 
-                <div className='games-card'>
-                  <div className='games-card-head'>
-                    <span className='games-card-icon tone-primary'>
-                      <ArrowRightLeft size={18} />
-                    </span>
-                    <span className='games-card-title'>{t('兑换为额度')}</span>
-                  </div>
-                  <Text type='tertiary' size='small'>
-                    {t(
-                      '1 个游戏币 = {{quota}} 额度，支持小数，打满有效流水后可兑换或用于购买订阅套餐',
-                      {
-                        quota: renderQuota(quotaPerCoin),
-                      },
-                    )}
-                  </Text>
-                  {lockedWager > 0 ? (
-                    <Banner
-                      type='warning'
-                      closeIcon={null}
-                      description={
-                        <div className='flex flex-col gap-2 text-xs'>
-                          <span>
-                            {t(
-                              '还需完成 {{wager}} {{symbol}} 有效下注（刺激玩法/对战/奖池）或模拟盘交易流水即可解锁兑换。',
-                              {
-                                wager: formatCoins(lockedWager),
-                                symbol,
-                              },
-                            )}
-                          </span>
-                          <div className='flex flex-wrap gap-2'>
-                            <Button
-                              size='small'
-                              theme='solid'
-                              onClick={() => setKindFilter('wager')}
-                            >
-                              {t('去玩刺激玩法')}
-                            </Button>
-                            <Button
-                              size='small'
-                              onClick={() => navigate('/console/trade')}
-                            >
-                              {t('去模拟盘交易')}
-                            </Button>
-                          </div>
-                        </div>
-                      }
-                    />
-                  ) : (
+                {convertEnabled && (
+                  <div className='games-card'>
+                    <div className='games-card-head'>
+                      <span className='games-card-icon tone-primary'>
+                        <ArrowRightLeft size={18} />
+                      </span>
+                      <span className='games-card-title'>
+                        {t('兑换为额度')}
+                      </span>
+                    </div>
                     <Text type='tertiary' size='small'>
-                      {convertDailyLimit > 0
+                      {subscriptionEnabled
                         ? t(
-                            '个人今日剩余可兑换 {{remaining}} / {{limit}} 美元额度',
+                            '1 个游戏币 = {{quota}} 额度，支持小数，打满有效流水后可兑换或用于购买订阅套餐',
                             {
-                              remaining: formatCoins(convertRemaining),
-                              limit: convertDailyLimit,
+                              quota: renderQuota(quotaPerCoin),
                             },
                           )
-                        : t('当前不限制个人每日兑换上限')}
+                        : t(
+                            '1 个游戏币 = {{quota}} 额度，支持小数，打满有效流水后可兑换',
+                            {
+                              quota: renderQuota(quotaPerCoin),
+                            },
+                          )}
                     </Text>
-                  )}
-                  <div className='games-field-row'>
-                    <InputNumber
-                      className='games-field'
-                      value={convertAmount}
-                      min={0}
-                      max={maxConvertAmount}
-                      disabled={!convert?.enabled || maxConvertAmount <= 0}
-                      onChange={(value) =>
-                        setConvertAmount(typeof value === 'number' ? value : 0)
-                      }
-                    />
+                    {lockedWager > 0 ? (
+                      <Banner
+                        type='warning'
+                        closeIcon={null}
+                        description={
+                          <div className='flex flex-col gap-2 text-xs'>
+                            <span>
+                              {t(
+                                '还需完成 {{wager}} {{symbol}} 有效下注（刺激玩法/对战/奖池）或模拟盘交易流水即可解锁兑换。',
+                                {
+                                  wager: formatCoins(lockedWager),
+                                  symbol,
+                                },
+                              )}
+                            </span>
+                            <div className='flex flex-wrap gap-2'>
+                              <Button
+                                size='small'
+                                theme='solid'
+                                onClick={() => setKindFilter('wager')}
+                              >
+                                {t('去玩刺激玩法')}
+                              </Button>
+                              <Button
+                                size='small'
+                                onClick={() => navigate('/console/trade')}
+                              >
+                                {t('去模拟盘交易')}
+                              </Button>
+                            </div>
+                          </div>
+                        }
+                      />
+                    ) : (
+                      <Text type='tertiary' size='small'>
+                        {convertDailyLimit > 0
+                          ? t(
+                              '个人今日剩余可兑换 {{remaining}} / {{limit}} 美元额度',
+                              {
+                                remaining: formatCoins(convertRemaining),
+                                limit: convertDailyLimit,
+                              },
+                            )
+                          : t('当前不限制个人每日兑换上限')}
+                      </Text>
+                    )}
+                    <div className='games-field-row'>
+                      <InputNumber
+                        className='games-field'
+                        value={convertAmount}
+                        min={0}
+                        max={maxConvertAmount}
+                        disabled={maxConvertAmount <= 0}
+                        onChange={(value) =>
+                          setConvertAmount(
+                            typeof value === 'number' ? value : 0,
+                          )
+                        }
+                      />
+                      <Button
+                        disabled={maxConvertAmount <= 0}
+                        onClick={() => setConvertAmount(maxConvertAmount)}
+                      >
+                        {t('全部')}
+                      </Button>
+                    </div>
+                    <div className='games-preview'>
+                      {t('可获得额度')}
+                      <strong>
+                        {renderQuota(
+                          Math.round((convertAmount || 0) * quotaPerCoin),
+                        )}
+                      </strong>
+                    </div>
                     <Button
-                      disabled={!convert?.enabled || maxConvertAmount <= 0}
-                      onClick={() => setConvertAmount(maxConvertAmount)}
+                      theme='solid'
+                      block
+                      loading={converting}
+                      disabled={maxConvertAmount <= 0}
+                      onClick={handleConvert}
                     >
-                      {t('全部')}
+                      {t('开始兑换')}
                     </Button>
                   </div>
-                  <div className='games-preview'>
-                    {t('可获得额度')}
-                    <strong>
-                      {renderQuota(
-                        Math.round((convertAmount || 0) * quotaPerCoin),
-                      )}
-                    </strong>
-                  </div>
-                  <Button
-                    theme='solid'
-                    block
-                    loading={converting}
-                    disabled={!convert?.enabled || maxConvertAmount <= 0}
-                    onClick={handleConvert}
-                  >
-                    {t('开始兑换')}
-                  </Button>
-                </div>
+                )}
 
                 <div className='games-card'>
                   <div className='games-card-head'>

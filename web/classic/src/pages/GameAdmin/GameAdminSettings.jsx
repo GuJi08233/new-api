@@ -305,9 +305,11 @@ const GameAdminSettings = () => {
               {t('每日兑换上限')}
             </Text>
             <div className='text-lg font-semibold'>
-              {setting.convert_daily_limit > 0
-                ? `${setting.convert_daily_limit} USD`
-                : t('不限制')}
+              {!setting.convert_enabled
+                ? t('已关闭')
+                : setting.convert_daily_limit > 0
+                  ? `${setting.convert_daily_limit} USD`
+                  : t('不限制')}
             </div>
           </div>
         </div>
@@ -776,11 +778,16 @@ const GameAdminSettings = () => {
             </Text>
           ) : (
             <Text type='tertiary' size='small'>
-              {setting.convert_daily_limit > 0
-                ? t('1 个游戏币 = 1 美元额度，当前每人每天最多兑换 {{limit}} 美元额度', {
-                    limit: setting.convert_daily_limit,
-                  })
-                : t('1 个游戏币 = 1 美元额度，当前每日兑换额度不限制')}
+              {!setting.convert_enabled
+                ? t('游戏币兑换额度已关闭')
+                : setting.convert_daily_limit > 0
+                  ? t(
+                      '1 个游戏币 = 1 美元额度，当前每人每天最多兑换 {{limit}} 美元额度',
+                      {
+                        limit: setting.convert_daily_limit,
+                      },
+                    )
+                  : t('1 个游戏币 = 1 美元额度，当前每日兑换额度不限制')}
             </Text>
           )}
         </div>
