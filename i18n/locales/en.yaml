@@ -433,6 +433,7 @@ trade.bonus_task_incomplete: "Complete the game center wagering task first to un
 trade.bonus_active_exists: "Please withdraw profit or forfeit your active trading bonus before depositing funds"
 trade.bonus_close_positions_first: "Please close all positions, cancel open orders, and repay loans before reclaiming or forfeiting the bonus"
 trade.bonus_profit_cap: "Exceeds the maximum withdrawable profit for the first-time trading bonus ({{.Max}} USD)"
+trade.bonus_not_ranked: "You did not place in the previous period's reward ranks"
 trade.loss_order_invalid: "Invalid loss deduction order"
 trade.transfer_failed: "Transfer failed, please try again later"
 trade.leaderboard_disabled: "The leaderboard is not open"

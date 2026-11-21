@@ -434,6 +434,7 @@ trade.bonus_task_incomplete: "尚未完成遊戲中心有效下注任務，暫�
 trade.bonus_active_exists: "目前持有未結清體驗金，請先轉出盈利或放棄體驗金後再轉入資金"
 trade.bonus_close_positions_first: "請先平倉、撤單並結清借款，再回收或放棄體驗金"
 trade.bonus_profit_cap: "超出新手體驗金最大可轉出盈利上限（{{.Max}} 美元）"
+trade.bonus_not_ranked: "上一週期未進入消費榜單獎勵名次，繼續衝榜即可參與下期領取"
 trade.loss_order_invalid: "虧損抵扣順序無效"
 trade.transfer_failed: "轉帳失敗，請稍後重試"
 trade.leaderboard_disabled: "排行榜未開放"

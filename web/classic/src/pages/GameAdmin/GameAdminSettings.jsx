@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React, { useContext, useEffect, useState } from 'react';
+import React, { useContext, useEffect, useMemo, useState } from 'react';
 import {
   Banner,
   Button,
@@ -28,15 +28,17 @@ import {
   Select,
   Spin,
   Switch,
+  Tag,
   Typography,
 } from '@douyinfe/semi-ui';
 import { IconRefresh } from '@douyinfe/semi-icons';
+import { RotateCcw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { API, showError, showSuccess, showWarning } from '../../helpers';
 import { StatusContext } from '../../context/Status';
 import { GAME_ORDER, getGameMetaMap } from '../../constants';
 
-const { Text, Title } = Typography;
+const { Text } = Typography;
 
 // 一行配置：左侧标题与说明，右侧控件。
 function SettingRow({ label, extra, children }) {
@@ -204,9 +206,32 @@ const GameAdminSettings = () => {
     });
   };
 
+  const dirtyCount = useMemo(() => {
+    if (!setting || !savedSetting) return 0;
+    let count = 0;
+    for (const [key, value] of Object.entries(setting)) {
+      if (
+        value !== null &&
+        typeof value === 'object' &&
+        key !== 'play_turnstile_exempt_games'
+      ) {
+        continue;
+      }
+      if (JSON.stringify(value) !== JSON.stringify(savedSetting[key])) {
+        count++;
+      }
+    }
+    return count;
+  }, [setting, savedSetting]);
+
   if (!setting) {
     return <Spin spinning />;
   }
+
+  const configuredGames = GAME_ORDER.filter((game) => setting[game]);
+  const enabledGamesCount = configuredGames.filter(
+    (game) => setting[game]?.enabled,
+  ).length;
 
   let hotWalletSource = t('也可以通过环境变量 {{env}} 提供私钥', {
     env: hotWallet?.env,
@@ -234,7 +259,7 @@ const GameAdminSettings = () => {
   );
 
   return (
-    <div className='flex flex-col gap-4'>
+    <div className='flex flex-col gap-4 pb-16'>
       <Card
         title={t('运行概览')}
         headerExtraContent={
@@ -248,6 +273,44 @@ const GameAdminSettings = () => {
           </Button>
         }
       >
+        <div className='mb-4 grid grid-cols-2 gap-4 md:grid-cols-4 pb-4 border-b border-[var(--semi-color-border)]'>
+          <div>
+            <Text type='tertiary' size='small'>
+              {t('游戏中心状态')}
+            </Text>
+            <div className='mt-0.5'>
+              <Tag color={setting.enabled ? 'green' : 'grey'}>
+                {setting.enabled ? t('已启用') : t('已关闭')}
+              </Tag>
+            </div>
+          </div>
+          <div>
+            <Text type='tertiary' size='small'>
+              {t('已开放游戏')}
+            </Text>
+            <div className='text-lg font-semibold'>
+              {enabledGamesCount} / {configuredGames.length}
+            </div>
+          </div>
+          <div>
+            <Text type='tertiary' size='small'>
+              {t('今日免费奖励发放')}
+            </Text>
+            <div className='text-lg font-semibold'>
+              {overview?.game_rewards?._free ?? 0} {setting.token_symbol}
+            </div>
+          </div>
+          <div>
+            <Text type='tertiary' size='small'>
+              {t('每日兑换上限')}
+            </Text>
+            <div className='text-lg font-semibold'>
+              {setting.convert_daily_limit > 0
+                ? `${setting.convert_daily_limit} USD`
+                : t('不限制')}
+            </div>
+          </div>
+        </div>
         {hotWallet?.configured ? (
           <div className='grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4'>
             <div>
@@ -699,13 +762,47 @@ const GameAdminSettings = () => {
         </SettingRow>
       </Card>
 
-      <div className='flex items-center justify-between gap-4 flex-wrap'>
-        <Title heading={6} type='tertiary'>
-          {t('1 个游戏币 = 1 美元额度，每人每天最多兑换 15 美元额度')}
-        </Title>
-        <Button theme='solid' loading={saving} onClick={save}>
-          {t('保存设置')}
-        </Button>
+      <div
+        className={`sticky bottom-4 z-20 flex flex-wrap items-center justify-between gap-3 rounded-xl border px-4 py-3 shadow-md ${
+          dirtyCount > 0
+            ? 'border-[var(--semi-color-warning)] bg-[var(--semi-color-bg-2)]'
+            : 'border-[var(--semi-color-border)] bg-[var(--semi-color-bg-1)]'
+        }`}
+      >
+        <div className='flex flex-col gap-0.5'>
+          {dirtyCount > 0 ? (
+            <Text type='warning' strong>
+              {t('有 {{count}} 项基础设置尚未保存', { count: dirtyCount })}
+            </Text>
+          ) : (
+            <Text type='tertiary' size='small'>
+              {setting.convert_daily_limit > 0
+                ? t('1 个游戏币 = 1 美元额度，当前每人每天最多兑换 {{limit}} 美元额度', {
+                    limit: setting.convert_daily_limit,
+                  })
+                : t('1 个游戏币 = 1 美元额度，当前每日兑换额度不限制')}
+            </Text>
+          )}
+        </div>
+        <div className='flex items-center gap-2'>
+          {dirtyCount > 0 && (
+            <Button
+              icon={<RotateCcw size={14} />}
+              disabled={saving}
+              onClick={() => savedSetting && setSetting(savedSetting)}
+            >
+              {t('放弃修改')}
+            </Button>
+          )}
+          <Button
+            theme='solid'
+            loading={saving}
+            disabled={dirtyCount === 0}
+            onClick={save}
+          >
+            {t('保存设置')}
+          </Button>
+        </div>
       </div>
     </div>
   );

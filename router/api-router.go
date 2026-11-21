@@ -178,6 +178,8 @@ func SetApiRouter(router *gin.Engine) {
 			tradeRoute.POST("/loss_order", middleware.UserCriticalRateLimit("trade-loss-order"), controller.SetTradeLossOrder)
 			tradeRoute.POST("/bonus/claim", middleware.UserCriticalRateLimit("trade-bonus"), controller.ClaimTradeBonus)
 			tradeRoute.POST("/bonus/forfeit", middleware.UserCriticalRateLimit("trade-bonus"), controller.ForfeitTradeBonus)
+			tradeRoute.GET("/bonus/ranking", controller.GetTradeRankingBonus)
+			tradeRoute.POST("/bonus/ranking/claim", middleware.UserCriticalRateLimit("trade-bonus"), controller.ClaimTradeRankingBonus)
 			// 行情与 K 线是只读数据；停用新交易后仍须给已有持仓提供卖出入口。
 			tradeRoute.GET("/market", controller.GetTradeMarket)
 			tradeRoute.GET("/klines", controller.GetTradeKlines)

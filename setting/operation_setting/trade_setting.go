@@ -91,6 +91,13 @@ type TradeSetting struct {
 	// 模拟盘成交额折算为游戏币有效解锁流水的万分比(10000 = 100%)。
 	TradeWagerSpotBps    int `json:"trade_wager_spot_bps"`
 	TradeWagerFuturesBps int `json:"trade_wager_futures_bps"`
+
+	// 排行榜（修士榜上期消费额度榜）模拟盘体验金奖励：
+	// 按上一已结束自然周期（昨日或上周）的消费额度前 N 名发放分级体验金，第 1 名 100%，第 2–3 名 70%，第 4–N 名 40%。
+	RankingBonusEnabled   bool   `json:"ranking_bonus_enabled"`
+	RankingBonusPeriod    string `json:"ranking_bonus_period"`
+	RankingBonusTopN      int    `json:"ranking_bonus_top_n"`
+	RankingBonusAmountUsd int    `json:"ranking_bonus_amount_usd"`
 }
 
 // 品种的种类，决定前端放在哪个分组里。
@@ -166,7 +173,23 @@ const (
 	TradeMaxBonusAmountUsd  = 100_000
 	TradeMaxBonusActiveDays = 365
 	TradeMaxWagerCreditBps  = 10_000
+	TradeMaxRankingTopN     = 50
 )
+
+// TradeRankingBonusUsd 按名次计算上期排行榜体验金奖励(美元)：第 1 名 100%，第 2–3 名 70%，第 4–topN 名 40%(向下取整，最低 1 美元)。
+func TradeRankingBonusUsd(rank int, topN int, baseUsd int) int {
+	if rank < 1 || topN < 1 || rank > topN || baseUsd <= 0 {
+		return 0
+	}
+	switch {
+	case rank == 1:
+		return baseUsd
+	case rank <= 3:
+		return max(1, baseUsd*70/100)
+	default:
+		return max(1, baseUsd*40/100)
+	}
+}
 
 // tradeSetting 仅作为配置框架(基于反射、无同步)就地修改的暂存区，请求 goroutine 读取下方发布的只读快照。
 var tradeSetting = *DefaultTradeSetting()
@@ -220,6 +243,10 @@ func DefaultTradeSetting() *TradeSetting {
 		BonusTurnstileEnabled:  true,
 		TradeWagerSpotBps:      10000,
 		TradeWagerFuturesBps:   3000,
+		RankingBonusEnabled:    false,
+		RankingBonusPeriod:     TradeBonusPeriodWeekly,
+		RankingBonusTopN:       10,
+		RankingBonusAmountUsd:  20,
 	}
 }
 
@@ -337,7 +364,7 @@ func ValidateTradeOption(key string, value string) error {
 			return fmt.Errorf("代理地址必须是 http 或 socks5 地址")
 		}
 	case "futures_enabled", "leaderboard_enabled", "insights_enabled", "prediction_enabled",
-		"bonus_enabled", "bonus_match_enabled", "bonus_turnstile_enabled":
+		"bonus_enabled", "bonus_match_enabled", "bonus_turnstile_enabled", "ranking_bonus_enabled":
 		if _, err := strconv.ParseBool(value); err != nil {
 			return fmt.Errorf("%s 必须是 true 或 false", field)
 		}
@@ -366,6 +393,14 @@ func ValidateTradeOption(key string, value string) error {
 		return validateTradeInt(value, 0, TradeMaxWagerCreditBps, "现货与预测成交折算游戏流水比例")
 	case "trade_wager_futures_bps":
 		return validateTradeInt(value, 0, TradeMaxWagerCreditBps, "合约成交折算游戏流水比例")
+	case "ranking_bonus_period":
+		if value != TradeBonusPeriodDaily && value != TradeBonusPeriodWeekly {
+			return fmt.Errorf("榜单奖励周期只能是 %s 或 %s", TradeBonusPeriodDaily, TradeBonusPeriodWeekly)
+		}
+	case "ranking_bonus_top_n":
+		return validateTradeInt(value, 1, TradeMaxRankingTopN, "榜单奖励前 N 名")
+	case "ranking_bonus_amount_usd":
+		return validateTradeInt(value, 0, TradeMaxBonusAmountUsd, "榜单榜首体验金金额")
 	case "futures_symbols":
 		var symbols []string
 		if err := common.UnmarshalJsonStr(value, &symbols); err != nil {

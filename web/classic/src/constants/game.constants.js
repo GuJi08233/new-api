@@ -72,6 +72,7 @@ export const getGameLevelNames = (t) => ({
   watersort: [t('4 种颜色'), t('6 种颜色'), t('8 种颜色')],
   onestroke: ['5×5', '6×6', '7×7'],
   match3: [t('简单'), t('普通'), t('困难')],
+  flood: ['8×8', '10×10', '12×12'],
   // 问道的成绩是九幽秘境打通的重数，读作「打通第 3 重」。
   wendao: Array.from({ length: 30 }, (_, i) =>
     t('第 {{act}} 重', { act: i + 1 }),
@@ -100,6 +101,7 @@ export const GAME_ORDER = [
   'watersort',
   'onestroke',
   'match3',
+  'flood',
   'wendao',
   'wendao_tournament',
   'gomoku',
@@ -148,6 +150,7 @@ export const GAME_SECTIONS = [
       'watersort',
       'onestroke',
       'match3',
+      'flood',
     ],
   },
   {
@@ -338,6 +341,14 @@ export const getGameMetaMap = (t) => ({
     kind: 'skill',
     name: t('宝石消除'),
     description: t('交换相邻宝石连成三颗，连锁消除，在步数内冲到目标分'),
+    score: 'level',
+    scoreName: t('难度'),
+    isNew: true,
+  },
+  flood: {
+    kind: 'skill',
+    name: t('色块漫染'),
+    description: t('从左上角逐次染色扩张连通区域，在限定步数内把全盘染成一色'),
     score: 'level',
     scoreName: t('难度'),
     isNew: true,

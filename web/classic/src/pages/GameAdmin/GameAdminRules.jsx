@@ -17,12 +17,16 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Button,
   Card,
   Collapse,
+  Empty,
+  Input,
   InputNumber,
+  Radio,
+  RadioGroup,
   Select,
   Spin,
   Switch,
@@ -30,6 +34,14 @@ import {
   Typography,
 } from '@douyinfe/semi-ui';
 import { IconDelete, IconPlus, IconRefresh } from '@douyinfe/semi-icons';
+import {
+  CheckSquare,
+  ChevronsDownUp,
+  ChevronsUpDown,
+  RotateCcw,
+  Search,
+  Square,
+} from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { API, showError, showSuccess, showWarning } from '../../helpers';
 import {
@@ -439,7 +451,7 @@ function JackpotRuleFields({ rule, onChange, symbol }) {
   );
 }
 
-// 游戏规则页：按结算方式分组，每个游戏一个折叠面板，保存时只提交改动过的游戏与子字段，服务端合并进当前规则。
+// 游戏规则页：支持搜索、按分类/状态筛选、列表内联开关、分组批量开关与吸底保存条；保存时只提交改动过的游戏与子字段。
 const GameAdminRules = () => {
   const { t } = useTranslation();
   const [setting, setSetting] = useState(null);
@@ -447,6 +459,10 @@ const GameAdminRules = () => {
   const [overview, setOverview] = useState(null);
   const [maxTierScores, setMaxTierScores] = useState({});
   const [saving, setSaving] = useState(false);
+  const [query, setQuery] = useState('');
+  const [kindFilter, setKindFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [activeKeys, setActiveKeys] = useState([]);
 
   // 概览要查热钱包余额，节点慢或出错时不能拖住规则的加载：两者分开请求，概览失败只是不显示概览。
   const load = () => {
@@ -472,11 +488,24 @@ const GameAdminRules = () => {
     load();
   }, []);
 
+  const metaMap = useMemo(() => getGameMetaMap(t), [t]);
+  const kindMap = useMemo(() => getGameKindMap(t), [t]);
+  const levelNames = useMemo(() => getGameLevelNames(t), [t]);
+
+  const dirtyGames = useMemo(() => {
+    const set = new Set();
+    if (!setting || !savedSetting) return set;
+    for (const game of GAME_ORDER) {
+      if (!setting[game]) continue;
+      if (JSON.stringify(setting[game]) !== JSON.stringify(savedSetting[game])) {
+        set.add(game);
+      }
+    }
+    return set;
+  }, [setting, savedSetting]);
+
   if (!setting) return <Spin spinning />;
 
-  const metaMap = getGameMetaMap(t);
-  const kindMap = getGameKindMap(t);
-  const levelNames = getGameLevelNames(t);
   const symbol = setting.token_symbol;
   const rewards = overview?.game_rewards || {};
 
@@ -485,6 +514,23 @@ const GameAdminRules = () => {
       ...previous,
       [game]: { ...previous[game], ...changes },
     }));
+
+  const setGroupEnabled = (games, enabled) =>
+    setSetting((previous) => {
+      const next = { ...previous };
+      for (const game of games) {
+        if (next[game]) {
+          next[game] = { ...next[game], enabled };
+        }
+      }
+      return next;
+    });
+
+  const resetUnsaved = () => {
+    if (savedSetting) {
+      setSetting(savedSetting);
+    }
+  };
 
   const save = async () => {
     const changes = {};
@@ -570,55 +616,309 @@ const GameAdminRules = () => {
     return value > 0 ? `+${value}` : `${value}`;
   };
 
-  return (
-    <div className='flex flex-col gap-4'>
-      {GAME_KINDS.map((kind) => {
-        const games = GAME_ORDER.filter(
-          (game) => metaMap[game]?.kind === kind && setting[game],
+  const ruleBrief = (game, meta, rule) => {
+    if (meta.kind === 'skill') {
+      const maxCoins = rule.tiers?.length
+        ? rule.tiers[rule.tiers.length - 1].coins
+        : 0;
+      return t('日限 {{times}} 次 · 最高 {{coins}} {{symbol}}', {
+        times: rule.daily_rewards || 0,
+        coins: maxCoins,
+        symbol,
+      });
+    }
+    if (meta.kind === 'pvp') {
+      return t('押注 ≤ {{stake}} {{symbol}} · 抽成 {{rake}}%{{ai}}', {
+        stake: rule.max_stake || 0,
+        symbol,
+        rake: rule.rake_percent || 0,
+        ai: rule.ai?.enabled ? ` · ${t('含人机')}` : '',
+      });
+    }
+    if (meta.kind === 'party') {
+      return t('投入 ≤ {{bet}} {{symbol}} · {{sec}}s · 抽成 {{rake}}%', {
+        bet: rule.max_bet || 0,
+        symbol,
+        sec: rule.round_seconds || 0,
+        rake: rule.rake_percent || 0,
+      });
+    }
+    if (game === 'wheel') {
+      return t('免费 {{free}} 次 · {{cost}} {{symbol}}/次', {
+        free: rule.free_spins || 0,
+        cost: rule.spin_cost || 0,
+        symbol,
+      });
+    }
+    return rule.rtp_percent !== undefined
+      ? t('下注 ≤ {{bet}} {{symbol}} · RTP {{rtp}}%', {
+          bet: rule.max_bet || 0,
+          symbol,
+          rtp: rule.rtp_percent,
+        })
+      : t('下注 ≤ {{bet}} {{symbol}}', {
+          bet: rule.max_bet || 0,
+          symbol,
+        });
+  };
+
+  const allConfiguredGames = GAME_ORDER.filter(
+    (game) => metaMap[game] && setting[game],
+  );
+  const totalEnabledCount = allConfiguredGames.filter(
+    (game) => setting[game].enabled,
+  ).length;
+  const totalTodayNet = allConfiguredGames.reduce(
+    (sum, game) => sum + (rewards[game] || 0) + (rewards[`${game}_ai`] || 0),
+    0,
+  );
+
+  const keyword = query.trim().toLowerCase();
+  const visibleGroups = GAME_KINDS.filter(
+    (kind) => kindFilter === 'all' || kindFilter === kind,
+  )
+    .map((kind) => {
+      const games = allConfiguredGames.filter((game) => {
+        const meta = metaMap[game];
+        if (meta.kind !== kind) return false;
+        const rule = setting[game];
+        if (statusFilter === 'enabled' && !rule.enabled) return false;
+        if (statusFilter === 'disabled' && rule.enabled) return false;
+        if (statusFilter === 'dirty' && !dirtyGames.has(game)) return false;
+        if (!keyword) return true;
+        return (
+          game.toLowerCase().includes(keyword) ||
+          meta.name.toLowerCase().includes(keyword) ||
+          meta.description.toLowerCase().includes(keyword)
         );
+      });
+      return { kind, games };
+    })
+    .filter((group) => group.games.length > 0);
+
+  const visibleGameKeys = visibleGroups.flatMap((group) => group.games);
+  const allExpanded =
+    visibleGameKeys.length > 0 &&
+    visibleGameKeys.every((key) => activeKeys.includes(key));
+
+  return (
+    <div className='flex flex-col gap-4 pb-16'>
+      <Card>
+        <div className='grid grid-cols-2 gap-4 md:grid-cols-4'>
+          <div>
+            <Text type='tertiary' size='small'>
+              {t('已开放游戏')}
+            </Text>
+            <div className='text-lg font-semibold'>
+              {totalEnabledCount} / {allConfiguredGames.length}
+            </div>
+          </div>
+          <div>
+            <Text type='tertiary' size='small'>
+              {t('总开关状态')}
+            </Text>
+            <div className='mt-0.5'>
+              <Tag color={setting.enabled ? 'green' : 'grey'}>
+                {setting.enabled ? t('游戏中心已启用') : t('游戏中心已关闭')}
+              </Tag>
+            </div>
+          </div>
+          <div>
+            <Text type='tertiary' size='small'>
+              {t('今日净发放合计')}
+            </Text>
+            <div className='text-lg font-semibold'>
+              {totalTodayNet > 0 ? `+${totalTodayNet}` : totalTodayNet} {symbol}
+            </div>
+          </div>
+          <div>
+            <Text type='tertiary' size='small'>
+              {t('待保存修改')}
+            </Text>
+            <div className='text-lg font-semibold'>
+              {dirtyGames.size > 0 ? (
+                <Text type='warning'>
+                  {t('{{count}} 款游戏', { count: dirtyGames.size })}
+                </Text>
+              ) : (
+                t('无')
+              )}
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      <Card>
+        <div className='flex flex-col gap-3'>
+          <div className='flex flex-wrap items-center justify-between gap-3'>
+            <div className='flex flex-wrap items-center gap-2'>
+              <Input
+                style={{ width: 240 }}
+                prefix={<Search size={15} className='ml-2' />}
+                value={query}
+                onChange={setQuery}
+                showClear
+                placeholder={t('搜索游戏名称或标识')}
+              />
+              <RadioGroup
+                type='button'
+                value={kindFilter}
+                onChange={(e) => setKindFilter(e.target.value)}
+              >
+                <Radio value='all'>{t('全部分类')}</Radio>
+                {GAME_KINDS.map((kind) => (
+                  <Radio key={kind} value={kind}>
+                    {kindMap[kind].name}
+                  </Radio>
+                ))}
+              </RadioGroup>
+            </div>
+            <div className='flex flex-wrap items-center gap-2'>
+              <Select
+                value={statusFilter}
+                onChange={setStatusFilter}
+                style={{ width: 130 }}
+                optionList={[
+                  { value: 'all', label: t('全部状态') },
+                  { value: 'enabled', label: t('已开放') },
+                  { value: 'disabled', label: t('未开放') },
+                  {
+                    value: 'dirty',
+                    label: t('已修改 ({{count}})', { count: dirtyGames.size }),
+                  },
+                ]}
+              />
+              <Button
+                icon={
+                  allExpanded ? (
+                    <ChevronsDownUp size={15} />
+                  ) : (
+                    <ChevronsUpDown size={15} />
+                  )
+                }
+                disabled={visibleGameKeys.length === 0}
+                onClick={() =>
+                  setActiveKeys(allExpanded ? [] : visibleGameKeys)
+                }
+              >
+                {allExpanded ? t('全部收起') : t('全部展开')}
+              </Button>
+              <Button icon={<IconRefresh />} theme='light' onClick={load}>
+                {t('刷新')}
+              </Button>
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      {visibleGroups.length === 0 && (
+        <Card>
+          <Empty description={t('没有符合筛选条件的游戏')} />
+        </Card>
+      )}
+
+      {visibleGroups.map(({ kind, games }) => {
+        const enabledInGroup = games.filter(
+          (game) => setting[game].enabled,
+        ).length;
         return (
           <Card
             key={kind}
-            title={kindMap[kind].name}
-            headerExtraContent={
-              kind === GAME_KINDS[0] && (
-                <Button
-                  icon={<IconRefresh />}
-                  theme='borderless'
-                  onClick={load}
+            title={
+              <div className='flex items-center gap-2 flex-wrap'>
+                <span>{kindMap[kind].name}</span>
+                <Tag
+                  size='small'
+                  color={enabledInGroup > 0 ? 'green' : 'grey'}
                 >
-                  {t('刷新')}
+                  {t('{{enabled}} / {{total}} 已开放', {
+                    enabled: enabledInGroup,
+                    total: games.length,
+                  })}
+                </Tag>
+              </div>
+            }
+            headerExtraContent={
+              <div className='flex items-center gap-2'>
+                <Button
+                  size='small'
+                  theme='borderless'
+                  icon={<CheckSquare size={14} />}
+                  disabled={enabledInGroup === games.length}
+                  onClick={() => setGroupEnabled(games, true)}
+                >
+                  {t('本组全开')}
                 </Button>
-              )
+                <Button
+                  size='small'
+                  theme='borderless'
+                  type='tertiary'
+                  icon={<Square size={14} />}
+                  disabled={enabledInGroup === 0}
+                  onClick={() => setGroupEnabled(games, false)}
+                >
+                  {t('本组全关')}
+                </Button>
+              </div>
             }
           >
             <Text type='tertiary' size='small'>
               {kindMap[kind].description}
             </Text>
-            <Collapse className='mt-2'>
+            <Collapse
+              className='mt-2'
+              activeKey={activeKeys}
+              onChange={(keys) =>
+                setActiveKeys(Array.isArray(keys) ? keys : [keys])
+              }
+            >
               {games.map((game) => {
+                const meta = metaMap[game];
                 const rule = setting[game];
+                const isDirty = dirtyGames.has(game);
                 return (
                   <Collapse.Panel
                     key={game}
                     itemKey={game}
                     header={
-                      <div className='flex items-center gap-3 flex-wrap'>
-                        <span className='font-medium'>
-                          {metaMap[game].name}
-                        </span>
-                        <Tag
-                          color={rule.enabled ? 'green' : 'grey'}
-                          size='small'
-                        >
-                          {rule.enabled ? t('已开放') : t('未开放')}
-                        </Tag>
-                        <Text type='tertiary' size='small'>
-                          {t('今日净发放 {{value}} {{symbol}}', {
-                            value: todayOf(game),
-                            symbol,
-                          })}
-                        </Text>
+                      <div className='flex items-center justify-between gap-3 flex-wrap w-full pr-2'>
+                        <div className='flex items-center gap-2.5 flex-wrap'>
+                          <span
+                            className='inline-flex items-center'
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <Switch
+                              size='small'
+                              checked={!!rule.enabled}
+                              aria-label={t('开放 {{name}}', {
+                                name: meta.name,
+                              })}
+                              onChange={(value) =>
+                                setRule(game, { enabled: value })
+                              }
+                            />
+                          </span>
+                          <span className='font-medium'>{meta.name}</span>
+                          <Text type='tertiary' size='small'>
+                            {game}
+                          </Text>
+                          {isDirty && (
+                            <Tag color='amber' size='small'>
+                              {t('未保存')}
+                            </Tag>
+                          )}
+                        </div>
+                        <div className='flex items-center gap-3 flex-wrap text-xs'>
+                          <Text type='secondary' size='small'>
+                            {ruleBrief(game, meta, rule)}
+                          </Text>
+                          <Text type='tertiary' size='small'>
+                            {t('今日净发放 {{value}} {{symbol}}', {
+                              value: todayOf(game),
+                              symbol,
+                            })}
+                          </Text>
+                        </div>
                       </div>
                     }
                   >
@@ -641,10 +941,46 @@ const GameAdminRules = () => {
           </Card>
         );
       })}
-      <div className='flex items-center justify-end gap-4'>
-        <Button theme='solid' loading={saving} onClick={save}>
-          {t('保存游戏规则')}
-        </Button>
+
+      <div
+        className={`sticky bottom-4 z-20 flex flex-wrap items-center justify-between gap-3 rounded-xl border px-4 py-3 shadow-md ${
+          dirtyGames.size > 0
+            ? 'border-[var(--semi-color-warning)] bg-[var(--semi-color-bg-2)]'
+            : 'border-[var(--semi-color-border)] bg-[var(--semi-color-bg-1)]'
+        }`}
+      >
+        <div className='flex items-center gap-2'>
+          {dirtyGames.size > 0 ? (
+            <Text type='warning' strong>
+              {t('有 {{count}} 款游戏的规则尚未保存', {
+                count: dirtyGames.size,
+              })}
+            </Text>
+          ) : (
+            <Text type='tertiary' size='small'>
+              {t('修改规则或点击行内开关后，在此一键保存')}
+            </Text>
+          )}
+        </div>
+        <div className='flex items-center gap-2'>
+          {dirtyGames.size > 0 && (
+            <Button
+              icon={<RotateCcw size={14} />}
+              disabled={saving}
+              onClick={resetUnsaved}
+            >
+              {t('放弃修改')}
+            </Button>
+          )}
+          <Button
+            theme='solid'
+            loading={saving}
+            disabled={dirtyGames.size === 0}
+            onClick={save}
+          >
+            {t('保存游戏规则')}
+          </Button>
+        </div>
       </div>
     </div>
   );

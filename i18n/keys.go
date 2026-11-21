@@ -493,6 +493,7 @@ const (
 	MsgTradeBonusActiveExists        = "trade.bonus_active_exists"
 	MsgTradeBonusClosePositionsFirst = "trade.bonus_close_positions_first"
 	MsgTradeBonusProfitCap           = "trade.bonus_profit_cap"
+	MsgTradeBonusNotRanked           = "trade.bonus_not_ranked"
 	MsgTradeLossOrderInvalid     = "trade.loss_order_invalid"
 	MsgTradeTransferFailed       = "trade.transfer_failed"
 	MsgTradeLeaderboardDisabled  = "trade.leaderboard_disabled"

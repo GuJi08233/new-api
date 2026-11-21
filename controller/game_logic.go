@@ -9,6 +9,7 @@ import (
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/bulls"
+	"github.com/QuantumNous/new-api/pkg/flood"
 	"github.com/QuantumNous/new-api/pkg/hanoi"
 	"github.com/QuantumNous/new-api/pkg/lightsout"
 	"github.com/QuantumNous/new-api/pkg/match3"
@@ -46,6 +47,7 @@ var logicPuzzles = map[string]logicPuzzle{
 	"watersort":  {name: "倒水排序", undoable: true, secondsPerStep: 6},
 	"onestroke":  {name: "一笔画", undoable: true, secondsPerStep: 6},
 	"match3":     {name: "宝石消除", secondsPerStep: 20},
+	"flood":      {name: "色块漫染", undoable: true, secondsPerStep: 12},
 }
 
 // onestrokeMaxBatch 是一笔画一次请求最多连走几格：页面在手指划过时先画在本地，松手后把这一段一起提交。
@@ -55,7 +57,7 @@ const onestrokeMaxBatch = onestroke.MaxSize * onestroke.MaxSize
 const twentyfourSkip = "skip"
 
 func init() {
-	for _, key := range []string{"lightsout", "hanoi", "nonogram", "twentyfour", "bulls", "watersort", "onestroke", "match3"} {
+	for _, key := range []string{"lightsout", "hanoi", "nonogram", "twentyfour", "bulls", "watersort", "onestroke", "match3", "flood"} {
 		registerGame(&gameDefinition{Key: key, Kind: operation_setting.GameKindSkill,
 			Info: func(ctx *gameContext) (gin.H, error) {
 				rule, _ := ctx.Setting.SkillRuleOf(key)
@@ -63,6 +65,9 @@ func init() {
 				if err == nil && key == "match3" {
 					// 各难度的颜色数、步数与目标分，页面选难度时列出来。
 					info["levels"] = match3.Levels
+				}
+				if err == nil && key == "flood" {
+					info["levels"] = flood.Levels
 				}
 				return info, err
 			},
@@ -163,6 +168,19 @@ func logicPuzzleView(key string, session *model.GameSession, state logicPuzzleSt
 		if n := len(state.Inputs); n > 0 {
 			view["swap"] = gin.H{"cell": state.Inputs[n-1] / 2, "dir": state.Inputs[n-1] % 2}
 		}
+	case "flood":
+		game, err := flood.New(state.Difficulty, uint64(session.Seed))
+		if err != nil {
+			return nil, err
+		}
+		for _, color := range state.Inputs {
+			if err := game.Flood(color); err != nil {
+				return nil, err
+			}
+		}
+		view["board"], view["size"], view["colors"] = game.Board, game.Size, game.Colors
+		view["captured"], view["max_moves"], view["moves_left"] = game.Captured(), game.MaxMoves, game.MovesLeft()
+		view["won"], view["over"] = game.Solved(), game.Over()
 	case "twentyfour":
 		game, err := twentyfour.New(state.Difficulty, uint64(session.Seed))
 		if err != nil {
@@ -297,6 +315,7 @@ func actLogicPuzzle(c *gin.Context, key string) {
 		Version   int    `json:"version"`
 		Action    string `json:"action"`
 		Cell      *int   `json:"cell"`
+		Color     *int   `json:"color"`
 		From      *int   `json:"from"`
 		To        *int   `json:"to"`
 		// Cells 是一笔画一次连走的几格，Dir 是宝石消除交换的方向(0 右边、1 下面)，Steps 是一次撤销几步(默认一步)。
@@ -359,6 +378,12 @@ func actLogicPuzzle(c *gin.Context, key string) {
 				return
 			}
 			state.Inputs = append(state.Inputs, *req.Cell*2+*req.Dir)
+		case "flood":
+			if req.Color == nil || *req.Color < 0 || *req.Color >= flood.Levels[state.Difficulty].Colors {
+				common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+				return
+			}
+			state.Inputs = append(state.Inputs, *req.Color)
 		default:
 			common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 			return

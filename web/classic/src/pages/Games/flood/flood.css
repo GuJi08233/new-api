@@ -1,0 +1,164 @@
+/*
+Copyright (C) 2025 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+
+.flood-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+.flood-progress-wrap {
+  width: min(100%, 420px);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.flood-progress-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--semi-color-text-2);
+}
+
+.flood-progress-bar {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--semi-color-fill-1);
+  overflow: hidden;
+}
+
+.flood-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #3b82f6, #10b981);
+  transition: width 240ms ease;
+}
+
+.flood-board {
+  display: grid;
+  width: min(100%, 420px);
+  aspect-ratio: 1;
+  padding: 6px;
+  border-radius: 14px;
+  background: var(--semi-color-bg-2);
+  border: 1px solid var(--semi-color-border);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+  gap: 2px;
+}
+
+.flood-cell {
+  position: relative;
+  border: 0;
+  border-radius: 5px;
+  padding: 0;
+  cursor: pointer;
+  transition:
+    background-color 220ms ease,
+    transform 160ms ease,
+    border-radius 220ms ease;
+}
+
+.flood-cell:hover:not(:disabled) {
+  transform: scale(1.06);
+  z-index: 1;
+}
+
+.flood-cell.is-captured {
+  border-radius: 3px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.2);
+}
+
+.flood-cell.is-origin::after {
+  content: '';
+  position: absolute;
+  inset: 30%;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.25);
+}
+
+.flood-palette {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+  width: min(100%, 420px);
+}
+
+.flood-swatch {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  height: 54px;
+  border-radius: 12px;
+  border: 2px solid transparent;
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.14);
+  transition:
+    transform 150ms ease,
+    opacity 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.flood-swatch:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.2);
+}
+
+.flood-swatch:disabled {
+  cursor: not-allowed;
+  opacity: 0.38;
+  transform: none;
+  box-shadow: none;
+}
+
+.flood-swatch.is-current {
+  border-color: var(--semi-color-text-0);
+  opacity: 0.55;
+}
+
+.flood-swatch-key {
+  font-size: 11px;
+  opacity: 0.85;
+  line-height: 1;
+}
+
+.flood-swatch-gain {
+  font-size: 12px;
+  line-height: 1.1;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+
+.flood-low-moves {
+  color: var(--semi-color-danger);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flood-progress-fill,
+  .flood-cell,
+  .flood-swatch {
+    transition: none;
+  }
+}

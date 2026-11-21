@@ -917,6 +917,8 @@ func respondTradeTransferError(c *gin.Context, setting *operation_setting.TradeS
 		common.ApiErrorI18n(c, i18n.MsgTradeBonusClosePositionsFirst)
 	case errors.Is(err, model.ErrTradeBonusProfitCap):
 		common.ApiErrorI18n(c, i18n.MsgTradeBonusProfitCap, map[string]any{"Max": setting.BonusFirstProfitCapUsd})
+	case errors.Is(err, model.ErrTradeBonusNotRanked):
+		common.ApiErrorI18n(c, i18n.MsgTradeBonusNotRanked)
 	case errors.Is(err, model.ErrQuotaOutOfRange):
 		common.ApiErrorI18n(c, i18n.MsgQuotaExceedMax)
 	case errors.Is(err, model.ErrTradeMarkUnavailable):
@@ -982,6 +984,152 @@ func ForfeitTradeBonus(c *gin.Context) {
 		return
 	}
 	common.ApiSuccess(c, view)
+}
+
+func resolveTradeRankingBonusContext(userId int, setting *operation_setting.TradeSetting, now time.Time) (gin.H, string, int, int, error) {
+	periodMode := setting.RankingBonusPeriod
+	if periodMode != operation_setting.TradeBonusPeriodDaily {
+		periodMode = operation_setting.TradeBonusPeriodWeekly
+	}
+	rankingArg := "week"
+	if periodMode == operation_setting.TradeBonusPeriodDaily {
+		rankingArg = "today"
+	}
+	window, err := service.ResolveRankingPeriod(rankingArg, now)
+	if err != nil {
+		return nil, "", 0, 0, err
+	}
+	prevStart := time.Unix(window.PreviousStart, 0).In(now.Location())
+	periodKey := model.TradeBonusPeriodKey(prevStart, periodMode)
+
+	enabled := setting.Enabled && setting.RankingBonusEnabled && setting.RankingBonusTopN > 0 && setting.RankingBonusAmountUsd > 0
+	topN := setting.RankingBonusTopN
+	baseUsd := setting.RankingBonusAmountUsd
+
+	tiers := make([]gin.H, 0, 3)
+	if topN >= 1 && baseUsd > 0 {
+		tiers = append(tiers, gin.H{"from": 1, "to": 1, "amount_usd": operation_setting.TradeRankingBonusUsd(1, topN, baseUsd)})
+	}
+	if topN >= 2 && baseUsd > 0 {
+		tiers = append(tiers, gin.H{"from": 2, "to": min(3, topN), "amount_usd": operation_setting.TradeRankingBonusUsd(2, topN, baseUsd)})
+	}
+	if topN >= 4 && baseUsd > 0 {
+		tiers = append(tiers, gin.H{"from": 4, "to": topN, "amount_usd": operation_setting.TradeRankingBonusUsd(4, topN, baseUsd)})
+	}
+
+	myRank := 0
+	rewardUsd := 0
+	claimed := false
+	activeBonus := 0
+	poolRemaining := 0
+	perUsd := 1
+	if enabled {
+		rows, err := model.GetUserRankings(window.PreviousStart, window.PreviousEnd, model.UserRankingByQuota, topN)
+		if err != nil {
+			return nil, "", 0, 0, err
+		}
+		for i, row := range rows {
+			if row.UserID == userId {
+				myRank = i + 1
+				break
+			}
+		}
+		rewardUsd = operation_setting.TradeRankingBonusUsd(myRank, topN, baseUsd)
+		if claimed, err = model.HasTradeBonusClaimed(userId, model.TradeBonusModeRanking, periodKey); err != nil {
+			return nil, "", 0, 0, err
+		}
+		account, err := model.GetTradeAccount(userId)
+		if err != nil {
+			return nil, "", 0, 0, err
+		}
+		activeBonus = account.BonusPrincipal
+		if perUsd, err = model.TradeQuotaPerUsd(); err != nil {
+			return nil, "", 0, 0, err
+		}
+		if setting.BonusPoolDailyUsd > 0 {
+			poolUsed, err := model.GetTradeBonusPoolDayUsed(tradeDay(now))
+			if err != nil {
+				return nil, "", 0, 0, err
+			}
+			poolCap, err := common.QuotaFromDecimalStrict(decimal.NewFromInt(int64(setting.BonusPoolDailyUsd)).Mul(decimal.NewFromInt(int64(perUsd))))
+			if err != nil {
+				return nil, "", 0, 0, err
+			}
+			poolRemaining = max(poolCap-poolUsed, 0)
+		}
+	}
+
+	data := gin.H{
+		"enabled":            enabled,
+		"period":             periodMode,
+		"period_key":         periodKey,
+		"window_start":       window.PreviousStart,
+		"window_end":         window.PreviousEnd,
+		"top_n":              topN,
+		"base_amount_usd":    baseUsd,
+		"tiers":              tiers,
+		"my_rank":            myRank,
+		"reward_usd":         rewardUsd,
+		"claimed":            claimed,
+		"active_bonus":       activeBonus,
+		"quota_per_unit":     perUsd,
+		"pool_daily_usd":     setting.BonusPoolDailyUsd,
+		"pool_remaining":     poolRemaining,
+		"can_claim":          enabled && rewardUsd > 0 && !claimed && activeBonus == 0,
+		"turnstile_required": setting.BonusTurnstileEnabled && common.TurnstileCheckEnabled,
+		"site_key":           common.TurnstileSiteKey,
+	}
+	return data, periodKey, myRank, rewardUsd, nil
+}
+
+// GetTradeRankingBonus 返回上一已结束周期修士榜(消费额度)对应的模拟盘体验金奖励状态与当前用户资格。
+func GetTradeRankingBonus(c *gin.Context) {
+	setting := operation_setting.GetTradeSetting()
+	data, _, _, _, err := resolveTradeRankingBonusContext(c.GetInt("id"), setting, time.Now())
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, data)
+}
+
+// ClaimTradeRankingBonus 领取上一已结束周期排行榜达标的模拟盘体验金。
+func ClaimTradeRankingBonus(c *gin.Context) {
+	setting := operation_setting.GetTradeSetting()
+	if !setting.Enabled || !setting.RankingBonusEnabled || setting.RankingBonusTopN <= 0 || setting.RankingBonusAmountUsd <= 0 {
+		common.ApiErrorI18n(c, i18n.MsgTradeBonusDisabled)
+		return
+	}
+	var req tradeBonusClaimRequest
+	_ = common.DecodeJson(c.Request.Body, &req)
+	userId := c.GetInt("id")
+	if !passTradeBonusTurnstile(c, setting, req.Turnstile, userId) {
+		return
+	}
+	now := time.Now()
+	_, periodKey, myRank, rewardUsd, err := resolveTradeRankingBonusContext(userId, setting, now)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if myRank == 0 || rewardUsd <= 0 {
+		common.ApiErrorI18n(c, i18n.MsgTradeBonusNotRanked)
+		return
+	}
+	_, bonusQuota, err := model.ClaimTradeRankingBonus(userId, periodKey, rewardUsd, gameRewardIpKey(c.ClientIP()), tradeDay(now))
+	if err != nil {
+		respondTradeTransferError(c, setting, userId, err)
+		return
+	}
+	model.RecordAuditLog(model.ClientLogSource(c), userId, "", model.LogTypeSystem,
+		fmt.Sprintf("领取上期排行榜(#%d)模拟盘体验金 %s", myRank, logger.LogQuota(bonusQuota)),
+		map[string]interface{}{"bonus_granted": bonusQuota, "bonus_mode": model.TradeBonusModeRanking, "rank": myRank, "period": periodKey})
+	data, _, _, _, err := resolveTradeRankingBonusContext(userId, setting, now)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, data)
 }
 
 // SetTradeLossOrder 设置亏损抵扣顺序：coin_first 先扣游戏币、再扣平台额度，quota_first 反过来。它决定转账时亏损先记到哪一种本金上

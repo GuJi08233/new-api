@@ -88,6 +88,7 @@ type GameSetting struct {
 	Watersort   SkillRule `json:"watersort"`
 	Onestroke   SkillRule `json:"onestroke"`
 	Match3      SkillRule `json:"match3"`
+	Flood       SkillRule `json:"flood"`
 	// Wendao 是问道的开关与九幽秘境的领奖规则；WendaoTournament 是问道里宗门大比的开关与领奖规则。
 	Wendao           SkillRule `json:"wendao"`
 	WendaoTournament SkillRule `json:"wendao_tournament"`
@@ -293,6 +294,7 @@ var gameRuleSpecs = map[string]gameRuleSpec{
 	"watersort":   {Kind: GameKindSkill, MaxTierScore: 3},
 	"onestroke":   {Kind: GameKindSkill, MaxTierScore: 3},
 	"match3":      {Kind: GameKindSkill, MaxTierScore: 3},
+	"flood":       {Kind: GameKindSkill, MaxTierScore: 3},
 	// 问道：九幽秘境的成绩是打通的重数，奖励档位最多填到 30 重；
 	// 宗门大比的成绩是连胜场数，最多五场，与 pkg/wendao.MaxTierScore 一致。
 	"wendao":            {Kind: GameKindSkill, MaxTierScore: 30},
@@ -675,6 +677,7 @@ func DefaultGameSetting() *GameSetting {
 		Watersort:   dailyCoinRule(2, 180),
 		Onestroke:   dailyCoinRule(2, 150),
 		Match3:      dailyCoinRule(2, 180),
+		Flood:       dailyCoinRule(2, 150),
 		// 问道的秘境一轮要玩很久，打败第一重首领就能领，时长按免费游戏的上限 5 分钟。问道本身默认关闭；宗门大比随问道
 		// 一起开放，连胜三场领 1 个游戏币：照着对手亮出的招式应对基本都能做到，乱点很难。
 		Wendao:           dailyCoinRule(1, 300),
@@ -773,6 +776,8 @@ func (s *GameSetting) SkillRuleOf(game string) (SkillRule, bool) {
 		return s.Onestroke, true
 	case "match3":
 		return s.Match3, true
+	case "flood":
+		return s.Flood, true
 	case "wendao":
 		return s.Wendao, true
 	case "wendao_tournament":

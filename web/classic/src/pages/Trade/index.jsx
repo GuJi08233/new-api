@@ -27,8 +27,10 @@ import {
   Radio,
   RadioGroup,
   Spin,
+  Tag,
   Typography,
 } from '@douyinfe/semi-ui';
+import { ArrowRightLeft, Gift } from 'lucide-react';
 import { initVChartSemiTheme } from '@visactor/vchart-semi-theme';
 import { useIsMobile } from '../../hooks/common/useIsMobile';
 import AssetsView from './AssetsView';
@@ -256,7 +258,13 @@ const Trade = () => {
       <Empty title={t('市场资讯暂未开放')} />
     );
   } else if (isLeaderboard) {
-    content = <LeaderboardView perUnit={perUnit} t={t} />;
+    content = (
+      <LeaderboardView
+        perUnit={perUnit}
+        onAccountChanged={loadSelf}
+        t={t}
+      />
+    );
   } else if (isAssets) {
     content = (
       <AssetsView
@@ -356,9 +364,9 @@ const Trade = () => {
             t={t}
           />
         )}
-        <div className='flex flex-wrap items-center justify-between gap-3'>
-          <div className='flex flex-wrap items-center gap-4'>
-            <Title heading={3} className='!mb-0'>
+        <div className='trade-topbar'>
+          <div className='flex flex-wrap items-center gap-3 md:gap-4'>
+            <Title heading={4} className='!mb-0'>
               {t('模拟盘')}
             </Title>
             <RadioGroup
@@ -404,20 +412,46 @@ const Trade = () => {
             </RadioGroup>
           </div>
           {self && (
-            <div className='flex items-center gap-4'>
+            <div className='trade-stat-chips'>
               <NoticeBell perUnit={perUnit} onNotice={onNotice} t={t} />
-              <Text type='tertiary' size='small'>
-                {t('总资产')}{' '}
-                <Text strong className='trade-num'>
-                  {formatUsdt(self.valuation?.equity, perUnit)} USDT
+              <div className='trade-stat-chip'>
+                <Text type='tertiary' size='small' className='!text-[11px]'>
+                  {t('总资产')}
                 </Text>
-              </Text>
-              <Text type='tertiary' size='small'>
-                {t('今日盈亏')}{' '}
-                <span className={`trade-num ${trendClass(self.today_pnl)}`}>
+                <div className='flex items-center gap-1.5'>
+                  <Text strong className='trade-num text-sm'>
+                    {formatUsdt(self.valuation?.equity, perUnit)} USDT
+                  </Text>
+                  {(self.bonus?.bonus_principal || 0) > 0 && (
+                    <Tag size='small' color='amber'>
+                      <span className='inline-flex items-center gap-0.5'>
+                        <Gift size={11} />
+                        {t('体验金')}
+                      </span>
+                    </Tag>
+                  )}
+                </div>
+              </div>
+              <div className='trade-stat-chip'>
+                <Text type='tertiary' size='small' className='!text-[11px]'>
+                  {t('今日盈亏')}
+                </Text>
+                <span
+                  className={`trade-num text-sm font-semibold ${trendClass(self.today_pnl)}`}
+                >
                   {formatSignedUsdt(self.today_pnl, perUnit)} USDT
                 </span>
-              </Text>
+              </div>
+              {!isAssets && (
+                <Button
+                  size='small'
+                  theme='light'
+                  icon={<ArrowRightLeft size={14} />}
+                  onClick={() => navigate('/trade/assets')}
+                >
+                  {t('划转')}
+                </Button>
+              )}
             </div>
           )}
         </div>

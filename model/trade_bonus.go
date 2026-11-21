@@ -14,8 +14,9 @@ import (
 )
 
 const (
-	TradeBonusModeFirst = "first" // 新手首次破冰体验金
-	TradeBonusModeMatch = "match" // 任务解锁后的转入 1:1 加赠体验金
+	TradeBonusModeFirst   = "first"   // 新手首次破冰体验金
+	TradeBonusModeMatch   = "match"   // 任务解锁后的转入 1:1 加赠体验金
+	TradeBonusModeRanking = "ranking" // 上期排行榜达标体验金
 
 	TradeBonusPeriodOnce = "once"
 
@@ -35,6 +36,7 @@ var (
 	ErrTradeBonusActiveExists        = errors.New("active trade bonus must be cleared before this action")
 	ErrTradeBonusClosePositionsFirst = errors.New("close all positions, orders, and loans before reclaiming trade bonus")
 	ErrTradeBonusProfitCap           = errors.New("first trade bonus profit withdrawal limit exceeded")
+	ErrTradeBonusNotRanked           = errors.New("user did not qualify for ranking bonus in previous period")
 	ErrTradeQuotaOutExceedsPrincipal = errors.New("game coin principal can only be withdrawn back to game coins")
 )
 
@@ -463,3 +465,68 @@ func creditGameCoinWagerFromTradeTx(tx *gorm.DB, account *TradeAccount, notional
 	}
 	return consumeGameCoinLockedWagerTx(tx, account.UserId, GameCoins(creditQuota))
 }
+
+// ClaimTradeRankingBonus 领取上一已结束周期排行榜达标的模拟盘体验金。
+// 通过 (user_id, "ranking", periodKey) 唯一约束防重领，并受全站每日体验金池与不可叠加活跃体验金约束。
+func ClaimTradeRankingBonus(userId int, periodKey string, amountUsd int, ip string, day string) (*TradeAccount, int, error) {
+	setting := operation_setting.GetTradeSetting()
+	if !setting.Enabled || !setting.RankingBonusEnabled || amountUsd <= 0 || periodKey == "" {
+		return nil, 0, ErrTradeBonusDisabled
+	}
+	perUsd, err := TradeQuotaPerUsd()
+	if err != nil {
+		return nil, 0, err
+	}
+	bonusQuota, err := common.QuotaFromDecimalStrict(decimal.NewFromInt(int64(amountUsd)).Mul(decimal.NewFromInt(int64(perUsd))))
+	if err != nil || bonusQuota < 1 {
+		return nil, 0, ErrTradeAmountInvalid
+	}
+	poolCap := 0
+	if setting.BonusPoolDailyUsd > 0 {
+		poolCap, err = common.QuotaFromDecimalStrict(decimal.NewFromInt(int64(setting.BonusPoolDailyUsd)).Mul(decimal.NewFromInt(int64(perUsd))))
+		if err != nil {
+			return nil, 0, ErrTradeAmountInvalid
+		}
+	}
+	var account *TradeAccount
+	now := common.GetTimestamp()
+	err = DB.Transaction(func(tx *gorm.DB) error {
+		var txErr error
+		if account, txErr = lockTradeAccountTx(tx, userId); txErr != nil {
+			return txErr
+		}
+		if account.BonusPrincipal > 0 {
+			return ErrTradeBonusActiveExists
+		}
+		claim := TradeBonusClaim{
+			UserId:    userId,
+			Kind:      TradeBonusModeRanking,
+			Period:    periodKey,
+			Amount:    bonusQuota,
+			Ip:        ip,
+			CreatedAt: now,
+		}
+		res := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&claim)
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected != 1 {
+			return ErrTradeBonusAlreadyClaimed
+		}
+		if txErr = consumeTradeBonusPoolTx(tx, day, bonusQuota, poolCap); txErr != nil {
+			return txErr
+		}
+		account.Cash += bonusQuota
+		account.BonusPrincipal = bonusQuota
+		account.BonusMode = TradeBonusModeRanking
+		if txErr = saveTradeAccountTx(tx, account); txErr != nil {
+			return txErr
+		}
+		return tradeLedgerTx(tx, account, &TradeLedger{Type: TradeLedgerBonusIn, Amount: bonusQuota})
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+	return account, bonusQuota, nil
+}
+

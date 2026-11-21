@@ -146,3 +146,55 @@ func TestTradeMatchBonusTaskLockLossOrderReclaimAndZeroDeficit(t *testing.T) {
 	assert.Equal(t, tradeUsd(20), user2Quota, "bonus liquidation deficit must never charge user's main quota")
 	_ = common.MaxQuota
 }
+
+func TestTradeRankingBonusClaimDedupePoolAndReclaim(t *testing.T) {
+	truncateTables(t)
+	require.NoError(t, DB.Where("1 = 1").Delete(&TradeBonusPoolDay{}).Error)
+	require.NoError(t, DB.Where("1 = 1").Delete(&TradeBonusClaim{}).Error)
+	enableTradeBonusForTest(t, func(s *operation_setting.TradeSetting) {
+		s.RankingBonusEnabled = true
+		s.RankingBonusPeriod = operation_setting.TradeBonusPeriodWeekly
+		s.RankingBonusTopN = 10
+		s.RankingBonusAmountUsd = 20
+		s.BonusPoolDailyUsd = 30
+	})
+
+	const userId = 6720
+	const userId2 = 6721
+	seedTradeUser(t, userId, 50)
+	seedTradeUser(t, userId2, 0)
+
+	// 允许已有自有资金的用户领取上期榜单体验金。
+	_, err := TransferQuotaToTrade(userId, tradeUsd(10), tradeCashEquity(t, userId))
+	require.NoError(t, err)
+
+	account, granted, err := ClaimTradeRankingBonus(userId, "2026-W46", 20, "10.0.0.20", tradeTestDay)
+	require.NoError(t, err)
+	assert.Equal(t, tradeUsd(20), granted)
+	assert.Equal(t, tradeUsd(30), account.Cash)
+	assert.Equal(t, tradeUsd(10), account.QuotaPrincipal)
+	assert.Equal(t, tradeUsd(20), account.BonusPrincipal)
+	assert.Equal(t, TradeBonusModeRanking, account.BonusMode)
+
+	// 持有活跃体验金期间不可重复领取或叠加其他期。
+	_, _, err = ClaimTradeRankingBonus(userId, "2026-W46", 20, "10.0.0.20", tradeTestDay)
+	require.ErrorIs(t, err, ErrTradeBonusActiveExists)
+
+	// 放弃体验金只回收体验金本金，保留用户自有资金；同一期仍不能重复领取。
+	account, err = ForfeitTradeBonus(userId)
+	require.NoError(t, err)
+	assert.Equal(t, tradeUsd(10), account.Cash)
+	assert.Zero(t, account.BonusPrincipal)
+
+	_, _, err = ClaimTradeRankingBonus(userId, "2026-W46", 20, "10.0.0.20", tradeTestDay)
+	require.ErrorIs(t, err, ErrTradeBonusAlreadyClaimed)
+
+	// 全站每日体验金池仅剩 10U 时，第 2 位用户领 14U 被拒，领 8U 成功。
+	_, _, err = ClaimTradeRankingBonus(userId2, "2026-W46", 14, "10.0.0.21", tradeTestDay)
+	require.ErrorIs(t, err, ErrTradeBonusPoolExhausted)
+	account2, granted2, err := ClaimTradeRankingBonus(userId2, "2026-W46", 8, "10.0.0.21", tradeTestDay)
+	require.NoError(t, err)
+	assert.Equal(t, tradeUsd(8), granted2)
+	assert.Equal(t, tradeUsd(8), account2.Cash)
+}
+

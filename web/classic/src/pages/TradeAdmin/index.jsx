@@ -609,6 +609,50 @@ const TradeAdmin = () => {
                 </Text>
               </div>
             </div>
+            <Title heading={5} className='!mb-0'>
+              {t('排行榜模拟盘体验金奖励')}
+            </Title>
+            <div className='flex flex-wrap items-center gap-4'>
+              <div className='flex items-center gap-2'>
+                <Switch
+                  checked={!!form.ranking_bonus_enabled}
+                  onChange={(value) => change('ranking_bonus_enabled', value)}
+                />
+                <Text>{t('开启上期修士榜体验金奖励')}</Text>
+              </div>
+              <Text type='tertiary' size='small'>
+                {t(
+                  '按上一已结束自然周期的消费额度前 N 名发放分级模拟盘体验金（第 1 名 100%，第 2–3 名 70%，第 4–N 名 40%），共用全站每日体验金池。',
+                )}
+              </Text>
+            </div>
+            <div className='flex flex-col gap-1'>
+              <Text strong>{t('榜单结算周期')}</Text>
+              <RadioGroup
+                type='button'
+                value={form.ranking_bonus_period || 'weekly'}
+                onChange={(e) => change('ranking_bonus_period', e.target.value)}
+              >
+                <Radio value='daily'>{t('按日（昨日榜单）')}</Radio>
+                <Radio value='weekly'>{t('按周（上周榜单）')}</Radio>
+              </RadioGroup>
+            </div>
+            <div className='grid grid-cols-1 gap-4 md:grid-cols-2'>
+              {[
+                [
+                  'ranking_bonus_top_n',
+                  '奖励覆盖名次（前 N 名）',
+                  'max_ranking_top_n',
+                  1,
+                ],
+                [
+                  'ranking_bonus_amount_usd',
+                  '榜首（第 1 名）体验金基准金额(美元)',
+                  'max_bonus_amount_usd',
+                  0,
+                ],
+              ].map(numberField)}
+            </div>
             <div>
               <Button theme='solid' loading={saving} onClick={save}>
                 {t('保存')}

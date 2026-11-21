@@ -25,6 +25,7 @@ import { useTranslation } from 'react-i18next';
 import { API, showError, getLobeHubIcon, renderQuota } from '../../helpers';
 import { useIsMobile } from '../../hooks/common/useIsMobile';
 import { pinePath, ridge } from '../Games/wendao/art/ink';
+import RankingBonusBanner from '../Trade/RankingBonusBanner';
 import './rankings.css';
 
 // ============================================================================
@@ -994,6 +995,7 @@ function UserRankings({ period, onRange }) {
 
   return (
     <div className='rankings-stack'>
+      <RankingBonusBanner showTradeLink />
       <StatStrip
         items={[
           {

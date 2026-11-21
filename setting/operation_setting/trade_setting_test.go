@@ -34,6 +34,10 @@ func TestValidateTradeBonusAndWagerOptions(t *testing.T) {
 		"bonus_turnstile_enabled":    "false",
 		"trade_wager_spot_bps":       "10000",
 		"trade_wager_futures_bps":    "3000",
+		"ranking_bonus_enabled":      "true",
+		"ranking_bonus_period":       "daily",
+		"ranking_bonus_top_n":        "10",
+		"ranking_bonus_amount_usd":   "50",
 	} {
 		assert.NoError(t, ValidateTradeOption(TradeSettingPrefix+key, val), key)
 	}
@@ -45,7 +49,21 @@ func TestValidateTradeBonusAndWagerOptions(t *testing.T) {
 		"bonus_task_wager_coins":     "-5",
 		"trade_wager_spot_bps":       "10001",
 		"trade_wager_futures_bps":    "-1",
+		"ranking_bonus_period":       "monthly",
+		"ranking_bonus_top_n":        "0",
+		"ranking_bonus_amount_usd":   "-1",
 	} {
 		assert.Error(t, ValidateTradeOption(TradeSettingPrefix+key, val), key)
 	}
+}
+
+func TestTradeRankingBonusUsdTiers(t *testing.T) {
+	assert.Equal(t, 0, TradeRankingBonusUsd(0, 10, 20))
+	assert.Equal(t, 0, TradeRankingBonusUsd(11, 10, 20))
+	assert.Equal(t, 20, TradeRankingBonusUsd(1, 10, 20))
+	assert.Equal(t, 14, TradeRankingBonusUsd(2, 10, 20))
+	assert.Equal(t, 14, TradeRankingBonusUsd(3, 10, 20))
+	assert.Equal(t, 8, TradeRankingBonusUsd(4, 10, 20))
+	assert.Equal(t, 8, TradeRankingBonusUsd(10, 10, 20))
+	assert.Equal(t, 1, TradeRankingBonusUsd(5, 10, 1))
 }

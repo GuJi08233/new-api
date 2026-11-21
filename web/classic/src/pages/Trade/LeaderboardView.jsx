@@ -17,10 +17,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Button,
   Empty,
+  Input,
   Radio,
   RadioGroup,
   Spin,
@@ -28,8 +29,9 @@ import {
   Tag,
   Typography,
 } from '@douyinfe/semi-ui';
-import { RefreshCw } from 'lucide-react';
+import { Crown, Medal, RefreshCw, Search } from 'lucide-react';
 import { timestamp2string } from '../../helpers';
+import RankingBonusBanner from './RankingBonusBanner';
 import { formatSignedUsdt, formatUsdt, tradeGet, trendClass } from './api';
 
 const { Text } = Typography;
@@ -41,12 +43,13 @@ function formatReturn(rate) {
 }
 
 // 排行榜：成交过的用户按累计盈亏、收益率或总资产排名，列出前 100 名，上面是自己的名次。名单在服务端隔几分钟才重算一次。
-const LeaderboardView = ({ perUnit, t }) => {
+const LeaderboardView = ({ perUnit, onAccountChanged, t }) => {
   const [sort, setSort] = useState('profit');
   const [board, setBoard] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [search, setSearch] = useState('');
 
   useEffect(() => {
     let alive = true;
@@ -66,10 +69,18 @@ const LeaderboardView = ({ perUnit, t }) => {
     };
   }, [sort, t, refreshKey]);
 
+  const filteredItems = useMemo(() => {
+    const items = board?.items || [];
+    const keyword = search.trim().toLowerCase();
+    if (!keyword) return items;
+    return items.filter((item) => item.name?.toLowerCase().includes(keyword));
+  }, [board, search]);
+
   if (!board) {
     return error ? <Empty title={error} /> : <Spin size='large' />;
   }
 
+  const topThree = (board.items || []).slice(0, 3);
   const me = board.me;
   const minutes = Math.round(board.refresh_seconds / 60);
   const mine = [
@@ -144,6 +155,8 @@ const LeaderboardView = ({ perUnit, t }) => {
 
   return (
     <div className='flex flex-col gap-4'>
+      <RankingBonusBanner compact onClaimed={() => onAccountChanged?.()} />
+
       <div className='trade-card flex flex-col gap-3'>
         <div className='grid grid-cols-2 gap-4 md:grid-cols-4'>
           {mine.map(([label, value, className]) => (
@@ -165,17 +178,102 @@ const LeaderboardView = ({ perUnit, t }) => {
           </Text>
         )}
       </div>
+
+      {topThree.length >= 3 && (
+        <div className='trade-podium'>
+          {topThree.map((item) => (
+            <div
+              key={item.rank}
+              className={`trade-podium-card trade-podium-card-${item.rank}`}
+            >
+              <div className='flex items-center justify-between gap-2'>
+                <div className='flex items-center gap-2 min-w-0'>
+                  {item.rank === 1 ? (
+                    <Crown size={18} style={{ color: '#f59e0b' }} />
+                  ) : (
+                    <Medal
+                      size={18}
+                      style={{
+                        color: item.rank === 2 ? '#94a3b8' : '#d97706',
+                      }}
+                    />
+                  )}
+                  <Text
+                    strong
+                    ellipsis={{ showTooltip: true }}
+                    className='text-base'
+                  >
+                    {item.name}
+                  </Text>
+                  {item.me && (
+                    <Tag size='small' color='blue'>
+                      {t('我')}
+                    </Tag>
+                  )}
+                </div>
+                <Tag
+                  size='small'
+                  color={
+                    item.rank === 1
+                      ? 'amber'
+                      : item.rank === 2
+                        ? 'grey'
+                        : 'orange'
+                  }
+                >
+                  #{item.rank}
+                </Tag>
+              </div>
+              <div className='grid grid-cols-2 gap-2 pt-1 text-xs'>
+                <div>
+                  <Text type='tertiary' size='small'>
+                    {t('累计盈亏')}
+                  </Text>
+                  <div
+                    className={`trade-num text-sm font-semibold ${trendClass(item.profit)}`}
+                  >
+                    {formatSignedUsdt(item.profit, perUnit)} USDT
+                  </div>
+                </div>
+                <div className='text-right'>
+                  <Text type='tertiary' size='small'>
+                    {t('收益率')}
+                  </Text>
+                  <div
+                    className={`trade-num text-sm font-semibold ${trendClass(item.return_rate)}`}
+                  >
+                    {formatReturn(item.return_rate)}
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className='trade-card flex flex-col gap-3'>
         <div className='flex flex-wrap items-center justify-between gap-3'>
-          <RadioGroup
-            type='button'
-            value={sort}
-            onChange={(e) => setSort(e.target.value)}
-          >
-            <Radio value='profit'>{t('累计盈亏')}</Radio>
-            <Radio value='return'>{t('收益率')}</Radio>
-            <Radio value='equity'>{t('总资产')}</Radio>
-          </RadioGroup>
+          <div className='flex flex-wrap items-center gap-3'>
+            <RadioGroup
+              type='button'
+              value={sort}
+              onChange={(e) => setSort(e.target.value)}
+            >
+              <Radio value='profit'>{t('累计盈亏')}</Radio>
+              <Radio value='return'>{t('收益率')}</Radio>
+              <Radio value='equity'>{t('总资产')}</Radio>
+            </RadioGroup>
+            <Input
+              style={{ width: 200 }}
+              size='small'
+              prefix={<Search size={14} className='ml-1.5' />}
+              value={search}
+              onChange={setSearch}
+              showClear
+              placeholder={t('搜索用户')}
+              aria-label={t('搜索用户')}
+            />
+          </div>
           <div className='flex items-center gap-1'>
             {error && (
               <Text type='danger' size='small'>
@@ -203,7 +301,7 @@ const LeaderboardView = ({ perUnit, t }) => {
           size='small'
           rowKey='rank'
           columns={columns}
-          dataSource={board.items}
+          dataSource={filteredItems}
           pagination={{ pageSize: 20 }}
           loading={loading}
           scroll={{ x: 640 }}

@@ -59,3 +59,48 @@ func TestHanoiCompletionPaysOnceAndCanBeReadAfterLostResponse(t *testing.T) {
 	require.NoError(t, env.db.Model(&model.GameCoinLog{}).Where("user_id = ? AND type = ?", player.user.Id, model.GameCoinLogTypeGameReward).Count(&count).Error)
 	assert.Equal(t, int64(1), count)
 }
+
+func TestFloodMoveUndoResetAndFinish(t *testing.T) {
+	env := newGameTestEnv(t, gameSetting(func(s *operation_setting.GameSetting) {
+		s.Flood = operation_setting.SkillRule{Enabled: true, DailyRewards: 1, Tiers: []operation_setting.RewardTier{{Score: 1, Coins: 1}}}
+	}))
+	player := env.player(0, gameTestIpA)
+	started := player.ok(http.MethodPost, "/api/game/flood/start", map[string]any{"difficulty": 1})
+	board := started["board"].([]any)
+	require.Len(t, board, 64)
+	curColor := int(board[0].(float64))
+	nextColor := (curColor + 1) % 6
+
+	// 重复当前颜色应被拒绝
+	player.fails(http.MethodPost, "/api/game/flood/action", map[string]any{
+		"session_id": started["session_id"],
+		"version":    started["version"],
+		"action":     "move",
+		"color":      curColor,
+	})
+
+	moved := player.ok(http.MethodPost, "/api/game/flood/action", map[string]any{
+		"session_id": started["session_id"],
+		"version":    started["version"],
+		"action":     "move",
+		"color":      nextColor,
+	})
+	assert.Equal(t, 1.0, moved["moves"])
+	assert.Equal(t, float64(nextColor), moved["board"].([]any)[0])
+
+	undone := player.ok(http.MethodPost, "/api/game/flood/action", map[string]any{
+		"session_id": moved["session_id"],
+		"version":    moved["version"],
+		"action":     "undo",
+	})
+	assert.Equal(t, 0.0, undone["moves"])
+	assert.Equal(t, float64(curColor), undone["board"].([]any)[0])
+
+	ended := player.ok(http.MethodPost, "/api/game/flood/action", map[string]any{
+		"session_id": undone["session_id"],
+		"version":    undone["version"],
+		"action":     "finish",
+	})
+	assert.Equal(t, "finished", ended["status"])
+}
+
