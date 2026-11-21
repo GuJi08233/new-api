@@ -263,7 +263,8 @@ func DrawGameJackpot(pick func(tickets int) (int, error), day string) (*GameJack
 			if userId == round.WinnerId {
 				net += round.Payout
 				balance, err := creditGameCoinsTx(tx, userId, round.Payout, map[string]interface{}{
-					"total_wager_net": gorm.Expr("total_wager_net + ?", net),
+					"total_wager_net":      gorm.Expr("total_wager_net + ?", net),
+					"withdrawable_balance": gorm.Expr("withdrawable_balance + ?", round.Payout),
 				})
 				if err != nil {
 					return err

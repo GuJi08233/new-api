@@ -302,32 +302,32 @@ const Games = () => {
   }
 
   let depositNotice = t(
-    '充入的游戏币不支持链上提现或换回余额，可畅玩刺激玩法或转入模拟盘',
+    '充入的游戏币不支持换回余额，需通过游戏产出置换后方可链上提现，可畅玩运气玩法或转入模拟盘',
   );
   if (convertEnabled) {
     if (depositWagerMultiplier > 0 && subscriptionEnabled) {
       depositNotice = t(
-        '充入的游戏币不支持链上提现；完成 {{mult}} 倍有效下注或模拟盘交易后可换回余额或买订阅',
+        '充入的游戏币需通过游戏产出置换后方可链上提现；完成 {{mult}} 倍有效下注或模拟盘交易后可换回余额或买订阅',
         { mult: depositWagerMultiplier },
       );
     } else if (depositWagerMultiplier > 0) {
       depositNotice = t(
-        '充入的游戏币不支持链上提现；完成 {{mult}} 倍有效下注或模拟盘交易后可换回余额',
+        '充入的游戏币需通过游戏产出置换后方可链上提现；完成 {{mult}} 倍有效下注或模拟盘交易后可换回余额',
         { mult: depositWagerMultiplier },
       );
     } else {
       depositNotice = t(
-        '充入的游戏币不支持链上提现，可畅玩刺激玩法或转入模拟盘',
+        '充入的游戏币需通过游戏产出置换后方可链上提现，可畅玩运气玩法或转入模拟盘',
       );
     }
   } else if (depositWagerMultiplier > 0 && subscriptionRequiresUnlock) {
     depositNotice = t(
-      '充入的游戏币不支持链上提现或换回余额；完成 {{mult}} 倍有效下注或模拟盘交易后可用于购买订阅',
+      '充入的游戏币不支持换回余额，需通过游戏产出置换后方可链上提现；完成 {{mult}} 倍有效下注或模拟盘交易后可用于购买订阅',
       { mult: depositWagerMultiplier },
     );
   } else if (subscriptionEnabled) {
     depositNotice = t(
-      '充入的游戏币不支持链上提现或换回余额，可用于游戏玩法、模拟盘或购买订阅',
+      '充入的游戏币不支持换回余额，需通过游戏产出置换后方可链上提现，可用于游戏玩法、模拟盘或购买订阅',
     );
   }
   const free = info?.free;
@@ -396,7 +396,7 @@ const Games = () => {
     const depositQuotaText = renderQuota(Math.round(amount * quotaPerCoin));
     const depositCoinsText = formatCoins(amount);
     let depositConfirmContent = t(
-      '将扣除 {{quota}} 平台余额换取 {{coins}} {{symbol}}。转入的游戏币不支持链上提现或换回余额，转入后不可撤回。',
+      '将扣除 {{quota}} 平台余额换取 {{coins}} {{symbol}}。转入的游戏币不支持换回余额且需通过游戏产出置换后方可链上提现，转入后不可撤回。',
       {
         quota: depositQuotaText,
         coins: depositCoinsText,
@@ -406,7 +406,7 @@ const Games = () => {
     if (convertEnabled) {
       if (depositWagerMultiplier > 0 && subscriptionEnabled) {
         depositConfirmContent = t(
-          '将扣除 {{quota}} 平台余额换取 {{coins}} {{symbol}}。转入的游戏币不支持链上提现，完成 {{mult}} 倍有效流水后可兑换回余额或购买订阅。',
+          '将扣除 {{quota}} 平台余额换取 {{coins}} {{symbol}}。转入的游戏币需通过游戏产出置换后方可链上提现，完成 {{mult}} 倍有效流水后可兑换回余额或购买订阅。',
           {
             quota: depositQuotaText,
             coins: depositCoinsText,
@@ -416,7 +416,7 @@ const Games = () => {
         );
       } else if (depositWagerMultiplier > 0) {
         depositConfirmContent = t(
-          '将扣除 {{quota}} 平台余额换取 {{coins}} {{symbol}}。转入的游戏币不支持链上提现，完成 {{mult}} 倍有效流水后可兑换回余额。',
+          '将扣除 {{quota}} 平台余额换取 {{coins}} {{symbol}}。转入的游戏币需通过游戏产出置换后方可链上提现，完成 {{mult}} 倍有效流水后可兑换回余额。',
           {
             quota: depositQuotaText,
             coins: depositCoinsText,
@@ -426,7 +426,7 @@ const Games = () => {
         );
       } else {
         depositConfirmContent = t(
-          '将扣除 {{quota}} 平台余额换取 {{coins}} {{symbol}}。转入的游戏币不支持链上提现，可畅玩刺激玩法或转入模拟盘。',
+          '将扣除 {{quota}} 平台余额换取 {{coins}} {{symbol}}。转入的游戏币需通过游戏产出置换后方可链上提现，可畅玩运气玩法或转入模拟盘。',
           {
             quota: depositQuotaText,
             coins: depositCoinsText,
@@ -436,7 +436,7 @@ const Games = () => {
       }
     } else if (depositWagerMultiplier > 0 && subscriptionRequiresUnlock) {
       depositConfirmContent = t(
-        '将扣除 {{quota}} 平台余额换取 {{coins}} {{symbol}}。转入的游戏币不支持链上提现或换回余额，完成 {{mult}} 倍有效流水后可用于购买订阅。',
+        '将扣除 {{quota}} 平台余额换取 {{coins}} {{symbol}}。转入的游戏币不支持换回余额且需通过游戏产出置换后方可链上提现，完成 {{mult}} 倍有效流水后可用于购买订阅。',
         {
           quota: depositQuotaText,
           coins: depositCoinsText,
@@ -966,7 +966,7 @@ const Games = () => {
                     <>
                       <Text type='tertiary' size='small'>
                         {t(
-                          '可提现至链上余额：{{amount}} {{symbol}}（仅限游戏奖励产出）',
+                          '可提现至链上余额：{{amount}} {{symbol}}（游戏产出可提现，直充需游玩置换）',
                           {
                             amount: formatCoins(withdrawableBalance),
                             symbol,

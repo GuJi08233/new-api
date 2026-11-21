@@ -186,7 +186,7 @@ func GetGameCenterSelf(c *gin.Context) {
 	})
 }
 
-// DepositGameCoins 将平台主余额单向转入游戏币钱包(1 美元 = 1 币，支持小数，不增加链上可提现额度)。
+// DepositGameCoins 将平台主余额单向转入游戏币钱包(1 美元 = 1 币，支持小数，不直接增加链上可提现额度，需通过游戏产出置换)。
 func DepositGameCoins(c *gin.Context) {
 	var req gameCoinConvertRequest
 	if err := decodeGameRequest(c, &req); err != nil || req.Amount < 1 {

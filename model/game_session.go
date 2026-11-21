@@ -618,7 +618,9 @@ func SettleGameWager(userId int, game string, wager GameWager) (*GameWagerResult
 			return err
 		}
 		if win > 0 {
-			if result.Balance, err = creditGameCoinsTx(tx, userId, win, nil); err != nil {
+			if result.Balance, err = creditGameCoinsTx(tx, userId, win, map[string]interface{}{
+				"withdrawable_balance": gorm.Expr("withdrawable_balance + ?", win),
+			}); err != nil {
 				return err
 			}
 		}
@@ -824,7 +826,8 @@ func SettleGameRound(session *GameSession, settlement GameRoundSettlement) (*Gam
 		var err error
 		if win > 0 {
 			result.Balance, err = creditGameCoinsTx(tx, session.UserId, win, map[string]interface{}{
-				"total_wager_net": gorm.Expr("total_wager_net + ?", net),
+				"total_wager_net":      gorm.Expr("total_wager_net + ?", net),
+				"withdrawable_balance": gorm.Expr("withdrawable_balance + ?", win),
 			})
 		} else {
 			err = tx.Model(&GameCoinAccount{}).Where("user_id = ?", session.UserId).Updates(map[string]interface{}{

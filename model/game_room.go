@@ -651,6 +651,9 @@ func settleGameRoomPlayerTx(tx *gorm.DB, room *GameRoom, userId int, net GameCoi
 		fields["updated_at"] = now
 		return tx.Model(&GameCoinAccount{}).Where("user_id = ?", userId).Updates(fields).Error
 	}
+	if event == "win" {
+		fields["withdrawable_balance"] = gorm.Expr("withdrawable_balance + ?", credit)
+	}
 	balance, err := creditGameCoinsTx(tx, userId, credit, fields)
 	if err != nil {
 		return err

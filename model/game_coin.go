@@ -80,7 +80,8 @@ type GameCoinAccount struct {
 	Balance        GameCoins `json:"balance" gorm:"type:bigint;not null;default:0"`
 	// LockedWager 是兑换平台额度或购买订阅前还需完成的有效流水(游戏下注、PVP、奖池与模拟盘成交均计入)。
 	LockedWager GameCoins `json:"locked_wager" gorm:"type:bigint;not null;default:0"`
-	// WithdrawableBalance 是可提现到链上的游戏币上限：仅免费游戏奖励与管理员发放会增加它，平台余额充入与下注/PVP 输赢增量不增加它。
+	// WithdrawableBalance 是可提现到链上的游戏币上限：免费游戏奖励、管理员发放以及下注/奖池/对战获胜的游戏产出都会增加它，
+	// 平台余额直接充入与模拟盘转回不增加它；扣币时优先消耗不可提现部分。
 	WithdrawableBalance GameCoins `json:"withdrawable_balance" gorm:"type:bigint;not null;default:0"`
 	TotalEarned         GameCoins `json:"total_earned" gorm:"type:bigint;not null;default:0"`
 	TotalConverted      GameCoins `json:"total_converted" gorm:"type:bigint;not null;default:0"`
@@ -430,7 +431,7 @@ func GameCenterDay(t time.Time) string {
 	return t.Format("2006-01-02")
 }
 
-// DepositQuotaToGameCoins 将平台主余额单向充入游戏币钱包(1 美元 = 1 币，支持小数)。充入的币不增加链上可提现额度，
+// DepositQuotaToGameCoins 将平台主余额单向充入游戏币钱包(1 美元 = 1 币，支持小数)。充入的币不直接增加链上可提现额度(需参与游戏产出后方可提现)，
 // 并按配置的 DepositWagerMultiplier 计入待完成有效流水。
 func DepositQuotaToGameCoins(userId int, amount GameCoins) (balance GameCoins, lockedWager GameCoins, err error) {
 	setting := operation_setting.GetGameSetting()
