@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -464,9 +465,13 @@ func FinishGameSession(session *GameSession, settlement GameSettlement) (*GameSe
 			return err
 		}
 		result.Balance, err = creditGameCoinsTx(tx, session.UserId, granted, map[string]interface{}{
-			"total_earned": gorm.Expr("total_earned + ?", granted),
+			"total_earned":         gorm.Expr("total_earned + ?", granted),
+			"withdrawable_balance": gorm.Expr("withdrawable_balance + ?", granted),
 		})
 		if err != nil {
+			return err
+		}
+		if err = addGameCoinLockedWagerTx(tx, session.UserId, granted, operation_setting.GetGameSetting().FreeWagerMultiplier); err != nil {
 			return err
 		}
 		return tx.Create(&GameCoinLog{
@@ -552,9 +557,13 @@ func SettleGameFreePlay(userId int, game string, play GameFreePlay) (*GameSettle
 			return err
 		}
 		result.Balance, err = creditGameCoinsTx(tx, userId, win, map[string]interface{}{
-			"total_earned": gorm.Expr("total_earned + ?", win),
+			"total_earned":         gorm.Expr("total_earned + ?", win),
+			"withdrawable_balance": gorm.Expr("withdrawable_balance + ?", win),
 		})
 		if err != nil {
+			return err
+		}
+		if err = addGameCoinLockedWagerTx(tx, userId, win, operation_setting.GetGameSetting().FreeWagerMultiplier); err != nil {
 			return err
 		}
 		return tx.Create(&GameCoinLog{
@@ -610,6 +619,14 @@ func SettleGameWager(userId int, game string, wager GameWager) (*GameWagerResult
 		}
 		if win > 0 {
 			if result.Balance, err = creditGameCoinsTx(tx, userId, win, nil); err != nil {
+				return err
+			}
+		}
+		if err = consumeGameCoinLockedWagerTx(tx, userId, wager.Bet); err != nil {
+			return err
+		}
+		if result.Balance == 0 {
+			if err = resetGameCoinLockedWagerIfEmptyTx(tx, userId); err != nil {
 				return err
 			}
 		}
@@ -820,6 +837,14 @@ func SettleGameRound(session *GameSession, settlement GameRoundSettlement) (*Gam
 		}
 		if err != nil {
 			return err
+		}
+		if err = consumeGameCoinLockedWagerTx(tx, session.UserId, settled.Bet); err != nil {
+			return err
+		}
+		if result.Balance == 0 {
+			if err = resetGameCoinLockedWagerIfEmptyTx(tx, session.UserId); err != nil {
+				return err
+			}
 		}
 		if result.Net, result.Plays, err = recordGameDayResult(tx, session.UserId, session.Game, settlement.Day, net); err != nil {
 			return err

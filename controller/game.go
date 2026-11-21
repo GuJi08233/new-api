@@ -125,17 +125,38 @@ func GetGameCenterSelf(c *gin.Context) {
 		return
 	}
 	setting := ctx.Setting
+	userQuota, err := model.GetUserQuota(ctx.UserId, true)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	convertRemaining := model.GameCoins(0)
+	if convertCap > 0 {
+		convertRemaining = max(convertCap-converted, 0)
+	}
 	_, _, walletErr := service.GameHotWalletAddress()
 	common.ApiSuccess(c, gin.H{
 		"closed":         !setting.Enabled,
 		"account":        account,
+		"user_quota":     userQuota,
 		"quota_per_coin": quotaPerCoin,
 		"games":          games,
-		// 兑换按个人每日累计，1 币对应 1 美元 API 额度，可以有小数，与全站提现池互不占用。
+		"deposit": gin.H{
+			"enabled":          setting.Enabled && setting.DepositEnabled,
+			"wager_multiplier": setting.DepositWagerMultiplier,
+		},
+		// 兑换按个人每日累计，1 币对应 1 美元 API 额度，可以有小数，需先完成有效流水解锁。
 		"convert": gin.H{
-			"daily_limit":     model.GameCoinConvertDailyLimit,
-			"daily_used":      converted,
-			"daily_remaining": max(convertCap-converted, 0),
+			"enabled":               setting.Enabled && setting.ConvertEnabled,
+			"daily_limit":           setting.ConvertDailyLimit,
+			"daily_used":            converted,
+			"daily_remaining":       convertRemaining,
+			"locked_wager":          account.LockedWager,
+			"free_wager_multiplier": setting.FreeWagerMultiplier,
+		},
+		"subscription": gin.H{
+			"enabled":          setting.Enabled && setting.SubscriptionEnabled,
+			"require_unlocked": setting.SubscriptionRequireUnlocked,
 		},
 		// 技巧与人机奖励的每日合计上限(0 表示不限制)，不包含大转盘奖金。
 		"free": gin.H{
@@ -150,21 +171,52 @@ func GetGameCenterSelf(c *gin.Context) {
 			"chain_id":     setting.ChainId,
 			"explorer_url": setting.ExplorerUrl,
 		},
-		// 链上提现只发往绑定的地址，只能提整币；换绑之后 rebind_lock_seconds 秒内不能提现，unlock_at 是恢复的时间。
+		// 链上提现只发往绑定的地址，只能提整币，且不超过可提现余额(withdrawable_balance)。
 		"withdraw": gin.H{
-			"enabled":             setting.Enabled && setting.WithdrawEnabled && setting.ChainConfigured() && walletErr == nil,
-			"min_amount":          setting.WithdrawMinAmount,
-			"max_amount":          setting.WithdrawMaxAmount,
-			"daily_limit":         setting.WithdrawDailyLimit,
-			"daily_remaining":     max(setting.WithdrawDailyLimit-used, 0),
-			"address":             account.WithdrawAddress,
-			"unlock_at":           account.WithdrawUnlockAt,
-			"rebind_lock_seconds": model.GameWithdrawRebindLockSeconds,
+			"enabled":              setting.Enabled && setting.WithdrawEnabled && setting.ChainConfigured() && walletErr == nil,
+			"min_amount":           setting.WithdrawMinAmount,
+			"max_amount":           setting.WithdrawMaxAmount,
+			"daily_limit":          setting.WithdrawDailyLimit,
+			"daily_remaining":      max(setting.WithdrawDailyLimit-used, 0),
+			"withdrawable_balance": min(account.Balance, account.WithdrawableBalance),
+			"address":              account.WithdrawAddress,
+			"unlock_at":            account.WithdrawUnlockAt,
+			"rebind_lock_seconds":  model.GameWithdrawRebindLockSeconds,
 		},
 	})
 }
 
-// ConvertGameCoins 把游戏币单向兑换为主额度，1 币 = 1 美元额度，可以有小数，每人每天最多兑换 15 美元额度。
+// DepositGameCoins 将平台主余额单向转入游戏币钱包(1 美元 = 1 币，支持小数，不增加链上可提现额度)。
+func DepositGameCoins(c *gin.Context) {
+	var req gameCoinConvertRequest
+	if err := decodeGameRequest(c, &req); err != nil || req.Amount < 1 {
+		common.ApiErrorI18n(c, i18n.MsgGameCoinAmountInvalid)
+		return
+	}
+	userId := c.GetInt("id")
+	balance, lockedWager, err := model.DepositQuotaToGameCoins(userId, req.Amount)
+	if err != nil {
+		switch {
+		case errors.Is(err, model.ErrGameCoinDepositDisabled):
+			common.ApiErrorI18n(c, i18n.MsgGameCoinDepositDisabled)
+		case errors.Is(err, model.ErrGameCoinQuotaInsufficient):
+			common.ApiErrorI18n(c, i18n.MsgGameCoinQuotaInsufficient)
+		case errors.Is(err, model.ErrGameCoinAmountInvalid):
+			common.ApiErrorI18n(c, i18n.MsgGameCoinAmountInvalid)
+		default:
+			common.SysError(fmt.Sprintf("game coin deposit failed for user %d: %v", userId, err))
+			common.ApiErrorI18n(c, i18n.MsgGameCoinConvertFailed)
+		}
+		return
+	}
+	quota := int(req.Amount)
+	model.RecordAuditLog(model.ClientLogSource(c), userId, "", model.LogTypeSystem,
+		fmt.Sprintf("平台余额转入游戏币：扣除额度 %s，获得 %s 个游戏币", logger.LogQuota(quota), req.Amount.Decimal()),
+		map[string]interface{}{"game_coins": req.Amount, "quota": quota})
+	common.ApiSuccess(c, gin.H{"quota": quota, "balance": balance, "locked_wager": lockedWager})
+}
+
+// ConvertGameCoins 把已完成有效流水解锁的游戏币兑换为主额度，1 币 = 1 美元额度，可以有小数，受每人每日可配置上限约束。
 func ConvertGameCoins(c *gin.Context) {
 	var req gameCoinConvertRequest
 	if err := decodeGameRequest(c, &req); err != nil || req.Amount < 1 {
@@ -175,8 +227,12 @@ func ConvertGameCoins(c *gin.Context) {
 	quota, balance, err := model.ConvertGameCoinsToQuota(userId, req.Amount)
 	if err != nil {
 		switch {
+		case errors.Is(err, model.ErrGameCoinConvertDisabled):
+			common.ApiErrorI18n(c, i18n.MsgGameCoinConvertDisabled)
+		case errors.Is(err, model.ErrGameCoinLockedWager):
+			common.ApiErrorI18n(c, i18n.MsgGameCoinLockedWager)
 		case errors.Is(err, model.ErrGameCoinConvertDailyLimit):
-			common.ApiErrorI18n(c, i18n.MsgGameCoinConvertDailyLimit, map[string]any{"Limit": model.GameCoinConvertDailyLimit})
+			common.ApiErrorI18n(c, i18n.MsgGameCoinConvertDailyLimit, map[string]any{"Limit": operation_setting.GetGameSetting().ConvertDailyLimit})
 		case errors.Is(err, model.ErrGameCoinInsufficient):
 			common.ApiErrorI18n(c, i18n.MsgGameCoinInsufficient)
 		case errors.Is(err, model.ErrGameCoinAmountInvalid):
@@ -252,9 +308,13 @@ func WithdrawGameCoins(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgGameWithdrawAddressInvalid)
 		return
 	}
-	// 先挡掉余额不够的请求，免得白白消耗一次安全验证；真正的余额检查在扣币的条件更新里。
+	// 先挡掉余额或可提现余额不够的请求，免得白白消耗一次安全验证；真正的检查在扣币事务里。
 	if account.Balance < req.Amount {
 		common.ApiErrorI18n(c, i18n.MsgGameCoinInsufficient)
+		return
+	}
+	if account.WithdrawableBalance < req.Amount {
+		common.ApiErrorI18n(c, i18n.MsgGameCoinWithdrawableInsufficient)
 		return
 	}
 	// 全站当日额度同样先查一次：页面上的剩余额度可能已经被别人用掉，验证之后才被拒绝的话，验证白做、重试还要再验证。
@@ -288,6 +348,8 @@ func WithdrawGameCoins(c *gin.Context) {
 		switch {
 		case errors.Is(err, model.ErrGameCoinInsufficient):
 			common.ApiErrorI18n(c, i18n.MsgGameCoinInsufficient)
+		case errors.Is(err, model.ErrGameCoinWithdrawableInsufficient):
+			common.ApiErrorI18n(c, i18n.MsgGameCoinWithdrawableInsufficient)
 		case errors.Is(err, model.ErrGameWithdrawAddressUnbound):
 			common.ApiErrorI18n(c, i18n.MsgGameWithdrawAddressRequired)
 		case errors.Is(err, model.ErrGameWithdrawAddressChanged):

@@ -17,13 +17,14 @@ import (
 // 在同一个事务里先写下标记再换算，几个主节点同时启动时只有一个能写进标记、做换算，其余的看到标记就跳过；换算出错时标记随事务撤销，
 // 下次启动再做。新装的站点没有数据，只写标记。
 const gameCoinUnitsOption = "GameCoinUnits"
+const gameCoinWithdrawableOption = "GameCoinWithdrawableInit"
 
 // gameCoinUnitColumns 是按游戏币记账的列。提现单的 amount 是链上发放的整币数，不换算，另把扣下的游戏币补进 units。
 var gameCoinUnitColumns = []struct {
 	model   any
 	columns []string
 }{
-	{&GameCoinAccount{}, []string{"balance", "total_earned", "total_converted", "total_withdrawn", "total_wager_net", "total_wagered"}},
+	{&GameCoinAccount{}, []string{"balance", "locked_wager", "withdrawable_balance", "total_earned", "total_converted", "total_withdrawn", "total_wager_net", "total_wagered"}},
 	{&GameCoinLog{}, []string{"amount", "balance"}},
 	{&GameCoinConvertDay{}, []string{"used"}},
 	{&GameSession{}, []string{"bet", "reward"}},
@@ -40,7 +41,7 @@ var gameCoinUnitColumns = []struct {
 var gameCoinWagerGames = []string{"slots", "wheel", "plinko", "dice", "roulette", "blackjack", "mines", "hilo", "crash", "scratch"}
 
 func migrateGameCoinUnits() error {
-	return DB.Transaction(func(tx *gorm.DB) error {
+	if err := DB.Transaction(func(tx *gorm.DB) error {
 		claim := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&Option{Key: gameCoinUnitsOption, Value: "1"})
 		if claim.Error != nil {
 			return claim.Error
@@ -75,6 +76,26 @@ func migrateGameCoinUnits() error {
 		}
 		common.SysLog(fmt.Sprintf("game coins migrated to quota units, 1 coin = %d", unit))
 		return nil
+	}); err != nil {
+		return err
+	}
+	return migrateGameCoinWithdrawable()
+}
+
+// migrateGameCoinWithdrawable 一次性将历史存量账户的游戏币余额全额回填到 withdrawable_balance，
+// 避免升级后老玩家原有通过游戏赚取的余额无法链上提现。
+func migrateGameCoinWithdrawable() error {
+	return DB.Transaction(func(tx *gorm.DB) error {
+		claim := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&Option{Key: gameCoinWithdrawableOption, Value: "1"})
+		if claim.Error != nil {
+			return claim.Error
+		}
+		if claim.RowsAffected == 0 {
+			return nil
+		}
+		return tx.Model(&GameCoinAccount{}).
+			Where("balance > 0 AND withdrawable_balance = 0").
+			Update("withdrawable_balance", gorm.Expr("balance")).Error
 	})
 }
 

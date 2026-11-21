@@ -24,7 +24,7 @@ func TestTradeCoinAndQuotaPrincipalShareOneCashPool(t *testing.T) {
 	require.NoError(t, DB.Create(&GameCoinAccount{UserId: 6100, Balance: coin(10)}).Error)
 	_, err := TransferQuotaToTrade(6100, tradeUsd(4), tradeCashEquity(t, 6100))
 	require.NoError(t, err)
-	account, err := TransferGameCoinsToTrade(6100, 6, tradeTestDay, tradeCashEquity(t, 6100))
+	account, err := TransferGameCoinsToTrade(6100, coin(6), tradeCashEquity(t, 6100))
 	require.NoError(t, err)
 	assert.Equal(t, tradeUsd(10), account.Cash)
 	assert.Equal(t, tradeUsd(10), account.QuotaPrincipal)
@@ -71,7 +71,7 @@ func TestTradeProfitCanOnlyLeaveAsQuota(t *testing.T) {
 	truncateTables(t)
 	seedTradeUser(t, 6101, 0)
 	require.NoError(t, DB.Create(&GameCoinAccount{UserId: 6101, Balance: coin(10)}).Error)
-	_, err := TransferGameCoinsToTrade(6101, 10, tradeTestDay, tradeCashEquity(t, 6101))
+	_, err := TransferGameCoinsToTrade(6101, coin(10), tradeCashEquity(t, 6101))
 	require.NoError(t, err)
 	tradeRoundTrip(t, 6101, 10, 115)
 	_, _, err = TransferGameCoinsFromTrade(6101, coin(11), tradeTestDay, tradeUsd(100), nil, tradeCashEquity(t, 6101))
@@ -93,69 +93,61 @@ func TestTradeProfitCanOnlyLeaveAsQuota(t *testing.T) {
 	assert.Equal(t, coin(10), gameBalance(t, 6101))
 }
 
-// 本金转出成额度后，剩下的本金不够折合的币也不能再转回游戏币：先转出本金、再转入额度，不能把额度换成游戏币。
-func TestTradeCoinPrincipalShrinksWithPrincipal(t *testing.T) {
+// 游戏币本金不能在模拟盘直接转出成平台额度，必须先退回游戏币钱包；仅平台额度本金与已实现盈利能转出成平台额度。
+func TestTradeCoinPrincipalCannotLeaveAsQuotaDirectly(t *testing.T) {
 	truncateTables(t)
-	seedTradeUser(t, 6106, 4)
+	seedTradeUser(t, 6106, 8)
 	require.NoError(t, DB.Create(&GameCoinAccount{UserId: 6106, Balance: coin(6)}).Error)
-	_, err := TransferGameCoinsToTrade(6106, 6, tradeTestDay, tradeCashEquity(t, 6106))
+	_, err := TransferGameCoinsToTrade(6106, coin(6), tradeCashEquity(t, 6106))
 	require.NoError(t, err)
-	account, _, err := TransferQuotaFromTrade(6106, tradeUsd(4), tradeTestDay, tradeUsd(100), nil, tradeCashEquity(t, 6106))
+	// 纯游戏币本金不能直接转出成平台额度。
+	_, _, err = TransferQuotaFromTrade(6106, tradeUsd(4), tradeTestDay, tradeUsd(100), nil, tradeCashEquity(t, 6106))
+	require.ErrorIs(t, err, ErrTradeQuotaOutExceedsPrincipal)
+
+	// 转入 8 美元平台额度后，平台额度本金可原路转回，游戏币本金仍只能退回游戏币。
+	account, err := TransferQuotaToTrade(6106, tradeUsd(8), tradeCashEquity(t, 6106))
 	require.NoError(t, err)
-	assert.Equal(t, tradeUsd(2), account.QuotaPrincipal)
-	assert.Equal(t, coin(2), account.CoinPrincipal)
-	account, err = TransferQuotaToTrade(6106, tradeUsd(8), tradeCashEquity(t, 6106))
+	assert.Equal(t, tradeUsd(14), account.QuotaPrincipal)
+	assert.Equal(t, coin(6), account.CoinPrincipal, "quota deposits never add coin principal")
+	_, _, err = TransferQuotaFromTrade(6106, tradeUsd(9), tradeTestDay, tradeUsd(100), nil, tradeCashEquity(t, 6106))
+	require.ErrorIs(t, err, ErrTradeQuotaOutExceedsPrincipal)
+	account, profit, err := TransferQuotaFromTrade(6106, tradeUsd(8), tradeTestDay, tradeUsd(100), nil, tradeCashEquity(t, 6106))
 	require.NoError(t, err)
-	assert.Equal(t, tradeUsd(10), account.QuotaPrincipal)
-	assert.Equal(t, coin(2), account.CoinPrincipal, "quota deposits never add coin principal")
-	_, _, err = TransferGameCoinsFromTrade(6106, coin(3), tradeTestDay, tradeUsd(100), nil, tradeCashEquity(t, 6106))
-	require.ErrorIs(t, err, ErrTradeCoinPrincipal)
-	account, _, err = TransferGameCoinsFromTrade(6106, coin(2), tradeTestDay, tradeUsd(100), nil, tradeCashEquity(t, 6106))
+	assert.Zero(t, profit)
+	assert.Equal(t, tradeUsd(6), account.QuotaPrincipal)
+	assert.Equal(t, coin(6), account.CoinPrincipal)
+	account, _, err = TransferGameCoinsFromTrade(6106, coin(6), tradeTestDay, tradeUsd(100), nil, tradeCashEquity(t, 6106))
 	require.NoError(t, err)
 	assert.Zero(t, account.CoinPrincipal)
-	assert.Equal(t, tradeUsd(8), account.Cash)
-	assert.Equal(t, coin(2), gameBalance(t, 6106))
+	assert.Zero(t, account.Cash)
+	assert.Equal(t, coin(6), gameBalance(t, 6106))
 }
 
-// 转入模拟盘的币可以再转出成额度，和兑换额度共用每人每天的上限；超出时什么都不改，换一天重新计算。
-func TestTradeCoinDepositSharesDailyConvertLimit(t *testing.T) {
+// 游戏币转入模拟盘支持小数且不再占用每日兑换额度，转入超过原 15 币上限也不受阻。
+func TestTradeCoinDepositSupportsDecimalsAndNoDailyConvertCap(t *testing.T) {
 	truncateTables(t)
 	seedTradeUser(t, 6107, 0)
 	require.NoError(t, DB.Create(&GameCoinAccount{UserId: 6107, Balance: coin(40)}).Error)
 	today := GameCenterDay(time.Now())
-	account, err := TransferGameCoinsToTrade(6107, 5, today, tradeCashEquity(t, 6107))
+	account, err := TransferGameCoinsToTrade(6107, coinText("20.5"), tradeCashEquity(t, 6107))
 	require.NoError(t, err)
-	assert.Equal(t, coin(5), account.CoinPrincipal)
+	assert.Equal(t, coinText("20.5"), account.CoinPrincipal)
 	used, err := GetGameCoinConvertDayUsed(6107, today)
 	require.NoError(t, err)
-	assert.Equal(t, coin(5), used, "the deposit's own ledger entry must not be counted twice")
-	before := tradeTestAccount(t, 6107)
-	_, err = TransferGameCoinsToTrade(6107, 11, today, tradeCashEquity(t, 6107))
-	require.ErrorIs(t, err, ErrGameCoinConvertDailyLimit)
-	assert.Equal(t, coin(35), gameBalance(t, 6107))
-	assert.Equal(t, before, tradeTestAccount(t, 6107), "a rejected deposit must not fund the account")
-	assert.Equal(t, []string{GameCoinLogTypeTradeOut}, gameCoinLogTypes(t, 6107))
-
-	_, _, err = ConvertGameCoinsToQuota(6107, coin(10))
+	assert.Zero(t, used, "simulator deposits no longer consume daily conversion limit")
+	assert.Equal(t, coinText("19.5"), gameBalance(t, 6107))
+	_, _, err = ConvertGameCoinsToQuota(6107, coinText("19.5"))
 	require.NoError(t, err)
 	used, err = GetGameCoinConvertDayUsed(6107, today)
 	require.NoError(t, err)
-	assert.Equal(t, coin(GameCoinConvertDailyLimit), used)
-	_, _, err = ConvertGameCoinsToQuota(6107, coin(1))
-	require.ErrorIs(t, err, ErrGameCoinConvertDailyLimit, "simulator deposits use up the conversion allowance too")
-
-	_, err = TransferGameCoinsToTrade(6107, GameCoinConvertDailyLimit+1, "2026-10-04", tradeCashEquity(t, 6107))
-	require.ErrorIs(t, err, ErrGameCoinConvertDailyLimit)
-	_, err = TransferGameCoinsToTrade(6107, GameCoinConvertDailyLimit, "2026-10-04", tradeCashEquity(t, 6107))
-	require.NoError(t, err)
-	assert.Equal(t, coin(10), gameBalance(t, 6107))
+	assert.Equal(t, coinText("19.5"), used)
 }
 
 func TestTradeCoinWalletFailureRollsBackBothLedgers(t *testing.T) {
 	truncateTables(t)
 	seedTradeUser(t, 6102, 0)
 	require.NoError(t, DB.Create(&GameCoinAccount{UserId: 6102, Balance: coin(12)}).Error)
-	_, err := TransferGameCoinsToTrade(6102, 12, tradeTestDay, tradeCashEquity(t, 6102))
+	_, err := TransferGameCoinsToTrade(6102, coin(12), tradeCashEquity(t, 6102))
 	require.NoError(t, err)
 	// 钱包余额已到上限，转回的币入不了账。
 	require.NoError(t, DB.Model(&GameCoinAccount{}).Where("user_id = ?", 6102).Update("balance", common.MaxQuota-1).Error)
@@ -170,19 +162,16 @@ func TestTradeCoinWalletFailureRollsBackBothLedgers(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, ledgersBefore, ledgersAfter)
 	assert.Equal(t, []string{GameCoinLogTypeTradeOut}, gameCoinLogTypes(t, 6102))
-	_, profit, err := TransferQuotaFromTrade(6102, tradeUsd(12), tradeTestDay, tradeUsd(100), nil, tradeCashEquity(t, 6102))
-	require.NoError(t, err)
-	assert.Zero(t, profit)
 }
 
 func TestTradeCoinTransferRejectsUnfundedOrInvalidDeposits(t *testing.T) {
 	truncateTables(t)
 	seedTradeUser(t, 6103, 0)
 	require.NoError(t, DB.Create(&GameCoinAccount{UserId: 6103, Balance: coin(2)}).Error)
-	_, err := TransferGameCoinsToTrade(6103, 3, tradeTestDay, tradeCashEquity(t, 6103))
+	_, err := TransferGameCoinsToTrade(6103, coin(3), tradeCashEquity(t, 6103))
 	require.ErrorIs(t, err, ErrGameCoinInsufficient)
 	for _, amount := range []int{-1, 0, common.MaxQuota} {
-		_, err = TransferGameCoinsToTrade(6103, amount, tradeTestDay, tradeCashEquity(t, 6103))
+		_, err = TransferGameCoinsToTrade(6103, GameCoins(amount), tradeCashEquity(t, 6103))
 		require.ErrorIs(t, err, ErrGameCoinAmountInvalid)
 		_, _, err = TransferGameCoinsFromTrade(6103, GameCoins(amount), tradeTestDay, tradeUsd(100), nil, tradeCashEquity(t, 6103))
 		require.ErrorIs(t, err, ErrGameCoinAmountInvalid)
@@ -233,11 +222,13 @@ func TestTradeCoinFundingCanRepayNegativeSiteQuota(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, -tradeUsd(10), quota, "without game coins the deficit is charged to the site quota")
 	require.NoError(t, DB.Create(&GameCoinAccount{UserId: 6105, Balance: coin(5)}).Error)
-	_, err = TransferGameCoinsToTrade(6105, 5, tradeTestDay, tradeCashEquity(t, 6105))
+	_, err = TransferGameCoinsToTrade(6105, coin(5), tradeCashEquity(t, 6105))
 	require.NoError(t, err)
+	// 游戏币本金不能直转平台额度，但盈利可以抵消负余额。
+	tradeRoundTrip(t, 6105, 5, 10)
 	_, profit, err := TransferQuotaFromTrade(6105, tradeUsd(5), tradeTestDay, tradeUsd(100), nil, tradeCashEquity(t, 6105))
-	require.NoError(t, err, "negative site quota must not block a transfer that repays it")
-	assert.Zero(t, profit)
+	require.NoError(t, err, "negative site quota must not block a profit transfer that repays it")
+	assert.Equal(t, tradeUsd(5), profit)
 	quota, err = GetUserQuota(6105, true)
 	require.NoError(t, err)
 	assert.Equal(t, -tradeUsd(5), quota)
@@ -270,7 +261,7 @@ func TestTradeLossOrderDecidesWhichPrincipalTakesTheLoss(t *testing.T) {
 			require.NoError(t, err)
 			_, err = TransferQuotaToTrade(userId, tradeUsd(10), tradeCashEquity(t, userId))
 			require.NoError(t, err)
-			_, err = TransferGameCoinsToTrade(userId, 10, tradeTestDay, tradeCashEquity(t, userId))
+			_, err = TransferGameCoinsToTrade(userId, coin(10), tradeCashEquity(t, userId))
 			require.NoError(t, err)
 			tradeRoundTrip(t, userId, test.buyUsd, test.sellUsd)
 
@@ -301,7 +292,7 @@ func TestTradeCoinLossCannotBeRefilledWithQuota(t *testing.T) {
 			require.NoError(t, DB.Create(&GameCoinAccount{UserId: userId, Balance: coin(10)}).Error)
 			_, err := SetTradeLossOrder(userId, order)
 			require.NoError(t, err)
-			_, err = TransferGameCoinsToTrade(userId, 10, tradeTestDay, tradeCashEquity(t, userId))
+			_, err = TransferGameCoinsToTrade(userId, coin(10), tradeCashEquity(t, userId))
 			require.NoError(t, err)
 			tradeRoundTrip(t, userId, 10, 4)
 
@@ -332,7 +323,7 @@ func TestTradeCoinDepositDoesNotPayForEarlierQuotaLoss(t *testing.T) {
 	_, err := TransferQuotaToTrade(6111, tradeUsd(10), tradeCashEquity(t, 6111))
 	require.NoError(t, err)
 	tradeRoundTrip(t, 6111, 10, 4)
-	account, err := TransferGameCoinsToTrade(6111, 5, tradeTestDay, tradeCashEquity(t, 6111))
+	account, err := TransferGameCoinsToTrade(6111, coin(5), tradeCashEquity(t, 6111))
 	require.NoError(t, err)
 	assert.Equal(t, tradeUsd(9), account.QuotaPrincipal, "the quota loss is written off before the coins join")
 	assert.Equal(t, coin(5), account.CoinPrincipal)
@@ -364,11 +355,11 @@ func TestTradeTransferNeedsAFreshValuationWhenCoinsAreInvolved(t *testing.T) {
 		{TradeEquity{}, ErrTradeMarkUnavailable},
 		{stale, ErrTradeValuationStale},
 	} {
-		_, err = TransferGameCoinsToTrade(6112, 5, tradeTestDay, test.equity)
+		_, err = TransferGameCoinsToTrade(6112, coin(5), test.equity)
 		require.ErrorIs(t, err, test.want)
 	}
 	assert.Equal(t, coin(5), gameBalance(t, 6112))
-	_, err = TransferGameCoinsToTrade(6112, 5, tradeTestDay, tradeCashEquity(t, 6112))
+	_, err = TransferGameCoinsToTrade(6112, coin(5), tradeCashEquity(t, 6112))
 	require.NoError(t, err)
 
 	stale = tradeCashEquity(t, 6112)

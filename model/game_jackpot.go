@@ -285,6 +285,12 @@ func DrawGameJackpot(pick func(tickets int) (int, error), day string) (*GameJack
 			}).Error; err != nil {
 				return err
 			}
+			if err := consumeGameCoinLockedWagerTx(tx, userId, totals[userId]); err != nil {
+				return err
+			}
+			if err := resetGameCoinLockedWagerIfEmptyTx(tx, userId); err != nil {
+				return err
+			}
 			if _, _, err := recordGameDayResult(tx, userId, "jackpot", day, net); err != nil {
 				return err
 			}

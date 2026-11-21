@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 export const SUBSCRIPTION_BALANCE_PAY_METHOD = 'balance';
+export const SUBSCRIPTION_GAME_COIN_PAY_METHOD = 'game_coin';
 
 /**
  * 支付方式的白名单键，与后端 model.NormalizeSubscriptionPayMethod 保持一致。
@@ -59,8 +60,10 @@ export function buildSubscriptionPayOptions({
   enableStripeTopUp = false,
   enableCreemTopUp = false,
   enableEthereumTopUp = false,
+  enableGameCoinSubscription = false,
   ethereumInfo = null,
   balanceLabel = '余额支付',
+  gameCoinLabel = '游戏币支付',
 } = {}) {
   const epayMethods = getSubscriptionEpayMethods(payMethods);
 
@@ -102,5 +105,8 @@ export function buildSubscriptionPayOptions({
         }))
       : []),
     { value: SUBSCRIPTION_BALANCE_PAY_METHOD, label: balanceLabel },
+    ...(enableGameCoinSubscription
+      ? [{ value: SUBSCRIPTION_GAME_COIN_PAY_METHOD, label: gameCoinLabel }]
+      : []),
   ];
 }

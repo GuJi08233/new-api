@@ -6,6 +6,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/pkg/tradesim"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -138,6 +139,9 @@ func BuyTradePrediction(input TradePredictionFill) (*TradePredictionPosition, er
 		if err := saveTradeAccountTx(tx, account); err != nil {
 			return err
 		}
+		if err := creditGameCoinWagerFromTradeTx(tx, account, input.Amount, operation_setting.GetTradeSetting().TradeWagerSpotBps); err != nil {
+			return err
+		}
 		return tx.Create(&TradeLedger{UserId: input.UserId, Type: TradeLedgerPredictionBuy, Symbol: "BTC-PREDICTION", OrderId: position.Id,
 			Qty: input.Qty, Price: input.Price, Amount: -debit, Fee: input.Fee, Balance: account.Cash + account.Frozen, CreatedAt: now.Unix()}).Error
 	})
@@ -194,6 +198,9 @@ func SellTradePrediction(positionId int, input TradePredictionFill) (*TradePredi
 			return err
 		}
 		if err := saveTradeAccountTx(tx, account); err != nil {
+			return err
+		}
+		if err := creditGameCoinWagerFromTradeTx(tx, account, input.Amount, operation_setting.GetTradeSetting().TradeWagerSpotBps); err != nil {
 			return err
 		}
 		return tx.Create(&TradeLedger{UserId: input.UserId, Type: TradeLedgerPredictionSell, Symbol: "BTC-PREDICTION", OrderId: position.Id,

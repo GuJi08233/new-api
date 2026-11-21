@@ -489,6 +489,92 @@ const GameAdminSettings = () => {
             onChange={numberField('shop_price_percent')}
           />
         </SettingRow>
+        <SettingRow
+          label={t('开放余额转入游戏币')}
+          extra={t(
+            '允许用户把平台余额按 1:1 单向转入游戏币钱包（不增加链上可提现额度）',
+          )}
+        >
+          <Switch
+            checked={setting.deposit_enabled}
+            onChange={(value) => setField('deposit_enabled', value)}
+          />
+        </SettingRow>
+        <SettingRow
+          label={t('开放游戏币兑换余额')}
+          extra={t('关闭后游戏币不可兑换为平台余额')}
+        >
+          <Switch
+            checked={setting.convert_enabled}
+            onChange={(value) => setField('convert_enabled', value)}
+          />
+        </SettingRow>
+        <SettingRow
+          label={t('每人每日兑换余额上限')}
+          extra={t(
+            '每人每天最多可将多少美元游戏币兑换为平台余额，0 表示不限制',
+          )}
+        >
+          <InputNumber
+            value={setting.convert_daily_limit}
+            min={0}
+            precision={0}
+            suffix='USD'
+            onChange={numberField('convert_daily_limit')}
+          />
+        </SettingRow>
+        <SettingRow
+          label={t('免费游戏奖励解锁流水倍数')}
+          extra={t(
+            '免费游戏发奖后需完成多少倍有效下注或模拟盘交易方可兑换余额/买订阅，0 为不锁',
+          )}
+        >
+          <InputNumber
+            value={setting.free_wager_multiplier}
+            min={0}
+            max={20}
+            precision={0}
+            suffix='x'
+            onChange={numberField('free_wager_multiplier')}
+          />
+        </SettingRow>
+        <SettingRow
+          label={t('余额转入游戏币解锁流水倍数')}
+          extra={t(
+            '平台余额充入游戏币后需完成多少倍有效下注或模拟盘交易方可换回余额，0 为不锁',
+          )}
+        >
+          <InputNumber
+            value={setting.deposit_wager_multiplier}
+            min={0}
+            max={20}
+            precision={0}
+            suffix='x'
+            onChange={numberField('deposit_wager_multiplier')}
+          />
+        </SettingRow>
+        <SettingRow
+          label={t('开放游戏币购买订阅套餐')}
+          extra={t(
+            '允许无链上钱包的玩家直接用游戏币购买订阅套餐（同时受各套餐支付方式白名单控制）',
+          )}
+        >
+          <Switch
+            checked={setting.subscription_enabled}
+            onChange={(value) => setField('subscription_enabled', value)}
+          />
+        </SettingRow>
+        <SettingRow
+          label={t('游戏币购订阅需先解锁流水')}
+          extra={t('开启后须完成全部有效流水要求才可用游戏币购买订阅套餐')}
+        >
+          <Switch
+            checked={setting.subscription_require_unlocked}
+            onChange={(value) =>
+              setField('subscription_require_unlocked', value)
+            }
+          />
+        </SettingRow>
       </Card>
 
       <Card title={t('链上提现')}>

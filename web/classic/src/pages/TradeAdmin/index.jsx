@@ -505,6 +505,110 @@ const TradeAdmin = () => {
               {FUTURES_NUMBER_FIELDS.map(numberField)}
               {FUTURES_TEXT_FIELDS.map(textField)}
             </div>
+            <Title heading={5} className='!mb-0'>
+              {t('体验金与游戏中心联动')}
+            </Title>
+            <div className='flex flex-wrap items-center gap-6'>
+              <div className='flex items-center gap-2'>
+                <Switch
+                  checked={form.bonus_enabled}
+                  onChange={(value) => change('bonus_enabled', value)}
+                />
+                <Text>{t('开启体验金活动')}</Text>
+              </div>
+              <div className='flex items-center gap-2'>
+                <Switch
+                  checked={form.bonus_match_enabled}
+                  onChange={(value) => change('bonus_match_enabled', value)}
+                />
+                <Text>{t('开启任务解锁 1:1 转入加赠')}</Text>
+              </div>
+              <div className='flex items-center gap-2'>
+                <Switch
+                  checked={form.bonus_turnstile_enabled}
+                  onChange={(value) => change('bonus_turnstile_enabled', value)}
+                />
+                <Text>{t('领取与加赠校验 Turnstile')}</Text>
+              </div>
+            </div>
+            <div className='flex flex-col gap-1'>
+              <Text strong>{t('1:1 加赠周期')}</Text>
+              <RadioGroup
+                type='button'
+                value={form.bonus_match_period || 'weekly'}
+                onChange={(e) => change('bonus_match_period', e.target.value)}
+              >
+                <Radio value='daily'>{t('每日一次')}</Radio>
+                <Radio value='weekly'>{t('每周一次')}</Radio>
+              </RadioGroup>
+            </div>
+            <div className='grid grid-cols-1 gap-4 md:grid-cols-2'>
+              {[
+                [
+                  'bonus_pool_daily_usd',
+                  '全站每日体验金池(美元，0 不限)',
+                  'max_bonus_pool_usd',
+                  0,
+                ],
+                [
+                  'bonus_first_amount_usd',
+                  '新手首次体验金金额(美元)',
+                  'max_bonus_amount_usd',
+                  0,
+                ],
+                [
+                  'bonus_first_profit_cap_usd',
+                  '新手体验金盈利转出上限(美元)',
+                  'max_profit_out',
+                  0,
+                ],
+                [
+                  'bonus_active_days',
+                  '近期 API 活跃证明窗口(天)',
+                  'max_bonus_days',
+                  0,
+                ],
+                [
+                  'bonus_match_max_usd',
+                  '单人每期 1:1 加赠封顶(美元)',
+                  'max_bonus_amount_usd',
+                  0,
+                ],
+                [
+                  'bonus_task_wager_coins',
+                  '加赠任务所需游戏中心有效下注(币)',
+                  'max_bonus_amount_usd',
+                  0,
+                ],
+                [
+                  'trade_wager_spot_bps',
+                  '现货/预测成交折算游戏流水(万分比)',
+                  'max_wager_credit_bps',
+                  0,
+                ],
+                [
+                  'trade_wager_futures_bps',
+                  '合约成交折算游戏流水(万分比)',
+                  'max_wager_credit_bps',
+                  0,
+                ],
+              ].map(numberField)}
+              <div className='flex flex-col gap-1'>
+                <Text strong>{t('活跃证明累计最少消费(美元)')}</Text>
+                <InputNumber
+                  value={form.bonus_min_used_usd}
+                  min={0}
+                  max={limits.max_bonus_amount_usd || 100000}
+                  step={0.1}
+                  onChange={(value) => change('bonus_min_used_usd', value ?? 0)}
+                />
+                <Text type='tertiary' size='small'>
+                  {t('默认值 {{value}}', {
+                    value: defaults.bonus_min_used_usd,
+                  })}
+                </Text>
+              </div>
+            </div>
             <div>
               <Button theme='solid' loading={saving} onClick={save}>
                 {t('保存')}

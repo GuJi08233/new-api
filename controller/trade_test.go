@@ -65,7 +65,7 @@ func TestTradeTransferRejectsInvalidWalletInputs(t *testing.T) {
 		name, body, message string
 	}{
 		{"unknown wallet", `{"direction":"in","amount":"1","wallet":"other"}`, "Invalid"},
-		{"fractional coins", `{"direction":"in","amount":"1.5","wallet":"game_coin"}`, "whole number"},
+		{"deposit coins finer than a quota unit", `{"direction":"in","amount":"1.0000001","wallet":"game_coin"}`, "Invalid transfer amount"},
 		{"zero coins", `{"direction":"out","amount":"0","wallet":"game_coin"}`, "Invalid transfer amount"},
 		{"negative coins", `{"direction":"out","amount":"-1","wallet":"game_coin"}`, "Invalid transfer amount"},
 		{"oversized coins", `{"direction":"out","amount":"9007199254740992","wallet":"game_coin"}`, "Invalid transfer amount"},

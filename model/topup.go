@@ -35,6 +35,7 @@ const (
 	PaymentMethodWaffo        = "waffo"
 	PaymentMethodWaffoPancake = "waffo_pancake"
 	PaymentMethodBalance      = "balance"
+	PaymentMethodGameCoin     = "game_coin"
 )
 
 const (
@@ -45,6 +46,7 @@ const (
 	PaymentProviderWaffoPancake = "waffo_pancake"
 	PaymentProviderEthereum     = "ethereum"
 	PaymentProviderBalance      = "balance"
+	PaymentProviderGameCoin     = "game_coin"
 )
 
 var (

@@ -306,8 +306,10 @@ const AddEditSubscriptionModal = ({
           enableStripeTopUp: info.enable_stripe_topup,
           enableCreemTopUp: info.enable_creem_topup,
           enableEthereumTopUp: info.enable_ethereum_topup,
+          enableGameCoinSubscription: info.enable_game_coin_subscription,
           ethereumInfo: info.ethereum_info,
           balanceLabel: t('余额支付'),
+          gameCoinLabel: t('游戏币支付'),
         });
         setPayMethodOptions(options);
 

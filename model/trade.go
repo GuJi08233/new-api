@@ -99,6 +99,10 @@ type TradeAccount struct {
 	// 转出成额度。每次转账之前按账户总资产结算一次(见 settleTradeCoinPrincipal)，本金被转出后剩下的不够时随之减少(见
 	// withdrawTradeCashTx)，始终不超过 QuotaPrincipal。
 	CoinPrincipal GameCoins `json:"coin_principal" gorm:"type:bigint;not null;default:0"`
+	// BonusPrincipal 是当前未回收的模拟盘体验金本金(额度单位)，永远不可转出；发生任意出金时立即回收清零。
+	BonusPrincipal int `json:"bonus_principal" gorm:"type:bigint;not null;default:0"`
+	// BonusMode 标记当前体验金类型(first 新手首次体验金，match 转入 1:1 加赠体验金，空表示无体验金)。
+	BonusMode string `json:"bonus_mode" gorm:"type:varchar(16)"`
 	// LossOrder 是亏损先扣哪一种本金、穿仓的亏空先从哪个钱包补：TradeLossCoinFirst 先扣游戏币，TradeLossQuotaFirst 先扣平台额度，
 	// 空值按先扣游戏币。由用户自己选。
 	LossOrder string `json:"loss_order" gorm:"type:varchar(16)"`
@@ -223,7 +227,7 @@ func saveTradeAccountTx(tx *gorm.DB, account *TradeAccount) error {
 	if account.Cash <= -common.MaxQuota || account.Cash >= common.MaxQuota {
 		return ErrTradeAmountInvalid
 	}
-	for _, value := range []int{account.Frozen, account.QuotaPrincipal, int(account.CoinPrincipal), account.TotalIn, account.TotalOut} {
+	for _, value := range []int{account.Frozen, account.QuotaPrincipal, int(account.CoinPrincipal), account.BonusPrincipal, account.TotalIn, account.TotalOut} {
 		if value < 0 || value >= common.MaxQuota {
 			return ErrTradeAmountInvalid
 		}
@@ -241,6 +245,8 @@ func saveTradeAccountTx(tx *gorm.DB, account *TradeAccount) error {
 		"frozen":          account.Frozen,
 		"quota_principal": account.QuotaPrincipal,
 		"coin_principal":  account.CoinPrincipal,
+		"bonus_principal": account.BonusPrincipal,
+		"bonus_mode":      account.BonusMode,
 		"loss_order":      account.LossOrder,
 		"asset_version":   account.AssetVersion,
 		"total_in":        account.TotalIn,

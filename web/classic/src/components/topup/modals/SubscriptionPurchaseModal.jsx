@@ -33,6 +33,7 @@ import SubscriptionQuotaDetails from '../../common/ui/SubscriptionQuotaDetails';
 import { formatSubscriptionDuration } from '../../../helpers/subscriptionFormat';
 import {
   SUBSCRIPTION_BALANCE_PAY_METHOD,
+  SUBSCRIPTION_GAME_COIN_PAY_METHOD,
   buildSubscriptionPayOptions,
   normalizeSubscriptionPayMethod,
   parseAllowedPaymentMethods,
@@ -54,6 +55,10 @@ const SubscriptionPurchaseModal = ({
   enableStripeTopUp = false,
   enableCreemTopUp = false,
   enableEthereumTopUp = false,
+  enableGameCoinSubscription = false,
+  gameCoinBalance = 0,
+  gameCoinLockedWager = 0,
+  gameCoinSubRequireUnlocked = true,
   ethereumInfo = null,
   purchaseLimitInfo = null,
   onPayStripe,
@@ -61,6 +66,7 @@ const SubscriptionPurchaseModal = ({
   onPayEpay,
   onPayEthereum,
   onPayBalance,
+  onPayGameCoin,
 }) => {
   const plan = selectedPlan?.plan;
   const { symbol, rate } = getCurrencyConfig();
@@ -79,14 +85,23 @@ const SubscriptionPurchaseModal = ({
     enableStripeTopUp,
     enableCreemTopUp,
     enableEthereumTopUp,
+    enableGameCoinSubscription,
     ethereumInfo,
     balanceLabel: t('余额支付'),
+    gameCoinLabel: t('游戏币支付'),
   }).filter((option) => {
     // 站点开了网关还不够，套餐得配了对应商品 ID 才买得成
     if (option.value === 'stripe' && !plan?.stripe_price_id) return false;
     if (option.value === 'creem' && !plan?.creem_product_id) return false;
     if (
       option.value === SUBSCRIPTION_BALANCE_PAY_METHOD &&
+      plan?.allow_balance_pay === false
+    ) {
+      return false;
+    }
+    if (
+      option.value === SUBSCRIPTION_GAME_COIN_PAY_METHOD &&
+      allowedPayMethods.length === 0 &&
       plan?.allow_balance_pay === false
     ) {
       return false;
@@ -118,6 +133,10 @@ const SubscriptionPurchaseModal = ({
     }
     if (selectedPayMethod === 'balance') {
       onPayBalance?.();
+      return;
+    }
+    if (selectedPayMethod === SUBSCRIPTION_GAME_COIN_PAY_METHOD) {
+      onPayGameCoin?.();
       return;
     }
     if (selectedPayMethod.startsWith('ethereum:')) {
@@ -291,6 +310,24 @@ const SubscriptionPurchaseModal = ({
                   {t('支付')}
                 </Button>
               </div>
+              {selectedPayMethod === SUBSCRIPTION_GAME_COIN_PAY_METHOD && (
+                <div className='flex flex-col gap-1 text-xs'>
+                  <Text type='tertiary' size='small'>
+                    {t(
+                      '1 游戏币 = 1 美元，当前游戏币余额：{{balance}}（需 {{price}} 游戏币）',
+                      { balance: gameCoinBalance, price },
+                    )}
+                  </Text>
+                  {gameCoinSubRequireUnlocked && gameCoinLockedWager > 0 && (
+                    <Text type='warning' size='small'>
+                      {t(
+                        '当前尚有 {{wager}} 有效流水未解锁，请先在游戏中心下注或模拟盘交易解锁后再使用游戏币购买。',
+                        { wager: gameCoinLockedWager },
+                      )}
+                    </Text>
+                  )}
+                </div>
+              )}
             </div>
           ) : (
             <Banner

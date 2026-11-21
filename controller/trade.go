@@ -40,8 +40,16 @@ type tradeTransferRequest struct {
 	// Direction 是 in(从主钱包转入模拟盘)或 out(转回主钱包)，Amount 是额度，按美元填写，可以有小数。
 	Direction string `json:"direction"`
 	Amount    string `json:"amount"`
-	// Wallet 为空或 quota 使用平台额度，game_coin 使用独立游戏币钱包：转入只接受整币，转回游戏币可以有小数。
+	// Wallet 为空或 quota 使用平台额度，game_coin 使用独立游戏币钱包：转入与转回均支持小数。
 	Wallet string `json:"wallet"`
+	// ClaimMatch 为真时在转入自有资金的同时申请任务解锁的 1:1 体验金加赠。
+	ClaimMatch bool `json:"claim_match"`
+	// Turnstile 是领取体验金或申请 1:1 加赠时的人机验证令牌。
+	Turnstile string `json:"turnstile"`
+}
+
+type tradeBonusClaimRequest struct {
+	Turnstile string `json:"turnstile"`
 }
 
 type tradeLossOrderRequest struct {
@@ -144,20 +152,25 @@ func tradeSelfView(userId int) (gin.H, error) {
 	if err != nil {
 		return nil, err
 	}
-	day := tradeDay(time.Now())
+	now := time.Now()
+	day := tradeDay(now)
 	profitUsed, err := model.GetTradeProfitOutUsed(userId, day)
 	if err != nil {
 		return nil, err
 	}
-	// 转回自己转入的额度不受限制，超出的部分是盈利，当天还能转出多少受上限约束；有全仓仓位时还要留下全仓占用与浮动亏损。
 	profitCap, err := common.QuotaFromDecimalStrict(decimal.NewFromInt(int64(setting.DailyProfitOutUsd)).Mul(decimal.NewFromInt(int64(perUsd))))
 	if err != nil {
 		return nil, err
 	}
-	withdrawable := valuation.Cross.Withdrawable
-	if profitCap > 0 {
-		withdrawable = min(withdrawable, account.QuotaPrincipal+max(profitCap-profitUsed, 0))
+	firstProfitCap := 0
+	if setting.BonusFirstProfitCapUsd > 0 {
+		firstProfitCap, err = common.QuotaFromDecimalStrict(decimal.NewFromInt(int64(setting.BonusFirstProfitCapUsd)).Mul(decimal.NewFromInt(int64(perUsd))))
+		if err != nil {
+			return nil, err
+		}
 	}
+	quotaWithdrawable := model.TradeQuotaWithdrawable(account, valuation.Cross.Withdrawable, valuation.Equity, profitUsed, profitCap, firstProfitCap)
+	coinWithdrawable := model.TradeCoinWithdrawable(account, valuation.Cross.Withdrawable, valuation.Equity)
 	userQuota, err := model.GetUserQuota(userId, true)
 	if err != nil {
 		return nil, err
@@ -166,11 +179,31 @@ func tradeSelfView(userId int) (gin.H, error) {
 	if err != nil {
 		return nil, err
 	}
-	coinsConverted, err := model.GetGameCoinConvertDayUsed(userId, model.GameCenterDay(time.Now()))
+	bonusPoolUsed, err := model.GetTradeBonusPoolDayUsed(day)
 	if err != nil {
 		return nil, err
 	}
-	convertCap, err := model.GameCoinConvertDailyCap()
+	bonusPoolCap := 0
+	if setting.BonusPoolDailyUsd > 0 {
+		bonusPoolCap, err = common.QuotaFromDecimalStrict(decimal.NewFromInt(int64(setting.BonusPoolDailyUsd)).Mul(decimal.NewFromInt(int64(perUsd))))
+		if err != nil {
+			return nil, err
+		}
+	}
+	firstClaimed, err := model.HasTradeBonusClaimed(userId, model.TradeBonusModeFirst, model.TradeBonusPeriodOnce)
+	if err != nil {
+		return nil, err
+	}
+	matchPeriod := model.TradeBonusPeriodKey(now, setting.BonusMatchPeriod)
+	matchClaimed, err := model.HasTradeBonusClaimed(userId, model.TradeBonusModeMatch, matchPeriod)
+	if err != nil {
+		return nil, err
+	}
+	taskWagerCurrent, err := model.GetGameWagerVolumeSince(userId, model.TradeBonusPeriodStart(now, setting.BonusMatchPeriod))
+	if err != nil {
+		return nil, err
+	}
+	taskWagerRequired, err := model.WholeGameCoins(setting.BonusTaskWagerCoins)
 	if err != nil {
 		return nil, err
 	}
@@ -179,9 +212,13 @@ func tradeSelfView(userId int) (gin.H, error) {
 		return nil, err
 	}
 	netIn := account.TotalIn - account.TotalOut
-	todayPnl := valuation.Equity - netIn
+	todayPnl := valuation.Equity - account.BonusPrincipal - netIn
 	if base != nil {
 		todayPnl -= base.Equity - base.NetIn
+	}
+	poolRemaining := 0
+	if bonusPoolCap > 0 {
+		poolRemaining = max(bonusPoolCap-bonusPoolUsed, 0)
 	}
 	return gin.H{
 		"enabled":              setting.Enabled,
@@ -204,21 +241,39 @@ func tradeSelfView(userId int) (gin.H, error) {
 		},
 		"account":   account,
 		"valuation": valuation,
-		"total_pnl": valuation.Equity - netIn,
+		"total_pnl": valuation.Equity - account.BonusPrincipal - netIn,
 		"today_pnl": todayPnl,
 		"withdrawable": gin.H{
-			"quota":           withdrawable,
+			"quota":           quotaWithdrawable,
 			"profit_out_used": profitUsed,
 			"profit_out_cap":  profitCap,
 		},
-		// 转入模拟盘的游戏币与兑换额度共用每人每天的上限；转回游戏币不能超过按亏损抵扣顺序结算之后的游戏币本金
-		// (coin_returnable，也不超过现在能转出的资金)。
 		"wallet": gin.H{
-			"quota":                     userQuota,
-			"game_coins":                coinAccount.Balance,
-			"game_coin_daily_limit":     model.GameCoinConvertDailyLimit,
-			"game_coin_daily_remaining": max(convertCap-coinsConverted, 0),
-			"coin_returnable":           min(model.TradeCoinReturnable(account, valuation.Equity), model.GameCoins(max(withdrawable, 0))),
+			"quota":           userQuota,
+			"game_coins":      coinAccount.Balance,
+			"locked_wager":    coinAccount.LockedWager,
+			"coin_returnable": coinWithdrawable,
+		},
+		"bonus": gin.H{
+			"enabled":              setting.Enabled && setting.BonusEnabled,
+			"pool_daily_usd":       setting.BonusPoolDailyUsd,
+			"pool_remaining":       poolRemaining,
+			"first_amount_usd":     setting.BonusFirstAmountUsd,
+			"first_profit_cap_usd": setting.BonusFirstProfitCapUsd,
+			"first_claimed":        firstClaimed,
+			"active_days":          setting.BonusActiveDays,
+			"min_used_usd":         setting.BonusMinUsedUsd,
+			"match_enabled":        setting.Enabled && setting.BonusEnabled && setting.BonusMatchEnabled,
+			"match_period":         setting.BonusMatchPeriod,
+			"match_max_usd":        setting.BonusMatchMaxUsd,
+			"match_claimed":        matchClaimed,
+			"task_wager_coins":     setting.BonusTaskWagerCoins,
+			"task_wager_current":   taskWagerCurrent,
+			"task_completed":       taskWagerCurrent >= taskWagerRequired,
+			"turnstile_required":   setting.BonusTurnstileEnabled && common.TurnstileCheckEnabled,
+			"site_key":             common.TurnstileSiteKey,
+			"bonus_principal":      account.BonusPrincipal,
+			"bonus_mode":           account.BonusMode,
 		},
 	}, nil
 }
@@ -715,19 +770,9 @@ func TransferTrade(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
-	// 游戏币转入模拟盘只接受整币(占用每天的兑换额度，按整币计)，转回游戏币可以有小数，按额度单位精确记账。
-	coins, coinAmount := 0, model.GameCoins(0)
-	if req.Wallet == "game_coin" && isIn {
-		if !amount.Equal(amount.Truncate(0)) {
-			common.ApiErrorI18n(c, i18n.MsgTradeGameCoinInteger)
-			return
-		}
-		coins, err = common.QuotaFromDecimalStrict(amount)
-		if err != nil || coins < 1 {
-			common.ApiErrorI18n(c, i18n.MsgTradeAmountInvalid)
-			return
-		}
-	} else if req.Wallet == "game_coin" {
+	// 游戏币转入与转回模拟盘均支持小数，按额度单位精确记账。
+	coinAmount := model.GameCoins(0)
+	if req.Wallet == "game_coin" {
 		if coinAmount, err = model.ParseGameCoins(req.Amount); err != nil || coinAmount < 1 {
 			common.ApiErrorI18n(c, i18n.MsgTradeAmountInvalid)
 			return
@@ -743,7 +788,12 @@ func TransferTrade(c *gin.Context) {
 		return
 	}
 	userId := c.GetInt("id")
-	content, profit := "", 0
+	if isIn && req.ClaimMatch {
+		if !passTradeBonusTurnstile(c, setting, req.Turnstile, userId) {
+			return
+		}
+	}
+	content, profit, bonusGranted := "", 0, 0
 	profitCap, err := common.QuotaFromDecimalStrict(decimal.NewFromInt(int64(setting.DailyProfitOutUsd)).Mul(decimal.NewFromInt(int64(perUsd))))
 	if err != nil {
 		common.ApiErrorI18n(c, i18n.MsgTradeAmountInvalid)
@@ -755,6 +805,11 @@ func TransferTrade(c *gin.Context) {
 			respondTradeOrderError(c, "", err)
 			return
 		}
+	}
+	transferInOpts := model.TradeTransferInOptions{
+		ClaimMatch: req.ClaimMatch,
+		Ip:         gameRewardIpKey(c.ClientIP()),
+		Day:        tradeDay(time.Now()),
 	}
 	// 每次转账之前按账户总资产把亏损按抵扣顺序记到游戏币本金上，估值算不出来时有游戏币本金的账户不能转账。估值之后账户又有了
 	// 变动(同时在下单、转账)时重新估值，连续几次都赶不上就让用户稍后再试。
@@ -770,15 +825,15 @@ func TransferTrade(c *gin.Context) {
 			equity = model.TradeEquity{Value: valuation.Equity, Known: valueErr == nil, Account: seen}
 		}
 		if req.Wallet == "game_coin" && isIn {
-			_, err = model.TransferGameCoinsToTrade(userId, coins, model.GameCenterDay(time.Now()), equity)
-			content = fmt.Sprintf("模拟盘转入游戏币 %d", coins)
-			quota = coins * perUsd
+			_, bonusGranted, err = model.TransferGameCoinsToTradeWithOptions(userId, coinAmount, equity, transferInOpts)
+			content = fmt.Sprintf("模拟盘转入游戏币 %s", coinAmount.Decimal())
+			quota = int(coinAmount)
 		} else if req.Wallet == "game_coin" {
 			_, profit, err = model.TransferGameCoinsFromTrade(userId, coinAmount, tradeDay(time.Now()), profitCap, service.TradeAccountingMarket(), equity)
 			content = fmt.Sprintf("模拟盘转出游戏币 %s，其中盈利 %s", coinAmount.Decimal(), logger.LogQuota(profit))
 			quota = int(coinAmount)
 		} else if isIn {
-			_, err = model.TransferQuotaToTrade(userId, quota, equity)
+			_, bonusGranted, err = model.TransferQuotaToTradeWithOptions(userId, quota, equity, transferInOpts)
 			content = fmt.Sprintf("模拟盘转入额度 %s", logger.LogQuota(quota))
 		} else {
 			_, profit, err = model.TransferQuotaFromTrade(userId, quota, tradeDay(time.Now()), profitCap, service.TradeAccountingMarket(), equity)
@@ -789,35 +844,138 @@ func TransferTrade(c *gin.Context) {
 		}
 	}
 	if err != nil {
-		switch {
-		case errors.Is(err, model.ErrTradeAmountInvalid), errors.Is(err, model.ErrGameCoinAmountInvalid):
-			common.ApiErrorI18n(c, i18n.MsgTradeAmountInvalid)
-		case errors.Is(err, model.ErrGameCoinInsufficient):
-			common.ApiErrorI18n(c, i18n.MsgTradeGameCoinInsufficient)
-		case errors.Is(err, model.ErrGameCoinConvertDailyLimit):
-			common.ApiErrorI18n(c, i18n.MsgGameCoinConvertDailyLimit, map[string]any{"Limit": model.GameCoinConvertDailyLimit})
-		case errors.Is(err, model.ErrTradeCoinPrincipal):
-			common.ApiErrorI18n(c, i18n.MsgTradeCoinPrincipal)
-		case errors.Is(err, model.ErrTradeQuotaInsufficient):
-			common.ApiErrorI18n(c, i18n.MsgTradeQuotaInsufficient)
-		case errors.Is(err, model.ErrTradeWithdrawExceeded):
-			common.ApiErrorI18n(c, i18n.MsgTradeWithdrawExceeded)
-		case errors.Is(err, model.ErrTradeProfitOutLimit):
-			common.ApiErrorI18n(c, i18n.MsgTradeProfitOutLimit, map[string]any{"Max": setting.DailyProfitOutUsd})
-		case errors.Is(err, model.ErrQuotaOutOfRange):
-			common.ApiErrorI18n(c, i18n.MsgQuotaExceedMax)
-		case errors.Is(err, model.ErrTradeMarkUnavailable):
-			common.ApiErrorI18n(c, i18n.MsgTradeMarketUnavailable)
-		case errors.Is(err, model.ErrTradeValuationStale):
-			common.ApiErrorI18n(c, i18n.MsgRetryLater)
-		default:
-			common.SysError(fmt.Sprintf("trade transfer failed for user %d: %v", userId, err))
-			common.ApiErrorI18n(c, i18n.MsgTradeTransferFailed)
-		}
+		respondTradeTransferError(c, setting, userId, err)
 		return
 	}
+	if bonusGranted > 0 {
+		content += fmt.Sprintf("，获赠体验金 %s", logger.LogQuota(bonusGranted))
+	}
 	model.RecordAuditLog(model.ClientLogSource(c), userId, "", model.LogTypeSystem, content,
-		map[string]interface{}{"trade_direction": req.Direction, "wallet": req.Wallet, "quota": quota, "profit": profit})
+		map[string]interface{}{"trade_direction": req.Direction, "wallet": req.Wallet, "quota": quota, "profit": profit, "bonus_granted": bonusGranted})
+	view, err := tradeSelfView(userId)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, view)
+}
+
+func passTradeBonusTurnstile(c *gin.Context, setting *operation_setting.TradeSetting, token string, userId int) bool {
+	if !setting.BonusTurnstileEnabled || !common.TurnstileCheckEnabled {
+		return true
+	}
+	if token == "" {
+		token = c.Query("turnstile")
+	}
+	if token == "" {
+		common.ApiErrorI18n(c, i18n.MsgGameTurnstileRequired)
+		return false
+	}
+	if err := service.VerifyTurnstile(token, c.ClientIP()); err != nil {
+		if !errors.Is(err, service.ErrTurnstileRejected) {
+			common.SysError(fmt.Sprintf("failed to verify trade bonus turnstile for user %d: %v", userId, err))
+		}
+		common.ApiErrorI18n(c, i18n.MsgGameTurnstileFailed)
+		return false
+	}
+	return true
+}
+
+func respondTradeTransferError(c *gin.Context, setting *operation_setting.TradeSetting, userId int, err error) {
+	switch {
+	case errors.Is(err, model.ErrTradeAmountInvalid), errors.Is(err, model.ErrGameCoinAmountInvalid):
+		common.ApiErrorI18n(c, i18n.MsgTradeAmountInvalid)
+	case errors.Is(err, model.ErrGameCoinInsufficient):
+		common.ApiErrorI18n(c, i18n.MsgTradeGameCoinInsufficient)
+	case errors.Is(err, model.ErrTradeCoinPrincipal):
+		common.ApiErrorI18n(c, i18n.MsgTradeCoinPrincipal)
+	case errors.Is(err, model.ErrTradeQuotaOutExceedsPrincipal):
+		common.ApiErrorI18n(c, i18n.MsgTradeQuotaOutExceedsPrincipal)
+	case errors.Is(err, model.ErrTradeQuotaInsufficient):
+		common.ApiErrorI18n(c, i18n.MsgTradeQuotaInsufficient)
+	case errors.Is(err, model.ErrTradeWithdrawExceeded):
+		common.ApiErrorI18n(c, i18n.MsgTradeWithdrawExceeded)
+	case errors.Is(err, model.ErrTradeProfitOutLimit):
+		common.ApiErrorI18n(c, i18n.MsgTradeProfitOutLimit, map[string]any{"Max": setting.DailyProfitOutUsd})
+	case errors.Is(err, model.ErrTradeBonusDisabled):
+		common.ApiErrorI18n(c, i18n.MsgTradeBonusDisabled)
+	case errors.Is(err, model.ErrTradeBonusPoolExhausted):
+		common.ApiErrorI18n(c, i18n.MsgTradeBonusPoolExhausted)
+	case errors.Is(err, model.ErrTradeBonusAlreadyClaimed):
+		common.ApiErrorI18n(c, i18n.MsgTradeBonusAlreadyClaimed)
+	case errors.Is(err, model.ErrTradeBonusIpLimit):
+		common.ApiErrorI18n(c, i18n.MsgTradeBonusIpLimit)
+	case errors.Is(err, model.ErrTradeBonusAccountNotEmpty):
+		common.ApiErrorI18n(c, i18n.MsgTradeBonusAccountNotEmpty)
+	case errors.Is(err, model.ErrTradeBonusInactiveUser):
+		common.ApiErrorI18n(c, i18n.MsgTradeBonusInactiveUser)
+	case errors.Is(err, model.ErrTradeBonusTaskIncomplete):
+		common.ApiErrorI18n(c, i18n.MsgTradeBonusTaskIncomplete)
+	case errors.Is(err, model.ErrTradeBonusActiveExists):
+		common.ApiErrorI18n(c, i18n.MsgTradeBonusActiveExists)
+	case errors.Is(err, model.ErrTradeBonusClosePositionsFirst):
+		common.ApiErrorI18n(c, i18n.MsgTradeBonusClosePositionsFirst)
+	case errors.Is(err, model.ErrTradeBonusProfitCap):
+		common.ApiErrorI18n(c, i18n.MsgTradeBonusProfitCap, map[string]any{"Max": setting.BonusFirstProfitCapUsd})
+	case errors.Is(err, model.ErrQuotaOutOfRange):
+		common.ApiErrorI18n(c, i18n.MsgQuotaExceedMax)
+	case errors.Is(err, model.ErrTradeMarkUnavailable):
+		common.ApiErrorI18n(c, i18n.MsgTradeMarketUnavailable)
+	case errors.Is(err, model.ErrTradeValuationStale):
+		common.ApiErrorI18n(c, i18n.MsgRetryLater)
+	default:
+		common.SysError(fmt.Sprintf("trade transfer failed for user %d: %v", userId, err))
+		common.ApiErrorI18n(c, i18n.MsgTradeTransferFailed)
+	}
+}
+
+// ClaimTradeBonus 领取新手首次模拟盘体验金(需空仓、近期 API 调用活跃、人机验证，全局每日池先到先得)。
+func ClaimTradeBonus(c *gin.Context) {
+	setting := operation_setting.GetTradeSetting()
+	if !setting.Enabled || !setting.BonusEnabled || setting.BonusFirstAmountUsd <= 0 {
+		common.ApiErrorI18n(c, i18n.MsgTradeBonusDisabled)
+		return
+	}
+	var req tradeBonusClaimRequest
+	_ = common.DecodeJson(c.Request.Body, &req)
+	userId := c.GetInt("id")
+	if !passTradeBonusTurnstile(c, setting, req.Turnstile, userId) {
+		return
+	}
+	active, err := model.CheckUserRecentApiActivity(userId, setting.BonusActiveDays, setting.BonusMinUsedUsd)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if !active {
+		common.ApiErrorI18n(c, i18n.MsgTradeBonusInactiveUser)
+		return
+	}
+	_, bonusQuota, err := model.ClaimTradeFirstBonus(userId, gameRewardIpKey(c.ClientIP()), tradeDay(time.Now()))
+	if err != nil {
+		respondTradeTransferError(c, setting, userId, err)
+		return
+	}
+	model.RecordAuditLog(model.ClientLogSource(c), userId, "", model.LogTypeSystem,
+		fmt.Sprintf("领取模拟盘新手体验金 %s", logger.LogQuota(bonusQuota)),
+		map[string]interface{}{"bonus_granted": bonusQuota, "bonus_mode": model.TradeBonusModeFirst})
+	view, err := tradeSelfView(userId)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, view)
+}
+
+// ForfeitTradeBonus 主动放弃当前模拟盘体验金(须先平仓、撤单并结清借款)。
+func ForfeitTradeBonus(c *gin.Context) {
+	setting := operation_setting.GetTradeSetting()
+	userId := c.GetInt("id")
+	if _, err := model.ForfeitTradeBonus(userId); err != nil {
+		respondTradeTransferError(c, setting, userId, err)
+		return
+	}
+	model.RecordAuditLog(model.ClientLogSource(c), userId, "", model.LogTypeSystem, "放弃模拟盘体验金", nil)
 	view, err := tradeSelfView(userId)
 	if err != nil {
 		common.ApiError(c, err)

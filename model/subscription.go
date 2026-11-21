@@ -11,6 +11,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/pkg/cachex"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/samber/hot"
 	"github.com/shopspring/decimal"
@@ -343,8 +344,11 @@ func (p *SubscriptionPlan) IsAttachGroupMode() bool {
 }
 
 // SubscriptionPayMethodBalance is the payment method key for paying with wallet
-// balance. Every other key comes from the admin's payment configuration.
-const SubscriptionPayMethodBalance = "balance"
+// balance. SubscriptionPayMethodGameCoin pays with game coins (1 coin = 1 USD).
+const (
+	SubscriptionPayMethodBalance  = "balance"
+	SubscriptionPayMethodGameCoin = "game_coin"
+)
 
 // NormalizeSubscriptionPayMethod canonicalises a payment method key so the
 // whitelist matches regardless of how the caller cased it. Ethereum keys carry
@@ -387,6 +391,10 @@ func (p *SubscriptionPlan) AllowsPaymentMethod(method string) bool {
 	}
 	whitelist := strings.TrimSpace(p.AllowedPaymentMethods)
 	if whitelist == "" {
+		// 禁止余额支付且未显式配置支付白名单时，同步禁止游戏币支付，避免用户通过余额转游戏币绕过限制。
+		if method == SubscriptionPayMethodGameCoin && p.AllowBalancePay != nil && !*p.AllowBalancePay {
+			return false
+		}
 		return true
 	}
 	for _, raw := range strings.Split(whitelist, ",") {
@@ -1835,6 +1843,137 @@ func PurchaseSubscriptionWithBalance(source LogSource, userId int, planId int) e
 	msg := fmt.Sprintf("使用余额%s成功，套餐: %s，支付金额: %.2f，扣除额度: %d", action, logPlanTitle, logMoney, chargedQuota)
 	RecordLog(source, userId, LogTypeTopup, msg)
 	return nil
+}
+
+// PurchaseSubscriptionWithGameCoins 使用游戏币钱包购买订阅套餐(1 游戏币 = 1 美元)。
+// 若开启了流水解锁校验，须先完成有效流水(locked_wager == 0)方可用游戏币购订阅。
+func PurchaseSubscriptionWithGameCoins(source LogSource, userId int, planId int) (GameCoins, error) {
+	if userId <= 0 || planId <= 0 {
+		return 0, errors.New("invalid userId or planId")
+	}
+	setting := operation_setting.GetGameSetting()
+	if !setting.Enabled || !setting.SubscriptionEnabled {
+		return 0, errors.New("当前未开放游戏币购买订阅")
+	}
+
+	var logPlanTitle string
+	var logMoney float64
+	var chargedCoins GameCoins
+	var balance GameCoins
+	var upgradeGroup string
+	groupApplied := false
+	wasRenewed := false
+
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		plan, err := getSubscriptionPlanByIdTx(tx, planId)
+		if err != nil {
+			return err
+		}
+		if !plan.Enabled {
+			return errors.New("套餐未启用")
+		}
+		if plan.PriceAmount < 0 {
+			return errors.New("套餐价格不能为负数")
+		}
+		if !plan.AllowsPaymentMethod(SubscriptionPayMethodGameCoin) {
+			return errors.New("该套餐不支持使用游戏币购买")
+		}
+
+		requiredQuota, err := calcSubscriptionBalanceQuota(plan.PriceAmount)
+		if err != nil {
+			return err
+		}
+		requiredCoins := GameCoins(requiredQuota)
+
+		account, err := lockGameCoinAccountTx(tx, userId)
+		if err != nil {
+			return err
+		}
+		if setting.SubscriptionRequireUnlocked && account.LockedWager > 0 {
+			if err = resetGameCoinLockedWagerIfEmptyTx(tx, userId); err != nil {
+				return err
+			}
+			var locked GameCoins
+			if err = tx.Model(&GameCoinAccount{}).Where("user_id = ?", userId).Select("locked_wager").Scan(&locked).Error; err != nil {
+				return err
+			}
+			if locked > 0 {
+				return ErrGameCoinLockedWager
+			}
+		}
+
+		balance = account.Balance
+		if requiredCoins > 0 {
+			balance, err = debitGameCoinsTx(tx, userId, requiredCoins, nil)
+			if err != nil {
+				return err
+			}
+			if balance == 0 {
+				if err = resetGameCoinLockedWagerIfEmptyTx(tx, userId); err != nil {
+					return err
+				}
+			}
+		}
+
+		createdSub, renewed, err := CreateUserSubscriptionFromPlanTx(tx, userId, plan, PaymentMethodGameCoin)
+		if err != nil {
+			return err
+		}
+		groupApplied = !renewed && createdSub.Status == SubscriptionStatusActive && createdSub.PrevUserGroup != ""
+		wasRenewed = renewed
+
+		now := common.GetTimestamp()
+		tradeNo := fmt.Sprintf("SUBGCUSR%dNO%s%d", userId, common.GetRandomString(6), time.Now().UnixNano())
+		order := &SubscriptionOrder{
+			UserId:          userId,
+			PlanId:          plan.Id,
+			Money:           plan.PriceAmount,
+			TradeNo:         tradeNo,
+			PaymentMethod:   PaymentMethodGameCoin,
+			PaymentProvider: PaymentProviderGameCoin,
+			Status:          common.TopUpStatusSuccess,
+			CreateTime:      now,
+			CompleteTime:    now,
+			ProviderPayload: fmt.Sprintf("charged_game_coins=%d", requiredCoins),
+		}
+		if err := tx.Create(order).Error; err != nil {
+			return err
+		}
+		if requiredCoins > 0 {
+			if err := tx.Create(&GameCoinLog{
+				UserId:    userId,
+				Type:      GameCoinLogTypeSubscription,
+				Amount:    -requiredCoins,
+				Balance:   balance,
+				Quota:     int(requiredCoins),
+				RefId:     tradeNo,
+				Remark:    truncateRiskField(plan.Title, 255),
+				CreatedAt: now,
+			}).Error; err != nil {
+				return err
+			}
+		}
+
+		logPlanTitle = plan.Title
+		logMoney = plan.PriceAmount
+		chargedCoins = requiredCoins
+		upgradeGroup = strings.TrimSpace(plan.UpgradeGroup)
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+
+	if upgradeGroup != "" && groupApplied {
+		_ = UpdateUserGroupCache(userId, upgradeGroup)
+	}
+	action := "购买订阅"
+	if wasRenewed {
+		action = "续期订阅"
+	}
+	msg := fmt.Sprintf("使用游戏币%s成功，套餐: %s，支付金额: %.2f，扣除游戏币: %s", action, logPlanTitle, logMoney, chargedCoins.Decimal())
+	RecordLog(source, userId, LogTypeTopup, msg)
+	return balance, nil
 }
 
 // GetAllActiveUserSubscriptions returns all active subscriptions for a user.

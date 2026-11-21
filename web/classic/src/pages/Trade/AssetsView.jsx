@@ -18,14 +18,26 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Button, Select, Table, Typography } from '@douyinfe/semi-ui';
+import { useNavigate } from 'react-router-dom';
+import {
+  Button,
+  Modal,
+  Select,
+  Table,
+  Tag,
+  Typography,
+} from '@douyinfe/semi-ui';
 import { VChart } from '@visactor/react-vchart';
-import { ArrowDownToLine, ArrowUpFromLine } from 'lucide-react';
+import { ArrowDownToLine, ArrowUpFromLine, Gift } from 'lucide-react';
 import FuturesPositions from './FuturesPositions';
 import LedgerCard from './LedgerCard';
 import PnlCalendar from './PnlCalendar';
 import TransferModal from './TransferModal';
 import SpotMarginCard from './SpotMarginCard';
+import {
+  PlayTurnstile,
+  usePlayTurnstile,
+} from '../Games/common/usePlayTurnstile';
 import {
   formatPrice,
   formatQty,
@@ -36,7 +48,7 @@ import {
   tradePost,
   trendClass,
 } from './api';
-import { showError } from '../../helpers';
+import { showError, showSuccess } from '../../helpers';
 
 const { Text, Title } = Typography;
 
@@ -52,13 +64,67 @@ const AssetsView = ({
   noticeKey,
   t,
 }) => {
+  const navigate = useNavigate();
   const [transfer, setTransfer] = useState(null);
   const [history, setHistory] = useState([]);
   const [futuresPositions, setFuturesPositions] = useState([]);
   const [cross, setCross] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [savingLossOrder, setSavingLossOrder] = useState(false);
+  const [claimingBonus, setClaimingBonus] = useState(false);
+  const [forfeitingBonus, setForfeitingBonus] = useState(false);
   const valuation = self?.valuation;
+  const bonus = self?.bonus;
+  const canClaimFirstBonus = Boolean(
+    bonus?.enabled &&
+      !bonus?.first_claimed &&
+      (bonus?.first_amount_usd || 0) > 0 &&
+      (bonus?.bonus_principal || 0) === 0,
+  );
+  const bonusTurnstile = usePlayTurnstile({
+    required: Boolean(canClaimFirstBonus && bonus?.turnstile_required),
+    site_key: bonus?.site_key || '',
+  });
+
+  const handleClaimFirstBonus = async () => {
+    setClaimingBonus(true);
+    const payload = bonusTurnstile.required
+      ? { turnstile: bonusTurnstile.take() }
+      : {};
+    const res = await tradePost('/api/trade/bonus/claim', payload, t);
+    setClaimingBonus(false);
+    if (res.error) {
+      showError(res.error);
+      return;
+    }
+    showSuccess(t('已领取新手模拟盘体验金'));
+    onSelfChanged(res.data);
+    setRefreshKey((value) => value + 1);
+  };
+
+  const handleForfeitBonus = () => {
+    Modal.confirm({
+      title: t('确认放弃当前体验金'),
+      content:
+        bonus?.bonus_mode === 'first'
+          ? t(
+              '放弃新手体验金将清空当前体验金余额（含未转出盈利），如有盈利请先点「转出」。确认继续吗？',
+            )
+          : t('将回收当前剩余体验金本金，自有资金不受影响。确认继续吗？'),
+      onOk: async () => {
+        setForfeitingBonus(true);
+        const res = await tradePost('/api/trade/bonus/forfeit', {}, t);
+        setForfeitingBonus(false);
+        if (res.error) {
+          showError(res.error);
+          return;
+        }
+        showSuccess(t('已放弃体验金'));
+        onSelfChanged(res.data);
+        setRefreshKey((value) => value + 1);
+      },
+    });
+  };
 
   // 亏损抵扣顺序：亏损先记到游戏币还是平台额度那部分本金上，决定能转回多少游戏币，也决定穿仓的亏空先从哪个钱包补。
   const changeLossOrder = async (order) => {
@@ -286,6 +352,105 @@ const AssetsView = ({
 
   return (
     <div className='flex flex-col gap-4'>
+      {bonus?.enabled && (
+        <div className='trade-card flex flex-col gap-3'>
+          <div className='flex flex-wrap items-center justify-between gap-2'>
+            <div className='flex items-center gap-2'>
+              <Gift size={18} />
+              <Title heading={6} className='!m-0'>
+                {t('模拟盘体验金活动')}
+              </Title>
+              {bonus.pool_daily_usd > 0 && (
+                <Tag color='amber'>
+                  {t('今日体验金池剩余 {{left}} / {{total}} USDT（先到先得）', {
+                    left: formatUsdt(bonus.pool_remaining, perUnit),
+                    total: bonus.pool_daily_usd,
+                  })}
+                </Tag>
+              )}
+            </div>
+            {(bonus.bonus_principal || 0) > 0 && (
+              <div className='flex items-center gap-2'>
+                <Tag color='green'>
+                  {bonus.bonus_mode === 'first'
+                    ? t('当前持有新手体验金 {{amount}} USDT', {
+                        amount: formatUsdt(bonus.bonus_principal, perUnit),
+                      })
+                    : t('当前持有 1:1 加赠体验金 {{amount}} USDT', {
+                        amount: formatUsdt(bonus.bonus_principal, perUnit),
+                      })}
+                </Tag>
+                <Button
+                  size='small'
+                  type='danger'
+                  loading={forfeitingBonus}
+                  onClick={handleForfeitBonus}
+                >
+                  {t('放弃体验金')}
+                </Button>
+              </div>
+            )}
+          </div>
+          {canClaimFirstBonus && (
+            <div className='flex flex-col gap-2'>
+              <div className='flex flex-wrap items-center justify-between gap-2'>
+                <Text type='secondary' size='small'>
+                  {t(
+                    '新手首次空仓可领 {{amount}} USDT 体验金（需近 {{days}} 天有 API 调用且累计消费满 {{minUsd}} 美元）；盈利最多转出 {{cap}} USDT，穿仓归零不欠主余额。',
+                    {
+                      amount: bonus.first_amount_usd,
+                      days: bonus.active_days,
+                      minUsd: bonus.min_used_usd,
+                      cap: bonus.first_profit_cap_usd,
+                    },
+                  )}
+                </Text>
+                <Button
+                  theme='solid'
+                  loading={claimingBonus}
+                  disabled={!bonusTurnstile.ready}
+                  onClick={handleClaimFirstBonus}
+                >
+                  {t('领取 {{amount}} USDT 体验金', {
+                    amount: bonus.first_amount_usd,
+                  })}
+                </Button>
+              </div>
+              <PlayTurnstile turnstile={bonusTurnstile} />
+            </div>
+          )}
+          {bonus.match_enabled && (
+            <div className='flex flex-wrap items-center justify-between gap-2 text-xs'>
+              <Text type='tertiary' size='small'>
+                {bonus.match_claimed
+                  ? t('本周期 1:1 转入加赠已使用。')
+                  : bonus.task_completed
+                    ? t(
+                        '已完成游戏中心有效下注任务！现在点击「转入」可勾选 1:1 体验金加赠（最高 {{max}} USDT）。',
+                        { max: bonus.match_max_usd },
+                      )
+                    : t(
+                        '任务进度：本周期在游戏中心刺激玩法/对战/奖池有效下注 {{current}} / {{target}} 币，完成后转入模拟盘即享 1:1 体验金加赠（最高 {{max}} USDT）。',
+                        {
+                          current: bonus.task_wager_current || 0,
+                          target: bonus.task_wager_coins,
+                          max: bonus.match_max_usd,
+                        },
+                      )}
+              </Text>
+              {!bonus.match_claimed && !bonus.task_completed && (
+                <Button
+                  size='small'
+                  theme='borderless'
+                  onClick={() => navigate('/games')}
+                >
+                  {t('去游戏中心完成任务')}
+                </Button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
       <div className='trade-card flex flex-col gap-4'>
         <div className='grid grid-cols-2 gap-4 md:grid-cols-4 xl:grid-cols-7'>
           {summary.map(([label, value, className]) => (

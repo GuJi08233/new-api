@@ -41,6 +41,18 @@ type GameSetting struct {
 	ShopEnabled      bool `json:"shop_enabled"`
 	ShopPricePercent int  `json:"shop_price_percent"`
 
+	// DepositEnabled 开放平台额度单向转入游戏币(1 美元 = 1 币，不增加链上可提现额度)。
+	DepositEnabled bool `json:"deposit_enabled"`
+	// ConvertEnabled 开放游戏币在有效流水解锁后转回平台额度；ConvertDailyLimit 是每人每天最多兑换的美元数(0 不限制)。
+	ConvertEnabled    bool `json:"convert_enabled"`
+	ConvertDailyLimit int  `json:"convert_daily_limit"`
+	// FreeWagerMultiplier 与 DepositWagerMultiplier 分别是免费奖励与平台额度转入游戏币所需的有效流水解锁倍数(0 表示不锁)。
+	FreeWagerMultiplier    int `json:"free_wager_multiplier"`
+	DepositWagerMultiplier int `json:"deposit_wager_multiplier"`
+	// SubscriptionEnabled 开放使用游戏币购买订阅套餐；SubscriptionRequireUnlocked 要求先完成有效流水解锁。
+	SubscriptionEnabled         bool `json:"subscription_enabled"`
+	SubscriptionRequireUnlocked bool `json:"subscription_require_unlocked"`
+
 	// 链上提现。每日上限按全站当日提现总量计算，保护热钱包里的周转余额。
 	WithdrawEnabled    bool `json:"withdraw_enabled"`
 	WithdrawDailyLimit int  `json:"withdraw_daily_limit"`
@@ -233,6 +245,8 @@ const (
 	// 道具价格比例的范围：最低一折，最高十倍。
 	GameMinShopPricePercent = 10
 	GameMaxShopPricePercent = 1000
+	// 游戏币有效流水解锁倍数的上限(0 表示不锁)。
+	GameMaxWagerMultiplier = 20
 )
 
 // 游戏的结算方式，决定配置项的规则类型和管理页怎么编辑。
@@ -370,9 +384,20 @@ func ValidateGameOption(key string, value string) error {
 	case "play_turnstile_exempt_games":
 		_, err := NormalizeGameOption(key, value)
 		return err
-	case "enabled", "withdraw_enabled", "play_turnstile_enabled", "shop_enabled":
+	case "enabled", "withdraw_enabled", "play_turnstile_enabled", "shop_enabled",
+		"deposit_enabled", "convert_enabled", "subscription_enabled", "subscription_require_unlocked":
 		if _, err := strconv.ParseBool(value); err != nil {
 			return fmt.Errorf("%s 必须是 true 或 false", field)
+		}
+	case "convert_daily_limit":
+		amount, err := strconv.Atoi(value)
+		if err != nil || amount < 0 || amount >= common.MaxQuota {
+			return fmt.Errorf("游戏币每日兑换额度上限必须是非负整数")
+		}
+	case "free_wager_multiplier", "deposit_wager_multiplier":
+		multiplier, err := strconv.Atoi(value)
+		if err != nil || multiplier < 0 || multiplier > GameMaxWagerMultiplier {
+			return fmt.Errorf("有效流水解锁倍数必须为 0 到 %d", GameMaxWagerMultiplier)
 		}
 	case "free_daily_limit":
 		amount, err := strconv.Atoi(value)
@@ -607,9 +632,16 @@ func DefaultGameSetting() *GameSetting {
 		// 对局与游戏流水每人每天几十条，保留一个季度。
 		RecordRetentionDays: 90,
 		// 游戏本身默认关闭，开了游戏就能买道具；道具只能在游戏里用，换不回游戏币。
-		ShopEnabled:        true,
-		ShopPricePercent:   100,
-		WithdrawEnabled:    false,
+		ShopEnabled:                 true,
+		ShopPricePercent:            100,
+		DepositEnabled:              true,
+		ConvertEnabled:              true,
+		ConvertDailyLimit:           50,
+		FreeWagerMultiplier:         3,
+		DepositWagerMultiplier:      1,
+		SubscriptionEnabled:         true,
+		SubscriptionRequireUnlocked: true,
+		WithdrawEnabled:             false,
 		WithdrawDailyLimit: 1000,
 		WithdrawMinAmount:  1,
 		WithdrawMaxAmount:  100,

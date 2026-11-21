@@ -91,6 +91,10 @@ const RechargeCard = ({
   enableWaffoPancakeTopUp,
   enableEthereumTopUp,
   ethereumInfo,
+  enableGameCoinSubscription = false,
+  gameCoinBalance = 0,
+  gameCoinLockedWager = 0,
+  gameCoinSubRequireUnlocked = true,
   onPayEthereum,
   subscriptionLoading = false,
   subscriptionPlans = [],
@@ -327,7 +331,8 @@ const RechargeCard = ({
                       style={{ width: '100%' }}
                     />
                   </Col>
-                  {(regularPayMethods.length > 0 || ethereumPayMethods.length > 0) && (
+                  {(regularPayMethods.length > 0 ||
+                    ethereumPayMethods.length > 0) && (
                     <Col xs={24} sm={24} md={24} lg={14} xl={14}>
                       <Form.Slot label={t('选择支付方式')}>
                         <Space wrap>
@@ -359,14 +364,21 @@ const RechargeCard = ({
                                 type='tertiary'
                                 onClick={() =>
                                   isEthereum
-                                    ? onPayEthereum?.(payMethod.address || '0x0000000000000000000000000000000000000000', true)
+                                    ? onPayEthereum?.(
+                                        payMethod.address ||
+                                          '0x0000000000000000000000000000000000000000',
+                                        true,
+                                      )
                                     : preTopUp(payMethod.type)
                                 }
                                 disabled={disabled}
                                 loading={
                                   isEthereum
-                                    ? paymentLoading && payWay === `ethereum:${payMethod.address || '0x0000'}`
-                                    : paymentLoading && payWay === payMethod.type
+                                    ? paymentLoading &&
+                                      payWay ===
+                                        `ethereum:${payMethod.address || '0x0000'}`
+                                    : paymentLoading &&
+                                      payWay === payMethod.type
                                 }
                                 icon={
                                   payMethod.type === 'alipay' ? (
@@ -435,8 +447,10 @@ const RechargeCard = ({
 
                           {/* Ethereum 支付按钮 */}
                           {ethereumPayMethods.map((token) => {
-                            const minTopupVal = Number(ethereumInfo.min_topup) || 1;
-                            const disabled = minTopupVal > Number(topUpCount || 0);
+                            const minTopupVal =
+                              Number(ethereumInfo.min_topup) || 1;
+                            const disabled =
+                              minTopupVal > Number(topUpCount || 0);
 
                             const ethereumButton = (
                               <Button
@@ -445,13 +459,14 @@ const RechargeCard = ({
                                 type='tertiary'
                                 onClick={() => onPayEthereum?.(token.address)}
                                 disabled={disabled}
-                                loading={paymentLoading && payWay === token.type}
+                                loading={
+                                  paymentLoading && payWay === token.type
+                                }
                                 icon={
                                   <Wallet
                                     size={18}
                                     color={
-                                      token.color ||
-                                      'var(--semi-color-primary)'
+                                      token.color || 'var(--semi-color-primary)'
                                     }
                                   />
                                 }
@@ -485,7 +500,10 @@ const RechargeCard = ({
                 </Row>
               )}
 
-              {(enableOnlineTopUp || enableStripeTopUp || enableWaffoTopUp || enableEthereumTopUp) && (
+              {(enableOnlineTopUp ||
+                enableStripeTopUp ||
+                enableWaffoTopUp ||
+                enableEthereumTopUp) && (
                 <Form.Slot
                   label={
                     <div className='flex items-center gap-2'>
@@ -750,6 +768,10 @@ const RechargeCard = ({
                 enableOnlineTopUp={enableOnlineTopUp}
                 enableStripeTopUp={enableStripeTopUp}
                 enableCreemTopUp={enableCreemTopUp}
+                enableGameCoinSubscription={enableGameCoinSubscription}
+                gameCoinBalance={gameCoinBalance}
+                gameCoinLockedWager={gameCoinLockedWager}
+                gameCoinSubRequireUnlocked={gameCoinSubRequireUnlocked}
                 billingPreference={billingPreference}
                 onChangeBillingPreference={onChangeBillingPreference}
                 activeSubscriptions={activeSubscriptions}

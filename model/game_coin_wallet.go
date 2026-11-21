@@ -36,9 +36,17 @@ func applyGameCoinDeltaTx(tx *gorm.DB, userId int, delta GameCoins, entry GameCo
 		return 0, ErrGameCoinAmountInvalid
 	}
 	balance := account.Balance + delta
+	withdrawable := account.WithdrawableBalance
+	if delta < 0 && withdrawable > balance {
+		withdrawable = balance
+	}
 	now := common.GetTimestamp()
 	result := tx.Model(&GameCoinAccount{}).Where("user_id = ? AND balance = ?", userId, account.Balance).
-		Updates(map[string]interface{}{"balance": balance, "updated_at": now})
+		Updates(map[string]interface{}{
+			"balance":              balance,
+			"withdrawable_balance": withdrawable,
+			"updated_at":           now,
+		})
 	if result.Error != nil {
 		return 0, result.Error
 	}

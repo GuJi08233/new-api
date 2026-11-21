@@ -66,6 +66,9 @@ const LedgerCard = ({ perUnit, refreshKey, t }) => {
     prediction_buy: t('预测买入'),
     prediction_sell: t('预测卖出'),
     predict_settle: t('预测结算'),
+    bonus_in: t('体验金入账'),
+    bonus_reclaim: t('体验金回收'),
+    bonus_zero: t('体验金穿仓归零'),
   };
   const fillTypes = [
     'buy',

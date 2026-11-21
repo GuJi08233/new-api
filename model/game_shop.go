@@ -30,6 +30,14 @@ func BuyGameItem(userId int, game string, cost GameCoins, remark string, update 
 		if balance, err = debitGameCoinsTx(tx, userId, cost, nil); err != nil {
 			return err
 		}
+		if err = consumeGameCoinLockedWagerTx(tx, userId, cost); err != nil {
+			return err
+		}
+		if balance == 0 {
+			if err = resetGameCoinLockedWagerIfEmptyTx(tx, userId); err != nil {
+				return err
+			}
+		}
 		return tx.Create(&GameCoinLog{
 			UserId:    userId,
 			Type:      GameCoinLogTypeGameShop,

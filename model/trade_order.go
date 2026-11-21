@@ -3,6 +3,7 @@ package model
 import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/pkg/tradesim"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -140,6 +141,9 @@ func applyTradeFill(tx *gorm.DB, account *TradeAccount, position *TradePosition,
 	order.FilledAmount += fill.Amount
 	order.Fee += fill.Fee
 	if err := tradeLedgerTx(tx, account, &entry); err != nil {
+		return err
+	}
+	if err := creditGameCoinWagerFromTradeTx(tx, account, fill.Amount, operation_setting.GetTradeSetting().TradeWagerSpotBps); err != nil {
 		return err
 	}
 	if order.Side == TradeSideSell {

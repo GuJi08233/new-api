@@ -148,6 +148,24 @@ func TestValidateGameOption(t *testing.T) {
 	assert.NoError(t, ValidateGameOption(GameHotWalletPrivateKeyOption, "4c0883a69102937d6231471b5dbb6204fe5129617082792ae468d01a3f362318"))
 	assert.Error(t, ValidateGameOption(GameHotWalletPrivateKeyOption, "0x1234"))
 	assert.Error(t, ValidateGameOption(GameHotWalletPrivateKeyOption, "not-a-private-key"))
+
+	// 新增的充币、流水解锁与订阅支付配置。
+	for key, ok := range map[string]bool{
+		GameSettingPrefix + "deposit_enabled":               true,
+		GameSettingPrefix + "convert_enabled":               true,
+		GameSettingPrefix + "subscription_enabled":          true,
+		GameSettingPrefix + "subscription_require_unlocked": true,
+	} {
+		assert.Equal(t, ok, ValidateGameOption(key, "true") == nil, key)
+		assert.Error(t, ValidateGameOption(key, "yes"), key)
+	}
+	assert.NoError(t, ValidateGameOption(GameSettingPrefix+"convert_daily_limit", "0"))
+	assert.NoError(t, ValidateGameOption(GameSettingPrefix+"convert_daily_limit", "50"))
+	assert.Error(t, ValidateGameOption(GameSettingPrefix+"convert_daily_limit", "-1"))
+	assert.NoError(t, ValidateGameOption(GameSettingPrefix+"free_wager_multiplier", "0"))
+	assert.NoError(t, ValidateGameOption(GameSettingPrefix+"free_wager_multiplier", "20"))
+	assert.Error(t, ValidateGameOption(GameSettingPrefix+"free_wager_multiplier", "21"))
+	assert.Error(t, ValidateGameOption(GameSettingPrefix+"deposit_wager_multiplier", "-1"))
 }
 
 // TestValidateGameSettingChecksWithdrawRange: the defaults must pass their own

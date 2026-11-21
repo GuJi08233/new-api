@@ -20,7 +20,9 @@ For commercial licensing, please contact support@quantumnous.com
 // 游戏币流水类型与提现状态的展示映射。文案写成字面量 t() 调用，i18n 提取才能找到。
 export const getGameCoinLogTypeMap = (t) => ({
   admin_adjust: { text: t('管理员调整'), color: 'purple' },
+  quota_in: { text: t('余额转入'), color: 'green' },
   convert: { text: t('额度兑换'), color: 'blue' },
+  subscription: { text: t('购买订阅'), color: 'violet' },
   withdraw: { text: t('链上提现'), color: 'orange' },
   withdraw_refund: { text: t('提现退回'), color: 'green' },
   game_reward: { text: t('游戏奖励'), color: 'amber' },

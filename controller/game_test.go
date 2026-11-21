@@ -121,20 +121,35 @@ func TestGameCoinConvertDailyLimitOverHTTP(t *testing.T) {
 	require.NoError(t, i18n.Init())
 	env := newGameTestEnv(t, gameSetting(func(setting *operation_setting.GameSetting) {
 		setting.WithdrawDailyLimit = 1000
+		setting.ConvertDailyLimit = 15
 	}))
 	player := env.player(50, gameTestIpA)
 	other := env.player(50, gameTestIpA)
 	require.NoError(t, env.db.Create(&model.GameCoinWithdrawDay{Day: gameCenterDay(), Used: 100}).Error)
 
 	info := player.ok(http.MethodGet, "/api/game/self", nil)
-	assert.Equal(t, map[string]any{"daily_limit": float64(15), "daily_used": float64(0), "daily_remaining": float64(15)}, info["convert"])
+	assert.Equal(t, map[string]any{
+		"enabled":               true,
+		"daily_limit":           float64(15),
+		"daily_used":            float64(0),
+		"daily_remaining":       float64(15),
+		"locked_wager":          float64(0),
+		"free_wager_multiplier": float64(3),
+	}, info["convert"])
 	assert.Equal(t, 900.0, info["withdraw"].(map[string]any)["daily_remaining"])
 
 	result := player.ok(http.MethodPost, "/api/game/convert", map[string]any{"amount": 10})
 	assert.EqualValues(t, 10*common.QuotaPerUnit, result["quota"])
 	assert.Equal(t, 40.0, result["balance"])
 	info = player.ok(http.MethodGet, "/api/game/self", nil)
-	assert.Equal(t, map[string]any{"daily_limit": float64(15), "daily_used": float64(10), "daily_remaining": float64(5)}, info["convert"])
+	assert.Equal(t, map[string]any{
+		"enabled":               true,
+		"daily_limit":           float64(15),
+		"daily_used":            float64(10),
+		"daily_remaining":       float64(5),
+		"locked_wager":          float64(0),
+		"free_wager_multiplier": float64(3),
+	}, info["convert"])
 	assert.Equal(t, 900.0, info["withdraw"].(map[string]any)["daily_remaining"])
 
 	message := player.fails(http.MethodPost, "/api/game/convert", map[string]any{"amount": 6})
@@ -143,7 +158,14 @@ func TestGameCoinConvertDailyLimitOverHTTP(t *testing.T) {
 	player.ok(http.MethodPost, "/api/game/convert", map[string]any{"amount": 5})
 	player.fails(http.MethodPost, "/api/game/convert", map[string]any{"amount": 1})
 	info = player.ok(http.MethodGet, "/api/game/self", nil)
-	assert.Equal(t, map[string]any{"daily_limit": float64(15), "daily_used": float64(15), "daily_remaining": float64(0)}, info["convert"])
+	assert.Equal(t, map[string]any{
+		"enabled":               true,
+		"daily_limit":           float64(15),
+		"daily_used":            float64(15),
+		"daily_remaining":       float64(0),
+		"locked_wager":          float64(0),
+		"free_wager_multiplier": float64(3),
+	}, info["convert"])
 	assert.Equal(t, 35.0, player.balance())
 	quota, err := model.GetUserQuota(player.user.Id, true)
 	require.NoError(t, err)

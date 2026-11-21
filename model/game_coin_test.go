@@ -7,9 +7,20 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func useGameCoinConvertLimitForTest(t *testing.T, limit int) {
+	t.Helper()
+	prev := operation_setting.GetGameSetting()
+	next := prev.Clone()
+	next.ConvertEnabled = true
+	next.ConvertDailyLimit = limit
+	operation_setting.SetGameSettingForTest(next)
+	t.Cleanup(func() { operation_setting.SetGameSettingForTest(prev) })
+}
 
 // gameCoinTestAddress 是测试提现绑定的收款地址。
 const gameCoinTestAddress = "0x8ba1f109551bD432803012645Ac136ddd64DBA72"
@@ -82,6 +93,7 @@ func TestConvertGameCoinsToQuotaMovesValueAtomically(t *testing.T) {
 // 游戏币可以有小数：兑换多少个额度单位就入账多少额度，零头不会丢，每日额度也按同样的数占用。
 func TestConvertGameCoinsAcceptsFractions(t *testing.T) {
 	truncateTables(t)
+	useGameCoinConvertLimitForTest(t, 15)
 	seedGameCoinUser(t, 1116, 0, 20)
 
 	quota, balance, err := ConvertGameCoinsToQuota(1116, coinText("1.234568"))
@@ -126,6 +138,7 @@ func TestConvertGameCoinsRollsBackWhenWalletIsFull(t *testing.T) {
 
 func TestConvertGameCoinsDailyLimitIsPerUserAndDay(t *testing.T) {
 	truncateTables(t)
+	useGameCoinConvertLimitForTest(t, 15)
 	seedGameCoinUser(t, 1110, 0, 40)
 	seedGameCoinUser(t, 1111, 0, 40)
 	now := time.Now()
@@ -165,6 +178,7 @@ func TestConvertGameCoinsDailyLimitIsPerUserAndDay(t *testing.T) {
 
 func TestConvertGameCoinsConcurrentRequestsCannotExceedDailyLimit(t *testing.T) {
 	truncateTables(t)
+	useGameCoinConvertLimitForTest(t, 15)
 	seedGameCoinUser(t, 1112, 0, 40)
 	start := make(chan struct{})
 	results := make(chan error, 2)
@@ -204,6 +218,7 @@ func TestConvertGameCoinsCountsExistingDailyLogs(t *testing.T) {
 	for _, alreadyConverted := range []int{12, 20} {
 		t.Run(strconv.Itoa(alreadyConverted), func(t *testing.T) {
 			truncateTables(t)
+			useGameCoinConvertLimitForTest(t, 15)
 			seedGameCoinUser(t, 1113, alreadyConverted*int(common.QuotaPerUnit), 30)
 			now := time.Now()
 			day := now.Format("2006-01-02")

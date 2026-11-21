@@ -127,6 +127,18 @@ func GetTopUpInfo(c *gin.Context) {
 		data["ethereum_min_topup"] = ethereumInfo["min_topup"]
 	}
 
+	// ── Game coin subscription payment info ──────────────────────────────
+	gameSetting := operation_setting.GetGameSetting()
+	enableGameCoinSub := gameSetting.Enabled && gameSetting.SubscriptionEnabled
+	data["enable_game_coin_subscription"] = enableGameCoinSub
+	data["game_coin_subscription_require_unlocked"] = gameSetting.SubscriptionRequireUnlocked
+	if userId := c.GetInt("id"); userId > 0 && enableGameCoinSub {
+		if coinAccount, err := model.GetGameCoinAccount(userId); err == nil {
+			data["game_coin_balance"] = coinAccount.Balance
+			data["game_coin_locked_wager"] = coinAccount.LockedWager
+		}
+	}
+
 	common.ApiSuccess(c, data)
 }
 

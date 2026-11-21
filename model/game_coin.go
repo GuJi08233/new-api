@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -26,7 +27,9 @@ const GameWithdrawRebindLockSeconds = 24 * 60 * 60
 
 const (
 	GameCoinLogTypeAdminAdjust    = "admin_adjust"
+	GameCoinLogTypeQuotaIn        = "quota_in"
 	GameCoinLogTypeConvert        = "convert"
+	GameCoinLogTypeSubscription   = "subscription"
 	GameCoinLogTypeWithdraw       = "withdraw"
 	GameCoinLogTypeWithdrawRefund = "withdraw_refund"
 	GameCoinLogTypeGameReward     = "game_reward"
@@ -48,11 +51,16 @@ const (
 )
 
 var (
-	ErrGameCoinAmountInvalid     = errors.New("game coin amount is out of range")
-	ErrGameCoinInsufficient      = errors.New("game coin balance is insufficient")
-	ErrGameCoinDailyLimit        = errors.New("game coin daily withdrawal limit reached")
-	ErrGameCoinConvertDailyLimit = errors.New("game coin daily conversion limit reached")
-	ErrGameCoinUserNotFound      = errors.New("user not found")
+	ErrGameCoinAmountInvalid           = errors.New("game coin amount is out of range")
+	ErrGameCoinInsufficient            = errors.New("game coin balance is insufficient")
+	ErrGameCoinQuotaInsufficient       = errors.New("user quota is insufficient for game coin deposit")
+	ErrGameCoinDepositDisabled         = errors.New("game coin deposit is disabled")
+	ErrGameCoinConvertDisabled         = errors.New("game coin conversion is disabled")
+	ErrGameCoinLockedWager             = errors.New("game coin wager requirement not met")
+	ErrGameCoinWithdrawableInsufficient = errors.New("game coin withdrawable balance is insufficient")
+	ErrGameCoinDailyLimit              = errors.New("game coin daily withdrawal limit reached")
+	ErrGameCoinConvertDailyLimit       = errors.New("game coin daily conversion limit reached")
+	ErrGameCoinUserNotFound            = errors.New("user not found")
 	// ErrGameWithdrawAddressUnbound 表示还没有绑定提现地址，ErrGameWithdrawAddressChanged 表示提现单的地址已经不是绑定的地址
 	// (页面打开之后换绑过)，ErrGameWithdrawAddressLocked 表示换绑之后的等待时间还没过。
 	ErrGameWithdrawAddressUnbound = errors.New("game coin withdrawal address is not bound")
@@ -70,9 +78,13 @@ var unfinishedGameCoinWithdrawalStatuses = []string{
 type GameCoinAccount struct {
 	UserId         int       `json:"user_id" gorm:"primaryKey;autoIncrement:false"`
 	Balance        GameCoins `json:"balance" gorm:"type:bigint;not null;default:0"`
-	TotalEarned    GameCoins `json:"total_earned" gorm:"type:bigint;not null;default:0"`
-	TotalConverted GameCoins `json:"total_converted" gorm:"type:bigint;not null;default:0"`
-	TotalWithdrawn GameCoins `json:"total_withdrawn" gorm:"type:bigint;not null;default:0"`
+	// LockedWager 是兑换平台额度或购买订阅前还需完成的有效流水(游戏下注、PVP、奖池与模拟盘成交均计入)。
+	LockedWager GameCoins `json:"locked_wager" gorm:"type:bigint;not null;default:0"`
+	// WithdrawableBalance 是可提现到链上的游戏币上限：仅免费游戏奖励与管理员发放会增加它，平台余额充入与下注/PVP 输赢增量不增加它。
+	WithdrawableBalance GameCoins `json:"withdrawable_balance" gorm:"type:bigint;not null;default:0"`
+	TotalEarned         GameCoins `json:"total_earned" gorm:"type:bigint;not null;default:0"`
+	TotalConverted      GameCoins `json:"total_converted" gorm:"type:bigint;not null;default:0"`
+	TotalWithdrawn      GameCoins `json:"total_withdrawn" gorm:"type:bigint;not null;default:0"`
 	// TotalWagerNet 是下注游戏(例如老虎机)的累计净输赢(派彩减去下注)，输多了为负。下注游戏的输赢不计入
 	// TotalEarned，单独累计后，页面上能看出余额里有多少来自下注游戏。
 	TotalWagerNet GameCoins `json:"total_wager_net" gorm:"type:bigint;not null;default:0"`
@@ -266,6 +278,11 @@ func debitGameCoinsTx(tx *gorm.DB, userId int, amount GameCoins, fields map[stri
 	if result.RowsAffected != 1 {
 		return 0, ErrGameCoinInsufficient
 	}
+	if err := tx.Model(&GameCoinAccount{}).
+		Where("user_id = ? AND withdrawable_balance > balance", userId).
+		Update("withdrawable_balance", gorm.Expr("balance")).Error; err != nil {
+		return 0, err
+	}
 	return readGameCoinBalanceTx(tx, userId)
 }
 
@@ -275,9 +292,136 @@ func readGameCoinBalanceTx(tx *gorm.DB, userId int) (GameCoins, error) {
 	return balance, err
 }
 
-// GameCoinConvertDailyCap 是每人每天能兑换(含转入模拟盘)的游戏币，即 GameCoinConvertDailyLimit 个整币。
+// addGameCoinLockedWagerTx 按倍数增加待完成的有效解锁流水，饱和到 2^53-1，避免溢出。
+func addGameCoinLockedWagerTx(tx *gorm.DB, userId int, amount GameCoins, multiplier int) error {
+	if amount <= 0 || multiplier <= 0 {
+		return nil
+	}
+	maxCap := GameCoins(common.MaxQuota - 1)
+	var added GameCoins
+	if amount > maxCap/GameCoins(multiplier) {
+		added = maxCap
+	} else {
+		added = amount * GameCoins(multiplier)
+	}
+	return tx.Model(&GameCoinAccount{}).
+		Where("user_id = ?", userId).
+		Update("locked_wager", gorm.Expr("CASE WHEN locked_wager + ? > ? THEN ? ELSE locked_wager + ? END", added, maxCap, maxCap, added)).Error
+}
+
+// consumeGameCoinLockedWagerTx 用有效下注或模拟盘成交额扣减待解锁流水，最低扣到 0。
+func consumeGameCoinLockedWagerTx(tx *gorm.DB, userId int, wagered GameCoins) error {
+	if wagered <= 0 {
+		return nil
+	}
+	return tx.Model(&GameCoinAccount{}).
+		Where("user_id = ? AND locked_wager > 0", userId).
+		Update("locked_wager", gorm.Expr("CASE WHEN locked_wager > ? THEN locked_wager - ? ELSE 0 END", wagered, wagered)).Error
+}
+
+// resetGameCoinLockedWagerIfEmptyTx 在玩家游戏币余额已归零且没有任何在途游戏押注或模拟盘游戏币本金时，
+// 自动清空剩余的流水解锁要求，避免输光后背负历史流水债。
+func resetGameCoinLockedWagerIfEmptyTx(tx *gorm.DB, userId int) error {
+	var accounts []GameCoinAccount
+	if err := tx.Where("user_id = ?", userId).Limit(1).Find(&accounts).Error; err != nil || len(accounts) == 0 {
+		return err
+	}
+	if accounts[0].Balance > 0 || accounts[0].LockedWager <= 0 {
+		return nil
+	}
+	if tx.Migrator().HasTable(&TradeAccount{}) {
+		var coinPrincipal GameCoins
+		if err := tx.Model(&TradeAccount{}).Where("user_id = ?", userId).Select("COALESCE(coin_principal, 0)").Scan(&coinPrincipal).Error; err != nil {
+			return err
+		}
+		if coinPrincipal > 0 {
+			return nil
+		}
+	}
+	if tx.Migrator().HasTable(&GameSession{}) {
+		var openSessions int64
+		if err := tx.Model(&GameSession{}).Where("user_id = ? AND status = ? AND bet > 0", userId, GameSessionStatusPlaying).Count(&openSessions).Error; err != nil {
+			return err
+		}
+		if openSessions > 0 {
+			return nil
+		}
+	}
+	if tx.Migrator().HasTable(&GameRoom{}) && tx.Migrator().HasTable(&GameRoomSeat{}) {
+		var openRooms int64
+		if err := tx.Table("game_rooms").
+			Joins("JOIN game_room_seats ON game_room_seats.room_id = game_rooms.id").
+			Where("game_room_seats.user_id = ? AND game_rooms.status IN ? AND game_rooms.escrow > 0", userId, []string{GameRoomStatusWaiting, GameRoomStatusPlaying}).
+			Count(&openRooms).Error; err != nil {
+			return err
+		}
+		if openRooms > 0 {
+			return nil
+		}
+	}
+	if tx.Migrator().HasTable(&GameJackpotRound{}) && tx.Migrator().HasTable(&GameJackpotEntry{}) {
+		var openJackpots int64
+		if err := tx.Table("game_jackpot_entries").
+			Joins("JOIN game_jackpot_rounds ON game_jackpot_rounds.id = game_jackpot_entries.round_id").
+			Where("game_jackpot_entries.user_id = ? AND game_jackpot_rounds.slot = ?", userId, gameJackpotOpenSlot).
+			Count(&openJackpots).Error; err != nil {
+			return err
+		}
+		if openJackpots > 0 {
+			return nil
+		}
+	}
+	return tx.Model(&GameCoinAccount{}).Where("user_id = ?", userId).Update("locked_wager", 0).Error
+}
+
+// GetGameWagerVolumeSince 统计玩家自 since(Unix 秒)起在游戏中心下注游戏、非平局 PVP 对战与已开奖多人奖池的累计有效下注额。
+func GetGameWagerVolumeSince(userId int, since int64) (GameCoins, error) {
+	return getGameWagerVolumeSinceTx(DB, userId, since)
+}
+
+func getGameWagerVolumeSinceTx(tx *gorm.DB, userId int, since int64) (GameCoins, error) {
+	var total GameCoins
+	if tx.Migrator().HasTable(&GameSession{}) {
+		var betSum GameCoins
+		if err := tx.Model(&GameSession{}).
+			Where("user_id = ? AND status = ? AND bet > 0 AND finished_at >= ?", userId, GameSessionStatusFinished, since).
+			Select("COALESCE(SUM(bet), 0)").Scan(&betSum).Error; err != nil {
+			return 0, err
+		}
+		total += betSum
+	}
+	if tx.Migrator().HasTable(&GameRoom{}) && tx.Migrator().HasTable(&GameRoomSeat{}) {
+		var pvpSum GameCoins
+		if err := tx.Table("game_rooms").
+			Joins("JOIN game_room_seats ON game_room_seats.room_id = game_rooms.id").
+			Where("game_room_seats.user_id = ? AND game_rooms.status = ? AND game_rooms.escrow > 0 AND game_rooms.winner_id > 0 AND game_rooms.finished_at >= ?",
+				userId, GameRoomStatusFinished, since).
+			Select("COALESCE(SUM(game_rooms.escrow), 0)").Scan(&pvpSum).Error; err != nil {
+			return 0, err
+		}
+		total += pvpSum
+	}
+	if tx.Migrator().HasTable(&GameJackpotRound{}) && tx.Migrator().HasTable(&GameJackpotEntry{}) {
+		var jackpotSum GameCoins
+		if err := tx.Table("game_jackpot_entries").
+			Joins("JOIN game_jackpot_rounds ON game_jackpot_rounds.id = game_jackpot_entries.round_id").
+			Where("game_jackpot_entries.user_id = ? AND game_jackpot_rounds.status = ? AND game_jackpot_rounds.drawn_at >= ?",
+				userId, GameJackpotStatusDrawn, since).
+			Select("COALESCE(SUM(game_jackpot_entries.amount), 0)").Scan(&jackpotSum).Error; err != nil {
+			return 0, err
+		}
+		total += jackpotSum
+	}
+	return total, nil
+}
+
+// GameCoinConvertDailyCap 返回当前配置下每人每天可兑换为主额度的上限(0 表示不限制)。
 func GameCoinConvertDailyCap() (GameCoins, error) {
-	return WholeGameCoins(GameCoinConvertDailyLimit)
+	limit := operation_setting.GetGameSetting().ConvertDailyLimit
+	if limit <= 0 {
+		return 0, nil
+	}
+	return WholeGameCoins(limit)
 }
 
 // GameCenterDay 返回 t 所在的游戏中心记账日：每日游戏奖励、个人兑换限额与全站提现额度都按它切换，与签到一样按服务器本地时间
@@ -286,9 +430,62 @@ func GameCenterDay(t time.Time) string {
 	return t.Format("2006-01-02")
 }
 
-// ConvertGameCoinsToQuota 把游戏币单向兑换为主额度，每人每天最多兑换 GameCoinConvertDailyLimit 个币。游戏币按额度单位记账，
-// 兑换多少个单位就入账多少额度，可以有小数。日额度、扣币、流水和 quota 入账在同一个事务里，任何一步失败都不占用日额度，也不扣币。
+// DepositQuotaToGameCoins 将平台主余额单向充入游戏币钱包(1 美元 = 1 币，支持小数)。充入的币不增加链上可提现额度，
+// 并按配置的 DepositWagerMultiplier 计入待完成有效流水。
+func DepositQuotaToGameCoins(userId int, amount GameCoins) (balance GameCoins, lockedWager GameCoins, err error) {
+	setting := operation_setting.GetGameSetting()
+	if !setting.DepositEnabled {
+		return 0, 0, ErrGameCoinDepositDisabled
+	}
+	if amount < 1 || amount >= common.MaxQuota {
+		return 0, 0, ErrGameCoinAmountInvalid
+	}
+	quota := int(amount)
+	now := common.GetTimestamp()
+	err = DB.Transaction(func(tx *gorm.DB) error {
+		if _, txErr := lockGameCoinAccountTx(tx, userId); txErr != nil {
+			return txErr
+		}
+		result := tx.Model(&User{}).Where("id = ? AND quota >= ?", userId, quota).Update("quota", gorm.Expr("quota - ?", quota))
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return ErrGameCoinQuotaInsufficient
+		}
+		var txErr error
+		if balance, txErr = creditGameCoinsTx(tx, userId, amount, nil); txErr != nil {
+			return txErr
+		}
+		if txErr = addGameCoinLockedWagerTx(tx, userId, amount, setting.DepositWagerMultiplier); txErr != nil {
+			return txErr
+		}
+		if txErr = tx.Create(&GameCoinLog{
+			UserId:    userId,
+			Type:      GameCoinLogTypeQuotaIn,
+			Amount:    amount,
+			Balance:   balance,
+			Quota:     quota,
+			CreatedAt: now,
+		}).Error; txErr != nil {
+			return txErr
+		}
+		return tx.Model(&GameCoinAccount{}).Where("user_id = ?", userId).Select("locked_wager").Scan(&lockedWager).Error
+	})
+	if err != nil {
+		return 0, 0, err
+	}
+	syncCreditUserQuotaCache(userId, -quota, "game coin deposit")
+	return balance, lockedWager, nil
+}
+
+// ConvertGameCoinsToQuota 把已完成有效流水解锁的游戏币兑换为主额度，受后台配置的每人每日上限约束(0 表示不限制)。
+// 游戏币按额度单位记账，兑换多少个单位就入账多少额度，可以有小数。锁账户、校验流水锁、日额度、扣币、流水和 quota 入账在同一个事务里。
 func ConvertGameCoinsToQuota(userId int, amount GameCoins) (quota int, balance GameCoins, err error) {
+	setting := operation_setting.GetGameSetting()
+	if !setting.ConvertEnabled {
+		return 0, 0, ErrGameCoinConvertDisabled
+	}
 	if amount < 1 || amount >= common.MaxQuota {
 		return 0, 0, ErrGameCoinAmountInvalid
 	}
@@ -296,22 +493,39 @@ func ConvertGameCoinsToQuota(userId int, amount GameCoins) (quota int, balance G
 	if err != nil {
 		return 0, 0, err
 	}
-	if amount > limit {
+	if limit > 0 && amount > limit {
 		return 0, 0, ErrGameCoinConvertDailyLimit
 	}
 	quota = int(amount)
 	now := time.Now()
 	day := GameCenterDay(now)
 	err = DB.Transaction(func(tx *gorm.DB) error {
-		var txErr error
+		account, txErr := lockGameCoinAccountTx(tx, userId)
+		if txErr != nil {
+			return txErr
+		}
+		if account.LockedWager > 0 {
+			if txErr = resetGameCoinLockedWagerIfEmptyTx(tx, userId); txErr != nil {
+				return txErr
+			}
+			var locked GameCoins
+			if txErr = tx.Model(&GameCoinAccount{}).Where("user_id = ?", userId).Select("locked_wager").Scan(&locked).Error; txErr != nil {
+				return txErr
+			}
+			if locked > 0 {
+				return ErrGameCoinLockedWager
+			}
+		}
 		balance, txErr = debitGameCoinsTx(tx, userId, amount, map[string]interface{}{
 			"total_converted": gorm.Expr("total_converted + ?", amount),
 		})
 		if txErr != nil {
 			return txErr
 		}
-		if txErr = consumeGameCoinConvertDayTx(tx, userId, day, amount); txErr != nil {
-			return txErr
+		if limit > 0 {
+			if txErr = consumeGameCoinConvertDayTx(tx, userId, day, amount, limit); txErr != nil {
+				return txErr
+			}
 		}
 		if txErr = tx.Create(&GameCoinLog{
 			UserId:    userId,
@@ -332,14 +546,9 @@ func ConvertGameCoinsToQuota(userId int, amount GameCoins) (quota int, balance G
 	return quota, balance, nil
 }
 
-// consumeGameCoinConvertDayTx 占用用户当天的兑换额度，超过 GameCoinConvertDailyLimit 个币时返回 ErrGameCoinConvertDailyLimit。
-// 兑换主额度和转入模拟盘共用这份额度。调用方要先锁住用户的游戏币账户，同一用户的占用依次进行。
-func consumeGameCoinConvertDayTx(tx *gorm.DB, userId int, day string, amount GameCoins) error {
-	limit, err := GameCoinConvertDailyCap()
-	if err != nil {
-		return err
-	}
-	// 首次启用日限额时把今天已有的流水计入，升级当天不会重新得到一份额度。
+// consumeGameCoinConvertDayTx 占用用户当天的兑换额度，超过 limit 时返回 ErrGameCoinConvertDailyLimit。
+// 调用方要先锁住用户的游戏币账户，同一用户的占用依次进行。
+func consumeGameCoinConvertDayTx(tx *gorm.DB, userId int, day string, amount GameCoins, limit GameCoins) error {
 	used, err := gameCoinConvertDayUsed(tx, userId, day)
 	if err != nil {
 		return err
@@ -359,12 +568,12 @@ func consumeGameCoinConvertDayTx(tx *gorm.DB, userId int, day string, amount Gam
 	return nil
 }
 
-// GetGameCoinConvertDayUsed 返回用户在服务器本地记账日已经兑换和转入模拟盘的游戏币。
+// GetGameCoinConvertDayUsed 返回用户在服务器本地记账日已经兑换为主额度的游戏币。
 func GetGameCoinConvertDayUsed(userId int, day string) (GameCoins, error) {
 	return gameCoinConvertDayUsed(DB, userId, day)
 }
 
-// gameCoinConvertDayUsed 兼容日限额上线前的兑换与转入模拟盘记录；查询本身不创建或改变计数。
+// gameCoinConvertDayUsed 查询当日已兑换额度；查询本身不创建或改变计数。
 func gameCoinConvertDayUsed(tx *gorm.DB, userId int, day string) (GameCoins, error) {
 	var rows []GameCoinConvertDay
 	if err := tx.Where("user_id = ? AND day = ?", userId, day).Limit(1).Find(&rows).Error; err != nil {
@@ -379,13 +588,13 @@ func gameCoinConvertDayUsed(tx *gorm.DB, userId int, day string) (GameCoins, err
 	}
 	var used GameCoins
 	err = tx.Model(&GameCoinLog{}).
-		Where("user_id = ? AND type IN ? AND amount < 0 AND created_at >= ? AND created_at < ?",
-			userId, []string{GameCoinLogTypeConvert, GameCoinLogTypeTradeOut}, start.Unix(), start.AddDate(0, 0, 1).Unix()).
+		Where("user_id = ? AND type = ? AND amount < 0 AND created_at >= ? AND created_at < ?",
+			userId, GameCoinLogTypeConvert, start.Unix(), start.AddDate(0, 0, 1).Unix()).
 		Select("COALESCE(SUM(-amount), 0)").Scan(&used).Error
 	return used, err
 }
 
-// AdjustGameCoins 是管理员给用户加减游戏币，delta 为正加币、为负扣币，可以有小数，扣币不会透支。
+// AdjustGameCoins 是管理员给用户加减游戏币，delta 为正加币(同步增加链上可提现额度，不加流水锁)、为负扣币，扣币不会透支。
 func AdjustGameCoins(userId int, delta GameCoins, remark string) (GameCoins, error) {
 	if delta == 0 || delta <= -common.MaxQuota || delta >= common.MaxQuota {
 		return 0, ErrGameCoinAmountInvalid
@@ -402,10 +611,14 @@ func AdjustGameCoins(userId int, delta GameCoins, remark string) (GameCoins, err
 		var err error
 		if delta > 0 {
 			balance, err = creditGameCoinsTx(tx, userId, delta, map[string]interface{}{
-				"total_earned": gorm.Expr("total_earned + ?", delta),
+				"total_earned":         gorm.Expr("total_earned + ?", delta),
+				"withdrawable_balance": gorm.Expr("withdrawable_balance + ?", delta),
 			})
 		} else {
 			balance, err = debitGameCoinsTx(tx, userId, -delta, nil)
+			if err == nil && balance == 0 {
+				err = resetGameCoinLockedWagerIfEmptyTx(tx, userId)
+			}
 		}
 		if err != nil {
 			return err
@@ -481,10 +694,21 @@ func CreateGameCoinWithdrawal(withdrawal *GameCoinWithdrawal, dailyLimit int) (G
 			return ErrGameWithdrawAddressChanged
 		case account.WithdrawUnlockAt > now:
 			return ErrGameWithdrawAddressLocked
+		case account.Balance < units:
+			return ErrGameCoinInsufficient
+		case account.WithdrawableBalance < units:
+			return ErrGameCoinWithdrawableInsufficient
 		}
-		balance, err = debitGameCoinsTx(tx, withdrawal.UserId, units, nil)
+		balance, err = debitGameCoinsTx(tx, withdrawal.UserId, units, map[string]interface{}{
+			"withdrawable_balance": gorm.Expr("withdrawable_balance - ?", units),
+		})
 		if err != nil {
 			return err
+		}
+		if balance == 0 {
+			if err = resetGameCoinLockedWagerIfEmptyTx(tx, withdrawal.UserId); err != nil {
+				return err
+			}
 		}
 		if err = tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&GameCoinWithdrawDay{Day: withdrawal.Day}).Error; err != nil {
 			return err
@@ -771,7 +995,9 @@ func FailGameCoinWithdrawal(observed *GameCoinWithdrawal, reason string, detail 
 		if err != nil {
 			return err
 		}
-		balance, err := creditGameCoinsTx(tx, withdrawal.UserId, units, nil)
+		balance, err := creditGameCoinsTx(tx, withdrawal.UserId, units, map[string]interface{}{
+			"withdrawable_balance": gorm.Expr("withdrawable_balance + ?", units),
+		})
 		if err != nil {
 			return err
 		}

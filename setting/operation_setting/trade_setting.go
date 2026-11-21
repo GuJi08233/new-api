@@ -2,6 +2,7 @@ package operation_setting
 
 import (
 	"fmt"
+	"math"
 	"net/url"
 	"slices"
 	"strconv"
@@ -72,6 +73,24 @@ type TradeSetting struct {
 	// REST 换成 https://www.binance.com，或者配置代理。
 	FuturesRestUrl string `json:"futures_rest_url"`
 	FuturesWsUrl   string `json:"futures_ws_url"`
+
+	// 模拟盘体验金系统：全站每日额度池先到先得；新手凭近期 API 活跃证明与人机验证首领破冰，
+	// 后续完成游戏中心有效下注任务后，转入模拟盘可享 1:1 体验金加赠。
+	BonusEnabled           bool    `json:"bonus_enabled"`
+	BonusPoolDailyUsd      int     `json:"bonus_pool_daily_usd"`
+	BonusFirstAmountUsd    int     `json:"bonus_first_amount_usd"`
+	BonusFirstProfitCapUsd int     `json:"bonus_first_profit_cap_usd"`
+	BonusActiveDays        int     `json:"bonus_active_days"`
+	BonusMinUsedUsd        float64 `json:"bonus_min_used_usd"`
+	BonusMatchEnabled      bool    `json:"bonus_match_enabled"`
+	BonusMatchPeriod       string  `json:"bonus_match_period"`
+	BonusMatchMaxUsd       int     `json:"bonus_match_max_usd"`
+	BonusTaskWagerCoins    int     `json:"bonus_task_wager_coins"`
+	BonusTurnstileEnabled  bool    `json:"bonus_turnstile_enabled"`
+
+	// 模拟盘成交额折算为游戏币有效解锁流水的万分比(10000 = 100%)。
+	TradeWagerSpotBps    int `json:"trade_wager_spot_bps"`
+	TradeWagerFuturesBps int `json:"trade_wager_futures_bps"`
 }
 
 // 品种的种类，决定前端放在哪个分组里。
@@ -133,13 +152,20 @@ var TradeSymbols = []TradeSymbolInfo{
 const (
 	TradeSettingPrefix = "trade_setting."
 
-	TradeMaxFeeBps      = 100 // 手续费最多 1%
-	TradeMaxOrderUsd    = 1_000_000
-	TradeMaxPositionUsd = 10_000_000
-	TradeMaxProfitOut   = 1_000_000
-	TradeMinStaleMs     = 500
-	TradeMaxStaleMs     = 60_000
-	TradeMaxLeverage    = 150
+	TradeBonusPeriodDaily  = "daily"
+	TradeBonusPeriodWeekly = "weekly"
+
+	TradeMaxFeeBps          = 100 // 手续费最多 1%
+	TradeMaxOrderUsd        = 1_000_000
+	TradeMaxPositionUsd     = 10_000_000
+	TradeMaxProfitOut       = 1_000_000
+	TradeMinStaleMs         = 500
+	TradeMaxStaleMs         = 60_000
+	TradeMaxLeverage        = 150
+	TradeMaxBonusPoolUsd    = 10_000_000
+	TradeMaxBonusAmountUsd  = 100_000
+	TradeMaxBonusActiveDays = 365
+	TradeMaxWagerCreditBps  = 10_000
 )
 
 // tradeSetting 仅作为配置框架(基于反射、无同步)就地修改的暂存区，请求 goroutine 读取下方发布的只读快照。
@@ -179,8 +205,21 @@ func DefaultTradeSetting() *TradeSetting {
 		FuturesTakerFeeBps:    4,
 		FuturesMakerFeeBps:    2,
 		FuturesMaxPositionUsd: 5000,
-		FuturesRestUrl:        "https://fapi.binance.com",
-		FuturesWsUrl:          "wss://fstream.binance.com",
+		FuturesRestUrl:         "https://fapi.binance.com",
+		FuturesWsUrl:           "wss://fstream.binance.com",
+		BonusEnabled:           false,
+		BonusPoolDailyUsd:      1000,
+		BonusFirstAmountUsd:    100,
+		BonusFirstProfitCapUsd: 20,
+		BonusActiveDays:        7,
+		BonusMinUsedUsd:        0.5,
+		BonusMatchEnabled:      true,
+		BonusMatchPeriod:       TradeBonusPeriodWeekly,
+		BonusMatchMaxUsd:       50,
+		BonusTaskWagerCoins:    5,
+		BonusTurnstileEnabled:  true,
+		TradeWagerSpotBps:      10000,
+		TradeWagerFuturesBps:   3000,
 	}
 }
 
@@ -297,10 +336,36 @@ func ValidateTradeOption(key string, value string) error {
 		if value != "" && !isUrlWithScheme(value, "http", "socks5") {
 			return fmt.Errorf("代理地址必须是 http 或 socks5 地址")
 		}
-	case "futures_enabled", "leaderboard_enabled", "insights_enabled", "prediction_enabled":
+	case "futures_enabled", "leaderboard_enabled", "insights_enabled", "prediction_enabled",
+		"bonus_enabled", "bonus_match_enabled", "bonus_turnstile_enabled":
 		if _, err := strconv.ParseBool(value); err != nil {
 			return fmt.Errorf("%s 必须是 true 或 false", field)
 		}
+	case "bonus_pool_daily_usd":
+		return validateTradeInt(value, 0, TradeMaxBonusPoolUsd, "全站每日体验金池")
+	case "bonus_first_amount_usd":
+		return validateTradeInt(value, 0, TradeMaxBonusAmountUsd, "新手首次体验金金额")
+	case "bonus_first_profit_cap_usd":
+		return validateTradeInt(value, 0, TradeMaxProfitOut, "新手体验金盈利转出上限")
+	case "bonus_active_days":
+		return validateTradeInt(value, 0, TradeMaxBonusActiveDays, "活跃证明时间窗口(天)")
+	case "bonus_min_used_usd":
+		amount, err := strconv.ParseFloat(value, 64)
+		if err != nil || math.IsNaN(amount) || math.IsInf(amount, 0) || amount < 0 || amount > float64(TradeMaxBonusAmountUsd) {
+			return fmt.Errorf("活跃证明最少消费金额必须为 0 到 %d", TradeMaxBonusAmountUsd)
+		}
+	case "bonus_match_period":
+		if value != TradeBonusPeriodDaily && value != TradeBonusPeriodWeekly {
+			return fmt.Errorf("加赠周期只能是 %s 或 %s", TradeBonusPeriodDaily, TradeBonusPeriodWeekly)
+		}
+	case "bonus_match_max_usd":
+		return validateTradeInt(value, 0, TradeMaxBonusAmountUsd, "单人每期加赠上限")
+	case "bonus_task_wager_coins":
+		return validateTradeInt(value, 0, TradeMaxBonusAmountUsd, "加赠任务所需游戏有效下注")
+	case "trade_wager_spot_bps":
+		return validateTradeInt(value, 0, TradeMaxWagerCreditBps, "现货与预测成交折算游戏流水比例")
+	case "trade_wager_futures_bps":
+		return validateTradeInt(value, 0, TradeMaxWagerCreditBps, "合约成交折算游戏流水比例")
 	case "futures_symbols":
 		var symbols []string
 		if err := common.UnmarshalJsonStr(value, &symbols); err != nil {

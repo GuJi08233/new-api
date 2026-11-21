@@ -21,28 +21,48 @@ import React, { useEffect, useState } from 'react';
 import {
   Banner,
   Button,
+  Checkbox,
   Input,
   Modal,
   Select,
   Typography,
 } from '@douyinfe/semi-ui';
 import { showError, showSuccess } from '../../helpers';
+import {
+  PlayTurnstile,
+  usePlayTurnstile,
+} from '../Games/common/usePlayTurnstile';
 import { toUsdt, tradePost } from './api';
 
 const { Text } = Typography;
 
-// 在平台额度或游戏币钱包与模拟盘之间转账，额度按美元填写，可以有小数；游戏币转入只接受整币，转回可以有小数。转出上限由后端算好：
-// 只有可用资金能转出，超过本金的部分算盈利，受每天的上限约束。游戏币转入与兑换额度共用每天的余量；转回游戏币不超过按亏损抵扣顺序
-// 结算之后还剩的游戏币本金(coin_returnable)，盈利只能转出成额度。
+// 在平台额度或游戏币钱包与模拟盘之间转账，均支持小数。
+// 游戏币转入不再受每日 15 币限制；游戏币本金只能退回游戏币，盈利只能转出到平台额度。
+// 转入时若满足游戏中心任务且全局池有余量，可勾选领取 1:1 体验金加赠；出金时自动回收剩余体验金。
 const TransferModal = ({ direction, self, perUnit, onClose, onDone, t }) => {
   const [amount, setAmount] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [wallet, setWallet] = useState('quota');
+  const [claimMatch, setClaimMatch] = useState(false);
   const isIn = direction === 'in';
   const isCoin = wallet === 'game_coin';
+  const bonus = self?.bonus;
+  const activeBonus = self?.account?.bonus_principal || 0;
+  const canOfferMatch =
+    isIn &&
+    activeBonus <= 0 &&
+    bonus?.match_enabled &&
+    !bonus?.match_claimed &&
+    bonus?.task_completed &&
+    (bonus?.pool_daily_usd <= 0 || (bonus?.pool_remaining || 0) > 0);
+  const turnstile = usePlayTurnstile({
+    required: Boolean(claimMatch && canOfferMatch && bonus?.turnstile_required),
+    site_key: bonus?.site_key || '',
+  });
 
   useEffect(() => {
     setAmount('');
+    setClaimMatch(false);
   }, [direction, wallet]);
 
   if (!direction || !self) return null;
@@ -52,19 +72,14 @@ const TransferModal = ({ direction, self, perUnit, onClose, onDone, t }) => {
     profitCap - (self.withdrawable?.profit_out_used || 0),
     0,
   );
-  const coinDailyLimit = self.wallet?.game_coin_daily_limit || 0;
-  const coinDailyLeft = self.wallet?.game_coin_daily_remaining || 0;
   const coinReturnable = self.wallet?.coin_returnable || 0;
   let available = toUsdt(
     isIn ? self.wallet?.quota : self.withdrawable?.quota,
     perUnit,
   );
   if (isCoin && isIn) {
-    available = Math.floor(
-      Math.min(self.wallet?.game_coins || 0, coinDailyLeft),
-    );
+    available = self.wallet?.game_coins || 0;
   } else if (isCoin) {
-    // 服务端给出的币数已经精确到额度单位，原样显示，不再做浮点运算。
     available = coinReturnable;
   }
   const max = Math.max(0, available);
@@ -72,12 +87,15 @@ const TransferModal = ({ direction, self, perUnit, onClose, onDone, t }) => {
   const unit = isCoin ? t('游戏币') : 'USDT';
 
   const submit = async () => {
+    const payload = { direction, amount, wallet };
+    if (claimMatch && canOfferMatch) {
+      payload.claim_match = true;
+      if (turnstile.required) {
+        payload.turnstile = turnstile.take();
+      }
+    }
     setSubmitting(true);
-    const res = await tradePost(
-      '/api/trade/transfer',
-      { direction, amount, wallet },
-      t,
-    );
+    const res = await tradePost('/api/trade/transfer', payload, t);
     setSubmitting(false);
     if (res.error) {
       showError(res.error);
@@ -87,11 +105,18 @@ const TransferModal = ({ direction, self, perUnit, onClose, onDone, t }) => {
     onDone(res.data);
   };
 
-  // 游戏币转入只能是整币；转回最多 6 位小数，与游戏币的最小单位一致。
-  let pattern = /^\d+(\.\d+)?$/;
-  if (isCoin) pattern = isIn ? /^\d+$/ : /^\d+(\.\d{1,6})?$/;
+  const pattern = isCoin ? /^\d+(\.\d{1,6})?$/ : /^\d+(\.\d+)?$/;
   const valid =
-    pattern.test(amount) && Number(amount) > 0 && Number(amount) <= max;
+    pattern.test(amount) &&
+    Number(amount) > 0 &&
+    Number(amount) <= max &&
+    !(isIn && activeBonus > 0) &&
+    (!claimMatch || !canOfferMatch || turnstile.ready);
+
+  const matchPreview =
+    claimMatch && canOfferMatch && Number(amount) > 0
+      ? Math.min(Number(amount), bonus?.match_max_usd || 0)
+      : 0;
 
   return (
     <Modal
@@ -125,13 +150,9 @@ const TransferModal = ({ direction, self, perUnit, onClose, onDone, t }) => {
           aria-label={isIn ? t('转入') : t('转出')}
           suffix={unit}
           placeholder={
-            isCoin && isIn
-              ? t('请输入整数游戏币数量')
-              : isCoin
-                ? t('可以有小数')
-                : t('按美元填写，可以有小数')
+            isCoin ? t('可输入小数游戏币数量') : t('按美元填写，可以有小数')
           }
-          inputMode={isCoin && isIn ? 'numeric' : 'decimal'}
+          inputMode='decimal'
         />
         <div className='flex items-center justify-between'>
           <Text type='tertiary' size='small'>
@@ -151,6 +172,46 @@ const TransferModal = ({ direction, self, perUnit, onClose, onDone, t }) => {
             {t('全部')}
           </Button>
         </div>
+        {isIn && activeBonus > 0 && (
+          <Banner
+            type='warning'
+            closeIcon={null}
+            description={t(
+              '当前持有 {{bonus}} USDT 未结清体验金，请先在资产页转出盈利或放弃体验金后再转入自有资金。',
+              { bonus: toUsdt(activeBonus, perUnit).toFixed(2) },
+            )}
+          />
+        )}
+        {!isIn && activeBonus > 0 && (
+          <Banner
+            type='warning'
+            closeIcon={null}
+            description={t(
+              '当前持有 {{bonus}} USDT 体验金：转出资金将立即清零回收剩余体验金，且必须先平仓、撤单并结清借款。',
+              { bonus: toUsdt(activeBonus, perUnit).toFixed(2) },
+            )}
+          />
+        )}
+        {canOfferMatch && (
+          <div className='flex flex-col gap-2 rounded-lg border border-[var(--semi-color-border)] p-3'>
+            <Checkbox
+              checked={claimMatch}
+              onChange={(e) => setClaimMatch(e.target.checked)}
+            >
+              {t('同时领取 1:1 体验金加赠（最高 {{max}} USDT，先到先得）', {
+                max: bonus.match_max_usd,
+              })}
+            </Checkbox>
+            {matchPreview > 0 && (
+              <Text type='success' size='small'>
+                {t('预计额外获赠 {{amount}} USDT 模拟盘体验金', {
+                  amount: matchPreview.toFixed(2),
+                })}
+              </Text>
+            )}
+            {claimMatch && <PlayTurnstile turnstile={turnstile} />}
+          </div>
+        )}
         <Banner
           type='info'
           closeIcon={null}
@@ -158,21 +219,17 @@ const TransferModal = ({ direction, self, perUnit, onClose, onDone, t }) => {
             <div className='flex flex-col gap-1 text-xs'>
               <span>
                 {isCoin
-                  ? t('1 游戏币 = 1 USDT，转入只能是整币，转回可以有小数。')
-                  : t('1 USDT = 1 美元额度，账户从 0 开始，不送初始资金。')}
+                  ? t(
+                      '1 游戏币 = 1 USDT，转入转回均支持小数，且模拟盘真实成交将同步消减游戏币解锁流水。',
+                    )
+                  : t(
+                      '1 USDT = 1 美元额度，平台额度本金与已实现盈利均可转回主钱包。',
+                    )}
               </span>
               {isCoin && (
                 <span>
                   {t(
-                    '转入模拟盘与兑换额度共用每人每天 {{limit}} 个游戏币的上限，今天还能转入 {{left}} 个。',
-                    { limit: coinDailyLimit, left: coinDailyLeft },
-                  )}
-                </span>
-              )}
-              {isCoin && (
-                <span>
-                  {t(
-                    '只有从游戏币转入的本金能转回游戏币，按亏损抵扣顺序结算之后现在最多 {{coins}} 个；盈利只能转出到平台额度。',
+                    '游戏币转入的本金仅支持退回游戏币钱包（当前最多可退 {{coins}} 币）；交易盈利请转出到平台额度。',
                     { coins: coinReturnable },
                   )}
                 </span>
@@ -180,16 +237,16 @@ const TransferModal = ({ direction, self, perUnit, onClose, onDone, t }) => {
               <span>
                 {profitCap > 0
                   ? t(
-                      '超过转入额度的部分算盈利，每人每天最多转出 {{cap}} USDT 盈利，今天还能转出 {{left}} USDT。',
+                      '超过本金的部分算盈利，每人每天最多转出 {{cap}} USDT 盈利，今天还能转出 {{left}} USDT。',
                       {
                         cap: toUsdt(profitCap, perUnit),
                         left: toUsdt(profitLeft, perUnit).toFixed(2),
                       },
                     )
-                  : t('转入的额度与交易盈利都能转回主钱包。')}
+                  : t('平台额度本金与交易盈利都能转回主钱包。')}
               </span>
               <span>
-                {t('只有可用资金能转出：持仓和挂单占用的资金不能转出。')}
+                {t('只有可用资金能转出：持仓、挂单和体验金本金不能转出。')}
               </span>
             </div>
           }

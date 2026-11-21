@@ -8,6 +8,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/pkg/tradesim"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
@@ -437,6 +438,22 @@ func coverTradeDeficitTx(tx *gorm.DB, account *TradeAccount, quotaLedger string,
 	if open > 0 {
 		return cover, nil
 	}
+	// 体验金保护区间穿仓：直接归零结清体验金，绝不倒扣用户的游戏币或平台主余额欠费。
+	if account.BonusPrincipal > 0 {
+		deficit := -account.Cash
+		account.Cash = 0
+		account.BonusPrincipal = 0
+		account.BonusMode = ""
+		account.QuotaPrincipal = 0
+		account.CoinPrincipal = 0
+		if err := tradeLedgerTx(tx, account, &TradeLedger{Type: TradeLedgerBonusZero, Amount: deficit}); err != nil {
+			return cover, err
+		}
+		if err := resetGameCoinLockedWagerIfEmptyTx(tx, account.UserId); err != nil {
+			return cover, err
+		}
+		return cover, nil
+	}
 	deficit := -account.Cash
 	var coinAccounts []GameCoinAccount
 	if err := lockForUpdate(tx).Where("user_id = ?", account.UserId).Limit(1).Find(&coinAccounts).Error; err != nil {
@@ -655,6 +672,11 @@ func applyTradeFuturesOpenTx(tx *gorm.DB, pricing tradesim.Pricing, account *Tra
 		return err
 	}
 	order.PositionId = position.PositionId
+	if notional, notionalErr := pricing.CreditQuota(fill.Value); notionalErr == nil {
+		if err = creditGameCoinWagerFromTradeTx(tx, account, notional, operation_setting.GetTradeSetting().TradeWagerFuturesBps); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -704,8 +726,14 @@ func applyTradeFuturesCloseTx(tx *gorm.DB, pricing tradesim.Pricing, account *Tr
 	order.Fee += fill.Fee
 	order.RealizedPnl += pnl
 	order.PositionId = position.PositionId
-	return tradeFuturesLedgerTx(tx, account, position, TradeLedger{Type: TradeLedgerFuturesClose, OrderId: order.Id,
-		Qty: fill.Qty, Price: fill.Price, Amount: amount, Fee: fill.Fee, Pnl: pnl})
+	if err = tradeFuturesLedgerTx(tx, account, position, TradeLedger{Type: TradeLedgerFuturesClose, OrderId: order.Id,
+		Qty: fill.Qty, Price: fill.Price, Amount: amount, Fee: fill.Fee, Pnl: pnl}); err != nil {
+		return err
+	}
+	if notional, notionalErr := pricing.CreditQuota(fill.Value); notionalErr == nil {
+		return creditGameCoinWagerFromTradeTx(tx, account, notional, operation_setting.GetTradeSetting().TradeWagerFuturesBps)
+	}
+	return nil
 }
 
 // finishTradeFuturesPositionTx 在仓位平完或强平之后把这一段写进历史，并把仓位清零留给下次开仓。

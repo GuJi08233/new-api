@@ -82,6 +82,12 @@ const TopUp = () => {
   // Ethereum 相关状态
   const [enableEthereumTopUp, setEnableEthereumTopUp] = useState(false);
   const [ethereumInfo, setEthereumInfo] = useState(null);
+  const [enableGameCoinSubscription, setEnableGameCoinSubscription] =
+    useState(false);
+  const [gameCoinBalance, setGameCoinBalance] = useState(0);
+  const [gameCoinLockedWager, setGameCoinLockedWager] = useState(0);
+  const [gameCoinSubRequireUnlocked, setGameCoinSubRequireUnlocked] =
+    useState(true);
   const [walletConnectUri, setWalletConnectUri] = useState('');
   const [walletConnectModalVisible, setWalletConnectModalVisible] =
     useState(false);
@@ -777,6 +783,14 @@ const TopUp = () => {
           setWaffoPancakeMinTopUp(data.waffo_pancake_min_topup || 1);
           setEnableEthereumTopUp(data.enable_ethereum_topup || false);
           setEthereumInfo(data.ethereum_info || null);
+          setEnableGameCoinSubscription(
+            data.enable_game_coin_subscription || false,
+          );
+          setGameCoinBalance(data.game_coin_balance || 0);
+          setGameCoinLockedWager(data.game_coin_locked_wager || 0);
+          setGameCoinSubRequireUnlocked(
+            data.game_coin_subscription_require_unlocked !== false,
+          );
           setMinTopUp(minTopUpValue);
           setTopUpCount(minTopUpValue);
           setTopUpLink(data.topup_link || '');
@@ -1020,6 +1034,10 @@ const TopUp = () => {
           enableWaffoPancakeTopUp={enableWaffoPancakeTopUp}
           enableEthereumTopUp={enableEthereumTopUp}
           ethereumInfo={ethereumInfo}
+          enableGameCoinSubscription={enableGameCoinSubscription}
+          gameCoinBalance={gameCoinBalance}
+          gameCoinLockedWager={gameCoinLockedWager}
+          gameCoinSubRequireUnlocked={gameCoinSubRequireUnlocked}
           onPayEthereum={payEthereum}
           presetAmounts={presetAmounts}
           selectedPreset={selectedPreset}

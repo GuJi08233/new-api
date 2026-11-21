@@ -121,6 +121,10 @@ const SubscriptionPlansCard = ({
   enableCreemTopUp = false,
   enableEthereumTopUp = false,
   ethereumInfo = null,
+  enableGameCoinSubscription = false,
+  gameCoinBalance = 0,
+  gameCoinLockedWager = 0,
+  gameCoinSubRequireUnlocked = true,
   billingPreference,
   onChangeBillingPreference,
   activeSubscriptions = [],
@@ -286,6 +290,39 @@ const SubscriptionPlansCard = ({
         setPaying(true);
         try {
           const res = await API.post('/api/subscription/balance/pay', {
+            plan_id: plan.id,
+          });
+          if (res.data?.success) {
+            showSuccess(t('购买成功'));
+            closeBuy();
+            reloadSubscriptionSelf?.();
+            reloadUserQuota?.();
+          } else {
+            showError(res.data?.message || t('支付失败'));
+          }
+        } catch (e) {
+          showError(t('支付请求失败'));
+        } finally {
+          setPaying(false);
+        }
+      },
+    });
+  };
+
+  const payGameCoin = () => {
+    const plan = selectedPlan?.plan;
+    if (!plan?.id) return;
+    const coinPrice = Number(plan.price_amount || 0);
+    Modal.confirm({
+      title: t('确认使用游戏币购买'),
+      content: t('将从游戏币钱包扣除 {{coins}} 个游戏币（1 游戏币 = 1 美元）', {
+        coins: coinPrice,
+      }),
+      centered: true,
+      onOk: async () => {
+        setPaying(true);
+        try {
+          const res = await API.post('/api/subscription/game_coin/pay', {
             plan_id: plan.id,
           });
           if (res.data?.success) {
@@ -840,6 +877,10 @@ const SubscriptionPlansCard = ({
         enableStripeTopUp={enableStripeTopUp}
         enableCreemTopUp={enableCreemTopUp}
         enableEthereumTopUp={enableEthereumTopUp}
+        enableGameCoinSubscription={enableGameCoinSubscription}
+        gameCoinBalance={gameCoinBalance}
+        gameCoinLockedWager={gameCoinLockedWager}
+        gameCoinSubRequireUnlocked={gameCoinSubRequireUnlocked}
         ethereumInfo={ethereumInfo}
         purchaseLimitInfo={
           selectedPlan?.plan?.id
@@ -864,6 +905,7 @@ const SubscriptionPlansCard = ({
         onPayEpay={payEpay}
         onPayEthereum={payEthereum}
         onPayBalance={payBalance}
+        onPayGameCoin={payGameCoin}
       />
       <WalletConnectQrModal
         t={t}

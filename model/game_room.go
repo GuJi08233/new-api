@@ -512,6 +512,14 @@ func FinishGameRoom(room *GameRoom, result GameRoomResult, reason string, state 
 				if err := settleGameRoomPlayerTx(tx, current, seat.UserId, settled[i], current.Escrow+settled[i], event, now); err != nil {
 					return err
 				}
+				if len(winnerSeats) > 0 {
+					if err := consumeGameCoinLockedWagerTx(tx, seat.UserId, current.Escrow); err != nil {
+						return err
+					}
+				}
+				if err := resetGameCoinLockedWagerIfEmptyTx(tx, seat.UserId); err != nil {
+					return err
+				}
 			}
 			if _, _, err := recordGameDayResult(tx, seat.UserId, current.Game, day, settled[i]); err != nil {
 				return err
