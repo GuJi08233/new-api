@@ -21,7 +21,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   API,
   showError,
-  isSafeExternalUrl,
+  isStandaloneHttpUrl,
   sanitizeCSS,
   sanitizeRichHTML,
 } from '../../../helpers';
@@ -33,11 +33,6 @@ import {
 } from '@douyinfe/semi-illustrations';
 import { useTranslation } from 'react-i18next';
 import MarkdownRenderer from '../markdown/MarkdownRenderer';
-
-// Check whether content is a safe external URL.
-// 只有协议白名单内的 URL 才会被渲染成可点击链接卡片，
-// 否则 javascript: 之类的伪协议会被当成合法 URL 写进 href。
-const isUrl = (content) => isSafeExternalUrl(content?.trim?.());
 
 // Check whether content contains HTML.
 const isHtmlContent = (content) => {
@@ -88,14 +83,17 @@ const DocumentRenderer = ({ apiEndpoint, title, cacheKey, emptyMessage }) => {
     try {
       const res = await API.get(apiEndpoint);
       const { success, message, data } = res.data;
-      if (success && data) {
-        setContent(data);
-        localStorage.setItem(cacheKey, data);
-      } else {
-        if (!cachedContent) {
-          showError(message || emptyMessage);
+      if (success) {
+        if (data) {
+          setContent(data);
+          localStorage.setItem(cacheKey, data);
+        } else {
+          localStorage.removeItem(cacheKey);
           setContent('');
         }
+      } else if (!cachedContent) {
+        showError(message || emptyMessage);
+        setContent('');
       }
     } catch (error) {
       if (!cachedContent) {
@@ -171,7 +169,7 @@ const DocumentRenderer = ({ apiEndpoint, title, cacheKey, emptyMessage }) => {
   }
 
   // 如果是 URL，显示链接卡片
-  if (isUrl(content)) {
+  if (isStandaloneHttpUrl(content)) {
     return (
       <div className='flex justify-center items-center min-h-screen bg-gray-50 p-4'>
         <Card className='max-w-md w-full'>

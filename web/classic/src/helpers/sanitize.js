@@ -123,6 +123,25 @@ export function sanitizeCSS(css) {
 }
 
 /**
+ * 判断文本是否为独立的 HTTP(S) URL（不含空白字符，不按相对路径解析）。
+ * 用于文档渲染场景区分“外部链接”与 Markdown/HTML/纯文本正文。
+ * @param {string} value 待检测文本
+ * @returns {boolean}
+ */
+export function isStandaloneHttpUrl(value) {
+  if (!value || typeof value !== 'string') return false;
+  const trimmed = value.trim();
+  if (!trimmed || /\s/.test(trimmed)) return false;
+
+  try {
+    const parsed = new URL(trimmed);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+/**
  * 校验一个 URL 是否可以安全地在新标签页打开。
  * 拒绝 javascript:、data: 等可执行脚本的协议。
  * @param {string} url 待校验的 URL
@@ -130,9 +149,13 @@ export function sanitizeCSS(css) {
  */
 export function isSafeExternalUrl(url) {
   if (!url || typeof url !== 'string') return false;
+  const trimmed = url.trim();
+  if (!trimmed) return false;
 
   try {
-    const parsed = new URL(url, window.location.origin);
+    const base =
+      typeof window !== 'undefined' ? window.location.origin : undefined;
+    const parsed = base ? new URL(trimmed, base) : new URL(trimmed);
     return EXTERNAL_URL_SCHEMES.has(parsed.protocol);
   } catch {
     return false;

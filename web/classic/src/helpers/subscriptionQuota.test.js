@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 
 import { describe, expect, test } from 'bun:test';
 import {
+  SUBSCRIPTION_TIER_PERIOD_OPTIONS,
   buildSubscriptionQuotaConfig,
   buildSubscriptionQuotaTiers,
   getSubscriptionQuotaLimits,
@@ -167,6 +168,39 @@ describe('订阅额度配置', () => {
       (amount) => amount,
     );
     expect(tier.custom_seconds).toBeNull();
+  });
+
+  test('新建订阅周期选项包含“累计用量上限（续订不增加）”且可正常生成配置', () => {
+    expect(SUBSCRIPTION_TIER_PERIOD_OPTIONS).toContainEqual({
+      value: 'none',
+      label: '累计用量上限（续订不增加）',
+    });
+
+    const tiers = buildSubscriptionQuotaTiers(
+      [
+        {
+          period: 'none',
+          limit: 10,
+          duration_text: 'ignored',
+          sort_priority: 10,
+        },
+      ],
+      (amount) => amount * 500000,
+    );
+    expect(
+      buildSubscriptionQuotaConfig({
+        mode: 'multi',
+        totalAmount: 0,
+        resetPeriod: 'never',
+        tiers,
+      }),
+    ).toEqual({
+      total_amount: 0,
+      quota_reset_period: 'never',
+      quota_reset_custom_seconds: 0,
+      quota_tiers:
+        '[{"period":"none","limit":5000000,"custom_seconds":0,"sort_priority":10}]',
+    });
   });
 });
 

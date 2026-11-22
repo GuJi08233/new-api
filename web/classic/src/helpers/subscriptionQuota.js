@@ -19,6 +19,15 @@ For commercial licensing, please contact support@quantumnous.com
 
 import { parseSubscriptionPeriodDuration } from './subscriptionDuration';
 
+export const SUBSCRIPTION_TIER_PERIOD_OPTIONS = [
+  { value: 'monthly', label: '每自然月' },
+  { value: 'weekly', label: '每自然周' },
+  { value: 'daily', label: '每自然日' },
+  { value: 'hourly', label: '每小时' },
+  { value: 'custom', label: '自定义时长' },
+  { value: 'none', label: '累计用量上限（续订不增加）' },
+];
+
 export function getSubscriptionQuotaMode(plan) {
   if (!plan) return 'multi';
   try {

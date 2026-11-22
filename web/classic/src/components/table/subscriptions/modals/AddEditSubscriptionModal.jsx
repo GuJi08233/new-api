@@ -56,6 +56,7 @@ import {
   formatSubscriptionQuotaResetHint,
 } from '../../../../helpers/subscriptionFormat';
 import {
+  SUBSCRIPTION_TIER_PERIOD_OPTIONS,
   buildSubscriptionQuotaConfig,
   buildSubscriptionQuotaTiers,
   getSubscriptionQuotaMode,
@@ -98,14 +99,6 @@ const purchaseResetPeriodOptions = [
   { value: 'monthly', label: '每月' },
   { value: 'custom', label: '自定义(秒)' },
   { value: 'active', label: '到期释放名额' },
-];
-
-const tierPeriodOptions = [
-  { value: 'monthly', label: '每自然月' },
-  { value: 'weekly', label: '每自然周' },
-  { value: 'daily', label: '每自然日' },
-  { value: 'hourly', label: '每小时' },
-  { value: 'custom', label: '自定义时长' },
 ];
 
 const AddEditSubscriptionModal = ({
@@ -1026,16 +1019,11 @@ const AddEditSubscriptionModal = ({
                                 onChange={(v) => updateTier(index, 'period', v)}
                                 style={{ width: '100%' }}
                               >
-                                {tierPeriodOptions.map((o) => (
+                                {SUBSCRIPTION_TIER_PERIOD_OPTIONS.map((o) => (
                                   <Select.Option key={o.value} value={o.value}>
                                     {t(o.label)}
                                   </Select.Option>
                                 ))}
-                                {tier.period === 'none' && (
-                                  <Select.Option value='none'>
-                                    {t('历史累计用量上限（续订不增加）')}
-                                  </Select.Option>
-                                )}
                               </Select>
                             </Col>
                             <Col span={12}>
