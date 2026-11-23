@@ -190,6 +190,8 @@ func InitOptionMap() {
 	common.OptionMap["ModelRequestRateLimitCount"] = strconv.Itoa(setting.ModelRequestRateLimitCount)
 	common.OptionMap["ModelRequestRateLimitDurationMinutes"] = strconv.Itoa(setting.ModelRequestRateLimitDurationMinutes)
 	common.OptionMap["ModelRequestRateLimitSuccessCount"] = strconv.Itoa(setting.ModelRequestRateLimitSuccessCount)
+	common.OptionMap["ModelRequestRateLimitTokenCount"] = strconv.FormatInt(setting.ModelRequestRateLimitTokenCount, 10)
+	common.OptionMap["ModelRequestRateLimitConcurrency"] = strconv.Itoa(setting.ModelRequestRateLimitConcurrency)
 	common.OptionMap["ModelRequestRateLimitGroup"] = setting.ModelRequestRateLimitGroup2JSONString()
 	common.OptionMap["ModelRatio"] = ratio_setting.ModelRatio2JSONString()
 	common.OptionMap["ModelPrice"] = ratio_setting.ModelPrice2JSONString()
@@ -268,7 +270,18 @@ func loadOptionsFromDatabase() {
 	defer operation_setting.SyncRiskControlSetting()
 	defer operation_setting.SyncIpLocationSetting()
 	for _, option := range options {
-		err := applyOptionToRuntime(option.Key, option.Value)
+		value := option.Value
+		if option.Key == "ModelRequestRateLimitGroup" {
+			if normalized, changed, normErr := setting.NormalizeModelRequestRateLimitGroupJSON(option.Value); normErr == nil && changed {
+				value = normalized
+				if DB != nil {
+					if saveErr := DB.Save(&Option{Key: option.Key, Value: normalized}).Error; saveErr != nil {
+						common.SysLog("failed to upgrade ModelRequestRateLimitGroup option: " + saveErr.Error())
+					}
+				}
+			}
+		}
+		err := applyOptionToRuntime(option.Key, value)
 		if err != nil {
 			common.SysLog("failed to update option map: " + err.Error())
 		}
@@ -324,6 +337,11 @@ func UpdateOption(key string, value string) error {
 	}
 	if err := validateBillingModeConsistency(map[string]string{key: value}); err != nil {
 		return err
+	}
+	if key == "ModelRequestRateLimitGroup" {
+		if normalized, changed, normErr := setting.NormalizeModelRequestRateLimitGroupJSON(value); normErr == nil && changed {
+			value = normalized
+		}
 	}
 	// Save to database first
 	option := Option{
@@ -944,6 +962,18 @@ func applyOptionToRuntime(key string, value string) (err error) {
 		setting.ModelRequestRateLimitDurationMinutes, _ = strconv.Atoi(value)
 	case "ModelRequestRateLimitSuccessCount":
 		setting.ModelRequestRateLimitSuccessCount, _ = strconv.Atoi(value)
+	case "ModelRequestRateLimitTokenCount":
+		if parsed, parseErr := strconv.ParseInt(strings.TrimSpace(value), 10, 64); parseErr == nil && parsed >= 0 {
+			setting.ModelRequestRateLimitTokenCount = parsed
+		} else {
+			setting.ModelRequestRateLimitTokenCount = 0
+		}
+	case "ModelRequestRateLimitConcurrency":
+		if parsed, parseErr := strconv.Atoi(strings.TrimSpace(value)); parseErr == nil && parsed >= 0 {
+			setting.ModelRequestRateLimitConcurrency = parsed
+		} else {
+			setting.ModelRequestRateLimitConcurrency = 0
+		}
 	case "ModelRequestRateLimitGroup":
 		err = setting.UpdateModelRequestRateLimitGroupByJSONString(value)
 	case "RetryTimes":

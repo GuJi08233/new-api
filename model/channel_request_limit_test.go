@@ -313,11 +313,12 @@ func TestChannelGetRequestLimitConfig(t *testing.T) {
 	channel.Setting = &withTimezone
 	assert.Equal(t, "America/Los_Angeles", channel.GetRequestLimitConfig().Timezone, "timezone must be trimmed")
 
-	rateLimited := `{"rate_limit_period_minutes": 5, "rate_limit_max_requests": 60, "rate_limit_max_success": 30}`
+	rateLimited := `{"rate_limit_period_minutes": 5, "rate_limit_max_requests": 60, "rate_limit_max_success": 30, "rate_limit_max_tokens": 10000}`
 	channel.Setting = &rateLimited
 	config = channel.GetRequestLimitConfig()
 	assert.True(t, config.Enabled(), "rate limit alone enables the config")
 	assert.Equal(t, 5*time.Minute, config.Period())
+	assert.EqualValues(t, 10000, config.MaxTokens)
 	assert.EqualValues(t, 60, config.MaxRequests)
 	assert.EqualValues(t, 30, config.MaxSuccess)
 	assert.EqualValues(t, 0, config.DailyLimit)
@@ -334,4 +335,40 @@ func TestChannelGetRequestLimitConfig(t *testing.T) {
 	channel.Setting = &broken
 	assert.False(t, channel.GetRequestLimitConfig().Enabled(), "broken setting must fail open")
 	assert.Equal(t, broken, *channel.Setting, "must not mutate the stored setting")
+}
+
+func TestChannelPeriodTokenLimit(t *testing.T) {
+	for _, backend := range []string{"memory", "redis"} {
+		t.Run(backend, func(t *testing.T) {
+			enabled, client := common.RedisEnabled, common.RDB
+			t.Cleanup(func() { common.RedisEnabled, common.RDB = enabled, client })
+			common.RedisEnabled = backend == "redis"
+			if common.RedisEnabled {
+				server := miniredis.RunT(t)
+				common.RDB = redis.NewClient(&redis.Options{Addr: server.Addr()})
+				t.Cleanup(func() { _ = common.RDB.Close() })
+			}
+
+			id := nextAdmissionTestChannelID()
+			ctx := context.Background()
+			config := ChannelRequestLimitConfig{PeriodMinutes: 1, MaxTokens: 1000}
+
+			finish, err := BeginChannelAttempt(ctx, id, config)
+			require.NoError(t, err)
+			IncrChannelTokenCount(id, config, 600)
+			finish(true)
+			assert.EqualValues(t, 600, GetChannelPeriodTokenCount(id, config))
+			assert.False(t, IsChannelRequestLimitReached(id, config))
+
+			finish, err = BeginChannelAttempt(ctx, id, config)
+			require.NoError(t, err)
+			IncrChannelTokenCount(id, config, 500)
+			finish(true)
+			assert.EqualValues(t, 1100, GetChannelPeriodTokenCount(id, config))
+			assert.True(t, IsChannelRequestLimitReached(id, config))
+
+			_, err = BeginChannelAttempt(ctx, id, config)
+			require.ErrorIs(t, err, ErrChannelRequestLimited)
+		})
+	}
 }

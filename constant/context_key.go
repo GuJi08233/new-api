@@ -39,6 +39,9 @@ const (
 	ContextKeyTokenModelLimitEnabled ContextKey = "token_model_limit_enabled"
 	ContextKeyTokenModelLimit        ContextKey = "token_model_limit"
 	ContextKeyTokenCrossGroupRetry   ContextKey = "token_cross_group_retry"
+	// ContextKeyModelRateLimitTokenTarget carries the resolved rate-limit subject
+	// and window duration for recording post-request TPM usage.
+	ContextKeyModelRateLimitTokenTarget ContextKey = "model_rate_limit_token_target"
 
 	/* channel related keys */
 	ContextKeyChannelId                ContextKey = "channel_id"

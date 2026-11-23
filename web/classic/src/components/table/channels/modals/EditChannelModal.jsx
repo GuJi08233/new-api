@@ -235,10 +235,11 @@ const EditChannelModal = (props) => {
     auto_recovery_interval_minutes: 0,
     // 测试时在提示词里注入当前时间，绕开上游对相同请求体的缓存响应
     test_cache_bust_enabled: false,
-    // 渠道级请求频率限制（周期分钟 / 每周期最多请求 / 每周期最多成功），0 = 不限制或默认 1 分钟
+    // 渠道级请求频率限制（周期分钟 / 每周期最多请求 / 每周期最多成功 / 每周期最多 Token），0 = 不限制或默认 1 分钟
     rate_limit_period_minutes: 0,
     rate_limit_max_requests: 0,
     rate_limit_max_success: 0,
+    rate_limit_max_tokens: 0,
     settings: '',
     // 仅 Vertex: 密钥格式（存入 settings.vertex_key_type）
     vertex_key_type: 'json',
@@ -570,6 +571,7 @@ const EditChannelModal = (props) => {
     rate_limit_period_minutes: 0,
     rate_limit_max_requests: 0,
     rate_limit_max_success: 0,
+    rate_limit_max_tokens: 0,
   });
   // 当日已承接请求数（编辑时由后端返回，仅用于展示）
   const [todayRequestCount, setTodayRequestCount] = useState(0);
@@ -1063,6 +1065,8 @@ const EditChannelModal = (props) => {
             parsedSettings.rate_limit_max_requests || 0;
           data.rate_limit_max_success =
             parsedSettings.rate_limit_max_success || 0;
+          data.rate_limit_max_tokens =
+            parsedSettings.rate_limit_max_tokens || 0;
         } catch (error) {
           console.error('解析渠道设置失败:', error);
           data.force_format = false;
@@ -1091,6 +1095,7 @@ const EditChannelModal = (props) => {
           data.rate_limit_period_minutes = 0;
           data.rate_limit_max_requests = 0;
           data.rate_limit_max_success = 0;
+          data.rate_limit_max_tokens = 0;
         }
       } else {
         data.force_format = false;
@@ -1119,6 +1124,7 @@ const EditChannelModal = (props) => {
         data.rate_limit_period_minutes = 0;
         data.rate_limit_max_requests = 0;
         data.rate_limit_max_success = 0;
+        data.rate_limit_max_tokens = 0;
       }
 
       if (data.settings) {
@@ -1283,6 +1289,7 @@ const EditChannelModal = (props) => {
         rate_limit_period_minutes: data.rate_limit_period_minutes || 0,
         rate_limit_max_requests: data.rate_limit_max_requests || 0,
         rate_limit_max_success: data.rate_limit_max_success || 0,
+        rate_limit_max_tokens: data.rate_limit_max_tokens || 0,
       });
       setTodayRequestCount(data.today_request_count || 0);
       setTodaySuccessCount(data.today_success_count || 0);
@@ -1344,7 +1351,8 @@ const EditChannelModal = (props) => {
         data.auto_recovery_enabled ||
         data.test_cache_bust_enabled ||
         (data.rate_limit_max_requests && data.rate_limit_max_requests !== 0) ||
-        (data.rate_limit_max_success && data.rate_limit_max_success !== 0);
+        (data.rate_limit_max_success && data.rate_limit_max_success !== 0) ||
+        (data.rate_limit_max_tokens && data.rate_limit_max_tokens !== 0);
       if (hasAdvancedValues) {
         setAdvancedSettingsOpen(true);
       }
@@ -1720,6 +1728,7 @@ const EditChannelModal = (props) => {
       rate_limit_period_minutes: 0,
       rate_limit_max_requests: 0,
       rate_limit_max_success: 0,
+      rate_limit_max_tokens: 0,
     });
     setTodayRequestCount(0);
     // 重置密钥模式状态
@@ -2145,6 +2154,7 @@ const EditChannelModal = (props) => {
       rate_limit_period_minutes: localInputs.rate_limit_period_minutes || 0,
       rate_limit_max_requests: localInputs.rate_limit_max_requests || 0,
       rate_limit_max_success: localInputs.rate_limit_max_success || 0,
+      rate_limit_max_tokens: localInputs.rate_limit_max_tokens || 0,
     };
     localInputs.setting = JSON.stringify(channelExtraSettings);
 
@@ -2280,6 +2290,7 @@ const EditChannelModal = (props) => {
     delete localInputs.rate_limit_period_minutes;
     delete localInputs.rate_limit_max_requests;
     delete localInputs.rate_limit_max_success;
+    delete localInputs.rate_limit_max_tokens;
     delete localInputs.is_enterprise_account;
     // 顶层的 vertex_key_type 不应发送给后端
     delete localInputs.vertex_key_type;
@@ -3565,6 +3576,27 @@ const EditChannelModal = (props) => {
                     style={{ width: '100%' }}
                     extraText={t(
                       '只包括在该渠道上成功完成的次数，0 代表不限制。达到后本周期内自动跳过该渠道',
+                    )}
+                  />
+                  <Form.InputNumber
+                    field='rate_limit_max_tokens'
+                    label={
+                      (inputs.rate_limit_period_minutes || 1) === 1
+                        ? t('每分钟最多消耗 Token 数（TPM）')
+                        : t('每周期最多消耗 Token 数')
+                    }
+                    placeholder={t('0 = 不限制')}
+                    min={0}
+                    precision={0}
+                    onChange={(value) =>
+                      handleChannelSettingsChange(
+                        'rate_limit_max_tokens',
+                        value,
+                      )
+                    }
+                    style={{ width: '100%' }}
+                    extraText={t(
+                      '该渠道每周期最多消耗的 Token 总数（输入 + 输出），0 代表不限制。达到后本周期内自动跳过该渠道',
                     )}
                   />
                   <Form.InputNumber

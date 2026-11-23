@@ -37,6 +37,8 @@ export default function RequestRateLimit(props) {
     ModelRequestRateLimitEnabled: false,
     ModelRequestRateLimitCount: -1,
     ModelRequestRateLimitSuccessCount: 1000,
+    ModelRequestRateLimitTokenCount: 0,
+    ModelRequestRateLimitConcurrency: 0,
     ModelRequestRateLimitDurationMinutes: 1,
     ModelRequestRateLimitGroup: '',
   });
@@ -177,12 +179,54 @@ export default function RequestRateLimit(props) {
                 />
               </Col>
             </Row>
+            <Row gutter={16}>
+              <Col xs={24} sm={12} md={8} lg={8} xl={8}>
+                <Form.InputNumber
+                  label={t('用户每周期最多消耗 Token 数')}
+                  step={1000}
+                  min={0}
+                  max={9007199254740991}
+                  precision={0}
+                  suffix={t('Tokens')}
+                  extraText={t(
+                    '包括输入与输出 Token 总数，周期为 1 分钟时即为 TPM 上限，0 代表不限制',
+                  )}
+                  field={'ModelRequestRateLimitTokenCount'}
+                  onChange={(value) =>
+                    setInputs({
+                      ...inputs,
+                      ModelRequestRateLimitTokenCount: String(value),
+                    })
+                  }
+                />
+              </Col>
+              <Col xs={24} sm={12} md={8} lg={8} xl={8}>
+                <Form.InputNumber
+                  label={t('用户最大并发请求数')}
+                  step={1}
+                  min={0}
+                  max={2147483647}
+                  precision={0}
+                  suffix={t('个')}
+                  extraText={t(
+                    '同时处理的最大请求数，流式请求结束后才释放名额，0 代表不限制',
+                  )}
+                  field={'ModelRequestRateLimitConcurrency'}
+                  onChange={(value) =>
+                    setInputs({
+                      ...inputs,
+                      ModelRequestRateLimitConcurrency: String(value),
+                    })
+                  }
+                />
+              </Col>
+            </Row>
             <Row>
               <Col xs={24} sm={16}>
                 <Form.TextArea
                   label={t('分组速率限制')}
                   placeholder={t(
-                    '{\n  "default": [200, 100],\n  "vip": [0, 1000]\n}',
+                    '{\n  "default": [200, 100, 100000, 10],\n  "vip": [0, 1000, 0, 50]\n}',
                   )}
                   field={'ModelRequestRateLimitGroup'}
                   autosize={{ minRows: 5, maxRows: 15 }}
@@ -200,22 +244,27 @@ export default function RequestRateLimit(props) {
                       <ul>
                         <li>
                           {t(
-                            '使用 JSON 对象格式，格式为：{"组名": [最多请求次数, 最多请求完成次数]}',
+                            '使用 JSON 对象格式，格式为：{"组名": [最多请求次数, 最多请求完成次数, 最多消耗 Token 数, 最大并发数]}',
                           )}
                         </li>
                         <li>
                           {t(
-                            '示例：{"default": [200, 100], "vip": [0, 1000]}。',
+                            '兼容旧格式 [最多请求次数, 最多请求完成次数]，未填写的 Token 上限与并发上限默认为 0（不限制），加载或保存时会自动补全为 4 项。',
                           )}
                         </li>
                         <li>
                           {t(
-                            '[最多请求次数]必须大于等于0，[最多请求完成次数]必须大于等于1。',
+                            '示例：{"default": [200, 100, 100000, 10], "vip": [0, 1000, 0, 50]}。',
                           )}
                         </li>
                         <li>
                           {t(
-                            '[最多请求次数]和[最多请求完成次数]的最大值为2147483647。',
+                            '[最多请求次数]必须大于等于0，[最多请求完成次数]必须大于等于1，[最多消耗 Token 数]和[最大并发数]必须大于等于0（0 代表不限制）。',
+                          )}
+                        </li>
+                        <li>
+                          {t(
+                            '请求次数与并发数的最大值为2147483647，Token 数的最大值为9007199254740991。',
                           )}
                         </li>
                         <li>{t('分组速率配置优先级高于全局速率限制。')}</li>

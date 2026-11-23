@@ -57,6 +57,9 @@ type ChannelSettings struct {
 	RateLimitMaxRequests int64 `json:"rate_limit_max_requests,omitempty"`
 	// RateLimitMaxSuccess 每周期最多在该渠道上成功完成的请求次数，0 表示不限制。
 	RateLimitMaxSuccess int64 `json:"rate_limit_max_success,omitempty"`
+	// RateLimitMaxTokens 每周期最多消耗的 Token 总数（输入 + 输出），0 表示不限制。
+	// 周期为 1 分钟时即为 TPM 上限。
+	RateLimitMaxTokens int64 `json:"rate_limit_max_tokens,omitempty"`
 	// AutoDisableStatusCodes 渠道级自动禁用状态码（如 "401,429"）。非空时替换全局
 	// AutomaticDisableStatusCodes 用于本渠道的状态码判定，并视为该渠道显式开启了自动禁用
 	// （不再要求全局"失败时自动禁用"开关）；关键词与 channel: 类错误仍按全局规则处理。

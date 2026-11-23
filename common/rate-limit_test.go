@@ -1,11 +1,14 @@
 package common
 
 import (
+	"context"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
+	"github.com/go-redis/redis/v8"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -134,4 +137,117 @@ func TestInMemoryRateLimiterConcurrentInitializationAndRequests(t *testing.T) {
 	assert.EqualValues(t, 10, allowed.Load())
 	assert.Len(t, limiter.store, 1)
 	assert.Equal(t, 10, limiter.store["client"].requests.length)
+}
+
+func TestInMemoryTokenRateLimiterSlidingWindowAndEviction(t *testing.T) {
+	var limiter InMemoryTokenRateLimiter
+	limiter.Init(0)
+	limiter.expirationDuration = 10 * time.Minute
+
+	base := time.Unix(1_700_000_000, 0)
+	require.True(t, limiter.allowAt("user-1", 1000, 60, base))
+	limiter.recordAt("user-1", 600, 60, base)
+	require.True(t, limiter.allowAt("user-1", 1000, 60, base.Add(10*time.Second)))
+	limiter.recordAt("user-1", 400, 60, base.Add(10*time.Second))
+	assert.False(t, limiter.allowAt("user-1", 1000, 60, base.Add(59*time.Second)), "sum 1000 >= max 1000 must block")
+
+	// After 60s, the first 600 tokens expire and 400 remain in window.
+	assert.True(t, limiter.allowAt("user-1", 1000, 60, base.Add(60*time.Second)))
+	// After 70s, all tokens expire.
+	assert.True(t, limiter.allowAt("user-1", 400, 60, base.Add(70*time.Second)))
+	assert.EqualValues(t, 0, limiter.store["user-1"].usage.totalTokens)
+
+	// Idle key eviction leaves active keys intact.
+	limiter.recordAt("idle", 100, 60, base)
+	// Touch user-1 after idle so idle sits at LRU tail.
+	require.True(t, limiter.allowAt("user-1", 400, 60, base.Add(70*time.Second)))
+	limiter.store["idle"].lastActive = base
+	limiter.store["user-1"].lastActive = base.Add(11 * time.Minute)
+	limiter.deleteExpiredEntries(base.Add(11 * time.Minute))
+	assert.NotContains(t, limiter.store, "idle")
+	assert.Contains(t, limiter.store, "user-1")
+}
+
+func TestRedisTokenRateLimitSlidingWindow(t *testing.T) {
+	server := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	t.Cleanup(func() { require.NoError(t, client.Close()) })
+	ctx := context.Background()
+
+	// Aligned at start of a 60s window.
+	t0 := int64(1_700_000_040) // 1700000040 % 60 == 0
+	require.EqualValues(t, 0, t0%60)
+
+	allowed, err := checkRedisTokenRateLimitAt(ctx, client, "u1", 1000, 60, t0)
+	require.NoError(t, err)
+	require.True(t, allowed)
+
+	require.NoError(t, recordRedisTokenRateLimitAt(ctx, client, "u1", 1000, 60, t0+50))
+	allowed, err = checkRedisTokenRateLimitAt(ctx, client, "u1", 1000, 60, t0+55)
+	require.NoError(t, err)
+	assert.False(t, allowed, "1000 tokens used in current window must block")
+
+	// Halfway through next window (elapsed=30s): previous window weighted at 50% (500 < 1000).
+	allowed, err = checkRedisTokenRateLimitAt(ctx, client, "u1", 1000, 60, t0+90)
+	require.NoError(t, err)
+	assert.True(t, allowed)
+
+	// Adding 400 in current window reaches 1000*0.5 + 400 = 900 < 1000; adding another 200 reaches 1100 >= 1000.
+	require.NoError(t, recordRedisTokenRateLimitAt(ctx, client, "u1", 400, 60, t0+90))
+	allowed, err = checkRedisTokenRateLimitAt(ctx, client, "u1", 1000, 60, t0+90)
+	require.NoError(t, err)
+	assert.True(t, allowed)
+	require.NoError(t, recordRedisTokenRateLimitAt(ctx, client, "u1", 200, 60, t0+90))
+	allowed, err = checkRedisTokenRateLimitAt(ctx, client, "u1", 1000, 60, t0+90)
+	require.NoError(t, err)
+	assert.False(t, allowed)
+}
+
+func TestAcquireModelConcurrencyMemoryAndRedis(t *testing.T) {
+	for _, useRedis := range []bool{false, true} {
+		name := "memory"
+		if useRedis {
+			name = "redis"
+		}
+		t.Run(name, func(t *testing.T) {
+			prevRedisEnabled, prevRDB := RedisEnabled, RDB
+			t.Cleanup(func() { RedisEnabled, RDB = prevRedisEnabled, prevRDB })
+			RedisEnabled = useRedis
+			if useRedis {
+				server := miniredis.RunT(t)
+				RDB = redis.NewClient(&redis.Options{Addr: server.Addr()})
+				t.Cleanup(func() { _ = RDB.Close() })
+			}
+
+			ctx := context.Background()
+			subject := "conc-user-" + name
+			r1, ok, err := AcquireModelConcurrency(ctx, subject, 2)
+			require.NoError(t, err)
+			require.True(t, ok)
+
+			r2, ok, err := AcquireModelConcurrency(ctx, subject, 2)
+			require.NoError(t, err)
+			require.True(t, ok)
+
+			_, ok, err = AcquireModelConcurrency(ctx, subject, 2)
+			require.NoError(t, err)
+			assert.False(t, ok, "3rd concurrent request must be rejected when limit=2")
+
+			// Double release must not decrement twice.
+			r1()
+			r1()
+
+			r3, ok, err := AcquireModelConcurrency(ctx, subject, 2)
+			require.NoError(t, err)
+			assert.True(t, ok, "slot must be available after release")
+
+			// Limit=2 still blocks a 3rd active request while r2 and r3 are held.
+			_, ok, err = AcquireModelConcurrency(ctx, subject, 2)
+			require.NoError(t, err)
+			assert.False(t, ok)
+
+			r2()
+			r3()
+		})
+	}
 }

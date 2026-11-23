@@ -30,6 +30,8 @@ const RateLimitSetting = () => {
     ModelRequestRateLimitEnabled: false,
     ModelRequestRateLimitCount: 0,
     ModelRequestRateLimitSuccessCount: 1000,
+    ModelRequestRateLimitTokenCount: 0,
+    ModelRequestRateLimitConcurrency: 0,
     ModelRequestRateLimitDurationMinutes: 1,
     ModelRequestRateLimitGroup: '',
   });

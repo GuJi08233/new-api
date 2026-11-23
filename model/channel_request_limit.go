@@ -31,6 +31,7 @@ const (
 	channelDailySuccessKeyPrefix  = "channel_daily_ok"
 	channelPeriodCountKeyPrefix   = "channel_period_req"
 	channelPeriodSuccessKeyPrefix = "channel_period_ok"
+	channelPeriodTokenKeyPrefix   = "channel_period_tok"
 	// channelCountSyncInterval 是 Redis 计数的本地缓存时长。读取超过该间隔才回源 Redis，
 	// 因此多实例部署下达到上限后最多再放行该窗口内的少量请求。
 	channelCountSyncInterval = 3 * time.Second
@@ -57,6 +58,8 @@ type ChannelRequestLimitConfig struct {
 	MaxRequests int64
 	// MaxSuccess 每周期最多成功次数，0 表示不限制。
 	MaxSuccess int64
+	// MaxTokens 每周期最多消耗 Token 总数（输入 + 输出），0 表示不限制。
+	MaxTokens int64
 }
 
 // NewChannelRequestLimitConfig 从渠道设置构造请求上限配置，计数与判定路径统一由此取窗口与上限。
@@ -70,13 +73,14 @@ func NewChannelRequestLimitConfig(setting dto.ChannelSettings) ChannelRequestLim
 		PeriodMinutes:     setting.RateLimitPeriodMinutes,
 		MaxRequests:       setting.RateLimitMaxRequests,
 		MaxSuccess:        setting.RateLimitMaxSuccess,
+		MaxTokens:         setting.RateLimitMaxTokens,
 	}
 }
 
 // Enabled 是否有任一上限生效；只有生效的配置才会进入选路过滤缓存。
 func (config ChannelRequestLimitConfig) Enabled() bool {
 	return config.DailyLimit > 0 || config.DailySuccessLimit > 0 || config.ConcurrencyLimit > 0 ||
-		config.MaxRequests > 0 || config.MaxSuccess > 0
+		config.MaxRequests > 0 || config.MaxSuccess > 0 || config.MaxTokens > 0
 }
 
 // Period 返回频率限制的周期，未配置时为 1 分钟。
@@ -166,35 +170,48 @@ func channelCountRedisAvailable() bool {
 	return common.RedisEnabled && common.RDB != nil
 }
 
+var incrChannelWindowCountScript = redis.NewScript(`
+local val = redis.call('INCRBY', KEYS[1], ARGV[1])
+if redis.call('TTL', KEYS[1]) < 0 then
+  redis.call('EXPIRE', KEYS[1], ARGV[2])
+end
+return val
+`)
+
 // incrChannelWindowCount 递增渠道在指定窗口内的计数；expiration 决定 Redis key 的存活时间。
 func incrChannelWindowCount(prefix string, channelId int, window string, expiration time.Duration) {
+	incrChannelWindowCountBy(prefix, channelId, window, expiration, 1)
+}
+
+func incrChannelWindowCountBy(prefix string, channelId int, window string, expiration time.Duration, delta int64) {
+	if delta <= 0 {
+		return
+	}
 	counter := getChannelWindowCounter(prefix, channelId)
 	if !channelCountRedisAvailable() {
 		counter.mu.Lock()
 		counter.rollover(window)
-		counter.count++
+		counter.count += delta
 		counter.mu.Unlock()
 		return
 	}
 
 	ctx := context.Background()
 	key := channelWindowRedisKey(prefix, window, channelId)
-	val, err := common.RDB.Incr(ctx, key).Result()
+	ttlSeconds := max(int64(expiration/time.Second), 1)
+	val, err := incrChannelWindowCountScript.Run(ctx, common.RDB, []string{key}, delta, ttlSeconds).Int64()
 	if err != nil {
 		common.SysError(fmt.Sprintf("failed to incr channel request count: key=%s, error=%v", key, err))
 		// Redis 故障时退化为本地计数，保证上限仍近似生效
 		counter.mu.Lock()
 		counter.rollover(window)
-		counter.count++
+		counter.count += delta
 		counter.mu.Unlock()
 		return
 	}
-	if val == 1 {
-		common.RDB.Expire(ctx, key, expiration)
-	}
 	counter.mu.Lock()
 	counter.rollover(window)
-	// 并发下 INCR 返回可能乱序到达，取最大值保证计数单调
+	// 并发下 INCRBY 返回可能乱序到达，取最大值保证计数单调
 	if val > counter.count {
 		counter.count = val
 	}
@@ -262,6 +279,14 @@ func IncrChannelSuccessCount(channelId int, config ChannelRequestLimitConfig) {
 	incrChannelWindowCount(channelPeriodSuccessKeyPrefix, channelId, config.periodWindowAt(time.Now()), 2*config.Period())
 }
 
+// IncrChannelTokenCount 在渠道完成一次上游调用后递增当前周期的 Token 消耗计数。
+func IncrChannelTokenCount(channelId int, config ChannelRequestLimitConfig, tokens int64) {
+	if channelId <= 0 || config.MaxTokens <= 0 || tokens <= 0 {
+		return
+	}
+	incrChannelWindowCountBy(channelPeriodTokenKeyPrefix, channelId, config.periodWindowAt(time.Now()), 2*config.Period(), tokens)
+}
+
 // GetChannelDailyRequestCount 返回渠道当日（按渠道日切时区）已承接的请求次数。
 func GetChannelDailyRequestCount(channelId int, config ChannelRequestLimitConfig) int64 {
 	return getChannelWindowCount(channelDailyCountKeyPrefix, channelId, config.dailyWindowAt(time.Now()))
@@ -281,6 +306,11 @@ func GetChannelPeriodSuccessCount(channelId int, config ChannelRequestLimitConfi
 	return getChannelWindowCount(channelPeriodSuccessKeyPrefix, channelId, config.periodWindowAt(time.Now()))
 }
 
+// GetChannelPeriodTokenCount 返回渠道在当前周期内已消耗的 Token 总数。
+func GetChannelPeriodTokenCount(channelId int, config ChannelRequestLimitConfig) int64 {
+	return getChannelWindowCount(channelPeriodTokenKeyPrefix, channelId, config.periodWindowAt(time.Now()))
+}
+
 // IsChannelRequestLimitReached 判断渠道是否已达任一请求上限；为 0 的上限表示不限制。
 func IsChannelRequestLimitReached(channelId int, config ChannelRequestLimitConfig) bool {
 	return config.countLimitReachedAt(channelId, time.Now())
@@ -291,8 +321,10 @@ func (config ChannelRequestLimitConfig) countLimitReachedAt(channelId int, now t
 		(config.DailySuccessLimit > 0 && getChannelWindowCount(channelDailySuccessKeyPrefix, channelId, config.dailyWindowAt(now)) >= config.DailySuccessLimit) {
 		return true
 	}
-	return (config.MaxRequests > 0 && getChannelWindowCount(channelPeriodCountKeyPrefix, channelId, config.periodWindowAt(now)) >= config.MaxRequests) ||
-		(config.MaxSuccess > 0 && getChannelWindowCount(channelPeriodSuccessKeyPrefix, channelId, config.periodWindowAt(now)) >= config.MaxSuccess)
+	period := config.periodWindowAt(now)
+	return (config.MaxRequests > 0 && getChannelWindowCount(channelPeriodCountKeyPrefix, channelId, period) >= config.MaxRequests) ||
+		(config.MaxSuccess > 0 && getChannelWindowCount(channelPeriodSuccessKeyPrefix, channelId, period) >= config.MaxSuccess) ||
+		(config.MaxTokens > 0 && getChannelWindowCount(channelPeriodTokenKeyPrefix, channelId, period) >= config.MaxTokens)
 }
 
 // GetRequestLimitConfig 返回渠道的请求上限配置。

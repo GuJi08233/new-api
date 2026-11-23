@@ -109,14 +109,15 @@ const (
 var acquireChannelAttemptScript = redis.NewScript(`
 redis.replicate_commands()
 local member, lease = ARGV[1], tonumber(ARGV[2])
-local dailyLimit, periodLimit, periodSuccess, dailySuccess, concurrency =
-  tonumber(ARGV[3]), tonumber(ARGV[4]), tonumber(ARGV[5]), tonumber(ARGV[6]), tonumber(ARGV[7])
+local dailyLimit, periodLimit, periodSuccess, dailySuccess, concurrency, periodTokens =
+  tonumber(ARGV[3]), tonumber(ARGV[4]), tonumber(ARGV[5]), tonumber(ARGV[6]), tonumber(ARGV[7]), tonumber(ARGV[10])
 local function count(key)
   return tonumber(redis.call('GET', key) or '0')
 end
 if (dailyLimit > 0 and count(KEYS[1]) >= dailyLimit) or
    (periodLimit > 0 and count(KEYS[2]) >= periodLimit) or
-   (periodSuccess > 0 and count(KEYS[3]) >= periodSuccess) then
+   (periodSuccess > 0 and count(KEYS[3]) >= periodSuccess) or
+   (periodTokens > 0 and count(KEYS[7]) >= periodTokens) then
   return 0
 end
 local clock = redis.call('TIME')
@@ -188,12 +189,13 @@ func beginRedisChannelAttempt(ctx context.Context, rdb *redis.Client, id int, co
 		channelWindowRedisKey(channelPeriodCountKeyPrefix, period, id),
 		channelWindowRedisKey(channelPeriodSuccessKeyPrefix, period, id),
 		dailySuccessKey, pendingKey, concurrencyKey,
+		channelWindowRedisKey(channelPeriodTokenKeyPrefix, period, id),
 	}
 	member := common.GetUUID()
 	acquireCtx, cancel := context.WithTimeout(ctx, channelAttemptRedisTimeout)
 	allowed, err := acquireChannelAttemptScript.Run(acquireCtx, rdb, keys, member, channelAttemptLease.Milliseconds(),
 		config.DailyLimit, config.MaxRequests, config.MaxSuccess, config.DailySuccessLimit, config.ConcurrencyLimit,
-		int64(channelDailyCountExpiration/time.Second), int64(2*config.Period()/time.Second)).Int()
+		int64(channelDailyCountExpiration/time.Second), int64(2*config.Period()/time.Second), config.MaxTokens).Int()
 	cancel()
 	if err != nil {
 		return nil, fmt.Errorf("channel %d admission: %w", id, err)

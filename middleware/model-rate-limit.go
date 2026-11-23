@@ -75,7 +75,7 @@ func recordRedisRequest(ctx context.Context, rdb *redis.Client, key string, maxC
 }
 
 // Redis限流处理器
-func redisRateLimitHandler(subject string, duration int64, totalMaxCount, successMaxCount int) gin.HandlerFunc {
+func redisRateLimitHandler(subject string, duration int64, totalMaxCount, successMaxCount int, tokenMaxCount int64, concurrencyLimit int) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx := context.Background()
 		rdb := common.RDB
@@ -93,7 +93,7 @@ func redisRateLimitHandler(subject string, duration int64, totalMaxCount, succes
 			return
 		}
 
-		//2.检查总请求数限制并记录总请求（当totalMaxCount为0时会自动跳过，使用令牌桶限流器
+		// 2.检查总请求数限制并记录总请求（当totalMaxCount为0时会自动跳过，使用令牌桶限流器
 		if totalMaxCount > 0 {
 			totalKey := fmt.Sprintf("rateLimit:%s", subject)
 			// 初始化
@@ -114,13 +114,50 @@ func redisRateLimitHandler(subject string, duration int64, totalMaxCount, succes
 
 			if !allowed {
 				abortWithOpenAiMessage(c, http.StatusTooManyRequests, fmt.Sprintf("您已达到总请求数限制：%d分钟内最多请求%d次，包括失败次数，请检查您的请求是否正确", setting.ModelRequestRateLimitDurationMinutes, totalMaxCount))
+				return
 			}
 		}
 
-		// 4. 处理请求
+		// 3. 检查 Token 速率限制（TPM / 每周期最多消耗 Token 数）
+		if tokenMaxCount > 0 && duration > 0 {
+			allowed, err = common.CheckModelTokenRateLimit(subject, tokenMaxCount, duration)
+			if err != nil {
+				fmt.Println("检查Token速率限制失败:", err.Error())
+				abortWithOpenAiMessage(c, http.StatusInternalServerError, "rate_limit_check_failed")
+				return
+			}
+			if !allowed {
+				abortWithOpenAiMessage(c, http.StatusTooManyRequests, fmt.Sprintf("您已达到 Token 速率限制：%d分钟内最多消耗%d个 Token", setting.ModelRequestRateLimitDurationMinutes, tokenMaxCount))
+				return
+			}
+			common.SetContextKey(c, constant.ContextKeyModelRateLimitTokenTarget, common.ModelRateLimitTokenTarget{
+				Subject:  subject,
+				Duration: duration,
+			})
+		}
+
+		// 4. 检查并发请求数限制
+		if concurrencyLimit > 0 {
+			var reqCtx context.Context
+			if c.Request != nil {
+				reqCtx = c.Request.Context()
+			}
+			release, ok, concErr := common.AcquireModelConcurrency(reqCtx, subject, concurrencyLimit)
+			if concErr != nil {
+				abortWithOpenAiMessage(c, http.StatusInternalServerError, "rate_limit_check_failed")
+				return
+			}
+			if !ok {
+				abortWithOpenAiMessage(c, http.StatusTooManyRequests, fmt.Sprintf("您已达到并发请求数限制：最多同时处理%d个请求", concurrencyLimit))
+				return
+			}
+			defer release()
+		}
+
+		// 5. 处理请求
 		c.Next()
 
-		// 5. 如果请求成功，记录成功请求
+		// 6. 如果请求成功，记录成功请求
 		if c.Writer.Status() < 400 {
 			recordRedisRequest(ctx, rdb, successKey, successMaxCount)
 		}
@@ -128,7 +165,7 @@ func redisRateLimitHandler(subject string, duration int64, totalMaxCount, succes
 }
 
 // 内存限流处理器
-func memoryRateLimitHandler(subject string, duration int64, totalMaxCount, successMaxCount int) gin.HandlerFunc {
+func memoryRateLimitHandler(subject string, duration int64, totalMaxCount, successMaxCount int, tokenMaxCount int64, concurrencyLimit int) gin.HandlerFunc {
 	inMemoryRateLimiter.Init(time.Duration(setting.ModelRequestRateLimitDurationMinutes) * time.Minute)
 
 	return func(c *gin.Context) {
@@ -151,10 +188,45 @@ func memoryRateLimitHandler(subject string, duration int64, totalMaxCount, succe
 			return
 		}
 
-		// 3. 处理请求
+		// 3. 检查 Token 速率限制（TPM / 每周期最多消耗 Token 数）
+		if tokenMaxCount > 0 && duration > 0 {
+			allowed, err := common.CheckModelTokenRateLimit(subject, tokenMaxCount, duration)
+			if err != nil {
+				abortWithOpenAiMessage(c, http.StatusInternalServerError, "rate_limit_check_failed")
+				return
+			}
+			if !allowed {
+				abortWithOpenAiMessage(c, http.StatusTooManyRequests, fmt.Sprintf("您已达到 Token 速率限制：%d分钟内最多消耗%d个 Token", setting.ModelRequestRateLimitDurationMinutes, tokenMaxCount))
+				return
+			}
+			common.SetContextKey(c, constant.ContextKeyModelRateLimitTokenTarget, common.ModelRateLimitTokenTarget{
+				Subject:  subject,
+				Duration: duration,
+			})
+		}
+
+		// 4. 检查并发请求数限制
+		if concurrencyLimit > 0 {
+			var reqCtx context.Context
+			if c.Request != nil {
+				reqCtx = c.Request.Context()
+			}
+			release, ok, concErr := common.AcquireModelConcurrency(reqCtx, subject, concurrencyLimit)
+			if concErr != nil {
+				abortWithOpenAiMessage(c, http.StatusInternalServerError, "rate_limit_check_failed")
+				return
+			}
+			if !ok {
+				abortWithOpenAiMessage(c, http.StatusTooManyRequests, fmt.Sprintf("您已达到并发请求数限制：最多同时处理%d个请求", concurrencyLimit))
+				return
+			}
+			defer release()
+		}
+
+		// 5. 处理请求
 		c.Next()
 
-		// 4. 如果请求成功，记录到实际的成功请求计数中
+		// 6. 如果请求成功，记录到实际的成功请求计数中
 		if c.Writer.Status() < 400 {
 			inMemoryRateLimiter.Request(successKey, successMaxCount, duration)
 		}
@@ -174,6 +246,8 @@ func ModelRequestRateLimit() func(c *gin.Context) {
 		duration := int64(setting.ModelRequestRateLimitDurationMinutes * 60)
 		totalMaxCount := setting.ModelRequestRateLimitCount
 		successMaxCount := setting.ModelRequestRateLimitSuccessCount
+		tokenMaxCount := setting.ModelRequestRateLimitTokenCount
+		concurrencyLimit := setting.ModelRequestRateLimitConcurrency
 
 		// 获取分组
 		group := common.GetContextKeyString(c, constant.ContextKeyTokenGroup)
@@ -183,18 +257,20 @@ func ModelRequestRateLimit() func(c *gin.Context) {
 
 		// 独立配置的分组按用户与分组计数；其余分组共享用户全局额度。
 		subject := strconv.Itoa(c.GetInt("id"))
-		groupTotalCount, groupSuccessCount, found := setting.GetGroupRateLimit(group)
+		groupTotalCount, groupSuccessCount, groupTokenCount, groupConcurrency, found := setting.GetGroupRateLimitConfig(group)
 		if found {
 			totalMaxCount = groupTotalCount
 			successMaxCount = groupSuccessCount
+			tokenMaxCount = groupTokenCount
+			concurrencyLimit = groupConcurrency
 			subject += ":" + group
 		}
 
 		// 根据存储类型选择并执行限流处理器
 		if common.RedisEnabled {
-			redisRateLimitHandler(subject, duration, totalMaxCount, successMaxCount)(c)
+			redisRateLimitHandler(subject, duration, totalMaxCount, successMaxCount, tokenMaxCount, concurrencyLimit)(c)
 		} else {
-			memoryRateLimitHandler(subject, duration, totalMaxCount, successMaxCount)(c)
+			memoryRateLimitHandler(subject, duration, totalMaxCount, successMaxCount, tokenMaxCount, concurrencyLimit)(c)
 		}
 	}
 }

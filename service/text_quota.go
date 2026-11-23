@@ -200,6 +200,20 @@ func composeTieredTextQuota(relayInfo *relaycommon.RelayInfo, summary textQuotaS
 	return total
 }
 
+func recordRateLimitTokens(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, totalTokens int64) {
+	if totalTokens <= 0 {
+		return
+	}
+	if ctx != nil {
+		if target, ok := common.GetContextKeyType[common.ModelRateLimitTokenTarget](ctx, constant.ContextKeyModelRateLimitTokenTarget); ok {
+			common.RecordModelTokenRateLimit(target.Subject, totalTokens, target.Duration)
+		}
+	}
+	if relayInfo != nil && relayInfo.ChannelId > 0 {
+		model.IncrChannelTokenCount(relayInfo.ChannelId, model.NewChannelRequestLimitConfig(relayInfo.ChannelSetting), totalTokens)
+	}
+}
+
 // calculateTextQuotaSummary expects a usage already remapped by
 // effectiveBillingUsage; PostTextConsumeQuota performs that remap once and shares
 // the result with tiered billing, affinity observation and logging.
@@ -504,12 +518,14 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 		// The aggregate and TTL split overlap, so use the larger total.
 		other["cache_write_tokens"] = cacheWriteTokens
 	}
-	other["input_tokens_total"] = textQuotaInputTokensTotal(relayInfo, billingUsage, summary)
+	inputTokensTotal := textQuotaInputTokensTotal(relayInfo, billingUsage, summary)
+	other["input_tokens_total"] = inputTokensTotal
 	if tieredBillingApplied {
 		InjectTieredBillingInfo(other, relayInfo, tieredResult)
 	}
 
 	attachQuotaSaturation(ctx, relayInfo, other)
+	recordRateLimitTokens(ctx, relayInfo, int64(max(0, inputTokensTotal))+int64(max(0, summary.CompletionTokens)))
 
 	model.RecordConsumeLog(ctx, relayInfo.UserId, model.RecordConsumeLogParams{
 		ChannelId:        relayInfo.ChannelId,

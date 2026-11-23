@@ -1032,8 +1032,8 @@ func (channel *Channel) ValidateSettings() error {
 	if channelParams.RateLimitPeriodMinutes < 0 || channelParams.RateLimitPeriodMinutes > dto.MaxRateLimitPeriodMinutes {
 		return fmt.Errorf("rate_limit_period_minutes must be between 0 and %d", dto.MaxRateLimitPeriodMinutes)
 	}
-	if channelParams.RateLimitMaxRequests < 0 || channelParams.RateLimitMaxSuccess < 0 {
-		return fmt.Errorf("rate_limit_max_requests and rate_limit_max_success must not be negative")
+	if channelParams.RateLimitMaxRequests < 0 || channelParams.RateLimitMaxSuccess < 0 || channelParams.RateLimitMaxTokens < 0 {
+		return fmt.Errorf("rate_limit_max_requests, rate_limit_max_success and rate_limit_max_tokens must not be negative")
 	}
 	if channelParams.DailyRequestLimit < 0 {
 		return fmt.Errorf("daily_request_limit must not be negative")
