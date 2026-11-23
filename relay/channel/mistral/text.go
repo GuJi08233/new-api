@@ -1,76 +1,35 @@
 package mistral
 
 import (
-	"crypto/sha256"
 	"encoding/json"
-	"fmt"
 	"math"
-	"regexp"
-	"strconv"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
 )
 
-var mistralToolCallIdRegexp = regexp.MustCompile("^[a-zA-Z0-9]{9}$")
-
+// requestOpenAI2Mistral adapts an OpenAI Chat Completions request for
+// Mistral's OpenAI-compatible POST /openai/v1/chat/completions endpoint.
 func requestOpenAI2Mistral(request *dto.GeneralOpenAIRequest) (*dto.GeneralOpenAIRequest, error) {
-	randomSeed := request.RandomSeed
-	if randomSeed == nil && request.Seed != nil {
-		seed := *request.Seed
-		if !math.IsNaN(seed) && !math.IsInf(seed, 0) && seed >= -1<<63 && seed < 1<<63 {
-			randomSeed = common.GetPointer(int64(math.Trunc(seed)))
-		}
+	seed := request.Seed
+	if seed == nil && request.RandomSeed != nil {
+		s := float64(*request.RandomSeed)
+		seed = &s
+	} else if seed != nil && (math.IsNaN(*seed) || math.IsInf(*seed, 0)) {
+		seed = nil
 	}
 
 	tools := normalizeMistralChatTools(request.Tools, request.Functions)
 	toolChoice := normalizeMistralChatToolChoice(request.ToolChoice, request.FunctionCall, len(tools) > 0)
 
-	// Pre-collect existing valid 9-char IDs and map non-conforming IDs
-	// deterministically via SHA-256 so multi-turn tool histories produce stable
-	// prompt prefixes and preserve Mistral prompt caching.
-	usedIDs := make(map[string]bool)
-	for _, message := range request.Messages {
-		for _, tc := range message.ParseToolCalls() {
-			if mistralToolCallIdRegexp.MatchString(tc.ID) {
-				usedIDs[tc.ID] = true
-			}
-		}
-		if mistralToolCallIdRegexp.MatchString(message.ToolCallId) {
-			usedIDs[message.ToolCallId] = true
-		}
-	}
-	idMap := make(map[string]string)
-	convertToolCallID := func(id string) string {
-		if mistralToolCallIdRegexp.MatchString(id) {
-			return id
-		}
-		if mapped, ok := idMap[id]; ok {
-			return mapped
-		}
-		for salt := 0; ; salt++ {
-			digest := sha256.Sum256([]byte(id + ":" + strconv.Itoa(salt)))
-			candidate := fmt.Sprintf("%x", digest)[:9]
-			if !usedIDs[candidate] {
-				usedIDs[candidate] = true
-				idMap[id] = candidate
-				return candidate
-			}
-		}
-	}
-
 	messages := make([]dto.Message, 0, len(request.Messages))
 	for _, message := range request.Messages {
 		role := message.Role
-		switch role {
-		case "developer":
-			role = "system"
-		case "function":
+		if role == "function" {
 			role = "tool"
 		}
 
-		// 1. tool_calls.id (only valid on assistant messages)
 		var toolCallsRaw json.RawMessage
 		if role == "assistant" && len(message.ToolCalls) > 0 {
 			var toolCalls []dto.ToolCallRequest
@@ -79,21 +38,17 @@ func requestOpenAI2Mistral(request *dto.GeneralOpenAIRequest) (*dto.GeneralOpenA
 					if toolCalls[i].Type == "" {
 						toolCalls[i].Type = "function"
 					}
-					toolCalls[i].ID = convertToolCallID(toolCalls[i].ID)
 				}
-				message.SetToolCalls(toolCalls)
+				if encoded, err := common.Marshal(toolCalls); err == nil {
+					toolCallsRaw = encoded
+				}
+			} else {
 				toolCallsRaw = message.ToolCalls
 			}
 		}
 
-		// 2. tool_call_id (only valid on tool messages)
-		toolCallId := ""
-		if role == "tool" && message.ToolCallId != "" {
-			toolCallId = convertToolCallID(message.ToolCallId)
-		}
-
 		content := message.Content
-		var chunks []map[string]json.RawMessage
+		var extractedReasoning string
 		if content != nil && !message.IsStringContent() {
 			rawContent, err := common.Marshal(content)
 			if err != nil {
@@ -101,30 +56,20 @@ func requestOpenAI2Mistral(request *dto.GeneralOpenAIRequest) (*dto.GeneralOpenA
 			}
 			var rawChunks []map[string]json.RawMessage
 			if err := common.Unmarshal(rawContent, &rawChunks); err == nil {
-				chunks = normalizeMistralChatChunks(rawChunks)
+				chunks, thinking := normalizeMistralChatChunks(rawChunks)
+				extractedReasoning = thinking
+				if len(chunks) > 0 {
+					content = chunks
+				} else if role == "assistant" {
+					content = nil
+				} else {
+					content = ""
+				}
 			}
 		}
-		if role == "assistant" && message.GetReasoningContent() != "" {
-			if message.IsStringContent() && message.StringContent() != "" {
-				text, _ := common.Marshal(message.StringContent())
-				chunks = append(chunks, map[string]json.RawMessage{"type": json.RawMessage(`"text"`), "text": text})
-			}
-			thinking, err := common.Marshal([]mistralContentChunk{{Type: "text", Text: message.GetReasoningContent()}})
-			if err != nil {
-				return nil, err
-			}
-			chunk := map[string]json.RawMessage{
-				"type":     json.RawMessage(`"thinking"`),
-				"thinking": thinking,
-			}
-			chunks = append([]map[string]json.RawMessage{chunk}, chunks...)
-		}
-		if chunks != nil {
-			content = chunks
-		}
-		// Mistral SystemMessage / UserMessage / ToolMessage require non-null content
-		// (only AssistantMessage accepts omitted/null content with tool_calls).
-		if content == nil && role == "system" {
+		// Mistral /openai/v1/chat/completions requires non-null content on
+		// system, developer, user, and tool messages; only assistant accepts null.
+		if content == nil && role != "assistant" {
 			content = ""
 		}
 
@@ -132,83 +77,56 @@ func requestOpenAI2Mistral(request *dto.GeneralOpenAIRequest) (*dto.GeneralOpenA
 			Role:    role,
 			Content: content,
 		}
-		// Mistral schemas set additionalProperties=false per role:
-		// only ToolMessage permits name/tool_call_id, and only AssistantMessage permits prefix/tool_calls.
-		if role == "tool" {
+		switch role {
+		case "tool":
+			outMsg.ToolCallId = message.ToolCallId
+		case "assistant":
+			// Only assistant messages accept `name` on /openai/v1/chat/completions.
 			outMsg.Name = message.Name
-			outMsg.ToolCallId = toolCallId
-		} else if role == "assistant" {
-			outMsg.Prefix = message.Prefix
 			outMsg.ToolCalls = toolCallsRaw
+			reasoning := message.GetReasoningContent()
+			if extractedReasoning != "" {
+				if reasoning == "" {
+					reasoning = extractedReasoning
+				} else {
+					reasoning += "\n" + extractedReasoning
+				}
+			}
+			if reasoning != "" {
+				outMsg.ReasoningContent = common.GetPointer(reasoning)
+			}
 		}
 		messages = append(messages, outMsg)
 	}
 
 	out := &dto.GeneralOpenAIRequest{
-		Model:             request.Model,
-		Stream:            request.Stream,
-		Messages:          messages,
-		Temperature:       request.Temperature,
-		TopP:              request.TopP,
-		Tools:             tools,
-		ToolChoice:        toolChoice,
-		Stop:              request.Stop,
-		N:                 request.N,
-		FrequencyPenalty:  request.FrequencyPenalty,
-		PresencePenalty:   request.PresencePenalty,
-		ResponseFormat:    request.ResponseFormat,
-		ParallelTooCalls:  request.ParallelTooCalls,
-		ReasoningEffort:   normalizeMistralReasoningEffort(request.Model, request.ReasoningEffort),
-		PromptCacheKey:    request.PromptCacheKey,
-		Prediction:        request.Prediction,
-		Metadata:          request.Metadata,
-		RandomSeed:        randomSeed,
-		RepetitionPenalty: request.RepetitionPenalty,
-		PromptMode:        request.PromptMode,
-		SafePrompt:        request.SafePrompt,
-		Guardrails:        request.Guardrails,
-		ServiceTier:       normalizeMistralChatServiceTier(request.ServiceTier),
+		Model:               request.Model,
+		Stream:              request.Stream,
+		Messages:            messages,
+		MaxTokens:           request.MaxTokens,
+		MaxCompletionTokens: request.MaxCompletionTokens,
+		Temperature:         request.Temperature,
+		TopP:                request.TopP,
+		Tools:               tools,
+		ToolChoice:          toolChoice,
+		Stop:                request.Stop,
+		N:                   request.N,
+		FrequencyPenalty:    request.FrequencyPenalty,
+		PresencePenalty:     request.PresencePenalty,
+		ResponseFormat:      request.ResponseFormat,
+		ParallelTooCalls:    request.ParallelTooCalls,
+		ReasoningEffort:     normalizeMistralReasoningEffort(request.Model, request.ReasoningEffort),
+		PromptCacheKey:      request.PromptCacheKey,
+		Metadata:            stringifyMistralMetadata(request.Metadata),
+		Seed:                seed,
 	}
-	if !modelRejectsTopK(request.Model) {
-		out.TopK = request.TopK
+	if request.Stream != nil && *request.Stream {
+		out.StreamOptions = request.StreamOptions
 	}
-	if !modelRejectsLogprobs(request.Model) {
-		out.LogProbs = request.LogProbs
-		out.TopLogProbs = request.TopLogProbs
-		out.PromptLogProbs = request.PromptLogProbs
-		out.TopPromptLogProbs = request.TopPromptLogProbs
-	}
-	if request.MaxCompletionTokens != nil {
-		out.MaxTokens = request.MaxCompletionTokens
-	} else {
-		out.MaxTokens = request.MaxTokens
-	}
-	if !modelRejectsMinTokens(request.Model) && request.MinTokens != nil {
-		minTokens := *request.MinTokens
-		if out.MaxTokens != nil && minTokens > *out.MaxTokens {
-			minTokens = *out.MaxTokens
-		}
-		out.MinTokens = &minTokens
+	if isJSONValuePresent(request.User) {
+		out.User = request.User
 	}
 	return out, nil
-}
-
-func normalizeMistralChatServiceTier(tier json.RawMessage) json.RawMessage {
-	if !isJSONValuePresent(tier) {
-		return nil
-	}
-	var value string
-	if err := common.Unmarshal(tier, &value); err != nil {
-		return nil
-	}
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "auto", "priority":
-		return json.RawMessage(`"auto"`)
-	case "standard_only":
-		return json.RawMessage(`"standard_only"`)
-	default:
-		return nil
-	}
 }
 
 func normalizeMistralChatTools(reqTools []dto.ToolCallRequest, legacyFunctions json.RawMessage) []dto.ToolCallRequest {
@@ -278,7 +196,7 @@ func normalizeMistralChatToolChoice(toolChoice any, legacyFunctionCall json.RawM
 			if !hasTools {
 				return nil
 			}
-			return v
+			return "required"
 		default:
 			return nil
 		}
@@ -298,8 +216,9 @@ func normalizeMistralChatToolChoice(toolChoice any, legacyFunctionCall json.RawM
 	}
 }
 
-func normalizeMistralChatChunks(rawChunks []map[string]json.RawMessage) []map[string]json.RawMessage {
+func normalizeMistralChatChunks(rawChunks []map[string]json.RawMessage) ([]map[string]json.RawMessage, string) {
 	normalized := make([]map[string]json.RawMessage, 0, len(rawChunks))
+	var thinking strings.Builder
 	for _, chunk := range rawChunks {
 		if chunk == nil {
 			continue
@@ -318,22 +237,25 @@ func normalizeMistralChatChunks(rawChunks []map[string]json.RawMessage) []map[st
 				"text": chunk["text"],
 			})
 		case dto.ContentTypeImageURL, "input_image":
-			var imageURL string
+			var image dto.MessageImageUrl
 			if common.GetJsonType(chunk["image_url"]) == "object" {
-				var image dto.MessageImageUrl
-				if err := common.Unmarshal(chunk["image_url"], &image); err == nil {
-					imageURL = image.Url
-				}
+				_ = common.Unmarshal(chunk["image_url"], &image)
 			} else {
-				_ = common.Unmarshal(chunk["image_url"], &imageURL)
+				_ = common.Unmarshal(chunk["image_url"], &image.Url)
+				if isJSONValuePresent(chunk["detail"]) {
+					_ = common.Unmarshal(chunk["detail"], &image.Detail)
+				}
 			}
-			if imageURL == "" {
+			if image.Url == "" {
 				continue
 			}
-			encodedURL, _ := common.Marshal(imageURL)
+			encodedImage, err := common.Marshal(image)
+			if err != nil {
+				continue
+			}
 			normalized = append(normalized, map[string]json.RawMessage{
 				"type":      json.RawMessage(`"image_url"`),
-				"image_url": encodedURL,
+				"image_url": encodedImage,
 			})
 		case dto.ContentTypeFile, "input_file":
 			fileObj := chunk
@@ -343,30 +265,34 @@ func normalizeMistralChatChunks(rawChunks []map[string]json.RawMessage) []map[st
 					fileObj = nested
 				}
 			}
+			part := make(map[string]json.RawMessage)
 			if isJSONValuePresent(fileObj["file_id"]) {
-				normalized = append(normalized, map[string]json.RawMessage{
-					"type":    json.RawMessage(`"file"`),
-					"file_id": fileObj["file_id"],
-				})
+				part["file_id"] = fileObj["file_id"]
+			} else if isJSONValuePresent(fileObj["file_data"]) {
+				var fileData string
+				if err := common.Unmarshal(fileObj["file_data"], &fileData); err == nil && strings.HasPrefix(fileData, "data:") {
+					part["file_data"] = fileObj["file_data"]
+					if isJSONValuePresent(fileObj["filename"]) {
+						part["filename"] = fileObj["filename"]
+					}
+				}
+			}
+			if len(part) == 0 {
 				continue
 			}
-			url := fileObj["file_url"]
-			if !isJSONValuePresent(url) {
-				url = fileObj["file_data"]
-			}
-			if !isJSONValuePresent(url) {
+			encodedFile, err := common.Marshal(part)
+			if err != nil {
 				continue
 			}
-			doc := map[string]json.RawMessage{
-				"type":         json.RawMessage(`"document_url"`),
-				"document_url": url,
+			normalized = append(normalized, map[string]json.RawMessage{
+				"type": json.RawMessage(`"file"`),
+				"file": encodedFile,
+			})
+		case "thinking":
+			var rawThinking any
+			if common.Unmarshal(chunk["thinking"], &rawThinking) == nil {
+				appendMistralThinkingText(&thinking, rawThinking)
 			}
-			if isJSONValuePresent(fileObj["filename"]) {
-				doc["document_name"] = fileObj["filename"]
-			}
-			normalized = append(normalized, doc)
-		case "thinking", "document_url", "reference", "input_audio", "resource", "resource_link":
-			normalized = append(normalized, chunk)
 		default:
 			if isJSONValuePresent(chunk["text"]) {
 				normalized = append(normalized, map[string]json.RawMessage{
@@ -376,5 +302,5 @@ func normalizeMistralChatChunks(rawChunks []map[string]json.RawMessage) []map[st
 			}
 		}
 	}
-	return normalized
+	return normalized, thinking.String()
 }

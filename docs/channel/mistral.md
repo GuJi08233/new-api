@@ -8,10 +8,10 @@ Disable request-body pass-through to use these conversions.
 
 | Client endpoint | Upstream endpoint |
 | --- | --- |
-| `/v1/chat/completions` | `/v1/chat/completions` |
+| `/v1/chat/completions` | `/openai/v1/chat/completions` |
 | `/v1/responses` | `/v1/responses` |
 | `/v1/responses/input_tokens` | `/v1/responses/input_tokens` |
-| `/v1/messages` | `/v1/responses`, or `/v1/chat/completions` when `stop_sequences` is supplied |
+| `/v1/messages` | `/v1/responses`, or `/openai/v1/chat/completions` when `stop_sequences` is supplied |
 
 Both streaming and non-streaming requests support text, reasoning, function
 calls, and tool-result replay. Standard OpenAI and Anthropic requests are
@@ -21,26 +21,31 @@ than rejected with HTTP 400.
 
 ## Chat parameters
 
-- OpenAI `developer` role maps to `system`, and legacy `function` role maps to
-  `tool`. Because Mistral Chat schemas disallow `name` on `system`/`user`/
-  `assistant` messages, `name` and `tool_call_id` are sent only on `tool`
-  messages, and `prefix`/`tool_calls` only on `assistant` messages.
+Chat Completions uses Mistral's OpenAI-compatible `/openai/v1/chat/completions`
+endpoint so standard OpenAI features (`developer` role, `max_completion_tokens`,
+`stream_options.include_usage`, `seed`, `user`, `reasoning_content`, and
+standard tool-call IDs) work natively.
+
+- Legacy `function` role maps to `tool`. Because Mistral's `/openai/v1` schema
+  only permits `name` on `assistant` messages and requires non-null `content`
+  on `system`/`developer`/`user`/`tool` messages, `name` is stripped from
+  non-assistant messages and null non-assistant content defaults to `""`.
 - Legacy `functions` and `function_call` are automatically converted to
-  standard `tools` and `tool_choice`; non-function tools are filtered cleanly.
-- `max_completion_tokens` takes precedence over `max_tokens` (including `0`).
-  `seed` maps to `random_seed` when `random_seed` is unset. `service_tier`
-  normalizes `"priority"` to `"auto"`, preserves `"auto"` and `"standard_only"`,
-  and omits unrecognized OpenAI values.
-- Model-specific unsupported controls are automatically omitted to avoid
-  upstream 400 errors (for example, `min_tokens` on `deepseek-v4-*` and
-  `zai-glm-5-3*`, and `top_k` / `logprobs` on `deepseek-v4-*`).
-- OpenAI image/file parts (including `input_text`, `input_image`, `input_file`)
-  are adapted to Mistral `text`, `image_url`, `document_url`, or `file` chunks.
-  Historical tool-call IDs are consistently mapped to Mistral's
-  nine-alphanumeric-character format.
-- Reasoning responses returned as chunk arrays are normalized to standard
-  OpenAI `content` + `reasoning_content`; `finish_reason: "model_length"` maps
-  to `"length"`.
+  standard `tools` and `tool_choice`; `tool_choice: "any"` maps to `"required"`
+  and non-function tools are filtered cleanly.
+- `stream_options` is forwarded only when `stream` is `true`; `ChannelTypeMistral`
+  is enabled in `streamSupportedChannels` so streaming requests receive exact
+  upstream token usage.
+- `metadata` values are coerced to strings. Unsupported OpenAI or Mistral-native
+  fields (`store`, `service_tier`, `prediction`, `logprobs`, `top_logprobs`,
+  `min_tokens`, `top_k`, `random_seed` → mapped to `seed` if `seed` is unset,
+  `safe_prompt`, `prompt_mode`, `repetition_penalty`, `guardrails`, `prefix`)
+  are omitted or adapted cleanly.
+- OpenAI multimodal parts (`text`/`input_text`/`output_text`,
+  `image_url`/`input_image`, `file`/`input_file` with `file_id` or base64
+  `data:` `file_data`) are normalized to OpenAI `/openai/v1` object format;
+  legacy Mistral `thinking` content chunks replayed in assistant history are
+  extracted into `reasoning_content`.
 
 ## Responses compatibility
 

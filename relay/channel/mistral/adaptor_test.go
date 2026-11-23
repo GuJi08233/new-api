@@ -25,17 +25,21 @@ import (
 func TestConvertOpenAIRequestAdaptsMessagesAndReplaysReasoning(t *testing.T) {
 	raw := `{
 		"model":"mistral-large-4","max_tokens":512,"max_completion_tokens":0,"temperature":0,"top_p":0,
+		"stream":true,"stream_options":{"include_usage":true},
 		"parallel_tool_calls":false,"reasoning_effort":"high",
-		"seed":0,"min_tokens":0,"top_k":0,"safe_prompt":false,"prompt_logprobs":false,
+		"seed":0,"user":"u1","metadata":{"count":2,"tag":"ok"},
+		"min_tokens":0,"top_k":0,"safe_prompt":false,"prompt_logprobs":false,
 		"top_prompt_logprobs":0,"repetition_penalty":0,"prompt_mode":"reasoning","service_tier":"standard_only",
+		"prediction":{"type":"content","content":"ok"},"store":true,"logprobs":true,"top_logprobs":2,
 		"guardrails":[{"name":"test"}],"tools":[{"type":"function","function":{"name":"lookup","parameters":{"type":"object"},"strict":false}}],
 		"messages":[
 			{"role":"developer","name":"sys","content":"rules"},
-			{"role":"user","name":"alice","content":[{"type":"text","text":"look"},{"type":"image_url","image_url":{"url":"https://example.test/a.png","detail":"low"}}]},
-			{"role":"assistant","name":"bot","content":"checking","reasoning_content":"think first","tool_calls":[{"id":"call_openai_long","type":"function","function":{"name":"lookup","arguments":"{}"}}]},
+			{"role":"user","name":"alice","content":[{"type":"text","text":"look"},{"type":"image_url","image_url":{"url":"https://example.test/a.png","detail":"low"}},{"type":"file","file":{"file_data":"data:application/pdf;base64,cGRm","filename":"a.pdf"}},{"type":"file","file":{"file_url":"https://example.test/ignored.pdf"}}]},
+			{"role":"assistant","name":"bot","prefix":true,"content":"checking","reasoning_content":"think first","tool_calls":[{"id":"call_openai_long","type":"function","function":{"name":"lookup","arguments":"{}"}}]},
 			{"role":"tool","name":"lookup","tool_call_id":"call_openai_long","content":"result"},
 			{"role":"assistant","content":[{"type":"thinking","thinking":[{"type":"text","text":"native thinking"}],"closed":true},{"type":"text","text":"native answer"}]},
-			{"role":"assistant","content":null,"reasoning":"reasoning alias"}
+			{"role":"assistant","content":null,"reasoning":"reasoning alias"},
+			{"role":"system","content":null}
 		]
 	}`
 	var request dto.GeneralOpenAIRequest
@@ -47,39 +51,45 @@ func TestConvertOpenAIRequestAdaptsMessagesAndReplaysReasoning(t *testing.T) {
 	body, err := common.Marshal(converted)
 	require.NoError(t, err)
 
-	assert.Equal(t, "system", gjson.GetBytes(body, "messages.0.role").String())
+	assert.Equal(t, "developer", gjson.GetBytes(body, "messages.0.role").String())
 	assert.Equal(t, "rules", gjson.GetBytes(body, "messages.0.content").String())
-	assert.False(t, gjson.GetBytes(body, "messages.0.name").Exists(), "system message must not send name")
+	assert.False(t, gjson.GetBytes(body, "messages.0.name").Exists(), "developer message must not send name")
 	assert.False(t, gjson.GetBytes(body, "messages.1.name").Exists(), "user message must not send name")
-	assert.False(t, gjson.GetBytes(body, "messages.2.name").Exists(), "assistant message must not send name")
-	assert.Equal(t, "lookup", gjson.GetBytes(body, "messages.3.name").String(), "tool message keeps name")
-	assert.Equal(t, "https://example.test/a.png", gjson.GetBytes(body, "messages.1.content.1.image_url").String())
-	assert.Equal(t, "think first", gjson.GetBytes(body, "messages.2.content.0.thinking.0.text").String())
-	assert.Equal(t, "checking", gjson.GetBytes(body, "messages.2.content.1.text").String())
-	callID := gjson.GetBytes(body, "messages.2.tool_calls.0.id").String()
-	assert.Regexp(t, `^[a-zA-Z0-9]{9}$`, callID)
-	assert.Equal(t, callID, gjson.GetBytes(body, "messages.3.tool_call_id").String())
+	assert.Equal(t, "bot", gjson.GetBytes(body, "messages.2.name").String(), "assistant message keeps name")
+	assert.False(t, gjson.GetBytes(body, "messages.2.prefix").Exists(), "assistant message must not send prefix")
+	assert.False(t, gjson.GetBytes(body, "messages.3.name").Exists(), "tool message must not send name")
+	assert.Equal(t, "https://example.test/a.png", gjson.GetBytes(body, "messages.1.content.1.image_url.url").String())
+	assert.Equal(t, "low", gjson.GetBytes(body, "messages.1.content.1.image_url.detail").String())
+	assert.Equal(t, "file", gjson.GetBytes(body, "messages.1.content.2.type").String())
+	assert.Equal(t, "data:application/pdf;base64,cGRm", gjson.GetBytes(body, "messages.1.content.2.file.file_data").String())
+	assert.Equal(t, "a.pdf", gjson.GetBytes(body, "messages.1.content.2.file.filename").String())
+	assert.Equal(t, int64(3), gjson.GetBytes(body, "messages.1.content.#").Int(), "file_url should be omitted")
+	assert.Equal(t, "think first", gjson.GetBytes(body, "messages.2.reasoning_content").String())
+	assert.Equal(t, "checking", gjson.GetBytes(body, "messages.2.content").String())
+	assert.Equal(t, "call_openai_long", gjson.GetBytes(body, "messages.2.tool_calls.0.id").String())
+	assert.Equal(t, "call_openai_long", gjson.GetBytes(body, "messages.3.tool_call_id").String())
 	assert.Equal(t, "result", gjson.GetBytes(body, "messages.3.content").String())
-	assert.Equal(t, "native thinking", gjson.GetBytes(body, "messages.4.content.0.thinking.0.text").String())
-	assert.True(t, gjson.GetBytes(body, "messages.4.content.0.closed").Bool())
-	assert.Equal(t, "reasoning alias", gjson.GetBytes(body, "messages.5.content.0.thinking.0.text").String())
-	assert.False(t, gjson.GetBytes(body, "messages.2.reasoning_content").Exists())
-	assert.False(t, gjson.GetBytes(body, "max_completion_tokens").Exists())
-	for _, field := range []string{"max_tokens", "temperature", "top_p"} {
+	assert.Equal(t, "native thinking", gjson.GetBytes(body, "messages.4.reasoning_content").String())
+	assert.Equal(t, "native answer", gjson.GetBytes(body, "messages.4.content.0.text").String())
+	assert.Equal(t, "reasoning alias", gjson.GetBytes(body, "messages.5.reasoning_content").String())
+	assert.Equal(t, "", gjson.GetBytes(body, "messages.6.content").String())
+	assert.Equal(t, "512", gjson.GetBytes(body, "max_tokens").Raw)
+	for _, field := range []string{"max_completion_tokens", "temperature", "top_p", "seed"} {
 		assert.True(t, gjson.GetBytes(body, field).Exists(), field)
 		assert.Zero(t, gjson.GetBytes(body, field).Float(), field)
 	}
+	assert.Equal(t, "true", gjson.GetBytes(body, "stream_options.include_usage").Raw)
 	assert.Equal(t, "false", gjson.GetBytes(body, "parallel_tool_calls").Raw)
-	for _, field := range []string{"random_seed", "min_tokens", "top_k", "top_prompt_logprobs", "repetition_penalty"} {
-		assert.Equal(t, "0", gjson.GetBytes(body, field).Raw, field)
+	assert.Equal(t, "false", gjson.GetBytes(body, "tools.0.function.strict").Raw)
+	assert.Equal(t, "u1", gjson.GetBytes(body, "user").String())
+	assert.JSONEq(t, `{"count":"2","tag":"ok"}`, gjson.GetBytes(body, "metadata").Raw)
+	for _, unsupported := range []string{
+		"random_seed", "min_tokens", "top_k", "safe_prompt", "prompt_logprobs",
+		"top_prompt_logprobs", "repetition_penalty", "prompt_mode", "service_tier",
+		"prediction", "store", "logprobs", "top_logprobs", "guardrails",
+	} {
+		assert.False(t, gjson.GetBytes(body, unsupported).Exists(), unsupported)
 	}
-	for _, field := range []string{"safe_prompt", "prompt_logprobs", "tools.0.function.strict"} {
-		assert.Equal(t, "false", gjson.GetBytes(body, field).Raw, field)
-	}
-	assert.False(t, gjson.GetBytes(body, "seed").Exists())
-	assert.Equal(t, "standard_only", gjson.GetBytes(body, "service_tier").String())
-	assert.Equal(t, "reasoning", gjson.GetBytes(body, "prompt_mode").String())
-	assert.JSONEq(t, `[{"name":"test"}]`, gjson.GetBytes(body, "guardrails").Raw)
 	after, err := common.Marshal(request)
 	require.NoError(t, err)
 	assert.JSONEq(t, string(original), string(after))
@@ -422,15 +432,15 @@ func TestNormalizeMistralChatBodyRewritesStreamLines(t *testing.T) {
 		"data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"ok\"}}]}\n\ndata: [DONE]\n\n", string(out))
 }
 
-func TestConvertChatNativeSeedAndStrictFunctions(t *testing.T) {
+func TestConvertChatSeedAndStrictFunctions(t *testing.T) {
 	tests := []struct {
 		name string
 		body string
 		want string
 	}{
-		{name: "native seed precision", body: `"random_seed":9223372036854775807`, want: "9223372036854775807"},
-		{name: "OpenAI seed", body: `"seed":42`, want: "42"},
-		{name: "matching aliases", body: `"seed":0,"random_seed":0`, want: "0"},
+		{name: "random_seed maps to seed", body: `"random_seed":42`, want: "42"},
+		{name: "OpenAI seed preserved", body: `"seed":42`, want: "42"},
+		{name: "zero seed preserved", body: `"seed":0,"random_seed":7`, want: "0"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -440,7 +450,8 @@ func TestConvertChatNativeSeedAndStrictFunctions(t *testing.T) {
 			require.NoError(t, err)
 			body, err := common.Marshal(converted)
 			require.NoError(t, err)
-			assert.Equal(t, tt.want, gjson.GetBytes(body, "random_seed").Raw)
+			assert.Equal(t, tt.want, gjson.GetBytes(body, "seed").Raw)
+			assert.False(t, gjson.GetBytes(body, "random_seed").Exists())
 			assert.Equal(t, "lookup", gjson.GetBytes(body, "tools.0.function.name").String())
 			assert.True(t, gjson.GetBytes(body, "tools.0.function.strict").Bool())
 			assert.JSONEq(t, `{"type":"function","function":{"name":"lookup"}}`, gjson.GetBytes(body, "tool_choice").Raw)
@@ -451,13 +462,15 @@ func TestConvertChatNativeSeedAndStrictFunctions(t *testing.T) {
 }
 
 func TestMistralAdaptsStandardOpenAIAndModelLimitsWithoutRejecting(t *testing.T) {
-	t.Run("chat converts legacy functions and filters unsupported tools and service_tier", func(t *testing.T) {
+	t.Run("chat converts legacy functions, maps any tool_choice, strips non-stream stream_options and unsupported fields", func(t *testing.T) {
 		var req dto.GeneralOpenAIRequest
 		require.NoError(t, common.UnmarshalJsonStr(`{
 			"model":"deepseek-v4-1-flash-1017",
 			"messages":[{"role":"user","name":"alice","content":"hi"}],
 			"functions":[{"name":"lookup","description":"find"}],
-			"function_call":{"name":"lookup"},
+			"function_call":"any",
+			"stream":false,
+			"stream_options":{"include_usage":true},
 			"service_tier":"priority",
 			"min_tokens":0,
 			"top_k":10,
@@ -470,9 +483,10 @@ func TestMistralAdaptsStandardOpenAIAndModelLimitsWithoutRejecting(t *testing.T)
 		body, err := common.Marshal(converted)
 		require.NoError(t, err)
 		assert.Equal(t, "lookup", gjson.GetBytes(body, "tools.0.function.name").String())
-		assert.JSONEq(t, `{"type":"function","function":{"name":"lookup"}}`, gjson.GetBytes(body, "tool_choice").Raw)
-		assert.Equal(t, "auto", gjson.GetBytes(body, "service_tier").String())
+		assert.Equal(t, "required", gjson.GetBytes(body, "tool_choice").String())
 		assert.Equal(t, "high", gjson.GetBytes(body, "reasoning_effort").String())
+		assert.False(t, gjson.GetBytes(body, "stream_options").Exists())
+		assert.False(t, gjson.GetBytes(body, "service_tier").Exists())
 		assert.False(t, gjson.GetBytes(body, "min_tokens").Exists())
 		assert.False(t, gjson.GetBytes(body, "top_k").Exists())
 		assert.False(t, gjson.GetBytes(body, "logprobs").Exists())
@@ -601,25 +615,28 @@ func TestClaudeSamplingControlsUseMistralChat(t *testing.T) {
 	for _, stream := range []bool{false, true} {
 		t.Run(fmt.Sprint(stream), func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				assert.Equal(t, "/v1/chat/completions", r.URL.Path)
+				assert.Equal(t, "/openai/v1/chat/completions", r.URL.Path)
 				body, err := io.ReadAll(r.Body)
 				assert.NoError(t, err)
-				assert.Equal(t, "0", gjson.GetBytes(body, "top_k").Raw)
+				assert.False(t, gjson.GetBytes(body, "top_k").Exists())
 				assert.JSONEq(t, `["STOP"]`, gjson.GetBytes(body, "stop").Raw)
 				assert.Equal(t, "json_schema", gjson.GetBytes(body, "response_format.type").String())
 				assert.Equal(t, "true", gjson.GetBytes(body, "tools.0.function.strict").Raw)
 				assert.Equal(t, "before", gjson.GetBytes(body, "messages.0.content.0.text").String())
-				assert.Equal(t, "https://example.test/a.png", gjson.GetBytes(body, "messages.0.content.1.image_url").String())
+				assert.Equal(t, "https://example.test/a.png", gjson.GetBytes(body, "messages.0.content.1.image_url.url").String())
 				assert.Equal(t, "after", gjson.GetBytes(body, "messages.0.content.2.text").String())
-				assert.Equal(t, "https://example.test/a.pdf", gjson.GetBytes(body, "messages.0.content.3.document_url").String())
+				assert.Equal(t, "data:application/pdf;base64,cGRm", gjson.GetBytes(body, "messages.0.content.3.file.file_data").String())
+				if stream {
+					assert.Equal(t, "true", gjson.GetBytes(body, "stream_options.include_usage").Raw)
+				}
 				if !stream {
 					w.Header().Set("Content-Type", "application/json")
-					_, _ = io.WriteString(w, `{"id":"chat_1","object":"chat.completion","created":1,"model":"test","choices":[{"index":0,"message":{"role":"assistant","content":[{"type":"text","text":"ok"}]},"finish_reason":"model_length"}],"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12}}`)
+					_, _ = io.WriteString(w, `{"id":"chat_1","object":"chat.completion","created":1,"model":"test","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"length"}],"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12}}`)
 					return
 				}
 				w.Header().Set("Content-Type", "text/event-stream")
 				_, _ = io.WriteString(w, "data: "+`{"id":"chat_1","object":"chat.completion.chunk","created":1,"model":"test","choices":[{"index":0,"delta":{"role":"assistant"},"finish_reason":null}]}`+"\n\n"+
-					"data: "+`{"id":"chat_1","object":"chat.completion.chunk","created":1,"model":"test","choices":[{"index":0,"delta":{"content":[{"type":"text","text":"ok"}]},"finish_reason":"model_length"}],"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12}}`+"\n\ndata: [DONE]\n\n")
+					"data: "+`{"id":"chat_1","object":"chat.completion.chunk","created":1,"model":"test","choices":[{"index":0,"delta":{"content":"ok"},"finish_reason":"length"}],"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12}}`+"\n\ndata: [DONE]\n\n")
 			}))
 			defer server.Close()
 			var request dto.ClaudeRequest
@@ -628,7 +645,7 @@ func TestClaudeSamplingControlsUseMistralChat(t *testing.T) {
 				"tools":[{"name":"lookup","strict":true,"input_schema":{"type":"object"}}],
 				"messages":[{"role":"user","content":[
 					{"type":"text","text":"before"},{"type":"image","source":{"type":"url","url":"https://example.test/a.png"}},
-					{"type":"text","text":"after"},{"type":"document","source":{"type":"url","url":"https://example.test/a.pdf"}}
+					{"type":"text","text":"after"},{"type":"document","source":{"type":"base64","media_type":"application/pdf","data":"cGRm"}}
 				]}]}`, &request))
 			request.Stream = &stream
 			recorder := httptest.NewRecorder()
@@ -636,7 +653,10 @@ func TestClaudeSamplingControlsUseMistralChat(t *testing.T) {
 			c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
 			c.Request.Header.Set("Content-Type", "application/json")
 			info := &relaycommon.RelayInfo{
-				ChannelMeta: &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeMistral, ChannelBaseUrl: server.URL, UpstreamModelName: "test", ApiKey: "test-key"},
+				ChannelMeta: &relaycommon.ChannelMeta{
+					ChannelType: constant.ChannelTypeMistral, ChannelBaseUrl: server.URL,
+					UpstreamModelName: "test", ApiKey: "test-key", SupportStreamOptions: true,
+				},
 				RelayFormat: types.RelayFormatClaude, RequestURLPath: "/v1/messages", Request: &request, IsStream: stream, DisablePing: true,
 			}
 			adaptor := &Adaptor{}
@@ -707,32 +727,88 @@ func TestNormalizeMistralResponsesPayloadTimestamps(t *testing.T) {
 	assert.Equal(t, "1795112261", gjson.GetBytes(streamEvent, "response.created_at").Raw)
 }
 
-func TestMistralDeterministicToolCallIDBaseURLAndResponseNormalization(t *testing.T) {
-	// 1. Deterministic 9-char tool call ID across turns preserves prompt cache
+func TestMistralToolCallIDBaseURLAndResponseNormalization(t *testing.T) {
+	// 1. OpenAI tool call IDs are preserved verbatim on /openai/v1/chat/completions
 	raw := `{"model":"mistral-large-4","messages":[{"role":"assistant","content":"","tool_calls":[{"id":"call_stable_id_001","type":"function","function":{"name":"lookup","arguments":"{}"}}]},{"role":"tool","tool_call_id":"call_stable_id_001","content":"ok"}]}`
-	var req1, req2 dto.GeneralOpenAIRequest
-	require.NoError(t, common.UnmarshalJsonStr(raw, &req1))
-	require.NoError(t, common.UnmarshalJsonStr(raw, &req2))
-	c1, err := (&Adaptor{}).ConvertOpenAIRequest(nil, nil, &req1)
+	var req dto.GeneralOpenAIRequest
+	require.NoError(t, common.UnmarshalJsonStr(raw, &req))
+	converted, err := (&Adaptor{}).ConvertOpenAIRequest(nil, nil, &req)
 	require.NoError(t, err)
-	c2, err := (&Adaptor{}).ConvertOpenAIRequest(nil, nil, &req2)
+	body, err := common.Marshal(converted)
 	require.NoError(t, err)
-	b1, _ := common.Marshal(c1)
-	b2, _ := common.Marshal(c2)
-	id1 := gjson.GetBytes(b1, "messages.0.tool_calls.0.id").String()
-	id2 := gjson.GetBytes(b2, "messages.0.tool_calls.0.id").String()
-	assert.Regexp(t, `^[a-zA-Z0-9]{9}$`, id1)
-	assert.Equal(t, id1, id2)
-	assert.Equal(t, id1, gjson.GetBytes(b1, "messages.1.tool_call_id").String())
+	assert.Equal(t, "call_stable_id_001", gjson.GetBytes(body, "messages.0.tool_calls.0.id").String())
+	assert.Equal(t, "call_stable_id_001", gjson.GetBytes(body, "messages.1.tool_call_id").String())
 
-	// 2. BaseURL ending with /v1 or /v1/ does not produce /v1/v1/...
-	url, err := (&Adaptor{}).GetRequestURL(&relaycommon.RelayInfo{
-		ChannelMeta:    &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeMistral, ChannelBaseUrl: "https://api.mistral.ai/v1/"},
-		RelayFormat:    types.RelayFormatOpenAIResponses,
-		RequestURLPath: "/v1/responses",
-	})
-	require.NoError(t, err)
-	assert.Equal(t, "https://api.mistral.ai/v1/responses", url)
+	// 2. URL routing: Chat goes to /openai/v1/chat/completions; Responses/Moderations stay under /v1/
+	urlCases := []struct {
+		name    string
+		baseURL string
+		mode    int
+		format  types.RelayFormat
+		path    string
+		want    string
+	}{
+		{
+			name:    "chat default base",
+			baseURL: "https://api.mistral.ai",
+			mode:    relayconstant.RelayModeChatCompletions,
+			format:  types.RelayFormatOpenAI,
+			path:    "/v1/chat/completions",
+			want:    "https://api.mistral.ai/openai/v1/chat/completions",
+		},
+		{
+			name:    "chat base with /v1/",
+			baseURL: "https://api.mistral.ai/v1/",
+			mode:    relayconstant.RelayModeChatCompletions,
+			format:  types.RelayFormatOpenAI,
+			path:    "/v1/chat/completions",
+			want:    "https://api.mistral.ai/openai/v1/chat/completions",
+		},
+		{
+			name:    "chat base with /openai/v1/",
+			baseURL: "https://api.mistral.ai/openai/v1/",
+			mode:    relayconstant.RelayModeChatCompletions,
+			format:  types.RelayFormatOpenAI,
+			path:    "/v1/chat/completions",
+			want:    "https://api.mistral.ai/openai/v1/chat/completions",
+		},
+		{
+			name:    "responses base with /v1/",
+			baseURL: "https://api.mistral.ai/v1/",
+			mode:    relayconstant.RelayModeResponses,
+			format:  types.RelayFormatOpenAIResponses,
+			path:    "/v1/responses",
+			want:    "https://api.mistral.ai/v1/responses",
+		},
+		{
+			name:    "responses base with /openai/v1",
+			baseURL: "https://api.mistral.ai/openai/v1",
+			mode:    relayconstant.RelayModeResponses,
+			format:  types.RelayFormatOpenAIResponses,
+			path:    "/v1/responses",
+			want:    "https://api.mistral.ai/v1/responses",
+		},
+		{
+			name:    "moderations base with /openai/v1",
+			baseURL: "https://api.mistral.ai/openai/v1",
+			mode:    relayconstant.RelayModeModerations,
+			format:  types.RelayFormatOpenAI,
+			path:    "/v1/moderations",
+			want:    "https://api.mistral.ai/v1/moderations",
+		},
+	}
+	for _, tc := range urlCases {
+		t.Run(tc.name, func(t *testing.T) {
+			url, err := (&Adaptor{}).GetRequestURL(&relaycommon.RelayInfo{
+				ChannelMeta:    &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeMistral, ChannelBaseUrl: tc.baseURL},
+				RelayMode:      tc.mode,
+				RelayFormat:    tc.format,
+				RequestURLPath: tc.path,
+			})
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, url)
+		})
+	}
 
 	// 3. Strips SSE padding "p" and stringifies object tool_calls arguments
 	normalized := normalizeMistralChatPayload([]byte(`{"id":"x","p":"abcdef","choices":[{"index":0,"message":{"role":"assistant","content":"","tool_calls":[{"id":"abc123XYZ","type":"function","function":{"name":"lookup","arguments":{"q":"hi"}}}]}}]}`), false)

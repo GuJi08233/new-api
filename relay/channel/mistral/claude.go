@@ -32,9 +32,6 @@ func claudeRequestToOpenAIChat(request *dto.ClaudeRequest) (*dto.GeneralOpenAIRe
 	if topP, ok := req["top_p"]; ok && topP != nil {
 		result["top_p"] = topP
 	}
-	if topK, ok := req["top_k"]; ok && topK != nil {
-		result["top_k"] = topK
-	}
 	if metadata, ok := req["metadata"]; ok && metadata != nil {
 		result["metadata"] = metadata
 	}

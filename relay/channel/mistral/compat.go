@@ -81,28 +81,9 @@ func normalizeMistralReasoningEffort(model, effort string) string {
 	}
 }
 
-func modelRejectsMinTokens(model string) bool {
-	m := strings.ToLower(strings.TrimSpace(model))
-	return strings.HasPrefix(m, "deepseek-v4") ||
-		strings.HasPrefix(m, "zai-glm-5-3") ||
-		m == "zai-glm-5" ||
-		m == "zai-glm-latest"
-}
-
-func modelRejectsTopK(model string) bool {
-	m := strings.ToLower(strings.TrimSpace(model))
-	return strings.HasPrefix(m, "deepseek-v4")
-}
-
-func modelRejectsLogprobs(model string) bool {
-	m := strings.ToLower(strings.TrimSpace(model))
-	return strings.HasPrefix(m, "deepseek-v4") ||
-		strings.HasPrefix(m, "mistral-small-2603") ||
-		m == "mistral-small-latest"
-}
-
 // stringifyMistralMetadata ensures every metadata value is a string as required
-// by Mistral's Responses API (which rejects numeric/boolean/object values).
+// by Mistral's OpenAI-compatible Chat and Responses APIs (which reject
+// numeric/boolean/object values).
 func stringifyMistralMetadata(raw json.RawMessage) json.RawMessage {
 	if !isJSONValuePresent(raw) {
 		return nil

@@ -50,6 +50,9 @@ func (a *Adaptor) ConvertClaudeRequest(c *gin.Context, info *relaycommon.RelayIn
 	// single direct hop in RequestConversionChain either way.
 	if len(request.StopSequences) > 0 && !forceResponses {
 		info.AppendRequestConversion(types.RelayFormatOpenAI)
+		if info != nil && info.ChannelMeta != nil && info.SupportStreamOptions && info.IsStream {
+			chat.StreamOptions = &dto.StreamOptions{IncludeUsage: true}
+		}
 		return a.ConvertOpenAIRequest(c, info, chat)
 	}
 
@@ -81,7 +84,9 @@ func (a *Adaptor) Init(info *relaycommon.RelayInfo) {
 }
 
 func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
-	baseURL := strings.TrimSuffix(strings.TrimRight(strings.TrimSpace(info.ChannelBaseUrl), "/"), "/v1")
+	baseURL := strings.TrimRight(strings.TrimSpace(info.ChannelBaseUrl), "/")
+	baseURL = strings.TrimSuffix(baseURL, "/openai/v1")
+	baseURL = strings.TrimSuffix(baseURL, "/v1")
 	if info.RelayMode == relayconstant.RelayModeModerations {
 		return relaycommon.GetFullRequestURL(baseURL, "/v1/moderations", info.ChannelType), nil
 	}
@@ -90,8 +95,12 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 		case types.RelayFormatOpenAIResponses:
 			return relaycommon.GetFullRequestURL(baseURL, "/v1/responses", info.ChannelType), nil
 		case types.RelayFormatOpenAI:
-			return relaycommon.GetFullRequestURL(baseURL, "/v1/chat/completions", info.ChannelType), nil
+			return relaycommon.GetFullRequestURL(baseURL, "/openai/v1/chat/completions", info.ChannelType), nil
 		}
+	}
+	requestPath := strings.Split(info.RequestURLPath, "?")[0]
+	if info.RelayMode == relayconstant.RelayModeChatCompletions || requestPath == "/v1/chat/completions" {
+		return relaycommon.GetFullRequestURL(baseURL, "/openai/v1/chat/completions", info.ChannelType), nil
 	}
 	return relaycommon.GetFullRequestURL(baseURL, info.RequestURLPath, info.ChannelType), nil
 }

@@ -10,16 +10,6 @@ import (
 	"github.com/QuantumNous/new-api/common"
 )
 
-// Mistral reasoning models return chat `content` as an array of chunks, e.g.
-// [{"type":"thinking","thinking":[{"type":"text","text":"..."}]},{"type":"text","text":"..."}].
-// OpenAI-compatible clients (and our DTOs) expect a string, so thinking chunks are
-// moved into `reasoning_content` and text chunks are joined into `content`.
-type mistralContentChunk struct {
-	Type     string                `json:"type"`
-	Text     string                `json:"text,omitempty"`
-	Thinking []mistralContentChunk `json:"thinking,omitempty"`
-}
-
 // normalizeMistralChatPayload normalizes Mistral-specific Chat response shapes:
 // - strips provider SSE padding field "p"
 // - maps finish_reason "model_length" to "length"
