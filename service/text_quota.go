@@ -206,11 +206,17 @@ func recordRateLimitTokens(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, t
 	}
 	if ctx != nil {
 		if target, ok := common.GetContextKeyType[common.ModelRateLimitTokenTarget](ctx, constant.ContextKeyModelRateLimitTokenTarget); ok {
-			common.RecordModelTokenRateLimit(target.Subject, totalTokens, target.Duration)
+			if target.Settle != nil {
+				target.Settle(totalTokens)
+			} else {
+				common.RecordModelTokenRateLimitAt(target.Subject, totalTokens, target.Duration, target.StartUnix)
+			}
 		}
 	}
 	if relayInfo != nil && relayInfo.ChannelId > 0 {
-		model.IncrChannelTokenCount(relayInfo.ChannelId, model.NewChannelRequestLimitConfig(relayInfo.ChannelSetting), totalTokens)
+		if !SettleChannelAttemptTokens(ctx, relayInfo.ChannelId, totalTokens) {
+			model.IncrChannelTokenCount(relayInfo.ChannelId, model.NewChannelRequestLimitConfig(relayInfo.ChannelSetting), totalTokens)
+		}
 	}
 }
 

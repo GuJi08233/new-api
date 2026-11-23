@@ -251,3 +251,76 @@ func TestAcquireModelConcurrencyMemoryAndRedis(t *testing.T) {
 		})
 	}
 }
+
+func TestModelTokenReservationPrecheckSettlementAndFailureRelease(t *testing.T) {
+	for _, useRedis := range []bool{false, true} {
+		name := "memory"
+		if useRedis {
+			name = "redis"
+		}
+		t.Run(name, func(t *testing.T) {
+			prevRedisEnabled, prevRDB := RedisEnabled, RDB
+			t.Cleanup(func() { RedisEnabled, RDB = prevRedisEnabled, prevRDB })
+			RedisEnabled = useRedis
+			if useRedis {
+				server := miniredis.RunT(t)
+				RDB = redis.NewClient(&redis.Options{Addr: server.Addr()})
+				t.Cleanup(func() { _ = RDB.Close() })
+			}
+
+			ctx := context.Background()
+			subject := "reserve-tpm-" + name
+
+			// Request 1 estimates 500k against 800k limit -> allowed.
+			settle1, release1, ok, err := ReserveModelTokenRateLimit(ctx, subject, 800_000, 60, 500_000)
+			require.NoError(t, err)
+			require.True(t, ok)
+
+			// Concurrent Request 2 estimating 400k (500k + 400k > 800k) -> blocked.
+			_, _, ok, err = ReserveModelTokenRateLimit(ctx, subject, 800_000, 60, 400_000)
+			require.NoError(t, err)
+			assert.False(t, ok, "concurrent request exceeding limit with pending reservation must block")
+
+			// Settle Request 1 at 510k actual tokens; release1 afterward is idempotent.
+			settle1(510_000)
+			release1()
+
+			// Request 3 estimating 515k: 510k + 515k > 800k -> blocked.
+			_, _, ok, err = ReserveModelTokenRateLimit(ctx, subject, 800_000, 60, 515_000)
+			require.NoError(t, err)
+			assert.False(t, ok, "settled + estimated exceeding limit must block")
+
+			// Request 4 estimating 290k: 510k + 290k == 800k -> allowed; failing releases reservation.
+			_, release4, ok, err := ReserveModelTokenRateLimit(ctx, subject, 800_000, 60, 290_000)
+			require.NoError(t, err)
+			require.True(t, ok)
+			release4()
+
+			// After release, another 290k request fits and settles cleanly.
+			settle5, release5, ok, err := ReserveModelTokenRateLimit(ctx, subject, 800_000, 60, 290_000)
+			require.NoError(t, err)
+			require.True(t, ok)
+			settle5(290_000)
+			release5()
+
+			allowed, err := CheckModelTokenRateLimit(subject, 800_000, 60)
+			require.NoError(t, err)
+			assert.False(t, allowed, "total settled 800k must block subsequent requests")
+		})
+	}
+}
+
+func TestTokenRateLimitQueueMaintainsOrderOnOutOfOrderStartTimestamps(t *testing.T) {
+	var q tokenRateLimitQueue
+	q.append(110, 200)
+	q.append(100, 500) // earlier start timestamp settled later
+	q.append(105, 300)
+	assert.EqualValues(t, 1000, q.totalTokens)
+	assert.EqualValues(t, 100, q.head.timestamp)
+	assert.EqualValues(t, 110, q.tail.timestamp)
+
+	// At now=160 with duration=60, only ts=100 expires; 105 and 110 remain.
+	q.removeExpired(160, 60)
+	assert.EqualValues(t, 500, q.totalTokens)
+	assert.EqualValues(t, 105, q.head.timestamp)
+}

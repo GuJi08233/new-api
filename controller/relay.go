@@ -231,6 +231,30 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		delete(c.Keys, string(constant.ContextKeyEstimatedTokens))
 	}
 
+	if target, ok := common.GetContextKeyType[common.ModelRateLimitTokenTarget](c, constant.ContextKeyModelRateLimitTokenTarget); ok && target.MaxTokens > 0 {
+		settleUserTokens, releaseUserTokens, allowed, reserveErr := common.ReserveModelTokenRateLimit(
+			c.Request.Context(), target.Subject, target.MaxTokens, target.Duration, int64(tokens),
+		)
+		if reserveErr != nil {
+			newAPIError = types.NewErrorWithStatusCode(errors.New("rate_limit_check_failed"), types.ErrorCodeInvalidRequest, http.StatusInternalServerError, types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
+			return
+		}
+		if !allowed {
+			durationMinutes := max(int(target.Duration/60), 1)
+			newAPIError = types.NewErrorWithStatusCode(
+				fmt.Errorf("您已达到 Token 速率限制：%d分钟内最多消耗%d个 Token", durationMinutes, target.MaxTokens),
+				types.ErrorCodeInvalidRequest,
+				http.StatusTooManyRequests,
+				types.ErrOptionWithSkipRetry(),
+				types.ErrOptionWithNoRecordErrorLog(),
+			)
+			return
+		}
+		defer releaseUserTokens()
+		target.Settle = settleUserTokens
+		common.SetContextKey(c, constant.ContextKeyModelRateLimitTokenTarget, target)
+	}
+
 	// Re-route after estimating tokens. During the Distribute middleware phase,
 	// estimatedTokens is 0 so tier routing cannot evaluate and only the Fallback
 	// Pool is used. Now that real tokens are known, evaluate the route again so

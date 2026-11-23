@@ -131,8 +131,10 @@ func redisRateLimitHandler(subject string, duration int64, totalMaxCount, succes
 				return
 			}
 			common.SetContextKey(c, constant.ContextKeyModelRateLimitTokenTarget, common.ModelRateLimitTokenTarget{
-				Subject:  subject,
-				Duration: duration,
+				Subject:   subject,
+				Duration:  duration,
+				MaxTokens: tokenMaxCount,
+				StartUnix: time.Now().Unix(),
 			})
 		}
 
@@ -200,8 +202,10 @@ func memoryRateLimitHandler(subject string, duration int64, totalMaxCount, succe
 				return
 			}
 			common.SetContextKey(c, constant.ContextKeyModelRateLimitTokenTarget, common.ModelRateLimitTokenTarget{
-				Subject:  subject,
-				Duration: duration,
+				Subject:   subject,
+				Duration:  duration,
+				MaxTokens: tokenMaxCount,
+				StartUnix: time.Now().Unix(),
 			})
 		}
 

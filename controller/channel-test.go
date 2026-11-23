@@ -628,7 +628,8 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 		Other:            other,
 	})
 	common.SysLog(fmt.Sprintf("testing channel #%d, response: \n%s", channel.Id, string(respBody)))
-	// 渠道测试与正常请求同口径：测试成功也计入渠道级频率限制的成功次数
+	// 渠道测试与正常请求同口径：测试成功也计入渠道级频率限制的成功次数与 Token 消耗
+	service.SettleChannelAttemptTokens(c, channel.Id, max(int64(usage.TotalTokens), int64(max(0, usage.PromptTokens))+int64(max(0, usage.CompletionTokens))))
 	finish(channelAttemptCompleted(c, info.StreamStatus))
 	return testResult{
 		context:       c,

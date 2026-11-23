@@ -14,10 +14,32 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+type channelTokenSettler struct {
+	channelID int
+	settle    func(int64)
+}
+
 func BeginChannelAttempt(c *gin.Context, channelID int, settings dto.ChannelSettings) (func(bool), *types.NewAPIError) {
-	finish, err := model.BeginChannelAttempt(c.Request.Context(), channelID, model.NewChannelRequestLimitConfig(settings))
+	estimatedTokens := int64(0)
+	if c != nil {
+		if est := common.GetContextKeyInt(c, constant.ContextKeyEstimatedTokens); est > 0 {
+			estimatedTokens = int64(est)
+		}
+	}
+	finish, settleTokens, err := model.BeginChannelAttemptWithEstimate(c.Request.Context(), channelID, model.NewChannelRequestLimitConfig(settings), estimatedTokens)
 	if err == nil {
-		return finish, nil
+		if c != nil && settleTokens != nil {
+			common.SetContextKey(c, constant.ContextKeyChannelTokenSettler, channelTokenSettler{
+				channelID: channelID,
+				settle:    settleTokens,
+			})
+		}
+		return func(success bool) {
+			if c != nil && c.Keys != nil {
+				delete(c.Keys, string(constant.ContextKeyChannelTokenSettler))
+			}
+			finish(success)
+		}, nil
 	}
 	if errors.Is(err, model.ErrChannelRequestLimited) {
 		return nil, ChannelRequestLimitedError(c)
@@ -29,6 +51,21 @@ func BeginChannelAttempt(c *gin.Context, channelID int, settings dto.ChannelSett
 	common.SysError(fmt.Sprintf("channel #%d admission failed: %v", channelID, err))
 	return nil, types.NewErrorWithStatusCode(errors.New(i18n.T(c, i18n.MsgDistributorChannelAdmissionFailed)), types.ErrorCodeChannelAdmissionFailed,
 		http.StatusServiceUnavailable, types.ErrOptionWithSkipRetry(), types.ErrOptionWithNoRecordErrorLog())
+}
+
+// SettleChannelAttemptTokens replaces the active channel attempt's estimated
+// token reservation with the actual consumed tokens in its admission-time window.
+// Returns true if an active attempt for channelID handled settlement.
+func SettleChannelAttemptTokens(c *gin.Context, channelID int, actualTokens int64) bool {
+	if c == nil || channelID <= 0 {
+		return false
+	}
+	settler, ok := common.GetContextKeyType[channelTokenSettler](c, constant.ContextKeyChannelTokenSettler)
+	if !ok || settler.channelID != channelID || settler.settle == nil {
+		return false
+	}
+	settler.settle(actualTokens)
+	return true
 }
 
 func ChannelRequestLimitedError(c *gin.Context) *types.NewAPIError {

@@ -42,6 +42,10 @@ const (
 	// ContextKeyModelRateLimitTokenTarget carries the resolved rate-limit subject
 	// and window duration for recording post-request TPM usage.
 	ContextKeyModelRateLimitTokenTarget ContextKey = "model_rate_limit_token_target"
+	// ContextKeyChannelTokenSettler carries the active channel attempt's token
+	// settlement callback so post-request billing replaces the estimated reservation
+	// with actual token usage in the admission-time period window.
+	ContextKeyChannelTokenSettler ContextKey = "channel_token_settler"
 
 	/* channel related keys */
 	ContextKeyChannelId                ContextKey = "channel_id"

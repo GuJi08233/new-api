@@ -4,7 +4,6 @@ import (
 	"container/list"
 	"context"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
@@ -144,13 +143,20 @@ func (l *InMemoryRateLimiter) Request(key string, maxRequestNum int, duration in
 	return allowed
 }
 
-const ModelRequestRateLimitTokenMark = "MRRLT"
+const (
+	ModelRequestRateLimitTokenMark        = "MRRLT"
+	ModelRequestRateLimitTokenPendingMark = "MRRLTP"
+)
 
-// ModelRateLimitTokenTarget carries the resolved rate-limit subject and window
-// duration from ModelRequestRateLimit middleware to post-request token recording.
+// ModelRateLimitTokenTarget carries the resolved rate-limit subject, limits,
+// start timestamp, and optional reservation settler from middleware/relay to
+// post-request token recording.
 type ModelRateLimitTokenTarget struct {
-	Subject  string
-	Duration int64
+	Subject   string
+	Duration  int64
+	MaxTokens int64
+	StartUnix int64
+	Settle    func(actualTokens int64)
 }
 
 type tokenRateLimitNode struct {
@@ -169,10 +175,21 @@ func (q *tokenRateLimitQueue) append(timestamp, tokens int64) {
 	node := &tokenRateLimitNode{timestamp: timestamp, tokens: tokens}
 	if q.tail == nil {
 		q.head = node
-	} else {
+		q.tail = node
+	} else if timestamp >= q.tail.timestamp {
 		q.tail.next = node
+		q.tail = node
+	} else if timestamp < q.head.timestamp {
+		node.next = q.head
+		q.head = node
+	} else {
+		curr := q.head
+		for curr.next != nil && curr.next.timestamp <= timestamp {
+			curr = curr.next
+		}
+		node.next = curr.next
+		curr.next = node
 	}
-	q.tail = node
 	q.totalTokens += tokens
 }
 
@@ -208,10 +225,12 @@ type tokenRateLimitEntry struct {
 	lastActive time.Time
 	element    *list.Element
 	usage      tokenRateLimitQueue
+	pending    int64
 	key        string
 }
 
-// InMemoryTokenRateLimiter tracks sliding-window token consumption with idle-key LRU eviction.
+// InMemoryTokenRateLimiter tracks sliding-window token consumption with in-flight
+// token reservations and idle-key LRU eviction.
 type InMemoryTokenRateLimiter struct {
 	store              map[string]*tokenRateLimitEntry
 	lru                *list.List
@@ -251,7 +270,7 @@ func (l *InMemoryTokenRateLimiter) deleteExpiredEntries(now time.Time) {
 			return
 		}
 		entry := oldest.Value.(*tokenRateLimitEntry)
-		if now.Sub(entry.lastActive) < l.expirationDuration {
+		if entry.pending > 0 || now.Sub(entry.lastActive) < l.expirationDuration {
 			return
 		}
 		delete(l.store, entry.key)
@@ -281,7 +300,69 @@ func (l *InMemoryTokenRateLimiter) allowAt(key string, maxTokens int64, duration
 	entry.usage.removeExpired(now.Unix(), duration)
 	entry.lastActive = now
 	l.lru.MoveToFront(entry.element)
-	return entry.usage.totalTokens < maxTokens
+	return entry.usage.totalTokens+entry.pending < maxTokens
+}
+
+func (l *InMemoryTokenRateLimiter) reserveAt(key string, maxTokens int64, duration int64, estimatedTokens int64, now time.Time) (settle func(actualTokens int64), release func(), allowed bool) {
+	if maxTokens <= 0 || duration <= 0 {
+		return func(int64) {}, func() {}, true
+	}
+	if estimatedTokens < 0 {
+		estimatedTokens = 0
+	}
+	startUnix := now.Unix()
+	l.mutex.Lock()
+	if l.store == nil {
+		l.store = make(map[string]*tokenRateLimitEntry)
+		l.lru = list.New()
+	}
+	entry, ok := l.store[key]
+	if ok {
+		entry.usage.removeExpired(startUnix, duration)
+		entry.lastActive = now
+		l.lru.MoveToFront(entry.element)
+	} else {
+		entry = &tokenRateLimitEntry{key: key, lastActive: now}
+		entry.element = l.lru.PushFront(entry)
+		l.store[key] = entry
+	}
+	used := entry.usage.totalTokens + entry.pending
+	if used >= maxTokens || (estimatedTokens > 0 && used+estimatedTokens > maxTokens) {
+		l.mutex.Unlock()
+		return nil, nil, false
+	}
+	entry.pending += estimatedTokens
+	l.mutex.Unlock()
+
+	var once sync.Once
+	finish := func(actualTokens int64) {
+		once.Do(func() {
+			l.mutex.Lock()
+			defer l.mutex.Unlock()
+			nowTime := time.Now()
+			if e, exists := l.store[key]; exists {
+				e.pending -= estimatedTokens
+				if e.pending < 0 {
+					e.pending = 0
+				}
+				e.lastActive = nowTime
+				l.lru.MoveToFront(e.element)
+				if actualTokens > 0 {
+					nowUnix := nowTime.Unix()
+					e.usage.removeExpired(nowUnix, duration)
+					if nowUnix-startUnix < duration {
+						e.usage.append(startUnix, actualTokens)
+					}
+				}
+			} else if actualTokens > 0 && nowTime.Unix()-startUnix < duration {
+				e = &tokenRateLimitEntry{key: key, lastActive: nowTime}
+				e.element = l.lru.PushFront(e)
+				l.store[key] = e
+				e.usage.append(startUnix, actualTokens)
+			}
+		})
+	}
+	return finish, func() { finish(0) }, true
 }
 
 func (l *InMemoryTokenRateLimiter) Record(key string, tokens int64, duration int64) {
@@ -292,15 +373,26 @@ func (l *InMemoryTokenRateLimiter) Record(key string, tokens int64, duration int
 }
 
 func (l *InMemoryTokenRateLimiter) recordAt(key string, tokens int64, duration int64, now time.Time) {
+	l.recordWithTimestamp(key, tokens, duration, now.Unix(), now)
+}
+
+func (l *InMemoryTokenRateLimiter) recordWithTimestamp(key string, tokens int64, duration int64, eventUnix int64, now time.Time) {
+	if tokens <= 0 || duration <= 0 {
+		return
+	}
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 	if l.store == nil {
 		l.store = make(map[string]*tokenRateLimitEntry)
 		l.lru = list.New()
 	}
+	nowUnix := now.Unix()
+	if eventUnix <= 0 || eventUnix > nowUnix {
+		eventUnix = nowUnix
+	}
 	entry, ok := l.store[key]
 	if ok {
-		entry.usage.removeExpired(now.Unix(), duration)
+		entry.usage.removeExpired(nowUnix, duration)
 		entry.lastActive = now
 		l.lru.MoveToFront(entry.element)
 	} else {
@@ -308,7 +400,9 @@ func (l *InMemoryTokenRateLimiter) recordAt(key string, tokens int64, duration i
 		entry.element = l.lru.PushFront(entry)
 		l.store[key] = entry
 	}
-	entry.usage.append(now.Unix(), tokens)
+	if nowUnix-eventUnix < duration {
+		entry.usage.append(eventUnix, tokens)
+	}
 }
 
 var (
@@ -320,30 +414,57 @@ if redis.call('TTL', KEYS[1]) < 0 then
 end
 return val
 `)
+	reserveRedisTokenScript = redis.NewScript(`
+redis.replicate_commands()
+local prevKey, curKey, pendingKey = KEYS[1], KEYS[2], KEYS[3]
+local member, lease, maxTokens, duration, elapsed, est =
+  ARGV[1], tonumber(ARGV[2]), tonumber(ARGV[3]), tonumber(ARGV[4]), tonumber(ARGV[5]), tonumber(ARGV[6])
+local clock = redis.call('TIME')
+local now = clock[1] * 1000 + math.floor(clock[2] / 1000)
+redis.call('ZREMRANGEBYSCORE', pendingKey, '-inf', now)
+local members = redis.call('ZRANGE', pendingKey, 0, -1)
+local pending = 0
+for _, m in ipairs(members) do
+  local sep = string.find(m, ':', 1, true)
+  if sep then
+    pending = pending + (tonumber(string.sub(m, sep + 1)) or 0)
+  end
+end
+local prevCount = tonumber(redis.call('GET', prevKey) or '0')
+local curCount = tonumber(redis.call('GET', curKey) or '0')
+local effectiveUsed = prevCount * (duration - elapsed) / duration + curCount + pending
+if effectiveUsed >= maxTokens or (est > 0 and effectiveUsed + est > maxTokens) then
+  return 0
+end
+if est > 0 then
+  redis.call('ZADD', pendingKey, now + lease, member)
+  redis.call('PEXPIRE', pendingKey, lease * 2)
+end
+return 1
+`)
+	settleRedisTokenScript = redis.NewScript(`
+local curKey, pendingKey = KEYS[1], KEYS[2]
+local member, actual, ttl = ARGV[1], tonumber(ARGV[2]), tonumber(ARGV[3])
+if pendingKey ~= '' and member ~= '' then
+  redis.call('ZREM', pendingKey, member)
+end
+if actual > 0 and curKey ~= '' then
+  local val = redis.call('INCRBY', curKey, actual)
+  if redis.call('TTL', curKey) < 0 then
+    redis.call('EXPIRE', curKey, ttl)
+  end
+  return val
+end
+return 0
+`)
 )
 
 func redisModelTokenWindowKey(subject string, windowIndex int64) string {
 	return fmt.Sprintf("rateLimit:%s:%s:%d", ModelRequestRateLimitTokenMark, subject, windowIndex)
 }
 
-func parseRedisCounterInt64(val any) int64 {
-	if val == nil {
-		return 0
-	}
-	switch v := val.(type) {
-	case string:
-		var n int64
-		fmt.Sscan(strings.TrimSpace(v), &n)
-		return n
-	case []byte:
-		var n int64
-		fmt.Sscan(strings.TrimSpace(string(v)), &n)
-		return n
-	case int64:
-		return v
-	default:
-		return 0
-	}
+func redisModelTokenPendingKey(subject string) string {
+	return fmt.Sprintf("rateLimit:%s:%s", ModelRequestRateLimitTokenPendingMark, subject)
 }
 
 func checkRedisTokenRateLimitAt(ctx context.Context, rdb *redis.Client, subject string, maxTokens int64, duration int64, nowUnix int64) (bool, error) {
@@ -352,22 +473,87 @@ func checkRedisTokenRateLimitAt(ctx context.Context, rdb *redis.Client, subject 
 	}
 	winIdx := nowUnix / duration
 	elapsed := nowUnix % duration
-	curKey := redisModelTokenWindowKey(subject, winIdx)
 	prevKey := redisModelTokenWindowKey(subject, winIdx-1)
-
-	vals, err := rdb.MGet(ctx, prevKey, curKey).Result()
+	curKey := redisModelTokenWindowKey(subject, winIdx)
+	pendingKey := redisModelTokenPendingKey(subject)
+	allowed, err := reserveRedisTokenScript.Run(ctx, rdb, []string{prevKey, curKey, pendingKey},
+		"", modelConcurrencyLease.Milliseconds(), maxTokens, duration, elapsed, 0).Int()
 	if err != nil {
 		return false, err
 	}
-	var prevCount, curCount int64
-	if len(vals) > 0 {
-		prevCount = parseRedisCounterInt64(vals[0])
+	return allowed == 1, nil
+}
+
+func reserveRedisTokenRateLimitAt(ctx context.Context, rdb *redis.Client, subject string, maxTokens int64, duration int64, estimatedTokens int64, nowUnix int64) (settle func(int64), release func(), allowed bool, err error) {
+	if maxTokens <= 0 || duration <= 0 {
+		return func(int64) {}, func() {}, true, nil
 	}
-	if len(vals) > 1 {
-		curCount = parseRedisCounterInt64(vals[1])
+	if estimatedTokens < 0 {
+		estimatedTokens = 0
 	}
-	effectiveUsed := float64(prevCount)*float64(duration-elapsed)/float64(duration) + float64(curCount)
-	return effectiveUsed < float64(maxTokens), nil
+	winIdx := nowUnix / duration
+	elapsed := nowUnix % duration
+	prevKey := redisModelTokenWindowKey(subject, winIdx-1)
+	curKey := redisModelTokenWindowKey(subject, winIdx)
+	pendingKey := redisModelTokenPendingKey(subject)
+
+	var member string
+	if estimatedTokens > 0 {
+		member = fmt.Sprintf("%s:%d", GetUUID(), estimatedTokens)
+	}
+	baseCtx := ctx
+	if baseCtx == nil {
+		baseCtx = context.Background()
+	}
+	acquireCtx, cancel := context.WithTimeout(baseCtx, modelConcurrencyRedisTimeout)
+	res, err := reserveRedisTokenScript.Run(acquireCtx, rdb, []string{prevKey, curKey, pendingKey},
+		member, modelConcurrencyLease.Milliseconds(), maxTokens, duration, elapsed, estimatedTokens).Int()
+	cancel()
+	if err != nil {
+		return nil, nil, false, err
+	}
+	if res == 0 {
+		return nil, nil, false, nil
+	}
+
+	stop := func() {}
+	if member != "" {
+		heartbeatCtx, cancelHeartbeat := context.WithCancel(context.Background())
+		stop = cancelHeartbeat
+		go func() {
+			ticker := time.NewTicker(modelConcurrencyHeartbeat)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-heartbeatCtx.Done():
+					return
+				case <-ticker.C:
+					refreshCtx, done := context.WithTimeout(heartbeatCtx, modelConcurrencyRedisTimeout)
+					err := refreshModelConcurrencyScript.Run(refreshCtx, rdb, []string{pendingKey}, member, modelConcurrencyLease.Milliseconds()).Err()
+					done()
+					if err != nil && heartbeatCtx.Err() == nil {
+						SysError(fmt.Sprintf("model token reservation lease refresh: subject=%s, error=%v", subject, err))
+					}
+				}
+			}
+		}()
+	}
+
+	var once sync.Once
+	finish := func(actualTokens int64) {
+		once.Do(func() {
+			stop()
+			if member == "" && actualTokens <= 0 {
+				return
+			}
+			cleanupCtx, done := context.WithTimeout(context.Background(), modelConcurrencyRedisTimeout)
+			if err := settleRedisTokenScript.Run(cleanupCtx, rdb, []string{curKey, pendingKey}, member, actualTokens, duration*2).Err(); err != nil {
+				SysError(fmt.Sprintf("model token reservation settle: subject=%s, error=%v", subject, err))
+			}
+			done()
+		})
+	}
+	return finish, func() { finish(0) }, true, nil
 }
 
 func recordRedisTokenRateLimitAt(ctx context.Context, rdb *redis.Client, subject string, tokens int64, duration int64, nowUnix int64) error {
@@ -379,8 +565,8 @@ func recordRedisTokenRateLimitAt(ctx context.Context, rdb *redis.Client, subject
 	return incrRedisTokenScript.Run(ctx, rdb, []string{curKey}, tokens, duration*2).Err()
 }
 
-// CheckModelTokenRateLimit checks whether the subject's token consumption in the
-// current sliding window is still below maxTokens.
+// CheckModelTokenRateLimit checks whether the subject's token consumption
+// (settled + currently reserved) in the sliding window is still below maxTokens.
 func CheckModelTokenRateLimit(subject string, maxTokens int64, duration int64) (bool, error) {
 	if maxTokens <= 0 || duration <= 0 {
 		return true, nil
@@ -392,19 +578,43 @@ func CheckModelTokenRateLimit(subject string, maxTokens int64, duration int64) (
 	return modelTokenMemoryLimiter.Allow(ModelRequestRateLimitTokenMark+subject, maxTokens, duration), nil
 }
 
+// ReserveModelTokenRateLimit checks whether settled + in-flight + estimatedTokens
+// fits within maxTokens, reserves estimatedTokens until settle/release is called,
+// and pins the start timestamp for actual token settlement.
+func ReserveModelTokenRateLimit(ctx context.Context, subject string, maxTokens int64, duration int64, estimatedTokens int64) (settle func(actualTokens int64), release func(), allowed bool, err error) {
+	if maxTokens <= 0 || duration <= 0 || subject == "" {
+		return func(int64) {}, func() {}, true, nil
+	}
+	now := time.Now()
+	if RedisEnabled && RDB != nil {
+		return reserveRedisTokenRateLimitAt(ctx, RDB, subject, maxTokens, duration, estimatedTokens, now.Unix())
+	}
+	modelTokenMemoryLimiter.Init(RateLimitKeyExpirationDuration)
+	settle, release, allowed = modelTokenMemoryLimiter.reserveAt(ModelRequestRateLimitTokenMark+subject, maxTokens, duration, estimatedTokens, now)
+	return settle, release, allowed, nil
+}
+
 // RecordModelTokenRateLimit records consumed tokens into the subject's current window.
 func RecordModelTokenRateLimit(subject string, tokens int64, duration int64) {
+	RecordModelTokenRateLimitAt(subject, tokens, duration, time.Now().Unix())
+}
+
+// RecordModelTokenRateLimitAt records consumed tokens attributed to eventUnix's window.
+func RecordModelTokenRateLimitAt(subject string, tokens int64, duration int64, eventUnix int64) {
 	if subject == "" || tokens <= 0 || duration <= 0 {
 		return
 	}
+	if eventUnix <= 0 {
+		eventUnix = time.Now().Unix()
+	}
 	if RedisEnabled && RDB != nil {
-		if err := recordRedisTokenRateLimitAt(context.Background(), RDB, subject, tokens, duration, time.Now().Unix()); err != nil {
+		if err := recordRedisTokenRateLimitAt(context.Background(), RDB, subject, tokens, duration, eventUnix); err != nil {
 			SysError(fmt.Sprintf("failed to record model token rate limit: subject=%s, error=%v", subject, err))
 		}
 		return
 	}
 	modelTokenMemoryLimiter.Init(RateLimitKeyExpirationDuration)
-	modelTokenMemoryLimiter.Record(ModelRequestRateLimitTokenMark+subject, tokens, duration)
+	modelTokenMemoryLimiter.recordWithTimestamp(ModelRequestRateLimitTokenMark+subject, tokens, duration, eventUnix, time.Now())
 }
 
 const (

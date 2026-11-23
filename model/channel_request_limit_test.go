@@ -113,27 +113,27 @@ func TestRedisChannelAttemptRollover(t *testing.T) {
 	// The day after the spring DST transition starts at 07:00 UTC, not 08:00.
 	midnight := time.Date(2026, 3, 9, 7, 0, 0, 0, time.UTC)
 	before := midnight.Add(-time.Second)
-	finishOld, err := beginRedisChannelAttempt(ctx, rdb, id, config, before)
+	finishOld, _, err := beginRedisChannelAttempt(ctx, rdb, id, config, 0, before)
 	require.NoError(t, err)
-	_, err = beginRedisChannelAttempt(ctx, rdb, id, config, before)
+	_, _, err = beginRedisChannelAttempt(ctx, rdb, id, config, 0, before)
 	require.ErrorIs(t, err, ErrChannelRequestLimited)
-	finishNew, err := beginRedisChannelAttempt(ctx, rdb, id, config, midnight)
+	finishNew, _, err := beginRedisChannelAttempt(ctx, rdb, id, config, 0, midnight)
 	require.NoError(t, err)
 	finishOld(true)
 	finishNew(false)
 
-	finishNew, err = beginRedisChannelAttempt(ctx, rdb, id, config, midnight.Add(time.Minute))
+	finishNew, _, err = beginRedisChannelAttempt(ctx, rdb, id, config, 0, midnight.Add(time.Minute))
 	require.NoError(t, err, "the previous day's success must not consume today's quota")
 	finishNew(true)
-	_, err = beginRedisChannelAttempt(ctx, rdb, id, config, midnight.Add(2*time.Minute))
+	_, _, err = beginRedisChannelAttempt(ctx, rdb, id, config, 0, midnight.Add(2*time.Minute))
 	require.ErrorIs(t, err, ErrChannelRequestLimited, "daily quota must survive an RPM window reset")
 
 	rpm := ChannelRequestLimitConfig{MaxRequests: 1}
 	legacyKey := channelWindowRedisKey(channelPeriodCountKeyPrefix, rpm.periodWindowAt(before), id+1)
 	require.NoError(t, rdb.Set(ctx, legacyKey, 1, 2*time.Minute).Err())
-	_, err = beginRedisChannelAttempt(ctx, rdb, id+1, rpm, before)
+	_, _, err = beginRedisChannelAttempt(ctx, rdb, id+1, rpm, 0, before)
 	require.ErrorIs(t, err, ErrChannelRequestLimited, "RPM must use the existing period counter")
-	finishNextMinute, err := beginRedisChannelAttempt(ctx, rdb, id+1, rpm, midnight)
+	finishNextMinute, _, err := beginRedisChannelAttempt(ctx, rdb, id+1, rpm, 0, midnight)
 	require.NoError(t, err)
 	finishNextMinute(false)
 }
@@ -369,6 +369,84 @@ func TestChannelPeriodTokenLimit(t *testing.T) {
 
 			_, err = BeginChannelAttempt(ctx, id, config)
 			require.ErrorIs(t, err, ErrChannelRequestLimited)
+		})
+	}
+}
+
+func TestChannelTokenReservationPrecheckSettlementAndStartWindow(t *testing.T) {
+	for _, backend := range []string{"memory", "redis"} {
+		t.Run(backend, func(t *testing.T) {
+			enabled, client := common.RedisEnabled, common.RDB
+			t.Cleanup(func() { common.RedisEnabled, common.RDB = enabled, client })
+			common.RedisEnabled = backend == "redis"
+			if common.RedisEnabled {
+				server := miniredis.RunT(t)
+				common.RDB = redis.NewClient(&redis.Options{Addr: server.Addr()})
+				t.Cleanup(func() { _ = common.RDB.Close() })
+			}
+
+			ctx := context.Background()
+			config := ChannelRequestLimitConfig{PeriodMinutes: 1, MaxTokens: 800_000}
+
+			t.Run("settled plus estimated exceeding limit is rejected before upstream", func(t *testing.T) {
+				id := nextAdmissionTestChannelID()
+				finish1, settle1, err := BeginChannelAttemptWithEstimate(ctx, id, config, 500_000)
+				require.NoError(t, err)
+				// Concurrent second large request (500k + 500k > 800k) must be blocked while first is in-flight.
+				_, _, err = BeginChannelAttemptWithEstimate(ctx, id, config, 500_000)
+				require.ErrorIs(t, err, ErrChannelRequestLimited)
+
+				// Settle request 1 at 510k actual tokens.
+				settle1(510_000)
+				finish1(true)
+				assert.EqualValues(t, 510_000, GetChannelPeriodTokenCount(id, config))
+
+				// Next request estimating 515k: 510k + 515k > 800k -> blocked immediately.
+				_, _, err = BeginChannelAttemptWithEstimate(ctx, id, config, 515_000)
+				require.ErrorIs(t, err, ErrChannelRequestLimited)
+
+				// Smaller request estimating 290k: 510k + 290k == 800k -> allowed!
+				finish2, settle2, err := BeginChannelAttemptWithEstimate(ctx, id, config, 290_000)
+				require.NoError(t, err)
+				// Failed attempt releases its 290k reservation without adding to settled count.
+				finish2(false)
+				settle2(999_999) // already finished; must be a no-op
+				assert.EqualValues(t, 510_000, GetChannelPeriodTokenCount(id, config))
+
+				// Since reservation was released, another 290k request fits again.
+				finish3, settle3, err := BeginChannelAttemptWithEstimate(ctx, id, config, 290_000)
+				require.NoError(t, err)
+				settle3(290_000)
+				finish3(true)
+				assert.EqualValues(t, 800_000, GetChannelPeriodTokenCount(id, config))
+				assert.True(t, IsChannelRequestLimitReached(id, config))
+			})
+
+			t.Run("tokens settle into admission-time window across minute boundary", func(t *testing.T) {
+				id := nextAdmissionTestChannelID()
+				startWindowTime := time.Date(2026, 6, 1, 12, 0, 50, 0, time.UTC)
+				nextWindowTime := time.Date(2026, 6, 1, 12, 1, 34, 0, time.UTC) // 44s later, next minute
+				require.NotEqual(t, config.periodWindowAt(startWindowTime), config.periodWindowAt(nextWindowTime))
+
+				var finish func(bool)
+				var settle func(int64)
+				var err error
+				if common.RedisEnabled {
+					finish, settle, err = beginRedisChannelAttempt(ctx, common.RDB, id, config, 400_000, startWindowTime)
+				} else {
+					finish, settle, err = beginMemoryChannelAttempt(id, config, 400_000, startWindowTime)
+				}
+				require.NoError(t, err)
+
+				// Settle after crossing into the next minute: tokens must land in startWindowTime's period, not nextWindowTime's.
+				settle(800_000)
+				finish(true)
+
+				startPeriod := config.periodWindowAt(startWindowTime)
+				nextPeriod := config.periodWindowAt(nextWindowTime)
+				assert.EqualValues(t, 800_000, getChannelWindowCount(channelPeriodTokenKeyPrefix, id, startPeriod))
+				assert.EqualValues(t, 0, getChannelWindowCount(channelPeriodTokenKeyPrefix, id, nextPeriod))
+			})
 		})
 	}
 }
