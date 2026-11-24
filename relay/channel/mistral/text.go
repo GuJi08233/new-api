@@ -56,7 +56,7 @@ func requestOpenAI2Mistral(request *dto.GeneralOpenAIRequest) (*dto.GeneralOpenA
 			}
 			var rawChunks []map[string]json.RawMessage
 			if err := common.Unmarshal(rawContent, &rawChunks); err == nil {
-				chunks, thinking := normalizeMistralChatChunks(rawChunks)
+				chunks, thinking := normalizeMistralChatChunks(rawChunks, role)
 				extractedReasoning = thinking
 				if len(chunks) > 0 {
 					content = chunks
@@ -216,9 +216,10 @@ func normalizeMistralChatToolChoice(toolChoice any, legacyFunctionCall json.RawM
 	}
 }
 
-func normalizeMistralChatChunks(rawChunks []map[string]json.RawMessage) ([]map[string]json.RawMessage, string) {
+func normalizeMistralChatChunks(rawChunks []map[string]json.RawMessage, role string) ([]map[string]json.RawMessage, string) {
 	normalized := make([]map[string]json.RawMessage, 0, len(rawChunks))
 	var thinking strings.Builder
+	allowMedia := role == "user"
 	for _, chunk := range rawChunks {
 		if chunk == nil {
 			continue
@@ -237,6 +238,9 @@ func normalizeMistralChatChunks(rawChunks []map[string]json.RawMessage) ([]map[s
 				"text": chunk["text"],
 			})
 		case dto.ContentTypeImageURL, "input_image":
+			if !allowMedia {
+				continue
+			}
 			var image dto.MessageImageUrl
 			if common.GetJsonType(chunk["image_url"]) == "object" {
 				_ = common.Unmarshal(chunk["image_url"], &image)
@@ -249,6 +253,7 @@ func normalizeMistralChatChunks(rawChunks []map[string]json.RawMessage) ([]map[s
 			if image.Url == "" {
 				continue
 			}
+			image.Detail = normalizeMistralImageDetail(image.Detail)
 			encodedImage, err := common.Marshal(image)
 			if err != nil {
 				continue
@@ -258,6 +263,9 @@ func normalizeMistralChatChunks(rawChunks []map[string]json.RawMessage) ([]map[s
 				"image_url": encodedImage,
 			})
 		case dto.ContentTypeFile, "input_file":
+			if !allowMedia {
+				continue
+			}
 			fileObj := chunk
 			if isJSONValuePresent(chunk["file"]) && common.GetJsonType(chunk["file"]) == "object" {
 				var nested map[string]json.RawMessage

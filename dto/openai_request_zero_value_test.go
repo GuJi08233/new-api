@@ -95,3 +95,19 @@ func TestGeneralOpenAIRequestGetSystemRoleName(t *testing.T) {
 		})
 	}
 }
+
+func TestMessageImageUrlOmitsInternalMimeTypeInJSON(t *testing.T) {
+	encoded, err := common.Marshal(MessageImageUrl{
+		Url:      "data:image/png;base64,abc",
+		Detail:   "high",
+		MimeType: "image/png",
+	})
+	require.NoError(t, err)
+	require.JSONEq(t, `{"url":"data:image/png;base64,abc","detail":"high"}`, string(encoded))
+
+	encodedMinimal, err := common.Marshal(MessageImageUrl{
+		Url: "https://example.test/a.png",
+	})
+	require.NoError(t, err)
+	require.JSONEq(t, `{"url":"https://example.test/a.png"}`, string(encodedMinimal))
+}

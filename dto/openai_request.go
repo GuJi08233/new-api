@@ -512,7 +512,7 @@ func (m *MediaContent) ToFileSource() types.FileSource {
 type MessageImageUrl struct {
 	Url      string `json:"url"`
 	Detail   string `json:"detail,omitempty"`
-	MimeType string
+	MimeType string `json:"-"`
 }
 
 func (m *MessageImageUrl) IsRemoteImage() bool {

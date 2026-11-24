@@ -150,6 +150,8 @@ func normalizeMistralResponsesInput(raw json.RawMessage) (json.RawMessage, error
 				}
 				if !isJSONValuePresent(item["output"]) {
 					item["output"] = json.RawMessage(`""`)
+				} else if common.GetJsonType(item["output"]) == "array" {
+					item["output"] = normalizeMistralResponsesMessageContent(item["output"], "user")
 				}
 				out = append(out, item)
 			default:
@@ -177,13 +179,88 @@ func normalizeMistralResponsesMessageContent(raw json.RawMessage, role string) j
 		if part == nil {
 			continue
 		}
+		delete(part, "cache_control")
 		var partType string
 		if err := common.Unmarshal(part["type"], &partType); err != nil {
 			continue
 		}
 		switch partType {
-		case "input_text", "output_text", "input_image", "input_file", "refusal":
+		case "input_text", "output_text", "refusal":
 			out = append(out, part)
+		case "input_image", "image_url":
+			var imageURL string
+			var detail string
+			if common.GetJsonType(part["image_url"]) == "object" {
+				var image dto.MessageImageUrl
+				if err := common.Unmarshal(part["image_url"], &image); err == nil {
+					imageURL = image.Url
+					detail = normalizeMistralImageDetail(image.Detail)
+				}
+			} else if isJSONValuePresent(part["image_url"]) {
+				_ = common.Unmarshal(part["image_url"], &imageURL)
+			}
+			if isJSONValuePresent(part["detail"]) {
+				var rawDetail string
+				if err := common.Unmarshal(part["detail"], &rawDetail); err == nil {
+					if normalized := normalizeMistralImageDetail(rawDetail); normalized != "" {
+						detail = normalized
+					} else if partType == "input_image" {
+						detail = ""
+					}
+				}
+			}
+			hasFileID := isJSONValuePresent(part["file_id"])
+			if imageURL == "" && !hasFileID {
+				continue
+			}
+			mappedPart := map[string]json.RawMessage{
+				"type": json.RawMessage(`"input_image"`),
+			}
+			if imageURL != "" {
+				if encodedURL, err := common.Marshal(imageURL); err == nil {
+					mappedPart["image_url"] = encodedURL
+				}
+			} else {
+				mappedPart["file_id"] = part["file_id"]
+			}
+			if detail != "" {
+				if encodedDetail, err := common.Marshal(detail); err == nil {
+					mappedPart["detail"] = encodedDetail
+				}
+			}
+			out = append(out, mappedPart)
+		case "input_file", "file":
+			fileObj := part
+			if partType == "file" && isJSONValuePresent(part["file"]) && common.GetJsonType(part["file"]) == "object" {
+				var nested map[string]json.RawMessage
+				if err := common.Unmarshal(part["file"], &nested); err == nil {
+					fileObj = nested
+				}
+			}
+			mappedPart := map[string]json.RawMessage{
+				"type": json.RawMessage(`"input_file"`),
+			}
+			hasSource := false
+			if isJSONValuePresent(fileObj["file_id"]) {
+				mappedPart["file_id"] = fileObj["file_id"]
+				hasSource = true
+			} else if isJSONValuePresent(fileObj["file_url"]) {
+				mappedPart["file_url"] = fileObj["file_url"]
+				hasSource = true
+			} else if isJSONValuePresent(fileObj["file_data"]) {
+				var fileData string
+				if err := common.Unmarshal(fileObj["file_data"], &fileData); err == nil && strings.HasPrefix(fileData, "data:") {
+					mappedPart["file_data"] = fileObj["file_data"]
+					hasSource = true
+				}
+			}
+			if !hasSource {
+				continue
+			}
+			if isJSONValuePresent(fileObj["filename"]) {
+				mappedPart["filename"] = fileObj["filename"]
+			}
+			out = append(out, mappedPart)
 		case "text":
 			if !isJSONValuePresent(part["text"]) {
 				continue
@@ -195,24 +272,6 @@ func normalizeMistralResponsesMessageContent(raw json.RawMessage, role string) j
 			out = append(out, map[string]json.RawMessage{
 				"type": json.RawMessage(mapped),
 				"text": part["text"],
-			})
-		case "image_url":
-			var imageURL string
-			if common.GetJsonType(part["image_url"]) == "object" {
-				var image dto.MessageImageUrl
-				if err := common.Unmarshal(part["image_url"], &image); err == nil {
-					imageURL = image.Url
-				}
-			} else {
-				_ = common.Unmarshal(part["image_url"], &imageURL)
-			}
-			if imageURL == "" {
-				continue
-			}
-			encodedURL, _ := common.Marshal(imageURL)
-			out = append(out, map[string]json.RawMessage{
-				"type":      json.RawMessage(`"input_image"`),
-				"image_url": encodedURL,
 			})
 		default:
 			if isJSONValuePresent(part["text"]) {

@@ -14,6 +14,19 @@ func isJSONValuePresent(raw json.RawMessage) bool {
 	return len(trimmed) > 0 && !bytes.Equal(trimmed, []byte("null"))
 }
 
+// normalizeMistralImageDetail maps image detail values onto the subset
+// accepted by Mistral's Chat and Responses APIs ('low', 'auto', 'high').
+func normalizeMistralImageDetail(detail string) string {
+	switch strings.ToLower(strings.TrimSpace(detail)) {
+	case "low", "auto", "high":
+		return strings.ToLower(strings.TrimSpace(detail))
+	case "original":
+		return "high"
+	default:
+		return ""
+	}
+}
+
 // normalizeMistralReasoningEffort maps standard OpenAI/Claude reasoning effort
 // values onto the subset accepted by each Mistral-hosted model family so
 // standard clients do not fail with upstream 400 validation errors.
@@ -21,6 +34,9 @@ func normalizeMistralReasoningEffort(model, effort string) string {
 	effort = strings.ToLower(strings.TrimSpace(effort))
 	if effort == "" {
 		return ""
+	}
+	if effort == "off" {
+		effort = "none"
 	}
 	switch effort {
 	case "none", "minimal", "low", "medium", "high", "xhigh", "max":

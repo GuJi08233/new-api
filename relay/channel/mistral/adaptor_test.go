@@ -60,6 +60,7 @@ func TestConvertOpenAIRequestAdaptsMessagesAndReplaysReasoning(t *testing.T) {
 	assert.False(t, gjson.GetBytes(body, "messages.3.name").Exists(), "tool message must not send name")
 	assert.Equal(t, "https://example.test/a.png", gjson.GetBytes(body, "messages.1.content.1.image_url.url").String())
 	assert.Equal(t, "low", gjson.GetBytes(body, "messages.1.content.1.image_url.detail").String())
+	assert.JSONEq(t, `{"url":"https://example.test/a.png","detail":"low"}`, gjson.GetBytes(body, "messages.1.content.1.image_url").Raw)
 	assert.Equal(t, "file", gjson.GetBytes(body, "messages.1.content.2.type").String())
 	assert.Equal(t, "data:application/pdf;base64,cGRm", gjson.GetBytes(body, "messages.1.content.2.file.file_data").String())
 	assert.Equal(t, "a.pdf", gjson.GetBytes(body, "messages.1.content.2.file.filename").String())
@@ -814,4 +815,113 @@ func TestMistralToolCallIDBaseURLAndResponseNormalization(t *testing.T) {
 	normalized := normalizeMistralChatPayload([]byte(`{"id":"x","p":"abcdef","choices":[{"index":0,"message":{"role":"assistant","content":"","tool_calls":[{"id":"abc123XYZ","type":"function","function":{"name":"lookup","arguments":{"q":"hi"}}}]}}]}`), false)
 	assert.False(t, gjson.GetBytes(normalized, "p").Exists())
 	assert.Equal(t, `{"q":"hi"}`, gjson.GetBytes(normalized, "choices.0.message.tool_calls.0.function.arguments").String())
+}
+
+func TestMistralImageChunkSerializationAndDetailNormalization(t *testing.T) {
+	t.Run("chat omits internal MimeType, normalizes detail and off reasoning, and strips non-user media", func(t *testing.T) {
+		var req dto.GeneralOpenAIRequest
+		require.NoError(t, common.UnmarshalJsonStr(`{
+			"model":"deepseek-v4-1-flash-1017",
+			"reasoning_effort":"off",
+			"messages":[
+				{"role":"system","content":[{"type":"text","text":"rules"},{"type":"image_url","image_url":{"url":"https://example.test/sys.png"}}]},
+				{"role":"user","content":[
+					{"type":"text","text":"describe"},
+					{"type":"image_url","image_url":{"url":"data:image/png;base64,iVBORw0KGgo="}},
+					{"type":"image_url","image_url":{"url":"https://example.test/orig.png","detail":"original"}},
+					{"type":"image_url","image_url":{"url":"https://example.test/bad.png","detail":"unsupported"}}
+				]},
+				{"role":"assistant","content":[{"type":"text","text":"calling"},{"type":"image_url","image_url":{"url":"https://example.test/asst.png"}}],"tool_calls":[{"id":"call_1","type":"function","function":{"name":"lookup","arguments":"{}"}}]},
+				{"role":"tool","tool_call_id":"call_1","content":[{"type":"text","text":"ok"},{"type":"image_url","image_url":{"url":"https://example.test/tool.png"}},{"type":"file","file":{"file_data":"data:application/pdf;base64,cGRm"}}]},
+				{"role":"tool","tool_call_id":"call_2","content":[{"type":"image_url","image_url":{"url":"https://example.test/only-img.png"}}]}
+			]
+		}`, &req))
+
+		converted, err := (&Adaptor{}).ConvertOpenAIRequest(nil, nil, &req)
+		require.NoError(t, err)
+		body, err := common.Marshal(converted)
+		require.NoError(t, err)
+
+		assert.Equal(t, "none", gjson.GetBytes(body, "reasoning_effort").String())
+		assert.JSONEq(t, `[{"type":"text","text":"rules"}]`, gjson.GetBytes(body, "messages.0.content").Raw)
+		assert.JSONEq(t, `{"url":"data:image/png;base64,iVBORw0KGgo="}`, gjson.GetBytes(body, "messages.1.content.1.image_url").Raw)
+		assert.JSONEq(t, `{"url":"https://example.test/orig.png","detail":"high"}`, gjson.GetBytes(body, "messages.1.content.2.image_url").Raw)
+		assert.JSONEq(t, `{"url":"https://example.test/bad.png"}`, gjson.GetBytes(body, "messages.1.content.3.image_url").Raw)
+		assert.JSONEq(t, `[{"type":"text","text":"calling"}]`, gjson.GetBytes(body, "messages.2.content").Raw)
+		assert.JSONEq(t, `[{"type":"text","text":"ok"}]`, gjson.GetBytes(body, "messages.3.content").Raw)
+		assert.Equal(t, "", gjson.GetBytes(body, "messages.4.content").String())
+	})
+
+	t.Run("responses normalizes message and function_call_output media, unwraps object image_url, validates input_file, and strips cache_control", func(t *testing.T) {
+		var req dto.OpenAIResponsesRequest
+		require.NoError(t, common.UnmarshalJsonStr(`{
+			"model":"deepseek-v4-1-flash-1017",
+			"input":[
+				{
+					"role":"user",
+					"content":[
+						{"type":"input_text","text":"hi","cache_control":{"type":"ephemeral"}},
+						{"type":"input_image","image_url":"https://example.test/a.png","detail":"original"},
+						{"type":"input_image","image_url":{"url":"https://example.test/b.png","detail":"low"}},
+						{"type":"input_image","image_url":"https://example.test/c.png","detail":"invalid"},
+						{"type":"image_url","image_url":{"url":"https://example.test/d.png","detail":"original"}},
+						{"type":"input_file","file_data":"raw-not-data-url","filename":"bad.pdf"},
+						{"type":"input_file","file_data":"data:application/pdf;base64,cGRm","filename":"ok.pdf"}
+					]
+				},
+				{
+					"type":"function_call_output",
+					"call_id":"call_1",
+					"output":[
+						{"type":"input_text","text":"done","cache_control":{"type":"ephemeral"}},
+						{"type":"input_image","image_url":{"url":"https://example.test/out.png"},"detail":"original"},
+						{"type":"input_file","file_data":"raw-not-data-url"},
+						{"type":"input_file","file_url":"https://example.test/out.pdf","filename":"out.pdf"}
+					]
+				}
+			]
+		}`, &req))
+
+		converted, err := (&Adaptor{}).ConvertOpenAIResponsesRequest(nil, &relaycommon.RelayInfo{RelayMode: relayconstant.RelayModeResponses}, req)
+		require.NoError(t, err)
+		body, err := common.Marshal(converted)
+		require.NoError(t, err)
+
+		assert.JSONEq(t, `[
+			{"type":"input_text","text":"hi"},
+			{"type":"input_image","image_url":"https://example.test/a.png","detail":"high"},
+			{"type":"input_image","image_url":"https://example.test/b.png","detail":"low"},
+			{"type":"input_image","image_url":"https://example.test/c.png"},
+			{"type":"input_image","image_url":"https://example.test/d.png","detail":"high"},
+			{"type":"input_file","file_data":"data:application/pdf;base64,cGRm","filename":"ok.pdf"}
+		]`, gjson.GetBytes(body, "input.0.content").Raw)
+		assert.JSONEq(t, `[
+			{"type":"input_text","text":"done"},
+			{"type":"input_image","image_url":"https://example.test/out.png","detail":"high"},
+			{"type":"input_file","file_url":"https://example.test/out.pdf","filename":"out.pdf"}
+		]`, gjson.GetBytes(body, "input.1.output").Raw)
+	})
+
+	t.Run("claude with stop_sequences routes to chat and strips tool_result media safely", func(t *testing.T) {
+		var request dto.ClaudeRequest
+		require.NoError(t, common.UnmarshalJsonStr(`{
+			"model":"deepseek-v4-1-flash-1017",
+			"max_tokens":128,
+			"stop_sequences":["STOP"],
+			"tools":[{"name":"snap","input_schema":{"type":"object","properties":{}}}],
+			"messages":[
+				{"role":"user","content":[{"type":"text","text":"check"},{"type":"image","source":{"type":"base64","media_type":"image/png","data":"aGVsbG8="}}]},
+				{"role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"snap","input":{}}]},
+				{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":[{"type":"text","text":"captured"},{"type":"image","source":{"type":"base64","media_type":"image/png","data":"aGVsbG8="}}]}]}
+			]
+		}`, &request))
+		info := &relaycommon.RelayInfo{RelayFormat: types.RelayFormatClaude}
+		converted, err := (&Adaptor{}).ConvertClaudeRequest(nil, info, &request)
+		require.NoError(t, err)
+		body, err := common.Marshal(converted)
+		require.NoError(t, err)
+
+		assert.JSONEq(t, `{"url":"data:image/png;base64,aGVsbG8="}`, gjson.GetBytes(body, "messages.0.content.1.image_url").Raw)
+		assert.JSONEq(t, `[{"type":"text","text":"captured"}]`, gjson.GetBytes(body, "messages.2.content").Raw)
+	})
 }
