@@ -1,9 +1,11 @@
-// 导出真实历练开局，交给 simulate.mjs 在浏览器同一份规则里运行固定操作策略。
+// 导出真实历练与九幽秘境的开局，交给 simulate.mjs 在浏览器同一份规则里运行固定操作策略。
+// 参数是要导出的模式(chapter、steps、weekly、rift)，不给时全部导出。
 package main
 
 import (
 	"fmt"
 	"os"
+	"slices"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/pkg/doufa"
@@ -16,6 +18,9 @@ type scenario struct {
 	Mode     string      `json:"mode"`
 	Chapter  int         `json:"chapter"`
 	Step     int         `json:"step,omitempty"`
+	Floor    int         `json:"floor,omitempty"`
+	Variant  string      `json:"variant,omitempty"`
+	Kind     string      `json:"kind,omitempty"`
 	Training string      `json:"training"`
 	Class    string      `json:"class"`
 	Setup    doufa.Setup `json:"setup"`
@@ -111,6 +116,10 @@ func main() {
 			}
 		}
 	}
+	out = append(out, riftScenarios()...)
+	if len(os.Args) > 1 {
+		out = slices.DeleteFunc(out, func(s scenario) bool { return !slices.Contains(os.Args[1:], s.Mode) })
+	}
 	data, err := common.Marshal(out)
 	if err != nil {
 		panic(err)
@@ -118,4 +127,60 @@ func main() {
 	if _, err := os.Stdout.Write(data); err != nil {
 		panic(err)
 	}
+}
+
+// riftScenarios 是九幽秘境的同一批开局分别按旧的两份敌人表轮换(old)与现在的三份(new)发出的房间：同一轮种子、同一状态，
+// 只换敌人表份数，随机数走得一样。只有第三重两种不同；第二、四重相同，只导出 new 作前后两重的参照。fresh 是没带天赋、没拿祝福、起手法宝的
+// 下限；blessed 带筑体、锋芒各两级与锋锐、铁骨、连珠三样祝福。两种都是满血进房。
+func riftScenarios() []scenario {
+	samples := []struct {
+		id        string
+		talents   map[string]int
+		blessings []string
+	}{
+		{"fresh", nil, nil},
+		{"blessed", map[string]int{"vitality": 2, "might": 2}, []string{"edge", "vigor", "haste"}},
+	}
+	rooms := []struct {
+		kind string
+		step int
+	}{{"fight", 1}, {"fight", 4}, {"elite", 4}, {"boss", doufa.FloorSteps - 1}}
+	variants := []struct {
+		name  string
+		pools int
+	}{{"old", 2}, {"new", 3}}
+	runSeeds := []uint32{3, 29, 113}
+	var out []scenario
+	for _, class := range dungeon.Classes {
+		for _, sample := range samples {
+			for floor := 2; floor <= 4; floor++ {
+				for _, variant := range variants {
+					if floor != 3 && variant.name == "old" {
+						continue
+					}
+					for _, room := range rooms {
+						for i, runSeed := range runSeeds {
+							if room.kind == "boss" && i > 0 {
+								break
+							}
+							run, err := doufa.NewRun(runSeed, class, sample.talents)
+							if err != nil {
+								panic(err)
+							}
+							run.Pools, run.Floor, run.Step, run.Choices = variant.pools, floor, room.step, []string{room.kind}
+							run.Blessings = append(run.Blessings, sample.blessings...)
+							run.HP = run.MaxHP()
+							if err := run.Enter(0, 0); err != nil {
+								panic(err)
+							}
+							out = append(out, scenario{ID: fmt.Sprintf("rift_f%d_%s%d_r%d", floor, room.kind, room.step, runSeed), Mode: "rift",
+								Step: room.step, Floor: floor, Variant: variant.name, Kind: room.kind, Training: sample.id, Class: class,
+								Setup: run.Room.Setup})
+						}
+					}
+				}
+			}
+		}
+	}
+	return out
 }

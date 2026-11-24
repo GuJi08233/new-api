@@ -29,7 +29,8 @@ const (
 // ErrRunAction 表示这一步现在不能做：一轮已经结束、房间没打完、还没挑祝福、选项不存在……
 var ErrRunAction = errors.New("doufa: run action not available")
 
-// floorPool 是一重的敌人与房间：第一重迷雾林，第二重赤炎窟；第三重起两份轮流用，强度按重数往上加。
+// floorPool 是一重的敌人与房间：前三重各有自己的一份(第一重迷雾林，第二重赤炎窟，第三重幽冥渊)，更深的重数在前两份里
+// 轮流，强度按重数往上加。
 type floorPool struct {
 	Rooms    []string
 	Foes     []string
@@ -41,7 +42,12 @@ type floorPool struct {
 var floorPools = []floorPool{
 	{Rooms: []string{"glade", "ruins"}, Foes: []string{"slime", "skeleton", "moth", "goblin", "gargoyle"}, Elite: "goblin_chief", Boss: "slime_king", BossRoom: "glade"},
 	{Rooms: []string{"cavern", "ruins"}, Foes: []string{"werewolf", "shade_mage", "lava_elemental", "beetle", "goblin"}, Elite: "troll", Boss: "flame_lord", BossRoom: "cavern"},
+	{Rooms: []string{"ruins", "glade"}, Foes: []string{"abyss_guard", "void_walker", "soul_eater", "nether_hound", "hungry_ghost"}, Elite: "lich", Boss: "abyss_drake", BossRoom: "ruins"},
 }
+
+// cyclePools 是更深的重数轮流用的份数：第四重起照旧迷雾林、赤炎窟轮流，与有幽冥渊之前一样。没记下份数的一轮(有幽冥渊
+// 之前开局的)也只有这两份，第三重照旧是迷雾林，打到一半敌人不变。
+const cyclePools = 2
 
 // RunRoom 是正在打的一间战斗房：浏览器按 Seed 与 Setup 开局，打完提交操作记录；Issued 是发出房间的时间(秒)，
 // 提交时不能早于"帧数 ÷ 60"秒的八成。Hidden 的房间是给页面看的样子(见 Public)，不带种子和开局。
@@ -59,13 +65,15 @@ type Offer struct {
 	Items []string `json:"items"`
 }
 
-// Run 是一轮的全部状态。Floor 从 1 起；Step 是这一重第几步(从 0 起)，Choices 是这一步能进的房间。Talents 是开局时带进来
-// 的天赋等级(这一轮里不再变)；Retreats 是还剩几次退路；Ward 为真是身上挂着护命符；Used 是用过几件商店道具。
+// Run 是一轮的全部状态。Floor 从 1 起；Step 是这一重第几步(从 0 起)，Choices 是这一步能进的房间。Pools 是开局时有几份
+// 敌人表，一轮里不再变(没有记的按 cyclePools)。Talents 是开局时带进来的天赋等级(这一轮里不再变)；Retreats 是还剩几次
+// 退路；Ward 为真是身上挂着护命符；Used 是用过几件商店道具。
 type Run struct {
 	V         int            `json:"v"`
 	Rng       uint32         `json:"rng"`
 	Class     string         `json:"cls"`
 	Floor     int            `json:"floor"`
+	Pools     int            `json:"pools,omitempty"`
 	Step      int            `json:"step"`
 	HP        int            `json:"hp"`
 	MP        int            `json:"mp"`
@@ -94,7 +102,7 @@ func NewRun(seed uint32, class string, talents map[string]int) (*Run, error) {
 	if seed == 0 {
 		seed = 1
 	}
-	r := &Run{V: RunStateVersion, Rng: seed, Class: class, Floor: 1, Weapons: append([]string(nil), spec.Weapons...),
+	r := &Run{V: RunStateVersion, Rng: seed, Class: class, Floor: 1, Pools: len(floorPools), Weapons: append([]string(nil), spec.Weapons...),
 		Blessings: []string{}, Choices: []string{"fight"}, Retreats: BaseRetreats}
 	for _, t := range content.Talents {
 		if level := min(talents[t.Id], len(t.Costs)); level > 0 {
@@ -163,7 +171,17 @@ func (r *Run) Mods() Mods {
 // MaxHP 是现在的生命上限：流派的生命加上祝福与天赋。
 func (r *Run) MaxHP() int { return content.Classes[r.Class].HP + r.Mods().Vigor }
 
-func (r *Run) pool() floorPool { return floorPools[(r.Floor-1)%len(floorPools)] }
+// pool 是这一重的敌人表：开局时有的 Pools 份里第几重用第几份，更深的在前 cyclePools 份里轮流。
+func (r *Run) pool() floorPool {
+	n := r.Pools
+	if n < cyclePools || n > len(floorPools) {
+		n = cyclePools
+	}
+	if i := r.Floor - 1; i < n {
+		return floorPools[i]
+	}
+	return floorPools[(r.Floor-1)%cyclePools]
+}
 
 // Score 是这一轮走了多深：每重 FloorSteps 步，打倒首领算走完一重。
 func (r *Run) Score() int { return max(0, (r.Floor-1)*FloorSteps+max(r.Step, 0)) }

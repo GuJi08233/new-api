@@ -129,6 +129,53 @@ func TestRunBossLeadsToTheNextFloor(t *testing.T) {
 	assert.Equal(t, run.Mods(), setup.Mods)
 }
 
+// 第三重是幽冥渊自己的敌人；第四重起照旧迷雾林、赤炎窟轮流。有幽冥渊之前开局、没记份数的一轮第三重仍是迷雾林。
+func TestRunFloorEnemies(t *testing.T) {
+	fresh, err := NewRun(5, "mage", nil)
+	require.NoError(t, err)
+	assert.Equal(t, len(floorPools), fresh.Pools)
+
+	cases := []struct {
+		name  string
+		pools int
+		floor int
+		boss  string
+		room  string
+		scale FoeScale
+	}{
+		{"third floor", len(floorPools), 3, "abyss_drake", "ruins", FoeScale{HP: 160, Dmg: 124}},
+		{"fourth floor", len(floorPools), 4, "flame_lord", "cavern", FoeScale{HP: 190, Dmg: 136}},
+		{"fifth floor", len(floorPools), 5, "slime_king", "glade", FoeScale{HP: 220, Dmg: 148}},
+		{"legacy third floor", 0, 3, "slime_king", "glade", FoeScale{HP: 160, Dmg: 124}},
+		{"legacy fourth floor", 0, 4, "flame_lord", "cavern", FoeScale{HP: 190, Dmg: 136}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			run, err := NewRun(5, "mage", nil)
+			require.NoError(t, err)
+			run.Pools, run.Floor, run.Step, run.Choices = tc.pools, tc.floor, FloorSteps-1, []string{"boss"}
+			require.NoError(t, run.Enter(0, 0))
+			assert.Equal(t, [][]Group{{{Foe: tc.boss, N: 1}}}, run.Room.Setup.Waves)
+			assert.Equal(t, tc.room, run.Room.Setup.Room)
+			assert.Equal(t, tc.scale, run.Room.Setup.Scale)
+		})
+	}
+
+	run, err := NewRun(7, "warrior", nil)
+	require.NoError(t, err)
+	run.Floor, run.Step, run.Choices = 3, 4, []string{"elite"}
+	require.NoError(t, run.Enter(0, 0))
+	assert.Contains(t, floorPools[2].Rooms, run.Room.Setup.Room)
+	waves := run.Room.Setup.Waves
+	require.Len(t, waves, 3)
+	for _, wave := range waves {
+		for _, g := range wave {
+			assert.Contains(t, append(floorPools[2].Foes, floorPools[2].Elite), g.Foe)
+		}
+	}
+	assert.Contains(t, waves[len(waves)-1], Group{Foe: "lich", N: 1}, "the elite joins the last wave")
+}
+
 // 祝福叠成加成并进到开局里，生命上限跟着变；宝库的法宝换掉指定的那一件；静修回血；不要也可以。
 func TestRunOffersAndRest(t *testing.T) {
 	run, err := NewRun(3, "warrior", nil)
