@@ -8966,7 +8966,10 @@
     "请求次数与并发数的最大值为2147483647，Token 数的最大值为9007199254740991。": "La valeur maximale pour les requêtes et la concurrence est 2147483647, et 9007199254740991 pour les jetons.",
     "每分钟最多消耗 Token 数（TPM）": "Jetons max par minute (TPM)",
     "每周期最多消耗 Token 数": "Jetons max par période",
-    "该渠道每周期最多消耗的 Token 总数（输入 + 输出），0 代表不限制。达到后本周期内自动跳过该渠道": "Nombre total maximal de jetons (entrée + sortie) consommés par ce canal par période. 0 signifie illimité. Une fois atteint, ce canal est ignoré pour le reste de la période"
+    "该渠道每周期最多消耗的 Token 总数（输入 + 输出），0 代表不限制。达到后本周期内自动跳过该渠道": "Nombre total maximal de jetons (entrée + sortie) consommés par ce canal par période. 0 signifie illimité. Une fois atteint, ce canal est ignoré pour le reste de la période",
+    "港股": "Action HK",
+    "A股": "Action A",
+    "Pre-IPO": "Pré-IPO"
   },
   "狂血魔尊": "Seigneur Démon Furie-Sanglante",
   "血怒破绽": "Faille de Furie",

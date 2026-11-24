@@ -26,11 +26,16 @@ const (
 // tradeSpotMaxAssetQty 是一笔借币的本金加利息最多多少(10^-8)，挡住溢出。
 const tradeSpotMaxAssetQty = int64(1) << 53
 
-// tradeSpotDefaultAssetRates 是 2026-10-09 Binance 普通用户借各币种的日利率，取到实时的之前先用它们。
+// tradeSpotDefaultAssetRates 是 Binance 普通用户借各币种的日利率快照，取到实时的之前先用它们。
 var tradeSpotDefaultAssetRates = map[string]string{
 	"BTC": "0.00001165", "ETH": "0.00005316", "SOL": "0.00014976", "BNB": "0.00008044", "XRP": "0.00009793",
-	"DOGE": "0.00009816", "ZEC": "0.00043448", "NVDAB": "0.0002", "TSLAB": "0.0002", "AMDB": "0.0002", "MUB": "0.0002",
-	"SNDKB": "0.0002", "CRCLB": "0.0002", "MSTRB": "0.0002", "SPCXB": "0.0002", "QQQB": "0.0002", "SOXLB": "0.0002",
+	"DOGE": "0.00009816", "ZEC": "0.00043448",
+	"NVDAB": "0.0002", "TSLAB": "0.0002", "AMDB": "0.0002", "MUB": "0.0002", "SNDKB": "0.0002",
+	"CRCLB": "0.0002", "MSTRB": "0.0002", "SPCXB": "0.0002", "QQQB": "0.0002", "SOXLB": "0.0002",
+	"ANTB": "0.0002", "NBISB": "0.0002", "CRWVB": "0.0002", "CBRSB": "0.0002",
+	"GOOGLB": "0.0002", "MSFTB": "0.0002", "METAB": "0.0002", "AMZNB": "0.0002", "AAPLB": "0.0002",
+	"PLTRB": "0.0002", "ORCLB": "0.0002", "BABAB": "0.0002",
+	"AVGOB": "0.0002", "TSMB": "0.0002", "ARMB": "0.0002", "INTCB": "0.0002", "ASMLB": "0.0002",
 }
 
 var tradeSpotAssetRates atomic.Pointer[map[string]decimal.Decimal]

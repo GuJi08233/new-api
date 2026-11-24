@@ -249,7 +249,12 @@ const FuturesView = ({
           <Tag color='blue'>{t('永续')}</Tag>
           {item.kind === 'stock' && (
             <Tag color='violet'>
-              {item.session === 'krx' ? t('韩股') : t('美股')}
+              {{
+                krx: t('韩股'),
+                hk: t('港股'),
+                cn: t('A股'),
+                premarket: t('Pre-IPO'),
+              }[item.session] || t('美股')}
             </Tag>
           )}
           {item.kind === 'commodity' && (

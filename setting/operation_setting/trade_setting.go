@@ -110,9 +110,12 @@ const (
 // 标的所在市场的交易时段，前端据此标出盘前、盘中、盘后、夜盘或休市(照 Binance 美股代币与 TradFi 合约页)。代币和合约本身
 // 7×24 小时交易，标的市场休市时流动性差、价格可能跳空。加密货币没有标的市场，为空。
 const (
-	TradeSessionUS  = "us"  // 美股：盘前、盘中、盘后、夜盘
-	TradeSessionKRX = "krx" // 韩国交易所
-	TradeSessionCME = "cme" // CME Globex 的黄金与原油期货
+	TradeSessionUS        = "us"        // 美股：盘前、盘中、盘后、夜盘
+	TradeSessionKRX       = "krx"       // 韩国交易所
+	TradeSessionHK        = "hk"        // 香港交易所
+	TradeSessionCN        = "cn"        // 沪深交易所(A 股)
+	TradeSessionCME       = "cme"       // CME Globex 的黄金与原油期货
+	TradeSessionPremarket = "premarket" // Pre-IPO 永续，全天候交易，无标的市场休市时段
 )
 
 // TradeSymbolInfo 是模拟盘支持的一个品种：Binance 现货交易对与对应的 U 本位永续合约，二者可以只有一个。合约的杠杆与维持
@@ -152,6 +155,34 @@ var TradeSymbols = []TradeSymbolInfo{
 	{Symbol: "SOXLBUSDT", Ticker: "SOXL", Kind: TradeKindStock, Futures: "SOXLUSDT", Session: TradeSessionUS},
 	{Ticker: "SKHYNIX", Kind: TradeKindStock, Futures: "SKHYNIXUSDT", Session: TradeSessionKRX},
 	{Ticker: "KORU", Kind: TradeKindStock, Futures: "KORUUSDT", Session: TradeSessionUS},
+	// 大模型 / AI 实验室
+	{Symbol: "ANTBUSDT", Ticker: "ANT", Kind: TradeKindStock, Futures: "ANTUSDT", Session: TradeSessionUS},
+	{Ticker: "OPENAI", Kind: TradeKindStock, Futures: "OPENAIUSDT", Session: TradeSessionPremarket},
+	{Ticker: "ZHIPU", Kind: TradeKindStock, Futures: "ZHIPUUSDT", Session: TradeSessionHK},
+	{Ticker: "MINIMAX", Kind: TradeKindStock, Futures: "MINIMAXUSDT", Session: TradeSessionHK},
+	{Ticker: "MOONSHOT", Kind: TradeKindStock, Futures: "MOONSHOTUSDT", Session: TradeSessionPremarket},
+	// AI 算力云 / 专用芯片 / 具身智能
+	{Symbol: "NBISBUSDT", Ticker: "NBIS", Kind: TradeKindStock, Futures: "NBISUSDT", Session: TradeSessionUS},
+	{Symbol: "CRWVBUSDT", Ticker: "CRWV", Kind: TradeKindStock, Futures: "CRWVUSDT", Session: TradeSessionUS},
+	{Symbol: "CBRSBUSDT", Ticker: "CBRS", Kind: TradeKindStock, Futures: "CBRSUSDT", Session: TradeSessionUS},
+	{Ticker: "UNITREE", Kind: TradeKindStock, Futures: "UNITREEUSDT", Session: TradeSessionCN},
+	{Ticker: "ZHONGJI", Kind: TradeKindStock, Futures: "ZHONGJIUSDT", Session: TradeSessionHK},
+	{Ticker: "CXMT", Kind: TradeKindStock, Futures: "CXMTUSDT", Session: TradeSessionCN},
+	// AI 科技巨头 & 半导体核心链
+	{Symbol: "GOOGLBUSDT", Ticker: "GOOGL", Kind: TradeKindStock, Futures: "GOOGLUSDT", Session: TradeSessionUS},
+	{Symbol: "MSFTBUSDT", Ticker: "MSFT", Kind: TradeKindStock, Futures: "MSFTUSDT", Session: TradeSessionUS},
+	{Symbol: "METABUSDT", Ticker: "META", Kind: TradeKindStock, Futures: "METAUSDT", Session: TradeSessionUS},
+	{Symbol: "AMZNBUSDT", Ticker: "AMZN", Kind: TradeKindStock, Futures: "AMZNUSDT", Session: TradeSessionUS},
+	{Symbol: "AAPLBUSDT", Ticker: "AAPL", Kind: TradeKindStock, Futures: "AAPLUSDT", Session: TradeSessionUS},
+	{Symbol: "PLTRBUSDT", Ticker: "PLTR", Kind: TradeKindStock, Futures: "PLTRUSDT", Session: TradeSessionUS},
+	{Symbol: "ORCLBUSDT", Ticker: "ORCL", Kind: TradeKindStock, Futures: "ORCLUSDT", Session: TradeSessionUS},
+	{Symbol: "BABABUSDT", Ticker: "BABA", Kind: TradeKindStock, Futures: "BABAUSDT", Session: TradeSessionUS},
+	{Ticker: "TENCENT", Kind: TradeKindStock, Futures: "TENCENTUSDT", Session: TradeSessionHK},
+	{Symbol: "AVGOBUSDT", Ticker: "AVGO", Kind: TradeKindStock, Futures: "AVGOUSDT", Session: TradeSessionUS},
+	{Symbol: "TSMBUSDT", Ticker: "TSM", Kind: TradeKindStock, Futures: "TSMUSDT", Session: TradeSessionUS},
+	{Symbol: "ARMBUSDT", Ticker: "ARM", Kind: TradeKindStock, Futures: "ARMUSDT", Session: TradeSessionUS},
+	{Symbol: "INTCBUSDT", Ticker: "INTC", Kind: TradeKindStock, Futures: "INTCUSDT", Session: TradeSessionUS},
+	{Symbol: "ASMLBUSDT", Ticker: "ASML", Kind: TradeKindStock, Futures: "ASMLUSDT", Session: TradeSessionUS},
 	{Ticker: "XAU", Kind: TradeKindCommodity, Futures: "XAUUSDT", Session: TradeSessionCME},
 	{Ticker: "CL", Kind: TradeKindCommodity, Futures: "CLUSDT", Session: TradeSessionCME},
 }

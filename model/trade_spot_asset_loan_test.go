@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/pkg/tradesim"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -313,4 +314,17 @@ func TestTradeSpotGapLiquidationOfACoinLoanChargesUserQuota(t *testing.T) {
 	users, err := ListTradeSpotMarginUsers()
 	require.NoError(t, err)
 	assert.NotContains(t, users, userId, "还清之后不再检查")
+}
+
+// 每个配置的现货交易对都必须有默认借币日利率兜底，避免节点刚启动还没拉到 Binance 实时利率时无法借币卖出。
+func TestTradeSpotDefaultAssetRatesCoverAllSpotSymbols(t *testing.T) {
+	for _, info := range operation_setting.TradeSymbols {
+		if info.Symbol == "" {
+			continue
+		}
+		asset := TradeSpotBaseAsset(info.Symbol)
+		rate, ok := TradeSpotAssetDailyRate(asset)
+		require.True(t, ok, "missing default spot borrow rate for %s (%s)", info.Symbol, asset)
+		assert.False(t, rate.IsNegative(), info.Symbol)
+	}
 }

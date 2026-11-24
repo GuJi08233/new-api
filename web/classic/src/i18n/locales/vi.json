@@ -9466,7 +9466,10 @@
     "请求次数与并发数的最大值为2147483647，Token 数的最大值为9007199254740991。": "Giá trị tối đa cho số yêu cầu và đồng thời là 2147483647, và cho số token là 9007199254740991.",
     "每分钟最多消耗 Token 数（TPM）": "Số token tiêu thụ tối đa mỗi phút (TPM)",
     "每周期最多消耗 Token 数": "Số token tiêu thụ tối đa mỗi chu kỳ",
-    "该渠道每周期最多消耗的 Token 总数（输入 + 输出），0 代表不限制。达到后本周期内自动跳过该渠道": "Tổng số token tối đa (đầu vào + đầu ra) kênh này tiêu thụ mỗi chu kỳ, 0 là không giới hạn. Khi đạt giới hạn sẽ tự động bỏ qua kênh trong chu kỳ này"
+    "该渠道每周期最多消耗的 Token 总数（输入 + 输出），0 代表不限制。达到后本周期内自动跳过该渠道": "Tổng số token tối đa (đầu vào + đầu ra) kênh này tiêu thụ mỗi chu kỳ, 0 là không giới hạn. Khi đạt giới hạn sẽ tự động bỏ qua kênh trong chu kỳ này",
+    "港股": "Cổ phiếu Hồng Kông",
+    "A股": "Cổ phiếu A",
+    "Pre-IPO": "Pre-IPO"
   },
   "狂血魔尊": "Cuồng Huyết Ma Tôn",
   "血怒破绽": "Sơ Hở Huyết Nộ",

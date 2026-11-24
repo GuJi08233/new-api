@@ -9112,7 +9112,10 @@
     "请求次数与并发数的最大值为2147483647，Token 数的最大值为9007199254740991。": "The maximum value for request counts and concurrency is 2147483647, and the maximum for token counts is 9007199254740991.",
     "每分钟最多消耗 Token 数（TPM）": "Max tokens per minute (TPM)",
     "每周期最多消耗 Token 数": "Max tokens per period",
-    "该渠道每周期最多消耗的 Token 总数（输入 + 输出），0 代表不限制。达到后本周期内自动跳过该渠道": "Maximum total tokens (input + output) consumed by this channel per period. 0 means unlimited. Once reached, this channel is skipped for the rest of the period"
+    "该渠道每周期最多消耗的 Token 总数（输入 + 输出），0 代表不限制。达到后本周期内自动跳过该渠道": "Maximum total tokens (input + output) consumed by this channel per period. 0 means unlimited. Once reached, this channel is skipped for the rest of the period",
+    "港股": "HK stock",
+    "A股": "A-share",
+    "Pre-IPO": "Pre-IPO"
   },
   "余额转入": "Quota Deposit",
   "购买订阅": "Subscription",

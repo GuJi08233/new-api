@@ -9,12 +9,33 @@ import (
 // 美股代币、股票与大宗商品合约都要标出标的市场，前端按它画交易时段(web/classic/src/pages/Trade/marketSession.js)；加密货币
 // 没有标的市场。
 func TestTradeSymbolsDeclareUnderlyingSession(t *testing.T) {
+	seenTickers := map[string]bool{}
+	seenSymbols := map[string]bool{}
+	seenFutures := map[string]bool{}
 	for _, info := range TradeSymbols {
+		assert.NotEmpty(t, info.Ticker)
+		assert.False(t, seenTickers[info.Ticker], "duplicate ticker: %s", info.Ticker)
+		seenTickers[info.Ticker] = true
+		if info.Symbol != "" {
+			assert.False(t, seenSymbols[info.Symbol], "duplicate spot symbol: %s", info.Symbol)
+			seenSymbols[info.Symbol] = true
+		}
+		if info.Futures != "" {
+			assert.False(t, seenFutures[info.Futures], "duplicate futures symbol: %s", info.Futures)
+			seenFutures[info.Futures] = true
+		}
 		if info.Kind == TradeKindCrypto {
 			assert.Empty(t, info.Session, info.Ticker)
 			continue
 		}
-		assert.Contains(t, []string{TradeSessionUS, TradeSessionKRX, TradeSessionCME}, info.Session, info.Ticker)
+		assert.Contains(t, []string{
+			TradeSessionUS,
+			TradeSessionKRX,
+			TradeSessionHK,
+			TradeSessionCN,
+			TradeSessionCME,
+			TradeSessionPremarket,
+		}, info.Session, info.Ticker)
 	}
 }
 

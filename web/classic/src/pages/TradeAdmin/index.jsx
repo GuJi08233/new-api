@@ -337,7 +337,7 @@ const TradeAdmin = () => {
     <CheckboxGroup value={form[key]} onChange={(value) => change(key, value)}>
       {[
         ['crypto', t('加密货币')],
-        ['stock', field === 'futures' ? t('美股永续') : t('美股代币')],
+        ['stock', field === 'futures' ? t('股票永续') : t('美股代币')],
         ['commodity', t('大宗商品')],
       ].map(([kind, label]) => {
         const items = symbols.filter(

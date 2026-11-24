@@ -266,5 +266,262 @@
     {"floor": "15000000", "cap": "25000000", "max_leverage": 3, "mmr": "0.1667", "maint": "1118450"},
     {"floor": "25000000", "cap": "50000000", "max_leverage": 2, "mmr": "0.25", "maint": "3200950"},
     {"floor": "50000000", "cap": "200000000", "max_leverage": 1, "mmr": "0.5", "maint": "15700950"}
+  ],
+  "ANTUSDT": [
+    {"floor": "0", "cap": "100000", "max_leverage": 20, "mmr": "0.025", "maint": "0"},
+    {"floor": "100000", "cap": "500000", "max_leverage": 15, "mmr": "0.0333", "maint": "830"},
+    {"floor": "500000", "cap": "2000000", "max_leverage": 10, "mmr": "0.05", "maint": "9180"},
+    {"floor": "2000000", "cap": "5000000", "max_leverage": 5, "mmr": "0.1", "maint": "109180"},
+    {"floor": "5000000", "cap": "10000000", "max_leverage": 4, "mmr": "0.125", "maint": "234180"},
+    {"floor": "10000000", "cap": "25000000", "max_leverage": 3, "mmr": "0.1667", "maint": "651180"},
+    {"floor": "25000000", "cap": "50000000", "max_leverage": 2, "mmr": "0.25", "maint": "2733680"},
+    {"floor": "50000000", "cap": "100000000", "max_leverage": 1, "mmr": "0.5", "maint": "15233680"}
+  ],
+  "OPENAIUSDT": [
+    {"floor": "0", "cap": "100000", "max_leverage": 20, "mmr": "0.025", "maint": "0"},
+    {"floor": "100000", "cap": "500000", "max_leverage": 15, "mmr": "0.0333", "maint": "830"},
+    {"floor": "500000", "cap": "2000000", "max_leverage": 10, "mmr": "0.05", "maint": "9180"},
+    {"floor": "2000000", "cap": "5000000", "max_leverage": 5, "mmr": "0.1", "maint": "109180"},
+    {"floor": "5000000", "cap": "10000000", "max_leverage": 4, "mmr": "0.125", "maint": "234180"},
+    {"floor": "10000000", "cap": "25000000", "max_leverage": 3, "mmr": "0.1667", "maint": "651180"},
+    {"floor": "25000000", "cap": "50000000", "max_leverage": 2, "mmr": "0.25", "maint": "2733680"},
+    {"floor": "50000000", "cap": "100000000", "max_leverage": 1, "mmr": "0.5", "maint": "15233680"}
+  ],
+  "ZHIPUUSDT": [
+    {"floor": "0", "cap": "250000", "max_leverage": 25, "mmr": "0.02", "maint": "0"},
+    {"floor": "250000", "cap": "1000000", "max_leverage": 20, "mmr": "0.025", "maint": "1250"},
+    {"floor": "1000000", "cap": "2000000", "max_leverage": 15, "mmr": "0.0333", "maint": "9550"},
+    {"floor": "2000000", "cap": "5000000", "max_leverage": 10, "mmr": "0.05", "maint": "42950"},
+    {"floor": "5000000", "cap": "8000000", "max_leverage": 5, "mmr": "0.1", "maint": "292950"},
+    {"floor": "8000000", "cap": "15000000", "max_leverage": 4, "mmr": "0.125", "maint": "492950"},
+    {"floor": "15000000", "cap": "25000000", "max_leverage": 3, "mmr": "0.1667", "maint": "1118450"},
+    {"floor": "25000000", "cap": "50000000", "max_leverage": 2, "mmr": "0.25", "maint": "3200950"},
+    {"floor": "50000000", "cap": "200000000", "max_leverage": 1, "mmr": "0.5", "maint": "15700950"}
+  ],
+  "MINIMAXUSDT": [
+    {"floor": "0", "cap": "250000", "max_leverage": 25, "mmr": "0.02", "maint": "0"},
+    {"floor": "250000", "cap": "1000000", "max_leverage": 20, "mmr": "0.025", "maint": "1250"},
+    {"floor": "1000000", "cap": "2000000", "max_leverage": 15, "mmr": "0.0333", "maint": "9550"},
+    {"floor": "2000000", "cap": "5000000", "max_leverage": 10, "mmr": "0.05", "maint": "42950"},
+    {"floor": "5000000", "cap": "8000000", "max_leverage": 5, "mmr": "0.1", "maint": "292950"},
+    {"floor": "8000000", "cap": "15000000", "max_leverage": 4, "mmr": "0.125", "maint": "492950"},
+    {"floor": "15000000", "cap": "25000000", "max_leverage": 3, "mmr": "0.1667", "maint": "1118450"},
+    {"floor": "25000000", "cap": "50000000", "max_leverage": 2, "mmr": "0.25", "maint": "3200950"},
+    {"floor": "50000000", "cap": "200000000", "max_leverage": 1, "mmr": "0.5", "maint": "15700950"}
+  ],
+  "MOONSHOTUSDT": [
+    {"floor": "0", "cap": "100000", "max_leverage": 20, "mmr": "0.025", "maint": "0"},
+    {"floor": "100000", "cap": "500000", "max_leverage": 15, "mmr": "0.0333", "maint": "830"},
+    {"floor": "500000", "cap": "2000000", "max_leverage": 10, "mmr": "0.05", "maint": "9180"},
+    {"floor": "2000000", "cap": "5000000", "max_leverage": 5, "mmr": "0.1", "maint": "109180"},
+    {"floor": "5000000", "cap": "10000000", "max_leverage": 4, "mmr": "0.125", "maint": "234180"},
+    {"floor": "10000000", "cap": "25000000", "max_leverage": 3, "mmr": "0.1667", "maint": "651180"},
+    {"floor": "25000000", "cap": "50000000", "max_leverage": 2, "mmr": "0.25", "maint": "2733680"},
+    {"floor": "50000000", "cap": "100000000", "max_leverage": 1, "mmr": "0.5", "maint": "15233680"}
+  ],
+  "NBISUSDT": [
+    {"floor": "0", "cap": "100000", "max_leverage": 25, "mmr": "0.02", "maint": "0"},
+    {"floor": "100000", "cap": "200000", "max_leverage": 20, "mmr": "0.025", "maint": "500"},
+    {"floor": "200000", "cap": "500000", "max_leverage": 15, "mmr": "0.0333", "maint": "2160"},
+    {"floor": "500000", "cap": "2000000", "max_leverage": 10, "mmr": "0.05", "maint": "10510"},
+    {"floor": "2000000", "cap": "5000000", "max_leverage": 5, "mmr": "0.1", "maint": "110510"},
+    {"floor": "5000000", "cap": "10000000", "max_leverage": 4, "mmr": "0.125", "maint": "235510"},
+    {"floor": "10000000", "cap": "25000000", "max_leverage": 3, "mmr": "0.1667", "maint": "652510"},
+    {"floor": "25000000", "cap": "50000000", "max_leverage": 2, "mmr": "0.25", "maint": "2735010"},
+    {"floor": "50000000", "cap": "100000000", "max_leverage": 1, "mmr": "0.5", "maint": "15235010"}
+  ],
+  "CRWVUSDT": [
+    {"floor": "0", "cap": "100000", "max_leverage": 25, "mmr": "0.02", "maint": "0"},
+    {"floor": "100000", "cap": "200000", "max_leverage": 20, "mmr": "0.025", "maint": "500"},
+    {"floor": "200000", "cap": "500000", "max_leverage": 15, "mmr": "0.0333", "maint": "2160"},
+    {"floor": "500000", "cap": "2000000", "max_leverage": 10, "mmr": "0.05", "maint": "10510"},
+    {"floor": "2000000", "cap": "5000000", "max_leverage": 5, "mmr": "0.1", "maint": "110510"},
+    {"floor": "5000000", "cap": "10000000", "max_leverage": 4, "mmr": "0.125", "maint": "235510"},
+    {"floor": "10000000", "cap": "25000000", "max_leverage": 3, "mmr": "0.1667", "maint": "652510"},
+    {"floor": "25000000", "cap": "50000000", "max_leverage": 2, "mmr": "0.25", "maint": "2735010"},
+    {"floor": "50000000", "cap": "100000000", "max_leverage": 1, "mmr": "0.5", "maint": "15235010"}
+  ],
+  "CBRSUSDT": [
+    {"floor": "0", "cap": "100000", "max_leverage": 25, "mmr": "0.02", "maint": "0"},
+    {"floor": "100000", "cap": "200000", "max_leverage": 20, "mmr": "0.025", "maint": "500"},
+    {"floor": "200000", "cap": "500000", "max_leverage": 15, "mmr": "0.0333", "maint": "2160"},
+    {"floor": "500000", "cap": "2000000", "max_leverage": 10, "mmr": "0.05", "maint": "10510"},
+    {"floor": "2000000", "cap": "5000000", "max_leverage": 5, "mmr": "0.1", "maint": "110510"},
+    {"floor": "5000000", "cap": "10000000", "max_leverage": 4, "mmr": "0.125", "maint": "235510"},
+    {"floor": "10000000", "cap": "25000000", "max_leverage": 3, "mmr": "0.1667", "maint": "652510"},
+    {"floor": "25000000", "cap": "50000000", "max_leverage": 2, "mmr": "0.25", "maint": "2735010"},
+    {"floor": "50000000", "cap": "100000000", "max_leverage": 1, "mmr": "0.5", "maint": "15235010"}
+  ],
+  "UNITREEUSDT": [
+    {"floor": "0", "cap": "5000", "max_leverage": 20, "mmr": "0.025", "maint": "0"},
+    {"floor": "5000", "cap": "10000", "max_leverage": 10, "mmr": "0.05", "maint": "125"},
+    {"floor": "10000", "cap": "50000", "max_leverage": 5, "mmr": "0.1", "maint": "625"},
+    {"floor": "50000", "cap": "100000", "max_leverage": 4, "mmr": "0.125", "maint": "1875"},
+    {"floor": "100000", "cap": "250000", "max_leverage": 3, "mmr": "0.1667", "maint": "6045"},
+    {"floor": "250000", "cap": "2500000", "max_leverage": 2, "mmr": "0.25", "maint": "26870"},
+    {"floor": "2500000", "cap": "5000000", "max_leverage": 1, "mmr": "0.5", "maint": "651870"}
+  ],
+  "ZHONGJIUSDT": [
+    {"floor": "0", "cap": "5000", "max_leverage": 20, "mmr": "0.025", "maint": "0"},
+    {"floor": "5000", "cap": "10000", "max_leverage": 10, "mmr": "0.05", "maint": "125"},
+    {"floor": "10000", "cap": "50000", "max_leverage": 5, "mmr": "0.1", "maint": "625"},
+    {"floor": "50000", "cap": "100000", "max_leverage": 4, "mmr": "0.125", "maint": "1875"},
+    {"floor": "100000", "cap": "250000", "max_leverage": 3, "mmr": "0.1667", "maint": "6045"},
+    {"floor": "250000", "cap": "2500000", "max_leverage": 2, "mmr": "0.25", "maint": "26870"},
+    {"floor": "2500000", "cap": "5000000", "max_leverage": 1, "mmr": "0.5", "maint": "651870"}
+  ],
+  "CXMTUSDT": [
+    {"floor": "0", "cap": "5000", "max_leverage": 20, "mmr": "0.025", "maint": "0"},
+    {"floor": "5000", "cap": "10000", "max_leverage": 10, "mmr": "0.05", "maint": "125"},
+    {"floor": "10000", "cap": "50000", "max_leverage": 5, "mmr": "0.1", "maint": "625"},
+    {"floor": "50000", "cap": "100000", "max_leverage": 4, "mmr": "0.125", "maint": "1875"},
+    {"floor": "100000", "cap": "250000", "max_leverage": 3, "mmr": "0.1667", "maint": "6045"},
+    {"floor": "250000", "cap": "2500000", "max_leverage": 2, "mmr": "0.25", "maint": "26870"},
+    {"floor": "2500000", "cap": "5000000", "max_leverage": 1, "mmr": "0.5", "maint": "651870"}
+  ],
+  "GOOGLUSDT": [
+    {"floor": "0", "cap": "50000", "max_leverage": 50, "mmr": "0.01", "maint": "0"},
+    {"floor": "50000", "cap": "200000", "max_leverage": 25, "mmr": "0.02", "maint": "500"},
+    {"floor": "200000", "cap": "400000", "max_leverage": 20, "mmr": "0.025", "maint": "1500"},
+    {"floor": "400000", "cap": "1000000", "max_leverage": 15, "mmr": "0.0333", "maint": "4820"},
+    {"floor": "1000000", "cap": "5000000", "max_leverage": 10, "mmr": "0.05", "maint": "21520"},
+    {"floor": "5000000", "cap": "15000000", "max_leverage": 5, "mmr": "0.1", "maint": "271520"},
+    {"floor": "15000000", "cap": "20000000", "max_leverage": 4, "mmr": "0.125", "maint": "646520"},
+    {"floor": "20000000", "cap": "30000000", "max_leverage": 3, "mmr": "0.1667", "maint": "1480520"},
+    {"floor": "30000000", "cap": "50000000", "max_leverage": 2, "mmr": "0.25", "maint": "3979520"},
+    {"floor": "50000000", "cap": "100000000", "max_leverage": 1, "mmr": "0.5", "maint": "16479520"}
+  ],
+  "MSFTUSDT": [
+    {"floor": "0", "cap": "100000", "max_leverage": 20, "mmr": "0.025", "maint": "0"},
+    {"floor": "100000", "cap": "500000", "max_leverage": 15, "mmr": "0.0333", "maint": "830"},
+    {"floor": "500000", "cap": "2000000", "max_leverage": 10, "mmr": "0.05", "maint": "9180"},
+    {"floor": "2000000", "cap": "5000000", "max_leverage": 5, "mmr": "0.1", "maint": "109180"},
+    {"floor": "5000000", "cap": "10000000", "max_leverage": 4, "mmr": "0.125", "maint": "234180"},
+    {"floor": "10000000", "cap": "25000000", "max_leverage": 3, "mmr": "0.1667", "maint": "651180"},
+    {"floor": "25000000", "cap": "50000000", "max_leverage": 2, "mmr": "0.25", "maint": "2733680"},
+    {"floor": "50000000", "cap": "100000000", "max_leverage": 1, "mmr": "0.5", "maint": "15233680"}
+  ],
+  "METAUSDT": [
+    {"floor": "0", "cap": "100000", "max_leverage": 20, "mmr": "0.025", "maint": "0"},
+    {"floor": "100000", "cap": "500000", "max_leverage": 15, "mmr": "0.0333", "maint": "830"},
+    {"floor": "500000", "cap": "2000000", "max_leverage": 10, "mmr": "0.05", "maint": "9180"},
+    {"floor": "2000000", "cap": "5000000", "max_leverage": 5, "mmr": "0.1", "maint": "109180"},
+    {"floor": "5000000", "cap": "10000000", "max_leverage": 4, "mmr": "0.125", "maint": "234180"},
+    {"floor": "10000000", "cap": "25000000", "max_leverage": 3, "mmr": "0.1667", "maint": "651180"},
+    {"floor": "25000000", "cap": "50000000", "max_leverage": 2, "mmr": "0.25", "maint": "2733680"},
+    {"floor": "50000000", "cap": "100000000", "max_leverage": 1, "mmr": "0.5", "maint": "15233680"}
+  ],
+  "AMZNUSDT": [
+    {"floor": "0", "cap": "100000", "max_leverage": 20, "mmr": "0.025", "maint": "0"},
+    {"floor": "100000", "cap": "500000", "max_leverage": 15, "mmr": "0.0333", "maint": "830"},
+    {"floor": "500000", "cap": "2000000", "max_leverage": 10, "mmr": "0.05", "maint": "9180"},
+    {"floor": "2000000", "cap": "5000000", "max_leverage": 5, "mmr": "0.1", "maint": "109180"},
+    {"floor": "5000000", "cap": "10000000", "max_leverage": 4, "mmr": "0.125", "maint": "234180"},
+    {"floor": "10000000", "cap": "25000000", "max_leverage": 3, "mmr": "0.1667", "maint": "651180"},
+    {"floor": "25000000", "cap": "50000000", "max_leverage": 2, "mmr": "0.25", "maint": "2733680"},
+    {"floor": "50000000", "cap": "100000000", "max_leverage": 1, "mmr": "0.5", "maint": "15233680"}
+  ],
+  "AAPLUSDT": [
+    {"floor": "0", "cap": "100000", "max_leverage": 25, "mmr": "0.02", "maint": "0"},
+    {"floor": "100000", "cap": "200000", "max_leverage": 20, "mmr": "0.025", "maint": "500"},
+    {"floor": "200000", "cap": "500000", "max_leverage": 15, "mmr": "0.0333", "maint": "2160"},
+    {"floor": "500000", "cap": "2000000", "max_leverage": 10, "mmr": "0.05", "maint": "10510"},
+    {"floor": "2000000", "cap": "5000000", "max_leverage": 5, "mmr": "0.1", "maint": "110510"},
+    {"floor": "5000000", "cap": "10000000", "max_leverage": 4, "mmr": "0.125", "maint": "235510"},
+    {"floor": "10000000", "cap": "25000000", "max_leverage": 3, "mmr": "0.1667", "maint": "652510"},
+    {"floor": "25000000", "cap": "50000000", "max_leverage": 2, "mmr": "0.25", "maint": "2735010"},
+    {"floor": "50000000", "cap": "100000000", "max_leverage": 1, "mmr": "0.5", "maint": "15235010"}
+  ],
+  "PLTRUSDT": [
+    {"floor": "0", "cap": "100000", "max_leverage": 20, "mmr": "0.025", "maint": "0"},
+    {"floor": "100000", "cap": "500000", "max_leverage": 15, "mmr": "0.0333", "maint": "830"},
+    {"floor": "500000", "cap": "2000000", "max_leverage": 10, "mmr": "0.05", "maint": "9180"},
+    {"floor": "2000000", "cap": "5000000", "max_leverage": 5, "mmr": "0.1", "maint": "109180"},
+    {"floor": "5000000", "cap": "10000000", "max_leverage": 4, "mmr": "0.125", "maint": "234180"},
+    {"floor": "10000000", "cap": "25000000", "max_leverage": 3, "mmr": "0.1667", "maint": "651180"},
+    {"floor": "25000000", "cap": "50000000", "max_leverage": 2, "mmr": "0.25", "maint": "2733680"},
+    {"floor": "50000000", "cap": "100000000", "max_leverage": 1, "mmr": "0.5", "maint": "15233680"}
+  ],
+  "ORCLUSDT": [
+    {"floor": "0", "cap": "100000", "max_leverage": 20, "mmr": "0.025", "maint": "0"},
+    {"floor": "100000", "cap": "500000", "max_leverage": 15, "mmr": "0.0333", "maint": "830"},
+    {"floor": "500000", "cap": "2000000", "max_leverage": 10, "mmr": "0.05", "maint": "9180"},
+    {"floor": "2000000", "cap": "5000000", "max_leverage": 5, "mmr": "0.1", "maint": "109180"},
+    {"floor": "5000000", "cap": "10000000", "max_leverage": 4, "mmr": "0.125", "maint": "234180"},
+    {"floor": "10000000", "cap": "25000000", "max_leverage": 3, "mmr": "0.1667", "maint": "651180"},
+    {"floor": "25000000", "cap": "50000000", "max_leverage": 2, "mmr": "0.25", "maint": "2733680"},
+    {"floor": "50000000", "cap": "100000000", "max_leverage": 1, "mmr": "0.5", "maint": "15233680"}
+  ],
+  "BABAUSDT": [
+    {"floor": "0", "cap": "100000", "max_leverage": 20, "mmr": "0.025", "maint": "0"},
+    {"floor": "100000", "cap": "500000", "max_leverage": 15, "mmr": "0.0333", "maint": "830"},
+    {"floor": "500000", "cap": "2000000", "max_leverage": 10, "mmr": "0.05", "maint": "9180"},
+    {"floor": "2000000", "cap": "5000000", "max_leverage": 5, "mmr": "0.1", "maint": "109180"},
+    {"floor": "5000000", "cap": "10000000", "max_leverage": 4, "mmr": "0.125", "maint": "234180"},
+    {"floor": "10000000", "cap": "25000000", "max_leverage": 3, "mmr": "0.1667", "maint": "651180"},
+    {"floor": "25000000", "cap": "50000000", "max_leverage": 2, "mmr": "0.25", "maint": "2733680"},
+    {"floor": "50000000", "cap": "100000000", "max_leverage": 1, "mmr": "0.5", "maint": "15233680"}
+  ],
+  "TENCENTUSDT": [
+    {"floor": "0", "cap": "250000", "max_leverage": 25, "mmr": "0.02", "maint": "0"},
+    {"floor": "250000", "cap": "1000000", "max_leverage": 20, "mmr": "0.025", "maint": "1250"},
+    {"floor": "1000000", "cap": "2000000", "max_leverage": 15, "mmr": "0.0333", "maint": "9550"},
+    {"floor": "2000000", "cap": "5000000", "max_leverage": 10, "mmr": "0.05", "maint": "42950"},
+    {"floor": "5000000", "cap": "8000000", "max_leverage": 5, "mmr": "0.1", "maint": "292950"},
+    {"floor": "8000000", "cap": "15000000", "max_leverage": 4, "mmr": "0.125", "maint": "492950"},
+    {"floor": "15000000", "cap": "25000000", "max_leverage": 3, "mmr": "0.1667", "maint": "1118450"},
+    {"floor": "25000000", "cap": "50000000", "max_leverage": 2, "mmr": "0.25", "maint": "3200950"},
+    {"floor": "50000000", "cap": "200000000", "max_leverage": 1, "mmr": "0.5", "maint": "15700950"}
+  ],
+  "AVGOUSDT": [
+    {"floor": "0", "cap": "100000", "max_leverage": 20, "mmr": "0.025", "maint": "0"},
+    {"floor": "100000", "cap": "500000", "max_leverage": 15, "mmr": "0.0333", "maint": "830"},
+    {"floor": "500000", "cap": "2000000", "max_leverage": 10, "mmr": "0.05", "maint": "9180"},
+    {"floor": "2000000", "cap": "5000000", "max_leverage": 5, "mmr": "0.1", "maint": "109180"},
+    {"floor": "5000000", "cap": "10000000", "max_leverage": 4, "mmr": "0.125", "maint": "234180"},
+    {"floor": "10000000", "cap": "25000000", "max_leverage": 3, "mmr": "0.1667", "maint": "651180"},
+    {"floor": "25000000", "cap": "50000000", "max_leverage": 2, "mmr": "0.25", "maint": "2733680"},
+    {"floor": "50000000", "cap": "100000000", "max_leverage": 1, "mmr": "0.5", "maint": "15233680"}
+  ],
+  "TSMUSDT": [
+    {"floor": "0", "cap": "100000", "max_leverage": 20, "mmr": "0.025", "maint": "0"},
+    {"floor": "100000", "cap": "500000", "max_leverage": 15, "mmr": "0.0333", "maint": "830"},
+    {"floor": "500000", "cap": "2000000", "max_leverage": 10, "mmr": "0.05", "maint": "9180"},
+    {"floor": "2000000", "cap": "5000000", "max_leverage": 5, "mmr": "0.1", "maint": "109180"},
+    {"floor": "5000000", "cap": "10000000", "max_leverage": 4, "mmr": "0.125", "maint": "234180"},
+    {"floor": "10000000", "cap": "25000000", "max_leverage": 3, "mmr": "0.1667", "maint": "651180"},
+    {"floor": "25000000", "cap": "50000000", "max_leverage": 2, "mmr": "0.25", "maint": "2733680"},
+    {"floor": "50000000", "cap": "100000000", "max_leverage": 1, "mmr": "0.5", "maint": "15233680"}
+  ],
+  "ARMUSDT": [
+    {"floor": "0", "cap": "100000", "max_leverage": 20, "mmr": "0.025", "maint": "0"},
+    {"floor": "100000", "cap": "500000", "max_leverage": 15, "mmr": "0.0333", "maint": "830"},
+    {"floor": "500000", "cap": "2000000", "max_leverage": 10, "mmr": "0.05", "maint": "9180"},
+    {"floor": "2000000", "cap": "5000000", "max_leverage": 5, "mmr": "0.1", "maint": "109180"},
+    {"floor": "5000000", "cap": "10000000", "max_leverage": 4, "mmr": "0.125", "maint": "234180"},
+    {"floor": "10000000", "cap": "25000000", "max_leverage": 3, "mmr": "0.1667", "maint": "651180"},
+    {"floor": "25000000", "cap": "50000000", "max_leverage": 2, "mmr": "0.25", "maint": "2733680"},
+    {"floor": "50000000", "cap": "100000000", "max_leverage": 1, "mmr": "0.5", "maint": "15233680"}
+  ],
+  "INTCUSDT": [
+    {"floor": "0", "cap": "250000", "max_leverage": 25, "mmr": "0.02", "maint": "0"},
+    {"floor": "250000", "cap": "1000000", "max_leverage": 20, "mmr": "0.025", "maint": "1250"},
+    {"floor": "1000000", "cap": "2000000", "max_leverage": 15, "mmr": "0.0333", "maint": "9550"},
+    {"floor": "2000000", "cap": "5000000", "max_leverage": 10, "mmr": "0.05", "maint": "42950"},
+    {"floor": "5000000", "cap": "8000000", "max_leverage": 5, "mmr": "0.1", "maint": "292950"},
+    {"floor": "8000000", "cap": "15000000", "max_leverage": 4, "mmr": "0.125", "maint": "492950"},
+    {"floor": "15000000", "cap": "25000000", "max_leverage": 3, "mmr": "0.1667", "maint": "1118450"},
+    {"floor": "25000000", "cap": "50000000", "max_leverage": 2, "mmr": "0.25", "maint": "3200950"},
+    {"floor": "50000000", "cap": "200000000", "max_leverage": 1, "mmr": "0.5", "maint": "15700950"}
+  ],
+  "ASMLUSDT": [
+    {"floor": "0", "cap": "100000", "max_leverage": 20, "mmr": "0.025", "maint": "0"},
+    {"floor": "100000", "cap": "500000", "max_leverage": 15, "mmr": "0.0333", "maint": "830"},
+    {"floor": "500000", "cap": "2000000", "max_leverage": 10, "mmr": "0.05", "maint": "9180"},
+    {"floor": "2000000", "cap": "5000000", "max_leverage": 5, "mmr": "0.1", "maint": "109180"},
+    {"floor": "5000000", "cap": "10000000", "max_leverage": 4, "mmr": "0.125", "maint": "234180"},
+    {"floor": "10000000", "cap": "25000000", "max_leverage": 3, "mmr": "0.1667", "maint": "651180"},
+    {"floor": "25000000", "cap": "50000000", "max_leverage": 2, "mmr": "0.25", "maint": "2733680"},
+    {"floor": "50000000", "cap": "100000000", "max_leverage": 1, "mmr": "0.5", "maint": "15233680"}
   ]
 }

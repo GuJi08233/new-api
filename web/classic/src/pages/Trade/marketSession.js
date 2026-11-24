@@ -38,6 +38,22 @@ const MARKET_SESSIONS = {
     tz: 'Asia/Seoul',
     segments: [{ kind: 'open', from: H(9), to: H(15, 20) }],
   },
+  // 香港交易所：上午 09:30–12:00，下午 13:00–16:00，午休 12:00–13:00 算休市。香港没有夏令时。
+  hk: {
+    tz: 'Asia/Hong_Kong',
+    segments: [
+      { kind: 'open', from: H(9, 30), to: H(12) },
+      { kind: 'open', from: H(13), to: H(16) },
+    ],
+  },
+  // 沪深交易所(A 股)：上午 09:30–11:30，下午 13:00–15:00，午休 11:30–13:00 算休市。中国内地没有夏令时。
+  cn: {
+    tz: 'Asia/Shanghai',
+    segments: [
+      { kind: 'open', from: H(9, 30), to: H(11, 30) },
+      { kind: 'open', from: H(13), to: H(15) },
+    ],
+  },
   // CME Globex 的黄金与原油期货：周日 17:00(芝加哥)开到周五 16:00，每天 16:00–17:00 休息一小时。
   cme: {
     tz: 'America/Chicago',

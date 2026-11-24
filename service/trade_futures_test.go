@@ -566,3 +566,22 @@ func TestFuturesMarketOrderRejectsAStaleBook(t *testing.T) {
 	require.ErrorIs(t, err, ErrTradeMarketStale)
 	assert.Equal(t, tradeTestUsd("1000"), tradeTestCash(t, 4207))
 }
+
+// 每个配置的永续合约都必须有内置的风险限额档位快照，且档位从 0 起连续递增。
+func TestTradeFuturesBracketsSnapshotCoversAllFuturesSymbols(t *testing.T) {
+	for _, info := range operation_setting.TradeSymbols {
+		if info.Futures == "" {
+			continue
+		}
+		brackets := TradeFuturesBrackets(info.Futures)
+		require.NotEmpty(t, brackets, "missing risk brackets snapshot for %s", info.Futures)
+		assert.True(t, brackets[0].Floor.IsZero(), info.Futures)
+		for i, tier := range brackets {
+			assert.GreaterOrEqual(t, tier.MaxLeverage, 1, "%s tier %d", info.Futures, i)
+			assert.True(t, tier.Cap.GreaterThan(tier.Floor), "%s tier %d", info.Futures, i)
+			if i > 0 {
+				assert.True(t, tier.Floor.Equal(brackets[i-1].Cap), "%s tier %d floor continuity", info.Futures, i)
+			}
+		}
+	}
+}
