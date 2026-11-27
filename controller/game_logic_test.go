@@ -104,3 +104,30 @@ func TestFloodMoveUndoResetAndFinish(t *testing.T) {
 	assert.Equal(t, "finished", ended["status"])
 }
 
+func TestPipesRotateUndoAndRejectsBadMoves(t *testing.T) {
+	env := newGameTestEnv(t, gameSetting(func(s *operation_setting.GameSetting) { s.Pipes.Enabled = true }))
+	player := env.player(0, gameTestIpA)
+	started := player.ok(http.MethodPost, "/api/game/pipes/start", map[string]any{"difficulty": 1})
+	require.Len(t, started["tiles"].([]any), 25)
+	assert.Equal(t, 12.0, started["source"])
+	assert.Equal(t, false, started["won"])
+	move := func(view map[string]any, cell, dir int) map[string]any {
+		return map[string]any{"session_id": view["session_id"], "version": view["version"], "action": "move", "cell": cell, "dir": dir}
+	}
+
+	player.fails(http.MethodPost, "/api/game/pipes/action", move(started, 0, 2))
+	player.fails(http.MethodPost, "/api/game/pipes/action", move(started, 25, 0))
+
+	turned := player.ok(http.MethodPost, "/api/game/pipes/action", move(started, 0, 0))
+	assert.Equal(t, 1.0, turned["moves"])
+	assert.Equal(t, 0.0, turned["last"])
+	back := player.ok(http.MethodPost, "/api/game/pipes/action", move(turned, 0, 1))
+	assert.Equal(t, 2.0, back["moves"])
+	assert.Equal(t, started["tiles"], back["tiles"], "a clockwise turn followed by an anticlockwise turn restores the tile")
+
+	undone := player.ok(http.MethodPost, "/api/game/pipes/action", map[string]any{"session_id": back["session_id"], "version": back["version"], "action": "undo", "steps": 2})
+	assert.Equal(t, 0.0, undone["moves"])
+	assert.Equal(t, started["tiles"], undone["tiles"])
+	ended := player.ok(http.MethodPost, "/api/game/pipes/action", map[string]any{"session_id": undone["session_id"], "version": undone["version"], "action": "finish"})
+	assert.Equal(t, "finished", ended["status"])
+}

@@ -1472,6 +1472,50 @@ For commercial licensing, please contact support@quantumnous.com
   color: #fff;
   background: linear-gradient(135deg, #f43f5e, #f59e0b);
 }
+.games-reward-badge {
+  flex-shrink: 0;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 18px;
+  color: #b45309;
+  background: rgba(245, 158, 11, 0.16);
+}
+.games-reward-badge.is-done {
+  color: var(--semi-color-text-2);
+  background: var(--semi-color-fill-1);
+}
+.games-chip-count {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+  color: #fff;
+  background: #f59e0b;
+}
+.games-reward-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: -8px 0 18px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 13px;
+  color: #b45309;
+  background: rgba(245, 158, 11, 0.12);
+}
+.games-reward-summary.is-done {
+  color: var(--semi-color-text-2);
+  background: var(--semi-color-fill-0);
+}
+body[theme-mode='dark'] .games-reward-badge,
+body[theme-mode='dark'] .games-reward-summary:not(.is-done) {
+  color: #fcd34d;
+}
 .cover-pairlink {
   --cover-from: #f472b6;
   --cover-to: #0ea5e9;
@@ -1507,6 +1551,14 @@ For commercial licensing, please contact support@quantumnous.com
 .cover-match3 {
   --cover-from: #c084fc;
   --cover-to: #db2777;
+}
+.cover-flood {
+  --cover-from: #f59e0b;
+  --cover-to: #3b82f6;
+}
+.cover-pipes {
+  --cover-from: #38bdf8;
+  --cover-to: #0f766e;
 }
 .cover-landlord {
   --cover-from: #fca5a5;

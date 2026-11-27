@@ -40,8 +40,8 @@ func New(difficulty int, seed uint64) (*Game, error) {
 	cells := level.Size * level.Size
 	rng := rand.New(rand.NewPCG(seed, 73))
 
+	// 只接受贪心求解在步数上限内染满的棋盘；贪心解不出的盘不一定无解，但不能保证有解，宁可退回下面的保底盘。
 	var bestBoard []int
-	bestSteps := level.MaxMoves + 100
 	board := make([]int, cells)
 	for attempt := 0; attempt < 64; attempt++ {
 		for i := range board {
@@ -50,18 +50,13 @@ func New(difficulty int, seed uint64) (*Game, error) {
 		if regionCount(board, level.Size) >= cells {
 			continue
 		}
-		steps := greedySolve(board, level.Size, level.Colors, level.MaxMoves)
-		if steps <= level.MaxMoves {
+		if greedySolve(board, level.Size, level.Colors, level.MaxMoves) <= level.MaxMoves {
 			bestBoard = append([]int(nil), board...)
 			break
 		}
-		if steps < bestSteps {
-			bestSteps = steps
-			bestBoard = append([]int(nil), board...)
-		}
 	}
 	if bestBoard == nil {
-		// 极端情况下退回到确定性可解棋盘（按斜线分色，最多 Colors 步即可染满）。
+		// 极端情况下退回到确定性可解棋盘（按斜线分色，每步吞并一条斜线，2·Size−2 步染满，不超过各难度的步数上限）。
 		bestBoard = make([]int, cells)
 		for i := range bestBoard {
 			bestBoard[i] = ((i / level.Size) + (i % level.Size)) % level.Colors

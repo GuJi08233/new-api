@@ -73,6 +73,7 @@ export const getGameLevelNames = (t) => ({
   onestroke: ['5×5', '6×6', '7×7'],
   match3: [t('简单'), t('普通'), t('困难')],
   flood: ['8×8', '10×10', '12×12'],
+  pipes: ['5×5', '7×7', '9×9'],
   // 问道的成绩是九幽秘境打通的重数，读作「打通第 3 重」。
   wendao: Array.from({ length: 30 }, (_, i) =>
     t('第 {{act}} 重', { act: i + 1 }),
@@ -102,6 +103,7 @@ export const GAME_ORDER = [
   'onestroke',
   'match3',
   'flood',
+  'pipes',
   'wendao',
   'wendao_tournament',
   'gomoku',
@@ -151,6 +153,7 @@ export const GAME_SECTIONS = [
       'onestroke',
       'match3',
       'flood',
+      'pipes',
     ],
   },
   {
@@ -349,6 +352,14 @@ export const getGameMetaMap = (t) => ({
     kind: 'skill',
     name: t('色块漫染'),
     description: t('从左上角逐次染色扩张连通区域，在限定步数内把全盘染成一色'),
+    score: 'level',
+    scoreName: t('难度'),
+    isNew: true,
+  },
+  pipes: {
+    kind: 'skill',
+    name: t('接水管'),
+    description: t('旋转管道把中央水源接到每一个出水口，不能有漏水的管口'),
     score: 'level',
     scoreName: t('难度'),
     isNew: true,

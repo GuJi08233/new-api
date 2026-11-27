@@ -45,6 +45,8 @@ import {
   Search,
   Star,
   History,
+  Gift,
+  Shuffle,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { API, showError, showSuccess, timestamp2string } from '../../helpers';
@@ -143,6 +145,19 @@ function gameProgress(game, t, symbol) {
       );
   }
   return lines;
+}
+
+// 今天在这个游戏里还能领几次免费奖励：免费游戏看领奖次数，对战看人机奖励，下注游戏看免费旋转。没有免费奖励的游戏返回 -1，
+// 已经领满返回 0。游戏卡片的角标、「今日可领」筛选和顶部的汇总都用它。
+function rewardsLeft(game) {
+  if (!game.enabled) return -1;
+  if (game.kind === 'skill' && game.daily_rewards > 0)
+    return Math.max(game.daily_rewards - (game.rewards_today || 0), 0);
+  if (game.kind === 'pvp' && game.ai_enabled && game.ai_daily_rewards > 0)
+    return Math.max(game.ai_daily_rewards - (game.ai_rewards_today || 0), 0);
+  if (game.kind === 'wager' && game.free_spins > 0)
+    return Math.max(game.free_spins - (game.free_used_today || 0), 0);
+  return -1;
 }
 
 // 取浏览器里排名最靠前的 EVM 钱包(Rabby / MetaMask 等)，没有时提示安装。
@@ -259,6 +274,7 @@ const Games = () => {
     if (collection === 'favorites' && !favorites.includes(game.key))
       return false;
     if (collection === 'recent' && !recent.includes(game.key)) return false;
+    if (collection === 'rewards' && !(rewardsLeft(game) > 0)) return false;
     const meta = gameMetaMap[game.key];
     return (
       !searchText ||
@@ -269,6 +285,22 @@ const Games = () => {
   });
   if (collection === 'recent')
     shownGames.sort((a, b) => recent.indexOf(a.key) - recent.indexOf(b.key));
+  // 今天还剩的免费奖励：一共几次、分布在几款游戏里，以及有免费奖励的游戏是否都已领满。
+  const rewardGames = games.filter((game) => rewardsLeft(game) >= 0);
+  const claimableGames = rewardGames.filter((game) => rewardsLeft(game) > 0);
+  const claimableCount = claimableGames.reduce(
+    (sum, game) => sum + rewardsLeft(game),
+    0,
+  );
+  // 随机挑一款：优先在当前筛选结果里挑，筛选结果为空时在全部游戏里挑；优先还能领奖励的游戏。
+  const playRandomGame = () => {
+    const pool = shownGames.length > 0 ? shownGames : games;
+    const claimable = pool.filter((game) => rewardsLeft(game) > 0);
+    const candidates = claimable.length > 0 ? claimable : pool;
+    if (candidates.length === 0) return;
+    const pick = candidates[Math.floor(Math.random() * candidates.length)];
+    navigate(`/games/${pick.key}`);
+  };
   const showConverted = convertEnabled || (account?.total_converted || 0) > 0;
   // 下注、对战与奖池的累计输赢不计入累计获得，单独列出；没开放这些游戏、也没玩过时不显示。
   const wagerNet = account?.total_wager_net || 0;
@@ -1112,6 +1144,13 @@ const Games = () => {
             <div className='games-section-title'>{t('游戏列表')}</div>
             <Button
               className='games-lobby-link'
+              icon={<Shuffle size={16} />}
+              disabled={games.length === 0}
+              onClick={playRandomGame}
+            >
+              {t('随机一款')}
+            </Button>
+            <Button
               icon={<Users size={16} />}
               onClick={() => navigate('/games/lobby')}
             >
@@ -1143,6 +1182,7 @@ const Games = () => {
                   <div className='games-library-tabs'>
                     {[
                       ['all', t('全部游戏'), Gamepad2],
+                      ['rewards', t('今日可领'), Gift],
                       ['favorites', t('我的收藏'), Star],
                       ['recent', t('最近游玩'), History],
                     ].map(([value, label, Icon]) => (
@@ -1155,10 +1195,33 @@ const Games = () => {
                       >
                         <Icon size={14} />
                         {label}
+                        {value === 'rewards' && claimableGames.length > 0 && (
+                          <span className='games-chip-count'>
+                            {claimableGames.length}
+                          </span>
+                        )}
                       </button>
                     ))}
                   </div>
                 </div>
+                {rewardGames.length > 0 && (
+                  <div
+                    className={`games-reward-summary${claimableCount > 0 ? '' : ' is-done'}`}
+                  >
+                    <Gift size={16} />
+                    <span>
+                      {claimableCount > 0
+                        ? t(
+                            '今天还能领 {{count}} 次免费奖励，分布在 {{games}} 款游戏里',
+                            {
+                              count: claimableCount,
+                              games: claimableGames.length,
+                            },
+                          )
+                        : t('今天的免费奖励已经全部领完，明天再来')}
+                    </span>
+                  </div>
+                )}
                 {kinds.length > 1 && (
                   <div className='games-kind-filter'>
                     {['all', ...kinds].map((kind) => (
@@ -1188,12 +1251,16 @@ const Games = () => {
                     <strong>
                       {collection === 'favorites' && !query
                         ? t('还没有收藏游戏')
-                        : t('没有找到匹配的游戏')}
+                        : collection === 'rewards' && !query
+                          ? t('今天没有可领的免费奖励了')
+                          : t('没有找到匹配的游戏')}
                     </strong>
                     <p>
                       {collection === 'favorites'
                         ? t('点击游戏卡片上的星标，把喜欢的游戏放在一起')
-                        : t('换个关键词或清除筛选再试试')}
+                        : collection === 'rewards'
+                          ? t('免费奖励每天按服务器时间 0 点刷新')
+                          : t('换个关键词或清除筛选再试试')}
                     </p>
                     <Button
                       onClick={() => {
@@ -1224,6 +1291,7 @@ const Games = () => {
                         {sectionGames.map((game) => {
                           const meta = gameMetaMap[game.key];
                           const Icon = GAME_ICONS[game.key] || Gamepad2;
+                          const left = rewardsLeft(game);
                           return (
                             <article
                               className='games-card-shell'
@@ -1248,6 +1316,16 @@ const Games = () => {
                                     {meta.isNew && (
                                       <span className='games-new-badge'>
                                         {t('新')}
+                                      </span>
+                                    )}
+                                    {left > 0 && (
+                                      <span className='games-reward-badge'>
+                                        {t('可领 {{count}}', { count: left })}
+                                      </span>
+                                    )}
+                                    {left === 0 && (
+                                      <span className='games-reward-badge is-done'>
+                                        {t('已领满')}
                                       </span>
                                     )}
                                     <span

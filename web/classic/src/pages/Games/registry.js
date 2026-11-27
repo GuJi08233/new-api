@@ -56,6 +56,7 @@ import {
   Flag,
   MountainSnow,
   PaintBucket,
+  Droplets,
 } from 'lucide-react';
 
 // 每个游戏的页面组件(按需加载)与在游戏中心里的图标。键与 constants/game.constants.js 的游戏标识一致，
@@ -81,6 +82,7 @@ export const GAME_PAGES = {
   onestroke: lazy(() => import('./onestroke')),
   match3: lazy(() => import('./match3')),
   flood: lazy(() => import('./flood')),
+  pipes: lazy(() => import('./pipes')),
   wendao: lazy(() => import('./wendao')),
   gomoku: lazy(() => import('./gomoku')),
   connect4: lazy(() => import('./connect4')),
@@ -127,6 +129,7 @@ export const GAME_ICONS = {
   onestroke: PenLine,
   match3: Sparkle,
   flood: PaintBucket,
+  pipes: Droplets,
   wendao: MountainSnow,
   gomoku: Circle,
   connect4: LayoutGrid,

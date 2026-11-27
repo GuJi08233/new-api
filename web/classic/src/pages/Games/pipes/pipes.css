@@ -1,0 +1,218 @@
+/*
+Copyright (C) 2025 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+
+.pipes-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+.pipes-board {
+  display: grid;
+  grid-template-columns: repeat(var(--pipes-size), minmax(0, 1fr));
+  gap: 3px;
+  width: min(100%, 460px);
+  aspect-ratio: 1;
+  padding: 8px;
+  border-radius: 16px;
+  background: linear-gradient(160deg, #0f172a, #1e293b);
+  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.18);
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.pipes-board.is-lock-mode {
+  box-shadow:
+    inset 0 0 0 1px rgba(148, 163, 184, 0.18),
+    0 0 0 3px rgba(250, 204, 21, 0.45);
+}
+
+.pipes-cell {
+  position: relative;
+  display: block;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: rgba(30, 41, 59, 0.9);
+  cursor: pointer;
+  transition: background 160ms ease;
+  --pipe-color: #64748b;
+  --pipe-core: #94a3b8;
+}
+
+.pipes-cell:hover:not(:disabled) {
+  background: rgba(51, 65, 85, 0.95);
+}
+
+.pipes-cell:disabled {
+  cursor: default;
+}
+
+.pipes-cell:focus-visible {
+  outline: 2px solid #38bdf8;
+  outline-offset: 1px;
+}
+
+.pipes-cell.is-lit {
+  --pipe-color: #0284c7;
+  --pipe-core: #7dd3fc;
+}
+
+.pipes-cell.is-locked {
+  background: rgba(15, 23, 42, 0.95);
+  box-shadow: inset 0 0 0 1px rgba(250, 204, 21, 0.4);
+}
+
+.pipes-tile {
+  position: absolute;
+  inset: 0;
+  display: block;
+}
+
+.pipes-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  overflow: visible;
+}
+
+.pipes-arm {
+  stroke: var(--pipe-color);
+  stroke-width: 24;
+  transition: stroke 200ms ease;
+}
+
+.pipes-core {
+  stroke: var(--pipe-core);
+  stroke-width: 7;
+  stroke-linecap: round;
+  transition: stroke 200ms ease;
+}
+
+.pipes-joint {
+  fill: var(--pipe-color);
+  transition: fill 200ms ease;
+}
+
+.pipes-source {
+  fill: #0369a1;
+  stroke: #e0f2fe;
+  stroke-width: 4;
+}
+
+.pipes-source-ring {
+  fill: none;
+  stroke: #bae6fd;
+  stroke-width: 4;
+  stroke-dasharray: 6 5;
+  transform-origin: 50px 50px;
+  animation: pipes-source-spin 6s linear infinite;
+}
+
+.pipes-outlet {
+  fill: #475569;
+  stroke: #cbd5e1;
+  stroke-width: 4;
+  transition:
+    fill 200ms ease,
+    stroke 200ms ease;
+}
+
+.pipes-cell.is-lit .pipes-outlet {
+  fill: #22c55e;
+  stroke: #dcfce7;
+}
+
+.pipes-lock-icon {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  color: #facc15;
+  pointer-events: none;
+}
+
+.pipes-tile.spin-cw {
+  animation: pipes-spin-cw 160ms ease-out;
+}
+
+.pipes-tile.spin-ccw {
+  animation: pipes-spin-ccw 160ms ease-out;
+}
+
+.pipes-board.is-won .pipes-cell {
+  animation: pipes-won-wave 900ms ease-out both;
+  animation-delay: var(--pipes-delay, 0ms);
+}
+
+.pipes-leaky {
+  color: #ef4444;
+}
+
+@keyframes pipes-spin-cw {
+  from {
+    transform: rotate(-90deg);
+  }
+  to {
+    transform: rotate(0deg);
+  }
+}
+
+@keyframes pipes-spin-ccw {
+  from {
+    transform: rotate(90deg);
+  }
+  to {
+    transform: rotate(0deg);
+  }
+}
+
+@keyframes pipes-source-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes pipes-won-wave {
+  0% {
+    background: rgba(30, 41, 59, 0.9);
+  }
+  40% {
+    background: rgba(14, 165, 233, 0.55);
+  }
+  100% {
+    background: rgba(30, 41, 59, 0.9);
+  }
+}
+
+@media (max-width: 480px) {
+  .pipes-board {
+    gap: 2px;
+    padding: 5px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pipes-tile.spin-cw,
+  .pipes-tile.spin-ccw,
+  .pipes-source-ring,
+  .pipes-board.is-won .pipes-cell {
+    animation: none;
+  }
+}

@@ -15,6 +15,7 @@ import (
 	"github.com/QuantumNous/new-api/pkg/match3"
 	"github.com/QuantumNous/new-api/pkg/nonogram"
 	"github.com/QuantumNous/new-api/pkg/onestroke"
+	"github.com/QuantumNous/new-api/pkg/pipes"
 	"github.com/QuantumNous/new-api/pkg/twentyfour"
 	"github.com/QuantumNous/new-api/pkg/watersort"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -22,7 +23,7 @@ import (
 )
 
 // logicPuzzleState 只保存难度与合法操作，局面从会话种子重建；撤销和重置不相信客户端传来的盘面。Inputs 是格子、走法这类
-// 数字操作(熄灯、汉诺塔、数织、倒水排序、一笔画、宝石消除)，Answers 是文字操作(24 点的算式与跳过、猜数字的每一次猜测)。
+// 数字操作(熄灯、汉诺塔、数织、倒水排序、一笔画、宝石消除、色块漫染、接水管)，Answers 是文字操作(24 点的算式与跳过、猜数字的每一次猜测)。
 type logicPuzzleState struct {
 	Difficulty int      `json:"difficulty"`
 	Inputs     []int    `json:"inputs"`
@@ -48,6 +49,7 @@ var logicPuzzles = map[string]logicPuzzle{
 	"onestroke":  {name: "一笔画", undoable: true, secondsPerStep: 6},
 	"match3":     {name: "宝石消除", secondsPerStep: 20},
 	"flood":      {name: "色块漫染", undoable: true, secondsPerStep: 12},
+	"pipes":      {name: "接水管", undoable: true, secondsPerStep: 5},
 }
 
 // onestrokeMaxBatch 是一笔画一次请求最多连走几格：页面在手指划过时先画在本地，松手后把这一段一起提交。
@@ -57,7 +59,7 @@ const onestrokeMaxBatch = onestroke.MaxSize * onestroke.MaxSize
 const twentyfourSkip = "skip"
 
 func init() {
-	for _, key := range []string{"lightsout", "hanoi", "nonogram", "twentyfour", "bulls", "watersort", "onestroke", "match3", "flood"} {
+	for _, key := range []string{"lightsout", "hanoi", "nonogram", "twentyfour", "bulls", "watersort", "onestroke", "match3", "flood", "pipes"} {
 		registerGame(&gameDefinition{Key: key, Kind: operation_setting.GameKindSkill,
 			Info: func(ctx *gameContext) (gin.H, error) {
 				rule, _ := ctx.Setting.SkillRuleOf(key)
@@ -68,6 +70,9 @@ func init() {
 				}
 				if err == nil && key == "flood" {
 					info["levels"] = flood.Levels
+				}
+				if err == nil && key == "pipes" {
+					info["levels"] = pipes.Levels
 				}
 				return info, err
 			},
@@ -181,6 +186,22 @@ func logicPuzzleView(key string, session *model.GameSession, state logicPuzzleSt
 		view["board"], view["size"], view["colors"] = game.Board, game.Size, game.Colors
 		view["captured"], view["max_moves"], view["moves_left"] = game.Captured(), game.MaxMoves, game.MovesLeft()
 		view["won"], view["over"] = game.Solved(), game.Over()
+	case "pipes":
+		game, err := pipes.New(state.Difficulty, uint64(session.Seed))
+		if err != nil || len(state.Inputs) > pipes.MaxMoves {
+			return nil, pipes.ErrMove
+		}
+		// 每一步编码为 格子×2+方向(0 顺时针、1 逆时针)。
+		for _, move := range state.Inputs {
+			if err := game.Rotate(move/2, move%2 == 0); err != nil {
+				return nil, err
+			}
+		}
+		view["size"], view["source"], view["tiles"], view["lit"] = game.Size, game.Source, game.Tiles, game.Lit()
+		view["leaks"], view["par"], view["won"], view["max_moves"] = game.Leaks(), game.Par, game.Solved(), pipes.MaxMoves
+		if n := len(state.Inputs); n > 0 {
+			view["last"] = state.Inputs[n-1] / 2
+		}
 	case "twentyfour":
 		game, err := twentyfour.New(state.Difficulty, uint64(session.Seed))
 		if err != nil {
@@ -318,7 +339,7 @@ func actLogicPuzzle(c *gin.Context, key string) {
 		Color     *int   `json:"color"`
 		From      *int   `json:"from"`
 		To        *int   `json:"to"`
-		// Cells 是一笔画一次连走的几格，Dir 是宝石消除交换的方向(0 右边、1 下面)，Steps 是一次撤销几步(默认一步)。
+		// Cells 是一笔画一次连走的几格，Dir 是宝石消除交换的方向(0 右边、1 下面)或接水管转动的方向(0 顺时针、1 逆时针)，Steps 是一次撤销几步(默认一步)。
 		Cells []int `json:"cells"`
 		Dir   *int  `json:"dir"`
 		Steps *int  `json:"steps"`
@@ -384,6 +405,20 @@ func actLogicPuzzle(c *gin.Context, key string) {
 				return
 			}
 			state.Inputs = append(state.Inputs, *req.Color)
+		case "pipes":
+			if req.Cell == nil || *req.Cell < 0 || *req.Cell >= pipes.MaxSize*pipes.MaxSize {
+				common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+				return
+			}
+			dir := 0
+			if req.Dir != nil {
+				dir = *req.Dir
+			}
+			if dir < 0 || dir > 1 {
+				common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+				return
+			}
+			state.Inputs = append(state.Inputs, *req.Cell*2+dir)
 		default:
 			common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 			return
