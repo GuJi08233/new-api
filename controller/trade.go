@@ -231,6 +231,18 @@ func tradeSelfView(userId int) (gin.H, error) {
 		"leaderboard":          setting.Enabled && setting.LeaderboardEnabled,
 		"insights":             setting.Enabled && setting.InsightsEnabled,
 		"prediction":           setting.Enabled && setting.PredictionEnabled,
+		"short_events": gin.H{
+			"enabled":        setting.Enabled && setting.ShortEventsEnabled,
+			"fee_bps":        setting.ShortEventFeeBps,
+			"payout_bps":     setting.ShortEventPayoutBps,
+			"max_order_usd":  setting.ShortEventMaxOrderUsd,
+			"max_active_usd": setting.ShortEventMaxActiveUsd,
+		},
+		"sprint": gin.H{
+			"enabled":       setting.Enabled && setting.SprintEnabled,
+			"entry_fee_usd": setting.SprintEntryFeeUsd,
+			"fee_bps":       setting.SprintFeeBps,
+		},
 		"spot":                 tradeSpotSettings(setting),
 		"futures": gin.H{
 			"enabled":          setting.Enabled && setting.FuturesEnabled,
@@ -356,7 +368,7 @@ func GetTradeMarket(c *gin.Context) {
 	items := make([]gin.H, 0, len(infos))
 	for i, info := range infos {
 		item := gin.H{"symbol": info.Symbol, "ticker": info.Ticker, "kind": info.Kind, "session": info.Session,
-			"open": setting.Enabled && setting.SymbolEnabled(info.Symbol)}
+			"futures": info.Futures, "open": setting.Enabled && setting.SymbolEnabled(info.Symbol)}
 		if quote, ok := market.Quote(info.Symbol); ok {
 			item["quote"] = quote
 		}

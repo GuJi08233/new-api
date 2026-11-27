@@ -76,6 +76,12 @@ const OrderBook = ({
 
   const recent = (trades || []).slice(-21).reverse();
 
+  const bestAsk = asks.length ? Number(asks[asks.length - 1][0]) : 0;
+  const bestBid = bids.length ? Number(bids[0][0]) : 0;
+  const spread =
+    bestAsk > 0 && bestBid > 0 && bestAsk >= bestBid ? bestAsk - bestBid : 0;
+  const spreadPct = bestAsk > 0 && spread > 0 ? (spread / bestAsk) * 100 : 0;
+
   return (
     <div className='trade-card flex flex-col gap-1'>
       <div className='flex items-center justify-between gap-2'>
@@ -142,10 +148,19 @@ const OrderBook = ({
           ) : (
             <>
               {asks.map((level) => row(level, 'ask'))}
-              <div className='py-1 text-center'>
-                <Text strong className='trade-num'>
+              <div className='my-1 flex items-center justify-between rounded-md bg-[var(--semi-color-fill-0)] px-2 py-1'>
+                <Text strong className='trade-num text-sm'>
                   {formatPrice(lastPrice, priceDigits)}
                 </Text>
+                {spread > 0 && (
+                  <Text
+                    type='tertiary'
+                    size='small'
+                    className='trade-num !text-[11px]'
+                  >
+                    {t('价差')} {spreadPct.toFixed(3)}%
+                  </Text>
+                )}
               </div>
               {bids.map((level) => row(level, 'bid'))}
             </>

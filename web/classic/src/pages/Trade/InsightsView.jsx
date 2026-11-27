@@ -33,6 +33,7 @@ import {
 import { ExternalLink, RefreshCw } from 'lucide-react';
 import { timestamp2string } from '../../helpers';
 import { formatPrice, formatQty, tradeGet } from './api';
+import { formatSymbolLabel, getSymbolName } from './symbols';
 
 const { Text } = Typography;
 const PAGE_SIZE = 20;
@@ -178,7 +179,12 @@ const InsightsPanel = ({ kind, t }) => {
     minWidth = 950;
   } else if (kind === 'liquidations') {
     columns = [
-      { title: t('交易对'), dataIndex: 'symbol', width: 140 },
+      {
+        title: t('交易品种'),
+        dataIndex: 'symbol',
+        width: 180,
+        render: (value) => formatSymbolLabel(value, t),
+      },
       {
         title: t('被强平方向'),
         dataIndex: 'side',
@@ -223,7 +229,12 @@ const InsightsPanel = ({ kind, t }) => {
     minWidth = 900;
   } else if (kind === 'whales') {
     columns = [
-      { title: t('币种'), dataIndex: 'coin', width: 90 },
+      {
+        title: t('币种'),
+        dataIndex: 'coin',
+        width: 140,
+        render: (value) => formatSymbolLabel(value, t),
+      },
       ...[
         ['long_notional', '样本多仓价值'],
         ['short_notional', '样本空仓价值'],
@@ -240,8 +251,15 @@ const InsightsPanel = ({ kind, t }) => {
     ];
   } else if (kind === 'companies') {
     columns = [
-      { title: t('代码'), dataIndex: 'ticker', width: 90 },
-      { title: t('公司/基金名称'), dataIndex: 'name', width: 260 },
+      { title: t('代码'), dataIndex: 'ticker', width: 96 },
+      {
+        title: t('中文 / 简称'),
+        dataIndex: 'ticker',
+        key: 'display_name',
+        width: 140,
+        render: (ticker) => <Text strong>{getSymbolName(ticker, t)}</Text>,
+      },
+      { title: t('公司/基金全称'), dataIndex: 'name', width: 240 },
       { title: t('行业'), dataIndex: 'industry', width: 200 },
       {
         title: t('资料日期'),

@@ -17,17 +17,27 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React, { useMemo, useState } from 'react';
+import React, { memo, useMemo, useState } from 'react';
 import {
   Button,
   Input,
   Radio,
   RadioGroup,
+  Select,
   Table,
   Tag,
   Typography,
 } from '@douyinfe/semi-ui';
-import { Flame, Search, Star, TrendingUp, BarChart3 } from 'lucide-react';
+import {
+  BarChart3,
+  Flame,
+  LayoutGrid,
+  List,
+  Search,
+  Star,
+  TrendingDown,
+  TrendingUp,
+} from 'lucide-react';
 import {
   changePercent,
   decimalsOf,
@@ -36,55 +46,100 @@ import {
   formatPrice,
   trendClass,
 } from './api';
+import SymbolIdentity, { SymbolAvatar } from './SymbolIdentity';
+import {
+  TRADE_SECTORS,
+  getSymbolName,
+  matchesSymbolQuery,
+  readTradeFavorites,
+  resolveSymbolMeta,
+  writeTradeFavorites,
+} from './symbols';
 
 const { Text, Title } = Typography;
 
-const FAV_STORAGE_KEY = 'trade-favorites:v1';
+const VIEW_STORAGE_KEY = 'trade-market-view:v1';
 
-function readFavorites(key) {
+function readViewMode() {
   try {
-    const raw = window.localStorage.getItem(key);
-    const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed : [];
+    const raw = window.localStorage.getItem(VIEW_STORAGE_KEY);
+    return raw === 'cards' ? 'cards' : 'table';
   } catch {
-    return [];
+    return 'table';
   }
 }
 
-// 最近 24 小时的小时收盘价画成的迷你走势，首尾比较决定颜色。
-const Sparkline = ({ closes }) => {
+const SESSION_REGION_LABELS = {
+  us: '美股',
+  hk: '港股',
+  cn: 'A股',
+  krx: '韩股',
+  premarket: 'Pre-IPO',
+  cme: 'CME',
+};
+
+// 最近 24 小时的小时收盘价迷你走势图，带柔和面积渐变填充。
+const Sparkline = memo(({ closes, width = 96, height = 30 }) => {
   const values = (closes || []).map(Number).filter(Number.isFinite);
   if (values.length < 2) return <span className='trade-muted'>--</span>;
-  const width = 96;
-  const height = 28;
   const lowest = Math.min(...values);
   const range = Math.max(...values) - lowest || 1;
-  const points = values
-    .map(
-      (value, i) =>
-        `${((i / (values.length - 1)) * width).toFixed(1)},${(height - ((value - lowest) / range) * height).toFixed(1)}`,
-    )
-    .join(' ');
+  const padY = 2;
+  const innerH = height - padY * 2;
+  const coords = values.map((value, i) => [
+    Number(((i / (values.length - 1)) * width).toFixed(1)),
+    Number((padY + innerH - ((value - lowest) / range) * innerH).toFixed(1)),
+  ]);
+  const linePoints = coords.map(([x, y]) => `${x},${y}`).join(' ');
+  const areaPoints = `0,${height} ${linePoints} ${width},${height}`;
   const up = values[values.length - 1] >= values[0];
+  const color = up ? 'var(--semi-color-success)' : 'var(--semi-color-danger)';
   return (
     <svg
       width={width}
       height={height}
       viewBox={`0 0 ${width} ${height}`}
       aria-hidden='true'
+      className='shrink-0'
     >
+      <polygon points={areaPoints} fill={color} fillOpacity='0.12' />
       <polyline
-        points={points}
+        points={linePoints}
         fill='none'
-        strokeWidth='1.5'
-        stroke={up ? 'var(--semi-color-success)' : 'var(--semi-color-danger)'}
+        strokeWidth='1.6'
+        strokeLinecap='round'
+        strokeLinejoin='round'
+        stroke={color}
       />
     </svg>
   );
+});
+
+// 24 小时价格区间可视化条：标示最新价落在当日最低与最高之间的位置。
+const RangeBar = ({ price, low, high, digits }) => {
+  const p = Number(price);
+  const l = Number(low);
+  const h = Number(high);
+  if (!Number.isFinite(p) || !Number.isFinite(l) || !Number.isFinite(h)) {
+    return <span className='trade-muted'>--</span>;
+  }
+  const ratio =
+    h > l ? Math.min(100, Math.max(0, ((p - l) / (h - l)) * 100)) : 50;
+  return (
+    <div className='trade-range-cell'>
+      <div className='flex justify-between gap-2 text-[11px] trade-num text-[var(--semi-color-text-2)]'>
+        <span>{formatPrice(low, digits)}</span>
+        <span>{formatPrice(high, digits)}</span>
+      </div>
+      <div className='trade-range-track'>
+        <span className='trade-range-fill' style={{ width: `${ratio}%` }} />
+        <span className='trade-range-dot' style={{ left: `${ratio}%` }} />
+      </div>
+    </div>
+  );
 };
 
-// compareQuotes 按数值比较两个行情字段。没有行情的不论升序降序都排在最后，不当成 0 混进前面；Semi 的表格降序时会把比较结果
-// 取反，所以这里按 order 先反一次。
+// compareQuotes 按数值比较两个行情字段。没有行情的不论升序降序都排在最后。
 function compareQuotes(leftValue, rightValue, order) {
   const left =
     leftValue === undefined || leftValue === null || leftValue === ''
@@ -104,15 +159,131 @@ function compareQuotes(leftValue, rightValue, order) {
   return left - right;
 }
 
-// 行情列表：加密货币、美股与大宗商品分组，价格随推送实时变化，点一行进入交易。futures 为真时列的是永续合约，多出标记价格、
-// 资金费率与最高杠杆，暂停开仓(只能平仓)的合约标出来。可以按代码搜索，点列头按价格、涨跌幅、成交额(合约还有资金费率)排序。
+const MarketCard = memo(
+  ({ item, quote, futures, isFav, onToggleFav, onOpen, t }) => {
+    const digits = decimalsOf(item.rules?.tick_size);
+    const change = changePercent(quote?.price, quote?.open);
+    const cls = change === null ? 'trade-flat' : trendClass(change);
+    const region = item.session ? SESSION_REGION_LABELS[item.session] : '';
+
+    return (
+      <div
+        role='button'
+        tabIndex={0}
+        className='trade-market-card'
+        onClick={() => onOpen(item.symbol)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            onOpen(item.symbol);
+          }
+        }}
+      >
+        <div className='flex items-start justify-between gap-2'>
+          <SymbolIdentity item={item} futures={futures} size={34} t={t} />
+          <button
+            type='button'
+            className={`trade-fav-btn shrink-0${isFav ? ' is-fav' : ''}`}
+            aria-label={isFav ? t('取消自选') : t('加入自选')}
+            onClick={(event) => onToggleFav(item.symbol, event)}
+          >
+            <Star size={14} fill={isFav ? 'currentColor' : 'none'} />
+          </button>
+        </div>
+
+        <div className='flex items-end justify-between gap-2'>
+          <div className='flex flex-col gap-1 min-w-0'>
+            <span
+              className={`trade-num text-lg font-bold leading-none ${trendClass(change)}`}
+            >
+              {formatPrice(quote?.price, digits)}
+            </span>
+            <div className='flex flex-wrap items-center gap-1'>
+              <span className={`trade-change-pill ${cls}`}>
+                {change === null
+                  ? '--'
+                  : `${change > 0 ? '+' : ''}${change.toFixed(2)}%`}
+              </span>
+              {futures && item.max_leverage && (
+                <Tag
+                  size='small'
+                  color='blue'
+                  className='!text-[10px] !px-1.5 !leading-4'
+                >
+                  {item.max_leverage}x
+                </Tag>
+              )}
+              {region && (
+                <Tag
+                  size='small'
+                  color='violet'
+                  type='light'
+                  className='!text-[10px] !px-1.5 !leading-4'
+                >
+                  {t(region)}
+                </Tag>
+              )}
+              {futures && !item.open && (
+                <Tag
+                  size='small'
+                  color='grey'
+                  className='!text-[10px] !px-1.5 !leading-4'
+                >
+                  {t('仅可平仓')}
+                </Tag>
+              )}
+            </div>
+          </div>
+          <Sparkline closes={item.sparkline} width={88} height={32} />
+        </div>
+
+        <div className='flex items-center justify-between gap-2 border-t border-[var(--semi-color-border)] pt-2 text-xs trade-num text-[var(--semi-color-text-2)]'>
+          <span>
+            {t('成交额')} {formatCompact(quote?.quote_volume)}
+          </span>
+          {futures ? (
+            <span
+              className={
+                Number(quote?.funding_rate || 0) > 0
+                  ? 'trade-up'
+                  : Number(quote?.funding_rate || 0) < 0
+                    ? 'trade-down'
+                    : ''
+              }
+            >
+              {t('资金费')} {formatFundingRate(quote?.funding_rate)}
+            </span>
+          ) : (
+            <span>
+              {formatPrice(quote?.low, digits)} ~{' '}
+              {formatPrice(quote?.high, digits)}
+            </span>
+          )}
+        </div>
+      </div>
+    );
+  },
+);
+
+// 行情列表：按板块(大模型、AI 算力、半导体、科技巨头、加密货币、大宗商品)直观分组，
+// 全品种展示中文/品牌全名，支持卡片/列表双视图、自选收藏、中英文别名搜索与多维排序。
 const MarketList = ({ symbols, quotes, futures = false, onOpen, t }) => {
-  const storageKey = `${FAV_STORAGE_KEY}:${futures ? 'futures' : 'spot'}`;
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState('all');
-  const [favorites, setFavorites] = useState(() => readFavorites(storageKey));
+  const [viewMode, setViewMode] = useState(readViewMode);
+  const [cardSort, setCardSort] = useState('default');
+  const [favorites, setFavorites] = useState(() => readTradeFavorites(futures));
 
   const favSet = useMemo(() => new Set(favorites), [favorites]);
+
+  const changeViewMode = (mode) => {
+    setViewMode(mode);
+    try {
+      window.localStorage.setItem(VIEW_STORAGE_KEY, mode);
+    } catch {
+      // 忽略本地存储异常
+    }
+  };
 
   const toggleFavorite = (symbol, event) => {
     event.stopPropagation();
@@ -120,21 +291,25 @@ const MarketList = ({ symbols, quotes, futures = false, onOpen, t }) => {
       const next = prev.includes(symbol)
         ? prev.filter((item) => item !== symbol)
         : [...prev, symbol];
-      try {
-        window.localStorage.setItem(storageKey, JSON.stringify(next));
-      } catch {
-        // 浏览器禁用本地存储时仅在当前会话生效
-      }
+      writeTradeFavorites(futures, next);
       return next;
     });
   };
 
-  const overview = useMemo(() => {
+  // 单次遍历汇总涨跌分布、领涨、领跌、最热成交与各板块数量。
+  const { overview, sectorCounts } = useMemo(() => {
     let upCount = 0;
     let downCount = 0;
     let topGainer = null;
+    let topLoser = null;
     let topVolume = null;
+    const counts = new Map();
+
     for (const item of symbols) {
+      const meta = resolveSymbolMeta(item);
+      const secKey = meta?.sector || item.kind;
+      counts.set(secKey, (counts.get(secKey) || 0) + 1);
+
       const quote = quotes[item.symbol];
       if (!quote) continue;
       const change = changePercent(quote.price, quote.open);
@@ -144,6 +319,9 @@ const MarketList = ({ symbols, quotes, futures = false, onOpen, t }) => {
         if (!topGainer || change > topGainer.change) {
           topGainer = { item, quote, change };
         }
+        if (!topLoser || change < topLoser.change) {
+          topLoser = { item, quote, change };
+        }
       }
       const vol = Number(quote.quote_volume || 0);
       if (Number.isFinite(vol) && vol > 0) {
@@ -152,20 +330,61 @@ const MarketList = ({ symbols, quotes, futures = false, onOpen, t }) => {
         }
       }
     }
-    return { upCount, downCount, topGainer, topVolume };
+
+    return {
+      overview: { upCount, downCount, topGainer, topLoser, topVolume },
+      sectorCounts: counts,
+    };
   }, [symbols, quotes]);
 
-  const keyword = query.trim().toUpperCase();
-  const matched = symbols.filter((item) => {
-    if (category === 'favorites' && !favSet.has(item.symbol)) return false;
-    if (category !== 'all' && category !== 'favorites' && item.kind !== category)
-      return false;
-    if (!keyword) return true;
-    return (
-      item.ticker?.toUpperCase().includes(keyword) ||
-      item.symbol?.toUpperCase().includes(keyword)
-    );
-  });
+  const activeSectors = useMemo(
+    () =>
+      TRADE_SECTORS.filter((sector) => (sectorCounts.get(sector.key) || 0) > 0),
+    [sectorCounts],
+  );
+
+  const matched = useMemo(() => {
+    const list = symbols.filter((item) => {
+      if (category === 'favorites' && !favSet.has(item.symbol)) return false;
+      if (category !== 'all' && category !== 'favorites') {
+        const meta = resolveSymbolMeta(item);
+        if ((meta?.sector || item.kind) !== category) return false;
+      }
+      return matchesSymbolQuery(item, query, t);
+    });
+
+    if (viewMode !== 'cards' || cardSort === 'default') return list;
+
+    return [...list].sort((a, b) => {
+      if (cardSort === 'gainers') {
+        return compareQuotes(
+          changePercent(quotes[b.symbol]?.price, quotes[b.symbol]?.open),
+          changePercent(quotes[a.symbol]?.price, quotes[a.symbol]?.open),
+          'ascend',
+        );
+      }
+      if (cardSort === 'losers') {
+        return compareQuotes(
+          changePercent(quotes[a.symbol]?.price, quotes[a.symbol]?.open),
+          changePercent(quotes[b.symbol]?.price, quotes[b.symbol]?.open),
+          'ascend',
+        );
+      }
+      if (cardSort === 'volume') {
+        return compareQuotes(
+          quotes[b.symbol]?.quote_volume,
+          quotes[a.symbol]?.quote_volume,
+          'ascend',
+        );
+      }
+      return compareQuotes(
+        quotes[b.symbol]?.price,
+        quotes[a.symbol]?.price,
+        'ascend',
+      );
+    });
+  }, [symbols, category, favSet, query, t, viewMode, cardSort, quotes]);
+
   const byQuote = (field) => (a, b, order) =>
     compareQuotes(quotes[a.symbol]?.[field], quotes[b.symbol]?.[field], order);
   const byChange = (a, b, order) =>
@@ -174,11 +393,6 @@ const MarketList = ({ symbols, quotes, futures = false, onOpen, t }) => {
       changePercent(quotes[b.symbol]?.price, quotes[b.symbol]?.open),
       order,
     );
-  const groups = [
-    { kind: 'crypto', title: t('加密货币') },
-    { kind: 'stock', title: futures ? t('股票永续') : t('美股代币') },
-    { kind: 'commodity', title: t('大宗商品') },
-  ];
 
   const futuresColumns = [
     {
@@ -199,41 +413,68 @@ const MarketList = ({ symbols, quotes, futures = false, onOpen, t }) => {
       dataIndex: 'funding_rate',
       align: 'right',
       sorter: byQuote('funding_rate'),
-      render: (_, item) => (
-        <Text type='secondary' className='trade-num'>
-          {formatFundingRate(quotes[item.symbol]?.funding_rate)}
-        </Text>
-      ),
+      render: (_, item) => {
+        const rate = Number(quotes[item.symbol]?.funding_rate);
+        const cls =
+          Number.isFinite(rate) && rate !== 0
+            ? rate > 0
+              ? 'trade-up'
+              : 'trade-down'
+            : '';
+        return (
+          <Text
+            type={cls ? undefined : 'secondary'}
+            className={`trade-num ${cls}`}
+          >
+            {formatFundingRate(quotes[item.symbol]?.funding_rate)}
+          </Text>
+        );
+      },
     },
   ];
 
   const columns = [
     {
-      title: futures ? t('合约') : t('交易对'),
+      title: futures ? t('合约品种') : t('交易品种'),
       dataIndex: 'ticker',
-      render: (ticker, item) => {
+      width: 240,
+      render: (_, item) => {
         const isFav = favSet.has(item.symbol);
+        const region = item.session ? SESSION_REGION_LABELS[item.session] : '';
         return (
           <div className='flex items-center gap-2 whitespace-nowrap'>
             <button
               type='button'
-              className={`trade-fav-btn${isFav ? ' is-fav' : ''}`}
+              className={`trade-fav-btn shrink-0${isFav ? ' is-fav' : ''}`}
               aria-label={isFav ? t('取消自选') : t('加入自选')}
               onClick={(event) => toggleFavorite(item.symbol, event)}
             >
               <Star size={14} fill={isFav ? 'currentColor' : 'none'} />
             </button>
-            <Text strong>{ticker}</Text>
-            <Text type='tertiary' size='small'>
-              {futures ? `USDT ${t('永续')}` : '/USDT'}
-            </Text>
-            {futures && (
-              <Tag size='small' color='blue'>
+            <SymbolIdentity
+              item={item}
+              futures={futures}
+              showSector={category === 'favorites' || !!query.trim()}
+              size={30}
+              t={t}
+            />
+            {region && (
+              <Tag
+                size='small'
+                color='violet'
+                type='light'
+                className='shrink-0 !text-[10px] !px-1.5'
+              >
+                {t(region)}
+              </Tag>
+            )}
+            {futures && item.max_leverage && (
+              <Tag size='small' color='blue' className='shrink-0'>
                 {item.max_leverage}x
               </Tag>
             )}
             {futures && !item.open && (
-              <Tag size='small' color='grey'>
+              <Tag size='small' color='grey' className='shrink-0'>
                 {t('仅可平仓')}
               </Tag>
             )}
@@ -250,7 +491,7 @@ const MarketList = ({ symbols, quotes, futures = false, onOpen, t }) => {
         const quote = quotes[item.symbol] || {};
         const change = changePercent(quote.price, quote.open);
         return (
-          <Text className={`trade-num ${trendClass(change)}`}>
+          <Text strong className={`trade-num ${trendClass(change)}`}>
             {formatPrice(quote.price, decimalsOf(item.rules?.tick_size))}
           </Text>
         );
@@ -276,16 +517,18 @@ const MarketList = ({ symbols, quotes, futures = false, onOpen, t }) => {
       },
     },
     {
-      title: t('24 小时最高 / 最低'),
+      title: t('24 小时区间'),
       dataIndex: 'range',
-      align: 'right',
+      width: 155,
       render: (_, item) => {
         const quote = quotes[item.symbol] || {};
-        const digits = decimalsOf(item.rules?.tick_size);
         return (
-          <Text type='secondary' className='trade-num'>
-            {formatPrice(quote.high, digits)} / {formatPrice(quote.low, digits)}
-          </Text>
+          <RangeBar
+            price={quote.price}
+            low={quote.low}
+            high={quote.high}
+            digits={decimalsOf(item.rules?.tick_size)}
+          />
         );
       },
     },
@@ -303,11 +546,14 @@ const MarketList = ({ symbols, quotes, futures = false, onOpen, t }) => {
     {
       title: t('24 小时走势'),
       dataIndex: 'sparkline',
+      width: 112,
       render: (closes) => <Sparkline closes={closes} />,
     },
     {
       title: '',
       dataIndex: 'operate',
+      width: 84,
+      align: 'right',
       render: (_, item) => (
         <Button size='small' theme='light' onClick={() => onOpen(item.symbol)}>
           {t('去交易')}
@@ -316,25 +562,68 @@ const MarketList = ({ symbols, quotes, futures = false, onOpen, t }) => {
     },
   ];
 
+  const totalMoved = overview.upCount + overview.downCount;
+  const upRatio = totalMoved > 0 ? (overview.upCount / totalMoved) * 100 : 50;
+  const showGrouped =
+    viewMode === 'table' && category === 'all' && !query.trim();
+
+  const renderSectorHeader = (sector, items) => {
+    const changes = items
+      .map((item) =>
+        changePercent(quotes[item.symbol]?.price, quotes[item.symbol]?.open),
+      )
+      .filter((value) => value !== null);
+    const avg =
+      changes.length > 0
+        ? changes.reduce((sum, value) => sum + value, 0) / changes.length
+        : null;
+    return (
+      <div className='flex items-center justify-between gap-2 mb-3'>
+        <div className='flex items-center gap-2'>
+          <Title heading={6} className='!mb-0'>
+            {t(sector.label)}
+          </Title>
+          <Tag size='small' color={sector.color} type='light'>
+            {t('{{count}} 品种', { count: items.length })}
+          </Tag>
+        </div>
+        {avg !== null && (
+          <span className={`trade-change-pill ${trendClass(avg)}`}>
+            {t('均涨跌')} {avg > 0 ? '+' : ''}
+            {avg.toFixed(2)}%
+          </span>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className='flex flex-col gap-4'>
       {symbols.length > 0 && (
-        <div className='trade-market-overview'>
+        <div className='trade-market-overview trade-market-overview-4'>
           <div className='trade-overview-card'>
-            <div className='flex items-center gap-1.5 text-xs text-[var(--semi-color-text-2)]'>
-              <BarChart3 size={14} />
-              <span>{t('24 小时市场分布')}</span>
+            <div className='flex items-center justify-between text-xs text-[var(--semi-color-text-2)]'>
+              <span className='inline-flex items-center gap-1.5'>
+                <BarChart3 size={14} />
+                {t('24 小时市场情绪')}
+              </span>
+              <span className='trade-num'>
+                {t('共 {{count}} 品种', { count: symbols.length })}
+              </span>
             </div>
-            <div className='flex items-baseline gap-3 trade-num'>
+            <div className='flex items-baseline justify-between gap-2 trade-num'>
               <span className='text-base font-semibold trade-up'>
                 {t('涨 {{count}}', { count: overview.upCount })}
               </span>
               <span className='text-base font-semibold trade-down'>
                 {t('跌 {{count}}', { count: overview.downCount })}
               </span>
-              <Text type='tertiary' size='small'>
-                {t('共 {{count}} 品种', { count: symbols.length })}
-              </Text>
+            </div>
+            <div className='trade-sentiment-bar' aria-hidden='true'>
+              <span
+                className='trade-sentiment-up'
+                style={{ width: `${upRatio}%` }}
+              />
             </div>
           </div>
 
@@ -350,22 +639,63 @@ const MarketList = ({ symbols, quotes, futures = false, onOpen, t }) => {
             </div>
             {overview.topGainer ? (
               <div className='flex items-center justify-between gap-2 trade-num'>
-                <div className='flex items-baseline gap-2'>
-                  <Text strong className='text-base'>
-                    {overview.topGainer.item.ticker}
-                  </Text>
-                  <Text type='secondary' size='small'>
-                    {formatPrice(
-                      overview.topGainer.quote.price,
-                      decimalsOf(overview.topGainer.item.rules?.tick_size),
-                    )}
-                  </Text>
+                <div className='flex items-center gap-2 min-w-0'>
+                  <SymbolAvatar item={overview.topGainer.item} size={26} />
+                  <div className='flex flex-col leading-tight min-w-0'>
+                    <Text strong className='truncate text-sm'>
+                      {getSymbolName(overview.topGainer.item, t)}
+                    </Text>
+                    <Text type='tertiary' size='small' className='!text-[11px]'>
+                      {formatPrice(
+                        overview.topGainer.quote.price,
+                        decimalsOf(overview.topGainer.item.rules?.tick_size),
+                      )}
+                    </Text>
+                  </div>
                 </div>
                 <span
-                  className={`trade-change-pill ${trendClass(overview.topGainer.change)}`}
+                  className={`trade-change-pill shrink-0 ${trendClass(overview.topGainer.change)}`}
                 >
                   {overview.topGainer.change > 0 ? '+' : ''}
                   {overview.topGainer.change.toFixed(2)}%
+                </span>
+              </div>
+            ) : (
+              <Text type='tertiary'>--</Text>
+            )}
+          </div>
+
+          <div
+            className={`trade-overview-card${overview.topLoser ? ' trade-overview-card-clickable' : ''}`}
+            onClick={() =>
+              overview.topLoser && onOpen(overview.topLoser.item.symbol)
+            }
+          >
+            <div className='flex items-center gap-1.5 text-xs text-[var(--semi-color-text-2)]'>
+              <TrendingDown size={14} className='trade-down' />
+              <span>{t('24 小时领跌')}</span>
+            </div>
+            {overview.topLoser ? (
+              <div className='flex items-center justify-between gap-2 trade-num'>
+                <div className='flex items-center gap-2 min-w-0'>
+                  <SymbolAvatar item={overview.topLoser.item} size={26} />
+                  <div className='flex flex-col leading-tight min-w-0'>
+                    <Text strong className='truncate text-sm'>
+                      {getSymbolName(overview.topLoser.item, t)}
+                    </Text>
+                    <Text type='tertiary' size='small' className='!text-[11px]'>
+                      {formatPrice(
+                        overview.topLoser.quote.price,
+                        decimalsOf(overview.topLoser.item.rules?.tick_size),
+                      )}
+                    </Text>
+                  </div>
+                </div>
+                <span
+                  className={`trade-change-pill shrink-0 ${trendClass(overview.topLoser.change)}`}
+                >
+                  {overview.topLoser.change > 0 ? '+' : ''}
+                  {overview.topLoser.change.toFixed(2)}%
                 </span>
               </div>
             ) : (
@@ -385,10 +715,13 @@ const MarketList = ({ symbols, quotes, futures = false, onOpen, t }) => {
             </div>
             {overview.topVolume ? (
               <div className='flex items-center justify-between gap-2 trade-num'>
-                <Text strong className='text-base'>
-                  {overview.topVolume.item.ticker}
-                </Text>
-                <Text type='secondary' className='font-medium'>
+                <div className='flex items-center gap-2 min-w-0'>
+                  <SymbolAvatar item={overview.topVolume.item} size={26} />
+                  <Text strong className='truncate text-sm'>
+                    {getSymbolName(overview.topVolume.item, t)}
+                  </Text>
+                </div>
+                <Text type='secondary' className='font-medium shrink-0 text-sm'>
                   {formatCompact(overview.topVolume.vol)} USDT
                 </Text>
               </div>
@@ -399,70 +732,157 @@ const MarketList = ({ symbols, quotes, futures = false, onOpen, t }) => {
         </div>
       )}
 
-      <div className='flex flex-wrap items-center justify-between gap-3'>
-        <RadioGroup
-          type='button'
-          value={category}
-          onChange={(e) => setCategory(e.target.value)}
-        >
-          <Radio value='all'>{t('全部')}</Radio>
-          <Radio value='favorites'>
-            {t('自选')} ({favorites.length})
-          </Radio>
-          {groups.map((group) =>
-            symbols.some((item) => item.kind === group.kind) ? (
-              <Radio key={group.kind} value={group.kind}>
-                {group.title}
-              </Radio>
-            ) : null,
+      <div className='trade-card !py-3 flex flex-wrap items-center justify-between gap-3'>
+        <div className='flex flex-wrap items-center gap-1.5'>
+          {[
+            { key: 'all', label: `${t('全部')} (${symbols.length})` },
+            { key: 'favorites', label: `${t('自选')} (${favorites.length})` },
+            ...activeSectors.map((sector) => ({
+              key: sector.key,
+              label: `${t(sector.label)} (${sectorCounts.get(sector.key)})`,
+            })),
+          ].map((tab) => (
+            <button
+              key={tab.key}
+              type='button'
+              className={`trade-sector-tab${category === tab.key ? ' is-active' : ''}`}
+              onClick={() => setCategory(tab.key)}
+            >
+              {tab.key === 'favorites' && (
+                <Star
+                  size={12}
+                  fill={favorites.length > 0 ? '#f59e0b' : 'none'}
+                  style={{
+                    color: favorites.length > 0 ? '#f59e0b' : 'currentColor',
+                  }}
+                />
+              )}
+              <span>{tab.label}</span>
+            </button>
+          ))}
+        </div>
+
+        <div className='flex flex-wrap items-center gap-2'>
+          <Input
+            className='trade-market-search'
+            style={{ width: 260 }}
+            prefix={<Search size={15} className='ml-2' />}
+            value={query}
+            onChange={setQuery}
+            showClear
+            placeholder={t('搜名称或代码，如 英伟达、OpenAI、谷歌')}
+            aria-label={t('搜名称或代码，如 英伟达、OpenAI、谷歌')}
+          />
+          {viewMode === 'cards' && (
+            <Select
+              size='default'
+              value={cardSort}
+              style={{ width: 128 }}
+              onChange={setCardSort}
+              optionList={[
+                { value: 'default', label: t('默认排序') },
+                { value: 'gainers', label: t('涨幅优先') },
+                { value: 'losers', label: t('跌幅优先') },
+                { value: 'volume', label: t('成交额优先') },
+                { value: 'price', label: t('价格优先') },
+              ]}
+            />
           )}
-        </RadioGroup>
-        <Input
-          className='trade-market-search'
-          style={{ width: 240 }}
-          prefix={<Search size={15} className='ml-2' />}
-          value={query}
-          onChange={setQuery}
-          showClear
-          placeholder={t('按代码搜索，例如 BTC、NVDA')}
-          aria-label={t('按代码搜索，例如 BTC、NVDA')}
-        />
+          <RadioGroup
+            type='button'
+            value={viewMode}
+            onChange={(event) => changeViewMode(event.target.value)}
+          >
+            <Radio value='table'>
+              <span className='inline-flex items-center gap-1'>
+                <List size={14} />
+                {t('列表')}
+              </span>
+            </Radio>
+            <Radio value='cards'>
+              <span className='inline-flex items-center gap-1'>
+                <LayoutGrid size={14} />
+                {t('卡片')}
+              </span>
+            </Radio>
+          </RadioGroup>
+        </div>
       </div>
 
       {!matched.length && (
-        <div className='trade-card'>
+        <div className='trade-card text-center py-8'>
           <Text type='tertiary'>
-            {category === 'favorites' && !keyword
-              ? t('暂无自选品种，点击行情列表左侧星标即可收藏')
+            {category === 'favorites' && !query.trim()
+              ? t('暂无自选品种，点击品种左侧星标即可收藏')
               : futures
                 ? t('没有匹配的合约')
                 : t('没有匹配的交易对')}
           </Text>
         </div>
       )}
-      {groups.map((group) => {
-        const items = matched.filter((item) => item.kind === group.kind);
-        if (!items.length) return null;
-        return (
-          <div key={group.kind} className='trade-card'>
-            <Title heading={6} className='!mb-2'>
-              {group.title}
-            </Title>
-            <Table
-              size='small'
-              rowKey='symbol'
-              columns={columns}
-              dataSource={items}
-              pagination={false}
-              scroll={{ x: futures ? 960 : 760 }}
-              onRow={(item) => ({
-                onClick: () => onOpen(item.symbol),
-                style: { cursor: 'pointer' },
-              })}
+
+      {matched.length > 0 && viewMode === 'cards' && (
+        <div className='trade-market-grid'>
+          {matched.map((item) => (
+            <MarketCard
+              key={item.symbol}
+              item={item}
+              quote={quotes[item.symbol]}
+              futures={futures}
+              isFav={favSet.has(item.symbol)}
+              onToggleFav={toggleFavorite}
+              onOpen={onOpen}
+              t={t}
             />
-          </div>
-        );
-      })}
+          ))}
+        </div>
+      )}
+
+      {matched.length > 0 &&
+        viewMode === 'table' &&
+        showGrouped &&
+        activeSectors.map((sector) => {
+          const items = matched.filter(
+            (item) =>
+              (resolveSymbolMeta(item)?.sector || item.kind) === sector.key,
+          );
+          if (!items.length) return null;
+          return (
+            <div key={sector.key} className='trade-card'>
+              {renderSectorHeader(sector, items)}
+              <Table
+                size='small'
+                rowKey='symbol'
+                columns={columns}
+                dataSource={items}
+                pagination={false}
+                scroll={{ x: futures ? 1040 : 840 }}
+                onRow={(item) => ({
+                  onClick: () => onOpen(item.symbol),
+                  style: { cursor: 'pointer' },
+                })}
+              />
+            </div>
+          );
+        })}
+
+      {matched.length > 0 && viewMode === 'table' && !showGrouped && (
+        <div className='trade-card'>
+          <Table
+            size='small'
+            rowKey='symbol'
+            columns={columns}
+            dataSource={matched}
+            pagination={false}
+            scroll={{ x: futures ? 1040 : 840 }}
+            onRow={(item) => ({
+              onClick: () => onOpen(item.symbol),
+              style: { cursor: 'pointer' },
+            })}
+          />
+        </div>
+      )}
+
       <Text type='tertiary' size='small'>
         {futures
           ? t(

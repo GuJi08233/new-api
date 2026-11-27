@@ -34,6 +34,8 @@ import LedgerCard from './LedgerCard';
 import PnlCalendar from './PnlCalendar';
 import TransferModal from './TransferModal';
 import SpotMarginCard from './SpotMarginCard';
+import SymbolIdentity from './SymbolIdentity';
+import TraderRankCard from './TraderRankCard';
 import {
   PlayTurnstile,
   usePlayTurnstile,
@@ -218,8 +220,12 @@ const AssetsView = ({
       { type: t('美股代币'), value: toUsdt(valuation?.stock_value, perUnit) },
       { type: t('合约'), value: toUsdt(valuation?.futures_value, perUnit) },
       {
-        type: t('BTC预测'),
+        type: t('多币预测'),
         value: toUsdt(valuation?.prediction_value, perUnit),
+      },
+      {
+        type: t('短线事件'),
+        value: toUsdt(valuation?.short_event_value, perUnit),
       },
     ].filter((item) => item.value > 0);
     return {
@@ -272,8 +278,15 @@ const AssetsView = ({
   // 预测持仓、现货借款与借币卖出欠着的币也算进总资产(后两项是减项)，有的时候才列出来，让各项加起来等于总资产。
   if (valuation?.prediction_value > 0) {
     summary.push([
-      t('BTC预测'),
+      t('多币预测'),
       `${formatUsdt(valuation.prediction_value, perUnit)} USDT`,
+      '',
+    ]);
+  }
+  if (valuation?.short_event_value > 0) {
+    summary.push([
+      t('短线事件'),
+      `${formatUsdt(valuation.short_event_value, perUnit)} USDT`,
       '',
     ]);
   }
@@ -297,16 +310,28 @@ const AssetsView = ({
 
   const holdingColumns = [
     {
-      title: t('交易对'),
+      title: t('交易品种'),
       dataIndex: 'symbol',
       render: (symbol) => (
-        <Button
-          theme='borderless'
-          size='small'
+        <div
+          role='button'
+          tabIndex={0}
+          className='inline-flex cursor-pointer items-center hover:opacity-80'
           onClick={() => onOpenSymbol(symbol)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              onOpenSymbol(symbol);
+            }
+          }}
         >
-          {tickers[symbol] || symbol}
-        </Button>
+          <SymbolIdentity
+            item={{ symbol, ticker: tickers[symbol] }}
+            compact
+            size={24}
+            t={t}
+          />
+        </div>
       ),
     },
     {
@@ -511,6 +536,12 @@ const AssetsView = ({
           </Text>
         </div>
       </div>
+      <TraderRankCard
+        self={self}
+        perUnit={perUnit}
+        futuresPositions={futuresPositions}
+        t={t}
+      />
       <SpotMarginCard
         self={self}
         perUnit={perUnit}

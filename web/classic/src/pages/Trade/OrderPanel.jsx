@@ -35,9 +35,11 @@ import {
   toUsdt,
   tradePost,
 } from './api';
+import { getSymbolName } from './symbols';
 
 const { Text } = Typography;
 const PERCENTS = [0.25, 0.5, 0.75, 1];
+const QUICK_USDT = [10, 50, 100, 500];
 // 现货杠杆的倍数：Binance 全仓杠杆的账户最高 3 倍或 5 倍，每笔可以少借一些。
 const SPOT_LEVERAGES = [1, 2, 3, 5];
 
@@ -348,6 +350,22 @@ const OrderPanel = ({
           inputMode='decimal'
         />
       )}
+      {amountMode && (
+        <div className='grid grid-cols-4 gap-1'>
+          {QUICK_USDT.map((val) => (
+            <Button
+              key={val}
+              size='small'
+              theme='borderless'
+              type='tertiary'
+              className='!bg-[var(--semi-color-fill-0)]'
+              onClick={() => setAmount(String(val))}
+            >
+              ${val}
+            </Button>
+          ))}
+        </div>
+      )}
       <div className='grid grid-cols-4 gap-1'>
         {PERCENTS.map((percent) => (
           <Button
@@ -447,10 +465,10 @@ const OrderPanel = ({
         onClick={submit}
       >
         {isBuy
-          ? t('买入 {{ticker}}', { ticker })
+          ? t('买入 {{ticker}}', { ticker: getSymbolName(ticker, t) })
           : borrow
-            ? t('借币卖出 {{ticker}}', { ticker })
-            : t('卖出 {{ticker}}', { ticker })}
+            ? t('借币卖出 {{ticker}}', { ticker: getSymbolName(ticker, t) })
+            : t('卖出 {{ticker}}', { ticker: getSymbolName(ticker, t) })}
       </Button>
       <Text type='tertiary' size='small'>
         {type === 'market'

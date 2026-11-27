@@ -42,6 +42,7 @@ import {
   showWarning,
   timestamp2string,
 } from '../../helpers';
+import { formatSymbolLabel } from '../Trade/symbols';
 
 const { Text, Title } = Typography;
 
@@ -98,7 +99,18 @@ const MarketStatus = ({ title, market, futures, idleText, t }) => {
   const connected = market.connected && (!futures || market.data_connected);
   const items = market.symbols || [];
   const columns = [
-    { title: t('交易对'), dataIndex: 'symbol' },
+    {
+      title: t('交易品种'),
+      dataIndex: 'symbol',
+      render: (value) => (
+        <div className='flex items-baseline gap-1.5'>
+          <Text strong>{formatSymbolLabel(value, t)}</Text>
+          <Text type='tertiary' size='small'>
+            {value}
+          </Text>
+        </div>
+      ),
+    },
     {
       title: t('盘口'),
       dataIndex: 'has_book',
@@ -354,7 +366,7 @@ const TradeAdmin = () => {
             </Text>
             {items.map((item) => (
               <Checkbox key={item[field]} value={item[field]}>
-                {item.ticker}
+                {formatSymbolLabel(item.ticker, t)}
               </Checkbox>
             ))}
           </div>
@@ -452,14 +464,68 @@ const TradeAdmin = () => {
               <Text strong>{t('开放交易的交易对')}</Text>
               {symbolChoices('symbol', 'symbols')}
             </div>
-            <div className='flex flex-wrap items-center gap-4'>
+            <div className='flex flex-wrap items-center gap-6'>
               <div className='flex items-center gap-2'>
                 <Switch
                   checked={form.prediction_enabled}
                   onChange={(value) => change('prediction_enabled', value)}
                 />
-                <Text>{t('开放 BTC 预测')}</Text>
+                <Text>{t('开放多币种预测')}</Text>
               </div>
+              <div className='flex items-center gap-2'>
+                <Switch
+                  checked={form.short_events_enabled}
+                  onChange={(value) => change('short_events_enabled', value)}
+                />
+                <Text>{t('开放短线事件（PK/涨跌/区间/触碰）')}</Text>
+              </div>
+              <div className='flex items-center gap-2'>
+                <Switch
+                  checked={form.sprint_enabled}
+                  onChange={(value) => change('sprint_enabled', value)}
+                />
+                <Text>{t('开放闪电冲榜赛')}</Text>
+              </div>
+            </div>
+            <div className='grid grid-cols-1 gap-4 md:grid-cols-3'>
+              {[
+                [
+                  'short_event_fee_bps',
+                  '短线奖池手续费(万分之一)',
+                  'max_short_fee_bps',
+                  0,
+                ],
+                [
+                  'short_event_payout_bps',
+                  '极速合约 2 选 1 赔率(万分比，如 18500=1.85x)',
+                  'max_short_payout_bps',
+                  'min_short_payout_bps',
+                ],
+                [
+                  'short_event_max_order_usd',
+                  '短线单笔上限(美元)',
+                  'max_order_usd',
+                  1,
+                ],
+                [
+                  'short_event_max_active_usd',
+                  '短线同时在途上限(美元)',
+                  'max_position_usd',
+                  1,
+                ],
+                [
+                  'sprint_entry_fee_usd',
+                  '闪电冲榜赛报名费(美元)',
+                  'max_sprint_entry_usd',
+                  1,
+                ],
+                [
+                  'sprint_fee_bps',
+                  '闪电冲榜赛奖池抽成(万分之一)',
+                  'max_sprint_fee_bps',
+                  0,
+                ],
+              ].map(numberField)}
             </div>
             <div className='flex flex-col gap-1'>
               <Text strong>{t('现货杠杆')}</Text>

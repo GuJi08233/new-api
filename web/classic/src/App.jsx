@@ -503,7 +503,37 @@ function App() {
             }
           />
           <Route
+            path='/trade/short'
+            element={
+              <PrivateRoute>
+                <Suspense fallback={<Loading />}>
+                  <Trade />
+                </Suspense>
+              </PrivateRoute>
+            }
+          />
+          <Route
             path='/trade/prediction'
+            element={
+              <PrivateRoute>
+                <Suspense fallback={<Loading />}>
+                  <Trade />
+                </Suspense>
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path='/trade/baskets'
+            element={
+              <PrivateRoute>
+                <Suspense fallback={<Loading />}>
+                  <Trade />
+                </Suspense>
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path='/trade/arena'
             element={
               <PrivateRoute>
                 <Suspense fallback={<Loading />}>

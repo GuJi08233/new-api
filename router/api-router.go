@@ -192,6 +192,12 @@ func SetApiRouter(router *gin.Engine) {
 			tradeRoute.GET("/prediction/rounds", controller.GetTradePredictionRounds)
 			tradeRoute.POST("/prediction/orders", middleware.TradeOrderRateLimit(), controller.BuyTradePrediction)
 			tradeRoute.POST("/prediction/positions/:id/sell", middleware.TradeOrderRateLimit(), controller.SellTradePrediction)
+			tradeRoute.GET("/short/config", controller.GetTradeShortConfig)
+			tradeRoute.GET("/short/rounds", controller.GetTradeShortRounds)
+			tradeRoute.GET("/short/orders", controller.GetTradeShortOrders)
+			tradeRoute.POST("/short/orders", middleware.TradeOrderRateLimit(), controller.PlaceTradeShortOrder)
+			tradeRoute.GET("/sprints", controller.GetTradeSprints)
+			tradeRoute.POST("/sprints/join", middleware.TradeOrderRateLimit(), controller.JoinTradeSprint)
 			// 合约：开仓要合约开放(由下单接口判断)；平仓、撤单、调整保证金与止盈止损在合约关闭后照样可以，用户随时能把仓位平掉。
 			tradeRoute.GET("/futures/market", controller.GetTradeFuturesMarket)
 			tradeRoute.GET("/futures/klines", controller.GetTradeFuturesKlines)

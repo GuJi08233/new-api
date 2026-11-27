@@ -208,6 +208,33 @@ func hasTradeOpenExposureTx(tx *gorm.DB, userId int) (bool, error) {
 			return true, nil
 		}
 	}
+	if tx.Migrator().HasTable(&TradePredictionSeriesPosition{}) {
+		var count int64
+		if err := tx.Model(&TradePredictionSeriesPosition{}).Where("user_id = ? AND status = ?", userId, TradePredictionActive).Count(&count).Error; err != nil {
+			return false, err
+		}
+		if count > 0 {
+			return true, nil
+		}
+	}
+	if tx.Migrator().HasTable(&TradeShortOrder{}) {
+		var count int64
+		if err := tx.Model(&TradeShortOrder{}).Where("user_id = ? AND status = ?", userId, TradeShortStatusActive).Count(&count).Error; err != nil {
+			return false, err
+		}
+		if count > 0 {
+			return true, nil
+		}
+	}
+	if tx.Migrator().HasTable(&TradeSprintEntry{}) {
+		var count int64
+		if err := tx.Model(&TradeSprintEntry{}).Where("user_id = ? AND status = ?", userId, TradeSprintEntryActive).Count(&count).Error; err != nil {
+			return false, err
+		}
+		if count > 0 {
+			return true, nil
+		}
+	}
 	return false, nil
 }
 

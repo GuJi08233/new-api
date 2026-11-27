@@ -599,7 +599,9 @@ For commercial licensing, please contact support@quantumnous.com
   border-radius: 12px;
   background: var(--semi-color-bg-1);
   border: 1px solid var(--semi-color-border);
-  transition: border-color 150ms ease, transform 150ms ease;
+  transition:
+    border-color 150ms ease,
+    transform 150ms ease;
 }
 
 .trade-overview-card-clickable {
@@ -706,7 +708,6 @@ For commercial licensing, please contact support@quantumnous.com
     var(--semi-color-bg-1) 65%
   );
 }
-
 
 .trade-chart-event-values {
   flex-wrap: wrap;
@@ -1106,4 +1107,502 @@ For commercial licensing, please contact support@quantumnous.com
 .trade-short {
   padding-top: 8px;
   border-top: 1px dashed var(--semi-color-border);
+}
+
+/* ==================== 模拟盘界面重构与新玩法视觉样式 ==================== */
+
+.trade-brand-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 6px 2px 2px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.trade-brand-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--semi-color-primary-light-default);
+  color: var(--semi-color-primary);
+}
+
+.trade-nav-pills {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--semi-color-fill-0);
+}
+
+.trade-nav-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 11px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--semi-color-text-1);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background 140ms ease,
+    color 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.trade-nav-pill:hover {
+  color: var(--semi-color-text-0);
+  background: var(--semi-color-fill-1);
+}
+
+.trade-nav-pill.is-active {
+  background: var(--semi-color-bg-1);
+  color: var(--semi-color-primary);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+/* 顶部跑马灯配色点与代码副标 */
+.trade-ticker-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  align-self: center;
+}
+
+.trade-ticker-code {
+  color: var(--semi-color-text-2);
+  font-size: 11px;
+}
+
+/* 品种品牌头像徽章 */
+.trade-symbol-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: 9px;
+  border: 1px solid transparent;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  user-select: none;
+}
+
+/* 4 卡市场脉搏总览与多空情绪进度条 */
+.trade-market-overview-4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+@media (max-width: 1100px) {
+  .trade-market-overview-4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .trade-market-overview-4 {
+    grid-template-columns: 1fr;
+  }
+}
+
+.trade-sentiment-bar {
+  width: 100%;
+  height: 5px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--semi-color-danger-light-active);
+}
+
+.trade-sentiment-up {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--semi-color-success);
+  transition: width 260ms ease;
+}
+
+/* 板块筛选胶囊按钮 */
+.trade-sector-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 11px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 999px;
+  background: var(--semi-color-bg-1);
+  color: var(--semi-color-text-1);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 140ms ease;
+}
+
+.trade-sector-tab:hover {
+  border-color: var(--semi-color-primary);
+  color: var(--semi-color-text-0);
+}
+
+.trade-sector-tab.is-active {
+  border-color: var(--semi-color-primary);
+  background: var(--semi-color-primary-light-default);
+  color: var(--semi-color-primary);
+  font-weight: 600;
+}
+
+/* 行情卡片网格视图 */
+.trade-market-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+@media (max-width: 1280px) {
+  .trade-market-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .trade-market-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .trade-market-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.trade-market-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 12px;
+  background: var(--semi-color-bg-1);
+  border: 1px solid var(--semi-color-border);
+  cursor: pointer;
+  transition:
+    border-color 150ms ease,
+    transform 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.trade-market-card:hover {
+  border-color: var(--semi-color-primary);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.06);
+}
+
+/* 24 小时高低区间条 */
+.trade-range-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 120px;
+}
+
+.trade-range-track {
+  position: relative;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--semi-color-fill-1);
+}
+
+.trade-range-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  border-radius: 999px;
+  background: var(--semi-color-primary);
+  opacity: 0.55;
+}
+
+.trade-range-dot {
+  position: absolute;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--semi-color-primary);
+  transform: translate(-50%, -50%);
+}
+
+/* 交易终端头部 & 实时连接状态点 */
+.trade-terminal-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 20px;
+  padding: 12px 16px;
+}
+
+.trade-live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--semi-color-warning);
+}
+
+.trade-live-dot.is-live {
+  background: var(--semi-color-success);
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.22);
+}
+
+/* 交易页内联品种切换器 */
+.trade-switcher-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 10px 4px 6px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+  transition:
+    background 140ms ease,
+    border-color 140ms ease;
+}
+
+.trade-switcher-trigger:hover {
+  background: var(--semi-color-fill-0);
+  border-color: var(--semi-color-border);
+}
+
+.trade-switcher-popover {
+  width: 360px;
+  max-width: calc(100vw - 24px);
+}
+
+.trade-switcher-list {
+  max-height: 360px;
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.trade-switcher-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+.trade-switcher-item:hover {
+  background: var(--semi-color-fill-0);
+}
+
+.trade-switcher-item.is-current {
+  background: var(--semi-color-primary-light-default);
+}
+
+.trade-pill-filter {
+  padding: 2px 8px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--semi-color-fill-0);
+  color: var(--semi-color-text-1);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.trade-pill-filter.is-active {
+  background: var(--semi-color-primary);
+  color: #fff;
+}
+
+/* 新玩法横幅、主题组合卡、计算器结果、交易员段位、K 线盲测揭晓卡 */
+.trade-hero-banner {
+  background: linear-gradient(
+    135deg,
+    var(--semi-color-primary-light-default) 0%,
+    var(--semi-color-bg-1) 62%
+  );
+  border-color: var(--semi-color-primary-light-active);
+}
+
+.trade-basket-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition:
+    border-color 150ms ease,
+    transform 150ms ease;
+}
+
+.trade-basket-card:hover {
+  border-color: var(--semi-color-primary);
+  transform: translateY(-1px);
+}
+
+.trade-basket-leg {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 8px;
+  background: var(--semi-color-fill-0);
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+.trade-basket-leg:hover {
+  background: var(--semi-color-fill-1);
+}
+
+.trade-calc-result {
+  padding: 12px;
+  border-radius: 10px;
+  background: var(--semi-color-fill-0);
+  border: 1px solid var(--semi-color-border);
+}
+
+.trade-rank-card {
+  background: linear-gradient(
+    135deg,
+    rgba(245, 158, 11, 0.08) 0%,
+    var(--semi-color-bg-1) 55%
+  );
+}
+
+.trade-rank-emblem {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: rgba(245, 158, 11, 0.16);
+  color: #f59e0b;
+}
+
+.trade-arena-reveal {
+  background: linear-gradient(
+    135deg,
+    var(--semi-color-primary-light-default) 0%,
+    var(--semi-color-bg-1) 60%
+  );
+  border-color: var(--semi-color-primary);
+}
+
+/* 短线中心与策略中心二级切换胶囊、PK 擂台与区间选择卡 */
+.trade-hub-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 10px;
+  background: var(--semi-color-bg-1);
+  color: var(--semi-color-text-1);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 140ms ease;
+}
+
+.trade-hub-tab:hover {
+  border-color: var(--semi-color-primary);
+  color: var(--semi-color-text-0);
+}
+
+.trade-hub-tab.is-active {
+  border-color: var(--semi-color-primary);
+  background: var(--semi-color-primary);
+  color: #fff;
+  font-weight: 600;
+}
+
+.trade-hub-tab-badge {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--semi-color-fill-0);
+  color: var(--semi-color-text-2);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.trade-hub-tab.is-active .trade-hub-tab-badge {
+  background: rgba(255, 255, 255, 0.22);
+  color: #fff;
+}
+
+.trade-pk-card {
+  transition:
+    border-color 150ms ease,
+    transform 150ms ease;
+}
+
+.trade-pk-card:hover {
+  border-color: var(--semi-color-primary);
+}
+
+.trade-pk-vs {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--semi-color-fill-0);
+  color: var(--semi-color-primary);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.trade-pk-bar {
+  width: 100%;
+  height: 7px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(139, 92, 246, 0.45);
+}
+
+.trade-pk-bar-a {
+  display: block;
+  height: 100%;
+  background: var(--semi-color-primary);
+  transition: width 260ms ease;
+}
+
+.trade-bucket-btn {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 10px;
+  background: var(--semi-color-bg-1);
+  text-align: left;
+  cursor: pointer;
+  transition: all 140ms ease;
+}
+
+.trade-bucket-btn:hover {
+  border-color: var(--semi-color-primary);
+}
+
+.trade-bucket-btn.is-active {
+  border-color: var(--semi-color-primary);
+  background: var(--semi-color-primary-light-default);
 }

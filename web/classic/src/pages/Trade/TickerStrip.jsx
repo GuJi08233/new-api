@@ -19,13 +19,12 @@ For commercial licensing, please contact support@quantumnous.com
 
 import React, { useEffect, useRef, useState } from 'react';
 import { changePercent, decimalsOf, formatPrice, trendClass } from './api';
+import { getSymbolName, resolveSymbolMeta } from './symbols';
 
 // 每个品种滚过去用的秒数，滚完一圈的时间随品种数变长，速度不变。
-const SECONDS_PER_ITEM = 7;
+const SECONDS_PER_ITEM = 6;
 
-// 顶部行情条：当前市场(现货或合约)每个品种的最新价与 24 小时涨跌，点一格进入交易。行情来自 feed 上的 ticker 事件——页面上
-// 已有的行情推送把每条 24 小时行情转过来，行情条自己保存，只重绘行情条。一排放不下时两份相同的内容首尾相接向左滚，悬停或
-// 键盘聚焦时停下。
+// 顶部行情条：当前市场(现货或合约)每个品种的直观名称、最新价与 24 小时涨跌，点一格进入交易。
 const TickerStrip = ({ items, feed, current, onOpen, t }) => {
   const [live, setLive] = useState({});
   const [scrolling, setScrolling] = useState(false);
@@ -60,6 +59,8 @@ const TickerStrip = ({ items, feed, current, onOpen, t }) => {
     items.map((item) => {
       const quote = live[item.symbol] || item.quote || {};
       const change = changePercent(quote.price, quote.open);
+      const name = getSymbolName(item, t);
+      const meta = resolveSymbolMeta(item);
       return (
         <button
           key={item.symbol}
@@ -68,7 +69,15 @@ const TickerStrip = ({ items, feed, current, onOpen, t }) => {
           className={`trade-ticker-cell${item.symbol === current ? ' trade-ticker-current' : ''}`}
           onClick={() => onOpen(item.symbol)}
         >
-          <b>{item.ticker}</b>
+          <span
+            className='trade-ticker-dot'
+            style={{ background: meta?.accent || 'var(--semi-color-primary)' }}
+            aria-hidden='true'
+          />
+          <b>{name}</b>
+          {name.toUpperCase() !== String(item.ticker || '').toUpperCase() && (
+            <span className='trade-ticker-code'>{item.ticker}</span>
+          )}
           <span>
             {formatPrice(quote.price, decimalsOf(item.rules?.tick_size))}
           </span>

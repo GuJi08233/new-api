@@ -59,6 +59,14 @@ func TestValidateTradeBonusAndWagerOptions(t *testing.T) {
 		"ranking_bonus_period":       "daily",
 		"ranking_bonus_top_n":        "10",
 		"ranking_bonus_amount_usd":   "50",
+		"short_events_enabled":       "true",
+		"short_event_fee_bps":        "300",
+		"short_event_payout_bps":     "18500",
+		"short_event_max_order_usd":  "100",
+		"short_event_max_active_usd": "500",
+		"sprint_enabled":             "true",
+		"sprint_entry_fee_usd":       "10",
+		"sprint_fee_bps":             "500",
 	} {
 		assert.NoError(t, ValidateTradeOption(TradeSettingPrefix+key, val), key)
 	}
@@ -73,6 +81,12 @@ func TestValidateTradeBonusAndWagerOptions(t *testing.T) {
 		"ranking_bonus_period":       "monthly",
 		"ranking_bonus_top_n":        "0",
 		"ranking_bonus_amount_usd":   "-1",
+		"short_event_fee_bps":        "1001",
+		"short_event_payout_bps":     "9999",
+		"short_event_max_order_usd":  "0",
+		"short_event_max_active_usd": "0",
+		"sprint_entry_fee_usd":       "0",
+		"sprint_fee_bps":             "2001",
 	} {
 		assert.Error(t, ValidateTradeOption(TradeSettingPrefix+key, val), key)
 	}

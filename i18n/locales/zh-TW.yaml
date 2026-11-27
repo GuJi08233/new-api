@@ -404,7 +404,22 @@ trade.order_invalid: "委託參數無效"
 trade.spot_financing_invalid: "現貨槓桿只能用於按數量的市價買入。"
 trade.spot_margin_level: "現貨借款的風險率太低，不能這樣下單。請先還掉部分借款或賣出部分現貨。"
 trade.prediction_too_small: "成交金額太小，不夠付手續費。"
+
 trade.prediction_no_fill: "在你接受的價格以內沒有可成交的份額，行情可能剛變動，請調整價格後重試。"
+
+trade.short_disabled: "短線事件玩法暫未開放"
+
+trade.short_round_closed: "當前局已封盤或已結束，請參與下一局"
+
+trade.short_limit_reached: "超過單筆或在途投入上限"
+
+trade.sprint_disabled: "閃電衝榜賽暫未開放"
+
+trade.sprint_already_joined: "你已報名本場閃電衝榜賽"
+
+trade.sprint_closed: "本場閃電衝榜賽已停止報名"
+
+trade.sprint_equity_too_low: "報名後模擬盤剩餘總資產需不少於 10 USDT 才能參賽"
 trade.qty_too_small: "數量低於最小下單量 {{.Min}}"
 trade.notional_too_small: "委託金額低於最小金額 {{.Min}} USDT"
 trade.order_too_large: "單筆委託金額不能超過 {{.Max}} USDT"

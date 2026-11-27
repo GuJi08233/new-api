@@ -15,7 +15,12 @@ func ListTradeFinancialFlows(userIds []int, start, end int64) ([]TradeFinancialF
 	err := DB.Model(&TradeLedger{}).
 		Select("user_id, type, COALESCE(SUM(amount), 0) AS amount").
 		Where("user_id IN ? AND type IN ? AND created_at >= ? AND created_at < ?", userIds,
-			[]string{TradeLedgerPredictionBuy, TradeLedgerPredictionSell, TradeLedgerPredictionSettle, TradeLedgerSpotLoan, TradeLedgerSpotRepay}, start, end).
+			[]string{
+				TradeLedgerPredictionBuy, TradeLedgerPredictionSell, TradeLedgerPredictionSettle,
+				TradeLedgerShortBet, TradeLedgerShortPayout, TradeLedgerShortRefund,
+				TradeLedgerSprintJoin, TradeLedgerSprintPrize, TradeLedgerSprintRefund,
+				TradeLedgerSpotLoan, TradeLedgerSpotRepay,
+			}, start, end).
 		Group("user_id, type").Scan(&flows).Error
 	return flows, err
 }

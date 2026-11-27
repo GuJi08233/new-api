@@ -29,6 +29,7 @@ import {
 } from '@douyinfe/semi-ui';
 import { showError, showSuccess, timestamp2string } from '../../helpers';
 import { formatPrice, formatQty, formatUsdt, tradeGet, tradePost } from './api';
+import { formatSymbolLabel } from './symbols';
 
 const { Text } = Typography;
 const PAGE_SIZE = 10;
@@ -124,7 +125,15 @@ const OrdersCard = ({
       dataIndex: 'created_at',
       render: (value) => timestamp2string(value),
     },
-    ...(symbol ? [] : [{ title: t('交易对'), dataIndex: 'symbol' }]),
+    ...(symbol
+      ? []
+      : [
+          {
+            title: t('交易品种'),
+            dataIndex: 'symbol',
+            render: (value) => formatSymbolLabel(value, t),
+          },
+        ]),
     {
       title: t('方向'),
       dataIndex: 'side',

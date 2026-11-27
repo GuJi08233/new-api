@@ -41,9 +41,8 @@ const clockOf = (seconds) => {
     .join(':');
 };
 
-// usePredictionLive 每秒拉一次 BTC 价格(Chainlink 60 秒 TWAP)、本轮目标价与 Polymarket 最近成交。价格点在页面里按轮次
-// 累积：每次只要上次之后的新点，换轮时保留新一轮开始前 60 秒的点。页面隐藏时暂停。
-export function usePredictionLive() {
+// usePredictionLive 每秒拉一次价格、本轮目标价与最近成交；支持多币种(BTC/ETH/SOL/XRP)与多周期(5m/15m)。
+export function usePredictionLive(asset = 'BTC', interval = '5m') {
   const [live, setLive] = useState(null);
 
   useEffect(() => {
@@ -52,6 +51,7 @@ export function usePredictionLive() {
     let controller;
     let windowStart = 0;
     let points = [];
+    setLive(null);
     const load = async () => {
       if (!alive) return;
       if (document.hidden) {
@@ -62,7 +62,11 @@ export function usePredictionLive() {
       let delay = POLL_MS;
       try {
         const response = await API.get('/api/trade/prediction/live', {
-          params: { since: points.length ? points[points.length - 1].time : 0 },
+          params: {
+            asset,
+            interval,
+            since: points.length ? points[points.length - 1].time : 0,
+          },
           signal: controller.signal,
           skipErrorHandler: true,
         });
@@ -94,7 +98,7 @@ export function usePredictionLive() {
       clearTimeout(timer);
       controller?.abort();
     };
-  }, []);
+  }, [asset, interval]);
 
   return live;
 }

@@ -29,6 +29,7 @@ import {
   tradeGet,
 } from './api';
 import { formatCoins } from '../Games/common/api';
+import { formatSymbolLabel } from './symbols';
 
 const { Text } = Typography;
 // 每隔多久查一次新的通知，页面不在前台时不查。
@@ -65,7 +66,7 @@ function noticeText(notice, perUnit, t) {
     'close-short': t('平空'),
   };
   const values = {
-    symbol: notice.symbol,
+    symbol: notice.symbol ? formatSymbolLabel(notice.symbol, t) : '',
     side: sideLabels[notice.side] || notice.side,
     qty: formatQty(notice.qty),
     price: formatPrice(notice.price),

@@ -43,9 +43,11 @@ import {
   toUsdt,
   tradePost,
 } from './api';
+import { getSymbolName } from './symbols';
 
 const { Text } = Typography;
 const PERCENTS = [0.25, 0.5, 0.75, 1];
+const QUICK_MARGIN_USDT = [10, 50, 100, 500];
 const DEFAULT_LEVERAGE = 10;
 const emptyRows = () => [{ price: '', qty: '' }];
 
@@ -535,6 +537,22 @@ const FuturesOrderPanel = ({
             ` · ${t('开仓 {{qty}} {{ticker}}', { qty: formatQty(qty), ticker })}`}
         </Text>
       </div>
+      {unit === 'usdt' && (
+        <div className='grid grid-cols-4 gap-1'>
+          {QUICK_MARGIN_USDT.map((val) => (
+            <Button
+              key={val}
+              size='small'
+              theme='borderless'
+              type='tertiary'
+              className='!bg-[var(--semi-color-fill-0)]'
+              onClick={() => setAmount(String(val))}
+            >
+              ${val}
+            </Button>
+          ))}
+        </div>
+      )}
       <div className='grid grid-cols-4 gap-1'>
         {PERCENTS.map((percent) => (
           <Button
@@ -613,7 +631,7 @@ const FuturesOrderPanel = ({
         disabled={!canOpen || !(calcPrice > 0) || pending}
         onClick={submit}
       >
-        {`${sideLabel} ${symbol} · ${lev}x`}
+        {`${sideLabel} ${getSymbolName(ticker, t)} · ${lev}x`}
       </Button>
       <Text type='tertiary' size='small'>
         {!canOpen

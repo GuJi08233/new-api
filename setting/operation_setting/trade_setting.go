@@ -98,6 +98,18 @@ type TradeSetting struct {
 	RankingBonusPeriod    string `json:"ranking_bonus_period"`
 	RankingBonusTopN      int    `json:"ranking_bonus_top_n"`
 	RankingBonusAmountUsd int    `json:"ranking_bonus_amount_usd"`
+
+	// 短线事件玩法（AI 擂台 PK、全品种极速涨跌、区间高倍竞猜、极速触碰）配置，需模拟盘总开关同时打开。
+	ShortEventsEnabled     bool `json:"short_events_enabled"`
+	ShortEventFeeBps       int  `json:"short_event_fee_bps"`
+	ShortEventPayoutBps    int  `json:"short_event_payout_bps"`
+	ShortEventMaxOrderUsd  int  `json:"short_event_max_order_usd"`
+	ShortEventMaxActiveUsd int  `json:"short_event_max_active_usd"`
+
+	// 短期闪电冲榜赛（4 小时 / 每日收益率赛）配置，报名费汇入奖池自动结算，不足 2 人自动退费。
+	SprintEnabled     bool `json:"sprint_enabled"`
+	SprintEntryFeeUsd int  `json:"sprint_entry_fee_usd"`
+	SprintFeeBps      int  `json:"sprint_fee_bps"`
 }
 
 // 品种的种类，决定前端放在哪个分组里。
@@ -205,6 +217,11 @@ const (
 	TradeMaxBonusActiveDays = 365
 	TradeMaxWagerCreditBps  = 10_000
 	TradeMaxRankingTopN     = 50
+	TradeMaxShortFeeBps     = 1000  // 短线奖池抽成上限 10%
+	TradeMinShortPayoutBps  = 10000 // 即时合约最低赔率 1.00x
+	TradeMaxShortPayoutBps  = 19500 // 即时合约最高 2 选 1 赔率 1.95x
+	TradeMaxSprintEntryUsd  = 1000
+	TradeMaxSprintFeeBps    = 2000 // 冲榜赛奖池抽成上限 20%
 )
 
 // TradeRankingBonusUsd 按名次计算上期排行榜体验金奖励(美元)：第 1 名 100%，第 2–3 名 70%，第 4–topN 名 40%(向下取整，最低 1 美元)。
@@ -278,6 +295,14 @@ func DefaultTradeSetting() *TradeSetting {
 		RankingBonusPeriod:     TradeBonusPeriodWeekly,
 		RankingBonusTopN:       10,
 		RankingBonusAmountUsd:  20,
+		ShortEventsEnabled:     true,
+		ShortEventFeeBps:       300,
+		ShortEventPayoutBps:    18500,
+		ShortEventMaxOrderUsd:  100,
+		ShortEventMaxActiveUsd: 500,
+		SprintEnabled:          true,
+		SprintEntryFeeUsd:      10,
+		SprintFeeBps:           500,
 	}
 }
 
@@ -395,10 +420,23 @@ func ValidateTradeOption(key string, value string) error {
 			return fmt.Errorf("代理地址必须是 http 或 socks5 地址")
 		}
 	case "futures_enabled", "leaderboard_enabled", "insights_enabled", "prediction_enabled",
-		"bonus_enabled", "bonus_match_enabled", "bonus_turnstile_enabled", "ranking_bonus_enabled":
+		"bonus_enabled", "bonus_match_enabled", "bonus_turnstile_enabled", "ranking_bonus_enabled",
+		"short_events_enabled", "sprint_enabled":
 		if _, err := strconv.ParseBool(value); err != nil {
 			return fmt.Errorf("%s 必须是 true 或 false", field)
 		}
+	case "short_event_fee_bps":
+		return validateTradeInt(value, 0, TradeMaxShortFeeBps, "短线奖池手续费")
+	case "short_event_payout_bps":
+		return validateTradeInt(value, TradeMinShortPayoutBps, TradeMaxShortPayoutBps, "极速合约赔率")
+	case "short_event_max_order_usd":
+		return validateTradeInt(value, 1, TradeMaxOrderUsd, "短线单笔上限")
+	case "short_event_max_active_usd":
+		return validateTradeInt(value, 1, TradeMaxPositionUsd, "短线同时在途上限")
+	case "sprint_entry_fee_usd":
+		return validateTradeInt(value, 1, TradeMaxSprintEntryUsd, "闪电赛报名费")
+	case "sprint_fee_bps":
+		return validateTradeInt(value, 0, TradeMaxSprintFeeBps, "闪电赛奖池手续费")
 	case "bonus_pool_daily_usd":
 		return validateTradeInt(value, 0, TradeMaxBonusPoolUsd, "全站每日体验金池")
 	case "bonus_first_amount_usd":

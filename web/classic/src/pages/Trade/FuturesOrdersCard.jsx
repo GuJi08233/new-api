@@ -39,6 +39,7 @@ import {
   tradePost,
   trendClass,
 } from './api';
+import { formatSymbolLabel } from './symbols';
 
 const { Text } = Typography;
 const PAGE_SIZE = 10;
@@ -133,7 +134,13 @@ const FuturesOrdersCard = ({
   );
   const symbolColumn = symbol
     ? []
-    : [{ title: t('合约'), dataIndex: 'symbol' }];
+    : [
+        {
+          title: t('合约品种'),
+          dataIndex: 'symbol',
+          render: (value) => formatSymbolLabel(value, t),
+        },
+      ];
   const price = (value) => formatPrice(value, priceDigits);
 
   const orderColumns = [

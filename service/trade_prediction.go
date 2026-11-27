@@ -779,6 +779,7 @@ func (client *tradePredictionClient) settlePending(ctx context.Context) {
 			common.SysError(fmt.Sprintf("prediction settlement position %d: %v", position.Id, err))
 		}
 	}
+	client.settlePendingSeries(ctx)
 }
 
 // ValueTradePredictions 用已缓存的可卖价估值；断线/旧轮次未决时按剩余成本显示，不参与保证金或可转出金额。

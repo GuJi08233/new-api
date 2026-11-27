@@ -17,27 +17,42 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, {
+  Suspense,
+  lazy,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
   Banner,
   Button,
   Empty,
-  Radio,
-  RadioGroup,
   Spin,
   Tag,
   Typography,
 } from '@douyinfe/semi-ui';
-import { ArrowRightLeft, Gift } from 'lucide-react';
+import {
+  ArrowRightLeft,
+  CandlestickChart,
+  Crosshair,
+  Flame,
+  Gift,
+  Layers,
+  Newspaper,
+  Trophy,
+  Wallet,
+  Zap,
+} from 'lucide-react';
 import { initVChartSemiTheme } from '@visactor/vchart-semi-theme';
 import { useIsMobile } from '../../hooks/common/useIsMobile';
 import AssetsView from './AssetsView';
 import FuturesView from './FuturesView';
 import LeaderboardView from './LeaderboardView';
 import InsightsView from './InsightsView';
-import PredictionView from './PredictionView';
 import MarketList from './MarketList';
 import NoticeBell from './NoticeBell';
 import TickerStrip from './TickerStrip';
@@ -50,6 +65,10 @@ import {
   useTradeStream,
 } from './api';
 import './trade.css';
+
+const StrategiesHub = lazy(() => import('./StrategiesHub'));
+const ShortPlayHub = lazy(() => import('./ShortPlayHub'));
+const ArenaView = lazy(() => import('./ArenaView'));
 
 const { Text, Title } = Typography;
 
@@ -89,7 +108,11 @@ const Trade = () => {
   const isAssets = location.pathname === '/trade/assets';
   const isLeaderboard = location.pathname === '/trade/leaderboard';
   const isInsights = location.pathname === '/trade/insights';
+  const isShort = location.pathname === '/trade/short';
   const isPrediction = location.pathname === '/trade/prediction';
+  const isShortHub = isShort || isPrediction;
+  const isBaskets = location.pathname === '/trade/baskets';
+  const isArena = location.pathname === '/trade/arena';
   const isFutures = location.pathname.startsWith('/trade/futures');
   // 现货行情列表页。资产页与排行榜没有自己的行情，顶部行情条在那里也列现货。
   const isSpotList =
@@ -98,7 +121,9 @@ const Trade = () => {
     !isAssets &&
     !isLeaderboard &&
     !isInsights &&
-    !isPrediction;
+    !isShortHub &&
+    !isBaskets &&
+    !isArena;
   const [self, setSelf] = useState(null);
   const [market, setMarket] = useState(null);
   const [marketError, setMarketError] = useState('');
@@ -151,12 +176,24 @@ const Trade = () => {
 
   useEffect(() => {
     loadSelf();
-    if (isFutures) {
+    if (isBaskets || isArena || isShortHub) {
+      loadMarket();
       loadFutures();
-    } else if (!isInsights && !isPrediction) {
+    } else if (isFutures) {
+      loadFutures();
+    } else if (!isInsights) {
       loadMarket();
     }
-  }, [loadSelf, loadMarket, loadFutures, isFutures, isInsights, isPrediction]);
+  }, [
+    loadSelf,
+    loadMarket,
+    loadFutures,
+    isFutures,
+    isInsights,
+    isShortHub,
+    isBaskets,
+    isArena,
+  ]);
 
   const symbols = useMemo(
     () => market?.symbols.map((item) => item.symbol) || [],
@@ -171,7 +208,8 @@ const Trade = () => {
   const showStrip =
     !isMobile &&
     !isInsights &&
-    !isPrediction &&
+    !isShortHub &&
+    !isArena &&
     !!self?.enabled &&
     stripItems.length > 0;
   const publishTicker = useCallback(
@@ -179,21 +217,30 @@ const Trade = () => {
       tickerFeed.dispatchEvent(new CustomEvent('ticker', { detail: data })),
     [tickerFeed],
   );
-  // 现货列表页推全部交易对给列表和行情条；资产页与排行榜没有别的推送，单为行情条订阅，行情不进页面状态，免得页面跟着重绘。
+  // 现货列表页、策略中心与短线玩法页推全部现货；资产页与排行榜单为行情条订阅。
   useTradeStream(
     {
       symbols,
-      enabled: isSpotList || (!symbol && !isFutures && showStrip),
+      enabled:
+        isSpotList ||
+        isBaskets ||
+        isShortHub ||
+        (!symbol && !isFutures && showStrip),
     },
     {
       ticker: (data) => {
-        if (isSpotList) setQuotes((previous) => applyTicker(previous, data));
+        if (isSpotList || isBaskets || isShortHub)
+          setQuotes((previous) => applyTicker(previous, data));
         publishTicker(data);
       },
     },
   );
   useTradeStream(
-    { symbols: futuresSymbols, futures: true, enabled: isFutures && !symbol },
+    {
+      symbols: futuresSymbols,
+      futures: true,
+      enabled: (isFutures && !symbol) || isBaskets || isShortHub,
+    },
     {
       ticker: (data) => {
         setFuturesQuotes((previous) => applyTicker(previous, data));
@@ -242,14 +289,50 @@ const Trade = () => {
     ) : (
       <Spin size='large' />
     );
-  } else if (isPrediction) {
+  } else if (isBaskets) {
     content = (
-      <PredictionView
-        self={self}
-        perUnit={perUnit}
-        onAccountChanged={loadSelf}
-        t={t}
-      />
+      <Suspense fallback={<Spin size='large' />}>
+        <StrategiesHub
+          self={self}
+          perUnit={perUnit}
+          spotMarket={market}
+          futuresMarket={futures}
+          spotQuotes={quotes}
+          futuresQuotes={futuresQuotes}
+          onOpenSpot={openSymbol}
+          onOpenFutures={openFutures}
+          onAccountChanged={loadSelf}
+          t={t}
+        />
+      </Suspense>
+    );
+  } else if (isArena) {
+    content = (
+      <Suspense fallback={<Spin size='large' />}>
+        <ArenaView
+          spotSymbols={market?.symbols || []}
+          futuresSymbols={futures?.symbols || []}
+          onOpenSpot={openSymbol}
+          onOpenFutures={openFutures}
+          t={t}
+        />
+      </Suspense>
+    );
+  } else if (isShortHub) {
+    content = (
+      <Suspense fallback={<Spin size='large' />}>
+        <ShortPlayHub
+          initialTab={isPrediction ? 'prediction' : 'pk'}
+          self={self}
+          perUnit={perUnit}
+          spotSymbols={market?.symbols || []}
+          futuresSymbols={futures?.symbols || []}
+          spotQuotes={quotes}
+          futuresQuotes={futuresQuotes}
+          onAccountChanged={loadSelf}
+          t={t}
+        />
+      </Suspense>
     );
   } else if (isInsights) {
     content = self.insights ? (
@@ -259,11 +342,7 @@ const Trade = () => {
     );
   } else if (isLeaderboard) {
     content = (
-      <LeaderboardView
-        perUnit={perUnit}
-        onAccountChanged={loadSelf}
-        t={t}
-      />
+      <LeaderboardView perUnit={perUnit} onAccountChanged={loadSelf} t={t} />
     );
   } else if (isAssets) {
     content = (
@@ -293,6 +372,8 @@ const Trade = () => {
         key={item.symbol}
         item={item}
         initialQuote={futuresQuotes[item.symbol]}
+        allSymbols={futures.symbols}
+        allQuotes={futuresQuotes}
         self={self}
         perUnit={perUnit}
         market={futures}
@@ -300,6 +381,7 @@ const Trade = () => {
         onTicker={publishTicker}
         onBack={() => navigate('/trade/futures')}
         onOpenSymbol={openFutures}
+        onSwitchSpot={item.spot ? () => openSymbol(item.spot) : null}
         onAccountChanged={loadSelf}
         noticeKey={noticeKey}
         t={t}
@@ -329,12 +411,20 @@ const Trade = () => {
         key={item.symbol}
         item={item}
         initialQuote={quotes[item.symbol]}
+        allSymbols={market.symbols}
+        allQuotes={quotes}
         self={self}
         perUnit={perUnit}
         feeBps={market.fee_bps}
         tickerSymbols={showStrip ? symbols : null}
         onTicker={publishTicker}
         onBack={() => navigate('/trade')}
+        onOpenSymbol={openSymbol}
+        onSwitchFutures={
+          item.futures && self?.futures?.enabled
+            ? () => openFutures(item.futures)
+            : null
+        }
         onAccountChanged={loadSelf}
         noticeKey={noticeKey}
         t={t}
@@ -351,6 +441,76 @@ const Trade = () => {
     );
   }
 
+  const activeNav = isAssets
+    ? 'assets'
+    : isLeaderboard
+      ? 'leaderboard'
+      : isInsights
+        ? 'insights'
+        : isShortHub
+          ? 'short'
+          : isBaskets
+            ? 'baskets'
+            : isArena
+              ? 'arena'
+              : isFutures
+                ? 'futures'
+                : 'spot';
+
+  const hasShortPlay =
+    self?.short_events?.enabled ||
+    self?.sprint?.enabled ||
+    self?.prediction ||
+    isShortHub;
+
+  const navItems = [
+    { key: 'spot', path: '/trade', label: t('现货'), Icon: CandlestickChart },
+    { key: 'futures', path: '/trade/futures', label: t('合约'), Icon: Flame },
+    ...(hasShortPlay
+      ? [
+          {
+            key: 'short',
+            path: '/trade/short',
+            label: t('短线玩法'),
+            Icon: Zap,
+          },
+        ]
+      : []),
+    {
+      key: 'baskets',
+      path: '/trade/baskets',
+      label: t('策略组合'),
+      Icon: Layers,
+    },
+    {
+      key: 'arena',
+      path: '/trade/arena',
+      label: t('K线盲测'),
+      Icon: Crosshair,
+    },
+    { key: 'assets', path: '/trade/assets', label: t('资产'), Icon: Wallet },
+    ...(self?.leaderboard || isLeaderboard
+      ? [
+          {
+            key: 'leaderboard',
+            path: '/trade/leaderboard',
+            label: t('排行榜'),
+            Icon: Trophy,
+          },
+        ]
+      : []),
+    ...(self?.insights || isInsights
+      ? [
+          {
+            key: 'insights',
+            path: '/trade/insights',
+            label: t('市场资讯'),
+            Icon: Newspaper,
+          },
+        ]
+      : []),
+  ];
+
   return (
     <div className='mt-[60px] px-2 pb-6 md:px-4'>
       <div className='mx-auto flex max-w-[1440px] flex-col gap-4'>
@@ -365,51 +525,32 @@ const Trade = () => {
           />
         )}
         <div className='trade-topbar'>
-          <div className='flex flex-wrap items-center gap-3 md:gap-4'>
-            <Title heading={4} className='!mb-0'>
-              {t('模拟盘')}
-            </Title>
-            <RadioGroup
+          <div className='flex flex-wrap items-center gap-3'>
+            <button
               type='button'
-              value={
-                isAssets
-                  ? 'assets'
-                  : isLeaderboard
-                    ? 'leaderboard'
-                    : isInsights
-                      ? 'insights'
-                      : isPrediction
-                        ? 'prediction'
-                        : isFutures
-                          ? 'futures'
-                          : 'spot'
-              }
-              onChange={(e) =>
-                navigate(
-                  {
-                    spot: '/trade',
-                    futures: '/trade/futures',
-                    assets: '/trade/assets',
-                    leaderboard: '/trade/leaderboard',
-                    insights: '/trade/insights',
-                    prediction: '/trade/prediction',
-                  }[e.target.value],
-                )
-              }
+              className='trade-brand-title'
+              onClick={() => navigate('/trade')}
             >
-              <Radio value='spot'>{t('现货')}</Radio>
-              <Radio value='futures'>{t('合约')}</Radio>
-              <Radio value='assets'>{t('资产')}</Radio>
-              {(self?.leaderboard || isLeaderboard) && (
-                <Radio value='leaderboard'>{t('排行榜')}</Radio>
-              )}
-              {(self?.insights || isInsights) && (
-                <Radio value='insights'>{t('市场资讯')}</Radio>
-              )}
-              {(self?.prediction || isPrediction) && (
-                <Radio value='prediction'>{t('BTC预测')}</Radio>
-              )}
-            </RadioGroup>
+              <span className='trade-brand-icon'>
+                <CandlestickChart size={16} />
+              </span>
+              <Title heading={5} className='!mb-0'>
+                {t('模拟盘')}
+              </Title>
+            </button>
+            <nav className='trade-nav-pills' aria-label={t('模拟盘导航')}>
+              {navItems.map(({ key, path, label, Icon }) => (
+                <button
+                  key={key}
+                  type='button'
+                  className={`trade-nav-pill${activeNav === key ? ' is-active' : ''}`}
+                  onClick={() => navigate(path)}
+                >
+                  <Icon size={14} />
+                  <span>{label}</span>
+                </button>
+              ))}
+            </nav>
           </div>
           {self && (
             <div className='trade-stat-chips'>

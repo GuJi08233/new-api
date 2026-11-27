@@ -57,8 +57,10 @@ type TradeValuation struct {
 	Shorts      []TradeShort `json:"shorts"`
 	// FuturesValue 是合约仓位算进总资产的价值合计：逐仓是保证金加按标记价格的浮动盈亏(最少为 0)，全仓只有浮动盈亏。
 	FuturesValue int `json:"futures_value"`
-	// PredictionValue 是 BTC 预测持仓按能卖出的价格的估值。
+	// PredictionValue 是涨跌预测持仓按能卖出的价格的估值。
 	PredictionValue int `json:"prediction_value"`
+	// ShortEventValue 是尚未结算的短线事件(PK/极速涨跌/区间/触碰)在途投入总额。
+	ShortEventValue int `json:"short_event_value"`
 	// SpotDebt 是现货借款的本金加利息(算上到期还没收的)，SpotMargin 是借款本身，SpotRisk 与 SpotLevel 是借款的风险与风险率
 	// (见 model.TradeSpotRisk)。SpotPricesFresh 为假时现货盘口不新鲜，风险率算不出来。
 	SpotDebt        int                   `json:"spot_debt"`
@@ -187,14 +189,22 @@ func valueTradeUser(ctx context.Context, userId int, accounting bool) (model.Tra
 	if err != nil {
 		return account, valuation, err
 	}
-	err = valueTradeFinancing(&valuation, loan, loans, positions, predictions, accounting)
+	seriesPredictions, err := model.ListTradePredictionSeriesPositionsOf([]int{userId})
+	if err != nil {
+		return account, valuation, err
+	}
+	shortOrders, err := model.ListActiveTradeShortOrdersOf([]int{userId})
+	if err != nil {
+		return account, valuation, err
+	}
+	err = valueTradeFinancing(&valuation, loan, loans, positions, predictions, seriesPredictions, shortOrders, accounting)
 	return account, valuation, err
 }
 
-// valueTradeFinancing 把预测持仓、现货借款与借币卖出欠着的币算进总资产，算出借款的风险率。有借款时把钱转出去(转回额度、给
+// valueTradeFinancing 把预测持仓、短线事件在途单、现货借款与借币卖出欠着的币算进总资产，算出借款的风险率。有借款时把钱转出去(转回额度、给
 // 合约或预测用)之后风险率不能低于 2，要留下的资金从全仓可用与可转出里扣掉；现货盘口不新鲜、风险率算不出来时这两项按 0 算。
-// 预测持仓不能作抵押。
-func valueTradeFinancing(valuation *TradeValuation, loan model.TradeSpotMargin, loans []model.TradeSpotAssetLoan, spots []model.TradePosition, predictions []model.TradePredictionPosition, accounting bool) error {
+// 预测与短线事件持仓不能作抵押。
+func valueTradeFinancing(valuation *TradeValuation, loan model.TradeSpotMargin, loans []model.TradeSpotAssetLoan, spots []model.TradePosition, predictions []model.TradePredictionPosition, seriesPredictions []model.TradePredictionSeriesPosition, shortOrders []model.TradeShortOrder, accounting bool) error {
 	now := common.GetTimestamp()
 	loan, err := model.AccruedTradeSpotMargin(loan, now)
 	if err != nil {
@@ -204,14 +214,26 @@ func valueTradeFinancing(valuation *TradeValuation, loan model.TradeSpotMargin, 
 		return err
 	}
 	valuation.SpotMargin, valuation.SpotDebt = loan, loan.Principal+loan.Interest
-	valuation.PredictionValue, err = valueTradePredictions(predictions, accounting)
+	btcPredValue, err := valueTradePredictions(predictions, accounting)
+	if err != nil {
+		return err
+	}
+	seriesPredValue, err := valueTradeSeriesPredictions(seriesPredictions, accounting)
+	if err != nil {
+		return err
+	}
+	if btcPredValue >= common.MaxQuota-seriesPredValue {
+		return model.ErrTradeAmountInvalid
+	}
+	valuation.PredictionValue = btcPredValue + seriesPredValue
+	valuation.ShortEventValue, err = valueTradeShortOrders(shortOrders, accounting)
 	if err != nil {
 		return err
 	}
 	if err = valueTradeShorts(valuation, loans, accounting); err != nil {
 		return err
 	}
-	valuation.Equity = max(0, valuation.Cash+valuation.Frozen+valuation.CryptoValue+valuation.StockValue+valuation.FuturesValue+valuation.PredictionValue-
+	valuation.Equity = max(0, valuation.Cash+valuation.Frozen+valuation.CryptoValue+valuation.StockValue+valuation.FuturesValue+valuation.PredictionValue+valuation.ShortEventValue-
 		valuation.SpotDebt-valuation.CryptoShort-valuation.StockShort)
 	valuation.SpotPricesFresh = true
 	if valuation.SpotDebt == 0 && len(valuation.Shorts) == 0 {
@@ -319,6 +341,14 @@ func valueTradeAccounts(accounts []model.TradeAccount) ([]TradeValuation, error)
 	if err != nil {
 		return nil, err
 	}
+	seriesPredictions, err := model.ListTradePredictionSeriesPositionsOf(userIds)
+	if err != nil {
+		return nil, err
+	}
+	shortOrders, err := model.ListActiveTradeShortOrdersOf(userIds)
+	if err != nil {
+		return nil, err
+	}
 	loansByUser := make(map[int]model.TradeSpotMargin, len(loans))
 	for _, loan := range loans {
 		loansByUser[loan.UserId] = loan
@@ -326,6 +356,14 @@ func valueTradeAccounts(accounts []model.TradeAccount) ([]TradeValuation, error)
 	predictionsByUser := make(map[int][]model.TradePredictionPosition)
 	for _, position := range predictions {
 		predictionsByUser[position.UserId] = append(predictionsByUser[position.UserId], position)
+	}
+	seriesByUser := make(map[int][]model.TradePredictionSeriesPosition)
+	for _, position := range seriesPredictions {
+		seriesByUser[position.UserId] = append(seriesByUser[position.UserId], position)
+	}
+	shortByUser := make(map[int][]model.TradeShortOrder)
+	for _, ord := range shortOrders {
+		shortByUser[ord.UserId] = append(shortByUser[ord.UserId], ord)
 	}
 	positionsByUser := map[int][]model.TradePosition{}
 	for _, position := range positions {
@@ -342,7 +380,7 @@ func valueTradeAccounts(accounts []model.TradeAccount) ([]TradeValuation, error)
 			return nil, err
 		}
 		if err = valueTradeFinancing(&valuations[i], loansByUser[account.UserId], assetLoansByUser[account.UserId], positionsByUser[account.UserId],
-			predictionsByUser[account.UserId], false); err != nil {
+			predictionsByUser[account.UserId], seriesByUser[account.UserId], shortByUser[account.UserId], false); err != nil {
 			return nil, err
 		}
 	}

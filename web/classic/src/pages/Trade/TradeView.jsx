@@ -19,13 +19,15 @@ For commercial licensing, please contact support@quantumnous.com
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button, Tag, Typography } from '@douyinfe/semi-ui';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, ArrowLeftRight, Calculator, Star } from 'lucide-react';
 import CandleChart from './CandleChart';
 import OrderBook from './OrderBook';
 import OrderPanel from './OrderPanel';
 import OrdersCard from './OrdersCard';
 import SessionBadge from './SessionBadge';
 import SpotMarginCard from './SpotMarginCard';
+import SymbolSwitcher from './SymbolSwitcher';
+import TradeCalculatorModal from './TradeCalculatorModal';
 import {
   changePercent,
   decimalsOf,
@@ -39,22 +41,31 @@ import {
   tradeGet,
   useTradeStream,
 } from './api';
+import {
+  getSymbolSector,
+  readTradeFavorites,
+  writeTradeFavorites,
+} from './symbols';
 
-const { Text, Title } = Typography;
+const { Text } = Typography;
 
 // 后台撮合的限价单成交后页面不会收到通知，定时刷新账户与委托。
 const REFRESH_MS = 10_000;
 
-// 一个交易对的交易页：行情头、K 线、下单面板、盘口、当前持仓与委托。
+// 一个交易对的交易页：内联品种切换、行情头、K 线、下单面板、盘口、当前持仓与委托。
 const TradeView = ({
   item,
   initialQuote,
+  allSymbols,
+  allQuotes,
   self,
   perUnit,
   feeBps,
   tickerSymbols,
   onTicker,
   onBack,
+  onOpenSymbol,
+  onSwitchFutures,
   onAccountChanged,
   noticeKey,
   t,
@@ -67,6 +78,19 @@ const TradeView = ({
   const [fills, setFills] = useState([]);
   const [picked, setPicked] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [calcVisible, setCalcVisible] = useState(false);
+  const [isFav, setIsFav] = useState(() =>
+    readTradeFavorites(false).includes(symbol),
+  );
+
+  const toggleFav = () => {
+    const list = readTradeFavorites(false);
+    const next = list.includes(symbol)
+      ? list.filter((s) => s !== symbol)
+      : [...list, symbol];
+    writeTradeFavorites(false, next);
+    setIsFav(next.includes(symbol));
+  };
 
   // 顶部行情条显示时顺带订阅它要的全部品种，行情转给行情条，一个页面只开一条推送连接。
   const connected = useTradeStream(
@@ -154,10 +178,14 @@ const TradeView = ({
     [holding?.avg_price, t],
   );
 
+  const sector = getSymbolSector(item);
+  const holdingPnlPct =
+    holding && holding.cost > 0 ? (holdingPnl / holding.cost) * 100 : 0;
+
   return (
     <div className='flex flex-col gap-4'>
-      <div className='trade-card flex flex-wrap items-center gap-x-8 gap-y-3'>
-        <div className='flex items-center gap-2'>
+      <div className='trade-card trade-terminal-header'>
+        <div className='flex flex-wrap items-center gap-2'>
           <Button
             icon={<ArrowLeft size={16} />}
             theme='borderless'
@@ -165,45 +193,93 @@ const TradeView = ({
             onClick={onBack}
             aria-label={t('返回行情')}
           />
-          <Title heading={4} className='!mb-0'>
-            {item.ticker}
-            <Text type='tertiary'>/USDT</Text>
-          </Title>
-          {item.kind === 'stock' && <Tag color='violet'>{t('美股代币')}</Tag>}
+          <SymbolSwitcher
+            current={item}
+            symbols={allSymbols || [item]}
+            quotes={{ ...(allQuotes || {}), [symbol]: quote }}
+            onSelect={onOpenSymbol}
+            t={t}
+          />
+          <button
+            type='button'
+            className={`trade-fav-btn${isFav ? ' is-fav' : ''}`}
+            aria-label={isFav ? t('取消自选') : t('加入自选')}
+            onClick={toggleFav}
+          >
+            <Star size={15} fill={isFav ? 'currentColor' : 'none'} />
+          </button>
+          {sector && (
+            <Tag color={sector.color} type='light'>
+              {t(sector.label)}
+            </Tag>
+          )}
           {item.session && <SessionBadge session={item.session} t={t} />}
           <Tag color={connected ? 'green' : 'orange'}>
-            {connected ? t('实时') : t('连接中')}
+            <span className='inline-flex items-center gap-1'>
+              <span
+                className={`trade-live-dot${connected ? ' is-live' : ''}`}
+              />
+              {connected ? t('实时') : t('连接中')}
+            </span>
           </Tag>
         </div>
-        <div>
-          <Text
-            className={`trade-num text-xl font-semibold ${trendClass(change)}`}
-          >
-            {formatPrice(quote.price, priceDigits)}
-          </Text>
-          <div>
-            <Text size='small' className={`trade-num ${trendClass(change)}`}>
+
+        <div className='flex flex-wrap items-center gap-x-6 gap-y-2'>
+          <div className='flex items-baseline gap-2.5'>
+            <Text
+              className={`trade-num text-2xl font-bold leading-none ${trendClass(change)}`}
+            >
+              {formatPrice(quote.price, priceDigits)}
+            </Text>
+            <span
+              className={`trade-change-pill ${change === null ? 'trade-flat' : trendClass(change)}`}
+            >
               {change === null
                 ? '--'
                 : `${change > 0 ? '+' : ''}${change.toFixed(2)}%`}
-            </Text>
+            </span>
           </div>
+          {[
+            [t('24 小时最高'), formatPrice(quote.high, priceDigits)],
+            [t('24 小时最低'), formatPrice(quote.low, priceDigits)],
+            [
+              t('24 小时成交量'),
+              `${formatCompact(quote.volume)} ${item.ticker}`,
+            ],
+            [t('24 小时成交额'), `${formatCompact(quote.quote_volume)} USDT`],
+          ].map(([label, value]) => (
+            <div key={label} className='leading-tight'>
+              <Text type='tertiary' size='small' className='!text-[11px]'>
+                {label}
+              </Text>
+              <div className='trade-num text-sm font-medium'>{value}</div>
+            </div>
+          ))}
         </div>
-        {[
-          [t('24 小时最高'), formatPrice(quote.high, priceDigits)],
-          [t('24 小时最低'), formatPrice(quote.low, priceDigits)],
-          [t('24 小时成交量'), `${formatCompact(quote.volume)} ${item.ticker}`],
-          [t('24 小时成交额'), `${formatCompact(quote.quote_volume)} USDT`],
-        ].map(([label, value]) => (
-          <div key={label}>
-            <Text type='tertiary' size='small'>
-              {label}
-            </Text>
-            <div className='trade-num'>{value}</div>
-          </div>
-        ))}
+
+        <div className='flex items-center gap-2 ml-auto'>
+          <Button
+            size='small'
+            theme='light'
+            icon={<Calculator size={14} />}
+            onClick={() => setCalcVisible(true)}
+          >
+            {t('计算器')}
+          </Button>
+          {onSwitchFutures && (
+            <Button
+              size='small'
+              theme='light'
+              type='primary'
+              icon={<ArrowLeftRight size={14} />}
+              onClick={onSwitchFutures}
+            >
+              {t('去合约')}
+            </Button>
+          )}
+        </div>
       </div>
-      <div className='grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_320px]'>
+      <div className='grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_336px]'>
         <div className='flex min-w-0 flex-col gap-4'>
           <CandleChart
             symbol={symbol}
@@ -233,9 +309,9 @@ const TradeView = ({
               [
                 t('浮动盈亏'),
                 holding ? (
-                  <span
-                    className={trendClass(holdingPnl)}
-                  >{`${formatSignedUsdt(holdingPnl, perUnit)} USDT`}</span>
+                  <span className={trendClass(holdingPnl)}>
+                    {`${formatSignedUsdt(holdingPnl, perUnit)} USDT (${holdingPnlPct > 0 ? '+' : ''}${holdingPnlPct.toFixed(2)}%)`}
+                  </span>
                 ) : (
                   '--'
                 ),
@@ -245,7 +321,7 @@ const TradeView = ({
                 <Text type='tertiary' size='small'>
                   {label}
                 </Text>
-                <div className='trade-num'>{value}</div>
+                <div className='trade-num font-medium'>{value}</div>
               </div>
             ))}
           </div>
@@ -293,6 +369,14 @@ const TradeView = ({
           />
         </div>
       </div>
+      <TradeCalculatorModal
+        visible={calcVisible}
+        onClose={() => setCalcVisible(false)}
+        symbolItem={item}
+        currentPrice={quote.price}
+        priceDigits={priceDigits}
+        t={t}
+      />
     </div>
   );
 };

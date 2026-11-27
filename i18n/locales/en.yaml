@@ -403,7 +403,22 @@ trade.order_invalid: "Invalid order parameters"
 trade.spot_financing_invalid: "Spot leverage is only available on market buys by quantity."
 trade.spot_margin_level: "The margin level of your spot loan is too low for this order. Repay part of the loan or sell some holdings first."
 trade.prediction_too_small: "This trade is too small to cover the fee."
+
 trade.prediction_no_fill: "No shares are available within your price limit. The odds may have just moved; adjust the price and try again."
+
+trade.short_disabled: "Short-term events are currently disabled"
+
+trade.short_round_closed: "This round is locked or closed. Please join the next round."
+
+trade.short_limit_reached: "Order or active stake limit reached"
+
+trade.sprint_disabled: "Lightning sprint contests are currently disabled"
+
+trade.sprint_already_joined: "You have already joined this sprint contest"
+
+trade.sprint_closed: "Registration for this sprint has closed"
+
+trade.sprint_equity_too_low: "At least 10 USDT of equity remaining after entry fee is required to compete"
 trade.qty_too_small: "Quantity is below the minimum of {{.Min}}"
 trade.notional_too_small: "Order value is below the minimum of {{.Min}} USDT"
 trade.order_too_large: "Order value exceeds the limit of {{.Max}} USDT per order"

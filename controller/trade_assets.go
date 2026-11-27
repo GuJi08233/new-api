@@ -124,6 +124,11 @@ func GetTradeAdminStatus(c *gin.Context) {
 			"max_bonus_days":       operation_setting.TradeMaxBonusActiveDays,
 			"max_wager_credit_bps": operation_setting.TradeMaxWagerCreditBps,
 			"max_ranking_top_n":    operation_setting.TradeMaxRankingTopN,
+			"max_short_fee_bps":    operation_setting.TradeMaxShortFeeBps,
+			"min_short_payout_bps": operation_setting.TradeMinShortPayoutBps,
+			"max_short_payout_bps": operation_setting.TradeMaxShortPayoutBps,
+			"max_sprint_entry_usd": operation_setting.TradeMaxSprintEntryUsd,
+			"max_sprint_fee_bps":   operation_setting.TradeMaxSprintFeeBps,
 		},
 	})
 }

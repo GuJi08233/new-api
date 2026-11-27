@@ -29,6 +29,7 @@ import {
   tradeGet,
   trendClass,
 } from './api';
+import { formatSymbolLabel } from './symbols';
 
 const { Text, Title } = Typography;
 const PAGE_SIZE = 10;
@@ -66,6 +67,12 @@ const LedgerCard = ({ perUnit, refreshKey, t }) => {
     prediction_buy: t('预测买入'),
     prediction_sell: t('预测卖出'),
     predict_settle: t('预测结算'),
+    short_bet: t('短线投入'),
+    short_payout: t('短线派彩'),
+    short_refund: t('短线退本'),
+    sprint_join: t('闪电赛报名'),
+    sprint_prize: t('闪电赛奖金'),
+    sprint_refund: t('闪电赛退费'),
     bonus_in: t('体验金入账'),
     bonus_reclaim: t('体验金回收'),
     bonus_zero: t('体验金穿仓归零'),
@@ -114,25 +121,26 @@ const LedgerCard = ({ perUnit, refreshKey, t }) => {
       title: t('明细'),
       dataIndex: 'symbol',
       render: (_, entry) => {
+        const label = entry.symbol ? formatSymbolLabel(entry.symbol, t) : '';
         if (fillTypes.includes(entry.type)) {
-          return `${entry.symbol} ${formatQty(entry.qty)} @ ${formatPrice(entry.price)}`;
+          return `${label} ${formatQty(entry.qty)} @ ${formatPrice(entry.price)}`;
         }
         if (entry.type === 'futures_funding') {
-          return `${entry.symbol} ${t('资金费率')} ${formatFundingRate(entry.price)}`;
+          return `${label} ${t('资金费率')} ${formatFundingRate(entry.price)}`;
         }
         if (entry.type === 'spot_interest') {
           return `${t('日利率')} ${(Number(entry.price || 0) * 100).toFixed(4)}%`;
         }
         if (entry.type === 'spot_coin_int') {
-          return `${entry.symbol} ${formatQty(entry.qty)} · ${t('日利率')} ${(Number(entry.price || 0) * 100).toFixed(4)}%`;
+          return `${label} ${formatQty(entry.qty)} · ${t('日利率')} ${(Number(entry.price || 0) * 100).toFixed(4)}%`;
         }
         if (
           entry.type === 'spot_coin_loan' ||
           entry.type === 'spot_coin_repay'
         ) {
-          return `${entry.symbol} ${formatQty(entry.qty)}`;
+          return `${label} ${formatQty(entry.qty)}`;
         }
-        return entry.symbol || '--';
+        return label || '--';
       },
     },
     {

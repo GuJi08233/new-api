@@ -38,9 +38,16 @@ import {
   PredictionTradesCard,
   usePredictionLive,
 } from './PredictionLive';
+import { SymbolAvatar } from './SymbolIdentity';
+import { formatSymbolLabel, getSymbolName } from './symbols';
 
 const { Text, Title } = Typography;
 const PAGE_SIZE = 10;
+const PREDICTION_ASSETS = ['BTC', 'ETH', 'SOL', 'XRP'];
+const PREDICTION_INTERVALS = [
+  { value: '5m', sec: 300, label: '5 分钟' },
+  { value: '15m', sec: 900, label: '15 分钟' },
+];
 const POSITION_STATUS = {
   active: '持有中',
   sold: '已全部卖出',
@@ -58,8 +65,10 @@ function predictionNumber(value, maxDecimals = 8) {
   );
 }
 
-// 成交仍由服务端重新拉取公开盘口；客户端赔率只用于展示与用户的限价保护。
+// 多币种多周期 Polymarket 实时盘口涨跌预测：支持 BTC/ETH/SOL/XRP × 5m/15m。
 const PredictionView = ({ self, perUnit, onAccountChanged, t }) => {
+  const [asset, setAsset] = useState('BTC');
+  const [interval, setIntervalValue] = useState('5m');
   const [market, setMarket] = useState(null);
   const [positions, setPositions] = useState({ items: [], total: 0 });
   const [rounds, setRounds] = useState({ items: [], total: 0 });
@@ -79,7 +88,9 @@ const PredictionView = ({ self, perUnit, onAccountChanged, t }) => {
   const [now, setNow] = useState(Date.now);
   const [clockOffset, setClockOffset] = useState(0);
   const mounted = useRef(true);
-  const live = usePredictionLive();
+  const live = usePredictionLive(asset, interval);
+  const intervalSec = interval === '15m' ? 900 : 300;
+  const marketKey = `${asset.toLowerCase()}-${interval}`;
 
   useEffect(() => {
     mounted.current = true;
@@ -99,14 +110,23 @@ const PredictionView = ({ self, perUnit, onAccountChanged, t }) => {
       controller = new AbortController();
       const options = { signal: controller.signal, skipErrorHandler: true };
       const results = await Promise.allSettled([
-        API.get('/api/trade/prediction/market', options),
+        API.get('/api/trade/prediction/market', {
+          ...options,
+          params: { asset, interval },
+        }),
         API.get('/api/trade/prediction/positions', {
           ...options,
-          params: { status: filter, page, page_size: PAGE_SIZE },
+          params: {
+            asset,
+            interval,
+            status: filter,
+            page,
+            page_size: PAGE_SIZE,
+          },
         }),
         API.get('/api/trade/prediction/rounds', {
           ...options,
-          params: { page: roundPage, page_size: PAGE_SIZE },
+          params: { asset, interval, page: roundPage, page_size: PAGE_SIZE },
         }),
       ]);
       if (!alive || current !== generation) return;
@@ -160,7 +180,7 @@ const PredictionView = ({ self, perUnit, onAccountChanged, t }) => {
       controller?.abort();
       document.removeEventListener('visibilitychange', visibility);
     };
-  }, [filter, page, roundPage, refreshKey, t]);
+  }, [asset, interval, filter, page, roundPage, refreshKey, t]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -222,6 +242,8 @@ const PredictionView = ({ self, perUnit, onAccountChanged, t }) => {
     const result = await tradePost(
       '/api/trade/prediction/orders',
       {
+        asset,
+        interval,
         window_start: round.window_start,
         side,
         amount,
@@ -245,7 +267,13 @@ const PredictionView = ({ self, perUnit, onAccountChanged, t }) => {
     setSubmitting(true);
     const result = await tradePost(
       `/api/trade/prediction/positions/${sellPosition.id}/sell`,
-      { shares: sellShares, min_price: sellPrice },
+      {
+        asset,
+        interval,
+        market_key: sellPosition.market_key || marketKey,
+        shares: sellShares,
+        min_price: sellPrice,
+      },
       t,
     );
     if (!mounted.current) return;
@@ -299,7 +327,9 @@ const PredictionView = ({ self, perUnit, onAccountChanged, t }) => {
       title: t('状态'),
       dataIndex: 'status',
       render: (value, position) =>
-        value === 'active' && position.window_start + 300 <= serverNow
+        value === 'active' &&
+        position.window_start + (position.interval_sec || intervalSec) <=
+          serverNow
           ? t('等待官方结算')
           : t(POSITION_STATUS[value] || '持有中'),
     },
@@ -335,18 +365,62 @@ const PredictionView = ({ self, perUnit, onAccountChanged, t }) => {
       <div className='grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]'>
         <div className='trade-card flex min-w-0 flex-col gap-4'>
           <div className='flex flex-wrap items-center justify-between gap-3'>
-            <Title heading={5}>{t('BTC 五分钟涨跌预测')}</Title>
-            <Button
-              size='small'
-              icon={<RefreshCw size={14} />}
-              aria-label={t('刷新')}
-              loading={loading}
-              onClick={() => setRefreshKey((value) => value + 1)}
-            />
+            <div className='flex flex-wrap items-center gap-2'>
+              <SymbolAvatar item={asset} size={28} />
+              <Title heading={5} className='!mb-0'>
+                {t('{{name}} {{interval}} 涨跌预测', {
+                  name: formatSymbolLabel(asset, t),
+                  interval: interval === '15m' ? t('15 分钟') : t('5 分钟'),
+                })}
+              </Title>
+            </div>
+            <div className='flex flex-wrap items-center gap-2'>
+              <div className='flex items-center gap-1'>
+                {PREDICTION_ASSETS.map((code) => (
+                  <button
+                    key={code}
+                    type='button'
+                    className={`trade-sector-tab${asset === code ? ' is-active' : ''}`}
+                    onClick={() => {
+                      setAsset(code);
+                      setPage(1);
+                      setRoundPage(1);
+                      setPriceInput(null);
+                    }}
+                  >
+                    {getSymbolName(code, t)}
+                  </button>
+                ))}
+              </div>
+              <RadioGroup
+                type='button'
+                size='small'
+                value={interval}
+                onChange={(e) => {
+                  setIntervalValue(e.target.value);
+                  setPage(1);
+                  setRoundPage(1);
+                  setPriceInput(null);
+                }}
+              >
+                {PREDICTION_INTERVALS.map((opt) => (
+                  <Radio key={opt.value} value={opt.value}>
+                    {t(opt.label)}
+                  </Radio>
+                ))}
+              </RadioGroup>
+              <Button
+                size='small'
+                icon={<RefreshCw size={14} />}
+                aria-label={t('刷新')}
+                loading={loading}
+                onClick={() => setRefreshKey((value) => value + 1)}
+              />
+            </div>
           </div>
           <Text type='tertiary'>
             {t(
-              '使用模拟盘资金交易，行情和结果来自 Polymarket，不会向外部市场下单。',
+              '使用模拟盘资金交易，行情和结果来自 Polymarket，不会向外部市场下单。支持比特币、以太坊、索拉纳、瑞波币 5 分钟与 15 分钟盘口。',
             )}
           </Text>
           {round && (
@@ -369,7 +443,7 @@ const PredictionView = ({ self, perUnit, onAccountChanged, t }) => {
               <span
                 className={remaining <= 30 ? 'is-ending' : ''}
                 style={{
-                  width: `${(Math.min(Math.max(300 - remaining, 0), 300) / 300) * 100}%`,
+                  width: `${(Math.min(Math.max(intervalSec - remaining, 0), intervalSec) / intervalSec) * 100}%`,
                 }}
               />
             </div>

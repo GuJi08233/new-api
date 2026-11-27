@@ -29,6 +29,7 @@ import {
   trendClass,
   tradePost,
 } from './api';
+import { formatSymbolLabel } from './symbols';
 
 const { Text } = Typography;
 
@@ -134,7 +135,7 @@ const SpotMarginCard = ({ self, perUnit, onChanged, t }) => {
           <div key={short.symbol} className='trade-short flex flex-col gap-2'>
             <div className='flex items-center justify-between gap-2'>
               <Text strong>
-                {t('借币')} {ticker}
+                {t('借币')} {formatSymbolLabel(short.symbol || ticker, t)}
               </Text>
               <Button
                 size='small'

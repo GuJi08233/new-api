@@ -46,6 +46,7 @@ import {
   trendClass,
   useFuturesBrackets,
 } from './api';
+import SymbolIdentity from './SymbolIdentity';
 
 const { Text } = Typography;
 const PERCENTS = [0.25, 0.5, 0.75, 1];
@@ -695,15 +696,34 @@ const PositionCard = ({
       <div className='flex flex-wrap items-center justify-between gap-2'>
         <div className='flex items-center gap-2'>
           {onOpenSymbol ? (
-            <Button
-              theme='borderless'
-              size='small'
+            <div
+              role='button'
+              tabIndex={0}
+              className='inline-flex cursor-pointer items-center hover:opacity-80'
               onClick={() => onOpenSymbol(position.symbol)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  onOpenSymbol(position.symbol);
+                }
+              }}
             >
-              {position.symbol}
-            </Button>
+              <SymbolIdentity
+                item={{ symbol: position.symbol, ticker: position.ticker }}
+                futures
+                compact
+                size={24}
+                t={t}
+              />
+            </div>
           ) : (
-            <Text strong>{position.symbol}</Text>
+            <SymbolIdentity
+              item={{ symbol: position.symbol, ticker: position.ticker }}
+              futures
+              compact
+              size={24}
+              t={t}
+            />
           )}
           <Tag size='small' type='solid' color={long ? 'green' : 'red'}>
             {long ? t('多仓') : t('空仓')} {position.leverage}x

@@ -134,6 +134,8 @@ func main() {
 	service.StartTradeMarket()
 	service.StartTradeInsights()
 	service.StartTradePrediction()
+	service.StartTradeShortEvents()
+	service.StartTradeSprints()
 
 	// Codex credential auto-refresh check every 10 minutes, refresh when expires within 1 day
 	service.StartCodexCredentialAutoRefreshTask()
