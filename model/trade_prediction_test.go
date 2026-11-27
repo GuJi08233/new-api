@@ -137,6 +137,21 @@ func TestTradePredictionPositionCapAndCreditOverflowRollBack(t *testing.T) {
 	require.NoError(t, err)
 	_, err = BuyTradePrediction(input)
 	require.ErrorIs(t, err, ErrTradePositionLimit)
+	// 跨系列预测合并计入持仓上限：持有系列预测后，经典 BTC 5m 不得绕过 MaxCost。
+	require.NoError(t, DB.AutoMigrate(&TradePredictionSeriesPosition{}))
+	require.NoError(t, DB.Create(&TradePredictionSeriesPosition{
+		UserId: 6206, MarketKey: "eth-5m", Asset: "ETH", IntervalSec: 300,
+		Slug: "eth-updown-5m-test", WindowStart: round.WindowStart, Side: TradePredictionUp,
+		Qty: 100000000, InitialQty: 100000000, Cost: tradeUsd(8), TotalCost: tradeUsd(8),
+		AvgPrice: "0.5", Status: TradePredictionActive,
+	}).Error)
+	t.Cleanup(func() {
+		_ = DB.Where("user_id = ?", 6206).Delete(&TradePredictionSeriesPosition{}).Error
+	})
+	input.MaxCost = tradeUsd(20) // 10.175(BTC) + 8(ETH) + 10.175(新单) > 20 必须拒绝
+	_, err = BuyTradePrediction(input)
+	require.ErrorIs(t, err, ErrTradePositionLimit)
+
 	require.NoError(t, DB.Model(&TradeAccount{}).Where("user_id = ?", 6206).Update("cash", common.MaxQuota-1).Error)
 	sale := TradePredictionFill{UserId: 6206, WindowStart: round.WindowStart, Side: TradePredictionUp, Qty: position.Qty, Amount: tradeUsd(12), Price: "0.6", ExpiresAtMs: time.Now().Add(3 * time.Second).UnixMilli()}
 	_, err = SellTradePrediction(position.Id, sale)

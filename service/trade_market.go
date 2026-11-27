@@ -656,6 +656,29 @@ func (m *TradeMarket) LastPrice(symbol string) (decimal.Decimal, bool) {
 	return decimal.Zero, false
 }
 
+// FreshMidPrice 返回交易对实时盘口的买一/卖一中间价与盘口点差(万分比)；仅在盘口连接正常、双向有挂单且买一小于卖一时有效。
+func (m *TradeMarket) FreshMidPrice(symbol string) (mid decimal.Decimal, spreadBps decimal.Decimal, ok bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if !m.connected {
+		return decimal.Zero, decimal.Zero, false
+	}
+	book := m.books[symbol]
+	if book == nil || len(book.bids) == 0 || len(book.asks) == 0 {
+		return decimal.Zero, decimal.Zero, false
+	}
+	bid, ask := book.bids[0].Price, book.asks[0].Price
+	if !bid.IsPositive() || !ask.IsPositive() || !bid.LessThan(ask) {
+		return decimal.Zero, decimal.Zero, false
+	}
+	mid = bid.Add(ask).Div(decimal.NewFromInt(2))
+	if !mid.IsPositive() {
+		return decimal.Zero, decimal.Zero, false
+	}
+	spreadBps = ask.Sub(bid).Mul(decimal.NewFromInt(10000)).Div(mid)
+	return mid, spreadBps, true
+}
+
 // MarkPrice 返回合约最新的标记价格与资金费信息，还没收到时 ok 为假。
 func (m *TradeMarket) MarkPrice(symbol string) (binance.MarkPrice, bool) {
 	m.mu.RLock()

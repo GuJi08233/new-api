@@ -25,6 +25,9 @@ const (
 	TradeShortModePool    = "pool"
 	TradeShortModeInstant = "instant"
 
+	TradeShortSourceSpot    = "spot"
+	TradeShortSourceFutures = "futures"
+
 	TradeShortStatusActive   = "active"
 	TradeShortStatusWon      = "won"
 	TradeShortStatusLost     = "lost"
@@ -42,62 +45,71 @@ const (
 )
 
 var (
-	ErrTradeShortDisabled     = errors.New("short-term trade events are disabled")
-	ErrTradeShortRoundClosed  = errors.New("short-term event round is closed")
-	ErrTradeShortLimitReached = errors.New("short-term event stake limit reached")
-	ErrTradeShortInvalid      = errors.New("short-term event order is invalid")
+	ErrTradeShortDisabled        = errors.New("short-term trade events are disabled")
+	ErrTradeShortRoundClosed     = errors.New("short-term event round is closed")
+	ErrTradeShortLimitReached    = errors.New("short-term event stake limit reached")
+	ErrTradeShortInvalid         = errors.New("short-term event order is invalid")
+	ErrTradeShortBonusNotAllowed = errors.New("trade bonus cannot be used in pooled short-term events")
+	ErrTradeShortHedgeForbidden  = errors.New("conflicting active order on the same event is not allowed")
+	ErrTradeShortModeNotAllowed  = errors.New("instant mode is only available for symmetric directional events")
+	ErrTradeShortSpreadTooWide   = errors.New("order book spread is too wide for short-term event pricing")
+	ErrTradeShortFundingWindow   = errors.New("short-term futures order cannot straddle a high funding-rate settlement")
 )
 
-// TradeShortRound 是共享奖池局(PK 擂台奖池场 / 区间竞猜奖池场)。
-// 投注期在 StartTime 之前结束(或前 20% 窗口)，防止临期偷跑；总奖池按胜方本金占比分账，单边押注或平局全额退本。
+// TradeShortRound 是共享奖池局(PK 擂台奖池场 / 区间竞猜奖池场 / 极速触碰奖池场)。
+// 投注期严格在 StartTime 截止(零盘中偷跑)；总奖池按胜方本金占比分账，单边押注或平局全额退本。
 type TradeShortRound struct {
-	Id           int    `json:"id"`
-	RoundKey     string `json:"round_key" gorm:"type:varchar(96);uniqueIndex;not null"`
-	Kind         string `json:"kind" gorm:"type:varchar(16);index;not null"`
-	Title        string `json:"title" gorm:"type:varchar(120)"`
-	SymbolA      string `json:"symbol_a" gorm:"type:varchar(24);not null"`
-	SymbolB      string `json:"symbol_b" gorm:"type:varchar(24)"`
-	DurationSec  int64  `json:"duration_sec" gorm:"type:bigint;not null"`
-	LockTime     int64  `json:"lock_time" gorm:"type:bigint;index;not null"`
-	StartTime    int64  `json:"start_time" gorm:"type:bigint;not null"`
-	EndTime      int64  `json:"end_time" gorm:"type:bigint;index;not null"`
-	ThresholdBps int    `json:"threshold_bps" gorm:"type:int;not null;default:0"`
-	StartPriceA  string `json:"start_price_a" gorm:"type:varchar(40)"`
-	StartPriceB  string `json:"start_price_b" gorm:"type:varchar(40)"`
-	EndPriceA    string `json:"end_price_a" gorm:"type:varchar(40)"`
-	EndPriceB    string `json:"end_price_b" gorm:"type:varchar(40)"`
-	TotalPool    int    `json:"total_pool" gorm:"type:bigint;not null;default:0"`
-	FeeBps       int    `json:"fee_bps" gorm:"type:int;not null;default:300"`
-	Outcome      string `json:"outcome" gorm:"type:varchar(24)"`
-	Status       string `json:"status" gorm:"type:varchar(16);index;not null"`
-	SettledAt    int64  `json:"settled_at" gorm:"type:bigint"`
-	CreatedAt    int64  `json:"created_at" gorm:"type:bigint"`
+	Id            int    `json:"id"`
+	RoundKey      string `json:"round_key" gorm:"type:varchar(96);uniqueIndex;not null"`
+	Kind          string `json:"kind" gorm:"type:varchar(16);index;not null"`
+	Title         string `json:"title" gorm:"type:varchar(120)"`
+	SymbolA       string `json:"symbol_a" gorm:"type:varchar(24);not null"`
+	SymbolB       string `json:"symbol_b" gorm:"type:varchar(24)"`
+	SourceMarketA string `json:"source_market_a,omitempty" gorm:"type:varchar(16)"`
+	SourceMarketB string `json:"source_market_b,omitempty" gorm:"type:varchar(16)"`
+	DurationSec   int64  `json:"duration_sec" gorm:"type:bigint;not null"`
+	LockTime      int64  `json:"lock_time" gorm:"type:bigint;index;not null"`
+	StartTime     int64  `json:"start_time" gorm:"type:bigint;not null"`
+	EndTime       int64  `json:"end_time" gorm:"type:bigint;index;not null"`
+	ThresholdBps  int    `json:"threshold_bps" gorm:"type:int;not null;default:0"`
+	StartPriceA   string `json:"start_price_a" gorm:"type:varchar(40)"`
+	StartPriceB   string `json:"start_price_b" gorm:"type:varchar(40)"`
+	EndPriceA     string `json:"end_price_a" gorm:"type:varchar(40)"`
+	EndPriceB     string `json:"end_price_b" gorm:"type:varchar(40)"`
+	TotalPool     int    `json:"total_pool" gorm:"type:bigint;not null;default:0"`
+	FeeBps        int    `json:"fee_bps" gorm:"type:int;not null;default:300"`
+	Outcome       string `json:"outcome" gorm:"type:varchar(24)"`
+	Status        string `json:"status" gorm:"type:varchar(16);index;not null"`
+	SettledAt     int64  `json:"settled_at" gorm:"type:bigint"`
+	CreatedAt     int64  `json:"created_at" gorm:"type:bigint"`
 }
 
 // TradeShortOrder 记录用户在短线事件中的每一笔投入(既支持关联 RoundId 的奖池局，也支持独立到期结算的即时单)。
 type TradeShortOrder struct {
-	Id           int    `json:"id"`
-	UserId       int    `json:"user_id" gorm:"index:idx_trade_short_user,priority:1;not null"`
-	RoundId      int    `json:"round_id" gorm:"index;not null;default:0"`
-	Kind         string `json:"kind" gorm:"type:varchar(16);index;not null"`
-	Mode         string `json:"mode" gorm:"type:varchar(16);not null"`
-	SymbolA      string `json:"symbol_a" gorm:"type:varchar(24);not null"`
-	SymbolB      string `json:"symbol_b" gorm:"type:varchar(24)"`
-	Choice       string `json:"choice" gorm:"type:varchar(24);not null"`
-	DurationSec  int64  `json:"duration_sec" gorm:"type:bigint;not null"`
-	ThresholdBps int    `json:"threshold_bps" gorm:"type:int;not null;default:0"`
-	EntryPriceA  string `json:"entry_price_a" gorm:"type:varchar(40)"`
-	EntryPriceB  string `json:"entry_price_b" gorm:"type:varchar(40)"`
-	SettlePriceA string `json:"settle_price_a" gorm:"type:varchar(40)"`
-	SettlePriceB string `json:"settle_price_b" gorm:"type:varchar(40)"`
-	Stake        int    `json:"stake" gorm:"type:bigint;not null"`
-	PayoutBps    int    `json:"payout_bps" gorm:"type:int;not null;default:0"`
-	Payout       int    `json:"payout" gorm:"type:bigint;not null;default:0"`
-	Outcome      string `json:"outcome" gorm:"type:varchar(24)"`
-	Status       string `json:"status" gorm:"type:varchar(16);index:idx_trade_short_user,priority:2;not null"`
-	ExpiresAt    int64  `json:"expires_at" gorm:"type:bigint;index;not null"`
-	SettledAt    int64  `json:"settled_at" gorm:"type:bigint"`
-	CreatedAt    int64  `json:"created_at" gorm:"type:bigint"`
+	Id            int    `json:"id"`
+	UserId        int    `json:"user_id" gorm:"index:idx_trade_short_user,priority:1;not null"`
+	RoundId       int    `json:"round_id" gorm:"index;not null;default:0"`
+	Kind          string `json:"kind" gorm:"type:varchar(16);index;not null"`
+	Mode          string `json:"mode" gorm:"type:varchar(16);not null"`
+	SymbolA       string `json:"symbol_a" gorm:"type:varchar(24);not null"`
+	SymbolB       string `json:"symbol_b" gorm:"type:varchar(24)"`
+	SourceMarketA string `json:"source_market_a,omitempty" gorm:"type:varchar(16)"`
+	SourceMarketB string `json:"source_market_b,omitempty" gorm:"type:varchar(16)"`
+	Choice        string `json:"choice" gorm:"type:varchar(24);not null"`
+	DurationSec   int64  `json:"duration_sec" gorm:"type:bigint;not null"`
+	ThresholdBps  int    `json:"threshold_bps" gorm:"type:int;not null;default:0"`
+	EntryPriceA   string `json:"entry_price_a" gorm:"type:varchar(40)"`
+	EntryPriceB   string `json:"entry_price_b" gorm:"type:varchar(40)"`
+	SettlePriceA  string `json:"settle_price_a" gorm:"type:varchar(40)"`
+	SettlePriceB  string `json:"settle_price_b" gorm:"type:varchar(40)"`
+	Stake         int    `json:"stake" gorm:"type:bigint;not null"`
+	PayoutBps     int    `json:"payout_bps" gorm:"type:int;not null;default:0"`
+	Payout        int    `json:"payout" gorm:"type:bigint;not null;default:0"`
+	Outcome       string `json:"outcome" gorm:"type:varchar(24)"`
+	Status        string `json:"status" gorm:"type:varchar(16);index:idx_trade_short_user,priority:2;not null"`
+	ExpiresAt     int64  `json:"expires_at" gorm:"type:bigint;index;not null"`
+	SettledAt     int64  `json:"settled_at" gorm:"type:bigint"`
+	CreatedAt     int64  `json:"created_at" gorm:"type:bigint"`
 }
 
 // EnsureTradeShortRound 按唯一 RoundKey 幂等创建共享奖池局。
@@ -154,25 +166,32 @@ func GetTradeShortRoundPools(roundIds []int) (map[int]map[string]int, error) {
 }
 
 type TradeShortOrderInput struct {
-	UserId       int
-	RoundId      int
-	Kind         string
-	Mode         string
-	SymbolA      string
-	SymbolB      string
-	Choice       string
-	DurationSec  int64
-	ThresholdBps int
-	EntryPriceA  string
-	EntryPriceB  string
-	Stake        int
-	PayoutBps    int
-	MaxActive    int
-	ExpiresAt    int64
-	Market       TradeFuturesMarket
+	UserId        int
+	RoundId       int
+	Kind          string
+	Mode          string
+	SymbolA       string
+	SymbolB       string
+	SourceMarketA string
+	SourceMarketB string
+	Choice        string
+	DurationSec   int64
+	ThresholdBps  int
+	EntryPriceA   string
+	EntryPriceB   string
+	Stake         int
+	PayoutBps     int
+	MaxActive     int
+	ExpiresAt     int64
+	Market        TradeFuturesMarket
 }
 
 // PlaceTradeShortOrder 在账户锁内校验可用资金、在途上限并扣款建单；奖池模式同步递增局总奖池。
+// 防止套利不变量：
+// - 即时固定赔率模式仅开放 2 选 1 对称方向单(flash / pk)，杜绝区间与触碰的固定赔率波动率套利；
+// - 共享奖池禁止携带未结清体验金的账户参与，杜绝体验金双号对敲洗钱；
+// - 同一用户禁止在同一奖池局或同一即时标的组合上同时押对立方向，杜绝对冲刷流水或操控奖池；
+// - 游戏币解锁流水(locked_wager)延后至非退本结算时再计入，单边/平局退本不解锁流水。
 func PlaceTradeShortOrder(input TradeShortOrderInput) (*TradeShortOrder, error) {
 	if input.UserId <= 0 || input.Stake <= 0 || input.Stake >= common.MaxQuota ||
 		input.MaxActive <= 0 || input.MaxActive >= common.MaxQuota ||
@@ -182,6 +201,9 @@ func PlaceTradeShortOrder(input TradeShortOrderInput) (*TradeShortOrder, error) 
 	if input.Mode != TradeShortModePool && input.Mode != TradeShortModeInstant {
 		return nil, ErrTradeShortInvalid
 	}
+	if input.Mode == TradeShortModeInstant && input.Kind != TradeShortKindFlash && input.Kind != TradeShortKindPK {
+		return nil, ErrTradeShortModeNotAllowed
+	}
 	var order TradeShortOrder
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		account, err := lockTradeAccountTx(tx, input.UserId)
@@ -190,6 +212,9 @@ func PlaceTradeShortOrder(input TradeShortOrderInput) (*TradeShortOrder, error) 
 		}
 		now := time.Now().Unix()
 		if input.Mode == TradeShortModePool {
+			if account.BonusPrincipal > 0 {
+				return ErrTradeShortBonusNotAllowed
+			}
 			if input.RoundId <= 0 {
 				return ErrTradeShortInvalid
 			}
@@ -197,8 +222,18 @@ func PlaceTradeShortOrder(input TradeShortOrderInput) (*TradeShortOrder, error) 
 			if err := lockForUpdate(tx).Where("id = ?", input.RoundId).First(&round).Error; err != nil {
 				return err
 			}
-			if round.Status != TradeShortRoundOpen || now >= round.LockTime || now >= round.EndTime {
+			if round.Status != TradeShortRoundOpen || now >= round.LockTime || now >= round.StartTime || now >= round.EndTime {
 				return ErrTradeShortRoundClosed
+			}
+			var conflict int64
+			if err := tx.Model(&TradeShortOrder{}).
+				Where("user_id = ? AND round_id = ? AND mode = ? AND status = ? AND choice <> ?",
+					input.UserId, round.Id, TradeShortModePool, TradeShortStatusActive, input.Choice).
+				Count(&conflict).Error; err != nil {
+				return err
+			}
+			if conflict > 0 {
+				return ErrTradeShortHedgeForbidden
 			}
 			if round.TotalPool >= common.MaxQuota-input.Stake {
 				return ErrTradeAmountInvalid
@@ -212,9 +247,34 @@ func PlaceTradeShortOrder(input TradeShortOrderInput) (*TradeShortOrder, error) 
 			input.ThresholdBps = round.ThresholdBps
 			input.SymbolA = round.SymbolA
 			input.SymbolB = round.SymbolB
+			input.SourceMarketA = round.SourceMarketA
+			input.SourceMarketB = round.SourceMarketB
 			input.Kind = round.Kind
-		} else if now >= input.ExpiresAt {
-			return ErrTradeShortRoundClosed
+		} else {
+			if now >= input.ExpiresAt {
+				return ErrTradeShortRoundClosed
+			}
+			var conflict int64
+			switch input.Kind {
+			case TradeShortKindFlash:
+				err = tx.Model(&TradeShortOrder{}).
+					Where("user_id = ? AND mode = ? AND kind = ? AND status = ? AND symbol_a = ? AND choice <> ?",
+						input.UserId, TradeShortModeInstant, TradeShortKindFlash, TradeShortStatusActive, input.SymbolA, input.Choice).
+					Count(&conflict).Error
+			case TradeShortKindPK:
+				err = tx.Model(&TradeShortOrder{}).
+					Where("user_id = ? AND mode = ? AND kind = ? AND status = ? AND ((symbol_a = ? AND symbol_b = ? AND choice <> ?) OR (symbol_a = ? AND symbol_b = ? AND choice = ?))",
+						input.UserId, TradeShortModeInstant, TradeShortKindPK, TradeShortStatusActive,
+						input.SymbolA, input.SymbolB, input.Choice,
+						input.SymbolB, input.SymbolA, input.Choice).
+					Count(&conflict).Error
+			}
+			if err != nil {
+				return err
+			}
+			if conflict > 0 {
+				return ErrTradeShortHedgeForbidden
+			}
 		}
 
 		var activeStake int64
@@ -232,30 +292,29 @@ func PlaceTradeShortOrder(input TradeShortOrderInput) (*TradeShortOrder, error) 
 		}
 		account.Cash -= input.Stake
 		order = TradeShortOrder{
-			UserId:       input.UserId,
-			RoundId:      input.RoundId,
-			Kind:         input.Kind,
-			Mode:         input.Mode,
-			SymbolA:      input.SymbolA,
-			SymbolB:      input.SymbolB,
-			Choice:       input.Choice,
-			DurationSec:  input.DurationSec,
-			ThresholdBps: input.ThresholdBps,
-			EntryPriceA:  input.EntryPriceA,
-			EntryPriceB:  input.EntryPriceB,
-			Stake:        input.Stake,
-			PayoutBps:    input.PayoutBps,
-			Status:       TradeShortStatusActive,
-			ExpiresAt:    input.ExpiresAt,
-			CreatedAt:    now,
+			UserId:        input.UserId,
+			RoundId:       input.RoundId,
+			Kind:          input.Kind,
+			Mode:          input.Mode,
+			SymbolA:       input.SymbolA,
+			SymbolB:       input.SymbolB,
+			SourceMarketA: input.SourceMarketA,
+			SourceMarketB: input.SourceMarketB,
+			Choice:        input.Choice,
+			DurationSec:   input.DurationSec,
+			ThresholdBps:  input.ThresholdBps,
+			EntryPriceA:   input.EntryPriceA,
+			EntryPriceB:   input.EntryPriceB,
+			Stake:         input.Stake,
+			PayoutBps:     input.PayoutBps,
+			Status:        TradeShortStatusActive,
+			ExpiresAt:     input.ExpiresAt,
+			CreatedAt:     now,
 		}
 		if err := tx.Create(&order).Error; err != nil {
 			return err
 		}
 		if err := saveTradeAccountTx(tx, account); err != nil {
-			return err
-		}
-		if err := creditGameCoinWagerFromTradeTx(tx, account, input.Stake, operation_setting.GetTradeSetting().TradeWagerSpotBps); err != nil {
 			return err
 		}
 		ledgerSymbol := shortOrderLedgerSymbol(order.Kind, order.SymbolA, order.SymbolB)
@@ -348,6 +407,12 @@ func SettleTradeShortInstantOrder(orderId int, outcome, settlePriceA, settlePric
 		if err := saveTradeAccountTx(tx, account); err != nil {
 			return err
 		}
+		// 仅真实胜负结算才计入游戏币解锁流水，平局退本不解锁流水。
+		if status == TradeShortStatusWon || status == TradeShortStatusLost {
+			if err := creditGameCoinWagerFromTradeTx(tx, account, order.Stake, operation_setting.GetTradeSetting().TradeWagerSpotBps); err != nil {
+				return err
+			}
+		}
 		return tx.Create(&TradeLedger{
 			UserId:    order.UserId,
 			Type:      ledgerType,
@@ -373,7 +438,7 @@ func SettleTradeShortPoolRound(roundId int, outcome, startPriceA, startPriceB, e
 	var distributable, winPool int
 	refundAll := outcome == TradeShortOutcomeRefund
 
-	// 第一步：锁定该局并标记最终结果，同时读取所有待结算注单。
+	// 第一步：锁定该局并标记最终结果，同时读取该局全部注单以确保分池比例准确。
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		if err := lockForUpdate(tx).Where("id = ?", roundId).First(&round).Error; err != nil {
 			return err
@@ -381,7 +446,7 @@ func SettleTradeShortPoolRound(roundId int, outcome, startPriceA, startPriceB, e
 		if round.Status != TradeShortRoundOpen {
 			return nil
 		}
-		if err := tx.Where("round_id = ? AND status = ?", round.Id, TradeShortStatusActive).Order("id ASC").Find(&orders).Error; err != nil {
+		if err := tx.Where("round_id = ? AND mode = ?", round.Id, TradeShortModePool).Order("id ASC").Find(&orders).Error; err != nil {
 			return err
 		}
 		totalPool := 0
@@ -433,17 +498,30 @@ func SettleTradeShortPoolRound(roundId int, outcome, startPriceA, startPriceB, e
 		return err
 	}
 	if round.Status != TradeShortRoundOpen {
-		// 即使局状态已落库，仍补扫未结清注单以保证崩溃可恢复。
-		if err := DB.Where("round_id = ? AND status = ?", roundId, TradeShortStatusActive).Order("id ASC").Find(&orders).Error; err != nil || len(orders) == 0 {
+		// 崩溃恢复路径：必须基于该局全部注单重新计算分池比例，仅对尚未结清的 active 注单补发。
+		var allOrders []TradeShortOrder
+		if err := DB.Where("round_id = ? AND mode = ?", roundId, TradeShortModePool).Order("id ASC").Find(&allOrders).Error; err != nil || len(allOrders) == 0 {
 			return err
 		}
 		refundAll = round.Status == TradeShortRoundRefunded || round.Outcome == TradeShortOutcomeRefund
 		outcome = round.Outcome
+		if endPriceA == "" {
+			endPriceA = round.EndPriceA
+		}
+		if endPriceB == "" {
+			endPriceB = round.EndPriceB
+		}
 		totalPool := 0
 		sides := map[string]int{}
-		for _, ord := range orders {
+		for _, ord := range allOrders {
 			totalPool += ord.Stake
 			sides[ord.Choice] += ord.Stake
+			if ord.Status == TradeShortStatusActive {
+				orders = append(orders, ord)
+			}
+		}
+		if len(orders) == 0 {
+			return nil
 		}
 		winPool = sides[outcome]
 		if len(sides) < 2 || winPool <= 0 {
@@ -457,6 +535,9 @@ func SettleTradeShortPoolRound(roundId int, outcome, startPriceA, startPriceB, e
 
 	// 第二步：逐单加账户行锁安全入账，严格幂等。
 	for _, item := range orders {
+		if item.Status != TradeShortStatusActive {
+			continue
+		}
 		if err := settleSinglePoolOrder(item.Id, outcome, refundAll, distributable, winPool, endPriceA, endPriceB); err != nil {
 			return err
 		}
@@ -522,6 +603,12 @@ func settleSinglePoolOrder(orderId int, outcome string, refundAll bool, distribu
 		if err := saveTradeAccountTx(tx, account); err != nil {
 			return err
 		}
+		// 仅真实对决(非退本)才消减游戏币解锁流水，杜绝单边零损耗白刷流水。
+		if status == TradeShortStatusWon || status == TradeShortStatusLost {
+			if err := creditGameCoinWagerFromTradeTx(tx, account, order.Stake, operation_setting.GetTradeSetting().TradeWagerSpotBps); err != nil {
+				return err
+			}
+		}
 		return tx.Create(&TradeLedger{
 			UserId:    order.UserId,
 			Type:      ledgerType,
@@ -534,6 +621,22 @@ func settleSinglePoolOrder(orderId int, outcome string, refundAll bool, distribu
 			CreatedAt: now,
 		}).Error
 	})
+}
+
+// ListUnsettledTradeShortPoolRoundIds 返回状态已落库但仍有 active 奖池注单的局 ID，供崩溃恢复补发。
+func ListUnsettledTradeShortPoolRoundIds(limit int) ([]int, error) {
+	var ids []int
+	if limit <= 0 {
+		limit = 50
+	}
+	err := DB.Model(&TradeShortOrder{}).
+		Select("DISTINCT trade_short_orders.round_id").
+		Joins("JOIN trade_short_rounds ON trade_short_rounds.id = trade_short_orders.round_id").
+		Where("trade_short_orders.mode = ? AND trade_short_orders.status = ? AND trade_short_rounds.status <> ?",
+			TradeShortModePool, TradeShortStatusActive, TradeShortRoundOpen).
+		Limit(limit).
+		Pluck("trade_short_orders.round_id", &ids).Error
+	return ids, err
 }
 
 func ListTradeShortOrders(userId int, kind string, activeOnly bool, offset, limit int) ([]TradeShortOrder, int64, error) {

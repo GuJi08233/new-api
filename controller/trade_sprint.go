@@ -41,7 +41,7 @@ func JoinTradeSprint(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
 	}
-	entry, err := service.JoinCurrentTradeSprint(c.GetInt("id"), req.Kind)
+	entry, err := service.JoinCurrentTradeSprint(c.Request.Context(), c.GetInt("id"), req.Kind)
 	if err != nil {
 		switch {
 		case errors.Is(err, model.ErrTradeSprintDisabled):
@@ -52,6 +52,10 @@ func JoinTradeSprint(c *gin.Context) {
 			common.ApiErrorI18n(c, i18n.MsgTradeSprintClosed)
 		case errors.Is(err, model.ErrTradeSprintEquityTooLow):
 			common.ApiErrorI18n(c, i18n.MsgTradeSprintEquityTooLow)
+		case errors.Is(err, model.ErrTradeSprintBonusNotAllowed):
+			common.ApiErrorI18n(c, i18n.MsgTradeSprintBonusNotAllowed)
+		case errors.Is(err, model.ErrTradeValuationStale):
+			common.ApiErrorI18n(c, i18n.MsgRetryLater)
 		default:
 			respondTradeOrderError(c, "", err)
 		}

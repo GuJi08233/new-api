@@ -412,6 +412,16 @@ trade.short_round_closed: "This round is locked or closed. Please join the next 
 
 trade.short_limit_reached: "Order or active stake limit reached"
 
+trade.short_bonus_not_allowed: "Accounts with an active trading bonus cannot join pooled rounds. Withdraw profit or forfeit the bonus first."
+
+trade.short_hedge_forbidden: "Conflicting bets on opposite outcomes of the same round or symbol are not allowed"
+
+trade.short_mode_not_allowed: "Range and Touch events are only available in shared pool mode"
+
+trade.short_spread_too_wide: "Order book spread is too wide or liquidity is insufficient for instant pricing. Try a more liquid symbol or retry shortly."
+
+trade.short_funding_window: "Instant futures short-term orders cannot straddle a high funding-rate settlement window"
+
 trade.sprint_disabled: "Lightning sprint contests are currently disabled"
 
 trade.sprint_already_joined: "You have already joined this sprint contest"
@@ -419,6 +429,8 @@ trade.sprint_already_joined: "You have already joined this sprint contest"
 trade.sprint_closed: "Registration for this sprint has closed"
 
 trade.sprint_equity_too_low: "At least 10 USDT of equity remaining after entry fee is required to compete"
+
+trade.sprint_bonus_not_allowed: "Accounts with an active trading bonus cannot join sprint contests. Withdraw profit or forfeit the bonus first."
 trade.qty_too_small: "Quantity is below the minimum of {{.Min}}"
 trade.notional_too_small: "Order value is below the minimum of {{.Min}} USDT"
 trade.order_too_large: "Order value exceeds the limit of {{.Max}} USDT per order"

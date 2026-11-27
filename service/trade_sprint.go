@@ -2,6 +2,8 @@ package service
 
 import (
 	"cmp"
+	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"sync"
@@ -126,7 +128,9 @@ func buildSprintStandings(sprint model.TradeSprint, entries []model.TradeSprintE
 			acc := byUserAcc[e.UserId]
 			val := byUserVal[e.UserId]
 			curNetIn := acc.TotalIn - acc.TotalOut
-			bps, profit := model.ComputeSprintReturnBps(e.StartEquity, e.StartNetIn, val.Equity, curNetIn, minBase)
+			// 扣除体验金本金，杜绝赛中领取体验金被误算为赛段交易盈利。
+			ownEquity := max(0, val.Equity-acc.BonusPrincipal)
+			bps, profit := model.ComputeSprintReturnBps(e.StartEquity, e.StartNetIn, ownEquity, curNetIn, minBase)
 			list = append(list, scored{entry: e, bps: bps, profit: profit})
 		}
 		slices.SortFunc(list, func(a, b scored) int {
@@ -206,7 +210,7 @@ func GetTradeSprintBoard(viewerId int) ([]TradeSprintView, []model.TradeSprint, 
 	return active, recent, nil
 }
 
-func JoinCurrentTradeSprint(userId int, kind string) (*model.TradeSprintEntry, error) {
+func JoinCurrentTradeSprint(ctx context.Context, userId int, kind string) (*model.TradeSprintEntry, error) {
 	setting := operation_setting.GetTradeSetting()
 	if !setting.Enabled || !setting.SprintEnabled {
 		return nil, model.ErrTradeSprintDisabled
@@ -215,16 +219,27 @@ func JoinCurrentTradeSprint(userId int, kind string) (*model.TradeSprintEntry, e
 	if err != nil {
 		return nil, err
 	}
-	_, valuation, err := ValueTradeUser(userId)
-	if err != nil {
-		return nil, err
+	for range 3 {
+		account, valuation, valErr := ValueTradeUserForTransfer(ctx, userId)
+		if valErr != nil {
+			return nil, valErr
+		}
+		equity := model.TradeEquity{Value: valuation.Equity, Known: true, Account: account}
+		entry, joinErr := model.JoinTradeSprint(sprint.Id, userId, equity, TradeAccountingMarket())
+		if errors.Is(joinErr, model.ErrTradeValuationStale) {
+			continue
+		}
+		return entry, joinErr
 	}
-	return model.JoinTradeSprint(sprint.Id, userId, valuation.Equity, TradeAccountingMarket())
+	return nil, model.ErrTradeValuationStale
 }
 
 var tradeSprintStartOnce sync.Once
 
 func StartTradeSprints() {
+	if !common.IsMasterNode {
+		return
+	}
 	tradeSprintStartOnce.Do(func() {
 		go func() {
 			ticker := time.NewTicker(15 * time.Second)
@@ -239,6 +254,9 @@ func StartTradeSprints() {
 func settleEndedSprints() {
 	if !model.DB.Migrator().HasTable(&model.TradeSprint{}) {
 		return
+	}
+	if err := model.RecoverPendingTradeSprintEntries(50); err != nil {
+		common.SysError("sprint settlement recovery: " + err.Error())
 	}
 	now := common.GetTimestamp()
 	var ended []model.TradeSprint
@@ -313,8 +331,9 @@ func settleEndedSprints() {
 			acc := byUserAcc[e.UserId]
 			val := byUserVal[e.UserId]
 			curNetIn := acc.TotalIn - acc.TotalOut
-			bps, profit := model.ComputeSprintReturnBps(e.StartEquity, e.StartNetIn, val.Equity, curNetIn, minBase)
-			list = append(list, scored{entry: e, endEquity: val.Equity, endNetIn: curNetIn, bps: bps, profit: profit})
+			ownEquity := max(0, val.Equity-acc.BonusPrincipal)
+			bps, profit := model.ComputeSprintReturnBps(e.StartEquity, e.StartNetIn, ownEquity, curNetIn, minBase)
+			list = append(list, scored{entry: e, endEquity: ownEquity, endNetIn: curNetIn, bps: bps, profit: profit})
 		}
 		slices.SortFunc(list, func(a, b scored) int {
 			return cmp.Or(cmp.Compare(b.bps, a.bps), cmp.Compare(b.profit, a.profit), cmp.Compare(a.entry.UserId, b.entry.UserId))

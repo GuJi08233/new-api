@@ -228,7 +228,7 @@ func hasTradeOpenExposureTx(tx *gorm.DB, userId int) (bool, error) {
 	}
 	if tx.Migrator().HasTable(&TradeSprintEntry{}) {
 		var count int64
-		if err := tx.Model(&TradeSprintEntry{}).Where("user_id = ? AND status = ?", userId, TradeSprintEntryActive).Count(&count).Error; err != nil {
+		if err := tx.Model(&TradeSprintEntry{}).Where("user_id = ? AND status <> ?", userId, TradeSprintEntrySettled).Count(&count).Error; err != nil {
 			return false, err
 		}
 		if count > 0 {

@@ -413,6 +413,16 @@ trade.short_round_closed: "当前局已封盘或已结束，请参与下一局"
 
 trade.short_limit_reached: "超过单笔或在途投入上限"
 
+trade.short_bonus_not_allowed: "持有未结清体验金时暂不可参与多人奖池局，请先提盈回收或放弃体验金"
+
+trade.short_hedge_forbidden: "同一场次或同一标的不允许同时对立方向下注"
+
+trade.short_mode_not_allowed: "区间竞猜与极速触碰仅支持多人共享奖池模式"
+
+trade.short_spread_too_wide: "当前标的盘口点差过大或流动性不足，暂不支持极速定价，请换选主流品种或稍后再试"
+
+trade.short_funding_window: "当前时段临近高资金费率结算点，暂不支持开立跨越结算窗口的永续短线单"
+
 trade.sprint_disabled: "闪电冲榜赛暂未开放"
 
 trade.sprint_already_joined: "你已报名本场闪电冲榜赛"
@@ -420,6 +430,8 @@ trade.sprint_already_joined: "你已报名本场闪电冲榜赛"
 trade.sprint_closed: "本场闪电冲榜赛已停止报名"
 
 trade.sprint_equity_too_low: "报名后模拟盘剩余总资产需不少于 10 USDT 才能参赛"
+
+trade.sprint_bonus_not_allowed: "持有未结清体验金时暂不可报名闪电冲榜赛，请先提盈回收或放弃体验金"
 trade.qty_too_small: "数量低于最小下单量 {{.Min}}"
 trade.notional_too_small: "委托金额低于最小金额 {{.Min}} USDT"
 trade.order_too_large: "单笔委托金额不能超过 {{.Max}} USDT"

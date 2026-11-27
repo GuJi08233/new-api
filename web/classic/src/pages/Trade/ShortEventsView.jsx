@@ -30,14 +30,7 @@ import {
   Tag,
   Typography,
 } from '@douyinfe/semi-ui';
-import {
-  RefreshCw,
-  Swords,
-  Target,
-  TrendingDown,
-  TrendingUp,
-  Zap,
-} from 'lucide-react';
+import { RefreshCw, Swords, TrendingDown, TrendingUp, Zap } from 'lucide-react';
 import { showError, showSuccess, timestamp2string } from '../../helpers';
 import {
   formatDuration,
@@ -139,14 +132,10 @@ const ShortEventsView = ({
   const [flashDuration, setFlashDuration] = useState(180);
   const [flashStake, setFlashStake] = useState('10');
 
-  // 区间 & 触碰状态
+  // 区间 & 触碰共享奖池状态
   const [rtSub, setRtSub] = useState('range');
-  const [rangeMode, setRangeMode] = useState('instant');
-  const [rangeSymbol, setRangeSymbol] = useState('BTCUSDT');
   const [rangeDuration, setRangeDuration] = useState(3600);
-  const [rangeChoice, setRangeChoice] = useState('B2');
   const [rangeStake, setRangeStake] = useState('10');
-  const [touchSymbol, setTouchSymbol] = useState('BTCUSDT');
   const [touchDuration, setTouchDuration] = useState(900);
   const [touchStake, setTouchStake] = useState('10');
 
@@ -182,21 +171,16 @@ const ShortEventsView = ({
     if (!symbolPool.some((s) => s.symbol === flashSymbol)) {
       setFlashSymbol(symbolPool[0].symbol);
     }
-    if (!symbolPool.some((s) => s.symbol === rangeSymbol)) {
-      setRangeSymbol(symbolPool[0].symbol);
-    }
-    if (!symbolPool.some((s) => s.symbol === touchSymbol)) {
-      setTouchSymbol(symbolPool[0].symbol);
-    }
-  }, [symbolPool, flashSymbol, rangeSymbol, touchSymbol]);
+  }, [symbolPool, flashSymbol]);
 
   const loadConfig = useCallback(async () => {
     const res = await tradeGet('/api/trade/short/config', t, {
       pk_duration: pkPoolDuration,
       range_duration: rangeDuration,
+      touch_duration: touchDuration,
     });
     if (res.data) setConfig(res.data);
-  }, [pkPoolDuration, rangeDuration, t]);
+  }, [pkPoolDuration, rangeDuration, touchDuration, t]);
 
   const loadOrders = useCallback(async () => {
     setLoading(true);
@@ -249,19 +233,11 @@ const ShortEventsView = ({
   const basePayoutX = (
     (config?.payout_bps || self?.short_events?.payout_bps || 18500) / 10000
   ).toFixed(2);
-  const rangePayoutX = (
-    Math.min(35000, Math.floor((config?.payout_bps || 18500) * 1.75)) / 10000
-  ).toFixed(2);
-  const touchPayoutX = (
-    Math.min(24000, (config?.payout_bps || 18500) + 2500) / 10000
-  ).toFixed(2);
-  const noTouchPayoutX = (
-    Math.max(11000, (config?.payout_bps || 18500) - 1500) / 10000
-  ).toFixed(2);
   const poolFeePct = ((config?.fee_bps || 300) / 100).toFixed(1);
   const maxOrderUsd =
     config?.max_order_usd || self?.short_events?.max_order_usd || 100;
   const cashUsdt = toUsdt(self?.account?.cash, perUnit);
+  const hasBonus = Number(self?.account?.bonus_principal || 0) > 0;
 
   const symbolOptions = useMemo(
     () =>
@@ -468,11 +444,11 @@ const ShortEventsView = ({
           description={
             pkMode === 'pool'
               ? t(
-                  '多人奖池擂台：比较周期内两强涨跌幅高低，胜方按本金占比瓜分总奖池（抽成 {{fee}}%）；若仅有一边有人押注或涨幅打平，100% 退还本金。',
+                  '多人奖池擂台：开赛瞬间即封盘（零盘中偷跑），到期比较两强涨跌幅高低，胜方按本金占比瓜分总奖池（抽成 {{fee}}%）；仅一边押注或打平 100% 退本；持有体验金暂不可参与奖池。',
                   { fee: poolFeePct },
                 )
               : t(
-                  '即时 1v1 对决：下单瞬间锁定双方实时价，到期比较涨跌幅高低，胜出立即派彩 {{x}}x，打平退还本金；单笔上限 {{max}} USDT。',
+                  '即时 1v1 对决：下单瞬间按同源实时盘口中间价锁定双方入场价（点差 ≤ 0.2%），到期同源结算，胜出派彩 {{x}}x，打平退本；禁止同组合双向对冲，单笔上限 {{max}} USDT。',
                   { x: basePayoutX, max: maxOrderUsd },
                 )
           }
@@ -579,7 +555,7 @@ const ShortEventsView = ({
                     <Button
                       theme='solid'
                       type='primary'
-                      disabled={round.locked}
+                      disabled={round.locked || hasBonus}
                       loading={submitting === `pk-pool-${round.id}-A`}
                       onClick={() =>
                         submitOrder(`pk-pool-${round.id}-A`, {
@@ -597,7 +573,7 @@ const ShortEventsView = ({
                     <Button
                       theme='solid'
                       type='secondary'
-                      disabled={round.locked}
+                      disabled={round.locked || hasBonus}
                       loading={submitting === `pk-pool-${round.id}-B`}
                       onClick={() =>
                         submitOrder(`pk-pool-${round.id}-B`, {
@@ -796,7 +772,7 @@ const ShortEventsView = ({
             type='info'
             closeIcon={null}
             description={t(
-              '支持全部开放品种（英伟达、Anthropic、OpenAI、比特币、黄金等）。到期价高于入场价判涨，低于判跌，完全相等 100% 退本。单笔 1–{{max}} USDT。',
+              '支持全部流动性充足的开放品种（盘口点差 ≤ 0.2%）。下单与结算严格使用同一市场实时盘口中间价，到期高于入场价判涨、低于判跌、相等 100% 退本；禁止同标的双向对冲，单笔 1–{{max}} USDT。',
               { max: maxOrderUsd },
             )}
           />
@@ -886,222 +862,172 @@ const ShortEventsView = ({
     );
   };
 
-  // ==================== 3. 价格区间高倍竞猜 & 极速触碰 ====================
+  // ==================== 3. 价格区间 & 极速触碰（多人共享奖池） ====================
   const renderRangeTouchSection = () => {
-    const rDur =
-      RANGE_DURATIONS.find((d) => d.value === rangeDuration) ||
-      RANGE_DURATIONS[1];
-    const tDur =
-      TOUCH_DURATIONS.find((d) => d.value === touchDuration) ||
-      TOUCH_DURATIONS[0];
-    const rPrice = Number(quoteOf(rangeSymbol)?.price || 0);
-    const tPrice = Number(quoteOf(touchSymbol)?.price || 0);
-    const upperR = rPrice > 0 ? rPrice * (1 + rDur.pct / 100) : 0;
-    const lowerR = rPrice > 0 ? rPrice * (1 - rDur.pct / 100) : 0;
-    const upperT = tPrice > 0 ? tPrice * (1 + tDur.pct / 100) : 0;
-    const lowerT = tPrice > 0 ? tPrice * (1 - tDur.pct / 100) : 0;
-
-    const buckets = [
-      {
-        key: 'B0',
-        label: `大跌 (< -${rDur.pct}%)`,
-        bound: lowerR > 0 ? `< ${formatPrice(lowerR)}` : '--',
-        cls: 'trade-down',
-      },
-      {
-        key: 'B1',
-        label: `小跌 (-${rDur.pct}% ~ 0%)`,
-        bound:
-          lowerR > 0 ? `${formatPrice(lowerR)} ~ ${formatPrice(rPrice)}` : '--',
-        cls: 'trade-down',
-      },
-      {
-        key: 'B2',
-        label: `小涨 (0% ~ +${rDur.pct}%)`,
-        bound:
-          upperR > 0 ? `${formatPrice(rPrice)} ~ ${formatPrice(upperR)}` : '--',
-        cls: 'trade-up',
-      },
-      {
-        key: 'B3',
-        label: `大涨 (> +${rDur.pct}%)`,
-        bound: upperR > 0 ? `> ${formatPrice(upperR)}` : '--',
-        cls: 'trade-up',
-      },
-    ];
+    const activeStake = rtSub === 'range' ? rangeStake : touchStake;
+    const setActiveStake = rtSub === 'range' ? setRangeStake : setTouchStake;
 
     return (
       <div className='flex flex-col gap-4'>
         <div className='trade-card !py-3 flex flex-wrap items-center justify-between gap-3'>
-          <RadioGroup
-            type='button'
-            value={rtSub}
-            onChange={(e) => setRtSub(e.target.value)}
-          >
-            <Radio value='range'>
-              {t('4 档价格区间竞猜 (高倍 {{x}}x / 奖池)', { x: rangePayoutX })}
-            </Radio>
-            <Radio value='touch'>{t('极速触碰期权 (盘中触及即刻派彩)')}</Radio>
-          </RadioGroup>
-          {rtSub === 'range' && (
+          <div className='flex flex-wrap items-center gap-3'>
             <RadioGroup
               type='button'
-              size='small'
-              value={rangeMode}
-              onChange={(e) => setRangeMode(e.target.value)}
+              value={rtSub}
+              onChange={(e) => setRtSub(e.target.value)}
             >
-              <Radio value='instant'>
-                {t('即时锁价 ({{x}}x)', { x: rangePayoutX })}
-              </Radio>
-              <Radio value='pool'>{t('多人奖池 (3x–8x+)')}</Radio>
+              <Radio value='range'>{t('4 档价格区间奖池')}</Radio>
+              <Radio value='touch'>{t('极速触碰奖池 (触及即刻派彩)')}</Radio>
             </RadioGroup>
-          )}
+            {rtSub === 'range' ? (
+              <RadioGroup
+                type='button'
+                size='small'
+                value={rangeDuration}
+                onChange={(e) => setRangeDuration(e.target.value)}
+              >
+                {RANGE_DURATIONS.map((d) => (
+                  <Radio key={d.value} value={d.value}>
+                    {t(d.label)}
+                  </Radio>
+                ))}
+              </RadioGroup>
+            ) : (
+              <RadioGroup
+                type='button'
+                size='small'
+                value={touchDuration}
+                onChange={(e) => setTouchDuration(e.target.value)}
+              >
+                {TOUCH_DURATIONS.map((d) => (
+                  <Radio key={d.value} value={d.value}>
+                    {t(d.label)}
+                  </Radio>
+                ))}
+              </RadioGroup>
+            )}
+          </div>
+          <div className='flex flex-wrap items-center gap-2'>
+            <Input
+              size='small'
+              style={{ width: 150 }}
+              value={activeStake}
+              onChange={setActiveStake}
+              prefix={t('投入')}
+              suffix='USDT'
+              inputMode='decimal'
+            />
+            {QUICK_STAKES.slice(0, 4).map((val) => (
+              <Button
+                key={val}
+                size='small'
+                theme={activeStake === String(val) ? 'solid' : 'light'}
+                onClick={() => setActiveStake(String(val))}
+              >
+                ${val}
+              </Button>
+            ))}
+          </div>
         </div>
 
-        {rtSub === 'range' && rangeMode === 'instant' && (
-          <div className='grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_340px]'>
-            <div className='trade-card flex flex-col gap-4'>
-              <div className='flex flex-wrap items-center gap-3'>
-                <Select
-                  filter
-                  style={{ width: 250 }}
-                  value={rangeSymbol}
-                  optionList={symbolOptions}
-                  onChange={setRangeSymbol}
-                />
-                <RadioGroup
-                  type='button'
-                  size='small'
-                  value={rangeDuration}
-                  onChange={(e) => setRangeDuration(e.target.value)}
-                >
-                  {RANGE_DURATIONS.map((d) => (
-                    <Radio key={d.value} value={d.value}>
-                      {t(d.label)}
-                    </Radio>
-                  ))}
-                </RadioGroup>
-              </div>
-              <div className='grid grid-cols-1 gap-2.5 sm:grid-cols-2'>
-                {buckets.map((b) => (
-                  <button
-                    key={b.key}
-                    type='button'
-                    className={`trade-bucket-btn${rangeChoice === b.key ? ' is-active' : ''}`}
-                    onClick={() => setRangeChoice(b.key)}
-                  >
-                    <div className='flex items-center justify-between'>
-                      <span className={`font-semibold ${b.cls}`}>
-                        {b.label}
-                      </span>
-                      <Tag size='small' color='amber'>
-                        {rangePayoutX}x
-                      </Tag>
-                    </div>
-                    <div className='text-xs trade-num text-[var(--semi-color-text-2)]'>
-                      {b.bound}
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div>
+        <Banner
+          type={hasBonus ? 'warning' : 'info'}
+          closeIcon={null}
+          description={
+            hasBonus
+              ? t(
+                  '当前账户持有未结清体验金，暂不可参与多人共享奖池局，请先提盈回收或放弃体验金后再下注。',
+                )
+              : rtSub === 'range'
+                ? t(
+                    '4 档区间共享奖池：开赛瞬间即封盘（零盘中偷跑），到期按同源价格涨跌幅落入对应区间，胜方瓜分总奖池（抽成 {{fee}}%）；价格持平、单边押注或无人猜中 100% 退本；同局仅可押一个档位。',
+                    { fee: poolFeePct },
+                  )
+                : t(
+                    '极速触碰共享奖池：开赛瞬间即封盘，开赛后盘中实时中间价率先触及上轨或下轨即刻提前派彩，全程未触及则「全程未触及」获胜（抽成 {{fee}}%）；双向触及、单边押注或无人猜中 100% 退本；同局仅可押一个方向。',
+                    { fee: poolFeePct },
+                  )
+          }
+        />
 
-            <div className='trade-card flex flex-col gap-3'>
-              <Text strong>{t('区间高倍下注')}</Text>
-              <Input
-                value={rangeStake}
-                onChange={setRangeStake}
-                prefix={t('投入金额')}
-                suffix='USDT'
-                inputMode='decimal'
-              />
-              <div className='grid grid-cols-5 gap-1'>
-                {QUICK_STAKES.map((v) => (
-                  <Button
-                    key={v}
-                    size='small'
-                    theme={rangeStake === String(v) ? 'solid' : 'light'}
-                    onClick={() => setRangeStake(String(v))}
-                  >
-                    ${v}
-                  </Button>
-                ))}
-              </div>
-              <div className='trade-calc-result text-xs trade-num flex justify-between'>
-                <Text type='tertiary' size='small'>
-                  {t('精准猜中预计到账')}
-                </Text>
-                <Text strong className='trade-up'>
-                  {((Number(rangeStake) || 0) * Number(rangePayoutX)).toFixed(
-                    2,
-                  )}{' '}
-                  USDT
-                </Text>
-              </div>
-              <Button
-                size='large'
-                theme='solid'
-                icon={<Target size={16} />}
-                loading={submitting === 'range-instant'}
-                onClick={() =>
-                  submitOrder('range-instant', {
-                    kind: 'range',
-                    mode: 'instant',
-                    symbol_a: rangeSymbol,
-                    choice: rangeChoice,
-                    duration_sec: rangeDuration,
-                    amount: rangeStake,
-                  })
-                }
-              >
-                {t('确认下注 {{choice}} ({{x}}x)', {
-                  choice: t(CHOICE_LABEL[rangeChoice]),
-                  x: rangePayoutX,
-                })}
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {rtSub === 'range' && rangeMode === 'pool' && (
+        {rtSub === 'range' && (
           <div className='grid grid-cols-1 gap-4 md:grid-cols-2'>
             {(config?.range_rounds || []).map((round) => {
               const th = (round.threshold_bps || 150) / 100;
               const lockRem = Math.max(0, round.lock_time - now);
+              const endRem = Math.max(0, round.end_time - now);
+              const refPrice = Number(
+                round.start_price_a || round.price_a || 0,
+              );
+              const upperP = refPrice > 0 ? refPrice * (1 + th / 100) : 0;
+              const lowerP = refPrice > 0 ? refPrice * (1 - th / 100) : 0;
+              const disabled = round.locked || hasBonus;
               return (
                 <div key={round.id} className='trade-card flex flex-col gap-3'>
-                  <div className='flex items-center justify-between'>
-                    <div className='flex items-center gap-2'>
+                  <div className='flex items-center justify-between gap-2'>
+                    <div className='flex items-center gap-2 min-w-0'>
                       <SymbolAvatar item={round.symbol_a} size={28} />
-                      <Text strong>{formatSymbolLabel(round.symbol_a, t)}</Text>
-                      <Tag size='small' color='amber'>
-                        {t('总池 {{amt}} USDT', {
-                          amt: formatUsdt(round.total_pool, perUnit),
-                        })}
-                      </Tag>
+                      <div className='flex flex-col leading-tight min-w-0'>
+                        <Text strong className='truncate'>
+                          {formatSymbolLabel(round.symbol_a, t)}
+                        </Text>
+                        <Text
+                          type='tertiary'
+                          size='small'
+                          className='trade-num'
+                        >
+                          {refPrice > 0 ? formatPrice(refPrice) : '--'} ·{' '}
+                          {t('总池 {{amt}} USDT', {
+                            amt: formatUsdt(round.total_pool, perUnit),
+                          })}
+                        </Text>
+                      </div>
                     </div>
                     <Tag size='small' color={round.locked ? 'orange' : 'green'}>
                       {round.locked
-                        ? t('已封盘')
-                        : t('{{time}}后封盘', {
+                        ? t('已封盘 · {{time}}后结算', {
+                            time: formatDuration(endRem, t),
+                          })
+                        : t('{{time}}后开赛封盘', {
                             time: formatDuration(lockRem, t),
                           })}
                     </Tag>
                   </div>
                   <div className='grid grid-cols-2 gap-2'>
                     {[
-                      ['B0', `< -${th}%`],
-                      ['B1', `-${th}% ~ 0%`],
-                      ['B2', `0% ~ +${th}%`],
-                      ['B3', `> +${th}%`],
-                    ].map(([code, lbl]) => {
+                      [
+                        'B0',
+                        `< -${th}%`,
+                        lowerP > 0 ? `< ${formatPrice(lowerP)}` : '',
+                      ],
+                      [
+                        'B1',
+                        `-${th}% ~ 0%`,
+                        lowerP > 0
+                          ? `${formatPrice(lowerP)}~${formatPrice(refPrice)}`
+                          : '',
+                      ],
+                      [
+                        'B2',
+                        `0% ~ +${th}%`,
+                        upperP > 0
+                          ? `${formatPrice(refPrice)}~${formatPrice(upperP)}`
+                          : '',
+                      ],
+                      [
+                        'B3',
+                        `> +${th}%`,
+                        upperP > 0 ? `> ${formatPrice(upperP)}` : '',
+                      ],
+                    ].map(([code, lbl, bound]) => {
                       const mult = round.multipliers?.[code];
+                      const sideAmt = round.pools?.[code] || 0;
                       return (
                         <Button
                           key={code}
                           size='small'
                           theme='light'
-                          disabled={round.locked}
+                          disabled={disabled}
                           loading={
                             submitting === `range-pool-${round.id}-${code}`
                           }
@@ -1115,7 +1041,16 @@ const ShortEventsView = ({
                             })
                           }
                         >
-                          {lbl} {mult ? `(${mult.toFixed(2)}x)` : ''}
+                          <span className='trade-num'>
+                            {lbl}
+                            {mult
+                              ? ` · ${mult.toFixed(2)}x`
+                              : sideAmt > 0
+                                ? ` · ${formatUsdt(sideAmt, perUnit)}`
+                                : bound
+                                  ? ` (${bound})`
+                                  : ''}
+                          </span>
                         </Button>
                       );
                     })}
@@ -1127,143 +1062,152 @@ const ShortEventsView = ({
         )}
 
         {rtSub === 'touch' && (
-          <div className='grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_340px]'>
-            <div className='trade-card flex flex-col gap-4'>
-              <div className='flex flex-wrap items-center gap-3'>
-                <Select
-                  filter
-                  style={{ width: 250 }}
-                  value={touchSymbol}
-                  optionList={symbolOptions}
-                  onChange={setTouchSymbol}
-                />
-                <RadioGroup
-                  type='button'
-                  size='small'
-                  value={touchDuration}
-                  onChange={(e) => setTouchDuration(e.target.value)}
-                >
-                  {TOUCH_DURATIONS.map((d) => (
-                    <Radio key={d.value} value={d.value}>
-                      {t(d.label)}
-                    </Radio>
-                  ))}
-                </RadioGroup>
-              </div>
-              <div className='grid grid-cols-1 gap-3 sm:grid-cols-3'>
-                <div className='trade-stat-chip !p-3'>
-                  <Text type='tertiary' size='small'>
-                    {t('上轨触发价 (+{{p}}%)', { p: tDur.pct })}
-                  </Text>
-                  <div className='trade-num text-base font-bold trade-up'>
-                    {upperT > 0 ? formatPrice(upperT) : '--'}
-                  </div>
-                </div>
-                <div className='trade-stat-chip !p-3'>
-                  <Text type='tertiary' size='small'>
-                    {t('当前参考价')}
-                  </Text>
-                  <div className='trade-num text-base font-bold'>
-                    {tPrice > 0 ? formatPrice(tPrice) : '--'}
-                  </div>
-                </div>
-                <div className='trade-stat-chip !p-3'>
-                  <Text type='tertiary' size='small'>
-                    {t('下轨触发价 (-{{p}}%)', { p: tDur.pct })}
-                  </Text>
-                  <div className='trade-num text-base font-bold trade-down'>
-                    {lowerT > 0 ? formatPrice(lowerT) : '--'}
-                  </div>
-                </div>
-              </div>
-              <Banner
-                type='info'
-                closeIcon={null}
-                description={t(
-                  '极速触碰：只要在周期内盘中实时价触及上轨或下轨，立即提前结算派彩，无需苦等倒计时结束！全程未触碰上下轨则「全程未触及」获胜。',
-                )}
-              />
-            </div>
+          <div className='grid grid-cols-1 gap-4 md:grid-cols-2'>
+            {(config?.touch_rounds || []).map((round) => {
+              const th = (round.threshold_bps || 100) / 100;
+              const lockRem = Math.max(0, round.lock_time - now);
+              const endRem = Math.max(0, round.end_time - now);
+              const refPrice = Number(
+                round.start_price_a || round.price_a || 0,
+              );
+              const upperP = refPrice > 0 ? refPrice * (1 + th / 100) : 0;
+              const lowerP = refPrice > 0 ? refPrice * (1 - th / 100) : 0;
+              const disabled = round.locked || hasBonus;
+              const multUp = round.multipliers?.TOUCH_UP;
+              const multDown = round.multipliers?.TOUCH_DOWN;
+              const multNo = round.multipliers?.NO_TOUCH;
 
-            <div className='trade-card flex flex-col gap-3'>
-              <Text strong>{t('选择触碰方向')}</Text>
-              <Input
-                value={touchStake}
-                onChange={setTouchStake}
-                prefix={t('投入金额')}
-                suffix='USDT'
-                inputMode='decimal'
-              />
-              <div className='grid grid-cols-5 gap-1'>
-                {QUICK_STAKES.map((v) => (
-                  <Button
-                    key={v}
-                    size='small'
-                    theme={touchStake === String(v) ? 'solid' : 'light'}
-                    onClick={() => setTouchStake(String(v))}
-                  >
-                    ${v}
-                  </Button>
-                ))}
-              </div>
-              <Button
-                theme='solid'
-                style={{ background: 'var(--semi-color-success)' }}
-                loading={submitting === 'touch-UP'}
-                onClick={() =>
-                  submitOrder('touch-UP', {
-                    kind: 'touch',
-                    mode: 'instant',
-                    symbol_a: touchSymbol,
-                    choice: 'TOUCH_UP',
-                    duration_sec: touchDuration,
-                    amount: touchStake,
-                  })
-                }
-              >
-                {t('触及上限 +{{p}}% ({{x}}x)', {
-                  p: tDur.pct,
-                  x: touchPayoutX,
-                })}
-              </Button>
-              <Button
-                theme='solid'
-                type='danger'
-                loading={submitting === 'touch-DOWN'}
-                onClick={() =>
-                  submitOrder('touch-DOWN', {
-                    kind: 'touch',
-                    mode: 'instant',
-                    symbol_a: touchSymbol,
-                    choice: 'TOUCH_DOWN',
-                    duration_sec: touchDuration,
-                    amount: touchStake,
-                  })
-                }
-              >
-                {t('触及下限 -{{p}}% ({{x}}x)', {
-                  p: tDur.pct,
-                  x: touchPayoutX,
-                })}
-              </Button>
-              <Button
-                theme='light'
-                type='warning'
-                loading={submitting === 'touch-NO'}
-                onClick={() =>
-                  submitOrder('touch-NO', {
-                    kind: 'touch',
-                    mode: 'instant',
-                    symbol_a: touchSymbol,
-                    choice: 'NO_TOUCH',
-                    duration_sec: touchDuration,
-                    amount: touchStake,
-                  })
-                }
-              >
-                {t('全程未触及 ({{x}}x)', { x: noTouchPayoutX })}
-              </Button>
-            </div>
+              return (
+                <div key={round.id} className='trade-card flex flex-col gap-3'>
+                  <div className='flex items-center justify-between gap-2'>
+                    <div className='flex items-center gap-2 min-w-0'>
+                      <SymbolAvatar item={round.symbol_a} size={28} />
+                      <div className='flex flex-col leading-tight min-w-0'>
+                        <Text strong className='truncate'>
+                          {formatSymbolLabel(round.symbol_a, t)}
+                        </Text>
+                        <Text
+                          type='tertiary'
+                          size='small'
+                          className='trade-num'
+                        >
+                          {refPrice > 0 ? formatPrice(refPrice) : '--'} ·{' '}
+                          {t('总池 {{amt}} USDT', {
+                            amt: formatUsdt(round.total_pool, perUnit),
+                          })}
+                        </Text>
+                      </div>
+                    </div>
+                    <Tag size='small' color={round.locked ? 'orange' : 'green'}>
+                      {round.locked
+                        ? t('已封盘 · {{time}}后结算', {
+                            time: formatDuration(endRem, t),
+                          })
+                        : t('{{time}}后开赛封盘', {
+                            time: formatDuration(lockRem, t),
+                          })}
+                    </Tag>
+                  </div>
+                  <div className='grid grid-cols-3 gap-2 text-xs trade-num'>
+                    <div className='trade-stat-chip !p-2'>
+                      <Text
+                        type='tertiary'
+                        size='small'
+                        className='!text-[11px]'
+                      >
+                        {t('上轨 (+{{p}}%)', { p: th })}
+                      </Text>
+                      <div className='font-semibold trade-up'>
+                        {upperP > 0 ? formatPrice(upperP) : '--'}
+                      </div>
+                    </div>
+                    <div className='trade-stat-chip !p-2'>
+                      <Text
+                        type='tertiary'
+                        size='small'
+                        className='!text-[11px]'
+                      >
+                        {t('参考价')}
+                      </Text>
+                      <div className='font-semibold'>
+                        {refPrice > 0 ? formatPrice(refPrice) : '--'}
+                      </div>
+                    </div>
+                    <div className='trade-stat-chip !p-2'>
+                      <Text
+                        type='tertiary'
+                        size='small'
+                        className='!text-[11px]'
+                      >
+                        {t('下轨 (-{{p}}%)', { p: th })}
+                      </Text>
+                      <div className='font-semibold trade-down'>
+                        {lowerP > 0 ? formatPrice(lowerP) : '--'}
+                      </div>
+                    </div>
+                  </div>
+                  <div className='grid grid-cols-3 gap-2'>
+                    <Button
+                      size='small'
+                      theme='solid'
+                      disabled={disabled}
+                      style={{ background: 'var(--semi-color-success)' }}
+                      loading={submitting === `touch-pool-${round.id}-UP`}
+                      onClick={() =>
+                        submitOrder(`touch-pool-${round.id}-UP`, {
+                          kind: 'touch',
+                          mode: 'pool',
+                          round_id: round.id,
+                          choice: 'TOUCH_UP',
+                          amount: touchStake,
+                        })
+                      }
+                    >
+                      {t('触及上限')}
+                      {multUp ? ` · ${multUp.toFixed(2)}x` : ''}
+                    </Button>
+                    <Button
+                      size='small'
+                      theme='solid'
+                      type='danger'
+                      disabled={disabled}
+                      loading={submitting === `touch-pool-${round.id}-DOWN`}
+                      onClick={() =>
+                        submitOrder(`touch-pool-${round.id}-DOWN`, {
+                          kind: 'touch',
+                          mode: 'pool',
+                          round_id: round.id,
+                          choice: 'TOUCH_DOWN',
+                          amount: touchStake,
+                        })
+                      }
+                    >
+                      {t('触及下限')}
+                      {multDown ? ` · ${multDown.toFixed(2)}x` : ''}
+                    </Button>
+                    <Button
+                      size='small'
+                      theme='light'
+                      type='warning'
+                      disabled={disabled}
+                      loading={submitting === `touch-pool-${round.id}-NO`}
+                      onClick={() =>
+                        submitOrder(`touch-pool-${round.id}-NO`, {
+                          kind: 'touch',
+                          mode: 'pool',
+                          round_id: round.id,
+                          choice: 'NO_TOUCH',
+                          amount: touchStake,
+                        })
+                      }
+                    >
+                      {t('全程未触及')}
+                      {multNo ? ` · ${multNo.toFixed(2)}x` : ''}
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>

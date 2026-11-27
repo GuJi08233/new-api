@@ -40,10 +40,21 @@ var (
 	tradeShortPKDurations    = []int64{300, 900, 3600}
 	tradeShortRangeDurations = []int64{900, 3600, 14400}
 	tradeShortTouchDurations = []int64{900, 3600}
+
+	tradeShortFeaturedSymbols = []string{"BTCUSDT", "ETHUSDT", "SOLUSDT", "NVDAUSDT", "ANTUSDT", "OPENAIUSDT", "XAUUSDT"}
+
+	// 即时短线只允许流动性充足的盘口(买卖点差 <= 20 bps)，杜绝清淡或休市标的宽点差跳价套利。
+	tradeShortMaxSpreadBps = decimal.NewFromInt(20)
+	// 永续合约即时单禁止跨越 |资金费率| >= 0.03% 的资金费结算点，杜绝除息跳空套利。
+	tradeShortMaxFundingRate = decimal.RequireFromString("0.0003")
 )
 
-// 短线事件结算若行情连续 15 分钟彻底不可用，超时自动退还本金，防止资金永久冻结。
-const tradeShortFallbackRefundSec = int64(900)
+const (
+	// 短线事件结算若行情连续 15 分钟彻底不可用，超时自动退还本金，防止资金永久冻结。
+	tradeShortFallbackRefundSec = int64(900)
+	// 到期 15 秒内优先使用同一市场的实时盘口中间价结算，与入场锚定价严格同源；延迟超过该窗口再回退到同一市场的 1m K 线。
+	tradeShortLiveSettleGraceSec = int64(15)
+)
 
 func tradeShortRangeThresholdBps(durationSec int64) int {
 	switch durationSec {
@@ -73,21 +84,83 @@ type TradeShortPoolRoundView struct {
 	Locked      bool               `json:"locked"`
 }
 
-func tradeShortSymbolAllowed(symbol string, setting *operation_setting.TradeSetting) bool {
+// resolveShortEventMarket 为短线品种确定唯一规范行情源(spot 或 futures)及对应 Binance 代码。
+// 同名主流币优先走现货(无永续资金费除息跳空)；仅在永续开放时允许使用永续数据源；下单、盘中监控与到期结算严格同源，消除跨市场基差套利。
+func resolveShortEventMarket(symbol string, setting *operation_setting.TradeSetting) (source string, market *TradeMarket, binanceSymbol string, ok bool) {
 	if symbol == "" || setting == nil {
-		return false
+		return "", nil, "", false
 	}
-	if _, ok := operation_setting.TradeSymbolOf(symbol); ok && setting.SymbolEnabled(symbol) {
-		return true
+	if _, isSpot := operation_setting.TradeSymbolOf(symbol); isSpot && setting.SymbolEnabled(symbol) {
+		return model.TradeShortSourceSpot, tradeMarket, symbol, true
 	}
-	if _, ok := operation_setting.TradeFuturesSymbolOf(symbol); ok && slices.Contains(setting.FuturesSymbols, symbol) {
-		return true
+	if info, isFut := operation_setting.TradeFuturesSymbolOf(symbol); isFut {
+		if setting.FuturesEnabled && slices.Contains(setting.FuturesSymbols, symbol) {
+			return model.TradeShortSourceFutures, futuresMarket, symbol, true
+		}
+		if info.Symbol != "" && setting.SymbolEnabled(info.Symbol) {
+			return model.TradeShortSourceSpot, tradeMarket, info.Symbol, true
+		}
 	}
-	return false
+	return "", nil, "", false
 }
 
-// currentAssetReferencePrice 读取品种最新参考价(优先现货、再合约最新价/标记价)，同时支持传入现货或合约代码。
+// shortEventMarketClient 按已记录的规范数据源返回对应的行情中心与 Binance 交易对，绝不跨市场切换。
+func shortEventMarketClient(sourceMarket, symbol string) (market *TradeMarket, binanceSymbol string, ok bool) {
+	switch sourceMarket {
+	case model.TradeShortSourceSpot:
+		if _, isSpot := operation_setting.TradeSymbolOf(symbol); isSpot {
+			return tradeMarket, symbol, true
+		}
+		if info, isFut := operation_setting.TradeFuturesSymbolOf(symbol); isFut && info.Symbol != "" {
+			return tradeMarket, info.Symbol, true
+		}
+		return nil, "", false
+	case model.TradeShortSourceFutures:
+		if _, isFut := operation_setting.TradeFuturesSymbolOf(symbol); isFut {
+			return futuresMarket, symbol, true
+		}
+		if info, isSpot := operation_setting.TradeSymbolOf(symbol); isSpot && info.Futures != "" {
+			return futuresMarket, info.Futures, true
+		}
+		return nil, "", false
+	default:
+		// 兼容升级前未写 source_market 的历史单。
+		_, m, sym, found := resolveShortEventMarket(symbol, operation_setting.GetTradeSetting())
+		return m, sym, found
+	}
+}
+
+func tradeShortSymbolAllowed(symbol string, setting *operation_setting.TradeSetting) bool {
+	_, _, _, ok := resolveShortEventMarket(symbol, setting)
+	return ok
+}
+
+// shortEventLiveMidPrice 从指定规范市场读取实时盘口中间价(买一与卖一均值)，避免使用滞后的 24h miniTicker 成交价。
+func shortEventLiveMidPrice(sourceMarket, symbol string) (decimal.Decimal, bool) {
+	market, binanceSym, ok := shortEventMarketClient(sourceMarket, symbol)
+	if !ok {
+		return decimal.Zero, false
+	}
+	mid, _, ok := market.FreshMidPrice(binanceSym)
+	return mid, ok
+}
+
+// currentAssetReferencePrice 读取品种最新参考价(仅用于前端展示，优先规范市场的实时盘口中间价)。
 func currentAssetReferencePrice(symbol string) (decimal.Decimal, bool) {
+	source, market, binanceSym, ok := resolveShortEventMarket(symbol, operation_setting.GetTradeSetting())
+	if ok {
+		if mid, _, okMid := market.FreshMidPrice(binanceSym); okMid {
+			return mid, true
+		}
+		if p, okLast := market.LastPrice(binanceSym); okLast && p.IsPositive() {
+			return p, true
+		}
+		if source == model.TradeShortSourceFutures {
+			if mark, okMark := market.MarkPrice(binanceSym); okMark && mark.Mark.IsPositive() {
+				return mark.Mark, true
+			}
+		}
+	}
 	if p, ok := tradeMarket.LastPrice(symbol); ok && p.IsPositive() {
 		return p, true
 	}
@@ -97,75 +170,55 @@ func currentAssetReferencePrice(symbol string) (decimal.Decimal, bool) {
 	if mark, ok := futuresMarket.MarkPrice(symbol); ok && mark.Mark.IsPositive() {
 		return mark.Mark, true
 	}
-	// 若传的是永续代码(如 NVDAUSDT)，尝试查找对应现货(NVDABUSDT)。
-	if info, ok := operation_setting.TradeFuturesSymbolOf(symbol); ok && info.Symbol != "" {
-		if p, ok := tradeMarket.LastPrice(info.Symbol); ok && p.IsPositive() {
-			return p, true
-		}
-	}
-	// 若传的是现货代码(如 NVDABUSDT)，尝试查找对应永续(NVDAUSDT)。
-	if info, ok := operation_setting.TradeSymbolOf(symbol); ok && info.Futures != "" {
-		if p, ok := futuresMarket.LastPrice(info.Futures); ok && p.IsPositive() {
-			return p, true
-		}
-		if mark, ok := futuresMarket.MarkPrice(info.Futures); ok && mark.Mark.IsPositive() {
-			return mark.Mark, true
-		}
-	}
 	return decimal.Zero, false
 }
 
-// freshAssetPriceForShortOrder 下单前确认行情连接新鲜再读取锚定价格，防止断线陈旧价被套利。
-func freshAssetPriceForShortOrder(ctx context.Context, symbol string) (decimal.Decimal, error) {
-	staleMs := operation_setting.GetTradeSetting().StaleMs
+// freshShortOrderPrice 下单前在规范行情源上执行 ping/pong 确认盘口新鲜，读取买一/卖一中间价，
+// 同时校验盘口点差与永续资金费率结算窗口，消除滞后价、宽点差与除息跳空套利。
+func freshShortOrderPrice(ctx context.Context, arrived time.Time, symbol string, expiresAt int64, setting *operation_setting.TradeSetting) (decimal.Decimal, string, error) {
+	source, market, binanceSym, ok := resolveShortEventMarket(symbol, setting)
+	if !ok {
+		return decimal.Zero, "", ErrTradeSymbolClosed
+	}
+	staleMs := setting.StaleMs
 	if staleMs <= 0 {
 		staleMs = 3000
 	}
-	now := time.Now()
-	if _, ok := operation_setting.TradeSymbolOf(symbol); ok {
-		if err := tradeMarket.awaitFreshBook(ctx, now, staleMs); err == nil {
-			if p, ok := tradeMarket.LastPrice(symbol); ok && p.IsPositive() {
-				return p, nil
+	if err := market.awaitFreshBook(ctx, arrived, staleMs); err != nil {
+		return decimal.Zero, "", err
+	}
+	mid, spreadBps, ok := market.FreshMidPrice(binanceSym)
+	if !ok {
+		return decimal.Zero, "", ErrTradeMarketUnavailable
+	}
+	if spreadBps.GreaterThan(tradeShortMaxSpreadBps) {
+		return decimal.Zero, "", model.ErrTradeShortSpreadTooWide
+	}
+	if source == model.TradeShortSourceFutures {
+		if mark, hasMark := market.MarkPrice(binanceSym); hasMark && mark.NextFundingTime > 0 {
+			fundingSec := mark.NextFundingTime / 1000
+			if fundingSec >= arrived.Unix()-5 && fundingSec <= expiresAt+5 &&
+				mark.FundingRate.Abs().GreaterThanOrEqual(tradeShortMaxFundingRate) {
+				return decimal.Zero, "", model.ErrTradeShortFundingWindow
 			}
 		}
 	}
-	if _, ok := operation_setting.TradeFuturesSymbolOf(symbol); ok {
-		if err := futuresMarket.awaitFreshBook(ctx, now, staleMs); err == nil {
-			if p, ok := futuresMarket.LastPrice(symbol); ok && p.IsPositive() {
-				return p, nil
-			}
-			if mark, ok := futuresMarket.MarkPrice(symbol); ok && mark.Mark.IsPositive() {
-				return mark.Mark, nil
-			}
-		}
-	}
-	// 兜底：若标的对应现货在连，等待现货盘口确认。
-	if info, ok := operation_setting.TradeFuturesSymbolOf(symbol); ok && info.Symbol != "" {
-		if err := tradeMarket.awaitFreshBook(ctx, now, staleMs); err == nil {
-			if p, ok := tradeMarket.LastPrice(info.Symbol); ok && p.IsPositive() {
-				return p, nil
-			}
-		}
-	}
-	return decimal.Zero, ErrTradeMarketUnavailable
+	return mid, source, nil
 }
 
-// fetchAssetBarForWindow 读取指定时间窗口对应的 Binance 1m K 线，返回开盘价、收盘价、最高价与最低价。
-func fetchAssetBarForWindow(ctx context.Context, symbol string, startSec, endSec int64) (openP, closeP, highP, lowP decimal.Decimal, ok bool) {
+// fetchShortEventBar 严格从指定同一市场读取 [startSec, endSec) 窗口对应的 1m K 线，绝不跨现货/合约回退。
+// strictOpen 为真时仅统计 OpenTime >= startSec*1000 的完整窗口 K 线，杜绝把下单前的历史影线算进触碰判定。
+func fetchShortEventBar(ctx context.Context, sourceMarket, symbol string, startSec, endSec int64, strictOpen bool) (openP, closeP, highP, lowP decimal.Decimal, ok bool) {
+	market, binanceSym, found := shortEventMarketClient(sourceMarket, symbol)
+	if !found {
+		return decimal.Zero, decimal.Zero, decimal.Zero, decimal.Zero, false
+	}
 	spanMin := max(2, int((endSec-startSec)/60)+3)
 	if spanMin > 500 {
 		spanMin = 500
 	}
 	endMs := (endSec + 60) * 1000
-	klines, err := futuresMarket.Klines(ctx, symbol, "1m", spanMin, endMs)
-	if err != nil || len(klines) == 0 {
-		klines, err = tradeMarket.Klines(ctx, symbol, "1m", spanMin, endMs)
-	}
-	if (err != nil || len(klines) == 0) && symbol != "" {
-		if info, found := operation_setting.TradeFuturesSymbolOf(symbol); found && info.Symbol != "" {
-			klines, err = tradeMarket.Klines(ctx, info.Symbol, "1m", spanMin, endMs)
-		}
-	}
+	klines, err := market.Klines(ctx, binanceSym, "1m", spanMin, endMs)
 	if err != nil || len(klines) == 0 {
 		return decimal.Zero, decimal.Zero, decimal.Zero, decimal.Zero, false
 	}
@@ -173,8 +226,14 @@ func fetchAssetBarForWindow(ctx context.Context, symbol string, startSec, endSec
 	targetEndMs := endSec * 1000
 	matched := 0
 	for _, bar := range klines {
-		if bar.CloseTime < startMs || bar.OpenTime >= targetEndMs {
-			continue
+		if strictOpen {
+			if bar.OpenTime < startMs || bar.OpenTime >= targetEndMs {
+				continue
+			}
+		} else {
+			if bar.CloseTime < startMs || bar.OpenTime >= targetEndMs {
+				continue
+			}
 		}
 		if matched == 0 {
 			openP, highP, lowP = bar.Open, bar.High, bar.Low
@@ -189,13 +248,13 @@ func fetchAssetBarForWindow(ctx context.Context, symbol string, startSec, endSec
 		matched++
 	}
 	if matched == 0 {
-		last := klines[len(klines)-1]
-		return last.Open, last.Close, last.High, last.Low, last.Close.IsPositive()
+		return decimal.Zero, decimal.Zero, decimal.Zero, decimal.Zero, false
 	}
 	return openP, closeP, highP, lowP, closeP.IsPositive()
 }
 
-// GetTradeShortPoolRounds 自动确保当前周期的热门 PK 擂台与区间竞猜共享奖池局存在，并返回实时池子与赔率。
+// GetTradeShortPoolRounds 自动确保下一轮可投注的共享奖池局存在(开赛瞬间即封盘，LockTime == StartTime，彻底零盘中偷跑)，
+// 同时展示仍有注单正在进行中的当期局。支持 PK 擂台、区间竞猜与极速触碰三类零平台对赌奖池。
 func GetTradeShortPoolRounds(kind string, durationSec int64) ([]TradeShortPoolRoundView, error) {
 	setting := operation_setting.GetTradeSetting()
 	now := common.GetTimestamp()
@@ -203,56 +262,43 @@ func GetTradeShortPoolRounds(kind string, durationSec int64) ([]TradeShortPoolRo
 		durationSec = 900
 	}
 	var rounds []*model.TradeShortRound
+	appendActiveIfExists := func(roundKey string) {
+		var existing model.TradeShortRound
+		if err := model.DB.Where("round_key = ? AND status = ? AND total_pool > 0", roundKey, model.TradeShortRoundOpen).First(&existing).Error; err == nil {
+			rounds = append(rounds, &existing)
+		}
+	}
 	switch kind {
 	case model.TradeShortKindPK:
 		if durationSec != 900 && durationSec != 3600 {
 			durationSec = 900
 		}
 		windowStart := now / durationSec * durationSec
-		// 投注截止为本轮前 25% 时间(如 15m 局前 3m45s，1h 局前 15m)，进入锁盘期后同时展示下一轮可提前下注。
-		lockDuration := max(int64(180), durationSec/4)
-		windows := []int64{windowStart}
-		if now >= windowStart+lockDuration {
-			windows = append(windows, windowStart+durationSec)
-		}
-		for _, ws := range windows {
-			for _, m := range TradePKMatchups {
-				if !tradeShortSymbolAllowed(m.SymbolA, setting) || !tradeShortSymbolAllowed(m.SymbolB, setting) {
-					continue
-				}
-				pA, _ := currentAssetReferencePrice(m.SymbolA)
-				pB, _ := currentAssetReferencePrice(m.SymbolB)
-				startA, startB := "", ""
-				if ws == windowStart {
-					if pA.IsPositive() {
-						startA = pA.String()
-					}
-					if pB.IsPositive() {
-						startB = pB.String()
-					}
-				}
-				lockAt := ws + lockDuration
-				if ws > windowStart {
-					lockAt = ws // 预售局在开赛瞬间封盘，完全零前瞻。
-				}
-				r, err := model.EnsureTradeShortRound(model.TradeShortRound{
-					RoundKey:    fmt.Sprintf("pk:%s:%d:%d", m.Id, durationSec, ws),
-					Kind:        model.TradeShortKindPK,
-					Title:       m.Title,
-					SymbolA:     m.SymbolA,
-					SymbolB:     m.SymbolB,
-					DurationSec: durationSec,
-					LockTime:    lockAt,
-					StartTime:   ws,
-					EndTime:     ws + durationSec,
-					StartPriceA: startA,
-					StartPriceB: startB,
-					FeeBps:      setting.ShortEventFeeBps,
-					Status:      model.TradeShortRoundOpen,
-				})
-				if err == nil {
-					rounds = append(rounds, r)
-				}
+		nextStart := windowStart + durationSec
+		for _, m := range TradePKMatchups {
+			srcA, _, _, okA := resolveShortEventMarket(m.SymbolA, setting)
+			srcB, _, _, okB := resolveShortEventMarket(m.SymbolB, setting)
+			if !okA || !okB {
+				continue
+			}
+			appendActiveIfExists(fmt.Sprintf("pk:%s:%d:%d", m.Id, durationSec, windowStart))
+			r, err := model.EnsureTradeShortRound(model.TradeShortRound{
+				RoundKey:      fmt.Sprintf("pk:%s:%d:%d", m.Id, durationSec, nextStart),
+				Kind:          model.TradeShortKindPK,
+				Title:         m.Title,
+				SymbolA:       m.SymbolA,
+				SymbolB:       m.SymbolB,
+				SourceMarketA: srcA,
+				SourceMarketB: srcB,
+				DurationSec:   durationSec,
+				LockTime:      nextStart, // 开赛瞬间封盘，彻底杜绝盘中看着走势下注。
+				StartTime:     nextStart,
+				EndTime:       nextStart + durationSec,
+				FeeBps:        setting.ShortEventFeeBps,
+				Status:        model.TradeShortRoundOpen,
+			})
+			if err == nil {
+				rounds = append(rounds, r)
 			}
 		}
 	case model.TradeShortKindRange:
@@ -260,37 +306,58 @@ func GetTradeShortPoolRounds(kind string, durationSec int64) ([]TradeShortPoolRo
 			durationSec = 3600
 		}
 		windowStart := now / durationSec * durationSec
-		lockDuration := max(int64(180), durationSec/4)
-		featured := []string{"BTCUSDT", "ETHUSDT", "NVDAUSDT", "ANTUSDT", "OPENAIUSDT", "XAUUSDT"}
+		nextStart := windowStart + durationSec
 		threshold := tradeShortRangeThresholdBps(durationSec)
-		for _, sym := range featured {
-			if !tradeShortSymbolAllowed(sym, setting) {
+		for _, sym := range tradeShortFeaturedSymbols {
+			srcA, _, _, okA := resolveShortEventMarket(sym, setting)
+			if !okA {
 				continue
 			}
-			ws := windowStart
-			lockAt := ws + lockDuration
-			if now >= lockAt {
-				ws = windowStart + durationSec
-				lockAt = ws
-			}
-			pA, _ := currentAssetReferencePrice(sym)
-			startA := ""
-			if ws == windowStart && pA.IsPositive() {
-				startA = pA.String()
-			}
+			appendActiveIfExists(fmt.Sprintf("range:%s:%d:%d", sym, durationSec, windowStart))
 			r, err := model.EnsureTradeShortRound(model.TradeShortRound{
-				RoundKey:     fmt.Sprintf("range:%s:%d:%d", sym, durationSec, ws),
-				Kind:         model.TradeShortKindRange,
-				Title:        sym,
-				SymbolA:      sym,
-				DurationSec:  durationSec,
-				LockTime:     lockAt,
-				StartTime:    ws,
-				EndTime:      ws + durationSec,
-				ThresholdBps: threshold,
-				StartPriceA:  startA,
-				FeeBps:       setting.ShortEventFeeBps,
-				Status:       model.TradeShortRoundOpen,
+				RoundKey:      fmt.Sprintf("range:%s:%d:%d", sym, durationSec, nextStart),
+				Kind:          model.TradeShortKindRange,
+				Title:         sym,
+				SymbolA:       sym,
+				SourceMarketA: srcA,
+				DurationSec:   durationSec,
+				LockTime:      nextStart,
+				StartTime:     nextStart,
+				EndTime:       nextStart + durationSec,
+				ThresholdBps:  threshold,
+				FeeBps:        setting.ShortEventFeeBps,
+				Status:        model.TradeShortRoundOpen,
+			})
+			if err == nil {
+				rounds = append(rounds, r)
+			}
+		}
+	case model.TradeShortKindTouch:
+		if durationSec != 900 && durationSec != 3600 {
+			durationSec = 900
+		}
+		windowStart := now / durationSec * durationSec
+		nextStart := windowStart + durationSec
+		threshold := tradeShortTouchThresholdBps(durationSec)
+		for _, sym := range tradeShortFeaturedSymbols {
+			srcA, _, _, okA := resolveShortEventMarket(sym, setting)
+			if !okA {
+				continue
+			}
+			appendActiveIfExists(fmt.Sprintf("touch:%s:%d:%d", sym, durationSec, windowStart))
+			r, err := model.EnsureTradeShortRound(model.TradeShortRound{
+				RoundKey:      fmt.Sprintf("touch:%s:%d:%d", sym, durationSec, nextStart),
+				Kind:          model.TradeShortKindTouch,
+				Title:         sym,
+				SymbolA:       sym,
+				SourceMarketA: srcA,
+				DurationSec:   durationSec,
+				LockTime:      nextStart,
+				StartTime:     nextStart,
+				EndTime:       nextStart + durationSec,
+				ThresholdBps:  threshold,
+				FeeBps:        setting.ShortEventFeeBps,
+				Status:        model.TradeShortRoundOpen,
 			})
 			if err == nil {
 				rounds = append(rounds, r)
@@ -330,7 +397,7 @@ func GetTradeShortPoolRounds(kind string, durationSec int64) ([]TradeShortPoolRo
 			Multipliers:     mults,
 			PriceA:          pA.String(),
 			PriceB:          pB.String(),
-			Locked:          now >= r.LockTime || r.Status != model.TradeShortRoundOpen,
+			Locked:          now >= r.LockTime || now >= r.StartTime || r.Status != model.TradeShortRoundOpen,
 		})
 	}
 	return views, nil
@@ -362,24 +429,15 @@ func validChoiceForShortKind(kind, choice string) bool {
 	}
 }
 
-func payoutBpsForInstantShort(kind, choice string, baseBps int) int {
+func payoutBpsForInstantShort(baseBps int) int {
 	if baseBps < operation_setting.TradeMinShortPayoutBps {
-		baseBps = 18500
+		return 18500
 	}
-	switch kind {
-	case model.TradeShortKindRange:
-		return min(35000, baseBps*175/100) // 4 档区间约 3.23x
-	case model.TradeShortKindTouch:
-		if choice == "NO_TOUCH" {
-			return max(11000, baseBps-1500) // 约 1.70x
-		}
-		return min(24000, baseBps+2500) // 触碰约 2.10x
-	default:
-		return baseBps // 涨跌 / 即时 PK 默认 1.85x
-	}
+	return min(operation_setting.TradeMaxShortPayoutBps, baseBps)
 }
 
 func PlaceTradeShortOrder(ctx context.Context, userId int, req PlaceTradeShortRequest) (*model.TradeShortOrder, error) {
+	arrived := time.Now()
 	setting := operation_setting.GetTradeSetting()
 	if !setting.Enabled || !setting.ShortEventsEnabled {
 		return nil, model.ErrTradeShortDisabled
@@ -423,32 +481,36 @@ func PlaceTradeShortOrder(ctx context.Context, userId int, req PlaceTradeShortRe
 			return nil, model.ErrTradeShortInvalid
 		}
 		return model.PlaceTradeShortOrder(model.TradeShortOrderInput{
-			UserId:       userId,
-			RoundId:      round.Id,
-			Kind:         round.Kind,
-			Mode:         model.TradeShortModePool,
-			SymbolA:      round.SymbolA,
-			SymbolB:      round.SymbolB,
-			Choice:       req.Choice,
-			DurationSec:  round.DurationSec,
-			ThresholdBps: round.ThresholdBps,
-			EntryPriceA:  round.StartPriceA,
-			EntryPriceB:  round.StartPriceB,
-			Stake:        stakeQuota,
-			MaxActive:    maxActiveQuota,
-			ExpiresAt:    round.EndTime,
-			Market:       TradeAccountingMarket(),
+			UserId:        userId,
+			RoundId:       round.Id,
+			Kind:          round.Kind,
+			Mode:          model.TradeShortModePool,
+			SymbolA:       round.SymbolA,
+			SymbolB:       round.SymbolB,
+			SourceMarketA: round.SourceMarketA,
+			SourceMarketB: round.SourceMarketB,
+			Choice:        req.Choice,
+			DurationSec:   round.DurationSec,
+			ThresholdBps:  round.ThresholdBps,
+			EntryPriceA:   round.StartPriceA,
+			EntryPriceB:   round.StartPriceB,
+			Stake:         stakeQuota,
+			MaxActive:     maxActiveQuota,
+			ExpiresAt:     round.EndTime,
+			Market:        TradeAccountingMarket(),
 		})
 	}
 
-	// 即时合约模式：校验品种、周期、并同步获取最新锚定价格。
+	// 即时固定赔率合约仅限 2 选 1 对称方向单(极速涨跌 / 即时 PK)；区间与触碰因胜率高度依赖波动率状态，只开放零平台风险的共享奖池模式。
+	if req.Kind != model.TradeShortKindFlash && req.Kind != model.TradeShortKindPK {
+		return nil, model.ErrTradeShortModeNotAllowed
+	}
 	if !validChoiceForShortKind(req.Kind, req.Choice) {
 		return nil, model.ErrTradeShortInvalid
 	}
 	if !tradeShortSymbolAllowed(req.SymbolA, setting) {
 		return nil, ErrTradeSymbolClosed
 	}
-	thresholdBps := 0
 	switch req.Kind {
 	case model.TradeShortKindFlash:
 		if !slices.Contains(tradeShortFlashDurations, req.DurationSec) {
@@ -458,59 +520,52 @@ func PlaceTradeShortOrder(ctx context.Context, userId int, req PlaceTradeShortRe
 		if !slices.Contains(tradeShortPKDurations, req.DurationSec) || req.SymbolB == "" || req.SymbolB == req.SymbolA || !tradeShortSymbolAllowed(req.SymbolB, setting) {
 			return nil, model.ErrTradeShortInvalid
 		}
-	case model.TradeShortKindRange:
-		if !slices.Contains(tradeShortRangeDurations, req.DurationSec) {
-			return nil, model.ErrTradeShortInvalid
-		}
-		thresholdBps = tradeShortRangeThresholdBps(req.DurationSec)
-	case model.TradeShortKindTouch:
-		if !slices.Contains(tradeShortTouchDurations, req.DurationSec) {
-			return nil, model.ErrTradeShortInvalid
-		}
-		thresholdBps = tradeShortTouchThresholdBps(req.DurationSec)
-	default:
-		return nil, model.ErrTradeShortInvalid
 	}
 
-	entryA, err := freshAssetPriceForShortOrder(ctx, req.SymbolA)
+	expiresAt := arrived.Unix() + req.DurationSec
+	entryA, sourceA, err := freshShortOrderPrice(ctx, arrived, req.SymbolA, expiresAt, setting)
 	if err != nil {
 		return nil, err
 	}
-	entryBStr := ""
+	entryBStr, sourceB := "", ""
 	if req.Kind == model.TradeShortKindPK {
-		entryB, err := freshAssetPriceForShortOrder(ctx, req.SymbolB)
+		entryB, srcB, err := freshShortOrderPrice(ctx, arrived, req.SymbolB, expiresAt, setting)
 		if err != nil {
 			return nil, err
 		}
-		entryBStr = entryB.String()
+		entryBStr, sourceB = entryB.String(), srcB
 	}
 
 	now := common.GetTimestamp()
 	return model.PlaceTradeShortOrder(model.TradeShortOrderInput{
-		UserId:       userId,
-		Kind:         req.Kind,
-		Mode:         model.TradeShortModeInstant,
-		SymbolA:      req.SymbolA,
-		SymbolB:      req.SymbolB,
-		Choice:       req.Choice,
-		DurationSec:  req.DurationSec,
-		ThresholdBps: thresholdBps,
-		EntryPriceA:  entryA.String(),
-		EntryPriceB:  entryBStr,
-		Stake:        stakeQuota,
-		PayoutBps:    payoutBpsForInstantShort(req.Kind, req.Choice, setting.ShortEventPayoutBps),
-		MaxActive:    maxActiveQuota,
-		ExpiresAt:    now + req.DurationSec,
-		Market:       TradeAccountingMarket(),
+		UserId:        userId,
+		Kind:          req.Kind,
+		Mode:          model.TradeShortModeInstant,
+		SymbolA:       req.SymbolA,
+		SymbolB:       req.SymbolB,
+		SourceMarketA: sourceA,
+		SourceMarketB: sourceB,
+		Choice:        req.Choice,
+		DurationSec:   req.DurationSec,
+		EntryPriceA:   entryA.String(),
+		EntryPriceB:   entryBStr,
+		Stake:         stakeQuota,
+		PayoutBps:     payoutBpsForInstantShort(setting.ShortEventPayoutBps),
+		MaxActive:     maxActiveQuota,
+		ExpiresAt:     now + req.DurationSec,
+		Market:        TradeAccountingMarket(),
 	})
 }
 
-// EvaluateShortRangeBucket 按相对开盘价涨跌幅(万分比)判定所属区间档位 B0..B3。
+// EvaluateShortRangeBucket 按相对开盘价涨跌幅(万分比)判定所属区间档位 B0..B3；平盘(0%)一律退本，防止休市/横盘品种白给 B2 获胜。
 func EvaluateShortRangeBucket(startPrice, endPrice decimal.Decimal, thresholdBps int) string {
 	if !startPrice.IsPositive() || !endPrice.IsPositive() || thresholdBps <= 0 {
 		return model.TradeShortOutcomeRefund
 	}
 	changeBps := endPrice.Sub(startPrice).Mul(decimal.NewFromInt(10000)).Div(startPrice)
+	if changeBps.IsZero() {
+		return model.TradeShortOutcomeRefund
+	}
 	th := decimal.NewFromInt(int64(thresholdBps))
 	switch {
 	case changeBps.LessThan(th.Neg()):
@@ -543,11 +598,14 @@ func EvaluateShortPKOutcome(startA, endA, startB, endB decimal.Decimal) string {
 
 var tradeShortStartOnce sync.Once
 
-// StartTradeShortEvents 启动短线事件后台结算循环(3 秒轮询，负责触碰提前结算、即时单到期结算与共享奖池结算)。
+// StartTradeShortEvents 启动短线事件后台结算循环(仅主节点运行，每秒轮询：负责触碰提前结算、即时单同源到期结算、共享奖池结算与崩溃补发)。
 func StartTradeShortEvents() {
+	if !common.IsMasterNode {
+		return
+	}
 	tradeShortStartOnce.Do(func() {
 		go func() {
-			ticker := time.NewTicker(3 * time.Second)
+			ticker := time.NewTicker(time.Second)
 			defer ticker.Stop()
 			for range ticker.C {
 				settlePendingShortEvents(context.Background())
@@ -562,7 +620,16 @@ func settlePendingShortEvents(ctx context.Context) {
 	}
 	now := common.GetTimestamp()
 
-	// 1. 盘中检查活跃的极速触碰单：触及目标即刻提前结算派彩！
+	// 0. 崩溃恢复：补发状态已落库但尚有 active 注单的奖池局。
+	if pendingIds, err := model.ListUnsettledTradeShortPoolRoundIds(50); err == nil {
+		for _, rid := range pendingIds {
+			if err := model.SettleTradeShortPoolRound(rid, "", "", "", "", ""); err != nil {
+				common.SysError(fmt.Sprintf("short event pool recovery %d: %v", rid, err))
+			}
+		}
+	}
+
+	// 1. 兼容升级前遗留的活跃即时触碰单：严格按同一市场实时中间价判定提前触发。
 	var activeTouch []model.TradeShortOrder
 	if err := model.DB.Where("mode = ? AND kind = ? AND status = ? AND expires_at > ?",
 		model.TradeShortModeInstant, model.TradeShortKindTouch, model.TradeShortStatusActive, now).
@@ -572,7 +639,7 @@ func settlePendingShortEvents(ctx context.Context) {
 			if err != nil || !entry.IsPositive() {
 				continue
 			}
-			cur, ok := currentAssetReferencePrice(ord.SymbolA)
+			cur, ok := shortEventLiveMidPrice(ord.SourceMarketA, ord.SymbolA)
 			if !ok {
 				continue
 			}
@@ -597,7 +664,7 @@ func settlePendingShortEvents(ctx context.Context) {
 		}
 	}
 
-	// 3. 到期的共享奖池局结算(同时填充开始后尚未记录开盘价的预售局)
+	// 3. 进行中与到期的共享奖池局(开赛后第一时间锁定真实中间价；触碰奖池盘中触及即刻提前结算)
 	var openRounds []model.TradeShortRound
 	if err := model.DB.Where("status = ? AND start_time <= ?", model.TradeShortRoundOpen, now).
 		Order("end_time ASC").Limit(100).Find(&openRounds).Error; err == nil {
@@ -605,19 +672,51 @@ func settlePendingShortEvents(ctx context.Context) {
 			if round.StartPriceA == "" || (round.SymbolB != "" && round.StartPriceB == "") {
 				updates := map[string]any{}
 				if round.StartPriceA == "" {
-					if pA, ok := currentAssetReferencePrice(round.SymbolA); ok {
+					var pA decimal.Decimal
+					var ok bool
+					if now-round.StartTime <= tradeShortLiveSettleGraceSec {
+						pA, ok = shortEventLiveMidPrice(round.SourceMarketA, round.SymbolA)
+					} else {
+						pA, _, _, _, ok = fetchShortEventBar(ctx, round.SourceMarketA, round.SymbolA, round.StartTime, round.StartTime+60, true)
+					}
+					if ok && pA.IsPositive() {
 						updates["start_price_a"] = pA.String()
 						round.StartPriceA = pA.String()
 					}
 				}
 				if round.SymbolB != "" && round.StartPriceB == "" {
-					if pB, ok := currentAssetReferencePrice(round.SymbolB); ok {
+					var pB decimal.Decimal
+					var ok bool
+					if now-round.StartTime <= tradeShortLiveSettleGraceSec {
+						pB, ok = shortEventLiveMidPrice(round.SourceMarketB, round.SymbolB)
+					} else {
+						pB, _, _, _, ok = fetchShortEventBar(ctx, round.SourceMarketB, round.SymbolB, round.StartTime, round.StartTime+60, true)
+					}
+					if ok && pB.IsPositive() {
 						updates["start_price_b"] = pB.String()
 						round.StartPriceB = pB.String()
 					}
 				}
 				if len(updates) > 0 {
 					_ = model.DB.Model(&model.TradeShortRound{}).Where("id = ?", round.Id).Updates(updates).Error
+				}
+			}
+			// 触碰共享奖池局在开赛后盘中实时监测，触及上下轨立即提前结算派彩！
+			if round.Kind == model.TradeShortKindTouch && round.EndTime > now && round.StartPriceA != "" && round.ThresholdBps > 0 {
+				if startA, err := decimal.NewFromString(round.StartPriceA); err == nil && startA.IsPositive() {
+					if cur, ok := shortEventLiveMidPrice(round.SourceMarketA, round.SymbolA); ok {
+						ratio := decimal.NewFromInt(int64(round.ThresholdBps)).Div(decimal.NewFromInt(10000))
+						upper := startA.Mul(decimal.NewFromInt(1).Add(ratio))
+						lower := startA.Mul(decimal.NewFromInt(1).Sub(ratio))
+						if cur.GreaterThanOrEqual(upper) {
+							_ = model.SettleTradeShortPoolRound(round.Id, "TOUCH_UP", startA.String(), "", cur.String(), "")
+							continue
+						}
+						if cur.LessThanOrEqual(lower) {
+							_ = model.SettleTradeShortPoolRound(round.Id, "TOUCH_DOWN", startA.String(), "", cur.String(), "")
+							continue
+						}
+					}
 				}
 			}
 			if round.EndTime <= now {
@@ -627,29 +726,36 @@ func settlePendingShortEvents(ctx context.Context) {
 	}
 }
 
+func resolveInstantClosePrice(ctx context.Context, sourceMarket, symbol string, startSec, expiresAt, now int64) (decimal.Decimal, bool) {
+	// 正常准点到期(15 秒内)直接使用同一市场的实时盘口中间价，与下单入场价完全同源。
+	if now-expiresAt <= tradeShortLiveSettleGraceSec {
+		if live, ok := shortEventLiveMidPrice(sourceMarket, symbol); ok {
+			return live, true
+		}
+	}
+	_, closeP, _, _, ok := fetchShortEventBar(ctx, sourceMarket, symbol, startSec, expiresAt, false)
+	return closeP, ok
+}
+
 func settleDueInstantShortOrder(ctx context.Context, ord model.TradeShortOrder, now int64) {
 	entryA, errA := decimal.NewFromString(ord.EntryPriceA)
 	if errA != nil || !entryA.IsPositive() {
 		_ = model.SettleTradeShortInstantOrder(ord.Id, model.TradeShortOutcomeRefund, "", "")
 		return
 	}
-	_, closeA, highA, lowA, okA := fetchAssetBarForWindow(ctx, ord.SymbolA, ord.CreatedAt, ord.ExpiresAt)
-	if !okA {
-		if liveA, ok := currentAssetReferencePrice(ord.SymbolA); ok {
-			closeA, highA, lowA, okA = liveA, liveA, liveA, true
-		}
-	}
-	if !okA {
-		if now-ord.ExpiresAt >= tradeShortFallbackRefundSec {
-			_ = model.SettleTradeShortInstantOrder(ord.Id, model.TradeShortOutcomeRefund, "", "")
-		}
-		return
-	}
 
 	outcome := model.TradeShortOutcomeRefund
-	settleBStr := ""
+	settleAStr, settleBStr := "", ""
 	switch ord.Kind {
 	case model.TradeShortKindFlash:
+		closeA, okA := resolveInstantClosePrice(ctx, ord.SourceMarketA, ord.SymbolA, ord.CreatedAt, ord.ExpiresAt, now)
+		if !okA {
+			if now-ord.ExpiresAt >= tradeShortFallbackRefundSec {
+				_ = model.SettleTradeShortInstantOrder(ord.Id, model.TradeShortOutcomeRefund, "", "")
+			}
+			return
+		}
+		settleAStr = closeA.String()
 		switch closeA.Cmp(entryA) {
 		case 1:
 			outcome = "UP"
@@ -663,24 +769,43 @@ func settleDueInstantShortOrder(ctx context.Context, ord model.TradeShortOrder, 
 		if errB != nil || !entryB.IsPositive() {
 			outcome = model.TradeShortOutcomeRefund
 		} else {
-			_, closeB, _, _, okB := fetchAssetBarForWindow(ctx, ord.SymbolB, ord.CreatedAt, ord.ExpiresAt)
-			if !okB {
-				if liveB, ok := currentAssetReferencePrice(ord.SymbolB); ok {
-					closeB, okB = liveB, true
-				}
-			}
-			if !okB {
+			closeA, okA := resolveInstantClosePrice(ctx, ord.SourceMarketA, ord.SymbolA, ord.CreatedAt, ord.ExpiresAt, now)
+			closeB, okB := resolveInstantClosePrice(ctx, ord.SourceMarketB, ord.SymbolB, ord.CreatedAt, ord.ExpiresAt, now)
+			if !okA || !okB {
 				if now-ord.ExpiresAt >= tradeShortFallbackRefundSec {
-					_ = model.SettleTradeShortInstantOrder(ord.Id, model.TradeShortOutcomeRefund, closeA.String(), "")
+					_ = model.SettleTradeShortInstantOrder(ord.Id, model.TradeShortOutcomeRefund, "", "")
 				}
 				return
 			}
-			settleBStr = closeB.String()
+			settleAStr, settleBStr = closeA.String(), closeB.String()
 			outcome = EvaluateShortPKOutcome(entryA, closeA, entryB, closeB)
 		}
 	case model.TradeShortKindRange:
+		// 仅兼容升级前历史遗留单。
+		closeA, okA := resolveInstantClosePrice(ctx, ord.SourceMarketA, ord.SymbolA, ord.CreatedAt, ord.ExpiresAt, now)
+		if !okA {
+			if now-ord.ExpiresAt >= tradeShortFallbackRefundSec {
+				_ = model.SettleTradeShortInstantOrder(ord.Id, model.TradeShortOutcomeRefund, "", "")
+			}
+			return
+		}
+		settleAStr = closeA.String()
 		outcome = EvaluateShortRangeBucket(entryA, closeA, ord.ThresholdBps)
 	case model.TradeShortKindTouch:
+		// 仅兼容升级前历史遗留单；严格排除下单前开盘的 K 线，杜绝回溯旧影线。
+		_, closeA, highA, lowA, okA := fetchShortEventBar(ctx, ord.SourceMarketA, ord.SymbolA, ord.CreatedAt, ord.ExpiresAt, true)
+		if !okA {
+			if liveA, ok := shortEventLiveMidPrice(ord.SourceMarketA, ord.SymbolA); ok {
+				closeA, highA, lowA, okA = liveA, liveA, liveA, true
+			}
+		}
+		if !okA {
+			if now-ord.ExpiresAt >= tradeShortFallbackRefundSec {
+				_ = model.SettleTradeShortInstantOrder(ord.Id, model.TradeShortOutcomeRefund, "", "")
+			}
+			return
+		}
+		settleAStr = closeA.String()
 		ratio := decimal.NewFromInt(int64(ord.ThresholdBps)).Div(decimal.NewFromInt(10000))
 		upper := entryA.Mul(decimal.NewFromInt(1).Add(ratio))
 		lower := entryA.Mul(decimal.NewFromInt(1).Sub(ratio))
@@ -697,16 +822,16 @@ func settleDueInstantShortOrder(ctx context.Context, ord model.TradeShortOrder, 
 			outcome = "NO_TOUCH"
 		}
 	}
-	if err := model.SettleTradeShortInstantOrder(ord.Id, outcome, closeA.String(), settleBStr); err != nil {
+	if err := model.SettleTradeShortInstantOrder(ord.Id, outcome, settleAStr, settleBStr); err != nil {
 		common.SysError(fmt.Sprintf("short event instant settle %d: %v", ord.Id, err))
 	}
 }
 
 func settleDuePoolShortRound(ctx context.Context, round model.TradeShortRound, now int64) {
-	openA, closeA, _, _, okA := fetchAssetBarForWindow(ctx, round.SymbolA, round.StartTime, round.EndTime)
+	openA, closeA, highA, lowA, okA := fetchShortEventBar(ctx, round.SourceMarketA, round.SymbolA, round.StartTime, round.EndTime, true)
 	if !okA {
-		if liveA, ok := currentAssetReferencePrice(round.SymbolA); ok {
-			openA, closeA, okA = liveA, liveA, true
+		if liveA, ok := shortEventLiveMidPrice(round.SourceMarketA, round.SymbolA); ok {
+			openA, closeA, highA, lowA, okA = liveA, liveA, liveA, liveA, true
 		}
 	}
 	if !okA {
@@ -723,9 +848,9 @@ func settleDuePoolShortRound(ctx context.Context, round model.TradeShortRound, n
 	outcome := model.TradeShortOutcomeRefund
 	switch round.Kind {
 	case model.TradeShortKindPK:
-		openB, closeB, _, _, okB := fetchAssetBarForWindow(ctx, round.SymbolB, round.StartTime, round.EndTime)
+		openB, closeB, _, _, okB := fetchShortEventBar(ctx, round.SourceMarketB, round.SymbolB, round.StartTime, round.EndTime, true)
 		if !okB {
-			if liveB, ok := currentAssetReferencePrice(round.SymbolB); ok {
+			if liveB, ok := shortEventLiveMidPrice(round.SourceMarketB, round.SymbolB); ok {
 				openB, closeB, okB = liveB, liveB, true
 			}
 		}
@@ -744,6 +869,24 @@ func settleDuePoolShortRound(ctx context.Context, round model.TradeShortRound, n
 		outcome = EvaluateShortPKOutcome(startA, closeA, startB, closeB)
 	case model.TradeShortKindRange:
 		outcome = EvaluateShortRangeBucket(startA, closeA, round.ThresholdBps)
+	case model.TradeShortKindTouch:
+		if round.ThresholdBps > 0 && startA.IsPositive() {
+			ratio := decimal.NewFromInt(int64(round.ThresholdBps)).Div(decimal.NewFromInt(10000))
+			upper := startA.Mul(decimal.NewFromInt(1).Add(ratio))
+			lower := startA.Mul(decimal.NewFromInt(1).Sub(ratio))
+			hitUp := highA.GreaterThanOrEqual(upper)
+			hitDown := lowA.LessThanOrEqual(lower)
+			switch {
+			case hitUp && hitDown:
+				outcome = model.TradeShortOutcomeRefund
+			case hitUp:
+				outcome = "TOUCH_UP"
+			case hitDown:
+				outcome = "TOUCH_DOWN"
+			default:
+				outcome = "NO_TOUCH"
+			}
+		}
 	}
 	if err := model.SettleTradeShortPoolRound(round.Id, outcome, startA.String(), startBStr, closeA.String(), endBStr); err != nil {
 		common.SysError(fmt.Sprintf("short event pool settle %d: %v", round.Id, err))

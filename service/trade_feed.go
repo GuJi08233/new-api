@@ -283,7 +283,8 @@ func (m *TradeMarket) pruneKlineCache() {
 // Klines 返回 K 线，同样的请求在缓存期内共用一份，同时到达的请求只向 Binance 发一次。endTime 为 0 表示最新一段。
 func (m *TradeMarket) Klines(ctx context.Context, symbol string, interval string, limit int, endTime int64) ([]binance.Kline, error) {
 	ttl := tradeKlineLatestTTL
-	if endTime > 0 {
+	// 仅对已收尾超过 2 分钟的历史窗口使用长缓存，防止进行中或刚结束的 K 线被 10 分钟缓存冻住。
+	if endTime > 0 && endTime < time.Now().UnixMilli()-int64(2*time.Minute/time.Millisecond) {
 		ttl = tradeKlineHistoryTTL
 	}
 	return m.cachedKlines(ctx, symbol, interval, limit, endTime, ttl)

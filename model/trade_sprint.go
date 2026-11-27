@@ -20,8 +20,10 @@ const (
 	TradeSprintStatusOpen    = "open"
 	TradeSprintStatusSettled = "settled"
 
-	TradeSprintEntryActive  = "active"
-	TradeSprintEntrySettled = "settled"
+	TradeSprintEntryActive    = "active"
+	TradeSprintEntryPaying    = "paying"
+	TradeSprintEntryRefunding = "refunding"
+	TradeSprintEntrySettled   = "settled"
 
 	TradeLedgerSprintJoin   = "sprint_join"
 	TradeLedgerSprintPrize  = "sprint_prize"
@@ -32,10 +34,11 @@ const (
 )
 
 var (
-	ErrTradeSprintDisabled      = errors.New("sprint contest is disabled")
-	ErrTradeSprintAlreadyJoined = errors.New("already joined this sprint contest")
-	ErrTradeSprintClosed        = errors.New("sprint registration is closed")
-	ErrTradeSprintEquityTooLow  = errors.New("insufficient equity after entry fee to join sprint")
+	ErrTradeSprintDisabled        = errors.New("sprint contest is disabled")
+	ErrTradeSprintAlreadyJoined   = errors.New("already joined this sprint contest")
+	ErrTradeSprintClosed          = errors.New("sprint registration is closed")
+	ErrTradeSprintEquityTooLow    = errors.New("insufficient equity after entry fee to join sprint")
+	ErrTradeSprintBonusNotAllowed = errors.New("trade bonus cannot be used to join sprint contests")
 )
 
 type TradeSprint struct {
@@ -124,7 +127,7 @@ func EnsureTradeSprint(sprint TradeSprint) (*TradeSprint, error) {
 	return &saved, err
 }
 
-func JoinTradeSprint(sprintId, userId, preJoinEquity int, market TradeFuturesMarket) (*TradeSprintEntry, error) {
+func JoinTradeSprint(sprintId, userId int, equity TradeEquity, market TradeFuturesMarket) (*TradeSprintEntry, error) {
 	if sprintId <= 0 || userId <= 0 {
 		return nil, ErrTradeAmountInvalid
 	}
@@ -141,6 +144,17 @@ func JoinTradeSprint(sprintId, userId, preJoinEquity int, market TradeFuturesMar
 		account, err := lockTradeAccountTx(tx, userId)
 		if err != nil {
 			return err
+		}
+		// 持有未结清体验金的账户禁止参赛，杜绝体验金洗钱进冲榜奖池或靠体验金刷假收益率。
+		if account.BonusPrincipal > 0 {
+			return ErrTradeSprintBonusNotAllowed
+		}
+		// 在账户锁内严格校验估值对应的资产版本与净转入，彻底消除并发充提 TOCTOU 竞态刷收益率漏洞。
+		if err := checkTradeEquity(account, equity); err != nil {
+			return err
+		}
+		if equity.Account.TotalIn != account.TotalIn || equity.Account.TotalOut != account.TotalOut {
+			return ErrTradeValuationStale
 		}
 		var sprint TradeSprint
 		if err := lockForUpdate(tx).Where("id = ?", sprintId).First(&sprint).Error; err != nil {
@@ -166,7 +180,8 @@ func JoinTradeSprint(sprintId, userId, preJoinEquity int, market TradeFuturesMar
 				return err
 			}
 		}
-		postJoinEquity := preJoinEquity - fee
+		ownEquity := max(0, equity.Value-account.BonusPrincipal)
+		postJoinEquity := ownEquity - fee
 		if postJoinEquity < minRemain {
 			return ErrTradeSprintEquityTooLow
 		}
@@ -221,6 +236,8 @@ type TradeSprintSettlementRow struct {
 }
 
 // SettleTradeSprint 幂等完成闪电冲榜赛结算与奖金发放。
+// 两阶段崩溃安全：先在事务内持久化每条参赛记录的排名、奖金与 paying/refunding 状态并关闭赛事，再逐户加账户锁安全入账；
+// 若中途崩溃，下次轮询由 RecoverPendingTradeSprintEntries 自动补发。
 func SettleTradeSprint(sprintId int, rows []TradeSprintSettlementRow) error {
 	now := common.GetTimestamp()
 	var sprint TradeSprint
@@ -231,26 +248,89 @@ func SettleTradeSprint(sprintId int, rows []TradeSprintSettlementRow) error {
 		if sprint.Status != TradeSprintStatusOpen {
 			return nil
 		}
+		for _, row := range rows {
+			nextStatus := TradeSprintEntryPaying
+			if row.Refund {
+				nextStatus = TradeSprintEntryRefunding
+			}
+			if err := tx.Model(&TradeSprintEntry{}).
+				Where("id = ? AND sprint_id = ? AND status = ?", row.EntryId, sprint.Id, TradeSprintEntryActive).
+				Updates(map[string]any{
+					"end_equity": row.EndEquity,
+					"end_net_in": row.EndNetIn,
+					"return_bps": row.ReturnBps,
+					"final_rank": row.FinalRank,
+					"prize":      row.Prize,
+					"status":     nextStatus,
+					"updated_at": now,
+				}).Error; err != nil {
+				return err
+			}
+		}
 		return tx.Model(&TradeSprint{}).Where("id = ? AND status = ?", sprint.Id, TradeSprintStatusOpen).
 			Updates(map[string]any{"status": TradeSprintStatusSettled, "settled_at": now}).Error
 	})
 	if err != nil {
 		return err
 	}
-	for _, row := range rows {
-		if err := settleSingleSprintEntry(sprint.Kind, row); err != nil {
+	var pending []TradeSprintEntry
+	if err := DB.Where("sprint_id = ? AND status IN ?", sprintId, []string{TradeSprintEntryPaying, TradeSprintEntryRefunding}).Order("id ASC").Find(&pending).Error; err != nil {
+		return err
+	}
+	for _, item := range pending {
+		if err := settleSingleSprintEntry(sprint.Kind, item.Id); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func settleSingleSprintEntry(kind string, row TradeSprintSettlementRow) error {
-	var identity TradeSprintEntry
-	if err := DB.Where("id = ?", row.EntryId).First(&identity).Error; err != nil {
+// RecoverPendingTradeSprintEntries 补发因进程崩溃停留在 paying/refunding 状态的冲榜赛奖金或退费。
+func RecoverPendingTradeSprintEntries(limit int) error {
+	if limit <= 0 {
+		limit = 50
+	}
+	var pending []TradeSprintEntry
+	if err := DB.Where("status IN ?", []string{TradeSprintEntryPaying, TradeSprintEntryRefunding}).Order("id ASC").Limit(limit).Find(&pending).Error; err != nil {
 		return err
 	}
-	if identity.Status != TradeSprintEntryActive {
+	if len(pending) == 0 {
+		return nil
+	}
+	sprintIds := make([]int, 0, len(pending))
+	seen := map[int]bool{}
+	for _, e := range pending {
+		if !seen[e.SprintId] {
+			seen[e.SprintId] = true
+			sprintIds = append(sprintIds, e.SprintId)
+		}
+	}
+	var sprints []TradeSprint
+	if err := DB.Where("id IN ?", sprintIds).Find(&sprints).Error; err != nil {
+		return err
+	}
+	kindById := make(map[int]string, len(sprints))
+	for _, s := range sprints {
+		kindById[s.Id] = s.Kind
+	}
+	for _, item := range pending {
+		kind := kindById[item.SprintId]
+		if kind == "" {
+			kind = TradeSprintKind4H
+		}
+		if err := settleSingleSprintEntry(kind, item.Id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func settleSingleSprintEntry(kind string, entryId int) error {
+	var identity TradeSprintEntry
+	if err := DB.Where("id = ?", entryId).First(&identity).Error; err != nil {
+		return err
+	}
+	if identity.Status != TradeSprintEntryPaying && identity.Status != TradeSprintEntryRefunding {
 		return nil
 	}
 	return DB.Transaction(func(tx *gorm.DB) error {
@@ -259,23 +339,19 @@ func settleSingleSprintEntry(kind string, row TradeSprintSettlementRow) error {
 			return err
 		}
 		var entry TradeSprintEntry
-		if err := tx.Where("id = ?", row.EntryId).First(&entry).Error; err != nil {
+		if err := tx.Where("id = ?", entryId).First(&entry).Error; err != nil {
 			return err
 		}
-		if entry.Status != TradeSprintEntryActive {
+		if entry.Status != TradeSprintEntryPaying && entry.Status != TradeSprintEntryRefunding {
 			return nil
 		}
+		isRefund := entry.Status == TradeSprintEntryRefunding
 		now := common.GetTimestamp()
-		credit := row.Prize
+		credit := entry.Prize
 		if credit < 0 || account.Cash >= common.MaxQuota-credit {
 			return ErrTradeAmountInvalid
 		}
 		account.Cash += credit
-		entry.EndEquity = row.EndEquity
-		entry.EndNetIn = row.EndNetIn
-		entry.ReturnBps = row.ReturnBps
-		entry.FinalRank = row.FinalRank
-		entry.Prize = credit
 		entry.Status = TradeSprintEntrySettled
 		entry.UpdatedAt = now
 		if err := tx.Save(&entry).Error; err != nil {
@@ -286,7 +362,7 @@ func settleSingleSprintEntry(kind string, row TradeSprintSettlementRow) error {
 		}
 		if credit > 0 {
 			ledgerType := TradeLedgerSprintPrize
-			if row.Refund {
+			if isRefund {
 				ledgerType = TradeLedgerSprintRefund
 			}
 			return tx.Create(&TradeLedger{

@@ -20,6 +20,16 @@ func respondTradeShortError(c *gin.Context, err error) {
 		common.ApiErrorI18n(c, i18n.MsgTradeShortRoundClosed)
 	case errors.Is(err, model.ErrTradeShortLimitReached):
 		common.ApiErrorI18n(c, i18n.MsgTradeShortLimitReached)
+	case errors.Is(err, model.ErrTradeShortBonusNotAllowed):
+		common.ApiErrorI18n(c, i18n.MsgTradeShortBonusNotAllowed)
+	case errors.Is(err, model.ErrTradeShortHedgeForbidden):
+		common.ApiErrorI18n(c, i18n.MsgTradeShortHedgeForbidden)
+	case errors.Is(err, model.ErrTradeShortModeNotAllowed):
+		common.ApiErrorI18n(c, i18n.MsgTradeShortModeNotAllowed)
+	case errors.Is(err, model.ErrTradeShortSpreadTooWide):
+		common.ApiErrorI18n(c, i18n.MsgTradeShortSpreadTooWide)
+	case errors.Is(err, model.ErrTradeShortFundingWindow):
+		common.ApiErrorI18n(c, i18n.MsgTradeShortFundingWindow)
 	case errors.Is(err, model.ErrTradeShortInvalid):
 		common.ApiErrorI18n(c, i18n.MsgTradeOrderInvalid)
 	default:
@@ -27,13 +37,15 @@ func respondTradeShortError(c *gin.Context, err error) {
 	}
 }
 
-// GetTradeShortConfig 返回短线玩法配置、热门 PK 对决列表与共享奖池局。
+// GetTradeShortConfig 返回短线玩法配置、热门 PK 对决列表与共享奖池局(PK/区间/触碰)。
 func GetTradeShortConfig(c *gin.Context) {
 	setting := operation_setting.GetTradeSetting()
 	pkDuration, _ := strconv.ParseInt(c.DefaultQuery("pk_duration", "900"), 10, 64)
 	rangeDuration, _ := strconv.ParseInt(c.DefaultQuery("range_duration", "3600"), 10, 64)
+	touchDuration, _ := strconv.ParseInt(c.DefaultQuery("touch_duration", "900"), 10, 64)
 	pkRounds, _ := service.GetTradeShortPoolRounds(model.TradeShortKindPK, pkDuration)
 	rangeRounds, _ := service.GetTradeShortPoolRounds(model.TradeShortKindRange, rangeDuration)
+	touchRounds, _ := service.GetTradeShortPoolRounds(model.TradeShortKindTouch, touchDuration)
 
 	common.ApiSuccess(c, gin.H{
 		"enabled":        setting.Enabled && setting.ShortEventsEnabled,
@@ -45,6 +57,7 @@ func GetTradeShortConfig(c *gin.Context) {
 		"pk_matchups":    service.TradePKMatchups,
 		"pk_rounds":      pkRounds,
 		"range_rounds":   rangeRounds,
+		"touch_rounds":   touchRounds,
 	})
 }
 

@@ -29,7 +29,7 @@ const { Text, Title } = Typography;
 const TABS = [
   { key: 'pk', label: 'AI 擂台 PK', Icon: Swords, badge: '奖池/1v1' },
   { key: 'flash', label: '极速涨跌', Icon: Zap, badge: '1分起' },
-  { key: 'range', label: '区间 & 触碰', Icon: Target, badge: '高赔率' },
+  { key: 'range', label: '区间 & 触碰', Icon: Target, badge: '共享奖池' },
   { key: 'prediction', label: '多币预测', Icon: Activity, badge: 'Polymarket' },
   { key: 'sprint', label: '闪电冲榜赛', Icon: Trophy, badge: '4h / 日赛' },
 ];

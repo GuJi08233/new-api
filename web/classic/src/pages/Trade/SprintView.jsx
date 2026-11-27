@@ -40,11 +40,12 @@ import {
 const { Text, Title } = Typography;
 
 // 闪电冲榜赛：4 小时闪电赛 & 每日收益率赛。报名费进入奖池，按扣除存取款干扰后的赛段真实收益率排名自动发奖。
-const SprintView = ({ perUnit, onAccountChanged, t }) => {
+const SprintView = ({ self, perUnit, onAccountChanged, t }) => {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [joining, setJoining] = useState('');
   const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
+  const hasBonus = Number(self?.account?.bonus_principal || 0) > 0;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -152,12 +153,18 @@ const SprintView = ({ perUnit, onAccountChanged, t }) => {
   return (
     <div className='flex flex-col gap-4'>
       <Banner
-        type='info'
+        type={hasBonus ? 'warning' : 'info'}
         closeIcon={null}
-        description={t(
-          '报名后立即记录当前净值与净转入，赛段内现货、合约、短线交易盈亏均计入收益率（盘中转入资金自动扣减基数，无法靠加金刷榜）。报名费 100% 进入奖池（抽成 {{fee}}%），不足 2 人自动全额退费。',
-          { fee: ((data?.fee_bps || 500) / 100).toFixed(0) },
-        )}
+        description={
+          hasBonus
+            ? t(
+                '当前账户持有未结清体验金，暂不可报名闪电冲榜赛，请先提盈回收或放弃体验金后再参赛。',
+              )
+            : t(
+                '报名后按实时盘口净值锁定起始基数，赛段内现货、合约、短线交易盈亏均计入收益率（自动剔除体验金与盘中转入资金，无法靠加金或体验金刷榜）。报名费 100% 进入奖池（抽成 {{fee}}%），不足 2 人自动全额退费。',
+                { fee: ((data?.fee_bps || 500) / 100).toFixed(0) },
+              )
+        }
       />
 
       <div className='grid grid-cols-1 gap-4 xl:grid-cols-2'>
@@ -249,17 +256,19 @@ const SprintView = ({ perUnit, onAccountChanged, t }) => {
                 ) : (
                   <Button
                     theme='solid'
-                    disabled={!canJoin}
+                    disabled={!canJoin || hasBonus}
                     loading={joining === sprint.kind}
                     onClick={() => join(sprint.kind)}
                   >
-                    {canJoin
-                      ? t('报名参赛 ({{fee}} USDT)', {
-                          fee: formatUsdt(sprint.entry_fee, perUnit, 0),
-                        })
-                      : regRem === 0
-                        ? t('本场报名已截止')
-                        : t('暂不可报名')}
+                    {hasBonus
+                      ? t('需先结清体验金')
+                      : canJoin
+                        ? t('报名参赛 ({{fee}} USDT)', {
+                            fee: formatUsdt(sprint.entry_fee, perUnit, 0),
+                          })
+                        : regRem === 0
+                          ? t('本场报名已截止')
+                          : t('暂不可报名')}
                   </Button>
                 )}
               </div>

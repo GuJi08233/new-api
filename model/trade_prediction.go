@@ -120,11 +120,17 @@ func BuyTradePrediction(input TradePredictionFill) (*TradePredictionPosition, er
 			return ErrTradePredictionClosed
 		}
 		debit := input.Amount + input.Fee
-		var cost int64
+		var cost, seriesCost int64
 		if err := tx.Model(&TradePredictionPosition{}).Select("COALESCE(SUM(cost), 0)").Where("user_id = ? AND status = ?", input.UserId, TradePredictionActive).Scan(&cost).Error; err != nil {
 			return err
 		}
-		if cost > int64(input.MaxCost) || int64(debit) > int64(input.MaxCost)-cost {
+		if tx.Migrator().HasTable(&TradePredictionSeriesPosition{}) {
+			if err := tx.Model(&TradePredictionSeriesPosition{}).Select("COALESCE(SUM(cost), 0)").Where("user_id = ? AND status = ?", input.UserId, TradePredictionActive).Scan(&seriesCost).Error; err != nil {
+				return err
+			}
+		}
+		totalCost := cost + seriesCost
+		if totalCost > int64(input.MaxCost) || int64(debit) > int64(input.MaxCost)-totalCost {
 			return ErrTradePositionLimit
 		}
 		if err := checkTradeAffordTx(tx, account, debit, debit, input.Market); err != nil {
